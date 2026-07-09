@@ -4,15 +4,22 @@ import { timestampMs } from "@bufbuild/protobuf/wkt";
 
 import {
   type Cohort,
+  type CohortDevice,
+  CohortDeviceAssignment,
   type CohortFirmwareTarget,
   type CohortMember,
   CohortState,
 } from "@/protoFleet/api/generated/cohort/v1/cohort_pb";
 import type { MinerModelGroup } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { MeasurementType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { useSites } from "@/protoFleet/api/sites";
 import { useCohortApi } from "@/protoFleet/api/useCohortApi";
 import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import useMinerModelGroups from "@/protoFleet/api/useMinerModelGroups";
+import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import MinerSelectionList, { type MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import CohortActionsMenu from "@/protoFleet/features/cohorts/components/CohortActionsMenu";
 import {
   cohortDeviceDisplayName,
@@ -28,8 +35,14 @@ import {
   isActiveNonDefaultCohort,
   isSuperAdminRole,
 } from "@/protoFleet/features/cohorts/utils";
+import { EfficiencyPanel } from "@/protoFleet/features/dashboard/components/EfficiencyPanel";
+import { HashratePanel } from "@/protoFleet/features/dashboard/components/HashratePanel";
+import { PowerPanel } from "@/protoFleet/features/dashboard/components/PowerPanel";
+import SectionHeading from "@/protoFleet/features/dashboard/components/SectionHeading";
+import { TemperaturePanel } from "@/protoFleet/features/dashboard/components/TemperaturePanel";
+import { UptimePanel } from "@/protoFleet/features/dashboard/components/UptimePanel";
 import { scopedPath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
-import { useRole, useUsername } from "@/protoFleet/store";
+import { useDuration, useRole, useSetDuration, useUsername } from "@/protoFleet/store";
 import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { Alert, ChevronDown, Plus, Settings, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -37,6 +50,7 @@ import Callout from "@/shared/components/Callout";
 import Checkbox from "@/shared/components/Checkbox";
 import { DatePickerField } from "@/shared/components/DatePicker";
 import Dialog from "@/shared/components/Dialog";
+import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
@@ -60,6 +74,17 @@ type FirmwareTargetUpdate = FirmwareTarget & {
 
 type DetailValue = ReactNode | ReactNode[];
 type ExtendMode = "duration" | "specific";
+type AddMemberMode = "count" | "explicit";
+type RefreshOptions = {
+  showLoading?: boolean;
+  suppressError?: boolean;
+};
+
+type FirmwareProgress = {
+  comparableCount: number;
+  onTargetCount: number;
+  pendingCount: number;
+};
 
 const extendPresetOptions = [
   { value: "4h", label: "4 hours" },
@@ -80,6 +105,11 @@ const extendModeSegments = [
   { key: "specific", title: "Date/time" },
 ];
 
+const addMemberModeOptions = [
+  { value: "count", label: "Reserve count" },
+  { value: "explicit", label: "Selected miners" },
+];
+
 const hourOptions = Array.from({ length: 24 }, (_, hour) => {
   const value = hour.toString().padStart(2, "0");
   return { value, label: value };
@@ -89,6 +119,16 @@ const minuteOptions = Array.from({ length: 12 }, (_, index) => {
   const value = (index * 5).toString().padStart(2, "0");
   return { value, label: value };
 });
+
+const cohortPerformanceMeasurementTypes = [
+  MeasurementType.HASHRATE,
+  MeasurementType.POWER,
+  MeasurementType.TEMPERATURE,
+  MeasurementType.EFFICIENCY,
+  MeasurementType.UPTIME,
+];
+
+const cohortFirmwareRefreshIntervalMs = Math.min(POLL_INTERVAL_MS, 3000);
 
 const memberAddedAt = (member: CohortMember) =>
   member.addedAt ? new Date(timestampMs(member.addedAt)).toLocaleString() : "Unknown";
@@ -165,6 +205,11 @@ const formatFirmwareUploadedAt = (uploadedAt: string) => {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString();
 };
 
+const formatSiteOption = (siteWithCounts: SiteWithCounts) => {
+  const site = siteWithCounts.site;
+  return site ? { value: site.id.toString(), label: site.name } : undefined;
+};
+
 const renderFirmwareFileSummary = (firmwareFiles: FirmwareFileInfo[], firmwareFileId: string) => {
   if (!firmwareFileId) return "None";
   const file = firmwareFiles.find((candidate) => candidate.id === firmwareFileId);
@@ -227,6 +272,65 @@ const formatFirmwareTargetSummary = (cohort: Cohort, firmwareFiles: FirmwareFile
   return firmwareFileId ? renderFirmwareFileSummary(firmwareFiles, firmwareFileId) : "None";
 };
 
+const firmwareVersionLabel = (version?: string) => {
+  const trimmed = version?.trim();
+  return trimmed || "Unknown";
+};
+
+const desiredFirmwareFileIdForMember = (cohort: Cohort, member: CohortMember) => {
+  const display = member.display;
+  const manufacturer = display?.manufacturer.trim();
+  const model = display?.model.trim();
+  if (manufacturer && model) {
+    const targetFileId = cohort.firmwareTargets.find(
+      (target) => target.manufacturer === manufacturer && target.model === model,
+    )?.firmwareFileId;
+    if (targetFileId) return targetFileId;
+  }
+  return cohort.summary?.desiredFirmwareFileId || "";
+};
+
+const desiredFirmwareVersionForMember = (
+  cohort: Cohort,
+  firmwareFilesById: Map<string, FirmwareFileInfo>,
+  member: CohortMember,
+) => {
+  const firmwareFileId = desiredFirmwareFileIdForMember(cohort, member);
+  if (!firmwareFileId) return "";
+  return firmwareFilesById.get(firmwareFileId)?.firmware_version?.trim() || "";
+};
+
+const firmwareVersionCounts = (members: CohortMember[]) => {
+  const counts = new Map<string, number>();
+  for (const member of members) {
+    const version = firmwareVersionLabel(member.display?.firmwareVersion);
+    counts.set(version, (counts.get(version) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([version, count]) => ({ version, count }))
+    .sort((left, right) => right.count - left.count || left.version.localeCompare(right.version));
+};
+
+const cohortFirmwareProgress = (cohort: Cohort | null, firmwareFilesById: Map<string, FirmwareFileInfo>) => {
+  const progress: FirmwareProgress = { comparableCount: 0, onTargetCount: 0, pendingCount: 0 };
+  if (!cohort) return progress;
+
+  for (const member of cohort.members) {
+    const desired = desiredFirmwareVersionForMember(cohort, firmwareFilesById, member);
+    if (!desired) continue;
+
+    progress.comparableCount += 1;
+    const current = member.display?.firmwareVersion.trim() ?? "";
+    if (current === desired) {
+      progress.onTargetCount += 1;
+    } else {
+      progress.pendingCount += 1;
+    }
+  }
+
+  return progress;
+};
+
 const CohortOverviewPage = () => {
   const { cohortId: cohortIdParam } = useParams<{ cohortId: string }>();
   const cohortId = useMemo(() => parseCohortId(cohortIdParam), [cohortIdParam]);
@@ -258,24 +362,45 @@ const CohortOverviewPage = () => {
     isActiveCohort(summary) && (summary?.isDefault ? isSuperAdmin : isOwnedByCurrentUser || isSuperAdmin);
   const canMutate = isActiveNonDefaultCohort(summary) && (isOwnedByCurrentUser || isSuperAdmin);
   const firmwareTarget = useMemo(() => getCohortFirmwareTarget(cohort?.members ?? []), [cohort?.members]);
+  const firmwareFilesById = useMemo(
+    () => new Map(firmwareFiles.map((file) => [file.id, file] as const)),
+    [firmwareFiles],
+  );
+  const firmwareProgress = useMemo(
+    () => cohortFirmwareProgress(cohort, firmwareFilesById),
+    [cohort, firmwareFilesById],
+  );
+  const shouldPollFirmware = isActiveCohort(summary) && firmwareProgress.pendingCount > 0 && !isMutating;
 
-  const refresh = useCallback(async () => {
-    if (!cohortId) {
-      setError("Invalid cohort id");
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
+  const loadFirmwareFiles = useCallback(async () => {
     try {
-      const next = await getCohort({ cohortId });
-      setCohort(next);
+      const files = await listFirmwareFiles();
+      setFirmwareFiles(files);
     } catch {
-      setError("Couldn't load cohort");
-    } finally {
-      setLoading(false);
+      setFirmwareFiles([]);
     }
-  }, [cohortId, getCohort]);
+  }, [listFirmwareFiles]);
+
+  const refresh = useCallback(
+    async ({ showLoading = true, suppressError = false }: RefreshOptions = {}) => {
+      if (!cohortId) {
+        setError("Invalid cohort id");
+        setLoading(false);
+        return;
+      }
+      if (showLoading) setLoading(true);
+      if (!suppressError) setError(null);
+      try {
+        const next = await getCohort({ cohortId });
+        setCohort(next);
+      } catch {
+        if (!suppressError) setError("Couldn't load cohort");
+      } finally {
+        if (showLoading) setLoading(false);
+      }
+    },
+    [cohortId, getCohort],
+  );
 
   useEffect(() => {
     queueMicrotask(() => void refresh());
@@ -283,17 +408,29 @@ const CohortOverviewPage = () => {
 
   useEffect(() => {
     let cancelled = false;
-    listFirmwareFiles()
-      .then((files) => {
+    const load = async () => {
+      try {
+        const files = await listFirmwareFiles();
         if (!cancelled) setFirmwareFiles(files);
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setFirmwareFiles([]);
-      });
+      }
+    };
+    void load();
     return () => {
       cancelled = true;
     };
   }, [listFirmwareFiles]);
+
+  useEffect(() => {
+    if (!shouldPollFirmware) return undefined;
+
+    const interval = window.setInterval(() => {
+      void refresh({ showLoading: false, suppressError: true });
+    }, cohortFirmwareRefreshIntervalMs);
+
+    return () => window.clearInterval(interval);
+  }, [refresh, shouldPollFirmware]);
 
   const handleExtend = useCallback(
     async (expiresAt: Date) => {
@@ -347,6 +484,7 @@ const CohortOverviewPage = () => {
       try {
         const next = await setDesiredFirmware({ cohortId, manufacturer, model, firmwareFileId });
         setCohort(next);
+        void loadFirmwareFiles();
         pushToast({
           message: firmwareFileId ? `Firmware set for "${summary.label}"` : `Firmware cleared for "${summary.label}"`,
           status: STATUSES.success,
@@ -358,7 +496,7 @@ const CohortOverviewPage = () => {
         setIsMutating(false);
       }
     },
-    [cohortId, setDesiredFirmware, summary],
+    [cohortId, loadFirmwareFiles, setDesiredFirmware, summary],
   );
 
   const handleDefaultFirmwareUpdate = useCallback(
@@ -377,6 +515,7 @@ const CohortOverviewPage = () => {
           next = await setDesiredFirmware({ cohortId, ...update });
         }
         if (next) setCohort(next);
+        void loadFirmwareFiles();
         pushToast({
           message: `${updates.length} firmware ${updates.length === 1 ? "target" : "targets"} updated for "${summary.label}"`,
           status: STATUSES.success,
@@ -388,7 +527,7 @@ const CohortOverviewPage = () => {
         setIsMutating(false);
       }
     },
-    [cohortId, setDesiredFirmware, summary],
+    [cohortId, loadFirmwareFiles, setDesiredFirmware, summary],
   );
 
   const handleRelease = useCallback(async () => {
@@ -521,17 +660,23 @@ const CohortOverviewPage = () => {
         />
       </section>
 
+      {!summary.isDefault ? <CohortPerformanceSection members={cohort.members} /> : null}
+
       <section className="overflow-hidden rounded-lg border border-border-5">
         <div className="border-b border-border-5 px-4 py-3">
           <Header title="Members" titleSize="text-heading-100" />
         </div>
+        {cohort.members.length > 0 ? (
+          <FirmwareVersionDistribution members={cohort.members} progress={firmwareProgress} />
+        ) : null}
         <div className="overflow-x-auto">
           <table className="w-full table-fixed text-left text-300">
             <thead className="bg-surface-raised text-text-primary-70">
               <tr>
-                <th className="w-[48%] px-4 py-3 font-medium">Miner</th>
-                <th className="w-[18%] px-4 py-3 font-medium">Site</th>
-                <th className="w-[34%] px-4 py-3 font-medium">Added</th>
+                <th className="w-[38%] px-4 py-3 font-medium">Miner</th>
+                <th className="w-[22%] px-4 py-3 font-medium">Firmware</th>
+                <th className="w-[16%] px-4 py-3 font-medium">Site</th>
+                <th className="w-[24%] px-4 py-3 font-medium">Added</th>
               </tr>
             </thead>
             <tbody>
@@ -545,13 +690,19 @@ const CohortOverviewPage = () => {
                       {cohortDeviceSecondaryText(member.display) || member.deviceIdentifier}
                     </div>
                   </td>
+                  <td className="px-4 py-3">
+                    <MemberFirmwareCell
+                      currentVersion={member.display?.firmwareVersion}
+                      desiredVersion={desiredFirmwareVersionForMember(cohort, firmwareFilesById, member)}
+                    />
+                  </td>
                   <td className="px-4 py-3">{cohortMemberSiteLabel(member)}</td>
                   <td className="px-4 py-3">{memberAddedAt(member)}</td>
                 </tr>
               ))}
               {cohort.members.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-text-primary-70" colSpan={3}>
+                  <td className="px-4 py-8 text-text-primary-70" colSpan={4}>
                     No explicit members.
                   </td>
                 </tr>
@@ -623,12 +774,138 @@ const CohortOverviewPage = () => {
   );
 };
 
+const metricsByType = (metrics: Metric[] | undefined, measurementType: MeasurementType) =>
+  metrics?.filter((metric) => metric.measurementType === measurementType);
+
+const CohortPerformanceSection = ({ members }: { members: CohortMember[] }) => {
+  const duration = useDuration();
+  const setDuration = useSetDuration();
+  const deviceIds = useMemo(() => members.map((member) => member.deviceIdentifier), [members]);
+  const hasMembers = deviceIds.length > 0;
+
+  const { data: telemetryData, error: telemetryError } = useTelemetryMetrics({
+    deviceIds,
+    measurementTypes: cohortPerformanceMeasurementTypes,
+    duration,
+    enabled: hasMembers,
+    pollIntervalMs: POLL_INTERVAL_MS,
+  });
+
+  const allMetrics = useMemo(
+    () => (hasMembers ? (telemetryData?.metrics ?? []) : []),
+    [hasMembers, telemetryData?.metrics],
+  );
+  const hashrateMetrics = useMemo(() => metricsByType(allMetrics, MeasurementType.HASHRATE), [allMetrics]);
+  const powerMetrics = useMemo(() => metricsByType(allMetrics, MeasurementType.POWER), [allMetrics]);
+  const efficiencyMetrics = useMemo(() => metricsByType(allMetrics, MeasurementType.EFFICIENCY), [allMetrics]);
+  const temperatureStatusCounts = hasMembers ? telemetryData?.temperatureStatusCounts : [];
+  const uptimeStatusCounts = hasMembers ? telemetryData?.uptimeStatusCounts : [];
+
+  return (
+    <section data-testid="cohort-performance-section">
+      <SectionHeading heading="Performance">
+        <DurationSelector duration={duration} durations={fleetDurations} onSelect={setDuration} />
+      </SectionHeading>
+      {telemetryError ? (
+        <div className="mt-4">
+          <Callout intent="danger" prefixIcon={<Alert />} title="Couldn't load cohort performance" />
+        </div>
+      ) : null}
+      <div className="mt-4 flex flex-col gap-1">
+        <HashratePanel duration={duration} metrics={hashrateMetrics} />
+        <UptimePanel duration={duration} uptimeStatusCounts={uptimeStatusCounts} />
+        <TemperaturePanel duration={duration} temperatureStatusCounts={temperatureStatusCounts} />
+        <div className="grid grid-cols-1 gap-1 laptop:grid-cols-2">
+          <PowerPanel duration={duration} metrics={powerMetrics} totalMiners={members.length} />
+          <EfficiencyPanel duration={duration} metrics={efficiencyMetrics} totalMiners={members.length} />
+        </div>
+      </div>
+    </section>
+  );
+};
+
 const OverviewMetric = ({ label, value }: { label: string; value: ReactNode }) => (
   <div className="rounded-lg border border-border-5 bg-surface-base p-4">
     <div className="text-200 text-text-primary-70">{label}</div>
     <div className="mt-1 truncate text-heading-100 text-text-primary">{value}</div>
   </div>
 );
+
+const FirmwareVersionDistribution = ({
+  members,
+  progress,
+}: {
+  members: CohortMember[];
+  progress: FirmwareProgress;
+}) => {
+  const counts = useMemo(() => firmwareVersionCounts(members), [members]);
+  const total = members.length;
+  if (total === 0) return null;
+
+  const targetStatus =
+    progress.comparableCount > 0
+      ? progress.pendingCount > 0
+        ? `${progress.onTargetCount}/${progress.comparableCount} on target`
+        : "All on target"
+      : `${total} members`;
+
+  return (
+    <div className="border-b border-border-5 px-4 py-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="text-emphasis-300 text-text-primary">Firmware versions</div>
+        <div className="text-200 text-text-primary-70">{targetStatus}</div>
+      </div>
+      <div className="flex flex-col gap-2">
+        {counts.map(({ version, count }) => {
+          const percentage = (count / total) * 100;
+          return (
+            <div
+              key={version}
+              className="grid grid-cols-[minmax(5rem,1fr)_minmax(4rem,2fr)_3.75rem] items-center gap-3"
+            >
+              <div className="truncate text-200 text-text-primary" title={version}>
+                {version}
+              </div>
+              <div className="bg-surface-inverse-10 h-2 overflow-hidden rounded-full">
+                <div className="h-full bg-core-primary-fill" style={{ width: `${Math.max(percentage, 2)}%` }} />
+              </div>
+              <div className="text-right text-200 text-text-primary-70">
+                {count} ({Math.round(percentage)}%)
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const MemberFirmwareCell = ({
+  currentVersion,
+  desiredVersion,
+}: {
+  currentVersion?: string;
+  desiredVersion?: string;
+}) => {
+  const current = firmwareVersionLabel(currentVersion);
+  const desired = desiredVersion?.trim();
+  const comparable = Boolean(desired) && current !== "Unknown";
+  const status = comparable ? (current === desired ? "On target" : `Target: ${desired}`) : undefined;
+  const statusClass = comparable && current !== desired ? "text-intent-critical-fill" : "text-text-primary-70";
+
+  return (
+    <div className="min-w-0">
+      <div className="truncate font-medium text-text-primary" title={current}>
+        {current}
+      </div>
+      {status ? (
+        <div className={`mt-1 truncate text-200 ${statusClass}`} title={status}>
+          {status}
+        </div>
+      ) : null}
+    </div>
+  );
+};
 
 const DetailBlock = ({ label, value }: { label: string; value: DetailValue }) => (
   <div className="rounded-lg border border-border-5 bg-surface-base p-4">
@@ -867,7 +1144,7 @@ const FirmwareModal = ({ initialFirmwareFileId, target, isSubmitting, onDismiss,
       })
       .catch((loadError) => {
         if (!cancelled) {
-          setError(loadError?.message || "Failed to load firmware files");
+          setError(loadError?.message || "Couldn't load firmware files");
         }
       });
     return () => {
@@ -999,7 +1276,7 @@ const DefaultFirmwareModal = ({ cohort, isSubmitting, onDismiss, onSubmit }: Def
         if (!cancelled) setFirmwareFiles(files);
       })
       .catch((loadError) => {
-        if (!cancelled) setError(loadError?.message || "Failed to load firmware files");
+        if (!cancelled) setError(loadError?.message || "Couldn't load firmware files");
       });
 
     void getMinerModelGroups(null)
@@ -1007,7 +1284,7 @@ const DefaultFirmwareModal = ({ cohort, isSubmitting, onDismiss, onSubmit }: Def
         if (!cancelled) setModelGroups(groups);
       })
       .catch((loadError) => {
-        if (!cancelled) setError(loadError?.message || "Failed to load miner models");
+        if (!cancelled) setError(loadError?.message || "Couldn't load miner models");
       });
 
     return () => {
@@ -1147,12 +1424,91 @@ const DeviceMutationModal = ({
   onDismiss,
   onSubmit,
 }: DeviceMutationModalProps) => {
+  const { listAllDevices } = useCohortApi();
+  const { listSites } = useSites();
   const selectionRef = useRef<MinerSelectionListHandle>(null);
-  const memberIds = useMemo(() => new Set(members.map((member) => member.deviceIdentifier)), [members]);
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState("");
+  const [addMode, setAddMode] = useState<AddMemberMode>("count");
+  const [count, setCount] = useState("1");
+  const [siteId, setSiteId] = useState("");
+  const [eligibleDevices, setEligibleDevices] = useState<CohortDevice[]>([]);
+  const [sites, setSites] = useState<SiteWithCounts[]>([]);
+  const [isLoadingEligibleDevices, setIsLoadingEligibleDevices] = useState(false);
   const isRemove = mode === "remove";
+  const isAdd = mode === "add";
+  const isCompactModal = isRemove || (isAdd && addMode === "count");
   const selectedRemoveCount = selectedMemberIds.size;
+  const fixedModelFilter = useMemo(() => (target?.model ? [target.model] : []), [target]);
+  const siteOptions = useMemo(
+    () => [
+      { value: "", label: "Any site" },
+      ...sites.map(formatSiteOption).filter((option): option is { value: string; label: string } => Boolean(option)),
+    ],
+    [sites],
+  );
+  const displayedEligibleDevices = useMemo(() => {
+    if (!siteId) return eligibleDevices;
+    try {
+      const parsedSiteId = BigInt(siteId);
+      return eligibleDevices.filter((device) => device.siteId === parsedSiteId);
+    } catch {
+      return [];
+    }
+  }, [eligibleDevices, siteId]);
+  const eligibleDeviceIds = useMemo(
+    () => new Set(displayedEligibleDevices.map((device) => device.deviceIdentifier)),
+    [displayedEligibleDevices],
+  );
+
+  useEffect(() => {
+    if (!isAdd) return;
+
+    let cancelled = false;
+    void listSites({
+      onSuccess: (nextSites) => {
+        if (!cancelled) setSites(nextSites);
+      },
+      onError: (message) => {
+        if (!cancelled) pushToast({ message: message || "Couldn't load sites", status: STATUSES.error });
+      },
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdd, listSites]);
+
+  useEffect(() => {
+    if (!isAdd || !target) return;
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setIsLoadingEligibleDevices(true);
+    });
+    void listAllDevices({
+      filter: {
+        assignments: [CohortDeviceAssignment.AVAILABLE],
+        manufacturers: [target.manufacturer],
+        models: [target.model],
+      },
+    })
+      .then((devices) => {
+        if (!cancelled) setEligibleDevices(devices);
+      })
+      .catch((loadError) => {
+        if (!cancelled) {
+          setEligibleDevices([]);
+          setError(loadError?.message || "Couldn't load eligible miners");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingEligibleDevices(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdd, listAllDevices, target]);
 
   const toggleMember = useCallback((deviceIdentifier: string) => {
     setSelectedMemberIds((current) => {
@@ -1168,6 +1524,26 @@ const DeviceMutationModal = ({
   }, []);
 
   const handleSubmit = useCallback(() => {
+    if (isAdd && !target) {
+      setError("Adding members requires a single product and model.");
+      return;
+    }
+    if (isAdd && addMode === "count") {
+      const parsedCount = Number.parseInt(count, 10);
+      if (!Number.isFinite(parsedCount) || parsedCount <= 0 || parsedCount > 10000) {
+        setError("Count must be between 1 and 10000");
+        return;
+      }
+      if (displayedEligibleDevices.length < parsedCount) {
+        setError(
+          `Only ${displayedEligibleDevices.length} eligible ${displayedEligibleDevices.length === 1 ? "miner is" : "miners are"} available.`,
+        );
+        return;
+      }
+      onSubmit(displayedEligibleDevices.slice(0, parsedCount).map((device) => device.deviceIdentifier));
+      return;
+    }
+
     const identifiers = isRemove
       ? Array.from(selectedMemberIds)
       : (selectionRef.current?.getSelection().selectedItems ?? []);
@@ -1176,22 +1552,23 @@ const DeviceMutationModal = ({
       return;
     }
     onSubmit(identifiers);
-  }, [isRemove, onSubmit, selectedMemberIds]);
+  }, [addMode, count, displayedEligibleDevices, isAdd, isRemove, onSubmit, selectedMemberIds, target]);
 
   return (
     <Modal
       open
       title={mutationTitle[mode]}
       onDismiss={onDismiss}
-      size={isRemove ? "standard" : "large"}
-      className={isRemove ? undefined : "flex !h-[calc(100vh-(--spacing(32)))] flex-col !overflow-hidden"}
-      bodyClassName={isRemove ? undefined : "flex flex-1 min-h-0 flex-col overflow-hidden"}
+      size={isCompactModal ? "standard" : "large"}
+      className={isCompactModal ? undefined : "flex !h-[calc(100vh-(--spacing(32)))] flex-col !overflow-hidden"}
+      bodyClassName={isCompactModal ? undefined : "flex flex-1 min-h-0 flex-col overflow-hidden"}
       buttons={[
         {
           text: mutationButton[mode],
           variant: mode === "remove" ? variants.danger : variants.primary,
           onClick: handleSubmit,
           loading: isSubmitting,
+          disabled: isAdd && (!target || isLoadingEligibleDevices),
           dismissModalOnClick: false,
         },
       ]}
@@ -1199,6 +1576,14 @@ const DeviceMutationModal = ({
     >
       <div className="mt-4 flex min-h-0 flex-1 flex-col">
         {error ? <Callout className="mb-4 shrink-0" intent="danger" prefixIcon={<Alert />} title={error} /> : null}
+        {isAdd && !target ? (
+          <Callout
+            className="mb-4 shrink-0"
+            intent="danger"
+            prefixIcon={<Alert />}
+            title="Adding members requires a single product and model."
+          />
+        ) : null}
         {isRemove ? (
           <div className="flex flex-col">
             {members.map((member, index) => (
@@ -1228,23 +1613,93 @@ const DeviceMutationModal = ({
               onSelectNone={() => setSelectedMemberIds(new Set())}
             />
           </div>
-        ) : (
+        ) : null}
+
+        {isAdd ? (
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
+            <Select
+              id="cohort-add-mode"
+              label="Add members"
+              options={addMemberModeOptions}
+              value={addMode}
+              onChange={(value) => {
+                setAddMode(value as AddMemberMode);
+                setError("");
+              }}
+              disabled={!target}
+              forceBelow
+            />
+
+            {addMode === "count" ? (
+              <>
+                <div className="grid gap-4 tablet:grid-cols-2">
+                  <Input
+                    id="cohort-add-count"
+                    label="Count"
+                    initValue={count}
+                    onChange={(value) => {
+                      setCount(value);
+                      setError("");
+                    }}
+                    inputMode="numeric"
+                    type="number"
+                    required
+                  />
+                  <Select
+                    id="cohort-add-site-id"
+                    label="Site"
+                    options={siteOptions}
+                    value={siteId}
+                    onChange={(value) => {
+                      setSiteId(value);
+                      setError("");
+                    }}
+                    disabled={!target}
+                    forceBelow
+                  />
+                </div>
+                <div className="rounded-lg bg-core-primary-5 px-4 py-3">
+                  <div className="text-200 text-text-primary-70">Eligible miners</div>
+                  <div className="mt-1 text-emphasis-300 text-text-primary">
+                    {isLoadingEligibleDevices ? "Loading..." : displayedEligibleDevices.length.toString()}
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            {addMode === "explicit" ? (
+              <div className="flex min-h-[360px] flex-1 flex-col overflow-hidden rounded-lg border border-border-5 p-3">
+                <MinerSelectionList
+                  ref={selectionRef}
+                  fixedModels={fixedModelFilter}
+                  showSelectAllFooter={false}
+                  isMembersLoading={isLoadingEligibleDevices}
+                  isRowVisible={(item) => eligibleDeviceIds.has(item.deviceIdentifier)}
+                  noDataElement={
+                    <div className="py-10 text-center text-300 text-text-primary-70">
+                      {target
+                        ? "No eligible miners match this cohort."
+                        : "Adding members requires a single product and model."}
+                    </div>
+                  }
+                  visibleTotal={displayedEligibleDevices.length}
+                />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {mode === "reassign" ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border-5 p-3">
             <MinerSelectionList
               ref={selectionRef}
               showSelectAllFooter={false}
               isRowDisabled={
-                mode === "add"
-                  ? (item) =>
-                      memberIds.has(item.deviceIdentifier) ||
-                      Boolean(target && (item.manufacturer !== target.manufacturer || item.model !== target.model))
-                  : target
-                    ? (item) => item.manufacturer !== target.manufacturer || item.model !== target.model
-                    : undefined
+                target ? (item) => item.manufacturer !== target.manufacturer || item.model !== target.model : undefined
               }
             />
           </div>
-        )}
+        ) : null}
       </div>
     </Modal>
   );

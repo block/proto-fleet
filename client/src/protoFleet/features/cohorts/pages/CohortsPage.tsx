@@ -7,6 +7,7 @@ import {
   type CohortSummary,
 } from "@/protoFleet/api/generated/cohort/v1/cohort_pb";
 import { useCohortApi } from "@/protoFleet/api/useCohortApi";
+import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import CohortModal from "@/protoFleet/features/cohorts/components/CohortModal";
 import {
   cohortDeviceDisplayName,
@@ -111,6 +112,31 @@ const CohortExpiryText = ({ cohort }: { cohort: CohortSummary }) => {
   );
 };
 
+const formatFirmwareFileInfo = (firmwareFileId: string, firmwareFilesById: Map<string, FirmwareFileInfo>) => {
+  const file = firmwareFilesById.get(firmwareFileId);
+  if (!file) return "Unknown file";
+  const version = file.firmware_version?.trim();
+  const filename = file.filename?.trim();
+  if (version && filename) return `${version} (${filename})`;
+  return version || filename || firmwareFileId;
+};
+
+const formatCohortFirmwareSummary = (cohort: CohortSummary, firmwareFilesById: Map<string, FirmwareFileInfo>) => {
+  const configuredTargets = cohort.firmwareTargets.filter((target) => target.firmwareFileId);
+  if (configuredTargets.length > 0) {
+    return configuredTargets
+      .map((target) => {
+        const targetLabel = [target.manufacturer, target.model].filter(Boolean).join(" ") || "Target";
+        return `${targetLabel}: ${formatFirmwareFileInfo(target.firmwareFileId, firmwareFilesById)}`;
+      })
+      .join(" · ");
+  }
+  if (cohort.desiredFirmwareFileId) {
+    return formatFirmwareFileInfo(cohort.desiredFirmwareFileId, firmwareFilesById);
+  }
+  return "Not set";
+};
+
 const CohortsPage = () => {
   const activeSite = useRouteSiteScope() ?? DEFAULT_ACTIVE_SITE;
   const navigate = useNavigate();
@@ -118,9 +144,11 @@ const CohortsPage = () => {
   const username = useUsername();
   const isSuperAdmin = isSuperAdminRole(role);
   const { listCohorts, getMyCohorts, listDevices, releaseCohort } = useCohortApi();
+  const { listFirmwareFiles } = useFirmwareApi();
   const [cohorts, setCohorts] = useState<CohortSummary[]>([]);
   const [myCohorts, setMyCohorts] = useState<CohortSummary[]>([]);
   const [devices, setDevices] = useState<CohortDevice[]>([]);
+  const [firmwareFiles, setFirmwareFiles] = useState<FirmwareFileInfo[]>([]);
   const [cohortsTotalCount, setCohortsTotalCount] = useState(0);
   const [myCohortsTotalCount, setMyCohortsTotalCount] = useState(0);
   const [devicesTotalCount, setDevicesTotalCount] = useState(0);
@@ -217,7 +245,7 @@ const CohortsPage = () => {
     }
     setError(null);
     try {
-      const [nextCohorts, nextMyCohorts, nextDevices] = await Promise.allSettled([
+      const [nextCohorts, nextMyCohorts, nextDevices, nextFirmwareFiles] = await Promise.allSettled([
         listCohorts({
           includeReleased: false,
           pageSize: cohortListPageSize,
@@ -235,6 +263,7 @@ const CohortsPage = () => {
           pageToken: devicesPageToken,
           filter: rigAssignmentDeviceFilter,
         }),
+        listFirmwareFiles(),
       ]);
       if (requestId !== refreshRequestIdRef.current) return;
       if (nextCohorts.status === "fulfilled") {
@@ -253,6 +282,11 @@ const CohortsPage = () => {
         setDevicesTotalCount(nextDevices.value.totalCount);
         setAvailableDevices(nextDevices.value.availableCount);
         setReservedDevices(nextDevices.value.reservedCount);
+      }
+      if (nextFirmwareFiles.status === "fulfilled") {
+        setFirmwareFiles(nextFirmwareFiles.value);
+      } else {
+        setFirmwareFiles([]);
       }
       if (
         nextCohorts.status === "rejected" ||
@@ -279,6 +313,7 @@ const CohortsPage = () => {
     getMyCohorts,
     listCohorts,
     listDevices,
+    listFirmwareFiles,
     myCohortsPageToken,
     rigAssignmentDeviceFilter,
   ]);
@@ -375,6 +410,10 @@ const CohortsPage = () => {
   const shouldUseVisibleAssignmentCounts = devices.length > 0 && availableDevices === 0 && reservedDevices === 0;
   const displayedAvailableDevices = shouldUseVisibleAssignmentCounts ? visibleAvailableDevices : availableDevices;
   const displayedReservedDevices = shouldUseVisibleAssignmentCounts ? visibleReservedDevices : reservedDevices;
+  const firmwareFilesById = useMemo(
+    () => new Map(firmwareFiles.map((file) => [file.id, file] as const)),
+    [firmwareFiles],
+  );
   const cohortsPageIndex = cohortsPageHistory.length;
   const myCohortsPageIndex = myCohortsPageHistory.length;
   const devicesPageIndex = devicesPageHistory.length;
@@ -530,6 +569,7 @@ const CohortsPage = () => {
           title="Active cohorts"
           cohorts={cohorts}
           totalCount={displayedCohortsTotalCount}
+          firmwareFilesById={firmwareFilesById}
           pageIndex={cohortsPageIndex}
           search={cohortsSearch}
           emptyText={cohortsSearch.trim() ? "No active cohorts match this search." : "No active cohorts."}
@@ -548,6 +588,7 @@ const CohortsPage = () => {
           title="My cohorts"
           cohorts={myCohorts}
           totalCount={displayedMyCohortsTotalCount}
+          firmwareFilesById={firmwareFilesById}
           pageIndex={myCohortsPageIndex}
           search={myCohortsSearch}
           emptyText={myCohortsSearch.trim() ? "No owned cohorts match this search." : "No owned active cohorts."}
@@ -646,6 +687,7 @@ interface CohortListProps {
   title: string;
   cohorts: CohortSummary[];
   totalCount: number;
+  firmwareFilesById: Map<string, FirmwareFileInfo>;
   pageIndex: number;
   search: string;
   emptyText: string;
@@ -665,6 +707,7 @@ const CohortList = ({
   title,
   cohorts,
   totalCount,
+  firmwareFilesById,
   pageIndex,
   search,
   emptyText,
@@ -694,6 +737,9 @@ const CohortList = ({
             <div className="truncate text-200 text-text-primary-70">
               {cohort.explicitMemberCount.toString()} miners · {cohort.ownerUsername || "Unowned"} ·{" "}
               <CohortExpiryText cohort={cohort} />
+            </div>
+            <div className="mt-1 truncate text-200 text-text-primary-70">
+              Firmware · {formatCohortFirmwareSummary(cohort, firmwareFilesById)}
             </div>
           </Link>
           <div className="flex items-center gap-2">

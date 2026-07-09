@@ -174,7 +174,7 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
       .catch((error) => {
         if (!cancelled) {
           setFirmwareFiles([]);
-          pushToast({ message: error?.message || "Failed to load firmware files", status: STATUSES.error });
+          pushToast({ message: error?.message || "Couldn't load firmware files", status: STATUSES.error });
         }
       });
 
@@ -183,7 +183,7 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
         if (!cancelled) setSites(nextSites);
       },
       onError: (message) => {
-        if (!cancelled) pushToast({ message: message || "Failed to load sites", status: STATUSES.error });
+        if (!cancelled) pushToast({ message: message || "Couldn't load sites", status: STATUSES.error });
       },
     });
 
@@ -192,7 +192,7 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
         if (!cancelled) setGroups(nextGroups);
       },
       onError: (message) => {
-        if (!cancelled) pushToast({ message: message || "Failed to load groups", status: STATUSES.error });
+        if (!cancelled) pushToast({ message: message || "Couldn't load groups", status: STATUSES.error });
       },
     });
 
@@ -201,7 +201,7 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
         if (!cancelled) setModelGroups(nextGroups);
       })
       .catch((error) => {
-        if (!cancelled) pushToast({ message: error?.message || "Failed to load miner models", status: STATUSES.error });
+        if (!cancelled) pushToast({ message: error?.message || "Couldn't load miner models", status: STATUSES.error });
       });
 
     void listAllDevices()
@@ -211,7 +211,7 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
       .catch((error) => {
         if (!cancelled) {
           setCohortDevices([]);
-          pushToast({ message: error?.message || "Failed to load cohort miner availability", status: STATUSES.error });
+          pushToast({ message: error?.message || "Couldn't load cohort miner availability", status: STATUSES.error });
         }
       });
 
@@ -375,12 +375,12 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
           onSuccess();
           onDismiss();
         },
-        onError: (message) => setErrorMsg(message || "Failed to create cohort"),
+        onError: (message) => setErrorMsg(message || "Couldn't create cohort"),
         onFinally: () => setIsSubmitting(false),
       });
     } catch (error) {
       setIsSubmitting(false);
-      setErrorMsg(error instanceof Error ? error.message : "Failed to create cohort");
+      setErrorMsg(error instanceof Error ? error.message : "Couldn't create cohort");
     }
   }, [
     count,
