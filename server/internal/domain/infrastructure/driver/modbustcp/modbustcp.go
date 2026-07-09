@@ -1,0 +1,130 @@
+// Package modbustcp is the Modbus TCP driver adapter for facility
+// infrastructure devices. v1 scope is config parsing and validation;
+// the write path (FC5 coil / FC6 holding-register 0/1 writes) lands
+// with the protocol I/O phase of the facility fan plan.
+package modbustcp
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/netip"
+
+	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
+)
+
+// DriverType is the registry key for this adapter.
+const DriverType = "modbus_tcp"
+
+const (
+	// WriteModeCoil writes the RUN/STOP coil via function code 5.
+	WriteModeCoil = "coil"
+	// WriteModeHoldingRegister writes the control word register via
+	// function code 6.
+	WriteModeHoldingRegister = "holding_register"
+
+	minUnitID = 1
+	maxUnitID = 247
+	minPort   = 1
+	maxPort   = 65535
+	// Register addresses are raw application addresses (e.g. 2001 for
+	// the H-Max FB Control Word, 0001 for the RUN/STOP coil) — not the
+	// 4xxxx-prefixed reference convention. The adapter owns any
+	// wire-level off-by-one translation.
+	maxRegisterAddress = 65535
+)
+
+// Config is the adapter-owned driver_config schema.
+type Config struct {
+	// Endpoint is the device's IP address. Modbus TCP carries no
+	// authentication, so only private, loopback, or link-local
+	// addresses are accepted — mirroring the MQTT subscriber's
+	// plaintext-transport host guard.
+	Endpoint        string `json:"endpoint"`
+	Port            int    `json:"port"`
+	UnitID          int    `json:"unit_id"`
+	RegisterAddress int    `json:"register_address"`
+	WriteMode       string `json:"write_mode"`
+}
+
+// Controller implements driver.Controller for Modbus TCP.
+type Controller struct{}
+
+var _ driver.Controller = Controller{}
+
+// New is the driver.Factory for this adapter.
+func New() driver.Controller {
+	return Controller{}
+}
+
+// ParseConfig decodes and validates a driver_config blob.
+func ParseConfig(raw json.RawMessage) (Config, error) {
+	var cfg Config
+	if len(raw) == 0 {
+		return cfg, errors.New("driver_config is required for modbus_tcp devices")
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return cfg, fmt.Errorf("driver_config is not valid JSON: %v", err)
+	}
+	if err := cfg.validate(); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+func (c Config) validate() error {
+	if err := validateEndpoint(c.Endpoint); err != nil {
+		return err
+	}
+	if c.Port < minPort || c.Port > maxPort {
+		return fmt.Errorf("port must be between %d and %d, got %d", minPort, maxPort, c.Port)
+	}
+	if c.UnitID < minUnitID || c.UnitID > maxUnitID {
+		return fmt.Errorf("unit_id must be between %d and %d, got %d", minUnitID, maxUnitID, c.UnitID)
+	}
+	if c.RegisterAddress < 0 || c.RegisterAddress > maxRegisterAddress {
+		return fmt.Errorf("register_address must be between 0 and %d, got %d", maxRegisterAddress, c.RegisterAddress)
+	}
+	if c.WriteMode != WriteModeCoil && c.WriteMode != WriteModeHoldingRegister {
+		return fmt.Errorf("write_mode must be %q or %q, got %q", WriteModeCoil, WriteModeHoldingRegister, c.WriteMode)
+	}
+	return nil
+}
+
+// validateEndpoint rejects endpoints outside private/loopback/
+// link-local ranges. The server opens raw TCP connections and writes
+// unauthenticated Modbus frames to this address, so an unrestricted
+// endpoint would be an SSRF/OT-pivot primitive for anyone holding
+// site:manage.
+func validateEndpoint(endpoint string) error {
+	if endpoint == "" {
+		return errors.New("endpoint is required")
+	}
+	addr, err := netip.ParseAddr(endpoint)
+	if err != nil {
+		return fmt.Errorf("endpoint %q must be an IP address (hostnames are not supported)", endpoint)
+	}
+	if !(addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast()) {
+		return fmt.Errorf("endpoint %q must be a private, loopback, or link-local IP address", endpoint)
+	}
+	return nil
+}
+
+// ValidateConfig implements driver.Controller.
+func (Controller) ValidateConfig(raw json.RawMessage) error {
+	_, err := ParseConfig(raw)
+	return err
+}
+
+// SetState implements driver.Controller. Protocol I/O is out of scope
+// for the backend phase; the reconciler sequencing work wires the
+// actual FC5/FC6 write.
+func (Controller) SetState(_ context.Context, device driver.Device, _ driver.DesiredState) error {
+	return fmt.Errorf("modbus_tcp write path is not implemented yet (device %q)", device.Name)
+}
+
+// Capabilities implements driver.Controller.
+func (Controller) Capabilities() map[string]bool {
+	return map[string]bool{"on_off": true}
+}

@@ -912,6 +912,22 @@ type FleetTelemetryPollHeartbeat struct {
 	SampleCount    int64
 }
 
+type InfrastructureDevice struct {
+	ID           int64
+	OrgID        int64
+	SiteID       int64
+	BuildingName string
+	Name         string
+	DeviceKind   string
+	FanCount     int32
+	Enabled      bool
+	DriverType   string
+	DriverConfig json.RawMessage
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DeletedAt    sql.NullTime
+}
+
 type MinerCredential struct {
 	ID          int64
 	DeviceID    int64

@@ -1,0 +1,80 @@
+-- name: CreateInfrastructureDevice :one
+-- Name is unique per (site_id, name) among live rows; the partial
+-- unique index surfaces collisions to the store layer as
+-- AlreadyExists.
+INSERT INTO infrastructure_device (
+    org_id,
+    site_id,
+    building_name,
+    name,
+    device_kind,
+    fan_count,
+    enabled,
+    driver_type,
+    driver_config
+) VALUES (
+    sqlc.arg('org_id'),
+    sqlc.arg('site_id'),
+    sqlc.arg('building_name'),
+    sqlc.arg('name'),
+    sqlc.arg('device_kind'),
+    sqlc.arg('fan_count'),
+    sqlc.arg('enabled'),
+    sqlc.arg('driver_type'),
+    sqlc.arg('driver_config')
+)
+RETURNING *;
+
+-- name: GetInfrastructureDevice :one
+SELECT
+    d.*,
+    COALESCE(s.name, '') AS site_label
+FROM infrastructure_device d
+LEFT JOIN site s
+  ON s.id = d.site_id
+ AND s.org_id = d.org_id
+ AND s.deleted_at IS NULL
+WHERE d.id = sqlc.arg('id')
+  AND d.org_id = sqlc.arg('org_id')
+  AND d.deleted_at IS NULL;
+
+-- name: ListInfrastructureDevicesByOrg :many
+-- Lists every live infrastructure device in the org. site_ids is an
+-- optional OR filter; empty array = no filter.
+SELECT
+    d.*,
+    COALESCE(s.name, '') AS site_label
+FROM infrastructure_device d
+LEFT JOIN site s
+  ON s.id = d.site_id
+ AND s.org_id = d.org_id
+ AND s.deleted_at IS NULL
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.deleted_at IS NULL
+  AND (
+       cardinality(sqlc.arg('site_ids')::bigint[]) = 0
+    OR d.site_id = ANY(sqlc.arg('site_ids')::bigint[])
+  )
+ORDER BY d.name, d.id;
+
+-- name: UpdateInfrastructureDevice :execrows
+UPDATE infrastructure_device
+SET site_id       = sqlc.arg('site_id'),
+    building_name = sqlc.arg('building_name'),
+    name          = sqlc.arg('name'),
+    device_kind   = sqlc.arg('device_kind'),
+    fan_count     = sqlc.arg('fan_count'),
+    enabled       = sqlc.arg('enabled'),
+    driver_type   = sqlc.arg('driver_type'),
+    driver_config = sqlc.arg('driver_config'),
+    updated_at    = CURRENT_TIMESTAMP
+WHERE id = sqlc.arg('id')
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL;
+
+-- name: SoftDeleteInfrastructureDevice :execrows
+UPDATE infrastructure_device
+SET deleted_at = CURRENT_TIMESTAMP
+WHERE id = sqlc.arg('id')
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL;

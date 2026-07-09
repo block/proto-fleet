@@ -1,0 +1,126 @@
+syntax = "proto3";
+
+package infrastructure.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// InfrastructureService manages facility infrastructure devices (fans
+// and fan groups behind a PLC or drive) used by curtailment
+// sequencing. The core is protocol-agnostic: a device carries a
+// driver_type key plus an opaque driver_config JSON blob that only the
+// matching server-side driver adapter interprets. New driver types
+// therefore need no proto change.
+service InfrastructureService {
+    rpc ListInfrastructureDevices(ListInfrastructureDevicesRequest) returns (ListInfrastructureDevicesResponse);
+    rpc GetInfrastructureDevice(GetInfrastructureDeviceRequest) returns (GetInfrastructureDeviceResponse);
+    rpc CreateInfrastructureDevice(CreateInfrastructureDeviceRequest) returns (CreateInfrastructureDeviceResponse);
+    rpc UpdateInfrastructureDevice(UpdateInfrastructureDeviceRequest) returns (UpdateInfrastructureDeviceResponse);
+    rpc DeleteInfrastructureDevice(DeleteInfrastructureDeviceRequest) returns (DeleteInfrastructureDeviceResponse);
+}
+
+// InfrastructureDevice is a controllable facility device.
+message InfrastructureDevice {
+    int64 id = 1;
+    int64 site_id = 2;
+    // Resolved site name for display; empty when unresolved.
+    string site_label = 3;
+    string building_name = 4;
+    string name = 5;
+    // 'single_fan' | 'fan_group'.
+    string device_kind = 6;
+    int32 fan_count = 7;
+    bool enabled = 8;
+    // Driver adapter key, e.g. 'modbus_tcp'.
+    string driver_type = 9;
+    // Opaque JSON blob owned by the driver adapter (for modbus_tcp:
+    // endpoint, port, unit_id, register_address, write_mode). The
+    // server validates it via the adapter; clients render it via the
+    // matching per-driver form module.
+    string driver_config = 10;
+    google.protobuf.Timestamp created_at = 11;
+    google.protobuf.Timestamp updated_at = 12;
+}
+
+message ListInfrastructureDevicesRequest {
+    // Optional site filter; empty = all sites in the org.
+    repeated int64 site_ids = 1 [(buf.validate.field).repeated = {
+        max_items: 1024
+        items: {
+            int64: {gt: 0}
+        }
+    }];
+}
+
+message ListInfrastructureDevicesResponse {
+    repeated InfrastructureDevice devices = 1;
+}
+
+message GetInfrastructureDeviceRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetInfrastructureDeviceResponse {
+    InfrastructureDevice device = 1;
+}
+
+message CreateInfrastructureDeviceRequest {
+    int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
+    string building_name = 2 [(buf.validate.field).string.max_len = 255];
+    string name = 3 [(buf.validate.field).string = {
+        min_len: 1
+        max_len: 255
+    }];
+    string device_kind = 4 [(buf.validate.field).string = {
+        in: [
+            "single_fan",
+            "fan_group"
+        ]
+    }];
+    // Must be 1 for single_fan and >= 2 for fan_group; enforced by the
+    // domain service.
+    int32 fan_count = 5 [(buf.validate.field).int32.gte = 1];
+    bool enabled = 6;
+    string driver_type = 7 [(buf.validate.field).string = {
+        min_len: 1
+        max_len: 64
+    }];
+    string driver_config = 8 [(buf.validate.field).string.max_len = 8192];
+}
+
+message CreateInfrastructureDeviceResponse {
+    InfrastructureDevice device = 1;
+}
+
+message UpdateInfrastructureDeviceRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+    int64 site_id = 2 [(buf.validate.field).int64.gt = 0];
+    string building_name = 3 [(buf.validate.field).string.max_len = 255];
+    string name = 4 [(buf.validate.field).string = {
+        min_len: 1
+        max_len: 255
+    }];
+    string device_kind = 5 [(buf.validate.field).string = {
+        in: [
+            "single_fan",
+            "fan_group"
+        ]
+    }];
+    int32 fan_count = 6 [(buf.validate.field).int32.gte = 1];
+    bool enabled = 7;
+    string driver_type = 8 [(buf.validate.field).string = {
+        min_len: 1
+        max_len: 64
+    }];
+    string driver_config = 9 [(buf.validate.field).string.max_len = 8192];
+}
+
+message UpdateInfrastructureDeviceResponse {
+    InfrastructureDevice device = 1;
+}
+
+message DeleteInfrastructureDeviceRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message DeleteInfrastructureDeviceResponse {}
