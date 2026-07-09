@@ -450,11 +450,14 @@ const RackSettingsModal = ({
       open={show}
       title="Rack settings"
       phoneSheet
-      onDismiss={onDismiss}
+      // Block dismiss (X / backdrop) while a settings save is in flight — the
+      // updateRack call persists regardless, so closing mid-request would be a
+      // surprise. Re-enabled once it resolves (or fails, leaving the form open).
+      onDismiss={isSubmitting ? () => {} : onDismiss}
       divider={false}
       buttons={[
         {
-          text: isEditMode ? (isSubmitting ? "Saving..." : "Save") : "Continue",
+          text: isSubmitting ? "Saving..." : isEditMode ? "Save" : "Continue",
           variant: "primary",
           disabled: isSubmitting || isInitialLoading,
           loading: isSubmitting,
