@@ -831,10 +831,14 @@ func TestAppendFilterSQL_IncludeNoRack_Alone(t *testing.T) {
 func TestAppendFilterSQL_BuildingFiltersORTogether(t *testing.T) {
 	// building_ids + include_no_building + include_no_rack should be OR'd
 	// inside one outer AND so devices in any of the three populations match.
+	// An explicit rack filter keeps the "rack has no building" branch (it's
+	// only dropped for the rack-less new-rack shape).
 	var sb strings.Builder
 	fp := minerFilterParams{
 		buildingIDsFilter: validNullString(),
 		buildingIDValues:  []int64{7},
+		rackIDsFilter:     validNullString(),
+		rackIDValues:      []int64{5},
 		includeNoBuilding: true,
 		includeNoRack:     true,
 	}
@@ -847,6 +851,28 @@ func TestAppendFilterSQL_BuildingFiltersORTogether(t *testing.T) {
 	assert.Contains(t, sql, "dsr.building_id IS NULL")
 	assert.Contains(t, sql, "NOT EXISTS")
 	assert.GreaterOrEqual(t, strings.Count(sql, " OR "), 2)
+}
+
+// The assignable-only filter for a NEW rack sends include_no_rack with no
+// rack_ids and no building. Its "no building" pin must NOT emit the "rack has
+// no building" branch — there are no target members to keep, and that branch
+// would otherwise match miners in OTHER building-less racks. The no-rack
+// branch (device.building_id IS NULL AND NOT EXISTS rack) still admits
+// rackless miners with no direct building.
+func TestAppendFilterSQL_NewRackShape_DropsNoBuildingRackBranch(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{
+		includeNoBuilding: true,
+		includeNoRack:     true,
+		includeUnassigned: true,
+	}
+
+	appendFilterSQL(&sb, []any{"initial"}, 2, 42, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "device.site_id IS NULL")
+	assert.Contains(t, sql, "(device.building_id IS NULL AND NOT EXISTS")
+	assert.NotContains(t, sql, "dsr.building_id IS NULL")
 }
 
 // TestAppendFilterSQL_ZoneKeys_OrgIDDefenseInDepth guards against the

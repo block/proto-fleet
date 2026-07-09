@@ -473,7 +473,16 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			argNum += 2
 			first = false
 		}
-		if fp.includeNoBuilding {
+		// include_no_building matches miners whose RACK has no building. That
+		// keeps a target rack's own members visible in the assignable-only
+		// filter (their building-less rack matches). But the assignable-only
+		// filter for a NEW rack carries no rack_ids and sets include_no_rack —
+		// there are no members to preserve, and this branch would instead pull
+		// in the members of OTHER building-less racks. So drop it for that
+		// shape (include_no_rack with no explicit rack filter); the no-rack
+		// branch below still admits rackless miners with no direct building.
+		emitNoBuildingRackBranch := fp.includeNoBuilding && !(fp.includeNoRack && !fp.rackIDsFilter.Valid)
+		if emitNoBuildingRackBranch {
 			if !first {
 				sb.WriteString(" OR ")
 			}

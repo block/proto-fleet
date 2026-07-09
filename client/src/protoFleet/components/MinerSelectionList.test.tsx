@@ -213,34 +213,34 @@ describe("MinerSelectionList eligibility", () => {
     expect(filter.siteIds).toEqual([2n]);
   });
 
-  it("pins site to unassigned-only when the target rack has a site but no building", () => {
+  it("pins site + no-building when the target rack has a site but no building", () => {
     render(<MinerSelectionList eligibility={{ rackId: 1n, siteId: 2n }} />);
 
-    // Rack lives directly under a site: the site pins to that site. The
-    // building dimension is deliberately NOT pinned via includeNoBuilding —
-    // server-side that means "the miner's rack has no building", which would
-    // pull in miners already sitting in another building-less rack.
+    // Direct-under-site rack: site pins to that site, and building pins to "no
+    // building" (includeNoBuilding). Server-side that admits the rack's own
+    // members and excludes rackless miners directly placed in a building.
+    // rackId is set (existing rack), so the server keeps the rack-derived
+    // no-building branch that surfaces the current members.
     const filter = lastFleetFilter();
     expect(filter.siteIds).toEqual([2n]);
     expect(filter.includeUnassigned).toBe(true);
     expect(filter.buildingIds).toEqual([]);
-    expect(filter.includeNoBuilding).toBe(false);
+    expect(filter.includeNoBuilding).toBe(true);
   });
 
-  it("pins rack + site to unplaced-only for a new/unplaced rack (no eligibility)", () => {
+  it("pins every dimension to unplaced-only for a new/unplaced rack (no eligibility)", () => {
     render(<MinerSelectionList eligibility={{}} />);
 
     // A new/unplaced rack: assignable-without-reparent = fully-unplaced miners.
-    // "No rack" (includeNoRack) plus "no site" (includeUnassigned) is
-    // sufficient — a building requires a site, so site IS NULL already
-    // excludes any building-placed miner. includeNoBuilding is intentionally
-    // NOT set (it would match miners in other building-less racks).
+    // Every dimension pins to "no id + include unassigned/no-building". With no
+    // rackId, the server drops includeNoBuilding's rack-derived branch and
+    // reads this as "no rack AND no direct building AND no site".
     const filter = lastFleetFilter();
     expect(filter.includeNoRack).toBe(true);
     expect(filter.rackIds).toEqual([]);
     expect(filter.includeUnassigned).toBe(true);
     expect(filter.siteIds).toEqual([]);
-    expect(filter.includeNoBuilding).toBe(false);
+    expect(filter.includeNoBuilding).toBe(true);
     expect(filter.buildingIds).toEqual([]);
   });
 
