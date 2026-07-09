@@ -119,7 +119,7 @@ test.describe("Proto Fleet - RBAC", () => {
 
     const channelName = generateRandomText(RBAC_ALERT_CHANNEL_PREFIX);
 
-    await commonSteps.loginAsAdmin();
+    await commonSteps.loginAsAdmin({ forceReauth: true });
     await createAlertChannelAsAdmin(alertsPage, channelName);
 
     await provisionRoleAndLogin(commonSteps, {
@@ -196,7 +196,7 @@ test.describe("Proto Fleet - RBAC", () => {
 
     const reason = generateRandomText(RBAC_CURTAILMENT_REASON_PREFIX);
 
-    await commonSteps.loginAsAdmin();
+    await commonSteps.loginAsAdmin({ forceReauth: true });
     await createCurtailment(energyPage, reason);
 
     await provisionRoleAndLogin(commonSteps, {
@@ -273,7 +273,7 @@ test.describe("Proto Fleet - RBAC", () => {
     const buildingName = generateRandomText(RBAC_BUILDING_PREFIX);
     const rackLabel = generateRandomText(RBAC_RACK_PREFIX);
 
-    await commonSteps.loginAsAdmin();
+    await commonSteps.loginAsAdmin({ forceReauth: true });
     await createInfrastructureFixturesAsAdmin(fleetLocationsPage, racksPage, {
       siteName,
       buildingName,
@@ -301,6 +301,7 @@ test.describe("Proto Fleet - RBAC", () => {
     await racksPage.validateRackRow(rackLabel, RBAC_RACK_ZONE, 0);
     await fleetLocationsPage.validateAddSiteButtonHidden();
     await fleetLocationsPage.validateAddBuildingButtonHidden();
+    await racksPage.navigateToRacksPage();
     await racksPage.validateAddRackButtonHidden();
   });
 

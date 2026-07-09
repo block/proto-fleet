@@ -37,8 +37,14 @@ export class CommonSteps {
     };
   }
 
-  async loginAsAdmin() {
+  async loginAsAdmin({ forceReauth = false }: { forceReauth?: boolean } = {}) {
     await test.step("Login as admin", async () => {
+      // eslint-disable-next-line playwright/no-conditional-in-test
+      if (forceReauth && (await this.authPage.isAlreadyLoggedIn())) {
+        await this.authPage.logout();
+        await this.authPage.validateRedirectedToAuth();
+      }
+
       // eslint-disable-next-line playwright/no-conditional-in-test
       if (await this.authPage.isAlreadyLoggedIn()) {
         return;
@@ -59,7 +65,7 @@ export class CommonSteps {
     const { settingsPage, settingsTeamPage } = this.requireTeamHelpers();
 
     return await test.step("Create a custom role and team member as admin", async () => {
-      await this.loginAsAdmin();
+      await this.loginAsAdmin({ forceReauth: true });
       await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
       await settingsTeamPage.openRolesTab();
