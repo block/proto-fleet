@@ -199,21 +199,31 @@ export class EnergyPage extends BasePage {
     await this.page.goto("/energy");
     await expect(this.page).toHaveURL(/.*\/energy/);
 
-    const reasons = await this.page
-      .locator('[data-testid="active-curtailment-primary-lockup"], [data-testid^="curtailment-history-row-"]')
-      .evaluateAll((elements, expectedPrefix) => {
-        const matches = new Set<string>();
-        for (const element of elements) {
-          const text = element.textContent ?? "";
-          for (const line of text.split("\n")) {
-            const trimmed = line.trim();
-            if (trimmed.startsWith(expectedPrefix)) {
-              matches.add(trimmed);
-            }
-          }
+    const reasons = new Set<string>();
+
+    for (const activeLockup of await this.page.getByTestId("active-curtailment-primary-lockup").all()) {
+      const text = (await activeLockup.textContent()) ?? "";
+      for (const line of text.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith(prefix)) {
+          reasons.add(trimmed);
         }
-        return [...matches];
-      }, prefix);
+      }
+    }
+
+    const stoppableHistoryRows = this.page
+      .locator('[data-testid^="curtailment-history-row-"]')
+      .filter({ has: this.page.getByRole("button", { name: /^Stop / }) });
+
+    for (const historyRow of await stoppableHistoryRows.all()) {
+      const text = (await historyRow.textContent()) ?? "";
+      for (const line of text.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith(prefix)) {
+          reasons.add(trimmed);
+        }
+      }
+    }
 
     for (const reason of reasons) {
       await this.cleanupStartedCurtailment({ reason });
