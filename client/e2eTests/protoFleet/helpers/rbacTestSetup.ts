@@ -370,12 +370,19 @@ async function cleanupRbacArtifacts(browser: Browser, testInfo: TestInfo) {
 
       await page.goto("/settings/team");
       if (
-        await page
-          .getByRole("button", { name: "Create role", exact: true })
-          .isVisible()
+        await settingsTeamPage
+          .openMembersTab()
+          .then(() => true)
           .catch(() => false)
       ) {
         await settingsTeamPage.deactivateMembersByPrefix(RBAC_USER_PREFIX).catch(() => undefined);
+      }
+      if (
+        await settingsTeamPage
+          .openRolesTab()
+          .then(() => true)
+          .catch(() => false)
+      ) {
         await settingsTeamPage.deleteRolesByPrefix(RBAC_ROLE_PREFIX).catch(() => undefined);
       }
     },
