@@ -85,14 +85,18 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, created.ID, got.ID)
 
-	// Single-fan devices normalize fan_count to 1.
+	// Single-fan devices normalize fan_count to 1, and a padded
+	// driver_type is trimmed before persisting so later registry
+	// lookups resolve the stored key.
 	single, err := svc.Create(ctx, createParams(func(p *models.CreateParams) {
 		p.Name = "Row 3 intake fan"
 		p.DeviceKind = models.KindSingleFan
 		p.FanCount = 7
+		p.DriverType = "  modbus_tcp  "
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), single.FanCount)
+	assert.Equal(t, "modbus_tcp", single.DriverType)
 
 	// List returns both, ordered by name.
 	devices, err := svc.List(ctx, models.ListFilter{OrgID: testOrgID})

@@ -51,13 +51,14 @@ func sitePermsCtx(t *testing.T, orgID int64) context.Context {
 const validConfig = `{"endpoint":"10.1.2.3","port":502,"unit_id":5,"register_address":2001,"write_mode":"holding_register"}`
 
 func validCreateRequest() *pb.CreateInfrastructureDeviceRequest {
+	enabled := true
 	return &pb.CreateInfrastructureDeviceRequest{
 		SiteId:       10,
 		BuildingName: "Building 1",
 		Name:         "Zone A exhaust fans",
 		DeviceKind:   models.KindFanGroup,
 		FanCount:     12,
-		Enabled:      true,
+		Enabled:      &enabled,
 		DriverType:   "modbus_tcp",
 		DriverConfig: validConfig,
 	}
@@ -281,6 +282,37 @@ func TestHandler_CreateRejectsEmptyDriverConfig(t *testing.T) {
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
 	assert.Contains(t, err.Error(), "driver_config is required")
+}
+
+func TestHandler_CreateDefaultsOmittedEnabledToTrue(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ctx := sitePermsCtx(t, 42)
+
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil).Times(2)
+	var seen []bool
+	h.store.EXPECT().CreateInfrastructureDevice(gomock.Any(), gomock.Any()).Times(2).DoAndReturn(
+		func(_ context.Context, params models.CreateParams) (*models.Device, error) {
+			seen = append(seen, params.Enabled)
+			return deviceAtSite(7, 10), nil
+		},
+	)
+
+	// Omitted enabled defaults to true (matching the column default).
+	req := validCreateRequest()
+	req.Enabled = nil
+	_, err := h.handler.CreateInfrastructureDevice(ctx, connect.NewRequest(req))
+	require.NoError(t, err)
+
+	// Explicit false is preserved.
+	disabled := false
+	req = validCreateRequest()
+	req.Enabled = &disabled
+	_, err = h.handler.CreateInfrastructureDevice(ctx, connect.NewRequest(req))
+	require.NoError(t, err)
+
+	assert.Equal(t, []bool{true, false}, seen)
 }
 
 func TestHandler_CreateRejectsBlankDriverType(t *testing.T) {

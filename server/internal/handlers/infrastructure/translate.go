@@ -17,6 +17,13 @@ func toListFilter(req *pb.ListInfrastructureDevicesRequest, orgID int64) models.
 }
 
 func toCreateParams(req *pb.CreateInfrastructureDeviceRequest, orgID int64) models.CreateParams {
+	// enabled is optional with presence tracking: an omitted field
+	// defaults to true (matching the column default), so API-created
+	// devices are enabled unless the client explicitly disables them.
+	enabled := true
+	if req.Enabled != nil {
+		enabled = req.GetEnabled()
+	}
 	return models.CreateParams{
 		OrgID:        orgID,
 		SiteID:       req.GetSiteId(),
@@ -24,7 +31,7 @@ func toCreateParams(req *pb.CreateInfrastructureDeviceRequest, orgID int64) mode
 		Name:         req.GetName(),
 		DeviceKind:   req.GetDeviceKind(),
 		FanCount:     req.GetFanCount(),
-		Enabled:      req.GetEnabled(),
+		Enabled:      enabled,
 		DriverType:   req.GetDriverType(),
 		DriverConfig: json.RawMessage(req.GetDriverConfig()),
 	}

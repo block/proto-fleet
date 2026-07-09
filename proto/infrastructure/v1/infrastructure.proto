@@ -80,7 +80,9 @@ message CreateInfrastructureDeviceRequest {
     // Must be 1 for single_fan and >= 2 for fan_group; enforced by the
     // domain service.
     int32 fan_count = 5 [(buf.validate.field).int32.gte = 1];
-    bool enabled = 6;
+    // Defaults to true when omitted (matching the column default), so
+    // API-created devices are enabled unless explicitly disabled.
+    optional bool enabled = 6;
     string driver_type = 7 [(buf.validate.field).string = {
         min_len: 1
         max_len: 64

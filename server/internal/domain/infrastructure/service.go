@@ -67,6 +67,7 @@ func (s *Service) Create(ctx context.Context, params models.CreateParams) (*mode
 	params.BuildingName = normalized.BuildingName
 	params.Name = normalized.Name
 	params.FanCount = normalized.FanCount
+	params.DriverType = normalized.DriverType
 
 	var created *models.Device
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
@@ -108,6 +109,7 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 	params.BuildingName = normalized.BuildingName
 	params.Name = normalized.Name
 	params.FanCount = normalized.FanCount
+	params.DriverType = normalized.DriverType
 
 	var updated *models.Device
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
