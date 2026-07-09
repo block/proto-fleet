@@ -15,8 +15,30 @@ on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflo
   status:
 
 concurrency:
-  group: review-policy-${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.event.check_run.head_sha || github.event.check_suite.head_sha || github.event.sha || github.sha || github.run_id }}
-  cancel-in-progress: true
+  group: >-
+    review-policy-${{
+      (
+        (github.event_name == 'check_run' && github.event.check_run.app.slug == 'github-actions') ||
+        (github.event_name == 'check_run' && github.event.action == 'rerequested') ||
+        (github.event_name == 'check_suite' && github.event.check_suite.app.slug == 'github-actions') ||
+        (github.event_name == 'check_suite' && github.event.action == 'rerequested') ||
+        (github.event_name == 'status' && (github.event.context == 'Review Policy' || github.event.context == 'Review Policy Advisory')) ||
+        (github.event_name == 'pull_request_review' && github.event.action == 'submitted' && github.event.review.state == 'commented')
+      ) &&
+      format('ignored-{0}', github.run_id) ||
+      (github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.event.check_run.head_sha || github.event.check_suite.head_sha || github.event.sha || github.sha || github.run_id)
+    }}
+  cancel-in-progress: >-
+    ${{
+      !(
+        (github.event_name == 'check_run' && github.event.check_run.app.slug == 'github-actions') ||
+        (github.event_name == 'check_run' && github.event.action == 'rerequested') ||
+        (github.event_name == 'check_suite' && github.event.check_suite.app.slug == 'github-actions') ||
+        (github.event_name == 'check_suite' && github.event.action == 'rerequested') ||
+        (github.event_name == 'status' && (github.event.context == 'Review Policy' || github.event.context == 'Review Policy Advisory')) ||
+        (github.event_name == 'pull_request_review' && github.event.action == 'submitted' && github.event.review.state == 'commented')
+      )
+    }}
 
 permissions:
   actions: read
@@ -273,6 +295,7 @@ jobs:
           steps.pr.outputs.same_repo == 'true' &&
           steps.preflight.outputs.eligible == 'true'
         continue-on-error: true
+        timeout-minutes: 10
         uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
@@ -419,7 +442,9 @@ jobs:
   publish-status:
     name: Publish Review Policy Status
     needs: evaluate
-    if: always() && needs.evaluate.outputs.found == 'true'
+    if: >-
+      always() &&
+      needs.evaluate.outputs.found == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     concurrency:
@@ -438,12 +463,14 @@ jobs:
           DECISION: ${{ needs.evaluate.outputs.decision || 'needs-human-review' }}
           PASSED: ${{ needs.evaluate.outputs.passed || 'false' }}
           ENFORCED: ${{ needs.evaluate.outputs.enforced || 'true' }}
+          EVALUATE_RESULT: ${{ needs.evaluate.result }}
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           script: |
             const decision = process.env.DECISION || 'needs-human-review';
             const passed = process.env.PASSED === 'true';
             const enforced = process.env.ENFORCED !== 'false';
+            const evaluationCancelled = process.env.EVALUATE_RESULT === 'cancelled';
             const issue_number = Number(process.env.PR_NUMBER);
             const baseSha = process.env.BASE_SHA;
             const headSha = process.env.HEAD_SHA;
@@ -453,6 +480,9 @@ jobs:
               'human-approved': 'Current authorized human approval satisfies policy.',
               'needs-human-review': 'Human review is required before merge.',
             };
+            const description = evaluationCancelled
+              ? 'Review policy evaluation was cancelled; waiting for a fresh decision.'
+              : (descriptions[decision] || `Review policy decision: ${decision}`);
             if (!Number.isInteger(issue_number) || issue_number <= 0) {
               core.setFailed(`Invalid pull request number for review policy status: ${process.env.PR_NUMBER}`);
               return;
@@ -497,21 +527,27 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               sha: headSha,
-              state: passed || !enforced ? 'success' : 'failure',
+              state: evaluationCancelled ? 'pending' : (passed || !enforced ? 'success' : 'failure'),
               context: statusContext,
-              description: descriptions[decision] || `Review policy decision: ${decision}`,
+              description,
               target_url: process.env.TARGET_URL,
             });
 
   sync-label:
     name: Sync Label
     needs: evaluate
-    if: always() && needs.evaluate.outputs.found == 'true'
+    if: >-
+      always() &&
+      needs.evaluate.outputs.found == 'true' &&
+      needs.evaluate.result != 'cancelled'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    concurrency:
+      group: review-policy-label-${{ needs.evaluate.outputs.head_sha }}
+      cancel-in-progress: true
     permissions:
       issues: write
-      pull-requests: read
+      pull-requests: write
     steps:
       - name: Sync review policy label
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -615,7 +651,7 @@ jobs:
               }
             } catch (error) {
               if (error.status === 403) {
-                core.info(`Unable to sync review policy label with this event token: ${error.message}`);
+                core.warning(`Unable to sync review policy label with this event token: ${error.message}`);
               } else {
                 core.warning(`Unable to sync review policy label: ${error.message}`);
               }
