@@ -1304,6 +1304,7 @@ describe("useMinerActions", () => {
 
       expect(mockStartBatchOperation).toHaveBeenCalledWith(
         expect.objectContaining({
+          batchIdentifier: expect.stringMatching(/^unpair-/),
           action: deviceActions.unpair,
           deviceIdentifiers: ["device-1"],
         }),

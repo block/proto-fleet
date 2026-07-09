@@ -135,6 +135,10 @@ const actionCapabilityMetadata: Partial<Record<SupportedAction, { description: s
   [deviceActions.firmwareUpdate]: { description: "Firmware updates", commandType: CommandType.FIRMWARE_UPDATE },
 };
 
+const generateUnpairBatchIdentifier = (): string => {
+  return `unpair-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+};
+
 function getUniqueModels(
   deviceIds: string[],
   miners: Record<string, MinerStateSnapshot>,
@@ -1147,7 +1151,7 @@ export const useMinerActions = ({
             longRunning: true,
             onClose: () => onActionComplete?.(),
           });
-          const unpairBatchId = crypto.randomUUID();
+          const unpairBatchId = generateUnpairBatchIdentifier();
           startBatchOperation({
             batchIdentifier: unpairBatchId,
             action: deviceActions.unpair,
