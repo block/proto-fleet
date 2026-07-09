@@ -10,6 +10,7 @@ const {
   mockRefetchErrors,
   mockListAllBuildings,
   mockUseHasPermission,
+  mockNotifyMinersChanged,
   mockFleetOutletContext,
 } = vi.hoisted(() => ({
   mockMinerList: vi.fn(() => <div data-testid="miner-list">MinerList</div>),
@@ -17,6 +18,7 @@ const {
   mockRefetchErrors: vi.fn(),
   mockListAllBuildings: vi.fn(),
   mockUseHasPermission: vi.fn((_permission: string) => true),
+  mockNotifyMinersChanged: vi.fn(),
   mockFleetOutletContext: {
     sites: [],
     sitesError: null,
@@ -24,6 +26,7 @@ const {
     siteCatalogAccessGranted: true,
     refetchSites: vi.fn(),
     notifyPairingCompleted: vi.fn(),
+    notifyMinersChanged: vi.fn(),
     minersChangedAt: 0,
     publishViewFilterContext: vi.fn(),
   },
@@ -147,6 +150,7 @@ describe("Fleet - Polling", () => {
       sitesError: null,
       sitesLoaded: true,
       siteCatalogAccessGranted: true,
+      notifyMinersChanged: mockNotifyMinersChanged,
       minersChangedAt: 0,
     });
 
@@ -312,6 +316,28 @@ describe("Fleet - Component Integration", () => {
     expect(mockRefreshCurrentPage).toHaveBeenCalledTimes(1);
     expect(mockRefetchErrors).toHaveBeenCalledTimes(1);
     expect(mockRefetchAuthNeededMiners).toHaveBeenCalledTimes(1);
+    expect(mockRefetch).not.toHaveBeenCalled();
+  });
+
+  it("passes a miner refresh callback that pulses FleetLayout miner changes", async () => {
+    const useFleetModule = await import("@/protoFleet/api/useFleet");
+    const mockRefetch = vi.fn();
+
+    vi.mocked(useFleetModule.default).mockReturnValue(
+      createFleetMock({
+        minerIds: ["miner-1"],
+        totalMiners: 1,
+        refetch: mockRefetch,
+      }),
+    );
+
+    renderFleet();
+
+    const minerListCalls = mockMinerList.mock.calls as unknown as Array<[{ onRefetchMiners: () => void }]>;
+    const latestMinerListProps = minerListCalls[minerListCalls.length - 1][0];
+    latestMinerListProps.onRefetchMiners();
+
+    expect(mockNotifyMinersChanged).toHaveBeenCalledTimes(1);
     expect(mockRefetch).not.toHaveBeenCalled();
   });
 

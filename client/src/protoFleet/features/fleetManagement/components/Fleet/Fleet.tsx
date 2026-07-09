@@ -92,8 +92,14 @@ const Fleet = () => {
   const { listAllBuildings } = useBuildings();
   const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
   const [availableRacks, setAvailableRacks] = useState<DeviceSet[]>([]);
-  const { sites, siteCatalogAccessGranted, notifyPairingCompleted, minersChangedAt, publishViewFilterContext } =
-    useFleetOutletContext();
+  const {
+    sites,
+    siteCatalogAccessGranted,
+    notifyPairingCompleted,
+    notifyMinersChanged,
+    minersChangedAt,
+    publishViewFilterContext,
+  } = useFleetOutletContext();
   // Validate scope against catalog *access* (authoritative now), not
   // sitesLoaded — a mid-session PermissionDenied clears `sites` to [] while
   // sitesLoaded stays true, which would otherwise strip a reachable scoped
@@ -398,7 +404,7 @@ const Fleet = () => {
           currentSortConfig={currentSortConfig}
           onExportCsv={siteScopeMatchesNoRows ? () => undefined : exportCsv}
           exportCsvLoading={siteScopeMatchesNoRows ? false : isExportingCsv}
-          onRefetchMiners={refetchAll}
+          onRefetchMiners={notifyMinersChanged}
           onRefreshMinersComplete={refreshVisibleRows}
           onWorkerNameUpdated={updateMinerWorkerName}
           onMergeMiners={mergeMiners}

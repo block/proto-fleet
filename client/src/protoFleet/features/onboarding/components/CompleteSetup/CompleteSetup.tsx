@@ -130,6 +130,7 @@ const ConfigurePoolCard = ({
 type CompleteSetupProps = {
   className?: string;
   lastPairingCompletedAt?: number;
+  minersChangedAt?: number;
   onRefetchMiners?: () => void;
   onPairingCompleted?: () => void;
 };
@@ -137,6 +138,7 @@ type CompleteSetupProps = {
 const CompleteSetup = ({
   className = "",
   lastPairingCompletedAt: externalPairingTimestamp = 0,
+  minersChangedAt = 0,
   onRefetchMiners,
   onPairingCompleted: externalOnPairingCompleted,
 }: CompleteSetupProps) => {
@@ -161,6 +163,15 @@ const CompleteSetup = ({
 
   // Fetch count of miners needing pool configuration
   const { poolNeededCount, isLoading: isLoadingPoolNeeded, refetch: refetchPoolNeededCount } = usePoolNeededCount();
+
+  const lastHandledMinersChangedAtRef = useRef(0);
+  useEffect(() => {
+    if (minersChangedAt <= 0 || minersChangedAt === lastHandledMinersChangedAtRef.current) return;
+
+    lastHandledMinersChangedAtRef.current = minersChangedAt;
+    refetchAuthNeededMiners();
+    refetchPoolNeededCount();
+  }, [minersChangedAt, refetchAuthNeededMiners, refetchPoolNeededCount]);
 
   // Get streaming command batch updates
   const { streamCommandBatchUpdates } = useMinerCommand();

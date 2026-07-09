@@ -226,6 +226,7 @@ const FleetLayout = () => {
       siteCatalogAccessGranted,
       refetchSites,
       notifyPairingCompleted,
+      notifyMinersChanged,
       minersChangedAt,
       publishViewFilterContext,
     }),
@@ -236,6 +237,7 @@ const FleetLayout = () => {
       siteCatalogAccessGranted,
       refetchSites,
       notifyPairingCompleted,
+      notifyMinersChanged,
       minersChangedAt,
       publishViewFilterContext,
     ],
@@ -281,6 +283,7 @@ const FleetLayout = () => {
         {canReadMiners ? (
           <CompleteSetup
             lastPairingCompletedAt={lastPairingCompletedAt}
+            minersChangedAt={minersChangedAt}
             onPairingCompleted={notifyPairingCompleted}
             onRefetchMiners={notifyMinersChanged}
           />

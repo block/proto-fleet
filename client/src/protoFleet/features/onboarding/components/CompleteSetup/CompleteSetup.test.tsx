@@ -100,11 +100,14 @@ beforeEach(async () => {
 });
 
 describe("CompleteSetup", () => {
-  const renderCompleteSetup = (props: { lastPairingCompletedAt?: number; onRefetchMiners?: () => void } = {}) => {
+  const renderCompleteSetup = (
+    props: { lastPairingCompletedAt?: number; minersChangedAt?: number; onRefetchMiners?: () => void } = {},
+  ) => {
     return render(
       <MemoryRouter>
         <CompleteSetup
           lastPairingCompletedAt={props.lastPairingCompletedAt}
+          minersChangedAt={props.minersChangedAt}
           onRefetchMiners={props.onRefetchMiners ?? mockRefetchMiners}
         />
       </MemoryRouter>,
@@ -577,6 +580,26 @@ describe("CompleteSetup", () => {
       renderCompleteSetup();
 
       expect(screen.queryByText("Authenticate miners")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("Miner change refresh", () => {
+    it("refetches setup counts when fleet miners change", async () => {
+      const { rerender } = renderCompleteSetup({ minersChangedAt: 0 });
+
+      mockRefetchAuthNeededMiners.mockClear();
+      mockRefetchPoolNeededCount.mockClear();
+
+      rerender(
+        <MemoryRouter>
+          <CompleteSetup minersChangedAt={123} onRefetchMiners={mockRefetchMiners} />
+        </MemoryRouter>,
+      );
+
+      await waitFor(() => {
+        expect(mockRefetchAuthNeededMiners).toHaveBeenCalledTimes(1);
+        expect(mockRefetchPoolNeededCount).toHaveBeenCalledTimes(1);
+      });
     });
   });
 
