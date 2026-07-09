@@ -137,6 +137,16 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     requiredPermission: "miner:firmware_update",
   },
   {
+    path: "/settings/nodes",
+    label: "Nodes",
+    parent: "/settings",
+    section: "Fleet",
+    // The list (ListFleetNodes) is gated server-side on fleetnode:read, so a
+    // read-only caller still gets a useful status view; enroll, confirm, and
+    // revoke need fleetnode:manage and are hidden in-page.
+    requiredPermission: "fleetnode:read",
+  },
+  {
     path: "/settings/schedules",
     label: "Schedules",
     parent: "/settings",

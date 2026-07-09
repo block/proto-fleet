@@ -37,6 +37,9 @@ message CreateEnrollmentCodeResponse {
     // Plaintext code. Returned exactly once and never re-fetchable.
     string code = 1;
     google.protobuf.Timestamp expires_at = 2;
+    // Stable handle for this pending enrollment. Use this to correlate the
+    // operator's modal with the fleet node that later registers with the code.
+    int64 pending_enrollment_id = 3 [(buf.validate.field).int64.gt = 0];
 }
 
 message ListFleetNodesRequest {}
@@ -52,10 +55,14 @@ message FleetNodeSummary {
     string identity_fingerprint = 4;
     google.protobuf.Timestamp created_at = 5;
     optional google.protobuf.Timestamp last_seen_at = 6;
+    // Present only while this node is awaiting confirmation for a specific
+    // pending enrollment.
+    optional int64 pending_enrollment_id = 7 [(buf.validate.field).int64.gt = 0];
 }
 
 message ConfirmFleetNodeRequest {
     int64 fleet_node_id = 1 [(buf.validate.field).int64.gt = 0];
+    int64 pending_enrollment_id = 2 [(buf.validate.field).int64.gt = 0];
 }
 
 message ConfirmFleetNodeResponse {
@@ -66,6 +73,10 @@ message ConfirmFleetNodeResponse {
 
 message RevokeFleetNodeRequest {
     int64 fleet_node_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Set when rejecting an awaiting enrollment so the server can verify the
+    // operator is acting on the enrollment they minted. Omitted for normal
+    // confirmed-node revocation.
+    optional int64 pending_enrollment_id = 2 [(buf.validate.field).int64.gt = 0];
 }
 
 message RevokeFleetNodeResponse {}
