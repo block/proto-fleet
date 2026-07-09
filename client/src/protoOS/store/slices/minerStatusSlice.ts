@@ -8,7 +8,14 @@ import type { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 // =============================================================================
 
 export type MiningStatus =
-  "Uninitialized" | "PoweringOn" | "Mining" | "DegradedMining" | "PoweringOff" | "Stopped" | "NoPools" | "Error";
+  | "Uninitialized"
+  | "PoweringOn"
+  | "Mining"
+  | "DegradedMining"
+  | "PoweringOff"
+  | "Stopped"
+  | "NoPools"
+  | "Error";
 
 export interface ErrorsState {
   errors: MinerError[];

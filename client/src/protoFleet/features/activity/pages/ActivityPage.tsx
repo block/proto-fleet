@@ -114,31 +114,31 @@ const ActivityPageContent = () => {
         <div className="pb-4">
           <Header title="Activity" titleSize="text-heading-300" />
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 pb-6">
-          <div className="min-w-0 flex-1">
-            <ActivityFilters
-              searchValue={searchText}
-              onSearchChange={handleSearchChange}
-              eventTypes={eventTypes}
-              scopeTypes={scopeTypes}
-              users={users}
-              selectedTypes={selectedTypes}
-              selectedScopes={selectedScopes}
-              selectedUsers={selectedUsers}
-              onTypesChange={setSelectedTypes}
-              onScopesChange={setSelectedScopes}
-              onUsersChange={setSelectedUsers}
-            />
-          </div>
-          <Button
-            variant={variants.secondary}
-            size={sizes.compact}
-            onClick={() => exportCsv(filter)}
-            loading={isExportingCsv}
-            disabled={isExportingCsv || totalCount === 0}
-          >
-            Export CSV
-          </Button>
+        <div className="pb-6">
+          <ActivityFilters
+            searchValue={searchText}
+            onSearchChange={handleSearchChange}
+            eventTypes={eventTypes}
+            scopeTypes={scopeTypes}
+            users={users}
+            selectedTypes={selectedTypes}
+            selectedScopes={selectedScopes}
+            selectedUsers={selectedUsers}
+            onTypesChange={setSelectedTypes}
+            onScopesChange={setSelectedScopes}
+            onUsersChange={setSelectedUsers}
+            actions={
+              <Button
+                variant={variants.secondary}
+                size={sizes.compact}
+                onClick={() => exportCsv(filter)}
+                loading={isExportingCsv}
+                disabled={isExportingCsv || totalCount === 0}
+              >
+                Export CSV
+              </Button>
+            }
+          />
         </div>
       </div>
 

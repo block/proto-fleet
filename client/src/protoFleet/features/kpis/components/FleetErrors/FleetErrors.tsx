@@ -1,3 +1,5 @@
+import clsx from "clsx";
+
 import ComponentErrors from "../ComponentErrors";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { type ActiveSite, DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
@@ -12,6 +14,7 @@ type FleetErrorsProps = {
   hashboardErrors?: number;
   psuErrors?: number;
   className?: string;
+  gapClassName?: string;
   extraFilterParams?: string;
   activeSite?: ActiveSite;
 };
@@ -22,6 +25,7 @@ const FleetErrors = ({
   hashboardErrors,
   psuErrors,
   className,
+  gapClassName = "gap-4",
   extraFilterParams,
   activeSite = DEFAULT_ACTIVE_SITE,
 }: FleetErrorsProps) => {
@@ -29,7 +33,7 @@ const FleetErrors = ({
   const minerIssuesHref = (issue: string) => scopedPath(`/fleet/miners?issues=${issue}${suffix}`, activeSite);
   return (
     <div className={className}>
-      <div className="grid grid-cols-1 gap-4 tablet:grid-cols-2 laptop:grid-cols-4">
+      <div className={clsx("grid grid-cols-1 tablet:grid-cols-2 laptop:grid-cols-4", gapClassName)}>
         <ComponentErrors
           icon={<ControlBoard />}
           heading="Control Boards"

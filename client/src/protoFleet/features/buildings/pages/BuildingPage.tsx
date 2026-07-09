@@ -255,6 +255,7 @@ const BuildingPage = () => {
   const label = effectiveBuilding.name || "(unnamed building)";
   const idForHeader = effectiveBuilding.id.toString();
   const buildingFilterParam = `building=${effectiveBuilding.id.toString()}`;
+  const buildingRacksPath = scopedPath(`/fleet/racks?${buildingFilterParam}`, activeSite);
   const siteIdForHeader = effectiveBuilding.siteId?.toString();
   const buildingSiblings = allBuildings
     .filter((row) => row.building !== undefined)
@@ -302,63 +303,79 @@ const BuildingPage = () => {
         {/* Stats fetch failure on initial load — surface it inline so the
             metrics row, diagnostics, and performance section don't sit
             indefinitely in skeleton state with no recovery affordance. */}
-        {statsError && !statsHasLoaded ? (
-          <div className="px-6 pt-6 laptop:px-10">
-            <div
-              className="flex items-center justify-between gap-3 rounded-xl border border-intent-critical-20 bg-intent-critical-10 px-4 py-3 text-200 text-intent-critical-text"
-              data-testid="building-page-stats-error"
-            >
-              <span>Couldn&apos;t load building metrics: {statsError}</span>
-              <Button
-                variant={variants.secondary}
-                size={sizes.compact}
-                text="Retry"
-                onClick={() => refetchStats()}
-                className="shrink-0"
-                testId="building-page-stats-retry"
-              />
-            </div>
-          </div>
-        ) : null}
-
         {/* Metrics row */}
-        <section className="px-6 pt-6 laptop:px-10">
-          <BuildingMetricsRow powerCapacityKw={effectiveBuilding.powerKw} stats={stats} />
+        <section className="px-6 pt-10 laptop:px-10" data-testid="building-page-metrics-section">
+          <div className="flex flex-col gap-3">
+            {statsError && !statsHasLoaded ? (
+              <div
+                className="flex items-center justify-between gap-3 rounded-xl border border-intent-critical-20 bg-intent-critical-10 px-4 py-3 text-200 text-intent-critical-text"
+                data-testid="building-page-stats-error"
+              >
+                <span>Couldn&apos;t load building metrics: {statsError}</span>
+                <Button
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  text="Retry"
+                  onClick={() => refetchStats()}
+                  className="shrink-0"
+                  testId="building-page-stats-retry"
+                />
+              </div>
+            ) : null}
+            <BuildingMetricsRow powerCapacityKw={effectiveBuilding.powerKw} stats={stats} variant="compact" />
+          </div>
         </section>
 
         {/* Diagnostics: building rack grid + component health */}
-        <section className="p-6 laptop:p-10">
-          <div className="flex flex-col gap-6">
-            {stats ? (
-              <BuildingRackGrid
-                rackHealth={stats.rackHealth}
-                aisles={effectiveBuilding.aisles}
-                racksPerAisle={effectiveBuilding.racksPerAisle}
+        <section className="px-4 pt-10 laptop:px-8" data-testid="building-page-racks-section">
+          <div className="flex flex-col gap-3">
+            <div
+              className="flex items-center justify-between gap-3 px-2"
+              data-testid="building-page-racks-section-header"
+            >
+              <Header title="Racks" titleSize="text-heading-200" testId="building-page-racks-title" />
+              <Button
+                variant={variants.secondary}
+                size={sizes.compact}
+                text="View racks"
+                to={buildingRacksPath}
+                className="shrink-0"
+                testId="building-page-racks-section-view"
               />
-            ) : (
-              <PlaceholderBlock
-                label={statsError ? "Rack health unavailable" : "Loading rack health…"}
-                className="h-64"
+            </div>
+            <div className="flex flex-col gap-1 overflow-visible p-2" data-testid="building-page-racks-card-stack">
+              {stats ? (
+                <BuildingRackGrid
+                  rackHealth={stats.rackHealth}
+                  aisles={effectiveBuilding.aisles}
+                  racksPerAisle={effectiveBuilding.racksPerAisle}
+                />
+              ) : (
+                <PlaceholderBlock
+                  label={statsError ? "Rack health unavailable" : "Loading rack health…"}
+                  className="h-64"
+                />
+              )}
+              <FleetErrors
+                controlBoardErrors={controlBoardErrors}
+                fanErrors={fanErrors}
+                gapClassName="gap-1"
+                hashboardErrors={hashboardErrors}
+                psuErrors={psuErrors}
+                extraFilterParams={buildingFilterParam}
+                activeSite={activeSite}
               />
-            )}
-            <FleetErrors
-              controlBoardErrors={controlBoardErrors}
-              fanErrors={fanErrors}
-              hashboardErrors={hashboardErrors}
-              psuErrors={psuErrors}
-              extraFilterParams={buildingFilterParam}
-              activeSite={activeSite}
-            />
+            </div>
           </div>
         </section>
 
         {/* Performance section — identical wiring to RackOverviewPage */}
-        <section className="pb-6">
+        <section className="pb-6" data-testid="building-page-performance-section">
           <div ref={refs.vertical.start} />
-          <div className={`${bgClass} sticky top-0 z-2 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10`}>
-            <div className="flex flex-col gap-4 tablet:flex-row tablet:items-center tablet:justify-between">
+          <div className={`${bgClass} sticky top-0 z-2 px-6 pt-10 pb-1 laptop:px-10`}>
+            <div className="flex flex-col gap-3 tablet:flex-row tablet:items-center tablet:justify-between">
               <div className="text-heading-200 text-text-primary">Performance</div>
-              <div className="flex items-center gap-6 text-200 text-core-primary-50">
+              <div className="flex items-center gap-3 text-200 text-core-primary-50">
                 <div className="flex items-center gap-2">
                   <svg width="24" height="4">
                     <line
@@ -412,8 +429,8 @@ const BuildingPage = () => {
             </div>
           </div>
 
-          <div className="px-6 pt-4 laptop:px-10">
-            <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
+          <div className="px-4 laptop:px-8">
+            <DeviceSetPerformanceSection className="p-2" duration={duration} gapClassName="gap-1" metrics={metrics} />
           </div>
           {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}
           <div ref={refs.vertical.end} />

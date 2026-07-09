@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,7 +42,7 @@ vi.mock("@/protoFleet/components/PageHeader/SitePicker", async (importActual) =>
 // The presentational children pull in their own dependency trees; stub them so
 // these tests isolate permission gating and filter wiring.
 vi.mock("@/protoFleet/features/activity/components/ActivityFilters", () => ({
-  default: () => <div data-testid="activity-filters" />,
+  default: ({ actions }: { actions?: ReactNode }) => <div data-testid="activity-filters">{actions}</div>,
 }));
 
 vi.mock("@/protoFleet/features/activity/components/ActivityTable", () => ({

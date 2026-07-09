@@ -80,7 +80,7 @@ const Header = ({
         className,
       )}
     >
-      <div className={clsx("w-full", { "flex items-center": inline })}>
+      <div className={clsx("w-full min-w-0", { "flex items-center": inline })}>
         {icon && iconOnClick ? (
           <Button
             ariaLabel={iconAriaLabel}
@@ -95,7 +95,7 @@ const Header = ({
         ) : null}
         {icon && !iconOnClick ? icon : null}
         <div
-          className={clsx("text-text-primary", {
+          className={clsx("min-w-0 text-text-primary", {
             "ml-4": (icon || iconOnClick) && inline,
             "mt-3": (icon || iconOnClick) && !inline,
             "mb-1": subtitle && !compact,

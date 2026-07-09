@@ -25,6 +25,7 @@ type NavigationProps = {
 const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
   const { pathname } = useLocation();
   const { isPhone, isTablet } = useWindowDimensions();
+  const isFloatingMenu = isPhone || isTablet;
   const logout = useLogoutAction();
   const permissions = usePermissions();
   const featureEnabled = useNavFeatureEnabled();
@@ -109,25 +110,29 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
         "laptop:bg-surface-base",
         "desktop:w-50 desktop:overflow-hidden desktop:border-r desktop:border-core-primary-10",
         "desktop:bg-surface-base",
+        isFloatingMenu && "h-dvh max-h-dvh overflow-hidden",
         className,
       )}
     >
-      <div className="flex flex-col items-start gap-1">
+      <div className={clsx("flex flex-col items-start gap-1", isFloatingMenu && "min-h-0 flex-1")}>
         {homeItem && homeItem.path ? (
           <div
-            className={clsx("flex h-15 w-full items-start px-3 py-3 laptop:h-13 laptop:items-center laptop:!pb-0", {
-              "border-b border-border-5": isPhone || isTablet,
-            })}
+            className={clsx(
+              "flex h-15 w-full shrink-0 items-start px-3 py-3 laptop:h-13 laptop:items-center laptop:!pb-0",
+              {
+                "border-b border-border-5": isFloatingMenu,
+              },
+            )}
           >
             <Link
               to={scopeLink(homeItem)}
               aria-label="Home"
               className={clsx("flex items-center", {
-                "w-full": isPhone || isTablet,
-                "px-2.5": !(isPhone || isTablet),
+                "w-full": isFloatingMenu,
+                "px-2.5": !isFloatingMenu,
               })}
             >
-              {isPhone || isTablet ? (
+              {isFloatingMenu ? (
                 <Logo className="h-10 text-text-primary hover:cursor-pointer" />
               ) : (
                 <div className="flex size-5 shrink-0 items-center justify-center">
@@ -138,11 +143,17 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
           </div>
         ) : null}
 
-        <ul data-testid="navigation-menu" className="flex w-full flex-col items-start gap-1 px-3">
+        <ul
+          data-testid="navigation-menu"
+          className={clsx(
+            "flex w-full flex-col items-start gap-1 px-3",
+            isFloatingMenu && "min-h-0 flex-1 overflow-y-auto overscroll-contain pb-3",
+          )}
+        >
           {visibleItems.map((item) => {
             // Skip Settings item on mobile/tablet if it has secondary nav items - we'll render it separately with expand/collapse
             if (
-              (isPhone || isTablet) &&
+              isFloatingMenu &&
               item.path === "/settings" &&
               secondaryNavItems.some((nav) => nav.parent === item.path)
             ) {
@@ -159,7 +170,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
                   className={clsx(
                     "group flex h-10 w-full items-center rounded-lg px-2.5 py-2",
                     "hover:cursor-pointer hover:bg-core-primary-5",
-                    isCurrentPath(item) || isPhone || isTablet ? "text-text-primary" : "text-text-primary-50",
+                    isCurrentPath(item) || isFloatingMenu ? "text-text-primary" : "text-text-primary-50",
                     { "bg-core-primary-5": isCurrentPath(item) },
                   )}
                 >
@@ -182,7 +193,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
           })}
 
           {/* On mobile/tablet: show expandable Settings menu */}
-          {(isPhone || isTablet) && settingsItem && visibleSettingsItems.length > 0 ? (
+          {isFloatingMenu && settingsItem && visibleSettingsItems.length > 0 ? (
             <>
               <li className="w-full">
                 <button
@@ -193,17 +204,19 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
                   aria-controls="settings-submenu"
                   aria-label="Settings menu toggle"
                   className={clsx(
-                    "group flex w-full items-center justify-start rounded-lg px-2 py-1 text-text-primary",
+                    "group flex h-10 w-full items-center justify-start rounded-lg px-2.5 py-2 text-text-primary",
                     "hover:cursor-pointer hover:bg-core-primary-5",
                   )}
                 >
-                  {settingsItem.icon
-                    ? createElement(settingsItem.icon, {
-                        className: "transition-transform duration-200 ease-gentle group-hover:scale-105",
-                        width: "w-5",
-                      })
-                    : null}
-                  <span className="ml-2 flex-1 text-left text-emphasis-300 text-text-primary-70">
+                  <div className="flex size-5 shrink-0 items-center justify-center">
+                    {settingsItem.icon
+                      ? createElement(settingsItem.icon, {
+                          className: "transition-transform duration-200 ease-gentle group-hover:scale-105",
+                          width: "w-5",
+                        })
+                      : null}
+                  </div>
+                  <span className="ml-3 flex-1 text-left text-emphasis-300 text-text-primary-70">
                     {settingsItem.label}
                   </span>
                   {showSettingsHover || isSettingsExpanded ? (
@@ -243,7 +256,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
                               onClick={() => closeMenu?.()}
                               aria-current={isCurrentPath(nav.path) ? "page" : undefined}
                               className={clsx(
-                                "block rounded-lg px-9 py-1 text-emphasis-300 text-text-primary-70",
+                                "flex h-10 items-center rounded-lg px-9 text-emphasis-300 text-text-primary-70",
                                 "hover:cursor-pointer hover:bg-core-primary-5",
                                 {
                                   "bg-core-primary-5": isCurrentPath(nav.path),
@@ -263,7 +276,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
           ) : null}
         </ul>
       </div>
-      <div className="px-3 pb-3">
+      <div className={clsx("shrink-0 px-3 pb-3", isFloatingMenu && "border-t border-border-5 pt-3")}>
         <button
           onClick={() => {
             logout();

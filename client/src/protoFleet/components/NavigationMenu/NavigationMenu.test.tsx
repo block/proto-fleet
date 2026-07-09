@@ -1,8 +1,8 @@
 import { MemoryRouter } from "react-router-dom";
-import { render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import NavigationMenu from "./NavigationMenu";
-import { NavItem } from "@/protoFleet/config/navItems";
+import { NavItem, primaryNavItems } from "@/protoFleet/config/navItems";
 import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
 
 const { mockUseWindowDimensions, permissionsMock, activeSiteMock } = vi.hoisted(() => ({
@@ -100,5 +100,48 @@ describe("Navigation Menu", () => {
       );
       expect(getByText("Fleet").closest("a")).toHaveAttribute("href", "/fleet");
     });
+  });
+
+  it("uses the standard mobile nav row height for Settings and its submenu links", async () => {
+    mockUseWindowDimensions.mockReturnValue({
+      isPhone: true,
+      isTablet: false,
+    });
+
+    render(
+      <MemoryRouter>
+        <NavigationMenu items={primaryNavItems} isVisible />
+      </MemoryRouter>,
+    );
+
+    const settingsToggle = screen.getByRole("button", { name: "Settings menu toggle" });
+    expect(settingsToggle).toHaveClass("h-10", "px-2.5", "py-2");
+
+    fireEvent.click(settingsToggle);
+
+    const securityLink = await screen.findByRole("link", { name: "Security" });
+    expect(securityLink).toHaveClass("h-10", "flex", "items-center");
+  });
+
+  it("uses the nav list as the mobile drawer scroll boundary", () => {
+    mockUseWindowDimensions.mockReturnValue({
+      isPhone: true,
+      isTablet: false,
+    });
+
+    render(
+      <MemoryRouter>
+        <NavigationMenu items={primaryNavItems} isVisible />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("navigation", { name: "Main" })).toHaveClass("h-dvh", "max-h-dvh", "overflow-hidden");
+    expect(screen.getByTestId("navigation-menu")).toHaveClass(
+      "min-h-0",
+      "flex-1",
+      "overflow-y-auto",
+      "overscroll-contain",
+    );
+    expect(screen.getByTestId("logout-button").parentElement).toHaveClass("border-t", "border-border-5", "pt-3");
   });
 });

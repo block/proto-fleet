@@ -232,7 +232,7 @@ const SiteDetailPage = () => {
 
   return (
     <>
-      <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="site-detail-page">
+      <div className="flex flex-col gap-10 px-4 py-6 laptop:px-8 laptop:py-10" data-testid="site-detail-page">
         {error ? (
           <Callout
             intent="danger"
@@ -244,7 +244,7 @@ const SiteDetailPage = () => {
             testId="site-detail-inline-error"
           />
         ) : null}
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 px-2" data-testid="site-detail-heading">
           <Breadcrumb
             segments={[
               { label: "Sites", to: "/fleet/sites" },
@@ -252,9 +252,16 @@ const SiteDetailPage = () => {
             ]}
             testId="site-detail-breadcrumb"
           />
-          <Header title={site.site.name} titleSize="text-heading-300" inline testId="site-detail-title">
+          <Header
+            title={site.site.name}
+            titleSize="truncate text-heading-300"
+            inline
+            centerButton
+            stackButtonsOnPhone={false}
+            testId="site-detail-title"
+          >
             {canManageSites ? (
-              <div className="ml-3 flex items-center gap-3">
+              <div className="ml-3 shrink-0">
                 <Button
                   variant={variants.primary}
                   size={sizes.compact}
@@ -266,7 +273,7 @@ const SiteDetailPage = () => {
             ) : null}
           </Header>
         </div>
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3 px-2" data-testid="site-detail-metrics-section">
           {siteStatsError ? (
             <Callout
               intent="danger"
@@ -284,11 +291,12 @@ const SiteDetailPage = () => {
             powerCapacityMw={site.site.powerCapacityMw}
             buildingCount={detailBuildingCount}
             metrics={siteStats}
+            variant="compact"
             testId="site-detail-metrics-row"
           />
         </div>
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3" data-testid="site-detail-buildings-section">
+          <div className="flex items-center justify-between gap-3 px-2">
             <Header title="Buildings" titleSize="text-heading-200" />
             {canManageSites ? (
               <Button
@@ -313,34 +321,36 @@ const SiteDetailPage = () => {
               testId="site-detail-buildings-error"
             />
           ) : null}
-          <div className="rounded-xl bg-surface-elevated-base p-10 shadow-100 phone:p-6">
-            {visibleBuildings === undefined ? (
-              <div className="text-200 text-text-primary-50">Loading buildings…</div>
-            ) : visibleBuildings.length === 0 ? (
-              <div
-                className="rounded-2xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
-                data-testid="site-detail-buildings-empty"
-              >
-                No buildings in this site yet.
-              </div>
-            ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-4">
-                {visibleBuildings.map((building) => (
-                  <div key={(building.building?.id ?? 0n).toString()} className="min-w-0">
-                    <BuildingSummaryCard building={building} />
-                  </div>
-                ))}
-              </div>
-            )}
+          <div className="overflow-visible p-2">
+            <div className="rounded-xl bg-surface-elevated-base p-10 shadow-100 phone:p-6">
+              {visibleBuildings === undefined ? (
+                <div className="text-200 text-text-primary-50">Loading buildings…</div>
+              ) : visibleBuildings.length === 0 ? (
+                <div
+                  className="rounded-2xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
+                  data-testid="site-detail-buildings-empty"
+                >
+                  No buildings in this site yet.
+                </div>
+              ) : (
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-3">
+                  {visibleBuildings.map((building) => (
+                    <div key={(building.building?.id ?? 0n).toString()} className="min-w-0">
+                      <BuildingSummaryCard building={building} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
         {canReadFleet ? (
-          <div className="flex flex-col gap-4" data-testid="site-detail-performance">
-            <div className="flex flex-col gap-4 tablet:flex-row tablet:items-center tablet:justify-between">
+          <div className="flex flex-col gap-3" data-testid="site-detail-performance">
+            <div className="flex flex-col gap-3 px-2 tablet:flex-row tablet:items-center tablet:justify-between">
               <div className="tablet:flex-1">
                 <Header title="Performance" titleSize="text-heading-200" />
               </div>
-              <div className="flex items-center gap-6 text-200 text-core-primary-50">
+              <div className="flex items-center gap-3 text-200 text-core-primary-50">
                 <div className="flex items-center gap-2">
                   <svg width="24" height="4">
                     <line
@@ -392,7 +402,7 @@ const SiteDetailPage = () => {
                 <DurationSelector duration={duration} durations={fleetDurations} onSelect={setDuration} />
               </div>
             </div>
-            <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
+            <DeviceSetPerformanceSection className="p-2" duration={duration} gapClassName="gap-1" metrics={metrics} />
           </div>
         ) : null}
       </div>

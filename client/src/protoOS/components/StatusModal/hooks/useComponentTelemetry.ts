@@ -17,7 +17,12 @@ import type {
 
 // Union type for component telemetry data
 export type ComponentTelemetry =
-  FanTelemetryData | PsuTelemetryData | HashboardTelemetryData | MinerTelemetryData | undefined | null;
+  | FanTelemetryData
+  | PsuTelemetryData
+  | HashboardTelemetryData
+  | MinerTelemetryData
+  | undefined
+  | null;
 
 /**
  * Hook to fetch component telemetry data reactively

@@ -319,9 +319,8 @@ export default function ManageRackModal({
     setShowScanQr(true);
   }, []);
 
-  // Popover dismiss — deselect cell
+  // Popover dismiss — close actions while preserving the selected slot context.
   const handlePopoverDismiss = useCallback(() => {
-    setSelectedSlot(null);
     setShowSlotPopover(false);
   }, []);
 

@@ -1,22 +1,19 @@
-import { type ReactNode, useCallback, useRef, useState } from "react";
+import { type ReactNode } from "react";
 import clsx from "clsx";
 
-import { Dismiss, Ellipsis } from "@/shared/assets/icons";
-import { sizes, variants } from "@/shared/components/Button";
-import ButtonGroup, { type ButtonProps, groupVariants } from "@/shared/components/ButtonGroup";
-import Divider from "@/shared/components/Divider";
+import FullScreenModalHeaderActions from "@/protoFleet/components/FullScreenModalHeaderActions";
+import { Dismiss } from "@/shared/assets/icons";
+import { type ButtonProps } from "@/shared/components/ButtonGroup";
 import Header from "@/shared/components/Header";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
-import Row from "@/shared/components/Row";
-import { useClickOutsideDismiss } from "@/shared/hooks/useClickOutsideDismiss";
-import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 const defaultPaneContainerClassName =
   "flex min-h-[calc(100dvh-200px)] w-full flex-1 flex-col laptop:grid laptop:min-h-0 laptop:grid-cols-2 laptop:px-10";
 const defaultPrimaryPaneClassName =
   "order-2 flex flex-col pl-6 laptop:order-1 laptop:min-h-0 laptop:overflow-y-auto laptop:pl-1";
 const defaultSecondaryPaneClassName =
-  "order-1 flex max-h-[50vh] flex-col self-stretch overflow-y-auto bg-surface-overlay mb-6 laptop:order-2 laptop:mb-0 laptop:min-h-0 laptop:max-h-none laptop:overflow-visible laptop:rounded-xl laptop:pl-6";
+  "order-1 mb-6 flex shrink-0 flex-col self-stretch overflow-visible bg-surface-overlay laptop:order-2 laptop:mb-0 laptop:min-h-0 laptop:shrink laptop:rounded-xl laptop:pl-6";
 
 interface FullScreenTwoPaneModalProps {
   open: boolean;
@@ -37,70 +34,6 @@ interface FullScreenTwoPaneModalProps {
   zIndex?: string;
 }
 
-const isDangerVariant = (variant: string) => variant === variants.danger || variant === variants.secondaryDanger;
-
-const OverflowActionSheet = ({ overflowButtons, onClose }: { overflowButtons: ButtonProps[]; onClose: () => void }) => {
-  const sheetRef = useRef<HTMLDivElement>(null);
-  useClickOutsideDismiss({ ref: sheetRef, onDismiss: onClose });
-  useEscapeDismiss(onClose);
-
-  const nonDangerItems = overflowButtons.filter((b) => !isDangerVariant(b.variant));
-  const dangerItems = overflowButtons.filter((b) => isDangerVariant(b.variant));
-
-  return (
-    <div className="fixed inset-0 z-60 flex items-end bg-grayscale-gray-5" data-testid="full-screen-overflow-sheet">
-      <div
-        ref={sheetRef}
-        data-testid="full-screen-overflow-sheet-content"
-        className="w-full rounded-t-2xl bg-surface-elevated-base px-6 pt-2 pb-[max(env(safe-area-inset-bottom),16px)]"
-      >
-        {nonDangerItems.map((button, index) => (
-          <Row
-            key={`${button.text}-${index}`}
-            testId={button.testId ? `${button.testId}-overflow-item` : undefined}
-            className={clsx("text-emphasis-300 text-text-primary", button.disabled && "pointer-events-none opacity-40")}
-            onClick={
-              button.disabled
-                ? undefined
-                : () => {
-                    button.onClick?.();
-                    onClose();
-                  }
-            }
-            divider={false}
-          >
-            {button.text}
-          </Row>
-        ))}
-
-        {dangerItems.length > 0 && nonDangerItems.length > 0 ? <Divider /> : null}
-
-        {dangerItems.map((button, index) => (
-          <Row
-            key={`danger-${button.text}-${index}`}
-            testId={button.testId ? `${button.testId}-overflow-item` : undefined}
-            className={clsx(
-              "text-emphasis-300 text-intent-critical-fill",
-              button.disabled && "pointer-events-none opacity-40",
-            )}
-            onClick={
-              button.disabled
-                ? undefined
-                : () => {
-                    button.onClick?.();
-                    onClose();
-                  }
-            }
-            divider={false}
-          >
-            {button.text}
-          </Row>
-        ))}
-      </div>
-    </div>
-  );
-};
-
 const FullScreenTwoPaneModal = ({
   open,
   title,
@@ -119,55 +52,8 @@ const FullScreenTwoPaneModal = ({
   className,
   zIndex,
 }: FullScreenTwoPaneModalProps) => {
-  const [showOverflowSheet, setShowOverflowSheet] = useState(false);
-
-  // Split buttons: primary CTA (last primary-variant button) vs overflow (rest)
-  let primaryButton: ButtonProps | undefined;
-  let overflowButtons: ButtonProps[] = [];
-
-  if (buttons && buttons.length > 0) {
-    if (buttons.length === 1) {
-      primaryButton = buttons[0];
-    } else {
-      let primaryIndex = -1;
-      for (let i = buttons.length - 1; i >= 0; i--) {
-        if (buttons[i].variant === variants.primary) {
-          primaryIndex = i;
-          break;
-        }
-      }
-
-      if (primaryIndex === -1) {
-        primaryButton = buttons[buttons.length - 1];
-        overflowButtons = buttons.slice(0, -1);
-      } else {
-        primaryButton = buttons[primaryIndex];
-        overflowButtons = buttons.filter((_, i) => i !== primaryIndex);
-      }
-    }
-  }
-
-  const closeSheet = useCallback(() => setShowOverflowSheet(false), []);
-
-  const mobileButtons: ButtonProps[] = [];
-
-  if (overflowButtons.length > 0) {
-    mobileButtons.push({
-      variant: variants.secondary,
-      onClick: () => setShowOverflowSheet(true),
-      prefixIcon: <Ellipsis />,
-      testId: "overflow-menu-trigger",
-      ariaLabel: "More actions",
-    });
-  }
-
-  if (primaryButton) {
-    mobileButtons.push({
-      ...primaryButton,
-      testId: primaryButton.testId ? `${primaryButton.testId}-mobile` : undefined,
-    });
-  }
-
+  const { isPhone } = useWindowDimensions();
+  const useCompactHeaderActions = isPhone;
   const effectiveOnDismiss = isBusy ? undefined : onDismiss;
 
   return (
@@ -199,13 +85,10 @@ const FullScreenTwoPaneModal = ({
           iconTextColor={isBusy ? "text-text-primary-30" : "text-text-primary"}
           inline
           centerButton
-          buttonsWrapperClassName="hidden laptop:block"
-          buttons={buttons}
+          buttonsWrapperClassName={useCompactHeaderActions ? undefined : "hidden tablet:block"}
+          buttons={useCompactHeaderActions ? undefined : buttons}
         >
-          {/* Mobile buttons: ellipsis + primary CTA */}
-          <div className="ml-3 shrink-0 laptop:hidden">
-            <ButtonGroup buttons={mobileButtons} variant={groupVariants.rightAligned} size={sizes.base} />
-          </div>
+          {useCompactHeaderActions ? <FullScreenModalHeaderActions buttons={buttons} /> : null}
         </Header>
       </div>
 
@@ -219,8 +102,6 @@ const FullScreenTwoPaneModal = ({
           </div>
         </div>
       )}
-
-      {showOverflowSheet ? <OverflowActionSheet overflowButtons={overflowButtons} onClose={closeSheet} /> : null}
     </Modal>
   );
 };

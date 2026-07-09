@@ -233,8 +233,8 @@ const GroupOverviewPage = () => {
         </div>
 
         {/* Overview Section */}
-        <section className="p-6 laptop:p-10">
-          <div className="flex flex-col gap-4">
+        <section className="px-4 pt-10 laptop:px-8" data-testid="group-overview-section">
+          <div className="flex flex-col gap-1 overflow-visible p-2">
             <FleetHealth
               title="Miners"
               fleetSize={stateCounts ? totalMiners : memberDeviceIds ? groupSize : undefined}
@@ -249,6 +249,7 @@ const GroupOverviewPage = () => {
             <FleetErrors
               controlBoardErrors={controlBoardErrors}
               fanErrors={fanErrors}
+              gapClassName="gap-1"
               hashboardErrors={hashboardErrors}
               psuErrors={psuErrors}
               extraFilterParams={group ? `group=${group.id}` : undefined}
@@ -258,12 +259,12 @@ const GroupOverviewPage = () => {
         </section>
 
         {/* Performance Section */}
-        <section className="pb-6">
+        <section className="pb-6" data-testid="group-performance-section">
           <div ref={refs.vertical.start} />
-          <div className={`${bgClass} sticky top-0 z-2 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10`}>
-            <div className="flex flex-col gap-4 tablet:flex-row tablet:items-center tablet:justify-between">
+          <div className={`${bgClass} sticky top-0 z-2 px-6 pt-10 pb-1 laptop:px-10`}>
+            <div className="flex flex-col gap-3 tablet:flex-row tablet:items-center tablet:justify-between">
               <div className="text-heading-200 text-text-primary">Performance</div>
-              <div className="flex items-center gap-6 text-200 text-core-primary-50">
+              <div className="flex items-center gap-3 text-200 text-core-primary-50">
                 <div className="flex items-center gap-2">
                   <svg width="24" height="4">
                     <line
@@ -317,8 +318,8 @@ const GroupOverviewPage = () => {
             </div>
           </div>
 
-          <div className="px-6 pt-4 laptop:px-10">
-            <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
+          <div className="px-4 laptop:px-8">
+            <DeviceSetPerformanceSection className="p-2" duration={duration} gapClassName="gap-1" metrics={metrics} />
           </div>
           {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}
           <div ref={refs.vertical.end} />

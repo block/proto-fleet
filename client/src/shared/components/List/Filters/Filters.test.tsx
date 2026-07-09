@@ -314,6 +314,51 @@ describe("Filters", () => {
     expect(within(chip).getByTestId("active-filter-model-edit")).toHaveTextContent("S19");
   });
 
+  it("renders active chips in a side-scrolling row separate from the filter trigger", () => {
+    const handleFiltering = vi.fn();
+
+    const statusFilter = {
+      type: "dropdown" as const,
+      title: "Status",
+      value: "status",
+      options: [
+        { id: "needs-attention", label: "Needs Attention" },
+        { id: "offline", label: "Offline" },
+      ],
+      defaultOptionIds: [],
+    };
+
+    render(
+      <Filters<TestItem>
+        filterItems={[
+          {
+            type: "nestedFilterDropdown",
+            title: "Add Filter",
+            value: "filters",
+            children: [statusFilter],
+          },
+        ]}
+        items={testItems}
+        onFilter={handleFiltering}
+        initialActiveFilters={{
+          buttonFilters: [],
+          dropdownFilters: { status: ["needs-attention"] },
+          numericFilters: {},
+          textareaListFilters: {},
+        }}
+      />,
+    );
+
+    const scrollRow = screen.getByTestId("active-filter-scroll-row");
+    const chip = within(scrollRow).getByTestId("active-filter-status");
+
+    expect(scrollRow).toHaveClass("overflow-x-auto", "overscroll-x-contain");
+    expect(chip).toHaveTextContent("Status");
+    expect(within(chip).getByTestId("active-filter-status-edit")).toHaveClass("min-w-0");
+    expect(screen.getByTestId("filter-nested-filters")).toBeInTheDocument();
+    expect(screen.getByTestId("filter-nested-filters").closest('[data-testid="active-filter-scroll-row"]')).toBeNull();
+  });
+
   it("summarizes the right side as `n plural` when multiple options are selected", () => {
     const handleFiltering = vi.fn();
 

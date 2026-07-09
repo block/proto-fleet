@@ -882,6 +882,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             hideTotal
             itemName={{ singular: "miner", plural: "miners" }}
             containerClassName="min-h-0"
+            tableClassName="mb-0"
             overflowContainer
             stickyBgColor="bg-surface-elevated-base"
             emptyStateRow={

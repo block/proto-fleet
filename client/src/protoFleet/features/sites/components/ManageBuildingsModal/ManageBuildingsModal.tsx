@@ -157,8 +157,8 @@ const ManageBuildingsModal = ({
       open={open}
       title="Select buildings"
       size="large"
-      className="flex !h-[calc(100vh-(--spacing(32)))] max-h-[calc(100vh-(--spacing(32)))] flex-col !overflow-hidden"
-      bodyClassName="flex flex-1 min-h-0 flex-col overflow-hidden"
+      className="flex !h-[calc(100dvh-(--spacing(32)))] max-h-[calc(100dvh-(--spacing(32)))] flex-col !overflow-hidden"
+      bodyClassName="flex flex-1 min-h-0 flex-col"
       onDismiss={onDismiss}
       divider={false}
       testId="manage-buildings-modal"
@@ -199,6 +199,7 @@ const ManageBuildingsModal = ({
                 itemName={{ singular: "building", plural: "buildings" }}
                 hideTotal
                 containerClassName="min-h-0"
+                tableClassName="mb-0"
                 overflowContainer
                 stickyBgColor="bg-surface-elevated-base"
                 footerContent={

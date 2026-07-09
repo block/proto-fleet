@@ -43,7 +43,7 @@ const PageOverlayContent = ({
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3, ease: "easeInOut" }}
       className={clsx(
-        "fixed top-0 left-0 m-0! flex h-screen w-screen justify-center overflow-hidden! bg-grayscale-gray-5",
+        "fixed top-0 left-0 m-0! flex h-dvh w-screen justify-center overflow-hidden! bg-grayscale-gray-5",
         zIndex,
         {
           "items-center-safe p-0!": position === "center",

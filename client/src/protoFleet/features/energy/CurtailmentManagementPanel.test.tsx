@@ -393,7 +393,8 @@ describe("CurtailmentManagementPanel", () => {
         mocks.useCurtailmentResponseProfiles.mock.calls[mocks.useCurtailmentResponseProfiles.mock.calls.length - 1];
       const apiOptions = latestApiCall?.[0] as { siteNameById?: Map<string, string> } | undefined;
       const responseProfileOptions = latestResponseProfileCall?.[1] as
-        { siteNameById?: Map<string, string> } | undefined;
+        | { siteNameById?: Map<string, string> }
+        | undefined;
 
       expect(apiOptions?.siteNameById?.get("101")).toBe("Austin, TX");
       expect(responseProfileOptions?.siteNameById?.get("101")).toBe("Austin, TX");

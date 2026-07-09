@@ -103,25 +103,30 @@ const FilterChipContent = ({
   }
 
   return (
-    <div ref={triggerRef} className="relative inline-flex" data-testid={`active-filter-${filterValue}`}>
-      <div className="inline-flex items-stretch overflow-hidden rounded-3xl text-emphasis-300">
-        <span className="flex items-center bg-intent-warning-fill px-3 py-1 text-text-base-contrast-static">
+    <div
+      ref={triggerRef}
+      className="relative inline-flex max-w-[min(18rem,calc(100vw-3rem))] shrink-0"
+      data-testid={`active-filter-${filterValue}`}
+    >
+      <div className="inline-flex min-w-0 items-stretch overflow-hidden rounded-3xl text-emphasis-300">
+        <span className="flex shrink-0 items-center bg-intent-warning-fill px-3 py-1 whitespace-nowrap text-text-base-contrast-static">
           {title}
         </span>
         <button
           type="button"
           onClick={() => setShowPopover((prev) => !prev)}
-          className="flex cursor-pointer items-center bg-core-primary-5 px-3 py-1 text-text-primary hover:opacity-80"
+          className="flex min-w-0 cursor-pointer items-center bg-core-primary-5 px-3 py-1 text-text-primary hover:opacity-80"
           data-testid={`active-filter-${filterValue}-edit`}
           aria-haspopup="dialog"
           aria-expanded={showPopover}
+          title={summary}
         >
-          {summary}
+          <span className="min-w-0 truncate whitespace-nowrap">{summary}</span>
         </button>
         <button
           type="button"
           onClick={onClear}
-          className="flex cursor-pointer items-center bg-core-primary-5 py-1 pr-3 pl-1 text-text-primary hover:opacity-80"
+          className="flex shrink-0 cursor-pointer items-center bg-core-primary-5 py-1 pr-3 pl-1 text-text-primary hover:opacity-80"
           data-testid={`active-filter-${filterValue}-clear`}
           aria-label={`Clear ${title} filter`}
         >

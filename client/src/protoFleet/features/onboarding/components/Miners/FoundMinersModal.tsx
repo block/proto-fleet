@@ -73,6 +73,8 @@ const FoundMinersModal = ({ open, miners, models, setDeselectedMiners, onDismiss
       divider={false}
       title={`${miners.length} miners found on your network`}
       description="Selected miners will be added to your fleet."
+      className="flex !h-[calc(100dvh-(--spacing(32)))] max-h-[calc(100dvh-(--spacing(32)))] flex-col !overflow-hidden phone:!h-[calc(100dvh-theme(spacing.10))] phone:max-h-[calc(100dvh-theme(spacing.10))]"
+      bodyClassName="flex min-h-0 flex-1 flex-col"
       buttons={[
         {
           text: "Done",
@@ -80,30 +82,33 @@ const FoundMinersModal = ({ open, miners, models, setDeselectedMiners, onDismiss
         },
       ]}
     >
-      <div className="flex flex-col gap-4">
-        <List<MinerWithSelectedAndAction, MinerWithSelectedAndAction["deviceIdentifier"]>
-          filters={[modelFilter]}
-          filterItem={filterByModel}
-          onFilterChange={setActiveFilters}
-          filterSize={sizes.compact}
-          activeCols={activeCols}
-          colTitles={minerColTitles}
-          colConfig={colConfig}
-          items={miners}
-          itemKey="deviceIdentifier"
-          itemSelectable
-          customSelectedItems={selectedMiners}
-          customSetSelectedItems={setSelectedMiners}
-          containerClassName="max-h-[50vh]"
-          overflowContainer={true}
-          stickyBgColor="bg-surface-elevated-base"
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <List<MinerWithSelectedAndAction, MinerWithSelectedAndAction["deviceIdentifier"]>
+            filters={[modelFilter]}
+            filterItem={filterByModel}
+            onFilterChange={setActiveFilters}
+            filterSize={sizes.compact}
+            activeCols={activeCols}
+            colTitles={minerColTitles}
+            colConfig={colConfig}
+            items={miners}
+            itemKey="deviceIdentifier"
+            itemSelectable
+            customSelectedItems={selectedMiners}
+            customSetSelectedItems={setSelectedMiners}
+            containerClassName="min-h-0"
+            tableClassName="mb-0"
+            overflowContainer={true}
+            stickyBgColor="bg-surface-elevated-base"
+          />
+        </div>
+        <ModalSelectAllFooter
+          label={selectedMiners.length + " miners selected"}
+          onSelectAll={() => setSelectedMiners(filteredMiners.map((miner) => miner.deviceIdentifier))}
+          onSelectNone={() => setSelectedMiners([])}
         />
       </div>
-      <ModalSelectAllFooter
-        label={selectedMiners.length + " miners selected"}
-        onSelectAll={() => setSelectedMiners(filteredMiners.map((miner) => miner.deviceIdentifier))}
-        onSelectNone={() => setSelectedMiners([])}
-      />
     </Modal>
   );
 };

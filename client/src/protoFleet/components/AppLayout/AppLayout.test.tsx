@@ -120,6 +120,52 @@ describe("AppLayout", () => {
     expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12)]");
   });
 
+  it("keeps mobile content views from becoming page-level horizontal scrollers", () => {
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Body content").parentElement).toHaveClass(
+      "overflow-x-hidden",
+      "overflow-y-auto",
+      "overscroll-x-none",
+    );
+  });
+
+  it.each(["/sites/1", "/buildings/1", "/racks/1", "/groups/Ops"])(
+    "hides the shell header and top offset on detail route %s",
+    (initialEntry) => {
+      render(
+        <MemoryRouter initialEntries={[initialEntry]}>
+          <AppLayout>
+            <div>Body content</div>
+          </AppLayout>
+        </MemoryRouter>,
+      );
+
+      expect(screen.queryByText("Page header")).not.toBeInTheDocument();
+      expect(screen.getByText("Body content").parentElement).toHaveClass("top-0");
+      expect(screen.getByText("Body content").parentElement).not.toHaveClass("phone:top-[calc(theme(spacing.1)*12)]");
+    },
+  );
+
+  it("keeps the shell header and top offset on non-detail routes", () => {
+    render(
+      <MemoryRouter initialEntries={["/fleet/miners"]}>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Page header")).toBeInTheDocument();
+    expect(screen.getByText("Body content").parentElement).toHaveClass("top-[calc(theme(spacing.1)*12)]");
+  });
+
   it("uses the two-widget phone content offset when all three header widgets are visible", () => {
     mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
     mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });

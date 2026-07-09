@@ -64,7 +64,9 @@ export interface ControlBoardHardwareData {
     gitHash?: string;
     imageHash?: string;
   };
-  mpu?: { /* CPU/MPU details */ };
+  mpu?: {
+    /* CPU/MPU details */
+  };
 }
 
 // Hashboard
@@ -83,8 +85,12 @@ export interface HashboardHardwareData {
   miningAsicCount?: number;
   temperatureSensorCount?: number;
   ecLogsPath?: string;
-  firmware?: { /* firmware details */ };
-  bootloader?: { /* bootloader details */ };
+  firmware?: {
+    /* firmware details */
+  };
+  bootloader?: {
+    /* bootloader details */
+  };
 }
 
 // PSU
