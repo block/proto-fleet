@@ -124,16 +124,17 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 
 	// Update mutates fields.
 	updated, err := svc.Update(ctx, models.UpdateParams{
-		OrgID:        testOrgID,
-		ID:           created.ID,
-		SiteID:       testSiteID,
-		BuildingName: "Building 2",
-		Name:         "Zone B exhaust fans",
-		DeviceKind:   models.KindFanGroup,
-		FanCount:     16,
-		Enabled:      false,
-		DriverType:   "modbus_tcp",
-		DriverConfig: validModbusConfig(),
+		OrgID:          testOrgID,
+		ID:             created.ID,
+		ExpectedSiteID: testSiteID,
+		SiteID:         testSiteID,
+		BuildingName:   "Building 2",
+		Name:           "Zone B exhaust fans",
+		DeviceKind:     models.KindFanGroup,
+		FanCount:       16,
+		Enabled:        false,
+		DriverType:     "modbus_tcp",
+		DriverConfig:   validModbusConfig(),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Zone B exhaust fans", updated.Name)
@@ -141,14 +142,14 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	assert.False(t, updated.Enabled)
 
 	// Delete soft-deletes; the row disappears from Get and List.
-	require.NoError(t, svc.Delete(ctx, testOrgID, created.ID))
+	require.NoError(t, svc.Delete(ctx, testOrgID, created.ID, testSiteID))
 	_, err = svc.Get(ctx, testOrgID, created.ID)
 	assert.True(t, fleeterror.IsNotFoundError(err))
 	devices, err = svc.List(ctx, models.ListFilter{OrgID: testOrgID})
 	require.NoError(t, err)
 	assert.Len(t, devices, 2)
 	// Deleting again reports NotFound.
-	err = svc.Delete(ctx, testOrgID, created.ID)
+	err = svc.Delete(ctx, testOrgID, created.ID, testSiteID)
 	assert.True(t, fleeterror.IsNotFoundError(err))
 
 	// A soft-deleted device's name is reusable in the same site — the
@@ -176,19 +177,62 @@ func TestService_UpdateRenameCollision_DatabaseIntegration(t *testing.T) {
 	// Renaming the second device to the first's name trips the partial
 	// unique index and maps to AlreadyExists.
 	_, err = svc.Update(ctx, models.UpdateParams{
-		OrgID:        testOrgID,
-		ID:           second.ID,
-		SiteID:       testSiteID,
-		BuildingName: second.BuildingName,
-		Name:         first.Name,
-		DeviceKind:   second.DeviceKind,
-		FanCount:     second.FanCount,
-		Enabled:      second.Enabled,
-		DriverType:   second.DriverType,
-		DriverConfig: second.DriverConfig,
+		OrgID:          testOrgID,
+		ID:             second.ID,
+		ExpectedSiteID: testSiteID,
+		SiteID:         testSiteID,
+		BuildingName:   second.BuildingName,
+		Name:           first.Name,
+		DeviceKind:     second.DeviceKind,
+		FanCount:       second.FanCount,
+		Enabled:        second.Enabled,
+		DriverType:     second.DriverType,
+		DriverConfig:   second.DriverConfig,
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already exists")
+}
+
+func TestService_StaleSiteAuthorizationFailsClosed_DatabaseIntegration(t *testing.T) {
+	svc, _ := newTestService(t)
+	ctx := t.Context()
+
+	created, err := svc.Create(ctx, createParams(nil))
+	require.NoError(t, err)
+
+	// Simulate a concurrent move: the device is now at secondSiteID,
+	// but a caller authorized against testSiteID (the site it was read
+	// at) attempts an update/delete. Both must fail closed (NotFound),
+	// not mutate the device now living in a site the caller may not
+	// manage.
+	moved, err := svc.Update(ctx, models.UpdateParams{
+		OrgID: testOrgID, ID: created.ID, ExpectedSiteID: testSiteID, SiteID: secondSiteID,
+		BuildingName: created.BuildingName, Name: created.Name, DeviceKind: created.DeviceKind,
+		FanCount: created.FanCount, Enabled: created.Enabled, DriverType: created.DriverType,
+		DriverConfig: created.DriverConfig,
+	})
+	require.NoError(t, err)
+	require.Equal(t, secondSiteID, moved.SiteID)
+
+	// Update predicated on the stale site is rejected.
+	_, err = svc.Update(ctx, models.UpdateParams{
+		OrgID: testOrgID, ID: created.ID, ExpectedSiteID: testSiteID, SiteID: testSiteID,
+		BuildingName: created.BuildingName, Name: "renamed", DeviceKind: created.DeviceKind,
+		FanCount: created.FanCount, Enabled: created.Enabled, DriverType: created.DriverType,
+		DriverConfig: created.DriverConfig,
+	})
+	assert.True(t, fleeterror.IsNotFoundError(err), "update against stale site must fail closed")
+
+	// Delete predicated on the stale site is rejected; the device
+	// survives at its new site.
+	err = svc.Delete(ctx, testOrgID, created.ID, testSiteID)
+	assert.True(t, fleeterror.IsNotFoundError(err), "delete against stale site must fail closed")
+	still, err := svc.Get(ctx, testOrgID, created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, secondSiteID, still.SiteID)
+
+	// Delete predicated on the correct (current) site succeeds.
+	require.NoError(t, svc.Delete(ctx, testOrgID, created.ID, secondSiteID))
 }
 
 func TestService_SiteCascade_DatabaseIntegration(t *testing.T) {
@@ -223,7 +267,7 @@ func TestService_CreateValidation_DatabaseIntegration(t *testing.T) {
 		{"unknown driver", func(p *models.CreateParams) { p.DriverType = "bacnet" }, "unknown infrastructure driver type"},
 		{"public endpoint", func(p *models.CreateParams) {
 			p.DriverConfig = json.RawMessage(`{"endpoint":"8.8.8.8","port":502,"unit_id":5,"register_address":2001,"write_mode":"coil"}`)
-		}, "private, loopback, or link-local"},
+		}, "must be a private"},
 		{"bad unit id", func(p *models.CreateParams) {
 			p.DriverConfig = json.RawMessage(`{"endpoint":"10.1.2.3","port":502,"unit_id":300,"register_address":2001,"write_mode":"coil"}`)
 		}, "unit_id"},
@@ -260,13 +304,13 @@ func TestService_OrgIsolation_DatabaseIntegration(t *testing.T) {
 	assert.True(t, fleeterror.IsNotFoundError(err))
 
 	_, err = svc.Update(ctx, models.UpdateParams{
-		OrgID: otherOrgID, ID: created.ID, SiteID: otherOrgSiteID,
+		OrgID: otherOrgID, ID: created.ID, ExpectedSiteID: otherOrgSiteID, SiteID: otherOrgSiteID,
 		Name: "hijack", DeviceKind: models.KindSingleFan, FanCount: 1,
 		DriverType: "modbus_tcp", DriverConfig: validModbusConfig(),
 	})
 	assert.True(t, fleeterror.IsNotFoundError(err))
 
-	err = svc.Delete(ctx, otherOrgID, created.ID)
+	err = svc.Delete(ctx, otherOrgID, created.ID, otherOrgSiteID)
 	assert.True(t, fleeterror.IsNotFoundError(err))
 
 	devices, err := svc.List(ctx, models.ListFilter{OrgID: otherOrgID})

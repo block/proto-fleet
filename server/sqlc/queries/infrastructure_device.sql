@@ -58,6 +58,11 @@ WHERE d.org_id = sqlc.arg('org_id')
 ORDER BY d.name, d.id;
 
 -- name: UpdateInfrastructureDevice :execrows
+-- expected_site_id predicates the write on the site the caller was
+-- authorized against, so a concurrent site move between the
+-- authorization read and this write invalidates the mutation (0 rows)
+-- instead of silently editing a device in a site the caller may not
+-- manage.
 UPDATE infrastructure_device
 SET site_id       = sqlc.arg('site_id'),
     building_name = sqlc.arg('building_name'),
@@ -70,11 +75,15 @@ SET site_id       = sqlc.arg('site_id'),
     updated_at    = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('expected_site_id')
   AND deleted_at IS NULL;
 
 -- name: SoftDeleteInfrastructureDevice :execrows
+-- expected_site_id: same stale-authorization guard as
+-- UpdateInfrastructureDevice above.
 UPDATE infrastructure_device
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('expected_site_id')
   AND deleted_at IS NULL;

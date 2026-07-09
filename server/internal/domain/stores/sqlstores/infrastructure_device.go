@@ -122,16 +122,17 @@ func (s *SQLInfrastructureDeviceStore) ListInfrastructureDevices(ctx context.Con
 
 func (s *SQLInfrastructureDeviceStore) UpdateInfrastructureDevice(ctx context.Context, params models.UpdateParams) (*models.Device, error) {
 	affected, err := s.GetQueries(ctx).UpdateInfrastructureDevice(ctx, sqlc.UpdateInfrastructureDeviceParams{
-		SiteID:       params.SiteID,
-		BuildingName: params.BuildingName,
-		Name:         params.Name,
-		DeviceKind:   params.DeviceKind,
-		FanCount:     params.FanCount,
-		Enabled:      params.Enabled,
-		DriverType:   params.DriverType,
-		DriverConfig: normalizeDriverConfig(params.DriverConfig),
-		ID:           params.ID,
-		OrgID:        params.OrgID,
+		SiteID:         params.SiteID,
+		BuildingName:   params.BuildingName,
+		Name:           params.Name,
+		DeviceKind:     params.DeviceKind,
+		FanCount:       params.FanCount,
+		Enabled:        params.Enabled,
+		DriverType:     params.DriverType,
+		DriverConfig:   normalizeDriverConfig(params.DriverConfig),
+		ID:             params.ID,
+		OrgID:          params.OrgID,
+		ExpectedSiteID: params.ExpectedSiteID,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -145,8 +146,8 @@ func (s *SQLInfrastructureDeviceStore) UpdateInfrastructureDevice(ctx context.Co
 	return s.GetInfrastructureDevice(ctx, params.OrgID, params.ID)
 }
 
-func (s *SQLInfrastructureDeviceStore) SoftDeleteInfrastructureDevice(ctx context.Context, orgID, id int64) (bool, error) {
-	affected, err := s.GetQueries(ctx).SoftDeleteInfrastructureDevice(ctx, sqlc.SoftDeleteInfrastructureDeviceParams{ID: id, OrgID: orgID})
+func (s *SQLInfrastructureDeviceStore) SoftDeleteInfrastructureDevice(ctx context.Context, orgID, id, expectedSiteID int64) (bool, error) {
+	affected, err := s.GetQueries(ctx).SoftDeleteInfrastructureDevice(ctx, sqlc.SoftDeleteInfrastructureDeviceParams{ID: id, OrgID: orgID, ExpectedSiteID: expectedSiteID})
 	if err != nil {
 		return false, fleeterror.NewInternalErrorf("failed to delete infrastructure device: %v", err)
 	}

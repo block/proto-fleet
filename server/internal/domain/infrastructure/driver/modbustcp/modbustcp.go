@@ -92,11 +92,17 @@ func (c Config) validate() error {
 	return nil
 }
 
-// validateEndpoint rejects endpoints outside private/loopback/
-// link-local ranges. The server opens raw TCP connections and writes
+// validateEndpoint restricts endpoints to private (RFC1918 / IPv6 ULA)
+// addresses. The server will open raw TCP connections and write
 // unauthenticated Modbus frames to this address, so an unrestricted
 // endpoint would be an SSRF/OT-pivot primitive for anyone holding
-// site:manage.
+// site:manage. Loopback and link-local are deliberately rejected too:
+// a real PLC/drive lives on a private OT subnet, whereas loopback
+// targets server-local services and link-local includes cloud
+// instance-metadata (169.254.169.254). Multicast, broadcast, and
+// unspecified addresses are not private and fail the same check. If a
+// site genuinely needs a non-RFC1918 control endpoint, that should be
+// an explicit per-site allowlist decision, not a blanket allowance.
 func validateEndpoint(endpoint string) error {
 	if endpoint == "" {
 		return errors.New("endpoint is required")
@@ -105,8 +111,8 @@ func validateEndpoint(endpoint string) error {
 	if err != nil {
 		return fmt.Errorf("endpoint %q must be an IP address (hostnames are not supported)", endpoint)
 	}
-	if !(addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast()) {
-		return fmt.Errorf("endpoint %q must be a private, loopback, or link-local IP address", endpoint)
+	if !addr.IsPrivate() {
+		return fmt.Errorf("endpoint %q must be a private (RFC1918 / IPv6 ULA) IP address", endpoint)
 	}
 	return nil
 }

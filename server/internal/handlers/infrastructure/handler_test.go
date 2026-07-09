@@ -187,6 +187,34 @@ func TestHandler_ListFiltersToReadableSites(t *testing.T) {
 	assert.Equal(t, int64(10), resp.Msg.GetDevices()[0].GetSiteId())
 }
 
+func TestHandler_UpdatePredicatesWriteOnAuthorizedSite(t *testing.T) {
+	t.Parallel()
+
+	// The handler must carry the device's current site (as read for
+	// authorization) into the write as ExpectedSiteID, so the store can
+	// fail closed on a concurrent move.
+	h := newTestHandler(t)
+	ctx := sitePermsCtx(t, 42)
+
+	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
+		Return(deviceAtSite(7, 10), nil)
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil)
+	h.store.EXPECT().UpdateInfrastructureDevice(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, params models.UpdateParams) (*models.Device, error) {
+			assert.Equal(t, int64(10), params.ExpectedSiteID)
+			assert.Equal(t, int64(10), params.SiteID)
+			return deviceAtSite(7, 10), nil
+		},
+	)
+
+	update := &pb.UpdateInfrastructureDeviceRequest{
+		Id: 7, SiteId: 10, Name: "renamed", DeviceKind: models.KindFanGroup,
+		FanCount: 12, Enabled: true, DriverType: "modbus_tcp", DriverConfig: validConfig,
+	}
+	_, err := h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
+	require.NoError(t, err)
+}
+
 func TestHandler_unauthenticatedWithoutSession(t *testing.T) {
 	t.Parallel()
 

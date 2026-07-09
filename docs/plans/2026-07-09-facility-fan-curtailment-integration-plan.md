@@ -229,10 +229,14 @@ Phase 1 is not independently executable. Phase 4 retains protocol I/O.
   `server/internal/domain/infrastructure/driver/` with the `Controller`
   interface and `driver_type` → factory registry; `driver/modbustcp/`
   config parsing and `ValidateConfig` limits (unit ID 1–247, port 1–65535,
-  register address 0–65535, endpoint restricted to private/loopback/
-  link-local addresses — mirroring the MQTT subscriber's
-  `validateBrokerTransport` host guard, since the server will open raw TCP
-  writes to whatever endpoint is stored and Modbus has no authentication).
+  register address 0–65535, endpoint restricted to private RFC1918 / IPv6
+  ULA addresses — loopback, link-local, multicast, broadcast, and public
+  addresses are all rejected, since the server will open raw TCP writes to
+  whatever endpoint is stored and Modbus has no authentication; a real PLC
+  lives on a private OT subnet, whereas loopback targets server-local
+  services and link-local includes cloud instance-metadata). A genuinely
+  non-RFC1918 control endpoint would be a future explicit per-site
+  allowlist decision, not a blanket allowance.
 - **Server**: sqlc queries (`server/sqlc/queries/infrastructure_device.sql`);
   domain CRUD service that validates the protocol-blind fields itself and
   delegates `driver_config` validation to the driver registry; Connect

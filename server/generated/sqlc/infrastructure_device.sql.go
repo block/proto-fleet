@@ -228,16 +228,20 @@ UPDATE infrastructure_device
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE id = $1
   AND org_id = $2
+  AND site_id = $3
   AND deleted_at IS NULL
 `
 
 type SoftDeleteInfrastructureDeviceParams struct {
-	ID    int64
-	OrgID int64
+	ID             int64
+	OrgID          int64
+	ExpectedSiteID int64
 }
 
+// expected_site_id: same stale-authorization guard as
+// UpdateInfrastructureDevice above.
 func (q *Queries) SoftDeleteInfrastructureDevice(ctx context.Context, arg SoftDeleteInfrastructureDeviceParams) (int64, error) {
-	result, err := q.exec(ctx, q.softDeleteInfrastructureDeviceStmt, softDeleteInfrastructureDevice, arg.ID, arg.OrgID)
+	result, err := q.exec(ctx, q.softDeleteInfrastructureDeviceStmt, softDeleteInfrastructureDevice, arg.ID, arg.OrgID, arg.ExpectedSiteID)
 	if err != nil {
 		return 0, err
 	}
@@ -257,22 +261,29 @@ SET site_id       = $1,
     updated_at    = CURRENT_TIMESTAMP
 WHERE id = $9
   AND org_id = $10
+  AND site_id = $11
   AND deleted_at IS NULL
 `
 
 type UpdateInfrastructureDeviceParams struct {
-	SiteID       int64
-	BuildingName string
-	Name         string
-	DeviceKind   string
-	FanCount     int32
-	Enabled      bool
-	DriverType   string
-	DriverConfig json.RawMessage
-	ID           int64
-	OrgID        int64
+	SiteID         int64
+	BuildingName   string
+	Name           string
+	DeviceKind     string
+	FanCount       int32
+	Enabled        bool
+	DriverType     string
+	DriverConfig   json.RawMessage
+	ID             int64
+	OrgID          int64
+	ExpectedSiteID int64
 }
 
+// expected_site_id predicates the write on the site the caller was
+// authorized against, so a concurrent site move between the
+// authorization read and this write invalidates the mutation (0 rows)
+// instead of silently editing a device in a site the caller may not
+// manage.
 func (q *Queries) UpdateInfrastructureDevice(ctx context.Context, arg UpdateInfrastructureDeviceParams) (int64, error) {
 	result, err := q.exec(ctx, q.updateInfrastructureDeviceStmt, updateInfrastructureDevice,
 		arg.SiteID,
@@ -285,6 +296,7 @@ func (q *Queries) UpdateInfrastructureDevice(ctx context.Context, arg UpdateInfr
 		arg.DriverConfig,
 		arg.ID,
 		arg.OrgID,
+		arg.ExpectedSiteID,
 	)
 	if err != nil {
 		return 0, err

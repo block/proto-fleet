@@ -136,7 +136,13 @@ func (h *Handler) UpdateInfrastructureDevice(ctx context.Context, req *connect.R
 			return nil, err
 		}
 	}
-	device, err := h.service.Update(ctx, toUpdateParams(req.Msg, sess.OrganizationID))
+	// Predicate the write on the site we authorized against, so a
+	// concurrent move between the read above and the write fails
+	// closed (NotFound) instead of mutating a device now in a site the
+	// caller may not manage.
+	params := toUpdateParams(req.Msg, sess.OrganizationID)
+	params.ExpectedSiteID = existing.SiteID
+	device, err := h.service.Update(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +163,9 @@ func (h *Handler) DeleteInfrastructureDevice(ctx context.Context, req *connect.R
 	if err := requireSiteManage(ctx, device.SiteID); err != nil {
 		return nil, err
 	}
-	if err := h.service.Delete(ctx, sess.OrganizationID, req.Msg.GetId()); err != nil {
+	// Predicate the delete on the authorized site (same stale-move
+	// guard as Update).
+	if err := h.service.Delete(ctx, sess.OrganizationID, req.Msg.GetId(), device.SiteID); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.DeleteInfrastructureDeviceResponse{}), nil

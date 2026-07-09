@@ -51,18 +51,22 @@ type CreateParams struct {
 	DriverConfig json.RawMessage
 }
 
-// UpdateParams is the input shape for device updates.
+// UpdateParams is the input shape for device updates. ExpectedSiteID
+// is the device's current site as seen at authorization time; the
+// write is predicated on it so a concurrent site move invalidates the
+// mutation rather than editing a device the caller no longer manages.
 type UpdateParams struct {
-	OrgID        int64
-	ID           int64
-	SiteID       int64
-	BuildingName string
-	Name         string
-	DeviceKind   string
-	FanCount     int32
-	Enabled      bool
-	DriverType   string
-	DriverConfig json.RawMessage
+	OrgID          int64
+	ID             int64
+	ExpectedSiteID int64
+	SiteID         int64
+	BuildingName   string
+	Name           string
+	DeviceKind     string
+	FanCount       int32
+	Enabled        bool
+	DriverType     string
+	DriverConfig   json.RawMessage
 }
 
 // ListFilter selects the list scope.

@@ -35,13 +35,12 @@ func TestValidateConfig_Valid(t *testing.T) {
 		m["write_mode"] = WriteModeCoil
 		m["register_address"] = 1
 	})))
-	// Loopback and link-local endpoints are allowed.
-	assert.NoError(t, c.ValidateConfig(validConfigJSON(t, func(m map[string]any) {
-		m["endpoint"] = "127.0.0.1"
-	})))
-	assert.NoError(t, c.ValidateConfig(validConfigJSON(t, func(m map[string]any) {
-		m["endpoint"] = "169.254.10.20"
-	})))
+	// Private RFC1918 ranges are allowed.
+	for _, endpoint := range []string{"10.0.0.5", "172.16.4.9", "192.168.1.50"} {
+		assert.NoError(t, c.ValidateConfig(validConfigJSON(t, func(m map[string]any) {
+			m["endpoint"] = endpoint
+		})), "private endpoint %q should be accepted", endpoint)
+	}
 	// Private IPv6 (ULA) is allowed.
 	assert.NoError(t, c.ValidateConfig(validConfigJSON(t, func(m map[string]any) {
 		m["endpoint"] = "fd00::1"
@@ -68,18 +67,6 @@ func TestValidateConfig_RejectsPublicOrHostnameEndpoints(t *testing.T) {
 		}))
 		assert.Error(t, err, "endpoint %q should be rejected", endpoint)
 	}
-}
-
-func TestValidateConfig_LinkLocalIncludesIMDS(t *testing.T) {
-	// 169.254.169.254 (cloud instance metadata) is link-local unicast
-	// and deliberately passes the guard — link-local is a legitimate OT
-	// range. Pinned so a future tightening of the guard is a conscious
-	// decision, not a silent behavior change; revisit when the write
-	// path lands (IMDS speaks HTTP, not Modbus, and v1 is write-only).
-	err := Controller{}.ValidateConfig(validConfigJSON(t, func(m map[string]any) {
-		m["endpoint"] = "169.254.169.254"
-	}))
-	assert.NoError(t, err)
 }
 
 func TestValidateConfig_RejectsOutOfRangeFields(t *testing.T) {
