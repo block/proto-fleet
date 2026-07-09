@@ -580,22 +580,14 @@ export default function ManageRackModal({
           coolingType: rackSettings.coolingType,
           deviceIdentifiers: rackMiners,
           slotAssignments: slotAssignmentsList,
-          // Placement from the dropdowns, only when the operator can manage
-          // site placement — otherwise omit it (preserve current / create
-          // unplaced) so a rack:manage-only edit isn't rejected server-side.
-          // On edit, send an explicit 0 for an Unassigned selection so it
-          // actually clears (omitting would preserve). On create there's
-          // nothing to preserve, so unfilled levels are undefined → NULL.
-          siteId: canManagePlacement
-            ? existingRackId !== undefined
-              ? (rackSettings.siteId ?? 0n)
-              : rackSettings.siteId
-            : undefined,
-          buildingId: canManagePlacement
-            ? existingRackId !== undefined
-              ? (rackSettings.buildingId ?? 0n)
-              : rackSettings.buildingId
-            : undefined,
+          // Placement is only sent on CREATE. An existing rack's Site/Building
+          // change is already persisted on the Rack Settings "Continue", so a
+          // (possibly miners-only) Save omits placement — this preserves the
+          // rack's current server placement and, crucially, can't clobber a
+          // move made by another session while this modal was open. Gated on
+          // site:manage; create sends its chosen placement (unset → NULL).
+          siteId: canManagePlacement && existingRackId === undefined ? rackSettings.siteId : undefined,
+          buildingId: canManagePlacement && existingRackId === undefined ? rackSettings.buildingId : undefined,
           onSuccess: () => resolve(),
           onError: (msg) => reject(new Error(msg)),
         });
