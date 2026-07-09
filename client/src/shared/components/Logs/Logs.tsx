@@ -46,6 +46,12 @@ interface LogsProps {
   logsData?: LogsData;
   fetchMaxLogs: () => Promise<LogsData | undefined>;
   downloadFilename?: string;
+  /**
+   * "document": the pane grows with its content and the page scrolls (Miner Logs).
+   * "container": the pane is a fixed-height box that scrolls itself, for layouts
+   * where the page itself never scrolls (Server Logs).
+   */
+  scrollMode?: "document" | "container";
 }
 
 const LEVEL_TO_LOG_TYPE: Record<StructuredLogEntry["level"], logType> = {
@@ -63,7 +69,7 @@ const entryToLogInfo = (entry: StructuredLogEntry): LogInfo => ({
 
 const isStructured = (data: LogsData): data is Extract<LogsData, { kind: "structured" }> => data.kind === "structured";
 
-const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs" }: LogsProps) => {
+const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs", scrollMode = "document" }: LogsProps) => {
   const [isExporting, setIsExporting] = useState(false);
   const [initPage, setInitPage] = useState(false);
   const [storedLogs, setStoredLogs] = useState<string[]>([]);
@@ -247,11 +253,10 @@ const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs" }: LogsP
   }, [searchValue, filterByLogType]);
 
   const handleScroll = useCallback(() => {
-    // The log pane scrolls itself when a fixed-height layout constrains it
-    // (Server Logs); otherwise the document scrolls (Miner Logs).
-    const container = scrollContainerRef.current;
     let distanceFromBottom: number;
-    if (container && container.scrollHeight > container.clientHeight) {
+    if (scrollMode === "container") {
+      const container = scrollContainerRef.current;
+      if (!container) return;
       distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
     } else {
       const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
@@ -259,23 +264,21 @@ const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs" }: LogsP
     }
     // consider within 5px as "at bottom"
     setIsPinnedToBottom(distanceFromBottom < 5);
-  }, []);
+  }, [scrollMode]);
 
   // The log pane only mounts once logs exist, so re-attach when they appear.
   const hasLogs = logs.length > 0;
   useEffect(() => {
     if (!hasLogs) return;
-    const container = scrollContainerRef.current;
-    window.addEventListener("scroll", handleScroll);
-    container?.addEventListener("scroll", handleScroll);
+    const target = scrollMode === "container" ? scrollContainerRef.current : window;
+    target?.addEventListener("scroll", handleScroll);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initialize isPinnedToBottom from current scroll position on mount
     handleScroll();
 
     return () => {
-      window.removeEventListener("scroll", handleScroll);
-      container?.removeEventListener("scroll", handleScroll);
+      target?.removeEventListener("scroll", handleScroll);
     };
-  }, [handleScroll, hasLogs]);
+  }, [handleScroll, hasLogs, scrollMode]);
 
   return (
     <>
@@ -354,7 +357,10 @@ const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs" }: LogsP
               </div>
             </div>
           </div>
-          <div ref={scrollContainerRef} className="h-[calc(100%-60px-58px)] overflow-y-auto">
+          <div
+            ref={scrollContainerRef}
+            className={scrollMode === "container" ? "h-[calc(100%-60px-58px)] overflow-y-auto" : undefined}
+          >
             <div className="p-4 font-mono text-mono-text-50 font-light text-text-primary">
               {filteredLogs.length ? (
                 filteredLogs.map((log, index) => {
