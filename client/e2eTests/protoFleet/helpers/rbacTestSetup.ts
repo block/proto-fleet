@@ -441,6 +441,8 @@ async function withStoredAdminContext<T>(
     const energyPage = new EnergyPage(page, isMobile);
     const commonSteps = new CommonSteps(authPage, minersPage, settingsPage, settingsTeamPage);
 
+    await commonSteps.loginAsAdmin();
+
     return await callback({
       alertsPage,
       commonSteps,
