@@ -7,6 +7,7 @@ import ReparentWarningDialog from "./ReparentWarningDialog";
 import ScanMinerQrModal from "./ScanMinerQrModal";
 import SearchMinersModal from "./SearchMinersModal";
 import { type AssignmentMode, orderIndexToOrigin, originLabel, type RackFormData, type SelectedSlot } from "./types";
+import { useBuildings } from "@/protoFleet/api/buildings";
 import { fetchAllMinerSnapshots } from "@/protoFleet/api/fetchAllMinerSnapshots";
 import { type DeviceSet, type RackSlot } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import {
@@ -15,6 +16,7 @@ import {
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
@@ -100,6 +102,11 @@ export default function ManageRackModal({
   onDelete,
 }: ManageRackModalProps) {
   const { saveRack, getRackSlots, listGroupMembers } = useDeviceSets();
+  // Placement moves for an in-session Rack Settings change go through the
+  // dedicated assign RPCs, which cascade the rack's CURRENT server-side members
+  // — never the modal's draft membership (see handleRackSettingsUpdate).
+  const { assignRacksToSite } = useSites();
+  const { assignRacksToBuilding } = useBuildings();
   // Rack placement (site/building) is a site:manage action, enforced server-
   // side on SaveRack. A rack:manage-only operator edits rack contents without
   // touching placement, so we omit placement from the request (preserving the
@@ -499,36 +506,41 @@ export default function ManageRackModal({
   // before the operator opens Manage Miners; otherwise the assignable-only
   // list would judge miners against a placement that isn't live yet. Only a
   // real placement change triggers this; label/zone/dimension edits stay in
-  // memory until Save. Requires site:manage (already enforced on SaveRack).
+  // memory until Save. Requires site:manage.
+  //
+  // Uses the dedicated placement RPCs (AssignRacksToBuilding / ToSite), NOT
+  // SaveRack: they move the rack and cascade its CURRENT persisted members,
+  // and must not touch membership — SaveRack would overwrite it with the
+  // modal's draft `rackMiners` (empty if members haven't loaded, or carrying
+  // unsaved add/removes), committing miner changes the operator never saved.
   const handleRackSettingsUpdate = useCallback(
     async (formData: RackFormData) => {
+      const rackId = existingRackId;
       const placementChanged =
-        existingRackId !== undefined &&
+        rackId !== undefined &&
         canManagePlacement &&
         (formData.siteId !== rackSettings.siteId || formData.buildingId !== rackSettings.buildingId);
 
       if (placementChanged) {
-        const slotAssignmentsList = Object.entries(activeAssignments).map(([key, deviceId]) => {
-          const [row, col] = key.split("-").map(Number);
-          return { deviceIdentifier: deviceId, row, column: col };
-        });
         try {
           await new Promise<void>((resolve, reject) => {
-            saveRack({
-              deviceSetId: existingRackId,
-              label: formData.label,
-              zone: formData.zone,
-              rows: formData.rows,
-              columns: formData.columns,
-              orderIndex: formData.orderIndex,
-              coolingType: formData.coolingType,
-              deviceIdentifiers: rackMiners,
-              slotAssignments: slotAssignmentsList,
-              siteId: formData.siteId ?? 0n,
-              buildingId: formData.buildingId ?? 0n,
-              onSuccess: () => resolve(),
-              onError: (msg) => reject(new Error(msg)),
-            });
+            const onError = (msg: string) => reject(new Error(msg));
+            if (formData.buildingId !== undefined) {
+              assignRacksToBuilding({
+                racks: [{ rackId }],
+                targetBuildingId: formData.buildingId,
+                onSuccess: () => resolve(),
+                onError,
+              });
+            } else {
+              // Direct-under-site (siteId set) or fully unassigned (undefined).
+              assignRacksToSite({
+                rackIds: [rackId],
+                targetSiteId: formData.siteId,
+                onSuccess: () => resolve(),
+                onError,
+              });
+            }
           });
         } catch (err) {
           pushToast({
@@ -543,7 +555,7 @@ export default function ManageRackModal({
       setRackSettings(formData);
       setShowRackSettings(false);
     },
-    [existingRackId, canManagePlacement, rackSettings, rackMiners, activeAssignments, saveRack],
+    [existingRackId, canManagePlacement, rackSettings, assignRacksToSite, assignRacksToBuilding],
   );
 
   // Save handler — single atomic RPC
