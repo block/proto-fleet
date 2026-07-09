@@ -47,6 +47,16 @@ class ReviewPolicyTest(unittest.TestCase):
             "python3 .github/scripts/evaluate_review_policy_test.py",
         )
 
+    def test_codex_security_review_can_write_pr_comments(self):
+        workflow = load_workflow("codex-security-review.yml")
+        post_review = workflow["jobs"]["post-review"]
+        script = post_review["steps"][1]["with"]["script"]
+
+        self.assertEqual(post_review["permissions"]["issues"], "write")
+        self.assertEqual(post_review["permissions"]["pull-requests"], "write")
+        self.assertIn("github.rest.issues.createComment", script)
+        self.assertIn("github.rest.issues.updateComment", script)
+
     def test_workflow_ignored_events_do_not_cancel_active_evaluations(self):
         workflow = load_workflow("review-policy.yml")
         group_expression = workflow["concurrency"]["group"]
