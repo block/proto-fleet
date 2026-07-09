@@ -17,15 +17,17 @@ type FirmwareFileData = {
   id: string;
   filename: string;
   target: string;
+  firmwareVersion: string;
   size: number;
   uploadedAt: number;
 };
 
-type FirmwareColumns = "filename" | "target" | "uploadedAt" | "size";
+type FirmwareColumns = "filename" | "target" | "firmwareVersion" | "uploadedAt" | "size";
 
 const colTitles: ColTitles<FirmwareColumns> = {
   filename: "File name",
   target: "Target",
+  firmwareVersion: "Version",
   uploadedAt: "Uploaded",
   size: "Size",
 };
@@ -39,6 +41,10 @@ const colConfig: ColConfig<FirmwareFileData, string, FirmwareColumns> = {
     component: (file) => <span>{file.target}</span>,
     width: "w-48",
   },
+  firmwareVersion: {
+    component: (file) => <span>{file.firmwareVersion || "-"}</span>,
+    width: "w-36",
+  },
   uploadedAt: {
     component: (file) => <span>{formatTimestamp(file.uploadedAt)}</span>,
     width: "w-48",
@@ -49,7 +55,7 @@ const colConfig: ColConfig<FirmwareFileData, string, FirmwareColumns> = {
   },
 };
 
-const activeCols: FirmwareColumns[] = ["filename", "target", "uploadedAt", "size"];
+const activeCols: FirmwareColumns[] = ["filename", "target", "firmwareVersion", "uploadedAt", "size"];
 const FIRMWARE_PAGE_DESCRIPTION = "Upload and manage firmware files available to your fleet.";
 
 function toFileData(info: FirmwareFileInfo): FirmwareFileData {
@@ -57,6 +63,7 @@ function toFileData(info: FirmwareFileInfo): FirmwareFileData {
     id: info.id,
     filename: info.filename,
     target: `${info.target_manufacturer} ${info.target_model}`.trim(),
+    firmwareVersion: info.firmware_version ?? "",
     size: info.size,
     uploadedAt: isoToEpochSeconds(info.uploaded_at),
   };

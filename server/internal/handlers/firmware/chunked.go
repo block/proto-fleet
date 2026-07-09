@@ -29,6 +29,7 @@ type uploadSession struct {
 	expectedSize  int64
 	receivedBytes int64
 	tempFilePath  string
+	force         bool
 	createdAt     time.Time
 	lastActivity  time.Time
 }
@@ -38,6 +39,8 @@ type initiateRequest struct {
 	FileSize           int64  `json:"file_size"`
 	TargetManufacturer string `json:"target_manufacturer"`
 	TargetModel        string `json:"target_model"`
+	FirmwareVersion    string `json:"firmware_version"`
+	Force              bool   `json:"force,omitempty"`
 }
 
 type initiateResponse struct {
@@ -143,10 +146,7 @@ func (h *initiateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	metadata := files.FirmwareMetadata{
 		TargetManufacturer: req.TargetManufacturer,
 		TargetModel:        req.TargetModel,
-	}
-	if err := files.ValidateFirmwareMetadata(metadata); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
+		FirmwareVersion:    req.FirmwareVersion,
 	}
 
 	if req.FileSize <= 0 {
@@ -182,6 +182,7 @@ func (h *initiateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		metadata:     metadata,
 		expectedSize: req.FileSize,
 		tempFilePath: tempPath,
+		force:        req.Force,
 		createdAt:    now,
 		lastActivity: now,
 	}
@@ -338,7 +339,7 @@ func (h *completeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fileID, err := h.filesService.SaveFirmwareFileFromPath(sess.filename, sess.tempFilePath, sess.metadata)
+	saveResult, err := h.filesService.SaveFirmwareUploadFromPath(sess.filename, sess.tempFilePath, sess.metadata, sess.force, "")
 	if err != nil {
 		os.Remove(sess.tempFilePath)
 		if isClientError(err) {
@@ -350,11 +351,11 @@ func (h *completeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("chunked upload completed", "upload_id", uploadID, "firmware_file_id", fileID)
+	slog.Info("chunked upload completed", "upload_id", uploadID, "firmware_file_id", saveResult.FirmwareFileID, "reused", saveResult.Reused)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(uploadResponse{FirmwareFileID: fileID}); err != nil {
+	if err := json.NewEncoder(w).Encode(uploadResponse{FirmwareFileID: saveResult.FirmwareFileID, Reused: saveResult.Reused}); err != nil {
 		slog.Error("failed to encode chunked upload response", "error", err)
 	}
 }

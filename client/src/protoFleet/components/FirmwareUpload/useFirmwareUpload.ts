@@ -19,6 +19,13 @@ export interface UseFirmwareUploadReturn {
 export interface FirmwareUploadTarget {
   targetManufacturer: string;
   targetModel: string;
+  firmwareVersion: string;
+}
+
+function hasCompleteFirmwareTarget(target: FirmwareUploadTarget): boolean {
+  return (
+    target.targetManufacturer.trim() !== "" && target.targetModel.trim() !== "" && target.firmwareVersion.trim() !== ""
+  );
 }
 
 export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
@@ -96,6 +103,11 @@ export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
           setState("error");
           return;
         }
+        if (!hasCompleteFirmwareTarget(target)) {
+          setErrorMessage("Manufacturer, model, and firmware version are required.");
+          setState("error");
+          return;
+        }
 
         setFile(selectedFile);
         setState("hashing");
@@ -117,6 +129,7 @@ export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
         const newId = await uploadFirmwareFile(selectedFile, {
           targetManufacturer: target.targetManufacturer,
           targetModel: target.targetModel,
+          firmwareVersion: target.firmwareVersion,
           onProgress: setUploadProgress,
           signal: controller.signal,
         });
