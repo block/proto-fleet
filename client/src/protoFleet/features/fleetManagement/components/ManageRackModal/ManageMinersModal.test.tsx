@@ -79,11 +79,17 @@ describe("ManageMinersModal", () => {
     expect(latestProps.current.filterConfig).toEqual({
       showTypeFilter: true,
       showSubnetFilter: true,
-      showSiteFilter: true,
+      showSiteFilter: false,
       showBuildingFilter: true,
       showRackFilter: true,
       showGroupFilter: true,
     });
+  });
+
+  it("forwards the header site scope to the selection list", () => {
+    const scope = { siteIds: [7n], includeUnassigned: false };
+    render(<ManageMinersModal {...defaultProps} scope={scope} />);
+    expect(latestProps.current.scope).toEqual(scope);
   });
 
   it("passes currentRackMiners as initialSelectedItems", () => {
@@ -158,6 +164,6 @@ describe("ManageMinersModal", () => {
 
     // No save (which would otherwise resolve/commit a hidden selection).
     expect(onConfirm).not.toHaveBeenCalled();
-    expect(screen.getByText(/Clear the Site, Building, or Rack filter/i)).toBeInTheDocument();
+    expect(screen.getByText(/Clear the Building or Rack filter/i)).toBeInTheDocument();
   });
 });

@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 
 import type { MinerEligibility, MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
 import MinerSelectionList from "@/protoFleet/components/MinerSelectionList";
+import type { SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 
 import Modal from "@/shared/components/Modal";
 
@@ -13,6 +14,10 @@ interface SearchMinersModalProps {
   eligibility: MinerEligibility;
   /** Target rack label, shown in the assignment-conflict dialog. */
   targetRackLabel: string;
+  /** Header SitePicker scope. Limits the list (and its Building/Rack facets) to
+   *  the active site so the modal never shows the full org when a site is
+   *  scoped; "all sites" passes the empty filter and shows everything. */
+  scope?: SiteFilterFields;
   onDismiss: () => void;
   /** `isReassignment` is true when the picked miner is currently assigned to a
    *  different rack/building/site, so the caller can confirm the reparent. */
@@ -23,6 +28,7 @@ export default function SearchMinersModal({
   show,
   eligibility,
   targetRackLabel,
+  scope,
   onDismiss,
   onConfirm,
 }: SearchMinersModalProps) {
@@ -62,11 +68,15 @@ export default function SearchMinersModal({
         filterConfig={{
           showTypeFilter: true,
           showSubnetFilter: true,
-          showSiteFilter: true,
+          // Site facet omitted — the header SitePicker scope (passed as
+          // `scope`) already governs the site, so a per-modal Site filter is
+          // redundant.
+          showSiteFilter: false,
           showBuildingFilter: true,
           showRackFilter: true,
           showGroupFilter: true,
         }}
+        scope={scope}
         eligibility={eligibility}
         targetRackLabel={targetRackLabel}
         singleSelect
