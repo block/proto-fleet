@@ -112,10 +112,11 @@ export default function ManageMinersModal({
           filterConfig={{
             showTypeFilter: true,
             showSubnetFilter: true,
-            // Site facet omitted — the header SitePicker scope (passed as
-            // `scope`) already governs the site, so a per-modal Site filter is
-            // redundant.
-            showSiteFilter: false,
+            // Site facet is redundant when the header SitePicker scope governs
+            // the site, so hide it whenever a `scope` is supplied. If a caller
+            // omits scope, keep the facet so the picker can still narrow by
+            // site (rather than stranding the operator on the full org list).
+            showSiteFilter: !scope,
             showBuildingFilter: true,
             showRackFilter: true,
             showGroupFilter: true,

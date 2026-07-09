@@ -7,6 +7,7 @@ import ReparentWarningDialog from "./ReparentWarningDialog";
 import ScanMinerQrModal from "./ScanMinerQrModal";
 import SearchMinersModal from "./SearchMinersModal";
 import { type AssignmentMode, orderIndexToOrigin, originLabel, type RackFormData, type SelectedSlot } from "./types";
+import { useRackMinerScope } from "./useRackMinerScope";
 import { fetchAllMinerSnapshots } from "@/protoFleet/api/fetchAllMinerSnapshots";
 import { type DeviceSet, type RackSlot } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import {
@@ -19,7 +20,6 @@ import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import type { MinerEligibility } from "@/protoFleet/components/MinerSelectionList";
-import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
 import { isMinerSnapshotIneligible } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import { slotNumberToRowCol } from "@/protoFleet/features/fleetManagement/utils/slotNumbering";
@@ -96,20 +96,8 @@ export default function ManageRackModal({
 }: ManageRackModalProps) {
   const { saveRack, getRackSlots, listGroupMembers } = useDeviceSets();
 
-  // Header SitePicker scope. Forwarded to the miner-selection sub-modals so they
-  // list only the scoped site's miners (matching the rest of the page) instead
-  // of the full org; "all sites" resolves to the empty filter (no regression).
-  //
-  // For a specific scoped site we also surface site-unassigned miners: the
-  // common way to get a miner into a site is to assign it to a rack there, so it
-  // starts out unassigned and would otherwise be invisible in this modal. The
-  // "all" (already everything) and "unassigned" (already includeUnassigned)
-  // cases need no adjustment.
-  const { activeSite } = useActiveSite({});
-  const scope = useMemo(() => {
-    const base = siteFilterFromActive(activeSite);
-    return activeSite.kind === "site" ? { ...base, includeUnassigned: true } : base;
-  }, [activeSite]);
+  // Header SitePicker scope, forwarded to the miner-selection sub-modals.
+  const scope = useRackMinerScope();
 
   // Fetch all miners for display data (name, IP, model, etc.)
   const { miners: minersMap } = useFleet({ pageSize: 1000 });

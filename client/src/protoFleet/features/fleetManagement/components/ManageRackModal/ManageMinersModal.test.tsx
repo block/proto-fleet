@@ -72,10 +72,12 @@ describe("ManageMinersModal", () => {
     expect(screen.queryByTestId("modal")).not.toBeInTheDocument();
   });
 
-  it("renders MinerSelectionList with correct filter config", () => {
-    render(<ManageMinersModal {...defaultProps} />);
+  it("hides the Site facet and forwards the header site scope when scope is provided", () => {
+    const scope = { siteIds: [7n], includeUnassigned: true };
+    render(<ManageMinersModal {...defaultProps} scope={scope} />);
 
     expect(screen.getByTestId("miner-selection-list")).toBeInTheDocument();
+    expect(latestProps.current.scope).toEqual(scope);
     expect(latestProps.current.filterConfig).toEqual({
       showTypeFilter: true,
       showSubnetFilter: true,
@@ -86,10 +88,9 @@ describe("ManageMinersModal", () => {
     });
   });
 
-  it("forwards the header site scope to the selection list", () => {
-    const scope = { siteIds: [7n], includeUnassigned: false };
-    render(<ManageMinersModal {...defaultProps} scope={scope} />);
-    expect(latestProps.current.scope).toEqual(scope);
+  it("keeps the Site facet when no scope is provided (avoids stranding on the full org)", () => {
+    render(<ManageMinersModal {...defaultProps} />);
+    expect(latestProps.current.filterConfig.showSiteFilter).toBe(true);
   });
 
   it("passes currentRackMiners as initialSelectedItems", () => {

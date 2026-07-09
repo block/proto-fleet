@@ -22,6 +22,7 @@ import { ManageRackModal, type RackFormData } from "@/protoFleet/features/fleetM
 import ReparentWarningDialog from "@/protoFleet/features/fleetManagement/components/ManageRackModal/ReparentWarningDialog";
 import SearchMinersModal from "@/protoFleet/features/fleetManagement/components/ManageRackModal/SearchMinersModal";
 import { orderIndexToOrigin } from "@/protoFleet/features/fleetManagement/components/ManageRackModal/types";
+import { useRackMinerScope } from "@/protoFleet/features/fleetManagement/components/ManageRackModal/useRackMinerScope";
 import type { SlotHealthState } from "@/protoFleet/features/fleetManagement/components/RackDetailGrid/types";
 import { RackHealthModule } from "@/protoFleet/features/fleetManagement/components/RackHealthModule";
 import { SLOT_STATUS_MAP } from "@/protoFleet/features/fleetManagement/utils/rackCardMapper";
@@ -77,6 +78,10 @@ const RackOverviewPage = () => {
   // label the rack's parent site in breadcrumbs), so this page no longer fires
   // its own ListSites.
   const { sites } = useSitesContext();
+
+  // Header SitePicker scope for the slot-search miner picker (this page renders
+  // SearchMinersModal directly, not via ManageRackModal).
+  const searchMinerScope = useRackMinerScope();
 
   // Request versioning to guard against stale resolution callbacks
   const resolveVersionRef = useRef(0);
@@ -561,6 +566,7 @@ const RackOverviewPage = () => {
             buildingId: rack.placement?.building?.id || undefined,
           }}
           targetRackLabel={rack.label}
+          scope={searchMinerScope}
           onDismiss={() => setSearchMinerSlot(null)}
           onConfirm={(minerId, isReassignment) => {
             const slot = searchMinerSlot;
