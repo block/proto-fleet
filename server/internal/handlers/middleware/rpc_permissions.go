@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -110,6 +111,15 @@ var ProcedurePermissions = map[string]string{
 	// rollup and the device_identifiers surface respectively. The map
 	// entry is the primary gate (site:read = "can see this building").
 	buildingsv1connect.BuildingServiceGetBuildingStatsProcedure: authz.PermSiteRead,
+
+	// Infrastructure devices (facility fans / fan groups) — site:read
+	// for reads, site:manage for writes, mirroring the buildings CRUD
+	// gating and the Fleet Infra page's UI gate.
+	infrastructurev1connect.InfrastructureServiceListInfrastructureDevicesProcedure:  authz.PermSiteRead,
+	infrastructurev1connect.InfrastructureServiceGetInfrastructureDeviceProcedure:    authz.PermSiteRead,
+	infrastructurev1connect.InfrastructureServiceCreateInfrastructureDeviceProcedure: authz.PermSiteManage,
+	infrastructurev1connect.InfrastructureServiceUpdateInfrastructureDeviceProcedure: authz.PermSiteManage,
+	infrastructurev1connect.InfrastructureServiceDeleteInfrastructureDeviceProcedure: authz.PermSiteManage,
 
 	// CurtailmentService — reads use curtailment:read; user-facing preview
 	// and mutation flows use curtailment:manage; MQTT source settings reads are

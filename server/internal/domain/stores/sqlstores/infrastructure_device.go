@@ -1,0 +1,141 @@
+package sqlstores
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+
+	"connectrpc.com/connect"
+
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/infrastructure/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+)
+
+var _ interfaces.InfrastructureDeviceStore = &SQLInfrastructureDeviceStore{}
+
+// SQLInfrastructureDeviceStore is the Postgres-backed implementation
+// of InfrastructureDeviceStore.
+type SQLInfrastructureDeviceStore struct {
+	SQLConnectionManager
+}
+
+// NewSQLInfrastructureDeviceStore returns a store bound to the
+// supplied connection.
+func NewSQLInfrastructureDeviceStore(conn *sql.DB) *SQLInfrastructureDeviceStore {
+	return &SQLInfrastructureDeviceStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
+}
+
+func (s *SQLInfrastructureDeviceStore) CreateInfrastructureDevice(ctx context.Context, params models.CreateParams) (*models.Device, error) {
+	row, err := s.GetQueries(ctx).CreateInfrastructureDevice(ctx, sqlc.CreateInfrastructureDeviceParams{
+		OrgID:        params.OrgID,
+		SiteID:       params.SiteID,
+		BuildingName: params.BuildingName,
+		Name:         params.Name,
+		DeviceKind:   params.DeviceKind,
+		FanCount:     params.FanCount,
+		Enabled:      params.Enabled,
+		DriverType:   params.DriverType,
+		DriverConfig: params.DriverConfig,
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, fleeterror.NewPlainError("an infrastructure device with this name already exists in the site", connect.CodeAlreadyExists).WithCallerStackTrace()
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to create infrastructure device: %v", err)
+	}
+	return s.GetInfrastructureDevice(ctx, params.OrgID, row.ID)
+}
+
+func (s *SQLInfrastructureDeviceStore) GetInfrastructureDevice(ctx context.Context, orgID, id int64) (*models.Device, error) {
+	row, err := s.GetQueries(ctx).GetInfrastructureDevice(ctx, sqlc.GetInfrastructureDeviceParams{ID: id, OrgID: orgID})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("infrastructure device %d not found", id)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get infrastructure device: %v", err)
+	}
+	out := models.Device{
+		ID:           row.ID,
+		OrgID:        row.OrgID,
+		SiteID:       row.SiteID,
+		SiteLabel:    row.SiteLabel,
+		BuildingName: row.BuildingName,
+		Name:         row.Name,
+		DeviceKind:   row.DeviceKind,
+		FanCount:     row.FanCount,
+		Enabled:      row.Enabled,
+		DriverType:   row.DriverType,
+		DriverConfig: row.DriverConfig,
+		CreatedAt:    row.CreatedAt,
+		UpdatedAt:    row.UpdatedAt,
+	}
+	return &out, nil
+}
+
+func (s *SQLInfrastructureDeviceStore) ListInfrastructureDevices(ctx context.Context, filter models.ListFilter) ([]models.Device, error) {
+	siteIDs := filter.SiteIDs
+	if siteIDs == nil {
+		siteIDs = []int64{}
+	}
+	rows, err := s.GetQueries(ctx).ListInfrastructureDevicesByOrg(ctx, sqlc.ListInfrastructureDevicesByOrgParams{
+		OrgID:   filter.OrgID,
+		SiteIds: siteIDs,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list infrastructure devices: %v", err)
+	}
+	out := make([]models.Device, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, models.Device{
+			ID:           row.ID,
+			OrgID:        row.OrgID,
+			SiteID:       row.SiteID,
+			SiteLabel:    row.SiteLabel,
+			BuildingName: row.BuildingName,
+			Name:         row.Name,
+			DeviceKind:   row.DeviceKind,
+			FanCount:     row.FanCount,
+			Enabled:      row.Enabled,
+			DriverType:   row.DriverType,
+			DriverConfig: row.DriverConfig,
+			CreatedAt:    row.CreatedAt,
+			UpdatedAt:    row.UpdatedAt,
+		})
+	}
+	return out, nil
+}
+
+func (s *SQLInfrastructureDeviceStore) UpdateInfrastructureDevice(ctx context.Context, params models.UpdateParams) (*models.Device, error) {
+	affected, err := s.GetQueries(ctx).UpdateInfrastructureDevice(ctx, sqlc.UpdateInfrastructureDeviceParams{
+		SiteID:       params.SiteID,
+		BuildingName: params.BuildingName,
+		Name:         params.Name,
+		DeviceKind:   params.DeviceKind,
+		FanCount:     params.FanCount,
+		Enabled:      params.Enabled,
+		DriverType:   params.DriverType,
+		DriverConfig: params.DriverConfig,
+		ID:           params.ID,
+		OrgID:        params.OrgID,
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			return nil, fleeterror.NewPlainError("an infrastructure device with this name already exists in the site", connect.CodeAlreadyExists).WithCallerStackTrace()
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to update infrastructure device: %v", err)
+	}
+	if affected == 0 {
+		return nil, fleeterror.NewNotFoundErrorf("infrastructure device %d not found", params.ID)
+	}
+	return s.GetInfrastructureDevice(ctx, params.OrgID, params.ID)
+}
+
+func (s *SQLInfrastructureDeviceStore) SoftDeleteInfrastructureDevice(ctx context.Context, orgID, id int64) (bool, error) {
+	affected, err := s.GetQueries(ctx).SoftDeleteInfrastructureDevice(ctx, sqlc.SoftDeleteInfrastructureDeviceParams{ID: id, OrgID: orgID})
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to delete infrastructure device: %v", err)
+	}
+	return affected > 0, nil
+}

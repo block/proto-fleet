@@ -27,6 +27,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -76,6 +77,7 @@ var registeredServices = []struct {
 	{fleetnodeadminv1connect.FleetNodeAdminServiceName, reflect.TypeOf((*fleetnodeadminv1connect.FleetNodeAdminServiceHandler)(nil)).Elem()},
 	{fleetnodegatewayv1connect.FleetNodeGatewayServiceName, reflect.TypeOf((*fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler)(nil)).Elem()},
 	{foremanimportv1connect.ForemanImportServiceName, reflect.TypeOf((*foremanimportv1connect.ForemanImportServiceHandler)(nil)).Elem()},
+	{infrastructurev1connect.InfrastructureServiceName, reflect.TypeOf((*infrastructurev1connect.InfrastructureServiceHandler)(nil)).Elem()},
 	{minercommandv1connect.MinerCommandServiceName, reflect.TypeOf((*minercommandv1connect.MinerCommandServiceHandler)(nil)).Elem()},
 	{networkinfov1connect.NetworkInfoServiceName, reflect.TypeOf((*networkinfov1connect.NetworkInfoServiceHandler)(nil)).Elem()},
 	{alertsv1connect.ChannelServiceName, reflect.TypeOf((*alertsv1connect.ChannelServiceHandler)(nil)).Elem()},

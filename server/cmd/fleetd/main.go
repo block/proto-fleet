@@ -53,6 +53,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -83,6 +84,7 @@ import (
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	foremanImportDomain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
+	infrastructureDomain "github.com/block/proto-fleet/server/internal/domain/infrastructure"
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/block/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
@@ -109,6 +111,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/admin"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 	foremanImportHandler "github.com/block/proto-fleet/server/internal/handlers/foremanimport"
+	infrastructureHandler "github.com/block/proto-fleet/server/internal/handlers/infrastructure"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	minerProxyHandler "github.com/block/proto-fleet/server/internal/handlers/minerproxy"
@@ -499,6 +502,8 @@ func start(config *Config) error {
 
 	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
+	infrastructureStore := sqlstores.NewSQLInfrastructureDeviceStore(conn)
+	infrastructureSvc := infrastructureDomain.NewService(infrastructureStore, siteStore, infrastructureDomain.NewDefaultDriverRegistry())
 
 	// Register the schedule-conflict preflight filter on commandSvc so every
 	// caller (manual API, schedule processor, future curtailment reconciler)
@@ -654,6 +659,7 @@ func start(config *Config) error {
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc), li))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
+	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))
 	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(
 		gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry, filesService),
 		li,
