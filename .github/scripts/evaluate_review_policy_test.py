@@ -2,6 +2,7 @@
 
 import io
 import json
+import subprocess
 import unittest
 import tempfile
 import zipfile
@@ -10,38 +11,102 @@ from pathlib import Path
 import evaluate_review_policy as policy
 
 
+WORKFLOWS_DIR = Path(__file__).resolve().parents[1] / "workflows"
+
+
+def read_workflow(name):
+    return (WORKFLOWS_DIR / name).read_text(encoding="utf-8")
+
+
+def load_workflow(name):
+    result = subprocess.run(
+        [
+            "ruby",
+            "-ryaml",
+            "-rjson",
+            "-e",
+            "puts JSON.generate(YAML.load_file(ARGV.fetch(0)))",
+            str(WORKFLOWS_DIR / name),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)
+
+
 class ReviewPolicyTest(unittest.TestCase):
-    def test_workflow_skips_cancelled_publish_side_effects(self):
-        workflow = (Path(__file__).resolve().parents[1] / "workflows" / "review-policy.yml").read_text(
-            encoding="utf-8"
+    def test_pr_gate_runs_review_policy_tests(self):
+        workflow = load_workflow("pr-gate.yml")
+        jobs = workflow["jobs"]
+
+        self.assertIn("review-policy-tests", jobs)
+        self.assertIn("review-policy-tests", jobs["gate"]["needs"])
+        self.assertEqual(
+            jobs["review-policy-tests"]["steps"][1]["run"],
+            "python3 .github/scripts/evaluate_review_policy_test.py",
         )
 
-        self.assertEqual(workflow.count("needs.evaluate.result != 'cancelled'"), 2)
-        self.assertNotIn("needs.evaluate.outputs.publishable", workflow)
-        self.assertNotIn("publishable:", workflow)
-        self.assertNotIn('echo "publishable=true"', workflow)
+    def test_workflow_ignored_events_do_not_cancel_active_evaluations(self):
+        workflow = load_workflow("review-policy.yml")
+        cancel_expression = workflow["concurrency"]["cancel-in-progress"]
 
-    def test_workflow_keeps_fail_closed_non_cancelled_failures(self):
-        workflow = (Path(__file__).resolve().parents[1] / "workflows" / "review-policy.yml").read_text(
-            encoding="utf-8"
+        self.assertIn("github.event.check_run.app.slug == 'github-actions'", cancel_expression)
+        self.assertIn("github.event.action == 'rerequested'", cancel_expression)
+        self.assertIn("github.event.check_suite.app.slug == 'github-actions'", cancel_expression)
+        self.assertIn("github.event.context == 'Review Policy'", cancel_expression)
+        self.assertIn("github.event.context == 'Review Policy Advisory'", cancel_expression)
+        self.assertIn("github.event.review.state == 'commented'", cancel_expression)
+
+    def test_workflow_publishes_pending_status_for_cancelled_evaluation(self):
+        workflow = load_workflow("review-policy.yml")
+        publish_job = workflow["jobs"]["publish-status"]
+        publish_step = publish_job["steps"][0]
+        script = publish_step["with"]["script"]
+
+        self.assertEqual(publish_job["if"], "always() && needs.evaluate.outputs.found == 'true'")
+        self.assertEqual(
+            publish_job["concurrency"]["group"],
+            "review-policy-publish-${{ needs.evaluate.outputs.head_sha }}",
         )
-
-        self.assertIn('exit 1', workflow)
-        self.assertIn("got base ref ${BASE_REF}.", workflow)
-        self.assertIn("ENFORCED: ${{ needs.evaluate.outputs.enforced || 'true' }}", workflow)
+        self.assertEqual(publish_step["env"]["EVALUATE_RESULT"], "${{ needs.evaluate.result }}")
+        self.assertIn("existingRunId > currentRunId", script)
+        self.assertIn("evaluationCancelled ? 'pending'", script)
+        self.assertIn(
+            "Review policy evaluation was cancelled; waiting for a fresh decision.",
+            script,
+        )
 
     def test_workflow_serializes_and_authorizes_label_sync(self):
-        workflow = (Path(__file__).resolve().parents[1] / "workflows" / "review-policy.yml").read_text(
-            encoding="utf-8"
+        workflow = load_workflow("review-policy.yml")
+        label_job = workflow["jobs"]["sync-label"]
+
+        self.assertEqual(
+            label_job["if"],
+            "always() && needs.evaluate.outputs.found == 'true' && needs.evaluate.result != 'cancelled'",
+        )
+        self.assertEqual(
+            label_job["concurrency"]["group"],
+            "review-policy-label-${{ needs.evaluate.outputs.head_sha }}",
+        )
+        self.assertEqual(label_job["permissions"], {"issues": "write", "pull-requests": "write"})
+
+    def test_workflow_keeps_fail_closed_non_cancelled_failures(self):
+        workflow_text = read_workflow("review-policy.yml")
+        workflow = load_workflow("review-policy.yml")
+        publish_env = workflow["jobs"]["publish-status"]["steps"][0]["env"]
+        classifier_step = next(
+            step
+            for step in workflow["jobs"]["evaluate"]["steps"]
+            if step.get("id") == "ai_classifier"
         )
 
-        self.assertIn("group: review-policy-label-${{ needs.evaluate.outputs.head_sha }}", workflow)
-        self.assertIn(
-            "    permissions:\n"
-            "      issues: write\n"
-            "      pull-requests: write\n",
-            workflow,
-        )
+        self.assertIn('exit 1', workflow_text)
+        self.assertIn("got base ref ${BASE_REF}.", workflow_text)
+        self.assertEqual(publish_env["DECISION"], "${{ needs.evaluate.outputs.decision || 'needs-human-review' }}")
+        self.assertEqual(publish_env["PASSED"], "${{ needs.evaluate.outputs.passed || 'false' }}")
+        self.assertEqual(publish_env["ENFORCED"], "${{ needs.evaluate.outputs.enforced || 'true' }}")
+        self.assertEqual(classifier_step["timeout-minutes"], 10)
 
     def test_path_matches_double_star_root_file(self):
         self.assertTrue(policy.path_matches("package.json", "**/package.json"))
