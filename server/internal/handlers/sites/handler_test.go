@@ -163,10 +163,11 @@ func TestHandler_ListSites_returnsRowsWithAllCounts(t *testing.T) {
 	h := newTestHandler(t)
 	h.siteStore.EXPECT().ListSites(gomock.Any(), int64(7)).Return([]models.SiteWithCounts{
 		{
-			Site:          models.Site{ID: 1, Name: "alpha"},
-			DeviceCount:   42,
-			BuildingCount: 5,
-			RackCount:     17,
+			Site:                      models.Site{ID: 1, Name: "alpha"},
+			DeviceCount:               42,
+			BuildingCount:             5,
+			RackCount:                 17,
+			InfrastructureDeviceCount: 3,
 		},
 	}, nil)
 
@@ -177,6 +178,7 @@ func TestHandler_ListSites_returnsRowsWithAllCounts(t *testing.T) {
 	assert.Equal(t, int64(42), row.GetDeviceCount())
 	assert.Equal(t, int64(5), row.GetBuildingCount())
 	assert.Equal(t, int64(17), row.GetRackCount())
+	assert.Equal(t, int64(3), row.GetInfrastructureDeviceCount())
 	assert.Equal(t, "alpha", row.GetSite().GetName())
 }
 

@@ -109,9 +109,10 @@ func (s *SQLSiteStore) ListSites(ctx context.Context, orgID int64) ([]models.Sit
 				CreatedAt:       row.CreatedAt,
 				UpdatedAt:       row.UpdatedAt,
 			},
-			DeviceCount:   row.DeviceCount,
-			BuildingCount: row.BuildingCount,
-			RackCount:     row.RackCount,
+			DeviceCount:               row.DeviceCount,
+			BuildingCount:             row.BuildingCount,
+			RackCount:                 row.RackCount,
+			InfrastructureDeviceCount: row.InfrastructureDeviceCount,
 		})
 	}
 	return out, nil

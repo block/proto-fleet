@@ -65,12 +65,14 @@ WHERE org_id = $1
 
 -- name: ListSites :many
 -- Returns each site with attachment counts so the delete-confirm dialog
--- can show "N miners, M buildings, K racks" without an extra round trip.
+-- can show "N miners, M buildings, K racks, J infrastructure devices"
+-- without an extra round trip.
 SELECT
     s.*,
     COALESCE(d.device_count, 0)::bigint AS device_count,
     COALESCE(b.building_count, 0)::bigint AS building_count,
-    COALESCE(r.rack_count, 0)::bigint AS rack_count
+    COALESCE(r.rack_count, 0)::bigint AS rack_count,
+    COALESCE(i.infrastructure_device_count, 0)::bigint AS infrastructure_device_count
 FROM site s
 LEFT JOIN (
     SELECT device.site_id, COUNT(*) AS device_count
@@ -97,6 +99,13 @@ LEFT JOIN (
       AND ds.deleted_at IS NULL
     GROUP BY dsr.site_id
 ) r ON r.site_id = s.id
+LEFT JOIN (
+    SELECT infrastructure_device.site_id, COUNT(*) AS infrastructure_device_count
+    FROM infrastructure_device
+    WHERE infrastructure_device.org_id = sqlc.arg('org_id')
+      AND infrastructure_device.deleted_at IS NULL
+    GROUP BY infrastructure_device.site_id
+) i ON i.site_id = s.id
 WHERE s.org_id = sqlc.arg('org_id')
   AND s.deleted_at IS NULL
 ORDER BY s.name;

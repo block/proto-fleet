@@ -120,11 +120,12 @@ func toListSitesResponse(rows []models.SiteWithCounts) *pb.ListSitesResponse {
 	for i := range rows {
 		row := rows[i]
 		out = append(out, &pb.SiteWithCounts{
-			Site:          toProtoSite(&row.Site),
-			DeviceCount:   row.DeviceCount,
-			BuildingCount: row.BuildingCount,
-			RackCount:     row.RackCount,
-			ListStats:     toProtoFleetListStats(row.ListStats),
+			Site:                      toProtoSite(&row.Site),
+			DeviceCount:               row.DeviceCount,
+			BuildingCount:             row.BuildingCount,
+			RackCount:                 row.RackCount,
+			InfrastructureDeviceCount: row.InfrastructureDeviceCount,
+			ListStats:                 toProtoFleetListStats(row.ListStats),
 		})
 	}
 	return &pb.ListSitesResponse{Sites: out}

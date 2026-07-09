@@ -538,7 +538,8 @@ SELECT
     s.id, s.org_id, s.name, s.location_city, s.location_state, s.power_capacity_mw, s.network_config, s.created_at, s.updated_at, s.deleted_at, s.address, s.postal_code, s.country, s.notes, s.timezone, s.slug,
     COALESCE(d.device_count, 0)::bigint AS device_count,
     COALESCE(b.building_count, 0)::bigint AS building_count,
-    COALESCE(r.rack_count, 0)::bigint AS rack_count
+    COALESCE(r.rack_count, 0)::bigint AS rack_count,
+    COALESCE(i.infrastructure_device_count, 0)::bigint AS infrastructure_device_count
 FROM site s
 LEFT JOIN (
     SELECT device.site_id, COUNT(*) AS device_count
@@ -565,35 +566,44 @@ LEFT JOIN (
       AND ds.deleted_at IS NULL
     GROUP BY dsr.site_id
 ) r ON r.site_id = s.id
+LEFT JOIN (
+    SELECT infrastructure_device.site_id, COUNT(*) AS infrastructure_device_count
+    FROM infrastructure_device
+    WHERE infrastructure_device.org_id = $1
+      AND infrastructure_device.deleted_at IS NULL
+    GROUP BY infrastructure_device.site_id
+) i ON i.site_id = s.id
 WHERE s.org_id = $1
   AND s.deleted_at IS NULL
 ORDER BY s.name
 `
 
 type ListSitesRow struct {
-	ID              int64
-	OrgID           int64
-	Name            string
-	LocationCity    sql.NullString
-	LocationState   sql.NullString
-	PowerCapacityMw sql.NullString
-	NetworkConfig   sql.NullString
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	DeletedAt       sql.NullTime
-	Address         sql.NullString
-	PostalCode      sql.NullString
-	Country         string
-	Notes           sql.NullString
-	Timezone        sql.NullString
-	Slug            string
-	DeviceCount     int64
-	BuildingCount   int64
-	RackCount       int64
+	ID                        int64
+	OrgID                     int64
+	Name                      string
+	LocationCity              sql.NullString
+	LocationState             sql.NullString
+	PowerCapacityMw           sql.NullString
+	NetworkConfig             sql.NullString
+	CreatedAt                 time.Time
+	UpdatedAt                 time.Time
+	DeletedAt                 sql.NullTime
+	Address                   sql.NullString
+	PostalCode                sql.NullString
+	Country                   string
+	Notes                     sql.NullString
+	Timezone                  sql.NullString
+	Slug                      string
+	DeviceCount               int64
+	BuildingCount             int64
+	RackCount                 int64
+	InfrastructureDeviceCount int64
 }
 
 // Returns each site with attachment counts so the delete-confirm dialog
-// can show "N miners, M buildings, K racks" without an extra round trip.
+// can show "N miners, M buildings, K racks, J infrastructure devices"
+// without an extra round trip.
 func (q *Queries) ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, error) {
 	rows, err := q.query(ctx, q.listSitesStmt, listSites, orgID)
 	if err != nil {
@@ -623,6 +633,7 @@ func (q *Queries) ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, e
 			&i.DeviceCount,
 			&i.BuildingCount,
 			&i.RackCount,
+			&i.InfrastructureDeviceCount,
 		); err != nil {
 			return nil, err
 		}

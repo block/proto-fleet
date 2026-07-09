@@ -34,11 +34,12 @@ type Site struct {
 // so the delete-confirm dialog has impact numbers without a second
 // round trip.
 type SiteWithCounts struct {
-	Site          Site
-	DeviceCount   int64
-	BuildingCount int64
-	RackCount     int64
-	ListStats     *FleetListStats
+	Site                      Site
+	DeviceCount               int64
+	BuildingCount             int64
+	RackCount                 int64
+	InfrastructureDeviceCount int64
+	ListStats                 *FleetListStats
 }
 
 // CreateSiteParams is the input shape for the Create flow.

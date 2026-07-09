@@ -127,6 +127,10 @@ message SiteWithCounts {
     // Lightweight list/table rollup. Omitted when the caller is not
     // authorized for telemetry stats.
     common.v1.FleetListStats list_stats = 5;
+    // Count of controllable infrastructure devices (e.g. facility fans)
+    // attached to the site. Included so the delete-confirm dialog can
+    // surface the full cascade impact.
+    int64 infrastructure_device_count = 6;
 }
 
 // ListSites
