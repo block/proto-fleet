@@ -55,9 +55,25 @@ message MetricsBatch {
 // Logs stream
 // ---------------------------------------------------------------------------
 
+// Minimum log severity a StreamLogs client wants forwarded. Services only
+// publish INFO and above to the telemetry channel, so the meaningful floors
+// are INFO/WARN/ERROR. The server maps these to OTLP severity numbers when
+// filtering.
+enum LogSeverity {
+  // Unset. The server applies its default floor (WARN), preserving the
+  // behavior of clients that don't set min_severity.
+  LOG_SEVERITY_UNSPECIFIED = 0;
+  LOG_SEVERITY_INFO = 1;
+  LOG_SEVERITY_WARN = 2;
+  LOG_SEVERITY_ERROR = 3;
+}
+
 message StreamLogsRequest {
   // Optional service-name filter. Empty list streams every service.
   repeated string service_names = 1;
+
+  // Minimum severity to include. Unset (UNSPECIFIED) means WARN.
+  LogSeverity min_severity = 2;
 }
 
 message LogsBatch {

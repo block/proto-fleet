@@ -594,6 +594,250 @@ func TestHandleSystemStatus_PasswordSetUsesPasswordState(t *testing.T) {
 	}
 }
 
+func TestHandleSystemStatus_OmitsDefaultPasswordActive(t *testing.T) {
+	// MDK-API 1.8.2 removed default_password_active from /api/v1/system/status.
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SeedDefaultPassword("defaultPass123")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/system/status", nil)
+	h.handleSystemStatus(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	if _, ok := raw["default_password_active"]; ok {
+		t.Fatal("expected default_password_active to be absent from system status")
+	}
+}
+
+func TestHandleSecureStatus_GetReturnsState(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/system/secure", nil)
+	h.handleSecureStatus(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+	var resp SecureResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to unmarshal response: %v", err)
+	}
+	if resp.Secure {
+		t.Fatal("expected simulated device to report secure=false")
+	}
+	if resp.State.Sshd == "" || resp.State.NatsService == "" ||
+		resp.State.Secureboot == "" || resp.State.CertificateValidity == "" {
+		t.Fatalf("expected all secure state fields to be populated, got %+v", resp.State)
+	}
+}
+
+func TestHandleSecureStatus_PutSetsOverride(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/system/secure",
+		strings.NewReader(`{"secure_override":true}`))
+	h.handleSecureStatus(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+	if !state.GetSecureOverride() {
+		t.Fatal("expected secure override marker to be set")
+	}
+
+	// Missing secure_override is rejected with 422 like the firmware.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/system/secure", strings.NewReader(`{}`))
+	h.handleSecureStatus(rr, req)
+
+	if rr.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnprocessableEntity, rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleSecureStatus_PutRequiresAuth(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/system/secure",
+		strings.NewReader(`{"secure_override":true}`))
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnauthorized, rr.Code, rr.Body.String())
+	}
+
+	// GET stays public per the firmware PUBLIC_ROUTES list.
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/system/secure", nil)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleCurtailmentConfig_RoundTrip(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/curtailment/config", nil)
+	h.handleCurtailmentConfig(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+	var defaults CurtailmentConfig
+	if err := json.Unmarshal(rr.Body.Bytes(), &defaults); err != nil {
+		t.Fatalf("failed to unmarshal default config: %v", err)
+	}
+	if defaults.Enabled {
+		t.Fatal("expected curtailment to default to disabled")
+	}
+	if defaults.FailPolicy != "closed" || defaults.RestorePolicy != "respect_manual_stop" {
+		t.Fatalf("unexpected default policies: %+v", defaults)
+	}
+
+	newConfig := `{
+		"enabled": true,
+		"fail_policy": "open",
+		"restore_policy": "respect_manual_stop",
+		"nats_url": "nats://localhost:4222",
+		"mcdd_grpc_addr": "127.0.0.1:2122",
+		"status_publish_interval": "15s",
+		"providers": [{
+			"name": "maestro",
+			"type": "maestro_mqtt",
+			"enabled": true,
+			"brokers": ["10.155.0.3", "10.155.0.4"],
+			"port": 1883,
+			"username": "maestro",
+			"password": "mqtt-password",
+			"topic": "maestro/target",
+			"qos": 1,
+			"stale_after": "4m",
+			"reconnect_backoff": "5s"
+		}]
+	}`
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPut, "/api/v1/curtailment/config", strings.NewReader(newConfig))
+	h.handleCurtailmentConfig(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	stored := state.GetCurtailmentConfig()
+	if !stored.Enabled || stored.FailPolicy != "open" {
+		t.Fatalf("expected stored config to reflect the PUT, got %+v", stored)
+	}
+	if len(stored.Providers) != 1 || len(stored.Providers[0].Brokers) != 2 {
+		t.Fatalf("expected one provider with two brokers, got %+v", stored.Providers)
+	}
+}
+
+func TestHandleCurtailmentConfig_PutValidation(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "bad fail_policy",
+			body: `{"fail_policy":"sometimes","restore_policy":"respect_manual_stop","nats_url":"nats://localhost:4222","mcdd_grpc_addr":"127.0.0.1:2122","status_publish_interval":"15s","providers":[]}`,
+		},
+		{
+			name: "bad nats_url",
+			body: `{"fail_policy":"closed","restore_policy":"respect_manual_stop","nats_url":"nats://remote:4222","mcdd_grpc_addr":"127.0.0.1:2122","status_publish_interval":"15s","providers":[]}`,
+		},
+		{
+			name: "interval above TTL",
+			body: `{"fail_policy":"closed","restore_policy":"respect_manual_stop","nats_url":"nats://localhost:4222","mcdd_grpc_addr":"127.0.0.1:2122","status_publish_interval":"90s","providers":[]}`,
+		},
+		{
+			name: "enabled provider without brokers",
+			body: `{"fail_policy":"closed","restore_policy":"respect_manual_stop","nats_url":"nats://localhost:4222","mcdd_grpc_addr":"127.0.0.1:2122","status_publish_interval":"15s","providers":[{"name":"maestro","type":"maestro_mqtt","enabled":true,"brokers":[],"port":1883,"topic":"maestro/target","qos":1,"stale_after":"4m","reconnect_backoff":"5s"}]}`,
+		},
+		{
+			name: "broker is a URL",
+			body: `{"fail_policy":"closed","restore_policy":"respect_manual_stop","nats_url":"nats://localhost:4222","mcdd_grpc_addr":"127.0.0.1:2122","status_publish_interval":"15s","providers":[{"name":"maestro","type":"maestro_mqtt","enabled":true,"brokers":["mqtt://10.0.0.1"],"port":1883,"topic":"maestro/target","qos":1,"stale_after":"4m","reconnect_backoff":"5s"}]}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPut, "/api/v1/curtailment/config", strings.NewReader(tt.body))
+			h.handleCurtailmentConfig(rr, req)
+
+			if rr.Code != http.StatusBadRequest {
+				t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandleCurtailmentStatus_DefaultUnknown(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/curtailment/status", nil)
+	h.handleCurtailmentStatus(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+	var status CurtailmentStatus
+	if err := json.Unmarshal(rr.Body.Bytes(), &status); err != nil {
+		t.Fatalf("failed to unmarshal status: %v", err)
+	}
+	if status.Active || status.Known {
+		t.Fatalf("expected inactive unknown status, got %+v", status)
+	}
+	if status.Reason == nil || *status.Reason != "no_status_received" {
+		t.Fatalf("expected reason 'no_status_received', got %v", status.Reason)
+	}
+}
+
+func TestCurtailmentEndpoints_RequireAuth(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	paths := []string{"/api/v1/curtailment/config", "/api/v1/curtailment/status"}
+	for _, path := range paths {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		mux.ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusUnauthorized {
+			t.Fatalf("expected %d for unauthenticated %s, got %d; body=%s",
+				http.StatusUnauthorized, path, rr.Code, rr.Body.String())
+		}
+	}
+}
+
 func TestHandleSetPassword_TooShort_Returns400(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)

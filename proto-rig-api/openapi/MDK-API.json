@@ -10,7 +10,7 @@
       "name": "MIT",
       "url": "https://opensource.org/license/mit"
     },
-    "version": "1.8.1"
+    "version": "1.8.2"
   },
   "servers": [
     {
@@ -42,6 +42,10 @@
     {
       "name": "Cooling",
       "description": "The cooling endpoint group provides information and control over the cooling system of the miner."
+    },
+    {
+      "name": "Curtailment",
+      "description": "The curtailment endpoint group exposes curtailment service configuration and current curtailment status."
     },
     {
       "name": "Authentication",
@@ -124,9 +128,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -173,9 +174,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -227,9 +225,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -290,9 +285,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -342,9 +334,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -398,9 +387,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -456,7 +442,7 @@
         "tags": [
           "Authentication"
         ],
-        "description": "Change the current password to a new password. Requires the current password for verification. The new password cannot be the same as the default password. After a successful password change, all existing JWT tokens are invalidated and clients must re-authenticate.",
+        "description": "Change the current password to a new password. Requires the current password for verification.",
         "operationId": "ChangePassword",
         "requestBody": {
           "description": "Current and new password data for changing the device password",
@@ -485,9 +471,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
@@ -582,9 +565,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -678,6 +658,204 @@
         }
       }
     },
+    "/api/v1/curtailment/config": {
+      "get": {
+        "tags": [
+          "Curtailment"
+        ],
+        "description": "Return the curtailment service configuration.",
+        "operationId": "GetCurtailmentConfig",
+        "responses": {
+          "200": {
+            "description": "Curtailment configuration returned.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "enabled": true,
+                  "fail_policy": "closed",
+                  "restore_policy": "respect_manual_stop",
+                  "nats_url": "nats://localhost:4222",
+                  "mcdd_grpc_addr": "127.0.0.1:2122",
+                  "status_publish_interval": "15s",
+                  "providers": [
+                    {
+                      "name": "maestro",
+                      "type": "maestro_mqtt",
+                      "enabled": true,
+                      "brokers": [
+                        "10.155.0.3",
+                        "10.155.0.4"
+                      ],
+                      "port": 1883,
+                      "username": "maestro",
+                      "password": "mqtt-password",
+                      "topic": "maestro/target",
+                      "qos": 1,
+                      "stale_after": "4m",
+                      "reconnect_backoff": "5s"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/CurtailmentConfig"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Curtailment"
+        ],
+        "description": "Validate and replace the curtailment service YAML configuration.",
+        "operationId": "PutCurtailmentConfig",
+        "requestBody": {
+          "description": "Complete curtailment service configuration to validate and write to the rig YAML config file.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "example": {
+                "enabled": true,
+                "fail_policy": "closed",
+                "restore_policy": "respect_manual_stop",
+                "nats_url": "nats://localhost:4222",
+                "mcdd_grpc_addr": "127.0.0.1:2122",
+                "status_publish_interval": "15s",
+                "providers": [
+                  {
+                    "name": "maestro",
+                    "type": "maestro_mqtt",
+                    "enabled": true,
+                    "brokers": [
+                      "10.155.0.3",
+                      "10.155.0.4"
+                    ],
+                    "port": 1883,
+                    "username": "maestro",
+                    "password": "mqtt-password",
+                    "topic": "maestro/target",
+                    "qos": 1,
+                    "stale_after": "4m",
+                    "reconnect_backoff": "5s"
+                  }
+                ]
+              },
+              "schema": {
+                "$ref": "#/components/schemas/CurtailmentConfig"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Curtailment configuration updated.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "enabled": true,
+                  "fail_policy": "closed",
+                  "restore_policy": "respect_manual_stop",
+                  "nats_url": "nats://localhost:4222",
+                  "mcdd_grpc_addr": "127.0.0.1:2122",
+                  "status_publish_interval": "15s",
+                  "providers": [
+                    {
+                      "name": "maestro",
+                      "type": "maestro_mqtt",
+                      "enabled": true,
+                      "brokers": [
+                        "10.155.0.3",
+                        "10.155.0.4"
+                      ],
+                      "port": 1883,
+                      "username": "maestro",
+                      "password": "mqtt-password",
+                      "topic": "maestro/target",
+                      "qos": 1,
+                      "stale_after": "4m",
+                      "reconnect_backoff": "5s"
+                    }
+                  ]
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/CurtailmentConfig"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/curtailment/status": {
+      "get": {
+        "tags": [
+          "Curtailment"
+        ],
+        "description": "Return the latest curtailment status published by curtailment-service.",
+        "operationId": "GetCurtailmentStatus",
+        "responses": {
+          "200": {
+            "description": "Curtailment status returned.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "active": true,
+                  "known": true,
+                  "fail_policy": "closed",
+                  "provider": "maestro",
+                  "reason": "target_off",
+                  "selected_broker": "10.155.0.3:1883",
+                  "target": 0,
+                  "provider_timestamp": 1778539005,
+                  "last_message_age_ms": 1250,
+                  "last_valid_message": "2026-06-24T06:00:00Z",
+                  "updated_at": "2026-06-24T06:00:01Z",
+                  "last_command": "stop_mining",
+                  "restore_pending": true
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/CurtailmentStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/api/v1/mining": {
       "get": {
         "tags": [
@@ -704,9 +882,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -742,9 +917,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -792,9 +964,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -844,9 +1013,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -882,9 +1048,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -920,9 +1083,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -955,9 +1115,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1017,9 +1174,6 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
-          },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
           }
@@ -1054,7 +1208,7 @@
           {
             "name": "source",
             "in": "query",
-            "description": "Source of logs to fetch. Defaults to miner software logs.",
+            "description": "Source of logs to fetch. Defaults to `miner_sw`, which returns the combined miner software-stack logs (mcdd, all hashboard-service and psu-service instances, miner-ui-service, and miner-api-server) merged in timestamp order. `os` returns kernel logs, `pool_sw` the pool interface (mcdd), and `miner_web_server` the API server only.",
             "required": false,
             "style": "form",
             "explode": true,
@@ -1093,9 +1247,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1130,9 +1281,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1167,9 +1315,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1224,9 +1369,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1298,9 +1440,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1332,6 +1471,53 @@
             "$ref": "#/components/responses/InternalServerError"
           }
         }
+      },
+      "put": {
+        "tags": [
+          "System"
+        ],
+        "description": "Sets or clears the secure override marker and returns the refreshed secure status. SSH/NATS service changes are applied asynchronously after the response.",
+        "operationId": "PutSecureStatus",
+        "requestBody": {
+          "description": "Secure override configuration.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecureConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The secure override marker was updated and the current cached secure status was returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecureResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/system/unlock": {
@@ -1394,11 +1580,11 @@
           "422": {
             "$ref": "#/components/responses/UnprocessableEntity"
           },
-          "500": {
-            "$ref": "#/components/responses/InternalServerError"
-          },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
           }
         },
         "security": [
@@ -1466,9 +1652,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1523,9 +1706,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1566,9 +1746,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1612,9 +1789,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1672,9 +1846,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1715,9 +1886,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1764,9 +1932,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1824,9 +1989,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1867,9 +2029,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -2023,9 +2182,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -2069,9 +2225,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -2112,9 +2265,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -2158,9 +2308,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -2193,9 +2340,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -2250,9 +2394,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -2328,9 +2469,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -2366,9 +2504,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -2595,9 +2730,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -2621,9 +2753,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -2727,9 +2856,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -2779,9 +2905,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -3113,9 +3236,6 @@
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -3218,9 +3338,6 @@
                 }
               }
             }
-          },
-          "403": {
-            "$ref": "#/components/responses/Forbidden"
           }
         }
       }
@@ -3549,6 +3666,329 @@
         "type": "array",
         "items": {
           "$ref": "#/components/schemas/PoolConfig_inner"
+        }
+      },
+      "CurtailmentConfig": {
+        "description": "Configuration for the rig curtailment service and its enabled curtailment providers.",
+        "type": "object",
+        "example": {
+          "enabled": true,
+          "fail_policy": "closed",
+          "restore_policy": "respect_manual_stop",
+          "nats_url": "nats://localhost:4222",
+          "mcdd_grpc_addr": "127.0.0.1:2122",
+          "status_publish_interval": "15s",
+          "providers": [
+            {
+              "name": "maestro",
+              "type": "maestro_mqtt",
+              "enabled": true,
+              "brokers": [
+                "10.155.0.3",
+                "10.155.0.4"
+              ],
+              "port": 1883,
+              "username": "maestro",
+              "password": "mqtt-password",
+              "topic": "maestro/target",
+              "qos": 1,
+              "stale_after": "4m",
+              "reconnect_backoff": "5s"
+            }
+          ]
+        },
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether curtailment-service should subscribe to providers and control mining.",
+            "example": true
+          },
+          "fail_policy": {
+            "type": "string",
+            "description": "Behavior when no provider has a fresh valid target. closed curtails; open allows operation.",
+            "enum": [
+              "closed",
+              "open"
+            ],
+            "example": "closed"
+          },
+          "restore_policy": {
+            "type": "string",
+            "description": "Policy used when curtailment is lifted. respect_manual_stop resumes only mining that the service stopped.",
+            "enum": [
+              "respect_manual_stop"
+            ],
+            "example": "respect_manual_stop"
+          },
+          "nats_url": {
+            "type": "string",
+            "description": "Local NATS URL used by miner-api-server and curtailment-service. Only nats://localhost:4222 is accepted.",
+            "enum": [
+              "nats://localhost:4222"
+            ],
+            "example": "nats://localhost:4222"
+          },
+          "mcdd_grpc_addr": {
+            "type": "string",
+            "description": "mcdd gRPC address used when NATS commands are unavailable for the required control path.",
+            "example": "127.0.0.1:2122"
+          },
+          "status_publish_interval": {
+            "type": "string",
+            "description": "Go duration syntax. Must be no longer than the API curtailment status TTL of 60s.",
+            "example": "15s"
+          },
+          "providers": {
+            "type": "array",
+            "description": "Curtailment providers to evaluate. Enabled providers are ordered by their own precedence rules.",
+            "items": {
+              "$ref": "#/components/schemas/CurtailmentProviderConfig"
+            },
+            "example": [
+              {
+                "name": "maestro",
+                "type": "maestro_mqtt",
+                "enabled": true,
+                "brokers": [
+                  "10.155.0.3",
+                  "10.155.0.4"
+                ],
+                "port": 1883,
+                "username": "maestro",
+                "password": "mqtt-password",
+                "topic": "maestro/target",
+                "qos": 1,
+                "stale_after": "4m",
+                "reconnect_backoff": "5s"
+              }
+            ]
+          }
+        }
+      },
+      "CurtailmentProviderConfig": {
+        "description": "Configuration for one Maestro MQTT curtailment provider.",
+        "type": "object",
+        "example": {
+          "name": "maestro",
+          "type": "maestro_mqtt",
+          "enabled": true,
+          "brokers": [
+            "10.155.0.3",
+            "10.155.0.4"
+          ],
+          "port": 1883,
+          "username": "maestro",
+          "password": "mqtt-password",
+          "topic": "maestro/target",
+          "qos": 1,
+          "stale_after": "4m",
+          "reconnect_backoff": "5s"
+        },
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Provider instance name used in status output.",
+            "example": "maestro"
+          },
+          "type": {
+            "type": "string",
+            "description": "Provider implementation type. Only maestro_mqtt is currently supported.",
+            "enum": [
+              "maestro_mqtt"
+            ],
+            "example": "maestro_mqtt"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether this provider should connect and participate in target selection.",
+            "example": true
+          },
+          "brokers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Broker host or IP. Entries may include an explicit port; otherwise the provider-level port is used."
+            },
+            "example": [
+              "10.155.0.3",
+              "10.155.0.4"
+            ]
+          },
+          "port": {
+            "type": "integer",
+            "description": "MQTT broker port shared by all brokers for this provider.",
+            "minimum": 1,
+            "maximum": 65535,
+            "example": 1883
+          },
+          "username": {
+            "type": "string",
+            "description": "MQTT username for broker authentication.",
+            "example": "maestro"
+          },
+          "password": {
+            "type": "string",
+            "description": "Plaintext MQTT password stored in the YAML config.",
+            "example": "mqtt-password"
+          },
+          "topic": {
+            "type": "string",
+            "description": "MQTT topic carrying Maestro site power targets.",
+            "example": "maestro/target"
+          },
+          "qos": {
+            "type": "integer",
+            "description": "MQTT subscription QoS level.",
+            "minimum": 0,
+            "maximum": 2,
+            "example": 1
+          },
+          "stale_after": {
+            "type": "string",
+            "description": "Go duration after which the provider target is stale and fail_policy is applied.",
+            "example": "4m"
+          },
+          "reconnect_backoff": {
+            "type": "string",
+            "description": "Go duration to wait before reconnecting to a disconnected broker.",
+            "example": "5s"
+          }
+        }
+      },
+      "CurtailmentStatus": {
+        "description": "Latest curtailment state observed by miner-api-server from curtailment-service status messages.",
+        "type": "object",
+        "example": {
+          "active": true,
+          "known": true,
+          "fail_policy": "closed",
+          "provider": "maestro",
+          "reason": "target_off",
+          "selected_broker": "10.155.0.3:1883",
+          "target": 0,
+          "provider_timestamp": 1778539005,
+          "last_message_age_ms": 1250,
+          "last_valid_message": "2026-06-24T06:00:00Z",
+          "updated_at": "2026-06-24T06:00:01Z",
+          "last_command": "stop_mining",
+          "restore_pending": true
+        },
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "description": "Whether the selected curtailment signal currently requires mining to be stopped.",
+            "example": true
+          },
+          "known": {
+            "type": "boolean",
+            "description": "Whether a fresh curtailment-service status message is available.",
+            "example": true
+          },
+          "fail_policy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Configured fail behavior used when provider targets are stale or missing.",
+            "example": "closed"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Provider that supplied the selected target.",
+            "example": "maestro"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Reason for the current curtailment decision.",
+            "example": "target_off"
+          },
+          "selected_broker": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Broker endpoint whose target currently wins provider precedence.",
+            "example": "10.155.0.3:1883"
+          },
+          "target": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Selected Maestro target percentage. Zero means OFF and 100 means ON.",
+            "example": 0
+          },
+          "provider_timestamp": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Unix epoch seconds from the selected provider payload.",
+            "example": 1778539005
+          },
+          "last_message_age_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Age in milliseconds of the selected valid provider message.",
+            "example": 1250
+          },
+          "last_valid_message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Wall-clock time when the selected provider last produced a valid message.",
+            "example": "2026-06-24T06:00:00Z"
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Wall-clock time when curtailment-service published this status.",
+            "example": "2026-06-24T06:00:01Z"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Provider or service error associated with the current status, when present.",
+            "example": "broker connection failed"
+          },
+          "last_command": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Most recent mining control command issued by curtailment-service.",
+            "example": "stop_mining"
+          },
+          "last_command_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Most recent mining control command error, when present.",
+            "example": "mcdd unavailable"
+          },
+          "restore_pending": {
+            "type": "boolean",
+            "description": "Whether the service intends to resume mining when curtailment lifts.",
+            "example": true
+          }
         }
       },
       "MiningStatus": {
@@ -4143,6 +4583,7 @@
               "DegradedMining",
               "PoweringOff",
               "Stopped",
+              "Curtailed",
               "NoPools",
               "Error"
             ]
@@ -4230,15 +4671,19 @@
           },
           "status": {
             "type": "string",
-            "description": "The current state or condition of the hashboard.",
+            "description": "The current state or condition of the hashboard. `Updating` indicates a firmware update is in flight; see `fw_update` for progress detail.",
             "example": "Running",
             "enum": [
               "Running",
               "Stopped",
+              "Updating",
               "Error",
               "Overheated",
               "Unknown"
             ]
+          },
+          "fw_update": {
+            "$ref": "#/components/schemas/HashboardFwUpdateProgress"
           },
           "power_usage_watts": {
             "type": "number",
@@ -4293,6 +4738,49 @@
             "items": {
               "$ref": "#/components/schemas/AsicStats"
             }
+          }
+        }
+      },
+      "HashboardFwUpdateProgress": {
+        "description": "Latest firmware-update progress / last-known result for a hashboard. Can be absent if no firmware update has been requested since boot, or if no `hb.<slot>.fwup_progress` message has been observed yet.",
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "description": "Phase of the update.\n - `Idle`: never attempted since boot.\n - `Queued`: scheduled, not yet started.\n - `Preparing` / `Writing` / `Activating` / `Rebooting`: in flight.\n - `Complete`: succeeded.\n - `Failed`: gave up after the retry budget was exhausted.\n - `NoUpdateRequired`: the running firmware already matches the target image.",
+            "example": "Writing",
+            "enum": [
+              "Idle",
+              "Queued",
+              "Preparing",
+              "Writing",
+              "Activating",
+              "Rebooting",
+              "Complete",
+              "Failed",
+              "NoUpdateRequired"
+            ]
+          },
+          "progress_percent": {
+            "type": "number",
+            "format": "float",
+            "description": "0-100 during `Writing`; jumps to 100 once `Activating` is reached.",
+            "example": 47.5
+          },
+          "message": {
+            "type": "string",
+            "description": "Operator-facing message. Empty for in-flight `Writing` events; populated for terminal states with a description of the outcome.",
+            "example": "Firmware update completed: 1.2.3"
+          },
+          "attempt": {
+            "type": "integer",
+            "description": "Attempt counter for retries. `0` means not yet started; otherwise 1..=`max_attempts`.",
+            "example": 1
+          },
+          "max_attempts": {
+            "type": "integer",
+            "description": "Maximum number of attempts the service will make before giving up.",
+            "example": 3
           }
         }
       },
@@ -4431,6 +4919,9 @@
             "type": "integer",
             "description": "The physical slot where the hashboard is inserted in the system.",
             "example": 1
+          },
+          "fw_update": {
+            "$ref": "#/components/schemas/HashboardFwUpdateProgress"
           }
         }
       },
@@ -4546,7 +5037,8 @@
               "uploading",
               "verifying",
               "complete",
-              "failed"
+              "failed",
+              "not_needed"
             ],
             "description": "Current firmware update state"
           },
@@ -4557,7 +5049,7 @@
           },
           "message": {
             "type": "string",
-            "description": "Optional status message (firmware name on start, error on failure)"
+            "description": "Optional status message (firmware name on start, no-op reason, or error on failure)"
           }
         }
       },
@@ -4940,16 +5432,66 @@
       },
       "SecureResponse": {
         "type": "object",
-        "description": "Response indicating whether the system is in a secure state",
+        "description": "Response indicating whether the system is in a secure state and the cached component state used to derive it.",
         "properties": {
           "secure": {
             "type": "boolean",
             "description": "True if the device is locked and the device certificate is valid",
             "example": true
+          },
+          "state": {
+            "$ref": "#/components/schemas/SecureResponseState"
           }
         },
         "required": [
-          "secure"
+          "secure",
+          "state"
+        ]
+      },
+      "SecureResponseState": {
+        "type": "object",
+        "description": "Cached secure-related component state.",
+        "properties": {
+          "sshd": {
+            "type": "string",
+            "description": "systemd active state for the SSH service.",
+            "example": "active"
+          },
+          "nats-service": {
+            "type": "string",
+            "description": "Currently active NATS service mode: open, secure, none, or unknown.",
+            "example": "secure"
+          },
+          "secureboot": {
+            "type": "string",
+            "description": "Secure boot status reported by lock_ctrl_ta_client.",
+            "example": "CLOSED"
+          },
+          "certificate-validity": {
+            "type": "string",
+            "description": "Device certificate validity reported by attestation_ta_client.",
+            "example": "VALID"
+          }
+        },
+        "required": [
+          "sshd",
+          "nats-service",
+          "secureboot",
+          "certificate-validity"
+        ]
+      },
+      "SecureConfig": {
+        "type": "object",
+        "description": "Configuration for secure override state",
+        "properties": {
+          "secure_override": {
+            "type": "boolean",
+            "description": "True creates /etc/secure_override; false removes it",
+            "example": true
+          }
+        },
+        "required": [
+          "secure_override"
         ]
       },
       "UnlockResponse": {
@@ -5001,11 +5543,6 @@
           "password_set": {
             "type": "boolean",
             "example": true
-          },
-          "default_password_active": {
-            "type": "boolean",
-            "description": "True when the system is secure and the default password has not been changed. Clients should prompt the user to change their password when this is true.",
-            "example": false
           }
         }
       },
@@ -5364,9 +5901,11 @@
                   "type": "integer",
                   "minimum": 0
                 },
-                "example": [
-                  0,
-                  2
+                "examples": [
+                  [
+                    0,
+                    2
+                  ]
                 ]
               }
             },
@@ -5405,9 +5944,11 @@
                   "type": "integer",
                   "minimum": 0
                 },
-                "example": [
-                  0,
-                  2
+                "examples": [
+                  [
+                    0,
+                    2
+                  ]
                 ]
               }
             },
@@ -5447,9 +5988,11 @@
                   "type": "integer",
                   "minimum": 0
                 },
-                "example": [
-                  0,
-                  1
+                "examples": [
+                  [
+                    0,
+                    1
+                  ]
                 ]
               }
             },
@@ -6134,7 +6677,7 @@
         }
       },
       "Forbidden": {
-        "description": "Forbidden. On secure systems, this is also returned for all authenticated endpoints (except password change and pool configuration) when the default password has not been changed.",
+        "description": "Forbidden.",
         "content": {
           "application/json": {
             "schema": {

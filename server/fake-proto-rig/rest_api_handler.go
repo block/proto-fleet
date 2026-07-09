@@ -201,11 +201,34 @@ func buildSystemUpdateStatus(status, currentVersion, previousVersion, newVersion
 	return updateStatus
 }
 
-// SystemStatuses contains system onboarding status
+// SystemStatuses contains system onboarding status. MDK-API 1.8.2 removed
+// default_password_active from this response; the default-password state now
+// only surfaces via the 403 contract on blocked routes.
 type SystemStatuses struct {
-	Onboarded             bool `json:"onboarded"`
-	PasswordSet           bool `json:"password_set"`
-	DefaultPasswordActive bool `json:"default_password_active"`
+	Onboarded   bool `json:"onboarded"`
+	PasswordSet bool `json:"password_set"`
+}
+
+// SecureResponseState contains the cached secure-related component state
+// (MDK-API SecureResponseState schema).
+type SecureResponseState struct {
+	Sshd                string `json:"sshd"`
+	NatsService         string `json:"nats-service"`
+	Secureboot          string `json:"secureboot"`
+	CertificateValidity string `json:"certificate-validity"`
+}
+
+// SecureResponse is the GET/PUT /api/v1/system/secure response
+// (MDK-API SecureResponse schema).
+type SecureResponse struct {
+	Secure bool                `json:"secure"`
+	State  SecureResponseState `json:"state"`
+}
+
+// SecureConfig is the PUT /api/v1/system/secure request body
+// (MDK-API SecureConfig schema).
+type SecureConfig struct {
+	SecureOverride *bool `json:"secure_override"`
 }
 
 // LogsResponse contains the logs response wrapper
@@ -596,7 +619,10 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	// default_password_active.
 	mux.HandleFunc("/api/v1/system", h.handleSystem)
 	mux.HandleFunc("/api/v1/system/status", h.handleSystemStatus)
-	mux.HandleFunc("/api/v1/system/secure", h.handleSecureStatus)
+	mux.HandleFunc(
+		"/api/v1/system/secure",
+		h.requireBearerAuthMethods(h.handleSecureStatus, http.MethodPut),
+	)
 	mux.HandleFunc(
 		"/api/v1/system/ssh",
 		h.requireBearerAuthMethods(h.handleSSH, http.MethodPut),
@@ -618,6 +644,10 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/system/logs", h.requireBearerAuth(h.handleLogs))
 	mux.HandleFunc("/api/v1/system/update", h.requireBearerAuth(h.handleUpdate))
 	mux.HandleFunc("/api/v1/system/update/check", h.requireBearerAuth(h.handleUpdateCheck))
+
+	// Curtailment — config and status both require auth.
+	mux.HandleFunc("/api/v1/curtailment/config", h.requireBearerAuth(h.handleCurtailmentConfig))
+	mux.HandleFunc("/api/v1/curtailment/status", h.requireBearerAuth(h.handleCurtailmentStatus))
 
 	// Mining
 	mux.HandleFunc("/api/v1/mining", h.requireBearerAuth(h.handleMining))
@@ -1455,9 +1485,8 @@ func (h *RESTApiHandler) handleSystemStatus(w http.ResponseWriter, r *http.Reque
 	passwordSet := h.state.GetPassword() != ""
 
 	h.writeJSON(w, http.StatusOK, SystemStatuses{
-		Onboarded:             h.state.IsOnboarded(),
-		PasswordSet:           passwordSet,
-		DefaultPasswordActive: h.state.IsDefaultPasswordActive(),
+		Onboarded:   h.state.IsOnboarded(),
+		PasswordSet: passwordSet,
 	})
 }
 
@@ -1814,12 +1843,145 @@ func (h *RESTApiHandler) handleSSH(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// secureResponse builds the current secure status. The simulated device is
+// never locked, so secure stays false; the component state mirrors an open
+// development rig with a valid device certificate.
+func (h *RESTApiHandler) secureResponse() SecureResponse {
+	return SecureResponse{
+		Secure: false,
+		State: SecureResponseState{
+			Sshd:                "active",
+			NatsService:         "open",
+			Secureboot:          "OPEN",
+			CertificateValidity: "VALID",
+		},
+	}
+}
+
 func (h *RESTApiHandler) handleSecureStatus(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.writeJSON(w, http.StatusOK, h.secureResponse())
+	case http.MethodPut:
+		var config SecureConfig
+		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+			return
+		}
+		if config.SecureOverride == nil {
+			h.writeError(w, http.StatusUnprocessableEntity, "INVALID_REQUEST",
+				"Invalid secure config: 'secure_override' is missing")
+			return
+		}
+		h.state.SetSecureOverride(*config.SecureOverride)
+		h.writeJSON(w, http.StatusOK, h.secureResponse())
+	default:
+		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+	}
+}
+
+func (h *RESTApiHandler) handleCurtailmentConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.writeJSON(w, http.StatusOK, h.state.GetCurtailmentConfig())
+	case http.MethodPut:
+		var config CurtailmentConfig
+		if err := json.NewDecoder(r.Body).Decode(&config); err != nil {
+			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request body")
+			return
+		}
+		if err := validateCurtailmentConfig(&config); err != nil {
+			h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+			return
+		}
+		h.state.SetCurtailmentConfig(config)
+		h.writeJSON(w, http.StatusOK, config)
+	default:
+		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+	}
+}
+
+func (h *RESTApiHandler) handleCurtailmentStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
-	h.writeJSON(w, http.StatusOK, map[string]bool{"secure": false})
+	// No curtailment-service runs in the simulator, so the status mirrors the
+	// firmware's default (no status message received yet).
+	h.writeJSON(w, http.StatusOK, defaultCurtailmentStatus())
+}
+
+// curtailmentStatusTTL mirrors the firmware's API curtailment status TTL:
+// status_publish_interval must not exceed it.
+const curtailmentStatusTTL = 60 * time.Second
+
+// validateCurtailmentConfig mirrors the firmware's validate_config rules for
+// PUT /api/v1/curtailment/config.
+func validateCurtailmentConfig(config *CurtailmentConfig) error {
+	if config.FailPolicy != "closed" && config.FailPolicy != "open" {
+		return fmt.Errorf("fail_policy must be 'closed' or 'open', got '%s'", config.FailPolicy)
+	}
+	if config.RestorePolicy != "respect_manual_stop" {
+		return fmt.Errorf("restore_policy must be 'respect_manual_stop'")
+	}
+	if config.NatsURL != "nats://localhost:4222" {
+		return fmt.Errorf("nats_url must be 'nats://localhost:4222' to match the local MDK pubsub bus")
+	}
+	if config.McddGrpcAddr == "" {
+		return fmt.Errorf("mcdd_grpc_addr is required")
+	}
+	interval, err := time.ParseDuration(config.StatusPublishInterval)
+	if err != nil || interval <= 0 {
+		return fmt.Errorf("status_publish_interval must be a positive Go duration")
+	}
+	if interval > curtailmentStatusTTL {
+		return fmt.Errorf("status_publish_interval must be less than or equal to %ds", int(curtailmentStatusTTL.Seconds()))
+	}
+	for i := range config.Providers {
+		if err := validateCurtailmentProvider(&config.Providers[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateCurtailmentProvider(provider *CurtailmentProviderConfig) error {
+	if provider.Name == "" {
+		return fmt.Errorf("provider name is required")
+	}
+	if provider.Type != "maestro_mqtt" {
+		return fmt.Errorf("unsupported provider type '%s'", provider.Type)
+	}
+	if provider.Port < 1 || provider.Port > 65535 {
+		return fmt.Errorf("provider '%s' port must be between 1 and 65535", provider.Name)
+	}
+	if provider.Enabled && len(provider.Brokers) == 0 {
+		return fmt.Errorf("provider '%s' is enabled but has no brokers", provider.Name)
+	}
+	if provider.Qos < 0 || provider.Qos > 2 {
+		return fmt.Errorf("provider '%s' qos must be 0, 1, or 2", provider.Name)
+	}
+	if provider.Topic == "" {
+		return fmt.Errorf("provider '%s' topic is required", provider.Name)
+	}
+	if _, err := time.ParseDuration(provider.StaleAfter); err != nil {
+		return fmt.Errorf("provider '%s' stale_after must be a Go duration", provider.Name)
+	}
+	if _, err := time.ParseDuration(provider.ReconnectBackoff); err != nil {
+		return fmt.Errorf("provider '%s' reconnect_backoff must be a Go duration", provider.Name)
+	}
+	for i, broker := range provider.Brokers {
+		if strings.TrimSpace(broker) == "" {
+			return fmt.Errorf("provider '%s' broker[%d] is required", provider.Name, i)
+		}
+		if broker != strings.TrimSpace(broker) {
+			return fmt.Errorf("provider '%s' broker[%d] must not include surrounding whitespace", provider.Name, i)
+		}
+		if strings.Contains(broker, "://") || strings.Contains(broker, "/") {
+			return fmt.Errorf("provider '%s' broker[%d] must be a host or IP address, not a URL", provider.Name, i)
+		}
+	}
+	return nil
 }
 
 func (h *RESTApiHandler) handleUnlock(w http.ResponseWriter, r *http.Request) {

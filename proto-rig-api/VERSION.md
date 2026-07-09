@@ -2,9 +2,9 @@
 
 ## Source
 - Repository: miner-firmware (private)
-- Commit SHA: 23df12824401403ec909dd9053e8d002f4c3d1e3
-- Commit Date: 2026-06-12
-- Extraction Date: 2026-06-14
+- Commit SHA: 8bea274c0b25b6628c35a28303c49982e908c520
+- Commit Date: 2026-07-08
+- Extraction Date: 2026-07-08
 
 The hashboard proto files live in the `external/hashboard` submodule, pinned by
 the superproject commit above to:

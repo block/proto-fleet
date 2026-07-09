@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useRef } from "react";
-import { useLocation } from "react-router-dom";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import {
@@ -26,14 +25,11 @@ const useSystemStatus = () => {
   const setOnboarded = useSetOnboarded();
   const setPasswordSet = useSetPasswordSet();
   const setDefaultPasswordActive = useSetDefaultPasswordActive();
-  const location = useLocation();
   const onboarded = useOnboarded();
   const passwordSet = usePasswordSet();
   const defaultPasswordActive = useDefaultPasswordActive();
   const isFetchingRef = useRef(false);
   const hasLoadedStatus = onboarded !== undefined && passwordSet !== undefined;
-  const isPasswordChangeRoute =
-    location.pathname === "/onboarding/authentication" || location.pathname === "/settings/authentication";
 
   const data = useMemo(
     () => ({ onboarded, passwordSet, defaultPasswordActive }),
@@ -49,32 +45,15 @@ const useSystemStatus = () => {
       .then((res) => {
         setOnboarded(res?.data.onboarded);
         setPasswordSet(res?.data.password_set);
-        const nextDefaultPasswordActive = res?.data.default_password_active ?? false;
 
-        // Resolve store state at response time — hook-scoped values are
-        // captured at fire time and can be stale if the password-change
-        // flow completed mid-flight.
-        const currentDefaultPasswordActive = useMinerStore.getState().minerStatus.defaultPasswordActive;
-        const currentAccessToken = useMinerStore.getState().auth.authTokens.accessToken;
-        const hasValidSession = !!currentAccessToken?.value && new Date(currentAccessToken.expiry) > new Date();
-
-        // Don't let polling clear the flag before follow-up login succeeds.
-        // Once a valid session is established the clear is trustworthy —
-        // gating only on the route leaves a trap when another client cleared
-        // default_password_active server-side.
-        const suppressClear =
-          isPasswordChangeRoute &&
-          currentDefaultPasswordActive === true &&
-          nextDefaultPasswordActive === false &&
-          !hasValidSession;
-
-        // Don't let a stale response re-raise the flag after a valid session
-        // has cleared it — the auth-error path owns re-entering the lockout.
-        const suppressStaleRaise =
-          nextDefaultPasswordActive === true && currentDefaultPasswordActive === false && hasValidSession;
-
-        if (!suppressClear && !suppressStaleRaise) {
-          setDefaultPasswordActive(nextDefaultPasswordActive);
+        // MDK-API 1.8.2 removed default_password_active from system status, so
+        // polling can no longer confirm or clear the flag. It is raised by the
+        // 403 default-password contract (useAuthErrors) and cleared by the
+        // password-change flow. Resolve only the initial undefined state so
+        // App.tsx's protected-API gating can proceed. Read the store at
+        // response time — the 403 path may have raised the flag mid-flight.
+        if (useMinerStore.getState().minerStatus.defaultPasswordActive === undefined) {
+          setDefaultPasswordActive(false);
         }
       })
       .catch((err) => {
@@ -83,15 +62,14 @@ const useSystemStatus = () => {
       .finally(() => {
         isFetchingRef.current = false;
       });
-  }, [api, isPasswordChangeRoute, setOnboarded, setPasswordSet, setDefaultPasswordActive]);
+  }, [api, setOnboarded, setPasswordSet, setDefaultPasswordActive]);
 
-  // Poll until initial status is loaded. Keep polling while defaultPasswordActive
-  // is true so the store self-corrects after the user changes their password.
+  // Poll until initial status is loaded.
   usePoll({
     fetchData,
     poll: true,
     pollIntervalMs: 5000,
-    enabled: !!api && (!hasLoadedStatus || defaultPasswordActive === true),
+    enabled: !!api && !hasLoadedStatus,
   });
 
   const reload = useCallback(() => {

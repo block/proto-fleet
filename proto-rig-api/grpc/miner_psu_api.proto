@@ -200,6 +200,7 @@ enum PsuFwUpdateState {
   PSU_FW_UPDATE_STATE_VERIFYING = 2;
   PSU_FW_UPDATE_STATE_COMPLETE = 3;
   PSU_FW_UPDATE_STATE_FAILED = 4;
+  PSU_FW_UPDATE_STATE_NOT_NEEDED = 5;
 }
 
 // Published on "psu.<id>.fw_progress"

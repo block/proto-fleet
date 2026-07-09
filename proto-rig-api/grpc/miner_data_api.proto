@@ -337,6 +337,9 @@ message HashboardInfo {
     // this hashboard. Each element is not a per-ASIC entry, and clients should
     // treat the ordering of this repeated field as unspecified.
     repeated AsicBinInfo mining_asic_bin = 14;
+    // Latest firmware-update progress for this hashboard, if any.
+    // Mirrors `hb.<slot>.fwup_progress`; populated from the pubsub cache.
+    miner_hb_api.HashboardFwUpdateProgress fw_update = 15;
 }
 
 message HashboardsInfoResponse {
@@ -480,6 +483,9 @@ message HashboardStatusResponse {
     MiningStatistics mining_statistics = 7;
     repeated AsicStatusResponse asics = 8;
 
+    // Latest firmware-update progress for this hashboard, if any.
+    // Mirrors `hb.<slot>.fwup_progress`; populated from the pubsub cache.
+    miner_hb_api.HashboardFwUpdateProgress fw_update = 9;
 }
 
 message AsicMiningStatistics {
