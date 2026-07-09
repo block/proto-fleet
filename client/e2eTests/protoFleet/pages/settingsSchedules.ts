@@ -58,7 +58,11 @@ export class SettingsSchedulesPage extends BasePage {
   async selectWeekday(label: string) {
     await this.openWeekdaySelect();
     await this.page.getByRole("option", { name: label, exact: true }).click();
-    await this.page.locator("#schedule-days-of-week").click();
+    if (this.isMobile) {
+      await this.dismissMobilePopoverSheet("popover");
+    } else {
+      await this.page.locator("#schedule-days-of-week").click();
+    }
     await expect(this.page.getByRole("listbox", { name: "Days options" })).toBeHidden();
   }
 

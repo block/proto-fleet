@@ -6,6 +6,7 @@ import { onboardingClient } from "@/protoFleet/api/clients";
 import AppLayout from "@/protoFleet/components/AppLayout";
 import { requiresAuth } from "@/protoFleet/routeAuth";
 import { globalRoutePrefetch } from "@/protoFleet/routePrefetch";
+import type { ProtoFleetRouteHandle } from "@/protoFleet/routing/routeHandle";
 import { useCheckAuthentication, useIsActionBarVisible } from "@/protoFleet/store";
 import { useDeviceTheme, useSetDeviceTheme, useTheme } from "@/protoFleet/store";
 import { redirectFromFleetDown } from "@/protoFleet/utils/fleetDownRedirect";
@@ -92,6 +93,10 @@ const App = ({ children, fullscreen }: AppProps) => {
     // If not in the config, default to requiring auth
     return requiresAuth[currentPath] !== false;
   }, [currentPath]);
+  const hideShellHeader = useMemo(
+    () => matches.some((match) => (match.handle as ProtoFleetRouteHandle | undefined)?.hideShellHeader === true),
+    [matches],
+  );
 
   const { loading, hasAccess } = useCheckAuthentication(requireAuth);
 
@@ -138,7 +143,7 @@ const App = ({ children, fullscreen }: AppProps) => {
           children
         ) : (
           // Normal mode: Render with AppLayout
-          <AppLayout>{children}</AppLayout>
+          <AppLayout hideShellHeader={hideShellHeader}>{children}</AppLayout>
         )}
       </Suspense>
     </ErrorBoundary>

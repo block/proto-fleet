@@ -296,6 +296,7 @@ function RackPaneContent({
       </div>
       {showPopover && selectedSlot ? (
         <SlotPopover
+          key={selectedSlot.key}
           anchorX={popoverAnchorX}
           selectFromListDisabled={!hasMiners}
           onSelectFromList={onSelectFromList}

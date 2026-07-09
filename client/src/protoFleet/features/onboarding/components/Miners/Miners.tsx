@@ -204,6 +204,7 @@ const Miners = ({
                   text: discoveryPending ? "Scanning" : "Rescan network",
                   disabled: pairingPending || discoveryPending,
                   loading: discoveryPending,
+                  testId: "add-miners-rescan-network",
                 },
               ]
             : []),
@@ -216,6 +217,7 @@ const Miners = ({
                   },
                   text: "Choose miners",
                   disabled: pairingPending,
+                  testId: "add-miners-choose-miners",
                 },
               ]
             : []),
@@ -224,11 +226,17 @@ const Miners = ({
                 {
                   variant: variants.primary,
                   loading: pairingPending,
+                  ariaLabel: useCompactHeaderActions
+                    ? pairingPending
+                      ? `Adding ${selectedDisplayMiners.length} miners...`
+                      : `Continue with ${selectedDisplayMiners.length} miners`
+                    : undefined,
                   onClick: () => {
                     const selectedMinerIdentifiers = selectedDisplayMiners.map((miner) => miner.deviceIdentifier);
                     onContinue(selectedMinerIdentifiers);
                   },
                   disabled: pairingPending || selectedDisplayMiners.length === 0,
+                  testId: "add-miners-continue",
                   text: pairingPending
                     ? useCompactHeaderActions
                       ? "Adding..."
@@ -279,7 +287,9 @@ const Miners = ({
             buttonsWrapperClassName={useCompactHeaderActions ? undefined : "hidden tablet:block"}
             buttons={useCompactHeaderActions ? undefined : headerButtons}
           >
-            {useCompactHeaderActions ? <FullScreenModalHeaderActions buttons={headerButtons} /> : null}
+            {useCompactHeaderActions ? (
+              <FullScreenModalHeaderActions buttons={headerButtons} triggerTestId="add-miners-more-actions" />
+            ) : null}
           </Header>
           {activeStep === "findMiners" ? (
             <div className="mx-auto w-full max-w-4xl px-6 pt-10">

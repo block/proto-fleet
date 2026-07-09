@@ -23,7 +23,16 @@ export class PoolsPage extends BasePage {
   }
 
   async clickTestConnection() {
-    await this.page.locator(`//button//*[text()='Test connection']`).click();
+    if (this.isMobile) {
+      await this.page.getByTestId("overflow-menu-trigger").click();
+      await this.page
+        .getByTestId("modal-overflow-sheet-content")
+        .getByRole("button", { name: "Test connection" })
+        .click();
+      return;
+    }
+
+    await this.page.getByRole("button", { name: "Test connection" }).click();
   }
 
   async validateConnectionSuccessful() {
@@ -81,7 +90,7 @@ export class PoolsPage extends BasePage {
   }
 
   async clickMiningPoolButton() {
-    await this.clickButton("Mining Pool");
+    await this.page.getByTestId("pool-status-widget").getByRole("button", { name: "Mining Pool" }).click();
   }
 
   async validatePoolInfoPopoverVisible() {

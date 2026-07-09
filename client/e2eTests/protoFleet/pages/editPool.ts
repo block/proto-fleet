@@ -50,7 +50,11 @@ export class EditPoolPage extends BasePage {
   async clickAssignToXMiners(count: number | Promise<number>) {
     const minerCount = await Promise.resolve(count);
     const buttonText = `Assign to ${minerCount} miner${minerCount === 1 ? "" : "s"}`;
-    await this.clickButton(buttonText);
+    const assignButton = this.page.getByRole("button", { name: buttonText, exact: true });
+
+    await expect(assignButton).toBeVisible();
+    await expect(assignButton).toBeEnabled();
+    await assignButton.click();
   }
 
   async validatePoolVisible(name: string, url: string) {

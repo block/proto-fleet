@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import ManageMinersModal from "./ManageMinersModal";
 import MinersPane from "./MinersPane";
@@ -133,6 +133,7 @@ export default function ManageRackModal({
   // Cell-first selection state
   const [selectedSlot, setSelectedSlot] = useState<SelectedSlot | null>(null);
   const [showSlotPopover, setShowSlotPopover] = useState(false);
+  const preserveSelectedSlotForPopoverAction = useRef(false);
   const [hoveredMinerId, setHoveredMinerId] = useState<string | null>(null);
 
   // Sub-modal visibility
@@ -303,25 +304,41 @@ export default function ManageRackModal({
   );
 
   // Popover: "Select from list" — keep cell selected, wait for miner click
-  const handleSelectFromList = useCallback(() => {
-    setShowSlotPopover(false);
+  const preserveSelectedSlotThroughActionSheetClose = useCallback(() => {
+    preserveSelectedSlotForPopoverAction.current = true;
+    queueMicrotask(() => {
+      preserveSelectedSlotForPopoverAction.current = false;
+    });
   }, []);
+
+  const handleSelectFromList = useCallback(() => {
+    preserveSelectedSlotThroughActionSheetClose();
+    setShowSlotPopover(false);
+  }, [preserveSelectedSlotThroughActionSheetClose]);
 
   // Popover: "Search miners" — open SearchMinersModal
   const handleSearchMiners = useCallback(() => {
+    preserveSelectedSlotThroughActionSheetClose();
     setShowSlotPopover(false);
     setShowSearchMiners(true);
-  }, []);
+  }, [preserveSelectedSlotThroughActionSheetClose]);
 
   // Popover: "Scan QR code" — open ScanMinerQrModal
   const handleScanQr = useCallback(() => {
+    preserveSelectedSlotThroughActionSheetClose();
     setShowSlotPopover(false);
     setShowScanQr(true);
-  }, []);
+  }, [preserveSelectedSlotThroughActionSheetClose]);
 
-  // Popover dismiss — close actions while preserving the selected slot context.
+  // Popover dismiss — close canceled slot actions and clear the slot context.
+  // `handleSelectFromList` preserves the selected slot for the intentional
+  // cell-first assignment flow.
   const handlePopoverDismiss = useCallback(() => {
     setShowSlotPopover(false);
+    if (preserveSelectedSlotForPopoverAction.current) {
+      return;
+    }
+    setSelectedSlot(null);
   }, []);
 
   // Show the reparent warning (#672) when `count` > 0, else run `proceed`

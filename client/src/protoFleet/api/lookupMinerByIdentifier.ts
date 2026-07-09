@@ -13,9 +13,7 @@ import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
  * case worth a friendly message) from an unexpected transport/server error.
  */
 export type LookupMinerResult =
-  | { status: "found"; snapshot: MinerStateSnapshot }
-  | { status: "notFound" }
-  | { status: "error"; message: string };
+  { status: "found"; snapshot: MinerStateSnapshot } | { status: "notFound" } | { status: "error"; message: string };
 
 /**
  * Resolve a single paired miner from a scanned identifier (MAC or serial) via

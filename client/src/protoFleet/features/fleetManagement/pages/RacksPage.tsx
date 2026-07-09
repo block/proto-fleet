@@ -1188,6 +1188,7 @@ const RacksPage = () => {
                 selectedOptions={[currentSort.field]}
                 onSelect={handleSortSelect}
                 showSelectAll={false}
+                closeOnSelect
               />
             ) : null}
             <Button
@@ -1216,6 +1217,7 @@ const RacksPage = () => {
                 selectedOptions={[currentSort.field]}
                 onSelect={handleSortSelect}
                 showSelectAll={false}
+                closeOnSelect
               />
             ) : null}
           </div>

@@ -10,7 +10,8 @@ interface ModalHeaderActionsProps {
   buttonSize?: keyof typeof sizes;
   className?: string;
   primaryTestIdSuffix?: string;
-  renderWhen?: "phone" | "always";
+  renderWhen?: "phone" | "phone-tablet" | "always";
+  triggerTestId?: string;
 }
 
 const ModalHeaderActions = ({
@@ -19,10 +20,14 @@ const ModalHeaderActions = ({
   className,
   primaryTestIdSuffix = "mobile",
   renderWhen = "phone",
+  triggerTestId,
 }: ModalHeaderActionsProps) => {
-  const { isPhone } = useWindowDimensions();
+  const { isPhone, isTablet } = useWindowDimensions();
+  const isCompactViewport = renderWhen === "phone-tablet" ? isPhone || isTablet : isPhone;
+  const visibilityClassName =
+    renderWhen === "phone-tablet" ? "laptop:hidden" : renderWhen === "phone" ? "tablet:hidden" : undefined;
 
-  if (renderWhen === "phone" && !isPhone) {
+  if (renderWhen !== "always" && !isCompactViewport) {
     return null;
   }
 
@@ -30,10 +35,11 @@ const ModalHeaderActions = ({
     <ResponsiveActionGroup
       buttons={buttons}
       buttonSize={buttonSize}
-      className={clsx("ml-3 shrink-0 tablet:hidden", className)}
+      className={clsx("ml-3 shrink-0", visibilityClassName, className)}
       primaryTestIdSuffix={primaryTestIdSuffix}
       sheetContentTestId="modal-overflow-sheet-content"
       sheetTestId="modal-overflow-sheet"
+      triggerTestId={triggerTestId}
     />
   );
 };

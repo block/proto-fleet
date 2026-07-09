@@ -106,4 +106,21 @@ describe("RowActionsMenu", () => {
     expect(screen.getByTestId("view-racks-icon")).toBeInTheDocument();
     expect(screen.getByTestId("view-racks-action")).toHaveTextContent("View racks");
   });
+
+  it("keeps mobile action sheet rows mounted through pointer down so clicks can run", () => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: true });
+    const onEdit = vi.fn();
+
+    render(<RowActionsMenu actions={[{ label: "Edit site", onClick: onEdit, testId: "edit-site-action" }]} />);
+
+    fireEvent.click(screen.getByTestId("row-actions-menu-trigger"));
+    fireEvent.mouseDown(screen.getByTestId("edit-site-action"));
+
+    expect(screen.getByTestId("edit-site-action")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("edit-site-action"));
+
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("row-actions-menu-popover-sheet")).not.toBeInTheDocument();
+  });
 });

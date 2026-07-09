@@ -80,6 +80,7 @@ const Popover = ({
 }: PopoverProps) => {
   const { triggerRef, renderMode: contextRenderMode } = usePopover();
   const { isPhone } = useWindowDimensions();
+  const canDismissPopover = typeof closePopover === "function";
   // Frozen popovers must be portal'd to body so they're positioned relative to the
   // viewport rather than the trigger element's absolute container (which moves with it).
   const renderMode = freezePosition ? "portal-fixed" : contextRenderMode;
@@ -115,10 +116,14 @@ const Popover = ({
       <div
         className="fixed inset-0 z-60 flex items-end bg-grayscale-gray-5"
         data-testid={testId ? `${testId}-sheet` : "popover-sheet"}
+        onMouseDown={canDismissPopover ? (event) => event.stopPropagation() : undefined}
+        onTouchStart={canDismissPopover ? (event) => event.stopPropagation() : undefined}
         onClick={closePopover}
       >
         <div
           className="w-full rounded-t-2xl bg-surface-elevated-base px-0 pt-2 pb-[max(env(safe-area-inset-bottom),16px)]"
+          onMouseDown={(event) => event.stopPropagation()}
+          onTouchStart={(event) => event.stopPropagation()}
           onClick={(event) => event.stopPropagation()}
         >
           {content(

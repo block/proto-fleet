@@ -149,6 +149,8 @@ const FilterChipContent = ({
           popoverRef={popoverRef}
           optionsMaxHeight={optionsMaxHeight}
           position={popoverPosition}
+          freezePosition
+          closePopover={() => setShowPopover(false)}
         />
       ) : null}
     </div>

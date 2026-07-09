@@ -133,7 +133,16 @@ export class HomePage extends BasePage {
   }
 
   async clickShowMinersButton() {
-    await this.page.getByTestId("modal").getByRole("button", { name: "Show miners" }).click();
+    const modal = this.page.getByTestId("modal");
+    const showMinersButton = modal.getByRole("button", { name: "Show miners" });
+
+    if (await showMinersButton.isVisible().catch(() => false)) {
+      await showMinersButton.click();
+      return;
+    }
+
+    await modal.getByTestId("overflow-menu-trigger").click();
+    await this.page.getByTestId("modal-overflow-sheet-content").getByRole("button", { name: "Show miners" }).click();
   }
 
   async validateCalloutInModal(text: string) {

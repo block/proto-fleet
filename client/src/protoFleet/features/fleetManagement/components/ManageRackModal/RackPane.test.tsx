@@ -67,4 +67,15 @@ describe("RackPane", () => {
     expect(defaultProps.onSearchMiners).not.toHaveBeenCalled();
     expect(defaultProps.onScanQr).not.toHaveBeenCalled();
   });
+
+  it("remounts the desktop slot popover when the selected slot changes", () => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: false, isTablet: false });
+
+    const { rerender } = render(<RackPane {...defaultProps} hasMiners selectedSlotKey="2-0" />);
+    const initialPopover = screen.getByTestId("rack-slot-popover");
+
+    rerender(<RackPane {...defaultProps} hasMiners selectedSlotKey="2-1" />);
+
+    expect(screen.getByTestId("rack-slot-popover")).not.toBe(initialPopover);
+  });
 });

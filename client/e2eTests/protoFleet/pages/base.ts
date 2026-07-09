@@ -59,7 +59,7 @@ export class BasePage {
       }
     }
 
-    await this.page.mouse.click(1, 1);
+    await this.dismissMobilePopoverSheet("dropdown-filter-popover");
     await expect(popover).toBeHidden();
   }
 
@@ -107,7 +107,11 @@ export class BasePage {
   async validateViewTabVisible(viewName: string) {
     await this.openViewsPopover();
     await expect(this.viewRow(viewName)).toBeVisible();
-    await this.fleetViewTabsTrigger().click();
+    if (this.isMobile) {
+      await this.dismissMobilePopoverSheet("fleet-view-tabs-views-popover");
+    } else {
+      await this.fleetViewTabsTrigger().click();
+    }
     await expect(this.viewsPopover()).toBeHidden();
   }
 
@@ -152,7 +156,11 @@ export class BasePage {
       const popover = this.viewsPopover();
       if (await popover.isVisible().catch(() => false)) {
         await expect(this.viewRow(viewName)).toHaveCount(0);
-        await trigger.click();
+        if (this.isMobile) {
+          await this.dismissMobilePopoverSheet("fleet-view-tabs-views-popover");
+        } else {
+          await trigger.click();
+        }
         await expect(popover).toBeHidden();
       }
       return;
@@ -396,11 +404,37 @@ export class BasePage {
   }
 
   async validateTextInModal(text: string) {
-    await expect(this.page.getByTestId("modal").getByText(text)).toBeVisible();
+    await expect
+      .poll(() => this.modalHasVisibleText(text), {
+        message: `Expected "${text}" to be visible in the modal`,
+        timeout: DEFAULT_TIMEOUT,
+      })
+      .toBe(true);
   }
 
   async validateTextNotInModal(text: string) {
-    await expect(this.page.getByTestId("modal").getByText(text)).toBeHidden();
+    await expect
+      .poll(() => this.modalHasVisibleText(text), {
+        message: `Expected "${text}" not to be visible in the modal`,
+        timeout: DEFAULT_TIMEOUT,
+      })
+      .toBe(false);
+  }
+
+  private async modalHasVisibleText(text: string) {
+    const matches = this.page.getByTestId("modal").getByText(text);
+    const count = await matches.count();
+    for (let index = 0; index < count; index += 1) {
+      if (
+        await matches
+          .nth(index)
+          .isVisible()
+          .catch(() => false)
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   async validateButtonIsVisible(text: string) {
@@ -579,6 +613,16 @@ export class BasePage {
   }
 
   async clickButton(text: string) {
+    const visibleButton = await this.findVisibleButton(text);
+    if (visibleButton) {
+      await visibleButton.click();
+      return;
+    }
+
+    if (this.isMobile && (await this.clickOverflowAction(text))) {
+      return;
+    }
+
     await this.page.getByRole("button", { name: text, disabled: false, exact: true }).click();
   }
 
@@ -661,11 +705,19 @@ export class BasePage {
   }
 
   private async openViewsPopover() {
+    if (this.isMobile) {
+      await this.dismissMobilePopoverSheet("fleet-view-tabs-views-popover");
+    }
+
     await this.fleetViewTabsTrigger().click();
     await expect(this.viewsPopover()).toBeVisible();
   }
 
   private async openKebabPopover() {
+    if (this.isMobile) {
+      await this.dismissMobilePopoverSheet("fleet-view-tabs-kebab-popover");
+    }
+
     await this.kebabButton().click();
     await expect(this.kebabPopover()).toBeVisible();
   }
@@ -727,7 +779,7 @@ export class BasePage {
     }
 
     if (this.isMobile) {
-      await this.page.mouse.click(1, 1);
+      await this.dismissMobilePopoverSheet("nested-dropdown-filter-popover");
       await expect(popover).toBeHidden();
       return;
     }
@@ -735,6 +787,157 @@ export class BasePage {
     const trigger = await this.getVisibleAddFilterTrigger();
     await trigger.click();
     await expect(popover).toBeHidden();
+  }
+
+  protected async dismissMobilePopoverSheet(popoverTestId: string) {
+    const sheet = this.page.getByTestId(`${popoverTestId}-sheet`);
+
+    if (!(await sheet.isVisible().catch(() => false))) {
+      return;
+    }
+
+    try {
+      await sheet.click({ position: { x: 1, y: 1 }, timeout: 1000 });
+    } catch {
+      if (!(await sheet.isVisible().catch(() => false))) {
+        return;
+      }
+
+      await this.page.mouse.click(1, 1).catch(() => undefined);
+    }
+
+    if (await sheet.isVisible().catch(() => false)) {
+      await this.page.keyboard.press("Escape").catch(() => undefined);
+      await expect(sheet).toBeHidden();
+    }
+  }
+
+  protected async clickOverflowAction(text: string) {
+    const overflowTriggers = this.page.getByTestId("overflow-menu-trigger");
+    const count = await overflowTriggers.count();
+
+    for (let i = 0; i < count; i++) {
+      const overflowTrigger = overflowTriggers.nth(i);
+      if (!(await overflowTrigger.isVisible().catch(() => false))) {
+        continue;
+      }
+
+      try {
+        await overflowTrigger.click({ timeout: 1000 });
+      } catch {
+        continue;
+      }
+
+      const sheetContent = await this.findVisibleActionSheetContent(1000).catch(() => null);
+      const action = sheetContent?.getByRole("button", { name: text, disabled: false, exact: true });
+      if (action && (await action.isVisible().catch(() => false))) {
+        await action.click();
+        return true;
+      }
+
+      await this.dismissVisibleActionSheet();
+    }
+
+    return false;
+  }
+
+  protected async clickResponsiveTestId(testId: string, container?: Locator) {
+    const root = container ?? this.page;
+    const mobileButton = root.getByTestId(`${testId}-mobile`);
+
+    if (this.isMobile && (await mobileButton.isVisible().catch(() => false))) {
+      await mobileButton.click();
+      return;
+    }
+
+    await root.getByTestId(testId).click();
+  }
+
+  private async findVisibleButton(text: string) {
+    const buttons = this.page.getByRole("button", { name: text, disabled: false, exact: true });
+    const count = await buttons.count();
+
+    for (let i = 0; i < count; i++) {
+      const button = buttons.nth(i);
+      if (await button.isVisible().catch(() => false)) {
+        return button;
+      }
+    }
+
+    return null;
+  }
+
+  private async findVisibleActionSheetContent(timeout: number = DEFAULT_TIMEOUT) {
+    const sheetContentTestIds = [
+      "modal-overflow-sheet-content",
+      "responsive-action-sheet-content",
+      "action-sheet-content",
+      "building-page-action-sheet-content",
+      "list-header-action-sheet-content",
+      "rack-slot-actions-sheet-content",
+    ];
+
+    await expect
+      .poll(
+        async () => {
+          for (const testId of sheetContentTestIds) {
+            if (
+              await this.page
+                .getByTestId(testId)
+                .isVisible()
+                .catch(() => false)
+            ) {
+              return testId;
+            }
+          }
+
+          return "";
+        },
+        { timeout, message: "Expected a visible action sheet content area." },
+      )
+      .not.toBe("");
+
+    for (const testId of sheetContentTestIds) {
+      const content = this.page.getByTestId(testId);
+      if (await content.isVisible().catch(() => false)) {
+        return content;
+      }
+    }
+
+    return null;
+  }
+
+  private async dismissVisibleActionSheet() {
+    const sheetTestIds = [
+      "modal-overflow-sheet",
+      "responsive-action-sheet",
+      "action-sheet",
+      "building-page-action-sheet",
+      "list-header-action-sheet",
+      "rack-slot-actions-sheet",
+    ];
+
+    for (const testId of sheetTestIds) {
+      const sheet = this.page.getByTestId(testId);
+      if (await sheet.isVisible().catch(() => false)) {
+        try {
+          await sheet.click({ position: { x: 1, y: 1 }, timeout: 1000 });
+        } catch {
+          if (!(await sheet.isVisible().catch(() => false))) {
+            return;
+          }
+
+          await this.page.mouse.click(1, 1).catch(() => undefined);
+        }
+
+        if (await sheet.isVisible().catch(() => false)) {
+          await this.page.keyboard.press("Escape").catch(() => undefined);
+          await expect(sheet).toBeHidden();
+        }
+
+        return;
+      }
+    }
   }
 
   private async waitForActiveFilterToClear(categoryKey: string) {

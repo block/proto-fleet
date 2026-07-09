@@ -21,7 +21,7 @@ export class FleetLocationsPage extends BasePage {
     await this.navigateToSitesPage();
     await this.clickAddSiteButton();
     await this.page.getByTestId("site-settings-name-input").fill(name);
-    await this.page.getByTestId("site-settings-modal-continue").click();
+    await this.clickResponsiveTestId("site-settings-modal-continue");
     await this.waitForModalToClose("site-settings-modal");
 
     const saveSiteButton = this.page.getByTestId(
@@ -42,7 +42,7 @@ export class FleetLocationsPage extends BasePage {
     await this.page.getByTestId("building-settings-site-select").click();
     await this.page.getByRole("option", { name: siteName, exact: true }).click();
     await this.page.getByTestId("building-settings-name-input").fill(buildingName);
-    await this.page.getByTestId("building-settings-modal-save").click();
+    await this.clickResponsiveTestId("building-settings-modal-save");
 
     await expect(this.page.getByTestId("building-settings-modal")).toHaveCount(0);
     await this.closeFullScreenModalIfVisible();
@@ -146,14 +146,13 @@ export class FleetLocationsPage extends BasePage {
       await settingsModal.getByTestId("site-settings-capacity-input").fill(updates.powerCapacityMw);
     }
 
-    await settingsModal.getByTestId("site-settings-modal-save").click();
+    await this.clickResponsiveTestId("site-settings-modal-save", settingsModal);
     await this.waitForModalToClose("site-settings-modal");
     await this.closeFullScreenModalIfVisible();
   }
 
   async editBuildingDetailsFromDetail(updates: { name?: string; powerCapacityMw?: string }) {
-    await expect(this.page.getByTestId("building-page-edit")).toBeVisible();
-    await this.page.getByTestId("building-page-edit").click();
+    await this.clickResponsiveTestId("building-page-edit");
     const fullScreenModal = this.page.getByTestId("full-screen-two-pane-modal");
     await expect(fullScreenModal).toBeVisible();
     await this.clickManageBuildingEditDetails(fullScreenModal);
@@ -169,7 +168,7 @@ export class FleetLocationsPage extends BasePage {
       await settingsModal.getByTestId("building-settings-power-input").fill(updates.powerCapacityMw);
     }
 
-    await settingsModal.getByTestId("building-settings-modal-save").click();
+    await this.clickResponsiveTestId("building-settings-modal-save", settingsModal);
     await this.waitForModalToClose("building-settings-modal");
     await this.closeFullScreenModalIfVisible();
   }
@@ -181,7 +180,7 @@ export class FleetLocationsPage extends BasePage {
     const settingsModal = this.page.getByTestId("building-settings-modal");
     await expect(settingsModal).toBeVisible();
     await settingsModal.getByTestId("building-settings-name-input").fill(buildingName);
-    await settingsModal.getByTestId("building-settings-modal-save").click();
+    await this.clickResponsiveTestId("building-settings-modal-save", settingsModal);
     await this.waitForModalToClose("building-settings-modal");
   }
 
@@ -222,20 +221,17 @@ export class FleetLocationsPage extends BasePage {
   }
 
   async openRacksFromBuildingDetail() {
-    await expect(this.page.getByTestId("building-page-view-racks")).toBeVisible();
-    await this.page.getByTestId("building-page-view-racks").click();
+    await this.clickBuildingPageAction("View racks", "building-page-view-racks");
     await expect(this.page).toHaveURL(/\/fleet\/racks\?building=\d+/);
   }
 
   async openMinersFromBuildingDetail() {
-    await expect(this.page.getByTestId("building-page-view-miners")).toBeVisible();
-    await this.page.getByTestId("building-page-view-miners").click();
+    await this.clickBuildingPageAction("View miners", "building-page-view-miners");
     await expect(this.page).toHaveURL(/\/fleet\/miners\?building=\d+/);
   }
 
   async deleteBuildingFromDetail() {
-    await expect(this.page.getByTestId("building-page-edit")).toBeVisible();
-    await this.page.getByTestId("building-page-edit").click();
+    await this.clickResponsiveTestId("building-page-edit");
     await this.clickManageBuildingDelete();
 
     const confirmDeleteButton = this.page.getByTestId("building-delete-dialog-confirm");
@@ -244,6 +240,17 @@ export class FleetLocationsPage extends BasePage {
     await confirmDeleteButton.click();
     await expect(this.page.getByTestId("building-delete-dialog")).toHaveCount(0);
     await this.validateSitesPageOpened();
+  }
+
+  private async clickBuildingPageAction(label: string, testId: string) {
+    const desktopButton = this.page.getByTestId(testId);
+    if (await desktopButton.isVisible().catch(() => false)) {
+      await desktopButton.click();
+      return;
+    }
+
+    await this.page.getByTestId("building-page-more-actions").click();
+    await this.page.getByTestId("building-page-action-sheet-content").getByRole("button", { name: label }).click();
   }
 
   async validateSiteNotVisible(name: string) {
@@ -311,7 +318,7 @@ export class FleetLocationsPage extends BasePage {
     const settingsModal = this.page.getByTestId("building-settings-modal");
     await expect(settingsModal).toBeVisible();
     await settingsModal.getByTestId("building-settings-name-input").fill(nextName);
-    await settingsModal.getByTestId("building-settings-modal-save").click();
+    await this.clickResponsiveTestId("building-settings-modal-save", settingsModal);
     await this.waitForModalToClose("building-settings-modal");
 
     await this.closeFullScreenModalIfVisible();
@@ -493,8 +500,7 @@ export class FleetLocationsPage extends BasePage {
       return;
     }
 
-    const overflowMenu = await this.openFullScreenOverflowMenu();
-    await overflowMenu.getByTestId("manage-site-modal-delete-overflow-item").click();
+    await this.clickButton("Delete site");
   }
 
   private async clickManageSiteEditDetails(scope = this.page.getByTestId("full-screen-two-pane-modal")) {
@@ -503,8 +509,7 @@ export class FleetLocationsPage extends BasePage {
       return;
     }
 
-    const overflowMenu = await this.openFullScreenOverflowMenu();
-    await overflowMenu.getByTestId("manage-site-modal-edit-details-overflow-item").click();
+    await this.clickButton("Site settings");
   }
 
   private async clickManageBuildingDelete() {
@@ -513,8 +518,7 @@ export class FleetLocationsPage extends BasePage {
       return;
     }
 
-    const overflowMenu = await this.openFullScreenOverflowMenu();
-    await overflowMenu.getByTestId("manage-building-delete-overflow-item").click();
+    await this.clickButton("Delete building");
   }
 
   private async clickManageBuildingEditDetails(scope = this.page.getByTestId("full-screen-two-pane-modal")) {
@@ -523,17 +527,7 @@ export class FleetLocationsPage extends BasePage {
       return;
     }
 
-    const overflowMenu = await this.openFullScreenOverflowMenu();
-    await overflowMenu.getByTestId("manage-building-edit-details-overflow-item").click();
-  }
-
-  private async openFullScreenOverflowMenu() {
-    const overflowTrigger = this.page.getByTestId("full-screen-two-pane-modal").getByTestId("overflow-menu-trigger");
-    await expect(overflowTrigger).toBeVisible();
-    await overflowTrigger.click();
-    const overflowMenu = this.page.getByTestId("full-screen-overflow-sheet");
-    await expect(overflowMenu).toBeVisible();
-    return overflowMenu;
+    await this.clickButton("Building settings");
   }
 
   private async closeFullScreenModalIfVisible() {

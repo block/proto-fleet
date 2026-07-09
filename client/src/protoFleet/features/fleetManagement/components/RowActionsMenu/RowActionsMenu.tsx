@@ -85,6 +85,9 @@ const RowActionsMenuInner = ({
   const { triggerRef, setPopoverRenderMode } = usePopover();
   const { isPhone } = useWindowDimensions();
   const [isOpen, setIsOpen] = useState(false);
+  const resolvedTriggerTestId =
+    triggerTestId ?? (testIdPrefix ? `${testIdPrefix}-trigger` : "row-actions-menu-trigger");
+  const popoverTestId = testIdPrefix ? `${testIdPrefix}-popover` : "row-actions-menu-popover";
 
   // Portal-fixed keeps the popover above the list's overflow scroll containers.
   useEffect(() => {
@@ -98,15 +101,11 @@ const RowActionsMenuInner = ({
   useClickOutside({
     ref: triggerRef,
     onClickOutside,
-    ignoreSelectors: [".popover-content"],
+    ignoreSelectors: [".popover-content", `[data-testid="${popoverTestId}"]`],
   });
 
   const visibleActions = actions.filter((action) => !action.hidden);
   if (visibleActions.length === 0) return null;
-
-  const resolvedTriggerTestId =
-    triggerTestId ?? (testIdPrefix ? `${testIdPrefix}-trigger` : "row-actions-menu-trigger");
-  const popoverTestId = testIdPrefix ? `${testIdPrefix}-popover` : "row-actions-menu-popover";
 
   return (
     <div className="relative" ref={triggerRef}>

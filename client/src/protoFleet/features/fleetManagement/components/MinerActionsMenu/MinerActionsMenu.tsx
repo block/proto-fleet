@@ -289,11 +289,12 @@ const MinerActionsMenu = ({
                 })
               : null
           }
-          renderPopover={(beforeEach) => (
+          renderPopover={(beforeEach, closePopover) => (
             <BulkActionsPopover<SupportedAction>
               actions={visibleActions}
               beforeEach={beforeEach}
               testId="actions-menu-popover"
+              closePopover={closePopover}
             />
           )}
           testId="actions-menu"

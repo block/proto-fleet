@@ -1,5 +1,4 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
 import clsx from "clsx";
 
 import NavigationMenu from "../NavigationMenu";
@@ -18,27 +17,20 @@ import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCu
 import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
-import { unscopedScopablePath } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
+import { Menu } from "@/shared/assets/icons";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 type Props = {
   children: ReactNode;
+  hideShellHeader?: boolean;
 };
 
-const detailPagePathPatterns = [/^\/sites\/[^/]+$/, /^\/buildings\/[^/]+$/, /^\/racks\/[^/]+$/, /^\/groups\/[^/]+$/];
-
-const isDetailPagePath = (pathname: string) => {
-  const unscopedPath = unscopedScopablePath(pathname);
-  return detailPagePathPatterns.some((pattern) => pattern.test(unscopedPath));
-};
-
-const AppLayoutContent = ({ children }: Props) => {
+const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const { pathname } = useLocation();
   const { bgClass } = usePageBackground();
-  const { isPhone } = useWindowDimensions();
+  const { isPhone, isTablet } = useWindowDimensions();
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const schedulePillData = useSchedulePillData();
   const { activeEvent: activeCurtailmentEvent } = useCurtailmentPillData();
@@ -54,7 +46,7 @@ const AppLayoutContent = ({ children }: Props) => {
   const phoneRowWidgetCount = getPhoneHeaderWidgetRowCount(headerWidgetCount, inlineFirstPhoneWidget);
   const stackPhoneWidgets = shouldStackPhoneHeaderWidgets(headerWidgetCount);
 
-  const hideShellHeader = isDetailPagePath(pathname);
+  const showDetailMenuTrigger = hideShellHeader && (isPhone || isTablet) && !isMenuOpen;
   const showPhoneWidgets = !hideShellHeader && isPhone && phoneRowWidgetCount > 0;
 
   // Publish the scroll container's vertical-scrollbar width as
@@ -81,6 +73,18 @@ const AppLayoutContent = ({ children }: Props) => {
         <NavigationMenu items={primaryNavItems} isVisible={isMenuOpen} closeMenu={() => setIsMenuOpen(false)} />
       </div>
 
+      {showDetailMenuTrigger ? (
+        <div className="fixed top-0 left-0 z-50 flex h-12 items-center px-4">
+          <Menu
+            ariaExpanded={isMenuOpen}
+            ariaLabel="Open navigation menu"
+            className="text-text-primary"
+            onClick={() => setIsMenuOpen(true)}
+            testId="navigation-menu-button"
+          />
+        </div>
+      ) : null}
+
       {hideShellHeader ? null : (
         <div
           className={`fixed top-0 right-0 bottom-[calc(100vh-theme(spacing.1)*12)] left-0 z-40 laptop:bottom-[calc(100vh-theme(spacing.1)*15)] laptop:left-16 desktop:left-50 ${bgClass}`}
@@ -100,8 +104,9 @@ const AppLayoutContent = ({ children }: Props) => {
           hideShellHeader
             ? "fixed top-0 right-0 bottom-0 left-0 z-20 laptop:left-16 desktop:left-50"
             : "fixed top-[calc(theme(spacing.1)*12)] right-0 bottom-0 left-0 z-20 laptop:top-[calc(theme(spacing.1)*15)] laptop:left-16 desktop:left-50",
-          "overflow-x-hidden overflow-y-auto overscroll-x-none",
+          "overflow-y-auto phone:overflow-x-hidden phone:overscroll-x-none tablet-only:overflow-x-hidden tablet-only:overscroll-x-none",
           bgClass,
+          hideShellHeader && "phone:pt-12 tablet-only:pt-12",
           !hideShellHeader &&
             (showPhoneWidgets
               ? getPhoneHeaderWidgetOffsetClass(phoneRowWidgetCount, stackPhoneWidgets)

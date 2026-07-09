@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AppLayout from "./AppLayout";
@@ -26,7 +26,7 @@ vi.mock("@/protoFleet/api/SitesProvider", () => ({
 
 vi.mock("@/protoFleet/components/NavigationMenu", () => ({
   __esModule: true,
-  default: () => <div>Navigation menu</div>,
+  default: ({ isVisible }: { isVisible?: boolean }) => (isVisible ? <div>Navigation menu</div> : null),
 }));
 
 vi.mock("@/protoFleet/components/PageHeader", () => ({
@@ -130,28 +130,46 @@ describe("AppLayout", () => {
     );
 
     expect(screen.getByText("Body content").parentElement).toHaveClass(
-      "overflow-x-hidden",
       "overflow-y-auto",
-      "overscroll-x-none",
+      "phone:overflow-x-hidden",
+      "phone:overscroll-x-none",
+      "tablet-only:overflow-x-hidden",
+      "tablet-only:overscroll-x-none",
     );
+    expect(screen.getByText("Body content").parentElement).not.toHaveClass("overflow-x-hidden");
   });
 
-  it.each(["/sites/1", "/buildings/1", "/racks/1", "/groups/Ops"])(
-    "hides the shell header and top offset on detail route %s",
-    (initialEntry) => {
-      render(
-        <MemoryRouter initialEntries={[initialEntry]}>
-          <AppLayout>
-            <div>Body content</div>
-          </AppLayout>
-        </MemoryRouter>,
-      );
+  it("hides the shell header and top offset when the matched route opts in", () => {
+    render(
+      <MemoryRouter>
+        <AppLayout hideShellHeader>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
 
-      expect(screen.queryByText("Page header")).not.toBeInTheDocument();
-      expect(screen.getByText("Body content").parentElement).toHaveClass("top-0");
-      expect(screen.getByText("Body content").parentElement).not.toHaveClass("phone:top-[calc(theme(spacing.1)*12)]");
-    },
-  );
+    expect(screen.queryByText("Page header")).not.toBeInTheDocument();
+    expect(screen.getByText("Body content").parentElement).toHaveClass("top-0");
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:pt-12", "tablet-only:pt-12");
+    expect(screen.getByText("Body content").parentElement).not.toHaveClass("phone:top-[calc(theme(spacing.1)*12)]");
+    expect(screen.getByTestId("navigation-menu-button")).toBeInTheDocument();
+  });
+
+  it("opens navigation from the detail route mobile menu trigger", () => {
+    render(
+      <MemoryRouter>
+        <AppLayout hideShellHeader>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("Navigation menu")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("navigation-menu-button"));
+
+    expect(screen.getByText("Navigation menu")).toBeInTheDocument();
+    expect(screen.queryByTestId("navigation-menu-button")).not.toBeInTheDocument();
+  });
 
   it("keeps the shell header and top offset on non-detail routes", () => {
     render(

@@ -80,6 +80,7 @@ const Modal = ({
   const showTitleInHeader = isFullscreen || isTitleCollapsed;
   const slideUpAnimation = useSlideUpAnimation();
   const hasPhoneFooterButtons = (phoneFooterButtons?.length ?? 0) > 0;
+  const isPhoneSheet = phoneSheet && size !== sizes.fullscreen;
 
   useEffect(() => {
     if (!title || !sentinelRef.current || !modalRef.current) {
@@ -143,9 +144,11 @@ const Modal = ({
     <PageOverlay open={open} position="top" {...(zIndex && { zIndex })}>
       <div
         className={clsx("h-fit overflow-hidden rounded-3xl bg-surface-elevated-base shadow-300", sizeClasses[size], {
-          "mt-16 max-h-[calc(100dvh-(--spacing(32)))] phone:mt-10 phone:max-h-[calc(100dvh-theme(spacing.10))] phone:w-screen phone:max-w-none phone:min-w-[100vw] phone:rounded-[16px]":
-            size !== sizes.fullscreen,
-          "phone:rounded-[16px]": phoneSheet && size !== sizes.fullscreen,
+          "mt-16 max-h-[calc(100dvh-(--spacing(32)))]": size !== sizes.fullscreen,
+          "phone:mt-10 phone:max-h-[calc(100dvh-theme(spacing.10))] phone:w-screen phone:max-w-none phone:min-w-[100vw] phone:rounded-[16px]":
+            size !== sizes.fullscreen && !isPhoneSheet,
+          "phone:mt-auto phone:mb-3 phone:w-[calc(100vw-theme(spacing.6))] phone:max-w-none phone:min-w-[calc(100vw-theme(spacing.6))] phone:rounded-[16px]":
+            isPhoneSheet,
         })}
       >
         <motion.div

@@ -135,7 +135,13 @@ describe("Navigation Menu", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("navigation", { name: "Main" })).toHaveClass("h-dvh", "max-h-dvh", "overflow-hidden");
+    expect(screen.getByRole("navigation", { name: "Main" })).toHaveClass(
+      "h-dvh",
+      "min-h-0",
+      "max-h-dvh",
+      "overflow-hidden",
+    );
+    expect(screen.getByRole("navigation", { name: "Main" })).not.toHaveClass("min-h-screen");
     expect(screen.getByTestId("navigation-menu")).toHaveClass(
       "min-h-0",
       "flex-1",

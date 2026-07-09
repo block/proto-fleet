@@ -361,6 +361,7 @@ const NestedDropdownFilterContent = ({
           position={popoverPosition}
           offset={8}
           freezePosition
+          closePopover={isPhone ? closeAll : undefined}
           size={popoverSizes.small}
           className="!space-y-0 !rounded-2xl px-0 py-2"
         >

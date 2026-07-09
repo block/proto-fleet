@@ -52,8 +52,8 @@ const FullScreenTwoPaneModal = ({
   className,
   zIndex,
 }: FullScreenTwoPaneModalProps) => {
-  const { isPhone } = useWindowDimensions();
-  const useCompactHeaderActions = isPhone;
+  const { isPhone, isTablet } = useWindowDimensions();
+  const useCompactHeaderActions = isPhone || isTablet;
   const effectiveOnDismiss = isBusy ? undefined : onDismiss;
 
   return (
@@ -85,10 +85,12 @@ const FullScreenTwoPaneModal = ({
           iconTextColor={isBusy ? "text-text-primary-30" : "text-text-primary"}
           inline
           centerButton
-          buttonsWrapperClassName={useCompactHeaderActions ? undefined : "hidden tablet:block"}
+          buttonsWrapperClassName={useCompactHeaderActions ? undefined : "hidden laptop:block"}
           buttons={useCompactHeaderActions ? undefined : buttons}
         >
-          {useCompactHeaderActions ? <FullScreenModalHeaderActions buttons={buttons} /> : null}
+          {useCompactHeaderActions ? (
+            <FullScreenModalHeaderActions buttons={buttons} renderWhen="phone-tablet" />
+          ) : null}
         </Header>
       </div>
 

@@ -111,6 +111,12 @@ export class RacksPage extends BasePage {
 
     // Checkbox selection applies immediately; toggle the trigger to close the
     // popover so it doesn't overlay the list.
+    if (this.isMobile) {
+      await this.dismissMobilePopoverSheet("nested-dropdown-filter-popover");
+      await expect(popover).toBeHidden();
+      return;
+    }
+
     await trigger.click();
     await expect(popover).toBeHidden();
   }
@@ -197,6 +203,13 @@ export class RacksPage extends BasePage {
   }
 
   async clickRackSlotMenuItem(menuItemLabel: "Search miners" | "Select from list") {
+    if (this.isMobile) {
+      const actionTestId =
+        menuItemLabel === "Search miners" ? "rack-slot-search-miners-action" : "rack-slot-select-from-list-action";
+      await this.page.getByTestId("rack-slot-actions-sheet-content").getByTestId(actionTestId).click();
+      return;
+    }
+
     await this.page.getByRole("menuitem", { name: menuItemLabel, exact: true }).click();
   }
 
@@ -291,7 +304,16 @@ export class RacksPage extends BasePage {
   }
 
   async clickViewMiners() {
-    await this.clickButton("View miners");
+    const directButton = this.page.getByTestId("rack-page-view-miners");
+    if (await directButton.isVisible().catch(() => false)) {
+      await directButton.click();
+    } else {
+      await this.page.getByRole("button", { name: "Device set actions", exact: true }).click();
+      const actionsPopover = this.page.getByTestId("group-actions-popover");
+      await expect(actionsPopover).toBeVisible();
+      await actionsPopover.getByRole("button", { name: "View miners", exact: true }).click();
+    }
+
     await expect(this.page).toHaveURL(/.*\/miners/);
   }
 
@@ -329,11 +351,43 @@ export class RacksPage extends BasePage {
   }
 
   async clickViewList() {
-    await this.clickButton("View list");
+    await this.clickRackViewMode("View list");
   }
 
   async clickViewGrid() {
-    await this.clickButton("View grid");
+    await this.clickRackViewMode("View grid");
+  }
+
+  private async clickRackViewMode(label: "View grid" | "View list") {
+    const controls = this.page.getByTestId("segmented-control");
+    let visibleControlIndex = -1;
+
+    await expect
+      .poll(
+        async () => {
+          const count = await controls.count();
+
+          for (let i = 0; i < count; i++) {
+            const control = controls.nth(i);
+            const button = control.getByRole("button", { name: label, exact: true });
+
+            if ((await control.isVisible().catch(() => false)) && (await button.isVisible().catch(() => false))) {
+              visibleControlIndex = i;
+              return "visible";
+            }
+          }
+
+          return "hidden";
+        },
+        {
+          timeout: DEFAULT_TIMEOUT,
+          intervals: [DEFAULT_INTERVAL],
+          message: `Expected the ${label} segmented control button to be visible.`,
+        },
+      )
+      .toBe("visible");
+
+    await controls.nth(visibleControlIndex).getByRole("button", { name: label, exact: true }).click();
   }
 
   async applyZoneFilter(zoneNames: string[]) {
@@ -358,6 +412,12 @@ export class RacksPage extends BasePage {
     await expect(popover).toBeVisible();
     await this.clickDropdownFilterOption(popover, sortLabel);
     if (await popover.isVisible().catch(() => false)) {
+      if (this.isMobile) {
+        await this.dismissMobilePopoverSheet("dropdown-filter-popover");
+        await expect(popover).toBeHidden();
+        return;
+      }
+
       await this.clickVisibleFilterDropdown("Sort");
     }
     await expect(popover).toBeHidden();
@@ -570,6 +630,10 @@ export class RacksPage extends BasePage {
   }
 
   private async clickVisibleFilterDropdown(title: string) {
+    if (this.isMobile) {
+      await this.dismissMobilePopoverSheet("dropdown-filter-popover");
+    }
+
     const dropdowns = this.page.getByTestId(`filter-dropdown-${title}`);
     const count = await dropdowns.count();
 

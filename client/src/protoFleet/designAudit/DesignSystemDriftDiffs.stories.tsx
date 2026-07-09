@@ -133,17 +133,17 @@ const CurrentSitePicker = () => (
   <div className="flex w-full max-w-[320px] flex-col gap-3">
     <button
       type="button"
-      className="hover:bg-surface-base-hover flex max-w-full min-w-0 items-center gap-1 rounded-md px-2 py-1 text-300 text-text-primary focus-visible:underline"
+      className="flex max-w-full min-w-0 items-center gap-1 rounded-md px-2 py-1 text-300 text-text-primary hover:bg-surface-base-hover focus-visible:underline"
     >
       <span className="min-w-0 truncate">Denver, CO</span>
       <ChevronDown className={iconSizes.xSmall} />
     </button>
     <div className="rounded-xl border border-border-5 p-1">
-      <button className="hover:bg-surface-base-hover focus-visible:bg-surface-base-hover flex w-full items-center gap-3 rounded-md px-2 py-2.5 text-left text-300 text-text-primary">
+      <button className="flex w-full items-center gap-3 rounded-md px-2 py-2.5 text-left text-300 text-text-primary hover:bg-surface-base-hover focus-visible:bg-surface-base-hover">
         <span className="h-5 w-5 rounded-full border border-border-20" />
         All sites
       </button>
-      <button className="hover:bg-surface-base-hover focus-visible:bg-surface-base-hover flex w-full items-center gap-3 rounded-md px-2 py-2.5 text-left text-300 text-text-primary">
+      <button className="flex w-full items-center gap-3 rounded-md px-2 py-2.5 text-left text-300 text-text-primary hover:bg-surface-base-hover focus-visible:bg-surface-base-hover">
         <span className="grid h-5 w-5 place-items-center rounded-full bg-core-accent-fill text-text-contrast">
           <span className="h-2 w-2 rounded-full bg-text-contrast" />
         </span>

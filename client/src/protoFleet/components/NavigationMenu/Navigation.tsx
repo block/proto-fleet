@@ -105,12 +105,12 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
     <nav
       aria-label="Main"
       className={clsx(
-        "group/nav absolute top-0 left-0 z-30 flex min-h-screen w-60 flex-col justify-between bg-surface-base text-text-primary-70",
+        "group/nav absolute top-0 left-0 z-30 flex w-60 flex-col justify-between bg-surface-base text-text-primary-70",
         "laptop:absolute laptop:top-0 laptop:left-0 laptop:z-50 laptop:w-16 laptop:overflow-hidden laptop:hover:w-50 laptop:hover:border-r laptop:hover:border-core-primary-10 laptop:hover:bg-surface-base laptop:hover:shadow-lg",
         "laptop:bg-surface-base",
         "desktop:w-50 desktop:overflow-hidden desktop:border-r desktop:border-core-primary-10",
         "desktop:bg-surface-base",
-        isFloatingMenu && "h-dvh max-h-dvh overflow-hidden",
+        isFloatingMenu ? "h-dvh max-h-dvh min-h-0 overflow-hidden" : "min-h-screen",
         className,
       )}
     >
