@@ -21,7 +21,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure"
-	"github.com/block/proto-fleet/server/internal/domain/infrastructure/models"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -57,6 +56,14 @@ func canReadSite(ctx context.Context, siteID int64) bool {
 	return err == nil
 }
 
+// canManageSite reports whether the caller holds site:manage for the
+// given site. Read responses use it to decide whether driver_config —
+// the OT control topology — is included; site:read callers get the
+// display fields only.
+func canManageSite(ctx context.Context, siteID int64) bool {
+	return requireSiteManage(ctx, siteID) == nil
+}
+
 func requireSiteManage(ctx context.Context, siteID int64) error {
 	_, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: &siteID})
 	return err
@@ -73,14 +80,17 @@ func (h *Handler) ListInfrastructureDevices(ctx context.Context, req *connect.Re
 	}
 	// Filter to sites the caller can read rather than gating on an
 	// org-wide grant, so site-narrowed operators see their sites'
-	// devices and nothing else.
-	authorized := make([]models.Device, 0, len(devices))
-	for _, device := range devices {
-		if canReadSite(ctx, device.SiteID) {
-			authorized = append(authorized, device)
+	// devices and nothing else. driver_config is included per device
+	// only where the caller holds site:manage.
+	out := make([]*pb.InfrastructureDevice, 0, len(devices))
+	for i := range devices {
+		device := &devices[i]
+		if !canReadSite(ctx, device.SiteID) {
+			continue
 		}
+		out = append(out, toProtoDevice(device, canManageSite(ctx, device.SiteID)))
 	}
-	return connect.NewResponse(toListResponse(authorized)), nil
+	return connect.NewResponse(&pb.ListInfrastructureDevicesResponse{Devices: out}), nil
 }
 
 func (h *Handler) GetInfrastructureDevice(ctx context.Context, req *connect.Request[pb.GetInfrastructureDeviceRequest]) (*connect.Response[pb.GetInfrastructureDeviceResponse], error) {
@@ -96,7 +106,7 @@ func (h *Handler) GetInfrastructureDevice(ctx context.Context, req *connect.Requ
 		return nil, err
 	}
 	return connect.NewResponse(&pb.GetInfrastructureDeviceResponse{
-		Device: toProtoDevice(device),
+		Device: toProtoDevice(device, canManageSite(ctx, device.SiteID)),
 	}), nil
 }
 
@@ -110,8 +120,10 @@ func (h *Handler) CreateInfrastructureDevice(ctx context.Context, req *connect.R
 	if err != nil {
 		return nil, err
 	}
+	// Create/Update callers proved site:manage above, so the config
+	// they just wrote is echoed back.
 	return connect.NewResponse(&pb.CreateInfrastructureDeviceResponse{
-		Device: toProtoDevice(device),
+		Device: toProtoDevice(device, true),
 	}), nil
 }
 
@@ -147,7 +159,7 @@ func (h *Handler) UpdateInfrastructureDevice(ctx context.Context, req *connect.R
 		return nil, err
 	}
 	return connect.NewResponse(&pb.UpdateInfrastructureDeviceResponse{
-		Device: toProtoDevice(device),
+		Device: toProtoDevice(device, true),
 	}), nil
 }
 

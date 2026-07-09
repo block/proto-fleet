@@ -80,7 +80,10 @@ export type InfrastructureDevice = Message<"infrastructure.v1.InfrastructureDevi
    * Opaque JSON blob owned by the driver adapter (for modbus_tcp:
    * endpoint, port, unit_id, register_address, write_mode). The
    * server validates it via the adapter; clients render it via the
-   * matching per-driver form module.
+   * matching per-driver form module. It describes the OT control
+   * topology, so read responses include it only for callers holding
+   * site:manage on the device's site — site:read callers receive an
+   * empty string.
    *
    * @generated from field: string driver_config = 10;
    */

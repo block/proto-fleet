@@ -173,7 +173,8 @@ func TestHandler_ListFiltersToReadableSites(t *testing.T) {
 	t.Parallel()
 
 	// Two devices at different sites; caller narrowed to site 10 sees
-	// only that site's device.
+	// only that site's device — and, holding only site:read, without
+	// driver_config.
 	h := newTestHandler(t)
 	ctx := handlerstest.CtxWithAssignments(t, 42,
 		handlerstest.SiteAssignment(10, authz.PermSiteRead))
@@ -186,6 +187,33 @@ func TestHandler_ListFiltersToReadableSites(t *testing.T) {
 	require.Len(t, resp.Msg.GetDevices(), 1)
 	assert.Equal(t, int64(1), resp.Msg.GetDevices()[0].GetId())
 	assert.Equal(t, int64(10), resp.Msg.GetDevices()[0].GetSiteId())
+	assert.Empty(t, resp.Msg.GetDevices()[0].GetDriverConfig(),
+		"site:read caller must not receive driver_config")
+}
+
+func TestHandler_DriverConfigRedactedForReadOnlyCallers(t *testing.T) {
+	t.Parallel()
+
+	// driver_config carries the OT control topology: Get returns it
+	// only to site:manage holders; site:read callers get the display
+	// fields with an empty blob. List behaves the same per device.
+	h := newTestHandler(t)
+	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
+		Return(deviceAtSite(7, 10), nil).Times(2)
+
+	readOnly := handlerstest.CtxWithAssignments(t, 42,
+		handlerstest.SiteAssignment(10, authz.PermSiteRead))
+	resp, err := h.handler.GetInfrastructureDevice(readOnly, connect.NewRequest(&pb.GetInfrastructureDeviceRequest{Id: 7}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetDevice().GetDriverConfig())
+	assert.Equal(t, "modbus_tcp", resp.Msg.GetDevice().GetDriverType(),
+		"display fields remain visible to site:read callers")
+
+	manager := handlerstest.CtxWithAssignments(t, 42,
+		handlerstest.SiteAssignment(10, authz.PermSiteRead, authz.PermSiteManage))
+	resp, err = h.handler.GetInfrastructureDevice(manager, connect.NewRequest(&pb.GetInfrastructureDeviceRequest{Id: 7}))
+	require.NoError(t, err)
+	assert.JSONEq(t, validConfig, resp.Msg.GetDevice().GetDriverConfig())
 }
 
 func TestHandler_UpdatePredicatesWriteOnAuthorizedSite(t *testing.T) {

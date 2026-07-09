@@ -338,6 +338,17 @@ can only command site-local devices through an on-site node. A site
 reachable only via fleetnode makes the future-work site-local driver a
 prerequisite for that site, not a follow-up — verify before building.
 
+**Precondition (dial-time endpoint authorization):** the save-time
+RFC1918/ULA guard bounds what can be persisted, but it cannot know which
+private subnet is a site's commissioned OT segment — so on its own it
+would let a site:manage caller aim the server's raw Modbus writer at
+unrelated private infrastructure. The write path must therefore enforce a
+per-site commissioned control-subnet allowlist at dial time (captured
+during the Gap 1 commissioning checklist) and reject
+server-infrastructure CIDRs, before any frame is sent. Writes stay
+disabled for a site until its allowlist is commissioned. (Recorded as a
+security precondition on `modbustcp.SetState`.)
+
 - `driver/modbustcp/` adapter I/O: single coil write (FC5) or holding
   register write (FC6) of 0/1 per `write_mode`, with a short connect
   timeout and a single attempt per call — cross-cycle re-assertion

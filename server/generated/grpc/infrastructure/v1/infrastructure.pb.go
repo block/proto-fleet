@@ -42,7 +42,10 @@ type InfrastructureDevice struct {
 	// Opaque JSON blob owned by the driver adapter (for modbus_tcp:
 	// endpoint, port, unit_id, register_address, write_mode). The
 	// server validates it via the adapter; clients render it via the
-	// matching per-driver form module.
+	// matching per-driver form module. It describes the OT control
+	// topology, so read responses include it only for callers holding
+	// site:manage on the device's site — site:read callers receive an
+	// empty string.
 	DriverConfig  string                 `protobuf:"bytes,10,opt,name=driver_config,json=driverConfig,proto3" json:"driver_config,omitempty"`
 	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`

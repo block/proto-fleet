@@ -52,11 +52,17 @@ func toUpdateParams(req *pb.UpdateInfrastructureDeviceRequest, orgID int64) mode
 	}
 }
 
-func toProtoDevice(d *models.Device) *pb.InfrastructureDevice {
+// toProtoDevice maps a domain device to the wire shape.
+// includeDriverConfig gates the opaque config blob: it carries the OT
+// control topology (endpoint, unit ID, register address) and is only
+// returned to callers holding site:manage for the device's site —
+// site:read callers get the display fields with an empty
+// driver_config.
+func toProtoDevice(d *models.Device, includeDriverConfig bool) *pb.InfrastructureDevice {
 	if d == nil {
 		return nil
 	}
-	return &pb.InfrastructureDevice{
+	out := &pb.InfrastructureDevice{
 		Id:           d.ID,
 		SiteId:       d.SiteID,
 		SiteLabel:    d.SiteLabel,
@@ -66,16 +72,11 @@ func toProtoDevice(d *models.Device) *pb.InfrastructureDevice {
 		FanCount:     d.FanCount,
 		Enabled:      d.Enabled,
 		DriverType:   d.DriverType,
-		DriverConfig: string(d.DriverConfig),
 		CreatedAt:    timestamppb.New(d.CreatedAt),
 		UpdatedAt:    timestamppb.New(d.UpdatedAt),
 	}
-}
-
-func toListResponse(devices []models.Device) *pb.ListInfrastructureDevicesResponse {
-	out := make([]*pb.InfrastructureDevice, 0, len(devices))
-	for i := range devices {
-		out = append(out, toProtoDevice(&devices[i]))
+	if includeDriverConfig {
+		out.DriverConfig = string(d.DriverConfig)
 	}
-	return &pb.ListInfrastructureDevicesResponse{Devices: out}
+	return out
 }

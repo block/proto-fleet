@@ -126,6 +126,15 @@ func (Controller) ValidateConfig(raw json.RawMessage) error {
 // SetState implements driver.Controller. Protocol I/O is out of scope
 // for the backend phase; the reconciler sequencing work wires the
 // actual FC5/FC6 write.
+//
+// SECURITY PRECONDITION for the write-path implementation: RFC1918 is
+// a save-time bound, not a dial-time authorization. Before any frame
+// is sent, the implementation must enforce a per-site commissioned
+// control-subnet allowlist (and reject server-infrastructure CIDRs),
+// so a site:manage caller cannot point the server's raw Modbus writer
+// at unrelated private infrastructure or another site's OT segment.
+// Which subnet is "the OT subnet" is per-site commissioning data that
+// lands with the write path; do not enable writes without it.
 func (Controller) SetState(_ context.Context, device driver.Device, _ driver.DesiredState) error {
 	return fmt.Errorf("modbus_tcp write path is not implemented yet (device %q)", device.Name)
 }
