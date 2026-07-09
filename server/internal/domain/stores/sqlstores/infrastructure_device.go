@@ -3,6 +3,7 @@ package sqlstores
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 
 	"connectrpc.com/connect"
@@ -27,6 +28,18 @@ func NewSQLInfrastructureDeviceStore(conn *sql.DB) *SQLInfrastructureDeviceStore
 	return &SQLInfrastructureDeviceStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
 }
 
+// normalizeDriverConfig maps an empty blob to the empty JSON object so
+// the jsonb column never receives zero-length bytes (invalid JSON at
+// the wire). Adapters that require config still reject empty blobs in
+// ValidateConfig before this runs; this guards future adapters that
+// legitimately need no config.
+func normalizeDriverConfig(cfg json.RawMessage) json.RawMessage {
+	if len(cfg) == 0 {
+		return json.RawMessage(`{}`)
+	}
+	return cfg
+}
+
 func (s *SQLInfrastructureDeviceStore) CreateInfrastructureDevice(ctx context.Context, params models.CreateParams) (*models.Device, error) {
 	row, err := s.GetQueries(ctx).CreateInfrastructureDevice(ctx, sqlc.CreateInfrastructureDeviceParams{
 		OrgID:        params.OrgID,
@@ -37,7 +50,7 @@ func (s *SQLInfrastructureDeviceStore) CreateInfrastructureDevice(ctx context.Co
 		FanCount:     params.FanCount,
 		Enabled:      params.Enabled,
 		DriverType:   params.DriverType,
-		DriverConfig: params.DriverConfig,
+		DriverConfig: normalizeDriverConfig(params.DriverConfig),
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -116,7 +129,7 @@ func (s *SQLInfrastructureDeviceStore) UpdateInfrastructureDevice(ctx context.Co
 		FanCount:     params.FanCount,
 		Enabled:      params.Enabled,
 		DriverType:   params.DriverType,
-		DriverConfig: params.DriverConfig,
+		DriverConfig: normalizeDriverConfig(params.DriverConfig),
 		ID:           params.ID,
 		OrgID:        params.OrgID,
 	})

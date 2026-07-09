@@ -6,6 +6,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure/models"
 )
 
+//go:generate go run go.uber.org/mock/mockgen -source=infrastructure_device.go -destination=mocks/mock_infrastructure_device_store.go -package=mocks InfrastructureDeviceStore
+
 // InfrastructureDeviceStore is the persistence boundary for the
 // infrastructure domain. All methods are org-scoped.
 type InfrastructureDeviceStore interface {

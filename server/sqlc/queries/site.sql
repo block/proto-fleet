@@ -210,6 +210,16 @@ WHERE org_id = sqlc.arg('org_id')
   AND site_id = sqlc.arg('site_id')
   AND deleted_at IS NULL;
 
+-- name: SoftDeleteInfrastructureDevicesBySite :execrows
+-- Soft-deletes every live infrastructure device under the given site
+-- so controllable facility devices cannot outlive their site. Caller
+-- wraps this in the same tx as the SoftDeleteSite + cascade.
+UPDATE infrastructure_device
+SET deleted_at = CURRENT_TIMESTAMP
+WHERE org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('site_id')
+  AND deleted_at IS NULL;
+
 -- name: UnassignRacksFromSite :execrows
 -- Sets device_set_rack.site_id = NULL for every live rack pointing at
 -- the given site (org-guarded by the denormalized rack.org_id; the

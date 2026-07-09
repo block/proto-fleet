@@ -222,6 +222,17 @@ func (s *SQLSiteStore) SoftDeleteBuildingsBySite(ctx context.Context, orgID, sit
 	return rowsAffected, nil
 }
 
+func (s *SQLSiteStore) SoftDeleteInfrastructureDevicesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	rowsAffected, err := s.GetQueries(ctx).SoftDeleteInfrastructureDevicesBySite(ctx, sqlc.SoftDeleteInfrastructureDevicesBySiteParams{
+		OrgID:  orgID,
+		SiteID: siteID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to soft-delete infrastructure devices: %v", err)
+	}
+	return rowsAffected, nil
+}
+
 func (s *SQLSiteStore) UnassignRacksFromSite(ctx context.Context, orgID, siteID int64) (int64, error) {
 	rowsAffected, err := s.GetQueries(ctx).UnassignRacksFromSite(ctx, sqlc.UnassignRacksFromSiteParams{
 		OrgID:  orgID,

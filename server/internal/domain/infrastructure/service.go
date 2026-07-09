@@ -27,15 +27,16 @@ func NewDefaultDriverRegistry() *driver.Registry {
 
 // Service owns infrastructure-device CRUD and validation.
 type Service struct {
-	store     interfaces.InfrastructureDeviceStore
-	siteStore interfaces.SiteStore
-	registry  *driver.Registry
+	store      interfaces.InfrastructureDeviceStore
+	siteStore  interfaces.SiteStore
+	registry   *driver.Registry
+	transactor interfaces.Transactor
 }
 
 // NewService returns a Service bound to the supplied stores and
 // driver registry.
-func NewService(store interfaces.InfrastructureDeviceStore, siteStore interfaces.SiteStore, registry *driver.Registry) *Service {
-	return &Service{store: store, siteStore: siteStore, registry: registry}
+func NewService(store interfaces.InfrastructureDeviceStore, siteStore interfaces.SiteStore, registry *driver.Registry, transactor interfaces.Transactor) *Service {
+	return &Service{store: store, siteStore: siteStore, registry: registry, transactor: transactor}
 }
 
 // List returns every live device in the org, optionally narrowed to
@@ -51,7 +52,7 @@ func (s *Service) Get(ctx context.Context, orgID, id int64) (*models.Device, err
 
 // Create validates and inserts a new device.
 func (s *Service) Create(ctx context.Context, params models.CreateParams) (*models.Device, error) {
-	normalized, err := s.validateAndNormalize(ctx, params.OrgID, deviceInput{
+	normalized, err := s.validateAndNormalize(deviceInput{
 		SiteID:       params.SiteID,
 		BuildingName: params.BuildingName,
 		Name:         params.Name,
@@ -66,12 +67,33 @@ func (s *Service) Create(ctx context.Context, params models.CreateParams) (*mode
 	params.BuildingName = normalized.BuildingName
 	params.Name = normalized.Name
 	params.FanCount = normalized.FanCount
-	return s.store.CreateInfrastructureDevice(ctx, params)
+
+	var created *models.Device
+	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		// Lock the parent site row so a concurrent DeleteSite can't
+		// soft-delete it between the live-site check and the insert
+		// (same TOCTOU fix as buildings.CreateBuilding —
+		// LockSiteForWrite returns NotFound when the site is
+		// missing/soft-deleted/cross-org).
+		if err := s.siteStore.LockSiteForWrite(txCtx, params.OrgID, params.SiteID); err != nil {
+			return err
+		}
+		device, err := s.store.CreateInfrastructureDevice(txCtx, params)
+		if err != nil {
+			return err
+		}
+		created = device
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return created, nil
 }
 
 // Update validates and mutates an existing device.
 func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*models.Device, error) {
-	normalized, err := s.validateAndNormalize(ctx, params.OrgID, deviceInput{
+	normalized, err := s.validateAndNormalize(deviceInput{
 		SiteID:       params.SiteID,
 		BuildingName: params.BuildingName,
 		Name:         params.Name,
@@ -86,7 +108,23 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 	params.BuildingName = normalized.BuildingName
 	params.Name = normalized.Name
 	params.FanCount = normalized.FanCount
-	return s.store.UpdateInfrastructureDevice(ctx, params)
+
+	var updated *models.Device
+	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		if err := s.siteStore.LockSiteForWrite(txCtx, params.OrgID, params.SiteID); err != nil {
+			return err
+		}
+		device, err := s.store.UpdateInfrastructureDevice(txCtx, params)
+		if err != nil {
+			return err
+		}
+		updated = device
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 // Delete soft-deletes the device.
@@ -119,8 +157,11 @@ type deviceInput struct {
 }
 
 // validateAndNormalize enforces protocol-blind invariants and
-// delegates driver_config validation to the adapter registry.
-func (s *Service) validateAndNormalize(ctx context.Context, orgID int64, in deviceInput) (deviceInput, error) {
+// delegates driver_config validation to the adapter registry. Site
+// existence/liveness is deliberately NOT checked here — the write
+// paths take a row lock on the site inside their transaction instead,
+// which subsumes the check without a TOCTOU window.
+func (s *Service) validateAndNormalize(in deviceInput) (deviceInput, error) {
 	in.Name = strings.TrimSpace(in.Name)
 	in.BuildingName = strings.TrimSpace(in.BuildingName)
 	if in.Name == "" {
@@ -139,13 +180,6 @@ func (s *Service) validateAndNormalize(ctx context.Context, orgID int64, in devi
 	}
 	if in.SiteID <= 0 {
 		return in, fleeterror.NewInvalidArgumentError("site_id is required")
-	}
-	belongs, err := s.siteStore.SiteBelongsToOrg(ctx, orgID, in.SiteID)
-	if err != nil {
-		return in, err
-	}
-	if !belongs {
-		return in, fleeterror.NewNotFoundErrorf("site %d not found", in.SiteID)
 	}
 	if err := s.registry.ValidateConfig(in.DriverType, in.DriverConfig); err != nil {
 		return in, fleeterror.NewInvalidArgumentError(err.Error())

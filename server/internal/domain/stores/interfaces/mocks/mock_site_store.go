@@ -442,6 +442,21 @@ func (mr *MockSiteStoreMockRecorder) SoftDeleteBuildingsBySite(ctx, orgID, siteI
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SoftDeleteBuildingsBySite", reflect.TypeOf((*MockSiteStore)(nil).SoftDeleteBuildingsBySite), ctx, orgID, siteID)
 }
 
+// SoftDeleteInfrastructureDevicesBySite mocks base method.
+func (m *MockSiteStore) SoftDeleteInfrastructureDevicesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SoftDeleteInfrastructureDevicesBySite", ctx, orgID, siteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SoftDeleteInfrastructureDevicesBySite indicates an expected call of SoftDeleteInfrastructureDevicesBySite.
+func (mr *MockSiteStoreMockRecorder) SoftDeleteInfrastructureDevicesBySite(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SoftDeleteInfrastructureDevicesBySite", reflect.TypeOf((*MockSiteStore)(nil).SoftDeleteInfrastructureDevicesBySite), ctx, orgID, siteID)
+}
+
 // SoftDeleteSite mocks base method.
 func (m *MockSiteStore) SoftDeleteSite(ctx context.Context, orgID, id int64) (int64, error) {
 	m.ctrl.T.Helper()

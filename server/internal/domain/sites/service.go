@@ -347,6 +347,13 @@ func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.Dele
 			return err
 		}
 		out.DeletedResponseProfileCount = profileCount
+		// Soft-delete infrastructure devices (facility fans) under the
+		// site so controllable devices cannot outlive the site row.
+		infraCount, err := s.store.SoftDeleteInfrastructureDevicesBySite(txCtx, orgID, id)
+		if err != nil {
+			return err
+		}
+		out.DeletedInfrastructureDeviceCount = infraCount
 		// Soft-delete the site row last.
 		n, err := s.store.SoftDeleteSite(txCtx, orgID, id)
 		if err != nil {

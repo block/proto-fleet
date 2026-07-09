@@ -20,6 +20,7 @@ const (
 	testOrgID      = int64(1)
 	otherOrgID     = int64(2)
 	testSiteID     = int64(10)
+	secondSiteID   = int64(11)
 	otherOrgSiteID = int64(20)
 )
 
@@ -33,6 +34,7 @@ func newTestService(t *testing.T) (*infrastructure.Service, *sql.DB) {
 		fmt.Sprintf(`INSERT INTO organization (id, org_id, name) VALUES (%d, 'test-org-1', 'Test Org 1')`, testOrgID),
 		fmt.Sprintf(`INSERT INTO organization (id, org_id, name) VALUES (%d, 'test-org-2', 'Test Org 2')`, otherOrgID),
 		fmt.Sprintf(`INSERT INTO site (id, org_id, name, slug) VALUES (%d, %d, 'Denton', 'denton')`, testSiteID, testOrgID),
+		fmt.Sprintf(`INSERT INTO site (id, org_id, name, slug) VALUES (%d, %d, 'Austin', 'austin')`, secondSiteID, testOrgID),
 		fmt.Sprintf(`INSERT INTO site (id, org_id, name, slug) VALUES (%d, %d, 'Miami', 'miami')`, otherOrgSiteID, otherOrgID),
 	}
 	for _, stmt := range seed {
@@ -41,7 +43,8 @@ func newTestService(t *testing.T) (*infrastructure.Service, *sql.DB) {
 	}
 	store := sqlstores.NewSQLInfrastructureDeviceStore(conn)
 	siteStore := sqlstores.NewSQLSiteStore(conn)
-	return infrastructure.NewService(store, siteStore, infrastructure.NewDefaultDriverRegistry()), conn
+	transactor := sqlstores.NewSQLTransactor(conn)
+	return infrastructure.NewService(store, siteStore, infrastructure.NewDefaultDriverRegistry(), transactor), conn
 }
 
 func validModbusConfig() json.RawMessage {
@@ -91,11 +94,30 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), single.FanCount)
 
-	// List returns both, ordered by name; site filter applies.
+	// List returns both, ordered by name.
 	devices, err := svc.List(ctx, models.ListFilter{OrgID: testOrgID})
 	require.NoError(t, err)
 	require.Len(t, devices, 2)
 	assert.Equal(t, "Row 3 intake fan", devices[0].Name)
+
+	// Site filter discriminates between real sites: a device on the
+	// second site is included/excluded by the filter, not just by
+	// nonexistent-site emptiness.
+	austinDevice, err := svc.Create(ctx, createParams(func(p *models.CreateParams) {
+		p.Name = "Austin roof exhaust"
+		p.SiteID = secondSiteID
+	}))
+	require.NoError(t, err)
+	dentonOnly, err := svc.List(ctx, models.ListFilter{OrgID: testOrgID, SiteIDs: []int64{testSiteID}})
+	require.NoError(t, err)
+	require.Len(t, dentonOnly, 2)
+	austinOnly, err := svc.List(ctx, models.ListFilter{OrgID: testOrgID, SiteIDs: []int64{secondSiteID}})
+	require.NoError(t, err)
+	require.Len(t, austinOnly, 1)
+	assert.Equal(t, austinDevice.ID, austinOnly[0].ID)
+	bothSites, err := svc.List(ctx, models.ListFilter{OrgID: testOrgID, SiteIDs: []int64{testSiteID, secondSiteID}})
+	require.NoError(t, err)
+	assert.Len(t, bothSites, 3)
 	filtered, err := svc.List(ctx, models.ListFilter{OrgID: testOrgID, SiteIDs: []int64{testSiteID + 999}})
 	require.NoError(t, err)
 	assert.Empty(t, filtered)
@@ -124,9 +146,65 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	assert.True(t, fleeterror.IsNotFoundError(err))
 	devices, err = svc.List(ctx, models.ListFilter{OrgID: testOrgID})
 	require.NoError(t, err)
-	assert.Len(t, devices, 1)
+	assert.Len(t, devices, 2)
 	// Deleting again reports NotFound.
 	err = svc.Delete(ctx, testOrgID, created.ID)
+	assert.True(t, fleeterror.IsNotFoundError(err))
+
+	// A soft-deleted device's name is reusable in the same site — the
+	// unique index is partial on deleted_at IS NULL.
+	reused, err := svc.Create(ctx, createParams(func(p *models.CreateParams) {
+		p.Name = "Zone B exhaust fans" // the deleted device's final name
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "Zone B exhaust fans", reused.Name)
+}
+
+func TestService_UpdateRenameCollision_DatabaseIntegration(t *testing.T) {
+	svc, _ := newTestService(t)
+	ctx := t.Context()
+
+	first, err := svc.Create(ctx, createParams(nil))
+	require.NoError(t, err)
+	second, err := svc.Create(ctx, createParams(func(p *models.CreateParams) {
+		p.Name = "Row 3 intake fan"
+		p.DeviceKind = models.KindSingleFan
+		p.FanCount = 1
+	}))
+	require.NoError(t, err)
+
+	// Renaming the second device to the first's name trips the partial
+	// unique index and maps to AlreadyExists.
+	_, err = svc.Update(ctx, models.UpdateParams{
+		OrgID:        testOrgID,
+		ID:           second.ID,
+		SiteID:       testSiteID,
+		BuildingName: second.BuildingName,
+		Name:         first.Name,
+		DeviceKind:   second.DeviceKind,
+		FanCount:     second.FanCount,
+		Enabled:      second.Enabled,
+		DriverType:   second.DriverType,
+		DriverConfig: second.DriverConfig,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+}
+
+func TestService_SiteCascade_DatabaseIntegration(t *testing.T) {
+	svc, conn := newTestService(t)
+	ctx := t.Context()
+
+	created, err := svc.Create(ctx, createParams(nil))
+	require.NoError(t, err)
+
+	// Soft-deleting the parent site cascades to its infrastructure
+	// devices (mirrors SoftDeleteBuildingsBySite in DeleteSite).
+	siteStore := sqlstores.NewSQLSiteStore(conn)
+	affected, err := siteStore.SoftDeleteInfrastructureDevicesBySite(ctx, testOrgID, testSiteID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), affected)
+	_, err = svc.Get(ctx, testOrgID, created.ID)
 	assert.True(t, fleeterror.IsNotFoundError(err))
 }
 

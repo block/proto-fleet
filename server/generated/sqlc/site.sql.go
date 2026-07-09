@@ -984,6 +984,30 @@ func (q *Queries) SoftDeleteBuildingsBySite(ctx context.Context, arg SoftDeleteB
 	return result.RowsAffected()
 }
 
+const softDeleteInfrastructureDevicesBySite = `-- name: SoftDeleteInfrastructureDevicesBySite :execrows
+UPDATE infrastructure_device
+SET deleted_at = CURRENT_TIMESTAMP
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+`
+
+type SoftDeleteInfrastructureDevicesBySiteParams struct {
+	OrgID  int64
+	SiteID int64
+}
+
+// Soft-deletes every live infrastructure device under the given site
+// so controllable facility devices cannot outlive their site. Caller
+// wraps this in the same tx as the SoftDeleteSite + cascade.
+func (q *Queries) SoftDeleteInfrastructureDevicesBySite(ctx context.Context, arg SoftDeleteInfrastructureDevicesBySiteParams) (int64, error) {
+	result, err := q.exec(ctx, q.softDeleteInfrastructureDevicesBySiteStmt, softDeleteInfrastructureDevicesBySite, arg.OrgID, arg.SiteID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const softDeleteSite = `-- name: SoftDeleteSite :execrows
 UPDATE site
 SET deleted_at = CURRENT_TIMESTAMP

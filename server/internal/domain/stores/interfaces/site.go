@@ -67,6 +67,12 @@ type SiteStore interface {
 	// the site. Caller wraps it in the cascade tx.
 	SoftDeleteBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error)
 
+	// SoftDeleteInfrastructureDevicesBySite soft-deletes every live
+	// infrastructure device under the site so controllable facility
+	// devices cannot outlive their site. Caller wraps it in the
+	// cascade tx.
+	SoftDeleteInfrastructureDevicesBySite(ctx context.Context, orgID, siteID int64) (int64, error)
+
 	// UnassignRacksFromSite clears site_id on every rack directly
 	// pointing at the site. Caller wraps it in the cascade tx.
 	UnassignRacksFromSite(ctx context.Context, orgID, siteID int64) (int64, error)

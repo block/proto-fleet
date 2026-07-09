@@ -55,12 +55,31 @@ func TestValidateConfig_RejectsPublicOrHostnameEndpoints(t *testing.T) {
 		"2001:4860::8888", // public IPv6
 		"plc.example.com", // hostname
 		"",                // missing
+		"::ffff:8.8.8.8",  // IPv4-mapped IPv6 public (netip unmaps before checks)
+		"0.0.0.0",         // unspecified IPv4
+		"::",              // unspecified IPv6
+		"255.255.255.255", // broadcast
+		"239.1.2.3",       // multicast IPv4
+		"ff02::1",         // multicast IPv6
+		"100.64.10.20",    // CGNAT shared space — not RFC1918, rejected
 	} {
 		err := c.ValidateConfig(validConfigJSON(t, func(m map[string]any) {
 			m["endpoint"] = endpoint
 		}))
 		assert.Error(t, err, "endpoint %q should be rejected", endpoint)
 	}
+}
+
+func TestValidateConfig_LinkLocalIncludesIMDS(t *testing.T) {
+	// 169.254.169.254 (cloud instance metadata) is link-local unicast
+	// and deliberately passes the guard — link-local is a legitimate OT
+	// range. Pinned so a future tightening of the guard is a conscious
+	// decision, not a silent behavior change; revisit when the write
+	// path lands (IMDS speaks HTTP, not Modbus, and v1 is write-only).
+	err := Controller{}.ValidateConfig(validConfigJSON(t, func(m map[string]any) {
+		m["endpoint"] = "169.254.169.254"
+	}))
+	assert.NoError(t, err)
 }
 
 func TestValidateConfig_RejectsOutOfRangeFields(t *testing.T) {

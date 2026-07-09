@@ -1221,6 +1221,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.softDeleteInfrastructureDeviceStmt, err = db.PrepareContext(ctx, softDeleteInfrastructureDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteInfrastructureDevice: %w", err)
 	}
+	if q.softDeleteInfrastructureDevicesBySiteStmt, err = db.PrepareContext(ctx, softDeleteInfrastructureDevicesBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteInfrastructureDevicesBySite: %w", err)
+	}
 	if q.softDeleteOrganizationStmt, err = db.PrepareContext(ctx, softDeleteOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteOrganization: %w", err)
 	}
@@ -3461,6 +3464,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing softDeleteInfrastructureDeviceStmt: %w", cerr)
 		}
 	}
+	if q.softDeleteInfrastructureDevicesBySiteStmt != nil {
+		if cerr := q.softDeleteInfrastructureDevicesBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteInfrastructureDevicesBySiteStmt: %w", cerr)
+		}
+	}
 	if q.softDeleteOrganizationStmt != nil {
 		if cerr := q.softDeleteOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteOrganizationStmt: %w", cerr)
@@ -4299,6 +4307,7 @@ type Queries struct {
 	softDeleteFleetNodeStmt                                    *sql.Stmt
 	softDeleteFleetNodesForExpiredEnrollmentsStmt              *sql.Stmt
 	softDeleteInfrastructureDeviceStmt                         *sql.Stmt
+	softDeleteInfrastructureDevicesBySiteStmt                  *sql.Stmt
 	softDeleteOrganizationStmt                                 *sql.Stmt
 	softDeletePoolStmt                                         *sql.Stmt
 	softDeleteRoleStmt                                         *sql.Stmt
@@ -4784,6 +4793,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		softDeleteFleetNodeStmt:                                    q.softDeleteFleetNodeStmt,
 		softDeleteFleetNodesForExpiredEnrollmentsStmt:              q.softDeleteFleetNodesForExpiredEnrollmentsStmt,
 		softDeleteInfrastructureDeviceStmt:                         q.softDeleteInfrastructureDeviceStmt,
+		softDeleteInfrastructureDevicesBySiteStmt:                  q.softDeleteInfrastructureDevicesBySiteStmt,
 		softDeleteOrganizationStmt:                                 q.softDeleteOrganizationStmt,
 		softDeletePoolStmt:                                         q.softDeletePoolStmt,
 		softDeleteRoleStmt:                                         q.softDeleteRoleStmt,

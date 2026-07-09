@@ -128,6 +128,7 @@ func TestDeleteSite_cascadeInOneTransaction(t *testing.T) {
 		store.EXPECT().UnassignRacksFromSite(inTxCtx, testOrgID, int64(11)).Return(int64(4), nil),
 		store.EXPECT().UnassignDevicesFromSite(inTxCtx, testOrgID, int64(11)).Return(int64(3), nil),
 		store.EXPECT().DeleteCurtailmentResponseProfilesBySite(inTxCtx, testOrgID, int64(11)).Return(int64(5), nil),
+		store.EXPECT().SoftDeleteInfrastructureDevicesBySite(inTxCtx, testOrgID, int64(11)).Return(int64(6), nil),
 		store.EXPECT().SoftDeleteSite(inTxCtx, testOrgID, int64(11)).Return(int64(1), nil),
 	)
 
@@ -135,7 +136,7 @@ func TestDeleteSite_cascadeInOneTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if out.UnassignedDeviceCount != 3 || out.DeletedBuildingCount != 2 || out.UnassignedRackCount != 4 || out.DeletedResponseProfileCount != 5 {
+	if out.UnassignedDeviceCount != 3 || out.DeletedBuildingCount != 2 || out.UnassignedRackCount != 4 || out.DeletedResponseProfileCount != 5 || out.DeletedInfrastructureDeviceCount != 6 {
 		t.Fatalf("unexpected counts: %+v", out)
 	}
 	if tx.calls != 1 {
@@ -162,6 +163,7 @@ func TestDeleteSite_notFoundWhenSoftDeleteAffectsZeroRows(t *testing.T) {
 	store.EXPECT().UnassignRacksFromSite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().UnassignDevicesFromSite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().DeleteCurtailmentResponseProfilesBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
+	store.EXPECT().SoftDeleteInfrastructureDevicesBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().SoftDeleteSite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 
 	_, err := svc.DeleteSite(context.Background(), testOrgID, 99)
