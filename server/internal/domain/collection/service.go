@@ -2158,17 +2158,21 @@ func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *p
 		}
 	}
 
-	// Zone is building-scoped: clear it when leaving or crossing buildings,
-	// and preserve the current zone when the caller omitted it but the rack
-	// stays in a building (legacy clients don't send zone — validation only
-	// requires it when the request itself sets a non-zero building_id).
+	// Zone is building-scoped: clear it when the rack leaves or crosses
+	// buildings. Otherwise the submitted zone is authoritative — a client that
+	// manages placement (sends an explicit site/building, including 0 to
+	// unassign) seeds the current zone into its edit form, so an unedited save
+	// keeps it and an explicit blank clears it (zone is optional). Only a
+	// caller that OMITS placement entirely (legacy: no site_id/building_id)
+	// keeps the preserve-on-empty behavior, so a metadata-only update can't
+	// silently wipe the zone of a rack that stays in its building.
 	finalZone := rackInfo.GetZone()
 	leavingBuilding := current.BuildingID != nil && newBuildingID == nil
 	crossingBuildings := current.BuildingID != nil && newBuildingID != nil && !int64PtrEqual(current.BuildingID, newBuildingID)
 	switch {
 	case leavingBuilding || crossingBuildings:
 		finalZone = ""
-	case finalZone == "" && newBuildingID != nil:
+	case rackPlacementOmitted(rackInfo) && finalZone == "" && newBuildingID != nil:
 		finalZone = current.Zone
 	}
 

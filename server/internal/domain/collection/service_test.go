@@ -1963,6 +1963,64 @@ func TestService_SaveRack_OmittedPlacementPreservesZone(t *testing.T) {
 	_ = mockSiteStore
 }
 
+// TestService_SaveRack_ExplicitSameBuildingClearsZone is the counterpart to
+// the omitted-placement preserve above: a client that manages placement
+// (sends an explicit building) can clear the zone of a rack that stays in the
+// same building. The empty zone is honored, not restored from the current
+// placement.
+func TestService_SaveRack_ExplicitSameBuildingClearsZone(t *testing.T) {
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return nil, nil
+	}
+	svc, mockStore, mockSiteStore := newTestServiceWithSites(t, resolver)
+	ctx := testCtx(t)
+
+	collectionID := int64(43)
+	site := int64(7)
+	building := int64(70)
+
+	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), collectionID, testOrgID).Return(true, nil)
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+	// Explicit building placement resolves + locks site/building.
+	mockStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, building).Return(&site, nil).Times(2)
+	mockSiteStore.EXPECT().LockSiteForWrite(gomock.Any(), testOrgID, site).Return(nil)
+	mockSiteStore.EXPECT().LockBuildingForWrite(gomock.Any(), testOrgID, building).Return(nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &site, BuildingID: &building, Zone: "Floor 1"}, nil)
+
+	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, collectionID, gomock.Any(), (*string)(nil)).Return(nil)
+	// Zone cleared: explicit placement, same building, empty zone submitted.
+	mockStore.EXPECT().UpdateRackInfo(gomock.Any(), collectionID, "", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).Return(nil)
+	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Eq(&site), gomock.Eq(&building), "").Return(nil)
+
+	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, collectionID).Return(int64(0), nil)
+	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+
+	resp, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		CollectionId: &collectionID,
+		Label:        "Rack",
+		RackInfo: &pb.RackInfo{
+			Rows:        4,
+			Columns:     8,
+			Zone:        "",
+			OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+			CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+			BuildingId:  &building,
+		},
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "", resp.Collection.GetRackInfo().Zone, "zone cleared for explicit same-building update with empty zone")
+
+	_ = mockSiteStore
+}
+
 // TestService_AddDevicesToGroup_HappyPath covers the group add flow:
 // groups are org-scoped (cross-site allowed) so there is no rack lock,
 // no LockSiteForWrite, and no cascade — just the membership insert
