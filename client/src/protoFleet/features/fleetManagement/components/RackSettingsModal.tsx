@@ -204,14 +204,44 @@ const RackSettingsModal = ({
     return () => controller.abort();
   }, [siteIdText, listBuildingsBySite]);
 
+  // Zone is sub-building, so it belongs to the rack's original building. When
+  // the form moves to a different building the zone is cleared; returning to
+  // the original building before saving restores it. Mirrors the server's
+  // clear-on-building-change so the field shows what will actually persist.
+  const originalBuildingText = initialFormData?.buildingId !== undefined ? initialFormData.buildingId.toString() : "";
+  const originalZone = initialFormData?.zone ?? "";
+  const reconcileZoneForBuilding = useCallback(
+    (nextBuildingText: string) => {
+      // Only an existing rack has a persisted building to cross. On create the
+      // server stores whatever zone is submitted, so leave the typed/seeded
+      // zone alone as the operator picks a building.
+      if (!isExistingRack) return;
+      const selected = isRealId(nextBuildingText) ? nextBuildingText : "";
+      setZone(selected !== "" && selected === originalBuildingText ? originalZone : "");
+    },
+    [isExistingRack, originalBuildingText, originalZone],
+  );
+
   // Changing the site clears the building selection (the old building lives in
   // a different site) and drops its now-stale options until the new site's
-  // buildings load.
-  const handleSiteChange = useCallback((value: string) => {
-    setSiteIdText(value);
-    setBuildingIdText("");
-    setBuildings([]);
-  }, []);
+  // buildings load. The building — and therefore the zone — resets too.
+  const handleSiteChange = useCallback(
+    (value: string) => {
+      setSiteIdText(value);
+      setBuildingIdText("");
+      setBuildings([]);
+      reconcileZoneForBuilding("");
+    },
+    [reconcileZoneForBuilding],
+  );
+
+  const handleBuildingChange = useCallback(
+    (value: string) => {
+      setBuildingIdText(value);
+      reconcileZoneForBuilding(value);
+    },
+    [reconcileZoneForBuilding],
+  );
 
   const siteSelected = isRealId(siteIdText);
 
@@ -449,7 +479,7 @@ const RackSettingsModal = ({
                 label="Building (optional)"
                 options={buildingOptions}
                 value={buildingIdText}
-                onChange={setBuildingIdText}
+                onChange={handleBuildingChange}
                 // A building can't be chosen without a real site — it scopes the
                 // options and supplies the derived site_id.
                 disabled={!siteSelected}
