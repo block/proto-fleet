@@ -891,6 +891,13 @@ const RacksPage = () => {
     resetAndFetch();
     fetchZones();
   }, [resetAndFetch, fetchZones]);
+  // Rack Settings "Continue" persists an existing rack's settings before the
+  // final miner Save, so refresh the list in the background (without closing
+  // the modal) to keep it consistent if the operator then dismisses.
+  const handleRackSettingsPersisted = useCallback(() => {
+    resetAndFetch();
+    fetchZones();
+  }, [resetAndFetch, fetchZones]);
 
   const handleDeleteRack = useCallback(() => {
     if (!manageRackId) return Promise.resolve();
@@ -1139,6 +1146,7 @@ const RacksPage = () => {
             scopedSiteId={scopedSiteId}
             onDismiss={handleManageRackDismiss}
             onSave={handleManageRackSave}
+            onSettingsPersisted={handleRackSettingsPersisted}
             onDelete={manageRackId ? handleDeleteRack : undefined}
           />
         ) : null}
@@ -1463,6 +1471,7 @@ const RacksPage = () => {
           scopedSiteId={scopedSiteId}
           onDismiss={handleManageRackDismiss}
           onSave={handleManageRackSave}
+          onSettingsPersisted={handleRackSettingsPersisted}
         />
       ) : null}
       {reparentTarget ? (

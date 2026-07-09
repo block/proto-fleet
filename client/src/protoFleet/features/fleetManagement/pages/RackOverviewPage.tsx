@@ -537,6 +537,13 @@ const RackOverviewPage = () => {
             resolveRack(rack.id);
             void refetchStats();
           }}
+          // Settings "Continue" persists before the final Save; refresh the
+          // overview in the background (modal stays open) so a later dismiss
+          // can't leave stale label/placement on screen.
+          onSettingsPersisted={() => {
+            resolveRack(rack.id);
+            void refetchStats();
+          }}
           onDelete={() =>
             new Promise<void>((resolve, reject) => {
               deleteGroup({

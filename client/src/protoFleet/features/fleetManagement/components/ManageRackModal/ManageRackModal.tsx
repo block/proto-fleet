@@ -85,6 +85,12 @@ interface ManageRackModalProps {
   scopedSiteId?: bigint;
   onDismiss: () => void;
   onSave: () => void;
+  // Fired after the Rack Settings "Continue" persists an EXISTING rack's
+  // settings (label/placement/zone/dims) — which happens before the final
+  // miner Save. Parents should refetch in the background so the rack list /
+  // overview stays consistent even if the operator dismisses the modal
+  // without pressing Save. No-op for a new rack (nothing is persisted yet).
+  onSettingsPersisted?: () => void;
   onDelete?: () => Promise<void> | void;
 }
 
@@ -97,6 +103,7 @@ export default function ManageRackModal({
   scopedSiteId,
   onDismiss,
   onSave,
+  onSettingsPersisted,
   onDelete,
 }: ManageRackModalProps) {
   const { saveRack, updateRack, getRackSlots, listGroupMembers } = useDeviceSets();
@@ -539,12 +546,16 @@ export default function ManageRackModal({
           // Keep Rack Settings open (don't apply) so the operator can retry.
           return;
         }
+        // Settings are now live on the server. Let the parent refetch so its
+        // rack list/overview reflects the new label/placement even if the
+        // operator dismisses without pressing the final miner Save.
+        onSettingsPersisted?.();
       }
 
       setRackSettings(formData);
       setShowRackSettings(false);
     },
-    [existingRackId, canManagePlacement, updateRack],
+    [existingRackId, canManagePlacement, updateRack, onSettingsPersisted],
   );
 
   // Save handler — single atomic RPC
