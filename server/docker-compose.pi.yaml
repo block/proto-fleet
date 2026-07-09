@@ -1,0 +1,32 @@
+services:
+  fleet-api:
+    environment:
+      IPSCANNER_IP_SCANNER_ENABLED: "false"
+      FLEET_TELEMETRY_ENABLED: "false"
+      FLEET_COMMAND_MAX_WORKERS: "50"
+      TELEMETRY_CONCURRENCY_LIMIT: "50"
+      SESSION_COOKIE_SECURE: "false"
+      PROTO_MINER_PORT: "80"
+    volumes:
+      - ./plugins:/app/plugins:ro
+      - ./runtime/firmware:/app/firmware
+      - ./runtime/logs:/app/logs
+      - ./runtime/command_artifacts:/app/command_artifacts
+  timescaledb:
+    ports: !reset []
+  protofleet-frontend:
+    image: nginx:1.29.0-alpine
+    depends_on:
+      - fleet-api
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ../client/dist/protoFleet:/usr/share/nginx/html:ro
+      - ../deployment-files/client/nginx.https.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./runtime/nginx/ssl:/etc/nginx/ssl:ro
+networks:
+  fleet-network:
+    ipam:
+      config:
+        - subnet: "10.250.177.0/24"
+          gateway: "10.250.177.1"

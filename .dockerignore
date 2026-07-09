@@ -17,6 +17,7 @@ tests/
 server/e2e/
 server/testing/
 server/out/
+server/runtime/
 server/fake-antminer/
 server/docs/
 server/http-client.env.json
