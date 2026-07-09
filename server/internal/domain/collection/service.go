@@ -1948,17 +1948,12 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 }
 
 // validateSaveRackRequest enforces SaveRack input contract: rack_info
-// shape, slot bounds, and zone-required-when-building-set.
+// shape and slot bounds. Zone is an optional free-text sub-building label
+// (nullable column, no placement dependency), so it is never required —
+// including for a rack that belongs to a building.
 func validateSaveRackRequest(req *pb.SaveRackRequest, rackInfo *pb.RackInfo) error {
 	if rackInfo == nil {
 		return fleeterror.NewInvalidArgumentError("rack_info is required")
-	}
-	// Building_id=0 means "no building" (zero-as-unassign convention).
-	// Don't mutate rackInfo.BuildingId — nil-vs-&0 distinguishes
-	// "preserve placement" from "explicit unassign" downstream.
-	buildingPresent := rackInfo.BuildingId != nil && *rackInfo.BuildingId != 0
-	if buildingPresent && rackInfo.GetZone() == "" {
-		return fleeterror.NewInvalidArgumentError("zone is required when the rack belongs to a building")
 	}
 	if rackInfo.Rows < 1 || rackInfo.Rows > maxRackDimension {
 		return fleeterror.NewInvalidArgumentErrorf("rows must be between 1 and %d", maxRackDimension)

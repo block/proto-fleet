@@ -1148,16 +1148,6 @@ func TestService_SaveRack_ValidationErrors(t *testing.T) {
 			want: "rack_info is required",
 		},
 		{
-			// Zone is now only required when the rack belongs to a building;
-			// direct-under-site racks (building_id nil) may have empty zone.
-			name: "missing zone with building set",
-			req: &pb.SaveRackRequest{
-				Label:    "Rack",
-				RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR, BuildingId: int64Ptr(7)},
-			},
-			want: "zone is required when the rack belongs to a building",
-		},
-		{
 			name: "rows too large",
 			req: &pb.SaveRackRequest{
 				Label:    "Rack",
@@ -1231,6 +1221,24 @@ func TestService_SaveRack_ValidationErrors(t *testing.T) {
 			assert.Contains(t, err.Error(), tt.want)
 		})
 	}
+}
+
+// Zone is an optional free-text sub-building label with no placement
+// dependency (nullable column), so a rack in a building may have an empty
+// zone. Guards against re-adding the old zone-required-when-building rule.
+func TestValidateSaveRackRequest_ZoneOptionalInBuilding(t *testing.T) {
+	err := validateSaveRackRequest(
+		&pb.SaveRackRequest{Label: "Rack"},
+		&pb.RackInfo{
+			Rows:        4,
+			Columns:     8,
+			OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+			CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+			BuildingId:  int64Ptr(7),
+			// Zone intentionally omitted.
+		},
+	)
+	require.NoError(t, err)
 }
 
 // Capacity guard: more resolved members than rows×columns is rejected
