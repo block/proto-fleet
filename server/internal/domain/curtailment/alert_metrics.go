@@ -152,15 +152,20 @@ func (l *AlertMetricsLoop) tickLoop(ctx context.Context) {
 // disconnect or hold a stale curtailed alert with no bound, so the residual
 // exposure (a partial DB failure hitting only these reads) is accepted; a
 // full-DB outage stops metric ingest too and fires the ingest-stalled alert.
-func (l *AlertMetricsLoop) tick(ctx context.Context) {
+func (l *AlertMetricsLoop) tick(parent context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
 			l.cfg.Logger.Error("curtailment alert metrics tick panicked", "panic", r)
 		}
 	}()
+	// Bound the tick (mirroring reconciler.runTick) so one hung query cannot
+	// stall every future tick and silently resolve the alerts via age-out.
+	ctx, cancel := context.WithTimeout(parent, 2*l.cfg.Interval)
+	defer cancel()
 	sources, err := l.cfg.Sources.ListEnabledSources(ctx)
 	if err != nil {
-		if ctx.Err() == nil {
+		// parent, not ctx: a tick timeout must be logged; only shutdown is quiet.
+		if parent.Err() == nil {
 			l.cfg.Logger.Error("curtailment alert metrics: list enabled sources failed", "error", err)
 		}
 		return
@@ -169,7 +174,7 @@ func (l *AlertMetricsLoop) tick(ctx context.Context) {
 	// Sourced from curtailment_event by external reference, so it covers
 	// events whose rule or source was disabled after curtailment started.
 	active, activeErr := l.cfg.ActiveCurtailment.ListMQTTSourcesWithActiveCurtailment(ctx)
-	if activeErr != nil && ctx.Err() == nil {
+	if activeErr != nil && parent.Err() == nil {
 		l.cfg.Logger.Error("curtailment alert metrics: list active curtailment failed", "error", activeErr)
 	}
 	activeBySourceID := make(map[int64]*models.MQTTSourceActiveCurtailment, len(active))

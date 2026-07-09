@@ -3,7 +3,9 @@ package curtailment
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -19,6 +21,15 @@ type fakeSourcesLister struct {
 
 func (f *fakeSourcesLister) ListEnabledSources(context.Context) ([]mqttingest.SourceConfig, error) {
 	return f.sources, f.err
+}
+
+// blockingSourcesLister hangs until the tick's context expires, standing in
+// for a stuck DB query.
+type blockingSourcesLister struct{}
+
+func (blockingSourcesLister) ListEnabledSources(ctx context.Context) ([]mqttingest.SourceConfig, error) {
+	<-ctx.Done()
+	return nil, fmt.Errorf("list enabled sources: %w", ctx.Err())
 }
 
 type fakeRuntime struct {
@@ -327,6 +338,31 @@ func TestAlertMetricsTickToleratesSourceListError(t *testing.T) {
 
 	loop.tick(context.Background())
 
+	require.Empty(t, emitter.connected)
+	require.Empty(t, emitter.active)
+}
+
+func TestAlertMetricsTickTimesOutHungQuery(t *testing.T) {
+	emitter := &recordingEmitter{}
+	loop := newTestAlertMetricsLoop(t, AlertMetricsConfig{
+		Sources:           blockingSourcesLister{},
+		Runtime:           &fakeRuntime{},
+		ActiveCurtailment: &fakeActiveLister{},
+		Emitter:           emitter,
+		Interval:          10 * time.Millisecond,
+	})
+
+	done := make(chan struct{})
+	go func() {
+		loop.tick(context.Background())
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("tick did not return: hung query is not bounded by the tick timeout")
+	}
 	require.Empty(t, emitter.connected)
 	require.Empty(t, emitter.active)
 }
