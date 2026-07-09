@@ -107,12 +107,18 @@ func validateEndpoint(endpoint string) error {
 	if endpoint == "" {
 		return errors.New("endpoint is required")
 	}
+	// Error messages deliberately do not echo the submitted value:
+	// validation errors are recorded in server error logs (the request
+	// logger logs err even for sensitive-body procedures), and a
+	// near-miss submission — e.g. a real OT IP with a trailing space —
+	// would otherwise leak control-network addresses into logs the
+	// body redaction exists to protect.
 	addr, err := netip.ParseAddr(endpoint)
 	if err != nil {
-		return fmt.Errorf("endpoint %q must be an IP address (hostnames are not supported)", endpoint)
+		return errors.New("endpoint must be an IP address (hostnames are not supported)")
 	}
 	if !addr.IsPrivate() {
-		return fmt.Errorf("endpoint %q must be a private (RFC1918 / IPv6 ULA) IP address", endpoint)
+		return errors.New("endpoint must be a private (RFC1918 / IPv6 ULA) IP address")
 	}
 	return nil
 }

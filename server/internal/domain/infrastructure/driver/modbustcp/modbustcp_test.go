@@ -66,6 +66,14 @@ func TestValidateConfig_RejectsPublicOrHostnameEndpoints(t *testing.T) {
 			m["endpoint"] = endpoint
 		}))
 		assert.Error(t, err, "endpoint %q should be rejected", endpoint)
+		// Validation errors reach server error logs via the request
+		// logger, so they must not echo the submitted endpoint — a
+		// near-miss (real OT IP with a typo) would otherwise leak
+		// control-network addresses despite body redaction.
+		if endpoint != "" {
+			assert.NotContains(t, err.Error(), endpoint,
+				"validation error must not echo the submitted endpoint")
+		}
 	}
 }
 

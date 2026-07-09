@@ -109,9 +109,10 @@ func (h *Handler) DeleteSite(ctx context.Context, req *connect.Request[pb.Delete
 		return nil, err
 	}
 	return connect.NewResponse(&pb.DeleteSiteResponse{
-		UnassignedDeviceCount: out.UnassignedDeviceCount,
-		DeletedBuildingCount:  out.DeletedBuildingCount,
-		UnassignedRackCount:   out.UnassignedRackCount,
+		UnassignedDeviceCount:            out.UnassignedDeviceCount,
+		DeletedBuildingCount:             out.DeletedBuildingCount,
+		UnassignedRackCount:              out.UnassignedRackCount,
+		DeletedInfrastructureDeviceCount: out.DeletedInfrastructureDeviceCount,
 	}), nil
 }
 

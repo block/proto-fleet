@@ -230,6 +230,9 @@ message DeleteSiteResponse {
     int64 unassigned_device_count = 1;
     int64 deleted_building_count  = 2;
     int64 unassigned_rack_count   = 3;
+    // Infrastructure devices (facility fans) soft-deleted by the
+    // cascade.
+    int64 deleted_infrastructure_device_count = 4;
 }
 
 // AssignDevicesToSite

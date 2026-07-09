@@ -325,7 +325,7 @@ func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
 	h.siteStore.EXPECT().UnassignRacksFromSite(gomock.Any(), int64(7), int64(11)).Return(int64(4), nil)
 	h.siteStore.EXPECT().UnassignDevicesFromSite(gomock.Any(), int64(7), int64(11)).Return(int64(9), nil)
 	h.siteStore.EXPECT().DeleteCurtailmentResponseProfilesBySite(gomock.Any(), int64(7), int64(11)).Return(int64(3), nil)
-	h.siteStore.EXPECT().SoftDeleteInfrastructureDevicesBySite(gomock.Any(), int64(7), int64(11)).Return(int64(0), nil)
+	h.siteStore.EXPECT().SoftDeleteInfrastructureDevicesBySite(gomock.Any(), int64(7), int64(11)).Return(int64(6), nil)
 	h.siteStore.EXPECT().SoftDeleteSite(gomock.Any(), int64(7), int64(11)).Return(int64(1), nil)
 
 	resp, err := h.handler.DeleteSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.DeleteSiteRequest{Id: 11}))
@@ -333,6 +333,7 @@ func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
 	assert.Equal(t, int64(9), resp.Msg.GetUnassignedDeviceCount())
 	assert.Equal(t, int64(2), resp.Msg.GetDeletedBuildingCount())
 	assert.Equal(t, int64(4), resp.Msg.GetUnassignedRackCount())
+	assert.Equal(t, int64(6), resp.Msg.GetDeletedInfrastructureDeviceCount())
 }
 
 func TestHandler_AssignDevicesToSite_success(t *testing.T) {
