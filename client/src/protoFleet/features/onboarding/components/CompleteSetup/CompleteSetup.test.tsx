@@ -625,6 +625,42 @@ describe("CompleteSetup", () => {
       expect(mockRefetchAuthNeededMiners).not.toHaveBeenCalled();
       expect(mockRefetchPoolNeededCount).not.toHaveBeenCalled();
     });
+
+    it("waits to handle miner changes while pool count is loading", async () => {
+      let isLoadingPoolNeeded = true;
+      vi.mocked(usePoolNeededCount).mockImplementation(() => ({
+        poolNeededCount: 0,
+        isLoading: isLoadingPoolNeeded,
+        hasInitialLoadCompleted: !isLoadingPoolNeeded,
+        refetch: mockRefetchPoolNeededCount,
+      }));
+
+      const { rerender } = renderCompleteSetup({ minersChangedAt: 0 });
+
+      mockRefetchAuthNeededMiners.mockClear();
+      mockRefetchPoolNeededCount.mockClear();
+
+      rerender(
+        <MemoryRouter>
+          <CompleteSetup minersChangedAt={123} onRefetchMiners={mockRefetchMiners} />
+        </MemoryRouter>,
+      );
+
+      expect(mockRefetchAuthNeededMiners).not.toHaveBeenCalled();
+      expect(mockRefetchPoolNeededCount).not.toHaveBeenCalled();
+
+      isLoadingPoolNeeded = false;
+      rerender(
+        <MemoryRouter>
+          <CompleteSetup minersChangedAt={123} onRefetchMiners={mockRefetchMiners} />
+        </MemoryRouter>,
+      );
+
+      await waitFor(() => {
+        expect(mockRefetchAuthNeededMiners).toHaveBeenCalledTimes(1);
+        expect(mockRefetchPoolNeededCount).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 
   describe("Polling after pairing completion", () => {
