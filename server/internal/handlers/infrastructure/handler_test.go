@@ -63,9 +63,33 @@ func validCreateRequest() *pb.CreateInfrastructureDeviceRequest {
 	}
 }
 
-func TestHandler_authGate(t *testing.T) {
+func deviceAtSite(id, siteID int64) *models.Device {
+	return &models.Device{
+		ID:           id,
+		OrgID:        42,
+		SiteID:       siteID,
+		Name:         "Zone A exhaust fans",
+		DeviceKind:   models.KindFanGroup,
+		FanCount:     12,
+		Enabled:      true,
+		DriverType:   "modbus_tcp",
+		DriverConfig: json.RawMessage(validConfig),
+	}
+}
+
+func requirePermissionDenied(t *testing.T, err error) {
+	t.Helper()
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func TestHandler_CreateAuthGate(t *testing.T) {
 	t.Parallel()
 
+	// Create authorizes before touching the service, so a nil handler
+	// suffices for the denial paths.
 	h := NewHandler(nil)
 
 	cases := []struct {
@@ -74,48 +98,93 @@ func TestHandler_authGate(t *testing.T) {
 	}{
 		{"caller without site permissions is rejected", []string{authz.PermFleetRead}},
 		{"caller with no permissions is rejected", nil},
+		{"caller with only site:read is rejected", []string{authz.PermSiteRead}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			ctx := handlerstest.CtxWithPermissions(t, 1, tc.permissions...)
-
-			_, err := h.ListInfrastructureDevices(ctx, connect.NewRequest(&pb.ListInfrastructureDevicesRequest{}))
-			require.Error(t, err)
-			var fleetErr fleeterror.FleetError
-			require.ErrorAs(t, err, &fleetErr)
-			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
-
-			_, err = h.CreateInfrastructureDevice(ctx, connect.NewRequest(validCreateRequest()))
-			require.Error(t, err)
-			require.ErrorAs(t, err, &fleetErr)
-			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+			_, err := h.CreateInfrastructureDevice(ctx, connect.NewRequest(validCreateRequest()))
+			requirePermissionDenied(t, err)
 		})
 	}
 }
 
-func TestHandler_writesRejectReadOnlyCallers(t *testing.T) {
+func TestHandler_CreateRejectsManagerOfOtherSite(t *testing.T) {
 	t.Parallel()
 
+	// site:manage narrowed to site 99 does not authorize creating a
+	// device at site 10.
 	h := NewHandler(nil)
-	ctx := handlerstest.CtxWithPermissions(t, 1, authz.PermSiteRead)
-
-	var fleetErr fleeterror.FleetError
-
+	ctx := handlerstest.CtxWithAssignments(t, 42,
+		handlerstest.SiteAssignment(99, authz.PermSiteRead, authz.PermSiteManage))
 	_, err := h.CreateInfrastructureDevice(ctx, connect.NewRequest(validCreateRequest()))
-	require.Error(t, err)
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	requirePermissionDenied(t, err)
+}
 
-	_, err = h.UpdateInfrastructureDevice(ctx, connect.NewRequest(&pb.UpdateInfrastructureDeviceRequest{Id: 1}))
-	require.Error(t, err)
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+func TestHandler_GetDeleteUpdateAuthorizeAgainstDeviceSite(t *testing.T) {
+	t.Parallel()
 
-	_, err = h.DeleteInfrastructureDevice(ctx, connect.NewRequest(&pb.DeleteInfrastructureDeviceRequest{Id: 1}))
-	require.Error(t, err)
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	// The device lives at site 10; the caller's grants are narrowed to
+	// site 99, so resolve-then-authorize must deny all three verbs.
+	h := newTestHandler(t)
+	ctx := handlerstest.CtxWithAssignments(t, 42,
+		handlerstest.SiteAssignment(99, authz.PermSiteRead, authz.PermSiteManage))
+
+	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
+		Return(deviceAtSite(7, 10), nil).Times(3)
+
+	_, err := h.handler.GetInfrastructureDevice(ctx, connect.NewRequest(&pb.GetInfrastructureDeviceRequest{Id: 7}))
+	requirePermissionDenied(t, err)
+
+	_, err = h.handler.DeleteInfrastructureDevice(ctx, connect.NewRequest(&pb.DeleteInfrastructureDeviceRequest{Id: 7}))
+	requirePermissionDenied(t, err)
+
+	update := &pb.UpdateInfrastructureDeviceRequest{
+		Id: 7, SiteId: 10, Name: "renamed", DeviceKind: models.KindFanGroup,
+		FanCount: 12, Enabled: true, DriverType: "modbus_tcp", DriverConfig: validConfig,
+	}
+	_, err = h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
+	requirePermissionDenied(t, err)
+}
+
+func TestHandler_UpdateMoveRequiresManageOnBothSites(t *testing.T) {
+	t.Parallel()
+
+	// Caller manages the device's current site (10) but not the target
+	// site (11): moving the device must be denied.
+	h := newTestHandler(t)
+	ctx := handlerstest.CtxWithAssignments(t, 42,
+		handlerstest.SiteAssignment(10, authz.PermSiteRead, authz.PermSiteManage))
+
+	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
+		Return(deviceAtSite(7, 10), nil)
+
+	update := &pb.UpdateInfrastructureDeviceRequest{
+		Id: 7, SiteId: 11, Name: "moved", DeviceKind: models.KindFanGroup,
+		FanCount: 12, Enabled: true, DriverType: "modbus_tcp", DriverConfig: validConfig,
+	}
+	_, err := h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
+	requirePermissionDenied(t, err)
+}
+
+func TestHandler_ListFiltersToReadableSites(t *testing.T) {
+	t.Parallel()
+
+	// Two devices at different sites; caller narrowed to site 10 sees
+	// only that site's device.
+	h := newTestHandler(t)
+	ctx := handlerstest.CtxWithAssignments(t, 42,
+		handlerstest.SiteAssignment(10, authz.PermSiteRead))
+
+	h.store.EXPECT().ListInfrastructureDevices(gomock.Any(), models.ListFilter{OrgID: 42}).
+		Return([]models.Device{*deviceAtSite(1, 10), *deviceAtSite(2, 11)}, nil)
+
+	resp, err := h.handler.ListInfrastructureDevices(ctx, connect.NewRequest(&pb.ListInfrastructureDevicesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetDevices(), 1)
+	assert.Equal(t, int64(1), resp.Msg.GetDevices()[0].GetId())
+	assert.Equal(t, int64(10), resp.Msg.GetDevices()[0].GetSiteId())
 }
 
 func TestHandler_unauthenticatedWithoutSession(t *testing.T) {
@@ -184,4 +253,20 @@ func TestHandler_CreateRejectsEmptyDriverConfig(t *testing.T) {
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
 	assert.Contains(t, err.Error(), "driver_config is required")
+}
+
+func TestHandler_CreateRejectsBlankDriverType(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ctx := sitePermsCtx(t, 42)
+
+	req := validCreateRequest()
+	req.DriverType = "   "
+	_, err := h.handler.CreateInfrastructureDevice(ctx, connect.NewRequest(req))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+	assert.Contains(t, err.Error(), "driver_type is required")
 }

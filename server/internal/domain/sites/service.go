@@ -379,18 +379,20 @@ func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.Dele
 		OrganizationID: &orgIDVal,
 		SiteID:         &siteIDVal,
 		Description: fmt.Sprintf(
-			"Deleted site %d (%d buildings, %d racks, %d devices unassigned, %d response profiles deleted)",
+			"Deleted site %d (%d buildings, %d racks, %d devices unassigned, %d response profiles deleted, %d infrastructure devices deleted)",
 			id,
 			out.DeletedBuildingCount,
 			out.UnassignedRackCount,
 			out.UnassignedDeviceCount,
 			out.DeletedResponseProfileCount,
+			out.DeletedInfrastructureDeviceCount,
 		),
 		Metadata: map[string]any{
-			"deleted_building_count":         out.DeletedBuildingCount,
-			"unassigned_rack_count":          out.UnassignedRackCount,
-			"unassigned_device_count":        out.UnassignedDeviceCount,
-			"deleted_response_profile_count": out.DeletedResponseProfileCount,
+			"deleted_building_count":              out.DeletedBuildingCount,
+			"unassigned_rack_count":               out.UnassignedRackCount,
+			"unassigned_device_count":             out.UnassignedDeviceCount,
+			"deleted_response_profile_count":      out.DeletedResponseProfileCount,
+			"deleted_infrastructure_device_count": out.DeletedInfrastructureDeviceCount,
 		},
 	}
 	activity.StampActor(ctx, &event)

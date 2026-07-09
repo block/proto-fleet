@@ -113,8 +113,12 @@ var ProcedurePermissions = map[string]string{
 	buildingsv1connect.BuildingServiceGetBuildingStatsProcedure: authz.PermSiteRead,
 
 	// Infrastructure devices (facility fans / fan groups) — site:read
-	// for reads, site:manage for writes, mirroring the buildings CRUD
-	// gating and the Fleet Infra page's UI gate.
+	// for reads, site:manage for writes. Unlike buildings, the handler
+	// enforces these against the device's site
+	// (ResourceContext{SiteID}): Create checks the request's site,
+	// Get/Update/Delete resolve the device then authorize its site
+	// (Update additionally checks the target site on a move), and List
+	// filters results to sites the caller can read.
 	infrastructurev1connect.InfrastructureServiceListInfrastructureDevicesProcedure:  authz.PermSiteRead,
 	infrastructurev1connect.InfrastructureServiceGetInfrastructureDeviceProcedure:    authz.PermSiteRead,
 	infrastructurev1connect.InfrastructureServiceCreateInfrastructureDeviceProcedure: authz.PermSiteManage,

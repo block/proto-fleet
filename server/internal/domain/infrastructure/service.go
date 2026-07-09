@@ -181,6 +181,10 @@ func (s *Service) validateAndNormalize(in deviceInput) (deviceInput, error) {
 	if in.SiteID <= 0 {
 		return in, fleeterror.NewInvalidArgumentError("site_id is required")
 	}
+	in.DriverType = strings.TrimSpace(in.DriverType)
+	if in.DriverType == "" {
+		return in, fleeterror.NewInvalidArgumentError("driver_type is required")
+	}
 	if err := s.registry.ValidateConfig(in.DriverType, in.DriverConfig); err != nil {
 		return in, fleeterror.NewInvalidArgumentError(err.Error())
 	}

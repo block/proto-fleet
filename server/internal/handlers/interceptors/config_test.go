@@ -12,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
@@ -32,6 +33,26 @@ func TestMqttSettingsPasswordProceduresAreRedacted(t *testing.T) {
 	}
 	for _, procedure := range procedures {
 		assert.Contains(t, RedactedRequestProcedures, procedure)
+	}
+}
+
+// Infrastructure device bodies carry driver_config — the OT control
+// network map (endpoint IPs, unit IDs, register addresses) — and must
+// never land in debug logs.
+func TestInfrastructureProceduresAreSensitiveBody(t *testing.T) {
+	t.Parallel()
+
+	procedures := []string{
+		infrastructurev1connect.InfrastructureServiceListInfrastructureDevicesProcedure,
+		infrastructurev1connect.InfrastructureServiceGetInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceCreateInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceUpdateInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceDeleteInfrastructureDeviceProcedure,
+	}
+	for _, procedure := range procedures {
+		assert.True(t, SensitiveBodyProcedures[procedure],
+			"%s carries driver_config (OT network topology) and must suppress body logging",
+			procedure)
 	}
 }
 

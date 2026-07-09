@@ -10,6 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
@@ -183,4 +184,14 @@ var SensitiveBodyProcedures = map[string]bool{
 	// PairDiscoveredDevicesOnFleetNode: credentials in the request, plugin/node error
 	// strings in responses that can echo secrets.
 	fleetnodeadminv1connect.FleetNodeAdminServicePairDiscoveredDevicesOnFleetNodeProcedure: true,
+	// Infrastructure device bodies carry driver_config — the OT control
+	// network map (endpoint IPs, unit IDs, register addresses) — in
+	// create/update requests and all read/write responses. Keep it out
+	// of debug logs, same rationale as the fleet-topology entries above;
+	// future driver types may also carry credentials in the blob.
+	infrastructurev1connect.InfrastructureServiceListInfrastructureDevicesProcedure:  true,
+	infrastructurev1connect.InfrastructureServiceGetInfrastructureDeviceProcedure:    true,
+	infrastructurev1connect.InfrastructureServiceCreateInfrastructureDeviceProcedure: true,
+	infrastructurev1connect.InfrastructureServiceUpdateInfrastructureDeviceProcedure: true,
+	infrastructurev1connect.InfrastructureServiceDeleteInfrastructureDeviceProcedure: true,
 }
