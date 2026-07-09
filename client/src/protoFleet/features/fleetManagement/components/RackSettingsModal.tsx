@@ -33,10 +33,10 @@ interface RackSettingsModalProps {
   // initialFormData already carries a siteId.
   defaultSiteId?: bigint;
   // True when editing an existing rack (which has a real, possibly-NULL
-  // placement). Drives the "Unassigned" placement option — see
-  // showUnassignedOption. The embedded modal inside ManageRackModal can't tell
-  // create from edit on its own (it always runs in onContinue mode), so the
-  // caller passes it.
+  // placement). Seeds the placement selects to "Unassigned" when the rack is
+  // unplaced (vs. the empty placeholder on create) — see isExistingRack. The
+  // embedded modal inside ManageRackModal can't tell create from edit on its
+  // own (it always runs in onContinue mode), so the caller passes it.
   existingRack?: boolean;
   onDismiss: () => void;
   onContinue?: (formData: RackFormData) => void;
@@ -45,8 +45,16 @@ interface RackSettingsModalProps {
 
 // Explicit "Unassigned" entry for the placement dropdowns. The shared Select
 // has no clear affordance, so without this a user who picks a site/building
-// could never revert to unassigned.
-const UNASSIGNED_OPTION: SelectOption = { value: "", label: "Unassigned" };
+// could never revert to unassigned. A sentinel value (not "") is used so that
+// an empty string still renders as the unselected placeholder — "Unassigned"
+// only shows once the operator deliberately picks it or an existing rack seeds
+// it. On submit the sentinel maps to undefined, same as an empty selection.
+const UNASSIGNED_VALUE = "unassigned";
+const UNASSIGNED_OPTION: SelectOption = { value: UNASSIGNED_VALUE, label: "Unassigned" };
+// A real site/building id is selected (not the placeholder or the Unassigned
+// sentinel) — gates building fetch, the building select's enabled state, and
+// how the value is encoded onto RackFormData.
+const isRealId = (value: string): boolean => value !== "" && value !== UNASSIGNED_VALUE;
 
 const orderIndexOptions: SelectOption[] = [
   { value: String(RackOrderIndex.BOTTOM_LEFT), label: "Bottom left" },
@@ -78,32 +86,34 @@ const RackSettingsModal = ({
   const { sites } = useSitesContext();
   const { listBuildingsBySite } = useBuildings();
 
-  // Editing an already-persisted rack surfaces an explicit "Unassigned" option
-  // seeded to the rack's real placement (a rack genuinely has a site/building
-  // or NULL). Creating a rack treats placement as an optional, unfilled field
-  // — no "Unassigned" entry, empty by default — so an empty select reads as
-  // "not chosen" (→ NULL) rather than a deliberate-looking default.
-  const showUnassignedOption = existingRack || isEditMode;
+  // An already-persisted rack has a real placement (a site/building or NULL),
+  // so an unplaced rack seeds the explicit "Unassigned" value. Creating a rack
+  // treats placement as an optional, unfilled field: the default is the empty
+  // placeholder (reads as "not chosen"), though "Unassigned" is still pickable
+  // so a chosen site/building can be reverted.
+  const isExistingRack = existingRack || isEditMode;
 
   // Creating within a page-header site scope: the rack belongs to that site,
   // so lock the field to it (defaultSiteId is only set for a single-site
   // scope). An unscoped create leaves Site editable/optional; edit is never
   // locked.
-  const siteLocked = !showUnassignedOption && defaultSiteId !== undefined;
+  const siteLocked = !isExistingRack && defaultSiteId !== undefined;
 
   // Placement. Site is retained even when a building is chosen (it's the
   // building's site) so downstream eligibility filtering can pin the site;
-  // saveRack drops it from the wire RackInfo. Empty string = Unassigned.
+  // saveRack drops it from the wire RackInfo.
   const [siteIdText, setSiteIdText] = useState<string>(() => {
     if (initialFormData?.siteId !== undefined) return initialFormData.siteId.toString();
-    // Create-only prefill — edit seeds solely from the rack's real placement,
-    // so an unplaced rack reads as Unassigned rather than the page scope.
-    if (!showUnassignedOption && defaultSiteId !== undefined) return defaultSiteId.toString();
-    return "";
+    // Create + page-header scope: prefill (and lock to) the scoped site.
+    if (!isExistingRack && defaultSiteId !== undefined) return defaultSiteId.toString();
+    // Edit of an unplaced rack shows "Unassigned"; unscoped create shows the
+    // empty placeholder.
+    return isExistingRack ? UNASSIGNED_VALUE : "";
   });
-  const [buildingIdText, setBuildingIdText] = useState<string>(
-    initialFormData?.buildingId !== undefined ? initialFormData.buildingId.toString() : "",
-  );
+  const [buildingIdText, setBuildingIdText] = useState<string>(() => {
+    if (initialFormData?.buildingId !== undefined) return initialFormData.buildingId.toString();
+    return isExistingRack ? UNASSIGNED_VALUE : "";
+  });
   const [buildings, setBuildings] = useState<BuildingWithCounts[]>([]);
 
   const [label, setLabel] = useState(initialFormData?.label ?? rack?.label ?? "");
@@ -174,10 +184,9 @@ const RackSettingsModal = ({
   // Load the selected site's buildings so the Building dropdown can scope its
   // options. Runs on mount (edit: shows the rack's current building) and on
   // every site change. Aborts in-flight fetches so a fast site switch can't
-  // land stale options. When no site is selected there's nothing to fetch —
-  // buildingOptions falls back to Unassigned-only.
+  // land stale options. With no real site selected there's nothing to fetch.
   useEffect(() => {
-    if (siteIdText === "") return;
+    if (!isRealId(siteIdText)) return;
     const controller = new AbortController();
     listBuildingsBySite({
       siteId: BigInt(siteIdText),
@@ -196,25 +205,26 @@ const RackSettingsModal = ({
     setBuildings([]);
   }, []);
 
+  const siteSelected = isRealId(siteIdText);
+
   const siteOptions = useMemo<SelectOption[]>(() => {
     const real = (sites ?? [])
       .filter((s) => s.site !== undefined)
       .map((s) => ({ value: s.site!.id.toString(), label: s.site!.name }))
       .sort((a, b) => a.label.localeCompare(b.label));
-    return showUnassignedOption ? [UNASSIGNED_OPTION, ...real] : real;
-  }, [sites, showUnassignedOption]);
+    // Unassigned is always offered so a chosen site can be reverted; the empty
+    // placeholder (no option with value "") remains the unselected default.
+    return [UNASSIGNED_OPTION, ...real];
+  }, [sites]);
 
   const buildingOptions = useMemo<SelectOption[]>(() => {
-    // No site selected → nothing to scope to. Edit still offers Unassigned so
-    // the current NULL building reads clearly; create shows an empty
-    // placeholder.
-    if (siteIdText === "") return showUnassignedOption ? [UNASSIGNED_OPTION] : [];
+    if (!siteSelected) return [UNASSIGNED_OPTION];
     const real = buildings
       .filter((b) => b.building !== undefined)
       .map((b) => ({ value: b.building!.id.toString(), label: b.building!.name }))
       .sort((a, b) => a.label.localeCompare(b.label));
-    return showUnassignedOption ? [UNASSIGNED_OPTION, ...real] : real;
-  }, [siteIdText, buildings, showUnassignedOption]);
+    return [UNASSIGNED_OPTION, ...real];
+  }, [siteSelected, buildings]);
 
   const filteredSuggestions = useMemo(() => {
     if (!zone.trim()) return zoneSuggestions;
@@ -325,8 +335,9 @@ const RackSettingsModal = ({
       columns: colsNum,
       orderIndex,
       coolingType,
-      siteId: siteIdText !== "" ? BigInt(siteIdText) : undefined,
-      buildingId: buildingIdText !== "" ? BigInt(buildingIdText) : undefined,
+      // Placeholder ("") and the Unassigned sentinel both encode as undefined.
+      siteId: isRealId(siteIdText) ? BigInt(siteIdText) : undefined,
+      buildingId: isRealId(buildingIdText) ? BigInt(buildingIdText) : undefined,
     };
 
     if (!isEditMode) {
@@ -429,9 +440,9 @@ const RackSettingsModal = ({
             options={buildingOptions}
             value={buildingIdText}
             onChange={setBuildingIdText}
-            // A building can't be chosen without a site — it scopes the
+            // A building can't be chosen without a real site — it scopes the
             // options and supplies the derived site_id.
-            disabled={siteIdText === ""}
+            disabled={!siteSelected}
             forceBelow
             testId="rack-building-select"
           />
