@@ -169,7 +169,7 @@ func TestFleetCLIFirmwareWorkflow(t *testing.T) {
 	t.Run("DeleteAll", func(t *testing.T) {
 		require.NotEmpty(t, chunkedFileID, "chunkedFileID must be set from the chunked upload step")
 
-		output, err := runFleetCLI(ctx, env, "firmware", "delete-all")
+		output, err := runFleetCLI(ctx, env, "firmware", "delete-all", "--yes")
 		require.NoError(t, err, "firmware delete-all should succeed")
 
 		var resp struct {
