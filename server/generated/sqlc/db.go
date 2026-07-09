@@ -939,6 +939,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listMQTTSourceStatesByOrgStmt, err = db.PrepareContext(ctx, listMQTTSourceStatesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMQTTSourceStatesByOrg: %w", err)
 	}
+	if q.listMQTTSourcesWithActiveCurtailmentStmt, err = db.PrepareContext(ctx, listMQTTSourcesWithActiveCurtailment); err != nil {
+		return nil, fmt.Errorf("error preparing query ListMQTTSourcesWithActiveCurtailment: %w", err)
+	}
 	if q.listMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, listMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMinerStateSnapshots: %w", err)
 	}
@@ -2976,6 +2979,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listMQTTSourceStatesByOrgStmt: %w", cerr)
 		}
 	}
+	if q.listMQTTSourcesWithActiveCurtailmentStmt != nil {
+		if cerr := q.listMQTTSourcesWithActiveCurtailmentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listMQTTSourcesWithActiveCurtailmentStmt: %w", cerr)
+		}
+	}
 	if q.listMinerStateSnapshotsStmt != nil {
 		if cerr := q.listMinerStateSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listMinerStateSnapshotsStmt: %w", cerr)
@@ -4165,6 +4173,7 @@ type Queries struct {
 	listFleetNodesForOrganizationStmt                          *sql.Stmt
 	listMQTTSourceConfigsByOrgStmt                             *sql.Stmt
 	listMQTTSourceStatesByOrgStmt                              *sql.Stmt
+	listMQTTSourcesWithActiveCurtailmentStmt                   *sql.Stmt
 	listMinerStateSnapshotsStmt                                *sql.Stmt
 	listNonTerminalCurtailmentEventsStmt                       *sql.Stmt
 	listNotificationHistoryStmt                                *sql.Stmt
@@ -4645,6 +4654,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listFleetNodesForOrganizationStmt:                          q.listFleetNodesForOrganizationStmt,
 		listMQTTSourceConfigsByOrgStmt:                             q.listMQTTSourceConfigsByOrgStmt,
 		listMQTTSourceStatesByOrgStmt:                              q.listMQTTSourceStatesByOrgStmt,
+		listMQTTSourcesWithActiveCurtailmentStmt:                   q.listMQTTSourcesWithActiveCurtailmentStmt,
 		listMinerStateSnapshotsStmt:                                q.listMinerStateSnapshotsStmt,
 		listNonTerminalCurtailmentEventsStmt:                       q.listNonTerminalCurtailmentEventsStmt,
 		listNotificationHistoryStmt:                                q.listNotificationHistoryStmt,

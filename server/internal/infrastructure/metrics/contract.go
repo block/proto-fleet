@@ -81,6 +81,21 @@ const (
 	// tick, so staleness means fleet-api is down or the metrics writer is
 	// wedged. The Fleet Heartbeat Stale rule alerts on it.
 	MetricSystemHeartbeat = "fleet_system_heartbeat"
+
+	// MetricMQTTSourceConnected is a per-source gauge: 1 when the MQTT
+	// curtailment source has at least one broker connection subscribed to its
+	// signal topic, 0 when it cannot receive curtailment signals. Labelled
+	// with kind (the source name). A source that is disabled, removed, or
+	// renamed gets one final non-alerting sample so rules on the retired
+	// series resolve promptly; then emission stops.
+	MetricMQTTSourceConnected = "fleet_mqtt_source_connected"
+
+	// MetricMQTTCurtailmentActive is a per-source gauge: 1 while a curtailment
+	// event started by that MQTT source's automation is non-terminal (pending,
+	// curtailing, or restoring), 0 once miners are fully restored. Labelled
+	// with kind (the source name). Still emitted for a source disabled
+	// mid-curtailment, so the alert cannot resolve while miners stay down.
+	MetricMQTTCurtailmentActive = "fleet_mqtt_curtailment_active"
 )
 
 // Label keys. User-authored PromQL may aggregate by any of these.
@@ -108,7 +123,8 @@ const (
 	LabelSensorKind = "sensor_kind"
 
 	// LabelKind is the command type label on fleet_command_total (e.g.
-	// reboot, start_mining, stop_mining, set_power_target).
+	// reboot, start_mining, stop_mining, set_power_target) and the source
+	// name on the fleet_mqtt_* gauges.
 	LabelKind = "kind"
 
 	// LabelResult is the success/failure outcome label on counters.
@@ -147,6 +163,8 @@ var AllMetricNames = []string{
 	MetricSystemMemoryUsedPercent,
 	MetricSystemDiskUsedPercent,
 	MetricSystemHeartbeat,
+	MetricMQTTSourceConnected,
+	MetricMQTTCurtailmentActive,
 }
 
 // AllLabelKeys is the canonical list of label keys Proto Fleet attaches to its metrics.

@@ -211,6 +211,121 @@ groups:
             last ten minutes. This typically indicates a fleet-wide
             connectivity or credential problem.
 
+  # Own group so these evaluate every 10s: curtailment engages the moment the
+  # source signals (or drops), so alert latency must track it closely.
+  - orgId: 1
+    name: proto-fleet-curtailment
+    folder: Proto Fleet
+    interval: 10s
+    rules:
+      - uid: protofleet-mqtt-curtailment-active
+        title: Curtailment Active
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                -- fleet_mqtt_curtailment_active is re-emitted every ~10s while an
+                -- MQTT-automation curtailment event is non-terminal (even for a source
+                -- disabled mid-curtailment); kind carries the source name so each
+                -- source alerts as its own instance.
+                SELECT
+                    organization_id,
+                    kind,
+                    1 AS value
+                FROM notification_metric_sample
+                WHERE metric = 'fleet_mqtt_curtailment_active'
+                  AND time > NOW() - INTERVAL '10 minutes'
+                GROUP BY organization_id, kind
+                HAVING last(value, time) = 1
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A
+        noDataState: OK
+        # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
+        execErrState: Error
+        # Notify on the first evaluation that sees curtailment engage; the
+        # resolved notification then marks miners restored.
+        for: 0s
+        labels:
+          # Shared default rule: proto_fleet_scope=shared makes it visible to every org
+          # (ruleVisibleToOrg fails closed without it). A pause is still org-scoped, so one
+          # org pausing it never affects another.
+          proto_fleet_scope: shared
+          severity: info
+          rule_group: proto-fleet-curtailment
+          template: mqtt-curtailment
+        annotations:
+          summary: "Miners are curtailed by {{ $labels.kind }}"
+          description: |
+            Curtailment source {{ $labels.kind }} (org {{ $labels.organization_id }})
+            has curtailed miners via its automation rule. This alert resolves
+            once the miners are restored.
+
+      - uid: protofleet-mqtt-source-disconnected
+        title: Curtailment Source Unreachable
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                -- fleet_mqtt_source_connected is 0 while an enabled source has no
+                -- subscribed broker connection. Disabling, removing, or renaming a
+                -- source retires its series with one non-alerting sample (age-out
+                -- of the 10-minute window below is the fallback after a restart).
+                SELECT
+                    organization_id,
+                    kind,
+                    1 AS value
+                FROM notification_metric_sample
+                WHERE metric = 'fleet_mqtt_source_connected'
+                  AND time > NOW() - INTERVAL '10 minutes'
+                GROUP BY organization_id, kind
+                HAVING last(value, time) = 0
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A
+        noDataState: OK
+        # Fire on query error: the unscoped error row is operator-only (history is filtered by org), so orgs never see it and their pause stays complete.
+        execErrState: Error
+        # Three 10s evaluations: rides out a quick broker failover or worker
+        # reconnect without flapping, but pages while a real outage is young —
+        # the watchdog curtails miners as soon as the source goes silent.
+        for: 30s
+        labels:
+          # Shared default rule: proto_fleet_scope=shared makes it visible to every org
+          # (ruleVisibleToOrg fails closed without it). A pause is still org-scoped, so one
+          # org pausing it never affects another.
+          proto_fleet_scope: shared
+          severity: critical
+          rule_group: proto-fleet-curtailment
+          template: mqtt-disconnected
+        annotations:
+          summary: "Curtailment source {{ $labels.kind }} is unreachable; cannot curtail."
+          description: |
+            Curtailment source {{ $labels.kind }} (org {{ $labels.organization_id }})
+            has no subscribed MQTT broker connection, so curtailment signals
+            cannot be received and miners can no longer be automatically
+            curtailed or restored.
+
   - orgId: 1
     name: proto-fleet-self
     folder: Proto Fleet

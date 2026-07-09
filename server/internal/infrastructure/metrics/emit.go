@@ -30,6 +30,13 @@ type TelemetryPollLabels struct {
 	Result         string
 }
 
+// MQTTSourceLabels identifies one MQTT curtailment source; SourceName is
+// carried on the kind label.
+type MQTTSourceLabels struct {
+	OrganizationID string
+	SourceName     string
+}
+
 func (l DeviceLabels) toLabels() Labels {
 	return Labels{
 		OrganizationID: l.OrganizationID,
@@ -181,6 +188,38 @@ func (p *Provider) emitSystemPercent(metric string, percent float64) {
 	p.record(Sample{
 		Metric: metric,
 		Value:  min(percent, 100),
+	})
+}
+
+// EmitMQTTSourceConnected records the fleet_mqtt_source_connected gauge.
+func (p *Provider) EmitMQTTSourceConnected(_ context.Context, labels MQTTSourceLabels, connected bool) {
+	value := 0.0
+	if connected {
+		value = 1.0
+	}
+	p.record(Sample{
+		Metric: MetricMQTTSourceConnected,
+		Labels: Labels{
+			OrganizationID: labels.OrganizationID,
+			Kind:           labels.SourceName,
+		},
+		Value: value,
+	})
+}
+
+// EmitMQTTCurtailmentActive records the fleet_mqtt_curtailment_active gauge.
+func (p *Provider) EmitMQTTCurtailmentActive(_ context.Context, labels MQTTSourceLabels, active bool) {
+	value := 0.0
+	if active {
+		value = 1.0
+	}
+	p.record(Sample{
+		Metric: MetricMQTTCurtailmentActive,
+		Labels: Labels{
+			OrganizationID: labels.OrganizationID,
+			Kind:           labels.SourceName,
+		},
+		Value: value,
 	})
 }
 

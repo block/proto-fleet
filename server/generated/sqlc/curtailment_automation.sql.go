@@ -89,12 +89,24 @@ DELETE FROM curtailment_automation_rule
 WHERE curtailment_automation_rule.id = $1
   AND curtailment_automation_rule.org_id = $2
   AND NOT EXISTS (
+      -- Same live-event pin as UpdateCurtailmentAutomationRule: pointer or
+      -- external reference, so the nil-pointer window cannot slip a delete.
       SELECT 1
-      FROM curtailment_automation_rule_state st
-      JOIN curtailment_event e
-          ON e.event_uuid = st.active_event_uuid
-      WHERE st.rule_id = curtailment_automation_rule.id
-        AND e.state IN ('pending', 'active', 'restoring')
+      FROM curtailment_event e
+      WHERE e.state IN ('pending', 'active', 'restoring')
+        AND (
+            EXISTS (
+                SELECT 1
+                FROM curtailment_automation_rule_state st
+                WHERE st.rule_id = curtailment_automation_rule.id
+                  AND st.active_event_uuid = e.event_uuid
+            )
+            OR (
+                e.org_id = curtailment_automation_rule.org_id
+                AND e.external_source = 'curtailment_automation'
+                AND e.external_reference = curtailment_automation_rule.id::text
+            )
+        )
   )
 `
 
@@ -567,12 +579,65 @@ func (q *Queries) ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.
 	return items, nil
 }
 
+const listMQTTSourcesWithActiveCurtailment = `-- name: ListMQTTSourcesWithActiveCurtailment :many
+SELECT DISTINCT
+    src.id AS source_id,
+    src.organization_id,
+    src.source_name
+FROM curtailment_event e
+JOIN curtailment_automation_rule r
+    ON r.org_id = e.org_id
+    AND r.id::text = e.external_reference
+JOIN curtailment_mqtt_source_config src
+    ON src.id = r.mqtt_source_id
+    AND src.organization_id = r.org_id
+WHERE e.external_source = 'curtailment_automation'
+  AND e.state IN ('pending', 'active', 'restoring')
+`
+
+type ListMQTTSourcesWithActiveCurtailmentRow struct {
+	SourceID       int64
+	OrganizationID int64
+	SourceName     string
+}
+
+// Sources (enabled or not) whose automation started a curtailment event that
+// is still non-terminal. Matched via the event's external reference rather
+// than rule state, so a source or rule disabled after the event started, or
+// a crash before the active-event pointer was written, cannot hide it.
+func (q *Queries) ListMQTTSourcesWithActiveCurtailment(ctx context.Context) ([]ListMQTTSourcesWithActiveCurtailmentRow, error) {
+	rows, err := q.query(ctx, q.listMQTTSourcesWithActiveCurtailmentStmt, listMQTTSourcesWithActiveCurtailment)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListMQTTSourcesWithActiveCurtailmentRow
+	for rows.Next() {
+		var i ListMQTTSourcesWithActiveCurtailmentRow
+		if err := rows.Scan(&i.SourceID, &i.OrganizationID, &i.SourceName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setCurtailmentAutomationActiveEvent = `-- name: SetCurtailmentAutomationActiveEvent :execrows
 WITH enabled_rule AS (
     SELECT id
     FROM curtailment_automation_rule
     WHERE id = $3
       AND enabled = TRUE
+      -- The rule must still be bound to the source whose signal started the
+      -- event; a re-point between signal read and event start fails here and
+      -- the caller force-releases the orphaned event.
+      AND mqtt_source_id = $4
     FOR UPDATE
 )
 INSERT INTO curtailment_automation_rule_state (
@@ -601,10 +666,16 @@ type SetCurtailmentAutomationActiveEventParams struct {
 	ActiveEventUuid uuid.NullUUID
 	LastStartedAt   sql.NullTime
 	RuleID          int64
+	MqttSourceID    int64
 }
 
 func (q *Queries) SetCurtailmentAutomationActiveEvent(ctx context.Context, arg SetCurtailmentAutomationActiveEventParams) (int64, error) {
-	result, err := q.exec(ctx, q.setCurtailmentAutomationActiveEventStmt, setCurtailmentAutomationActiveEvent, arg.ActiveEventUuid, arg.LastStartedAt, arg.RuleID)
+	result, err := q.exec(ctx, q.setCurtailmentAutomationActiveEventStmt, setCurtailmentAutomationActiveEvent,
+		arg.ActiveEventUuid,
+		arg.LastStartedAt,
+		arg.RuleID,
+		arg.MqttSourceID,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -674,13 +745,25 @@ WHERE curtailment_automation_rule.id = $2
   AND curtailment_automation_rule.org_id = $3
   AND (
       $1 = TRUE
+      -- Same live-event pin as UpdateCurtailmentAutomationRule: pointer or
+      -- external reference, so the nil-pointer window cannot slip a disable.
       OR NOT EXISTS (
           SELECT 1
-          FROM curtailment_automation_rule_state st
-          JOIN curtailment_event e
-              ON e.event_uuid = st.active_event_uuid
-          WHERE st.rule_id = curtailment_automation_rule.id
-            AND e.state IN ('pending', 'active', 'restoring')
+          FROM curtailment_event e
+          WHERE e.state IN ('pending', 'active', 'restoring')
+            AND (
+                EXISTS (
+                    SELECT 1
+                    FROM curtailment_automation_rule_state st
+                    WHERE st.rule_id = curtailment_automation_rule.id
+                      AND st.active_event_uuid = e.event_uuid
+                )
+                OR (
+                    e.org_id = curtailment_automation_rule.org_id
+                    AND e.external_source = 'curtailment_automation'
+                    AND e.external_reference = curtailment_automation_rule.id::text
+                )
+            )
       )
   )
 RETURNING id, org_id, rule_name, trigger_type, mqtt_source_id, response_profile_id, enabled, created_at, updated_at
@@ -718,12 +801,25 @@ SET
 WHERE curtailment_automation_rule.id = $4
   AND curtailment_automation_rule.org_id = $5
   AND NOT EXISTS (
+      -- A live automation event pins the rule via the rule-state pointer or
+      -- via the event's external reference, which also covers the window
+      -- before SetAutomationActiveEvent writes the pointer.
       SELECT 1
-      FROM curtailment_automation_rule_state st
-      JOIN curtailment_event e
-          ON e.event_uuid = st.active_event_uuid
-      WHERE st.rule_id = curtailment_automation_rule.id
-        AND e.state IN ('pending', 'active', 'restoring')
+      FROM curtailment_event e
+      WHERE e.state IN ('pending', 'active', 'restoring')
+        AND (
+            EXISTS (
+                SELECT 1
+                FROM curtailment_automation_rule_state st
+                WHERE st.rule_id = curtailment_automation_rule.id
+                  AND st.active_event_uuid = e.event_uuid
+            )
+            OR (
+                e.org_id = curtailment_automation_rule.org_id
+                AND e.external_source = 'curtailment_automation'
+                AND e.external_reference = curtailment_automation_rule.id::text
+            )
+        )
   )
 RETURNING id, org_id, rule_name, trigger_type, mqtt_source_id, response_profile_id, enabled, created_at, updated_at
 `
