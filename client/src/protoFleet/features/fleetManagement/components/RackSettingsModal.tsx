@@ -224,23 +224,30 @@ const RackSettingsModal = ({
 
   // Changing the site clears the building selection (the old building lives in
   // a different site) and drops its now-stale options until the new site's
-  // buildings load. The building — and therefore the zone — resets too.
+  // buildings load. The building — and therefore the zone — resets too. The
+  // shared Select fires onChange on every option click, so no-op when the same
+  // site is reselected — otherwise a confirm of the current site would clear
+  // the building/zone and re-encode the rack as direct-under-site on save.
   const handleSiteChange = useCallback(
     (value: string) => {
+      if (value === siteIdText) return;
       setSiteIdText(value);
       setBuildingIdText("");
       setBuildings([]);
       reconcileZoneForBuilding("");
     },
-    [reconcileZoneForBuilding],
+    [siteIdText, reconcileZoneForBuilding],
   );
 
   const handleBuildingChange = useCallback(
     (value: string) => {
+      // Same no-op guard as the site select: reselecting the current building
+      // must not reset the zone.
+      if (value === buildingIdText) return;
       setBuildingIdText(value);
       reconcileZoneForBuilding(value);
     },
-    [reconcileZoneForBuilding],
+    [buildingIdText, reconcileZoneForBuilding],
   );
 
   const siteSelected = isRealId(siteIdText);
