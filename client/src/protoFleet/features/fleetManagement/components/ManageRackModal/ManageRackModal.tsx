@@ -569,6 +569,16 @@ export default function ManageRackModal({
         return { deviceIdentifier: deviceId, row, column: col };
       });
 
+      // Placement rides on CREATE (choose it) and on the one edit case where
+      // omitting it would lose the change: clearing an in-building rack's zone
+      // (the server's omitted-placement path restores the old zone). Every
+      // other existing-rack save omits placement — it's persisted on the Rack
+      // Settings Continue, so omitting keeps a concurrent move from being
+      // clobbered.
+      const clearingInBuildingZone =
+        existingRackId !== undefined && rackSettings.buildingId !== undefined && rackSettings.zone.trim() === "";
+      const sendPlacement = canManagePlacement && (existingRackId === undefined || clearingInBuildingZone);
+
       await new Promise<void>((resolve, reject) => {
         saveRack({
           deviceSetId: existingRackId,
@@ -586,8 +596,13 @@ export default function ManageRackModal({
           // rack's current server placement and, crucially, can't clobber a
           // move made by another session while this modal was open. Gated on
           // site:manage; create sends its chosen placement (unset → NULL).
-          siteId: canManagePlacement && existingRackId === undefined ? rackSettings.siteId : undefined,
-          buildingId: canManagePlacement && existingRackId === undefined ? rackSettings.buildingId : undefined,
+          //
+          // Exception: clearing an in-building rack's zone. With placement
+          // omitted the server's legacy path restores the zone from the
+          // current placement, so the blank is silently ignored. Send the
+          // rack's current placement explicitly to mark it a real clear.
+          siteId: sendPlacement ? (rackSettings.siteId ?? 0n) : undefined,
+          buildingId: sendPlacement ? (rackSettings.buildingId ?? 0n) : undefined,
           onSuccess: () => resolve(),
           onError: (msg) => reject(new Error(msg)),
         });
