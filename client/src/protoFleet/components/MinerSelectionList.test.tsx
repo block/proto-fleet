@@ -101,6 +101,20 @@ describe("MinerSelectionList site scope", () => {
     expect(listRacksMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [7n], includeUnassigned: false }));
   });
 
+  it("includes site-unassigned miners in the list but keeps rack facet options within the site", async () => {
+    // A specific scoped site with includeUnassigned: the miner list should also
+    // surface site-unassigned miners, but the rack/building facet options must
+    // stay strictly within the site (no unassigned racks in the dropdown).
+    render(<MinerSelectionList scope={{ siteIds: [7n], includeUnassigned: true }} />);
+
+    const filter = lastFleetFilter();
+    expect(filter.siteIds).toEqual([7n]);
+    expect(filter.includeUnassigned).toBe(true);
+
+    await waitFor(() => expect(listRacksMock).toHaveBeenCalled());
+    expect(listRacksMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [7n], includeUnassigned: false }));
+  });
+
   it("re-applies the filter when the active site changes mid-modal", () => {
     const { rerender } = render(<MinerSelectionList scope={{ siteIds: [7n], includeUnassigned: false }} />);
     expect(lastFleetFilter().siteIds).toEqual([7n]);

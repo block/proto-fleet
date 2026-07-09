@@ -281,6 +281,15 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
 
     const scopeSiteIds = useMemo(() => scope?.siteIds ?? [], [scope]);
     const scopeIncludeUnassigned = scope?.includeUnassigned ?? false;
+    // Facet-option scope is decoupled from the miner-list scope. The list may
+    // surface site-unassigned miners (scope.includeUnassigned), but the
+    // Building/Rack *dropdown options* must stay strictly within the scoped
+    // site — otherwise a scoped site would list unassigned buildings/racks,
+    // offering facet choices outside the site (and, in assignable-only mode,
+    // ones that immediately conflict → empty state). Only when no site is
+    // scoped (e.g. the "unassigned" SitePicker mode) do the option fetches
+    // honor includeUnassigned.
+    const facetIncludeUnassigned = scopeSiteIds.length > 0 ? false : scopeIncludeUnassigned;
     // Serialized key so effects/callbacks only re-fire when the selection
     // actually changes (siteIds is a fresh bigint[] each render otherwise).
     const scopeKey = `${scopeSiteIds.map(String).join(",")}|${scopeIncludeUnassigned}`;
@@ -633,13 +642,13 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     }, [scrollToTop, goToPrevPage]);
 
     // Fetch filter options only for enabled filters. Rack/building facet options
-    // scope to the active site so the dropdowns list only the site's members;
-    // group and site options stay org-wide until ListGroups gains site filtering
-    // (issue #520).
+    // scope to the active site so the dropdowns list only the site's members
+    // (facetIncludeUnassigned, not the list's includeUnassigned); group and site
+    // options stay org-wide until ListGroups gains site filtering (issue #520).
     useEffect(() => {
       if (showGroupFilter) listGroups({ onSuccess: setAvailableGroups });
       if (showRackFilter)
-        listRacks({ siteIds: scopeSiteIds, includeUnassigned: scopeIncludeUnassigned, onSuccess: setAvailableRacks });
+        listRacks({ siteIds: scopeSiteIds, includeUnassigned: facetIncludeUnassigned, onSuccess: setAvailableRacks });
       if (showSiteFilter)
         listSites({
           onSuccess: (sites) =>
@@ -650,7 +659,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       if (showBuildingFilter)
         listBuildings({
           siteIds: scopeSiteIds,
-          includeUnassigned: scopeIncludeUnassigned,
+          includeUnassigned: facetIncludeUnassigned,
           onSuccess: (buildings) =>
             setAvailableBuildings(
               buildings
