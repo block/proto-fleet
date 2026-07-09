@@ -21,16 +21,18 @@ func generatedOnboardingCommand() *cli.Command {
 				generatedAuthUnauthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "username", Usage: "username"},
-					&cli.StringFlag{Name: "password", Usage: "password"},
+					&cli.BoolFlag{Name: "password-stdin", Usage: "Read password from stdin"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &onboardingv1.CreateAdminLoginRequest{}
 					if cmd.IsSet("username") {
 						req.Username = cmd.String("username")
 					}
-					if cmd.IsSet("password") {
-						req.Password = cmd.String("password")
+					secretPassword, err := generatedReadSecret(cmd, "password-stdin", "password")
+					if err != nil {
+						return nil, err
 					}
+					req.Password = secretPassword
 					return req, nil
 				},
 				func() proto.Message { return &onboardingv1.CreateAdminLoginResponse{} },

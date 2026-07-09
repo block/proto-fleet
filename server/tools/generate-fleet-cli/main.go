@@ -44,6 +44,7 @@ type commandSpec struct {
 	FixedFields           map[string]string `json:"fixed_fields,omitempty"`
 	RequireCollectionType string            `json:"require_collection_type,omitempty"`
 	CommonSelector        string            `json:"common_selector,omitempty"`
+	SecretFields          []string          `json:"secret_fields,omitempty"`
 	JSONOnly              bool              `json:"json_only,omitempty"`
 }
 
@@ -88,6 +89,7 @@ type renderOptions struct {
 	FixedFields           map[string]string
 	RequireCollectionType string
 	CommonSelector        string
+	SecretFields          map[string]bool
 }
 
 type messageInfo struct {
@@ -362,6 +364,7 @@ func buildGroups(
 			FixedFields:           command.FixedFields,
 			RequireCollectionType: command.RequireCollectionType,
 			CommonSelector:        command.CommonSelector,
+			SecretFields:          sliceToSet(command.SecretFields),
 		}
 		if options.Usage == "" {
 			options.Usage = humanizeMethod(string(ref.Method.Name()))
@@ -613,6 +616,7 @@ func analyzeRequest(
 	}
 	hasUnsupported := false
 	seenRequiredFields := map[string]bool{}
+	seenSecretFields := map[string]bool{}
 
 	for i := range message.Oneofs().Len() {
 		oneof := message.Oneofs().Get(i)
@@ -628,6 +632,16 @@ func analyzeRequest(
 			continue
 		}
 		if _, ok := options.FixedFields[fieldName]; ok {
+			continue
+		}
+		if options.SecretFields[fieldName] {
+			if field.IsList() || field.IsMap() || field.Kind() != protoreflect.StringKind {
+				return analysis, fmt.Errorf("secret_fields references non-string scalar field %q on %s", fieldName, message.FullName())
+			}
+			flag, lines := buildSecretFieldPlan(field)
+			analysis.flags = append(analysis.flags, flag)
+			analysis.lines = append(analysis.lines, lines...)
+			seenSecretFields[fieldName] = true
 			continue
 		}
 		if isMinerSelectorField(field) {
@@ -694,6 +708,11 @@ func analyzeRequest(
 	for fieldName := range options.RequiredFields {
 		if !seenRequiredFields[fieldName] {
 			return analysis, fmt.Errorf("required_fields references non-flag field %q on %s", fieldName, message.FullName())
+		}
+	}
+	for fieldName := range options.SecretFields {
+		if !seenSecretFields[fieldName] {
+			return analysis, fmt.Errorf("secret_fields references unknown field %q on %s", fieldName, message.FullName())
 		}
 	}
 
@@ -958,6 +977,25 @@ func buildStringValueFieldPlan(field protoreflect.FieldDescriptor) (string, []st
 	return flag, lines
 }
 
+func buildSecretFieldPlan(field protoreflect.FieldDescriptor) (string, []string) {
+	fieldName := string(field.Name())
+	flagName := strings.ReplaceAll(fieldName, "_", "-")
+	stdinFlag := flagName + "-stdin"
+	goFieldName := toGoFieldName(field.Name())
+	secretVar := "secret" + goFieldName
+	flag := fmt.Sprintf("&cli.BoolFlag{Name: %q, Usage: %q}", stdinFlag, "Read "+strings.ReplaceAll(flagName, "-", " ")+" from stdin")
+	lines := []string{
+		fmt.Sprintf("%s, err := generatedReadSecret(cmd, %q, %q)", secretVar, stdinFlag, fieldUsage(field)),
+		"if err != nil {",
+		"\treturn nil, err",
+		"}",
+	}
+	for _, line := range scalarAssignmentLines(field, secretVar) {
+		lines = append(lines, line)
+	}
+	return flag, lines
+}
+
 func buildPoolConfigFieldPlan(field protoreflect.FieldDescriptor, messageInfo messageInfo) ([]string, []string) {
 	goFieldName := toGoFieldName(field.Name())
 	configType := fmt.Sprintf("%s.%s", messageInfo.GoAlias, toGoIdent(field.Message().Name()))
@@ -1188,37 +1226,31 @@ func requireCollectionTypeLines(message protoreflect.MessageDescriptor, collecti
 		return nil, err
 	}
 
-	if field := message.Fields().ByName("collection_ids"); field != nil && field.IsList() {
+	if field := message.Fields().ByName("device_set_ids"); field != nil && field.IsList() {
 		goFieldName := toGoFieldName(field.Name())
 		return []string{
-			fmt.Sprintf("if err := generatedRequireCollectionTypes(ctx, client, req.%s, %s); err != nil {", goFieldName, typeExpr),
+			fmt.Sprintf("if err := generatedRequireDeviceSetTypes(ctx, client, req.%s, %s); err != nil {", goFieldName, typeExpr),
 			"\treturn nil, err",
 			"}",
 		}, nil
 	}
 
-	var field protoreflect.FieldDescriptor
-	for _, fieldName := range []protoreflect.Name{"collection_id", "target_group_id", "target_rack_id"} {
-		field = message.Fields().ByName(fieldName)
-		if field != nil {
-			break
-		}
-	}
+	field := firstExistingField(message, []protoreflect.Name{"device_set_id", "target_group_id", "target_rack_id"})
 	if field == nil {
-		return nil, fmt.Errorf("require_collection_type needs collection_id, collection_ids, target_group_id, or target_rack_id field on %s", message.FullName())
+		return nil, fmt.Errorf("require_collection_type needs device_set_id, device_set_ids, target_group_id, or target_rack_id field on %s", message.FullName())
 	}
 	goFieldName := toGoFieldName(field.Name())
 	if fieldNeedsPointer(field) {
 		return []string{
 			fmt.Sprintf("if req.%s != nil {", goFieldName),
-			fmt.Sprintf("\tif err := generatedRequireCollectionType(ctx, client, *req.%s, %s); err != nil {", goFieldName, typeExpr),
+			fmt.Sprintf("\tif err := generatedRequireDeviceSetType(ctx, client, *req.%s, %s); err != nil {", goFieldName, typeExpr),
 			"\t\treturn nil, err",
 			"\t}",
 			"}",
 		}, nil
 	}
 	return []string{
-		fmt.Sprintf("if err := generatedRequireCollectionType(ctx, client, req.%s, %s); err != nil {", goFieldName, typeExpr),
+		fmt.Sprintf("if err := generatedRequireDeviceSetType(ctx, client, req.%s, %s); err != nil {", goFieldName, typeExpr),
 		"\treturn nil, err",
 		"}",
 	}, nil
@@ -1227,12 +1259,21 @@ func requireCollectionTypeLines(message protoreflect.MessageDescriptor, collecti
 func requiredCollectionTypeExpr(value string) (string, error) {
 	switch normalizeInput(value) {
 	case "group":
-		return "collectionv1.CollectionType_COLLECTION_TYPE_GROUP", nil
+		return "devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP", nil
 	case "rack":
-		return "collectionv1.CollectionType_COLLECTION_TYPE_RACK", nil
+		return "devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK", nil
 	default:
 		return "", fmt.Errorf("unsupported require_collection_type %q", value)
 	}
+}
+
+func firstExistingField(message protoreflect.MessageDescriptor, names []protoreflect.Name) protoreflect.FieldDescriptor {
+	for _, name := range names {
+		if field := message.Fields().ByName(name); field != nil {
+			return field
+		}
+	}
+	return nil
 }
 
 // writeSelectorAssignment emits the code that builds a device selector and

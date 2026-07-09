@@ -77,13 +77,13 @@ func TestFleetCLISubcommands(t *testing.T) {
 			"--label", unique+"-group",
 			"--description", "fleetcli e2e group",
 		)
-		groupID = jsonString(t, created, "collection", "id")
-		require.NotEmpty(t, groupID, "groups create should return collection.id")
+		groupID = jsonString(t, created, "device_set", "id")
+		require.NotEmpty(t, groupID, "groups create should return device_set.id")
 		t.Cleanup(func() {
-			_, _ = runFleetCLI(ctx, env, "groups", "delete", "--collection-id", groupID)
+			_, _ = runFleetCLI(ctx, env, "groups", "delete", "--device-set-id", groupID)
 		})
 
-		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "groups", "get", "--collection-id", groupID))
+		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "groups", "get", "--device-set-id", groupID))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "groups", "list", "--page-size", "25"))
 		added := runFleetCLIJSON(t, ctx, env,
 			"groups", "add-devices",
@@ -91,8 +91,8 @@ func TestFleetCLISubcommands(t *testing.T) {
 			"--device", deviceIdentifier,
 		)
 		assert.Equal(t, 1, jsonInt(t, added, "added_count"))
-		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "groups", "members", "--collection-id", groupID))
-		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "groups", "stats", "--collection-ids", groupID))
+		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "groups", "members", "--device-set-id", groupID))
+		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "groups", "stats", "--device-set-ids", groupID))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "groups", "device", "--device-identifier", deviceIdentifier))
 		removed := runFleetCLIJSON(t, ctx, env,
 			"groups", "remove-devices",
@@ -103,11 +103,11 @@ func TestFleetCLISubcommands(t *testing.T) {
 
 		updated := runFleetCLIJSON(t, ctx, env,
 			"groups", "update",
-			"--collection-id", groupID,
+			"--device-set-id", groupID,
 			"--label", unique+"-group-updated",
 			"--description", "fleetcli e2e group updated",
 		)
-		assert.Equal(t, unique+"-group-updated", jsonString(t, updated, "collection", "label"))
+		assert.Equal(t, unique+"-group-updated", jsonString(t, updated, "device_set", "label"))
 	})
 
 	var rackID string
@@ -128,13 +128,13 @@ func TestFleetCLISubcommands(t *testing.T) {
 			},
 		})
 		saved := runFleetCLIJSON(t, ctx, env, "racks", "save", "--json", rackPath)
-		rackID = jsonString(t, saved, "collection", "id")
-		require.NotEmpty(t, rackID, "racks save should return collection.id")
+		rackID = jsonString(t, saved, "device_set", "id")
+		require.NotEmpty(t, rackID, "racks save should return device_set.id")
 		t.Cleanup(func() {
-			_, _ = runFleetCLI(ctx, env, "racks", "delete", "--collection-id", rackID)
+			_, _ = runFleetCLI(ctx, env, "racks", "delete", "--device-set-id", rackID)
 		})
 
-		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "get", "--collection-id", rackID))
+		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "get", "--device-set-id", rackID))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "list", "--page-size", "25"))
 		added := runFleetCLIJSON(t, ctx, env,
 			"racks", "add-devices",
@@ -142,9 +142,9 @@ func TestFleetCLISubcommands(t *testing.T) {
 			"--device", deviceIdentifier,
 		)
 		assert.Equal(t, 1, jsonInt(t, added, "assigned_count"))
-		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "members", "--collection-id", rackID))
-		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "slots", "--collection-id", rackID))
-		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "stats", "--collection-ids", rackID))
+		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "members", "--device-set-id", rackID))
+		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "slots", "--device-set-id", rackID))
+		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "stats", "--device-set-ids", rackID))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "device", "--device-identifier", deviceIdentifier))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "types"))
 		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "racks", "zones"))
@@ -303,10 +303,10 @@ func TestFleetCLILeafCommandCoverage(t *testing.T) {
 func ensureFleetCLIAdmin(t *testing.T, ctx context.Context, env []string) {
 	t.Helper()
 
-	output, err := runFleetCLI(ctx, env,
+	output, err := runFleetCLIWithInput(ctx, env, testPassword+"\n",
 		"onboarding", "create-admin",
 		"--username", testUsername,
-		"--password", testPassword,
+		"--password-stdin",
 	)
 	if err == nil {
 		assert.Contains(t, output, "user_id", "create-admin output should include the new user id")

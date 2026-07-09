@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"sort"
 	"strings"
 
-	collectionv1 "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	devicesetv1 "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/urfave/cli/v3"
+	"golang.org/x/term"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -199,7 +202,7 @@ func generatedBuildBoundedMinerSelector(ctx context.Context, cmd *cli.Command, c
 	rackLabels := dedupeStrings(cmd.StringSlice("rack"))
 
 	if len(groupLabels) > 0 {
-		labelIDs, err := generatedResolveCollectionIDsByLabel(ctx, client, collectionv1.CollectionType_COLLECTION_TYPE_GROUP, groupLabels)
+		labelIDs, err := generatedResolveDeviceSetIDsByLabel(ctx, client, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP, groupLabels)
 		if err != nil {
 			return nil, fmt.Errorf("resolve group labels: %w", err)
 		}
@@ -207,17 +210,17 @@ func generatedBuildBoundedMinerSelector(ctx context.Context, cmd *cli.Command, c
 	}
 	groupIDs = dedupeInt64s(groupIDs)
 	if len(groupIDs) > 0 {
-		if err := generatedRequireCollectionTypes(ctx, client, groupIDs, collectionv1.CollectionType_COLLECTION_TYPE_GROUP); err != nil {
+		if err := generatedRequireDeviceSetTypes(ctx, client, groupIDs, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP); err != nil {
 			return nil, fmt.Errorf("verify group ids: %w", err)
 		}
-		memberIDs, err := generatedCollectionMemberDeviceIDs(ctx, client, groupIDs)
+		memberIDs, err := generatedDeviceSetMemberDeviceIDs(ctx, client, groupIDs)
 		if err != nil {
 			return nil, fmt.Errorf("resolve group members: %w", err)
 		}
 		deviceIDs = append(deviceIDs, memberIDs...)
 	}
 	if len(rackLabels) > 0 {
-		labelIDs, err := generatedResolveCollectionIDsByLabel(ctx, client, collectionv1.CollectionType_COLLECTION_TYPE_RACK, rackLabels)
+		labelIDs, err := generatedResolveDeviceSetIDsByLabel(ctx, client, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK, rackLabels)
 		if err != nil {
 			return nil, fmt.Errorf("resolve rack labels: %w", err)
 		}
@@ -225,10 +228,10 @@ func generatedBuildBoundedMinerSelector(ctx context.Context, cmd *cli.Command, c
 	}
 	rackIDs = dedupeInt64s(rackIDs)
 	if len(rackIDs) > 0 {
-		if err := generatedRequireCollectionTypes(ctx, client, rackIDs, collectionv1.CollectionType_COLLECTION_TYPE_RACK); err != nil {
+		if err := generatedRequireDeviceSetTypes(ctx, client, rackIDs, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK); err != nil {
 			return nil, fmt.Errorf("verify rack ids: %w", err)
 		}
-		memberIDs, err := generatedCollectionMemberDeviceIDs(ctx, client, rackIDs)
+		memberIDs, err := generatedDeviceSetMemberDeviceIDs(ctx, client, rackIDs)
 		if err != nil {
 			return nil, fmt.Errorf("resolve rack members: %w", err)
 		}
@@ -247,19 +250,19 @@ func generatedBuildBoundedMinerSelector(ctx context.Context, cmd *cli.Command, c
 	}, nil
 }
 
-func generatedCollectionMemberDeviceIDs(ctx context.Context, client *Client, collectionIDs []int64) ([]string, error) {
+func generatedDeviceSetMemberDeviceIDs(ctx context.Context, client *Client, deviceSetIDs []int64) ([]string, error) {
 	var deviceIDs []string
-	for _, collectionID := range collectionIDs {
+	for _, deviceSetID := range deviceSetIDs {
 		pageToken := ""
 		for {
-			req := &collectionv1.ListCollectionMembersRequest{
-				CollectionId: collectionID,
-				PageSize:     500,
-				PageToken:    pageToken,
+			req := &devicesetv1.ListDeviceSetMembersRequest{
+				DeviceSetId: deviceSetID,
+				PageSize:    500,
+				PageToken:   pageToken,
 			}
-			resp := &collectionv1.ListCollectionMembersResponse{}
-			if err := client.CallAuthenticated(ctx, "/collection.v1.DeviceCollectionService/ListCollectionMembers", req, resp); err != nil {
-				return nil, fmt.Errorf("collection %d: %w", collectionID, err)
+			resp := &devicesetv1.ListDeviceSetMembersResponse{}
+			if err := client.CallAuthenticated(ctx, "/device_set.v1.DeviceSetService/ListDeviceSetMembers", req, resp); err != nil {
+				return nil, fmt.Errorf("device set %d: %w", deviceSetID, err)
 			}
 			for _, member := range resp.GetMembers() {
 				if member.GetDeviceIdentifier() != "" {
@@ -275,10 +278,10 @@ func generatedCollectionMemberDeviceIDs(ctx context.Context, client *Client, col
 	return dedupeStrings(deviceIDs), nil
 }
 
-func generatedResolveCollectionIDsByLabel(
+func generatedResolveDeviceSetIDsByLabel(
 	ctx context.Context,
 	client *Client,
-	collectionType collectionv1.CollectionType,
+	deviceSetType devicesetv1.DeviceSetType,
 	labels []string,
 ) ([]int64, error) {
 	normalizedLabels := make([]string, 0, len(labels))
@@ -296,19 +299,19 @@ func generatedResolveCollectionIDsByLabel(
 	matches := make(map[string][]int64, len(normalizedLabels))
 	pageToken := ""
 	for {
-		req := &collectionv1.ListCollectionsRequest{
-			Type:      collectionType,
+		req := &devicesetv1.ListDeviceSetsRequest{
+			Type:      deviceSetType,
 			PageSize:  500,
 			PageToken: pageToken,
 		}
-		resp := &collectionv1.ListCollectionsResponse{}
-		if err := client.CallAuthenticated(ctx, "/collection.v1.DeviceCollectionService/ListCollections", req, resp); err != nil {
+		resp := &devicesetv1.ListDeviceSetsResponse{}
+		if err := client.CallAuthenticated(ctx, "/device_set.v1.DeviceSetService/ListDeviceSets", req, resp); err != nil {
 			return nil, err
 		}
-		for _, collection := range resp.GetCollections() {
+		for _, deviceSet := range resp.GetDeviceSets() {
 			for _, label := range normalizedLabels {
-				if collection.GetLabel() == label {
-					matches[label] = append(matches[label], collection.GetId())
+				if deviceSet.GetLabel() == label {
+					matches[label] = append(matches[label], deviceSet.GetId())
 				}
 			}
 		}
@@ -323,64 +326,91 @@ func generatedResolveCollectionIDsByLabel(
 		ids := matches[label]
 		switch len(ids) {
 		case 0:
-			return nil, fmt.Errorf("no %s found with label %q", generatedCollectionTypeName(collectionType), label)
+			return nil, fmt.Errorf("no %s found with label %q", generatedDeviceSetTypeName(deviceSetType), label)
 		case 1:
 			result = append(result, ids[0])
 		default:
-			return nil, fmt.Errorf("multiple %s entries found with label %q; use the --%s-id flag instead", generatedCollectionTypeName(collectionType), label, generatedCollectionTypeName(collectionType))
+			return nil, fmt.Errorf("multiple %s entries found with label %q; use the --%s-id flag instead", generatedDeviceSetTypeName(deviceSetType), label, generatedDeviceSetTypeName(deviceSetType))
 		}
 	}
 	return dedupeInt64s(result), nil
 }
 
-func generatedRequireCollectionType(
+func generatedRequireDeviceSetType(
 	ctx context.Context,
 	client *Client,
-	collectionID int64,
-	want collectionv1.CollectionType,
+	deviceSetID int64,
+	want devicesetv1.DeviceSetType,
 ) error {
-	if collectionID == 0 {
-		return fmt.Errorf("collection-id is required")
+	if deviceSetID == 0 {
+		return fmt.Errorf("device-set-id is required")
 	}
-	req := &collectionv1.GetCollectionRequest{CollectionId: collectionID}
-	resp := &collectionv1.GetCollectionResponse{}
-	if err := client.CallAuthenticated(ctx, "/collection.v1.DeviceCollectionService/GetCollection", req, resp); err != nil {
-		return fmt.Errorf("verify %s %d: %w", generatedCollectionTypeName(want), collectionID, err)
+	req := &devicesetv1.GetDeviceSetRequest{DeviceSetId: deviceSetID}
+	resp := &devicesetv1.GetDeviceSetResponse{}
+	if err := client.CallAuthenticated(ctx, "/device_set.v1.DeviceSetService/GetDeviceSet", req, resp); err != nil {
+		return fmt.Errorf("verify %s %d: %w", generatedDeviceSetTypeName(want), deviceSetID, err)
 	}
-	collection := resp.GetCollection()
-	if collection == nil {
-		return fmt.Errorf("verify %s %d: response did not include collection", generatedCollectionTypeName(want), collectionID)
+	deviceSet := resp.GetDeviceSet()
+	if deviceSet == nil {
+		return fmt.Errorf("verify %s %d: response did not include device set", generatedDeviceSetTypeName(want), deviceSetID)
 	}
-	got := collection.GetType()
+	got := deviceSet.GetType()
 	if got != want {
-		return fmt.Errorf("collection %d is a %s, not a %s", collectionID, generatedCollectionTypeName(got), generatedCollectionTypeName(want))
+		return fmt.Errorf("device set %d is a %s, not a %s", deviceSetID, generatedDeviceSetTypeName(got), generatedDeviceSetTypeName(want))
 	}
 	return nil
 }
 
-func generatedRequireCollectionTypes(
+func generatedRequireDeviceSetTypes(
 	ctx context.Context,
 	client *Client,
-	collectionIDs []int64,
-	want collectionv1.CollectionType,
+	deviceSetIDs []int64,
+	want devicesetv1.DeviceSetType,
 ) error {
-	for _, collectionID := range dedupeInt64s(collectionIDs) {
-		if err := generatedRequireCollectionType(ctx, client, collectionID, want); err != nil {
+	for _, deviceSetID := range dedupeInt64s(deviceSetIDs) {
+		if err := generatedRequireDeviceSetType(ctx, client, deviceSetID, want); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func generatedCollectionTypeName(collectionType collectionv1.CollectionType) string {
-	switch collectionType {
-	case collectionv1.CollectionType_COLLECTION_TYPE_GROUP:
+func generatedDeviceSetTypeName(deviceSetType devicesetv1.DeviceSetType) string {
+	switch deviceSetType {
+	case devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP:
 		return "group"
-	case collectionv1.CollectionType_COLLECTION_TYPE_RACK:
+	case devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK:
 		return "rack"
 	default:
-		return "collection"
+		return "device set"
 	}
+}
+
+func generatedReadSecret(cmd *cli.Command, stdinFlag string, label string) (string, error) {
+	if cmd.Bool(stdinFlag) {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return "", fmt.Errorf("read %s from stdin: %w", label, err)
+		}
+		secret := strings.TrimRight(string(data), "\r\n")
+		if secret == "" {
+			return "", fmt.Errorf("%s from stdin is empty", label)
+		}
+		return secret, nil
+	}
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return "", fmt.Errorf("%s is required; use --%s or run from a terminal to prompt", label, stdinFlag)
+	}
+	fmt.Fprintf(os.Stderr, "%s: ", strings.Title(label))
+	secret, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(os.Stderr)
+	if err != nil {
+		return "", fmt.Errorf("read %s: %w", label, err)
+	}
+	if len(secret) == 0 {
+		return "", fmt.Errorf("%s is required", label)
+	}
+	return string(secret), nil
 }
 
 // trimNonEmpty trims surrounding whitespace from each value and drops the

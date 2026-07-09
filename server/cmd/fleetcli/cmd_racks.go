@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	collectionv1 "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	devicesetv1 "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 	cli "github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
@@ -40,7 +39,7 @@ func generatedRacksCommand() *cli.Command {
 						req.ForceClearConflictingSite = &value
 					}
 					if req.TargetRackId != nil {
-						if err := generatedRequireCollectionType(ctx, client, *req.TargetRackId, collectionv1.CollectionType_COLLECTION_TYPE_RACK); err != nil {
+						if err := generatedRequireDeviceSetType(ctx, client, *req.TargetRackId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK); err != nil {
 							return nil, err
 						}
 					}
@@ -51,65 +50,65 @@ func generatedRacksCommand() *cli.Command {
 			generatedRequestCommand(
 				"delete",
 				"Delete a rack",
-				"/collection.v1.DeviceCollectionService/DeleteCollection",
+				"/device_set.v1.DeviceSetService/DeleteDeviceSet",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.DeleteCollectionRequest{}
-					if cmd.IsSet("collection-id") {
-						req.CollectionId = cmd.Int64("collection-id")
+					req := &devicesetv1.DeleteDeviceSetRequest{}
+					if cmd.IsSet("device-set-id") {
+						req.DeviceSetId = cmd.Int64("device-set-id")
 					}
-					if err := generatedRequireCollectionType(ctx, client, req.CollectionId, collectionv1.CollectionType_COLLECTION_TYPE_RACK); err != nil {
+					if err := generatedRequireDeviceSetType(ctx, client, req.DeviceSetId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK); err != nil {
 						return nil, err
 					}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.DeleteCollectionResponse{} },
+				func() proto.Message { return &devicesetv1.DeleteDeviceSetResponse{} },
 			),
 			generatedRequestCommand(
 				"device",
 				"List racks for a device identifier",
-				"/collection.v1.DeviceCollectionService/GetDeviceCollections",
+				"/device_set.v1.DeviceSetService/GetDeviceDeviceSets",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "device-identifier", Usage: "device identifier"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.GetDeviceCollectionsRequest{}
-					req.Type = collectionv1.CollectionType_COLLECTION_TYPE_RACK
+					req := &devicesetv1.GetDeviceDeviceSetsRequest{}
+					req.Type = devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK
 					if cmd.IsSet("device-identifier") {
 						req.DeviceIdentifier = cmd.String("device-identifier")
 					}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.GetDeviceCollectionsResponse{} },
+				func() proto.Message { return &devicesetv1.GetDeviceDeviceSetsResponse{} },
 			),
 			generatedRequestCommand(
 				"get",
 				"Get a rack by id",
-				"/collection.v1.DeviceCollectionService/GetCollection",
+				"/device_set.v1.DeviceSetService/GetDeviceSet",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.GetCollectionRequest{}
-					if cmd.IsSet("collection-id") {
-						req.CollectionId = cmd.Int64("collection-id")
+					req := &devicesetv1.GetDeviceSetRequest{}
+					if cmd.IsSet("device-set-id") {
+						req.DeviceSetId = cmd.Int64("device-set-id")
 					}
-					if err := generatedRequireCollectionType(ctx, client, req.CollectionId, collectionv1.CollectionType_COLLECTION_TYPE_RACK); err != nil {
+					if err := generatedRequireDeviceSetType(ctx, client, req.DeviceSetId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK); err != nil {
 						return nil, err
 					}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.GetCollectionResponse{} },
+				func() proto.Message { return &devicesetv1.GetDeviceSetResponse{} },
 			),
 			generatedRequestCommand(
 				"list",
 				"List racks",
-				"/collection.v1.DeviceCollectionService/ListCollections",
+				"/device_set.v1.DeviceSetService/ListDeviceSets",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
@@ -118,13 +117,13 @@ func generatedRacksCommand() *cli.Command {
 					&cli.StringSliceFlag{Name: "zones", Usage: "zones"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.ListCollectionsRequest{}
+					req := &devicesetv1.ListDeviceSetsRequest{}
 					if jsonPath := cmd.String("json"); jsonPath != "" {
 						if err := readProtoJSON(jsonPath, req); err != nil {
 							return nil, err
 						}
 					}
-					req.Type = collectionv1.CollectionType_COLLECTION_TYPE_RACK
+					req.Type = devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK
 					if cmd.IsSet("page-size") {
 						req.PageSize = int32(cmd.Int("page-size"))
 					}
@@ -136,22 +135,22 @@ func generatedRacksCommand() *cli.Command {
 					}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.ListCollectionsResponse{} },
+				func() proto.Message { return &devicesetv1.ListDeviceSetsResponse{} },
 			),
 			generatedRequestCommand(
 				"members",
 				"List rack members",
-				"/collection.v1.DeviceCollectionService/ListCollectionMembers",
+				"/device_set.v1.DeviceSetService/ListDeviceSetMembers",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id"},
 					&cli.IntFlag{Name: "page-size", Usage: "page size"},
 					&cli.StringFlag{Name: "page-token", Usage: "page token"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.ListCollectionMembersRequest{}
-					if cmd.IsSet("collection-id") {
-						req.CollectionId = cmd.Int64("collection-id")
+					req := &devicesetv1.ListDeviceSetMembersRequest{}
+					if cmd.IsSet("device-set-id") {
+						req.DeviceSetId = cmd.Int64("device-set-id")
 					}
 					if cmd.IsSet("page-size") {
 						req.PageSize = int32(cmd.Int("page-size"))
@@ -159,101 +158,101 @@ func generatedRacksCommand() *cli.Command {
 					if cmd.IsSet("page-token") {
 						req.PageToken = cmd.String("page-token")
 					}
-					if err := generatedRequireCollectionType(ctx, client, req.CollectionId, collectionv1.CollectionType_COLLECTION_TYPE_RACK); err != nil {
+					if err := generatedRequireDeviceSetType(ctx, client, req.DeviceSetId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK); err != nil {
 						return nil, err
 					}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.ListCollectionMembersResponse{} },
+				func() proto.Message { return &devicesetv1.ListDeviceSetMembersResponse{} },
 			),
 			generatedRequestCommand(
 				"save",
 				"Create or update a rack",
-				"/collection.v1.DeviceCollectionService/SaveRack",
+				"/device_set.v1.DeviceSetService/SaveRack",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.SaveRackRequest{}
+					req := &devicesetv1.SaveRackRequest{}
 					if err := readProtoJSON(cmd.String("json"), req); err != nil {
 						return nil, err
 					}
-					if req.CollectionId != nil {
-						if err := generatedRequireCollectionType(ctx, client, *req.CollectionId, collectionv1.CollectionType_COLLECTION_TYPE_RACK); err != nil {
+					if req.DeviceSetId != nil {
+						if err := generatedRequireDeviceSetType(ctx, client, *req.DeviceSetId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK); err != nil {
 							return nil, err
 						}
 					}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.SaveRackResponse{} },
+				func() proto.Message { return &devicesetv1.SaveRackResponse{} },
 			),
 			generatedRequestCommand(
 				"slots",
 				"List occupied rack slots",
-				"/collection.v1.DeviceCollectionService/GetRackSlots",
+				"/device_set.v1.DeviceSetService/GetRackSlots",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.GetRackSlotsRequest{}
-					if cmd.IsSet("collection-id") {
-						req.CollectionId = cmd.Int64("collection-id")
+					req := &devicesetv1.GetRackSlotsRequest{}
+					if cmd.IsSet("device-set-id") {
+						req.DeviceSetId = cmd.Int64("device-set-id")
 					}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.GetRackSlotsResponse{} },
+				func() proto.Message { return &devicesetv1.GetRackSlotsResponse{} },
 			),
 			generatedRequestCommand(
 				"stats",
 				"Get aggregated stats for one or more racks",
-				"/collection.v1.DeviceCollectionService/GetCollectionStats",
+				"/device_set.v1.DeviceSetService/GetDeviceSetStats",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringSliceFlag{Name: "collection-ids", Usage: "collection ids"},
+					&cli.StringSliceFlag{Name: "device-set-ids", Usage: "device set ids"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.GetCollectionStatsRequest{}
-					if cmd.IsSet("collection-ids") {
-						values, err := parseInt64Slice(cmd.StringSlice("collection-ids"))
+					req := &devicesetv1.GetDeviceSetStatsRequest{}
+					if cmd.IsSet("device-set-ids") {
+						values, err := parseInt64Slice(cmd.StringSlice("device-set-ids"))
 						if err != nil {
 							return nil, err
 						}
-						req.CollectionIds = values
+						req.DeviceSetIds = values
 					}
-					if err := generatedRequireCollectionTypes(ctx, client, req.CollectionIds, collectionv1.CollectionType_COLLECTION_TYPE_RACK); err != nil {
+					if err := generatedRequireDeviceSetTypes(ctx, client, req.DeviceSetIds, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK); err != nil {
 						return nil, err
 					}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.GetCollectionStatsResponse{} },
+				func() proto.Message { return &devicesetv1.GetDeviceSetStatsResponse{} },
 			),
 			generatedRequestCommand(
 				"types",
 				"List all rack layouts",
-				"/collection.v1.DeviceCollectionService/ListRackTypes",
+				"/device_set.v1.DeviceSetService/ListRackTypes",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.ListRackTypesRequest{}
+					req := &devicesetv1.ListRackTypesRequest{}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.ListRackTypesResponse{} },
+				func() proto.Message { return &devicesetv1.ListRackTypesResponse{} },
 			),
 			generatedRequestCommand(
 				"zones",
 				"List all rack zones",
-				"/collection.v1.DeviceCollectionService/ListRackZones",
+				"/device_set.v1.DeviceSetService/ListRackZones",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.ListRackZonesRequest{}
+					req := &devicesetv1.ListRackZonesRequest{}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.ListRackZonesResponse{} },
+				func() proto.Message { return &devicesetv1.ListRackZonesResponse{} },
 			),
 		},
 	}

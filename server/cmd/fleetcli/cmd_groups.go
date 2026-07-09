@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	collectionv1 "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	devicesetv1 "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
@@ -33,7 +32,7 @@ func generatedGroupsCommand() *cli.Command {
 					if cmd.IsSet("target-group-id") {
 						req.TargetGroupId = cmd.Int64("target-group-id")
 					}
-					if err := generatedRequireCollectionType(ctx, client, req.TargetGroupId, collectionv1.CollectionType_COLLECTION_TYPE_GROUP); err != nil {
+					if err := generatedRequireDeviceSetType(ctx, client, req.TargetGroupId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP); err != nil {
 						return nil, err
 					}
 					return req, nil
@@ -43,7 +42,7 @@ func generatedGroupsCommand() *cli.Command {
 			generatedRequestCommand(
 				"create",
 				"Create a group",
-				"/collection.v1.DeviceCollectionService/CreateCollection",
+				"/device_set.v1.DeviceSetService/CreateDeviceSet",
 				generatedAuthAuthenticated,
 				append([]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
@@ -51,7 +50,7 @@ func generatedGroupsCommand() *cli.Command {
 					&cli.StringFlag{Name: "description", Usage: "description"},
 				}, generatedCommonSelectorFlags()...),
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.CreateCollectionRequest{}
+					req := &devicesetv1.CreateDeviceSetRequest{}
 					if jsonPath := cmd.String("json"); jsonPath != "" {
 						if err := readProtoJSON(jsonPath, req); err != nil {
 							return nil, err
@@ -64,7 +63,7 @@ func generatedGroupsCommand() *cli.Command {
 						}
 						req.DeviceSelector = selector
 					}
-					req.Type = collectionv1.CollectionType_COLLECTION_TYPE_GROUP
+					req.Type = devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP
 					if cmd.IsSet("label") {
 						req.Label = cmd.String("label")
 					}
@@ -73,70 +72,70 @@ func generatedGroupsCommand() *cli.Command {
 					}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.CreateCollectionResponse{} },
+				func() proto.Message { return &devicesetv1.CreateDeviceSetResponse{} },
 			),
 			generatedRequestCommand(
 				"delete",
 				"Delete a group",
-				"/collection.v1.DeviceCollectionService/DeleteCollection",
+				"/device_set.v1.DeviceSetService/DeleteDeviceSet",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.DeleteCollectionRequest{}
-					if cmd.IsSet("collection-id") {
-						req.CollectionId = cmd.Int64("collection-id")
+					req := &devicesetv1.DeleteDeviceSetRequest{}
+					if cmd.IsSet("device-set-id") {
+						req.DeviceSetId = cmd.Int64("device-set-id")
 					}
-					if err := generatedRequireCollectionType(ctx, client, req.CollectionId, collectionv1.CollectionType_COLLECTION_TYPE_GROUP); err != nil {
+					if err := generatedRequireDeviceSetType(ctx, client, req.DeviceSetId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP); err != nil {
 						return nil, err
 					}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.DeleteCollectionResponse{} },
+				func() proto.Message { return &devicesetv1.DeleteDeviceSetResponse{} },
 			),
 			generatedRequestCommand(
 				"device",
 				"List groups for a device identifier",
-				"/collection.v1.DeviceCollectionService/GetDeviceCollections",
+				"/device_set.v1.DeviceSetService/GetDeviceDeviceSets",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "device-identifier", Usage: "device identifier"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.GetDeviceCollectionsRequest{}
-					req.Type = collectionv1.CollectionType_COLLECTION_TYPE_GROUP
+					req := &devicesetv1.GetDeviceDeviceSetsRequest{}
+					req.Type = devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP
 					if cmd.IsSet("device-identifier") {
 						req.DeviceIdentifier = cmd.String("device-identifier")
 					}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.GetDeviceCollectionsResponse{} },
+				func() proto.Message { return &devicesetv1.GetDeviceDeviceSetsResponse{} },
 			),
 			generatedRequestCommand(
 				"get",
 				"Get a group by id",
-				"/collection.v1.DeviceCollectionService/GetCollection",
+				"/device_set.v1.DeviceSetService/GetDeviceSet",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.GetCollectionRequest{}
-					if cmd.IsSet("collection-id") {
-						req.CollectionId = cmd.Int64("collection-id")
+					req := &devicesetv1.GetDeviceSetRequest{}
+					if cmd.IsSet("device-set-id") {
+						req.DeviceSetId = cmd.Int64("device-set-id")
 					}
-					if err := generatedRequireCollectionType(ctx, client, req.CollectionId, collectionv1.CollectionType_COLLECTION_TYPE_GROUP); err != nil {
+					if err := generatedRequireDeviceSetType(ctx, client, req.DeviceSetId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP); err != nil {
 						return nil, err
 					}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.GetCollectionResponse{} },
+				func() proto.Message { return &devicesetv1.GetDeviceSetResponse{} },
 			),
 			generatedRequestCommand(
 				"list",
 				"List groups",
-				"/collection.v1.DeviceCollectionService/ListCollections",
+				"/device_set.v1.DeviceSetService/ListDeviceSets",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
@@ -144,13 +143,13 @@ func generatedGroupsCommand() *cli.Command {
 					&cli.StringFlag{Name: "page-token", Usage: "page token"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.ListCollectionsRequest{}
+					req := &devicesetv1.ListDeviceSetsRequest{}
 					if jsonPath := cmd.String("json"); jsonPath != "" {
 						if err := readProtoJSON(jsonPath, req); err != nil {
 							return nil, err
 						}
 					}
-					req.Type = collectionv1.CollectionType_COLLECTION_TYPE_GROUP
+					req.Type = devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP
 					if cmd.IsSet("page-size") {
 						req.PageSize = int32(cmd.Int("page-size"))
 					}
@@ -159,22 +158,22 @@ func generatedGroupsCommand() *cli.Command {
 					}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.ListCollectionsResponse{} },
+				func() proto.Message { return &devicesetv1.ListDeviceSetsResponse{} },
 			),
 			generatedRequestCommand(
 				"members",
 				"List group members",
-				"/collection.v1.DeviceCollectionService/ListCollectionMembers",
+				"/device_set.v1.DeviceSetService/ListDeviceSetMembers",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id"},
 					&cli.IntFlag{Name: "page-size", Usage: "page size"},
 					&cli.StringFlag{Name: "page-token", Usage: "page token"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.ListCollectionMembersRequest{}
-					if cmd.IsSet("collection-id") {
-						req.CollectionId = cmd.Int64("collection-id")
+					req := &devicesetv1.ListDeviceSetMembersRequest{}
+					if cmd.IsSet("device-set-id") {
+						req.DeviceSetId = cmd.Int64("device-set-id")
 					}
 					if cmd.IsSet("page-size") {
 						req.PageSize = int32(cmd.Int("page-size"))
@@ -182,12 +181,12 @@ func generatedGroupsCommand() *cli.Command {
 					if cmd.IsSet("page-token") {
 						req.PageToken = cmd.String("page-token")
 					}
-					if err := generatedRequireCollectionType(ctx, client, req.CollectionId, collectionv1.CollectionType_COLLECTION_TYPE_GROUP); err != nil {
+					if err := generatedRequireDeviceSetType(ctx, client, req.DeviceSetId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP); err != nil {
 						return nil, err
 					}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.ListCollectionMembersResponse{} },
+				func() proto.Message { return &devicesetv1.ListDeviceSetMembersResponse{} },
 			),
 			generatedRequestCommand(
 				"remove-devices",
@@ -207,7 +206,7 @@ func generatedGroupsCommand() *cli.Command {
 					if cmd.IsSet("target-group-id") {
 						req.TargetGroupId = cmd.Int64("target-group-id")
 					}
-					if err := generatedRequireCollectionType(ctx, client, req.TargetGroupId, collectionv1.CollectionType_COLLECTION_TYPE_GROUP); err != nil {
+					if err := generatedRequireDeviceSetType(ctx, client, req.TargetGroupId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP); err != nil {
 						return nil, err
 					}
 					return req, nil
@@ -217,40 +216,40 @@ func generatedGroupsCommand() *cli.Command {
 			generatedRequestCommand(
 				"stats",
 				"Get aggregated stats for one or more groups",
-				"/collection.v1.DeviceCollectionService/GetCollectionStats",
+				"/device_set.v1.DeviceSetService/GetDeviceSetStats",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringSliceFlag{Name: "collection-ids", Usage: "collection ids"},
+					&cli.StringSliceFlag{Name: "device-set-ids", Usage: "device set ids"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.GetCollectionStatsRequest{}
-					if cmd.IsSet("collection-ids") {
-						values, err := parseInt64Slice(cmd.StringSlice("collection-ids"))
+					req := &devicesetv1.GetDeviceSetStatsRequest{}
+					if cmd.IsSet("device-set-ids") {
+						values, err := parseInt64Slice(cmd.StringSlice("device-set-ids"))
 						if err != nil {
 							return nil, err
 						}
-						req.CollectionIds = values
+						req.DeviceSetIds = values
 					}
-					if err := generatedRequireCollectionTypes(ctx, client, req.CollectionIds, collectionv1.CollectionType_COLLECTION_TYPE_GROUP); err != nil {
+					if err := generatedRequireDeviceSetTypes(ctx, client, req.DeviceSetIds, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP); err != nil {
 						return nil, err
 					}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.GetCollectionStatsResponse{} },
+				func() proto.Message { return &devicesetv1.GetDeviceSetStatsResponse{} },
 			),
 			generatedRequestCommand(
 				"update",
 				"Update a group",
-				"/collection.v1.DeviceCollectionService/UpdateCollection",
+				"/device_set.v1.DeviceSetService/UpdateDeviceSet",
 				generatedAuthAuthenticated,
 				append([]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.Int64Flag{Name: "collection-id", Usage: "collection id"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id"},
 					&cli.StringFlag{Name: "label", Usage: "label"},
 					&cli.StringFlag{Name: "description", Usage: "description"},
 				}, generatedCommonSelectorFlags()...),
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
-					req := &collectionv1.UpdateCollectionRequest{}
+					req := &devicesetv1.UpdateDeviceSetRequest{}
 					if jsonPath := cmd.String("json"); jsonPath != "" {
 						if err := readProtoJSON(jsonPath, req); err != nil {
 							return nil, err
@@ -263,8 +262,8 @@ func generatedGroupsCommand() *cli.Command {
 						}
 						req.DeviceSelector = selector
 					}
-					if cmd.IsSet("collection-id") {
-						req.CollectionId = cmd.Int64("collection-id")
+					if cmd.IsSet("device-set-id") {
+						req.DeviceSetId = cmd.Int64("device-set-id")
 					}
 					if cmd.IsSet("label") {
 						value := cmd.String("label")
@@ -274,12 +273,12 @@ func generatedGroupsCommand() *cli.Command {
 						value := cmd.String("description")
 						req.Description = &value
 					}
-					if err := generatedRequireCollectionType(ctx, client, req.CollectionId, collectionv1.CollectionType_COLLECTION_TYPE_GROUP); err != nil {
+					if err := generatedRequireDeviceSetType(ctx, client, req.DeviceSetId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP); err != nil {
 						return nil, err
 					}
 					return req, nil
 				},
-				func() proto.Message { return &collectionv1.UpdateCollectionResponse{} },
+				func() proto.Message { return &devicesetv1.UpdateDeviceSetResponse{} },
 			),
 		},
 	}

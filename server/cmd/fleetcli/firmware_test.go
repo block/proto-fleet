@@ -825,15 +825,15 @@ func TestFirmwareDeployResolvesGroupToDevices(t *testing.T) {
 
 	var gotReq minercommandv1.FirmwareUpdateRequest
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /collection.v1.DeviceCollectionService/ListCollections", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("POST /device_set.v1.DeviceSetService/ListDeviceSets", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", contentTypeJSON)
-		_, _ = w.Write([]byte(`{"collections":[{"id":"7","label":"group-a"}]}`))
+		_, _ = w.Write([]byte(`{"device_sets":[{"id":"7","label":"group-a"}]}`))
 	})
-	mux.HandleFunc("POST /collection.v1.DeviceCollectionService/GetCollection", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSet", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", contentTypeJSON)
-		_, _ = w.Write([]byte(`{"collection":{"id":"7","type":"COLLECTION_TYPE_GROUP","label":"group-a"}}`))
+		_, _ = w.Write([]byte(`{"device_set":{"id":"7","type":"DEVICE_SET_TYPE_GROUP","label":"group-a"}}`))
 	})
-	mux.HandleFunc("POST /collection.v1.DeviceCollectionService/ListCollectionMembers", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("POST /device_set.v1.DeviceSetService/ListDeviceSetMembers", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", contentTypeJSON)
 		_, _ = w.Write([]byte(`{"members":[{"device_identifier":"device-b"},{"device_identifier":"device-a"}]}`))
 	})

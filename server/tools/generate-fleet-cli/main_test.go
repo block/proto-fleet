@@ -157,6 +157,48 @@ func TestBuildGroupsAllowsRepeatedMethodForDifferentCommands(t *testing.T) {
 	}
 }
 
+func TestBuildGroupsEmitsSecretFieldStdinFlag(t *testing.T) {
+	file := testSecretServiceFile(t)
+	files := []protoreflect.FileDescriptor{file}
+	messages, enums, err := buildTypeIndexes(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	groups, report, err := buildGroups(files, messages, enums, commandsManifest{
+		Commands: []commandSpec{
+			{
+				Method:       "/test.v1.TestService/CreateAdmin",
+				Group:        "onboarding",
+				Command:      "create-admin",
+				SecretFields: []string{"password"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildGroups error = %v, want success", err)
+	}
+	if report.Summary["generated"] != 1 {
+		t.Fatalf("generated count = %d, want 1", report.Summary["generated"])
+	}
+	if len(groups) != 1 || len(groups[0].CommandExprs) != 1 {
+		t.Fatalf("groups = %#v, want one generated command", groups)
+	}
+	expr := groups[0].CommandExprs[0]
+	for _, want := range []string{
+		`&cli.BoolFlag{Name: "password-stdin"`,
+		`generatedReadSecret(cmd, "password-stdin", "password")`,
+		`req.Password = secretPassword`,
+	} {
+		if !strings.Contains(expr, want) {
+			t.Fatalf("generated expr missing %q:\n%s", want, expr)
+		}
+	}
+	if strings.Contains(expr, `&cli.StringFlag{Name: "password"`) {
+		t.Fatalf("generated expr exposed argv password flag:\n%s", expr)
+	}
+}
+
 func testServiceFile(t *testing.T) protoreflect.FileDescriptor {
 	t.Helper()
 	file, err := protodesc.NewFile(&descriptorpb.FileDescriptorProto{
@@ -189,6 +231,58 @@ func testServiceFile(t *testing.T) protoreflect.FileDescriptor {
 	return file
 }
 
+func testSecretServiceFile(t *testing.T) protoreflect.FileDescriptor {
+	t.Helper()
+	file, err := protodesc.NewFile(&descriptorpb.FileDescriptorProto{
+		Name:    stringPtr("test/v1/test.proto"),
+		Syntax:  stringPtr("proto3"),
+		Package: stringPtr("test.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: stringPtr("github.com/block/proto-fleet/server/generated/grpc/test/v1;testv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name: stringPtr("CreateAdminRequest"),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:   stringPtr("username"),
+						Number: int32Ptr(1),
+						Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:   descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+					},
+					{
+						Name:   stringPtr("password"),
+						Number: int32Ptr(2),
+						Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:   descriptorpb.FieldDescriptorProto_TYPE_STRING.Enum(),
+					},
+				},
+			},
+			{Name: stringPtr("CreateAdminResponse")},
+		},
+		Service: []*descriptorpb.ServiceDescriptorProto{
+			{
+				Name: stringPtr("TestService"),
+				Method: []*descriptorpb.MethodDescriptorProto{
+					{
+						Name:       stringPtr("CreateAdmin"),
+						InputType:  stringPtr(".test.v1.CreateAdminRequest"),
+						OutputType: stringPtr(".test.v1.CreateAdminResponse"),
+					},
+				},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file
+}
+
 func stringPtr(value string) *string {
+	return &value
+}
+
+func int32Ptr(value int32) *int32 {
 	return &value
 }

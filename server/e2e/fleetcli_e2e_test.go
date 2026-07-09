@@ -106,11 +106,18 @@ func buildFleetCLIBinary(t *testing.T) {
 // runFleetCLI executes the fleetcli test binary and returns its stdout.
 // Failures include stderr so callers can match on the API error body.
 func runFleetCLI(ctx context.Context, env []string, args ...string) (string, error) {
+	return runFleetCLIWithInput(ctx, env, "", args...)
+}
+
+func runFleetCLIWithInput(ctx context.Context, env []string, stdin string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, fleetCLIBinaryPath, args...)
 	cmd.Env = append(os.Environ(), env...)
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
