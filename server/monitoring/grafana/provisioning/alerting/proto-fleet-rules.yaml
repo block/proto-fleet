@@ -258,7 +258,7 @@ groups:
           rule_group: proto-fleet-defaults
           template: mqtt-curtailment
         annotations:
-          summary: "Miners are curtailed by a curtailment source."
+          summary: "Miners are curtailed by {{ $labels.kind }}"
           description: |
             Curtailment source {{ $labels.kind }} (org {{ $labels.organization_id }})
             has curtailed miners via its automation rule. This alert resolves
@@ -311,7 +311,7 @@ groups:
           rule_group: proto-fleet-defaults
           template: mqtt-disconnected
         annotations:
-          summary: "Curtailment source is unreachable; cannot curtail."
+          summary: "Curtailment source {{ $labels.kind }} is unreachable; cannot curtail."
           description: |
             Curtailment source {{ $labels.kind }} (org {{ $labels.organization_id }})
             has no subscribed MQTT broker connection, so curtailment signals
