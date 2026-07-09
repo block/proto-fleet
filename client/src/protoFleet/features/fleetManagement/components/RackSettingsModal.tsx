@@ -12,6 +12,7 @@ import {
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal/types";
+import { useHasPermission } from "@/protoFleet/store";
 
 import { Alert } from "@/shared/assets/icons";
 import Callout from "@/shared/components/Callout";
@@ -85,6 +86,11 @@ const RackSettingsModal = ({
   const { updateRack, listRackZones, listRackTypes } = useDeviceSets();
   const { sites } = useSitesContext();
   const { listBuildingsBySite } = useBuildings();
+  // Placing a rack under a site/building is a site:manage action (the server
+  // enforces the same on SaveRack). A rack:manage-only operator can still edit
+  // rack contents, so the placement selects are hidden and no placement change
+  // is submitted (ManageRackModal omits it).
+  const canManagePlacement = useHasPermission("site:manage");
 
   // An already-persisted rack has a real placement (a site/building or NULL),
   // so an unplaced rack seeds the explicit "Unassigned" value. Creating a rack
@@ -97,15 +103,17 @@ const RackSettingsModal = ({
   // so lock the field to it (defaultSiteId is only set for a single-site
   // scope). An unscoped create leaves Site editable/optional; edit is never
   // locked.
-  const siteLocked = !isExistingRack && defaultSiteId !== undefined;
+  const siteLocked = !isExistingRack && canManagePlacement && defaultSiteId !== undefined;
 
   // Placement. Site is retained even when a building is chosen (it's the
   // building's site) so downstream eligibility filtering can pin the site;
   // saveRack drops it from the wire RackInfo.
   const [siteIdText, setSiteIdText] = useState<string>(() => {
     if (initialFormData?.siteId !== undefined) return initialFormData.siteId.toString();
-    // Create + page-header scope: prefill (and lock to) the scoped site.
-    if (!isExistingRack && defaultSiteId !== undefined) return defaultSiteId.toString();
+    // Create + page-header scope: prefill (and lock to) the scoped site. Only
+    // when the operator can manage placement — otherwise the rack is created
+    // unplaced.
+    if (!isExistingRack && canManagePlacement && defaultSiteId !== undefined) return defaultSiteId.toString();
     // Edit of an unplaced rack shows "Unassigned"; unscoped create shows the
     // empty placeholder.
     return isExistingRack ? UNASSIGNED_VALUE : "";
@@ -423,29 +431,33 @@ const RackSettingsModal = ({
             error={labelError}
           />
 
-          <Select
-            id="rack-site-select"
-            label={siteLocked ? "Site" : "Site (optional)"}
-            options={siteOptions}
-            value={siteIdText}
-            onChange={handleSiteChange}
-            disabled={siteLocked}
-            forceBelow
-            testId="rack-site-select"
-          />
+          {canManagePlacement ? (
+            <>
+              <Select
+                id="rack-site-select"
+                label={siteLocked ? "Site" : "Site (optional)"}
+                options={siteOptions}
+                value={siteIdText}
+                onChange={handleSiteChange}
+                disabled={siteLocked}
+                forceBelow
+                testId="rack-site-select"
+              />
 
-          <Select
-            id="rack-building-select"
-            label="Building (optional)"
-            options={buildingOptions}
-            value={buildingIdText}
-            onChange={setBuildingIdText}
-            // A building can't be chosen without a real site — it scopes the
-            // options and supplies the derived site_id.
-            disabled={!siteSelected}
-            forceBelow
-            testId="rack-building-select"
-          />
+              <Select
+                id="rack-building-select"
+                label="Building (optional)"
+                options={buildingOptions}
+                value={buildingIdText}
+                onChange={setBuildingIdText}
+                // A building can't be chosen without a real site — it scopes the
+                // options and supplies the derived site_id.
+                disabled={!siteSelected}
+                forceBelow
+                testId="rack-building-select"
+              />
+            </>
+          ) : null}
 
           <div className="relative">
             <Input

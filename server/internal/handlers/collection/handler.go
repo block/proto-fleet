@@ -186,6 +186,16 @@ func (h *Handler) SaveRack(ctx context.Context, r *connect.Request[pb.SaveRackRe
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
+	// Placement (site/building) is a site-management action, matching the
+	// dedicated AssignRacksToSite/Building RPCs. Require site:manage when the
+	// request carries placement intent; omitted placement preserves the
+	// current site/building and stays rack:manage. Mirrors the device_set.v1
+	// SaveRack handler.
+	if ri := r.Msg.RackInfo; ri != nil && (ri.SiteId != nil || ri.BuildingId != nil) {
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
 	result, err := h.collectionSvc.SaveRack(ctx, r.Msg)
 	if err != nil {
 		return nil, err

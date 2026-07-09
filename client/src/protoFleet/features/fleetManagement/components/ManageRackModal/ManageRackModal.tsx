@@ -22,6 +22,7 @@ import type { MinerEligibility } from "@/protoFleet/components/MinerSelectionLis
 import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
 import { isMinerSnapshotIneligible } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import { slotNumberToRowCol } from "@/protoFleet/features/fleetManagement/utils/slotNumbering";
+import { useHasPermission } from "@/protoFleet/store";
 
 import { DismissCircle } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
@@ -99,6 +100,11 @@ export default function ManageRackModal({
   onDelete,
 }: ManageRackModalProps) {
   const { saveRack, getRackSlots, listGroupMembers } = useDeviceSets();
+  // Rack placement (site/building) is a site:manage action, enforced server-
+  // side on SaveRack. A rack:manage-only operator edits rack contents without
+  // touching placement, so we omit placement from the request (preserving the
+  // rack's current site/building) rather than sending an explicit change.
+  const canManagePlacement = useHasPermission("site:manage");
 
   // Fetch all miners for display data (name, IP, model, etc.)
   const { miners: minersMap } = useFleet({ pageSize: 1000 });
@@ -525,12 +531,22 @@ export default function ManageRackModal({
           coolingType: rackSettings.coolingType,
           deviceIdentifiers: rackMiners,
           slotAssignments: slotAssignmentsList,
-          // Placement from the dropdowns. On edit, send an explicit 0 for an
-          // Unassigned selection so it actually clears (omitting would
-          // preserve the rack's current placement). On create there's nothing
-          // to preserve, so leave unfilled levels undefined → omitted → NULL.
-          siteId: existingRackId !== undefined ? (rackSettings.siteId ?? 0n) : rackSettings.siteId,
-          buildingId: existingRackId !== undefined ? (rackSettings.buildingId ?? 0n) : rackSettings.buildingId,
+          // Placement from the dropdowns, only when the operator can manage
+          // site placement — otherwise omit it (preserve current / create
+          // unplaced) so a rack:manage-only edit isn't rejected server-side.
+          // On edit, send an explicit 0 for an Unassigned selection so it
+          // actually clears (omitting would preserve). On create there's
+          // nothing to preserve, so unfilled levels are undefined → NULL.
+          siteId: canManagePlacement
+            ? existingRackId !== undefined
+              ? (rackSettings.siteId ?? 0n)
+              : rackSettings.siteId
+            : undefined,
+          buildingId: canManagePlacement
+            ? existingRackId !== undefined
+              ? (rackSettings.buildingId ?? 0n)
+              : rackSettings.buildingId
+            : undefined,
           onSuccess: () => resolve(),
           onError: (msg) => reject(new Error(msg)),
         });
@@ -546,7 +562,7 @@ export default function ManageRackModal({
     } finally {
       setIsSaving(false);
     }
-  }, [existingRackId, rackSettings, rackMiners, totalSlots, activeAssignments, saveRack, onSave]);
+  }, [existingRackId, rackSettings, rackMiners, totalSlots, activeAssignments, canManagePlacement, saveRack, onSave]);
 
   if (!show) return null;
 

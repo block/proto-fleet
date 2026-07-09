@@ -350,6 +350,17 @@ func (h *Handler) SaveRack(ctx context.Context, r *connect.Request[dspb.SaveRack
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
+	// Placing a rack under a site/building is a site-management action —
+	// matching the dedicated AssignRacksToSite/Building RPCs (site:manage).
+	// A rack:manage-only caller may edit rack contents but not place the rack,
+	// so require site:manage when the request carries placement intent (an
+	// explicit site_id/building_id, including 0 to unassign). Omitted placement
+	// preserves the rack's current site/building and stays rack:manage.
+	if ri := r.Msg.RackInfo; ri != nil && (ri.SiteId != nil || ri.BuildingId != nil) {
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
 	req := toCollectionSaveRackReq(r.Msg)
 	result, err := h.svc.SaveRack(ctx, req)
 	if err != nil {
