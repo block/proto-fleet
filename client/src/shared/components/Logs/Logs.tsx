@@ -76,6 +76,7 @@ const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs" }: LogsP
 
   const [searchValue, setSearchValue] = useState<string>("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const searchBarRef = useRef<HTMLDivElement>(null);
   const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
 
@@ -246,23 +247,35 @@ const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs" }: LogsP
   }, [searchValue, filterByLogType]);
 
   const handleScroll = useCallback(() => {
-    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-    const scrollHeight = document.documentElement.scrollHeight;
-    const clientHeight = document.documentElement.clientHeight;
-    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    // The log pane scrolls itself when a fixed-height layout constrains it
+    // (Server Logs); otherwise the document scrolls (Miner Logs).
+    const container = scrollContainerRef.current;
+    let distanceFromBottom: number;
+    if (container && container.scrollHeight > container.clientHeight) {
+      distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    } else {
+      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+      distanceFromBottom = document.documentElement.scrollHeight - scrollTop - document.documentElement.clientHeight;
+    }
     // consider within 5px as "at bottom"
     setIsPinnedToBottom(distanceFromBottom < 5);
   }, []);
 
+  // The log pane only mounts once logs exist, so re-attach when they appear.
+  const hasLogs = logs.length > 0;
   useEffect(() => {
+    if (!hasLogs) return;
+    const container = scrollContainerRef.current;
     window.addEventListener("scroll", handleScroll);
+    container?.addEventListener("scroll", handleScroll);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initialize isPinnedToBottom from current scroll position on mount
     handleScroll();
 
     return () => {
       window.removeEventListener("scroll", handleScroll);
+      container?.removeEventListener("scroll", handleScroll);
     };
-  }, [handleScroll]);
+  }, [handleScroll, hasLogs]);
 
   return (
     <>
@@ -341,7 +354,7 @@ const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs" }: LogsP
               </div>
             </div>
           </div>
-          <div className="h-[calc(100%-60px-58px)] overflow-y-hidden">
+          <div ref={scrollContainerRef} className="h-[calc(100%-60px-58px)] overflow-y-auto">
             <div className="p-4 font-mono text-mono-text-50 font-light text-text-primary">
               {filteredLogs.length ? (
                 filteredLogs.map((log, index) => {
