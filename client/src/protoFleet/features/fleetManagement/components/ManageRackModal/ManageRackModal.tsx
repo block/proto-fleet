@@ -115,19 +115,27 @@ export default function ManageRackModal({
   const totalSlots = rackSettings.rows * rackSettings.columns;
   const numberingOrigin = orderIndexToOrigin(rackSettings.orderIndex);
 
-  // Target-rack placement for the selection modals' eligibility filter. Tracks
-  // the placement chosen in RackSettingsModal (rackSettings) so the assignable
-  // list reflects the site/building the rack will actually land in — including
-  // edits made in-session and a not-yet-saved new rack. `rackId` still keys off
-  // the persisted id (a new rack has none, so only rack membership is excluded
-  // until it's saved).
+  // Target-rack placement for the selection modals' eligibility filter. For an
+  // existing rack, pin to its CURRENT (persisted) placement — not a pending
+  // Site/Building edit in Rack Settings. A move is applied on save and cascades
+  // the rack's members with it, so the members are still at the old placement
+  // here; using the pending placement would flag them ineligible and let
+  // "Select all" drop them. A new rack has no persisted placement, so the live
+  // selection is the intended placement. `rackId` keys off the persisted id (a
+  // new rack has none, so only rack membership is excluded until it's saved).
   const eligibility = useMemo<MinerEligibility>(
     () => ({
       rackId: existingRackId,
-      siteId: rackSettings.siteId,
-      buildingId: rackSettings.buildingId,
+      siteId: existingRackId !== undefined ? initialRackSettings.siteId : rackSettings.siteId,
+      buildingId: existingRackId !== undefined ? initialRackSettings.buildingId : rackSettings.buildingId,
     }),
-    [existingRackId, rackSettings.siteId, rackSettings.buildingId],
+    [
+      existingRackId,
+      initialRackSettings.siteId,
+      initialRackSettings.buildingId,
+      rackSettings.siteId,
+      rackSettings.buildingId,
+    ],
   );
 
   // Core assignment state. A new rack (no existingRackId) can be seeded
