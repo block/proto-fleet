@@ -41,7 +41,14 @@ export const useMinerStatusSummary = (): string => {
   // Determine isSleeping from mining status
   // ProtoOS is always online (you can only see it if connected), so isOffline is always false
   const isSleeping = /PoweringOff|Stopped/i.test(miningStatus || "");
+  const isCurtailed = /Curtailed/i.test(miningStatus || "");
 
   const summary = useSharedMinerStatusSummary(sharedErrors, isSleeping);
+  // Curtailed is a ProtoOS-specific state the shared summary doesn't model:
+  // the rig is on but mining is paused by the curtailment service. Surface it
+  // at the same priority as sleeping so the header doesn't claim "Hashing".
+  if (isCurtailed) {
+    return "Curtailed";
+  }
   return summary.condensed;
 };

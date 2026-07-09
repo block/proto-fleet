@@ -10,11 +10,18 @@ export const useMinerStatusCircle = (): StatusCircleProps["status"] => {
   const miningStatus = useMinerStore((state) => state.minerStatus.miningStatus);
   const errors = useMinerStore((state) => state.minerStatus.errors.errors);
   const isSleeping = /PoweringOff|Stopped/i.test(miningStatus || "");
+  const isCurtailed = /Curtailed/i.test(miningStatus || "");
   const isMining = /Mining/i.test(miningStatus || "");
 
   return useMemo(() => {
     if (isSleeping) {
       return statuses.sleeping;
+    }
+
+    // Curtailed: mining paused by the curtailment service — not an error,
+    // not hashing. Mirror sleeping's priority over errors.
+    if (isCurtailed) {
+      return statuses.inactive;
     }
 
     // Treat all errors equally - show error status if any exist
@@ -28,5 +35,5 @@ export const useMinerStatusCircle = (): StatusCircleProps["status"] => {
 
     // Use 'inactive' for idle state (not mining, no errors)
     return statuses.inactive;
-  }, [errors, isSleeping, isMining]);
+  }, [errors, isSleeping, isCurtailed, isMining]);
 };

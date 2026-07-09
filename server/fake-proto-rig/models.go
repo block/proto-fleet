@@ -333,20 +333,32 @@ func NewMinerState(serialNumber, macAddress string) *MinerState {
 	}
 }
 
-// GetCurtailmentConfig returns a copy of the stored curtailment configuration.
+// cloneCurtailmentConfig deep-copies a curtailment configuration, including
+// each provider's Brokers slice, so callers and MinerState never share
+// mutable slices.
+func cloneCurtailmentConfig(config CurtailmentConfig) CurtailmentConfig {
+	clone := config
+	clone.Providers = make([]CurtailmentProviderConfig, len(config.Providers))
+	for i, provider := range config.Providers {
+		clone.Providers[i] = provider
+		clone.Providers[i].Brokers = append([]string(nil), provider.Brokers...)
+	}
+	return clone
+}
+
+// GetCurtailmentConfig returns a deep copy of the stored curtailment configuration.
 func (s *MinerState) GetCurtailmentConfig() CurtailmentConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	config := s.CurtailmentConfigVal
-	config.Providers = append([]CurtailmentProviderConfig(nil), s.CurtailmentConfigVal.Providers...)
-	return config
+	return cloneCurtailmentConfig(s.CurtailmentConfigVal)
 }
 
-// SetCurtailmentConfig replaces the stored curtailment configuration.
+// SetCurtailmentConfig replaces the stored curtailment configuration with a
+// deep copy of the input, so later mutations by the caller cannot leak in.
 func (s *MinerState) SetCurtailmentConfig(config CurtailmentConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.CurtailmentConfigVal = config
+	s.CurtailmentConfigVal = cloneCurtailmentConfig(config)
 }
 
 // GetSecureOverride returns the current secure override marker state.
