@@ -40,7 +40,10 @@ interface RackSettingsModalProps {
   // own (it always runs in onContinue mode), so the caller passes it.
   existingRack?: boolean;
   onDismiss: () => void;
-  onContinue?: (formData: RackFormData) => void;
+  // May be async: for an existing rack the parent persists the settings (label/
+  // zone/dims + placement) on Continue, so we await it and keep the button busy
+  // until it resolves — a rejection leaves the modal open for a retry.
+  onContinue?: (formData: RackFormData) => void | Promise<void>;
   onSuccess?: () => void;
 }
 
@@ -348,7 +351,7 @@ const RackSettingsModal = ({
     [rackTypes],
   );
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     setLabelError(undefined);
     setColumnsError(undefined);
     setRowsError(undefined);
@@ -386,7 +389,15 @@ const RackSettingsModal = ({
     };
 
     if (!isEditMode) {
-      onContinue?.(formData);
+      // Continue may persist settings (existing rack) or just advance (new
+      // rack). Await either way and keep the button busy so a slow save can't
+      // be double-submitted; the parent reopens/leaves this modal on failure.
+      setIsSubmitting(true);
+      try {
+        await onContinue?.(formData);
+      } finally {
+        setIsSubmitting(false);
+      }
       return;
     }
 

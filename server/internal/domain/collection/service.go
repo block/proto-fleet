@@ -294,10 +294,10 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 	if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && rackInfo == nil {
 		return nil, fleeterror.NewInvalidArgumentError("rack_info is required for rack collections")
 	}
-	// TODO(#226): align with SaveRack's conditional zone rule once site/building UI lands.
-	if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && rackInfo != nil && rackInfo.GetZone() == "" {
-		return nil, fleeterror.NewInvalidArgumentError("zone is required for rack collections")
-	}
+	// Zone is an optional free-text sub-building label (nullable column, no
+	// placement dependency), so it is never required — matching SaveRack and
+	// UpdateCollection. A rack may be created unassigned or in a building with
+	// no zone.
 	if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && rackInfo != nil {
 		if rackInfo.Rows < 1 || rackInfo.Rows > maxRackDimension {
 			return nil, fleeterror.NewInvalidArgumentErrorf("rows must be between 1 and %d", maxRackDimension)
@@ -493,6 +493,18 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 		}
 	}
 
+	// rack_info carries a rack's settings (placement + dimensions). When
+	// present, we persist it here in the same transaction as the label —
+	// "Continue saves settings, Save saves miners" — so a settings change is
+	// atomic and never leaves the rack half-updated. Validate its shape up
+	// front; the rack-vs-group check happens in-tx.
+	rackInfo := req.GetRackInfo()
+	if rackInfo != nil {
+		if err := validateRackInfoShape(rackInfo); err != nil {
+			return nil, err
+		}
+	}
+
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		var label, description *string
 		if req.Label != nil {
@@ -502,22 +514,43 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 			description = req.Description
 		}
 
-		err := s.collectionStore.UpdateCollection(ctx, info.OrganizationID, req.CollectionId, label, description)
+		collType, err := s.collectionStore.GetCollectionType(ctx, info.OrganizationID, req.CollectionId)
 		if err != nil {
+			return nil, err
+		}
+		isRack := collType == pb.CollectionType_COLLECTION_TYPE_RACK
+
+		// Persist rack settings (placement + dimensions) BEFORE the label so
+		// the canonical site -> building -> rack lock order is taken first;
+		// the label write then re-touches the already-locked rack row. This
+		// shares saveRackUpdate's helper so placement/zone are derived
+		// identically, and it never touches membership.
+		var (
+			placementApplied bool
+			rackSiteID       *int64
+			rackBuildingID   *int64
+		)
+		if isRack && rackInfo != nil {
+			// preserveZoneOnEmpty=false: this settings save's form always
+			// submits the rack's current zone, so an empty zone is an explicit
+			// clear — even for a rack:manage operator who omits placement.
+			res, err := s.resolveAndApplyRackPlacement(ctx, info, req.CollectionId, rackInfo, deviceIdentifiers, false /* preserveZoneOnEmpty */)
+			if err != nil {
+				return nil, err
+			}
+			placementApplied = true
+			rackSiteID = res.finalSiteID
+			rackBuildingID = res.finalBuildingID
+		}
+
+		if err := s.collectionStore.UpdateCollection(ctx, info.OrganizationID, req.CollectionId, label, description); err != nil {
 			return nil, err
 		}
 
 		if hasDeviceSelector {
-			collType, err := s.collectionStore.GetCollectionType(ctx, info.OrganizationID, req.CollectionId)
-			if err != nil {
-				return nil, err
-			}
-			var (
-				rackSiteID     *int64
-				rackBuildingID *int64
-			)
-			isRack := collType == pb.CollectionType_COLLECTION_TYPE_RACK
-			if isRack {
+			// When settings weren't touched this call, read the current
+			// placement so the cascade below stamps members correctly.
+			if isRack && !placementApplied {
 				placement, err := s.collectionStore.LockRackPlacementForWrite(ctx, req.CollectionId, info.OrganizationID)
 				if err != nil {
 					return nil, err
@@ -532,16 +565,18 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 				if _, err := s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers); err != nil {
 					return nil, err
 				}
-				// A rack ALWAYS dictates its members' placement, including a
-				// fully-unassigned rack (site + building NULL) — members
-				// can't keep a direct site/building the rack lacks, or the
-				// membership tree diverges. nil placement strips members;
-				// IS DISTINCT FROM no-ops members that already match.
-				if isRack {
-					if _, err := s.cascadeRackMembersToPlacement(ctx, info.OrganizationID, req.CollectionId, rackSiteID, rackBuildingID); err != nil {
-						return nil, err
-					}
-				}
+			}
+		}
+
+		// A rack ALWAYS dictates its members' placement, including a
+		// fully-unassigned rack (site + building NULL) — members can't keep a
+		// direct site/building the rack lacks, or the membership tree diverges.
+		// Cascade the FINAL member set whenever placement moved (settings save)
+		// or membership was replaced (miners save). nil placement strips
+		// members; IS DISTINCT FROM no-ops members that already match.
+		if isRack && (placementApplied || hasDeviceSelector) {
+			if _, err := s.cascadeRackMembersToPlacement(ctx, info.OrganizationID, req.CollectionId, rackSiteID, rackBuildingID); err != nil {
+				return nil, err
 			}
 		}
 
@@ -1947,11 +1982,12 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 	}, nil
 }
 
-// validateSaveRackRequest enforces SaveRack input contract: rack_info
-// shape and slot bounds. Zone is an optional free-text sub-building label
-// (nullable column, no placement dependency), so it is never required —
-// including for a rack that belongs to a building.
-func validateSaveRackRequest(req *pb.SaveRackRequest, rackInfo *pb.RackInfo) error {
+// validateRackInfoShape enforces the rack_info dimension/order/cooling
+// contract shared by every path that persists rack metadata (SaveRack and
+// UpdateCollection's rack-settings branch). Zone is an optional free-text
+// sub-building label (nullable column, no placement dependency), so it is
+// never required — including for a rack that belongs to a building.
+func validateRackInfoShape(rackInfo *pb.RackInfo) error {
 	if rackInfo == nil {
 		return fleeterror.NewInvalidArgumentError("rack_info is required")
 	}
@@ -1972,6 +2008,17 @@ func validateSaveRackRequest(req *pb.SaveRackRequest, rackInfo *pb.RackInfo) err
 	}
 	if _, ok := pb.RackCoolingType_name[int32(rackInfo.CoolingType)]; !ok {
 		return fleeterror.NewInvalidArgumentError("invalid cooling_type value")
+	}
+	return nil
+}
+
+// validateSaveRackRequest enforces SaveRack input contract: rack_info
+// shape and slot bounds. Zone is an optional free-text sub-building label
+// (nullable column, no placement dependency), so it is never required —
+// including for a rack that belongs to a building.
+func validateSaveRackRequest(req *pb.SaveRackRequest, rackInfo *pb.RackInfo) error {
+	if err := validateRackInfoShape(rackInfo); err != nil {
+		return err
 	}
 	for _, slot := range req.SlotAssignments {
 		if slot.Position == nil {
@@ -2111,10 +2158,43 @@ func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *p
 		return nil, fleeterror.NewInvalidArgumentErrorf("collection %d is not a rack", collectionID)
 	}
 
+	// SaveRack is a legacy-shaped save: a miners-only re-save omits placement
+	// AND may carry an empty zone without meaning to clear it, so preserve the
+	// current zone on empty (see resolveAndApplyRackPlacement + the
+	// omitted-placement contract in service_test.go).
+	res, err := s.resolveAndApplyRackPlacement(ctx, info, collectionID, rackInfo, deviceIdentifiers, true /* preserveZoneOnEmpty */)
+	if err != nil {
+		return nil, err
+	}
+	// The label write lands AFTER the placement helper has locked the rack
+	// row (via the canonical site -> building -> rack order), so it cannot
+	// invert lock ordering against a concurrent placement move.
+	if err := s.collectionStore.UpdateCollection(ctx, info.OrganizationID, collectionID, &req.Label, nil); err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// resolveAndApplyRackPlacement locks site/building/rack in canonical order,
+// derives the building-scoped zone, and persists rack_info (dimensions) plus
+// placement. It deliberately touches neither the collection label nor
+// membership, so both the SaveRack update branch and UpdateCollection's
+// rack-settings path can persist placement + dims identically without one
+// path stepping on the other's concern. The caller is responsible for having
+// verified the collection is a rack owned by the org, and for cascading the
+// final member set to the returned placement.
+//
+// preserveZoneOnEmpty controls the empty-zone rule when placement is omitted
+// and the rack stays in a building: SaveRack (legacy save) passes true so a
+// metadata/miners-only re-save can't silently wipe a zone it never edited;
+// the UpdateCollection settings save passes false because its form always
+// submits the current zone, so an empty value is an explicit clear.
+func (s *Service) resolveAndApplyRackPlacement(ctx context.Context, info *session.Info, collectionID int64, rackInfo *pb.RackInfo, deviceIdentifiers []string, preserveZoneOnEmpty bool) (*saveRackUpdatePathResult, error) {
 	var (
 		current       interfaces.RackPlacement
 		newSiteID     *int64
 		newBuildingID *int64
+		err           error
 	)
 	if rackPlacementOmitted(rackInfo) {
 		// Preserve current placement; skip site/building locks since the
@@ -2172,20 +2252,14 @@ func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *p
 	switch {
 	case leavingBuilding || crossingBuildings:
 		finalZone = ""
-	case rackPlacementOmitted(rackInfo) && finalZone == "" && newBuildingID != nil:
+	case preserveZoneOnEmpty && rackPlacementOmitted(rackInfo) && finalZone == "" && newBuildingID != nil:
 		finalZone = current.Zone
 	}
 
-	err = s.collectionStore.UpdateCollection(ctx, info.OrganizationID, collectionID, &req.Label, nil)
-	if err != nil {
+	if err = s.collectionStore.UpdateRackInfo(ctx, collectionID, finalZone, rackInfo.Rows, rackInfo.Columns, int32(rackInfo.OrderIndex), int32(rackInfo.CoolingType), info.OrganizationID); err != nil {
 		return nil, err
 	}
-	err = s.collectionStore.UpdateRackInfo(ctx, collectionID, finalZone, rackInfo.Rows, rackInfo.Columns, int32(rackInfo.OrderIndex), int32(rackInfo.CoolingType), info.OrganizationID)
-	if err != nil {
-		return nil, err
-	}
-	err = s.collectionStore.UpdateRackPlacement(ctx, collectionID, info.OrganizationID, newSiteID, newBuildingID, finalZone)
-	if err != nil {
+	if err = s.collectionStore.UpdateRackPlacement(ctx, collectionID, info.OrganizationID, newSiteID, newBuildingID, finalZone); err != nil {
 		return nil, err
 	}
 

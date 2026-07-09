@@ -150,6 +150,13 @@ interface UpdateRackProps {
   columns?: number;
   orderIndex?: RackOrderIndex;
   coolingType?: RackCoolingType;
+  // Placement (site:manage). Encoded like saveRack: a building fully
+  // determines placement (site derived server-side); an explicit 0n unassigns
+  // that level; undefined omits placement entirely (server preserves the
+  // rack's current site/building). Omit both for a rack:manage-only settings
+  // save that must not move the rack.
+  siteId?: bigint;
+  buildingId?: bigint;
   onSuccess?: (deviceSet: DeviceSet) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -819,12 +826,27 @@ const useDeviceSets = () => {
       columns,
       orderIndex,
       coolingType,
+      siteId,
+      buildingId,
       onSuccess,
       onError,
       onFinally,
     }: UpdateRackProps) => {
       try {
+        // Placement encoding mirrors saveRack: a building fully determines
+        // placement (send only building_id), otherwise send whichever of
+        // site_id / building_id was specified (0n unassigns, undefined omits).
+        const placement: { siteId?: bigint; buildingId?: bigint } = {};
+        if (buildingId !== undefined && buildingId > 0n) {
+          placement.buildingId = buildingId;
+        } else {
+          if (siteId !== undefined) placement.siteId = siteId;
+          if (buildingId !== undefined) placement.buildingId = buildingId;
+        }
+        const hasPlacement = placement.siteId !== undefined || placement.buildingId !== undefined;
+
         const rackInfo =
+          hasPlacement ||
           zone !== undefined ||
           rows !== undefined ||
           columns !== undefined ||
@@ -836,6 +858,7 @@ const useDeviceSets = () => {
                 ...(columns !== undefined && { columns }),
                 ...(orderIndex !== undefined && { orderIndex }),
                 ...(coolingType !== undefined && { coolingType }),
+                ...placement,
               })
             : undefined;
 

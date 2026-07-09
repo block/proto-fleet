@@ -64,6 +64,17 @@ func (h *Handler) UpdateDeviceSet(ctx context.Context, r *connect.Request[dspb.U
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
+	// A rack's placement is now persisted here too (zone/dims + site/building
+	// in one settings save). Placing a rack under a site/building is a
+	// site-management action, so — mirroring SaveRack — require site:manage
+	// when the request carries explicit placement intent (site_id/building_id,
+	// including 0 to unassign). Metadata-only edits (label/zone/dims, or a
+	// membership change) stay rack:manage.
+	if ri, ok := r.Msg.TypeDetails.(*dspb.UpdateDeviceSetRequest_RackInfo); ok && ri.RackInfo != nil && (ri.RackInfo.SiteId != nil || ri.RackInfo.BuildingId != nil) {
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
 	req := toCollectionUpdateReq(r.Msg)
 	result, err := h.svc.UpdateCollection(ctx, req)
 	if err != nil {

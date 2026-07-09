@@ -585,6 +585,10 @@ func TestService_UpdateCollection_WithoutDeviceSelectorLeavesMembers(t *testing.
 	ctx := testCtx(t)
 
 	newLabel := "Renamed Group"
+	// UpdateCollection now reads the collection type up front (to route a rack's
+	// settings save); a group with no device selector still only rewrites its
+	// label and re-reads the collection.
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, testCollectionID).Return(pb.CollectionType_COLLECTION_TYPE_GROUP, nil)
 	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, testCollectionID, &newLabel, (*string)(nil)).Return(nil)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
 		Return(&pb.DeviceCollection{Id: testCollectionID, Label: newLabel, DeviceCount: 3}, nil)
@@ -2018,6 +2022,112 @@ func TestService_SaveRack_ExplicitSameBuildingClearsZone(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "", resp.Collection.GetRackInfo().Zone, "zone cleared for explicit same-building update with empty zone")
 
+	_ = mockSiteStore
+}
+
+// TestService_UpdateCollection_RackSettingsClearsZoneOmittedPlacement covers a
+// rack:manage-only settings save (the Rack Settings "Continue"): placement is
+// omitted (preserved), but an explicitly emptied zone is a real clear. Unlike
+// SaveRack's legacy path, the UpdateCollection settings path uses
+// preserveZoneOnEmpty=false, so it persists "" instead of restoring the current
+// zone. Regression guard for the rack:manage lost-zone-clear defect.
+func TestService_UpdateCollection_RackSettingsClearsZoneOmittedPlacement(t *testing.T) {
+	svc, mockStore, mockSiteStore := newTestServiceWithSites(t, func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return nil, nil
+	})
+	ctx := testCtx(t)
+
+	collectionID := int64(43)
+	existingSite := int64(7)
+	existingBuilding := int64(70)
+
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+	// Omitted placement: no site/building locks, just the rack lock; the rack
+	// currently carries zone "Floor 1".
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &existingSite, BuildingID: &existingBuilding, Zone: "Floor 1"}, nil)
+	// Zone honored as an explicit clear ("") — NOT restored from current.
+	mockStore.EXPECT().UpdateRackInfo(gomock.Any(), collectionID, "", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).Return(nil)
+	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Eq(&existingSite), gomock.Eq(&existingBuilding), "").Return(nil)
+	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, collectionID, gomock.Any(), gomock.Any()).Return(nil)
+	// Settings save cascades current members onto the (unchanged) placement.
+	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), collectionID, testOrgID, gomock.Eq(&existingSite)).Return(int64(0), nil)
+	mockStore.EXPECT().CascadeRackDeviceBuildings(gomock.Any(), collectionID, testOrgID, gomock.Eq(&existingBuilding)).Return(int64(0), nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), collectionID, testOrgID).
+		Return(&pb.RackInfo{Rows: 4, Columns: 8, Zone: "", OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR}, nil)
+
+	label := "Rack"
+	resp, err := svc.UpdateCollection(ctx, &pb.UpdateCollectionRequest{
+		CollectionId: collectionID,
+		Label:        &label,
+		// No SiteId/BuildingId → omitted placement (rack:manage settings save).
+		TypeDetails: &pb.UpdateCollectionRequest_RackInfo{
+			RackInfo: &pb.RackInfo{
+				Rows:        4,
+				Columns:     8,
+				Zone:        "",
+				OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+				CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "", resp.Collection.GetRackInfo().Zone, "empty zone is an explicit clear on the settings-save path")
+	_ = mockSiteStore
+}
+
+// TestService_UpdateCollection_RackSettingsPersistsPlacementAndCascades covers a
+// site:manage settings save (Continue): explicit placement is resolved,
+// persisted, and the rack's current members are cascaded to it — atomically and
+// without touching membership (no device selector). This is the single call
+// that replaces the former two-call updateRack + AssignRacksTo... sequence.
+func TestService_UpdateCollection_RackSettingsPersistsPlacementAndCascades(t *testing.T) {
+	svc, mockStore, mockSiteStore := newTestServiceWithSites(t, func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return nil, nil
+	})
+	ctx := testCtx(t)
+
+	collectionID := int64(43)
+	site := int64(7)
+	building := int64(70)
+
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+	// Explicit building placement resolves + locks site/building (peek + re-read).
+	mockStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, building).Return(&site, nil).Times(2)
+	mockSiteStore.EXPECT().LockSiteForWrite(gomock.Any(), testOrgID, site).Return(nil)
+	mockSiteStore.EXPECT().LockBuildingForWrite(gomock.Any(), testOrgID, building).Return(nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &site, BuildingID: &building, Zone: "Floor 1"}, nil)
+	mockStore.EXPECT().UpdateRackInfo(gomock.Any(), collectionID, "Floor 2", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).Return(nil)
+	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Eq(&site), gomock.Eq(&building), "Floor 2").Return(nil)
+	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, collectionID, gomock.Any(), gomock.Any()).Return(nil)
+	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), collectionID, testOrgID, gomock.Eq(&site)).Return(int64(2), nil)
+	mockStore.EXPECT().CascadeRackDeviceBuildings(gomock.Any(), collectionID, testOrgID, gomock.Eq(&building)).Return(int64(2), nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), collectionID, testOrgID).
+		Return(&pb.RackInfo{Rows: 4, Columns: 8, Zone: "Floor 2", SiteId: &site, BuildingId: &building, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR}, nil)
+
+	label := "Rack"
+	resp, err := svc.UpdateCollection(ctx, &pb.UpdateCollectionRequest{
+		CollectionId: collectionID,
+		Label:        &label,
+		TypeDetails: &pb.UpdateCollectionRequest_RackInfo{
+			RackInfo: &pb.RackInfo{
+				Rows:        4,
+				Columns:     8,
+				Zone:        "Floor 2",
+				OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+				CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+				BuildingId:  &building,
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Floor 2", resp.Collection.GetRackInfo().Zone)
+	assert.Equal(t, building, *resp.Collection.GetRackInfo().BuildingId)
 	_ = mockSiteStore
 }
 

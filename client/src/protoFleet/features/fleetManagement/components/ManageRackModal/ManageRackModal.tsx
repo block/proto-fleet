@@ -7,7 +7,6 @@ import ReparentWarningDialog from "./ReparentWarningDialog";
 import ScanMinerQrModal from "./ScanMinerQrModal";
 import SearchMinersModal from "./SearchMinersModal";
 import { type AssignmentMode, orderIndexToOrigin, originLabel, type RackFormData, type SelectedSlot } from "./types";
-import { useBuildings } from "@/protoFleet/api/buildings";
 import { fetchAllMinerSnapshots } from "@/protoFleet/api/fetchAllMinerSnapshots";
 import { type DeviceSet, type RackSlot } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import {
@@ -16,7 +15,6 @@ import {
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
@@ -101,16 +99,12 @@ export default function ManageRackModal({
   onSave,
   onDelete,
 }: ManageRackModalProps) {
-  const { saveRack, getRackSlots, listGroupMembers } = useDeviceSets();
-  // Placement moves for an in-session Rack Settings change go through the
-  // dedicated assign RPCs, which cascade the rack's CURRENT server-side members
-  // — never the modal's draft membership (see handleRackSettingsUpdate).
-  const { assignRacksToSite } = useSites();
-  const { assignRacksToBuilding } = useBuildings();
+  const { saveRack, updateRack, getRackSlots, listGroupMembers } = useDeviceSets();
   // Rack placement (site/building) is a site:manage action, enforced server-
-  // side on SaveRack. A rack:manage-only operator edits rack contents without
-  // touching placement, so we omit placement from the request (preserving the
-  // rack's current site/building) rather than sending an explicit change.
+  // side on SaveRack and UpdateDeviceSet. A rack:manage-only operator edits
+  // rack contents and metadata (label/zone/dims) without touching placement,
+  // so we omit placement from the request (preserving the rack's current
+  // site/building) rather than sending an explicit change.
   const canManagePlacement = useHasPermission("site:manage");
 
   // Fetch all miners for display data (name, IP, model, etc.)
@@ -500,51 +494,46 @@ export default function ManageRackModal({
     [eligibility, totalSlots, promptReparent],
   );
 
-  // RackSettingsModal edit handler. For an existing rack, a Site/Building
-  // change is persisted right here (not deferred to the final Save) so the
-  // rack — and its server-cascaded members — are already at the new placement
-  // before the operator opens Manage Miners; otherwise the assignable-only
-  // list would judge miners against a placement that isn't live yet. Only a
-  // real placement change triggers this; label/zone/dimension edits stay in
-  // memory until Save. Requires site:manage.
+  // RackSettingsModal "Continue" handler. For an EXISTING rack, Continue is
+  // the settings save: it persists label/zone/dimensions AND placement in a
+  // single atomic UpdateDeviceSet, then cascades the rack's CURRENT server
+  // members to the new placement — all server-side, in one transaction. This
+  // is why the eligibility filter above can trust rackSettings as the rack's
+  // live placement: by the time the operator opens Manage Miners, the rack and
+  // its members are already there. Membership is untouched here — "Continue
+  // saves settings, Save saves miners" — so the modal's draft rackMiners can't
+  // leak into a settings-only change.
   //
-  // Uses the dedicated placement RPCs (AssignRacksToBuilding / ToSite), NOT
-  // SaveRack: they move the rack and cascade its CURRENT persisted members,
-  // and must not touch membership — SaveRack would overwrite it with the
-  // modal's draft `rackMiners` (empty if members haven't loaded, or carrying
-  // unsaved add/removes), committing miner changes the operator never saved.
+  // A NEW rack doesn't exist yet, so there's nothing to persist; its settings
+  // (including placement) ride on the create in handleSave.
   const handleRackSettingsUpdate = useCallback(
     async (formData: RackFormData) => {
       const rackId = existingRackId;
-      const placementChanged =
-        rackId !== undefined &&
-        canManagePlacement &&
-        (formData.siteId !== rackSettings.siteId || formData.buildingId !== rackSettings.buildingId);
-
-      if (placementChanged) {
+      if (rackId !== undefined) {
         try {
           await new Promise<void>((resolve, reject) => {
-            const onError = (msg: string) => reject(new Error(msg));
-            if (formData.buildingId !== undefined) {
-              assignRacksToBuilding({
-                racks: [{ rackId }],
-                targetBuildingId: formData.buildingId,
-                onSuccess: () => resolve(),
-                onError,
-              });
-            } else {
-              // Direct-under-site (siteId set) or fully unassigned (undefined).
-              assignRacksToSite({
-                rackIds: [rackId],
-                targetSiteId: formData.siteId,
-                onSuccess: () => resolve(),
-                onError,
-              });
-            }
+            updateRack({
+              deviceSetId: rackId,
+              label: formData.label,
+              zone: formData.zone,
+              rows: formData.rows,
+              columns: formData.columns,
+              orderIndex: formData.orderIndex,
+              coolingType: formData.coolingType,
+              // site:manage sends explicit placement (an unset level -> 0n
+              // unassign) so the zone is authoritative and the rack + its
+              // members move now. A rack:manage-only operator omits placement,
+              // which preserves the current site/building; their zone edits
+              // (including a clear) still persist server-side.
+              siteId: canManagePlacement ? (formData.siteId ?? 0n) : undefined,
+              buildingId: canManagePlacement ? (formData.buildingId ?? 0n) : undefined,
+              onSuccess: () => resolve(),
+              onError: (msg) => reject(new Error(msg)),
+            });
           });
         } catch (err) {
           pushToast({
-            message: getErrorMessage(err, "Failed to update rack placement. Please try again."),
+            message: getErrorMessage(err, "Failed to update rack settings. Please try again."),
             status: STATUSES.error,
           });
           // Keep Rack Settings open (don't apply) so the operator can retry.
@@ -555,7 +544,7 @@ export default function ManageRackModal({
       setRackSettings(formData);
       setShowRackSettings(false);
     },
-    [existingRackId, canManagePlacement, rackSettings, assignRacksToSite, assignRacksToBuilding],
+    [existingRackId, canManagePlacement, updateRack],
   );
 
   // Save handler — single atomic RPC
@@ -581,15 +570,12 @@ export default function ManageRackModal({
         return { deviceIdentifier: deviceId, row, column: col };
       });
 
-      // Placement rides on CREATE (choose it) and on the one edit case where
-      // omitting it would lose the change: clearing an in-building rack's zone
-      // (the server's omitted-placement path restores the old zone). Every
-      // other existing-rack save omits placement — it's persisted on the Rack
-      // Settings Continue, so omitting keeps a concurrent move from being
-      // clobbered.
-      const clearingInBuildingZone =
-        existingRackId !== undefined && rackSettings.buildingId !== undefined && rackSettings.zone.trim() === "";
-      const sendPlacement = canManagePlacement && (existingRackId === undefined || clearingInBuildingZone);
+      // Placement rides on CREATE only. An existing rack's Site/Building (and
+      // zone/dimensions) are already persisted on the Rack Settings "Continue"
+      // — Continue saves settings, Save saves miners — so an edit Save omits
+      // placement: it preserves the rack's current server placement and can't
+      // clobber a move made by another session while this modal was open.
+      const sendPlacement = canManagePlacement && existingRackId === undefined;
 
       await new Promise<void>((resolve, reject) => {
         saveRack({
@@ -602,17 +588,8 @@ export default function ManageRackModal({
           coolingType: rackSettings.coolingType,
           deviceIdentifiers: rackMiners,
           slotAssignments: slotAssignmentsList,
-          // Placement is only sent on CREATE. An existing rack's Site/Building
-          // change is already persisted on the Rack Settings "Continue", so a
-          // (possibly miners-only) Save omits placement — this preserves the
-          // rack's current server placement and, crucially, can't clobber a
-          // move made by another session while this modal was open. Gated on
-          // site:manage; create sends its chosen placement (unset → NULL).
-          //
-          // Exception: clearing an in-building rack's zone. With placement
-          // omitted the server's legacy path restores the zone from the
-          // current placement, so the blank is silently ignored. Send the
-          // rack's current placement explicitly to mark it a real clear.
+          // Create sends its chosen placement (unset level → NULL), gated on
+          // site:manage. Edit omits placement (persisted on Continue).
           siteId: sendPlacement ? (rackSettings.siteId ?? 0n) : undefined,
           buildingId: sendPlacement ? (rackSettings.buildingId ?? 0n) : undefined,
           onSuccess: () => resolve(),
