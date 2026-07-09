@@ -3,6 +3,7 @@ package main
 import (
 	"time"
 
+	cohortReconciler "github.com/block/proto-fleet/server/internal/domain/cohort/reconciler"
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	curtailmentReconciler "github.com/block/proto-fleet/server/internal/domain/curtailment/reconciler"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
@@ -58,6 +59,7 @@ type Config struct {
 	Pools          pools.Config                 `embed:"" prefix:"pools-" envprefix:"POOLS_"`
 	Encrypt        encrypt.Config               `embed:"" prefix:"encrypt-" envprefix:"ENCRYPT_"`
 	Command        command.Config               `embed:"" prefix:"fleet-command-" envprefix:"FLEET_COMMAND_"`
+	CohortEnforce  cohortReconciler.Config      `embed:"" prefix:"cohort-enforce-" envprefix:"COHORT_ENFORCE_"`
 	Curtailment    curtailmentReconciler.Config `embed:"" prefix:"curtailment-" envprefix:"CURTAILMENT_"`
 	Queue          queue.Config                 `embed:"" prefix:"fleet-queue-" envprefix:"FLEET_QUEUE_"`
 	TimescaleDB    timescaledb.Config           `embed:"" prefix:"timescaledb-" envprefix:"TIMESCALEDB_"`

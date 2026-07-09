@@ -71,13 +71,14 @@ type CohortMember struct {
 // CohortDeviceDisplay is the human-readable fleet metadata shown alongside
 // cohort membership/device rows.
 type CohortDeviceDisplay struct {
-	Name         string
-	WorkerName   string
-	Manufacturer string
-	Model        string
-	IPAddress    string
-	SerialNumber string
-	SiteLabel    string
+	Name            string
+	WorkerName      string
+	Manufacturer    string
+	Model           string
+	IPAddress       string
+	SerialNumber    string
+	SiteLabel       string
+	FirmwareVersion string
 }
 
 // CreateCohortParams is the input shape for cohort creation.
@@ -132,8 +133,8 @@ type SetCohortFirmwareTargetParams struct {
 	CohortID       int64
 	ActorUserID    int64
 	ActorRole      string
-	Manufacturer   string
-	Model          string
+	Manufacturer   *string
+	Model          *string
 	FirmwareFileID *string
 }
 
@@ -241,4 +242,91 @@ type CohortDevice struct {
 	SiteID           *int64
 	EffectiveCohort  Cohort
 	Display          CohortDeviceDisplay
+}
+
+type EnforcementState string
+
+const (
+	EnforcementStatePending     EnforcementState = "pending"
+	EnforcementStateDispatching EnforcementState = "dispatching"
+	EnforcementStateDispatched  EnforcementState = "dispatched"
+	EnforcementStateConfirmed   EnforcementState = "confirmed"
+	EnforcementStateDrifted     EnforcementState = "drifted"
+	EnforcementStateFailed      EnforcementState = "failed"
+)
+
+type FirmwareEnforcementCandidate struct {
+	OrgID                       int64
+	DeviceIdentifier            string
+	Manufacturer                string
+	Model                       string
+	CohortID                    int64
+	OwnerUserID                 *int64
+	OwnerUsername               *string
+	ActorUserID                 int64
+	ActorExternalUserID         string
+	ActorUsername               string
+	FirmwareFileID              string
+	StateDesiredFirmwareFileID  *string
+	StateDesiredFirmwareVersion *string
+	DesiredFirmwareVersion      string
+	ObservedFirmwareVersion     *string
+	FirmwareObservedAt          *time.Time
+	State                       *EnforcementState
+	RetryCount                  int32
+	LastBatchUUID               *string
+	LastDispatchedAt            *time.Time
+	ConfirmedAt                 *time.Time
+	LastError                   *string
+}
+
+type ClaimFirmwareDispatchParams struct {
+	OrgID                  int64
+	DeviceIdentifier       string
+	DesiredFirmwareFileID  string
+	DesiredFirmwareVersion string
+	DispatchingBefore      time.Time
+}
+
+type MarkFirmwareDispatchedParams struct {
+	OrgID                  int64
+	DeviceIdentifier       string
+	DesiredFirmwareFileID  string
+	DesiredFirmwareVersion string
+	LastBatchUUID          string
+	LastDispatchedAt       time.Time
+}
+
+type MarkFirmwareConfirmedParams struct {
+	OrgID                  int64
+	DeviceIdentifier       string
+	DesiredFirmwareFileID  string
+	DesiredFirmwareVersion string
+	ConfirmedAt            time.Time
+	ObservedAt             time.Time
+}
+
+type MarkFirmwareDriftedParams struct {
+	OrgID            int64
+	DeviceIdentifier string
+	ObservedAt       time.Time
+}
+
+type MarkFirmwareDispatchFailureParams struct {
+	OrgID                  int64
+	DeviceIdentifier       string
+	DesiredFirmwareFileID  string
+	DesiredFirmwareVersion string
+	RetryState             EnforcementState
+	LastError              string
+	MaxRetries             int32
+}
+
+type MarkFirmwareDispatchHeldParams struct {
+	OrgID                  int64
+	DeviceIdentifier       string
+	DesiredFirmwareFileID  string
+	DesiredFirmwareVersion string
+	RetryState             EnforcementState
+	LastError              string
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/internal/domain/cohort/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
@@ -34,6 +35,24 @@ func TestMapCohortUpdateError_ActiveLabelUniqueViolation(t *testing.T) {
 
 	assert.True(t, fleeterror.IsAlreadyExistsError(err))
 	assert.Contains(t, err.Error(), "active cohort with this label")
+}
+
+func TestDefaultCohortAvailabilityErrorIsUserFacing(t *testing.T) {
+	t.Parallel()
+
+	product := "Proto"
+	model := "Rig"
+	err := newDefaultCohortAvailabilityError(0, &models.CohortDeviceSelector{
+		Count:   5,
+		Product: &product,
+		Model:   &model,
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsAlreadyExistsError(err))
+	assert.Contains(t, err.Error(), "Only 0 miners are available in the default cohort for Proto Rig. Requested 5 miners.")
+	assert.NotContains(t, err.Error(), "default-cohort")
+	assert.NotContains(t, err.Error(), "product")
 }
 
 func TestCohortPageCursorRoundTrip(t *testing.T) {

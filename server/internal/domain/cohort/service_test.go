@@ -321,8 +321,8 @@ func TestSetCohortFirmwareTarget_AdminCannotMutateAnotherOwnersCohort(t *testing
 		CohortID:     42,
 		ActorUserID:  1,
 		ActorRole:    "ADMIN",
-		Manufacturer: "Proto",
-		Model:        "Rig",
+		Manufacturer: stringPtr("Proto"),
+		Model:        stringPtr("Rig"),
 	})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsForbiddenError(err))
@@ -458,7 +458,7 @@ func TestUpdateCohort_DefaultRejectsLegacyFirmwareSet(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.Contains(t, err.Error(), "per manufacturer/model")
+	assert.Contains(t, err.Error(), "per manufacturer and model")
 }
 
 func TestSetCohortFirmwareTarget_DefaultAllowsPerModelTargets(t *testing.T) {
@@ -494,8 +494,10 @@ func TestSetCohortFirmwareTarget_DefaultAllowsPerModelTargets(t *testing.T) {
 			return ok &&
 				params.OrgID == 7 &&
 				params.CohortID == 42 &&
-				params.Manufacturer == "Proto" &&
-				params.Model == "Rig" &&
+				params.Manufacturer != nil &&
+				*params.Manufacturer == "Proto" &&
+				params.Model != nil &&
+				*params.Model == "Rig" &&
 				params.FirmwareFileID != nil &&
 				*params.FirmwareFileID == firmwareFileID
 		})).
@@ -506,8 +508,6 @@ func TestSetCohortFirmwareTarget_DefaultAllowsPerModelTargets(t *testing.T) {
 		CohortID:       42,
 		ActorUserID:    1,
 		ActorRole:      "SUPER_ADMIN",
-		Manufacturer:   " Proto ",
-		Model:          " Rig ",
 		FirmwareFileID: &firmwareFileID,
 	})
 	require.NoError(t, err)
@@ -524,22 +524,18 @@ func TestSetCohortFirmwareTarget_RejectsFirmwareMismatch(t *testing.T) {
 	}))
 
 	firmwareFileID := "fw-1"
-	defaultCohort := &models.Cohort{ID: 42, OrgID: 7, Label: "Default", IsDefault: true, State: models.CohortStateActive}
-
-	store.EXPECT().GetCohort(gomock.Any(), int64(7), int64(42)).Return(defaultCohort, nil)
-
 	_, err := svc.SetCohortFirmwareTarget(context.Background(), models.SetCohortFirmwareTargetParams{
 		OrgID:          7,
 		CohortID:       42,
 		ActorUserID:    1,
 		ActorRole:      "SUPER_ADMIN",
-		Manufacturer:   "Bitmain",
-		Model:          "S21",
+		Manufacturer:   stringPtr("Bitmain"),
+		Model:          stringPtr("S21"),
 		FirmwareFileID: &firmwareFileID,
 	})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.Contains(t, err.Error(), "does not match requested target")
+	assert.Contains(t, err.Error(), "does not match the requested target")
 }
 
 func TestUpdateCohort_DefaultRejectsNonFirmwareMutation(t *testing.T) {
@@ -683,8 +679,8 @@ func TestSetCohortFirmwareTarget_AuditsSetAndClear(t *testing.T) {
 			CohortID:       42,
 			ActorUserID:    1,
 			ActorRole:      "SUPER_ADMIN",
-			Manufacturer:   "Proto",
-			Model:          "Rig",
+			Manufacturer:   stringPtr("Proto"),
+			Model:          stringPtr("Rig"),
 			FirmwareFileID: &newFirmwareFileID,
 		})
 		require.NoError(t, err)
@@ -723,8 +719,8 @@ func TestSetCohortFirmwareTarget_AuditsSetAndClear(t *testing.T) {
 			CohortID:     42,
 			ActorUserID:  1,
 			ActorRole:    "SUPER_ADMIN",
-			Manufacturer: "Proto",
-			Model:        "Rig",
+			Manufacturer: stringPtr("Proto"),
+			Model:        stringPtr("Rig"),
 		})
 		require.NoError(t, err)
 		assert.Equal(t, after, got)
@@ -839,8 +835,10 @@ func TestUpdateCohort_ValidatesDesiredFirmwareTarget(t *testing.T) {
 				return ok &&
 					params.OrgID == 7 &&
 					params.CohortID == 11 &&
-					params.Manufacturer == "Proto" &&
-					params.Model == "Rig" &&
+					params.Manufacturer != nil &&
+					*params.Manufacturer == "Proto" &&
+					params.Model != nil &&
+					*params.Model == "Rig" &&
 					params.FirmwareFileID != nil &&
 					*params.FirmwareFileID == firmwareFileID
 			})).
@@ -976,6 +974,10 @@ func (l *recordingAuditLogger) Log(_ context.Context, event activitymodels.Event
 }
 
 func ptrInt64(value int64) *int64 {
+	return &value
+}
+
+func stringPtr(value string) *string {
 	return &value
 }
 

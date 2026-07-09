@@ -2,6 +2,9 @@ package interfaces
 
 import (
 	"context"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/block/proto-fleet/server/internal/domain/cohort/models"
 )
@@ -32,4 +35,18 @@ type CohortStore interface {
 	ListCohortDeviceOwnership(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]models.CohortDeviceOwnership, error)
 	ListActiveOwnedCohortMemberships(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]models.CohortDeviceOwnership, error)
 	ListDevices(ctx context.Context, params models.ListDevicesParams) (models.PagedCohortDevices, error)
+}
+
+type CohortFirmwareEnforcementStore interface {
+	ListOrgsWithFirmwareTargets(ctx context.Context) ([]int64, error)
+	ListFirmwareEnforcementCandidates(ctx context.Context, orgID int64) ([]models.FirmwareEnforcementCandidate, error)
+	ClearMissingFirmwareTarget(ctx context.Context, orgID int64, firmwareFileID string) (int64, error)
+	ClaimFirmwareDispatch(ctx context.Context, params models.ClaimFirmwareDispatchParams) (bool, error)
+	MarkFirmwareDispatched(ctx context.Context, params models.MarkFirmwareDispatchedParams) (bool, error)
+	MarkFirmwareConfirmed(ctx context.Context, params models.MarkFirmwareConfirmedParams) (bool, error)
+	MarkFirmwareDrifted(ctx context.Context, params models.MarkFirmwareDriftedParams) (bool, error)
+	MarkFirmwareDispatchFailure(ctx context.Context, params models.MarkFirmwareDispatchFailureParams) (bool, error)
+	MarkFirmwareDispatchHeld(ctx context.Context, params models.MarkFirmwareDispatchHeldParams) (bool, error)
+	IsCommandBatchFinished(ctx context.Context, batchUUID string) (bool, error)
+	UpsertCohortReconcilerHeartbeat(ctx context.Context, lastTickAt time.Time, lastTickUUID uuid.UUID, durationMS *int32, activeDeviceCount int32) error
 }

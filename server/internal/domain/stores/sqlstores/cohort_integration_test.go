@@ -1,6 +1,7 @@
 package sqlstores_test
 
 import (
+	"database/sql"
 	"testing"
 	"time"
 
@@ -32,6 +33,10 @@ func TestCohortStore_CreateGetListAndRelease(t *testing.T) {
 	_, err = siteStore.AssignDevicesToSite(ctx, user.OrganizationID, &site.ID, []string{deviceA.ID, deviceB.ID})
 	require.NoError(t, err)
 	setDeviceDisplayFields(t, tc, user.OrganizationID, deviceA.ID, "Rig A", "worker-a", "SN-A")
+
+	initialCohorts, err := store.ListCohorts(ctx, models.ListCohortsParams{OrgID: user.OrganizationID})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), requireDefaultCohort(t, initialCohorts.Cohorts).ExplicitMemberCount)
 
 	firmwareFileID := "firmware-file-1"
 	ownerUsername := user.Username
@@ -89,6 +94,7 @@ func TestCohortStore_CreateGetListAndRelease(t *testing.T) {
 	listed, err := store.ListCohorts(ctx, models.ListCohortsParams{OrgID: user.OrganizationID})
 	require.NoError(t, err)
 	require.Len(t, listed.Cohorts, 2) // the org default cohort plus the created cohort
+	assert.Equal(t, int64(0), requireDefaultCohort(t, listed.Cohorts).ExplicitMemberCount)
 	userCohorts := nonDefaultCohorts(listed.Cohorts)
 	require.Len(t, userCohorts, 1)
 	assert.Equal(t, created.ID, userCohorts[0].ID)
@@ -111,6 +117,7 @@ func TestCohortStore_CreateGetListAndRelease(t *testing.T) {
 	active, err := store.ListCohorts(ctx, models.ListCohortsParams{OrgID: user.OrganizationID})
 	require.NoError(t, err)
 	assert.Empty(t, nonDefaultCohorts(active.Cohorts)) // only the org default cohort remains active
+	assert.Equal(t, int64(2), requireDefaultCohort(t, active.Cohorts).ExplicitMemberCount)
 
 	withReleased, err := store.ListCohorts(ctx, models.ListCohortsParams{
 		OrgID:           user.OrganizationID,
@@ -184,12 +191,16 @@ func TestCohortStore_SetCohortFirmwareTarget(t *testing.T) {
 	require.NotNil(t, defaultCohort)
 
 	protoFirmwareFileID := "proto-fw"
+	testCorp := "TestCorp"
+	testMiner := "TestMiner"
+	bitmain := "Bitmain"
+	s21 := "S21"
 	antminerFirmwareFileID := "antminer-fw"
 	updatedDefault, err := store.SetCohortFirmwareTarget(ctx, models.SetCohortFirmwareTargetParams{
 		OrgID:          user.OrganizationID,
 		CohortID:       defaultCohort.ID,
-		Manufacturer:   "TestCorp",
-		Model:          "TestMiner",
+		Manufacturer:   &testCorp,
+		Model:          &testMiner,
 		FirmwareFileID: &protoFirmwareFileID,
 	})
 	require.NoError(t, err)
@@ -198,11 +209,27 @@ func TestCohortStore_SetCohortFirmwareTarget(t *testing.T) {
 	require.NotNil(t, updatedDefault.FirmwareTargets[0].FirmwareFileID)
 	assert.Equal(t, protoFirmwareFileID, *updatedDefault.FirmwareTargets[0].FirmwareFileID)
 
+	replacementProtoFirmwareFileID := "proto-fw-replacement"
+	lowerTestCorp := "testcorp"
+	lowerTestMiner := "testminer"
 	updatedDefault, err = store.SetCohortFirmwareTarget(ctx, models.SetCohortFirmwareTargetParams{
 		OrgID:          user.OrganizationID,
 		CohortID:       defaultCohort.ID,
-		Manufacturer:   "Bitmain",
-		Model:          "S21",
+		Manufacturer:   &lowerTestCorp,
+		Model:          &lowerTestMiner,
+		FirmwareFileID: &replacementProtoFirmwareFileID,
+	})
+	require.NoError(t, err)
+	require.Len(t, updatedDefault.FirmwareTargets, 1)
+	assert.Equal(t, lowerTestCorp, updatedDefault.FirmwareTargets[0].Manufacturer)
+	require.NotNil(t, updatedDefault.FirmwareTargets[0].FirmwareFileID)
+	assert.Equal(t, replacementProtoFirmwareFileID, *updatedDefault.FirmwareTargets[0].FirmwareFileID)
+
+	updatedDefault, err = store.SetCohortFirmwareTarget(ctx, models.SetCohortFirmwareTargetParams{
+		OrgID:          user.OrganizationID,
+		CohortID:       defaultCohort.ID,
+		Manufacturer:   &bitmain,
+		Model:          &s21,
 		FirmwareFileID: &antminerFirmwareFileID,
 	})
 	require.NoError(t, err)
@@ -211,8 +238,8 @@ func TestCohortStore_SetCohortFirmwareTarget(t *testing.T) {
 	updatedDefault, err = store.SetCohortFirmwareTarget(ctx, models.SetCohortFirmwareTargetParams{
 		OrgID:        user.OrganizationID,
 		CohortID:     defaultCohort.ID,
-		Manufacturer: "TestCorp",
-		Model:        "TestMiner",
+		Manufacturer: &testCorp,
+		Model:        &testMiner,
 	})
 	require.NoError(t, err)
 	require.Len(t, updatedDefault.FirmwareTargets, 1)
@@ -234,8 +261,8 @@ func TestCohortStore_SetCohortFirmwareTarget(t *testing.T) {
 	updatedCohort, err := store.SetCohortFirmwareTarget(ctx, models.SetCohortFirmwareTargetParams{
 		OrgID:          user.OrganizationID,
 		CohortID:       created.ID,
-		Manufacturer:   "TestCorp",
-		Model:          "TestMiner",
+		Manufacturer:   &testCorp,
+		Model:          &testMiner,
 		FirmwareFileID: &cohortFirmwareFileID,
 	})
 	require.NoError(t, err)
@@ -244,6 +271,481 @@ func TestCohortStore_SetCohortFirmwareTarget(t *testing.T) {
 	require.Len(t, updatedCohort.FirmwareTargets, 1)
 	require.NotNil(t, updatedCohort.FirmwareTargets[0].FirmwareFileID)
 	assert.Equal(t, cohortFirmwareFileID, *updatedCohort.FirmwareTargets[0].FirmwareFileID)
+
+	cleared, err := store.ClearMissingFirmwareTarget(ctx, user.OrganizationID, cohortFirmwareFileID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), cleared)
+
+	clearedCohort, err := store.GetCohort(ctx, user.OrganizationID, created.ID)
+	require.NoError(t, err)
+	assert.Nil(t, clearedCohort.DesiredFirmwareFileID)
+	assert.Empty(t, clearedCohort.FirmwareTargets)
+}
+
+func TestCohortStore_MarkFirmwareConfirmedClearsStaleDispatchForNewTarget(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	user := tc.DatabaseService.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCohortStore(tc.DatabaseService.DB)
+	ctx := t.Context()
+
+	deviceIdentifier := "firmware-confirm-target-change"
+	oldFileID := "firmware-1.3.5"
+	oldVersion := "1.3.5"
+	newFileID := "firmware-1.3.6"
+	newVersion := "1.3.6"
+	dispatchAt := time.Date(2026, 7, 2, 18, 6, 35, 0, time.UTC)
+
+	claimed, err := store.ClaimFirmwareDispatch(ctx, models.ClaimFirmwareDispatchParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceIdentifier,
+		DesiredFirmwareFileID:  oldFileID,
+		DesiredFirmwareVersion: oldVersion,
+		DispatchingBefore:      dispatchAt.Add(-time.Minute),
+	})
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	dispatched, err := store.MarkFirmwareDispatched(ctx, models.MarkFirmwareDispatchedParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceIdentifier,
+		DesiredFirmwareFileID:  oldFileID,
+		DesiredFirmwareVersion: oldVersion,
+		LastBatchUUID:          "old-batch",
+		LastDispatchedAt:       dispatchAt,
+	})
+	require.NoError(t, err)
+	require.True(t, dispatched)
+
+	confirmed, err := store.MarkFirmwareConfirmed(ctx, models.MarkFirmwareConfirmedParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceIdentifier,
+		DesiredFirmwareFileID:  oldFileID,
+		DesiredFirmwareVersion: oldVersion,
+		ConfirmedAt:            dispatchAt.Add(time.Minute),
+		ObservedAt:             dispatchAt.Add(time.Minute),
+	})
+	require.NoError(t, err)
+	require.True(t, confirmed)
+
+	row := readFirmwareEnforcementState(t, tc.DatabaseService.DB, user.OrganizationID, deviceIdentifier)
+	assert.Equal(t, "confirmed", row.state)
+	assert.Equal(t, oldFileID, row.desiredFileID)
+	assert.Equal(t, oldVersion, row.desiredVersion)
+	assert.True(t, row.lastBatchUUID.Valid)
+	assert.True(t, row.lastDispatchedAt.Valid)
+
+	confirmed, err = store.MarkFirmwareConfirmed(ctx, models.MarkFirmwareConfirmedParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceIdentifier,
+		DesiredFirmwareFileID:  newFileID,
+		DesiredFirmwareVersion: newVersion,
+		ConfirmedAt:            dispatchAt.Add(2 * time.Minute),
+		ObservedAt:             dispatchAt.Add(2 * time.Minute),
+	})
+	require.NoError(t, err)
+	require.True(t, confirmed)
+
+	row = readFirmwareEnforcementState(t, tc.DatabaseService.DB, user.OrganizationID, deviceIdentifier)
+	assert.Equal(t, "confirmed", row.state)
+	assert.Equal(t, newFileID, row.desiredFileID)
+	assert.Equal(t, newVersion, row.desiredVersion)
+	assert.False(t, row.lastBatchUUID.Valid)
+	assert.False(t, row.lastDispatchedAt.Valid)
+}
+
+func TestCohortStore_ClaimFirmwareDispatchResetsRetryAndTargetScopedFieldsOnTargetChange(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	user := tc.DatabaseService.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCohortStore(tc.DatabaseService.DB)
+	ctx := t.Context()
+
+	deviceIdentifier := "firmware-claim-target-change"
+	oldFileID := "firmware-1.0.0"
+	oldVersion := "1.0.0"
+	newFileID := "firmware-2.0.0"
+	newVersion := "2.0.0"
+	dispatchAt := time.Date(2026, 7, 2, 19, 0, 0, 0, time.UTC)
+
+	claimed, err := store.ClaimFirmwareDispatch(ctx, models.ClaimFirmwareDispatchParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceIdentifier,
+		DesiredFirmwareFileID:  oldFileID,
+		DesiredFirmwareVersion: oldVersion,
+		DispatchingBefore:      dispatchAt.Add(-time.Hour),
+	})
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	_, err = tc.DatabaseService.DB.ExecContext(ctx, `
+		UPDATE device_enforcement_state
+		SET state = 'failed',
+		    retry_count = 4,
+		    last_batch_uuid = 'stale-batch',
+		    last_dispatched_at = $3,
+		    confirmed_at = $3,
+		    observed_at = $3,
+		    last_error = 'old failure'
+		WHERE org_id = $1
+		  AND device_identifier = $2
+		  AND dimension = 'firmware'
+	`, user.OrganizationID, deviceIdentifier, dispatchAt)
+	require.NoError(t, err)
+
+	claimed, err = store.ClaimFirmwareDispatch(ctx, models.ClaimFirmwareDispatchParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceIdentifier,
+		DesiredFirmwareFileID:  newFileID,
+		DesiredFirmwareVersion: newVersion,
+		DispatchingBefore:      dispatchAt.Add(-time.Hour),
+	})
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	row := readFirmwareEnforcementState(t, tc.DatabaseService.DB, user.OrganizationID, deviceIdentifier)
+	assert.Equal(t, "dispatching", row.state)
+	assert.Equal(t, newFileID, row.desiredFileID)
+	assert.Equal(t, newVersion, row.desiredVersion)
+	assert.Equal(t, int32(0), row.retryCount)
+	assert.False(t, row.lastBatchUUID.Valid)
+	assert.False(t, row.lastDispatchedAt.Valid)
+	assert.False(t, row.confirmedAt.Valid)
+	assert.False(t, row.observedAt.Valid)
+	assert.False(t, row.lastError.Valid)
+}
+
+func TestCohortStore_ClaimFirmwareDispatchDoesNotReclaimFreshDispatchingState(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	user := tc.DatabaseService.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCohortStore(tc.DatabaseService.DB)
+	ctx := t.Context()
+
+	deviceIdentifier := "firmware-dispatch-timeout"
+	fileID := "firmware-1.0.0"
+	version := "1.0.0"
+
+	claimed, err := store.ClaimFirmwareDispatch(ctx, models.ClaimFirmwareDispatchParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceIdentifier,
+		DesiredFirmwareFileID:  fileID,
+		DesiredFirmwareVersion: version,
+		DispatchingBefore:      time.Now().Add(-time.Hour),
+	})
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	claimed, err = store.ClaimFirmwareDispatch(ctx, models.ClaimFirmwareDispatchParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceIdentifier,
+		DesiredFirmwareFileID:  fileID,
+		DesiredFirmwareVersion: version,
+		DispatchingBefore:      time.Now().Add(-time.Minute),
+	})
+	require.NoError(t, err)
+	assert.False(t, claimed)
+
+	claimed, err = store.ClaimFirmwareDispatch(ctx, models.ClaimFirmwareDispatchParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceIdentifier,
+		DesiredFirmwareFileID:  fileID,
+		DesiredFirmwareVersion: version,
+		DispatchingBefore:      time.Now().Add(time.Hour),
+	})
+	require.NoError(t, err)
+	assert.True(t, claimed)
+}
+
+func TestCohortStore_DispatchCompletionAndFailureAreTargetGuarded(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	user := tc.DatabaseService.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCohortStore(tc.DatabaseService.DB)
+	ctx := t.Context()
+
+	deviceIdentifier := "firmware-target-guard"
+	oldFileID := "firmware-old"
+	oldVersion := "1.0.0"
+	newFileID := "firmware-new"
+	newVersion := "2.0.0"
+	now := time.Date(2026, 7, 2, 20, 0, 0, 0, time.UTC)
+
+	claimed, err := store.ClaimFirmwareDispatch(ctx, models.ClaimFirmwareDispatchParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceIdentifier,
+		DesiredFirmwareFileID:  newFileID,
+		DesiredFirmwareVersion: newVersion,
+		DispatchingBefore:      now.Add(-time.Hour),
+	})
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	dispatched, err := store.MarkFirmwareDispatched(ctx, models.MarkFirmwareDispatchedParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceIdentifier,
+		DesiredFirmwareFileID:  oldFileID,
+		DesiredFirmwareVersion: oldVersion,
+		LastBatchUUID:          "old-batch",
+		LastDispatchedAt:       now,
+	})
+	require.NoError(t, err)
+	assert.False(t, dispatched)
+
+	failed, err := store.MarkFirmwareDispatchFailure(ctx, models.MarkFirmwareDispatchFailureParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceIdentifier,
+		DesiredFirmwareFileID:  oldFileID,
+		DesiredFirmwareVersion: oldVersion,
+		RetryState:             models.EnforcementStateDrifted,
+		LastError:              "old target failed",
+		MaxRetries:             3,
+	})
+	require.NoError(t, err)
+	assert.False(t, failed)
+
+	row := readFirmwareEnforcementState(t, tc.DatabaseService.DB, user.OrganizationID, deviceIdentifier)
+	assert.Equal(t, "dispatching", row.state)
+	assert.Equal(t, newFileID, row.desiredFileID)
+	assert.Equal(t, newVersion, row.desiredVersion)
+	assert.Equal(t, int32(0), row.retryCount)
+	assert.False(t, row.lastBatchUUID.Valid)
+	assert.False(t, row.lastError.Valid)
+
+	failed, err = store.MarkFirmwareDispatchFailure(ctx, models.MarkFirmwareDispatchFailureParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceIdentifier,
+		DesiredFirmwareFileID:  newFileID,
+		DesiredFirmwareVersion: newVersion,
+		RetryState:             models.EnforcementStateDrifted,
+		LastError:              "new target failed",
+		MaxRetries:             3,
+	})
+	require.NoError(t, err)
+	assert.True(t, failed)
+
+	row = readFirmwareEnforcementState(t, tc.DatabaseService.DB, user.OrganizationID, deviceIdentifier)
+	assert.Equal(t, "drifted", row.state)
+	assert.Equal(t, int32(1), row.retryCount)
+	require.True(t, row.lastError.Valid)
+	assert.Equal(t, "new target failed", row.lastError.String)
+}
+
+func TestCohortStore_MarkFirmwareDispatchHeldDoesNotIncrementRetry(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	user := tc.DatabaseService.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCohortStore(tc.DatabaseService.DB)
+	ctx := t.Context()
+
+	deviceIdentifier := "firmware-held"
+	fileID := "firmware-held-target"
+	version := "1.0.0"
+
+	claimed, err := store.ClaimFirmwareDispatch(ctx, models.ClaimFirmwareDispatchParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceIdentifier,
+		DesiredFirmwareFileID:  fileID,
+		DesiredFirmwareVersion: version,
+		DispatchingBefore:      time.Now().Add(-time.Hour),
+	})
+	require.NoError(t, err)
+	require.True(t, claimed)
+
+	held, err := store.MarkFirmwareDispatchHeld(ctx, models.MarkFirmwareDispatchHeldParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceIdentifier,
+		DesiredFirmwareFileID:  fileID,
+		DesiredFirmwareVersion: version,
+		RetryState:             models.EnforcementStateDrifted,
+		LastError:              "policy skip: curtailment",
+	})
+	require.NoError(t, err)
+	require.True(t, held)
+
+	row := readFirmwareEnforcementState(t, tc.DatabaseService.DB, user.OrganizationID, deviceIdentifier)
+	assert.Equal(t, "drifted", row.state)
+	assert.Equal(t, int32(0), row.retryCount)
+	require.True(t, row.lastError.Valid)
+	assert.Equal(t, "policy skip: curtailment", row.lastError.String)
+}
+
+func TestCohortStore_FirmwareTargetAndMembershipChangesResetEnforcementState(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	user := tc.DatabaseService.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCohortStore(tc.DatabaseService.DB)
+	ctx := t.Context()
+
+	manufacturer := "TestCorp"
+	model := "TestMiner"
+	firmwareFileID := "firmware-reset-target"
+
+	targetDevice := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
+	targetCohort, err := store.CreateCohort(ctx, models.CreateCohortParams{
+		OrgID:             user.OrganizationID,
+		Label:             "target reset",
+		Purpose:           "target reset",
+		SourceActorType:   models.SourceActorUser,
+		DeviceIdentifiers: []string{targetDevice.ID},
+	})
+	require.NoError(t, err)
+	requireFirmwareDispatchClaim(t, store, user.OrganizationID, targetDevice.ID, firmwareFileID, "1.0.0")
+	_, err = store.SetCohortFirmwareTarget(ctx, models.SetCohortFirmwareTargetParams{
+		OrgID:          user.OrganizationID,
+		CohortID:       targetCohort.ID,
+		Manufacturer:   &manufacturer,
+		Model:          &model,
+		FirmwareFileID: &firmwareFileID,
+	})
+	require.NoError(t, err)
+	requireNoFirmwareEnforcementState(t, tc.DatabaseService.DB, user.OrganizationID, targetDevice.ID)
+
+	requireFirmwareDispatchClaim(t, store, user.OrganizationID, targetDevice.ID, firmwareFileID, "1.0.0")
+	_, err = store.SetCohortFirmwareTarget(ctx, models.SetCohortFirmwareTargetParams{
+		OrgID:        user.OrganizationID,
+		CohortID:     targetCohort.ID,
+		Manufacturer: &manufacturer,
+		Model:        &model,
+	})
+	require.NoError(t, err)
+	requireNoFirmwareEnforcementState(t, tc.DatabaseService.DB, user.OrganizationID, targetDevice.ID)
+
+	moveDevice := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
+	moveSource, err := store.CreateCohort(ctx, models.CreateCohortParams{
+		OrgID:             user.OrganizationID,
+		Label:             "move source",
+		Purpose:           "move source",
+		SourceActorType:   models.SourceActorUser,
+		DeviceIdentifiers: []string{moveDevice.ID},
+	})
+	require.NoError(t, err)
+	require.NotZero(t, moveSource.ID)
+	moveTarget, err := store.CreateCohort(ctx, models.CreateCohortParams{
+		OrgID:           user.OrganizationID,
+		Label:           "move target",
+		Purpose:         "move target",
+		SourceActorType: models.SourceActorUser,
+	})
+	require.NoError(t, err)
+	requireFirmwareDispatchClaim(t, store, user.OrganizationID, moveDevice.ID, firmwareFileID, "1.0.0")
+	_, err = store.MoveDevicesToCohort(ctx, models.MembershipMutationParams{
+		OrgID:             user.OrganizationID,
+		CohortID:          moveTarget.ID,
+		DeviceIdentifiers: []string{moveDevice.ID},
+	})
+	require.NoError(t, err)
+	requireNoFirmwareEnforcementState(t, tc.DatabaseService.DB, user.OrganizationID, moveDevice.ID)
+
+	removeDevice := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
+	removeCohort, err := store.CreateCohort(ctx, models.CreateCohortParams{
+		OrgID:             user.OrganizationID,
+		Label:             "remove reset",
+		Purpose:           "remove reset",
+		SourceActorType:   models.SourceActorUser,
+		DeviceIdentifiers: []string{removeDevice.ID},
+	})
+	require.NoError(t, err)
+	requireFirmwareDispatchClaim(t, store, user.OrganizationID, removeDevice.ID, firmwareFileID, "1.0.0")
+	_, err = store.RemoveDevicesAndGetCohort(ctx, models.MembershipMutationParams{
+		OrgID:             user.OrganizationID,
+		CohortID:          removeCohort.ID,
+		DeviceIdentifiers: []string{removeDevice.ID},
+	})
+	require.NoError(t, err)
+	requireNoFirmwareEnforcementState(t, tc.DatabaseService.DB, user.OrganizationID, removeDevice.ID)
+
+	releaseDevice := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
+	releaseCohort, err := store.CreateCohort(ctx, models.CreateCohortParams{
+		OrgID:             user.OrganizationID,
+		Label:             "release reset",
+		Purpose:           "release reset",
+		SourceActorType:   models.SourceActorUser,
+		DeviceIdentifiers: []string{releaseDevice.ID},
+	})
+	require.NoError(t, err)
+	requireFirmwareDispatchClaim(t, store, user.OrganizationID, releaseDevice.ID, firmwareFileID, "1.0.0")
+	_, err = store.ReleaseCohort(ctx, user.OrganizationID, releaseCohort.ID)
+	require.NoError(t, err)
+	requireNoFirmwareEnforcementState(t, tc.DatabaseService.DB, user.OrganizationID, releaseDevice.ID)
+
+	expiredDevice := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
+	expiresAt := time.Now().Add(-time.Minute)
+	expiredCohort, err := store.CreateCohort(ctx, models.CreateCohortParams{
+		OrgID:             user.OrganizationID,
+		Label:             "expiry reset",
+		Purpose:           "expiry reset",
+		SourceActorType:   models.SourceActorUser,
+		ExpiresAt:         &expiresAt,
+		DeviceIdentifiers: []string{expiredDevice.ID},
+	})
+	require.NoError(t, err)
+	requireFirmwareDispatchClaim(t, store, user.OrganizationID, expiredDevice.ID, firmwareFileID, "1.0.0")
+	released, err := store.SweepExpiredCohorts(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, released)
+	assert.Contains(t, cohortIDs(released), expiredCohort.ID)
+	requireNoFirmwareEnforcementState(t, tc.DatabaseService.DB, user.OrganizationID, expiredDevice.ID)
+}
+
+func TestCohortStore_ListFirmwareEnforcementCandidatesMatchesTargetCaseInsensitively(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	user := tc.DatabaseService.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCohortStore(tc.DatabaseService.DB)
+	ctx := t.Context()
+
+	device := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
+	setDiscoveredDeviceShape(t, tc, user.OrganizationID, device.ID, "Proto", "Rig")
+	pairCohortTestDevice(t, tc, user.OrganizationID, device.ID)
+	upsertObservedFirmware(t, tc, user.OrganizationID, device.ID, "0.9.0")
+
+	listed, err := store.ListCohorts(ctx, models.ListCohortsParams{OrgID: user.OrganizationID})
+	require.NoError(t, err)
+	defaultCohort := requireDefaultCohort(t, listed.Cohorts)
+
+	manufacturer := "proto"
+	model := "rig"
+	firmwareFileID := "proto-rig-fw"
+	_, err = store.SetCohortFirmwareTarget(ctx, models.SetCohortFirmwareTargetParams{
+		OrgID:          user.OrganizationID,
+		CohortID:       defaultCohort.ID,
+		Manufacturer:   &manufacturer,
+		Model:          &model,
+		FirmwareFileID: &firmwareFileID,
+	})
+	require.NoError(t, err)
+
+	candidates, err := store.ListFirmwareEnforcementCandidates(ctx, user.OrganizationID)
+	require.NoError(t, err)
+	require.Len(t, candidates, 1)
+	assert.Equal(t, device.ID, candidates[0].DeviceIdentifier)
+	assert.Equal(t, "Proto", candidates[0].Manufacturer)
+	assert.Equal(t, "Rig", candidates[0].Model)
+	assert.Equal(t, firmwareFileID, candidates[0].FirmwareFileID)
+	require.NotNil(t, candidates[0].ObservedFirmwareVersion)
+	assert.Equal(t, "0.9.0", *candidates[0].ObservedFirmwareVersion)
 }
 
 func TestCohortStore_RejectsDuplicateDeviceMembership(t *testing.T) {
@@ -275,6 +777,92 @@ func TestCohortStore_RejectsDuplicateDeviceMembership(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsAlreadyExistsError(err), "expected AlreadyExists, got %v", err)
+}
+
+type firmwareEnforcementStateRow struct {
+	state            string
+	desiredFileID    string
+	desiredVersion   string
+	retryCount       int32
+	lastBatchUUID    sql.NullString
+	lastDispatchedAt sql.NullTime
+	confirmedAt      sql.NullTime
+	observedAt       sql.NullTime
+	lastError        sql.NullString
+}
+
+func readFirmwareEnforcementState(t *testing.T, db *sql.DB, orgID int64, deviceIdentifier string) firmwareEnforcementStateRow {
+	t.Helper()
+
+	row, ok := maybeReadFirmwareEnforcementState(t, db, orgID, deviceIdentifier)
+	require.True(t, ok, "missing firmware enforcement state for %q", deviceIdentifier)
+	return row
+}
+
+func maybeReadFirmwareEnforcementState(t *testing.T, db *sql.DB, orgID int64, deviceIdentifier string) (firmwareEnforcementStateRow, bool) {
+	t.Helper()
+
+	var row firmwareEnforcementStateRow
+	err := db.QueryRowContext(t.Context(), `
+		SELECT
+			state,
+			desired_firmware_file_id,
+			desired_firmware_version,
+			retry_count,
+			last_batch_uuid,
+			last_dispatched_at,
+			confirmed_at,
+			observed_at,
+			last_error
+		FROM device_enforcement_state
+		WHERE org_id = $1
+		  AND device_identifier = $2
+		  AND dimension = 'firmware'
+	`, orgID, deviceIdentifier).Scan(
+		&row.state,
+		&row.desiredFileID,
+		&row.desiredVersion,
+		&row.retryCount,
+		&row.lastBatchUUID,
+		&row.lastDispatchedAt,
+		&row.confirmedAt,
+		&row.observedAt,
+		&row.lastError,
+	)
+	if err == sql.ErrNoRows {
+		return firmwareEnforcementStateRow{}, false
+	}
+	require.NoError(t, err)
+	return row, true
+}
+
+func requireNoFirmwareEnforcementState(t *testing.T, db *sql.DB, orgID int64, deviceIdentifier string) {
+	t.Helper()
+
+	_, ok := maybeReadFirmwareEnforcementState(t, db, orgID, deviceIdentifier)
+	require.False(t, ok, "expected no firmware enforcement state for %q", deviceIdentifier)
+}
+
+func requireFirmwareDispatchClaim(t *testing.T, store *sqlstores.SQLCohortStore, orgID int64, deviceIdentifier string, firmwareFileID string, firmwareVersion string) {
+	t.Helper()
+
+	claimed, err := store.ClaimFirmwareDispatch(t.Context(), models.ClaimFirmwareDispatchParams{
+		OrgID:                  orgID,
+		DeviceIdentifier:       deviceIdentifier,
+		DesiredFirmwareFileID:  firmwareFileID,
+		DesiredFirmwareVersion: firmwareVersion,
+		DispatchingBefore:      time.Now().Add(-time.Hour),
+	})
+	require.NoError(t, err)
+	require.True(t, claimed)
+}
+
+func cohortIDs(cohorts []*models.Cohort) []int64 {
+	ids := make([]int64, 0, len(cohorts))
+	for _, cohort := range cohorts {
+		ids = append(ids, cohort.ID)
+	}
+	return ids
 }
 
 func TestCohortStore_CreateRejectsMismatchedDesiredFirmwareTarget(t *testing.T) {
@@ -624,6 +1212,18 @@ func nonDefaultCohorts(cohorts []*models.Cohort) []*models.Cohort {
 	return out
 }
 
+func requireDefaultCohort(t *testing.T, cohorts []*models.Cohort) *models.Cohort {
+	t.Helper()
+
+	for _, c := range cohorts {
+		if c.IsDefault {
+			return c
+		}
+	}
+	require.Fail(t, "missing default cohort")
+	return nil
+}
+
 func requireCohortMember(t *testing.T, members []models.CohortMember, deviceIdentifier string) models.CohortMember {
 	t.Helper()
 
@@ -649,6 +1249,53 @@ func setDiscoveredDeviceShape(t *testing.T, tc *testutil.TestContext, orgID int6
 		  AND d.device_identifier = $2
 		  AND dd.org_id = $1
 	`, orgID, deviceIdentifier, manufacturer, model)
+	require.NoError(t, err)
+	affected, err := result.RowsAffected()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), affected)
+}
+
+func pairCohortTestDevice(t *testing.T, tc *testutil.TestContext, orgID int64, deviceIdentifier string) {
+	t.Helper()
+
+	result, err := tc.DatabaseService.DB.ExecContext(t.Context(), `
+		INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+		SELECT d.id, 'PAIRED', CURRENT_TIMESTAMP
+		FROM device d
+		WHERE d.org_id = $1
+		  AND d.device_identifier = $2
+		  AND d.deleted_at IS NULL
+		ON CONFLICT (device_id)
+		DO UPDATE SET
+		    pairing_status = EXCLUDED.pairing_status,
+		    paired_at = EXCLUDED.paired_at
+	`, orgID, deviceIdentifier)
+	require.NoError(t, err)
+	affected, err := result.RowsAffected()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), affected)
+}
+
+func upsertObservedFirmware(t *testing.T, tc *testutil.TestContext, orgID int64, deviceIdentifier string, firmwareVersion string) {
+	t.Helper()
+
+	result, err := tc.DatabaseService.DB.ExecContext(t.Context(), `
+		INSERT INTO device_firmware_state (
+		    org_id,
+		    device_identifier,
+		    firmware_version,
+		    observed_at
+		) VALUES (
+		    $1,
+		    $2,
+		    $3,
+		    CURRENT_TIMESTAMP
+		)
+		ON CONFLICT (org_id, device_identifier)
+		DO UPDATE SET
+		    firmware_version = EXCLUDED.firmware_version,
+		    observed_at = EXCLUDED.observed_at
+	`, orgID, deviceIdentifier, firmwareVersion)
 	require.NoError(t, err)
 	affected, err := result.RowsAffected()
 	require.NoError(t, err)

@@ -181,8 +181,12 @@ func TestScheduler_AddDevices(t *testing.T) {
 		}
 
 		err = s.AddDevices(ctx, device)
-		require.NoError(t, err) // Should not return error, just log warning
+		require.NoError(t, err)
 		assert.Equal(t, 1, s.GetDeviceCount())
+		devices, err := s.GetAllDevices(ctx)
+		require.NoError(t, err)
+		require.Len(t, devices, 1)
+		assert.Equal(t, device.LastUpdatedAt, devices[0].LastUpdatedAt)
 	})
 }
 

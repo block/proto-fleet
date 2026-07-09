@@ -45,6 +45,46 @@ func (q *Queries) BulkInsertCohortMemberships(ctx context.Context, arg BulkInser
 	return result.RowsAffected()
 }
 
+const clearCohortDesiredFirmwareFileReferences = `-- name: ClearCohortDesiredFirmwareFileReferences :execrows
+UPDATE cohort
+SET desired_firmware_file_id = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE org_id = $1
+  AND desired_firmware_file_id = $2
+`
+
+type ClearCohortDesiredFirmwareFileReferencesParams struct {
+	OrgID          int64
+	FirmwareFileID sql.NullString
+}
+
+func (q *Queries) ClearCohortDesiredFirmwareFileReferences(ctx context.Context, arg ClearCohortDesiredFirmwareFileReferencesParams) (int64, error) {
+	result, err := q.exec(ctx, q.clearCohortDesiredFirmwareFileReferencesStmt, clearCohortDesiredFirmwareFileReferences, arg.OrgID, arg.FirmwareFileID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const clearCohortFirmwareTargetFileReferences = `-- name: ClearCohortFirmwareTargetFileReferences :execrows
+DELETE FROM cohort_firmware_target
+WHERE org_id = $1
+  AND firmware_file_id = $2
+`
+
+type ClearCohortFirmwareTargetFileReferencesParams struct {
+	OrgID          int64
+	FirmwareFileID sql.NullString
+}
+
+func (q *Queries) ClearCohortFirmwareTargetFileReferences(ctx context.Context, arg ClearCohortFirmwareTargetFileReferencesParams) (int64, error) {
+	result, err := q.exec(ctx, q.clearCohortFirmwareTargetFileReferencesStmt, clearCohortFirmwareTargetFileReferences, arg.OrgID, arg.FirmwareFileID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const countCohortDevices = `-- name: CountCohortDevices :one
 WITH cohort_devices AS (
     SELECT
@@ -107,11 +147,17 @@ WHERE (
   )
   AND (
     cardinality($5::text[]) = 0
-    OR manufacturer = ANY($5::text[])
+    OR LOWER(BTRIM(manufacturer)) = ANY(
+        SELECT LOWER(BTRIM(value))
+        FROM unnest($5::text[]) AS value
+    )
   )
   AND (
     cardinality($6::text[]) = 0
-    OR model = ANY($6::text[])
+    OR LOWER(BTRIM(model)) = ANY(
+        SELECT LOWER(BTRIM(value))
+        FROM unnest($6::text[]) AS value
+    )
   )
   AND (
     cardinality($7::bigint[]) = 0
@@ -377,8 +423,8 @@ const deleteCohortFirmwareTarget = `-- name: DeleteCohortFirmwareTarget :execrow
 DELETE FROM cohort_firmware_target
 WHERE cohort_id = $1
   AND org_id = $2
-  AND manufacturer = $3
-  AND model = $4
+  AND LOWER(BTRIM(manufacturer)) = LOWER(BTRIM($3::text))
+  AND LOWER(BTRIM(model)) = LOWER(BTRIM($4::text))
 `
 
 type DeleteCohortFirmwareTargetParams struct {
@@ -463,7 +509,19 @@ func (q *Queries) DeleteCohortMembershipsByDevice(ctx context.Context, arg Delet
 const getCohort = `-- name: GetCohort :one
 SELECT
     c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,
-    COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
+    CASE
+        WHEN c.is_default THEN (
+            SELECT COUNT(*)::bigint
+            FROM device d_default
+            LEFT JOIN cohort_membership cm_default
+                ON cm_default.org_id = d_default.org_id
+               AND cm_default.device_identifier = d_default.device_identifier
+            WHERE d_default.org_id = c.org_id
+              AND d_default.deleted_at IS NULL
+              AND cm_default.cohort_id IS NULL
+        )
+        ELSE COALESCE(m.explicit_member_count, 0)::bigint
+    END AS explicit_member_count
 FROM cohort c
 LEFT JOIN (
     SELECT cohort_id, COUNT(*) AS explicit_member_count
@@ -680,10 +738,23 @@ WITH cohort_devices AS (
         COALESCE(dd.manufacturer, '') AS manufacturer,
         COALESCE(dd.model, '') AS model,
         COALESCE(dd.ip_address, '') AS ip_address,
+        COALESCE(dd.firmware_version, '') AS firmware_version,
         COALESCE(d.serial_number, '') AS serial_number,
         COALESCE(s.name, '') AS site_label,
         c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,
-        COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
+        CASE
+            WHEN c.is_default THEN (
+                SELECT COUNT(*)::bigint
+                FROM device d_default
+                LEFT JOIN cohort_membership cm_default
+                    ON cm_default.org_id = d_default.org_id
+                   AND cm_default.device_identifier = d_default.device_identifier
+                WHERE d_default.org_id = c.org_id
+                  AND d_default.deleted_at IS NULL
+                  AND cm_default.cohort_id IS NULL
+            )
+            ELSE COALESCE(m.explicit_member_count, 0)::bigint
+        END AS explicit_member_count
     FROM device d
     JOIN discovered_device dd
         ON dd.id = d.discovered_device_id
@@ -713,7 +784,7 @@ WITH cohort_devices AS (
         OR d.site_id = $17
       )
 )
-SELECT device_identifier, device_site_id, display_name, worker_name, manufacturer, model, ip_address, serial_number, site_label, id, org_id, label, is_default, owner_user_id, owner_username, expires_at, desired_firmware_file_id, desired_config_jsonb, state, purpose, source_actor_type, source_actor_id, idempotency_key, created_at, updated_at, explicit_member_count
+SELECT device_identifier, device_site_id, display_name, worker_name, manufacturer, model, ip_address, firmware_version, serial_number, site_label, id, org_id, label, is_default, owner_user_id, owner_username, expires_at, desired_firmware_file_id, desired_config_jsonb, state, purpose, source_actor_type, source_actor_id, idempotency_key, created_at, updated_at, explicit_member_count
 FROM cohort_devices
 WHERE (
     cardinality($1::text[]) = 0
@@ -731,11 +802,17 @@ WHERE (
   )
   AND (
     cardinality($5::text[]) = 0
-    OR manufacturer = ANY($5::text[])
+    OR LOWER(BTRIM(manufacturer)) = ANY(
+        SELECT LOWER(BTRIM(value))
+        FROM unnest($5::text[]) AS value
+    )
   )
   AND (
     cardinality($6::text[]) = 0
-    OR model = ANY($6::text[])
+    OR LOWER(BTRIM(model)) = ANY(
+        SELECT LOWER(BTRIM(value))
+        FROM unnest($6::text[]) AS value
+    )
   )
   AND (
     cardinality($7::bigint[]) = 0
@@ -792,6 +869,7 @@ type ListCohortDevicesRow struct {
 	Manufacturer          string
 	Model                 string
 	IpAddress             string
+	FirmwareVersion       string
 	SerialNumber          string
 	SiteLabel             string
 	ID                    int64
@@ -848,6 +926,7 @@ func (q *Queries) ListCohortDevices(ctx context.Context, arg ListCohortDevicesPa
 			&i.Manufacturer,
 			&i.Model,
 			&i.IpAddress,
+			&i.FirmwareVersion,
 			&i.SerialNumber,
 			&i.SiteLabel,
 			&i.ID,
@@ -937,6 +1016,7 @@ SELECT
     COALESCE(dd.manufacturer, '') AS manufacturer,
     COALESCE(dd.model, '') AS model,
     COALESCE(dd.ip_address, '') AS ip_address,
+    COALESCE(dd.firmware_version, '') AS firmware_version,
     COALESCE(d.serial_number, '') AS serial_number,
     COALESCE(s.name, '') AS site_label
 FROM cohort_membership cm
@@ -973,6 +1053,7 @@ type ListCohortMembersRow struct {
 	Manufacturer     string
 	Model            string
 	IpAddress        string
+	FirmwareVersion  string
 	SerialNumber     string
 	SiteLabel        string
 }
@@ -997,6 +1078,7 @@ func (q *Queries) ListCohortMembers(ctx context.Context, arg ListCohortMembersPa
 			&i.Manufacturer,
 			&i.Model,
 			&i.IpAddress,
+			&i.FirmwareVersion,
 			&i.SerialNumber,
 			&i.SiteLabel,
 		); err != nil {
@@ -1016,7 +1098,19 @@ func (q *Queries) ListCohortMembers(ctx context.Context, arg ListCohortMembersPa
 const listCohorts = `-- name: ListCohorts :many
 SELECT
     c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,
-    COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
+    CASE
+        WHEN c.is_default THEN (
+            SELECT COUNT(*)::bigint
+            FROM device d_default
+            LEFT JOIN cohort_membership cm_default
+                ON cm_default.org_id = d_default.org_id
+               AND cm_default.device_identifier = d_default.device_identifier
+            WHERE d_default.org_id = c.org_id
+              AND d_default.deleted_at IS NULL
+              AND cm_default.cohort_id IS NULL
+        )
+        ELSE COALESCE(m.explicit_member_count, 0)::bigint
+    END AS explicit_member_count
 FROM cohort c
 LEFT JOIN (
     SELECT cohort_id, COUNT(*) AS explicit_member_count
@@ -1132,7 +1226,19 @@ func (q *Queries) ListCohorts(ctx context.Context, arg ListCohortsParams) ([]Lis
 const listCohortsByOwner = `-- name: ListCohortsByOwner :many
 SELECT
     c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,
-    COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
+    CASE
+        WHEN c.is_default THEN (
+            SELECT COUNT(*)::bigint
+            FROM device d_default
+            LEFT JOIN cohort_membership cm_default
+                ON cm_default.org_id = d_default.org_id
+               AND cm_default.device_identifier = d_default.device_identifier
+            WHERE d_default.org_id = c.org_id
+              AND d_default.deleted_at IS NULL
+              AND cm_default.cohort_id IS NULL
+        )
+        ELSE COALESCE(m.explicit_member_count, 0)::bigint
+    END AS explicit_member_count
 FROM cohort c
 LEFT JOIN (
     SELECT cohort_id, COUNT(*) AS explicit_member_count
@@ -1255,11 +1361,11 @@ WHERE d.org_id = $1
   AND cm.cohort_id IS NULL
   AND (
     NOT $2::boolean
-    OR dd.manufacturer = $3
+    OR LOWER(BTRIM(dd.manufacturer)) = LOWER(BTRIM($3::text))
   )
   AND (
     NOT $4::boolean
-    OR dd.model = $5
+    OR LOWER(BTRIM(dd.model)) = LOWER(BTRIM($5::text))
   )
   AND (
     NOT $6::boolean
@@ -1362,7 +1468,19 @@ func (q *Queries) ListDeviceSitesForIdentifiers(ctx context.Context, arg ListDev
 const listExpiredActiveCohorts = `-- name: ListExpiredActiveCohorts :many
 SELECT
     c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,
-    COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
+    CASE
+        WHEN c.is_default THEN (
+            SELECT COUNT(*)::bigint
+            FROM device d_default
+            LEFT JOIN cohort_membership cm_default
+                ON cm_default.org_id = d_default.org_id
+               AND cm_default.device_identifier = d_default.device_identifier
+            WHERE d_default.org_id = c.org_id
+              AND d_default.deleted_at IS NULL
+              AND cm_default.cohort_id IS NULL
+        )
+        ELSE COALESCE(m.explicit_member_count, 0)::bigint
+    END AS explicit_member_count
 FROM cohort c
 LEFT JOIN (
     SELECT cohort_id, COUNT(*) AS explicit_member_count
@@ -1479,7 +1597,19 @@ func (q *Queries) ReleaseCohort(ctx context.Context, arg ReleaseCohortParams) (C
 const resolveEffectiveCohortForDevice = `-- name: ResolveEffectiveCohortForDevice :one
 SELECT
     c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,
-    COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
+    CASE
+        WHEN c.is_default THEN (
+            SELECT COUNT(*)::bigint
+            FROM device d_default
+            LEFT JOIN cohort_membership cm_default
+                ON cm_default.org_id = d_default.org_id
+               AND cm_default.device_identifier = d_default.device_identifier
+            WHERE d_default.org_id = c.org_id
+              AND d_default.deleted_at IS NULL
+              AND cm_default.cohort_id IS NULL
+        )
+        ELSE COALESCE(m.explicit_member_count, 0)::bigint
+    END AS explicit_member_count
 FROM device d
 LEFT JOIN cohort_membership cm
     ON cm.org_id = d.org_id
@@ -1680,9 +1810,11 @@ INSERT INTO cohort_firmware_target (
     $4,
     $5
 )
-ON CONFLICT (cohort_id, manufacturer, model)
+ON CONFLICT (cohort_id, (LOWER(BTRIM(manufacturer))), (LOWER(BTRIM(model))))
 DO UPDATE SET
     firmware_file_id = EXCLUDED.firmware_file_id,
+    manufacturer = EXCLUDED.manufacturer,
+    model = EXCLUDED.model,
     updated_at = CURRENT_TIMESTAMP
 RETURNING cohort_id, org_id, manufacturer, model, firmware_file_id, created_at, updated_at
 `

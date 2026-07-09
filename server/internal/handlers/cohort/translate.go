@@ -83,8 +83,8 @@ func toSetCohortFirmwareTargetParams(req *pb.SetCohortFirmwareTargetRequest, inf
 		CohortID:       req.GetCohortId(),
 		ActorUserID:    info.UserID,
 		ActorRole:      info.Role,
-		Manufacturer:   req.GetManufacturer(),
-		Model:          req.GetModel(),
+		Manufacturer:   stringPtrFromOptional(req.Manufacturer),
+		Model:          stringPtrFromOptional(req.Model),
 		FirmwareFileID: stringPtrFromOptional(req.FirmwareFileId),
 	}
 }
@@ -187,6 +187,7 @@ func toProtoCohortSummary(cohort *models.Cohort) *pb.CohortSummary {
 		CreatedAt:             timestamppb.New(cohort.CreatedAt),
 		UpdatedAt:             timestamppb.New(cohort.UpdatedAt),
 		ExplicitMemberCount:   cohort.ExplicitMemberCount,
+		FirmwareTargets:       toProtoFirmwareTargets(cohort.FirmwareTargets),
 	}
 	if cohort.OwnerUserID != nil {
 		out.OwnerUserId = cohort.OwnerUserID
@@ -249,13 +250,14 @@ func toProtoCohortDevices(devices []models.CohortDevice) []*pb.CohortDevice {
 
 func toProtoDeviceDisplay(display models.CohortDeviceDisplay) *pb.CohortDeviceDisplay {
 	return &pb.CohortDeviceDisplay{
-		Name:         display.Name,
-		WorkerName:   display.WorkerName,
-		Manufacturer: display.Manufacturer,
-		Model:        display.Model,
-		IpAddress:    display.IPAddress,
-		SerialNumber: display.SerialNumber,
-		SiteLabel:    display.SiteLabel,
+		Name:            display.Name,
+		WorkerName:      display.WorkerName,
+		Manufacturer:    display.Manufacturer,
+		Model:           display.Model,
+		IpAddress:       display.IPAddress,
+		SerialNumber:    display.SerialNumber,
+		SiteLabel:       display.SiteLabel,
+		FirmwareVersion: display.FirmwareVersion,
 	}
 }
 
@@ -276,7 +278,7 @@ func structToJSON(s *structpb.Struct) (json.RawMessage, error) {
 	}
 	b, err := protojson.Marshal(s)
 	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("invalid desired_config: %v", err)
+		return nil, fleeterror.NewInvalidArgumentErrorf("Desired configuration is not valid: %v", err)
 	}
 	return json.RawMessage(b), nil
 }

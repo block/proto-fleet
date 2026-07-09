@@ -80,6 +80,7 @@ message CohortSummary {
     google.protobuf.Timestamp updated_at = 21;
 
     int64 explicit_member_count = 31;
+    repeated CohortFirmwareTarget firmware_targets = 32;
 }
 
 message CohortFirmwareTarget {
@@ -103,6 +104,7 @@ message CohortDeviceDisplay {
     string ip_address = 5;
     string serial_number = 6;
     string site_label = 7;
+    string firmware_version = 8;
 }
 
 // CohortMember is an explicit non-default cohort membership row. Default
@@ -184,8 +186,8 @@ message UpdateCohortResponse {
 
 message SetCohortFirmwareTargetRequest {
     int64 cohort_id = 1 [(buf.validate.field).int64.gt = 0];
-    string manufacturer = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
-    string model = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    optional string manufacturer = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    optional string model = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
     optional string firmware_file_id = 4 [(buf.validate.field).string.max_len = 255];
 }
 

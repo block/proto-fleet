@@ -1646,6 +1646,21 @@ func (s *SQLDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdenti
 	return nil
 }
 
+func (s *SQLDeviceStore) UpsertDeviceFirmwareState(ctx context.Context, orgID int64, deviceIdentifier models.DeviceIdentifier, firmwareVersion string, observedAt time.Time) error {
+	if firmwareVersion == "" || orgID <= 0 {
+		return nil
+	}
+	if err := s.getQueries(ctx).UpsertDeviceFirmwareState(ctx, sqlc.UpsertDeviceFirmwareStateParams{
+		OrgID:            orgID,
+		DeviceIdentifier: string(deviceIdentifier),
+		FirmwareVersion:  firmwareVersion,
+		ObservedAt:       observedAt,
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to upsert firmware state for device %s: %v", deviceIdentifier, err)
+	}
+	return nil
+}
+
 func (s *SQLDeviceStore) UpdateWorkerName(ctx context.Context, deviceIdentifier models.DeviceIdentifier, workerName string) error {
 	affected, err := s.getQueries(ctx).UpdateDeviceWorkerName(ctx, sqlc.UpdateDeviceWorkerNameParams{
 		DeviceIdentifier: string(deviceIdentifier),

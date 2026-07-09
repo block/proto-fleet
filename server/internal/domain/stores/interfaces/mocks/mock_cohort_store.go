@@ -12,8 +12,10 @@ package mocks
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	models "github.com/block/proto-fleet/server/internal/domain/cohort/models"
+	uuid "github.com/google/uuid"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -323,4 +325,192 @@ func (m *MockCohortStore) UpdateDefaultCohortFirmware(ctx context.Context, param
 func (mr *MockCohortStoreMockRecorder) UpdateDefaultCohortFirmware(ctx, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDefaultCohortFirmware", reflect.TypeOf((*MockCohortStore)(nil).UpdateDefaultCohortFirmware), ctx, params)
+}
+
+// MockCohortFirmwareEnforcementStore is a mock of CohortFirmwareEnforcementStore interface.
+type MockCohortFirmwareEnforcementStore struct {
+	ctrl     *gomock.Controller
+	recorder *MockCohortFirmwareEnforcementStoreMockRecorder
+	isgomock struct{}
+}
+
+// MockCohortFirmwareEnforcementStoreMockRecorder is the mock recorder for MockCohortFirmwareEnforcementStore.
+type MockCohortFirmwareEnforcementStoreMockRecorder struct {
+	mock *MockCohortFirmwareEnforcementStore
+}
+
+// NewMockCohortFirmwareEnforcementStore creates a new mock instance.
+func NewMockCohortFirmwareEnforcementStore(ctrl *gomock.Controller) *MockCohortFirmwareEnforcementStore {
+	mock := &MockCohortFirmwareEnforcementStore{ctrl: ctrl}
+	mock.recorder = &MockCohortFirmwareEnforcementStoreMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCohortFirmwareEnforcementStore) EXPECT() *MockCohortFirmwareEnforcementStoreMockRecorder {
+	return m.recorder
+}
+
+// ClaimFirmwareDispatch mocks base method.
+func (m *MockCohortFirmwareEnforcementStore) ClaimFirmwareDispatch(ctx context.Context, params models.ClaimFirmwareDispatchParams) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimFirmwareDispatch", ctx, params)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimFirmwareDispatch indicates an expected call of ClaimFirmwareDispatch.
+func (mr *MockCohortFirmwareEnforcementStoreMockRecorder) ClaimFirmwareDispatch(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimFirmwareDispatch", reflect.TypeOf((*MockCohortFirmwareEnforcementStore)(nil).ClaimFirmwareDispatch), ctx, params)
+}
+
+// ClearMissingFirmwareTarget mocks base method.
+func (m *MockCohortFirmwareEnforcementStore) ClearMissingFirmwareTarget(ctx context.Context, orgID int64, firmwareFileID string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearMissingFirmwareTarget", ctx, orgID, firmwareFileID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClearMissingFirmwareTarget indicates an expected call of ClearMissingFirmwareTarget.
+func (mr *MockCohortFirmwareEnforcementStoreMockRecorder) ClearMissingFirmwareTarget(ctx, orgID, firmwareFileID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearMissingFirmwareTarget", reflect.TypeOf((*MockCohortFirmwareEnforcementStore)(nil).ClearMissingFirmwareTarget), ctx, orgID, firmwareFileID)
+}
+
+// IsCommandBatchFinished mocks base method.
+func (m *MockCohortFirmwareEnforcementStore) IsCommandBatchFinished(ctx context.Context, batchUUID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsCommandBatchFinished", ctx, batchUUID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IsCommandBatchFinished indicates an expected call of IsCommandBatchFinished.
+func (mr *MockCohortFirmwareEnforcementStoreMockRecorder) IsCommandBatchFinished(ctx, batchUUID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsCommandBatchFinished", reflect.TypeOf((*MockCohortFirmwareEnforcementStore)(nil).IsCommandBatchFinished), ctx, batchUUID)
+}
+
+// ListFirmwareEnforcementCandidates mocks base method.
+func (m *MockCohortFirmwareEnforcementStore) ListFirmwareEnforcementCandidates(ctx context.Context, orgID int64) ([]models.FirmwareEnforcementCandidate, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListFirmwareEnforcementCandidates", ctx, orgID)
+	ret0, _ := ret[0].([]models.FirmwareEnforcementCandidate)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListFirmwareEnforcementCandidates indicates an expected call of ListFirmwareEnforcementCandidates.
+func (mr *MockCohortFirmwareEnforcementStoreMockRecorder) ListFirmwareEnforcementCandidates(ctx, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListFirmwareEnforcementCandidates", reflect.TypeOf((*MockCohortFirmwareEnforcementStore)(nil).ListFirmwareEnforcementCandidates), ctx, orgID)
+}
+
+// ListOrgsWithFirmwareTargets mocks base method.
+func (m *MockCohortFirmwareEnforcementStore) ListOrgsWithFirmwareTargets(ctx context.Context) ([]int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOrgsWithFirmwareTargets", ctx)
+	ret0, _ := ret[0].([]int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListOrgsWithFirmwareTargets indicates an expected call of ListOrgsWithFirmwareTargets.
+func (mr *MockCohortFirmwareEnforcementStoreMockRecorder) ListOrgsWithFirmwareTargets(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOrgsWithFirmwareTargets", reflect.TypeOf((*MockCohortFirmwareEnforcementStore)(nil).ListOrgsWithFirmwareTargets), ctx)
+}
+
+// MarkFirmwareConfirmed mocks base method.
+func (m *MockCohortFirmwareEnforcementStore) MarkFirmwareConfirmed(ctx context.Context, params models.MarkFirmwareConfirmedParams) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkFirmwareConfirmed", ctx, params)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkFirmwareConfirmed indicates an expected call of MarkFirmwareConfirmed.
+func (mr *MockCohortFirmwareEnforcementStoreMockRecorder) MarkFirmwareConfirmed(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkFirmwareConfirmed", reflect.TypeOf((*MockCohortFirmwareEnforcementStore)(nil).MarkFirmwareConfirmed), ctx, params)
+}
+
+// MarkFirmwareDispatchFailure mocks base method.
+func (m *MockCohortFirmwareEnforcementStore) MarkFirmwareDispatchFailure(ctx context.Context, params models.MarkFirmwareDispatchFailureParams) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkFirmwareDispatchFailure", ctx, params)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkFirmwareDispatchFailure indicates an expected call of MarkFirmwareDispatchFailure.
+func (mr *MockCohortFirmwareEnforcementStoreMockRecorder) MarkFirmwareDispatchFailure(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkFirmwareDispatchFailure", reflect.TypeOf((*MockCohortFirmwareEnforcementStore)(nil).MarkFirmwareDispatchFailure), ctx, params)
+}
+
+// MarkFirmwareDispatchHeld mocks base method.
+func (m *MockCohortFirmwareEnforcementStore) MarkFirmwareDispatchHeld(ctx context.Context, params models.MarkFirmwareDispatchHeldParams) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkFirmwareDispatchHeld", ctx, params)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkFirmwareDispatchHeld indicates an expected call of MarkFirmwareDispatchHeld.
+func (mr *MockCohortFirmwareEnforcementStoreMockRecorder) MarkFirmwareDispatchHeld(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkFirmwareDispatchHeld", reflect.TypeOf((*MockCohortFirmwareEnforcementStore)(nil).MarkFirmwareDispatchHeld), ctx, params)
+}
+
+// MarkFirmwareDispatched mocks base method.
+func (m *MockCohortFirmwareEnforcementStore) MarkFirmwareDispatched(ctx context.Context, params models.MarkFirmwareDispatchedParams) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkFirmwareDispatched", ctx, params)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkFirmwareDispatched indicates an expected call of MarkFirmwareDispatched.
+func (mr *MockCohortFirmwareEnforcementStoreMockRecorder) MarkFirmwareDispatched(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkFirmwareDispatched", reflect.TypeOf((*MockCohortFirmwareEnforcementStore)(nil).MarkFirmwareDispatched), ctx, params)
+}
+
+// MarkFirmwareDrifted mocks base method.
+func (m *MockCohortFirmwareEnforcementStore) MarkFirmwareDrifted(ctx context.Context, params models.MarkFirmwareDriftedParams) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkFirmwareDrifted", ctx, params)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkFirmwareDrifted indicates an expected call of MarkFirmwareDrifted.
+func (mr *MockCohortFirmwareEnforcementStoreMockRecorder) MarkFirmwareDrifted(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkFirmwareDrifted", reflect.TypeOf((*MockCohortFirmwareEnforcementStore)(nil).MarkFirmwareDrifted), ctx, params)
+}
+
+// UpsertCohortReconcilerHeartbeat mocks base method.
+func (m *MockCohortFirmwareEnforcementStore) UpsertCohortReconcilerHeartbeat(ctx context.Context, lastTickAt time.Time, lastTickUUID uuid.UUID, durationMS *int32, activeDeviceCount int32) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertCohortReconcilerHeartbeat", ctx, lastTickAt, lastTickUUID, durationMS, activeDeviceCount)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertCohortReconcilerHeartbeat indicates an expected call of UpsertCohortReconcilerHeartbeat.
+func (mr *MockCohortFirmwareEnforcementStoreMockRecorder) UpsertCohortReconcilerHeartbeat(ctx, lastTickAt, lastTickUUID, durationMS, activeDeviceCount any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertCohortReconcilerHeartbeat", reflect.TypeOf((*MockCohortFirmwareEnforcementStore)(nil).UpsertCohortReconcilerHeartbeat), ctx, lastTickAt, lastTickUUID, durationMS, activeDeviceCount)
 }

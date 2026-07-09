@@ -97,10 +97,10 @@ func (s *Service) CreateCohort(ctx context.Context, params models.CreateCohortPa
 	params.Label = strings.TrimSpace(params.Label)
 	params.Purpose = strings.TrimSpace(params.Purpose)
 	if params.Label == "" {
-		return nil, fleeterror.NewInvalidArgumentError("cohort label is required")
+		return nil, fleeterror.NewInvalidArgumentError("Enter a cohort label.")
 	}
 	if params.Purpose == "" {
-		return nil, fleeterror.NewInvalidArgumentError("cohort purpose is required")
+		return nil, fleeterror.NewInvalidArgumentError("Enter a cohort purpose.")
 	}
 	if params.DesiredFirmwareFileID != nil && strings.TrimSpace(*params.DesiredFirmwareFileID) == "" {
 		params.DesiredFirmwareFileID = nil
@@ -108,7 +108,7 @@ func (s *Service) CreateCohort(ctx context.Context, params models.CreateCohortPa
 	if params.DesiredFirmwareFileID != nil && s.firmwareMetadata != nil {
 		metadata, err := s.firmwareMetadata.GetFirmwareMetadata(*params.DesiredFirmwareFileID)
 		if err != nil {
-			return nil, fleeterror.NewInvalidArgumentErrorf("invalid desired_firmware_file_id: %v", err)
+			return nil, fleeterror.NewInvalidArgumentErrorf("Couldn't read the selected firmware file: %v", err)
 		}
 		params.DesiredFirmwareTargetManufacturer = metadata.TargetManufacturer
 		params.DesiredFirmwareTargetModel = metadata.TargetModel
@@ -118,15 +118,15 @@ func (s *Service) CreateCohort(ctx context.Context, params models.CreateCohortPa
 	}
 	if params.DeviceSelector != nil {
 		if len(params.DeviceIdentifiers) > 0 || params.SourceDeviceSetID != nil {
-			return nil, fleeterror.NewInvalidArgumentError("select cannot be combined with explicit devices or source_device_set_id")
+			return nil, fleeterror.NewInvalidArgumentError("Choose only one way to add initial members.")
 		}
 		params.DeviceSelector.Product = trimOptionalString(params.DeviceSelector.Product)
 		params.DeviceSelector.Model = trimOptionalString(params.DeviceSelector.Model)
 		if params.DeviceSelector.Count <= 0 {
-			return nil, fleeterror.NewInvalidArgumentError("select.count must be greater than zero")
+			return nil, fleeterror.NewInvalidArgumentError("Count must be greater than zero.")
 		}
 		if params.DeviceSelector.Count > 10000 {
-			return nil, fleeterror.NewInvalidArgumentError("select.count must be at most 10000")
+			return nil, fleeterror.NewInvalidArgumentError("Count must be at most 10,000.")
 		}
 	}
 	if params.SourceDeviceSetID != nil {
@@ -138,21 +138,21 @@ func (s *Service) CreateCohort(ctx context.Context, params models.CreateCohortPa
 			return nil, err
 		}
 		if collectionType != collectionpb.CollectionType_COLLECTION_TYPE_GROUP {
-			return nil, fleeterror.NewInvalidArgumentError("source_device_set_id must reference a group")
+			return nil, fleeterror.NewInvalidArgumentError("Select a group for the initial members.")
 		}
 		ids, err := s.sourceDeviceSetResolver.GetDeviceIdentifiersByDeviceSetID(ctx, *params.SourceDeviceSetID, params.OrgID)
 		if err != nil {
 			return nil, err
 		}
 		if len(ids) == 0 {
-			return nil, fleeterror.NewInvalidArgumentError("source group has no devices")
+			return nil, fleeterror.NewInvalidArgumentError("The selected group has no miners.")
 		}
 		params.DeviceIdentifiers = ids
 		sourceID := fmt.Sprintf("device_set:%d", *params.SourceDeviceSetID)
 		params.SourceActorID = &sourceID
 	}
 	if params.DeviceSelector == nil && params.SourceDeviceSetID == nil && len(params.DeviceIdentifiers) == 0 {
-		return nil, fleeterror.NewInvalidArgumentError("cohort requires initial members")
+		return nil, fleeterror.NewInvalidArgumentError("Add at least one initial member to create a cohort.")
 	}
 	if err := validateUniqueDeviceIdentifiers(params.DeviceIdentifiers); err != nil {
 		return nil, err
@@ -207,14 +207,14 @@ func (s *Service) UpdateCohort(ctx context.Context, params models.UpdateCohortPa
 	if params.Label != nil {
 		trimmed := strings.TrimSpace(*params.Label)
 		if trimmed == "" {
-			return nil, fleeterror.NewInvalidArgumentError("cohort label is required")
+			return nil, fleeterror.NewInvalidArgumentError("Enter a cohort label.")
 		}
 		params.Label = &trimmed
 	}
 	if params.Purpose != nil {
 		trimmed := strings.TrimSpace(*params.Purpose)
 		if trimmed == "" {
-			return nil, fleeterror.NewInvalidArgumentError("cohort purpose is required")
+			return nil, fleeterror.NewInvalidArgumentError("Enter a cohort purpose.")
 		}
 		params.Purpose = &trimmed
 	}
@@ -231,7 +231,7 @@ func (s *Service) UpdateCohort(ctx context.Context, params models.UpdateCohortPa
 		return nil, err
 	}
 	if target.IsDefault {
-		return nil, fleeterror.NewInvalidArgumentError("default cohort firmware must be set per manufacturer/model")
+		return nil, fleeterror.NewInvalidArgumentError("Set default cohort firmware per manufacturer and model.")
 	}
 	if err := s.validateDesiredFirmwareTarget(params, target); err != nil {
 		return nil, err
@@ -250,8 +250,8 @@ func (s *Service) UpdateCohort(ctx context.Context, params models.UpdateCohortPa
 			result, err = s.store.SetCohortFirmwareTarget(ctx, models.SetCohortFirmwareTargetParams{
 				OrgID:          params.OrgID,
 				CohortID:       params.CohortID,
-				Manufacturer:   manufacturer,
-				Model:          model,
+				Manufacturer:   &manufacturer,
+				Model:          &model,
 				FirmwareFileID: params.DesiredFirmwareFileID,
 			})
 			if err != nil {
@@ -268,14 +268,8 @@ func (s *Service) SetCohortFirmwareTarget(ctx context.Context, params models.Set
 	if s.store == nil {
 		return nil, fleeterror.NewInternalError("cohort store is not configured")
 	}
-	params.Manufacturer = strings.TrimSpace(params.Manufacturer)
-	params.Model = strings.TrimSpace(params.Model)
-	if params.Manufacturer == "" {
-		return nil, fleeterror.NewInvalidArgumentError("manufacturer is required")
-	}
-	if params.Model == "" {
-		return nil, fleeterror.NewInvalidArgumentError("model is required")
-	}
+	params.Manufacturer = trimOptionalString(params.Manufacturer)
+	params.Model = trimOptionalString(params.Model)
 	if params.FirmwareFileID != nil {
 		trimmed := strings.TrimSpace(*params.FirmwareFileID)
 		if trimmed == "" {
@@ -284,17 +278,54 @@ func (s *Service) SetCohortFirmwareTarget(ctx context.Context, params models.Set
 			params.FirmwareFileID = &trimmed
 		}
 	}
-
+	if params.FirmwareFileID == nil {
+		if params.Manufacturer == nil {
+			return nil, fleeterror.NewInvalidArgumentError("Select a product before clearing the firmware target.")
+		}
+		if params.Model == nil {
+			return nil, fleeterror.NewInvalidArgumentError("Select a model before clearing the firmware target.")
+		}
+	} else if s.firmwareMetadata != nil {
+		metadata, err := s.firmwareMetadata.GetFirmwareMetadata(*params.FirmwareFileID)
+		if err != nil {
+			return nil, fleeterror.NewInvalidArgumentErrorf("Couldn't read the selected firmware file: %v", err)
+		}
+		if params.Manufacturer == nil {
+			params.Manufacturer = trimOptionalString(&metadata.TargetManufacturer)
+		}
+		if params.Model == nil {
+			params.Model = trimOptionalString(&metadata.TargetModel)
+		}
+		if params.Manufacturer == nil {
+			return nil, fleeterror.NewInvalidArgumentError("The selected firmware file is missing a target product.")
+		}
+		if params.Model == nil {
+			return nil, fleeterror.NewInvalidArgumentError("The selected firmware file is missing a target model.")
+		}
+		if !sameMinerType(metadata.TargetManufacturer, *params.Manufacturer) || !sameMinerType(metadata.TargetModel, *params.Model) {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"Firmware target %s does not match the requested target %s.",
+				formatCohortMinerType(metadata.TargetManufacturer, metadata.TargetModel),
+				formatCohortMinerType(*params.Manufacturer, *params.Model),
+			)
+		}
+	}
+	if params.Manufacturer == nil {
+		return nil, fleeterror.NewInvalidArgumentError("Select a product.")
+	}
+	if params.Model == nil {
+		return nil, fleeterror.NewInvalidArgumentError("Select a model.")
+	}
 	target, err := s.store.GetCohort(ctx, params.OrgID, params.CohortID)
 	if err != nil {
 		return nil, err
 	}
 	if target.State != models.CohortStateActive {
-		return nil, fleeterror.NewInvalidArgumentError("cohort is not active")
+		return nil, fleeterror.NewInvalidArgumentError("This cohort is not active.")
 	}
 	if target.IsDefault {
 		if !isSuperAdminRole(params.ActorRole) {
-			return nil, fleeterror.NewForbiddenError("default cohort firmware requires super admin")
+			return nil, fleeterror.NewForbiddenError("Only super admins can update default cohort firmware.")
 		}
 	} else if err := authorizeCohortOwnerMutation(target, params.ActorUserID, params.ActorRole); err != nil {
 		return nil, err
@@ -305,26 +336,13 @@ func (s *Service) SetCohortFirmwareTarget(ctx context.Context, params models.Set
 			return nil, err
 		}
 		if manufacturer == "" || model == "" {
-			return nil, fleeterror.NewInvalidArgumentError("non-default cohort firmware target requires cohort members")
+			return nil, fleeterror.NewInvalidArgumentError("Add cohort members before setting firmware.")
 		}
-		if manufacturer != params.Manufacturer || model != params.Model {
+		if !sameMinerType(manufacturer, *params.Manufacturer) || !sameMinerType(model, *params.Model) {
 			return nil, fleeterror.NewInvalidArgumentErrorf(
-				"firmware target %s does not match cohort miner type %s",
-				formatCohortMinerType(params.Manufacturer, params.Model),
+				"Firmware target %s does not match cohort miner type %s.",
+				formatCohortMinerType(*params.Manufacturer, *params.Model),
 				formatCohortMinerType(manufacturer, model),
-			)
-		}
-	}
-	if params.FirmwareFileID != nil && s.firmwareMetadata != nil {
-		metadata, err := s.firmwareMetadata.GetFirmwareMetadata(*params.FirmwareFileID)
-		if err != nil {
-			return nil, fleeterror.NewInvalidArgumentErrorf("invalid firmware_file_id: %v", err)
-		}
-		if metadata.TargetManufacturer != params.Manufacturer || metadata.TargetModel != params.Model {
-			return nil, fleeterror.NewInvalidArgumentErrorf(
-				"firmware target %s does not match requested target %s",
-				formatCohortMinerType(metadata.TargetManufacturer, metadata.TargetModel),
-				formatCohortMinerType(params.Manufacturer, params.Model),
 			)
 		}
 	}
@@ -357,7 +375,7 @@ func (s *Service) AddDevicesToCohort(ctx context.Context, params models.Membersh
 	if target.DesiredFirmwareFileID != nil && s.firmwareMetadata != nil {
 		metadata, err := s.firmwareMetadata.GetFirmwareMetadata(*target.DesiredFirmwareFileID)
 		if err != nil {
-			return nil, fleeterror.NewInvalidArgumentErrorf("invalid desired_firmware_file_id: %v", err)
+			return nil, fleeterror.NewInvalidArgumentErrorf("Couldn't read the selected firmware file: %v", err)
 		}
 		params.DesiredFirmwareTargetManufacturer = metadata.TargetManufacturer
 		params.DesiredFirmwareTargetModel = metadata.TargetModel
@@ -464,10 +482,10 @@ func validateUniqueDeviceIdentifiers(ids []string) error {
 		id = strings.TrimSpace(id)
 		ids[i] = id
 		if id == "" {
-			return fleeterror.NewInvalidArgumentErrorf("device_identifiers[%d] is empty", i)
+			return fleeterror.NewInvalidArgumentErrorf("Miner %d is missing a device identifier.", i+1)
 		}
 		if _, ok := seen[id]; ok {
-			return fleeterror.NewInvalidArgumentErrorf("duplicate device identifier %q", id)
+			return fleeterror.NewInvalidArgumentErrorf("Miner %q was selected more than once.", id)
 		}
 		seen[id] = struct{}{}
 	}
@@ -495,7 +513,7 @@ func (s *Service) validateDesiredFirmwareTarget(params models.UpdateCohortParams
 
 	metadata, err := s.firmwareMetadata.GetFirmwareMetadata(*params.DesiredFirmwareFileID)
 	if err != nil {
-		return fleeterror.NewInvalidArgumentErrorf("invalid desired_firmware_file_id: %v", err)
+		return fleeterror.NewInvalidArgumentErrorf("Couldn't read the selected firmware file: %v", err)
 	}
 
 	manufacturer, model, err := cohortSingleMinerType(cohort)
@@ -505,9 +523,9 @@ func (s *Service) validateDesiredFirmwareTarget(params models.UpdateCohortParams
 	if manufacturer == "" && model == "" {
 		return nil
 	}
-	if manufacturer != metadata.TargetManufacturer || model != metadata.TargetModel {
+	if !sameMinerType(manufacturer, metadata.TargetManufacturer) || !sameMinerType(model, metadata.TargetModel) {
 		return fleeterror.NewInvalidArgumentErrorf(
-			"firmware target %s does not match cohort miner type %s",
+			"Firmware target %s does not match cohort miner type %s.",
 			formatCohortMinerType(metadata.TargetManufacturer, metadata.TargetModel),
 			formatCohortMinerType(manufacturer, model),
 		)
@@ -530,15 +548,15 @@ func cohortSingleMinerType(cohort *models.Cohort) (string, string, error) {
 		nextManufacturer := strings.TrimSpace(member.Display.Manufacturer)
 		nextModel := strings.TrimSpace(member.Display.Model)
 		if nextManufacturer == "" || nextModel == "" {
-			return "", "", fleeterror.NewInvalidArgumentErrorf("cohort member %q is missing manufacturer or model", member.DeviceIdentifier)
+			return "", "", fleeterror.NewInvalidArgumentErrorf("Cohort member %q is missing manufacturer or model information.", member.DeviceIdentifier)
 		}
 		if manufacturer == "" && model == "" {
 			manufacturer = nextManufacturer
 			model = nextModel
 			continue
 		}
-		if nextManufacturer != manufacturer || nextModel != model {
-			return "", "", fleeterror.NewInvalidArgumentError("cohort members must have a single manufacturer and model")
+		if !sameMinerType(nextManufacturer, manufacturer) || !sameMinerType(nextModel, model) {
+			return "", "", fleeterror.NewInvalidArgumentError("Cohort members must have a single manufacturer and model.")
 		}
 	}
 	return manufacturer, model, nil
@@ -559,6 +577,10 @@ func formatCohortMinerType(manufacturer, model string) string {
 	}
 }
 
+func sameMinerType(left, right string) bool {
+	return strings.EqualFold(strings.TrimSpace(left), strings.TrimSpace(right))
+}
+
 func (s *Service) authorizeDeviceMoves(ctx context.Context, params models.MembershipMutationParams) error {
 	ownership, err := s.store.ListCohortDeviceOwnership(ctx, params.OrgID, params.DeviceIdentifiers)
 	if err != nil {
@@ -572,7 +594,7 @@ func (s *Service) authorizeDeviceMoves(ctx context.Context, params models.Member
 			continue
 		}
 		if row.OwnerUserID == nil {
-			return fleeterror.NewForbiddenErrorf("device %q is leased by an ownerless cohort; admin required", row.DeviceIdentifier)
+			return fleeterror.NewForbiddenErrorf("Device %q is leased by an ownerless cohort; admin access is required.", row.DeviceIdentifier)
 		}
 		if *row.OwnerUserID == params.ActorUserID {
 			continue
@@ -581,7 +603,7 @@ func (s *Service) authorizeDeviceMoves(ctx context.Context, params models.Member
 		if row.OwnerUsername != nil && *row.OwnerUsername != "" {
 			owner = *row.OwnerUsername
 		}
-		return fleeterror.NewForbiddenErrorf("device %q is leased by %s", row.DeviceIdentifier, owner)
+		return fleeterror.NewForbiddenErrorf("Device %q is leased by %s.", row.DeviceIdentifier, owner)
 	}
 	return nil
 }
@@ -591,13 +613,13 @@ func authorizeCohortOwnerMutation(cohort *models.Cohort, actorUserID int64, acto
 		return nil
 	}
 	if cohort.IsDefault {
-		return fleeterror.NewInvalidArgumentError("default cohort cannot be mutated through this operation")
+		return fleeterror.NewInvalidArgumentError("The default cohort cannot be changed through this action.")
 	}
 	if isSuperAdminRole(actorRole) {
 		return nil
 	}
 	if cohort.OwnerUserID == nil {
-		return fleeterror.NewForbiddenErrorf("cohort %d is ownerless; admin required", cohort.ID)
+		return fleeterror.NewForbiddenErrorf("Cohort %d is ownerless; admin access is required.", cohort.ID)
 	}
 	if *cohort.OwnerUserID == actorUserID {
 		return nil
@@ -606,7 +628,7 @@ func authorizeCohortOwnerMutation(cohort *models.Cohort, actorUserID int64, acto
 	if cohort.OwnerUsername != nil && *cohort.OwnerUsername != "" {
 		owner = *cohort.OwnerUsername
 	}
-	return fleeterror.NewForbiddenErrorf("cohort %d is leased by %s", cohort.ID, owner)
+	return fleeterror.NewForbiddenErrorf("Cohort %d is leased by %s.", cohort.ID, owner)
 }
 
 func isSuperAdminRole(role string) bool {
@@ -746,9 +768,17 @@ func (s *Service) auditCohortFirmwareTargetUpdated(
 		return
 	}
 	metadata := cohortUpdateMetadata(cohort, "firmware_target_updated")
-	metadata["manufacturer"] = params.Manufacturer
-	metadata["model"] = params.Model
-	metadata["old_firmware_file_id"] = stringOrNil(cohortFirmwareFileIDForTarget(before, params.Manufacturer, params.Model))
+	manufacturer := ""
+	model := ""
+	if params.Manufacturer != nil {
+		manufacturer = *params.Manufacturer
+	}
+	if params.Model != nil {
+		model = *params.Model
+	}
+	metadata["manufacturer"] = manufacturer
+	metadata["model"] = model
+	metadata["old_firmware_file_id"] = stringOrNil(cohortFirmwareFileIDForTarget(before, manufacturer, model))
 	metadata["new_firmware_file_id"] = stringOrNil(params.FirmwareFileID)
 	s.auditCohortUpdated(ctx, cohort, nil, fmt.Sprintf("Updated cohort firmware target for %q (id=%d)", cohort.Label, cohort.ID), metadata)
 }

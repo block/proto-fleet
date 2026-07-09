@@ -436,6 +436,14 @@ type CohortMembership struct {
 	AddedAt          time.Time
 }
 
+type CohortReconcilerHeartbeat struct {
+	ID                 int16
+	LastTickAt         time.Time
+	LastTickUuid       uuid.UUID
+	LastTickDurationMs sql.NullInt32
+	ActiveDeviceCount  int32
+}
+
 type CommandBatchLog struct {
 	ID             int64
 	Uuid           string
@@ -658,6 +666,32 @@ type Device struct {
 	WorkerNamePoolSyncStatus NullWorkerNamePoolSyncStatusEnum
 	SiteID                   sql.NullInt64
 	BuildingID               sql.NullInt64
+}
+
+type DeviceEnforcementState struct {
+	OrgID                  int64
+	DeviceIdentifier       string
+	Dimension              string
+	State                  string
+	DesiredFirmwareFileID  sql.NullString
+	DesiredFirmwareVersion sql.NullString
+	RetryCount             int32
+	LastBatchUuid          sql.NullString
+	LastDispatchedAt       sql.NullTime
+	ConfirmedAt            sql.NullTime
+	ObservedAt             sql.NullTime
+	LastError              sql.NullString
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
+type DeviceFirmwareState struct {
+	OrgID            int64
+	DeviceIdentifier string
+	FirmwareVersion  string
+	ObservedAt       time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 type DeviceMetric struct {

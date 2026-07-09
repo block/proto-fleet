@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sqlc-dev/pqtype"
 
@@ -32,6 +33,7 @@ const (
 )
 
 var _ interfaces.CohortStore = &SQLCohortStore{}
+var _ interfaces.CohortFirmwareEnforcementStore = &SQLCohortStore{}
 
 type SQLCohortStore struct {
 	SQLConnectionManager
@@ -163,9 +165,9 @@ func validateCohortFirmwareTarget(targetManufacturer string, targetModel string,
 	if memberManufacturer == "" && memberModel == "" {
 		return nil
 	}
-	if memberManufacturer != targetManufacturer || memberModel != targetModel {
+	if !sameMinerType(memberManufacturer, targetManufacturer) || !sameMinerType(memberModel, targetModel) {
 		return fleeterror.NewInvalidArgumentErrorf(
-			"firmware target %s does not match cohort miner type %s",
+			"Firmware target %s does not match cohort miner type %s.",
 			formatCohortMinerType(targetManufacturer, targetModel),
 			formatCohortMinerType(memberManufacturer, memberModel),
 		)
@@ -183,15 +185,15 @@ func cohortSingleMinerType(cohort *models.Cohort) (string, string, error) {
 		nextManufacturer := strings.TrimSpace(member.Display.Manufacturer)
 		nextModel := strings.TrimSpace(member.Display.Model)
 		if nextManufacturer == "" || nextModel == "" {
-			return "", "", fleeterror.NewInvalidArgumentErrorf("cohort member %q is missing manufacturer or model", member.DeviceIdentifier)
+			return "", "", fleeterror.NewInvalidArgumentErrorf("Cohort member %q is missing manufacturer or model information.", member.DeviceIdentifier)
 		}
 		if manufacturer == "" && model == "" {
 			manufacturer = nextManufacturer
 			model = nextModel
 			continue
 		}
-		if nextManufacturer != manufacturer || nextModel != model {
-			return "", "", fleeterror.NewInvalidArgumentError("cohort members must have a single manufacturer and model")
+		if !sameMinerType(nextManufacturer, manufacturer) || !sameMinerType(nextModel, model) {
+			return "", "", fleeterror.NewInvalidArgumentError("Cohort members must have a single manufacturer and model.")
 		}
 	}
 	return manufacturer, model, nil
@@ -210,6 +212,10 @@ func formatCohortMinerType(manufacturer, model string) string {
 	default:
 		return "unknown"
 	}
+}
+
+func sameMinerType(left, right string) bool {
+	return strings.EqualFold(strings.TrimSpace(left), strings.TrimSpace(right))
 }
 
 func (s *SQLCohortStore) GetCohort(ctx context.Context, orgID, cohortID int64) (*models.Cohort, error) {
@@ -264,6 +270,9 @@ func (s *SQLCohortStore) ListCohorts(ctx context.Context, params models.ListCoho
 	for _, row := range rows {
 		cohort := cohortFromListRow(row)
 		out = append(out, &cohort)
+	}
+	if err := s.loadFirmwareTargetsForCohorts(ctx, q, params.OrgID, out); err != nil {
+		return models.PagedCohorts{}, err
 	}
 	return models.PagedCohorts{
 		Cohorts:       out,
@@ -321,11 +330,31 @@ func (s *SQLCohortStore) ListCohortsByOwner(ctx context.Context, params models.L
 		cohort := cohortFromOwnerRow(row)
 		out = append(out, &cohort)
 	}
+	if err := s.loadFirmwareTargetsForCohorts(ctx, q, params.OrgID, out); err != nil {
+		return models.PagedCohorts{}, err
+	}
 	return models.PagedCohorts{
 		Cohorts:       out,
 		NextPageToken: nextPageToken,
 		TotalCount:    int32Count(total),
 	}, nil
+}
+
+func (s *SQLCohortStore) loadFirmwareTargetsForCohorts(ctx context.Context, q *sqlc.Queries, orgID int64, cohorts []*models.Cohort) error {
+	for _, cohort := range cohorts {
+		rows, err := q.ListCohortFirmwareTargets(ctx, sqlc.ListCohortFirmwareTargetsParams{
+			CohortID: cohort.ID,
+			OrgID:    orgID,
+		})
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to list cohort firmware targets: %v", err)
+		}
+		cohort.FirmwareTargets = make([]models.CohortFirmwareTarget, 0, len(rows))
+		for _, row := range rows {
+			cohort.FirmwareTargets = append(cohort.FirmwareTargets, firmwareTargetFromRow(row))
+		}
+	}
+	return nil
 }
 
 func (s *SQLCohortStore) UpdateCohort(ctx context.Context, params models.UpdateCohortParams) (*models.Cohort, error) {
@@ -344,7 +373,7 @@ func (s *SQLCohortStore) UpdateCohort(ctx context.Context, params models.UpdateC
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fleeterror.NewNotFoundErrorf("active cohort %d not found", params.CohortID)
+			return nil, fleeterror.NewNotFoundErrorf("Active cohort %d not found.", params.CohortID)
 		}
 		return nil, mapCohortUpdateError(err)
 	}
@@ -359,7 +388,7 @@ func (s *SQLCohortStore) UpdateDefaultCohortFirmware(ctx context.Context, params
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fleeterror.NewNotFoundErrorf("active default cohort %d not found", params.CohortID)
+			return nil, fleeterror.NewNotFoundErrorf("Active default cohort %d not found.", params.CohortID)
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to update default cohort firmware: %v", err)
 	}
@@ -371,31 +400,39 @@ func (s *SQLCohortStore) SetCohortFirmwareTarget(ctx context.Context, params mod
 		target, err := q.GetCohort(ctx, sqlc.GetCohortParams{ID: params.CohortID, OrgID: params.OrgID})
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return nil, fleeterror.NewNotFoundErrorf("cohort %d not found", params.CohortID)
+				return nil, fleeterror.NewNotFoundErrorf("Cohort %d not found.", params.CohortID)
 			}
 			return nil, fleeterror.NewInternalErrorf("failed to get cohort: %v", err)
 		}
 		if models.CohortState(target.State) != models.CohortStateActive {
-			return nil, fleeterror.NewInvalidArgumentErrorf("cohort %d is not active", params.CohortID)
+			return nil, fleeterror.NewInvalidArgumentErrorf("Cohort %d is not active.", params.CohortID)
 		}
 
 		if params.FirmwareFileID == nil {
 			if _, err := q.DeleteCohortFirmwareTarget(ctx, sqlc.DeleteCohortFirmwareTargetParams{
 				CohortID:     params.CohortID,
 				OrgID:        params.OrgID,
-				Manufacturer: params.Manufacturer,
-				Model:        params.Model,
+				Manufacturer: *params.Manufacturer,
+				Model:        *params.Model,
 			}); err != nil {
 				return nil, fleeterror.NewInternalErrorf("failed to clear cohort firmware target: %v", err)
 			}
 		} else if _, err := q.UpsertCohortFirmwareTarget(ctx, sqlc.UpsertCohortFirmwareTargetParams{
 			CohortID:       params.CohortID,
 			OrgID:          params.OrgID,
-			Manufacturer:   params.Manufacturer,
-			Model:          params.Model,
+			Manufacturer:   *params.Manufacturer,
+			Model:          *params.Model,
 			FirmwareFileID: ptrToNullString(params.FirmwareFileID),
 		}); err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to set cohort firmware target: %v", err)
+		}
+		if _, err := q.ResetFirmwareEnforcementForCohortTarget(ctx, sqlc.ResetFirmwareEnforcementForCohortTargetParams{
+			OrgID:        params.OrgID,
+			CohortID:     params.CohortID,
+			Manufacturer: *params.Manufacturer,
+			Model:        *params.Model,
+		}); err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to reset cohort firmware enforcement: %v", err)
 		}
 
 		if !target.IsDefault {
@@ -406,7 +443,7 @@ func (s *SQLCohortStore) SetCohortFirmwareTarget(ctx context.Context, params mod
 				DesiredFirmwareFileIDSet: true,
 			}); err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
-					return nil, fleeterror.NewNotFoundErrorf("active cohort %d not found", params.CohortID)
+					return nil, fleeterror.NewNotFoundErrorf("Active cohort %d not found.", params.CohortID)
 				}
 				return nil, fleeterror.NewInternalErrorf("failed to mirror cohort firmware target: %v", err)
 			}
@@ -415,17 +452,47 @@ func (s *SQLCohortStore) SetCohortFirmwareTarget(ctx context.Context, params mod
 	})
 }
 
+func (s *SQLCohortStore) ClearMissingFirmwareTarget(ctx context.Context, orgID int64, firmwareFileID string) (int64, error) {
+	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (int64, error) {
+		if _, err := q.ResetFirmwareEnforcementForFirmwareFile(ctx, sqlc.ResetFirmwareEnforcementForFirmwareFileParams{
+			OrgID:          orgID,
+			FirmwareFileID: ptrToNullString(&firmwareFileID),
+		}); err != nil {
+			return 0, fleeterror.NewInternalErrorf("failed to reset missing firmware enforcement: %v", err)
+		}
+
+		params := sqlc.ClearCohortDesiredFirmwareFileReferencesParams{
+			OrgID:          orgID,
+			FirmwareFileID: ptrToNullString(&firmwareFileID),
+		}
+		clearedCohorts, err := q.ClearCohortDesiredFirmwareFileReferences(ctx, params)
+		if err != nil {
+			return 0, fleeterror.NewInternalErrorf("failed to clear cohort firmware references: %v", err)
+		}
+
+		clearedTargets, err := q.ClearCohortFirmwareTargetFileReferences(ctx, sqlc.ClearCohortFirmwareTargetFileReferencesParams{
+			OrgID:          orgID,
+			FirmwareFileID: ptrToNullString(&firmwareFileID),
+		})
+		if err != nil {
+			return 0, fleeterror.NewInternalErrorf("failed to clear cohort firmware targets: %v", err)
+		}
+
+		return clearedCohorts + clearedTargets, nil
+	})
+}
+
 func (s *SQLCohortStore) MoveDevicesToCohort(ctx context.Context, params models.MembershipMutationParams) (*models.Cohort, error) {
 	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.Cohort, error) {
 		target, err := q.GetCohort(ctx, sqlc.GetCohortParams{ID: params.CohortID, OrgID: params.OrgID})
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return nil, fleeterror.NewNotFoundErrorf("cohort %d not found", params.CohortID)
+				return nil, fleeterror.NewNotFoundErrorf("Cohort %d not found.", params.CohortID)
 			}
 			return nil, fleeterror.NewInternalErrorf("failed to get target cohort: %v", err)
 		}
 		if target.IsDefault || models.CohortState(target.State) != models.CohortStateActive {
-			return nil, fleeterror.NewInvalidArgumentErrorf("cohort %d is not an active non-default cohort", params.CohortID)
+			return nil, fleeterror.NewInvalidArgumentErrorf("Cohort %d is not an active reservation cohort.", params.CohortID)
 		}
 
 		if _, err := q.DeleteCohortMembershipsByDevice(ctx, sqlc.DeleteCohortMembershipsByDeviceParams{
@@ -459,6 +526,12 @@ func (s *SQLCohortStore) MoveDevicesToCohort(ctx context.Context, params models.
 		if err := validateCohortFirmwareTarget(params.DesiredFirmwareTargetManufacturer, params.DesiredFirmwareTargetModel, cohort); err != nil {
 			return nil, err
 		}
+		if _, err := q.ResetFirmwareEnforcementForDevices(ctx, sqlc.ResetFirmwareEnforcementForDevicesParams{
+			OrgID:             params.OrgID,
+			DeviceIdentifiers: params.DeviceIdentifiers,
+		}); err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to reset moved device firmware enforcement: %v", err)
+		}
 		return cohort, nil
 	})
 }
@@ -467,7 +540,7 @@ func (s *SQLCohortStore) RemoveDevicesAndGetCohort(ctx context.Context, params m
 	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.Cohort, error) {
 		if _, err := q.GetCohort(ctx, sqlc.GetCohortParams{ID: params.CohortID, OrgID: params.OrgID}); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return nil, fleeterror.NewNotFoundErrorf("cohort %d not found", params.CohortID)
+				return nil, fleeterror.NewNotFoundErrorf("Cohort %d not found.", params.CohortID)
 			}
 			return nil, fleeterror.NewInternalErrorf("failed to get cohort: %v", err)
 		}
@@ -480,7 +553,13 @@ func (s *SQLCohortStore) RemoveDevicesAndGetCohort(ctx context.Context, params m
 			return nil, fleeterror.NewInternalErrorf("failed to validate cohort memberships: %v", err)
 		}
 		if matched != int64(len(params.DeviceIdentifiers)) {
-			return nil, fleeterror.NewNotFoundErrorf("found %d of %d requested cohort members", matched, len(params.DeviceIdentifiers))
+			return nil, fleeterror.NewNotFoundErrorf("Found %d of %d selected cohort members.", matched, len(params.DeviceIdentifiers))
+		}
+		if _, err := q.ResetFirmwareEnforcementForDevices(ctx, sqlc.ResetFirmwareEnforcementForDevicesParams{
+			OrgID:             params.OrgID,
+			DeviceIdentifiers: params.DeviceIdentifiers,
+		}); err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to reset removed device firmware enforcement: %v", err)
 		}
 		deleted, err := q.DeleteCohortMemberships(ctx, sqlc.DeleteCohortMembershipsParams{
 			CohortID:          params.CohortID,
@@ -502,9 +581,15 @@ func (s *SQLCohortStore) ReleaseCohort(ctx context.Context, orgID, cohortID int6
 		row, err := q.ReleaseCohort(ctx, sqlc.ReleaseCohortParams{ID: cohortID, OrgID: orgID})
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return nil, fleeterror.NewNotFoundErrorf("cohort %d not found", cohortID)
+				return nil, fleeterror.NewNotFoundErrorf("Cohort %d not found.", cohortID)
 			}
 			return nil, fleeterror.NewInternalErrorf("failed to release cohort: %v", err)
+		}
+		if _, err := q.ResetFirmwareEnforcementForCohortMembers(ctx, sqlc.ResetFirmwareEnforcementForCohortMembersParams{
+			CohortID: cohortID,
+			OrgID:    orgID,
+		}); err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to reset released cohort firmware enforcement: %v", err)
 		}
 		if _, err := q.DeleteCohortMembershipsByCohort(ctx, sqlc.DeleteCohortMembershipsByCohortParams{
 			CohortID: cohortID,
@@ -527,6 +612,12 @@ func (s *SQLCohortStore) SweepExpiredCohorts(ctx context.Context) ([]*models.Coh
 			released, err := q.ReleaseCohort(ctx, sqlc.ReleaseCohortParams{ID: row.ID, OrgID: row.OrgID})
 			if err != nil {
 				return nil, fleeterror.NewInternalErrorf("failed to release expired cohort %d: %v", row.ID, err)
+			}
+			if _, err := q.ResetFirmwareEnforcementForCohortMembers(ctx, sqlc.ResetFirmwareEnforcementForCohortMembersParams{
+				CohortID: row.ID,
+				OrgID:    row.OrgID,
+			}); err != nil {
+				return nil, fleeterror.NewInternalErrorf("failed to reset expired cohort %d firmware enforcement: %v", row.ID, err)
 			}
 			if _, err := q.DeleteCohortMembershipsByCohort(ctx, sqlc.DeleteCohortMembershipsByCohortParams{
 				CohortID: row.ID,
@@ -555,15 +646,23 @@ func (s *SQLCohortStore) InsertCohortMember(ctx context.Context, params models.I
 }
 
 func (s *SQLCohortStore) DeleteCohortMemberships(ctx context.Context, orgID, cohortID int64, deviceIdentifiers []string) (int64, error) {
-	count, err := s.GetQueries(ctx).DeleteCohortMemberships(ctx, sqlc.DeleteCohortMembershipsParams{
-		CohortID:          cohortID,
-		OrgID:             orgID,
-		DeviceIdentifiers: deviceIdentifiers,
+	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (int64, error) {
+		if _, err := q.ResetFirmwareEnforcementForDevices(ctx, sqlc.ResetFirmwareEnforcementForDevicesParams{
+			OrgID:             orgID,
+			DeviceIdentifiers: deviceIdentifiers,
+		}); err != nil {
+			return 0, fleeterror.NewInternalErrorf("failed to reset removed device firmware enforcement: %v", err)
+		}
+		count, err := q.DeleteCohortMemberships(ctx, sqlc.DeleteCohortMembershipsParams{
+			CohortID:          cohortID,
+			OrgID:             orgID,
+			DeviceIdentifiers: deviceIdentifiers,
+		})
+		if err != nil {
+			return 0, fleeterror.NewInternalErrorf("failed to delete cohort memberships: %v", err)
+		}
+		return count, nil
 	})
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to delete cohort memberships: %v", err)
-	}
-	return count, nil
 }
 
 func (s *SQLCohortStore) ListCohortMembers(ctx context.Context, orgID, cohortID int64) ([]models.CohortMember, error) {
@@ -588,7 +687,7 @@ func (s *SQLCohortStore) ResolveEffectiveCohortForDevice(ctx context.Context, or
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fleeterror.NewNotFoundErrorf("device %q not found", deviceIdentifier)
+			return nil, fleeterror.NewNotFoundErrorf("Device %q not found.", deviceIdentifier)
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to resolve effective cohort: %v", err)
 	}
@@ -711,7 +810,7 @@ func (s *SQLCohortStore) ListDevices(ctx context.Context, params models.ListDevi
 			DeviceIdentifier: row.DeviceIdentifier,
 			SiteID:           nullInt64ToPtr(row.DeviceSiteID),
 			EffectiveCohort:  cohortFromDeviceRow(row),
-			Display:          displayFromColumns(row.DisplayName, row.WorkerName, row.Manufacturer, row.Model, row.IpAddress, row.SerialNumber, row.SiteLabel),
+			Display:          displayFromColumns(row.DisplayName, row.WorkerName, row.Manufacturer, row.Model, row.IpAddress, row.SerialNumber, row.SiteLabel, row.FirmwareVersion),
 		})
 	}
 	return models.PagedCohortDevices{
@@ -723,11 +822,138 @@ func (s *SQLCohortStore) ListDevices(ctx context.Context, params models.ListDevi
 	}, nil
 }
 
+func (s *SQLCohortStore) ListOrgsWithFirmwareTargets(ctx context.Context) ([]int64, error) {
+	orgIDs, err := s.GetQueries(ctx).ListOrgsWithFirmwareTargets(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list orgs with firmware targets: %v", err)
+	}
+	return orgIDs, nil
+}
+
+func (s *SQLCohortStore) ListFirmwareEnforcementCandidates(ctx context.Context, orgID int64) ([]models.FirmwareEnforcementCandidate, error) {
+	rows, err := s.GetQueries(ctx).ListFirmwareEnforcementCandidates(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list firmware enforcement candidates: %v", err)
+	}
+	out := make([]models.FirmwareEnforcementCandidate, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, firmwareEnforcementCandidateFromRow(row))
+	}
+	return out, nil
+}
+
+func (s *SQLCohortStore) ClaimFirmwareDispatch(ctx context.Context, params models.ClaimFirmwareDispatchParams) (bool, error) {
+	rows, err := s.GetQueries(ctx).ClaimFirmwareDispatch(ctx, sqlc.ClaimFirmwareDispatchParams{
+		OrgID:                  params.OrgID,
+		DeviceIdentifier:       params.DeviceIdentifier,
+		DesiredFirmwareFileID:  sql.NullString{String: params.DesiredFirmwareFileID, Valid: params.DesiredFirmwareFileID != ""},
+		DesiredFirmwareVersion: sql.NullString{String: params.DesiredFirmwareVersion, Valid: params.DesiredFirmwareVersion != ""},
+		DispatchingBefore:      params.DispatchingBefore,
+	})
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to claim firmware dispatch: %v", err)
+	}
+	return rows > 0, nil
+}
+
+func (s *SQLCohortStore) MarkFirmwareDispatched(ctx context.Context, params models.MarkFirmwareDispatchedParams) (bool, error) {
+	rows, err := s.GetQueries(ctx).MarkFirmwareDispatched(ctx, sqlc.MarkFirmwareDispatchedParams{
+		OrgID:                  params.OrgID,
+		DeviceIdentifier:       params.DeviceIdentifier,
+		DesiredFirmwareFileID:  sql.NullString{String: params.DesiredFirmwareFileID, Valid: params.DesiredFirmwareFileID != ""},
+		DesiredFirmwareVersion: sql.NullString{String: params.DesiredFirmwareVersion, Valid: params.DesiredFirmwareVersion != ""},
+		LastBatchUuid:          sql.NullString{String: params.LastBatchUUID, Valid: params.LastBatchUUID != ""},
+		LastDispatchedAt:       sql.NullTime{Time: params.LastDispatchedAt, Valid: !params.LastDispatchedAt.IsZero()},
+	})
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to mark firmware dispatched: %v", err)
+	}
+	return rows > 0, nil
+}
+
+func (s *SQLCohortStore) MarkFirmwareConfirmed(ctx context.Context, params models.MarkFirmwareConfirmedParams) (bool, error) {
+	rows, err := s.GetQueries(ctx).MarkFirmwareConfirmed(ctx, sqlc.MarkFirmwareConfirmedParams{
+		OrgID:                  params.OrgID,
+		DeviceIdentifier:       params.DeviceIdentifier,
+		DesiredFirmwareFileID:  sql.NullString{String: params.DesiredFirmwareFileID, Valid: params.DesiredFirmwareFileID != ""},
+		DesiredFirmwareVersion: sql.NullString{String: params.DesiredFirmwareVersion, Valid: params.DesiredFirmwareVersion != ""},
+		ConfirmedAt:            sql.NullTime{Time: params.ConfirmedAt, Valid: !params.ConfirmedAt.IsZero()},
+		ObservedAt:             sql.NullTime{Time: params.ObservedAt, Valid: !params.ObservedAt.IsZero()},
+	})
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to mark firmware confirmed: %v", err)
+	}
+	return rows > 0, nil
+}
+
+func (s *SQLCohortStore) MarkFirmwareDrifted(ctx context.Context, params models.MarkFirmwareDriftedParams) (bool, error) {
+	rows, err := s.GetQueries(ctx).MarkFirmwareDrifted(ctx, sqlc.MarkFirmwareDriftedParams{
+		OrgID:            params.OrgID,
+		DeviceIdentifier: params.DeviceIdentifier,
+		ObservedAt:       sql.NullTime{Time: params.ObservedAt, Valid: !params.ObservedAt.IsZero()},
+	})
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to mark firmware drifted: %v", err)
+	}
+	return rows > 0, nil
+}
+
+func (s *SQLCohortStore) MarkFirmwareDispatchFailure(ctx context.Context, params models.MarkFirmwareDispatchFailureParams) (bool, error) {
+	rows, err := s.GetQueries(ctx).MarkFirmwareDispatchFailure(ctx, sqlc.MarkFirmwareDispatchFailureParams{
+		OrgID:                  params.OrgID,
+		DeviceIdentifier:       params.DeviceIdentifier,
+		DesiredFirmwareFileID:  sql.NullString{String: params.DesiredFirmwareFileID, Valid: params.DesiredFirmwareFileID != ""},
+		DesiredFirmwareVersion: sql.NullString{String: params.DesiredFirmwareVersion, Valid: params.DesiredFirmwareVersion != ""},
+		RetryState:             string(params.RetryState),
+		LastError:              sql.NullString{String: params.LastError, Valid: params.LastError != ""},
+		MaxRetries:             params.MaxRetries,
+	})
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to mark firmware dispatch failure: %v", err)
+	}
+	return rows > 0, nil
+}
+
+func (s *SQLCohortStore) MarkFirmwareDispatchHeld(ctx context.Context, params models.MarkFirmwareDispatchHeldParams) (bool, error) {
+	rows, err := s.GetQueries(ctx).MarkFirmwareDispatchHeld(ctx, sqlc.MarkFirmwareDispatchHeldParams{
+		OrgID:                  params.OrgID,
+		DeviceIdentifier:       params.DeviceIdentifier,
+		DesiredFirmwareFileID:  sql.NullString{String: params.DesiredFirmwareFileID, Valid: params.DesiredFirmwareFileID != ""},
+		DesiredFirmwareVersion: sql.NullString{String: params.DesiredFirmwareVersion, Valid: params.DesiredFirmwareVersion != ""},
+		RetryState:             string(params.RetryState),
+		LastError:              sql.NullString{String: params.LastError, Valid: params.LastError != ""},
+	})
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to mark firmware dispatch held: %v", err)
+	}
+	return rows > 0, nil
+}
+
+func (s *SQLCohortStore) IsCommandBatchFinished(ctx context.Context, batchUUID string) (bool, error) {
+	finished, err := s.GetQueries(ctx).IsBatchFinished(ctx, batchUUID)
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to read command batch status: %v", err)
+	}
+	return finished, nil
+}
+
+func (s *SQLCohortStore) UpsertCohortReconcilerHeartbeat(ctx context.Context, lastTickAt time.Time, lastTickUUID uuid.UUID, durationMS *int32, activeDeviceCount int32) error {
+	if err := s.GetQueries(ctx).UpsertCohortReconcilerHeartbeat(ctx, sqlc.UpsertCohortReconcilerHeartbeatParams{
+		LastTickAt:         lastTickAt,
+		LastTickUuid:       lastTickUUID,
+		LastTickDurationMs: ptrToNullInt32(durationMS),
+		ActiveDeviceCount:  activeDeviceCount,
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to upsert cohort reconciler heartbeat: %v", err)
+	}
+	return nil
+}
+
 func (s *SQLCohortStore) getCohortWithQueries(ctx context.Context, q *sqlc.Queries, orgID, cohortID int64) (*models.Cohort, error) {
 	row, err := q.GetCohort(ctx, sqlc.GetCohortParams{ID: cohortID, OrgID: orgID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fleeterror.NewNotFoundErrorf("cohort %d not found", cohortID)
+			return nil, fleeterror.NewNotFoundErrorf("Cohort %d not found.", cohortID)
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to get cohort: %v", err)
 	}
@@ -781,7 +1007,7 @@ func (s *SQLCohortStore) buildSelectedCohortMemberPayload(ctx context.Context, q
 		return nil, 0, fleeterror.NewInternalErrorf("failed to select default cohort devices: %v", err)
 	}
 	if len(rows) < int(selector.Count) {
-		return nil, 0, fleeterror.NewAlreadyExistsErrorf("only %d default-cohort rigs available%s, requested %d", len(rows), formatSelectorFilter(selector), selector.Count)
+		return nil, 0, newDefaultCohortAvailabilityError(len(rows), selector)
 	}
 
 	payload := make([]cohortMemberPayload, 0, len(rows))
@@ -811,7 +1037,7 @@ func (s *SQLCohortStore) buildCohortMemberPayloadForIdentifiers(ctx context.Cont
 		siteByIdentifier[row.DeviceIdentifier] = nullInt64ToPtr(row.SiteID)
 	}
 	if len(siteByIdentifier) != len(deviceIdentifiers) {
-		return nil, fleeterror.NewNotFoundErrorf("device %q not found", firstMissingIdentifier(deviceIdentifiers, siteByIdentifier))
+		return nil, fleeterror.NewNotFoundErrorf("Device %q not found.", firstMissingIdentifier(deviceIdentifiers, siteByIdentifier))
 	}
 
 	payload := make([]cohortMemberPayload, 0, len(deviceIdentifiers))
@@ -846,11 +1072,11 @@ func mapCohortInsertError(err error) error {
 	if errors.As(err, &pgErr) && pgErr.Code == db.PGUniqueViolation {
 		switch pgErr.ConstraintName {
 		case cohortActiveLabelUniqueIndex:
-			return fleeterror.NewAlreadyExistsError("an active cohort with this label already exists")
+			return fleeterror.NewAlreadyExistsError("An active cohort with this label already exists.")
 		case cohortIdempotencyUniqueIndex:
-			return fleeterror.NewAlreadyExistsError("cohort with this idempotency key already exists")
+			return fleeterror.NewAlreadyExistsError("A cohort with this idempotency key already exists.")
 		}
-		return fleeterror.NewAlreadyExistsError("cohort already exists")
+		return fleeterror.NewAlreadyExistsError("Cohort already exists.")
 	}
 	return fleeterror.NewInternalErrorf("failed to create cohort: %v", err)
 }
@@ -859,9 +1085,9 @@ func mapCohortUpdateError(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == db.PGUniqueViolation {
 		if pgErr.ConstraintName == cohortActiveLabelUniqueIndex {
-			return fleeterror.NewAlreadyExistsError("an active cohort with this label already exists")
+			return fleeterror.NewAlreadyExistsError("An active cohort with this label already exists.")
 		}
-		return fleeterror.NewAlreadyExistsError("cohort already exists")
+		return fleeterror.NewAlreadyExistsError("Cohort already exists.")
 	}
 	return fleeterror.NewInternalErrorf("failed to update cohort: %v", err)
 }
@@ -870,29 +1096,86 @@ func mapCohortMembershipError(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == db.PGUniqueViolation &&
 		pgErr.ConstraintName == cohortMembershipUniqueConstraint {
-		return fleeterror.NewPlainError("one or more devices already belong to another cohort", connect.CodeAlreadyExists).WithCallerStackTrace()
+		return fleeterror.NewPlainError("One or more miners already belong to another cohort.", connect.CodeAlreadyExists).WithCallerStackTrace()
 	}
 	return fleeterror.NewInternalErrorf("failed to write cohort membership: %v", err)
 }
 
-func formatSelectorFilter(selector *models.CohortDeviceSelector) string {
+func newDefaultCohortAvailabilityError(available int, selector *models.CohortDeviceSelector) error {
+	requested := 0
+	if selector != nil {
+		requested = int(selector.Count)
+	}
+	return fleeterror.NewAlreadyExistsErrorf(
+		"Only %s %s available in the default cohort%s. Requested %s.",
+		formatMinerCount(available),
+		formatAvailabilityVerb(available),
+		formatSelectorAvailabilityScope(selector),
+		formatMinerCount(requested),
+	)
+}
+
+func formatSelectorAvailabilityScope(selector *models.CohortDeviceSelector) string {
 	if selector == nil {
 		return ""
 	}
-	parts := make([]string, 0, 3)
-	if selector.Product != nil {
-		parts = append(parts, fmt.Sprintf("product %q", *selector.Product))
-	}
-	if selector.Model != nil {
-		parts = append(parts, fmt.Sprintf("model %q", *selector.Model))
-	}
-	if selector.SiteID != nil {
-		parts = append(parts, fmt.Sprintf("site_id %d", *selector.SiteID))
-	}
-	if len(parts) == 0 {
+	target := formatSelectorTarget(selector)
+	site := formatSelectorSite(selector)
+	switch {
+	case target != "" && site != "":
+		return " for " + target + " at " + site
+	case target != "":
+		return " for " + target
+	case site != "":
+		return " at " + site
+	default:
 		return ""
 	}
-	return " for " + strings.Join(parts, ", ")
+}
+
+func formatSelectorTarget(selector *models.CohortDeviceSelector) string {
+	if selector == nil {
+		return ""
+	}
+	product := ""
+	model := ""
+	if selector.Product != nil {
+		product = strings.TrimSpace(*selector.Product)
+	}
+	if selector.Model != nil {
+		model = strings.TrimSpace(*selector.Model)
+	}
+	switch {
+	case product != "" && model != "":
+		return product + " " + model
+	case product != "":
+		return "product " + product
+	case model != "":
+		return "model " + model
+	default:
+		return ""
+	}
+}
+
+func formatSelectorSite(selector *models.CohortDeviceSelector) string {
+	if selector == nil || selector.SiteID == nil {
+		return ""
+	}
+	return fmt.Sprintf("site %d", *selector.SiteID)
+}
+
+func formatMinerCount(count int) string {
+	if count == 1 {
+		return "1 miner"
+	}
+	return fmt.Sprintf("%d miners", count)
+}
+
+func formatAvailabilityVerb(count int) string {
+	if count == 1 {
+		return "is"
+	}
+	return "are"
 }
 
 func normalizeCohortPageSize(pageSize int32) int32 {
@@ -919,14 +1202,14 @@ func decodeCohortPageCursor(token string) (*cohortPageCursor, error) {
 	}
 	data, err := base64.URLEncoding.DecodeString(token)
 	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("invalid page token: %v", err)
+		return nil, fleeterror.NewInvalidArgumentErrorf("Invalid page token: %v", err)
 	}
 	var cursor cohortPageCursor
 	if err := json.Unmarshal(data, &cursor); err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("invalid page token: %v", err)
+		return nil, fleeterror.NewInvalidArgumentErrorf("Invalid page token: %v", err)
 	}
 	if cursor.UpdatedAt.IsZero() || cursor.ID <= 0 {
-		return nil, fleeterror.NewInvalidArgumentError("invalid page token")
+		return nil, fleeterror.NewInvalidArgumentError("Invalid page token.")
 	}
 	return &cursor, nil
 }
@@ -945,14 +1228,14 @@ func decodeCohortDevicePageCursor(token string) (*cohortDevicePageCursor, error)
 	}
 	data, err := base64.URLEncoding.DecodeString(token)
 	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("invalid page token: %v", err)
+		return nil, fleeterror.NewInvalidArgumentErrorf("Invalid page token: %v", err)
 	}
 	var cursor cohortDevicePageCursor
 	if err := json.Unmarshal(data, &cursor); err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("invalid page token: %v", err)
+		return nil, fleeterror.NewInvalidArgumentErrorf("Invalid page token: %v", err)
 	}
 	if strings.TrimSpace(cursor.DisplayName) == "" || strings.TrimSpace(cursor.DeviceIdentifier) == "" {
-		return nil, fleeterror.NewInvalidArgumentError("invalid page token")
+		return nil, fleeterror.NewInvalidArgumentError("Invalid page token.")
 	}
 	return &cursor, nil
 }
@@ -1197,6 +1480,42 @@ func firmwareTargetFromRow(row sqlc.CohortFirmwareTarget) models.CohortFirmwareT
 	}
 }
 
+func firmwareEnforcementCandidateFromRow(row sqlc.ListFirmwareEnforcementCandidatesRow) models.FirmwareEnforcementCandidate {
+	state := ptrFromNullString(row.EnforcementState)
+	var typedState *models.EnforcementState
+	if state != nil {
+		next := models.EnforcementState(*state)
+		typedState = &next
+	}
+	retryCount := int32(0)
+	if row.RetryCount.Valid {
+		retryCount = row.RetryCount.Int32
+	}
+	return models.FirmwareEnforcementCandidate{
+		OrgID:                       row.OrgID,
+		DeviceIdentifier:            row.DeviceIdentifier,
+		Manufacturer:                row.Manufacturer,
+		Model:                       row.Model,
+		CohortID:                    row.CohortID,
+		OwnerUserID:                 nullInt64ToPtr(row.OwnerUserID),
+		OwnerUsername:               ptrFromNullString(row.OwnerUsername),
+		ActorUserID:                 row.ActorUserID,
+		ActorExternalUserID:         row.ActorExternalUserID,
+		ActorUsername:               row.ActorUsername,
+		FirmwareFileID:              row.FirmwareFileID.String,
+		StateDesiredFirmwareFileID:  ptrFromNullString(row.StateDesiredFirmwareFileID),
+		StateDesiredFirmwareVersion: ptrFromNullString(row.StateDesiredFirmwareVersion),
+		ObservedFirmwareVersion:     ptrFromNullString(row.ObservedFirmwareVersion),
+		FirmwareObservedAt:          nullTimeToPtr(row.FirmwareObservedAt),
+		State:                       typedState,
+		RetryCount:                  retryCount,
+		LastBatchUUID:               ptrFromNullString(row.LastBatchUuid),
+		LastDispatchedAt:            nullTimeToPtr(row.LastDispatchedAt),
+		ConfirmedAt:                 nullTimeToPtr(row.ConfirmedAt),
+		LastError:                   ptrFromNullString(row.LastError),
+	}
+}
+
 func memberFromRow(row sqlc.ListCohortMembersRow) models.CohortMember {
 	return models.CohortMember{
 		CohortID:         row.CohortID,
@@ -1204,18 +1523,19 @@ func memberFromRow(row sqlc.ListCohortMembersRow) models.CohortMember {
 		DeviceIdentifier: row.DeviceIdentifier,
 		SiteID:           nullInt64ToPtr(row.SiteID),
 		AddedAt:          row.AddedAt,
-		Display:          displayFromColumns(row.DisplayName, row.WorkerName, row.Manufacturer, row.Model, row.IpAddress, row.SerialNumber, row.SiteLabel),
+		Display:          displayFromColumns(row.DisplayName, row.WorkerName, row.Manufacturer, row.Model, row.IpAddress, row.SerialNumber, row.SiteLabel, row.FirmwareVersion),
 	}
 }
 
-func displayFromColumns(displayName, workerName, manufacturer, model, ipAddress, serialNumber, siteLabel string) models.CohortDeviceDisplay {
+func displayFromColumns(displayName, workerName, manufacturer, model, ipAddress, serialNumber, siteLabel, firmwareVersion string) models.CohortDeviceDisplay {
 	return models.CohortDeviceDisplay{
-		Name:         displayName,
-		WorkerName:   workerName,
-		Manufacturer: manufacturer,
-		Model:        model,
-		IPAddress:    ipAddress,
-		SerialNumber: serialNumber,
-		SiteLabel:    siteLabel,
+		Name:            displayName,
+		WorkerName:      workerName,
+		Manufacturer:    manufacturer,
+		Model:           model,
+		IPAddress:       ipAddress,
+		SerialNumber:    serialNumber,
+		SiteLabel:       siteLabel,
+		FirmwareVersion: firmwareVersion,
 	}
 }

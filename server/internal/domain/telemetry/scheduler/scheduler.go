@@ -39,7 +39,7 @@ func (s *scheduler) AddNewDevices(ctx context.Context, deviceID ...models.Device
 
 	for _, id := range deviceID {
 		if _, exists := s.managedDevices.LoadOrStore(id, true); exists {
-			slog.Warn("Device already managed", "device_id", id)
+			slog.Debug("Device already managed, skipping add", "device_id", id)
 			continue
 		}
 		s.mu.Lock()
@@ -63,20 +63,15 @@ func (s *scheduler) AddDevices(ctx context.Context, devices ...models.Device) er
 }
 
 func (s *scheduler) addDevices(ctx context.Context, devices ...models.Device) error {
-	var alreadyScheduled []models.DeviceIdentifier
-
 	s.mu.Lock()
 	for _, device := range devices {
 		inQueue, exists := s.managedDevices.Load(device.ID)
 		if !exists {
 			s.mu.Unlock()
-			for _, id := range alreadyScheduled {
-				slog.Warn("Device already scheduled", "device_id", id)
-			}
 			return DeviceNotManagedErr{DeviceID: device.ID}
 		}
 		if value, ok := inQueue.(bool); ok && value {
-			alreadyScheduled = append(alreadyScheduled, device.ID)
+			s.devices[device.ID] = device.LastUpdatedAt
 			continue
 		}
 		s.managedDevices.Store(device.ID, true)
@@ -84,9 +79,6 @@ func (s *scheduler) addDevices(ctx context.Context, devices ...models.Device) er
 	}
 	s.mu.Unlock()
 
-	for _, id := range alreadyScheduled {
-		slog.Warn("Device already scheduled", "device_id", id)
-	}
 	return nil
 }
 

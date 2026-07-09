@@ -71,6 +71,7 @@ import (
 	authDomain "github.com/block/proto-fleet/server/internal/domain/auth"
 	buildingsDomain "github.com/block/proto-fleet/server/internal/domain/buildings"
 	cohortDomain "github.com/block/proto-fleet/server/internal/domain/cohort"
+	cohortReconciler "github.com/block/proto-fleet/server/internal/domain/cohort/reconciler"
 	collectionDomain "github.com/block/proto-fleet/server/internal/domain/collection"
 	commandDomain "github.com/block/proto-fleet/server/internal/domain/command"
 	curtailmentDomain "github.com/block/proto-fleet/server/internal/domain/curtailment"
@@ -577,6 +578,16 @@ func start(config *Config) error {
 	defer func() {
 		if err := curtailmentRec.Stop(); err != nil {
 			slog.Error("failed to stop curtailment reconciler", "error", err)
+		}
+	}()
+
+	cohortRec := cohortReconciler.New(config.CohortEnforce, cohortStore, commandSvc, filesService)
+	if err := cohortRec.Start(context.Background()); err != nil {
+		return fmt.Errorf("failed to start cohort reconciler: %w", err)
+	}
+	defer func() {
+		if err := cohortRec.Stop(); err != nil {
+			slog.Error("failed to stop cohort reconciler", "error", err)
 		}
 	}()
 

@@ -111,7 +111,7 @@ func TestTelemetryService_AddDevices(t *testing.T) {
 	}
 }
 
-func TestTelemetryService_AddDevicesReturnsWhenTaskQueueFullAndContextCanceled(t *testing.T) {
+func TestTelemetryService_AddDevicesRegistersWithSchedulerOnly(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -119,20 +119,28 @@ func TestTelemetryService_AddDevicesReturnsWhenTaskQueueFullAndContextCanceled(t
 	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	deviceID := models.DeviceIdentifier("device-1")
+
+	mockScheduler.EXPECT().
+		AddNewDevices(gomock.Any(), deviceID).
+		Return(nil)
+
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,
 		FetchInterval:      10 * time.Second,
 		ConcurrencyLimit:   1,
 	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
-	service.tasks <- models.Device{ID: "already-queued"}
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
-	defer cancel()
 
-	err := service.AddDevices(ctx, "blocked-device")
+	err := service.AddDevices(t.Context(), deviceID)
 
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "enqueue telemetry device blocked-device")
-	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	require.NoError(t, err)
+	_, tracked := service.devicesForStatusPolling.Load(deviceID)
+	assert.True(t, tracked)
+	select {
+	case task := <-service.tasks:
+		t.Fatalf("AddDevices should let the scheduler dispatch telemetry work, got immediate task %s", task.ID)
+	default:
+	}
 }
 
 func TestTelemetryService_RemoveDevices(t *testing.T) {
@@ -728,9 +736,8 @@ func TestTelemetryService_Integration(t *testing.T) {
 		err := service.AddDevices(ctx, deviceID)
 		require.NoError(t, err)
 
-		// shows that the task was added to get polled as soon as the service starts
-		task := <-service.tasks
-		require.Equal(t, task.ID, deviceID)
+		// New devices become scheduler-eligible immediately and are dispatched by
+		// the gather loop instead of bypassing scheduler ownership.
 
 		// Step 2: Verify service can be started and stopped
 		err = service.Start(ctx)
@@ -915,18 +922,11 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 		err := service.AddDevices(ctx, deviceIDs...)
 		require.NoError(t, err)
 
-		for range deviceIDs {
-			<-service.tasks
-		}
-
 		err = service.RemoveDevices(ctx, deviceIDs[1])
 		require.NoError(t, err)
 
 		err = service.AddDevices(ctx, deviceIDs[1])
 		require.NoError(t, err)
-
-		task := <-service.tasks
-		require.Equal(t, task.ID, deviceIDs[1])
 
 		// Test service lifecycle
 		err = service.Start(ctx)
@@ -3325,7 +3325,7 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
 
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, "")
+		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, "")
 	})
 
 	t.Run("persists new firmware version", func(t *testing.T) {
@@ -3337,7 +3337,7 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 
 		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
 
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
+		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, firmwareV1)
 	})
 
 	t.Run("skips when firmware version unchanged", func(t *testing.T) {
@@ -3350,9 +3350,9 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
 
 		// First call persists
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
+		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, firmwareV1)
 		// Second call with same version should not call UpdateFirmwareVersion again
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
+		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, firmwareV1)
 	})
 
 	t.Run("persists when firmware version changes", func(t *testing.T) {
@@ -3367,8 +3367,8 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 
 		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
 
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV2)
+		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, firmwareV1)
+		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, firmwareV2)
 	})
 
 	t.Run("does not cache on store error", func(t *testing.T) {
@@ -3384,8 +3384,8 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 
 		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
 
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
+		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, firmwareV1)
+		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, firmwareV1)
 	})
 
 }

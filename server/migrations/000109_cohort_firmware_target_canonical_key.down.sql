@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS uq_cohort_firmware_target_canonical_type;

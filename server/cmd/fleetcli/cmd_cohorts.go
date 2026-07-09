@@ -340,10 +340,12 @@ func generatedCohortsCommand() *cli.Command {
 						req.CohortId = cmd.Int64("cohort-id")
 					}
 					if cmd.IsSet("manufacturer") {
-						req.Manufacturer = cmd.String("manufacturer")
+						value := cmd.String("manufacturer")
+						req.Manufacturer = &value
 					}
 					if cmd.IsSet("model") {
-						req.Model = cmd.String("model")
+						value := cmd.String("model")
+						req.Model = &value
 					}
 					if cmd.IsSet("firmware-file-id") {
 						value := cmd.String("firmware-file-id")

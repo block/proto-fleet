@@ -53,7 +53,19 @@ INSERT INTO cohort (
 -- name: GetCohort :one
 SELECT
     c.*,
-    COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
+    CASE
+        WHEN c.is_default THEN (
+            SELECT COUNT(*)::bigint
+            FROM device d_default
+            LEFT JOIN cohort_membership cm_default
+                ON cm_default.org_id = d_default.org_id
+               AND cm_default.device_identifier = d_default.device_identifier
+            WHERE d_default.org_id = c.org_id
+              AND d_default.deleted_at IS NULL
+              AND cm_default.cohort_id IS NULL
+        )
+        ELSE COALESCE(m.explicit_member_count, 0)::bigint
+    END AS explicit_member_count
 FROM cohort c
 LEFT JOIN (
     SELECT cohort_id, COUNT(*) AS explicit_member_count
@@ -66,7 +78,19 @@ WHERE c.id = sqlc.arg('id')
 -- name: ListCohorts :many
 SELECT
     c.*,
-    COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
+    CASE
+        WHEN c.is_default THEN (
+            SELECT COUNT(*)::bigint
+            FROM device d_default
+            LEFT JOIN cohort_membership cm_default
+                ON cm_default.org_id = d_default.org_id
+               AND cm_default.device_identifier = d_default.device_identifier
+            WHERE d_default.org_id = c.org_id
+              AND d_default.deleted_at IS NULL
+              AND cm_default.cohort_id IS NULL
+        )
+        ELSE COALESCE(m.explicit_member_count, 0)::bigint
+    END AS explicit_member_count
 FROM cohort c
 LEFT JOIN (
     SELECT cohort_id, COUNT(*) AS explicit_member_count
@@ -110,7 +134,19 @@ WHERE c.org_id = sqlc.arg('org_id')
 -- name: ListCohortsByOwner :many
 SELECT
     c.*,
-    COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
+    CASE
+        WHEN c.is_default THEN (
+            SELECT COUNT(*)::bigint
+            FROM device d_default
+            LEFT JOIN cohort_membership cm_default
+                ON cm_default.org_id = d_default.org_id
+               AND cm_default.device_identifier = d_default.device_identifier
+            WHERE d_default.org_id = c.org_id
+              AND d_default.deleted_at IS NULL
+              AND cm_default.cohort_id IS NULL
+        )
+        ELSE COALESCE(m.explicit_member_count, 0)::bigint
+    END AS explicit_member_count
 FROM cohort c
 LEFT JOIN (
     SELECT cohort_id, COUNT(*) AS explicit_member_count
@@ -203,9 +239,11 @@ INSERT INTO cohort_firmware_target (
     sqlc.arg('model'),
     sqlc.narg('firmware_file_id')
 )
-ON CONFLICT (cohort_id, manufacturer, model)
+ON CONFLICT (cohort_id, (LOWER(BTRIM(manufacturer))), (LOWER(BTRIM(model))))
 DO UPDATE SET
     firmware_file_id = EXCLUDED.firmware_file_id,
+    manufacturer = EXCLUDED.manufacturer,
+    model = EXCLUDED.model,
     updated_at = CURRENT_TIMESTAMP
 RETURNING *;
 
@@ -213,8 +251,20 @@ RETURNING *;
 DELETE FROM cohort_firmware_target
 WHERE cohort_id = sqlc.arg('cohort_id')
   AND org_id = sqlc.arg('org_id')
-  AND manufacturer = sqlc.arg('manufacturer')
-  AND model = sqlc.arg('model');
+  AND LOWER(BTRIM(manufacturer)) = LOWER(BTRIM(sqlc.arg('manufacturer')::text))
+  AND LOWER(BTRIM(model)) = LOWER(BTRIM(sqlc.arg('model')::text));
+
+-- name: ClearCohortDesiredFirmwareFileReferences :execrows
+UPDATE cohort
+SET desired_firmware_file_id = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE org_id = sqlc.arg('org_id')
+  AND desired_firmware_file_id = sqlc.arg('firmware_file_id');
+
+-- name: ClearCohortFirmwareTargetFileReferences :execrows
+DELETE FROM cohort_firmware_target
+WHERE org_id = sqlc.arg('org_id')
+  AND firmware_file_id = sqlc.arg('firmware_file_id');
 
 -- name: ReleaseCohort :one
 UPDATE cohort
@@ -228,7 +278,19 @@ RETURNING *;
 -- name: ListExpiredActiveCohorts :many
 SELECT
     c.*,
-    COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
+    CASE
+        WHEN c.is_default THEN (
+            SELECT COUNT(*)::bigint
+            FROM device d_default
+            LEFT JOIN cohort_membership cm_default
+                ON cm_default.org_id = d_default.org_id
+               AND cm_default.device_identifier = d_default.device_identifier
+            WHERE d_default.org_id = c.org_id
+              AND d_default.deleted_at IS NULL
+              AND cm_default.cohort_id IS NULL
+        )
+        ELSE COALESCE(m.explicit_member_count, 0)::bigint
+    END AS explicit_member_count
 FROM cohort c
 LEFT JOIN (
     SELECT cohort_id, COUNT(*) AS explicit_member_count
@@ -304,6 +366,7 @@ SELECT
     COALESCE(dd.manufacturer, '') AS manufacturer,
     COALESCE(dd.model, '') AS model,
     COALESCE(dd.ip_address, '') AS ip_address,
+    COALESCE(dd.firmware_version, '') AS firmware_version,
     COALESCE(d.serial_number, '') AS serial_number,
     COALESCE(s.name, '') AS site_label
 FROM cohort_membership cm
@@ -363,7 +426,19 @@ ORDER BY cm.device_identifier;
 -- name: ResolveEffectiveCohortForDevice :one
 SELECT
     c.*,
-    COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
+    CASE
+        WHEN c.is_default THEN (
+            SELECT COUNT(*)::bigint
+            FROM device d_default
+            LEFT JOIN cohort_membership cm_default
+                ON cm_default.org_id = d_default.org_id
+               AND cm_default.device_identifier = d_default.device_identifier
+            WHERE d_default.org_id = c.org_id
+              AND d_default.deleted_at IS NULL
+              AND cm_default.cohort_id IS NULL
+        )
+        ELSE COALESCE(m.explicit_member_count, 0)::bigint
+    END AS explicit_member_count
 FROM device d
 LEFT JOIN cohort_membership cm
     ON cm.org_id = d.org_id
@@ -397,11 +472,11 @@ WHERE d.org_id = sqlc.arg('org_id')
   AND cm.cohort_id IS NULL
   AND (
     NOT sqlc.arg('product_filter_set')::boolean
-    OR dd.manufacturer = sqlc.narg('product')
+    OR LOWER(BTRIM(dd.manufacturer)) = LOWER(BTRIM(sqlc.narg('product')::text))
   )
   AND (
     NOT sqlc.arg('model_filter_set')::boolean
-    OR dd.model = sqlc.narg('model')
+    OR LOWER(BTRIM(dd.model)) = LOWER(BTRIM(sqlc.narg('model')::text))
   )
   AND (
     NOT sqlc.arg('site_id_filter_set')::boolean
@@ -424,10 +499,23 @@ WITH cohort_devices AS (
         COALESCE(dd.manufacturer, '') AS manufacturer,
         COALESCE(dd.model, '') AS model,
         COALESCE(dd.ip_address, '') AS ip_address,
+        COALESCE(dd.firmware_version, '') AS firmware_version,
         COALESCE(d.serial_number, '') AS serial_number,
         COALESCE(s.name, '') AS site_label,
         c.*,
-        COALESCE(m.explicit_member_count, 0)::bigint AS explicit_member_count
+        CASE
+            WHEN c.is_default THEN (
+                SELECT COUNT(*)::bigint
+                FROM device d_default
+                LEFT JOIN cohort_membership cm_default
+                    ON cm_default.org_id = d_default.org_id
+                   AND cm_default.device_identifier = d_default.device_identifier
+                WHERE d_default.org_id = c.org_id
+                  AND d_default.deleted_at IS NULL
+                  AND cm_default.cohort_id IS NULL
+            )
+            ELSE COALESCE(m.explicit_member_count, 0)::bigint
+        END AS explicit_member_count
     FROM device d
     JOIN discovered_device dd
         ON dd.id = d.discovered_device_id
@@ -475,11 +563,17 @@ WHERE (
   )
   AND (
     cardinality(sqlc.arg('manufacturers')::text[]) = 0
-    OR manufacturer = ANY(sqlc.arg('manufacturers')::text[])
+    OR LOWER(BTRIM(manufacturer)) = ANY(
+        SELECT LOWER(BTRIM(value))
+        FROM unnest(sqlc.arg('manufacturers')::text[]) AS value
+    )
   )
   AND (
     cardinality(sqlc.arg('models')::text[]) = 0
-    OR model = ANY(sqlc.arg('models')::text[])
+    OR LOWER(BTRIM(model)) = ANY(
+        SELECT LOWER(BTRIM(value))
+        FROM unnest(sqlc.arg('models')::text[]) AS value
+    )
   )
   AND (
     cardinality(sqlc.arg('site_ids')::bigint[]) = 0
@@ -569,11 +663,17 @@ WHERE (
   )
   AND (
     cardinality(sqlc.arg('manufacturers')::text[]) = 0
-    OR manufacturer = ANY(sqlc.arg('manufacturers')::text[])
+    OR LOWER(BTRIM(manufacturer)) = ANY(
+        SELECT LOWER(BTRIM(value))
+        FROM unnest(sqlc.arg('manufacturers')::text[]) AS value
+    )
   )
   AND (
     cardinality(sqlc.arg('models')::text[]) = 0
-    OR model = ANY(sqlc.arg('models')::text[])
+    OR LOWER(BTRIM(model)) = ANY(
+        SELECT LOWER(BTRIM(value))
+        FROM unnest(sqlc.arg('models')::text[]) AS value
+    )
   )
   AND (
     cardinality(sqlc.arg('site_ids')::bigint[]) = 0
