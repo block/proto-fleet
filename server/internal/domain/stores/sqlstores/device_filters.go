@@ -332,19 +332,32 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		argNum += 2
 	}
 
-	if fp.rackIDsFilter.Valid {
+	// Rack membership predicate. rack_ids match an explicit rack; include_no_rack
+	// admits devices with no rack membership. Emitting this as a top-level AND
+	// whenever include_no_rack is set (even with no rack_ids) is what keeps the
+	// assignable-only filter for a NEW rack from leaking miners that sit in
+	// ANOTHER rack in the same building — their direct/rack-derived building
+	// still matches the building predicate below, so "no rack" has to be
+	// enforced here rather than only OR'd inside the building group.
+	if fp.rackIDsFilter.Valid || fp.includeNoRack {
 		sb.WriteString(" AND (")
-		fmt.Fprintf(sb,
-			"EXISTS (SELECT 1 FROM device_set_membership dcm"+
-				" WHERE dcm.device_id = device.id"+
-				" AND dcm.org_id = $%d"+
-				" AND dcm.device_set_type = 'rack'"+
-				" AND dcm.device_set_id = ANY($%d::bigint[]))",
-			argNum, argNum+1)
-		args = append(args, orgID, pq.Array(fp.rackIDValues))
-		argNum += 2
+		rackFirst := true
+		if fp.rackIDsFilter.Valid {
+			fmt.Fprintf(sb,
+				"EXISTS (SELECT 1 FROM device_set_membership dcm"+
+					" WHERE dcm.device_id = device.id"+
+					" AND dcm.org_id = $%d"+
+					" AND dcm.device_set_type = 'rack'"+
+					" AND dcm.device_set_id = ANY($%d::bigint[]))",
+				argNum, argNum+1)
+			args = append(args, orgID, pq.Array(fp.rackIDValues))
+			argNum += 2
+			rackFirst = false
+		}
 		if fp.includeNoRack {
-			sb.WriteString(" OR ")
+			if !rackFirst {
+				sb.WriteString(" OR ")
+			}
 			fmt.Fprintf(sb,
 				"NOT EXISTS (SELECT 1 FROM device_set_membership dcm"+
 					" JOIN device_set ds ON ds.id = dcm.device_set_id"+

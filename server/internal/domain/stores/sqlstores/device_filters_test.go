@@ -875,6 +875,32 @@ func TestAppendFilterSQL_NewRackShape_DropsNoBuildingRackBranch(t *testing.T) {
 	assert.NotContains(t, sql, "dsr.building_id IS NULL")
 }
 
+// A NEW rack placed in a building sends building_ids + include_no_building +
+// include_no_rack with NO rack_ids. "No rack" must be enforced as its own
+// top-level AND clause — otherwise a miner in ANOTHER rack in that building
+// (whose direct/rack-derived building_id still matches the building predicate)
+// leaks into the assignable-only list.
+func TestAppendFilterSQL_NewRackInBuilding_EnforcesNoRackTopLevel(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{
+		buildingIDsFilter: validNullString(),
+		buildingIDValues:  []int64{7},
+		includeNoBuilding: true,
+		includeNoRack:     true,
+		siteIDsFilter:     validNullString(),
+		siteIDValues:      []int64{3},
+		includeUnassigned: true,
+	}
+
+	appendFilterSQL(&sb, []any{"initial"}, 2, 42, fp)
+
+	sql := sb.String()
+	// Rack membership is its own AND clause enforcing "no rack".
+	assert.Contains(t, sql, " AND (NOT EXISTS (SELECT 1 FROM device_set_membership dcm JOIN device_set ds")
+	// The building predicate still admits directly-building-placed rackless miners.
+	assert.Contains(t, sql, "device.building_id = ANY")
+}
+
 // TestAppendFilterSQL_ZoneKeys_OrgIDDefenseInDepth guards against the
 // regression mode flagged by finding 2: a refactor that drops the
 // dcm.org_id clause from the wildcard branch would silently expose
