@@ -16,13 +16,12 @@ export interface FleetOutletContext {
   // server-side authz changes that still deny the catalog RPC after UI gating.
   siteCatalogAccessGranted: boolean;
   refetchSites: () => void;
-  // Pairing coordination between the Miners tab and the chrome-level
-  // CompleteSetup banner. Miners → CompleteSetup: call `notifyPairingCompleted`
-  // when pairing finishes so the banner's pool/auth probes refresh. Bumps
-  // `minersChangedAt`: CompleteSetup → Miners signal for when an in-banner
-  // flow (e.g. pool assignment) wants the miner list to refetch immediately
-  // instead of waiting for the next poll tick.
+  // Coordination between the Miners tab and the chrome-level CompleteSetup
+  // banner. `notifyPairingCompleted` starts CompleteSetup's post-pairing poll.
+  // `notifyMinersChanged` bumps `minersChangedAt` so every consumer with its
+  // own fleet probes can refetch immediately after membership/status changes.
   notifyPairingCompleted: () => void;
+  notifyMinersChanged: () => void;
   minersChangedAt: number;
   /**
    * Child tabs publish their filter metadata up to FleetLayout so the
