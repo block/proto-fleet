@@ -601,6 +601,30 @@ describe("CompleteSetup", () => {
         expect(mockRefetchPoolNeededCount).toHaveBeenCalledTimes(1);
       });
     });
+
+    it("does not refetch setup counts when complete setup is dismissed", async () => {
+      const { useReactiveLocalStorage } = await import("@/shared/hooks/useReactiveLocalStorage");
+      vi.mocked(useReactiveLocalStorage).mockImplementation((key: string) => {
+        if (key === "completeSetupDismissed") {
+          return [true, vi.fn()];
+        }
+        return [false, vi.fn()];
+      });
+
+      const { rerender } = renderCompleteSetup({ minersChangedAt: 0 });
+
+      mockRefetchAuthNeededMiners.mockClear();
+      mockRefetchPoolNeededCount.mockClear();
+
+      rerender(
+        <MemoryRouter>
+          <CompleteSetup minersChangedAt={123} onRefetchMiners={mockRefetchMiners} />
+        </MemoryRouter>,
+      );
+
+      expect(mockRefetchAuthNeededMiners).not.toHaveBeenCalled();
+      expect(mockRefetchPoolNeededCount).not.toHaveBeenCalled();
+    });
   });
 
   describe("Polling after pairing completion", () => {

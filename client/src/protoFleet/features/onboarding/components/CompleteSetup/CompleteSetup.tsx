@@ -166,12 +166,14 @@ const CompleteSetup = ({
 
   const lastHandledMinersChangedAtRef = useRef(0);
   useEffect(() => {
-    if (minersChangedAt <= 0 || minersChangedAt === lastHandledMinersChangedAtRef.current) return;
+    if (completSetupDismissed || minersChangedAt <= 0 || minersChangedAt === lastHandledMinersChangedAtRef.current) {
+      return;
+    }
 
     lastHandledMinersChangedAtRef.current = minersChangedAt;
     refetchAuthNeededMiners();
     refetchPoolNeededCount();
-  }, [minersChangedAt, refetchAuthNeededMiners, refetchPoolNeededCount]);
+  }, [completSetupDismissed, minersChangedAt, refetchAuthNeededMiners, refetchPoolNeededCount]);
 
   // Get streaming command batch updates
   const { streamCommandBatchUpdates } = useMinerCommand();
