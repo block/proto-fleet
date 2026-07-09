@@ -534,18 +534,21 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 			// A settings save persists dimensions without replacing membership,
 			// so reject a shrink that no longer fits the rack's current members
 			// or their slot positions — otherwise Continue would leave the DB
-			// with a grid too small for the miners it holds (#718). Skipped when
-			// this call also replaces membership; the new set governs capacity
-			// then (and SaveRack owns that path).
+			// with a grid too small for the miners it holds (#718). Runs as the
+			// afterLock hook (under the rack row lock) so a concurrent SaveRack
+			// can't add members/slots between the check and the resize. Skipped
+			// when this call also replaces membership; the new set governs
+			// capacity then (and SaveRack owns that path).
+			var afterLock func(context.Context) error
 			if !hasDeviceSelector {
-				if err := s.enforceRackDimensionsFitCurrentMembers(ctx, info.OrganizationID, req.CollectionId, rackInfo.Rows, rackInfo.Columns); err != nil {
-					return nil, err
+				afterLock = func(ctx context.Context) error {
+					return s.enforceRackDimensionsFitCurrentMembers(ctx, info.OrganizationID, req.CollectionId, rackInfo.Rows, rackInfo.Columns)
 				}
 			}
 			// preserveZoneOnEmpty=false: this settings save's form always
 			// submits the rack's current zone, so an empty zone is an explicit
 			// clear — even for a rack:manage operator who omits placement.
-			res, err := s.resolveAndApplyRackPlacement(ctx, info, req.CollectionId, rackInfo, deviceIdentifiers, false /* preserveZoneOnEmpty */)
+			res, err := s.resolveAndApplyRackPlacement(ctx, info, req.CollectionId, rackInfo, deviceIdentifiers, false /* preserveZoneOnEmpty */, afterLock)
 			if err != nil {
 				return nil, err
 			}
@@ -2173,7 +2176,7 @@ func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *p
 	// AND may carry an empty zone without meaning to clear it, so preserve the
 	// current zone on empty (see resolveAndApplyRackPlacement + the
 	// omitted-placement contract in service_test.go).
-	res, err := s.resolveAndApplyRackPlacement(ctx, info, collectionID, rackInfo, deviceIdentifiers, true /* preserveZoneOnEmpty */)
+	res, err := s.resolveAndApplyRackPlacement(ctx, info, collectionID, rackInfo, deviceIdentifiers, true /* preserveZoneOnEmpty */, nil /* afterLock */)
 	if err != nil {
 		return nil, err
 	}
@@ -2234,7 +2237,12 @@ func (s *Service) enforceRackDimensionsFitCurrentMembers(ctx context.Context, or
 // metadata/miners-only re-save can't silently wipe a zone it never edited;
 // the UpdateCollection settings save passes false because its form always
 // submits the current zone, so an empty value is an explicit clear.
-func (s *Service) resolveAndApplyRackPlacement(ctx context.Context, info *session.Info, collectionID int64, rackInfo *pb.RackInfo, deviceIdentifiers []string, preserveZoneOnEmpty bool) (*saveRackUpdatePathResult, error) {
+//
+// afterLock, when non-nil, runs AFTER the rack row lock is held but BEFORE any
+// write. It lets a caller re-validate under the lock (e.g. the dimension guard)
+// so a concurrent SaveRack can't mutate membership/slots between the caller's
+// pre-read and this resize. nil for callers with nothing to recheck.
+func (s *Service) resolveAndApplyRackPlacement(ctx context.Context, info *session.Info, collectionID int64, rackInfo *pb.RackInfo, deviceIdentifiers []string, preserveZoneOnEmpty bool, afterLock func(context.Context) error) (*saveRackUpdatePathResult, error) {
 	var (
 		current       interfaces.RackPlacement
 		newSiteID     *int64
@@ -2268,6 +2276,15 @@ func (s *Service) resolveAndApplyRackPlacement(ctx context.Context, info *sessio
 		}
 		current, err = s.collectionStore.LockRackPlacementForWrite(ctx, collectionID, info.OrganizationID)
 		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Re-validate under the rack lock before any write. A concurrent SaveRack
+	// touching membership/slots holds this same row lock, so it either
+	// committed before us (this recheck sees it) or waits until we commit.
+	if afterLock != nil {
+		if err := afterLock(ctx); err != nil {
 			return nil, err
 		}
 	}

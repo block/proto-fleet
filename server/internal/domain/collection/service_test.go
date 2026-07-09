@@ -2148,8 +2148,12 @@ func TestService_UpdateCollection_RackSettingsRejectsShrinkBelowMembers(t *testi
 	collectionID := int64(43)
 
 	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
-	// Guard runs first: no out-of-bounds slots, but 5 members exceed the new
-	// 2×2 = 4 capacity → reject. No UpdateRackInfo / placement writes follow.
+	// Omitted placement → the rack row is locked first; the guard then runs
+	// UNDER that lock (afterLock hook). No out-of-bounds slots, but 5 members
+	// exceed the new 2×2 = 4 capacity → reject before any UpdateRackInfo /
+	// placement write.
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
+		Return(interfaces.RackPlacement{}, nil)
 	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
 		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK, DeviceCount: 5}, nil)
