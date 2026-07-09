@@ -115,27 +115,21 @@ export default function ManageRackModal({
   const totalSlots = rackSettings.rows * rackSettings.columns;
   const numberingOrigin = orderIndexToOrigin(rackSettings.orderIndex);
 
-  // Target-rack placement for the selection modals' eligibility filter. For an
-  // existing rack, pin to its CURRENT (persisted) placement — not a pending
-  // Site/Building edit in Rack Settings. A move is applied on save and cascades
-  // the rack's members with it, so the members are still at the old placement
-  // here; using the pending placement would flag them ineligible and let
-  // "Select all" drop them. A new rack has no persisted placement, so the live
-  // selection is the intended placement. `rackId` keys off the persisted id (a
-  // new rack has none, so only rack membership is excluded until it's saved).
+  // Target-rack placement for the selection modals' eligibility filter.
+  // rackSettings always reflects the rack's LIVE persisted placement: a
+  // Site/Building change in Rack Settings is persisted immediately on Continue
+  // (handleRackSettingsUpdate), which also cascades the rack's members to the
+  // new placement. So by the time this filter runs, the rack and its members
+  // are already at the placement in rackSettings — no current-vs-pending split,
+  // and a miner already at the new destination reads as assignable. A new rack
+  // has no persisted placement, so rackSettings is the intended placement.
   const eligibility = useMemo<MinerEligibility>(
     () => ({
       rackId: existingRackId,
-      siteId: existingRackId !== undefined ? initialRackSettings.siteId : rackSettings.siteId,
-      buildingId: existingRackId !== undefined ? initialRackSettings.buildingId : rackSettings.buildingId,
+      siteId: rackSettings.siteId,
+      buildingId: rackSettings.buildingId,
     }),
-    [
-      existingRackId,
-      initialRackSettings.siteId,
-      initialRackSettings.buildingId,
-      rackSettings.siteId,
-      rackSettings.buildingId,
-    ],
+    [existingRackId, rackSettings.siteId, rackSettings.buildingId],
   );
 
   // Core assignment state. A new rack (no existingRackId) can be seeded
@@ -499,11 +493,58 @@ export default function ManageRackModal({
     [eligibility, totalSlots, promptReparent],
   );
 
-  // RackSettingsModal edit handler
-  const handleRackSettingsUpdate = useCallback((formData: RackFormData) => {
-    setRackSettings(formData);
-    setShowRackSettings(false);
-  }, []);
+  // RackSettingsModal edit handler. For an existing rack, a Site/Building
+  // change is persisted right here (not deferred to the final Save) so the
+  // rack — and its server-cascaded members — are already at the new placement
+  // before the operator opens Manage Miners; otherwise the assignable-only
+  // list would judge miners against a placement that isn't live yet. Only a
+  // real placement change triggers this; label/zone/dimension edits stay in
+  // memory until Save. Requires site:manage (already enforced on SaveRack).
+  const handleRackSettingsUpdate = useCallback(
+    async (formData: RackFormData) => {
+      const placementChanged =
+        existingRackId !== undefined &&
+        canManagePlacement &&
+        (formData.siteId !== rackSettings.siteId || formData.buildingId !== rackSettings.buildingId);
+
+      if (placementChanged) {
+        const slotAssignmentsList = Object.entries(activeAssignments).map(([key, deviceId]) => {
+          const [row, col] = key.split("-").map(Number);
+          return { deviceIdentifier: deviceId, row, column: col };
+        });
+        try {
+          await new Promise<void>((resolve, reject) => {
+            saveRack({
+              deviceSetId: existingRackId,
+              label: formData.label,
+              zone: formData.zone,
+              rows: formData.rows,
+              columns: formData.columns,
+              orderIndex: formData.orderIndex,
+              coolingType: formData.coolingType,
+              deviceIdentifiers: rackMiners,
+              slotAssignments: slotAssignmentsList,
+              siteId: formData.siteId ?? 0n,
+              buildingId: formData.buildingId ?? 0n,
+              onSuccess: () => resolve(),
+              onError: (msg) => reject(new Error(msg)),
+            });
+          });
+        } catch (err) {
+          pushToast({
+            message: getErrorMessage(err, "Failed to update rack placement. Please try again."),
+            status: STATUSES.error,
+          });
+          // Keep Rack Settings open (don't apply) so the operator can retry.
+          return;
+        }
+      }
+
+      setRackSettings(formData);
+      setShowRackSettings(false);
+    },
+    [existingRackId, canManagePlacement, rackSettings, rackMiners, activeAssignments, saveRack],
+  );
 
   // Save handler — single atomic RPC
   const handleSave = useCallback(async () => {
