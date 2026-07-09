@@ -24,8 +24,8 @@ require (
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-plugin v1.8.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	github.com/jackc/pgx/v5 v5.10.0
 	github.com/hokaccha/go-prettyjson v0.0.0-20211117102719-0474bc63780f
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/lib/pq v1.12.3
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/robfig/cron/v3 v3.0.1
