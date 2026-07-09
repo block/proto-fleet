@@ -5,8 +5,10 @@ import (
 
 	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/testutil"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
@@ -31,7 +33,7 @@ func TestSQLStores_AllowKeyReuseAfterSoftDelete(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = poolStore.CreatePool(ctx, config, 1)
-		require.Error(t, err, "duplicate live pool keys must still be rejected")
+		requireUniqueViolationOn(t, err, "uk_pool_org_url_username")
 
 		require.NoError(t, poolStore.SoftDeletePool(ctx, 1, firstID))
 
@@ -45,7 +47,7 @@ func TestSQLStores_AllowKeyReuseAfterSoftDelete(t *testing.T) {
 		require.NoError(t, err)
 
 		_, err = userStore.CreateUser(ctx, "external-user-2", "reuse@example.com", "hash", false)
-		require.Error(t, err, "duplicate live usernames must still be rejected")
+		requireUniqueViolationOn(t, err, "uq_user_username")
 
 		require.NoError(t, userStore.SoftDeleteUser(ctx, firstID))
 
@@ -69,4 +71,13 @@ func setupSoftDeleteUniquenessStores(t *testing.T) (*sqlstores.SQLPoolStore, *sq
 	require.NoError(t, err, "Failed to create test organization")
 
 	return sqlstores.NewSQLPoolStore(db, encryptService), sqlstores.NewSQLUserStore(db)
+}
+
+func requireUniqueViolationOn(t *testing.T, err error, constraintName string) {
+	t.Helper()
+
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	require.Equal(t, db.PGUniqueViolation, pgErr.Code)
+	require.Equal(t, constraintName, pgErr.ConstraintName)
 }

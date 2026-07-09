@@ -77,7 +77,7 @@ func (s *SQLPoolStore) CreatePool(ctx context.Context, config *pb.PoolConfig, or
 		OrgID:       orgID,
 	})
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("error creating pool: %v", err)
+		return 0, fleeterror.NewInternalErrorf("error creating pool: %w", err)
 	}
 
 	return poolID, nil
