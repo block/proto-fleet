@@ -21,7 +21,7 @@ func generatedErrorsCommand() *cli.Command {
 				"/errors.v1.ErrorQueryService/GetError",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "error-id", Usage: "error id", Required: true},
+					&cli.StringFlag{Name: "error-id", Usage: "(required) error id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &errorsv1.GetErrorRequest{}

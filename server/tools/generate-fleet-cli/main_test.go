@@ -306,6 +306,24 @@ func TestBuildGroupsPlacesCommandsInSubgroupsAndReportsPath(t *testing.T) {
 	}
 }
 
+func TestBuildGroupsRejectsJSONOptionalForSimpleRequest(t *testing.T) {
+	file := testServiceFile(t)
+	files := []protoreflect.FileDescriptor{file}
+	messages, enums, err := buildTypeIndexes(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err = buildGroups(files, messages, enums, commandsManifest{
+		Commands: []commandSpec{{
+			Method: "/test.v1.TestService/Ping", Group: "test", Command: "ping", JSONOptional: true,
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "json_optional requires a JSON-only request") {
+		t.Fatalf("buildGroups error = %v, want json_optional validation", err)
+	}
+}
+
 func TestBuildGroupsEmitsSecretFieldStdinFlag(t *testing.T) {
 	file := testSecretServiceFile(t)
 	files := []protoreflect.FileDescriptor{file}

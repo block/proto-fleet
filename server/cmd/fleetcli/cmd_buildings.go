@@ -73,7 +73,7 @@ func generatedBuildingsCommand() *cli.Command {
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.Int64Flag{Name: "site-id", Usage: "site id"},
-					&cli.StringFlag{Name: "name", Usage: "name", Required: true},
+					&cli.StringFlag{Name: "name", Usage: "(required) name", Required: true},
 					&cli.StringFlag{Name: "description", Usage: "description"},
 					&cli.Float64Flag{Name: "power-kw", Usage: "power kw"},
 					&cli.Float64Flag{Name: "overhead-kw", Usage: "overhead kw"},
@@ -141,7 +141,7 @@ func generatedBuildingsCommand() *cli.Command {
 				"/buildings.v1.BuildingService/DeleteBuilding",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "id", Usage: "id", Required: true},
+					&cli.Int64Flag{Name: "id", Usage: "(required) id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &buildingsv1.DeleteBuildingRequest{}
@@ -158,7 +158,7 @@ func generatedBuildingsCommand() *cli.Command {
 				"/buildings.v1.BuildingService/GetBuilding",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "id", Usage: "id", Required: true},
+					&cli.Int64Flag{Name: "id", Usage: "(required) id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &buildingsv1.GetBuildingRequest{}
@@ -200,7 +200,7 @@ func generatedBuildingsCommand() *cli.Command {
 				"/buildings.v1.BuildingService/ListBuildingRacks",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "building-id", Usage: "building id", Required: true},
+					&cli.Int64Flag{Name: "building-id", Usage: "(required) building id", Required: true},
 					&cli.IntFlag{Name: "page-size", Usage: "page size"},
 					&cli.StringFlag{Name: "page-token", Usage: "page token"},
 				},
@@ -225,7 +225,7 @@ func generatedBuildingsCommand() *cli.Command {
 				"/buildings.v1.BuildingService/GetBuildingStats",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "building-id", Usage: "building id", Required: true},
+					&cli.Int64Flag{Name: "building-id", Usage: "(required) building id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &buildingsv1.GetBuildingStatsRequest{}
@@ -242,8 +242,8 @@ func generatedBuildingsCommand() *cli.Command {
 				"/buildings.v1.BuildingService/UpdateBuilding",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "id", Usage: "id", Required: true},
-					&cli.StringFlag{Name: "name", Usage: "name", Required: true},
+					&cli.Int64Flag{Name: "id", Usage: "(required) id", Required: true},
+					&cli.StringFlag{Name: "name", Usage: "(required) name", Required: true},
 					&cli.StringFlag{Name: "description", Usage: "description"},
 					&cli.Float64Flag{Name: "power-kw", Usage: "power kw"},
 					&cli.Float64Flag{Name: "overhead-kw", Usage: "overhead kw"},

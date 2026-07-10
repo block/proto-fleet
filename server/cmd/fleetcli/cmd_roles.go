@@ -20,7 +20,7 @@ func generatedRolesCommand() *cli.Command {
 				"/authz.v1.AuthzService/CreateCustomRole",
 				generatedAuthSessionOnly,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "name", Usage: "name", Required: true},
+					&cli.StringFlag{Name: "name", Usage: "(required) name", Required: true},
 					&cli.StringFlag{Name: "description", Usage: "description"},
 					&cli.StringSliceFlag{Name: "permission-keys", Usage: "permission keys"},
 				},
@@ -45,7 +45,7 @@ func generatedRolesCommand() *cli.Command {
 				"/authz.v1.AuthzService/DeleteCustomRole",
 				generatedAuthSessionOnly,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "role-id", Usage: "role id", Required: true},
+					&cli.StringFlag{Name: "role-id", Usage: "(required) role id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &authzv1.DeleteCustomRoleRequest{}
@@ -88,8 +88,8 @@ func generatedRolesCommand() *cli.Command {
 				"/authz.v1.AuthzService/UpdateCustomRole",
 				generatedAuthSessionOnly,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "role-id", Usage: "role id", Required: true},
-					&cli.StringFlag{Name: "name", Usage: "name", Required: true},
+					&cli.StringFlag{Name: "role-id", Usage: "(required) role id", Required: true},
+					&cli.StringFlag{Name: "name", Usage: "(required) name", Required: true},
 					&cli.StringFlag{Name: "description", Usage: "description"},
 					&cli.StringSliceFlag{Name: "permission-keys", Usage: "permission keys"},
 				},

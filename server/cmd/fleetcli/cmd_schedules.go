@@ -22,14 +22,14 @@ func generatedSchedulesCommand() *cli.Command {
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.StringFlag{Name: "name", Usage: "name", Required: true},
-					&cli.StringFlag{Name: "action", Usage: "action. Valid options: set-power-target, reboot, sleep", Required: true},
-					&cli.StringFlag{Name: "schedule-type", Usage: "schedule type. Valid options: one-time, recurring", Required: true},
-					&cli.StringFlag{Name: "start-date", Usage: "start date", Required: true},
-					&cli.StringFlag{Name: "start-time", Usage: "start time", Required: true},
+					&cli.StringFlag{Name: "name", Usage: "(required unless provided by --json) name"},
+					&cli.StringFlag{Name: "action", Usage: "(required unless provided by --json) action. Valid options: set-power-target, reboot, sleep"},
+					&cli.StringFlag{Name: "schedule-type", Usage: "(required unless provided by --json) schedule type. Valid options: one-time, recurring"},
+					&cli.StringFlag{Name: "start-date", Usage: "(required unless provided by --json) start date"},
+					&cli.StringFlag{Name: "start-time", Usage: "(required unless provided by --json) start time"},
 					&cli.StringFlag{Name: "end-time", Usage: "end time"},
 					&cli.StringFlag{Name: "end-date", Usage: "end date"},
-					&cli.StringFlag{Name: "timezone", Usage: "timezone", Required: true},
+					&cli.StringFlag{Name: "timezone", Usage: "(required unless provided by --json) timezone"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &schedulev1.CreateScheduleRequest{}
@@ -78,6 +78,9 @@ func generatedSchedulesCommand() *cli.Command {
 					if cmd.IsSet("timezone") {
 						req.Timezone = cmd.String("timezone")
 					}
+					if err := generatedValidateRequiredFields(req, "action", "name", "schedule_type", "start_date", "start_time", "timezone"); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &schedulev1.CreateScheduleResponse{} },
@@ -88,7 +91,7 @@ func generatedSchedulesCommand() *cli.Command {
 				"/schedule.v1.ScheduleService/DeleteSchedule",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "schedule-id", Usage: "schedule id", Required: true},
+					&cli.Int64Flag{Name: "schedule-id", Usage: "(required) schedule id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &schedulev1.DeleteScheduleRequest{}
@@ -146,7 +149,7 @@ func generatedSchedulesCommand() *cli.Command {
 				"/schedule.v1.ScheduleService/PauseSchedule",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "schedule-id", Usage: "schedule id", Required: true},
+					&cli.Int64Flag{Name: "schedule-id", Usage: "(required) schedule id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &schedulev1.PauseScheduleRequest{}
@@ -184,7 +187,7 @@ func generatedSchedulesCommand() *cli.Command {
 				"/schedule.v1.ScheduleService/ResumeSchedule",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "schedule-id", Usage: "schedule id", Required: true},
+					&cli.Int64Flag{Name: "schedule-id", Usage: "(required) schedule id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &schedulev1.ResumeScheduleRequest{}
@@ -202,15 +205,15 @@ func generatedSchedulesCommand() *cli.Command {
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.Int64Flag{Name: "schedule-id", Usage: "schedule id", Required: true},
-					&cli.StringFlag{Name: "name", Usage: "name", Required: true},
-					&cli.StringFlag{Name: "action", Usage: "action. Valid options: set-power-target, reboot, sleep", Required: true},
-					&cli.StringFlag{Name: "schedule-type", Usage: "schedule type. Valid options: one-time, recurring", Required: true},
-					&cli.StringFlag{Name: "start-date", Usage: "start date", Required: true},
-					&cli.StringFlag{Name: "start-time", Usage: "start time", Required: true},
+					&cli.Int64Flag{Name: "schedule-id", Usage: "(required unless provided by --json) schedule id"},
+					&cli.StringFlag{Name: "name", Usage: "(required unless provided by --json) name"},
+					&cli.StringFlag{Name: "action", Usage: "(required unless provided by --json) action. Valid options: set-power-target, reboot, sleep"},
+					&cli.StringFlag{Name: "schedule-type", Usage: "(required unless provided by --json) schedule type. Valid options: one-time, recurring"},
+					&cli.StringFlag{Name: "start-date", Usage: "(required unless provided by --json) start date"},
+					&cli.StringFlag{Name: "start-time", Usage: "(required unless provided by --json) start time"},
 					&cli.StringFlag{Name: "end-time", Usage: "end time"},
 					&cli.StringFlag{Name: "end-date", Usage: "end date"},
-					&cli.StringFlag{Name: "timezone", Usage: "timezone", Required: true},
+					&cli.StringFlag{Name: "timezone", Usage: "(required unless provided by --json) timezone"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &schedulev1.UpdateScheduleRequest{}
@@ -261,6 +264,9 @@ func generatedSchedulesCommand() *cli.Command {
 					}
 					if cmd.IsSet("timezone") {
 						req.Timezone = cmd.String("timezone")
+					}
+					if err := generatedValidateRequiredFields(req, "action", "name", "schedule_id", "schedule_type", "start_date", "start_time", "timezone"); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},

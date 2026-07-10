@@ -26,8 +26,8 @@ func generatedAlertsCommand() *cli.Command {
 						generatedAuthSessionOnly,
 						[]cli.Flag{
 							&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-							&cli.StringFlag{Name: "name", Usage: "name", Required: true},
-							&cli.StringFlag{Name: "kind", Usage: "kind. Valid options: webhook, smtp, slack", Required: true},
+							&cli.StringFlag{Name: "name", Usage: "(required unless provided by --json) name"},
+							&cli.StringFlag{Name: "kind", Usage: "(required unless provided by --json) kind. Valid options: webhook, smtp, slack"},
 							&cli.BoolFlag{Name: "webhook-bearer-stdin", Usage: "bearer header"},
 							&cli.BoolFlag{Name: "smtp-password-stdin", Usage: "password"},
 							&cli.BoolFlag{Name: "slack-webhook-stdin", Usage: "webhook url"},
@@ -84,6 +84,9 @@ func generatedAlertsCommand() *cli.Command {
 								}
 								req.Slack.WebhookUrl = secretSlackWebhookUrl
 							}
+							if err := generatedValidateRequiredFields(req, "kind", "name"); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &alertsv1.CreateChannelResponse{} },
@@ -94,7 +97,7 @@ func generatedAlertsCommand() *cli.Command {
 						"/alerts.v1.ChannelService/DeleteChannel",
 						generatedAuthSessionOnly,
 						[]cli.Flag{
-							&cli.StringFlag{Name: "id", Usage: "id", Required: true},
+							&cli.StringFlag{Name: "id", Usage: "(required) id", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &alertsv1.DeleteChannelRequest{}
@@ -194,9 +197,9 @@ func generatedAlertsCommand() *cli.Command {
 						generatedAuthSessionOnly,
 						[]cli.Flag{
 							&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-							&cli.StringFlag{Name: "id", Usage: "id", Required: true},
-							&cli.StringFlag{Name: "name", Usage: "name", Required: true},
-							&cli.StringFlag{Name: "kind", Usage: "kind. Valid options: webhook, smtp, slack", Required: true},
+							&cli.StringFlag{Name: "id", Usage: "(required unless provided by --json) id"},
+							&cli.StringFlag{Name: "name", Usage: "(required unless provided by --json) name"},
+							&cli.StringFlag{Name: "kind", Usage: "(required unless provided by --json) kind. Valid options: webhook, smtp, slack"},
 							&cli.BoolFlag{Name: "webhook-bearer-stdin", Usage: "bearer header"},
 							&cli.BoolFlag{Name: "smtp-password-stdin", Usage: "password"},
 							&cli.BoolFlag{Name: "slack-webhook-stdin", Usage: "webhook url"},
@@ -255,6 +258,9 @@ func generatedAlertsCommand() *cli.Command {
 									req.Slack = &alertsv1.SlackConfig{}
 								}
 								req.Slack.WebhookUrl = secretSlackWebhookUrl
+							}
+							if err := generatedValidateRequiredFields(req, "id", "kind", "name"); err != nil {
+								return nil, err
 							}
 							return req, nil
 						},
@@ -326,7 +332,7 @@ func generatedAlertsCommand() *cli.Command {
 						"/alerts.v1.MaintenanceWindowService/DeleteMaintenanceWindow",
 						generatedAuthSessionOnly,
 						[]cli.Flag{
-							&cli.StringFlag{Name: "id", Usage: "id", Required: true},
+							&cli.StringFlag{Name: "id", Usage: "(required) id", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &alertsv1.DeleteMaintenanceWindowRequest{}
@@ -357,7 +363,7 @@ func generatedAlertsCommand() *cli.Command {
 						generatedAuthSessionOnly,
 						[]cli.Flag{
 							&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-							&cli.StringFlag{Name: "id", Usage: "id", Required: true},
+							&cli.StringFlag{Name: "id", Usage: "(required unless provided by --json) id"},
 							&cli.StringFlag{Name: "comment", Usage: "comment"},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
@@ -372,6 +378,9 @@ func generatedAlertsCommand() *cli.Command {
 							}
 							if cmd.IsSet("comment") {
 								req.Comment = cmd.String("comment")
+							}
+							if err := generatedValidateRequiredFields(req, "id"); err != nil {
+								return nil, err
 							}
 							return req, nil
 						},
@@ -402,7 +411,7 @@ func generatedAlertsCommand() *cli.Command {
 						"/alerts.v1.RuleService/PauseRule",
 						generatedAuthSessionOnly,
 						[]cli.Flag{
-							&cli.StringFlag{Name: "id", Usage: "id", Required: true},
+							&cli.StringFlag{Name: "id", Usage: "(required) id", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &alertsv1.PauseRuleRequest{}
@@ -419,7 +428,7 @@ func generatedAlertsCommand() *cli.Command {
 						"/alerts.v1.RuleService/ResumeRule",
 						generatedAuthSessionOnly,
 						[]cli.Flag{
-							&cli.StringFlag{Name: "id", Usage: "id", Required: true},
+							&cli.StringFlag{Name: "id", Usage: "(required) id", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &alertsv1.ResumeRuleRequest{}

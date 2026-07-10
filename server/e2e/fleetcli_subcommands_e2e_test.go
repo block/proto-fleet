@@ -62,6 +62,7 @@ func TestFleetCLISubcommands(t *testing.T) {
 		miners := runFleetCLIJSON(t, ctx, env, "miners", "list", "--page-size", "25")
 		assert.Equal(t, deviceIdentifier, fleetCLIMinerIdentifier(t, miners, deviceIdentifier))
 		require.NotEmpty(t, deviceIdentifier, "miners list should expose a usable miner identifier")
+		require.NotNil(t, runFleetCLIJSON(t, ctx, env, "miners", "model-groups"))
 	})
 
 	t.Run("Performance", func(t *testing.T) {
@@ -233,14 +234,17 @@ func TestFleetCLISubcommands(t *testing.T) {
 	})
 
 	t.Run("Schedules", func(t *testing.T) {
+		createPath := writeFleetCLITestJSON(t, t.TempDir(), "schedule.json", map[string]any{
+			"name":         unique + "-schedule",
+			"action":       "SCHEDULE_ACTION_REBOOT",
+			"scheduleType": "SCHEDULE_TYPE_ONE_TIME",
+			"startDate":    "2030-01-01",
+			"startTime":    "12:00",
+			"timezone":     "America/Toronto",
+		})
 		created := runFleetCLIJSON(t, ctx, env,
 			"schedules", "create",
-			"--name", unique+"-schedule",
-			"--action", "reboot",
-			"--schedule-type", "one-time",
-			"--start-date", "2030-01-01",
-			"--start-time", "12:00",
-			"--timezone", "America/Toronto",
+			"--json", createPath,
 		)
 		scheduleID := jsonString(t, created, "schedule", "id")
 		require.NotEmpty(t, scheduleID, "schedules create should return schedule.id")

@@ -99,7 +99,7 @@ func generatedSitesCommand() *cli.Command {
 				"/sites.v1.SiteService/CreateSite",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "name", Usage: "name", Required: true},
+					&cli.StringFlag{Name: "name", Usage: "(required) name", Required: true},
 					&cli.StringFlag{Name: "location-city", Usage: "location city"},
 					&cli.StringFlag{Name: "location-state", Usage: "location state"},
 					&cli.StringFlag{Name: "timezone", Usage: "timezone"},
@@ -152,7 +152,7 @@ func generatedSitesCommand() *cli.Command {
 				"/sites.v1.SiteService/DeleteSite",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "id", Usage: "id", Required: true},
+					&cli.Int64Flag{Name: "id", Usage: "(required) id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &sitesv1.DeleteSiteRequest{}
@@ -182,7 +182,7 @@ func generatedSitesCommand() *cli.Command {
 				"/sites.v1.SiteService/ResolveSiteBySlug",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "slug", Usage: "slug", Required: true},
+					&cli.StringFlag{Name: "slug", Usage: "(required) slug", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &sitesv1.ResolveSiteBySlugRequest{}
@@ -199,7 +199,7 @@ func generatedSitesCommand() *cli.Command {
 				"/sites.v1.SiteService/GetSiteStats",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "site-id", Usage: "site id", Required: true},
+					&cli.Int64Flag{Name: "site-id", Usage: "(required) site id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &sitesv1.GetSiteStatsRequest{}
@@ -216,8 +216,8 @@ func generatedSitesCommand() *cli.Command {
 				"/sites.v1.SiteService/UpdateSite",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "id", Usage: "id", Required: true},
-					&cli.StringFlag{Name: "name", Usage: "name", Required: true},
+					&cli.Int64Flag{Name: "id", Usage: "(required) id", Required: true},
+					&cli.StringFlag{Name: "name", Usage: "(required) name", Required: true},
 					&cli.StringFlag{Name: "location-city", Usage: "location city"},
 					&cli.StringFlag{Name: "location-state", Usage: "location state"},
 					&cli.StringFlag{Name: "timezone", Usage: "timezone"},

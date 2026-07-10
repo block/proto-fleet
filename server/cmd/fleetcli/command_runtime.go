@@ -14,6 +14,7 @@ import (
 	"github.com/urfave/cli/v3"
 	"golang.org/x/term"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 type generatedAuthPolicy string
@@ -56,6 +57,57 @@ func generatedRequestCommand(
 			resp := newResponse()
 			return generatedCallAndPrintWithClient(ctx, client, auth, method, req, resp)
 		},
+	}
+}
+
+func generatedValidateRequiredFields(message proto.Message, fieldNames ...string) error {
+	reflected := message.ProtoReflect()
+	for _, fieldName := range fieldNames {
+		field := reflected.Descriptor().Fields().ByName(protoreflect.Name(fieldName))
+		if field == nil {
+			return fmt.Errorf("unknown required request field %q", fieldName)
+		}
+		if generatedProtoFieldPopulated(reflected, field) {
+			continue
+		}
+		flagName := strings.ReplaceAll(fieldName, "_", "-")
+		return fmt.Errorf("required field %q must be provided with --%s or --json", fieldName, flagName)
+	}
+	return nil
+}
+
+func generatedProtoFieldPopulated(message protoreflect.Message, field protoreflect.FieldDescriptor) bool {
+	if field.IsList() {
+		return message.Get(field).List().Len() > 0
+	}
+	if field.IsMap() {
+		return message.Get(field).Map().Len() > 0
+	}
+	if field.HasPresence() {
+		return message.Has(field)
+	}
+	value := message.Get(field)
+	switch field.Kind() {
+	case protoreflect.BoolKind:
+		return value.Bool()
+	case protoreflect.EnumKind:
+		return value.Enum() != 0
+	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind,
+		protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
+		return value.Int() != 0
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind,
+		protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		return value.Uint() != 0
+	case protoreflect.FloatKind, protoreflect.DoubleKind:
+		return value.Float() != 0
+	case protoreflect.StringKind:
+		return value.String() != ""
+	case protoreflect.BytesKind:
+		return len(value.Bytes()) > 0
+	case protoreflect.MessageKind, protoreflect.GroupKind:
+		return message.Has(field)
+	default:
+		return false
 	}
 }
 

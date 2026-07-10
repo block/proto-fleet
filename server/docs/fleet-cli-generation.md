@@ -102,6 +102,7 @@ do not encode cleanly, including:
 - per-field flag overrides for request fields that need custom flag names,
   nested paths, or stdin-backed secret handling
 - `json_only` settings for commands that should be request-file driven
+- `json_optional` for complex read requests where an empty request is useful
 
 ## Generated Command Rules
 
@@ -138,6 +139,17 @@ because that field needs the custom `--pool-password-stdin` secret path instead
 of a string argv flag.
 
 `field_flags` supports string overrides and stdin-backed secrets.
+
+Required fields on JSON-fallback commands are validated after the JSON request
+and any explicit flags are merged. An operator may therefore provide a required
+field either in `--json` or with its generated flag; explicit flags override the
+JSON value. Help labels these fields as `required unless provided by --json`.
+Commands without JSON fallback retain normal required flags.
+
+When a JSON-only request includes a recognized device selector, the generated
+command also exposes the standard selector flags. This keeps complex payloads,
+such as miner naming configuration, in JSON while allowing scope to be supplied
+ergonomically with `--device`, `--group`, `--rack`, or `--all-devices`.
 
 ### Auth policy handling
 

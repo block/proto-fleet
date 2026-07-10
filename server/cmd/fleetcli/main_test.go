@@ -104,6 +104,151 @@ func TestGeneratedLeafCommandsMatchManifest(t *testing.T) {
 	}
 }
 
+func TestGeneratedRequiredFieldsAcceptJSONOrFlags(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	var request map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /schedule.v1.ScheduleService/CreateSchedule", func(w http.ResponseWriter, r *http.Request) {
+		request = requestBodyMap(t, r)
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	requestPath := filepath.Join(t.TempDir(), "schedule.json")
+	requestJSON := []byte(`{
+		"name":"nightly-reboot",
+		"action":"SCHEDULE_ACTION_REBOOT",
+		"schedule_type":"SCHEDULE_TYPE_ONE_TIME",
+		"start_date":"2030-01-01",
+		"start_time":"12:00",
+		"timezone":"UTC"
+	}`)
+	if err := os.WriteFile(requestPath, requestJSON, 0o600); err != nil {
+		t.Fatalf("write schedule request: %v", err)
+	}
+
+	err := newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"schedules", "create", "--json", requestPath,
+	})
+	if err != nil {
+		t.Fatalf("schedule create with JSON-only required fields: %v", err)
+	}
+	if request["name"] != "nightly-reboot" || request["start_date"] != "2030-01-01" {
+		t.Fatalf("schedule request = %#v, want JSON fields", request)
+	}
+
+	err = newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"schedules", "create",
+	})
+	if err == nil || !strings.Contains(err.Error(), `required field "action" must be provided with --action or --json`) {
+		t.Fatalf("schedule create missing fields error = %v, want merged-input validation", err)
+	}
+}
+
+func TestGeneratedJSONOnlyCommandCanMakeJSONOptional(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	requestCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /fleetmanagement.v1.FleetManagementService/GetMinerModelGroups", func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		if body := requestBodyMap(t, r); len(body) != 0 {
+			t.Fatalf("model groups request = %#v, want empty request", body)
+		}
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	err := newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"miners", "model-groups",
+	})
+	if err != nil {
+		t.Fatalf("model groups without JSON: %v", err)
+	}
+	if requestCount != 1 {
+		t.Fatalf("request count = %d, want 1", requestCount)
+	}
+}
+
+func TestGeneratedJSONOnlyCommandAcceptsSelectorFlags(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	var request map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /fleetmanagement.v1.FleetManagementService/RenameMiners", func(w http.ResponseWriter, r *http.Request) {
+		request = requestBodyMap(t, r)
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	requestPath := filepath.Join(t.TempDir(), "rename.json")
+	requestJSON := []byte(`{
+		"name_config": {
+			"properties": [{"string_value": {"value": "rig"}}],
+			"separator": "-"
+		}
+	}`)
+	if err := os.WriteFile(requestPath, requestJSON, 0o600); err != nil {
+		t.Fatalf("write rename request: %v", err)
+	}
+
+	err := newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"miners", "rename", "--json", requestPath, "--device", "miner-1",
+	})
+	if err != nil {
+		t.Fatalf("rename with selector flags: %v", err)
+	}
+	selector, ok := request["device_selector"].(map[string]any)
+	if !ok {
+		t.Fatalf("rename request = %#v, want device_selector", request)
+	}
+	include, ok := selector["include_devices"].(map[string]any)
+	if !ok {
+		t.Fatalf("device selector = %#v, want include_devices", selector)
+	}
+	deviceIDs, ok := include["device_identifiers"].([]any)
+	if !ok || len(deviceIDs) != 1 || deviceIDs[0] != "miner-1" {
+		t.Fatalf("device identifiers = %#v, want miner-1", include["device_identifiers"])
+	}
+}
+
+func TestGeneratedHelpLabelsRequiredInputs(t *testing.T) {
+	schedules := findSubcommand(t, generatedSchedulesCommand(), "create")
+	var nameFlag *cli.StringFlag
+	for _, flag := range schedules.Flags {
+		if flag.Names()[0] == "name" {
+			nameFlag, _ = flag.(*cli.StringFlag)
+			break
+		}
+	}
+	if nameFlag == nil || !strings.Contains(nameFlag.Usage, "required unless provided by --json") || nameFlag.Required {
+		t.Fatalf("schedule name flag = %#v, want JSON-aware required help without urfave prevalidation", nameFlag)
+	}
+
+	roles := findSubcommand(t, generatedRolesCommand(), "create")
+	var roleNameFlag *cli.StringFlag
+	for _, flag := range roles.Flags {
+		if flag.Names()[0] == "name" {
+			roleNameFlag, _ = flag.(*cli.StringFlag)
+			break
+		}
+	}
+	if roleNameFlag == nil || !strings.Contains(roleNameFlag.Usage, "(required)") || !roleNameFlag.Required {
+		t.Fatalf("role name flag = %#v, want visibly required flag", roleNameFlag)
+	}
+}
+
 func TestWriteAPIErrorWritesBodyToProvidedWriter(t *testing.T) {
 	oldNoColor := color.NoColor
 	color.NoColor = true

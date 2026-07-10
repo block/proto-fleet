@@ -48,6 +48,7 @@ type commandSpec struct {
 	CommonSelector        string            `json:"common_selector,omitempty"`
 	FieldFlags            []fieldFlagSpec   `json:"field_flags,omitempty"`
 	JSONOnly              bool              `json:"json_only,omitempty"`
+	JSONOptional          bool              `json:"json_optional,omitempty"`
 }
 
 type fieldFlagSpec struct {
@@ -103,6 +104,7 @@ type renderOptions struct {
 	Usage                 string
 	Auth                  string
 	JSONOnly              bool
+	JSONOptional          bool
 	IgnoreFields          map[string]bool
 	RequiredFields        map[string]bool
 	FixedFields           map[string]string
@@ -438,6 +440,7 @@ func buildGroups(
 			Usage:                 command.Usage,
 			Auth:                  authPolicy,
 			JSONOnly:              command.JSONOnly,
+			JSONOptional:          command.JSONOptional,
 			IgnoreFields:          sliceToSet(command.IgnoreFields),
 			RequiredFields:        sliceToSet(command.RequiredFields),
 			FixedFields:           command.FixedFields,
@@ -610,6 +613,9 @@ func renderMethodExpr(
 	if err != nil {
 		return renderResult{}, err
 	}
+	if options.JSONOptional && !analysis.jsonOnly {
+		return renderResult{}, fmt.Errorf("json_optional requires a JSON-only request for %s/%s", ref.ServiceKey, ref.Method.Name())
+	}
 
 	imports := map[string]string{
 		request.GoImportPath:  request.GoAlias,
@@ -627,7 +633,7 @@ func renderMethodExpr(
 		imports["google.golang.org/protobuf/proto"] = "proto"
 		imports["context"] = ""
 		imports["github.com/urfave/cli/v3"] = "cli"
-		expr, err = renderJSONOnlyExpr(options.CommandName, options.Usage, "/"+ref.ServiceKey+"/"+string(ref.Method.Name()), options.Auth, request, response, options)
+		expr, err = renderJSONOnlyExpr(options.CommandName, options.Usage, "/"+ref.ServiceKey+"/"+string(ref.Method.Name()), options.Auth, request, response, analysis, options)
 		if err != nil {
 			return renderResult{}, err
 		}
@@ -693,6 +699,7 @@ type requestAnalysis struct {
 	commonSelectorField string
 	commonSelectorBuild string
 	commonSelectorSet   string
+	requiredFlagIndexes []int
 	imports             map[string]string
 }
 
@@ -795,7 +802,7 @@ func analyzeRequest(
 			continue
 		}
 		if options.RequiredFields[fieldName] {
-			flag = markFlagRequired(flag)
+			analysis.requiredFlagIndexes = append(analysis.requiredFlagIndexes, len(analysis.flags))
 			seenRequiredFields[fieldName] = true
 		}
 		analysis.flags = append(analysis.flags, flag)
@@ -822,6 +829,13 @@ func analyzeRequest(
 	analysis.jsonFallback = analysis.jsonFallback || hasUnsupported
 	if hasUnsupported {
 		analysis.Reason = "request includes complex fields, so the generated command exposes simple flags plus --json fallback"
+	}
+	for _, index := range analysis.requiredFlagIndexes {
+		if analysis.jsonFallback {
+			analysis.flags[index] = markFlagRequiredViaJSON(analysis.flags[index])
+		} else {
+			analysis.flags[index] = markFlagRequired(analysis.flags[index])
+		}
 	}
 	var defaultLines []string
 	seenDefaultFields := map[string]bool{}
@@ -866,7 +880,12 @@ func markFlagRequired(flag string) string {
 	if flag == "" || !strings.HasSuffix(flag, "}") {
 		return flag
 	}
+	flag = strings.Replace(flag, `Usage: "`, `Usage: "(required) `, 1)
 	return strings.TrimSuffix(flag, "}") + ", Required: true}"
+}
+
+func markFlagRequiredViaJSON(flag string) string {
+	return strings.Replace(flag, `Usage: "`, `Usage: "(required unless provided by --json) `, 1)
 }
 
 func commonSelectorMode(value string) (helper, builder, provided string, err error) {
@@ -1460,6 +1479,7 @@ func renderJSONOnlyExpr(
 	auth string,
 	request messageInfo,
 	response messageInfo,
+	analysis requestAnalysis,
 	options renderOptions,
 ) (string, error) {
 	var buf strings.Builder
@@ -1468,14 +1488,44 @@ func renderJSONOnlyExpr(
 	buf.WriteString(fmt.Sprintf("\t%q,\n", usage))
 	buf.WriteString(fmt.Sprintf("\t%q,\n", methodPath))
 	buf.WriteString(fmt.Sprintf("\t%s,\n", auth))
-	buf.WriteString("\t[]cli.Flag{\n")
-	buf.WriteString("\t\t&cli.StringFlag{Name: \"json\", Usage: \"Path to a request JSON file, or - for stdin\", Required: true},\n")
-	buf.WriteString("\t},\n")
+	if len(analysis.flagHelpers) > 0 {
+		buf.WriteString("\tappend([]cli.Flag{\n")
+	} else {
+		buf.WriteString("\t[]cli.Flag{\n")
+	}
+	if options.JSONOptional {
+		buf.WriteString("\t\t&cli.StringFlag{Name: \"json\", Usage: \"Path to a request JSON file, or - for stdin\"},\n")
+	} else {
+		buf.WriteString("\t\t&cli.StringFlag{Name: \"json\", Usage: \"(required) Path to a request JSON file, or - for stdin\", Required: true},\n")
+	}
+	if len(analysis.flagHelpers) > 0 {
+		buf.WriteString("\t}")
+		for _, helper := range analysis.flagHelpers {
+			buf.WriteString(", " + helper + "...")
+		}
+		buf.WriteString("),\n")
+	} else {
+		buf.WriteString("\t},\n")
+	}
 	buf.WriteString("\tfunc(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {\n")
 	buf.WriteString(fmt.Sprintf("\t\treq := &%s.%s{}\n", request.GoAlias, request.GoIdent))
-	buf.WriteString("\t\tif err := readProtoJSON(cmd.String(\"json\"), req); err != nil {\n")
-	buf.WriteString("\t\t\treturn nil, err\n")
-	buf.WriteString("\t\t}\n")
+	if options.JSONOptional {
+		buf.WriteString("\t\tif jsonPath := cmd.String(\"json\"); jsonPath != \"\" {\n")
+		buf.WriteString("\t\t\tif err := readProtoJSON(jsonPath, req); err != nil {\n")
+		buf.WriteString("\t\t\t\treturn nil, err\n")
+		buf.WriteString("\t\t\t}\n")
+		buf.WriteString("\t\t}\n")
+	} else {
+		buf.WriteString("\t\tif err := readProtoJSON(cmd.String(\"json\"), req); err != nil {\n")
+		buf.WriteString("\t\t\treturn nil, err\n")
+		buf.WriteString("\t\t}\n")
+	}
+	if analysis.minerSelectorField != "" {
+		writeSelectorAssignmentToBuilder(&buf, analysis.minerSelectorField, "generatedBuildMinerSelector(ctx, cmd, client)", "generatedMinerSelectorProvided(cmd)")
+	}
+	if analysis.fleetSelectorField != "" {
+		writeSelectorAssignmentToBuilder(&buf, analysis.fleetSelectorField, "generatedBuildFleetSelector(ctx, cmd, client)", "generatedMinerSelectorProvided(cmd)")
+	}
 	if options.RequireCollectionType != "" {
 		lines, err := requireCollectionTypeLines(request.Descriptor, options.RequireCollectionType)
 		if err != nil {
@@ -1490,6 +1540,16 @@ func renderJSONOnlyExpr(
 	buf.WriteString(fmt.Sprintf("\tfunc() proto.Message { return &%s.%s{} },\n", response.GoAlias, response.GoIdent))
 	buf.WriteString(")")
 	return strings.TrimSpace(buf.String()), nil
+}
+
+func writeSelectorAssignmentToBuilder(buf *strings.Builder, fieldName, builderCall, providedCall string) {
+	buf.WriteString(fmt.Sprintf("\t\tif %s {\n", providedCall))
+	buf.WriteString(fmt.Sprintf("\t\t\tselector, err := %s\n", builderCall))
+	buf.WriteString("\t\t\tif err != nil {\n")
+	buf.WriteString("\t\t\t\treturn nil, err\n")
+	buf.WriteString("\t\t\t}\n")
+	buf.WriteString(fmt.Sprintf("\t\t\treq.%s = selector\n", fieldName))
+	buf.WriteString("\t\t}\n")
 }
 
 func renderSimpleExpr(
@@ -1557,6 +1617,20 @@ func renderSimpleExpr(
 		for _, line := range lines {
 			buf.WriteString("\t\t" + line + "\n")
 		}
+	}
+	if analysis.jsonFallback && len(options.RequiredFields) > 0 {
+		fieldNames := make([]string, 0, len(options.RequiredFields))
+		for fieldName := range options.RequiredFields {
+			fieldNames = append(fieldNames, fieldName)
+		}
+		sort.Strings(fieldNames)
+		quotedNames := make([]string, 0, len(fieldNames))
+		for _, fieldName := range fieldNames {
+			quotedNames = append(quotedNames, fmt.Sprintf("%q", fieldName))
+		}
+		buf.WriteString(fmt.Sprintf("\t\tif err := generatedValidateRequiredFields(req, %s); err != nil {\n", strings.Join(quotedNames, ", ")))
+		buf.WriteString("\t\t\treturn nil, err\n")
+		buf.WriteString("\t\t}\n")
 	}
 	buf.WriteString("\t\treturn req, nil\n")
 	buf.WriteString("\t},\n")

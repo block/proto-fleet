@@ -458,7 +458,8 @@
     {
       "method": "/fleetmanagement.v1.FleetManagementService/GetMinerModelGroups",
       "group": "miners",
-      "command": "model-groups"
+      "command": "model-groups",
+      "json_optional": true
     },
     {
       "method": "/fleetmanagement.v1.FleetManagementService/RenameMiners",

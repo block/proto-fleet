@@ -20,7 +20,7 @@ func generatedRacksCommand() *cli.Command {
 				"/device_set.v1.DeviceSetService/AssignDevicesToRack",
 				generatedAuthAuthenticated,
 				append([]cli.Flag{
-					&cli.Int64Flag{Name: "target-rack-id", Usage: "target rack id", Required: true},
+					&cli.Int64Flag{Name: "target-rack-id", Usage: "(required) target rack id", Required: true},
 					&cli.BoolFlag{Name: "force-clear-conflicting-site", Usage: "force clear conflicting site"},
 				}, generatedCommonDeviceListSelectorFlags()...),
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
@@ -48,8 +48,8 @@ func generatedRacksCommand() *cli.Command {
 				"/device_set.v1.DeviceSetService/ClearRackSlotPosition",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id", Required: true},
-					&cli.StringFlag{Name: "device-identifier", Usage: "device identifier", Required: true},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "(required) device set id", Required: true},
+					&cli.StringFlag{Name: "device-identifier", Usage: "(required) device identifier", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.ClearRackSlotPositionRequest{}
@@ -184,7 +184,7 @@ func generatedRacksCommand() *cli.Command {
 				"/device_set.v1.DeviceSetService/SaveRack",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin", Required: true},
+					&cli.StringFlag{Name: "json", Usage: "(required) Path to a request JSON file, or - for stdin", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.SaveRackRequest{}
@@ -202,8 +202,8 @@ func generatedRacksCommand() *cli.Command {
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id", Required: true},
-					&cli.StringFlag{Name: "device-identifier", Usage: "device identifier", Required: true},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "(required unless provided by --json) device set id"},
+					&cli.StringFlag{Name: "device-identifier", Usage: "(required unless provided by --json) device identifier"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.SetRackSlotPositionRequest{}
@@ -217,6 +217,9 @@ func generatedRacksCommand() *cli.Command {
 					}
 					if cmd.IsSet("device-identifier") {
 						req.DeviceIdentifier = cmd.String("device-identifier")
+					}
+					if err := generatedValidateRequiredFields(req, "device_identifier", "device_set_id"); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},

@@ -64,7 +64,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/DeleteCurtailmentAutomationRule",
 						generatedAuthAuthenticated,
 						[]cli.Flag{
-							&cli.Int64Flag{Name: "rule-id", Usage: "rule id", Required: true},
+							&cli.Int64Flag{Name: "rule-id", Usage: "(required) rule id", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.DeleteCurtailmentAutomationRuleRequest{}
@@ -81,7 +81,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/GetCurtailmentAutomationRule",
 						generatedAuthAuthenticated,
 						[]cli.Flag{
-							&cli.Int64Flag{Name: "rule-id", Usage: "rule id", Required: true},
+							&cli.Int64Flag{Name: "rule-id", Usage: "(required) rule id", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.GetCurtailmentAutomationRuleRequest{}
@@ -111,7 +111,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/SetCurtailmentAutomationRuleEnabled",
 						generatedAuthAuthenticated,
 						[]cli.Flag{
-							&cli.Int64Flag{Name: "rule-id", Usage: "rule id", Required: true},
+							&cli.Int64Flag{Name: "rule-id", Usage: "(required) rule id", Required: true},
 							&cli.BoolFlag{Name: "enabled", Usage: "enabled"},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
@@ -132,7 +132,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/UpdateCurtailmentAutomationRule",
 						generatedAuthAuthenticated,
 						[]cli.Flag{
-							&cli.Int64Flag{Name: "rule-id", Usage: "rule id", Required: true},
+							&cli.Int64Flag{Name: "rule-id", Usage: "(required) rule id", Required: true},
 							&cli.StringFlag{Name: "rule-name", Usage: "rule name"},
 							&cli.StringFlag{Name: "trigger-type", Usage: "trigger type. Valid options: mqtt"},
 							&cli.Int64Flag{Name: "mqtt-source-id", Usage: "mqtt source id"},
@@ -176,8 +176,8 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/ForceReleaseCurtailmentOwnership",
 						generatedAuthSessionOnly,
 						[]cli.Flag{
-							&cli.StringFlag{Name: "event-uuid", Usage: "event uuid", Required: true},
-							&cli.StringFlag{Name: "reason", Usage: "reason", Required: true},
+							&cli.StringFlag{Name: "event-uuid", Usage: "(required) event uuid", Required: true},
+							&cli.StringFlag{Name: "reason", Usage: "(required) reason", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.ForceReleaseCurtailmentOwnershipRequest{}
@@ -197,7 +197,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/GetCurtailmentEvent",
 						generatedAuthAuthenticated,
 						[]cli.Flag{
-							&cli.StringFlag{Name: "event-uuid", Usage: "event uuid", Required: true},
+							&cli.StringFlag{Name: "event-uuid", Usage: "(required) event uuid", Required: true},
 							&cli.IntFlag{Name: "target-page-size", Usage: "target page size"},
 							&cli.StringFlag{Name: "target-page-token", Usage: "target page token"},
 						},
@@ -531,7 +531,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/StopCurtailment",
 						generatedAuthAuthenticated,
 						[]cli.Flag{
-							&cli.StringFlag{Name: "event-uuid", Usage: "event uuid", Required: true},
+							&cli.StringFlag{Name: "event-uuid", Usage: "(required) event uuid", Required: true},
 							&cli.BoolFlag{Name: "force", Usage: "force"},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
@@ -552,9 +552,9 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/AdminTerminateEvent",
 						generatedAuthSessionOnly,
 						[]cli.Flag{
-							&cli.StringFlag{Name: "event-uuid", Usage: "event uuid", Required: true},
-							&cli.StringFlag{Name: "target-state", Usage: "target state. Valid options: pending, active, restoring, completed, completed-with-failures, cancelled, failed", Required: true},
-							&cli.StringFlag{Name: "reason", Usage: "reason", Required: true},
+							&cli.StringFlag{Name: "event-uuid", Usage: "(required) event uuid", Required: true},
+							&cli.StringFlag{Name: "target-state", Usage: "(required) target state. Valid options: pending, active, restoring, completed, completed-with-failures, cancelled, failed", Required: true},
+							&cli.StringFlag{Name: "reason", Usage: "(required) reason", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.AdminTerminateEventRequest{}
@@ -594,7 +594,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/UpdateCurtailmentEvent",
 						generatedAuthAuthenticated,
 						[]cli.Flag{
-							&cli.StringFlag{Name: "event-uuid", Usage: "event uuid", Required: true},
+							&cli.StringFlag{Name: "event-uuid", Usage: "(required) event uuid", Required: true},
 							&cli.StringFlag{Name: "reason", Usage: "reason"},
 							&cli.UintFlag{Name: "restore-batch-size", Usage: "restore batch size"},
 							&cli.UintFlag{Name: "restore-batch-interval-sec", Usage: "restore batch interval sec"},
@@ -692,7 +692,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/DeleteMqttCurtailmentSource",
 						generatedAuthAuthenticated,
 						[]cli.Flag{
-							&cli.Int64Flag{Name: "source-id", Usage: "source id", Required: true},
+							&cli.Int64Flag{Name: "source-id", Usage: "(required) source id", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.DeleteMqttCurtailmentSourceRequest{}
@@ -709,7 +709,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/GetMqttCurtailmentSource",
 						generatedAuthAuthenticated,
 						[]cli.Flag{
-							&cli.Int64Flag{Name: "source-id", Usage: "source id", Required: true},
+							&cli.Int64Flag{Name: "source-id", Usage: "(required) source id", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.GetMqttCurtailmentSourceRequest{}
@@ -739,7 +739,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/SetMqttCurtailmentSourceEnabled",
 						generatedAuthAuthenticated,
 						[]cli.Flag{
-							&cli.Int64Flag{Name: "source-id", Usage: "source id", Required: true},
+							&cli.Int64Flag{Name: "source-id", Usage: "(required) source id", Required: true},
 							&cli.BoolFlag{Name: "enabled", Usage: "enabled"},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
@@ -807,7 +807,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/UpdateMqttCurtailmentSource",
 						generatedAuthSessionOnly,
 						[]cli.Flag{
-							&cli.Int64Flag{Name: "source-id", Usage: "source id", Required: true},
+							&cli.Int64Flag{Name: "source-id", Usage: "(required) source id", Required: true},
 							&cli.StringFlag{Name: "source-name", Usage: "source name"},
 							&cli.StringFlag{Name: "topic", Usage: "topic"},
 							&cli.StringFlag{Name: "broker-primary-host", Usage: "broker primary host"},
@@ -1011,7 +1011,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/DeleteCurtailmentResponseProfile",
 						generatedAuthAuthenticated,
 						[]cli.Flag{
-							&cli.Int64Flag{Name: "profile-id", Usage: "profile id", Required: true},
+							&cli.Int64Flag{Name: "profile-id", Usage: "(required) profile id", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.DeleteCurtailmentResponseProfileRequest{}
@@ -1028,7 +1028,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/GetCurtailmentResponseProfile",
 						generatedAuthAuthenticated,
 						[]cli.Flag{
-							&cli.Int64Flag{Name: "profile-id", Usage: "profile id", Required: true},
+							&cli.Int64Flag{Name: "profile-id", Usage: "(required) profile id", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.GetCurtailmentResponseProfileRequest{}
@@ -1059,7 +1059,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						generatedAuthAuthenticated,
 						[]cli.Flag{
 							&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-							&cli.Int64Flag{Name: "profile-id", Usage: "profile id", Required: true},
+							&cli.Int64Flag{Name: "profile-id", Usage: "(required unless provided by --json) profile id"},
 							&cli.StringFlag{Name: "profile-name", Usage: "profile name"},
 							&cli.StringFlag{Name: "mode", Usage: "mode. Valid options: fixed-kw, fixed-count, demand-response, site-power-cap, thermal-limit, price-breakeven, power-trajectory, full-fleet"},
 							&cli.StringFlag{Name: "strategy", Usage: "strategy. Valid options: least-efficient-first, most-power-first, oldest-hardware-first, unstable-miners-first, rack-granular"},
@@ -1174,6 +1174,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							}
 							if cmd.IsSet("force-include-all-paired-miners") {
 								req.ForceIncludeAllPairedMiners = cmd.Bool("force-include-all-paired-miners")
+							}
+							if err := generatedValidateRequiredFields(req, "profile_id"); err != nil {
+								return nil, err
 							}
 							return req, nil
 						},

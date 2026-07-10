@@ -21,7 +21,7 @@ func generatedMinersCommand() *cli.Command {
 				"/fleetmanagement.v1.FleetManagementService/GetMinerCoolingMode",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "device-identifier", Usage: "device identifier", Required: true},
+					&cli.StringFlag{Name: "device-identifier", Usage: "(required) device identifier", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &fleetmanagementv1.GetMinerCoolingModeRequest{}
@@ -90,7 +90,7 @@ func generatedMinersCommand() *cli.Command {
 				"/fleetmanagement.v1.FleetManagementService/LookupMinerByIdentifier",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "identifier", Usage: "identifier", Required: true},
+					&cli.StringFlag{Name: "identifier", Usage: "(required) identifier", Required: true},
 					&cli.StringFlag{Name: "identifier-type", Usage: "identifier type. Valid options: mac-address, serial-number"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
@@ -118,12 +118,14 @@ func generatedMinersCommand() *cli.Command {
 				"/fleetmanagement.v1.FleetManagementService/GetMinerModelGroups",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin", Required: true},
+					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &fleetmanagementv1.GetMinerModelGroupsRequest{}
-					if err := readProtoJSON(cmd.String("json"), req); err != nil {
-						return nil, err
+					if jsonPath := cmd.String("json"); jsonPath != "" {
+						if err := readProtoJSON(jsonPath, req); err != nil {
+							return nil, err
+						}
 					}
 					return req, nil
 				},
@@ -135,7 +137,7 @@ func generatedMinersCommand() *cli.Command {
 				"/fleetmanagement.v1.FleetManagementService/GetMinerPoolAssignments",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "device-identifier", Usage: "device identifier", Required: true},
+					&cli.StringFlag{Name: "device-identifier", Usage: "(required) device identifier", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &fleetmanagementv1.GetMinerPoolAssignmentsRequest{}
@@ -151,13 +153,20 @@ func generatedMinersCommand() *cli.Command {
 				"Rename miners",
 				"/fleetmanagement.v1.FleetManagementService/RenameMiners",
 				generatedAuthAuthenticated,
-				[]cli.Flag{
-					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin", Required: true},
-				},
+				append([]cli.Flag{
+					&cli.StringFlag{Name: "json", Usage: "(required) Path to a request JSON file, or - for stdin", Required: true},
+				}, generatedMinerSelectorFlags()...),
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &fleetmanagementv1.RenameMinersRequest{}
 					if err := readProtoJSON(cmd.String("json"), req); err != nil {
 						return nil, err
+					}
+					if generatedMinerSelectorProvided(cmd) {
+						selector, err := generatedBuildFleetSelector(ctx, cmd, client)
+						if err != nil {
+							return nil, err
+						}
+						req.DeviceSelector = selector
 					}
 					return req, nil
 				},
