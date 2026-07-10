@@ -333,8 +333,11 @@ export class BasePage {
   }
 
   async logout() {
-    await this.clickNavigationMenuIfMobile();
-    await this.page.getByTestId("logout-button").click();
+    const logoutButton = this.page.getByTestId("logout-button");
+    if (!(await logoutButton.isVisible().catch(() => false))) {
+      await this.clickNavigationMenuIfMobile();
+    }
+    await logoutButton.click();
   }
 
   async validateTitle(expectedTitle: string) {

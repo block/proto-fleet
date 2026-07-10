@@ -4,6 +4,7 @@ import { BasePage } from "./base";
 
 const stopRequestPattern = /StopCurtailment/;
 const restoreReconciliationTimeout = DEFAULT_TIMEOUT * 4;
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export interface CurtailmentCleanupTarget {
   reason: string;
@@ -200,6 +201,7 @@ export class EnergyPage extends BasePage {
     await expect(this.page).toHaveURL(/.*\/energy/);
 
     const reasons = new Set<string>();
+    const activeReasonPattern = new RegExp(`(${escapeRegex(prefix)}.*?)(?=\\s+\\(Applies to )`);
 
     const activeCurtailmentSections = this.page
       .getByTestId("active-curtailment-primary-lockup")
@@ -207,11 +209,9 @@ export class EnergyPage extends BasePage {
 
     for (const activeCurtailmentSection of await activeCurtailmentSections.all()) {
       const text = (await activeCurtailmentSection.textContent()) ?? "";
-      for (const line of text.split("\n")) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith(prefix) && trimmed.includes(" (Applies to ")) {
-          reasons.add(trimmed.replace(/\s+\(Applies to .*$/, ""));
-        }
+      const activeReasonMatch = text.match(activeReasonPattern);
+      if (activeReasonMatch?.[1]) {
+        reasons.add(activeReasonMatch[1].trim());
       }
     }
 
