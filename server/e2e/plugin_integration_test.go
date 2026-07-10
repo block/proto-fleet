@@ -43,10 +43,13 @@ const (
 	// not reachable from inside the fleet-api container.
 	protoSimDiscoveryHost = "proto-sim"
 	protoSimPort          = "8080"
-	testUsername          = "admin"
-	testPassword          = "proto"
 	requestTimeout        = 10 * time.Second
 	containerPrefix       = "server-"
+)
+
+var (
+	testUsername = envOrDefault("FLEET_E2E_USERNAME", "admin")
+	testPassword = envOrDefault("FLEET_E2E_PASSWORD", "proto")
 )
 
 // TestPluginIntegration is the main e2e test that validates plugin integration
@@ -88,6 +91,13 @@ func TestPluginIntegration(t *testing.T) {
 	t.Run("Authentication", func(t *testing.T) {
 		testAuthentication(t, ctx)
 	})
+}
+
+func envOrDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }
 
 // testDockerContainersRunning verifies all required Docker containers are running
