@@ -4,7 +4,7 @@ import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodea
 import type { EnrollmentCode, FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 import { Alert, Copy, Success } from "@/shared/assets/icons";
-import { variants } from "@/shared/components/Button";
+import Button, { variants } from "@/shared/components/Button";
 import { groupVariants } from "@/shared/components/ButtonGroup";
 import Callout from "@/shared/components/Callout";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
@@ -36,13 +36,13 @@ const CopyableValue = ({ value, copyLabel }: { value: string; copyLabel: string 
   return (
     <div className="flex items-center justify-between gap-2 rounded-xl bg-core-primary-5 px-4 py-3">
       <div className="font-mono text-300 break-all text-text-primary">{value}</div>
-      <button
+      <Button
+        variant={variants.ghost}
         onClick={handleCopy}
-        className="shrink-0 text-text-primary"
-        aria-label={`Copy ${copyLabel.toLowerCase()}`}
-      >
-        <Copy />
-      </button>
+        ariaLabel={`Copy ${copyLabel.toLowerCase()}`}
+        prefixIcon={<Copy />}
+        className="shrink-0"
+      />
     </div>
   );
 };
@@ -256,7 +256,7 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
             loading: isRejecting,
           },
           {
-            text: "Fingerprint matches — confirm",
+            text: "Confirm node",
             onClick: handleConfirm,
             variant: variants.primary,
             loading: isConfirming,

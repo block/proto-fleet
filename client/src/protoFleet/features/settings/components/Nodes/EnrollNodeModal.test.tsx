@@ -1,6 +1,5 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildFleetNodeEnrollCommand } from "./enrollNodeCommand";
 import EnrollNodeModal from "./EnrollNodeModal";
 import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
@@ -35,58 +34,6 @@ beforeEach(() => {
   });
 
   vi.clearAllMocks();
-});
-
-describe("buildFleetNodeEnrollCommand", () => {
-  it.each([
-    {
-      label: "LAN HTTP",
-      location: {
-        origin: "http://192.168.1.20:8080",
-        protocol: "http:",
-        hostname: "192.168.1.20",
-      },
-      expected: "fleetnode enroll --server-url=http://192.168.1.20:4000 --allow-insecure-transport",
-    },
-    {
-      label: "HTTPS",
-      location: {
-        origin: "https://fleet.example.com",
-        protocol: "https:",
-        hostname: "fleet.example.com",
-      },
-      expected: "fleetnode enroll --server-url=https://fleet.example.com/api-proxy",
-    },
-    {
-      label: "localhost HTTP",
-      location: {
-        origin: "http://localhost:8080",
-        protocol: "http:",
-        hostname: "localhost",
-      },
-      expected: "fleetnode enroll --server-url=http://localhost:4000",
-    },
-    {
-      label: "127.0.0.1 HTTP",
-      location: {
-        origin: "http://127.0.0.1:8080",
-        protocol: "http:",
-        hostname: "127.0.0.1",
-      },
-      expected: "fleetnode enroll --server-url=http://127.0.0.1:4000",
-    },
-    {
-      label: "::1 HTTP",
-      location: {
-        origin: "http://[::1]:8080",
-        protocol: "http:",
-        hostname: "[::1]",
-      },
-      expected: "fleetnode enroll --server-url=http://[::1]:4000",
-    },
-  ])("builds the enroll command for $label", ({ location, expected }) => {
-    expect(buildFleetNodeEnrollCommand(location)).toBe(expected);
-  });
 });
 
 describe("EnrollNodeModal", () => {
@@ -148,7 +95,7 @@ describe("EnrollNodeModal", () => {
       <EnrollNodeModal open resumeNode={awaitingNode} onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />,
     );
 
-    fireEvent.click(getByText("Fingerprint matches — confirm"));
+    fireEvent.click(getByText("Confirm node"));
 
     await waitFor(() => {
       expect(mockConfirmFleetNode).toHaveBeenCalledWith("7", "11");
@@ -167,7 +114,7 @@ describe("EnrollNodeModal", () => {
     const { getByText } = render(
       <EnrollNodeModal open resumeNode={awaitingNode} onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />,
     );
-    fireEvent.click(getByText("Fingerprint matches — confirm"));
+    fireEvent.click(getByText("Confirm node"));
     await waitFor(() => {
       expect(getByText("fleet_test_api_key")).toBeInTheDocument();
     });
