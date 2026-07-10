@@ -25,15 +25,13 @@ import { type SelectionMode } from "@/shared/components/List";
 import { PopoverProvider } from "@/shared/components/Popover";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
-// Actions whose "all"-mode selector cannot yet carry the rich MinerListFilter:
-// Add to group resolves via the device_set selector (all-devices is a bare
-// flag), and Manage security builds a thin model/status DeviceFilter. Under a
-// scoped/filtered "select all" both would target the whole fleet, so they are
-// disabled in that state until the filter is threaded through.
-const FILTER_UNSUPPORTED_ALL_MODE_ACTIONS = new Set<SupportedAction>([
-  groupActions.addToGroup,
-  settingsActions.security,
-]);
+// Manage security's "all"-mode selector is a thin model/manufacturer/status
+// DeviceFilter that can't carry the rich MinerListFilter (MinerListFilter has no
+// manufacturer field), so under a scoped/filtered "select all" it would target
+// the whole model across the fleet. Disable it in that state until the filter is
+// threaded through. (Add to group is handled: it resolves the filter to an
+// explicit device list, like the rack/site/building reparent flow.)
+const FILTER_UNSUPPORTED_ALL_MODE_ACTIONS = new Set<SupportedAction>([settingsActions.security]);
 
 interface MinerActionsMenuProps {
   selectedMiners: string[];
@@ -366,6 +364,7 @@ const MinerActionsMenu = ({
         selectedMinerIds={selectedMiners}
         selectionMode={selectionMode}
         displayCount={displayCount}
+        currentFilter={currentFilter}
       />
       {/* The second AuthenticateFleetModal is specific to the worker-name
           flow, which only this menu hosts — keep it inline. */}

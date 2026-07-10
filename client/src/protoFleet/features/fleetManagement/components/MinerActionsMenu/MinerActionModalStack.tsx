@@ -6,19 +6,30 @@ import FirmwareUpdateModal from "./FirmwareUpdateModal";
 import ManagePowerModal from "./ManagePowerModal";
 import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
 import { type useMinerActions } from "./useMinerActions";
+import type { MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
+import { applyFleetVisiblePairingStatuses } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
+import { resolveAllModeIds } from "@/protoFleet/features/fleetManagement/utils/resolveAllModeMiners";
 import { type SelectionMode } from "@/shared/components/List";
-import { pushToast, STATUSES } from "@/shared/features/toaster";
+import { pushToast, removeToast, STATUSES, updateToast } from "@/shared/features/toaster";
 
 type MinerActions = ReturnType<typeof useMinerActions>;
+
+// Selector inputs for a group mutation: either an explicit device list or the
+// whole-fleet flag. A scoped/filtered "all" resolves to a device list (the
+// group selector can't carry a filter); unscoped "all" keeps the flag.
+type GroupTarget = { deviceIdentifiers?: string[]; allDevices?: boolean };
 
 interface MinerActionModalStackProps {
   minerActions: MinerActions;
   selectedMinerIds: string[];
   selectionMode: SelectionMode;
   displayCount?: number;
+  /** Active scoped filter (URL chips ∩ SitePicker scope); resolves the target
+   *  set for a filtered "all" group assignment. */
+  currentFilter?: MinerListFilter;
   // Fires before each modal's dismiss/confirm — used by
   // FleetGroupActionsMenu to clear its pendingAction.
   onActionBoundary?: () => void;
@@ -29,6 +40,7 @@ const MinerActionModalStack = ({
   selectedMinerIds,
   selectionMode,
   displayCount,
+  currentFilter,
   onActionBoundary,
 }: MinerActionModalStackProps) => {
   const { addDevicesToGroup, createGroup } = useDeviceSets();
@@ -43,21 +55,48 @@ const MinerActionModalStack = ({
     [onActionBoundary],
   );
 
-  const allDevices = selectionMode === "all";
-  const deviceIdentifiers = allDevices ? undefined : selectedMinerIds;
-  const minerCount = allDevices ? (displayCount ?? selectedMinerIds.length) : selectedMinerIds.length;
+  const allMode = selectionMode === "all";
+  const minerCount = allMode ? (displayCount ?? selectedMinerIds.length) : selectedMinerIds.length;
   const sourceLabel = `${minerCount} ${minerCount === 1 ? "miner" : "miners"}`;
   const addToGroupOpen =
     minerActions.currentAction === groupActions.addToGroup ? minerActions.showAddToGroupModal : false;
 
+  // Resolve the operator's selection to a concrete group-selector target. A
+  // scoped/filtered "all" can't ride the group selector (its all-devices is a
+  // bare flag), so — like the rack/site/building reparent flow — page the
+  // filtered set into an explicit id list. Unscoped "all" keeps the whole-fleet
+  // flag. Returns null on empty/error (a toast is shown) so callers bail.
+  const resolveGroupTarget = useCallback(async (): Promise<GroupTarget | null> => {
+    if (!allMode) return { deviceIdentifiers: selectedMinerIds };
+    if (!currentFilter) return { allDevices: true };
+
+    const loadingToast = pushToast({
+      message: "Loading selected miners…",
+      status: STATUSES.loading,
+      longRunning: true,
+    });
+    try {
+      const { ids } = await resolveAllModeIds(applyFleetVisiblePairingStatuses(currentFilter));
+      removeToast(loadingToast);
+      if (ids.length === 0) {
+        pushToast({ message: "No miners selected.", status: STATUSES.queued });
+        return null;
+      }
+      return { deviceIdentifiers: ids };
+    } catch (err) {
+      const message = err instanceof Error && err.message ? err.message : "Couldn't load selected miners. Try again.";
+      updateToast(loadingToast, { message, status: STATUSES.error });
+      return null;
+    }
+  }, [allMode, selectedMinerIds, currentFilter]);
+
   // Reject on RPC error so ParentPickerModal keeps the picker open.
   const dispatchAddToGroup = useCallback(
-    (groupId: bigint) =>
+    (groupId: bigint, target: GroupTarget) =>
       new Promise<void>((resolve, reject) => {
         void addDevicesToGroup({
           targetGroupId: groupId,
-          deviceIdentifiers,
-          allDevices,
+          ...target,
           onSuccess: () => {
             pushToast({
               status: STATUSES.success,
@@ -71,23 +110,26 @@ const MinerActionModalStack = ({
           },
         });
       }),
-    [addDevicesToGroup, deviceIdentifiers, allDevices, sourceLabel],
+    [addDevicesToGroup, sourceLabel],
   );
 
   const handleAddToGroupConfirm = useCallback(
     async (groupIds: bigint[]) => {
-      await Promise.all(groupIds.map(dispatchAddToGroup));
+      const target = await resolveGroupTarget();
+      if (!target) return;
+      await Promise.all(groupIds.map((groupId) => dispatchAddToGroup(groupId, target)));
     },
-    [dispatchAddToGroup],
+    [dispatchAddToGroup, resolveGroupTarget],
   );
 
   const handleCreateGroup = useCallback(
-    (name: string) =>
-      new Promise<void>((resolve, reject) => {
+    async (name: string) => {
+      const target = await resolveGroupTarget();
+      if (!target) return;
+      await new Promise<void>((resolve, reject) => {
         void createGroup({
           label: name,
-          deviceIdentifiers,
-          allDevices,
+          ...target,
           onSuccess: () => {
             pushToast({ status: STATUSES.success, message: `Added ${sourceLabel} to group` });
             resolve();
@@ -97,8 +139,9 @@ const MinerActionModalStack = ({
             reject(new Error(msg));
           },
         });
-      }),
-    [createGroup, deviceIdentifiers, allDevices, sourceLabel],
+      });
+    },
+    [createGroup, resolveGroupTarget, sourceLabel],
   );
 
   return (

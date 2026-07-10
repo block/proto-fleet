@@ -22,12 +22,18 @@ const {
   mockUseBatchActions,
   mockUseMinerActions,
   mockUseWindowDimensions,
+  mockAddDevicesToGroup,
+  mockCreateGroup,
+  mockResolveAllModeIds,
 } = vi.hoisted(() => {
   const mockWithCapabilityCheck = vi.fn(async (_action: string, onProceed: (...args: unknown[]) => void) => {
     onProceed(undefined, undefined);
   });
 
   return {
+    mockAddDevicesToGroup: vi.fn(),
+    mockCreateGroup: vi.fn(),
+    mockResolveAllModeIds: vi.fn(),
     mockAddToGroupModal: vi.fn(() => null),
     mockAuthenticateFleetModal: vi.fn(() => null),
     mockBulkActionsWidget: vi.fn(
@@ -166,6 +172,14 @@ vi.mock("./BulkWorkerNameModal", () => ({
 
 vi.mock("@/protoFleet/components/ParentPickerModal", () => ({
   default: mockAddToGroupModal,
+}));
+
+vi.mock("@/protoFleet/api/useDeviceSets", () => ({
+  useDeviceSets: () => ({ addDevicesToGroup: mockAddDevicesToGroup, createGroup: mockCreateGroup }),
+}));
+
+vi.mock("@/protoFleet/features/fleetManagement/utils/resolveAllModeMiners", () => ({
+  resolveAllModeIds: mockResolveAllModeIds,
 }));
 
 // Mock CoolingModeModal
@@ -503,7 +517,7 @@ describe("MinerActionsMenu", () => {
     expect(actions[7].showGroupDivider).toBe(true);
   });
 
-  test("disables add-to-group and manage-security under a filtered/scoped Select all", () => {
+  test("disables manage-security (but not add-to-group) under a filtered/scoped Select all", () => {
     mockUseWindowDimensions.mockReturnValue({ isPhone: false, isTablet: false });
     mockUseMinerActions.mockReturnValueOnce({
       ...createMockMinerActionsReturn(null),
@@ -551,10 +565,11 @@ describe("MinerActionsMenu", () => {
     const actions = widgetCalls[0][0].actions;
     const byAction = (a: string) => actions.find((x) => x.action === a);
 
-    // Filter-unsafe all-mode actions are disabled...
-    expect(byAction(groupActions.addToGroup)?.disabled).toBe(true);
+    // Manage security can't carry the rich filter, so it's disabled...
     expect(byAction(settingsActions.security)?.disabled).toBe(true);
-    // ...while filter-aware command actions stay enabled.
+    // ...while add-to-group (resolves the filter to a device list) and
+    // filter-aware command actions stay enabled.
+    expect(byAction(groupActions.addToGroup)?.disabled).toBeFalsy();
     expect(byAction(deviceActions.reboot)?.disabled).toBeFalsy();
   });
 
@@ -599,6 +614,67 @@ describe("MinerActionsMenu", () => {
     const actions = widgetCalls[0][0].actions;
     expect(actions.find((x) => x.action === groupActions.addToGroup)?.disabled).toBeFalsy();
     expect(actions.find((x) => x.action === settingsActions.security)?.disabled).toBeFalsy();
+  });
+
+  test("filtered all-mode add-to-group resolves the filter to an explicit device list", async () => {
+    mockAddDevicesToGroup.mockReset();
+    mockResolveAllModeIds.mockReset();
+    mockResolveAllModeIds.mockResolvedValue({ ids: ["m1", "m2"], snapshots: {} });
+    mockAddDevicesToGroup.mockImplementation(({ onSuccess }: { onSuccess: () => void }) => onSuccess());
+    mockUseMinerActions.mockReturnValueOnce(createMockMinerActionsReturn(null));
+
+    render(
+      <MinerActionsMenu
+        selectedMiners={["miner-1"]}
+        selectionMode="all"
+        totalCount={500}
+        currentFilter={create(MinerListFilterSchema, { rackIds: [7n] })}
+        onActionStart={vi.fn()}
+        onActionComplete={vi.fn()}
+      />,
+    );
+
+    const pickerCalls = mockAddToGroupModal.mock.calls as unknown as Array<
+      [{ onConfirm: (ids: bigint[]) => Promise<void> }]
+    >;
+    const onConfirm = pickerCalls[pickerCalls.length - 1][0].onConfirm;
+    await onConfirm([5n]);
+
+    expect(mockResolveAllModeIds).toHaveBeenCalledTimes(1);
+    expect(mockAddDevicesToGroup).toHaveBeenCalledTimes(1);
+    const arg = mockAddDevicesToGroup.mock.calls[0][0];
+    expect(arg.targetGroupId).toBe(5n);
+    expect(arg.deviceIdentifiers).toEqual(["m1", "m2"]);
+    expect(arg.allDevices).toBeFalsy();
+  });
+
+  test("unscoped all-mode add-to-group uses the whole-fleet flag (no filter resolution)", async () => {
+    mockAddDevicesToGroup.mockReset();
+    mockResolveAllModeIds.mockReset();
+    mockAddDevicesToGroup.mockImplementation(({ onSuccess }: { onSuccess: () => void }) => onSuccess());
+    mockUseMinerActions.mockReturnValueOnce(createMockMinerActionsReturn(null));
+
+    render(
+      <MinerActionsMenu
+        selectedMiners={["miner-1"]}
+        selectionMode="all"
+        totalCount={500}
+        // No currentFilter — whole fleet.
+        onActionStart={vi.fn()}
+        onActionComplete={vi.fn()}
+      />,
+    );
+
+    const pickerCalls = mockAddToGroupModal.mock.calls as unknown as Array<
+      [{ onConfirm: (ids: bigint[]) => Promise<void> }]
+    >;
+    const onConfirm = pickerCalls[pickerCalls.length - 1][0].onConfirm;
+    await onConfirm([5n]);
+
+    expect(mockResolveAllModeIds).not.toHaveBeenCalled();
+    const arg = mockAddDevicesToGroup.mock.calls[0][0];
+    expect(arg.allDevices).toBe(true);
+    expect(arg.deviceIdentifiers).toBeUndefined();
   });
 
   test("requests credentials before opening update worker names modal", async () => {
