@@ -1813,6 +1813,52 @@ func TestPoolsReadFleetAndPoolPasswordsFromSeparateStdinLines(t *testing.T) {
 	}
 }
 
+func TestGeneratedSecretsReadFleetPasswordBeforeCommandSecret(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	var authBody map[string]any
+	var channelBody map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /auth.v1.AuthService/Authenticate", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&authBody); err != nil {
+			t.Errorf("decode authenticate request: %v", err)
+		}
+		http.SetCookie(w, &http.Cookie{Name: "fleet_session", Value: "sess", Path: "/", Secure: true})
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte("{}"))
+	})
+	mux.HandleFunc("POST /alerts.v1.ChannelService/CreateChannel", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&channelBody); err != nil {
+			t.Errorf("decode channel create request: %v", err)
+		}
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte("{}"))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	withStdin(t, "fleet-secret\nsmtp-secret\n", func() {
+		err := newRootCommand().Run(context.Background(), []string{
+			"fleetcli", "--server", srv.URL + "/", "--username", "admin", "--password-stdin",
+			"alerts", "channels", "create",
+			"--name", "email",
+			"--kind", "smtp",
+			"--smtp-password-stdin",
+		})
+		if err != nil {
+			t.Fatalf("channel create with Fleet and SMTP password stdin error = %v", err)
+		}
+	})
+
+	if authBody["password"] != "fleet-secret" {
+		t.Errorf("authenticate body = %v, want first stdin line as Fleet password", authBody)
+	}
+	smtp, _ := channelBody["smtp"].(map[string]any)
+	if smtp["password"] != "smtp-secret" {
+		t.Errorf("channel create body = %v, want second stdin line as SMTP password", channelBody)
+	}
+}
+
 func TestPoolsRejectPasswordFlag(t *testing.T) {
 	tests := [][]string{
 		{"pools", "create", "--password", "pool-secret"},

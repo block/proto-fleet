@@ -148,9 +148,11 @@ func generatedBuildRequestConsumesStdin(cmd *cli.Command) bool {
 	if cmd.String("json") == "-" {
 		return true
 	}
-	for _, stdinFlag := range []string{"pool-password-stdin"} {
-		if cmd.Bool(stdinFlag) {
-			return true
+	for _, flag := range cmd.Flags {
+		for _, name := range flag.Names() {
+			if strings.HasSuffix(name, "-stdin") && cmd.Bool(name) {
+				return true
+			}
 		}
 	}
 	return false
