@@ -1,3 +1,4 @@
+import { MemoryRouter } from "react-router-dom";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -73,9 +74,16 @@ const defaultProps = {
   onSave: vi.fn(),
 };
 
+const renderManageRackModal = () =>
+  render(
+    <MemoryRouter>
+      <ManageRackModal {...defaultProps} />
+    </MemoryRouter>,
+  );
+
 describe("ManageRackModal", () => {
   it("clears a selected slot when the slot actions sheet is dismissed", () => {
-    render(<ManageRackModal {...defaultProps} />);
+    renderManageRackModal();
 
     fireEvent.click(screen.getByTestId("rack-slot-01"));
     fireEvent.click(screen.getByTestId("rack-slot-actions-sheet"));
@@ -86,7 +94,7 @@ describe("ManageRackModal", () => {
   });
 
   it("preserves a selected slot after choosing Select from list", () => {
-    render(<ManageRackModal {...defaultProps} />);
+    renderManageRackModal();
 
     fireEvent.click(screen.getByTestId("rack-slot-01"));
     fireEvent.click(within(screen.getByTestId("rack-slot-actions-sheet-content")).getByText("Select from list"));
