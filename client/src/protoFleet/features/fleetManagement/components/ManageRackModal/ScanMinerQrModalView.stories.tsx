@@ -3,7 +3,10 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
 
 import ScanMinerQrModalView, { type ScanPhase } from "./ScanMinerQrModalView";
-import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  type MinerStateSnapshot,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 function mockSnapshot(overrides: Partial<MinerStateSnapshot> = {}): MinerStateSnapshot {
   return {
@@ -18,7 +21,7 @@ function mockSnapshot(overrides: Partial<MinerStateSnapshot> = {}): MinerStateSn
     ipAddress: "192.168.1.42",
     url: "",
     deviceStatus: 0,
-    pairingStatus: 0,
+    pairingStatus: PairingStatus.PAIRED,
     model: "Antminer S21 XP",
     manufacturer: "Bitmain",
     temperatureStatus: 0,
@@ -35,7 +38,19 @@ function mockSnapshot(overrides: Partial<MinerStateSnapshot> = {}): MinerStateSn
  * here we render each one directly so the visual states are reviewable
  * without a camera or backend.
  */
-const Harness = ({ phase, liveCamera = true }: { phase: ScanPhase; liveCamera?: boolean }) => {
+const Harness = ({
+  phase,
+  targetSlotLabel = "Slot 1",
+  liveCamera = true,
+  cameraStatus,
+  cameraError = "",
+}: {
+  phase: ScanPhase;
+  targetSlotLabel?: string;
+  liveCamera?: boolean;
+  cameraStatus?: string;
+  cameraError?: string;
+}) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   return (
@@ -43,13 +58,16 @@ const Harness = ({ phase, liveCamera = true }: { phase: ScanPhase; liveCamera?: 
       show
       phase={phase}
       currentRackLabel="Rack A-01"
+      targetSlotLabel={targetSlotLabel}
       liveCamera={liveCamera}
       videoRef={videoRef}
-      cameraStatus={phase.kind === "scanning" ? "scanning" : "idle"}
-      cameraError=""
+      cameraStatus={cameraStatus ?? (phase.kind === "scanning" ? "scanning" : "idle")}
+      cameraError={cameraError}
       fileInputRef={fileInputRef}
       onDismiss={action("onDismiss")}
-      onConfirm={action("onConfirm")}
+      onConfirmFound={action("onConfirmFound")}
+      onUndoAssignment={action("onUndoAssignment")}
+      onScanNextSlot={action("onScanNextSlot")}
       onRescan={action("onRescan")}
       onFile={(file) => action("onFile")(file?.name)}
     />
@@ -76,22 +94,63 @@ export const PhotoCaptureFallback: Story = {
   args: { phase: { kind: "scanning" }, liveCamera: false },
 };
 
+/** Live camera failed, with retry plus photo fallback available. */
+export const CameraError: Story = {
+  args: {
+    phase: { kind: "scanning" },
+    liveCamera: true,
+    cameraStatus: "error",
+    cameraError: "Could not start the camera. You can take a photo instead.",
+  },
+};
+
 /** Resolving a scanned serial against the fleet. */
 export const LookingUp: Story = {
   args: { phase: { kind: "looking-up", identifier: "1234567890123456" } },
 };
 
-/** A paired miner was resolved and is ready to assign. */
+/** A paired miner was resolved and assigned to the selected slot. */
 export const Found: Story = {
-  args: { phase: { kind: "found", snapshot: mockSnapshot() } },
+  args: {
+    phase: {
+      kind: "assigned",
+      snapshot: mockSnapshot(),
+      slotLabel: "Slot 1",
+      hasNextSlot: true,
+    },
+  },
 };
 
-/** Resolved, but the miner already belongs to a different rack (assign blocked). */
+/** Success on the final assignable slot. */
+export const FoundFinalSlot: Story = {
+  args: {
+    phase: {
+      kind: "assigned",
+      snapshot: mockSnapshot({ name: "Miner-096" }),
+      slotLabel: "Slot 96",
+      hasNextSlot: false,
+    },
+  },
+};
+
+/** Resolved, but the miner already belongs to a different rack (requires confirmation). */
 export const FoundInAnotherRack: Story = {
   args: {
     phase: {
       kind: "found",
       snapshot: mockSnapshot({ placement: { rack: { id: 7n, label: "Rack B-02" } } } as Partial<MinerStateSnapshot>),
+      isReassignment: true,
+    },
+  },
+};
+
+/** Resolved, but the miner still needs pairing work before assignment. */
+export const FoundNotFullyPaired: Story = {
+  args: {
+    phase: {
+      kind: "found",
+      snapshot: mockSnapshot({ pairingStatus: PairingStatus.AUTHENTICATION_NEEDED }),
+      isReassignment: false,
     },
   },
 };

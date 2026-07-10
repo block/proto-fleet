@@ -29,6 +29,8 @@ interface UseQrScannerOptions {
   onDetected: (rawValues: string[]) => void;
   /** When false, the scanner stays torn down (e.g. modal closed). */
   active: boolean;
+  /** Increment to restart a still-active camera session, such as after an error. */
+  restartKey?: number;
 }
 
 interface UseQrScannerResult {
@@ -60,7 +62,7 @@ const MAX_CONSECUTIVE_DECODE_FAILURES = 16;
  * live stream but the same WASM/native decoder still applies to a captured
  * photo.
  */
-export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQrScannerResult {
+export function useQrScanner({ onDetected, active, restartKey = 0 }: UseQrScannerOptions): UseQrScannerResult {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const detectorRef = useRef<BarcodeDetector | null>(null);
@@ -211,7 +213,7 @@ export function useQrScanner({ onDetected, active }: UseQrScannerOptions): UseQr
       stop();
       setStatus("idle");
     };
-  }, [active, getDetector, stop]);
+  }, [active, getDetector, restartKey, stop]);
 
   return { videoRef, status, errorMessage, detectFromBlob };
 }

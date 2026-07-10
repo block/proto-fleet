@@ -48,6 +48,7 @@ describe("RackPane", () => {
     );
     expect(screen.queryByTestId("rack-slot-popover")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Select from list" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Scan to assign" })).toBeInTheDocument();
   });
 
   it("dismisses only the slot action sheet when tapping the backdrop", () => {

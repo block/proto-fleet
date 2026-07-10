@@ -4,7 +4,7 @@ import ManageMinersModal from "./ManageMinersModal";
 import MinersPane from "./MinersPane";
 import RackPane from "./RackPane";
 import ReparentWarningDialog from "./ReparentWarningDialog";
-import ScanMinerQrModal from "./ScanMinerQrModal";
+import ScanMinerQrModal, { type ScanAssignmentResult } from "./ScanMinerQrModal";
 import SearchMinersModal from "./SearchMinersModal";
 import { type AssignmentMode, orderIndexToOrigin, originLabel, type RackFormData, type SelectedSlot } from "./types";
 import { useRackMinerScope } from "./useRackMinerScope";
@@ -166,6 +166,7 @@ export default function ManageRackModal({
   const [showScanQr, setShowScanQr] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const scanUndoRef = useRef<(() => void) | null>(null);
 
   // Pending reparent confirmation. Set when a confirm action would pull miners
   // out of a rack/building/site they're currently assigned to; `onConfirm`
@@ -284,6 +285,46 @@ export default function ManageRackModal({
 
   const assignedCount = Object.keys(activeAssignments).length;
 
+  const getSlotByNumber = useCallback(
+    (slotNumber: number): SelectedSlot => {
+      const { row, col } = slotNumberToRowCol(slotNumber, rackSettings.rows, rackSettings.columns, numberingOrigin);
+      return { row, col, key: `${row}-${col}` };
+    },
+    [rackSettings.rows, rackSettings.columns, numberingOrigin],
+  );
+
+  const getSlotNumber = useCallback(
+    (slot: SelectedSlot): number | null => {
+      for (let slotNumber = 1; slotNumber <= totalSlots; slotNumber++) {
+        if (getSlotByNumber(slotNumber).key === slot.key) return slotNumber;
+      }
+      return null;
+    },
+    [getSlotByNumber, totalSlots],
+  );
+
+  const getSlotLabel = useCallback(
+    (slot: SelectedSlot): string => {
+      const slotNumber = getSlotNumber(slot);
+      return slotNumber ? `Slot ${slotNumber}` : "Selected slot";
+    },
+    [getSlotNumber],
+  );
+
+  const getNextAssignableSlot = useCallback(
+    (fromSlot: SelectedSlot, assignments: Record<string, string>): SelectedSlot | null => {
+      const fromSlotNumber = getSlotNumber(fromSlot);
+      if (!fromSlotNumber) return null;
+
+      for (let slotNumber = fromSlotNumber + 1; slotNumber <= totalSlots; slotNumber++) {
+        const slot = getSlotByNumber(slotNumber);
+        if (!assignments[slot.key]) return slot;
+      }
+      return null;
+    },
+    [getSlotByNumber, getSlotNumber, totalSlots],
+  );
+
   // Mode switching with cache
   const handleModeChange = useCallback(
     (mode: AssignmentMode) => {
@@ -346,11 +387,12 @@ export default function ManageRackModal({
     setShowSearchMiners(true);
   }, [preserveSelectedSlotThroughActionSheetClose]);
 
-  // Popover: "Scan QR code" — open ScanMinerQrModal
+  // Popover: "Scan to assign" — open ScanMinerQrModal
   const handleScanQr = useCallback(() => {
     preserveSelectedSlotThroughActionSheetClose();
     setShowSlotPopover(false);
     setShowScanQr(true);
+    scanUndoRef.current = null;
   }, [preserveSelectedSlotThroughActionSheetClose]);
 
   // Popover dismiss — close canceled slot actions and clear the slot context.
@@ -401,9 +443,36 @@ export default function ManageRackModal({
     [selectedSlot, promptReparent],
   );
 
-  // ScanMinerQrModal confirm — identical placement to search, but keyed off
-  // the resolved device identifier from the scanned serial. The scan modal
-  // computes the reassignment flag from the resolved snapshot's placement.
+  const handleScanMinerAssign = useCallback(
+    (minerId: string): ScanAssignmentResult | null => {
+      if (!selectedSlot) return null;
+
+      const previousRackMiners = rackMiners;
+      const previousSlotAssignments = slotAssignments;
+      const assignedSlot = selectedSlot;
+      const nextSlotAssignments = removeAssignmentByValue(slotAssignments, minerId);
+      nextSlotAssignments[assignedSlot.key] = minerId;
+
+      setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
+      setSlotAssignments(nextSlotAssignments);
+
+      scanUndoRef.current = () => {
+        setRackMiners(previousRackMiners);
+        setSlotAssignments(previousSlotAssignments);
+        setSelectedSlot(assignedSlot);
+      };
+
+      return {
+        slotLabel: getSlotLabel(assignedSlot),
+        hasNextSlot: !!getNextAssignableSlot(assignedSlot, nextSlotAssignments),
+      };
+    },
+    [getNextAssignableSlot, getSlotLabel, rackMiners, selectedSlot, slotAssignments],
+  );
+
+  // Scanned miners already assigned elsewhere use the same reparent warning as
+  // search/list assignment. The success dialog is reserved for immediate
+  // assignments that did not require that warning.
   const handleScanMinerConfirm = useCallback(
     (minerId: string, isReassignment: boolean) => {
       if (!selectedSlot) return;
@@ -417,10 +486,27 @@ export default function ManageRackModal({
         });
         setSelectedSlot(null);
         setShowScanQr(false);
+        scanUndoRef.current = null;
       });
     },
     [selectedSlot, promptReparent],
   );
+
+  const handleScanAssignmentUndo = useCallback(() => {
+    scanUndoRef.current?.();
+    scanUndoRef.current = null;
+  }, []);
+
+  const handleScanNextSlot = useCallback(() => {
+    if (!selectedSlot) return false;
+
+    const nextSlot = getNextAssignableSlot(selectedSlot, slotAssignments);
+    if (!nextSlot) return false;
+
+    scanUndoRef.current = null;
+    setSelectedSlot(nextSlot);
+    return true;
+  }, [getNextAssignableSlot, selectedSlot, slotAssignments]);
 
   // Miner selection handler — when a slot is awaiting, assign miner to it
   const handleSelectMiner = useCallback(
@@ -858,13 +944,18 @@ export default function ManageRackModal({
       {showScanQr ? (
         <ScanMinerQrModal
           show={showScanQr}
-          currentRackLabel={initialRackSettings.label}
+          currentRackLabel={rackSettings.label}
           eligibility={eligibility}
+          targetSlotLabel={selectedSlot ? getSlotLabel(selectedSlot) : "selected slot"}
           onDismiss={() => {
             setShowScanQr(false);
             setSelectedSlot(null);
+            scanUndoRef.current = null;
           }}
+          onAssign={handleScanMinerAssign}
           onConfirm={handleScanMinerConfirm}
+          onUndoAssignment={handleScanAssignmentUndo}
+          onScanNextSlot={handleScanNextSlot}
         />
       ) : null}
 

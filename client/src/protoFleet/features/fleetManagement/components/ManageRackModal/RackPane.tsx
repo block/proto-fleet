@@ -74,7 +74,7 @@ function SlotPopover({
         testId: "rack-slot-search-miners-action",
       },
       {
-        label: "Scan barcode",
+        label: "Scan to assign",
         onClick: onScanQr,
         testId: "rack-slot-scan-barcode-action",
       },
@@ -135,7 +135,7 @@ function SlotPopover({
             onScanQr();
           }}
         >
-          Scan barcode
+          Scan to assign
         </button>
       </div>
     </Popover>
