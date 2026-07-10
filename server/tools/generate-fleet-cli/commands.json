@@ -6,6 +6,33 @@
       "command": "list"
     },
     {
+      "method": "/fleetmanagement.v1.FleetManagementService/GetMinerStateCounts",
+      "group": "miners",
+      "command": "counts",
+      "usage": "Get miner state counts"
+    },
+    {
+      "method": "/fleetmanagement.v1.FleetManagementService/LookupMinerByIdentifier",
+      "group": "miners",
+      "command": "lookup",
+      "usage": "Look up a paired miner by MAC address or serial number",
+      "required_fields": ["identifier"]
+    },
+    {
+      "method": "/fleetmanagement.v1.FleetManagementService/GetMinerPoolAssignments",
+      "group": "miners",
+      "command": "pool-assignments",
+      "usage": "Get current pool assignments for a miner",
+      "required_fields": ["device_identifier"]
+    },
+    {
+      "method": "/fleetmanagement.v1.FleetManagementService/GetMinerCoolingMode",
+      "group": "miners",
+      "command": "cooling-mode",
+      "usage": "Get current cooling mode for a miner",
+      "required_fields": ["device_identifier"]
+    },
+    {
       "method": "/onboarding.v1.OnboardingService/CreateAdminLogin",
       "group": "onboarding",
       "command": "create-admin",
@@ -21,6 +48,19 @@
           "prompt": true
         }
       ]
+    },
+    {
+      "method": "/onboarding.v1.OnboardingService/GetFleetInitStatus",
+      "group": "onboarding",
+      "command": "init-status",
+      "usage": "Get Fleet initialization status",
+      "auth": "unauthenticated"
+    },
+    {
+      "method": "/onboarding.v1.OnboardingService/GetFleetOnboardingStatus",
+      "group": "onboarding",
+      "command": "status",
+      "usage": "Get Fleet onboarding status"
     },
     {
       "method": "/pools.v1.PoolsService/CreatePool",
@@ -249,6 +289,98 @@
       "command": "stats",
       "usage": "Get aggregated stats for one or more racks",
       "require_collection_type": "rack"
+    },
+    {
+      "method": "/serverlog.v1.ServerLogService/ListServerLogs",
+      "group": "serverlogs",
+      "command": "list",
+      "usage": "List recent server logs"
+    },
+    {
+      "method": "/activity.v1.ActivityService/ListActivities",
+      "group": "activity",
+      "command": "list",
+      "usage": "List activity entries",
+      "default_fields": {
+        "page_size": "100"
+      }
+    },
+    {
+      "method": "/activity.v1.ActivityService/ListActivityFilterOptions",
+      "group": "activity",
+      "command": "filters",
+      "usage": "List available activity filter options"
+    },
+    {
+      "method": "/errors.v1.ErrorQueryService/Query",
+      "group": "errors",
+      "command": "query",
+      "usage": "Query miner errors",
+      "default_fields": {
+        "page_size": "100"
+      }
+    },
+    {
+      "method": "/errors.v1.ErrorQueryService/GetError",
+      "group": "errors",
+      "command": "get",
+      "usage": "Get a miner error by id",
+      "required_fields": ["error_id"]
+    },
+    {
+      "method": "/errors.v1.ErrorQueryService/ListMinerErrors",
+      "group": "errors",
+      "command": "list-miner",
+      "usage": "List canonical miner errors"
+    },
+    {
+      "method": "/sites.v1.SiteService/ListSites",
+      "group": "sites",
+      "command": "list",
+      "usage": "List sites",
+      "ignore_fields": ["error_component_types", "telemetry_ranges"]
+    },
+    {
+      "method": "/sites.v1.SiteService/GetSiteStats",
+      "group": "sites",
+      "command": "stats",
+      "usage": "Get site stats",
+      "required_fields": ["site_id"]
+    },
+    {
+      "method": "/sites.v1.SiteService/ResolveSiteBySlug",
+      "group": "sites",
+      "command": "resolve",
+      "usage": "Resolve a site by slug",
+      "required_fields": ["slug"]
+    },
+    {
+      "method": "/buildings.v1.BuildingService/ListBuildings",
+      "group": "buildings",
+      "command": "list",
+      "usage": "List buildings",
+      "ignore_fields": ["error_component_types", "telemetry_ranges"]
+    },
+    {
+      "method": "/buildings.v1.BuildingService/GetBuilding",
+      "group": "buildings",
+      "command": "get",
+      "usage": "Get a building by id",
+      "required_fields": ["id"]
+    },
+    {
+      "method": "/buildings.v1.BuildingService/GetBuildingStats",
+      "group": "buildings",
+      "command": "stats",
+      "usage": "Get building stats",
+      "required_fields": ["building_id"]
+    },
+    {
+      "method": "/buildings.v1.BuildingService/ListBuildingRacks",
+      "group": "buildings",
+      "command": "racks",
+      "usage": "List racks assigned to a building",
+      "required_fields": ["building_id"]
     }
   ]
 }

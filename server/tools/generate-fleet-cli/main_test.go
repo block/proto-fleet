@@ -366,6 +366,46 @@ func TestBuildGroupsRejectsInvalidFieldFlagType(t *testing.T) {
 	}
 }
 
+func TestBuildGroupsRendersDefaultFieldsBeforeFlagOverrides(t *testing.T) {
+	file := testPageSizeServiceFile(t)
+	files := []protoreflect.FileDescriptor{file}
+	messages, enums, err := buildTypeIndexes(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	groups, _, err := buildGroups(files, messages, enums, commandsManifest{
+		Commands: []commandSpec{
+			{
+				Method:        "/test.v1.TestService/List",
+				Group:         "test",
+				Command:       "list",
+				DefaultFields: map[string]string{"page_size": "100"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildGroups error = %v, want success", err)
+	}
+	if len(groups) != 1 || len(groups[0].CommandExprs) != 1 {
+		t.Fatalf("generated groups = %#v, want one command expression", groups)
+	}
+	expr := groups[0].CommandExprs[0]
+	defaultSnippet := "if req.PageSize == 0 {\n\t\t\treq.PageSize = int32(100)\n\t\t}"
+	overrideSnippet := "if cmd.IsSet(\"page-size\") {\n\t\t\treq.PageSize = int32(cmd.Int(\"page-size\"))\n\t\t}"
+	defaultIndex := strings.Index(expr, defaultSnippet)
+	overrideIndex := strings.Index(expr, overrideSnippet)
+	if defaultIndex < 0 {
+		t.Fatalf("generated command missing default snippet:\n%s", expr)
+	}
+	if overrideIndex < 0 {
+		t.Fatalf("generated command missing override snippet:\n%s", expr)
+	}
+	if defaultIndex > overrideIndex {
+		t.Fatalf("default_fields assignment should appear before flag override:\n%s", expr)
+	}
+}
+
 func testPoolServiceFile(t *testing.T) protoreflect.FileDescriptor {
 	t.Helper()
 	files, err := protodesc.NewFiles(&descriptorpb.FileDescriptorSet{
@@ -470,6 +510,48 @@ func testServiceFile(t *testing.T) protoreflect.FileDescriptor {
 						Name:       stringPtr("Ping"),
 						InputType:  stringPtr(".test.v1.PingRequest"),
 						OutputType: stringPtr(".test.v1.PingResponse"),
+					},
+				},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file
+}
+
+func testPageSizeServiceFile(t *testing.T) protoreflect.FileDescriptor {
+	t.Helper()
+	file, err := protodesc.NewFile(&descriptorpb.FileDescriptorProto{
+		Name:    stringPtr("test/v1/test.proto"),
+		Syntax:  stringPtr("proto3"),
+		Package: stringPtr("test.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: stringPtr("github.com/block/proto-fleet/server/generated/grpc/test/v1;testv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name: stringPtr("ListRequest"),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:   stringPtr("page_size"),
+						Number: int32Ptr(1),
+						Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:   descriptorpb.FieldDescriptorProto_TYPE_INT32.Enum(),
+					},
+				},
+			},
+			{Name: stringPtr("ListResponse")},
+		},
+		Service: []*descriptorpb.ServiceDescriptorProto{
+			{
+				Name: stringPtr("TestService"),
+				Method: []*descriptorpb.MethodDescriptorProto{
+					{
+						Name:       stringPtr("List"),
+						InputType:  stringPtr(".test.v1.ListRequest"),
+						OutputType: stringPtr(".test.v1.ListResponse"),
 					},
 				},
 			},

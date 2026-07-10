@@ -42,6 +42,7 @@ type commandSpec struct {
 	IgnoreFields          []string          `json:"ignore_fields,omitempty"`
 	RequiredFields        []string          `json:"required_fields,omitempty"`
 	FixedFields           map[string]string `json:"fixed_fields,omitempty"`
+	DefaultFields         map[string]string `json:"default_fields,omitempty"`
 	RequireCollectionType string            `json:"require_collection_type,omitempty"`
 	CommonSelector        string            `json:"common_selector,omitempty"`
 	FieldFlags            []fieldFlagSpec   `json:"field_flags,omitempty"`
@@ -96,6 +97,7 @@ type renderOptions struct {
 	IgnoreFields          map[string]bool
 	RequiredFields        map[string]bool
 	FixedFields           map[string]string
+	DefaultFields         map[string]string
 	RequireCollectionType string
 	CommonSelector        string
 	FieldFlags            []fieldFlagSpec
@@ -389,6 +391,7 @@ func buildGroups(
 			IgnoreFields:          sliceToSet(command.IgnoreFields),
 			RequiredFields:        sliceToSet(command.RequiredFields),
 			FixedFields:           command.FixedFields,
+			DefaultFields:         command.DefaultFields,
 			RequireCollectionType: command.RequireCollectionType,
 			CommonSelector:        command.CommonSelector,
 			FieldFlags:            command.FieldFlags,
@@ -751,6 +754,28 @@ func analyzeRequest(
 	if hasUnsupported {
 		analysis.Reason = "request includes complex fields, so the generated command exposes simple flags plus --json fallback"
 	}
+	var defaultLines []string
+	seenDefaultFields := map[string]bool{}
+	for i := range message.Fields().Len() {
+		field := message.Fields().Get(i)
+		value, ok := options.DefaultFields[string(field.Name())]
+		if !ok {
+			continue
+		}
+		lines, needsFmt, err := renderDefaultFieldAssignment(field, messageInfo, enums, value)
+		if err != nil {
+			return analysis, err
+		}
+		defaultLines = append(defaultLines, lines...)
+		seenDefaultFields[string(field.Name())] = true
+		analysis.needsFmt = analysis.needsFmt || needsFmt
+	}
+	for fieldName := range options.DefaultFields {
+		if !seenDefaultFields[fieldName] {
+			return analysis, fmt.Errorf("default_fields references unknown field %q on %s", fieldName, message.FullName())
+		}
+	}
+	analysis.lines = append(defaultLines, analysis.lines...)
 	for i := range message.Fields().Len() {
 		field := message.Fields().Get(i)
 		value, ok := options.FixedFields[string(field.Name())]
@@ -852,6 +877,53 @@ func renderFixedFieldAssignment(
 		// No fixed-field override needs these kinds yet.
 	}
 	return nil, false, fmt.Errorf("unsupported fixed field type for %s", field.FullName())
+}
+
+func renderDefaultFieldAssignment(
+	field protoreflect.FieldDescriptor,
+	messageInfo messageInfo,
+	enums map[protoreflect.FullName]enumInfo,
+	value string,
+) ([]string, bool, error) {
+	lines, needsFmt, err := renderFixedFieldAssignment(field, messageInfo, enums, value)
+	if err != nil {
+		return nil, false, fmt.Errorf("default field %s: %w", field.FullName(), err)
+	}
+	zeroCondition, err := zeroValueCondition(field)
+	if err != nil {
+		return nil, false, err
+	}
+	wrapped := []string{"if " + zeroCondition + " {"}
+	for _, line := range lines {
+		wrapped = append(wrapped, "\t"+line)
+	}
+	wrapped = append(wrapped, "}")
+	return wrapped, needsFmt, nil
+}
+
+func zeroValueCondition(field protoreflect.FieldDescriptor) (string, error) {
+	if field.IsList() || field.IsMap() {
+		return "", fmt.Errorf("default field %s: repeated and map fields are not supported", field.FullName())
+	}
+	goFieldName := toGoFieldName(field.Name())
+	if fieldNeedsPointer(field) {
+		return fmt.Sprintf("req.%s == nil", goFieldName), nil
+	}
+	switch field.Kind() {
+	case protoreflect.StringKind:
+		return fmt.Sprintf("req.%s == \"\"", goFieldName), nil
+	case protoreflect.BoolKind:
+		return fmt.Sprintf("!req.%s", goFieldName), nil
+	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind,
+		protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind,
+		protoreflect.Uint32Kind, protoreflect.Fixed32Kind, protoreflect.Uint64Kind,
+		protoreflect.Fixed64Kind, protoreflect.FloatKind, protoreflect.DoubleKind,
+		protoreflect.EnumKind:
+		return fmt.Sprintf("req.%s == 0", goFieldName), nil
+	case protoreflect.BytesKind, protoreflect.MessageKind, protoreflect.GroupKind:
+		return "", fmt.Errorf("default field %s: unsupported field type", field.FullName())
+	}
+	return "", fmt.Errorf("default field %s: unsupported field type", field.FullName())
 }
 
 type fieldFlagPlan struct {

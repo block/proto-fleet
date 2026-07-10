@@ -13,6 +13,7 @@ import (
 	"time"
 
 	apikeyv1 "github.com/block/proto-fleet/server/generated/grpc/apikey/v1"
+	authv1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
 	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/fatih/color"
 	"github.com/hokaccha/go-prettyjson"
@@ -109,6 +110,40 @@ func authCommand() *cli.Command {
 					}
 					resp, err := client.Authenticate(ctx, username, password)
 					if err != nil {
+						return err
+					}
+					return printProto(resp)
+				},
+			},
+			{
+				Name:  "users",
+				Usage: "List active Fleet users using session credentials",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					client, err := openClient(ctx, cmd)
+					if err != nil {
+						return err
+					}
+					defer func() { _ = client.Close() }()
+
+					resp := &authv1.ListUsersResponse{}
+					if err := client.CallSessionOnly(ctx, "/auth.v1.AuthService/ListUsers", &authv1.ListUsersRequest{}, resp); err != nil {
+						return err
+					}
+					return printProto(resp)
+				},
+			},
+			{
+				Name:  "audit-info",
+				Usage: "Get password audit information for the current Fleet user",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					client, err := openClient(ctx, cmd)
+					if err != nil {
+						return err
+					}
+					defer func() { _ = client.Close() }()
+
+					resp := &authv1.GetUserAuditInfoResponse{}
+					if err := client.CallSessionOnly(ctx, "/auth.v1.AuthService/GetUserAuditInfo", &authv1.GetUserAuditInfoRequest{}, resp); err != nil {
 						return err
 					}
 					return printProto(resp)

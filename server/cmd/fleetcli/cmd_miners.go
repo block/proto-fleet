@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
@@ -14,6 +15,48 @@ func generatedMinersCommand() *cli.Command {
 		Name:  "miners",
 		Usage: "Manage miners commands",
 		Commands: []*cli.Command{
+			generatedRequestCommand(
+				"cooling-mode",
+				"Get current cooling mode for a miner",
+				"/fleetmanagement.v1.FleetManagementService/GetMinerCoolingMode",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "device-identifier", Usage: "device identifier", Required: true},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &fleetmanagementv1.GetMinerCoolingModeRequest{}
+					if cmd.IsSet("device-identifier") {
+						req.DeviceIdentifier = cmd.String("device-identifier")
+					}
+					return req, nil
+				},
+				func() proto.Message { return &fleetmanagementv1.GetMinerCoolingModeResponse{} },
+			),
+			generatedRequestCommand(
+				"counts",
+				"Get miner state counts",
+				"/fleetmanagement.v1.FleetManagementService/GetMinerStateCounts",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringSliceFlag{Name: "site-ids", Usage: "site ids"},
+					&cli.BoolFlag{Name: "include-unassigned", Usage: "include unassigned"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &fleetmanagementv1.GetMinerStateCountsRequest{}
+					if cmd.IsSet("site-ids") {
+						values, err := parseInt64Slice(cmd.StringSlice("site-ids"))
+						if err != nil {
+							return nil, err
+						}
+						req.SiteIds = values
+					}
+					if cmd.IsSet("include-unassigned") {
+						req.IncludeUnassigned = cmd.Bool("include-unassigned")
+					}
+					return req, nil
+				},
+				func() proto.Message { return &fleetmanagementv1.GetMinerStateCountsResponse{} },
+			),
 			generatedRequestCommand(
 				"list",
 				"List miner state snapshots",
@@ -40,6 +83,51 @@ func generatedMinersCommand() *cli.Command {
 					return req, nil
 				},
 				func() proto.Message { return &fleetmanagementv1.ListMinerStateSnapshotsResponse{} },
+			),
+			generatedRequestCommand(
+				"lookup",
+				"Look up a paired miner by MAC address or serial number",
+				"/fleetmanagement.v1.FleetManagementService/LookupMinerByIdentifier",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "identifier", Usage: "identifier", Required: true},
+					&cli.StringFlag{Name: "identifier-type", Usage: "identifier type. Valid options: mac-address, serial-number"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &fleetmanagementv1.LookupMinerByIdentifierRequest{}
+					if cmd.IsSet("identifier") {
+						req.Identifier = cmd.String("identifier")
+					}
+					if cmd.IsSet("identifier-type") {
+						switch normalizeEnum(cmd.String("identifier-type")) {
+						case "mac_address":
+							req.IdentifierType = fleetmanagementv1.MinerIdentifierType_MINER_IDENTIFIER_TYPE_MAC_ADDRESS
+						case "serial_number":
+							req.IdentifierType = fleetmanagementv1.MinerIdentifierType_MINER_IDENTIFIER_TYPE_SERIAL_NUMBER
+						default:
+							return nil, fmt.Errorf("invalid value for identifier-type: %s. Valid options: mac-address, serial-number", cmd.String("identifier-type"))
+						}
+					}
+					return req, nil
+				},
+				func() proto.Message { return &fleetmanagementv1.LookupMinerByIdentifierResponse{} },
+			),
+			generatedRequestCommand(
+				"pool-assignments",
+				"Get current pool assignments for a miner",
+				"/fleetmanagement.v1.FleetManagementService/GetMinerPoolAssignments",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "device-identifier", Usage: "device identifier", Required: true},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &fleetmanagementv1.GetMinerPoolAssignmentsRequest{}
+					if cmd.IsSet("device-identifier") {
+						req.DeviceIdentifier = cmd.String("device-identifier")
+					}
+					return req, nil
+				},
+				func() proto.Message { return &fleetmanagementv1.GetMinerPoolAssignmentsResponse{} },
 			),
 		},
 	}

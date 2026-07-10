@@ -37,6 +37,32 @@ func generatedOnboardingCommand() *cli.Command {
 				},
 				func() proto.Message { return &onboardingv1.CreateAdminLoginResponse{} },
 			),
+			generatedRequestCommand(
+				"init-status",
+				"Get Fleet initialization status",
+				"/onboarding.v1.OnboardingService/GetFleetInitStatus",
+				generatedAuthUnauthenticated,
+				[]cli.Flag{
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &onboardingv1.GetFleetInitStatusRequest{}
+					return req, nil
+				},
+				func() proto.Message { return &onboardingv1.GetFleetInitStatusResponse{} },
+			),
+			generatedRequestCommand(
+				"status",
+				"Get Fleet onboarding status",
+				"/onboarding.v1.OnboardingService/GetFleetOnboardingStatus",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &onboardingv1.GetFleetOnboardingStatusRequest{}
+					return req, nil
+				},
+				func() proto.Message { return &onboardingv1.GetFleetOnboardingStatusResponse{} },
+			),
 		},
 	}
 }
