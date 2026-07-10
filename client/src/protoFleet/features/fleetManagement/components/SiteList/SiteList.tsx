@@ -19,16 +19,7 @@ export type SiteListItem = {
 };
 
 export type SiteColumn =
-  | "name"
-  | "buildings"
-  | "racks"
-  | "miners"
-  | "issues"
-  | "hashrate"
-  | "efficiency"
-  | "power"
-  | "temperature"
-  | "health";
+  "name" | "buildings" | "racks" | "miners" | "issues" | "hashrate" | "efficiency" | "power" | "temperature" | "health";
 
 const COL_TITLES: ColTitles<SiteColumn> = {
   name: "Name",
