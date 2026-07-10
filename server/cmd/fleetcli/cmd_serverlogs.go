@@ -19,7 +19,7 @@ func generatedServerlogsCommand() *cli.Command {
 				"list",
 				"List recent server logs",
 				"/serverlog.v1.ServerLogService/ListServerLogs",
-				generatedAuthAuthenticated,
+				generatedAuthSessionOnly,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "min-level", Usage: "min level. Valid options: debug, info, warn, error"},
 					&cli.StringFlag{Name: "search-text", Usage: "search text"},

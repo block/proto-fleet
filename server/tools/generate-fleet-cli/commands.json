@@ -288,7 +288,8 @@
       "method": "/serverlog.v1.ServerLogService/ListServerLogs",
       "group": "serverlogs",
       "command": "list",
-      "usage": "List recent server logs"
+      "usage": "List recent server logs",
+      "auth": "session_only"
     },
     {
       "method": "/activity.v1.ActivityService/ListActivities",

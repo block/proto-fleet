@@ -1097,6 +1097,53 @@ func TestApiKeyListAuthenticatesWithEnvCreds(t *testing.T) {
 	}
 }
 
+func TestServerLogsListUsesSessionOnlyAuth(t *testing.T) {
+	pinFleetAuthEnv(t, map[string]string{
+		envFleetAPIKey:   "env-key",
+		envFleetUsername: "admin",
+		envFleetPassword: "proto",
+	})
+
+	var authBody map[string]any
+	var listAuthHeader string
+	var listCookie string
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /auth.v1.AuthService/Authenticate", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&authBody); err != nil {
+			t.Errorf("decode authenticate request: %v", err)
+		}
+		http.SetCookie(w, &http.Cookie{Name: "fleet_session", Value: "sess", Path: "/", Secure: true})
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte("{}"))
+	})
+	mux.HandleFunc("POST /serverlog.v1.ServerLogService/ListServerLogs", func(w http.ResponseWriter, r *http.Request) {
+		listAuthHeader = r.Header.Get("Authorization")
+		if cookie, err := r.Cookie("fleet_session"); err == nil {
+			listCookie = cookie.Value
+		}
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{"logs":[]}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	err := newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "serverlogs", "list",
+	})
+	if err != nil {
+		t.Fatalf("serverlogs list with env key and creds should succeed, got: %v", err)
+	}
+	if authBody["username"] != "admin" || authBody["password"] != "proto" {
+		t.Errorf("authenticate body = %v, want env username/password", authBody)
+	}
+	if listAuthHeader != "" {
+		t.Errorf("ListServerLogs Authorization = %q, want empty for session-only command", listAuthHeader)
+	}
+	if listCookie != "sess" {
+		t.Errorf("ListServerLogs session cookie = %q, want %q", listCookie, "sess")
+	}
+}
+
 func TestAuthLoginReadsPasswordStdin(t *testing.T) {
 	pinFleetAuthEnv(t, nil)
 
