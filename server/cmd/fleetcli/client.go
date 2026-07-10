@@ -314,15 +314,7 @@ func (c *Client) sessionCredentials() (string, string, error) {
 }
 
 var readFleetPasswordFromStdin = func() (string, error) {
-	data, err := io.ReadAll(os.Stdin)
-	if err != nil {
-		return "", fmt.Errorf("read password from stdin: %w", err)
-	}
-	password := strings.TrimRight(string(data), "\r\n")
-	if password == "" {
-		return "", fmt.Errorf("password from stdin is empty")
-	}
-	return password, nil
+	return readSecretLineFromStdin("password")
 }
 
 var promptFleetPassword = func() (string, error) {
@@ -336,6 +328,33 @@ var promptFleetPassword = func() (string, error) {
 		return "", fmt.Errorf("read password: %w", err)
 	}
 	return string(password), nil
+}
+
+func readSecretLineFromStdin(label string) (string, error) {
+	var buf strings.Builder
+	var one [1]byte
+	for {
+		n, err := os.Stdin.Read(one[:])
+		if n > 0 {
+			if one[0] == '\n' {
+				break
+			}
+			if err := buf.WriteByte(one[0]); err != nil {
+				return "", fmt.Errorf("read %s from stdin: %w", label, err)
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", fmt.Errorf("read %s from stdin: %w", label, err)
+		}
+	}
+	secret := strings.TrimSuffix(buf.String(), "\r")
+	if secret == "" {
+		return "", fmt.Errorf("%s from stdin is empty", label)
+	}
+	return secret, nil
 }
 
 func (c *Client) hasSession() bool {

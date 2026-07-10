@@ -1112,6 +1112,48 @@ func TestAuthLoginReadsPasswordStdin(t *testing.T) {
 	}
 }
 
+func TestGeneratedAuthenticatedCommandReadsPasswordBeforeJSONStdin(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	var authBody map[string]any
+	var listBody map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /auth.v1.AuthService/Authenticate", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&authBody); err != nil {
+			t.Errorf("decode authenticate request: %v", err)
+		}
+		http.SetCookie(w, &http.Cookie{Name: "fleet_session", Value: "sess", Path: "/", Secure: true})
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte("{}"))
+	})
+	mux.HandleFunc("POST /fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&listBody); err != nil {
+			t.Errorf("decode miners list request: %v", err)
+		}
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte("{}"))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	withStdin(t, "fleet-secret\n{\"page_size\":7}\n", func() {
+		err := newRootCommand().Run(context.Background(), []string{
+			"fleetcli", "--server", srv.URL + "/", "--username", "admin", "--password-stdin",
+			"miners", "list", "--json", "-",
+		})
+		if err != nil {
+			t.Fatalf("miners list with password and JSON stdin error = %v", err)
+		}
+	})
+
+	if authBody["username"] != "admin" || authBody["password"] != "fleet-secret" {
+		t.Errorf("authenticate body = %v, want first stdin line as Fleet password", authBody)
+	}
+	if listBody["page_size"] != float64(7) {
+		t.Errorf("miners list body = %v, want remaining stdin JSON body", listBody)
+	}
+}
+
 func TestOnboardingCreateAdminReadsPasswordStdin(t *testing.T) {
 	pinFleetAuthEnv(t, nil)
 
@@ -1291,6 +1333,15 @@ func TestPoolsCreateJSONPoolConfigFlagOverridePreservesFields(t *testing.T) {
 	}
 }
 
+func TestPoolsDeleteRequiresPoolID(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	err := newRootCommand().Run(context.Background(), []string{"fleetcli", "pools", "delete"})
+	if err == nil || !strings.Contains(err.Error(), "pool-id") {
+		t.Fatalf("pools delete without pool-id error = %v, want required pool-id error", err)
+	}
+}
+
 func TestPoolsReadPasswordFromStdin(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -1369,6 +1420,53 @@ func TestPoolsReadPasswordFromStdin(t *testing.T) {
 				t.Fatalf("pool password = %v, want pool-secret; body = %#v", got, gotBody)
 			}
 		})
+	}
+}
+
+func TestPoolsReadFleetAndPoolPasswordsFromSeparateStdinLines(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	var authBody map[string]any
+	var createBody map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /auth.v1.AuthService/Authenticate", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&authBody); err != nil {
+			t.Errorf("decode authenticate request: %v", err)
+		}
+		http.SetCookie(w, &http.Cookie{Name: "fleet_session", Value: "sess", Path: "/", Secure: true})
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte("{}"))
+	})
+	mux.HandleFunc("POST /pools.v1.PoolsService/CreatePool", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&createBody); err != nil {
+			t.Errorf("decode pool create request: %v", err)
+		}
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte("{}"))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	withStdin(t, "fleet-secret\npool-secret\n", func() {
+		err := newRootCommand().Run(context.Background(), []string{
+			"fleetcli", "--server", srv.URL + "/", "--username", "admin", "--password-stdin",
+			"pools", "create",
+			"--pool-name", "pool-name",
+			"--url", "stratum+tcp://pool:3333",
+			"--username", "pool-user",
+			"--pool-password-stdin",
+		})
+		if err != nil {
+			t.Fatalf("pools create with Fleet and pool password stdin error = %v", err)
+		}
+	})
+
+	if authBody["username"] != "admin" || authBody["password"] != "fleet-secret" {
+		t.Errorf("authenticate body = %v, want first stdin line as Fleet password", authBody)
+	}
+	poolConfig, _ := createBody["pool_config"].(map[string]any)
+	if poolConfig["password"] != "pool-secret" {
+		t.Errorf("pool create body = %v, want second stdin line as pool password", createBody)
 	}
 }
 

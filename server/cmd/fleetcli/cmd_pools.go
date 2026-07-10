@@ -72,7 +72,7 @@ func generatedPoolsCommand() *cli.Command {
 				"/pools.v1.PoolsService/DeletePool",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "pool-id", Usage: "pool id"},
+					&cli.Int64Flag{Name: "pool-id", Usage: "pool id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &poolsv1.DeletePoolRequest{}

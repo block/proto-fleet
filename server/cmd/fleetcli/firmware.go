@@ -184,15 +184,20 @@ func firmwareDeleteAllCommand() *cli.Command {
 			},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			if err := confirmFirmwareDeleteAll(cmd.Bool("yes"), os.Stdin, os.Stderr); err != nil {
-				return err
-			}
-
 			client, err := openClient(ctx, cmd)
 			if err != nil {
 				return err
 			}
 			defer func() { _ = client.Close() }()
+
+			if cmd.Root().Bool("password-stdin") && !cmd.Bool("yes") {
+				if err := client.ensureFirmwareSession(ctx); err != nil {
+					return err
+				}
+			}
+			if err := confirmFirmwareDeleteAll(cmd.Bool("yes"), os.Stdin, os.Stderr); err != nil {
+				return err
+			}
 
 			resp, err := client.FirmwareDeleteAll(ctx)
 			if err != nil {

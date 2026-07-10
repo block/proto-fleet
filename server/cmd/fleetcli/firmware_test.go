@@ -645,6 +645,58 @@ func TestFirmwareDeleteAllCommandDeletesAfterYes(t *testing.T) {
 	}
 }
 
+func TestFirmwareDeleteAllPasswordStdinAuthenticatesBeforePrompt(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+	oldNoColor := color.NoColor
+	color.NoColor = true
+	t.Cleanup(func() { color.NoColor = oldNoColor })
+
+	var authBody map[string]any
+	deleteCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /auth.v1.AuthService/Authenticate", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&authBody); err != nil {
+			t.Errorf("decode authenticate request: %v", err)
+		}
+		http.SetCookie(w, &http.Cookie{Name: "fleet_session", Value: "test-session", Path: "/", Secure: true})
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	mux.HandleFunc("DELETE /api/v1/firmware/files", func(w http.ResponseWriter, _ *http.Request) {
+		deleteCount++
+		writeFirmwareJSON(t, w, firmwareDeleteAllResponse{DeletedCount: 2})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	var output string
+	withStdin(t, "fleet-secret\nyes\n", func() {
+		output = captureStdout(t, func() {
+			err := newRootCommand().Run(context.Background(), []string{
+				"fleetcli", "--server", srv.URL + "/", "--username", "admin", "--password-stdin",
+				"firmware", "delete-all",
+			})
+			if err != nil {
+				t.Fatalf("firmware delete-all with password stdin and confirmation error = %v", err)
+			}
+		})
+	})
+
+	if authBody["username"] != "admin" || authBody["password"] != "fleet-secret" {
+		t.Errorf("authenticate body = %v, want first stdin line as Fleet password", authBody)
+	}
+	if deleteCount != 1 {
+		t.Fatalf("delete count = %d, want 1", deleteCount)
+	}
+	var decoded firmwareDeleteAllResponse
+	if err := json.Unmarshal([]byte(output), &decoded); err != nil {
+		t.Fatalf("output is not JSON: %s", output)
+	}
+	if decoded.DeletedCount != 2 {
+		t.Fatalf("deleted_count = %d, want 2", decoded.DeletedCount)
+	}
+}
+
 func withStdin(t *testing.T, input string, fn func()) {
 	t.Helper()
 

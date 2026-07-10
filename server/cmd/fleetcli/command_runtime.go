@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"sort"
 	"strings"
@@ -44,6 +43,11 @@ func generatedRequestCommand(
 			}
 			defer func() { _ = client.Close() }()
 
+			if shouldPrepareGeneratedAuthBeforeBuild(cmd, client, auth) {
+				if err := prepareGeneratedAuth(ctx, client, auth, method); err != nil {
+					return err
+				}
+			}
 			req, err := buildRequest(ctx, cmd, client)
 			if err != nil {
 				return err
@@ -75,6 +79,47 @@ func generatedCallAndPrintWithClient(
 		return err
 	}
 	return printProto(resp)
+}
+
+func shouldPrepareGeneratedAuthBeforeBuild(cmd *cli.Command, client *Client, auth generatedAuthPolicy) bool {
+	if auth == generatedAuthUnauthenticated {
+		return false
+	}
+	if auth == generatedAuthAuthenticated && client.apiKey != "" {
+		return false
+	}
+	return cmd.Root().Bool("password-stdin") && generatedBuildRequestConsumesStdin(cmd)
+}
+
+func generatedBuildRequestConsumesStdin(cmd *cli.Command) bool {
+	if cmd.String("json") == "-" {
+		return true
+	}
+	for _, stdinFlag := range []string{"pool-password-stdin"} {
+		if cmd.Bool(stdinFlag) {
+			return true
+		}
+	}
+	return false
+}
+
+func prepareGeneratedAuth(ctx context.Context, client *Client, auth generatedAuthPolicy, method string) error {
+	switch auth {
+	case generatedAuthUnauthenticated:
+		return nil
+	case generatedAuthAuthenticated:
+		if client.apiKey != "" {
+			return nil
+		}
+		if err := client.ensureSession(ctx); err != nil {
+			return fmt.Errorf("api key or username/password is required for %s: %w", method, err)
+		}
+	case generatedAuthSessionOnly:
+		if err := client.ensureSession(ctx); err != nil {
+			return fmt.Errorf("session cookie or username/password is required for %s: %w", method, err)
+		}
+	}
+	return nil
 }
 
 func generatedMinerSelectorFlags() []cli.Flag {
@@ -398,15 +443,7 @@ func generatedDeviceSetTypeName(deviceSetType devicesetv1.DeviceSetType) string 
 
 func generatedReadSecret(cmd *cli.Command, stdinFlag string, label string) (string, error) {
 	if cmd.Bool(stdinFlag) {
-		data, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			return "", fmt.Errorf("read %s from stdin: %w", label, err)
-		}
-		secret := strings.TrimRight(string(data), "\r\n")
-		if secret == "" {
-			return "", fmt.Errorf("%s from stdin is empty", label)
-		}
-		return secret, nil
+		return readSecretLineFromStdin(label)
 	}
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return "", fmt.Errorf("%s is required; use --%s or run from a terminal to prompt", label, stdinFlag)

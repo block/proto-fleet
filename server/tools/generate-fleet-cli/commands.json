@@ -93,7 +93,8 @@
     {
       "method": "/pools.v1.PoolsService/DeletePool",
       "group": "pools",
-      "command": "delete"
+      "command": "delete",
+      "required_fields": ["pool_id"]
     },
     {
       "method": "/pools.v1.PoolsService/ListPools",
