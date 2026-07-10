@@ -11,12 +11,44 @@
       "command": "create-admin",
       "usage": "Create the initial Fleet admin login",
       "auth": "unauthenticated",
-      "secret_fields": ["password"]
+      "field_flags": [
+        {
+          "path": "password",
+          "flag": "password-stdin",
+          "usage": "Read password from stdin",
+          "kind": "secret",
+          "required": true,
+          "prompt": true
+        }
+      ]
     },
     {
       "method": "/pools.v1.PoolsService/CreatePool",
       "group": "pools",
-      "command": "create"
+      "command": "create",
+      "field_flags": [
+        {
+          "path": "pool_config.pool_name",
+          "flag": "pool-name",
+          "usage": "pool name"
+        },
+        {
+          "path": "pool_config.url",
+          "flag": "url",
+          "usage": "url"
+        },
+        {
+          "path": "pool_config.username",
+          "flag": "username",
+          "usage": "username"
+        },
+        {
+          "path": "pool_config.password",
+          "flag": "pool-password-stdin",
+          "usage": "Read pool authentication password from stdin",
+          "kind": "secret"
+        }
+      ]
     },
     {
       "method": "/pools.v1.PoolsService/DeletePool",
@@ -31,12 +63,28 @@
     {
       "method": "/pools.v1.PoolsService/UpdatePool",
       "group": "pools",
-      "command": "update"
+      "command": "update",
+      "field_flags": [
+        {
+          "path": "password",
+          "flag": "pool-password-stdin",
+          "usage": "Read pool authentication password from stdin",
+          "kind": "secret"
+        }
+      ]
     },
     {
       "method": "/pools.v1.PoolsService/ValidatePool",
       "group": "pools",
-      "command": "validate"
+      "command": "validate",
+      "field_flags": [
+        {
+          "path": "password",
+          "flag": "pool-password-stdin",
+          "usage": "Read pool authentication password from stdin",
+          "kind": "secret"
+        }
+      ]
     },
     {
       "method": "/device_set.v1.DeviceSetService/ListDeviceSets",

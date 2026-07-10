@@ -25,7 +25,7 @@ func generatedPoolsCommand() *cli.Command {
 					&cli.StringFlag{Name: "pool-name", Usage: "pool name"},
 					&cli.StringFlag{Name: "url", Usage: "url"},
 					&cli.StringFlag{Name: "username", Usage: "username"},
-					&cli.StringFlag{Name: "password", Usage: "password"},
+					&cli.BoolFlag{Name: "pool-password-stdin", Usage: "Read pool authentication password from stdin"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &poolsv1.CreatePoolRequest{}
@@ -34,22 +34,33 @@ func generatedPoolsCommand() *cli.Command {
 							return nil, err
 						}
 					}
-					if cmd.IsSet("pool-name") || cmd.IsSet("url") || cmd.IsSet("username") || cmd.IsSet("password") {
+					if cmd.IsSet("pool-name") {
 						if req.PoolConfig == nil {
 							req.PoolConfig = &poolsv1.PoolConfig{}
 						}
-						if cmd.IsSet("pool-name") {
-							req.PoolConfig.PoolName = cmd.String("pool-name")
+						req.PoolConfig.PoolName = cmd.String("pool-name")
+					}
+					if cmd.IsSet("url") {
+						if req.PoolConfig == nil {
+							req.PoolConfig = &poolsv1.PoolConfig{}
 						}
-						if cmd.IsSet("url") {
-							req.PoolConfig.Url = cmd.String("url")
+						req.PoolConfig.Url = cmd.String("url")
+					}
+					if cmd.IsSet("username") {
+						if req.PoolConfig == nil {
+							req.PoolConfig = &poolsv1.PoolConfig{}
 						}
-						if cmd.IsSet("username") {
-							req.PoolConfig.Username = cmd.String("username")
+						req.PoolConfig.Username = cmd.String("username")
+					}
+					if cmd.IsSet("pool-password-stdin") {
+						secretPoolConfigPassword, err := generatedReadSecret(cmd, "pool-password-stdin", "pool password")
+						if err != nil {
+							return nil, err
 						}
-						if cmd.IsSet("password") {
-							req.PoolConfig.Password = wrapperspb.String(cmd.String("password"))
+						if req.PoolConfig == nil {
+							req.PoolConfig = &poolsv1.PoolConfig{}
 						}
+						req.PoolConfig.Password = wrapperspb.String(secretPoolConfigPassword)
 					}
 					return req, nil
 				},
@@ -96,7 +107,7 @@ func generatedPoolsCommand() *cli.Command {
 					&cli.StringFlag{Name: "pool-name", Usage: "pool name"},
 					&cli.StringFlag{Name: "url", Usage: "url"},
 					&cli.StringFlag{Name: "username", Usage: "username"},
-					&cli.StringFlag{Name: "password", Usage: "password"},
+					&cli.BoolFlag{Name: "pool-password-stdin", Usage: "Read pool authentication password from stdin"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &poolsv1.UpdatePoolRequest{}
@@ -120,8 +131,12 @@ func generatedPoolsCommand() *cli.Command {
 						value := cmd.String("username")
 						req.Username = &value
 					}
-					if cmd.IsSet("password") {
-						req.Password = wrapperspb.String(cmd.String("password"))
+					if cmd.IsSet("pool-password-stdin") {
+						secretPassword, err := generatedReadSecret(cmd, "pool-password-stdin", "pool password")
+						if err != nil {
+							return nil, err
+						}
+						req.Password = wrapperspb.String(secretPassword)
 					}
 					return req, nil
 				},
@@ -136,7 +151,7 @@ func generatedPoolsCommand() *cli.Command {
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
 					&cli.StringFlag{Name: "url", Usage: "url"},
 					&cli.StringFlag{Name: "username", Usage: "username"},
-					&cli.StringFlag{Name: "password", Usage: "password"},
+					&cli.BoolFlag{Name: "pool-password-stdin", Usage: "Read pool authentication password from stdin"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &poolsv1.ValidatePoolRequest{}
@@ -151,8 +166,12 @@ func generatedPoolsCommand() *cli.Command {
 					if cmd.IsSet("username") {
 						req.Username = cmd.String("username")
 					}
-					if cmd.IsSet("password") {
-						req.Password = wrapperspb.String(cmd.String("password"))
+					if cmd.IsSet("pool-password-stdin") {
+						secretPassword, err := generatedReadSecret(cmd, "pool-password-stdin", "pool password")
+						if err != nil {
+							return nil, err
+						}
+						req.Password = wrapperspb.String(secretPassword)
 					}
 					return req, nil
 				},

@@ -98,6 +98,8 @@ do not encode cleanly, including:
 - command aliases that split one service across multiple CLI groups, such as
   `groups` and `racks`
 - fixed request fields and ignored request fields for generated commands
+- per-field flag overrides for request fields that need custom flag names,
+  nested paths, or stdin-backed secret handling
 - `json_only` settings for commands that should be request-file driven
 
 ## Generated Command Rules
@@ -124,6 +126,13 @@ chooses one of three output modes:
 
 Responses containing `bytes` fields are not generated today because they
 require custom binary or file handling.
+
+Manifest `field_flags` entries are overrides for fields that should not use the
+default descriptor-derived flag. They are not a complete list of every flag on a
+command. For example, `pools update` still auto-generates `--pool-id`,
+`--pool-name`, `--url`, and `--username`; the manifest only lists `password`
+because that field needs the custom `--pool-password-stdin` secret path instead
+of a string argv flag.
 
 ### Auth policy handling
 

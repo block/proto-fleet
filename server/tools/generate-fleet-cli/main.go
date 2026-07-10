@@ -44,8 +44,17 @@ type commandSpec struct {
 	FixedFields           map[string]string `json:"fixed_fields,omitempty"`
 	RequireCollectionType string            `json:"require_collection_type,omitempty"`
 	CommonSelector        string            `json:"common_selector,omitempty"`
-	SecretFields          []string          `json:"secret_fields,omitempty"`
+	FieldFlags            []fieldFlagSpec   `json:"field_flags,omitempty"`
 	JSONOnly              bool              `json:"json_only,omitempty"`
+}
+
+type fieldFlagSpec struct {
+	Path     string `json:"path"`
+	Flag     string `json:"flag"`
+	Usage    string `json:"usage,omitempty"`
+	Kind     string `json:"kind,omitempty"`
+	Required bool   `json:"required,omitempty"`
+	Prompt   bool   `json:"prompt,omitempty"`
 }
 
 type importSpec struct {
@@ -89,7 +98,7 @@ type renderOptions struct {
 	FixedFields           map[string]string
 	RequireCollectionType string
 	CommonSelector        string
-	SecretFields          map[string]bool
+	FieldFlags            []fieldFlagSpec
 }
 
 type messageInfo struct {
@@ -223,6 +232,24 @@ func validateCommandsManifest(manifest commandsManifest) error {
 		seenCommands[key] = true
 		if _, err := authPolicyConst(command.Auth); err != nil {
 			return fmt.Errorf("command %q: %w", key, err)
+		}
+		seenFieldFlags := map[string]bool{}
+		for _, fieldFlag := range command.FieldFlags {
+			if fieldFlag.Path == "" {
+				return fmt.Errorf("command %q: field_flags path is required", key)
+			}
+			if fieldFlag.Flag == "" {
+				return fmt.Errorf("command %q: field_flags flag is required for path %q", key, fieldFlag.Path)
+			}
+			if seenFieldFlags[fieldFlag.Flag] {
+				return fmt.Errorf("command %q: duplicate field flag %q", key, fieldFlag.Flag)
+			}
+			seenFieldFlags[fieldFlag.Flag] = true
+			switch fieldFlagKind(fieldFlag) {
+			case "string", "secret":
+			default:
+				return fmt.Errorf("command %q: unsupported field flag kind %q for path %q", key, fieldFlag.Kind, fieldFlag.Path)
+			}
 		}
 	}
 	return nil
@@ -364,7 +391,7 @@ func buildGroups(
 			FixedFields:           command.FixedFields,
 			RequireCollectionType: command.RequireCollectionType,
 			CommonSelector:        command.CommonSelector,
-			SecretFields:          sliceToSet(command.SecretFields),
+			FieldFlags:            command.FieldFlags,
 		}
 		if options.Usage == "" {
 			options.Usage = humanizeMethod(string(ref.Method.Name()))
@@ -616,7 +643,8 @@ func analyzeRequest(
 	}
 	hasUnsupported := false
 	seenRequiredFields := map[string]bool{}
-	seenSecretFields := map[string]bool{}
+	usedFieldFlagPaths := map[string]bool{}
+	fieldFlagsByRoot := groupFieldFlagsByRoot(options.FieldFlags)
 
 	for i := range message.Oneofs().Len() {
 		oneof := message.Oneofs().Get(i)
@@ -634,14 +662,21 @@ func analyzeRequest(
 		if _, ok := options.FixedFields[fieldName]; ok {
 			continue
 		}
-		if options.SecretFields[fieldName] {
-			if field.IsList() || field.IsMap() || field.Kind() != protoreflect.StringKind {
-				return analysis, fmt.Errorf("secret_fields references non-string scalar field %q on %s", fieldName, message.FullName())
+		if fieldFlags := fieldFlagsByRoot[fieldName]; len(fieldFlags) > 0 {
+			plan, err := buildFieldFlagPlan(message, messageInfo, field, fieldFlags)
+			if err != nil {
+				return analysis, err
 			}
-			flag, lines := buildSecretFieldPlan(field)
-			analysis.flags = append(analysis.flags, flag)
-			analysis.lines = append(analysis.lines, lines...)
-			seenSecretFields[fieldName] = true
+			analysis.flags = append(analysis.flags, plan.flags...)
+			analysis.lines = append(analysis.lines, plan.lines...)
+			analysis.imports = mergeImports(analysis.imports, plan.imports)
+			analysis.jsonFallback = analysis.jsonFallback || plan.jsonFallback
+			if plan.jsonFallback && analysis.Reason == "" {
+				analysis.Reason = "request includes manifest field flags for wrapper or nested fields, so the generated command exposes simple flags plus --json fallback"
+			}
+			for _, fieldFlag := range fieldFlags {
+				usedFieldFlagPaths[fieldFlag.Path] = true
+			}
 			continue
 		}
 		if isMinerSelectorField(field) {
@@ -669,15 +704,6 @@ func analyzeRequest(
 			if analysis.Reason == "" {
 				analysis.Reason = "request includes wrapper fields, so the generated command exposes simple flags plus --json fallback"
 			}
-			continue
-		}
-		if isPoolConfigField(field) {
-			flags, lines := buildPoolConfigFieldPlan(field, messageInfo)
-			analysis.flags = append(analysis.flags, flags...)
-			analysis.lines = append(analysis.lines, lines...)
-			analysis.imports = addImport(analysis.imports, "google.golang.org/protobuf/types/known/wrapperspb", "wrapperspb")
-			analysis.jsonFallback = true
-			analysis.Reason = "request includes pool config, so the generated command exposes pool flags plus --json fallback"
 			continue
 		}
 		if field.IsMap() {
@@ -710,9 +736,9 @@ func analyzeRequest(
 			return analysis, fmt.Errorf("required_fields references non-flag field %q on %s", fieldName, message.FullName())
 		}
 	}
-	for fieldName := range options.SecretFields {
-		if !seenSecretFields[fieldName] {
-			return analysis, fmt.Errorf("secret_fields references unknown field %q on %s", fieldName, message.FullName())
+	for _, fieldFlag := range options.FieldFlags {
+		if !usedFieldFlagPaths[fieldFlag.Path] {
+			return analysis, fmt.Errorf("field_flags references unknown root field %q on %s", fieldFlag.Path, message.FullName())
 		}
 	}
 
@@ -760,12 +786,35 @@ func commonSelectorMode(value string) (helper, builder, provided string, err err
 	}
 }
 
+func fieldFlagKind(spec fieldFlagSpec) string {
+	if spec.Kind == "" {
+		return "string"
+	}
+	return spec.Kind
+}
+
+func groupFieldFlagsByRoot(specs []fieldFlagSpec) map[string][]fieldFlagSpec {
+	result := map[string][]fieldFlagSpec{}
+	for _, spec := range specs {
+		root, _, _ := strings.Cut(spec.Path, ".")
+		result[root] = append(result[root], spec)
+	}
+	return result
+}
+
 func addImport(imports map[string]string, path, alias string) map[string]string {
 	if imports == nil {
 		imports = map[string]string{}
 	}
 	imports[path] = alias
 	return imports
+}
+
+func mergeImports(dst, src map[string]string) map[string]string {
+	for path, alias := range src {
+		dst = addImport(dst, path, alias)
+	}
+	return dst
 }
 
 func renderFixedFieldAssignment(
@@ -803,6 +852,198 @@ func renderFixedFieldAssignment(
 		// No fixed-field override needs these kinds yet.
 	}
 	return nil, false, fmt.Errorf("unsupported fixed field type for %s", field.FullName())
+}
+
+type fieldFlagPlan struct {
+	flags        []string
+	lines        []string
+	imports      map[string]string
+	jsonFallback bool
+}
+
+func buildFieldFlagPlan(
+	message protoreflect.MessageDescriptor,
+	messageInfo messageInfo,
+	rootField protoreflect.FieldDescriptor,
+	specs []fieldFlagSpec,
+) (fieldFlagPlan, error) {
+	var plan fieldFlagPlan
+	for _, spec := range specs {
+		target, err := resolveFieldFlagTarget(message, messageInfo, spec)
+		if err != nil {
+			return plan, err
+		}
+		flag, lines, imports, err := buildFieldFlagTargetPlan(target)
+		if err != nil {
+			return plan, err
+		}
+		plan.flags = append(plan.flags, flag)
+		plan.lines = append(plan.lines, lines...)
+		plan.imports = mergeImports(plan.imports, imports)
+		if len(target.parentAssignments) > 0 || isStringValueField(target.field) {
+			plan.jsonFallback = true
+		}
+	}
+
+	if rootField.Kind() == protoreflect.MessageKind || rootField.Kind() == protoreflect.GroupKind {
+		plan.jsonFallback = true
+	}
+	return plan, nil
+}
+
+type fieldFlagTarget struct {
+	spec              fieldFlagSpec
+	field             protoreflect.FieldDescriptor
+	assignExpr        string
+	parentAssignments []fieldFlagParentAssignment
+}
+
+type fieldFlagParentAssignment struct {
+	expr    string
+	goIdent string
+}
+
+func resolveFieldFlagTarget(
+	message protoreflect.MessageDescriptor,
+	messageInfo messageInfo,
+	spec fieldFlagSpec,
+) (fieldFlagTarget, error) {
+	var target fieldFlagTarget
+	target.spec = spec
+
+	segments := strings.Split(spec.Path, ".")
+	if len(segments) == 0 {
+		return target, fmt.Errorf("field_flags path is required on %s", message.FullName())
+	}
+	if len(segments) > 2 {
+		return target, fmt.Errorf("field_flags path %q on %s has too many segments; only one nested message level is supported", spec.Path, message.FullName())
+	}
+
+	currentMessage := message
+	currentExpr := "req"
+	for i, segment := range segments {
+		field := currentMessage.Fields().ByName(protoreflect.Name(segment))
+		if field == nil {
+			return target, fmt.Errorf("field_flags references unknown field %q on %s", spec.Path, currentMessage.FullName())
+		}
+		if field.IsList() || field.IsMap() {
+			return target, fmt.Errorf("field_flags references repeated or map field %q on %s", spec.Path, currentMessage.FullName())
+		}
+		goFieldName := toGoFieldName(field.Name())
+		fieldExpr := currentExpr + "." + goFieldName
+		if i == len(segments)-1 {
+			target.field = field
+			target.assignExpr = fieldExpr
+			return target, nil
+		}
+		if field.Kind() != protoreflect.MessageKind && field.Kind() != protoreflect.GroupKind {
+			return target, fmt.Errorf("field_flags path %q traverses non-message field %q on %s", spec.Path, segment, currentMessage.FullName())
+		}
+		target.parentAssignments = append(target.parentAssignments, fieldFlagParentAssignment{
+			expr:    fieldExpr,
+			goIdent: messageInfo.GoAlias + "." + toGoIdent(field.Message().Name()),
+		})
+		currentExpr = fieldExpr
+		currentMessage = field.Message()
+	}
+
+	return target, fmt.Errorf("field_flags path %q did not resolve on %s", spec.Path, message.FullName())
+}
+
+func buildFieldFlagTargetPlan(target fieldFlagTarget) (string, []string, map[string]string, error) {
+	usage := target.spec.Usage
+	if usage == "" {
+		usage = fieldUsage(target.field)
+	}
+	switch fieldFlagKind(target.spec) {
+	case "string":
+		return buildStringFieldFlagTargetPlan(target, usage)
+	case "secret":
+		return buildSecretFieldFlagTargetPlan(target, usage)
+	default:
+		return "", nil, nil, fmt.Errorf("unsupported field flag kind %q for %s", target.spec.Kind, target.spec.Path)
+	}
+}
+
+func buildStringFieldFlagTargetPlan(target fieldFlagTarget, usage string) (string, []string, map[string]string, error) {
+	if target.field.Kind() != protoreflect.StringKind {
+		return "", nil, nil, fmt.Errorf("field_flags string kind references non-string scalar field %q", target.spec.Path)
+	}
+	flag := fmt.Sprintf("&cli.StringFlag{Name: %q, Usage: %q}", target.spec.Flag, usage)
+	if target.spec.Required {
+		flag = markFlagRequired(flag)
+	}
+	lines := []string{fmt.Sprintf("if cmd.IsSet(%q) {", target.spec.Flag)}
+	for _, line := range fieldFlagParentInitLines(target.parentAssignments) {
+		lines = append(lines, "\t"+line)
+	}
+	lines = append(lines, fmt.Sprintf("\t%s = cmd.String(%q)", target.assignExpr, target.spec.Flag))
+	lines = append(lines, "}")
+	return flag, lines, nil, nil
+}
+
+func buildSecretFieldFlagTargetPlan(target fieldFlagTarget, usage string) (string, []string, map[string]string, error) {
+	if target.field.Kind() != protoreflect.StringKind && !isStringValueField(target.field) {
+		return "", nil, nil, fmt.Errorf("field_flags secret kind references non-string field %q", target.spec.Path)
+	}
+	flag := fmt.Sprintf("&cli.BoolFlag{Name: %q, Usage: %q}", target.spec.Flag, usage)
+	label := strings.TrimSuffix(strings.ReplaceAll(target.spec.Flag, "-", " "), " stdin")
+	secretVar := secretVarForFieldFlag(target.spec.Path)
+	var lines []string
+	if target.spec.Required || target.spec.Prompt {
+		lines = append(lines, fmt.Sprintf("%s, err := generatedReadSecret(cmd, %q, %q)", secretVar, target.spec.Flag, label))
+		lines = append(lines, "if err != nil {", "\treturn nil, err", "}")
+		for _, line := range fieldFlagParentInitLines(target.parentAssignments) {
+			lines = append(lines, line)
+		}
+		lines = append(lines, fieldFlagAssignmentLine(target, secretVar))
+	} else {
+		lines = append(lines, fmt.Sprintf("if cmd.IsSet(%q) {", target.spec.Flag))
+		lines = append(lines, fmt.Sprintf("\t%s, err := generatedReadSecret(cmd, %q, %q)", secretVar, target.spec.Flag, label))
+		lines = append(lines, "\tif err != nil {", "\t\treturn nil, err", "\t}")
+		for _, line := range fieldFlagParentInitLines(target.parentAssignments) {
+			lines = append(lines, "\t"+line)
+		}
+		lines = append(lines, "\t"+fieldFlagAssignmentLine(target, secretVar))
+		lines = append(lines, "}")
+	}
+	imports := map[string]string{}
+	if isStringValueField(target.field) {
+		imports = addImport(imports, "google.golang.org/protobuf/types/known/wrapperspb", "wrapperspb")
+	}
+	return flag, lines, imports, nil
+}
+
+func secretVarForFieldFlag(path string) string {
+	parts := strings.FieldsFunc(path, func(r rune) bool {
+		return r == '.' || r == '_' || r == '-'
+	})
+	for i := range parts {
+		if parts[i] == "" {
+			continue
+		}
+		parts[i] = strings.ToUpper(parts[i][:1]) + parts[i][1:]
+	}
+	return "secret" + strings.Join(parts, "")
+}
+
+func fieldFlagParentInitLines(assignments []fieldFlagParentAssignment) []string {
+	var lines []string
+	for _, assignment := range assignments {
+		lines = append(lines,
+			fmt.Sprintf("if %s == nil {", assignment.expr),
+			fmt.Sprintf("\t%s = &%s{}", assignment.expr, assignment.goIdent),
+			"}",
+		)
+	}
+	return lines
+}
+
+func fieldFlagAssignmentLine(target fieldFlagTarget, secretVar string) string {
+	if isStringValueField(target.field) {
+		return fmt.Sprintf("%s = wrapperspb.String(%s)", target.assignExpr, secretVar)
+	}
+	return fmt.Sprintf("%s = %s", target.assignExpr, secretVar)
 }
 
 func buildFieldPlan(
@@ -960,10 +1201,6 @@ func isStringValueField(field protoreflect.FieldDescriptor) bool {
 	return !field.IsList() && !field.IsMap() && field.Kind() == protoreflect.MessageKind && field.Message().FullName() == "google.protobuf.StringValue"
 }
 
-func isPoolConfigField(field protoreflect.FieldDescriptor) bool {
-	return !field.IsList() && !field.IsMap() && field.Kind() == protoreflect.MessageKind && field.Message().FullName() == "pools.v1.PoolConfig"
-}
-
 func buildStringValueFieldPlan(field protoreflect.FieldDescriptor) (string, []string) {
 	flagName := strings.ReplaceAll(string(field.Name()), "_", "-")
 	usage := fieldUsage(field)
@@ -975,56 +1212,6 @@ func buildStringValueFieldPlan(field protoreflect.FieldDescriptor) (string, []st
 		"}",
 	}
 	return flag, lines
-}
-
-func buildSecretFieldPlan(field protoreflect.FieldDescriptor) (string, []string) {
-	fieldName := string(field.Name())
-	flagName := strings.ReplaceAll(fieldName, "_", "-")
-	stdinFlag := flagName + "-stdin"
-	goFieldName := toGoFieldName(field.Name())
-	secretVar := "secret" + goFieldName
-	flag := fmt.Sprintf("&cli.BoolFlag{Name: %q, Usage: %q}", stdinFlag, "Read "+strings.ReplaceAll(flagName, "-", " ")+" from stdin")
-	lines := []string{
-		fmt.Sprintf("%s, err := generatedReadSecret(cmd, %q, %q)", secretVar, stdinFlag, fieldUsage(field)),
-		"if err != nil {",
-		"\treturn nil, err",
-		"}",
-	}
-	for _, line := range scalarAssignmentLines(field, secretVar) {
-		lines = append(lines, line)
-	}
-	return flag, lines
-}
-
-func buildPoolConfigFieldPlan(field protoreflect.FieldDescriptor, messageInfo messageInfo) ([]string, []string) {
-	goFieldName := toGoFieldName(field.Name())
-	configType := fmt.Sprintf("%s.%s", messageInfo.GoAlias, toGoIdent(field.Message().Name()))
-	flags := []string{
-		`&cli.StringFlag{Name: "pool-name", Usage: "pool name"}`,
-		`&cli.StringFlag{Name: "url", Usage: "url"}`,
-		`&cli.StringFlag{Name: "username", Usage: "username"}`,
-		`&cli.StringFlag{Name: "password", Usage: "password"}`,
-	}
-	lines := []string{
-		`if cmd.IsSet("pool-name") || cmd.IsSet("url") || cmd.IsSet("username") || cmd.IsSet("password") {`,
-		fmt.Sprintf("\tif req.%s == nil {", goFieldName),
-		fmt.Sprintf("\t\treq.%s = &%s{}", goFieldName, configType),
-		`	}`,
-		`	if cmd.IsSet("pool-name") {`,
-		fmt.Sprintf("\t\treq.%s.PoolName = cmd.String(\"pool-name\")", goFieldName),
-		`	}`,
-		`	if cmd.IsSet("url") {`,
-		fmt.Sprintf("\t\treq.%s.Url = cmd.String(\"url\")", goFieldName),
-		`	}`,
-		`	if cmd.IsSet("username") {`,
-		fmt.Sprintf("\t\treq.%s.Username = cmd.String(\"username\")", goFieldName),
-		`	}`,
-		`	if cmd.IsSet("password") {`,
-		fmt.Sprintf("\t\treq.%s.Password = wrapperspb.String(cmd.String(\"password\"))", goFieldName),
-		`	}`,
-		`}`,
-	}
-	return flags, lines
 }
 
 func conditionalAssignmentBlock(field protoreflect.FieldDescriptor, flagName, expr string) []string {
