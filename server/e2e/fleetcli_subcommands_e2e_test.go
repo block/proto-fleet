@@ -151,13 +151,15 @@ func TestFleetCLISubcommands(t *testing.T) {
 	})
 
 	t.Run("Pools", func(t *testing.T) {
-		created := runFleetCLIJSON(t, ctx, env,
+		createOutput, createErr := runFleetCLIWithInput(ctx, env, "x\n",
 			"pools", "create",
 			"--pool-name", unique+"-pool",
 			"--url", "stratum+tcp://pool.example.com:3333",
 			"--username", unique,
-			"--password", "x",
+			"--pool-password-stdin",
 		)
+		require.NoError(t, createErr, "pools create should accept the stdin-backed pool password flag")
+		created := parseFleetCLIJSON(t, createOutput)
 		poolID := jsonString(t, created, "pool", "pool_id")
 		require.NotEmpty(t, poolID, "pools create should return pool.pool_id")
 		t.Cleanup(func() {
@@ -353,10 +355,14 @@ func runFleetCLIJSON(t *testing.T, ctx context.Context, env []string, args ...st
 
 	output, err := runFleetCLI(ctx, env, args...)
 	require.NoErrorf(t, err, "fleetcli %s should succeed", strings.Join(args, " "))
+	return parseFleetCLIJSON(t, output)
+}
+
+func parseFleetCLIJSON(t *testing.T, output string) map[string]any {
+	t.Helper()
 
 	var decoded map[string]any
-	require.NoErrorf(t, json.Unmarshal([]byte(output), &decoded),
-		"fleetcli %s output should be JSON: %s", strings.Join(args, " "), output)
+	require.NoErrorf(t, json.Unmarshal([]byte(output), &decoded), "fleetcli output should be JSON: %s", output)
 	return decoded
 }
 

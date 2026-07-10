@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -355,7 +356,7 @@ func normalizeBaseURL(server string, insecureOverride bool) (*url.URL, error) {
 
 	if !strings.Contains(value, "://") {
 		scheme := "https"
-		if insecureOverride {
+		if insecureOverride && isBareLoopbackServer(value) {
 			scheme = "http"
 		}
 		value = scheme + "://" + value
@@ -382,4 +383,17 @@ func normalizeBaseURL(server string, insecureOverride bool) (*url.URL, error) {
 		return nil, err
 	}
 	return u, nil
+}
+
+func isBareLoopbackServer(server string) bool {
+	u, err := url.Parse("https://" + server)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

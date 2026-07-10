@@ -21,10 +21,16 @@ func TestNormalizeBaseURL(t *testing.T) {
 			want:   "https://fleet.example.com/api-proxy",
 		},
 		{
-			name:     "uses http for insecure host without scheme",
+			name:     "uses http for insecure loopback host without scheme",
 			server:   "localhost:8080",
 			insecure: true,
 			want:     "http://localhost:8080/api-proxy",
+		},
+		{
+			name:     "keeps https for insecure remote host without scheme",
+			server:   "fleet.example.com",
+			insecure: true,
+			want:     "https://fleet.example.com/api-proxy",
 		},
 		{
 			name:   "preserves explicit path",
