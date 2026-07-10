@@ -22,7 +22,6 @@ import {
   type DeleteMinersResponse,
   DeviceSelectorSchema,
   type MinerListFilter,
-  MinerListFilterSchema,
   type MinerStateSnapshot,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -59,6 +58,7 @@ import {
 import type { BatchOperationInput } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { isStatusChangingBatchAction } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
+import { applyFleetVisiblePairingStatuses } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 import {
   Fan,
   LEDIndicator,
@@ -1179,7 +1179,12 @@ export const useMinerActions = ({
             deviceSelector: create(DeviceSelectorSchema, {
               selectionType:
                 selectionMode === "all"
-                  ? { case: "allDevices", value: currentFilter ?? create(MinerListFilterSchema) }
+                  ? // Unpair targets the same command-visible set the "All N" count
+                    // reflects (PAIRED + AUTHENTICATION_NEEDED + DEFAULT_PASSWORD).
+                    // Without this the resolver defaults to PAIRED-only and
+                    // silently skips auth-needed / default-password rows that the
+                    // count includes.
+                    { case: "allDevices", value: applyFleetVisiblePairingStatuses(currentFilter) }
                   : {
                       case: "includeDevices",
                       value: create(DeviceIdentifierListSchema, { deviceIdentifiers: deviceIdsToUse }),

@@ -1399,6 +1399,13 @@ describe("useMinerActions", () => {
       const selector = calledWith.deleteMinersRequest.deviceSelector;
       expect(selector.selectionType.case).toBe("allDevices");
       expect(selector.selectionType.value.deviceStatus).toEqual([DeviceStatus.ERROR]);
+      // Unpair deletes the full command-visible set so it matches the "All N"
+      // count — not the resolver's PAIRED-only default.
+      expect(selector.selectionType.value.pairingStatuses).toEqual([
+        PairingStatus.PAIRED,
+        PairingStatus.AUTHENTICATION_NEEDED,
+        PairingStatus.DEFAULT_PASSWORD,
+      ]);
       expect(mockCompleteBatchOperation).toHaveBeenCalled();
       expect(toaster.updateToast).toHaveBeenCalledWith(
         expect.any(Number),
