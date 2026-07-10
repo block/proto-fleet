@@ -66,10 +66,10 @@ func generatedCallAndPrintWithClient(
 	switch auth {
 	case generatedAuthUnauthenticated:
 		err = client.CallUnauthenticated(ctx, method, req, resp)
+	case generatedAuthAuthenticated:
+		err = client.CallAuthenticated(ctx, method, req, resp)
 	case generatedAuthSessionOnly:
 		err = client.CallSessionOnly(ctx, method, req, resp)
-	default:
-		err = client.CallAuthenticated(ctx, method, req, resp)
 	}
 	if err != nil {
 		return err
@@ -385,6 +385,8 @@ func generatedRequireDeviceSetTypes(
 
 func generatedDeviceSetTypeName(deviceSetType devicesetv1.DeviceSetType) string {
 	switch deviceSetType {
+	case devicesetv1.DeviceSetType_DEVICE_SET_TYPE_UNSPECIFIED:
+		return "device set"
 	case devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP:
 		return "group"
 	case devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK:

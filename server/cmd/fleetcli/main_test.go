@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -658,24 +659,22 @@ func boundedSelectorDeviceIDsFromArgs(t *testing.T, srv *httptest.Server, args .
 	t.Cleanup(func() { _ = client.Close() })
 
 	var deviceIDs []string
-	var buildErr error
 	cmd := &cli.Command{
 		Name:  "selector-test",
 		Flags: generatedBoundedMinerSelectorFlags(),
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			selector, err := generatedBuildBoundedMinerSelector(ctx, cmd, client)
 			if err != nil {
-				buildErr = err
-				return nil
+				return err
 			}
 			deviceIDs = selector.GetIncludeDevices().GetDeviceIdentifiers()
 			return nil
 		},
 	}
 	if err := cmd.Run(context.Background(), append([]string{"selector-test"}, args...)); err != nil {
-		t.Fatalf("run selector harness: %v", err)
+		return nil, fmt.Errorf("run selector harness: %w", err)
 	}
-	return deviceIDs, buildErr
+	return deviceIDs, nil
 }
 
 func deviceSetIDFromRequest(t *testing.T, r *http.Request) string {

@@ -207,7 +207,9 @@ func confirmFirmwareDeleteAll(yes bool, in io.Reader, out io.Writer) error {
 	if yes {
 		return nil
 	}
-	fmt.Fprint(out, "Delete every firmware file stored on the server? [y/N] ")
+	if _, err := fmt.Fprint(out, "Delete every firmware file stored on the server? [y/N] "); err != nil {
+		return fmt.Errorf("write delete-all confirmation prompt: %w", err)
+	}
 	scanner := bufio.NewScanner(in)
 	if !scanner.Scan() {
 		if err := scanner.Err(); err != nil {

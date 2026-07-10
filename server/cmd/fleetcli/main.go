@@ -518,7 +518,7 @@ func openClient(ctx context.Context, cmd *cli.Command) (*Client, error) {
 }
 
 func writeAPIError(w io.Writer, apiErr *APIError) {
-	fmt.Fprintf(w, "%s returned %s:\n", apiErr.Method, apiErr.Status)
+	_, _ = fmt.Fprintf(w, "%s returned %s:\n", apiErr.Method, apiErr.Status)
 	colorizeJSONTo(w, apiErr.Body)
 }
 
@@ -533,10 +533,10 @@ func colorizeJSONTo(w io.Writer, data []byte) {
 
 	colorized, err := formatter.Format(data)
 	if err != nil {
-		fmt.Fprintln(w, string(data))
+		_, _ = fmt.Fprintln(w, string(data))
 		return
 	}
-	fmt.Fprintln(w, string(colorized))
+	_, _ = fmt.Fprintln(w, string(colorized))
 }
 
 func printProto(message proto.Message) error {
