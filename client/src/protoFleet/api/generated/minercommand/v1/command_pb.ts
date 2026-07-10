@@ -86,13 +86,13 @@ export type DeviceSelector = Message<"minercommand.v1.DeviceSelector"> & {
       }
     | {
         /**
-         * Select every paired device matching a rich fleet filter (models, racks,
-         * groups, sites, buildings, zones, firmware, telemetry ranges, subnet,
-         * etc.). Used by the miner list's filtered "Select all" so a bulk command
-         * targets exactly the filtered set across all pages instead of silently
-         * expanding to the whole fleet (the thin DeviceFilter above cannot express
-         * those dimensions). When the filter names no pairing status, the server
-         * defaults to the command-eligible set (PAIRED + DEFAULT_PASSWORD).
+         * Select every command-eligible device matching a rich fleet filter
+         * (models, racks, groups, sites, buildings, zones, firmware, telemetry
+         * ranges, subnet, etc.). Used by the miner list's filtered "Select all" so a
+         * bulk command targets exactly the filtered set across all pages instead of
+         * silently expanding to the whole fleet (the thin DeviceFilter above cannot
+         * express those dimensions). When the filter names no pairing status, the
+         * server defaults to the command-eligible set (PAIRED + DEFAULT_PASSWORD).
          *
          * @generated from field: fleetmanagement.v1.MinerListFilter all_matching_filter = 3;
          */

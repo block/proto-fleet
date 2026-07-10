@@ -364,13 +364,13 @@ type DeviceSelector_IncludeDevices struct {
 }
 
 type DeviceSelector_AllMatchingFilter struct {
-	// Select every paired device matching a rich fleet filter (models, racks,
-	// groups, sites, buildings, zones, firmware, telemetry ranges, subnet,
-	// etc.). Used by the miner list's filtered "Select all" so a bulk command
-	// targets exactly the filtered set across all pages instead of silently
-	// expanding to the whole fleet (the thin DeviceFilter above cannot express
-	// those dimensions). When the filter names no pairing status, the server
-	// defaults to the command-eligible set (PAIRED + DEFAULT_PASSWORD).
+	// Select every command-eligible device matching a rich fleet filter
+	// (models, racks, groups, sites, buildings, zones, firmware, telemetry
+	// ranges, subnet, etc.). Used by the miner list's filtered "Select all" so a
+	// bulk command targets exactly the filtered set across all pages instead of
+	// silently expanding to the whole fleet (the thin DeviceFilter above cannot
+	// express those dimensions). When the filter names no pairing status, the
+	// server defaults to the command-eligible set (PAIRED + DEFAULT_PASSWORD).
 	AllMatchingFilter *v1.MinerListFilter `protobuf:"bytes,3,opt,name=all_matching_filter,json=allMatchingFilter,proto3,oneof"`
 }
 

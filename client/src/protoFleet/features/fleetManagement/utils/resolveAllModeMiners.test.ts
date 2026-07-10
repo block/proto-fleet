@@ -1,5 +1,5 @@
-import { create } from "@bufbuild/protobuf";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import { MAX_SNAPSHOT_PAGES, resolveAllModeIds } from "./resolveAllModeMiners";
 import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
@@ -22,9 +22,7 @@ describe("resolveAllModeIds", () => {
   });
 
   it("aggregates ids and snapshots across pages until the cursor is empty", async () => {
-    mockListMinerStateSnapshots
-      .mockResolvedValueOnce(page(["a", "b"], "next"))
-      .mockResolvedValueOnce(page(["c"], ""));
+    mockListMinerStateSnapshots.mockResolvedValueOnce(page(["a", "b"], "next")).mockResolvedValueOnce(page(["c"], ""));
 
     const { ids, snapshots } = await resolveAllModeIds(create(MinerListFilterSchema, { rackIds: [7n] }));
 
@@ -45,12 +43,10 @@ describe("resolveAllModeIds", () => {
 
   it("returns the partial accumulation instead of throwing when aborted", async () => {
     const controller = new AbortController();
-    mockListMinerStateSnapshots
-      .mockResolvedValueOnce(page(["a", "b"], "next"))
-      .mockImplementationOnce(() => {
-        controller.abort();
-        return Promise.resolve(page(["c"], "next"));
-      });
+    mockListMinerStateSnapshots.mockResolvedValueOnce(page(["a", "b"], "next")).mockImplementationOnce(() => {
+      controller.abort();
+      return Promise.resolve(page(["c"], "next"));
+    });
 
     const { ids } = await resolveAllModeIds(create(MinerListFilterSchema, {}), controller.signal);
 
