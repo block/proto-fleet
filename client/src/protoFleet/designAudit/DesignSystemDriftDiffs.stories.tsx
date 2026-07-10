@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 
-import { ChevronDown, Copy, Edit, Ellipsis, Grip, Info } from "@/shared/assets/icons";
+import { Alert, ChevronDown, Copy, Edit, Ellipsis, Grip, Info } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
@@ -517,6 +517,213 @@ const ProposedLinkLikeButton = () => (
   </div>
 );
 
+const CurrentPoolRowHover = () => (
+  <div className="rounded-xl border border-border-5 p-3">
+    <div className="flex items-center gap-4 border-b border-border-5 bg-gray-50 py-3 text-300">
+      <span className="h-5 w-5 rounded-full border border-border-20" />
+      <span className="min-w-0 flex-1 truncate text-text-primary">North pool</span>
+      <span className="min-w-0 flex-1 truncate text-text-primary">stratum+tcp://pool.example</span>
+    </div>
+  </div>
+);
+
+const ProposedPoolRowHover = () => (
+  <div className="rounded-xl border border-border-5 p-3">
+    <div className="flex items-center gap-4 border-b border-border-5 bg-core-primary-5 py-3 text-300">
+      <span className="h-5 w-5 rounded-full border border-border-20" />
+      <span className="min-w-0 flex-1 truncate text-text-primary">North pool</span>
+      <span className="min-w-0 flex-1 truncate text-text-primary">stratum+tcp://pool.example</span>
+    </div>
+  </div>
+);
+
+const CurrentBuildingActionHover = () => (
+  <div className="max-w-[360px] rounded-2xl bg-surface-overlay p-4">
+    <div className="flex items-center justify-between gap-2">
+      <span className="truncate text-emphasis-300 text-text-primary">Building A</span>
+      <button
+        type="button"
+        aria-label="Building actions"
+        className="flex size-8 items-center justify-center rounded-full bg-black/[0.06] text-text-primary-70 dark:bg-white/[0.06]"
+      >
+        <Ellipsis width={iconSizes.small} />
+      </button>
+    </div>
+  </div>
+);
+
+const ProposedBuildingActionHover = () => (
+  <div className="max-w-[360px] rounded-2xl bg-surface-overlay p-4">
+    <div className="flex items-center justify-between gap-2">
+      <span className="truncate text-emphasis-300 text-text-primary">Building A</span>
+      <Button
+        ariaLabel="Building actions"
+        variant={variants.textOnly}
+        size={sizes.textOnly}
+        prefixIcon={<Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
+        textOnlyUnderlineOnHover={false}
+        className="!h-8 !w-8 !rounded-full !bg-core-primary-5 !p-0"
+      />
+    </div>
+  </div>
+);
+
+const CurrentFooterDivider = () => (
+  <div className="max-w-[420px] overflow-hidden rounded-xl border border-border-5 bg-surface-base">
+    <div className="h-12" />
+    <footer className="border-t border-gray-200 px-4 py-3 text-center text-200 text-text-primary-70">
+      Build 0.0.0
+    </footer>
+  </div>
+);
+
+const ProposedFooterDivider = () => (
+  <div className="max-w-[420px] overflow-hidden rounded-xl border border-border-5 bg-surface-base">
+    <div className="h-12" />
+    <footer className="border-t border-border-5 px-4 py-3 text-center text-200 text-text-primary-70">
+      Build 0.0.0
+    </footer>
+  </div>
+);
+
+const CurrentCriticalIconColor = () => (
+  <div className="flex items-center gap-2 rounded-xl border border-border-5 p-4 text-300 text-text-primary">
+    <Alert width="w-4" className="text-red-500" />
+    Needs attention
+  </div>
+);
+
+const ProposedCriticalIconColor = () => (
+  <div className="flex items-center gap-2 rounded-xl border border-border-5 p-4 text-300 text-text-primary">
+    <Alert width="w-4" className="text-intent-critical-fill" />
+    Needs attention
+  </div>
+);
+
+const heatMapClasses = [
+  "bg-intent-critical-fill/8",
+  "bg-intent-critical-fill/18",
+  "bg-intent-critical-fill/32",
+  "bg-intent-critical-fill/50",
+  "bg-intent-critical-fill/72",
+];
+
+const HeatMapCells = () => (
+  <div className="grid grid-cols-5 gap-1">
+    {heatMapClasses.map((className) => (
+      <span key={className} className={`h-6 w-6 rounded-[3px] ${className}`} />
+    ))}
+  </div>
+);
+
+const MiniRackCells = () => (
+  <div className="grid grid-cols-5 gap-1">
+    {[
+      "border border-core-primary-10 bg-transparent",
+      "bg-core-primary-fill/10",
+      "bg-intent-critical-fill/20",
+      "bg-core-accent-fill/20",
+      "bg-core-primary-20/30",
+    ].map((className, index) => (
+      <span key={`${className}-${index}`} className={`relative h-5 w-5 rounded-[3px] ${className}`}>
+        {index === 2 ? (
+          <span className="absolute top-1/2 left-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-intent-critical-fill" />
+        ) : null}
+        {index === 3 ? (
+          <span className="absolute top-1/2 left-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-core-accent-fill" />
+        ) : null}
+      </span>
+    ))}
+  </div>
+);
+
+const CameraViewfinder = () => (
+  <div className="relative h-24 w-24 overflow-hidden rounded-2xl bg-black">
+    <div className="absolute inset-0 flex items-center justify-center">
+      <div className="h-2/3 w-2/3 rounded-2xl border-2 border-white/80" />
+    </div>
+    <div className="absolute inset-x-0 bottom-0 h-8 bg-black/40" />
+  </div>
+);
+
+const DomainException = ({ children }: { children: ReactNode }) => (
+  <div className="flex min-h-28 items-center justify-center rounded-xl border border-border-5 p-4">{children}</div>
+);
+
+const CurrentHeatMapCells = () => (
+  <DomainException>
+    <HeatMapCells />
+  </DomainException>
+);
+
+const ProposedHeatMapCells = () => (
+  <DomainException>
+    <HeatMapCells />
+  </DomainException>
+);
+
+const CurrentMiniRackCells = () => (
+  <DomainException>
+    <MiniRackCells />
+  </DomainException>
+);
+
+const ProposedMiniRackCells = () => (
+  <DomainException>
+    <MiniRackCells />
+  </DomainException>
+);
+
+const CurrentCameraViewfinder = () => (
+  <DomainException>
+    <CameraViewfinder />
+  </DomainException>
+);
+
+const ProposedCameraViewfinder = () => (
+  <DomainException>
+    <CameraViewfinder />
+  </DomainException>
+);
+
+const statusDotClassName = "inline-block h-2.5 w-2.5 shrink-0 rounded-full";
+
+const CurrentRackStatusTokens = () => (
+  <div className="grid grid-cols-3 gap-3 text-200 text-text-primary-70">
+    {[
+      { label: "Needs attention", color: "#ef4444" },
+      { label: "Offline", color: "#f97316" },
+      { label: "Sleeping", color: "#d4d4d8" },
+    ].map(({ label, color }) => (
+      <div
+        key={label}
+        className="flex min-h-20 flex-col items-center justify-center gap-2 rounded-lg border border-border-5"
+      >
+        <span className={statusDotClassName} style={{ background: color }} />
+        <span className="text-center">{label}</span>
+      </div>
+    ))}
+  </div>
+);
+
+const ProposedRackStatusTokens = () => (
+  <div className="grid grid-cols-3 gap-3 text-200 text-text-primary-70">
+    {[
+      { label: "Needs attention", className: "bg-intent-critical-fill" },
+      { label: "Offline", className: "bg-core-accent-fill" },
+      { label: "Sleeping", className: "bg-core-primary-20" },
+    ].map(({ label, className }) => (
+      <div
+        key={label}
+        className="flex min-h-20 flex-col items-center justify-center gap-2 rounded-lg border border-border-5"
+      >
+        <span className={`${statusDotClassName} ${className}`} />
+        <span className="text-center">{label}</span>
+      </div>
+    ))}
+  </div>
+);
+
 export const AllSpecimens = () => (
   <Shell>
     <Specimen
@@ -645,6 +852,92 @@ export const AllSpecimens = () => (
       after={<ProposedLinkLikeButton />}
       locations={["MinerIssues.tsx:123", "MinerStatus.tsx:22", "MinerName.tsx:56"]}
       notes="Use real links for navigation. For in-place actions, keep the link-like affordance but move focus, disabled, and hit-area behavior onto Button."
+    />
+    <Specimen
+      title="Color token: pool row hover"
+      risk="low"
+      migrations={[
+        "hover:bg-gray-50 -> hover:bg-core-primary-5",
+        "dark:hover:bg-gray-700/50 -> dark:hover:bg-core-primary-5",
+      ]}
+      before={<CurrentPoolRowHover />}
+      after={<ProposedPoolRowHover />}
+      locations={["PoolSelectionModal.tsx:39"]}
+      notes="Pinned hover-state specimen for selectable mining-pool rows. This is a straight token swap; verify the selected/disabled row states still read correctly in light and dark mode."
+    />
+    <Specimen
+      title="Color token: building action hover"
+      risk="low"
+      migrations={[
+        "hover:bg-black/[0.06] -> hover:bg-core-primary-5",
+        "raw icon trigger -> Button textOnly icon trigger",
+      ]}
+      before={<CurrentBuildingActionHover />}
+      after={<ProposedBuildingActionHover />}
+      locations={["BuildingCard.tsx:243"]}
+      notes="This is only the trigger hover treatment. The menu itself is covered by the row-action menu specimen, so implementation should avoid double-counting the same cleanup."
+    />
+    <Specimen
+      title="Color token: footer divider"
+      risk="low"
+      migrations={["border-gray-200 -> border-border-5"]}
+      before={<CurrentFooterDivider />}
+      after={<ProposedFooterDivider />}
+      locations={["Footer.tsx:9"]}
+      notes="Footer border uses a default Tailwind gray instead of a Proto border token. Use border-border-10 instead if product wants a stronger divider after visual review."
+    />
+    <Specimen
+      title="Color token: critical icon"
+      risk="low"
+      migrations={["text-red-500 -> text-intent-critical-fill"]}
+      before={<CurrentCriticalIconColor />}
+      after={<ProposedCriticalIconColor />}
+      locations={["MinerName.tsx:61"]}
+      notes="The alert icon is a critical status affordance, so the migration should use the intent token rather than a default Tailwind red."
+    />
+    <Specimen
+      title="Hard-coded rack status colors"
+      risk="medium"
+      migrations={[
+        "#ef4444 -> bg-intent-critical-fill",
+        "#f97316 -> bg-core-accent-fill",
+        "#d4d4d8 -> bg-core-primary-20",
+      ]}
+      before={<CurrentRackStatusTokens />}
+      after={<ProposedRackStatusTokens />}
+      locations={["RackDetailSlot.tsx:14-16"]}
+      notes="The values visually map to existing intent/core tokens, but this touches status semantics. Confirm offline should remain accent/orange before applying broadly."
+    />
+    <Specimen
+      title="Domain exception: heat-map cells"
+      risk="medium"
+      migrations={["keep heat scale", "document intensity constants", "keep rounded-[3px] cell geometry"]}
+      before={<CurrentHeatMapCells />}
+      after={<ProposedHeatMapCells />}
+      locations={["BuildingCard.tsx:122-123"]}
+      notes="This should stay a compact heat-map visualization, not a generic list/card primitive. The cleanup is documentation and constant ownership, not a visible primitive migration."
+    />
+    <Specimen
+      title="Domain exception: mini rack cells"
+      risk="medium"
+      migrations={[
+        "keep mini-grid grammar",
+        "extract/document status cell constants",
+        "do not migrate cells to Button",
+      ]}
+      before={<CurrentMiniRackCells />}
+      after={<ProposedMiniRackCells />}
+      locations={["MiniRackGrid.tsx:46"]}
+      notes="Mini rack cells are a dense status visualization. Keep the custom geometry while verifying token names, dot contrast, and whether the cell states need a shared legend."
+    />
+    <Specimen
+      title="Domain exception: camera viewfinder"
+      risk="medium"
+      migrations={["keep media overlay", "document contrast exception", "do not migrate overlay to surface tokens"]}
+      before={<CurrentCameraViewfinder />}
+      after={<ProposedCameraViewfinder />}
+      locations={["ScanMinerQrModalView.tsx:176-183"]}
+      notes="The black/white overlay is functional camera framing, not app chrome. Keep the media contrast treatment; the nearby visible camera command remains the Button migration."
     />
   </Shell>
 );

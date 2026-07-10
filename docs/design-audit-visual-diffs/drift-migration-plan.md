@@ -13,6 +13,8 @@ Covered with exact source locations:
 - Undefined or legacy token aliases found by targeted class scans.
 - The highest-confidence primitive drift: visible firmware actions, copy icon buttons, inline editable input, `SinglePickerField`, row action menus, assignment-cell popovers, typography scale drift, and the custom curtailment history table.
 - Follow-up primitive drift from broader scans: custom tooltip shells, interactive hover list, rack zone typeahead dropdown, scan camera command button, and link-like table buttons.
+- Default Tailwind color leakage and hard-coded status colors found by strict color/class scans.
+- Native form-control sweep: `ChannelEditableCell` is the only production bare text input that looks like UI drift; firmware upload and scan QR file inputs are hidden/native exceptions.
 - Rejected/constrained migrations where the first visual proposal proved worse than the current UI.
 
 Not yet covered:
@@ -44,6 +46,16 @@ Not yet covered:
 | `ring-border-focus` -> `ring-border-primary` | Low | `client/src/protoFleet/components/FirmwareUpload/FirmwareUploadComponents.tsx:85` | `border-focus` is not defined, but the strong black drag-active ring is useful and should remain. `border-primary` preserves that high-contrast affordance with a defined light/dark token. |
 | `border-border-focus` -> `border-border-20` plus existing selected indicator | Low | `client/src/protoFleet/features/fleetManagement/components/MinerActionsMenu/FirmwareUpdateModal/FirmwareUpdateModal.tsx:139`, `:149` | `border-focus` is not defined. The selected radio dot already carries the stronger state. If the selected card still needs emphasis, pair `border-border-20` with `ring-4 ring-core-primary-5`. |
 | `text-text-link` -> `Button variant={variants.textOnly}` or `text-text-emphasis` | Low | `client/src/protoFleet/components/FirmwareUpload/FirmwareUploadComponents.tsx:176` | `text-text-link` is not defined. If it is an action, prefer `Button textOnly`; if it remains text styling, use a defined emphasis token. |
+
+### Default Tailwind and Hard-coded Colors
+
+| Migration | Risk | Where | Rationale |
+| --- | --- | --- | --- |
+| `hover:bg-gray-50` -> `hover:bg-core-primary-5` and `dark:hover:bg-gray-700/50` -> `dark:hover:bg-core-primary-5` | Low | `client/src/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage/PoolSelectionModal/PoolSelectionModal.tsx:39` | The Proto theme resets Tailwind's default palette, so default `gray-*` classes can either miss the intended token system or become no-op utilities. The row hover should use the same subtle primary hover used by shared rows/select lists. |
+| `hover:bg-black/[0.06] dark:hover:bg-white/[0.06]` -> `hover:bg-core-primary-5 dark:hover:bg-core-primary-5` or `Button textOnly` with underline disabled | Low | `client/src/protoFleet/features/buildings/components/BuildingCard.tsx:243` | The menu trigger duplicates a tokenized subtle hover with arbitrary black/white opacity. This is also part of the hand-built row-action menu cleanup, so the preferred end state is a shared icon button/menu trigger. |
+| `border-gray-200` -> `border-border-5` or `border-border-10` | Low | `client/src/protoFleet/components/Footer/Footer.tsx:9` | Footer border uses a default Tailwind gray instead of Proto border tokens. Use `border-border-5` if the border should stay quiet, or `border-border-10` if the footer needs a stronger divider. |
+| `text-red-500` -> `text-intent-critical-fill` | Low | `client/src/protoFleet/features/fleetManagement/components/MinerList/MinerName.tsx:61` | The alert icon is a critical status affordance and should use the intent token that already maps to Proto's critical red across themes. |
+| `#ef4444` -> `bg-intent-critical-fill`, `#f97316` -> `bg-core-accent-fill`, `#d4d4d8` -> `bg-core-primary-20` | Medium | `client/src/protoFleet/features/fleetManagement/components/RackDetailGrid/RackDetailSlot.tsx:14-16` | These hard-coded rack status dots visually map to existing tokens. Risk is medium because the colors carry status semantics; confirm offline should remain orange/accent before applying. |
 
 ### Primitive Migrations
 
@@ -81,8 +93,10 @@ These were found by broader source scans but should not be called drift until in
 
 | Candidate | Risk | Where | Rationale / next check |
 | --- | --- | --- | --- |
+| Native form controls | Low | Drift: `client/src/protoFleet/features/alerts/components/ChannelEditableCell.tsx:36`. Valid hidden-native exceptions: `client/src/protoFleet/components/FirmwareUpload/FirmwareUploadComponents.tsx:111`; `client/src/protoFleet/features/fleetManagement/components/ManageRackModal/ScanMinerQrModalView.tsx:225`. Test-only stub: `client/src/protoFleet/features/settings/components/__testHelpers__/selectStub.tsx:29` | The visible text input should migrate to shared `Input`/inline edit. Hidden file inputs should stay native while their visible triggers migrate to `Button`. The select stub is test infrastructure, not production UI drift. |
 | Raw navigation controls | Medium | `client/src/protoFleet/components/NavigationMenu/Navigation.tsx:190`, `:269`; `client/src/protoFleet/components/NavigationMenu/FloatingNavigation.tsx:33` | These are likely valid navigation primitives. Verify focus, aria-current/selected state, hit area, and whether they should remain bespoke because the nav has special layout/state needs. |
 | Domain grid controls | Medium | Rack/building grid controls across `BuildingRackGrid`, `BuildingGridPane`, `RackPane`, `MinersPane`, and `RackDetailSlot` | Many raw buttons are domain cells, drag handles, grid slots, or compact table controls. Do not migrate blindly; inspect keyboard behavior, sizing constraints, and shared component fit. |
+| Dynamic inline styles | Medium | Layout/geometry examples: `BuildingRackGrid.tsx`, `BuildingGridPane.tsx`, `RackDetailGrid.tsx`, `RackSlotGrid.tsx`, `MiniRackGrid.tsx`, `CurtailmentStartModal.tsx`, `SegmentedMetricPanel.tsx`, `SiteResourcePanel.tsx` | Most inline styles are dynamic geometry, measured popover sizing, carousel transforms, or slot dimensions. They are not drift by default. Keep them unless a shared primitive can own the measurement or a tokenized CSS variable would improve reuse. |
 
 ### Rejected or Constrained Migrations
 
@@ -91,6 +105,10 @@ These were found by broader source scans but should not be called drift until in
 | Site picker trigger -> `Button textOnly` | Medium | `client/src/protoFleet/components/PageHeader/SitePicker/SitePicker.tsx:138` | Reject | `Button textOnly` intentionally renders a hover underline by default. That creates the faint underline seen in the visual proposal and reads like a link, not a picker trigger. Keep the existing trigger structure, migrate invalid tokens, and make the trigger content-sized with `inline-flex self-start`. |
 | Site picker options -> `Row` | Medium | `client/src/protoFleet/components/PageHeader/SitePicker/SitePicker.tsx:215` | Reject for now | The current row density and radio alignment are better. `Row` changes the internal padding and content model. Keep the bespoke option rows unless a shared picker-option primitive is created. |
 | Rack slots and drag handles -> `Button` everywhere | Medium | `client/src/protoFleet/features/fleetManagement/components/RackDetailGrid/RackDetailSlot.tsx:35`; `client/src/protoFleet/features/fleetManagement/components/ManageRackModal/RackPane.tsx:156`; `client/src/protoFleet/features/infrastructure/components/ManageColumnsModal.tsx:56`; `client/src/protoFleet/features/fleetManagement/components/MinerList/ManageColumnsModal.tsx:58`; `client/src/protoFleet/features/fleetManagement/components/MinerActionsMenu/BulkRenamePropertyForm.tsx:63` | Constrain | These are domain controls, not generic app buttons. Keep bespoke structure where sizing/drag behavior is domain-specific; normalize tokens, focus styles, and type scale. |
+| Heat-map cells -> generic primitives | Medium | `client/src/protoFleet/features/buildings/components/BuildingCard.tsx:122-123` | Constrain | Keep the compact heat-map grammar. Extract/document the intensity constants and `rounded-[3px]` cell geometry instead of turning this into generic list/card chrome. |
+| Mini rack cells -> generic buttons | Medium | `client/src/protoFleet/features/fleetManagement/components/RackCard/MiniRackGrid.tsx:46` | Constrain | Keep the dense mini-grid grammar. Verify token names, dot contrast, and whether the status cells need a shared legend; do not migrate each cell to `Button`. |
+| Camera viewfinder overlay -> surface tokens/generic frame | Medium | `client/src/protoFleet/features/fleetManagement/components/ManageRackModal/ScanMinerQrModalView.tsx:176-183` | Constrain | The black/white overlay is functional camera framing, not app chrome. Keep the media contrast treatment; the nearby visible camera command is covered by the `Button` migration. |
+| Action bar `bg-black` -> neutral surface token | Medium | `client/src/protoFleet/features/fleetManagement/components/ActionBar/ActionBar.tsx:84` | Inspect before changing | The selected-miner action bar intentionally uses an inverse treatment in light mode. It may be valid, but should be checked in the app for contrast, dark-mode parity, and whether `bg-core-primary-fill` is the better semantic token. |
 
 ### Typography Scale Drift
 
@@ -114,9 +132,10 @@ These were found by broader source scans but should not be called drift until in
 3. Correct site picker with token-only changes, not `Button textOnly` or `Row`.
 4. Normalize typography clusters.
 5. Consolidate action menus into `RowActionsMenu` where spacing still matches.
-6. Consolidate confirmed tooltip, typeahead, camera-action, and link-like table-button drift where shared primitives fit.
-7. Decide whether `SinglePickerField` can become `Select` directly or needs a small shared extension.
-8. Treat `CurtailmentHistory` table as a separate design/behavior migration.
+6. Replace default Tailwind palette leakage and hard-coded rack status colors after confirming status semantics.
+7. Consolidate confirmed tooltip, typeahead, camera-action, and link-like table-button drift where shared primitives fit.
+8. Decide whether `SinglePickerField` can become `Select` directly or needs a small shared extension.
+9. Treat `CurtailmentHistory` table as a separate design/behavior migration.
 
 ## Design Polish Verification Loop
 

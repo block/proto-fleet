@@ -97,7 +97,11 @@ export type NestedFilterChildItem = DropdownFilterItem | NumericRangeFilterItem 
 // textareaList renders as a trigger that opens the shared modal (the same
 // component the nestedFilterDropdown uses for its children).
 export type FilterItem =
-  ButtonFilterItem | DropdownFilterItem | NestedFilterDropdownItem | NumericRangeFilterItem | TextareaListFilterItem;
+  | ButtonFilterItem
+  | DropdownFilterItem
+  | NestedFilterDropdownItem
+  | NumericRangeFilterItem
+  | TextareaListFilterItem;
 
 /**
  * Submenu category passed into `NestedDropdownFilter`. Discriminated by

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import StatusModalLayout, { type StatusModalLayoutError } from "./StatusModalLayout";
 import { type MinerStatusModalProps } from "./types";
 import { formatReportedTimestamp } from "./utils";
-import { Alert, Checkmark, ControlBoard, Fan, Hashboard, Info, LightningAlt } from "@/shared/assets/icons";
+import { Alert, ControlBoard, Fan, Hashboard, Info, LightningAlt, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { DialogIcon } from "@/shared/components/Dialog";
 
@@ -29,7 +29,13 @@ const MinerStatusModalContent = ({
   const haserrors = Object.values(errors || {}).some((errorList) => errorList.length > 0);
 
   const icon = useMemo(() => {
-    if (isOffline || isSleeping) {
+    if (isSleeping) {
+      return (
+        <DialogIcon>
+          <Info className="text-text-primary" />
+        </DialogIcon>
+      );
+    } else if (isOffline) {
       return (
         <DialogIcon intent="info">
           <Info />
@@ -44,7 +50,7 @@ const MinerStatusModalContent = ({
     } else {
       return (
         <DialogIcon intent="success">
-          <Checkmark />
+          <Success />
         </DialogIcon>
       );
     }

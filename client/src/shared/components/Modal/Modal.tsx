@@ -47,6 +47,7 @@ interface ModalProps {
   size?: keyof typeof sizes;
   zIndex?: string;
   testId?: string;
+  forceTitleCollapsed?: boolean;
 }
 
 const Modal = ({
@@ -71,13 +72,14 @@ const Modal = ({
   zIndex,
   iconAriaLabel = "Close dialog",
   testId = "modal",
+  forceTitleCollapsed = false,
 }: ModalProps) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [isTitleCollapsed, setIsTitleCollapsed] = useState(false);
   const isFullscreen = size === sizes.fullscreen;
-  const showTitleInHeader = isFullscreen || isTitleCollapsed;
+  const showTitleInHeader = isFullscreen || isTitleCollapsed || forceTitleCollapsed;
   const slideUpAnimation = useSlideUpAnimation();
   const hasPhoneFooterButtons = (phoneFooterButtons?.length ?? 0) > 0;
   const isPhoneSheet = phoneSheet && size !== sizes.fullscreen;
@@ -199,7 +201,7 @@ const Modal = ({
               )}
             </div>
           ) : null}
-          {title && !isFullscreen ? (
+          {title && !isFullscreen && !forceTitleCollapsed ? (
             <>
               <div ref={sentinelRef} className="h-0 w-0" />
               <div

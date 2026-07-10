@@ -22,7 +22,16 @@ export type BuildingListItem = {
 };
 
 export type BuildingColumn =
-  "name" | "site" | "racks" | "miners" | "issues" | "hashrate" | "efficiency" | "power" | "temperature" | "health";
+  | "name"
+  | "site"
+  | "racks"
+  | "miners"
+  | "issues"
+  | "hashrate"
+  | "efficiency"
+  | "power"
+  | "temperature"
+  | "health";
 
 const INACTIVE_PLACEHOLDER = "—";
 
