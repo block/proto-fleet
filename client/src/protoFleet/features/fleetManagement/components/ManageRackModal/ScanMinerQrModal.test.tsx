@@ -243,6 +243,35 @@ describe("ScanMinerQrModal", () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
+  it("prioritizes pairing guidance when an unpaired miner is already assigned elsewhere", async () => {
+    mockCanUseLiveCamera.mockReturnValue(true);
+    mockLookup.mockResolvedValueOnce({
+      status: "found",
+      snapshot: snapshot({
+        placement: { rack: { id: 9n, label: "Rack B" } },
+        pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
+      }),
+    });
+    const onAssign = vi.fn();
+    const onConfirm = vi.fn();
+
+    renderScanMinerQrModal({ onAssign, onConfirm });
+
+    await act(async () => {
+      capturedOnDetected?.(["SN123"]);
+    });
+
+    await waitFor(() => expect(screen.getByText(/isn't fully paired/i)).toBeInTheDocument());
+    expect(
+      screen.getByText("Only paired miners can be assigned to a rack. Finish pairing this miner, then scan it again."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Miner already assigned")).not.toBeInTheDocument();
+    expect(screen.queryByText("Assigning it here will move it from Rack B.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Assign to slot")).not.toBeInTheDocument();
+    expect(onAssign).not.toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
   it("shows the target slot in the live scanner copy", () => {
     mockCanUseLiveCamera.mockReturnValue(true);
 

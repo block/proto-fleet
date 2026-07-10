@@ -367,17 +367,17 @@ function FoundMinerDialog({
   onConfirm: () => void;
   onRescan: () => void;
 }) {
-  const title = inOtherRack
-    ? "Miner already assigned"
-    : notPaired
-      ? "Miner isn't fully paired"
+  const title = notPaired
+    ? "Miner isn't fully paired"
+    : inOtherRack
+      ? "Miner already assigned"
       : isReassignment
         ? "Confirm miner move"
         : "Miner can't be assigned";
-  const subtitle = inOtherRack
-    ? `Assigning it here will move it from ${otherRackLabel}.`
-    : notPaired
-      ? "Only paired miners can be assigned to a rack. Finish pairing this miner, then scan it again."
+  const subtitle = notPaired
+    ? "Only paired miners can be assigned to a rack. Finish pairing this miner, then scan it again."
+    : inOtherRack
+      ? `Assigning it here will move it from ${otherRackLabel}.`
       : isReassignment
         ? `Assigning it here will move it to ${currentRackLabel}.`
         : "Choose another miner for this rack slot.";
