@@ -36,6 +36,7 @@ type commandsManifest struct {
 type commandSpec struct {
 	Method                string            `json:"method"`
 	Group                 string            `json:"group"`
+	Subgroup              string            `json:"subgroup,omitempty"`
 	Command               string            `json:"command"`
 	Usage                 string            `json:"usage,omitempty"`
 	Auth                  string            `json:"auth,omitempty"`
@@ -69,6 +70,13 @@ type groupTemplateData struct {
 	Usage        string
 	Imports      []importSpec
 	CommandExprs []string
+	Subgroups    []subgroupTemplateData
+}
+
+type subgroupTemplateData struct {
+	Name         string
+	Usage        string
+	CommandExprs []string
 }
 
 type commandsTemplateData struct {
@@ -81,6 +89,7 @@ type groupSpec struct {
 	Usage        string
 	Imports      map[string]string
 	CommandExprs []string
+	Subgroups    map[string][]string
 }
 
 type methodRef struct {
@@ -123,11 +132,12 @@ type generationReport struct {
 }
 
 type methodReport struct {
-	Method  string `json:"method"`
-	Status  string `json:"status"`
-	Group   string `json:"group,omitempty"`
-	Command string `json:"command,omitempty"`
-	Reason  string `json:"reason,omitempty"`
+	Method   string `json:"method"`
+	Status   string `json:"status"`
+	Group    string `json:"group,omitempty"`
+	Subgroup string `json:"subgroup,omitempty"`
+	Command  string `json:"command,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 type renderResult struct {
@@ -226,12 +236,39 @@ func parseCommandsManifest(data []byte) (commandsManifest, error) {
 
 func validateCommandsManifest(manifest commandsManifest) error {
 	seenCommands := map[string]bool{}
+	groupChildren := map[string]map[string]string{}
 	for _, command := range manifest.Commands {
-		key := command.Group + " " + command.Command
+		for label, value := range map[string]string{"group": command.Group, "subgroup": command.Subgroup, "command": command.Command} {
+			if label == "subgroup" && value == "" {
+				continue
+			}
+			if !validCommandComponent(value) {
+				return fmt.Errorf("invalid %s %q; use lowercase letters, digits, and internal hyphens", label, value)
+			}
+		}
+		parts := []string{command.Group}
+		if command.Subgroup != "" {
+			parts = append(parts, command.Subgroup)
+		}
+		parts = append(parts, command.Command)
+		key := strings.Join(parts, " ")
 		if seenCommands[key] {
 			return fmt.Errorf("duplicate generated command %q", key)
 		}
 		seenCommands[key] = true
+		if groupChildren[command.Group] == nil {
+			groupChildren[command.Group] = map[string]string{}
+		}
+		childName := command.Command
+		childKind := "command"
+		if command.Subgroup != "" {
+			childName = command.Subgroup
+			childKind = "subgroup"
+		}
+		if existingKind, ok := groupChildren[command.Group][childName]; ok && existingKind != childKind {
+			return fmt.Errorf("generated group %q uses %q as both a command and subgroup", command.Group, childName)
+		}
+		groupChildren[command.Group][childName] = childKind
 		if _, err := authPolicyConst(command.Auth); err != nil {
 			return fmt.Errorf("command %q: %w", key, err)
 		}
@@ -255,6 +292,19 @@ func validateCommandsManifest(manifest commandsManifest) error {
 		}
 	}
 	return nil
+}
+
+func validCommandComponent(value string) bool {
+	if value == "" || value[0] == '-' || value[len(value)-1] == '-' {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func loadDescriptorFiles() ([]protoreflect.FileDescriptor, error) {
@@ -399,7 +449,7 @@ func buildGroups(
 		if options.Usage == "" {
 			options.Usage = humanizeMethod(string(ref.Method.Name()))
 		}
-		report, err := addGeneratedCommand(groupMap, command.Group, ref, options, messages, enums)
+		report, err := addGeneratedCommand(groupMap, command.Group, command.Subgroup, ref, options, messages, enums)
 		if err != nil {
 			return nil, generationReport{}, err
 		}
@@ -425,6 +475,9 @@ func buildGroups(
 	var groups []groupSpec
 	for _, group := range groupMap {
 		sort.Strings(group.CommandExprs)
+		for subgroup := range group.Subgroups {
+			sort.Strings(group.Subgroups[subgroup])
+		}
 		groups = append(groups, *group)
 	}
 	sort.Slice(groups, func(i, j int) bool {
@@ -435,6 +488,9 @@ func buildGroups(
 		if reports[i].Method == reports[j].Method {
 			if reports[i].Status == reports[j].Status {
 				if reports[i].Group == reports[j].Group {
+					if reports[i].Subgroup != reports[j].Subgroup {
+						return reports[i].Subgroup < reports[j].Subgroup
+					}
 					return reports[i].Command < reports[j].Command
 				}
 				return reports[i].Group < reports[j].Group
@@ -475,6 +531,7 @@ func indexMethods(files []protoreflect.FileDescriptor) map[string]methodRef {
 func addGeneratedCommand(
 	groupMap map[string]*groupSpec,
 	groupName string,
+	subgroupName string,
 	ref methodRef,
 	options renderOptions,
 	messages map[protoreflect.FullName]messageInfo,
@@ -486,11 +543,12 @@ func addGeneratedCommand(
 		return methodReport{}, err
 	}
 	report := methodReport{
-		Method:  methodPath,
-		Status:  rendered.Status,
-		Group:   groupName,
-		Command: options.CommandName,
-		Reason:  rendered.Reason,
+		Method:   methodPath,
+		Status:   rendered.Status,
+		Group:    groupName,
+		Subgroup: subgroupName,
+		Command:  options.CommandName,
+		Reason:   rendered.Reason,
 	}
 	if isDeferredStatus(rendered.Status) {
 		return report, nil
@@ -500,7 +558,11 @@ func addGeneratedCommand(
 	for path, alias := range rendered.Imports {
 		group.Imports[path] = alias
 	}
-	group.CommandExprs = append(group.CommandExprs, rendered.Expr)
+	if subgroupName == "" {
+		group.CommandExprs = append(group.CommandExprs, rendered.Expr)
+	} else {
+		group.Subgroups[subgroupName] = append(group.Subgroups[subgroupName], rendered.Expr)
+	}
 	return report, nil
 }
 
@@ -516,6 +578,7 @@ func ensureGroup(groups map[string]*groupSpec, name string) *groupSpec {
 		Usage:        "Manage " + strings.ReplaceAll(name, "-", " ") + " commands",
 		Imports:      map[string]string{"github.com/urfave/cli/v3": ""},
 		CommandExprs: nil,
+		Subgroups:    map[string][]string{},
 	}
 	groups[name] = group
 	return group
@@ -626,6 +689,7 @@ type requestAnalysis struct {
 	lines               []string
 	Reason              string
 	minerSelectorField  string
+	fleetSelectorField  string
 	commonSelectorField string
 	commonSelectorBuild string
 	commonSelectorSet   string
@@ -685,6 +749,11 @@ func analyzeRequest(
 		if isMinerSelectorField(field) {
 			analysis.flagHelpers = appendUniqueString(analysis.flagHelpers, "generatedMinerSelectorFlags()")
 			analysis.minerSelectorField = toGoFieldName(field.Name())
+			continue
+		}
+		if isFleetSelectorField(field) {
+			analysis.flagHelpers = appendUniqueString(analysis.flagHelpers, "generatedMinerSelectorFlags()")
+			analysis.fleetSelectorField = toGoFieldName(field.Name())
 			continue
 		}
 		if isCommonSelectorField(field) {
@@ -1049,7 +1118,14 @@ func buildStringFieldFlagTargetPlan(target fieldFlagTarget, usage string) (strin
 	for _, line := range fieldFlagParentInitLines(target.parentAssignments) {
 		lines = append(lines, "\t"+line)
 	}
-	lines = append(lines, fmt.Sprintf("\t%s = cmd.String(%q)", target.assignExpr, target.spec.Flag))
+	if fieldNeedsPointer(target.field) {
+		lines = append(lines,
+			fmt.Sprintf("\tvalue := cmd.String(%q)", target.spec.Flag),
+			fmt.Sprintf("\t%s = &value", target.assignExpr),
+		)
+	} else {
+		lines = append(lines, fmt.Sprintf("\t%s = cmd.String(%q)", target.assignExpr, target.spec.Flag))
+	}
 	lines = append(lines, "}")
 	return flag, lines, nil, nil
 }
@@ -1114,6 +1190,9 @@ func fieldFlagParentInitLines(assignments []fieldFlagParentAssignment) []string 
 func fieldFlagAssignmentLine(target fieldFlagTarget, secretVar string) string {
 	if isStringValueField(target.field) {
 		return fmt.Sprintf("%s = wrapperspb.String(%s)", target.assignExpr, secretVar)
+	}
+	if fieldNeedsPointer(target.field) {
+		return fmt.Sprintf("%s = &%s", target.assignExpr, secretVar)
 	}
 	return fmt.Sprintf("%s = %s", target.assignExpr, secretVar)
 }
@@ -1263,6 +1342,10 @@ func unsupportedResponseReason(message protoreflect.MessageDescriptor) string {
 
 func isMinerSelectorField(field protoreflect.FieldDescriptor) bool {
 	return !field.IsList() && !field.IsMap() && field.Kind() == protoreflect.MessageKind && field.Message().FullName() == "minercommand.v1.DeviceSelector"
+}
+
+func isFleetSelectorField(field protoreflect.FieldDescriptor) bool {
+	return !field.IsList() && !field.IsMap() && field.Kind() == protoreflect.MessageKind && field.Message().FullName() == "fleetmanagement.v1.DeviceSelector"
 }
 
 func isCommonSelectorField(field protoreflect.FieldDescriptor) bool {
@@ -1457,6 +1540,9 @@ func renderSimpleExpr(
 	if analysis.minerSelectorField != "" {
 		writeSelectorAssignment(&buf, analysis.minerSelectorField, "generatedBuildMinerSelector(ctx, cmd, client)", "generatedMinerSelectorProvided(cmd)", analysis.jsonFallback)
 	}
+	if analysis.fleetSelectorField != "" {
+		writeSelectorAssignment(&buf, analysis.fleetSelectorField, "generatedBuildFleetSelector(ctx, cmd, client)", "generatedMinerSelectorProvided(cmd)", analysis.jsonFallback)
+	}
 	if analysis.commonSelectorField != "" {
 		writeSelectorAssignment(&buf, analysis.commonSelectorField, analysis.commonSelectorBuild, analysis.commonSelectorSet, analysis.jsonFallback)
 	}
@@ -1611,12 +1697,22 @@ func renderGroups(groups []groupSpec) (map[string]bool, error) {
 
 	generated := make(map[string]bool, len(groups))
 	for _, group := range groups {
+		subgroups := make([]subgroupTemplateData, 0, len(group.Subgroups))
+		for name, commandExprs := range group.Subgroups {
+			subgroups = append(subgroups, subgroupTemplateData{
+				Name:         name,
+				Usage:        "Manage " + strings.ReplaceAll(name, "-", " ") + " commands",
+				CommandExprs: commandExprs,
+			})
+		}
+		sort.Slice(subgroups, func(i, j int) bool { return subgroups[i].Name < subgroups[j].Name })
 		data := groupTemplateData{
 			FuncName:     group.FuncName,
 			Name:         group.Name,
 			Usage:        group.Usage,
 			Imports:      sortedImports(group.Imports),
 			CommandExprs: group.CommandExprs,
+			Subgroups:    subgroups,
 		}
 		var output bytes.Buffer
 		if err := tmpl.Execute(&output, data); err != nil {

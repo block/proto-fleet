@@ -93,6 +93,7 @@ it appears in this file. The manifest supplies the CLI behavior that descriptors
 do not encode cleanly, including:
 
 - command group names such as `miners`
+- optional nested subgroup names such as `alerts channels`
 - subcommand names such as `create-admin`
 - exceptional auth policies such as `unauthenticated` or `session_only`
 - command aliases that split one service across multiple CLI groups, such as
@@ -108,7 +109,9 @@ do not encode cleanly, including:
 
 The generator does not infer exposed command groups or subcommand names. It only
 renders entries listed in `commands.json`, so the command manifest is the
-source of truth for the generated CLI surface.
+source of truth for the generated CLI surface. An optional `subgroup` inserts
+one intermediate command level; for example, `group: alerts`, `subgroup:
+channels`, and `command: list` renders `fleetcli alerts channels list`.
 
 ### Request handling
 
@@ -133,6 +136,8 @@ command. For example, `pools update` still auto-generates `--pool-id`,
 `--pool-name`, `--url`, and `--username`; the manifest only lists `password`
 because that field needs the custom `--pool-password-stdin` secret path instead
 of a string argv flag.
+
+`field_flags` supports string overrides and stdin-backed secrets.
 
 ### Auth policy handling
 
@@ -161,11 +166,12 @@ Most generated commands are thin wrappers, but the runtime includes a few
 shared helpers for request shapes that need more than plain top-level flag
 assignment.
 
-### Bounded miner device selectors
+### Miner and fleet-management device selectors
 
 `server/cmd/fleetcli/command_runtime.go` provides a shared resolver for
-`minercommand.v1.DeviceSelector`. The bounded resolver is used today by
-`firmware deploy` and is available to future generated `minercommand` commands.
+`minercommand.v1.DeviceSelector` and `fleetmanagement.v1.DeviceSelector`. The
+bounded resolver is shared by generated miner operations, fleet-management
+mutations, and handwritten `firmware deploy`.
 
 The bounded selector accepts:
 
@@ -175,9 +181,9 @@ The bounded selector accepts:
 - `--rack-id`
 - `--rack`
 
-`--group` and `--rack` resolve exact collection labels through
-`collection.v1.DeviceCollectionService/ListCollections`, then expand those
-collections to device identifiers through `ListCollectionMembers` (paginated).
+`--group` and `--rack` resolve exact device-set labels through
+`device_set.v1.DeviceSetService/ListDeviceSets`, then expand those sets to
+device identifiers through `ListDeviceSetMembers` (paginated).
 The result is always an explicit `include_devices` list, so it names a concrete,
 bounded set of devices and never targets all devices.
 
@@ -194,11 +200,21 @@ firmware update.
 
 The generated command registry currently contributes:
 
+- `activity`
+- `alerts` with nested channel, rule, maintenance-window, and history commands
+- `buildings`
+- `curtailment` with nested event, signal, MQTT, profile, and automation commands
+- `errors`
 - `groups`
 - `miners`
+- `network`
 - `onboarding`
 - `pools`
 - `racks`
+- `roles`
+- `schedules`
+- `serverlogs`
+- `sites`
 
 The handwritten command registry currently contributes:
 
@@ -219,11 +235,12 @@ applies an uploaded file to explicitly named devices, groups, or racks (never
 all devices) through `minercommand.v1.MinerCommandService/FirmwareUpdate`,
 reusing the bounded miner selector resolver.
 
-This V0 surface deliberately omits several services the generator can otherwise
-emit, including `minercommand`, `networkinfo`, and `schedule`, plus the
-streaming `pairing`/discovery flow. They are left out of `commands.json` while
-the fleet-node command model settles, and appear in the coverage report as
-`deferred_*` or `deferred_unselected` rather than as commands.
+The generated manifest contains 115 command entries. Together with 14
+handwritten leaves, fleetcli exposes 129 leaf commands and 117 distinct
+non-node unary RPCs. Intentional omissions are streaming methods, Fleet Node
+services, direct miner operations, server-LAN network methods, the deprecated
+collection service, account-management RPCs, unimplemented RPCs, the
+Foreman/pairing workflows, and the binary command-log bundle response.
 
 ## Coverage Report
 

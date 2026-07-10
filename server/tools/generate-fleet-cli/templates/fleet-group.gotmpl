@@ -20,6 +20,17 @@ func {{ .FuncName }}() *cli.Command {
 {{- range .CommandExprs }}
 {{ indent 3 . }},
 {{- end }}
+{{- range .Subgroups }}
+			{
+				Name:  "{{ .Name }}",
+				Usage: "{{ .Usage }}",
+				Commands: []*cli.Command{
+{{- range .CommandExprs }}
+{{ indent 5 . }},
+{{- end }}
+				},
+			},
+{{- end }}
 		},
 	}
 }

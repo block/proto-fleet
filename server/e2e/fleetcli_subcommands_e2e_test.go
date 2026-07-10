@@ -185,6 +185,144 @@ func TestFleetCLISubcommands(t *testing.T) {
 		assert.Contains(t, err.Error(), "ValidatePool returned", "validate failure should be an API response, not CLI parsing")
 	})
 
+	t.Run("SitesAndBuildings", func(t *testing.T) {
+		createdSite := runFleetCLIJSON(t, ctx, env,
+			"sites", "create",
+			"--name", unique+"-site",
+			"--location-city", "Toronto",
+			"--location-state", "Ontario",
+			"--timezone", "America/Toronto",
+		)
+		siteID := jsonString(t, createdSite, "site", "id")
+		require.NotEmpty(t, siteID, "sites create should return site.id")
+		buildingID := ""
+		t.Cleanup(func() {
+			if buildingID != "" {
+				_, _ = runFleetCLI(ctx, env, "buildings", "delete", "--id", buildingID)
+			}
+			if siteID != "" {
+				_, _ = runFleetCLI(ctx, env, "sites", "delete", "--id", siteID)
+			}
+		})
+
+		createdBuilding := runFleetCLIJSON(t, ctx, env,
+			"buildings", "create",
+			"--site-id", siteID,
+			"--name", unique+"-building",
+		)
+		buildingID = jsonString(t, createdBuilding, "building", "id")
+		require.NotEmpty(t, buildingID, "buildings create should return building.id")
+
+		updatedBuilding := runFleetCLIJSON(t, ctx, env,
+			"buildings", "update",
+			"--id", buildingID,
+			"--name", unique+"-building-updated",
+		)
+		assert.Equal(t, unique+"-building-updated", jsonString(t, updatedBuilding, "building", "name"))
+		updatedSite := runFleetCLIJSON(t, ctx, env,
+			"sites", "update",
+			"--id", siteID,
+			"--name", unique+"-site-updated",
+		)
+		assert.Equal(t, unique+"-site-updated", jsonString(t, updatedSite, "site", "name"))
+
+		require.NotNil(t, runFleetCLIJSON(t, ctx, env, "buildings", "delete", "--id", buildingID))
+		buildingID = ""
+		require.NotNil(t, runFleetCLIJSON(t, ctx, env, "sites", "delete", "--id", siteID))
+		siteID = ""
+	})
+
+	t.Run("Schedules", func(t *testing.T) {
+		created := runFleetCLIJSON(t, ctx, env,
+			"schedules", "create",
+			"--name", unique+"-schedule",
+			"--action", "reboot",
+			"--schedule-type", "one-time",
+			"--start-date", "2030-01-01",
+			"--start-time", "12:00",
+			"--timezone", "America/Toronto",
+		)
+		scheduleID := jsonString(t, created, "schedule", "id")
+		require.NotEmpty(t, scheduleID, "schedules create should return schedule.id")
+		t.Cleanup(func() {
+			if scheduleID != "" {
+				_, _ = runFleetCLI(ctx, env, "schedules", "delete", "--schedule-id", scheduleID)
+			}
+		})
+
+		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "schedules", "list"))
+		require.NotNil(t, runFleetCLIJSON(t, ctx, env, "schedules", "pause", "--schedule-id", scheduleID))
+		require.NotNil(t, runFleetCLIJSON(t, ctx, env, "schedules", "resume", "--schedule-id", scheduleID))
+		updated := runFleetCLIJSON(t, ctx, env,
+			"schedules", "update",
+			"--schedule-id", scheduleID,
+			"--name", unique+"-schedule-updated",
+			"--action", "reboot",
+			"--schedule-type", "one-time",
+			"--start-date", "2030-01-02",
+			"--start-time", "12:30",
+			"--timezone", "America/Toronto",
+		)
+		assert.Equal(t, unique+"-schedule-updated", jsonString(t, updated, "schedule", "name"))
+		require.NotNil(t, runFleetCLIJSON(t, ctx, env, "schedules", "reorder", "--schedule-ids", scheduleID))
+		require.NotNil(t, runFleetCLIJSON(t, ctx, env, "schedules", "delete", "--schedule-id", scheduleID))
+		scheduleID = ""
+	})
+
+	t.Run("Roles", func(t *testing.T) {
+		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "roles", "permissions"))
+		created := runFleetCLIJSON(t, ctx, env,
+			"roles", "create",
+			"--name", unique+"-role",
+			"--description", "fleetcli e2e role",
+		)
+		roleID := jsonString(t, created, "role", "role_id")
+		require.NotEmpty(t, roleID, "roles create should return role.role_id")
+		t.Cleanup(func() {
+			if roleID != "" {
+				_, _ = runFleetCLI(ctx, env, "roles", "delete", "--role-id", roleID)
+			}
+		})
+
+		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "roles", "list"))
+		updated := runFleetCLIJSON(t, ctx, env,
+			"roles", "update",
+			"--role-id", roleID,
+			"--name", unique+"-role-updated",
+			"--description", "fleetcli e2e role updated",
+		)
+		assert.Equal(t, unique+"-role-updated", jsonString(t, updated, "role", "name"))
+		require.NotNil(t, runFleetCLIJSON(t, ctx, env, "roles", "delete", "--role-id", roleID))
+		roleID = ""
+	})
+
+	t.Run("CurtailmentProfiles", func(t *testing.T) {
+		created := runFleetCLIJSON(t, ctx, env,
+			"curtailment", "profiles", "create",
+			"--profile-name", unique+"-profile",
+			"--mode", "full-fleet",
+		)
+		profileID := jsonString(t, created, "profile", "profile_id")
+		require.NotEmpty(t, profileID, "curtailment profile create should return profile.profile_id")
+		t.Cleanup(func() {
+			if profileID != "" {
+				_, _ = runFleetCLI(ctx, env, "curtailment", "profiles", "delete", "--profile-id", profileID)
+			}
+		})
+
+		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "curtailment", "profiles", "list"))
+		require.NotEmpty(t, runFleetCLIJSON(t, ctx, env, "curtailment", "profiles", "get", "--profile-id", profileID))
+		updated := runFleetCLIJSON(t, ctx, env,
+			"curtailment", "profiles", "update",
+			"--profile-id", profileID,
+			"--profile-name", unique+"-profile-updated",
+			"--mode", "full-fleet",
+		)
+		assert.Equal(t, unique+"-profile-updated", jsonString(t, updated, "profile", "profile_name"))
+		require.NotNil(t, runFleetCLIJSON(t, ctx, env, "curtailment", "profiles", "delete", "--profile-id", profileID))
+		profileID = ""
+	})
+
 	t.Run("FirmwareDeploy", func(t *testing.T) {
 		require.NotEmpty(t, deviceIdentifier, "deviceIdentifier must be set")
 
@@ -207,141 +345,53 @@ func TestFleetCLISubcommands(t *testing.T) {
 }
 
 func TestFleetCLILeafCommandCoverage(t *testing.T) {
-	expected := []string{
-		"activity filters",
-		"activity list",
-		"auth login",
-		"auth audit-info",
-		"auth users",
-		"apikey create",
-		"apikey list",
-		"apikey revoke",
-		"buildings get",
-		"buildings list",
-		"buildings racks",
-		"buildings stats",
-		"errors get",
-		"errors list-miner",
-		"errors query",
-		"performance get",
-		"firmware config",
-		"firmware check",
-		"firmware upload",
-		"firmware list",
-		"firmware delete",
-		"firmware delete-all",
-		"firmware deploy",
-		"groups add-devices",
-		"groups create",
-		"groups delete",
-		"groups device",
-		"groups get",
-		"groups list",
-		"groups members",
-		"groups remove-devices",
-		"groups stats",
-		"groups update",
-		"miners cooling-mode",
-		"miners counts",
-		"miners list",
-		"miners lookup",
-		"miners pool-assignments",
-		"onboarding create-admin",
-		"onboarding init-status",
-		"onboarding status",
-		"pools create",
-		"pools delete",
-		"pools list",
-		"pools update",
-		"pools validate",
-		"racks add-devices",
-		"racks delete",
-		"racks device",
-		"racks get",
-		"racks list",
-		"racks members",
-		"racks save",
-		"racks slots",
-		"racks stats",
-		"racks types",
-		"racks zones",
-		"serverlogs list",
-		"sites list",
-		"sites resolve",
-		"sites stats",
+	manifestData, err := os.ReadFile(filepath.Join("..", "tools", "generate-fleet-cli", "commands.json"))
+	require.NoError(t, err)
+	var manifest struct {
+		Commands []struct {
+			Group    string `json:"group"`
+			Subgroup string `json:"subgroup"`
+			Command  string `json:"command"`
+		} `json:"commands"`
 	}
-	coverage := map[string]string{
-		"activity filters":        "help/manifest coverage: read-only server-state command",
-		"activity list":           "help/manifest coverage: read-only server-state command",
-		"auth login":              "live: TestFleetCLISubcommands/AuthAndAPIKeys",
-		"auth audit-info":         "help/manual coverage: session-only current-user audit info",
-		"auth users":              "help/manual coverage: session-only user listing",
-		"apikey create":           "live: TestFleetCLISubcommands/AuthAndAPIKeys",
-		"apikey list":             "live: TestFleetCLISubcommands/AuthAndAPIKeys",
-		"apikey revoke":           "live: TestFleetCLISubcommands/AuthAndAPIKeys",
-		"buildings get":           "help/manifest coverage: read-only topology command",
-		"buildings list":          "help/manifest coverage: read-only topology command",
-		"buildings racks":         "help/manifest coverage: read-only topology command",
-		"buildings stats":         "help/manifest coverage: read-only topology command",
-		"errors get":              "help/manifest coverage: read-only error command",
-		"errors list-miner":       "help/manifest coverage: read-only error catalog command",
-		"errors query":            "help/manifest coverage: read-only error query command",
-		"performance get":         "live: TestFleetCLISubcommands/Performance",
-		"firmware config":         "live: TestFleetCLIFirmwareWorkflow",
-		"firmware check":          "live: TestFleetCLIFirmwareWorkflow",
-		"firmware upload":         "live: TestFleetCLIFirmwareWorkflow",
-		"firmware list":           "live: TestFleetCLIFirmwareWorkflow",
-		"firmware delete":         "live: TestFleetCLIFirmwareWorkflow",
-		"firmware delete-all":     "live: TestFleetCLIFirmwareWorkflow",
-		"firmware deploy":         "live destructive: TestFleetCLISubcommands/FirmwareDeploy",
-		"groups add-devices":      "live: TestFleetCLISubcommands/Groups",
-		"groups create":           "live: TestFleetCLISubcommands/Groups",
-		"groups delete":           "live cleanup: TestFleetCLISubcommands/Groups",
-		"groups device":           "live: TestFleetCLISubcommands/Groups",
-		"groups get":              "live: TestFleetCLISubcommands/Groups",
-		"groups list":             "live: TestFleetCLISubcommands/Groups",
-		"groups members":          "live: TestFleetCLISubcommands/Groups",
-		"groups remove-devices":   "live: TestFleetCLISubcommands/Groups",
-		"groups stats":            "live: TestFleetCLISubcommands/Groups",
-		"groups update":           "live: TestFleetCLISubcommands/Groups",
-		"miners cooling-mode":     "help/manifest coverage: read-only miner state command",
-		"miners counts":           "help/manifest coverage: read-only miner state command",
-		"miners list":             "live: TestFleetCLISubcommands/Miners",
-		"miners lookup":           "help/manifest coverage: read-only miner lookup command",
-		"miners pool-assignments": "help/manifest coverage: read-only miner state command",
-		"onboarding create-admin": "live/rerunnable: TestFleetCLIWorkflow and TestFleetCLISubcommands bootstrap",
-		"onboarding init-status":  "help/manifest coverage: unauthenticated setup state command",
-		"onboarding status":       "help/manifest coverage: authenticated setup state command",
-		"pools create":            "live: TestFleetCLISubcommands/Pools",
-		"pools delete":            "live cleanup: TestFleetCLISubcommands/Pools",
-		"pools list":              "live: TestFleetCLISubcommands/Pools",
-		"pools update":            "live: TestFleetCLISubcommands/Pools",
-		"pools validate":          "live expected API error: unreachable test pool still confirms CLI request path",
-		"racks add-devices":       "live: TestFleetCLISubcommands/Racks",
-		"racks delete":            "live cleanup: TestFleetCLISubcommands/Racks",
-		"racks device":            "live: TestFleetCLISubcommands/Racks",
-		"racks get":               "live: TestFleetCLISubcommands/Racks",
-		"racks list":              "live: TestFleetCLISubcommands/Racks",
-		"racks members":           "live: TestFleetCLISubcommands/Racks",
-		"racks save":              "live: TestFleetCLISubcommands/Racks",
-		"racks slots":             "live: TestFleetCLISubcommands/Racks",
-		"racks stats":             "live: TestFleetCLISubcommands/Racks",
-		"racks types":             "live: TestFleetCLISubcommands/Racks",
-		"racks zones":             "live: TestFleetCLISubcommands/Racks",
-		"serverlogs list":         "help/manifest coverage: read-only server log command",
-		"sites list":              "help/manifest coverage: read-only topology command",
-		"sites resolve":           "help/manifest coverage: read-only topology command",
-		"sites stats":             "help/manifest coverage: read-only topology command",
+	require.NoError(t, json.Unmarshal(manifestData, &manifest))
+
+	coverage := map[string]string{}
+	for _, command := range manifest.Commands {
+		parts := []string{command.Group}
+		if command.Subgroup != "" {
+			parts = append(parts, command.Subgroup)
+		}
+		parts = append(parts, command.Command)
+		path := strings.Join(parts, " ")
+		require.NotContains(t, coverage, path, "duplicate generated fleetcli path")
+		coverage[path] = "help/manifest coverage: generated protobuf command"
 	}
 
-	for _, command := range expected {
-		status, ok := coverage[command]
-		require.Truef(t, ok, "missing fleetcli coverage status for %q", command)
-		require.NotEmptyf(t, status, "empty fleetcli coverage status for %q", command)
+	manualCoverage := map[string]string{
+		"auth login":          "live: TestFleetCLISubcommands/AuthAndAPIKeys",
+		"auth audit-info":     "help/manual coverage: session-only current-user audit info",
+		"auth users":          "help/manual coverage: session-only user listing",
+		"apikey create":       "live: TestFleetCLISubcommands/AuthAndAPIKeys",
+		"apikey list":         "live: TestFleetCLISubcommands/AuthAndAPIKeys",
+		"apikey revoke":       "live: TestFleetCLISubcommands/AuthAndAPIKeys",
+		"performance get":     "live: TestFleetCLISubcommands/Performance",
+		"firmware config":     "live: TestFleetCLIFirmwareWorkflow",
+		"firmware check":      "live: TestFleetCLIFirmwareWorkflow",
+		"firmware upload":     "live: TestFleetCLIFirmwareWorkflow",
+		"firmware list":       "live: TestFleetCLIFirmwareWorkflow",
+		"firmware delete":     "live: TestFleetCLIFirmwareWorkflow",
+		"firmware delete-all": "live: TestFleetCLIFirmwareWorkflow",
+		"firmware deploy":     "live destructive: TestFleetCLISubcommands/FirmwareDeploy",
 	}
-	for command := range coverage {
-		assert.Contains(t, expected, command, "coverage status references an unknown fleetcli command")
+	for path, status := range manualCoverage {
+		require.NotContains(t, coverage, path, "manual command collides with generated command")
+		coverage[path] = status
 	}
+
+	require.Len(t, manifest.Commands, 115)
+	require.Len(t, manualCoverage, 14)
+	require.Len(t, coverage, 129)
 }
 
 func ensureFleetCLIAdmin(t *testing.T, ctx context.Context, env []string) {
@@ -380,9 +430,9 @@ func ensureFleetCLIPairedMiner(t *testing.T, ctx context.Context, env []string) 
 	require.NotEmpty(t, deviceIdentifier, "discovered proto-sim device should have an identifier")
 	pairDeviceViaRealAPI(t, ctx, token, deviceIdentifier)
 
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
-		miners := runFleetCLIJSON(t, ctx, env, "miners", "list", "--page-size", "25")
+		miners := runFleetCLIJSON(t, ctx, env, "miners", "list", "--page-size", "1000")
 		if got := fleetCLIMinerIdentifierOrEmpty(t, miners, deviceIdentifier); got == deviceIdentifier {
 			return deviceIdentifier
 		}

@@ -15,6 +15,155 @@ func generatedSitesCommand() *cli.Command {
 		Usage: "Manage sites commands",
 		Commands: []*cli.Command{
 			generatedRequestCommand(
+				"assign-buildings",
+				"Assign buildings to site",
+				"/sites.v1.SiteService/AssignBuildingsToSite",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringSliceFlag{Name: "building-ids", Usage: "building ids"},
+					&cli.Int64Flag{Name: "target-site-id", Usage: "target site id"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &sitesv1.AssignBuildingsToSiteRequest{}
+					if cmd.IsSet("building-ids") {
+						values, err := parseInt64Slice(cmd.StringSlice("building-ids"))
+						if err != nil {
+							return nil, err
+						}
+						req.BuildingIds = values
+					}
+					if cmd.IsSet("target-site-id") {
+						value := cmd.Int64("target-site-id")
+						req.TargetSiteId = &value
+					}
+					return req, nil
+				},
+				func() proto.Message { return &sitesv1.AssignBuildingsToSiteResponse{} },
+			),
+			generatedRequestCommand(
+				"assign-devices",
+				"Assign devices to site",
+				"/sites.v1.SiteService/AssignDevicesToSite",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.Int64Flag{Name: "target-site-id", Usage: "target site id"},
+					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "device identifiers"},
+					&cli.BoolFlag{Name: "force-clear-conflicting-rack-membership", Usage: "force clear conflicting rack membership"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &sitesv1.AssignDevicesToSiteRequest{}
+					if cmd.IsSet("target-site-id") {
+						value := cmd.Int64("target-site-id")
+						req.TargetSiteId = &value
+					}
+					if cmd.IsSet("device-identifiers") {
+						req.DeviceIdentifiers = cmd.StringSlice("device-identifiers")
+					}
+					if cmd.IsSet("force-clear-conflicting-rack-membership") {
+						value := cmd.Bool("force-clear-conflicting-rack-membership")
+						req.ForceClearConflictingRackMembership = &value
+					}
+					return req, nil
+				},
+				func() proto.Message { return &sitesv1.AssignDevicesToSiteResponse{} },
+			),
+			generatedRequestCommand(
+				"assign-racks",
+				"Assign racks to site",
+				"/sites.v1.SiteService/AssignRacksToSite",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringSliceFlag{Name: "rack-ids", Usage: "rack ids"},
+					&cli.Int64Flag{Name: "target-site-id", Usage: "target site id"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &sitesv1.AssignRacksToSiteRequest{}
+					if cmd.IsSet("rack-ids") {
+						values, err := parseInt64Slice(cmd.StringSlice("rack-ids"))
+						if err != nil {
+							return nil, err
+						}
+						req.RackIds = values
+					}
+					if cmd.IsSet("target-site-id") {
+						value := cmd.Int64("target-site-id")
+						req.TargetSiteId = &value
+					}
+					return req, nil
+				},
+				func() proto.Message { return &sitesv1.AssignRacksToSiteResponse{} },
+			),
+			generatedRequestCommand(
+				"create",
+				"Create site",
+				"/sites.v1.SiteService/CreateSite",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "name", Usage: "name", Required: true},
+					&cli.StringFlag{Name: "location-city", Usage: "location city"},
+					&cli.StringFlag{Name: "location-state", Usage: "location state"},
+					&cli.StringFlag{Name: "timezone", Usage: "timezone"},
+					&cli.Float64Flag{Name: "power-capacity-mw", Usage: "power capacity mw"},
+					&cli.StringFlag{Name: "network-config", Usage: "network config"},
+					&cli.StringFlag{Name: "address", Usage: "address"},
+					&cli.StringFlag{Name: "postal-code", Usage: "postal code"},
+					&cli.StringFlag{Name: "country", Usage: "country"},
+					&cli.StringFlag{Name: "notes", Usage: "notes"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &sitesv1.CreateSiteRequest{}
+					if cmd.IsSet("name") {
+						req.Name = cmd.String("name")
+					}
+					if cmd.IsSet("location-city") {
+						req.LocationCity = cmd.String("location-city")
+					}
+					if cmd.IsSet("location-state") {
+						req.LocationState = cmd.String("location-state")
+					}
+					if cmd.IsSet("timezone") {
+						req.Timezone = cmd.String("timezone")
+					}
+					if cmd.IsSet("power-capacity-mw") {
+						req.PowerCapacityMw = cmd.Float64("power-capacity-mw")
+					}
+					if cmd.IsSet("network-config") {
+						req.NetworkConfig = cmd.String("network-config")
+					}
+					if cmd.IsSet("address") {
+						req.Address = cmd.String("address")
+					}
+					if cmd.IsSet("postal-code") {
+						req.PostalCode = cmd.String("postal-code")
+					}
+					if cmd.IsSet("country") {
+						req.Country = cmd.String("country")
+					}
+					if cmd.IsSet("notes") {
+						req.Notes = cmd.String("notes")
+					}
+					return req, nil
+				},
+				func() proto.Message { return &sitesv1.CreateSiteResponse{} },
+			),
+			generatedRequestCommand(
+				"delete",
+				"Delete site",
+				"/sites.v1.SiteService/DeleteSite",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.Int64Flag{Name: "id", Usage: "id", Required: true},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &sitesv1.DeleteSiteRequest{}
+					if cmd.IsSet("id") {
+						req.Id = cmd.Int64("id")
+					}
+					return req, nil
+				},
+				func() proto.Message { return &sitesv1.DeleteSiteResponse{} },
+			),
+			generatedRequestCommand(
 				"list",
 				"List sites",
 				"/sites.v1.SiteService/ListSites",
@@ -60,6 +209,63 @@ func generatedSitesCommand() *cli.Command {
 					return req, nil
 				},
 				func() proto.Message { return &sitesv1.GetSiteStatsResponse{} },
+			),
+			generatedRequestCommand(
+				"update",
+				"Update site",
+				"/sites.v1.SiteService/UpdateSite",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.Int64Flag{Name: "id", Usage: "id", Required: true},
+					&cli.StringFlag{Name: "name", Usage: "name", Required: true},
+					&cli.StringFlag{Name: "location-city", Usage: "location city"},
+					&cli.StringFlag{Name: "location-state", Usage: "location state"},
+					&cli.StringFlag{Name: "timezone", Usage: "timezone"},
+					&cli.Float64Flag{Name: "power-capacity-mw", Usage: "power capacity mw"},
+					&cli.StringFlag{Name: "network-config", Usage: "network config"},
+					&cli.StringFlag{Name: "address", Usage: "address"},
+					&cli.StringFlag{Name: "postal-code", Usage: "postal code"},
+					&cli.StringFlag{Name: "country", Usage: "country"},
+					&cli.StringFlag{Name: "notes", Usage: "notes"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &sitesv1.UpdateSiteRequest{}
+					if cmd.IsSet("id") {
+						req.Id = cmd.Int64("id")
+					}
+					if cmd.IsSet("name") {
+						req.Name = cmd.String("name")
+					}
+					if cmd.IsSet("location-city") {
+						req.LocationCity = cmd.String("location-city")
+					}
+					if cmd.IsSet("location-state") {
+						req.LocationState = cmd.String("location-state")
+					}
+					if cmd.IsSet("timezone") {
+						req.Timezone = cmd.String("timezone")
+					}
+					if cmd.IsSet("power-capacity-mw") {
+						req.PowerCapacityMw = cmd.Float64("power-capacity-mw")
+					}
+					if cmd.IsSet("network-config") {
+						req.NetworkConfig = cmd.String("network-config")
+					}
+					if cmd.IsSet("address") {
+						req.Address = cmd.String("address")
+					}
+					if cmd.IsSet("postal-code") {
+						req.PostalCode = cmd.String("postal-code")
+					}
+					if cmd.IsSet("country") {
+						req.Country = cmd.String("country")
+					}
+					if cmd.IsSet("notes") {
+						req.Notes = cmd.String("notes")
+					}
+					return req, nil
+				},
+				func() proto.Message { return &sitesv1.UpdateSiteResponse{} },
 			),
 		},
 	}

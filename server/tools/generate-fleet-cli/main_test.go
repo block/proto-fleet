@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"sort"
 	"strings"
 	"testing"
 
@@ -122,6 +124,43 @@ func TestParseCommandsManifestRejectsDuplicateCommandNames(t *testing.T) {
 	}
 }
 
+func TestParseCommandsManifestSupportsSubgroups(t *testing.T) {
+	manifest, err := parseCommandsManifest([]byte(`{
+		"commands": [
+			{"method": "/test.v1.TestService/Ping", "group": "alerts", "subgroup": "channels", "command": "list"}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("parseCommandsManifest error = %v", err)
+	}
+	if got := manifest.Commands[0].Subgroup; got != "channels" {
+		t.Fatalf("subgroup = %q, want channels", got)
+	}
+}
+
+func TestParseCommandsManifestRejectsInvalidSubgroup(t *testing.T) {
+	_, err := parseCommandsManifest([]byte(`{
+		"commands": [
+			{"method": "/test.v1.TestService/Ping", "group": "alerts", "subgroup": "Bad Group", "command": "list"}
+		]
+	}`))
+	if err == nil || !strings.Contains(err.Error(), `invalid subgroup "Bad Group"`) {
+		t.Fatalf("parseCommandsManifest error = %v, want invalid subgroup", err)
+	}
+}
+
+func TestParseCommandsManifestRejectsCommandSubgroupCollision(t *testing.T) {
+	_, err := parseCommandsManifest([]byte(`{
+		"commands": [
+			{"method": "/test.v1.TestService/Ping", "group": "alerts", "command": "channels"},
+			{"method": "/test.v1.TestService/Pong", "group": "alerts", "subgroup": "channels", "command": "list"}
+		]
+	}`))
+	if err == nil || !strings.Contains(err.Error(), `uses "channels" as both a command and subgroup`) {
+		t.Fatalf("parseCommandsManifest error = %v, want command/subgroup collision", err)
+	}
+}
+
 func TestParseCommandsManifestRejectsDuplicateFieldFlags(t *testing.T) {
 	_, err := parseCommandsManifest([]byte(`{
 		"commands": [
@@ -170,6 +209,54 @@ func TestParseCommandsManifestRejectsLegacyAuthPolicy(t *testing.T) {
 	}
 }
 
+func TestCommandsManifestSessionOnlyMethods(t *testing.T) {
+	data, err := os.ReadFile("commands.json")
+	if err != nil {
+		t.Fatalf("read commands.json: %v", err)
+	}
+	manifest, err := parseCommandsManifest(data)
+	if err != nil {
+		t.Fatalf("parse commands.json: %v", err)
+	}
+	var got []string
+	for _, command := range manifest.Commands {
+		if command.Auth == "session_only" {
+			got = append(got, command.Method)
+		}
+	}
+	sort.Strings(got)
+	want := []string{
+		"/alerts.v1.ChannelService/CreateChannel",
+		"/alerts.v1.ChannelService/DeleteChannel",
+		"/alerts.v1.ChannelService/ListChannels",
+		"/alerts.v1.ChannelService/TestChannel",
+		"/alerts.v1.ChannelService/UpdateChannel",
+		"/alerts.v1.HistoryService/ListAlerts",
+		"/alerts.v1.MaintenanceWindowService/CreateMaintenanceWindow",
+		"/alerts.v1.MaintenanceWindowService/DeleteMaintenanceWindow",
+		"/alerts.v1.MaintenanceWindowService/ListMaintenanceWindows",
+		"/alerts.v1.MaintenanceWindowService/UpdateMaintenanceWindow",
+		"/alerts.v1.RuleService/ListRules",
+		"/alerts.v1.RuleService/PauseRule",
+		"/alerts.v1.RuleService/ResumeRule",
+		"/authz.v1.AuthzService/CreateCustomRole",
+		"/authz.v1.AuthzService/DeleteCustomRole",
+		"/authz.v1.AuthzService/ListPermissions",
+		"/authz.v1.AuthzService/ListRoles",
+		"/authz.v1.AuthzService/UpdateCustomRole",
+		"/curtailment.v1.CurtailmentService/AdminTerminateEvent",
+		"/curtailment.v1.CurtailmentService/CreateMqttCurtailmentSource",
+		"/curtailment.v1.CurtailmentService/ForceReleaseCurtailmentOwnership",
+		"/curtailment.v1.CurtailmentService/TestMqttCurtailmentSourceConnection",
+		"/curtailment.v1.CurtailmentService/UpdateMqttCurtailmentSource",
+		"/serverlog.v1.ServerLogService/ListServerLogs",
+	}
+	sort.Strings(want)
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("session-only methods:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
 func TestBuildGroupsAllowsRepeatedMethodForDifferentCommands(t *testing.T) {
 	file := testServiceFile(t)
 	files := []protoreflect.FileDescriptor{file}
@@ -192,6 +279,30 @@ func TestBuildGroupsAllowsRepeatedMethodForDifferentCommands(t *testing.T) {
 	}
 	if report.Summary["generated"] != 2 {
 		t.Fatalf("generated count = %d, want 2", report.Summary["generated"])
+	}
+}
+
+func TestBuildGroupsPlacesCommandsInSubgroupsAndReportsPath(t *testing.T) {
+	file := testServiceFile(t)
+	files := []protoreflect.FileDescriptor{file}
+	messages, enums, err := buildTypeIndexes(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	groups, report, err := buildGroups(files, messages, enums, commandsManifest{
+		Commands: []commandSpec{{
+			Method: "/test.v1.TestService/Ping", Group: "alerts", Subgroup: "channels", Command: "list",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("buildGroups error = %v", err)
+	}
+	if len(groups) != 1 || len(groups[0].Subgroups["channels"]) != 1 || len(groups[0].CommandExprs) != 0 {
+		t.Fatalf("groups = %#v, want one nested command", groups)
+	}
+	if len(report.Methods) != 1 || report.Methods[0].Subgroup != "channels" {
+		t.Fatalf("report = %#v, want channels subgroup", report.Methods)
 	}
 }
 

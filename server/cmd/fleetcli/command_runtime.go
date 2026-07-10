@@ -9,6 +9,7 @@ import (
 
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	devicesetv1 "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
+	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/urfave/cli/v3"
 	"golang.org/x/term"
@@ -225,6 +226,28 @@ func generatedBuildMinerSelector(ctx context.Context, cmd *cli.Command, client *
 		}, nil
 	}
 	return generatedBuildBoundedMinerSelector(ctx, cmd, client)
+}
+
+func generatedBuildFleetSelector(ctx context.Context, cmd *cli.Command, client *Client) (*fleetmanagementv1.DeviceSelector, error) {
+	if cmd.Bool("all-devices") {
+		if generatedBoundedMinerSelectorProvided(cmd) {
+			return nil, fmt.Errorf("use either --all-devices or explicit device/group/rack selectors, not both")
+		}
+		return &fleetmanagementv1.DeviceSelector{
+			SelectionType: &fleetmanagementv1.DeviceSelector_AllDevices{
+				AllDevices: &fleetmanagementv1.MinerListFilter{},
+			},
+		}, nil
+	}
+	selector, err := generatedBuildBoundedMinerSelector(ctx, cmd, client)
+	if err != nil {
+		return nil, err
+	}
+	return &fleetmanagementv1.DeviceSelector{
+		SelectionType: &fleetmanagementv1.DeviceSelector_IncludeDevices{
+			IncludeDevices: selector.GetIncludeDevices(),
+		},
+	}, nil
 }
 
 // resolveBoundedSelectorDeviceIDs resolves one device-set selector (labels plus

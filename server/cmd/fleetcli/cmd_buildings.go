@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	buildingsv1 "github.com/block/proto-fleet/server/generated/grpc/buildings/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
@@ -14,6 +15,143 @@ func generatedBuildingsCommand() *cli.Command {
 		Name:  "buildings",
 		Usage: "Manage buildings commands",
 		Commands: []*cli.Command{
+			generatedRequestCommand(
+				"assign-devices",
+				"Assign devices to building",
+				"/buildings.v1.BuildingService/AssignDevicesToBuilding",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.Int64Flag{Name: "target-building-id", Usage: "target building id"},
+					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "device identifiers"},
+					&cli.BoolFlag{Name: "force-clear-conflicting-rack-membership", Usage: "force clear conflicting rack membership"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &buildingsv1.AssignDevicesToBuildingRequest{}
+					if cmd.IsSet("target-building-id") {
+						value := cmd.Int64("target-building-id")
+						req.TargetBuildingId = &value
+					}
+					if cmd.IsSet("device-identifiers") {
+						req.DeviceIdentifiers = cmd.StringSlice("device-identifiers")
+					}
+					if cmd.IsSet("force-clear-conflicting-rack-membership") {
+						value := cmd.Bool("force-clear-conflicting-rack-membership")
+						req.ForceClearConflictingRackMembership = &value
+					}
+					return req, nil
+				},
+				func() proto.Message { return &buildingsv1.AssignDevicesToBuildingResponse{} },
+			),
+			generatedRequestCommand(
+				"assign-racks",
+				"Assign racks to building",
+				"/buildings.v1.BuildingService/AssignRacksToBuilding",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
+					&cli.Int64Flag{Name: "target-building-id", Usage: "target building id"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &buildingsv1.AssignRacksToBuildingRequest{}
+					if jsonPath := cmd.String("json"); jsonPath != "" {
+						if err := readProtoJSON(jsonPath, req); err != nil {
+							return nil, err
+						}
+					}
+					if cmd.IsSet("target-building-id") {
+						value := cmd.Int64("target-building-id")
+						req.TargetBuildingId = &value
+					}
+					return req, nil
+				},
+				func() proto.Message { return &buildingsv1.AssignRacksToBuildingResponse{} },
+			),
+			generatedRequestCommand(
+				"create",
+				"Create building",
+				"/buildings.v1.BuildingService/CreateBuilding",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.Int64Flag{Name: "site-id", Usage: "site id"},
+					&cli.StringFlag{Name: "name", Usage: "name", Required: true},
+					&cli.StringFlag{Name: "description", Usage: "description"},
+					&cli.Float64Flag{Name: "power-kw", Usage: "power kw"},
+					&cli.Float64Flag{Name: "overhead-kw", Usage: "overhead kw"},
+					&cli.IntFlag{Name: "aisles", Usage: "aisles"},
+					&cli.IntFlag{Name: "physical-rack-count", Usage: "physical rack count"},
+					&cli.IntFlag{Name: "racks-per-aisle", Usage: "racks per aisle"},
+					&cli.IntFlag{Name: "default-rack-rows", Usage: "default rack rows"},
+					&cli.IntFlag{Name: "default-rack-columns", Usage: "default rack columns"},
+					&cli.StringFlag{Name: "default-rack-order-index", Usage: "default rack order index. Valid options: bottom-left, top-left, bottom-right, top-right"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &buildingsv1.CreateBuildingRequest{}
+					if cmd.IsSet("site-id") {
+						value := cmd.Int64("site-id")
+						req.SiteId = &value
+					}
+					if cmd.IsSet("name") {
+						req.Name = cmd.String("name")
+					}
+					if cmd.IsSet("description") {
+						req.Description = cmd.String("description")
+					}
+					if cmd.IsSet("power-kw") {
+						req.PowerKw = cmd.Float64("power-kw")
+					}
+					if cmd.IsSet("overhead-kw") {
+						req.OverheadKw = cmd.Float64("overhead-kw")
+					}
+					if cmd.IsSet("aisles") {
+						req.Aisles = int32(cmd.Int("aisles"))
+					}
+					if cmd.IsSet("physical-rack-count") {
+						req.PhysicalRackCount = int32(cmd.Int("physical-rack-count"))
+					}
+					if cmd.IsSet("racks-per-aisle") {
+						req.RacksPerAisle = int32(cmd.Int("racks-per-aisle"))
+					}
+					if cmd.IsSet("default-rack-rows") {
+						req.DefaultRackRows = int32(cmd.Int("default-rack-rows"))
+					}
+					if cmd.IsSet("default-rack-columns") {
+						req.DefaultRackColumns = int32(cmd.Int("default-rack-columns"))
+					}
+					if cmd.IsSet("default-rack-order-index") {
+						switch normalizeEnum(cmd.String("default-rack-order-index")) {
+						case "bottom_left":
+							req.DefaultRackOrderIndex = buildingsv1.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT
+						case "top_left":
+							req.DefaultRackOrderIndex = buildingsv1.RackOrderIndex_RACK_ORDER_INDEX_TOP_LEFT
+						case "bottom_right":
+							req.DefaultRackOrderIndex = buildingsv1.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_RIGHT
+						case "top_right":
+							req.DefaultRackOrderIndex = buildingsv1.RackOrderIndex_RACK_ORDER_INDEX_TOP_RIGHT
+						default:
+							return nil, fmt.Errorf("invalid value for default-rack-order-index: %s. Valid options: bottom-left, top-left, bottom-right, top-right", cmd.String("default-rack-order-index"))
+						}
+					}
+					return req, nil
+				},
+				func() proto.Message { return &buildingsv1.CreateBuildingResponse{} },
+			),
+			generatedRequestCommand(
+				"delete",
+				"Delete building",
+				"/buildings.v1.BuildingService/DeleteBuilding",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.Int64Flag{Name: "id", Usage: "id", Required: true},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &buildingsv1.DeleteBuildingRequest{}
+					if cmd.IsSet("id") {
+						req.Id = cmd.Int64("id")
+					}
+					return req, nil
+				},
+				func() proto.Message { return &buildingsv1.DeleteBuildingResponse{} },
+			),
 			generatedRequestCommand(
 				"get",
 				"Get a building by id",
@@ -97,6 +235,74 @@ func generatedBuildingsCommand() *cli.Command {
 					return req, nil
 				},
 				func() proto.Message { return &buildingsv1.GetBuildingStatsResponse{} },
+			),
+			generatedRequestCommand(
+				"update",
+				"Update building",
+				"/buildings.v1.BuildingService/UpdateBuilding",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.Int64Flag{Name: "id", Usage: "id", Required: true},
+					&cli.StringFlag{Name: "name", Usage: "name", Required: true},
+					&cli.StringFlag{Name: "description", Usage: "description"},
+					&cli.Float64Flag{Name: "power-kw", Usage: "power kw"},
+					&cli.Float64Flag{Name: "overhead-kw", Usage: "overhead kw"},
+					&cli.IntFlag{Name: "aisles", Usage: "aisles"},
+					&cli.IntFlag{Name: "physical-rack-count", Usage: "physical rack count"},
+					&cli.IntFlag{Name: "racks-per-aisle", Usage: "racks per aisle"},
+					&cli.IntFlag{Name: "default-rack-rows", Usage: "default rack rows"},
+					&cli.IntFlag{Name: "default-rack-columns", Usage: "default rack columns"},
+					&cli.StringFlag{Name: "default-rack-order-index", Usage: "default rack order index. Valid options: bottom-left, top-left, bottom-right, top-right"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &buildingsv1.UpdateBuildingRequest{}
+					if cmd.IsSet("id") {
+						req.Id = cmd.Int64("id")
+					}
+					if cmd.IsSet("name") {
+						req.Name = cmd.String("name")
+					}
+					if cmd.IsSet("description") {
+						req.Description = cmd.String("description")
+					}
+					if cmd.IsSet("power-kw") {
+						req.PowerKw = cmd.Float64("power-kw")
+					}
+					if cmd.IsSet("overhead-kw") {
+						req.OverheadKw = cmd.Float64("overhead-kw")
+					}
+					if cmd.IsSet("aisles") {
+						req.Aisles = int32(cmd.Int("aisles"))
+					}
+					if cmd.IsSet("physical-rack-count") {
+						req.PhysicalRackCount = int32(cmd.Int("physical-rack-count"))
+					}
+					if cmd.IsSet("racks-per-aisle") {
+						req.RacksPerAisle = int32(cmd.Int("racks-per-aisle"))
+					}
+					if cmd.IsSet("default-rack-rows") {
+						req.DefaultRackRows = int32(cmd.Int("default-rack-rows"))
+					}
+					if cmd.IsSet("default-rack-columns") {
+						req.DefaultRackColumns = int32(cmd.Int("default-rack-columns"))
+					}
+					if cmd.IsSet("default-rack-order-index") {
+						switch normalizeEnum(cmd.String("default-rack-order-index")) {
+						case "bottom_left":
+							req.DefaultRackOrderIndex = buildingsv1.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT
+						case "top_left":
+							req.DefaultRackOrderIndex = buildingsv1.RackOrderIndex_RACK_ORDER_INDEX_TOP_LEFT
+						case "bottom_right":
+							req.DefaultRackOrderIndex = buildingsv1.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_RIGHT
+						case "top_right":
+							req.DefaultRackOrderIndex = buildingsv1.RackOrderIndex_RACK_ORDER_INDEX_TOP_RIGHT
+						default:
+							return nil, fmt.Errorf("invalid value for default-rack-order-index: %s. Valid options: bottom-left, top-left, bottom-right, top-right", cmd.String("default-rack-order-index"))
+						}
+					}
+					return req, nil
+				},
+				func() proto.Message { return &buildingsv1.UpdateBuildingResponse{} },
 			),
 		},
 	}

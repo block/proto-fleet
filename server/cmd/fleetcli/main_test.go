@@ -41,6 +41,69 @@ func findSubcommand(t *testing.T, parent *cli.Command, name string) *cli.Command
 	return nil
 }
 
+func leafCommandPaths(commands []*cli.Command) map[string]bool {
+	paths := map[string]bool{}
+	var visit func([]string, *cli.Command)
+	visit = func(parent []string, command *cli.Command) {
+		path := append(append([]string{}, parent...), command.Name)
+		if len(command.Commands) == 0 {
+			paths[strings.Join(path, " ")] = true
+			return
+		}
+		for _, child := range command.Commands {
+			visit(path, child)
+		}
+	}
+	for _, command := range commands {
+		visit(nil, command)
+	}
+	return paths
+}
+
+func TestGeneratedLeafCommandsMatchManifest(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "tools", "generate-fleet-cli", "commands.json"))
+	if err != nil {
+		t.Fatalf("read commands manifest: %v", err)
+	}
+	var manifest struct {
+		Commands []struct {
+			Group    string `json:"group"`
+			Subgroup string `json:"subgroup"`
+			Command  string `json:"command"`
+		} `json:"commands"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("parse commands manifest: %v", err)
+	}
+
+	want := map[string]bool{}
+	for _, command := range manifest.Commands {
+		parts := []string{command.Group}
+		if command.Subgroup != "" {
+			parts = append(parts, command.Subgroup)
+		}
+		parts = append(parts, command.Command)
+		want[strings.Join(parts, " ")] = true
+	}
+	got := leafCommandPaths(generatedCommands())
+	if len(got) != 115 || len(want) != 115 {
+		t.Fatalf("generated leaves = %d, manifest leaves = %d, want 115 each", len(got), len(want))
+	}
+	for path := range want {
+		if !got[path] {
+			t.Errorf("manifest command %q missing from generated command tree", path)
+		}
+	}
+	for path := range got {
+		if !want[path] {
+			t.Errorf("generated command %q missing from manifest", path)
+		}
+	}
+	if gotAll := leafCommandPaths(allCommands()); len(gotAll) != 129 {
+		t.Fatalf("all command leaves = %d, want 129", len(gotAll))
+	}
+}
+
 func TestWriteAPIErrorWritesBodyToProvidedWriter(t *testing.T) {
 	oldNoColor := color.NoColor
 	color.NoColor = true
@@ -683,6 +746,57 @@ func boundedSelectorDeviceIDsFromArgs(t *testing.T, srv *httptest.Server, args .
 	return deviceIDs, nil
 }
 
+func TestFleetManagementSelectorRequiresExplicitScope(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		wantAll    bool
+		wantDevice []string
+		wantErr    string
+	}{
+		{name: "all devices", args: []string{"--all-devices"}, wantAll: true},
+		{name: "explicit devices", args: []string{"--device", "miner-2", "--device", "miner-1"}, wantDevice: []string{"miner-1", "miner-2"}},
+		{name: "missing scope", wantErr: "one of --device, --group-id, --group, --rack-id, or --rack is required"},
+		{name: "conflicting scope", args: []string{"--all-devices", "--device", "miner-1"}, wantErr: "use either --all-devices or explicit device/group/rack selectors"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotAll bool
+			var gotDevices []string
+			cmd := &cli.Command{
+				Name:  "selector-test",
+				Flags: generatedMinerSelectorFlags(),
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					selector, err := generatedBuildFleetSelector(ctx, cmd, nil)
+					if err != nil {
+						return err
+					}
+					gotAll = selector.GetAllDevices() != nil
+					gotDevices = selector.GetIncludeDevices().GetDeviceIdentifiers()
+					return nil
+				},
+			}
+			err := cmd.Run(context.Background(), append([]string{"selector-test"}, tt.args...))
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("selector error = %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("selector error = %v", err)
+			}
+			if gotAll != tt.wantAll {
+				t.Fatalf("all devices = %t, want %t", gotAll, tt.wantAll)
+			}
+			if strings.Join(gotDevices, ",") != strings.Join(tt.wantDevice, ",") {
+				t.Fatalf("devices = %v, want %v", gotDevices, tt.wantDevice)
+			}
+		})
+	}
+}
+
 func deviceSetIDFromRequest(t *testing.T, r *http.Request) string {
 	t.Helper()
 	var body struct {
@@ -1141,6 +1255,28 @@ func TestServerLogsListUsesSessionOnlyAuth(t *testing.T) {
 	}
 	if listCookie != "sess" {
 		t.Errorf("ListServerLogs session cookie = %q, want %q", listCookie, "sess")
+	}
+}
+
+func TestGeneratedSecretFlagsAreNotStringFlags(t *testing.T) {
+	var visit func(path []string, command *cli.Command)
+	visit = func(path []string, command *cli.Command) {
+		path = append(path, command.Name)
+		for _, flag := range command.Flags {
+			name := flag.Names()[0]
+			if !strings.Contains(name, "password") && !strings.Contains(name, "bearer") && !strings.Contains(name, "webhook") {
+				continue
+			}
+			if _, ok := flag.(*cli.StringFlag); ok {
+				t.Errorf("%s exposes secret flag --%s as a string", strings.Join(path, " "), name)
+			}
+		}
+		for _, child := range command.Commands {
+			visit(path, child)
+		}
+	}
+	for _, command := range generatedCommands() {
+		visit(nil, command)
 	}
 }
 

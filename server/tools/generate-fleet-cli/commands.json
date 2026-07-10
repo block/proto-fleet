@@ -376,6 +376,472 @@
       "command": "racks",
       "usage": "List racks assigned to a building",
       "required_fields": ["building_id"]
+    },
+    {
+      "method": "/sites.v1.SiteService/CreateSite",
+      "group": "sites",
+      "command": "create",
+      "required_fields": ["name"]
+    },
+    {
+      "method": "/sites.v1.SiteService/UpdateSite",
+      "group": "sites",
+      "command": "update",
+      "required_fields": ["id", "name"]
+    },
+    {
+      "method": "/sites.v1.SiteService/DeleteSite",
+      "group": "sites",
+      "command": "delete",
+      "required_fields": ["id"]
+    },
+    {
+      "method": "/sites.v1.SiteService/AssignDevicesToSite",
+      "group": "sites",
+      "command": "assign-devices"
+    },
+    {
+      "method": "/sites.v1.SiteService/AssignBuildingsToSite",
+      "group": "sites",
+      "command": "assign-buildings"
+    },
+    {
+      "method": "/sites.v1.SiteService/AssignRacksToSite",
+      "group": "sites",
+      "command": "assign-racks"
+    },
+    {
+      "method": "/buildings.v1.BuildingService/CreateBuilding",
+      "group": "buildings",
+      "command": "create",
+      "required_fields": ["name"]
+    },
+    {
+      "method": "/buildings.v1.BuildingService/UpdateBuilding",
+      "group": "buildings",
+      "command": "update",
+      "required_fields": ["id", "name"]
+    },
+    {
+      "method": "/buildings.v1.BuildingService/DeleteBuilding",
+      "group": "buildings",
+      "command": "delete",
+      "required_fields": ["id"]
+    },
+    {
+      "method": "/buildings.v1.BuildingService/AssignRacksToBuilding",
+      "group": "buildings",
+      "command": "assign-racks"
+    },
+    {
+      "method": "/buildings.v1.BuildingService/AssignDevicesToBuilding",
+      "group": "buildings",
+      "command": "assign-devices"
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/SetRackSlotPosition",
+      "group": "racks",
+      "command": "set-slot",
+      "required_fields": ["device_set_id", "device_identifier"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/ClearRackSlotPosition",
+      "group": "racks",
+      "command": "clear-slot",
+      "required_fields": ["device_set_id", "device_identifier"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/ListRackZoneRefs",
+      "group": "racks",
+      "command": "zone-refs"
+    },
+    {
+      "method": "/fleetmanagement.v1.FleetManagementService/GetMinerModelGroups",
+      "group": "miners",
+      "command": "model-groups"
+    },
+    {
+      "method": "/fleetmanagement.v1.FleetManagementService/RenameMiners",
+      "group": "miners",
+      "command": "rename"
+    },
+    {
+      "method": "/schedule.v1.ScheduleService/ListSchedules",
+      "group": "schedules",
+      "command": "list"
+    },
+    {
+      "method": "/schedule.v1.ScheduleService/CreateSchedule",
+      "group": "schedules",
+      "command": "create",
+      "required_fields": ["name", "action", "schedule_type", "start_date", "start_time", "timezone"]
+    },
+    {
+      "method": "/schedule.v1.ScheduleService/UpdateSchedule",
+      "group": "schedules",
+      "command": "update",
+      "required_fields": ["schedule_id", "name", "action", "schedule_type", "start_date", "start_time", "timezone"]
+    },
+    {
+      "method": "/schedule.v1.ScheduleService/DeleteSchedule",
+      "group": "schedules",
+      "command": "delete",
+      "required_fields": ["schedule_id"]
+    },
+    {
+      "method": "/schedule.v1.ScheduleService/PauseSchedule",
+      "group": "schedules",
+      "command": "pause",
+      "required_fields": ["schedule_id"]
+    },
+    {
+      "method": "/schedule.v1.ScheduleService/ResumeSchedule",
+      "group": "schedules",
+      "command": "resume",
+      "required_fields": ["schedule_id"]
+    },
+    {
+      "method": "/schedule.v1.ScheduleService/ReorderSchedules",
+      "group": "schedules",
+      "command": "reorder"
+    },
+    {
+      "method": "/alerts.v1.ChannelService/ListChannels",
+      "group": "alerts",
+      "subgroup": "channels",
+      "command": "list",
+      "auth": "session_only"
+    },
+    {
+      "method": "/alerts.v1.ChannelService/CreateChannel",
+      "group": "alerts",
+      "subgroup": "channels",
+      "command": "create",
+      "auth": "session_only",
+      "required_fields": ["name", "kind"],
+      "field_flags": [
+        {"path": "webhook.bearer_header", "flag": "webhook-bearer-stdin", "kind": "secret"},
+        {"path": "smtp.password", "flag": "smtp-password-stdin", "kind": "secret"},
+        {"path": "slack.webhook_url", "flag": "slack-webhook-stdin", "kind": "secret"}
+      ]
+    },
+    {
+      "method": "/alerts.v1.ChannelService/UpdateChannel",
+      "group": "alerts",
+      "subgroup": "channels",
+      "command": "update",
+      "auth": "session_only",
+      "required_fields": ["id", "name", "kind"],
+      "field_flags": [
+        {"path": "webhook.bearer_header", "flag": "webhook-bearer-stdin", "kind": "secret"},
+        {"path": "smtp.password", "flag": "smtp-password-stdin", "kind": "secret"},
+        {"path": "slack.webhook_url", "flag": "slack-webhook-stdin", "kind": "secret"}
+      ]
+    },
+    {
+      "method": "/alerts.v1.ChannelService/DeleteChannel",
+      "group": "alerts",
+      "subgroup": "channels",
+      "command": "delete",
+      "auth": "session_only",
+      "required_fields": ["id"]
+    },
+    {
+      "method": "/alerts.v1.ChannelService/TestChannel",
+      "group": "alerts",
+      "subgroup": "channels",
+      "command": "test",
+      "auth": "session_only",
+      "field_flags": [
+        {"path": "webhook.bearer_header", "flag": "webhook-bearer-stdin", "kind": "secret"},
+        {"path": "smtp.password", "flag": "smtp-password-stdin", "kind": "secret"},
+        {"path": "slack.webhook_url", "flag": "slack-webhook-stdin", "kind": "secret"}
+      ]
+    },
+    {
+      "method": "/alerts.v1.RuleService/ListRules",
+      "group": "alerts",
+      "subgroup": "rules",
+      "command": "list",
+      "auth": "session_only"
+    },
+    {
+      "method": "/alerts.v1.RuleService/PauseRule",
+      "group": "alerts",
+      "subgroup": "rules",
+      "command": "pause",
+      "auth": "session_only",
+      "required_fields": ["id"]
+    },
+    {
+      "method": "/alerts.v1.RuleService/ResumeRule",
+      "group": "alerts",
+      "subgroup": "rules",
+      "command": "resume",
+      "auth": "session_only",
+      "required_fields": ["id"]
+    },
+    {
+      "method": "/alerts.v1.MaintenanceWindowService/ListMaintenanceWindows",
+      "group": "alerts",
+      "subgroup": "maintenance-windows",
+      "command": "list",
+      "auth": "session_only"
+    },
+    {
+      "method": "/alerts.v1.MaintenanceWindowService/CreateMaintenanceWindow",
+      "group": "alerts",
+      "subgroup": "maintenance-windows",
+      "command": "create",
+      "auth": "session_only"
+    },
+    {
+      "method": "/alerts.v1.MaintenanceWindowService/UpdateMaintenanceWindow",
+      "group": "alerts",
+      "subgroup": "maintenance-windows",
+      "command": "update",
+      "auth": "session_only",
+      "required_fields": ["id"]
+    },
+    {
+      "method": "/alerts.v1.MaintenanceWindowService/DeleteMaintenanceWindow",
+      "group": "alerts",
+      "subgroup": "maintenance-windows",
+      "command": "delete",
+      "auth": "session_only",
+      "required_fields": ["id"]
+    },
+    {
+      "method": "/alerts.v1.HistoryService/ListAlerts",
+      "group": "alerts",
+      "subgroup": "history",
+      "command": "list",
+      "auth": "session_only"
+    },
+    {
+      "method": "/authz.v1.AuthzService/ListPermissions",
+      "group": "roles",
+      "command": "permissions",
+      "auth": "session_only"
+    },
+    {
+      "method": "/authz.v1.AuthzService/ListRoles",
+      "group": "roles",
+      "command": "list",
+      "auth": "session_only"
+    },
+    {
+      "method": "/authz.v1.AuthzService/CreateCustomRole",
+      "group": "roles",
+      "command": "create",
+      "auth": "session_only",
+      "required_fields": ["name"]
+    },
+    {
+      "method": "/authz.v1.AuthzService/UpdateCustomRole",
+      "group": "roles",
+      "command": "update",
+      "auth": "session_only",
+      "required_fields": ["role_id", "name"]
+    },
+    {
+      "method": "/authz.v1.AuthzService/DeleteCustomRole",
+      "group": "roles",
+      "command": "delete",
+      "auth": "session_only",
+      "required_fields": ["role_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/PreviewCurtailmentPlan",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "preview"
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/StartCurtailment",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "start"
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/UpdateCurtailmentEvent",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "update",
+      "required_fields": ["event_uuid"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/StopCurtailment",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "stop",
+      "required_fields": ["event_uuid"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/ListActiveCurtailments",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "list-active"
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/ListCurtailmentEvents",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "list"
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/GetCurtailmentEvent",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "get",
+      "required_fields": ["event_uuid"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/AdminTerminateEvent",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "terminate",
+      "auth": "session_only",
+      "required_fields": ["event_uuid", "target_state", "reason"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/ForceReleaseCurtailmentOwnership",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "force-release",
+      "auth": "session_only",
+      "required_fields": ["event_uuid", "reason"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/ListMqttCurtailmentSources",
+      "group": "curtailment",
+      "subgroup": "mqtt-sources",
+      "command": "list"
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/GetMqttCurtailmentSource",
+      "group": "curtailment",
+      "subgroup": "mqtt-sources",
+      "command": "get",
+      "required_fields": ["source_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/CreateMqttCurtailmentSource",
+      "group": "curtailment",
+      "subgroup": "mqtt-sources",
+      "command": "create",
+      "auth": "session_only",
+      "field_flags": [
+        {"path": "mqtt_password", "flag": "mqtt-password-stdin", "kind": "secret", "required": true, "prompt": true}
+      ]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/UpdateMqttCurtailmentSource",
+      "group": "curtailment",
+      "subgroup": "mqtt-sources",
+      "command": "update",
+      "auth": "session_only",
+      "required_fields": ["source_id"],
+      "field_flags": [
+        {"path": "mqtt_password", "flag": "mqtt-password-stdin", "kind": "secret"}
+      ]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/TestMqttCurtailmentSourceConnection",
+      "group": "curtailment",
+      "subgroup": "mqtt-sources",
+      "command": "test",
+      "auth": "session_only",
+      "field_flags": [
+        {"path": "mqtt_password", "flag": "mqtt-password-stdin", "kind": "secret", "required": true, "prompt": true}
+      ]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/SetMqttCurtailmentSourceEnabled",
+      "group": "curtailment",
+      "subgroup": "mqtt-sources",
+      "command": "set-enabled",
+      "required_fields": ["source_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/DeleteMqttCurtailmentSource",
+      "group": "curtailment",
+      "subgroup": "mqtt-sources",
+      "command": "delete",
+      "required_fields": ["source_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/ListCurtailmentResponseProfiles",
+      "group": "curtailment",
+      "subgroup": "profiles",
+      "command": "list"
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/GetCurtailmentResponseProfile",
+      "group": "curtailment",
+      "subgroup": "profiles",
+      "command": "get",
+      "required_fields": ["profile_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/CreateCurtailmentResponseProfile",
+      "group": "curtailment",
+      "subgroup": "profiles",
+      "command": "create"
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/UpdateCurtailmentResponseProfile",
+      "group": "curtailment",
+      "subgroup": "profiles",
+      "command": "update",
+      "required_fields": ["profile_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/DeleteCurtailmentResponseProfile",
+      "group": "curtailment",
+      "subgroup": "profiles",
+      "command": "delete",
+      "required_fields": ["profile_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/ListCurtailmentAutomationRules",
+      "group": "curtailment",
+      "subgroup": "automation-rules",
+      "command": "list"
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/GetCurtailmentAutomationRule",
+      "group": "curtailment",
+      "subgroup": "automation-rules",
+      "command": "get",
+      "required_fields": ["rule_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/CreateCurtailmentAutomationRule",
+      "group": "curtailment",
+      "subgroup": "automation-rules",
+      "command": "create"
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/UpdateCurtailmentAutomationRule",
+      "group": "curtailment",
+      "subgroup": "automation-rules",
+      "command": "update",
+      "required_fields": ["rule_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/SetCurtailmentAutomationRuleEnabled",
+      "group": "curtailment",
+      "subgroup": "automation-rules",
+      "command": "set-enabled",
+      "required_fields": ["rule_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/DeleteCurtailmentAutomationRule",
+      "group": "curtailment",
+      "subgroup": "automation-rules",
+      "command": "delete",
+      "required_fields": ["rule_id"]
     }
   ]
 }

@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
-	"github.com/urfave/cli/v3"
+	cli "github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
 )
 
@@ -113,6 +113,23 @@ func generatedMinersCommand() *cli.Command {
 				func() proto.Message { return &fleetmanagementv1.LookupMinerByIdentifierResponse{} },
 			),
 			generatedRequestCommand(
+				"model-groups",
+				"Get miner model groups",
+				"/fleetmanagement.v1.FleetManagementService/GetMinerModelGroups",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin", Required: true},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &fleetmanagementv1.GetMinerModelGroupsRequest{}
+					if err := readProtoJSON(cmd.String("json"), req); err != nil {
+						return nil, err
+					}
+					return req, nil
+				},
+				func() proto.Message { return &fleetmanagementv1.GetMinerModelGroupsResponse{} },
+			),
+			generatedRequestCommand(
 				"pool-assignments",
 				"Get current pool assignments for a miner",
 				"/fleetmanagement.v1.FleetManagementService/GetMinerPoolAssignments",
@@ -128,6 +145,23 @@ func generatedMinersCommand() *cli.Command {
 					return req, nil
 				},
 				func() proto.Message { return &fleetmanagementv1.GetMinerPoolAssignmentsResponse{} },
+			),
+			generatedRequestCommand(
+				"rename",
+				"Rename miners",
+				"/fleetmanagement.v1.FleetManagementService/RenameMiners",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin", Required: true},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &fleetmanagementv1.RenameMinersRequest{}
+					if err := readProtoJSON(cmd.String("json"), req); err != nil {
+						return nil, err
+					}
+					return req, nil
+				},
+				func() proto.Message { return &fleetmanagementv1.RenameMinersResponse{} },
 			),
 		},
 	}

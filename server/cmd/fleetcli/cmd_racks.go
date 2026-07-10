@@ -43,6 +43,27 @@ func generatedRacksCommand() *cli.Command {
 				func() proto.Message { return &devicesetv1.AssignDevicesToRackResponse{} },
 			),
 			generatedRequestCommand(
+				"clear-slot",
+				"Clear rack slot position",
+				"/device_set.v1.DeviceSetService/ClearRackSlotPosition",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id", Required: true},
+					&cli.StringFlag{Name: "device-identifier", Usage: "device identifier", Required: true},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &devicesetv1.ClearRackSlotPositionRequest{}
+					if cmd.IsSet("device-set-id") {
+						req.DeviceSetId = cmd.Int64("device-set-id")
+					}
+					if cmd.IsSet("device-identifier") {
+						req.DeviceIdentifier = cmd.String("device-identifier")
+					}
+					return req, nil
+				},
+				func() proto.Message { return &devicesetv1.ClearRackSlotPositionResponse{} },
+			),
+			generatedRequestCommand(
 				"delete",
 				"Delete a rack",
 				"/device_set.v1.DeviceSetService/DeleteDeviceSet",
@@ -175,6 +196,33 @@ func generatedRacksCommand() *cli.Command {
 				func() proto.Message { return &devicesetv1.SaveRackResponse{} },
 			),
 			generatedRequestCommand(
+				"set-slot",
+				"Set rack slot position",
+				"/device_set.v1.DeviceSetService/SetRackSlotPosition",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id", Required: true},
+					&cli.StringFlag{Name: "device-identifier", Usage: "device identifier", Required: true},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &devicesetv1.SetRackSlotPositionRequest{}
+					if jsonPath := cmd.String("json"); jsonPath != "" {
+						if err := readProtoJSON(jsonPath, req); err != nil {
+							return nil, err
+						}
+					}
+					if cmd.IsSet("device-set-id") {
+						req.DeviceSetId = cmd.Int64("device-set-id")
+					}
+					if cmd.IsSet("device-identifier") {
+						req.DeviceIdentifier = cmd.String("device-identifier")
+					}
+					return req, nil
+				},
+				func() proto.Message { return &devicesetv1.SetRackSlotPositionResponse{} },
+			),
+			generatedRequestCommand(
 				"slots",
 				"List occupied rack slots",
 				"/device_set.v1.DeviceSetService/GetRackSlots",
@@ -227,6 +275,19 @@ func generatedRacksCommand() *cli.Command {
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.ListRackTypesResponse{} },
+			),
+			generatedRequestCommand(
+				"zone-refs",
+				"List rack zone refs",
+				"/device_set.v1.DeviceSetService/ListRackZoneRefs",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &devicesetv1.ListRackZoneRefsRequest{}
+					return req, nil
+				},
+				func() proto.Message { return &devicesetv1.ListRackZoneRefsResponse{} },
 			),
 			generatedRequestCommand(
 				"zones",

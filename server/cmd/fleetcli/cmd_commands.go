@@ -7,13 +7,17 @@ import "github.com/urfave/cli/v3"
 func generatedCommands() []*cli.Command {
 	return []*cli.Command{
 		generatedActivityCommand(),
+		generatedAlertsCommand(),
 		generatedBuildingsCommand(),
+		generatedCurtailmentCommand(),
 		generatedErrorsCommand(),
 		generatedGroupsCommand(),
 		generatedMinersCommand(),
 		generatedOnboardingCommand(),
 		generatedPoolsCommand(),
 		generatedRacksCommand(),
+		generatedRolesCommand(),
+		generatedSchedulesCommand(),
 		generatedServerlogsCommand(),
 		generatedSitesCommand(),
 	}
