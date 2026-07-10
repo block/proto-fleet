@@ -158,29 +158,25 @@
       "method": "/device_set.v1.DeviceSetService/AddDevicesToGroup",
       "group": "groups",
       "command": "add-devices",
-      "usage": "Add devices to a group",
-      "require_collection_type": "group"
+      "usage": "Add devices to a group"
     },
     {
       "method": "/device_set.v1.DeviceSetService/RemoveDevicesFromGroup",
       "group": "groups",
       "command": "remove-devices",
-      "usage": "Remove devices from a group",
-      "require_collection_type": "group"
+      "usage": "Remove devices from a group"
     },
     {
       "method": "/device_set.v1.DeviceSetService/UpdateDeviceSet",
       "group": "groups",
       "command": "update",
-      "usage": "Update a group",
-      "require_collection_type": "group"
+      "usage": "Update a group"
     },
     {
       "method": "/device_set.v1.DeviceSetService/DeleteDeviceSet",
       "group": "groups",
       "command": "delete",
-      "usage": "Delete a group",
-      "require_collection_type": "group"
+      "usage": "Delete a group"
     },
     {
       "method": "/device_set.v1.DeviceSetService/ListDeviceSetMembers",
@@ -229,8 +225,7 @@
       "group": "racks",
       "command": "save",
       "usage": "Create or update a rack",
-      "json_only": true,
-      "require_collection_type": "rack"
+      "json_only": true
     },
     {
       "method": "/device_set.v1.DeviceSetService/AssignDevicesToRack",
@@ -238,15 +233,13 @@
       "command": "add-devices",
       "usage": "Add devices to a rack",
       "required_fields": ["target_rack_id"],
-      "common_selector": "device_list",
-      "require_collection_type": "rack"
+      "common_selector": "device_list"
     },
     {
       "method": "/device_set.v1.DeviceSetService/DeleteDeviceSet",
       "group": "racks",
       "command": "delete",
-      "usage": "Delete a rack",
-      "require_collection_type": "rack"
+      "usage": "Delete a rack"
     },
     {
       "method": "/device_set.v1.DeviceSetService/ListDeviceSetMembers",

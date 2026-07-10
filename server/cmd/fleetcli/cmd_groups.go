@@ -32,9 +32,6 @@ func generatedGroupsCommand() *cli.Command {
 					if cmd.IsSet("target-group-id") {
 						req.TargetGroupId = cmd.Int64("target-group-id")
 					}
-					if err := generatedRequireDeviceSetType(ctx, client, req.TargetGroupId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP); err != nil {
-						return nil, err
-					}
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.AddDevicesToGroupResponse{} },
@@ -86,9 +83,6 @@ func generatedGroupsCommand() *cli.Command {
 					req := &devicesetv1.DeleteDeviceSetRequest{}
 					if cmd.IsSet("device-set-id") {
 						req.DeviceSetId = cmd.Int64("device-set-id")
-					}
-					if err := generatedRequireDeviceSetType(ctx, client, req.DeviceSetId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP); err != nil {
-						return nil, err
 					}
 					return req, nil
 				},
@@ -206,9 +200,6 @@ func generatedGroupsCommand() *cli.Command {
 					if cmd.IsSet("target-group-id") {
 						req.TargetGroupId = cmd.Int64("target-group-id")
 					}
-					if err := generatedRequireDeviceSetType(ctx, client, req.TargetGroupId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP); err != nil {
-						return nil, err
-					}
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.RemoveDevicesFromGroupResponse{} },
@@ -272,9 +263,6 @@ func generatedGroupsCommand() *cli.Command {
 					if cmd.IsSet("description") {
 						value := cmd.String("description")
 						req.Description = &value
-					}
-					if err := generatedRequireDeviceSetType(ctx, client, req.DeviceSetId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP); err != nil {
-						return nil, err
 					}
 					return req, nil
 				},

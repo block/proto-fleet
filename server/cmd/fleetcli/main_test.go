@@ -234,21 +234,23 @@ func TestPerformanceGetRejectsUnknownMetricBeforeRequest(t *testing.T) {
 	}
 }
 
-func TestDeviceSetDeleteVerifiesType(t *testing.T) {
-	t.Run("groups delete rejects rack id before delete", func(t *testing.T) {
+func TestDeviceSetDeleteSkipsTypePreflight(t *testing.T) {
+	t.Run("groups delete calls delete directly", func(t *testing.T) {
 		pinFleetAuthEnv(t, nil)
 
-		var getAuth string
+		var deleteAuth string
+		var deleteBody map[string]any
 		deleteCount := 0
 		mux := http.NewServeMux()
 		mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSet", func(w http.ResponseWriter, r *http.Request) {
-			getAuth = r.Header.Get("Authorization")
-			w.Header().Set("Content-Type", contentTypeJSON)
-			_, _ = w.Write([]byte(`{"device_set":{"id":"42","type":"DEVICE_SET_TYPE_RACK","label":"rack-42"}}`))
+			t.Errorf("unexpected type preflight request: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "preflight should not be called", http.StatusTeapot)
 		})
 		mux.HandleFunc("POST /device_set.v1.DeviceSetService/DeleteDeviceSet", func(w http.ResponseWriter, r *http.Request) {
 			deleteCount++
-			http.Error(w, "delete should not be called", http.StatusTeapot)
+			deleteAuth = r.Header.Get("Authorization")
+			deleteBody = requestBodyMap(t, r)
+			http.Error(w, "device set 42 is a rack, not a group", http.StatusBadRequest)
 		})
 		srv := httptest.NewServer(mux)
 		t.Cleanup(srv.Close)
@@ -260,26 +262,30 @@ func TestDeviceSetDeleteVerifiesType(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "device set 42 is a rack, not a group") {
 			t.Fatalf("groups delete error = %v, want device set type mismatch", err)
 		}
-		if getAuth != "Bearer test-key" {
-			t.Errorf("GetDeviceSet Authorization = %q, want %q", getAuth, "Bearer test-key")
+		if deleteAuth != "Bearer test-key" {
+			t.Errorf("DeleteDeviceSet Authorization = %q, want %q", deleteAuth, "Bearer test-key")
 		}
-		if deleteCount != 0 {
-			t.Fatalf("delete count = %d, want 0", deleteCount)
+		if deleteCount != 1 {
+			t.Fatalf("delete count = %d, want 1", deleteCount)
+		}
+		if deleteBody["device_set_id"] != "42" {
+			t.Fatalf("delete body = %v, want device_set_id 42", deleteBody)
 		}
 	})
 
-	t.Run("racks delete proceeds for rack id", func(t *testing.T) {
+	t.Run("racks delete calls delete directly", func(t *testing.T) {
 		pinFleetAuthEnv(t, nil)
 
-		var calls []string
+		var deleteBody map[string]any
+		deleteCount := 0
 		mux := http.NewServeMux()
 		mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSet", func(w http.ResponseWriter, r *http.Request) {
-			calls = append(calls, "get")
-			w.Header().Set("Content-Type", contentTypeJSON)
-			_, _ = w.Write([]byte(`{"device_set":{"id":"42","type":"DEVICE_SET_TYPE_RACK","label":"rack-42"}}`))
+			t.Errorf("unexpected type preflight request: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "preflight should not be called", http.StatusTeapot)
 		})
 		mux.HandleFunc("POST /device_set.v1.DeviceSetService/DeleteDeviceSet", func(w http.ResponseWriter, r *http.Request) {
-			calls = append(calls, "delete")
+			deleteCount++
+			deleteBody = requestBodyMap(t, r)
 			w.Header().Set("Content-Type", contentTypeJSON)
 			_, _ = w.Write([]byte("{}"))
 		})
@@ -293,9 +299,11 @@ func TestDeviceSetDeleteVerifiesType(t *testing.T) {
 		if err != nil {
 			t.Fatalf("racks delete error = %v, want success", err)
 		}
-		want := []string{"get", "delete"}
-		if strings.Join(calls, ",") != strings.Join(want, ",") {
-			t.Fatalf("calls = %v, want %v", calls, want)
+		if deleteCount != 1 {
+			t.Fatalf("delete count = %d, want 1", deleteCount)
+		}
+		if deleteBody["device_set_id"] != "42" {
+			t.Fatalf("delete body = %v, want device_set_id 42", deleteBody)
 		}
 	})
 }
@@ -373,39 +381,34 @@ func TestDeviceSetGetVerifiesType(t *testing.T) {
 	})
 }
 
-func TestDeviceSetMutationsVerifyType(t *testing.T) {
+func TestDeviceSetManageCommandsSkipTypePreflight(t *testing.T) {
 	tests := []struct {
 		name          string
 		args          []string
-		actualType    string
 		mutationRoute string
 		wantError     string
 	}{
 		{
-			name:          "groups add-devices rejects rack id",
+			name:          "groups add-devices relies on server group validation",
 			args:          []string{"groups", "add-devices", "--target-group-id", "42", "--all-devices"},
-			actualType:    "DEVICE_SET_TYPE_RACK",
 			mutationRoute: "POST /device_set.v1.DeviceSetService/AddDevicesToGroup",
 			wantError:     "device set 42 is a rack, not a group",
 		},
 		{
-			name:          "groups remove-devices rejects rack id",
+			name:          "groups remove-devices relies on server group validation",
 			args:          []string{"groups", "remove-devices", "--target-group-id", "42", "--all-devices"},
-			actualType:    "DEVICE_SET_TYPE_RACK",
 			mutationRoute: "POST /device_set.v1.DeviceSetService/RemoveDevicesFromGroup",
 			wantError:     "device set 42 is a rack, not a group",
 		},
 		{
-			name:          "groups update rejects rack id",
+			name:          "groups update calls update directly",
 			args:          []string{"groups", "update", "--device-set-id", "42", "--label", "group-label"},
-			actualType:    "DEVICE_SET_TYPE_RACK",
 			mutationRoute: "POST /device_set.v1.DeviceSetService/UpdateDeviceSet",
 			wantError:     "device set 42 is a rack, not a group",
 		},
 		{
-			name:          "racks add-devices rejects group id",
+			name:          "racks add-devices relies on server rack validation",
 			args:          []string{"racks", "add-devices", "--target-rack-id", "42", "--device", "miner-1"},
-			actualType:    "DEVICE_SET_TYPE_GROUP",
 			mutationRoute: "POST /device_set.v1.DeviceSetService/AssignDevicesToRack",
 			wantError:     "device set 42 is a group, not a rack",
 		},
@@ -416,15 +419,16 @@ func TestDeviceSetMutationsVerifyType(t *testing.T) {
 			pinFleetAuthEnv(t, nil)
 
 			mutationCount := 0
+			var mutationBody map[string]any
 			mux := http.NewServeMux()
-			mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSet", func(w http.ResponseWriter, _ *http.Request) {
-				w.Header().Set("Content-Type", contentTypeJSON)
-				_, _ = w.Write([]byte(`{"device_set":{"id":"42","type":"` + tt.actualType + `","label":"wrong-type"}}`))
+			mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSet", func(w http.ResponseWriter, r *http.Request) {
+				t.Errorf("unexpected type preflight request: %s %s", r.Method, r.URL.Path)
+				http.Error(w, "preflight should not be called", http.StatusTeapot)
 			})
 			mux.HandleFunc(tt.mutationRoute, func(w http.ResponseWriter, r *http.Request) {
 				mutationCount++
-				t.Errorf("unexpected mutation request: %s %s", r.Method, r.URL.Path)
-				http.Error(w, "mutation should not be called", http.StatusTeapot)
+				mutationBody = requestBodyMap(t, r)
+				http.Error(w, tt.wantError, http.StatusBadRequest)
 			})
 			srv := httptest.NewServer(mux)
 			t.Cleanup(srv.Close)
@@ -435,8 +439,11 @@ func TestDeviceSetMutationsVerifyType(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
 				t.Fatalf("fleetcli %s error = %v, want %q", strings.Join(tt.args, " "), err, tt.wantError)
 			}
-			if mutationCount != 0 {
-				t.Fatalf("mutation count = %d, want 0", mutationCount)
+			if mutationCount != 1 {
+				t.Fatalf("mutation count = %d, want 1", mutationCount)
+			}
+			if mutationBody == nil {
+				t.Fatalf("mutation body was not captured")
 			}
 		})
 	}
@@ -533,14 +540,13 @@ func TestRackSaveJSONRejectsGroupID(t *testing.T) {
 
 	saveCount := 0
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSet", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", contentTypeJSON)
-		_, _ = w.Write([]byte(`{"device_set":{"id":"42","type":"DEVICE_SET_TYPE_GROUP","label":"wrong-type"}}`))
+	mux.HandleFunc("POST /device_set.v1.DeviceSetService/GetDeviceSet", func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected type preflight request: %s %s", r.Method, r.URL.Path)
+		http.Error(w, "preflight should not be called", http.StatusTeapot)
 	})
 	mux.HandleFunc("POST /device_set.v1.DeviceSetService/SaveRack", func(w http.ResponseWriter, r *http.Request) {
 		saveCount++
-		t.Errorf("unexpected save request: %s %s", r.Method, r.URL.Path)
-		http.Error(w, "save should not be called", http.StatusTeapot)
+		http.Error(w, "device set 42 is a group, not a rack", http.StatusBadRequest)
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -552,8 +558,8 @@ func TestRackSaveJSONRejectsGroupID(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "device set 42 is a group, not a rack") {
 		t.Fatalf("racks save json error = %v, want group/rack mismatch", err)
 	}
-	if saveCount != 0 {
-		t.Fatalf("save count = %d, want 0", saveCount)
+	if saveCount != 1 {
+		t.Fatalf("save count = %d, want 1", saveCount)
 	}
 }
 
@@ -686,6 +692,15 @@ func deviceSetIDFromRequest(t *testing.T, r *http.Request) string {
 		t.Fatalf("decode device set request: %v", err)
 	}
 	return body.DeviceSetID
+}
+
+func requestBodyMap(t *testing.T, r *http.Request) map[string]any {
+	t.Helper()
+	var body map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		t.Fatalf("decode request body: %v", err)
+	}
+	return body
 }
 
 func TestBoundedMinerSelectorVerifiesDeviceSetIDs(t *testing.T) {

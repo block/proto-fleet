@@ -38,11 +38,6 @@ func generatedRacksCommand() *cli.Command {
 						value := cmd.Bool("force-clear-conflicting-site")
 						req.ForceClearConflictingSite = &value
 					}
-					if req.TargetRackId != nil {
-						if err := generatedRequireDeviceSetType(ctx, client, *req.TargetRackId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK); err != nil {
-							return nil, err
-						}
-					}
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.AssignDevicesToRackResponse{} },
@@ -59,9 +54,6 @@ func generatedRacksCommand() *cli.Command {
 					req := &devicesetv1.DeleteDeviceSetRequest{}
 					if cmd.IsSet("device-set-id") {
 						req.DeviceSetId = cmd.Int64("device-set-id")
-					}
-					if err := generatedRequireDeviceSetType(ctx, client, req.DeviceSetId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK); err != nil {
-						return nil, err
 					}
 					return req, nil
 				},
@@ -177,11 +169,6 @@ func generatedRacksCommand() *cli.Command {
 					req := &devicesetv1.SaveRackRequest{}
 					if err := readProtoJSON(cmd.String("json"), req); err != nil {
 						return nil, err
-					}
-					if req.DeviceSetId != nil {
-						if err := generatedRequireDeviceSetType(ctx, client, *req.DeviceSetId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK); err != nil {
-							return nil, err
-						}
 					}
 					return req, nil
 				},
