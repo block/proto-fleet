@@ -3,6 +3,7 @@ import { type RefObject, useCallback, useEffect, useRef, useState } from "react"
 import { BarcodeDetector } from "barcode-detector/ponyfill";
 
 import { initBarcodeScanner } from "@/protoFleet/features/fleetManagement/utils/initBarcodeScanner";
+import { getObjectCoverSourceCrop } from "@/protoFleet/features/fleetManagement/utils/objectCoverSourceCrop";
 
 /**
  * Whether the current browsing context can open a live camera stream.
@@ -67,8 +68,8 @@ export function useQrScanner({ onDetected, active, restartKey = 0 }: UseQrScanne
   const streamRef = useRef<MediaStream | null>(null);
   const detectorRef = useRef<BarcodeDetector | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Offscreen canvas used to crop each frame to the visible preview square
-  // before decoding (see detectionFrame).
+  // Offscreen canvas used to crop each frame to the visible preview area before
+  // decoding (see detectionFrame).
   const cropCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const detectedRef = useRef(false);
   // Guards against overlapping decodes: detect() can take longer than
@@ -219,12 +220,10 @@ export function useQrScanner({ onDetected, active, restartKey = 0 }: UseQrScanne
 }
 
 /**
- * The live preview shows an `aspect-square`, `object-cover` crop of the (often
- * 16:9) camera stream, but `detect()` reads the full frame. Decode only the
- * visible center square so a barcode sitting in the hidden side margins — an
- * adjacent label in a dense rack row — can't be scanned and assigned while the
- * operator is aiming at a different, visible label. Returns the video unchanged
- * when there's nothing to crop (a square or not-yet-sized frame).
+ * The live preview renders the camera stream with `object-cover`, but
+ * `detect()` reads the full video frame. Decode only the source pixels visible
+ * in the rendered preview so hidden labels outside the viewport crop cannot be
+ * scanned and assigned while the operator is aiming at a different label.
  */
 function detectionFrame(
   video: HTMLVideoElement,
@@ -232,22 +231,26 @@ function detectionFrame(
 ): HTMLVideoElement | HTMLCanvasElement {
   const vw = video.videoWidth;
   const vh = video.videoHeight;
-  if (!vw || !vh || vw === vh) return video;
+  const rect = video.getBoundingClientRect();
+  const renderedWidth = rect.width || video.clientWidth;
+  const renderedHeight = rect.height || video.clientHeight;
+  const crop = getObjectCoverSourceCrop({ sourceWidth: vw, sourceHeight: vh, renderedWidth, renderedHeight });
 
-  const side = Math.min(vw, vh);
-  const sx = (vw - side) / 2;
-  const sy = (vh - side) / 2;
+  if (!crop) return video;
+
+  const isFullFrame = crop.sx === 0 && crop.sy === 0 && crop.sw === vw && crop.sh === vh;
+  if (isFullFrame) return video;
 
   let canvas = canvasRef.current;
   if (!canvas) {
     canvas = document.createElement("canvas");
     canvasRef.current = canvas;
   }
-  canvas.width = side;
-  canvas.height = side;
+  canvas.width = Math.round(crop.sw);
+  canvas.height = Math.round(crop.sh);
   const ctx = canvas.getContext("2d");
   if (!ctx) return video;
-  ctx.drawImage(video, sx, sy, side, side, 0, 0, side, side);
+  ctx.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, canvas.width, canvas.height);
   return canvas;
 }
 
