@@ -57,12 +57,13 @@ function expectConnectError(result: { body: string; status: number }, code: "per
   expect(result.status === 501 || normalizedBody.includes(code), summary).toBeTruthy();
 }
 
-function expectConnectNotPermissionDenied(result: { body: string; status: number }) {
+function expectConnectSuccessfulOrUnimplemented(result: { body: string; ok: boolean; status: number }) {
   const normalizedBody = result.body.toLowerCase();
   const summary = JSON.stringify(result);
 
-  expect(result.status).not.toBe(403);
   expect(normalizedBody.includes("permission_denied"), summary).toBeFalsy();
+  expect(normalizedBody.includes("unauthenticated"), summary).toBeFalsy();
+  expect(result.ok || result.status === 501 || normalizedBody.includes("unimplemented"), summary).toBeTruthy();
 }
 
 test.describe("Proto Fleet - RBAC", () => {
@@ -261,7 +262,7 @@ test.describe("Proto Fleet - RBAC", () => {
     });
 
     const allowedResult = await invokeIngestCurtailmentSignal(page, allowedReference);
-    expectConnectNotPermissionDenied(allowedResult);
+    expectConnectSuccessfulOrUnimplemented(allowedResult);
   });
 
   test("Sites, buildings, and racks read-only role can view infrastructure without create actions", async ({

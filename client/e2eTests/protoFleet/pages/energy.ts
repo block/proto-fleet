@@ -201,12 +201,16 @@ export class EnergyPage extends BasePage {
 
     const reasons = new Set<string>();
 
-    for (const activeLockup of await this.page.getByTestId("active-curtailment-primary-lockup").all()) {
-      const text = (await activeLockup.textContent()) ?? "";
+    const activeCurtailmentSections = this.page
+      .getByTestId("active-curtailment-primary-lockup")
+      .locator("xpath=ancestor::section[1]");
+
+    for (const activeCurtailmentSection of await activeCurtailmentSections.all()) {
+      const text = (await activeCurtailmentSection.textContent()) ?? "";
       for (const line of text.split("\n")) {
         const trimmed = line.trim();
-        if (trimmed.startsWith(prefix)) {
-          reasons.add(trimmed);
+        if (trimmed.startsWith(prefix) && trimmed.includes(" (Applies to ")) {
+          reasons.add(trimmed.replace(/\s+\(Applies to .*$/, ""));
         }
       }
     }
