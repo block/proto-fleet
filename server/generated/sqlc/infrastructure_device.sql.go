@@ -223,13 +223,14 @@ func (q *Queries) ListInfrastructureDevicesByOrg(ctx context.Context, arg ListIn
 	return items, nil
 }
 
-const softDeleteInfrastructureDevice = `-- name: SoftDeleteInfrastructureDevice :execrows
+const softDeleteInfrastructureDevice = `-- name: SoftDeleteInfrastructureDevice :one
 UPDATE infrastructure_device
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE id = $1
   AND org_id = $2
   AND site_id = $3
   AND deleted_at IS NULL
+RETURNING id, org_id, site_id, building_name, name, device_kind, fan_count, enabled, driver_type, driver_config, created_at, updated_at, deleted_at
 `
 
 type SoftDeleteInfrastructureDeviceParams struct {
@@ -239,13 +240,29 @@ type SoftDeleteInfrastructureDeviceParams struct {
 }
 
 // expected_site_id: same stale-authorization guard as
-// UpdateInfrastructureDevice above.
-func (q *Queries) SoftDeleteInfrastructureDevice(ctx context.Context, arg SoftDeleteInfrastructureDeviceParams) (int64, error) {
-	result, err := q.exec(ctx, q.softDeleteInfrastructureDeviceStmt, softDeleteInfrastructureDevice, arg.ID, arg.OrgID, arg.ExpectedSiteID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+// UpdateInfrastructureDevice above. RETURNING the deleted row lets the
+// caller stamp the delete audit event with the device actually deleted,
+// race-free (mirrors SoftDeleteBuilding). sql.ErrNoRows when no live
+// row matched.
+func (q *Queries) SoftDeleteInfrastructureDevice(ctx context.Context, arg SoftDeleteInfrastructureDeviceParams) (InfrastructureDevice, error) {
+	row := q.queryRow(ctx, q.softDeleteInfrastructureDeviceStmt, softDeleteInfrastructureDevice, arg.ID, arg.OrgID, arg.ExpectedSiteID)
+	var i InfrastructureDevice
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.SiteID,
+		&i.BuildingName,
+		&i.Name,
+		&i.DeviceKind,
+		&i.FanCount,
+		&i.Enabled,
+		&i.DriverType,
+		&i.DriverConfig,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
 }
 
 const updateInfrastructureDevice = `-- name: UpdateInfrastructureDevice :execrows

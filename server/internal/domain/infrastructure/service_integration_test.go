@@ -44,7 +44,7 @@ func newTestService(t *testing.T) (*infrastructure.Service, *sql.DB) {
 	store := sqlstores.NewSQLInfrastructureDeviceStore(conn)
 	siteStore := sqlstores.NewSQLSiteStore(conn)
 	transactor := sqlstores.NewSQLTransactor(conn)
-	return infrastructure.NewService(store, siteStore, infrastructure.NewDefaultDriverRegistry(), transactor), conn
+	return infrastructure.NewService(store, siteStore, infrastructure.NewDefaultDriverRegistry(), transactor, nil), conn
 }
 
 func validModbusConfig() json.RawMessage {

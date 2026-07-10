@@ -87,12 +87,13 @@ func (mr *MockInfrastructureDeviceStoreMockRecorder) ListInfrastructureDevices(c
 }
 
 // SoftDeleteInfrastructureDevice mocks base method.
-func (m *MockInfrastructureDeviceStore) SoftDeleteInfrastructureDevice(ctx context.Context, orgID, id, expectedSiteID int64) (bool, error) {
+func (m *MockInfrastructureDeviceStore) SoftDeleteInfrastructureDevice(ctx context.Context, orgID, id, expectedSiteID int64) (*models.Device, bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SoftDeleteInfrastructureDevice", ctx, orgID, id, expectedSiteID)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret0, _ := ret[0].(*models.Device)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // SoftDeleteInfrastructureDevice indicates an expected call of SoftDeleteInfrastructureDevice.

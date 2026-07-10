@@ -78,12 +78,16 @@ WHERE id = sqlc.arg('id')
   AND site_id = sqlc.arg('expected_site_id')
   AND deleted_at IS NULL;
 
--- name: SoftDeleteInfrastructureDevice :execrows
+-- name: SoftDeleteInfrastructureDevice :one
 -- expected_site_id: same stale-authorization guard as
--- UpdateInfrastructureDevice above.
+-- UpdateInfrastructureDevice above. RETURNING the deleted row lets the
+-- caller stamp the delete audit event with the device actually deleted,
+-- race-free (mirrors SoftDeleteBuilding). sql.ErrNoRows when no live
+-- row matched.
 UPDATE infrastructure_device
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND site_id = sqlc.arg('expected_site_id')
-  AND deleted_at IS NULL;
+  AND deleted_at IS NULL
+RETURNING *;

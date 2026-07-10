@@ -7,13 +7,23 @@ package infrastructure
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver/modbustcp"
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+)
+
+// Event type constants for infrastructure-device activity logs.
+const (
+	eventDeviceCreated = "infrastructure_device.created"
+	eventDeviceUpdated = "infrastructure_device.updated"
+	eventDeviceDeleted = "infrastructure_device.deleted"
 )
 
 // NewDefaultDriverRegistry returns the registry with every production
@@ -27,16 +37,50 @@ func NewDefaultDriverRegistry() *driver.Registry {
 
 // Service owns infrastructure-device CRUD and validation.
 type Service struct {
-	store      interfaces.InfrastructureDeviceStore
-	siteStore  interfaces.SiteStore
-	registry   *driver.Registry
-	transactor interfaces.Transactor
+	store       interfaces.InfrastructureDeviceStore
+	siteStore   interfaces.SiteStore
+	registry    *driver.Registry
+	transactor  interfaces.Transactor
+	activitySvc *activity.Service
 }
 
 // NewService returns a Service bound to the supplied stores and
-// driver registry.
-func NewService(store interfaces.InfrastructureDeviceStore, siteStore interfaces.SiteStore, registry *driver.Registry, transactor interfaces.Transactor) *Service {
-	return &Service{store: store, siteStore: siteStore, registry: registry, transactor: transactor}
+// driver registry. activitySvc is the fire-and-forget audit sink for
+// device mutations; it may be nil in tests or environments where
+// activity logging is disabled.
+func NewService(store interfaces.InfrastructureDeviceStore, siteStore interfaces.SiteStore, registry *driver.Registry, transactor interfaces.Transactor, activitySvc *activity.Service) *Service {
+	return &Service{store: store, siteStore: siteStore, registry: registry, transactor: transactor, activitySvc: activitySvc}
+}
+
+// logDeviceEvent emits an audit row for a device mutation. Fires
+// AFTER the mutation's tx commits — RunInTx may retry the closure on
+// serialization failures, so an in-closure Log would duplicate.
+//
+// Metadata deliberately excludes driver_config: these records define
+// OT control topology (endpoints, registers), which must not land in
+// the activity feed. Only protocol-blind display fields are logged.
+func (s *Service) logDeviceEvent(ctx context.Context, eventType, verb string, device *models.Device) {
+	orgID := device.OrgID
+	siteID := device.SiteID
+	event := activitymodels.Event{
+		Category:       activitymodels.CategoryFleetManagement,
+		Type:           eventType,
+		OrganizationID: &orgID,
+		SiteID:         &siteID,
+		Description:    fmt.Sprintf("%s infrastructure device %q (id=%d)", verb, device.Name, device.ID),
+		Metadata: map[string]any{
+			"infrastructure_device_id": device.ID,
+			"device_name":              device.Name,
+			"site_id":                  device.SiteID,
+			"building_name":            device.BuildingName,
+			"device_kind":              device.DeviceKind,
+			"fan_count":                device.FanCount,
+			"enabled":                  device.Enabled,
+			"driver_type":              device.DriverType,
+		},
+	}
+	activity.StampActor(ctx, &event)
+	s.activitySvc.Log(ctx, event)
 }
 
 // List returns every live device in the org, optionally narrowed to
@@ -89,6 +133,7 @@ func (s *Service) Create(ctx context.Context, params models.CreateParams) (*mode
 	if err != nil {
 		return nil, err
 	}
+	s.logDeviceEvent(ctx, eventDeviceCreated, "Created", created)
 	return created, nil
 }
 
@@ -126,6 +171,7 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 	if err != nil {
 		return nil, err
 	}
+	s.logDeviceEvent(ctx, eventDeviceUpdated, "Updated", updated)
 	return updated, nil
 }
 
@@ -140,13 +186,17 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 // guard that blocks response-profile deletion while automation rules
 // reference it.
 func (s *Service) Delete(ctx context.Context, orgID, id, expectedSiteID int64) error {
-	found, err := s.store.SoftDeleteInfrastructureDevice(ctx, orgID, id, expectedSiteID)
+	deleted, found, err := s.store.SoftDeleteInfrastructureDevice(ctx, orgID, id, expectedSiteID)
 	if err != nil {
 		return err
 	}
 	if !found {
 		return fleeterror.NewNotFoundErrorf("infrastructure device %d not found", id)
 	}
+	// The audit stamp uses the row returned by the delete itself
+	// (UPDATE … RETURNING), so it reflects the device actually
+	// deleted even under a concurrent rename/move.
+	s.logDeviceEvent(ctx, eventDeviceDeleted, "Deleted", deleted)
 	return nil
 }
 

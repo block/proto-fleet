@@ -146,10 +146,27 @@ func (s *SQLInfrastructureDeviceStore) UpdateInfrastructureDevice(ctx context.Co
 	return s.GetInfrastructureDevice(ctx, params.OrgID, params.ID)
 }
 
-func (s *SQLInfrastructureDeviceStore) SoftDeleteInfrastructureDevice(ctx context.Context, orgID, id, expectedSiteID int64) (bool, error) {
-	affected, err := s.GetQueries(ctx).SoftDeleteInfrastructureDevice(ctx, sqlc.SoftDeleteInfrastructureDeviceParams{ID: id, OrgID: orgID, ExpectedSiteID: expectedSiteID})
+func (s *SQLInfrastructureDeviceStore) SoftDeleteInfrastructureDevice(ctx context.Context, orgID, id, expectedSiteID int64) (*models.Device, bool, error) {
+	row, err := s.GetQueries(ctx).SoftDeleteInfrastructureDevice(ctx, sqlc.SoftDeleteInfrastructureDeviceParams{ID: id, OrgID: orgID, ExpectedSiteID: expectedSiteID})
 	if err != nil {
-		return false, fleeterror.NewInternalErrorf("failed to delete infrastructure device: %v", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, fleeterror.NewInternalErrorf("failed to delete infrastructure device: %v", err)
 	}
-	return affected > 0, nil
+	out := models.Device{
+		ID:           row.ID,
+		OrgID:        row.OrgID,
+		SiteID:       row.SiteID,
+		BuildingName: row.BuildingName,
+		Name:         row.Name,
+		DeviceKind:   row.DeviceKind,
+		FanCount:     row.FanCount,
+		Enabled:      row.Enabled,
+		DriverType:   row.DriverType,
+		DriverConfig: row.DriverConfig,
+		CreatedAt:    row.CreatedAt,
+		UpdatedAt:    row.UpdatedAt,
+	}
+	return &out, true, nil
 }

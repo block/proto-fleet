@@ -39,7 +39,7 @@ func newTestHandler(t *testing.T) *testHarness {
 			return fn(ctx)
 		},
 	)
-	svc := infrastructure.NewService(store, siteStore, infrastructure.NewDefaultDriverRegistry(), tx)
+	svc := infrastructure.NewService(store, siteStore, infrastructure.NewDefaultDriverRegistry(), tx, nil)
 	return &testHarness{handler: NewHandler(svc), store: store, siteStore: siteStore}
 }
 

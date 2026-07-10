@@ -29,8 +29,9 @@ type InfrastructureDeviceStore interface {
 	UpdateInfrastructureDevice(ctx context.Context, params models.UpdateParams) (*models.Device, error)
 
 	// SoftDeleteInfrastructureDevice sets deleted_at, predicated on
-	// expectedSiteID. found is false when no live device matched
-	// (missing / already-deleted / cross-org / moved sites since
-	// authorization).
-	SoftDeleteInfrastructureDevice(ctx context.Context, orgID, id, expectedSiteID int64) (found bool, err error)
+	// expectedSiteID. Returns the deleted row (read via the same
+	// UPDATE … RETURNING, so the audit stamp can't race a concurrent
+	// move) or found=false when no live device matched (missing /
+	// already-deleted / cross-org / moved sites since authorization).
+	SoftDeleteInfrastructureDevice(ctx context.Context, orgID, id, expectedSiteID int64) (deleted *models.Device, found bool, err error)
 }

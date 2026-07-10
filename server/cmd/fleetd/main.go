@@ -503,7 +503,7 @@ func start(config *Config) error {
 	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	infrastructureStore := sqlstores.NewSQLInfrastructureDeviceStore(conn)
-	infrastructureSvc := infrastructureDomain.NewService(infrastructureStore, siteStore, infrastructureDomain.NewDefaultDriverRegistry(), transactor)
+	infrastructureSvc := infrastructureDomain.NewService(infrastructureStore, siteStore, infrastructureDomain.NewDefaultDriverRegistry(), transactor, activitySvc)
 
 	// Register the schedule-conflict preflight filter on commandSvc so every
 	// caller (manual API, schedule processor, future curtailment reconciler)
