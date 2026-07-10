@@ -50,18 +50,18 @@ func sessionInfo(ctx context.Context) (*session.Info, error) {
 
 // canReadSite reports whether the caller holds site:read for the
 // given site (via a site-scoped assignment or an unnarrowed org-wide
-// grant).
-func canReadSite(ctx context.Context, siteID int64) bool {
-	_, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{SiteID: &siteID})
-	return err == nil
+// grant). A plain denial is (false, nil); genuine auth/wiring
+// failures propagate as errors per middleware.HasPermission.
+func canReadSite(ctx context.Context, siteID int64) (bool, error) {
+	return middleware.HasPermission(ctx, authz.PermSiteRead, authz.ResourceContext{SiteID: &siteID})
 }
 
 // canManageSite reports whether the caller holds site:manage for the
 // given site. Read responses use it to decide whether driver_config —
 // the OT control topology — is included; site:read callers get the
 // display fields only.
-func canManageSite(ctx context.Context, siteID int64) bool {
-	return requireSiteManage(ctx, siteID) == nil
+func canManageSite(ctx context.Context, siteID int64) (bool, error) {
+	return middleware.HasPermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: &siteID})
 }
 
 func requireSiteManage(ctx context.Context, siteID int64) error {
@@ -85,10 +85,18 @@ func (h *Handler) ListInfrastructureDevices(ctx context.Context, req *connect.Re
 	out := make([]*pb.InfrastructureDevice, 0, len(devices))
 	for i := range devices {
 		device := &devices[i]
-		if !canReadSite(ctx, device.SiteID) {
+		readable, err := canReadSite(ctx, device.SiteID)
+		if err != nil {
+			return nil, err
+		}
+		if !readable {
 			continue
 		}
-		out = append(out, toProtoDevice(device, canManageSite(ctx, device.SiteID)))
+		manageable, err := canManageSite(ctx, device.SiteID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, toProtoDevice(device, manageable))
 	}
 	return connect.NewResponse(&pb.ListInfrastructureDevicesResponse{Devices: out}), nil
 }
@@ -105,8 +113,12 @@ func (h *Handler) GetInfrastructureDevice(ctx context.Context, req *connect.Requ
 	if _, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{SiteID: &device.SiteID}); err != nil {
 		return nil, err
 	}
+	manageable, err := canManageSite(ctx, device.SiteID)
+	if err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(&pb.GetInfrastructureDeviceResponse{
-		Device: toProtoDevice(device, canManageSite(ctx, device.SiteID)),
+		Device: toProtoDevice(device, manageable),
 	}), nil
 }
 

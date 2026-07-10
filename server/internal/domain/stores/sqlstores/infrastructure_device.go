@@ -28,6 +28,29 @@ func NewSQLInfrastructureDeviceStore(conn *sql.DB) *SQLInfrastructureDeviceStore
 	return &SQLInfrastructureDeviceStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
 }
 
+// deviceFromRow maps the shared Get/List projection (device columns +
+// site_label) to the domain model. The two queries produce
+// structurally identical sqlc row types, so List converts its row to
+// the Get shape; if the projections ever diverge the conversion stops
+// compiling rather than drifting silently.
+func deviceFromRow(row sqlc.GetInfrastructureDeviceRow) models.Device {
+	return models.Device{
+		ID:           row.ID,
+		OrgID:        row.OrgID,
+		SiteID:       row.SiteID,
+		SiteLabel:    row.SiteLabel,
+		BuildingName: row.BuildingName,
+		Name:         row.Name,
+		DeviceKind:   row.DeviceKind,
+		FanCount:     row.FanCount,
+		Enabled:      row.Enabled,
+		DriverType:   row.DriverType,
+		DriverConfig: row.DriverConfig,
+		CreatedAt:    row.CreatedAt,
+		UpdatedAt:    row.UpdatedAt,
+	}
+}
+
 // normalizeDriverConfig maps an empty blob to the empty JSON object so
 // the jsonb column never receives zero-length bytes (invalid JSON at
 // the wire). Adapters that require config still reject empty blobs in
@@ -69,21 +92,7 @@ func (s *SQLInfrastructureDeviceStore) GetInfrastructureDevice(ctx context.Conte
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to get infrastructure device: %v", err)
 	}
-	out := models.Device{
-		ID:           row.ID,
-		OrgID:        row.OrgID,
-		SiteID:       row.SiteID,
-		SiteLabel:    row.SiteLabel,
-		BuildingName: row.BuildingName,
-		Name:         row.Name,
-		DeviceKind:   row.DeviceKind,
-		FanCount:     row.FanCount,
-		Enabled:      row.Enabled,
-		DriverType:   row.DriverType,
-		DriverConfig: row.DriverConfig,
-		CreatedAt:    row.CreatedAt,
-		UpdatedAt:    row.UpdatedAt,
-	}
+	out := deviceFromRow(row)
 	return &out, nil
 }
 
@@ -101,21 +110,7 @@ func (s *SQLInfrastructureDeviceStore) ListInfrastructureDevices(ctx context.Con
 	}
 	out := make([]models.Device, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, models.Device{
-			ID:           row.ID,
-			OrgID:        row.OrgID,
-			SiteID:       row.SiteID,
-			SiteLabel:    row.SiteLabel,
-			BuildingName: row.BuildingName,
-			Name:         row.Name,
-			DeviceKind:   row.DeviceKind,
-			FanCount:     row.FanCount,
-			Enabled:      row.Enabled,
-			DriverType:   row.DriverType,
-			DriverConfig: row.DriverConfig,
-			CreatedAt:    row.CreatedAt,
-			UpdatedAt:    row.UpdatedAt,
-		})
+		out = append(out, deviceFromRow(sqlc.GetInfrastructureDeviceRow(row)))
 	}
 	return out, nil
 }
