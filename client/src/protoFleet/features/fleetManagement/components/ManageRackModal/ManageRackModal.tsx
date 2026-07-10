@@ -527,6 +527,7 @@ export default function ManageRackModal({
         const placementChanged =
           canManagePlacement &&
           (formData.siteId !== rackSettings.siteId || formData.buildingId !== rackSettings.buildingId);
+        let updated: DeviceSet | undefined;
         try {
           await new Promise<void>((resolve, reject) => {
             updateRack({
@@ -540,7 +541,10 @@ export default function ManageRackModal({
               // Unset level -> 0n unassign when the operator did change placement.
               siteId: placementChanged ? (formData.siteId ?? 0n) : undefined,
               buildingId: placementChanged ? (formData.buildingId ?? 0n) : undefined,
-              onSuccess: () => resolve(),
+              onSuccess: (ds) => {
+                updated = ds;
+                resolve();
+              },
               onError: (msg) => reject(new Error(msg)),
             });
           });
@@ -552,10 +556,28 @@ export default function ManageRackModal({
           // Keep Rack Settings open (don't apply) so the operator can retry.
           return;
         }
+        // Adopt the server's AUTHORITATIVE placement from the response, not the
+        // submitted formData: when placement was omitted (metadata-only edit)
+        // the server kept whatever the rack's current site/building is — which
+        // may differ from the stale formData values if another session moved it.
+        // The eligibility filter reads rackSettings placement, so trusting the
+        // response keeps the miner list scoped to where the rack really is.
+        const serverRackInfo = updated?.typeDetails.case === "rackInfo" ? updated.typeDetails.value : undefined;
+        const applied: RackFormData = serverRackInfo
+          ? {
+              ...formData,
+              siteId: serverRackInfo.siteId,
+              buildingId: serverRackInfo.buildingId,
+              zone: serverRackInfo.zone,
+            }
+          : formData;
         // Settings are now live on the server. Let the parent refetch so its
         // rack list/overview reflects the new label/placement even if the
         // operator dismisses without pressing the final miner Save.
         onSettingsPersisted?.();
+        setRackSettings(applied);
+        setShowRackSettings(false);
+        return;
       }
 
       setRackSettings(formData);

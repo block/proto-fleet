@@ -129,8 +129,14 @@ const RackSettingsModal = ({
 
   const [label, setLabel] = useState(initialFormData?.label ?? rack?.label ?? "");
   const [zone, setZone] = useState(() => {
+    // Editing an existing rack: its stored zone is authoritative, INCLUDING an
+    // intentional "" — a blank zone is now a valid state. Use presence, not
+    // truthiness, and never fall through to the last-rack default, which would
+    // resurrect a just-cleared zone and re-persist it on Continue.
+    if (isExistingRack) return initialFormData?.zone ?? rackInfo?.zone ?? "";
+    // Create: seed from the form if it carries a zone, otherwise default to the
+    // most recently created rack's zone as a convenience.
     if (initialFormData?.zone) return initialFormData.zone;
-    if (rackInfo?.zone) return rackInfo.zone;
     if (existingRacks.length > 0) {
       const sorted = [...existingRacks].sort((a, b) => {
         const aTime = a.createdAt?.seconds ?? BigInt(0);
