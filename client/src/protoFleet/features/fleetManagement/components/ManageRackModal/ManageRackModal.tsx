@@ -106,7 +106,7 @@ export default function ManageRackModal({
   onSettingsPersisted,
   onDelete,
 }: ManageRackModalProps) {
-  const { saveRack, updateRack, getRackSlots, listGroupMembers } = useDeviceSets();
+  const { saveRack, updateRack, getDeviceSet, getRackSlots, listGroupMembers } = useDeviceSets();
   // Rack placement (site/building) is a site:manage action, enforced server-
   // side on SaveRack and UpdateDeviceSet. A rack:manage-only operator edits
   // rack contents and metadata (label/zone/dims) without touching placement,
@@ -517,6 +517,16 @@ export default function ManageRackModal({
     async (formData: RackFormData) => {
       const rackId = existingRackId;
       if (rackId !== undefined) {
+        // Only send placement when the operator actually changed site/building
+        // this edit (compared to what the form was seeded with). A metadata-only
+        // edit (label/zone/dims) omits placement, so UpdateDeviceSet preserves
+        // the rack's CURRENT server placement — a stale cached value can't
+        // re-parent a rack that another session moved while this modal was open.
+        // Zone stays authoritative even with placement omitted (the settings
+        // path treats an empty zone as an explicit clear).
+        const placementChanged =
+          canManagePlacement &&
+          (formData.siteId !== rackSettings.siteId || formData.buildingId !== rackSettings.buildingId);
         try {
           await new Promise<void>((resolve, reject) => {
             updateRack({
@@ -527,13 +537,9 @@ export default function ManageRackModal({
               columns: formData.columns,
               orderIndex: formData.orderIndex,
               coolingType: formData.coolingType,
-              // site:manage sends explicit placement (an unset level -> 0n
-              // unassign) so the zone is authoritative and the rack + its
-              // members move now. A rack:manage-only operator omits placement,
-              // which preserves the current site/building; their zone edits
-              // (including a clear) still persist server-side.
-              siteId: canManagePlacement ? (formData.siteId ?? 0n) : undefined,
-              buildingId: canManagePlacement ? (formData.buildingId ?? 0n) : undefined,
+              // Unset level -> 0n unassign when the operator did change placement.
+              siteId: placementChanged ? (formData.siteId ?? 0n) : undefined,
+              buildingId: placementChanged ? (formData.buildingId ?? 0n) : undefined,
               onSuccess: () => resolve(),
               onError: (msg) => reject(new Error(msg)),
             });
@@ -555,7 +561,7 @@ export default function ManageRackModal({
       setRackSettings(formData);
       setShowRackSettings(false);
     },
-    [existingRackId, canManagePlacement, updateRack, onSettingsPersisted],
+    [existingRackId, canManagePlacement, rackSettings, updateRack, onSettingsPersisted],
   );
 
   // Save handler — single atomic RPC
@@ -588,15 +594,53 @@ export default function ManageRackModal({
       // clobber a move made by another session while this modal was open.
       const sendPlacement = canManagePlacement && existingRackId === undefined;
 
+      // Existing-rack Save is miners-only, but SaveRack always rewrites
+      // rack_info, so re-send the rack's CURRENT server metadata rather than the
+      // modal's cached copy — otherwise a concurrent zone/dimension edit from
+      // another session would be reverted (and stale dims could mis-validate the
+      // new slots). Best-effort: fall back to the cached values on a fetch miss
+      // so a transient error can't block the miner save.
+      let meta = {
+        label: rackSettings.label,
+        zone: rackSettings.zone,
+        rows: rackSettings.rows,
+        columns: rackSettings.columns,
+        orderIndex: rackSettings.orderIndex,
+        coolingType: rackSettings.coolingType,
+      };
+      if (existingRackId !== undefined) {
+        await new Promise<void>((resolve) => {
+          getDeviceSet({
+            deviceSetId: existingRackId,
+            onSuccess: (ds) => {
+              if (ds.typeDetails.case === "rackInfo") {
+                const ri = ds.typeDetails.value;
+                meta = {
+                  label: ds.label,
+                  zone: ri.zone,
+                  rows: ri.rows,
+                  columns: ri.columns,
+                  orderIndex: ri.orderIndex,
+                  coolingType: ri.coolingType,
+                };
+              }
+              resolve();
+            },
+            onNotFound: () => resolve(),
+            onError: () => resolve(),
+          });
+        });
+      }
+
       await new Promise<void>((resolve, reject) => {
         saveRack({
           deviceSetId: existingRackId,
-          label: rackSettings.label,
-          zone: rackSettings.zone,
-          rows: rackSettings.rows,
-          columns: rackSettings.columns,
-          orderIndex: rackSettings.orderIndex,
-          coolingType: rackSettings.coolingType,
+          label: meta.label,
+          zone: meta.zone,
+          rows: meta.rows,
+          columns: meta.columns,
+          orderIndex: meta.orderIndex,
+          coolingType: meta.coolingType,
           deviceIdentifiers: rackMiners,
           slotAssignments: slotAssignmentsList,
           // Create sends its chosen placement (unset level → NULL), gated on
@@ -609,7 +653,7 @@ export default function ManageRackModal({
       });
 
       pushToast({
-        message: existingRackId ? `Rack "${rackSettings.label}" updated` : `Rack "${rackSettings.label}" created`,
+        message: existingRackId ? `Rack "${meta.label}" updated` : `Rack "${meta.label}" created`,
         status: STATUSES.success,
       });
       onSave();
@@ -618,7 +662,17 @@ export default function ManageRackModal({
     } finally {
       setIsSaving(false);
     }
-  }, [existingRackId, rackSettings, rackMiners, totalSlots, activeAssignments, canManagePlacement, saveRack, onSave]);
+  }, [
+    existingRackId,
+    rackSettings,
+    rackMiners,
+    totalSlots,
+    activeAssignments,
+    canManagePlacement,
+    getDeviceSet,
+    saveRack,
+    onSave,
+  ]);
 
   if (!show) return null;
 
