@@ -9,13 +9,6 @@
  */
 
 /**
- * Multi-site navigation and scoping affordances. The routes and APIs remain
- * available for QA/dogfood direct access while the operator-facing entry
- * points stay hidden by default. Override with `VITE_MULTI_SITE_ENABLED=true`.
- */
-export const MULTI_SITE_ENABLED = import.meta.env.VITE_MULTI_SITE_ENABLED === "true";
-
-/**
  * Infrastructure devices tab. When on, `/fleet/infrastructure` is
  * discoverable from the Fleet tab strip. The route stays registered so QA
  * and dogfood can still deep-link while the feature is in development.
