@@ -1,7 +1,7 @@
 ---
 title: "Status modal live refresh"
 date: 2026-06-11
-status: draft
+status: implementing
 type: tdd
 ---
 
@@ -171,3 +171,23 @@ the original snapshot for one render if the map hasn't repopulated
 - **Future push channel.** If we later add SSE/websocket for live
   miner state, this hook becomes redundant and can be deleted without
   touching the RPC.
+
+## Implementation notes (as built)
+
+- Core lands as `useModalLiveRefresh` (immediate open tick, 10s cadence,
+  visibility gating, 10-min idle ceiling with auto-resume on interaction,
+  `restartKey` for device swaps). Wired into `ProtoFleetStatusModal`, which
+  drives `refreshMiners([deviceId])` → `onMergeMiners` + `useDeviceErrors.refetch()`
+  per tick. `onMergeMiners` is threaded from `MinerList` (already had it as a prop).
+- **No prop break.** The plan proposed switching `miner` → `deviceId`, but the
+  modal already takes `deviceId` and the caller already passes
+  `miner={miners[id]}` from the live `useFleet` map — so the freshest snapshot
+  flows in through the existing prop once the map is merged. Left as-is.
+- **Descoped UI (deferred):** the "Paused — click to resume" affordance and the
+  inline "couldn't refresh" banner are **not** rendered. Both would require
+  changes to the shared `StatusModal` (used by protoOS too), conflicting with the
+  "layout stays the same" non-goal. Instead: the loop auto-resumes on any
+  interaction (so an active operator always sees fresh data), and a failed
+  refresh silently keeps the last-good snapshot and retries next tick. The hook
+  still returns `{ isPaused, resume }` so the affordance can be added later
+  without touching the loop. E2E scenarios remain to be added.

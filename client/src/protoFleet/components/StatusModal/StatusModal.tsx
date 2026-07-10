@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
+import { useModalLiveRefresh } from "./hooks/useModalLiveRefresh";
 import type { ComponentAddress, ProtoFleetStatusModalProps } from "./types";
 import {
   buildComponentStatusProps,
@@ -14,6 +15,7 @@ import { StartMiningRequestSchema } from "@/protoFleet/api/generated/minercomman
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
+import useRefreshMiners from "@/protoFleet/api/useRefreshMiners";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
 
 import { variants } from "@/shared/components/Button";
@@ -52,6 +54,7 @@ const ProtoFleetStatusModal = ({
   miner,
   componentAddress,
   showBackButton = true,
+  onMergeMiners,
 }: ProtoFleetStatusModalProps) => {
   const isVisible = open ?? true;
 
@@ -60,7 +63,33 @@ const ProtoFleetStatusModal = ({
 
   // Fetch errors for this device when modal is visible
   const modalDeviceIds = useMemo(() => (isVisible && deviceId ? [deviceId] : EMPTY_DEVICE_IDS), [isVisible, deviceId]);
-  const { errorsByDevice } = useDeviceErrors(modalDeviceIds);
+  const { errorsByDevice, refetch: refetchErrors } = useDeviceErrors(modalDeviceIds);
+
+  // Live refresh: while the modal is open, re-poll this miner's snapshot and
+  // errors so on-device remediation reflects here without a close/reopen. The
+  // freshest snapshot flows back in through the `miner` prop once the parent
+  // fleet map is updated via onMergeMiners.
+  const { refreshMiners } = useRefreshMiners();
+  const handleLiveRefreshTick = useCallback(async () => {
+    if (!deviceId) return;
+    try {
+      const response = await refreshMiners([deviceId]);
+      if (response.snapshots.length > 0) {
+        onMergeMiners?.(response.snapshots);
+      }
+    } catch {
+      // Auth errors are surfaced inside useRefreshMiners; on any failure we keep
+      // the last-good snapshot visible and let the next tick retry.
+    }
+    // Errors refresh independently of the snapshot merge.
+    await refetchErrors();
+  }, [deviceId, refreshMiners, onMergeMiners, refetchErrors]);
+
+  useModalLiveRefresh({
+    enabled: isVisible && !!deviceId,
+    restartKey: deviceId,
+    onTick: handleLiveRefreshTick,
+  });
 
   const handleClose = useCallback(() => {
     setComponent(componentAddress);

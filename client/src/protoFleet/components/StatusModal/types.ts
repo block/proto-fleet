@@ -41,4 +41,11 @@ export interface ProtoFleetStatusModalProps {
 
   /** Whether to show back button in component views (defaults to true) */
   showBackButton?: boolean;
+
+  /**
+   * Merges freshly-polled snapshots back into the parent fleet map so the list
+   * row beneath the modal stays in sync. When omitted, the modal still refreshes
+   * its own error view but the underlying `miner` prop won't update live.
+   */
+  onMergeMiners?: (snapshots: MinerStateSnapshot[]) => void;
 }

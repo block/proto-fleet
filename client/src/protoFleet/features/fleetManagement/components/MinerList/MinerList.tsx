@@ -1313,6 +1313,7 @@ const MinerList = ({
           onClose={closeModalFlow}
           deviceId={modalFlow.deviceIdentifier}
           miner={miners[modalFlow.deviceIdentifier]}
+          onMergeMiners={onMergeMiners}
         />
       ) : null}
     </>
