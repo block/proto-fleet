@@ -34,6 +34,15 @@ func (h *Handler) CreateDeviceSet(ctx context.Context, r *connect.Request[dspb.C
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
+	// Creating a rack under a site/building persists that placement (and can
+	// cascade added devices to it), so mirror the UpdateDeviceSet/SaveRack gate:
+	// require site:manage when rack_info carries explicit placement. Without
+	// this, a rack:manage-only caller could place a rack via the create path.
+	if ri, ok := r.Msg.TypeDetails.(*dspb.CreateDeviceSetRequest_RackInfo); ok && ri.RackInfo != nil && (ri.RackInfo.SiteId != nil || ri.RackInfo.BuildingId != nil) {
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
 	req := toCollectionCreateReq(r.Msg)
 	result, err := h.svc.CreateCollection(ctx, req)
 	if err != nil {

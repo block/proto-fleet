@@ -30,6 +30,15 @@ func (h *Handler) CreateCollection(ctx context.Context, r *connect.Request[pb.Cr
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
+	// Creating a rack under a site/building persists that placement, so mirror
+	// the Update/SaveRack gate: require site:manage when rack_info carries
+	// explicit placement (site_id/building_id). Otherwise a rack:manage-only
+	// caller could place a rack via the create path, bypassing the boundary.
+	if ri := r.Msg.GetRackInfo(); ri != nil && (ri.SiteId != nil || ri.BuildingId != nil) {
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
 	result, err := h.collectionSvc.CreateCollection(ctx, r.Msg)
 	if err != nil {
 		return nil, err

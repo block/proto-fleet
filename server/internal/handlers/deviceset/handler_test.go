@@ -813,6 +813,30 @@ func TestSaveRack_PlacementRequiresSiteManage(t *testing.T) {
 	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
 }
 
+// TestCreateDeviceSet_PlacementRequiresSiteManage confirms the create path
+// enforces the same boundary as SaveRack/UpdateDeviceSet: creating a rack under
+// a site/building persists that placement, so a rack:manage-only caller that
+// sends explicit placement is rejected before any store write. (Codex security
+// review, HIGH — the create path previously bypassed the gate.)
+func TestCreateDeviceSet_PlacementRequiresSiteManage(t *testing.T) {
+	h := newTestHandler(t)
+
+	// Has rack:manage but NOT site:manage.
+	ctx := ctxWithPerms(authz.PermRackManage)
+	req := connect.NewRequest(&dspb.CreateDeviceSetRequest{
+		Label: "Rack",
+		TypeDetails: &dspb.CreateDeviceSetRequest_RackInfo{
+			RackInfo: &dspb.RackInfo{BuildingId: ptrInt64Local(7)},
+		},
+	})
+
+	_, err := h.handler.CreateDeviceSet(ctx, req)
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe, "expected FleetError, got %T", err)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
+
 // TestAssignDevicesToRack_HappyPathAssigns covers the assign branch:
 // target_rack_id set, devices flow through the lock → label-read →
 // remove → add → cascade chain, and the handler round-trips the
