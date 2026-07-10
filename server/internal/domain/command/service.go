@@ -72,6 +72,7 @@ type Service struct {
 	pluginCaps          PluginCapabilitiesProvider
 	capabilityChecker   *CapabilityChecker
 	activitySvc         *activity.Service
+	deviceResolver      DeviceIdentifierResolver
 
 	resolveDeviceIDsOverride func(context.Context, []string) ([]int64, error)
 	resolveDevicesOverride   func(context.Context, []string) ([]resolvedDevice, error)
@@ -93,6 +94,16 @@ type resolvedDevice struct {
 // SetPluginCapabilitiesProvider — nil disables the SV2 gate (test default).
 func (s *Service) SetPluginCapabilitiesProvider(p PluginCapabilitiesProvider) {
 	s.pluginCaps = p
+}
+
+// SetDeviceIdentifierResolver injects the rich-filter resolver used by the
+// all_matching_filter selector case. Wired post-construction because the
+// fleetmanagement service that implements it depends on this service. The same
+// resolver is shared with the capability checker so filtered "select all"
+// capability checks target the filtered set rather than the whole fleet.
+func (s *Service) SetDeviceIdentifierResolver(r DeviceIdentifierResolver) {
+	s.deviceResolver = r
+	s.capabilityChecker.SetDeviceIdentifierResolver(r)
 }
 
 const defaultPoolPriority uint32 = 0
@@ -624,6 +635,15 @@ func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.D
 		out := make([]string, len(x.IncludeDevices.DeviceIdentifiers))
 		copy(out, x.IncludeDevices.DeviceIdentifiers)
 		return out, nil
+	case *pb.DeviceSelector_AllMatchingFilter:
+		// Filtered "select all": resolve the rich MinerListFilter through the
+		// shared fleetmanagement resolver so the command targets exactly the
+		// filtered set across all pages (the thin DeviceFilter cannot express
+		// racks/groups/sites/telemetry/subnet dimensions).
+		if s.deviceResolver == nil {
+			return nil, fleeterror.NewInternalError("device identifier resolver not configured for all_matching_filter selector")
+		}
+		return s.deviceResolver.ResolveDeviceIdentifiers(ctx, fleetSelectorForMatchingFilter(x.AllMatchingFilter), info.OrganizationID)
 	default:
 		return nil, fleeterror.NewInternalErrorf("resolveSelectorIdentifiers called with unknown selector type: %v", x)
 	}

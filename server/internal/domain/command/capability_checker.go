@@ -24,6 +24,7 @@ type CapabilitiesProvider interface {
 type CapabilityChecker struct {
 	conn                 *sql.DB
 	capabilitiesProvider CapabilitiesProvider
+	deviceResolver       DeviceIdentifierResolver
 }
 
 // NewCapabilityChecker creates a new capability checker.
@@ -32,6 +33,13 @@ func NewCapabilityChecker(conn *sql.DB, provider CapabilitiesProvider) *Capabili
 		conn:                 conn,
 		capabilitiesProvider: provider,
 	}
+}
+
+// SetDeviceIdentifierResolver injects the rich-filter resolver used to resolve
+// the all_matching_filter selector case to device identifiers before the
+// capability lookup. See Service.SetDeviceIdentifierResolver.
+func (c *CapabilityChecker) SetDeviceIdentifierResolver(r DeviceIdentifierResolver) {
+	c.deviceResolver = r
 }
 
 // deviceInfo holds device information needed for capability checking.
@@ -92,6 +100,18 @@ func (c *CapabilityChecker) getDeviceInfo(
 		return c.getAllDeviceInfo(ctx, orgID)
 	case *pb.DeviceSelector_IncludeDevices:
 		return c.getDeviceInfoByDeviceIdentifiers(ctx, x.IncludeDevices.DeviceIdentifiers, orgID)
+	case *pb.DeviceSelector_AllMatchingFilter:
+		// Filtered "select all": resolve the rich filter to identifiers first so
+		// the capability check evaluates exactly the filtered set instead of the
+		// whole org.
+		if c.deviceResolver == nil {
+			return nil, fleeterror.NewInternalError("device identifier resolver not configured for all_matching_filter selector")
+		}
+		identifiers, err := c.deviceResolver.ResolveDeviceIdentifiers(ctx, fleetSelectorForMatchingFilter(x.AllMatchingFilter), orgID)
+		if err != nil {
+			return nil, err
+		}
+		return c.getDeviceInfoByDeviceIdentifiers(ctx, identifiers, orgID)
 	default:
 		return nil, fleeterror.NewInternalErrorf("unknown device selector type: %T", x)
 	}

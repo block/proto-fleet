@@ -162,6 +162,9 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	collectionStore := sqlstores.NewSQLCollectionStore(db)
 	buildingStore := sqlstores.NewSQLBuildingStore(db)
 	fleetManagementService := fleetmanagement.NewService(deviceStore, discoveredDeviceStore, fleetmanagement.NewMockTelemetryCollector(), minerService, pluginService, poolStore, errorStore, collectionStore, buildingStore, commandService, activitySvc)
+	// Mirror main.go: wire the rich-filter resolver so command dispatch and
+	// capability checks can resolve the all_matching_filter selector case.
+	commandService.SetDeviceIdentifierResolver(fleetManagementService)
 
 	return &ServiceProvider{
 		DB:                     db,

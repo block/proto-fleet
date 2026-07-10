@@ -30,7 +30,11 @@ interface MinerActionsMenuProps {
   selectionMode: SelectionMode;
   /** Total count of all miners in fleet (used for "all" mode confirmation dialogs) */
   totalCount?: number;
-  /** Active UI filter — forwarded for "all" mode unpair */
+  /**
+   * Active scoped filter (URL chips ∩ SitePicker scope). In "all" mode, command
+   * dispatch, capability checks, and pool assignment target this set across
+   * pages; undefined means whole fleet.
+   */
   currentFilter?: MinerListFilter;
   /** Active UI sort — forwarded so bulk actions can match visible table order. */
   currentSort?: SortConfig;
@@ -306,7 +310,12 @@ const MinerActionsMenu = ({
       <PoolSelectionPageWrapper
         open={showPoolSelectionPage ? !!fleetCredentials : false}
         selectedMiners={poolMiners}
-        selectionMode={selectionMode}
+        // Once capability filtering narrows to explicit supported ids, dispatch
+        // to exactly those (subset) rather than re-expanding via the selector.
+        selectionMode={poolFilteredDeviceIds ? "subset" : selectionMode}
+        // Scoped/filtered "all" pool assignment resolves the set server-side
+        // (all_matching_filter); only when not already narrowed to explicit ids.
+        minerListFilter={selectionMode === "all" && !poolFilteredDeviceIds ? currentFilter : undefined}
         poolNeededCount={poolFilteredDeviceIds ? poolFilteredDeviceIds.length : totalCount}
         userUsername={fleetCredentials?.username}
         userPassword={fleetCredentials?.password}

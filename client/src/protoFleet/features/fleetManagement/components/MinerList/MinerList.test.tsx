@@ -23,6 +23,7 @@ const { mockMinerListActionBar } = vi.hoisted(() => ({
       selectedMiners,
       selectionMode,
       totalCount,
+      filtersActive,
       selectionIncludesUnauthenticatedMiner,
       onSelectAll,
       onSelectNone,
@@ -30,6 +31,7 @@ const { mockMinerListActionBar } = vi.hoisted(() => ({
       selectedMiners: string[];
       selectionMode: string;
       totalCount?: number;
+      filtersActive?: boolean;
       selectionIncludesUnauthenticatedMiner?: boolean;
       onSelectAll?: () => void;
       onSelectNone?: () => void;
@@ -48,6 +50,7 @@ const { mockMinerListActionBar } = vi.hoisted(() => ({
           <span data-testid="mock-miner-list-selection-includes-unauth">
             {String(Boolean(selectionIncludesUnauthenticatedMiner))}
           </span>
+          <span data-testid="mock-miner-list-filters-active">{String(Boolean(filtersActive))}</span>
           {onSelectAll ? (
             <button type="button" data-testid="mock-action-bar-select-all" onClick={onSelectAll}>
               Select all
@@ -958,7 +961,7 @@ describe("MinerList", () => {
       expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("2");
     });
 
-    it("hides action-bar select controls when filters are active", async () => {
+    it("exposes action-bar select controls when filters are active", async () => {
       const user = userEvent.setup();
 
       renderMinerList(
@@ -977,10 +980,41 @@ describe("MinerList", () => {
       await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
 
       expect(screen.getByTestId("mock-miner-list-action-bar")).toBeInTheDocument();
-      expect(screen.queryByTestId("mock-action-bar-select-all")).not.toBeInTheDocument();
-      expect(screen.queryByTestId("mock-action-bar-select-none")).not.toBeInTheDocument();
+      expect(screen.getByTestId("mock-action-bar-select-all")).toBeInTheDocument();
+      expect(screen.getByTestId("mock-action-bar-select-none")).toBeInTheDocument();
+      expect(screen.getByTestId("mock-miner-list-filters-active")).toHaveTextContent("true");
       expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
       expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
+    });
+
+    it("selects the full filtered set (all mode, filtered totalCount) when Select all is clicked with filters active", async () => {
+      const user = userEvent.setup();
+
+      renderMinerList(
+        {
+          title: "Miners",
+          minerIds: ["m1", "m2"],
+          // Filtered total spans more than the visible page.
+          totalMiners: 37,
+          currentPage: 0,
+          onAddMiners: vi.fn(),
+          loading: false,
+        },
+        ["/?status=hashing"],
+      );
+
+      const rowCheckboxes = screen.getAllByTestId("checkbox");
+      await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
+      await user.click(screen.getByTestId("mock-action-bar-select-all"));
+
+      expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
+      // "all" mode reports the filtered total, not just the visible rows.
+      expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("37");
+      expect(screen.getByTestId("mock-miner-list-filters-active")).toHaveTextContent("true");
+
+      // Select none clears the selection, tearing the action bar back down.
+      await user.click(screen.getByTestId("mock-action-bar-select-none"));
+      expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
     });
 
     it("clears bulk selection when the page changes and does not restore it when returning", async () => {

@@ -94,7 +94,13 @@ interface UseMinerActionsParams {
   selectionMode: SelectionMode;
   /** Total count of all miners in fleet (used for "all" mode confirmation dialogs) */
   totalCount?: number;
-  /** Active UI filter — forwarded as device_filter when unpairing in "all" mode */
+  /**
+   * Active scoped filter (URL filter chips ∩ SitePicker site scope). In "all"
+   * mode, command dispatch and capability checks resolve their target set from
+   * this filter via the all_matching_filter selector, so a scoped/filtered
+   * "select all" hits exactly the visible set across pages. It is undefined only
+   * when nothing is scoped, in which case "all" targets the whole fleet.
+   */
   currentFilter?: MinerListFilter;
   onActionStart?: () => void;
   onActionComplete?: () => void;
@@ -357,11 +363,19 @@ export const useMinerActions = ({
     [selectedMiners, selectionMode, displayCount, miners, currentFilter],
   );
 
-  // Create device selector based on selection mode (undefined when nothing selected)
-  const deviceSelector = useMemo(
-    () => (selectionMode === "none" ? undefined : createDeviceSelector(selectionMode, deviceIdentifiers)),
-    [selectionMode, deviceIdentifiers],
-  );
+  // Create device selector based on selection mode (undefined when nothing selected).
+  // In "all" mode, pass currentFilter so command dispatch + capability checks
+  // target exactly the scoped/filtered set across pages (all_matching_filter).
+  // currentFilter folds in both URL filter chips and the SitePicker site scope,
+  // so this is the single source of truth for "what's visible" — gating on a
+  // separate URL-only "filters active" flag would miss the site scope and leak
+  // commands to the whole fleet. currentFilter is undefined only when nothing is
+  // scoped, where "all" correctly means the whole fleet (thin selector).
+  const deviceSelector = useMemo(() => {
+    if (selectionMode === "none") return undefined;
+    const matchingFilter = selectionMode === "all" ? currentFilter : undefined;
+    return createDeviceSelector(selectionMode, deviceIdentifiers, undefined, matchingFilter);
+  }, [selectionMode, deviceIdentifiers, currentFilter]);
 
   // Determine device status for power state actions
   const deviceStatus = useMemo(() => {

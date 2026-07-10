@@ -17,6 +17,8 @@ interface MinerListActionBarProps {
   onSelectNone?: () => void;
   selectionMode: SelectionMode;
   totalCount?: number;
+  /** Whether a server-side filter is active — drives the "matching filters" count copy in "all" mode. */
+  filtersActive?: boolean;
   currentFilter?: MinerListFilter;
   currentSort?: SortConfig;
   miners?: Record<string, MinerStateSnapshot>;
@@ -33,6 +35,7 @@ const MinerListActionBar = ({
   onSelectNone,
   selectionMode,
   totalCount,
+  filtersActive,
   currentFilter,
   currentSort,
   miners,
@@ -91,6 +94,7 @@ const MinerListActionBar = ({
       selectedItems={selectedMiners}
       selectionMode={selectionMode}
       totalCount={totalCount}
+      filtersActive={filtersActive}
       onClose={onClearSelection}
       selectionControls={selectionControls}
       renderActions={(setHidden) => (
