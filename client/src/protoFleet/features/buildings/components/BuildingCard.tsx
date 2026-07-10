@@ -4,10 +4,8 @@ import { useNavigate } from "react-router-dom";
 import { type BuildingRackHealth, type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { useBuildingStats } from "@/protoFleet/api/useBuildingStats";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
-import { Ellipsis } from "@/shared/assets/icons";
-import { iconSizes } from "@/shared/assets/icons/constants";
+import RowActionsMenu from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
 import SkeletonBar from "@/shared/components/SkeletonBar";
-import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 import { useInViewport } from "@/shared/hooks/useInViewport";
 import { formatEfficiencyOrDash, formatHashrateOrDash, formatPowerMwOrDash } from "@/shared/utils/telemetryFormat";
 
@@ -200,21 +198,51 @@ const BuildingCard = ({ building, showMetrics = true }: BuildingCardProps) => {
 
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
-  useEscapeDismiss(menuOpen ? () => setMenuOpen(false) : undefined);
+  const suppressNextCardClickRef = useRef(false);
   const goToDetail = () => navigate(`/buildings/${idText}`);
+  const actions = useMemo(
+    () => [
+      {
+        label: "View details",
+        testId: `building-card-${idText}-menu-details`,
+        onClick: () => navigate(`/buildings/${idText}`),
+      },
+      {
+        label: "View racks",
+        testId: `building-card-${idText}-menu-racks`,
+        onClick: () => navigate(`/racks?building=${idText}`),
+      },
+      {
+        label: "View miners",
+        testId: `building-card-${idText}-menu-miners`,
+        onClick: () => navigate(`/miners?building=${idText}`),
+      },
+    ],
+    [idText, navigate],
+  );
 
   return (
     <div
       ref={cardRef}
       role="link"
       tabIndex={0}
+      onMouseDownCapture={(e) => {
+        if (menuOpen && !(e.target as HTMLElement).closest("[data-testid$='-menu-trigger']")) {
+          suppressNextCardClickRef.current = true;
+        }
+      }}
       onClick={(e) => {
+        if (suppressNextCardClickRef.current) {
+          suppressNextCardClickRef.current = false;
+          return;
+        }
         if (menuOpen) return;
         if ((e.target as HTMLElement).closest("[data-popover='building-card-menu']")) return;
         goToDetail();
       }}
       onKeyDown={(e) => {
         if (e.key !== "Enter" && e.key !== " ") return;
+        if (menuOpen) return;
         // Don't hijack keyboard activation when the focus is on the
         // ellipsis menu trigger or a popover menu item — mirror the
         // onClick guard above so keyboard users can navigate the menu.
@@ -230,31 +258,15 @@ const BuildingCard = ({ building, showMetrics = true }: BuildingCardProps) => {
         <span className="truncate text-emphasis-300 text-text-primary" data-testid={`building-card-${idText}-name`}>
           {label}
         </span>
-        <div className="relative shrink-0">
-          <button
-            type="button"
-            aria-label="Building actions"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            onClick={(e) => {
-              e.stopPropagation();
-              setMenuOpen((prev) => !prev);
-            }}
-            className="flex size-8 items-center justify-center rounded-full text-text-primary-70 hover:bg-black/[0.06] dark:hover:bg-white/[0.06]"
-            data-testid={`building-card-${idText}-menu-trigger`}
-          >
-            <Ellipsis width={iconSizes.small} />
-          </button>
-          {menuOpen ? (
-            <BuildingCardMenu
-              idText={idText}
-              onDismiss={() => setMenuOpen(false)}
-              onNavigate={(path) => {
-                setMenuOpen(false);
-                navigate(path);
-              }}
-            />
-          ) : null}
+        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+          <RowActionsMenu
+            actions={actions}
+            ariaLabel="Building actions"
+            testIdPrefix={`building-card-${idText}-menu`}
+            popoverTestId={`building-card-${idText}-menu`}
+            triggerClassName="!size-8 !rounded-full !p-0 text-text-primary-70 hover:!bg-core-primary-5 hover:!opacity-100"
+            onOpenChange={setMenuOpen}
+          />
         </div>
       </div>
       <div className="flex flex-1 flex-col items-center justify-center gap-3 px-5 py-6">
@@ -324,62 +336,5 @@ const BuildingCard = ({ building, showMetrics = true }: BuildingCardProps) => {
     </div>
   );
 };
-
-interface BuildingCardMenuProps {
-  idText: string;
-  onDismiss: () => void;
-  onNavigate: (path: string) => void;
-}
-
-const BuildingCardMenu = ({ idText, onDismiss, onNavigate }: BuildingCardMenuProps) => (
-  <>
-    <div
-      className="fixed inset-0 z-20"
-      role="presentation"
-      onClick={(e) => {
-        e.stopPropagation();
-        onDismiss();
-      }}
-    />
-    <div
-      data-popover="building-card-menu"
-      data-testid={`building-card-${idText}-menu`}
-      role="menu"
-      className="absolute top-full right-0 z-30 mt-1 w-44 rounded-xl border border-border-5 bg-surface-elevated-base py-1 shadow-300"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <BuildingCardMenuItem
-        label="View details"
-        testId={`building-card-${idText}-menu-details`}
-        onClick={() => onNavigate(`/buildings/${idText}`)}
-      />
-      <BuildingCardMenuItem
-        label="View racks"
-        testId={`building-card-${idText}-menu-racks`}
-        onClick={() => onNavigate(`/racks?building=${idText}`)}
-      />
-      <BuildingCardMenuItem
-        label="View miners"
-        testId={`building-card-${idText}-menu-miners`}
-        onClick={() => onNavigate(`/miners?building=${idText}`)}
-      />
-    </div>
-  </>
-);
-
-const BuildingCardMenuItem = ({ label, testId, onClick }: { label: string; testId: string; onClick: () => void }) => (
-  <button
-    type="button"
-    role="menuitem"
-    onClick={(e) => {
-      e.stopPropagation();
-      onClick();
-    }}
-    className="w-full px-4 py-2 text-left text-300 text-text-primary hover:bg-surface-5"
-    data-testid={testId}
-  >
-    {label}
-  </button>
-);
 
 export default BuildingCard;

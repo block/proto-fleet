@@ -33,6 +33,8 @@ interface RowActionsMenuProps {
   triggerClassName?: string;
   triggerVariant?: ButtonVariant;
   triggerSuffixIcon?: ReactNode;
+  onOpenChange?: (open: boolean) => void;
+  popoverTestId?: string;
 }
 
 const RowActionsMenu = ({
@@ -45,6 +47,8 @@ const RowActionsMenu = ({
   triggerClassName,
   triggerVariant,
   triggerSuffixIcon,
+  onOpenChange,
+  popoverTestId,
 }: RowActionsMenuProps) => (
   <PopoverProvider>
     <RowActionsMenuInner
@@ -57,6 +61,8 @@ const RowActionsMenu = ({
       triggerClassName={triggerClassName}
       triggerVariant={triggerVariant}
       triggerSuffixIcon={triggerSuffixIcon}
+      onOpenChange={onOpenChange}
+      popoverTestId={popoverTestId}
     />
   </PopoverProvider>
 );
@@ -71,6 +77,8 @@ const RowActionsMenuInner = ({
   triggerClassName,
   triggerVariant,
   triggerSuffixIcon,
+  onOpenChange,
+  popoverTestId: popoverTestIdProp,
 }: Required<Pick<RowActionsMenuProps, "actions" | "ariaLabel">> &
   Pick<
     RowActionsMenuProps,
@@ -81,13 +89,15 @@ const RowActionsMenuInner = ({
     | "triggerClassName"
     | "triggerVariant"
     | "triggerSuffixIcon"
+    | "onOpenChange"
+    | "popoverTestId"
   >) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
   const { isPhone } = useWindowDimensions();
   const [isOpen, setIsOpen] = useState(false);
   const resolvedTriggerTestId =
     triggerTestId ?? (testIdPrefix ? `${testIdPrefix}-trigger` : "row-actions-menu-trigger");
-  const popoverTestId = testIdPrefix ? `${testIdPrefix}-popover` : "row-actions-menu-popover";
+  const popoverTestId = popoverTestIdProp ?? (testIdPrefix ? `${testIdPrefix}-popover` : "row-actions-menu-popover");
 
   // Portal-fixed keeps the popover above the list's overflow scroll containers.
   useEffect(() => {
@@ -97,7 +107,15 @@ const RowActionsMenuInner = ({
   // Disabled hard-closes; re-enable doesn't resurrect — operator must reopen.
   const open = isOpen && !disabled;
 
-  const onClickOutside = useCallback(() => setIsOpen(false), []);
+  const setMenuOpen = useCallback(
+    (nextOpen: boolean) => {
+      setIsOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+    },
+    [onOpenChange],
+  );
+
+  const onClickOutside = useCallback(() => setMenuOpen(false), [setMenuOpen]);
   useClickOutside({
     ref: triggerRef,
     onClickOutside,
@@ -120,7 +138,7 @@ const RowActionsMenuInner = ({
         ariaExpanded={open}
         testId={resolvedTriggerTestId}
         disabled={disabled}
-        onClick={() => setIsOpen((prev) => !prev)}
+        onClick={() => setMenuOpen(!open)}
       >
         {triggerLabel}
       </Button>
@@ -134,7 +152,7 @@ const RowActionsMenuInner = ({
             showGroupDivider: action.showGroupDivider,
             testId: action.testId,
           }))}
-          onClose={() => setIsOpen(false)}
+          onClose={() => setMenuOpen(false)}
           contentTestId={popoverTestId}
           testId={`${popoverTestId}-sheet`}
         />
@@ -155,7 +173,7 @@ const RowActionsMenuInner = ({
                   prefixIcon={action.icon}
                   testId={action.testId}
                   onClick={() => {
-                    setIsOpen(false);
+                    setMenuOpen(false);
                     action.onClick();
                   }}
                   disabled={action.disabled}

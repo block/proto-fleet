@@ -108,27 +108,27 @@ const BuildingSummaryCard = ({ building }: BuildingSummaryCardProps) => {
               style={popoverStyle}
               data-testid={`building-card-${idText}-popover`}
             >
-              <div className="mb-2 text-[14px] font-medium text-text-primary">{label}</div>
+              <div className="mb-2 text-emphasis-300 text-text-primary">{label}</div>
               {stats!.hashingCount > 0 ? (
-                <div className="flex items-center gap-2 text-[14px] text-text-primary">
+                <div className="flex items-center gap-2 text-300 text-text-primary">
                   <span className="inline-block size-2 shrink-0 rounded-full bg-text-primary" />
                   {stats!.hashingCount} healthy
                 </div>
               ) : null}
               {stats!.brokenCount > 0 ? (
-                <div className="mt-1.5 flex items-center gap-2 text-[14px] text-text-primary">
+                <div className="mt-1.5 flex items-center gap-2 text-300 text-text-primary">
                   <span className="inline-block size-2 shrink-0 rounded-full bg-intent-critical-fill" />
                   {stats!.brokenCount} need attention
                 </div>
               ) : null}
               {stats!.offlineCount > 0 ? (
-                <div className="mt-1.5 flex items-center gap-2 text-[14px] text-text-primary">
+                <div className="mt-1.5 flex items-center gap-2 text-300 text-text-primary">
                   <span className="inline-block size-2 shrink-0 rounded-full bg-intent-warning-fill" />
                   {stats!.offlineCount} offline
                 </div>
               ) : null}
               {stats!.sleepingCount > 0 ? (
-                <div className="mt-1.5 flex items-center gap-2 text-[14px] text-text-primary">
+                <div className="mt-1.5 flex items-center gap-2 text-300 text-text-primary">
                   <span className="inline-block size-2 shrink-0 rounded-full bg-core-primary-20" />
                   {stats!.sleepingCount} sleeping
                 </div>

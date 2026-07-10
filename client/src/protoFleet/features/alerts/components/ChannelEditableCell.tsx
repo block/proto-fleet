@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Edit } from "@/shared/assets/icons";
+import Button, { sizes, variants } from "@/shared/components/Button";
 
 interface ChannelEditableCellProps {
   value: string;
@@ -39,7 +40,7 @@ const ChannelEditableCell = ({ value, placeholder, ariaLabel, onSave, readOnly =
         value={draft}
         placeholder={placeholder}
         aria-label={ariaLabel}
-        className="bg-surface-1 w-full rounded-md border border-border-5 px-2 py-1 text-300 text-text-primary outline-none focus:border-core-primary-fill"
+        className="w-full rounded-md border border-border-5 bg-surface-base px-2 py-1 text-300 text-text-primary outline-hidden transition duration-200 ease-in-out placeholder:text-text-primary-50 focus:border-border-20 focus:ring-4 focus:ring-core-primary-5"
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
@@ -58,19 +59,19 @@ const ChannelEditableCell = ({ value, placeholder, ariaLabel, onSave, readOnly =
 
   return (
     <span className="group flex items-center gap-2">
-      <span className="truncate">{value}</span>
-      <button
-        type="button"
-        className="text-text-primary-50 opacity-0 transition-opacity group-hover:opacity-100 hover:text-text-primary"
-        title={`Edit ${ariaLabel}`}
-        aria-label={`Edit ${ariaLabel}`}
+      <span className="truncate">{value || placeholder}</span>
+      <Button
+        ariaLabel={`Edit ${ariaLabel}`}
+        variant={variants.textOnly}
+        size={sizes.textOnly}
+        prefixIcon={<Edit />}
+        textOnlyUnderlineOnHover={false}
+        className="text-text-primary-50 opacity-0 transition-opacity group-hover:opacity-100 hover:text-text-primary hover:!opacity-70"
         onClick={() => {
           setDraft(value);
           setEditing(true);
         }}
-      >
-        <Edit />
-      </button>
+      />
     </span>
   );
 };

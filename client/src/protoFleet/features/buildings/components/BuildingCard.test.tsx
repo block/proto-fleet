@@ -302,7 +302,7 @@ describe("BuildingCard", () => {
     expect(screen.getByTestId("location-probe")).toHaveTextContent("/racks?building=7");
   });
 
-  it("dismisses the actions menu without navigating when the backdrop is clicked", () => {
+  it("dismisses the actions menu without navigating when the card background is clicked", () => {
     statsMock.mockReturnValue({
       stats: buildStats(),
       isLoading: false,
@@ -312,9 +312,9 @@ describe("BuildingCard", () => {
     });
     renderCard({ rackCount: 0n });
     fireEvent.click(screen.getByTestId("building-card-7-menu-trigger"));
-    const menu = screen.getByTestId("building-card-7-menu");
-    const backdrop = menu.previousElementSibling as HTMLElement;
-    fireEvent.click(backdrop);
+    expect(screen.getByTestId("building-card-7-menu")).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByTestId("building-card-7"));
+    fireEvent.click(screen.getByTestId("building-card-7"));
     expect(screen.queryByTestId("building-card-7-menu")).toBeNull();
     expect(screen.getByTestId("location-probe")).toHaveTextContent("/sites");
   });

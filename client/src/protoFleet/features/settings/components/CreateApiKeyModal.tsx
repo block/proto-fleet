@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApiKeys } from "@/protoFleet/api/useApiKeys";
 import { Alert, Copy, Success } from "@/shared/assets/icons";
-import { variants } from "@/shared/components/Button";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import { groupVariants } from "@/shared/components/ButtonGroup";
 import Callout from "@/shared/components/Callout";
 import { DatePickerField } from "@/shared/components/DatePicker";
@@ -224,9 +224,15 @@ const CreateApiKeyModal = ({ open, onDismiss, onSuccess }: CreateApiKeyModalProp
         <div className="font-mono text-300 break-all text-text-primary" data-testid="api-key-value">
           {fullKey}
         </div>
-        <button onClick={handleCopyKey} className="shrink-0 text-text-primary" aria-label="Copy API key">
-          <Copy />
-        </button>
+        <Button
+          ariaLabel="Copy API key"
+          variant={variants.textOnly}
+          size={sizes.textOnly}
+          prefixIcon={<Copy />}
+          textOnlyUnderlineOnHover={false}
+          className="shrink-0 text-text-primary hover:!opacity-70"
+          onClick={handleCopyKey}
+        />
       </div>
     </Dialog>
   );

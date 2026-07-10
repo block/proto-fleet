@@ -819,7 +819,7 @@ function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): Rea
         />
       }
     >
-      <div className="space-y-0 text-[14px] leading-[18px] text-text-primary-50">
+      <div className="space-y-0 text-300 leading-[18px] text-text-primary-50">
         <p className="truncate">{profile.targetSummary}</p>
         <p className="truncate">{profile.scope}</p>
       </div>

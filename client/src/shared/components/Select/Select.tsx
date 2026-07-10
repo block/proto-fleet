@@ -22,7 +22,9 @@ interface SelectProps {
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  emptyMessage?: string;
   error?: boolean | string;
+  placeholder?: string;
   testId?: string;
   className?: string;
   showSelectedIndicator?: boolean;
@@ -40,7 +42,9 @@ const SelectContent = ({
   value,
   onChange,
   disabled,
+  emptyMessage = "No options",
   error,
+  placeholder,
   testId,
   className,
   showSelectedIndicator = true,
@@ -59,6 +63,8 @@ const SelectContent = ({
 
   const selectedLabel = options.find((o) => o.value === value)?.label ?? "";
   const hasValue = selectedLabel.length > 0;
+  const displayLabel = selectedLabel || placeholder || "";
+  const hasDisplayValue = displayLabel.length > 0;
 
   // Track trigger width so the portal-rendered popover matches
   const [triggerWidth, setTriggerWidth] = useState<number | undefined>();
@@ -152,12 +158,16 @@ const SelectContent = ({
               className={clsx(
                 "absolute text-text-primary-50",
                 "transition-[top] duration-150 ease-in-out",
-                hasValue || open ? "top-[7px] text-200" : "top-1/2 -translate-y-1/2 text-300",
+                hasDisplayValue || open ? "top-[7px] text-200" : "top-1/2 -translate-y-1/2 text-300",
               )}
             >
               {label}
             </span>
-            {hasValue ? <span className="truncate text-300 text-text-primary">{selectedLabel}</span> : null}
+            {hasDisplayValue ? (
+              <span className={clsx("truncate text-300", hasValue ? "text-text-primary" : "text-text-primary-50")}>
+                {displayLabel}
+              </span>
+            ) : null}
           </div>
           <ChevronDown
             width="w-3"
@@ -190,29 +200,33 @@ const SelectContent = ({
               maxHeight: popoverMaxHeight,
             }}
           >
-            {options.map((opt) => (
-              <div
-                key={opt.value}
-                role="option"
-                aria-selected={value === opt.value ? "true" : "false"}
-                className={clsx(
-                  "flex cursor-pointer items-center rounded-xl p-3 text-left select-none",
-                  "transition-[background-color] duration-200 ease-in-out",
-                  "text-text-primary hover:bg-core-primary-5",
-                  { "gap-3": showSelectedIndicator },
-                )}
-                onClick={() => {
-                  onChange(opt.value);
-                  setOpen(false);
-                }}
-              >
-                {showSelectedIndicator ? <Radio selected={value === opt.value} /> : null}
-                <div className="min-w-0 grow">
-                  <div className="truncate text-emphasis-300">{opt.label}</div>
-                  {opt.description ? <div className="text-200 text-text-primary-70">{opt.description}</div> : null}
+            {options.length === 0 ? (
+              <div className="rounded-xl p-3 text-300 text-text-primary-50">{emptyMessage}</div>
+            ) : (
+              options.map((opt) => (
+                <div
+                  key={opt.value}
+                  role="option"
+                  aria-selected={value === opt.value ? "true" : "false"}
+                  className={clsx(
+                    "flex cursor-pointer items-center rounded-xl p-3 text-left select-none",
+                    "transition-[background-color] duration-200 ease-in-out",
+                    "text-text-primary hover:bg-core-primary-5",
+                    { "gap-3": showSelectedIndicator },
+                  )}
+                  onClick={() => {
+                    onChange(opt.value);
+                    setOpen(false);
+                  }}
+                >
+                  {showSelectedIndicator ? <Radio selected={value === opt.value} /> : null}
+                  <div className="min-w-0 grow">
+                    <div className="truncate text-emphasis-300">{opt.label}</div>
+                    {opt.description ? <div className="text-200 text-text-primary-70">{opt.description}</div> : null}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </Popover>
       ) : null}

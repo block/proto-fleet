@@ -215,7 +215,7 @@ const BuildingRackGrid = ({
                   className="flex cursor-pointer flex-col items-center gap-2.5 rounded-xl bg-surface-overlay p-4 transition-opacity duration-[120ms] hover:opacity-[0.82]"
                   data-testid={`${testId}-tile-${rack.rackLabel}`}
                 >
-                  <span className="text-[14px] font-medium text-text-primary">{rack.rackLabel}</span>
+                  <span className="text-emphasis-300 text-text-primary">{rack.rackLabel}</span>
                   <div className="w-full">
                     <HealthBar
                       healthy={rack.hashingCount}
@@ -251,7 +251,7 @@ const BuildingRackGrid = ({
                 onClick={() => navigate(`/racks/${rack.rackId}`)}
                 data-testid={`${testId}-unplaced-${rack.rackLabel}`}
               >
-                <div className="mb-2 truncate text-[14px] font-medium text-text-primary">{rack.rackLabel}</div>
+                <div className="mb-2 truncate text-emphasis-300 text-text-primary">{rack.rackLabel}</div>
                 <HealthBar
                   healthy={rack.hashingCount}
                   needsAttention={rack.brokenCount}
@@ -313,27 +313,27 @@ const BuildingRackGrid = ({
               style={popoverStyle}
               data-testid={`${testId}-popover`}
             >
-              <div className="mb-2 text-[14px] font-medium text-text-primary">{hoverInfo.rack.rackLabel}</div>
+              <div className="mb-2 text-emphasis-300 text-text-primary">{hoverInfo.rack.rackLabel}</div>
               {hoverInfo.rack.hashingCount > 0 ? (
-                <div className="flex items-center gap-2 text-[14px] text-text-primary">
+                <div className="flex items-center gap-2 text-300 text-text-primary">
                   <span className="inline-block size-2 shrink-0 rounded-full bg-text-primary" />
                   {hoverInfo.rack.hashingCount} healthy
                 </div>
               ) : null}
               {hoverInfo.rack.brokenCount > 0 ? (
-                <div className="mt-1.5 flex items-center gap-2 text-[14px] text-text-primary">
+                <div className="mt-1.5 flex items-center gap-2 text-300 text-text-primary">
                   <span className="inline-block size-2 shrink-0 rounded-full bg-intent-critical-fill" />
                   {hoverInfo.rack.brokenCount} need attention
                 </div>
               ) : null}
               {hoverInfo.rack.offlineCount > 0 ? (
-                <div className="mt-1.5 flex items-center gap-2 text-[14px] text-text-primary">
+                <div className="mt-1.5 flex items-center gap-2 text-300 text-text-primary">
                   <span className="inline-block size-2 shrink-0 rounded-full bg-intent-warning-fill" />
                   {hoverInfo.rack.offlineCount} offline
                 </div>
               ) : null}
               {hoverInfo.rack.sleepingCount > 0 ? (
-                <div className="mt-1.5 flex items-center gap-2 text-[14px] text-text-primary">
+                <div className="mt-1.5 flex items-center gap-2 text-300 text-text-primary">
                   <span className="inline-block size-2 shrink-0 rounded-full bg-core-primary-20" />
                   {hoverInfo.rack.sleepingCount} sleeping
                 </div>

@@ -9,11 +9,11 @@ const stateClasses: Record<string, string> = {
   empty: "bg-transparent",
 };
 
-const dotColors: Record<string, string | null> = {
+const dotColorClasses: Record<string, string | null> = {
   healthy: null,
-  needsAttention: "#ef4444",
-  offline: "#f97316",
-  sleeping: "#d4d4d8",
+  needsAttention: "bg-intent-critical-fill",
+  offline: "bg-intent-warning-fill",
+  sleeping: "bg-core-primary-20",
   empty: null,
 };
 
@@ -21,7 +21,7 @@ export default function RackDetailSlot({ slot, slotSize = 64, onEmptySlotClick }
   const { row, col } = slot;
   const { state, slotNumber } = slot;
   const num = String(slotNumber).padStart(2, "0");
-  const dotColor = dotColors[state];
+  const dotColorClass = dotColorClasses[state];
   const slotTestId = `rack-detail-slot-${num}`;
 
   if (state === "empty") {
@@ -66,13 +66,12 @@ export default function RackDetailSlot({ slot, slotSize = 64, onEmptySlotClick }
       )}
       style={{ width: slotSize, height: slotSize, gap: iconOnly ? 0 : 4 }}
     >
-      {dotColor ? (
+      {dotColorClass ? (
         <span
-          className="inline-block shrink-0 rounded-full"
+          className={clsx("inline-block shrink-0 rounded-full", dotColorClass)}
           style={{
             width: `clamp(6px, 1.8cqi, 9px)`,
             height: `clamp(6px, 1.8cqi, 9px)`,
-            background: dotColor,
           }}
         />
       ) : null}

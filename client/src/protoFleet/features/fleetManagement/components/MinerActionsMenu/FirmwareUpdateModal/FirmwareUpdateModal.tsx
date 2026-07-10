@@ -109,7 +109,7 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
 
   return (
     <Modal open={open} title="Add firmware payload" onDismiss={handleDismiss} buttons={buttons} divider={false}>
-      <div className="text-text-secondary mt-2 text-300">
+      <div className="mt-2 text-300 text-text-primary-70">
         Select a firmware payload to update your miners. They will reboot automatically after installation completes.
       </div>
       <div className="mt-6 flex flex-col gap-4">
@@ -136,27 +136,22 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
                   className={clsx(
                     "flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-left transition-colors",
                     selectedExistingFileId === f.id
-                      ? "border-border-focus bg-surface-elevated-base"
+                      ? "border-border-20 bg-surface-elevated-base"
                       : "border-border-5 hover:border-border-20",
                     isProcessing && "pointer-events-none opacity-50",
                   )}
                   onClick={() => handleSelectExistingFile(f.id)}
                   disabled={isProcessing}
                 >
-                  <div
-                    className={clsx(
-                      "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2",
-                      selectedExistingFileId === f.id ? "border-border-focus" : "border-border-20",
-                    )}
-                  >
+                  <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-border-20">
                     {selectedExistingFileId === f.id ? (
                       <div className="h-2 w-2 rounded-full bg-core-primary-fill" />
                     ) : null}
                   </div>
                   <div className="flex min-w-0 flex-col">
                     <div className="truncate text-300 text-text-primary">{f.filename}</div>
-                    <div className="text-text-secondary text-200">
-                      {formatFileSize(f.size)} · {formatTimestamp(isoToEpochSeconds(f.uploaded_at))}
+                    <div className="text-200 text-text-primary-70">
+                      {formatFileSize(f.size)}, {formatTimestamp(isoToEpochSeconds(f.uploaded_at))}
                     </div>
                   </div>
                 </button>

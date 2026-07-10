@@ -58,7 +58,7 @@ const MinerName = ({
             className="cursor-pointer transition-opacity hover:opacity-80"
             aria-label="View issues"
           >
-            <Alert width="w-4" className="text-red-500" />
+            <Alert width="w-4" className="text-intent-critical-fill" />
           </button>
         ) : null}
         <SingleMinerActionsMenu
