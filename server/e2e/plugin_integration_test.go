@@ -8,10 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/cookiejar"
-	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -31,6 +29,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
+	"github.com/block/proto-fleet/server/internal/transportguard"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -451,37 +450,6 @@ func createAdminViaAPI(t *testing.T, ctx context.Context, username, password str
 	require.NoError(t, err, "admin user creation should succeed")
 }
 
-// loopbackSecureJar treats plain-HTTP loopback origins as secure contexts the
-// way browsers do; without it the jar would never replay the Secure-flagged
-// fleet session cookie to the http://localhost fleet-api.
-type loopbackSecureJar struct {
-	inner http.CookieJar
-}
-
-func (j *loopbackSecureJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
-	j.inner.SetCookies(loopbackAsHTTPS(u), cookies)
-}
-
-func (j *loopbackSecureJar) Cookies(u *url.URL) []*http.Cookie {
-	return j.inner.Cookies(loopbackAsHTTPS(u))
-}
-
-func loopbackAsHTTPS(u *url.URL) *url.URL {
-	if u.Scheme != "http" {
-		return u
-	}
-	host := u.Hostname()
-	if host != "localhost" {
-		ip := net.ParseIP(host)
-		if ip == nil || !ip.IsLoopback() {
-			return u
-		}
-	}
-	clone := *u
-	clone.Scheme = "https"
-	return &clone
-}
-
 // authenticateViaRealAPI authenticates via the real API and returns an API key
 // usable as a bearer token. Authenticate no longer returns a token — it
 // establishes a cookie session — so this helper logs in with a cookie-jar
@@ -489,7 +457,7 @@ func loopbackAsHTTPS(u *url.URL) *url.URL {
 func authenticateViaRealAPI(t *testing.T, ctx context.Context, username, password string) string {
 	jar, err := cookiejar.New(nil)
 	require.NoError(t, err, "cookie jar creation should succeed")
-	sessionHTTPClient := &http.Client{Jar: &loopbackSecureJar{inner: jar}}
+	sessionHTTPClient := &http.Client{Jar: transportguard.NewLoopbackSecureJar(jar)}
 
 	authClient := authv1connect.NewAuthServiceClient(sessionHTTPClient, fleetAPIURL)
 	_, err = authClient.Authenticate(ctx, connect.NewRequest(&authv1.AuthenticateRequest{

@@ -182,6 +182,39 @@ func generatedBuildMinerSelector(ctx context.Context, cmd *cli.Command, client *
 	return generatedBuildBoundedMinerSelector(ctx, cmd, client)
 }
 
+// resolveBoundedSelectorDeviceIDs resolves one device-set selector (labels plus
+// explicit ids) into the member device identifiers it names: labels become ids,
+// the combined ids are verified to be the wanted set type, and each is expanded
+// to its members. noun ("group"/"rack") is used only for error messages.
+func resolveBoundedSelectorDeviceIDs(
+	ctx context.Context,
+	client *Client,
+	setType devicesetv1.DeviceSetType,
+	labels []string,
+	ids []int64,
+) ([]string, error) {
+	noun := generatedDeviceSetTypeName(setType)
+	if len(labels) > 0 {
+		labelIDs, err := generatedResolveDeviceSetIDsByLabel(ctx, client, setType, labels)
+		if err != nil {
+			return nil, fmt.Errorf("resolve %s labels: %w", noun, err)
+		}
+		ids = append(ids, labelIDs...)
+	}
+	ids = dedupeInt64s(ids)
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if err := generatedRequireDeviceSetTypes(ctx, client, ids, setType); err != nil {
+		return nil, fmt.Errorf("verify %s ids: %w", noun, err)
+	}
+	memberIDs, err := generatedDeviceSetMemberDeviceIDs(ctx, client, ids)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %s members: %w", noun, err)
+	}
+	return memberIDs, nil
+}
+
 // generatedBuildBoundedMinerSelector resolves the explicit device/group/rack
 // selector flags into a DeviceSelector that names a concrete set of devices.
 // Group and rack selectors (by id or label) are expanded client-side to their
@@ -201,42 +234,17 @@ func generatedBuildBoundedMinerSelector(ctx context.Context, cmd *cli.Command, c
 	}
 	rackLabels := dedupeStrings(cmd.StringSlice("rack"))
 
-	if len(groupLabels) > 0 {
-		labelIDs, err := generatedResolveDeviceSetIDsByLabel(ctx, client, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP, groupLabels)
-		if err != nil {
-			return nil, fmt.Errorf("resolve group labels: %w", err)
-		}
-		groupIDs = append(groupIDs, labelIDs...)
+	groupMembers, err := resolveBoundedSelectorDeviceIDs(ctx, client, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP, groupLabels, groupIDs)
+	if err != nil {
+		return nil, err
 	}
-	groupIDs = dedupeInt64s(groupIDs)
-	if len(groupIDs) > 0 {
-		if err := generatedRequireDeviceSetTypes(ctx, client, groupIDs, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP); err != nil {
-			return nil, fmt.Errorf("verify group ids: %w", err)
-		}
-		memberIDs, err := generatedDeviceSetMemberDeviceIDs(ctx, client, groupIDs)
-		if err != nil {
-			return nil, fmt.Errorf("resolve group members: %w", err)
-		}
-		deviceIDs = append(deviceIDs, memberIDs...)
+	deviceIDs = append(deviceIDs, groupMembers...)
+
+	rackMembers, err := resolveBoundedSelectorDeviceIDs(ctx, client, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK, rackLabels, rackIDs)
+	if err != nil {
+		return nil, err
 	}
-	if len(rackLabels) > 0 {
-		labelIDs, err := generatedResolveDeviceSetIDsByLabel(ctx, client, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK, rackLabels)
-		if err != nil {
-			return nil, fmt.Errorf("resolve rack labels: %w", err)
-		}
-		rackIDs = append(rackIDs, labelIDs...)
-	}
-	rackIDs = dedupeInt64s(rackIDs)
-	if len(rackIDs) > 0 {
-		if err := generatedRequireDeviceSetTypes(ctx, client, rackIDs, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK); err != nil {
-			return nil, fmt.Errorf("verify rack ids: %w", err)
-		}
-		memberIDs, err := generatedDeviceSetMemberDeviceIDs(ctx, client, rackIDs)
-		if err != nil {
-			return nil, fmt.Errorf("resolve rack members: %w", err)
-		}
-		deviceIDs = append(deviceIDs, memberIDs...)
-	}
+	deviceIDs = append(deviceIDs, rackMembers...)
 
 	deviceIDs = dedupeStrings(deviceIDs)
 	if len(deviceIDs) == 0 {

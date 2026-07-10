@@ -41,10 +41,6 @@ var (
 )
 
 func main() {
-	// Prevent unused variable warnings.
-	_ = commit
-	_ = date
-
 	if err := newRootCommand().Run(context.Background(), os.Args); err != nil {
 		var apiErr *APIError
 		if errors.As(err, &apiErr) {
@@ -141,7 +137,7 @@ func apiKeyCommand() *cli.Command {
 					}
 					defer func() { _ = client.Close() }()
 
-					if err := authenticateAPIKeySession(ctx, cmd, client, "create"); err != nil {
+					if err := authenticateAPIKeySession(ctx, client, "create"); err != nil {
 						return err
 					}
 
@@ -171,7 +167,7 @@ func apiKeyCommand() *cli.Command {
 					}
 					defer func() { _ = client.Close() }()
 
-					if err := authenticateAPIKeySession(ctx, cmd, client, "list"); err != nil {
+					if err := authenticateAPIKeySession(ctx, client, "list"); err != nil {
 						return err
 					}
 
@@ -195,7 +191,7 @@ func apiKeyCommand() *cli.Command {
 					}
 					defer func() { _ = client.Close() }()
 
-					if err := authenticateAPIKeySession(ctx, cmd, client, "revoke"); err != nil {
+					if err := authenticateAPIKeySession(ctx, client, "revoke"); err != nil {
 						return err
 					}
 
@@ -210,7 +206,7 @@ func apiKeyCommand() *cli.Command {
 	}
 }
 
-func authenticateAPIKeySession(ctx context.Context, _ *cli.Command, client *Client, action string) error {
+func authenticateAPIKeySession(ctx context.Context, client *Client, action string) error {
 	username, password, err := client.sessionCredentials()
 	if err != nil {
 		return fmt.Errorf("%s requires username and password because API key lifecycle commands are session-only: %w", action, err)

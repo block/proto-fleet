@@ -87,13 +87,11 @@ func (c *Client) firmwareURL(parts ...string) *url.URL {
 	}
 	segments = append(segments, "api", "v1", "firmware")
 	segments = append(segments, parts...)
-	rawSegments := make([]string, 0, len(segments))
 	escapedSegments := make([]string, 0, len(segments))
 	for _, segment := range segments {
-		rawSegments = append(rawSegments, segment)
 		escapedSegments = append(escapedSegments, url.PathEscape(segment))
 	}
-	u.Path = "/" + strings.Join(rawSegments, "/")
+	u.Path = "/" + strings.Join(segments, "/")
 	u.RawPath = "/" + strings.Join(escapedSegments, "/")
 	return &u
 }

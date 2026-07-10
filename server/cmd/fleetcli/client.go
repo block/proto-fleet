@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -94,7 +93,7 @@ func New(_ context.Context, opts Options) (*Client, error) {
 		baseURL: baseURL,
 		httpClient: &http.Client{
 			CheckRedirect: transportguard.RejectRedirect,
-			Jar:           &loopbackSecureJar{inner: jar},
+			Jar:           transportguard.NewLoopbackSecureJar(jar),
 			Transport:     httpTransport,
 			Timeout:       30 * time.Second,
 		},
@@ -346,37 +345,6 @@ func (c *Client) hasSession() bool {
 		target.Path = "/"
 	}
 	return len(c.httpClient.Jar.Cookies(&target)) > 0
-}
-
-// loopbackSecureJar treats plain-HTTP loopback origins as secure contexts the
-// way browsers do, so the Secure-flagged fleet session cookie works against a
-// local fleet-api without weakening cookie handling for remote hosts.
-type loopbackSecureJar struct {
-	inner http.CookieJar
-}
-
-func (j *loopbackSecureJar) SetCookies(u *url.URL, cookies []*http.Cookie) {
-	j.inner.SetCookies(loopbackAsHTTPS(u), cookies)
-}
-
-func (j *loopbackSecureJar) Cookies(u *url.URL) []*http.Cookie {
-	return j.inner.Cookies(loopbackAsHTTPS(u))
-}
-
-func loopbackAsHTTPS(u *url.URL) *url.URL {
-	if u.Scheme != "http" {
-		return u
-	}
-	host := u.Hostname()
-	if host != "localhost" {
-		ip := net.ParseIP(host)
-		if ip == nil || !ip.IsLoopback() {
-			return u
-		}
-	}
-	clone := *u
-	clone.Scheme = "https"
-	return &clone
 }
 
 func normalizeBaseURL(server string, insecureOverride bool) (*url.URL, error) {
