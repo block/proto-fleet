@@ -33,16 +33,25 @@ func (f *fakeDeviceResolver) ResolveDeviceIdentifiers(_ context.Context, selecto
 	return f.ids, f.err
 }
 
+// requireAllDevicesFilter asserts the selector is the all_devices case and
+// returns its filter (checked assertion keeps golangci-lint's forcetypeassert
+// satisfied).
+func requireAllDevicesFilter(t *testing.T, selector *fleetpb.DeviceSelector) *fleetpb.MinerListFilter {
+	t.Helper()
+	all, ok := selector.SelectionType.(*fleetpb.DeviceSelector_AllDevices)
+	require.True(t, ok, "expected all_devices selector case")
+	return all.AllDevices
+}
+
 func TestFleetSelectorForMatchingFilter(t *testing.T) {
 	t.Run("nil filter defaults to command-eligible pairing statuses", func(t *testing.T) {
 		selector := fleetSelectorForMatchingFilter(nil)
 
-		all, ok := selector.SelectionType.(*fleetpb.DeviceSelector_AllDevices)
-		require.True(t, ok, "expected all_devices selector case")
+		all := requireAllDevicesFilter(t, selector)
 		assert.Equal(t, []fleetpb.PairingStatus{
 			fleetpb.PairingStatus_PAIRING_STATUS_PAIRED,
 			fleetpb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
-		}, all.AllDevices.PairingStatuses)
+		}, all.PairingStatuses)
 	})
 
 	t.Run("preserves filter constraints and applies pairing default when unset", func(t *testing.T) {
@@ -53,7 +62,7 @@ func TestFleetSelectorForMatchingFilter(t *testing.T) {
 
 		selector := fleetSelectorForMatchingFilter(input)
 
-		all := selector.SelectionType.(*fleetpb.DeviceSelector_AllDevices).AllDevices
+		all := requireAllDevicesFilter(t, selector)
 		assert.Equal(t, []int64{7, 9}, all.RackIds)
 		assert.Equal(t, []string{"S19"}, all.Models)
 		assert.Equal(t, []fleetpb.PairingStatus{
@@ -71,7 +80,7 @@ func TestFleetSelectorForMatchingFilter(t *testing.T) {
 
 		selector := fleetSelectorForMatchingFilter(input)
 
-		all := selector.SelectionType.(*fleetpb.DeviceSelector_AllDevices).AllDevices
+		all := requireAllDevicesFilter(t, selector)
 		assert.Equal(t, []fleetpb.PairingStatus{fleetpb.PairingStatus_PAIRING_STATUS_PAIRED}, all.PairingStatuses)
 	})
 }
@@ -95,7 +104,7 @@ func TestResolveSelectorIdentifiers_AllMatchingFilter(t *testing.T) {
 		assert.Equal(t, 1, resolver.calls)
 		assert.Equal(t, int64(42), resolver.gotOrgID)
 
-		all := resolver.gotSelector.SelectionType.(*fleetpb.DeviceSelector_AllDevices).AllDevices
+		all := requireAllDevicesFilter(t, resolver.gotSelector)
 		assert.Equal(t, []int64{5}, all.RackIds)
 		assert.Equal(t, []fleetpb.PairingStatus{
 			fleetpb.PairingStatus_PAIRING_STATUS_PAIRED,

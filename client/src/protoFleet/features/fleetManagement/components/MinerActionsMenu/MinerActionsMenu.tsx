@@ -25,10 +25,23 @@ import { type SelectionMode } from "@/shared/components/List";
 import { PopoverProvider } from "@/shared/components/Popover";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
+// Actions whose "all"-mode selector cannot yet carry the rich MinerListFilter:
+// Add to group resolves via the device_set selector (all-devices is a bare
+// flag), and Manage security builds a thin model/status DeviceFilter. Under a
+// scoped/filtered "select all" both would target the whole fleet, so they are
+// disabled in that state until the filter is threaded through.
+const FILTER_UNSUPPORTED_ALL_MODE_ACTIONS = new Set<SupportedAction>([
+  groupActions.addToGroup,
+  settingsActions.security,
+]);
+
 interface MinerActionsMenuProps {
   selectedMiners: string[];
   selectionMode: SelectionMode;
-  /** Total count of all miners in fleet (used for "all" mode confirmation dialogs) */
+  /**
+   * Size of an "all"-mode selection — the scoped/filtered total when a filter is
+   * active, else the whole-fleet total. Drives confirmation-dialog counts.
+   */
   totalCount?: number;
   /**
    * Active scoped filter (URL chips ∩ SitePicker scope). In "all" mode, command
@@ -223,18 +236,42 @@ const MinerActionsMenu = ({
 
   const permittedActions = usePermittedActions(actionsWithBulkRename);
 
+  // A scoped/filtered "all" selection: currentFilter carries the URL chips ∩
+  // SitePicker scope, so its presence in "all" mode means the selection is a
+  // subset of the fleet.
+  const filteredAllModeActive = selectionMode === "all" && currentFilter !== undefined;
+
   const visibleActions = useMemo(() => {
-    if (!selectionIncludesUnauthenticatedMiner) return permittedActions;
-    return permittedActions.map((action) =>
-      action.action === deviceActions.unpair
-        ? action
-        : {
-            ...action,
-            disabled: true,
-            disabledReason: "Selection includes miners that need authentication.",
-          },
-    );
-  }, [permittedActions, selectionIncludesUnauthenticatedMiner]);
+    let result = permittedActions;
+    // Add to group (device_set selector's all-devices is a plain flag) and
+    // Manage security (thin model/status filter) can't yet carry the rich
+    // filter, so under a scoped/filtered "select all" they would expand to the
+    // whole fleet. Disable them until the rich filter is threaded through those
+    // paths; individual selection still works.
+    if (filteredAllModeActive) {
+      result = result.map((action) =>
+        FILTER_UNSUPPORTED_ALL_MODE_ACTIONS.has(action.action)
+          ? {
+              ...action,
+              disabled: true,
+              disabledReason: "Not yet available for a filtered Select all. Select miners individually.",
+            }
+          : action,
+      );
+    }
+    if (selectionIncludesUnauthenticatedMiner) {
+      result = result.map((action) =>
+        action.action === deviceActions.unpair
+          ? action
+          : {
+              ...action,
+              disabled: true,
+              disabledReason: "Selection includes miners that need authentication.",
+            },
+      );
+    }
+    return result;
+  }, [permittedActions, selectionIncludesUnauthenticatedMiner, filteredAllModeActive]);
 
   const poolMiners = useMemo(() => {
     if (poolFilteredDeviceIds) {

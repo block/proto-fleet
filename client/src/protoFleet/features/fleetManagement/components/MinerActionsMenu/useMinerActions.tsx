@@ -92,7 +92,10 @@ export interface MinerSelection {
 interface UseMinerActionsParams {
   selectedMiners: MinerSelection[];
   selectionMode: SelectionMode;
-  /** Total count of all miners in fleet (used for "all" mode confirmation dialogs) */
+  /**
+   * Size of an "all"-mode selection — the scoped/filtered total when a filter is
+   * active, else the whole-fleet total. Drives confirmation-dialog counts.
+   */
   totalCount?: number;
   /**
    * Active scoped filter (URL filter chips ∩ SitePicker site scope). In "all"

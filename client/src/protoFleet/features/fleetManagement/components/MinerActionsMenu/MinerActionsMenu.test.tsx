@@ -5,6 +5,7 @@ import { create } from "@bufbuild/protobuf";
 import { deviceActions, groupActions, performanceActions, settingsActions } from "./constants";
 import MinerActionsMenu from "./MinerActionsMenu";
 import {
+  MinerListFilterSchema,
   MinerStateSnapshotSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -500,6 +501,104 @@ describe("MinerActionsMenu", () => {
     // addToGroup remains the trailing entry; its showGroupDivider
     // closes the whole site → building → rack → group re-parent cluster.
     expect(actions[7].showGroupDivider).toBe(true);
+  });
+
+  test("disables add-to-group and manage-security under a filtered/scoped Select all", () => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: false, isTablet: false });
+    mockUseMinerActions.mockReturnValueOnce({
+      ...createMockMinerActionsReturn(null),
+      popoverActions: [
+        {
+          action: deviceActions.reboot,
+          title: "Reboot",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: false,
+        },
+        {
+          action: groupActions.addToGroup,
+          title: "Add to group",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: false,
+        },
+        {
+          action: settingsActions.security,
+          title: "Manage security",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: false,
+        },
+      ],
+    });
+
+    mockBulkActionsWidget.mockClear();
+
+    render(
+      <MinerActionsMenu
+        selectedMiners={["miner-1"]}
+        selectionMode="all"
+        totalCount={500}
+        currentFilter={create(MinerListFilterSchema, { rackIds: [7n] })}
+        onActionStart={vi.fn()}
+        onActionComplete={vi.fn()}
+      />,
+    );
+
+    const widgetCalls = mockBulkActionsWidget.mock.calls as unknown as Array<
+      [{ actions: Array<{ action: string; disabled?: boolean }> }]
+    >;
+    const actions = widgetCalls[0][0].actions;
+    const byAction = (a: string) => actions.find((x) => x.action === a);
+
+    // Filter-unsafe all-mode actions are disabled...
+    expect(byAction(groupActions.addToGroup)?.disabled).toBe(true);
+    expect(byAction(settingsActions.security)?.disabled).toBe(true);
+    // ...while filter-aware command actions stay enabled.
+    expect(byAction(deviceActions.reboot)?.disabled).toBeFalsy();
+  });
+
+  test("keeps add-to-group and manage-security enabled for an unscoped Select all", () => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: false, isTablet: false });
+    mockUseMinerActions.mockReturnValueOnce({
+      ...createMockMinerActionsReturn(null),
+      popoverActions: [
+        {
+          action: groupActions.addToGroup,
+          title: "Add to group",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: false,
+        },
+        {
+          action: settingsActions.security,
+          title: "Manage security",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: false,
+        },
+      ],
+    });
+
+    mockBulkActionsWidget.mockClear();
+
+    render(
+      <MinerActionsMenu
+        selectedMiners={["miner-1"]}
+        selectionMode="all"
+        totalCount={500}
+        // No currentFilter — whole-fleet select all; allDevices is correct here.
+        onActionStart={vi.fn()}
+        onActionComplete={vi.fn()}
+      />,
+    );
+
+    const widgetCalls = mockBulkActionsWidget.mock.calls as unknown as Array<
+      [{ actions: Array<{ action: string; disabled?: boolean }> }]
+    >;
+    const actions = widgetCalls[0][0].actions;
+    expect(actions.find((x) => x.action === groupActions.addToGroup)?.disabled).toBeFalsy();
+    expect(actions.find((x) => x.action === settingsActions.security)?.disabled).toBeFalsy();
   });
 
   test("requests credentials before opening update worker names modal", async () => {

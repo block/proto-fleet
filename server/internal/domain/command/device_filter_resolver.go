@@ -35,7 +35,9 @@ var commandEligiblePairingStatuses = []fleetmanagementpb.PairingStatus{
 func fleetSelectorForMatchingFilter(filter *fleetmanagementpb.MinerListFilter) *fleetmanagementpb.DeviceSelector {
 	resolved := &fleetmanagementpb.MinerListFilter{}
 	if filter != nil {
-		resolved = proto.Clone(filter).(*fleetmanagementpb.MinerListFilter)
+		if cloned, ok := proto.Clone(filter).(*fleetmanagementpb.MinerListFilter); ok {
+			resolved = cloned
+		}
 	}
 	if len(resolved.PairingStatuses) == 0 {
 		resolved.PairingStatuses = append([]fleetmanagementpb.PairingStatus(nil), commandEligiblePairingStatuses...)
