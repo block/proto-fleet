@@ -2176,6 +2176,46 @@ func TestService_UpdateCollection_RackSettingsRejectsShrinkBelowMembers(t *testi
 	_ = mockSiteStore
 }
 
+// TestService_UpdateCollection_RackSettingsRejectsMembershipOverCapacity guards
+// the combined shape: rack_info (dims) + device_selector (new membership) in one
+// call. The new set governs capacity, so replacing membership with more miners
+// than the submitted grid holds is rejected before any write — mirroring
+// SaveRack — rather than silently committing an over-capacity rack.
+func TestService_UpdateCollection_RackSettingsRejectsMembershipOverCapacity(t *testing.T) {
+	svc, mockStore, mockSiteStore := newTestServiceWithSites(t, func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return []string{"d1", "d2"}, nil // two miners
+	})
+	ctx := testCtx(t)
+
+	collectionID := int64(43)
+
+	// Only the type read happens before the capacity check rejects (2 miners
+	// into a 1×1 = 1-slot grid); no lock/placement/membership writes follow.
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+
+	label := "Rack"
+	_, err := svc.UpdateCollection(ctx, &pb.UpdateCollectionRequest{
+		CollectionId: collectionID,
+		Label:        &label,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{"d1", "d2"}},
+			},
+		},
+		TypeDetails: &pb.UpdateCollectionRequest_RackInfo{
+			RackInfo: &pb.RackInfo{
+				Rows:        1,
+				Columns:     1,
+				OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+				CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+			},
+		},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot assign 2 miners")
+	_ = mockSiteStore
+}
+
 // TestService_AddDevicesToGroup_HappyPath covers the group add flow:
 // groups are org-scoped (cross-site allowed) so there is no rack lock,
 // no LockSiteForWrite, and no cascade — just the membership insert

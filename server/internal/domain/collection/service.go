@@ -531,16 +531,24 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 			rackBuildingID   *int64
 		)
 		if isRack && rackInfo != nil {
-			// A settings save persists dimensions without replacing membership,
-			// so reject a shrink that no longer fits the rack's current members
-			// or their slot positions — otherwise Continue would leave the DB
-			// with a grid too small for the miners it holds (#718). Runs as the
-			// afterLock hook (under the rack row lock) so a concurrent SaveRack
-			// can't add members/slots between the check and the resize. Skipped
-			// when this call also replaces membership; the new set governs
-			// capacity then (and SaveRack owns that path).
+			// A rack can never hold more miners than its grid has slots (#718).
+			// Two shapes:
+			//   - membership replaced this call (device_selector present): the
+			//     NEW set governs capacity — validate len(deviceIdentifiers)
+			//     against the submitted dims, mirroring SaveRack. Pure
+			//     request-data check, no lock needed.
+			//   - settings-only (no device_selector): the rack's CURRENT members
+			//     govern — recheck under the rack row lock (afterLock) so a
+			//     concurrent SaveRack can't add members between the read and the
+			//     resize.
 			var afterLock func(context.Context) error
-			if !hasDeviceSelector {
+			if hasDeviceSelector {
+				if capacity := int(rackInfo.Rows) * int(rackInfo.Columns); len(deviceIdentifiers) > capacity {
+					return nil, fleeterror.NewInvalidArgumentErrorf(
+						"cannot assign %d miners to a rack with %d slot(s) (%d×%d)",
+						len(deviceIdentifiers), capacity, rackInfo.Rows, rackInfo.Columns)
+				}
+			} else {
 				afterLock = func(ctx context.Context) error {
 					return s.enforceRackDimensionsFitCurrentMembers(ctx, info.OrganizationID, req.CollectionId, rackInfo.Rows, rackInfo.Columns)
 				}
