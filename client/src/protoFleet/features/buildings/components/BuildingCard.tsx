@@ -200,6 +200,11 @@ const BuildingCard = ({ building, showMetrics = true }: BuildingCardProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const suppressNextCardClickRef = useRef(false);
   const goToDetail = () => navigate(`/buildings/${idText}`);
+  const suppressCardNavigationAfterDismiss = (target: EventTarget | null) => {
+    if (menuOpen && target instanceof Element && !target.closest("[data-testid$='-menu-trigger']")) {
+      suppressNextCardClickRef.current = true;
+    }
+  };
   const actions = useMemo(
     () => [
       {
@@ -226,11 +231,8 @@ const BuildingCard = ({ building, showMetrics = true }: BuildingCardProps) => {
       ref={cardRef}
       role="link"
       tabIndex={0}
-      onMouseDownCapture={(e) => {
-        if (menuOpen && !(e.target as HTMLElement).closest("[data-testid$='-menu-trigger']")) {
-          suppressNextCardClickRef.current = true;
-        }
-      }}
+      onMouseDownCapture={(e) => suppressCardNavigationAfterDismiss(e.target)}
+      onTouchStartCapture={(e) => suppressCardNavigationAfterDismiss(e.target)}
       onClick={(e) => {
         if (suppressNextCardClickRef.current) {
           suppressNextCardClickRef.current = false;
