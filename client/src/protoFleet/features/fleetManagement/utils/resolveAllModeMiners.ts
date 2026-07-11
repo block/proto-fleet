@@ -8,10 +8,15 @@ import type {
 // (rack/site/building/group assignment) take an explicit device list — the
 // device_set/common selectors can't carry the rich MinerListFilter. So we
 // resolve the filter to concrete identifiers client-side by paginating the
-// snapshot list, bounded so an unfiltered whole-fleet selection can't page
-// forever.
+// snapshot list.
+//
+// The cap matches the server's explicit device_list limit
+// (deviceresolver.MaxDeviceIdentifiers = 10,000): the resolved list is sent as
+// common.v1.DeviceSelector.device_list, which the server rejects above 10k. We
+// stop and surface a "filter and try again" message here rather than paging a
+// larger set that would always fail the RPC.
 export const SNAPSHOT_PAGE_SIZE = 1000;
-export const MAX_SNAPSHOT_PAGES = 50;
+export const MAX_SNAPSHOT_PAGES = 10;
 export const MAX_MINERS = MAX_SNAPSHOT_PAGES * SNAPSHOT_PAGE_SIZE;
 
 /**

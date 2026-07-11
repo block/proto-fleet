@@ -65,8 +65,10 @@ const MinerActionModalStack = ({
   // scoped/filtered "all" can't ride the group selector (its all-devices is a
   // bare flag), so — like the rack/site/building reparent flow — page the
   // filtered set into an explicit id list. Unscoped "all" keeps the whole-fleet
-  // flag. Returns null on empty/error (a toast is shown) so callers bail.
-  const resolveGroupTarget = useCallback(async (): Promise<GroupTarget | null> => {
+  // flag. Throws on empty/error (after surfacing a toast) so the confirm/create
+  // promise rejects and ParentPickerModal keeps the picker open for retry —
+  // rather than resolving normally, which it would treat as success and close.
+  const resolveGroupTarget = useCallback(async (): Promise<GroupTarget> => {
     if (!allMode) return { deviceIdentifiers: selectedMinerIds };
     if (!currentFilter) return { allDevices: true };
 
@@ -75,19 +77,20 @@ const MinerActionModalStack = ({
       status: STATUSES.loading,
       longRunning: true,
     });
+    let ids: string[];
     try {
-      const { ids } = await resolveAllModeIds(applyFleetVisiblePairingStatuses(currentFilter));
-      removeToast(loadingToast);
-      if (ids.length === 0) {
-        pushToast({ message: "No miners selected.", status: STATUSES.queued });
-        return null;
-      }
-      return { deviceIdentifiers: ids };
+      ({ ids } = await resolveAllModeIds(applyFleetVisiblePairingStatuses(currentFilter)));
     } catch (err) {
       const message = err instanceof Error && err.message ? err.message : "Couldn't load selected miners. Try again.";
       updateToast(loadingToast, { message, status: STATUSES.error });
-      return null;
+      throw err instanceof Error ? err : new Error(message);
     }
+    removeToast(loadingToast);
+    if (ids.length === 0) {
+      pushToast({ message: "No miners selected.", status: STATUSES.queued });
+      throw new Error("No miners matched the current filter.");
+    }
+    return { deviceIdentifiers: ids };
   }, [allMode, selectedMinerIds, currentFilter]);
 
   // Reject on RPC error so ParentPickerModal keeps the picker open.
@@ -116,7 +119,6 @@ const MinerActionModalStack = ({
   const handleAddToGroupConfirm = useCallback(
     async (groupIds: bigint[]) => {
       const target = await resolveGroupTarget();
-      if (!target) return;
       await Promise.all(groupIds.map((groupId) => dispatchAddToGroup(groupId, target)));
     },
     [dispatchAddToGroup, resolveGroupTarget],
@@ -125,7 +127,6 @@ const MinerActionModalStack = ({
   const handleCreateGroup = useCallback(
     async (name: string) => {
       const target = await resolveGroupTarget();
-      if (!target) return;
       await new Promise<void>((resolve, reject) => {
         void createGroup({
           label: name,
