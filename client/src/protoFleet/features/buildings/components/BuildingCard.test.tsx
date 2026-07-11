@@ -302,6 +302,23 @@ describe("BuildingCard", () => {
     expect(screen.getByTestId("location-probe")).toHaveTextContent("/racks?building=7");
   });
 
+  it("closes the actions menu when the open trigger is clicked again", () => {
+    statsMock.mockReturnValue({
+      stats: buildStats(),
+      isLoading: false,
+      hasLoaded: true,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderCard({ rackCount: 0n });
+    const trigger = screen.getByTestId("building-card-7-menu-trigger");
+    fireEvent.click(trigger);
+    expect(screen.getByTestId("building-card-7-menu")).toBeInTheDocument();
+    fireEvent.mouseDown(trigger);
+    fireEvent.click(trigger);
+    expect(screen.queryByTestId("building-card-7-menu")).toBeNull();
+  });
+
   it("dismisses the actions menu without navigating when the card background is clicked", () => {
     statsMock.mockReturnValue({
       stats: buildStats(),

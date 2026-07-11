@@ -160,6 +160,7 @@ const RowActionsMenuInner = ({
       {open && !isPhone ? (
         <Popover
           className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"
+          closeIgnoreSelectors={[`[data-testid="${resolvedTriggerTestId}"]`]}
           closePopover={() => setMenuOpen(false)}
           position={positions["bottom right"]}
           size={popoverSizes.small}
