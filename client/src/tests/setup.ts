@@ -10,8 +10,6 @@ vi.mock("@datadog/browser-rum", () => ({
   datadogRum: {
     init: vi.fn(),
     addError: vi.fn(),
-    setUser: vi.fn(),
-    setGlobalContextProperty: vi.fn(),
   },
 }));
 

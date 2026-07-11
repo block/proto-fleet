@@ -9,8 +9,8 @@ export interface ObservabilityInitContext {
   version: string;
   /** Deploy environment (e.g. "production", "staging", "dev"). */
   env: string;
-  /** Origin or path prefix of client→server API calls, used to scope distributed tracing. */
-  apiTracingOrigin: string;
+  /** Path prefix of same-origin client→server API calls, used to scope distributed tracing. */
+  apiTracingPathPrefix: string;
 }
 
 export type ObservabilityErrorMeta = Record<string, unknown>;

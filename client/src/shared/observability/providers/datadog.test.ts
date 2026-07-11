@@ -5,17 +5,15 @@ import type { RumInitConfiguration } from "@datadog/browser-rum";
 import type { ObservabilityInitContext } from "../types";
 import { datadogProvider } from "./datadog";
 
-type MutableWindow = Window & { __RUNTIME_CONFIG__?: Record<string, string> };
-
 const ctx: ObservabilityInitContext = {
   service: "proto-fleet-client",
   version: "test-commit",
   env: "test",
-  apiTracingOrigin: "/api-proxy",
+  apiTracingPathPrefix: "/api-proxy",
 };
 
 const setRuntimeConfig = (config: Record<string, string>) => {
-  (window as MutableWindow).__RUNTIME_CONFIG__ = config;
+  window.__RUNTIME_CONFIG__ = config;
 };
 
 const initMock = vi.mocked(datadogRum.init);
@@ -24,7 +22,7 @@ const addErrorMock = vi.mocked(datadogRum.addError);
 const lastInitConfig = (): RumInitConfiguration => initMock.mock.calls[0][0];
 
 beforeEach(() => {
-  delete (window as MutableWindow).__RUNTIME_CONFIG__;
+  delete window.__RUNTIME_CONFIG__;
   initMock.mockClear();
   addErrorMock.mockClear();
 });
@@ -78,8 +76,10 @@ describe("datadogProvider.init", () => {
     let config = lastInitConfig();
     expect(config.site).toBe("datadoghq.com");
     expect(config.service).toBe("proto-fleet-client");
+    expect(config.env).toBe("test"); // falls back to context.env
     expect(config.sessionSampleRate).toBe(100);
     expect(config.sessionReplaySampleRate).toBe(0);
+    expect(config.traceSampleRate).toBe(100);
 
     initMock.mockClear();
     setRuntimeConfig({
@@ -87,15 +87,19 @@ describe("datadogProvider.init", () => {
       DD_CLIENT_TOKEN: "token",
       DD_SITE: "us3.datadoghq.com",
       DD_SERVICE: "custom-service",
+      DD_ENV: "staging",
       DD_RUM_SAMPLE_RATE: "25",
       DD_SESSION_REPLAY_SAMPLE_RATE: "10",
+      DD_TRACE_SAMPLE_RATE: "50",
     });
     datadogProvider.init(ctx);
     config = lastInitConfig();
     expect(config.site).toBe("us3.datadoghq.com");
     expect(config.service).toBe("custom-service");
+    expect(config.env).toBe("staging"); // DD_ENV overrides context.env
     expect(config.sessionSampleRate).toBe(25);
     expect(config.sessionReplaySampleRate).toBe(10);
+    expect(config.traceSampleRate).toBe(50);
   });
 
   it("falls back to defaults when a sample rate is non-numeric", () => {
@@ -118,6 +122,7 @@ describe("datadogProvider.init", () => {
 
     expect(matcher(`${origin}/api-proxy/telemetry.v1.TelemetryService/Get`)).toBe(true);
     expect(matcher(`${origin}/other/path`)).toBe(false);
+    expect(matcher(`${origin}/api-proxy-internal/x`)).toBe(false); // sibling path not swept in
     expect(matcher("https://third-party.example.com/api-proxy/x")).toBe(false);
   });
 });

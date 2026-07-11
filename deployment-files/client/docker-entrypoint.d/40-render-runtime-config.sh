@@ -14,10 +14,15 @@ emit_key() {
   key="$1"
   value="$2"
   [ -n "$value" ] || return 0
-  # Escape backslashes then double quotes for safe embedding in a JS string.
-  escaped=$(printf '%s' "$value" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  # Strip CR/newlines (a raw newline would produce an unterminated JS string and
+  # brick config.js), then escape backslashes and double quotes for safe embedding.
+  escaped=$(printf '%s' "$value" | tr -d '\r\n' | sed 's/\\/\\\\/g; s/"/\\"/g')
   printf '  %s: "%s",\n' "$key" "$escaped" >> "$CONFIG_FILE"
 }
+
+# config.js is publicly served to browsers. Only emit public values (RUM
+# application ID / client token are public identifiers). Never add a secret
+# such as a Datadog API key (DD_API_KEY) to this list.
 
 emit_key "DD_APPLICATION_ID" "${DD_APPLICATION_ID:-}"
 emit_key "DD_CLIENT_TOKEN" "${DD_CLIENT_TOKEN:-}"

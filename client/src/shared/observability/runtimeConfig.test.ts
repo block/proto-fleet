@@ -2,10 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getConfigValue } from "./runtimeConfig";
 
-type MutableWindow = Window & { __RUNTIME_CONFIG__?: Record<string, string> };
-
 const clearRuntimeConfig = () => {
-  delete (window as MutableWindow).__RUNTIME_CONFIG__;
+  delete window.__RUNTIME_CONFIG__;
 };
 
 describe("getConfigValue", () => {
@@ -17,7 +15,7 @@ describe("getConfigValue", () => {
   });
 
   it("returns the runtime value when present", () => {
-    (window as MutableWindow).__RUNTIME_CONFIG__ = { DD_CLIENT_TOKEN: "runtime-token" };
+    window.__RUNTIME_CONFIG__ = { DD_CLIENT_TOKEN: "runtime-token" };
     expect(getConfigValue("DD_CLIENT_TOKEN")).toBe("runtime-token");
   });
 
@@ -28,13 +26,13 @@ describe("getConfigValue", () => {
 
   it("prefers the runtime value over the build-time value", () => {
     vi.stubEnv("VITE_DD_CLIENT_TOKEN", "build-token");
-    (window as MutableWindow).__RUNTIME_CONFIG__ = { DD_CLIENT_TOKEN: "runtime-token" };
+    window.__RUNTIME_CONFIG__ = { DD_CLIENT_TOKEN: "runtime-token" };
     expect(getConfigValue("DD_CLIENT_TOKEN")).toBe("runtime-token");
   });
 
   it("treats an empty or whitespace runtime value as unset and falls back", () => {
     vi.stubEnv("VITE_DD_CLIENT_TOKEN", "build-token");
-    (window as MutableWindow).__RUNTIME_CONFIG__ = { DD_CLIENT_TOKEN: "   " };
+    window.__RUNTIME_CONFIG__ = { DD_CLIENT_TOKEN: "   " };
     expect(getConfigValue("DD_CLIENT_TOKEN")).toBe("build-token");
   });
 

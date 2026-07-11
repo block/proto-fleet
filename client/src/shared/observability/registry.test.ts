@@ -13,7 +13,7 @@ const ctx: ObservabilityInitContext = {
   service: "test-service",
   version: "test-commit",
   env: "test",
-  apiTracingOrigin: "/api-proxy",
+  apiTracingPathPrefix: "/api-proxy",
 };
 
 beforeEach(() => {
@@ -148,5 +148,15 @@ describe("observabilityInterceptors", () => {
   it("returns an empty array when no provider contributes interceptors", () => {
     registerProvider({ name: "plain", isConfigured: () => true, init: vi.fn() });
     expect(observabilityInterceptors()).toEqual([]);
+  });
+
+  it("concatenates interceptors from multiple configured providers in registration order", () => {
+    type Interceptor = ReturnType<NonNullable<ObservabilityProvider["connectInterceptors"]>>[number];
+    const first = ((next) => next) as Interceptor;
+    const second = ((next) => next) as Interceptor;
+    registerProvider({ name: "a", isConfigured: () => true, init: vi.fn(), connectInterceptors: () => [first] });
+    registerProvider({ name: "b", isConfigured: () => true, init: vi.fn(), connectInterceptors: () => [second] });
+
+    expect(observabilityInterceptors()).toEqual([first, second]);
   });
 });

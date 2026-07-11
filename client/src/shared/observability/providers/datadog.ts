@@ -17,13 +17,18 @@ const parseSampleRate = (value: string | undefined, fallback: number): number =>
 
 /** Distributed tracing scope: same-origin requests under the API base path
  * (e.g. `/api-proxy/...`). Datadog RUM injects trace headers on matching fetch
- * calls, so ConnectRPC RPCs — which go through the global fetch — are traced. */
+ * calls, so ConnectRPC RPCs — which go through the global fetch — are traced.
+ * Matches the prefix on a path boundary so a sibling like `/api-proxy-internal`
+ * is not swept in. */
 const makeApiTracingMatcher =
-  (apiTracingOrigin: string) =>
+  (apiTracingPathPrefix: string) =>
   (url: string): boolean => {
     try {
       const parsed = new URL(url, window.location.origin);
-      return parsed.origin === window.location.origin && parsed.pathname.startsWith(apiTracingOrigin);
+      if (parsed.origin !== window.location.origin) {
+        return false;
+      }
+      return parsed.pathname === apiTracingPathPrefix || parsed.pathname.startsWith(`${apiTracingPathPrefix}/`);
     } catch {
       return false;
     }
@@ -56,7 +61,7 @@ export const datadogProvider: ObservabilityProvider = {
       trackResources: true,
       trackLongTasks: true,
       trackUserInteractions: true,
-      allowedTracingUrls: [makeApiTracingMatcher(context.apiTracingOrigin)],
+      allowedTracingUrls: [makeApiTracingMatcher(context.apiTracingPathPrefix)],
     };
 
     datadogRum.init(config);
