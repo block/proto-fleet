@@ -31,6 +31,7 @@
     "@bufbuild/protobuf": "2.12.1",
     "@connectrpc/connect": "2.1.2",
     "@connectrpc/connect-web": "2.1.2",
+    "@datadog/browser-rum": "7.5.0",
     "@dnd-kit/core": "6.3.1",
     "@dnd-kit/sortable": "10.0.0",
     "barcode-detector": "3.2.0",

@@ -14,6 +14,7 @@ import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useApplyTheme } from "@/shared/features/preferences";
 import { Toaster } from "@/shared/features/toaster";
+import { reportObservabilityError } from "@/shared/observability";
 import { isBackendDownError } from "@/shared/utils/backendHealth";
 import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
@@ -120,7 +121,9 @@ const App = ({ children, fullscreen }: AppProps) => {
   // RENDER
   // ============================================================================
   return (
-    <ErrorBoundary>
+    <ErrorBoundary
+      onError={(error, errorInfo) => reportObservabilityError(error, { componentStack: errorInfo.componentStack })}
+    >
       {/* Toaster - Fixed position, renders above overlays (z-50) and dialogs (z-40) */}
       <div
         className={clsx(
