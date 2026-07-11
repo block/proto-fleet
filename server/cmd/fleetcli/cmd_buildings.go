@@ -6,7 +6,7 @@ import (
 	"context"
 	"fmt"
 	buildingsv1 "github.com/block/proto-fleet/server/generated/grpc/buildings/v1"
-	"github.com/urfave/cli/v3"
+	cli "github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
 )
 
@@ -22,7 +22,7 @@ func generatedBuildingsCommand() *cli.Command {
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.Int64Flag{Name: "target-building-id", Usage: "target building id"},
-					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "device identifiers"},
+					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "(required) device identifiers", Required: true},
 					&cli.BoolFlag{Name: "force-clear-conflicting-rack-membership", Usage: "force clear conflicting rack membership"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
@@ -48,19 +48,12 @@ func generatedBuildingsCommand() *cli.Command {
 				"/buildings.v1.BuildingService/AssignRacksToBuilding",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.Int64Flag{Name: "target-building-id", Usage: "target building id"},
+					&cli.StringFlag{Name: "json", Usage: "(required) Path to a request JSON file, or - for stdin", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &buildingsv1.AssignRacksToBuildingRequest{}
-					if jsonPath := cmd.String("json"); jsonPath != "" {
-						if err := readProtoJSON(jsonPath, req); err != nil {
-							return nil, err
-						}
-					}
-					if cmd.IsSet("target-building-id") {
-						value := cmd.Int64("target-building-id")
-						req.TargetBuildingId = &value
+					if err := readProtoJSON(cmd.String("json"), req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},

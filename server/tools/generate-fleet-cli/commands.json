@@ -398,17 +398,20 @@
     {
       "method": "/sites.v1.SiteService/AssignDevicesToSite",
       "group": "sites",
-      "command": "assign-devices"
+      "command": "assign-devices",
+      "required_fields": ["device_identifiers"]
     },
     {
       "method": "/sites.v1.SiteService/AssignBuildingsToSite",
       "group": "sites",
-      "command": "assign-buildings"
+      "command": "assign-buildings",
+      "required_fields": ["building_ids"]
     },
     {
       "method": "/sites.v1.SiteService/AssignRacksToSite",
       "group": "sites",
-      "command": "assign-racks"
+      "command": "assign-racks",
+      "required_fields": ["rack_ids"]
     },
     {
       "method": "/buildings.v1.BuildingService/CreateBuilding",
@@ -431,18 +434,20 @@
     {
       "method": "/buildings.v1.BuildingService/AssignRacksToBuilding",
       "group": "buildings",
-      "command": "assign-racks"
+      "command": "assign-racks",
+      "json_only": true
     },
     {
       "method": "/buildings.v1.BuildingService/AssignDevicesToBuilding",
       "group": "buildings",
-      "command": "assign-devices"
+      "command": "assign-devices",
+      "required_fields": ["device_identifiers"]
     },
     {
       "method": "/device_set.v1.DeviceSetService/SetRackSlotPosition",
       "group": "racks",
       "command": "set-slot",
-      "required_fields": ["device_set_id", "device_identifier"]
+      "json_only": true
     },
     {
       "method": "/device_set.v1.DeviceSetService/ClearRackSlotPosition",
@@ -762,7 +767,7 @@
       "group": "curtailment",
       "subgroup": "mqtt-sources",
       "command": "set-enabled",
-      "required_fields": ["source_id"]
+      "required_fields": ["source_id", "enabled"]
     },
     {
       "method": "/curtailment.v1.CurtailmentService/DeleteMqttCurtailmentSource",
@@ -835,7 +840,7 @@
       "group": "curtailment",
       "subgroup": "automation-rules",
       "command": "set-enabled",
-      "required_fields": ["rule_id"]
+      "required_fields": ["rule_id", "enabled"]
     },
     {
       "method": "/curtailment.v1.CurtailmentService/DeleteCurtailmentAutomationRule",

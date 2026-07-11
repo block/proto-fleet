@@ -201,24 +201,11 @@ func generatedRacksCommand() *cli.Command {
 				"/device_set.v1.DeviceSetService/SetRackSlotPosition",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.Int64Flag{Name: "device-set-id", Usage: "(required unless provided by --json) device set id"},
-					&cli.StringFlag{Name: "device-identifier", Usage: "(required unless provided by --json) device identifier"},
+					&cli.StringFlag{Name: "json", Usage: "(required) Path to a request JSON file, or - for stdin", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.SetRackSlotPositionRequest{}
-					if jsonPath := cmd.String("json"); jsonPath != "" {
-						if err := readProtoJSON(jsonPath, req); err != nil {
-							return nil, err
-						}
-					}
-					if cmd.IsSet("device-set-id") {
-						req.DeviceSetId = cmd.Int64("device-set-id")
-					}
-					if cmd.IsSet("device-identifier") {
-						req.DeviceIdentifier = cmd.String("device-identifier")
-					}
-					if err := generatedValidateRequiredFields(req, "device_identifier", "device_set_id"); err != nil {
+					if err := readProtoJSON(cmd.String("json"), req); err != nil {
 						return nil, err
 					}
 					return req, nil

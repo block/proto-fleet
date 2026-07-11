@@ -112,7 +112,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						generatedAuthAuthenticated,
 						[]cli.Flag{
 							&cli.Int64Flag{Name: "rule-id", Usage: "(required) rule id", Required: true},
-							&cli.BoolFlag{Name: "enabled", Usage: "enabled"},
+							&cli.BoolFlag{Name: "enabled", Usage: "(required) enabled", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.SetCurtailmentAutomationRuleEnabledRequest{}
@@ -740,7 +740,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						generatedAuthAuthenticated,
 						[]cli.Flag{
 							&cli.Int64Flag{Name: "source-id", Usage: "(required) source id", Required: true},
-							&cli.BoolFlag{Name: "enabled", Usage: "enabled"},
+							&cli.BoolFlag{Name: "enabled", Usage: "(required) enabled", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.SetMqttCurtailmentSourceEnabledRequest{}

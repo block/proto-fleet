@@ -249,6 +249,96 @@ func TestGeneratedHelpLabelsRequiredInputs(t *testing.T) {
 	}
 }
 
+func TestGeneratedSetEnabledRequiresExplicitBoolean(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	requestCount := 0
+	var request map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /curtailment.v1.CurtailmentService/SetCurtailmentAutomationRuleEnabled", func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		request = requestBodyMap(t, r)
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	baseArgs := []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"curtailment", "automation-rules", "set-enabled", "--rule-id", "42",
+	}
+	err := newRootCommand().Run(context.Background(), baseArgs)
+	if err == nil || !strings.Contains(err.Error(), `Required flag "enabled" not set`) {
+		t.Fatalf("set-enabled missing boolean error = %v, want required flag error", err)
+	}
+	if requestCount != 0 {
+		t.Fatalf("request count = %d, want no request without --enabled", requestCount)
+	}
+
+	err = newRootCommand().Run(context.Background(), append(baseArgs, "--enabled=false"))
+	if err != nil {
+		t.Fatalf("set-enabled with explicit false: %v", err)
+	}
+	if requestCount != 1 || request["rule_id"] != "42" {
+		t.Fatalf("set-enabled request count/body = %d/%#v, want explicit false request", requestCount, request)
+	}
+	if enabled, present := request["enabled"]; present && enabled != false {
+		t.Fatalf("set-enabled body = %#v, want false or omitted proto default", request)
+	}
+}
+
+func TestGeneratedComplexMutationsRequireJSON(t *testing.T) {
+	tests := []struct {
+		name    string
+		command *cli.Command
+	}{
+		{name: "building rack assignment", command: findSubcommand(t, generatedBuildingsCommand(), "assign-racks")},
+		{name: "rack slot position", command: findSubcommand(t, generatedRacksCommand(), "set-slot")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.command.Flags) != 1 || tt.command.Flags[0].Names()[0] != "json" {
+				t.Fatalf("flags = %#v, want only --json", tt.command.Flags)
+			}
+			jsonFlag, ok := tt.command.Flags[0].(*cli.StringFlag)
+			if !ok || !jsonFlag.Required || !strings.Contains(jsonFlag.Usage, "(required)") {
+				t.Fatalf("json flag = %#v, want visibly required JSON", tt.command.Flags[0])
+			}
+		})
+	}
+}
+
+func TestGeneratedAssignmentsRequireMembers(t *testing.T) {
+	tests := []struct {
+		name    string
+		command *cli.Command
+		flag    string
+	}{
+		{name: "sites assign devices", command: findSubcommand(t, generatedSitesCommand(), "assign-devices"), flag: "device-identifiers"},
+		{name: "sites assign buildings", command: findSubcommand(t, generatedSitesCommand(), "assign-buildings"), flag: "building-ids"},
+		{name: "sites assign racks", command: findSubcommand(t, generatedSitesCommand(), "assign-racks"), flag: "rack-ids"},
+		{name: "buildings assign devices", command: findSubcommand(t, generatedBuildingsCommand(), "assign-devices"), flag: "device-identifiers"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, flag := range tt.command.Flags {
+				if flag.Names()[0] != tt.flag {
+					continue
+				}
+				switch typed := flag.(type) {
+				case *cli.StringSliceFlag:
+					if !typed.Required || !strings.Contains(typed.Usage, "(required)") {
+						t.Fatalf("flag = %#v, want visibly required member list", typed)
+					}
+					return
+				}
+			}
+			t.Fatalf("required member flag %q not found", tt.flag)
+		})
+	}
+}
+
 func TestWriteAPIErrorWritesBodyToProvidedWriter(t *testing.T) {
 	oldNoColor := color.NoColor
 	color.NoColor = true
