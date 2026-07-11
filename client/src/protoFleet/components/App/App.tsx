@@ -103,6 +103,8 @@ const App = ({ children, fullscreen }: AppProps) => {
 
   const isActionBarVisible = useIsActionBarVisible();
 
+  // reportObservabilityError is a stable module-level import, not a reactive
+  // value, so it is intentionally not a dependency (exhaustive-deps agrees).
   const handleRenderError = useCallback((error: Error, errorInfo: ErrorInfo) => {
     reportObservabilityError(error, { componentStack: errorInfo.componentStack });
   }, []);

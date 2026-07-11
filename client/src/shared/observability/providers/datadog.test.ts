@@ -112,6 +112,36 @@ describe("datadogProvider.init", () => {
     expect(lastInitConfig().sessionSampleRate).toBe(100);
   });
 
+  it("clamps out-of-range sample rates to 0-100", () => {
+    setRuntimeConfig({
+      DD_APPLICATION_ID: "app-id",
+      DD_CLIENT_TOKEN: "token",
+      DD_RUM_SAMPLE_RATE: "1000",
+      DD_TRACE_SAMPLE_RATE: "-5",
+    });
+    datadogProvider.init(ctx);
+    const config = lastInitConfig();
+    expect(config.sessionSampleRate).toBe(100);
+    expect(config.traceSampleRate).toBe(0);
+  });
+
+  it("masks replay content and scrubs resource URL query strings before sending", () => {
+    setRuntimeConfig({ DD_APPLICATION_ID: "app-id", DD_CLIENT_TOKEN: "token" });
+    datadogProvider.init(ctx);
+    const config = lastInitConfig();
+
+    expect(config.defaultPrivacyLevel).toBe("mask");
+
+    const beforeSend = config.beforeSend as (event: { type: string; resource?: { url: string } }) => boolean;
+    const resourceEvent = {
+      type: "resource",
+      resource: { url: `${window.location.origin}/api-proxy/svc/Method?minerId=abc123&token=secret` },
+    };
+    const kept = beforeSend(resourceEvent);
+    expect(kept).toBe(true);
+    expect(resourceEvent.resource?.url).toBe(`${window.location.origin}/api-proxy/svc/Method`);
+  });
+
   it("scopes distributed tracing to same-origin API calls only", () => {
     setRuntimeConfig({ DD_APPLICATION_ID: "app-id", DD_CLIENT_TOKEN: "token" });
     datadogProvider.init(ctx);

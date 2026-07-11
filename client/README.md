@@ -186,6 +186,12 @@ Datadog keys (all read via both mechanisms; runtime `DD_*` / build-time `VITE_DD
 Both `DD_APPLICATION_ID` and `DD_CLIENT_TOKEN` must be set to enable; otherwise the client
 runs unchanged with no SDK side effects.
 
+**Privacy:** RUM sends to the operator's own Datadog org. Session Replay is off by default
+(`DD_SESSION_REPLAY_SAMPLE_RATE=0`) and masks all text/inputs when enabled
+(`defaultPrivacyLevel: "mask"`). A `beforeSend` scrubber strips query strings from resource
+URLs before events leave the browser; extend it in `providers/datadog.ts` if the UI surfaces
+further sensitive strings (worker/pool/wallet labels, IPs) in action names or error metadata.
+
 **Adding a provider** (Sentry, PostHog): implement `ObservabilityProvider` under
 `src/shared/observability/providers/`, then add one `registerProvider(...)` call in
 `src/shared/observability/providers.ts`. The entry point, transport, and error boundary are
