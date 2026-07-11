@@ -32,10 +32,17 @@ const stripUrlQuery = (url: string): string => {
   }
 };
 
-/** beforeSend scrubber: redact query strings from resource URLs before events
- * leave the browser. This is the extension point for further redaction (action
- * names, error metadata) if the fleet UI surfaces more sensitive strings. */
+/** beforeSend scrubber: redact query strings from URL fields before events
+ * leave the browser. Every event carries the active view URL, and ProtoFleet
+ * stores fleet context (group/rack/building IDs, subnet filters) in the query
+ * string, so the view URL/referrer are scrubbed on all event types, plus the
+ * resource URL on resource events. Extension point for further redaction
+ * (action names, error metadata) if the UI surfaces more sensitive strings. */
 const scrubEvent = (event: RumEvent): boolean => {
+  event.view.url = stripUrlQuery(event.view.url);
+  if (event.view.referrer) {
+    event.view.referrer = stripUrlQuery(event.view.referrer);
+  }
   if (event.type === "resource" && event.resource.url) {
     event.resource.url = stripUrlQuery(event.resource.url);
   }

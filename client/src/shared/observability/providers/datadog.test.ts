@@ -125,21 +125,35 @@ describe("datadogProvider.init", () => {
     expect(config.traceSampleRate).toBe(0);
   });
 
-  it("masks replay content and scrubs resource URL query strings before sending", () => {
+  it("masks replay content and scrubs query strings from view and resource URLs", () => {
     setRuntimeConfig({ DD_APPLICATION_ID: "app-id", DD_CLIENT_TOKEN: "token" });
     datadogProvider.init(ctx);
     const config = lastInitConfig();
 
     expect(config.defaultPrivacyLevel).toBe("mask");
 
-    const beforeSend = config.beforeSend as (event: { type: string; resource?: { url: string } }) => boolean;
+    const origin = window.location.origin;
+    const beforeSend = config.beforeSend as (event: {
+      type: string;
+      view: { url: string; referrer?: string };
+      resource?: { url: string };
+    }) => boolean;
+
+    // Resource event: view URL, referrer, and resource URL are all scrubbed.
     const resourceEvent = {
       type: "resource",
-      resource: { url: `${window.location.origin}/api-proxy/svc/Method?minerId=abc123&token=secret` },
+      view: { url: `${origin}/fleet/miners?subnet=10.0.0.0/24&rackId=r1`, referrer: `${origin}/x?token=t` },
+      resource: { url: `${origin}/api-proxy/svc/Method?minerId=abc123&token=secret` },
     };
-    const kept = beforeSend(resourceEvent);
-    expect(kept).toBe(true);
-    expect(resourceEvent.resource?.url).toBe(`${window.location.origin}/api-proxy/svc/Method`);
+    expect(beforeSend(resourceEvent)).toBe(true);
+    expect(resourceEvent.view.url).toBe(`${origin}/fleet/miners`);
+    expect(resourceEvent.view.referrer).toBe(`${origin}/x`);
+    expect(resourceEvent.resource?.url).toBe(`${origin}/api-proxy/svc/Method`);
+
+    // Non-resource (view) event: the view URL is still scrubbed.
+    const viewEvent = { type: "view", view: { url: `${origin}/fleet/miners?buildingId=b2` } };
+    expect(beforeSend(viewEvent)).toBe(true);
+    expect(viewEvent.view.url).toBe(`${origin}/fleet/miners`);
   });
 
   it("scopes distributed tracing to same-origin API calls only", () => {
