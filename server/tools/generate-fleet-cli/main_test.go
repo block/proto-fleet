@@ -430,6 +430,36 @@ func TestBuildGroupsEmitsNestedFieldFlags(t *testing.T) {
 	}
 }
 
+func TestBuildGroupsValidatesRequiredFieldsForJSONOnlyCommands(t *testing.T) {
+	file := testSecretServiceFile(t)
+	files := []protoreflect.FileDescriptor{file}
+	messages, enums, err := buildTypeIndexes(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := commandsManifest{Commands: []commandSpec{{
+		Method:         "/test.v1.TestService/CreateAdmin",
+		Group:          "onboarding",
+		Command:        "create-admin",
+		JSONOnly:       true,
+		RequiredFields: []string{"username"},
+	}}}
+	groups, _, err := buildGroups(files, messages, enums, manifest)
+	if err != nil {
+		t.Fatalf("buildGroups error = %v, want success", err)
+	}
+	if expr := groups[0].CommandExprs[0]; !strings.Contains(expr, `generatedValidateRequiredFields(req, "username")`) {
+		t.Fatalf("generated expr missing JSON-only required-field validation:\n%s", expr)
+	}
+
+	manifest.Commands[0].RequiredFields = []string{"missing"}
+	_, _, err = buildGroups(files, messages, enums, manifest)
+	if err == nil || !strings.Contains(err.Error(), `unknown field path "missing"`) {
+		t.Fatalf("buildGroups error = %v, want unknown required field path error", err)
+	}
+}
+
 func TestBuildGroupsRejectsUnknownFieldFlagPath(t *testing.T) {
 	file := testSecretServiceFile(t)
 	files := []protoreflect.FileDescriptor{file}

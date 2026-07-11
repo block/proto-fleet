@@ -21,7 +21,7 @@ func generatedBuildingsCommand() *cli.Command {
 				"/buildings.v1.BuildingService/AssignDevicesToBuilding",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "target-building-id", Usage: "target building id"},
+					&cli.Int64Flag{Name: "target-building-id", Usage: "(required) target building id", Required: true},
 					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "(required) device identifiers", Required: true},
 					&cli.BoolFlag{Name: "force-clear-conflicting-rack-membership", Usage: "force clear conflicting rack membership"},
 				},
@@ -53,6 +53,9 @@ func generatedBuildingsCommand() *cli.Command {
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &buildingsv1.AssignRacksToBuildingRequest{}
 					if err := readProtoJSON(cmd.String("json"), req); err != nil {
+						return nil, err
+					}
+					if err := generatedValidateRequiredFields(req, "target_building_id"); err != nil {
 						return nil, err
 					}
 					return req, nil

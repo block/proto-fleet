@@ -400,19 +400,19 @@
       "method": "/sites.v1.SiteService/AssignDevicesToSite",
       "group": "sites",
       "command": "assign-devices",
-      "required_fields": ["device_identifiers"]
+      "required_fields": ["target_site_id", "device_identifiers"]
     },
     {
       "method": "/sites.v1.SiteService/AssignBuildingsToSite",
       "group": "sites",
       "command": "assign-buildings",
-      "required_fields": ["building_ids"]
+      "required_fields": ["target_site_id", "building_ids"]
     },
     {
       "method": "/sites.v1.SiteService/AssignRacksToSite",
       "group": "sites",
       "command": "assign-racks",
-      "required_fields": ["rack_ids"]
+      "required_fields": ["target_site_id", "rack_ids"]
     },
     {
       "method": "/buildings.v1.BuildingService/CreateBuilding",
@@ -436,13 +436,14 @@
       "method": "/buildings.v1.BuildingService/AssignRacksToBuilding",
       "group": "buildings",
       "command": "assign-racks",
-      "json_only": true
+      "json_only": true,
+      "required_fields": ["target_building_id"]
     },
     {
       "method": "/buildings.v1.BuildingService/AssignDevicesToBuilding",
       "group": "buildings",
       "command": "assign-devices",
-      "required_fields": ["device_identifiers"]
+      "required_fields": ["target_building_id", "device_identifiers"]
     },
     {
       "method": "/device_set.v1.DeviceSetService/SetRackSlotPosition",

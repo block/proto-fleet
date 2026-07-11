@@ -21,7 +21,7 @@ func generatedSitesCommand() *cli.Command {
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringSliceFlag{Name: "building-ids", Usage: "(required) building ids", Required: true},
-					&cli.Int64Flag{Name: "target-site-id", Usage: "target site id"},
+					&cli.Int64Flag{Name: "target-site-id", Usage: "(required) target site id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &sitesv1.AssignBuildingsToSiteRequest{}
@@ -46,7 +46,7 @@ func generatedSitesCommand() *cli.Command {
 				"/sites.v1.SiteService/AssignDevicesToSite",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "target-site-id", Usage: "target site id"},
+					&cli.Int64Flag{Name: "target-site-id", Usage: "(required) target site id", Required: true},
 					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "(required) device identifiers", Required: true},
 					&cli.BoolFlag{Name: "force-clear-conflicting-rack-membership", Usage: "force clear conflicting rack membership"},
 				},
@@ -74,7 +74,7 @@ func generatedSitesCommand() *cli.Command {
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringSliceFlag{Name: "rack-ids", Usage: "(required) rack ids", Required: true},
-					&cli.Int64Flag{Name: "target-site-id", Usage: "target site id"},
+					&cli.Int64Flag{Name: "target-site-id", Usage: "(required) target site id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &sitesv1.AssignRacksToSiteRequest{}

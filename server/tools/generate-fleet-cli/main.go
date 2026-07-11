@@ -711,6 +711,9 @@ func analyzeRequest(
 ) (requestAnalysis, error) {
 	var analysis requestAnalysis
 	if options.JSONOnly {
+		if err := validateRequiredFieldPaths(message, options.RequiredFields); err != nil {
+			return analysis, err
+		}
 		analysis.jsonOnly = true
 		analysis.Reason = "request is intentionally generated as JSON-only via commands.json"
 		return analysis, nil
@@ -881,6 +884,27 @@ func analyzeRequest(
 	}
 
 	return analysis, nil
+}
+
+func validateRequiredFieldPaths(message protoreflect.MessageDescriptor, requiredFields map[string]bool) error {
+	for fieldPath := range requiredFields {
+		current := message
+		parts := strings.Split(fieldPath, ".")
+		for index, part := range parts {
+			field := current.Fields().ByName(protoreflect.Name(part))
+			if field == nil {
+				return fmt.Errorf("required_fields references unknown field path %q on %s", fieldPath, message.FullName())
+			}
+			if index == len(parts)-1 {
+				break
+			}
+			if field.IsList() || field.IsMap() || (field.Kind() != protoreflect.MessageKind && field.Kind() != protoreflect.GroupKind) {
+				return fmt.Errorf("required_fields references non-message field in path %q on %s", fieldPath, message.FullName())
+			}
+			current = field.Message()
+		}
+	}
+	return nil
 }
 
 func markFlagRequired(flag string) string {
@@ -1542,6 +1566,7 @@ func renderJSONOnlyExpr(
 			buf.WriteString("\t\t" + line + "\n")
 		}
 	}
+	writeRequiredFieldValidation(&buf, options.RequiredFields)
 	buf.WriteString("\t\treturn req, nil\n")
 	buf.WriteString("\t},\n")
 	buf.WriteString(fmt.Sprintf("\tfunc() proto.Message { return &%s.%s{} },\n", response.GoAlias, response.GoIdent))
@@ -1625,25 +1650,36 @@ func renderSimpleExpr(
 			buf.WriteString("\t\t" + line + "\n")
 		}
 	}
-	if analysis.jsonFallback && len(options.RequiredFields) > 0 {
-		fieldNames := make([]string, 0, len(options.RequiredFields))
-		for fieldName := range options.RequiredFields {
-			fieldNames = append(fieldNames, fieldName)
-		}
-		sort.Strings(fieldNames)
-		quotedNames := make([]string, 0, len(fieldNames))
-		for _, fieldName := range fieldNames {
-			quotedNames = append(quotedNames, fmt.Sprintf("%q", fieldName))
-		}
-		buf.WriteString(fmt.Sprintf("\t\tif err := generatedValidateRequiredFields(req, %s); err != nil {\n", strings.Join(quotedNames, ", ")))
-		buf.WriteString("\t\t\treturn nil, err\n")
-		buf.WriteString("\t\t}\n")
+	if analysis.jsonFallback {
+		writeRequiredFieldValidation(&buf, options.RequiredFields)
 	}
 	buf.WriteString("\t\treturn req, nil\n")
 	buf.WriteString("\t},\n")
 	buf.WriteString(fmt.Sprintf("\tfunc() proto.Message { return &%s.%s{} },\n", response.GoAlias, response.GoIdent))
 	buf.WriteString(")")
 	return strings.TrimSpace(buf.String()), nil
+}
+
+type stringWriter interface {
+	WriteString(string) (int, error)
+}
+
+func writeRequiredFieldValidation(buf stringWriter, requiredFields map[string]bool) {
+	if len(requiredFields) == 0 {
+		return
+	}
+	fieldNames := make([]string, 0, len(requiredFields))
+	for fieldName := range requiredFields {
+		fieldNames = append(fieldNames, fieldName)
+	}
+	sort.Strings(fieldNames)
+	quotedNames := make([]string, 0, len(fieldNames))
+	for _, fieldName := range fieldNames {
+		quotedNames = append(quotedNames, fmt.Sprintf("%q", fieldName))
+	}
+	_, _ = buf.WriteString(fmt.Sprintf("\t\tif err := generatedValidateRequiredFields(req, %s); err != nil {\n", strings.Join(quotedNames, ", ")))
+	_, _ = buf.WriteString("\t\t\treturn nil, err\n")
+	_, _ = buf.WriteString("\t\t}\n")
 }
 
 func requireCollectionTypeLines(message protoreflect.MessageDescriptor, collectionType string) ([]string, error) {

@@ -309,33 +309,77 @@ func TestGeneratedComplexMutationsRequireJSON(t *testing.T) {
 	}
 }
 
-func TestGeneratedAssignmentsRequireMembers(t *testing.T) {
+func TestGeneratedAssignmentsRequireTargetsAndMembers(t *testing.T) {
 	tests := []struct {
-		name    string
-		command *cli.Command
-		flag    string
+		name          string
+		command       *cli.Command
+		requiredFlags []string
 	}{
-		{name: "sites assign devices", command: findSubcommand(t, generatedSitesCommand(), "assign-devices"), flag: "device-identifiers"},
-		{name: "sites assign buildings", command: findSubcommand(t, generatedSitesCommand(), "assign-buildings"), flag: "building-ids"},
-		{name: "sites assign racks", command: findSubcommand(t, generatedSitesCommand(), "assign-racks"), flag: "rack-ids"},
-		{name: "buildings assign devices", command: findSubcommand(t, generatedBuildingsCommand(), "assign-devices"), flag: "device-identifiers"},
+		{name: "sites assign devices", command: findSubcommand(t, generatedSitesCommand(), "assign-devices"), requiredFlags: []string{"target-site-id", "device-identifiers"}},
+		{name: "sites assign buildings", command: findSubcommand(t, generatedSitesCommand(), "assign-buildings"), requiredFlags: []string{"target-site-id", "building-ids"}},
+		{name: "sites assign racks", command: findSubcommand(t, generatedSitesCommand(), "assign-racks"), requiredFlags: []string{"target-site-id", "rack-ids"}},
+		{name: "buildings assign devices", command: findSubcommand(t, generatedBuildingsCommand(), "assign-devices"), requiredFlags: []string{"target-building-id", "device-identifiers"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			for _, flag := range tt.command.Flags {
-				if flag.Names()[0] != tt.flag {
-					continue
-				}
-				switch typed := flag.(type) {
-				case *cli.StringSliceFlag:
-					if !typed.Required || !strings.Contains(typed.Usage, "(required)") {
-						t.Fatalf("flag = %#v, want visibly required member list", typed)
+			for _, requiredFlag := range tt.requiredFlags {
+				found := false
+				for _, flag := range tt.command.Flags {
+					if flag.Names()[0] != requiredFlag {
+						continue
 					}
-					return
+					found = true
+					switch typed := flag.(type) {
+					case *cli.Int64Flag:
+						if !typed.Required || !strings.Contains(typed.Usage, "(required)") {
+							t.Fatalf("flag = %#v, want visibly required target", typed)
+						}
+					case *cli.Int64SliceFlag:
+						if !typed.Required || !strings.Contains(typed.Usage, "(required)") {
+							t.Fatalf("flag = %#v, want visibly required member list", typed)
+						}
+					case *cli.StringSliceFlag:
+						if !typed.Required || !strings.Contains(typed.Usage, "(required)") {
+							t.Fatalf("flag = %#v, want visibly required member list", typed)
+						}
+					default:
+						t.Fatalf("flag = %#v, want supported required flag type", flag)
+					}
+				}
+				if !found {
+					t.Fatalf("required flag %q not found", requiredFlag)
 				}
 			}
-			t.Fatalf("required member flag %q not found", tt.flag)
 		})
+	}
+}
+
+func TestGeneratedJSONOnlyAssignmentRequiresTarget(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	requestCount := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /buildings.v1.BuildingService/AssignRacksToBuilding", func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	requestPath := filepath.Join(t.TempDir(), "assign-racks.json")
+	if err := os.WriteFile(requestPath, []byte(`{"racks":[{"rack_id":"1"}]}`), 0o600); err != nil {
+		t.Fatalf("write assignment request: %v", err)
+	}
+	err := newRootCommand().Run(context.Background(), []string{
+		"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+		"buildings", "assign-racks", "--json", requestPath,
+	})
+	if err == nil || !strings.Contains(err.Error(), `required field "target_building_id" must be provided with --target-building-id or --json`) {
+		t.Fatalf("assignment missing target error = %v, want explicit target validation", err)
+	}
+	if requestCount != 0 {
+		t.Fatalf("request count = %d, want no request without assignment target", requestCount)
 	}
 }
 
