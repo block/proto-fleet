@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import ScanMinerQrModalView, { type ScanPhase } from "./ScanMinerQrModalView";
-import { MinerIdentifierType } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  MinerIdentifierType,
+  type MinerStateSnapshot,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { lookupMinerByIdentifier } from "@/protoFleet/api/lookupMinerByIdentifier";
 import type { MinerEligibility } from "@/protoFleet/components/MinerSelectionList";
 import { canUseLiveCamera, useQrScanner } from "@/protoFleet/features/fleetManagement/hooks/useQrScanner";
@@ -60,10 +63,11 @@ export default function ScanMinerQrModal({
   // a result). Toggling this tears the stream down between scans.
   const cameraActive = show && liveCamera && phase.kind === "scanning";
 
-  // A single frame/photo can decode more than one barcode (e.g. a serial plus a
-  // model/asset code), and the detector's ordering isn't guaranteed — so try
-  // each decoded value against the lookup and only report not-found once none
-  // resolve, rather than committing to the first.
+  // A single frame/photo can decode more than one barcode (e.g. neighboring
+  // miner labels in a dense rack row), and the detector's ordering isn't
+  // guaranteed — so try each decoded value against the lookup, auto-assign only
+  // when exactly one unique miner resolves, and ask for confirmation when more
+  // than one miner resolves.
   const runLookup = useCallback(
     async (rawValues: string[]) => {
       const seq = ++lookupSeq.current;
@@ -93,31 +97,14 @@ export default function ScanMinerQrModal({
         return;
       }
       setPhase({ kind: "looking-up", identifier: candidates[0].value });
+      const resolvedSnapshotsByDeviceId = new Map<string, MinerStateSnapshot>();
+
       for (const { value, type } of candidates) {
         const result = await lookupMinerByIdentifier(value, type, controller.signal);
         if (seq !== lookupSeq.current || controller.signal.aborted) return; // superseded / aborted
         if (result.status === "found") {
-          const isReassignment = isMinerSnapshotIneligible(result.snapshot, eligibility);
-          const notPairedForAssignment = !FLEET_SELECTABLE_PAIRING_STATUSES.includes(result.snapshot.pairingStatus);
-
-          if (isReassignment || notPairedForAssignment) {
-            setPhase({ kind: "found", snapshot: result.snapshot, isReassignment });
-            return;
-          }
-
-          const assignment = onAssign(result.snapshot.deviceIdentifier);
-          if (!assignment) {
-            setPhase({ kind: "error", message: "Select a rack slot, then scan a miner." });
-            return;
-          }
-
-          setPhase({
-            kind: "assigned",
-            snapshot: result.snapshot,
-            slotLabel: assignment.slotLabel,
-            hasNextSlot: assignment.hasNextSlot,
-          });
-          return;
+          resolvedSnapshotsByDeviceId.set(result.snapshot.deviceIdentifier, result.snapshot);
+          continue;
         }
         if (result.status === "error") {
           // A transport/server failure will hit the remaining candidates too —
@@ -127,7 +114,34 @@ export default function ScanMinerQrModal({
         }
         // notFound → try the next candidate
       }
-      setPhase({ kind: "not-found", identifier: candidates[0].value });
+      const resolvedSnapshots = [...resolvedSnapshotsByDeviceId.values()];
+      if (resolvedSnapshots.length === 0) {
+        setPhase({ kind: "not-found", identifier: candidates[0].value });
+        return;
+      }
+
+      const snapshot = resolvedSnapshots[0];
+      const isReassignment = isMinerSnapshotIneligible(snapshot, eligibility);
+      const notPairedForAssignment = !FLEET_SELECTABLE_PAIRING_STATUSES.includes(snapshot.pairingStatus);
+      const requiresConfirmation = resolvedSnapshots.length > 1;
+
+      if (requiresConfirmation || isReassignment || notPairedForAssignment) {
+        setPhase({ kind: "found", snapshot, isReassignment, requiresConfirmation });
+        return;
+      }
+
+      const assignment = onAssign(snapshot.deviceIdentifier);
+      if (!assignment) {
+        setPhase({ kind: "error", message: "Select a rack slot, then scan a miner." });
+        return;
+      }
+
+      setPhase({
+        kind: "assigned",
+        snapshot,
+        slotLabel: assignment.slotLabel,
+        hasNextSlot: assignment.hasNextSlot,
+      });
     },
     [eligibility, onAssign],
   );
@@ -178,9 +192,26 @@ export default function ScanMinerQrModal({
 
   const handleConfirm = useCallback(() => {
     if (phase.kind === "found") {
-      onConfirm(phase.snapshot.deviceIdentifier, isMinerSnapshotIneligible(phase.snapshot, eligibility));
+      const isReassignment = isMinerSnapshotIneligible(phase.snapshot, eligibility);
+      if (phase.requiresConfirmation && !isReassignment) {
+        const assignment = onAssign(phase.snapshot.deviceIdentifier);
+        if (!assignment) {
+          setPhase({ kind: "error", message: "Select a rack slot, then scan a miner." });
+          return;
+        }
+
+        setPhase({
+          kind: "assigned",
+          snapshot: phase.snapshot,
+          slotLabel: assignment.slotLabel,
+          hasNextSlot: assignment.hasNextSlot,
+        });
+        return;
+      }
+
+      onConfirm(phase.snapshot.deviceIdentifier, isReassignment);
     }
-  }, [phase, onConfirm, eligibility]);
+  }, [phase, onAssign, onConfirm, eligibility]);
 
   const handleUndoAssignment = useCallback(() => {
     onUndoAssignment();

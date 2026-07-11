@@ -20,7 +20,7 @@ export type ScanPhase =
   | { kind: "scanning" }
   | { kind: "looking-up"; identifier: string }
   | { kind: "assigned"; snapshot: MinerStateSnapshot; slotLabel: string; hasNextSlot: boolean }
-  | { kind: "found"; snapshot: MinerStateSnapshot; isReassignment: boolean }
+  | { kind: "found"; snapshot: MinerStateSnapshot; isReassignment: boolean; requiresConfirmation?: boolean }
   | { kind: "not-found"; identifier: string }
   | { kind: "error"; message: string };
 
@@ -152,8 +152,10 @@ export default function ScanMinerQrModalView({
         currentRackLabel={currentRackLabel}
         inOtherRack={foundInOtherRack}
         isReassignment={phase.isReassignment}
+        requiresConfirmation={!!phase.requiresConfirmation}
         otherRackLabel={getMinerRackLabel(phase.snapshot)}
         notPaired={notPairedForAssignment}
+        targetSlotLabel={targetSlotLabel}
         onDismiss={onDismiss}
         onConfirm={onConfirmFound}
         onRescan={onRescan}
@@ -351,8 +353,10 @@ function FoundMinerDialog({
   currentRackLabel,
   inOtherRack,
   isReassignment,
+  requiresConfirmation,
   otherRackLabel,
   notPaired,
+  targetSlotLabel,
   onDismiss,
   onConfirm,
   onRescan,
@@ -361,27 +365,33 @@ function FoundMinerDialog({
   currentRackLabel: string;
   inOtherRack: boolean;
   isReassignment: boolean;
+  requiresConfirmation: boolean;
   otherRackLabel: string;
   notPaired: boolean;
+  targetSlotLabel: string;
   onDismiss: () => void;
   onConfirm: () => void;
   onRescan: () => void;
 }) {
   const title = notPaired
     ? "Miner isn't fully paired"
-    : inOtherRack
-      ? "Miner already assigned"
-      : isReassignment
-        ? "Confirm miner move"
-        : "Miner can't be assigned";
+    : requiresConfirmation
+      ? "Multiple miners found"
+      : inOtherRack
+        ? "Miner already assigned"
+        : isReassignment
+          ? "Confirm miner move"
+          : "Miner can't be assigned";
   const subtitle = notPaired
     ? "Only paired miners can be assigned to a rack. Finish pairing this miner, then scan it again."
-    : inOtherRack
-      ? `Assigning it here will move it from ${otherRackLabel}.`
-      : isReassignment
-        ? `Assigning it here will move it to ${currentRackLabel}.`
-        : "Choose another miner for this rack slot.";
-  const canConfirmAssignment = isReassignment && !notPaired;
+    : requiresConfirmation
+      ? `Multiple QR codes were detected. Confirm this is the miner for ${targetSlotLabel}.`
+      : inOtherRack
+        ? `Assigning it here will move it from ${otherRackLabel}.`
+        : isReassignment
+          ? `Assigning it here will move it to ${currentRackLabel}.`
+          : "Choose another miner for this rack slot.";
+  const canConfirmAssignment = (isReassignment || requiresConfirmation) && !notPaired;
   const buttons: ButtonProps[] = [
     dismissButton(onDismiss),
     {

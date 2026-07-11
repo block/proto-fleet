@@ -154,7 +154,9 @@ describe("ScanMinerQrModal", () => {
 
   it("tries an explicitly-typed candidate before an unspecified one", async () => {
     mockCanUseLiveCamera.mockReturnValue(true);
-    mockLookup.mockResolvedValue({ status: "found", snapshot: snapshot() });
+    mockLookup.mockResolvedValueOnce({ status: "found", snapshot: snapshot() }).mockResolvedValueOnce({
+      status: "notFound",
+    });
 
     renderScanMinerQrModal();
 
@@ -164,6 +166,38 @@ describe("ScanMinerQrModal", () => {
 
     await waitFor(() => expect(screen.getByText("Miner assigned")).toBeInTheDocument());
     expect(mockLookup.mock.calls[0][0]).toBe("REALSN");
+  });
+
+  it("requires confirmation when multiple decoded values resolve to different miners", async () => {
+    mockCanUseLiveCamera.mockReturnValue(true);
+    mockLookup
+      .mockResolvedValueOnce({
+        status: "found",
+        snapshot: snapshot({ deviceIdentifier: "dev-1", name: "Miner One", serialNumber: "SN123" }),
+      })
+      .mockResolvedValueOnce({
+        status: "found",
+        snapshot: snapshot({ deviceIdentifier: "dev-2", name: "Miner Two", serialNumber: "SN456" }),
+      });
+    const onAssign = vi.fn().mockReturnValue({ slotLabel: "Slot 1", hasNextSlot: true });
+
+    renderScanMinerQrModal({ onAssign });
+
+    await act(async () => {
+      capturedOnDetected?.(["SN:SN123", "SN:SN456"]);
+    });
+
+    await waitFor(() => expect(screen.getByText("Multiple miners found")).toBeInTheDocument());
+    expect(
+      screen.getByText("Multiple QR codes were detected. Confirm this is the miner for Slot 1."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Miner One")).toBeInTheDocument();
+    expect(onAssign).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Assign to slot" }));
+
+    await waitFor(() => expect(screen.getByText("Miner assigned")).toBeInTheDocument());
+    expect(onAssign).toHaveBeenCalledWith("dev-1");
   });
 
   it("de-dupes a value decoded more than once in the same frame", async () => {
