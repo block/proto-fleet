@@ -22,9 +22,9 @@ func generatedPoolsCommand() *cli.Command {
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.StringFlag{Name: "pool-name", Usage: "pool name"},
-					&cli.StringFlag{Name: "url", Usage: "url"},
-					&cli.StringFlag{Name: "username", Usage: "username"},
+					&cli.StringFlag{Name: "pool-name", Usage: "(required unless provided by --json) pool name"},
+					&cli.StringFlag{Name: "url", Usage: "(required unless provided by --json) url"},
+					&cli.StringFlag{Name: "username", Usage: "(required unless provided by --json) username"},
 					&cli.BoolFlag{Name: "pool-password-stdin", Usage: "Read pool authentication password from stdin"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
@@ -61,6 +61,9 @@ func generatedPoolsCommand() *cli.Command {
 							req.PoolConfig = &poolsv1.PoolConfig{}
 						}
 						req.PoolConfig.Password = wrapperspb.String(secretPoolConfigPassword)
+					}
+					if err := generatedValidateRequiredFields(req, "pool_config.pool_name", "pool_config.url", "pool_config.username"); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},

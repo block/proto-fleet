@@ -1710,6 +1710,45 @@ func TestPoolsValidateAuthenticatedWithLocalUsername(t *testing.T) {
 	}
 }
 
+func TestPoolsCreateRequiresCompletePoolDetails(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+
+	requestCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		http.Error(w, "unexpected request", http.StatusTeapot)
+	}))
+	t.Cleanup(srv.Close)
+
+	emptyJSONPath := filepath.Join(t.TempDir(), "empty-pool.json")
+	if err := os.WriteFile(emptyJSONPath, []byte(`{}`), 0o600); err != nil {
+		t.Fatalf("write empty pool json: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "no inputs"},
+		{name: "empty JSON", args: []string{"--json", emptyJSONPath}},
+		{name: "partial flags", args: []string{"--pool-name", "incomplete"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := newRootCommand().Run(context.Background(), append([]string{
+				"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key",
+				"pools", "create",
+			}, tt.args...))
+			if err == nil || !strings.Contains(err.Error(), "pool_config.") {
+				t.Fatalf("pools create error = %v, want missing nested pool field", err)
+			}
+		})
+	}
+	if requestCount != 0 {
+		t.Fatalf("request count = %d, want no requests for incomplete pool details", requestCount)
+	}
+}
+
 func TestPoolsCreateJSONPoolConfigFlagOverridePreservesFields(t *testing.T) {
 	pinFleetAuthEnv(t, nil)
 

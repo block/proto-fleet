@@ -61,19 +61,40 @@ func generatedRequestCommand(
 }
 
 func generatedValidateRequiredFields(message proto.Message, fieldNames ...string) error {
-	reflected := message.ProtoReflect()
-	for _, fieldName := range fieldNames {
-		field := reflected.Descriptor().Fields().ByName(protoreflect.Name(fieldName))
-		if field == nil {
-			return fmt.Errorf("unknown required request field %q", fieldName)
+	for _, fieldPath := range fieldNames {
+		populated, err := generatedProtoFieldPathPopulated(message.ProtoReflect(), fieldPath)
+		if err != nil {
+			return err
 		}
-		if generatedProtoFieldPopulated(reflected, field) {
+		if populated {
 			continue
 		}
-		flagName := strings.ReplaceAll(fieldName, "_", "-")
-		return fmt.Errorf("required field %q must be provided with --%s or --json", fieldName, flagName)
+		pathParts := strings.Split(fieldPath, ".")
+		flagName := strings.ReplaceAll(pathParts[len(pathParts)-1], "_", "-")
+		return fmt.Errorf("required field %q must be provided with --%s or --json", fieldPath, flagName)
 	}
 	return nil
+}
+
+func generatedProtoFieldPathPopulated(message protoreflect.Message, fieldPath string) (bool, error) {
+	parts := strings.Split(fieldPath, ".")
+	for index, part := range parts {
+		field := message.Descriptor().Fields().ByName(protoreflect.Name(part))
+		if field == nil {
+			return false, fmt.Errorf("unknown required request field %q", fieldPath)
+		}
+		if index == len(parts)-1 {
+			return generatedProtoFieldPopulated(message, field), nil
+		}
+		if field.Kind() != protoreflect.MessageKind && field.Kind() != protoreflect.GroupKind {
+			return false, fmt.Errorf("required request field %q traverses non-message field %q", fieldPath, part)
+		}
+		if !message.Has(field) {
+			return false, nil
+		}
+		message = message.Get(field).Message()
+	}
+	return false, nil
 }
 
 func generatedProtoFieldPopulated(message protoreflect.Message, field protoreflect.FieldDescriptor) bool {

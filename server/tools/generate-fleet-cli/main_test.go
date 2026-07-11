@@ -385,9 +385,10 @@ func TestBuildGroupsEmitsNestedFieldFlags(t *testing.T) {
 	groups, report, err := buildGroups(files, messages, enums, commandsManifest{
 		Commands: []commandSpec{
 			{
-				Method:  "/pools.v1.PoolsService/CreatePool",
-				Group:   "pools",
-				Command: "create",
+				Method:         "/pools.v1.PoolsService/CreatePool",
+				Group:          "pools",
+				Command:        "create",
+				RequiredFields: []string{"pool_config.pool_name", "pool_config.url", "pool_config.username"},
 				FieldFlags: []fieldFlagSpec{
 					{Path: "pool_config.pool_name", Flag: "pool-name", Usage: "pool name"},
 					{Path: "pool_config.url", Flag: "url", Usage: "url"},
@@ -408,9 +409,9 @@ func TestBuildGroupsEmitsNestedFieldFlags(t *testing.T) {
 	}
 	expr := groups[0].CommandExprs[0]
 	for _, want := range []string{
-		`&cli.StringFlag{Name: "pool-name", Usage: "pool name"}`,
-		`&cli.StringFlag{Name: "url", Usage: "url"}`,
-		`&cli.StringFlag{Name: "username", Usage: "username"}`,
+		`&cli.StringFlag{Name: "pool-name", Usage: "(required unless provided by --json) pool name"}`,
+		`&cli.StringFlag{Name: "url", Usage: "(required unless provided by --json) url"}`,
+		`&cli.StringFlag{Name: "username", Usage: "(required unless provided by --json) username"}`,
 		`&cli.BoolFlag{Name: "pool-password-stdin", Usage: "Read pool password from stdin"}`,
 		`req.PoolConfig = &poolsv1.PoolConfig{}`,
 		`req.PoolConfig.PoolName = cmd.String("pool-name")`,
@@ -418,6 +419,7 @@ func TestBuildGroupsEmitsNestedFieldFlags(t *testing.T) {
 		`req.PoolConfig.Username = cmd.String("username")`,
 		`generatedReadSecret(cmd, "pool-password-stdin", "pool password")`,
 		`req.PoolConfig.Password = wrapperspb.String(secretPoolConfigPassword)`,
+		`generatedValidateRequiredFields(req, "pool_config.pool_name", "pool_config.url", "pool_config.username")`,
 	} {
 		if !strings.Contains(expr, want) {
 			t.Fatalf("generated expr missing %q:\n%s", want, expr)

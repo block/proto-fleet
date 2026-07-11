@@ -741,6 +741,13 @@ func analyzeRequest(
 			if err != nil {
 				return analysis, err
 			}
+			for index, fieldFlag := range fieldFlags {
+				if !options.RequiredFields[fieldFlag.Path] {
+					continue
+				}
+				plan.flags[index] = markFlagRequiredViaJSON(plan.flags[index])
+				seenRequiredFields[fieldFlag.Path] = true
+			}
 			analysis.flags = append(analysis.flags, plan.flags...)
 			analysis.lines = append(analysis.lines, plan.lines...)
 			analysis.imports = mergeImports(analysis.imports, plan.imports)

@@ -66,6 +66,7 @@
       "method": "/pools.v1.PoolsService/CreatePool",
       "group": "pools",
       "command": "create",
+      "required_fields": ["pool_config.pool_name", "pool_config.url", "pool_config.username"],
       "field_flags": [
         {
           "path": "pool_config.pool_name",
