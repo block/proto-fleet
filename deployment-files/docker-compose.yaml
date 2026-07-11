@@ -56,6 +56,19 @@ services:
       - fleet-api
     restart: always
     network_mode: host
+    environment:
+      # Datadog RUM (client observability). All optional — unset keys leave RUM
+      # disabled (no-op). Set these in the operator .env to enable without a
+      # client rebuild; they are rendered into config.js at container start.
+      # DD_CLIENT_TOKEN is a public browser RUM client token, not a secret API key.
+      DD_APPLICATION_ID: "${DD_APPLICATION_ID:-}"
+      DD_CLIENT_TOKEN: "${DD_CLIENT_TOKEN:-}"
+      DD_SITE: "${DD_SITE:-}"
+      DD_SERVICE: "${DD_SERVICE:-}"
+      DD_ENV: "${DD_ENV:-}"
+      DD_RUM_SAMPLE_RATE: "${DD_RUM_SAMPLE_RATE:-}"
+      DD_SESSION_REPLAY_SAMPLE_RATE: "${DD_SESSION_REPLAY_SAMPLE_RATE:-}"
+      DD_TRACE_SAMPLE_RATE: "${DD_TRACE_SAMPLE_RATE:-}"
     volumes:
       - ./ssl:/etc/nginx/ssl:ro
     logging:
