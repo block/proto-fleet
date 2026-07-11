@@ -336,4 +336,22 @@ describe("BuildingCard", () => {
     expect(screen.queryByTestId("building-card-7-menu")).toBeNull();
     expect(screen.getByTestId("location-probe")).toHaveTextContent("/sites");
   });
+
+  it("dismisses the actions menu on Escape and restores card keyboard navigation", () => {
+    statsMock.mockReturnValue({
+      stats: buildStats(),
+      isLoading: false,
+      hasLoaded: true,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderCard({ rackCount: 0n });
+    const card = screen.getByTestId("building-card-7");
+    fireEvent.click(screen.getByTestId("building-card-7-menu-trigger"));
+    expect(screen.getByTestId("building-card-7-menu")).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("building-card-7-menu")).toBeNull();
+    fireEvent.keyDown(card, { key: "Enter" });
+    expect(screen.getByTestId("location-probe")).toHaveTextContent("/buildings/7");
+  });
 });
