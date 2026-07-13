@@ -64,8 +64,8 @@ func (p *Provider) EmitDeviceOnline(_ context.Context, labels DeviceLabels, onli
 }
 
 // hashingChangeTolerance persists material ratio moves (onset, recovery, the
-// 1.0 clearing sentinel) immediately while poll-to-poll jitter heartbeats.
-const hashingChangeTolerance = 0.1
+// 1.0 clearing sentinel) immediately; ±few-% poll jitter heartbeats instead.
+const hashingChangeTolerance = 0.05
 
 func (p *Provider) EmitDeviceHashing(_ context.Context, labels DeviceLabels, ratio float64) {
 	p.recordDeviceGauge(Sample{

@@ -15,7 +15,7 @@ Per-device gauges are emitted on every telemetry poll (~15s) but
 persisted through a throttle with a fixed 55s heartbeat (sized
 against the temperature rule's 3-minute freshness gate): 0/1 state
 gauges land immediately on any state change, the hashing ratio lands
-immediately on a material move (more than 0.1 — onset, recovery, and
+immediately on a material move (more than 0.05 — onset, recovery, and
 the non-alerting `1.0` sentinel), and hashrate/temperature land once
 per heartbeat. `fleet_telemetry_poll_total` increments accumulate in
 process and are persisted every 30s as one row per (organization,

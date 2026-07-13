@@ -469,15 +469,23 @@ func TestDeviceHashingPersistsMaterialChanges(t *testing.T) {
 	provider.EmitDeviceHashing(ctx, labels, 0.5)  // new series: persists
 	provider.EmitDeviceHashing(ctx, labels, 0.52) // jitter: suppressed
 	provider.EmitDeviceHashing(ctx, labels, 0.85) // recovery: persists
-	provider.EmitDeviceHashing(ctx, labels, 0.9)  // jitter: suppressed
+	provider.EmitDeviceHashing(ctx, labels, 0.88) // jitter: suppressed
 	provider.EmitDeviceHashing(ctx, labels, 1.0)  // clearing sentinel: persists
+
+	// A marginal recovery across the rule's 0.75 threshold must persist
+	// immediately so the Device Hashrate Low rule sees it within one poll.
+	edge := DeviceLabels{OrganizationID: "org-1", DeviceID: "device-2"}
+	provider.EmitDeviceHashing(ctx, edge, 0.70) // new series: persists
+	provider.EmitDeviceHashing(ctx, edge, 0.72) // jitter: suppressed
+	provider.EmitDeviceHashing(ctx, edge, 0.78) // threshold crossing: persists
 	require.NoError(t, provider.Shutdown(ctx))
 
-	values := []float64{}
+	values := map[string][]float64{}
 	for _, sample := range store.Snapshot() {
-		values = append(values, sample.Value)
+		values[sample.Labels.DeviceID] = append(values[sample.Labels.DeviceID], sample.Value)
 	}
-	require.Equal(t, []float64{0.5, 0.85, 1.0}, values)
+	require.Equal(t, []float64{0.5, 0.85, 1.0}, values["device-1"])
+	require.Equal(t, []float64{0.70, 0.78}, values["device-2"])
 }
 
 // a 0/1 state gauge must persist every state change immediately — the
