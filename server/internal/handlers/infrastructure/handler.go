@@ -208,7 +208,7 @@ func (h *Handler) UpdateInfrastructureDevice(ctx context.Context, req *connect.R
 	// concurrent move between the read above and the write fails
 	// closed (NotFound) instead of mutating a device now in a site the
 	// caller may not manage.
-	params := toUpdateParams(req.Msg, sess.OrganizationID, existing.Enabled)
+	params := toUpdateParams(req.Msg, sess.OrganizationID)
 	params.ExpectedSiteID = existing.SiteID
 	device, err := h.service.Update(ctx, params)
 	if err != nil {

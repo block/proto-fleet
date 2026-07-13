@@ -51,6 +51,8 @@ func validModbusConfig() json.RawMessage {
 	return json.RawMessage(`{"endpoint":"10.1.2.3","port":502,"unit_id":5,"register_address":2001,"write_mode":"holding_register"}`)
 }
 
+func boolPtr(b bool) *bool { return &b }
+
 func createParams(mutate func(*models.CreateParams)) models.CreateParams {
 	params := models.CreateParams{
 		OrgID:        testOrgID,
@@ -143,7 +145,7 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 		assert.Equal(t, testSiteID, d.SiteID)
 	}
 
-	// Update mutates fields.
+	// Update mutates fields; explicit enabled=false disables.
 	updated, err := svc.Update(ctx, models.UpdateParams{
 		OrgID:          testOrgID,
 		ID:             created.ID,
@@ -153,7 +155,7 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 		Name:           "Zone B exhaust fans",
 		DeviceKind:     models.KindFanGroup,
 		FanCount:       16,
-		Enabled:        false,
+		Enabled:        boolPtr(false),
 		DriverType:     "modbus_tcp",
 		DriverConfig:   validModbusConfig(),
 	})
@@ -161,6 +163,26 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	assert.Equal(t, "Zone B exhaust fans", updated.Name)
 	assert.Equal(t, int32(16), updated.FanCount)
 	assert.False(t, updated.Enabled)
+
+	// Nil Enabled preserves the row's current value in the UPDATE
+	// itself (COALESCE against the stored column) — the disabled state
+	// survives an unrelated rename.
+	preserved, err := svc.Update(ctx, models.UpdateParams{
+		OrgID:          testOrgID,
+		ID:             created.ID,
+		ExpectedSiteID: testSiteID,
+		SiteID:         testSiteID,
+		BuildingName:   "Building 2",
+		Name:           "Zone B exhaust fans (renamed)",
+		DeviceKind:     models.KindFanGroup,
+		FanCount:       16,
+		Enabled:        nil,
+		DriverType:     "modbus_tcp",
+		DriverConfig:   validModbusConfig(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Zone B exhaust fans (renamed)", preserved.Name)
+	assert.False(t, preserved.Enabled, "nil Enabled must preserve the stored value, not reset it")
 
 	// Delete soft-deletes; the row disappears from Get and List.
 	require.NoError(t, svc.Delete(ctx, testOrgID, created.ID, testSiteID))
@@ -176,10 +198,10 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	// A soft-deleted device's name is reusable in the same site — the
 	// unique index is partial on deleted_at IS NULL.
 	reused, err := svc.Create(ctx, createParams(func(p *models.CreateParams) {
-		p.Name = "Zone B exhaust fans" // the deleted device's final name
+		p.Name = "Zone B exhaust fans (renamed)" // the deleted device's final name
 	}))
 	require.NoError(t, err)
-	assert.Equal(t, "Zone B exhaust fans", reused.Name)
+	assert.Equal(t, "Zone B exhaust fans (renamed)", reused.Name)
 }
 
 func TestService_UpdateRenameCollision_DatabaseIntegration(t *testing.T) {
@@ -206,7 +228,7 @@ func TestService_UpdateRenameCollision_DatabaseIntegration(t *testing.T) {
 		Name:           first.Name,
 		DeviceKind:     second.DeviceKind,
 		FanCount:       second.FanCount,
-		Enabled:        second.Enabled,
+		Enabled:        &second.Enabled,
 		DriverType:     second.DriverType,
 		DriverConfig:   second.DriverConfig,
 	})
@@ -229,7 +251,7 @@ func TestService_StaleSiteAuthorizationFailsClosed_DatabaseIntegration(t *testin
 	moved, err := svc.Update(ctx, models.UpdateParams{
 		OrgID: testOrgID, ID: created.ID, ExpectedSiteID: testSiteID, SiteID: secondSiteID,
 		BuildingName: created.BuildingName, Name: created.Name, DeviceKind: created.DeviceKind,
-		FanCount: created.FanCount, Enabled: created.Enabled, DriverType: created.DriverType,
+		FanCount: created.FanCount, Enabled: &created.Enabled, DriverType: created.DriverType,
 		DriverConfig: created.DriverConfig,
 	})
 	require.NoError(t, err)
@@ -239,7 +261,7 @@ func TestService_StaleSiteAuthorizationFailsClosed_DatabaseIntegration(t *testin
 	_, err = svc.Update(ctx, models.UpdateParams{
 		OrgID: testOrgID, ID: created.ID, ExpectedSiteID: testSiteID, SiteID: testSiteID,
 		BuildingName: created.BuildingName, Name: "renamed", DeviceKind: created.DeviceKind,
-		FanCount: created.FanCount, Enabled: created.Enabled, DriverType: created.DriverType,
+		FanCount: created.FanCount, Enabled: &created.Enabled, DriverType: created.DriverType,
 		DriverConfig: created.DriverConfig,
 	})
 	assert.True(t, fleeterror.IsNotFoundError(err), "update against stale site must fail closed")
@@ -276,7 +298,7 @@ func TestService_MoveOutOfDeletedSiteFailsClosed_DatabaseIntegration(t *testing.
 	_, err = svc.Update(ctx, models.UpdateParams{
 		OrgID: testOrgID, ID: created.ID, ExpectedSiteID: testSiteID, SiteID: secondSiteID,
 		BuildingName: created.BuildingName, Name: created.Name, DeviceKind: created.DeviceKind,
-		FanCount: created.FanCount, Enabled: created.Enabled, DriverType: created.DriverType,
+		FanCount: created.FanCount, Enabled: &created.Enabled, DriverType: created.DriverType,
 		DriverConfig: created.DriverConfig,
 	})
 	assert.True(t, fleeterror.IsNotFoundError(err), "move out of a deleted site must fail closed")

@@ -109,7 +109,7 @@ func TestService_UpdateEmitsAuditEvent(t *testing.T) {
 		Name:           "Zone A exhaust fans",
 		DeviceKind:     models.KindFanGroup,
 		FanCount:       12,
-		Enabled:        true,
+		Enabled:        boolPtr(true),
 		DriverType:     "modbus_tcp",
 		DriverConfig:   validModbusConfig(),
 	})

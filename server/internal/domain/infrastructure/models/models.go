@@ -55,6 +55,8 @@ type CreateParams struct {
 // is the device's current site as seen at authorization time; the
 // write is predicated on it so a concurrent site move invalidates the
 // mutation rather than editing a device the caller no longer manages.
+// Enabled nil preserves the row's current value atomically in the
+// UPDATE itself (no read-then-write race with a concurrent toggle).
 type UpdateParams struct {
 	OrgID          int64
 	ID             int64
@@ -64,7 +66,7 @@ type UpdateParams struct {
 	Name           string
 	DeviceKind     string
 	FanCount       int32
-	Enabled        bool
+	Enabled        *bool
 	DriverType     string
 	DriverConfig   json.RawMessage
 }

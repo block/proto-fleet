@@ -280,7 +280,7 @@ SET site_id       = $1,
     name          = $3,
     device_kind   = $4,
     fan_count     = $5,
-    enabled       = $6,
+    enabled       = COALESCE($6::bool, enabled),
     driver_type   = $7,
     driver_config = $8,
     updated_at    = CURRENT_TIMESTAMP
@@ -296,7 +296,7 @@ type UpdateInfrastructureDeviceParams struct {
 	Name           string
 	DeviceKind     string
 	FanCount       int32
-	Enabled        bool
+	Enabled        sql.NullBool
 	DriverType     string
 	DriverConfig   json.RawMessage
 	ID             int64
@@ -308,7 +308,9 @@ type UpdateInfrastructureDeviceParams struct {
 // authorized against, so a concurrent site move between the
 // authorization read and this write invalidates the mutation (0 rows)
 // instead of silently editing a device in a site the caller may not
-// manage.
+// manage. enabled is nullable: NULL preserves the row's current value
+// atomically in the UPDATE itself, so a request that omitted the
+// field can't write back a stale value read before the transaction.
 func (q *Queries) UpdateInfrastructureDevice(ctx context.Context, arg UpdateInfrastructureDeviceParams) (int64, error) {
 	result, err := q.exec(ctx, q.updateInfrastructureDeviceStmt, updateInfrastructureDevice,
 		arg.SiteID,

@@ -321,23 +321,22 @@ func TestHandler_UpdatePredicatesWriteOnAuthorizedSite(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestHandler_UpdatePreservesEnabledWhenOmitted(t *testing.T) {
+func TestHandler_UpdateCarriesEnabledPresenceIntoParams(t *testing.T) {
 	t.Parallel()
 
-	// Omitted enabled preserves the device's current value in both
-	// directions — an unrelated update must not silently disable an
-	// enabled device or re-enable a disabled one. An explicit value
-	// still wins.
+	// The enabled pointer passes through untouched: omitted stays nil
+	// so the store's UPDATE preserves the row's current value
+	// atomically (COALESCE in SQL), and an explicit value is carried
+	// as-is. The store-level preservation semantics are pinned by the
+	// domain integration test.
 	cases := []struct {
 		name            string
-		currentEnabled  bool
 		requestEnabled  *bool
-		expectedEnabled bool
+		expectedEnabled *bool
 	}{
-		{"omitted preserves enabled=true", true, nil, true},
-		{"omitted preserves enabled=false", false, nil, false},
-		{"explicit true re-enables", false, boolPtr(true), true},
-		{"explicit false disables", true, boolPtr(false), false},
+		{"omitted stays nil (SQL preserves current value)", nil, nil},
+		{"explicit true carried", boolPtr(true), boolPtr(true)},
+		{"explicit false carried", boolPtr(false), boolPtr(false)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -345,10 +344,8 @@ func TestHandler_UpdatePreservesEnabledWhenOmitted(t *testing.T) {
 			h := newTestHandler(t)
 			ctx := sitePermsCtx(t, 42)
 
-			existing := deviceAtSite(7, 10)
-			existing.Enabled = tc.currentEnabled
 			h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
-				Return(existing, nil)
+				Return(deviceAtSite(7, 10), nil)
 			h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil)
 			h.store.EXPECT().UpdateInfrastructureDevice(gomock.Any(), gomock.Any()).DoAndReturn(
 				func(_ context.Context, params models.UpdateParams) (*models.Device, error) {

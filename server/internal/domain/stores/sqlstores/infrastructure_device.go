@@ -121,13 +121,20 @@ func (s *SQLInfrastructureDeviceStore) ListInfrastructureDevices(ctx context.Con
 }
 
 func (s *SQLInfrastructureDeviceStore) UpdateInfrastructureDevice(ctx context.Context, params models.UpdateParams) (*models.Device, error) {
+	// Nil Enabled maps to SQL NULL: the query's COALESCE preserves the
+	// row's current value atomically instead of writing back a value
+	// read before the transaction.
+	enabled := sql.NullBool{}
+	if params.Enabled != nil {
+		enabled = sql.NullBool{Bool: *params.Enabled, Valid: true}
+	}
 	affected, err := s.GetQueries(ctx).UpdateInfrastructureDevice(ctx, sqlc.UpdateInfrastructureDeviceParams{
 		SiteID:         params.SiteID,
 		BuildingName:   params.BuildingName,
 		Name:           params.Name,
 		DeviceKind:     params.DeviceKind,
 		FanCount:       params.FanCount,
-		Enabled:        params.Enabled,
+		Enabled:        enabled,
 		DriverType:     params.DriverType,
 		DriverConfig:   normalizeDriverConfig(params.DriverConfig),
 		ID:             params.ID,

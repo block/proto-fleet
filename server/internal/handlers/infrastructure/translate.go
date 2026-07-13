@@ -38,14 +38,11 @@ func toCreateParams(req *pb.CreateInfrastructureDeviceRequest, orgID int64) mode
 }
 
 // toUpdateParams maps the update request. enabled is optional with
-// presence tracking: an omitted field preserves the device's current
-// value (currentEnabled), so an unrelated update can't silently
-// disable — or re-enable — a device.
-func toUpdateParams(req *pb.UpdateInfrastructureDeviceRequest, orgID int64, currentEnabled bool) models.UpdateParams {
-	enabled := currentEnabled
-	if req.Enabled != nil {
-		enabled = req.GetEnabled()
-	}
+// presence tracking: the pointer passes through so an omitted field
+// preserves the device's current value atomically in the UPDATE
+// statement itself — an unrelated update can't silently disable (or
+// re-enable) a device, even racing a concurrent toggle.
+func toUpdateParams(req *pb.UpdateInfrastructureDeviceRequest, orgID int64) models.UpdateParams {
 	return models.UpdateParams{
 		OrgID:        orgID,
 		ID:           req.GetId(),
@@ -54,7 +51,7 @@ func toUpdateParams(req *pb.UpdateInfrastructureDeviceRequest, orgID int64, curr
 		Name:         req.GetName(),
 		DeviceKind:   req.GetDeviceKind(),
 		FanCount:     req.GetFanCount(),
-		Enabled:      enabled,
+		Enabled:      req.Enabled,
 		DriverType:   req.GetDriverType(),
 		DriverConfig: json.RawMessage(req.GetDriverConfig()),
 	}
