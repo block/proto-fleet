@@ -92,10 +92,12 @@ const MinerListActionBar = ({
   // Portal to the body so the bar escapes the app shell's fixed `z-20` scroll
   // container (a stacking context). Otherwise the bulk-actions menu — which opens
   // upward into the header band — is trapped below the `z-40` shell header no
-  // matter how high we set the bar's own z-index (#727).
+  // matter how high we set the bar's own z-index (#727). z-[45] sits above the
+  // header but below the phone/tablet nav drawer (`z-50`) so the drawer still
+  // covers the bar when open.
   return createPortal(
     <ActionBar
-      className="fixed right-0 bottom-4 left-0 z-50 laptop:left-16 desktop:left-50"
+      className="fixed right-0 bottom-4 left-0 z-[45] laptop:left-16 desktop:left-50"
       selectedItems={selectedMiners}
       selectionMode={selectionMode}
       totalCount={totalCount}

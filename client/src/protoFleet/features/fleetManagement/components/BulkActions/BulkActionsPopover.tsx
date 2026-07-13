@@ -2,25 +2,31 @@ import { useLayoutEffect } from "react";
 import { BulkAction } from "./types";
 import Divider from "@/shared/components/Divider";
 import Popover, { popoverSizes, usePopover } from "@/shared/components/Popover";
+import { minimalMargin } from "@/shared/components/Popover/constants";
 import Row from "@/shared/components/Row";
 import { type Position, positions } from "@/shared/constants";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
-// The menu is anchored above the bottom-fixed action bar and opens upward, so a
-// tall list would otherwise run off the top of the viewport (#727). We cap its
-// height so its top edge stops `minimalMargin` (8px) below the viewport top and
-// the overflow scrolls internally. Derived from the trigger's measured position
-// and the popover's own offset math so it's exact regardless of bar height:
-//   topInViewport = trigger.top - popoverHeight - UPWARD_SHIFT + yOffset
-// setting that to MIN_TOP_MARGIN gives the max height below.
-const MIN_TOP_MARGIN = 8;
-// Total upward shift the popover applies on top of `-popoverHeight`:
-//   • layout: `offset` (20) minus `minimalMargin` (8) = 12, plus
-//   • animation: `slideUpPopover` settles at `translateY(-8px)` (forwards).
-const UPWARD_SHIFT = 12 + 8;
+// Spacing between the trigger and the popover. Passed as the `offset` prop below
+// too, so the cap math and the rendered offset can't drift apart.
+const POPOVER_OFFSET = 20;
+// The open animation settles at translateY(-minimalMargin) (`slideUpPopover`,
+// forwards), a permanent upward shift on top of the layout position.
+const ANIMATION_TRANSLATE = minimalMargin;
+// Total upward shift the popover applies on top of `-popoverHeight`: the layout
+// offset correction (`POPOVER_OFFSET` beyond `minimalMargin`) plus the animation.
+const UPWARD_SHIFT = POPOVER_OFFSET - minimalMargin + ANIMATION_TRANSLATE;
 // Floor so an extremely short viewport still shows a usable, scrollable menu.
 const MIN_MENU_HEIGHT = 88;
 const MENU_MAX_HEIGHT_VAR = "--bulk-actions-menu-max-h";
+
+// The menu is anchored above the bottom-fixed action bar and opens upward, so a
+// tall list would otherwise run off the top of the viewport (#727). We cap its
+// height so its top edge stops `minimalMargin` below the viewport top and the
+// overflow scrolls internally. Derived from the trigger's measured position and
+// the popover's own offset math so it's exact regardless of bar height:
+//   topInViewport = trigger.top - popoverHeight - UPWARD_SHIFT + yOffset
+// setting that to `minimalMargin` gives the max height used in the effect.
 
 interface BulkActionsPopoverProps<ActionType> {
   actions: BulkAction<ActionType>[];
@@ -82,7 +88,7 @@ const BulkActionsPopover = <ActionType,>({
 
     const update = () => {
       const triggerTop = trigger.getBoundingClientRect().top;
-      const available = Math.max(triggerTop - UPWARD_SHIFT + yOffset - MIN_TOP_MARGIN, MIN_MENU_HEIGHT);
+      const available = Math.max(triggerTop - UPWARD_SHIFT + yOffset - minimalMargin, MIN_MENU_HEIGHT);
       trigger.style.setProperty(MENU_MAX_HEIGHT_VAR, `${available}px`);
     };
 
@@ -111,7 +117,7 @@ const BulkActionsPopover = <ActionType,>({
       }
       position={position}
       size={popoverSizes.small}
-      offset={20}
+      offset={POPOVER_OFFSET}
       yOffset={isPhone || isTablet ? -32 : 0}
       testId={testId}
       closePopover={closePopover}
