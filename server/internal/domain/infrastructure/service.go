@@ -158,8 +158,17 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 
 	var updated *models.Device
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		if err := s.siteStore.LockSiteForWrite(txCtx, params.OrgID, params.SiteID); err != nil {
-			return err
+		// Lock the source site (ExpectedSiteID) as well as the target:
+		// a move out of site A must serialize against a concurrent
+		// DeleteSite(A), which locks A before cascading over devices
+		// with site_id = A — without the source lock, the move could
+		// commit between the delete's lock and its cascade, slipping a
+		// live device out from under a confirmed deletion. Ascending
+		// ID order keeps crossing moves (A→B vs B→A) deadlock-free.
+		for _, siteID := range siteLockOrder(params.ExpectedSiteID, params.SiteID) {
+			if err := s.siteStore.LockSiteForWrite(txCtx, params.OrgID, siteID); err != nil {
+				return err
+			}
 		}
 		device, err := s.store.UpdateInfrastructureDevice(txCtx, params)
 		if err != nil {
@@ -198,6 +207,20 @@ func (s *Service) Delete(ctx context.Context, orgID, id, expectedSiteID int64) e
 	// deleted even under a concurrent rename/move.
 	s.logDeviceEvent(ctx, eventDeviceDeleted, "Deleted", deleted)
 	return nil
+}
+
+// siteLockOrder returns the distinct site IDs to row-lock for a write
+// touching both sites, in ascending order so concurrent transactions
+// locking the same pair (e.g. crossing A→B and B→A moves) acquire
+// locks in the same sequence and cannot deadlock.
+func siteLockOrder(a, b int64) []int64 {
+	if a == b {
+		return []int64{a}
+	}
+	if a < b {
+		return []int64{a, b}
+	}
+	return []int64{b, a}
 }
 
 // deviceInput is the shared validation shape for create and update.

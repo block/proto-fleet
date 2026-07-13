@@ -239,6 +239,32 @@ func TestService_StaleSiteAuthorizationFailsClosed_DatabaseIntegration(t *testin
 	require.NoError(t, svc.Delete(ctx, testOrgID, created.ID, secondSiteID))
 }
 
+func TestService_MoveOutOfDeletedSiteFailsClosed_DatabaseIntegration(t *testing.T) {
+	svc, conn := newTestService(t)
+	ctx := t.Context()
+
+	created, err := svc.Create(ctx, createParams(nil))
+	require.NoError(t, err)
+
+	// Simulate the DeleteSite race window: the source site row is
+	// soft-deleted but the device row is still live (as it would be
+	// between DeleteSite's site lock and its device cascade). Update
+	// locks the source site too, so LockSiteForWrite must surface
+	// NotFound and the move out of the dying site must fail closed
+	// instead of slipping the device past the cascade.
+	_, err = conn.ExecContext(ctx,
+		`UPDATE site SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`, testSiteID)
+	require.NoError(t, err)
+
+	_, err = svc.Update(ctx, models.UpdateParams{
+		OrgID: testOrgID, ID: created.ID, ExpectedSiteID: testSiteID, SiteID: secondSiteID,
+		BuildingName: created.BuildingName, Name: created.Name, DeviceKind: created.DeviceKind,
+		FanCount: created.FanCount, Enabled: created.Enabled, DriverType: created.DriverType,
+		DriverConfig: created.DriverConfig,
+	})
+	assert.True(t, fleeterror.IsNotFoundError(err), "move out of a deleted site must fail closed")
+}
+
 func TestService_SiteCascade_DatabaseIntegration(t *testing.T) {
 	svc, conn := newTestService(t)
 	ctx := t.Context()
