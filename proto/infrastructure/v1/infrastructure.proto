@@ -112,7 +112,9 @@ message UpdateInfrastructureDeviceRequest {
         ]
     }];
     int32 fan_count = 6 [(buf.validate.field).int32.gte = 1];
-    bool enabled = 7;
+    // Omitted preserves the device's current enabled value, so an
+    // unrelated update can't silently disable (or re-enable) a device.
+    optional bool enabled = 7;
     string driver_type = 8 [(buf.validate.field).string = {
         min_len: 1
         max_len: 64
