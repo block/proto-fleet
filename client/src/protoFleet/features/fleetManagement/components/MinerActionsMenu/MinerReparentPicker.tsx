@@ -718,26 +718,33 @@ const MinerReparentPicker = ({
             try {
               const resolved = await resolveAllModeIds(effectiveFilter, abortRef.current?.signal);
               if (abortRef.current?.signal.aborted) {
+                // Picker dismissed/unmounted mid-pagination: resolve quietly
+                // so ParentPickerModal's onDismiss runs once, without an error.
                 removeToast(loadingToast);
                 return;
               }
               ids = resolved.ids;
               snapshots = resolved.snapshots;
             } catch (err) {
+              // Throw (rather than return) so ParentPickerModal.handleSave
+              // treats resolution failure as a rejection and keeps the picker
+              // open for retry — matching the Add to group path. Returning
+              // normally would let handleSave call onDismiss after only an
+              // error toast and no mutation.
               const message =
                 err instanceof Error && err.message ? err.message : "Couldn't load selected miners. Try again.";
               updateToast(loadingToast, { message, status: STATUSES.error });
-              return;
+              throw err instanceof Error ? err : new Error(message);
             }
             removeToast(loadingToast);
             if (ids.length === 0) {
               pushToast({ message: "No miners selected.", status: STATUSES.queued });
-              return;
+              throw new Error("No miners matched the current filter.");
             }
           } else {
             if (deviceIdentifiers.length === 0) {
               pushToast({ message: "No miners selected.", status: STATUSES.queued });
-              return;
+              throw new Error("No miners selected.");
             }
             ids = deviceIdentifiers;
             snapshots = miners;

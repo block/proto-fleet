@@ -21,6 +21,7 @@ const {
   mockListRacks,
   mockListMinerStateSnapshots,
   mockPushToast,
+  mockUpdateToast,
 } = vi.hoisted(() => ({
   mockAssignDevicesToSite: vi.fn(),
   mockAssignDevicesToBuilding: vi.fn(),
@@ -29,6 +30,7 @@ const {
   mockListRacks: vi.fn(),
   mockListMinerStateSnapshots: vi.fn(),
   mockPushToast: vi.fn(() => 1),
+  mockUpdateToast: vi.fn(),
 }));
 
 vi.mock("@/protoFleet/api/buildings", () => ({
@@ -51,15 +53,36 @@ vi.mock("@/protoFleet/api/clients", () => ({
 vi.mock("@/shared/features/toaster", () => ({
   pushToast: mockPushToast,
   removeToast: vi.fn(),
-  updateToast: vi.fn(),
+  updateToast: mockUpdateToast,
   STATUSES: { success: "success", error: "error", loading: "loading", queued: "queued" },
 }));
 
 // ParentPickerModal: expose its onConfirm via a button so the test can
-// "pick" a target building. Targets building id 42.
+// "pick" a target (building id 42). Mirrors the real handleSave contract —
+// dismiss on a resolved onConfirm, keep the picker open (swallow) on a
+// rejection — so tests can assert the picker stays open when resolution or
+// dispatch rejects.
 vi.mock("@/protoFleet/components/ParentPickerModal", () => ({
-  default: ({ onConfirm }: { onConfirm: (ids: bigint[]) => void | Promise<void> }) => (
-    <button type="button" onClick={() => void onConfirm([42n])}>
+  default: ({
+    onConfirm,
+    onDismiss,
+  }: {
+    onConfirm: (ids: bigint[]) => void | Promise<void>;
+    onDismiss: () => void;
+  }) => (
+    <button
+      type="button"
+      onClick={() => {
+        void (async () => {
+          try {
+            await onConfirm([42n]);
+            onDismiss();
+          } catch {
+            /* keep picker open for retry */
+          }
+        })();
+      }}
+    >
       pick-target
     </button>
   ),
@@ -143,6 +166,43 @@ describe("MinerReparentPicker — all-mode placement selection", () => {
     ]);
     expect(mockListMinerStateSnapshots.mock.calls[1][0].cursor).toBe("next");
     expect(mockAssignDevicesToSite.mock.calls[0][0].deviceIdentifiers).toEqual(["d1", "d2"]);
+  });
+});
+
+describe("MinerReparentPicker — resolution failure keeps the picker open", () => {
+  beforeEach(() => {
+    mockAssignDevicesToSite.mockReset();
+    mockListRacks.mockReset();
+    mockListMinerStateSnapshots.mockReset();
+    mockPushToast.mockReset();
+    mockPushToast.mockReturnValue(1);
+    mockUpdateToast.mockReset();
+  });
+
+  it("does not dismiss or dispatch when all-mode snapshot resolution fails", async () => {
+    const onClose = vi.fn();
+    mockListRacks.mockImplementation(({ onSuccess }) => onSuccess([]));
+    // Paging RPC rejects (e.g. transport error or over-cap throw).
+    mockListMinerStateSnapshots.mockRejectedValue(new Error("boom"));
+
+    render(
+      <MinerReparentPicker
+        kind="site"
+        deviceIdentifiers={[]}
+        selectionMode="all"
+        totalCount={2}
+        sourceLabel="All miners"
+        successMessage={(count) => `Moved ${count} miner(s).`}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByText("pick-target"));
+
+    // Error surfaced on the loading toast (post-failure signal), then
+    // onConfirm rejected so the picker stays open and nothing dispatched.
+    await waitFor(() => expect(mockUpdateToast).toHaveBeenCalledWith(1, expect.objectContaining({ status: "error" })));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(mockAssignDevicesToSite).not.toHaveBeenCalled();
   });
 });
 
