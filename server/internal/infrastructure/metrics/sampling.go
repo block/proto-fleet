@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"math"
 	"sync"
 	"time"
 )
@@ -20,7 +21,7 @@ type gaugeSeriesState struct {
 }
 
 // gaugeThrottle suppresses per-poll re-emits of unchanged device gauges: a
-// sample persists when new, on a 0/1 state change, or once per interval.
+// sample persists when new, on a material value change, or once per interval.
 type gaugeThrottle struct {
 	interval time.Duration
 
@@ -36,13 +37,14 @@ func newGaugeThrottle(interval time.Duration) *gaugeThrottle {
 }
 
 // shouldPersist reports whether this sample must land in the store, and
-// records it as the series' latest persisted state when it does.
-func (t *gaugeThrottle) shouldPersist(key gaugeSeriesKey, value float64, now time.Time, persistOnChange bool) bool {
+// records it as the series' latest persisted state when it does. A change
+// beyond changeTolerance persists immediately (0 = any change; +Inf = never).
+func (t *gaugeThrottle) shouldPersist(key gaugeSeriesKey, value float64, now time.Time, changeTolerance float64) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	st, seen := t.series[key]
-	stateChanged := persistOnChange && value != st.value
+	stateChanged := math.Abs(value-st.value) > changeTolerance
 	sinceLast := now.Sub(st.persisted)
 	// Negative elapsed = caller's clock moved backwards; fail open rather
 	// than suppressing heartbeats until the clock catches up.

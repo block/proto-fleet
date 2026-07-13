@@ -12,17 +12,15 @@ Every contract metric is persisted to the `notification_metric_sample`
 hypertable in TimescaleDB by the in-process writer in fleet-api.
 
 Per-device gauges are emitted on every telemetry poll (~15s) but
-persisted through a throttle: 0/1 state gauges (and the hashing
-ratio's non-alerting `1.0` sentinel) land immediately on a state
-change and are refreshed once per
-`FLEET_ALERTS_GAUGE_THROTTLE_INTERVAL` (default 55s, clamped to 90s
-to stay under the temperature rule's 3-minute freshness gate);
-continuous gauges (hashrate, sub-1.0 hashing ratio, temperature) land
-once per interval. `fleet_telemetry_poll_total` increments accumulate
-in process and are persisted once per
-`FLEET_ALERTS_POLL_AGGREGATION_INTERVAL` (default 30s, clamped to 1
-minute) as one row per (organization, site, result) with
-`value` = poll count. Rules must therefore aggregate with
+persisted through a throttle with a fixed 55s heartbeat (sized
+against the temperature rule's 3-minute freshness gate): 0/1 state
+gauges land immediately on any state change, the hashing ratio lands
+immediately on a material move (more than 0.1 — onset, recovery, and
+the non-alerting `1.0` sentinel), and hashrate/temperature land once
+per heartbeat. `fleet_telemetry_poll_total` increments accumulate in
+process and are persisted every 30s as one row per (organization,
+site, result) with `value` = poll count. Rules must therefore
+aggregate with
 `last(value, time)` or `sum(value)` over a window — never count rows.
 That includes `fleet_telemetry_poll_heartbeat.sample_count`, which
 counts persisted rows per minute (a few per org), not polls; only
@@ -51,7 +49,7 @@ All Proto Fleet metric names start with the `fleet_` prefix.
 | `fleet_device_temperature_avg_celsius` | gauge | `Cel` | `organization_id`, `device_id`, `device_group?`, `driver?`, `sensor_kind` | Average temperature across the device's sensors of the given kind. |
 | `fleet_device_pool_connected` | gauge (0/1) | `1` | `organization_id`, `device_id`, `device_group?`, `driver?` | 1 when the device is connected to its primary mining pool, 0 otherwise. **Reserved — not currently emitted.** The broadcaster does not yet have an explicit pool-connectivity signal from plugins, so emitting this gauge would either miss real pool disconnects/hijacks or fire on intentionally inactive devices. The metric stays in the contract so dashboards referencing it keep compiling; samples will resume once plugins surface real pool state. |
 | `fleet_command_total` | counter | `1` | `organization_id`, `kind`, `result` | Incremented every time a dispatched command reaches a terminal state. |
-| `fleet_telemetry_poll_total` | counter | `1` | `organization_id?`, `site_id?`, `result` | Incremented for every telemetry poll attempt. Persisted rows are aggregated per (organization, site, result) over `FLEET_ALERTS_POLL_AGGREGATION_INTERVAL` with `value` = poll count; `device_id` is never populated on persisted rows. |
+| `fleet_telemetry_poll_total` | counter | `1` | `organization_id?`, `site_id?`, `result` | Incremented for every telemetry poll attempt. Persisted rows are aggregated per (organization, site, result) over a fixed 30s window with `value` = poll count; `device_id` is never populated on persisted rows. |
 
 Labels marked with `?` are optional — they may be empty when the
 underlying data is unavailable. The hypertable stores the empty string
@@ -114,8 +112,7 @@ The contract is:
 
 1. While a device is reachable, the broadcaster subscriber emits
    `fleet_device_online=1` on every telemetry tick; the writer persists
-   one row per `FLEET_ALERTS_GAUGE_THROTTLE_INTERVAL` (default 55s)
-   while the state is unchanged.
+   one row per 55s heartbeat while the state is unchanged.
 2. When the telemetry pipeline marks a device unreachable
    (`MinerStatusOffline`, connection error), the subscriber writes
    `fleet_device_online=0` with the same labels — state transitions

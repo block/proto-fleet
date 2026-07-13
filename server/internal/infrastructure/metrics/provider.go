@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,8 +28,11 @@ type Config struct {
 	RetryBufferSize int           `help:"Maximum number of samples queued for retry after a failed flush; oldest are dropped when full" default:"8192" env:"RETRY_BUFFER_SIZE"`
 	MaxRetryBackoff time.Duration `help:"Upper bound on the exponential backoff between retries after a failed flush" default:"1m" env:"MAX_RETRY_BACKOFF"`
 
-	GaugeThrottleInterval   time.Duration        `help:"Minimum interval between persisted samples for an unchanged per-device gauge series; state changes on 0/1 gauges persist immediately. Clamped to at most 90s so heartbeats stay inside the temperature rule's 3-minute freshness gate." default:"55s" env:"GAUGE_THROTTLE_INTERVAL"`
-	PollAggregationInterval time.Duration        `help:"Window over which fleet_telemetry_poll_total increments accumulate before one row per (organization, site, result) is persisted with value = poll count. Clamped to at most 1 minute so every fleet_telemetry_poll_heartbeat bucket stays populated." default:"30s" env:"POLL_AGGREGATION_INTERVAL"`
+	// Fixed cadences (test-overridable only): the gauge heartbeat must stay
+	// inside the temperature rule's 3-minute freshness gate, and poll rows
+	// must land in every 1-minute fleet_telemetry_poll_heartbeat bucket.
+	GaugeThrottleInterval   time.Duration        `kong:"-"`
+	PollAggregationInterval time.Duration        `kong:"-"`
 	WebhookToken            string               `help:"Shared secret required on incoming Alertmanager webhook deliveries as 'Authorization: Bearer <token>'. Configure the same value into Grafana's webhook contact point (authorization_scheme: Bearer, authorization_credentials: <token>). When empty the receiver refuses every request." env:"WEBHOOK_TOKEN"`
 	Grafana                 alerts.GrafanaConfig `embed:"" prefix:"grafana-" envprefix:"GRAFANA_"`
 
@@ -128,33 +132,19 @@ func applyDefaults(cfg Config) Config {
 		cfg.MaxRetryBackoff = cfg.FlushInterval
 	}
 	if cfg.GaugeThrottleInterval <= 0 {
-		cfg.GaugeThrottleInterval = 55 * time.Second
-	}
-	if cfg.GaugeThrottleInterval > maxGaugeThrottleInterval {
-		slog.Warn("metrics: GAUGE_THROTTLE_INTERVAL clamped — larger values starve the temperature rule's freshness gate and silently disable the alert",
-			"configured", cfg.GaugeThrottleInterval,
-			"clamped_to", maxGaugeThrottleInterval,
-		)
-		cfg.GaugeThrottleInterval = maxGaugeThrottleInterval
+		cfg.GaugeThrottleInterval = defaultGaugeThrottleInterval
 	}
 	if cfg.PollAggregationInterval <= 0 {
-		cfg.PollAggregationInterval = 30 * time.Second
-	}
-	if cfg.PollAggregationInterval > maxPollAggregationInterval {
-		slog.Warn("metrics: POLL_AGGREGATION_INTERVAL clamped — larger values leave fleet_telemetry_poll_heartbeat buckets empty and false-fire the ingest-stalled alert",
-			"configured", cfg.PollAggregationInterval,
-			"clamped_to", maxPollAggregationInterval,
-		)
-		cfg.PollAggregationInterval = maxPollAggregationInterval
+		cfg.PollAggregationInterval = defaultPollAggregationInterval
 	}
 	return cfg
 }
 
-// Ceilings keep worst-case sample age inside the temperature rule's 3-minute
+// Cadences keep worst-case sample age inside the temperature rule's 3-minute
 // freshness gate and every 1-minute poll-heartbeat bucket populated.
 const (
-	maxGaugeThrottleInterval   = 90 * time.Second
-	maxPollAggregationInterval = time.Minute
+	defaultGaugeThrottleInterval   = 55 * time.Second
+	defaultPollAggregationInterval = 30 * time.Second
 )
 
 func newDisabledProvider(cfg Config) *Provider {
@@ -237,13 +227,13 @@ func (p *Provider) record(sample Sample) {
 
 // recordDeviceGauge routes a per-device gauge through the throttle. The
 // throttle clock stays monotonic (no UTC()); only Sample.Time is wall-clock.
-func (p *Provider) recordDeviceGauge(sample Sample, persistOnChange bool) {
+func (p *Provider) recordDeviceGauge(sample Sample, changeTolerance float64) {
 	if p == nil || !p.enabled {
 		return
 	}
 	now := time.Now()
 	key := gaugeSeriesKey{metric: sample.Metric, labels: sample.Labels}
-	if !p.gauges.shouldPersist(key, sample.Value, now, persistOnChange) {
+	if !p.gauges.shouldPersist(key, sample.Value, now, changeTolerance) {
 		return
 	}
 	sample.Time = now.UTC()
@@ -253,13 +243,13 @@ func (p *Provider) recordDeviceGauge(sample Sample, persistOnChange bool) {
 // recordStateGauge persists a 0/1 state gauge: every state change lands
 // immediately, unchanged state refreshes once per GaugeThrottleInterval.
 func (p *Provider) recordStateGauge(sample Sample) {
-	p.recordDeviceGauge(sample, true)
+	p.recordDeviceGauge(sample, 0)
 }
 
 // recordContinuousGauge persists a continuously-varying gauge once per
 // GaugeThrottleInterval; value jitter between heartbeats is not persisted.
 func (p *Provider) recordContinuousGauge(sample Sample) {
-	p.recordDeviceGauge(sample, false)
+	p.recordDeviceGauge(sample, math.Inf(1))
 }
 
 // appendPollAggregates drains the poll aggregator into batch; flushLoop-only,

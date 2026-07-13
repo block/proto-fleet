@@ -450,6 +450,36 @@ func TestDeviceGaugeThrottleSuppressesRepeats(t *testing.T) {
 	require.Equal(t, 1, got[MetricDeviceTemperatureAvgCelsius])
 }
 
+// hashing must persist material moves (onset, recovery, sentinel clear)
+// immediately; sub-tolerance jitter waits for the heartbeat.
+func TestDeviceHashingPersistsMaterialChanges(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	store := NewInMemoryStore()
+	provider := SetupWithStore(ctx, "test", Config{
+		Enabled:               true,
+		FlushInterval:         25 * time.Millisecond,
+		BufferSize:            64,
+		BatchSize:             32,
+		GaugeThrottleInterval: time.Hour,
+	}, store)
+
+	labels := DeviceLabels{OrganizationID: "org-1", DeviceID: "device-1"}
+	provider.EmitDeviceHashing(ctx, labels, 0.5)  // new series: persists
+	provider.EmitDeviceHashing(ctx, labels, 0.52) // jitter: suppressed
+	provider.EmitDeviceHashing(ctx, labels, 0.85) // recovery: persists
+	provider.EmitDeviceHashing(ctx, labels, 0.9)  // jitter: suppressed
+	provider.EmitDeviceHashing(ctx, labels, 1.0)  // clearing sentinel: persists
+	require.NoError(t, provider.Shutdown(ctx))
+
+	values := []float64{}
+	for _, sample := range store.Snapshot() {
+		values = append(values, sample.Value)
+	}
+	require.Equal(t, []float64{0.5, 0.85, 1.0}, values)
+}
+
 // a 0/1 state gauge must persist every state change immediately — the
 // Device Offline rule depends on the transition sample, not the heartbeat.
 func TestDeviceGaugeStateChangePersistsImmediately(t *testing.T) {

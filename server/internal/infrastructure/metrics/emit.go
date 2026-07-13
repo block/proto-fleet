@@ -63,14 +63,16 @@ func (p *Provider) EmitDeviceOnline(_ context.Context, labels DeviceLabels, onli
 	})
 }
 
+// hashingChangeTolerance persists material ratio moves (onset, recovery, the
+// 1.0 clearing sentinel) immediately while poll-to-poll jitter heartbeats.
+const hashingChangeTolerance = 0.1
+
 func (p *Provider) EmitDeviceHashing(_ context.Context, labels DeviceLabels, ratio float64) {
-	// The exact-1.0 sentinel persists as a state change so it clears a stale
-	// low sample immediately; sub-1.0 jitter stays heartbeat-throttled.
 	p.recordDeviceGauge(Sample{
 		Metric: MetricDeviceHashing,
 		Labels: labels.toLabels(),
 		Value:  ratio,
-	}, ratio == 1)
+	}, hashingChangeTolerance)
 }
 
 func (p *Provider) EmitDeviceHashrate(_ context.Context, labels DeviceLabels, observedTHs, expectedTHs float64) {
