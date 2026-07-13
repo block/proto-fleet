@@ -6,9 +6,11 @@
 // (ResourceContext{SiteID}), so a caller whose org-wide grant is
 // narrowed away for a site cannot read or mutate that site's device
 // configuration. Get/Update/Delete resolve the device under org scope
-// first and then authorize against its current site — the same
-// resolve-then-authorize pattern (and accepted same-org existence
-// leak) as buildings.GetBuildingStats.
+// first and then authorize against its current site; a caller without
+// site:read there gets NotFound (not PermissionDenied) so device IDs
+// cannot be enumerated across site scopes — the same masking
+// ResolveSiteBySlug applies. PermissionDenied is reserved for callers
+// who can read the device but lack site:manage.
 package infrastructure
 
 import (
@@ -21,6 +23,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure"
+	"github.com/block/proto-fleet/server/internal/domain/infrastructure/models"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -67,6 +70,26 @@ func canManageSite(ctx context.Context, siteID int64) (bool, error) {
 func requireSiteManage(ctx context.Context, siteID int64) error {
 	_, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: &siteID})
 	return err
+}
+
+// getReadableDevice resolves the device under org scope and masks a
+// site:read denial as NotFound, so a caller scoped away from the
+// device's site cannot distinguish an existing device ID from a
+// missing one. Get/Update/Delete all resolve through this before any
+// further authorization.
+func (h *Handler) getReadableDevice(ctx context.Context, orgID, id int64) (*models.Device, error) {
+	device, err := h.service.Get(ctx, orgID, id)
+	if err != nil {
+		return nil, err
+	}
+	readable, err := canReadSite(ctx, device.SiteID)
+	if err != nil {
+		return nil, err
+	}
+	if !readable {
+		return nil, fleeterror.NewNotFoundErrorf("infrastructure device %d not found", id)
+	}
+	return device, nil
 }
 
 func (h *Handler) ListInfrastructureDevices(ctx context.Context, req *connect.Request[pb.ListInfrastructureDevicesRequest]) (*connect.Response[pb.ListInfrastructureDevicesResponse], error) {
@@ -150,11 +173,8 @@ func (h *Handler) GetInfrastructureDevice(ctx context.Context, req *connect.Requ
 	if err != nil {
 		return nil, err
 	}
-	device, err := h.service.Get(ctx, sess.OrganizationID, req.Msg.GetId())
+	device, err := h.getReadableDevice(ctx, sess.OrganizationID, req.Msg.GetId())
 	if err != nil {
-		return nil, err
-	}
-	if _, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{SiteID: &device.SiteID}); err != nil {
 		return nil, err
 	}
 	manageable, err := canManageSite(ctx, device.SiteID)
@@ -188,7 +208,7 @@ func (h *Handler) UpdateInfrastructureDevice(ctx context.Context, req *connect.R
 	if err != nil {
 		return nil, err
 	}
-	existing, err := h.service.Get(ctx, sess.OrganizationID, req.Msg.GetId())
+	existing, err := h.getReadableDevice(ctx, sess.OrganizationID, req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +244,7 @@ func (h *Handler) DeleteInfrastructureDevice(ctx context.Context, req *connect.R
 	if err != nil {
 		return nil, err
 	}
-	device, err := h.service.Get(ctx, sess.OrganizationID, req.Msg.GetId())
+	device, err := h.getReadableDevice(ctx, sess.OrganizationID, req.Msg.GetId())
 	if err != nil {
 		return nil, err
 	}

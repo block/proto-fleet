@@ -86,6 +86,14 @@ func requirePermissionDenied(t *testing.T, err error) {
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
+func requireNotFound(t *testing.T, err error) {
+	t.Helper()
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
+}
+
 func TestHandler_CreateAuthGate(t *testing.T) {
 	t.Parallel()
 
@@ -128,6 +136,9 @@ func TestHandler_GetDeleteUpdateAuthorizeAgainstDeviceSite(t *testing.T) {
 
 	// The device lives at site 10; the caller's grants are narrowed to
 	// site 99, so resolve-then-authorize must deny all three verbs.
+	// The denial is masked as NotFound — the caller cannot read site
+	// 10, so an existing device ID must be indistinguishable from a
+	// missing one.
 	h := newTestHandler(t)
 	ctx := handlerstest.CtxWithAssignments(t, 42,
 		handlerstest.SiteAssignment(99, authz.PermSiteRead, authz.PermSiteManage))
@@ -136,9 +147,35 @@ func TestHandler_GetDeleteUpdateAuthorizeAgainstDeviceSite(t *testing.T) {
 		Return(deviceAtSite(7, 10), nil).Times(3)
 
 	_, err := h.handler.GetInfrastructureDevice(ctx, connect.NewRequest(&pb.GetInfrastructureDeviceRequest{Id: 7}))
-	requirePermissionDenied(t, err)
+	requireNotFound(t, err)
 
 	_, err = h.handler.DeleteInfrastructureDevice(ctx, connect.NewRequest(&pb.DeleteInfrastructureDeviceRequest{Id: 7}))
+	requireNotFound(t, err)
+
+	update := &pb.UpdateInfrastructureDeviceRequest{
+		Id: 7, SiteId: 10, Name: "renamed", DeviceKind: models.KindFanGroup,
+		FanCount: 12, DriverType: "modbus_tcp", DriverConfig: validConfig,
+	}
+	_, err = h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
+	requireNotFound(t, err)
+}
+
+// TestHandler_UpdateDeleteDenyReadOnlyCaller pins the boundary between
+// the two denial shapes: a caller who CAN read the device's site but
+// lacks site:manage gets PermissionDenied (the device's existence is
+// already visible to them), not the NotFound mask reserved for
+// unreadable sites.
+func TestHandler_UpdateDeleteDenyReadOnlyCaller(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ctx := handlerstest.CtxWithAssignments(t, 42,
+		handlerstest.SiteAssignment(10, authz.PermSiteRead))
+
+	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
+		Return(deviceAtSite(7, 10), nil).Times(2)
+
+	_, err := h.handler.DeleteInfrastructureDevice(ctx, connect.NewRequest(&pb.DeleteInfrastructureDeviceRequest{Id: 7}))
 	requirePermissionDenied(t, err)
 
 	update := &pb.UpdateInfrastructureDeviceRequest{
