@@ -10,9 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// invalidate must force the next emit of a series to persist even when the
-// value is unchanged and the interval has not elapsed — the recovery path
-// for samples dropped after the throttle admitted them.
+// invalidate must force the next emit to persist even when unchanged inside
+// the interval — the recovery path for samples dropped after admission.
 func TestGaugeThrottleInvalidateForcesRepersist(t *testing.T) {
 	th := newGaugeThrottle(time.Hour)
 	labels := Labels{OrganizationID: "org-1", DeviceID: "device-1"}
@@ -55,9 +54,8 @@ func TestGaugeThrottleSweepDropsIdleSeries(t *testing.T) {
 	require.Contains(t, th.series, live, "live series must survive the sweep")
 }
 
-// The gauge throttle ceiling and the temperature rule's freshness gate are
-// coupled across two artifacts (Go config and provisioned rule SQL); this
-// pins the invariant so tightening either side alone fails loudly.
+// The throttle ceiling and the temperature rule's freshness gate span two
+// artifacts; pin the invariant so tightening either side alone fails loudly.
 func TestFreshnessGateCoversGaugeThrottleCeiling(t *testing.T) {
 	raw, err := os.ReadFile("../../../monitoring/grafana/provisioning/alerting/proto-fleet-rules.yaml")
 	require.NoError(t, err)
@@ -69,9 +67,8 @@ func TestFreshnessGateCoversGaugeThrottleCeiling(t *testing.T) {
 	require.NoError(t, err)
 	gate := time.Duration(minutes) * time.Minute
 
-	// Worst-case sample age is throttle ceiling + poll spacing (~20s) +
-	// flush (~5s); the gate must additionally absorb at least one missed
-	// poll cycle so a flaky device doesn't flap the alert.
+	// Worst-case age = ceiling + poll spacing + flush; the gate must also
+	// absorb a missed poll cycle so a flaky device doesn't flap the alert.
 	const pollAndFlushSlack = 45 * time.Second
 	require.GreaterOrEqual(t, gate, maxGaugeThrottleInterval+2*pollAndFlushSlack,
 		"freshness gate too tight for the gauge throttle ceiling: unchanged hot devices would de-gate and reset the alert's pending timer")

@@ -415,10 +415,8 @@ func TestRetryQueueChunkedBelowBindParameterLimit(t *testing.T) {
 	}
 }
 
-// unchanged continuous gauges re-emitted within the throttle interval
-// must collapse to a single persisted sample per series; the poll-cadence
-// re-emits are what made the hypertable's row volume scale with poll
-// frequency instead of fleet size.
+// continuous gauges re-emitted within the throttle interval must collapse
+// to one persisted sample per series, or row volume scales with poll rate.
 func TestDeviceGaugeThrottleSuppressesRepeats(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -452,9 +450,8 @@ func TestDeviceGaugeThrottleSuppressesRepeats(t *testing.T) {
 	require.Equal(t, 1, got[MetricDeviceTemperatureAvgCelsius])
 }
 
-// a 0/1 state gauge must persist every state change immediately even
-// inside the throttle interval — the Device Offline rule depends on the
-// transition sample, not the heartbeat.
+// a 0/1 state gauge must persist every state change immediately — the
+// Device Offline rule depends on the transition sample, not the heartbeat.
 func TestDeviceGaugeStateChangePersistsImmediately(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -508,9 +505,8 @@ func TestDeviceGaugeThrottleIntervalRefreshes(t *testing.T) {
 		"an unchanged gauge must re-persist once the throttle interval elapses")
 }
 
-// telemetry poll increments accumulate in process and land as one row
-// per (organization, site, result) with value = poll count, so the
-// failure-rate rule's sum(value) is preserved with a fraction of the rows.
+// poll increments land as one row per (org, site, result) with value =
+// poll count, preserving the failure-rate rule's sum(value).
 func TestTelemetryPollsAggregate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -554,10 +550,8 @@ func TestTelemetryPollsAggregate(t *testing.T) {
 	require.Equal(t, 2.0, byResult[ResultFailure].Value)
 }
 
-// aggregated poll rows must persist at the aggregation cadence even when
-// the flush ticker is much slower and the batch never reaches BatchSize —
-// otherwise a raised FLUSH_INTERVAL could starve the heartbeat buckets the
-// ingest-stalled rule watches.
+// aggregated poll rows must persist at the aggregation cadence even with a
+// slow flush ticker, or a raised FLUSH_INTERVAL starves heartbeat buckets.
 func TestPollAggregatesFlushAtAggregationCadence(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -598,8 +592,7 @@ func TestRecordDropsOnFullBuffer(t *testing.T) {
 		BatchSize:     1,
 	}, store)
 
-	// Fill the buffer + force at least one drop. The flusher is
-	// blocked inside store.InsertSamples until we release it. Distinct
+	// Fill the buffer + force a drop while the flusher is blocked. Distinct
 	// devices: identical repeats would be gauge-throttled away.
 	for i := range 32 {
 		provider.EmitDeviceOnline(ctx, DeviceLabels{DeviceID: fmt.Sprintf("x%d", i)}, true)

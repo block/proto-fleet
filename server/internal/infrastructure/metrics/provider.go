@@ -150,11 +150,8 @@ func applyDefaults(cfg Config) Config {
 	return cfg
 }
 
-// Upper bounds for the sampling intervals. The gauge ceiling keeps worst-case
-// sample age (throttle + ~20s poll spacing + 5s flush) inside the temperature
-// rule's 3-minute freshness gate; the poll ceiling keeps every 1-minute
-// fleet_telemetry_poll_heartbeat bucket populated for the ingest-stalled
-// rule's 300s staleness threshold.
+// Ceilings keep worst-case sample age inside the temperature rule's 3-minute
+// freshness gate and every 1-minute poll-heartbeat bucket populated.
 const (
 	maxGaugeThrottleInterval   = 90 * time.Second
 	maxPollAggregationInterval = time.Minute
@@ -221,10 +218,8 @@ func (p *Provider) record(sample Sample) {
 		select {
 		case p.samples <- sample:
 			p.dropMu.Unlock()
-			// Evicted gauge samples were already marked persisted by the
-			// throttle; forget them so the next emit re-persists instead of
-			// serving stale state for a full interval. Outside dropMu so the
-			// throttle lock never nests inside it.
+			// Evicted gauges were already marked persisted; forget them so the
+			// next emit re-persists. Outside dropMu to avoid nesting locks.
 			p.gauges.invalidate(evicted...)
 			return
 		default:
@@ -240,11 +235,8 @@ func (p *Provider) record(sample Sample) {
 	}
 }
 
-// recordDeviceGauge routes a per-device gauge sample through the throttle:
-// it persists when the series is new, on a value change when persistOnChange
-// is set, or once per GaugeThrottleInterval otherwise. The throttle clock is
-// monotonic (no UTC()) so interval math survives wall-clock steps; only the
-// persisted Sample.Time is wall-clock.
+// recordDeviceGauge routes a per-device gauge through the throttle. The
+// throttle clock stays monotonic (no UTC()); only Sample.Time is wall-clock.
 func (p *Provider) recordDeviceGauge(sample Sample, persistOnChange bool) {
 	if p == nil || !p.enabled {
 		return
@@ -270,10 +262,8 @@ func (p *Provider) recordContinuousGauge(sample Sample) {
 	p.recordDeviceGauge(sample, false)
 }
 
-// appendPollAggregates drains the telemetry-poll aggregator into batch as
-// one row per (organization, site, result). Called from flushLoop only, so
-// aggregate rows never transit the samples channel and cannot evict queued
-// samples under buffer pressure.
+// appendPollAggregates drains the poll aggregator into batch; flushLoop-only,
+// so aggregate rows never transit the channel and cannot evict queued samples.
 func (p *Provider) appendPollAggregates(batch []Sample) []Sample {
 	now := time.Now().UTC()
 	for labels, count := range p.pollAgg.drain() {
@@ -293,9 +283,8 @@ func (p *Provider) flushLoop(ctx context.Context) {
 	ticker := time.NewTicker(p.cfg.FlushInterval)
 	defer ticker.Stop()
 
-	// Poll aggregates drain and the gauge-throttle sweep both run on this
-	// loop: aggregation rows append straight to batch (never the channel),
-	// and the sweep's full map scan stays off the emit hot path.
+	// Aggregate drains and the gauge sweep run here: rows append straight to
+	// batch, and the sweep's full map scan stays off the emit hot path.
 	aggTicker := time.NewTicker(p.cfg.PollAggregationInterval)
 	defer aggTicker.Stop()
 
@@ -394,10 +383,8 @@ func (p *Provider) flushLoop(ctx context.Context) {
 		case <-aggTicker.C:
 			batch = p.appendPollAggregates(batch)
 			p.gauges.sweep(time.Now())
-			// Flush now rather than waiting for the flush ticker: post-throttle
-			// volume may never reach BatchSize, and a raised FLUSH_INTERVAL
-			// must not delay heartbeat rows past the ingest-stalled rule's
-			// staleness threshold.
+			// Flush now: post-throttle volume may never reach BatchSize, and a
+			// raised FLUSH_INTERVAL must not starve the heartbeat buckets.
 			flush(ctx, false)
 
 		case <-ticker.C:
@@ -413,8 +400,7 @@ func (p *Provider) flushLoop(ctx context.Context) {
 }
 
 // appendBoundedRetry returns retry ++ extra capped at maxLen, plus the
-// samples discarded to stay under the cap so the caller can invalidate
-// their gauge-throttle state.
+// discarded samples so the caller can invalidate their throttle state.
 func appendBoundedRetry(retry, extra []Sample, maxLen int, dropped *atomic.Uint64) (out, lost []Sample) {
 	if len(extra) == 0 {
 		return retry, nil

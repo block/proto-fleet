@@ -23,10 +23,8 @@ type CommandLabels struct {
 	Result         string
 }
 
-// TelemetryPollLabels carries the labels persisted for
-// fleet_telemetry_poll_total. There is deliberately no DeviceID: poll rows
-// aggregate per (organization, site, result), so a per-device label would
-// be silently discarded.
+// TelemetryPollLabels has deliberately no DeviceID: poll rows aggregate per
+// (organization, site, result), so a per-device label would be discarded.
 type TelemetryPollLabels struct {
 	OrganizationID string
 	SiteID         string
@@ -66,9 +64,8 @@ func (p *Provider) EmitDeviceOnline(_ context.Context, labels DeviceLabels, onli
 }
 
 func (p *Provider) EmitDeviceHashing(_ context.Context, labels DeviceLabels, ratio float64) {
-	// The exact-1.0 sentinel (paused / offline / no longer expected to hash)
-	// persists as a state change so it clears a stale low sample immediately,
-	// per the contract; sub-1.0 ratio jitter stays heartbeat-throttled.
+	// The exact-1.0 sentinel persists as a state change so it clears a stale
+	// low sample immediately; sub-1.0 jitter stays heartbeat-throttled.
 	p.recordDeviceGauge(Sample{
 		Metric: MetricDeviceHashing,
 		Labels: labels.toLabels(),
@@ -144,10 +141,8 @@ func (p *Provider) EmitCommand(_ context.Context, labels CommandLabels) {
 	})
 }
 
-// EmitTelemetryPoll records one increment on fleet_telemetry_poll_total.
-// Increments accumulate in process and are persisted once per
-// PollAggregationInterval as a single row per (organization, site, result)
-// carrying value = poll count; see pollAggregator.
+// EmitTelemetryPoll records one increment on fleet_telemetry_poll_total,
+// persisted aggregated once per PollAggregationInterval; see pollAggregator.
 func (p *Provider) EmitTelemetryPoll(_ context.Context, labels TelemetryPollLabels) {
 	if p == nil || !p.enabled {
 		return
@@ -203,9 +198,8 @@ func (p *Provider) emitSystemPercent(metric string, percent float64) {
 	})
 }
 
-// EmitMQTTSourceConnected records the fleet_mqtt_source_connected gauge.
-// Deliberately unthrottled: the curtailment rules evaluate every 10s and
-// per-source cardinality is tiny.
+// EmitMQTTSourceConnected records the fleet_mqtt_source_connected gauge,
+// unthrottled: curtailment rules evaluate every 10s and cardinality is tiny.
 func (p *Provider) EmitMQTTSourceConnected(_ context.Context, labels MQTTSourceLabels, connected bool) {
 	value := 0.0
 	if connected {

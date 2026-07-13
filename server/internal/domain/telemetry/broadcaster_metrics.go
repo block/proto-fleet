@@ -166,9 +166,8 @@ func (o *metricsObserver) onDeviceRemoved(_ context.Context, _ models.DeviceIden
 	// no-op: do not emit a final 0 — the contract intentionally lets the series vanish.
 }
 
-// onPollResult is called by the telemetry workers for every poll attempt.
-// Poll counts persist aggregated per (org, site, result), so no device
-// identity is forwarded.
+// onPollResult is called for every poll attempt; counts persist aggregated
+// per (org, site, result), so no device identity is forwarded.
 func (o *metricsObserver) onPollResult(ctx context.Context, orgID, siteID int64, _ models.DeviceIdentifier, success bool) {
 	if o == nil {
 		return

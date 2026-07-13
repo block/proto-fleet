@@ -5,9 +5,8 @@ import (
 	"time"
 )
 
-// gaugeSeriesKey identifies one persisted gauge series: a metric name plus
-// its full label set. Labels is a flat struct of strings, so the key is
-// directly comparable.
+// gaugeSeriesKey identifies one persisted gauge series; Labels is a flat
+// struct of strings, so the key is directly comparable.
 type gaugeSeriesKey struct {
 	metric string
 	labels Labels
@@ -15,19 +14,13 @@ type gaugeSeriesKey struct {
 
 type gaugeSeriesState struct {
 	value float64
-	// persisted carries Go's monotonic clock reading (callers pass
-	// time.Now() without UTC()), so interval math is immune to wall-clock
-	// steps; only Sample.Time uses wall-clock UTC.
+	// Carries the monotonic clock (time.Now() without UTC()), so interval
+	// math survives wall-clock steps; only Sample.Time is wall-clock UTC.
 	persisted time.Time
 }
 
-// gaugeThrottle decides which per-device gauge samples are worth persisting.
-// Device gauges are re-emitted on every telemetry poll (~15s) even when
-// nothing changed; at fleet scale that cadence, not the data, dominated the
-// notification_metric_sample hypertable. A sample is persisted when the
-// series is new, when its value changed on a change-sensitive (0/1 state)
-// gauge, or when interval has elapsed since the last persisted sample — the
-// heartbeat that keeps the Grafana rules' freshness gates satisfied.
+// gaugeThrottle suppresses per-poll re-emits of unchanged device gauges: a
+// sample persists when new, on a 0/1 state change, or once per interval.
 type gaugeThrottle struct {
 	interval time.Duration
 
@@ -51,8 +44,7 @@ func (t *gaugeThrottle) shouldPersist(key gaugeSeriesKey, value float64, now tim
 	st, seen := t.series[key]
 	stateChanged := persistOnChange && value != st.value
 	sinceLast := now.Sub(st.persisted)
-	// A negative elapsed reading means the caller's clock moved backwards
-	// (only possible for wall-clock times); fail open and persist rather
+	// Negative elapsed = caller's clock moved backwards; fail open rather
 	// than suppressing heartbeats until the clock catches up.
 	heartbeatDue := sinceLast >= t.interval || sinceLast < 0
 
@@ -63,11 +55,8 @@ func (t *gaugeThrottle) shouldPersist(key gaugeSeriesKey, value float64, now tim
 	return true
 }
 
-// invalidate forgets the given samples' series state so their next emit
-// persists unconditionally. Called for samples known to have been dropped
-// after shouldPersist admitted them but before they reached the store —
-// without this, a dropped 0/1 state transition would be suppressed as
-// already-persisted until the heartbeat interval elapses.
+// invalidate forgets series state for samples dropped after admission, so
+// the next emit re-persists instead of serving stale state for an interval.
 func (t *gaugeThrottle) invalidate(samples ...Sample) {
 	if t == nil || len(samples) == 0 {
 		return
@@ -79,10 +68,8 @@ func (t *gaugeThrottle) invalidate(samples ...Sample) {
 	}
 }
 
-// sweep drops series that stopped emitting (device removed from the fleet)
-// so the map tracks the live fleet, not every device ever seen. It runs on
-// the provider's background flush loop, never on the emit hot path — a full
-// map scan under this mutex would otherwise stall every concurrent emitter.
+// sweep drops series that stopped emitting (device removed). Runs on the
+// flush loop only — a full map scan under this mutex would stall emitters.
 func (t *gaugeThrottle) sweep(now time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -94,14 +81,8 @@ func (t *gaugeThrottle) sweep(now time.Time) {
 	}
 }
 
-// pollAggregator accumulates fleet_telemetry_poll_total increments in
-// process so one row per (organization, site, result) lands per flush window
-// instead of one row per poll attempt per device. Each flushed row carries
-// value = number of polls in the window, so the failure-rate rule's
-// sum(value) over its evaluation window is unchanged, and the 1-minute
-// fleet_telemetry_poll_heartbeat buckets stay populated for every org that
-// polled. Per-device poll rows are intentionally gone — device_id is an
-// optional label in the contract, and no rule reads it on this metric.
+// pollAggregator collapses fleet_telemetry_poll_total to one row per
+// (org, site, result) per window with value = poll count; sum(value) holds.
 type pollAggregator struct {
 	mu     sync.Mutex
 	counts map[Labels]float64
