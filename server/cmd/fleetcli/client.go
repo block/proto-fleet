@@ -336,10 +336,11 @@ func readSecretLineFromStdin(label string) (string, error) {
 	for {
 		n, err := os.Stdin.Read(one[:])
 		if n > 0 {
-			if one[0] == '\n' {
+			chunk := string(one[:])
+			if chunk == "\n" {
 				break
 			}
-			if err := buf.WriteByte(one[0]); err != nil {
+			if _, err := buf.WriteString(chunk); err != nil {
 				return "", fmt.Errorf("read %s from stdin: %w", label, err)
 			}
 		}

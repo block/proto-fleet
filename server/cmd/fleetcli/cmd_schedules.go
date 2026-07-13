@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+
 	schedulev1 "github.com/block/proto-fleet/server/generated/grpc/schedule/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"

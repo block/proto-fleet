@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+
 	errorsv1 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
@@ -37,8 +38,7 @@ func generatedErrorsCommand() *cli.Command {
 				"List canonical miner errors",
 				"/errors.v1.ErrorQueryService/ListMinerErrors",
 				generatedAuthAuthenticated,
-				[]cli.Flag{
-				},
+				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &errorsv1.ListMinerErrorsRequest{}
 					return req, nil

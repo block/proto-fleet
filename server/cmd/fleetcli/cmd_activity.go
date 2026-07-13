@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+
 	activityv1 "github.com/block/proto-fleet/server/generated/grpc/activity/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
@@ -19,8 +20,7 @@ func generatedActivityCommand() *cli.Command {
 				"List available activity filter options",
 				"/activity.v1.ActivityService/ListActivityFilterOptions",
 				generatedAuthAuthenticated,
-				[]cli.Flag{
-				},
+				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &activityv1.ListActivityFilterOptionsRequest{}
 					return req, nil

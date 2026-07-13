@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+
 	authzv1 "github.com/block/proto-fleet/server/generated/grpc/authz/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
@@ -61,8 +62,7 @@ func generatedRolesCommand() *cli.Command {
 				"List roles",
 				"/authz.v1.AuthzService/ListRoles",
 				generatedAuthSessionOnly,
-				[]cli.Flag{
-				},
+				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &authzv1.ListRolesRequest{}
 					return req, nil
@@ -74,8 +74,7 @@ func generatedRolesCommand() *cli.Command {
 				"List permissions",
 				"/authz.v1.AuthzService/ListPermissions",
 				generatedAuthSessionOnly,
-				[]cli.Flag{
-				},
+				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &authzv1.ListPermissionsRequest{}
 					return req, nil

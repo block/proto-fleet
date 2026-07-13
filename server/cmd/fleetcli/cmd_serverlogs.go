@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+
 	serverlogv1 "github.com/block/proto-fleet/server/generated/grpc/serverlog/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"

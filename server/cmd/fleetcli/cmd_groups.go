@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+
 	devicesetv1 "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"

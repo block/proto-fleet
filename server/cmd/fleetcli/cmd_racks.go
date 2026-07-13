@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+
 	devicesetv1 "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 	cli "github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
@@ -258,8 +259,7 @@ func generatedRacksCommand() *cli.Command {
 				"List all rack layouts",
 				"/device_set.v1.DeviceSetService/ListRackTypes",
 				generatedAuthAuthenticated,
-				[]cli.Flag{
-				},
+				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.ListRackTypesRequest{}
 					return req, nil
@@ -271,8 +271,7 @@ func generatedRacksCommand() *cli.Command {
 				"List rack zone refs",
 				"/device_set.v1.DeviceSetService/ListRackZoneRefs",
 				generatedAuthAuthenticated,
-				[]cli.Flag{
-				},
+				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.ListRackZoneRefsRequest{}
 					return req, nil
@@ -284,8 +283,7 @@ func generatedRacksCommand() *cli.Command {
 				"List all rack zones",
 				"/device_set.v1.DeviceSetService/ListRackZones",
 				generatedAuthAuthenticated,
-				[]cli.Flag{
-				},
+				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.ListRackZonesRequest{}
 					return req, nil

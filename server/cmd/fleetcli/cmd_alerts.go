@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+
 	alertsv1 "github.com/block/proto-fleet/server/generated/grpc/alerts/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
@@ -113,8 +114,7 @@ func generatedAlertsCommand() *cli.Command {
 						"List channels",
 						"/alerts.v1.ChannelService/ListChannels",
 						generatedAuthSessionOnly,
-						[]cli.Flag{
-						},
+						[]cli.Flag{},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &alertsv1.ListChannelsRequest{}
 							return req, nil
@@ -348,8 +348,7 @@ func generatedAlertsCommand() *cli.Command {
 						"List maintenance windows",
 						"/alerts.v1.MaintenanceWindowService/ListMaintenanceWindows",
 						generatedAuthSessionOnly,
-						[]cli.Flag{
-						},
+						[]cli.Flag{},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &alertsv1.ListMaintenanceWindowsRequest{}
 							return req, nil
@@ -397,8 +396,7 @@ func generatedAlertsCommand() *cli.Command {
 						"List rules",
 						"/alerts.v1.RuleService/ListRules",
 						generatedAuthSessionOnly,
-						[]cli.Flag{
-						},
+						[]cli.Flag{},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &alertsv1.ListRulesRequest{}
 							return req, nil

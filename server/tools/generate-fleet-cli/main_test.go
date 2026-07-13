@@ -282,6 +282,37 @@ func TestBuildGroupsAllowsRepeatedMethodForDifferentCommands(t *testing.T) {
 	}
 }
 
+func TestBuildGroupsEmitsCompactEmptyFlagSlice(t *testing.T) {
+	file := testServiceFile(t)
+	files := []protoreflect.FileDescriptor{file}
+	messages, enums, err := buildTypeIndexes(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	groups, _, err := buildGroups(files, messages, enums, commandsManifest{
+		Commands: []commandSpec{{Method: "/test.v1.TestService/Ping", Group: "test", Command: "ping"}},
+	})
+	if err != nil {
+		t.Fatalf("buildGroups error = %v", err)
+	}
+	if expr := groups[0].CommandExprs[0]; !strings.Contains(expr, "\t[]cli.Flag{},\n") {
+		t.Fatalf("generated expr does not contain compact empty flag slice:\n%s", expr)
+	}
+}
+
+func TestRenderImportsSeparatesStandardLibrary(t *testing.T) {
+	got := renderImports([]importSpec{
+		{Path: "context"},
+		{Path: "fmt"},
+		{Alias: "cli", Path: "github.com/urfave/cli/v3"},
+	})
+	want := "\t\"context\"\n\t\"fmt\"\n\n\tcli \"github.com/urfave/cli/v3\"\n"
+	if got != want {
+		t.Fatalf("renderImports() = %q, want %q", got, want)
+	}
+}
+
 func TestBuildGroupsPlacesCommandsInSubgroupsAndReportsPath(t *testing.T) {
 	file := testServiceFile(t)
 	files := []protoreflect.FileDescriptor{file}

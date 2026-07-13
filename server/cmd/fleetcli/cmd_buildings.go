@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+
 	buildingsv1 "github.com/block/proto-fleet/server/generated/grpc/buildings/v1"
 	cli "github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"

@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+
 	poolsv1 "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
@@ -91,8 +92,7 @@ func generatedPoolsCommand() *cli.Command {
 				"List pools",
 				"/pools.v1.PoolsService/ListPools",
 				generatedAuthAuthenticated,
-				[]cli.Flag{
-				},
+				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &poolsv1.ListPoolsRequest{}
 					return req, nil

@@ -1600,7 +1600,10 @@ func renderSimpleExpr(
 	buf.WriteString(fmt.Sprintf("\t%q,\n", usage))
 	buf.WriteString(fmt.Sprintf("\t%q,\n", methodPath))
 	buf.WriteString(fmt.Sprintf("\t%s,\n", auth))
-	if len(analysis.flagHelpers) > 0 {
+	emptyFlags := len(analysis.flags) == 0 && len(analysis.flagHelpers) == 0 && !analysis.jsonFallback
+	if emptyFlags {
+		buf.WriteString("\t[]cli.Flag{},\n")
+	} else if len(analysis.flagHelpers) > 0 {
 		buf.WriteString("\tappend([]cli.Flag{\n")
 	} else {
 		buf.WriteString("\t[]cli.Flag{\n")
@@ -1611,14 +1614,16 @@ func renderSimpleExpr(
 	for _, flag := range analysis.flags {
 		buf.WriteString("\t\t" + flag + ",\n")
 	}
-	if len(analysis.flagHelpers) > 0 {
-		buf.WriteString("\t}")
-		for _, helper := range analysis.flagHelpers {
-			buf.WriteString(", " + helper + "...")
+	if !emptyFlags {
+		if len(analysis.flagHelpers) > 0 {
+			buf.WriteString("\t}")
+			for _, helper := range analysis.flagHelpers {
+				buf.WriteString(", " + helper + "...")
+			}
+			buf.WriteString("),\n")
+		} else {
+			buf.WriteString("\t},\n")
 		}
-		buf.WriteString("),\n")
-	} else {
-		buf.WriteString("\t},\n")
 	}
 	buf.WriteString("\tfunc(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {\n")
 	buf.WriteString(fmt.Sprintf("\t\treq := &%s.%s{}\n", request.GoAlias, request.GoIdent))
@@ -1660,11 +1665,7 @@ func renderSimpleExpr(
 	return strings.TrimSpace(buf.String()), nil
 }
 
-type stringWriter interface {
-	WriteString(string) (int, error)
-}
-
-func writeRequiredFieldValidation(buf stringWriter, requiredFields map[string]bool) {
+func writeRequiredFieldValidation(buf io.StringWriter, requiredFields map[string]bool) {
 	if len(requiredFields) == 0 {
 		return
 	}
@@ -1806,7 +1807,8 @@ func writeFileIfChanged(path string, content []byte) error {
 
 func renderGroups(groups []groupSpec) (map[string]bool, error) {
 	tmpl, err := template.New(filepath.Base(groupTemplatePath)).Funcs(template.FuncMap{
-		"indent": indentBlock,
+		"indent":        indentBlock,
+		"renderImports": renderImports,
 	}).ParseFiles(groupTemplatePath)
 	if err != nil {
 		return nil, fmt.Errorf("parse group template: %w", err)
@@ -1892,6 +1894,27 @@ func sortedImports(imports map[string]string) []importSpec {
 		return result[i].Path < result[j].Path
 	})
 	return result
+}
+
+func renderImports(imports []importSpec) string {
+	var buf strings.Builder
+	wroteStandard := false
+	wroteThirdParty := false
+	for _, spec := range imports {
+		standard := !strings.Contains(strings.SplitN(spec.Path, "/", 2)[0], ".")
+		if !standard && wroteStandard && !wroteThirdParty {
+			buf.WriteByte('\n')
+		}
+		buf.WriteByte('\t')
+		if spec.Alias != "" {
+			buf.WriteString(spec.Alias)
+			buf.WriteByte(' ')
+		}
+		buf.WriteString(fmt.Sprintf("%q\n", spec.Path))
+		wroteStandard = wroteStandard || standard
+		wroteThirdParty = wroteThirdParty || !standard
+	}
+	return buf.String()
 }
 
 func authPolicyConst(auth string) (string, error) {

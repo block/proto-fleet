@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+
 	curtailmentv1 "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
@@ -97,8 +98,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"List curtailment automation rules",
 						"/curtailment.v1.CurtailmentService/ListCurtailmentAutomationRules",
 						generatedAuthAuthenticated,
-						[]cli.Flag{
-						},
+						[]cli.Flag{},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.ListCurtailmentAutomationRulesRequest{}
 							return req, nil
@@ -263,8 +263,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"List active curtailments",
 						"/curtailment.v1.CurtailmentService/ListActiveCurtailments",
 						generatedAuthAuthenticated,
-						[]cli.Flag{
-						},
+						[]cli.Flag{},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.ListActiveCurtailmentsRequest{}
 							return req, nil
@@ -725,8 +724,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"List mqtt curtailment sources",
 						"/curtailment.v1.CurtailmentService/ListMqttCurtailmentSources",
 						generatedAuthAuthenticated,
-						[]cli.Flag{
-						},
+						[]cli.Flag{},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.ListMqttCurtailmentSourcesRequest{}
 							return req, nil
@@ -1044,8 +1042,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						"List curtailment response profiles",
 						"/curtailment.v1.CurtailmentService/ListCurtailmentResponseProfiles",
 						generatedAuthAuthenticated,
-						[]cli.Flag{
-						},
+						[]cli.Flag{},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.ListCurtailmentResponseProfilesRequest{}
 							return req, nil

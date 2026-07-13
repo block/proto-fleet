@@ -3,13 +3,7 @@
 package main
 
 import (
-{{- range .Imports }}
-{{- if .Alias }}
-	{{ .Alias }} "{{ .Path }}"
-{{- else }}
-	"{{ .Path }}"
-{{- end }}
-{{- end }}
+{{ renderImports .Imports -}}
 )
 
 func {{ .FuncName }}() *cli.Command {

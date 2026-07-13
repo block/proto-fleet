@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+
 	onboardingv1 "github.com/block/proto-fleet/server/generated/grpc/onboarding/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
@@ -42,8 +43,7 @@ func generatedOnboardingCommand() *cli.Command {
 				"Get Fleet initialization status",
 				"/onboarding.v1.OnboardingService/GetFleetInitStatus",
 				generatedAuthUnauthenticated,
-				[]cli.Flag{
-				},
+				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &onboardingv1.GetFleetInitStatusRequest{}
 					return req, nil
@@ -55,8 +55,7 @@ func generatedOnboardingCommand() *cli.Command {
 				"Get Fleet onboarding status",
 				"/onboarding.v1.OnboardingService/GetFleetOnboardingStatus",
 				generatedAuthAuthenticated,
-				[]cli.Flag{
-				},
+				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &onboardingv1.GetFleetOnboardingStatusRequest{}
 					return req, nil

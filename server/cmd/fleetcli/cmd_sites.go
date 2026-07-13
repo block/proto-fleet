@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+
 	sitesv1 "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
@@ -168,8 +169,7 @@ func generatedSitesCommand() *cli.Command {
 				"List sites",
 				"/sites.v1.SiteService/ListSites",
 				generatedAuthAuthenticated,
-				[]cli.Flag{
-				},
+				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &sitesv1.ListSitesRequest{}
 					return req, nil
