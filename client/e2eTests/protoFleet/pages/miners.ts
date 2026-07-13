@@ -252,10 +252,32 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("actions-menu-button").click();
   }
 
+  private async anyVisibleByTestId(testId: string): Promise<boolean> {
+    const matches = this.page.getByTestId(testId);
+    const count = await matches.count();
+
+    for (let i = 0; i < count; i += 1) {
+      if (
+        await matches
+          .nth(i)
+          .isVisible()
+          .catch(() => false)
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   async clickBlinkLEDsButton() {
     const quickAction = this.page.getByTestId("actions-menu-quick-action-blink-leds");
     if (await quickAction.isVisible().catch(() => false)) {
       await quickAction.click();
+      return;
+    }
+
+    if (await this.tryAction(() => this.page.getByText("Blink LEDs", { exact: true }).click(), 2000)) {
       return;
     }
 
@@ -1265,5 +1287,11 @@ export class MinersPage extends BasePage {
 
   async clickCloseStatusModal() {
     await this.clickIn("Done", "modal");
+  }
+
+  async validateSingleMinerActionsHidden(testIds: string[]) {
+    for (const testId of testIds) {
+      expect(await this.anyVisibleByTestId(testId), `Expected action "${testId}" to be hidden.`).toBe(false);
+    }
   }
 }
