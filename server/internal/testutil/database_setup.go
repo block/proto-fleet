@@ -56,23 +56,9 @@ func GetTestDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() {
 		err := conn.Close()
 		assert.NoError(t, err, "error closing db connection")
-		// Reconnect to the default "postgres" database to drop the test database
-		conn, err = db.ConnectToDatabase(&adminConfig)
-		assert.NoError(t, err, "error connecting to PostgreSQL")
-		defer conn.Close()
-
-		// Terminate any remaining connections to the test database
+		// Cleanup runs after t.Context() is canceled, so use Background.
 		// nolint: usetesting
-		_, _ = conn.ExecContext(context.Background(), fmt.Sprintf(`
-			SELECT pg_terminate_backend(pg_stat_activity.pid)
-			FROM pg_stat_activity
-			WHERE pg_stat_activity.datname = '%s'
-			AND pid <> pg_backend_pid()
-		`, dbName))
-
-		// nolint: usetesting
-		_, err = conn.ExecContext(context.Background(), fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
-		assert.NoError(t, err, "error dropping test database")
+		dropTestDatabase(context.Background(), t, &adminConfig, dbName)
 	})
 
 	return conn
@@ -182,14 +168,14 @@ func isTransientServerError(msg string) bool {
 
 // waitForServerReady blocks until the database server accepts a query on the
 // admin database, or serverReadyTimeout elapses. This bridges the brief window
-// after a transient server restart so the admin DDL used to recreate a test
-// database before a migration retry runs against a live server.
-func waitForServerReady(t *testing.T, adminConfig *db.Config) {
+// after a transient server restart so the admin DDL used to recreate or drop a
+// test database runs against a live server.
+func waitForServerReady(ctx context.Context, t *testing.T, adminConfig *db.Config) {
 	t.Helper()
 
 	deadline := time.Now().Add(serverReadyTimeout)
 	for {
-		err := pingAdminDatabase(t.Context(), adminConfig)
+		err := pingAdminDatabase(ctx, adminConfig)
 		if err == nil {
 			return
 		}
@@ -232,7 +218,7 @@ func createTestDatabase(t *testing.T, adminConfig *db.Config, dbName string) {
 	var lastErr error
 	for attempt := 1; attempt <= migrationMaxRetries; attempt++ {
 		// Wait for the server before issuing admin DDL.
-		waitForServerReady(t, adminConfig)
+		waitForServerReady(t.Context(), t, adminConfig)
 
 		lastErr = tryCreateTestDatabase(t.Context(), adminConfig, dbName)
 		if lastErr == nil {
@@ -249,17 +235,45 @@ func createTestDatabase(t *testing.T, adminConfig *db.Config, dbName string) {
 	assert.NoError(t, lastErr, "error creating test database")
 }
 
-// tryCreateTestDatabase terminates lingering connections then drops and creates
-// the database on a fresh admin connection, returning any error rather than
-// failing the test so the caller can retry transient failures.
-func tryCreateTestDatabase(ctx context.Context, adminConfig *db.Config, dbName string) error {
+// dropTestDatabase drops the test database at cleanup, waiting out and
+// retrying a transient server restart the same way createTestDatabase does.
+// Without the retry, a server crash-recovery blip elsewhere in the run fails
+// an otherwise-passing test at teardown with "the database system is in
+// recovery mode" (SQLSTATE 57P03).
+func dropTestDatabase(ctx context.Context, t *testing.T, adminConfig *db.Config, dbName string) {
+	t.Helper()
+
+	var lastErr error
+	for attempt := 1; attempt <= migrationMaxRetries; attempt++ {
+		waitForServerReady(ctx, t, adminConfig)
+
+		lastErr = tryDropTestDatabase(ctx, adminConfig, dbName)
+		if lastErr == nil {
+			return
+		}
+		if !isTransientServerError(lastErr.Error()) || attempt == migrationMaxRetries {
+			break
+		}
+
+		t.Logf("drop test database failed transiently (attempt %d/%d), retrying: %v", attempt, migrationMaxRetries, lastErr)
+		time.Sleep(time.Duration(attempt) * migrationRetryBaseDelay)
+	}
+
+	assert.NoError(t, lastErr, "error dropping test database")
+}
+
+// tryDropTestDatabase terminates lingering connections then drops the database
+// on a fresh admin connection, returning any error rather than failing the
+// test so the caller can retry transient failures.
+func tryDropTestDatabase(ctx context.Context, adminConfig *db.Config, dbName string) error {
 	conn, err := db.ConnectToDatabase(adminConfig)
 	if err != nil {
 		return fmt.Errorf("connect to admin database: %w", err)
 	}
 	defer conn.Close()
 
-	// Best effort: the database may not exist yet, so ignore terminate errors.
+	// Best effort: lingering connections just make the DROP fail, which the
+	// caller retries.
 	_, _ = conn.ExecContext(ctx, fmt.Sprintf(`
 		SELECT pg_terminate_backend(pg_stat_activity.pid)
 		FROM pg_stat_activity
@@ -270,6 +284,24 @@ func tryCreateTestDatabase(ctx context.Context, adminConfig *db.Config, dbName s
 	if _, err := conn.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName)); err != nil {
 		return fmt.Errorf("drop test database: %w", err)
 	}
+	return nil
+}
+
+// tryCreateTestDatabase drops any existing database with the given name (after
+// terminating lingering connections) and creates a fresh one, returning any
+// error rather than failing the test so the caller can retry transient
+// failures.
+func tryCreateTestDatabase(ctx context.Context, adminConfig *db.Config, dbName string) error {
+	if err := tryDropTestDatabase(ctx, adminConfig, dbName); err != nil {
+		return err
+	}
+
+	conn, err := db.ConnectToDatabase(adminConfig)
+	if err != nil {
+		return fmt.Errorf("connect to admin database: %w", err)
+	}
+	defer conn.Close()
+
 	if _, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE DATABASE %s", dbName)); err != nil {
 		return fmt.Errorf("create test database: %w", err)
 	}
