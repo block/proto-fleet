@@ -146,6 +146,7 @@ interface DeleteSiteCounts {
   unassignedDeviceCount: bigint;
   deletedBuildingCount: bigint;
   unassignedRackCount: bigint;
+  deletedInfrastructureDeviceCount: bigint;
 }
 
 interface DeleteSiteProps {
@@ -350,6 +351,7 @@ const useSites = () => {
           unassignedDeviceCount: response.unassignedDeviceCount,
           deletedBuildingCount: response.deletedBuildingCount,
           unassignedRackCount: response.unassignedRackCount,
+          deletedInfrastructureDeviceCount: response.deletedInfrastructureDeviceCount,
         });
       } catch (err) {
         if (signal?.aborted) return;
