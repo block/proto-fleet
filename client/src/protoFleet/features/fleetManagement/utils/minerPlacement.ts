@@ -7,6 +7,8 @@ export const getMinerBuildingLabel = (miner: MinerStateSnapshot): string => mine
 
 export const getMinerRackLabel = (miner: MinerStateSnapshot): string => miner.placement?.rack?.label ?? "";
 
+export const getMinerCohortLabel = (miner: MinerStateSnapshot): string => miner.placement?.cohort?.label ?? "";
+
 /** Normalize a placement ResourceRef id to bigint, treating the proto default
  *  (0 / absent ref) as "unassigned" (undefined) so id-based eligibility checks
  *  don't confuse an unplaced miner with one placed at id 0. */

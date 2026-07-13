@@ -8,6 +8,7 @@ import userEvent from "@testing-library/user-event";
 import MinerList from "./MinerList";
 import { getMinerTableColumnPreferencesStorageKey } from "./minerTableColumnPreferences";
 import useMinerTableColumnPreferences from "./useMinerTableColumnPreferences";
+import { PlacementRefsSchema } from "@/protoFleet/api/generated/common/v1/common_pb";
 import {
   type MinerStateSnapshot,
   MinerStateSnapshotSchema,
@@ -268,6 +269,28 @@ describe("MinerList", () => {
 
       expect(screen.getByText("14 miners")).toBeInTheDocument();
     });
+  });
+
+  it("renders the cohort column from miner placement refs", () => {
+    const miner = createMinerSnapshot("m1");
+    miner.placement = create(PlacementRefsSchema, {
+      cohort: {
+        id: 12n,
+        label: "Pilot Cohort",
+      },
+    });
+
+    renderMinerList({
+      title: "Miners",
+      minerIds: ["m1"],
+      miners: { m1: miner },
+      totalMiners: 1,
+      onAddMiners: vi.fn(),
+      loading: false,
+    });
+
+    expect(getColumnHeaders()).toContain("Cohort");
+    expect(screen.getByText("Pilot Cohort")).toBeInTheDocument();
   });
 
   describe("export csv", () => {

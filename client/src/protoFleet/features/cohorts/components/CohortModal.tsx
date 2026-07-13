@@ -3,8 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CohortDevice } from "@/protoFleet/api/generated/cohort/v1/cohort_pb";
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { MinerModelGroup } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { useSites } from "@/protoFleet/api/sites";
 import { useCohortApi } from "@/protoFleet/api/useCohortApi";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
@@ -102,11 +100,6 @@ const matchesCohortTarget = (item: { manufacturer: string; model: string }, manu
 const cohortDeviceMatchesTarget = (device: CohortDevice, manufacturer: string, model: string) =>
   device.display?.manufacturer === manufacturer && device.display?.model === model;
 
-const formatSiteOption = (siteWithCounts: SiteWithCounts) => {
-  const site = siteWithCounts.site;
-  return site ? { value: site.id.toString(), label: site.name } : undefined;
-};
-
 const formatGroupOption = (group: DeviceSet) => ({
   value: group.id.toString(),
   label: group.label,
@@ -116,7 +109,6 @@ const formatGroupOption = (group: DeviceSet) => ({
 const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
   const { createCohort, listAllDevices } = useCohortApi();
   const { listFirmwareFiles } = useFirmwareApi();
-  const { listSites } = useSites();
   const { listGroups } = useDeviceSets();
   const { getMinerModelGroups } = useMinerModelGroups();
   const selectionRef = useRef<MinerSelectionListHandle>(null);
@@ -136,9 +128,7 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
   const [count, setCount] = useState("1");
   const [product, setProduct] = useState("");
   const [model, setModel] = useState("");
-  const [siteId, setSiteId] = useState("");
   const [firmwareFiles, setFirmwareFiles] = useState<FirmwareFileInfo[]>([]);
-  const [sites, setSites] = useState<SiteWithCounts[]>([]);
   const [groups, setGroups] = useState<DeviceSet[]>([]);
   const [modelGroups, setModelGroups] = useState<MinerModelGroup[]>([]);
   const [cohortDevices, setCohortDevices] = useState<CohortDevice[]>([]);
@@ -159,7 +149,6 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
     setCount("1");
     setProduct("");
     setModel("");
-    setSiteId("");
     setErrorMsg("");
   }, []);
 
@@ -177,15 +166,6 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
           pushToast({ message: error?.message || "Couldn't load firmware files", status: STATUSES.error });
         }
       });
-
-    void listSites({
-      onSuccess: (nextSites) => {
-        if (!cancelled) setSites(nextSites);
-      },
-      onError: (message) => {
-        if (!cancelled) pushToast({ message: message || "Couldn't load sites", status: STATUSES.error });
-      },
-    });
 
     void listGroups({
       onSuccess: (nextGroups) => {
@@ -218,7 +198,7 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
     return () => {
       cancelled = true;
     };
-  }, [getMinerModelGroups, listAllDevices, listFirmwareFiles, listGroups, listSites, show]);
+  }, [getMinerModelGroups, listAllDevices, listFirmwareFiles, listGroups, show]);
 
   const firmwareTarget = useMemo(() => {
     const manufacturer = product.trim();
@@ -241,14 +221,6 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
   const selectedFirmwareFileId = firmwareOptions.some((option) => option.value === firmwareFileId)
     ? firmwareFileId
     : "";
-
-  const siteOptions = useMemo(
-    () => [
-      { value: "", label: "Any site" },
-      ...sites.map(formatSiteOption).filter((option): option is { value: string; label: string } => Boolean(option)),
-    ],
-    [sites],
-  );
 
   const productOptions = useMemo(() => {
     const manufacturers = [...new Set(modelGroups.map((group) => group.manufacturer).filter(Boolean))].sort();
@@ -342,7 +314,6 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
       if (mode === "group" && parsedSourceDeviceSetId === undefined) {
         throw new Error("Group is required");
       }
-      const parsedSiteId = mode === "count" ? optionalBigInt(siteId, "Site") : undefined;
       const expiresAt = expiryPreset === "custom" ? customExpiresAt : durationToExpiresAt(expiryPreset, "1", "days");
       if (expiryPreset === "custom" && !expiresAt) {
         throw new Error("Expiration is required");
@@ -363,7 +334,6 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
                 count: parsedCount,
                 product: product.trim(),
                 model: model.trim(),
-                siteId: parsedSiteId,
               },
             }
           : {}),
@@ -396,7 +366,6 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
     purpose,
     reset,
     selectedFirmwareFileId,
-    siteId,
     sourceDeviceSetId,
   ]);
 
@@ -530,25 +499,15 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
         />
 
         {mode === "count" ? (
-          <div className="grid gap-4 tablet:grid-cols-2">
-            <Input
-              id="cohort-count"
-              label="Count"
-              initValue={count}
-              onChange={(value) => setCount(value)}
-              inputMode="numeric"
-              type="number"
-              required
-            />
-            <Select
-              id="cohort-site-id"
-              label="Site"
-              options={siteOptions}
-              value={siteId}
-              onChange={setSiteId}
-              forceBelow
-            />
-          </div>
+          <Input
+            id="cohort-count"
+            label="Count"
+            initValue={count}
+            onChange={(value) => setCount(value)}
+            inputMode="numeric"
+            type="number"
+            required
+          />
         ) : null}
 
         {mode === "explicit" ? (

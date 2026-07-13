@@ -617,7 +617,9 @@ SELECT
     COALESCE(s.name, '') as site_label,
     d.building_id,
     COALESCE(b.name, '') as building_label,
-    FALSE as embedded_web_view_available
+    FALSE as embedded_web_view_available,
+    COALESCE(explicit_cohort.id, default_cohort.id, 0) as cohort_id,
+    COALESCE(explicit_cohort.label, default_cohort.label, '') as cohort_label
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
 LEFT JOIN device_pairing dp ON d.id = dp.device_id

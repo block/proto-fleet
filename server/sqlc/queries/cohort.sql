@@ -307,29 +307,25 @@ ORDER BY c.expires_at, c.id;
 INSERT INTO cohort_membership (
     cohort_id,
     org_id,
-    device_identifier,
-    site_id
+    device_identifier
 ) VALUES (
     sqlc.arg('cohort_id'),
     sqlc.arg('org_id'),
-    sqlc.arg('device_identifier'),
-    sqlc.narg('site_id')
+    sqlc.arg('device_identifier')
 );
 
 -- name: BulkInsertCohortMemberships :execrows
 INSERT INTO cohort_membership (
     cohort_id,
     org_id,
-    device_identifier,
-    site_id
+    device_identifier
 )
 SELECT
     sqlc.arg('cohort_id'),
     sqlc.arg('org_id'),
-    payload.device_identifier,
-    payload.site_id
+    payload.device_identifier
 FROM jsonb_to_recordset(sqlc.arg('members_jsonb')::jsonb)
-    AS payload(device_identifier text, site_id bigint);
+    AS payload(device_identifier text);
 
 -- name: DeleteCohortMembershipsByCohort :execrows
 DELETE FROM cohort_membership
@@ -367,8 +363,7 @@ SELECT
     COALESCE(dd.model, '') AS model,
     COALESCE(dd.ip_address, '') AS ip_address,
     COALESCE(dd.firmware_version, '') AS firmware_version,
-    COALESCE(d.serial_number, '') AS serial_number,
-    COALESCE(s.name, '') AS site_label
+    COALESCE(d.serial_number, '') AS serial_number
 FROM cohort_membership cm
 LEFT JOIN device d
     ON d.org_id = cm.org_id
@@ -378,16 +373,145 @@ LEFT JOIN discovered_device dd
     ON dd.id = d.discovered_device_id
    AND dd.org_id = d.org_id
    AND dd.deleted_at IS NULL
-LEFT JOIN site s
-    ON s.id = COALESCE(cm.site_id, d.site_id)
-   AND s.org_id = cm.org_id
-   AND s.deleted_at IS NULL
 WHERE cm.cohort_id = sqlc.arg('cohort_id')
   AND cm.org_id = sqlc.arg('org_id')
 ORDER BY cm.added_at, cm.device_identifier;
 
--- name: ListDeviceSitesForIdentifiers :many
-SELECT device_identifier, site_id
+-- name: ListCohortFirmwareStatuses :many
+WITH requested_cohorts AS (
+    SELECT id, org_id, is_default
+    FROM cohort c
+    WHERE c.org_id = sqlc.arg('org_id')
+      AND c.id = ANY(sqlc.arg('cohort_ids')::bigint[])
+),
+effective_devices AS (
+    SELECT
+        rc.id AS cohort_id,
+        d.org_id AS org_id,
+        d.id AS device_id,
+        d.device_identifier AS device_identifier,
+        COALESCE(dd.manufacturer, '')::text AS manufacturer,
+        COALESCE(dd.model, '')::text AS model,
+        COALESCE(dd.firmware_version, '')::text AS discovered_firmware_version,
+        COALESCE(ds.status::text, '')::text AS device_status
+    FROM requested_cohorts rc
+    JOIN device d
+        ON d.org_id = rc.org_id
+       AND d.deleted_at IS NULL
+    JOIN discovered_device dd
+        ON dd.id = d.discovered_device_id
+       AND dd.org_id = d.org_id
+       AND dd.deleted_at IS NULL
+    LEFT JOIN cohort_membership cm
+        ON cm.org_id = d.org_id
+       AND cm.device_identifier = d.device_identifier
+    LEFT JOIN device_status ds
+        ON ds.device_id = d.id
+    WHERE (
+        rc.is_default = TRUE
+        AND cm.cohort_id IS NULL
+    ) OR (
+        rc.is_default = FALSE
+        AND cm.cohort_id = rc.id
+    )
+)
+SELECT
+    ed.cohort_id,
+    ed.device_identifier,
+    cft.firmware_file_id AS target_firmware_file_id,
+    COALESCE(dfs.firmware_version, ed.discovered_firmware_version, '')::text AS current_firmware_version,
+    dfs.observed_at AS firmware_observed_at,
+    des.state AS enforcement_state,
+    des.desired_firmware_file_id AS state_desired_firmware_file_id,
+    des.desired_firmware_version AS state_desired_firmware_version,
+    des.retry_count AS retry_count,
+    des.last_error AS last_error,
+    des.last_dispatched_at AS last_dispatched_at,
+    des.confirmed_at AS confirmed_at,
+    ed.device_status
+FROM effective_devices ed
+LEFT JOIN cohort_firmware_target cft
+    ON cft.cohort_id = ed.cohort_id
+   AND cft.org_id = ed.org_id
+   AND LOWER(BTRIM(cft.manufacturer)) = LOWER(BTRIM(ed.manufacturer))
+   AND LOWER(BTRIM(cft.model)) = LOWER(BTRIM(ed.model))
+LEFT JOIN device_firmware_state dfs
+    ON dfs.org_id = ed.org_id
+   AND dfs.device_identifier = ed.device_identifier
+LEFT JOIN device_enforcement_state des
+    ON des.org_id = ed.org_id
+   AND des.device_identifier = ed.device_identifier
+   AND des.dimension = 'firmware'
+   AND cft.firmware_file_id IS NOT NULL
+   AND des.desired_firmware_file_id IS NOT DISTINCT FROM cft.firmware_file_id
+ORDER BY ed.cohort_id, ed.device_identifier;
+
+-- name: ListCohortFirmwareStatusesForDevices :many
+WITH effective_devices AS (
+    SELECT
+        c.id AS cohort_id,
+        d.org_id AS org_id,
+        d.id AS device_id,
+        d.device_identifier AS device_identifier,
+        COALESCE(dd.manufacturer, '')::text AS manufacturer,
+        COALESCE(dd.model, '')::text AS model,
+        COALESCE(dd.firmware_version, '')::text AS discovered_firmware_version,
+        COALESCE(ds.status::text, '')::text AS device_status
+    FROM device d
+    JOIN discovered_device dd
+        ON dd.id = d.discovered_device_id
+       AND dd.org_id = d.org_id
+       AND dd.deleted_at IS NULL
+    LEFT JOIN cohort_membership cm
+        ON cm.org_id = d.org_id
+       AND cm.device_identifier = d.device_identifier
+    JOIN cohort default_c
+        ON default_c.org_id = d.org_id
+       AND default_c.is_default = TRUE
+       AND default_c.state = 'active'
+    JOIN cohort c
+        ON c.id = COALESCE(cm.cohort_id, default_c.id)
+       AND c.org_id = d.org_id
+       AND c.state = 'active'
+    LEFT JOIN device_status ds
+        ON ds.device_id = d.id
+    WHERE d.org_id = sqlc.arg('org_id')
+      AND d.deleted_at IS NULL
+      AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+)
+SELECT
+    ed.cohort_id,
+    ed.device_identifier,
+    cft.firmware_file_id AS target_firmware_file_id,
+    COALESCE(dfs.firmware_version, ed.discovered_firmware_version, '')::text AS current_firmware_version,
+    dfs.observed_at AS firmware_observed_at,
+    des.state AS enforcement_state,
+    des.desired_firmware_file_id AS state_desired_firmware_file_id,
+    des.desired_firmware_version AS state_desired_firmware_version,
+    des.retry_count AS retry_count,
+    des.last_error AS last_error,
+    des.last_dispatched_at AS last_dispatched_at,
+    des.confirmed_at AS confirmed_at,
+    ed.device_status
+FROM effective_devices ed
+LEFT JOIN cohort_firmware_target cft
+    ON cft.cohort_id = ed.cohort_id
+   AND cft.org_id = ed.org_id
+   AND LOWER(BTRIM(cft.manufacturer)) = LOWER(BTRIM(ed.manufacturer))
+   AND LOWER(BTRIM(cft.model)) = LOWER(BTRIM(ed.model))
+LEFT JOIN device_firmware_state dfs
+    ON dfs.org_id = ed.org_id
+   AND dfs.device_identifier = ed.device_identifier
+LEFT JOIN device_enforcement_state des
+    ON des.org_id = ed.org_id
+   AND des.device_identifier = ed.device_identifier
+   AND des.dimension = 'firmware'
+   AND cft.firmware_file_id IS NOT NULL
+   AND des.desired_firmware_file_id IS NOT DISTINCT FROM cft.firmware_file_id
+ORDER BY ed.device_identifier;
+
+-- name: ListDeviceIdentifiersForCohortMembership :many
+SELECT device_identifier
 FROM device
 WHERE org_id = sqlc.arg('org_id')
   AND device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
@@ -458,7 +582,7 @@ WHERE d.org_id = sqlc.arg('org_id')
   AND d.deleted_at IS NULL;
 
 -- name: ListDefaultCohortDevices :many
-SELECT d.device_identifier, d.site_id
+SELECT d.device_identifier
 FROM device d
 JOIN discovered_device dd
     ON dd.id = d.discovered_device_id
@@ -478,10 +602,6 @@ WHERE d.org_id = sqlc.arg('org_id')
     NOT sqlc.arg('model_filter_set')::boolean
     OR LOWER(BTRIM(dd.model)) = LOWER(BTRIM(sqlc.narg('model')::text))
   )
-  AND (
-    NOT sqlc.arg('site_id_filter_set')::boolean
-    OR d.site_id = sqlc.narg('site_id')
-  )
 ORDER BY d.device_identifier
 LIMIT sqlc.arg('limit_count')::int;
 
@@ -489,7 +609,6 @@ LIMIT sqlc.arg('limit_count')::int;
 WITH cohort_devices AS (
     SELECT
         d.device_identifier AS device_identifier,
-        d.site_id AS device_site_id,
         COALESCE(
             NULLIF(d.custom_name, ''),
             NULLIF(TRIM(CONCAT_WS(' ', NULLIF(dd.manufacturer, ''), NULLIF(dd.model, ''))), ''),
@@ -501,7 +620,6 @@ WITH cohort_devices AS (
         COALESCE(dd.ip_address, '') AS ip_address,
         COALESCE(dd.firmware_version, '') AS firmware_version,
         COALESCE(d.serial_number, '') AS serial_number,
-        COALESCE(s.name, '') AS site_label,
         c.*,
         CASE
             WHEN c.is_default THEN (
@@ -524,10 +642,6 @@ WITH cohort_devices AS (
     LEFT JOIN cohort_membership cm
         ON cm.org_id = d.org_id
        AND cm.device_identifier = d.device_identifier
-    LEFT JOIN site s
-        ON s.id = d.site_id
-       AND s.org_id = d.org_id
-       AND s.deleted_at IS NULL
     JOIN cohort default_c
         ON default_c.org_id = d.org_id
        AND default_c.is_default = TRUE
@@ -540,10 +654,6 @@ WITH cohort_devices AS (
     ) m ON m.cohort_id = c.id
     WHERE d.org_id = sqlc.arg('org_id')
       AND d.deleted_at IS NULL
-      AND (
-        NOT sqlc.arg('legacy_site_id_filter_set')::boolean
-        OR d.site_id = sqlc.narg('legacy_site_id')
-      )
 )
 SELECT *
 FROM cohort_devices
@@ -576,11 +686,6 @@ WHERE (
     )
   )
   AND (
-    cardinality(sqlc.arg('site_ids')::bigint[]) = 0
-    OR device_site_id = ANY(sqlc.arg('site_ids')::bigint[])
-    OR (sqlc.arg('include_unassigned_site')::boolean AND device_site_id IS NULL)
-  )
-  AND (
     NOT sqlc.arg('search_filter_set')::boolean
     OR display_name ILIKE '%' || sqlc.arg('search')::text || '%'
     OR worker_name ILIKE '%' || sqlc.arg('search')::text || '%'
@@ -588,7 +693,6 @@ WHERE (
     OR model ILIKE '%' || sqlc.arg('search')::text || '%'
     OR ip_address ILIKE '%' || sqlc.arg('search')::text || '%'
     OR serial_number ILIKE '%' || sqlc.arg('search')::text || '%'
-    OR site_label ILIKE '%' || sqlc.arg('search')::text || '%'
     OR device_identifier ILIKE '%' || sqlc.arg('search')::text || '%'
     OR label ILIKE '%' || sqlc.arg('search')::text || '%'
     OR COALESCE(owner_username, '') ILIKE '%' || sqlc.arg('search')::text || '%'
@@ -605,7 +709,6 @@ LIMIT sqlc.arg('limit_count')::int;
 WITH cohort_devices AS (
     SELECT
         d.device_identifier AS device_identifier,
-        d.site_id AS device_site_id,
         COALESCE(
             NULLIF(d.custom_name, ''),
             NULLIF(TRIM(CONCAT_WS(' ', NULLIF(dd.manufacturer, ''), NULLIF(dd.model, ''))), ''),
@@ -616,7 +719,6 @@ WITH cohort_devices AS (
         COALESCE(dd.model, '') AS model,
         COALESCE(dd.ip_address, '') AS ip_address,
         COALESCE(d.serial_number, '') AS serial_number,
-        COALESCE(s.name, '') AS site_label,
         c.*
     FROM device d
     JOIN discovered_device dd
@@ -626,10 +728,6 @@ WITH cohort_devices AS (
     LEFT JOIN cohort_membership cm
         ON cm.org_id = d.org_id
        AND cm.device_identifier = d.device_identifier
-    LEFT JOIN site s
-        ON s.id = d.site_id
-       AND s.org_id = d.org_id
-       AND s.deleted_at IS NULL
     JOIN cohort default_c
         ON default_c.org_id = d.org_id
        AND default_c.is_default = TRUE
@@ -637,10 +735,6 @@ WITH cohort_devices AS (
         ON c.id = COALESCE(cm.cohort_id, default_c.id)
     WHERE d.org_id = sqlc.arg('org_id')
       AND d.deleted_at IS NULL
-      AND (
-        NOT sqlc.arg('legacy_site_id_filter_set')::boolean
-        OR d.site_id = sqlc.narg('legacy_site_id')
-      )
 )
 SELECT
     COUNT(*)::bigint AS total_count,
@@ -676,11 +770,6 @@ WHERE (
     )
   )
   AND (
-    cardinality(sqlc.arg('site_ids')::bigint[]) = 0
-    OR device_site_id = ANY(sqlc.arg('site_ids')::bigint[])
-    OR (sqlc.arg('include_unassigned_site')::boolean AND device_site_id IS NULL)
-  )
-  AND (
     NOT sqlc.arg('search_filter_set')::boolean
     OR display_name ILIKE '%' || sqlc.arg('search')::text || '%'
     OR worker_name ILIKE '%' || sqlc.arg('search')::text || '%'
@@ -688,7 +777,6 @@ WHERE (
     OR model ILIKE '%' || sqlc.arg('search')::text || '%'
     OR ip_address ILIKE '%' || sqlc.arg('search')::text || '%'
     OR serial_number ILIKE '%' || sqlc.arg('search')::text || '%'
-    OR site_label ILIKE '%' || sqlc.arg('search')::text || '%'
     OR device_identifier ILIKE '%' || sqlc.arg('search')::text || '%'
     OR label ILIKE '%' || sqlc.arg('search')::text || '%'
     OR COALESCE(owner_username, '') ILIKE '%' || sqlc.arg('search')::text || '%'

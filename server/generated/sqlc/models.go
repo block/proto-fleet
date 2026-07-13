@@ -432,7 +432,6 @@ type CohortMembership struct {
 	CohortID         int64
 	OrgID            int64
 	DeviceIdentifier string
-	SiteID           sql.NullInt64
 	AddedAt          time.Time
 }
 

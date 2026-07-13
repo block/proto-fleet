@@ -56,6 +56,39 @@ enum CohortState {
     COHORT_STATE_RELEASED = 2;
 }
 
+enum CohortFirmwareRolloutState {
+    COHORT_FIRMWARE_ROLLOUT_STATE_UNSPECIFIED = 0;
+    COHORT_FIRMWARE_ROLLOUT_STATE_NO_TARGET = 1;
+    COHORT_FIRMWARE_ROLLOUT_STATE_QUEUED = 2;
+    COHORT_FIRMWARE_ROLLOUT_STATE_UPDATING = 3;
+    COHORT_FIRMWARE_ROLLOUT_STATE_VERIFYING = 4;
+    COHORT_FIRMWARE_ROLLOUT_STATE_COMPLETE = 5;
+    COHORT_FIRMWARE_ROLLOUT_STATE_NEEDS_ATTENTION = 6;
+    COHORT_FIRMWARE_ROLLOUT_STATE_UNKNOWN = 7;
+}
+
+message CohortFirmwareStatus {
+    string target_firmware_file_id = 1;
+    string target_firmware_version = 2;
+    string current_firmware_version = 3;
+    CohortFirmwareRolloutState state = 4;
+    int32 retry_count = 5;
+    string last_error = 6;
+    google.protobuf.Timestamp last_dispatched_at = 7;
+    google.protobuf.Timestamp confirmed_at = 8;
+    google.protobuf.Timestamp observed_at = 9;
+}
+
+message CohortFirmwareProgress {
+    int32 targeted_count = 1;
+    int32 complete_count = 2;
+    int32 queued_count = 3;
+    int32 updating_count = 4;
+    int32 verifying_count = 5;
+    int32 needs_attention_count = 6;
+    int32 unknown_count = 7;
+}
+
 // CohortSummary is the lightweight cohort shape for list and per-device
 // contexts where repeating explicit members would make responses too large.
 message CohortSummary {
@@ -81,6 +114,7 @@ message CohortSummary {
 
     int64 explicit_member_count = 31;
     repeated CohortFirmwareTarget firmware_targets = 32;
+    CohortFirmwareProgress firmware_progress = 33;
 }
 
 message CohortFirmwareTarget {
@@ -97,24 +131,29 @@ message Cohort {
 }
 
 message CohortDeviceDisplay {
+    reserved 7;
+    reserved "site_label";
+
     string name = 1;
     string worker_name = 2;
     string manufacturer = 3;
     string model = 4;
     string ip_address = 5;
     string serial_number = 6;
-    string site_label = 7;
     string firmware_version = 8;
 }
 
 // CohortMember is an explicit non-default cohort membership row. Default
 // cohort membership is sparse and derived from devices without a row here.
 message CohortMember {
+    reserved 3;
+    reserved "site_id";
+
     int64 cohort_id = 1;
     string device_identifier = 2;
-    optional int64 site_id = 3;
     google.protobuf.Timestamp added_at = 4;
     CohortDeviceDisplay display = 5;
+    CohortFirmwareStatus firmware_status = 6;
 }
 
 message CohortDeviceIdentifierList {
@@ -125,13 +164,15 @@ message CohortDeviceIdentifierList {
 }
 
 message CohortDeviceSelector {
+    reserved 4;
+    reserved "site_id";
+
     int32 count = 1 [(buf.validate.field).int32 = {
         gt: 0
         lte: 10000
     }];
     optional string product = 2 [(buf.validate.field).string.max_len = 255];
     optional string model = 3 [(buf.validate.field).string.max_len = 255];
-    optional int64 site_id = 4 [(buf.validate.field).int64.gt = 0];
 }
 
 message CreateCohortRequest {
@@ -272,7 +313,9 @@ message GetMyCohortsResponse {
 }
 
 message ListDevicesRequest {
-    optional int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
+    reserved 1;
+    reserved "site_id";
+
     int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 500}];
     string page_token = 3 [(buf.validate.field).string.max_len = 2048];
     CohortDeviceFilter filter = 4;
@@ -285,22 +328,26 @@ enum CohortDeviceAssignment {
 }
 
 message CohortDeviceFilter {
+    reserved 7, 8;
+    reserved "site_ids", "include_unassigned_site";
+
     repeated CohortDeviceAssignment assignments = 1;
     repeated int64 cohort_ids = 2;
     repeated int64 owner_user_ids = 3;
     bool include_unowned = 4;
     repeated string manufacturers = 5 [(buf.validate.field).repeated.items.string.max_len = 255];
     repeated string models = 6 [(buf.validate.field).repeated.items.string.max_len = 255];
-    repeated int64 site_ids = 7;
-    bool include_unassigned_site = 8;
     string search = 9 [(buf.validate.field).string.max_len = 255];
 }
 
 message CohortDevice {
+    reserved 2;
+    reserved "site_id";
+
     string device_identifier = 1;
-    optional int64 site_id = 2;
     CohortSummary effective_cohort = 3;
     CohortDeviceDisplay display = 4;
+    CohortFirmwareStatus firmware_status = 5;
 }
 
 message ListDevicesResponse {

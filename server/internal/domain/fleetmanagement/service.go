@@ -812,6 +812,13 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 				Label: row.BuildingLabel,
 			}
 		}
+		if row.CohortID > 0 {
+			id := row.CohortID
+			ensureSnapshotPlacement(snapshot).Cohort = &commonpb.ResourceRef{
+				Id:    id,
+				Label: row.CohortLabel,
+			}
+		}
 
 		if row.Model.Valid {
 			snapshot.Model = row.Model.String

@@ -2,7 +2,8 @@ import { timestampMs } from "@bufbuild/protobuf/wkt";
 
 import {
   type CohortDeviceDisplay,
-  type CohortMember,
+  type CohortFirmwareProgress,
+  CohortFirmwareRolloutState,
   CohortState,
   type CohortSummary,
 } from "@/protoFleet/api/generated/cohort/v1/cohort_pb";
@@ -134,4 +135,52 @@ export const cohortDeviceSecondaryText = (display?: Partial<CohortDeviceDisplay>
   return parts.filter((part) => part.trim().toLocaleLowerCase() !== primary).join(" - ");
 };
 
-export const cohortMemberSiteLabel = (member: CohortMember) => member.display?.siteLabel || "Unassigned";
+export const firmwareRolloutStateLabel = (state?: CohortFirmwareRolloutState) => {
+  switch (state) {
+    case CohortFirmwareRolloutState.NO_TARGET:
+      return "No target";
+    case CohortFirmwareRolloutState.QUEUED:
+      return "Queued";
+    case CohortFirmwareRolloutState.UPDATING:
+      return "Updating";
+    case CohortFirmwareRolloutState.VERIFYING:
+      return "Verifying";
+    case CohortFirmwareRolloutState.COMPLETE:
+      return "Complete";
+    case CohortFirmwareRolloutState.NEEDS_ATTENTION:
+      return "Needs attention";
+    case CohortFirmwareRolloutState.UNKNOWN:
+      return "Unknown";
+    default:
+      return "Unknown";
+  }
+};
+
+export const hasFirmwareProgress = (progress?: CohortFirmwareProgress) =>
+  Boolean(progress && progress.targetedCount > 0);
+
+export const firmwareProgressActiveCount = (progress?: CohortFirmwareProgress) =>
+  progress ? progress.queuedCount + progress.updatingCount + progress.verifyingCount + progress.unknownCount : 0;
+
+export const hasActiveFirmwareProgress = (progress?: CohortFirmwareProgress) =>
+  firmwareProgressActiveCount(progress) > 0;
+
+export const hasFirmwareProgressWarning = (progress?: CohortFirmwareProgress) =>
+  Boolean(progress && progress.needsAttentionCount > 0);
+
+export const formatFirmwareProgressSummary = (progress?: CohortFirmwareProgress) => {
+  if (!progress || progress.targetedCount === 0) return "No target";
+
+  const parts = [`${progress.completeCount}/${progress.targetedCount} complete`];
+  const add = (count: number, label: string) => {
+    if (count > 0) parts.push(`${count} ${label}`);
+  };
+
+  add(progress.updatingCount, "updating");
+  add(progress.verifyingCount, "verifying");
+  add(progress.queuedCount, "queued");
+  add(progress.needsAttentionCount, "needs attention");
+  add(progress.unknownCount, "unknown");
+
+  return parts.join(" · ");
+};

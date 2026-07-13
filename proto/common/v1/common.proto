@@ -18,6 +18,7 @@ message PlacementRefs {
   // Rack zone label; empty when the rack has no zone or the device is
   // not in a rack. Populated where the producing RPC documents it.
   string zone = 5;
+  ResourceRef cohort = 6;
 }
 
 message FleetErrorDetails {

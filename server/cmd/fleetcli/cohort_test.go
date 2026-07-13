@@ -30,7 +30,6 @@ func TestCohortReserveCountBuildsServerSelector(t *testing.T) {
 		"--count", "2",
 		"--product", " TestCorp ",
 		"--model", " TestMiner ",
-		"--site-id", "12",
 	})
 	if err != nil {
 		t.Fatalf("reserve flag harness error = %v", err)
@@ -46,8 +45,8 @@ func TestCohortReserveCountBuildsServerSelector(t *testing.T) {
 	if selector.GetCount() != 2 {
 		t.Fatalf("selector count = %d, want 2", selector.GetCount())
 	}
-	if selector.GetProduct() != "TestCorp" || selector.GetModel() != "TestMiner" || selector.GetSiteId() != 12 {
-		t.Fatalf("selector = %+v, want product/model/site filters", selector)
+	if selector.GetProduct() != "TestCorp" || selector.GetModel() != "TestMiner" {
+		t.Fatalf("selector = %+v, want product/model filters", selector)
 	}
 }
 

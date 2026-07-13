@@ -19,6 +19,7 @@ import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagem
 import { isActionLoading } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
 import {
   getMinerBuildingLabel,
+  getMinerCohortLabel,
   getMinerRackLabel,
   getMinerSiteLabel,
 } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
@@ -143,6 +144,10 @@ const createMinerColConfig = ({
   },
   [minerCols.groups]: {
     component: (device: DeviceListItem) => <MinerGroups miner={device.miner} availableGroups={availableGroups} />,
+    width: "w-[160px]",
+  },
+  [minerCols.cohort]: {
+    component: (device: DeviceListItem) => renderPlacementLabel(getMinerCohortLabel(device.miner)),
     width: "w-[160px]",
   },
   [minerCols.site]: {

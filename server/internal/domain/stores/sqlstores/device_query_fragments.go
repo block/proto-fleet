@@ -54,7 +54,9 @@ const minerSelectColumns = `SELECT
     COALESCE(site.name, '') as site_label,
     device.building_id,
     COALESCE(building.name, '') as building_label,
-    ` + embeddedWebViewAvailableExpr + ` as embedded_web_view_available`
+    ` + embeddedWebViewAvailableExpr + ` as embedded_web_view_available,
+    COALESCE(explicit_cohort.id, default_cohort.id, 0) as cohort_id,
+    COALESCE(explicit_cohort.label, default_cohort.label, '') as cohort_label`
 
 // minerFromJoins contains the FROM clause and LEFT JOINs for miner state queries.
 // Parameter: $1 = org_id (used in device join condition)

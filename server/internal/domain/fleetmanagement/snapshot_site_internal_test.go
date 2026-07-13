@@ -29,6 +29,8 @@ func TestListMinerStateSnapshots_PopulatesDirectPlacementRefs(t *testing.T) {
 			SiteLabel:        "Site Alpha",
 			BuildingID:       sql.NullInt64{Int64: 11, Valid: true},
 			BuildingLabel:    "Building One",
+			CohortID:         19,
+			CohortLabel:      "Pilot Cohort",
 		},
 		{
 			DeviceIdentifier: "miner-b",
@@ -54,6 +56,9 @@ func TestListMinerStateSnapshots_PopulatesDirectPlacementRefs(t *testing.T) {
 	require.NotNil(t, snaps[0].Placement.Building, "miner-a must surface its assigned building ref")
 	assert.Equal(t, int64(11), snaps[0].Placement.Building.Id)
 	assert.Equal(t, "Building One", snaps[0].Placement.Building.Label)
+	require.NotNil(t, snaps[0].Placement.Cohort, "miner-a must surface its effective cohort ref")
+	assert.Equal(t, int64(19), snaps[0].Placement.Cohort.Id)
+	assert.Equal(t, "Pilot Cohort", snaps[0].Placement.Cohort.Label)
 
 	assert.Nil(t, snaps[1].Placement, "unassigned miner must not surface placement")
 }

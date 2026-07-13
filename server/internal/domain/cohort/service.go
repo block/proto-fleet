@@ -171,6 +171,7 @@ func (s *Service) CreateCohort(ctx context.Context, params models.CreateCohortPa
 	}, created); err != nil {
 		return nil, err
 	}
+	s.hydrateCohortFirmware(ctx, created)
 	s.auditCohortCreated(ctx, created)
 	return created, nil
 }
@@ -180,7 +181,12 @@ func (s *Service) GetCohort(ctx context.Context, orgID, cohortID int64) (*models
 	if s.store == nil {
 		return nil, fleeterror.NewInternalError("cohort store is not configured")
 	}
-	return s.store.GetCohort(ctx, orgID, cohortID)
+	cohort, err := s.store.GetCohort(ctx, orgID, cohortID)
+	if err != nil {
+		return nil, err
+	}
+	s.hydrateCohortFirmware(ctx, cohort)
+	return cohort, nil
 }
 
 // ListCohorts returns cohorts for an org.
@@ -188,7 +194,12 @@ func (s *Service) ListCohorts(ctx context.Context, params models.ListCohortsPara
 	if s.store == nil {
 		return models.PagedCohorts{}, fleeterror.NewInternalError("cohort store is not configured")
 	}
-	return s.store.ListCohorts(ctx, params)
+	result, err := s.store.ListCohorts(ctx, params)
+	if err != nil {
+		return models.PagedCohorts{}, err
+	}
+	s.hydrateCohortsFirmware(ctx, result.Cohorts)
+	return result, nil
 }
 
 // ListCohortsByOwner returns cohorts owned by a user.
@@ -196,7 +207,12 @@ func (s *Service) ListCohortsByOwner(ctx context.Context, params models.ListCoho
 	if s.store == nil {
 		return models.PagedCohorts{}, fleeterror.NewInternalError("cohort store is not configured")
 	}
-	return s.store.ListCohortsByOwner(ctx, params)
+	result, err := s.store.ListCohortsByOwner(ctx, params)
+	if err != nil {
+		return models.PagedCohorts{}, err
+	}
+	s.hydrateCohortsFirmware(ctx, result.Cohorts)
+	return result, nil
 }
 
 // UpdateCohort changes mutable cohort metadata and desired state.
@@ -260,6 +276,7 @@ func (s *Service) UpdateCohort(ctx context.Context, params models.UpdateCohortPa
 		}
 	}
 	s.auditCohortFieldsUpdated(ctx, target, result, params)
+	s.hydrateCohortFirmware(ctx, result)
 	return result, nil
 }
 
@@ -351,6 +368,7 @@ func (s *Service) SetCohortFirmwareTarget(ctx context.Context, params models.Set
 		return nil, err
 	}
 	s.auditCohortFirmwareTargetUpdated(ctx, target, updated, params)
+	s.hydrateCohortFirmware(ctx, updated)
 	return updated, nil
 }
 
@@ -394,6 +412,7 @@ func (s *Service) AddDevicesToCohort(ctx context.Context, params models.Membersh
 		return nil, err
 	}
 	s.auditCohortMembersChanged(ctx, updated, "members_added", len(params.DeviceIdentifiers))
+	s.hydrateCohortFirmware(ctx, updated)
 	return updated, nil
 }
 
@@ -417,6 +436,7 @@ func (s *Service) RemoveDevicesFromCohort(ctx context.Context, params models.Mem
 		return nil, err
 	}
 	s.auditCohortMembersChanged(ctx, updated, "members_removed", -len(params.DeviceIdentifiers))
+	s.hydrateCohortFirmware(ctx, updated)
 	return updated, nil
 }
 
@@ -437,6 +457,7 @@ func (s *Service) ReleaseCohort(ctx context.Context, params models.MembershipMut
 		return nil, err
 	}
 	s.auditCohortReleased(ctx, released)
+	s.hydrateCohortFirmware(ctx, released)
 	return released, nil
 }
 
@@ -450,6 +471,7 @@ func (s *Service) SweepExpired(ctx context.Context) ([]*models.Cohort, error) {
 		return nil, err
 	}
 	for _, c := range released {
+		s.hydrateCohortFirmware(ctx, c)
 		s.auditCohortExpired(ctx, c)
 	}
 	return released, nil
@@ -460,7 +482,128 @@ func (s *Service) ListDevices(ctx context.Context, params models.ListDevicesPara
 	if s.store == nil {
 		return models.PagedCohortDevices{}, fleeterror.NewInternalError("cohort store is not configured")
 	}
-	return s.store.ListDevices(ctx, params)
+	result, err := s.store.ListDevices(ctx, params)
+	if err != nil {
+		return models.PagedCohortDevices{}, err
+	}
+	for i := range result.Devices {
+		s.hydrateFirmwareStatus(ctx, result.Devices[i].FirmwareStatus)
+	}
+	return result, nil
+}
+
+func (s *Service) hydrateCohortsFirmware(ctx context.Context, cohorts []*models.Cohort) {
+	for _, cohort := range cohorts {
+		s.hydrateCohortFirmware(ctx, cohort)
+	}
+}
+
+func (s *Service) hydrateCohortFirmware(ctx context.Context, cohort *models.Cohort) {
+	if cohort == nil {
+		return
+	}
+	for i := range cohort.FirmwareStatuses {
+		s.hydrateFirmwareStatus(ctx, &cohort.FirmwareStatuses[i])
+	}
+	for i := range cohort.Members {
+		s.hydrateFirmwareStatus(ctx, cohort.Members[i].FirmwareStatus)
+	}
+	cohort.FirmwareProgress = cohortFirmwareProgress(cohort)
+}
+
+func (s *Service) hydrateFirmwareStatus(ctx context.Context, status *models.CohortFirmwareStatus) {
+	if status == nil {
+		return
+	}
+	status.TargetFirmwareFileID = strings.TrimSpace(status.TargetFirmwareFileID)
+	status.TargetFirmwareVersion = strings.TrimSpace(status.TargetFirmwareVersion)
+	status.CurrentFirmwareVersion = strings.TrimSpace(status.CurrentFirmwareVersion)
+	status.DeviceStatus = strings.TrimSpace(status.DeviceStatus)
+
+	if status.TargetFirmwareFileID != "" && s.firmwareMetadata != nil {
+		if metadata, err := s.firmwareMetadata.GetFirmwareMetadata(status.TargetFirmwareFileID); err == nil {
+			if version := strings.TrimSpace(metadata.FirmwareVersion); version != "" {
+				status.TargetFirmwareVersion = version
+			}
+		}
+	}
+	status.State = deriveFirmwareRolloutState(status)
+}
+
+func cohortFirmwareProgress(cohort *models.Cohort) models.CohortFirmwareProgress {
+	statuses := cohort.FirmwareStatuses
+	if len(statuses) == 0 && len(cohort.Members) > 0 {
+		statuses = make([]models.CohortFirmwareStatus, 0, len(cohort.Members))
+		for _, member := range cohort.Members {
+			if member.FirmwareStatus != nil {
+				statuses = append(statuses, *member.FirmwareStatus)
+			}
+		}
+	}
+	var progress models.CohortFirmwareProgress
+	for _, status := range statuses {
+		if status.TargetFirmwareFileID == "" || status.State == models.CohortFirmwareRolloutStateNoTarget {
+			continue
+		}
+		progress.TargetedCount++
+		switch status.State {
+		case models.CohortFirmwareRolloutStateComplete:
+			progress.CompleteCount++
+		case models.CohortFirmwareRolloutStateQueued:
+			progress.QueuedCount++
+		case models.CohortFirmwareRolloutStateUpdating:
+			progress.UpdatingCount++
+		case models.CohortFirmwareRolloutStateVerifying:
+			progress.VerifyingCount++
+		case models.CohortFirmwareRolloutStateNeedsAttention:
+			progress.NeedsAttentionCount++
+		case models.CohortFirmwareRolloutStateUnknown:
+			progress.UnknownCount++
+		}
+	}
+	return progress
+}
+
+func deriveFirmwareRolloutState(status *models.CohortFirmwareStatus) models.CohortFirmwareRolloutState {
+	if status == nil || status.TargetFirmwareFileID == "" {
+		return models.CohortFirmwareRolloutStateNoTarget
+	}
+	if status.EnforcementState != nil && *status.EnforcementState == models.EnforcementStateDispatching {
+		return models.CohortFirmwareRolloutStateUpdating
+	}
+	switch strings.ToUpper(status.DeviceStatus) {
+	case "UPDATING", "REBOOT_REQUIRED":
+		return models.CohortFirmwareRolloutStateUpdating
+	}
+	if status.CurrentFirmwareVersion != "" && status.CurrentFirmwareVersion == status.TargetFirmwareVersion {
+		return models.CohortFirmwareRolloutStateComplete
+	}
+	if status.EnforcementState != nil {
+		switch *status.EnforcementState {
+		case models.EnforcementStateDispatched:
+			return models.CohortFirmwareRolloutStateVerifying
+		case models.EnforcementStateFailed:
+			return models.CohortFirmwareRolloutStateNeedsAttention
+		case models.EnforcementStatePending, models.EnforcementStateDrifted:
+			if status.RetryCount > 0 || strings.TrimSpace(ptrStringValue(status.LastError)) != "" {
+				return models.CohortFirmwareRolloutStateNeedsAttention
+			}
+		}
+	}
+	if status.TargetFirmwareVersion == "" {
+		return models.CohortFirmwareRolloutStateUnknown
+	}
+	if status.CurrentFirmwareVersion != "" && status.CurrentFirmwareVersion != status.TargetFirmwareVersion {
+		return models.CohortFirmwareRolloutStateQueued
+	}
+	return models.CohortFirmwareRolloutStateQueued
+}
+
+func ptrStringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 // DeleteCohort soft-deletes a cohort by releasing it and clearing memberships.
@@ -473,6 +616,7 @@ func (s *Service) DeleteCohort(ctx context.Context, orgID, cohortID int64) (*mod
 		return nil, err
 	}
 	s.auditCohortDeleted(ctx, cohort)
+	s.hydrateCohortFirmware(ctx, cohort)
 	return cohort, nil
 }
 

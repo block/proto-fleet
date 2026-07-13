@@ -12,7 +12,6 @@ import CohortModal from "@/protoFleet/features/cohorts/components/CohortModal";
 import {
   cohortDeviceDisplayName,
   cohortDeviceSecondaryText,
-  cohortStateLabel,
   formatCohortExpiryTimeLeft,
   formatCohortTimestamp,
   isActiveNonDefaultCohort,
@@ -35,7 +34,7 @@ import { useNavigate } from "@/shared/hooks/useNavigate";
 const pluralize = (count: number, singular: string, plural = `${singular}s`) =>
   `${count} ${count === 1 ? singular : plural}`;
 
-type RigAssignmentFilterKey = "assignment" | "cohort" | "owner" | "target" | "site";
+type RigAssignmentFilterKey = "assignment" | "cohort" | "owner" | "target";
 
 const cohortListPageSize = 5;
 const assignmentPageSize = 50;
@@ -43,7 +42,6 @@ const availableAssignmentValue = "available";
 const reservedAssignmentValue = "reserved";
 const defaultCohortFilterValue = "__default__";
 const unownedFilterValue = "__unowned__";
-const unassignedSiteFilterValue = "__unassigned_site__";
 const targetFilterSeparator = "\u0000";
 
 const emptyRigAssignmentFilters = (): Record<RigAssignmentFilterKey, string[]> => ({
@@ -51,7 +49,6 @@ const emptyRigAssignmentFilters = (): Record<RigAssignmentFilterKey, string[]> =
   cohort: [],
   owner: [],
   target: [],
-  site: [],
 });
 
 const uniqueOptions = (options: DropdownOption[]) =>
@@ -68,10 +65,6 @@ const getOwnerFilterValue = (device: CohortDevice) =>
   device.effectiveCohort?.ownerUserId?.toString() || unownedFilterValue;
 
 const getOwnerLabel = (device: CohortDevice) => device.effectiveCohort?.ownerUsername || "Unowned";
-
-const getSiteFilterValue = (device: CohortDevice) => device.siteId?.toString() || unassignedSiteFilterValue;
-
-const getSiteLabel = (device: CohortDevice) => device.display?.siteLabel || "Unassigned";
 
 const getTargetLabel = (device: CohortDevice) =>
   [device.display?.manufacturer, device.display?.model].filter(Boolean).join(" ") || "Unknown";
@@ -136,6 +129,12 @@ const formatCohortFirmwareSummary = (cohort: CohortSummary, firmwareFilesById: M
   }
   return "Not set";
 };
+
+const cohortDeviceFirmwareVersion = (device: CohortDevice) =>
+  device.firmwareStatus?.currentFirmwareVersion.trim() || device.display?.firmwareVersion.trim() || "Unknown";
+
+const cohortDeviceAssignmentLabel = (device: CohortDevice) =>
+  device.effectiveCohort && !device.effectiveCohort.isDefault ? "Reserved" : "Available";
 
 const CohortsPage = () => {
   const activeSite = useRouteSiteScope() ?? DEFAULT_ACTIVE_SITE;
@@ -205,16 +204,6 @@ const CohortsPage = () => {
       const id = bigintFromFilterValue(value);
       if (id !== undefined) ownerUserIds.push(id);
     });
-    const siteIds: bigint[] = [];
-    let includeUnassignedSite = false;
-    rigAssignmentFilters.site.forEach((value) => {
-      if (value === unassignedSiteFilterValue) {
-        includeUnassignedSite = true;
-        return;
-      }
-      const id = bigintFromFilterValue(value);
-      if (id !== undefined) siteIds.push(id);
-    });
     const manufacturers: string[] = [];
     const models: string[] = [];
     rigAssignmentFilters.target.forEach((value) => {
@@ -231,8 +220,6 @@ const CohortsPage = () => {
       includeUnowned,
       manufacturers,
       models,
-      siteIds,
-      includeUnassignedSite,
       search: debouncedRigAssignmentSearch,
     };
   }, [debouncedRigAssignmentSearch, rigAssignmentFilters]);
@@ -383,17 +370,6 @@ const CohortsPage = () => {
             .filter((option) => option.id !== ""),
         ),
         selectedValues: rigAssignmentFilters.target,
-      },
-      {
-        key: "site",
-        title: "Site",
-        options: uniqueOptions(
-          devices.map((device) => ({
-            id: getSiteFilterValue(device),
-            label: getSiteLabel(device),
-          })),
-        ),
-        selectedValues: rigAssignmentFilters.site,
       },
     ],
     [devices, rigAssignmentFilters],
@@ -622,10 +598,11 @@ const CohortsPage = () => {
           <table className="w-full table-fixed text-left text-300">
             <thead className="bg-surface-raised text-text-primary-70">
               <tr>
-                <th className="w-[34%] px-4 py-3 font-medium">Miner</th>
-                <th className="w-[28%] px-4 py-3 font-medium">Cohort</th>
-                <th className="w-[24%] px-4 py-3 font-medium">Owner</th>
-                <th className="w-[14%] px-4 py-3 font-medium">State</th>
+                <th className="w-[30%] px-4 py-3 font-medium">Miner</th>
+                <th className="w-[16%] px-4 py-3 font-medium">Assignment</th>
+                <th className="w-[16%] px-4 py-3 font-medium">Firmware</th>
+                <th className="w-[24%] px-4 py-3 font-medium">Cohort</th>
+                <th className="w-[14%] px-4 py-3 font-medium">Owner</th>
               </tr>
             </thead>
             <tbody>
@@ -641,6 +618,10 @@ const CohortsPage = () => {
                       </div>
                       <div className="truncate text-200 text-text-primary-70">{rigSecondary}</div>
                     </td>
+                    <td className="px-4 py-3">{cohortDeviceAssignmentLabel(device)}</td>
+                    <td className="truncate px-4 py-3" title={cohortDeviceFirmwareVersion(device)}>
+                      {cohortDeviceFirmwareVersion(device)}
+                    </td>
                     <td className="truncate px-4 py-3">
                       {cohort && !cohort.isDefault ? (
                         <Link className="hover:underline" to={detailHref(cohort.id)}>
@@ -651,13 +632,12 @@ const CohortsPage = () => {
                       )}
                     </td>
                     <td className="truncate px-4 py-3">{cohort?.ownerUsername || "Unowned"}</td>
-                    <td className="px-4 py-3">{cohortStateLabel(cohort?.state)}</td>
                   </tr>
                 );
               })}
               {devices.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-text-primary-70" colSpan={4}>
+                  <td className="px-4 py-8 text-text-primary-70" colSpan={5}>
                     {hasRigAssignmentFilters ? "No miners match these filters." : "No miners found."}
                   </td>
                 </tr>
@@ -739,7 +719,7 @@ const CohortList = ({
               <CohortExpiryText cohort={cohort} />
             </div>
             <div className="mt-1 truncate text-200 text-text-primary-70">
-              Firmware · {formatCohortFirmwareSummary(cohort, firmwareFilesById)}
+              Software · {formatCohortFirmwareSummary(cohort, firmwareFilesById)}
             </div>
           </Link>
           <div className="flex items-center gap-2">

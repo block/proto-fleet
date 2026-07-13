@@ -433,6 +433,59 @@ describe("AuthenticateMiners", () => {
     expect(mockPair).toHaveBeenCalledTimes(2);
   });
 
+  it("merges per-miner credential fields with bulk credentials", () => {
+    const { getByText, getByLabelText, getAllByLabelText } = render(
+      <AuthenticateMiners
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+        onPairingCompleted={mockNotifyPairingCompleted}
+        onRefetchMiners={mockRefetchMiners}
+      />,
+    );
+
+    fireEvent.change(getByLabelText(bulkUsernameLabel), {
+      target: { value: "bulk-user" },
+    });
+    fireEvent.change(getByLabelText(bulkPasswordLabel), {
+      target: { value: "bulk-pass" },
+    });
+
+    fireEvent.click(getByText(showMinersLabel));
+    const usernameInputs = getAllByLabelText(usernameLabel);
+    const passwordInputs = getAllByLabelText(passwordLabel);
+
+    fireEvent.change(usernameInputs[0], {
+      target: { value: "custom-user" },
+    });
+    fireEvent.change(passwordInputs[1], {
+      target: { value: "custom-pass" },
+    });
+
+    fireEvent.click(getByText("Authenticate"));
+
+    expect(mockPair).toHaveBeenCalledTimes(3);
+    expect(mockPair).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pairRequest: expect.objectContaining({
+          credentials: expect.objectContaining({
+            username: "custom-user",
+            password: "bulk-pass",
+          }),
+        }),
+      }),
+    );
+    expect(mockPair).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pairRequest: expect.objectContaining({
+          credentials: expect.objectContaining({
+            username: "bulk-user",
+            password: "custom-pass",
+          }),
+        }),
+      }),
+    );
+  });
+
   it("calls refetch after successful authentication", async () => {
     const { getByText, getByLabelText } = render(
       <AuthenticateMiners

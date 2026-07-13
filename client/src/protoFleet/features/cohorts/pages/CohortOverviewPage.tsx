@@ -6,14 +6,14 @@ import {
   type Cohort,
   type CohortDevice,
   CohortDeviceAssignment,
+  CohortFirmwareRolloutState,
+  type CohortFirmwareStatus,
   type CohortFirmwareTarget,
   type CohortMember,
   CohortState,
 } from "@/protoFleet/api/generated/cohort/v1/cohort_pb";
 import type { MinerModelGroup } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { MeasurementType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { useSites } from "@/protoFleet/api/sites";
 import { useCohortApi } from "@/protoFleet/api/useCohortApi";
 import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import useMinerModelGroups from "@/protoFleet/api/useMinerModelGroups";
@@ -24,13 +24,14 @@ import CohortActionsMenu from "@/protoFleet/features/cohorts/components/CohortAc
 import {
   cohortDeviceDisplayName,
   cohortDeviceSecondaryText,
-  cohortMemberSiteLabel,
   cohortStateLabel,
   durationToExpiresAt,
   type ExpiryPreset,
   type ExpiryUnit,
+  firmwareRolloutStateLabel,
   formatCohortExpiryTimeLeft,
   formatCohortTimestamp,
+  hasActiveFirmwareProgress,
   isActiveCohort,
   isActiveNonDefaultCohort,
   isSuperAdminRole,
@@ -78,12 +79,6 @@ type AddMemberMode = "count" | "explicit";
 type RefreshOptions = {
   showLoading?: boolean;
   suppressError?: boolean;
-};
-
-type FirmwareProgress = {
-  comparableCount: number;
-  onTargetCount: number;
-  pendingCount: number;
 };
 
 const extendPresetOptions = [
@@ -149,24 +144,36 @@ const getCohortFirmwareTarget = (members: CohortMember[]) => {
   const manufacturer = first?.manufacturer.trim();
   const model = first?.model.trim();
   if (!manufacturer || !model) return null;
+  const normalizedManufacturer = manufacturer.toLocaleLowerCase();
+  const normalizedModel = model.toLocaleLowerCase();
   return members.every((member) => {
     const display = member.display;
-    return display?.manufacturer.trim() === manufacturer && display?.model.trim() === model;
+    return (
+      display?.manufacturer.trim().toLocaleLowerCase() === normalizedManufacturer &&
+      display?.model.trim().toLocaleLowerCase() === normalizedModel
+    );
   })
     ? { manufacturer, model }
     : null;
 };
 
-const firmwareTargetKey = (target: FirmwareTarget) => `${target.manufacturer}:::${target.model}`;
+const normalizeFirmwareTargetValue = (value: string) => value.trim().toLocaleLowerCase();
+
+const firmwareTargetKey = (target: FirmwareTarget) =>
+  `${normalizeFirmwareTargetValue(target.manufacturer)}:::${normalizeFirmwareTargetValue(target.model)}`;
 
 const matchesFirmwareTarget = (file: FirmwareFileInfo, target: FirmwareTarget) =>
-  file.target_manufacturer === target.manufacturer && file.target_model === target.model;
+  normalizeFirmwareTargetValue(file.target_manufacturer) === normalizeFirmwareTargetValue(target.manufacturer) &&
+  normalizeFirmwareTargetValue(file.target_model) === normalizeFirmwareTargetValue(target.model);
 
 const getFirmwareFileIdForTarget = (targets: CohortFirmwareTarget[], target: FirmwareTarget | null) => {
   if (!target) return "";
   return (
-    targets.find((entry) => entry.manufacturer === target.manufacturer && entry.model === target.model)
-      ?.firmwareFileId ?? ""
+    targets.find(
+      (entry) =>
+        normalizeFirmwareTargetValue(entry.manufacturer) === normalizeFirmwareTargetValue(target.manufacturer) &&
+        normalizeFirmwareTargetValue(entry.model) === normalizeFirmwareTargetValue(target.model),
+    )?.firmwareFileId ?? ""
   );
 };
 
@@ -200,14 +207,11 @@ const formatBytes = (bytes: number) => {
   return `${value >= 10 || unitIndex === 0 ? Math.round(value) : value.toFixed(1)} ${units[unitIndex]}`;
 };
 
+const formatMinerCount = (count: number) => `${count} ${count === 1 ? "miner" : "miners"}`;
+
 const formatFirmwareUploadedAt = (uploadedAt: string) => {
   const date = new Date(uploadedAt);
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString();
-};
-
-const formatSiteOption = (siteWithCounts: SiteWithCounts) => {
-  const site = siteWithCounts.site;
-  return site ? { value: site.id.toString(), label: site.name } : undefined;
 };
 
 const renderFirmwareFileSummary = (firmwareFiles: FirmwareFileInfo[], firmwareFileId: string) => {
@@ -277,58 +281,13 @@ const firmwareVersionLabel = (version?: string) => {
   return trimmed || "Unknown";
 };
 
-const desiredFirmwareFileIdForMember = (cohort: Cohort, member: CohortMember) => {
-  const display = member.display;
-  const manufacturer = display?.manufacturer.trim();
-  const model = display?.model.trim();
-  if (manufacturer && model) {
-    const targetFileId = cohort.firmwareTargets.find(
-      (target) => target.manufacturer === manufacturer && target.model === model,
-    )?.firmwareFileId;
-    if (targetFileId) return targetFileId;
-  }
-  return cohort.summary?.desiredFirmwareFileId || "";
-};
-
-const desiredFirmwareVersionForMember = (
-  cohort: Cohort,
-  firmwareFilesById: Map<string, FirmwareFileInfo>,
-  member: CohortMember,
-) => {
-  const firmwareFileId = desiredFirmwareFileIdForMember(cohort, member);
-  if (!firmwareFileId) return "";
-  return firmwareFilesById.get(firmwareFileId)?.firmware_version?.trim() || "";
-};
-
-const firmwareVersionCounts = (members: CohortMember[]) => {
-  const counts = new Map<string, number>();
-  for (const member of members) {
-    const version = firmwareVersionLabel(member.display?.firmwareVersion);
-    counts.set(version, (counts.get(version) ?? 0) + 1);
-  }
-  return [...counts.entries()]
-    .map(([version, count]) => ({ version, count }))
-    .sort((left, right) => right.count - left.count || left.version.localeCompare(right.version));
-};
-
-const cohortFirmwareProgress = (cohort: Cohort | null, firmwareFilesById: Map<string, FirmwareFileInfo>) => {
-  const progress: FirmwareProgress = { comparableCount: 0, onTargetCount: 0, pendingCount: 0 };
-  if (!cohort) return progress;
-
-  for (const member of cohort.members) {
-    const desired = desiredFirmwareVersionForMember(cohort, firmwareFilesById, member);
-    if (!desired) continue;
-
-    progress.comparableCount += 1;
-    const current = member.display?.firmwareVersion.trim() ?? "";
-    if (current === desired) {
-      progress.onTargetCount += 1;
-    } else {
-      progress.pendingCount += 1;
-    }
-  }
-
-  return progress;
+const cohortMemberSecondaryText = (member: CohortMember) => {
+  const primary = cohortDeviceDisplayName(member);
+  const secondary = cohortDeviceSecondaryText(member.display, primary);
+  if (secondary) return secondary;
+  return member.deviceIdentifier.trim().toLocaleLowerCase() === primary.trim().toLocaleLowerCase()
+    ? ""
+    : member.deviceIdentifier;
 };
 
 const CohortOverviewPage = () => {
@@ -362,15 +321,8 @@ const CohortOverviewPage = () => {
     isActiveCohort(summary) && (summary?.isDefault ? isSuperAdmin : isOwnedByCurrentUser || isSuperAdmin);
   const canMutate = isActiveNonDefaultCohort(summary) && (isOwnedByCurrentUser || isSuperAdmin);
   const firmwareTarget = useMemo(() => getCohortFirmwareTarget(cohort?.members ?? []), [cohort?.members]);
-  const firmwareFilesById = useMemo(
-    () => new Map(firmwareFiles.map((file) => [file.id, file] as const)),
-    [firmwareFiles],
-  );
-  const firmwareProgress = useMemo(
-    () => cohortFirmwareProgress(cohort, firmwareFilesById),
-    [cohort, firmwareFilesById],
-  );
-  const shouldPollFirmware = isActiveCohort(summary) && firmwareProgress.pendingCount > 0 && !isMutating;
+  const firmwareProgress = summary?.firmwareProgress;
+  const shouldPollFirmware = isActiveCohort(summary) && hasActiveFirmwareProgress(firmwareProgress) && !isMutating;
 
   const loadFirmwareFiles = useCallback(async () => {
     try {
@@ -485,8 +437,13 @@ const CohortOverviewPage = () => {
         const next = await setDesiredFirmware({ cohortId, manufacturer, model, firmwareFileId });
         setCohort(next);
         void loadFirmwareFiles();
+        const selectedFirmwareVersion = firmwareFiles
+          .find((file) => file.id === firmwareFileId)
+          ?.firmware_version?.trim();
         pushToast({
-          message: firmwareFileId ? `Firmware set for "${summary.label}"` : `Firmware cleared for "${summary.label}"`,
+          message: firmwareFileId
+            ? `Firmware ${selectedFirmwareVersion || "target"} saved for "${summary.label}". Rollout will begin on the next reconciler pass.`
+            : `Firmware cleared for "${summary.label}"`,
           status: STATUSES.success,
         });
         setShowFirmwareModal(false);
@@ -496,7 +453,7 @@ const CohortOverviewPage = () => {
         setIsMutating(false);
       }
     },
-    [cohortId, loadFirmwareFiles, setDesiredFirmware, summary],
+    [cohortId, firmwareFiles, loadFirmwareFiles, setDesiredFirmware, summary],
   );
 
   const handleDefaultFirmwareUpdate = useCallback(
@@ -517,7 +474,7 @@ const CohortOverviewPage = () => {
         if (next) setCohort(next);
         void loadFirmwareFiles();
         pushToast({
-          message: `${updates.length} firmware ${updates.length === 1 ? "target" : "targets"} updated for "${summary.label}"`,
+          message: `${updates.length} firmware ${updates.length === 1 ? "target" : "targets"} saved for "${summary.label}". Rollout will begin on the next reconciler pass.`,
           status: STATUSES.success,
         });
         setShowFirmwareModal(false);
@@ -666,40 +623,44 @@ const CohortOverviewPage = () => {
         <div className="border-b border-border-5 px-4 py-3">
           <Header title="Members" titleSize="text-heading-100" />
         </div>
-        {cohort.members.length > 0 ? (
-          <FirmwareVersionDistribution members={cohort.members} progress={firmwareProgress} />
-        ) : null}
         <div className="overflow-x-auto">
           <table className="w-full table-fixed text-left text-300">
             <thead className="bg-surface-raised text-text-primary-70">
               <tr>
-                <th className="w-[38%] px-4 py-3 font-medium">Miner</th>
-                <th className="w-[22%] px-4 py-3 font-medium">Firmware</th>
-                <th className="w-[16%] px-4 py-3 font-medium">Site</th>
-                <th className="w-[24%] px-4 py-3 font-medium">Added</th>
+                <th className="w-[32%] px-4 py-3 font-medium">Miner</th>
+                <th className="w-[18%] px-4 py-3 font-medium">Firmware</th>
+                <th className="w-[24%] px-4 py-3 font-medium">Rollout</th>
+                <th className="w-[26%] px-4 py-3 font-medium">Added</th>
               </tr>
             </thead>
             <tbody>
-              {cohort.members.map((member) => (
-                <tr key={member.deviceIdentifier} className="border-t border-border-5">
-                  <td className="px-4 py-3">
-                    <div className="truncate font-medium" title={member.deviceIdentifier}>
-                      {cohortDeviceDisplayName(member)}
-                    </div>
-                    <div className="truncate text-200 text-text-primary-70">
-                      {cohortDeviceSecondaryText(member.display) || member.deviceIdentifier}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <MemberFirmwareCell
-                      currentVersion={member.display?.firmwareVersion}
-                      desiredVersion={desiredFirmwareVersionForMember(cohort, firmwareFilesById, member)}
-                    />
-                  </td>
-                  <td className="px-4 py-3">{cohortMemberSiteLabel(member)}</td>
-                  <td className="px-4 py-3">{memberAddedAt(member)}</td>
-                </tr>
-              ))}
+              {cohort.members.map((member) => {
+                const memberName = cohortDeviceDisplayName(member);
+                const memberSecondary = cohortMemberSecondaryText(member);
+
+                return (
+                  <tr key={member.deviceIdentifier} className="border-t border-border-5">
+                    <td className="px-4 py-3">
+                      <div className="truncate font-medium" title={member.deviceIdentifier}>
+                        {memberName}
+                      </div>
+                      {memberSecondary ? (
+                        <div className="truncate text-200 text-text-primary-70">{memberSecondary}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-3">
+                      <MemberFirmwareCell
+                        status={member.firmwareStatus}
+                        fallbackCurrentVersion={member.display?.firmwareVersion}
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <MemberRolloutCell status={member.firmwareStatus} />
+                    </td>
+                    <td className="px-4 py-3">{memberAddedAt(member)}</td>
+                  </tr>
+                );
+              })}
               {cohort.members.length === 0 ? (
                 <tr>
                   <td className="px-4 py-8 text-text-primary-70" colSpan={4}>
@@ -742,6 +703,7 @@ const CohortOverviewPage = () => {
             getFirmwareFileIdForTarget(cohort.firmwareTargets, firmwareTarget) || summary.desiredFirmwareFileId
           }
           target={firmwareTarget}
+          memberCount={cohort.members.length}
           isSubmitting={isMutating}
           onDismiss={() => setShowFirmwareModal(false)}
           onSubmit={handleFirmwareUpdate}
@@ -831,76 +793,82 @@ const OverviewMetric = ({ label, value }: { label: string; value: ReactNode }) =
   </div>
 );
 
-const FirmwareVersionDistribution = ({
-  members,
-  progress,
-}: {
-  members: CohortMember[];
-  progress: FirmwareProgress;
-}) => {
-  const counts = useMemo(() => firmwareVersionCounts(members), [members]);
-  const total = members.length;
-  if (total === 0) return null;
+const firmwareStateTextClass = (state?: CohortFirmwareRolloutState) => {
+  switch (state) {
+    case CohortFirmwareRolloutState.COMPLETE:
+      return "text-intent-success-fill";
+    case CohortFirmwareRolloutState.NEEDS_ATTENTION:
+      return "text-intent-critical-fill";
+    case CohortFirmwareRolloutState.UPDATING:
+    case CohortFirmwareRolloutState.QUEUED:
+    case CohortFirmwareRolloutState.VERIFYING:
+      return "text-core-primary-fill";
+    default:
+      return "text-text-primary-70";
+  }
+};
 
-  const targetStatus =
-    progress.comparableCount > 0
-      ? progress.pendingCount > 0
-        ? `${progress.onTargetCount}/${progress.comparableCount} on target`
-        : "All on target"
-      : `${total} members`;
+const formatFirmwareTimestamp = (timestamp?: CohortFirmwareStatus["observedAt"]) =>
+  timestamp ? new Date(timestampMs(timestamp)).toLocaleString() : "";
 
-  return (
-    <div className="border-b border-border-5 px-4 py-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-emphasis-300 text-text-primary">Firmware versions</div>
-        <div className="text-200 text-text-primary-70">{targetStatus}</div>
-      </div>
-      <div className="flex flex-col gap-2">
-        {counts.map(({ version, count }) => {
-          const percentage = (count / total) * 100;
-          return (
-            <div
-              key={version}
-              className="grid grid-cols-[minmax(5rem,1fr)_minmax(4rem,2fr)_3.75rem] items-center gap-3"
-            >
-              <div className="truncate text-200 text-text-primary" title={version}>
-                {version}
-              </div>
-              <div className="bg-surface-inverse-10 h-2 overflow-hidden rounded-full">
-                <div className="h-full bg-core-primary-fill" style={{ width: `${Math.max(percentage, 2)}%` }} />
-              </div>
-              <div className="text-right text-200 text-text-primary-70">
-                {count} ({Math.round(percentage)}%)
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+const firmwareStatusTimeLabel = (status?: CohortFirmwareStatus) => {
+  const confirmed = formatFirmwareTimestamp(status?.confirmedAt);
+  if (confirmed) return `Confirmed ${confirmed}`;
+  const observed = formatFirmwareTimestamp(status?.observedAt);
+  if (observed) return `Updated ${observed}`;
+  const dispatched = formatFirmwareTimestamp(status?.lastDispatchedAt);
+  return dispatched ? `Dispatched ${dispatched}` : "";
 };
 
 const MemberFirmwareCell = ({
-  currentVersion,
-  desiredVersion,
+  status,
+  fallbackCurrentVersion,
 }: {
-  currentVersion?: string;
-  desiredVersion?: string;
+  status?: CohortFirmwareStatus;
+  fallbackCurrentVersion?: string;
 }) => {
-  const current = firmwareVersionLabel(currentVersion);
-  const desired = desiredVersion?.trim();
-  const comparable = Boolean(desired) && current !== "Unknown";
-  const status = comparable ? (current === desired ? "On target" : `Target: ${desired}`) : undefined;
-  const statusClass = comparable && current !== desired ? "text-intent-critical-fill" : "text-text-primary-70";
+  const current = firmwareVersionLabel(status?.currentFirmwareVersion || fallbackCurrentVersion);
+  const target = status?.targetFirmwareVersion.trim();
+  const hasTarget = Boolean(status?.targetFirmwareFileId);
 
   return (
     <div className="min-w-0">
       <div className="truncate font-medium text-text-primary" title={current}>
         {current}
       </div>
-      {status ? (
-        <div className={`mt-1 truncate text-200 ${statusClass}`} title={status}>
-          {status}
+      {hasTarget ? (
+        <div className="mt-1 truncate text-200 text-text-primary-70" title={target || "Target: Unknown"}>
+          Target: {target || "Unknown"}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
+const MemberRolloutCell = ({ status }: { status?: CohortFirmwareStatus }) => {
+  const hasTarget = Boolean(status?.targetFirmwareFileId);
+  const stateLabel = status && hasTarget ? firmwareRolloutStateLabel(status.state) : "No target";
+  const eventTime = firmwareStatusTimeLabel(status);
+  const lastError = status?.lastError.trim();
+
+  return (
+    <div className="min-w-0">
+      <div className={`truncate font-medium ${firmwareStateTextClass(status?.state)}`} title={stateLabel}>
+        {stateLabel}
+      </div>
+      {eventTime ? (
+        <div className="mt-1 truncate text-200 text-text-primary-50" title={eventTime}>
+          {eventTime}
+        </div>
+      ) : null}
+      {status && status.retryCount > 0 ? (
+        <div className="mt-1 truncate text-200 text-text-primary-50">
+          {status.retryCount} {status.retryCount === 1 ? "retry" : "retries"}
+        </div>
+      ) : null}
+      {lastError ? (
+        <div className="mt-1 truncate text-200 text-intent-critical-fill" title={lastError}>
+          {lastError}
         </div>
       ) : null}
     </div>
@@ -1119,6 +1087,7 @@ const ExtendModal = ({ currentExpiresAt, isSubmitting, onDismiss, onSubmit }: Ex
 interface FirmwareModalProps {
   initialFirmwareFileId: string;
   target: FirmwareTarget | null;
+  memberCount: number;
   isSubmitting: boolean;
   onDismiss: () => void;
   onSubmit: (update: FirmwareTargetUpdate) => void;
@@ -1130,7 +1099,14 @@ const formatFirmwareOption = (file: FirmwareFileInfo) => ({
   description: `${file.target_manufacturer} ${file.target_model}`.trim() || file.id,
 });
 
-const FirmwareModal = ({ initialFirmwareFileId, target, isSubmitting, onDismiss, onSubmit }: FirmwareModalProps) => {
+const FirmwareModal = ({
+  initialFirmwareFileId,
+  target,
+  memberCount,
+  isSubmitting,
+  onDismiss,
+  onSubmit,
+}: FirmwareModalProps) => {
   const { listFirmwareFiles } = useFirmwareApi();
   const [firmwareFiles, setFirmwareFiles] = useState<FirmwareFileInfo[]>([]);
   const [selectedFirmwareFileId, setSelectedFirmwareFileId] = useState(initialFirmwareFileId);
@@ -1164,6 +1140,11 @@ const FirmwareModal = ({ initialFirmwareFileId, target, isSubmitting, onDismiss,
     }
     return options;
   }, [compatibleFirmwareFiles, initialFirmwareFileId]);
+  const selectedFirmwareFile = useMemo(
+    () => firmwareFiles.find((file) => file.id === selectedFirmwareFileId),
+    [firmwareFiles, selectedFirmwareFileId],
+  );
+  const selectedFirmwareVersion = selectedFirmwareFile?.firmware_version?.trim();
 
   return (
     <Modal
@@ -1201,6 +1182,14 @@ const FirmwareModal = ({ initialFirmwareFileId, target, isSubmitting, onDismiss,
           disabled={!target}
           forceBelow
         />
+        {target && selectedFirmwareFileId ? (
+          <div className="rounded-lg bg-core-primary-5 px-4 py-3 text-300 text-text-primary">
+            <div className="text-200 text-text-primary-70">Rollout target</div>
+            <div className="mt-1">
+              {selectedFirmwareVersion || "Unknown version"} · {formatMinerCount(memberCount)}
+            </div>
+          </div>
+        ) : null}
       </div>
     </Modal>
   );
@@ -1260,6 +1249,13 @@ const firmwareOptionsForTarget = (
   }
   return options;
 };
+
+const minerCountForTarget = (target: FirmwareTarget, modelGroups: MinerModelGroup[]) =>
+  modelGroups.find(
+    (group) =>
+      normalizeFirmwareTargetValue(group.manufacturer) === normalizeFirmwareTargetValue(target.manufacturer) &&
+      normalizeFirmwareTargetValue(group.model) === normalizeFirmwareTargetValue(target.model),
+  )?.count ?? 0;
 
 const DefaultFirmwareModal = ({ cohort, isSubmitting, onDismiss, onSubmit }: DefaultFirmwareModalProps) => {
   const { listFirmwareFiles } = useFirmwareApi();
@@ -1359,11 +1355,17 @@ const DefaultFirmwareModal = ({ cohort, isSubmitting, onDismiss, onSubmit }: Def
                 const key = firmwareTargetKey(target);
                 const selectedFirmwareFileId =
                   selectedFirmwareOverrides[key] ?? initialSelectedFirmwareByTarget[key] ?? "";
+                const selectedFirmwareFile = firmwareFiles.find((file) => file.id === selectedFirmwareFileId);
+                const selectedFirmwareVersion = selectedFirmwareFile?.firmware_version?.trim();
+                const targetMinerCount = minerCountForTarget(target, modelGroups);
                 return (
                   <tr key={key} className="border-t border-border-5">
                     <td className="px-4 py-3">
                       <div className="truncate" title={target.manufacturer}>
                         {target.manufacturer}
+                      </div>
+                      <div className="mt-1 truncate text-200 text-text-primary-70">
+                        {formatMinerCount(targetMinerCount)}
                       </div>
                     </td>
                     <td className="px-4 py-3">
@@ -1383,6 +1385,11 @@ const DefaultFirmwareModal = ({ cohort, isSubmitting, onDismiss, onSubmit }: Def
                         }}
                         forceBelow
                       />
+                      {selectedFirmwareFileId ? (
+                        <div className="mt-2 truncate text-200 text-text-primary-70">
+                          Target version: {selectedFirmwareVersion || "Unknown"}
+                        </div>
+                      ) : null}
                     </td>
                   </tr>
                 );
@@ -1425,58 +1432,22 @@ const DeviceMutationModal = ({
   onSubmit,
 }: DeviceMutationModalProps) => {
   const { listAllDevices } = useCohortApi();
-  const { listSites } = useSites();
   const selectionRef = useRef<MinerSelectionListHandle>(null);
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState("");
   const [addMode, setAddMode] = useState<AddMemberMode>("count");
   const [count, setCount] = useState("1");
-  const [siteId, setSiteId] = useState("");
   const [eligibleDevices, setEligibleDevices] = useState<CohortDevice[]>([]);
-  const [sites, setSites] = useState<SiteWithCounts[]>([]);
   const [isLoadingEligibleDevices, setIsLoadingEligibleDevices] = useState(false);
   const isRemove = mode === "remove";
   const isAdd = mode === "add";
   const isCompactModal = isRemove || (isAdd && addMode === "count");
   const selectedRemoveCount = selectedMemberIds.size;
   const fixedModelFilter = useMemo(() => (target?.model ? [target.model] : []), [target]);
-  const siteOptions = useMemo(
-    () => [
-      { value: "", label: "Any site" },
-      ...sites.map(formatSiteOption).filter((option): option is { value: string; label: string } => Boolean(option)),
-    ],
-    [sites],
-  );
-  const displayedEligibleDevices = useMemo(() => {
-    if (!siteId) return eligibleDevices;
-    try {
-      const parsedSiteId = BigInt(siteId);
-      return eligibleDevices.filter((device) => device.siteId === parsedSiteId);
-    } catch {
-      return [];
-    }
-  }, [eligibleDevices, siteId]);
   const eligibleDeviceIds = useMemo(
-    () => new Set(displayedEligibleDevices.map((device) => device.deviceIdentifier)),
-    [displayedEligibleDevices],
+    () => new Set(eligibleDevices.map((device) => device.deviceIdentifier)),
+    [eligibleDevices],
   );
-
-  useEffect(() => {
-    if (!isAdd) return;
-
-    let cancelled = false;
-    void listSites({
-      onSuccess: (nextSites) => {
-        if (!cancelled) setSites(nextSites);
-      },
-      onError: (message) => {
-        if (!cancelled) pushToast({ message: message || "Couldn't load sites", status: STATUSES.error });
-      },
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [isAdd, listSites]);
 
   useEffect(() => {
     if (!isAdd || !target) return;
@@ -1534,13 +1505,13 @@ const DeviceMutationModal = ({
         setError("Count must be between 1 and 10000");
         return;
       }
-      if (displayedEligibleDevices.length < parsedCount) {
+      if (eligibleDevices.length < parsedCount) {
         setError(
-          `Only ${displayedEligibleDevices.length} eligible ${displayedEligibleDevices.length === 1 ? "miner is" : "miners are"} available.`,
+          `Only ${eligibleDevices.length} eligible ${eligibleDevices.length === 1 ? "miner is" : "miners are"} available.`,
         );
         return;
       }
-      onSubmit(displayedEligibleDevices.slice(0, parsedCount).map((device) => device.deviceIdentifier));
+      onSubmit(eligibleDevices.slice(0, parsedCount).map((device) => device.deviceIdentifier));
       return;
     }
 
@@ -1552,7 +1523,7 @@ const DeviceMutationModal = ({
       return;
     }
     onSubmit(identifiers);
-  }, [addMode, count, displayedEligibleDevices, isAdd, isRemove, onSubmit, selectedMemberIds, target]);
+  }, [addMode, count, eligibleDevices, isAdd, isRemove, onSubmit, selectedMemberIds, target]);
 
   return (
     <Modal
@@ -1586,27 +1557,27 @@ const DeviceMutationModal = ({
         ) : null}
         {isRemove ? (
           <div className="flex flex-col">
-            {members.map((member, index) => (
-              <Row key={member.deviceIdentifier} divider={index < members.length - 1} compact>
-                <label className="flex w-full cursor-pointer items-center gap-4">
-                  <Checkbox
-                    checked={selectedMemberIds.has(member.deviceIdentifier)}
-                    onChange={() => toggleMember(member.deviceIdentifier)}
-                  />
-                  <div className="min-w-0">
-                    <div className="truncate text-emphasis-300 text-text-primary">
-                      {cohortDeviceDisplayName(member)}
+            {members.map((member, index) => {
+              const memberName = cohortDeviceDisplayName(member);
+              const memberSecondary = cohortMemberSecondaryText(member);
+
+              return (
+                <Row key={member.deviceIdentifier} divider={index < members.length - 1} compact>
+                  <label className="flex w-full cursor-pointer items-center gap-4">
+                    <Checkbox
+                      checked={selectedMemberIds.has(member.deviceIdentifier)}
+                      onChange={() => toggleMember(member.deviceIdentifier)}
+                    />
+                    <div className="min-w-0">
+                      <div className="truncate text-emphasis-300 text-text-primary">{memberName}</div>
+                      {memberSecondary ? (
+                        <div className="truncate text-200 text-text-primary-70">{memberSecondary}</div>
+                      ) : null}
                     </div>
-                    <div className="truncate text-200 text-text-primary-70">
-                      {cohortMemberSiteLabel(member)}
-                      {cohortDeviceSecondaryText(member.display)
-                        ? ` - ${cohortDeviceSecondaryText(member.display)}`
-                        : ""}
-                    </div>
-                  </div>
-                </label>
-              </Row>
-            ))}
+                  </label>
+                </Row>
+              );
+            })}
             <ModalSelectAllFooter
               label={`${selectedRemoveCount} ${selectedRemoveCount === 1 ? "member" : "members"} selected`}
               onSelectAll={() => setSelectedMemberIds(new Set(members.map((member) => member.deviceIdentifier)))}
@@ -1632,36 +1603,22 @@ const DeviceMutationModal = ({
 
             {addMode === "count" ? (
               <>
-                <div className="grid gap-4 tablet:grid-cols-2">
-                  <Input
-                    id="cohort-add-count"
-                    label="Count"
-                    initValue={count}
-                    onChange={(value) => {
-                      setCount(value);
-                      setError("");
-                    }}
-                    inputMode="numeric"
-                    type="number"
-                    required
-                  />
-                  <Select
-                    id="cohort-add-site-id"
-                    label="Site"
-                    options={siteOptions}
-                    value={siteId}
-                    onChange={(value) => {
-                      setSiteId(value);
-                      setError("");
-                    }}
-                    disabled={!target}
-                    forceBelow
-                  />
-                </div>
+                <Input
+                  id="cohort-add-count"
+                  label="Count"
+                  initValue={count}
+                  onChange={(value) => {
+                    setCount(value);
+                    setError("");
+                  }}
+                  inputMode="numeric"
+                  type="number"
+                  required
+                />
                 <div className="rounded-lg bg-core-primary-5 px-4 py-3">
                   <div className="text-200 text-text-primary-70">Eligible miners</div>
                   <div className="mt-1 text-emphasis-300 text-text-primary">
-                    {isLoadingEligibleDevices ? "Loading..." : displayedEligibleDevices.length.toString()}
+                    {isLoadingEligibleDevices ? "Loading..." : eligibleDevices.length.toString()}
                   </div>
                 </div>
               </>
@@ -1682,7 +1639,7 @@ const DeviceMutationModal = ({
                         : "Adding members requires a single product and model."}
                     </div>
                   }
-                  visibleTotal={displayedEligibleDevices.length}
+                  visibleTotal={eligibleDevices.length}
                 />
               </div>
             ) : null}

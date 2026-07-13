@@ -37,7 +37,6 @@ func cohortReserveCommand() *cli.Command {
 			&cli.IntFlag{Name: "count", Usage: "Reserve the first N available default-cohort rigs"},
 			&cli.StringFlag{Name: "product", Usage: "Limit --count allocation to a manufacturer/product"},
 			&cli.StringFlag{Name: "model", Usage: "Limit --count allocation to a model"},
-			&cli.Int64Flag{Name: "site-id", Usage: "Limit --count allocation or rig listing to a site id"},
 			&cli.Int64Flag{Name: "source-device-set-id", Usage: "Reserve current members of a group/device set"},
 			&cli.StringFlag{Name: "expires-at", Usage: "Lease expiration timestamp in RFC3339 format"},
 			&cli.StringFlag{Name: "firmware-file-id", Usage: "Desired firmware file id for the cohort"},
@@ -74,8 +73,8 @@ func buildCreateCohortRequest(ctx context.Context, cmd *cli.Command, client *Cli
 	if cmd.IsSet("count") && (cmd.IsSet("device") || cmd.IsSet("source-device-set-id")) {
 		return nil, fmt.Errorf("--count cannot be combined with --device or --source-device-set-id")
 	}
-	if !cmd.IsSet("count") && (cmd.IsSet("product") || cmd.IsSet("model") || cmd.IsSet("site-id")) {
-		return nil, fmt.Errorf("--product, --model, and --site-id require --count")
+	if !cmd.IsSet("count") && (cmd.IsSet("product") || cmd.IsSet("model")) {
+		return nil, fmt.Errorf("--product and --model require --count")
 	}
 
 	req := &cohortv1.CreateCohortRequest{
@@ -118,10 +117,6 @@ func buildCreateCohortRequest(ctx context.Context, cmd *cli.Command, client *Cli
 			if value != "" {
 				selector.Model = &value
 			}
-		}
-		if cmd.IsSet("site-id") {
-			value := cmd.Int64("site-id")
-			selector.SiteId = &value
 		}
 		req.InitialMembers = &cohortv1.CreateCohortRequest_Select{
 			Select: selector,

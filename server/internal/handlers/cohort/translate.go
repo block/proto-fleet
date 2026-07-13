@@ -29,7 +29,6 @@ func toCreateCohortParams(req *pb.CreateCohortRequest, info *session.Info) (mode
 			Count:   x.Select.GetCount(),
 			Product: stringPtrFromOptional(x.Select.Product),
 			Model:   stringPtrFromOptional(x.Select.Model),
-			SiteID:  x.Select.SiteId,
 		}
 	}
 	var ownerUserID *int64
@@ -123,7 +122,6 @@ func toMembershipMutationParams(orgID int64, userID int64, role string, cohortID
 func toListDevicesParams(req *pb.ListDevicesRequest, orgID int64) models.ListDevicesParams {
 	return models.ListDevicesParams{
 		OrgID:     orgID,
-		SiteID:    req.SiteId,
 		PageSize:  req.GetPageSize(),
 		PageToken: req.GetPageToken(),
 		Filter:    toCohortDeviceFilter(req.GetFilter()),
@@ -144,15 +142,13 @@ func toCohortDeviceFilter(filter *pb.CohortDeviceFilter) models.CohortDeviceFilt
 		}
 	}
 	return models.CohortDeviceFilter{
-		Assignments:           assignments,
-		CohortIDs:             filter.GetCohortIds(),
-		OwnerUserIDs:          filter.GetOwnerUserIds(),
-		IncludeUnowned:        filter.GetIncludeUnowned(),
-		Manufacturers:         filter.GetManufacturers(),
-		Models:                filter.GetModels(),
-		SiteIDs:               filter.GetSiteIds(),
-		IncludeUnassignedSite: filter.GetIncludeUnassignedSite(),
-		Search:                filter.GetSearch(),
+		Assignments:    assignments,
+		CohortIDs:      filter.GetCohortIds(),
+		OwnerUserIDs:   filter.GetOwnerUserIds(),
+		IncludeUnowned: filter.GetIncludeUnowned(),
+		Manufacturers:  filter.GetManufacturers(),
+		Models:         filter.GetModels(),
+		Search:         filter.GetSearch(),
 	}
 }
 
@@ -188,6 +184,7 @@ func toProtoCohortSummary(cohort *models.Cohort) *pb.CohortSummary {
 		UpdatedAt:             timestamppb.New(cohort.UpdatedAt),
 		ExplicitMemberCount:   cohort.ExplicitMemberCount,
 		FirmwareTargets:       toProtoFirmwareTargets(cohort.FirmwareTargets),
+		FirmwareProgress:      toProtoFirmwareProgress(cohort.FirmwareProgress),
 	}
 	if cohort.OwnerUserID != nil {
 		out.OwnerUserId = cohort.OwnerUserID
@@ -211,9 +208,7 @@ func toProtoMembers(members []models.CohortMember) []*pb.CohortMember {
 			DeviceIdentifier: member.DeviceIdentifier,
 			AddedAt:          timestamppb.New(member.AddedAt),
 			Display:          toProtoDeviceDisplay(member.Display),
-		}
-		if member.SiteID != nil {
-			pbMember.SiteId = member.SiteID
+			FirmwareStatus:   toProtoFirmwareStatus(member.FirmwareStatus),
 		}
 		out = append(out, pbMember)
 	}
@@ -239,9 +234,7 @@ func toProtoCohortDevices(devices []models.CohortDevice) []*pb.CohortDevice {
 			DeviceIdentifier: device.DeviceIdentifier,
 			EffectiveCohort:  toProtoCohortSummary(&device.EffectiveCohort),
 			Display:          toProtoDeviceDisplay(device.Display),
-		}
-		if device.SiteID != nil {
-			pbDevice.SiteId = device.SiteID
+			FirmwareStatus:   toProtoFirmwareStatus(device.FirmwareStatus),
 		}
 		out = append(out, pbDevice)
 	}
@@ -256,8 +249,39 @@ func toProtoDeviceDisplay(display models.CohortDeviceDisplay) *pb.CohortDeviceDi
 		Model:           display.Model,
 		IpAddress:       display.IPAddress,
 		SerialNumber:    display.SerialNumber,
-		SiteLabel:       display.SiteLabel,
 		FirmwareVersion: display.FirmwareVersion,
+	}
+}
+
+func toProtoFirmwareStatus(status *models.CohortFirmwareStatus) *pb.CohortFirmwareStatus {
+	if status == nil {
+		return nil
+	}
+	return &pb.CohortFirmwareStatus{
+		TargetFirmwareFileId:   status.TargetFirmwareFileID,
+		TargetFirmwareVersion:  status.TargetFirmwareVersion,
+		CurrentFirmwareVersion: status.CurrentFirmwareVersion,
+		State:                  toProtoFirmwareRolloutState(status.State),
+		RetryCount:             status.RetryCount,
+		LastError:              ptrToString(status.LastError),
+		LastDispatchedAt:       timePtrToTimestamp(status.LastDispatchedAt),
+		ConfirmedAt:            timePtrToTimestamp(status.ConfirmedAt),
+		ObservedAt:             timePtrToTimestamp(status.ObservedAt),
+	}
+}
+
+func toProtoFirmwareProgress(progress models.CohortFirmwareProgress) *pb.CohortFirmwareProgress {
+	if progress.TargetedCount == 0 {
+		return nil
+	}
+	return &pb.CohortFirmwareProgress{
+		TargetedCount:       progress.TargetedCount,
+		CompleteCount:       progress.CompleteCount,
+		QueuedCount:         progress.QueuedCount,
+		UpdatingCount:       progress.UpdatingCount,
+		VerifyingCount:      progress.VerifyingCount,
+		NeedsAttentionCount: progress.NeedsAttentionCount,
+		UnknownCount:        progress.UnknownCount,
 	}
 }
 
@@ -269,6 +293,27 @@ func toProtoState(state models.CohortState) pb.CohortState {
 		return pb.CohortState_COHORT_STATE_RELEASED
 	default:
 		return pb.CohortState_COHORT_STATE_UNSPECIFIED
+	}
+}
+
+func toProtoFirmwareRolloutState(state models.CohortFirmwareRolloutState) pb.CohortFirmwareRolloutState {
+	switch state {
+	case models.CohortFirmwareRolloutStateNoTarget:
+		return pb.CohortFirmwareRolloutState_COHORT_FIRMWARE_ROLLOUT_STATE_NO_TARGET
+	case models.CohortFirmwareRolloutStateQueued:
+		return pb.CohortFirmwareRolloutState_COHORT_FIRMWARE_ROLLOUT_STATE_QUEUED
+	case models.CohortFirmwareRolloutStateUpdating:
+		return pb.CohortFirmwareRolloutState_COHORT_FIRMWARE_ROLLOUT_STATE_UPDATING
+	case models.CohortFirmwareRolloutStateVerifying:
+		return pb.CohortFirmwareRolloutState_COHORT_FIRMWARE_ROLLOUT_STATE_VERIFYING
+	case models.CohortFirmwareRolloutStateComplete:
+		return pb.CohortFirmwareRolloutState_COHORT_FIRMWARE_ROLLOUT_STATE_COMPLETE
+	case models.CohortFirmwareRolloutStateNeedsAttention:
+		return pb.CohortFirmwareRolloutState_COHORT_FIRMWARE_ROLLOUT_STATE_NEEDS_ATTENTION
+	case models.CohortFirmwareRolloutStateUnknown:
+		return pb.CohortFirmwareRolloutState_COHORT_FIRMWARE_ROLLOUT_STATE_UNKNOWN
+	default:
+		return pb.CohortFirmwareRolloutState_COHORT_FIRMWARE_ROLLOUT_STATE_UNSPECIFIED
 	}
 }
 

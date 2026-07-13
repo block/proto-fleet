@@ -925,6 +925,178 @@ func TestDeleteCohort_DelegatesRelease(t *testing.T) {
 	assert.Equal(t, released, got)
 }
 
+func TestDeriveFirmwareRolloutState(t *testing.T) {
+	t.Parallel()
+
+	dispatching := models.EnforcementStateDispatching
+	dispatched := models.EnforcementStateDispatched
+	failed := models.EnforcementStateFailed
+	pending := models.EnforcementStatePending
+
+	tests := []struct {
+		name   string
+		status *models.CohortFirmwareStatus
+		want   models.CohortFirmwareRolloutState
+	}{
+		{
+			name:   "no target",
+			status: &models.CohortFirmwareStatus{},
+			want:   models.CohortFirmwareRolloutStateNoTarget,
+		},
+		{
+			name: "dispatching takes precedence",
+			status: &models.CohortFirmwareStatus{
+				TargetFirmwareFileID: "fw-1",
+				DeviceStatus:         "UPDATING",
+				EnforcementState:     &dispatching,
+			},
+			want: models.CohortFirmwareRolloutStateUpdating,
+		},
+		{
+			name: "device updating",
+			status: &models.CohortFirmwareStatus{
+				TargetFirmwareFileID:  "fw-1",
+				TargetFirmwareVersion: "1.2.0",
+				DeviceStatus:          "UPDATING",
+			},
+			want: models.CohortFirmwareRolloutStateUpdating,
+		},
+		{
+			name: "device reboot required",
+			status: &models.CohortFirmwareStatus{
+				TargetFirmwareFileID:  "fw-1",
+				TargetFirmwareVersion: "1.2.0",
+				DeviceStatus:          "REBOOT_REQUIRED",
+			},
+			want: models.CohortFirmwareRolloutStateUpdating,
+		},
+		{
+			name: "complete",
+			status: &models.CohortFirmwareStatus{
+				TargetFirmwareFileID:   "fw-1",
+				TargetFirmwareVersion:  "1.2.0",
+				CurrentFirmwareVersion: "1.2.0",
+			},
+			want: models.CohortFirmwareRolloutStateComplete,
+		},
+		{
+			name: "verifying",
+			status: &models.CohortFirmwareStatus{
+				TargetFirmwareFileID:   "fw-1",
+				TargetFirmwareVersion:  "1.2.0",
+				CurrentFirmwareVersion: "1.1.0",
+				EnforcementState:       &dispatched,
+			},
+			want: models.CohortFirmwareRolloutStateVerifying,
+		},
+		{
+			name: "failed needs attention without target version",
+			status: &models.CohortFirmwareStatus{
+				TargetFirmwareFileID:   "fw-1",
+				CurrentFirmwareVersion: "1.1.0",
+				EnforcementState:       &failed,
+			},
+			want: models.CohortFirmwareRolloutStateNeedsAttention,
+		},
+		{
+			name: "retrying needs attention",
+			status: &models.CohortFirmwareStatus{
+				TargetFirmwareFileID:  "fw-1",
+				TargetFirmwareVersion: "1.2.0",
+				EnforcementState:      &pending,
+				RetryCount:            1,
+			},
+			want: models.CohortFirmwareRolloutStateNeedsAttention,
+		},
+		{
+			name: "policy hold needs attention",
+			status: &models.CohortFirmwareStatus{
+				TargetFirmwareFileID:  "fw-1",
+				TargetFirmwareVersion: "1.2.0",
+				EnforcementState:      &pending,
+				LastError:             stringPtr("command policy held dispatch"),
+			},
+			want: models.CohortFirmwareRolloutStateNeedsAttention,
+		},
+		{
+			name: "drifted queues another pass",
+			status: &models.CohortFirmwareStatus{
+				TargetFirmwareFileID:   "fw-1",
+				TargetFirmwareVersion:  "1.2.0",
+				CurrentFirmwareVersion: "1.1.0",
+			},
+			want: models.CohortFirmwareRolloutStateQueued,
+		},
+		{
+			name: "queued",
+			status: &models.CohortFirmwareStatus{
+				TargetFirmwareFileID:  "fw-1",
+				TargetFirmwareVersion: "1.2.0",
+			},
+			want: models.CohortFirmwareRolloutStateQueued,
+		},
+		{
+			name: "unknown when target version is unavailable",
+			status: &models.CohortFirmwareStatus{
+				TargetFirmwareFileID: "fw-1",
+			},
+			want: models.CohortFirmwareRolloutStateUnknown,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, deriveFirmwareRolloutState(tt.status))
+		})
+	}
+}
+
+func TestHydrateCohortFirmwareUsesMetadataVersionAndAggregatesProgress(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(
+		mocks.NewMockCohortStore(gomock.NewController(t)),
+		WithFirmwareMetadataProvider(fakeFirmwareMetadataProvider{
+			"fw-1": {FirmwareVersion: "1.2.0"},
+		}),
+	)
+
+	cohort := cohortWithMembers(11, []models.CohortMember{
+		{
+			OrgID:            7,
+			DeviceIdentifier: "miner-1",
+			FirmwareStatus: &models.CohortFirmwareStatus{
+				DeviceIdentifier:       "miner-1",
+				TargetFirmwareFileID:   "fw-1",
+				TargetFirmwareVersion:  "cached-version",
+				CurrentFirmwareVersion: "1.2.0",
+			},
+		},
+		{
+			OrgID:            7,
+			DeviceIdentifier: "miner-2",
+			FirmwareStatus: &models.CohortFirmwareStatus{
+				DeviceIdentifier:       "miner-2",
+				TargetFirmwareFileID:   "fw-1",
+				TargetFirmwareVersion:  "cached-version",
+				CurrentFirmwareVersion: "1.1.0",
+			},
+		},
+	})
+
+	svc.hydrateCohortFirmware(context.Background(), cohort)
+
+	require.NotNil(t, cohort.Members[0].FirmwareStatus)
+	assert.Equal(t, "1.2.0", cohort.Members[0].FirmwareStatus.TargetFirmwareVersion)
+	assert.Equal(t, models.CohortFirmwareRolloutStateComplete, cohort.Members[0].FirmwareStatus.State)
+	require.NotNil(t, cohort.Members[1].FirmwareStatus)
+	assert.Equal(t, models.CohortFirmwareRolloutStateQueued, cohort.Members[1].FirmwareStatus.State)
+	assert.Equal(t, int32(2), cohort.FirmwareProgress.TargetedCount)
+	assert.Equal(t, int32(1), cohort.FirmwareProgress.CompleteCount)
+	assert.Equal(t, int32(1), cohort.FirmwareProgress.QueuedCount)
+}
+
 func validCreateParams(deviceIdentifiers []string) models.CreateCohortParams {
 	return models.CreateCohortParams{
 		OrgID:             7,

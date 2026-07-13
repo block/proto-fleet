@@ -298,7 +298,6 @@ func generatedCohortsCommand() *cli.Command {
 				generatedAuthBearer,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.Int64Flag{Name: "site-id", Usage: "site id"},
 					&cli.IntFlag{Name: "page-size", Usage: "page size"},
 					&cli.StringFlag{Name: "page-token", Usage: "page token"},
 				},
@@ -308,10 +307,6 @@ func generatedCohortsCommand() *cli.Command {
 						if err := readProtoJSON(jsonPath, req); err != nil {
 							return nil, err
 						}
-					}
-					if cmd.IsSet("site-id") {
-						value := cmd.Int64("site-id")
-						req.SiteId = &value
 					}
 					if cmd.IsSet("page-size") {
 						req.PageSize = int32(cmd.Int("page-size"))

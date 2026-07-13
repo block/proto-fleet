@@ -1,19 +1,22 @@
 import { MemoryRouter } from "react-router-dom";
 import { act, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import CohortOverviewPage from "./CohortOverviewPage";
 import {
-  CohortDeviceSchema,
+  type Cohort,
   CohortDeviceDisplaySchema,
+  CohortDeviceSchema,
+  CohortFirmwareProgressSchema,
+  CohortFirmwareRolloutState,
+  CohortFirmwareStatusSchema,
   CohortFirmwareTargetSchema,
   CohortMemberSchema,
   CohortSchema,
   CohortState,
   CohortSummarySchema,
-  type Cohort,
 } from "@/protoFleet/api/generated/cohort/v1/cohort_pb";
 import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import type { FleetDuration } from "@/shared/components/DurationSelector";
@@ -22,7 +25,6 @@ const mocks = vi.hoisted(() => ({
   getCohort: vi.fn(),
   addDevices: vi.fn(),
   listAllDevices: vi.fn(),
-  listSites: vi.fn(),
   listFirmwareFiles: vi.fn(),
   useTelemetryMetrics: vi.fn(),
   useParams: vi.fn(),
@@ -115,12 +117,6 @@ vi.mock("@/protoFleet/api/useFirmwareApi", () => ({
   }),
 }));
 
-vi.mock("@/protoFleet/api/sites", () => ({
-  useSites: () => ({
-    listSites: mocks.listSites,
-  }),
-}));
-
 vi.mock("@/protoFleet/api/useTelemetryMetrics", () => ({
   useTelemetryMetrics: (options: unknown) => mocks.useTelemetryMetrics(options),
 }));
@@ -175,8 +171,26 @@ const buildCohort = ({
   deviceIdentifiers?: string[];
   firmwareVersions?: string[];
   firmwareFileId?: string;
-} = {}): Cohort =>
-  create(CohortSchema, {
+} = {}): Cohort => {
+  const targetVersion = "1.3.6";
+  const firmwareStatuses = deviceIdentifiers.map((_, index) => {
+    const currentFirmwareVersion = firmwareVersions[index] ?? "";
+    const complete = Boolean(firmwareFileId) && currentFirmwareVersion === targetVersion;
+    return firmwareFileId
+      ? create(CohortFirmwareStatusSchema, {
+          targetFirmwareFileId: firmwareFileId,
+          targetFirmwareVersion: targetVersion,
+          currentFirmwareVersion,
+          state: complete ? CohortFirmwareRolloutState.COMPLETE : CohortFirmwareRolloutState.VERIFYING,
+        })
+      : undefined;
+  });
+  const completeCount = firmwareStatuses.filter(
+    (status) => status?.state === CohortFirmwareRolloutState.COMPLETE,
+  ).length;
+  const targetedCount = firmwareStatuses.filter(Boolean).length;
+
+  return create(CohortSchema, {
     summary: create(CohortSummarySchema, {
       id: 7n,
       label: isDefault ? "Default cohort" : "Release cohort",
@@ -186,6 +200,13 @@ const buildCohort = ({
       purpose: "Firmware validation",
       sourceActorType: "user",
       explicitMemberCount: BigInt(deviceIdentifiers.length),
+      firmwareProgress: firmwareFileId
+        ? create(CohortFirmwareProgressSchema, {
+            targetedCount,
+            completeCount,
+            verifyingCount: targetedCount - completeCount,
+          })
+        : undefined,
     }),
     members: deviceIdentifiers.map((deviceIdentifier, index) =>
       create(CohortMemberSchema, {
@@ -197,6 +218,7 @@ const buildCohort = ({
           model: "Rig",
           firmwareVersion: firmwareVersions[index] ?? "",
         }),
+        firmwareStatus: firmwareStatuses[index],
       }),
     ),
     firmwareTargets: firmwareFileId
@@ -209,6 +231,7 @@ const buildCohort = ({
         ]
       : [],
   });
+};
 
 const renderPage = () =>
   render(
@@ -224,15 +247,10 @@ describe("CohortOverviewPage performance graphs", () => {
     mocks.routeSiteScope = undefined;
     mocks.duration = "24h";
     mocks.listFirmwareFiles.mockResolvedValue([]);
-    mocks.listSites.mockImplementation(({ onSuccess }) => {
-      onSuccess([]);
-      return Promise.resolve([]);
-    });
     mocks.addDevices.mockResolvedValue(buildCohort({ deviceIdentifiers: ["miner-001", "miner-002", "eligible-1"] }));
     mocks.listAllDevices.mockResolvedValue([
       create(CohortDeviceSchema, {
         deviceIdentifier: "eligible-1",
-        siteId: 1n,
         display: create(CohortDeviceDisplaySchema, {
           name: "eligible-1",
           manufacturer: "Proto",
@@ -241,7 +259,6 @@ describe("CohortOverviewPage performance graphs", () => {
       }),
       create(CohortDeviceSchema, {
         deviceIdentifier: "eligible-2",
-        siteId: 1n,
         display: create(CohortDeviceDisplaySchema, {
           name: "eligible-2",
           manufacturer: "Proto",
@@ -300,11 +317,11 @@ describe("CohortOverviewPage performance graphs", () => {
 
     renderPage();
 
-    expect(await screen.findByText("Firmware versions")).toBeInTheDocument();
+    expect(await screen.findByText("Rollout")).toBeInTheDocument();
     expect(screen.getAllByText("1.3.6").length).toBeGreaterThan(0);
     expect(screen.getAllByText("1.3.5").length).toBeGreaterThan(0);
-    expect(screen.getByText("On target")).toBeInTheDocument();
-    expect(screen.getByText("Target: 1.3.6")).toBeInTheDocument();
+    expect(screen.getByText("Complete")).toBeInTheDocument();
+    expect(screen.getAllByText("Target: 1.3.6").length).toBeGreaterThan(0);
   });
 
   it("refreshes cohort details while firmware members are off target", async () => {
@@ -330,15 +347,15 @@ describe("CohortOverviewPage performance graphs", () => {
 
     renderPage();
 
-    expect(await screen.findByText("Target: 1.3.6")).toBeInTheDocument();
-    expect(screen.getByText("0/1 on target")).toBeInTheDocument();
+    expect((await screen.findAllByText("Target: 1.3.6")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Verifying")).toBeInTheDocument();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
 
     await waitFor(() => expect(mocks.getCohort).toHaveBeenCalledTimes(2));
-    expect(screen.getByText("All on target")).toBeInTheDocument();
+    expect(screen.getByText("Complete")).toBeInTheDocument();
   });
 
   it("does not render performance graphs for the default cohort", async () => {

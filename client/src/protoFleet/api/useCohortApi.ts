@@ -43,7 +43,6 @@ interface CreateCohortProps extends MutationCallbacks<Cohort> {
     count: number;
     product?: string;
     model?: string;
-    siteId?: bigint;
   };
 }
 
@@ -105,13 +104,10 @@ interface CohortDeviceFilterProps {
   includeUnowned?: boolean;
   manufacturers?: string[];
   models?: string[];
-  siteIds?: bigint[];
-  includeUnassignedSite?: boolean;
   search?: string;
 }
 
 interface ListDevicesProps extends MutationCallbacks<PagedCohortDevicesResult> {
-  siteId?: bigint;
   pageSize?: number;
   pageToken?: string;
   filter?: CohortDeviceFilterProps;
@@ -129,8 +125,6 @@ function buildCohortDeviceFilter(filter?: CohortDeviceFilterProps): CohortDevice
     Boolean(filter.includeUnowned) ||
     (filter.manufacturers?.length ?? 0) > 0 ||
     (filter.models?.length ?? 0) > 0 ||
-    (filter.siteIds?.length ?? 0) > 0 ||
-    Boolean(filter.includeUnassignedSite) ||
     Boolean(filter.search?.trim());
   if (!hasFilter) return undefined;
   return create(CohortDeviceFilterSchema, {
@@ -140,8 +134,6 @@ function buildCohortDeviceFilter(filter?: CohortDeviceFilterProps): CohortDevice
     includeUnowned: filter.includeUnowned,
     manufacturers: filter.manufacturers ?? [],
     models: filter.models ?? [],
-    siteIds: filter.siteIds ?? [],
-    includeUnassignedSite: filter.includeUnassignedSite,
     search: filter.search?.trim(),
   });
 }
@@ -228,11 +220,10 @@ export function useCohortApi() {
   );
 
   const listDevices = useCallback(
-    async ({ siteId, pageSize, pageToken, filter, onSuccess, onError, onFinally }: ListDevicesProps = {}) => {
+    async ({ pageSize, pageToken, filter, onSuccess, onError, onFinally }: ListDevicesProps = {}) => {
       try {
         const response = await cohortClient.listDevices(
           create(ListDevicesRequestSchema, {
-            siteId,
             pageSize,
             pageToken,
             filter: buildCohortDeviceFilter(filter),
@@ -258,19 +249,13 @@ export function useCohortApi() {
   );
 
   const listAllDevices = useCallback(
-    async ({
-      siteId,
-      filter,
-      onError,
-      onFinally,
-    }: Omit<ListDevicesProps, "pageSize" | "pageToken" | "onSuccess"> = {}) => {
+    async ({ filter, onError, onFinally }: Omit<ListDevicesProps, "pageSize" | "pageToken" | "onSuccess"> = {}) => {
       try {
         const devices: CohortDevice[] = [];
         let pageToken = "";
         for (let page = 0; page < maxListAllPages; page += 1) {
           const response = await cohortClient.listDevices(
             create(ListDevicesRequestSchema, {
-              siteId,
               pageSize: allDevicesPageSize,
               pageToken,
               filter: buildCohortDeviceFilter(filter),
@@ -309,7 +294,6 @@ export function useCohortApi() {
                         count: selector.count,
                         product: selector.product || undefined,
                         model: selector.model || undefined,
-                        siteId: selector.siteId,
                       }),
                     }
                   : {

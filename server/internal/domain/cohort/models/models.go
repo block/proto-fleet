@@ -45,6 +45,8 @@ type Cohort struct {
 	ExplicitMemberCount   int64
 	Members               []CohortMember
 	FirmwareTargets       []CohortFirmwareTarget
+	FirmwareStatuses      []CohortFirmwareStatus
+	FirmwareProgress      CohortFirmwareProgress
 }
 
 // CohortFirmwareTarget is desired firmware for a single miner manufacturer/model.
@@ -63,9 +65,9 @@ type CohortMember struct {
 	CohortID         int64
 	OrgID            int64
 	DeviceIdentifier string
-	SiteID           *int64
 	AddedAt          time.Time
 	Display          CohortDeviceDisplay
+	FirmwareStatus   *CohortFirmwareStatus
 }
 
 // CohortDeviceDisplay is the human-readable fleet metadata shown alongside
@@ -77,7 +79,6 @@ type CohortDeviceDisplay struct {
 	Model           string
 	IPAddress       string
 	SerialNumber    string
-	SiteLabel       string
 	FirmwareVersion string
 }
 
@@ -109,7 +110,6 @@ type CohortDeviceSelector struct {
 	Count   int32
 	Product *string
 	Model   *string
-	SiteID  *int64
 }
 
 // UpdateCohortParams is the patch shape for cohort metadata and desired state.
@@ -180,7 +180,6 @@ type MembershipMutationParams struct {
 // ListDevicesParams controls effective cohort device visibility.
 type ListDevicesParams struct {
 	OrgID     int64
-	SiteID    *int64
 	PageSize  int32
 	PageToken string
 	Filter    CohortDeviceFilter
@@ -194,15 +193,13 @@ const (
 )
 
 type CohortDeviceFilter struct {
-	Assignments           []CohortDeviceAssignment
-	CohortIDs             []int64
-	OwnerUserIDs          []int64
-	IncludeUnowned        bool
-	Manufacturers         []string
-	Models                []string
-	SiteIDs               []int64
-	IncludeUnassignedSite bool
-	Search                string
+	Assignments    []CohortDeviceAssignment
+	CohortIDs      []int64
+	OwnerUserIDs   []int64
+	IncludeUnowned bool
+	Manufacturers  []string
+	Models         []string
+	Search         string
 }
 
 type PagedCohortDevices struct {
@@ -218,14 +215,12 @@ type InsertCohortMemberParams struct {
 	CohortID         int64
 	OrgID            int64
 	DeviceIdentifier string
-	SiteID           *int64
 }
 
 // DefaultCohortDevice is a device that currently has no explicit cohort
 // membership row and therefore belongs to the default cohort.
 type DefaultCohortDevice struct {
 	DeviceIdentifier string
-	SiteID           *int64
 }
 
 // CohortDeviceOwnership describes a device's current explicit cohort owner.
@@ -239,9 +234,46 @@ type CohortDeviceOwnership struct {
 // CohortDevice is a fleet device decorated with its effective cohort.
 type CohortDevice struct {
 	DeviceIdentifier string
-	SiteID           *int64
 	EffectiveCohort  Cohort
 	Display          CohortDeviceDisplay
+	FirmwareStatus   *CohortFirmwareStatus
+}
+
+type CohortFirmwareRolloutState string
+
+const (
+	CohortFirmwareRolloutStateNoTarget       CohortFirmwareRolloutState = "no_target"
+	CohortFirmwareRolloutStateQueued         CohortFirmwareRolloutState = "queued"
+	CohortFirmwareRolloutStateUpdating       CohortFirmwareRolloutState = "updating"
+	CohortFirmwareRolloutStateVerifying      CohortFirmwareRolloutState = "verifying"
+	CohortFirmwareRolloutStateComplete       CohortFirmwareRolloutState = "complete"
+	CohortFirmwareRolloutStateNeedsAttention CohortFirmwareRolloutState = "needs_attention"
+	CohortFirmwareRolloutStateUnknown        CohortFirmwareRolloutState = "unknown"
+)
+
+type CohortFirmwareStatus struct {
+	DeviceIdentifier       string
+	TargetFirmwareFileID   string
+	TargetFirmwareVersion  string
+	CurrentFirmwareVersion string
+	State                  CohortFirmwareRolloutState
+	RetryCount             int32
+	LastError              *string
+	LastDispatchedAt       *time.Time
+	ConfirmedAt            *time.Time
+	ObservedAt             *time.Time
+	EnforcementState       *EnforcementState
+	DeviceStatus           string
+}
+
+type CohortFirmwareProgress struct {
+	TargetedCount       int32
+	CompleteCount       int32
+	QueuedCount         int32
+	UpdatingCount       int32
+	VerifyingCount      int32
+	NeedsAttentionCount int32
+	UnknownCount        int32
 }
 
 type EnforcementState string

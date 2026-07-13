@@ -339,7 +339,10 @@ const AuthenticateMiners = ({
     const credentialGroups = new Map<string, { creds: Credentials; deviceIds: string[] }>();
 
     selectedMiners.forEach((deviceId) => {
-      const minerCreds = credentials[deviceId] || bulkCredentials;
+      const minerCreds = {
+        ...bulkCredentials,
+        ...(credentials[deviceId] ?? {}),
+      };
       const key = `${minerCreds.username}|||${minerCreds.password}`;
 
       const existing = credentialGroups.get(key);

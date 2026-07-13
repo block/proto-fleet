@@ -10,7 +10,6 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/cohort/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
@@ -23,15 +22,10 @@ func TestCohortStore_CreateGetListAndRelease(t *testing.T) {
 	tc := testutil.InitializeDBServiceInfrastructure(t)
 	user := tc.DatabaseService.CreateSuperAdminUser()
 	store := sqlstores.NewSQLCohortStore(tc.DatabaseService.DB)
-	siteStore := sqlstores.NewSQLSiteStore(tc.DatabaseService.DB)
 	ctx := t.Context()
 
-	site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: user.OrganizationID, Name: "Cohort Site"})
-	require.NoError(t, err)
 	deviceA := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
 	deviceB := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
-	_, err = siteStore.AssignDevicesToSite(ctx, user.OrganizationID, &site.ID, []string{deviceA.ID, deviceB.ID})
-	require.NoError(t, err)
 	setDeviceDisplayFields(t, tc, user.OrganizationID, deviceA.ID, "Rig A", "worker-a", "SN-A")
 
 	initialCohorts, err := store.ListCohorts(ctx, models.ListCohortsParams{OrgID: user.OrganizationID})
@@ -61,10 +55,6 @@ func TestCohortStore_CreateGetListAndRelease(t *testing.T) {
 	assert.Equal(t, models.CohortStateActive, created.State)
 	assert.Equal(t, int64(2), created.ExplicitMemberCount)
 	require.Len(t, created.Members, 2)
-	for _, member := range created.Members {
-		require.NotNil(t, member.SiteID)
-		assert.Equal(t, site.ID, *member.SiteID)
-	}
 	memberA := requireCohortMember(t, created.Members, deviceA.ID)
 	assert.Equal(t, "Rig A", memberA.Display.Name)
 	assert.Equal(t, "worker-a", memberA.Display.WorkerName)
@@ -72,7 +62,6 @@ func TestCohortStore_CreateGetListAndRelease(t *testing.T) {
 	assert.Equal(t, "TestMiner", memberA.Display.Model)
 	assert.NotEmpty(t, memberA.Display.IPAddress)
 	assert.Equal(t, "SN-A", memberA.Display.SerialNumber)
-	assert.Equal(t, "Cohort Site", memberA.Display.SiteLabel)
 
 	fetched, err := store.GetCohort(ctx, user.OrganizationID, created.ID)
 	require.NoError(t, err)
@@ -89,7 +78,6 @@ func TestCohortStore_CreateGetListAndRelease(t *testing.T) {
 	require.Len(t, fetched.Members, 2)
 	fetchedMemberA := requireCohortMember(t, fetched.Members, deviceA.ID)
 	assert.Equal(t, "Rig A", fetchedMemberA.Display.Name)
-	assert.Equal(t, "Cohort Site", fetchedMemberA.Display.SiteLabel)
 
 	listed, err := store.ListCohorts(ctx, models.ListCohortsParams{OrgID: user.OrganizationID})
 	require.NoError(t, err)
@@ -280,6 +268,119 @@ func TestCohortStore_SetCohortFirmwareTarget(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, clearedCohort.DesiredFirmwareFileID)
 	assert.Empty(t, clearedCohort.FirmwareTargets)
+}
+
+func TestCohortStore_ReadsFirmwareStatusesFromExistingState(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	user := tc.DatabaseService.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCohortStore(tc.DatabaseService.DB)
+	ctx := t.Context()
+
+	deviceA := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
+	deviceB := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
+	setDiscoveredDeviceShape(t, tc, user.OrganizationID, deviceA.ID, "Proto", "Rig")
+	setDiscoveredDeviceShape(t, tc, user.OrganizationID, deviceB.ID, "Proto", "Rig")
+	upsertObservedFirmware(t, tc, user.OrganizationID, deviceA.ID, "1.0.0")
+	upsertObservedFirmware(t, tc, user.OrganizationID, deviceB.ID, "1.2.0")
+	upsertDeviceStatus(t, tc, user.OrganizationID, deviceA.ID, "UPDATING")
+
+	created, err := store.CreateCohort(ctx, models.CreateCohortParams{
+		OrgID:             user.OrganizationID,
+		Label:             "firmware visibility",
+		Purpose:           "status read path",
+		SourceActorType:   models.SourceActorUser,
+		DeviceIdentifiers: []string{deviceA.ID, deviceB.ID},
+	})
+	require.NoError(t, err)
+
+	manufacturer := "proto"
+	model := "rig"
+	firmwareFileID := "fw-1.2.0"
+	_, err = store.SetCohortFirmwareTarget(ctx, models.SetCohortFirmwareTargetParams{
+		OrgID:          user.OrganizationID,
+		CohortID:       created.ID,
+		Manufacturer:   &manufacturer,
+		Model:          &model,
+		FirmwareFileID: &firmwareFileID,
+	})
+	require.NoError(t, err)
+
+	dispatchAt := time.Date(2026, 7, 9, 15, 30, 0, 0, time.UTC)
+	claimed, err := store.ClaimFirmwareDispatch(ctx, models.ClaimFirmwareDispatchParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceA.ID,
+		DesiredFirmwareFileID:  firmwareFileID,
+		DesiredFirmwareVersion: "1.2.0",
+		DispatchingBefore:      dispatchAt.Add(-time.Hour),
+	})
+	require.NoError(t, err)
+	require.True(t, claimed)
+	dispatched, err := store.MarkFirmwareDispatched(ctx, models.MarkFirmwareDispatchedParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceA.ID,
+		DesiredFirmwareFileID:  firmwareFileID,
+		DesiredFirmwareVersion: "1.2.0",
+		LastBatchUUID:          "batch-1",
+		LastDispatchedAt:       dispatchAt,
+	})
+	require.NoError(t, err)
+	require.True(t, dispatched)
+	claimed, err = store.ClaimFirmwareDispatch(ctx, models.ClaimFirmwareDispatchParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceB.ID,
+		DesiredFirmwareFileID:  firmwareFileID,
+		DesiredFirmwareVersion: "1.2.0",
+		DispatchingBefore:      dispatchAt.Add(-time.Hour),
+	})
+	require.NoError(t, err)
+	require.True(t, claimed)
+	confirmed, err := store.MarkFirmwareConfirmed(ctx, models.MarkFirmwareConfirmedParams{
+		OrgID:                  user.OrganizationID,
+		DeviceIdentifier:       deviceB.ID,
+		DesiredFirmwareFileID:  firmwareFileID,
+		DesiredFirmwareVersion: "1.2.0",
+		ConfirmedAt:            dispatchAt.Add(time.Minute),
+		ObservedAt:             dispatchAt.Add(time.Minute),
+	})
+	require.NoError(t, err)
+	require.True(t, confirmed)
+
+	fetched, err := store.GetCohort(ctx, user.OrganizationID, created.ID)
+	require.NoError(t, err)
+	memberA := requireCohortMember(t, fetched.Members, deviceA.ID)
+	require.NotNil(t, memberA.FirmwareStatus)
+	assert.Equal(t, firmwareFileID, memberA.FirmwareStatus.TargetFirmwareFileID)
+	assert.Equal(t, "1.2.0", memberA.FirmwareStatus.TargetFirmwareVersion)
+	assert.Equal(t, "1.0.0", memberA.FirmwareStatus.CurrentFirmwareVersion)
+	require.NotNil(t, memberA.FirmwareStatus.EnforcementState)
+	assert.Equal(t, models.EnforcementStateDispatched, *memberA.FirmwareStatus.EnforcementState)
+	assert.Equal(t, "UPDATING", memberA.FirmwareStatus.DeviceStatus)
+	require.NotNil(t, memberA.FirmwareStatus.LastDispatchedAt)
+	assert.True(t, dispatchAt.Equal(*memberA.FirmwareStatus.LastDispatchedAt))
+
+	memberB := requireCohortMember(t, fetched.Members, deviceB.ID)
+	require.NotNil(t, memberB.FirmwareStatus)
+	assert.Equal(t, "1.2.0", memberB.FirmwareStatus.CurrentFirmwareVersion)
+	require.NotNil(t, memberB.FirmwareStatus.ConfirmedAt)
+
+	listed, err := store.ListCohorts(ctx, models.ListCohortsParams{OrgID: user.OrganizationID})
+	require.NoError(t, err)
+	listedCohort := nonDefaultCohorts(listed.Cohorts)[0]
+	require.Len(t, listedCohort.FirmwareStatuses, 2)
+
+	devices, err := store.ListDevices(ctx, models.ListDevicesParams{
+		OrgID:    user.OrganizationID,
+		PageSize: 20,
+	})
+	require.NoError(t, err)
+	listedDeviceA := requireCohortDevice(t, devices.Devices, deviceA.ID)
+	require.NotNil(t, listedDeviceA.FirmwareStatus)
+	assert.Equal(t, firmwareFileID, listedDeviceA.FirmwareStatus.TargetFirmwareFileID)
+	assert.Equal(t, "1.2.0", listedDeviceA.FirmwareStatus.TargetFirmwareVersion)
 }
 
 func TestCohortStore_MarkFirmwareConfirmedClearsStaleDispatchForNewTarget(t *testing.T) {
@@ -1009,22 +1110,13 @@ func TestCohortStore_CreateWithSelectorAllocatesDefaultDevices(t *testing.T) {
 	tc := testutil.InitializeDBServiceInfrastructure(t)
 	user := tc.DatabaseService.CreateSuperAdminUser()
 	store := sqlstores.NewSQLCohortStore(tc.DatabaseService.DB)
-	siteStore := sqlstores.NewSQLSiteStore(tc.DatabaseService.DB)
 	ctx := t.Context()
-
-	siteA, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: user.OrganizationID, Name: "Site A"})
-	require.NoError(t, err)
-	siteB, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: user.OrganizationID, Name: "Site B"})
-	require.NoError(t, err)
 
 	match := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
 	otherProduct := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
-	otherSite := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
-	_, err = siteStore.AssignDevicesToSite(ctx, user.OrganizationID, &siteA.ID, []string{match.ID, otherProduct.ID})
-	require.NoError(t, err)
-	_, err = siteStore.AssignDevicesToSite(ctx, user.OrganizationID, &siteB.ID, []string{otherSite.ID})
-	require.NoError(t, err)
+	otherModel := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
 	setDiscoveredDeviceShape(t, tc, user.OrganizationID, otherProduct.ID, "OtherCorp", "TestMiner")
+	setDiscoveredDeviceShape(t, tc, user.OrganizationID, otherModel.ID, "TestCorp", "OtherMiner")
 
 	product := "TestCorp"
 	model := "TestMiner"
@@ -1037,14 +1129,11 @@ func TestCohortStore_CreateWithSelectorAllocatesDefaultDevices(t *testing.T) {
 			Count:   1,
 			Product: &product,
 			Model:   &model,
-			SiteID:  &siteA.ID,
 		},
 	})
 	require.NoError(t, err)
 	require.Len(t, created.Members, 1)
 	assert.Equal(t, match.ID, created.Members[0].DeviceIdentifier)
-	require.NotNil(t, created.Members[0].SiteID)
-	assert.Equal(t, siteA.ID, *created.Members[0].SiteID)
 
 	_, err = store.CreateCohort(ctx, models.CreateCohortParams{
 		OrgID:           user.OrganizationID,
@@ -1055,7 +1144,6 @@ func TestCohortStore_CreateWithSelectorAllocatesDefaultDevices(t *testing.T) {
 			Count:   1,
 			Product: &product,
 			Model:   &model,
-			SiteID:  &siteA.ID,
 		},
 	})
 	require.Error(t, err)
@@ -1236,6 +1324,18 @@ func requireCohortMember(t *testing.T, members []models.CohortMember, deviceIden
 	return models.CohortMember{}
 }
 
+func requireCohortDevice(t *testing.T, devices []models.CohortDevice, deviceIdentifier string) models.CohortDevice {
+	t.Helper()
+
+	for _, device := range devices {
+		if device.DeviceIdentifier == deviceIdentifier {
+			return device
+		}
+	}
+	require.Failf(t, "missing cohort device", "device identifier %q not found", deviceIdentifier)
+	return models.CohortDevice{}
+}
+
 func setDiscoveredDeviceShape(t *testing.T, tc *testutil.TestContext, orgID int64, deviceIdentifier string, manufacturer string, model string) {
 	t.Helper()
 
@@ -1249,6 +1349,27 @@ func setDiscoveredDeviceShape(t *testing.T, tc *testutil.TestContext, orgID int6
 		  AND d.device_identifier = $2
 		  AND dd.org_id = $1
 	`, orgID, deviceIdentifier, manufacturer, model)
+	require.NoError(t, err)
+	affected, err := result.RowsAffected()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), affected)
+}
+
+func upsertDeviceStatus(t *testing.T, tc *testutil.TestContext, orgID int64, deviceIdentifier string, status string) {
+	t.Helper()
+
+	result, err := tc.DatabaseService.DB.ExecContext(t.Context(), `
+		INSERT INTO device_status (device_id, status, status_timestamp)
+		SELECT d.id, $3, CURRENT_TIMESTAMP
+		FROM device d
+		WHERE d.org_id = $1
+		  AND d.device_identifier = $2
+		  AND d.deleted_at IS NULL
+		ON CONFLICT (device_id)
+		DO UPDATE SET
+		    status = EXCLUDED.status,
+		    status_timestamp = EXCLUDED.status_timestamp
+	`, orgID, deviceIdentifier, status)
 	require.NoError(t, err)
 	affected, err := result.RowsAffected()
 	require.NoError(t, err)

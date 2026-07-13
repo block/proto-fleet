@@ -274,6 +274,9 @@ func (s *SQLCohortStore) ListCohorts(ctx context.Context, params models.ListCoho
 	if err := s.loadFirmwareTargetsForCohorts(ctx, q, params.OrgID, out); err != nil {
 		return models.PagedCohorts{}, err
 	}
+	if err := s.loadFirmwareStatusesForCohorts(ctx, q, params.OrgID, out); err != nil {
+		return models.PagedCohorts{}, err
+	}
 	return models.PagedCohorts{
 		Cohorts:       out,
 		NextPageToken: nextPageToken,
@@ -333,6 +336,9 @@ func (s *SQLCohortStore) ListCohortsByOwner(ctx context.Context, params models.L
 	if err := s.loadFirmwareTargetsForCohorts(ctx, q, params.OrgID, out); err != nil {
 		return models.PagedCohorts{}, err
 	}
+	if err := s.loadFirmwareStatusesForCohorts(ctx, q, params.OrgID, out); err != nil {
+		return models.PagedCohorts{}, err
+	}
 	return models.PagedCohorts{
 		Cohorts:       out,
 		NextPageToken: nextPageToken,
@@ -352,6 +358,48 @@ func (s *SQLCohortStore) loadFirmwareTargetsForCohorts(ctx context.Context, q *s
 		cohort.FirmwareTargets = make([]models.CohortFirmwareTarget, 0, len(rows))
 		for _, row := range rows {
 			cohort.FirmwareTargets = append(cohort.FirmwareTargets, firmwareTargetFromRow(row))
+		}
+	}
+	return nil
+}
+
+func (s *SQLCohortStore) loadFirmwareStatusesForCohorts(ctx context.Context, q *sqlc.Queries, orgID int64, cohorts []*models.Cohort) error {
+	if len(cohorts) == 0 {
+		return nil
+	}
+	cohortIDs := make([]int64, 0, len(cohorts))
+	cohortByID := make(map[int64]*models.Cohort, len(cohorts))
+	for _, cohort := range cohorts {
+		cohortIDs = append(cohortIDs, cohort.ID)
+		cohortByID[cohort.ID] = cohort
+	}
+	rows, err := q.ListCohortFirmwareStatuses(ctx, sqlc.ListCohortFirmwareStatusesParams{
+		OrgID:     orgID,
+		CohortIds: cohortIDs,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to list cohort firmware statuses: %v", err)
+	}
+	statusByDevice := make(map[int64]map[string]models.CohortFirmwareStatus, len(cohorts))
+	for _, row := range rows {
+		status := firmwareStatusFromCohortRow(row)
+		cohort := cohortByID[row.CohortID]
+		if cohort == nil {
+			continue
+		}
+		cohort.FirmwareStatuses = append(cohort.FirmwareStatuses, status)
+		if statusByDevice[row.CohortID] == nil {
+			statusByDevice[row.CohortID] = make(map[string]models.CohortFirmwareStatus)
+		}
+		statusByDevice[row.CohortID][row.DeviceIdentifier] = status
+	}
+	for _, cohort := range cohorts {
+		byDevice := statusByDevice[cohort.ID]
+		for i := range cohort.Members {
+			if status, ok := byDevice[cohort.Members[i].DeviceIdentifier]; ok {
+				next := status
+				cohort.Members[i].FirmwareStatus = &next
+			}
 		}
 	}
 	return nil
@@ -637,7 +685,6 @@ func (s *SQLCohortStore) InsertCohortMember(ctx context.Context, params models.I
 		CohortID:         params.CohortID,
 		OrgID:            params.OrgID,
 		DeviceIdentifier: params.DeviceIdentifier,
-		SiteID:           ptrToNullInt64(params.SiteID),
 	})
 	if err != nil {
 		return mapCohortMembershipError(err)
@@ -704,10 +751,9 @@ func (s *SQLCohortStore) ListDefaultCohortDevices(ctx context.Context, orgID int
 		return nil, fleeterror.NewInternalErrorf("failed to list default cohort devices: %v", err)
 	}
 	out := make([]models.DefaultCohortDevice, 0, len(rows))
-	for _, row := range rows {
+	for _, deviceIdentifier := range rows {
 		out = append(out, models.DefaultCohortDevice{
-			DeviceIdentifier: row.DeviceIdentifier,
-			SiteID:           nullInt64ToPtr(row.SiteID),
+			DeviceIdentifier: deviceIdentifier,
 		})
 	}
 	return out, nil
@@ -757,8 +803,6 @@ func (s *SQLCohortStore) ListDevices(ctx context.Context, params models.ListDevi
 		IncludeUnowned:         params.Filter.IncludeUnowned,
 		Manufacturers:          trimStrings(params.Filter.Manufacturers),
 		Models:                 trimStrings(params.Filter.Models),
-		SiteIds:                int64Slice(params.Filter.SiteIDs),
-		IncludeUnassignedSite:  params.Filter.IncludeUnassignedSite,
 		SearchFilterSet:        search != "",
 		Search:                 search,
 		CursorSet:              cursor != nil,
@@ -766,8 +810,6 @@ func (s *SQLCohortStore) ListDevices(ctx context.Context, params models.ListDevi
 		CursorDeviceIdentifier: cursorDeviceIdentifier(cursor),
 		LimitCount:             pageSize + 1,
 		OrgID:                  params.OrgID,
-		LegacySiteIDFilterSet:  params.SiteID != nil,
-		LegacySiteID:           ptrToNullInt64(params.SiteID),
 	}
 	q := s.GetQueries(ctx)
 	rows, err := q.ListCohortDevices(ctx, queryParams)
@@ -775,19 +817,15 @@ func (s *SQLCohortStore) ListDevices(ctx context.Context, params models.ListDevi
 		return models.PagedCohortDevices{}, fleeterror.NewInternalErrorf("failed to list cohort devices: %v", err)
 	}
 	counts, err := q.CountCohortDevices(ctx, sqlc.CountCohortDevicesParams{
-		Assignments:           queryParams.Assignments,
-		CohortIds:             queryParams.CohortIds,
-		OwnerUserIds:          queryParams.OwnerUserIds,
-		IncludeUnowned:        queryParams.IncludeUnowned,
-		Manufacturers:         queryParams.Manufacturers,
-		Models:                queryParams.Models,
-		SiteIds:               queryParams.SiteIds,
-		IncludeUnassignedSite: queryParams.IncludeUnassignedSite,
-		SearchFilterSet:       queryParams.SearchFilterSet,
-		Search:                queryParams.Search,
-		OrgID:                 queryParams.OrgID,
-		LegacySiteIDFilterSet: queryParams.LegacySiteIDFilterSet,
-		LegacySiteID:          queryParams.LegacySiteID,
+		Assignments:     queryParams.Assignments,
+		CohortIds:       queryParams.CohortIds,
+		OwnerUserIds:    queryParams.OwnerUserIds,
+		IncludeUnowned:  queryParams.IncludeUnowned,
+		Manufacturers:   queryParams.Manufacturers,
+		Models:          queryParams.Models,
+		SearchFilterSet: queryParams.SearchFilterSet,
+		Search:          queryParams.Search,
+		OrgID:           queryParams.OrgID,
 	})
 	if err != nil {
 		return models.PagedCohortDevices{}, fleeterror.NewInternalErrorf("failed to count cohort devices: %v", err)
@@ -808,10 +846,12 @@ func (s *SQLCohortStore) ListDevices(ctx context.Context, params models.ListDevi
 	for _, row := range rows {
 		out = append(out, models.CohortDevice{
 			DeviceIdentifier: row.DeviceIdentifier,
-			SiteID:           nullInt64ToPtr(row.DeviceSiteID),
 			EffectiveCohort:  cohortFromDeviceRow(row),
-			Display:          displayFromColumns(row.DisplayName, row.WorkerName, row.Manufacturer, row.Model, row.IpAddress, row.SerialNumber, row.SiteLabel, row.FirmwareVersion),
+			Display:          displayFromColumns(row.DisplayName, row.WorkerName, row.Manufacturer, row.Model, row.IpAddress, row.SerialNumber, row.FirmwareVersion),
 		})
+	}
+	if err := s.loadFirmwareStatusesForDevices(ctx, q, params.OrgID, out); err != nil {
+		return models.PagedCohortDevices{}, err
 	}
 	return models.PagedCohortDevices{
 		Devices:        out,
@@ -820,6 +860,34 @@ func (s *SQLCohortStore) ListDevices(ctx context.Context, params models.ListDevi
 		AvailableCount: int32Count(counts.AvailableCount),
 		ReservedCount:  int32Count(counts.ReservedCount),
 	}, nil
+}
+
+func (s *SQLCohortStore) loadFirmwareStatusesForDevices(ctx context.Context, q *sqlc.Queries, orgID int64, devices []models.CohortDevice) error {
+	if len(devices) == 0 {
+		return nil
+	}
+	deviceIdentifiers := make([]string, 0, len(devices))
+	for _, device := range devices {
+		deviceIdentifiers = append(deviceIdentifiers, device.DeviceIdentifier)
+	}
+	rows, err := q.ListCohortFirmwareStatusesForDevices(ctx, sqlc.ListCohortFirmwareStatusesForDevicesParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to list cohort device firmware statuses: %v", err)
+	}
+	statusByDevice := make(map[string]models.CohortFirmwareStatus, len(rows))
+	for _, row := range rows {
+		statusByDevice[row.DeviceIdentifier] = firmwareStatusFromDeviceRow(row)
+	}
+	for i := range devices {
+		if status, ok := statusByDevice[devices[i].DeviceIdentifier]; ok {
+			next := status
+			devices[i].FirmwareStatus = &next
+		}
+	}
+	return nil
 }
 
 func (s *SQLCohortStore) ListOrgsWithFirmwareTargets(ctx context.Context) ([]int64, error) {
@@ -980,12 +1048,14 @@ func (s *SQLCohortStore) getCohortWithQueries(ctx context.Context, q *sqlc.Queri
 	for _, row := range targets {
 		cohort.FirmwareTargets = append(cohort.FirmwareTargets, firmwareTargetFromRow(row))
 	}
+	if err := s.loadFirmwareStatusesForCohorts(ctx, q, cohort.OrgID, []*models.Cohort{&cohort}); err != nil {
+		return nil, err
+	}
 	return &cohort, nil
 }
 
 type cohortMemberPayload struct {
 	DeviceIdentifier string `json:"device_identifier"`
-	SiteID           *int64 `json:"site_id"`
 }
 
 func (s *SQLCohortStore) buildSelectedCohortMemberPayload(ctx context.Context, q *sqlc.Queries, params models.CreateCohortParams) (json.RawMessage, int64, error) {
@@ -1000,8 +1070,6 @@ func (s *SQLCohortStore) buildSelectedCohortMemberPayload(ctx context.Context, q
 		Product:          ptrToNullString(selector.Product),
 		ModelFilterSet:   selector.Model != nil,
 		Model:            ptrToNullString(selector.Model),
-		SiteIDFilterSet:  selector.SiteID != nil,
-		SiteID:           ptrToNullInt64(selector.SiteID),
 	})
 	if err != nil {
 		return nil, 0, fleeterror.NewInternalErrorf("failed to select default cohort devices: %v", err)
@@ -1011,10 +1079,9 @@ func (s *SQLCohortStore) buildSelectedCohortMemberPayload(ctx context.Context, q
 	}
 
 	payload := make([]cohortMemberPayload, 0, len(rows))
-	for _, row := range rows {
+	for _, deviceIdentifier := range rows {
 		payload = append(payload, cohortMemberPayload{
-			DeviceIdentifier: row.DeviceIdentifier,
-			SiteID:           nullInt64ToPtr(row.SiteID),
+			DeviceIdentifier: deviceIdentifier,
 		})
 	}
 	encoded, err := encodeCohortMemberPayload(payload)
@@ -1025,26 +1092,25 @@ func (s *SQLCohortStore) buildSelectedCohortMemberPayload(ctx context.Context, q
 }
 
 func (s *SQLCohortStore) buildCohortMemberPayloadForIdentifiers(ctx context.Context, q *sqlc.Queries, orgID int64, deviceIdentifiers []string) (json.RawMessage, error) {
-	rows, err := q.ListDeviceSitesForIdentifiers(ctx, sqlc.ListDeviceSitesForIdentifiersParams{
+	rows, err := q.ListDeviceIdentifiersForCohortMembership(ctx, sqlc.ListDeviceIdentifiersForCohortMembershipParams{
 		OrgID:             orgID,
 		DeviceIdentifiers: deviceIdentifiers,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to resolve device sites: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to resolve cohort membership devices: %v", err)
 	}
-	siteByIdentifier := make(map[string]*int64, len(rows))
-	for _, row := range rows {
-		siteByIdentifier[row.DeviceIdentifier] = nullInt64ToPtr(row.SiteID)
+	foundIdentifiers := make(map[string]struct{}, len(rows))
+	for _, deviceIdentifier := range rows {
+		foundIdentifiers[deviceIdentifier] = struct{}{}
 	}
-	if len(siteByIdentifier) != len(deviceIdentifiers) {
-		return nil, fleeterror.NewNotFoundErrorf("Device %q not found.", firstMissingIdentifier(deviceIdentifiers, siteByIdentifier))
+	if len(foundIdentifiers) != len(deviceIdentifiers) {
+		return nil, fleeterror.NewNotFoundErrorf("Device %q not found.", firstMissingIdentifier(deviceIdentifiers, foundIdentifiers))
 	}
 
 	payload := make([]cohortMemberPayload, 0, len(deviceIdentifiers))
 	for _, id := range deviceIdentifiers {
 		payload = append(payload, cohortMemberPayload{
 			DeviceIdentifier: id,
-			SiteID:           siteByIdentifier[id],
 		})
 	}
 	return encodeCohortMemberPayload(payload)
@@ -1058,7 +1124,7 @@ func encodeCohortMemberPayload(payload []cohortMemberPayload) (json.RawMessage, 
 	return encoded, nil
 }
 
-func firstMissingIdentifier(deviceIdentifiers []string, found map[string]*int64) string {
+func firstMissingIdentifier(deviceIdentifiers []string, found map[string]struct{}) string {
 	for _, id := range deviceIdentifiers {
 		if _, ok := found[id]; !ok {
 			return id
@@ -1120,17 +1186,10 @@ func formatSelectorAvailabilityScope(selector *models.CohortDeviceSelector) stri
 		return ""
 	}
 	target := formatSelectorTarget(selector)
-	site := formatSelectorSite(selector)
-	switch {
-	case target != "" && site != "":
-		return " for " + target + " at " + site
-	case target != "":
+	if target != "" {
 		return " for " + target
-	case site != "":
-		return " at " + site
-	default:
-		return ""
 	}
+	return ""
 }
 
 func formatSelectorTarget(selector *models.CohortDeviceSelector) string {
@@ -1155,13 +1214,6 @@ func formatSelectorTarget(selector *models.CohortDeviceSelector) string {
 	default:
 		return ""
 	}
-}
-
-func formatSelectorSite(selector *models.CohortDeviceSelector) string {
-	if selector == nil || selector.SiteID == nil {
-		return ""
-	}
-	return fmt.Sprintf("site %d", *selector.SiteID)
 }
 
 func formatMinerCount(count int) string {
@@ -1480,6 +1532,62 @@ func firmwareTargetFromRow(row sqlc.CohortFirmwareTarget) models.CohortFirmwareT
 	}
 }
 
+func firmwareStatusFromCohortRow(row sqlc.ListCohortFirmwareStatusesRow) models.CohortFirmwareStatus {
+	return models.CohortFirmwareStatus{
+		DeviceIdentifier:       row.DeviceIdentifier,
+		TargetFirmwareFileID:   nullStringValue(row.TargetFirmwareFileID),
+		TargetFirmwareVersion:  nullStringValue(row.StateDesiredFirmwareVersion),
+		CurrentFirmwareVersion: row.CurrentFirmwareVersion,
+		State:                  models.CohortFirmwareRolloutStateUnknown,
+		RetryCount:             int32FromNull(row.RetryCount),
+		LastError:              ptrFromNullString(row.LastError),
+		LastDispatchedAt:       nullTimeToPtr(row.LastDispatchedAt),
+		ConfirmedAt:            nullTimeToPtr(row.ConfirmedAt),
+		ObservedAt:             nullTimeToPtr(row.FirmwareObservedAt),
+		EnforcementState:       enforcementStateFromNull(row.EnforcementState),
+		DeviceStatus:           row.DeviceStatus,
+	}
+}
+
+func firmwareStatusFromDeviceRow(row sqlc.ListCohortFirmwareStatusesForDevicesRow) models.CohortFirmwareStatus {
+	return models.CohortFirmwareStatus{
+		DeviceIdentifier:       row.DeviceIdentifier,
+		TargetFirmwareFileID:   nullStringValue(row.TargetFirmwareFileID),
+		TargetFirmwareVersion:  nullStringValue(row.StateDesiredFirmwareVersion),
+		CurrentFirmwareVersion: row.CurrentFirmwareVersion,
+		State:                  models.CohortFirmwareRolloutStateUnknown,
+		RetryCount:             int32FromNull(row.RetryCount),
+		LastError:              ptrFromNullString(row.LastError),
+		LastDispatchedAt:       nullTimeToPtr(row.LastDispatchedAt),
+		ConfirmedAt:            nullTimeToPtr(row.ConfirmedAt),
+		ObservedAt:             nullTimeToPtr(row.FirmwareObservedAt),
+		EnforcementState:       enforcementStateFromNull(row.EnforcementState),
+		DeviceStatus:           row.DeviceStatus,
+	}
+}
+
+func enforcementStateFromNull(value sql.NullString) *models.EnforcementState {
+	if !value.Valid || strings.TrimSpace(value.String) == "" {
+		return nil
+	}
+	state := models.EnforcementState(value.String)
+	return &state
+}
+
+func int32FromNull(value sql.NullInt32) int32 {
+	if !value.Valid {
+		return 0
+	}
+	return value.Int32
+}
+
+func nullStringValue(value sql.NullString) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.String
+}
+
 func firmwareEnforcementCandidateFromRow(row sqlc.ListFirmwareEnforcementCandidatesRow) models.FirmwareEnforcementCandidate {
 	state := ptrFromNullString(row.EnforcementState)
 	var typedState *models.EnforcementState
@@ -1521,13 +1629,12 @@ func memberFromRow(row sqlc.ListCohortMembersRow) models.CohortMember {
 		CohortID:         row.CohortID,
 		OrgID:            row.OrgID,
 		DeviceIdentifier: row.DeviceIdentifier,
-		SiteID:           nullInt64ToPtr(row.SiteID),
 		AddedAt:          row.AddedAt,
-		Display:          displayFromColumns(row.DisplayName, row.WorkerName, row.Manufacturer, row.Model, row.IpAddress, row.SerialNumber, row.SiteLabel, row.FirmwareVersion),
+		Display:          displayFromColumns(row.DisplayName, row.WorkerName, row.Manufacturer, row.Model, row.IpAddress, row.SerialNumber, row.FirmwareVersion),
 	}
 }
 
-func displayFromColumns(displayName, workerName, manufacturer, model, ipAddress, serialNumber, siteLabel, firmwareVersion string) models.CohortDeviceDisplay {
+func displayFromColumns(displayName, workerName, manufacturer, model, ipAddress, serialNumber, firmwareVersion string) models.CohortDeviceDisplay {
 	return models.CohortDeviceDisplay{
 		Name:            displayName,
 		WorkerName:      workerName,
@@ -1535,7 +1642,6 @@ func displayFromColumns(displayName, workerName, manufacturer, model, ipAddress,
 		Model:           model,
 		IPAddress:       ipAddress,
 		SerialNumber:    serialNumber,
-		SiteLabel:       siteLabel,
 		FirmwareVersion: firmwareVersion,
 	}
 }

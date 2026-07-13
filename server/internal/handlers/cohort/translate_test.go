@@ -55,7 +55,6 @@ func TestToCreateCohortParams_SourceDeviceSetInitialMembers(t *testing.T) {
 func TestToCreateCohortParams_SelectInitialMembers(t *testing.T) {
 	product := "TestCorp"
 	model := "TestMiner"
-	siteID := int64(12)
 	req := &pb.CreateCohortRequest{
 		Label:   "reservation",
 		Purpose: "test",
@@ -64,7 +63,6 @@ func TestToCreateCohortParams_SelectInitialMembers(t *testing.T) {
 				Count:   3,
 				Product: &product,
 				Model:   &model,
-				SiteId:  &siteID,
 			},
 		},
 	}
@@ -84,9 +82,6 @@ func TestToCreateCohortParams_SelectInitialMembers(t *testing.T) {
 	}
 	if params.DeviceSelector.Model == nil || *params.DeviceSelector.Model != model {
 		t.Fatalf("selector model = %v, want %q", params.DeviceSelector.Model, model)
-	}
-	if params.DeviceSelector.SiteID == nil || *params.DeviceSelector.SiteID != siteID {
-		t.Fatalf("selector site = %v, want %d", params.DeviceSelector.SiteID, siteID)
 	}
 }
 
@@ -189,7 +184,6 @@ func TestToProtoCohort_ComposesSummaryAndMembers(t *testing.T) {
 				Model:        "TestMiner",
 				IPAddress:    "127.0.0.1",
 				SerialNumber: "SN-A",
-				SiteLabel:    "Site A",
 			},
 		}},
 	}
@@ -201,8 +195,8 @@ func TestToProtoCohort_ComposesSummaryAndMembers(t *testing.T) {
 	if len(got.GetMembers()) != 1 || got.GetMembers()[0].GetDeviceIdentifier() != "miner-1" {
 		t.Fatalf("members = %+v, want miner-1", got.GetMembers())
 	}
-	if got.GetMembers()[0].GetDisplay().GetName() != "Rig A" || got.GetMembers()[0].GetDisplay().GetSiteLabel() != "Site A" {
-		t.Fatalf("member display = %+v, want Rig A at Site A", got.GetMembers()[0].GetDisplay())
+	if got.GetMembers()[0].GetDisplay().GetName() != "Rig A" {
+		t.Fatalf("member display = %+v, want Rig A", got.GetMembers()[0].GetDisplay())
 	}
 }
 
