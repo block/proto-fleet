@@ -97,6 +97,11 @@ var transientServerErrors = []string{
 	"bad connection",
 	"connection is already closed",
 	"connection reset by peer",
+	// pgx surfaces a mid-crash disconnect as "failed to receive
+	// message: unexpected EOF" and a fully-down server as ECONNREFUSED.
+	"unexpected EOF",
+	"connection refused",
+	"broken pipe",
 }
 
 // connectAndMigrateWithRetry wraps db.ConnectAndMigrate with retry logic for
