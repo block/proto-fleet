@@ -73,21 +73,28 @@ func ParseConfig(raw json.RawMessage) (Config, error) {
 	return cfg, nil
 }
 
+// validate returns field-only messages that never echo the submitted
+// value — the same policy validateEndpoint documents. driver_config is
+// OT control topology (unit IDs, register addresses), and validation
+// errors reach server error logs even for sensitive-body procedures,
+// so a near-miss submission next to a real control value must not
+// leak it. The caller already knows what they sent; naming the field
+// and the accepted range is enough to correct it.
 func (c Config) validate() error {
 	if err := validateEndpoint(c.Endpoint); err != nil {
 		return err
 	}
 	if c.Port < minPort || c.Port > maxPort {
-		return fmt.Errorf("port must be between %d and %d, got %d", minPort, maxPort, c.Port)
+		return fmt.Errorf("port must be between %d and %d", minPort, maxPort)
 	}
 	if c.UnitID < minUnitID || c.UnitID > maxUnitID {
-		return fmt.Errorf("unit_id must be between %d and %d, got %d", minUnitID, maxUnitID, c.UnitID)
+		return fmt.Errorf("unit_id must be between %d and %d", minUnitID, maxUnitID)
 	}
 	if c.RegisterAddress < 0 || c.RegisterAddress > maxRegisterAddress {
-		return fmt.Errorf("register_address must be between 0 and %d, got %d", maxRegisterAddress, c.RegisterAddress)
+		return fmt.Errorf("register_address must be between 0 and %d", maxRegisterAddress)
 	}
 	if c.WriteMode != WriteModeCoil && c.WriteMode != WriteModeHoldingRegister {
-		return fmt.Errorf("write_mode must be %q or %q, got %q", WriteModeCoil, WriteModeHoldingRegister, c.WriteMode)
+		return fmt.Errorf("write_mode must be %q or %q", WriteModeCoil, WriteModeHoldingRegister)
 	}
 	return nil
 }

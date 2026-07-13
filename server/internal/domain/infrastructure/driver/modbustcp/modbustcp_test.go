@@ -79,6 +79,12 @@ func TestValidateConfig_RejectsPublicOrHostnameEndpoints(t *testing.T) {
 
 func TestValidateConfig_RejectsOutOfRangeFields(t *testing.T) {
 	c := Controller{}
+	// Rejected values sit outside the accepted ranges but are chosen so
+	// their decimal form does not appear in the range text of the error
+	// message itself, letting the no-echo assertion below hold: like
+	// endpoints, unit IDs and register addresses are OT topology, and a
+	// near-miss next to a real control value must not land in server
+	// logs via the request logger.
 	cases := []struct {
 		field string
 		value any
@@ -86,9 +92,9 @@ func TestValidateConfig_RejectsOutOfRangeFields(t *testing.T) {
 		{"unit_id", 0},
 		{"unit_id", 248},
 		{"port", 0},
-		{"port", 65536},
+		{"port", 78901},
 		{"register_address", -1},
-		{"register_address", 65536},
+		{"register_address", 78901},
 		{"write_mode", "toggle"},
 		{"write_mode", ""},
 	}
@@ -98,6 +104,10 @@ func TestValidateConfig_RejectsOutOfRangeFields(t *testing.T) {
 				m[tc.field] = tc.value
 			}))
 			assert.Error(t, err)
+			if s := fmt.Sprintf("%v", tc.value); s != "" && s != "0" {
+				assert.NotContains(t, err.Error(), s,
+					"validation error must not echo the submitted value")
+			}
 		})
 	}
 }
