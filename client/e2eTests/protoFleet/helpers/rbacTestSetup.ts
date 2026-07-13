@@ -6,8 +6,6 @@ import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { AlertsPage } from "../pages/alerts";
 import { AuthPage } from "../pages/auth";
-import { LoginModalComponent } from "../pages/components/loginModal";
-import { EditPoolPage } from "../pages/editPool";
 import { EnergyPage } from "../pages/energy";
 import { FleetLocationsPage } from "../pages/fleetLocations";
 import { MinersPage } from "../pages/miners";
@@ -38,7 +36,6 @@ export const RBAC_CURTAILMENT_PROFILE_PREFIX = "rbac_curtailment_profile";
 export const RBAC_CURTAILMENT_SOURCE_PREFIX = "rbac_curtailment_source";
 export const RBAC_CURTAILMENT_REASON_PREFIX = "rbac_curtailment_reason";
 export const RBAC_RACK_ZONE = "RbacZone";
-export const RBAC_HASH_POOL_USER_PREFIX = "rbac_hash_pool_user";
 
 type PersistedAdminStorageState = Exclude<
   NonNullable<Parameters<Browser["newContext"]>[0]>["storageState"],
@@ -166,6 +163,35 @@ export async function provisionRoleViaStoredAdminContext(
   });
 }
 
+export async function provisionRoleAndLoginViaStoredAdminContext(
+  browser: Browser,
+  testInfo: TestInfo,
+  commonSteps: CommonSteps,
+  {
+    permissionKeys,
+    roleDescription,
+  }: {
+    permissionKeys: string[];
+    roleDescription: string;
+  },
+): Promise<ProvisionedMember> {
+  const provisionedMember = await provisionRoleViaStoredAdminContext(browser, testInfo, {
+    permissionKeys,
+    roleDescription,
+  });
+
+  await commonSteps.completeFirstLoginAsTeamMember({
+    username: provisionedMember.username,
+    temporaryPassword: provisionedMember.temporaryPassword,
+    newPassword: MEMBER_PASSWORD,
+  });
+
+  return {
+    roleName: provisionedMember.roleName,
+    username: provisionedMember.username,
+  };
+}
+
 export async function createPool(
   settingsPage: SettingsPage,
   settingsPoolsPage: SettingsPoolsPage,
@@ -255,44 +281,6 @@ export async function createRack(racksPage: RacksPage, rackLabel: string) {
     await racksPage.waitForRackListToLoad({ allowEmpty: false });
     await racksPage.validateRackRow(rackLabel, RBAC_RACK_ZONE, 0);
   });
-}
-
-export async function prepareHashingRigMiner(
-  commonSteps: CommonSteps,
-  minersPage: MinersPage,
-  editPoolPage: EditPoolPage,
-  loginModal: LoginModalComponent,
-  settingsPage: SettingsPage,
-  settingsPoolsPage: SettingsPoolsPage,
-  newPoolModal: NewPoolModalPage,
-) {
-  const poolName = generateRandomText(RBAC_POOL_PREFIX);
-  const poolUsername = generateRandomText(RBAC_HASH_POOL_USER_PREFIX);
-
-  await commonSteps.loginAsAdmin({ forceReauth: true });
-  await createPool(settingsPage, settingsPoolsPage, newPoolModal, {
-    poolName,
-    poolUsername,
-  });
-
-  await commonSteps.goToMinersPage();
-  await minersPage.filterRigMiners();
-
-  const minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
-  await minersPage.clickMinerThreeDotsButton(minerIp);
-  await minersPage.clickEditMiningPoolButton();
-  await loginModal.loginAsAdmin();
-  await editPoolPage.removeAllPools();
-  await editPoolPage.clickAddPoolButton();
-  await editPoolPage.validateModalIsOpen();
-  await editPoolPage.clickPoolRowByName(poolName);
-  await editPoolPage.clickSavePoolChoice();
-  await editPoolPage.validateModalIsClosed();
-  await editPoolPage.clickAssignToXMiners(1);
-  await minersPage.validateTextInToastGroup("Assigned pools");
-  await minersPage.validateMinerStatusSettled(minerIp, "Hashing", testConfig.testTimeout);
-
-  return minerIp;
 }
 
 export async function wakeRigMinerIfSleeping(minersPage: MinersPage, minerIp: string) {

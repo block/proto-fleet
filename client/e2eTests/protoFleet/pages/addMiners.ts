@@ -28,6 +28,12 @@ export class AddMinersPage extends BasePage {
     await this.clickIn("Find miners", "section-search-by-ip");
   }
 
+  async validateAddMinersFlowOpened() {
+    await expect(this.page.getByText("Add miners", { exact: true })).toBeVisible();
+    await expect(this.page.getByTestId("section-scan-network")).toBeVisible();
+    await expect(this.page.getByTestId("section-search-by-ip")).toBeVisible();
+  }
+
   async inputMinerIp(ipAddresses: string) {
     await this.page.locator('//textarea[@id="ipAddresses"]').fill(ipAddresses);
   }

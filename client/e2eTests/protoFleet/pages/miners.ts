@@ -252,22 +252,12 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("actions-menu-button").click();
   }
 
-  private async anyVisibleByTestId(testId: string): Promise<boolean> {
-    const matches = this.page.getByTestId(testId);
-    const count = await matches.count();
-
-    for (let i = 0; i < count; i += 1) {
-      if (
-        await matches
-          .nth(i)
-          .isVisible()
-          .catch(() => false)
-      ) {
-        return true;
-      }
-    }
-
-    return false;
+  private singleMinerActionsPopover(): Locator {
+    return this.page
+      .locator(
+        '[data-testid="single-miner-actions-popover-popover"], [data-testid="single-miner-actions-popover-popover-sheet"]',
+      )
+      .first();
   }
 
   async clickBlinkLEDsButton() {
@@ -342,6 +332,13 @@ export class MinersPage extends BasePage {
 
   async clickManagePowerConfirm() {
     await this.clickIn("Confirm", "modal");
+  }
+
+  async cancelSingleMinerConfirmationDialog() {
+    const dialog = this.page.getByTestId("single-miner-actions-dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(dialog).toBeHidden();
   }
 
   async clickEditMiningPoolButton() {
@@ -1290,8 +1287,11 @@ export class MinersPage extends BasePage {
   }
 
   async validateSingleMinerActionsHidden(testIds: string[]) {
+    const popover = this.singleMinerActionsPopover();
+    await expect(popover).toBeVisible();
+
     for (const testId of testIds) {
-      expect(await this.anyVisibleByTestId(testId), `Expected action "${testId}" to be hidden.`).toBe(false);
+      await expect(popover.getByTestId(testId), `Expected action "${testId}" to be hidden.`).toHaveCount(0);
     }
   }
 }
