@@ -338,6 +338,47 @@ func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
 	assert.Equal(t, int64(6), resp.Msg.GetDeletedInfrastructureDeviceCount())
 }
 
+// TestHandler_DeleteSite_deniedWhenNarrowedAwayFromTargetSite is the
+// regression test for the cascade-bypass finding: an org-wide
+// site:manage grant narrowed away at the target site by a site-scoped
+// assignment must be denied before any cascade store call runs. The
+// mock stores have no expectations, so any cascade call would fail the
+// test.
+func TestHandler_DeleteSite_deniedWhenNarrowedAwayFromTargetSite(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	// Org-wide site:manage, but a site-scope assignment at site 11
+	// (granting only site:read) narrows site:manage away there.
+	ctx := handlerstest.CtxWithAssignments(t, 7,
+		handlerstest.OrgAssignment(authz.PermSiteRead, authz.PermSiteManage),
+		handlerstest.SiteAssignment(11, authz.PermSiteRead),
+	)
+
+	_, err := h.handler.DeleteSite(ctx, connect.NewRequest(&pb.DeleteSiteRequest{Id: 11}))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+
+	// The same caller can still delete a site they are not narrowed
+	// away from — the narrowing check is per-target, not a blanket
+	// restriction.
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil)
+	h.siteStore.EXPECT().LockBuildingsBySiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil)
+	h.siteStore.EXPECT().UnassignRacksFromBuildingsBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
+	h.buildingStore.EXPECT().ClearDeviceBuildingsBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
+	h.siteStore.EXPECT().SoftDeleteBuildingsBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
+	h.siteStore.EXPECT().UnassignRacksFromSite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
+	h.siteStore.EXPECT().UnassignDevicesFromSite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
+	h.siteStore.EXPECT().DeleteCurtailmentResponseProfilesBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
+	h.siteStore.EXPECT().SoftDeleteInfrastructureDevicesBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
+	h.siteStore.EXPECT().SoftDeleteSite(gomock.Any(), int64(7), int64(12)).Return(int64(1), nil)
+
+	_, err = h.handler.DeleteSite(ctx, connect.NewRequest(&pb.DeleteSiteRequest{Id: 12}))
+	require.NoError(t, err)
+}
+
 func TestHandler_AssignDevicesToSite_success(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
