@@ -648,6 +648,62 @@ describe("MinerActionsMenu", () => {
     expect(arg.allDevices).toBeFalsy();
   });
 
+  test("filtered all-mode add-to-group skips the mutation when the picker is dismissed mid-resolution", async () => {
+    mockUseMinerActions.mockReset();
+    mockAddDevicesToGroup.mockReset();
+    mockResolveAllModeIds.mockReset();
+
+    // Deferred resolution we control so we can dismiss the picker while
+    // snapshot pagination is still in flight (before it settles).
+    let releaseResolve!: (value: { ids: string[]; snapshots: Record<string, never> }) => void;
+    const pendingResolution = new Promise<{ ids: string[]; snapshots: Record<string, never> }>((resolve) => {
+      releaseResolve = resolve;
+    });
+    mockResolveAllModeIds.mockReturnValue(pendingResolution);
+
+    // Open state: the add-to-group picker is showing, so the abort controller
+    // effect mounts.
+    mockUseMinerActions.mockReturnValue({
+      ...createMockMinerActionsReturn(groupActions.addToGroup),
+      showAddToGroupModal: true,
+    });
+
+    const props = {
+      selectedMiners: ["miner-1"],
+      selectionMode: "all" as const,
+      totalCount: 500,
+      currentFilter: create(MinerListFilterSchema, { rackIds: [7n] }),
+      onActionStart: vi.fn(),
+      onActionComplete: vi.fn(),
+    };
+    const { rerender } = render(<MinerActionsMenu {...props} />);
+
+    const pickerCalls = mockAddToGroupModal.mock.calls as unknown as Array<
+      [{ onConfirm: (ids: bigint[]) => Promise<void> }]
+    >;
+    const onConfirm = pickerCalls[pickerCalls.length - 1][0].onConfirm;
+    const confirmPromise = onConfirm([5n]);
+
+    // Operator closes the picker while pagination is still pending — the
+    // effect cleanup aborts the controller.
+    mockUseMinerActions.mockReturnValue({
+      ...createMockMinerActionsReturn(null),
+      showAddToGroupModal: false,
+    });
+    await act(async () => {
+      rerender(<MinerActionsMenu {...props} />);
+    });
+
+    // Resolution now settles, but the dispatch must be gated by the abort.
+    await act(async () => {
+      releaseResolve({ ids: ["m1", "m2"], snapshots: {} });
+      await confirmPromise;
+    });
+
+    expect(mockAddDevicesToGroup).not.toHaveBeenCalled();
+    mockUseMinerActions.mockReset();
+  });
+
   test("unscoped all-mode add-to-group uses the whole-fleet flag (no filter resolution)", async () => {
     mockAddDevicesToGroup.mockReset();
     mockResolveAllModeIds.mockReset();
