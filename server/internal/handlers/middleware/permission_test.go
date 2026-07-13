@@ -192,6 +192,66 @@ func TestRequirePermission_NarrowingAtSiteScope(t *testing.T) {
 // RequireAnyPermission
 // ---------------------------------------------------------------
 
+func TestSiteScopeForPermission_ProjectsAllowlistAndDenylist(t *testing.T) {
+	// Site-scoped-only caller: allowlist of granting sites.
+	ctx := ctxWithEffective(t, userInfo(),
+		siteAssignment(10, authz.PermSiteRead),
+		siteAssignment(11, authz.PermFleetRead))
+	orgWide, sites, err := middleware.SiteScopeForPermission(ctx, authz.PermSiteRead)
+	require.NoError(t, err)
+	require.False(t, orgWide)
+	require.Equal(t, []int64{10}, sites)
+
+	// Org-wide caller narrowed away at one site: denylist.
+	ctx = ctxWithEffective(t, userInfo(),
+		orgAssignment(authz.PermSiteRead),
+		siteAssignment(11, authz.PermFleetRead))
+	orgWide, sites, err = middleware.SiteScopeForPermission(ctx, authz.PermSiteRead)
+	require.NoError(t, err)
+	require.True(t, orgWide)
+	require.Equal(t, []int64{11}, sites)
+}
+
+func TestSiteScopeForPermission_InternalActorIsOrgWide(t *testing.T) {
+	info := &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		Actor:          session.ActorCurtailment,
+		OrganizationID: 1,
+	}
+	ctx := ctxWithInfo(info) // deliberately no WithEffectivePermissions
+
+	orgWide, sites, err := middleware.SiteScopeForPermission(ctx, authz.PermSiteRead)
+	require.NoError(t, err, "allowlisted internal actor must short-circuit before the EffectivePermissions check")
+	require.True(t, orgWide)
+	require.Empty(t, sites)
+}
+
+func TestSiteScopeForPermission_UnknownActorDoesNotBypass(t *testing.T) {
+	info := &session.Info{
+		AuthMethod: session.AuthMethodSession,
+		Actor:      session.Actor("future-orchestrator-typo"),
+	}
+	ctx := ctxWithInfo(info)
+
+	_, _, err := middleware.SiteScopeForPermission(ctx, authz.PermSiteRead)
+	require.Error(t, err, "unknown Actor must not short-circuit to org-wide")
+	require.Equal(t, connect.CodeInternal, connectCode(t, err))
+}
+
+func TestSiteScopeForPermission_FailClosedOnMissingEffective(t *testing.T) {
+	ctx := ctxWithInfo(userInfo())
+	_, _, err := middleware.SiteScopeForPermission(ctx, authz.PermSiteRead)
+	require.Error(t, err)
+	require.Equal(t, connect.CodeInternal, connectCode(t, err),
+		"missing EffectivePermissions must surface as Internal, not an org-wide grant")
+}
+
+func TestSiteScopeForPermission_UnauthenticatedWhenNoSessionInfo(t *testing.T) {
+	_, _, err := middleware.SiteScopeForPermission(context.Background(), authz.PermSiteRead)
+	require.Error(t, err)
+	require.Equal(t, connect.CodeUnauthenticated, connectCode(t, err))
+}
+
 func TestRequireAnyPermission_AllowsWhenFirstKeyMatches(t *testing.T) {
 	ctx := ctxWithEffective(t, userInfo(), orgAssignment(authz.PermRoleManage))
 

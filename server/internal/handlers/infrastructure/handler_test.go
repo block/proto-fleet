@@ -143,7 +143,7 @@ func TestHandler_GetDeleteUpdateAuthorizeAgainstDeviceSite(t *testing.T) {
 
 	update := &pb.UpdateInfrastructureDeviceRequest{
 		Id: 7, SiteId: 10, Name: "renamed", DeviceKind: models.KindFanGroup,
-		FanCount: 12, Enabled: true, DriverType: "modbus_tcp", DriverConfig: validConfig,
+		FanCount: 12, DriverType: "modbus_tcp", DriverConfig: validConfig,
 	}
 	_, err = h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
 	requirePermissionDenied(t, err)
@@ -163,7 +163,7 @@ func TestHandler_UpdateMoveRequiresManageOnBothSites(t *testing.T) {
 
 	update := &pb.UpdateInfrastructureDeviceRequest{
 		Id: 7, SiteId: 11, Name: "moved", DeviceKind: models.KindFanGroup,
-		FanCount: 12, Enabled: true, DriverType: "modbus_tcp", DriverConfig: validConfig,
+		FanCount: 12, DriverType: "modbus_tcp", DriverConfig: validConfig,
 	}
 	_, err := h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
 	requirePermissionDenied(t, err)
@@ -172,15 +172,16 @@ func TestHandler_UpdateMoveRequiresManageOnBothSites(t *testing.T) {
 func TestHandler_ListFiltersToReadableSites(t *testing.T) {
 	t.Parallel()
 
-	// Two devices at different sites; caller narrowed to site 10 sees
-	// only that site's device — and, holding only site:read, without
-	// driver_config.
+	// Caller narrowed to site 10: the readable allowlist is pushed into
+	// the store filter so unreadable rows are never fetched, and the
+	// caller — holding only site:read — gets no driver_config.
 	h := newTestHandler(t)
 	ctx := handlerstest.CtxWithAssignments(t, 42,
 		handlerstest.SiteAssignment(10, authz.PermSiteRead))
 
-	h.store.EXPECT().ListInfrastructureDevices(gomock.Any(), models.ListFilter{OrgID: 42}).
-		Return([]models.Device{*deviceAtSite(1, 10), *deviceAtSite(2, 11)}, nil)
+	h.store.EXPECT().ListInfrastructureDevices(gomock.Any(),
+		models.ListFilter{OrgID: 42, SiteIDs: []int64{10}}).
+		Return([]models.Device{*deviceAtSite(1, 10)}, nil)
 
 	resp, err := h.handler.ListInfrastructureDevices(ctx, connect.NewRequest(&pb.ListInfrastructureDevicesRequest{}))
 	require.NoError(t, err)
@@ -189,6 +190,82 @@ func TestHandler_ListFiltersToReadableSites(t *testing.T) {
 	assert.Equal(t, int64(10), resp.Msg.GetDevices()[0].GetSiteId())
 	assert.Empty(t, resp.Msg.GetDevices()[0].GetDriverConfig(),
 		"site:read caller must not receive driver_config")
+}
+
+func TestHandler_ListPushesNarrowingDenylistIntoFilter(t *testing.T) {
+	t.Parallel()
+
+	// Org-wide site:read narrowed away at site 11 (zero-permission
+	// site assignment): the handler queries with site 11 excluded
+	// rather than fetching the whole org and dropping rows.
+	h := newTestHandler(t)
+	ctx := handlerstest.CtxWithAssignments(t, 42,
+		handlerstest.OrgAssignment(authz.PermSiteRead),
+		handlerstest.SiteAssignment(11))
+
+	h.store.EXPECT().ListInfrastructureDevices(gomock.Any(),
+		models.ListFilter{OrgID: 42, ExcludedSiteIDs: []int64{11}}).
+		Return([]models.Device{*deviceAtSite(1, 10)}, nil)
+
+	resp, err := h.handler.ListInfrastructureDevices(ctx, connect.NewRequest(&pb.ListInfrastructureDevicesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetDevices(), 1)
+	assert.Equal(t, int64(10), resp.Msg.GetDevices()[0].GetSiteId())
+}
+
+func TestHandler_ListIntersectsRequestFilterWithReadableSites(t *testing.T) {
+	t.Parallel()
+
+	// Caller readable at sites 10 and 12 asks for sites 10 and 11: the
+	// store filter is the intersection (10 only).
+	h := newTestHandler(t)
+	ctx := handlerstest.CtxWithAssignments(t, 42,
+		handlerstest.SiteAssignment(10, authz.PermSiteRead),
+		handlerstest.SiteAssignment(12, authz.PermSiteRead))
+
+	h.store.EXPECT().ListInfrastructureDevices(gomock.Any(),
+		models.ListFilter{OrgID: 42, SiteIDs: []int64{10}}).
+		Return([]models.Device{*deviceAtSite(1, 10)}, nil)
+
+	resp, err := h.handler.ListInfrastructureDevices(ctx,
+		connect.NewRequest(&pb.ListInfrastructureDevicesRequest{SiteIds: []int64{10, 11}}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetDevices(), 1)
+}
+
+func TestHandler_ListReturnsEmptyWithoutQueryWhenNoReadableSites(t *testing.T) {
+	t.Parallel()
+
+	// No store EXPECT: a caller with no readable site must get an empty
+	// response without a query — an empty SiteIDs filter would mean
+	// "all sites", so passing the empty allowlist through would leak.
+	h := newTestHandler(t)
+
+	cases := []struct {
+		name       string
+		assignment authz.Assignment
+		req        *pb.ListInfrastructureDevicesRequest
+	}{
+		{
+			name:       "no site grants at all",
+			assignment: handlerstest.SiteAssignment(10, authz.PermFleetRead),
+			req:        &pb.ListInfrastructureDevicesRequest{},
+		},
+		{
+			name:       "requested sites disjoint from readable sites",
+			assignment: handlerstest.SiteAssignment(10, authz.PermSiteRead),
+			req:        &pb.ListInfrastructureDevicesRequest{SiteIds: []int64{11}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := handlerstest.CtxWithAssignments(t, 42, tc.assignment)
+			resp, err := h.handler.ListInfrastructureDevices(ctx, connect.NewRequest(tc.req))
+			require.NoError(t, err)
+			assert.Empty(t, resp.Msg.GetDevices())
+		})
+	}
 }
 
 func TestHandler_DriverConfigRedactedForReadOnlyCallers(t *testing.T) {
@@ -238,11 +315,60 @@ func TestHandler_UpdatePredicatesWriteOnAuthorizedSite(t *testing.T) {
 
 	update := &pb.UpdateInfrastructureDeviceRequest{
 		Id: 7, SiteId: 10, Name: "renamed", DeviceKind: models.KindFanGroup,
-		FanCount: 12, Enabled: true, DriverType: "modbus_tcp", DriverConfig: validConfig,
+		FanCount: 12, DriverType: "modbus_tcp", DriverConfig: validConfig,
 	}
 	_, err := h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
 	require.NoError(t, err)
 }
+
+func TestHandler_UpdatePreservesEnabledWhenOmitted(t *testing.T) {
+	t.Parallel()
+
+	// Omitted enabled preserves the device's current value in both
+	// directions — an unrelated update must not silently disable an
+	// enabled device or re-enable a disabled one. An explicit value
+	// still wins.
+	cases := []struct {
+		name            string
+		currentEnabled  bool
+		requestEnabled  *bool
+		expectedEnabled bool
+	}{
+		{"omitted preserves enabled=true", true, nil, true},
+		{"omitted preserves enabled=false", false, nil, false},
+		{"explicit true re-enables", false, boolPtr(true), true},
+		{"explicit false disables", true, boolPtr(false), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			ctx := sitePermsCtx(t, 42)
+
+			existing := deviceAtSite(7, 10)
+			existing.Enabled = tc.currentEnabled
+			h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
+				Return(existing, nil)
+			h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil)
+			h.store.EXPECT().UpdateInfrastructureDevice(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, params models.UpdateParams) (*models.Device, error) {
+					assert.Equal(t, tc.expectedEnabled, params.Enabled)
+					return deviceAtSite(7, 10), nil
+				},
+			)
+
+			update := &pb.UpdateInfrastructureDeviceRequest{
+				Id: 7, SiteId: 10, Name: "renamed", DeviceKind: models.KindFanGroup,
+				FanCount: 12, Enabled: tc.requestEnabled,
+				DriverType: "modbus_tcp", DriverConfig: validConfig,
+			}
+			_, err := h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
+			require.NoError(t, err)
+		})
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }
 
 func TestHandler_unauthenticatedWithoutSession(t *testing.T) {
 	t.Parallel()

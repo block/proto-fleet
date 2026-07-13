@@ -126,6 +126,23 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, filtered)
 
+	// ExcludedSiteIDs removes sites regardless of SiteIDs — the
+	// handler pushes the caller's narrowed-away sites through it.
+	withoutDenton, err := svc.List(ctx, models.ListFilter{OrgID: testOrgID, ExcludedSiteIDs: []int64{testSiteID}})
+	require.NoError(t, err)
+	require.Len(t, withoutDenton, 1)
+	assert.Equal(t, austinDevice.ID, withoutDenton[0].ID)
+	excludedWins, err := svc.List(ctx, models.ListFilter{
+		OrgID:           testOrgID,
+		SiteIDs:         []int64{testSiteID, secondSiteID},
+		ExcludedSiteIDs: []int64{secondSiteID},
+	})
+	require.NoError(t, err)
+	require.Len(t, excludedWins, 2)
+	for _, d := range excludedWins {
+		assert.Equal(t, testSiteID, d.SiteID)
+	}
+
 	// Update mutates fields.
 	updated, err := svc.Update(ctx, models.UpdateParams{
 		OrgID:          testOrgID,

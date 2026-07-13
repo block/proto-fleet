@@ -101,9 +101,14 @@ func (s *SQLInfrastructureDeviceStore) ListInfrastructureDevices(ctx context.Con
 	if siteIDs == nil {
 		siteIDs = []int64{}
 	}
+	excludedSiteIDs := filter.ExcludedSiteIDs
+	if excludedSiteIDs == nil {
+		excludedSiteIDs = []int64{}
+	}
 	rows, err := s.GetQueries(ctx).ListInfrastructureDevicesByOrg(ctx, sqlc.ListInfrastructureDevicesByOrgParams{
-		OrgID:   filter.OrgID,
-		SiteIds: siteIDs,
+		OrgID:           filter.OrgID,
+		SiteIds:         siteIDs,
+		ExcludedSiteIds: excludedSiteIDs,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list infrastructure devices: %v", err)

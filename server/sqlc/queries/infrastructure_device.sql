@@ -40,7 +40,10 @@ WHERE d.id = sqlc.arg('id')
 
 -- name: ListInfrastructureDevicesByOrg :many
 -- Lists every live infrastructure device in the org. site_ids is an
--- optional OR filter; empty array = no filter.
+-- optional OR filter (empty array = no filter); excluded_site_ids
+-- removes sites from the result regardless of site_ids — the handler
+-- uses it to push the caller's narrowed-away sites into the query so
+-- unreadable rows are never fetched.
 SELECT
     d.*,
     COALESCE(s.name, '') AS site_label
@@ -54,6 +57,10 @@ WHERE d.org_id = sqlc.arg('org_id')
   AND (
        cardinality(sqlc.arg('site_ids')::bigint[]) = 0
     OR d.site_id = ANY(sqlc.arg('site_ids')::bigint[])
+  )
+  AND (
+       cardinality(sqlc.arg('excluded_site_ids')::bigint[]) = 0
+    OR d.site_id != ALL(sqlc.arg('excluded_site_ids')::bigint[])
   )
 ORDER BY d.name, d.id;
 

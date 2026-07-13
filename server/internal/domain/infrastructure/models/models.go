@@ -69,8 +69,12 @@ type UpdateParams struct {
 	DriverConfig   json.RawMessage
 }
 
-// ListFilter selects the list scope.
+// ListFilter selects the list scope. SiteIDs is an optional allowlist
+// (empty = all sites); ExcludedSiteIDs removes sites regardless of
+// SiteIDs — the handler populates it with the caller's narrowed-away
+// sites so unreadable rows are filtered in SQL rather than fetched.
 type ListFilter struct {
-	OrgID   int64
-	SiteIDs []int64
+	OrgID           int64
+	SiteIDs         []int64
+	ExcludedSiteIDs []int64
 }

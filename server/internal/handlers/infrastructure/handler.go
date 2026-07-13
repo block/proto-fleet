@@ -74,14 +74,38 @@ func (h *Handler) ListInfrastructureDevices(ctx context.Context, req *connect.Re
 	if err != nil {
 		return nil, err
 	}
-	devices, err := h.service.List(ctx, toListFilter(req.Msg, sess.OrganizationID))
+	// Push the caller's readable-site set into the SQL filter so
+	// site-narrowed operators see their sites' devices and nothing
+	// else, without fetching the whole org and dropping rows here.
+	orgWide, scopedSites, err := middleware.SiteScopeForPermission(ctx, authz.PermSiteRead)
 	if err != nil {
 		return nil, err
 	}
-	// Filter to sites the caller can read rather than gating on an
-	// org-wide grant, so site-narrowed operators see their sites'
-	// devices and nothing else. driver_config is included per device
-	// only where the caller holds site:manage.
+	filter := toListFilter(req.Msg, sess.OrganizationID)
+	if orgWide {
+		// Org-wide grant: exclude only the sites narrowed away.
+		filter.ExcludedSiteIDs = scopedSites
+	} else {
+		// Site-scoped grants only: intersect the request's site filter
+		// with the readable allowlist. An empty result means the
+		// caller can read no requested site — return empty without
+		// querying (an empty SiteIDs filter would mean "all sites").
+		allowed := intersectSiteIDs(filter.SiteIDs, scopedSites)
+		if len(allowed) == 0 {
+			return connect.NewResponse(&pb.ListInfrastructureDevicesResponse{
+				Devices: []*pb.InfrastructureDevice{},
+			}), nil
+		}
+		filter.SiteIDs = allowed
+	}
+	devices, err := h.service.List(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	// driver_config is included per device only where the caller holds
+	// site:manage. The canReadSite check is a fail-closed backstop for
+	// the SQL filter above — it costs nothing (in-memory map lookup)
+	// and keeps unreadable rows out even if filter composition drifts.
 	out := make([]*pb.InfrastructureDevice, 0, len(devices))
 	for i := range devices {
 		device := &devices[i]
@@ -99,6 +123,26 @@ func (h *Handler) ListInfrastructureDevices(ctx context.Context, req *connect.Re
 		out = append(out, toProtoDevice(device, manageable))
 	}
 	return connect.NewResponse(&pb.ListInfrastructureDevicesResponse{Devices: out}), nil
+}
+
+// intersectSiteIDs returns the requested site ids that are also
+// readable, or the full readable allowlist when the request carries no
+// site filter.
+func intersectSiteIDs(requested, readable []int64) []int64 {
+	if len(requested) == 0 {
+		return readable
+	}
+	readableSet := make(map[int64]bool, len(readable))
+	for _, id := range readable {
+		readableSet[id] = true
+	}
+	out := make([]int64, 0, len(requested))
+	for _, id := range requested {
+		if readableSet[id] {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 func (h *Handler) GetInfrastructureDevice(ctx context.Context, req *connect.Request[pb.GetInfrastructureDeviceRequest]) (*connect.Response[pb.GetInfrastructureDeviceResponse], error) {
@@ -164,7 +208,7 @@ func (h *Handler) UpdateInfrastructureDevice(ctx context.Context, req *connect.R
 	// concurrent move between the read above and the write fails
 	// closed (NotFound) instead of mutating a device now in a site the
 	// caller may not manage.
-	params := toUpdateParams(req.Msg, sess.OrganizationID)
+	params := toUpdateParams(req.Msg, sess.OrganizationID, existing.Enabled)
 	params.ExpectedSiteID = existing.SiteID
 	device, err := h.service.Update(ctx, params)
 	if err != nil {

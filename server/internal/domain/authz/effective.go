@@ -112,6 +112,42 @@ func (e *EffectivePermissions) Has(key string, rc ResourceContext) bool {
 	return e.orgScope[key]
 }
 
+// SiteScopeFor projects the user's site-level authority for one
+// permission key into a shape a store-layer query can consume, so list
+// endpoints can filter rows in SQL instead of fetching everything and
+// dropping unreadable rows per-item.
+//
+// Two shapes, following the narrowing semantics on the type doc:
+//
+//   - orgWide true: the user holds key at org scope. sites is the
+//     DENYLIST — the sites where a site-scope assignment narrows key
+//     away. Every other site is allowed.
+//   - orgWide false: no org-scope grant. sites is the ALLOWLIST — the
+//     sites whose site-scope assignments grant key. Empty means the
+//     user can act nowhere; callers should short-circuit to an empty
+//     result without querying.
+//
+// sites is sorted for deterministic query parameters and test
+// assertions. A nil receiver denies everything: (false, nil).
+func (e *EffectivePermissions) SiteScopeFor(key string) (orgWide bool, sites []int64) {
+	if e == nil {
+		return false, nil
+	}
+	orgWide = e.orgScope[key]
+	for siteID, perms := range e.bySite {
+		if orgWide && !perms[key] {
+			// Site-scope assignment narrows the org grant away here.
+			sites = append(sites, siteID)
+		}
+		if !orgWide && perms[key] {
+			// Site-scope assignment grants key here.
+			sites = append(sites, siteID)
+		}
+	}
+	sort.Slice(sites, func(i, j int) bool { return sites[i] < sites[j] })
+	return orgWide, sites
+}
+
 // HasOrgWide reports whether key is held at org scope and remains effective at
 // every site where this user has a narrower site-scope assignment.
 func (e *EffectivePermissions) HasOrgWide(key string) bool {

@@ -158,12 +158,17 @@ WHERE d.org_id = $1
        cardinality($2::bigint[]) = 0
     OR d.site_id = ANY($2::bigint[])
   )
+  AND (
+       cardinality($3::bigint[]) = 0
+    OR d.site_id != ALL($3::bigint[])
+  )
 ORDER BY d.name, d.id
 `
 
 type ListInfrastructureDevicesByOrgParams struct {
-	OrgID   int64
-	SiteIds []int64
+	OrgID           int64
+	SiteIds         []int64
+	ExcludedSiteIds []int64
 }
 
 type ListInfrastructureDevicesByOrgRow struct {
@@ -184,9 +189,12 @@ type ListInfrastructureDevicesByOrgRow struct {
 }
 
 // Lists every live infrastructure device in the org. site_ids is an
-// optional OR filter; empty array = no filter.
+// optional OR filter (empty array = no filter); excluded_site_ids
+// removes sites from the result regardless of site_ids — the handler
+// uses it to push the caller's narrowed-away sites into the query so
+// unreadable rows are never fetched.
 func (q *Queries) ListInfrastructureDevicesByOrg(ctx context.Context, arg ListInfrastructureDevicesByOrgParams) ([]ListInfrastructureDevicesByOrgRow, error) {
-	rows, err := q.query(ctx, q.listInfrastructureDevicesByOrgStmt, listInfrastructureDevicesByOrg, arg.OrgID, pq.Array(arg.SiteIds))
+	rows, err := q.query(ctx, q.listInfrastructureDevicesByOrgStmt, listInfrastructureDevicesByOrg, arg.OrgID, pq.Array(arg.SiteIds), pq.Array(arg.ExcludedSiteIds))
 	if err != nil {
 		return nil, err
 	}

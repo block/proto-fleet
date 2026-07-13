@@ -187,6 +187,44 @@ func HasPermission(ctx context.Context, key string, rc authz.ResourceContext) (b
 	return eff.Has(key, rc), nil
 }
 
+// SiteScopeForPermission projects the caller's site-level authority for
+// key into a store-consumable filter shape — see
+// authz.EffectivePermissions.SiteScopeFor for the orgWide/denylist vs
+// allowlist contract. List handlers use it to push the caller's
+// readable-site set into the SQL query instead of fetching every row
+// and dropping unreadable ones per-item.
+//
+// Allowlisted internal actors report (true, nil, nil) — org-wide, no
+// exclusions — matching the RequirePermission short-circuit. Auth and
+// fail-closed handling match RequirePermission exactly.
+func SiteScopeForPermission(ctx context.Context, key string) (orgWide bool, sites []int64, err error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return false, nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+
+	if info.Actor != "" {
+		switch info.Actor {
+		case session.ActorScheduler, session.ActorCurtailment:
+			return true, nil, nil
+		default:
+			return false, nil, fleeterror.NewInternalErrorf(
+				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
+				info.Actor,
+			)
+		}
+	}
+
+	eff := effectivePermissionsFromContext(ctx)
+	if eff == nil {
+		return false, nil, fleeterror.NewInternalError(
+			"authz: effective permissions missing from request context; auth interceptor wiring is broken",
+		)
+	}
+	orgWide, sites = eff.SiteScopeFor(key)
+	return orgWide, sites, nil
+}
+
 // RequireAnyPermission gates a handler on the caller holding at least
 // one of the named permission keys against the supplied resource
 // context. Use it sparingly — for read-only RPCs whose information is
