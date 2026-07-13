@@ -394,9 +394,11 @@ func (p *Provider) flushLoop(ctx context.Context) {
 		case <-aggTicker.C:
 			batch = p.appendPollAggregates(batch)
 			p.gauges.sweep(time.Now())
-			if len(batch) >= p.cfg.BatchSize {
-				flush(ctx, false)
-			}
+			// Flush now rather than waiting for the flush ticker: post-throttle
+			// volume may never reach BatchSize, and a raised FLUSH_INTERVAL
+			// must not delay heartbeat rows past the ingest-stalled rule's
+			// staleness threshold.
+			flush(ctx, false)
 
 		case <-ticker.C:
 			flush(ctx, false)

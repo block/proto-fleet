@@ -554,6 +554,35 @@ func TestTelemetryPollsAggregate(t *testing.T) {
 	require.Equal(t, 2.0, byResult[ResultFailure].Value)
 }
 
+// aggregated poll rows must persist at the aggregation cadence even when
+// the flush ticker is much slower and the batch never reaches BatchSize —
+// otherwise a raised FLUSH_INTERVAL could starve the heartbeat buckets the
+// ingest-stalled rule watches.
+func TestPollAggregatesFlushAtAggregationCadence(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	store := NewInMemoryStore()
+	provider := SetupWithStore(ctx, "test", Config{
+		Enabled:                 true,
+		FlushInterval:           time.Hour, // flush ticker never fires in-test
+		BufferSize:              64,
+		BatchSize:               32,
+		PollAggregationInterval: 20 * time.Millisecond,
+	}, store)
+
+	provider.EmitTelemetryPoll(ctx, TelemetryPollLabels{
+		OrganizationID: "org-1",
+		Result:         ResultSuccess,
+	})
+
+	require.Eventually(t, func() bool {
+		return len(store.Snapshot()) == 1
+	}, 2*time.Second, 5*time.Millisecond,
+		"aggregated poll row must land at the aggregation tick, not the flush tick")
+	require.NoError(t, provider.Shutdown(ctx))
+}
+
 // when the buffered channel is full, record() drops samples rather
 // than blocking the caller. This is what protects the telemetry hot
 // path under TimescaleDB outage.
