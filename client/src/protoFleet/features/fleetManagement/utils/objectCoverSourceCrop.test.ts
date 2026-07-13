@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getObjectCoverSourceCrop } from "./objectCoverSourceCrop";
+import { getObjectCoverSourceCrop, getObjectCoverSourceCropForRegion } from "./objectCoverSourceCrop";
 
 describe("getObjectCoverSourceCrop", () => {
   it("crops a wide camera frame to the visible square preview", () => {
@@ -70,6 +70,59 @@ describe("getObjectCoverSourceCrop", () => {
         sourceHeight: 1080,
         renderedWidth: 390,
         renderedHeight: 650,
+      }),
+    ).toBeNull();
+  });
+
+  it("maps a centered rendered scan region to the covered source crop", () => {
+    const crop = getObjectCoverSourceCropForRegion({
+      sourceWidth: 1920,
+      sourceHeight: 1080,
+      renderedWidth: 600,
+      renderedHeight: 600,
+      renderedRegionX: 90,
+      renderedRegionY: 90,
+      renderedRegionWidth: 420,
+      renderedRegionHeight: 420,
+    });
+
+    expect(crop?.sx).toBeCloseTo(582);
+    expect(crop?.sy).toBeCloseTo(162);
+    expect(crop?.sw).toBeCloseTo(756);
+    expect(crop?.sh).toBeCloseTo(756);
+  });
+
+  it("clamps scan regions that extend outside the rendered preview", () => {
+    const crop = getObjectCoverSourceCropForRegion({
+      sourceWidth: 1000,
+      sourceHeight: 1000,
+      renderedWidth: 500,
+      renderedHeight: 500,
+      renderedRegionX: -50,
+      renderedRegionY: 100,
+      renderedRegionWidth: 200,
+      renderedRegionHeight: 250,
+    });
+
+    expect(crop).toEqual({
+      sx: 0,
+      sy: 200,
+      sw: 300,
+      sh: 500,
+    });
+  });
+
+  it("returns null when the scan region is outside the rendered preview", () => {
+    expect(
+      getObjectCoverSourceCropForRegion({
+        sourceWidth: 1000,
+        sourceHeight: 1000,
+        renderedWidth: 500,
+        renderedHeight: 500,
+        renderedRegionX: 600,
+        renderedRegionY: 100,
+        renderedRegionWidth: 100,
+        renderedRegionHeight: 100,
       }),
     ).toBeNull();
   });

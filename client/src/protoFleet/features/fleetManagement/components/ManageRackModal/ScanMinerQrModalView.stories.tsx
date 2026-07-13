@@ -52,6 +52,7 @@ const Harness = ({
   cameraError?: string;
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const scanRegionRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   return (
     <ScanMinerQrModalView
@@ -61,6 +62,7 @@ const Harness = ({
       targetSlotLabel={targetSlotLabel}
       liveCamera={liveCamera}
       videoRef={videoRef}
+      scanRegionRef={scanRegionRef}
       cameraStatus={cameraStatus ?? (phase.kind === "scanning" ? "scanning" : "idle")}
       cameraError={cameraError}
       fileInputRef={fileInputRef}

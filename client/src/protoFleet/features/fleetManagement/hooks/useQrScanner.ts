@@ -3,7 +3,10 @@ import { type RefObject, useCallback, useEffect, useRef, useState } from "react"
 import { BarcodeDetector } from "barcode-detector/ponyfill";
 
 import { initBarcodeScanner } from "@/protoFleet/features/fleetManagement/utils/initBarcodeScanner";
-import { getObjectCoverSourceCrop } from "@/protoFleet/features/fleetManagement/utils/objectCoverSourceCrop";
+import {
+  getObjectCoverSourceCrop,
+  getObjectCoverSourceCropForRegion,
+} from "@/protoFleet/features/fleetManagement/utils/objectCoverSourceCrop";
 
 /**
  * Whether the current browsing context can open a live camera stream.
@@ -32,6 +35,9 @@ interface UseQrScannerOptions {
   active: boolean;
   /** Increment to restart a still-active camera session, such as after an error. */
   restartKey?: number;
+  /** Optional visible scan target inside the preview. Live detection is cropped
+   *  to this region so nearby labels outside the reticle are ignored. */
+  scanRegionRef?: RefObject<HTMLElement | null>;
 }
 
 interface UseQrScannerResult {
@@ -63,7 +69,12 @@ const MAX_CONSECUTIVE_DECODE_FAILURES = 16;
  * live stream but the same WASM/native decoder still applies to a captured
  * photo.
  */
-export function useQrScanner({ onDetected, active, restartKey = 0 }: UseQrScannerOptions): UseQrScannerResult {
+export function useQrScanner({
+  onDetected,
+  active,
+  restartKey = 0,
+  scanRegionRef,
+}: UseQrScannerOptions): UseQrScannerResult {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const detectorRef = useRef<BarcodeDetector | null>(null);
@@ -175,7 +186,7 @@ export function useQrScanner({ onDetected, active, restartKey = 0 }: UseQrScanne
           if (!el || detectedRef.current || detectingRef.current || el.readyState < 2) return;
           detectingRef.current = true;
           try {
-            const results = await detector.detect(detectionFrame(el, cropCanvasRef));
+            const results = await detector.detect(detectionFrame(el, cropCanvasRef, scanRegionRef));
             // The effect may have torn down while detect() was in flight; don't
             // fire onDetected (a lookup + state update) after teardown.
             if (cancelled) return;
@@ -214,27 +225,41 @@ export function useQrScanner({ onDetected, active, restartKey = 0 }: UseQrScanne
       stop();
       setStatus("idle");
     };
-  }, [active, getDetector, restartKey, stop]);
+  }, [active, getDetector, restartKey, scanRegionRef, stop]);
 
   return { videoRef, status, errorMessage, detectFromBlob };
 }
 
 /**
  * The live preview renders the camera stream with `object-cover`, but
- * `detect()` reads the full video frame. Decode only the source pixels visible
- * in the rendered preview so hidden labels outside the viewport crop cannot be
- * scanned and assigned while the operator is aiming at a different label.
+ * `detect()` reads the full video frame. Decode only the source pixels in the
+ * visible scan target so labels outside the reticle cannot be assigned while
+ * the operator is aiming at a different label.
  */
 function detectionFrame(
   video: HTMLVideoElement,
   canvasRef: RefObject<HTMLCanvasElement | null>,
+  scanRegionRef?: RefObject<HTMLElement | null>,
 ): HTMLVideoElement | HTMLCanvasElement {
   const vw = video.videoWidth;
   const vh = video.videoHeight;
   const rect = video.getBoundingClientRect();
   const renderedWidth = rect.width || video.clientWidth;
   const renderedHeight = rect.height || video.clientHeight;
-  const crop = getObjectCoverSourceCrop({ sourceWidth: vw, sourceHeight: vh, renderedWidth, renderedHeight });
+  const scanRegion = scanRegionRef?.current;
+  const scanRegionRect = scanRegion?.getBoundingClientRect();
+  const crop = scanRegionRect
+    ? getObjectCoverSourceCropForRegion({
+        sourceWidth: vw,
+        sourceHeight: vh,
+        renderedWidth,
+        renderedHeight,
+        renderedRegionX: scanRegionRect.left - rect.left,
+        renderedRegionY: scanRegionRect.top - rect.top,
+        renderedRegionWidth: scanRegionRect.width,
+        renderedRegionHeight: scanRegionRect.height,
+      })
+    : getObjectCoverSourceCrop({ sourceWidth: vw, sourceHeight: vh, renderedWidth, renderedHeight });
 
   if (!crop) return video;
 
@@ -246,8 +271,8 @@ function detectionFrame(
     canvas = document.createElement("canvas");
     canvasRef.current = canvas;
   }
-  canvas.width = Math.round(crop.sw);
-  canvas.height = Math.round(crop.sh);
+  canvas.width = Math.max(1, Math.round(crop.sw));
+  canvas.height = Math.max(1, Math.round(crop.sh));
   const ctx = canvas.getContext("2d");
   if (!ctx) return video;
   ctx.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, canvas.width, canvas.height);

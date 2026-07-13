@@ -53,6 +53,7 @@ export default function ScanMinerQrModal({
   const [scannerRestartKey, setScannerRestartKey] = useState(0);
   const liveCamera = canUseLiveCamera();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const scanRegionRef = useRef<HTMLDivElement | null>(null);
   // Guards the async lookup against a modal close / rescan mid-flight.
   const lookupSeq = useRef(0);
   // Aborts in-flight lookups (a multi-candidate loop issues several) on rescan
@@ -149,6 +150,7 @@ export default function ScanMinerQrModal({
   const { videoRef, status, errorMessage, detectFromBlob } = useQrScanner({
     active: cameraActive,
     restartKey: scannerRestartKey,
+    scanRegionRef,
     onDetected: runLookup,
   });
 
@@ -230,6 +232,7 @@ export default function ScanMinerQrModal({
       targetSlotLabel={targetSlotLabel}
       liveCamera={liveCamera}
       videoRef={videoRef}
+      scanRegionRef={scanRegionRef}
       cameraStatus={status}
       cameraError={errorMessage}
       fileInputRef={fileInputRef}

@@ -5,6 +5,13 @@ interface ObjectCoverSourceCropInput {
   renderedHeight: number;
 }
 
+interface ObjectCoverRegionSourceCropInput extends ObjectCoverSourceCropInput {
+  renderedRegionX: number;
+  renderedRegionY: number;
+  renderedRegionWidth: number;
+  renderedRegionHeight: number;
+}
+
 export interface SourceCrop {
   sx: number;
   sy: number;
@@ -53,4 +60,43 @@ export function getObjectCoverSourceCrop({
     sw: sourceWidth,
     sh: sourceHeight,
   };
+}
+
+/**
+ * Return the source rectangle corresponding to a rendered sub-region inside an
+ * `object-fit: cover` box.
+ */
+export function getObjectCoverSourceCropForRegion({
+  sourceWidth,
+  sourceHeight,
+  renderedWidth,
+  renderedHeight,
+  renderedRegionX,
+  renderedRegionY,
+  renderedRegionWidth,
+  renderedRegionHeight,
+}: ObjectCoverRegionSourceCropInput): SourceCrop | null {
+  const visibleCrop = getObjectCoverSourceCrop({ sourceWidth, sourceHeight, renderedWidth, renderedHeight });
+  if (!visibleCrop) return null;
+
+  const left = clamp(renderedRegionX, 0, renderedWidth);
+  const top = clamp(renderedRegionY, 0, renderedHeight);
+  const right = clamp(renderedRegionX + renderedRegionWidth, 0, renderedWidth);
+  const bottom = clamp(renderedRegionY + renderedRegionHeight, 0, renderedHeight);
+
+  if (right <= left || bottom <= top) return null;
+
+  const scaleX = visibleCrop.sw / renderedWidth;
+  const scaleY = visibleCrop.sh / renderedHeight;
+
+  return {
+    sx: visibleCrop.sx + left * scaleX,
+    sy: visibleCrop.sy + top * scaleY,
+    sw: (right - left) * scaleX,
+    sh: (bottom - top) * scaleY,
+  };
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }

@@ -35,6 +35,7 @@ export interface ScanMinerQrModalViewProps {
   liveCamera: boolean;
   /** Live-camera view bindings (unused in the photo-capture fallback). */
   videoRef: RefObject<HTMLVideoElement | null>;
+  scanRegionRef: RefObject<HTMLDivElement | null>;
   cameraStatus: string;
   cameraError: string;
   /** Hidden file input for the photo-capture fallback. */
@@ -60,6 +61,7 @@ export default function ScanMinerQrModalView({
   targetSlotLabel,
   liveCamera,
   videoRef,
+  scanRegionRef,
   cameraStatus,
   cameraError,
   fileInputRef,
@@ -216,7 +218,12 @@ export default function ScanMinerQrModalView({
         <ScannerHeader targetSlotLabel={targetSlotLabel} onDismiss={onDismiss} />
         <div className="flex min-h-0 flex-1 px-6 pb-6">
           {phase.kind === "scanning" && liveCamera ? (
-            <LiveCameraView videoRef={videoRef} status={cameraStatus} errorMessage={cameraError} />
+            <LiveCameraView
+              videoRef={videoRef}
+              scanRegionRef={scanRegionRef}
+              status={cameraStatus}
+              errorMessage={cameraError}
+            />
           ) : null}
         </div>
       </div>
@@ -242,10 +249,12 @@ function ScannerHeader({ targetSlotLabel, onDismiss }: { targetSlotLabel: string
 
 function LiveCameraView({
   videoRef,
+  scanRegionRef,
   status,
   errorMessage,
 }: {
   videoRef: RefObject<HTMLVideoElement | null>;
+  scanRegionRef: RefObject<HTMLDivElement | null>;
   status: string;
   errorMessage: string;
 }) {
@@ -255,7 +264,7 @@ function LiveCameraView({
         <video ref={videoRef} className="h-full w-full object-cover" muted playsInline autoPlay />
         {/* Framing reticle */}
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="aspect-square h-[min(70%,420px)] rounded-2xl border-2 border-white/80" />
+          <div ref={scanRegionRef} className="aspect-square h-[min(70%,420px)] rounded-2xl border-2 border-white/80" />
         </div>
         {status === "starting" ? (
           <div className="absolute inset-0 flex items-center justify-center bg-black/40">
