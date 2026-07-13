@@ -115,6 +115,17 @@ var SessionOnlyProcedures = []string{
 	curtailmentv1connect.CurtailmentServiceCreateMqttCurtailmentSourceProcedure,
 	curtailmentv1connect.CurtailmentServiceUpdateMqttCurtailmentSourceProcedure,
 	curtailmentv1connect.CurtailmentServiceTestMqttCurtailmentSourceConnectionProcedure,
+	// Infrastructure devices are the OT control surface: writes change
+	// which physical fans curtailment can drive, and manage-level reads
+	// expose driver_config (the OT network map). Session-only across all
+	// five procedures — uniform surface, same rationale as the authz
+	// entries above; no API-key automation consumes this service (the
+	// in-process reconciler bypasses the transport interceptors).
+	infrastructurev1connect.InfrastructureServiceListInfrastructureDevicesProcedure,
+	infrastructurev1connect.InfrastructureServiceGetInfrastructureDeviceProcedure,
+	infrastructurev1connect.InfrastructureServiceCreateInfrastructureDeviceProcedure,
+	infrastructurev1connect.InfrastructureServiceUpdateInfrastructureDeviceProcedure,
+	infrastructurev1connect.InfrastructureServiceDeleteInfrastructureDeviceProcedure,
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure,
 	alertsv1connect.ChannelServiceListChannelsProcedure,
 	alertsv1connect.ChannelServiceCreateChannelProcedure,

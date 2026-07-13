@@ -56,6 +56,26 @@ func TestInfrastructureProceduresAreSensitiveBody(t *testing.T) {
 	}
 }
 
+// Infrastructure devices are the OT control surface (writes change which
+// physical fans curtailment drives; manage-level reads expose the OT network
+// map), so all five procedures must reject API-key auth.
+func TestInfrastructureProceduresAreSessionOnly(t *testing.T) {
+	t.Parallel()
+
+	procedures := []string{
+		infrastructurev1connect.InfrastructureServiceListInfrastructureDevicesProcedure,
+		infrastructurev1connect.InfrastructureServiceGetInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceCreateInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceUpdateInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceDeleteInfrastructureDeviceProcedure,
+	}
+	for _, procedure := range procedures {
+		assert.Contains(t, SessionOnlyProcedures, procedure,
+			"%s must be session-only; the OT control surface should not be reachable via API key",
+			procedure)
+	}
+}
+
 func TestMqttSettingsPasswordProceduresAreSessionOnly(t *testing.T) {
 	t.Parallel()
 
