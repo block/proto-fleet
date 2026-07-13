@@ -89,6 +89,10 @@ func (p *Provider) EmitDeviceHashrate(_ context.Context, labels DeviceLabels, ob
 	})
 }
 
+// temperatureChangeTolerance persists regime changes (heat-up, cool-down)
+// immediately; steady-state ±1-3C poll jitter heartbeats instead.
+const temperatureChangeTolerance = 5.0
+
 // EmitDeviceTemperature records max+avg gauges for one sensor kind.
 func (p *Provider) EmitDeviceTemperature(_ context.Context, labels DeviceLabels, sensorKind string, maxC, avgC float64) {
 	if !IsKnownSensorKind(sensorKind) {
@@ -97,16 +101,16 @@ func (p *Provider) EmitDeviceTemperature(_ context.Context, labels DeviceLabels,
 	}
 	base := labels.toLabels()
 	base.SensorKind = sensorKind
-	p.recordContinuousGauge(Sample{
+	p.recordDeviceGauge(Sample{
 		Metric: MetricDeviceTemperatureMaxCelsius,
 		Labels: base,
 		Value:  maxC,
-	})
-	p.recordContinuousGauge(Sample{
+	}, temperatureChangeTolerance)
+	p.recordDeviceGauge(Sample{
 		Metric: MetricDeviceTemperatureAvgCelsius,
 		Labels: base,
 		Value:  avgC,
-	})
+	}, temperatureChangeTolerance)
 }
 
 // EmitDevicePoolConnected records the fleet_device_pool_connected gauge.

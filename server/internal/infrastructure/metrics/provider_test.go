@@ -488,6 +488,35 @@ func TestDeviceHashingPersistsMaterialChanges(t *testing.T) {
 	require.Equal(t, []float64{0.70, 0.78}, values["device-2"])
 }
 
+// temperature must persist regime changes immediately (the Temperature High
+// rule sees cool-downs within one poll); steady-state jitter heartbeats.
+func TestDeviceTemperaturePersistsMaterialChanges(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	store := NewInMemoryStore()
+	provider := SetupWithStore(ctx, "test", Config{
+		Enabled:               true,
+		FlushInterval:         25 * time.Millisecond,
+		BufferSize:            64,
+		BatchSize:             32,
+		GaugeThrottleInterval: time.Hour,
+	}, store)
+
+	labels := DeviceLabels{OrganizationID: "org-1", DeviceID: "device-1"}
+	provider.EmitDeviceTemperature(ctx, labels, SensorKindChip, 92, 88)   // new: persists
+	provider.EmitDeviceTemperature(ctx, labels, SensorKindChip, 93, 89)   // jitter: suppressed
+	provider.EmitDeviceTemperature(ctx, labels, SensorKindChip, 84, 80.5) // cool-down: persists
+	require.NoError(t, provider.Shutdown(ctx))
+
+	values := map[string][]float64{}
+	for _, sample := range store.Snapshot() {
+		values[sample.Metric] = append(values[sample.Metric], sample.Value)
+	}
+	require.Equal(t, []float64{92, 84}, values[MetricDeviceTemperatureMaxCelsius])
+	require.Equal(t, []float64{88, 80.5}, values[MetricDeviceTemperatureAvgCelsius])
+}
+
 // a 0/1 state gauge must persist every state change immediately — the
 // Device Offline rule depends on the transition sample, not the heartbeat.
 func TestDeviceGaugeStateChangePersistsImmediately(t *testing.T) {
