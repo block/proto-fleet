@@ -4,6 +4,7 @@ import { BasePage } from "./base";
 
 const stopRequestPattern = /StopCurtailment/;
 const restoreReconciliationTimeout = DEFAULT_TIMEOUT * 4;
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export interface CurtailmentCleanupTarget {
   reason: string;
@@ -24,6 +25,10 @@ export class EnergyPage extends BasePage {
   async validateEnergyPageOpened() {
     await this.validateTitle("Curtailment");
     await this.validateTitle("Curtailment history");
+  }
+
+  async validateRunCurtailmentButtonHidden() {
+    await expect(this.page.getByRole("button", { name: "Run curtailment", exact: true })).toHaveCount(0);
   }
 
   async openCurtailmentPlanner() {
@@ -99,6 +104,15 @@ export class EnergyPage extends BasePage {
     await expect(activeCurtailmentSection.getByTestId("active-curtailment-primary-lockup")).toContainText(
       /Pending|Curtailing|Curtailed/,
     );
+  }
+
+  async validateActiveCurtailmentManageActionsHidden(reason: string) {
+    const activeCurtailmentSection = this.activeCurtailmentSection(reason);
+    await expect(activeCurtailmentSection).toBeVisible();
+    await expect(activeCurtailmentSection.getByRole("button", { name: "Edit", exact: true })).toHaveCount(0);
+    await expect(activeCurtailmentSection.getByRole("button", { name: "Stop", exact: true })).toHaveCount(0);
+    await expect(activeCurtailmentSection.getByRole("button", { name: "Restore", exact: true })).toHaveCount(0);
+    await expect(activeCurtailmentSection.getByRole("button", { name: "Restore now", exact: true })).toHaveCount(0);
   }
 
   async validateCurtailmentHistoryRow(reason: string) {
@@ -183,6 +197,44 @@ export class EnergyPage extends BasePage {
 
     if (await this.hasMatchingActiveCurtailment(target.reason)) {
       await this.waitForCurtailmentToRestore(target);
+    }
+  }
+
+  async cleanupStartedCurtailmentsByReasonPrefix(prefix: string) {
+    await this.page.goto("/energy");
+    await expect(this.page).toHaveURL(/.*\/energy/);
+
+    const reasons = new Set<string>();
+    const activeReasonPattern = new RegExp(`(${escapeRegex(prefix)}.*?)(?=\\s+\\(Applies to )`);
+
+    const activeCurtailmentSections = this.page
+      .getByTestId("active-curtailment-primary-lockup")
+      .locator("xpath=ancestor::section[1]");
+
+    for (const activeCurtailmentSection of await activeCurtailmentSections.all()) {
+      const text = (await activeCurtailmentSection.textContent()) ?? "";
+      const activeReasonMatch = text.match(activeReasonPattern);
+      if (activeReasonMatch?.[1]) {
+        reasons.add(activeReasonMatch[1].trim());
+      }
+    }
+
+    const stoppableHistoryRows = this.page
+      .locator('[data-testid^="curtailment-history-row-"]')
+      .filter({ has: this.page.getByRole("button", { name: /^Stop / }) });
+
+    for (const historyRow of await stoppableHistoryRows.all()) {
+      const text = (await historyRow.textContent()) ?? "";
+      for (const line of text.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith(prefix)) {
+          reasons.add(trimmed);
+        }
+      }
+    }
+
+    for (const reason of reasons) {
+      await this.cleanupStartedCurtailment({ reason });
     }
   }
 

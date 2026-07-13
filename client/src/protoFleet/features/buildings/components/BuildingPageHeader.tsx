@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import Breadcrumb, { type BreadcrumbSibling } from "@/shared/components/Breadcrumb";
-import Button, { sizes, variants } from "@/shared/components/Button";
+import { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
+import ResponsiveActionGroup, { type ResponsiveActionButton } from "@/shared/components/ResponsiveActionGroup";
 
 interface BuildingPageHeaderProps {
   label: string;
@@ -41,38 +42,54 @@ const BuildingPageHeader = ({
   const breadcrumbSegments = siteId
     ? [{ label: "Sites", to: "/fleet/sites" }, { label: siteName ?? "Site", to: `/sites/${siteId}` }, currentSegment]
     : [{ label: "Buildings", to: "/fleet/buildings" }, currentSegment];
+  const viewRacksPath = scopedPath(`/fleet/racks?building=${buildingId}`, activeSite);
+  const viewMinersPath = scopedPath(`/fleet/miners?building=${buildingId}`, activeSite);
+  const headerButtons: ResponsiveActionButton[] = [
+    {
+      variant: variants.secondary,
+      text: "View racks",
+      onClick: () => navigate(viewRacksPath),
+      testId: "building-page-view-racks",
+    },
+    {
+      variant: variants.secondary,
+      text: "View miners",
+      onClick: () => navigate(viewMinersPath),
+      testId: "building-page-view-miners",
+    },
+    {
+      variant: variants.secondary,
+      text: "Edit building",
+      onClick: onEditBuilding ?? (() => undefined),
+      disabled: !onEditBuilding,
+      testId: "building-page-edit",
+    },
+  ];
 
   return (
     <div className="flex flex-col gap-3">
       <Breadcrumb segments={breadcrumbSegments} testId="building-page-breadcrumb" />
-      <Header title={label} titleSize="text-heading-300" inline testId="building-page-title">
-        <div className="ml-3 flex items-center gap-3">
-          <Button
-            variant={variants.secondary}
-            size={sizes.compact}
-            onClick={() => navigate(scopedPath(`/fleet/racks?building=${buildingId}`, activeSite))}
-            testId="building-page-view-racks"
-          >
-            View racks
-          </Button>
-          <Button
-            variant={variants.secondary}
-            size={sizes.compact}
-            onClick={() => navigate(scopedPath(`/fleet/miners?building=${buildingId}`, activeSite))}
-            testId="building-page-view-miners"
-          >
-            View miners
-          </Button>
-          <Button
-            variant={variants.secondary}
-            size={sizes.compact}
-            onClick={onEditBuilding ?? (() => undefined)}
-            disabled={!onEditBuilding}
-            testId="building-page-edit"
-          >
-            Edit building
-          </Button>
-        </div>
+      <Header
+        title={label}
+        titleSize="truncate text-heading-300"
+        inline
+        centerButton
+        stackButtonsOnPhone={false}
+        buttons={headerButtons}
+        buttonSize={sizes.compact}
+        buttonsWrapperClassName="hidden tablet:block"
+        testId="building-page-title"
+      >
+        <ResponsiveActionGroup
+          buttons={headerButtons}
+          buttonSize={sizes.compact}
+          className="ml-3 shrink-0 tablet:hidden"
+          primaryButtonStrategy="last"
+          primaryTestIdSuffix="mobile"
+          sheetContentTestId="building-page-action-sheet-content"
+          sheetTestId="building-page-action-sheet"
+          triggerTestId="building-page-more-actions"
+        />
       </Header>
     </div>
   );

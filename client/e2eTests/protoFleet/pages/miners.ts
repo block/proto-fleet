@@ -427,7 +427,7 @@ export class MinersPage extends BasePage {
   }
 
   async clickManageSecurityUpdateButton() {
-    await this.page.getByRole("button", { name: "Update", exact: true }).click();
+    await this.page.getByRole("button", { name: "Update", exact: true }).first().click();
   }
 
   async closeManageSecurityModal() {

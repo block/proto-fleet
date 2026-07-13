@@ -56,6 +56,7 @@ enum HashboardServiceState {
     HASHBOARD_SERVICE_STATE_MINING = 4;
     HASHBOARD_SERVICE_STATE_DISABLED = 5;
     HASHBOARD_SERVICE_STATE_UNKNOWN = 6;
+    HASHBOARD_SERVICE_STATE_FIRMWARE_UPDATING = 7;
 }
 
 enum HashboardPerformanceMode {
@@ -77,6 +78,9 @@ enum HashboardPllAlgorithm {
 message PowerRange {
     uint32 min_watts = 1;
     uint32 max_watts = 2;
+    // Board-type default power target (watts). Distinct from max_watts; the
+    // recommended starting setpoint for the board.
+    uint32 default_watts = 3;
 }
 
 message MaxAvgMinTemps {
@@ -154,7 +158,7 @@ message FanData {
 }
 
 // =============================================================================
-// Control Messages  (hashboard.<slot>.control)
+// Control Messages  (hb.<slot>.control)
 // =============================================================================
 
 message StartMining {}
@@ -199,6 +203,40 @@ message HashboardControl {
         SetPllAlgorithm set_pll_algorithm = 5;
         SetWork set_work = 6;
     }
+}
+
+// =============================================================================
+// Firmware Update Control Message  (hb.<slot>.fw_update)
+// =============================================================================
+
+message StartFirmwareUpdate {
+    // Absolute path on the rig. Can point to a signed .bin file, or to a
+    // directory containing signed .bin files where hashboard-service selects
+    // the image matching the board hardware revision.
+    string asset_path = 1;
+    bool force = 2;
+}
+
+// Firmware update progress states.
+enum HashboardFwUpdateState {
+    HASHBOARD_FW_UPDATE_STATE_IDLE = 0;
+    HASHBOARD_FW_UPDATE_STATE_QUEUED = 1;
+    HASHBOARD_FW_UPDATE_STATE_PREPARING = 2;
+    HASHBOARD_FW_UPDATE_STATE_WRITING = 3;
+    HASHBOARD_FW_UPDATE_STATE_ACTIVATING = 4;
+    HASHBOARD_FW_UPDATE_STATE_REBOOTING = 5;
+    HASHBOARD_FW_UPDATE_STATE_COMPLETE = 6;
+    HASHBOARD_FW_UPDATE_STATE_FAILED = 7;
+    HASHBOARD_FW_UPDATE_STATE_NO_UPDATE_REQUIRED = 8;
+}
+
+// Published on "hb.<slot>.fwup_progress".
+message HashboardFwUpdateProgress {
+    HashboardFwUpdateState state = 1;
+    float progress_percent = 2;
+    string message = 3;
+    uint32 attempt = 4;
+    uint32 max_attempts = 5;
 }
 
 // =============================================================================

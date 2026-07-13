@@ -282,9 +282,10 @@ describe("List", () => {
   it("does not register a resize listener when horizontal overflow handling is disabled", () => {
     const addEventListenerSpy = vi.spyOn(window, "addEventListener");
     let resizeListenerCount: number;
+    let scrollContainer: HTMLDivElement;
 
     try {
-      render(
+      const { container } = render(
         <List<TestItem, TestItemKey>
           activeCols={activeCols}
           colTitles={testColTitles}
@@ -294,12 +295,20 @@ describe("List", () => {
           overflowContainer={false}
         />,
       );
+      scrollContainer = container.querySelector("table")?.parentElement as HTMLDivElement;
       resizeListenerCount = addEventListenerSpy.mock.calls.filter(([eventName]) => eventName === "resize").length;
     } finally {
       addEventListenerSpy.mockRestore();
     }
 
     expect(resizeListenerCount).toBe(0);
+    expect(scrollContainer!).toHaveClass(
+      "phone:overflow-x-auto",
+      "phone:overscroll-x-contain",
+      "tablet-only:overflow-x-auto",
+      "tablet-only:overscroll-x-contain",
+    );
+    expect(scrollContainer!).not.toHaveClass("overflow-x-auto");
   });
 
   it("shows item count by default", () => {

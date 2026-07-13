@@ -1,9 +1,12 @@
-import { useMemo } from "react";
+import { type Ref, useEffect, useMemo } from "react";
 import clsx from "clsx";
 
 import type { AssignmentMode } from "./types";
 import { computeSlotNumber, type NumberingOrigin } from "@/protoFleet/features/fleetManagement/utils/slotNumbering";
-import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
+import ActionSheet, { type ActionSheetItem } from "@/shared/components/ActionSheet";
+import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
+import { positions } from "@/shared/constants";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 interface RackPaneProps {
   rows: number;
@@ -49,29 +52,54 @@ function SlotPopover({
   onScanQr: () => void;
   onDismiss: () => void;
 }) {
-  useEscapeDismiss(onDismiss);
+  const { isPhone } = useWindowDimensions();
+  const position =
+    anchorX === "right"
+      ? positions["bottom left"]
+      : anchorX === "center"
+        ? positions.bottom
+        : positions["bottom right"];
+
+  if (isPhone) {
+    const actionItems: ActionSheetItem[] = [
+      {
+        disabled: selectFromListDisabled,
+        label: "Select from list",
+        onClick: onSelectFromList,
+        testId: "rack-slot-select-from-list-action",
+      },
+      {
+        label: "Search miners",
+        onClick: onSearchMiners,
+        testId: "rack-slot-search-miners-action",
+      },
+      {
+        label: "Scan barcode",
+        onClick: onScanQr,
+        testId: "rack-slot-scan-barcode-action",
+      },
+    ];
+
+    return (
+      <ActionSheet
+        items={actionItems}
+        onClose={onDismiss}
+        contentTestId="rack-slot-actions-sheet-content"
+        testId="rack-slot-actions-sheet"
+      />
+    );
+  }
 
   return (
-    <>
-      <div
-        className="fixed inset-0 z-20"
-        role="presentation"
-        onClick={(e) => {
-          e.stopPropagation();
-          onDismiss();
-        }}
-      />
-      <div
-        className={clsx(
-          "absolute top-full z-30 mt-1 w-44 rounded-xl border border-border-5 bg-surface-elevated-base py-1 shadow-300",
-          // The menu is wider than a slot, so anchor it toward the grid interior:
-          // edge-column slots would otherwise spill off the viewport when centered.
-          anchorX === "left" && "left-0",
-          anchorX === "right" && "right-0",
-          anchorX === "center" && "left-1/2 -translate-x-1/2",
-        )}
-        role="menu"
-      >
+    <Popover
+      position={position}
+      offset={4}
+      size={popoverSizes.small}
+      className="!w-44 !space-y-0 !rounded-xl !border !border-border-5 !bg-surface-elevated-base !p-1 !shadow-300 !backdrop-blur-none"
+      closePopover={onDismiss}
+      testId="rack-slot-popover"
+    >
+      <div role="menu">
         <button
           type="button"
           role="menuitem"
@@ -110,7 +138,7 @@ function SlotPopover({
           Scan barcode
         </button>
       </div>
-    </>
+    </Popover>
   );
 }
 
@@ -120,15 +148,10 @@ function RackSlotCell({
   isManualMode,
   isSelected,
   showPopover,
-  popoverAnchorX,
-  hasMiners,
   slotSize,
   padWidth,
+  triggerRef,
   onCellClick,
-  onSelectFromList,
-  onSearchMiners,
-  onScanQr,
-  onPopoverDismiss,
   onHoverMiner,
 }: {
   slot: SlotInfo;
@@ -136,15 +159,10 @@ function RackSlotCell({
   isManualMode: boolean;
   isSelected: boolean;
   showPopover: boolean;
-  popoverAnchorX: PopoverAnchorX;
-  hasMiners: boolean;
   slotSize: number;
   padWidth: number;
+  triggerRef?: Ref<HTMLDivElement>;
   onCellClick: (row: number, col: number) => void;
-  onSelectFromList: () => void;
-  onSearchMiners: () => void;
-  onScanQr: () => void;
-  onPopoverDismiss: () => void;
   onHoverMiner: (minerId: string | null) => void;
 }) {
   const isAssigned = !!assignedMinerId;
@@ -152,7 +170,7 @@ function RackSlotCell({
   const slotState = isSelected ? "selected" : isAssigned ? "assigned" : "empty";
 
   return (
-    <div className="relative">
+    <div ref={showPopover ? triggerRef : undefined} className="relative">
       <button
         type="button"
         data-testid={`rack-slot-${String(slot.slotNumber).padStart(padWidth, "0")}`}
@@ -179,21 +197,11 @@ function RackSlotCell({
       >
         <span className="font-medium text-text-primary-70">{String(slot.slotNumber).padStart(padWidth, "0")}</span>
       </button>
-      {isSelected && showPopover ? (
-        <SlotPopover
-          anchorX={popoverAnchorX}
-          selectFromListDisabled={!hasMiners}
-          onSelectFromList={onSelectFromList}
-          onSearchMiners={onSearchMiners}
-          onScanQr={onScanQr}
-          onDismiss={onPopoverDismiss}
-        />
-      ) : null}
     </div>
   );
 }
 
-export default function RackPane({
+function RackPaneContent({
   rows,
   cols,
   numberingOrigin,
@@ -212,6 +220,12 @@ export default function RackPane({
   onPopoverDismiss,
   onHoverMiner,
 }: RackPaneProps) {
+  const { triggerRef, setPopoverRenderMode } = usePopover();
+
+  useEffect(() => {
+    setPopoverRenderMode("portal-scrolling");
+  }, [setPopoverRenderMode]);
+
   const slots = useMemo(() => {
     const result: SlotInfo[] = [];
     for (let r = 0; r < rows; r++) {
@@ -229,12 +243,20 @@ export default function RackPane({
   }, [rows, cols, numberingOrigin]);
 
   const padWidth = totalSlots >= 100 ? 3 : 2;
+  const selectedSlot = selectedSlotKey ? slots.find((slot) => slot.key === selectedSlotKey) : undefined;
+  const popoverAnchorX = selectedSlot
+    ? selectedSlot.col === 0
+      ? "left"
+      : selectedSlot.col === cols - 1
+        ? "right"
+        : "center"
+    : "center";
 
   // Compute slot size based on column count — allow shrinking to fit all columns
   const slotSize = Math.max(28, Math.min(72, Math.floor(480 / cols)));
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col p-4">
+    <div className="flex flex-col p-4 laptop:min-h-0 laptop:flex-1">
       {/* Negative margins escape outer p-4 + wrapper laptop:pl-6 → labels land 20px from pane edge. */}
       <div className="-mx-4 flex shrink-0 items-center justify-between pt-1 pr-5 pb-4 pl-5 laptop:-ml-10">
         <span className="text-300 text-text-primary-50">
@@ -244,10 +266,10 @@ export default function RackPane({
           {assignedCount}/{totalSlots} assigned
         </span>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="flex min-h-full w-full items-center overflow-x-auto">
+      <div className="overflow-visible laptop:min-h-0 laptop:flex-1 laptop:overflow-y-auto">
+        <div className="flex w-full items-center overflow-x-auto py-1 laptop:min-h-full">
           <div
-            className="mx-auto my-auto w-fit"
+            className="mx-auto w-fit laptop:my-auto"
             style={{
               display: "grid",
               gridTemplateColumns: `repeat(${cols}, ${slotSize}px)`,
@@ -262,21 +284,35 @@ export default function RackPane({
                 isManualMode={assignmentMode === "manual"}
                 isSelected={selectedSlotKey === slot.key}
                 showPopover={showPopover ? selectedSlotKey === slot.key : false}
-                popoverAnchorX={slot.col === 0 ? "left" : slot.col === cols - 1 ? "right" : "center"}
-                hasMiners={hasMiners}
                 slotSize={slotSize}
                 padWidth={padWidth}
+                triggerRef={triggerRef}
                 onCellClick={onCellClick}
-                onSelectFromList={onSelectFromList}
-                onSearchMiners={onSearchMiners}
-                onScanQr={onScanQr}
-                onPopoverDismiss={onPopoverDismiss}
                 onHoverMiner={onHoverMiner}
               />
             ))}
           </div>
         </div>
       </div>
+      {showPopover && selectedSlot ? (
+        <SlotPopover
+          key={selectedSlot.key}
+          anchorX={popoverAnchorX}
+          selectFromListDisabled={!hasMiners}
+          onSelectFromList={onSelectFromList}
+          onSearchMiners={onSearchMiners}
+          onScanQr={onScanQr}
+          onDismiss={onPopoverDismiss}
+        />
+      ) : null}
     </div>
+  );
+}
+
+export default function RackPane(props: RackPaneProps) {
+  return (
+    <PopoverProvider>
+      <RackPaneContent {...props} />
+    </PopoverProvider>
   );
 }

@@ -27,6 +27,7 @@ export function StatusModal<TComponentAddress = any>({
   getComponentStatus,
   open,
   showBackButton = true,
+  forceScrolledHeader = false,
 }: StatusModalProps<TComponentAddress>) {
   // Try to get component data if componentAddress is provided
   const componentData = componentAddress !== undefined ? getComponentStatus(componentAddress) : undefined;
@@ -44,6 +45,7 @@ export function StatusModal<TComponentAddress = any>({
         onIconClick={showBack ? componentData.onNavigateBack : undefined}
         onDismiss={componentData.onDismiss}
         open={open}
+        forceTitleCollapsed={forceScrolledHeader}
       >
         <ComponentStatusModalContent {...componentData.props} />
       </Modal>
@@ -53,7 +55,13 @@ export function StatusModal<TComponentAddress = any>({
   // Fall back to miner status view
   const minerData = getMinerStatus();
   return (
-    <Modal title={minerData.title} buttons={minerData.buttons} onDismiss={minerData.onDismiss} open={open}>
+    <Modal
+      title={minerData.title}
+      buttons={minerData.buttons}
+      onDismiss={minerData.onDismiss}
+      open={open}
+      forceTitleCollapsed={forceScrolledHeader}
+    >
       <MinerStatusModalContent {...minerData.props} />
     </Modal>
   );

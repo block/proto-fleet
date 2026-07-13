@@ -85,6 +85,10 @@ const ruleTemplateFromProto = (t: ProtoRuleTemplate): RuleTemplate => {
       return "command_failure";
     case ProtoRuleTemplate.TELEMETRY_POLL:
       return "telemetry-poll";
+    case ProtoRuleTemplate.MQTT_CURTAILMENT:
+      return "mqtt-curtailment";
+    case ProtoRuleTemplate.MQTT_DISCONNECTED:
+      return "mqtt-disconnected";
     default:
       return "";
   }
@@ -161,10 +165,17 @@ const maintenanceWindowFromProto = (s: ProtoMaintenanceWindow): MaintenanceWindo
   created_at: isoFromTs(s.createdAt),
 });
 
+// History rows persist the rule title they fired under; map retired titles to
+// the current ones so old rows read consistently with the renamed rules.
+const RENAMED_ALERTS: Record<string, string> = {
+  "Miners Curtailed by Curtailment Source": "Curtailment Active",
+  "Curtailment Source Disconnected": "Curtailment Source Unreachable",
+};
+
 const historyFromProto = (n: ProtoHistoryEntry): AlertHistoryEntry => ({
   id: n.id,
   received_at: isoFromTs(n.receivedAt),
-  alert_name: n.alertName,
+  alert_name: RENAMED_ALERTS[n.alertName] ?? n.alertName,
   status: n.status as AlertHistoryStatus,
   severity: n.severity,
   rule_group: n.ruleGroup,

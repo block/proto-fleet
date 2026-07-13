@@ -55,7 +55,11 @@ export const useIsMining = () => {
 export const useIsAwake = () => {
   return useMinerStore((state) => {
     const status = state.minerStatus.miningStatus || "";
-    return /PoweringOn|Mining|DegradedMining|NoPools|Error/i.test(status);
+    // Curtailed counts as awake: the rig is powered and responsive, mining is
+    // just paused by the curtailment service. Offering "Wake up" would be
+    // immediately overridden by curtailment, while "Sleep" (manual stop) is
+    // meaningful under the respect_manual_stop restore policy.
+    return /PoweringOn|Mining|DegradedMining|Curtailed|NoPools|Error/i.test(status);
   });
 };
 

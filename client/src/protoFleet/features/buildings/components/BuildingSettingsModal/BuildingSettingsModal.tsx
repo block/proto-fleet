@@ -24,9 +24,9 @@ interface BuildingSettingsModalCommonProps {
 }
 
 // Create mode owns site selection: when initialSiteId is supplied the
-// dropdown locks to that site (entry from /sites/:id or a site-scoped
-// row); otherwise it's editable and Save stays disabled until a site
-// is chosen.
+// dropdown locks to that site (entry from /sites/:id, a site-scoped row, or a
+// page-header site scope — the building belongs to that site); otherwise it's
+// editable and Save stays disabled until a site is chosen.
 interface BuildingSettingsModalCreateExtras {
   sites: SiteWithCounts[];
   initialSiteId?: bigint;

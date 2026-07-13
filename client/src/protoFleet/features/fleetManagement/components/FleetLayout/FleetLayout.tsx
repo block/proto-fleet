@@ -226,6 +226,7 @@ const FleetLayout = () => {
       siteCatalogAccessGranted,
       refetchSites,
       notifyPairingCompleted,
+      notifyMinersChanged,
       minersChangedAt,
       publishViewFilterContext,
     }),
@@ -236,6 +237,7 @@ const FleetLayout = () => {
       siteCatalogAccessGranted,
       refetchSites,
       notifyPairingCompleted,
+      notifyMinersChanged,
       minersChangedAt,
       publishViewFilterContext,
     ],
@@ -262,10 +264,11 @@ const FleetLayout = () => {
     );
 
   return (
-    // w-max + min-w-full: the subtree grows to the widest tab content (a wide
-    // table), which is what gives the sticky-left chrome below room to slide.
-    // min-w-full keeps it at least viewport-wide when content is narrow.
-    <div className="flex h-full w-max min-w-full flex-col" data-testid="fleet-layout">
+    // Desktop w-max + min-w-full: the subtree grows to the widest tab content
+    // (a wide table), which gives sticky-left chrome below room to slide.
+    // Mobile/tablet stay viewport-bound; expected horizontal gestures should
+    // live in local controls, not the entire content view.
+    <div className="flex h-full w-full min-w-0 flex-col laptop:w-max laptop:min-w-full" data-testid="fleet-layout">
       <div
         className={clsx(
           "sticky left-0 z-10 flex flex-col gap-4 bg-surface-base px-6 pt-6 laptop:px-10",
@@ -281,6 +284,7 @@ const FleetLayout = () => {
         {canReadMiners ? (
           <CompleteSetup
             lastPairingCompletedAt={lastPairingCompletedAt}
+            minersChangedAt={minersChangedAt}
             onPairingCompleted={notifyPairingCompleted}
             onRefetchMiners={notifyMinersChanged}
           />
@@ -300,7 +304,7 @@ const FleetLayout = () => {
           ))}
         </TabStrip>
       </div>
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 min-w-0 flex-1">
         <FleetCreateFlowProvider
           sites={sites ?? []}
           refetchSites={refetchSites}

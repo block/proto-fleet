@@ -4,6 +4,22 @@ import { PROTO_RIG_DISPLAY_NAME } from "../helpers/minerModels";
 import { BasePage } from "./base";
 
 export class AddMinersPage extends BasePage {
+  private continueWithMinersButton(minerCount?: number) {
+    return minerCount === undefined
+      ? this.page.getByRole("button", { name: /Continue with \d+ miner(s)?/ }).first()
+      : this.page.getByRole("button", { name: `Continue with ${minerCount} miners`, exact: true });
+  }
+
+  private async clickRescanNetwork() {
+    if (!this.isMobile) {
+      await this.page.getByTestId("add-miners-rescan-network").click();
+      return;
+    }
+
+    await this.page.getByTestId("add-miners-more-actions").click();
+    await this.page.getByTestId("add-miners-rescan-network-overflow-item").click();
+  }
+
   async clickFindMinersInNetwork() {
     await this.clickIn("Find miners", "section-scan-network");
   }
@@ -17,7 +33,13 @@ export class AddMinersPage extends BasePage {
   }
 
   async clickChooseMiners() {
-    await this.clickButton("Choose miners");
+    if (!this.isMobile) {
+      await this.page.getByTestId("add-miners-choose-miners").click();
+      return;
+    }
+
+    await this.page.getByTestId("add-miners-more-actions").click();
+    await this.page.getByTestId("add-miners-choose-miners-overflow-item").click();
   }
 
   async clickSelectAllCheckboxInModal() {
@@ -50,11 +72,11 @@ export class AddMinersPage extends BasePage {
   }
 
   async clickContinueWithXMiners(minerCount: number) {
-    await this.page.getByRole("button", { name: `Continue with ${minerCount} miners` }).click();
+    await this.continueWithMinersButton(minerCount).click();
   }
 
   async clickContinueWithSelectedMiners() {
-    await this.page.getByRole("button", { name: /Continue with \d+ miner(s)?/ }).click();
+    await this.continueWithMinersButton().click();
   }
 
   async waitForFoundMinersList() {
@@ -68,13 +90,25 @@ export class AddMinersPage extends BasePage {
     await expect(async () => {
       const scanningButton = this.page.getByRole("button", { name: "Scanning", exact: true });
       const rescanNetworkButton = this.page.getByRole("button", { name: "Rescan network", exact: true });
+      const foundMinersHeading = this.page.getByText(/\d+ miners found on your network/);
+      const continueButton = this.continueWithMinersButton();
 
       expect(await scanningButton.isVisible().catch(() => false)).toBe(false);
-      expect(await rescanNetworkButton.isVisible().catch(() => false)).toBe(true);
+      expect(await foundMinersHeading.isVisible().catch(() => false)).toBe(true);
+      expect(await continueButton.isVisible().catch(() => false)).toBe(true);
+
+      if (!this.isMobile) {
+        expect(await rescanNetworkButton.isVisible().catch(() => false)).toBe(true);
+      }
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
 
   async waitForNetworkScanToStart() {
+    if (this.isMobile) {
+      await expect(this.page.getByText(/^Finding miners on your network/)).toBeVisible({ timeout: DEFAULT_TIMEOUT });
+      return;
+    }
+
     await expect(async () => {
       const scanningButton = this.page.getByRole("button", { name: "Scanning", exact: true });
       expect(await scanningButton.isVisible().catch(() => false)).toBe(true);
@@ -88,7 +122,7 @@ export class AddMinersPage extends BasePage {
       return 0;
     }
 
-    const buttonText = (await continueButton.innerText()).trim();
+    const buttonText = ((await continueButton.getAttribute("aria-label")) ?? (await continueButton.innerText())).trim();
     const match = buttonText.match(/Continue with (\d+) miner(?:s)?/);
 
     if (!match) {
@@ -117,7 +151,7 @@ export class AddMinersPage extends BasePage {
         );
       }
 
-      await this.page.getByRole("button", { name: "Rescan network", exact: true }).click();
+      await this.clickRescanNetwork();
     }
   }
 

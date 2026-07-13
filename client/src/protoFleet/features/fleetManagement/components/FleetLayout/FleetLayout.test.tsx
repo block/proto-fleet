@@ -55,6 +55,33 @@ vi.mock("@/protoFleet/store", () => ({
   useUsername: () => "alice",
 }));
 
+const installLocalStorageMock = () => {
+  const storage = new Map<string, string>();
+  const localStorageMock: Storage = {
+    get length() {
+      return storage.size;
+    },
+    clear: () => storage.clear(),
+    getItem: (key) => storage.get(key) ?? null,
+    key: (index) => Array.from(storage.keys())[index] ?? null,
+    removeItem: (key) => {
+      storage.delete(key);
+    },
+    setItem: (key, value) => {
+      storage.set(key, value);
+    },
+  };
+
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: localStorageMock,
+  });
+};
+
+if (typeof globalThis.localStorage === "undefined") {
+  installLocalStorageMock();
+}
+
 // CompleteSetup renders inside FleetLayout's chrome but isn't under test
 // here — stub it so we don't pull in onboarding's RPC/zustand surface area.
 // The sentinel lets us assert the miner:read gate keeps it from mounting.
@@ -114,6 +141,14 @@ afterEach(() => {
 });
 
 describe("FleetLayout redirect logic", () => {
+  test("keeps the fleet content wrapper viewport-bound until desktop table scroll mode", async () => {
+    renderAt("/fleet/miners");
+
+    await waitFor(() => expect(screen.getByTestId("tab-content-miners")).toBeInTheDocument());
+
+    expect(screen.getByTestId("fleet-layout")).toHaveClass("w-full", "min-w-0", "laptop:w-max", "laptop:min-w-full");
+  });
+
   test("bare /fleet redirects to Sites tab when picker is All Sites and no lastTab is stored", async () => {
     renderAt("/fleet");
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/sites"));

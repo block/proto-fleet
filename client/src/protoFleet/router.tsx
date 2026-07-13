@@ -46,6 +46,7 @@ import {
   racksRedirectLoader,
   sitesRedirectLoader,
 } from "@/protoFleet/features/fleetManagement/redirectLoaders";
+import { hideShellHeaderRouteHandle } from "@/protoFleet/routing/routeHandle";
 import {
   activeSiteFromSegment,
   appEntryPath,
@@ -174,12 +175,14 @@ const scopedGroupDetailRedirectLoader = async ({ params, request }: LoaderFuncti
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {
   fullscreen?: boolean;
+  hideShellHeader?: boolean;
   loader?: LoaderFunction;
 }
 
 const createRoute = (path: string, children: ReactNode, options: CreateRouteOptions = {}) => ({
   path,
   element: <App fullscreen={options.fullscreen}>{children}</App>,
+  ...(options.hideShellHeader && { handle: hideShellHeaderRouteHandle }),
   ...(options.loader && { loader: options.loader }),
 });
 
@@ -239,13 +242,13 @@ const router = createBrowserRouter([
   { path: "/miners", loader: minersRedirectLoader },
   { path: "/racks", loader: racksRedirectLoader },
 
-  createRoute("/racks/:rackId", <RackOverviewPage />),
-  createRoute("/groups/:groupLabel", <GroupOverviewPage />),
+  createRoute("/racks/:rackId", <RackOverviewPage />, { hideShellHeader: true }),
+  createRoute("/groups/:groupLabel", <GroupOverviewPage />, { hideShellHeader: true }),
 
   // /sites redirects into /fleet/sites.
   { path: "/sites", loader: sitesRedirectLoader },
-  createRoute("/sites/:id", <SiteDetailPage />),
-  createRoute("/buildings/:id", <BuildingPage />),
+  createRoute("/sites/:id", <SiteDetailPage />, { hideShellHeader: true }),
+  createRoute("/buildings/:id", <BuildingPage />, { hideShellHeader: true }),
 
   // Single miner (fullscreen - protoOS routes handle layout). SingleMinerWrapper
   // wraps the parent Outlet so it stays mounted across tab navigations — the

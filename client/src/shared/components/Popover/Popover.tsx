@@ -10,6 +10,7 @@ import PopoverContent from "@/shared/components/Popover/PopoverContent";
 import { PopoverContentProps } from "@/shared/components/Popover/types";
 import usePopoverPosition from "@/shared/components/Popover/usePopoverPosition";
 import { Position } from "@/shared/constants";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 type PopoverProps = PopoverContentProps & {
   position?: Position;
@@ -78,6 +79,8 @@ const Popover = ({
   disableAutoFlip = false,
 }: PopoverProps) => {
   const { triggerRef, renderMode: contextRenderMode } = usePopover();
+  const { isPhone } = useWindowDimensions();
+  const canDismissPopover = typeof closePopover === "function";
   // Frozen popovers must be portal'd to body so they're positioned relative to the
   // viewport rather than the trigger element's absolute container (which moves with it).
   const renderMode = freezePosition ? "portal-fixed" : contextRenderMode;
@@ -92,6 +95,47 @@ const Popover = ({
     disableAutoFlip,
   );
 
+  const content = (contentClassName?: string, contentTestId?: string) => (
+    <PopoverContent
+      buttonGroupVariant={buttonGroupVariant}
+      buttons={buttons}
+      children={children}
+      className={clsx(className, contentClassName)}
+      size={size}
+      subtitle={subtitle}
+      title={title}
+      titleSize={titleSize}
+      closePopover={closePopover}
+      closeIgnoreSelectors={closeIgnoreSelectors}
+      testId={contentTestId}
+    />
+  );
+
+  if (isPhone) {
+    return createPortal(
+      <div
+        className="fixed inset-0 z-60 flex items-end bg-grayscale-gray-5"
+        data-testid={testId ? `${testId}-sheet` : "popover-sheet"}
+        onMouseDown={canDismissPopover ? (event) => event.stopPropagation() : undefined}
+        onTouchStart={canDismissPopover ? (event) => event.stopPropagation() : undefined}
+        onClick={closePopover}
+      >
+        <div
+          className="w-full rounded-t-2xl bg-surface-elevated-base px-0 pt-2 pb-[max(env(safe-area-inset-bottom),16px)]"
+          onMouseDown={(event) => event.stopPropagation()}
+          onTouchStart={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {content(
+            "!max-h-[calc(100dvh-theme(spacing.10))] !w-full overflow-y-auto overscroll-contain !rounded-t-2xl !rounded-b-none !bg-surface-elevated-base !p-6 !shadow-none !backdrop-blur-none",
+            testId,
+          )}
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+
   const popoverElement = (
     <div
       ref={popoverRef}
@@ -103,18 +147,7 @@ const Popover = ({
       style={popoverStyle}
       data-testid={testId}
     >
-      <PopoverContent
-        buttonGroupVariant={buttonGroupVariant}
-        buttons={buttons}
-        children={children}
-        className={className}
-        size={size}
-        subtitle={subtitle}
-        title={title}
-        titleSize={titleSize}
-        closePopover={closePopover}
-        closeIgnoreSelectors={closeIgnoreSelectors}
-      />
+      {content()}
     </div>
   );
 

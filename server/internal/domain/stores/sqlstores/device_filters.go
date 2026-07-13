@@ -332,19 +332,32 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		argNum += 2
 	}
 
-	if fp.rackIDsFilter.Valid {
+	// Rack membership predicate. rack_ids match an explicit rack; include_no_rack
+	// admits devices with no rack membership. Emitting this as a top-level AND
+	// whenever include_no_rack is set (even with no rack_ids) is what keeps the
+	// assignable-only filter for a NEW rack from leaking miners that sit in
+	// ANOTHER rack in the same building — their direct/rack-derived building
+	// still matches the building predicate below, so "no rack" has to be
+	// enforced here rather than only OR'd inside the building group.
+	if fp.rackIDsFilter.Valid || fp.includeNoRack {
 		sb.WriteString(" AND (")
-		fmt.Fprintf(sb,
-			"EXISTS (SELECT 1 FROM device_set_membership dcm"+
-				" WHERE dcm.device_id = device.id"+
-				" AND dcm.org_id = $%d"+
-				" AND dcm.device_set_type = 'rack'"+
-				" AND dcm.device_set_id = ANY($%d::bigint[]))",
-			argNum, argNum+1)
-		args = append(args, orgID, pq.Array(fp.rackIDValues))
-		argNum += 2
+		rackFirst := true
+		if fp.rackIDsFilter.Valid {
+			fmt.Fprintf(sb,
+				"EXISTS (SELECT 1 FROM device_set_membership dcm"+
+					" WHERE dcm.device_id = device.id"+
+					" AND dcm.org_id = $%d"+
+					" AND dcm.device_set_type = 'rack'"+
+					" AND dcm.device_set_id = ANY($%d::bigint[]))",
+				argNum, argNum+1)
+			args = append(args, orgID, pq.Array(fp.rackIDValues))
+			argNum += 2
+			rackFirst = false
+		}
 		if fp.includeNoRack {
-			sb.WriteString(" OR ")
+			if !rackFirst {
+				sb.WriteString(" OR ")
+			}
 			fmt.Fprintf(sb,
 				"NOT EXISTS (SELECT 1 FROM device_set_membership dcm"+
 					" JOIN device_set ds ON ds.id = dcm.device_set_id"+
@@ -473,7 +486,16 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			argNum += 2
 			first = false
 		}
-		if fp.includeNoBuilding {
+		// include_no_building matches miners whose RACK has no building. That
+		// keeps a target rack's own members visible in the assignable-only
+		// filter (their building-less rack matches). But the assignable-only
+		// filter for a NEW rack carries no rack_ids and sets include_no_rack —
+		// there are no members to preserve, and this branch would instead pull
+		// in the members of OTHER building-less racks. So drop it for that
+		// shape (include_no_rack with no explicit rack filter); the no-rack
+		// branch below still admits rackless miners with no direct building.
+		emitNoBuildingRackBranch := fp.includeNoBuilding && !(fp.includeNoRack && !fp.rackIDsFilter.Valid)
+		if emitNoBuildingRackBranch {
 			if !first {
 				sb.WriteString(" OR ")
 			}
@@ -495,6 +517,24 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			if !first {
 				sb.WriteString(" OR ")
 			}
+			// The no-rack branch keeps genuinely-unplaced miners in the
+			// building group (they own no device_set_rack row, so the
+			// building_ids / include_no_building branches above can never
+			// match them). When the caller also constrains building
+			// (explicit IDs or include_no_building — e.g. the assignable-only
+			// miner-selection filter), a rackless miner should only pass if
+			// it is ALSO unplaced at the building level: a rackless miner
+			// with a direct device.building_id in another building is
+			// placed elsewhere, not assignable. Without this, that miner
+			// leaks into the default assignable-only list (issue #702).
+			// When no building predicate is present (e.g. the fleet
+			// "Unassigned" rack bucket with no building facet), this branch
+			// is the sole no-rack predicate and must stay unqualified so
+			// rackless-but-building-placed miners still surface.
+			buildingConstrained := fp.buildingIDsFilter.Valid || fp.includeNoBuilding
+			if buildingConstrained {
+				sb.WriteString("(device.building_id IS NULL AND ")
+			}
 			fmt.Fprintf(sb,
 				"NOT EXISTS (SELECT 1 FROM device_set_membership dcm"+
 					" JOIN device_set ds ON ds.id = dcm.device_set_id"+
@@ -503,6 +543,9 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 					" AND dcm.device_set_type = 'rack'"+
 					" AND ds.deleted_at IS NULL)",
 				argNum)
+			if buildingConstrained {
+				sb.WriteString(")")
+			}
 			args = append(args, orgID)
 			argNum++
 		}

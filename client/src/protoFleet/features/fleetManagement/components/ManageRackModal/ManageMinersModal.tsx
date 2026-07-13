@@ -5,6 +5,7 @@ import MinerSelectionList, {
   type MinerEligibility,
   type MinerSelectionListHandle,
 } from "@/protoFleet/components/MinerSelectionList";
+import type { SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 
 import { Alert } from "@/shared/assets/icons";
 import Callout from "@/shared/components/Callout";
@@ -19,6 +20,10 @@ interface ManageMinersModalProps {
   /** Target rack label, shown in the assignment-conflict dialog. */
   targetRackLabel: string;
   maxSlots: number;
+  /** Header SitePicker scope. Limits the list (and its Building/Rack facets) to
+   *  the active site so the modal never shows the full org when a site is
+   *  scoped; "all sites" passes the empty filter and shows everything. */
+  scope?: SiteFilterFields;
   onDismiss: () => void;
   /** `reassignedItems` is the subset of the explicit selection that is currently
    *  assigned elsewhere, so the caller can confirm the reparent (empty when
@@ -40,6 +45,7 @@ export default function ManageMinersModal({
   eligibility,
   targetRackLabel,
   maxSlots,
+  scope,
   onDismiss,
   onConfirm,
 }: ManageMinersModalProps) {
@@ -57,7 +63,7 @@ export default function ManageMinersModal({
     // save a selection the operator can't see (or wipe membership). Prompt them
     // to clear the filter first instead.
     if (blockedByFilter) {
-      setOverflowError("Clear the Site, Building, or Rack filter to continue — it doesn't match this rack.");
+      setOverflowError("Clear the Building or Rack filter to continue — it doesn't match this rack.");
       return;
     }
 
@@ -83,7 +89,7 @@ export default function ManageMinersModal({
       open={show}
       title="Select miners"
       size="large"
-      className="flex !h-[calc(100vh-(--spacing(32)))] max-h-[calc(100vh-(--spacing(32)))] flex-col !overflow-hidden"
+      className="flex !h-[calc(100dvh-(--spacing(32)))] max-h-[calc(100dvh-(--spacing(32)))] flex-col !overflow-hidden"
       bodyClassName="flex flex-1 min-h-0 flex-col overflow-hidden"
       onDismiss={onDismiss}
       divider={false}
@@ -106,11 +112,16 @@ export default function ManageMinersModal({
           filterConfig={{
             showTypeFilter: true,
             showSubnetFilter: true,
-            showSiteFilter: true,
+            // Site facet is redundant when the header SitePicker scope governs
+            // the site, so hide it whenever a `scope` is supplied. If a caller
+            // omits scope, keep the facet so the picker can still narrow by
+            // site (rather than stranding the operator on the full org list).
+            showSiteFilter: !scope,
             showBuildingFilter: true,
             showRackFilter: true,
             showGroupFilter: true,
           }}
+          scope={scope}
           initialSelectedItems={currentRackMiners}
           eligibility={eligibility}
           targetRackLabel={targetRackLabel}

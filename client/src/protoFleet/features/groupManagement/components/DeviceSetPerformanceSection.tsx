@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import clsx from "clsx";
 
 import { AggregationType, MeasurementType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import LineChart from "@/protoFleet/components/LineChart";
@@ -17,7 +18,9 @@ import { getDisplayValue } from "@/shared/utils/stringUtils";
 import { convertCtoF, TH_TO_PH_DIVISOR, TH_TO_PH_THRESHOLD } from "@/shared/utils/telemetryFormat";
 
 interface DeviceSetPerformanceSectionProps {
+  className?: string;
   duration: FleetDuration;
+  gapClassName?: string;
   /** All metrics for the device set — undefined = not loaded, empty = no data */
   metrics: Metric[] | undefined;
 }
@@ -217,7 +220,12 @@ function ChartPanel({
   );
 }
 
-export function DeviceSetPerformanceSection({ duration, metrics: allMetrics }: DeviceSetPerformanceSectionProps) {
+export function DeviceSetPerformanceSection({
+  className,
+  duration,
+  gapClassName = "gap-4",
+  metrics: allMetrics,
+}: DeviceSetPerformanceSectionProps) {
   const temperatureUnit = useTemperatureUnit();
   const isFahrenheit = temperatureUnit === "F";
 
@@ -312,7 +320,7 @@ export function DeviceSetPerformanceSection({ duration, metrics: allMetrics }: D
   );
 
   return (
-    <div className="grid grid-cols-2 gap-4 phone:grid-cols-1">
+    <div className={clsx("grid grid-cols-2 phone:grid-cols-1", gapClassName, className)}>
       <ChartPanel
         label="Hashrate"
         metrics={hashrateMetrics}

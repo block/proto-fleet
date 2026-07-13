@@ -281,6 +281,15 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
 
     const scopeSiteIds = useMemo(() => scope?.siteIds ?? [], [scope]);
     const scopeIncludeUnassigned = scope?.includeUnassigned ?? false;
+    // Facet-option scope is decoupled from the miner-list scope. The list may
+    // surface site-unassigned miners (scope.includeUnassigned), but the
+    // Building/Rack *dropdown options* must stay strictly within the scoped
+    // site — otherwise a scoped site would list unassigned buildings/racks,
+    // offering facet choices outside the site (and, in assignable-only mode,
+    // ones that immediately conflict → empty state). Only when no site is
+    // scoped (e.g. the "unassigned" SitePicker mode) do the option fetches
+    // honor includeUnassigned.
+    const facetIncludeUnassigned = scopeSiteIds.length > 0 ? false : scopeIncludeUnassigned;
     // Serialized key so effects/callbacks only re-fire when the selection
     // actually changes (siteIds is a fresh bigint[] each render otherwise).
     const scopeKey = `${scopeSiteIds.map(String).join(",")}|${scopeIncludeUnassigned}`;
@@ -382,6 +391,18 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
         } else if (eligBuildingId !== undefined) {
           merged.buildingIds = [eligBuildingId];
           merged.includeNoBuilding = true;
+        } else {
+          // Target rack has no building: assigning a miner clears its building,
+          // so only building-unplaced miners are assignable without a reparent.
+          // Pin includeNoBuilding. Server-side this admits the target rack's own
+          // members (their building-less rack matches) AND, via the no-rack
+          // branch, rackless miners with no direct building — while excluding a
+          // rackless miner directly placed in a building. For a NEW rack (no
+          // rack-id in the filter) the server drops the "rack has no building"
+          // sub-clause, since there are no members to preserve and it would
+          // otherwise pull in other building-less racks' members.
+          merged.buildingIds = [];
+          merged.includeNoBuilding = true;
         }
 
         if (userFilter.siteIds.length > 0) {
@@ -389,6 +410,12 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
           merged.includeUnassigned = false;
         } else if (eligSiteId !== undefined) {
           merged.siteIds = [eligSiteId];
+          merged.includeUnassigned = true;
+        } else {
+          // Target rack isn't placed in a site: only site-unplaced miners are
+          // assignable without a reparent. Pin to "unassigned" so a
+          // directly-site-assigned miner doesn't leak into the default list.
+          merged.siteIds = [];
           merged.includeUnassigned = true;
         }
       }
@@ -633,13 +660,13 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     }, [scrollToTop, goToPrevPage]);
 
     // Fetch filter options only for enabled filters. Rack/building facet options
-    // scope to the active site so the dropdowns list only the site's members;
-    // group and site options stay org-wide until ListGroups gains site filtering
-    // (issue #520).
+    // scope to the active site so the dropdowns list only the site's members
+    // (facetIncludeUnassigned, not the list's includeUnassigned); group and site
+    // options stay org-wide until ListGroups gains site filtering (issue #520).
     useEffect(() => {
       if (showGroupFilter) listGroups({ onSuccess: setAvailableGroups });
       if (showRackFilter)
-        listRacks({ siteIds: scopeSiteIds, includeUnassigned: scopeIncludeUnassigned, onSuccess: setAvailableRacks });
+        listRacks({ siteIds: scopeSiteIds, includeUnassigned: facetIncludeUnassigned, onSuccess: setAvailableRacks });
       if (showSiteFilter)
         listSites({
           onSuccess: (sites) =>
@@ -650,7 +677,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       if (showBuildingFilter)
         listBuildings({
           siteIds: scopeSiteIds,
-          includeUnassigned: scopeIncludeUnassigned,
+          includeUnassigned: facetIncludeUnassigned,
           onSuccess: (buildings) =>
             setAvailableBuildings(
               buildings
@@ -882,6 +909,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             hideTotal
             itemName={{ singular: "miner", plural: "miners" }}
             containerClassName="min-h-0"
+            tableClassName="mb-0"
             overflowContainer
             stickyBgColor="bg-surface-elevated-base"
             emptyStateRow={

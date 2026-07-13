@@ -74,7 +74,6 @@ func TestEmitsPersistContractMetrics(t *testing.T) {
 	})
 	provider.EmitTelemetryPoll(ctx, TelemetryPollLabels{
 		OrganizationID: labels.OrganizationID,
-		DeviceID:       labels.DeviceID,
 		Result:         ResultSuccess,
 	})
 	provider.EmitSystemCPUUsedPercent(ctx, 12.5)
@@ -255,9 +254,10 @@ func TestFailedFlushRetainsBatchForRetry(t *testing.T) {
 		MaxRetryBackoff: 50 * time.Millisecond,
 	}, store)
 
-	for range 4 {
+	// Distinct devices: identical repeats would be gauge-throttled away.
+	for i := range 4 {
 		provider.EmitDeviceOnline(ctx, DeviceLabels{
-			OrganizationID: "org-1", DeviceID: "device-1",
+			OrganizationID: "org-1", DeviceID: fmt.Sprintf("device-%d", i),
 		}, true)
 	}
 
@@ -297,9 +297,10 @@ func TestRetryBufferOverflowCountsRetryDropped(t *testing.T) {
 		MaxRetryBackoff: 10 * time.Millisecond,
 	}, store)
 
-	for range 16 {
+	// Distinct devices: identical repeats would be gauge-throttled away.
+	for i := range 16 {
 		provider.EmitDeviceOnline(ctx, DeviceLabels{
-			OrganizationID: "org-1", DeviceID: "device-1",
+			OrganizationID: "org-1", DeviceID: fmt.Sprintf("device-%d", i),
 		}, true)
 	}
 
@@ -379,10 +380,11 @@ func TestRetryQueueChunkedBelowBindParameterLimit(t *testing.T) {
 		MaxRetryBackoff: 50 * time.Millisecond,
 	}, store)
 
+	// Distinct devices: identical repeats would be gauge-throttled away.
 	const emitted = 32
-	for range emitted {
+	for i := range emitted {
 		provider.EmitDeviceOnline(ctx, DeviceLabels{
-			OrganizationID: "org-1", DeviceID: "device-1",
+			OrganizationID: "org-1", DeviceID: fmt.Sprintf("device-%d", i),
 		}, true)
 	}
 
@@ -413,6 +415,235 @@ func TestRetryQueueChunkedBelowBindParameterLimit(t *testing.T) {
 	}
 }
 
+// continuous gauges re-emitted within the throttle interval must collapse
+// to one persisted sample per series, or row volume scales with poll rate.
+func TestDeviceGaugeThrottleSuppressesRepeats(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	store := NewInMemoryStore()
+	provider := SetupWithStore(ctx, "test", Config{
+		Enabled:               true,
+		FlushInterval:         25 * time.Millisecond,
+		BufferSize:            64,
+		BatchSize:             32,
+		GaugeThrottleInterval: time.Hour, // never elapses within the test
+	}, store)
+
+	labels := DeviceLabels{OrganizationID: "org-1", DeviceID: "device-1", Driver: "virtual"}
+	for range 5 {
+		provider.EmitDeviceHashrate(ctx, labels, 110.5, 115.0)
+		provider.EmitDeviceTemperature(ctx, labels, SensorKindBoard, 75.0, 70.0)
+	}
+	// A different value within the interval is still suppressed for
+	// continuous gauges — only the heartbeat interval re-persists them.
+	provider.EmitDeviceHashrate(ctx, labels, 111.0, 115.0)
+	require.NoError(t, provider.Shutdown(ctx))
+
+	got := map[string]int{}
+	for _, sample := range store.Snapshot() {
+		got[sample.Metric]++
+	}
+	require.Equal(t, 1, got[MetricDeviceHashrateTerahash])
+	require.Equal(t, 1, got[MetricDeviceHashrateExpectedTerahash])
+	require.Equal(t, 1, got[MetricDeviceTemperatureMaxCelsius])
+	require.Equal(t, 1, got[MetricDeviceTemperatureAvgCelsius])
+}
+
+// hashing must persist material moves (onset, recovery, sentinel clear)
+// immediately; sub-tolerance jitter waits for the heartbeat.
+func TestDeviceHashingPersistsMaterialChanges(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	store := NewInMemoryStore()
+	provider := SetupWithStore(ctx, "test", Config{
+		Enabled:               true,
+		FlushInterval:         25 * time.Millisecond,
+		BufferSize:            64,
+		BatchSize:             32,
+		GaugeThrottleInterval: time.Hour,
+	}, store)
+
+	labels := DeviceLabels{OrganizationID: "org-1", DeviceID: "device-1"}
+	provider.EmitDeviceHashing(ctx, labels, 0.5)  // new series: persists
+	provider.EmitDeviceHashing(ctx, labels, 0.52) // jitter: suppressed
+	provider.EmitDeviceHashing(ctx, labels, 0.85) // recovery: persists
+	provider.EmitDeviceHashing(ctx, labels, 0.88) // jitter: suppressed
+	provider.EmitDeviceHashing(ctx, labels, 1.0)  // clearing sentinel: persists
+
+	// A marginal recovery across the rule's 0.75 threshold must persist
+	// immediately so the Device Hashrate Low rule sees it within one poll.
+	edge := DeviceLabels{OrganizationID: "org-1", DeviceID: "device-2"}
+	provider.EmitDeviceHashing(ctx, edge, 0.70) // new series: persists
+	provider.EmitDeviceHashing(ctx, edge, 0.72) // jitter: suppressed
+	provider.EmitDeviceHashing(ctx, edge, 0.78) // threshold crossing: persists
+	require.NoError(t, provider.Shutdown(ctx))
+
+	values := map[string][]float64{}
+	for _, sample := range store.Snapshot() {
+		values[sample.Labels.DeviceID] = append(values[sample.Labels.DeviceID], sample.Value)
+	}
+	require.Equal(t, []float64{0.5, 0.85, 1.0}, values["device-1"])
+	require.Equal(t, []float64{0.70, 0.78}, values["device-2"])
+}
+
+// temperature must persist regime changes immediately (the Temperature High
+// rule sees cool-downs within one poll); steady-state jitter heartbeats.
+func TestDeviceTemperaturePersistsMaterialChanges(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	store := NewInMemoryStore()
+	provider := SetupWithStore(ctx, "test", Config{
+		Enabled:               true,
+		FlushInterval:         25 * time.Millisecond,
+		BufferSize:            64,
+		BatchSize:             32,
+		GaugeThrottleInterval: time.Hour,
+	}, store)
+
+	labels := DeviceLabels{OrganizationID: "org-1", DeviceID: "device-1"}
+	provider.EmitDeviceTemperature(ctx, labels, SensorKindChip, 92, 88)   // new: persists
+	provider.EmitDeviceTemperature(ctx, labels, SensorKindChip, 93, 89)   // jitter: suppressed
+	provider.EmitDeviceTemperature(ctx, labels, SensorKindChip, 84, 80.5) // cool-down: persists
+	require.NoError(t, provider.Shutdown(ctx))
+
+	values := map[string][]float64{}
+	for _, sample := range store.Snapshot() {
+		values[sample.Metric] = append(values[sample.Metric], sample.Value)
+	}
+	require.Equal(t, []float64{92, 84}, values[MetricDeviceTemperatureMaxCelsius])
+	require.Equal(t, []float64{88, 80.5}, values[MetricDeviceTemperatureAvgCelsius])
+}
+
+// a 0/1 state gauge must persist every state change immediately — the
+// Device Offline rule depends on the transition sample, not the heartbeat.
+func TestDeviceGaugeStateChangePersistsImmediately(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	store := NewInMemoryStore()
+	provider := SetupWithStore(ctx, "test", Config{
+		Enabled:               true,
+		FlushInterval:         25 * time.Millisecond,
+		BufferSize:            64,
+		BatchSize:             32,
+		GaugeThrottleInterval: time.Hour,
+	}, store)
+
+	labels := DeviceLabels{OrganizationID: "org-1", DeviceID: "device-1"}
+	provider.EmitDeviceOnline(ctx, labels, true)
+	provider.EmitDeviceOnline(ctx, labels, true) // unchanged: suppressed
+	provider.EmitDeviceOnline(ctx, labels, false)
+	provider.EmitDeviceOnline(ctx, labels, true)
+	require.NoError(t, provider.Shutdown(ctx))
+
+	values := []float64{}
+	for _, sample := range store.Snapshot() {
+		require.Equal(t, MetricDeviceOnline, sample.Metric)
+		values = append(values, sample.Value)
+	}
+	require.Equal(t, []float64{1, 0, 1}, values)
+}
+
+// once the throttle interval elapses, an unchanged gauge persists a
+// fresh heartbeat sample so the alert rules' freshness gates stay fed.
+func TestDeviceGaugeThrottleIntervalRefreshes(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	store := NewInMemoryStore()
+	provider := SetupWithStore(ctx, "test", Config{
+		Enabled:               true,
+		FlushInterval:         10 * time.Millisecond,
+		BufferSize:            64,
+		BatchSize:             32,
+		GaugeThrottleInterval: 20 * time.Millisecond,
+	}, store)
+
+	labels := DeviceLabels{OrganizationID: "org-1", DeviceID: "device-1"}
+	provider.EmitDeviceHashing(ctx, labels, 0.95)
+	time.Sleep(30 * time.Millisecond) // let the interval elapse
+	provider.EmitDeviceHashing(ctx, labels, 0.95)
+	require.NoError(t, provider.Shutdown(ctx))
+
+	require.Len(t, store.Snapshot(), 2,
+		"an unchanged gauge must re-persist once the throttle interval elapses")
+}
+
+// poll increments land as one row per (org, site, result) with value =
+// poll count, preserving the failure-rate rule's sum(value).
+func TestTelemetryPollsAggregate(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	store := NewInMemoryStore()
+	provider := SetupWithStore(ctx, "test", Config{
+		Enabled:                 true,
+		FlushInterval:           25 * time.Millisecond,
+		BufferSize:              64,
+		BatchSize:               32,
+		PollAggregationInterval: time.Hour, // only the shutdown drain flushes
+	}, store)
+
+	for range 5 {
+		provider.EmitTelemetryPoll(ctx, TelemetryPollLabels{
+			OrganizationID: "org-1",
+			SiteID:         "site-1",
+			Result:         ResultSuccess,
+		})
+	}
+	for range 2 {
+		provider.EmitTelemetryPoll(ctx, TelemetryPollLabels{
+			OrganizationID: "org-1",
+			SiteID:         "site-1",
+			Result:         ResultFailure,
+		})
+	}
+	require.NoError(t, provider.Shutdown(ctx))
+
+	samples := store.Snapshot()
+	require.Len(t, samples, 2, "expected one aggregated row per (org, site, result)")
+	byResult := map[string]Sample{}
+	for _, sample := range samples {
+		require.Equal(t, MetricTelemetryPollTotal, sample.Metric)
+		require.Empty(t, sample.Labels.DeviceID, "aggregated poll rows must not carry device_id")
+		require.Equal(t, "org-1", sample.Labels.OrganizationID)
+		require.Equal(t, "site-1", sample.Labels.SiteID)
+		byResult[sample.Labels.Result] = sample
+	}
+	require.Equal(t, 5.0, byResult[ResultSuccess].Value)
+	require.Equal(t, 2.0, byResult[ResultFailure].Value)
+}
+
+// aggregated poll rows must persist at the aggregation cadence even with a
+// slow flush ticker, or a raised FLUSH_INTERVAL starves heartbeat buckets.
+func TestPollAggregatesFlushAtAggregationCadence(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	store := NewInMemoryStore()
+	provider := SetupWithStore(ctx, "test", Config{
+		Enabled:                 true,
+		FlushInterval:           time.Hour, // flush ticker never fires in-test
+		BufferSize:              64,
+		BatchSize:               32,
+		PollAggregationInterval: 20 * time.Millisecond,
+	}, store)
+
+	provider.EmitTelemetryPoll(ctx, TelemetryPollLabels{
+		OrganizationID: "org-1",
+		Result:         ResultSuccess,
+	})
+
+	require.Eventually(t, func() bool {
+		return len(store.Snapshot()) == 1
+	}, 2*time.Second, 5*time.Millisecond,
+		"aggregated poll row must land at the aggregation tick, not the flush tick")
+	require.NoError(t, provider.Shutdown(ctx))
+}
+
 // when the buffered channel is full, record() drops samples rather
 // than blocking the caller. This is what protects the telemetry hot
 // path under TimescaleDB outage.
@@ -428,10 +659,10 @@ func TestRecordDropsOnFullBuffer(t *testing.T) {
 		BatchSize:     1,
 	}, store)
 
-	// Fill the buffer + force at least one drop. The flusher is
-	// blocked inside store.InsertSamples until we release it.
-	for range 32 {
-		provider.EmitDeviceOnline(ctx, DeviceLabels{DeviceID: "x"}, true)
+	// Fill the buffer + force a drop while the flusher is blocked. Distinct
+	// devices: identical repeats would be gauge-throttled away.
+	for i := range 32 {
+		provider.EmitDeviceOnline(ctx, DeviceLabels{DeviceID: fmt.Sprintf("x%d", i)}, true)
 	}
 	require.Greater(t, provider.DroppedSamples(), uint64(0),
 		"expected at least one dropped sample when the buffer is saturated")

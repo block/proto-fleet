@@ -84,4 +84,16 @@ describe("FleetErrors", () => {
     const fleetErrors = container.firstChild as HTMLElement;
     expect(fleetErrors).toHaveClass("custom-class");
   });
+
+  it("applies custom gapClassName", () => {
+    const { container } = render(
+      <BrowserRouter>
+        <FleetErrors gapClassName="gap-1" />
+      </BrowserRouter>,
+    );
+
+    const grid = container.querySelector(".grid");
+    expect(grid).toHaveClass("gap-1");
+    expect(grid).not.toHaveClass("gap-4");
+  });
 });

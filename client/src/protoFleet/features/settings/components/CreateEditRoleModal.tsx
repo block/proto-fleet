@@ -37,6 +37,8 @@ const collapsedFor = (permissions: string[], groups: PermissionGroup[]): Set<str
   return collapsed;
 };
 
+const permissionTestId = (key: string) => `role-permission-${key.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+
 const CreateEditRoleModal = ({ open, role, onDismiss, onSuccess }: CreateEditRoleModalProps) => {
   const isVisible = open ?? true;
   const isEdit = !!role;
@@ -315,6 +317,7 @@ const CreateEditRoleModalForm = ({
           initValue={query}
           onChange={(value) => setQuery(value)}
           dismiss
+          testId="role-permission-search"
         />
       </div>
 
@@ -394,6 +397,7 @@ const CreateEditRoleModalForm = ({
                       return (
                         <label
                           key={entry.key}
+                          data-testid={permissionTestId(entry.key)}
                           className={clsx(
                             "flex items-center gap-3 py-2 pl-6 hover:bg-core-primary-2",
                             isLocked ? "cursor-not-allowed" : "cursor-pointer",

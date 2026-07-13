@@ -163,6 +163,24 @@ describe("NestedDropdownFilter", () => {
     expect(onCheckboxChange).toHaveBeenCalledWith("firmware", ["v3.5.1"]);
   });
 
+  it("closes the desktop popover when the trigger is clicked again", async () => {
+    render(
+      <NestedDropdownFilter label="Filters" categories={defaultCategories} {...noopCallbacks()} onClearAll={vi.fn()} />,
+    );
+
+    const trigger = screen.getByTestId("nested-dropdown-filter");
+    fireEvent.click(trigger);
+
+    expect(screen.getByTestId("nested-dropdown-filter-popover")).toBeInTheDocument();
+
+    fireEvent.mouseDown(trigger);
+    fireEvent.click(trigger);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("nested-dropdown-filter-popover")).not.toBeInTheDocument();
+    });
+  });
+
   it("renders thick dividers between option groups in nested submenus", async () => {
     const categories: FilterCategory[] = [
       checkbox("type", "Type", [
@@ -307,6 +325,39 @@ describe("NestedDropdownFilter on small viewports", () => {
 
     // The portaled side panel testId is reserved for the desktop hover layout.
     expect(screen.queryByTestId("nested-dropdown-filter-submenu-firmware")).not.toBeInTheDocument();
+  });
+
+  it("dismisses the phone sheet backdrop without bubbling pointer down to parent dismiss handlers", async () => {
+    setViewport({ isPhone: true, isDesktop: false, width: 375 });
+    const parentDismiss = vi.fn();
+    document.addEventListener("mousedown", parentDismiss);
+
+    try {
+      render(
+        <NestedDropdownFilter
+          label="Filters"
+          categories={defaultCategories}
+          onCheckboxChange={vi.fn()}
+          onRequestEdit={vi.fn()}
+          onClearAll={vi.fn()}
+        />,
+      );
+
+      fireEvent.click(screen.getByTestId("nested-dropdown-filter"));
+
+      const sheet = screen.getByTestId("nested-dropdown-filter-popover-sheet");
+      fireEvent.mouseDown(sheet);
+
+      expect(parentDismiss).not.toHaveBeenCalled();
+
+      fireEvent.click(sheet);
+
+      await waitFor(() => {
+        expect(screen.queryByTestId("nested-dropdown-filter-popover")).not.toBeInTheDocument();
+      });
+    } finally {
+      document.removeEventListener("mousedown", parentDismiss);
+    }
   });
 
   it("uses thick option dividers in mobile drilldowns when an option ends a group", async () => {

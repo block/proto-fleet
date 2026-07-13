@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { type ReactNode, useCallback, useMemo } from "react";
 
 import type { EventTypeOption, UserOption } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 import { baseEventType } from "@/protoFleet/features/activity/utils/eventType";
@@ -88,6 +88,7 @@ interface ActivityFiltersProps {
   onTypesChange: (types: string[]) => void;
   onScopesChange: (scopes: string[]) => void;
   onUsersChange: (users: string[]) => void;
+  actions?: ReactNode;
 }
 
 const ActivityFilters = ({
@@ -102,6 +103,7 @@ const ActivityFilters = ({
   onTypesChange,
   onScopesChange,
   onUsersChange,
+  actions,
 }: ActivityFiltersProps) => {
   const typeOptions = useMemo(() => buildTypeOptions(eventTypes), [eventTypes]);
 
@@ -182,8 +184,8 @@ const ActivityFilters = ({
   );
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="w-56 phone:w-full">
+    <div className="flex w-full min-w-0 flex-col gap-2">
+      <div className="w-full min-w-0" data-testid="activity-search-row">
         <Input
           id="activity-search"
           label="Search activity"
@@ -194,13 +196,21 @@ const ActivityFilters = ({
           onKeyDown={handleClearSearch}
         />
       </div>
-      {filterChipsBarFilters.length > 0 ? (
-        <FilterChipsBar
-          filters={filterChipsBarFilters}
-          onChange={handleFilterChange}
-          onClearAll={handleClearAllFilters}
-        />
-      ) : null}
+      <div
+        className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2"
+        data-testid="activity-toolbar-row"
+      >
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          {filterChipsBarFilters.length > 0 ? (
+            <FilterChipsBar
+              filters={filterChipsBarFilters}
+              onChange={handleFilterChange}
+              onClearAll={handleClearAllFilters}
+            />
+          ) : null}
+        </div>
+        {actions ? <div className="ml-auto shrink-0">{actions}</div> : null}
+      </div>
     </div>
   );
 };

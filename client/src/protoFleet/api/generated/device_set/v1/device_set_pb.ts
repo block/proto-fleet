@@ -153,8 +153,8 @@ export type RackInfo = Message<"device_set.v1.RackInfo"> & {
   columns: number;
 
   /**
-   * Sub-building zone label (e.g. "Room 2", "East Wall"). Required when
-   * building_id is set; cleared (empty) automatically when the rack
+   * Sub-building zone label (e.g. "Room 2", "East Wall"). Optional, even
+   * when building_id is set. Cleared (empty) automatically when the rack
    * crosses a building boundary or moves to direct-under-site placement.
    *
    * @generated from field: string zone = 3;

@@ -409,8 +409,8 @@ type RackInfo struct {
 	Rows int32 `protobuf:"varint,1,opt,name=rows,proto3" json:"rows,omitempty"`
 	// Number of columns in the rack grid
 	Columns int32 `protobuf:"varint,2,opt,name=columns,proto3" json:"columns,omitempty"`
-	// Sub-building zone label (e.g. "Room 2", "East Wall"). Required when
-	// building_id is set; cleared (empty) automatically when the rack
+	// Sub-building zone label (e.g. "Room 2", "East Wall"). Optional, even
+	// when building_id is set. Cleared (empty) automatically when the rack
 	// crosses a building boundary or moves to direct-under-site placement.
 	Zone string `protobuf:"bytes,3,opt,name=zone,proto3" json:"zone,omitempty"`
 	// Order index defining where numbering starts

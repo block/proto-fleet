@@ -30,6 +30,17 @@ const defaultProps = {
 };
 
 describe("ActivityFilters", () => {
+  it("spans search across the toolbar and aligns actions with filter controls", () => {
+    render(<ActivityFilters {...defaultProps} actions={<button type="button">Export CSV</button>} />);
+
+    expect(screen.getByTestId("activity-search-row")).toHaveClass("w-full", "min-w-0");
+    expect(screen.getByTestId("activity-toolbar-row")).toHaveClass("justify-between");
+
+    const exportButton = screen.getByRole("button", { name: "Export CSV" });
+    expect(exportButton).toBeInTheDocument();
+    expect(exportButton.parentElement).toHaveClass("ml-auto", "shrink-0");
+  });
+
   it("uses live fleet-style checkbox filters without an apply action", async () => {
     const onTypesChange = vi.fn();
     render(<ActivityFilters {...defaultProps} onTypesChange={onTypesChange} />);

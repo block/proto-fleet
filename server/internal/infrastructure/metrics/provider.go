@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,14 +21,20 @@ const maxPostgresBindParameters = 65535
 var maxSamplesPerInsert = maxPostgresBindParameters / columnsPerSample
 
 type Config struct {
-	Enabled         bool                 `help:"Persist Proto Fleet metrics into TimescaleDB for Grafana alerting" default:"false" env:"ENABLED"`
-	FlushInterval   time.Duration        `help:"How often the in-process buffer is flushed to TimescaleDB" default:"5s" env:"FLUSH_INTERVAL"`
-	BufferSize      int                  `help:"Bounded channel size between emit and flush; oldest samples are dropped when full" default:"4096" env:"BUFFER_SIZE"`
-	BatchSize       int                  `help:"Maximum number of samples written per INSERT statement" default:"512" env:"BATCH_SIZE"`
-	RetryBufferSize int                  `help:"Maximum number of samples queued for retry after a failed flush; oldest are dropped when full" default:"8192" env:"RETRY_BUFFER_SIZE"`
-	MaxRetryBackoff time.Duration        `help:"Upper bound on the exponential backoff between retries after a failed flush" default:"1m" env:"MAX_RETRY_BACKOFF"`
-	WebhookToken    string               `help:"Shared secret required on incoming Alertmanager webhook deliveries as 'Authorization: Bearer <token>'. Configure the same value into Grafana's webhook contact point (authorization_scheme: Bearer, authorization_credentials: <token>). When empty the receiver refuses every request." env:"WEBHOOK_TOKEN"`
-	Grafana         alerts.GrafanaConfig `embed:"" prefix:"grafana-" envprefix:"GRAFANA_"`
+	Enabled         bool          `help:"Persist Proto Fleet metrics into TimescaleDB for Grafana alerting" default:"false" env:"ENABLED"`
+	FlushInterval   time.Duration `help:"How often the in-process buffer is flushed to TimescaleDB" default:"5s" env:"FLUSH_INTERVAL"`
+	BufferSize      int           `help:"Bounded channel size between emit and flush; oldest samples are dropped when full" default:"4096" env:"BUFFER_SIZE"`
+	BatchSize       int           `help:"Maximum number of samples written per INSERT statement" default:"512" env:"BATCH_SIZE"`
+	RetryBufferSize int           `help:"Maximum number of samples queued for retry after a failed flush; oldest are dropped when full" default:"8192" env:"RETRY_BUFFER_SIZE"`
+	MaxRetryBackoff time.Duration `help:"Upper bound on the exponential backoff between retries after a failed flush" default:"1m" env:"MAX_RETRY_BACKOFF"`
+
+	// Fixed cadences (test-overridable only): the gauge heartbeat must stay
+	// inside the temperature rule's 3-minute freshness gate, and poll rows
+	// must land in every 1-minute fleet_telemetry_poll_heartbeat bucket.
+	GaugeThrottleInterval   time.Duration        `kong:"-"`
+	PollAggregationInterval time.Duration        `kong:"-"`
+	WebhookToken            string               `help:"Shared secret required on incoming Alertmanager webhook deliveries as 'Authorization: Bearer <token>'. Configure the same value into Grafana's webhook contact point (authorization_scheme: Bearer, authorization_credentials: <token>). When empty the receiver refuses every request." env:"WEBHOOK_TOKEN"`
+	Grafana                 alerts.GrafanaConfig `embed:"" prefix:"grafana-" envprefix:"GRAFANA_"`
 
 	AlertDestinations alerts.DestinationPolicy `embed:""`
 }
@@ -38,6 +45,9 @@ type Provider struct {
 
 	samples chan Sample
 	store   Store
+
+	gauges  *gaugeThrottle
+	pollAgg *pollAggregator
 
 	dropMu sync.Mutex
 
@@ -83,6 +93,8 @@ func startProvider(ctx context.Context, version string, cfg Config, store Store)
 		enabled: true,
 		samples: make(chan Sample, cfg.BufferSize),
 		store:   store,
+		gauges:  newGaugeThrottle(cfg.GaugeThrottleInterval),
+		pollAgg: newPollAggregator(),
 		stopCh:  make(chan struct{}),
 	}
 
@@ -119,8 +131,21 @@ func applyDefaults(cfg Config) Config {
 	if cfg.MaxRetryBackoff < cfg.FlushInterval {
 		cfg.MaxRetryBackoff = cfg.FlushInterval
 	}
+	if cfg.GaugeThrottleInterval <= 0 {
+		cfg.GaugeThrottleInterval = defaultGaugeThrottleInterval
+	}
+	if cfg.PollAggregationInterval <= 0 {
+		cfg.PollAggregationInterval = defaultPollAggregationInterval
+	}
 	return cfg
 }
+
+// Cadences keep worst-case sample age inside the temperature rule's 3-minute
+// freshness gate and every 1-minute poll-heartbeat bucket populated.
+const (
+	defaultGaugeThrottleInterval   = 55 * time.Second
+	defaultPollAggregationInterval = 30 * time.Second
+)
 
 func newDisabledProvider(cfg Config) *Provider {
 	return &Provider{cfg: cfg, enabled: false}
@@ -177,22 +202,69 @@ func (p *Provider) record(sample Sample) {
 	}
 
 	// Buffer is full.
+	var evicted []Sample
 	p.dropMu.Lock()
-	defer p.dropMu.Unlock()
 	for {
 		select {
 		case p.samples <- sample:
+			p.dropMu.Unlock()
+			// Evicted gauges were already marked persisted; forget them so the
+			// next emit re-persists. Outside dropMu to avoid nesting locks.
+			p.gauges.invalidate(evicted...)
 			return
 		default:
 		}
 		// Discard one oldest sample and retry.
 		select {
-		case <-p.samples:
+		case old := <-p.samples:
 			p.dropped.Add(1)
+			evicted = append(evicted, old)
 		default:
 			// Reader drained the channel out from under us
 		}
 	}
+}
+
+// recordDeviceGauge routes a per-device gauge through the throttle. The
+// throttle clock stays monotonic (no UTC()); only Sample.Time is wall-clock.
+func (p *Provider) recordDeviceGauge(sample Sample, changeTolerance float64) {
+	if p == nil || !p.enabled {
+		return
+	}
+	now := time.Now()
+	key := gaugeSeriesKey{metric: sample.Metric, labels: sample.Labels}
+	if !p.gauges.shouldPersist(key, sample.Value, now, changeTolerance) {
+		return
+	}
+	sample.Time = now.UTC()
+	p.record(sample)
+}
+
+// recordStateGauge persists a 0/1 state gauge: every state change lands
+// immediately, unchanged state refreshes once per GaugeThrottleInterval.
+func (p *Provider) recordStateGauge(sample Sample) {
+	p.recordDeviceGauge(sample, 0)
+}
+
+// recordContinuousGauge persists a continuously-varying gauge once per
+// GaugeThrottleInterval; value jitter between heartbeats is not persisted.
+func (p *Provider) recordContinuousGauge(sample Sample) {
+	p.recordDeviceGauge(sample, math.Inf(1))
+}
+
+// appendPollAggregates drains the poll aggregator into batch; flushLoop-only,
+// so aggregate rows never transit the channel and cannot evict queued samples.
+func (p *Provider) appendPollAggregates(batch []Sample) []Sample {
+	now := time.Now().UTC()
+	for labels, count := range p.pollAgg.drain() {
+		batch = append(batch, Sample{
+			Time:   now,
+			Metric: MetricTelemetryPollTotal,
+			Labels: labels,
+			Value:  count,
+		})
+	}
+	return batch
 }
 
 func (p *Provider) flushLoop(ctx context.Context) {
@@ -200,6 +272,11 @@ func (p *Provider) flushLoop(ctx context.Context) {
 
 	ticker := time.NewTicker(p.cfg.FlushInterval)
 	defer ticker.Stop()
+
+	// Aggregate drains and the gauge sweep run here: rows append straight to
+	// batch, and the sweep's full map scan stays off the emit hot path.
+	aggTicker := time.NewTicker(p.cfg.PollAggregationInterval)
+	defer aggTicker.Stop()
 
 	batch := make([]Sample, 0, p.cfg.BatchSize)
 	var pendingRetry []Sample
@@ -214,7 +291,9 @@ func (p *Provider) flushLoop(ctx context.Context) {
 		if !force && !nextRetry.IsZero() && time.Now().Before(nextRetry) {
 			// Still in the backoff window after the previous failure.
 			if len(batch) > 0 {
-				pendingRetry = appendBoundedRetry(pendingRetry, batch, p.cfg.RetryBufferSize, &p.retryDropped)
+				var lost []Sample
+				pendingRetry, lost = appendBoundedRetry(pendingRetry, batch, p.cfg.RetryBufferSize, &p.retryDropped)
+				p.gauges.invalidate(lost...)
 				batch = batch[:0]
 			}
 			return
@@ -250,7 +329,9 @@ func (p *Provider) flushLoop(ctx context.Context) {
 				p.failedFlushes.Add(1)
 				backoff = nextBackoff(backoff, p.cfg.FlushInterval, p.cfg.MaxRetryBackoff)
 				nextRetry = time.Now().Add(backoff)
-				pendingRetry = appendBoundedRetry(nil, samples[offset:], p.cfg.RetryBufferSize, &p.retryDropped)
+				var lost []Sample
+				pendingRetry, lost = appendBoundedRetry(nil, samples[offset:], p.cfg.RetryBufferSize, &p.retryDropped)
+				p.gauges.invalidate(lost...)
 				slog.Error("metrics: flush to TimescaleDB failed",
 					"error", err,
 					"samples_pending", len(samples)-offset,
@@ -285,8 +366,16 @@ func (p *Provider) flushLoop(ctx context.Context) {
 					break drain
 				}
 			}
+			batch = p.appendPollAggregates(batch)
 			flush(ctx, true)
 			return
+
+		case <-aggTicker.C:
+			batch = p.appendPollAggregates(batch)
+			p.gauges.sweep(time.Now())
+			// Flush now: post-throttle volume may never reach BatchSize, and a
+			// raised FLUSH_INTERVAL must not starve the heartbeat buckets.
+			flush(ctx, false)
 
 		case <-ticker.C:
 			flush(ctx, false)
@@ -300,18 +389,19 @@ func (p *Provider) flushLoop(ctx context.Context) {
 	}
 }
 
-// appendBoundedRetry returns retry ++ extra, capped at maxLen.
-func appendBoundedRetry(retry, extra []Sample, maxLen int, dropped *atomic.Uint64) []Sample {
+// appendBoundedRetry returns retry ++ extra capped at maxLen, plus the
+// discarded samples so the caller can invalidate their throttle state.
+func appendBoundedRetry(retry, extra []Sample, maxLen int, dropped *atomic.Uint64) (out, lost []Sample) {
 	if len(extra) == 0 {
-		return retry
+		return retry, nil
 	}
 	if maxLen <= 0 {
-		return append(retry, extra...)
+		return append(retry, extra...), nil
 	}
 
 	combined := len(retry) + len(extra)
 	if combined <= maxLen {
-		return append(retry, extra...)
+		return append(retry, extra...), nil
 	}
 
 	overflow := combined - maxLen
@@ -319,15 +409,18 @@ func appendBoundedRetry(retry, extra []Sample, maxLen int, dropped *atomic.Uint6
 		// Even after dropping every existing retry entry we still exceed the cap
 		extraDrop := overflow - len(retry)
 		dropped.Add(uint64(len(retry) + extraDrop)) // #nosec G115 -- both appends are slice lengths, non-negative
-		out := make([]Sample, 0, maxLen)
-		return append(out, extra[extraDrop:]...)
+		lost = append(lost, retry...)
+		lost = append(lost, extra[:extraDrop]...)
+		out = make([]Sample, 0, maxLen)
+		return append(out, extra[extraDrop:]...), lost
 	}
 
 	// Drop the oldest entries off the front of the retry queue, then concatenate.
 	dropped.Add(uint64(overflow)) // #nosec G115 -- overflow = combined-maxLen and combined > maxLen, so > 0
-	out := make([]Sample, 0, maxLen)
+	lost = append(lost, retry[:overflow]...)
+	out = make([]Sample, 0, maxLen)
 	out = append(out, retry[overflow:]...)
-	return append(out, extra...)
+	return append(out, extra...), lost
 }
 
 // nextBackoff returns the next exponential backoff value, doubling from base up to ceiling.

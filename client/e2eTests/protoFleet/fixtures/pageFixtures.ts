@@ -118,8 +118,8 @@ export const test = base.extend<PageFixtures>({
   loginModal: async ({ page, isMobile }, use) => {
     await use(new LoginModalComponent(page, isMobile));
   },
-  commonSteps: async ({ authPage, minersPage }, use) => {
-    await use(new CommonSteps(authPage, minersPage));
+  commonSteps: async ({ authPage, minersPage, settingsPage, settingsTeamPage }, use) => {
+    await use(new CommonSteps(authPage, minersPage, settingsPage, settingsTeamPage));
   },
 });
 

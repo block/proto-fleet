@@ -137,7 +137,7 @@ const RulesSection = () => {
             ) : null}
           </span>
         ),
-        width: "w-56",
+        width: "w-64",
       },
       when: {
         component: (rule) => <span className="text-text-primary-50">{formatRuleCondition(rule)}</span>,

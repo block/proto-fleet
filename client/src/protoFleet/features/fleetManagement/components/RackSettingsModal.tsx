@@ -1,14 +1,18 @@
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
+import { useBuildings } from "@/protoFleet/api/buildings";
+import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import {
   type DeviceSet,
   RackCoolingType,
   RackOrderIndex,
   type RackType,
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal/types";
+import { useHasPermission } from "@/protoFleet/store";
 
 import { Alert } from "@/shared/assets/icons";
 import Callout from "@/shared/components/Callout";
@@ -25,10 +29,36 @@ interface RackSettingsModalProps {
   existingRacks: DeviceSet[];
   rack?: DeviceSet;
   initialFormData?: RackFormData;
+  // Prepopulates the Site dropdown when creating a rack with no prior
+  // placement (e.g. the page-header site scope). Ignored when
+  // initialFormData already carries a siteId.
+  defaultSiteId?: bigint;
+  // True when editing an existing rack (which has a real, possibly-NULL
+  // placement). Seeds the placement selects to "Unassigned" when the rack is
+  // unplaced (vs. the empty placeholder on create) — see isExistingRack. The
+  // embedded modal inside ManageRackModal can't tell create from edit on its
+  // own (it always runs in onContinue mode), so the caller passes it.
+  existingRack?: boolean;
   onDismiss: () => void;
-  onContinue?: (formData: RackFormData) => void;
+  // May be async: for an existing rack the parent persists the settings (label/
+  // zone/dims + placement) on Continue, so we await it and keep the button busy
+  // until it resolves — a rejection leaves the modal open for a retry.
+  onContinue?: (formData: RackFormData) => void | Promise<void>;
   onSuccess?: () => void;
 }
+
+// Explicit "Unassigned" entry for the placement dropdowns. The shared Select
+// has no clear affordance, so without this a user who picks a site/building
+// could never revert to unassigned. A sentinel value (not "") is used so that
+// an empty string still renders as the unselected placeholder — "Unassigned"
+// only shows once the operator deliberately picks it or an existing rack seeds
+// it. On submit the sentinel maps to undefined, same as an empty selection.
+const UNASSIGNED_VALUE = "unassigned";
+const UNASSIGNED_OPTION: SelectOption = { value: UNASSIGNED_VALUE, label: "Unassigned" };
+// A real site/building id is selected (not the placeholder or the Unassigned
+// sentinel) — gates building fetch, the building select's enabled state, and
+// how the value is encoded onto RackFormData.
+const isRealId = (value: string): boolean => value !== "" && value !== UNASSIGNED_VALUE;
 
 const orderIndexOptions: SelectOption[] = [
   { value: String(RackOrderIndex.BOTTOM_LEFT), label: "Bottom left" },
@@ -47,6 +77,8 @@ const RackSettingsModal = ({
   existingRacks,
   rack,
   initialFormData,
+  defaultSiteId,
+  existingRack,
   onDismiss,
   onContinue,
   onSuccess,
@@ -55,11 +87,56 @@ const RackSettingsModal = ({
   const rackInfo = rack?.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
 
   const { updateRack, listRackZones, listRackTypes } = useDeviceSets();
+  const { sites } = useSitesContext();
+  const { listBuildingsBySite } = useBuildings();
+  // Placing a rack under a site/building is a site:manage action (the server
+  // enforces the same on SaveRack). A rack:manage-only operator can still edit
+  // rack contents, so the placement selects are hidden and no placement change
+  // is submitted (ManageRackModal omits it).
+  const canManagePlacement = useHasPermission("site:manage");
+
+  // An already-persisted rack has a real placement (a site/building or NULL),
+  // so an unplaced rack seeds the explicit "Unassigned" value. Creating a rack
+  // treats placement as an optional, unfilled field: the default is the empty
+  // placeholder (reads as "not chosen"), though "Unassigned" is still pickable
+  // so a chosen site/building can be reverted.
+  const isExistingRack = existingRack || isEditMode;
+
+  // Creating within a page-header site scope: the rack belongs to that site,
+  // so lock the field to it (defaultSiteId is only set for a single-site
+  // scope). An unscoped create leaves Site editable/optional; edit is never
+  // locked.
+  const siteLocked = !isExistingRack && canManagePlacement && defaultSiteId !== undefined;
+
+  // Placement. Site is retained even when a building is chosen (it's the
+  // building's site) so downstream eligibility filtering can pin the site;
+  // saveRack drops it from the wire RackInfo.
+  const [siteIdText, setSiteIdText] = useState<string>(() => {
+    if (initialFormData?.siteId !== undefined) return initialFormData.siteId.toString();
+    // Create + page-header scope: prefill (and lock to) the scoped site. Only
+    // when the operator can manage placement — otherwise the rack is created
+    // unplaced.
+    if (!isExistingRack && canManagePlacement && defaultSiteId !== undefined) return defaultSiteId.toString();
+    // Edit of an unplaced rack shows "Unassigned"; unscoped create shows the
+    // empty placeholder.
+    return isExistingRack ? UNASSIGNED_VALUE : "";
+  });
+  const [buildingIdText, setBuildingIdText] = useState<string>(() => {
+    if (initialFormData?.buildingId !== undefined) return initialFormData.buildingId.toString();
+    return isExistingRack ? UNASSIGNED_VALUE : "";
+  });
+  const [buildings, setBuildings] = useState<BuildingWithCounts[]>([]);
 
   const [label, setLabel] = useState(initialFormData?.label ?? rack?.label ?? "");
   const [zone, setZone] = useState(() => {
+    // Editing an existing rack: its stored zone is authoritative, INCLUDING an
+    // intentional "" — a blank zone is now a valid state. Use presence, not
+    // truthiness, and never fall through to the last-rack default, which would
+    // resurrect a just-cleared zone and re-persist it on Continue.
+    if (isExistingRack) return initialFormData?.zone ?? rackInfo?.zone ?? "";
+    // Create: seed from the form if it carries a zone, otherwise default to the
+    // most recently created rack's zone as a convenience.
     if (initialFormData?.zone) return initialFormData.zone;
-    if (rackInfo?.zone) return rackInfo.zone;
     if (existingRacks.length > 0) {
       const sorted = [...existingRacks].sort((a, b) => {
         const aTime = a.createdAt?.seconds ?? BigInt(0);
@@ -120,6 +197,88 @@ const RackSettingsModal = ({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on mount; initialFormData and rackInfo are initial values
   }, [listRackZones, listRackTypes]);
+
+  // Load the selected site's buildings so the Building dropdown can scope its
+  // options. Runs on mount (edit: shows the rack's current building) and on
+  // every site change. Aborts in-flight fetches so a fast site switch can't
+  // land stale options. With no real site selected there's nothing to fetch.
+  useEffect(() => {
+    if (!isRealId(siteIdText)) return;
+    const controller = new AbortController();
+    listBuildingsBySite({
+      siteId: BigInt(siteIdText),
+      signal: controller.signal,
+      onSuccess: setBuildings,
+    });
+    return () => controller.abort();
+  }, [siteIdText, listBuildingsBySite]);
+
+  // Zone is sub-building, so it belongs to the rack's original building. When
+  // the form moves to a different building the zone is cleared; returning to
+  // the original building before saving restores it. Mirrors the server's
+  // clear-on-building-change so the field shows what will actually persist.
+  const originalBuildingText = initialFormData?.buildingId !== undefined ? initialFormData.buildingId.toString() : "";
+  const originalZone = initialFormData?.zone ?? "";
+  const reconcileZoneForBuilding = useCallback(
+    (nextBuildingText: string) => {
+      // Only an existing rack has a persisted building to cross. On create the
+      // server stores whatever zone is submitted, so leave the typed/seeded
+      // zone alone as the operator picks a building.
+      if (!isExistingRack) return;
+      const selected = isRealId(nextBuildingText) ? nextBuildingText : "";
+      setZone(selected !== "" && selected === originalBuildingText ? originalZone : "");
+    },
+    [isExistingRack, originalBuildingText, originalZone],
+  );
+
+  // Changing the site clears the building selection (the old building lives in
+  // a different site) and drops its now-stale options until the new site's
+  // buildings load. The building — and therefore the zone — resets too. The
+  // shared Select fires onChange on every option click, so no-op when the same
+  // site is reselected — otherwise a confirm of the current site would clear
+  // the building/zone and re-encode the rack as direct-under-site on save.
+  const handleSiteChange = useCallback(
+    (value: string) => {
+      if (value === siteIdText) return;
+      setSiteIdText(value);
+      setBuildingIdText("");
+      setBuildings([]);
+      reconcileZoneForBuilding("");
+    },
+    [siteIdText, reconcileZoneForBuilding],
+  );
+
+  const handleBuildingChange = useCallback(
+    (value: string) => {
+      // Same no-op guard as the site select: reselecting the current building
+      // must not reset the zone.
+      if (value === buildingIdText) return;
+      setBuildingIdText(value);
+      reconcileZoneForBuilding(value);
+    },
+    [buildingIdText, reconcileZoneForBuilding],
+  );
+
+  const siteSelected = isRealId(siteIdText);
+
+  const siteOptions = useMemo<SelectOption[]>(() => {
+    const real = (sites ?? [])
+      .filter((s) => s.site !== undefined)
+      .map((s) => ({ value: s.site!.id.toString(), label: s.site!.name }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    // Unassigned is always offered so a chosen site can be reverted; the empty
+    // placeholder (no option with value "") remains the unselected default.
+    return [UNASSIGNED_OPTION, ...real];
+  }, [sites]);
+
+  const buildingOptions = useMemo<SelectOption[]>(() => {
+    if (!siteSelected) return [UNASSIGNED_OPTION];
+    const real = buildings
+      .filter((b) => b.building !== undefined)
+      .map((b) => ({ value: b.building!.id.toString(), label: b.building!.name }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+    return [UNASSIGNED_OPTION, ...real];
+  }, [siteSelected, buildings]);
 
   const filteredSuggestions = useMemo(() => {
     if (!zone.trim()) return zoneSuggestions;
@@ -198,7 +357,7 @@ const RackSettingsModal = ({
     [rackTypes],
   );
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     setLabelError(undefined);
     setColumnsError(undefined);
     setRowsError(undefined);
@@ -230,10 +389,21 @@ const RackSettingsModal = ({
       columns: colsNum,
       orderIndex,
       coolingType,
+      // Placeholder ("") and the Unassigned sentinel both encode as undefined.
+      siteId: isRealId(siteIdText) ? BigInt(siteIdText) : undefined,
+      buildingId: isRealId(buildingIdText) ? BigInt(buildingIdText) : undefined,
     };
 
     if (!isEditMode) {
-      onContinue?.(formData);
+      // Continue may persist settings (existing rack) or just advance (new
+      // rack). Await either way and keep the button busy so a slow save can't
+      // be double-submitted; the parent reopens/leaves this modal on failure.
+      setIsSubmitting(true);
+      try {
+        await onContinue?.(formData);
+      } finally {
+        setIsSubmitting(false);
+      }
       return;
     }
 
@@ -269,6 +439,8 @@ const RackSettingsModal = ({
     columns,
     orderIndex,
     coolingType,
+    siteIdText,
+    buildingIdText,
     isEditMode,
     rack,
     updateRack,
@@ -284,11 +456,14 @@ const RackSettingsModal = ({
       open={show}
       title="Rack settings"
       phoneSheet
-      onDismiss={onDismiss}
+      // Block dismiss (X / backdrop) while a settings save is in flight — the
+      // updateRack call persists regardless, so closing mid-request would be a
+      // surprise. Re-enabled once it resolves (or fails, leaving the form open).
+      onDismiss={isSubmitting ? () => {} : onDismiss}
       divider={false}
       buttons={[
         {
-          text: isEditMode ? (isSubmitting ? "Saving..." : "Save") : "Continue",
+          text: isSubmitting ? "Saving..." : isEditMode ? "Save" : "Continue",
           variant: "primary",
           disabled: isSubmitting || isInitialLoading,
           loading: isSubmitting,
@@ -312,6 +487,34 @@ const RackSettingsModal = ({
             onChange={(value) => setLabel(value)}
             error={labelError}
           />
+
+          {canManagePlacement ? (
+            <>
+              <Select
+                id="rack-site-select"
+                label={siteLocked ? "Site" : "Site (optional)"}
+                options={siteOptions}
+                value={siteIdText}
+                onChange={handleSiteChange}
+                disabled={siteLocked}
+                forceBelow
+                testId="rack-site-select"
+              />
+
+              <Select
+                id="rack-building-select"
+                label="Building (optional)"
+                options={buildingOptions}
+                value={buildingIdText}
+                onChange={handleBuildingChange}
+                // A building can't be chosen without a real site — it scopes the
+                // options and supplies the derived site_id.
+                disabled={!siteSelected}
+                forceBelow
+                testId="rack-building-select"
+              />
+            </>
+          ) : null}
 
           <div className="relative">
             <Input

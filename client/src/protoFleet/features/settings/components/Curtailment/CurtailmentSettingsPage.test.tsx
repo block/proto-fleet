@@ -19,6 +19,7 @@ import type {
   ResponseProfile,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useHasPermission } from "@/protoFleet/store";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { pushToast } from "@/shared/features/toaster";
 
 const { activeSiteMock, mockNavigate, mockUseCurtailmentPlanPreview } = vi.hoisted(() => ({
@@ -465,6 +466,7 @@ function mockSitesApi() {
 describe("CurtailmentSettingsPage", () => {
   beforeEach(() => {
     activeSiteMock.current = { kind: "all" };
+    useFleetStore.getState().ui.setActiveSite({ kind: "all" });
     vi.mocked(useHasPermission).mockReset();
     vi.mocked(useMqttCurtailmentSources).mockReset();
     vi.mocked(useSites).mockReset();

@@ -1509,12 +1509,21 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
             </div>
           </div>
         ) : null}
-        <div className={clsx("flex flex-col", containerClassName)}>
+        <div
+          className={clsx(
+            "flex flex-col",
+            overflowContainer ? "min-w-0" : "phone:min-w-0 tablet-only:min-w-0",
+            containerClassName,
+          )}
+        >
           <div
             ref={setCombinedScrollRef}
             className={clsx({
+              "max-w-full min-w-0": overflowContainer,
               "overflow-x-auto": overflowContainer && hasHorizontalOverflow,
               "overflow-x-hidden": overflowContainer && !hasHorizontalOverflow,
+              "phone:max-w-full phone:min-w-0 phone:overflow-x-auto phone:overscroll-x-contain tablet-only:max-w-full tablet-only:min-w-0 tablet-only:overflow-x-auto tablet-only:overscroll-x-contain":
+                !overflowContainer,
             })}
           >
             {!shouldRenderNoDataElement ? (

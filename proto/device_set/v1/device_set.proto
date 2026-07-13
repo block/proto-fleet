@@ -159,8 +159,8 @@ message RackInfo {
     int32 rows = 1 [(buf.validate.field).int32.gt = 0];
     // Number of columns in the rack grid
     int32 columns = 2 [(buf.validate.field).int32.gt = 0];
-    // Sub-building zone label (e.g. "Room 2", "East Wall"). Required when
-    // building_id is set; cleared (empty) automatically when the rack
+    // Sub-building zone label (e.g. "Room 2", "East Wall"). Optional, even
+    // when building_id is set. Cleared (empty) automatically when the rack
     // crosses a building boundary or moves to direct-under-site placement.
     string zone = 3 [(buf.validate.field).string.max_len = 100];
     // Order index defining where numbering starts

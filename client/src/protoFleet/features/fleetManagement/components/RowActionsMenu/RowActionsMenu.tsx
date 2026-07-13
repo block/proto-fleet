@@ -2,12 +2,14 @@ import { Fragment, type ReactNode, useCallback, useEffect, useState } from "reac
 
 import { Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
+import ActionSheet from "@/shared/components/ActionSheet";
 import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
 import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
 import Row from "@/shared/components/Row";
 import { positions } from "@/shared/constants";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 export interface RowAction {
   label: string;
@@ -81,7 +83,11 @@ const RowActionsMenuInner = ({
     | "triggerSuffixIcon"
   >) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
+  const { isPhone } = useWindowDimensions();
   const [isOpen, setIsOpen] = useState(false);
+  const resolvedTriggerTestId =
+    triggerTestId ?? (testIdPrefix ? `${testIdPrefix}-trigger` : "row-actions-menu-trigger");
+  const popoverTestId = testIdPrefix ? `${testIdPrefix}-popover` : "row-actions-menu-popover";
 
   // Portal-fixed keeps the popover above the list's overflow scroll containers.
   useEffect(() => {
@@ -95,15 +101,11 @@ const RowActionsMenuInner = ({
   useClickOutside({
     ref: triggerRef,
     onClickOutside,
-    ignoreSelectors: [".popover-content"],
+    ignoreSelectors: [".popover-content", `[data-testid="${popoverTestId}"]`],
   });
 
   const visibleActions = actions.filter((action) => !action.hidden);
   if (visibleActions.length === 0) return null;
-
-  const resolvedTriggerTestId =
-    triggerTestId ?? (testIdPrefix ? `${testIdPrefix}-trigger` : "row-actions-menu-trigger");
-  const popoverTestId = testIdPrefix ? `${testIdPrefix}-popover` : "row-actions-menu-popover";
 
   return (
     <div className="relative" ref={triggerRef}>
@@ -122,7 +124,22 @@ const RowActionsMenuInner = ({
       >
         {triggerLabel}
       </Button>
-      {open ? (
+      {open && isPhone ? (
+        <ActionSheet
+          items={visibleActions.map((action) => ({
+            disabled: action.disabled,
+            icon: action.icon,
+            label: action.label,
+            onClick: action.onClick,
+            showGroupDivider: action.showGroupDivider,
+            testId: action.testId,
+          }))}
+          onClose={() => setIsOpen(false)}
+          contentTestId={popoverTestId}
+          testId={`${popoverTestId}-sheet`}
+        />
+      ) : null}
+      {open && !isPhone ? (
         <Popover
           className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"
           position={positions["bottom right"]}

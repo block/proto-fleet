@@ -21,6 +21,10 @@ export type CurtailmentSourceFormInput = {
 };
 
 export class SettingsCurtailmentPage extends BasePage {
+  async validateCurtailmentSubmenuHidden() {
+    await expect(this.page.getByTestId("secondary-nav").locator('a[href="/settings/curtailment"]')).toBeHidden();
+  }
+
   async validateCurtailmentPageOpened() {
     await expect(this.page).toHaveURL(/.*\/settings\/curtailment/);
     await expect(this.page.getByTestId("settings-curtailment-page")).toBeVisible();
@@ -83,7 +87,7 @@ export class SettingsCurtailmentPage extends BasePage {
   }
 
   async saveSource() {
-    await this.page.getByTestId("curtailment-source-modal").getByRole("button", { name: "Save", exact: true }).click();
+    await this.clickButton("Save");
     await expect(this.page.getByTestId("curtailment-source-modal")).toBeHidden();
   }
 
@@ -141,12 +145,6 @@ export class SettingsCurtailmentPage extends BasePage {
   }
 
   private async clickResponseProfileDelete() {
-    if (this.isMobile) {
-      await this.page.getByTestId("overflow-menu-trigger").click();
-      await this.page.getByRole("button", { name: "Delete", exact: true }).click();
-      return;
-    }
-
     await this.clickButton("Delete");
   }
 
@@ -186,10 +184,7 @@ export class SettingsCurtailmentPage extends BasePage {
     await expect(
       this.page.getByTestId("curtailment-source-modal").getByText("Edit source", { exact: true }),
     ).toBeVisible();
-    await this.page
-      .getByTestId("curtailment-source-modal")
-      .getByRole("button", { name: "Delete", exact: true })
-      .click();
+    await this.clickButton("Delete");
     await expect(this.page.getByTestId("curtailment-source-modal")).toBeHidden();
     await expect(row).toHaveCount(0);
   }

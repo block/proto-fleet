@@ -331,6 +331,197 @@ export interface CoolingStatusCoolingstatus {
   target_temperature_c?: number;
 }
 
+/**
+ * Configuration for the rig curtailment service and its enabled curtailment providers.
+ * @example {"enabled":true,"fail_policy":"closed","restore_policy":"respect_manual_stop","nats_url":"nats://localhost:4222","mcdd_grpc_addr":"127.0.0.1:2122","status_publish_interval":"15s","providers":[{"name":"maestro","type":"maestro_mqtt","enabled":true,"brokers":["10.155.0.3","10.155.0.4"],"port":1883,"username":"maestro","password":"mqtt-password","topic":"maestro/target","qos":1,"stale_after":"4m","reconnect_backoff":"5s"}]}
+ */
+export interface CurtailmentConfig {
+  /**
+   * Whether curtailment-service should subscribe to providers and control mining.
+   * @example true
+   */
+  enabled?: boolean;
+  /**
+   * Behavior when no provider has a fresh valid target. closed curtails; open allows operation.
+   * @example "closed"
+   */
+  fail_policy?: "closed" | "open";
+  /**
+   * mcdd gRPC address used when NATS commands are unavailable for the required control path.
+   * @example "127.0.0.1:2122"
+   */
+  mcdd_grpc_addr?: string;
+  /**
+   * Local NATS URL used by miner-api-server and curtailment-service. Only nats://localhost:4222 is accepted.
+   * @example "nats://localhost:4222"
+   */
+  nats_url?: "nats://localhost:4222";
+  /**
+   * Curtailment providers to evaluate. Enabled providers are ordered by their own precedence rules.
+   * @example [{"name":"maestro","type":"maestro_mqtt","enabled":true,"brokers":["10.155.0.3","10.155.0.4"],"port":1883,"username":"maestro","password":"mqtt-password","topic":"maestro/target","qos":1,"stale_after":"4m","reconnect_backoff":"5s"}]
+   */
+  providers?: CurtailmentProviderConfig[];
+  /**
+   * Policy used when curtailment is lifted. respect_manual_stop resumes only mining that the service stopped.
+   * @example "respect_manual_stop"
+   */
+  restore_policy?: "respect_manual_stop";
+  /**
+   * Go duration syntax. Must be no longer than the API curtailment status TTL of 60s.
+   * @example "15s"
+   */
+  status_publish_interval?: string;
+}
+
+/**
+ * Configuration for one Maestro MQTT curtailment provider.
+ * @example {"name":"maestro","type":"maestro_mqtt","enabled":true,"brokers":["10.155.0.3","10.155.0.4"],"port":1883,"username":"maestro","password":"mqtt-password","topic":"maestro/target","qos":1,"stale_after":"4m","reconnect_backoff":"5s"}
+ */
+export interface CurtailmentProviderConfig {
+  /** @example ["10.155.0.3","10.155.0.4"] */
+  brokers?: string[];
+  /**
+   * Whether this provider should connect and participate in target selection.
+   * @example true
+   */
+  enabled?: boolean;
+  /**
+   * Provider instance name used in status output.
+   * @example "maestro"
+   */
+  name?: string;
+  /**
+   * Plaintext MQTT password stored in the YAML config.
+   * @example "mqtt-password"
+   */
+  password?: string;
+  /**
+   * MQTT broker port shared by all brokers for this provider.
+   * @min 1
+   * @max 65535
+   * @example 1883
+   */
+  port?: number;
+  /**
+   * MQTT subscription QoS level.
+   * @min 0
+   * @max 2
+   * @example 1
+   */
+  qos?: number;
+  /**
+   * Go duration to wait before reconnecting to a disconnected broker.
+   * @example "5s"
+   */
+  reconnect_backoff?: string;
+  /**
+   * Go duration after which the provider target is stale and fail_policy is applied.
+   * @example "4m"
+   */
+  stale_after?: string;
+  /**
+   * MQTT topic carrying Maestro site power targets.
+   * @example "maestro/target"
+   */
+  topic?: string;
+  /**
+   * Provider implementation type. Only maestro_mqtt is currently supported.
+   * @example "maestro_mqtt"
+   */
+  type?: "maestro_mqtt";
+  /**
+   * MQTT username for broker authentication.
+   * @example "maestro"
+   */
+  username?: string;
+}
+
+/**
+ * Latest curtailment state observed by miner-api-server from curtailment-service status messages.
+ * @example {"active":true,"known":true,"fail_policy":"closed","provider":"maestro","reason":"target_off","selected_broker":"10.155.0.3:1883","target":0,"provider_timestamp":1778539005,"last_message_age_ms":1250,"last_valid_message":"2026-06-24T06:00:00Z","updated_at":"2026-06-24T06:00:01Z","last_command":"stop_mining","restore_pending":true}
+ */
+export interface CurtailmentStatus {
+  /**
+   * Whether the selected curtailment signal currently requires mining to be stopped.
+   * @example true
+   */
+  active?: boolean;
+  /**
+   * Provider or service error associated with the current status, when present.
+   * @example "broker connection failed"
+   */
+  error?: string | null;
+  /**
+   * Configured fail behavior used when provider targets are stale or missing.
+   * @example "closed"
+   */
+  fail_policy?: string | null;
+  /**
+   * Whether a fresh curtailment-service status message is available.
+   * @example true
+   */
+  known?: boolean;
+  /**
+   * Most recent mining control command issued by curtailment-service.
+   * @example "stop_mining"
+   */
+  last_command?: string | null;
+  /**
+   * Most recent mining control command error, when present.
+   * @example "mcdd unavailable"
+   */
+  last_command_error?: string | null;
+  /**
+   * Age in milliseconds of the selected valid provider message.
+   * @format int64
+   * @example 1250
+   */
+  last_message_age_ms?: number | null;
+  /**
+   * Wall-clock time when the selected provider last produced a valid message.
+   * @format date-time
+   * @example "2026-06-24T06:00:00Z"
+   */
+  last_valid_message?: string | null;
+  /**
+   * Provider that supplied the selected target.
+   * @example "maestro"
+   */
+  provider?: string | null;
+  /**
+   * Unix epoch seconds from the selected provider payload.
+   * @format int64
+   * @example 1778539005
+   */
+  provider_timestamp?: number | null;
+  /**
+   * Reason for the current curtailment decision.
+   * @example "target_off"
+   */
+  reason?: string | null;
+  /**
+   * Whether the service intends to resume mining when curtailment lifts.
+   * @example true
+   */
+  restore_pending?: boolean;
+  /**
+   * Broker endpoint whose target currently wins provider precedence.
+   * @example "10.155.0.3:1883"
+   */
+  selected_broker?: string | null;
+  /**
+   * Selected Maestro target percentage. Zero means OFF and 100 means ON.
+   * @example 0
+   */
+  target?: number | null;
+  /**
+   * Wall-clock time when curtailment-service published this status.
+   * @format date-time
+   * @example "2026-06-24T06:00:01Z"
+   */
+  updated_at?: string | null;
+}
+
 export interface DeletePoolParams {
   /** The pool ID to delete */
   id: number;
@@ -593,7 +784,7 @@ export interface GetSystemLogsParams {
    */
   lines?: number;
   /**
-   * Source of logs to fetch. Defaults to miner software logs.
+   * Source of logs to fetch. Defaults to `miner_sw`, which returns the combined miner software-stack logs (mcdd, all hashboard-service and psu-service instances, miner-ui-service, and miner-api-server) merged in timestamp order. `os` returns kernel logs, `pool_sw` the pool interface (mcdd), and `miner_web_server` the API server only.
    * @default "miner_sw"
    * @example "miner_sw"
    */
@@ -625,6 +816,51 @@ export enum HashboardFieldType {
   Efficiency = "efficiency",
 }
 
+/** Latest firmware-update progress / last-known result for a hashboard. Can be absent if no firmware update has been requested since boot, or if no `hb.<slot>.fwup_progress` message has been observed yet. */
+export interface HashboardFwUpdateProgress {
+  /**
+   * Attempt counter for retries. `0` means not yet started; otherwise 1..=`max_attempts`.
+   * @example 1
+   */
+  attempt?: number;
+  /**
+   * Maximum number of attempts the service will make before giving up.
+   * @example 3
+   */
+  max_attempts?: number;
+  /**
+   * Operator-facing message. Empty for in-flight `Writing` events; populated for terminal states with a description of the outcome.
+   * @example "Firmware update completed: 1.2.3"
+   */
+  message?: string;
+  /**
+   * 0-100 during `Writing`; jumps to 100 once `Activating` is reached.
+   * @format float
+   * @example 47.5
+   */
+  progress_percent?: number;
+  /**
+   * Phase of the update.
+   *  - `Idle`: never attempted since boot.
+   *  - `Queued`: scheduled, not yet started.
+   *  - `Preparing` / `Writing` / `Activating` / `Rebooting`: in flight.
+   *  - `Complete`: succeeded.
+   *  - `Failed`: gave up after the retry budget was exhausted.
+   *  - `NoUpdateRequired`: the running firmware already matches the target image.
+   * @example "Writing"
+   */
+  state?:
+    | "Idle"
+    | "Queued"
+    | "Preparing"
+    | "Writing"
+    | "Activating"
+    | "Rebooting"
+    | "Complete"
+    | "Failed"
+    | "NoUpdateRequired";
+}
+
 /** Information about mining hashboards configuration and status */
 export interface HashboardInfo {
   /** @example "1.0" */
@@ -642,6 +878,8 @@ export interface HashboardInfo {
   ec_logs_path?: string;
   /** Firmware version and build information */
   firmware?: FWInfo;
+  /** Latest firmware-update progress / last-known result for a hashboard. Can be absent if no firmware update has been requested since boot, or if no `hb.<slot>.fwup_progress` message has been observed yet. */
+  fw_update?: HashboardFwUpdateProgress;
   /**
    * Hashboard serial number.
    * @example "YWWLMMMMRRFSSSSS"
@@ -690,6 +928,8 @@ export interface HashboardStatsHashboardstats {
    * @example 40.05
    */
   efficiency_jth?: number | null;
+  /** Latest firmware-update progress / last-known result for a hashboard. Can be absent if no firmware update has been requested since boot, or if no `hb.<slot>.fwup_progress` message has been observed yet. */
+  fw_update?: HashboardFwUpdateProgress;
   /**
    * The current hashrate of the hashboard, measured in GH/s. It will be sum of all ASIC hashrate_ghs values.
    * @example 300.05
@@ -728,10 +968,10 @@ export interface HashboardStatsHashboardstats {
    */
   slot?: number;
   /**
-   * The current state or condition of the hashboard.
+   * The current state or condition of the hashboard. `Updating` indicates a firmware update is in flight; see `fw_update` for progress detail.
    * @example "Running"
    */
-  status?: "Running" | "Stopped" | "Error" | "Overheated" | "Unknown";
+  status?: "Running" | "Stopped" | "Updating" | "Error" | "Overheated" | "Unknown";
   /**
    * The present voltage being supplied to the hashboard in millivolts.
    * @example 16200.05
@@ -974,7 +1214,15 @@ export interface MiningStatusMiningstatus {
    * @example "Mining"
    */
   status?:
-    "Uninitialized" | "PoweringOn" | "Mining" | "DegradedMining" | "PoweringOff" | "Stopped" | "NoPools" | "Error";
+    | "Uninitialized"
+    | "PoweringOn"
+    | "Mining"
+    | "DegradedMining"
+    | "PoweringOff"
+    | "Stopped"
+    | "Curtailed"
+    | "NoPools"
+    | "Error";
 }
 
 /** Mining target configuration for power and performance settings */
@@ -1362,7 +1610,7 @@ export enum PsuFieldType {
 
 /** Per-PSU firmware update progress */
 export interface PsuFwupProgress {
-  /** Optional status message (firmware name on start, error on failure) */
+  /** Optional status message (firmware name on start, no-op reason, or error on failure) */
   message?: string;
   /**
    * Upload progress percentage (0-100)
@@ -1372,7 +1620,7 @@ export interface PsuFwupProgress {
   /** The physical slot where the PSU is inserted in the system. (1-3) */
   psu_slot: number;
   /** Current firmware update state */
-  state: "idle" | "uploading" | "verifying" | "complete" | "failed";
+  state: "idle" | "uploading" | "verifying" | "complete" | "failed" | "not_needed";
 }
 
 /** Power supply unit information and status */
@@ -1536,13 +1784,48 @@ export interface SWInfo {
   version?: string;
 }
 
-/** Response indicating whether the system is in a secure state */
+/** Configuration for secure override state */
+export interface SecureConfig {
+  /**
+   * True creates /etc/secure_override; false removes it
+   * @example true
+   */
+  secure_override: boolean;
+}
+
+/** Response indicating whether the system is in a secure state and the cached component state used to derive it. */
 export interface SecureResponse {
   /**
    * True if the device is locked and the device certificate is valid
    * @example true
    */
   secure: boolean;
+  /** Cached secure-related component state. */
+  state: SecureResponseState;
+}
+
+/** Cached secure-related component state. */
+export interface SecureResponseState {
+  /**
+   * Device certificate validity reported by attestation_ta_client.
+   * @example "VALID"
+   */
+  "certificate-validity": string;
+  /**
+   * Currently active NATS service mode: open, secure, none, or unknown.
+   * @example "secure"
+   */
+  "nats-service": string;
+  /**
+   * Secure boot status reported by lock_ctrl_ta_client.
+   * @example "CLOSED"
+   */
+  secureboot: string;
+  /**
+   * systemd active state for the SSH service.
+   * @example "active"
+   */
+  sshd: string;
 }
 
 /** Request to set the authentication public key */
@@ -1633,11 +1916,6 @@ export interface SystemInfoSysteminfo {
 
 /** System status information including onboarding and password setup */
 export interface SystemStatuses {
-  /**
-   * True when the system is secure and the default password has not been changed. Clients should prompt the user to change their password when this is true.
-   * @example false
-   */
-  default_password_active?: boolean;
   /** @example true */
   onboarded?: boolean;
   /** @example true */
@@ -1792,10 +2070,7 @@ export type TimeSeriesLevelConfig =
        * @example ["hashrate","inletTemp","outletTemp"]
        */
       fields: HashboardFieldType[];
-      /**
-       * Optional array of zero-based indexes to filter data. If omitted, returns all available items
-       * @example [0,2]
-       */
+      /** Optional array of zero-based indexes to filter data. If omitted, returns all available items */
       indexes?: number[];
       /** Hashboard level type */
       type: "hashboard";
@@ -1807,10 +2082,7 @@ export type TimeSeriesLevelConfig =
        * @example ["hashrate","temperature"]
        */
       fields: AsicFieldType[];
-      /**
-       * Optional array of zero-based ASIC indexes to filter data. If omitted, returns all available ASICs
-       * @example [0,2]
-       */
+      /** Optional array of zero-based ASIC indexes to filter data. If omitted, returns all available ASICs */
       indexes?: number[];
       /** ASIC level type */
       type: "asic";
@@ -1822,10 +2094,7 @@ export type TimeSeriesLevelConfig =
        * @example ["inputVoltage","outputPower","hotspotTemp"]
        */
       fields: PsuFieldType[];
-      /**
-       * Optional array of zero-based PSU indexes to filter data. If omitted, returns all available PSUs
-       * @example [0,1]
-       */
+      /** Optional array of zero-based PSU indexes to filter data. If omitted, returns all available PSUs */
       indexes?: number[];
       /** PSU level type */
       type: "psu";
@@ -2235,7 +2504,7 @@ export class HttpClient<SecurityDataType = unknown> {
 
 /**
  * @title Mining Development Kit API
- * @version 1.8.1
+ * @version 1.8.2
  * @license MIT (https://opensource.org/license/mit)
  * @baseUrl http://127.0.0.1:8080
  * @contact <mining.support@block.xyz>
@@ -2370,7 +2639,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Change the current password to a new password. Requires the current password for verification. The new password cannot be the same as the default password. After a successful password change, all existing JWT tokens are invalidated and clients must re-authenticate.
+     * @description Change the current password to a new password. Requires the current password for verification.
      *
      * @tags Authentication
      * @name ChangePassword
@@ -2469,6 +2738,59 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<SystemStatuses, any>({
         path: `/api/v1/system/status`,
         method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Return the curtailment service configuration.
+     *
+     * @tags Curtailment
+     * @name GetCurtailmentConfig
+     * @request GET:/api/v1/curtailment/config
+     * @secure
+     */
+    getCurtailmentConfig: (params: RequestParams = {}) =>
+      this.request<CurtailmentConfig, MessageResponse>({
+        path: `/api/v1/curtailment/config`,
+        method: "GET",
+        secure: true,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Validate and replace the curtailment service YAML configuration.
+     *
+     * @tags Curtailment
+     * @name PutCurtailmentConfig
+     * @request PUT:/api/v1/curtailment/config
+     * @secure
+     */
+    putCurtailmentConfig: (data: CurtailmentConfig, params: RequestParams = {}) =>
+      this.request<CurtailmentConfig, MessageResponse>({
+        path: `/api/v1/curtailment/config`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Return the latest curtailment status published by curtailment-service.
+     *
+     * @tags Curtailment
+     * @name GetCurtailmentStatus
+     * @request GET:/api/v1/curtailment/status
+     * @secure
+     */
+    getCurtailmentStatus: (params: RequestParams = {}) =>
+      this.request<CurtailmentStatus, MessageResponse>({
+        path: `/api/v1/curtailment/status`,
+        method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2737,6 +3059,25 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       this.request<SecureResponse, MessageResponse>({
         path: `/api/v1/system/secure`,
         method: "GET",
+        format: "json",
+        ...params,
+      }),
+
+    /**
+     * @description Sets or clears the secure override marker and returns the refreshed secure status. SSH/NATS service changes are applied asynchronously after the response.
+     *
+     * @tags System
+     * @name PutSecureStatus
+     * @request PUT:/api/v1/system/secure
+     * @secure
+     */
+    putSecureStatus: (data: SecureConfig, params: RequestParams = {}) =>
+      this.request<SecureResponse, MessageResponse>({
+        path: `/api/v1/system/secure`,
+        method: "PUT",
+        body: data,
+        secure: true,
+        type: ContentType.Json,
         format: "json",
         ...params,
       }),
@@ -3329,7 +3670,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     clearAuthKey: (params: RequestParams = {}) =>
-      this.request<MessageResponse, ErrorResponse | MessageResponse>({
+      this.request<MessageResponse, ErrorResponse>({
         path: `/api/v1/pairing/auth-key`,
         method: "DELETE",
         secure: true,

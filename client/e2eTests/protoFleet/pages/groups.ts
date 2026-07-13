@@ -221,7 +221,7 @@ export class GroupsPage extends BasePage {
   }
 
   async clickDeleteGroupInModal() {
-    await this.clickIn("Delete group", "modal");
+    await this.clickButton("Delete group");
   }
 
   async clickDeleteConfirm() {

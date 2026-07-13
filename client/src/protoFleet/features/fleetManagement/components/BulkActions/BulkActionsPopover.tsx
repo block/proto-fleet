@@ -11,6 +11,7 @@ interface BulkActionsPopoverProps<ActionType> {
   testId: string;
   position?: Position;
   className?: string;
+  closePopover?: () => void;
 }
 
 interface ActionItemProps<ActionType> {
@@ -46,6 +47,7 @@ const BulkActionsPopover = <ActionType,>({
   testId,
   position = positions["top left"],
   className,
+  closePopover,
 }: BulkActionsPopoverProps<ActionType>) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const onAction = (action: BulkAction<ActionType>) => {
@@ -60,6 +62,7 @@ const BulkActionsPopover = <ActionType,>({
       offset={20}
       yOffset={isPhone || isTablet ? -32 : 0}
       testId={testId}
+      closePopover={closePopover}
     >
       {actions.map((action) => (
         <ActionItem key={action.title} action={action} onAction={onAction} />

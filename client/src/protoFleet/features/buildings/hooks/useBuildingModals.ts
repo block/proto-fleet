@@ -23,10 +23,10 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 // — matching the SiteModals pattern.
 export type BuildingModalState =
   | { kind: "none" }
-  // siteId undefined when opened from the global Buildings-tab CTA — the
-  // modal renders a Site dropdown for the operator to pick. When set
-  // (entry from /sites/:id or a site-scoped row), the dropdown locks to
-  // that site so the parent context is unambiguous.
+  // siteId undefined when opened from the global Buildings-tab CTA with no
+  // scope — the modal renders an empty Site dropdown for the operator to pick.
+  // When set (entry from /sites/:id, a site-scoped row, or a page-header site
+  // scope), the dropdown locks to that site.
   | { kind: "detailsCreate"; siteId?: bigint; siteName?: string; draft: BuildingFormValues }
   | { kind: "detailsEdit"; row: BuildingWithCounts; siteName?: string; draft: BuildingFormValues }
   | { kind: "manage"; row: BuildingWithCounts; siteName?: string }

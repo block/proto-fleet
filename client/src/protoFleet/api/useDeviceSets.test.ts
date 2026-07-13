@@ -3,10 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 const mockListDeviceSetMembers = vi.fn();
+const mockSaveRack = vi.fn();
+const mockUpdateDeviceSet = vi.fn();
 
 vi.mock("./clients", () => ({
   deviceSetClient: {
     listDeviceSetMembers: (...args: unknown[]) => mockListDeviceSetMembers(...args),
+    saveRack: (...args: unknown[]) => mockSaveRack(...args),
+    updateDeviceSet: (...args: unknown[]) => mockUpdateDeviceSet(...args),
   },
 }));
 
@@ -162,5 +166,105 @@ describe("useDeviceSets — listGroupMembers", () => {
 
     expect(mockHandleAuthErrors).toHaveBeenCalledTimes(1);
     expect(onFinally).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useDeviceSets — saveRack placement encoding", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockSaveRack.mockResolvedValue({ deviceSet: { id: 1n }, assignedCount: 0 });
+  });
+
+  const runSaveRack = async (placement: { siteId?: bigint; buildingId?: bigint }) => {
+    const { result } = renderHook(() => useDeviceSets());
+    await act(async () => {
+      await result.current.saveRack({
+        label: "Rack A",
+        zone: "",
+        rows: 2,
+        columns: 2,
+        orderIndex: 0,
+        coolingType: 0,
+        deviceIdentifiers: [],
+        slotAssignments: [],
+        ...placement,
+      });
+    });
+    return mockSaveRack.mock.calls[0][0].rackInfo;
+  };
+
+  it("sends only building_id when a building is chosen (server derives site_id)", async () => {
+    const rackInfo = await runSaveRack({ siteId: 2n, buildingId: 3n });
+    expect(rackInfo.buildingId).toBe(3n);
+    expect(rackInfo.siteId).toBeUndefined();
+  });
+
+  it("sends site_id and an explicit building_id 0 when only a site is chosen", async () => {
+    const rackInfo = await runSaveRack({ siteId: 2n, buildingId: 0n });
+    expect(rackInfo.siteId).toBe(2n);
+    expect(rackInfo.buildingId).toBe(0n);
+  });
+
+  it("sends explicit 0/0 to unassign when neither site nor building is chosen", async () => {
+    const rackInfo = await runSaveRack({ siteId: 0n, buildingId: 0n });
+    expect(rackInfo.siteId).toBe(0n);
+    expect(rackInfo.buildingId).toBe(0n);
+  });
+
+  it("omits placement entirely when both are undefined (preserves current placement)", async () => {
+    const rackInfo = await runSaveRack({});
+    expect(rackInfo.siteId).toBeUndefined();
+    expect(rackInfo.buildingId).toBeUndefined();
+  });
+});
+
+describe("useDeviceSets — updateRack placement encoding", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUpdateDeviceSet.mockResolvedValue({ deviceSet: { id: 1n } });
+  });
+
+  const runUpdateRack = async (placement: { siteId?: bigint; buildingId?: bigint }) => {
+    const { result } = renderHook(() => useDeviceSets());
+    await act(async () => {
+      await result.current.updateRack({
+        deviceSetId: 1n,
+        label: "Rack A",
+        zone: "",
+        rows: 2,
+        columns: 2,
+        orderIndex: 0,
+        coolingType: 0,
+        ...placement,
+      });
+    });
+    return mockUpdateDeviceSet.mock.calls[0][0].typeDetails?.value;
+  };
+
+  it("sends only building_id when a building is chosen (server derives site_id)", async () => {
+    const rackInfo = await runUpdateRack({ siteId: 2n, buildingId: 3n });
+    expect(rackInfo.buildingId).toBe(3n);
+    expect(rackInfo.siteId).toBeUndefined();
+  });
+
+  it("sends site_id and an explicit building_id 0 when only a site is chosen", async () => {
+    const rackInfo = await runUpdateRack({ siteId: 2n, buildingId: 0n });
+    expect(rackInfo.siteId).toBe(2n);
+    expect(rackInfo.buildingId).toBe(0n);
+  });
+
+  it("sends explicit 0/0 to unassign when neither site nor building is chosen", async () => {
+    const rackInfo = await runUpdateRack({ siteId: 0n, buildingId: 0n });
+    expect(rackInfo.siteId).toBe(0n);
+    expect(rackInfo.buildingId).toBe(0n);
+  });
+
+  it("omits placement (rack:manage settings save) but still carries zone/dims", async () => {
+    const rackInfo = await runUpdateRack({});
+    expect(rackInfo.siteId).toBeUndefined();
+    expect(rackInfo.buildingId).toBeUndefined();
+    // rack_info is still sent so the server persists the zone/dimension edit.
+    expect(rackInfo.rows).toBe(2);
+    expect(rackInfo.columns).toBe(2);
   });
 });

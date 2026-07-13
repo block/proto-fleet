@@ -24,6 +24,12 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 const FLEET_WIDE_RULE_GROUPS = new Set(["proto-fleet-self", "proto-fleet-system"]);
 const isFleetWideAlert = (alert: AlertHistoryEntry) => FLEET_WIDE_RULE_GROUPS.has(alert.rule_group) && !alert.device_id;
 
+// MQTT curtailment alerts are source-scoped, not device-scoped, so they get callouts instead of
+// per-miner rows. Match the stable template values + absence of a device, not display names, so a
+// device alert with redacted device fields can never be misclassified as source-level.
+const SOURCE_ALERT_TEMPLATES = new Set(["mqtt-curtailment", "mqtt-disconnected"]);
+const isSourceAlert = (alert: AlertHistoryEntry) => SOURCE_ALERT_TEMPLATES.has(alert.template) && !alert.device_id;
+
 interface MinerAlertGroup {
   deviceId: string;
   deviceName: string;
@@ -110,7 +116,11 @@ const ActiveAlertsCard = () => {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
 
   const fleetWideAlerts = useMemo(() => alerts.filter(isFleetWideAlert), [alerts]);
-  const groups = useMemo(() => groupByMiner(alerts.filter((alert) => !isFleetWideAlert(alert))), [alerts]);
+  const sourceAlerts = useMemo(() => alerts.filter(isSourceAlert), [alerts]);
+  const groups = useMemo(
+    () => groupByMiner(alerts.filter((alert) => !isFleetWideAlert(alert) && !isSourceAlert(alert))),
+    [alerts],
+  );
   const selectedGroup = useMemo(
     () => groups.find((group) => group.deviceId === selectedDeviceId) ?? null,
     [groups, selectedDeviceId],
@@ -124,7 +134,7 @@ const ActiveAlertsCard = () => {
   if (denied) return null;
 
   const isInitialLoad = loading && alerts.length === 0;
-  const isEmpty = groups.length === 0 && fleetWideAlerts.length === 0;
+  const isEmpty = groups.length === 0 && fleetWideAlerts.length === 0 && sourceAlerts.length === 0;
 
   return (
     <section className="flex flex-col gap-4 rounded-xl bg-surface-elevated-base p-6 shadow-100">
@@ -141,6 +151,15 @@ const ActiveAlertsCard = () => {
       ) : (
         <div className="flex flex-col gap-4">
           {fleetWideAlerts.map((alert) => (
+            <Callout
+              key={alert.id}
+              intent={alert.severity === "critical" ? "danger" : "warning"}
+              prefixIcon={<Alert />}
+              title={alert.alert_name}
+              subtitle={alert.summary}
+            />
+          ))}
+          {sourceAlerts.map((alert) => (
             <Callout
               key={alert.id}
               intent={alert.severity === "critical" ? "danger" : "warning"}
