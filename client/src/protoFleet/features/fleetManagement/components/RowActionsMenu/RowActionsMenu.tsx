@@ -159,7 +159,10 @@ const RowActionsMenuInner = ({
       ) : null}
       {open && !isPhone ? (
         <Popover
-          className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"
+          // Cap at viewport height minus 8px top + 8px bottom and scroll internally
+          // so a menu taller than the screen stays fully reachable. Pairs with the
+          // portal-fixed flip/clamp, which pins a capped menu 8px off both edges (#727).
+          className="max-h-[calc(100vh-theme(spacing.4))] !space-y-0 overflow-y-auto overscroll-contain !rounded-2xl px-0 pt-2 pb-1"
           closeIgnoreSelectors={[`[data-testid="${resolvedTriggerTestId}"]`]}
           closePopover={() => setMenuOpen(false)}
           position={positions["bottom right"]}

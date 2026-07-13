@@ -6,7 +6,7 @@ import { insertActionAfter, insertActionBefore } from "./actionMenuUtils";
 import { usePermittedActions } from "./actionPermissions";
 import BulkRenameModal from "./BulkRenameModal";
 import BulkWorkerNameModal from "./BulkWorkerNameModal";
-import { deviceActions, groupActions, performanceActions, settingsActions, SupportedAction } from "./constants";
+import { deviceActions, groupActions, settingsActions, SupportedAction } from "./constants";
 import MinerActionModalStack from "./MinerActionModalStack";
 import MinerReparentPicker from "./MinerReparentPicker";
 import { useMinerActions } from "./useMinerActions";
@@ -283,7 +283,8 @@ const MinerActionsMenu = ({
     const quickActionOrder: SupportedAction[] = [
       deviceActions.blinkLEDs,
       deviceActions.reboot,
-      performanceActions.managePower,
+      deviceActions.shutdown,
+      deviceActions.wakeUp,
     ];
     const actionMap = new Map(visibleActions.map((action) => [action.action, action]));
 

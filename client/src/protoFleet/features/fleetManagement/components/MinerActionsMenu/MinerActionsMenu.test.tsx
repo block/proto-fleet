@@ -283,6 +283,8 @@ describe("MinerActionsMenu", () => {
   test("renders desktop quick actions and switches overflow trigger copy to More", () => {
     const blinkLEDsActionHandler = vi.fn();
     const rebootActionHandler = vi.fn();
+    const sleepActionHandler = vi.fn();
+    const wakeUpActionHandler = vi.fn();
     const managePowerActionHandler = vi.fn();
 
     mockUseWindowDimensions.mockReturnValue({
@@ -307,6 +309,20 @@ describe("MinerActionsMenu", () => {
           requiresConfirmation: false,
         },
         {
+          action: deviceActions.shutdown,
+          title: "Sleep",
+          icon: null,
+          actionHandler: sleepActionHandler,
+          requiresConfirmation: false,
+        },
+        {
+          action: deviceActions.wakeUp,
+          title: "Wake up",
+          icon: null,
+          actionHandler: wakeUpActionHandler,
+          requiresConfirmation: false,
+        },
+        {
           action: performanceActions.managePower,
           title: "Manage power",
           icon: null,
@@ -328,15 +344,20 @@ describe("MinerActionsMenu", () => {
 
     expect(screen.getByTestId("actions-menu-quick-action-blink-leds")).toHaveTextContent("Blink LEDs");
     expect(screen.getByTestId("actions-menu-quick-action-reboot")).toHaveTextContent("Reboot");
-    expect(screen.getByTestId("actions-menu-quick-action-manage-power")).toHaveTextContent("Manage power");
+    expect(screen.getByTestId("actions-menu-quick-action-shutdown")).toHaveTextContent("Sleep");
+    expect(screen.getByTestId("actions-menu-quick-action-wake-up")).toHaveTextContent("Wake up");
+    // Manage power is no longer promoted to the quick-action row.
+    expect(screen.queryByTestId("actions-menu-quick-action-manage-power")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("actions-menu-quick-action-blink-leds"));
     fireEvent.click(screen.getByTestId("actions-menu-quick-action-reboot"));
-    fireEvent.click(screen.getByTestId("actions-menu-quick-action-manage-power"));
+    fireEvent.click(screen.getByTestId("actions-menu-quick-action-shutdown"));
+    fireEvent.click(screen.getByTestId("actions-menu-quick-action-wake-up"));
 
     expect(blinkLEDsActionHandler).toHaveBeenCalledTimes(1);
     expect(rebootActionHandler).toHaveBeenCalledTimes(1);
-    expect(managePowerActionHandler).toHaveBeenCalledTimes(1);
+    expect(sleepActionHandler).toHaveBeenCalledTimes(1);
+    expect(wakeUpActionHandler).toHaveBeenCalledTimes(1);
 
     const widgetCalls = mockBulkActionsWidget.mock.calls as unknown as Array<[{ buttonTitle: string }]>;
     const widgetCall = widgetCalls[widgetCalls.length - 1];
