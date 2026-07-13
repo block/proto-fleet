@@ -164,6 +164,7 @@ var reflectEnabledServices = []string{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceName,
 	sitesv1connect.SiteServiceName,
 	buildingsv1connect.BuildingServiceName,
+	infrastructurev1connect.InfrastructureServiceName,
 	curtailmentv1connect.CurtailmentServiceName,
 	device_setv1connect.DeviceSetServiceName,
 }
