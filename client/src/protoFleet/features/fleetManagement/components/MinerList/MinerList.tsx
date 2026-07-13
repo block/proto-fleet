@@ -434,8 +434,9 @@ const ScopedMinerListBody = ({
             <MinerListActionBar
               selectedMiners={selectedItems}
               onClearSelection={clearSelection}
-              onSelectAll={hasActiveFilters ? undefined : handleSelectAllMiners}
-              onSelectNone={hasActiveFilters ? undefined : handleSelectNoneMiners}
+              onSelectAll={handleSelectAllMiners}
+              onSelectNone={handleSelectNoneMiners}
+              filtersActive={hasActiveFilters}
               selectionMode={currentSelectionMode}
               totalCount={totalSelectable}
               currentFilter={currentFilter}

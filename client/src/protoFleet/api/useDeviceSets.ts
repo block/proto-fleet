@@ -31,6 +31,7 @@ interface CreateGroupProps {
   label: string;
   deviceIdentifiers?: string[];
   allDevices?: boolean;
+  signal?: AbortSignal;
   onSuccess?: (deviceSet: DeviceSet) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -264,17 +265,29 @@ const useDeviceSets = () => {
   const { handleAuthErrors } = useAuthErrors();
 
   const createGroup = useCallback(
-    async ({ label, deviceIdentifiers = [], allDevices = false, onSuccess, onError, onFinally }: CreateGroupProps) => {
+    async ({
+      label,
+      deviceIdentifiers = [],
+      allDevices = false,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: CreateGroupProps) => {
       try {
         const deviceSelector =
           allDevices || deviceIdentifiers.length > 0 ? buildDeviceSelector(deviceIdentifiers, allDevices) : undefined;
 
-        const createResponse = await deviceSetClient.createDeviceSet({
-          type: DeviceSetType.GROUP,
-          label,
-          deviceSelector,
-        });
+        const createResponse = await deviceSetClient.createDeviceSet(
+          {
+            type: DeviceSetType.GROUP,
+            label,
+            deviceSelector,
+          },
+          { signal },
+        );
 
+        if (signal?.aborted) return;
         const deviceSet = createResponse.deviceSet;
         if (!deviceSet) {
           onError?.("Failed to create group");
@@ -283,6 +296,9 @@ const useDeviceSets = () => {
 
         onSuccess?.(deviceSet);
       } catch (err) {
+        if (isAbortError(err, signal)) {
+          return;
+        }
         handleAuthErrors({
           error: err,
           onError: (error) => {

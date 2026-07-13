@@ -20,6 +20,12 @@ import {
   getMinerRackLabel,
   getMinerSiteLabel,
 } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
+import {
+  MAX_MINERS,
+  MAX_SNAPSHOT_PAGES,
+  resolveAllModeIds,
+  SNAPSHOT_PAGE_SIZE,
+} from "@/protoFleet/features/fleetManagement/utils/resolveAllModeMiners";
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 import { pushToast, removeToast, STATUSES, updateToast } from "@/shared/features/toaster";
@@ -44,9 +50,6 @@ interface MinerReparentPickerProps {
   onRefetchMiners?: () => void;
 }
 
-const MAX_SNAPSHOT_PAGES = 50;
-const SNAPSHOT_PAGE_SIZE = 1000;
-const MAX_MINERS = MAX_SNAPSHOT_PAGES * SNAPSHOT_PAGE_SIZE;
 // Matches `max_items: 10000` on AssignDevicesToSiteRequest.device_identifiers
 // and AssignDevicesToBuildingRequest.device_identifiers — both flows have the
 // same server-side cap, so one constant covers both.
@@ -141,51 +144,6 @@ const groupRackSiteConflicts = (
     conflicts.set(sourceLabel, bucket);
   }
   return conflicts;
-};
-
-const resolveAllModeIds = async (
-  filter: MinerListFilter,
-  signal?: AbortSignal,
-): Promise<{ ids: string[]; snapshots: Record<string, MinerStateSnapshot> }> => {
-  const ids: string[] = [];
-  const snapshots: Record<string, MinerStateSnapshot> = {};
-  let cursor = "";
-  let exhausted = false;
-  for (let i = 0; i < MAX_SNAPSHOT_PAGES; i++) {
-    let response;
-    try {
-      response = await fleetManagementClient.listMinerStateSnapshots(
-        {
-          pageSize: SNAPSHOT_PAGE_SIZE,
-          cursor,
-          filter,
-        },
-        { signal },
-      );
-    } catch (err) {
-      // Same abort-on-unmount story as resolveRackMembers: return the
-      // partial accumulators so the caller's signal.aborted gate can
-      // swallow the early-exit quietly instead of routing to a toast.
-      if (signal?.aborted || (err as Error)?.name === "AbortError") {
-        return { ids, snapshots };
-      }
-      throw err;
-    }
-    if (signal?.aborted) return { ids, snapshots };
-    for (const miner of response.miners) {
-      ids.push(miner.deviceIdentifier);
-      snapshots[miner.deviceIdentifier] = miner;
-    }
-    if (!response.cursor) {
-      exhausted = true;
-      break;
-    }
-    cursor = response.cursor;
-  }
-  if (!exhausted) {
-    throw new Error(`Too many miners selected (over ${MAX_MINERS}). Filter the list and try again.`);
-  }
-  return { ids, snapshots };
 };
 
 type SiteMoveConfirmation = {
@@ -760,26 +718,33 @@ const MinerReparentPicker = ({
             try {
               const resolved = await resolveAllModeIds(effectiveFilter, abortRef.current?.signal);
               if (abortRef.current?.signal.aborted) {
+                // Picker dismissed/unmounted mid-pagination: resolve quietly
+                // so ParentPickerModal's onDismiss runs once, without an error.
                 removeToast(loadingToast);
                 return;
               }
               ids = resolved.ids;
               snapshots = resolved.snapshots;
             } catch (err) {
+              // Throw (rather than return) so ParentPickerModal.handleSave
+              // treats resolution failure as a rejection and keeps the picker
+              // open for retry — matching the Add to group path. Returning
+              // normally would let handleSave call onDismiss after only an
+              // error toast and no mutation.
               const message =
                 err instanceof Error && err.message ? err.message : "Couldn't load selected miners. Try again.";
               updateToast(loadingToast, { message, status: STATUSES.error });
-              return;
+              throw err instanceof Error ? err : new Error(message);
             }
             removeToast(loadingToast);
             if (ids.length === 0) {
               pushToast({ message: "No miners selected.", status: STATUSES.queued });
-              return;
+              throw new Error("No miners matched the current filter.");
             }
           } else {
             if (deviceIdentifiers.length === 0) {
               pushToast({ message: "No miners selected.", status: STATUSES.queued });
-              return;
+              throw new Error("No miners selected.");
             }
             ids = deviceIdentifiers;
             snapshots = miners;

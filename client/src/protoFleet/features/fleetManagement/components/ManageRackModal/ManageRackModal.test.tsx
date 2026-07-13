@@ -21,6 +21,15 @@ const miners: Record<string, MinerStateSnapshot> = {
   } as MinerStateSnapshot,
 };
 
+// The manage-miners pickers read the SitePicker scope via useActiveSite, which
+// calls useNavigate/useLocation and therefore needs a Router. Stub the hook to
+// "all sites" (empty scope) so these tests don't require a Router wrapper; keep
+// the rest of the barrel (siteFilterFromActive) real.
+vi.mock("@/protoFleet/components/PageHeader/SitePicker", async (importActual) => ({
+  ...(await importActual<typeof import("@/protoFleet/components/PageHeader/SitePicker")>()),
+  useActiveSite: () => ({ activeSite: { kind: "all" as const }, setActiveSite: vi.fn() }),
+}));
+
 vi.mock("@/protoFleet/api/useDeviceSets", () => ({
   useDeviceSets: () => ({
     saveRack: mockSaveRack,

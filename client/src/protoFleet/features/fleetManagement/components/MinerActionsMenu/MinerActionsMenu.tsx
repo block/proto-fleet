@@ -25,12 +25,27 @@ import { type SelectionMode } from "@/shared/components/List";
 import { PopoverProvider } from "@/shared/components/Popover";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
+// Manage security's "all"-mode selector is a thin model/manufacturer/status
+// DeviceFilter that can't carry the rich MinerListFilter (MinerListFilter has no
+// manufacturer field), so under a scoped/filtered "select all" it would target
+// the whole model across the fleet. Disable it in that state until the filter is
+// threaded through. (Add to group is handled: it resolves the filter to an
+// explicit device list, like the rack/site/building reparent flow.)
+const FILTER_UNSUPPORTED_ALL_MODE_ACTIONS = new Set<SupportedAction>([settingsActions.security]);
+
 interface MinerActionsMenuProps {
   selectedMiners: string[];
   selectionMode: SelectionMode;
-  /** Total count of all miners in fleet (used for "all" mode confirmation dialogs) */
+  /**
+   * Size of an "all"-mode selection — the scoped/filtered total when a filter is
+   * active, else the whole-fleet total. Drives confirmation-dialog counts.
+   */
   totalCount?: number;
-  /** Active UI filter — forwarded for "all" mode unpair */
+  /**
+   * Active scoped filter (URL chips ∩ SitePicker scope). In "all" mode, command
+   * dispatch, capability checks, and pool assignment target this set across
+   * pages; undefined means whole fleet.
+   */
   currentFilter?: MinerListFilter;
   /** Active UI sort — forwarded so bulk actions can match visible table order. */
   currentSort?: SortConfig;
@@ -219,18 +234,42 @@ const MinerActionsMenu = ({
 
   const permittedActions = usePermittedActions(actionsWithBulkRename);
 
+  // A scoped/filtered "all" selection: currentFilter carries the URL chips ∩
+  // SitePicker scope, so its presence in "all" mode means the selection is a
+  // subset of the fleet.
+  const filteredAllModeActive = selectionMode === "all" && currentFilter !== undefined;
+
   const visibleActions = useMemo(() => {
-    if (!selectionIncludesUnauthenticatedMiner) return permittedActions;
-    return permittedActions.map((action) =>
-      action.action === deviceActions.unpair
-        ? action
-        : {
-            ...action,
-            disabled: true,
-            disabledReason: "Selection includes miners that need authentication.",
-          },
-    );
-  }, [permittedActions, selectionIncludesUnauthenticatedMiner]);
+    let result = permittedActions;
+    // Add to group (device_set selector's all-devices is a plain flag) and
+    // Manage security (thin model/status filter) can't yet carry the rich
+    // filter, so under a scoped/filtered "select all" they would expand to the
+    // whole fleet. Disable them until the rich filter is threaded through those
+    // paths; individual selection still works.
+    if (filteredAllModeActive) {
+      result = result.map((action) =>
+        FILTER_UNSUPPORTED_ALL_MODE_ACTIONS.has(action.action)
+          ? {
+              ...action,
+              disabled: true,
+              disabledReason: "Not yet available for a filtered Select all. Select miners individually.",
+            }
+          : action,
+      );
+    }
+    if (selectionIncludesUnauthenticatedMiner) {
+      result = result.map((action) =>
+        action.action === deviceActions.unpair
+          ? action
+          : {
+              ...action,
+              disabled: true,
+              disabledReason: "Selection includes miners that need authentication.",
+            },
+      );
+    }
+    return result;
+  }, [permittedActions, selectionIncludesUnauthenticatedMiner, filteredAllModeActive]);
 
   const poolMiners = useMemo(() => {
     if (poolFilteredDeviceIds) {
@@ -306,7 +345,12 @@ const MinerActionsMenu = ({
       <PoolSelectionPageWrapper
         open={showPoolSelectionPage ? !!fleetCredentials : false}
         selectedMiners={poolMiners}
-        selectionMode={selectionMode}
+        // Once capability filtering narrows to explicit supported ids, dispatch
+        // to exactly those (subset) rather than re-expanding via the selector.
+        selectionMode={poolFilteredDeviceIds ? "subset" : selectionMode}
+        // Scoped/filtered "all" pool assignment resolves the set server-side
+        // (all_matching_filter); only when not already narrowed to explicit ids.
+        minerListFilter={selectionMode === "all" && !poolFilteredDeviceIds ? currentFilter : undefined}
         poolNeededCount={poolFilteredDeviceIds ? poolFilteredDeviceIds.length : totalCount}
         userUsername={fleetCredentials?.username}
         userPassword={fleetCredentials?.password}
@@ -320,6 +364,7 @@ const MinerActionsMenu = ({
         selectedMinerIds={selectedMiners}
         selectionMode={selectionMode}
         displayCount={displayCount}
+        currentFilter={currentFilter}
       />
       {/* The second AuthenticateFleetModal is specific to the worker-name
           flow, which only this menu hosts — keep it inline. */}

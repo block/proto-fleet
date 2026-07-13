@@ -480,6 +480,10 @@ func start(config *Config) error {
 	buildingStore := sqlstores.NewSQLBuildingStore(conn)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, buildingStore, commandSvc, activitySvc)
 	fleetMgmtSvc.WithOptionsCache(fleetOptionsCache)
+	// Filtered "select all" command dispatch resolves its MinerListFilter through
+	// the fleetmanagement resolver; wire it now that fleetMgmtSvc exists (it
+	// depends on commandSvc, so this can't be passed to NewService).
+	commandSvc.SetDeviceIdentifierResolver(fleetMgmtSvc)
 	defer fleetMgmtSvc.WaitForPendingUnpairs(shutdownTimeout)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools, activitySvc)

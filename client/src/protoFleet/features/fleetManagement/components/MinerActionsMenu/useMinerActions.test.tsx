@@ -1399,6 +1399,13 @@ describe("useMinerActions", () => {
       const selector = calledWith.deleteMinersRequest.deviceSelector;
       expect(selector.selectionType.case).toBe("allDevices");
       expect(selector.selectionType.value.deviceStatus).toEqual([DeviceStatus.ERROR]);
+      // Unpair deletes the full command-visible set so it matches the "All N"
+      // count — not the resolver's PAIRED-only default.
+      expect(selector.selectionType.value.pairingStatuses).toEqual([
+        PairingStatus.PAIRED,
+        PairingStatus.AUTHENTICATION_NEEDED,
+        PairingStatus.DEFAULT_PASSWORD,
+      ]);
       expect(mockCompleteBatchOperation).toHaveBeenCalled();
       expect(toaster.updateToast).toHaveBeenCalledWith(
         expect.any(Number),
@@ -1441,6 +1448,102 @@ describe("useMinerActions", () => {
       const selector = calledWith.deleteMinersRequest.deviceSelector;
       expect(selector.selectionType.case).toBe("allDevices");
       expect(selector.selectionType.value).toBeDefined();
+    });
+
+    it("should send allMatchingFilter selector for a command in filtered 'all' mode", async () => {
+      mockReboot.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-reboot" });
+      });
+
+      const activeFilter = createProto(MinerListFilterSchema, {
+        rackIds: [7n],
+        models: ["S19"],
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "all",
+          totalCount: 42,
+          currentFilter: activeFilter,
+        }),
+      );
+
+      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
+      await act(async () => {
+        await rebootAction?.actionHandler();
+      });
+      await act(async () => {
+        await result.current.handleConfirmation();
+      });
+
+      expect(mockReboot).toHaveBeenCalled();
+      const selector = mockReboot.mock.calls[0][0].rebootRequest.deviceSelector;
+      expect(selector.selectionType.case).toBe("allMatchingFilter");
+      expect(selector.selectionType.value.rackIds).toEqual([7n]);
+      expect(selector.selectionType.value.models).toEqual(["S19"]);
+    });
+
+    it("should send allMatchingFilter for a command when only a SitePicker site scope is active", async () => {
+      // Regression: the site scope lives in currentFilter (siteIds) but not in
+      // the URL filter params, so a command must still resolve the scoped set —
+      // not expand to the whole fleet.
+      mockReboot.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-reboot" });
+      });
+
+      const siteScopedFilter = createProto(MinerListFilterSchema, { siteIds: [3n] });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "all",
+          totalCount: 42,
+          currentFilter: siteScopedFilter,
+        }),
+      );
+
+      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
+      await act(async () => {
+        await rebootAction?.actionHandler();
+      });
+      await act(async () => {
+        await result.current.handleConfirmation();
+      });
+
+      const selector = mockReboot.mock.calls[0][0].rebootRequest.deviceSelector;
+      expect(selector.selectionType.case).toBe("allMatchingFilter");
+      expect(selector.selectionType.value.siteIds).toEqual([3n]);
+    });
+
+    it("should send allDevices (whole fleet) for a command in unscoped 'all' mode", async () => {
+      mockReboot.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: "batch-reboot" });
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "all",
+          totalCount: 42,
+          // No currentFilter — nothing scoped, so "all" means the whole fleet.
+        }),
+      );
+
+      const rebootAction = result.current.popoverActions.find((a) => a.action === deviceActions.reboot);
+      await act(async () => {
+        await rebootAction?.actionHandler();
+      });
+      await act(async () => {
+        await result.current.handleConfirmation();
+      });
+
+      expect(mockReboot).toHaveBeenCalled();
+      const selector = mockReboot.mock.calls[0][0].rebootRequest.deviceSelector;
+      expect(selector.selectionType.case).toBe("allDevices");
     });
 
     it("should use includeDevices selector in subset mode even with active filter", async () => {
