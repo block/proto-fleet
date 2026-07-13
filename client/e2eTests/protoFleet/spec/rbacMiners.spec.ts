@@ -2,6 +2,7 @@ import { type Browser } from "@playwright/test";
 import { testConfig } from "../config/test.config";
 import { expect, test } from "../fixtures/pageFixtures";
 import {
+  ensureVisibleRigMinersAwake,
   provisionRoleAndLoginViaStoredAdminContext,
   useRbacHooks,
   wakeRigMinerIfSleeping,
@@ -53,6 +54,8 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     await minersPage.validateSingleMinerActionsHidden([
       "blink-leds-popover-button",
       "reboot-popover-button",
+      "shutdown-popover-button",
+      "wake-up-popover-button",
       "manage-power-popover-button",
       "mining-pool-popover-button",
       "firmware-update-popover-button",
@@ -114,6 +117,7 @@ test.describe("Proto Fleet - Miner RBAC", () => {
 
     await commonSteps.loginAsAdmin({ forceReauth: true });
     await commonSteps.goToMinersPage();
+    await ensureVisibleRigMinersAwake(minersPage);
     const minerIp = await minersPage.getMinerIpAddressByStatus("Hashing");
     await minersPage.clickMinerThreeDotsButton(minerIp);
     await minersPage.clickShutdownButton();
@@ -150,6 +154,7 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     });
 
     await commonSteps.goToMinersPage();
+    await ensureVisibleRigMinersAwake(minersPage);
     const minerIp = await minersPage.getMinerIpAddressByStatus("Hashing");
     await minersPage.clickMinerThreeDotsButton(minerIp);
     await minersPage.clickShutdownButton();
@@ -356,8 +361,12 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     });
 
     await commonSteps.goToMinersPage();
+    const minerIp = await minersPage.getMinerIpAddressByIndex(0);
     await minersPage.clickAddMinersButton();
     await addMinersPage.validateAddMinersFlowOpened();
+    await addMinersPage.inputMinerIp(minerIp);
+    await addMinersPage.clickFindMinersByIp();
+    await addMinersPage.waitForFoundMinersList();
     await addMinersPage.clickHeaderIconButton();
   });
 

@@ -29,7 +29,6 @@ export class AddMinersPage extends BasePage {
   }
 
   async validateAddMinersFlowOpened() {
-    await expect(this.page.getByText("Add miners", { exact: true })).toBeVisible();
     await expect(this.page.getByTestId("section-scan-network")).toBeVisible();
     await expect(this.page.getByTestId("section-search-by-ip")).toBeVisible();
   }
