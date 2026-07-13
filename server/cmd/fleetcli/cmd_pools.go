@@ -53,6 +53,9 @@ func generatedPoolsCommand() *cli.Command {
 						}
 						req.PoolConfig.Username = cmd.String("username")
 					}
+					if err := generatedValidateRequiredFields(req, "pool_config.pool_name", "pool_config.url", "pool_config.username"); err != nil {
+						return nil, err
+					}
 					if cmd.IsSet("pool-password-stdin") {
 						secretPoolConfigPassword, err := generatedReadSecret(cmd, "pool-password-stdin", "pool password")
 						if err != nil {
@@ -63,7 +66,7 @@ func generatedPoolsCommand() *cli.Command {
 						}
 						req.PoolConfig.Password = wrapperspb.String(secretPoolConfigPassword)
 					}
-					if err := generatedValidateRequiredFields(req, "pool_config.pool_name", "pool_config.url", "pool_config.username"); err != nil {
+					if err := generatedValidateRequest(req); err != nil {
 						return nil, err
 					}
 					return req, nil
@@ -83,6 +86,9 @@ func generatedPoolsCommand() *cli.Command {
 					if cmd.IsSet("pool-id") {
 						req.PoolId = cmd.Int64("pool-id")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &poolsv1.DeletePoolResponse{} },
@@ -95,6 +101,9 @@ func generatedPoolsCommand() *cli.Command {
 				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &poolsv1.ListPoolsRequest{}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &poolsv1.ListPoolsResponse{} },
@@ -141,6 +150,9 @@ func generatedPoolsCommand() *cli.Command {
 						}
 						req.Password = wrapperspb.String(secretPassword)
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &poolsv1.UpdatePoolResponse{} },
@@ -152,8 +164,8 @@ func generatedPoolsCommand() *cli.Command {
 				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.StringFlag{Name: "url", Usage: "url"},
-					&cli.StringFlag{Name: "username", Usage: "username"},
+					&cli.StringFlag{Name: "url", Usage: "(required unless provided by --json) url"},
+					&cli.StringFlag{Name: "username", Usage: "(required unless provided by --json) username"},
 					&cli.BoolFlag{Name: "pool-password-stdin", Usage: "Read pool authentication password from stdin"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
@@ -169,12 +181,18 @@ func generatedPoolsCommand() *cli.Command {
 					if cmd.IsSet("username") {
 						req.Username = cmd.String("username")
 					}
+					if err := generatedValidateRequiredFields(req, "url", "username"); err != nil {
+						return nil, err
+					}
 					if cmd.IsSet("pool-password-stdin") {
 						secretPassword, err := generatedReadSecret(cmd, "pool-password-stdin", "pool password")
 						if err != nil {
 							return nil, err
 						}
 						req.Password = wrapperspb.String(secretPassword)
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},

@@ -39,6 +39,9 @@ func generatedBuildingsCommand() *cli.Command {
 						value := cmd.Bool("force-clear-conflicting-rack-membership")
 						req.ForceClearConflictingRackMembership = &value
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &buildingsv1.AssignDevicesToBuildingResponse{} },
@@ -56,7 +59,10 @@ func generatedBuildingsCommand() *cli.Command {
 					if err := readProtoJSON(cmd.String("json"), req); err != nil {
 						return nil, err
 					}
-					if err := generatedValidateRequiredFields(req, "target_building_id"); err != nil {
+					if err := generatedValidateRequiredFields(req, "racks", "target_building_id"); err != nil {
+						return nil, err
+					}
+					if err := generatedValidateRequest(req); err != nil {
 						return nil, err
 					}
 					return req, nil
@@ -128,6 +134,9 @@ func generatedBuildingsCommand() *cli.Command {
 							return nil, fmt.Errorf("invalid value for default-rack-order-index: %s. Valid options: bottom-left, top-left, bottom-right, top-right", cmd.String("default-rack-order-index"))
 						}
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &buildingsv1.CreateBuildingResponse{} },
@@ -145,6 +154,9 @@ func generatedBuildingsCommand() *cli.Command {
 					if cmd.IsSet("id") {
 						req.Id = cmd.Int64("id")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &buildingsv1.DeleteBuildingResponse{} },
@@ -161,6 +173,9 @@ func generatedBuildingsCommand() *cli.Command {
 					req := &buildingsv1.GetBuildingRequest{}
 					if cmd.IsSet("id") {
 						req.Id = cmd.Int64("id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -187,6 +202,9 @@ func generatedBuildingsCommand() *cli.Command {
 					if cmd.IsSet("include-unassigned") {
 						req.IncludeUnassigned = cmd.Bool("include-unassigned")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &buildingsv1.ListBuildingsResponse{} },
@@ -212,6 +230,9 @@ func generatedBuildingsCommand() *cli.Command {
 					if cmd.IsSet("page-token") {
 						req.PageToken = cmd.String("page-token")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &buildingsv1.ListBuildingRacksResponse{} },
@@ -228,6 +249,9 @@ func generatedBuildingsCommand() *cli.Command {
 					req := &buildingsv1.GetBuildingStatsRequest{}
 					if cmd.IsSet("building-id") {
 						req.BuildingId = cmd.Int64("building-id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -296,6 +320,9 @@ func generatedBuildingsCommand() *cli.Command {
 						default:
 							return nil, fmt.Errorf("invalid value for default-rack-order-index: %s. Valid options: bottom-left, top-left, bottom-right, top-right", cmd.String("default-rack-order-index"))
 						}
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},

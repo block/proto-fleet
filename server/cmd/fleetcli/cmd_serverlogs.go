@@ -52,6 +52,9 @@ func generatedServerlogsCommand() *cli.Command {
 					if cmd.IsSet("limit") {
 						req.Limit = int32(cmd.Int("limit"))
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &serverlogv1.ListServerLogsResponse{} },

@@ -23,6 +23,9 @@ func generatedActivityCommand() *cli.Command {
 				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &activityv1.ListActivityFilterOptionsRequest{}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &activityv1.ListActivityFilterOptionsResponse{} },
@@ -52,6 +55,9 @@ func generatedActivityCommand() *cli.Command {
 					}
 					if cmd.IsSet("page-token") {
 						req.PageToken = cmd.String("page-token")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},

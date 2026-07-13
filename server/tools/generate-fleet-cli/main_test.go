@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	curtailmentv1 "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	devicesetv1 "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
+	poolsv1 "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -458,6 +461,75 @@ func TestBuildGroupsEmitsNestedFieldFlags(t *testing.T) {
 	}
 	if strings.Contains(expr, `&cli.StringFlag{Name: "password"`) {
 		t.Fatalf("generated expr exposed argv password flag:\n%s", expr)
+	}
+	requiredIndex := strings.Index(expr, "generatedValidateRequiredFields")
+	secretIndex := strings.Index(expr, "generatedReadSecret")
+	requestIndex := strings.Index(expr, "generatedValidateRequest")
+	if requiredIndex < 0 || secretIndex < 0 || requestIndex < 0 || !(requiredIndex < secretIndex && secretIndex < requestIndex) {
+		t.Fatalf("generated validation/secret order is unsafe:\n%s", expr)
+	}
+}
+
+func TestValidationRequiredFieldsUsesLiveProtoRules(t *testing.T) {
+	tests := []struct {
+		name    string
+		message protoreflect.MessageDescriptor
+		want    []string
+	}{
+		{
+			name:    "empty request violations",
+			message: (&poolsv1.ValidatePoolRequest{}).ProtoReflect().Descriptor(),
+			want:    []string{"url", "username"},
+		},
+		{
+			name:    "explicit required annotations",
+			message: (&devicesetv1.SaveRackRequest{}).ProtoReflect().Descriptor(),
+			want:    []string{"label", "rack_info", "device_selector"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requirements, err := validationRequiredFields(tt.message)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, fieldPath := range tt.want {
+				if _, ok := requirements[fieldPath]; !ok {
+					t.Errorf("requirements = %#v, want %q", requirements, fieldPath)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateManifestRequirementsRejectsGapsAndStaleExceptions(t *testing.T) {
+	message := (&poolsv1.ValidatePoolRequest{}).ProtoReflect().Descriptor()
+	if err := validateManifestRequirements(message, renderOptions{}); err == nil ||
+		!strings.Contains(err.Error(), "url") || !strings.Contains(err.Error(), "username") {
+		t.Fatalf("validation gap error = %v, want url and username", err)
+	}
+	if err := validateManifestRequirements(message, renderOptions{
+		RequiredFields: map[string]bool{"url": true, "username": true},
+	}); err != nil {
+		t.Fatalf("declared requirements error = %v, want success", err)
+	}
+	if err := validateManifestRequirements(message, renderOptions{
+		RequiredFields:       map[string]bool{"url": true, "username": true},
+		ValidationExceptions: map[string]string{"password": "not actually required"},
+	}); err == nil || !strings.Contains(err.Error(), "without a detected request validation requirement") {
+		t.Fatalf("stale exception error = %v, want rejection", err)
+	}
+}
+
+func TestValidateManifestRequirementsAllowsDocumentedMessageConstraint(t *testing.T) {
+	message := (&curtailmentv1.PreviewCurtailmentPlanRequest{}).ProtoReflect().Descriptor()
+	err := validateManifestRequirements(message, renderOptions{
+		RequiredFields:       map[string]bool{"mode": true},
+		ValidationExceptions: map[string]string{"$message": "mode parameters depend on mode"},
+	})
+	if err != nil {
+		t.Fatalf("documented message constraint error = %v, want success", err)
 	}
 }
 

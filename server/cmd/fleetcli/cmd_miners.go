@@ -29,6 +29,9 @@ func generatedMinersCommand() *cli.Command {
 					if cmd.IsSet("device-identifier") {
 						req.DeviceIdentifier = cmd.String("device-identifier")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &fleetmanagementv1.GetMinerCoolingModeResponse{} },
@@ -53,6 +56,9 @@ func generatedMinersCommand() *cli.Command {
 					}
 					if cmd.IsSet("include-unassigned") {
 						req.IncludeUnassigned = cmd.Bool("include-unassigned")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -80,6 +86,9 @@ func generatedMinersCommand() *cli.Command {
 					}
 					if cmd.IsSet("cursor") {
 						req.Cursor = cmd.String("cursor")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -109,6 +118,9 @@ func generatedMinersCommand() *cli.Command {
 							return nil, fmt.Errorf("invalid value for identifier-type: %s. Valid options: mac-address, serial-number", cmd.String("identifier-type"))
 						}
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &fleetmanagementv1.LookupMinerByIdentifierResponse{} },
@@ -128,6 +140,9 @@ func generatedMinersCommand() *cli.Command {
 							return nil, err
 						}
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &fleetmanagementv1.GetMinerModelGroupsResponse{} },
@@ -144,6 +159,9 @@ func generatedMinersCommand() *cli.Command {
 					req := &fleetmanagementv1.GetMinerPoolAssignmentsRequest{}
 					if cmd.IsSet("device-identifier") {
 						req.DeviceIdentifier = cmd.String("device-identifier")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -168,6 +186,12 @@ func generatedMinersCommand() *cli.Command {
 							return nil, err
 						}
 						req.DeviceSelector = selector
+					}
+					if err := generatedValidateRequiredFields(req, "name_config"); err != nil {
+						return nil, err
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},

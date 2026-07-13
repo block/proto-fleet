@@ -21,7 +21,7 @@ func generatedGroupsCommand() *cli.Command {
 				"/device_set.v1.DeviceSetService/AddDevicesToGroup",
 				generatedAuthAuthenticated,
 				append([]cli.Flag{
-					&cli.Int64Flag{Name: "target-group-id", Usage: "target group id"},
+					&cli.Int64Flag{Name: "target-group-id", Usage: "(required) target group id", Required: true},
 				}, generatedCommonSelectorFlags()...),
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.AddDevicesToGroupRequest{}
@@ -32,6 +32,9 @@ func generatedGroupsCommand() *cli.Command {
 					req.DeviceSelector = selector
 					if cmd.IsSet("target-group-id") {
 						req.TargetGroupId = cmd.Int64("target-group-id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -44,7 +47,7 @@ func generatedGroupsCommand() *cli.Command {
 				generatedAuthAuthenticated,
 				append([]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.StringFlag{Name: "label", Usage: "label"},
+					&cli.StringFlag{Name: "label", Usage: "(required unless provided by --json) label"},
 					&cli.StringFlag{Name: "description", Usage: "description"},
 				}, generatedCommonSelectorFlags()...),
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
@@ -68,6 +71,12 @@ func generatedGroupsCommand() *cli.Command {
 					if cmd.IsSet("description") {
 						req.Description = cmd.String("description")
 					}
+					if err := generatedValidateRequiredFields(req, "label"); err != nil {
+						return nil, err
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.CreateDeviceSetResponse{} },
@@ -78,12 +87,15 @@ func generatedGroupsCommand() *cli.Command {
 				"/device_set.v1.DeviceSetService/DeleteDeviceSet",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "(required) device set id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.DeleteDeviceSetRequest{}
 					if cmd.IsSet("device-set-id") {
 						req.DeviceSetId = cmd.Int64("device-set-id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -95,13 +107,16 @@ func generatedGroupsCommand() *cli.Command {
 				"/device_set.v1.DeviceSetService/GetDeviceDeviceSets",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "device-identifier", Usage: "device identifier"},
+					&cli.StringFlag{Name: "device-identifier", Usage: "(required) device identifier", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.GetDeviceDeviceSetsRequest{}
 					req.Type = devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP
 					if cmd.IsSet("device-identifier") {
 						req.DeviceIdentifier = cmd.String("device-identifier")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -113,7 +128,7 @@ func generatedGroupsCommand() *cli.Command {
 				"/device_set.v1.DeviceSetService/GetDeviceSet",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "(required) device set id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.GetDeviceSetRequest{}
@@ -121,6 +136,9 @@ func generatedGroupsCommand() *cli.Command {
 						req.DeviceSetId = cmd.Int64("device-set-id")
 					}
 					if err := generatedRequireDeviceSetType(ctx, client, req.DeviceSetId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP); err != nil {
+						return nil, err
+					}
+					if err := generatedValidateRequest(req); err != nil {
 						return nil, err
 					}
 					return req, nil
@@ -151,6 +169,9 @@ func generatedGroupsCommand() *cli.Command {
 					if cmd.IsSet("page-token") {
 						req.PageToken = cmd.String("page-token")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.ListDeviceSetsResponse{} },
@@ -161,7 +182,7 @@ func generatedGroupsCommand() *cli.Command {
 				"/device_set.v1.DeviceSetService/ListDeviceSetMembers",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "(required) device set id", Required: true},
 					&cli.IntFlag{Name: "page-size", Usage: "page size"},
 					&cli.StringFlag{Name: "page-token", Usage: "page token"},
 				},
@@ -179,6 +200,9 @@ func generatedGroupsCommand() *cli.Command {
 					if err := generatedRequireDeviceSetType(ctx, client, req.DeviceSetId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP); err != nil {
 						return nil, err
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.ListDeviceSetMembersResponse{} },
@@ -189,7 +213,7 @@ func generatedGroupsCommand() *cli.Command {
 				"/device_set.v1.DeviceSetService/RemoveDevicesFromGroup",
 				generatedAuthAuthenticated,
 				append([]cli.Flag{
-					&cli.Int64Flag{Name: "target-group-id", Usage: "target group id"},
+					&cli.Int64Flag{Name: "target-group-id", Usage: "(required) target group id", Required: true},
 				}, generatedCommonSelectorFlags()...),
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.RemoveDevicesFromGroupRequest{}
@@ -200,6 +224,9 @@ func generatedGroupsCommand() *cli.Command {
 					req.DeviceSelector = selector
 					if cmd.IsSet("target-group-id") {
 						req.TargetGroupId = cmd.Int64("target-group-id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -225,6 +252,9 @@ func generatedGroupsCommand() *cli.Command {
 					if err := generatedRequireDeviceSetTypes(ctx, client, req.DeviceSetIds, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_GROUP); err != nil {
 						return nil, err
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.GetDeviceSetStatsResponse{} },
@@ -236,7 +266,7 @@ func generatedGroupsCommand() *cli.Command {
 				generatedAuthAuthenticated,
 				append([]cli.Flag{
 					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "(required unless provided by --json) device set id"},
 					&cli.StringFlag{Name: "label", Usage: "label"},
 					&cli.StringFlag{Name: "description", Usage: "description"},
 				}, generatedCommonSelectorFlags()...),
@@ -264,6 +294,12 @@ func generatedGroupsCommand() *cli.Command {
 					if cmd.IsSet("description") {
 						value := cmd.String("description")
 						req.Description = &value
+					}
+					if err := generatedValidateRequiredFields(req, "device_set_id"); err != nil {
+						return nil, err
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},

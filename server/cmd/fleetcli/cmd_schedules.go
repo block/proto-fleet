@@ -82,6 +82,9 @@ func generatedSchedulesCommand() *cli.Command {
 					if err := generatedValidateRequiredFields(req, "action", "name", "schedule_type", "start_date", "start_time", "timezone"); err != nil {
 						return nil, err
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &schedulev1.CreateScheduleResponse{} },
@@ -98,6 +101,9 @@ func generatedSchedulesCommand() *cli.Command {
 					req := &schedulev1.DeleteScheduleRequest{}
 					if cmd.IsSet("schedule-id") {
 						req.ScheduleId = cmd.Int64("schedule-id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -140,6 +146,9 @@ func generatedSchedulesCommand() *cli.Command {
 							return nil, fmt.Errorf("invalid value for action: %s. Valid options: set-power-target, reboot, sleep", cmd.String("action"))
 						}
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &schedulev1.ListSchedulesResponse{} },
@@ -157,6 +166,9 @@ func generatedSchedulesCommand() *cli.Command {
 					if cmd.IsSet("schedule-id") {
 						req.ScheduleId = cmd.Int64("schedule-id")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &schedulev1.PauseScheduleResponse{} },
@@ -167,7 +179,7 @@ func generatedSchedulesCommand() *cli.Command {
 				"/schedule.v1.ScheduleService/ReorderSchedules",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringSliceFlag{Name: "schedule-ids", Usage: "schedule ids"},
+					&cli.StringSliceFlag{Name: "schedule-ids", Usage: "(required) schedule ids", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &schedulev1.ReorderSchedulesRequest{}
@@ -177,6 +189,9 @@ func generatedSchedulesCommand() *cli.Command {
 							return nil, err
 						}
 						req.ScheduleIds = values
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -194,6 +209,9 @@ func generatedSchedulesCommand() *cli.Command {
 					req := &schedulev1.ResumeScheduleRequest{}
 					if cmd.IsSet("schedule-id") {
 						req.ScheduleId = cmd.Int64("schedule-id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -267,6 +285,9 @@ func generatedSchedulesCommand() *cli.Command {
 						req.Timezone = cmd.String("timezone")
 					}
 					if err := generatedValidateRequiredFields(req, "action", "name", "schedule_id", "schedule_type", "start_date", "start_time", "timezone"); err != nil {
+						return nil, err
+					}
+					if err := generatedValidateRequest(req); err != nil {
 						return nil, err
 					}
 					return req, nil

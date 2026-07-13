@@ -39,6 +39,9 @@ func generatedRacksCommand() *cli.Command {
 						value := cmd.Bool("force-clear-conflicting-site")
 						req.ForceClearConflictingSite = &value
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.AssignDevicesToRackResponse{} },
@@ -60,6 +63,9 @@ func generatedRacksCommand() *cli.Command {
 					if cmd.IsSet("device-identifier") {
 						req.DeviceIdentifier = cmd.String("device-identifier")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.ClearRackSlotPositionResponse{} },
@@ -70,12 +76,15 @@ func generatedRacksCommand() *cli.Command {
 				"/device_set.v1.DeviceSetService/DeleteDeviceSet",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "(required) device set id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.DeleteDeviceSetRequest{}
 					if cmd.IsSet("device-set-id") {
 						req.DeviceSetId = cmd.Int64("device-set-id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -87,13 +96,16 @@ func generatedRacksCommand() *cli.Command {
 				"/device_set.v1.DeviceSetService/GetDeviceDeviceSets",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "device-identifier", Usage: "device identifier"},
+					&cli.StringFlag{Name: "device-identifier", Usage: "(required) device identifier", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.GetDeviceDeviceSetsRequest{}
 					req.Type = devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK
 					if cmd.IsSet("device-identifier") {
 						req.DeviceIdentifier = cmd.String("device-identifier")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -105,7 +117,7 @@ func generatedRacksCommand() *cli.Command {
 				"/device_set.v1.DeviceSetService/GetDeviceSet",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "(required) device set id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.GetDeviceSetRequest{}
@@ -113,6 +125,9 @@ func generatedRacksCommand() *cli.Command {
 						req.DeviceSetId = cmd.Int64("device-set-id")
 					}
 					if err := generatedRequireDeviceSetType(ctx, client, req.DeviceSetId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK); err != nil {
+						return nil, err
+					}
+					if err := generatedValidateRequest(req); err != nil {
 						return nil, err
 					}
 					return req, nil
@@ -147,6 +162,9 @@ func generatedRacksCommand() *cli.Command {
 					if cmd.IsSet("zones") {
 						req.Zones = cmd.StringSlice("zones")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.ListDeviceSetsResponse{} },
@@ -157,7 +175,7 @@ func generatedRacksCommand() *cli.Command {
 				"/device_set.v1.DeviceSetService/ListDeviceSetMembers",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "(required) device set id", Required: true},
 					&cli.IntFlag{Name: "page-size", Usage: "page size"},
 					&cli.StringFlag{Name: "page-token", Usage: "page token"},
 				},
@@ -173,6 +191,9 @@ func generatedRacksCommand() *cli.Command {
 						req.PageToken = cmd.String("page-token")
 					}
 					if err := generatedRequireDeviceSetType(ctx, client, req.DeviceSetId, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK); err != nil {
+						return nil, err
+					}
+					if err := generatedValidateRequest(req); err != nil {
 						return nil, err
 					}
 					return req, nil
@@ -192,6 +213,12 @@ func generatedRacksCommand() *cli.Command {
 					if err := readProtoJSON(cmd.String("json"), req); err != nil {
 						return nil, err
 					}
+					if err := generatedValidateRequiredFields(req, "device_selector", "label", "rack_info"); err != nil {
+						return nil, err
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.SaveRackResponse{} },
@@ -209,6 +236,12 @@ func generatedRacksCommand() *cli.Command {
 					if err := readProtoJSON(cmd.String("json"), req); err != nil {
 						return nil, err
 					}
+					if err := generatedValidateRequiredFields(req, "device_identifier", "device_set_id", "position"); err != nil {
+						return nil, err
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.SetRackSlotPositionResponse{} },
@@ -219,12 +252,15 @@ func generatedRacksCommand() *cli.Command {
 				"/device_set.v1.DeviceSetService/GetRackSlots",
 				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "device-set-id", Usage: "device set id"},
+					&cli.Int64Flag{Name: "device-set-id", Usage: "(required) device set id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.GetRackSlotsRequest{}
 					if cmd.IsSet("device-set-id") {
 						req.DeviceSetId = cmd.Int64("device-set-id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -250,6 +286,9 @@ func generatedRacksCommand() *cli.Command {
 					if err := generatedRequireDeviceSetTypes(ctx, client, req.DeviceSetIds, devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK); err != nil {
 						return nil, err
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.GetDeviceSetStatsResponse{} },
@@ -262,6 +301,9 @@ func generatedRacksCommand() *cli.Command {
 				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.ListRackTypesRequest{}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.ListRackTypesResponse{} },
@@ -274,6 +316,9 @@ func generatedRacksCommand() *cli.Command {
 				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.ListRackZoneRefsRequest{}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.ListRackZoneRefsResponse{} },
@@ -286,6 +331,9 @@ func generatedRacksCommand() *cli.Command {
 				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &devicesetv1.ListRackZonesRequest{}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &devicesetv1.ListRackZonesResponse{} },

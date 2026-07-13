@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"buf.build/go/protovalidate"
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	devicesetv1 "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -16,6 +17,13 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
+
+func generatedValidateRequest(message proto.Message) error {
+	if err := protovalidate.Validate(message); err != nil {
+		return fmt.Errorf("validate request: %w", err)
+	}
+	return nil
+}
 
 type generatedAuthPolicy string
 

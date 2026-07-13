@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,10 +13,13 @@ import (
 	"text/template"
 	"unicode"
 
+	validatepb "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	"buf.build/go/protovalidate"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
+	"google.golang.org/protobuf/types/dynamicpb"
 )
 
 const (
@@ -42,6 +46,7 @@ type commandSpec struct {
 	Auth                  string            `json:"auth,omitempty"`
 	IgnoreFields          []string          `json:"ignore_fields,omitempty"`
 	RequiredFields        []string          `json:"required_fields,omitempty"`
+	ValidationExceptions  map[string]string `json:"validation_exceptions,omitempty"`
 	FixedFields           map[string]string `json:"fixed_fields,omitempty"`
 	DefaultFields         map[string]string `json:"default_fields,omitempty"`
 	RequireCollectionType string            `json:"require_collection_type,omitempty"`
@@ -107,6 +112,7 @@ type renderOptions struct {
 	JSONOptional          bool
 	IgnoreFields          map[string]bool
 	RequiredFields        map[string]bool
+	ValidationExceptions  map[string]string
 	FixedFields           map[string]string
 	DefaultFields         map[string]string
 	RequireCollectionType string
@@ -292,6 +298,14 @@ func validateCommandsManifest(manifest commandsManifest) error {
 				return fmt.Errorf("command %q: unsupported field flag kind %q for path %q", key, fieldFlag.Kind, fieldFlag.Path)
 			}
 		}
+		for fieldPath, reason := range command.ValidationExceptions {
+			if fieldPath == "" {
+				return fmt.Errorf("command %q: validation_exceptions field path is required", key)
+			}
+			if strings.TrimSpace(reason) == "" {
+				return fmt.Errorf("command %q: validation_exceptions reason is required for %q", key, fieldPath)
+			}
+		}
 	}
 	return nil
 }
@@ -411,6 +425,7 @@ func buildGroups(
 	var reports []methodReport
 	generatedMethods := map[string]bool{}
 	deferredMethods := map[string]bool{}
+	var requirementErrors []string
 
 	for _, methodKey := range methodKeys {
 		ref := methodIndex[methodKey]
@@ -443,11 +458,21 @@ func buildGroups(
 			JSONOptional:          command.JSONOptional,
 			IgnoreFields:          sliceToSet(command.IgnoreFields),
 			RequiredFields:        sliceToSet(command.RequiredFields),
+			ValidationExceptions:  command.ValidationExceptions,
 			FixedFields:           command.FixedFields,
 			DefaultFields:         command.DefaultFields,
 			RequireCollectionType: command.RequireCollectionType,
 			CommonSelector:        command.CommonSelector,
 			FieldFlags:            command.FieldFlags,
+		}
+		if err := validateManifestRequirements(ref.Method.Input(), options); err != nil {
+			parts := []string{command.Group}
+			if command.Subgroup != "" {
+				parts = append(parts, command.Subgroup)
+			}
+			parts = append(parts, command.Command)
+			requirementErrors = append(requirementErrors, fmt.Sprintf("%s: %v", strings.Join(parts, " "), err))
+			continue
 		}
 		if options.Usage == "" {
 			options.Usage = humanizeMethod(string(ref.Method.Name()))
@@ -462,6 +487,10 @@ func buildGroups(
 			continue
 		}
 		generatedMethods[methodKey] = true
+	}
+	if len(requirementErrors) > 0 {
+		sort.Strings(requirementErrors)
+		return nil, generationReport{}, fmt.Errorf("commands manifest has request validation gaps:\n - %s", strings.Join(requirementErrors, "\n - "))
 	}
 
 	for _, methodKey := range methodKeys {
@@ -693,6 +722,7 @@ type requestAnalysis struct {
 	flags               []string
 	flagHelpers         []string
 	lines               []string
+	secretLines         []string
 	Reason              string
 	minerSelectorField  string
 	fleetSelectorField  string
@@ -710,6 +740,9 @@ func analyzeRequest(
 	options renderOptions,
 ) (requestAnalysis, error) {
 	var analysis requestAnalysis
+	if err := validateManifestRequirements(message, options); err != nil {
+		return analysis, err
+	}
 	if options.JSONOnly {
 		if err := validateRequiredFieldPaths(message, options.RequiredFields); err != nil {
 			return analysis, err
@@ -753,6 +786,7 @@ func analyzeRequest(
 			}
 			analysis.flags = append(analysis.flags, plan.flags...)
 			analysis.lines = append(analysis.lines, plan.lines...)
+			analysis.secretLines = append(analysis.secretLines, plan.secretLines...)
 			analysis.imports = mergeImports(analysis.imports, plan.imports)
 			analysis.jsonFallback = analysis.jsonFallback || plan.jsonFallback
 			if plan.jsonFallback && analysis.Reason == "" {
@@ -820,11 +854,6 @@ func analyzeRequest(
 		analysis.needsFmt = analysis.needsFmt || needsFmt
 	}
 
-	for fieldName := range options.RequiredFields {
-		if !seenRequiredFields[fieldName] {
-			return analysis, fmt.Errorf("required_fields references non-flag field %q on %s", fieldName, message.FullName())
-		}
-	}
 	for _, fieldFlag := range options.FieldFlags {
 		if !usedFieldFlagPaths[fieldFlag.Path] {
 			return analysis, fmt.Errorf("field_flags references unknown root field %q on %s", fieldFlag.Path, message.FullName())
@@ -832,9 +861,17 @@ func analyzeRequest(
 	}
 
 	if len(analysis.flags) == 0 && hasUnsupported {
+		if err := validateRequiredFieldPaths(message, options.RequiredFields); err != nil {
+			return analysis, err
+		}
 		analysis.jsonOnly = true
 		analysis.Reason = "request uses only complex fields, so the generated command accepts --json input only"
 		return analysis, nil
+	}
+	for fieldName := range options.RequiredFields {
+		if !seenRequiredFields[fieldName] {
+			return analysis, fmt.Errorf("required_fields references non-flag field %q on %s", fieldName, message.FullName())
+		}
 	}
 	analysis.jsonFallback = analysis.jsonFallback || hasUnsupported
 	if hasUnsupported {
@@ -884,6 +921,100 @@ func analyzeRequest(
 	}
 
 	return analysis, nil
+}
+
+func validateManifestRequirements(message protoreflect.MessageDescriptor, options renderOptions) error {
+	requirements, err := validationRequiredFields(message)
+	if err != nil {
+		return err
+	}
+	for fieldPath := range options.ValidationExceptions {
+		if _, ok := requirements[fieldPath]; !ok {
+			return fmt.Errorf("validation_exceptions references field %q without a detected request validation requirement on %s", fieldPath, message.FullName())
+		}
+	}
+
+	var missing []string
+	for fieldPath, reason := range requirements {
+		if manifestSatisfiesRequiredField(message, fieldPath, options) {
+			continue
+		}
+		missing = append(missing, fmt.Sprintf("%s (%s)", fieldPath, reason))
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	sort.Strings(missing)
+	return fmt.Errorf(
+		"request validation requires undeclared fields on %s: %s; add required_fields, a required field_flag, a fixed/default value, or a documented validation_exceptions entry",
+		message.FullName(), strings.Join(missing, ", "),
+	)
+}
+
+func validationRequiredFields(message protoreflect.MessageDescriptor) (map[string]string, error) {
+	requirements := explicitlyRequiredFields(message)
+	err := protovalidate.Validate(dynamicpb.NewMessage(message))
+	if err == nil {
+		return requirements, nil
+	}
+	var validationErr *protovalidate.ValidationError
+	if !errors.As(err, &validationErr) {
+		return nil, fmt.Errorf("validate empty %s request: %w", message.FullName(), err)
+	}
+
+	for _, violation := range validationErr.Violations {
+		var parts []string
+		for _, element := range violation.Proto.GetField().GetElements() {
+			if name := element.GetFieldName(); name != "" {
+				parts = append(parts, name)
+			}
+		}
+		fieldPath := strings.Join(parts, ".")
+		if fieldPath == "" {
+			fieldPath = "$message"
+		}
+		requirements[fieldPath] = violation.Proto.GetMessage()
+	}
+	return requirements, nil
+}
+
+func explicitlyRequiredFields(message protoreflect.MessageDescriptor) map[string]string {
+	requirements := make(map[string]string)
+	for i := range message.Fields().Len() {
+		field := message.Fields().Get(i)
+		options := field.Options()
+		if options == nil || !proto.HasExtension(options, validatepb.E_Field) {
+			continue
+		}
+		rules, ok := proto.GetExtension(options, validatepb.E_Field).(*validatepb.FieldRules)
+		if ok && rules.GetRequired() {
+			requirements[string(field.Name())] = "value is required"
+		}
+	}
+	return requirements
+}
+
+func manifestSatisfiesRequiredField(message protoreflect.MessageDescriptor, fieldPath string, options renderOptions) bool {
+	if options.RequiredFields[fieldPath] {
+		return true
+	}
+	if _, ok := options.ValidationExceptions[fieldPath]; ok {
+		return true
+	}
+	root, _, _ := strings.Cut(fieldPath, ".")
+	if _, ok := options.FixedFields[root]; ok {
+		return true
+	}
+	if _, ok := options.DefaultFields[root]; ok {
+		return true
+	}
+	for _, fieldFlag := range options.FieldFlags {
+		if fieldFlag.Path == fieldPath && fieldFlag.Required {
+			return true
+		}
+	}
+	field := message.Fields().ByName(protoreflect.Name(root))
+	return !options.JSONOnly && field != nil && (isMinerSelectorField(field) || isFleetSelectorField(field) || isCommonSelectorField(field))
 }
 
 func validateRequiredFieldPaths(message protoreflect.MessageDescriptor, requiredFields map[string]bool) error {
@@ -1048,6 +1179,7 @@ func zeroValueCondition(field protoreflect.FieldDescriptor) (string, error) {
 type fieldFlagPlan struct {
 	flags        []string
 	lines        []string
+	secretLines  []string
 	imports      map[string]string
 	jsonFallback bool
 }
@@ -1069,7 +1201,11 @@ func buildFieldFlagPlan(
 			return plan, err
 		}
 		plan.flags = append(plan.flags, flag)
-		plan.lines = append(plan.lines, lines...)
+		if fieldFlagKind(spec) == "secret" {
+			plan.secretLines = append(plan.secretLines, lines...)
+		} else {
+			plan.lines = append(plan.lines, lines...)
+		}
 		plan.imports = mergeImports(plan.imports, imports)
 		if len(target.parentAssignments) > 0 || isStringValueField(target.field) {
 			plan.jsonFallback = true
@@ -1567,6 +1703,12 @@ func renderJSONOnlyExpr(
 		}
 	}
 	writeRequiredFieldValidation(&buf, options.RequiredFields)
+	for _, line := range analysis.secretLines {
+		buf.WriteString("\t\t" + line + "\n")
+	}
+	buf.WriteString("\t\tif err := generatedValidateRequest(req); err != nil {\n")
+	buf.WriteString("\t\t\treturn nil, err\n")
+	buf.WriteString("\t\t}\n")
 	buf.WriteString("\t\treturn req, nil\n")
 	buf.WriteString("\t},\n")
 	buf.WriteString(fmt.Sprintf("\tfunc() proto.Message { return &%s.%s{} },\n", response.GoAlias, response.GoIdent))
@@ -1646,6 +1788,9 @@ func renderSimpleExpr(
 	for _, line := range analysis.lines {
 		buf.WriteString("\t\t" + line + "\n")
 	}
+	if analysis.jsonFallback {
+		writeRequiredFieldValidation(&buf, options.RequiredFields)
+	}
 	if options.RequireCollectionType != "" {
 		lines, err := requireCollectionTypeLines(request.Descriptor, options.RequireCollectionType)
 		if err != nil {
@@ -1655,9 +1800,12 @@ func renderSimpleExpr(
 			buf.WriteString("\t\t" + line + "\n")
 		}
 	}
-	if analysis.jsonFallback {
-		writeRequiredFieldValidation(&buf, options.RequiredFields)
+	for _, line := range analysis.secretLines {
+		buf.WriteString("\t\t" + line + "\n")
 	}
+	buf.WriteString("\t\tif err := generatedValidateRequest(req); err != nil {\n")
+	buf.WriteString("\t\t\treturn nil, err\n")
+	buf.WriteString("\t\t}\n")
 	buf.WriteString("\t\treturn req, nil\n")
 	buf.WriteString("\t},\n")
 	buf.WriteString(fmt.Sprintf("\tfunc() proto.Message { return &%s.%s{} },\n", response.GoAlias, response.GoIdent))

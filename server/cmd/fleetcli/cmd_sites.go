@@ -37,6 +37,9 @@ func generatedSitesCommand() *cli.Command {
 						value := cmd.Int64("target-site-id")
 						req.TargetSiteId = &value
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &sitesv1.AssignBuildingsToSiteResponse{} },
@@ -64,6 +67,9 @@ func generatedSitesCommand() *cli.Command {
 						value := cmd.Bool("force-clear-conflicting-rack-membership")
 						req.ForceClearConflictingRackMembership = &value
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &sitesv1.AssignDevicesToSiteResponse{} },
@@ -89,6 +95,9 @@ func generatedSitesCommand() *cli.Command {
 					if cmd.IsSet("target-site-id") {
 						value := cmd.Int64("target-site-id")
 						req.TargetSiteId = &value
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -143,6 +152,9 @@ func generatedSitesCommand() *cli.Command {
 					if cmd.IsSet("notes") {
 						req.Notes = cmd.String("notes")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &sitesv1.CreateSiteResponse{} },
@@ -160,6 +172,9 @@ func generatedSitesCommand() *cli.Command {
 					if cmd.IsSet("id") {
 						req.Id = cmd.Int64("id")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &sitesv1.DeleteSiteResponse{} },
@@ -172,6 +187,9 @@ func generatedSitesCommand() *cli.Command {
 				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &sitesv1.ListSitesRequest{}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &sitesv1.ListSitesResponse{} },
@@ -189,6 +207,9 @@ func generatedSitesCommand() *cli.Command {
 					if cmd.IsSet("slug") {
 						req.Slug = cmd.String("slug")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &sitesv1.ResolveSiteBySlugResponse{} },
@@ -205,6 +226,9 @@ func generatedSitesCommand() *cli.Command {
 					req := &sitesv1.GetSiteStatsRequest{}
 					if cmd.IsSet("site-id") {
 						req.SiteId = cmd.Int64("site-id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -262,6 +286,9 @@ func generatedSitesCommand() *cli.Command {
 					}
 					if cmd.IsSet("notes") {
 						req.Notes = cmd.String("notes")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},

@@ -119,6 +119,7 @@
       "method": "/pools.v1.PoolsService/ValidatePool",
       "group": "pools",
       "command": "validate",
+      "required_fields": ["url", "username"],
       "field_flags": [
         {
           "path": "password",
@@ -143,6 +144,7 @@
       "group": "groups",
       "command": "get",
       "usage": "Get a group by id",
+      "required_fields": ["device_set_id"],
       "require_collection_type": "group"
     },
     {
@@ -150,6 +152,7 @@
       "group": "groups",
       "command": "create",
       "usage": "Create a group",
+      "required_fields": ["label"],
       "fixed_fields": {
         "type": "group"
       },
@@ -159,31 +162,36 @@
       "method": "/device_set.v1.DeviceSetService/AddDevicesToGroup",
       "group": "groups",
       "command": "add-devices",
-      "usage": "Add devices to a group"
+      "usage": "Add devices to a group",
+      "required_fields": ["target_group_id"]
     },
     {
       "method": "/device_set.v1.DeviceSetService/RemoveDevicesFromGroup",
       "group": "groups",
       "command": "remove-devices",
-      "usage": "Remove devices from a group"
+      "usage": "Remove devices from a group",
+      "required_fields": ["target_group_id"]
     },
     {
       "method": "/device_set.v1.DeviceSetService/UpdateDeviceSet",
       "group": "groups",
       "command": "update",
-      "usage": "Update a group"
+      "usage": "Update a group",
+      "required_fields": ["device_set_id"]
     },
     {
       "method": "/device_set.v1.DeviceSetService/DeleteDeviceSet",
       "group": "groups",
       "command": "delete",
-      "usage": "Delete a group"
+      "usage": "Delete a group",
+      "required_fields": ["device_set_id"]
     },
     {
       "method": "/device_set.v1.DeviceSetService/ListDeviceSetMembers",
       "group": "groups",
       "command": "members",
       "usage": "List group members",
+      "required_fields": ["device_set_id"],
       "ignore_fields": ["site_ids", "include_unassigned"],
       "require_collection_type": "group"
     },
@@ -192,6 +200,7 @@
       "group": "groups",
       "command": "device",
       "usage": "List groups for a device identifier",
+      "required_fields": ["device_identifier"],
       "fixed_fields": {
         "type": "group"
       },
@@ -219,6 +228,7 @@
       "group": "racks",
       "command": "get",
       "usage": "Get a rack by id",
+      "required_fields": ["device_set_id"],
       "require_collection_type": "rack"
     },
     {
@@ -226,7 +236,8 @@
       "group": "racks",
       "command": "save",
       "usage": "Create or update a rack",
-      "json_only": true
+      "json_only": true,
+      "required_fields": ["label", "rack_info", "device_selector"]
     },
     {
       "method": "/device_set.v1.DeviceSetService/AssignDevicesToRack",
@@ -240,13 +251,15 @@
       "method": "/device_set.v1.DeviceSetService/DeleteDeviceSet",
       "group": "racks",
       "command": "delete",
-      "usage": "Delete a rack"
+      "usage": "Delete a rack",
+      "required_fields": ["device_set_id"]
     },
     {
       "method": "/device_set.v1.DeviceSetService/ListDeviceSetMembers",
       "group": "racks",
       "command": "members",
       "usage": "List rack members",
+      "required_fields": ["device_set_id"],
       "ignore_fields": ["site_ids", "include_unassigned"],
       "require_collection_type": "rack"
     },
@@ -254,7 +267,8 @@
       "method": "/device_set.v1.DeviceSetService/GetRackSlots",
       "group": "racks",
       "command": "slots",
-      "usage": "List occupied rack slots"
+      "usage": "List occupied rack slots",
+      "required_fields": ["device_set_id"]
     },
     {
       "method": "/device_set.v1.DeviceSetService/ListRackZones",
@@ -273,6 +287,7 @@
       "group": "racks",
       "command": "device",
       "usage": "List racks for a device identifier",
+      "required_fields": ["device_identifier"],
       "fixed_fields": {
         "type": "rack"
       },
@@ -437,7 +452,7 @@
       "group": "buildings",
       "command": "assign-racks",
       "json_only": true,
-      "required_fields": ["target_building_id"]
+      "required_fields": ["target_building_id", "racks"]
     },
     {
       "method": "/buildings.v1.BuildingService/AssignDevicesToBuilding",
@@ -449,7 +464,8 @@
       "method": "/device_set.v1.DeviceSetService/SetRackSlotPosition",
       "group": "racks",
       "command": "set-slot",
-      "json_only": true
+      "json_only": true,
+      "required_fields": ["device_set_id", "device_identifier", "position"]
     },
     {
       "method": "/device_set.v1.DeviceSetService/ClearRackSlotPosition",
@@ -471,7 +487,8 @@
     {
       "method": "/fleetmanagement.v1.FleetManagementService/RenameMiners",
       "group": "miners",
-      "command": "rename"
+      "command": "rename",
+      "required_fields": ["name_config"]
     },
     {
       "method": "/schedule.v1.ScheduleService/ListSchedules",
@@ -511,7 +528,8 @@
     {
       "method": "/schedule.v1.ScheduleService/ReorderSchedules",
       "group": "schedules",
-      "command": "reorder"
+      "command": "reorder",
+      "required_fields": ["schedule_ids"]
     },
     {
       "method": "/alerts.v1.ChannelService/ListChannels",
@@ -663,13 +681,21 @@
       "method": "/curtailment.v1.CurtailmentService/PreviewCurtailmentPlan",
       "group": "curtailment",
       "subgroup": "events",
-      "command": "preview"
+      "command": "preview",
+      "required_fields": ["mode"],
+      "validation_exceptions": {
+        "$message": "mode_params is conditional: FIXED_KW requires fixed_kw while FULL_FLEET requires no mode parameters; generated request validation enforces the selected mode"
+      }
     },
     {
       "method": "/curtailment.v1.CurtailmentService/StartCurtailment",
       "group": "curtailment",
       "subgroup": "events",
-      "command": "start"
+      "command": "start",
+      "required_fields": ["mode", "reason"],
+      "validation_exceptions": {
+        "$message": "mode_params is conditional: FIXED_KW requires fixed_kw while FULL_FLEET requires no mode parameters; generated request validation enforces the selected mode"
+      }
     },
     {
       "method": "/curtailment.v1.CurtailmentService/UpdateCurtailmentEvent",
@@ -739,6 +765,7 @@
       "subgroup": "mqtt-sources",
       "command": "create",
       "auth": "session_only",
+      "required_fields": ["source_name", "topic", "broker_primary_host", "broker_secondary_host", "mqtt_username"],
       "field_flags": [
         {"path": "mqtt_password", "flag": "mqtt-password-stdin", "kind": "secret", "required": true, "prompt": true}
       ]
@@ -760,6 +787,7 @@
       "subgroup": "mqtt-sources",
       "command": "test",
       "auth": "session_only",
+      "required_fields": ["topic", "broker_primary_host", "broker_secondary_host", "mqtt_username"],
       "field_flags": [
         {"path": "mqtt_password", "flag": "mqtt-password-stdin", "kind": "secret", "required": true, "prompt": true}
       ]
@@ -795,14 +823,21 @@
       "method": "/curtailment.v1.CurtailmentService/CreateCurtailmentResponseProfile",
       "group": "curtailment",
       "subgroup": "profiles",
-      "command": "create"
+      "command": "create",
+      "required_fields": ["profile_name", "mode"],
+      "validation_exceptions": {
+        "$message": "mode_params is conditional: FIXED_KW requires fixed_kw while FULL_FLEET requires no mode parameters; generated request validation enforces the selected mode"
+      }
     },
     {
       "method": "/curtailment.v1.CurtailmentService/UpdateCurtailmentResponseProfile",
       "group": "curtailment",
       "subgroup": "profiles",
       "command": "update",
-      "required_fields": ["profile_id"]
+      "required_fields": ["profile_id", "profile_name", "mode"],
+      "validation_exceptions": {
+        "$message": "mode_params is conditional: FIXED_KW requires fixed_kw while FULL_FLEET requires no mode parameters; generated request validation enforces the selected mode"
+      }
     },
     {
       "method": "/curtailment.v1.CurtailmentService/DeleteCurtailmentResponseProfile",
@@ -828,14 +863,15 @@
       "method": "/curtailment.v1.CurtailmentService/CreateCurtailmentAutomationRule",
       "group": "curtailment",
       "subgroup": "automation-rules",
-      "command": "create"
+      "command": "create",
+      "required_fields": ["rule_name", "mqtt_source_id", "response_profile_id"]
     },
     {
       "method": "/curtailment.v1.CurtailmentService/UpdateCurtailmentAutomationRule",
       "group": "curtailment",
       "subgroup": "automation-rules",
       "command": "update",
-      "required_fields": ["rule_id"]
+      "required_fields": ["rule_id", "rule_name", "mqtt_source_id", "response_profile_id"]
     },
     {
       "method": "/curtailment.v1.CurtailmentService/SetCurtailmentAutomationRuleEnabled",

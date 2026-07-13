@@ -29,6 +29,9 @@ func generatedErrorsCommand() *cli.Command {
 					if cmd.IsSet("error-id") {
 						req.ErrorId = cmd.String("error-id")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &errorsv1.GetErrorResponse{} },
@@ -41,6 +44,9 @@ func generatedErrorsCommand() *cli.Command {
 				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &errorsv1.ListMinerErrorsRequest{}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &errorsv1.ListMinerErrorsResponse{} },
@@ -87,6 +93,9 @@ func generatedErrorsCommand() *cli.Command {
 					}
 					if cmd.IsSet("order-by") {
 						req.OrderBy = cmd.String("order-by")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},

@@ -36,6 +36,9 @@ func generatedRolesCommand() *cli.Command {
 					if cmd.IsSet("permission-keys") {
 						req.PermissionKeys = cmd.StringSlice("permission-keys")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &authzv1.CreateCustomRoleResponse{} },
@@ -53,6 +56,9 @@ func generatedRolesCommand() *cli.Command {
 					if cmd.IsSet("role-id") {
 						req.RoleId = cmd.String("role-id")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &authzv1.DeleteCustomRoleResponse{} },
@@ -65,6 +71,9 @@ func generatedRolesCommand() *cli.Command {
 				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &authzv1.ListRolesRequest{}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &authzv1.ListRolesResponse{} },
@@ -77,6 +86,9 @@ func generatedRolesCommand() *cli.Command {
 				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &authzv1.ListPermissionsRequest{}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &authzv1.ListPermissionsResponse{} },
@@ -105,6 +117,9 @@ func generatedRolesCommand() *cli.Command {
 					}
 					if cmd.IsSet("permission-keys") {
 						req.PermissionKeys = cmd.StringSlice("permission-keys")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},

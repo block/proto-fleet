@@ -55,6 +55,9 @@ func generatedAlertsCommand() *cli.Command {
 									return nil, fmt.Errorf("invalid value for kind: %s. Valid options: webhook, smtp, slack", cmd.String("kind"))
 								}
 							}
+							if err := generatedValidateRequiredFields(req, "kind", "name"); err != nil {
+								return nil, err
+							}
 							if cmd.IsSet("webhook-bearer-stdin") {
 								secretWebhookBearerHeader, err := generatedReadSecret(cmd, "webhook-bearer-stdin", "webhook bearer")
 								if err != nil {
@@ -85,7 +88,7 @@ func generatedAlertsCommand() *cli.Command {
 								}
 								req.Slack.WebhookUrl = secretSlackWebhookUrl
 							}
-							if err := generatedValidateRequiredFields(req, "kind", "name"); err != nil {
+							if err := generatedValidateRequest(req); err != nil {
 								return nil, err
 							}
 							return req, nil
@@ -105,6 +108,9 @@ func generatedAlertsCommand() *cli.Command {
 							if cmd.IsSet("id") {
 								req.Id = cmd.String("id")
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &alertsv1.DeleteChannelResponse{} },
@@ -117,6 +123,9 @@ func generatedAlertsCommand() *cli.Command {
 						[]cli.Flag{},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &alertsv1.ListChannelsRequest{}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &alertsv1.ListChannelsResponse{} },
@@ -186,6 +195,9 @@ func generatedAlertsCommand() *cli.Command {
 								}
 								req.Slack.WebhookUrl = secretSlackWebhookUrl
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &alertsv1.TestChannelResponse{} },
@@ -229,6 +241,9 @@ func generatedAlertsCommand() *cli.Command {
 									return nil, fmt.Errorf("invalid value for kind: %s. Valid options: webhook, smtp, slack", cmd.String("kind"))
 								}
 							}
+							if err := generatedValidateRequiredFields(req, "id", "kind", "name"); err != nil {
+								return nil, err
+							}
 							if cmd.IsSet("webhook-bearer-stdin") {
 								secretWebhookBearerHeader, err := generatedReadSecret(cmd, "webhook-bearer-stdin", "webhook bearer")
 								if err != nil {
@@ -259,7 +274,7 @@ func generatedAlertsCommand() *cli.Command {
 								}
 								req.Slack.WebhookUrl = secretSlackWebhookUrl
 							}
-							if err := generatedValidateRequiredFields(req, "id", "kind", "name"); err != nil {
+							if err := generatedValidateRequest(req); err != nil {
 								return nil, err
 							}
 							return req, nil
@@ -293,6 +308,9 @@ func generatedAlertsCommand() *cli.Command {
 							if cmd.IsSet("active-only") {
 								req.ActiveOnly = cmd.Bool("active-only")
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &alertsv1.ListAlertsResponse{} },
@@ -322,6 +340,9 @@ func generatedAlertsCommand() *cli.Command {
 							if cmd.IsSet("comment") {
 								req.Comment = cmd.String("comment")
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &alertsv1.CreateMaintenanceWindowResponse{} },
@@ -339,6 +360,9 @@ func generatedAlertsCommand() *cli.Command {
 							if cmd.IsSet("id") {
 								req.Id = cmd.String("id")
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &alertsv1.DeleteMaintenanceWindowResponse{} },
@@ -351,6 +375,9 @@ func generatedAlertsCommand() *cli.Command {
 						[]cli.Flag{},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &alertsv1.ListMaintenanceWindowsRequest{}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &alertsv1.ListMaintenanceWindowsResponse{} },
@@ -381,6 +408,9 @@ func generatedAlertsCommand() *cli.Command {
 							if err := generatedValidateRequiredFields(req, "id"); err != nil {
 								return nil, err
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &alertsv1.UpdateMaintenanceWindowResponse{} },
@@ -399,6 +429,9 @@ func generatedAlertsCommand() *cli.Command {
 						[]cli.Flag{},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &alertsv1.ListRulesRequest{}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &alertsv1.ListRulesResponse{} },
@@ -416,6 +449,9 @@ func generatedAlertsCommand() *cli.Command {
 							if cmd.IsSet("id") {
 								req.Id = cmd.String("id")
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &alertsv1.PauseRuleResponse{} },
@@ -432,6 +468,9 @@ func generatedAlertsCommand() *cli.Command {
 							req := &alertsv1.ResumeRuleRequest{}
 							if cmd.IsSet("id") {
 								req.Id = cmd.String("id")
+							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
 							}
 							return req, nil
 						},

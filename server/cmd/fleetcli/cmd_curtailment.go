@@ -26,10 +26,10 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/CreateCurtailmentAutomationRule",
 						generatedAuthAuthenticated,
 						[]cli.Flag{
-							&cli.StringFlag{Name: "rule-name", Usage: "rule name"},
+							&cli.StringFlag{Name: "rule-name", Usage: "(required) rule name", Required: true},
 							&cli.StringFlag{Name: "trigger-type", Usage: "trigger type. Valid options: mqtt"},
-							&cli.Int64Flag{Name: "mqtt-source-id", Usage: "mqtt source id"},
-							&cli.Int64Flag{Name: "response-profile-id", Usage: "response profile id"},
+							&cli.Int64Flag{Name: "mqtt-source-id", Usage: "(required) mqtt source id", Required: true},
+							&cli.Int64Flag{Name: "response-profile-id", Usage: "(required) response profile id", Required: true},
 							&cli.BoolFlag{Name: "enabled", Usage: "enabled"},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
@@ -55,6 +55,9 @@ func generatedCurtailmentCommand() *cli.Command {
 								value := cmd.Bool("enabled")
 								req.Enabled = &value
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.CreateCurtailmentAutomationRuleResponse{} },
@@ -71,6 +74,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							req := &curtailmentv1.DeleteCurtailmentAutomationRuleRequest{}
 							if cmd.IsSet("rule-id") {
 								req.RuleId = cmd.Int64("rule-id")
+							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
 							}
 							return req, nil
 						},
@@ -89,6 +95,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("rule-id") {
 								req.RuleId = cmd.Int64("rule-id")
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.GetCurtailmentAutomationRuleResponse{} },
@@ -101,6 +110,9 @@ func generatedCurtailmentCommand() *cli.Command {
 						[]cli.Flag{},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.ListCurtailmentAutomationRulesRequest{}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.ListCurtailmentAutomationRulesResponse{} },
@@ -122,6 +134,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("enabled") {
 								req.Enabled = cmd.Bool("enabled")
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.SetCurtailmentAutomationRuleEnabledResponse{} },
@@ -133,10 +148,10 @@ func generatedCurtailmentCommand() *cli.Command {
 						generatedAuthAuthenticated,
 						[]cli.Flag{
 							&cli.Int64Flag{Name: "rule-id", Usage: "(required) rule id", Required: true},
-							&cli.StringFlag{Name: "rule-name", Usage: "rule name"},
+							&cli.StringFlag{Name: "rule-name", Usage: "(required) rule name", Required: true},
 							&cli.StringFlag{Name: "trigger-type", Usage: "trigger type. Valid options: mqtt"},
-							&cli.Int64Flag{Name: "mqtt-source-id", Usage: "mqtt source id"},
-							&cli.Int64Flag{Name: "response-profile-id", Usage: "response profile id"},
+							&cli.Int64Flag{Name: "mqtt-source-id", Usage: "(required) mqtt source id", Required: true},
+							&cli.Int64Flag{Name: "response-profile-id", Usage: "(required) response profile id", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.UpdateCurtailmentAutomationRuleRequest{}
@@ -159,6 +174,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							}
 							if cmd.IsSet("response-profile-id") {
 								req.ResponseProfileId = cmd.Int64("response-profile-id")
+							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
 							}
 							return req, nil
 						},
@@ -187,6 +205,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("reason") {
 								req.Reason = cmd.String("reason")
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.ForceReleaseCurtailmentOwnershipResponse{} },
@@ -211,6 +232,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							}
 							if cmd.IsSet("target-page-token") {
 								req.TargetPageToken = cmd.String("target-page-token")
+							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
 							}
 							return req, nil
 						},
@@ -254,6 +278,9 @@ func generatedCurtailmentCommand() *cli.Command {
 									return nil, fmt.Errorf("invalid value for state-filter: %s. Valid options: pending, active, restoring, completed, completed-with-failures, cancelled, failed", cmd.String("state-filter"))
 								}
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.ListCurtailmentEventsResponse{} },
@@ -266,6 +293,9 @@ func generatedCurtailmentCommand() *cli.Command {
 						[]cli.Flag{},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.ListActiveCurtailmentsRequest{}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.ListActiveCurtailmentsResponse{} },
@@ -277,7 +307,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						generatedAuthAuthenticated,
 						[]cli.Flag{
 							&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-							&cli.StringFlag{Name: "mode", Usage: "mode. Valid options: fixed-kw, fixed-count, demand-response, site-power-cap, thermal-limit, price-breakeven, power-trajectory, full-fleet"},
+							&cli.StringFlag{Name: "mode", Usage: "(required unless provided by --json) mode. Valid options: fixed-kw, fixed-count, demand-response, site-power-cap, thermal-limit, price-breakeven, power-trajectory, full-fleet"},
 							&cli.StringFlag{Name: "strategy", Usage: "strategy. Valid options: least-efficient-first, most-power-first, oldest-hardware-first, unstable-miners-first, rack-granular"},
 							&cli.StringFlag{Name: "level", Usage: "level. Valid options: efficiency, full"},
 							&cli.StringFlag{Name: "priority", Usage: "priority. Valid options: normal, high, emergency"},
@@ -370,6 +400,12 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("force-include-all-paired-miners") {
 								req.ForceIncludeAllPairedMiners = cmd.Bool("force-include-all-paired-miners")
 							}
+							if err := generatedValidateRequiredFields(req, "mode"); err != nil {
+								return nil, err
+							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.PreviewCurtailmentPlanResponse{} },
@@ -381,7 +417,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						generatedAuthAuthenticated,
 						[]cli.Flag{
 							&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-							&cli.StringFlag{Name: "mode", Usage: "mode. Valid options: fixed-kw, fixed-count, demand-response, site-power-cap, thermal-limit, price-breakeven, power-trajectory, full-fleet"},
+							&cli.StringFlag{Name: "mode", Usage: "(required unless provided by --json) mode. Valid options: fixed-kw, fixed-count, demand-response, site-power-cap, thermal-limit, price-breakeven, power-trajectory, full-fleet"},
 							&cli.StringFlag{Name: "strategy", Usage: "strategy. Valid options: least-efficient-first, most-power-first, oldest-hardware-first, unstable-miners-first, rack-granular"},
 							&cli.StringFlag{Name: "level", Usage: "level. Valid options: efficiency, full"},
 							&cli.StringFlag{Name: "priority", Usage: "priority. Valid options: normal, high, emergency"},
@@ -398,7 +434,7 @@ func generatedCurtailmentCommand() *cli.Command {
 							&cli.UintFlag{Name: "post-event-cooldown-sec", Usage: "post event cooldown sec"},
 							&cli.BoolFlag{Name: "force-include-all-paired-miners", Usage: "force include all paired miners"},
 							&cli.StringFlag{Name: "idempotency-key", Usage: "idempotency key"},
-							&cli.StringFlag{Name: "reason", Usage: "reason"},
+							&cli.StringFlag{Name: "reason", Usage: "(required unless provided by --json) reason"},
 							&cli.StringFlag{Name: "external-source", Usage: "external source"},
 							&cli.StringFlag{Name: "external-reference", Usage: "external reference"},
 						},
@@ -520,6 +556,12 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("external-reference") {
 								req.ExternalReference = cmd.String("external-reference")
 							}
+							if err := generatedValidateRequiredFields(req, "mode", "reason"); err != nil {
+								return nil, err
+							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.StartCurtailmentResponse{} },
@@ -540,6 +582,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							}
 							if cmd.IsSet("force") {
 								req.Force = cmd.Bool("force")
+							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
 							}
 							return req, nil
 						},
@@ -583,6 +628,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("reason") {
 								req.Reason = cmd.String("reason")
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.AdminTerminateEventResponse{} },
@@ -620,6 +668,9 @@ func generatedCurtailmentCommand() *cli.Command {
 								value := uint32(cmd.Uint("max-duration-seconds"))
 								req.MaxDurationSeconds = &value
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.UpdateCurtailmentEventResponse{} },
@@ -636,13 +687,13 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/CreateMqttCurtailmentSource",
 						generatedAuthSessionOnly,
 						[]cli.Flag{
-							&cli.StringFlag{Name: "source-name", Usage: "source name"},
-							&cli.StringFlag{Name: "topic", Usage: "topic"},
-							&cli.StringFlag{Name: "broker-primary-host", Usage: "broker primary host"},
-							&cli.StringFlag{Name: "broker-secondary-host", Usage: "broker secondary host"},
+							&cli.StringFlag{Name: "source-name", Usage: "(required) source name", Required: true},
+							&cli.StringFlag{Name: "topic", Usage: "(required) topic", Required: true},
+							&cli.StringFlag{Name: "broker-primary-host", Usage: "(required) broker primary host", Required: true},
+							&cli.StringFlag{Name: "broker-secondary-host", Usage: "(required) broker secondary host", Required: true},
 							&cli.IntFlag{Name: "broker-port", Usage: "broker port"},
 							&cli.StringFlag{Name: "broker-transport", Usage: "broker transport"},
-							&cli.StringFlag{Name: "mqtt-username", Usage: "mqtt username"},
+							&cli.StringFlag{Name: "mqtt-username", Usage: "(required) mqtt username", Required: true},
 							&cli.BoolFlag{Name: "mqtt-password-stdin", Usage: "mqtt password"},
 							&cli.StringFlag{Name: "payload-format", Usage: "payload format"},
 							&cli.UintFlag{Name: "staleness-threshold-sec", Usage: "staleness threshold sec"},
@@ -670,16 +721,19 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("mqtt-username") {
 								req.MqttUsername = cmd.String("mqtt-username")
 							}
-							secretMqttPassword, err := generatedReadSecret(cmd, "mqtt-password-stdin", "mqtt password")
-							if err != nil {
-								return nil, err
-							}
-							req.MqttPassword = secretMqttPassword
 							if cmd.IsSet("payload-format") {
 								req.PayloadFormat = cmd.String("payload-format")
 							}
 							if cmd.IsSet("staleness-threshold-sec") {
 								req.StalenessThresholdSec = uint32(cmd.Uint("staleness-threshold-sec"))
+							}
+							secretMqttPassword, err := generatedReadSecret(cmd, "mqtt-password-stdin", "mqtt password")
+							if err != nil {
+								return nil, err
+							}
+							req.MqttPassword = secretMqttPassword
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
 							}
 							return req, nil
 						},
@@ -698,6 +752,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("source-id") {
 								req.SourceId = cmd.Int64("source-id")
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.DeleteMqttCurtailmentSourceResponse{} },
@@ -715,6 +772,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("source-id") {
 								req.SourceId = cmd.Int64("source-id")
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.GetMqttCurtailmentSourceResponse{} },
@@ -727,6 +787,9 @@ func generatedCurtailmentCommand() *cli.Command {
 						[]cli.Flag{},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.ListMqttCurtailmentSourcesRequest{}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.ListMqttCurtailmentSourcesResponse{} },
@@ -748,6 +811,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("enabled") {
 								req.Enabled = cmd.Bool("enabled")
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.SetMqttCurtailmentSourceEnabledResponse{} },
@@ -758,12 +824,12 @@ func generatedCurtailmentCommand() *cli.Command {
 						"/curtailment.v1.CurtailmentService/TestMqttCurtailmentSourceConnection",
 						generatedAuthSessionOnly,
 						[]cli.Flag{
-							&cli.StringFlag{Name: "topic", Usage: "topic"},
-							&cli.StringFlag{Name: "broker-primary-host", Usage: "broker primary host"},
-							&cli.StringFlag{Name: "broker-secondary-host", Usage: "broker secondary host"},
+							&cli.StringFlag{Name: "topic", Usage: "(required) topic", Required: true},
+							&cli.StringFlag{Name: "broker-primary-host", Usage: "(required) broker primary host", Required: true},
+							&cli.StringFlag{Name: "broker-secondary-host", Usage: "(required) broker secondary host", Required: true},
 							&cli.IntFlag{Name: "broker-port", Usage: "broker port"},
 							&cli.StringFlag{Name: "broker-transport", Usage: "broker transport"},
-							&cli.StringFlag{Name: "mqtt-username", Usage: "mqtt username"},
+							&cli.StringFlag{Name: "mqtt-username", Usage: "(required) mqtt username", Required: true},
 							&cli.BoolFlag{Name: "mqtt-password-stdin", Usage: "mqtt password"},
 							&cli.StringFlag{Name: "payload-format", Usage: "payload format"},
 						},
@@ -787,13 +853,16 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("mqtt-username") {
 								req.MqttUsername = cmd.String("mqtt-username")
 							}
+							if cmd.IsSet("payload-format") {
+								req.PayloadFormat = cmd.String("payload-format")
+							}
 							secretMqttPassword, err := generatedReadSecret(cmd, "mqtt-password-stdin", "mqtt password")
 							if err != nil {
 								return nil, err
 							}
 							req.MqttPassword = secretMqttPassword
-							if cmd.IsSet("payload-format") {
-								req.PayloadFormat = cmd.String("payload-format")
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
 							}
 							return req, nil
 						},
@@ -851,13 +920,6 @@ func generatedCurtailmentCommand() *cli.Command {
 								value := cmd.String("mqtt-username")
 								req.MqttUsername = &value
 							}
-							if cmd.IsSet("mqtt-password-stdin") {
-								secretMqttPassword, err := generatedReadSecret(cmd, "mqtt-password-stdin", "mqtt password")
-								if err != nil {
-									return nil, err
-								}
-								req.MqttPassword = &secretMqttPassword
-							}
 							if cmd.IsSet("payload-format") {
 								value := cmd.String("payload-format")
 								req.PayloadFormat = &value
@@ -869,6 +931,16 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("clear-staleness-threshold-sec") {
 								value := cmd.Bool("clear-staleness-threshold-sec")
 								req.ClearStalenessThresholdSec = &value
+							}
+							if cmd.IsSet("mqtt-password-stdin") {
+								secretMqttPassword, err := generatedReadSecret(cmd, "mqtt-password-stdin", "mqtt password")
+								if err != nil {
+									return nil, err
+								}
+								req.MqttPassword = &secretMqttPassword
+							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
 							}
 							return req, nil
 						},
@@ -887,8 +959,8 @@ func generatedCurtailmentCommand() *cli.Command {
 						generatedAuthAuthenticated,
 						[]cli.Flag{
 							&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-							&cli.StringFlag{Name: "profile-name", Usage: "profile name"},
-							&cli.StringFlag{Name: "mode", Usage: "mode. Valid options: fixed-kw, fixed-count, demand-response, site-power-cap, thermal-limit, price-breakeven, power-trajectory, full-fleet"},
+							&cli.StringFlag{Name: "profile-name", Usage: "(required unless provided by --json) profile name"},
+							&cli.StringFlag{Name: "mode", Usage: "(required unless provided by --json) mode. Valid options: fixed-kw, fixed-count, demand-response, site-power-cap, thermal-limit, price-breakeven, power-trajectory, full-fleet"},
 							&cli.StringFlag{Name: "strategy", Usage: "strategy. Valid options: least-efficient-first, most-power-first, oldest-hardware-first, unstable-miners-first, rack-granular"},
 							&cli.StringFlag{Name: "level", Usage: "level. Valid options: efficiency, full"},
 							&cli.StringFlag{Name: "priority", Usage: "priority. Valid options: normal, high, emergency"},
@@ -999,6 +1071,12 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("force-include-all-paired-miners") {
 								req.ForceIncludeAllPairedMiners = cmd.Bool("force-include-all-paired-miners")
 							}
+							if err := generatedValidateRequiredFields(req, "mode", "profile_name"); err != nil {
+								return nil, err
+							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.CreateCurtailmentResponseProfileResponse{} },
@@ -1015,6 +1093,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							req := &curtailmentv1.DeleteCurtailmentResponseProfileRequest{}
 							if cmd.IsSet("profile-id") {
 								req.ProfileId = cmd.Int64("profile-id")
+							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
 							}
 							return req, nil
 						},
@@ -1033,6 +1114,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("profile-id") {
 								req.ProfileId = cmd.Int64("profile-id")
 							}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.GetCurtailmentResponseProfileResponse{} },
@@ -1045,6 +1129,9 @@ func generatedCurtailmentCommand() *cli.Command {
 						[]cli.Flag{},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.ListCurtailmentResponseProfilesRequest{}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
 							return req, nil
 						},
 						func() proto.Message { return &curtailmentv1.ListCurtailmentResponseProfilesResponse{} },
@@ -1057,8 +1144,8 @@ func generatedCurtailmentCommand() *cli.Command {
 						[]cli.Flag{
 							&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
 							&cli.Int64Flag{Name: "profile-id", Usage: "(required unless provided by --json) profile id"},
-							&cli.StringFlag{Name: "profile-name", Usage: "profile name"},
-							&cli.StringFlag{Name: "mode", Usage: "mode. Valid options: fixed-kw, fixed-count, demand-response, site-power-cap, thermal-limit, price-breakeven, power-trajectory, full-fleet"},
+							&cli.StringFlag{Name: "profile-name", Usage: "(required unless provided by --json) profile name"},
+							&cli.StringFlag{Name: "mode", Usage: "(required unless provided by --json) mode. Valid options: fixed-kw, fixed-count, demand-response, site-power-cap, thermal-limit, price-breakeven, power-trajectory, full-fleet"},
 							&cli.StringFlag{Name: "strategy", Usage: "strategy. Valid options: least-efficient-first, most-power-first, oldest-hardware-first, unstable-miners-first, rack-granular"},
 							&cli.StringFlag{Name: "level", Usage: "level. Valid options: efficiency, full"},
 							&cli.StringFlag{Name: "priority", Usage: "priority. Valid options: normal, high, emergency"},
@@ -1172,7 +1259,10 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("force-include-all-paired-miners") {
 								req.ForceIncludeAllPairedMiners = cmd.Bool("force-include-all-paired-miners")
 							}
-							if err := generatedValidateRequiredFields(req, "profile_id"); err != nil {
+							if err := generatedValidateRequiredFields(req, "mode", "profile_id", "profile_name"); err != nil {
+								return nil, err
+							}
+							if err := generatedValidateRequest(req); err != nil {
 								return nil, err
 							}
 							return req, nil

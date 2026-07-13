@@ -34,6 +34,9 @@ func generatedOnboardingCommand() *cli.Command {
 						return nil, err
 					}
 					req.Password = secretPassword
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &onboardingv1.CreateAdminLoginResponse{} },
@@ -46,6 +49,9 @@ func generatedOnboardingCommand() *cli.Command {
 				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &onboardingv1.GetFleetInitStatusRequest{}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &onboardingv1.GetFleetInitStatusResponse{} },
@@ -58,6 +64,9 @@ func generatedOnboardingCommand() *cli.Command {
 				[]cli.Flag{},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &onboardingv1.GetFleetOnboardingStatusRequest{}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &onboardingv1.GetFleetOnboardingStatusResponse{} },
