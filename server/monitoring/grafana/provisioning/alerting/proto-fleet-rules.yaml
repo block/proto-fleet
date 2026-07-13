@@ -131,7 +131,8 @@ groups:
                     max(latest_temp) AS latest_temp
                 FROM latest_per_kind
                 -- Freshness gate: ignore a kind whose newest sample is stale, so a device that stopped reporting (e.g. went offline while hot) can't keep this firing on a reading it can no longer confirm — the Device Offline rule covers that case.
-                WHERE last_sample_time > NOW() - INTERVAL '2 minutes'
+                -- Sized against the metrics writer's gauge heartbeat: unchanged series persist once per GAUGE_THROTTLE_INTERVAL (55s default, clamped ≤90s), so this window must comfortably exceed heartbeat + poll spacing + flush. Do not tighten below 3 minutes without revisiting that clamp.
+                WHERE last_sample_time > NOW() - INTERVAL '3 minutes'
                 GROUP BY organization_id, device_id
                 HAVING max(latest_temp) > 90
           - refId: B

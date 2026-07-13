@@ -56,7 +56,10 @@ const (
 
 	// MetricTelemetryPollTotal is a counter incremented for every telemetry
 	// poll attempt against a device. Labelled with result (success or
-	// failure — see ResultSuccess / ResultFailure).
+	// failure — see ResultSuccess / ResultFailure). Persisted rows are
+	// aggregated per (organization, site, result) over the provider's
+	// PollAggregationInterval with value = poll count, so consumers must
+	// sum(value) over a window, never count rows.
 	MetricTelemetryPollTotal = "fleet_telemetry_poll_total"
 
 	// Host system gauges emitted by the optional system-monitoring collector.

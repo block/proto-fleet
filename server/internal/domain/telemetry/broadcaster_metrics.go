@@ -167,7 +167,9 @@ func (o *metricsObserver) onDeviceRemoved(_ context.Context, _ models.DeviceIden
 }
 
 // onPollResult is called by the telemetry workers for every poll attempt.
-func (o *metricsObserver) onPollResult(ctx context.Context, orgID, siteID int64, deviceID models.DeviceIdentifier, success bool) {
+// Poll counts persist aggregated per (org, site, result), so no device
+// identity is forwarded.
+func (o *metricsObserver) onPollResult(ctx context.Context, orgID, siteID int64, _ models.DeviceIdentifier, success bool) {
 	if o == nil {
 		return
 	}
@@ -178,7 +180,6 @@ func (o *metricsObserver) onPollResult(ctx context.Context, orgID, siteID int64,
 	o.emitter.EmitTelemetryPoll(ctx, metrics.TelemetryPollLabels{
 		OrganizationID: metrics.OrgIDToLabel(orgID),
 		SiteID:         metrics.SiteIDToLabel(siteID),
-		DeviceID:       string(deviceID),
 		Result:         result,
 	})
 }

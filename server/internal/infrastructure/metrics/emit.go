@@ -23,10 +23,13 @@ type CommandLabels struct {
 	Result         string
 }
 
+// TelemetryPollLabels carries the labels persisted for
+// fleet_telemetry_poll_total. There is deliberately no DeviceID: poll rows
+// aggregate per (organization, site, result), so a per-device label would
+// be silently discarded.
 type TelemetryPollLabels struct {
 	OrganizationID string
 	SiteID         string
-	DeviceID       string
 	Result         string
 }
 
@@ -47,12 +50,15 @@ func (l DeviceLabels) toLabels() Labels {
 	}
 }
 
+// Device gauges persist through the gauge throttle (see gaugeThrottle);
+// MQTT, system, and command emitters below stay unthrottled on purpose.
+
 func (p *Provider) EmitDeviceOnline(_ context.Context, labels DeviceLabels, online bool) {
 	value := 0.0
 	if online {
 		value = 1.0
 	}
-	p.record(Sample{
+	p.recordStateGauge(Sample{
 		Metric: MetricDeviceOnline,
 		Labels: labels.toLabels(),
 		Value:  value,
@@ -60,21 +66,24 @@ func (p *Provider) EmitDeviceOnline(_ context.Context, labels DeviceLabels, onli
 }
 
 func (p *Provider) EmitDeviceHashing(_ context.Context, labels DeviceLabels, ratio float64) {
-	p.record(Sample{
+	// The exact-1.0 sentinel (paused / offline / no longer expected to hash)
+	// persists as a state change so it clears a stale low sample immediately,
+	// per the contract; sub-1.0 ratio jitter stays heartbeat-throttled.
+	p.recordDeviceGauge(Sample{
 		Metric: MetricDeviceHashing,
 		Labels: labels.toLabels(),
 		Value:  ratio,
-	})
+	}, ratio == 1)
 }
 
 func (p *Provider) EmitDeviceHashrate(_ context.Context, labels DeviceLabels, observedTHs, expectedTHs float64) {
 	base := labels.toLabels()
-	p.record(Sample{
+	p.recordContinuousGauge(Sample{
 		Metric: MetricDeviceHashrateTerahash,
 		Labels: base,
 		Value:  observedTHs,
 	})
-	p.record(Sample{
+	p.recordContinuousGauge(Sample{
 		Metric: MetricDeviceHashrateExpectedTerahash,
 		Labels: base,
 		Value:  expectedTHs,
@@ -89,12 +98,12 @@ func (p *Provider) EmitDeviceTemperature(_ context.Context, labels DeviceLabels,
 	}
 	base := labels.toLabels()
 	base.SensorKind = sensorKind
-	p.record(Sample{
+	p.recordContinuousGauge(Sample{
 		Metric: MetricDeviceTemperatureMaxCelsius,
 		Labels: base,
 		Value:  maxC,
 	})
-	p.record(Sample{
+	p.recordContinuousGauge(Sample{
 		Metric: MetricDeviceTemperatureAvgCelsius,
 		Labels: base,
 		Value:  avgC,
@@ -107,7 +116,7 @@ func (p *Provider) EmitDevicePoolConnected(_ context.Context, labels DeviceLabel
 	if connected {
 		value = 1.0
 	}
-	p.record(Sample{
+	p.recordStateGauge(Sample{
 		Metric: MetricDevicePoolConnected,
 		Labels: labels.toLabels(),
 		Value:  value,
@@ -135,22 +144,23 @@ func (p *Provider) EmitCommand(_ context.Context, labels CommandLabels) {
 	})
 }
 
-// EmitTelemetryPoll records a single increment on fleet_telemetry_poll_total.
+// EmitTelemetryPoll records one increment on fleet_telemetry_poll_total.
+// Increments accumulate in process and are persisted once per
+// PollAggregationInterval as a single row per (organization, site, result)
+// carrying value = poll count; see pollAggregator.
 func (p *Provider) EmitTelemetryPoll(_ context.Context, labels TelemetryPollLabels) {
+	if p == nil || !p.enabled {
+		return
+	}
 	if !IsKnownResult(labels.Result) {
 		slog.Error("metrics: unknown telemetry poll result, dropping increment",
 			"result", labels.Result)
 		return
 	}
-	p.record(Sample{
-		Metric: MetricTelemetryPollTotal,
-		Labels: Labels{
-			OrganizationID: labels.OrganizationID,
-			SiteID:         labels.SiteID,
-			DeviceID:       labels.DeviceID,
-			Result:         labels.Result,
-		},
-		Value: 1,
+	p.pollAgg.add(Labels{
+		OrganizationID: labels.OrganizationID,
+		SiteID:         labels.SiteID,
+		Result:         labels.Result,
 	})
 }
 
@@ -179,6 +189,8 @@ func (p *Provider) EmitSystemHeartbeat(_ context.Context) {
 	})
 }
 
+// emitSystemPercent stays unthrottled: system gauges are host-scoped (one
+// series each) and the heartbeat's staleness IS the alert signal.
 func (p *Provider) emitSystemPercent(metric string, percent float64) {
 	if math.IsNaN(percent) || math.IsInf(percent, 0) || percent < 0 {
 		slog.Error("metrics: non-finite or negative percent, dropping emit",
@@ -192,6 +204,8 @@ func (p *Provider) emitSystemPercent(metric string, percent float64) {
 }
 
 // EmitMQTTSourceConnected records the fleet_mqtt_source_connected gauge.
+// Deliberately unthrottled: the curtailment rules evaluate every 10s and
+// per-source cardinality is tiny.
 func (p *Provider) EmitMQTTSourceConnected(_ context.Context, labels MQTTSourceLabels, connected bool) {
 	value := 0.0
 	if connected {
@@ -208,6 +222,7 @@ func (p *Provider) EmitMQTTSourceConnected(_ context.Context, labels MQTTSourceL
 }
 
 // EmitMQTTCurtailmentActive records the fleet_mqtt_curtailment_active gauge.
+// Deliberately unthrottled, like EmitMQTTSourceConnected.
 func (p *Provider) EmitMQTTCurtailmentActive(_ context.Context, labels MQTTSourceLabels, active bool) {
 	value := 0.0
 	if active {
