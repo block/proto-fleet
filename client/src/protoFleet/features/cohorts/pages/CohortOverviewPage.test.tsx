@@ -2,27 +2,36 @@ import { MemoryRouter } from "react-router-dom";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import userEvent from "@testing-library/user-event";
 
 import CohortOverviewPage from "./CohortOverviewPage";
 import {
   type Cohort,
+  CohortConfigDimension,
+  CohortConfigProgressSchema,
+  CohortDesiredConfigSchema,
   CohortDeviceDisplaySchema,
   CohortDeviceSchema,
   CohortFirmwareProgressSchema,
   CohortFirmwareRolloutState,
   CohortFirmwareStatusSchema,
   CohortFirmwareTargetSchema,
+  CohortFirmwareVersionCountSchema,
+  CohortFirmwareVersionHistoryPointSchema,
   CohortMemberSchema,
+  CohortPoolDesiredConfigSchema,
   CohortSchema,
   CohortState,
   CohortSummarySchema,
+  GetCohortFirmwareVersionHistoryResponseSchema,
 } from "@/protoFleet/api/generated/cohort/v1/cohort_pb";
 import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import type { FleetDuration } from "@/shared/components/DurationSelector";
 
 const mocks = vi.hoisted(() => ({
   getCohort: vi.fn(),
+  getFirmwareVersionHistory: vi.fn(),
   addDevices: vi.fn(),
   listAllDevices: vi.fn(),
   listFirmwareFiles: vi.fn(),
@@ -32,6 +41,7 @@ const mocks = vi.hoisted(() => ({
   routeSiteScope: undefined as unknown,
   duration: "24h" as FleetDuration,
   setDuration: vi.fn(),
+  miningPools: [] as Array<{ poolId: string; name: string; poolUrl: string; username: string }>,
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -45,8 +55,10 @@ vi.mock("react-router-dom", async () => {
 vi.mock("@/protoFleet/api/useCohortApi", () => ({
   useCohortApi: () => ({
     getCohort: mocks.getCohort,
+    getFirmwareVersionHistory: mocks.getFirmwareVersionHistory,
     extendCohort: vi.fn(),
     setDesiredFirmware: vi.fn(),
+    setDesiredPools: vi.fn(),
     addDevices: mocks.addDevices,
     removeDevices: vi.fn(),
     releaseCohort: vi.fn(),
@@ -117,6 +129,10 @@ vi.mock("@/protoFleet/api/useFirmwareApi", () => ({
   }),
 }));
 
+vi.mock("@/protoFleet/api/usePools", () => ({
+  default: () => ({ miningPools: mocks.miningPools, isLoading: false }),
+}));
+
 vi.mock("@/protoFleet/api/useTelemetryMetrics", () => ({
   useTelemetryMetrics: (options: unknown) => mocks.useTelemetryMetrics(options),
 }));
@@ -166,11 +182,13 @@ const buildCohort = ({
   deviceIdentifiers = ["miner-001", "miner-002"],
   firmwareVersions = ["1.3.6", "1.3.5"],
   firmwareFileId = "",
+  poolIds = [],
 }: {
   isDefault?: boolean;
   deviceIdentifiers?: string[];
   firmwareVersions?: string[];
   firmwareFileId?: string;
+  poolIds?: bigint[];
 } = {}): Cohort => {
   const targetVersion = "1.3.6";
   const firmwareStatuses = deviceIdentifiers.map((_, index) => {
@@ -200,6 +218,16 @@ const buildCohort = ({
       purpose: "Firmware validation",
       sourceActorType: "user",
       explicitMemberCount: BigInt(deviceIdentifiers.length),
+      desiredConfig:
+        poolIds.length > 0
+          ? create(CohortDesiredConfigSchema, {
+              pools: create(CohortPoolDesiredConfigSchema, {
+                primaryPoolId: poolIds[0],
+                backup1PoolId: poolIds[1],
+                backup2PoolId: poolIds[2],
+              }),
+            })
+          : undefined,
       firmwareProgress: firmwareFileId
         ? create(CohortFirmwareProgressSchema, {
             targetedCount,
@@ -233,6 +261,32 @@ const buildCohort = ({
   });
 };
 
+const historyTimestamp = (milliseconds: number) =>
+  create(TimestampSchema, {
+    seconds: BigInt(Math.floor(milliseconds / 1000)),
+    nanos: (milliseconds % 1000) * 1_000_000,
+  });
+
+const buildFirmwareHistory = () => {
+  const now = Date.now();
+  return create(GetCohortFirmwareVersionHistoryResponseSchema, {
+    memberCount: 2,
+    points: [
+      create(CohortFirmwareVersionHistoryPointSchema, {
+        timestamp: historyTimestamp(now - 60_000),
+        versions: [create(CohortFirmwareVersionCountSchema, { firmwareVersion: "1.3.5", deviceCount: 2 })],
+      }),
+      create(CohortFirmwareVersionHistoryPointSchema, {
+        timestamp: historyTimestamp(now),
+        versions: [
+          create(CohortFirmwareVersionCountSchema, { firmwareVersion: "1.3.6", deviceCount: 1 }),
+          create(CohortFirmwareVersionCountSchema, { firmwareVersion: "1.3.5", deviceCount: 1 }),
+        ],
+      }),
+    ],
+  });
+};
+
 const renderPage = () =>
   render(
     <MemoryRouter>
@@ -246,7 +300,13 @@ describe("CohortOverviewPage performance graphs", () => {
     mocks.useParams.mockReturnValue({ cohortId: "7" });
     mocks.routeSiteScope = undefined;
     mocks.duration = "24h";
+    mocks.miningPools = [
+      { poolId: "1", name: "Primary pool", poolUrl: "stratum+tcp://primary.example", username: "worker" },
+      { poolId: "2", name: "Backup one", poolUrl: "stratum+tcp://backup-one.example", username: "worker" },
+      { poolId: "3", name: "Backup two", poolUrl: "stratum+tcp://backup-two.example", username: "worker" },
+    ];
     mocks.listFirmwareFiles.mockResolvedValue([]);
+    mocks.getFirmwareVersionHistory.mockResolvedValue(buildFirmwareHistory());
     mocks.addDevices.mockResolvedValue(buildCohort({ deviceIdentifiers: ["miner-001", "miner-002", "eligible-1"] }));
     mocks.listAllDevices.mockResolvedValue([
       create(CohortDeviceSchema, {
@@ -284,6 +344,12 @@ describe("CohortOverviewPage performance graphs", () => {
     expect(screen.getByTestId("temperature-panel")).toBeInTheDocument();
     expect(screen.getByTestId("power-panel")).toHaveTextContent("Power panel for 2");
     expect(screen.getByTestId("efficiency-panel")).toHaveTextContent("Efficiency panel for 2");
+    expect(await screen.findByTestId("firmware-version-history-panel")).toBeInTheDocument();
+
+    await waitFor(() => expect(mocks.getFirmwareVersionHistory).toHaveBeenCalledTimes(1));
+    const historyRequest = mocks.getFirmwareVersionHistory.mock.calls[0]?.[0];
+    expect(historyRequest).toEqual(expect.objectContaining({ cohortId: 7n, granularitySeconds: 90 }));
+    expect(historyRequest.endTime.getTime() - historyRequest.startTime.getTime()).toBe(24 * 60 * 60 * 1000);
 
     expect(mocks.useTelemetryMetrics).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -317,11 +383,34 @@ describe("CohortOverviewPage performance graphs", () => {
 
     renderPage();
 
-    expect(await screen.findByText("Rollout")).toBeInTheDocument();
+    expect(await screen.findByText("Status")).toBeInTheDocument();
     expect(screen.getAllByText("1.3.6").length).toBeGreaterThan(0);
     expect(screen.getAllByText("1.3.5").length).toBeGreaterThan(0);
-    expect(screen.getByText("Complete")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Firmware: Complete" })).toBeInTheDocument();
     expect(screen.getAllByText("Target: 1.3.6").length).toBeGreaterThan(0);
+  });
+
+  it("keeps pool configuration in the cohort actions menu", async () => {
+    mocks.getCohort.mockResolvedValue(buildCohort());
+    renderPage();
+
+    await screen.findByText("Status");
+    expect(screen.queryByRole("button", { name: "Pools" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Cohort actions" }));
+    const poolsAction = screen.getByTestId("cohort-action-pools");
+    expect(poolsAction).toHaveTextContent("Pools");
+    expect(poolsAction.querySelector('[data-testid="mining-pools-icon"]')).toBeInTheDocument();
+  });
+
+  it("shows the enforced primary and backup pool targets", async () => {
+    mocks.getCohort.mockResolvedValue(buildCohort({ deviceIdentifiers: ["miner-001"], poolIds: [1n, 2n, 3n] }));
+
+    renderPage();
+
+    expect(await screen.findByRole("columnheader", { name: "Pool" })).toBeInTheDocument();
+    expect(screen.getByText("Primary pool")).toBeInTheDocument();
+    expect(screen.getByText("Backups: Backup one, Backup two")).toBeInTheDocument();
   });
 
   it("refreshes cohort details while firmware members are off target", async () => {
@@ -348,14 +437,46 @@ describe("CohortOverviewPage performance graphs", () => {
     renderPage();
 
     expect((await screen.findAllByText("Target: 1.3.6")).length).toBeGreaterThan(0);
-    expect(screen.getByText("Verifying")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Firmware: Verifying" })).toBeInTheDocument();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
 
     await waitFor(() => expect(mocks.getCohort).toHaveBeenCalledTimes(2));
-    expect(screen.getByText("Complete")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Firmware: Complete" })).toBeInTheDocument();
+  });
+
+  it("refreshes cohort details while pool configuration is still applying", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const applying = buildCohort({ deviceIdentifiers: ["miner-001"], poolIds: [1n] });
+    applying.summary?.configProgress.push(
+      create(CohortConfigProgressSchema, {
+        dimension: CohortConfigDimension.POOLS,
+        targetedCount: 1,
+        applyingCount: 1,
+      }),
+    );
+    const complete = buildCohort({ deviceIdentifiers: ["miner-001"], poolIds: [1n] });
+    complete.summary?.configProgress.push(
+      create(CohortConfigProgressSchema, {
+        dimension: CohortConfigDimension.POOLS,
+        targetedCount: 1,
+        convergedCount: 1,
+      }),
+    );
+    mocks.getCohort.mockResolvedValueOnce(applying).mockResolvedValue(complete);
+
+    renderPage();
+
+    expect(await screen.findByText("0/1 converged · 1 applying")).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+
+    await waitFor(() => expect(mocks.getCohort).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("1/1 converged")).toBeInTheDocument();
   });
 
   it("does not render performance graphs for the default cohort", async () => {
@@ -366,6 +487,7 @@ describe("CohortOverviewPage performance graphs", () => {
     await screen.findByText("Default cohort");
     expect(screen.queryByTestId("cohort-performance-section")).not.toBeInTheDocument();
     expect(mocks.useTelemetryMetrics).not.toHaveBeenCalled();
+    expect(mocks.getFirmwareVersionHistory).not.toHaveBeenCalled();
   });
 
   it("does not request telemetry for empty non-default cohorts", async () => {
@@ -380,6 +502,8 @@ describe("CohortOverviewPage performance graphs", () => {
         enabled: false,
       }),
     );
+    expect(screen.queryByTestId("firmware-version-history-panel")).not.toBeInTheDocument();
+    expect(mocks.getFirmwareVersionHistory).not.toHaveBeenCalled();
   });
 
   it("does not apply route site scope to cohort performance telemetry", async () => {
@@ -420,6 +544,11 @@ describe("CohortOverviewPage performance graphs", () => {
         expect.objectContaining({ duration: "7d" }),
       ),
     );
+    await waitFor(() =>
+      expect(
+        mocks.getFirmwareVersionHistory.mock.calls[mocks.getFirmwareVersionHistory.mock.calls.length - 1]?.[0],
+      ).toEqual(expect.objectContaining({ cohortId: 7n, granularitySeconds: 900 })),
+    );
   });
 
   it("allows the duration selector to update the fleet duration", async () => {
@@ -440,6 +569,17 @@ describe("CohortOverviewPage performance graphs", () => {
 
     expect(await screen.findByTestId("cohort-performance-section")).toBeInTheDocument();
     expect(screen.getByText("Couldn't load cohort performance")).toBeInTheDocument();
+    expect(screen.getAllByText("Members").length).toBeGreaterThan(0);
+  });
+
+  it("shows a local firmware history error without replacing performance or members", async () => {
+    mocks.getCohort.mockResolvedValue(buildCohort());
+    mocks.getFirmwareVersionHistory.mockRejectedValue(new Error("failed"));
+
+    renderPage();
+
+    expect(await screen.findByText("Couldn't load firmware history")).toBeInTheDocument();
+    expect(screen.getByTestId("hashrate-panel")).toBeInTheDocument();
     expect(screen.getAllByText("Members").length).toBeGreaterThan(0);
   });
 

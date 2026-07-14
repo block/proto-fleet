@@ -322,3 +322,177 @@ DO UPDATE SET
     last_tick_uuid = EXCLUDED.last_tick_uuid,
     last_tick_duration_ms = EXCLUDED.last_tick_duration_ms,
     active_device_count = EXCLUDED.active_device_count;
+
+-- name: UpsertDeviceConfigState :exec
+INSERT INTO device_config_state (
+    org_id, device_identifier, dimension, observed_state_jsonb,
+    observed_state_hash, observed_at
+) VALUES (
+    sqlc.arg('org_id'), sqlc.arg('device_identifier'), sqlc.arg('dimension'),
+    sqlc.arg('observed_state_jsonb'), sqlc.arg('observed_state_hash'), sqlc.arg('observed_at')
+)
+ON CONFLICT (org_id, device_identifier, dimension)
+DO UPDATE SET
+    observed_state_jsonb = EXCLUDED.observed_state_jsonb,
+    observed_state_hash = EXCLUDED.observed_state_hash,
+    observed_at = EXCLUDED.observed_at,
+    updated_at = CURRENT_TIMESTAMP;
+
+-- name: ListOrgsWithDesiredConfig :many
+SELECT DISTINCT org_id
+FROM cohort
+WHERE state = 'active'
+  AND desired_config_jsonb IS NOT NULL
+  AND desired_config_jsonb <> '{}'::jsonb
+ORDER BY org_id;
+
+-- name: ListConfigEnforcementCandidates :many
+WITH super_admin AS (
+    SELECT u.id, u.user_id AS external_user_id, u.username
+    FROM user_organization_role uor
+    JOIN role r ON r.id = uor.role_id AND r.organization_id = uor.organization_id
+    JOIN "user" u ON u.id = uor.user_id
+    WHERE uor.organization_id = sqlc.arg('org_id')
+      AND uor.scope_type = 'org'
+      AND uor.deleted_at IS NULL
+      AND r.deleted_at IS NULL
+      AND r.builtin_key = 'SUPER_ADMIN'
+      AND u.deleted_at IS NULL
+    ORDER BY u.id
+    LIMIT 1
+)
+SELECT
+    d.org_id,
+    d.device_identifier,
+    COALESCE(dd.driver_name, '')::text AS driver_name,
+    COALESCE(dd.manufacturer, '')::text AS manufacturer,
+    COALESCE(dd.model, '')::text AS model,
+    COALESCE(d.worker_name, '')::text AS worker_name,
+    c.id AS cohort_id,
+    COALESCE(c.owner_user_id, super_admin.id, 0)::bigint AS actor_user_id,
+    COALESCE(owner_user.user_id, super_admin.external_user_id, 'cohort-reconciler')::text AS actor_external_user_id,
+    COALESCE(c.owner_username, owner_user.username, super_admin.username, 'cohort-reconciler')::text AS actor_username,
+    c.desired_config_jsonb,
+    dcs.observed_state_jsonb,
+    dcs.observed_state_hash,
+    dcs.observed_at AS config_observed_at,
+    des.desired_state_hash,
+    des.supported,
+    des.state AS enforcement_state,
+    des.retry_count,
+    des.last_batch_uuid,
+    des.last_dispatched_at,
+    des.confirmed_at,
+    des.last_error
+FROM device d
+JOIN discovered_device dd
+  ON dd.id = d.discovered_device_id
+ AND dd.org_id = d.org_id
+ AND dd.deleted_at IS NULL
+JOIN device_pairing dp
+  ON dp.device_id = d.id
+ AND dp.pairing_status = 'PAIRED'
+LEFT JOIN cohort_membership cm
+  ON cm.org_id = d.org_id
+ AND cm.device_identifier = d.device_identifier
+JOIN cohort default_c
+  ON default_c.org_id = d.org_id
+ AND default_c.is_default = TRUE
+ AND default_c.state = 'active'
+JOIN cohort c
+  ON c.id = COALESCE(cm.cohort_id, default_c.id)
+ AND c.org_id = d.org_id
+ AND c.state = 'active'
+LEFT JOIN device_config_state dcs
+  ON dcs.org_id = d.org_id
+ AND dcs.device_identifier = d.device_identifier
+ AND dcs.dimension = sqlc.arg('dimension')
+LEFT JOIN device_enforcement_state des
+  ON des.org_id = d.org_id
+ AND des.device_identifier = d.device_identifier
+ AND des.dimension = sqlc.arg('dimension')
+LEFT JOIN "user" owner_user
+  ON owner_user.id = c.owner_user_id
+ AND owner_user.deleted_at IS NULL
+LEFT JOIN super_admin ON TRUE
+WHERE d.org_id = sqlc.arg('org_id')
+  AND d.deleted_at IS NULL
+  AND c.desired_config_jsonb IS NOT NULL
+  AND c.desired_config_jsonb <> '{}'::jsonb
+ORDER BY d.device_identifier;
+
+-- name: ClaimConfigDispatch :execrows
+INSERT INTO device_enforcement_state (
+    org_id, device_identifier, dimension, state, desired_state_hash,
+    retry_count, last_error, supported
+) VALUES (
+    sqlc.arg('org_id'), sqlc.arg('device_identifier'), sqlc.arg('dimension'),
+    'dispatching', sqlc.arg('desired_state_hash'), 0, NULL, TRUE
+)
+ON CONFLICT (org_id, device_identifier, dimension)
+DO UPDATE SET
+    state = 'dispatching',
+    desired_state_hash = EXCLUDED.desired_state_hash,
+    supported = TRUE,
+    retry_count = CASE WHEN device_enforcement_state.desired_state_hash IS DISTINCT FROM EXCLUDED.desired_state_hash THEN 0 ELSE device_enforcement_state.retry_count END,
+    last_batch_uuid = CASE WHEN device_enforcement_state.desired_state_hash IS DISTINCT FROM EXCLUDED.desired_state_hash THEN NULL ELSE device_enforcement_state.last_batch_uuid END,
+    last_dispatched_at = CASE WHEN device_enforcement_state.desired_state_hash IS DISTINCT FROM EXCLUDED.desired_state_hash THEN NULL ELSE device_enforcement_state.last_dispatched_at END,
+    confirmed_at = CASE WHEN device_enforcement_state.desired_state_hash IS DISTINCT FROM EXCLUDED.desired_state_hash THEN NULL ELSE device_enforcement_state.confirmed_at END,
+    observed_at = CASE WHEN device_enforcement_state.desired_state_hash IS DISTINCT FROM EXCLUDED.desired_state_hash THEN NULL ELSE device_enforcement_state.observed_at END,
+    last_error = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE device_enforcement_state.state IN ('pending', 'drifted', 'held')
+   OR device_enforcement_state.desired_state_hash IS DISTINCT FROM EXCLUDED.desired_state_hash
+   OR (device_enforcement_state.state = 'dispatching' AND device_enforcement_state.updated_at < sqlc.arg('dispatching_before'));
+
+-- name: UpsertConfigSupport :exec
+INSERT INTO device_enforcement_state (
+    org_id, device_identifier, dimension, state, desired_state_hash, supported
+) VALUES (
+    sqlc.arg('org_id'), sqlc.arg('device_identifier'), sqlc.arg('dimension'),
+    'pending', sqlc.arg('desired_state_hash'), sqlc.arg('supported')
+)
+ON CONFLICT (org_id, device_identifier, dimension)
+DO UPDATE SET
+    supported = EXCLUDED.supported,
+    updated_at = CURRENT_TIMESTAMP;
+
+-- name: MarkConfigDispatched :execrows
+UPDATE device_enforcement_state
+SET state = 'dispatched', last_batch_uuid = sqlc.arg('last_batch_uuid'),
+    last_dispatched_at = sqlc.arg('last_dispatched_at'), last_error = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE org_id = sqlc.arg('org_id') AND device_identifier = sqlc.arg('device_identifier')
+  AND dimension = sqlc.arg('dimension') AND state = 'dispatching'
+  AND desired_state_hash = sqlc.arg('desired_state_hash');
+
+-- name: MarkConfigConfirmed :execrows
+UPDATE device_enforcement_state
+SET state = 'confirmed', desired_state_hash = sqlc.arg('desired_state_hash'),
+    retry_count = 0, confirmed_at = sqlc.arg('confirmed_at'),
+    observed_at = sqlc.arg('observed_at'), last_error = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE org_id = sqlc.arg('org_id') AND device_identifier = sqlc.arg('device_identifier')
+  AND dimension = sqlc.arg('dimension');
+
+-- name: MarkConfigDrifted :execrows
+UPDATE device_enforcement_state
+SET state = 'drifted', observed_at = sqlc.arg('observed_at'), updated_at = CURRENT_TIMESTAMP
+WHERE org_id = sqlc.arg('org_id') AND device_identifier = sqlc.arg('device_identifier')
+  AND dimension = sqlc.arg('dimension') AND state IN ('confirmed', 'dispatched');
+
+-- name: MarkConfigDispatchFailure :execrows
+UPDATE device_enforcement_state
+SET state = CASE WHEN retry_count + 1 >= sqlc.arg('max_retries') THEN 'failed' ELSE sqlc.arg('retry_state') END,
+    retry_count = retry_count + 1, last_error = sqlc.arg('last_error'), updated_at = CURRENT_TIMESTAMP
+WHERE org_id = sqlc.arg('org_id') AND device_identifier = sqlc.arg('device_identifier')
+  AND dimension = sqlc.arg('dimension') AND state IN ('dispatching', 'drifted', 'pending', 'held')
+  AND desired_state_hash = sqlc.arg('desired_state_hash');
+
+-- name: MarkConfigDispatchHeld :execrows
+UPDATE device_enforcement_state
+SET state = 'held', last_error = sqlc.arg('last_error'),
+    last_dispatched_at = sqlc.arg('last_dispatched_at'), updated_at = CURRENT_TIMESTAMP
+WHERE org_id = sqlc.arg('org_id') AND device_identifier = sqlc.arg('device_identifier')
+  AND dimension = sqlc.arg('dimension') AND state = 'dispatching'
+  AND desired_state_hash = sqlc.arg('desired_state_hash');

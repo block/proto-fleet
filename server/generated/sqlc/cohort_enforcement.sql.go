@@ -8,11 +8,60 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"github.com/sqlc-dev/pqtype"
 )
+
+const claimConfigDispatch = `-- name: ClaimConfigDispatch :execrows
+INSERT INTO device_enforcement_state (
+    org_id, device_identifier, dimension, state, desired_state_hash,
+    retry_count, last_error, supported
+) VALUES (
+    $1, $2, $3,
+    'dispatching', $4, 0, NULL, TRUE
+)
+ON CONFLICT (org_id, device_identifier, dimension)
+DO UPDATE SET
+    state = 'dispatching',
+    desired_state_hash = EXCLUDED.desired_state_hash,
+    supported = TRUE,
+    retry_count = CASE WHEN device_enforcement_state.desired_state_hash IS DISTINCT FROM EXCLUDED.desired_state_hash THEN 0 ELSE device_enforcement_state.retry_count END,
+    last_batch_uuid = CASE WHEN device_enforcement_state.desired_state_hash IS DISTINCT FROM EXCLUDED.desired_state_hash THEN NULL ELSE device_enforcement_state.last_batch_uuid END,
+    last_dispatched_at = CASE WHEN device_enforcement_state.desired_state_hash IS DISTINCT FROM EXCLUDED.desired_state_hash THEN NULL ELSE device_enforcement_state.last_dispatched_at END,
+    confirmed_at = CASE WHEN device_enforcement_state.desired_state_hash IS DISTINCT FROM EXCLUDED.desired_state_hash THEN NULL ELSE device_enforcement_state.confirmed_at END,
+    observed_at = CASE WHEN device_enforcement_state.desired_state_hash IS DISTINCT FROM EXCLUDED.desired_state_hash THEN NULL ELSE device_enforcement_state.observed_at END,
+    last_error = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE device_enforcement_state.state IN ('pending', 'drifted', 'held')
+   OR device_enforcement_state.desired_state_hash IS DISTINCT FROM EXCLUDED.desired_state_hash
+   OR (device_enforcement_state.state = 'dispatching' AND device_enforcement_state.updated_at < $5)
+`
+
+type ClaimConfigDispatchParams struct {
+	OrgID             int64
+	DeviceIdentifier  string
+	Dimension         string
+	DesiredStateHash  sql.NullString
+	DispatchingBefore time.Time
+}
+
+func (q *Queries) ClaimConfigDispatch(ctx context.Context, arg ClaimConfigDispatchParams) (int64, error) {
+	result, err := q.exec(ctx, q.claimConfigDispatchStmt, claimConfigDispatch,
+		arg.OrgID,
+		arg.DeviceIdentifier,
+		arg.Dimension,
+		arg.DesiredStateHash,
+		arg.DispatchingBefore,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
 
 const claimFirmwareDispatch = `-- name: ClaimFirmwareDispatch :execrows
 INSERT INTO device_enforcement_state (
@@ -100,6 +149,158 @@ func (q *Queries) ClaimFirmwareDispatch(ctx context.Context, arg ClaimFirmwareDi
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const listConfigEnforcementCandidates = `-- name: ListConfigEnforcementCandidates :many
+WITH super_admin AS (
+    SELECT u.id, u.user_id AS external_user_id, u.username
+    FROM user_organization_role uor
+    JOIN role r ON r.id = uor.role_id AND r.organization_id = uor.organization_id
+    JOIN "user" u ON u.id = uor.user_id
+    WHERE uor.organization_id = $2
+      AND uor.scope_type = 'org'
+      AND uor.deleted_at IS NULL
+      AND r.deleted_at IS NULL
+      AND r.builtin_key = 'SUPER_ADMIN'
+      AND u.deleted_at IS NULL
+    ORDER BY u.id
+    LIMIT 1
+)
+SELECT
+    d.org_id,
+    d.device_identifier,
+    COALESCE(dd.driver_name, '')::text AS driver_name,
+    COALESCE(dd.manufacturer, '')::text AS manufacturer,
+    COALESCE(dd.model, '')::text AS model,
+    COALESCE(d.worker_name, '')::text AS worker_name,
+    c.id AS cohort_id,
+    COALESCE(c.owner_user_id, super_admin.id, 0)::bigint AS actor_user_id,
+    COALESCE(owner_user.user_id, super_admin.external_user_id, 'cohort-reconciler')::text AS actor_external_user_id,
+    COALESCE(c.owner_username, owner_user.username, super_admin.username, 'cohort-reconciler')::text AS actor_username,
+    c.desired_config_jsonb,
+    dcs.observed_state_jsonb,
+    dcs.observed_state_hash,
+    dcs.observed_at AS config_observed_at,
+    des.desired_state_hash,
+    des.supported,
+    des.state AS enforcement_state,
+    des.retry_count,
+    des.last_batch_uuid,
+    des.last_dispatched_at,
+    des.confirmed_at,
+    des.last_error
+FROM device d
+JOIN discovered_device dd
+  ON dd.id = d.discovered_device_id
+ AND dd.org_id = d.org_id
+ AND dd.deleted_at IS NULL
+JOIN device_pairing dp
+  ON dp.device_id = d.id
+ AND dp.pairing_status = 'PAIRED'
+LEFT JOIN cohort_membership cm
+  ON cm.org_id = d.org_id
+ AND cm.device_identifier = d.device_identifier
+JOIN cohort default_c
+  ON default_c.org_id = d.org_id
+ AND default_c.is_default = TRUE
+ AND default_c.state = 'active'
+JOIN cohort c
+  ON c.id = COALESCE(cm.cohort_id, default_c.id)
+ AND c.org_id = d.org_id
+ AND c.state = 'active'
+LEFT JOIN device_config_state dcs
+  ON dcs.org_id = d.org_id
+ AND dcs.device_identifier = d.device_identifier
+ AND dcs.dimension = $1
+LEFT JOIN device_enforcement_state des
+  ON des.org_id = d.org_id
+ AND des.device_identifier = d.device_identifier
+ AND des.dimension = $1
+LEFT JOIN "user" owner_user
+  ON owner_user.id = c.owner_user_id
+ AND owner_user.deleted_at IS NULL
+LEFT JOIN super_admin ON TRUE
+WHERE d.org_id = $2
+  AND d.deleted_at IS NULL
+  AND c.desired_config_jsonb IS NOT NULL
+  AND c.desired_config_jsonb <> '{}'::jsonb
+ORDER BY d.device_identifier
+`
+
+type ListConfigEnforcementCandidatesParams struct {
+	Dimension string
+	OrgID     int64
+}
+
+type ListConfigEnforcementCandidatesRow struct {
+	OrgID               int64
+	DeviceIdentifier    string
+	DriverName          string
+	Manufacturer        string
+	Model               string
+	WorkerName          string
+	CohortID            int64
+	ActorUserID         int64
+	ActorExternalUserID string
+	ActorUsername       string
+	DesiredConfigJsonb  pqtype.NullRawMessage
+	ObservedStateJsonb  pqtype.NullRawMessage
+	ObservedStateHash   sql.NullString
+	ConfigObservedAt    sql.NullTime
+	DesiredStateHash    sql.NullString
+	Supported           sql.NullBool
+	EnforcementState    sql.NullString
+	RetryCount          sql.NullInt32
+	LastBatchUuid       sql.NullString
+	LastDispatchedAt    sql.NullTime
+	ConfirmedAt         sql.NullTime
+	LastError           sql.NullString
+}
+
+func (q *Queries) ListConfigEnforcementCandidates(ctx context.Context, arg ListConfigEnforcementCandidatesParams) ([]ListConfigEnforcementCandidatesRow, error) {
+	rows, err := q.query(ctx, q.listConfigEnforcementCandidatesStmt, listConfigEnforcementCandidates, arg.Dimension, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListConfigEnforcementCandidatesRow
+	for rows.Next() {
+		var i ListConfigEnforcementCandidatesRow
+		if err := rows.Scan(
+			&i.OrgID,
+			&i.DeviceIdentifier,
+			&i.DriverName,
+			&i.Manufacturer,
+			&i.Model,
+			&i.WorkerName,
+			&i.CohortID,
+			&i.ActorUserID,
+			&i.ActorExternalUserID,
+			&i.ActorUsername,
+			&i.DesiredConfigJsonb,
+			&i.ObservedStateJsonb,
+			&i.ObservedStateHash,
+			&i.ConfigObservedAt,
+			&i.DesiredStateHash,
+			&i.Supported,
+			&i.EnforcementState,
+			&i.RetryCount,
+			&i.LastBatchUuid,
+			&i.LastDispatchedAt,
+			&i.ConfirmedAt,
+			&i.LastError,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listFirmwareEnforcementCandidates = `-- name: ListFirmwareEnforcementCandidates :many
@@ -255,6 +456,38 @@ func (q *Queries) ListFirmwareEnforcementCandidates(ctx context.Context, orgID i
 	return items, nil
 }
 
+const listOrgsWithDesiredConfig = `-- name: ListOrgsWithDesiredConfig :many
+SELECT DISTINCT org_id
+FROM cohort
+WHERE state = 'active'
+  AND desired_config_jsonb IS NOT NULL
+  AND desired_config_jsonb <> '{}'::jsonb
+ORDER BY org_id
+`
+
+func (q *Queries) ListOrgsWithDesiredConfig(ctx context.Context) ([]int64, error) {
+	rows, err := q.query(ctx, q.listOrgsWithDesiredConfigStmt, listOrgsWithDesiredConfig)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var org_id int64
+		if err := rows.Scan(&org_id); err != nil {
+			return nil, err
+		}
+		items = append(items, org_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOrgsWithFirmwareTargets = `-- name: ListOrgsWithFirmwareTargets :many
 SELECT DISTINCT org_id
 FROM cohort_firmware_target
@@ -283,6 +516,169 @@ func (q *Queries) ListOrgsWithFirmwareTargets(ctx context.Context) ([]int64, err
 		return nil, err
 	}
 	return items, nil
+}
+
+const markConfigConfirmed = `-- name: MarkConfigConfirmed :execrows
+UPDATE device_enforcement_state
+SET state = 'confirmed', desired_state_hash = $1,
+    retry_count = 0, confirmed_at = $2,
+    observed_at = $3, last_error = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE org_id = $4 AND device_identifier = $5
+  AND dimension = $6
+`
+
+type MarkConfigConfirmedParams struct {
+	DesiredStateHash sql.NullString
+	ConfirmedAt      sql.NullTime
+	ObservedAt       sql.NullTime
+	OrgID            int64
+	DeviceIdentifier string
+	Dimension        string
+}
+
+func (q *Queries) MarkConfigConfirmed(ctx context.Context, arg MarkConfigConfirmedParams) (int64, error) {
+	result, err := q.exec(ctx, q.markConfigConfirmedStmt, markConfigConfirmed,
+		arg.DesiredStateHash,
+		arg.ConfirmedAt,
+		arg.ObservedAt,
+		arg.OrgID,
+		arg.DeviceIdentifier,
+		arg.Dimension,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const markConfigDispatchFailure = `-- name: MarkConfigDispatchFailure :execrows
+UPDATE device_enforcement_state
+SET state = CASE WHEN retry_count + 1 >= $1 THEN 'failed' ELSE $2 END,
+    retry_count = retry_count + 1, last_error = $3, updated_at = CURRENT_TIMESTAMP
+WHERE org_id = $4 AND device_identifier = $5
+  AND dimension = $6 AND state IN ('dispatching', 'drifted', 'pending', 'held')
+  AND desired_state_hash = $7
+`
+
+type MarkConfigDispatchFailureParams struct {
+	MaxRetries       int32
+	RetryState       string
+	LastError        sql.NullString
+	OrgID            int64
+	DeviceIdentifier string
+	Dimension        string
+	DesiredStateHash sql.NullString
+}
+
+func (q *Queries) MarkConfigDispatchFailure(ctx context.Context, arg MarkConfigDispatchFailureParams) (int64, error) {
+	result, err := q.exec(ctx, q.markConfigDispatchFailureStmt, markConfigDispatchFailure,
+		arg.MaxRetries,
+		arg.RetryState,
+		arg.LastError,
+		arg.OrgID,
+		arg.DeviceIdentifier,
+		arg.Dimension,
+		arg.DesiredStateHash,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const markConfigDispatchHeld = `-- name: MarkConfigDispatchHeld :execrows
+UPDATE device_enforcement_state
+SET state = 'held', last_error = $1,
+    last_dispatched_at = $2, updated_at = CURRENT_TIMESTAMP
+WHERE org_id = $3 AND device_identifier = $4
+  AND dimension = $5 AND state = 'dispatching'
+  AND desired_state_hash = $6
+`
+
+type MarkConfigDispatchHeldParams struct {
+	LastError        sql.NullString
+	LastDispatchedAt sql.NullTime
+	OrgID            int64
+	DeviceIdentifier string
+	Dimension        string
+	DesiredStateHash sql.NullString
+}
+
+func (q *Queries) MarkConfigDispatchHeld(ctx context.Context, arg MarkConfigDispatchHeldParams) (int64, error) {
+	result, err := q.exec(ctx, q.markConfigDispatchHeldStmt, markConfigDispatchHeld,
+		arg.LastError,
+		arg.LastDispatchedAt,
+		arg.OrgID,
+		arg.DeviceIdentifier,
+		arg.Dimension,
+		arg.DesiredStateHash,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const markConfigDispatched = `-- name: MarkConfigDispatched :execrows
+UPDATE device_enforcement_state
+SET state = 'dispatched', last_batch_uuid = $1,
+    last_dispatched_at = $2, last_error = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE org_id = $3 AND device_identifier = $4
+  AND dimension = $5 AND state = 'dispatching'
+  AND desired_state_hash = $6
+`
+
+type MarkConfigDispatchedParams struct {
+	LastBatchUuid    sql.NullString
+	LastDispatchedAt sql.NullTime
+	OrgID            int64
+	DeviceIdentifier string
+	Dimension        string
+	DesiredStateHash sql.NullString
+}
+
+func (q *Queries) MarkConfigDispatched(ctx context.Context, arg MarkConfigDispatchedParams) (int64, error) {
+	result, err := q.exec(ctx, q.markConfigDispatchedStmt, markConfigDispatched,
+		arg.LastBatchUuid,
+		arg.LastDispatchedAt,
+		arg.OrgID,
+		arg.DeviceIdentifier,
+		arg.Dimension,
+		arg.DesiredStateHash,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const markConfigDrifted = `-- name: MarkConfigDrifted :execrows
+UPDATE device_enforcement_state
+SET state = 'drifted', observed_at = $1, updated_at = CURRENT_TIMESTAMP
+WHERE org_id = $2 AND device_identifier = $3
+  AND dimension = $4 AND state IN ('confirmed', 'dispatched')
+`
+
+type MarkConfigDriftedParams struct {
+	ObservedAt       sql.NullTime
+	OrgID            int64
+	DeviceIdentifier string
+	Dimension        string
+}
+
+func (q *Queries) MarkConfigDrifted(ctx context.Context, arg MarkConfigDriftedParams) (int64, error) {
+	result, err := q.exec(ctx, q.markConfigDriftedStmt, markConfigDrifted,
+		arg.ObservedAt,
+		arg.OrgID,
+		arg.DeviceIdentifier,
+		arg.Dimension,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const markFirmwareConfirmed = `-- name: MarkFirmwareConfirmed :execrows
@@ -632,6 +1028,75 @@ func (q *Queries) UpsertCohortReconcilerHeartbeat(ctx context.Context, arg Upser
 		arg.LastTickUuid,
 		arg.LastTickDurationMs,
 		arg.ActiveDeviceCount,
+	)
+	return err
+}
+
+const upsertConfigSupport = `-- name: UpsertConfigSupport :exec
+INSERT INTO device_enforcement_state (
+    org_id, device_identifier, dimension, state, desired_state_hash, supported
+) VALUES (
+    $1, $2, $3,
+    'pending', $4, $5
+)
+ON CONFLICT (org_id, device_identifier, dimension)
+DO UPDATE SET
+    supported = EXCLUDED.supported,
+    updated_at = CURRENT_TIMESTAMP
+`
+
+type UpsertConfigSupportParams struct {
+	OrgID            int64
+	DeviceIdentifier string
+	Dimension        string
+	DesiredStateHash sql.NullString
+	Supported        sql.NullBool
+}
+
+func (q *Queries) UpsertConfigSupport(ctx context.Context, arg UpsertConfigSupportParams) error {
+	_, err := q.exec(ctx, q.upsertConfigSupportStmt, upsertConfigSupport,
+		arg.OrgID,
+		arg.DeviceIdentifier,
+		arg.Dimension,
+		arg.DesiredStateHash,
+		arg.Supported,
+	)
+	return err
+}
+
+const upsertDeviceConfigState = `-- name: UpsertDeviceConfigState :exec
+INSERT INTO device_config_state (
+    org_id, device_identifier, dimension, observed_state_jsonb,
+    observed_state_hash, observed_at
+) VALUES (
+    $1, $2, $3,
+    $4, $5, $6
+)
+ON CONFLICT (org_id, device_identifier, dimension)
+DO UPDATE SET
+    observed_state_jsonb = EXCLUDED.observed_state_jsonb,
+    observed_state_hash = EXCLUDED.observed_state_hash,
+    observed_at = EXCLUDED.observed_at,
+    updated_at = CURRENT_TIMESTAMP
+`
+
+type UpsertDeviceConfigStateParams struct {
+	OrgID              int64
+	DeviceIdentifier   string
+	Dimension          string
+	ObservedStateJsonb json.RawMessage
+	ObservedStateHash  string
+	ObservedAt         time.Time
+}
+
+func (q *Queries) UpsertDeviceConfigState(ctx context.Context, arg UpsertDeviceConfigStateParams) error {
+	_, err := q.exec(ctx, q.upsertDeviceConfigStateStmt, upsertDeviceConfigState,
+		arg.OrgID,
+		arg.DeviceIdentifier,
+		arg.Dimension,
+		arg.ObservedStateJsonb,
+		arg.ObservedStateHash,
+		arg.ObservedAt,
 	)
 	return err
 }

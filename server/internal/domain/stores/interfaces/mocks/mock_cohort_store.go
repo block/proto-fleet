@@ -132,6 +132,21 @@ func (mr *MockCohortStoreMockRecorder) ListCohortDeviceOwnership(ctx, orgID, dev
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCohortDeviceOwnership", reflect.TypeOf((*MockCohortStore)(nil).ListCohortDeviceOwnership), ctx, orgID, deviceIdentifiers)
 }
 
+// ListCohortFirmwareVersionEvents mocks base method.
+func (m *MockCohortStore) ListCohortFirmwareVersionEvents(ctx context.Context, orgID, cohortID int64, startTime, endTime time.Time) ([]models.FirmwareVersionEvent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCohortFirmwareVersionEvents", ctx, orgID, cohortID, startTime, endTime)
+	ret0, _ := ret[0].([]models.FirmwareVersionEvent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListCohortFirmwareVersionEvents indicates an expected call of ListCohortFirmwareVersionEvents.
+func (mr *MockCohortStoreMockRecorder) ListCohortFirmwareVersionEvents(ctx, orgID, cohortID, startTime, endTime any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCohortFirmwareVersionEvents", reflect.TypeOf((*MockCohortStore)(nil).ListCohortFirmwareVersionEvents), ctx, orgID, cohortID, startTime, endTime)
+}
+
 // ListCohortMembers mocks base method.
 func (m *MockCohortStore) ListCohortMembers(ctx context.Context, orgID, cohortID int64) ([]models.CohortMember, error) {
 	m.ctrl.T.Helper()
@@ -310,6 +325,21 @@ func (m *MockCohortStore) UpdateCohort(ctx context.Context, params models.Update
 func (mr *MockCohortStoreMockRecorder) UpdateCohort(ctx, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCohort", reflect.TypeOf((*MockCohortStore)(nil).UpdateCohort), ctx, params)
+}
+
+// UpdateDefaultCohortConfig mocks base method.
+func (m *MockCohortStore) UpdateDefaultCohortConfig(ctx context.Context, params models.UpdateCohortParams) (*models.Cohort, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateDefaultCohortConfig", ctx, params)
+	ret0, _ := ret[0].(*models.Cohort)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpdateDefaultCohortConfig indicates an expected call of UpdateDefaultCohortConfig.
+func (mr *MockCohortStoreMockRecorder) UpdateDefaultCohortConfig(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateDefaultCohortConfig", reflect.TypeOf((*MockCohortStore)(nil).UpdateDefaultCohortConfig), ctx, params)
 }
 
 // UpdateDefaultCohortFirmware mocks base method.
@@ -513,4 +543,191 @@ func (m *MockCohortFirmwareEnforcementStore) UpsertCohortReconcilerHeartbeat(ctx
 func (mr *MockCohortFirmwareEnforcementStoreMockRecorder) UpsertCohortReconcilerHeartbeat(ctx, lastTickAt, lastTickUUID, durationMS, activeDeviceCount any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertCohortReconcilerHeartbeat", reflect.TypeOf((*MockCohortFirmwareEnforcementStore)(nil).UpsertCohortReconcilerHeartbeat), ctx, lastTickAt, lastTickUUID, durationMS, activeDeviceCount)
+}
+
+// MockCohortConfigEnforcementStore is a mock of CohortConfigEnforcementStore interface.
+type MockCohortConfigEnforcementStore struct {
+	ctrl     *gomock.Controller
+	recorder *MockCohortConfigEnforcementStoreMockRecorder
+	isgomock struct{}
+}
+
+// MockCohortConfigEnforcementStoreMockRecorder is the mock recorder for MockCohortConfigEnforcementStore.
+type MockCohortConfigEnforcementStoreMockRecorder struct {
+	mock *MockCohortConfigEnforcementStore
+}
+
+// NewMockCohortConfigEnforcementStore creates a new mock instance.
+func NewMockCohortConfigEnforcementStore(ctrl *gomock.Controller) *MockCohortConfigEnforcementStore {
+	mock := &MockCohortConfigEnforcementStore{ctrl: ctrl}
+	mock.recorder = &MockCohortConfigEnforcementStoreMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockCohortConfigEnforcementStore) EXPECT() *MockCohortConfigEnforcementStoreMockRecorder {
+	return m.recorder
+}
+
+// ClaimConfigDispatch mocks base method.
+func (m *MockCohortConfigEnforcementStore) ClaimConfigDispatch(ctx context.Context, params models.ConfigEnforcementMutationParams) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimConfigDispatch", ctx, params)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimConfigDispatch indicates an expected call of ClaimConfigDispatch.
+func (mr *MockCohortConfigEnforcementStoreMockRecorder) ClaimConfigDispatch(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimConfigDispatch", reflect.TypeOf((*MockCohortConfigEnforcementStore)(nil).ClaimConfigDispatch), ctx, params)
+}
+
+// IsCommandBatchFinished mocks base method.
+func (m *MockCohortConfigEnforcementStore) IsCommandBatchFinished(ctx context.Context, batchUUID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsCommandBatchFinished", ctx, batchUUID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IsCommandBatchFinished indicates an expected call of IsCommandBatchFinished.
+func (mr *MockCohortConfigEnforcementStoreMockRecorder) IsCommandBatchFinished(ctx, batchUUID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsCommandBatchFinished", reflect.TypeOf((*MockCohortConfigEnforcementStore)(nil).IsCommandBatchFinished), ctx, batchUUID)
+}
+
+// ListConfigEnforcementCandidates mocks base method.
+func (m *MockCohortConfigEnforcementStore) ListConfigEnforcementCandidates(ctx context.Context, orgID int64, dimension models.CohortConfigDimension) ([]models.ConfigEnforcementCandidate, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListConfigEnforcementCandidates", ctx, orgID, dimension)
+	ret0, _ := ret[0].([]models.ConfigEnforcementCandidate)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListConfigEnforcementCandidates indicates an expected call of ListConfigEnforcementCandidates.
+func (mr *MockCohortConfigEnforcementStoreMockRecorder) ListConfigEnforcementCandidates(ctx, orgID, dimension any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListConfigEnforcementCandidates", reflect.TypeOf((*MockCohortConfigEnforcementStore)(nil).ListConfigEnforcementCandidates), ctx, orgID, dimension)
+}
+
+// ListOrgsWithDesiredConfig mocks base method.
+func (m *MockCohortConfigEnforcementStore) ListOrgsWithDesiredConfig(ctx context.Context) ([]int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListOrgsWithDesiredConfig", ctx)
+	ret0, _ := ret[0].([]int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListOrgsWithDesiredConfig indicates an expected call of ListOrgsWithDesiredConfig.
+func (mr *MockCohortConfigEnforcementStoreMockRecorder) ListOrgsWithDesiredConfig(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOrgsWithDesiredConfig", reflect.TypeOf((*MockCohortConfigEnforcementStore)(nil).ListOrgsWithDesiredConfig), ctx)
+}
+
+// MarkConfigConfirmed mocks base method.
+func (m *MockCohortConfigEnforcementStore) MarkConfigConfirmed(ctx context.Context, params models.ConfigEnforcementMutationParams) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkConfigConfirmed", ctx, params)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkConfigConfirmed indicates an expected call of MarkConfigConfirmed.
+func (mr *MockCohortConfigEnforcementStoreMockRecorder) MarkConfigConfirmed(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkConfigConfirmed", reflect.TypeOf((*MockCohortConfigEnforcementStore)(nil).MarkConfigConfirmed), ctx, params)
+}
+
+// MarkConfigDispatchFailure mocks base method.
+func (m *MockCohortConfigEnforcementStore) MarkConfigDispatchFailure(ctx context.Context, params models.ConfigEnforcementMutationParams) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkConfigDispatchFailure", ctx, params)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkConfigDispatchFailure indicates an expected call of MarkConfigDispatchFailure.
+func (mr *MockCohortConfigEnforcementStoreMockRecorder) MarkConfigDispatchFailure(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkConfigDispatchFailure", reflect.TypeOf((*MockCohortConfigEnforcementStore)(nil).MarkConfigDispatchFailure), ctx, params)
+}
+
+// MarkConfigDispatchHeld mocks base method.
+func (m *MockCohortConfigEnforcementStore) MarkConfigDispatchHeld(ctx context.Context, params models.ConfigEnforcementMutationParams) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkConfigDispatchHeld", ctx, params)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkConfigDispatchHeld indicates an expected call of MarkConfigDispatchHeld.
+func (mr *MockCohortConfigEnforcementStoreMockRecorder) MarkConfigDispatchHeld(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkConfigDispatchHeld", reflect.TypeOf((*MockCohortConfigEnforcementStore)(nil).MarkConfigDispatchHeld), ctx, params)
+}
+
+// MarkConfigDispatched mocks base method.
+func (m *MockCohortConfigEnforcementStore) MarkConfigDispatched(ctx context.Context, params models.ConfigEnforcementMutationParams) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkConfigDispatched", ctx, params)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkConfigDispatched indicates an expected call of MarkConfigDispatched.
+func (mr *MockCohortConfigEnforcementStoreMockRecorder) MarkConfigDispatched(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkConfigDispatched", reflect.TypeOf((*MockCohortConfigEnforcementStore)(nil).MarkConfigDispatched), ctx, params)
+}
+
+// MarkConfigDrifted mocks base method.
+func (m *MockCohortConfigEnforcementStore) MarkConfigDrifted(ctx context.Context, params models.ConfigEnforcementMutationParams) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkConfigDrifted", ctx, params)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MarkConfigDrifted indicates an expected call of MarkConfigDrifted.
+func (mr *MockCohortConfigEnforcementStoreMockRecorder) MarkConfigDrifted(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkConfigDrifted", reflect.TypeOf((*MockCohortConfigEnforcementStore)(nil).MarkConfigDrifted), ctx, params)
+}
+
+// UpsertConfigSupport mocks base method.
+func (m *MockCohortConfigEnforcementStore) UpsertConfigSupport(ctx context.Context, params models.ConfigEnforcementMutationParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertConfigSupport", ctx, params)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertConfigSupport indicates an expected call of UpsertConfigSupport.
+func (mr *MockCohortConfigEnforcementStoreMockRecorder) UpsertConfigSupport(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertConfigSupport", reflect.TypeOf((*MockCohortConfigEnforcementStore)(nil).UpsertConfigSupport), ctx, params)
+}
+
+// UpsertDeviceConfigState mocks base method.
+func (m *MockCohortConfigEnforcementStore) UpsertDeviceConfigState(ctx context.Context, params models.UpsertDeviceConfigStateParams) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertDeviceConfigState", ctx, params)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertDeviceConfigState indicates an expected call of UpsertDeviceConfigState.
+func (mr *MockCohortConfigEnforcementStoreMockRecorder) UpsertDeviceConfigState(ctx, params any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDeviceConfigState", reflect.TypeOf((*MockCohortConfigEnforcementStore)(nil).UpsertDeviceConfigState), ctx, params)
 }

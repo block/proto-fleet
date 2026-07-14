@@ -3,7 +3,7 @@ syntax = "proto3";
 package cohort.v1;
 
 import "buf/validate/validate.proto";
-import "google/protobuf/struct.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
 // CohortService manages desired-state cells over exclusive device sets.
@@ -33,6 +33,10 @@ service CohortService {
 
     // GetCohort returns a single cohort and its explicit members.
     rpc GetCohort(GetCohortRequest) returns (GetCohortResponse);
+
+    // GetCohortFirmwareVersionHistory returns the version mix over time for
+    // the cohort's current explicit members.
+    rpc GetCohortFirmwareVersionHistory(GetCohortFirmwareVersionHistoryRequest) returns (GetCohortFirmwareVersionHistoryResponse);
 
     // ListCohorts lists cohorts for the caller's organization.
     rpc ListCohorts(ListCohortsRequest) returns (ListCohortsResponse);
@@ -65,6 +69,55 @@ enum CohortFirmwareRolloutState {
     COHORT_FIRMWARE_ROLLOUT_STATE_COMPLETE = 5;
     COHORT_FIRMWARE_ROLLOUT_STATE_NEEDS_ATTENTION = 6;
     COHORT_FIRMWARE_ROLLOUT_STATE_UNKNOWN = 7;
+}
+
+enum CohortConfigDimension {
+    COHORT_CONFIG_DIMENSION_UNSPECIFIED = 0;
+    COHORT_CONFIG_DIMENSION_POOLS = 1;
+}
+
+enum CohortConfigLifecycleState {
+    COHORT_CONFIG_LIFECYCLE_STATE_UNSPECIFIED = 0;
+    COHORT_CONFIG_LIFECYCLE_STATE_UNSUPPORTED = 1;
+    COHORT_CONFIG_LIFECYCLE_STATE_WAITING_FOR_OBSERVATION = 2;
+    COHORT_CONFIG_LIFECYCLE_STATE_APPLYING = 3;
+    COHORT_CONFIG_LIFECYCLE_STATE_VERIFYING = 4;
+    COHORT_CONFIG_LIFECYCLE_STATE_CONVERGED = 5;
+    COHORT_CONFIG_LIFECYCLE_STATE_HELD = 6;
+    COHORT_CONFIG_LIFECYCLE_STATE_FAILED = 7;
+}
+
+message CohortPoolDesiredConfig {
+    int64 primary_pool_id = 1 [(buf.validate.field).int64.gt = 0];
+    optional int64 backup_1_pool_id = 2 [(buf.validate.field).int64.gt = 0];
+    optional int64 backup_2_pool_id = 3 [(buf.validate.field).int64.gt = 0];
+}
+
+message CohortDesiredConfig {
+    CohortPoolDesiredConfig pools = 1;
+}
+
+message CohortConfigStatus {
+    CohortConfigDimension dimension = 1;
+    bool supported = 2;
+    CohortConfigLifecycleState state = 3;
+    int32 retry_count = 4;
+    string last_error = 5;
+    google.protobuf.Timestamp last_dispatched_at = 6;
+    google.protobuf.Timestamp confirmed_at = 7;
+    google.protobuf.Timestamp observed_at = 8;
+}
+
+message CohortConfigProgress {
+    CohortConfigDimension dimension = 1;
+    int32 targeted_count = 2;
+    int32 unsupported_count = 3;
+    int32 waiting_count = 4;
+    int32 applying_count = 5;
+    int32 verifying_count = 6;
+    int32 converged_count = 7;
+    int32 held_count = 8;
+    int32 failed_count = 9;
 }
 
 message CohortFirmwareStatus {
@@ -101,7 +154,7 @@ message CohortSummary {
     google.protobuf.Timestamp expires_at = 6;
 
     string desired_firmware_file_id = 7;
-    google.protobuf.Struct desired_config = 8;
+    CohortDesiredConfig desired_config = 8;
 
     CohortState state = 10;
     string purpose = 11;
@@ -115,6 +168,7 @@ message CohortSummary {
     int64 explicit_member_count = 31;
     repeated CohortFirmwareTarget firmware_targets = 32;
     CohortFirmwareProgress firmware_progress = 33;
+    repeated CohortConfigProgress config_progress = 34;
 }
 
 message CohortFirmwareTarget {
@@ -154,6 +208,7 @@ message CohortMember {
     google.protobuf.Timestamp added_at = 4;
     CohortDeviceDisplay display = 5;
     CohortFirmwareStatus firmware_status = 6;
+    repeated CohortConfigStatus config_statuses = 7;
 }
 
 message CohortDeviceIdentifierList {
@@ -185,7 +240,7 @@ message CreateCohortRequest {
     google.protobuf.Timestamp expires_at = 4;
 
     string desired_firmware_file_id = 5 [(buf.validate.field).string.max_len = 255];
-    google.protobuf.Struct desired_config = 6;
+    CohortDesiredConfig desired_config = 6;
 
     oneof initial_members {
         CohortDeviceIdentifierList device_identifiers = 7;
@@ -216,7 +271,7 @@ message UpdateCohortRequest {
     optional string purpose = 3 [(buf.validate.field).string = {min_len: 1, max_len: 1024}];
     google.protobuf.Timestamp expires_at = 4;
     optional string desired_firmware_file_id = 5 [(buf.validate.field).string.max_len = 255];
-    google.protobuf.Struct desired_config = 6;
+    CohortDesiredConfig desired_config = 6;
     bool clear_expires_at = 7;
     bool clear_desired_config = 8;
 }
@@ -286,6 +341,38 @@ message GetCohortResponse {
     Cohort cohort = 1;
 }
 
+message GetCohortFirmwareVersionHistoryRequest {
+    option (buf.validate.message).cel = {
+        id: "end_time_after_start_time"
+        message: "end_time must be after start_time"
+        expression: "this.end_time > this.start_time"
+    };
+
+    int64 cohort_id = 1 [(buf.validate.field).int64.gt = 0];
+    google.protobuf.Timestamp start_time = 2 [(buf.validate.field).required = true];
+    google.protobuf.Timestamp end_time = 3 [(buf.validate.field).required = true];
+    google.protobuf.Duration granularity = 4 [(buf.validate.field).duration = {
+        gte: { seconds: 1 }
+        lte: { seconds: 31536000 }
+    }];
+}
+
+message CohortFirmwareVersionCount {
+    // Empty means that no firmware version had been observed by this point.
+    string firmware_version = 1;
+    int32 device_count = 2;
+}
+
+message CohortFirmwareVersionHistoryPoint {
+    google.protobuf.Timestamp timestamp = 1;
+    repeated CohortFirmwareVersionCount versions = 2;
+}
+
+message GetCohortFirmwareVersionHistoryResponse {
+    int32 member_count = 1;
+    repeated CohortFirmwareVersionHistoryPoint points = 2;
+}
+
 message ListCohortsRequest {
     bool include_released = 1;
     int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 500}];
@@ -348,6 +435,7 @@ message CohortDevice {
     CohortSummary effective_cohort = 3;
     CohortDeviceDisplay display = 4;
     CohortFirmwareStatus firmware_status = 5;
+    repeated CohortConfigStatus config_statuses = 6;
 }
 
 message ListDevicesResponse {

@@ -9,12 +9,55 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	poolpb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/cohort/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
+
+type fakePoolReferenceProvider struct {
+	orgID int64
+	ids   map[int64]bool
+}
+
+func (f fakePoolReferenceProvider) GetPool(_ context.Context, orgID, poolID int64) (*poolpb.Pool, error) {
+	if orgID != f.orgID || !f.ids[poolID] {
+		return nil, fleeterror.NewNotFoundError("pool not found")
+	}
+	return &poolpb.Pool{PoolId: poolID}, nil
+}
+
+func TestValidateDesiredConfigPoolReferences(t *testing.T) {
+	svc := NewService(nil, WithPoolReferenceProvider(fakePoolReferenceProvider{orgID: 7, ids: map[int64]bool{1: true, 2: true, 3: true}}))
+	backup1, backup2 := int64(2), int64(3)
+	require.NoError(t, svc.validateDesiredConfig(context.Background(), 7, &models.CohortDesiredConfig{Pools: &models.CohortPoolDesiredConfig{
+		PrimaryPoolID: 1, Backup1PoolID: &backup1, Backup2PoolID: &backup2,
+	}}, nil))
+
+	duplicate := int64(1)
+	err := svc.validateDesiredConfig(context.Background(), 7, &models.CohortDesiredConfig{Pools: &models.CohortPoolDesiredConfig{
+		PrimaryPoolID: 1, Backup1PoolID: &duplicate,
+	}}, nil)
+	require.ErrorContains(t, err, "different pool")
+
+	err = svc.validateDesiredConfig(context.Background(), 8, &models.CohortDesiredConfig{Pools: &models.CohortPoolDesiredConfig{PrimaryPoolID: 1}}, nil)
+	require.ErrorContains(t, err, "not an active pool in this organization")
+}
+
+func TestParseCohortDesiredConfigClearAndTypedJSON(t *testing.T) {
+	config, err := models.ParseCohortDesiredConfig(nil)
+	require.NoError(t, err)
+	require.Nil(t, config)
+
+	raw, err := (&models.CohortDesiredConfig{Pools: &models.CohortPoolDesiredConfig{PrimaryPoolID: 42}}).MarshalJSON()
+	require.NoError(t, err)
+	require.JSONEq(t, `{"pools":{"primary_pool_id":42}}`, string(raw))
+	parsed, err := models.ParseCohortDesiredConfig(raw)
+	require.NoError(t, err)
+	require.Equal(t, int64(42), parsed.Pools.PrimaryPoolID)
+}
 
 func TestCreateCohort_ValidatesRequiredFields(t *testing.T) {
 	t.Parallel()
@@ -301,6 +344,75 @@ func TestReleaseCohort_AdminCannotReleaseAnotherOwnersCohort(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsForbiddenError(err))
+}
+
+func TestGetCohortFirmwareVersionHistory_CarriesVersionsAcrossBuckets(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockCohortStore(ctrl)
+	svc := NewService(store)
+	start := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
+	end := start.Add(20 * time.Minute)
+	members := []models.CohortMember{
+		{CohortID: 42, OrgID: 7, DeviceIdentifier: "miner-1", AddedAt: start.Add(-time.Hour)},
+		{CohortID: 42, OrgID: 7, DeviceIdentifier: "miner-2", AddedAt: start.Add(2 * time.Minute)},
+	}
+	store.EXPECT().GetCohort(gomock.Any(), int64(7), int64(42)).Return(&models.Cohort{
+		ID: 42, OrgID: 7, Members: members, ExplicitMemberCount: 2,
+	}, nil)
+	store.EXPECT().ListCohortFirmwareVersionEvents(gomock.Any(), int64(7), int64(42), start, end).Return([]models.FirmwareVersionEvent{
+		{DeviceIdentifier: "miner-1", FirmwareVersion: "1.0.0", ObservedAt: start.Add(-10 * time.Minute)},
+		// This observation predates miner-2's current membership and is still
+		// included because history intentionally uses the current member set.
+		{DeviceIdentifier: "miner-2", FirmwareVersion: "1.0.0", ObservedAt: start.Add(time.Minute)},
+		{DeviceIdentifier: "former-member", FirmwareVersion: "9.9.9", ObservedAt: start.Add(5 * time.Minute)},
+		{DeviceIdentifier: "miner-1", FirmwareVersion: "2.0.0", ObservedAt: start.Add(15 * time.Minute)},
+	}, nil)
+
+	history, err := svc.GetCohortFirmwareVersionHistory(t.Context(), models.CohortFirmwareVersionHistoryParams{
+		OrgID: 7, CohortID: 42, StartTime: start, EndTime: end, Granularity: 10 * time.Minute,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), history.MemberCount)
+	require.Len(t, history.Points, 3)
+
+	countsAt := func(index int) map[string]int32 {
+		counts := make(map[string]int32)
+		for _, version := range history.Points[index].Versions {
+			counts[version.FirmwareVersion] = version.DeviceCount
+		}
+		return counts
+	}
+	assert.Equal(t, map[string]int32{"": 1, "1.0.0": 1}, countsAt(0))
+	assert.Equal(t, map[string]int32{"1.0.0": 2}, countsAt(1))
+	assert.Equal(t, map[string]int32{"1.0.0": 1, "2.0.0": 1}, countsAt(2))
+}
+
+func TestGetCohortFirmwareVersionHistory_ValidatesRangeAndBucketCount(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(mocks.NewMockCohortStore(gomock.NewController(t)))
+	start := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name        string
+		end         time.Time
+		granularity time.Duration
+	}{
+		{name: "end before start", end: start.Add(-time.Second), granularity: time.Minute},
+		{name: "more than one year", end: start.Add(365*24*time.Hour + time.Second), granularity: 24 * time.Hour},
+		{name: "zero granularity", end: start.Add(time.Hour)},
+		{name: "more than one thousand points", end: start.Add(1000 * time.Minute), granularity: time.Minute},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := svc.GetCohortFirmwareVersionHistory(t.Context(), models.CohortFirmwareVersionHistoryParams{
+				OrgID: 7, CohortID: 42, StartTime: start, EndTime: tt.end, Granularity: tt.granularity,
+			})
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+		})
+	}
 }
 
 func TestSetCohortFirmwareTarget_AdminCannotMutateAnotherOwnersCohort(t *testing.T) {

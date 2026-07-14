@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+
 	cohortv1 "github.com/block/proto-fleet/server/generated/grpc/cohort/v1"
 	"github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
@@ -85,6 +87,9 @@ func generatedCohortsCommand() *cli.Command {
 					&cli.BoolFlag{Name: "claim-ownership", Usage: "claim ownership"},
 					&cli.StringFlag{Name: "expires-at", Usage: "expires at"},
 					&cli.StringFlag{Name: "desired-firmware-file-id", Usage: "desired firmware file id"},
+					&cli.Int64Flag{Name: "primary-pool-id", Usage: "primary Fleet pool id"},
+					&cli.Int64Flag{Name: "backup-1-pool-id", Usage: "backup 1 Fleet pool id"},
+					&cli.Int64Flag{Name: "backup-2-pool-id", Usage: "backup 2 Fleet pool id"},
 					&cli.Int64Flag{Name: "source-device-set-id", Usage: "source device set id"},
 					&cli.StringFlag{Name: "idempotency-key", Usage: "idempotency key"},
 				},
@@ -113,6 +118,21 @@ func generatedCohortsCommand() *cli.Command {
 					}
 					if cmd.IsSet("desired-firmware-file-id") {
 						req.DesiredFirmwareFileId = cmd.String("desired-firmware-file-id")
+					}
+					if cmd.IsSet("primary-pool-id") || cmd.IsSet("backup-1-pool-id") || cmd.IsSet("backup-2-pool-id") {
+						if !cmd.IsSet("primary-pool-id") {
+							return nil, fmt.Errorf("--primary-pool-id is required when setting cohort pools")
+						}
+						pools := &cohortv1.CohortPoolDesiredConfig{PrimaryPoolId: cmd.Int64("primary-pool-id")}
+						if cmd.IsSet("backup-1-pool-id") {
+							value := cmd.Int64("backup-1-pool-id")
+							pools.Backup_1PoolId = &value
+						}
+						if cmd.IsSet("backup-2-pool-id") {
+							value := cmd.Int64("backup-2-pool-id")
+							pools.Backup_2PoolId = &value
+						}
+						req.DesiredConfig = &cohortv1.CohortDesiredConfig{Pools: pools}
 					}
 					if cmd.IsSet("source-device-set-id") {
 						req.InitialMembers = &cohortv1.CreateCohortRequest_SourceDeviceSetId{SourceDeviceSetId: cmd.Int64("source-device-set-id")}
@@ -153,6 +173,9 @@ func generatedCohortsCommand() *cli.Command {
 					&cli.StringFlag{Name: "purpose", Usage: "purpose"},
 					&cli.StringFlag{Name: "expires-at", Usage: "expires at"},
 					&cli.StringFlag{Name: "desired-firmware-file-id", Usage: "desired firmware file id"},
+					&cli.Int64Flag{Name: "primary-pool-id", Usage: "primary Fleet pool id"},
+					&cli.Int64Flag{Name: "backup-1-pool-id", Usage: "backup 1 Fleet pool id"},
+					&cli.Int64Flag{Name: "backup-2-pool-id", Usage: "backup 2 Fleet pool id"},
 					&cli.BoolFlag{Name: "clear-expires-at", Usage: "clear expires at"},
 					&cli.BoolFlag{Name: "clear-desired-config", Usage: "clear desired config"},
 				},
@@ -185,6 +208,21 @@ func generatedCohortsCommand() *cli.Command {
 						value := cmd.String("desired-firmware-file-id")
 						req.DesiredFirmwareFileId = &value
 					}
+					if cmd.IsSet("primary-pool-id") || cmd.IsSet("backup-1-pool-id") || cmd.IsSet("backup-2-pool-id") {
+						if !cmd.IsSet("primary-pool-id") {
+							return nil, fmt.Errorf("--primary-pool-id is required when setting cohort pools")
+						}
+						pools := &cohortv1.CohortPoolDesiredConfig{PrimaryPoolId: cmd.Int64("primary-pool-id")}
+						if cmd.IsSet("backup-1-pool-id") {
+							value := cmd.Int64("backup-1-pool-id")
+							pools.Backup_1PoolId = &value
+						}
+						if cmd.IsSet("backup-2-pool-id") {
+							value := cmd.Int64("backup-2-pool-id")
+							pools.Backup_2PoolId = &value
+						}
+						req.DesiredConfig = &cohortv1.CohortDesiredConfig{Pools: pools}
+					}
 					if cmd.IsSet("clear-expires-at") {
 						req.ClearExpiresAt = cmd.Bool("clear-expires-at")
 					}
@@ -194,6 +232,45 @@ func generatedCohortsCommand() *cli.Command {
 					return req, nil
 				},
 				func() proto.Message { return &cohortv1.UpdateCohortResponse{} },
+			),
+			generatedRequestCommand(
+				"get-cohort-firmware-version-history",
+				"Get cohort firmware version history",
+				"/cohort.v1.CohortService/GetCohortFirmwareVersionHistory",
+				generatedAuthBearer,
+				[]cli.Flag{
+					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
+					&cli.Int64Flag{Name: "cohort-id", Usage: "cohort id"},
+					&cli.StringFlag{Name: "start-time", Usage: "start time"},
+					&cli.StringFlag{Name: "end-time", Usage: "end time"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &cohortv1.GetCohortFirmwareVersionHistoryRequest{}
+					if jsonPath := cmd.String("json"); jsonPath != "" {
+						if err := readProtoJSON(jsonPath, req); err != nil {
+							return nil, err
+						}
+					}
+					if cmd.IsSet("cohort-id") {
+						req.CohortId = cmd.Int64("cohort-id")
+					}
+					if cmd.IsSet("start-time") {
+						parsed, err := parseRFC3339Timestamp(cmd.String("start-time"), "start-time")
+						if err != nil {
+							return nil, err
+						}
+						req.StartTime = parsed
+					}
+					if cmd.IsSet("end-time") {
+						parsed, err := parseRFC3339Timestamp(cmd.String("end-time"), "end-time")
+						if err != nil {
+							return nil, err
+						}
+						req.EndTime = parsed
+					}
+					return req, nil
+				},
+				func() proto.Message { return &cohortv1.GetCohortFirmwareVersionHistoryResponse{} },
 			),
 			generatedRequestCommand(
 				"list",

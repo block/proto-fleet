@@ -52,6 +52,18 @@ func (h *Handler) GetCohort(ctx context.Context, req *connect.Request[pb.GetCoho
 	return connect.NewResponse(&pb.GetCohortResponse{Cohort: toProtoCohort(cohort)}), nil
 }
 
+func (h *Handler) GetCohortFirmwareVersionHistory(ctx context.Context, req *connect.Request[pb.GetCohortFirmwareVersionHistoryRequest]) (*connect.Response[pb.GetCohortFirmwareVersionHistoryResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCohortRead, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	history, err := h.service.GetCohortFirmwareVersionHistory(ctx, toCohortFirmwareVersionHistoryParams(req.Msg, info.OrganizationID))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(toProtoCohortFirmwareVersionHistory(history)), nil
+}
+
 func (h *Handler) ListCohorts(ctx context.Context, req *connect.Request[pb.ListCohortsRequest]) (*connect.Response[pb.ListCohortsResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermCohortRead, authz.ResourceContext{})
 	if err != nil {

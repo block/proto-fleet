@@ -673,12 +673,12 @@ func (es *ExecutionService) applyMinerNameToPoolUsernames(
 		return payload, nil
 	}
 
-	payload.DefaultPool.Username = appendMinerNameToPoolUsername(payload.DefaultPool, minerName)
+	payload.DefaultPool.Username = workername.EffectivePoolUsername(payload.DefaultPool.Username, minerName, payload.DefaultPool.AppendMinerName)
 	if payload.Backup1Pool != nil {
-		payload.Backup1Pool.Username = appendMinerNameToPoolUsername(*payload.Backup1Pool, minerName)
+		payload.Backup1Pool.Username = workername.EffectivePoolUsername(payload.Backup1Pool.Username, minerName, payload.Backup1Pool.AppendMinerName)
 	}
 	if payload.Backup2Pool != nil {
-		payload.Backup2Pool.Username = appendMinerNameToPoolUsername(*payload.Backup2Pool, minerName)
+		payload.Backup2Pool.Username = workername.EffectivePoolUsername(payload.Backup2Pool.Username, minerName, payload.Backup2Pool.AppendMinerName)
 	}
 
 	return payload, nil
@@ -910,35 +910,8 @@ func configuredPoolToPayload(
 	return dto.MiningPool{
 		Priority: priority,
 		URL:      pool.URL,
-		Username: rewritePoolUsernameWithStoredWorkerName(pool.Username, desiredWorkerName),
+		Username: workername.RewritePoolUsername(pool.Username, desiredWorkerName),
 	}
-}
-
-func rewritePoolUsernameWithStoredWorkerName(username string, desiredWorkerName string) string {
-	trimmedUsername := strings.TrimSpace(username)
-	if trimmedUsername == "" || desiredWorkerName == "" {
-		return trimmedUsername
-	}
-
-	baseUsername := normalizePoolUsernameBase(trimmedUsername)
-	if baseUsername == "" {
-		return trimmedUsername
-	}
-
-	return baseUsername + "." + desiredWorkerName
-}
-
-func appendMinerNameToPoolUsername(pool dto.MiningPool, minerName string) string {
-	if !shouldAppendMinerName(pool) {
-		return pool.Username
-	}
-
-	baseUsername := normalizePoolUsernameBase(pool.Username)
-	if baseUsername == "" {
-		return pool.Username
-	}
-
-	return baseUsername + "." + minerName
 }
 
 func shouldAppendMinerName(pool dto.MiningPool) bool {
@@ -948,20 +921,6 @@ func shouldAppendMinerName(pool dto.MiningPool) bool {
 func shouldAppendMinerNameToUsername(username string) bool {
 	trimmed := strings.TrimSpace(username)
 	return trimmed != "" && !strings.Contains(trimmed, ".")
-}
-
-func normalizePoolUsernameBase(username string) string {
-	trimmed := strings.TrimSpace(username)
-	if trimmed == "" {
-		return ""
-	}
-
-	firstSeparator := strings.Index(trimmed, ".")
-	if firstSeparator <= 0 || firstSeparator == len(trimmed)-1 {
-		return trimmed
-	}
-
-	return strings.TrimSpace(trimmed[:firstSeparator])
 }
 
 // handleUnpairPostProcessing updates device pairing status and unregisters from telemetry after successful unpair

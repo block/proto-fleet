@@ -1805,12 +1805,11 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		h.state.mu.Unlock()
 
-		file, header, err := r.FormFile("file")
+		filename, uploadSize, err := streamFirmwareUpload(r)
 		if err != nil {
 			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Missing or invalid 'file' field in multipart form")
 			return
 		}
-		defer file.Close()
 
 		h.state.mu.Lock()
 		switch h.state.FWUpdateStatus {
@@ -1824,16 +1823,62 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 			currentVersion = defaultFirmwareVersion
 		}
 		h.state.FWUpdateStatus = "downloading"
-		h.state.FWNewVersion = stagedFirmwareVersion(header.Filename, currentVersion)
+		h.state.FWNewVersion = stagedFirmwareVersion(filename, currentVersion)
 		h.state.mu.Unlock()
 
-		log.Printf("Firmware upload received: filename=%s, size=%d", header.Filename, header.Size)
+		log.Printf("Firmware upload received: filename=%s, size=%d", filename, uploadSize)
 		h.startFirmwareOTALifecycle()
 
 		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Firmware uploaded successfully"})
 	default:
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 	}
+}
+
+func streamFirmwareUpload(r *http.Request) (string, int64, error) {
+	reader, err := r.MultipartReader()
+	if err != nil {
+		return "", 0, err
+	}
+
+	var filename string
+	var uploadSize int64
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", 0, err
+		}
+
+		if part.FormName() != "file" || part.FileName() == "" {
+			if _, err := io.Copy(io.Discard, part); err != nil {
+				_ = part.Close()
+				return "", 0, err
+			}
+			_ = part.Close()
+			continue
+		}
+		if filename != "" {
+			_ = part.Close()
+			return "", 0, fmt.Errorf("multiple firmware file fields")
+		}
+
+		filename = part.FileName()
+		uploadSize, err = io.Copy(io.Discard, part)
+		closeErr := part.Close()
+		if err != nil {
+			return "", 0, err
+		}
+		if closeErr != nil {
+			return "", 0, closeErr
+		}
+	}
+	if filename == "" {
+		return "", 0, fmt.Errorf("missing firmware file field")
+	}
+	return filename, uploadSize, nil
 }
 
 func (h *RESTApiHandler) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {

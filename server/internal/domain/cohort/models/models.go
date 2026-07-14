@@ -3,6 +3,7 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -24,6 +25,51 @@ const (
 	SourceActorCohort    SourceActorType = "cohort"
 )
 
+// CohortDesiredConfig is the typed desired configuration persisted as JSONB.
+// It contains references to organization-owned resources, never credentials.
+type CohortDesiredConfig struct {
+	Pools *CohortPoolDesiredConfig `json:"pools,omitempty"`
+}
+
+// CohortPoolDesiredConfig describes the complete ordered pool set for miners.
+type CohortPoolDesiredConfig struct {
+	PrimaryPoolID int64  `json:"primary_pool_id"`
+	Backup1PoolID *int64 `json:"backup_1_pool_id,omitempty"`
+	Backup2PoolID *int64 `json:"backup_2_pool_id,omitempty"`
+}
+
+type CohortPoolReference struct {
+	ID        int64
+	URL       string
+	Username  string
+	UpdatedAt time.Time
+}
+
+// MarshalJSON returns nil for an empty desired configuration.
+func (c *CohortDesiredConfig) MarshalJSON() ([]byte, error) {
+	type alias CohortDesiredConfig
+	if c == nil || c.Pools == nil {
+		return nil, nil
+	}
+	raw, err := json.Marshal((*alias)(c))
+	if err != nil {
+		return nil, fmt.Errorf("marshal cohort desired config: %w", err)
+	}
+	return raw, nil
+}
+
+// ParseCohortDesiredConfig decodes the persisted typed JSON representation.
+func ParseCohortDesiredConfig(raw json.RawMessage) (*CohortDesiredConfig, error) {
+	if len(raw) == 0 || string(raw) == "null" || string(raw) == "{}" {
+		return nil, nil
+	}
+	var config CohortDesiredConfig
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return nil, fmt.Errorf("unmarshal cohort desired config: %w", err)
+	}
+	return &config, nil
+}
+
 // Cohort is the canonical domain shape for a cohort row.
 type Cohort struct {
 	ID                    int64
@@ -34,6 +80,7 @@ type Cohort struct {
 	OwnerUsername         *string
 	ExpiresAt             *time.Time
 	DesiredFirmwareFileID *string
+	DesiredConfig         *CohortDesiredConfig
 	DesiredConfigJSON     json.RawMessage
 	State                 CohortState
 	Purpose               string
@@ -47,6 +94,7 @@ type Cohort struct {
 	FirmwareTargets       []CohortFirmwareTarget
 	FirmwareStatuses      []CohortFirmwareStatus
 	FirmwareProgress      CohortFirmwareProgress
+	ConfigProgress        []CohortConfigProgress
 }
 
 // CohortFirmwareTarget is desired firmware for a single miner manufacturer/model.
@@ -68,6 +116,42 @@ type CohortMember struct {
 	AddedAt          time.Time
 	Display          CohortDeviceDisplay
 	FirmwareStatus   *CohortFirmwareStatus
+	ConfigStatuses   []CohortConfigStatus
+}
+
+// FirmwareVersionEvent is one observed firmware-version transition.
+type FirmwareVersionEvent struct {
+	DeviceIdentifier string
+	FirmwareVersion  string
+	ObservedAt       time.Time
+}
+
+// CohortFirmwareVersionHistoryParams controls a historical version-mix query.
+type CohortFirmwareVersionHistoryParams struct {
+	OrgID       int64
+	CohortID    int64
+	StartTime   time.Time
+	EndTime     time.Time
+	Granularity time.Duration
+}
+
+// CohortFirmwareVersionCount is the number of current cohort members on one version.
+// An empty version represents a member without an observation at that point.
+type CohortFirmwareVersionCount struct {
+	FirmwareVersion string
+	DeviceCount     int32
+}
+
+// CohortFirmwareVersionHistoryPoint is a version distribution at one time bucket.
+type CohortFirmwareVersionHistoryPoint struct {
+	Timestamp time.Time
+	Versions  []CohortFirmwareVersionCount
+}
+
+// CohortFirmwareVersionHistory is the bucketed version mix for current members.
+type CohortFirmwareVersionHistory struct {
+	MemberCount int32
+	Points      []CohortFirmwareVersionHistoryPoint
 }
 
 // CohortDeviceDisplay is the human-readable fleet metadata shown alongside
@@ -96,6 +180,7 @@ type CreateCohortParams struct {
 	DesiredFirmwareTargetManufacturer string
 	DesiredFirmwareTargetModel        string
 	DesiredConfigJSON                 json.RawMessage
+	DesiredConfig                     *CohortDesiredConfig
 	Purpose                           string
 	SourceActorType                   SourceActorType
 	SourceActorID                     *string
@@ -122,6 +207,7 @@ type UpdateCohortParams struct {
 	ClearExpiresAt           bool
 	DesiredFirmwareFileID    *string
 	DesiredConfigJSON        json.RawMessage
+	DesiredConfig            *CohortDesiredConfig
 	ClearDesiredConfig       bool
 	DesiredFirmwareFileIDSet bool
 	DesiredConfigJSONSet     bool
@@ -237,6 +323,46 @@ type CohortDevice struct {
 	EffectiveCohort  Cohort
 	Display          CohortDeviceDisplay
 	FirmwareStatus   *CohortFirmwareStatus
+	ConfigStatuses   []CohortConfigStatus
+}
+
+type CohortConfigDimension string
+
+const CohortConfigDimensionPools CohortConfigDimension = "pools"
+
+type CohortConfigLifecycleState string
+
+const (
+	CohortConfigStateUnsupported           CohortConfigLifecycleState = "unsupported"
+	CohortConfigStateWaitingForObservation CohortConfigLifecycleState = "waiting_for_observation"
+	CohortConfigStateApplying              CohortConfigLifecycleState = "applying"
+	CohortConfigStateVerifying             CohortConfigLifecycleState = "verifying"
+	CohortConfigStateConverged             CohortConfigLifecycleState = "converged"
+	CohortConfigStateHeld                  CohortConfigLifecycleState = "held"
+	CohortConfigStateFailed                CohortConfigLifecycleState = "failed"
+)
+
+type CohortConfigStatus struct {
+	Dimension        CohortConfigDimension
+	Supported        bool
+	State            CohortConfigLifecycleState
+	RetryCount       int32
+	LastError        *string
+	LastDispatchedAt *time.Time
+	ConfirmedAt      *time.Time
+	ObservedAt       *time.Time
+}
+
+type CohortConfigProgress struct {
+	Dimension        CohortConfigDimension
+	TargetedCount    int32
+	UnsupportedCount int32
+	WaitingCount     int32
+	ApplyingCount    int32
+	VerifyingCount   int32
+	ConvergedCount   int32
+	HeldCount        int32
+	FailedCount      int32
 }
 
 type CohortFirmwareRolloutState string
@@ -285,7 +411,59 @@ const (
 	EnforcementStateConfirmed   EnforcementState = "confirmed"
 	EnforcementStateDrifted     EnforcementState = "drifted"
 	EnforcementStateFailed      EnforcementState = "failed"
+	EnforcementStateHeld        EnforcementState = "held"
 )
+
+type ConfigEnforcementCandidate struct {
+	OrgID               int64
+	DeviceIdentifier    string
+	DriverName          string
+	Manufacturer        string
+	Model               string
+	WorkerName          string
+	CohortID            int64
+	ActorUserID         int64
+	ActorExternalUserID string
+	ActorUsername       string
+	DesiredConfig       *CohortDesiredConfig
+	Dimension           CohortConfigDimension
+	ObservedStateJSON   json.RawMessage
+	ObservedStateHash   *string
+	ConfigObservedAt    *time.Time
+	DesiredStateHash    *string
+	Supported           *bool
+	State               *EnforcementState
+	RetryCount          int32
+	LastBatchUUID       *string
+	LastDispatchedAt    *time.Time
+	ConfirmedAt         *time.Time
+	LastError           *string
+}
+
+type UpsertDeviceConfigStateParams struct {
+	OrgID             int64
+	DeviceIdentifier  string
+	Dimension         CohortConfigDimension
+	ObservedStateJSON json.RawMessage
+	ObservedStateHash string
+	ObservedAt        time.Time
+}
+
+type ConfigEnforcementMutationParams struct {
+	OrgID             int64
+	DeviceIdentifier  string
+	Dimension         CohortConfigDimension
+	DesiredStateHash  string
+	State             EnforcementState
+	LastBatchUUID     string
+	LastDispatchedAt  time.Time
+	ConfirmedAt       time.Time
+	ObservedAt        time.Time
+	LastError         string
+	MaxRetries        int32
+	DispatchingBefore time.Time
+	Supported         bool
+}
 
 type FirmwareEnforcementCandidate struct {
 	OrgID                       int64

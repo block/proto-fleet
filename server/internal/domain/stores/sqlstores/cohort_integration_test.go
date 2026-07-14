@@ -383,6 +383,48 @@ func TestCohortStore_ReadsFirmwareStatusesFromExistingState(t *testing.T) {
 	assert.Equal(t, "1.2.0", listedDeviceA.FirmwareStatus.TargetFirmwareVersion)
 }
 
+func TestCohortStore_FirmwareVersionEventsRecordTransitionsOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	user := tc.DatabaseService.CreateSuperAdminUser()
+	store := sqlstores.NewSQLCohortStore(tc.DatabaseService.DB)
+	ctx := t.Context()
+	device := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
+	created, err := store.CreateCohort(ctx, models.CreateCohortParams{
+		OrgID:             user.OrganizationID,
+		Label:             "firmware history",
+		Purpose:           "version event query",
+		SourceActorType:   models.SourceActorUser,
+		DeviceIdentifiers: []string{device.ID},
+	})
+	require.NoError(t, err)
+
+	start := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
+	upsertObservedFirmwareAt(t, tc, user.OrganizationID, device.ID, "1.0.0", start.Add(-30*time.Minute))
+	upsertObservedFirmwareAt(t, tc, user.OrganizationID, device.ID, "1.0.0", start.Add(-20*time.Minute))
+	upsertObservedFirmwareAt(t, tc, user.OrganizationID, device.ID, "2.0.0", start.Add(10*time.Minute))
+
+	events, err := store.ListCohortFirmwareVersionEvents(ctx, user.OrganizationID, created.ID, start, start.Add(time.Hour))
+	require.NoError(t, err)
+	require.Len(t, events, 2)
+	assert.Equal(t, "1.0.0", events[0].FirmwareVersion)
+	assert.True(t, start.Add(-30*time.Minute).Equal(events[0].ObservedAt))
+	assert.Equal(t, "2.0.0", events[1].FirmwareVersion)
+	assert.True(t, start.Add(10*time.Minute).Equal(events[1].ObservedAt))
+
+	var eventCount int
+	err = tc.DatabaseService.DB.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM device_firmware_version_event
+		WHERE org_id = $1 AND device_identifier = $2
+	`, user.OrganizationID, device.ID).Scan(&eventCount)
+	require.NoError(t, err)
+	assert.Equal(t, 2, eventCount)
+}
+
 func TestCohortStore_MarkFirmwareConfirmedClearsStaleDispatchForNewTarget(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -1399,6 +1441,11 @@ func pairCohortTestDevice(t *testing.T, tc *testutil.TestContext, orgID int64, d
 
 func upsertObservedFirmware(t *testing.T, tc *testutil.TestContext, orgID int64, deviceIdentifier string, firmwareVersion string) {
 	t.Helper()
+	upsertObservedFirmwareAt(t, tc, orgID, deviceIdentifier, firmwareVersion, time.Now().UTC())
+}
+
+func upsertObservedFirmwareAt(t *testing.T, tc *testutil.TestContext, orgID int64, deviceIdentifier string, firmwareVersion string, observedAt time.Time) {
+	t.Helper()
 
 	result, err := tc.DatabaseService.DB.ExecContext(t.Context(), `
 		INSERT INTO device_firmware_state (
@@ -1410,13 +1457,13 @@ func upsertObservedFirmware(t *testing.T, tc *testutil.TestContext, orgID int64,
 		    $1,
 		    $2,
 		    $3,
-		    CURRENT_TIMESTAMP
+		    $4
 		)
 		ON CONFLICT (org_id, device_identifier)
 		DO UPDATE SET
 		    firmware_version = EXCLUDED.firmware_version,
 		    observed_at = EXCLUDED.observed_at
-	`, orgID, deviceIdentifier, firmwareVersion)
+	`, orgID, deviceIdentifier, firmwareVersion, observedAt)
 	require.NoError(t, err)
 	affected, err := result.RowsAffected()
 	require.NoError(t, err)

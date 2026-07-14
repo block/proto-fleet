@@ -2693,6 +2693,9 @@ func TestHandleUpdate_PutProgressesToInstalled(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
 	}
+	if req.MultipartForm != nil && len(req.MultipartForm.File) != 0 {
+		t.Fatal("expected firmware upload to be streamed without buffering multipart file headers")
+	}
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {

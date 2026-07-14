@@ -218,6 +218,19 @@ WHERE id = sqlc.arg('id')
   AND state = 'active'
 RETURNING *;
 
+-- name: UpdateDefaultCohortConfig :one
+UPDATE cohort
+SET desired_config_jsonb = CASE
+        WHEN sqlc.arg('clear_desired_config')::boolean THEN NULL
+        ELSE sqlc.narg('desired_config_jsonb')::jsonb
+    END,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = sqlc.arg('id')
+  AND org_id = sqlc.arg('org_id')
+  AND is_default = TRUE
+  AND state = 'active'
+RETURNING *;
+
 -- name: ListCohortFirmwareTargets :many
 SELECT *
 FROM cohort_firmware_target
@@ -377,6 +390,49 @@ WHERE cm.cohort_id = sqlc.arg('cohort_id')
   AND cm.org_id = sqlc.arg('org_id')
 ORDER BY cm.added_at, cm.device_identifier;
 
+-- name: ListCohortFirmwareVersionEvents :many
+WITH current_members AS (
+    SELECT cm.device_identifier
+    FROM cohort_membership cm
+    JOIN cohort c
+      ON c.id = cm.cohort_id
+     AND c.org_id = cm.org_id
+    WHERE cm.org_id = sqlc.arg('org_id')
+      AND cm.cohort_id = sqlc.arg('cohort_id')
+),
+baseline AS (
+    SELECT DISTINCT ON (event.device_identifier)
+        event.id,
+        event.device_identifier,
+        event.firmware_version,
+        event.observed_at
+    FROM current_members member
+    JOIN device_firmware_version_event event
+      ON event.org_id = sqlc.arg('org_id')
+     AND event.device_identifier = member.device_identifier
+    WHERE event.observed_at < sqlc.arg('start_time')
+    ORDER BY event.device_identifier, event.observed_at DESC, event.id DESC
+),
+in_range AS (
+    SELECT
+        event.id,
+        event.device_identifier,
+        event.firmware_version,
+        event.observed_at
+    FROM current_members member
+    JOIN device_firmware_version_event event
+      ON event.org_id = sqlc.arg('org_id')
+     AND event.device_identifier = member.device_identifier
+    WHERE event.observed_at >= sqlc.arg('start_time')
+      AND event.observed_at <= sqlc.arg('end_time')
+)
+SELECT id, device_identifier, firmware_version, observed_at
+FROM baseline
+UNION ALL
+SELECT id, device_identifier, firmware_version, observed_at
+FROM in_range
+ORDER BY observed_at, id;
+
 -- name: ListCohortFirmwareStatuses :many
 WITH requested_cohorts AS (
     SELECT id, org_id, is_default
@@ -509,6 +565,98 @@ LEFT JOIN device_enforcement_state des
    AND cft.firmware_file_id IS NOT NULL
    AND des.desired_firmware_file_id IS NOT DISTINCT FROM cft.firmware_file_id
 ORDER BY ed.device_identifier;
+
+-- name: ListCohortConfigStatusesForDevices :many
+WITH effective_devices AS (
+    SELECT
+        c.id AS cohort_id,
+        c.desired_config_jsonb,
+        d.org_id,
+        d.device_identifier
+    FROM device d
+    LEFT JOIN cohort_membership cm
+        ON cm.org_id = d.org_id
+       AND cm.device_identifier = d.device_identifier
+    JOIN cohort default_c
+        ON default_c.org_id = d.org_id
+       AND default_c.is_default = TRUE
+       AND default_c.state = 'active'
+    JOIN cohort c
+        ON c.id = COALESCE(cm.cohort_id, default_c.id)
+       AND c.org_id = d.org_id
+       AND c.state = 'active'
+    WHERE d.org_id = sqlc.arg('org_id')
+      AND d.deleted_at IS NULL
+      AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+)
+SELECT
+    ed.cohort_id,
+    ed.device_identifier,
+    'pools'::text AS dimension,
+    COALESCE(des.supported, TRUE)::boolean AS supported,
+    des.state AS enforcement_state,
+    des.retry_count,
+    des.last_error,
+    des.last_dispatched_at,
+    des.confirmed_at,
+    dcs.observed_at
+FROM effective_devices ed
+LEFT JOIN device_enforcement_state des
+    ON des.org_id = ed.org_id
+   AND des.device_identifier = ed.device_identifier
+   AND des.dimension = 'pools'
+LEFT JOIN device_config_state dcs
+    ON dcs.org_id = ed.org_id
+   AND dcs.device_identifier = ed.device_identifier
+   AND dcs.dimension = 'pools'
+WHERE ed.desired_config_jsonb ? 'pools'
+ORDER BY ed.device_identifier;
+
+-- name: ListCohortConfigStatuses :many
+WITH effective_devices AS (
+    SELECT
+        c.id AS cohort_id,
+        c.desired_config_jsonb,
+        d.org_id,
+        d.device_identifier
+    FROM device d
+    LEFT JOIN cohort_membership cm
+        ON cm.org_id = d.org_id
+       AND cm.device_identifier = d.device_identifier
+    JOIN cohort default_c
+        ON default_c.org_id = d.org_id
+       AND default_c.is_default = TRUE
+       AND default_c.state = 'active'
+    JOIN cohort c
+        ON c.id = COALESCE(cm.cohort_id, default_c.id)
+       AND c.org_id = d.org_id
+       AND c.state = 'active'
+    WHERE d.org_id = sqlc.arg('org_id')
+      AND d.deleted_at IS NULL
+      AND c.id = ANY(sqlc.arg('cohort_ids')::bigint[])
+)
+SELECT
+    ed.cohort_id,
+    ed.device_identifier,
+    'pools'::text AS dimension,
+    COALESCE(des.supported, TRUE)::boolean AS supported,
+    des.state AS enforcement_state,
+    des.retry_count,
+    des.last_error,
+    des.last_dispatched_at,
+    des.confirmed_at,
+    dcs.observed_at
+FROM effective_devices ed
+LEFT JOIN device_enforcement_state des
+    ON des.org_id = ed.org_id
+   AND des.device_identifier = ed.device_identifier
+   AND des.dimension = 'pools'
+LEFT JOIN device_config_state dcs
+    ON dcs.org_id = ed.org_id
+   AND dcs.device_identifier = ed.device_identifier
+   AND dcs.dimension = 'pools'
+WHERE ed.desired_config_jsonb ? 'pools'
+ORDER BY ed.cohort_id, ed.device_identifier;
 
 -- name: ListDeviceIdentifiersForCohortMembership :many
 SELECT device_identifier

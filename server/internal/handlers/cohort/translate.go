@@ -1,21 +1,18 @@
 package cohort
 
 import (
-	"encoding/json"
 	"time"
 
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/cohort/v1"
 	"github.com/block/proto-fleet/server/internal/domain/cohort/models"
-	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
 func toCreateCohortParams(req *pb.CreateCohortRequest, info *session.Info) (models.CreateCohortParams, error) {
-	desiredConfig, err := structToJSON(req.GetDesiredConfig())
+	desiredConfig := desiredConfigFromProto(req.GetDesiredConfig())
+	desiredConfigJSON, err := desiredConfig.MarshalJSON()
 	if err != nil {
 		return models.CreateCohortParams{}, err
 	}
@@ -45,7 +42,8 @@ func toCreateCohortParams(req *pb.CreateCohortRequest, info *session.Info) (mode
 		OwnerUsername:         ownerUsername,
 		ExpiresAt:             timestampToPtr(req.GetExpiresAt()),
 		DesiredFirmwareFileID: nonEmptyPtr(req.GetDesiredFirmwareFileId()),
-		DesiredConfigJSON:     desiredConfig,
+		DesiredConfig:         desiredConfig,
+		DesiredConfigJSON:     desiredConfigJSON,
 		Purpose:               req.GetPurpose(),
 		SourceActorType:       deriveSourceActorType(info),
 		SourceActorID:         deriveSourceActorID(info),
@@ -57,7 +55,8 @@ func toCreateCohortParams(req *pb.CreateCohortRequest, info *session.Info) (mode
 }
 
 func toUpdateCohortParams(req *pb.UpdateCohortRequest, orgID int64) (models.UpdateCohortParams, error) {
-	desiredConfig, err := structToJSON(req.GetDesiredConfig())
+	desiredConfig := desiredConfigFromProto(req.GetDesiredConfig())
+	desiredConfigJSON, err := desiredConfig.MarshalJSON()
 	if err != nil {
 		return models.UpdateCohortParams{}, err
 	}
@@ -70,7 +69,8 @@ func toUpdateCohortParams(req *pb.UpdateCohortRequest, orgID int64) (models.Upda
 		ClearExpiresAt:           req.GetClearExpiresAt(),
 		DesiredFirmwareFileID:    stringPtrFromOptional(req.DesiredFirmwareFileId),
 		DesiredFirmwareFileIDSet: req.DesiredFirmwareFileId != nil,
-		DesiredConfigJSON:        desiredConfig,
+		DesiredConfig:            desiredConfig,
+		DesiredConfigJSON:        desiredConfigJSON,
 		DesiredConfigJSONSet:     req.GetDesiredConfig() != nil,
 		ClearDesiredConfig:       req.GetClearDesiredConfig(),
 	}, nil
@@ -96,6 +96,20 @@ func toListCohortsParams(req *pb.ListCohortsRequest, orgID int64) models.ListCoh
 		PageToken:       req.GetPageToken(),
 		Search:          req.GetSearch(),
 	}
+}
+
+func toCohortFirmwareVersionHistoryParams(req *pb.GetCohortFirmwareVersionHistoryRequest, orgID int64) models.CohortFirmwareVersionHistoryParams {
+	params := models.CohortFirmwareVersionHistoryParams{OrgID: orgID, CohortID: req.GetCohortId()}
+	if req.GetStartTime() != nil {
+		params.StartTime = req.GetStartTime().AsTime()
+	}
+	if req.GetEndTime() != nil {
+		params.EndTime = req.GetEndTime().AsTime()
+	}
+	if req.GetGranularity() != nil {
+		params.Granularity = req.GetGranularity().AsDuration()
+	}
+	return params
 }
 
 func toListCohortsByOwnerParams(req *pb.GetMyCohortsRequest, info *session.Info) models.ListCohortsByOwnerParams {
@@ -135,6 +149,8 @@ func toCohortDeviceFilter(filter *pb.CohortDeviceFilter) models.CohortDeviceFilt
 	assignments := make([]models.CohortDeviceAssignment, 0, len(filter.GetAssignments()))
 	for _, assignment := range filter.GetAssignments() {
 		switch assignment {
+		case pb.CohortDeviceAssignment_COHORT_DEVICE_ASSIGNMENT_UNSPECIFIED:
+			continue
 		case pb.CohortDeviceAssignment_COHORT_DEVICE_ASSIGNMENT_AVAILABLE:
 			assignments = append(assignments, models.CohortDeviceAssignmentAvailable)
 		case pb.CohortDeviceAssignment_COHORT_DEVICE_ASSIGNMENT_RESERVED:
@@ -163,6 +179,24 @@ func toProtoCohort(cohort *models.Cohort) *pb.Cohort {
 	}
 }
 
+func toProtoCohortFirmwareVersionHistory(history models.CohortFirmwareVersionHistory) *pb.GetCohortFirmwareVersionHistoryResponse {
+	points := make([]*pb.CohortFirmwareVersionHistoryPoint, 0, len(history.Points))
+	for _, point := range history.Points {
+		versions := make([]*pb.CohortFirmwareVersionCount, 0, len(point.Versions))
+		for _, version := range point.Versions {
+			versions = append(versions, &pb.CohortFirmwareVersionCount{
+				FirmwareVersion: version.FirmwareVersion,
+				DeviceCount:     version.DeviceCount,
+			})
+		}
+		points = append(points, &pb.CohortFirmwareVersionHistoryPoint{
+			Timestamp: timestamppb.New(point.Timestamp),
+			Versions:  versions,
+		})
+	}
+	return &pb.GetCohortFirmwareVersionHistoryResponse{MemberCount: history.MemberCount, Points: points}
+}
+
 func toProtoCohortSummary(cohort *models.Cohort) *pb.CohortSummary {
 	if cohort == nil {
 		return nil
@@ -174,7 +208,7 @@ func toProtoCohortSummary(cohort *models.Cohort) *pb.CohortSummary {
 		OwnerUsername:         ptrToString(cohort.OwnerUsername),
 		ExpiresAt:             timePtrToTimestamp(cohort.ExpiresAt),
 		DesiredFirmwareFileId: ptrToString(cohort.DesiredFirmwareFileID),
-		DesiredConfig:         jsonToStruct(cohort.DesiredConfigJSON),
+		DesiredConfig:         desiredConfigToProto(cohort.DesiredConfig),
 		State:                 toProtoState(cohort.State),
 		Purpose:               cohort.Purpose,
 		SourceActorType:       string(cohort.SourceActorType),
@@ -185,6 +219,7 @@ func toProtoCohortSummary(cohort *models.Cohort) *pb.CohortSummary {
 		ExplicitMemberCount:   cohort.ExplicitMemberCount,
 		FirmwareTargets:       toProtoFirmwareTargets(cohort.FirmwareTargets),
 		FirmwareProgress:      toProtoFirmwareProgress(cohort.FirmwareProgress),
+		ConfigProgress:        toProtoConfigProgress(cohort.ConfigProgress),
 	}
 	if cohort.OwnerUserID != nil {
 		out.OwnerUserId = cohort.OwnerUserID
@@ -209,6 +244,7 @@ func toProtoMembers(members []models.CohortMember) []*pb.CohortMember {
 			AddedAt:          timestamppb.New(member.AddedAt),
 			Display:          toProtoDeviceDisplay(member.Display),
 			FirmwareStatus:   toProtoFirmwareStatus(member.FirmwareStatus),
+			ConfigStatuses:   toProtoConfigStatuses(member.ConfigStatuses),
 		}
 		out = append(out, pbMember)
 	}
@@ -235,10 +271,65 @@ func toProtoCohortDevices(devices []models.CohortDevice) []*pb.CohortDevice {
 			EffectiveCohort:  toProtoCohortSummary(&device.EffectiveCohort),
 			Display:          toProtoDeviceDisplay(device.Display),
 			FirmwareStatus:   toProtoFirmwareStatus(device.FirmwareStatus),
+			ConfigStatuses:   toProtoConfigStatuses(device.ConfigStatuses),
 		}
 		out = append(out, pbDevice)
 	}
 	return out
+}
+
+func toProtoConfigStatuses(statuses []models.CohortConfigStatus) []*pb.CohortConfigStatus {
+	out := make([]*pb.CohortConfigStatus, 0, len(statuses))
+	for _, status := range statuses {
+		out = append(out, &pb.CohortConfigStatus{
+			Dimension: toProtoConfigDimension(status.Dimension), Supported: status.Supported,
+			State: toProtoConfigLifecycleState(status.State), RetryCount: status.RetryCount,
+			LastError: ptrToString(status.LastError), LastDispatchedAt: timePtrToTimestamp(status.LastDispatchedAt),
+			ConfirmedAt: timePtrToTimestamp(status.ConfirmedAt), ObservedAt: timePtrToTimestamp(status.ObservedAt),
+		})
+	}
+	return out
+}
+
+func toProtoConfigProgress(progress []models.CohortConfigProgress) []*pb.CohortConfigProgress {
+	out := make([]*pb.CohortConfigProgress, 0, len(progress))
+	for _, item := range progress {
+		out = append(out, &pb.CohortConfigProgress{
+			Dimension: toProtoConfigDimension(item.Dimension), TargetedCount: item.TargetedCount,
+			UnsupportedCount: item.UnsupportedCount, WaitingCount: item.WaitingCount,
+			ApplyingCount: item.ApplyingCount, VerifyingCount: item.VerifyingCount,
+			ConvergedCount: item.ConvergedCount, HeldCount: item.HeldCount, FailedCount: item.FailedCount,
+		})
+	}
+	return out
+}
+
+func toProtoConfigDimension(dimension models.CohortConfigDimension) pb.CohortConfigDimension {
+	if dimension == models.CohortConfigDimensionPools {
+		return pb.CohortConfigDimension_COHORT_CONFIG_DIMENSION_POOLS
+	}
+	return pb.CohortConfigDimension_COHORT_CONFIG_DIMENSION_UNSPECIFIED
+}
+
+func toProtoConfigLifecycleState(state models.CohortConfigLifecycleState) pb.CohortConfigLifecycleState {
+	switch state {
+	case models.CohortConfigStateUnsupported:
+		return pb.CohortConfigLifecycleState_COHORT_CONFIG_LIFECYCLE_STATE_UNSUPPORTED
+	case models.CohortConfigStateWaitingForObservation:
+		return pb.CohortConfigLifecycleState_COHORT_CONFIG_LIFECYCLE_STATE_WAITING_FOR_OBSERVATION
+	case models.CohortConfigStateApplying:
+		return pb.CohortConfigLifecycleState_COHORT_CONFIG_LIFECYCLE_STATE_APPLYING
+	case models.CohortConfigStateVerifying:
+		return pb.CohortConfigLifecycleState_COHORT_CONFIG_LIFECYCLE_STATE_VERIFYING
+	case models.CohortConfigStateConverged:
+		return pb.CohortConfigLifecycleState_COHORT_CONFIG_LIFECYCLE_STATE_CONVERGED
+	case models.CohortConfigStateHeld:
+		return pb.CohortConfigLifecycleState_COHORT_CONFIG_LIFECYCLE_STATE_HELD
+	case models.CohortConfigStateFailed:
+		return pb.CohortConfigLifecycleState_COHORT_CONFIG_LIFECYCLE_STATE_FAILED
+	default:
+		return pb.CohortConfigLifecycleState_COHORT_CONFIG_LIFECYCLE_STATE_UNSPECIFIED
+	}
 }
 
 func toProtoDeviceDisplay(display models.CohortDeviceDisplay) *pb.CohortDeviceDisplay {
@@ -317,26 +408,26 @@ func toProtoFirmwareRolloutState(state models.CohortFirmwareRolloutState) pb.Coh
 	}
 }
 
-func structToJSON(s *structpb.Struct) (json.RawMessage, error) {
-	if s == nil {
-		return nil, nil
+func desiredConfigFromProto(config *pb.CohortDesiredConfig) *models.CohortDesiredConfig {
+	if config == nil || config.GetPools() == nil {
+		return nil
 	}
-	b, err := protojson.Marshal(s)
-	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("Desired configuration is not valid: %v", err)
-	}
-	return json.RawMessage(b), nil
+	return &models.CohortDesiredConfig{Pools: &models.CohortPoolDesiredConfig{
+		PrimaryPoolID: config.GetPools().GetPrimaryPoolId(),
+		Backup1PoolID: config.GetPools().Backup_1PoolId,
+		Backup2PoolID: config.GetPools().Backup_2PoolId,
+	}}
 }
 
-func jsonToStruct(raw json.RawMessage) *structpb.Struct {
-	if len(raw) == 0 {
+func desiredConfigToProto(config *models.CohortDesiredConfig) *pb.CohortDesiredConfig {
+	if config == nil || config.Pools == nil {
 		return nil
 	}
-	var s structpb.Struct
-	if err := protojson.Unmarshal(raw, &s); err != nil {
-		return nil
-	}
-	return &s
+	return &pb.CohortDesiredConfig{Pools: &pb.CohortPoolDesiredConfig{
+		PrimaryPoolId:  config.Pools.PrimaryPoolID,
+		Backup_1PoolId: config.Pools.Backup1PoolID,
+		Backup_2PoolId: config.Pools.Backup2PoolID,
+	}}
 }
 
 func timestampToPtr(ts *timestamppb.Timestamp) *time.Time {

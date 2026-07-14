@@ -98,6 +98,49 @@ func TestProcessCandidate_HoldsStaleObservation(t *testing.T) {
 	assert.Empty(t, dispatcher.calls)
 }
 
+func TestProcessCandidate_AgesFinishedDispatchWithStaleObservation(t *testing.T) {
+	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	store := &fakeFirmwareStore{batchFinished: true}
+	dispatcher := &fakeFirmwareDispatcher{}
+	r := New(Config{ObservationMaxAge: time.Minute, RedispatchCooldown: time.Minute}, store, dispatcher, fakeFirmwareMetadata{versions: map[string]string{"fw-1": "v2"}})
+	r.now = func() time.Time { return now }
+
+	state := models.EnforcementStateDispatched
+	lastDispatchedAt := now.Add(-2 * time.Minute)
+	batchUUID := "batch-1"
+	candidate := firmwareCandidate(now.Add(-2*time.Minute), &state, "v1")
+	candidate.LastDispatchedAt = &lastDispatchedAt
+	candidate.LastBatchUUID = &batchUUID
+
+	r.processCandidate(t.Context(), candidate)
+
+	require.Len(t, store.drifted, 1)
+	assert.Equal(t, "miner-1", store.drifted[0].DeviceIdentifier)
+	assert.Empty(t, store.claimed)
+	assert.Empty(t, dispatcher.calls)
+}
+
+func TestProcessCandidate_HoldsInFlightDispatchWithStaleObservation(t *testing.T) {
+	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	store := &fakeFirmwareStore{batchFinished: false}
+	dispatcher := &fakeFirmwareDispatcher{}
+	r := New(Config{ObservationMaxAge: time.Minute, RedispatchCooldown: time.Minute}, store, dispatcher, fakeFirmwareMetadata{versions: map[string]string{"fw-1": "v2"}})
+	r.now = func() time.Time { return now }
+
+	state := models.EnforcementStateDispatched
+	lastDispatchedAt := now.Add(-2 * time.Minute)
+	batchUUID := "batch-1"
+	candidate := firmwareCandidate(now.Add(-2*time.Minute), &state, "v1")
+	candidate.LastDispatchedAt = &lastDispatchedAt
+	candidate.LastBatchUUID = &batchUUID
+
+	r.processCandidate(t.Context(), candidate)
+
+	assert.Empty(t, store.drifted)
+	assert.Empty(t, store.claimed)
+	assert.Empty(t, dispatcher.calls)
+}
+
 func TestProcessCandidate_ClearsMissingFirmwareTarget(t *testing.T) {
 	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
 	store := &fakeFirmwareStore{}
@@ -223,7 +266,8 @@ func (f *fakeFirmwareDispatcher) FirmwareUpdate(ctx context.Context, selector *p
 }
 
 type fakeFirmwareStore struct {
-	claimResult bool
+	claimResult   bool
+	batchFinished bool
 
 	confirmed             []models.MarkFirmwareConfirmedParams
 	claimed               []models.ClaimFirmwareDispatchParams
@@ -283,7 +327,7 @@ func (f *fakeFirmwareStore) MarkFirmwareDispatchHeld(_ context.Context, params m
 }
 
 func (f *fakeFirmwareStore) IsCommandBatchFinished(context.Context, string) (bool, error) {
-	return true, nil
+	return f.batchFinished, nil
 }
 
 func (f *fakeFirmwareStore) UpsertCohortReconcilerHeartbeat(context.Context, time.Time, uuid.UUID, *int32, int32) error {

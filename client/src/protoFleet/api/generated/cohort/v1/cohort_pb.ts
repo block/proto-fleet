@@ -5,9 +5,9 @@
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import { file_buf_validate_validate } from "../../buf/validate/validate_pb";
-import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { file_google_protobuf_struct, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
-import type { JsonObject, Message } from "@bufbuild/protobuf";
+import type { Duration, Timestamp } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_duration, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file cohort/v1/cohort.proto.
@@ -15,9 +15,166 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
 export const file_cohort_v1_cohort: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChZjb2hvcnQvdjEvY29ob3J0LnByb3RvEgljb2hvcnQudjEi9AIKFENvaG9ydEZpcm13YXJlU3RhdHVzEh8KF3RhcmdldF9maXJtd2FyZV9maWxlX2lkGAEgASgJEh8KF3RhcmdldF9maXJtd2FyZV92ZXJzaW9uGAIgASgJEiAKGGN1cnJlbnRfZmlybXdhcmVfdmVyc2lvbhgDIAEoCRI0CgVzdGF0ZRgEIAEoDjIlLmNvaG9ydC52MS5Db2hvcnRGaXJtd2FyZVJvbGxvdXRTdGF0ZRITCgtyZXRyeV9jb3VudBgFIAEoBRISCgpsYXN0X2Vycm9yGAYgASgJEjYKEmxhc3RfZGlzcGF0Y2hlZF9hdBgHIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMY29uZmlybWVkX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtvYnNlcnZlZF9hdBgJIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAixQEKFkNvaG9ydEZpcm13YXJlUHJvZ3Jlc3MSFgoOdGFyZ2V0ZWRfY291bnQYASABKAUSFgoOY29tcGxldGVfY291bnQYAiABKAUSFAoMcXVldWVkX2NvdW50GAMgASgFEhYKDnVwZGF0aW5nX2NvdW50GAQgASgFEhcKD3ZlcmlmeWluZ19jb3VudBgFIAEoBRIdChVuZWVkc19hdHRlbnRpb25fY291bnQYBiABKAUSFQoNdW5rbm93bl9jb3VudBgHIAEoBSKEBQoNQ29ob3J0U3VtbWFyeRIKCgJpZBgBIAEoAxINCgVsYWJlbBgCIAEoCRISCgppc19kZWZhdWx0GAMgASgIEhoKDW93bmVyX3VzZXJfaWQYBCABKANIAIgBARIWCg5vd25lcl91c2VybmFtZRgFIAEoCRIuCgpleHBpcmVzX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIgChhkZXNpcmVkX2Zpcm13YXJlX2ZpbGVfaWQYByABKAkSLwoOZGVzaXJlZF9jb25maWcYCCABKAsyFy5nb29nbGUucHJvdG9idWYuU3RydWN0EiUKBXN0YXRlGAogASgOMhYuY29ob3J0LnYxLkNvaG9ydFN0YXRlEg8KB3B1cnBvc2UYCyABKAkSGQoRc291cmNlX2FjdG9yX3R5cGUYDCABKAkSFwoPc291cmNlX2FjdG9yX2lkGA0gASgJEhcKD2lkZW1wb3RlbmN5X2tleRgOIAEoCRIuCgpjcmVhdGVkX2F0GBQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GBUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIdChVleHBsaWNpdF9tZW1iZXJfY291bnQYHyABKAMSOQoQZmlybXdhcmVfdGFyZ2V0cxggIAMoCzIfLmNvaG9ydC52MS5Db2hvcnRGaXJtd2FyZVRhcmdldBI8ChFmaXJtd2FyZV9wcm9ncmVzcxghIAEoCzIhLmNvaG9ydC52MS5Db2hvcnRGaXJtd2FyZVByb2dyZXNzQhAKDl9vd25lcl91c2VyX2lkIncKFENvaG9ydEZpcm13YXJlVGFyZ2V0EiAKDG1hbnVmYWN0dXJlchgBIAEoCUIKukgHcgUQARj/ARIZCgVtb2RlbBgCIAEoCUIKukgHcgUQARj/ARIiChBmaXJtd2FyZV9maWxlX2lkGAMgASgJQgi6SAVyAxj/ASKYAQoGQ29ob3J0EikKB3N1bW1hcnkYASABKAsyGC5jb2hvcnQudjEuQ29ob3J0U3VtbWFyeRIoCgdtZW1iZXJzGAIgAygLMhcuY29ob3J0LnYxLkNvaG9ydE1lbWJlchI5ChBmaXJtd2FyZV90YXJnZXRzGAMgAygLMh8uY29ob3J0LnYxLkNvaG9ydEZpcm13YXJlVGFyZ2V0IrQBChNDb2hvcnREZXZpY2VEaXNwbGF5EgwKBG5hbWUYASABKAkSEwoLd29ya2VyX25hbWUYAiABKAkSFAoMbWFudWZhY3R1cmVyGAMgASgJEg0KBW1vZGVsGAQgASgJEhIKCmlwX2FkZHJlc3MYBSABKAkSFQoNc2VyaWFsX251bWJlchgGIAEoCRIYChBmaXJtd2FyZV92ZXJzaW9uGAggASgJSgQIBxAIUgpzaXRlX2xhYmVsIuQBCgxDb2hvcnRNZW1iZXISEQoJY29ob3J0X2lkGAEgASgDEhkKEWRldmljZV9pZGVudGlmaWVyGAIgASgJEiwKCGFkZGVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgdkaXNwbGF5GAUgASgLMh4uY29ob3J0LnYxLkNvaG9ydERldmljZURpc3BsYXkSOAoPZmlybXdhcmVfc3RhdHVzGAYgASgLMh8uY29ob3J0LnYxLkNvaG9ydEZpcm13YXJlU3RhdHVzSgQIAxAEUgdzaXRlX2lkIkwKGkNvaG9ydERldmljZUlkZW50aWZpZXJMaXN0Ei4KEmRldmljZV9pZGVudGlmaWVycxgBIAMoCUISukgPkgEMEJBOIgdyBRABGIACIpQBChRDb2hvcnREZXZpY2VTZWxlY3RvchIZCgVjb3VudBgBIAEoBUIKukgHGgUYkE4gABIeCgdwcm9kdWN0GAIgASgJQgi6SAVyAxj/AUgAiAEBEhwKBW1vZGVsGAMgASgJQgi6SAVyAxj/AUgBiAEBQgoKCF9wcm9kdWN0QggKBl9tb2RlbEoECAQQBVIHc2l0ZV9pZCLKAwoTQ3JlYXRlQ29ob3J0UmVxdWVzdBIZCgVsYWJlbBgBIAEoCUIKukgHcgUQARj/ARIbCgdwdXJwb3NlGAIgASgJQgq6SAdyBRABGIAIEhcKD2NsYWltX293bmVyc2hpcBgDIAEoCBIuCgpleHBpcmVzX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIqChhkZXNpcmVkX2Zpcm13YXJlX2ZpbGVfaWQYBSABKAlCCLpIBXIDGP8BEi8KDmRlc2lyZWRfY29uZmlnGAYgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdBJDChJkZXZpY2VfaWRlbnRpZmllcnMYByABKAsyJS5jb2hvcnQudjEuQ29ob3J0RGV2aWNlSWRlbnRpZmllckxpc3RIABInChRzb3VyY2VfZGV2aWNlX3NldF9pZBgIIAEoA0IHukgEIgIgAEgAEjEKBnNlbGVjdBgKIAEoCzIfLmNvaG9ydC52MS5Db2hvcnREZXZpY2VTZWxlY3RvckgAEiEKD2lkZW1wb3RlbmN5X2tleRgJIAEoCUIIukgFcgMY/wFCEQoPaW5pdGlhbF9tZW1iZXJzIjkKFENyZWF0ZUNvaG9ydFJlc3BvbnNlEiEKBmNvaG9ydBgBIAEoCzIRLmNvaG9ydC52MS5Db2hvcnQijgUKE1VwZGF0ZUNvaG9ydFJlcXVlc3QSGgoJY29ob3J0X2lkGAEgASgDQge6SAQiAiAAEh4KBWxhYmVsGAIgASgJQgq6SAdyBRABGP8BSACIAQESIAoHcHVycG9zZRgDIAEoCUIKukgHcgUQARiACEgBiAEBEi4KCmV4cGlyZXNfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KGGRlc2lyZWRfZmlybXdhcmVfZmlsZV9pZBgFIAEoCUIIukgFcgMY/wFIAogBARIvCg5kZXNpcmVkX2NvbmZpZxgGIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSGAoQY2xlYXJfZXhwaXJlc19hdBgHIAEoCBIcChRjbGVhcl9kZXNpcmVkX2NvbmZpZxgIIAEoCDqbArpIlwIafwoXZXhwaXJlc19hdF9zZXRfb3JfY2xlYXISMmV4cGlyZXNfYXQgYW5kIGNsZWFyX2V4cGlyZXNfYXQgY2Fubm90IGJvdGggYmUgc2V0GjAhKGhhcyh0aGlzLmV4cGlyZXNfYXQpICYmIHRoaXMuY2xlYXJfZXhwaXJlc19hdCkakwEKG2Rlc2lyZWRfY29uZmlnX3NldF9vcl9jbGVhchI6ZGVzaXJlZF9jb25maWcgYW5kIGNsZWFyX2Rlc2lyZWRfY29uZmlnIGNhbm5vdCBib3RoIGJlIHNldBo4IShoYXModGhpcy5kZXNpcmVkX2NvbmZpZykgJiYgdGhpcy5jbGVhcl9kZXNpcmVkX2NvbmZpZylCCAoGX2xhYmVsQgoKCF9wdXJwb3NlQhsKGV9kZXNpcmVkX2Zpcm13YXJlX2ZpbGVfaWQiOQoUVXBkYXRlQ29ob3J0UmVzcG9uc2USIQoGY29ob3J0GAEgASgLMhEuY29ob3J0LnYxLkNvaG9ydCLcAQoeU2V0Q29ob3J0RmlybXdhcmVUYXJnZXRSZXF1ZXN0EhoKCWNvaG9ydF9pZBgBIAEoA0IHukgEIgIgABIlCgxtYW51ZmFjdHVyZXIYAiABKAlCCrpIB3IFEAEY/wFIAIgBARIeCgVtb2RlbBgDIAEoCUIKukgHcgUQARj/AUgBiAEBEicKEGZpcm13YXJlX2ZpbGVfaWQYBCABKAlCCLpIBXIDGP8BSAKIAQFCDwoNX21hbnVmYWN0dXJlckIICgZfbW9kZWxCEwoRX2Zpcm13YXJlX2ZpbGVfaWQiRAofU2V0Q29ob3J0RmlybXdhcmVUYXJnZXRSZXNwb25zZRIhCgZjb2hvcnQYASABKAsyES5jb2hvcnQudjEuQ29ob3J0ImkKGUFkZERldmljZXNUb0NvaG9ydFJlcXVlc3QSGgoJY29ob3J0X2lkGAEgASgDQge6SAQiAiAAEjAKEmRldmljZV9pZGVudGlmaWVycxgCIAMoCUIUukgRkgEOCAEQkE4iB3IFEAEYgAIiPwoaQWRkRGV2aWNlc1RvQ29ob3J0UmVzcG9uc2USIQoGY29ob3J0GAEgASgLMhEuY29ob3J0LnYxLkNvaG9ydCJuCh5SZW1vdmVEZXZpY2VzRnJvbUNvaG9ydFJlcXVlc3QSGgoJY29ob3J0X2lkGAEgASgDQge6SAQiAiAAEjAKEmRldmljZV9pZGVudGlmaWVycxgCIAMoCUIUukgRkgEOCAEQkE4iB3IFEAEYgAIiRAofUmVtb3ZlRGV2aWNlc0Zyb21Db2hvcnRSZXNwb25zZRIhCgZjb2hvcnQYASABKAsyES5jb2hvcnQudjEuQ29ob3J0IjIKFFJlbGVhc2VDb2hvcnRSZXF1ZXN0EhoKCWNvaG9ydF9pZBgBIAEoA0IHukgEIgIgACI6ChVSZWxlYXNlQ29ob3J0UmVzcG9uc2USIQoGY29ob3J0GAEgASgLMhEuY29ob3J0LnYxLkNvaG9ydCIxChNEZWxldGVDb2hvcnRSZXF1ZXN0EhoKCWNvaG9ydF9pZBgBIAEoA0IHukgEIgIgACI5ChREZWxldGVDb2hvcnRSZXNwb25zZRIhCgZjb2hvcnQYASABKAsyES5jb2hvcnQudjEuQ29ob3J0Ii4KEEdldENvaG9ydFJlcXVlc3QSGgoJY29ob3J0X2lkGAEgASgDQge6SAQiAiAAIjYKEUdldENvaG9ydFJlc3BvbnNlEiEKBmNvaG9ydBgBIAEoCzIRLmNvaG9ydC52MS5Db2hvcnQihQEKEkxpc3RDb2hvcnRzUmVxdWVzdBIYChBpbmNsdWRlX3JlbGVhc2VkGAEgASgIEh0KCXBhZ2Vfc2l6ZRgCIAEoBUIKukgHGgUY9AMoABIcCgpwYWdlX3Rva2VuGAMgASgJQgi6SAVyAxiAEBIYCgZzZWFyY2gYBCABKAlCCLpIBXIDGP8BIm4KE0xpc3RDb2hvcnRzUmVzcG9uc2USKQoHY29ob3J0cxgBIAMoCzIYLmNvaG9ydC52MS5Db2hvcnRTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCRITCgt0b3RhbF9jb3VudBgDIAEoBSKGAQoTR2V0TXlDb2hvcnRzUmVxdWVzdBIYChBpbmNsdWRlX3JlbGVhc2VkGAEgASgIEh0KCXBhZ2Vfc2l6ZRgCIAEoBUIKukgHGgUY9AMoABIcCgpwYWdlX3Rva2VuGAMgASgJQgi6SAVyAxiAEBIYCgZzZWFyY2gYBCABKAlCCLpIBXIDGP8BIm8KFEdldE15Q29ob3J0c1Jlc3BvbnNlEikKB2NvaG9ydHMYASADKAsyGC5jb2hvcnQudjEuQ29ob3J0U3VtbWFyeRIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkSEwoLdG90YWxfY291bnQYAyABKAUijwEKEkxpc3REZXZpY2VzUmVxdWVzdBIdCglwYWdlX3NpemUYAiABKAVCCrpIBxoFGPQDKAASHAoKcGFnZV90b2tlbhgDIAEoCUIIukgFcgMYgBASLQoGZmlsdGVyGAQgASgLMh0uY29ob3J0LnYxLkNvaG9ydERldmljZUZpbHRlckoECAEQAlIHc2l0ZV9pZCKfAgoSQ29ob3J0RGV2aWNlRmlsdGVyEjYKC2Fzc2lnbm1lbnRzGAEgAygOMiEuY29ob3J0LnYxLkNvaG9ydERldmljZUFzc2lnbm1lbnQSEgoKY29ob3J0X2lkcxgCIAMoAxIWCg5vd25lcl91c2VyX2lkcxgDIAMoAxIXCg9pbmNsdWRlX3Vub3duZWQYBCABKAgSJAoNbWFudWZhY3R1cmVycxgFIAMoCUINukgKkgEHIgVyAxj/ARIdCgZtb2RlbHMYBiADKAlCDbpICpIBByIFcgMY/wESGAoGc2VhcmNoGAkgASgJQgi6SAVyAxj/AUoECAcQCEoECAgQCVIIc2l0ZV9pZHNSF2luY2x1ZGVfdW5hc3NpZ25lZF9zaXRlItcBCgxDb2hvcnREZXZpY2USGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSMgoQZWZmZWN0aXZlX2NvaG9ydBgDIAEoCzIYLmNvaG9ydC52MS5Db2hvcnRTdW1tYXJ5Ei8KB2Rpc3BsYXkYBCABKAsyHi5jb2hvcnQudjEuQ29ob3J0RGV2aWNlRGlzcGxheRI4Cg9maXJtd2FyZV9zdGF0dXMYBSABKAsyHy5jb2hvcnQudjEuQ29ob3J0RmlybXdhcmVTdGF0dXNKBAgCEANSB3NpdGVfaWQingEKE0xpc3REZXZpY2VzUmVzcG9uc2USKAoHZGV2aWNlcxgBIAMoCzIXLmNvaG9ydC52MS5Db2hvcnREZXZpY2USFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJEhMKC3RvdGFsX2NvdW50GAMgASgFEhcKD2F2YWlsYWJsZV9jb3VudBgEIAEoBRIWCg5yZXNlcnZlZF9jb3VudBgFIAEoBSJrChRBZG1pblJlYXNzaWduUmVxdWVzdBIhChB0YXJnZXRfY29ob3J0X2lkGAEgASgDQge6SAQiAiAAEjAKEmRldmljZV9pZGVudGlmaWVycxgCIAMoCUIUukgRkgEOCAEQkE4iB3IFEAEYgAIiOgoVQWRtaW5SZWFzc2lnblJlc3BvbnNlEiEKBmNvaG9ydBgBIAEoCzIRLmNvaG9ydC52MS5Db2hvcnQiNwoZQWRtaW5SZWxlYXNlQ29ob3J0UmVxdWVzdBIaCgljb2hvcnRfaWQYASABKANCB7pIBCICIAAiPwoaQWRtaW5SZWxlYXNlQ29ob3J0UmVzcG9uc2USIQoGY29ob3J0GAEgASgLMhEuY29ob3J0LnYxLkNvaG9ydCpfCgtDb2hvcnRTdGF0ZRIcChhDT0hPUlRfU1RBVEVfVU5TUEVDSUZJRUQQABIXChNDT0hPUlRfU1RBVEVfQUNUSVZFEAESGQoVQ09IT1JUX1NUQVRFX1JFTEVBU0VEEAIqhQMKGkNvaG9ydEZpcm13YXJlUm9sbG91dFN0YXRlEi0KKUNPSE9SVF9GSVJNV0FSRV9ST0xMT1VUX1NUQVRFX1VOU1BFQ0lGSUVEEAASKwonQ09IT1JUX0ZJUk1XQVJFX1JPTExPVVRfU1RBVEVfTk9fVEFSR0VUEAESKAokQ09IT1JUX0ZJUk1XQVJFX1JPTExPVVRfU1RBVEVfUVVFVUVEEAISKgomQ09IT1JUX0ZJUk1XQVJFX1JPTExPVVRfU1RBVEVfVVBEQVRJTkcQAxIrCidDT0hPUlRfRklSTVdBUkVfUk9MTE9VVF9TVEFURV9WRVJJRllJTkcQBBIqCiZDT0hPUlRfRklSTVdBUkVfUk9MTE9VVF9TVEFURV9DT01QTEVURRAFEjEKLUNPSE9SVF9GSVJNV0FSRV9ST0xMT1VUX1NUQVRFX05FRURTX0FUVEVOVElPThAGEikKJUNPSE9SVF9GSVJNV0FSRV9ST0xMT1VUX1NUQVRFX1VOS05PV04QByqRAQoWQ29ob3J0RGV2aWNlQXNzaWdubWVudBIoCiRDT0hPUlRfREVWSUNFX0FTU0lHTk1FTlRfVU5TUEVDSUZJRUQQABImCiJDT0hPUlRfREVWSUNFX0FTU0lHTk1FTlRfQVZBSUxBQkxFEAESJQohQ09IT1JUX0RFVklDRV9BU1NJR05NRU5UX1JFU0VSVkVEEAIyiQkKDUNvaG9ydFNlcnZpY2USTwoMQ3JlYXRlQ29ob3J0Eh4uY29ob3J0LnYxLkNyZWF0ZUNvaG9ydFJlcXVlc3QaHy5jb2hvcnQudjEuQ3JlYXRlQ29ob3J0UmVzcG9uc2USTwoMVXBkYXRlQ29ob3J0Eh4uY29ob3J0LnYxLlVwZGF0ZUNvaG9ydFJlcXVlc3QaHy5jb2hvcnQudjEuVXBkYXRlQ29ob3J0UmVzcG9uc2UScAoXU2V0Q29ob3J0RmlybXdhcmVUYXJnZXQSKS5jb2hvcnQudjEuU2V0Q29ob3J0RmlybXdhcmVUYXJnZXRSZXF1ZXN0GiouY29ob3J0LnYxLlNldENvaG9ydEZpcm13YXJlVGFyZ2V0UmVzcG9uc2USYQoSQWRkRGV2aWNlc1RvQ29ob3J0EiQuY29ob3J0LnYxLkFkZERldmljZXNUb0NvaG9ydFJlcXVlc3QaJS5jb2hvcnQudjEuQWRkRGV2aWNlc1RvQ29ob3J0UmVzcG9uc2UScAoXUmVtb3ZlRGV2aWNlc0Zyb21Db2hvcnQSKS5jb2hvcnQudjEuUmVtb3ZlRGV2aWNlc0Zyb21Db2hvcnRSZXF1ZXN0GiouY29ob3J0LnYxLlJlbW92ZURldmljZXNGcm9tQ29ob3J0UmVzcG9uc2USUgoNUmVsZWFzZUNvaG9ydBIfLmNvaG9ydC52MS5SZWxlYXNlQ29ob3J0UmVxdWVzdBogLmNvaG9ydC52MS5SZWxlYXNlQ29ob3J0UmVzcG9uc2USTwoMRGVsZXRlQ29ob3J0Eh4uY29ob3J0LnYxLkRlbGV0ZUNvaG9ydFJlcXVlc3QaHy5jb2hvcnQudjEuRGVsZXRlQ29ob3J0UmVzcG9uc2USRgoJR2V0Q29ob3J0EhsuY29ob3J0LnYxLkdldENvaG9ydFJlcXVlc3QaHC5jb2hvcnQudjEuR2V0Q29ob3J0UmVzcG9uc2USTAoLTGlzdENvaG9ydHMSHS5jb2hvcnQudjEuTGlzdENvaG9ydHNSZXF1ZXN0Gh4uY29ob3J0LnYxLkxpc3RDb2hvcnRzUmVzcG9uc2USTwoMR2V0TXlDb2hvcnRzEh4uY29ob3J0LnYxLkdldE15Q29ob3J0c1JlcXVlc3QaHy5jb2hvcnQudjEuR2V0TXlDb2hvcnRzUmVzcG9uc2USTAoLTGlzdERldmljZXMSHS5jb2hvcnQudjEuTGlzdERldmljZXNSZXF1ZXN0Gh4uY29ob3J0LnYxLkxpc3REZXZpY2VzUmVzcG9uc2USUgoNQWRtaW5SZWFzc2lnbhIfLmNvaG9ydC52MS5BZG1pblJlYXNzaWduUmVxdWVzdBogLmNvaG9ydC52MS5BZG1pblJlYXNzaWduUmVzcG9uc2USYQoSQWRtaW5SZWxlYXNlQ29ob3J0EiQuY29ob3J0LnYxLkFkbWluUmVsZWFzZUNvaG9ydFJlcXVlc3QaJS5jb2hvcnQudjEuQWRtaW5SZWxlYXNlQ29ob3J0UmVzcG9uc2VCqAEKDWNvbS5jb2hvcnQudjFCC0NvaG9ydFByb3RvUAFaRWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2NvaG9ydC92MTtjb2hvcnR2MaICA0NYWKoCCUNvaG9ydC5WMcoCCUNvaG9ydFxWMeICFUNvaG9ydFxWMVxHUEJNZXRhZGF0YeoCCkNvaG9ydDo6VjFiBnByb3RvMw",
-    [file_buf_validate_validate, file_google_protobuf_struct, file_google_protobuf_timestamp],
+    "ChZjb2hvcnQvdjEvY29ob3J0LnByb3RvEgljb2hvcnQudjEitQEKF0NvaG9ydFBvb2xEZXNpcmVkQ29uZmlnEiAKD3ByaW1hcnlfcG9vbF9pZBgBIAEoA0IHukgEIgIgABImChBiYWNrdXBfMV9wb29sX2lkGAIgASgDQge6SAQiAiAASACIAQESJgoQYmFja3VwXzJfcG9vbF9pZBgDIAEoA0IHukgEIgIgAEgBiAEBQhMKEV9iYWNrdXBfMV9wb29sX2lkQhMKEV9iYWNrdXBfMl9wb29sX2lkIkgKE0NvaG9ydERlc2lyZWRDb25maWcSMQoFcG9vbHMYASABKAsyIi5jb2hvcnQudjEuQ29ob3J0UG9vbERlc2lyZWRDb25maWci1gIKEkNvaG9ydENvbmZpZ1N0YXR1cxIzCglkaW1lbnNpb24YASABKA4yIC5jb2hvcnQudjEuQ29ob3J0Q29uZmlnRGltZW5zaW9uEhEKCXN1cHBvcnRlZBgCIAEoCBI0CgVzdGF0ZRgDIAEoDjIlLmNvaG9ydC52MS5Db2hvcnRDb25maWdMaWZlY3ljbGVTdGF0ZRITCgtyZXRyeV9jb3VudBgEIAEoBRISCgpsYXN0X2Vycm9yGAUgASgJEjYKEmxhc3RfZGlzcGF0Y2hlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMY29uZmlybWVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtvYnNlcnZlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiiQIKFENvaG9ydENvbmZpZ1Byb2dyZXNzEjMKCWRpbWVuc2lvbhgBIAEoDjIgLmNvaG9ydC52MS5Db2hvcnRDb25maWdEaW1lbnNpb24SFgoOdGFyZ2V0ZWRfY291bnQYAiABKAUSGQoRdW5zdXBwb3J0ZWRfY291bnQYAyABKAUSFQoNd2FpdGluZ19jb3VudBgEIAEoBRIWCg5hcHBseWluZ19jb3VudBgFIAEoBRIXCg92ZXJpZnlpbmdfY291bnQYBiABKAUSFwoPY29udmVyZ2VkX2NvdW50GAcgASgFEhIKCmhlbGRfY291bnQYCCABKAUSFAoMZmFpbGVkX2NvdW50GAkgASgFIvQCChRDb2hvcnRGaXJtd2FyZVN0YXR1cxIfChd0YXJnZXRfZmlybXdhcmVfZmlsZV9pZBgBIAEoCRIfChd0YXJnZXRfZmlybXdhcmVfdmVyc2lvbhgCIAEoCRIgChhjdXJyZW50X2Zpcm13YXJlX3ZlcnNpb24YAyABKAkSNAoFc3RhdGUYBCABKA4yJS5jb2hvcnQudjEuQ29ob3J0RmlybXdhcmVSb2xsb3V0U3RhdGUSEwoLcmV0cnlfY291bnQYBSABKAUSEgoKbGFzdF9lcnJvchgGIAEoCRI2ChJsYXN0X2Rpc3BhdGNoZWRfYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDGNvbmZpcm1lZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLb2JzZXJ2ZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIsUBChZDb2hvcnRGaXJtd2FyZVByb2dyZXNzEhYKDnRhcmdldGVkX2NvdW50GAEgASgFEhYKDmNvbXBsZXRlX2NvdW50GAIgASgFEhQKDHF1ZXVlZF9jb3VudBgDIAEoBRIWCg51cGRhdGluZ19jb3VudBgEIAEoBRIXCg92ZXJpZnlpbmdfY291bnQYBSABKAUSHQoVbmVlZHNfYXR0ZW50aW9uX2NvdW50GAYgASgFEhUKDXVua25vd25fY291bnQYByABKAUixQUKDUNvaG9ydFN1bW1hcnkSCgoCaWQYASABKAMSDQoFbGFiZWwYAiABKAkSEgoKaXNfZGVmYXVsdBgDIAEoCBIaCg1vd25lcl91c2VyX2lkGAQgASgDSACIAQESFgoOb3duZXJfdXNlcm5hbWUYBSABKAkSLgoKZXhwaXJlc19hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASIAoYZGVzaXJlZF9maXJtd2FyZV9maWxlX2lkGAcgASgJEjYKDmRlc2lyZWRfY29uZmlnGAggASgLMh4uY29ob3J0LnYxLkNvaG9ydERlc2lyZWRDb25maWcSJQoFc3RhdGUYCiABKA4yFi5jb2hvcnQudjEuQ29ob3J0U3RhdGUSDwoHcHVycG9zZRgLIAEoCRIZChFzb3VyY2VfYWN0b3JfdHlwZRgMIAEoCRIXCg9zb3VyY2VfYWN0b3JfaWQYDSABKAkSFwoPaWRlbXBvdGVuY3lfa2V5GA4gASgJEi4KCmNyZWF0ZWRfYXQYFCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYFSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEh0KFWV4cGxpY2l0X21lbWJlcl9jb3VudBgfIAEoAxI5ChBmaXJtd2FyZV90YXJnZXRzGCAgAygLMh8uY29ob3J0LnYxLkNvaG9ydEZpcm13YXJlVGFyZ2V0EjwKEWZpcm13YXJlX3Byb2dyZXNzGCEgASgLMiEuY29ob3J0LnYxLkNvaG9ydEZpcm13YXJlUHJvZ3Jlc3MSOAoPY29uZmlnX3Byb2dyZXNzGCIgAygLMh8uY29ob3J0LnYxLkNvaG9ydENvbmZpZ1Byb2dyZXNzQhAKDl9vd25lcl91c2VyX2lkIncKFENvaG9ydEZpcm13YXJlVGFyZ2V0EiAKDG1hbnVmYWN0dXJlchgBIAEoCUIKukgHcgUQARj/ARIZCgVtb2RlbBgCIAEoCUIKukgHcgUQARj/ARIiChBmaXJtd2FyZV9maWxlX2lkGAMgASgJQgi6SAVyAxj/ASKYAQoGQ29ob3J0EikKB3N1bW1hcnkYASABKAsyGC5jb2hvcnQudjEuQ29ob3J0U3VtbWFyeRIoCgdtZW1iZXJzGAIgAygLMhcuY29ob3J0LnYxLkNvaG9ydE1lbWJlchI5ChBmaXJtd2FyZV90YXJnZXRzGAMgAygLMh8uY29ob3J0LnYxLkNvaG9ydEZpcm13YXJlVGFyZ2V0IrQBChNDb2hvcnREZXZpY2VEaXNwbGF5EgwKBG5hbWUYASABKAkSEwoLd29ya2VyX25hbWUYAiABKAkSFAoMbWFudWZhY3R1cmVyGAMgASgJEg0KBW1vZGVsGAQgASgJEhIKCmlwX2FkZHJlc3MYBSABKAkSFQoNc2VyaWFsX251bWJlchgGIAEoCRIYChBmaXJtd2FyZV92ZXJzaW9uGAggASgJSgQIBxAIUgpzaXRlX2xhYmVsIpwCCgxDb2hvcnRNZW1iZXISEQoJY29ob3J0X2lkGAEgASgDEhkKEWRldmljZV9pZGVudGlmaWVyGAIgASgJEiwKCGFkZGVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgdkaXNwbGF5GAUgASgLMh4uY29ob3J0LnYxLkNvaG9ydERldmljZURpc3BsYXkSOAoPZmlybXdhcmVfc3RhdHVzGAYgASgLMh8uY29ob3J0LnYxLkNvaG9ydEZpcm13YXJlU3RhdHVzEjYKD2NvbmZpZ19zdGF0dXNlcxgHIAMoCzIdLmNvaG9ydC52MS5Db2hvcnRDb25maWdTdGF0dXNKBAgDEARSB3NpdGVfaWQiTAoaQ29ob3J0RGV2aWNlSWRlbnRpZmllckxpc3QSLgoSZGV2aWNlX2lkZW50aWZpZXJzGAEgAygJQhK6SA+SAQwQkE4iB3IFEAEYgAIilAEKFENvaG9ydERldmljZVNlbGVjdG9yEhkKBWNvdW50GAEgASgFQgq6SAcaBRiQTiAAEh4KB3Byb2R1Y3QYAiABKAlCCLpIBXIDGP8BSACIAQESHAoFbW9kZWwYAyABKAlCCLpIBXIDGP8BSAGIAQFCCgoIX3Byb2R1Y3RCCAoGX21vZGVsSgQIBBAFUgdzaXRlX2lkItEDChNDcmVhdGVDb2hvcnRSZXF1ZXN0EhkKBWxhYmVsGAEgASgJQgq6SAdyBRABGP8BEhsKB3B1cnBvc2UYAiABKAlCCrpIB3IFEAEYgAgSFwoPY2xhaW1fb3duZXJzaGlwGAMgASgIEi4KCmV4cGlyZXNfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEioKGGRlc2lyZWRfZmlybXdhcmVfZmlsZV9pZBgFIAEoCUIIukgFcgMY/wESNgoOZGVzaXJlZF9jb25maWcYBiABKAsyHi5jb2hvcnQudjEuQ29ob3J0RGVzaXJlZENvbmZpZxJDChJkZXZpY2VfaWRlbnRpZmllcnMYByABKAsyJS5jb2hvcnQudjEuQ29ob3J0RGV2aWNlSWRlbnRpZmllckxpc3RIABInChRzb3VyY2VfZGV2aWNlX3NldF9pZBgIIAEoA0IHukgEIgIgAEgAEjEKBnNlbGVjdBgKIAEoCzIfLmNvaG9ydC52MS5Db2hvcnREZXZpY2VTZWxlY3RvckgAEiEKD2lkZW1wb3RlbmN5X2tleRgJIAEoCUIIukgFcgMY/wFCEQoPaW5pdGlhbF9tZW1iZXJzIjkKFENyZWF0ZUNvaG9ydFJlc3BvbnNlEiEKBmNvaG9ydBgBIAEoCzIRLmNvaG9ydC52MS5Db2hvcnQilQUKE1VwZGF0ZUNvaG9ydFJlcXVlc3QSGgoJY29ob3J0X2lkGAEgASgDQge6SAQiAiAAEh4KBWxhYmVsGAIgASgJQgq6SAdyBRABGP8BSACIAQESIAoHcHVycG9zZRgDIAEoCUIKukgHcgUQARiACEgBiAEBEi4KCmV4cGlyZXNfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi8KGGRlc2lyZWRfZmlybXdhcmVfZmlsZV9pZBgFIAEoCUIIukgFcgMY/wFIAogBARI2Cg5kZXNpcmVkX2NvbmZpZxgGIAEoCzIeLmNvaG9ydC52MS5Db2hvcnREZXNpcmVkQ29uZmlnEhgKEGNsZWFyX2V4cGlyZXNfYXQYByABKAgSHAoUY2xlYXJfZGVzaXJlZF9jb25maWcYCCABKAg6mwK6SJcCGn8KF2V4cGlyZXNfYXRfc2V0X29yX2NsZWFyEjJleHBpcmVzX2F0IGFuZCBjbGVhcl9leHBpcmVzX2F0IGNhbm5vdCBib3RoIGJlIHNldBowIShoYXModGhpcy5leHBpcmVzX2F0KSAmJiB0aGlzLmNsZWFyX2V4cGlyZXNfYXQpGpMBChtkZXNpcmVkX2NvbmZpZ19zZXRfb3JfY2xlYXISOmRlc2lyZWRfY29uZmlnIGFuZCBjbGVhcl9kZXNpcmVkX2NvbmZpZyBjYW5ub3QgYm90aCBiZSBzZXQaOCEoaGFzKHRoaXMuZGVzaXJlZF9jb25maWcpICYmIHRoaXMuY2xlYXJfZGVzaXJlZF9jb25maWcpQggKBl9sYWJlbEIKCghfcHVycG9zZUIbChlfZGVzaXJlZF9maXJtd2FyZV9maWxlX2lkIjkKFFVwZGF0ZUNvaG9ydFJlc3BvbnNlEiEKBmNvaG9ydBgBIAEoCzIRLmNvaG9ydC52MS5Db2hvcnQi3AEKHlNldENvaG9ydEZpcm13YXJlVGFyZ2V0UmVxdWVzdBIaCgljb2hvcnRfaWQYASABKANCB7pIBCICIAASJQoMbWFudWZhY3R1cmVyGAIgASgJQgq6SAdyBRABGP8BSACIAQESHgoFbW9kZWwYAyABKAlCCrpIB3IFEAEY/wFIAYgBARInChBmaXJtd2FyZV9maWxlX2lkGAQgASgJQgi6SAVyAxj/AUgCiAEBQg8KDV9tYW51ZmFjdHVyZXJCCAoGX21vZGVsQhMKEV9maXJtd2FyZV9maWxlX2lkIkQKH1NldENvaG9ydEZpcm13YXJlVGFyZ2V0UmVzcG9uc2USIQoGY29ob3J0GAEgASgLMhEuY29ob3J0LnYxLkNvaG9ydCJpChlBZGREZXZpY2VzVG9Db2hvcnRSZXF1ZXN0EhoKCWNvaG9ydF9pZBgBIAEoA0IHukgEIgIgABIwChJkZXZpY2VfaWRlbnRpZmllcnMYAiADKAlCFLpIEZIBDggBEJBOIgdyBRABGIACIj8KGkFkZERldmljZXNUb0NvaG9ydFJlc3BvbnNlEiEKBmNvaG9ydBgBIAEoCzIRLmNvaG9ydC52MS5Db2hvcnQibgoeUmVtb3ZlRGV2aWNlc0Zyb21Db2hvcnRSZXF1ZXN0EhoKCWNvaG9ydF9pZBgBIAEoA0IHukgEIgIgABIwChJkZXZpY2VfaWRlbnRpZmllcnMYAiADKAlCFLpIEZIBDggBEJBOIgdyBRABGIACIkQKH1JlbW92ZURldmljZXNGcm9tQ29ob3J0UmVzcG9uc2USIQoGY29ob3J0GAEgASgLMhEuY29ob3J0LnYxLkNvaG9ydCIyChRSZWxlYXNlQ29ob3J0UmVxdWVzdBIaCgljb2hvcnRfaWQYASABKANCB7pIBCICIAAiOgoVUmVsZWFzZUNvaG9ydFJlc3BvbnNlEiEKBmNvaG9ydBgBIAEoCzIRLmNvaG9ydC52MS5Db2hvcnQiMQoTRGVsZXRlQ29ob3J0UmVxdWVzdBIaCgljb2hvcnRfaWQYASABKANCB7pIBCICIAAiOQoURGVsZXRlQ29ob3J0UmVzcG9uc2USIQoGY29ob3J0GAEgASgLMhEuY29ob3J0LnYxLkNvaG9ydCIuChBHZXRDb2hvcnRSZXF1ZXN0EhoKCWNvaG9ydF9pZBgBIAEoA0IHukgEIgIgACI2ChFHZXRDb2hvcnRSZXNwb25zZRIhCgZjb2hvcnQYASABKAsyES5jb2hvcnQudjEuQ29ob3J0ItsCCiZHZXRDb2hvcnRGaXJtd2FyZVZlcnNpb25IaXN0b3J5UmVxdWVzdBIaCgljb2hvcnRfaWQYASABKANCB7pIBCICIAASNgoKc3RhcnRfdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCBrpIA8gBARI0CghlbmRfdGltZRgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCBrpIA8gBARJBCgtncmFudWxhcml0eRgEIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkIRukgOqgELIgUIgOeEDzICCAE6ZLpIYRpfChllbmRfdGltZV9hZnRlcl9zdGFydF90aW1lEiFlbmRfdGltZSBtdXN0IGJlIGFmdGVyIHN0YXJ0X3RpbWUaH3RoaXMuZW5kX3RpbWUgPiB0aGlzLnN0YXJ0X3RpbWUiTAoaQ29ob3J0RmlybXdhcmVWZXJzaW9uQ291bnQSGAoQZmlybXdhcmVfdmVyc2lvbhgBIAEoCRIUCgxkZXZpY2VfY291bnQYAiABKAUiiwEKIUNvaG9ydEZpcm13YXJlVmVyc2lvbkhpc3RvcnlQb2ludBItCgl0aW1lc3RhbXAYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjcKCHZlcnNpb25zGAIgAygLMiUuY29ob3J0LnYxLkNvaG9ydEZpcm13YXJlVmVyc2lvbkNvdW50In0KJ0dldENvaG9ydEZpcm13YXJlVmVyc2lvbkhpc3RvcnlSZXNwb25zZRIUCgxtZW1iZXJfY291bnQYASABKAUSPAoGcG9pbnRzGAIgAygLMiwuY29ob3J0LnYxLkNvaG9ydEZpcm13YXJlVmVyc2lvbkhpc3RvcnlQb2ludCKFAQoSTGlzdENvaG9ydHNSZXF1ZXN0EhgKEGluY2x1ZGVfcmVsZWFzZWQYASABKAgSHQoJcGFnZV9zaXplGAIgASgFQgq6SAcaBRj0AygAEhwKCnBhZ2VfdG9rZW4YAyABKAlCCLpIBXIDGIAQEhgKBnNlYXJjaBgEIAEoCUIIukgFcgMY/wEibgoTTGlzdENvaG9ydHNSZXNwb25zZRIpCgdjb2hvcnRzGAEgAygLMhguY29ob3J0LnYxLkNvaG9ydFN1bW1hcnkSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJEhMKC3RvdGFsX2NvdW50GAMgASgFIoYBChNHZXRNeUNvaG9ydHNSZXF1ZXN0EhgKEGluY2x1ZGVfcmVsZWFzZWQYASABKAgSHQoJcGFnZV9zaXplGAIgASgFQgq6SAcaBRj0AygAEhwKCnBhZ2VfdG9rZW4YAyABKAlCCLpIBXIDGIAQEhgKBnNlYXJjaBgEIAEoCUIIukgFcgMY/wEibwoUR2V0TXlDb2hvcnRzUmVzcG9uc2USKQoHY29ob3J0cxgBIAMoCzIYLmNvaG9ydC52MS5Db2hvcnRTdW1tYXJ5EhcKD25leHRfcGFnZV90b2tlbhgCIAEoCRITCgt0b3RhbF9jb3VudBgDIAEoBSKPAQoSTGlzdERldmljZXNSZXF1ZXN0Eh0KCXBhZ2Vfc2l6ZRgCIAEoBUIKukgHGgUY9AMoABIcCgpwYWdlX3Rva2VuGAMgASgJQgi6SAVyAxiAEBItCgZmaWx0ZXIYBCABKAsyHS5jb2hvcnQudjEuQ29ob3J0RGV2aWNlRmlsdGVySgQIARACUgdzaXRlX2lkIp8CChJDb2hvcnREZXZpY2VGaWx0ZXISNgoLYXNzaWdubWVudHMYASADKA4yIS5jb2hvcnQudjEuQ29ob3J0RGV2aWNlQXNzaWdubWVudBISCgpjb2hvcnRfaWRzGAIgAygDEhYKDm93bmVyX3VzZXJfaWRzGAMgAygDEhcKD2luY2x1ZGVfdW5vd25lZBgEIAEoCBIkCg1tYW51ZmFjdHVyZXJzGAUgAygJQg26SAqSAQciBXIDGP8BEh0KBm1vZGVscxgGIAMoCUINukgKkgEHIgVyAxj/ARIYCgZzZWFyY2gYCSABKAlCCLpIBXIDGP8BSgQIBxAISgQICBAJUghzaXRlX2lkc1IXaW5jbHVkZV91bmFzc2lnbmVkX3NpdGUijwIKDENvaG9ydERldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIyChBlZmZlY3RpdmVfY29ob3J0GAMgASgLMhguY29ob3J0LnYxLkNvaG9ydFN1bW1hcnkSLwoHZGlzcGxheRgEIAEoCzIeLmNvaG9ydC52MS5Db2hvcnREZXZpY2VEaXNwbGF5EjgKD2Zpcm13YXJlX3N0YXR1cxgFIAEoCzIfLmNvaG9ydC52MS5Db2hvcnRGaXJtd2FyZVN0YXR1cxI2Cg9jb25maWdfc3RhdHVzZXMYBiADKAsyHS5jb2hvcnQudjEuQ29ob3J0Q29uZmlnU3RhdHVzSgQIAhADUgdzaXRlX2lkIp4BChNMaXN0RGV2aWNlc1Jlc3BvbnNlEigKB2RldmljZXMYASADKAsyFy5jb2hvcnQudjEuQ29ob3J0RGV2aWNlEhcKD25leHRfcGFnZV90b2tlbhgCIAEoCRITCgt0b3RhbF9jb3VudBgDIAEoBRIXCg9hdmFpbGFibGVfY291bnQYBCABKAUSFgoOcmVzZXJ2ZWRfY291bnQYBSABKAUiawoUQWRtaW5SZWFzc2lnblJlcXVlc3QSIQoQdGFyZ2V0X2NvaG9ydF9pZBgBIAEoA0IHukgEIgIgABIwChJkZXZpY2VfaWRlbnRpZmllcnMYAiADKAlCFLpIEZIBDggBEJBOIgdyBRABGIACIjoKFUFkbWluUmVhc3NpZ25SZXNwb25zZRIhCgZjb2hvcnQYASABKAsyES5jb2hvcnQudjEuQ29ob3J0IjcKGUFkbWluUmVsZWFzZUNvaG9ydFJlcXVlc3QSGgoJY29ob3J0X2lkGAEgASgDQge6SAQiAiAAIj8KGkFkbWluUmVsZWFzZUNvaG9ydFJlc3BvbnNlEiEKBmNvaG9ydBgBIAEoCzIRLmNvaG9ydC52MS5Db2hvcnQqXwoLQ29ob3J0U3RhdGUSHAoYQ09IT1JUX1NUQVRFX1VOU1BFQ0lGSUVEEAASFwoTQ09IT1JUX1NUQVRFX0FDVElWRRABEhkKFUNPSE9SVF9TVEFURV9SRUxFQVNFRBACKoUDChpDb2hvcnRGaXJtd2FyZVJvbGxvdXRTdGF0ZRItCilDT0hPUlRfRklSTVdBUkVfUk9MTE9VVF9TVEFURV9VTlNQRUNJRklFRBAAEisKJ0NPSE9SVF9GSVJNV0FSRV9ST0xMT1VUX1NUQVRFX05PX1RBUkdFVBABEigKJENPSE9SVF9GSVJNV0FSRV9ST0xMT1VUX1NUQVRFX1FVRVVFRBACEioKJkNPSE9SVF9GSVJNV0FSRV9ST0xMT1VUX1NUQVRFX1VQREFUSU5HEAMSKwonQ09IT1JUX0ZJUk1XQVJFX1JPTExPVVRfU1RBVEVfVkVSSUZZSU5HEAQSKgomQ09IT1JUX0ZJUk1XQVJFX1JPTExPVVRfU1RBVEVfQ09NUExFVEUQBRIxCi1DT0hPUlRfRklSTVdBUkVfUk9MTE9VVF9TVEFURV9ORUVEU19BVFRFTlRJT04QBhIpCiVDT0hPUlRfRklSTVdBUkVfUk9MTE9VVF9TVEFURV9VTktOT1dOEAcqYwoVQ29ob3J0Q29uZmlnRGltZW5zaW9uEicKI0NPSE9SVF9DT05GSUdfRElNRU5TSU9OX1VOU1BFQ0lGSUVEEAASIQodQ09IT1JUX0NPTkZJR19ESU1FTlNJT05fUE9PTFMQASqNAwoaQ29ob3J0Q29uZmlnTGlmZWN5Y2xlU3RhdGUSLQopQ09IT1JUX0NPTkZJR19MSUZFQ1lDTEVfU1RBVEVfVU5TUEVDSUZJRUQQABItCilDT0hPUlRfQ09ORklHX0xJRkVDWUNMRV9TVEFURV9VTlNVUFBPUlRFRBABEjkKNUNPSE9SVF9DT05GSUdfTElGRUNZQ0xFX1NUQVRFX1dBSVRJTkdfRk9SX09CU0VSVkFUSU9OEAISKgomQ09IT1JUX0NPTkZJR19MSUZFQ1lDTEVfU1RBVEVfQVBQTFlJTkcQAxIrCidDT0hPUlRfQ09ORklHX0xJRkVDWUNMRV9TVEFURV9WRVJJRllJTkcQBBIrCidDT0hPUlRfQ09ORklHX0xJRkVDWUNMRV9TVEFURV9DT05WRVJHRUQQBRImCiJDT0hPUlRfQ09ORklHX0xJRkVDWUNMRV9TVEFURV9IRUxEEAYSKAokQ09IT1JUX0NPTkZJR19MSUZFQ1lDTEVfU1RBVEVfRkFJTEVEEAcqkQEKFkNvaG9ydERldmljZUFzc2lnbm1lbnQSKAokQ09IT1JUX0RFVklDRV9BU1NJR05NRU5UX1VOU1BFQ0lGSUVEEAASJgoiQ09IT1JUX0RFVklDRV9BU1NJR05NRU5UX0FWQUlMQUJMRRABEiUKIUNPSE9SVF9ERVZJQ0VfQVNTSUdOTUVOVF9SRVNFUlZFRBACMpQKCg1Db2hvcnRTZXJ2aWNlEk8KDENyZWF0ZUNvaG9ydBIeLmNvaG9ydC52MS5DcmVhdGVDb2hvcnRSZXF1ZXN0Gh8uY29ob3J0LnYxLkNyZWF0ZUNvaG9ydFJlc3BvbnNlEk8KDFVwZGF0ZUNvaG9ydBIeLmNvaG9ydC52MS5VcGRhdGVDb2hvcnRSZXF1ZXN0Gh8uY29ob3J0LnYxLlVwZGF0ZUNvaG9ydFJlc3BvbnNlEnAKF1NldENvaG9ydEZpcm13YXJlVGFyZ2V0EikuY29ob3J0LnYxLlNldENvaG9ydEZpcm13YXJlVGFyZ2V0UmVxdWVzdBoqLmNvaG9ydC52MS5TZXRDb2hvcnRGaXJtd2FyZVRhcmdldFJlc3BvbnNlEmEKEkFkZERldmljZXNUb0NvaG9ydBIkLmNvaG9ydC52MS5BZGREZXZpY2VzVG9Db2hvcnRSZXF1ZXN0GiUuY29ob3J0LnYxLkFkZERldmljZXNUb0NvaG9ydFJlc3BvbnNlEnAKF1JlbW92ZURldmljZXNGcm9tQ29ob3J0EikuY29ob3J0LnYxLlJlbW92ZURldmljZXNGcm9tQ29ob3J0UmVxdWVzdBoqLmNvaG9ydC52MS5SZW1vdmVEZXZpY2VzRnJvbUNvaG9ydFJlc3BvbnNlElIKDVJlbGVhc2VDb2hvcnQSHy5jb2hvcnQudjEuUmVsZWFzZUNvaG9ydFJlcXVlc3QaIC5jb2hvcnQudjEuUmVsZWFzZUNvaG9ydFJlc3BvbnNlEk8KDERlbGV0ZUNvaG9ydBIeLmNvaG9ydC52MS5EZWxldGVDb2hvcnRSZXF1ZXN0Gh8uY29ob3J0LnYxLkRlbGV0ZUNvaG9ydFJlc3BvbnNlEkYKCUdldENvaG9ydBIbLmNvaG9ydC52MS5HZXRDb2hvcnRSZXF1ZXN0GhwuY29ob3J0LnYxLkdldENvaG9ydFJlc3BvbnNlEogBCh9HZXRDb2hvcnRGaXJtd2FyZVZlcnNpb25IaXN0b3J5EjEuY29ob3J0LnYxLkdldENvaG9ydEZpcm13YXJlVmVyc2lvbkhpc3RvcnlSZXF1ZXN0GjIuY29ob3J0LnYxLkdldENvaG9ydEZpcm13YXJlVmVyc2lvbkhpc3RvcnlSZXNwb25zZRJMCgtMaXN0Q29ob3J0cxIdLmNvaG9ydC52MS5MaXN0Q29ob3J0c1JlcXVlc3QaHi5jb2hvcnQudjEuTGlzdENvaG9ydHNSZXNwb25zZRJPCgxHZXRNeUNvaG9ydHMSHi5jb2hvcnQudjEuR2V0TXlDb2hvcnRzUmVxdWVzdBofLmNvaG9ydC52MS5HZXRNeUNvaG9ydHNSZXNwb25zZRJMCgtMaXN0RGV2aWNlcxIdLmNvaG9ydC52MS5MaXN0RGV2aWNlc1JlcXVlc3QaHi5jb2hvcnQudjEuTGlzdERldmljZXNSZXNwb25zZRJSCg1BZG1pblJlYXNzaWduEh8uY29ob3J0LnYxLkFkbWluUmVhc3NpZ25SZXF1ZXN0GiAuY29ob3J0LnYxLkFkbWluUmVhc3NpZ25SZXNwb25zZRJhChJBZG1pblJlbGVhc2VDb2hvcnQSJC5jb2hvcnQudjEuQWRtaW5SZWxlYXNlQ29ob3J0UmVxdWVzdBolLmNvaG9ydC52MS5BZG1pblJlbGVhc2VDb2hvcnRSZXNwb25zZUKoAQoNY29tLmNvaG9ydC52MUILQ29ob3J0UHJvdG9QAVpFZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvY29ob3J0L3YxO2NvaG9ydHYxogIDQ1hYqgIJQ29ob3J0LlYxygIJQ29ob3J0XFYx4gIVQ29ob3J0XFYxXEdQQk1ldGFkYXRh6gIKQ29ob3J0OjpWMWIGcHJvdG8z",
+    [file_buf_validate_validate, file_google_protobuf_duration, file_google_protobuf_timestamp],
   );
+
+/**
+ * @generated from message cohort.v1.CohortPoolDesiredConfig
+ */
+export type CohortPoolDesiredConfig = Message<"cohort.v1.CohortPoolDesiredConfig"> & {
+  /**
+   * @generated from field: int64 primary_pool_id = 1;
+   */
+  primaryPoolId: bigint;
+
+  /**
+   * @generated from field: optional int64 backup_1_pool_id = 2;
+   */
+  backup1PoolId?: bigint | undefined;
+
+  /**
+   * @generated from field: optional int64 backup_2_pool_id = 3;
+   */
+  backup2PoolId?: bigint | undefined;
+};
+
+/**
+ * Describes the message cohort.v1.CohortPoolDesiredConfig.
+ * Use `create(CohortPoolDesiredConfigSchema)` to create a new message.
+ */
+export const CohortPoolDesiredConfigSchema: GenMessage<CohortPoolDesiredConfig> =
+  /*@__PURE__*/
+  messageDesc(file_cohort_v1_cohort, 0);
+
+/**
+ * @generated from message cohort.v1.CohortDesiredConfig
+ */
+export type CohortDesiredConfig = Message<"cohort.v1.CohortDesiredConfig"> & {
+  /**
+   * @generated from field: cohort.v1.CohortPoolDesiredConfig pools = 1;
+   */
+  pools?: CohortPoolDesiredConfig | undefined;
+};
+
+/**
+ * Describes the message cohort.v1.CohortDesiredConfig.
+ * Use `create(CohortDesiredConfigSchema)` to create a new message.
+ */
+export const CohortDesiredConfigSchema: GenMessage<CohortDesiredConfig> =
+  /*@__PURE__*/
+  messageDesc(file_cohort_v1_cohort, 1);
+
+/**
+ * @generated from message cohort.v1.CohortConfigStatus
+ */
+export type CohortConfigStatus = Message<"cohort.v1.CohortConfigStatus"> & {
+  /**
+   * @generated from field: cohort.v1.CohortConfigDimension dimension = 1;
+   */
+  dimension: CohortConfigDimension;
+
+  /**
+   * @generated from field: bool supported = 2;
+   */
+  supported: boolean;
+
+  /**
+   * @generated from field: cohort.v1.CohortConfigLifecycleState state = 3;
+   */
+  state: CohortConfigLifecycleState;
+
+  /**
+   * @generated from field: int32 retry_count = 4;
+   */
+  retryCount: number;
+
+  /**
+   * @generated from field: string last_error = 5;
+   */
+  lastError: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp last_dispatched_at = 6;
+   */
+  lastDispatchedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp confirmed_at = 7;
+   */
+  confirmedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp observed_at = 8;
+   */
+  observedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message cohort.v1.CohortConfigStatus.
+ * Use `create(CohortConfigStatusSchema)` to create a new message.
+ */
+export const CohortConfigStatusSchema: GenMessage<CohortConfigStatus> =
+  /*@__PURE__*/
+  messageDesc(file_cohort_v1_cohort, 2);
+
+/**
+ * @generated from message cohort.v1.CohortConfigProgress
+ */
+export type CohortConfigProgress = Message<"cohort.v1.CohortConfigProgress"> & {
+  /**
+   * @generated from field: cohort.v1.CohortConfigDimension dimension = 1;
+   */
+  dimension: CohortConfigDimension;
+
+  /**
+   * @generated from field: int32 targeted_count = 2;
+   */
+  targetedCount: number;
+
+  /**
+   * @generated from field: int32 unsupported_count = 3;
+   */
+  unsupportedCount: number;
+
+  /**
+   * @generated from field: int32 waiting_count = 4;
+   */
+  waitingCount: number;
+
+  /**
+   * @generated from field: int32 applying_count = 5;
+   */
+  applyingCount: number;
+
+  /**
+   * @generated from field: int32 verifying_count = 6;
+   */
+  verifyingCount: number;
+
+  /**
+   * @generated from field: int32 converged_count = 7;
+   */
+  convergedCount: number;
+
+  /**
+   * @generated from field: int32 held_count = 8;
+   */
+  heldCount: number;
+
+  /**
+   * @generated from field: int32 failed_count = 9;
+   */
+  failedCount: number;
+};
+
+/**
+ * Describes the message cohort.v1.CohortConfigProgress.
+ * Use `create(CohortConfigProgressSchema)` to create a new message.
+ */
+export const CohortConfigProgressSchema: GenMessage<CohortConfigProgress> =
+  /*@__PURE__*/
+  messageDesc(file_cohort_v1_cohort, 3);
 
 /**
  * @generated from message cohort.v1.CohortFirmwareStatus
@@ -75,7 +232,7 @@ export type CohortFirmwareStatus = Message<"cohort.v1.CohortFirmwareStatus"> & {
  */
 export const CohortFirmwareStatusSchema: GenMessage<CohortFirmwareStatus> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 0);
+  messageDesc(file_cohort_v1_cohort, 4);
 
 /**
  * @generated from message cohort.v1.CohortFirmwareProgress
@@ -123,7 +280,7 @@ export type CohortFirmwareProgress = Message<"cohort.v1.CohortFirmwareProgress">
  */
 export const CohortFirmwareProgressSchema: GenMessage<CohortFirmwareProgress> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 1);
+  messageDesc(file_cohort_v1_cohort, 5);
 
 /**
  * CohortSummary is the lightweight cohort shape for list and per-device
@@ -168,9 +325,9 @@ export type CohortSummary = Message<"cohort.v1.CohortSummary"> & {
   desiredFirmwareFileId: string;
 
   /**
-   * @generated from field: google.protobuf.Struct desired_config = 8;
+   * @generated from field: cohort.v1.CohortDesiredConfig desired_config = 8;
    */
-  desiredConfig?: JsonObject | undefined;
+  desiredConfig?: CohortDesiredConfig | undefined;
 
   /**
    * @generated from field: cohort.v1.CohortState state = 10;
@@ -221,13 +378,18 @@ export type CohortSummary = Message<"cohort.v1.CohortSummary"> & {
    * @generated from field: cohort.v1.CohortFirmwareProgress firmware_progress = 33;
    */
   firmwareProgress?: CohortFirmwareProgress | undefined;
+
+  /**
+   * @generated from field: repeated cohort.v1.CohortConfigProgress config_progress = 34;
+   */
+  configProgress: CohortConfigProgress[];
 };
 
 /**
  * Describes the message cohort.v1.CohortSummary.
  * Use `create(CohortSummarySchema)` to create a new message.
  */
-export const CohortSummarySchema: GenMessage<CohortSummary> = /*@__PURE__*/ messageDesc(file_cohort_v1_cohort, 2);
+export const CohortSummarySchema: GenMessage<CohortSummary> = /*@__PURE__*/ messageDesc(file_cohort_v1_cohort, 6);
 
 /**
  * @generated from message cohort.v1.CohortFirmwareTarget
@@ -255,7 +417,7 @@ export type CohortFirmwareTarget = Message<"cohort.v1.CohortFirmwareTarget"> & {
  */
 export const CohortFirmwareTargetSchema: GenMessage<CohortFirmwareTarget> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 3);
+  messageDesc(file_cohort_v1_cohort, 7);
 
 /**
  * Cohort is the full read shape returned by get and mutating cohort RPCs.
@@ -283,7 +445,7 @@ export type Cohort = Message<"cohort.v1.Cohort"> & {
  * Describes the message cohort.v1.Cohort.
  * Use `create(CohortSchema)` to create a new message.
  */
-export const CohortSchema: GenMessage<Cohort> = /*@__PURE__*/ messageDesc(file_cohort_v1_cohort, 4);
+export const CohortSchema: GenMessage<Cohort> = /*@__PURE__*/ messageDesc(file_cohort_v1_cohort, 8);
 
 /**
  * @generated from message cohort.v1.CohortDeviceDisplay
@@ -331,7 +493,7 @@ export type CohortDeviceDisplay = Message<"cohort.v1.CohortDeviceDisplay"> & {
  */
 export const CohortDeviceDisplaySchema: GenMessage<CohortDeviceDisplay> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 5);
+  messageDesc(file_cohort_v1_cohort, 9);
 
 /**
  * CohortMember is an explicit non-default cohort membership row. Default
@@ -364,13 +526,18 @@ export type CohortMember = Message<"cohort.v1.CohortMember"> & {
    * @generated from field: cohort.v1.CohortFirmwareStatus firmware_status = 6;
    */
   firmwareStatus?: CohortFirmwareStatus | undefined;
+
+  /**
+   * @generated from field: repeated cohort.v1.CohortConfigStatus config_statuses = 7;
+   */
+  configStatuses: CohortConfigStatus[];
 };
 
 /**
  * Describes the message cohort.v1.CohortMember.
  * Use `create(CohortMemberSchema)` to create a new message.
  */
-export const CohortMemberSchema: GenMessage<CohortMember> = /*@__PURE__*/ messageDesc(file_cohort_v1_cohort, 6);
+export const CohortMemberSchema: GenMessage<CohortMember> = /*@__PURE__*/ messageDesc(file_cohort_v1_cohort, 10);
 
 /**
  * @generated from message cohort.v1.CohortDeviceIdentifierList
@@ -388,7 +555,7 @@ export type CohortDeviceIdentifierList = Message<"cohort.v1.CohortDeviceIdentifi
  */
 export const CohortDeviceIdentifierListSchema: GenMessage<CohortDeviceIdentifierList> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 7);
+  messageDesc(file_cohort_v1_cohort, 11);
 
 /**
  * @generated from message cohort.v1.CohortDeviceSelector
@@ -416,7 +583,7 @@ export type CohortDeviceSelector = Message<"cohort.v1.CohortDeviceSelector"> & {
  */
 export const CohortDeviceSelectorSchema: GenMessage<CohortDeviceSelector> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 8);
+  messageDesc(file_cohort_v1_cohort, 12);
 
 /**
  * @generated from message cohort.v1.CreateCohortRequest
@@ -451,9 +618,9 @@ export type CreateCohortRequest = Message<"cohort.v1.CreateCohortRequest"> & {
   desiredFirmwareFileId: string;
 
   /**
-   * @generated from field: google.protobuf.Struct desired_config = 6;
+   * @generated from field: cohort.v1.CohortDesiredConfig desired_config = 6;
    */
-  desiredConfig?: JsonObject | undefined;
+  desiredConfig?: CohortDesiredConfig | undefined;
 
   /**
    * @generated from oneof cohort.v1.CreateCohortRequest.initial_members
@@ -494,7 +661,7 @@ export type CreateCohortRequest = Message<"cohort.v1.CreateCohortRequest"> & {
  */
 export const CreateCohortRequestSchema: GenMessage<CreateCohortRequest> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 9);
+  messageDesc(file_cohort_v1_cohort, 13);
 
 /**
  * @generated from message cohort.v1.CreateCohortResponse
@@ -512,7 +679,7 @@ export type CreateCohortResponse = Message<"cohort.v1.CreateCohortResponse"> & {
  */
 export const CreateCohortResponseSchema: GenMessage<CreateCohortResponse> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 10);
+  messageDesc(file_cohort_v1_cohort, 14);
 
 /**
  * @generated from message cohort.v1.UpdateCohortRequest
@@ -544,9 +711,9 @@ export type UpdateCohortRequest = Message<"cohort.v1.UpdateCohortRequest"> & {
   desiredFirmwareFileId?: string | undefined;
 
   /**
-   * @generated from field: google.protobuf.Struct desired_config = 6;
+   * @generated from field: cohort.v1.CohortDesiredConfig desired_config = 6;
    */
-  desiredConfig?: JsonObject | undefined;
+  desiredConfig?: CohortDesiredConfig | undefined;
 
   /**
    * @generated from field: bool clear_expires_at = 7;
@@ -565,7 +732,7 @@ export type UpdateCohortRequest = Message<"cohort.v1.UpdateCohortRequest"> & {
  */
 export const UpdateCohortRequestSchema: GenMessage<UpdateCohortRequest> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 11);
+  messageDesc(file_cohort_v1_cohort, 15);
 
 /**
  * @generated from message cohort.v1.UpdateCohortResponse
@@ -583,7 +750,7 @@ export type UpdateCohortResponse = Message<"cohort.v1.UpdateCohortResponse"> & {
  */
 export const UpdateCohortResponseSchema: GenMessage<UpdateCohortResponse> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 12);
+  messageDesc(file_cohort_v1_cohort, 16);
 
 /**
  * @generated from message cohort.v1.SetCohortFirmwareTargetRequest
@@ -616,7 +783,7 @@ export type SetCohortFirmwareTargetRequest = Message<"cohort.v1.SetCohortFirmwar
  */
 export const SetCohortFirmwareTargetRequestSchema: GenMessage<SetCohortFirmwareTargetRequest> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 13);
+  messageDesc(file_cohort_v1_cohort, 17);
 
 /**
  * @generated from message cohort.v1.SetCohortFirmwareTargetResponse
@@ -634,7 +801,7 @@ export type SetCohortFirmwareTargetResponse = Message<"cohort.v1.SetCohortFirmwa
  */
 export const SetCohortFirmwareTargetResponseSchema: GenMessage<SetCohortFirmwareTargetResponse> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 14);
+  messageDesc(file_cohort_v1_cohort, 18);
 
 /**
  * @generated from message cohort.v1.AddDevicesToCohortRequest
@@ -657,7 +824,7 @@ export type AddDevicesToCohortRequest = Message<"cohort.v1.AddDevicesToCohortReq
  */
 export const AddDevicesToCohortRequestSchema: GenMessage<AddDevicesToCohortRequest> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 15);
+  messageDesc(file_cohort_v1_cohort, 19);
 
 /**
  * @generated from message cohort.v1.AddDevicesToCohortResponse
@@ -675,7 +842,7 @@ export type AddDevicesToCohortResponse = Message<"cohort.v1.AddDevicesToCohortRe
  */
 export const AddDevicesToCohortResponseSchema: GenMessage<AddDevicesToCohortResponse> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 16);
+  messageDesc(file_cohort_v1_cohort, 20);
 
 /**
  * @generated from message cohort.v1.RemoveDevicesFromCohortRequest
@@ -698,7 +865,7 @@ export type RemoveDevicesFromCohortRequest = Message<"cohort.v1.RemoveDevicesFro
  */
 export const RemoveDevicesFromCohortRequestSchema: GenMessage<RemoveDevicesFromCohortRequest> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 17);
+  messageDesc(file_cohort_v1_cohort, 21);
 
 /**
  * @generated from message cohort.v1.RemoveDevicesFromCohortResponse
@@ -716,7 +883,7 @@ export type RemoveDevicesFromCohortResponse = Message<"cohort.v1.RemoveDevicesFr
  */
 export const RemoveDevicesFromCohortResponseSchema: GenMessage<RemoveDevicesFromCohortResponse> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 18);
+  messageDesc(file_cohort_v1_cohort, 22);
 
 /**
  * @generated from message cohort.v1.ReleaseCohortRequest
@@ -734,7 +901,7 @@ export type ReleaseCohortRequest = Message<"cohort.v1.ReleaseCohortRequest"> & {
  */
 export const ReleaseCohortRequestSchema: GenMessage<ReleaseCohortRequest> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 19);
+  messageDesc(file_cohort_v1_cohort, 23);
 
 /**
  * @generated from message cohort.v1.ReleaseCohortResponse
@@ -752,7 +919,7 @@ export type ReleaseCohortResponse = Message<"cohort.v1.ReleaseCohortResponse"> &
  */
 export const ReleaseCohortResponseSchema: GenMessage<ReleaseCohortResponse> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 20);
+  messageDesc(file_cohort_v1_cohort, 24);
 
 /**
  * @generated from message cohort.v1.DeleteCohortRequest
@@ -770,7 +937,7 @@ export type DeleteCohortRequest = Message<"cohort.v1.DeleteCohortRequest"> & {
  */
 export const DeleteCohortRequestSchema: GenMessage<DeleteCohortRequest> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 21);
+  messageDesc(file_cohort_v1_cohort, 25);
 
 /**
  * @generated from message cohort.v1.DeleteCohortResponse
@@ -788,7 +955,7 @@ export type DeleteCohortResponse = Message<"cohort.v1.DeleteCohortResponse"> & {
  */
 export const DeleteCohortResponseSchema: GenMessage<DeleteCohortResponse> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 22);
+  messageDesc(file_cohort_v1_cohort, 26);
 
 /**
  * @generated from message cohort.v1.GetCohortRequest
@@ -806,7 +973,7 @@ export type GetCohortRequest = Message<"cohort.v1.GetCohortRequest"> & {
  */
 export const GetCohortRequestSchema: GenMessage<GetCohortRequest> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 23);
+  messageDesc(file_cohort_v1_cohort, 27);
 
 /**
  * @generated from message cohort.v1.GetCohortResponse
@@ -824,7 +991,111 @@ export type GetCohortResponse = Message<"cohort.v1.GetCohortResponse"> & {
  */
 export const GetCohortResponseSchema: GenMessage<GetCohortResponse> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 24);
+  messageDesc(file_cohort_v1_cohort, 28);
+
+/**
+ * @generated from message cohort.v1.GetCohortFirmwareVersionHistoryRequest
+ */
+export type GetCohortFirmwareVersionHistoryRequest = Message<"cohort.v1.GetCohortFirmwareVersionHistoryRequest"> & {
+  /**
+   * @generated from field: int64 cohort_id = 1;
+   */
+  cohortId: bigint;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp start_time = 2;
+   */
+  startTime?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp end_time = 3;
+   */
+  endTime?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Duration granularity = 4;
+   */
+  granularity?: Duration | undefined;
+};
+
+/**
+ * Describes the message cohort.v1.GetCohortFirmwareVersionHistoryRequest.
+ * Use `create(GetCohortFirmwareVersionHistoryRequestSchema)` to create a new message.
+ */
+export const GetCohortFirmwareVersionHistoryRequestSchema: GenMessage<GetCohortFirmwareVersionHistoryRequest> =
+  /*@__PURE__*/
+  messageDesc(file_cohort_v1_cohort, 29);
+
+/**
+ * @generated from message cohort.v1.CohortFirmwareVersionCount
+ */
+export type CohortFirmwareVersionCount = Message<"cohort.v1.CohortFirmwareVersionCount"> & {
+  /**
+   * Empty means that no firmware version had been observed by this point.
+   *
+   * @generated from field: string firmware_version = 1;
+   */
+  firmwareVersion: string;
+
+  /**
+   * @generated from field: int32 device_count = 2;
+   */
+  deviceCount: number;
+};
+
+/**
+ * Describes the message cohort.v1.CohortFirmwareVersionCount.
+ * Use `create(CohortFirmwareVersionCountSchema)` to create a new message.
+ */
+export const CohortFirmwareVersionCountSchema: GenMessage<CohortFirmwareVersionCount> =
+  /*@__PURE__*/
+  messageDesc(file_cohort_v1_cohort, 30);
+
+/**
+ * @generated from message cohort.v1.CohortFirmwareVersionHistoryPoint
+ */
+export type CohortFirmwareVersionHistoryPoint = Message<"cohort.v1.CohortFirmwareVersionHistoryPoint"> & {
+  /**
+   * @generated from field: google.protobuf.Timestamp timestamp = 1;
+   */
+  timestamp?: Timestamp | undefined;
+
+  /**
+   * @generated from field: repeated cohort.v1.CohortFirmwareVersionCount versions = 2;
+   */
+  versions: CohortFirmwareVersionCount[];
+};
+
+/**
+ * Describes the message cohort.v1.CohortFirmwareVersionHistoryPoint.
+ * Use `create(CohortFirmwareVersionHistoryPointSchema)` to create a new message.
+ */
+export const CohortFirmwareVersionHistoryPointSchema: GenMessage<CohortFirmwareVersionHistoryPoint> =
+  /*@__PURE__*/
+  messageDesc(file_cohort_v1_cohort, 31);
+
+/**
+ * @generated from message cohort.v1.GetCohortFirmwareVersionHistoryResponse
+ */
+export type GetCohortFirmwareVersionHistoryResponse = Message<"cohort.v1.GetCohortFirmwareVersionHistoryResponse"> & {
+  /**
+   * @generated from field: int32 member_count = 1;
+   */
+  memberCount: number;
+
+  /**
+   * @generated from field: repeated cohort.v1.CohortFirmwareVersionHistoryPoint points = 2;
+   */
+  points: CohortFirmwareVersionHistoryPoint[];
+};
+
+/**
+ * Describes the message cohort.v1.GetCohortFirmwareVersionHistoryResponse.
+ * Use `create(GetCohortFirmwareVersionHistoryResponseSchema)` to create a new message.
+ */
+export const GetCohortFirmwareVersionHistoryResponseSchema: GenMessage<GetCohortFirmwareVersionHistoryResponse> =
+  /*@__PURE__*/
+  messageDesc(file_cohort_v1_cohort, 32);
 
 /**
  * @generated from message cohort.v1.ListCohortsRequest
@@ -857,7 +1128,7 @@ export type ListCohortsRequest = Message<"cohort.v1.ListCohortsRequest"> & {
  */
 export const ListCohortsRequestSchema: GenMessage<ListCohortsRequest> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 25);
+  messageDesc(file_cohort_v1_cohort, 33);
 
 /**
  * @generated from message cohort.v1.ListCohortsResponse
@@ -885,7 +1156,7 @@ export type ListCohortsResponse = Message<"cohort.v1.ListCohortsResponse"> & {
  */
 export const ListCohortsResponseSchema: GenMessage<ListCohortsResponse> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 26);
+  messageDesc(file_cohort_v1_cohort, 34);
 
 /**
  * @generated from message cohort.v1.GetMyCohortsRequest
@@ -918,7 +1189,7 @@ export type GetMyCohortsRequest = Message<"cohort.v1.GetMyCohortsRequest"> & {
  */
 export const GetMyCohortsRequestSchema: GenMessage<GetMyCohortsRequest> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 27);
+  messageDesc(file_cohort_v1_cohort, 35);
 
 /**
  * @generated from message cohort.v1.GetMyCohortsResponse
@@ -946,7 +1217,7 @@ export type GetMyCohortsResponse = Message<"cohort.v1.GetMyCohortsResponse"> & {
  */
 export const GetMyCohortsResponseSchema: GenMessage<GetMyCohortsResponse> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 28);
+  messageDesc(file_cohort_v1_cohort, 36);
 
 /**
  * @generated from message cohort.v1.ListDevicesRequest
@@ -974,7 +1245,7 @@ export type ListDevicesRequest = Message<"cohort.v1.ListDevicesRequest"> & {
  */
 export const ListDevicesRequestSchema: GenMessage<ListDevicesRequest> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 29);
+  messageDesc(file_cohort_v1_cohort, 37);
 
 /**
  * @generated from message cohort.v1.CohortDeviceFilter
@@ -1022,7 +1293,7 @@ export type CohortDeviceFilter = Message<"cohort.v1.CohortDeviceFilter"> & {
  */
 export const CohortDeviceFilterSchema: GenMessage<CohortDeviceFilter> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 30);
+  messageDesc(file_cohort_v1_cohort, 38);
 
 /**
  * @generated from message cohort.v1.CohortDevice
@@ -1047,13 +1318,18 @@ export type CohortDevice = Message<"cohort.v1.CohortDevice"> & {
    * @generated from field: cohort.v1.CohortFirmwareStatus firmware_status = 5;
    */
   firmwareStatus?: CohortFirmwareStatus | undefined;
+
+  /**
+   * @generated from field: repeated cohort.v1.CohortConfigStatus config_statuses = 6;
+   */
+  configStatuses: CohortConfigStatus[];
 };
 
 /**
  * Describes the message cohort.v1.CohortDevice.
  * Use `create(CohortDeviceSchema)` to create a new message.
  */
-export const CohortDeviceSchema: GenMessage<CohortDevice> = /*@__PURE__*/ messageDesc(file_cohort_v1_cohort, 31);
+export const CohortDeviceSchema: GenMessage<CohortDevice> = /*@__PURE__*/ messageDesc(file_cohort_v1_cohort, 39);
 
 /**
  * @generated from message cohort.v1.ListDevicesResponse
@@ -1091,7 +1367,7 @@ export type ListDevicesResponse = Message<"cohort.v1.ListDevicesResponse"> & {
  */
 export const ListDevicesResponseSchema: GenMessage<ListDevicesResponse> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 32);
+  messageDesc(file_cohort_v1_cohort, 40);
 
 /**
  * @generated from message cohort.v1.AdminReassignRequest
@@ -1114,7 +1390,7 @@ export type AdminReassignRequest = Message<"cohort.v1.AdminReassignRequest"> & {
  */
 export const AdminReassignRequestSchema: GenMessage<AdminReassignRequest> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 33);
+  messageDesc(file_cohort_v1_cohort, 41);
 
 /**
  * @generated from message cohort.v1.AdminReassignResponse
@@ -1132,7 +1408,7 @@ export type AdminReassignResponse = Message<"cohort.v1.AdminReassignResponse"> &
  */
 export const AdminReassignResponseSchema: GenMessage<AdminReassignResponse> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 34);
+  messageDesc(file_cohort_v1_cohort, 42);
 
 /**
  * @generated from message cohort.v1.AdminReleaseCohortRequest
@@ -1150,7 +1426,7 @@ export type AdminReleaseCohortRequest = Message<"cohort.v1.AdminReleaseCohortReq
  */
 export const AdminReleaseCohortRequestSchema: GenMessage<AdminReleaseCohortRequest> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 35);
+  messageDesc(file_cohort_v1_cohort, 43);
 
 /**
  * @generated from message cohort.v1.AdminReleaseCohortResponse
@@ -1168,7 +1444,7 @@ export type AdminReleaseCohortResponse = Message<"cohort.v1.AdminReleaseCohortRe
  */
 export const AdminReleaseCohortResponseSchema: GenMessage<AdminReleaseCohortResponse> =
   /*@__PURE__*/
-  messageDesc(file_cohort_v1_cohort, 36);
+  messageDesc(file_cohort_v1_cohort, 44);
 
 /**
  * @generated from enum cohort.v1.CohortState
@@ -1248,6 +1524,80 @@ export const CohortFirmwareRolloutStateSchema: GenEnum<CohortFirmwareRolloutStat
   enumDesc(file_cohort_v1_cohort, 1);
 
 /**
+ * @generated from enum cohort.v1.CohortConfigDimension
+ */
+export enum CohortConfigDimension {
+  /**
+   * @generated from enum value: COHORT_CONFIG_DIMENSION_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: COHORT_CONFIG_DIMENSION_POOLS = 1;
+   */
+  POOLS = 1,
+}
+
+/**
+ * Describes the enum cohort.v1.CohortConfigDimension.
+ */
+export const CohortConfigDimensionSchema: GenEnum<CohortConfigDimension> =
+  /*@__PURE__*/
+  enumDesc(file_cohort_v1_cohort, 2);
+
+/**
+ * @generated from enum cohort.v1.CohortConfigLifecycleState
+ */
+export enum CohortConfigLifecycleState {
+  /**
+   * @generated from enum value: COHORT_CONFIG_LIFECYCLE_STATE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: COHORT_CONFIG_LIFECYCLE_STATE_UNSUPPORTED = 1;
+   */
+  UNSUPPORTED = 1,
+
+  /**
+   * @generated from enum value: COHORT_CONFIG_LIFECYCLE_STATE_WAITING_FOR_OBSERVATION = 2;
+   */
+  WAITING_FOR_OBSERVATION = 2,
+
+  /**
+   * @generated from enum value: COHORT_CONFIG_LIFECYCLE_STATE_APPLYING = 3;
+   */
+  APPLYING = 3,
+
+  /**
+   * @generated from enum value: COHORT_CONFIG_LIFECYCLE_STATE_VERIFYING = 4;
+   */
+  VERIFYING = 4,
+
+  /**
+   * @generated from enum value: COHORT_CONFIG_LIFECYCLE_STATE_CONVERGED = 5;
+   */
+  CONVERGED = 5,
+
+  /**
+   * @generated from enum value: COHORT_CONFIG_LIFECYCLE_STATE_HELD = 6;
+   */
+  HELD = 6,
+
+  /**
+   * @generated from enum value: COHORT_CONFIG_LIFECYCLE_STATE_FAILED = 7;
+   */
+  FAILED = 7,
+}
+
+/**
+ * Describes the enum cohort.v1.CohortConfigLifecycleState.
+ */
+export const CohortConfigLifecycleStateSchema: GenEnum<CohortConfigLifecycleState> =
+  /*@__PURE__*/
+  enumDesc(file_cohort_v1_cohort, 3);
+
+/**
  * @generated from enum cohort.v1.CohortDeviceAssignment
  */
 export enum CohortDeviceAssignment {
@@ -1272,7 +1622,7 @@ export enum CohortDeviceAssignment {
  */
 export const CohortDeviceAssignmentSchema: GenEnum<CohortDeviceAssignment> =
   /*@__PURE__*/
-  enumDesc(file_cohort_v1_cohort, 2);
+  enumDesc(file_cohort_v1_cohort, 4);
 
 /**
  * CohortService manages desired-state cells over exclusive device sets.
@@ -1361,6 +1711,17 @@ export const CohortService: GenService<{
     methodKind: "unary";
     input: typeof GetCohortRequestSchema;
     output: typeof GetCohortResponseSchema;
+  };
+  /**
+   * GetCohortFirmwareVersionHistory returns the version mix over time for
+   * the cohort's current explicit members.
+   *
+   * @generated from rpc cohort.v1.CohortService.GetCohortFirmwareVersionHistory
+   */
+  getCohortFirmwareVersionHistory: {
+    methodKind: "unary";
+    input: typeof GetCohortFirmwareVersionHistoryRequestSchema;
+    output: typeof GetCohortFirmwareVersionHistoryResponseSchema;
   };
   /**
    * ListCohorts lists cohorts for the caller's organization.

@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { CohortDevice } from "@/protoFleet/api/generated/cohort/v1/cohort_pb";
+import { create } from "@bufbuild/protobuf";
+
+import {
+  CohortDesiredConfigSchema,
+  type CohortDevice,
+  CohortPoolDesiredConfigSchema,
+} from "@/protoFleet/api/generated/cohort/v1/cohort_pb";
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { MinerModelGroup } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { useCohortApi } from "@/protoFleet/api/useCohortApi";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import useMinerModelGroups from "@/protoFleet/api/useMinerModelGroups";
+import usePools from "@/protoFleet/api/usePools";
 import MinerSelectionList, { type MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
 import { durationToExpiresAt, type ExpiryPreset } from "@/protoFleet/features/cohorts/utils";
 import { Alert } from "@/shared/assets/icons";
@@ -111,6 +118,7 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
   const { listFirmwareFiles } = useFirmwareApi();
   const { listGroups } = useDeviceSets();
   const { getMinerModelGroups } = useMinerModelGroups();
+  const { miningPools } = usePools(show);
   const selectionRef = useRef<MinerSelectionListHandle>(null);
 
   const [mode, setMode] = useState<CreateMode>("count");
@@ -124,6 +132,9 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
     initialCustomExpiry.getMinutes().toString().padStart(2, "0"),
   );
   const [firmwareFileId, setFirmwareFileId] = useState("");
+  const [primaryPoolId, setPrimaryPoolId] = useState("");
+  const [backup1PoolId, setBackup1PoolId] = useState("");
+  const [backup2PoolId, setBackup2PoolId] = useState("");
   const [sourceDeviceSetId, setSourceDeviceSetId] = useState("");
   const [count, setCount] = useState("1");
   const [product, setProduct] = useState("");
@@ -145,6 +156,9 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
     setCustomExpiryHour(nextCustomExpiry.getHours().toString().padStart(2, "0"));
     setCustomExpiryMinute(nextCustomExpiry.getMinutes().toString().padStart(2, "0"));
     setFirmwareFileId("");
+    setPrimaryPoolId("");
+    setBackup1PoolId("");
+    setBackup2PoolId("");
     setSourceDeviceSetId("");
     setCount("1");
     setProduct("");
@@ -246,6 +260,21 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
   }, [modelGroups, product]);
 
   const groupOptions = useMemo(() => groups.map(formatGroupOption), [groups]);
+  const poolOptions = useMemo(
+    () => [
+      { value: "", label: "No pool enforcement" },
+      ...miningPools.map((pool) => ({
+        value: pool.poolId,
+        label: pool.name,
+        description: `${pool.poolUrl} (${pool.username})`,
+      })),
+    ],
+    [miningPools],
+  );
+  const backupPoolOptions = useMemo(
+    () => poolOptions.map((option, index) => (index === 0 ? { ...option, label: "No backup" } : option)),
+    [poolOptions],
+  );
 
   const hasCohortTarget = product.trim() !== "" && model.trim() !== "";
   const assignableDevices = useMemo(() => {
@@ -328,6 +357,15 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
         claimOwnership: true,
         expiresAt,
         desiredFirmwareFileId: selectedFirmwareFileId,
+        desiredConfig: primaryPoolId
+          ? create(CohortDesiredConfigSchema, {
+              pools: create(CohortPoolDesiredConfigSchema, {
+                primaryPoolId: BigInt(primaryPoolId),
+                backup1PoolId: backup1PoolId ? BigInt(backup1PoolId) : undefined,
+                backup2PoolId: backup2PoolId ? BigInt(backup2PoolId) : undefined,
+              }),
+            })
+          : undefined,
         ...(mode === "count"
           ? {
               selector: {
@@ -363,6 +401,9 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
     onDismiss,
     onSuccess,
     product,
+    primaryPoolId,
+    backup1PoolId,
+    backup2PoolId,
     purpose,
     reset,
     selectedFirmwareFileId,
@@ -419,6 +460,41 @@ const CohortModal = ({ show, onDismiss, onSuccess }: CohortModalProps) => {
               setFirmwareFileId("");
             }}
             disabled={!product}
+            forceBelow
+          />
+        </div>
+
+        <div className="grid gap-4 tablet:grid-cols-3">
+          <Select
+            id="cohort-primary-pool-id"
+            label="Primary pool"
+            options={poolOptions}
+            value={primaryPoolId}
+            onChange={(value) => {
+              setPrimaryPoolId(value);
+              if (!value) {
+                setBackup1PoolId("");
+                setBackup2PoolId("");
+              }
+            }}
+            forceBelow
+          />
+          <Select
+            id="cohort-backup-1-pool-id"
+            label="Backup pool 1"
+            options={backupPoolOptions}
+            value={backup1PoolId}
+            onChange={setBackup1PoolId}
+            disabled={!primaryPoolId}
+            forceBelow
+          />
+          <Select
+            id="cohort-backup-2-pool-id"
+            label="Backup pool 2"
+            options={backupPoolOptions}
+            value={backup2PoolId}
+            onChange={setBackup2PoolId}
+            disabled={!primaryPoolId}
             forceBelow
           />
         </div>

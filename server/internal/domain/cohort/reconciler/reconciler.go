@@ -77,6 +77,7 @@ type Reconciler struct {
 	store            interfaces.CohortFirmwareEnforcementStore
 	cmd              CommandDispatcher
 	firmwareMetadata FirmwareMetadataProvider
+	configEnforcer   *ConfigEnforcer
 	now              func() time.Time
 
 	stopCancel context.CancelFunc
@@ -87,14 +88,26 @@ type Reconciler struct {
 	running bool
 }
 
-func New(cfg Config, store interfaces.CohortFirmwareEnforcementStore, cmd CommandDispatcher, firmwareMetadata FirmwareMetadataProvider) *Reconciler {
-	return &Reconciler{
+type Option func(*Reconciler)
+
+func WithConfigEnforcement(store interfaces.CohortConfigEnforcementStore, adapters ...ConfigDimensionAdapter) Option {
+	return func(r *Reconciler) {
+		r.configEnforcer = NewConfigEnforcer(store, adapters...)
+	}
+}
+
+func New(cfg Config, store interfaces.CohortFirmwareEnforcementStore, cmd CommandDispatcher, firmwareMetadata FirmwareMetadataProvider, opts ...Option) *Reconciler {
+	r := &Reconciler{
 		cfg:              cfg.withDefaults(),
 		store:            store,
 		cmd:              cmd,
 		firmwareMetadata: firmwareMetadata,
 		now:              time.Now,
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 func (r *Reconciler) Start(_ context.Context) error {
@@ -109,6 +122,13 @@ func (r *Reconciler) Start(_ context.Context) error {
 	}
 	if r.cfg.TickInterval < time.Second {
 		return fmt.Errorf("cohort reconciler: tick interval must be at least 1s, got %s", r.cfg.TickInterval)
+	}
+	if r.configEnforcer != nil {
+		for _, adapter := range r.configEnforcer.adapters {
+			if err := validateAdapter(adapter); err != nil {
+				return fmt.Errorf("cohort reconciler: %w", err)
+			}
+		}
 	}
 
 	r.mu.Lock()
@@ -125,8 +145,27 @@ func (r *Reconciler) Start(_ context.Context) error {
 
 	r.wg.Add(1)
 	go r.tickLoop(stopCtx, workCtx)
+	if r.configEnforcer != nil {
+		r.wg.Add(1)
+		go r.configObservationLoop(stopCtx, workCtx)
+	}
 	slog.Info("cohort reconciler started", "tick_interval", r.cfg.TickInterval)
 	return nil
+}
+
+func (r *Reconciler) configObservationLoop(stopCtx, workCtx context.Context) {
+	defer r.wg.Done()
+	ticker := time.NewTicker(defaultConfigObservationInterval)
+	defer ticker.Stop()
+	r.configEnforcer.Observe(workCtx)
+	for {
+		select {
+		case <-stopCtx.Done():
+			return
+		case <-ticker.C:
+			r.configEnforcer.Observe(workCtx)
+		}
+	}
 }
 
 func (r *Reconciler) Stop() error {
@@ -212,6 +251,9 @@ func (r *Reconciler) runTick(ctx context.Context) {
 		}
 	}
 	r.upsertHeartbeat(tickStart, tickUUID, activeCount)
+	if r.configEnforcer != nil && tickCtx.Err() == nil {
+		r.configEnforcer.Reconcile(tickCtx)
+	}
 }
 
 func (r *Reconciler) upsertHeartbeat(tickStart time.Time, tickUUID uuid.UUID, activeCount int32) {
@@ -234,9 +276,6 @@ func (r *Reconciler) processCandidate(ctx context.Context, c models.FirmwareEnfo
 		slog.Warn("cohort reconciler: firmware candidate has no actor user", "org_id", c.OrgID, "device", c.DeviceIdentifier)
 		return
 	}
-	if c.FirmwareObservedAt == nil || c.ObservedFirmwareVersion == nil || r.now().Sub(*c.FirmwareObservedAt) > r.cfg.ObservationMaxAge {
-		return
-	}
 	if strings.TrimSpace(c.FirmwareFileID) == "" {
 		return
 	}
@@ -246,23 +285,16 @@ func (r *Reconciler) processCandidate(ctx context.Context, c models.FirmwareEnfo
 	}
 	c.DesiredFirmwareVersion = desiredVersion
 
-	if *c.ObservedFirmwareVersion == c.DesiredFirmwareVersion {
+	observationFresh := c.FirmwareObservedAt != nil &&
+		c.ObservedFirmwareVersion != nil &&
+		r.now().Sub(*c.FirmwareObservedAt) <= r.cfg.ObservationMaxAge
+	if observationFresh && *c.ObservedFirmwareVersion == c.DesiredFirmwareVersion {
 		r.markConfirmed(ctx, c)
 		return
 	}
 
 	state := candidateState(c)
-	switch state {
-	case models.EnforcementStateConfirmed:
-		_, err := r.store.MarkFirmwareDrifted(ctx, models.MarkFirmwareDriftedParams{
-			OrgID:            c.OrgID,
-			DeviceIdentifier: c.DeviceIdentifier,
-			ObservedAt:       *c.FirmwareObservedAt,
-		})
-		if err != nil {
-			slog.Error("cohort reconciler: failed to mark firmware drifted", "device", c.DeviceIdentifier, "error", err)
-		}
-	case models.EnforcementStateDispatched:
+	if state == models.EnforcementStateDispatched {
 		if c.LastBatchUUID != nil {
 			finished, err := r.store.IsCommandBatchFinished(ctx, *c.LastBatchUUID)
 			if err != nil {
@@ -273,7 +305,7 @@ func (r *Reconciler) processCandidate(ctx context.Context, c models.FirmwareEnfo
 				return
 			}
 		}
-		if !r.redispatchCooldownElapsed(c) {
+		if !r.redispatchCooldownElapsed(c) || c.FirmwareObservedAt == nil {
 			return
 		}
 		_, err := r.store.MarkFirmwareDrifted(ctx, models.MarkFirmwareDriftedParams{
@@ -284,7 +316,26 @@ func (r *Reconciler) processCandidate(ctx context.Context, c models.FirmwareEnfo
 		if err != nil {
 			slog.Error("cohort reconciler: failed to age firmware dispatch into drift", "device", c.DeviceIdentifier, "error", err)
 		}
+		return
+	}
+
+	if !observationFresh {
+		return
+	}
+
+	switch state {
+	case models.EnforcementStateConfirmed:
+		_, err := r.store.MarkFirmwareDrifted(ctx, models.MarkFirmwareDriftedParams{
+			OrgID:            c.OrgID,
+			DeviceIdentifier: c.DeviceIdentifier,
+			ObservedAt:       *c.FirmwareObservedAt,
+		})
+		if err != nil {
+			slog.Error("cohort reconciler: failed to mark firmware drifted", "device", c.DeviceIdentifier, "error", err)
+		}
 	case models.EnforcementStateFailed:
+		return
+	case models.EnforcementStateHeld:
 		return
 	case models.EnforcementStatePending, models.EnforcementStateDispatching, models.EnforcementStateDrifted:
 		if state == models.EnforcementStateDrifted && !r.redispatchCooldownElapsed(c) {

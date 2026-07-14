@@ -4,10 +4,12 @@ package cohort
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
+	poolpb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/cohort/models"
@@ -23,6 +25,7 @@ type Service struct {
 	audit                   AuditLogger
 	metrics                 Metrics
 	firmwareMetadata        FirmwareMetadataProvider
+	poolReferences          PoolReferenceProvider
 }
 
 // SourceDeviceSetResolver resolves group membership for create-from-group.
@@ -34,6 +37,11 @@ type SourceDeviceSetResolver interface {
 // FirmwareMetadataProvider resolves uploaded firmware file target metadata.
 type FirmwareMetadataProvider interface {
 	GetFirmwareMetadata(fileID string) (files.FirmwareMetadata, error)
+}
+
+// PoolReferenceProvider resolves active, organization-scoped pool references.
+type PoolReferenceProvider interface {
+	GetPool(ctx context.Context, orgID int64, poolID int64) (*poolpb.Pool, error)
 }
 
 // Option configures a Service.
@@ -68,6 +76,13 @@ func WithSourceDeviceSetResolver(resolver SourceDeviceSetResolver) Option {
 func WithFirmwareMetadataProvider(provider FirmwareMetadataProvider) Option {
 	return func(s *Service) {
 		s.firmwareMetadata = provider
+	}
+}
+
+// WithPoolReferenceProvider wires desired pool reference validation.
+func WithPoolReferenceProvider(provider PoolReferenceProvider) Option {
+	return func(s *Service) {
+		s.poolReferences = provider
 	}
 }
 
@@ -112,6 +127,9 @@ func (s *Service) CreateCohort(ctx context.Context, params models.CreateCohortPa
 		}
 		params.DesiredFirmwareTargetManufacturer = metadata.TargetManufacturer
 		params.DesiredFirmwareTargetModel = metadata.TargetModel
+	}
+	if err := s.validateDesiredConfig(ctx, params.OrgID, params.DesiredConfig, params.DesiredConfigJSON); err != nil {
+		return nil, err
 	}
 	if params.SourceActorType == "" {
 		params.SourceActorType = models.SourceActorUser
@@ -189,6 +207,92 @@ func (s *Service) GetCohort(ctx context.Context, orgID, cohortID int64) (*models
 	return cohort, nil
 }
 
+const (
+	maxFirmwareVersionHistoryRange   = 365 * 24 * time.Hour
+	maxFirmwareVersionHistoryBuckets = 1000
+)
+
+// GetCohortFirmwareVersionHistory returns the firmware mix over time for the
+// cohort's current explicit members.
+func (s *Service) GetCohortFirmwareVersionHistory(ctx context.Context, params models.CohortFirmwareVersionHistoryParams) (models.CohortFirmwareVersionHistory, error) {
+	if s.store == nil {
+		return models.CohortFirmwareVersionHistory{}, fleeterror.NewInternalError("cohort store is not configured")
+	}
+	if !params.EndTime.After(params.StartTime) {
+		return models.CohortFirmwareVersionHistory{}, fleeterror.NewInvalidArgumentError("End time must be after start time.")
+	}
+	if params.EndTime.Sub(params.StartTime) > maxFirmwareVersionHistoryRange {
+		return models.CohortFirmwareVersionHistory{}, fleeterror.NewInvalidArgumentError("Firmware history is limited to one year.")
+	}
+	if params.Granularity <= 0 {
+		return models.CohortFirmwareVersionHistory{}, fleeterror.NewInvalidArgumentError("Granularity must be greater than zero.")
+	}
+	bucketCount := int((params.EndTime.Sub(params.StartTime) + params.Granularity - 1) / params.Granularity)
+	if bucketCount+1 > maxFirmwareVersionHistoryBuckets {
+		return models.CohortFirmwareVersionHistory{}, fleeterror.NewInvalidArgumentError("Firmware history is limited to 1,000 points.")
+	}
+
+	cohort, err := s.store.GetCohort(ctx, params.OrgID, params.CohortID)
+	if err != nil {
+		return models.CohortFirmwareVersionHistory{}, err
+	}
+	if cohort.IsDefault {
+		return models.CohortFirmwareVersionHistory{}, fleeterror.NewInvalidArgumentError("Firmware history is available for explicit cohorts only.")
+	}
+
+	members := make(map[string]struct{}, len(cohort.Members))
+	for _, member := range cohort.Members {
+		members[member.DeviceIdentifier] = struct{}{}
+	}
+	events, err := s.store.ListCohortFirmwareVersionEvents(ctx, params.OrgID, params.CohortID, params.StartTime, params.EndTime)
+	if err != nil {
+		return models.CohortFirmwareVersionHistory{}, err
+	}
+
+	return buildCohortFirmwareVersionHistory(params, members, events), nil
+}
+
+func buildCohortFirmwareVersionHistory(params models.CohortFirmwareVersionHistoryParams, members map[string]struct{}, events []models.FirmwareVersionEvent) models.CohortFirmwareVersionHistory {
+	timestamps := make([]time.Time, 0, maxFirmwareVersionHistoryBuckets)
+	for timestamp := params.StartTime; timestamp.Before(params.EndTime); timestamp = timestamp.Add(params.Granularity) {
+		timestamps = append(timestamps, timestamp)
+	}
+	if len(timestamps) == 0 || !timestamps[len(timestamps)-1].Equal(params.EndTime) {
+		timestamps = append(timestamps, params.EndTime)
+	}
+
+	currentVersions := make(map[string]string, len(members))
+	points := make([]models.CohortFirmwareVersionHistoryPoint, 0, len(timestamps))
+	eventIndex := 0
+	for _, timestamp := range timestamps {
+		for eventIndex < len(events) && !events[eventIndex].ObservedAt.After(timestamp) {
+			event := events[eventIndex]
+			if _, ok := members[event.DeviceIdentifier]; ok {
+				currentVersions[event.DeviceIdentifier] = strings.TrimSpace(event.FirmwareVersion)
+			}
+			eventIndex++
+		}
+
+		counts := make(map[string]int32)
+		for deviceIdentifier := range members {
+			counts[currentVersions[deviceIdentifier]]++
+		}
+		versions := make([]models.CohortFirmwareVersionCount, 0, len(counts))
+		for version, count := range counts {
+			versions = append(versions, models.CohortFirmwareVersionCount{FirmwareVersion: version, DeviceCount: count})
+		}
+		sort.Slice(versions, func(i, j int) bool {
+			if versions[i].DeviceCount != versions[j].DeviceCount {
+				return versions[i].DeviceCount > versions[j].DeviceCount
+			}
+			return versions[i].FirmwareVersion < versions[j].FirmwareVersion
+		})
+		points = append(points, models.CohortFirmwareVersionHistoryPoint{Timestamp: timestamp, Versions: versions})
+	}
+
+	return models.CohortFirmwareVersionHistory{MemberCount: int32(len(members)), Points: points}
+}
+
 // ListCohorts returns cohorts for an org.
 func (s *Service) ListCohorts(ctx context.Context, params models.ListCohortsParams) (models.PagedCohorts, error) {
 	if s.store == nil {
@@ -246,13 +350,23 @@ func (s *Service) UpdateCohort(ctx context.Context, params models.UpdateCohortPa
 	if err != nil {
 		return nil, err
 	}
-	if target.IsDefault {
+	if target.IsDefault && !isDefaultConfigOnlyUpdate(params) {
 		return nil, fleeterror.NewInvalidArgumentError("Set default cohort firmware per manufacturer and model.")
+	}
+	if params.DesiredConfigJSONSet {
+		if err := s.validateDesiredConfig(ctx, params.OrgID, params.DesiredConfig, params.DesiredConfigJSON); err != nil {
+			return nil, err
+		}
 	}
 	if err := s.validateDesiredFirmwareTarget(params, target); err != nil {
 		return nil, err
 	}
-	updated, err := s.store.UpdateCohort(ctx, params)
+	var updated *models.Cohort
+	if target.IsDefault {
+		updated, err = s.store.UpdateDefaultCohortConfig(ctx, params)
+	} else {
+		updated, err = s.store.UpdateCohort(ctx, params)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -547,6 +661,8 @@ func cohortFirmwareProgress(cohort *models.Cohort) models.CohortFirmwareProgress
 		}
 		progress.TargetedCount++
 		switch status.State {
+		case models.CohortFirmwareRolloutStateNoTarget:
+			continue
 		case models.CohortFirmwareRolloutStateComplete:
 			progress.CompleteCount++
 		case models.CohortFirmwareRolloutStateQueued:
@@ -582,12 +698,16 @@ func deriveFirmwareRolloutState(status *models.CohortFirmwareStatus) models.Coho
 		switch *status.EnforcementState {
 		case models.EnforcementStateDispatched:
 			return models.CohortFirmwareRolloutStateVerifying
-		case models.EnforcementStateFailed:
+		case models.EnforcementStateDispatching:
+			return models.CohortFirmwareRolloutStateUpdating
+		case models.EnforcementStateFailed, models.EnforcementStateHeld:
 			return models.CohortFirmwareRolloutStateNeedsAttention
 		case models.EnforcementStatePending, models.EnforcementStateDrifted:
 			if status.RetryCount > 0 || strings.TrimSpace(ptrStringValue(status.LastError)) != "" {
 				return models.CohortFirmwareRolloutStateNeedsAttention
 			}
+		case models.EnforcementStateConfirmed:
+			return models.CohortFirmwareRolloutStateQueued
 		}
 	}
 	if status.TargetFirmwareVersion == "" {
@@ -987,6 +1107,49 @@ func cohortDesiredFirmwareFileID(cohort *models.Cohort) *string {
 
 func cohortHasDesiredConfig(cohort *models.Cohort) bool {
 	return cohort != nil && len(cohort.DesiredConfigJSON) > 0
+}
+
+func isDefaultConfigOnlyUpdate(params models.UpdateCohortParams) bool {
+	return (params.DesiredConfigJSONSet || params.ClearDesiredConfig) &&
+		params.Label == nil && params.Purpose == nil && params.ExpiresAt == nil && !params.ClearExpiresAt &&
+		!params.DesiredFirmwareFileIDSet
+}
+
+func (s *Service) validateDesiredConfig(ctx context.Context, orgID int64, config *models.CohortDesiredConfig, raw []byte) error {
+	if config == nil && len(raw) > 0 {
+		parsed, err := models.ParseCohortDesiredConfig(raw)
+		if err != nil {
+			return fleeterror.NewInvalidArgumentErrorf("Desired configuration is not valid: %v", err)
+		}
+		config = parsed
+	}
+	if config == nil || config.Pools == nil {
+		return nil
+	}
+	if s.poolReferences == nil {
+		return fleeterror.NewInternalError("cohort pool reference provider is not configured")
+	}
+	ids := []int64{config.Pools.PrimaryPoolID}
+	if config.Pools.Backup1PoolID != nil {
+		ids = append(ids, *config.Pools.Backup1PoolID)
+	}
+	if config.Pools.Backup2PoolID != nil {
+		ids = append(ids, *config.Pools.Backup2PoolID)
+	}
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			return fleeterror.NewInvalidArgumentError("Select a valid pool for every configured slot.")
+		}
+		if _, exists := seen[id]; exists {
+			return fleeterror.NewInvalidArgumentError("Each pool slot must reference a different pool.")
+		}
+		seen[id] = struct{}{}
+		if _, err := s.poolReferences.GetPool(ctx, orgID, id); err != nil {
+			return fleeterror.NewInvalidArgumentErrorf("Pool %d is not an active pool in this organization.", id)
+		}
+	}
+	return nil
 }
 
 func cohortFirmwareFileIDForTarget(cohort *models.Cohort, manufacturer, model string) *string {

@@ -246,6 +246,7 @@ func start(config *Config) error {
 		cohortStore,
 		cohortDomain.WithAuditLogger(activitySvc),
 		cohortDomain.WithSourceDeviceSetResolver(collectionStore),
+		cohortDomain.WithPoolReferenceProvider(poolStore),
 	)
 
 	apiKeyStore := sqlstores.NewSQLApiKeyStore(conn)
@@ -581,7 +582,14 @@ func start(config *Config) error {
 		}
 	}()
 
-	cohortRec := cohortReconciler.New(config.CohortEnforce, cohortStore, commandSvc, filesService)
+	poolConfigAdapter := cohortReconciler.NewPoolAdapter(poolStore, minerService, pluginService, commandSvc)
+	cohortRec := cohortReconciler.New(
+		config.CohortEnforce,
+		cohortStore,
+		commandSvc,
+		filesService,
+		cohortReconciler.WithConfigEnforcement(cohortStore, poolConfigAdapter),
+	)
 	if err := cohortRec.Start(context.Background()); err != nil {
 		return fmt.Errorf("failed to start cohort reconciler: %w", err)
 	}

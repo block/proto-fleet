@@ -6,6 +6,7 @@ import { cohortClient } from "@/protoFleet/api/clients";
 import {
   AdminReassignRequestSchema,
   type Cohort,
+  type CohortDesiredConfig,
   type CohortDevice,
   CohortDeviceAssignment,
   type CohortDeviceFilter,
@@ -14,6 +15,8 @@ import {
   CohortDeviceSelectorSchema,
   type CohortSummary,
   CreateCohortRequestSchema,
+  GetCohortFirmwareVersionHistoryRequestSchema,
+  type GetCohortFirmwareVersionHistoryResponse,
   GetCohortRequestSchema,
   GetMyCohortsRequestSchema,
   ListCohortsRequestSchema,
@@ -37,6 +40,7 @@ interface CreateCohortProps extends MutationCallbacks<Cohort> {
   claimOwnership?: boolean;
   expiresAt?: Date;
   desiredFirmwareFileId?: string;
+  desiredConfig?: CohortDesiredConfig;
   deviceIdentifiers?: string[];
   sourceDeviceSetId?: bigint;
   selector?: {
@@ -60,6 +64,11 @@ interface SetDesiredFirmwareProps extends MutationCallbacks<Cohort> {
   manufacturer: string;
   model: string;
   firmwareFileId?: string;
+}
+
+interface SetDesiredPoolsProps extends MutationCallbacks<Cohort> {
+  cohortId: bigint;
+  desiredConfig?: CohortDesiredConfig;
 }
 
 interface AddRemoveDevicesProps extends MutationCallbacks<Cohort> {
@@ -95,6 +104,13 @@ interface ListCohortsProps extends MutationCallbacks<PagedCohortsResult> {
 
 interface GetCohortProps extends MutationCallbacks<Cohort> {
   cohortId: bigint;
+}
+
+interface GetCohortFirmwareVersionHistoryProps extends MutationCallbacks<GetCohortFirmwareVersionHistoryResponse> {
+  cohortId: bigint;
+  startTime: Date;
+  endTime: Date;
+  granularitySeconds: number;
 }
 
 interface CohortDeviceFilterProps {
@@ -209,6 +225,37 @@ export function useCohortApi() {
         if (!response.cohort) throw new Error("Cohort response was empty");
         onSuccess?.(response.cohort);
         return response.cohort;
+      } catch (error) {
+        handleError(error, onError);
+        throw error;
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleError],
+  );
+
+  const getFirmwareVersionHistory = useCallback(
+    async ({
+      cohortId,
+      startTime,
+      endTime,
+      granularitySeconds,
+      onSuccess,
+      onError,
+      onFinally,
+    }: GetCohortFirmwareVersionHistoryProps) => {
+      try {
+        const response = await cohortClient.getCohortFirmwareVersionHistory(
+          create(GetCohortFirmwareVersionHistoryRequestSchema, {
+            cohortId,
+            startTime: timestampFromDate(startTime),
+            endTime: timestampFromDate(endTime),
+            granularity: { seconds: BigInt(granularitySeconds), nanos: 0 },
+          }),
+        );
+        onSuccess?.(response);
+        return response;
       } catch (error) {
         handleError(error, onError);
         throw error;
@@ -383,6 +430,29 @@ export function useCohortApi() {
     [handleError],
   );
 
+  const setDesiredPools = useCallback(
+    async ({ cohortId, desiredConfig, onSuccess, onError, onFinally }: SetDesiredPoolsProps) => {
+      try {
+        const response = await cohortClient.updateCohort(
+          create(UpdateCohortRequestSchema, {
+            cohortId,
+            desiredConfig,
+            clearDesiredConfig: desiredConfig === undefined,
+          }),
+        );
+        if (!response.cohort) throw new Error("Cohort response was empty");
+        onSuccess?.(response.cohort);
+        return response.cohort;
+      } catch (error) {
+        handleError(error, onError);
+        throw error;
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleError],
+  );
+
   const addDevices = useCallback(
     async ({ cohortId, deviceIdentifiers, onSuccess, onError, onFinally }: AddRemoveDevicesProps) => {
       try {
@@ -440,12 +510,14 @@ export function useCohortApi() {
     listCohorts,
     getMyCohorts,
     getCohort,
+    getFirmwareVersionHistory,
     listDevices,
     listAllDevices,
     createCohort,
     releaseCohort,
     extendCohort,
     setDesiredFirmware,
+    setDesiredPools,
     addDevices,
     removeDevices,
     adminReassign,

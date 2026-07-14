@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/cohort/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
@@ -129,7 +131,50 @@ func TestAdminReassign_AllowsSuperAdmin(t *testing.T) {
 	assert.Equal(t, int64(1), resp.Msg.GetCohort().GetSummary().GetExplicitMemberCount())
 }
 
+func TestGetCohortFirmwareVersionHistory_UsesCallerOrganization(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockCohortStore(ctrl)
+	handler := NewHandler(domaincohort.NewService(store))
+	start := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
+	end := start.Add(10 * time.Minute)
+	store.EXPECT().GetCohort(gomock.Any(), int64(7), int64(42)).Return(&models.Cohort{
+		ID: 42, OrgID: 7, Members: []models.CohortMember{{CohortID: 42, OrgID: 7, DeviceIdentifier: "miner-1"}},
+	}, nil)
+	store.EXPECT().ListCohortFirmwareVersionEvents(gomock.Any(), int64(7), int64(42), start, end).Return([]models.FirmwareVersionEvent{
+		{DeviceIdentifier: "miner-1", FirmwareVersion: "1.2.3", ObservedAt: start.Add(-time.Minute)},
+	}, nil)
+
+	resp, err := handler.GetCohortFirmwareVersionHistory(
+		cohortHandlerContextWithPermissions("USER", authz.PermCohortRead),
+		connect.NewRequest(&pb.GetCohortFirmwareVersionHistoryRequest{
+			CohortId: 42, StartTime: timestamppb.New(start), EndTime: timestamppb.New(end), Granularity: durationpb.New(10 * time.Minute),
+		}),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.Msg.GetMemberCount())
+	require.Len(t, resp.Msg.GetPoints(), 2)
+	assert.Equal(t, "1.2.3", resp.Msg.GetPoints()[0].GetVersions()[0].GetFirmwareVersion())
+}
+
+func TestGetCohortFirmwareVersionHistory_RequiresReadPermission(t *testing.T) {
+	t.Parallel()
+
+	handler := NewHandler(domaincohort.NewService(mocks.NewMockCohortStore(gomock.NewController(t))))
+	_, err := handler.GetCohortFirmwareVersionHistory(
+		cohortHandlerContextWithPermissions("USER", authz.PermCohortManage),
+		connect.NewRequest(&pb.GetCohortFirmwareVersionHistoryRequest{}),
+	)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err))
+}
+
 func cohortHandlerContext(role string) context.Context {
+	return cohortHandlerContextWithPermissions(role, authz.PermCohortManage, authz.PermCohortRead)
+}
+
+func cohortHandlerContextWithPermissions(role string, permissions ...string) context.Context {
 	info := &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		SessionID:      "session-1",
@@ -143,6 +188,6 @@ func cohortHandlerContext(role string) context.Context {
 	return middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions([]authz.Assignment{{
 		AssignmentID: 1,
 		ScopeType:    authz.ScopeOrg,
-		Permissions:  []string{authz.PermCohortManage},
+		Permissions:  permissions,
 	}}))
 }

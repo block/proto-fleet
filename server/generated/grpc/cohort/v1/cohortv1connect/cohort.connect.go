@@ -57,6 +57,9 @@ const (
 	CohortServiceDeleteCohortProcedure = "/cohort.v1.CohortService/DeleteCohort"
 	// CohortServiceGetCohortProcedure is the fully-qualified name of the CohortService's GetCohort RPC.
 	CohortServiceGetCohortProcedure = "/cohort.v1.CohortService/GetCohort"
+	// CohortServiceGetCohortFirmwareVersionHistoryProcedure is the fully-qualified name of the
+	// CohortService's GetCohortFirmwareVersionHistory RPC.
+	CohortServiceGetCohortFirmwareVersionHistoryProcedure = "/cohort.v1.CohortService/GetCohortFirmwareVersionHistory"
 	// CohortServiceListCohortsProcedure is the fully-qualified name of the CohortService's ListCohorts
 	// RPC.
 	CohortServiceListCohortsProcedure = "/cohort.v1.CohortService/ListCohorts"
@@ -94,6 +97,9 @@ type CohortServiceClient interface {
 	DeleteCohort(context.Context, *connect.Request[v1.DeleteCohortRequest]) (*connect.Response[v1.DeleteCohortResponse], error)
 	// GetCohort returns a single cohort and its explicit members.
 	GetCohort(context.Context, *connect.Request[v1.GetCohortRequest]) (*connect.Response[v1.GetCohortResponse], error)
+	// GetCohortFirmwareVersionHistory returns the version mix over time for
+	// the cohort's current explicit members.
+	GetCohortFirmwareVersionHistory(context.Context, *connect.Request[v1.GetCohortFirmwareVersionHistoryRequest]) (*connect.Response[v1.GetCohortFirmwareVersionHistoryResponse], error)
 	// ListCohorts lists cohorts for the caller's organization.
 	ListCohorts(context.Context, *connect.Request[v1.ListCohortsRequest]) (*connect.Response[v1.ListCohortsResponse], error)
 	// GetMyCohorts lists cohorts owned by the caller.
@@ -156,6 +162,11 @@ func NewCohortServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			baseURL+CohortServiceGetCohortProcedure,
 			opts...,
 		),
+		getCohortFirmwareVersionHistory: connect.NewClient[v1.GetCohortFirmwareVersionHistoryRequest, v1.GetCohortFirmwareVersionHistoryResponse](
+			httpClient,
+			baseURL+CohortServiceGetCohortFirmwareVersionHistoryProcedure,
+			opts...,
+		),
 		listCohorts: connect.NewClient[v1.ListCohortsRequest, v1.ListCohortsResponse](
 			httpClient,
 			baseURL+CohortServiceListCohortsProcedure,
@@ -186,19 +197,20 @@ func NewCohortServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 
 // cohortServiceClient implements CohortServiceClient.
 type cohortServiceClient struct {
-	createCohort            *connect.Client[v1.CreateCohortRequest, v1.CreateCohortResponse]
-	updateCohort            *connect.Client[v1.UpdateCohortRequest, v1.UpdateCohortResponse]
-	setCohortFirmwareTarget *connect.Client[v1.SetCohortFirmwareTargetRequest, v1.SetCohortFirmwareTargetResponse]
-	addDevicesToCohort      *connect.Client[v1.AddDevicesToCohortRequest, v1.AddDevicesToCohortResponse]
-	removeDevicesFromCohort *connect.Client[v1.RemoveDevicesFromCohortRequest, v1.RemoveDevicesFromCohortResponse]
-	releaseCohort           *connect.Client[v1.ReleaseCohortRequest, v1.ReleaseCohortResponse]
-	deleteCohort            *connect.Client[v1.DeleteCohortRequest, v1.DeleteCohortResponse]
-	getCohort               *connect.Client[v1.GetCohortRequest, v1.GetCohortResponse]
-	listCohorts             *connect.Client[v1.ListCohortsRequest, v1.ListCohortsResponse]
-	getMyCohorts            *connect.Client[v1.GetMyCohortsRequest, v1.GetMyCohortsResponse]
-	listDevices             *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
-	adminReassign           *connect.Client[v1.AdminReassignRequest, v1.AdminReassignResponse]
-	adminReleaseCohort      *connect.Client[v1.AdminReleaseCohortRequest, v1.AdminReleaseCohortResponse]
+	createCohort                    *connect.Client[v1.CreateCohortRequest, v1.CreateCohortResponse]
+	updateCohort                    *connect.Client[v1.UpdateCohortRequest, v1.UpdateCohortResponse]
+	setCohortFirmwareTarget         *connect.Client[v1.SetCohortFirmwareTargetRequest, v1.SetCohortFirmwareTargetResponse]
+	addDevicesToCohort              *connect.Client[v1.AddDevicesToCohortRequest, v1.AddDevicesToCohortResponse]
+	removeDevicesFromCohort         *connect.Client[v1.RemoveDevicesFromCohortRequest, v1.RemoveDevicesFromCohortResponse]
+	releaseCohort                   *connect.Client[v1.ReleaseCohortRequest, v1.ReleaseCohortResponse]
+	deleteCohort                    *connect.Client[v1.DeleteCohortRequest, v1.DeleteCohortResponse]
+	getCohort                       *connect.Client[v1.GetCohortRequest, v1.GetCohortResponse]
+	getCohortFirmwareVersionHistory *connect.Client[v1.GetCohortFirmwareVersionHistoryRequest, v1.GetCohortFirmwareVersionHistoryResponse]
+	listCohorts                     *connect.Client[v1.ListCohortsRequest, v1.ListCohortsResponse]
+	getMyCohorts                    *connect.Client[v1.GetMyCohortsRequest, v1.GetMyCohortsResponse]
+	listDevices                     *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
+	adminReassign                   *connect.Client[v1.AdminReassignRequest, v1.AdminReassignResponse]
+	adminReleaseCohort              *connect.Client[v1.AdminReleaseCohortRequest, v1.AdminReleaseCohortResponse]
 }
 
 // CreateCohort calls cohort.v1.CohortService.CreateCohort.
@@ -239,6 +251,11 @@ func (c *cohortServiceClient) DeleteCohort(ctx context.Context, req *connect.Req
 // GetCohort calls cohort.v1.CohortService.GetCohort.
 func (c *cohortServiceClient) GetCohort(ctx context.Context, req *connect.Request[v1.GetCohortRequest]) (*connect.Response[v1.GetCohortResponse], error) {
 	return c.getCohort.CallUnary(ctx, req)
+}
+
+// GetCohortFirmwareVersionHistory calls cohort.v1.CohortService.GetCohortFirmwareVersionHistory.
+func (c *cohortServiceClient) GetCohortFirmwareVersionHistory(ctx context.Context, req *connect.Request[v1.GetCohortFirmwareVersionHistoryRequest]) (*connect.Response[v1.GetCohortFirmwareVersionHistoryResponse], error) {
+	return c.getCohortFirmwareVersionHistory.CallUnary(ctx, req)
 }
 
 // ListCohorts calls cohort.v1.CohortService.ListCohorts.
@@ -286,6 +303,9 @@ type CohortServiceHandler interface {
 	DeleteCohort(context.Context, *connect.Request[v1.DeleteCohortRequest]) (*connect.Response[v1.DeleteCohortResponse], error)
 	// GetCohort returns a single cohort and its explicit members.
 	GetCohort(context.Context, *connect.Request[v1.GetCohortRequest]) (*connect.Response[v1.GetCohortResponse], error)
+	// GetCohortFirmwareVersionHistory returns the version mix over time for
+	// the cohort's current explicit members.
+	GetCohortFirmwareVersionHistory(context.Context, *connect.Request[v1.GetCohortFirmwareVersionHistoryRequest]) (*connect.Response[v1.GetCohortFirmwareVersionHistoryResponse], error)
 	// ListCohorts lists cohorts for the caller's organization.
 	ListCohorts(context.Context, *connect.Request[v1.ListCohortsRequest]) (*connect.Response[v1.ListCohortsResponse], error)
 	// GetMyCohorts lists cohorts owned by the caller.
@@ -344,6 +364,11 @@ func NewCohortServiceHandler(svc CohortServiceHandler, opts ...connect.HandlerOp
 		svc.GetCohort,
 		opts...,
 	)
+	cohortServiceGetCohortFirmwareVersionHistoryHandler := connect.NewUnaryHandler(
+		CohortServiceGetCohortFirmwareVersionHistoryProcedure,
+		svc.GetCohortFirmwareVersionHistory,
+		opts...,
+	)
 	cohortServiceListCohortsHandler := connect.NewUnaryHandler(
 		CohortServiceListCohortsProcedure,
 		svc.ListCohorts,
@@ -387,6 +412,8 @@ func NewCohortServiceHandler(svc CohortServiceHandler, opts ...connect.HandlerOp
 			cohortServiceDeleteCohortHandler.ServeHTTP(w, r)
 		case CohortServiceGetCohortProcedure:
 			cohortServiceGetCohortHandler.ServeHTTP(w, r)
+		case CohortServiceGetCohortFirmwareVersionHistoryProcedure:
+			cohortServiceGetCohortFirmwareVersionHistoryHandler.ServeHTTP(w, r)
 		case CohortServiceListCohortsProcedure:
 			cohortServiceListCohortsHandler.ServeHTTP(w, r)
 		case CohortServiceGetMyCohortsProcedure:
@@ -436,6 +463,10 @@ func (UnimplementedCohortServiceHandler) DeleteCohort(context.Context, *connect.
 
 func (UnimplementedCohortServiceHandler) GetCohort(context.Context, *connect.Request[v1.GetCohortRequest]) (*connect.Response[v1.GetCohortResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cohort.v1.CohortService.GetCohort is not implemented"))
+}
+
+func (UnimplementedCohortServiceHandler) GetCohortFirmwareVersionHistory(context.Context, *connect.Request[v1.GetCohortFirmwareVersionHistoryRequest]) (*connect.Response[v1.GetCohortFirmwareVersionHistoryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cohort.v1.CohortService.GetCohortFirmwareVersionHistory is not implemented"))
 }
 
 func (UnimplementedCohortServiceHandler) ListCohorts(context.Context, *connect.Request[v1.ListCohortsRequest]) (*connect.Response[v1.ListCohortsResponse], error) {

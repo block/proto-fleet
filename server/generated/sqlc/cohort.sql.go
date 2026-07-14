@@ -635,6 +635,204 @@ func (q *Queries) ListActiveOwnedCohortMemberships(ctx context.Context, arg List
 	return items, nil
 }
 
+const listCohortConfigStatuses = `-- name: ListCohortConfigStatuses :many
+WITH effective_devices AS (
+    SELECT
+        c.id AS cohort_id,
+        c.desired_config_jsonb,
+        d.org_id,
+        d.device_identifier
+    FROM device d
+    LEFT JOIN cohort_membership cm
+        ON cm.org_id = d.org_id
+       AND cm.device_identifier = d.device_identifier
+    JOIN cohort default_c
+        ON default_c.org_id = d.org_id
+       AND default_c.is_default = TRUE
+       AND default_c.state = 'active'
+    JOIN cohort c
+        ON c.id = COALESCE(cm.cohort_id, default_c.id)
+       AND c.org_id = d.org_id
+       AND c.state = 'active'
+    WHERE d.org_id = $1
+      AND d.deleted_at IS NULL
+      AND c.id = ANY($2::bigint[])
+)
+SELECT
+    ed.cohort_id,
+    ed.device_identifier,
+    'pools'::text AS dimension,
+    COALESCE(des.supported, TRUE)::boolean AS supported,
+    des.state AS enforcement_state,
+    des.retry_count,
+    des.last_error,
+    des.last_dispatched_at,
+    des.confirmed_at,
+    dcs.observed_at
+FROM effective_devices ed
+LEFT JOIN device_enforcement_state des
+    ON des.org_id = ed.org_id
+   AND des.device_identifier = ed.device_identifier
+   AND des.dimension = 'pools'
+LEFT JOIN device_config_state dcs
+    ON dcs.org_id = ed.org_id
+   AND dcs.device_identifier = ed.device_identifier
+   AND dcs.dimension = 'pools'
+WHERE ed.desired_config_jsonb ? 'pools'
+ORDER BY ed.cohort_id, ed.device_identifier
+`
+
+type ListCohortConfigStatusesParams struct {
+	OrgID     int64
+	CohortIds []int64
+}
+
+type ListCohortConfigStatusesRow struct {
+	CohortID         int64
+	DeviceIdentifier string
+	Dimension        string
+	Supported        bool
+	EnforcementState sql.NullString
+	RetryCount       sql.NullInt32
+	LastError        sql.NullString
+	LastDispatchedAt sql.NullTime
+	ConfirmedAt      sql.NullTime
+	ObservedAt       sql.NullTime
+}
+
+func (q *Queries) ListCohortConfigStatuses(ctx context.Context, arg ListCohortConfigStatusesParams) ([]ListCohortConfigStatusesRow, error) {
+	rows, err := q.query(ctx, q.listCohortConfigStatusesStmt, listCohortConfigStatuses, arg.OrgID, pq.Array(arg.CohortIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCohortConfigStatusesRow
+	for rows.Next() {
+		var i ListCohortConfigStatusesRow
+		if err := rows.Scan(
+			&i.CohortID,
+			&i.DeviceIdentifier,
+			&i.Dimension,
+			&i.Supported,
+			&i.EnforcementState,
+			&i.RetryCount,
+			&i.LastError,
+			&i.LastDispatchedAt,
+			&i.ConfirmedAt,
+			&i.ObservedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCohortConfigStatusesForDevices = `-- name: ListCohortConfigStatusesForDevices :many
+WITH effective_devices AS (
+    SELECT
+        c.id AS cohort_id,
+        c.desired_config_jsonb,
+        d.org_id,
+        d.device_identifier
+    FROM device d
+    LEFT JOIN cohort_membership cm
+        ON cm.org_id = d.org_id
+       AND cm.device_identifier = d.device_identifier
+    JOIN cohort default_c
+        ON default_c.org_id = d.org_id
+       AND default_c.is_default = TRUE
+       AND default_c.state = 'active'
+    JOIN cohort c
+        ON c.id = COALESCE(cm.cohort_id, default_c.id)
+       AND c.org_id = d.org_id
+       AND c.state = 'active'
+    WHERE d.org_id = $1
+      AND d.deleted_at IS NULL
+      AND d.device_identifier = ANY($2::text[])
+)
+SELECT
+    ed.cohort_id,
+    ed.device_identifier,
+    'pools'::text AS dimension,
+    COALESCE(des.supported, TRUE)::boolean AS supported,
+    des.state AS enforcement_state,
+    des.retry_count,
+    des.last_error,
+    des.last_dispatched_at,
+    des.confirmed_at,
+    dcs.observed_at
+FROM effective_devices ed
+LEFT JOIN device_enforcement_state des
+    ON des.org_id = ed.org_id
+   AND des.device_identifier = ed.device_identifier
+   AND des.dimension = 'pools'
+LEFT JOIN device_config_state dcs
+    ON dcs.org_id = ed.org_id
+   AND dcs.device_identifier = ed.device_identifier
+   AND dcs.dimension = 'pools'
+WHERE ed.desired_config_jsonb ? 'pools'
+ORDER BY ed.device_identifier
+`
+
+type ListCohortConfigStatusesForDevicesParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+type ListCohortConfigStatusesForDevicesRow struct {
+	CohortID         int64
+	DeviceIdentifier string
+	Dimension        string
+	Supported        bool
+	EnforcementState sql.NullString
+	RetryCount       sql.NullInt32
+	LastError        sql.NullString
+	LastDispatchedAt sql.NullTime
+	ConfirmedAt      sql.NullTime
+	ObservedAt       sql.NullTime
+}
+
+func (q *Queries) ListCohortConfigStatusesForDevices(ctx context.Context, arg ListCohortConfigStatusesForDevicesParams) ([]ListCohortConfigStatusesForDevicesRow, error) {
+	rows, err := q.query(ctx, q.listCohortConfigStatusesForDevicesStmt, listCohortConfigStatusesForDevices, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCohortConfigStatusesForDevicesRow
+	for rows.Next() {
+		var i ListCohortConfigStatusesForDevicesRow
+		if err := rows.Scan(
+			&i.CohortID,
+			&i.DeviceIdentifier,
+			&i.Dimension,
+			&i.Supported,
+			&i.EnforcementState,
+			&i.RetryCount,
+			&i.LastError,
+			&i.LastDispatchedAt,
+			&i.ConfirmedAt,
+			&i.ObservedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCohortDeviceOwnership = `-- name: ListCohortDeviceOwnership :many
 SELECT
     cm.device_identifier,
@@ -1179,6 +1377,97 @@ func (q *Queries) ListCohortFirmwareTargets(ctx context.Context, arg ListCohortF
 			&i.FirmwareFileID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCohortFirmwareVersionEvents = `-- name: ListCohortFirmwareVersionEvents :many
+WITH current_members AS (
+    SELECT cm.device_identifier
+    FROM cohort_membership cm
+    JOIN cohort c
+      ON c.id = cm.cohort_id
+     AND c.org_id = cm.org_id
+    WHERE cm.org_id = $1
+      AND cm.cohort_id = $2
+),
+baseline AS (
+    SELECT DISTINCT ON (event.device_identifier)
+        event.id,
+        event.device_identifier,
+        event.firmware_version,
+        event.observed_at
+    FROM current_members member
+    JOIN device_firmware_version_event event
+      ON event.org_id = $1
+     AND event.device_identifier = member.device_identifier
+    WHERE event.observed_at < $3
+    ORDER BY event.device_identifier, event.observed_at DESC, event.id DESC
+),
+in_range AS (
+    SELECT
+        event.id,
+        event.device_identifier,
+        event.firmware_version,
+        event.observed_at
+    FROM current_members member
+    JOIN device_firmware_version_event event
+      ON event.org_id = $1
+     AND event.device_identifier = member.device_identifier
+    WHERE event.observed_at >= $3
+      AND event.observed_at <= $4
+)
+SELECT id, device_identifier, firmware_version, observed_at
+FROM baseline
+UNION ALL
+SELECT id, device_identifier, firmware_version, observed_at
+FROM in_range
+ORDER BY observed_at, id
+`
+
+type ListCohortFirmwareVersionEventsParams struct {
+	OrgID     int64
+	CohortID  int64
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+type ListCohortFirmwareVersionEventsRow struct {
+	ID               int64
+	DeviceIdentifier string
+	FirmwareVersion  string
+	ObservedAt       time.Time
+}
+
+func (q *Queries) ListCohortFirmwareVersionEvents(ctx context.Context, arg ListCohortFirmwareVersionEventsParams) ([]ListCohortFirmwareVersionEventsRow, error) {
+	rows, err := q.query(ctx, q.listCohortFirmwareVersionEventsStmt, listCohortFirmwareVersionEvents,
+		arg.OrgID,
+		arg.CohortID,
+		arg.StartTime,
+		arg.EndTime,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCohortFirmwareVersionEventsRow
+	for rows.Next() {
+		var i ListCohortFirmwareVersionEventsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceIdentifier,
+			&i.FirmwareVersion,
+			&i.ObservedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1891,6 +2180,56 @@ func (q *Queries) UpdateCohort(ctx context.Context, arg UpdateCohortParams) (Coh
 		arg.DesiredFirmwareFileID,
 		arg.ClearDesiredConfig,
 		arg.DesiredConfigJsonbSet,
+		arg.DesiredConfigJsonb,
+		arg.ID,
+		arg.OrgID,
+	)
+	var i Cohort
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Label,
+		&i.IsDefault,
+		&i.OwnerUserID,
+		&i.OwnerUsername,
+		&i.ExpiresAt,
+		&i.DesiredFirmwareFileID,
+		&i.DesiredConfigJsonb,
+		&i.State,
+		&i.Purpose,
+		&i.SourceActorType,
+		&i.SourceActorID,
+		&i.IdempotencyKey,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateDefaultCohortConfig = `-- name: UpdateDefaultCohortConfig :one
+UPDATE cohort
+SET desired_config_jsonb = CASE
+        WHEN $1::boolean THEN NULL
+        ELSE $2::jsonb
+    END,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $3
+  AND org_id = $4
+  AND is_default = TRUE
+  AND state = 'active'
+RETURNING id, org_id, label, is_default, owner_user_id, owner_username, expires_at, desired_firmware_file_id, desired_config_jsonb, state, purpose, source_actor_type, source_actor_id, idempotency_key, created_at, updated_at
+`
+
+type UpdateDefaultCohortConfigParams struct {
+	ClearDesiredConfig bool
+	DesiredConfigJsonb pqtype.NullRawMessage
+	ID                 int64
+	OrgID              int64
+}
+
+func (q *Queries) UpdateDefaultCohortConfig(ctx context.Context, arg UpdateDefaultCohortConfigParams) (Cohort, error) {
+	row := q.queryRow(ctx, q.updateDefaultCohortConfigStmt, updateDefaultCohortConfig,
+		arg.ClearDesiredConfig,
 		arg.DesiredConfigJsonb,
 		arg.ID,
 		arg.OrgID,

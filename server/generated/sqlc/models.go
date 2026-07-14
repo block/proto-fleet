@@ -667,6 +667,17 @@ type Device struct {
 	BuildingID               sql.NullInt64
 }
 
+type DeviceConfigState struct {
+	OrgID              int64
+	DeviceIdentifier   string
+	Dimension          string
+	ObservedStateJsonb json.RawMessage
+	ObservedStateHash  string
+	ObservedAt         time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
 type DeviceEnforcementState struct {
 	OrgID                  int64
 	DeviceIdentifier       string
@@ -682,6 +693,8 @@ type DeviceEnforcementState struct {
 	LastError              sql.NullString
 	CreatedAt              time.Time
 	UpdatedAt              time.Time
+	DesiredStateHash       sql.NullString
+	Supported              sql.NullBool
 }
 
 type DeviceFirmwareState struct {
@@ -691,6 +704,15 @@ type DeviceFirmwareState struct {
 	ObservedAt       time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+}
+
+type DeviceFirmwareVersionEvent struct {
+	ID               int64
+	OrgID            int64
+	DeviceIdentifier string
+	FirmwareVersion  string
+	ObservedAt       time.Time
+	CreatedAt        time.Time
 }
 
 type DeviceMetric struct {

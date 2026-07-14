@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/cohort/v1"
@@ -90,11 +89,7 @@ func TestToUpdateCohortParams_PreservesPatchPresence(t *testing.T) {
 	purpose := "new purpose"
 	firmwareFileID := ""
 	expiresAt := timestamppb.New(time.Date(2026, 6, 23, 12, 0, 0, 0, time.UTC))
-	desiredConfig := &structpb.Struct{
-		Fields: map[string]*structpb.Value{
-			"profile": structpb.NewStringValue("quiet"),
-		},
-	}
+	desiredConfig := &pb.CohortDesiredConfig{Pools: &pb.CohortPoolDesiredConfig{PrimaryPoolId: 42}}
 	req := &pb.UpdateCohortRequest{
 		CohortId:              7,
 		Label:                 &label,
@@ -163,7 +158,8 @@ func TestToProtoCohort_ComposesSummaryAndMembers(t *testing.T) {
 		OwnerUsername:         &ownerUsername,
 		ExpiresAt:             &now,
 		DesiredFirmwareFileID: &firmwareFileID,
-		DesiredConfigJSON:     json.RawMessage(`{"profile":"quiet"}`),
+		DesiredConfig:         &models.CohortDesiredConfig{Pools: &models.CohortPoolDesiredConfig{PrimaryPoolID: 42}},
+		DesiredConfigJSON:     json.RawMessage(`{"pools":{"primary_pool_id":42}}`),
 		State:                 models.CohortStateActive,
 		Purpose:               "test",
 		SourceActorType:       models.SourceActorUser,

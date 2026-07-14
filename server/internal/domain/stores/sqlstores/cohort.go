@@ -222,6 +222,28 @@ func (s *SQLCohortStore) GetCohort(ctx context.Context, orgID, cohortID int64) (
 	return s.getCohortWithQueries(ctx, s.GetQueries(ctx), orgID, cohortID)
 }
 
+func (s *SQLCohortStore) ListCohortFirmwareVersionEvents(ctx context.Context, orgID, cohortID int64, startTime, endTime time.Time) ([]models.FirmwareVersionEvent, error) {
+	rows, err := s.GetQueries(ctx).ListCohortFirmwareVersionEvents(ctx, sqlc.ListCohortFirmwareVersionEventsParams{
+		OrgID:     orgID,
+		CohortID:  cohortID,
+		StartTime: startTime,
+		EndTime:   endTime,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("list cohort firmware version events: %v", err)
+	}
+
+	events := make([]models.FirmwareVersionEvent, 0, len(rows))
+	for _, row := range rows {
+		events = append(events, models.FirmwareVersionEvent{
+			DeviceIdentifier: row.DeviceIdentifier,
+			FirmwareVersion:  row.FirmwareVersion,
+			ObservedAt:       row.ObservedAt,
+		})
+	}
+	return events, nil
+}
+
 func (s *SQLCohortStore) ListCohorts(ctx context.Context, params models.ListCohortsParams) (models.PagedCohorts, error) {
 	pageSize := normalizeCohortPageSize(params.PageSize)
 	cursor, err := decodeCohortPageCursor(params.PageToken)
@@ -275,6 +297,9 @@ func (s *SQLCohortStore) ListCohorts(ctx context.Context, params models.ListCoho
 		return models.PagedCohorts{}, err
 	}
 	if err := s.loadFirmwareStatusesForCohorts(ctx, q, params.OrgID, out); err != nil {
+		return models.PagedCohorts{}, err
+	}
+	if err := s.loadConfigStatusesForCohorts(ctx, q, params.OrgID, out); err != nil {
 		return models.PagedCohorts{}, err
 	}
 	return models.PagedCohorts{
@@ -337,6 +362,9 @@ func (s *SQLCohortStore) ListCohortsByOwner(ctx context.Context, params models.L
 		return models.PagedCohorts{}, err
 	}
 	if err := s.loadFirmwareStatusesForCohorts(ctx, q, params.OrgID, out); err != nil {
+		return models.PagedCohorts{}, err
+	}
+	if err := s.loadConfigStatusesForCohorts(ctx, q, params.OrgID, out); err != nil {
 		return models.PagedCohorts{}, err
 	}
 	return models.PagedCohorts{
@@ -405,6 +433,69 @@ func (s *SQLCohortStore) loadFirmwareStatusesForCohorts(ctx context.Context, q *
 	return nil
 }
 
+func (s *SQLCohortStore) loadConfigStatusesForCohorts(ctx context.Context, q *sqlc.Queries, orgID int64, cohorts []*models.Cohort) error {
+	if len(cohorts) == 0 {
+		return nil
+	}
+	cohortIDs := make([]int64, 0, len(cohorts))
+	cohortByID := make(map[int64]*models.Cohort, len(cohorts))
+	for _, cohort := range cohorts {
+		cohortIDs = append(cohortIDs, cohort.ID)
+		cohortByID[cohort.ID] = cohort
+	}
+	rows, err := q.ListCohortConfigStatuses(ctx, sqlc.ListCohortConfigStatusesParams{OrgID: orgID, CohortIds: cohortIDs})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to list cohort config progress: %v", err)
+	}
+	statusesByCohort := make(map[int64]map[string][]models.CohortConfigStatus, len(cohorts))
+	progressByCohort := make(map[int64]map[models.CohortConfigDimension]*models.CohortConfigProgress, len(cohorts))
+	for _, row := range rows {
+		status := configStatusFromColumns(row.Dimension, row.Supported, row.EnforcementState, row.RetryCount, row.LastError, row.LastDispatchedAt, row.ConfirmedAt, row.ObservedAt)
+		if statusesByCohort[row.CohortID] == nil {
+			statusesByCohort[row.CohortID] = make(map[string][]models.CohortConfigStatus)
+		}
+		statusesByCohort[row.CohortID][row.DeviceIdentifier] = append(statusesByCohort[row.CohortID][row.DeviceIdentifier], status)
+		if progressByCohort[row.CohortID] == nil {
+			progressByCohort[row.CohortID] = make(map[models.CohortConfigDimension]*models.CohortConfigProgress)
+		}
+		progress := progressByCohort[row.CohortID][status.Dimension]
+		if progress == nil {
+			progress = &models.CohortConfigProgress{Dimension: status.Dimension}
+			progressByCohort[row.CohortID][status.Dimension] = progress
+		}
+		incrementConfigProgress(progress, status.State)
+	}
+	for cohortID, cohort := range cohortByID {
+		for i := range cohort.Members {
+			cohort.Members[i].ConfigStatuses = statusesByCohort[cohortID][cohort.Members[i].DeviceIdentifier]
+		}
+		for _, progress := range progressByCohort[cohortID] {
+			cohort.ConfigProgress = append(cohort.ConfigProgress, *progress)
+		}
+	}
+	return nil
+}
+
+func incrementConfigProgress(progress *models.CohortConfigProgress, state models.CohortConfigLifecycleState) {
+	progress.TargetedCount++
+	switch state {
+	case models.CohortConfigStateUnsupported:
+		progress.UnsupportedCount++
+	case models.CohortConfigStateWaitingForObservation:
+		progress.WaitingCount++
+	case models.CohortConfigStateApplying:
+		progress.ApplyingCount++
+	case models.CohortConfigStateVerifying:
+		progress.VerifyingCount++
+	case models.CohortConfigStateConverged:
+		progress.ConvergedCount++
+	case models.CohortConfigStateHeld:
+		progress.HeldCount++
+	case models.CohortConfigStateFailed:
+		progress.FailedCount++
+	}
+}
+
 func (s *SQLCohortStore) UpdateCohort(ctx context.Context, params models.UpdateCohortParams) (*models.Cohort, error) {
 	row, err := s.GetQueries(ctx).UpdateCohort(ctx, sqlc.UpdateCohortParams{
 		ID:                       params.CohortID,
@@ -439,6 +530,20 @@ func (s *SQLCohortStore) UpdateDefaultCohortFirmware(ctx context.Context, params
 			return nil, fleeterror.NewNotFoundErrorf("Active default cohort %d not found.", params.CohortID)
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to update default cohort firmware: %v", err)
+	}
+	return s.getCohortWithQueries(ctx, s.GetQueries(ctx), row.OrgID, row.ID)
+}
+
+func (s *SQLCohortStore) UpdateDefaultCohortConfig(ctx context.Context, params models.UpdateCohortParams) (*models.Cohort, error) {
+	row, err := s.GetQueries(ctx).UpdateDefaultCohortConfig(ctx, sqlc.UpdateDefaultCohortConfigParams{
+		ID: params.CohortID, OrgID: params.OrgID,
+		DesiredConfigJsonb: rawMessageToNull(params.DesiredConfigJSON), ClearDesiredConfig: params.ClearDesiredConfig,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("Active default cohort %d not found.", params.CohortID)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to update default cohort config: %v", err)
 	}
 	return s.getCohortWithQueries(ctx, s.GetQueries(ctx), row.OrgID, row.ID)
 }
@@ -853,6 +958,9 @@ func (s *SQLCohortStore) ListDevices(ctx context.Context, params models.ListDevi
 	if err := s.loadFirmwareStatusesForDevices(ctx, q, params.OrgID, out); err != nil {
 		return models.PagedCohortDevices{}, err
 	}
+	if err := s.loadConfigStatusesForDevices(ctx, q, params.OrgID, out); err != nil {
+		return models.PagedCohortDevices{}, err
+	}
 	return models.PagedCohortDevices{
 		Devices:        out,
 		NextPageToken:  nextPageToken,
@@ -890,12 +998,213 @@ func (s *SQLCohortStore) loadFirmwareStatusesForDevices(ctx context.Context, q *
 	return nil
 }
 
+func (s *SQLCohortStore) loadConfigStatusesForDevices(ctx context.Context, q *sqlc.Queries, orgID int64, devices []models.CohortDevice) error {
+	identifiers := make([]string, 0, len(devices))
+	for _, device := range devices {
+		identifiers = append(identifiers, device.DeviceIdentifier)
+	}
+	statuses, err := s.listConfigStatuses(ctx, q, orgID, identifiers)
+	if err != nil {
+		return err
+	}
+	for i := range devices {
+		devices[i].ConfigStatuses = statuses[devices[i].DeviceIdentifier]
+	}
+	return nil
+}
+
+func (s *SQLCohortStore) listConfigStatuses(ctx context.Context, q *sqlc.Queries, orgID int64, identifiers []string) (map[string][]models.CohortConfigStatus, error) {
+	out := make(map[string][]models.CohortConfigStatus)
+	if len(identifiers) == 0 {
+		return out, nil
+	}
+	rows, err := q.ListCohortConfigStatusesForDevices(ctx, sqlc.ListCohortConfigStatusesForDevicesParams{OrgID: orgID, DeviceIdentifiers: identifiers})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list cohort config statuses: %v", err)
+	}
+	for _, row := range rows {
+		out[row.DeviceIdentifier] = append(out[row.DeviceIdentifier], configStatusFromColumns(
+			row.Dimension, row.Supported, row.EnforcementState, row.RetryCount, row.LastError,
+			row.LastDispatchedAt, row.ConfirmedAt, row.ObservedAt,
+		))
+	}
+	return out, nil
+}
+
+func configStatusFromColumns(
+	dimension string,
+	supported bool,
+	enforcementState sql.NullString,
+	retryCount sql.NullInt32,
+	lastError sql.NullString,
+	lastDispatchedAt sql.NullTime,
+	confirmedAt sql.NullTime,
+	observedAt sql.NullTime,
+) models.CohortConfigStatus {
+	state := models.CohortConfigStateWaitingForObservation
+	if !supported {
+		state = models.CohortConfigStateUnsupported
+	} else if !observedAt.Valid || time.Since(observedAt.Time) > 15*time.Minute {
+		state = models.CohortConfigStateWaitingForObservation
+	} else {
+		switch models.EnforcementState(enforcementState.String) {
+		case models.EnforcementStateDispatching, models.EnforcementStatePending, models.EnforcementStateDrifted:
+			state = models.CohortConfigStateApplying
+		case models.EnforcementStateDispatched:
+			state = models.CohortConfigStateVerifying
+		case models.EnforcementStateConfirmed:
+			state = models.CohortConfigStateConverged
+		case models.EnforcementStateHeld:
+			state = models.CohortConfigStateHeld
+		case models.EnforcementStateFailed:
+			state = models.CohortConfigStateFailed
+		}
+	}
+	return models.CohortConfigStatus{
+		Dimension: models.CohortConfigDimension(dimension), Supported: supported, State: state,
+		RetryCount: retryCount.Int32, LastError: ptrFromNullString(lastError),
+		LastDispatchedAt: nullTimeToPtr(lastDispatchedAt), ConfirmedAt: nullTimeToPtr(confirmedAt), ObservedAt: nullTimeToPtr(observedAt),
+	}
+}
+
 func (s *SQLCohortStore) ListOrgsWithFirmwareTargets(ctx context.Context) ([]int64, error) {
 	orgIDs, err := s.GetQueries(ctx).ListOrgsWithFirmwareTargets(ctx)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list orgs with firmware targets: %v", err)
 	}
 	return orgIDs, nil
+}
+
+func (s *SQLCohortStore) ListOrgsWithDesiredConfig(ctx context.Context) ([]int64, error) {
+	orgIDs, err := s.GetQueries(ctx).ListOrgsWithDesiredConfig(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list orgs with desired config: %v", err)
+	}
+	return orgIDs, nil
+}
+
+func (s *SQLCohortStore) ListConfigEnforcementCandidates(ctx context.Context, orgID int64, dimension models.CohortConfigDimension) ([]models.ConfigEnforcementCandidate, error) {
+	rows, err := s.GetQueries(ctx).ListConfigEnforcementCandidates(ctx, sqlc.ListConfigEnforcementCandidatesParams{
+		OrgID: orgID, Dimension: string(dimension),
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list config enforcement candidates: %v", err)
+	}
+	out := make([]models.ConfigEnforcementCandidate, 0, len(rows))
+	for _, row := range rows {
+		desired, parseErr := models.ParseCohortDesiredConfig(rawMessageFromNull(row.DesiredConfigJsonb))
+		if parseErr != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to decode cohort desired config: %v", parseErr)
+		}
+		state := ptrFromNullString(row.EnforcementState)
+		var enforcementState *models.EnforcementState
+		if state != nil {
+			converted := models.EnforcementState(*state)
+			enforcementState = &converted
+		}
+		out = append(out, models.ConfigEnforcementCandidate{
+			OrgID: row.OrgID, DeviceIdentifier: row.DeviceIdentifier, DriverName: row.DriverName,
+			Manufacturer: row.Manufacturer, Model: row.Model, WorkerName: row.WorkerName,
+			CohortID: row.CohortID, ActorUserID: row.ActorUserID,
+			ActorExternalUserID: row.ActorExternalUserID, ActorUsername: row.ActorUsername,
+			DesiredConfig: desired, Dimension: dimension,
+			ObservedStateJSON: rawMessageFromNull(row.ObservedStateJsonb),
+			ObservedStateHash: ptrFromNullString(row.ObservedStateHash),
+			ConfigObservedAt:  nullTimeToPtr(row.ConfigObservedAt),
+			DesiredStateHash:  ptrFromNullString(row.DesiredStateHash), Supported: nullBoolPtr(row.Supported), State: enforcementState,
+			RetryCount: row.RetryCount.Int32, LastBatchUUID: ptrFromNullString(row.LastBatchUuid),
+			LastDispatchedAt: nullTimeToPtr(row.LastDispatchedAt), ConfirmedAt: nullTimeToPtr(row.ConfirmedAt),
+			LastError: ptrFromNullString(row.LastError),
+		})
+	}
+	return out, nil
+}
+
+func (s *SQLCohortStore) UpsertDeviceConfigState(ctx context.Context, params models.UpsertDeviceConfigStateParams) error {
+	if err := s.GetQueries(ctx).UpsertDeviceConfigState(ctx, sqlc.UpsertDeviceConfigStateParams{
+		OrgID: params.OrgID, DeviceIdentifier: params.DeviceIdentifier, Dimension: string(params.Dimension),
+		ObservedStateJsonb: params.ObservedStateJSON, ObservedStateHash: params.ObservedStateHash, ObservedAt: params.ObservedAt,
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to upsert device config state: %v", err)
+	}
+	return nil
+}
+
+func (s *SQLCohortStore) UpsertConfigSupport(ctx context.Context, params models.ConfigEnforcementMutationParams) error {
+	if err := s.GetQueries(ctx).UpsertConfigSupport(ctx, sqlc.UpsertConfigSupportParams{
+		OrgID: params.OrgID, DeviceIdentifier: params.DeviceIdentifier, Dimension: string(params.Dimension),
+		DesiredStateHash: nullableString(params.DesiredStateHash), Supported: sql.NullBool{Bool: params.Supported, Valid: true},
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to upsert config support: %v", err)
+	}
+	return nil
+}
+
+func (s *SQLCohortStore) ClaimConfigDispatch(ctx context.Context, params models.ConfigEnforcementMutationParams) (bool, error) {
+	rows, err := s.GetQueries(ctx).ClaimConfigDispatch(ctx, sqlc.ClaimConfigDispatchParams{
+		OrgID: params.OrgID, DeviceIdentifier: params.DeviceIdentifier, Dimension: string(params.Dimension),
+		DesiredStateHash: nullableString(params.DesiredStateHash), DispatchingBefore: params.DispatchingBefore,
+	})
+	return rows > 0, configMutationError("claim config dispatch", err)
+}
+
+func (s *SQLCohortStore) MarkConfigDispatched(ctx context.Context, params models.ConfigEnforcementMutationParams) (bool, error) {
+	rows, err := s.GetQueries(ctx).MarkConfigDispatched(ctx, sqlc.MarkConfigDispatchedParams{
+		OrgID: params.OrgID, DeviceIdentifier: params.DeviceIdentifier, Dimension: string(params.Dimension),
+		DesiredStateHash: nullableString(params.DesiredStateHash), LastBatchUuid: nullableString(params.LastBatchUUID),
+		LastDispatchedAt: nullableTime(params.LastDispatchedAt),
+	})
+	return rows > 0, configMutationError("mark config dispatched", err)
+}
+
+func (s *SQLCohortStore) MarkConfigConfirmed(ctx context.Context, params models.ConfigEnforcementMutationParams) (bool, error) {
+	rows, err := s.GetQueries(ctx).MarkConfigConfirmed(ctx, sqlc.MarkConfigConfirmedParams{
+		OrgID: params.OrgID, DeviceIdentifier: params.DeviceIdentifier, Dimension: string(params.Dimension),
+		DesiredStateHash: nullableString(params.DesiredStateHash), ConfirmedAt: nullableTime(params.ConfirmedAt), ObservedAt: nullableTime(params.ObservedAt),
+	})
+	return rows > 0, configMutationError("mark config confirmed", err)
+}
+
+func (s *SQLCohortStore) MarkConfigDrifted(ctx context.Context, params models.ConfigEnforcementMutationParams) (bool, error) {
+	rows, err := s.GetQueries(ctx).MarkConfigDrifted(ctx, sqlc.MarkConfigDriftedParams{
+		OrgID: params.OrgID, DeviceIdentifier: params.DeviceIdentifier, Dimension: string(params.Dimension), ObservedAt: nullableTime(params.ObservedAt),
+	})
+	return rows > 0, configMutationError("mark config drifted", err)
+}
+
+func (s *SQLCohortStore) MarkConfigDispatchFailure(ctx context.Context, params models.ConfigEnforcementMutationParams) (bool, error) {
+	rows, err := s.GetQueries(ctx).MarkConfigDispatchFailure(ctx, sqlc.MarkConfigDispatchFailureParams{
+		OrgID: params.OrgID, DeviceIdentifier: params.DeviceIdentifier, Dimension: string(params.Dimension),
+		DesiredStateHash: nullableString(params.DesiredStateHash), RetryState: string(params.State), LastError: nullableString(params.LastError), MaxRetries: params.MaxRetries,
+	})
+	return rows > 0, configMutationError("mark config dispatch failure", err)
+}
+
+func (s *SQLCohortStore) MarkConfigDispatchHeld(ctx context.Context, params models.ConfigEnforcementMutationParams) (bool, error) {
+	rows, err := s.GetQueries(ctx).MarkConfigDispatchHeld(ctx, sqlc.MarkConfigDispatchHeldParams{
+		OrgID: params.OrgID, DeviceIdentifier: params.DeviceIdentifier, Dimension: string(params.Dimension),
+		DesiredStateHash: nullableString(params.DesiredStateHash), LastError: nullableString(params.LastError), LastDispatchedAt: nullableTime(params.LastDispatchedAt),
+	})
+	return rows > 0, configMutationError("mark config dispatch held", err)
+}
+
+func nullableString(value string) sql.NullString {
+	return sql.NullString{String: value, Valid: value != ""}
+}
+func nullBoolPtr(value sql.NullBool) *bool {
+	if !value.Valid {
+		return nil
+	}
+	return &value.Bool
+}
+func nullableTime(value time.Time) sql.NullTime {
+	return sql.NullTime{Time: value, Valid: !value.IsZero()}
+}
+func configMutationError(action string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fleeterror.NewInternalErrorf("failed to %s: %v", action, err)
 }
 
 func (s *SQLCohortStore) ListFirmwareEnforcementCandidates(ctx context.Context, orgID int64) ([]models.FirmwareEnforcementCandidate, error) {
@@ -1049,6 +1358,9 @@ func (s *SQLCohortStore) getCohortWithQueries(ctx context.Context, q *sqlc.Queri
 		cohort.FirmwareTargets = append(cohort.FirmwareTargets, firmwareTargetFromRow(row))
 	}
 	if err := s.loadFirmwareStatusesForCohorts(ctx, q, cohort.OrgID, []*models.Cohort{&cohort}); err != nil {
+		return nil, err
+	}
+	if err := s.loadConfigStatusesForCohorts(ctx, q, cohort.OrgID, []*models.Cohort{&cohort}); err != nil {
 		return nil, err
 	}
 	return &cohort, nil
@@ -1379,6 +1691,11 @@ func rawMessageFromNull(raw pqtype.NullRawMessage) json.RawMessage {
 	return raw.RawMessage
 }
 
+func desiredConfigFromNull(raw pqtype.NullRawMessage) *models.CohortDesiredConfig {
+	config, _ := models.ParseCohortDesiredConfig(rawMessageFromNull(raw))
+	return config
+}
+
 func cohortFromGetRow(row sqlc.GetCohortRow) models.Cohort {
 	return models.Cohort{
 		ID:                    row.ID,
@@ -1389,6 +1706,7 @@ func cohortFromGetRow(row sqlc.GetCohortRow) models.Cohort {
 		OwnerUsername:         ptrFromNullString(row.OwnerUsername),
 		ExpiresAt:             nullTimeToPtr(row.ExpiresAt),
 		DesiredFirmwareFileID: ptrFromNullString(row.DesiredFirmwareFileID),
+		DesiredConfig:         desiredConfigFromNull(row.DesiredConfigJsonb),
 		DesiredConfigJSON:     rawMessageFromNull(row.DesiredConfigJsonb),
 		State:                 models.CohortState(row.State),
 		Purpose:               row.Purpose,
@@ -1411,6 +1729,7 @@ func cohortFromListRow(row sqlc.ListCohortsRow) models.Cohort {
 		OwnerUsername:         ptrFromNullString(row.OwnerUsername),
 		ExpiresAt:             nullTimeToPtr(row.ExpiresAt),
 		DesiredFirmwareFileID: ptrFromNullString(row.DesiredFirmwareFileID),
+		DesiredConfig:         desiredConfigFromNull(row.DesiredConfigJsonb),
 		DesiredConfigJSON:     rawMessageFromNull(row.DesiredConfigJsonb),
 		State:                 models.CohortState(row.State),
 		Purpose:               row.Purpose,
@@ -1433,6 +1752,7 @@ func cohortFromOwnerRow(row sqlc.ListCohortsByOwnerRow) models.Cohort {
 		OwnerUsername:         ptrFromNullString(row.OwnerUsername),
 		ExpiresAt:             nullTimeToPtr(row.ExpiresAt),
 		DesiredFirmwareFileID: ptrFromNullString(row.DesiredFirmwareFileID),
+		DesiredConfig:         desiredConfigFromNull(row.DesiredConfigJsonb),
 		DesiredConfigJSON:     rawMessageFromNull(row.DesiredConfigJsonb),
 		State:                 models.CohortState(row.State),
 		Purpose:               row.Purpose,
@@ -1455,6 +1775,7 @@ func cohortFromResolvedRow(row sqlc.ResolveEffectiveCohortForDeviceRow) models.C
 		OwnerUsername:         ptrFromNullString(row.OwnerUsername),
 		ExpiresAt:             nullTimeToPtr(row.ExpiresAt),
 		DesiredFirmwareFileID: ptrFromNullString(row.DesiredFirmwareFileID),
+		DesiredConfig:         desiredConfigFromNull(row.DesiredConfigJsonb),
 		DesiredConfigJSON:     rawMessageFromNull(row.DesiredConfigJsonb),
 		State:                 models.CohortState(row.State),
 		Purpose:               row.Purpose,
@@ -1477,6 +1798,7 @@ func cohortFromRow(row sqlc.Cohort, explicitMemberCount int64) models.Cohort {
 		OwnerUsername:         ptrFromNullString(row.OwnerUsername),
 		ExpiresAt:             nullTimeToPtr(row.ExpiresAt),
 		DesiredFirmwareFileID: ptrFromNullString(row.DesiredFirmwareFileID),
+		DesiredConfig:         desiredConfigFromNull(row.DesiredConfigJsonb),
 		DesiredConfigJSON:     rawMessageFromNull(row.DesiredConfigJsonb),
 		State:                 models.CohortState(row.State),
 		Purpose:               row.Purpose,
@@ -1499,6 +1821,7 @@ func cohortFromDeviceRow(row sqlc.ListCohortDevicesRow) models.Cohort {
 		OwnerUsername:         ptrFromNullString(row.OwnerUsername),
 		ExpiresAt:             nullTimeToPtr(row.ExpiresAt),
 		DesiredFirmwareFileID: ptrFromNullString(row.DesiredFirmwareFileID),
+		DesiredConfig:         desiredConfigFromNull(row.DesiredConfigJsonb),
 		DesiredConfigJSON:     rawMessageFromNull(row.DesiredConfigJsonb),
 		State:                 models.CohortState(row.State),
 		Purpose:               row.Purpose,
