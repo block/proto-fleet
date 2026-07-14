@@ -98,23 +98,22 @@ func (s *Service) WithMinerInvalidator(invalidate func(context.Context, int64)) 
 	s.invalidateMiner = invalidate
 }
 
-// CreateCode mints an enrollment code. Plaintext is returned exactly once;
-// only the SHA-256 hash is persisted.
-func (s *Service) CreateCode(ctx context.Context, userID, orgID int64, ttl time.Duration) (string, time.Time, error) {
+func (s *Service) CreateCodeWithEnrollmentID(ctx context.Context, userID, orgID int64, ttl time.Duration) (string, int64, time.Time, error) {
 	if ttl <= 0 {
 		ttl = defaultCodeTTL
 	}
 	codeBytes := make([]byte, codeRandomBytes)
 	if _, err := rand.Read(codeBytes); err != nil {
-		return "", time.Time{}, logInternal("generate enrollment code", clientErrCreateCode, err)
+		return "", 0, time.Time{}, logInternal("generate enrollment code", clientErrCreateCode, err)
 	}
 	plaintext := base64.RawURLEncoding.EncodeToString(codeBytes)
 	expiresAt := time.Now().UTC().Add(ttl)
-	if _, err := s.store.CreatePendingEnrollment(ctx, hashCode(plaintext), orgID, userID, expiresAt); err != nil {
-		return "", time.Time{}, logInternal("create pending enrollment", clientErrCreateCode, err)
+	pendingEnrollment, err := s.store.CreatePendingEnrollment(ctx, hashCode(plaintext), orgID, userID, expiresAt)
+	if err != nil {
+		return "", 0, time.Time{}, logInternal("create pending enrollment", clientErrCreateCode, err)
 	}
 	s.logActivity(ctx, "create_enrollment_code", fmt.Sprintf("Created fleet node enrollment code (expires %s)", expiresAt.Format(time.RFC3339)))
-	return plaintext, expiresAt, nil
+	return plaintext, pendingEnrollment.ID, expiresAt, nil
 }
 
 func (s *Service) resolveCode(ctx context.Context, plaintextCode string) (*PendingEnrollment, error) {
@@ -179,11 +178,16 @@ func (s *Service) RegisterFleetNode(ctx context.Context, plaintextCode, name str
 	return agent, pe, nil
 }
 
-// Confirm runs in a transaction: confirm enrollment, mark agent CONFIRMED,
-// issue the api_key. The plaintext api_key is returned exactly once. Rejects
-// expired rows directly so the sweeper can be slow without expanding the
-// confirmable window.
-func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, time.Time, error) {
+func (s *Service) ConfirmExpected(ctx context.Context, agentID, orgID, pendingEnrollmentID int64) (string, time.Time, error) {
+	if pendingEnrollmentID <= 0 {
+		return "", time.Time{}, fleeterror.NewInvalidArgumentError("pending_enrollment_id is required")
+	}
+	return s.confirm(ctx, agentID, orgID, pendingEnrollmentID)
+}
+
+// confirm runs in a transaction: confirm enrollment, mark agent CONFIRMED,
+// issue the api_key. The plaintext api_key is returned exactly once.
+func (s *Service) confirm(ctx context.Context, agentID, orgID, pendingEnrollmentID int64) (string, time.Time, error) {
 	var (
 		plaintext string
 		expires   time.Time
@@ -211,6 +215,9 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 		}
 		if !pe.ExpiresAt.After(time.Now().UTC()) {
 			return fleeterror.NewFailedPreconditionError("enrollment expired")
+		}
+		if pe.ID != pendingEnrollmentID {
+			return fleeterror.NewFailedPreconditionError("pending enrollment mismatch; refresh and retry")
 		}
 		now := time.Now().UTC()
 		rows, err := s.store.ConfirmEnrollment(ctx, pe.ID, now)
@@ -257,6 +264,17 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 // to fail to resolve on the next call; challenge rows expire on their own
 // 30s TTL.
 func (s *Service) RevokeFleetNode(ctx context.Context, agentID, orgID int64) error {
+	return s.revokeFleetNode(ctx, agentID, orgID, 0)
+}
+
+func (s *Service) RevokeFleetNodeForEnrollment(ctx context.Context, agentID, orgID, pendingEnrollmentID int64) error {
+	if pendingEnrollmentID <= 0 {
+		return fleeterror.NewInvalidArgumentError("pending_enrollment_id is required")
+	}
+	return s.revokeFleetNode(ctx, agentID, orgID, pendingEnrollmentID)
+}
+
+func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedPendingEnrollmentID int64) error {
 	var agentName string
 	var deviceIDs []int64
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
@@ -268,6 +286,22 @@ func (s *Service) RevokeFleetNode(ctx context.Context, agentID, orgID int64) err
 				return fleeterror.NewNotFoundError("fleet node not found")
 			}
 			return logInternal("fleet node lock", clientErrRevokeFleetNode, err)
+		}
+		pe, err := s.store.GetPendingEnrollmentByFleetNode(ctx, agentID, orgID)
+		if err != nil {
+			if !fleeterror.IsNotFoundError(err) {
+				return logInternal("lookup pending enrollment", clientErrRevokeFleetNode, err)
+			}
+			if expectedPendingEnrollmentID > 0 {
+				return fleeterror.NewFailedPreconditionError("no enrollment awaiting confirmation for fleet node")
+			}
+		} else {
+			if expectedPendingEnrollmentID <= 0 {
+				return fleeterror.NewInvalidArgumentError("pending_enrollment_id is required for awaiting enrollment")
+			}
+			if pe.ID != expectedPendingEnrollmentID {
+				return fleeterror.NewFailedPreconditionError("pending enrollment mismatch; refresh and retry")
+			}
 		}
 		now := time.Now().UTC()
 		if _, err := s.store.SetFleetNodeEnrollmentStatus(ctx, FleetNodeStatusRevoked, agentID, orgID); err != nil {

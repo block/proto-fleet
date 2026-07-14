@@ -152,6 +152,7 @@ func (s *SQLFleetNodeEnrollmentStore) ListFleetNodesForOrganization(ctx context.
 	for _, r := range rows {
 		out = append(out, enrollment.FleetNodeListing{
 			FleetNode:               *rowToFleetNode(r.ID, r.OrgID, r.Name, r.IdentityPubkey, nil, r.EnrollmentStatus, r.LastSeenAt, r.CreatedAt, r.UpdatedAt),
+			PendingEnrollmentID:     nullInt64ToPtr(r.PendingEnrollmentID),
 			PendingEnrollmentStatus: enrollment.Status(r.PendingEnrollmentStatus),
 		})
 	}

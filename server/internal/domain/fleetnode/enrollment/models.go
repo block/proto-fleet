@@ -48,5 +48,6 @@ type FleetNode struct {
 // agent.enrollment_status, so operator listings need both fields.
 type FleetNodeListing struct {
 	FleetNode
+	PendingEnrollmentID     *int64
 	PendingEnrollmentStatus Status
 }

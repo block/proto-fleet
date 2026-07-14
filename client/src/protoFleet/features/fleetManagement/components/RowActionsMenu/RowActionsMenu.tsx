@@ -159,7 +159,14 @@ const RowActionsMenuInner = ({
       ) : null}
       {open && !isPhone ? (
         <Popover
+          // Cap to the visible viewport (8px off top + bottom) and scroll internally
+          // so a menu taller than the screen stays fully reachable. `constrainHeightToViewport`
+          // caps + scrolls the popover wrapper and tracks `visualViewport`, so the cap holds
+          // under pinch-zoom / browser-chrome collapse where a CSS `100vh` cap would exceed
+          // the tappable area. Pairs with the portal-fixed flip/clamp, which pins a capped
+          // menu 8px off both edges (#727).
           className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"
+          constrainHeightToViewport
           closeIgnoreSelectors={[`[data-testid="${resolvedTriggerTestId}"]`]}
           closePopover={() => setMenuOpen(false)}
           position={positions["bottom right"]}

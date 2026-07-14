@@ -98,6 +98,12 @@ const usePopoverPosition = (
   // forceBelow + available space) and a viewport-overflow-driven flip would
   // override the caller's intent.
   disableAutoFlip?: boolean,
+  // When set (portal-fixed only), caps the popover's height to the visible
+  // viewport so a menu taller than the screen scrolls internally instead of
+  // overflowing the tappable area. Unlike a CSS `100vh` cap this tracks
+  // `visualViewport` (recomputed on its resize below), so it also holds under
+  // pinch-zoom and mobile browser-chrome collapse (#727).
+  constrainHeightToViewport?: boolean,
 ) => {
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
 
@@ -292,9 +298,18 @@ const usePopoverPosition = (
         top = triggerRect.top + top;
         left = triggerRect.left + left;
 
+        // The open animation settles at a residual transform: slide-up ends at
+        // translateY(-minimalMargin), slide-down at translateY(0). Clamp against the
+        // post-animation (visual) position so a pinned popover keeps its margin off the
+        // viewport edge instead of the transform eating it (flush-to-edge).
+        const animationTranslateY = finalPosition?.includes("bottom") ? 0 : -minimalMargin;
         // If both top and bottom would overflow, keep the popover pinned within viewport bounds.
         // This prevents action rows from being rendered outside the tappable area on small screens.
-        top = clampPosition(top, minimalMargin, visibleViewport.height - popoverRect.height - minimalMargin);
+        top = clampPosition(
+          top,
+          minimalMargin - animationTranslateY,
+          visibleViewport.height - popoverRect.height - minimalMargin - animationTranslateY,
+        );
         left = clampPosition(left, minimalMargin, visibleViewport.width - popoverRect.width - minimalMargin);
 
         style = {
@@ -302,6 +317,11 @@ const usePopoverPosition = (
           left: `${left}px`,
           visibility: "visible",
         };
+        if (constrainHeightToViewport) {
+          // Leave `minimalMargin` above and below; pairs with the top clamp so a
+          // capped menu stays fully on-screen and scrolls its own overflow.
+          style.maxHeight = `${Math.max(visibleViewport.height - 2 * minimalMargin, 0)}px`;
+        }
       } else if (renderMode === "portal-scrolling") {
         // Portal with scrolling: use document coordinates (with page offset)
         top = triggerRect.top + top + initialPageOffset;
@@ -344,6 +364,7 @@ const usePopoverPosition = (
     initialPageOffset,
     visibleViewport,
     disableAutoFlip,
+    constrainHeightToViewport,
   ]);
 
   return { popoverAnimation, popoverStyle, popoverRef };

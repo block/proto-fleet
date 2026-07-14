@@ -1,4 +1,5 @@
 import { expect } from "@playwright/test";
+import { DEFAULT_TIMEOUT } from "../config/test.config";
 import { BasePage } from "./base";
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -39,22 +40,26 @@ export class SettingsTeamPage extends BasePage {
     await this.clickButton("Add team member");
   }
 
-  async openMembersTab() {
+  async openMembersTab(timeoutMs: number = DEFAULT_TIMEOUT) {
     const activateButton = this.page.getByTestId("team-tab-members-activate");
     if (await activateButton.isVisible().catch(() => false)) {
       await activateButton.click();
     }
 
-    await expect(this.page.getByRole("button", { name: "Add team member", exact: true })).toBeVisible();
+    await expect(this.page.getByRole("button", { name: "Add team member", exact: true })).toBeVisible({
+      timeout: timeoutMs,
+    });
   }
 
-  async openRolesTab() {
+  async openRolesTab(timeoutMs: number = DEFAULT_TIMEOUT) {
     const activateButton = this.page.getByTestId("team-tab-roles-activate");
     if (await activateButton.isVisible().catch(() => false)) {
       await activateButton.click();
     }
 
-    await expect(this.page.getByRole("button", { name: "Create role", exact: true })).toBeVisible();
+    await expect(this.page.getByRole("button", { name: "Create role", exact: true })).toBeVisible({
+      timeout: timeoutMs,
+    });
   }
 
   async inputMemberUsername(username: string) {

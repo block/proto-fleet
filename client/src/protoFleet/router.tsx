@@ -32,6 +32,7 @@ import {
   importSettingsLayout,
   importSettingsMiningPools,
   importSettingsNetwork,
+  importSettingsNodes,
   importSettingsPreferences,
   importSettingsSchedules,
   importSettingsTeam,
@@ -84,6 +85,7 @@ const SettingsAuth = lazy(importSettingsAuth);
 const SettingsMiningPools = lazy(importSettingsMiningPools);
 const SettingsTeam = lazy(importSettingsTeam);
 const SettingsFirmware = lazy(importSettingsFirmware);
+const SettingsNodes = lazy(importSettingsNodes);
 const SettingsSchedules = lazy(importSettingsSchedules);
 const SettingsCurtailment = lazy(importSettingsCurtailment);
 const SettingsAlerts = lazy(importSettingsAlerts);
@@ -312,6 +314,12 @@ const router = createBrowserRouter([
     "/settings/firmware",
     <SettingsLayout>
       <SettingsFirmware />
+    </SettingsLayout>,
+  ),
+  createRoute(
+    "/settings/nodes",
+    <SettingsLayout>
+      <SettingsNodes />
     </SettingsLayout>,
   ),
   createRoute(

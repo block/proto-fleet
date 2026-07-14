@@ -252,15 +252,37 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("actions-menu-button").click();
   }
 
+  private singleMinerActionsPopover(): Locator {
+    return this.page
+      .locator(
+        '[data-testid="single-miner-actions-popover-popover"], [data-testid="single-miner-actions-popover-popover-sheet"]',
+      )
+      .first();
+  }
+
   async clickBlinkLEDsButton() {
+    const singleMinerAction = this.singleMinerActionsPopover().getByTestId("blink-leds-popover-button");
+    if (await singleMinerAction.isVisible().catch(() => false)) {
+      await singleMinerAction.click();
+      return;
+    }
+
     const quickAction = this.page.getByTestId("actions-menu-quick-action-blink-leds");
     if (await quickAction.isVisible().catch(() => false)) {
       await quickAction.click();
       return;
     }
 
-    await this.clickActionsMenuButton();
-    await this.page.getByText("Blink LEDs", { exact: true }).click();
+    if (await this.tryAction(() => this.page.getByText("Blink LEDs", { exact: true }).click(), 2000)) {
+      return;
+    }
+
+    if (await this.tryAction(() => this.clickActionsMenuButton(), 2000)) {
+      await this.page.getByText("Blink LEDs", { exact: true }).click();
+      return;
+    }
+
+    throw new Error("Could not find a visible Blink LEDs action in the current miner actions UI.");
   }
 
   async validateActionBarMinerCount(expectedCount: number) {
@@ -320,6 +342,36 @@ export class MinersPage extends BasePage {
 
   async clickManagePowerConfirm() {
     await this.clickIn("Confirm", "modal");
+  }
+
+  async cancelSingleMinerConfirmationDialog() {
+    const dialog = this.page.getByTestId("single-miner-actions-dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(dialog).toBeHidden();
+  }
+
+  async dismissSingleMinerActionsPopoverIfVisible() {
+    const popover = this.singleMinerActionsPopover();
+    if (!(await popover.isVisible().catch(() => false))) {
+      return;
+    }
+
+    await this.page.keyboard.press("Escape").catch(() => undefined);
+    if (!(await popover.isVisible().catch(() => false))) {
+      return;
+    }
+
+    const mobileSheet = this.page.getByTestId("single-miner-actions-popover-popover-sheet");
+    if (await mobileSheet.isVisible().catch(() => false)) {
+      await mobileSheet.click({ position: { x: 8, y: 8 } });
+    }
+
+    if (await popover.isVisible().catch(() => false)) {
+      await this.page.mouse.click(8, 8);
+    }
+
+    await expect(popover).toBeHidden();
   }
 
   async clickEditMiningPoolButton() {
@@ -889,7 +941,7 @@ export class MinersPage extends BasePage {
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
 
-  async validateAllMinersStatus(status: string, expected: boolean = true) {
+  async validateAllMinersStatus(status: string, expected: boolean = true, timeoutMs: number = PROLONGED_TIMEOUT) {
     await this.waitForColumnValuesToLoad("status");
     // To avoid miner actions hiding some valuable data in screenshots
     await this.uncheckSelectAllCheckbox();
@@ -901,18 +953,18 @@ export class MinersPage extends BasePage {
       const statusLocator = rows.nth(i).locator(`//td[@data-testid='status']`);
       if (expected) {
         await expect(statusLocator).toContainText(status, {
-          timeout: PROLONGED_TIMEOUT,
+          timeout: timeoutMs,
         });
       } else {
         await expect(statusLocator).not.toContainText(status, {
-          timeout: PROLONGED_TIMEOUT,
+          timeout: timeoutMs,
         });
       }
     }
   }
 
-  async validateNoMinerWithStatus(status: string) {
-    await this.validateAllMinersStatus(status, false);
+  async validateNoMinerWithStatus(status: string, timeoutMs?: number) {
+    await this.validateAllMinersStatus(status, false, timeoutMs);
   }
 
   async validateAllMinersStatusSettled(status: string) {
@@ -1204,6 +1256,37 @@ export class MinersPage extends BasePage {
     return await row.getByTestId("ipAddress").innerText();
   }
 
+  async openSingleMinerActionsForAuthenticatedMinerWithAction(actionTestId: string): Promise<string> {
+    const allRows = this.page.getByTestId("list-body").locator("tr");
+    const authenticatedRows = allRows.filter({
+      has: this.page.locator('input[type="checkbox"]:not([disabled])'),
+    });
+    const authenticatedCount = await authenticatedRows.count();
+    const checkedMinerIps: string[] = [];
+
+    for (let i = 0; i < authenticatedCount; i++) {
+      const row = authenticatedRows.nth(i);
+      await row.scrollIntoViewIfNeeded();
+
+      const minerIp = (await row.getByTestId("ipAddress").innerText()).trim();
+      checkedMinerIps.push(minerIp);
+
+      await row.getByTestId("single-miner-actions-menu-button").click();
+      const popover = this.singleMinerActionsPopover();
+      await expect(popover).toBeVisible();
+
+      if ((await popover.getByTestId(actionTestId).count()) > 0) {
+        return minerIp;
+      }
+
+      await this.dismissSingleMinerActionsPopoverIfVisible();
+    }
+
+    throw new Error(
+      `No authenticated miner exposed action "${actionTestId}". Checked miners: ${checkedMinerIps.join(", ") || "none"}`,
+    );
+  }
+
   async validateMinerNotPresent(ipAddress: string) {
     const minerRow = this.page.getByTestId(`ipAddress`).getByText(ipAddress, { exact: true });
     await expect(minerRow).toBeHidden();
@@ -1265,5 +1348,14 @@ export class MinersPage extends BasePage {
 
   async clickCloseStatusModal() {
     await this.clickIn("Done", "modal");
+  }
+
+  async validateSingleMinerActionsHidden(testIds: string[]) {
+    const popover = this.singleMinerActionsPopover();
+    await expect(popover).toBeVisible();
+
+    for (const testId of testIds) {
+      await expect(popover.getByTestId(testId), `Expected action "${testId}" to be hidden.`).toHaveCount(0);
+    }
   }
 }

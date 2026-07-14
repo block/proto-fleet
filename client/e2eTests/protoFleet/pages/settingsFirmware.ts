@@ -29,6 +29,28 @@ export class SettingsFirmwarePage extends BasePage {
     await expect(this.page.getByTestId("list-body").locator("tr").filter({ hasText: fileName })).toBeVisible();
   }
 
+  async deleteFirmwareFileByName(fileName: string) {
+    const row = this.page.getByTestId("list-body").locator("tr").filter({ hasText: fileName }).first();
+
+    if (!(await row.isVisible().catch(() => false))) {
+      return;
+    }
+
+    const directDeleteButton = row.getByRole("button", { name: "Delete", exact: true });
+    if (await directDeleteButton.isVisible().catch(() => false)) {
+      await directDeleteButton.click();
+    } else {
+      await row.getByTestId("overflow-menu-trigger").click();
+      await this.page.getByRole("button", { name: "Delete", exact: true }).click();
+    }
+
+    const dialog = this.page.getByTestId("delete-firmware-dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(row).toBeHidden();
+  }
+
   async deleteAllFirmwareFilesIfAny() {
     const emptyState = this.page.getByText("No firmware files uploaded", { exact: true });
     const firmwareRows = this.page.getByTestId("list-body").locator("tr");

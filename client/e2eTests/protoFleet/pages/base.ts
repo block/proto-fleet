@@ -654,6 +654,23 @@ export class BasePage {
     await expect(this.page.getByTestId("modal")).toBeHidden();
   }
 
+  async dismissModalIfVisible() {
+    const modal = this.page.getByTestId("modal");
+    if (!(await modal.isVisible().catch(() => false))) {
+      return;
+    }
+
+    const headerDismiss = modal.getByTestId("header-icon-button");
+    if (await headerDismiss.isVisible().catch(() => false)) {
+      await headerDismiss.click();
+      await this.validateModalIsClosed();
+      return;
+    }
+
+    await this.page.keyboard.press("Escape").catch(() => undefined);
+    await this.validateModalIsClosed();
+  }
+
   async clickSaveInModal() {
     await this.clickIn("Save", "modal");
   }
