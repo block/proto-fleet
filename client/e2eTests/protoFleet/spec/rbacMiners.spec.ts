@@ -6,6 +6,7 @@ import {
   cleanupRbacTeamArtifacts,
   ensureVisibleRigMinersAwake,
   provisionRoleAndLoginViaStoredAdminContext,
+  selectHashingRigMinerForStopFlow,
   wakeRigMinerIfSleeping,
 } from "../helpers/rbacTestSetup";
 import { generateRandomText } from "../helpers/testDataHelper";
@@ -194,6 +195,12 @@ test.describe("Proto Fleet - Miner RBAC", () => {
   }) => {
     let minerIp = "";
 
+    await test.step("Prepare a hashing Proto rig", async () => {
+      await commonSteps.loginAsAdmin({ forceReauth: true });
+      await commonSteps.goToMinersPage();
+      minerIp = await selectHashingRigMinerForStopFlow(minersPage);
+    });
+
     await test.step("Provision a stop-mining miner role", async () => {
       await provisionMinerRole(browser, commonSteps, {
         roleDescription: "Stop miners for RBAC coverage.",
@@ -201,10 +208,8 @@ test.describe("Proto Fleet - Miner RBAC", () => {
       });
     });
 
-    await test.step("Open Proto rig miners and select a hashing miner", async () => {
+    await test.step("Open Proto rig miners", async () => {
       await commonSteps.goToMinersPage();
-      await ensureVisibleRigMinersAwake(minersPage);
-      minerIp = await minersPage.getMinerIpAddressByStatus("Hashing");
     });
 
     await test.step("Open the sleep confirmation flow", async () => {

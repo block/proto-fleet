@@ -325,6 +325,16 @@ export async function ensureVisibleRigMinersAwake(minersPage: MinersPage) {
   await minersPage.validateNoMinerWithStatus("Waking", SHORT_HOOK_TIMEOUT);
 }
 
+export async function selectHashingRigMinerForStopFlow(minersPage: MinersPage) {
+  await minersPage.filterRigMiners();
+
+  if (testConfig.target !== "real") {
+    await ensureVisibleRigMinersAwake(minersPage);
+  }
+
+  return await minersPage.getMinerIpAddressByStatus("Hashing");
+}
+
 export async function createCurtailment(energyPage: EnergyPage, reason: string) {
   if (testConfig.target === "real") {
     throw new Error("RBAC curtailment setup is only supported against fake targets.");
