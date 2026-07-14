@@ -76,7 +76,8 @@ type Factory func() Controller
 
 // Registry maps driver_type keys to adapter factories. The CRUD
 // service uses it to validate configs; the curtailment reconciler
-// uses it to resolve the adapter that commands a device.
+// will use it to resolve the adapter that commands a device once the
+// protocol I/O phase lands.
 type Registry struct {
 	factories map[string]Factory
 }

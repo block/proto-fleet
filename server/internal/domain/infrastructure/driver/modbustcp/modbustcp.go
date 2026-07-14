@@ -38,9 +38,9 @@ const (
 // Config is the adapter-owned driver_config schema.
 type Config struct {
 	// Endpoint is the device's IP address. Modbus TCP carries no
-	// authentication, so only private, loopback, or link-local
-	// addresses are accepted — mirroring the MQTT subscriber's
-	// plaintext-transport host guard.
+	// authentication, so only private (RFC1918 / IPv6 ULA) addresses
+	// are accepted; loopback, link-local, and public addresses are
+	// rejected — see validateEndpoint for the rationale.
 	Endpoint string `json:"endpoint"`
 	Port     int    `json:"port"`
 	UnitID   int    `json:"unit_id"`
