@@ -1,5 +1,5 @@
 import { type Browser, type Page, type TestInfo } from "@playwright/test";
-import { testConfig } from "../config/test.config";
+import { DEFAULT_TIMEOUT, testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { AuthPage } from "../pages/auth";
 import { FleetLocationsPage } from "../pages/fleetLocations";
@@ -15,6 +15,7 @@ const AUTOMATION_SITE_PREFIX = "automation_buildings_site";
 const AUTOMATION_BUILDING_PREFIX = "automation_buildings_building";
 const AUTOMATION_RACK_PREFIX = "automation_buildings_rack";
 export const AUTOMATION_BUILDINGS_ZONE = "AutomationBuildingsZone";
+const SHORT_CLEANUP_TIMEOUT = DEFAULT_TIMEOUT / 6;
 const RACK_COLUMNS = 2;
 const RACK_ROWS = 2;
 type BuildingsCleanupFleetLocationsPage = Pick<
@@ -51,10 +52,19 @@ async function cleanupAutomationFixtures(
   racksPage: BuildingsCleanupRacksPage,
 ) {
   await racksPage.navigateToRacksPage();
-  await racksPage.tryAction(() => racksPage.clickViewList());
-  await racksPage.waitForRackListToLoad();
+  await racksPage.tryAction(() => racksPage.clickViewList(SHORT_CLEANUP_TIMEOUT), SHORT_CLEANUP_TIMEOUT);
+  if (
+    !(await racksPage.tryAction(
+      () => racksPage.waitForRackListToLoad({ timeout: SHORT_CLEANUP_TIMEOUT }),
+      SHORT_CLEANUP_TIMEOUT,
+    ))
+  ) {
+    return;
+  }
 
-  const rackNames = (await racksPage.listRackNames()).filter((name) => name.startsWith(AUTOMATION_RACK_PREFIX));
+  const rackNames = (await racksPage.listRackNames(SHORT_CLEANUP_TIMEOUT)).filter((name) =>
+    name.startsWith(AUTOMATION_RACK_PREFIX),
+  );
   for (const rackName of rackNames) {
     await racksPage.deleteRackByLabelIfVisible(rackName);
   }

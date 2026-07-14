@@ -389,9 +389,9 @@ export class BasePage {
     await expect(this.page.getByText(text)).toBeVisible();
   }
 
-  async validateTextInToast(text: string) {
+  async validateTextInToast(text: string, timeout: number = DEFAULT_TIMEOUT) {
     const toast = this.page.getByTestId("toast").getByText(text);
-    await expect(toast).toBeVisible();
+    await expect(toast).toBeVisible({ timeout });
   }
 
   async validateTextInToastGroup(text: string) {

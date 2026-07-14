@@ -530,10 +530,19 @@ function isRbacCleanupTarget(value: string): value is RbacCleanupTarget {
 
 async function cleanupInfrastructureFixtures(fleetLocationsPage: FleetLocationsPage, racksPage: RacksPage) {
   await racksPage.navigateToRacksPage();
-  await racksPage.tryAction(() => racksPage.clickViewList());
-  await racksPage.waitForRackListToLoad();
+  await racksPage.tryAction(() => racksPage.clickViewList(SHORT_HOOK_TIMEOUT), SHORT_HOOK_TIMEOUT);
+  if (
+    !(await racksPage.tryAction(
+      () => racksPage.waitForRackListToLoad({ timeout: SHORT_HOOK_TIMEOUT }),
+      SHORT_HOOK_TIMEOUT,
+    ))
+  ) {
+    return;
+  }
 
-  const rackNames = (await racksPage.listRackNames()).filter((name) => name.startsWith(RBAC_RACK_PREFIX));
+  const rackNames = (await racksPage.listRackNames(SHORT_HOOK_TIMEOUT)).filter((name) =>
+    name.startsWith(RBAC_RACK_PREFIX),
+  );
   for (const rackName of rackNames) {
     await racksPage.deleteRackByLabelIfVisible(rackName);
   }

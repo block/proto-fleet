@@ -10,7 +10,6 @@ import {
   createRack,
   createSchedule,
   invokeIngestCurtailmentSignal,
-  markRbacCleanupTargets,
   MEMBER_PASSWORD,
   provisionRoleAndLogin,
   provisionRoleViaStoredAdminContext,
@@ -23,7 +22,6 @@ import {
   RBAC_SCHEDULE_PREFIX,
   RBAC_SITE_PREFIX,
   REACHABLE_WEBHOOK_URL,
-  useRbacHooks,
 } from "../helpers/rbacTestSetup";
 import { generateRandomText } from "../helpers/testDataHelper";
 
@@ -68,7 +66,9 @@ function expectConnectSuccessfulOrUnimplemented(result: { body: string; ok: bool
 }
 
 test.describe("Proto Fleet - RBAC", () => {
-  useRbacHooks();
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/");
+  });
 
   test("Pools read-only role cannot access the Pools settings surface", async ({
     page,
@@ -98,7 +98,6 @@ test.describe("Proto Fleet - RBAC", () => {
   }) => {
     const poolName = generateRandomText(RBAC_POOL_PREFIX);
     const poolUsername = generateRandomText("rbac_pool_user");
-    markRbacCleanupTargets(test.info(), ["pools"]);
 
     await test.step("Provision a manage-capable pools role", async () => {
       await provisionRoleAndLogin(commonSteps, {
@@ -133,7 +132,6 @@ test.describe("Proto Fleet - RBAC", () => {
     );
 
     const channelName = generateRandomText(RBAC_ALERT_CHANNEL_PREFIX);
-    markRbacCleanupTargets(test.info(), ["alerts"]);
 
     await test.step("Create an alert channel as admin", async () => {
       await commonSteps.loginAsAdmin({ forceReauth: true });
@@ -163,7 +161,6 @@ test.describe("Proto Fleet - RBAC", () => {
     );
 
     const channelName = generateRandomText(RBAC_ALERT_CHANNEL_PREFIX);
-    markRbacCleanupTargets(test.info(), ["alerts"]);
 
     await test.step("Provision a manage-capable alerts role", async () => {
       await provisionRoleAndLogin(commonSteps, {
@@ -208,7 +205,6 @@ test.describe("Proto Fleet - RBAC", () => {
 
   test("Schedules manage role can create and delete schedules", async ({ commonSteps, settingsSchedulesPage }) => {
     const scheduleName = generateRandomText(RBAC_SCHEDULE_PREFIX);
-    markRbacCleanupTargets(test.info(), ["schedules"]);
 
     await test.step("Provision a manage-capable schedules role", async () => {
       await provisionRoleAndLogin(commonSteps, {
@@ -237,7 +233,6 @@ test.describe("Proto Fleet - RBAC", () => {
     );
 
     const reason = generateRandomText(RBAC_CURTAILMENT_REASON_PREFIX);
-    markRbacCleanupTargets(test.info(), ["curtailment"]);
 
     await test.step("Create an active curtailment as admin", async () => {
       await commonSteps.loginAsAdmin({ forceReauth: true });
@@ -268,7 +263,6 @@ test.describe("Proto Fleet - RBAC", () => {
     );
 
     const reason = generateRandomText(RBAC_CURTAILMENT_REASON_PREFIX);
-    markRbacCleanupTargets(test.info(), ["curtailment"]);
 
     await test.step("Provision a manage-capable curtailment role", async () => {
       await provisionRoleAndLogin(commonSteps, {
@@ -339,7 +333,6 @@ test.describe("Proto Fleet - RBAC", () => {
     const siteName = generateRandomText(RBAC_SITE_PREFIX);
     const buildingName = generateRandomText(RBAC_BUILDING_PREFIX);
     const rackLabel = generateRandomText(RBAC_RACK_PREFIX);
-    markRbacCleanupTargets(test.info(), ["infrastructure"]);
 
     await test.step("Create infrastructure fixtures as admin", async () => {
       await commonSteps.loginAsAdmin({ forceReauth: true });
@@ -387,7 +380,6 @@ test.describe("Proto Fleet - RBAC", () => {
     const siteName = generateRandomText(RBAC_SITE_PREFIX);
     const buildingName = generateRandomText(RBAC_BUILDING_PREFIX);
     const rackLabel = generateRandomText(RBAC_RACK_PREFIX);
-    markRbacCleanupTargets(test.info(), ["infrastructure"]);
 
     await test.step("Provision a manage-capable infrastructure role", async () => {
       await provisionRoleAndLogin(commonSteps, {

@@ -9,11 +9,18 @@ import { SettingsSchedulesPage } from "../pages/settingsSchedules";
 const SCHEDULE_PREFIX = "activity_schedule_e2e";
 
 test.describe("Proto Fleet - Activity", () => {
+  let shouldCleanupSchedules = false;
+
   test.beforeEach(async ({ page }) => {
+    shouldCleanupSchedules = false;
     await page.goto("/");
   });
 
   test.afterEach("CLEANUP: Delete schedules created during activity tests", async ({ browser }, testInfo) => {
+    if (!shouldCleanupSchedules) {
+      return;
+    }
+
     const isMobile = testInfo.project.use?.isMobile ?? false;
     const viewport = testInfo.project.use?.viewport;
     const context = await browser.newContext({ baseURL: testConfig.baseUrl, viewport });
@@ -205,6 +212,7 @@ test.describe("Proto Fleet - Activity", () => {
     });
 
     await test.step("Create a uniquely named schedule", async () => {
+      shouldCleanupSchedules = true;
       await settingsSchedulesPage.clickAddSchedule();
       await settingsSchedulesPage.inputScheduleName(scheduleName);
       await settingsSchedulesPage.selectStartDate(1);
