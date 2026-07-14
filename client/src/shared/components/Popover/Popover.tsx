@@ -30,6 +30,14 @@ type PopoverProps = PopoverContentProps & {
    * override that decision.
    */
   disableAutoFlip?: boolean;
+  /**
+   * Cap the popover's height to the visible viewport (portal-fixed only) so a
+   * menu taller than the screen scrolls internally instead of overflowing the
+   * tappable area. Tracks `visualViewport`, so it holds under pinch-zoom and
+   * mobile browser-chrome collapse where a CSS `100vh` cap would not. Pair with
+   * `overflow-y-auto` on the popover's className to make the overflow scroll.
+   */
+  constrainHeightToViewport?: boolean;
 };
 
 /**
@@ -77,6 +85,7 @@ const Popover = ({
   closeIgnoreSelectors = [],
   freezePosition = false,
   disableAutoFlip = false,
+  constrainHeightToViewport = false,
 }: PopoverProps) => {
   const { triggerRef, renderMode: contextRenderMode } = usePopover();
   const { isPhone } = useWindowDimensions();
@@ -93,6 +102,7 @@ const Popover = ({
     position,
     freezePosition,
     disableAutoFlip,
+    constrainHeightToViewport,
   );
 
   const content = (contentClassName?: string, contentTestId?: string) => (

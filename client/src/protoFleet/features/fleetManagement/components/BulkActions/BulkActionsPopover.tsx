@@ -16,8 +16,6 @@ const ANIMATION_TRANSLATE = minimalMargin;
 // Total upward shift the popover applies on top of `-popoverHeight`: the layout
 // offset correction (`POPOVER_OFFSET` beyond `minimalMargin`) plus the animation.
 const UPWARD_SHIFT = POPOVER_OFFSET - minimalMargin + ANIMATION_TRANSLATE;
-// Floor so an extremely short viewport still shows a usable, scrollable menu.
-const MIN_MENU_HEIGHT = 88;
 const MENU_MAX_HEIGHT_VAR = "--bulk-actions-menu-max-h";
 
 // The menu is anchored above the bottom-fixed action bar and opens upward, so a
@@ -88,7 +86,11 @@ const BulkActionsPopover = <ActionType,>({
 
     const update = () => {
       const triggerTop = trigger.getBoundingClientRect().top;
-      const available = Math.max(triggerTop - UPWARD_SHIFT + yOffset - minimalMargin, MIN_MENU_HEIGHT);
+      // Cap at exactly the space above the trigger (never floor above it — a floor
+      // taller than the real gap pushes the top off-screen and hides the first
+      // actions). On a very short viewport this shrinks toward 0 and the whole
+      // list scrolls internally, keeping every row reachable (#727).
+      const available = Math.max(triggerTop - UPWARD_SHIFT + yOffset - minimalMargin, 0);
       trigger.style.setProperty(MENU_MAX_HEIGHT_VAR, `${available}px`);
     };
 

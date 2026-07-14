@@ -98,6 +98,12 @@ const usePopoverPosition = (
   // forceBelow + available space) and a viewport-overflow-driven flip would
   // override the caller's intent.
   disableAutoFlip?: boolean,
+  // When set (portal-fixed only), caps the popover's height to the visible
+  // viewport so a menu taller than the screen scrolls internally instead of
+  // overflowing the tappable area. Unlike a CSS `100vh` cap this tracks
+  // `visualViewport` (recomputed on its resize below), so it also holds under
+  // pinch-zoom and mobile browser-chrome collapse (#727).
+  constrainHeightToViewport?: boolean,
 ) => {
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
 
@@ -311,6 +317,11 @@ const usePopoverPosition = (
           left: `${left}px`,
           visibility: "visible",
         };
+        if (constrainHeightToViewport) {
+          // Leave `minimalMargin` above and below; pairs with the top clamp so a
+          // capped menu stays fully on-screen and scrolls its own overflow.
+          style.maxHeight = `${Math.max(visibleViewport.height - 2 * minimalMargin, 0)}px`;
+        }
       } else if (renderMode === "portal-scrolling") {
         // Portal with scrolling: use document coordinates (with page offset)
         top = triggerRect.top + top + initialPageOffset;
@@ -353,6 +364,7 @@ const usePopoverPosition = (
     initialPageOffset,
     visibleViewport,
     disableAutoFlip,
+    constrainHeightToViewport,
   ]);
 
   return { popoverAnimation, popoverStyle, popoverRef };
