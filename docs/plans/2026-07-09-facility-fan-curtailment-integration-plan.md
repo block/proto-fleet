@@ -1,7 +1,7 @@
 ---
 title: Facility fan curtailment integration
 date: 2026-07-09
-status: draft
+status: implementing
 type: plan
 tracker: https://github.com/block/proto-fleet/issues/723
 ---
@@ -129,7 +129,7 @@ this.
 
 | Area | State today |
 | --- | --- |
-| Infrastructure device UI | `client/src/protoFleet/features/infrastructure/` has an Add Infrastructure Device modal (`AddInfraDeviceModal`, `ManualAddStep`), a device list (`InfraDeviceList`), and an existing edit surface — an Edit row action / row click opens `InfraDeviceDetailModal` with editable name/site/endpoint/port/enabled fields and save/delete callbacks. Everything lives only in local React state — no proto, table, or service. |
+| Infrastructure device UI | `client/src/protoFleet/features/infrastructure/` has an Add Infrastructure Device modal (`AddInfraDeviceModal`, `ManualAddStep`), a device list (`InfraDeviceList`), and an existing edit surface — an Edit row action / row click opens `InfraDeviceDetailModal` with editable name/site/endpoint/port/enabled fields and save/delete callbacks. The client still holds everything in local React state, but the backend now exists on `main` (PR 1, [#724](https://github.com/block/proto-fleet/pull/724)): migration `000122`, `proto/infrastructure/v1` + generated TS, domain CRUD service, and Connect handlers. Phase 2 wires the client to it. |
 | Response profiles | Full stack: `curtailment_response_profile` table, `CurtailmentResponseProfile` in `proto/curtailment/v1/curtailment.proto`, `ResponseProfileService` in `server/internal/domain/curtailment/response_profile.go`, and `CurtailmentStartModal` (`variant="responseProfile"`) on Settings → Curtailment. No fan fields. |
 | Curtailment reconciler | 30s polling loop in `server/internal/domain/curtailment/reconciler/` with existing timestamp-gate patterns (batch intervals, max duration). Miner-only; restore currently begins miner batches immediately on entering `restoring`. |
 | Fan command path | None. The server MQTT client is subscribe-only; there is no Modbus, PLC, or facility-device code in `server/`. |
@@ -207,6 +207,36 @@ If a profile has no fan devices configured, behavior is identical to today.
 
 ## Phase 1: Infrastructure device backend
 
+> **Status: merged** as [#724](https://github.com/block/proto-fleet/pull/724)
+> (2026-07-14, `27e80188`). Deviations from the plan as written:
+>
+> - **Deferred: response-profile delete guard → PR 3.**
+>   `facility_fan_device_ids` does not exist until Phase 3, so the guard
+>   has nothing to check yet. A `TODO(#723, PR 3)` marks the spot on
+>   `Service.Delete` in `server/internal/domain/infrastructure/service.go`.
+> - **Landed beyond plan scope** (mostly review/security hardening):
+>   - SQL-level site-scope filtering for List
+>     (`authz.EffectivePermissions.SiteScopeFor` +
+>     `middleware.SiteScopeForPermission`) instead of fetching the whole
+>     org and filtering in the handler.
+>   - NotFound masking on Get/Update/Delete so device existence does not
+>     leak across site scopes.
+>   - `driver_config` redacted (empty string) for `site:read`-only
+>     callers; only `site:manage` sees connection details.
+>   - Driver-config validation and JSON decode errors never echo
+>     submitted values (OT topology no-echo policy);
+>     `register_address` is presence-tracked (`*int`) so omitted/null is
+>     rejected rather than defaulting to address 0.
+>   - `UpdateInfrastructureDeviceRequest.enabled` is `optional bool`,
+>     preserved on omit via SQL `COALESCE` (no read-modify-write race).
+>   - `InfrastructureService` registered in gRPC reflection and in the
+>     SessionOnly/SensitiveBody interceptor lists.
+>   - Site-delete cascade soft-deletes infra devices and reports counts
+>     (`SiteWithCounts.infrastructure_device_count`,
+>     `DeleteSiteResponse.deleted_infrastructure_device_count`); the
+>     small client bits (`sites.ts`, `SiteDeleteDialog`) already landed
+>     with PR 1.
+
 This phase includes the driver `Controller` interface, registry, and the
 Modbus TCP adapter's config validation (moved up from Phase 4), because the
 CRUD service's `driver_config` validation delegates to them — without that,
@@ -243,7 +273,8 @@ Phase 1 is not independently executable. Phase 4 retains protocol I/O.
   handlers gated on `site:read` / `site:manage` (matching the existing UI
   gate in
   `client/src/protoFleet/features/fleetManagement/pages/FleetInfraPage.tsx`).
-- **Delete guard**: Delete returns FailedPrecondition while the device ID
+- **Delete guard** *(moved to Phase 3 — the column it checks doesn't exist
+  until then)*: Delete returns FailedPrecondition while the device ID
   appears in any response profile's `facility_fan_device_ids`, telling the
   operator to update those profiles first — mirrors the existing guard that
   blocks response-profile deletion while automation rules reference it
@@ -291,6 +322,41 @@ Phase 1 is not independently executable. Phase 4 retains protocol I/O.
   until v2 read-back can populate them — v1 has no status source, so every
   device would otherwise render permanently offline with error styling.
 
+### Implementation prep notes (post-PR 1 code inventory)
+
+- The generated TS client already exists at
+  `client/src/protoFleet/api/generated/infrastructure/v1/infrastructure_pb.ts`
+  (`InfrastructureService` descriptor + request/response schemas), but
+  the service is not yet registered in
+  `client/src/protoFleet/api/clients.ts` — add an `infrastructureClient`
+  there.
+- **Data-shape mapping**: the UI's `InfraDeviceItem`
+  (`features/infrastructure/types.ts`) uses flat `endpoint`/`port`/
+  `unitId` fields and `siteName` strings; the API uses an opaque
+  `driverConfig` JSON string (`endpoint`, `port`, `unit_id`,
+  `register_address`, `write_mode`) and `site_id: bigint`. Map site name
+  ↔ ID via `FleetOutletContext.sites`; the per-driver form module owns
+  the `driverConfig` encode/decode.
+- **Redaction**: `driver_config` comes back as an empty string for
+  `site:read`-only callers — the connection-summary column and detail
+  rows must degrade gracefully (render an em dash or hide) rather than
+  fail to parse.
+- **Enabled toggle**: `UpdateInfrastructureDeviceRequest.enabled` is
+  `optional bool`; the toggle should send only `enabled` and rely on the
+  server's preserve-on-omit semantics for the other fields it doesn't
+  intend to change.
+- **Routing**: `/fleet/infrastructure` is already routed and prefetched
+  (`routePrefetch.ts` exports `importFleetInfraPage`; `router.tsx` lazy
+  route exists) — no route changes needed.
+- **State ownership**: today `InfraDeviceList` holds `localDevices` in
+  `useState` and all CRUD mutates it locally; PR 2 moves ownership into
+  the new `useInfrastructureDevices` hook and passes devices + mutation
+  callbacks down.
+- **Tests to extend**: `InfraDeviceList.test.tsx`,
+  `ManualAddStep.test.tsx`, `InfraDeviceDetailModal.test.tsx`,
+  `FleetInfraPage.test.tsx`; no API-hook test exists yet (mirror
+  `useCurtailmentResponseProfiles.test.tsx`).
+
 ## Phase 3: Response profile fan settings
 
 - **Proto + schema**: add to `CurtailmentResponseProfile` and its
@@ -305,6 +371,15 @@ Phase 1 is not independently executable. Phase 4 retains protocol I/O.
   shut off site A's fan while site A's miners hash uncurtailed. Devices
   with `enabled = false` are accepted with a warning (see enabled
   semantics in Phase 5).
+- **Device delete guard** (deferred here from Phase 1): once
+  `facility_fan_device_ids` exists, `infrastructure.Service.Delete`
+  returns FailedPrecondition while the device ID appears in any response
+  profile's `facility_fan_device_ids`, telling the operator to update
+  those profiles first — mirrors the existing guard that blocks
+  response-profile deletion while automation rules reference it
+  (`response_profile.go`). The landing site is marked with a
+  `TODO(#723, PR 3)` on `Service.Delete` in
+  `server/internal/domain/infrastructure/service.go`.
 - **Fan device claim rule**: a fan device may be referenced by at most one
   non-terminal curtailment event. `Start` (and automation start) rejects
   when any of the profile's fan devices are already claimed by another
@@ -441,7 +516,7 @@ are pure surface area with no operational risk:
 
 | PR | Scope | Contents | Depends on |
 | --- | --- | --- | --- |
-| PR 1 ([#723](https://github.com/block/proto-fleet/issues/723)) | Infra device backend (Phase 1) | Migration, `proto/infrastructure/v1` + generated code, driver `Controller` interface + registry + modbustcp `ValidateConfig`, sqlc queries, CRUD service with delete guard, Connect handlers | — |
+| PR 1 (**merged** — [#724](https://github.com/block/proto-fleet/pull/724), tracker [#723](https://github.com/block/proto-fleet/issues/723)) | Infra device backend (Phase 1) | Migration (landed as `000122` after renumbering past a collision with main), `proto/infrastructure/v1` + generated code, driver `Controller` interface + registry + modbustcp `ValidateConfig`, sqlc queries, CRUD service, Connect handlers. Delete guard deferred to PR 3 (see Phase 1 status note). | — |
 | PR 2 | Infra device client (Phase 2) | `useInfrastructureDevices` hook, API-backed `InfraDeviceList` with loading/error states, add-modal rework with per-driver form module, detail-modal edit rework, status-column hiding | PR 1 |
 | PR 3 | Profile fan settings (Phase 3) | Profile proto + migration + site-scope/org validation, "Facility fans" section in the profile modal (picker, delay fields) | PR 1 (PR 2 for the picker's device list) |
 | PR 4 | Modbus write path (Phase 4) | modbustcp protocol I/O, Go Modbus dependency + `go work sync`, `sim` adapter, devtools Modbus TCP listener | PR 1 |
