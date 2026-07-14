@@ -43,10 +43,23 @@ func TestRuleMutationsRequireAlertManage(t *testing.T) {
 	requirePermissionDenied(t, err)
 }
 
+// Rule create/update additionally require org-wide miner:read (like channel
+// mutations): rules evaluate every org device and fan per-device alerts out.
+func TestRuleWritesRequireMinerRead(t *testing.T) {
+	h := NewHandler(nil, nil)
+	manageOnly := ctxWithPerms(authz.PermAlertManage)
+
+	_, err := h.CreateRule(manageOnly, connect.NewRequest(&alertsv1.CreateRuleRequest{Config: offlineRuleConfig()}))
+	requirePermissionDenied(t, err)
+
+	_, err = h.UpdateRule(manageOnly, connect.NewRequest(&alertsv1.UpdateRuleRequest{Id: "pfu-1", Config: offlineRuleConfig()}))
+	requirePermissionDenied(t, err)
+}
+
 // A missing or template-less config is rejected in the handler, before the service is touched.
 func TestRuleConfigMappingRejectsMissingTemplate(t *testing.T) {
 	h := NewHandler(nil, nil)
-	manage := ctxWithPerms(authz.PermAlertManage)
+	manage := ctxWithPerms(authz.PermAlertManage, authz.PermMinerRead)
 
 	_, err := h.CreateRule(manage, connect.NewRequest(&alertsv1.CreateRuleRequest{}))
 	require.Error(t, err)

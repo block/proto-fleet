@@ -57,9 +57,9 @@ func (h *Handler) authorizeActor(ctx context.Context, permission string) (int64,
 	return info.OrganizationID, info.Username, nil
 }
 
-// requireMinerRead gates channel mutations behind org-wide miner:read: a saved channel delivers
-// device identity (id/name/MAC) for the whole org, so a caller whose miner:read is narrowed to a
-// subset of sites must not be able to route other sites' device data to an external destination.
+// requireMinerRead gates channel and rule mutations behind org-wide miner:read: both surfaces
+// deliver device identity (id/name/MAC) for the whole org, so a caller whose miner:read is
+// narrowed to a subset of sites must not be able to route other sites' device data outward.
 func (h *Handler) requireMinerRead(ctx context.Context) error {
 	_, err := middleware.RequireOrgWidePermission(ctx, authz.PermMinerRead)
 	return err
@@ -214,9 +214,14 @@ func (h *Handler) ResumeRule(ctx context.Context, req *connect.Request[alertsv1.
 	return connect.NewResponse(&alertsv1.ResumeRuleResponse{Rule: ruleToProto(*rule)}), nil
 }
 
+// Rule create/update mirror channel mutations' requireMinerRead: a rule
+// evaluates every org device and fans per-device alerts out to channels.
 func (h *Handler) CreateRule(ctx context.Context, req *connect.Request[alertsv1.CreateRuleRequest]) (*connect.Response[alertsv1.CreateRuleResponse], error) {
 	orgID, err := h.authorize(ctx, authz.PermAlertManage)
 	if err != nil {
+		return nil, err
+	}
+	if err := h.requireMinerRead(ctx); err != nil {
 		return nil, err
 	}
 	cfg, err := protoToRuleConfig(req.Msg.GetConfig())
@@ -233,6 +238,9 @@ func (h *Handler) CreateRule(ctx context.Context, req *connect.Request[alertsv1.
 func (h *Handler) UpdateRule(ctx context.Context, req *connect.Request[alertsv1.UpdateRuleRequest]) (*connect.Response[alertsv1.UpdateRuleResponse], error) {
 	orgID, err := h.authorize(ctx, authz.PermAlertManage)
 	if err != nil {
+		return nil, err
+	}
+	if err := h.requireMinerRead(ctx); err != nil {
 		return nil, err
 	}
 	cfg, err := protoToRuleConfig(req.Msg.GetConfig())
