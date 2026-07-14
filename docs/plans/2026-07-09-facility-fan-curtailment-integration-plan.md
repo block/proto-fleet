@@ -517,7 +517,7 @@ are pure surface area with no operational risk:
 | PR | Scope | Contents | Depends on |
 | --- | --- | --- | --- |
 | PR 1 (**merged** — [#724](https://github.com/block/proto-fleet/pull/724), tracker [#723](https://github.com/block/proto-fleet/issues/723)) | Infra device backend (Phase 1) | Migration (landed as `000122` after renumbering past a collision with main), `proto/infrastructure/v1` + generated code, driver `Controller` interface + registry + modbustcp `ValidateConfig`, sqlc queries, CRUD service, Connect handlers. Delete guard deferred to PR 3 (see Phase 1 status note). | — |
-| PR 2 | Infra device client (Phase 2) | `useInfrastructureDevices` hook, API-backed `InfraDeviceList` with loading/error states, add-modal rework with per-driver form module, detail-modal edit rework, status-column hiding | PR 1 |
+| PR 2 (tracker [#742](https://github.com/block/proto-fleet/issues/742)) | Infra device client (Phase 2) | `useInfrastructureDevices` hook, API-backed `InfraDeviceList` with loading/error states, add-modal rework with per-driver form module, detail-modal edit rework, status-column hiding | PR 1 |
 | PR 3 | Profile fan settings (Phase 3) | Profile proto + migration + site-scope/org validation, "Facility fans" section in the profile modal (picker, delay fields) | PR 1 (PR 2 for the picker's device list) |
 | PR 4 | Modbus write path (Phase 4) | modbustcp protocol I/O, Go Modbus dependency + `go work sync`, `sim` adapter, devtools Modbus TCP listener | PR 1 |
 | PR 5 | Reconciler sequencing (Phase 5) | Event stamping, fan device claim rule at Start, fan-OFF gate, re-assertion, restore path, terminal-path fan ON, `CurtailmentEvent` proto exposure | PRs 3, 4 |
