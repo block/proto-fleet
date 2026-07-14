@@ -3,6 +3,7 @@ package alerts
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,7 +27,10 @@ func TestValidateRuleConfig(t *testing.T) {
 	}{
 		{"offline ok", offlineConfig("Offline too long", 1800), false},
 		{"name required", offlineConfig("   ", 1800), true},
-		{"name too long", offlineConfig(strings.Repeat("n", 256), 1800), true},
+		{"name too long", offlineConfig(strings.Repeat("n", maxRuleNameLength+1), 1800), true},
+		// Length is counted in characters, not bytes (3-byte runes here).
+		{"multibyte name at limit ok", offlineConfig(strings.Repeat("温", maxRuleNameLength), 1800), false},
+		{"multibyte name over limit", offlineConfig(strings.Repeat("温", maxRuleNameLength+1), 1800), true},
 		{"duration below floor", offlineConfig("r", 59), true},
 		{"duration above ceiling", offlineConfig("r", 86401), true},
 		{"no template config", RuleConfig{Name: "r", DurationSeconds: 600}, true},
@@ -53,6 +57,15 @@ func TestValidateRuleConfig(t *testing.T) {
 		{"hashrate absolute missing unit", RuleConfig{
 			Name: "r", DurationSeconds: 600,
 			Hashrate: &HashrateRuleConfig{Mode: HashrateModeAbsolute, Value: 90},
+		}, true},
+		// PH→TH normalization must not overflow into an unrepresentable SQL literal.
+		{"hashrate absolute overflows after unit conversion", RuleConfig{
+			Name: "r", DurationSeconds: 600,
+			Hashrate: &HashrateRuleConfig{Mode: HashrateModeAbsolute, Value: 1e308, Unit: HashrateUnitPetahash},
+		}, true},
+		{"hashrate absolute above cap", RuleConfig{
+			Name: "r", DurationSeconds: 600,
+			Hashrate: &HashrateRuleConfig{Mode: HashrateModeAbsolute, Value: maxAbsoluteTerahash + 1, Unit: HashrateUnitTerahash},
 		}, true},
 		{"hashrate mode required", RuleConfig{
 			Name: "r", DurationSeconds: 600,
@@ -124,13 +137,23 @@ func TestCompileUserRule(t *testing.T) {
 			wantSummary: "Device hashrate is below 75% of expected for at least 20 minutes.",
 		},
 		{
+			name: "hashrate pct fractional percent formats without float drift",
+			cfg: RuleConfig{
+				Name: "Slow hashing", DurationSeconds: 1200,
+				Hashrate: &HashrateRuleConfig{Mode: HashrateModePctExpected, Value: 33.3},
+			},
+			wantMetric:  "fleet_device_hashing",
+			wantSQLFrag: "HAVING last(value, time) < 0.333",
+			wantSummary: "Device hashrate is below 33.3% of expected for at least 20 minutes.",
+		},
+		{
 			name: "hashrate absolute petahash normalizes to terahash",
 			cfg: RuleConfig{
 				Name: "Slow hashing", DurationSeconds: 600,
 				Hashrate: &HashrateRuleConfig{Mode: HashrateModeAbsolute, Value: 1.5, Unit: HashrateUnitPetahash},
 			},
 			wantMetric:  "fleet_device_hashrate_terahash",
-			wantSQLFrag: "HAVING last(value, time) < 1500",
+			wantSQLFrag: "AND obs.latest_value < 1500",
 			wantSummary: "Device hashrate is below 1.5 PH/s for at least 10 minutes.",
 		},
 		{
@@ -151,7 +174,9 @@ func TestCompileUserRule(t *testing.T) {
 
 			assert.Equal(t, "pfu-test", rule.UID)
 			assert.Equal(t, "proto-fleet-user-7", rule.FolderUID)
-			assert.Equal(t, "proto-fleet-user-7", rule.RuleGroup)
+			// Per-rule Grafana group: group PUTs replace the whole group, so a
+			// shared one would let concurrent creates erase siblings.
+			assert.Equal(t, "pfu-test", rule.RuleGroup)
 			assert.Equal(t, strings.TrimSpace(tc.cfg.Name), rule.Title)
 			assert.Equal(t, "B", rule.Condition)
 			assert.Equal(t, "OK", rule.NoDataState)
@@ -159,12 +184,13 @@ func TestCompileUserRule(t *testing.T) {
 
 			assert.Equal(t, "7", rule.Labels[ruleLabelOrganizationID])
 			assert.Equal(t, ruleOriginUser, rule.Labels[ruleLabelOrigin])
-			assert.Equal(t, "warning", rule.Labels["severity"])
-			assert.Equal(t, string(tc.cfg.Template()), rule.Labels["template"])
+			assert.Equal(t, "warning", rule.Labels[ruleLabelSeverity])
+			assert.Equal(t, string(tc.cfg.Template()), rule.Labels[ruleLabelTemplate])
+			assert.Equal(t, "proto-fleet-user-7", rule.Labels[ruleLabelRuleGroup])
 			assert.NotContains(t, rule.Labels, ruleLabelScope)
 
 			sql := compiledSQL(t, rule)
-			assert.Contains(t, sql, "metric = '"+tc.wantMetric+"'")
+			assert.Contains(t, sql, "'"+tc.wantMetric+"'")
 			assert.Contains(t, sql, "organization_id = '7'")
 			assert.Contains(t, sql, tc.wantSQLFrag)
 
@@ -190,8 +216,40 @@ func TestCompileUserRuleDurationAndDomainRoundTrip(t *testing.T) {
 	assert.Equal(t, RuleOriginUser, domain.Origin)
 	assert.Equal(t, int32(1200), domain.DurationSeconds)
 	assert.Equal(t, RuleTemplateHashrate, domain.Template)
+	// The UI groups by the per-org label, not the per-rule Grafana group.
+	assert.Equal(t, "proto-fleet-user-7", domain.Group)
 	require.NotNil(t, domain.Config)
 	assert.Equal(t, cfg, *domain.Config)
+}
+
+// The curtailment gate: absolute-mode SQL must join the ratio metric and
+// exclude devices at its non-alerting 1.0 sentinel (not expected to hash).
+func TestCompileUserRuleAbsoluteHashrateGatesOnHashing(t *testing.T) {
+	compiled, err := compileUserRule(7, "pfu-test", RuleConfig{
+		Name: "Slow hashing", DurationSeconds: 600,
+		Hashrate: &HashrateRuleConfig{Mode: HashrateModeAbsolute, Value: 90, Unit: HashrateUnitTerahash},
+	})
+	require.NoError(t, err)
+	sql := compiledSQL(t, compiled)
+	assert.Contains(t, sql, "'fleet_device_hashing'")
+	assert.Contains(t, sql, "gate.latest_value < 1")
+}
+
+func TestParseDurationSecondsPrometheusUnits(t *testing.T) {
+	// Grafana echoes `for` back in Prometheus canonical form ("1d", "2w").
+	cases := map[string]int32{
+		"1800s": 1800,
+		"30m":   1800,
+		"1h30m": 5400,
+		"1d":    86400,
+		"1d2h":  93600,
+		"2w":    1209600,
+		"":      0,
+		"bogus": 0,
+	}
+	for in, want := range cases {
+		assert.Equalf(t, want, parseDurationSeconds(in), "parseDurationSeconds(%q)", in)
+	}
 }
 
 func TestGrafanaRuleToDomainProvisionedOrigin(t *testing.T) {
@@ -308,6 +366,7 @@ func TestCreateRule(t *testing.T) {
 	require.NotNil(t, fake.created)
 	assert.True(t, strings.HasPrefix(fake.created.UID, "pfu-"))
 	assert.Equal(t, "proto-fleet-user-7", fake.created.FolderUID)
+	assert.Equal(t, fake.created.UID, fake.created.RuleGroup)
 	assert.True(t, fake.folderEnsured)
 	assert.Equal(t, userRuleGroupInterval, fake.groupInterval)
 
@@ -320,7 +379,7 @@ func TestCreateRule(t *testing.T) {
 func TestCreateRuleQuota(t *testing.T) {
 	fake := &fakeGrafanaRules{}
 	for i := range maxUserRulesPerOrg {
-		fake.listed = append(fake.listed, userRuleFixture("pfu-"+strings.Repeat("a", 3)+string(rune('a'+i%26))+strings.Repeat("b", i/26+1), "7"))
+		fake.listed = append(fake.listed, userRuleFixture(fmt.Sprintf("pfu-%d", i), "7"))
 	}
 	svc := NewService(fake.server(t), nil, nil, nil, DestinationPolicy{})
 
@@ -330,22 +389,39 @@ func TestCreateRuleQuota(t *testing.T) {
 	assert.Nil(t, fake.created)
 }
 
+// Another org's user rules must not count against this org's quota.
+func TestCreateRuleQuotaIsPerOrg(t *testing.T) {
+	fake := &fakeGrafanaRules{}
+	for i := range maxUserRulesPerOrg {
+		fake.listed = append(fake.listed, userRuleFixture(fmt.Sprintf("pfu-%d", i), "8"))
+	}
+	svc := NewService(fake.server(t), nil, nil, nil, DestinationPolicy{})
+
+	_, err := svc.CreateRule(context.Background(), 7, offlineConfig("First for org 7", 1800))
+	require.NoError(t, err)
+	require.NotNil(t, fake.created)
+}
+
 func TestUpdateRuleGuards(t *testing.T) {
 	provisioned := GrafanaAlertRule{
 		UID:    "protofleet-device-offline",
-		Labels: map[string]string{ruleLabelScope: ruleScopeShared, "template": "offline"},
+		Labels: map[string]string{ruleLabelScope: ruleScopeShared, ruleLabelTemplate: "offline"},
 	}
 	otherOrg := userRuleFixture("pfu-other", "8")
-	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{provisioned, otherOrg}}
+	// An operator-hidden user rule: mutability must not exceed visibility.
+	hidden := userRuleFixture("pfu-hidden", "7")
+	hidden.Labels[ruleLabelScope] = ruleScopeInternal
+	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{provisioned, otherOrg, hidden}}
 	svc := NewService(fake.server(t), nil, nil, nil, DestinationPolicy{})
 
-	for _, id := range []string{"protofleet-device-offline", "pfu-other", "pfu-missing"} {
+	ids := []string{"protofleet-device-offline", "pfu-other", "pfu-missing", "pfu-hidden"}
+	for _, id := range ids {
 		_, err := svc.UpdateRule(context.Background(), 7, id, offlineConfig("r", 1800))
 		assert.ErrorIsf(t, err, ErrNotFound, "id %q must resolve NotFound", id)
 	}
 	assert.Nil(t, fake.updated)
 
-	for _, id := range []string{"protofleet-device-offline", "pfu-other", "pfu-missing"} {
+	for _, id := range ids {
 		err := svc.DeleteRule(context.Background(), 7, id)
 		assert.ErrorIsf(t, err, ErrNotFound, "id %q must resolve NotFound", id)
 	}
@@ -370,22 +446,28 @@ func TestUpdateRuleKeepsIdentity(t *testing.T) {
 	assert.Equal(t, RuleTemplateTemperature, updated.Template)
 }
 
-func TestDeleteRuleCleansPauseSilence(t *testing.T) {
+func TestDeleteRuleCleansRuleScopedSilences(t *testing.T) {
 	existing := userRuleFixture("pfu-mine", "7")
+	ruleMatchers := []GrafanaSilenceMatcher{
+		{Name: silenceLabelOrganizationID, Value: "7", IsEqual: true},
+		{Name: alertRuleUIDMatcher, Value: "pfu-mine", IsEqual: true},
+	}
 	fake := &fakeGrafanaRules{
 		listed: []GrafanaAlertRule{existing},
-		silences: []GrafanaSilence{{
-			ID:      "sil-1",
-			Comment: pauseSilenceCommentMarker,
-			Matchers: []GrafanaSilenceMatcher{
+		silences: []GrafanaSilence{
+			{ID: "sil-pause", Comment: pauseSilenceCommentMarker, Matchers: ruleMatchers},
+			// Rule-scoped maintenance window: must not outlive the rule.
+			{ID: "sil-mw", Comment: maintenanceWindowCommentMarker + " planned work", Matchers: ruleMatchers},
+			// Device-scoped maintenance window: untouched (no rule matcher).
+			{ID: "sil-device", Comment: maintenanceWindowCommentMarker, Matchers: []GrafanaSilenceMatcher{
 				{Name: silenceLabelOrganizationID, Value: "7", IsEqual: true},
-				{Name: alertRuleUIDMatcher, Value: "pfu-mine", IsEqual: true},
-			},
-		}},
+				{Name: "device_id", Value: "dev-1", IsEqual: true},
+			}},
+		},
 	}
 	svc := NewService(fake.server(t), nil, nil, nil, DestinationPolicy{})
 
 	require.NoError(t, svc.DeleteRule(context.Background(), 7, "pfu-mine"))
 	assert.Equal(t, "pfu-mine", fake.deletedUID)
-	assert.Equal(t, []string{"sil-1"}, fake.deletedSilences)
+	assert.ElementsMatch(t, []string{"sil-pause", "sil-mw"}, fake.deletedSilences)
 }

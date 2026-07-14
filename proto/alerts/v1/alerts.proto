@@ -187,7 +187,8 @@ message TemperatureConfig {
 
 // User-specified rule definition; the server compiles it into the backing Grafana rule.
 message RuleConfig {
-    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    // 190 is Grafana's alert-rule title cap.
+    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 190}];
     int32 duration_seconds = 2 [(buf.validate.field).int32 = {gte: 60, lte: 86400}];
     oneof template_config {
         option (buf.validate.oneof).required = true;

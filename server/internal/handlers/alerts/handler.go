@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"net/http"
 	"strconv"
 
 	"connectrpc.com/connect"
@@ -67,6 +68,19 @@ func (h *Handler) requireMinerRead(ctx context.Context) error {
 func mapErr(err error) error {
 	if errors.Is(err, alerts.ErrNotFound) {
 		return fleeterror.NewNotFoundError(err.Error())
+	}
+	// Surface Grafana contract rejections (e.g. duplicate rule titles) as
+	// client errors instead of opaque internals; messages are pre-redacted.
+	var ge *alerts.GrafanaError
+	if errors.As(err, &ge) {
+		switch ge.StatusCode {
+		case http.StatusConflict:
+			return fleeterror.NewAlreadyExistsError(ge.Message)
+		case http.StatusBadRequest:
+			return fleeterror.NewInvalidArgumentError(ge.Message)
+		case http.StatusNotFound:
+			return fleeterror.NewNotFoundError(ge.Message)
+		}
 	}
 	return err
 }
@@ -610,8 +624,8 @@ func historyEntryToProto(n notificationhistory.StoredNotification, includeDevice
 }
 
 // isSourceLevelTemplate reports whether the template scopes the alert to an
-// MQTT curtailment source rather than a device. All rules are operator-
-// provisioned, so the template label is trustworthy.
+// MQTT curtailment source rather than a device. The label stays trustworthy:
+// user rules only emit offline/hashrate/temperature (compileUserRule).
 func isSourceLevelTemplate(t string) bool {
 	tmpl := alerts.RuleTemplate(t)
 	return tmpl == alerts.RuleTemplateMQTTCurtailment || tmpl == alerts.RuleTemplateMQTTDisconnected

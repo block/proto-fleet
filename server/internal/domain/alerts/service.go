@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -37,6 +38,8 @@ type Service struct {
 	tester   ChannelTester
 	policy   DestinationPolicy
 	now      func() time.Time
+	// Serializes user-rule creation so the quota read-then-create can't race.
+	userRuleMu sync.Mutex
 }
 
 type DestinationPolicy struct {
@@ -914,6 +917,10 @@ func isPauseSilenceFor(sil GrafanaSilence, wantOrgID, ruleID string) bool {
 	if !silenceMatchesOrg(sil, wantOrgID) {
 		return false
 	}
+	return silenceTargetsRule(sil, ruleID)
+}
+
+func silenceTargetsRule(sil GrafanaSilence, ruleID string) bool {
 	for _, m := range sil.Matchers {
 		if m.Name == alertRuleUIDMatcher && m.Value == ruleID && m.IsEqual && !m.IsRegex {
 			return true
@@ -923,6 +930,14 @@ func isPauseSilenceFor(sil GrafanaSilence, wantOrgID, ruleID string) bool {
 }
 
 const ruleLabelOrganizationID = "organization_id"
+
+// Shared rule→alert-instance label contract; the webhook ingest and history
+// rendering read the same keys, so writers must not inline the literals.
+const (
+	ruleLabelSeverity  = "severity"
+	ruleLabelTemplate  = "template"
+	ruleLabelRuleGroup = "rule_group"
+)
 
 // Rule visibility is fail-closed and driven by proto_fleet_scope: shared rules are visible to
 // every org (shared platform defaults), internal rules are hidden from all orgs (operator-only
@@ -975,10 +990,15 @@ func grafanaRuleToDomain(orgID int64, r GrafanaAlertRule) Rule {
 		Origin:          RuleOriginProvisioned,
 	}
 	if r.Labels != nil {
-		out.Template = templateFromLabel(r.Labels["template"])
-		out.Severity = r.Labels["severity"]
+		out.Template = templateFromLabel(r.Labels[ruleLabelTemplate])
+		out.Severity = r.Labels[ruleLabelSeverity]
 		if r.Labels[ruleLabelOrigin] == ruleOriginUser {
 			out.Origin = RuleOriginUser
+		}
+		// User rules live in per-rule Grafana groups (see compileUserRule); the
+		// label carries the stable per-org grouping the UI sorts by.
+		if group := r.Labels[ruleLabelRuleGroup]; group != "" {
+			out.Group = group
 		}
 	}
 	if r.Annotations != nil {
@@ -1018,11 +1038,24 @@ func templateFromLabel(label string) RuleTemplate {
 	return ""
 }
 
+// Grafana echoes `for` as a Prometheus duration ("1d", "2w"), whose d/w/y
+// units time.ParseDuration rejects; normalize them to hours before parsing.
+var promLongDurationUnits = regexp.MustCompile(`(\d+)(y|w|d)`)
+
 func parseDurationSeconds(s string) int32 {
 	if s == "" {
 		return 0
 	}
-	d, err := time.ParseDuration(s)
+	norm := promLongDurationUnits.ReplaceAllStringFunc(s, func(m string) string {
+		sub := promLongDurationUnits.FindStringSubmatch(m)
+		n, err := strconv.ParseInt(sub[1], 10, 64)
+		if err != nil {
+			return m
+		}
+		hours := map[string]int64{"y": 8760, "w": 168, "d": 24}[sub[2]]
+		return strconv.FormatInt(n*hours, 10) + "h"
+	})
+	d, err := time.ParseDuration(norm)
 	if err != nil {
 		return 0
 	}

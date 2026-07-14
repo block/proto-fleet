@@ -2,6 +2,7 @@ import { type ReactNode, useState } from "react";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAlertsContext } from "@/protoFleet/features/alerts/api/AlertsContext";
 import type { Rule, RuleConfig } from "@/protoFleet/features/alerts/types";
+import { useTemperatureUnit } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
@@ -9,6 +10,7 @@ import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import Select from "@/shared/components/Select";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
+import { convertCtoF, convertFtoC } from "@/shared/utils/telemetryFormat";
 
 type UserRuleTemplate = "offline" | "hashrate" | "temperature";
 
@@ -41,6 +43,9 @@ const DURATION_UNIT_OPTIONS = [
 
 const UNIT_TO_SECONDS: Record<string, number> = { seconds: 1, minutes: 60, hours: 3600 };
 
+// Grafana caps alert-rule titles at 190 characters (mirrored server-side).
+const MAX_NAME_LENGTH = 190;
+
 const DEFAULT_DURATION: Record<UserRuleTemplate, number> = { offline: 1800, hashrate: 1200, temperature: 1200 };
 const DEFAULT_AMOUNT: Record<UserRuleTemplate, string> = { offline: "", hashrate: "75", temperature: "70" };
 
@@ -55,9 +60,18 @@ const formatDurationAmount = (seconds: number, unit: string): string => {
   return Number.isInteger(amount) ? String(amount) : amount.toFixed(1);
 };
 
-const fahrenheitToCelsius = (f: number): number => ((f - 32) * 5) / 9;
+// parseFloat accepts trailing garbage ("50abc" → 50); Number rejects it, and
+// the empty-string guard avoids Number("") === 0.
+const strictNumber = (raw: string): number => {
+  const trimmed = raw.trim();
+  if (trimmed === "") return NaN;
+  return Number(trimmed);
+};
+
+const round2 = (value: number): number => Math.round(value * 100) / 100;
 
 const describeDuration = (seconds: number): string => {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "…";
   const unit = getDurationUnit(seconds);
   const amount = formatDurationAmount(seconds, unit);
   const singular = unit.slice(0, -1);
@@ -93,6 +107,7 @@ interface AddRuleModalProps {
 
 const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
   const { createRule, updateRule } = useAlertsContext();
+  const preferredTemperatureUnit: TemperatureFieldUnit = useTemperatureUnit() === "F" ? "°F" : "°C";
 
   const isEditing = editingRule != null;
 
@@ -101,9 +116,18 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
   const [amount, setAmount] = useState("");
   const [hashrateUnit, setHashrateUnit] = useState<HashrateFieldUnit>("%");
   const [temperatureUnit, setTemperatureUnit] = useState<TemperatureFieldUnit>("°C");
-  const [durationSeconds, setDurationSeconds] = useState(DEFAULT_DURATION.offline);
+  // Duration is raw text + unit; deriving them from parsed seconds would
+  // rewrite the field (and flip the unit) under the user's cursor.
+  const [durationAmount, setDurationAmount] = useState("30");
+  const [durationUnit, setDurationUnit] = useState("minutes");
   const [errorMsg, setErrorMsg] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const setDurationSeconds = (seconds: number) => {
+    const unit = getDurationUnit(seconds);
+    setDurationUnit(unit);
+    setDurationAmount(formatDurationAmount(seconds, unit));
+  };
 
   const [syncedFor, setSyncedFor] = useState<string | null>(null);
   const syncKey = open ? (editingRule?.id ?? "__add__") : null;
@@ -111,6 +135,7 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
     setSyncedFor(syncKey);
     if (open) {
       const cfg = editingRule?.config;
+      setTemperatureUnit(preferredTemperatureUnit);
       if (cfg?.hashrate) {
         setTemplate("hashrate");
         setAmount(String(cfg.hashrate.value));
@@ -119,13 +144,18 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
         );
       } else if (cfg?.temperature) {
         setTemplate("temperature");
-        setAmount(String(cfg.temperature.max_celsius));
+        // Stored value is Celsius; present it in the preferred unit.
+        setAmount(
+          String(
+            preferredTemperatureUnit === "°F"
+              ? round2(convertCtoF(cfg.temperature.max_celsius))
+              : cfg.temperature.max_celsius,
+          ),
+        );
       } else {
         setTemplate("offline");
         setAmount(DEFAULT_AMOUNT.offline);
       }
-      // The stored value is always Celsius; the display unit is a per-edit choice.
-      setTemperatureUnit("°C");
       setName(cfg?.name ?? editingRule?.name ?? "");
       setDurationSeconds(cfg?.duration_seconds ?? editingRule?.duration_seconds ?? DEFAULT_DURATION.offline);
       setErrorMsg("");
@@ -139,33 +169,32 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
     setTemplate(next);
     setAmount(DEFAULT_AMOUNT[next]);
     setHashrateUnit("%");
-    setTemperatureUnit("°C");
+    setTemperatureUnit(preferredTemperatureUnit);
     setDurationSeconds(DEFAULT_DURATION[next]);
     clearError();
   };
 
-  const durationUnit = getDurationUnit(durationSeconds);
-  const durationAmount = formatDurationAmount(durationSeconds, durationUnit);
+  const durationSeconds = Math.round(strictNumber(durationAmount) * UNIT_TO_SECONDS[durationUnit]);
 
-  const setDuration = (nextAmount: string, nextUnit = durationUnit) => {
-    const parsed = parseFloat(nextAmount);
-    setDurationSeconds(Number.isFinite(parsed) ? Math.max(0, Math.round(parsed * UNIT_TO_SECONDS[nextUnit])) : 0);
-    clearError();
-  };
-
-  const buildConfig = (): RuleConfig | string => {
+  const buildConfig = (): RuleConfig | null => {
+    const fail = (message: string) => {
+      setErrorMsg(message);
+      return null;
+    };
     const trimmed = name.trim();
-    if (!trimmed) return "Give the rule a name";
+    if (!trimmed) return fail("Give the rule a name");
+    if (trimmed.length > MAX_NAME_LENGTH) return fail(`Rule names are limited to ${MAX_NAME_LENGTH} characters`);
+    if (!Number.isFinite(durationSeconds)) return fail("Enter a duration");
     if (durationSeconds < 60 || durationSeconds > 86400) {
-      return "Duration must be between 1 minute and 24 hours";
+      return fail("Duration must be between 1 minute and 24 hours");
     }
     const base = { name: trimmed, duration_seconds: durationSeconds };
     if (template === "offline") return { ...base, offline: {} };
-    const value = parseFloat(amount);
-    if (!Number.isFinite(value) || value <= 0) return "Enter a threshold greater than 0";
+    const value = strictNumber(amount);
     if (template === "hashrate") {
+      if (!Number.isFinite(value) || value <= 0) return fail("Enter a threshold greater than 0");
       if (hashrateUnit === "%") {
-        if (value > 100) return "Percent of expected must be at most 100";
+        if (value > 100) return fail("Percent of expected must be at most 100");
         return { ...base, hashrate: { mode: "pct_expected" as const, value } };
       }
       return {
@@ -177,17 +206,21 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
         },
       };
     }
-    const celsius = temperatureUnit === "°F" ? fahrenheitToCelsius(value) : value;
-    if (celsius <= 0 || celsius > 150) return "Temperature must be between 0 and 150 °C";
-    return { ...base, temperature: { max_celsius: Math.round(celsius * 100) / 100 } };
+    if (!Number.isFinite(value)) return fail("Enter a temperature threshold");
+    const celsius = temperatureUnit === "°F" ? convertFtoC(value) : value;
+    if (celsius <= 0 || celsius > 150) {
+      return fail(
+        temperatureUnit === "°F"
+          ? "Temperature must be greater than 32 and at most 302 °F"
+          : "Temperature must be greater than 0 and at most 150 °C",
+      );
+    }
+    return { ...base, temperature: { max_celsius: round2(celsius) } };
   };
 
   const handleSave = async () => {
     const config = buildConfig();
-    if (typeof config === "string") {
-      setErrorMsg(config);
-      return;
-    }
+    if (!config) return;
     setSaving(true);
     try {
       if (isEditing && editingRule) {
@@ -248,6 +281,7 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
             label="Metric"
             options={TEMPLATE_OPTIONS}
             value={template}
+            forceBelow
             onChange={(value) => handleTemplateChange(value as UserRuleTemplate)}
           />
         </div>
@@ -270,6 +304,7 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
                 label="Unit"
                 options={HASHRATE_UNIT_OPTIONS}
                 value={hashrateUnit}
+                forceBelow
                 onChange={(value) => {
                   setHashrateUnit(value as HashrateFieldUnit);
                   clearError();
@@ -297,6 +332,7 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
                 label="Unit"
                 options={TEMPERATURE_UNIT_OPTIONS}
                 value={temperatureUnit}
+                forceBelow
                 onChange={(value) => {
                   setTemperatureUnit(value as TemperatureFieldUnit);
                   clearError();
@@ -310,17 +346,24 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
           <div className="grid grid-cols-2 gap-4">
             <Input
               id="rule-duration-amount"
-              label="Amount"
+              label="Duration"
               initValue={durationAmount}
               inputMode="decimal"
-              onChange={(value) => setDuration(value)}
+              onChange={(value) => {
+                setDurationAmount(value);
+                clearError();
+              }}
             />
             <Select
               id="rule-duration-unit"
-              label="Unit"
+              label="Duration unit"
               options={DURATION_UNIT_OPTIONS}
               value={durationUnit}
-              onChange={(value) => setDuration(durationAmount, value)}
+              forceBelow
+              onChange={(value) => {
+                setDurationUnit(value);
+                clearError();
+              }}
             />
           </div>
         </Row>

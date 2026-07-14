@@ -10,8 +10,18 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+)
+
+// Must match infrastructure/metrics/contract.go, which cannot be imported
+// here (it imports this package).
+const (
+	metricDeviceOnline                = "fleet_device_online"
+	metricDeviceHashing               = "fleet_device_hashing"
+	metricDeviceHashrateTerahash      = "fleet_device_hashrate_terahash"
+	metricDeviceTemperatureMaxCelsius = "fleet_device_temperature_max_celsius"
 )
 
 const (
@@ -25,15 +35,19 @@ const (
 	userRuleGroupInterval    = int64(30)
 	userRuleEvalWindowMinute = 10
 
+	// Grafana caps alert-rule titles at 190 characters.
+	maxRuleNameLength = 190
+
 	// Each rule is a recurring SQL query against the metrics hypertable.
 	maxUserRulesPerOrg = 50
+
+	// Bounds the absolute hashrate threshold after PH→TH normalization.
+	maxAbsoluteTerahash = 1e9
 )
 
-func userRuleFolderUID(orgID int64) string {
-	return "proto-fleet-user-" + strconv.FormatInt(orgID, 10)
-}
-
-func userRuleGroup(orgID int64) string {
+// userRuleOrgSlug names the per-org folder and the rule_group label; each rule
+// gets its own Grafana group (see compileUserRule) so group writes never race.
+func userRuleOrgSlug(orgID int64) string {
 	return "proto-fleet-user-" + strconv.FormatInt(orgID, 10)
 }
 
@@ -44,20 +58,24 @@ func (s *Service) CreateRule(ctx context.Context, orgID int64, cfg RuleConfig) (
 	if err := validateRuleConfig(cfg); err != nil {
 		return nil, err
 	}
-	existing, err := s.ListRules(ctx, orgID)
+	// Serializes the quota read-then-create so concurrent creates can't exceed the cap.
+	s.userRuleMu.Lock()
+	defer s.userRuleMu.Unlock()
+	existing, err := s.grafana.ListAlertRules(ctx)
 	if err != nil {
 		return nil, err
 	}
+	want := strconv.FormatInt(orgID, 10)
 	userCount := 0
-	for _, r := range existing {
-		if r.Origin == RuleOriginUser {
+	for _, gr := range existing {
+		if ruleVisibleToOrg(gr, want) && gr.Labels[ruleLabelOrigin] == ruleOriginUser {
 			userCount++
 		}
 	}
 	if userCount >= maxUserRulesPerOrg {
 		return nil, fleeterror.NewFailedPreconditionErrorf("rule limit reached (%d); delete a rule first", maxUserRulesPerOrg)
 	}
-	folderUID := userRuleFolderUID(orgID)
+	folderUID := userRuleOrgSlug(orgID)
 	if err := s.grafana.EnsureFolder(ctx, folderUID, fmt.Sprintf("Proto Fleet User Rules (org %d)", orgID)); err != nil {
 		return nil, err
 	}
@@ -73,8 +91,9 @@ func (s *Service) CreateRule(ctx context.Context, orgID int64, cfg RuleConfig) (
 	if err != nil {
 		return nil, err
 	}
+	// Safe read-modify-write: the group holds only the rule just created.
 	// Best-effort: a default-interval group still evaluates; `for` carries the sustain semantics.
-	if err := s.grafana.SetRuleGroupInterval(ctx, folderUID, userRuleGroup(orgID), userRuleGroupInterval); err != nil {
+	if err := s.grafana.SetRuleGroupInterval(ctx, folderUID, created.RuleGroup, userRuleGroupInterval); err != nil {
 		slog.Warn("alerts.user_rule_group_interval", "org_id", orgID, "error", err)
 	}
 	out := grafanaRuleToDomain(orgID, *created)
@@ -105,11 +124,11 @@ func (s *Service) UpdateRule(ctx context.Context, orgID int64, id string, cfg Ru
 		return nil, err
 	}
 	out := grafanaRuleToDomain(orgID, *updated)
-	paused, err := s.pauseSilencedRules(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-	if paused[out.ID] {
+	// The write is committed; misreporting it as failed over a silence-read
+	// hiccup invites confused retries, so degrade to the rule's own state.
+	if paused, err := s.pauseSilencedRules(ctx, orgID); err != nil {
+		slog.Warn("alerts.user_rule_update_pause_state", "org_id", orgID, "rule_id", id, "error", err)
+	} else if paused[out.ID] {
 		out.Enabled = false
 	}
 	return &out, nil
@@ -125,15 +144,44 @@ func (s *Service) DeleteRule(ctx context.Context, orgID int64, id string) error 
 	if err := s.grafana.DeleteAlertRule(ctx, id); err != nil && !IsNotFound(err) {
 		return err
 	}
-	// A leftover pause silence is inert once the rule is gone; don't fail the delete over it.
-	if err := s.removePauseSilences(ctx, orgID, id); err != nil {
+	// Leftover silences are inert once the rule is gone; don't fail the delete over them.
+	if err := s.removeRuleSilences(ctx, orgID, id); err != nil {
 		slog.Warn("alerts.user_rule_delete_silence_cleanup", "org_id", orgID, "rule_id", id, "error", err)
 	}
 	return nil
 }
 
-// requireUserRule resolves NotFound for missing rules, provisioned rules, and other
-// orgs' rules alike, so probing ids can't distinguish the three.
+// removeRuleSilences clears the rule's pause silences and rule-scoped
+// maintenance windows so a deleted rule leaves no orphaned mutes behind.
+func (s *Service) removeRuleSilences(ctx context.Context, orgID int64, id string) error {
+	want := strconv.FormatInt(orgID, 10)
+	sils, err := s.grafana.ListSilences(ctx)
+	if err != nil {
+		return err
+	}
+	for _, sil := range sils {
+		if !silenceMatchesOrg(sil, want) {
+			continue
+		}
+		if !isPauseSilence(sil) && !isMaintenanceWindowSilence(sil) {
+			continue
+		}
+		if !silenceTargetsRule(sil, id) {
+			continue
+		}
+		if sil.Status != nil && sil.Status.State == "expired" {
+			continue
+		}
+		if err := s.grafana.DeleteSilence(ctx, sil.ID); err != nil && !IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+// requireUserRule resolves NotFound for missing rules, provisioned rules, other
+// orgs' rules, and operator-hidden rules alike, so probing ids can't distinguish
+// them and mutability never exceeds visibility (ruleVisibleToOrg).
 func (s *Service) requireUserRule(ctx context.Context, orgID int64, id string) (*GrafanaAlertRule, error) {
 	if id == "" {
 		return nil, fleeterror.NewInvalidArgumentError("rule id is required")
@@ -149,6 +197,9 @@ func (s *Service) requireUserRule(ctx context.Context, orgID int64, id string) (
 		return nil, ErrNotFound
 	}
 	if rule.Labels[ruleLabelOrganizationID] != strconv.FormatInt(orgID, 10) {
+		return nil, ErrNotFound
+	}
+	if !ruleVisibleToOrg(*rule, strconv.FormatInt(orgID, 10)) {
 		return nil, ErrNotFound
 	}
 	return rule, nil
@@ -167,8 +218,8 @@ func validateRuleConfig(cfg RuleConfig) error {
 	if name == "" {
 		return fleeterror.NewInvalidArgumentError("rule name is required")
 	}
-	if len(name) > 255 {
-		return fleeterror.NewInvalidArgumentError("rule name must be at most 255 characters")
+	if utf8.RuneCountInString(name) > maxRuleNameLength {
+		return fleeterror.NewInvalidArgumentErrorf("rule name must be at most %d characters", maxRuleNameLength)
 	}
 	if cfg.DurationSeconds < 60 || cfg.DurationSeconds > 86400 {
 		return fleeterror.NewInvalidArgumentError("duration must be between 60 seconds and 24 hours")
@@ -198,6 +249,9 @@ func validateRuleConfig(cfg RuleConfig) error {
 			if h.Unit != HashrateUnitTerahash && h.Unit != HashrateUnitPetahash {
 				return fleeterror.NewInvalidArgumentError("hashrate unit must be TH or PH")
 			}
+			if absoluteTerahash(*h) > maxAbsoluteTerahash {
+				return fleeterror.NewInvalidArgumentError("hashrate threshold is too large")
+			}
 		default:
 			return fleeterror.NewInvalidArgumentError("hashrate mode must be pct_expected or absolute")
 		}
@@ -208,6 +262,13 @@ func validateRuleConfig(cfg RuleConfig) error {
 		}
 	}
 	return nil
+}
+
+func absoluteTerahash(h HashrateRuleConfig) float64 {
+	if h.Unit == HashrateUnitPetahash {
+		return h.Value * 1000
+	}
+	return h.Value
 }
 
 func compileUserRule(orgID int64, uid string, cfg RuleConfig) (GrafanaAlertRule, error) {
@@ -235,8 +296,10 @@ func compileUserRule(orgID int64, uid string, cfg RuleConfig) (GrafanaAlertRule,
 	org := strconv.FormatInt(orgID, 10)
 	return GrafanaAlertRule{
 		UID:       uid,
-		FolderUID: userRuleFolderUID(orgID),
-		RuleGroup: userRuleGroup(orgID),
+		FolderUID: userRuleOrgSlug(orgID),
+		// One Grafana group per rule: group PUTs (interval pinning) replace the
+		// whole group, so sharing one would let concurrent creates erase siblings.
+		RuleGroup: uid,
 		Title:     strings.TrimSpace(cfg.Name),
 		Condition: "B",
 		Data:      data,
@@ -248,9 +311,9 @@ func compileUserRule(orgID int64, uid string, cfg RuleConfig) (GrafanaAlertRule,
 		Labels: map[string]string{
 			ruleLabelOrganizationID: org,
 			ruleLabelOrigin:         ruleOriginUser,
-			"severity":              "warning",
-			"template":              string(cfg.Template()),
-			"rule_group":            userRuleGroup(orgID),
+			ruleLabelSeverity:       "warning",
+			ruleLabelTemplate:       string(cfg.Template()),
+			ruleLabelRuleGroup:      userRuleOrgSlug(orgID),
 		},
 		Annotations: map[string]string{
 			"summary":            summary,
@@ -258,6 +321,21 @@ func compileUserRule(orgID int64, uid string, cfg RuleConfig) (GrafanaAlertRule,
 			ruleAnnotationConfig: string(configJSON),
 		},
 	}, nil
+}
+
+// latestValueSQL is the shared per-device skeleton: newest sample of one metric
+// per device in the eval window, org-scoped, matching on the HAVING clause.
+func latestValueSQL(org, metric, having string) string {
+	return fmt.Sprintf(`SELECT
+    organization_id,
+    device_id,
+    1 AS value
+FROM notification_metric_sample
+WHERE metric = '%s'
+  AND organization_id = '%s'
+  AND time > NOW() - INTERVAL '%d minutes'
+GROUP BY organization_id, device_id
+HAVING %s`, metric, org, userRuleEvalWindowMinute, having)
 }
 
 // compileTemplate renders the org-scoped SQL plus human summary/description.
@@ -268,47 +346,44 @@ func compileTemplate(orgID int64, cfg RuleConfig) (sql, summary, description str
 	dur := humanizeDuration(cfg.DurationSeconds)
 	switch {
 	case cfg.Offline != nil:
-		sql = fmt.Sprintf(`SELECT
-    organization_id,
-    device_id,
-    1 AS value
-FROM notification_metric_sample
-WHERE metric = 'fleet_device_online'
-  AND organization_id = '%s'
-  AND time > NOW() - INTERVAL '10 minutes'
-GROUP BY organization_id, device_id
-HAVING last(value, time) = 0`, org)
+		sql = latestValueSQL(org, metricDeviceOnline, "last(value, time) = 0")
 		summary = fmt.Sprintf("Device is offline for at least %s.", dur)
-		description = fmt.Sprintf("Device {{ $labels.device_id }} (org {{ $labels.organization_id }})\nhas been reporting fleet_device_online=0 for at least %s.", dur)
+		description = fmt.Sprintf("Device {{ $labels.device_id }} (org {{ $labels.organization_id }})\nhas been reporting %s=0 for at least %s.", metricDeviceOnline, dur)
 	case cfg.Hashrate != nil && cfg.Hashrate.Mode == HashrateModePctExpected:
-		ratio := formatFloat(cfg.Hashrate.Value / 100)
-		sql = fmt.Sprintf(`SELECT
-    organization_id,
-    device_id,
-    1 AS value
-FROM notification_metric_sample
-WHERE metric = 'fleet_device_hashing'
-  AND organization_id = '%s'
-  AND time > NOW() - INTERVAL '10 minutes'
-GROUP BY organization_id, device_id
-HAVING last(value, time) < %s`, org, ratio)
+		ratio := formatRatio(cfg.Hashrate.Value)
+		sql = latestValueSQL(org, metricDeviceHashing, "last(value, time) < "+ratio)
 		summary = fmt.Sprintf("Device hashrate is below %s%% of expected for at least %s.", formatFloat(cfg.Hashrate.Value), dur)
 		description = fmt.Sprintf("Device {{ $labels.device_id }} (org {{ $labels.organization_id }})\nhas been hashing below %s%% of its expected rate for at least %s.", formatFloat(cfg.Hashrate.Value), dur)
 	case cfg.Hashrate != nil:
-		terahash := cfg.Hashrate.Value
-		if cfg.Hashrate.Unit == HashrateUnitPetahash {
-			terahash *= 1000
-		}
-		sql = fmt.Sprintf(`SELECT
-    organization_id,
-    device_id,
+		threshold := formatFloat(absoluteTerahash(*cfg.Hashrate))
+		// The observed-TH metric keeps reporting ~0 for curtailed/paused miners;
+		// gate on the ratio metric, whose 1.0 is the "not expected to hash" sentinel.
+		sql = fmt.Sprintf(`WITH latest AS (
+    SELECT
+        organization_id,
+        device_id,
+        metric,
+        last(value, time) AS latest_value
+    FROM notification_metric_sample
+    WHERE metric IN ('%s', '%s')
+      AND organization_id = '%s'
+      AND time > NOW() - INTERVAL '%d minutes'
+    GROUP BY organization_id, device_id, metric
+)
+SELECT
+    obs.organization_id,
+    obs.device_id,
     1 AS value
-FROM notification_metric_sample
-WHERE metric = 'fleet_device_hashrate_terahash'
-  AND organization_id = '%s'
-  AND time > NOW() - INTERVAL '10 minutes'
-GROUP BY organization_id, device_id
-HAVING last(value, time) < %s`, org, formatFloat(terahash))
+FROM latest AS obs
+JOIN latest AS gate
+  ON gate.organization_id = obs.organization_id
+ AND gate.device_id = obs.device_id
+ AND gate.metric = '%s'
+WHERE obs.metric = '%s'
+  AND gate.latest_value < 1
+  AND obs.latest_value < %s`,
+			metricDeviceHashrateTerahash, metricDeviceHashing, org, userRuleEvalWindowMinute,
+			metricDeviceHashing, metricDeviceHashrateTerahash, threshold)
 		summary = fmt.Sprintf("Device hashrate is below %s %s/s for at least %s.", formatFloat(cfg.Hashrate.Value), cfg.Hashrate.Unit, dur)
 		description = fmt.Sprintf("Device {{ $labels.device_id }} (org {{ $labels.organization_id }})\nhas been hashing below %s %s/s for at least %s.", formatFloat(cfg.Hashrate.Value), cfg.Hashrate.Unit, dur)
 	case cfg.Temperature != nil:
@@ -323,9 +398,9 @@ HAVING last(value, time) < %s`, org, formatFloat(terahash))
         last(value, time) AS latest_temp,
         max(time) AS last_sample_time
     FROM notification_metric_sample
-    WHERE metric = 'fleet_device_temperature_max_celsius'
+    WHERE metric = '%s'
       AND organization_id = '%s'
-      AND time > NOW() - INTERVAL '10 minutes'
+      AND time > NOW() - INTERVAL '%d minutes'
     GROUP BY organization_id, device_id, sensor_kind
 )
 SELECT
@@ -335,7 +410,7 @@ SELECT
 FROM latest_per_kind
 WHERE last_sample_time > NOW() - INTERVAL '3 minutes'
 GROUP BY organization_id, device_id
-HAVING max(latest_temp) > %s`, org, limit)
+HAVING max(latest_temp) > %s`, metricDeviceTemperatureMaxCelsius, org, userRuleEvalWindowMinute, limit)
 		summary = fmt.Sprintf("Max sensor temperature for device is above %sC for at least %s.", limit, dur)
 		description = fmt.Sprintf("Maximum sensor temperature for device {{ $labels.device_id }}\nhas been above %sC for at least %s.", limit, dur)
 	}
@@ -344,6 +419,14 @@ HAVING max(latest_temp) > %s`, org, limit)
 
 func formatFloat(v float64) string {
 	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+// formatRatio renders percent/100 without binary-division drift (33.3 → "0.333",
+// not "0.33299999999999996") so the SQL matches what the summary claims.
+func formatRatio(percent float64) string {
+	s := strconv.FormatFloat(percent/100, 'f', 10, 64)
+	s = strings.TrimRight(s, "0")
+	return strings.TrimRight(s, ".")
 }
 
 func humanizeDuration(seconds int32) string {

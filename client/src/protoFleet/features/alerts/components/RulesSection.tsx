@@ -144,7 +144,9 @@ const RulesSection = () => {
       {
         title: "Edit",
         icon: <Edit />,
-        hidden: (rule) => rule.origin !== "user",
+        // Without the stored config the modal can't prefill the real trigger,
+        // and saving would silently rewrite the rule as an offline check.
+        hidden: (rule) => rule.origin !== "user" || !rule.config,
         actionHandler: (rule) => {
           setEditingRule(rule);
           setShowRuleModal(true);
@@ -222,7 +224,9 @@ const RulesSection = () => {
         itemName={{ singular: "rule", plural: "rules" }}
         noDataElement={
           <div className="py-10 text-center text-text-primary-50">
-            No rules provisioned yet — ask your operator to deploy the Grafana alert-rule bundle.
+            {canManage
+              ? "No rules yet — add one to alert on a fleet metric."
+              : "No rules yet — ask an alert manager to add one."}
           </div>
         }
         actions={canManage ? actions : []}
