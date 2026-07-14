@@ -291,6 +291,67 @@ describe("useInfrastructureDevices", () => {
     expect(result.current.devices).toHaveLength(0);
   });
 
+  it("hides cached rows immediately when the scope changes", async () => {
+    mockListInfrastructureDevices.mockResolvedValueOnce({ devices: [apiDevice()] });
+
+    const { result, rerender } = renderHook(
+      ({ siteIds }: { siteIds: bigint[] }) => useInfrastructureDevices(false, siteIds),
+      { initialProps: { siteIds: [8n] } },
+    );
+
+    await act(async () => {
+      await result.current.listDevices();
+    });
+
+    expect(result.current.devices).toHaveLength(1);
+
+    // Switching from Site 8 to Site 9 must not show Site 8's devices,
+    // even before a refetch lands (the hook is disabled here, so no
+    // refetch happens at all).
+    rerender({ siteIds: [9n] });
+
+    expect(result.current.devices).toHaveLength(0);
+  });
+
+  it("does not surface a mutation that resolves after a scope switch", async () => {
+    let resolveCreate: (value: unknown) => void = () => {};
+    mockCreateInfrastructureDevice.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveCreate = resolve;
+      }),
+    );
+
+    const { result, rerender } = renderHook(
+      ({ siteIds }: { siteIds: bigint[] }) => useInfrastructureDevices(false, siteIds),
+      { initialProps: { siteIds: [8n] } },
+    );
+
+    // The create starts while scoped to Site 8...
+    let createPromise: Promise<unknown> = Promise.resolve();
+    act(() => {
+      createPromise = result.current.createDevice({
+        siteId: "8",
+        buildingName: "Building 1",
+        name: "Roof exhaust",
+        deviceKind: "fan_group",
+        fanCount: 12,
+        driverType: "modbus_tcp",
+        driverConfig,
+      });
+    });
+
+    // ...the operator switches to Site 9 while it is in flight...
+    rerender({ siteIds: [9n] });
+
+    // ...and the Site 8 row resolving late must not appear in Site 9's list.
+    await act(async () => {
+      resolveCreate({ device: apiDevice() });
+      await createPromise;
+    });
+
+    expect(result.current.devices).toHaveLength(0);
+  });
+
   it("keeps an in-scope mutation result in the scoped list", async () => {
     mockCreateInfrastructureDevice.mockResolvedValueOnce({ device: apiDevice() });
 

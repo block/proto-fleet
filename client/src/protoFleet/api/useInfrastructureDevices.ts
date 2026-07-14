@@ -90,7 +90,18 @@ export default function useInfrastructureDevices(
   // IDs doesn't churn listDevices (and refetch) every render.
   const siteFilterKey = siteIds?.map((id) => id.toString()).join(",") ?? "";
 
-  const devices = useMemo(() => apiDevices.map(mapApiDevice), [apiDevices]);
+  const isInScope = useCallback(
+    (device: ApiInfrastructureDevice) => !siteFilterKey || siteFilterKey.split(",").includes(device.siteId.toString()),
+    [siteFilterKey],
+  );
+
+  // Render-time scope filter: the cache can transiently hold rows from
+  // another scope — a scope switch renders before the refetch lands,
+  // and a mutation started under the previous scope can merge its row
+  // through a stale-closure scope check when it resolves late. Filtering
+  // here guarantees those rows never surface (driverConfig carries OT
+  // connection details, so cross-scope leaks matter).
+  const devices = useMemo(() => apiDevices.filter(isInScope).map(mapApiDevice), [apiDevices, isInScope]);
 
   const handleFailure = useCallback(
     (error: unknown, fallbackMessage: string): Error => {
@@ -104,12 +115,9 @@ export default function useInfrastructureDevices(
   // A mutation can return a row outside the active site scope (a create
   // for another site, or an edit that moves the device). The list RPC
   // filters those out, so the cache merge must too — otherwise an
-  // out-of-scope device stays visible and actionable in the scoped view
-  // until the next refetch.
-  const isInScope = useCallback(
-    (device: ApiInfrastructureDevice) => !siteFilterKey || siteFilterKey.split(",").includes(device.siteId.toString()),
-    [siteFilterKey],
-  );
+  // out-of-scope device would sit in the cache until the next refetch.
+  // The render-time filter above is the visibility guarantee; this keeps
+  // the cache itself from accumulating cross-scope rows.
 
   const upsertApiDevice = useCallback(
     (device: ApiInfrastructureDevice) => {
