@@ -168,7 +168,7 @@ var catalog = []CatalogEntry{
 	{PermFleetnodeManage, "Enroll, confirm, and revoke fleet nodes, pair miners on them, and run network scans.", ResourceFleetNode},
 
 	{PermAlertRead, "View alert channels, rules, maintenance windows, and alert history.", ResourceAlert},
-	{PermAlertManage, "Create, edit, test, and delete alert channels; pause and resume alert rules; create, edit, and delete maintenance windows.", ResourceAlert},
+	{PermAlertManage, "Create, edit, test, and delete alert channels; create, edit, delete, pause, and resume alert rules; create, edit, and delete maintenance windows.", ResourceAlert},
 
 	{PermAPIKeyManage, "List, create, and revoke API keys for the organization.", ResourceAPIKey},
 

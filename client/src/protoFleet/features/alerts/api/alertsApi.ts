@@ -1,3 +1,4 @@
+import { create } from "@bufbuild/protobuf";
 import { type Timestamp, timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import {
@@ -9,10 +10,15 @@ import {
 import {
   type Channel as ProtoChannel,
   ChannelKind as ProtoChannelKind,
+  HashrateMode as ProtoHashrateMode,
+  HashrateUnit as ProtoHashrateUnit,
   type AlertHistoryEntry as ProtoHistoryEntry,
   type MaintenanceWindow as ProtoMaintenanceWindow,
   MaintenanceWindowScopeKind as ProtoMaintenanceWindowScopeKind,
   type Rule as ProtoRule,
+  type RuleConfig as ProtoRuleConfig,
+  RuleConfigSchema as ProtoRuleConfigSchema,
+  RuleOrigin as ProtoRuleOrigin,
   RuleTemplate as ProtoRuleTemplate,
   ValidationState as ProtoValidationState,
 } from "@/protoFleet/api/generated/alerts/v1/alerts_pb";
@@ -21,10 +27,13 @@ import type {
   AlertHistoryStatus,
   Channel,
   ChannelKind,
+  HashrateMode,
+  HashrateUnit,
   MaintenanceWindow,
   MaintenanceWindowScope,
   MaintenanceWindowScopeKind,
   Rule,
+  RuleConfig,
   RuleTemplate,
   SlackConfig,
   ValidationState,
@@ -135,6 +144,69 @@ const channelFromProto = (c: ProtoChannel): Channel => ({
   has_secret: c.hasSecret,
 });
 
+const hashrateModeFromProto = (m: ProtoHashrateMode): HashrateMode =>
+  m === ProtoHashrateMode.ABSOLUTE ? "absolute" : "pct_expected";
+
+const hashrateUnitFromProto = (u: ProtoHashrateUnit): HashrateUnit | undefined => {
+  switch (u) {
+    case ProtoHashrateUnit.TERAHASH:
+      return "TH";
+    case ProtoHashrateUnit.PETAHASH:
+      return "PH";
+    default:
+      return undefined;
+  }
+};
+
+const ruleConfigFromProto = (c: ProtoRuleConfig): RuleConfig => {
+  const out: RuleConfig = { name: c.name, duration_seconds: c.durationSeconds };
+  switch (c.templateConfig.case) {
+    case "offline":
+      out.offline = {};
+      break;
+    case "hashrate":
+      out.hashrate = {
+        mode: hashrateModeFromProto(c.templateConfig.value.mode),
+        value: c.templateConfig.value.value,
+        unit: hashrateUnitFromProto(c.templateConfig.value.unit),
+      };
+      break;
+    case "temperature":
+      out.temperature = { max_celsius: c.templateConfig.value.maxCelsius };
+      break;
+  }
+  return out;
+};
+
+const ruleConfigToProto = (c: RuleConfig): ProtoRuleConfig => {
+  const base = { name: c.name, durationSeconds: c.duration_seconds };
+  if (c.hashrate) {
+    return create(ProtoRuleConfigSchema, {
+      ...base,
+      templateConfig: {
+        case: "hashrate",
+        value: {
+          mode: c.hashrate.mode === "absolute" ? ProtoHashrateMode.ABSOLUTE : ProtoHashrateMode.PCT_EXPECTED,
+          value: c.hashrate.value,
+          unit:
+            c.hashrate.unit === "PH"
+              ? ProtoHashrateUnit.PETAHASH
+              : c.hashrate.unit === "TH"
+                ? ProtoHashrateUnit.TERAHASH
+                : ProtoHashrateUnit.UNSPECIFIED,
+        },
+      },
+    });
+  }
+  if (c.temperature) {
+    return create(ProtoRuleConfigSchema, {
+      ...base,
+      templateConfig: { case: "temperature", value: { maxCelsius: c.temperature.max_celsius } },
+    });
+  }
+  return create(ProtoRuleConfigSchema, { ...base, templateConfig: { case: "offline", value: {} } });
+};
+
 const ruleFromProto = (r: ProtoRule): Rule => ({
   id: r.id,
   organization_id: String(r.organizationId),
@@ -146,6 +218,8 @@ const ruleFromProto = (r: ProtoRule): Rule => ({
   description: r.description,
   duration_seconds: r.durationSeconds,
   enabled: r.enabled,
+  origin: r.origin === ProtoRuleOrigin.USER ? "user" : "provisioned",
+  config: r.config ? ruleConfigFromProto(r.config) : null,
 });
 
 const maintenanceWindowFromProto = (s: ProtoMaintenanceWindow): MaintenanceWindow => ({
@@ -271,6 +345,20 @@ export async function pauseRule(id: string): Promise<Rule> {
 export async function resumeRule(id: string): Promise<Rule> {
   const res = await alertRuleClient.resumeRule({ id });
   return ruleFromProto(required(res.rule, "rule"));
+}
+
+export async function createRule(config: RuleConfig): Promise<Rule> {
+  const res = await alertRuleClient.createRule({ config: ruleConfigToProto(config) });
+  return ruleFromProto(required(res.rule, "rule"));
+}
+
+export async function updateRule(id: string, config: RuleConfig): Promise<Rule> {
+  const res = await alertRuleClient.updateRule({ id, config: ruleConfigToProto(config) });
+  return ruleFromProto(required(res.rule, "rule"));
+}
+
+export async function deleteRule(id: string): Promise<void> {
+  await alertRuleClient.deleteRule({ id });
 }
 
 export async function listMaintenanceWindows(): Promise<MaintenanceWindow[]> {

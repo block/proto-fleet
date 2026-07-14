@@ -1,7 +1,12 @@
 import { useCallback, useMemo, useState } from "react";
 
 import * as api from "@/protoFleet/features/alerts/api/alertsApi";
-import type { MaintenanceWindow, MaintenanceWindowWithActive, Rule } from "@/protoFleet/features/alerts/types";
+import type {
+  MaintenanceWindow,
+  MaintenanceWindowWithActive,
+  Rule,
+  RuleConfig,
+} from "@/protoFleet/features/alerts/types";
 
 // `now` is injectable so callers can recompute against a ticking clock at render time instead of trusting the load-time snapshot.
 export const isMaintenanceWindowActive = (s: MaintenanceWindow, now: number = Date.now()): boolean => {
@@ -30,6 +35,9 @@ export interface UseAlertsResult {
   refresh: () => Promise<void>;
   pauseRule: (id: string) => Promise<void>;
   resumeRule: (id: string) => Promise<void>;
+  createRule: (config: RuleConfig) => Promise<Rule>;
+  updateRule: (id: string, config: RuleConfig) => Promise<Rule>;
+  removeRule: (id: string) => Promise<void>;
   createMaintenanceWindow: (input: api.MaintenanceWindowMutationInput) => Promise<MaintenanceWindow>;
   updateMaintenanceWindow: (input: api.MaintenanceWindowMutationInput & { id: string }) => Promise<MaintenanceWindow>;
   removeMaintenanceWindow: (id: string) => Promise<void>;
@@ -62,6 +70,23 @@ export function useAlerts(): UseAlertsResult {
     setRules((current) => upsertById(current, updated));
   }, []);
 
+  const createRule = useCallback(async (config: RuleConfig) => {
+    const created = await api.createRule(config);
+    setRules((current) => upsertById(current, created));
+    return created;
+  }, []);
+
+  const updateRule = useCallback(async (id: string, config: RuleConfig) => {
+    const updated = await api.updateRule(id, config);
+    setRules((current) => upsertById(current, updated));
+    return updated;
+  }, []);
+
+  const removeRule = useCallback(async (id: string) => {
+    await api.deleteRule(id);
+    setRules((current) => current.filter((r) => r.id !== id));
+  }, []);
+
   const createMaintenanceWindow = useCallback(async (input: api.MaintenanceWindowMutationInput) => {
     const created = await api.createMaintenanceWindow(input);
     setMaintenanceWindows((current) => upsertById(current, withActive(created)));
@@ -91,6 +116,9 @@ export function useAlerts(): UseAlertsResult {
       refresh,
       pauseRule,
       resumeRule,
+      createRule,
+      updateRule,
+      removeRule,
       createMaintenanceWindow,
       updateMaintenanceWindow,
       removeMaintenanceWindow,
@@ -102,6 +130,9 @@ export function useAlerts(): UseAlertsResult {
       refresh,
       pauseRule,
       resumeRule,
+      createRule,
+      updateRule,
+      removeRule,
       createMaintenanceWindow,
       updateMaintenanceWindow,
       removeMaintenanceWindow,

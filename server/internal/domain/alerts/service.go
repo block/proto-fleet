@@ -548,10 +548,21 @@ func (s *Service) ResumeRule(ctx context.Context, orgID int64, id string) (*Rule
 	if err != nil {
 		return nil, err
 	}
+	if err := s.removePauseSilences(ctx, orgID, id); err != nil {
+		return nil, err
+	}
+	updated, err := s.requireRule(ctx, orgID, id)
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+func (s *Service) removePauseSilences(ctx context.Context, orgID int64, id string) error {
 	want := strconv.FormatInt(orgID, 10)
 	sils, err := s.grafana.ListSilences(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for _, sil := range sils {
 		if !isPauseSilenceFor(sil, want, id) {
@@ -561,14 +572,10 @@ func (s *Service) ResumeRule(ctx context.Context, orgID int64, id string) (*Rule
 			continue
 		}
 		if err := s.grafana.DeleteSilence(ctx, sil.ID); err != nil && !IsNotFound(err) {
-			return nil, err
+			return err
 		}
 	}
-	updated, err := s.requireRule(ctx, orgID, id)
-	if err != nil {
-		return nil, err
-	}
-	return updated, nil
+	return nil
 }
 
 func (s *Service) requireRule(ctx context.Context, orgID int64, id string) (*Rule, error) {
@@ -965,14 +972,26 @@ func grafanaRuleToDomain(orgID int64, r GrafanaAlertRule) Rule {
 		Group:           r.RuleGroup,
 		Enabled:         !r.IsPaused,
 		DurationSeconds: parseDurationSeconds(r.For),
+		Origin:          RuleOriginProvisioned,
 	}
 	if r.Labels != nil {
 		out.Template = templateFromLabel(r.Labels["template"])
 		out.Severity = r.Labels["severity"]
+		if r.Labels[ruleLabelOrigin] == ruleOriginUser {
+			out.Origin = RuleOriginUser
+		}
 	}
 	if r.Annotations != nil {
 		out.Summary = r.Annotations["summary"]
 		out.Description = r.Annotations["description"]
+		if raw := r.Annotations[ruleAnnotationConfig]; raw != "" {
+			var cfg RuleConfig
+			if err := json.Unmarshal([]byte(raw), &cfg); err == nil {
+				out.Config = &cfg
+			} else {
+				slog.Warn("alerts.rule_config_unparseable", "rule_uid", r.UID, "error", err)
+			}
+		}
 	}
 	return out
 }

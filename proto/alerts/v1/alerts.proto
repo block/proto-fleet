@@ -23,6 +23,12 @@ service RuleService {
     rpc PauseRule(PauseRuleRequest) returns (PauseRuleResponse);
 
     rpc ResumeRule(ResumeRuleRequest) returns (ResumeRuleResponse);
+
+    rpc CreateRule(CreateRuleRequest) returns (CreateRuleResponse);
+
+    rpc UpdateRule(UpdateRuleRequest) returns (UpdateRuleResponse);
+
+    rpc DeleteRule(DeleteRuleRequest) returns (DeleteRuleResponse);
 }
 
 service MaintenanceWindowService {
@@ -144,6 +150,53 @@ enum RuleTemplate {
     RULE_TEMPLATE_MQTT_DISCONNECTED = 8;
 }
 
+// Origin decides mutability: only USER rules accept Update/DeleteRule.
+enum RuleOrigin {
+    RULE_ORIGIN_UNSPECIFIED = 0;
+    RULE_ORIGIN_PROVISIONED = 1;
+    RULE_ORIGIN_USER = 2;
+}
+
+enum HashrateMode {
+    HASHRATE_MODE_UNSPECIFIED = 0;
+    HASHRATE_MODE_PCT_EXPECTED = 1;
+    HASHRATE_MODE_ABSOLUTE = 2;
+}
+
+enum HashrateUnit {
+    HASHRATE_UNIT_UNSPECIFIED = 0;
+    HASHRATE_UNIT_TERAHASH = 1;
+    HASHRATE_UNIT_PETAHASH = 2;
+}
+
+// Fires when a device reports offline for the configured duration.
+message OfflineConfig {}
+
+message HashrateConfig {
+    HashrateMode mode = 1;
+    // Percent of expected in (0, 100] for PCT_EXPECTED; hashrate in `unit` for ABSOLUTE.
+    double value = 2 [(buf.validate.field).double.gt = 0];
+    // ABSOLUTE mode only.
+    HashrateUnit unit = 3;
+}
+
+message TemperatureConfig {
+    // Clients convert Fahrenheit before sending.
+    double max_celsius = 1 [(buf.validate.field).double = {gt: 0, lte: 150}];
+}
+
+// User-specified rule definition; the server compiles it into the backing Grafana rule.
+message RuleConfig {
+    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    int32 duration_seconds = 2 [(buf.validate.field).int32 = {gte: 60, lte: 86400}];
+    oneof template_config {
+        option (buf.validate.oneof).required = true;
+        OfflineConfig offline = 3;
+        HashrateConfig hashrate = 4;
+        TemperatureConfig temperature = 5;
+    }
+}
+
 message Rule {
     string id = 1;
     int64 organization_id = 2;
@@ -155,12 +208,35 @@ message Rule {
     string description = 8;
     int32 duration_seconds = 9;
     bool enabled = 10;
+    RuleOrigin origin = 11;
+    // Populated for USER rules only; round-trips into the edit form.
+    RuleConfig config = 12;
 }
 
 message ListRulesRequest {}
 message ListRulesResponse {
     repeated Rule rules = 1;
 }
+
+message CreateRuleRequest {
+    RuleConfig config = 1 [(buf.validate.field).required = true];
+}
+message CreateRuleResponse {
+    Rule rule = 1;
+}
+
+message UpdateRuleRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+    RuleConfig config = 2 [(buf.validate.field).required = true];
+}
+message UpdateRuleResponse {
+    Rule rule = 1;
+}
+
+message DeleteRuleRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+}
+message DeleteRuleResponse {}
 
 message PauseRuleRequest {
     string id = 1 [(buf.validate.field).string.min_len = 1];

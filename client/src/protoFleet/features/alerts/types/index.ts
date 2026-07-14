@@ -39,6 +39,32 @@ export type RuleTemplate =
   | "mqtt-disconnected"
   | "";
 
+// Origin decides mutability: only user rules can be edited or deleted.
+export type RuleOrigin = "provisioned" | "user";
+
+export type HashrateMode = "pct_expected" | "absolute";
+export type HashrateUnit = "TH" | "PH";
+
+export interface HashrateRuleConfig {
+  mode: HashrateMode;
+  // Percent of expected in (0, 100] for pct_expected; hashrate in `unit` for absolute.
+  value: number;
+  unit?: HashrateUnit;
+}
+
+export interface TemperatureRuleConfig {
+  max_celsius: number;
+}
+
+// Exactly one of offline/hashrate/temperature is set.
+export interface RuleConfig {
+  name: string;
+  duration_seconds: number;
+  offline?: Record<string, never>;
+  hashrate?: HashrateRuleConfig;
+  temperature?: TemperatureRuleConfig;
+}
+
 export interface Rule {
   id: string;
   organization_id: string;
@@ -50,6 +76,9 @@ export interface Rule {
   description: string;
   duration_seconds: number;
   enabled: boolean;
+  origin: RuleOrigin;
+  // Null for provisioned rules.
+  config: RuleConfig | null;
 }
 
 export type MaintenanceWindowScopeKind = "rule" | "group" | "site" | "device";

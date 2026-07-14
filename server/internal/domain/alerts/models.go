@@ -63,6 +63,63 @@ const (
 	RuleTemplateMQTTDisconnected RuleTemplate = "mqtt-disconnected"
 )
 
+// Origin decides mutability: only user rules accept UpdateRule/DeleteRule.
+type RuleOrigin string
+
+const (
+	RuleOriginProvisioned RuleOrigin = "provisioned"
+	RuleOriginUser        RuleOrigin = "user"
+)
+
+type HashrateMode string
+
+const (
+	HashrateModePctExpected HashrateMode = "pct_expected"
+	HashrateModeAbsolute    HashrateMode = "absolute"
+)
+
+type HashrateUnit string
+
+const (
+	HashrateUnitTerahash HashrateUnit = "TH"
+	HashrateUnitPetahash HashrateUnit = "PH"
+)
+
+type OfflineRuleConfig struct{}
+
+type HashrateRuleConfig struct {
+	Mode HashrateMode `json:"mode"`
+	// Percent of expected in (0, 100] for pct_expected; hashrate in Unit for absolute.
+	Value float64      `json:"value"`
+	Unit  HashrateUnit `json:"unit,omitempty"`
+}
+
+type TemperatureRuleConfig struct {
+	MaxCelsius float64 `json:"max_celsius"`
+}
+
+// RuleConfig is a user rule's definition; it round-trips through a rule annotation
+// so edits never need to parse the compiled SQL back apart.
+type RuleConfig struct {
+	Name            string                 `json:"name"`
+	DurationSeconds int32                  `json:"duration_seconds"`
+	Offline         *OfflineRuleConfig     `json:"offline,omitempty"`
+	Hashrate        *HashrateRuleConfig    `json:"hashrate,omitempty"`
+	Temperature     *TemperatureRuleConfig `json:"temperature,omitempty"`
+}
+
+func (c RuleConfig) Template() RuleTemplate {
+	switch {
+	case c.Offline != nil:
+		return RuleTemplateOffline
+	case c.Hashrate != nil:
+		return RuleTemplateHashrate
+	case c.Temperature != nil:
+		return RuleTemplateTemperature
+	}
+	return ""
+}
+
 type Rule struct {
 	ID              string
 	OrganizationID  int64
@@ -74,6 +131,9 @@ type Rule struct {
 	Description     string
 	DurationSeconds int32
 	Enabled         bool
+	Origin          RuleOrigin
+	// Nil for provisioned rules.
+	Config *RuleConfig
 }
 
 type MaintenanceWindowScopeKind string

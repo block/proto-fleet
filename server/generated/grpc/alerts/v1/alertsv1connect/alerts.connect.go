@@ -61,6 +61,12 @@ const (
 	RuleServicePauseRuleProcedure = "/alerts.v1.RuleService/PauseRule"
 	// RuleServiceResumeRuleProcedure is the fully-qualified name of the RuleService's ResumeRule RPC.
 	RuleServiceResumeRuleProcedure = "/alerts.v1.RuleService/ResumeRule"
+	// RuleServiceCreateRuleProcedure is the fully-qualified name of the RuleService's CreateRule RPC.
+	RuleServiceCreateRuleProcedure = "/alerts.v1.RuleService/CreateRule"
+	// RuleServiceUpdateRuleProcedure is the fully-qualified name of the RuleService's UpdateRule RPC.
+	RuleServiceUpdateRuleProcedure = "/alerts.v1.RuleService/UpdateRule"
+	// RuleServiceDeleteRuleProcedure is the fully-qualified name of the RuleService's DeleteRule RPC.
+	RuleServiceDeleteRuleProcedure = "/alerts.v1.RuleService/DeleteRule"
 	// MaintenanceWindowServiceListMaintenanceWindowsProcedure is the fully-qualified name of the
 	// MaintenanceWindowService's ListMaintenanceWindows RPC.
 	MaintenanceWindowServiceListMaintenanceWindowsProcedure = "/alerts.v1.MaintenanceWindowService/ListMaintenanceWindows"
@@ -245,6 +251,9 @@ type RuleServiceClient interface {
 	ListRules(context.Context, *connect.Request[v1.ListRulesRequest]) (*connect.Response[v1.ListRulesResponse], error)
 	PauseRule(context.Context, *connect.Request[v1.PauseRuleRequest]) (*connect.Response[v1.PauseRuleResponse], error)
 	ResumeRule(context.Context, *connect.Request[v1.ResumeRuleRequest]) (*connect.Response[v1.ResumeRuleResponse], error)
+	CreateRule(context.Context, *connect.Request[v1.CreateRuleRequest]) (*connect.Response[v1.CreateRuleResponse], error)
+	UpdateRule(context.Context, *connect.Request[v1.UpdateRuleRequest]) (*connect.Response[v1.UpdateRuleResponse], error)
+	DeleteRule(context.Context, *connect.Request[v1.DeleteRuleRequest]) (*connect.Response[v1.DeleteRuleResponse], error)
 }
 
 // NewRuleServiceClient constructs a client for the alerts.v1.RuleService service. By default, it
@@ -272,6 +281,21 @@ func NewRuleServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			baseURL+RuleServiceResumeRuleProcedure,
 			opts...,
 		),
+		createRule: connect.NewClient[v1.CreateRuleRequest, v1.CreateRuleResponse](
+			httpClient,
+			baseURL+RuleServiceCreateRuleProcedure,
+			opts...,
+		),
+		updateRule: connect.NewClient[v1.UpdateRuleRequest, v1.UpdateRuleResponse](
+			httpClient,
+			baseURL+RuleServiceUpdateRuleProcedure,
+			opts...,
+		),
+		deleteRule: connect.NewClient[v1.DeleteRuleRequest, v1.DeleteRuleResponse](
+			httpClient,
+			baseURL+RuleServiceDeleteRuleProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -280,6 +304,9 @@ type ruleServiceClient struct {
 	listRules  *connect.Client[v1.ListRulesRequest, v1.ListRulesResponse]
 	pauseRule  *connect.Client[v1.PauseRuleRequest, v1.PauseRuleResponse]
 	resumeRule *connect.Client[v1.ResumeRuleRequest, v1.ResumeRuleResponse]
+	createRule *connect.Client[v1.CreateRuleRequest, v1.CreateRuleResponse]
+	updateRule *connect.Client[v1.UpdateRuleRequest, v1.UpdateRuleResponse]
+	deleteRule *connect.Client[v1.DeleteRuleRequest, v1.DeleteRuleResponse]
 }
 
 // ListRules calls alerts.v1.RuleService.ListRules.
@@ -297,11 +324,29 @@ func (c *ruleServiceClient) ResumeRule(ctx context.Context, req *connect.Request
 	return c.resumeRule.CallUnary(ctx, req)
 }
 
+// CreateRule calls alerts.v1.RuleService.CreateRule.
+func (c *ruleServiceClient) CreateRule(ctx context.Context, req *connect.Request[v1.CreateRuleRequest]) (*connect.Response[v1.CreateRuleResponse], error) {
+	return c.createRule.CallUnary(ctx, req)
+}
+
+// UpdateRule calls alerts.v1.RuleService.UpdateRule.
+func (c *ruleServiceClient) UpdateRule(ctx context.Context, req *connect.Request[v1.UpdateRuleRequest]) (*connect.Response[v1.UpdateRuleResponse], error) {
+	return c.updateRule.CallUnary(ctx, req)
+}
+
+// DeleteRule calls alerts.v1.RuleService.DeleteRule.
+func (c *ruleServiceClient) DeleteRule(ctx context.Context, req *connect.Request[v1.DeleteRuleRequest]) (*connect.Response[v1.DeleteRuleResponse], error) {
+	return c.deleteRule.CallUnary(ctx, req)
+}
+
 // RuleServiceHandler is an implementation of the alerts.v1.RuleService service.
 type RuleServiceHandler interface {
 	ListRules(context.Context, *connect.Request[v1.ListRulesRequest]) (*connect.Response[v1.ListRulesResponse], error)
 	PauseRule(context.Context, *connect.Request[v1.PauseRuleRequest]) (*connect.Response[v1.PauseRuleResponse], error)
 	ResumeRule(context.Context, *connect.Request[v1.ResumeRuleRequest]) (*connect.Response[v1.ResumeRuleResponse], error)
+	CreateRule(context.Context, *connect.Request[v1.CreateRuleRequest]) (*connect.Response[v1.CreateRuleResponse], error)
+	UpdateRule(context.Context, *connect.Request[v1.UpdateRuleRequest]) (*connect.Response[v1.UpdateRuleResponse], error)
+	DeleteRule(context.Context, *connect.Request[v1.DeleteRuleRequest]) (*connect.Response[v1.DeleteRuleResponse], error)
 }
 
 // NewRuleServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -325,6 +370,21 @@ func NewRuleServiceHandler(svc RuleServiceHandler, opts ...connect.HandlerOption
 		svc.ResumeRule,
 		opts...,
 	)
+	ruleServiceCreateRuleHandler := connect.NewUnaryHandler(
+		RuleServiceCreateRuleProcedure,
+		svc.CreateRule,
+		opts...,
+	)
+	ruleServiceUpdateRuleHandler := connect.NewUnaryHandler(
+		RuleServiceUpdateRuleProcedure,
+		svc.UpdateRule,
+		opts...,
+	)
+	ruleServiceDeleteRuleHandler := connect.NewUnaryHandler(
+		RuleServiceDeleteRuleProcedure,
+		svc.DeleteRule,
+		opts...,
+	)
 	return "/alerts.v1.RuleService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case RuleServiceListRulesProcedure:
@@ -333,6 +393,12 @@ func NewRuleServiceHandler(svc RuleServiceHandler, opts ...connect.HandlerOption
 			ruleServicePauseRuleHandler.ServeHTTP(w, r)
 		case RuleServiceResumeRuleProcedure:
 			ruleServiceResumeRuleHandler.ServeHTTP(w, r)
+		case RuleServiceCreateRuleProcedure:
+			ruleServiceCreateRuleHandler.ServeHTTP(w, r)
+		case RuleServiceUpdateRuleProcedure:
+			ruleServiceUpdateRuleHandler.ServeHTTP(w, r)
+		case RuleServiceDeleteRuleProcedure:
+			ruleServiceDeleteRuleHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -352,6 +418,18 @@ func (UnimplementedRuleServiceHandler) PauseRule(context.Context, *connect.Reque
 
 func (UnimplementedRuleServiceHandler) ResumeRule(context.Context, *connect.Request[v1.ResumeRuleRequest]) (*connect.Response[v1.ResumeRuleResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("alerts.v1.RuleService.ResumeRule is not implemented"))
+}
+
+func (UnimplementedRuleServiceHandler) CreateRule(context.Context, *connect.Request[v1.CreateRuleRequest]) (*connect.Response[v1.CreateRuleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("alerts.v1.RuleService.CreateRule is not implemented"))
+}
+
+func (UnimplementedRuleServiceHandler) UpdateRule(context.Context, *connect.Request[v1.UpdateRuleRequest]) (*connect.Response[v1.UpdateRuleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("alerts.v1.RuleService.UpdateRule is not implemented"))
+}
+
+func (UnimplementedRuleServiceHandler) DeleteRule(context.Context, *connect.Request[v1.DeleteRuleRequest]) (*connect.Response[v1.DeleteRuleResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("alerts.v1.RuleService.DeleteRule is not implemented"))
 }
 
 // MaintenanceWindowServiceClient is a client for the alerts.v1.MaintenanceWindowService service.
