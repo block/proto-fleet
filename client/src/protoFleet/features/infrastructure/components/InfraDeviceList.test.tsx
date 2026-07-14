@@ -1,33 +1,41 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 
 import InfraDeviceList from "./InfraDeviceList";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import type { InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
+import { pushToast } from "@/shared/features/toaster";
+
+vi.mock("@/shared/features/toaster", () => ({
+  pushToast: vi.fn(),
+  STATUSES: { error: "error" },
+}));
 
 const device: InfraDeviceItem = {
-  id: "aus-b1-roof-exhaust",
-  unitId: 17,
-  name: "Roof exhaust",
-  buildingName: "Building 1",
+  id: "101",
+  siteId: "8",
   siteName: "Austin",
-  connectionType: "modbus_tcp",
-  endpoint: "10.12.1.21",
-  port: 502,
-  status: "offline",
-  enabled: "auto",
-  lastSeen: "Never",
-  endpointKind: "fan_group",
+  buildingName: "Building 1",
+  name: "Roof exhaust",
+  deviceKind: "fan_group",
   fanCount: 12,
+  enabled: true,
+  driverType: "modbus_tcp",
+  driverConfig: JSON.stringify({
+    endpoint: "10.12.1.21",
+    port: 502,
+    unit_id: 17,
+    register_address: 2001,
+    write_mode: "coil",
+  }),
 };
 
-const getDeviceNameOrder = (names: string[]) =>
-  screen
-    .getAllByRole("button")
-    .map((button) => button.textContent ?? "")
-    .filter((text) => names.includes(text));
-
 describe("InfraDeviceList", () => {
+  beforeEach(() => {
+    vi.mocked(pushToast).mockReset();
+  });
+
   test("syncs rows when devices prop changes", async () => {
     const { rerender } = render(<InfraDeviceList devices={[]} />);
 
@@ -40,43 +48,83 @@ describe("InfraDeviceList", () => {
     expect(screen.getByText("1 device")).toBeInTheDocument();
   });
 
+  test("renders the driver connection summary and degrades when redacted", () => {
+    const redactedDevice: InfraDeviceItem = {
+      ...device,
+      id: "102",
+      name: "Redacted exhaust",
+      driverConfig: "",
+    };
+
+    render(<InfraDeviceList devices={[device, redactedDevice]} />);
+
+    expect(screen.getByText("10.12.1.21:502 · unit 17 · coil 2001")).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
+  });
+
+  test("shows the loading state while the list fetch is in flight", () => {
+    render(<InfraDeviceList isLoading />);
+
+    expect(screen.getByTestId("infra-devices-loading")).toBeInTheDocument();
+    expect(screen.queryByText("0 devices")).not.toBeInTheDocument();
+  });
+
+  test("shows the load error with a retry action", async () => {
+    const user = userEvent.setup();
+    const onRetry = vi.fn();
+
+    render(<InfraDeviceList loadError="boom" onRetry={onRetry} />);
+
+    expect(screen.getByTestId("infra-devices-load-error")).toHaveTextContent("boom");
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+
+    expect(onRetry).toHaveBeenCalled();
+  });
+
+  test("toggles enabled through the callback", async () => {
+    const user = userEvent.setup();
+    const onSetDeviceEnabled = vi.fn().mockResolvedValue(undefined);
+
+    render(<InfraDeviceList devices={[device]} onSetDeviceEnabled={onSetDeviceEnabled} />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Enabled for Roof exhaust" }));
+
+    expect(onSetDeviceEnabled).toHaveBeenCalledWith(device, false);
+    expect(pushToast).not.toHaveBeenCalled();
+  });
+
+  test("surfaces an enabled-toggle failure as an error toast", async () => {
+    const user = userEvent.setup();
+    const onSetDeviceEnabled = vi.fn().mockRejectedValue(new Error("update failed"));
+
+    render(<InfraDeviceList devices={[device]} onSetDeviceEnabled={onSetDeviceEnabled} />);
+
+    await user.click(screen.getByRole("checkbox", { name: "Enabled for Roof exhaust" }));
+
+    await waitFor(() =>
+      expect(pushToast).toHaveBeenCalledWith(expect.objectContaining({ message: "update failed", status: "error" })),
+    );
+    // The switch still reflects the device prop, so a failed toggle
+    // visually reverts once the rejection lands.
+    expect(screen.getByRole("checkbox", { name: "Enabled for Roof exhaust" })).toBeChecked();
+  });
+
+  test("disables the enabled switch while its device update is in flight", () => {
+    render(<InfraDeviceList devices={[device]} updatingDeviceIds={new Set([device.id])} />);
+
+    expect(screen.getByRole("checkbox", { name: "Enabled for Roof exhaust" })).toBeDisabled();
+  });
+
   test("constrains pagination footer to the page-scroll chrome width", () => {
     const devices = Array.from({ length: 51 }, (_, index) => ({
       ...device,
-      id: `device-${index + 1}`,
+      id: `${index + 1}`,
       name: `Device ${index + 1}`,
     }));
 
     render(<InfraDeviceList devices={devices} />);
 
     expect(screen.getByTestId("infra-devices-pagination")).toHaveClass(...PAGE_SCROLL_CHROME_WIDTH.split(" "));
-  });
-
-  test("sorts last seen by age instead of display label", () => {
-    const devices = [
-      { ...device, id: "older", name: "Older exhaust", lastSeen: "1h ago" },
-      { ...device, id: "recent", name: "Recent exhaust", lastSeen: "2 min ago" },
-      { ...device, id: "never", name: "Never seen exhaust", lastSeen: "Never" },
-      { ...device, id: "current", name: "Current exhaust", lastSeen: "Just now" },
-    ];
-    const deviceNames = devices.map((infraDevice) => infraDevice.name);
-
-    render(<InfraDeviceList devices={devices} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "Last seen" }));
-    expect(getDeviceNameOrder(deviceNames)).toEqual([
-      "Current exhaust",
-      "Recent exhaust",
-      "Older exhaust",
-      "Never seen exhaust",
-    ]);
-
-    fireEvent.click(screen.getByRole("button", { name: "Last seen" }));
-    expect(getDeviceNameOrder(deviceNames)).toEqual([
-      "Never seen exhaust",
-      "Older exhaust",
-      "Recent exhaust",
-      "Current exhaust",
-    ]);
   });
 });

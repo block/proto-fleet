@@ -21,9 +21,9 @@ const findDevice = (id: string): InfraDeviceItem => {
   return device;
 };
 
-export const Online = () => {
+export const Editable = () => {
   const [open, setOpen] = useState(true);
-  const device = findDevice("aus-b1-plc-01-zone-a");
+  const device = findDevice("101");
   return (
     <>
       <Button variant={variants.primary} text="Open Modal" onClick={() => setOpen(true)} />
@@ -32,8 +32,8 @@ export const Online = () => {
           device={device}
           siteOptions={siteOptions}
           buildingOptions={buildingOptions}
-          onSave={() => setOpen(false)}
-          onDelete={() => setOpen(false)}
+          onSave={async () => setOpen(false)}
+          onDelete={async () => setOpen(false)}
           onDismiss={() => setOpen(false)}
         />
       ) : null}
@@ -41,9 +41,9 @@ export const Online = () => {
   );
 };
 
-export const Offline = () => {
+export const RedactedConnection = () => {
   const [open, setOpen] = useState(true);
-  const device = findDevice("aus-b1-plc-01-zone-b");
+  const device = findDevice("108");
   return (
     <>
       <Button variant={variants.primary} text="Open Modal" onClick={() => setOpen(true)} />
@@ -52,8 +52,9 @@ export const Offline = () => {
           device={device}
           siteOptions={siteOptions}
           buildingOptions={buildingOptions}
-          onSave={() => setOpen(false)}
-          onDelete={() => setOpen(false)}
+          canManage={false}
+          onSave={async () => setOpen(false)}
+          onDelete={async () => setOpen(false)}
           onDismiss={() => setOpen(false)}
         />
       ) : null}

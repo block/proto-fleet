@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 
 import { useBuildings } from "@/protoFleet/api/buildings";
 import type { BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
+import useInfrastructureDevices from "@/protoFleet/api/useInfrastructureDevices";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { useOptionalFleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout/outletContext";
 import InfraDeviceList from "@/protoFleet/features/infrastructure/components/InfraDeviceList";
@@ -11,18 +12,18 @@ import {
   uniqueInfraBuildingOptions,
   uniqueSortedLocationNames,
 } from "@/protoFleet/features/infrastructure/locationOptions";
-import type { InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
+import type { InfraDeviceDraft, InfraDeviceItem, InfraDeviceUpdate } from "@/protoFleet/features/infrastructure/types";
 import { useHasPermission } from "@/protoFleet/store";
 
-const EMPTY_DEVICES: InfraDeviceItem[] = [];
-
 interface FleetInfraPageProps {
+  // Test/story override: when provided, the API hook is disabled and
+  // the given devices render with no-op mutations.
   devices?: InfraDeviceItem[];
   canRead?: boolean;
   canManage?: boolean;
 }
 
-const FleetInfraPage = ({ devices = EMPTY_DEVICES, canRead, canManage }: FleetInfraPageProps) => {
+const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetInfraPageProps) => {
   const canReadSites = useHasPermission("site:read");
   const canManageSites = useHasPermission("site:manage");
   const fleetContext = useOptionalFleetOutletContext();
@@ -31,6 +32,18 @@ const FleetInfraPage = ({ devices = EMPTY_DEVICES, canRead, canManage }: FleetIn
   const canReadInfrastructure = canRead ?? canReadSites;
   const canManageInfrastructure = canManage ?? canManageSites;
   const sites = fleetContext?.sites;
+  const hasDevicesOverride = devicesOverride !== undefined;
+  const {
+    devices: apiDevices,
+    isLoading,
+    loadError,
+    updatingDeviceIds,
+    listDevices,
+    createDevice,
+    updateDevice,
+    setDeviceEnabled,
+    deleteDevice,
+  } = useInfrastructureDevices(canReadInfrastructure && !hasDevicesOverride);
   // Validate scope against catalog access (authoritative now), not sitesLoaded:
   // a mid-session PermissionDenied clears `sites` to [] with sitesLoaded still
   // true, which would otherwise strip a reachable scoped route.
@@ -54,6 +67,14 @@ const FleetInfraPage = ({ devices = EMPTY_DEVICES, canRead, canManage }: FleetIn
     }
     return next;
   }, [sites]);
+  // The add/edit forms select sites by catalog name; the API needs IDs.
+  const siteIdByName = useMemo(() => {
+    const next = new Map<string, string>();
+    for (const [siteId, siteName] of siteNameById) {
+      next.set(siteName, siteId);
+    }
+    return next;
+  }, [siteNameById]);
   const selectedSiteName = useMemo(
     () => (activeSite.kind === "site" ? siteNameById.get(activeSite.id) : undefined),
     [activeSite, siteNameById],
@@ -86,17 +107,90 @@ const FleetInfraPage = ({ devices = EMPTY_DEVICES, canRead, canManage }: FleetIn
     return () => controller.abort();
   }, [canReadInfrastructure, listAllBuildings]);
 
+  const resolveSiteId = useCallback(
+    (siteName: string): string => {
+      const siteId = siteIdByName.get(siteName);
+      if (!siteId) {
+        throw new Error("Select a site from the catalog.");
+      }
+      return siteId;
+    },
+    [siteIdByName],
+  );
+
+  const handleCreateDevice = useCallback(
+    async (draft: InfraDeviceDraft) => {
+      await createDevice({
+        siteId: resolveSiteId(draft.siteName),
+        buildingName: draft.buildingName,
+        name: draft.name,
+        deviceKind: draft.deviceKind,
+        fanCount: draft.fanCount,
+        driverType: draft.driverType,
+        driverConfig: draft.driverConfig,
+      });
+    },
+    [createDevice, resolveSiteId],
+  );
+
+  const handleUpdateDevice = useCallback(
+    async (update: InfraDeviceUpdate) => {
+      await updateDevice({
+        id: update.id,
+        siteId: resolveSiteId(update.siteName),
+        buildingName: update.buildingName,
+        name: update.name,
+        deviceKind: update.deviceKind,
+        fanCount: update.fanCount,
+        enabled: update.enabled,
+        driverType: update.driverType,
+        driverConfig: update.driverConfig,
+      });
+    },
+    [resolveSiteId, updateDevice],
+  );
+
+  const handleSetDeviceEnabled = useCallback(
+    async (device: InfraDeviceItem, enabled: boolean) => {
+      await setDeviceEnabled(device, enabled);
+    },
+    [setDeviceEnabled],
+  );
+
+  const handleDeleteDevice = useCallback(
+    async (deviceId: string) => {
+      await deleteDevice(deviceId);
+    },
+    [deleteDevice],
+  );
+
+  const handleRetry = useCallback(() => {
+    void listDevices().catch(() => {});
+  }, [listDevices]);
+
   if (!canReadInfrastructure) {
     return <Navigate to="/fleet" replace />;
   }
 
   return (
     <InfraDeviceList
-      devices={devices}
+      devices={devicesOverride ?? apiDevices}
+      isLoading={hasDevicesOverride ? false : isLoading}
+      loadError={hasDevicesOverride ? null : loadError}
+      onRetry={handleRetry}
       canManage={canManageInfrastructure}
       siteOptions={catalogSiteOptions}
       buildingOptions={catalogBuildingOptions}
       initialSiteName={selectedSiteName}
+      updatingDeviceIds={updatingDeviceIds}
+      {...(hasDevicesOverride
+        ? {}
+        : {
+            onCreateDevice: handleCreateDevice,
+            onUpdateDevice: handleUpdateDevice,
+            onDeleteDevice: handleDeleteDevice,
+            onSetDeviceEnabled: handleSetDeviceEnabled,
+          })}
     />
   );
 };

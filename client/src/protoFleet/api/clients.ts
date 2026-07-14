@@ -16,6 +16,7 @@ import { DeviceSetService } from "@/protoFleet/api/generated/device_set/v1/devic
 import { ErrorQueryService } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { FleetManagementService } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { ForemanImportService } from "@/protoFleet/api/generated/foremanimport/v1/foremanimport_pb";
+import { InfrastructureService } from "@/protoFleet/api/generated/infrastructure/v1/infrastructure_pb";
 import { MinerCommandService } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { NetworkInfoService } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
 import { OnboardingService } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
@@ -43,6 +44,7 @@ const serverLogClient = createClient(ServerLogService, transport);
 const deviceSetClient = createClient(DeviceSetService, transport);
 const telemetryClient = createClient(TelemetryService, transport);
 const foremanImportClient = createClient(ForemanImportService, transport);
+const infrastructureClient = createClient(InfrastructureService, transport);
 const sitesClient = createClient(SiteService, transport);
 const buildingsClient = createClient(BuildingService, transport);
 const alertChannelClient = createClient(AlertChannelService, transport);
@@ -66,6 +68,7 @@ export {
   networkInfoClient,
   pairingClient,
   fleetManagementClient,
+  infrastructureClient,
   onboardingClient,
   minerCommandClient,
   poolsClient,

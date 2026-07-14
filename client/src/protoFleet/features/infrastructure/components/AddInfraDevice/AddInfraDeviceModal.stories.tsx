@@ -22,7 +22,7 @@ export const Default = () => {
             { siteName: "Denver", buildingName: "Denver Plant" },
           ]}
           onDismiss={() => setOpen(false)}
-          onSuccess={() => setOpen(false)}
+          onSubmit={async () => setOpen(false)}
         />
       ) : null}
     </>

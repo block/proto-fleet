@@ -11,11 +11,16 @@ import { useHasPermission } from "@/protoFleet/store";
 
 const listAllBuildingsMock = vi.hoisted(() => vi.fn());
 const useActiveSiteMock = vi.hoisted(() => vi.fn());
+const useInfrastructureDevicesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/protoFleet/api/buildings", () => ({
   useBuildings: () => ({
     listAllBuildings: listAllBuildingsMock,
   }),
+}));
+
+vi.mock("@/protoFleet/api/useInfrastructureDevices", () => ({
+  default: useInfrastructureDevicesMock,
 }));
 
 vi.mock("@/protoFleet/components/PageHeader/SitePicker", () => ({
@@ -27,19 +32,22 @@ vi.mock("@/protoFleet/store", () => ({
 }));
 
 const device: InfraDeviceItem = {
-  id: "aus-b1-roof-exhaust",
-  unitId: 17,
-  name: "Roof exhaust",
-  buildingName: "Building 1",
+  id: "101",
+  siteId: "8",
   siteName: "Austin",
-  connectionType: "modbus_tcp",
-  endpoint: "10.12.1.21",
-  port: 502,
-  status: "offline",
-  enabled: "auto",
-  lastSeen: "Never",
-  endpointKind: "fan_group",
+  buildingName: "Building 1",
+  name: "Roof exhaust",
+  deviceKind: "fan_group",
   fanCount: 12,
+  enabled: true,
+  driverType: "modbus_tcp",
+  driverConfig: JSON.stringify({
+    endpoint: "10.12.1.21",
+    port: 502,
+    unit_id: 17,
+    register_address: 2001,
+    write_mode: "coil",
+  }),
 };
 
 const fleetContext = {
@@ -52,6 +60,19 @@ const fleetContext = {
   minersChangedAt: 0,
   publishViewFilterContext: vi.fn(),
 } as unknown as FleetOutletContext;
+
+const buildHookResult = (overrides: Record<string, unknown> = {}) => ({
+  devices: [],
+  isLoading: false,
+  loadError: null,
+  updatingDeviceIds: new Set<string>(),
+  listDevices: vi.fn(),
+  createDevice: vi.fn(),
+  updateDevice: vi.fn(),
+  setDeviceEnabled: vi.fn(),
+  deleteDevice: vi.fn(),
+  ...overrides,
+});
 
 const renderPage = (props?: ComponentProps<typeof FleetInfraPage>, outletContext?: FleetOutletContext) =>
   render(
@@ -73,6 +94,8 @@ describe("FleetInfraPage", () => {
       setActiveSite: vi.fn(),
     });
     listAllBuildingsMock.mockReset();
+    useInfrastructureDevicesMock.mockReset();
+    useInfrastructureDevicesMock.mockReturnValue(buildHookResult());
   });
 
   test("uses site permissions for default read and management access", () => {
@@ -103,6 +126,25 @@ describe("FleetInfraPage", () => {
 
     expect(screen.getByTestId("fleet-redirect")).toBeInTheDocument();
     expect(screen.queryByText("Roof exhaust")).not.toBeInTheDocument();
+  });
+
+  test("renders API-backed devices when no override is provided", () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+    useInfrastructureDevicesMock.mockReturnValue(buildHookResult({ devices: [device] }));
+
+    renderPage({ devices: undefined }, fleetContext);
+
+    expect(useInfrastructureDevicesMock).toHaveBeenCalledWith(true);
+    expect(screen.getByText("Roof exhaust")).toBeInTheDocument();
+  });
+
+  test("disables the API hook when a devices override is provided", () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+
+    renderPage();
+
+    expect(useInfrastructureDevicesMock).toHaveBeenCalledWith(false);
+    expect(screen.getByText("Roof exhaust")).toBeInTheDocument();
   });
 
   test("preselects the active site when opening the add device modal", async () => {

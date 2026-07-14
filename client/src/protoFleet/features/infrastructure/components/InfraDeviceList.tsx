@@ -4,8 +4,11 @@ import clsx from "clsx";
 import AddInfraDeviceModal from "./AddInfraDevice/AddInfraDeviceModal";
 import InfraDeviceDetailModal from "./InfraDeviceDetail/InfraDeviceDetailModal";
 import ManageColumnsModal, { type InfraColumnPreference } from "./ManageColumnsModal";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import RowActionsMenu, { type RowAction } from "@/protoFleet/features/fleetManagement/components/RowActionsMenu";
+import { formatDeviceType } from "@/protoFleet/features/infrastructure/deviceType";
+import { summarizeDriverConfig } from "@/protoFleet/features/infrastructure/driverForms";
 import {
   infraBuildingOptionsFromDevices,
   uniqueSortedLocationNames,
@@ -14,83 +17,44 @@ import type {
   InfraBuildingOption,
   InfraDeviceDraft,
   InfraDeviceItem,
+  InfraDeviceUpdate,
 } from "@/protoFleet/features/infrastructure/types";
-import { Alert, ChevronDown, Plus, Slider } from "@/shared/assets/icons";
+import { ChevronDown, Plus, Slider } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import type { ActiveFilters, FilterItem, NestedFilterDropdownItem } from "@/shared/components/List/Filters/types";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import { SORT_ASC, type SortDirection } from "@/shared/components/List/types";
-import StatusCircle from "@/shared/components/StatusCircle";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import Switch from "@/shared/components/Switch";
+import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 const infraCols = {
   name: "name",
-  id: "id",
-  endpoint: "endpoint",
-  port: "port",
   site: "site",
   building: "building",
   type: "type",
   enabled: "enabled",
-  status: "status",
-  lastSeen: "lastSeen",
+  connection: "connection",
 } as const;
 
 type InfraColumn = (typeof infraCols)[keyof typeof infraCols];
 
 const infraColTitles: ColTitles<InfraColumn> = {
   name: "Name",
-  id: "Unit ID",
-  endpoint: "Endpoint",
-  port: "Port",
   site: "Site",
   building: "Building",
   type: "Target type",
   enabled: "Enabled",
-  status: "Status",
-  lastSeen: "Last seen",
+  connection: "Connection",
 };
 
-const DEFAULT_VISIBLE: InfraColumn[] = [
-  "name",
-  "status",
-  "lastSeen",
-  "site",
-  "building",
-  "type",
-  "enabled",
-  "endpoint",
-  "port",
-  "id",
-];
-const CONFIGURABLE_COLS: InfraColumn[] = [
-  "status",
-  "lastSeen",
-  "site",
-  "building",
-  "type",
-  "enabled",
-  "endpoint",
-  "port",
-  "id",
-];
-
-const SORT_FIELD_TO_DEVICE_KEY: Partial<Record<InfraColumn, keyof InfraDeviceItem>> = {
-  name: "name",
-  id: "unitId",
-  site: "siteName",
-  building: "buildingName",
-  endpoint: "endpoint",
-  port: "port",
-  status: "status",
-  enabled: "enabled",
-};
-
-const STATUS_OPTIONS = [
-  { id: "online", label: "Online" },
-  { id: "offline", label: "Offline" },
-];
+// Status and Last-seen columns (and their filters and offline styling)
+// are deliberately absent until v2 status read-back gives them a data
+// source; v1 has none, so every device would render permanently
+// offline with error styling.
+const DEFAULT_VISIBLE: InfraColumn[] = ["name", "site", "building", "type", "enabled", "connection"];
+const CONFIGURABLE_COLS: InfraColumn[] = ["site", "building", "type", "enabled", "connection"];
 
 const ENABLED_OPTIONS = [
   { id: "auto", label: "Auto/on" },
@@ -102,84 +66,23 @@ const TYPE_OPTIONS = [
   { id: "fan_group", label: "Fan group" },
 ];
 
-const statusToCircle = (status: string) => {
-  switch (status) {
-    case "online":
-      return "normal" as const;
-    case "offline":
-      return "error" as const;
-    default:
-      return "inactive" as const;
-  }
-};
-
-const formatStatus = (status: string) => (status === "online" ? "Online" : "Offline");
-
-const LAST_SEEN_UNIT_MS: Record<string, number> = {
-  s: 1000,
-  sec: 1000,
-  secs: 1000,
-  second: 1000,
-  seconds: 1000,
-  m: 60 * 1000,
-  min: 60 * 1000,
-  mins: 60 * 1000,
-  minute: 60 * 1000,
-  minutes: 60 * 1000,
-  h: 60 * 60 * 1000,
-  hr: 60 * 60 * 1000,
-  hrs: 60 * 60 * 1000,
-  hour: 60 * 60 * 1000,
-  hours: 60 * 60 * 1000,
-  d: 24 * 60 * 60 * 1000,
-  day: 24 * 60 * 60 * 1000,
-  days: 24 * 60 * 60 * 1000,
-  w: 7 * 24 * 60 * 60 * 1000,
-  week: 7 * 24 * 60 * 60 * 1000,
-  weeks: 7 * 24 * 60 * 60 * 1000,
-};
-
-const getLastSeenSortValue = (lastSeen: string) => {
-  const normalized = lastSeen.trim().toLowerCase();
-  if (!normalized || normalized === "never") return Number.POSITIVE_INFINITY;
-  if (normalized === "just now") return 0;
-
-  const relativeMatch = normalized.match(/^(\d+(?:\.\d+)?)\s*([a-z]+)\s+ago$/);
-  if (relativeMatch) {
-    const amount = Number(relativeMatch[1]);
-    const unitMs = LAST_SEEN_UNIT_MS[relativeMatch[2]];
-    if (Number.isFinite(amount) && unitMs) return amount * unitMs;
-  }
-
-  const timestamp = Date.parse(lastSeen);
-  if (!Number.isNaN(timestamp)) return Math.max(Date.now() - timestamp, 0);
-
-  return Number.POSITIVE_INFINITY;
-};
-
-const getDeviceType = (device: InfraDeviceItem) => {
-  if (device.endpointKind) return device.endpointKind;
-  if (device.fanCount === 1) return "single_fan";
-  if (device.fanCount && device.fanCount > 1) return "fan_group";
-  return null;
-};
-
-const formatDeviceType = (device: InfraDeviceItem) => {
-  const type = getDeviceType(device);
-  if (type === "single_fan") return "Fan";
-  if (device.fanCount && device.fanCount > 1) return `Fan group (${device.fanCount} fans)`;
-  if (type === "fan_group") return "Fan group";
-  return "";
-};
-
-const formatUnitId = (device: InfraDeviceItem) => String(device.unitId);
+const getConnectionSummary = (device: InfraDeviceItem) => summarizeDriverConfig(device.driverType, device.driverConfig);
 
 const getSortValue = (device: InfraDeviceItem, field: InfraColumn) => {
-  if (field === "lastSeen") return getLastSeenSortValue(device.lastSeen);
-  if (field === "type") return formatDeviceType(device);
-
-  const key = SORT_FIELD_TO_DEVICE_KEY[field];
-  return key ? device[key] : "";
+  switch (field) {
+    case "name":
+      return device.name;
+    case "site":
+      return device.siteName;
+    case "building":
+      return device.buildingName;
+    case "type":
+      return formatDeviceType(device);
+    case "enabled":
+      return device.enabled ? 0 : 1;
+    case "connection":
+      return getConnectionSummary(device) ?? "";
+  }
 };
 
 const SORTABLE_COLS = new Set<InfraColumn>(Object.values(infraCols));
@@ -189,10 +92,11 @@ const getDefaultSortDirection = (_column: InfraColumn): SortDirection => SORT_AS
 const firstColumnPadding = { phone: "16px", tablet: "16px", laptop: "16px", desktop: "16px" };
 const fleetChromePadding = { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" };
 const infraItemName = { singular: "device", plural: "devices" };
-const columnsExemptFromDisabledStyling = new Set<InfraColumn>([infraCols.name, infraCols.status, infraCols.enabled]);
+const columnsExemptFromDisabledStyling = new Set<InfraColumn>([infraCols.name, infraCols.enabled]);
 
 const PAGE_SIZE = 50;
 const EMPTY_DEVICES: InfraDeviceItem[] = [];
+const EMPTY_UPDATING_IDS: ReadonlySet<string> = new Set();
 const EMPTY_ACTIVE_FILTERS: ActiveFilters = {
   buttonFilters: [],
   dropdownFilters: {},
@@ -200,12 +104,22 @@ const EMPTY_ACTIVE_FILTERS: ActiveFilters = {
   textareaListFilters: {},
 };
 
+const noopSubmit = async () => {};
+
 interface InfraDeviceListProps {
   devices?: InfraDeviceItem[];
+  isLoading?: boolean;
+  loadError?: string | null;
+  onRetry?: () => void;
   canManage?: boolean;
   siteOptions?: string[];
   buildingOptions?: InfraBuildingOption[];
   initialSiteName?: string;
+  updatingDeviceIds?: ReadonlySet<string>;
+  onCreateDevice?: (draft: InfraDeviceDraft) => Promise<void>;
+  onUpdateDevice?: (update: InfraDeviceUpdate) => Promise<void>;
+  onDeleteDevice?: (deviceId: string) => Promise<void>;
+  onSetDeviceEnabled?: (device: InfraDeviceItem, enabled: boolean) => Promise<void>;
 }
 
 const buildDefaultColumnPrefs = () =>
@@ -217,36 +131,21 @@ const hasAnyActiveFilters = (filters: ActiveFilters) =>
   Object.keys(filters.numericFilters).length > 0 ||
   Object.values(filters.textareaListFilters).some((values) => values.length > 0);
 
-const slugify = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-const buildDeviceId = (draft: InfraDeviceDraft, devices: InfraDeviceItem[]) => {
-  const existingIds = new Set(devices.map((device) => device.id));
-  const baseId = slugify(`${draft.siteName}-${draft.buildingName}-${draft.name}`) || "infrastructure-device";
-  let id = baseId;
-  let suffix = 2;
-
-  while (existingIds.has(id)) {
-    id = `${baseId}-${suffix}`;
-    suffix += 1;
-  }
-
-  return id;
-};
-
 const InfraDeviceList = ({
   devices = EMPTY_DEVICES,
+  isLoading = false,
+  loadError = null,
+  onRetry,
   canManage = true,
   siteOptions,
   buildingOptions,
   initialSiteName,
+  updatingDeviceIds = EMPTY_UPDATING_IDS,
+  onCreateDevice = noopSubmit,
+  onUpdateDevice = noopSubmit,
+  onDeleteDevice = noopSubmit,
+  onSetDeviceEnabled = noopSubmit,
 }: InfraDeviceListProps) => {
-  const [devicesPropSnapshot, setDevicesPropSnapshot] = useState(devices);
-  const [localDevices, setLocalDevices] = useState<InfraDeviceItem[]>(() => devices);
   const [detailDeviceId, setDetailDeviceId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showManageColumns, setShowManageColumns] = useState(false);
@@ -259,66 +158,57 @@ const InfraDeviceList = ({
   const defaultColumnPrefs = useMemo(() => buildDefaultColumnPrefs(), []);
   const [columnPrefs, setColumnPrefs] = useState<InfraColumnPreference[]>(() => buildDefaultColumnPrefs());
 
-  if (devices !== devicesPropSnapshot) {
-    const deviceIds = new Set(devices.map((device) => device.id));
-    setDevicesPropSnapshot(devices);
-    setLocalDevices(devices);
-    if (detailDeviceId && !deviceIds.has(detailDeviceId)) {
-      setDetailDeviceId(null);
-    }
-    setCurrentPage(0);
-  }
-
   const detailDevice = useMemo(
-    () => localDevices.find((device) => device.id === detailDeviceId) ?? null,
-    [localDevices, detailDeviceId],
+    () => devices.find((device) => device.id === detailDeviceId) ?? null,
+    [devices, detailDeviceId],
   );
   const fallbackSiteOptions = useMemo(
-    () => uniqueSortedLocationNames(localDevices.map((device) => device.siteName)),
-    [localDevices],
+    () => uniqueSortedLocationNames(devices.map((device) => device.siteName)),
+    [devices],
   );
-  const fallbackBuildingOptions = useMemo(() => infraBuildingOptionsFromDevices(localDevices), [localDevices]);
+  const fallbackBuildingOptions = useMemo(() => infraBuildingOptionsFromDevices(devices), [devices]);
   const resolvedSiteOptions = siteOptions ?? fallbackSiteOptions;
   const resolvedBuildingOptions = buildingOptions ?? fallbackBuildingOptions;
 
-  const updateDevice = useCallback((updated: InfraDeviceItem) => {
-    setLocalDevices((prev) => prev.map((device) => (device.id === updated.id ? updated : device)));
-  }, []);
+  const handleCreateDevice = useCallback(
+    async (draft: InfraDeviceDraft) => {
+      await onCreateDevice(draft);
+      setShowAddModal(false);
+      setCurrentPage(0);
+    },
+    [onCreateDevice],
+  );
 
-  const deleteDevices = useCallback((deviceIds: string[]) => {
-    const ids = new Set(deviceIds);
-    setLocalDevices((prev) => prev.filter((device) => !ids.has(device.id)));
-    setDetailDeviceId((id) => (id && ids.has(id) ? null : id));
-    setCurrentPage(0);
-  }, []);
+  const handleDeleteFromRow = useCallback(
+    (deviceId: string) => {
+      onDeleteDevice(deviceId).catch((error: unknown) => {
+        pushToast({
+          message: getErrorMessage(error, "Failed to delete infrastructure device."),
+          status: STATUSES.error,
+        });
+      });
+    },
+    [onDeleteDevice],
+  );
 
-  const setEnabledMode = useCallback((deviceId: string, enabled: boolean) => {
-    setLocalDevices((prev) =>
-      prev.map((device) => (device.id === deviceId ? { ...device, enabled: enabled ? "auto" : "off" } : device)),
-    );
-  }, []);
-
-  const addDevice = useCallback((draft: InfraDeviceDraft) => {
-    setLocalDevices((prev) => [
-      {
-        ...draft,
-        id: buildDeviceId(draft, prev),
-        status: "offline",
-        enabled: "auto",
-        lastSeen: "Never",
-      },
-      ...prev,
-    ]);
-    setShowAddModal(false);
-    setCurrentPage(0);
-  }, []);
+  const handleSetEnabled = useCallback(
+    (device: InfraDeviceItem, enabled: boolean) => {
+      onSetDeviceEnabled(device, enabled).catch((error: unknown) => {
+        pushToast({
+          message: getErrorMessage(error, "Failed to update infrastructure device."),
+          status: STATUSES.error,
+        });
+      });
+    },
+    [onSetDeviceEnabled],
+  );
 
   const getRowActions = useCallback(
     (device: InfraDeviceItem): RowAction[] => [
       { label: canManage ? "Edit" : "View details", onClick: () => setDetailDeviceId(device.id) },
-      ...(canManage ? [{ label: "Delete", onClick: () => deleteDevices([device.id]) }] : []),
+      ...(canManage ? [{ label: "Delete", onClick: () => handleDeleteFromRow(device.id) }] : []),
     ],
-    [canManage, deleteDevices],
+    [canManage, handleDeleteFromRow],
   );
 
   const allActiveCols: InfraColumn[] = useMemo(
@@ -339,19 +229,10 @@ const InfraDeviceList = ({
             >
               <span className="block truncate">{device.name}</span>
             </button>
-            <div className="flex items-center gap-2">
-              {device.status === "offline" ? (
-                <Alert width="w-4" className="shrink-0 text-intent-critical-fill" />
-              ) : null}
-              <RowActionsMenu actions={getRowActions(device)} ariaLabel={`Actions for ${device.name}`} />
-            </div>
+            <RowActionsMenu actions={getRowActions(device)} ariaLabel={`Actions for ${device.name}`} />
           </div>
         ),
         width: "w-[260px]",
-      },
-      [infraCols.id]: {
-        component: (device) => <span className="text-300 text-text-primary">{formatUnitId(device)}</span>,
-        width: "w-[180px]",
       },
       [infraCols.type]: {
         component: (device) => <span className="text-300">{formatDeviceType(device)}</span>,
@@ -365,26 +246,16 @@ const InfraDeviceList = ({
         component: (device) => <span className="text-300">{device.buildingName}</span>,
         width: "w-[148px]",
       },
-      [infraCols.endpoint]: {
-        component: (device) => <span className="text-300 text-text-primary">{device.endpoint}</span>,
-        width: "w-[120px]",
-      },
-      [infraCols.port]: {
-        component: (device) => <span className="text-300 text-text-primary">{device.port}</span>,
-        width: "w-[120px]",
-      },
-      [infraCols.lastSeen]: {
-        component: (device) => <span className="text-300 text-text-primary">{device.lastSeen}</span>,
-        width: "w-[120px]",
-      },
-      [infraCols.status]: {
-        component: (device) => (
-          <div className="flex items-center gap-2">
-            <StatusCircle status={statusToCircle(device.status)} variant="simple" width="w-[6px]" />
-            <span>{formatStatus(device.status)}</span>
-          </div>
-        ),
-        width: "w-[132px]",
+      [infraCols.connection]: {
+        component: (device) => {
+          const summary = getConnectionSummary(device);
+          return (
+            <span className="text-300 text-text-primary" title={summary ?? undefined}>
+              {summary ?? "—"}
+            </span>
+          );
+        },
+        width: "w-[280px]",
       },
       [infraCols.enabled]: {
         component: (device) => {
@@ -392,11 +263,11 @@ const InfraDeviceList = ({
             <div data-no-row-click>
               <Switch
                 ariaLabel={`Enabled for ${device.name}`}
-                checked={device.enabled === "auto"}
-                disabled={!canManage}
+                checked={device.enabled}
+                disabled={!canManage || updatingDeviceIds.has(device.id)}
                 setChecked={(next) => {
-                  const checked = typeof next === "function" ? next(device.enabled === "auto") : next;
-                  setEnabledMode(device.id, checked);
+                  const checked = typeof next === "function" ? next(device.enabled) : next;
+                  handleSetEnabled(device, checked);
                 }}
               />
             </div>
@@ -405,7 +276,7 @@ const InfraDeviceList = ({
         width: "w-[88px]",
       },
     }),
-    [canManage, getRowActions, setEnabledMode],
+    [canManage, getRowActions, handleSetEnabled, updatingDeviceIds],
   );
 
   const filters: FilterItem[] = useMemo(
@@ -420,14 +291,14 @@ const InfraDeviceList = ({
             type: "dropdown",
             title: "Site",
             value: "site",
-            options: [...new Set(localDevices.map((d) => d.siteName))].sort().map((s) => ({ id: s, label: s })),
+            options: [...new Set(devices.map((d) => d.siteName))].sort().map((s) => ({ id: s, label: s })),
             defaultOptionIds: [],
           },
           {
             type: "dropdown",
             title: "Building",
             value: "building",
-            options: [...new Set(localDevices.map((d) => d.buildingName))].sort().map((b) => ({ id: b, label: b })),
+            options: [...new Set(devices.map((d) => d.buildingName))].sort().map((b) => ({ id: b, label: b })),
             defaultOptionIds: [],
           },
           {
@@ -444,28 +315,17 @@ const InfraDeviceList = ({
             options: ENABLED_OPTIONS,
             defaultOptionIds: [],
           },
-          {
-            type: "dropdown",
-            title: "Status",
-            pluralTitle: "Statuses",
-            value: "status",
-            options: STATUS_OPTIONS,
-            defaultOptionIds: [],
-          },
         ],
       } satisfies NestedFilterDropdownItem,
     ],
-    [localDevices],
+    [devices],
   );
 
   const filterDevice = useCallback((_device: InfraDeviceItem, _filters: ActiveFilters) => {
-    const statusF = _filters.dropdownFilters["status"];
-    if (statusF?.length && !statusF.includes(_device.status)) return false;
     const enabledF = _filters.dropdownFilters["enabled"];
-    if (enabledF?.length && !enabledF.includes(_device.enabled)) return false;
+    if (enabledF?.length && !enabledF.includes(_device.enabled ? "auto" : "off")) return false;
     const typeF = _filters.dropdownFilters["type"];
-    const deviceType = getDeviceType(_device);
-    if (typeF?.length && (!deviceType || !typeF.includes(deviceType))) return false;
+    if (typeF?.length && !typeF.includes(_device.deviceKind)) return false;
     const buildingF = _filters.dropdownFilters["building"];
     if (buildingF?.length && !buildingF.includes(_device.buildingName)) return false;
     const siteF = _filters.dropdownFilters["site"];
@@ -474,19 +334,16 @@ const InfraDeviceList = ({
   }, []);
 
   const sortedDevices = useMemo(() => {
-    return [...localDevices].sort((a, b) => {
+    return [...devices].sort((a, b) => {
       const aVal = getSortValue(a, currentSort.field);
       const bVal = getSortValue(b, currentSort.field);
-      if (aVal == null && bVal == null) return 0;
-      if (aVal == null) return 1;
-      if (bVal == null) return -1;
       const cmp =
         typeof aVal === "number" && typeof bVal === "number"
           ? aVal - bVal
           : String(aVal).localeCompare(String(bVal), undefined, { numeric: true });
       return currentSort.direction === SORT_ASC ? cmp : -cmp;
     });
-  }, [localDevices, currentSort]);
+  }, [devices, currentSort]);
 
   const handleSort = useCallback((field: InfraColumn, direction: SortDirection) => {
     setCurrentSort({ field, direction });
@@ -521,6 +378,31 @@ const InfraDeviceList = ({
   const firstItemIndex = currentPageIndex * PAGE_SIZE + 1;
   const lastItemIndex = Math.min((currentPageIndex + 1) * PAGE_SIZE, totalDevices);
   const shouldRenderPagination = totalDevices > PAGE_SIZE;
+
+  if (loadError) {
+    return (
+      <div
+        className="flex min-h-[220px] flex-col items-center justify-center gap-4 py-14"
+        data-testid="infra-devices-load-error"
+      >
+        <div className="flex flex-col items-center gap-1">
+          <span className="text-emphasis-300 text-text-primary">Unable to load infrastructure devices</span>
+          <span className="text-300 text-text-primary-70">{loadError}</span>
+        </div>
+        {onRetry ? (
+          <Button text="Retry" variant={variants.secondary} size={buttonSizes.compact} onClick={onRetry} />
+        ) : null}
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-[220px] w-full items-center justify-center py-14">
+        <ProgressCircular indeterminate dataTestId="infra-devices-loading" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col">
@@ -613,8 +495,8 @@ const InfraDeviceList = ({
           siteOptions={resolvedSiteOptions}
           buildingOptions={resolvedBuildingOptions}
           canManage={canManage}
-          onSave={updateDevice}
-          onDelete={(deviceId) => deleteDevices([deviceId])}
+          onSave={onUpdateDevice}
+          onDelete={onDeleteDevice}
           onDismiss={() => setDetailDeviceId(null)}
         />
       ) : null}
@@ -625,7 +507,7 @@ const InfraDeviceList = ({
           buildingOptions={resolvedBuildingOptions}
           initialSiteName={initialSiteName}
           onDismiss={() => setShowAddModal(false)}
-          onSuccess={addDevice}
+          onSubmit={handleCreateDevice}
         />
       ) : null}
 

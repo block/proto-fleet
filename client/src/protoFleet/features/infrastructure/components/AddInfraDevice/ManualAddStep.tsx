@@ -2,25 +2,23 @@ import { useCallback, useEffect, useState } from "react";
 
 import InfraLocationFields from "@/protoFleet/features/infrastructure/components/InfraLocationFields";
 import {
-  MODBUS_TCP_CONNECTION_TYPE,
-  MODBUS_TCP_CONNECTION_TYPE_LABEL,
-} from "@/protoFleet/features/infrastructure/connectionTypes";
-import { FieldHelpPopover } from "@/protoFleet/features/infrastructure/fieldHelp";
-import { infraDeviceFieldHelp } from "@/protoFleet/features/infrastructure/fieldHelpContent";
+  DEFAULT_DRIVER_TYPE,
+  type DriverFormValues,
+  driverTypeOptions,
+  getDriverFormModule,
+} from "@/protoFleet/features/infrastructure/driverForms";
 import type {
   InfraBuildingOption,
   InfraDeviceDraft,
-  InfraDeviceEndpointKind,
+  InfraDeviceKind,
 } from "@/protoFleet/features/infrastructure/types";
 import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
 
-const endpointKindOptions: { value: InfraDeviceEndpointKind; label: string }[] = [
+const deviceKindOptions: { value: InfraDeviceKind; label: string }[] = [
   { value: "single_fan", label: "Single fan" },
   { value: "fan_group", label: "Fan group" },
 ];
-const MIN_MODBUS_UNIT_ID = 1;
-const MAX_MODBUS_UNIT_ID = 247;
 
 export interface ManualAddStepState {
   canAdd: boolean;
@@ -43,53 +41,64 @@ const ManualAddStep = ({
   onStateChange,
 }: ManualAddStepProps) => {
   const [name, setName] = useState("");
-  const [unitId, setUnitId] = useState("");
   const [site, setSite] = useState(initialSiteName ?? "");
   const [building, setBuilding] = useState("");
-  const [endpointKind, setEndpointKind] = useState<InfraDeviceEndpointKind>("single_fan");
+  const [deviceKind, setDeviceKind] = useState<InfraDeviceKind>("single_fan");
   const [fanCount, setFanCount] = useState("1");
-  const [endpoint, setEndpoint] = useState("");
-  const [port, setPort] = useState("");
+  const [driverType, setDriverType] = useState(DEFAULT_DRIVER_TYPE);
+  const [driverValues, setDriverValues] = useState<DriverFormValues>(
+    () => getDriverFormModule(DEFAULT_DRIVER_TYPE)?.emptyValues() ?? {},
+  );
 
-  const unitIdValue = unitId.trim();
-  const unitIdNumber = Number(unitIdValue);
-  const portNumber = Number(port);
-  const fanCountNumber = endpointKind === "single_fan" ? 1 : Number(fanCount);
-  const isUnitIdValid =
-    /^\d+$/.test(unitIdValue) &&
-    Number.isSafeInteger(unitIdNumber) &&
-    unitIdNumber >= MIN_MODBUS_UNIT_ID &&
-    unitIdNumber <= MAX_MODBUS_UNIT_ID;
-  const isPortValid = Number.isInteger(portNumber) && portNumber > 0 && portNumber <= 65535;
-  const isFanCountValid = endpointKind === "single_fan" || (Number.isInteger(fanCountNumber) && fanCountNumber > 1);
+  const driverFormModule = getDriverFormModule(driverType);
+  const fanCountNumber = deviceKind === "single_fan" ? 1 : Number(fanCount);
+  const isFanCountValid = deviceKind === "single_fan" || (Number.isInteger(fanCountNumber) && fanCountNumber > 1);
   const isValid =
-    [name, unitIdValue, site, building, endpoint].every((value) => value.trim().length > 0) &&
-    isUnitIdValid &&
-    isPortValid &&
-    isFanCountValid;
+    [name, site, building].every((value) => value.trim().length > 0) &&
+    isFanCountValid &&
+    driverFormModule !== undefined &&
+    driverFormModule.isValid(driverValues);
 
-  const handleEndpointKindChange = useCallback((value: string) => {
-    const nextEndpointKind = value as InfraDeviceEndpointKind;
-    setEndpointKind(nextEndpointKind);
-    if (nextEndpointKind === "single_fan") {
+  const handleDeviceKindChange = useCallback((value: string) => {
+    const nextDeviceKind = value as InfraDeviceKind;
+    setDeviceKind(nextDeviceKind);
+    if (nextDeviceKind === "single_fan") {
       setFanCount("1");
     }
   }, []);
 
+  const handleDriverTypeChange = useCallback((value: string) => {
+    setDriverType(value);
+    setDriverValues(getDriverFormModule(value)?.emptyValues() ?? {});
+  }, []);
+
+  const handleDriverValueChange = useCallback((field: string, value: string) => {
+    setDriverValues((current) => ({ ...current, [field]: value }));
+  }, []);
+
   const handleAdd = useCallback(() => {
-    if (!isValid) return;
+    if (!isValid || !driverFormModule) return;
     onSuccess({
-      unitId: unitIdNumber,
       name: name.trim(),
       siteName: site.trim(),
       buildingName: building.trim(),
-      endpointKind,
+      deviceKind,
       fanCount: fanCountNumber,
-      connectionType: MODBUS_TCP_CONNECTION_TYPE,
-      endpoint: endpoint.trim(),
-      port: portNumber,
+      driverType,
+      driverConfig: driverFormModule.encode(driverValues),
     });
-  }, [building, endpoint, endpointKind, fanCountNumber, isValid, name, onSuccess, portNumber, site, unitIdNumber]);
+  }, [
+    building,
+    deviceKind,
+    driverFormModule,
+    driverType,
+    driverValues,
+    fanCountNumber,
+    isValid,
+    name,
+    onSuccess,
+    site,
+  ]);
 
   useEffect(() => {
     onStateChange({ canAdd: isValid, addHandler: handleAdd });
@@ -108,11 +117,11 @@ const ManualAddStep = ({
       />
       <div className="grid grid-cols-2 gap-3">
         <Select
-          id="manual-endpoint-kind"
+          id="manual-device-kind"
           label="Target type"
-          options={endpointKindOptions}
-          value={endpointKind}
-          onChange={handleEndpointKindChange}
+          options={deviceKindOptions}
+          value={deviceKind}
+          onChange={handleDeviceKindChange}
           forceBelow
         />
         <Input
@@ -121,40 +130,21 @@ const ManualAddStep = ({
           type="number"
           inputMode="numeric"
           initValue={fanCount}
-          readOnly={endpointKind === "single_fan"}
+          readOnly={deviceKind === "single_fan"}
           onChange={(v) => setFanCount(v)}
         />
       </div>
-      <Input
-        id="manual-unit-id"
-        label="Unit ID"
-        type="number"
-        inputMode="numeric"
-        suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.unitId} />}
-        onChange={(v) => setUnitId(v)}
-      />
-      <Input
-        id="manual-connection-type"
+      <Select
+        id="manual-driver-type"
         label="Connection type"
-        initValue={MODBUS_TCP_CONNECTION_TYPE_LABEL}
-        readOnly
+        options={driverTypeOptions}
+        value={driverType}
+        onChange={handleDriverTypeChange}
+        forceBelow
       />
-      <div className="grid grid-cols-2 gap-3">
-        <Input
-          id="manual-endpoint"
-          label="Endpoint"
-          suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.endpoint} />}
-          onChange={(v) => setEndpoint(v)}
-        />
-        <Input
-          id="manual-port"
-          label="Port"
-          type="number"
-          inputMode="numeric"
-          suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.port} />}
-          onChange={(v) => setPort(v)}
-        />
-      </div>
+      {driverFormModule ? (
+        <driverFormModule.FormFields idPrefix="manual" values={driverValues} onChange={handleDriverValueChange} />
+      ) : null}
     </div>
   );
 };
