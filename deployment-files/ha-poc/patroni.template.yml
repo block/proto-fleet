@@ -1,0 +1,75 @@
+scope: ${HA_CLUSTER_NAME}
+namespace: /service/
+name: ${HA_NODE_NAME}
+
+restapi:
+  listen: ${HA_NODE_IP}:8008
+  connect_address: ${HA_NODE_IP}:8008
+
+etcd3:
+  hosts: ${HA_FLEET_A_IP}:2379,${HA_FLEET_B_IP}:2379,${HA_WITNESS_IP}:2379
+
+bootstrap:
+  dcs:
+    ttl: 10
+    loop_wait: 2
+    retry_timeout: 5
+    maximum_lag_on_failover: 1048576
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        hot_standby: "on"
+        max_replication_slots: 10
+        max_wal_senders: 10
+        synchronous_commit: "on"
+        wal_level: replica
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+  pg_hba:
+    - host all all ${HA_FLEET_A_IP}/32 md5
+    - host all all ${HA_FLEET_B_IP}/32 md5
+    - host replication ${HA_REPLICATION_USER} ${HA_FLEET_A_IP}/32 md5
+    - host replication ${HA_REPLICATION_USER} ${HA_FLEET_B_IP}/32 md5
+  users:
+    ${HA_REWIND_USER}:
+      password: ${HA_REWIND_PASSWORD}
+      options:
+        - createrole
+
+postgresql:
+  listen: ${HA_NODE_IP}:5432
+  connect_address: ${HA_NODE_IP}:5432
+  data_dir: /var/lib/postgresql/data
+  bin_dir: /usr/lib/postgresql/17/bin
+  authentication:
+    superuser:
+      username: postgres
+      password: ${HA_POSTGRES_SUPERUSER_PASSWORD}
+    replication:
+      username: ${HA_REPLICATION_USER}
+      password: ${HA_REPLICATION_PASSWORD}
+    rewind:
+      username: ${HA_REWIND_USER}
+      password: ${HA_REWIND_PASSWORD}
+  parameters:
+    hot_standby: "on"
+    max_replication_slots: 10
+    max_wal_senders: 10
+    synchronous_commit: "on"
+    unix_socket_directories: /tmp
+    wal_level: replica
+  pg_hba:
+    - local all all trust
+    - host all all 127.0.0.1/32 md5
+    - host all all ${HA_FLEET_A_IP}/32 md5
+    - host all all ${HA_FLEET_B_IP}/32 md5
+    - host replication ${HA_REPLICATION_USER} ${HA_FLEET_A_IP}/32 md5
+    - host replication ${HA_REPLICATION_USER} ${HA_FLEET_B_IP}/32 md5
+
+tags:
+  nofailover: false
+  noloadbalance: false
+  clonefrom: false
+  nosync: false

@@ -1,0 +1,38 @@
+global_defs {
+  enable_script_security
+  script_user root
+}
+
+vrrp_script chk_fleet_active {
+  script "/usr/local/bin/ha-poc-check-active"
+  interval 1
+  timeout 1
+  fall 2
+  rise 1
+}
+
+vrrp_instance proto_fleet_ha_poc {
+  state BACKUP
+  interface ${HA_VIP_INTERFACE}
+  virtual_router_id ${HA_VIP_ROUTER_ID}
+  priority ${HA_KEEPALIVED_PRIORITY}
+  advert_int 1
+
+  authentication {
+    auth_type PASS
+    auth_pass ${HA_VIP_AUTH_PASS}
+  }
+
+  unicast_src_ip ${HA_NODE_IP}
+  unicast_peer {
+    ${HA_KEEPALIVED_PEER_IP}
+  }
+
+  virtual_ipaddress {
+    ${HA_VIP_CIDR} dev ${HA_VIP_INTERFACE}
+  }
+
+  track_script {
+    chk_fleet_active
+  }
+}

@@ -1,0 +1,64 @@
+services:
+  etcd:
+    image: "${HA_ETCD_IMAGE:-quay.io/coreos/etcd:v3.6.5}"
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - etcd-data:/etcd-data
+    command:
+      - /usr/local/bin/etcd
+      - --name=${HA_NODE_NAME}
+      - --data-dir=/etcd-data
+      - --initial-advertise-peer-urls=http://${HA_NODE_IP}:2380
+      - --listen-peer-urls=http://${HA_NODE_IP}:2380
+      - --advertise-client-urls=http://${HA_NODE_IP}:2379
+      - --listen-client-urls=http://${HA_NODE_IP}:2379,http://127.0.0.1:2379
+      - --initial-cluster=fleet-a=http://${HA_FLEET_A_IP}:2380,fleet-b=http://${HA_FLEET_B_IP}:2380,witness=http://${HA_WITNESS_IP}:2380
+      - --initial-cluster-state=${HA_ETCD_INITIAL_CLUSTER_STATE:-new}
+      - --initial-cluster-token=${HA_CLUSTER_NAME}
+
+  patroni:
+    build:
+      context: ../..
+      dockerfile: deployment-files/ha-poc/patroni.Dockerfile
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - etcd
+    environment:
+      HA_CLUSTER_NAME: "${HA_CLUSTER_NAME}"
+      HA_NODE_NAME: "${HA_NODE_NAME}"
+      HA_NODE_IP: "${HA_NODE_IP}"
+      HA_FLEET_A_IP: "${HA_FLEET_A_IP}"
+      HA_FLEET_B_IP: "${HA_FLEET_B_IP}"
+      HA_WITNESS_IP: "${HA_WITNESS_IP}"
+      HA_POSTGRES_SUPERUSER_PASSWORD: "${HA_POSTGRES_SUPERUSER_PASSWORD}"
+      HA_REPLICATION_USER: "${HA_REPLICATION_USER}"
+      HA_REPLICATION_PASSWORD: "${HA_REPLICATION_PASSWORD}"
+      HA_REWIND_USER: "${HA_REWIND_USER}"
+      HA_REWIND_PASSWORD: "${HA_REWIND_PASSWORD}"
+    volumes:
+      - patroni-data:/var/lib/postgresql/data
+
+  fake-fleet:
+    build:
+      context: ../..
+      dockerfile: deployment-files/ha-poc/fake-fleet.Dockerfile
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - patroni
+    environment:
+      HA_POC_HOST_ID: "${HA_NODE_NAME}"
+      HA_POC_DB_DSN: "${HA_POC_DB_DSN}"
+      HA_POC_HTTP_ADDR: "${HA_POC_HTTP_ADDR:-0.0.0.0:4080}"
+      HA_POC_LEASE_TTL: "${HA_POC_LEASE_TTL:-6s}"
+      HA_POC_RENEW_INTERVAL: "${HA_POC_RENEW_INTERVAL:-2s}"
+      HA_POC_ACQUIRE_INTERVAL: "${HA_POC_ACQUIRE_INTERVAL:-1s}"
+      HA_POC_HEARTBEAT_INTERVAL: "${HA_POC_HEARTBEAT_INTERVAL:-1s}"
+      HA_POC_REQUIRE_MULTI_HOST_DSN: "${HA_POC_REQUIRE_MULTI_HOST_DSN:-true}"
+      HA_POC_STATUS_TOKEN: "${HA_POC_STATUS_TOKEN:-}"
+
+volumes:
+  etcd-data:
+  patroni-data:
