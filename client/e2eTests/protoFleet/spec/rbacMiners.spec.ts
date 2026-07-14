@@ -69,6 +69,10 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     await test.step("Verify single-miner mutating controls stay hidden", async () => {
       await minersPage.clickMinerThreeDotsButton(minerIp);
       await minersPage.validateSingleMinerActionsHidden([
+        "add-to-site-popover-button",
+        "add-to-building-popover-button",
+        "add-to-rack-popover-button",
+        "add-to-group-popover-button",
         "blink-leds-popover-button",
         "reboot-popover-button",
         "shutdown-popover-button",
@@ -486,44 +490,71 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     minersPage,
     page,
   }) => {
+    // eslint-disable-next-line playwright/no-skipped-test
+    test.skip(
+      testConfig.target === "real",
+      "Pair discovery RBAC coverage temporarily unpairs a miner and is only supported against fake targets.",
+    );
+
     let minerIp = "";
 
-    await test.step("Provision a pair-capable miner role", async () => {
-      await provisionMinerRole(browser, commonSteps, {
-        roleDescription: "Pair miners for RBAC coverage.",
-        permissionKeys: [...MINER_READ_PERMISSIONS, "miner:pair", "fleetnode:manage"],
-      });
-    });
-
-    await test.step("Open Proto rig miners and capture an authenticated miner IP", async () => {
+    await test.step("Prepare an unpaired Proto rig", async () => {
+      await commonSteps.loginAsAdmin({ forceReauth: true });
       await commonSteps.goToMinersPage();
       await minersPage.filterRigMiners();
       minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
+      await minersPage.clickMinerThreeDotsButton(minerIp);
+      await minersPage.clickUnpairButton();
+      await minersPage.clickUnpairConfirm();
+      await minersPage.validateMinerNotPresent(minerIp);
     });
 
-    await test.step("Run a pair-gated discovery request by IP and wait for a found miner", async () => {
-      const discoverRequestPromise = page.waitForRequest((request) =>
-        request.url().includes("/pairing.v1.PairingService/Discover"),
-      );
-      const discoverResponsePromise = page.waitForResponse((response) =>
-        response.url().includes("/pairing.v1.PairingService/Discover"),
-      );
+    try {
+      await test.step("Provision a pair-capable miner role", async () => {
+        await provisionMinerRole(browser, commonSteps, {
+          roleDescription: "Pair miners for RBAC coverage.",
+          permissionKeys: [...MINER_READ_PERMISSIONS, "miner:pair", "fleetnode:manage"],
+        });
+      });
 
-      await minersPage.clickAddMinersButton();
-      await addMinersPage.validateAddMinersFlowOpened();
-      await addMinersPage.inputMinerIp(minerIp);
-      await addMinersPage.clickFindMinersByIp();
+      await test.step("Run a pair-gated discovery request by IP and wait for a found miner", async () => {
+        const discoverRequestPromise = page.waitForRequest((request) =>
+          request.url().includes("/pairing.v1.PairingService/Discover"),
+        );
+        const discoverResponsePromise = page.waitForResponse((response) =>
+          response.url().includes("/pairing.v1.PairingService/Discover"),
+        );
 
-      const discoverRequest = await discoverRequestPromise;
-      const discoverResponse = await discoverResponsePromise;
+        await commonSteps.goToMinersPage();
+        await minersPage.clickAddMinersButton();
+        await addMinersPage.validateAddMinersFlowOpened();
+        await addMinersPage.inputMinerIp(minerIp);
+        await addMinersPage.clickFindMinersByIp();
 
-      expect(discoverRequest.method()).toBe("POST");
-      expect(discoverRequest.postData() ?? "").toContain(minerIp);
-      expect(discoverResponse.status()).toBe(200);
+        const discoverRequest = await discoverRequestPromise;
+        const discoverResponse = await discoverResponsePromise;
 
-      await addMinersPage.waitForFoundMinersList();
-      await addMinersPage.clickHeaderIconButton();
-    });
+        expect(discoverRequest.method()).toBe("POST");
+        expect(discoverRequest.postData() ?? "").toContain(minerIp);
+        expect(discoverResponse.status()).toBe(200);
+
+        await addMinersPage.validateOneMinerWasFoundByIp();
+        await addMinersPage.clickHeaderIconButton();
+      });
+    } finally {
+      await test.step("Re-add the unpaired Proto rig", async () => {
+        await commonSteps.loginAsAdmin({ forceReauth: true });
+        await commonSteps.goToMinersPage();
+        await minersPage.clickAddMinersButton();
+        await addMinersPage.validateAddMinersFlowOpened();
+        await addMinersPage.inputMinerIp(minerIp);
+        await addMinersPage.clickFindMinersByIp();
+        await addMinersPage.validateOneMinerWasFoundByIp();
+        await addMinersPage.clickContinueWithSelectedMiners();
+        await minersPage.waitForMinersListToLoad();
+        await minersPage.validateMinerInList(minerIp);
+      });
+    }
   });
 
   test("Miners export-csv role can export the miner list", async ({ browser, commonSteps, minersPage, page }) => {
