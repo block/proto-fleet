@@ -479,6 +479,7 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     browser,
     commonSteps,
     minersPage,
+    page,
   }) => {
     let minerIp = "";
 
@@ -489,16 +490,32 @@ test.describe("Proto Fleet - Miner RBAC", () => {
       });
     });
 
-    await test.step("Open the miners page and capture a miner IP", async () => {
+    await test.step("Open Proto rig miners and capture an authenticated miner IP", async () => {
       await commonSteps.goToMinersPage();
-      minerIp = await minersPage.getMinerIpAddressByIndex(0);
+      await minersPage.filterRigMiners();
+      minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
     });
 
-    await test.step("Run a pair-gated discovery request by IP", async () => {
+    await test.step("Run a pair-gated discovery request by IP and wait for a found miner", async () => {
+      const discoverRequestPromise = page.waitForRequest((request) =>
+        request.url().includes("/pairing.v1.PairingService/Discover"),
+      );
+      const discoverResponsePromise = page.waitForResponse((response) =>
+        response.url().includes("/pairing.v1.PairingService/Discover"),
+      );
+
       await minersPage.clickAddMinersButton();
       await addMinersPage.validateAddMinersFlowOpened();
       await addMinersPage.inputMinerIp(minerIp);
       await addMinersPage.clickFindMinersByIp();
+
+      const discoverRequest = await discoverRequestPromise;
+      const discoverResponse = await discoverResponsePromise;
+
+      expect(discoverRequest.method()).toBe("POST");
+      expect(discoverRequest.postData() ?? "").toContain(minerIp);
+      expect(discoverResponse.status()).toBe(200);
+
       await addMinersPage.waitForFoundMinersList();
       await addMinersPage.clickHeaderIconButton();
     });
