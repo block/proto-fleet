@@ -37,6 +37,10 @@ const formatRuleCondition = (rule: Rule): string => {
 const RulesSection = () => {
   const { rules, maintenanceWindows, pauseRule, resumeRule, removeRule, removeMaintenanceWindow } = useAlertsContext();
   const canManage = useHasPermission("alert:manage");
+  const canReadMiners = useHasPermission("miner:read");
+  // Rule create/edit additionally require org-wide miner:read server-side
+  // (rules fan per-device alerts out); pause/window/delete stay on alert:manage.
+  const canWriteRules = canManage && canReadMiners;
 
   const [maintenanceWindowPrefillRuleId, setMaintenanceWindowPrefillRuleId] = useState<string | null>(null);
   const [showMaintenanceWindowModal, setShowMaintenanceWindowModal] = useState(false);
@@ -135,7 +139,7 @@ const RulesSection = () => {
         icon: <Edit />,
         // Without the stored config the modal can't prefill the real trigger,
         // and saving would silently rewrite the rule as an offline check.
-        hidden: (rule) => rule.origin !== "user" || !rule.config,
+        hidden: (rule) => !canWriteRules || rule.origin !== "user" || !rule.config,
         actionHandler: (rule) => {
           setEditingRule(rule);
           setShowRuleModal(true);
@@ -166,7 +170,7 @@ const RulesSection = () => {
         },
       },
     ],
-    [handleTogglePause, handleMaintenanceWindowOrLift, handleDelete, activeMaintenanceWindowIdsByRule],
+    [handleTogglePause, handleMaintenanceWindowOrLift, handleDelete, activeMaintenanceWindowIdsByRule, canWriteRules],
   );
 
   const colConfig: ColConfig<Rule, string, RuleColumns> = useMemo(
@@ -213,7 +217,7 @@ const RulesSection = () => {
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between">
           <Header title="Rules" titleSize="text-heading-200" />
-          {canManage ? (
+          {canWriteRules ? (
             <Button
               variant={variants.secondary}
               size={sizes.compact}
@@ -241,7 +245,7 @@ const RulesSection = () => {
         hideTotal
         noDataElement={
           <div className="py-10 text-center text-text-primary-50">
-            {canManage
+            {canWriteRules
               ? "No rules yet — click Add rule to set one up."
               : "No rules yet — ask an alert manager to add one."}
           </div>
