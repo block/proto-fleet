@@ -152,6 +152,10 @@ const Popover = ({
       className={clsx(
         "z-50 rounded-3xl backdrop-blur-[7px]",
         renderMode === "portal-fixed" ? "fixed" : "absolute",
+        // The viewport cap (`maxHeight`) is applied to this positioned wrapper via
+        // `popoverStyle`, so the wrapper must also be the scroller — otherwise the
+        // unconstrained inner content paints past the cap and clips off-screen.
+        constrainHeightToViewport && "overflow-y-auto overscroll-contain",
         popoverAnimation,
       )}
       style={popoverStyle}
