@@ -3,6 +3,8 @@ import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { PROTO_RIG_DISPLAY_NAME } from "../helpers/minerModels";
 import { BasePage } from "./base";
 
+const SHORT_CLOSE_TIMEOUT = Math.floor(DEFAULT_TIMEOUT / 6);
+
 export class AddMinersPage extends BasePage {
   private continueWithMinersButton(minerCount?: number) {
     return minerCount === undefined
@@ -31,6 +33,10 @@ export class AddMinersPage extends BasePage {
   async validateAddMinersFlowOpened() {
     await expect(this.page.getByTestId("section-scan-network")).toBeVisible();
     await expect(this.page.getByTestId("section-search-by-ip")).toBeVisible();
+  }
+
+  async validateAddMinersFlowClosed(timeout: number = SHORT_CLOSE_TIMEOUT) {
+    await expect(this.page.getByLabel("Close add miners")).toBeHidden({ timeout });
   }
 
   async inputMinerIp(ipAddresses: string) {
@@ -167,6 +173,17 @@ export class AddMinersPage extends BasePage {
 
   async clickHeaderIconButton() {
     await this.page.getByTestId("header-icon-button").click();
+    await this.validateAddMinersFlowClosed();
+  }
+
+  async closeAddMinersFlowIfOpen(timeout: number = SHORT_CLOSE_TIMEOUT) {
+    const closeButton = this.page.getByLabel("Close add miners");
+    if (!(await closeButton.isVisible().catch(() => false))) {
+      return;
+    }
+
+    await closeButton.click();
+    await this.validateAddMinersFlowClosed(timeout);
   }
 
   async validateOneMinerWasFoundByIp() {

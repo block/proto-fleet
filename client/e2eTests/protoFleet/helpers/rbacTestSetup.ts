@@ -328,11 +328,28 @@ export async function ensureVisibleRigMinersAwake(minersPage: MinersPage) {
 export async function selectHashingRigMinerForStopFlow(minersPage: MinersPage) {
   await minersPage.filterRigMiners();
 
-  if (testConfig.target !== "real") {
-    await ensureVisibleRigMinersAwake(minersPage);
+  if (await minersPage.hasAnyMinerWithStatus("Hashing")) {
+    return await minersPage.getMinerIpAddressByStatus("Hashing");
   }
 
-  return await minersPage.getMinerIpAddressByStatus("Hashing");
+  if (await minersPage.hasAnyMinerWithStatus("Waking")) {
+    await minersPage.validateNoMinerWithStatus("Waking", SHORT_HOOK_TIMEOUT);
+    if (await minersPage.hasAnyMinerWithStatus("Hashing")) {
+      return await minersPage.getMinerIpAddressByStatus("Hashing");
+    }
+  }
+
+  if (testConfig.target === "real") {
+    throw new Error('No visible rig miner was already "Hashing" for the stop-mining RBAC flow.');
+  }
+
+  const sleepingMinerIp = await minersPage.getMinerIpAddressByStatus("Sleeping");
+  await minersPage.clickMinerThreeDotsButton(sleepingMinerIp);
+  await minersPage.clickWakeUpButton();
+  await minersPage.clickWakeUpConfirm();
+  await minersPage.validateMinerStatusSettled(sleepingMinerIp, "Hashing");
+
+  return sleepingMinerIp;
 }
 
 export async function createCurtailment(energyPage: EnergyPage, reason: string) {

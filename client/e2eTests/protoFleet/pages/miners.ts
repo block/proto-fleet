@@ -261,6 +261,12 @@ export class MinersPage extends BasePage {
   }
 
   async clickBlinkLEDsButton() {
+    const singleMinerAction = this.singleMinerActionsPopover().getByTestId("blink-leds-popover-button");
+    if (await singleMinerAction.isVisible().catch(() => false)) {
+      await singleMinerAction.click();
+      return;
+    }
+
     const quickAction = this.page.getByTestId("actions-menu-quick-action-blink-leds");
     if (await quickAction.isVisible().catch(() => false)) {
       await quickAction.click();
@@ -271,8 +277,12 @@ export class MinersPage extends BasePage {
       return;
     }
 
-    await this.clickActionsMenuButton();
-    await this.page.getByText("Blink LEDs", { exact: true }).click();
+    if (await this.tryAction(() => this.clickActionsMenuButton(), 2000)) {
+      await this.page.getByText("Blink LEDs", { exact: true }).click();
+      return;
+    }
+
+    throw new Error("Could not find a visible Blink LEDs action in the current miner actions UI.");
   }
 
   async validateActionBarMinerCount(expectedCount: number) {
@@ -339,6 +349,29 @@ export class MinersPage extends BasePage {
     await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await expect(dialog).toBeHidden();
+  }
+
+  async dismissSingleMinerActionsPopoverIfVisible() {
+    const popover = this.singleMinerActionsPopover();
+    if (!(await popover.isVisible().catch(() => false))) {
+      return;
+    }
+
+    await this.page.keyboard.press("Escape").catch(() => undefined);
+    if (!(await popover.isVisible().catch(() => false))) {
+      return;
+    }
+
+    const mobileSheet = this.page.getByTestId("single-miner-actions-popover-popover-sheet");
+    if (await mobileSheet.isVisible().catch(() => false)) {
+      await mobileSheet.click({ position: { x: 8, y: 8 } });
+    }
+
+    if (await popover.isVisible().catch(() => false)) {
+      await this.page.mouse.click(8, 8);
+    }
+
+    await expect(popover).toBeHidden();
   }
 
   async clickEditMiningPoolButton() {
@@ -1221,6 +1254,37 @@ export class MinersPage extends BasePage {
 
     const row = authenticatedRows.nth(index);
     return await row.getByTestId("ipAddress").innerText();
+  }
+
+  async openSingleMinerActionsForAuthenticatedMinerWithAction(actionTestId: string): Promise<string> {
+    const allRows = this.page.getByTestId("list-body").locator("tr");
+    const authenticatedRows = allRows.filter({
+      has: this.page.locator('input[type="checkbox"]:not([disabled])'),
+    });
+    const authenticatedCount = await authenticatedRows.count();
+    const checkedMinerIps: string[] = [];
+
+    for (let i = 0; i < authenticatedCount; i++) {
+      const row = authenticatedRows.nth(i);
+      await row.scrollIntoViewIfNeeded();
+
+      const minerIp = (await row.getByTestId("ipAddress").innerText()).trim();
+      checkedMinerIps.push(minerIp);
+
+      await row.getByTestId("single-miner-actions-menu-button").click();
+      const popover = this.singleMinerActionsPopover();
+      await expect(popover).toBeVisible();
+
+      if ((await popover.getByTestId(actionTestId).count()) > 0) {
+        return minerIp;
+      }
+
+      await this.dismissSingleMinerActionsPopoverIfVisible();
+    }
+
+    throw new Error(
+      `No authenticated miner exposed action "${actionTestId}". Checked miners: ${checkedMinerIps.join(", ") || "none"}`,
+    );
   }
 
   async validateMinerNotPresent(ipAddress: string) {

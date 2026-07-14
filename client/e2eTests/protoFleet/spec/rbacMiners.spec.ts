@@ -87,12 +87,11 @@ test.describe("Proto Fleet - Miner RBAC", () => {
         "security-popover-button",
         "unpair-popover-button",
       ]);
+      await minersPage.dismissSingleMinerActionsPopoverIfVisible();
     });
   });
 
   test("Miners blink-led role can blink a miner locator LED", async ({ browser, commonSteps, minersPage }) => {
-    let minerIp = "";
-
     await test.step("Provision a blink-led miner role", async () => {
       await provisionMinerRole(browser, commonSteps, {
         roleDescription: "Blink miner LEDs for RBAC coverage.",
@@ -103,11 +102,10 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     await test.step("Open Proto rig miners and select a miner", async () => {
       await commonSteps.goToMinersPage();
       await minersPage.filterRigMiners();
-      minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
+      await minersPage.openSingleMinerActionsForAuthenticatedMinerWithAction("blink-leds-popover-button");
     });
 
     await test.step("Blink the miner locator LED and validate toasts", async () => {
-      await minersPage.clickMinerThreeDotsButton(minerIp);
       await minersPage.clickBlinkLEDsButton();
       await minersPage.validateTextInToastGroup("Blinking LEDs");
       await minersPage.validateTextInToastGroup("Blinked LEDs");
@@ -139,6 +137,7 @@ test.describe("Proto Fleet - Miner RBAC", () => {
       await minersPage.clickRebootButton();
       await expect(page.getByTestId("reboot-confirm-button")).toBeVisible();
       await minersPage.cancelSingleMinerConfirmationDialog();
+      await minersPage.dismissSingleMinerActionsPopoverIfVisible();
     });
   });
 
@@ -181,9 +180,11 @@ test.describe("Proto Fleet - Miner RBAC", () => {
         await minersPage.clickWakeUpButton();
         await expect(page.getByTestId("wake-up-confirm-button")).toBeVisible();
         await minersPage.cancelSingleMinerConfirmationDialog();
+        await minersPage.dismissSingleMinerActionsPopoverIfVisible();
       });
     } finally {
       await test.step("Restore the sleeping rig miner", async () => {
+        await minersPage.dismissSingleMinerActionsPopoverIfVisible();
         await commonSteps.loginAsAdmin({ forceReauth: true });
         await commonSteps.goToMinersPage();
         await wakeRigMinerIfSleeping(minersPage, minerIp);
@@ -221,6 +222,7 @@ test.describe("Proto Fleet - Miner RBAC", () => {
       await minersPage.clickShutdownButton();
       await expect(page.getByTestId("shutdown-confirm-button")).toBeVisible();
       await minersPage.cancelSingleMinerConfirmationDialog();
+      await minersPage.dismissSingleMinerActionsPopoverIfVisible();
     });
   });
 
@@ -230,8 +232,6 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     loginModal,
     minersPage,
   }) => {
-    let minerIp = "";
-
     await test.step("Provision an update-pools miner role", async () => {
       await provisionMinerRole(browser, commonSteps, {
         roleDescription: "Update miner pools for RBAC coverage.",
@@ -242,11 +242,10 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     await test.step("Open Proto rig miners and select a miner", async () => {
       await commonSteps.goToMinersPage();
       await minersPage.filterRigMiners();
-      minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
+      await minersPage.openSingleMinerActionsForAuthenticatedMinerWithAction("mining-pool-popover-button");
     });
 
     await test.step("Open the pool editor login prompt", async () => {
-      await minersPage.clickMinerThreeDotsButton(minerIp);
       await minersPage.clickEditMiningPoolButton();
       await loginModal.validateTitleInModal("Log in to update your pool settings");
     });
@@ -258,8 +257,6 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     loginModal,
     minersPage,
   }) => {
-    let minerIp = "";
-
     await test.step("Provision an update-worker-names miner role", async () => {
       await provisionMinerRole(browser, commonSteps, {
         roleDescription: "Update worker names for RBAC coverage.",
@@ -270,19 +267,16 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     await test.step("Open Proto rig miners and select a miner", async () => {
       await commonSteps.goToMinersPage();
       await minersPage.filterRigMiners();
-      minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
+      await minersPage.openSingleMinerActionsForAuthenticatedMinerWithAction("update-worker-names-popover-button");
     });
 
     await test.step("Open the worker-name login prompt", async () => {
-      await minersPage.clickMinerThreeDotsButton(minerIp);
       await minersPage.clickUpdateWorkerNameButton();
       await loginModal.validateTitleInModal("Log in to update worker names");
     });
   });
 
   test("Miners rename role can open the rename flow", async ({ browser, commonSteps, minersPage }) => {
-    let minerIp = "";
-
     await test.step("Provision a rename miner role", async () => {
       await provisionMinerRole(browser, commonSteps, {
         roleDescription: "Rename miners for RBAC coverage.",
@@ -293,11 +287,10 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     await test.step("Open Proto rig miners and select a miner", async () => {
       await commonSteps.goToMinersPage();
       await minersPage.filterRigMiners();
-      minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
+      await minersPage.openSingleMinerActionsForAuthenticatedMinerWithAction("rename-popover-button");
     });
 
     await test.step("Open the rename flow and validate its controls", async () => {
-      await minersPage.clickMinerThreeDotsButton(minerIp);
       await minersPage.clickRenameButton();
       await minersPage.validateTitleInModal("Rename miner");
       await minersPage.fillRenameInput(generateRandomText("rbac_rename_preview"));
@@ -311,8 +304,6 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     minersPage,
     page,
   }) => {
-    let minerIp = "";
-
     await test.step("Provision a delete miner role", async () => {
       await provisionMinerRole(browser, commonSteps, {
         roleDescription: "Delete miners from fleet for RBAC coverage.",
@@ -323,11 +314,10 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     await test.step("Open Proto rig miners and select a miner", async () => {
       await commonSteps.goToMinersPage();
       await minersPage.filterRigMiners();
-      minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
+      await minersPage.openSingleMinerActionsForAuthenticatedMinerWithAction("unpair-popover-button");
     });
 
     await test.step("Open the unpair confirmation flow", async () => {
-      await minersPage.clickMinerThreeDotsButton(minerIp);
       await minersPage.clickUnpairButton();
       await expect(page.getByTestId("unpair-confirm-button")).toBeVisible();
       await minersPage.dismissModalIfVisible();
@@ -340,8 +330,6 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     minersPage,
     page,
   }) => {
-    let minerIp = "";
-
     await test.step("Provision a cooling-mode miner role", async () => {
       await provisionMinerRole(browser, commonSteps, {
         roleDescription: "Change cooling mode for RBAC coverage.",
@@ -352,11 +340,10 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     await test.step("Open Proto rig miners and select a miner", async () => {
       await commonSteps.goToMinersPage();
       await minersPage.filterRigMiners();
-      minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
+      await minersPage.openSingleMinerActionsForAuthenticatedMinerWithAction("cooling-mode-popover-button");
     });
 
     await test.step("Open the cooling-mode flow", async () => {
-      await minersPage.clickMinerThreeDotsButton(minerIp);
       await minersPage.clickCoolingModeButton();
       await expect(page.getByTestId("cooling-option-air")).toBeVisible();
       await expect(page.getByTestId("cooling-option-immersion")).toBeVisible();
@@ -370,8 +357,6 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     minersPage,
     page,
   }) => {
-    let minerIp = "";
-
     await test.step("Provision a power-target miner role", async () => {
       await provisionMinerRole(browser, commonSteps, {
         roleDescription: "Change miner power targets for RBAC coverage.",
@@ -382,11 +367,10 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     await test.step("Open Proto rig miners and select a miner", async () => {
       await commonSteps.goToMinersPage();
       await minersPage.filterRigMiners();
-      minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
+      await minersPage.openSingleMinerActionsForAuthenticatedMinerWithAction("manage-power-popover-button");
     });
 
     await test.step("Open the power-target flow", async () => {
-      await minersPage.clickMinerThreeDotsButton(minerIp);
       await minersPage.clickManagePowerButton();
       await expect(page.getByTestId("power-option-maximize")).toBeVisible();
       await expect(page.getByTestId("power-option-reduce")).toBeVisible();
@@ -428,8 +412,6 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     minersPage,
     page,
   }) => {
-    let minerIp = "";
-
     await test.step("Provision a download-logs miner role", async () => {
       await provisionMinerRole(browser, commonSteps, {
         roleDescription: "Download miner logs for RBAC coverage.",
@@ -440,13 +422,12 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     await test.step("Open Proto rig miners and select a miner", async () => {
       await commonSteps.goToMinersPage();
       await minersPage.filterRigMiners();
-      minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
+      await minersPage.openSingleMinerActionsForAuthenticatedMinerWithAction("download-logs-popover-button");
     });
 
     await test.step("Start a diagnostic log download", async () => {
       const downloadPromise = page.waitForEvent("download");
 
-      await minersPage.clickMinerThreeDotsButton(minerIp);
       await minersPage.clickDownloadLogsButton();
 
       const download = await downloadPromise;
@@ -461,8 +442,6 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     minersPage,
     loginModal,
   }) => {
-    let minerIp = "";
-
     await test.step("Provision an update-password miner role", async () => {
       await provisionMinerRole(browser, commonSteps, {
         roleDescription: "Update miner passwords for RBAC coverage.",
@@ -473,11 +452,10 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     await test.step("Open Proto rig miners and select a miner", async () => {
       await commonSteps.goToMinersPage();
       await minersPage.filterRigMiners();
-      minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
+      await minersPage.openSingleMinerActionsForAuthenticatedMinerWithAction("security-popover-button");
     });
 
     await test.step("Open the manage-security password flow", async () => {
-      await minersPage.clickMinerThreeDotsButton(minerIp);
       await minersPage.clickManageSecurityButton();
       await loginModal.validateTitleInModal("Log in to update your security settings");
     });
@@ -543,6 +521,7 @@ test.describe("Proto Fleet - Miner RBAC", () => {
       });
     } finally {
       await test.step("Re-add the unpaired Proto rig", async () => {
+        await addMinersPage.closeAddMinersFlowIfOpen();
         await commonSteps.loginAsAdmin({ forceReauth: true });
         await commonSteps.goToMinersPage();
         await minersPage.clickAddMinersButton();
