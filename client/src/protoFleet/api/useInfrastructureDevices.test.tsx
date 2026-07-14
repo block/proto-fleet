@@ -126,6 +126,81 @@ describe("useInfrastructureDevices", () => {
     expect(mockHandleAuthErrors).toHaveBeenCalled();
   });
 
+  it("clears a previous load error when a retry starts", async () => {
+    mockListInfrastructureDevices.mockRejectedValueOnce(new Error("boom"));
+
+    const { result } = renderHook(() => useInfrastructureDevices(false));
+
+    await act(async () => {
+      await expect(result.current.listDevices()).rejects.toThrow("boom");
+    });
+
+    expect(result.current.loadError).toBe("boom");
+
+    let resolveRetry: (value: unknown) => void = () => {};
+    mockListInfrastructureDevices.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveRetry = resolve;
+      }),
+    );
+
+    let retryPromise: Promise<unknown> = Promise.resolve();
+    act(() => {
+      retryPromise = result.current.listDevices();
+    });
+
+    expect(result.current.loadError).toBeNull();
+
+    await act(async () => {
+      resolveRetry({ devices: [apiDevice()] });
+      await retryPromise;
+    });
+  });
+
+  it("ignores a stale list response that resolves after a newer request", async () => {
+    let resolveFirst: (value: unknown) => void = () => {};
+    let resolveSecond: (value: unknown) => void = () => {};
+    mockListInfrastructureDevices.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveFirst = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useInfrastructureDevices(false));
+
+    let firstPromise: Promise<unknown> = Promise.resolve();
+    act(() => {
+      firstPromise = result.current.listDevices().catch(() => {});
+    });
+
+    mockListInfrastructureDevices.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveSecond = resolve;
+      }),
+    );
+    let secondPromise: Promise<unknown> = Promise.resolve();
+    act(() => {
+      secondPromise = result.current.listDevices();
+    });
+
+    // The newer (second) request resolves first with real devices...
+    await act(async () => {
+      resolveSecond({ devices: [apiDevice()] });
+      await secondPromise;
+    });
+
+    expect(result.current.devices).toHaveLength(1);
+
+    // ...and the stale (first) request resolving afterward must not
+    // clobber the newer result.
+    await act(async () => {
+      resolveFirst({ devices: [] });
+      await firstPromise;
+    });
+
+    expect(result.current.devices).toHaveLength(1);
+  });
+
   it("creates a device and prepends it to the list", async () => {
     mockCreateInfrastructureDevice.mockResolvedValueOnce({ device: apiDevice() });
 
@@ -194,6 +269,35 @@ describe("useInfrastructureDevices", () => {
     );
     expect(result.current.devices).toHaveLength(1);
     expect(result.current.devices[0].name).toBe("Renamed exhaust");
+  });
+
+  it("omits enabled from the update request when the caller doesn't set it", async () => {
+    mockListInfrastructureDevices.mockResolvedValueOnce({ devices: [apiDevice()] });
+    mockUpdateInfrastructureDevice.mockResolvedValueOnce({
+      device: apiDevice({ name: "Renamed exhaust" }),
+    });
+
+    const { result } = renderHook(() => useInfrastructureDevices(false));
+
+    await act(async () => {
+      await result.current.listDevices();
+    });
+
+    await act(async () => {
+      await result.current.updateDevice({
+        id: "101",
+        siteId: "8",
+        buildingName: "Building 1",
+        name: "Renamed exhaust",
+        deviceKind: "fan_group",
+        fanCount: 12,
+        driverType: "modbus_tcp",
+        driverConfig,
+      });
+    });
+
+    const sentRequest = mockUpdateInfrastructureDevice.mock.calls[0][0] as { enabled?: boolean };
+    expect(sentRequest.enabled).toBeUndefined();
   });
 
   it("toggles enabled by resending the device's current fields", async () => {
@@ -274,6 +378,36 @@ describe("useInfrastructureDevices", () => {
 
     expect(mockDeleteInfrastructureDevice).toHaveBeenCalledWith(expect.objectContaining({ id: 101n }));
     expect(result.current.devices).toHaveLength(0);
+  });
+
+  it("tracks the updating device ID while a delete is in flight", async () => {
+    mockListInfrastructureDevices.mockResolvedValueOnce({ devices: [apiDevice()] });
+    let resolveDelete: (value: unknown) => void = () => {};
+    mockDeleteInfrastructureDevice.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveDelete = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useInfrastructureDevices(false));
+
+    await act(async () => {
+      await result.current.listDevices();
+    });
+
+    let deletePromise: Promise<unknown> = Promise.resolve();
+    act(() => {
+      deletePromise = result.current.deleteDevice("101");
+    });
+
+    expect(result.current.updatingDeviceIds.has("101")).toBe(true);
+
+    await act(async () => {
+      resolveDelete({});
+      await deletePromise;
+    });
+
+    expect(result.current.updatingDeviceIds.has("101")).toBe(false);
   });
 
   it("rethrows mutation failures with the RPC message", async () => {

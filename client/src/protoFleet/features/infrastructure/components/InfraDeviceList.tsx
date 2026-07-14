@@ -204,11 +204,14 @@ const InfraDeviceList = ({
   );
 
   const getRowActions = useCallback(
-    (device: InfraDeviceItem): RowAction[] => [
-      { label: canManage ? "Edit" : "View details", onClick: () => setDetailDeviceId(device.id) },
-      ...(canManage ? [{ label: "Delete", onClick: () => handleDeleteFromRow(device.id) }] : []),
-    ],
-    [canManage, handleDeleteFromRow],
+    (device: InfraDeviceItem): RowAction[] => {
+      const disabled = updatingDeviceIds.has(device.id);
+      return [
+        { label: canManage ? "Edit" : "View details", onClick: () => setDetailDeviceId(device.id), disabled },
+        ...(canManage ? [{ label: "Delete", onClick: () => handleDeleteFromRow(device.id), disabled }] : []),
+      ];
+    },
+    [canManage, handleDeleteFromRow, updatingDeviceIds],
   );
 
   const allActiveCols: InfraColumn[] = useMemo(

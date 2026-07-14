@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
 import { infrastructureClient } from "@/protoFleet/api/clients";
@@ -86,6 +86,10 @@ export default function useInfrastructureDevices(enabled = true): UseInfrastruct
   const [isLoading, setIsLoading] = useState(enabled);
   const [updatingDeviceIds, setUpdatingDeviceIds] = useState<Set<string>>(() => new Set());
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Guards against an older in-flight list call overwriting a newer
+  // one's result (e.g. a double-clicked Retry) when responses land
+  // out of order.
+  const listRequestGenerationRef = useRef(0);
 
   const devices = useMemo(() => apiDevices.map(mapApiDevice), [apiDevices]);
 
@@ -126,7 +130,10 @@ export default function useInfrastructureDevices(enabled = true): UseInfrastruct
 
   const listDevices = useCallback(
     async (signal?: AbortSignal): Promise<InfraDeviceItem[]> => {
+      const generation = ++listRequestGenerationRef.current;
+      const isLatest = () => listRequestGenerationRef.current === generation;
       setIsLoading(true);
+      setLoadError(null);
       try {
         assertNotAborted(signal);
         const response = await infrastructureClient.listInfrastructureDevices(
@@ -135,8 +142,10 @@ export default function useInfrastructureDevices(enabled = true): UseInfrastruct
         );
         assertNotAborted(signal);
 
-        setApiDevices(response.devices);
-        setLoadError(null);
+        if (isLatest()) {
+          setApiDevices(response.devices);
+          setLoadError(null);
+        }
         return response.devices.map(mapApiDevice);
       } catch (error) {
         if (isAbortError(error, signal)) {
@@ -144,10 +153,14 @@ export default function useInfrastructureDevices(enabled = true): UseInfrastruct
         }
 
         const resolvedError = handleFailure(error, "Failed to load infrastructure devices.");
-        setLoadError(resolvedError.message);
+        if (isLatest()) {
+          setLoadError(resolvedError.message);
+        }
         throw resolvedError;
       } finally {
-        setIsLoading(false);
+        if (isLatest()) {
+          setIsLoading(false);
+        }
       }
     },
     [handleFailure],
@@ -206,7 +219,9 @@ export default function useInfrastructureDevices(enabled = true): UseInfrastruct
               name: params.name,
               deviceKind: params.deviceKind,
               fanCount: params.fanCount,
-              enabled: params.enabled,
+              // Omitted (rather than sent as the current UI value) so the
+              // server preserves enabled when the caller didn't touch it.
+              ...(params.enabled !== undefined ? { enabled: params.enabled } : {}),
               driverType: params.driverType,
               driverConfig: params.driverConfig,
             }),

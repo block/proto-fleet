@@ -1,4 +1,4 @@
-import type { ComponentProps } from "react";
+import { type ComponentProps, createElement } from "react";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
@@ -6,12 +6,13 @@ import userEvent from "@testing-library/user-event";
 
 import FleetInfraPage from "./FleetInfraPage";
 import type { FleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout";
-import type { InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
+import type { InfraDeviceDraft, InfraDeviceItem, InfraDeviceUpdate } from "@/protoFleet/features/infrastructure/types";
 import { useHasPermission } from "@/protoFleet/store";
 
 const listAllBuildingsMock = vi.hoisted(() => vi.fn());
 const useActiveSiteMock = vi.hoisted(() => vi.fn());
 const useInfrastructureDevicesMock = vi.hoisted(() => vi.fn());
+const infraDeviceListPropsSpy = vi.hoisted(() => vi.fn());
 
 vi.mock("@/protoFleet/api/buildings", () => ({
   useBuildings: () => ({
@@ -22,6 +23,18 @@ vi.mock("@/protoFleet/api/buildings", () => ({
 vi.mock("@/protoFleet/api/useInfrastructureDevices", () => ({
   default: useInfrastructureDevicesMock,
 }));
+
+vi.mock("@/protoFleet/features/infrastructure/components/InfraDeviceList", async (importActual) => {
+  const actual = await importActual<typeof import("@/protoFleet/features/infrastructure/components/InfraDeviceList")>();
+
+  return {
+    ...actual,
+    default: (props: ComponentProps<typeof actual.default>) => {
+      infraDeviceListPropsSpy(props);
+      return createElement(actual.default, props);
+    },
+  };
+});
 
 vi.mock("@/protoFleet/components/PageHeader/SitePicker", () => ({
   useActiveSite: useActiveSiteMock,
@@ -74,6 +87,15 @@ const buildHookResult = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+type InfraDeviceListCallbacks = {
+  onCreateDevice?: (draft: InfraDeviceDraft) => Promise<void>;
+  onUpdateDevice?: (update: InfraDeviceUpdate) => Promise<void>;
+  onRetry?: () => void;
+};
+
+const lastInfraDeviceListProps = () =>
+  infraDeviceListPropsSpy.mock.calls[infraDeviceListPropsSpy.mock.calls.length - 1]?.[0] as InfraDeviceListCallbacks;
+
 const renderPage = (props?: ComponentProps<typeof FleetInfraPage>, outletContext?: FleetOutletContext) =>
   render(
     <MemoryRouter initialEntries={["/fleet/infrastructure"]}>
@@ -96,6 +118,7 @@ describe("FleetInfraPage", () => {
     listAllBuildingsMock.mockReset();
     useInfrastructureDevicesMock.mockReset();
     useInfrastructureDevicesMock.mockReturnValue(buildHookResult());
+    infraDeviceListPropsSpy.mockReset();
   });
 
   test("uses site permissions for default read and management access", () => {
@@ -145,6 +168,100 @@ describe("FleetInfraPage", () => {
 
     expect(useInfrastructureDevicesMock).toHaveBeenCalledWith(false);
     expect(screen.getByText("Roof exhaust")).toBeInTheDocument();
+  });
+
+  test("resolves the create draft site name before calling the API", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+    const createDevice = vi.fn().mockResolvedValue(undefined);
+    useInfrastructureDevicesMock.mockReturnValue(buildHookResult({ createDevice }));
+
+    renderPage({ devices: undefined }, fleetContext);
+
+    await lastInfraDeviceListProps().onCreateDevice!({
+      siteName: "Austin",
+      buildingName: "Building 1",
+      name: "Roof exhaust",
+      deviceKind: "fan_group",
+      fanCount: 12,
+      driverType: "modbus_tcp",
+      driverConfig: device.driverConfig,
+    });
+
+    expect(createDevice).toHaveBeenCalledWith({
+      siteId: "8",
+      buildingName: "Building 1",
+      name: "Roof exhaust",
+      deviceKind: "fan_group",
+      fanCount: 12,
+      driverType: "modbus_tcp",
+      driverConfig: device.driverConfig,
+    });
+  });
+
+  test("rejects unknown create draft sites without calling the API", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+    const createDevice = vi.fn();
+    useInfrastructureDevicesMock.mockReturnValue(buildHookResult({ createDevice }));
+
+    renderPage({ devices: undefined }, fleetContext);
+
+    await expect(
+      lastInfraDeviceListProps().onCreateDevice!({
+        siteName: "Unknown",
+        buildingName: "Building 1",
+        name: "Roof exhaust",
+        deviceKind: "fan_group",
+        fanCount: 12,
+        driverType: "modbus_tcp",
+        driverConfig: device.driverConfig,
+      }),
+    ).rejects.toThrow("Select a site from the catalog.");
+
+    expect(createDevice).not.toHaveBeenCalled();
+  });
+
+  test("resolves the update site name before calling the API", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+    const updateDevice = vi.fn().mockResolvedValue(undefined);
+    useInfrastructureDevicesMock.mockReturnValue(buildHookResult({ updateDevice }));
+
+    renderPage({ devices: undefined }, fleetContext);
+
+    await lastInfraDeviceListProps().onUpdateDevice!({
+      id: "101",
+      siteName: "Denver",
+      buildingName: "Building 1",
+      name: "Roof exhaust",
+      deviceKind: "fan_group",
+      fanCount: 12,
+      driverType: "modbus_tcp",
+      driverConfig: device.driverConfig,
+    } as InfraDeviceUpdate);
+
+    expect(updateDevice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "101",
+        siteId: "7",
+        buildingName: "Building 1",
+        name: "Roof exhaust",
+        deviceKind: "fan_group",
+        fanCount: 12,
+        driverType: "modbus_tcp",
+        driverConfig: device.driverConfig,
+      }),
+    );
+  });
+
+  test("retries the device list request", () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+    const listDevices = vi.fn().mockResolvedValue(undefined);
+    useInfrastructureDevicesMock.mockReturnValue(buildHookResult({ listDevices }));
+
+    renderPage({ devices: undefined }, fleetContext);
+
+    lastInfraDeviceListProps().onRetry!();
+
+    expect(listDevices).toHaveBeenCalledOnce();
   });
 
   test("preselects the active site when opening the add device modal", async () => {

@@ -46,7 +46,11 @@ const InfraDeviceDetailModal = ({
   const [site, setSite] = useState(device.siteName);
   const [name, setName] = useState(device.name);
   const [building, setBuilding] = useState(device.buildingName);
-  const [enabled, setEnabled] = useState(device.enabled);
+  // Stays undefined until the operator flips the switch in this
+  // session, so an unrelated save doesn't resend a possibly-stale
+  // enabled snapshot and clobber a concurrent enable/disable.
+  const [enabledOverride, setEnabledOverride] = useState<boolean | undefined>(undefined);
+  const enabled = enabledOverride ?? device.enabled;
   const driverFormModule = getDriverFormModule(device.driverType);
   // null when the config is redacted (site:read callers), unparseable,
   // or the driver type has no registered module; the raw driverConfig
@@ -77,7 +81,7 @@ const InfraDeviceDetailModal = ({
       buildingName: building.trim(),
       deviceKind: device.deviceKind,
       fanCount: device.fanCount,
-      enabled,
+      enabled: enabledOverride,
       driverType: device.driverType,
       driverConfig:
         driverValues !== null && driverFormModule ? driverFormModule.encode(driverValues) : device.driverConfig,
@@ -89,7 +93,7 @@ const InfraDeviceDetailModal = ({
         setActionError(getErrorMessage(error) || "Failed to update infrastructure device.");
         setIsSaving(false);
       });
-  }, [building, canSave, device, driverFormModule, driverValues, enabled, name, onDismiss, onSave, site]);
+  }, [building, canSave, device, driverFormModule, driverValues, enabledOverride, name, onDismiss, onSave, site]);
 
   const handleDelete = useCallback(() => {
     setIsDeleting(true);
@@ -166,7 +170,7 @@ const InfraDeviceDetailModal = ({
               checked={enabled}
               disabled={!canManage}
               setChecked={(next) => {
-                setEnabled((current) => (typeof next === "function" ? next(current) : next));
+                setEnabledOverride((current) => (typeof next === "function" ? next(current ?? device.enabled) : next));
               }}
             />
           </div>

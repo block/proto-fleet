@@ -36,8 +36,11 @@ export interface InfraDeviceDraft {
 }
 
 // Update payload produced by the detail modal (full-row update; the
-// server treats every field except enabled as required).
+// server treats every field except enabled as required). enabled is
+// omitted unless the operator actually touched the switch in this
+// modal session, so the server preserves the stored value instead of
+// resending a possibly-stale snapshot.
 export interface InfraDeviceUpdate extends InfraDeviceDraft {
   id: string;
-  enabled: boolean;
+  enabled?: boolean;
 }

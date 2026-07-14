@@ -116,6 +116,16 @@ describe("InfraDeviceList", () => {
     expect(screen.getByRole("checkbox", { name: "Enabled for Roof exhaust" })).toBeDisabled();
   });
 
+  test("disables the row Edit and Delete actions while the device update is in flight", async () => {
+    const user = userEvent.setup();
+    render(<InfraDeviceList devices={[device]} updatingDeviceIds={new Set([device.id])} />);
+
+    await user.click(screen.getByRole("button", { name: "Actions for Roof exhaust" }));
+
+    expect((await screen.findByText("Edit")).closest("button")).toBeDisabled();
+    expect(screen.getByText("Delete").closest("button")).toBeDisabled();
+  });
+
   test("constrains pagination footer to the page-scroll chrome width", () => {
     const devices = Array.from({ length: 51 }, (_, index) => ({
       ...device,

@@ -134,7 +134,8 @@ describe("InfraDeviceDetailModal", () => {
 
     expect(onSave).toHaveBeenCalledTimes(1);
     const update = onSave.mock.calls[0][0];
-    expect(update).toMatchObject({ id: "101", driverType: "modbus_tcp", enabled: true });
+    expect(update).toMatchObject({ id: "101", driverType: "modbus_tcp" });
+    expect(update.enabled).toBeUndefined();
     expect(JSON.parse(update.driverConfig)).toEqual({
       endpoint: "10.12.9.9",
       port: 502,
@@ -199,5 +200,26 @@ describe("InfraDeviceDetailModal", () => {
 
     expect(onDelete).toHaveBeenCalledWith("101");
     await waitFor(() => expect(onDismiss).toHaveBeenCalled());
+  });
+
+  test("a name-only save omits enabled so the server preserves it", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderModal();
+
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust renamed");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ name: "Roof exhaust renamed", enabled: undefined }));
+  });
+
+  test("flipping the switch then saving includes the new enabled value", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderModal();
+
+    await user.click(screen.getByRole("checkbox", { name: "Enabled" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
   });
 });
