@@ -116,6 +116,42 @@ describe("InfraDeviceList", () => {
     expect(screen.getByRole("checkbox", { name: "Enabled for Roof exhaust" })).toBeDisabled();
   });
 
+  test("requires confirmation before a row-menu delete fires the RPC", async () => {
+    const user = userEvent.setup();
+    const onDeleteDevice = vi.fn().mockResolvedValue(undefined);
+
+    render(<InfraDeviceList devices={[device]} onDeleteDevice={onDeleteDevice} />);
+
+    await user.click(screen.getByRole("button", { name: "Actions for Roof exhaust" }));
+    await user.click(await screen.findByText("Delete"));
+
+    // The dialog names exactly what is being removed; nothing has been
+    // deleted yet.
+    expect(onDeleteDevice).not.toHaveBeenCalled();
+    expect(screen.getByTestId("infra-device-delete-dialog")).toHaveTextContent("Roof exhaust");
+    expect(screen.getByTestId("infra-device-delete-dialog")).toHaveTextContent("Building 1");
+    expect(screen.getByTestId("infra-device-delete-dialog")).toHaveTextContent("Austin");
+
+    await user.click(screen.getByRole("button", { name: "Delete device" }));
+
+    expect(onDeleteDevice).toHaveBeenCalledWith("101");
+    await waitFor(() => expect(screen.queryByTestId("infra-device-delete-dialog")).not.toBeInTheDocument());
+  });
+
+  test("cancelling the delete confirmation leaves the device untouched", async () => {
+    const user = userEvent.setup();
+    const onDeleteDevice = vi.fn();
+
+    render(<InfraDeviceList devices={[device]} onDeleteDevice={onDeleteDevice} />);
+
+    await user.click(screen.getByRole("button", { name: "Actions for Roof exhaust" }));
+    await user.click(await screen.findByText("Delete"));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onDeleteDevice).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("infra-device-delete-dialog")).not.toBeInTheDocument();
+  });
+
   test("disables the row Edit and Delete actions while the device update is in flight", async () => {
     const user = userEvent.setup();
     render(<InfraDeviceList devices={[device]} updatingDeviceIds={new Set([device.id])} />);

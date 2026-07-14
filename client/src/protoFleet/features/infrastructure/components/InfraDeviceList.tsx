@@ -21,6 +21,7 @@ import type {
 } from "@/protoFleet/features/infrastructure/types";
 import { ChevronDown, Plus, Slider } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
+import Dialog from "@/shared/components/Dialog";
 import List from "@/shared/components/List";
 import type { ActiveFilters, FilterItem, NestedFilterDropdownItem } from "@/shared/components/List/Filters/types";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
@@ -147,6 +148,10 @@ const InfraDeviceList = ({
   onSetDeviceEnabled = noopSubmit,
 }: InfraDeviceListProps) => {
   const [detailDeviceId, setDetailDeviceId] = useState<string | null>(null);
+  // Row-menu deletes are destructive against persisted OT configuration,
+  // so they confirm through a dialog naming the device before the RPC
+  // fires (the detail modal's Delete has the modal itself as context).
+  const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showManageColumns, setShowManageColumns] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
@@ -161,6 +166,10 @@ const InfraDeviceList = ({
   const detailDevice = useMemo(
     () => devices.find((device) => device.id === detailDeviceId) ?? null,
     [devices, detailDeviceId],
+  );
+  const deleteCandidate = useMemo(
+    () => devices.find((device) => device.id === deleteCandidateId) ?? null,
+    [devices, deleteCandidateId],
   );
   const fallbackSiteOptions = useMemo(
     () => uniqueSortedLocationNames(devices.map((device) => device.siteName)),
@@ -179,17 +188,18 @@ const InfraDeviceList = ({
     [onCreateDevice],
   );
 
-  const handleDeleteFromRow = useCallback(
-    (deviceId: string) => {
-      onDeleteDevice(deviceId).catch((error: unknown) => {
-        pushToast({
-          message: getErrorMessage(error, "Failed to delete infrastructure device."),
-          status: STATUSES.error,
-        });
+  const handleConfirmDelete = useCallback(() => {
+    if (deleteCandidateId === null) return;
+    setDeleteCandidateId(null);
+    // The row's actions stay disabled via updatingDeviceIds while the
+    // delete is in flight; failures surface as a toast like the toggle.
+    onDeleteDevice(deleteCandidateId).catch((error: unknown) => {
+      pushToast({
+        message: getErrorMessage(error, "Failed to delete infrastructure device."),
+        status: STATUSES.error,
       });
-    },
-    [onDeleteDevice],
-  );
+    });
+  }, [deleteCandidateId, onDeleteDevice]);
 
   const handleSetEnabled = useCallback(
     (device: InfraDeviceItem, enabled: boolean) => {
@@ -208,10 +218,10 @@ const InfraDeviceList = ({
       const disabled = updatingDeviceIds.has(device.id);
       return [
         { label: canManage ? "Edit" : "View details", onClick: () => setDetailDeviceId(device.id), disabled },
-        ...(canManage ? [{ label: "Delete", onClick: () => handleDeleteFromRow(device.id), disabled }] : []),
+        ...(canManage ? [{ label: "Delete", onClick: () => setDeleteCandidateId(device.id), disabled }] : []),
       ];
     },
-    [canManage, handleDeleteFromRow, updatingDeviceIds],
+    [canManage, updatingDeviceIds],
   );
 
   const allActiveCols: InfraColumn[] = useMemo(
@@ -491,6 +501,28 @@ const InfraDeviceList = ({
           </span>
         </div>
       )}
+
+      {deleteCandidate !== null ? (
+        <Dialog
+          open
+          title={`Delete "${deleteCandidate.name}"?`}
+          subtitle={`This removes the ${formatDeviceType(deleteCandidate)} in ${deleteCandidate.buildingName} at ${deleteCandidate.siteName} from the fleet configuration. Curtailment will no longer control it.`}
+          testId="infra-device-delete-dialog"
+          onDismiss={() => setDeleteCandidateId(null)}
+          buttons={[
+            {
+              text: "Cancel",
+              variant: variants.secondary,
+              onClick: () => setDeleteCandidateId(null),
+            },
+            {
+              text: "Delete device",
+              variant: variants.danger,
+              onClick: handleConfirmDelete,
+            },
+          ]}
+        />
+      ) : null}
 
       {detailDevice !== null ? (
         <InfraDeviceDetailModal
