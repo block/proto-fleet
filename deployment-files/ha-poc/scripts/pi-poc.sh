@@ -9,6 +9,7 @@ usage() {
   cat <<'EOF'
 Usage:
   ./scripts/pi-poc.sh configure <fleet-a|fleet-b|witness> <fleet-a-ip> <fleet-b-ip> <witness-ip> <vip> [interface]
+  ./scripts/pi-poc.sh lan-ip [interface]
   ./scripts/pi-poc.sh install-deps
   ./scripts/pi-poc.sh doctor
   ./scripts/pi-poc.sh start
@@ -40,6 +41,7 @@ Standard port preset:
   fake Fleet HTTP:  4080
 
 Examples:
+  ./scripts/pi-poc.sh lan-ip eth0
   HA_POC_PASSWORD='change-me' ./scripts/pi-poc.sh configure fleet-a 192.168.2.11 192.168.2.12 192.168.2.13 192.168.2.50 eth0
   ./scripts/pi-poc.sh install-deps
   ./scripts/pi-poc.sh start
@@ -147,6 +149,31 @@ detect_interface() {
   printf '%s\n' "${iface:-eth0}"
 }
 
+lan_ip() {
+  local iface="${1:-}"
+  if [[ -z "${iface}" ]]; then
+    iface="$(detect_interface "${HA_VIP:-1.1.1.1}")"
+  fi
+  ip -o -4 addr show dev "${iface}" scope global \
+    | awk '{ sub(/\/.*/, "", $4); print $4; exit }'
+}
+
+is_tailscale_ip() {
+  local ip="$1"
+  local first
+  local second
+  IFS=. read -r first second _ _ <<<"${ip}"
+  [[ "${first}" == "100" && "${second}" =~ ^[0-9]+$ && "${second}" -ge 64 && "${second}" -le 127 ]]
+}
+
+reject_tailscale_ip() {
+  local label="$1"
+  local ip="$2"
+  if is_tailscale_ip "${ip}"; then
+    die "${label}=${ip} looks like a Tailscale/CGNAT address. Use the Pi's LAN IP on eth0 for HA internals."
+  fi
+}
+
 configure() {
   if [[ "$#" -lt 5 || "$#" -gt 6 ]]; then
     usage
@@ -162,6 +189,11 @@ configure() {
   local node_ip
   local priority
   local peer_ip
+
+  reject_tailscale_ip "fleet-a-ip" "${fleet_a_ip}"
+  reject_tailscale_ip "fleet-b-ip" "${fleet_b_ip}"
+  reject_tailscale_ip "witness-ip" "${witness_ip}"
+  reject_tailscale_ip "vip" "${vip}"
 
   case "${role}" in
     fleet-a)
@@ -380,6 +412,23 @@ doctor() {
       || echo "warn: interface ${HA_VIP_INTERFACE} not found" >&2
   fi
 
+  for pair in \
+    "HA_NODE_IP=${HA_NODE_IP}" \
+    "HA_FLEET_A_IP=${HA_FLEET_A_IP}" \
+    "HA_FLEET_B_IP=${HA_FLEET_B_IP}" \
+    "HA_WITNESS_IP=${HA_WITNESS_IP}" \
+    "HA_VIP=${HA_VIP:-}"; do
+    local name="${pair%%=*}"
+    local value="${pair#*=}"
+    if [[ -n "${value}" ]] && is_tailscale_ip "${value}"; then
+      echo "warn: ${name}=${value} looks like a Tailscale/CGNAT address; HA internals should use LAN IPs" >&2
+    fi
+  done
+
+  if ! ip -o -4 addr show scope global | awk '{ sub(/\/.*/, "", $4); print $4 }' | grep -Fxq "${HA_NODE_IP}"; then
+    echo "warn: HA_NODE_IP=${HA_NODE_IP} is not assigned on this host; run './scripts/pi-poc.sh lan-ip ${HA_VIP_INTERFACE:-eth0}' to confirm the LAN IP" >&2
+  fi
+
   check_local_ports no
 
   if command -v docker >/dev/null 2>&1; then
@@ -487,6 +536,7 @@ cmd="${1:-}"
 shift || true
 
 case "${cmd}" in
+  lan-ip) lan_ip "$@" ;;
   configure) configure "$@" ;;
   install-deps) install_deps ;;
   doctor) doctor ;;

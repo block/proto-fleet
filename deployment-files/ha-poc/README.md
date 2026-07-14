@@ -51,12 +51,23 @@ config.
 Pick these values before starting:
 
 ```text
-fleet-a IP: <fleet-a-lan-ip>
-fleet-b IP: <fleet-b-lan-ip>
-witness IP: <witness-lan-ip>
+fleet-a IP: <fleet-a-lan-ip-on-eth0>
+fleet-b IP: <fleet-b-lan-ip-on-eth0>
+witness IP: <witness-lan-ip-on-eth0>
 VIP:        <unused-lan-ip-on-the-same-subnet>
 interface:  eth0
 ```
+
+It is fine to SSH from your laptop to the Pis over Tailscale, but do not put
+Tailscale `100.x` addresses in `.env`. etcd, Patroni, Postgres, and VRRP must
+use the Pis' LAN IPs on the same subnet as the VIP. From each Pi, run:
+
+```bash
+./scripts/pi-poc.sh lan-ip eth0
+```
+
+Use those LAN IPs in the `configure` command below. `configure` rejects
+Tailscale/CGNAT-looking `100.64.0.0/10` addresses for HA internals.
 
 On each Pi, check out the branch and configure the host-local `.env`:
 
@@ -68,9 +79,9 @@ git checkout -B ankitg/poc-active-passive-ha origin/ankitg/poc-active-passive-ha
 cd deployment-files/ha-poc
 
 # Run the matching command on each host:
-HA_POC_PASSWORD='change-me' ./scripts/pi-poc.sh configure fleet-a <fleet-a-lan-ip> <fleet-b-lan-ip> <witness-lan-ip> <vip> eth0
-HA_POC_PASSWORD='change-me' ./scripts/pi-poc.sh configure fleet-b <fleet-a-lan-ip> <fleet-b-lan-ip> <witness-lan-ip> <vip> eth0
-HA_POC_PASSWORD='change-me' ./scripts/pi-poc.sh configure witness <fleet-a-lan-ip> <fleet-b-lan-ip> <witness-lan-ip> <vip> eth0
+HA_POC_PASSWORD='change-me' ./scripts/pi-poc.sh configure fleet-a <fleet-a-lan-ip-on-eth0> <fleet-b-lan-ip-on-eth0> <witness-lan-ip-on-eth0> <vip> eth0
+HA_POC_PASSWORD='change-me' ./scripts/pi-poc.sh configure fleet-b <fleet-a-lan-ip-on-eth0> <fleet-b-lan-ip-on-eth0> <witness-lan-ip-on-eth0> <vip> eth0
+HA_POC_PASSWORD='change-me' ./scripts/pi-poc.sh configure witness <fleet-a-lan-ip-on-eth0> <fleet-b-lan-ip-on-eth0> <witness-lan-ip-on-eth0> <vip> eth0
 
 ./scripts/pi-poc.sh install-deps
 ./scripts/pi-poc.sh doctor
