@@ -6,12 +6,13 @@ import {
   type InfrastructureDevice as ApiInfrastructureDevice,
   CreateInfrastructureDeviceRequestSchema,
   DeleteInfrastructureDeviceRequestSchema,
+  GetInfrastructureDeviceRequestSchema,
   ListInfrastructureDevicesRequestSchema,
   UpdateInfrastructureDeviceRequestSchema,
 } from "@/protoFleet/api/generated/infrastructure/v1/infrastructure_pb";
 import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
 import { getSiteDisplayName } from "@/protoFleet/api/siteNames";
-import type { InfraDeviceItem, InfraDeviceKind } from "@/protoFleet/features/infrastructure/types";
+import type { InfraDeviceItem, InfraDeviceKind, InfraDeviceKindWire } from "@/protoFleet/features/infrastructure/types";
 import { useAuthErrors } from "@/protoFleet/store";
 
 // Create payload with the site already resolved to an ID (the add modal
@@ -27,9 +28,11 @@ export interface InfrastructureDeviceCreate {
 }
 
 // Full-row update; the server requires every field except enabled,
-// which preserves the stored value when omitted.
-export interface InfrastructureDeviceUpdate extends InfrastructureDeviceCreate {
+// which preserves the stored value when omitted. deviceKind is the
+// wire type because updates echo the stored kind back verbatim.
+export interface InfrastructureDeviceUpdate extends Omit<InfrastructureDeviceCreate, "deviceKind"> {
   id: string;
+  deviceKind: InfraDeviceKindWire;
   enabled?: boolean;
 }
 
@@ -52,7 +55,7 @@ function mapApiDevice(device: ApiInfrastructureDevice): InfraDeviceItem {
     siteName: device.siteLabel || getSiteDisplayName(device.siteId),
     buildingName: device.buildingName,
     name: device.name,
-    deviceKind: device.deviceKind === "fan_group" ? "fan_group" : "single_fan",
+    deviceKind: device.deviceKind,
     fanCount: device.fanCount,
     enabled: device.enabled,
     driverType: device.driverType,
@@ -67,20 +70,13 @@ function parseDeviceId(value: string, label: string): bigint {
   return BigInt(value);
 }
 
-function updateRequestFromDevice(device: InfraDeviceItem) {
-  return {
-    id: parseDeviceId(device.id, "device ID"),
-    siteId: parseDeviceId(device.siteId, "site ID"),
-    buildingName: device.buildingName,
-    name: device.name,
-    deviceKind: device.deviceKind,
-    fanCount: device.fanCount,
-    driverType: device.driverType,
-    driverConfig: device.driverConfig,
-  };
-}
-
-export default function useInfrastructureDevices(enabled = true): UseInfrastructureDevicesResult {
+// siteIds scopes the list to specific sites (empty/undefined lists the
+// whole org). Changing the scope triggers a refetch when the hook is
+// enabled.
+export default function useInfrastructureDevices(
+  enabled = true,
+  siteIds?: readonly bigint[],
+): UseInfrastructureDevicesResult {
   const { handleAuthErrors } = useAuthErrors();
   const [apiDevices, setApiDevices] = useState<ApiInfrastructureDevice[]>([]);
   const [isLoading, setIsLoading] = useState(enabled);
@@ -90,6 +86,9 @@ export default function useInfrastructureDevices(enabled = true): UseInfrastruct
   // one's result (e.g. a double-clicked Retry) when responses land
   // out of order.
   const listRequestGenerationRef = useRef(0);
+  // Serialized so a caller passing a fresh array identity with the same
+  // IDs doesn't churn listDevices (and refetch) every render.
+  const siteFilterKey = siteIds?.map((id) => id.toString()).join(",") ?? "";
 
   const devices = useMemo(() => apiDevices.map(mapApiDevice), [apiDevices]);
 
@@ -137,7 +136,9 @@ export default function useInfrastructureDevices(enabled = true): UseInfrastruct
       try {
         assertNotAborted(signal);
         const response = await infrastructureClient.listInfrastructureDevices(
-          create(ListInfrastructureDevicesRequestSchema, {}),
+          create(ListInfrastructureDevicesRequestSchema, {
+            siteIds: siteFilterKey ? siteFilterKey.split(",").map(BigInt) : [],
+          }),
           signal ? { signal } : undefined,
         );
         assertNotAborted(signal);
@@ -163,7 +164,7 @@ export default function useInfrastructureDevices(enabled = true): UseInfrastruct
         }
       }
     },
-    [handleFailure],
+    [handleFailure, siteFilterKey],
   );
 
   useEffect(() => {
@@ -239,17 +240,39 @@ export default function useInfrastructureDevices(enabled = true): UseInfrastruct
     [handleFailure, replaceApiDevice, withUpdatingDevice],
   );
 
-  // The update RPC is a full-row write, so the toggle resends the
-  // device's current fields with the new enabled value. Requires
-  // site:manage (which also means driverConfig arrived unredacted).
+  // The update RPC is a full-row write, but a toggle only intends to
+  // change enabled — so fetch the device's current row first and echo
+  // those fresh fields back with the new enabled value. Replaying the
+  // possibly-stale list snapshot instead could silently revert another
+  // operator's concurrent config edit. (A true concurrency guard needs
+  // server-side versioning; this shrinks the race window to the
+  // Get→Update gap.) Requires site:manage, so the fetched driverConfig
+  // arrives unredacted.
   const setDeviceEnabled = useCallback(
     async (device: InfraDeviceItem, nextEnabled: boolean): Promise<InfraDeviceItem> =>
       withUpdatingDevice(device.id, async () => {
         try {
+          const getResponse = await infrastructureClient.getInfrastructureDevice(
+            create(GetInfrastructureDeviceRequestSchema, {
+              id: parseDeviceId(device.id, "device ID"),
+            }),
+          );
+          const freshDevice = getResponse.device;
+          if (!freshDevice) {
+            throw new Error("Infrastructure device no longer exists.");
+          }
+
           const response = await infrastructureClient.updateInfrastructureDevice(
             create(UpdateInfrastructureDeviceRequestSchema, {
-              ...updateRequestFromDevice(device),
+              id: freshDevice.id,
+              siteId: freshDevice.siteId,
+              buildingName: freshDevice.buildingName,
+              name: freshDevice.name,
+              deviceKind: freshDevice.deviceKind,
+              fanCount: freshDevice.fanCount,
               enabled: nextEnabled,
+              driverType: freshDevice.driverType,
+              driverConfig: freshDevice.driverConfig,
             }),
           );
           if (!response.device) {

@@ -11,12 +11,14 @@ import useInfrastructureDevices from "@/protoFleet/api/useInfrastructureDevices"
 const {
   mockCreateInfrastructureDevice,
   mockDeleteInfrastructureDevice,
+  mockGetInfrastructureDevice,
   mockHandleAuthErrors,
   mockListInfrastructureDevices,
   mockUpdateInfrastructureDevice,
 } = vi.hoisted(() => ({
   mockCreateInfrastructureDevice: vi.fn(),
   mockDeleteInfrastructureDevice: vi.fn(),
+  mockGetInfrastructureDevice: vi.fn(),
   mockHandleAuthErrors: vi.fn(),
   mockListInfrastructureDevices: vi.fn(),
   mockUpdateInfrastructureDevice: vi.fn(),
@@ -26,6 +28,7 @@ vi.mock("@/protoFleet/api/clients", () => ({
   infrastructureClient: {
     createInfrastructureDevice: mockCreateInfrastructureDevice,
     deleteInfrastructureDevice: mockDeleteInfrastructureDevice,
+    getInfrastructureDevice: mockGetInfrastructureDevice,
     listInfrastructureDevices: mockListInfrastructureDevices,
     updateInfrastructureDevice: mockUpdateInfrastructureDevice,
   },
@@ -66,6 +69,7 @@ describe("useInfrastructureDevices", () => {
   beforeEach(() => {
     mockCreateInfrastructureDevice.mockReset();
     mockDeleteInfrastructureDevice.mockReset();
+    mockGetInfrastructureDevice.mockReset();
     mockHandleAuthErrors.mockReset();
     mockListInfrastructureDevices.mockReset();
     mockUpdateInfrastructureDevice.mockReset();
@@ -201,6 +205,50 @@ describe("useInfrastructureDevices", () => {
     expect(result.current.devices).toHaveLength(1);
   });
 
+  it("scopes the list request to the provided site IDs", async () => {
+    mockListInfrastructureDevices.mockResolvedValueOnce({ devices: [apiDevice()] });
+
+    const { result } = renderHook(() => useInfrastructureDevices(false, [8n]));
+
+    await act(async () => {
+      await result.current.listDevices();
+    });
+
+    expect(mockListInfrastructureDevices).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [8n] }), undefined);
+  });
+
+  it("refetches when the site scope changes", async () => {
+    mockListInfrastructureDevices.mockResolvedValue({ devices: [apiDevice()] });
+
+    const { rerender } = renderHook(({ siteIds }: { siteIds: bigint[] }) => useInfrastructureDevices(true, siteIds), {
+      initialProps: { siteIds: [8n] },
+    });
+
+    await waitFor(() => expect(mockListInfrastructureDevices).toHaveBeenCalledTimes(1));
+
+    rerender({ siteIds: [9n] });
+
+    await waitFor(() => expect(mockListInfrastructureDevices).toHaveBeenCalledTimes(2));
+    expect(mockListInfrastructureDevices).toHaveBeenLastCalledWith(
+      expect.objectContaining({ siteIds: [9n] }),
+      expect.anything(),
+    );
+  });
+
+  it("preserves an unknown device kind from the wire instead of coercing it", async () => {
+    mockListInfrastructureDevices.mockResolvedValueOnce({
+      devices: [apiDevice({ deviceKind: "pump_station" })],
+    });
+
+    const { result } = renderHook(() => useInfrastructureDevices(false));
+
+    await act(async () => {
+      await result.current.listDevices();
+    });
+
+    expect(result.current.devices[0].deviceKind).toBe("pump_station");
+  });
+
   it("creates a device and prepends it to the list", async () => {
     mockCreateInfrastructureDevice.mockResolvedValueOnce({ device: apiDevice() });
 
@@ -300,10 +348,22 @@ describe("useInfrastructureDevices", () => {
     expect(sentRequest.enabled).toBeUndefined();
   });
 
-  it("toggles enabled by resending the device's current fields", async () => {
+  it("toggles enabled by echoing the freshly fetched row, not the stale list row", async () => {
     mockListInfrastructureDevices.mockResolvedValueOnce({ devices: [apiDevice()] });
+    // Another operator renamed the device and changed its config after
+    // our list snapshot; the toggle must not revert those edits.
+    const freshConfig = JSON.stringify({
+      endpoint: "10.12.1.99",
+      port: 502,
+      unit_id: 3,
+      register_address: 4001,
+      write_mode: "coil",
+    });
+    mockGetInfrastructureDevice.mockResolvedValueOnce({
+      device: apiDevice({ name: "Renamed by someone else", driverConfig: freshConfig }),
+    });
     mockUpdateInfrastructureDevice.mockResolvedValueOnce({
-      device: apiDevice({ enabled: false }),
+      device: apiDevice({ name: "Renamed by someone else", driverConfig: freshConfig, enabled: false }),
     });
 
     const { result } = renderHook(() => useInfrastructureDevices(false));
@@ -316,24 +376,65 @@ describe("useInfrastructureDevices", () => {
       await result.current.setDeviceEnabled(result.current.devices[0], false);
     });
 
+    expect(mockGetInfrastructureDevice).toHaveBeenCalledWith(expect.objectContaining({ id: 101n }));
     expect(mockUpdateInfrastructureDevice).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 101n,
         siteId: 8n,
         buildingName: "Building 1",
-        name: "Roof exhaust",
+        name: "Renamed by someone else",
         deviceKind: "fan_group",
         fanCount: 12,
         enabled: false,
         driverType: "modbus_tcp",
-        driverConfig,
+        driverConfig: freshConfig,
       }),
     );
     expect(result.current.devices[0].enabled).toBe(false);
   });
 
+  it("fails the toggle when the device no longer exists", async () => {
+    mockListInfrastructureDevices.mockResolvedValueOnce({ devices: [apiDevice()] });
+    mockGetInfrastructureDevice.mockResolvedValueOnce({ device: undefined });
+
+    const { result } = renderHook(() => useInfrastructureDevices(false));
+
+    await act(async () => {
+      await result.current.listDevices();
+    });
+
+    await act(async () => {
+      await expect(result.current.setDeviceEnabled(result.current.devices[0], false)).rejects.toThrow(
+        "Infrastructure device no longer exists.",
+      );
+    });
+
+    expect(mockUpdateInfrastructureDevice).not.toHaveBeenCalled();
+  });
+
+  it("rethrows a toggle failure when the fresh fetch fails", async () => {
+    mockListInfrastructureDevices.mockResolvedValueOnce({ devices: [apiDevice()] });
+    mockGetInfrastructureDevice.mockRejectedValueOnce(new Error("device not found"));
+
+    const { result } = renderHook(() => useInfrastructureDevices(false));
+
+    await act(async () => {
+      await result.current.listDevices();
+    });
+
+    await act(async () => {
+      await expect(result.current.setDeviceEnabled(result.current.devices[0], false)).rejects.toThrow(
+        "device not found",
+      );
+    });
+
+    expect(mockUpdateInfrastructureDevice).not.toHaveBeenCalled();
+    expect(mockHandleAuthErrors).toHaveBeenCalled();
+  });
+
   it("tracks the updating device ID while a mutation is in flight", async () => {
     mockListInfrastructureDevices.mockResolvedValueOnce({ devices: [apiDevice()] });
+    mockGetInfrastructureDevice.mockResolvedValueOnce({ device: apiDevice() });
     let resolveUpdate: (value: unknown) => void = () => {};
     mockUpdateInfrastructureDevice.mockReturnValueOnce(
       new Promise((resolve) => {
