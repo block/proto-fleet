@@ -101,18 +101,36 @@ export default function useInfrastructureDevices(
     [handleAuthErrors],
   );
 
-  const upsertApiDevice = useCallback((device: ApiInfrastructureDevice) => {
-    setApiDevices((currentDevices) => [
-      device,
-      ...currentDevices.filter((currentDevice) => currentDevice.id !== device.id),
-    ]);
-  }, []);
+  // A mutation can return a row outside the active site scope (a create
+  // for another site, or an edit that moves the device). The list RPC
+  // filters those out, so the cache merge must too — otherwise an
+  // out-of-scope device stays visible and actionable in the scoped view
+  // until the next refetch.
+  const isInScope = useCallback(
+    (device: ApiInfrastructureDevice) => !siteFilterKey || siteFilterKey.split(",").includes(device.siteId.toString()),
+    [siteFilterKey],
+  );
 
-  const replaceApiDevice = useCallback((device: ApiInfrastructureDevice) => {
-    setApiDevices((currentDevices) =>
-      currentDevices.map((currentDevice) => (currentDevice.id === device.id ? device : currentDevice)),
-    );
-  }, []);
+  const upsertApiDevice = useCallback(
+    (device: ApiInfrastructureDevice) => {
+      setApiDevices((currentDevices) => {
+        const otherDevices = currentDevices.filter((currentDevice) => currentDevice.id !== device.id);
+        return isInScope(device) ? [device, ...otherDevices] : otherDevices;
+      });
+    },
+    [isInScope],
+  );
+
+  const replaceApiDevice = useCallback(
+    (device: ApiInfrastructureDevice) => {
+      setApiDevices((currentDevices) =>
+        isInScope(device)
+          ? currentDevices.map((currentDevice) => (currentDevice.id === device.id ? device : currentDevice))
+          : currentDevices.filter((currentDevice) => currentDevice.id !== device.id),
+      );
+    },
+    [isInScope],
+  );
 
   const withUpdatingDevice = useCallback(async <T>(deviceId: string, run: () => Promise<T>): Promise<T> => {
     setUpdatingDeviceIds((currentIds) => new Set(currentIds).add(deviceId));

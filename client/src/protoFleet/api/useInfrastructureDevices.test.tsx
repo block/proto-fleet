@@ -235,6 +235,82 @@ describe("useInfrastructureDevices", () => {
     );
   });
 
+  it("drops a created device that falls outside the active site scope", async () => {
+    mockCreateInfrastructureDevice.mockResolvedValueOnce({
+      device: apiDevice({ siteId: 9n, siteLabel: "Denver" }),
+    });
+
+    const { result } = renderHook(() => useInfrastructureDevices(false, [8n]));
+
+    let created: unknown;
+    await act(async () => {
+      created = await result.current.createDevice({
+        siteId: "9",
+        buildingName: "Building 1",
+        name: "Roof exhaust",
+        deviceKind: "fan_group",
+        fanCount: 12,
+        driverType: "modbus_tcp",
+        driverConfig,
+      });
+    });
+
+    // The create succeeds and resolves with the persisted row...
+    expect(created).toMatchObject({ id: "101", siteId: "9" });
+    // ...but the Denver device must not appear in the Austin-scoped list.
+    expect(result.current.devices).toHaveLength(0);
+  });
+
+  it("removes a device from the scoped list when an update moves it out of scope", async () => {
+    mockListInfrastructureDevices.mockResolvedValueOnce({ devices: [apiDevice()] });
+    mockUpdateInfrastructureDevice.mockResolvedValueOnce({
+      device: apiDevice({ siteId: 9n, siteLabel: "Denver" }),
+    });
+
+    const { result } = renderHook(() => useInfrastructureDevices(false, [8n]));
+
+    await act(async () => {
+      await result.current.listDevices();
+    });
+
+    expect(result.current.devices).toHaveLength(1);
+
+    await act(async () => {
+      await result.current.updateDevice({
+        id: "101",
+        siteId: "9",
+        buildingName: "Building 1",
+        name: "Roof exhaust",
+        deviceKind: "fan_group",
+        fanCount: 12,
+        driverType: "modbus_tcp",
+        driverConfig,
+      });
+    });
+
+    expect(result.current.devices).toHaveLength(0);
+  });
+
+  it("keeps an in-scope mutation result in the scoped list", async () => {
+    mockCreateInfrastructureDevice.mockResolvedValueOnce({ device: apiDevice() });
+
+    const { result } = renderHook(() => useInfrastructureDevices(false, [8n]));
+
+    await act(async () => {
+      await result.current.createDevice({
+        siteId: "8",
+        buildingName: "Building 1",
+        name: "Roof exhaust",
+        deviceKind: "fan_group",
+        fanCount: 12,
+        driverType: "modbus_tcp",
+        driverConfig,
+      });
+    });
+
+    expect(result.current.devices).toHaveLength(1);
+  });
+
   it("preserves an unknown device kind from the wire instead of coercing it", async () => {
     mockListInfrastructureDevices.mockResolvedValueOnce({
       devices: [apiDevice({ deviceKind: "pump_station" })],
