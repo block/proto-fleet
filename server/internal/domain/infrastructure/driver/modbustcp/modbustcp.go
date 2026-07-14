@@ -41,10 +41,15 @@ type Config struct {
 	// authentication, so only private, loopback, or link-local
 	// addresses are accepted — mirroring the MQTT subscriber's
 	// plaintext-transport host guard.
-	Endpoint        string `json:"endpoint"`
-	Port            int    `json:"port"`
-	UnitID          int    `json:"unit_id"`
-	RegisterAddress int    `json:"register_address"`
+	Endpoint string `json:"endpoint"`
+	Port     int    `json:"port"`
+	UnitID   int    `json:"unit_id"`
+	// RegisterAddress is a pointer because 0 is a valid raw address
+	// (the RUN/STOP coil) — unlike every other field, the zero value
+	// cannot double as "missing". Without presence tracking, an
+	// omitted or null register_address would silently validate as
+	// register 0 and the write path would command the wrong register.
+	RegisterAddress *int   `json:"register_address"`
 	WriteMode       string `json:"write_mode"`
 }
 
@@ -105,7 +110,10 @@ func (c Config) validate() error {
 	if c.UnitID < minUnitID || c.UnitID > maxUnitID {
 		return fmt.Errorf("unit_id must be between %d and %d", minUnitID, maxUnitID)
 	}
-	if c.RegisterAddress < 0 || c.RegisterAddress > maxRegisterAddress {
+	if c.RegisterAddress == nil {
+		return errors.New("register_address is required")
+	}
+	if *c.RegisterAddress < 0 || *c.RegisterAddress > maxRegisterAddress {
 		return fmt.Errorf("register_address must be between 0 and %d", maxRegisterAddress)
 	}
 	if c.WriteMode != WriteModeCoil && c.WriteMode != WriteModeHoldingRegister {

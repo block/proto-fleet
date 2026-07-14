@@ -36,6 +36,13 @@ func TestValidateConfig_Valid(t *testing.T) {
 		m["write_mode"] = WriteModeCoil
 		m["register_address"] = 1
 	})))
+	// Explicit 0 is a valid raw address (the RUN/STOP coil) and must
+	// stay accepted — presence tracking exists to reject only the
+	// missing/null cases, not the zero value.
+	assert.NoError(t, c.ValidateConfig(validConfigJSON(t, func(m map[string]any) {
+		m["write_mode"] = WriteModeCoil
+		m["register_address"] = 0
+	})))
 	// Private RFC1918 ranges are allowed.
 	for _, endpoint := range []string{"10.0.0.5", "172.16.4.9", "192.168.1.50"} {
 		assert.NoError(t, c.ValidateConfig(validConfigJSON(t, func(m map[string]any) {
@@ -117,6 +124,27 @@ func TestValidateConfig_RejectsMalformedBlob(t *testing.T) {
 	c := Controller{}
 	assert.Error(t, c.ValidateConfig(nil))
 	assert.Error(t, c.ValidateConfig(json.RawMessage(`not json`)))
+}
+
+func TestValidateConfig_RejectsMissingOrNullRegisterAddress(t *testing.T) {
+	// register_address is the one field whose zero value is a real
+	// control target (the RUN/STOP coil at 0), so an omitted or null
+	// value must not silently decode to 0 and validate — the write
+	// path would command register 0 instead of the intended control
+	// word.
+	c := Controller{}
+
+	err := c.ValidateConfig(validConfigJSON(t, func(m map[string]any) {
+		delete(m, "register_address")
+	}))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "register_address is required")
+
+	err = c.ValidateConfig(validConfigJSON(t, func(m map[string]any) {
+		m["register_address"] = nil
+	}))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "register_address is required")
 }
 
 func TestValidateConfig_DecodeErrorsDoNotEchoValues(t *testing.T) {
