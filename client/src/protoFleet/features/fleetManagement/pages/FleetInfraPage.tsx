@@ -63,10 +63,14 @@ const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetI
   // A scoped page must not create devices under (or move devices to)
   // another site: the forms only offer in-scope sites, and resolveSiteId
   // enforces the same boundary for anything that slips past the picker.
-  const scopedSiteIdSet = useMemo(
-    () => (scopeFilter.siteIds.length > 0 ? new Set(scopeFilter.siteIds.map(String)) : null),
-    [scopeFilter],
-  );
+  // The unassigned scope matches no site at all (infra devices are
+  // always site-assigned), so writes are match-none there — otherwise a
+  // create from that empty view would land under some site and
+  // immediately vanish. null means unscoped (full catalog).
+  const scopedSiteIdSet = useMemo(() => {
+    if (scopeFilter.includeUnassigned) return new Set<string>();
+    return scopeFilter.siteIds.length > 0 ? new Set(scopeFilter.siteIds.map(String)) : null;
+  }, [scopeFilter]);
   const catalogSiteOptions = useMemo(() => {
     if (!sites) return undefined;
     const inScopeSites = scopedSiteIdSet
@@ -195,6 +199,11 @@ const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetI
     return <Navigate to="/fleet" replace />;
   }
 
+  // The unassigned scope can't contain infra devices, so hide the
+  // management surface there (its only visible control would be an
+  // Add device button whose result could never render in this view).
+  const canManageInScope = canManageInfrastructure && !isUnassignedScope;
+
   return (
     <InfraDeviceList
       // The hook keeps its last result while disabled, so the unassigned
@@ -203,7 +212,7 @@ const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetI
       isLoading={hasDevicesOverride ? false : isLoading}
       loadError={hasDevicesOverride || isUnassignedScope ? null : loadError}
       onRetry={handleRetry}
-      canManage={canManageInfrastructure}
+      canManage={canManageInScope}
       siteOptions={catalogSiteOptions}
       buildingOptions={catalogBuildingOptions}
       initialSiteName={selectedSiteName}

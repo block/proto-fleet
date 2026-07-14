@@ -238,6 +238,45 @@ describe("FleetInfraPage", () => {
     expect(createDevice).not.toHaveBeenCalled();
   });
 
+  test("hides device creation and offers no sites in the unassigned scope", () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+    useActiveSiteMock.mockReturnValue({
+      activeSite: { kind: "unassigned" },
+      setActiveSite: vi.fn(),
+    });
+
+    renderPage({ devices: undefined }, fleetContext);
+
+    expect(screen.queryByRole("button", { name: "Add device" })).not.toBeInTheDocument();
+    expect(lastInfraDeviceListProps().siteOptions).toEqual([]);
+  });
+
+  test("rejects a create in the unassigned scope", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+    useActiveSiteMock.mockReturnValue({
+      activeSite: { kind: "unassigned" },
+      setActiveSite: vi.fn(),
+    });
+    const createDevice = vi.fn();
+    useInfrastructureDevicesMock.mockReturnValue(buildHookResult({ createDevice }));
+
+    renderPage({ devices: undefined }, fleetContext);
+
+    await expect(
+      lastInfraDeviceListProps().onCreateDevice!({
+        siteName: "Austin",
+        buildingName: "Building 1",
+        name: "Roof exhaust",
+        deviceKind: "fan_group",
+        fanCount: 12,
+        driverType: "modbus_tcp",
+        driverConfig: device.driverConfig,
+      }),
+    ).rejects.toThrow("Select a site within the current site scope.");
+
+    expect(createDevice).not.toHaveBeenCalled();
+  });
+
   test("renders an empty list for the unassigned scope without fetching", () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
     useActiveSiteMock.mockReturnValue({
