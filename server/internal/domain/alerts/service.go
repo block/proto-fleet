@@ -551,7 +551,7 @@ func (s *Service) ResumeRule(ctx context.Context, orgID int64, id string) (*Rule
 	if err != nil {
 		return nil, err
 	}
-	if err := s.removePauseSilences(ctx, orgID, id); err != nil {
+	if err := s.removeSilencesTargetingRule(ctx, orgID, id, isPauseSilence); err != nil {
 		return nil, err
 	}
 	updated, err := s.requireRule(ctx, orgID, id)
@@ -561,14 +561,17 @@ func (s *Service) ResumeRule(ctx context.Context, orgID int64, id string) (*Rule
 	return updated, nil
 }
 
-func (s *Service) removePauseSilences(ctx context.Context, orgID int64, id string) error {
+// removeSilencesTargetingRule deletes the org's non-expired silences pinned to
+// the rule that also satisfy match (e.g. pause-only for resume, pause-or-
+// maintenance-window for rule deletion).
+func (s *Service) removeSilencesTargetingRule(ctx context.Context, orgID int64, id string, match func(GrafanaSilence) bool) error {
 	want := strconv.FormatInt(orgID, 10)
 	sils, err := s.grafana.ListSilences(ctx)
 	if err != nil {
 		return err
 	}
 	for _, sil := range sils {
-		if !isPauseSilenceFor(sil, want, id) {
+		if !match(sil) || !silenceMatchesOrg(sil, want) || !silenceTargetsRule(sil, id) {
 			continue
 		}
 		if sil.Status != nil && sil.Status.State == "expired" {

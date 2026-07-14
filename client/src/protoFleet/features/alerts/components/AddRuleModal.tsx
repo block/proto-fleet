@@ -35,6 +35,9 @@ const TEMPERATURE_UNIT_OPTIONS: { value: TemperatureFieldUnit; label: string }[]
   { value: "°F", label: "°F" },
 ];
 
+// The threshold unit select shows hashrate units or temperature units depending on template.
+type ThresholdUnit = HashrateFieldUnit | TemperatureFieldUnit;
+
 const DURATION_UNIT_OPTIONS = [
   { value: "seconds", label: "seconds" },
   { value: "minutes", label: "minutes" },
@@ -45,6 +48,10 @@ const UNIT_TO_SECONDS: Record<string, number> = { seconds: 1, minutes: 60, hours
 
 // Grafana caps alert-rule titles at 190 characters (mirrored server-side).
 const MAX_NAME_LENGTH = 190;
+
+// Server-side threshold bounds (validateRuleConfig); °F copy derives from these.
+const MIN_CELSIUS = 0;
+const MAX_CELSIUS = 150;
 
 const DEFAULT_DURATION: Record<UserRuleTemplate, number> = { offline: 1800, hashrate: 1200, temperature: 1200 };
 const DEFAULT_AMOUNT: Record<UserRuleTemplate, string> = { offline: "", hashrate: "75", temperature: "70" };
@@ -78,17 +85,19 @@ const describeDuration = (seconds: number): string => {
   return amount === "1" ? `1 ${singular}` : `${amount} ${unit}`;
 };
 
+// Phrased like the server's compiled rule summaries (compileTemplate), so the
+// preview reads the same as the saved rule's Condition column.
 const triggerSummary = (template: UserRuleTemplate, amount: string, unit: string, durationSeconds: number): string => {
   const dur = describeDuration(durationSeconds);
   switch (template) {
     case "offline":
-      return `Alerts when a miner is offline for more than ${dur}.`;
+      return `Device is offline for at least ${dur}.`;
     case "hashrate":
       return unit === "%"
-        ? `Alerts when a miner hashes below ${amount || "…"}% of its expected rate for more than ${dur}.`
-        : `Alerts when a miner hashes below ${amount || "…"} ${unit} for more than ${dur}.`;
+        ? `Device hashrate is below ${amount || "…"}% of expected for at least ${dur}.`
+        : `Device hashrate is below ${amount || "…"} ${unit} for at least ${dur}.`;
     case "temperature":
-      return `Alerts when a miner's max sensor temperature stays above ${amount || "…"}${unit} for more than ${dur}.`;
+      return `Max sensor temperature for device is above ${amount || "…"}${unit} for at least ${dur}.`;
   }
 };
 
@@ -97,6 +106,50 @@ const Row = ({ label, children }: { label: string; children: ReactNode }) => (
     <div className="text-300 text-text-primary">{label}</div>
     {children}
   </div>
+);
+
+interface AmountUnitRowProps {
+  rowLabel: string;
+  idPrefix: string;
+  amountLabel: string;
+  unitLabel: string;
+  amount: string;
+  onAmountChange: (value: string) => void;
+  unitOptions: { value: string; label: string }[];
+  unit: string;
+  onUnitChange: (value: string) => void;
+}
+
+const AmountUnitRow = ({
+  rowLabel,
+  idPrefix,
+  amountLabel,
+  unitLabel,
+  amount,
+  onAmountChange,
+  unitOptions,
+  unit,
+  onUnitChange,
+}: AmountUnitRowProps) => (
+  <Row label={rowLabel}>
+    <div className="grid grid-cols-2 gap-4">
+      <Input
+        id={`${idPrefix}-amount`}
+        label={amountLabel}
+        initValue={amount}
+        inputMode="decimal"
+        onChange={onAmountChange}
+      />
+      <Select
+        id={`${idPrefix}-unit`}
+        label={unitLabel}
+        options={unitOptions}
+        value={unit}
+        forceBelow
+        onChange={onUnitChange}
+      />
+    </div>
+  </Row>
 );
 
 interface AddRuleModalProps {
@@ -114,8 +167,7 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
   const [template, setTemplate] = useState<UserRuleTemplate>("offline");
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
-  const [hashrateUnit, setHashrateUnit] = useState<HashrateFieldUnit>("%");
-  const [temperatureUnit, setTemperatureUnit] = useState<TemperatureFieldUnit>("°C");
+  const [unit, setUnit] = useState<ThresholdUnit>("%");
   // Duration is raw text + unit; deriving them from parsed seconds would
   // rewrite the field (and flip the unit) under the user's cursor.
   const [durationAmount, setDurationAmount] = useState("30");
@@ -135,13 +187,10 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
     setSyncedFor(syncKey);
     if (open) {
       const cfg = editingRule?.config;
-      setTemperatureUnit(preferredTemperatureUnit);
       if (cfg?.hashrate) {
         setTemplate("hashrate");
         setAmount(String(cfg.hashrate.value));
-        setHashrateUnit(
-          cfg.hashrate.mode === "absolute" ? (`${cfg.hashrate.unit ?? "TH"}/s` as HashrateFieldUnit) : "%",
-        );
+        setUnit(cfg.hashrate.mode === "absolute" ? (`${cfg.hashrate.unit ?? "TH"}/s` as HashrateFieldUnit) : "%");
       } else if (cfg?.temperature) {
         setTemplate("temperature");
         // Stored value is Celsius; present it in the preferred unit.
@@ -152,9 +201,11 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
               : cfg.temperature.max_celsius,
           ),
         );
+        setUnit(preferredTemperatureUnit);
       } else {
         setTemplate("offline");
         setAmount(DEFAULT_AMOUNT.offline);
+        setUnit("%");
       }
       setName(cfg?.name ?? editingRule?.name ?? "");
       setDurationSeconds(cfg?.duration_seconds ?? editingRule?.duration_seconds ?? DEFAULT_DURATION.offline);
@@ -168,8 +219,7 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
   const handleTemplateChange = (next: UserRuleTemplate) => {
     setTemplate(next);
     setAmount(DEFAULT_AMOUNT[next]);
-    setHashrateUnit("%");
-    setTemperatureUnit(preferredTemperatureUnit);
+    setUnit(next === "temperature" ? preferredTemperatureUnit : "%");
     setDurationSeconds(DEFAULT_DURATION[next]);
     clearError();
   };
@@ -193,7 +243,7 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
     const value = strictNumber(amount);
     if (template === "hashrate") {
       if (!Number.isFinite(value) || value <= 0) return fail("Enter a threshold greater than 0");
-      if (hashrateUnit === "%") {
+      if (unit === "%") {
         if (value > 100) return fail("Percent of expected must be at most 100");
         return { ...base, hashrate: { mode: "pct_expected" as const, value } };
       }
@@ -202,17 +252,17 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
         hashrate: {
           mode: "absolute" as const,
           value,
-          unit: hashrateUnit === "PH/s" ? ("PH" as const) : ("TH" as const),
+          unit: unit === "PH/s" ? ("PH" as const) : ("TH" as const),
         },
       };
     }
     if (!Number.isFinite(value)) return fail("Enter a temperature threshold");
-    const celsius = temperatureUnit === "°F" ? convertFtoC(value) : value;
-    if (celsius <= 0 || celsius > 150) {
+    const celsius = unit === "°F" ? convertFtoC(value) : value;
+    if (celsius <= MIN_CELSIUS || celsius > MAX_CELSIUS) {
       return fail(
-        temperatureUnit === "°F"
-          ? "Temperature must be greater than 32 and at most 302 °F"
-          : "Temperature must be greater than 0 and at most 150 °C",
+        unit === "°F"
+          ? `Temperature must be greater than ${convertCtoF(MIN_CELSIUS)} and at most ${convertCtoF(MAX_CELSIUS)} °F`
+          : `Temperature must be greater than ${MIN_CELSIUS} and at most ${MAX_CELSIUS} °C`,
       );
     }
     return { ...base, temperature: { max_celsius: round2(celsius) } };
@@ -237,12 +287,7 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
     }
   };
 
-  const summary = triggerSummary(
-    template,
-    amount,
-    template === "temperature" ? temperatureUnit : hashrateUnit,
-    durationSeconds,
-  );
+  const summary = triggerSummary(template, amount, unit, durationSeconds);
 
   return (
     <Modal
@@ -286,87 +331,43 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
           />
         </div>
 
-        {template === "hashrate" ? (
-          <Row label="drops below">
-            <div className="grid grid-cols-2 gap-4">
-              <Input
-                id="rule-hashrate-amount"
-                label="Amount"
-                initValue={amount}
-                inputMode="decimal"
-                onChange={(value) => {
-                  setAmount(value);
-                  clearError();
-                }}
-              />
-              <Select
-                id="rule-hashrate-unit"
-                label="Unit"
-                options={HASHRATE_UNIT_OPTIONS}
-                value={hashrateUnit}
-                forceBelow
-                onChange={(value) => {
-                  setHashrateUnit(value as HashrateFieldUnit);
-                  clearError();
-                }}
-              />
-            </div>
-          </Row>
+        {template !== "offline" ? (
+          <AmountUnitRow
+            rowLabel={template === "hashrate" ? "drops below" : "rises above"}
+            idPrefix={`rule-${template}`}
+            amountLabel="Amount"
+            unitLabel="Unit"
+            amount={amount}
+            onAmountChange={(value) => {
+              setAmount(value);
+              clearError();
+            }}
+            unitOptions={template === "hashrate" ? HASHRATE_UNIT_OPTIONS : TEMPERATURE_UNIT_OPTIONS}
+            unit={unit}
+            onUnitChange={(value) => {
+              setUnit(value as ThresholdUnit);
+              clearError();
+            }}
+          />
         ) : null}
 
-        {template === "temperature" ? (
-          <Row label="rises above">
-            <div className="grid grid-cols-2 gap-4">
-              <Input
-                id="rule-temperature-amount"
-                label="Amount"
-                initValue={amount}
-                inputMode="decimal"
-                onChange={(value) => {
-                  setAmount(value);
-                  clearError();
-                }}
-              />
-              <Select
-                id="rule-temperature-unit"
-                label="Unit"
-                options={TEMPERATURE_UNIT_OPTIONS}
-                value={temperatureUnit}
-                forceBelow
-                onChange={(value) => {
-                  setTemperatureUnit(value as TemperatureFieldUnit);
-                  clearError();
-                }}
-              />
-            </div>
-          </Row>
-        ) : null}
-
-        <Row label="for longer than">
-          <div className="grid grid-cols-2 gap-4">
-            <Input
-              id="rule-duration-amount"
-              label="Duration"
-              initValue={durationAmount}
-              inputMode="decimal"
-              onChange={(value) => {
-                setDurationAmount(value);
-                clearError();
-              }}
-            />
-            <Select
-              id="rule-duration-unit"
-              label="Duration unit"
-              options={DURATION_UNIT_OPTIONS}
-              value={durationUnit}
-              forceBelow
-              onChange={(value) => {
-                setDurationUnit(value);
-                clearError();
-              }}
-            />
-          </div>
-        </Row>
+        <AmountUnitRow
+          rowLabel="for longer than"
+          idPrefix="rule-duration"
+          amountLabel="Duration"
+          unitLabel="Duration unit"
+          amount={durationAmount}
+          onAmountChange={(value) => {
+            setDurationAmount(value);
+            clearError();
+          }}
+          unitOptions={DURATION_UNIT_OPTIONS}
+          unit={durationUnit}
+          onUnitChange={(value) => {
+            setDurationUnit(value);
+            clearError();
+          }}
+        />
 
         <p className="text-300 text-text-primary-50">{summary}</p>
       </div>

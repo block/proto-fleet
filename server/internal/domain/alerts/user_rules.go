@@ -58,7 +58,40 @@ func (s *Service) CreateRule(ctx context.Context, orgID int64, cfg RuleConfig) (
 	if err := validateRuleConfig(cfg); err != nil {
 		return nil, err
 	}
-	// Serializes the quota read-then-create so concurrent creates can't exceed the cap.
+	folderUID := userRuleOrgSlug(orgID)
+	if err := s.grafana.EnsureFolder(ctx, folderUID, fmt.Sprintf("Proto Fleet User Rules (org %d)", orgID)); err != nil {
+		return nil, err
+	}
+	uid, err := newUserRuleUID()
+	if err != nil {
+		return nil, err
+	}
+	body, err := compileUserRule(orgID, uid, cfg)
+	if err != nil {
+		return nil, err
+	}
+	created, err := s.createRuleWithinQuota(ctx, orgID, body)
+	if err != nil {
+		return nil, err
+	}
+	// Pin the fresh per-rule group's evaluation interval. Best-effort: a
+	// default-interval group still evaluates; `for` carries the sustain semantics.
+	group := GrafanaRuleGroup{
+		Title:     created.RuleGroup,
+		FolderUID: folderUID,
+		Interval:  userRuleGroupInterval,
+		Rules:     []GrafanaAlertRule{*created},
+	}
+	if err := s.grafana.SetRuleGroup(ctx, group); err != nil {
+		slog.Warn("alerts.user_rule_group_interval", "org_id", orgID, "error", err)
+	}
+	out := grafanaRuleToDomain(orgID, *created)
+	return &out, nil
+}
+
+// createRuleWithinQuota serializes the quota read-then-create — the only
+// section where concurrent creates could exceed the cap.
+func (s *Service) createRuleWithinQuota(ctx context.Context, orgID int64, body GrafanaAlertRule) (*GrafanaAlertRule, error) {
 	s.userRuleMu.Lock()
 	defer s.userRuleMu.Unlock()
 	existing, err := s.grafana.ListAlertRules(ctx)
@@ -75,29 +108,7 @@ func (s *Service) CreateRule(ctx context.Context, orgID int64, cfg RuleConfig) (
 	if userCount >= maxUserRulesPerOrg {
 		return nil, fleeterror.NewFailedPreconditionErrorf("rule limit reached (%d); delete a rule first", maxUserRulesPerOrg)
 	}
-	folderUID := userRuleOrgSlug(orgID)
-	if err := s.grafana.EnsureFolder(ctx, folderUID, fmt.Sprintf("Proto Fleet User Rules (org %d)", orgID)); err != nil {
-		return nil, err
-	}
-	uid, err := newUserRuleUID()
-	if err != nil {
-		return nil, err
-	}
-	body, err := compileUserRule(orgID, uid, cfg)
-	if err != nil {
-		return nil, err
-	}
-	created, err := s.grafana.CreateAlertRule(ctx, body)
-	if err != nil {
-		return nil, err
-	}
-	// Safe read-modify-write: the group holds only the rule just created.
-	// Best-effort: a default-interval group still evaluates; `for` carries the sustain semantics.
-	if err := s.grafana.SetRuleGroupInterval(ctx, folderUID, created.RuleGroup, userRuleGroupInterval); err != nil {
-		slog.Warn("alerts.user_rule_group_interval", "org_id", orgID, "error", err)
-	}
-	out := grafanaRuleToDomain(orgID, *created)
-	return &out, nil
+	return s.grafana.CreateAlertRule(ctx, body)
 }
 
 func (s *Service) UpdateRule(ctx context.Context, orgID int64, id string, cfg RuleConfig) (*Rule, error) {
@@ -144,37 +155,13 @@ func (s *Service) DeleteRule(ctx context.Context, orgID int64, id string) error 
 	if err := s.grafana.DeleteAlertRule(ctx, id); err != nil && !IsNotFound(err) {
 		return err
 	}
-	// Leftover silences are inert once the rule is gone; don't fail the delete over them.
-	if err := s.removeRuleSilences(ctx, orgID, id); err != nil {
-		slog.Warn("alerts.user_rule_delete_silence_cleanup", "org_id", orgID, "rule_id", id, "error", err)
-	}
-	return nil
-}
-
-// removeRuleSilences clears the rule's pause silences and rule-scoped
-// maintenance windows so a deleted rule leaves no orphaned mutes behind.
-func (s *Service) removeRuleSilences(ctx context.Context, orgID int64, id string) error {
-	want := strconv.FormatInt(orgID, 10)
-	sils, err := s.grafana.ListSilences(ctx)
+	// Pause silences and rule-scoped maintenance windows are inert once the
+	// rule is gone; clean them up, but don't fail the delete over them.
+	err := s.removeSilencesTargetingRule(ctx, orgID, id, func(sil GrafanaSilence) bool {
+		return isPauseSilence(sil) || isMaintenanceWindowSilence(sil)
+	})
 	if err != nil {
-		return err
-	}
-	for _, sil := range sils {
-		if !silenceMatchesOrg(sil, want) {
-			continue
-		}
-		if !isPauseSilence(sil) && !isMaintenanceWindowSilence(sil) {
-			continue
-		}
-		if !silenceTargetsRule(sil, id) {
-			continue
-		}
-		if sil.Status != nil && sil.Status.State == "expired" {
-			continue
-		}
-		if err := s.grafana.DeleteSilence(ctx, sil.ID); err != nil && !IsNotFound(err) {
-			return err
-		}
+		slog.Warn("alerts.user_rule_delete_silence_cleanup", "org_id", orgID, "rule_id", id, "error", err)
 	}
 	return nil
 }

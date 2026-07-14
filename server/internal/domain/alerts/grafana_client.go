@@ -128,19 +128,13 @@ type GrafanaRuleGroup struct {
 	Rules     []GrafanaAlertRule `json:"rules"`
 }
 
-// SetRuleGroupInterval pins a group's evaluation interval; groups born via rule POSTs get Grafana's default otherwise.
-func (g *Grafana) SetRuleGroupInterval(ctx context.Context, folderUID, group string, intervalSeconds int64) error {
-	path := "/api/v1/provisioning/folder/" + folderUID + "/rule-groups/" + group
-	var got GrafanaRuleGroup
-	if err := g.do(ctx, http.MethodGet, path, nil, &got); err != nil {
-		return fmt.Errorf("get rule group: %w", err)
-	}
-	if got.Interval == intervalSeconds {
-		return nil
-	}
-	got.Interval = intervalSeconds
-	if err := g.do(ctx, http.MethodPut, path, got, nil); err != nil {
-		return fmt.Errorf("set rule group interval: %w", err)
+// SetRuleGroup replaces the group's whole definition (Grafana's PUT semantics),
+// so callers must supply the group's full rule list — trivial for user rules,
+// which are one-per-group.
+func (g *Grafana) SetRuleGroup(ctx context.Context, group GrafanaRuleGroup) error {
+	path := "/api/v1/provisioning/folder/" + group.FolderUID + "/rule-groups/" + group.Title
+	if err := g.do(ctx, http.MethodPut, path, group, nil); err != nil {
+		return fmt.Errorf("set rule group: %w", err)
 	}
 	return nil
 }

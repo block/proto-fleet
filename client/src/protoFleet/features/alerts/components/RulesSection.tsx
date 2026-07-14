@@ -25,6 +25,9 @@ const colTitles: ColTitles<RuleColumns> = {
 
 const activeCols: RuleColumns[] = ["name", "condition", "status"];
 
+// Borderless cells with a right-aligned action kebab, per the alerts design.
+const rulesTableClassName = "mb-6 [&_td]:!border-x-0 [&_th]:!border-x-0 [&_td[data-testid='action']>div]:!ml-auto";
+
 const formatRuleCondition = (rule: Rule): string => {
   if (rule.summary) return rule.summary;
   if (rule.duration_seconds > 0) return `fires after ${rule.duration_seconds}s`;
@@ -189,15 +192,20 @@ const RulesSection = () => {
         width: "w-96",
       },
       status: {
-        component: (rule) => (
-          <StatusDot dotClass={rule.enabled ? "bg-intent-success-fill" : "bg-text-primary-30"}>
-            {rule.enabled ? "Active" : "Paused"}
-          </StatusDot>
-        ),
+        component: (rule) => {
+          if (!rule.enabled) {
+            return <StatusDot dotClass="bg-text-primary-30">Paused</StatusDot>;
+          }
+          // An active maintenance window suppresses the rule even while enabled.
+          if (activeMaintenanceWindowIdsByRule.has(rule.id)) {
+            return <StatusDot dotClass="bg-intent-warning-fill">Muted</StatusDot>;
+          }
+          return <StatusDot dotClass="bg-intent-success-fill">Active</StatusDot>;
+        },
         width: "w-80",
       },
     }),
-    [],
+    [activeMaintenanceWindowIdsByRule],
   );
 
   return (
@@ -230,9 +238,7 @@ const RulesSection = () => {
         activeCols={activeCols}
         colTitles={colTitles}
         colConfig={colConfig}
-        total={sortedRules.length}
         hideTotal
-        itemName={{ singular: "rule", plural: "rules" }}
         noDataElement={
           <div className="py-10 text-center text-text-primary-50">
             {canManage
@@ -242,7 +248,7 @@ const RulesSection = () => {
         }
         actions={canManage ? actions : []}
         applyColumnWidthsToCells
-        tableClassName="mb-6 [&_td]:!border-x-0 [&_th]:!border-x-0 [&_td[data-testid='action']>div]:!ml-auto"
+        tableClassName={rulesTableClassName}
       />
 
       <AddMaintenanceWindowModal

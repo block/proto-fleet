@@ -178,6 +178,20 @@ const ruleConfigFromProto = (c: ProtoRuleConfig): RuleConfig => {
   return out;
 };
 
+const hashrateModeToProto = (m: HashrateMode): ProtoHashrateMode =>
+  m === "absolute" ? ProtoHashrateMode.ABSOLUTE : ProtoHashrateMode.PCT_EXPECTED;
+
+const hashrateUnitToProto = (u: HashrateUnit | undefined): ProtoHashrateUnit => {
+  switch (u) {
+    case "TH":
+      return ProtoHashrateUnit.TERAHASH;
+    case "PH":
+      return ProtoHashrateUnit.PETAHASH;
+    default:
+      return ProtoHashrateUnit.UNSPECIFIED;
+  }
+};
+
 const ruleConfigToProto = (c: RuleConfig): ProtoRuleConfig => {
   const base = { name: c.name, durationSeconds: c.duration_seconds };
   if (c.hashrate) {
@@ -186,14 +200,9 @@ const ruleConfigToProto = (c: RuleConfig): ProtoRuleConfig => {
       templateConfig: {
         case: "hashrate",
         value: {
-          mode: c.hashrate.mode === "absolute" ? ProtoHashrateMode.ABSOLUTE : ProtoHashrateMode.PCT_EXPECTED,
+          mode: hashrateModeToProto(c.hashrate.mode),
           value: c.hashrate.value,
-          unit:
-            c.hashrate.unit === "PH"
-              ? ProtoHashrateUnit.PETAHASH
-              : c.hashrate.unit === "TH"
-                ? ProtoHashrateUnit.TERAHASH
-                : ProtoHashrateUnit.UNSPECIFIED,
+          unit: hashrateUnitToProto(c.hashrate.unit),
         },
       },
     });

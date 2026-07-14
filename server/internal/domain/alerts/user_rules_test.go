@@ -268,7 +268,7 @@ type fakeGrafanaRules struct {
 	updated         *GrafanaAlertRule
 	deletedUID      string
 	folderEnsured   bool
-	groupInterval   int64
+	putGroup        *GrafanaRuleGroup
 	deletedSilences []string
 	silences        []GrafanaSilence
 }
@@ -321,13 +321,10 @@ func (f *fakeGrafanaRules) server(t *testing.T) *Grafana {
 		f.folderEnsured = true
 		writeJSON(w, folder)
 	})
-	mux.HandleFunc("GET /api/v1/provisioning/folder/{uid}/rule-groups/{group}", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, GrafanaRuleGroup{Title: r.PathValue("group"), FolderUID: r.PathValue("uid"), Interval: 60})
-	})
 	mux.HandleFunc("PUT /api/v1/provisioning/folder/{uid}/rule-groups/{group}", func(w http.ResponseWriter, r *http.Request) {
 		var group GrafanaRuleGroup
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&group))
-		f.groupInterval = group.Interval
+		f.putGroup = &group
 		writeJSON(w, group)
 	})
 	mux.HandleFunc("GET /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {
@@ -368,7 +365,12 @@ func TestCreateRule(t *testing.T) {
 	assert.Equal(t, "proto-fleet-user-7", fake.created.FolderUID)
 	assert.Equal(t, fake.created.UID, fake.created.RuleGroup)
 	assert.True(t, fake.folderEnsured)
-	assert.Equal(t, userRuleGroupInterval, fake.groupInterval)
+	// The interval pin PUT must carry the group's full contents: the one new rule.
+	require.NotNil(t, fake.putGroup)
+	assert.Equal(t, userRuleGroupInterval, fake.putGroup.Interval)
+	assert.Equal(t, fake.created.RuleGroup, fake.putGroup.Title)
+	require.Len(t, fake.putGroup.Rules, 1)
+	assert.Equal(t, fake.created.UID, fake.putGroup.Rules[0].UID)
 
 	assert.Equal(t, "Offline too long", rule.Name)
 	assert.Equal(t, RuleOriginUser, rule.Origin)
