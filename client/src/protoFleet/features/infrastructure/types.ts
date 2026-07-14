@@ -1,5 +1,12 @@
 export type InfraDeviceKind = "single_fan" | "fan_group";
 
+// Device kind as carried on the wire. Known kinds keep literal-type
+// support, but a kind from a newer server is preserved verbatim rather
+// than silently normalized to a known kind — a save that echoes an
+// unknown kind fails loudly against the server's device_kind
+// validation instead of corrupting the row.
+export type InfraDeviceKindWire = InfraDeviceKind | (string & {});
+
 // UI projection of infrastructure.v1.InfrastructureDevice. driverConfig
 // is the opaque JSON blob owned by the driver adapter; it is empty for
 // site:read-only callers (the server redacts OT connection details), so
@@ -10,7 +17,7 @@ export interface InfraDeviceItem {
   siteName: string;
   buildingName: string;
   name: string;
-  deviceKind: InfraDeviceKind;
+  deviceKind: InfraDeviceKindWire;
   fanCount: number;
   enabled: boolean;
   driverType: string;
@@ -39,8 +46,11 @@ export interface InfraDeviceDraft {
 // server treats every field except enabled as required). enabled is
 // omitted unless the operator actually touched the switch in this
 // modal session, so the server preserves the stored value instead of
-// resending a possibly-stale snapshot.
-export interface InfraDeviceUpdate extends InfraDeviceDraft {
+// resending a possibly-stale snapshot. deviceKind is the wire type
+// because updates echo the stored kind back, which may be unknown to
+// this client build.
+export interface InfraDeviceUpdate extends Omit<InfraDeviceDraft, "deviceKind"> {
   id: string;
+  deviceKind: InfraDeviceKindWire;
   enabled?: boolean;
 }
