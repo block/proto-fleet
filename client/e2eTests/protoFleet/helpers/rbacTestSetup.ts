@@ -2,7 +2,7 @@ import { type Browser, type Page, type TestInfo } from "@playwright/test";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { testConfig } from "../config/test.config";
+import { DEFAULT_TIMEOUT, testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { AlertsPage } from "../pages/alerts";
 import { AuthPage } from "../pages/auth";
@@ -36,6 +36,18 @@ export const RBAC_CURTAILMENT_PROFILE_PREFIX = "rbac_curtailment_profile";
 export const RBAC_CURTAILMENT_SOURCE_PREFIX = "rbac_curtailment_source";
 export const RBAC_CURTAILMENT_REASON_PREFIX = "rbac_curtailment_reason";
 export const RBAC_RACK_ZONE = "RbacZone";
+const SHORT_HOOK_TIMEOUT = DEFAULT_TIMEOUT / 6;
+
+type RbacCleanupTarget = "alerts" | "curtailment" | "infrastructure" | "pools" | "schedules" | "team";
+
+const DEFAULT_RBAC_CLEANUP_TARGETS: RbacCleanupTarget[] = [
+  "curtailment",
+  "schedules",
+  "alerts",
+  "pools",
+  "infrastructure",
+  "team",
+];
 
 type PersistedAdminStorageState = Exclude<
   NonNullable<Parameters<Browser["newContext"]>[0]>["storageState"],
@@ -97,14 +109,14 @@ type CleanupPages = {
   settingsTeamPage: SettingsTeamPage;
 };
 
-export function useRbacHooks() {
+export function useRbacHooks(cleanupTargets: RbacCleanupTarget[] = DEFAULT_RBAC_CLEANUP_TARGETS) {
   test.beforeEach(async ({ page }) => {
     await installAllSitesInitScript(page);
     await page.goto("/");
   });
 
   test.afterEach("CLEANUP: delete RBAC fixtures", async ({ browser }, testInfo) => {
-    await cleanupRbacArtifacts(browser, testInfo);
+    await cleanupRbacArtifacts(browser, testInfo, cleanupTargets);
   });
 }
 
@@ -298,7 +310,7 @@ export async function ensureVisibleRigMinersAwake(minersPage: MinersPage) {
   await minersPage.filterRigMiners();
 
   if (await minersPage.hasAnyMinerWithStatus("Waking")) {
-    await minersPage.validateNoMinerWithStatus("Waking");
+    await minersPage.validateNoMinerWithStatus("Waking", SHORT_HOOK_TIMEOUT);
   }
 
   while (await minersPage.hasAnyMinerWithStatus("Sleeping")) {
@@ -309,8 +321,8 @@ export async function ensureVisibleRigMinersAwake(minersPage: MinersPage) {
     await minersPage.validateMinerStatusSettled(sleepingMinerIp, "Hashing");
   }
 
-  await minersPage.validateNoMinerWithStatus("Sleeping");
-  await minersPage.validateNoMinerWithStatus("Waking");
+  await minersPage.validateNoMinerWithStatus("Sleeping", SHORT_HOOK_TIMEOUT);
+  await minersPage.validateNoMinerWithStatus("Waking", SHORT_HOOK_TIMEOUT);
 }
 
 export async function createCurtailment(energyPage: EnergyPage, reason: string) {
@@ -363,7 +375,9 @@ export async function invokeIngestCurtailmentSignal(page: Page, externalReferenc
   });
 }
 
-async function cleanupRbacArtifacts(browser: Browser, testInfo: TestInfo) {
+async function cleanupRbacArtifacts(browser: Browser, testInfo: TestInfo, cleanupTargets: RbacCleanupTarget[]) {
+  const cleanupTargetSet = new Set(cleanupTargets);
+
   await withStoredAdminContext(
     browser,
     testInfo,
@@ -378,32 +392,38 @@ async function cleanupRbacArtifacts(browser: Browser, testInfo: TestInfo) {
       settingsSchedulesPage,
       settingsTeamPage,
     }) => {
-      await energyPage.cleanupStartedCurtailmentsByReasonPrefix(RBAC_CURTAILMENT_REASON_PREFIX).catch(() => undefined);
-
-      await page.goto("/settings/curtailment");
-      if (
-        await page
-          .getByRole("button", { name: "Add source", exact: true })
-          .isVisible()
-          .catch(() => false)
-      ) {
-        await settingsCurtailmentPage.deleteSourcesByPrefix(RBAC_CURTAILMENT_SOURCE_PREFIX).catch(() => undefined);
-        await settingsCurtailmentPage
-          .deleteResponseProfilesByPrefix(RBAC_CURTAILMENT_PROFILE_PREFIX)
+      if (cleanupTargetSet.has("curtailment")) {
+        await energyPage
+          .cleanupStartedCurtailmentsByReasonPrefix(RBAC_CURTAILMENT_REASON_PREFIX)
           .catch(() => undefined);
+
+        await page.goto("/settings/curtailment");
+        if (
+          await page
+            .getByRole("button", { name: "Add source", exact: true })
+            .isVisible()
+            .catch(() => false)
+        ) {
+          await settingsCurtailmentPage.deleteSourcesByPrefix(RBAC_CURTAILMENT_SOURCE_PREFIX).catch(() => undefined);
+          await settingsCurtailmentPage
+            .deleteResponseProfilesByPrefix(RBAC_CURTAILMENT_PROFILE_PREFIX)
+            .catch(() => undefined);
+        }
       }
 
-      await page.goto("/settings/schedules");
-      if (
-        await page
-          .getByRole("button", { name: "Add a schedule", exact: true })
-          .isVisible()
-          .catch(() => false)
-      ) {
-        await settingsSchedulesPage.deleteSchedulesByPrefix(RBAC_SCHEDULE_PREFIX).catch(() => undefined);
+      if (cleanupTargetSet.has("schedules")) {
+        await page.goto("/settings/schedules");
+        if (
+          await page
+            .getByRole("button", { name: "Add a schedule", exact: true })
+            .isVisible()
+            .catch(() => false)
+        ) {
+          await settingsSchedulesPage.deleteSchedulesByPrefix(RBAC_SCHEDULE_PREFIX).catch(() => undefined);
+        }
       }
 
-      if (ALERTS_E2E_ENABLED) {
+      if (cleanupTargetSet.has("alerts") && ALERTS_E2E_ENABLED) {
         await page.goto("/settings/alerts");
         if (
           await page
@@ -415,34 +435,40 @@ async function cleanupRbacArtifacts(browser: Browser, testInfo: TestInfo) {
         }
       }
 
-      await page.goto("/settings/mining-pools");
-      if (
-        await page
-          .getByRole("button", { name: "Add pool", exact: true })
-          .isVisible()
-          .catch(() => false)
-      ) {
-        await settingsPoolsPage.deletePoolsByPrefix(RBAC_POOL_PREFIX).catch(() => undefined);
+      if (cleanupTargetSet.has("pools")) {
+        await page.goto("/settings/mining-pools");
+        if (
+          await page
+            .getByRole("button", { name: "Add pool", exact: true })
+            .isVisible()
+            .catch(() => false)
+        ) {
+          await settingsPoolsPage.deletePoolsByPrefix(RBAC_POOL_PREFIX).catch(() => undefined);
+        }
       }
 
-      await cleanupInfrastructureFixtures(fleetLocationsPage, racksPage).catch(() => undefined);
-
-      await page.goto("/settings/team");
-      if (
-        await settingsTeamPage
-          .openMembersTab()
-          .then(() => true)
-          .catch(() => false)
-      ) {
-        await settingsTeamPage.deactivateMembersByPrefix(RBAC_USER_PREFIX).catch(() => undefined);
+      if (cleanupTargetSet.has("infrastructure")) {
+        await cleanupInfrastructureFixtures(fleetLocationsPage, racksPage).catch(() => undefined);
       }
-      if (
-        await settingsTeamPage
-          .openRolesTab()
-          .then(() => true)
-          .catch(() => false)
-      ) {
-        await settingsTeamPage.deleteRolesByPrefix(RBAC_ROLE_PREFIX).catch(() => undefined);
+
+      if (cleanupTargetSet.has("team")) {
+        await page.goto("/settings/team");
+        if (
+          await settingsTeamPage
+            .openMembersTab(SHORT_HOOK_TIMEOUT)
+            .then(() => true)
+            .catch(() => false)
+        ) {
+          await settingsTeamPage.deactivateMembersByPrefix(RBAC_USER_PREFIX).catch(() => undefined);
+        }
+        if (
+          await settingsTeamPage
+            .openRolesTab(SHORT_HOOK_TIMEOUT)
+            .then(() => true)
+            .catch(() => false)
+        ) {
+          await settingsTeamPage.deleteRolesByPrefix(RBAC_ROLE_PREFIX).catch(() => undefined);
+        }
       }
     },
   );

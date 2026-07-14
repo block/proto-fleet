@@ -908,7 +908,7 @@ export class MinersPage extends BasePage {
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
 
-  async validateAllMinersStatus(status: string, expected: boolean = true) {
+  async validateAllMinersStatus(status: string, expected: boolean = true, timeoutMs: number = PROLONGED_TIMEOUT) {
     await this.waitForColumnValuesToLoad("status");
     // To avoid miner actions hiding some valuable data in screenshots
     await this.uncheckSelectAllCheckbox();
@@ -920,18 +920,18 @@ export class MinersPage extends BasePage {
       const statusLocator = rows.nth(i).locator(`//td[@data-testid='status']`);
       if (expected) {
         await expect(statusLocator).toContainText(status, {
-          timeout: PROLONGED_TIMEOUT,
+          timeout: timeoutMs,
         });
       } else {
         await expect(statusLocator).not.toContainText(status, {
-          timeout: PROLONGED_TIMEOUT,
+          timeout: timeoutMs,
         });
       }
     }
   }
 
-  async validateNoMinerWithStatus(status: string) {
-    await this.validateAllMinersStatus(status, false);
+  async validateNoMinerWithStatus(status: string, timeoutMs?: number) {
+    await this.validateAllMinersStatus(status, false, timeoutMs);
   }
 
   async validateAllMinersStatusSettled(status: string) {
