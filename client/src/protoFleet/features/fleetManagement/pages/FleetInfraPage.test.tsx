@@ -36,9 +36,16 @@ vi.mock("@/protoFleet/features/infrastructure/components/InfraDeviceList", async
   };
 });
 
-vi.mock("@/protoFleet/components/PageHeader/SitePicker", () => ({
-  useActiveSite: useActiveSiteMock,
-}));
+// Keep the real siteFilterFromActive and only stub useActiveSite so the
+// scope-to-filter translation stays under test.
+vi.mock("@/protoFleet/components/PageHeader/SitePicker", async (importActual) => {
+  const actual = await importActual<typeof import("@/protoFleet/components/PageHeader/SitePicker")>();
+
+  return {
+    ...actual,
+    useActiveSite: useActiveSiteMock,
+  };
+});
 
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: vi.fn(),
@@ -157,7 +164,7 @@ describe("FleetInfraPage", () => {
 
     renderPage({ devices: undefined }, fleetContext);
 
-    expect(useInfrastructureDevicesMock).toHaveBeenCalledWith(true);
+    expect(useInfrastructureDevicesMock).toHaveBeenCalledWith(true, []);
     expect(screen.getByText("Roof exhaust")).toBeInTheDocument();
   });
 
@@ -166,8 +173,38 @@ describe("FleetInfraPage", () => {
 
     renderPage();
 
-    expect(useInfrastructureDevicesMock).toHaveBeenCalledWith(false);
+    expect(useInfrastructureDevicesMock).toHaveBeenCalledWith(false, []);
     expect(screen.getByText("Roof exhaust")).toBeInTheDocument();
+  });
+
+  test("scopes the device list to the active site", () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+    useActiveSiteMock.mockReturnValue({
+      activeSite: { kind: "site", id: "8", slug: "austin" },
+      setActiveSite: vi.fn(),
+    });
+    useInfrastructureDevicesMock.mockReturnValue(buildHookResult({ devices: [device] }));
+
+    renderPage({ devices: undefined }, fleetContext);
+
+    expect(useInfrastructureDevicesMock).toHaveBeenCalledWith(true, [8n]);
+    expect(screen.getByText("Roof exhaust")).toBeInTheDocument();
+  });
+
+  test("renders an empty list for the unassigned scope without fetching", () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+    useActiveSiteMock.mockReturnValue({
+      activeSite: { kind: "unassigned" },
+      setActiveSite: vi.fn(),
+    });
+    // The hook keeps its last result while disabled; the page must not
+    // leak those devices into the unassigned scope.
+    useInfrastructureDevicesMock.mockReturnValue(buildHookResult({ devices: [device] }));
+
+    renderPage({ devices: undefined }, fleetContext);
+
+    expect(useInfrastructureDevicesMock).toHaveBeenCalledWith(false, []);
+    expect(screen.queryByText("Roof exhaust")).not.toBeInTheDocument();
   });
 
   test("resolves the create draft site name before calling the API", async () => {

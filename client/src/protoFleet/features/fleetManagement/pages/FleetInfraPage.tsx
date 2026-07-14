@@ -5,7 +5,7 @@ import { useBuildings } from "@/protoFleet/api/buildings";
 import type { BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
 import useInfrastructureDevices from "@/protoFleet/api/useInfrastructureDevices";
-import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { useOptionalFleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout/outletContext";
 import InfraDeviceList from "@/protoFleet/features/infrastructure/components/InfraDeviceList";
 import {
@@ -23,6 +23,8 @@ interface FleetInfraPageProps {
   canManage?: boolean;
 }
 
+const NO_DEVICES: InfraDeviceItem[] = [];
+
 const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetInfraPageProps) => {
   const canReadSites = useHasPermission("site:read");
   const canManageSites = useHasPermission("site:manage");
@@ -33,6 +35,20 @@ const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetI
   const canManageInfrastructure = canManage ?? canManageSites;
   const sites = fleetContext?.sites;
   const hasDevicesOverride = devicesOverride !== undefined;
+  // Validate scope against catalog access (authoritative now), not sitesLoaded:
+  // a mid-session PermissionDenied clears `sites` to [] with sitesLoaded still
+  // true, which would otherwise strip a reachable scoped route.
+  const siteCatalogAccessGranted = fleetContext?.siteCatalogAccessGranted ?? false;
+  const knownSiteIds = useMemo(
+    () => (siteCatalogAccessGranted ? buildKnownSiteIds(sites) : undefined),
+    [siteCatalogAccessGranted, sites],
+  );
+  const { activeSite } = useActiveSite({ knownSiteIds });
+  // Scope the list to the topbar site selection. Infra devices are
+  // always site-assigned, so the "unassigned" scope matches nothing:
+  // skip the fetch and render an empty list.
+  const scopeFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
+  const isUnassignedScope = scopeFilter.includeUnassigned;
   const {
     devices: apiDevices,
     isLoading,
@@ -43,16 +59,7 @@ const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetI
     updateDevice,
     setDeviceEnabled,
     deleteDevice,
-  } = useInfrastructureDevices(canReadInfrastructure && !hasDevicesOverride);
-  // Validate scope against catalog access (authoritative now), not sitesLoaded:
-  // a mid-session PermissionDenied clears `sites` to [] with sitesLoaded still
-  // true, which would otherwise strip a reachable scoped route.
-  const siteCatalogAccessGranted = fleetContext?.siteCatalogAccessGranted ?? false;
-  const knownSiteIds = useMemo(
-    () => (siteCatalogAccessGranted ? buildKnownSiteIds(sites) : undefined),
-    [siteCatalogAccessGranted, sites],
-  );
-  const { activeSite } = useActiveSite({ knownSiteIds });
+  } = useInfrastructureDevices(canReadInfrastructure && !hasDevicesOverride && !isUnassignedScope, scopeFilter.siteIds);
   const catalogSiteOptions = useMemo(() => {
     if (!sites) return undefined;
     return uniqueSortedLocationNames(sites.map((siteWithCounts) => siteWithCounts.site?.name ?? ""));
@@ -174,9 +181,11 @@ const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetI
 
   return (
     <InfraDeviceList
-      devices={devicesOverride ?? apiDevices}
+      // The hook keeps its last result while disabled, so the unassigned
+      // scope must not leak the previous scope's devices.
+      devices={devicesOverride ?? (isUnassignedScope ? NO_DEVICES : apiDevices)}
       isLoading={hasDevicesOverride ? false : isLoading}
-      loadError={hasDevicesOverride ? null : loadError}
+      loadError={hasDevicesOverride || isUnassignedScope ? null : loadError}
       onRetry={handleRetry}
       canManage={canManageInfrastructure}
       siteOptions={catalogSiteOptions}
