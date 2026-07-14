@@ -60,10 +60,23 @@ const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetI
     setDeviceEnabled,
     deleteDevice,
   } = useInfrastructureDevices(canReadInfrastructure && !hasDevicesOverride && !isUnassignedScope, scopeFilter.siteIds);
+  // A scoped page must not create devices under (or move devices to)
+  // another site: the forms only offer in-scope sites, and resolveSiteId
+  // enforces the same boundary for anything that slips past the picker.
+  const scopedSiteIdSet = useMemo(
+    () => (scopeFilter.siteIds.length > 0 ? new Set(scopeFilter.siteIds.map(String)) : null),
+    [scopeFilter],
+  );
   const catalogSiteOptions = useMemo(() => {
     if (!sites) return undefined;
-    return uniqueSortedLocationNames(sites.map((siteWithCounts) => siteWithCounts.site?.name ?? ""));
-  }, [sites]);
+    const inScopeSites = scopedSiteIdSet
+      ? sites.filter((siteWithCounts) => {
+          const site = siteWithCounts.site;
+          return site !== undefined && scopedSiteIdSet.has(site.id.toString());
+        })
+      : sites;
+    return uniqueSortedLocationNames(inScopeSites.map((siteWithCounts) => siteWithCounts.site?.name ?? ""));
+  }, [scopedSiteIdSet, sites]);
   const siteNameById = useMemo(() => {
     const next = new Map<string, string>();
     for (const siteWithCounts of sites ?? []) {
@@ -120,9 +133,12 @@ const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetI
       if (!siteId) {
         throw new Error("Select a site from the catalog.");
       }
+      if (scopedSiteIdSet && !scopedSiteIdSet.has(siteId)) {
+        throw new Error("Select a site within the current site scope.");
+      }
       return siteId;
     },
-    [siteIdByName],
+    [scopedSiteIdSet, siteIdByName],
   );
 
   const handleCreateDevice = useCallback(

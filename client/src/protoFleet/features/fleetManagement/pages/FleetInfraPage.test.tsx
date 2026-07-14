@@ -95,6 +95,7 @@ const buildHookResult = (overrides: Record<string, unknown> = {}) => ({
 });
 
 type InfraDeviceListCallbacks = {
+  siteOptions?: string[];
   onCreateDevice?: (draft: InfraDeviceDraft) => Promise<void>;
   onUpdateDevice?: (update: InfraDeviceUpdate) => Promise<void>;
   onRetry?: () => void;
@@ -189,6 +190,52 @@ describe("FleetInfraPage", () => {
 
     expect(useInfrastructureDevicesMock).toHaveBeenCalledWith(true, [8n]);
     expect(screen.getByText("Roof exhaust")).toBeInTheDocument();
+  });
+
+  test("restricts the form site options to the active scope", () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+    useActiveSiteMock.mockReturnValue({
+      activeSite: { kind: "site", id: "8", slug: "austin" },
+      setActiveSite: vi.fn(),
+    });
+
+    renderPage({ devices: undefined }, fleetContext);
+
+    expect(lastInfraDeviceListProps().siteOptions).toEqual(["Austin"]);
+  });
+
+  test("offers the full site catalog when unscoped", () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+
+    renderPage({ devices: undefined }, fleetContext);
+
+    expect(lastInfraDeviceListProps().siteOptions).toEqual(["Austin", "Denver"]);
+  });
+
+  test("rejects a create targeting a site outside the active scope", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+    useActiveSiteMock.mockReturnValue({
+      activeSite: { kind: "site", id: "8", slug: "austin" },
+      setActiveSite: vi.fn(),
+    });
+    const createDevice = vi.fn();
+    useInfrastructureDevicesMock.mockReturnValue(buildHookResult({ createDevice }));
+
+    renderPage({ devices: undefined }, fleetContext);
+
+    await expect(
+      lastInfraDeviceListProps().onCreateDevice!({
+        siteName: "Denver",
+        buildingName: "Building 1",
+        name: "Roof exhaust",
+        deviceKind: "fan_group",
+        fanCount: 12,
+        driverType: "modbus_tcp",
+        driverConfig: device.driverConfig,
+      }),
+    ).rejects.toThrow("Select a site within the current site scope.");
+
+    expect(createDevice).not.toHaveBeenCalled();
   });
 
   test("renders an empty list for the unassigned scope without fetching", () => {
