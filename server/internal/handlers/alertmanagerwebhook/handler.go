@@ -203,7 +203,9 @@ func buildRows(alerts []alertmanagerAlert, orgIDs []int64) (rows []*notification
 			}
 			continue
 		}
-		if !isGlobalSelfMonitoringAlert(alert.Labels) || len(orgIDs) == 0 {
+		// Synthetic evaluation failures inherit the self-monitoring rule_group
+		// label too; they stay one org-less operator row, never a tenant fan-out.
+		if !isGlobalSelfMonitoringAlert(alert.Labels) || isSyntheticEvaluationAlert(alert.Labels) || len(orgIDs) == 0 {
 			if !add(&row) {
 				return rows, true
 			}

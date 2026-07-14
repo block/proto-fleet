@@ -94,6 +94,21 @@ func TestBuildRowsStripsOrgFromSyntheticEvaluationAlerts(t *testing.T) {
 	assert.Equal(t, int64(7), *rows[1].OrganizationID)
 }
 
+// A synthetic evaluation alert from the self-monitoring group inherits the
+// fan-out marker but must stay one org-less operator row.
+func TestBuildRowsSkipsFanOutForSyntheticEvaluationAlerts(t *testing.T) {
+	synthetic := alertmanagerAlert{Labels: map[string]string{
+		labelAlertName:   "DatasourceError",
+		labelRuleGroup:   ruleGroupSelfMonitoring,
+		"datasource_uid": "protofleet-timescaledb",
+	}}
+
+	rows, overflowed := buildRows([]alertmanagerAlert{synthetic}, []int64{1, 2, 3})
+	require.False(t, overflowed)
+	require.Len(t, rows, 1)
+	assert.Nil(t, rows[0].OrganizationID)
+}
+
 // buildRows bounds total expanded rows so many self-monitoring alerts can't amplify (via fan-out)
 // into an unbounded write.
 func TestBuildRowsCapsFanOutExpansion(t *testing.T) {
