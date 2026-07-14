@@ -3,6 +3,7 @@ import { testConfig } from "../config/test.config";
 import { expect, test } from "../fixtures/pageFixtures";
 import { installAllSitesInitScript } from "../helpers/fleetLocationsSetup";
 import {
+  cleanupRbacTeamArtifacts,
   ensureVisibleRigMinersAwake,
   provisionRoleAndLoginViaStoredAdminContext,
   wakeRigMinerIfSleeping,
@@ -32,6 +33,10 @@ test.describe("Proto Fleet - Miner RBAC", () => {
   test.beforeEach(async ({ page }) => {
     await installAllSitesInitScript(page);
     await page.goto("/");
+  });
+
+  test.afterAll("CLEANUP: delete RBAC team fixtures", async ({ browser }, testInfo) => {
+    await cleanupRbacTeamArtifacts(browser, testInfo);
   });
 
   test("Miners read-only role can view the miner list and status without mutating action controls", async ({

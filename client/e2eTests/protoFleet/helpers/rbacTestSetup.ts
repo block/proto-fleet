@@ -375,6 +375,10 @@ export async function invokeIngestCurtailmentSignal(page: Page, externalReferenc
   });
 }
 
+export async function cleanupRbacTeamArtifacts(browser: Browser, testInfo: TestInfo) {
+  await cleanupRbacArtifacts(browser, testInfo, ["team"]);
+}
+
 async function cleanupRbacArtifacts(browser: Browser, testInfo: TestInfo, cleanupTargets: RbacCleanupTarget[]) {
   const cleanupTargetSet = new Set(cleanupTargets);
 
