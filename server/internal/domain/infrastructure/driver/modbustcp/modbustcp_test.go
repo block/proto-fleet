@@ -3,6 +3,7 @@ package modbustcp
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -116,6 +117,36 @@ func TestValidateConfig_RejectsMalformedBlob(t *testing.T) {
 	c := Controller{}
 	assert.Error(t, c.ValidateConfig(nil))
 	assert.Error(t, c.ValidateConfig(json.RawMessage(`not json`)))
+}
+
+func TestValidateConfig_DecodeErrorsDoNotEchoValues(t *testing.T) {
+	// Raw json.Unmarshal errors can embed the submitted literal (e.g.
+	// "cannot unmarshal number 99999999999 into ... field port") —
+	// decode failures must be scrubbed the same way range failures
+	// are, since both reach server logs via the request logger.
+	c := Controller{}
+	cases := []struct {
+		name  string
+		field string
+		value string // raw JSON literal to splice in
+	}{
+		{"non-integer unit_id", "unit_id", `"7 "`},
+		{"fractional register_address", "register_address", `2001.5`},
+		{"overflowing port", "port", `99999999999999999999`},
+		{"overflowing register_address", "register_address", `99999999999999999999`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := json.RawMessage(fmt.Sprintf(
+				`{"endpoint":"10.20.30.40","port":502,"unit_id":1,"register_address":2001,"write_mode":%q,%q:%s}`,
+				WriteModeHoldingRegister, tc.field, tc.value))
+			err := c.ValidateConfig(raw)
+			require.Error(t, err)
+			stripped := strings.Trim(tc.value, `"`)
+			assert.NotContains(t, err.Error(), stripped,
+				"decode error must not echo the submitted value")
+		})
+	}
 }
 
 func TestCapabilities(t *testing.T) {

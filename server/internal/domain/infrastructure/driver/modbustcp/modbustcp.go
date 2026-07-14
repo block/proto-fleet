@@ -65,12 +65,27 @@ func ParseConfig(raw json.RawMessage) (Config, error) {
 		return cfg, errors.New("driver_config is required for modbus_tcp devices")
 	}
 	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return cfg, fmt.Errorf("driver_config is not valid JSON: %v", err)
+		return cfg, decodeError(err)
 	}
 	if err := cfg.validate(); err != nil {
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+// decodeError maps a json.Unmarshal failure to a message that never
+// echoes the submitted value — the same no-echo policy as validate().
+// Raw decoder errors are unsafe here: a numeric overflow error embeds
+// the literal ("cannot unmarshal number 99999999999 into ... field
+// port"), and syntax errors echo the offending character. Type errors
+// keep the field name and expected type, which is enough to correct
+// the submission without leaking what was sent.
+func decodeError(err error) error {
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &typeErr) && typeErr.Field != "" {
+		return fmt.Errorf("driver_config field %q must be a valid %s", typeErr.Field, typeErr.Type)
+	}
+	return errors.New("driver_config is not valid JSON")
 }
 
 // validate returns field-only messages that never echo the submitted
