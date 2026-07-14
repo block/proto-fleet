@@ -31,6 +31,9 @@ func TestValidateRuleConfig(t *testing.T) {
 		// Length is counted in characters, not bytes (3-byte runes here).
 		{"multibyte name at limit ok", offlineConfig(strings.Repeat("温", maxRuleNameLength), 1800), false},
 		{"multibyte name over limit", offlineConfig(strings.Repeat("温", maxRuleNameLength+1), 1800), true},
+		// Grafana's synthetic evaluation-failure alertnames are reserved.
+		{"reserved name DatasourceError", offlineConfig("DatasourceError", 1800), true},
+		{"reserved name DatasourceNoData case-insensitive", offlineConfig("datasourcenodata", 1800), true},
 		{"duration below floor", offlineConfig("r", 59), true},
 		{"duration above ceiling", offlineConfig("r", 86401), true},
 		{"no template config", RuleConfig{Name: "r", DurationSeconds: 600}, true},

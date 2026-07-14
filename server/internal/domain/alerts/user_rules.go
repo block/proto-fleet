@@ -208,6 +208,10 @@ func validateRuleConfig(cfg RuleConfig) error {
 	if utf8.RuneCountInString(name) > maxRuleNameLength {
 		return fleeterror.NewInvalidArgumentErrorf("rule name must be at most %d characters", maxRuleNameLength)
 	}
+	// Grafana uses these alertnames for its synthetic evaluation-failure alerts.
+	if strings.EqualFold(name, "DatasourceError") || strings.EqualFold(name, "DatasourceNoData") {
+		return fleeterror.NewInvalidArgumentErrorf("%q is a reserved rule name", name)
+	}
 	if cfg.DurationSeconds < 60 || cfg.DurationSeconds > 86400 {
 		return fleeterror.NewInvalidArgumentError("duration must be between 60 seconds and 24 hours")
 	}

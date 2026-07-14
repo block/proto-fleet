@@ -105,12 +105,28 @@ func TestDeliverExcludesInternalScopeAndOrglessAlerts(t *testing.T) {
 
 	internal := Alert{Status: "firing", Labels: map[string]string{"organization_id": "7", "proto_fleet_scope": "internal", "alertname": "Metric Ingest Stalled"}}
 	orgless := Alert{Status: "firing", Labels: map[string]string{"alertname": "No Org"}}
-	// Grafana evaluation-failure alerts inherit user rules' static org label but stay operator-only.
-	datasourceErr := Alert{Status: "firing", Labels: map[string]string{"organization_id": "7", "alertname": "DatasourceError"}}
-	datasourceNoData := Alert{Status: "firing", Labels: map[string]string{"organization_id": "7", "alertname": "DatasourceNoData"}}
+	// Grafana evaluation-failure alerts (marked by datasource_uid) inherit user
+	// rules' static org label but stay operator-only.
+	datasourceErr := Alert{Status: "firing", Labels: map[string]string{"organization_id": "7", "alertname": "DatasourceError", "datasource_uid": "protofleet-timescaledb"}}
+	datasourceNoData := Alert{Status: "firing", Labels: map[string]string{"organization_id": "7", "alertname": "DatasourceNoData", "datasource_uid": "protofleet-timescaledb"}}
 	d.Deliver(context.Background(), []Alert{internal, orgless, datasourceErr, datasourceNoData})
 
 	assert.Empty(t, *got, "internal-scope, org-less, and evaluation-failure alerts must never reach an org channel")
+}
+
+// A real rule that merely shares Grafana's synthetic alertname (no
+// datasource_uid label) must still be delivered.
+func TestDeliverKeepsAlertsNamedLikeSyntheticOnes(t *testing.T) {
+	srv, got := captureServer(t)
+	store := newFakeChannelStore()
+	d, crypto := newDeliverer(t, store, fakeDeviceLookup{})
+	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
+
+	d.Deliver(context.Background(), []Alert{
+		{Status: "firing", Labels: map[string]string{"organization_id": "7", "alertname": "DatasourceError"}},
+	})
+
+	assert.Len(t, *got, 1, "an alert without the datasource_uid marker is not synthetic and must deliver")
 }
 
 func TestDeliverFansOutPerOrg(t *testing.T) {
