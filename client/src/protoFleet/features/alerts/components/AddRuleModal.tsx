@@ -218,7 +218,12 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
 
   const handleTemplateChange = (next: UserRuleTemplate) => {
     setTemplate(next);
-    setAmount(DEFAULT_AMOUNT[next]);
+    // DEFAULT_AMOUNT.temperature is Celsius; convert when the field opens in °F.
+    setAmount(
+      next === "temperature" && preferredTemperatureUnit === "°F"
+        ? String(round2(convertCtoF(Number(DEFAULT_AMOUNT.temperature))))
+        : DEFAULT_AMOUNT[next],
+    );
     setUnit(next === "temperature" ? preferredTemperatureUnit : "%");
     setDurationSeconds(DEFAULT_DURATION[next]);
     clearError();

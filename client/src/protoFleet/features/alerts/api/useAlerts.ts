@@ -85,6 +85,9 @@ export function useAlerts(): UseAlertsResult {
   const removeRule = useCallback(async (id: string) => {
     await api.deleteRule(id);
     setRules((current) => current.filter((r) => r.id !== id));
+    // The server delete also removes the rule's rule-scoped maintenance
+    // windows; drop them locally so the list doesn't show stale entries.
+    setMaintenanceWindows((current) => current.filter((w) => !(w.scope.kind === "rule" && w.scope.rule_id === id)));
   }, []);
 
   const createMaintenanceWindow = useCallback(async (input: api.MaintenanceWindowMutationInput) => {
