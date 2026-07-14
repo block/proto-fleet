@@ -351,12 +351,17 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
             unit={unit}
             onUnitChange={(value) => {
               const next = value as ThresholdUnit;
-              // °C↔°F is a change of scale, not intent: convert the entered
-              // amount so the threshold keeps meaning what the user typed.
-              if (template === "temperature" && next !== unit) {
-                const parsed = strictNumber(amount);
-                if (Number.isFinite(parsed)) {
+              // °C↔°F and TH/s↔PH/s are changes of scale, not intent: convert
+              // the entered amount so the threshold keeps meaning what the user
+              // typed. %↔absolute is a mode change and keeps the number.
+              const parsed = strictNumber(amount);
+              if (next !== unit && Number.isFinite(parsed)) {
+                if (template === "temperature") {
                   setAmount(String(round2(next === "°F" ? convertCtoF(parsed) : convertFtoC(parsed))));
+                } else if (unit === "TH/s" && next === "PH/s") {
+                  setAmount(String(parsed / 1000));
+                } else if (unit === "PH/s" && next === "TH/s") {
+                  setAmount(String(parsed * 1000));
                 }
               }
               setUnit(next);
