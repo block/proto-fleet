@@ -291,8 +291,9 @@ func compileUserRule(orgID int64, uid string, cfg RuleConfig) (GrafanaAlertRule,
 		Condition: "B",
 		Data:      data,
 		For:       fmt.Sprintf("%ds", cfg.DurationSeconds),
-		// Match the provisioned defaults: missing data is healthy; the unscoped
-		// error row is operator-only (history is org-filtered), so orgs never see it.
+		// Missing data is healthy. Error alerts inherit this rule's static org
+		// label, so the deliverer drops synthetic DatasourceError/NoData alerts
+		// to keep evaluation failures operator-only (history still records them).
 		NoDataState:  "OK",
 		ExecErrState: "Error",
 		Labels: map[string]string{

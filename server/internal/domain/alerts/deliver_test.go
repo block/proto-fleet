@@ -105,9 +105,12 @@ func TestDeliverExcludesInternalScopeAndOrglessAlerts(t *testing.T) {
 
 	internal := Alert{Status: "firing", Labels: map[string]string{"organization_id": "7", "proto_fleet_scope": "internal", "alertname": "Metric Ingest Stalled"}}
 	orgless := Alert{Status: "firing", Labels: map[string]string{"alertname": "No Org"}}
-	d.Deliver(context.Background(), []Alert{internal, orgless})
+	// Grafana evaluation-failure alerts inherit user rules' static org label but stay operator-only.
+	datasourceErr := Alert{Status: "firing", Labels: map[string]string{"organization_id": "7", "alertname": "DatasourceError"}}
+	datasourceNoData := Alert{Status: "firing", Labels: map[string]string{"organization_id": "7", "alertname": "DatasourceNoData"}}
+	d.Deliver(context.Background(), []Alert{internal, orgless, datasourceErr, datasourceNoData})
 
-	assert.Empty(t, *got, "internal-scope and org-less alerts must never reach an org channel")
+	assert.Empty(t, *got, "internal-scope, org-less, and evaluation-failure alerts must never reach an org channel")
 }
 
 func TestDeliverFansOutPerOrg(t *testing.T) {
