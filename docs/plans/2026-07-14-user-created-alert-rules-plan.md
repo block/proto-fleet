@@ -3,6 +3,7 @@ title: "Alerts: user-created rules from existing metrics with user-specified con
 date: 2026-07-14
 status: draft
 type: plan
+tracker: https://github.com/block/proto-fleet/pull/746
 ---
 
 # Alerts: User-Created Rules from Existing Metrics
