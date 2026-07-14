@@ -33,7 +33,70 @@ insert succeeds only if the DB lease row still matches the app's `holder_id`
 and `lease_epoch`, so a restarted or stalled old active cannot keep writing
 after takeover.
 
-## Setup
+## Raspberry Pi Fast Path
+
+Use three dedicated Raspberry Pis when possible. This POC uses host networking,
+host ports `2379`, `2380`, `5432`, `8008`, and `4080`, and installs
+`keepalived` as a host service on `fleet-a` and `fleet-b`.
+
+Do not run it on a Pi that is already running a normal Fleet deployment unless
+you intentionally stop Fleet first. The POC uses its own Docker volumes and does
+not reuse Fleet's database, but it will conflict with existing Fleet/Postgres
+services on the same host ports. It also writes `/etc/keepalived/keepalived.conf`
+after backing up any existing file.
+
+Pick these values before starting:
+
+```text
+fleet-a IP: <fleet-a-lan-ip>
+fleet-b IP: <fleet-b-lan-ip>
+witness IP: <witness-lan-ip>
+VIP:        <unused-lan-ip-on-the-same-subnet>
+interface:  eth0
+```
+
+On each Pi, check out the branch and configure the host-local `.env`:
+
+```bash
+git clone https://github.com/block/proto-fleet.git ~/proto-fleet
+cd ~/proto-fleet
+git fetch origin ankitg/poc-active-passive-ha
+git checkout -B ankitg/poc-active-passive-ha origin/ankitg/poc-active-passive-ha
+cd deployment-files/ha-poc
+
+# Run the matching command on each host:
+HA_POC_PASSWORD='change-me' ./scripts/pi-poc.sh configure fleet-a <fleet-a-lan-ip> <fleet-b-lan-ip> <witness-lan-ip> <vip> eth0
+HA_POC_PASSWORD='change-me' ./scripts/pi-poc.sh configure fleet-b <fleet-a-lan-ip> <fleet-b-lan-ip> <witness-lan-ip> <vip> eth0
+HA_POC_PASSWORD='change-me' ./scripts/pi-poc.sh configure witness <fleet-a-lan-ip> <fleet-b-lan-ip> <witness-lan-ip> <vip> eth0
+
+./scripts/pi-poc.sh install-deps
+./scripts/pi-poc.sh doctor
+```
+
+Start order:
+
+```bash
+# witness first
+./scripts/pi-poc.sh start
+
+# then fleet-a and fleet-b
+./scripts/pi-poc.sh start
+```
+
+Common operations:
+
+```bash
+./scripts/pi-poc.sh status        # status from a Fleet host
+./scripts/pi-poc.sh active-host   # current VIP-backed active holder
+./scripts/pi-poc.sh watch         # measure failover from another terminal
+./scripts/pi-poc.sh fail-app      # run on the currently active Fleet host
+./scripts/pi-poc.sh fail-db       # stop local Patroni; script prints primary/replica
+./scripts/pi-poc.sh restore       # bring local services back
+./scripts/pi-poc.sh stop          # stop local POC services
+./scripts/pi-poc.sh reset --yes   # delete local POC Docker volumes
+```
+
+## Manual Setup
 
 Copy this repo to all three hosts and create one host-local `.env` from
 `ha-poc.env.example`.
