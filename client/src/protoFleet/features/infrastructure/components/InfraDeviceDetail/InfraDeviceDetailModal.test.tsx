@@ -222,4 +222,27 @@ describe("InfraDeviceDetailModal", () => {
 
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
   });
+
+  test("blocks dismissal while a save is in flight", async () => {
+    const user = userEvent.setup();
+    let rejectSave: (reason: Error) => void = () => {};
+    const onSave = vi.fn().mockReturnValue(
+      new Promise<void>((_resolve, reject) => {
+        rejectSave = reject;
+      }),
+    );
+    const { onDismiss } = renderModal({ onSave });
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await user.click(screen.getByRole("button", { name: "Close dialog" }));
+    await user.keyboard("{Escape}");
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    rejectSave(new Error("boom"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "Close dialog" }));
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
 });

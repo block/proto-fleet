@@ -113,10 +113,19 @@ const InfraDeviceDetailModal = ({
   const description = formatDeviceType(device);
   const showDriverFields = canManage && driverValues !== null && driverFormModule !== undefined;
 
+  // Blocks escape/click-outside/close-icon while a save or delete is in
+  // flight so the request's outcome (success close or inline error)
+  // isn't lost to a dismissed modal. Success paths above call the raw
+  // onDismiss directly, which stays allowed.
+  const handleDismiss = useCallback(() => {
+    if (isSaving || isDeleting) return;
+    onDismiss();
+  }, [isDeleting, isSaving, onDismiss]);
+
   return (
     <Modal
       open
-      onDismiss={onDismiss}
+      onDismiss={handleDismiss}
       headerSpacingClassName="mt-6"
       buttons={
         canManage

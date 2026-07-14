@@ -64,4 +64,29 @@ describe("AddInfraDeviceModal", () => {
     expect(screen.getByTestId("manual-add-step")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add device" })).toBeEnabled();
   });
+
+  test("blocks dismissal while the submit is in flight", async () => {
+    const user = userEvent.setup();
+    const onDismiss = vi.fn();
+    let resolveSubmit: () => void = () => {};
+    const onSubmit = vi.fn().mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveSubmit = resolve;
+      }),
+    );
+
+    render(<AddInfraDeviceModal onDismiss={onDismiss} onSubmit={onSubmit} />);
+
+    await user.click(screen.getByRole("button", { name: "Add device" }));
+
+    await user.click(screen.getByRole("button", { name: "Close dialog" }));
+    await user.keyboard("{Escape}");
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    resolveSubmit();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add device" })).toBeEnabled());
+
+    await user.click(screen.getByRole("button", { name: "Close dialog" }));
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
 });

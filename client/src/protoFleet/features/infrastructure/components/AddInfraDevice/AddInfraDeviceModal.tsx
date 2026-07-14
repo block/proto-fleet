@@ -49,10 +49,18 @@ const AddInfraDeviceModal = ({
     [onSubmit],
   );
 
+  // Blocks escape/click-outside/close-icon while the create is in
+  // flight so the request's outcome (success close or inline error)
+  // isn't lost to a dismissed modal.
+  const handleDismiss = useCallback(() => {
+    if (isSubmitting) return;
+    onDismiss();
+  }, [isSubmitting, onDismiss]);
+
   return (
     <Modal
       open
-      onDismiss={onDismiss}
+      onDismiss={handleDismiss}
       title="Add infrastructure device"
       description="Add a single fan or fan group controlled through a drive, bridge, or PLC."
       buttons={[
