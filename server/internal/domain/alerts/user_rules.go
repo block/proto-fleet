@@ -343,8 +343,10 @@ func compileTemplate(orgID int64, cfg RuleConfig) (sql, summary, description str
 		description = fmt.Sprintf("Device {{ $labels.device_id }} (org {{ $labels.organization_id }})\nhas been hashing below %s%% of its expected rate for at least %s.", formatFloat(cfg.Hashrate.Value), dur)
 	case cfg.Hashrate != nil:
 		threshold := formatFloat(absoluteTerahash(*cfg.Hashrate))
-		// The observed-TH metric keeps reporting ~0 for curtailed/paused miners;
-		// gate on the ratio metric, whose 1.0 is the "not expected to hash" sentinel.
+		// The observed-TH metric keeps reporting ~0 for curtailed/paused miners; the
+		// ratio metric's 1.0 doubles as the "not expected to hash" sentinel, so only
+		// suppress when the sentinel coincides with no observed hashing — a positive
+		// reading (at-nameplate or no-nameplate devices also sit at ratio 1) still alerts.
 		sql = fmt.Sprintf(`WITH latest AS (
     SELECT
         organization_id,
@@ -367,7 +369,7 @@ JOIN latest AS gate
  AND gate.device_id = obs.device_id
  AND gate.metric = '%s'
 WHERE obs.metric = '%s'
-  AND gate.latest_value < 1
+  AND (gate.latest_value < 1 OR obs.latest_value > 0)
   AND obs.latest_value < %s`,
 			metricDeviceHashrateTerahash, metricDeviceHashing, org, userRuleEvalWindowMinute,
 			metricDeviceHashing, metricDeviceHashrateTerahash, threshold)

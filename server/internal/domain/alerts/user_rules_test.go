@@ -222,8 +222,10 @@ func TestCompileUserRuleDurationAndDomainRoundTrip(t *testing.T) {
 	assert.Equal(t, cfg, *domain.Config)
 }
 
-// The curtailment gate: absolute-mode SQL must join the ratio metric and
-// exclude devices at its non-alerting 1.0 sentinel (not expected to hash).
+// The curtailment gate: absolute-mode SQL joins the ratio metric and excludes
+// its non-alerting 1.0 sentinel (not expected to hash) — but only when nothing
+// is observed hashing, since real ratios also sit at 1.0 (at-nameplate devices,
+// and no-nameplate devices where hashingRatio pins any positive reading to 1).
 func TestCompileUserRuleAbsoluteHashrateGatesOnHashing(t *testing.T) {
 	compiled, err := compileUserRule(7, "pfu-test", RuleConfig{
 		Name: "Slow hashing", DurationSeconds: 600,
@@ -232,7 +234,7 @@ func TestCompileUserRuleAbsoluteHashrateGatesOnHashing(t *testing.T) {
 	require.NoError(t, err)
 	sql := compiledSQL(t, compiled)
 	assert.Contains(t, sql, "'fleet_device_hashing'")
-	assert.Contains(t, sql, "gate.latest_value < 1")
+	assert.Contains(t, sql, "(gate.latest_value < 1 OR obs.latest_value > 0)")
 }
 
 func TestParseDurationSecondsPrometheusUnits(t *testing.T) {

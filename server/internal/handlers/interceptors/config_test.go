@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/generated/grpc/alerts/v1/alertsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
@@ -47,6 +48,22 @@ func TestMqttSettingsPasswordProceduresAreSessionOnly(t *testing.T) {
 		assert.Contains(t, SessionOnlyProcedures, procedure,
 			"%s must reject API-key auth because it carries or exercises MQTT broker credentials",
 			procedure)
+	}
+}
+
+// The alert surface is uniformly session-only; rule mutations persist Grafana
+// rule evaluations and must not be reachable from a leaked API key.
+func TestAlertRuleMutationProceduresAreSessionOnly(t *testing.T) {
+	t.Parallel()
+
+	procedures := []string{
+		alertsv1connect.RuleServiceCreateRuleProcedure,
+		alertsv1connect.RuleServiceUpdateRuleProcedure,
+		alertsv1connect.RuleServiceDeleteRuleProcedure,
+	}
+	for _, procedure := range procedures {
+		assert.Contains(t, SessionOnlyProcedures, procedure,
+			"%s must reject API-key auth like the rest of the alert-management surface", procedure)
 	}
 }
 
