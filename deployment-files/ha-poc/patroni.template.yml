@@ -3,11 +3,11 @@ namespace: /service/
 name: ${HA_NODE_NAME}
 
 restapi:
-  listen: ${HA_NODE_IP}:8008
-  connect_address: ${HA_NODE_IP}:8008
+  listen: ${HA_NODE_IP}:${HA_PATRONI_PORT}
+  connect_address: ${HA_NODE_IP}:${HA_PATRONI_PORT}
 
 etcd3:
-  hosts: ${HA_FLEET_A_IP}:2379,${HA_FLEET_B_IP}:2379,${HA_WITNESS_IP}:2379
+  hosts: ${HA_FLEET_A_IP}:${HA_ETCD_CLIENT_PORT},${HA_FLEET_B_IP}:${HA_ETCD_CLIENT_PORT},${HA_WITNESS_IP}:${HA_ETCD_CLIENT_PORT}
 
 bootstrap:
   dcs:
@@ -39,8 +39,8 @@ bootstrap:
         - createrole
 
 postgresql:
-  listen: ${HA_NODE_IP}:5432
-  connect_address: ${HA_NODE_IP}:5432
+  listen: ${HA_NODE_IP}:${HA_POSTGRES_PORT}
+  connect_address: ${HA_NODE_IP}:${HA_POSTGRES_PORT}
   data_dir: /var/lib/postgresql/data
   bin_dir: /usr/lib/postgresql/17/bin
   authentication:

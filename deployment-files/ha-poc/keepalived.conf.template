@@ -4,7 +4,7 @@ global_defs {
 }
 
 vrrp_script chk_fleet_active {
-  script "/usr/local/bin/ha-poc-check-active"
+  script "/usr/local/bin/ha-poc-check-active ${HA_FAKE_FLEET_PORT}"
   interval 1
   timeout 1
   fall 2

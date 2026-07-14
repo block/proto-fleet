@@ -12,6 +12,9 @@ set -a
 source "${env_file}"
 set +a
 
+: "${HA_FAKE_FLEET_PORT:=4080}"
+: "${HA_PATRONI_PORT:=8008}"
+
 auth_header=()
 if [[ -n "${HA_POC_STATUS_TOKEN:-}" ]]; then
   auth_header=(-H "Authorization: Bearer ${HA_POC_STATUS_TOKEN}")
@@ -28,13 +31,13 @@ check_url() {
   fi
 }
 
-check_url "fleet-a active" "http://${HA_FLEET_A_IP}:4080/health/active"
-check_url "fleet-b active" "http://${HA_FLEET_B_IP}:4080/health/active"
+check_url "fleet-a active" "http://${HA_FLEET_A_IP}:${HA_FAKE_FLEET_PORT}/health/active"
+check_url "fleet-b active" "http://${HA_FLEET_B_IP}:${HA_FAKE_FLEET_PORT}/health/active"
 
 if [[ -n "${HA_VIP:-}" ]]; then
-  check_url "vip active" "http://${HA_VIP}:4080/health/active"
+  check_url "vip active" "http://${HA_VIP}:${HA_FAKE_FLEET_PORT}/health/active"
 fi
 
-check_url "fleet-a patroni" "http://${HA_FLEET_A_IP}:8008/patroni"
-check_url "fleet-b patroni" "http://${HA_FLEET_B_IP}:8008/patroni"
-check_url "fleet-a cluster" "http://${HA_FLEET_A_IP}:8008/cluster"
+check_url "fleet-a patroni" "http://${HA_FLEET_A_IP}:${HA_PATRONI_PORT}/patroni"
+check_url "fleet-b patroni" "http://${HA_FLEET_B_IP}:${HA_PATRONI_PORT}/patroni"
+check_url "fleet-a cluster" "http://${HA_FLEET_A_IP}:${HA_PATRONI_PORT}/cluster"

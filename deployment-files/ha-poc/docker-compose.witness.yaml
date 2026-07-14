@@ -9,11 +9,11 @@ services:
       - /usr/local/bin/etcd
       - --name=${HA_NODE_NAME}
       - --data-dir=/etcd-data
-      - --initial-advertise-peer-urls=http://${HA_NODE_IP}:2380
-      - --listen-peer-urls=http://${HA_NODE_IP}:2380
-      - --advertise-client-urls=http://${HA_NODE_IP}:2379
-      - --listen-client-urls=http://${HA_NODE_IP}:2379,http://127.0.0.1:2379
-      - --initial-cluster=fleet-a=http://${HA_FLEET_A_IP}:2380,fleet-b=http://${HA_FLEET_B_IP}:2380,witness=http://${HA_WITNESS_IP}:2380
+      - --initial-advertise-peer-urls=http://${HA_NODE_IP}:${HA_ETCD_PEER_PORT:-2380}
+      - --listen-peer-urls=http://${HA_NODE_IP}:${HA_ETCD_PEER_PORT:-2380}
+      - --advertise-client-urls=http://${HA_NODE_IP}:${HA_ETCD_CLIENT_PORT:-2379}
+      - --listen-client-urls=http://${HA_NODE_IP}:${HA_ETCD_CLIENT_PORT:-2379},http://127.0.0.1:${HA_ETCD_CLIENT_PORT:-2379}
+      - --initial-cluster=fleet-a=http://${HA_FLEET_A_IP}:${HA_ETCD_PEER_PORT:-2380},fleet-b=http://${HA_FLEET_B_IP}:${HA_ETCD_PEER_PORT:-2380},witness=http://${HA_WITNESS_IP}:${HA_ETCD_PEER_PORT:-2380}
       - --initial-cluster-state=${HA_ETCD_INITIAL_CLUSTER_STATE:-new}
       - --initial-cluster-token=${HA_CLUSTER_NAME}
 

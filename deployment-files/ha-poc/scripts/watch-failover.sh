@@ -13,7 +13,9 @@ set -a
 source "${env_file}"
 set +a
 
-target_url="${url_override:-http://${HA_VIP}:4080/health/active}"
+: "${HA_FAKE_FLEET_PORT:=4080}"
+
+target_url="${url_override:-http://${HA_VIP}:${HA_FAKE_FLEET_PORT}/health/active}"
 
 holder_id() {
   curl -fsS --max-time 1 "${target_url}" 2>/dev/null \

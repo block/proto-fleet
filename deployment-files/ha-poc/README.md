@@ -35,15 +35,18 @@ after takeover.
 
 ## Raspberry Pi Fast Path
 
-Use three dedicated Raspberry Pis when possible. This POC uses host networking,
-host ports `2379`, `2380`, `5432`, `8008`, and `4080`, and installs
-`keepalived` as a host service on `fleet-a` and `fleet-b`.
+Use three dedicated Raspberry Pis when possible, but the Pi wrapper defaults to
+a coexist-safe port preset so it can run beside an existing Fleet instance.
+With the default `HA_POC_PORT_MODE=coexist`, the POC uses host ports `12379`,
+`12380`, `15432`, `18008`, and `14080` instead of Fleet's usual `2379`,
+`2380`, `5432`, `8008`, and `4080`.
 
-Do not run it on a Pi that is already running a normal Fleet deployment unless
-you intentionally stop Fleet first. The POC uses its own Docker volumes and does
-not reuse Fleet's database, but it will conflict with existing Fleet/Postgres
-services on the same host ports. It also writes `/etc/keepalived/keepalived.conf`
-after backing up any existing file.
+The POC uses its own Docker volumes and does not reuse Fleet's database. The
+coexist preset avoids the normal Fleet ports, but `keepalived` is still a host
+service on `fleet-a` and `fleet-b`; do not install it on a host that already
+uses keepalived/VRRP unless you intentionally replace that config. The installer
+backs up any existing `/etc/keepalived/keepalived.conf` before writing the POC
+config.
 
 Pick these values before starting:
 
@@ -96,6 +99,9 @@ Common operations:
 ./scripts/pi-poc.sh reset --yes   # delete local POC Docker volumes
 ```
 
+To force the original ports on dedicated hosts, set
+`HA_POC_PORT_MODE=standard` when running `configure`.
+
 ## Manual Setup
 
 Copy this repo to all three hosts and create one host-local `.env` from
@@ -125,7 +131,7 @@ docker compose --env-file .env -f docker-compose.witness.yaml up -d
 Use the Postgres maintenance database for the first POC run:
 
 ```text
-HA_POC_DB_DSN=postgres://postgres:<password>@<fleet-a-ip>:5432,<fleet-b-ip>:5432/postgres?sslmode=disable&target_session_attrs=read-write
+HA_POC_DB_DSN=postgres://postgres:<password>@<fleet-a-ip>:15432,<fleet-b-ip>:15432/postgres?sslmode=disable&target_session_attrs=read-write
 ```
 
 That avoids mixing the proof harness with Fleet migrations. A later Fleet POC
@@ -143,10 +149,10 @@ From either Fleet app host:
 Manual checks:
 
 ```bash
-curl -fsS http://<fleet-a-ip>:4080/health/ha | jq
-curl -fsS http://<fleet-b-ip>:4080/health/ha | jq
-curl -fsS http://<vip>:4080/health/active | jq
-curl -fsS http://<fleet-a-ip>:8008/cluster | jq
+curl -fsS http://<fleet-a-ip>:14080/health/ha | jq
+curl -fsS http://<fleet-b-ip>:14080/health/ha | jq
+curl -fsS http://<vip>:14080/health/active | jq
+curl -fsS http://<fleet-a-ip>:18008/cluster | jq
 ```
 
 ## Test Cases
@@ -178,7 +184,7 @@ after local `/health/active` passes on the peer.
 Kill DB primary container:
 
 ```bash
-curl -fsS http://127.0.0.1:8008/patroni | jq .role
+curl -fsS http://127.0.0.1:18008/patroni | jq .role
 docker compose --env-file .env -f docker-compose.fleet.yaml stop patroni
 ```
 

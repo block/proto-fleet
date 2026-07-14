@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export HA_ETCD_CLIENT_PORT="${HA_ETCD_CLIENT_PORT:-2379}"
+export HA_POSTGRES_PORT="${HA_POSTGRES_PORT:-5432}"
+export HA_PATRONI_PORT="${HA_PATRONI_PORT:-8008}"
+
 required=(
   HA_CLUSTER_NAME
   HA_NODE_NAME

@@ -12,6 +12,12 @@ set -a
 source "${env_file}"
 set +a
 
+: "${HA_ETCD_CLIENT_PORT:=2379}"
+: "${HA_ETCD_PEER_PORT:=2380}"
+: "${HA_POSTGRES_PORT:=5432}"
+: "${HA_PATRONI_PORT:=8008}"
+: "${HA_FAKE_FLEET_PORT:=4080}"
+
 require() {
   local name="$1"
   if [[ -z "${!name:-}" ]]; then
@@ -42,15 +48,15 @@ check_tcp() {
 echo "host: ${HA_NODE_NAME} (${HA_NODE_IP})"
 echo "checking etcd peer/client ports"
 for host in "${HA_FLEET_A_IP}" "${HA_FLEET_B_IP}" "${HA_WITNESS_IP}"; do
-  check_tcp "${host}" 2379
-  check_tcp "${host}" 2380
+  check_tcp "${host}" "${HA_ETCD_CLIENT_PORT}"
+  check_tcp "${host}" "${HA_ETCD_PEER_PORT}"
 done
 
 echo "checking Fleet app host ports"
 for host in "${HA_FLEET_A_IP}" "${HA_FLEET_B_IP}"; do
-  check_tcp "${host}" 5432
-  check_tcp "${host}" 8008
-  check_tcp "${host}" 4080
+  check_tcp "${host}" "${HA_POSTGRES_PORT}"
+  check_tcp "${host}" "${HA_PATRONI_PORT}"
+  check_tcp "${host}" "${HA_FAKE_FLEET_PORT}"
 done
 
 if [[ -n "${HA_VIP_INTERFACE:-}" ]]; then

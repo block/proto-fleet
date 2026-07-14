@@ -9,11 +9,11 @@ services:
       - /usr/local/bin/etcd
       - --name=${HA_NODE_NAME}
       - --data-dir=/etcd-data
-      - --initial-advertise-peer-urls=http://${HA_NODE_IP}:2380
-      - --listen-peer-urls=http://${HA_NODE_IP}:2380
-      - --advertise-client-urls=http://${HA_NODE_IP}:2379
-      - --listen-client-urls=http://${HA_NODE_IP}:2379,http://127.0.0.1:2379
-      - --initial-cluster=fleet-a=http://${HA_FLEET_A_IP}:2380,fleet-b=http://${HA_FLEET_B_IP}:2380,witness=http://${HA_WITNESS_IP}:2380
+      - --initial-advertise-peer-urls=http://${HA_NODE_IP}:${HA_ETCD_PEER_PORT:-2380}
+      - --listen-peer-urls=http://${HA_NODE_IP}:${HA_ETCD_PEER_PORT:-2380}
+      - --advertise-client-urls=http://${HA_NODE_IP}:${HA_ETCD_CLIENT_PORT:-2379}
+      - --listen-client-urls=http://${HA_NODE_IP}:${HA_ETCD_CLIENT_PORT:-2379},http://127.0.0.1:${HA_ETCD_CLIENT_PORT:-2379}
+      - --initial-cluster=fleet-a=http://${HA_FLEET_A_IP}:${HA_ETCD_PEER_PORT:-2380},fleet-b=http://${HA_FLEET_B_IP}:${HA_ETCD_PEER_PORT:-2380},witness=http://${HA_WITNESS_IP}:${HA_ETCD_PEER_PORT:-2380}
       - --initial-cluster-state=${HA_ETCD_INITIAL_CLUSTER_STATE:-new}
       - --initial-cluster-token=${HA_CLUSTER_NAME}
 
@@ -32,6 +32,9 @@ services:
       HA_FLEET_A_IP: "${HA_FLEET_A_IP}"
       HA_FLEET_B_IP: "${HA_FLEET_B_IP}"
       HA_WITNESS_IP: "${HA_WITNESS_IP}"
+      HA_ETCD_CLIENT_PORT: "${HA_ETCD_CLIENT_PORT:-2379}"
+      HA_POSTGRES_PORT: "${HA_POSTGRES_PORT:-5432}"
+      HA_PATRONI_PORT: "${HA_PATRONI_PORT:-8008}"
       HA_POSTGRES_SUPERUSER_PASSWORD: "${HA_POSTGRES_SUPERUSER_PASSWORD}"
       HA_REPLICATION_USER: "${HA_REPLICATION_USER}"
       HA_REPLICATION_PASSWORD: "${HA_REPLICATION_PASSWORD}"
@@ -52,6 +55,7 @@ services:
       HA_POC_HOST_ID: "${HA_NODE_NAME}"
       HA_POC_DB_DSN: "${HA_POC_DB_DSN}"
       HA_POC_HTTP_ADDR: "${HA_POC_HTTP_ADDR:-0.0.0.0:4080}"
+      HA_FAKE_FLEET_PORT: "${HA_FAKE_FLEET_PORT:-4080}"
       HA_POC_LEASE_TTL: "${HA_POC_LEASE_TTL:-6s}"
       HA_POC_RENEW_INTERVAL: "${HA_POC_RENEW_INTERVAL:-2s}"
       HA_POC_ACQUIRE_INTERVAL: "${HA_POC_ACQUIRE_INTERVAL:-1s}"

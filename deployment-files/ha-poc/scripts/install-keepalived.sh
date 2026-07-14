@@ -12,6 +12,8 @@ set -a
 source "${env_file}"
 set +a
 
+export HA_FAKE_FLEET_PORT="${HA_FAKE_FLEET_PORT:-4080}"
+
 required=(
   HA_NODE_IP
   HA_VIP_CIDR
