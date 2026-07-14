@@ -9,11 +9,18 @@ import { SettingsSchedulesPage } from "../pages/settingsSchedules";
 const SCHEDULE_PREFIX = "schedule_e2e";
 
 test.describe("Proto Fleet - Schedules", () => {
+  let shouldCleanupSchedules = false;
+
   test.beforeEach(async ({ page }) => {
+    shouldCleanupSchedules = false;
     await page.goto("/");
   });
 
   test.afterEach("CLEANUP: Delete schedules created during tests", async ({ browser }, testInfo) => {
+    if (!shouldCleanupSchedules) {
+      return;
+    }
+
     const isMobile = testInfo.project.use?.isMobile ?? false;
     const viewport = testInfo.project.use?.viewport;
     const context = await browser.newContext({ baseURL: testConfig.baseUrl, viewport });
@@ -49,6 +56,7 @@ test.describe("Proto Fleet - Schedules", () => {
     });
 
     await test.step("Create a one-time schedule for one miner", async () => {
+      shouldCleanupSchedules = true;
       await settingsSchedulesPage.clickAddSchedule();
       await settingsSchedulesPage.inputScheduleName(scheduleName);
       await settingsSchedulesPage.selectStartDate(1);
@@ -84,6 +92,7 @@ test.describe("Proto Fleet - Schedules", () => {
 
     await test.step("Delete the schedule", async () => {
       await settingsSchedulesPage.deleteSchedule(updatedScheduleName);
+      shouldCleanupSchedules = false;
     });
   });
 
@@ -100,6 +109,7 @@ test.describe("Proto Fleet - Schedules", () => {
     });
 
     await test.step("Switch to a recurring weekly schedule and validate days are required", async () => {
+      shouldCleanupSchedules = true;
       await settingsSchedulesPage.clickAddSchedule();
       await settingsSchedulesPage.inputScheduleName(scheduleName);
       await settingsSchedulesPage.selectScheduleType("Recurring");

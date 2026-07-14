@@ -37,17 +37,11 @@ export const RBAC_CURTAILMENT_SOURCE_PREFIX = "rbac_curtailment_source";
 export const RBAC_CURTAILMENT_REASON_PREFIX = "rbac_curtailment_reason";
 export const RBAC_RACK_ZONE = "RbacZone";
 const SHORT_HOOK_TIMEOUT = DEFAULT_TIMEOUT / 6;
+const RBAC_CLEANUP_TARGETS_ANNOTATION = "rbac-cleanup-targets";
 
 type RbacCleanupTarget = "alerts" | "curtailment" | "infrastructure" | "pools" | "schedules" | "team";
 
-const DEFAULT_RBAC_CLEANUP_TARGETS: RbacCleanupTarget[] = [
-  "curtailment",
-  "schedules",
-  "alerts",
-  "pools",
-  "infrastructure",
-  "team",
-];
+const DEFAULT_RBAC_CLEANUP_TARGETS: RbacCleanupTarget[] = ["team"];
 
 type PersistedAdminStorageState = Exclude<
   NonNullable<Parameters<Browser["newContext"]>[0]>["storageState"],
@@ -116,7 +110,14 @@ export function useRbacHooks(cleanupTargets: RbacCleanupTarget[] = DEFAULT_RBAC_
   });
 
   test.afterEach("CLEANUP: delete RBAC fixtures", async ({ browser }, testInfo) => {
-    await cleanupRbacArtifacts(browser, testInfo, cleanupTargets);
+    await cleanupRbacArtifacts(browser, testInfo, getCleanupTargetsForTest(testInfo, cleanupTargets));
+  });
+}
+
+export function markRbacCleanupTargets(testInfo: TestInfo, cleanupTargets: RbacCleanupTarget[]) {
+  testInfo.annotations.push({
+    type: RBAC_CLEANUP_TARGETS_ANNOTATION,
+    description: cleanupTargets.join(","),
   });
 }
 
@@ -503,6 +504,28 @@ async function cleanupRbacArtifacts(browser: Browser, testInfo: TestInfo, cleanu
       }
     },
   );
+}
+
+function getCleanupTargetsForTest(testInfo: TestInfo, defaultTargets: RbacCleanupTarget[]): RbacCleanupTarget[] {
+  const cleanupTargets = new Set<RbacCleanupTarget>(defaultTargets);
+
+  for (const annotation of testInfo.annotations) {
+    if (annotation.type !== RBAC_CLEANUP_TARGETS_ANNOTATION || !annotation.description) {
+      continue;
+    }
+
+    for (const cleanupTarget of annotation.description.split(",")) {
+      if (isRbacCleanupTarget(cleanupTarget)) {
+        cleanupTargets.add(cleanupTarget);
+      }
+    }
+  }
+
+  return [...cleanupTargets];
+}
+
+function isRbacCleanupTarget(value: string): value is RbacCleanupTarget {
+  return ["alerts", "curtailment", "infrastructure", "pools", "schedules", "team"].includes(value);
 }
 
 async function cleanupInfrastructureFixtures(fleetLocationsPage: FleetLocationsPage, racksPage: RacksPage) {

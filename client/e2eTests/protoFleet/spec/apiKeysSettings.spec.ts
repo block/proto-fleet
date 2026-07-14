@@ -9,11 +9,18 @@ import { SettingsApiKeysPage } from "../pages/settingsApiKeys";
 const API_KEY_PREFIX = "e2e_api_key";
 
 test.describe("Proto Fleet - Integrations", () => {
+  let shouldCleanupApiKeys = false;
+
   test.beforeEach(async ({ page }) => {
+    shouldCleanupApiKeys = false;
     await page.goto("/");
   });
 
   test.afterEach("CLEANUP: Revoke any API keys created during tests", async ({ browser }, testInfo) => {
+    if (!shouldCleanupApiKeys) {
+      return;
+    }
+
     const isMobile = testInfo.project.use?.isMobile ?? false;
     const viewport = testInfo.project.use?.viewport;
     const context = await browser.newContext({ baseURL: testConfig.baseUrl, viewport });
@@ -48,6 +55,7 @@ test.describe("Proto Fleet - Integrations", () => {
     });
 
     await test.step("Create a new API key without expiration", async () => {
+      shouldCleanupApiKeys = true;
       await settingsApiKeysPage.clickCreateApiKey();
       await settingsApiKeysPage.inputApiKeyName(apiKeyName);
       await settingsApiKeysPage.clickCreateInModal();
@@ -64,6 +72,7 @@ test.describe("Proto Fleet - Integrations", () => {
       await settingsApiKeysPage.clickRevokeApiKey(apiKeyName);
       await settingsApiKeysPage.confirmRevokeApiKey();
       await settingsApiKeysPage.validateApiKeyNotVisible(apiKeyName);
+      shouldCleanupApiKeys = false;
     });
   });
 
@@ -94,6 +103,7 @@ test.describe("Proto Fleet - Integrations", () => {
     });
 
     await test.step("Create a new API key with a future expiration date", async () => {
+      shouldCleanupApiKeys = true;
       await settingsApiKeysPage.selectExpirationDate(futureDate);
       await settingsApiKeysPage.inputApiKeyName(apiKeyName);
       await settingsApiKeysPage.clickCreateInModal();
