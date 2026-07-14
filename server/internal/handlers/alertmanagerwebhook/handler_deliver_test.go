@@ -72,6 +72,28 @@ func TestServeHTTP_BatchInsertFailureReturns500AndNoDelivery(t *testing.T) {
 	assert.False(t, deliverer.called, "no delivery when nothing persisted")
 }
 
+// Synthetic evaluation-failure alerts inherit a user rule's static org label
+// but must persist org-less (tenant-invisible) and never fan out; a real alert
+// merely named like one (no datasource_uid) keeps its org.
+func TestBuildRowsStripsOrgFromSyntheticEvaluationAlerts(t *testing.T) {
+	synthetic := alertmanagerAlert{Labels: map[string]string{
+		labelAlertName:      "DatasourceError",
+		labelOrganizationID: "7",
+		"datasource_uid":    "protofleet-timescaledb",
+	}}
+	lookalike := alertmanagerAlert{Labels: map[string]string{
+		labelAlertName:      "DatasourceError",
+		labelOrganizationID: "7",
+	}}
+
+	rows, overflowed := buildRows([]alertmanagerAlert{synthetic, lookalike}, []int64{1, 2, 3})
+	require.False(t, overflowed)
+	require.Len(t, rows, 2)
+	assert.Nil(t, rows[0].OrganizationID)
+	require.NotNil(t, rows[1].OrganizationID)
+	assert.Equal(t, int64(7), *rows[1].OrganizationID)
+}
+
 // buildRows bounds total expanded rows so many self-monitoring alerts can't amplify (via fan-out)
 // into an unbounded write.
 func TestBuildRowsCapsFanOutExpansion(t *testing.T) {

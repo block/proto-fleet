@@ -350,7 +350,16 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
             unitOptions={template === "hashrate" ? HASHRATE_UNIT_OPTIONS : TEMPERATURE_UNIT_OPTIONS}
             unit={unit}
             onUnitChange={(value) => {
-              setUnit(value as ThresholdUnit);
+              const next = value as ThresholdUnit;
+              // °C↔°F is a change of scale, not intent: convert the entered
+              // amount so the threshold keeps meaning what the user typed.
+              if (template === "temperature" && next !== unit) {
+                const parsed = strictNumber(amount);
+                if (Number.isFinite(parsed)) {
+                  setAmount(String(round2(next === "°F" ? convertCtoF(parsed) : convertFtoC(parsed))));
+                }
+              }
+              setUnit(next);
               clearError();
             }}
           />
