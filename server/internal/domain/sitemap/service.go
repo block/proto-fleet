@@ -321,10 +321,11 @@ func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.Imp
 }
 
 type snapshot struct {
-	sites     []sitemodels.Site
-	buildings []buildingmodels.Building
-	racks     []rackSnapshot
-	miners    []minerSnapshot
+	sites             []sitemodels.Site
+	buildings         []buildingmodels.Building
+	racks             []rackSnapshot
+	miners            []minerSnapshot
+	hiddenRackMembers []minerSnapshot
 }
 
 type rackSnapshot struct {
@@ -403,7 +404,7 @@ func (s *Service) loadSnapshot(ctx context.Context, orgID int64) (*snapshot, err
 	if err != nil {
 		return nil, err
 	}
-	out := &snapshot{sites: sites, buildings: buildings, racks: racks, miners: miners}
+	out := &snapshot{sites: sites, buildings: buildings, racks: racks, miners: miners, hiddenRackMembers: hiddenRackMembers(slots, miners)}
 	sortSnapshot(out)
 	return out, nil
 }
@@ -550,6 +551,25 @@ func (s *Service) listMiners(ctx context.Context, slots map[string]slotPosition)
 	return miners, nil
 }
 
+func hiddenRackMembers(slots map[string]slotPosition, miners []minerSnapshot) []minerSnapshot {
+	exportedMiners := rowSetFromMiners(miners)
+	hidden := make([]minerSnapshot, 0, len(slots))
+	for deviceIdentifier, slot := range slots {
+		if slot.rack == "" || exportedMiners[deviceIdentifier] {
+			continue
+		}
+		hidden = append(hidden, minerSnapshot{
+			DeviceIdentifier: deviceIdentifier,
+			Site:             slot.site,
+			Building:         slot.building,
+			Rack:             slot.rack,
+			RackRow:          slot.row,
+			RackCol:          slot.col,
+		})
+	}
+	return hidden
+}
+
 func sortSnapshot(s *snapshot) {
 	sort.SliceStable(s.sites, func(i, j int) bool { return s.sites[i].Name < s.sites[j].Name })
 	sort.SliceStable(s.buildings, func(i, j int) bool {
@@ -564,6 +584,10 @@ func sortSnapshot(s *snapshot) {
 	})
 	sort.SliceStable(s.miners, func(i, j int) bool {
 		a, b := s.miners[i], s.miners[j]
+		return compareStrings(a.Site, b.Site, a.Building, b.Building, a.Rack, b.Rack, a.RackRow, b.RackRow, a.RackCol, b.RackCol, a.DeviceIdentifier, b.DeviceIdentifier)
+	})
+	sort.SliceStable(s.hiddenRackMembers, func(i, j int) bool {
+		a, b := s.hiddenRackMembers[i], s.hiddenRackMembers[j]
 		return compareStrings(a.Site, b.Site, a.Building, b.Building, a.Rack, b.Rack, a.RackRow, b.RackRow, a.RackCol, b.RackCol, a.DeviceIdentifier, b.DeviceIdentifier)
 	})
 }
@@ -1349,18 +1373,35 @@ func commitToken(parsed *parsedCSV, mode pb.OmissionMode, plan importPlan, snap 
 
 func snapshotFingerprint(snap *snapshot) string {
 	payload := mustMarshalJSON(struct {
-		Sites     [][]string
-		Buildings [][]string
-		Racks     [][]string
-		Miners    [][]string
+		Sites             [][]string
+		Buildings         [][]string
+		Racks             [][]string
+		Miners            [][]string
+		HiddenRackMembers [][]string
 	}{
-		Sites:     siteRows(snap.sites),
-		Buildings: buildingRows(snap.buildings),
-		Racks:     rackRows(snap.racks),
-		Miners:    minerRows(snap.miners, snap.buildings),
+		Sites:             siteRows(snap.sites),
+		Buildings:         buildingRows(snap.buildings),
+		Racks:             rackRows(snap.racks),
+		Miners:            minerRows(snap.miners, snap.buildings),
+		HiddenRackMembers: hiddenRackMemberRows(snap.hiddenRackMembers),
 	})
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
+}
+
+func hiddenRackMemberRows(miners []minerSnapshot) [][]string {
+	rows := make([][]string, 0, len(miners))
+	for _, miner := range miners {
+		rows = append(rows, []string{
+			miner.DeviceIdentifier,
+			miner.Site,
+			miner.Building,
+			miner.Rack,
+			miner.RackRow,
+			miner.RackCol,
+		})
+	}
+	return rows
 }
 
 func mustMarshalJSON(value any) []byte {
@@ -1887,6 +1928,26 @@ func validateExistingSlotsFitRackDimensions(minerRows, rackRows []map[string]str
 			errs = append(errs, csvErr(0, "MINER", fmt.Sprintf("miner %s slot %d,%d does not fit rack %q dimensions %dx%d", miner.DeviceIdentifier, rowValue, colValue, rackLabel, rack.Rows, rack.Columns)))
 		}
 	}
+	for _, miner := range snap.hiddenRackMembers {
+		if miner.Rack == "" || miner.RackRow == "" || miner.RackCol == "" {
+			continue
+		}
+		rack, ok := racks[miner.Rack]
+		if !ok {
+			continue
+		}
+		rowValue, err := parseInt32Value(miner.RackRow, "rack_row")
+		if err != nil {
+			continue
+		}
+		colValue, err := parseInt32Value(miner.RackCol, "rack_col")
+		if err != nil {
+			continue
+		}
+		if rowValue >= rack.Rows || colValue >= rack.Columns {
+			errs = append(errs, csvErr(0, "MINER", fmt.Sprintf("miner %s slot %d,%d does not fit rack %q dimensions %dx%d", miner.DeviceIdentifier, rowValue, colValue, miner.Rack, rack.Rows, rack.Columns)))
+		}
+	}
 	return errs
 }
 
@@ -1904,6 +1965,11 @@ func validateRackCapacity(minerRows, rackRows []map[string]string, snap *snapsho
 			if miner.Rack != "" && !presentMiners[miner.DeviceIdentifier] {
 				counts[miner.Rack]++
 			}
+		}
+	}
+	for _, miner := range snap.hiddenRackMembers {
+		if miner.Rack != "" && !presentMiners[miner.DeviceIdentifier] {
+			counts[miner.Rack]++
 		}
 	}
 	var errs []*pb.ImportValidationError
@@ -2012,7 +2078,7 @@ func validateSlotConflictsWithExisting(rows []map[string]string, snap *snapshot)
 	}
 
 	currentOccupants := map[string]minerSnapshot{}
-	for _, miner := range snap.miners {
+	for _, miner := range append(append([]minerSnapshot{}, snap.miners...), snap.hiddenRackMembers...) {
 		key, ok := normalizedRackSlotKey(miner.Rack, miner.RackRow, miner.RackCol)
 		if !ok {
 			continue

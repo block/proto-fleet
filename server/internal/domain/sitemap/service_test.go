@@ -352,6 +352,24 @@ func TestValidateSlotConflictsWithExistingBlocksUnchangedOccupant(t *testing.T) 
 	}
 }
 
+func TestValidateSlotConflictsWithExistingBlocksHiddenOccupant(t *testing.T) {
+	rows := []map[string]string{
+		{"__row": "21", "device_identifier": "miner-1", "rack": "Rack A", "rack_row": "0", "rack_col": "1"},
+	}
+	snap := &snapshot{
+		miners:            []minerSnapshot{{DeviceIdentifier: "miner-1", Rack: "Rack A", RackRow: "0", RackCol: "0"}},
+		hiddenRackMembers: []minerSnapshot{{DeviceIdentifier: "hidden-1", Rack: "Rack A", RackRow: "0", RackCol: "1"}},
+	}
+
+	errs := validateSlotConflictsWithExisting(rows, snap)
+	if len(errs) != 1 {
+		t.Fatalf("errors = %+v, want one conflict", errs)
+	}
+	if errs[0].GetRow() != 21 || errs[0].GetSection() != "MINER" || errs[0].GetMessage() != "rack slot already occupied by miner hidden-1" {
+		t.Fatalf("unexpected error: %+v", errs[0])
+	}
+}
+
 func TestValidateSlotCollisionsNormalizesCoordinates(t *testing.T) {
 	rows := []map[string]string{
 		{"__row": "21", "device_identifier": "miner-1", "rack": "Rack A", "rack_row": "1", "rack_col": "1"},
@@ -656,6 +674,17 @@ func TestValidateRackCapacityCountsRetainedOmittedMiners(t *testing.T) {
 	}
 }
 
+func TestValidateRackCapacityCountsHiddenRackMembers(t *testing.T) {
+	minerRows := []map[string]string{{"device_identifier": "miner-1", "rack": "Rack A"}}
+	rackRows := []map[string]string{{"rack": "Rack A", "rows": "1", "columns": "1"}}
+	snap := &snapshot{hiddenRackMembers: []minerSnapshot{{DeviceIdentifier: "hidden-1", Rack: "Rack A"}}}
+
+	errs := validateRackCapacity(minerRows, rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if len(errs) != 1 || errs[0].GetSection() != "MINER" {
+		t.Fatalf("errors = %+v, want rack capacity error", errs)
+	}
+}
+
 func TestValidateRackSlotBoundsRejectsPartialCoordinates(t *testing.T) {
 	minerRows := []map[string]string{{"__row": "21", "device_identifier": "miner-1", "rack": "Rack A", "rack_row": "", "rack_col": "3"}}
 	rackRows := []map[string]string{{"rack": "Rack A", "rows": "4", "columns": "6"}}
@@ -732,6 +761,16 @@ func TestValidateExistingSlotsFitRackDimensionsBlocksShrink(t *testing.T) {
 	errs := validateExistingSlotsFitRackDimensions(nil, rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
 	if len(errs) != 1 || !strings.Contains(errs[0].GetMessage(), "does not fit rack") {
 		t.Fatalf("errors = %+v, want slot fit error", errs)
+	}
+}
+
+func TestValidateExistingSlotsFitRackDimensionsCountsHiddenRackMembers(t *testing.T) {
+	rackRows := []map[string]string{{"rack": "Rack A", "rows": "1", "columns": "1"}}
+	snap := &snapshot{hiddenRackMembers: []minerSnapshot{{DeviceIdentifier: "hidden-1", Rack: "Rack A", RackRow: "1", RackCol: "0"}}}
+
+	errs := validateExistingSlotsFitRackDimensions(nil, rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if len(errs) != 1 || errs[0].GetSection() != "MINER" {
+		t.Fatalf("errors = %+v, want hidden member slot dimension error", errs)
 	}
 }
 
