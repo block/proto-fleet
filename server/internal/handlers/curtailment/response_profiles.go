@@ -93,6 +93,9 @@ func (h *Handler) CreateCurtailmentResponseProfile(ctx context.Context, req *con
 	if err != nil {
 		return nil, err
 	}
+	if err := h.requireFacilityFanSitePermissions(ctx, info.OrganizationID, profile.FacilityFanDeviceIDs); err != nil {
+		return nil, err
+	}
 	created, err := h.responseProfiles.Create(ctx, domainCurtailment.SaveResponseProfileRequest{
 		Profile:             profile,
 		CanUseAdminControls: canUseAdminControls(info),
@@ -135,6 +138,9 @@ func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *con
 		profile.FanRestoreDelaySec = existing.FanRestoreDelaySec
 	}
 	if err := h.requireResponseProfileSitePermission(ctx, info.OrganizationID, authz.PermCurtailmentManage, &profile, true); err != nil {
+		return nil, err
+	}
+	if err := h.requireFacilityFanSitePermissions(ctx, info.OrganizationID, profile.FacilityFanDeviceIDs); err != nil {
 		return nil, err
 	}
 	updated, err := h.responseProfiles.Update(ctx, domainCurtailment.SaveResponseProfileRequest{
@@ -207,6 +213,27 @@ func (h *Handler) requireResponseProfileSitePermission(
 		return err
 	}
 	return requireResourceContextPermissions(ctx, permission, requirements)
+}
+
+func (h *Handler) requireFacilityFanSitePermissions(ctx context.Context, orgID int64, deviceIDs []int64) error {
+	siteIDs, err := h.responseProfiles.FacilityFanSiteIDs(ctx, orgID, deviceIDs)
+	if err != nil {
+		return err
+	}
+	for _, siteID := range siteIDs {
+		resourceContext := authz.ResourceContext{SiteID: &siteID}
+		readable, err := middleware.HasPermission(ctx, authz.PermSiteRead, resourceContext)
+		if err != nil {
+			return err
+		}
+		if !readable {
+			return fleeterror.NewNotFoundError("one or more infrastructure devices were not found")
+		}
+		if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, resourceContext); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (h *Handler) responseProfileDeviceSitesForProfiles(

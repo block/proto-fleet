@@ -781,35 +781,11 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByText("Fan behavior during curtailment")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Infrastructure\s+1 device/ })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
-    expect(onTestCurtailment).not.toHaveBeenCalled();
-    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
     expect(
-      screen.getByText(
-        "This will save the profile, then trigger curtailment for miners in Austin, TX. Schedules stay suppressed until miners are restored.",
-      ),
+      screen.getByText("Save the profile to use facility fans. Immediate runs do not control facility fans yet."),
     ).toBeInTheDocument();
     expect(onTestCurtailment).not.toHaveBeenCalled();
-    await confirmCurtailment(user);
-    expect(onTestCurtailment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        reason: "Grid peak - ERCOT 4CP signal",
-        siteId: "101",
-        curtailmentMode: "fullFleet",
-        curtailBatchSize: "8",
-        curtailBatchIntervalSec: "30",
-        restoreBatchSize: "10",
-        restoreIntervalSec: "120",
-        facilityFanDeviceIds: ["31"],
-        fanOffDelaySec: "60",
-        fanRestoreDelaySec: "120",
-        scopeType: "site",
-        scopeId: "Austin, TX",
-        deviceSetIds: [],
-        deviceIdentifiers: [],
-        includeMaintenance: true,
-      }),
-    );
 
     await user.click(screen.getByRole("button", { name: "Save profile" }));
 

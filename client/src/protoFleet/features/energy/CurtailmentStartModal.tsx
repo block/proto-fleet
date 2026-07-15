@@ -1287,6 +1287,7 @@ function CurtailmentStartModalContent({
   const minerApplyToTarget = getMinerApplyToTarget(effectiveValues);
   const siteApplyToTarget = getSiteApplyToTarget(effectiveValues);
   const infrastructureApplyToTarget = getInfrastructureApplyToTarget(effectiveValues);
+  const hasSelectedFacilityFans = isResponseProfileVariant && (effectiveValues.facilityFanDeviceIds?.length ?? 0) > 0;
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
   const curtailmentBehaviorSubtext = isLiveCurtailmentEditMode
     ? undefined
@@ -1626,7 +1627,7 @@ function CurtailmentStartModalContent({
   };
 
   const requestResponseProfileCurtailment = () => {
-    if (isBusy) {
+    if (isBusy || hasSelectedFacilityFans) {
       return;
     }
 
@@ -1673,7 +1674,7 @@ function CurtailmentStartModalContent({
       text: "Run curtailment",
       variant: variants.secondary,
       onClick: requestResponseProfileCurtailment,
-      disabled: isBusy || hasBlockingRunPreviewState || hasExternalFormError,
+      disabled: isBusy || hasBlockingRunPreviewState || hasExternalFormError || hasSelectedFacilityFans,
       loading: isTestingCurtailment,
     });
   }
@@ -1898,7 +1899,9 @@ function CurtailmentStartModalContent({
               title="Apply to"
               subtext={
                 isResponseProfileVariant
-                  ? "Choose the sites, miners, and infrastructure included in this curtailment."
+                  ? hasSelectedFacilityFans
+                    ? "Save the profile to use facility fans. Immediate runs do not control facility fans yet."
+                    : "Choose the sites, miners, and infrastructure included in this curtailment."
                   : "Choose the sites and miners included in this curtailment."
               }
             >

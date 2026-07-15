@@ -82,6 +82,34 @@ func (s *ResponseProfileService) ListDeviceSites(ctx context.Context, orgID int6
 	return s.store.ListResponseProfileDeviceSites(ctx, orgID, deviceIdentifiers)
 }
 
+// FacilityFanSiteIDs resolves the sites that contain the requested facility
+// fans. Handlers use this before saving a profile so fan selection stays
+// independent of miner scope without bypassing each fan site's RBAC boundary.
+func (s *ResponseProfileService) FacilityFanSiteIDs(ctx context.Context, orgID int64, deviceIDs []int64) ([]int64, error) {
+	if s == nil || s.store == nil {
+		return nil, fleeterror.NewUnimplementedError("curtailment response profile service is not configured")
+	}
+	if orgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	deviceIDs, devices, err := s.loadFacilityFanDevices(ctx, orgID, deviceIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	siteIDs := make([]int64, 0, len(deviceIDs))
+	seen := make(map[int64]struct{}, len(deviceIDs))
+	for _, deviceID := range deviceIDs {
+		siteID := devices[deviceID].SiteID
+		if _, ok := seen[siteID]; ok {
+			continue
+		}
+		seen[siteID] = struct{}{}
+		siteIDs = append(siteIDs, siteID)
+	}
+	return siteIDs, nil
+}
+
 func (s *ResponseProfileService) Create(ctx context.Context, req SaveResponseProfileRequest) (*models.ResponseProfile, error) {
 	if s == nil || s.store == nil {
 		return nil, fleeterror.NewUnimplementedError("curtailment response profile service is not configured")
@@ -180,6 +208,30 @@ func (s *ResponseProfileService) validateFacilityFanDevices(
 	orgID int64,
 	deviceIDs []int64,
 ) ([]int64, map[int64]models.ResponseProfileInfrastructureDevice, error) {
+	deviceIDs, devices, err := s.loadFacilityFanDevices(ctx, orgID, deviceIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for _, deviceID := range deviceIDs {
+		device := devices[deviceID]
+		if !device.Enabled {
+			slog.WarnContext(
+				ctx,
+				"response profile references disabled infrastructure device",
+				"org_id", orgID,
+				"infrastructure_device_id", deviceID,
+			)
+		}
+	}
+	return deviceIDs, devices, nil
+}
+
+func (s *ResponseProfileService) loadFacilityFanDevices(
+	ctx context.Context,
+	orgID int64,
+	deviceIDs []int64,
+) ([]int64, map[int64]models.ResponseProfileInfrastructureDevice, error) {
 	if hasNonPositiveInt64(deviceIDs) {
 		return nil, nil, fleeterror.NewInvalidArgumentError("facility_fan_device_ids must be positive")
 	}
@@ -200,17 +252,6 @@ func (s *ResponseProfileService) validateFacilityFanDevices(
 		}
 	}
 
-	for _, deviceID := range deviceIDs {
-		device := devices[deviceID]
-		if !device.Enabled {
-			slog.WarnContext(
-				ctx,
-				"response profile references disabled infrastructure device",
-				"org_id", orgID,
-				"infrastructure_device_id", deviceID,
-			)
-		}
-	}
 	return deviceIDs, devices, nil
 }
 
