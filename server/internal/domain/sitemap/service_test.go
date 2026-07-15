@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -861,10 +862,14 @@ func readZipFiles(t *testing.T, data []byte) map[string]string {
 func readZipFile(file *zip.File) ([]byte, error) {
 	reader, err := file.Open()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open zip file %s: %w", file.Name, err)
 	}
 	defer reader.Close()
-	return io.ReadAll(reader)
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("read zip file %s: %w", file.Name, err)
+	}
+	return body, nil
 }
 
 func validCSV() string {
