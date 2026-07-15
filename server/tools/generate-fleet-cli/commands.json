@@ -1,0 +1,891 @@
+{
+  "commands": [
+    {
+      "method": "/fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots",
+      "group": "miners",
+      "command": "list"
+    },
+    {
+      "method": "/fleetmanagement.v1.FleetManagementService/GetMinerStateCounts",
+      "group": "miners",
+      "command": "counts",
+      "usage": "Get miner state counts"
+    },
+    {
+      "method": "/fleetmanagement.v1.FleetManagementService/LookupMinerByIdentifier",
+      "group": "miners",
+      "command": "lookup",
+      "usage": "Look up a paired miner by MAC address or serial number",
+      "required_fields": ["identifier"]
+    },
+    {
+      "method": "/fleetmanagement.v1.FleetManagementService/GetMinerPoolAssignments",
+      "group": "miners",
+      "command": "pool-assignments",
+      "usage": "Get current pool assignments for a miner",
+      "required_fields": ["device_identifier"]
+    },
+    {
+      "method": "/fleetmanagement.v1.FleetManagementService/GetMinerCoolingMode",
+      "group": "miners",
+      "command": "cooling-mode",
+      "usage": "Get current cooling mode for a miner",
+      "required_fields": ["device_identifier"]
+    },
+    {
+      "method": "/onboarding.v1.OnboardingService/CreateAdminLogin",
+      "group": "onboarding",
+      "command": "create-admin",
+      "usage": "Create the initial Fleet admin login",
+      "auth": "unauthenticated",
+      "field_flags": [
+        {
+          "path": "password",
+          "flag": "password-stdin",
+          "usage": "Read password from stdin",
+          "kind": "secret",
+          "required": true,
+          "prompt": true
+        }
+      ]
+    },
+    {
+      "method": "/onboarding.v1.OnboardingService/GetFleetInitStatus",
+      "group": "onboarding",
+      "command": "init-status",
+      "usage": "Get Fleet initialization status",
+      "auth": "unauthenticated"
+    },
+    {
+      "method": "/onboarding.v1.OnboardingService/GetFleetOnboardingStatus",
+      "group": "onboarding",
+      "command": "status",
+      "usage": "Get Fleet onboarding status"
+    },
+    {
+      "method": "/pools.v1.PoolsService/CreatePool",
+      "group": "pools",
+      "command": "create",
+      "required_fields": ["pool_config.pool_name", "pool_config.url", "pool_config.username"],
+      "field_flags": [
+        {
+          "path": "pool_config.pool_name",
+          "flag": "pool-name",
+          "usage": "pool name"
+        },
+        {
+          "path": "pool_config.url",
+          "flag": "url",
+          "usage": "url"
+        },
+        {
+          "path": "pool_config.username",
+          "flag": "username",
+          "usage": "username"
+        },
+        {
+          "path": "pool_config.password",
+          "flag": "pool-password-stdin",
+          "usage": "Read pool authentication password from stdin",
+          "kind": "secret"
+        }
+      ]
+    },
+    {
+      "method": "/pools.v1.PoolsService/DeletePool",
+      "group": "pools",
+      "command": "delete",
+      "required_fields": ["pool_id"]
+    },
+    {
+      "method": "/pools.v1.PoolsService/ListPools",
+      "group": "pools",
+      "command": "list"
+    },
+    {
+      "method": "/pools.v1.PoolsService/UpdatePool",
+      "group": "pools",
+      "command": "update",
+      "field_flags": [
+        {
+          "path": "password",
+          "flag": "pool-password-stdin",
+          "usage": "Read pool authentication password from stdin",
+          "kind": "secret"
+        }
+      ]
+    },
+    {
+      "method": "/pools.v1.PoolsService/ValidatePool",
+      "group": "pools",
+      "command": "validate",
+      "required_fields": ["url", "username"],
+      "field_flags": [
+        {
+          "path": "password",
+          "flag": "pool-password-stdin",
+          "usage": "Read pool authentication password from stdin",
+          "kind": "secret"
+        }
+      ]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/ListDeviceSets",
+      "group": "groups",
+      "command": "list",
+      "usage": "List groups",
+      "fixed_fields": {
+        "type": "group"
+      },
+      "ignore_fields": ["type", "zones", "building_ids", "include_no_building", "site_ids", "include_unassigned"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/GetDeviceSet",
+      "group": "groups",
+      "command": "get",
+      "usage": "Get a group by id",
+      "required_fields": ["device_set_id"],
+      "require_collection_type": "group"
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/CreateDeviceSet",
+      "group": "groups",
+      "command": "create",
+      "usage": "Create a group",
+      "required_fields": ["label"],
+      "fixed_fields": {
+        "type": "group"
+      },
+      "ignore_fields": ["type", "building_ids", "include_no_building", "site_ids", "include_unassigned"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/AddDevicesToGroup",
+      "group": "groups",
+      "command": "add-devices",
+      "usage": "Add devices to a group",
+      "required_fields": ["target_group_id"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/RemoveDevicesFromGroup",
+      "group": "groups",
+      "command": "remove-devices",
+      "usage": "Remove devices from a group",
+      "required_fields": ["target_group_id"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/UpdateDeviceSet",
+      "group": "groups",
+      "command": "update",
+      "usage": "Update a group",
+      "required_fields": ["device_set_id"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/DeleteDeviceSet",
+      "group": "groups",
+      "command": "delete",
+      "usage": "Delete a group",
+      "required_fields": ["device_set_id"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/ListDeviceSetMembers",
+      "group": "groups",
+      "command": "members",
+      "usage": "List group members",
+      "required_fields": ["device_set_id"],
+      "ignore_fields": ["site_ids", "include_unassigned"],
+      "require_collection_type": "group"
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/GetDeviceDeviceSets",
+      "group": "groups",
+      "command": "device",
+      "usage": "List groups for a device identifier",
+      "required_fields": ["device_identifier"],
+      "fixed_fields": {
+        "type": "group"
+      },
+      "ignore_fields": ["type", "building_ids", "include_no_building", "site_ids", "include_unassigned"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/GetDeviceSetStats",
+      "group": "groups",
+      "command": "stats",
+      "usage": "Get aggregated stats for one or more groups",
+      "require_collection_type": "group"
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/ListDeviceSets",
+      "group": "racks",
+      "command": "list",
+      "usage": "List racks",
+      "fixed_fields": {
+        "type": "rack"
+      },
+      "ignore_fields": ["type", "building_ids", "include_no_building", "site_ids", "include_unassigned"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/GetDeviceSet",
+      "group": "racks",
+      "command": "get",
+      "usage": "Get a rack by id",
+      "required_fields": ["device_set_id"],
+      "require_collection_type": "rack"
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/SaveRack",
+      "group": "racks",
+      "command": "save",
+      "usage": "Create or update a rack",
+      "json_only": true,
+      "required_fields": ["label", "rack_info", "device_selector"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/AssignDevicesToRack",
+      "group": "racks",
+      "command": "add-devices",
+      "usage": "Add devices to a rack",
+      "required_fields": ["target_rack_id"],
+      "common_selector": "device_list"
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/DeleteDeviceSet",
+      "group": "racks",
+      "command": "delete",
+      "usage": "Delete a rack",
+      "required_fields": ["device_set_id"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/ListDeviceSetMembers",
+      "group": "racks",
+      "command": "members",
+      "usage": "List rack members",
+      "required_fields": ["device_set_id"],
+      "ignore_fields": ["site_ids", "include_unassigned"],
+      "require_collection_type": "rack"
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/GetRackSlots",
+      "group": "racks",
+      "command": "slots",
+      "usage": "List occupied rack slots",
+      "required_fields": ["device_set_id"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/ListRackZones",
+      "group": "racks",
+      "command": "zones",
+      "usage": "List all rack zones"
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/ListRackTypes",
+      "group": "racks",
+      "command": "types",
+      "usage": "List all rack layouts"
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/GetDeviceDeviceSets",
+      "group": "racks",
+      "command": "device",
+      "usage": "List racks for a device identifier",
+      "required_fields": ["device_identifier"],
+      "fixed_fields": {
+        "type": "rack"
+      },
+      "ignore_fields": ["type"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/GetDeviceSetStats",
+      "group": "racks",
+      "command": "stats",
+      "usage": "Get aggregated stats for one or more racks",
+      "require_collection_type": "rack"
+    },
+    {
+      "method": "/serverlog.v1.ServerLogService/ListServerLogs",
+      "group": "serverlogs",
+      "command": "list",
+      "usage": "List recent server logs",
+      "auth": "session_only"
+    },
+    {
+      "method": "/activity.v1.ActivityService/ListActivities",
+      "group": "activity",
+      "command": "list",
+      "usage": "List activity entries",
+      "default_fields": {
+        "page_size": "100"
+      }
+    },
+    {
+      "method": "/activity.v1.ActivityService/ListActivityFilterOptions",
+      "group": "activity",
+      "command": "filters",
+      "usage": "List available activity filter options"
+    },
+    {
+      "method": "/errors.v1.ErrorQueryService/Query",
+      "group": "errors",
+      "command": "query",
+      "usage": "Query miner errors",
+      "default_fields": {
+        "page_size": "100"
+      }
+    },
+    {
+      "method": "/errors.v1.ErrorQueryService/GetError",
+      "group": "errors",
+      "command": "get",
+      "usage": "Get a miner error by id",
+      "required_fields": ["error_id"]
+    },
+    {
+      "method": "/errors.v1.ErrorQueryService/ListMinerErrors",
+      "group": "errors",
+      "command": "list-miner",
+      "usage": "List canonical miner errors"
+    },
+    {
+      "method": "/sites.v1.SiteService/ListSites",
+      "group": "sites",
+      "command": "list",
+      "usage": "List sites",
+      "ignore_fields": ["error_component_types", "telemetry_ranges"]
+    },
+    {
+      "method": "/sites.v1.SiteService/GetSiteStats",
+      "group": "sites",
+      "command": "stats",
+      "usage": "Get site stats",
+      "required_fields": ["site_id"]
+    },
+    {
+      "method": "/sites.v1.SiteService/ResolveSiteBySlug",
+      "group": "sites",
+      "command": "resolve",
+      "usage": "Resolve a site by slug",
+      "required_fields": ["slug"]
+    },
+    {
+      "method": "/buildings.v1.BuildingService/ListBuildings",
+      "group": "buildings",
+      "command": "list",
+      "usage": "List buildings",
+      "ignore_fields": ["error_component_types", "telemetry_ranges"]
+    },
+    {
+      "method": "/buildings.v1.BuildingService/GetBuilding",
+      "group": "buildings",
+      "command": "get",
+      "usage": "Get a building by id",
+      "required_fields": ["id"]
+    },
+    {
+      "method": "/buildings.v1.BuildingService/GetBuildingStats",
+      "group": "buildings",
+      "command": "stats",
+      "usage": "Get building stats",
+      "required_fields": ["building_id"]
+    },
+    {
+      "method": "/buildings.v1.BuildingService/ListBuildingRacks",
+      "group": "buildings",
+      "command": "racks",
+      "usage": "List racks assigned to a building",
+      "required_fields": ["building_id"]
+    },
+    {
+      "method": "/sites.v1.SiteService/CreateSite",
+      "group": "sites",
+      "command": "create",
+      "required_fields": ["name"]
+    },
+    {
+      "method": "/sites.v1.SiteService/UpdateSite",
+      "group": "sites",
+      "command": "update",
+      "required_fields": ["id", "name"]
+    },
+    {
+      "method": "/sites.v1.SiteService/DeleteSite",
+      "group": "sites",
+      "command": "delete",
+      "required_fields": ["id"]
+    },
+    {
+      "method": "/sites.v1.SiteService/AssignDevicesToSite",
+      "group": "sites",
+      "command": "assign-devices",
+      "required_fields": ["target_site_id", "device_identifiers"]
+    },
+    {
+      "method": "/sites.v1.SiteService/AssignBuildingsToSite",
+      "group": "sites",
+      "command": "assign-buildings",
+      "required_fields": ["target_site_id", "building_ids"]
+    },
+    {
+      "method": "/sites.v1.SiteService/AssignRacksToSite",
+      "group": "sites",
+      "command": "assign-racks",
+      "required_fields": ["target_site_id", "rack_ids"]
+    },
+    {
+      "method": "/buildings.v1.BuildingService/CreateBuilding",
+      "group": "buildings",
+      "command": "create",
+      "required_fields": ["name"]
+    },
+    {
+      "method": "/buildings.v1.BuildingService/UpdateBuilding",
+      "group": "buildings",
+      "command": "update",
+      "required_fields": ["id", "name"]
+    },
+    {
+      "method": "/buildings.v1.BuildingService/DeleteBuilding",
+      "group": "buildings",
+      "command": "delete",
+      "required_fields": ["id"]
+    },
+    {
+      "method": "/buildings.v1.BuildingService/AssignRacksToBuilding",
+      "group": "buildings",
+      "command": "assign-racks",
+      "json_only": true,
+      "required_fields": ["target_building_id", "racks"]
+    },
+    {
+      "method": "/buildings.v1.BuildingService/AssignDevicesToBuilding",
+      "group": "buildings",
+      "command": "assign-devices",
+      "required_fields": ["target_building_id", "device_identifiers"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/SetRackSlotPosition",
+      "group": "racks",
+      "command": "set-slot",
+      "json_only": true,
+      "required_fields": ["device_set_id", "device_identifier", "position"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/ClearRackSlotPosition",
+      "group": "racks",
+      "command": "clear-slot",
+      "required_fields": ["device_set_id", "device_identifier"]
+    },
+    {
+      "method": "/device_set.v1.DeviceSetService/ListRackZoneRefs",
+      "group": "racks",
+      "command": "zone-refs"
+    },
+    {
+      "method": "/fleetmanagement.v1.FleetManagementService/GetMinerModelGroups",
+      "group": "miners",
+      "command": "model-groups",
+      "json_optional": true
+    },
+    {
+      "method": "/fleetmanagement.v1.FleetManagementService/RenameMiners",
+      "group": "miners",
+      "command": "rename",
+      "required_fields": ["name_config"]
+    },
+    {
+      "method": "/schedule.v1.ScheduleService/ListSchedules",
+      "group": "schedules",
+      "command": "list"
+    },
+    {
+      "method": "/schedule.v1.ScheduleService/CreateSchedule",
+      "group": "schedules",
+      "command": "create",
+      "required_fields": ["name", "action", "schedule_type", "start_date", "start_time", "timezone"]
+    },
+    {
+      "method": "/schedule.v1.ScheduleService/UpdateSchedule",
+      "group": "schedules",
+      "command": "update",
+      "required_fields": ["schedule_id", "name", "action", "schedule_type", "start_date", "start_time", "timezone"]
+    },
+    {
+      "method": "/schedule.v1.ScheduleService/DeleteSchedule",
+      "group": "schedules",
+      "command": "delete",
+      "required_fields": ["schedule_id"]
+    },
+    {
+      "method": "/schedule.v1.ScheduleService/PauseSchedule",
+      "group": "schedules",
+      "command": "pause",
+      "required_fields": ["schedule_id"]
+    },
+    {
+      "method": "/schedule.v1.ScheduleService/ResumeSchedule",
+      "group": "schedules",
+      "command": "resume",
+      "required_fields": ["schedule_id"]
+    },
+    {
+      "method": "/schedule.v1.ScheduleService/ReorderSchedules",
+      "group": "schedules",
+      "command": "reorder",
+      "required_fields": ["schedule_ids"]
+    },
+    {
+      "method": "/alerts.v1.ChannelService/ListChannels",
+      "group": "alerts",
+      "subgroup": "channels",
+      "command": "list",
+      "auth": "session_only"
+    },
+    {
+      "method": "/alerts.v1.ChannelService/CreateChannel",
+      "group": "alerts",
+      "subgroup": "channels",
+      "command": "create",
+      "auth": "session_only",
+      "required_fields": ["name", "kind"],
+      "field_flags": [
+        {"path": "webhook.bearer_header", "flag": "webhook-bearer-stdin", "kind": "secret"},
+        {"path": "smtp.password", "flag": "smtp-password-stdin", "kind": "secret"},
+        {"path": "slack.webhook_url", "flag": "slack-webhook-stdin", "kind": "secret"}
+      ]
+    },
+    {
+      "method": "/alerts.v1.ChannelService/UpdateChannel",
+      "group": "alerts",
+      "subgroup": "channels",
+      "command": "update",
+      "auth": "session_only",
+      "required_fields": ["id", "name", "kind"],
+      "field_flags": [
+        {"path": "webhook.bearer_header", "flag": "webhook-bearer-stdin", "kind": "secret"},
+        {"path": "smtp.password", "flag": "smtp-password-stdin", "kind": "secret"},
+        {"path": "slack.webhook_url", "flag": "slack-webhook-stdin", "kind": "secret"}
+      ]
+    },
+    {
+      "method": "/alerts.v1.ChannelService/DeleteChannel",
+      "group": "alerts",
+      "subgroup": "channels",
+      "command": "delete",
+      "auth": "session_only",
+      "required_fields": ["id"]
+    },
+    {
+      "method": "/alerts.v1.ChannelService/TestChannel",
+      "group": "alerts",
+      "subgroup": "channels",
+      "command": "test",
+      "auth": "session_only",
+      "field_flags": [
+        {"path": "webhook.bearer_header", "flag": "webhook-bearer-stdin", "kind": "secret"},
+        {"path": "smtp.password", "flag": "smtp-password-stdin", "kind": "secret"},
+        {"path": "slack.webhook_url", "flag": "slack-webhook-stdin", "kind": "secret"}
+      ]
+    },
+    {
+      "method": "/alerts.v1.RuleService/ListRules",
+      "group": "alerts",
+      "subgroup": "rules",
+      "command": "list",
+      "auth": "session_only"
+    },
+    {
+      "method": "/alerts.v1.RuleService/PauseRule",
+      "group": "alerts",
+      "subgroup": "rules",
+      "command": "pause",
+      "auth": "session_only",
+      "required_fields": ["id"]
+    },
+    {
+      "method": "/alerts.v1.RuleService/ResumeRule",
+      "group": "alerts",
+      "subgroup": "rules",
+      "command": "resume",
+      "auth": "session_only",
+      "required_fields": ["id"]
+    },
+    {
+      "method": "/alerts.v1.MaintenanceWindowService/ListMaintenanceWindows",
+      "group": "alerts",
+      "subgroup": "maintenance-windows",
+      "command": "list",
+      "auth": "session_only"
+    },
+    {
+      "method": "/alerts.v1.MaintenanceWindowService/CreateMaintenanceWindow",
+      "group": "alerts",
+      "subgroup": "maintenance-windows",
+      "command": "create",
+      "auth": "session_only"
+    },
+    {
+      "method": "/alerts.v1.MaintenanceWindowService/UpdateMaintenanceWindow",
+      "group": "alerts",
+      "subgroup": "maintenance-windows",
+      "command": "update",
+      "auth": "session_only",
+      "required_fields": ["id"]
+    },
+    {
+      "method": "/alerts.v1.MaintenanceWindowService/DeleteMaintenanceWindow",
+      "group": "alerts",
+      "subgroup": "maintenance-windows",
+      "command": "delete",
+      "auth": "session_only",
+      "required_fields": ["id"]
+    },
+    {
+      "method": "/alerts.v1.HistoryService/ListAlerts",
+      "group": "alerts",
+      "subgroup": "history",
+      "command": "list",
+      "auth": "session_only"
+    },
+    {
+      "method": "/authz.v1.AuthzService/ListPermissions",
+      "group": "roles",
+      "command": "permissions",
+      "auth": "session_only"
+    },
+    {
+      "method": "/authz.v1.AuthzService/ListRoles",
+      "group": "roles",
+      "command": "list",
+      "auth": "session_only"
+    },
+    {
+      "method": "/authz.v1.AuthzService/CreateCustomRole",
+      "group": "roles",
+      "command": "create",
+      "auth": "session_only",
+      "required_fields": ["name"]
+    },
+    {
+      "method": "/authz.v1.AuthzService/UpdateCustomRole",
+      "group": "roles",
+      "command": "update",
+      "auth": "session_only",
+      "required_fields": ["role_id", "name"]
+    },
+    {
+      "method": "/authz.v1.AuthzService/DeleteCustomRole",
+      "group": "roles",
+      "command": "delete",
+      "auth": "session_only",
+      "required_fields": ["role_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/PreviewCurtailmentPlan",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "preview",
+      "required_fields": ["mode"],
+      "validation_exceptions": {
+        "$message": "mode_params is conditional: FIXED_KW requires fixed_kw while FULL_FLEET requires no mode parameters; generated request validation enforces the selected mode"
+      }
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/StartCurtailment",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "start",
+      "required_fields": ["mode", "reason"],
+      "validation_exceptions": {
+        "$message": "mode_params is conditional: FIXED_KW requires fixed_kw while FULL_FLEET requires no mode parameters; generated request validation enforces the selected mode"
+      }
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/UpdateCurtailmentEvent",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "update",
+      "required_fields": ["event_uuid"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/StopCurtailment",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "stop",
+      "required_fields": ["event_uuid"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/ListActiveCurtailments",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "list-active"
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/ListCurtailmentEvents",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "list"
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/GetCurtailmentEvent",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "get",
+      "required_fields": ["event_uuid"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/AdminTerminateEvent",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "terminate",
+      "auth": "session_only",
+      "required_fields": ["event_uuid", "target_state", "reason"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/ForceReleaseCurtailmentOwnership",
+      "group": "curtailment",
+      "subgroup": "events",
+      "command": "force-release",
+      "auth": "session_only",
+      "required_fields": ["event_uuid", "reason"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/ListMqttCurtailmentSources",
+      "group": "curtailment",
+      "subgroup": "mqtt-sources",
+      "command": "list"
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/GetMqttCurtailmentSource",
+      "group": "curtailment",
+      "subgroup": "mqtt-sources",
+      "command": "get",
+      "required_fields": ["source_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/CreateMqttCurtailmentSource",
+      "group": "curtailment",
+      "subgroup": "mqtt-sources",
+      "command": "create",
+      "auth": "session_only",
+      "required_fields": ["source_name", "topic", "broker_primary_host", "broker_secondary_host", "mqtt_username"],
+      "field_flags": [
+        {"path": "mqtt_password", "flag": "mqtt-password-stdin", "kind": "secret", "required": true, "prompt": true}
+      ]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/UpdateMqttCurtailmentSource",
+      "group": "curtailment",
+      "subgroup": "mqtt-sources",
+      "command": "update",
+      "auth": "session_only",
+      "required_fields": ["source_id"],
+      "field_flags": [
+        {"path": "mqtt_password", "flag": "mqtt-password-stdin", "kind": "secret"}
+      ]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/TestMqttCurtailmentSourceConnection",
+      "group": "curtailment",
+      "subgroup": "mqtt-sources",
+      "command": "test",
+      "auth": "session_only",
+      "required_fields": ["topic", "broker_primary_host", "broker_secondary_host", "mqtt_username"],
+      "field_flags": [
+        {"path": "mqtt_password", "flag": "mqtt-password-stdin", "kind": "secret", "required": true, "prompt": true}
+      ]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/SetMqttCurtailmentSourceEnabled",
+      "group": "curtailment",
+      "subgroup": "mqtt-sources",
+      "command": "set-enabled",
+      "required_fields": ["source_id", "enabled"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/DeleteMqttCurtailmentSource",
+      "group": "curtailment",
+      "subgroup": "mqtt-sources",
+      "command": "delete",
+      "required_fields": ["source_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/ListCurtailmentResponseProfiles",
+      "group": "curtailment",
+      "subgroup": "profiles",
+      "command": "list"
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/GetCurtailmentResponseProfile",
+      "group": "curtailment",
+      "subgroup": "profiles",
+      "command": "get",
+      "required_fields": ["profile_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/CreateCurtailmentResponseProfile",
+      "group": "curtailment",
+      "subgroup": "profiles",
+      "command": "create",
+      "required_fields": ["profile_name", "mode"],
+      "validation_exceptions": {
+        "$message": "mode_params is conditional: FIXED_KW requires fixed_kw while FULL_FLEET requires no mode parameters; generated request validation enforces the selected mode"
+      }
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/UpdateCurtailmentResponseProfile",
+      "group": "curtailment",
+      "subgroup": "profiles",
+      "command": "update",
+      "required_fields": ["profile_id", "profile_name", "mode"],
+      "validation_exceptions": {
+        "$message": "mode_params is conditional: FIXED_KW requires fixed_kw while FULL_FLEET requires no mode parameters; generated request validation enforces the selected mode"
+      }
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/DeleteCurtailmentResponseProfile",
+      "group": "curtailment",
+      "subgroup": "profiles",
+      "command": "delete",
+      "required_fields": ["profile_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/ListCurtailmentAutomationRules",
+      "group": "curtailment",
+      "subgroup": "automation-rules",
+      "command": "list"
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/GetCurtailmentAutomationRule",
+      "group": "curtailment",
+      "subgroup": "automation-rules",
+      "command": "get",
+      "required_fields": ["rule_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/CreateCurtailmentAutomationRule",
+      "group": "curtailment",
+      "subgroup": "automation-rules",
+      "command": "create",
+      "required_fields": ["rule_name", "mqtt_source_id", "response_profile_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/UpdateCurtailmentAutomationRule",
+      "group": "curtailment",
+      "subgroup": "automation-rules",
+      "command": "update",
+      "required_fields": ["rule_id", "rule_name", "mqtt_source_id", "response_profile_id"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/SetCurtailmentAutomationRuleEnabled",
+      "group": "curtailment",
+      "subgroup": "automation-rules",
+      "command": "set-enabled",
+      "required_fields": ["rule_id", "enabled"]
+    },
+    {
+      "method": "/curtailment.v1.CurtailmentService/DeleteCurtailmentAutomationRule",
+      "group": "curtailment",
+      "subgroup": "automation-rules",
+      "command": "delete",
+      "required_fields": ["rule_id"]
+    }
+  ]
+}

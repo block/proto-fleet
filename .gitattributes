@@ -19,5 +19,8 @@
 # sqlc
 *.sql.go linguist-generated=true
 
+# fleetcli command sources emitted by server/tools/generate-fleet-cli.
+server/cmd/fleetcli/cmd_*.go linguist-generated=true
+
 # gomock / mockgen
 **/mocks/mock_*.go linguist-generated=true

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"os"
 	"os/exec"
 	"strings"
@@ -16,26 +17,39 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	apikeyv1 "github.com/block/proto-fleet/server/generated/grpc/apikey/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	authv1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	onboardingv1 "github.com/block/proto-fleet/server/generated/grpc/onboarding/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	pairingv1 "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
+	"github.com/block/proto-fleet/server/internal/transportguard"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
-	fleetAPIURL     = "http://localhost:4000"
-	protoSimIP      = "127.0.0.1" // localhost since test runs on host
-	protoSimPort    = "8080"
-	testUsername    = "admin"
-	testPassword    = "proto"
-	requestTimeout  = 10 * time.Second
-	containerPrefix = "server-"
+	fleetAPIURL = "http://localhost:4000"
+	// protoSimDiscoveryHost addresses the sim as seen from fleet-api:
+	// discovery runs server-side on the compose bridge network, where the
+	// sim's DNS name is proto-sim. The host-published 127.0.0.1:8080 port is
+	// not reachable from inside the fleet-api container.
+	protoSimDiscoveryHost = "proto-sim"
+	protoSimPort          = "8080"
+	requestTimeout        = 10 * time.Second
+	containerPrefix       = "server-"
+)
+
+var (
+	testUsername = envOrDefault("FLEET_E2E_USERNAME", "admin")
+	testPassword = envOrDefault("FLEET_E2E_PASSWORD", "proto")
 )
 
 // TestPluginIntegration is the main e2e test that validates plugin integration
@@ -77,6 +91,13 @@ func TestPluginIntegration(t *testing.T) {
 	t.Run("Authentication", func(t *testing.T) {
 		testAuthentication(t, ctx)
 	})
+}
+
+func envOrDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }
 
 // testDockerContainersRunning verifies all required Docker containers are running
@@ -339,17 +360,17 @@ func TestCompletePluginWorkflow(t *testing.T) {
 	// Step 2: Discover device
 	t.Run("DiscoverDeviceViaPlugin", func(t *testing.T) {
 		// Discover proto-sim device at known IP using real API
-		devices := discoverDeviceViaRealAPI(t, ctx, token, protoSimIP, protoSimPort)
+		devices := discoverDeviceViaRealAPI(t, ctx, token, protoSimDiscoveryHost, protoSimPort)
 		require.Len(t, devices, 1, "should discover exactly one device")
 
 		device := devices[0]
 		deviceIdentifier = device.DeviceIdentifier
 		assert.NotEmpty(t, deviceIdentifier, "device identifier should not be empty")
-		assert.Equal(t, protoSimIP, device.IpAddress, "IP address should match")
+		assert.NotEmpty(t, device.IpAddress, "discovery should resolve the sim hostname to an IP")
 		assert.Equal(t, "http", device.UrlScheme, "proto-sim uses HTTP")
-		assert.Equal(t, "proto", device.Type, "device type should be proto")
+		assert.Equal(t, "proto", device.DriverName, "device driver should be proto")
 
-		t.Logf("✓ Successfully discovered device: %s (type: %s)", deviceIdentifier, device.Type)
+		t.Logf("✓ Successfully discovered device: %s (driver: %s)", deviceIdentifier, device.DriverName)
 	})
 
 	// Step 3: Pair device
@@ -371,22 +392,21 @@ func TestCompletePluginWorkflow(t *testing.T) {
 		telemetryResp := pollForTelemetryViaRealAPI(t, ctx, token, deviceIdentifier, 30*time.Second)
 
 		// Validate we received telemetry data
-		require.NotEmpty(t, telemetryResp.Telemetry, "should receive telemetry snapshots")
-
-		// Validate data looks reasonable
-		hasValidData := len(telemetryResp.Telemetry) > 0
-		require.True(t, hasValidData, "telemetry should contain data points")
+		require.NotEmpty(t, telemetryResp.Metrics, "should receive telemetry metrics")
 
 		// Log sample telemetry data
 		sampleCount := 3
-		for i, data := range telemetryResp.Telemetry {
+		for i, metric := range telemetryResp.Metrics {
 			if i >= sampleCount {
 				break
 			}
-			t.Logf("  - Device: %s, Type: %s, Value: %.2f %s",
-				data.DeviceId, data.MeasurementType, data.Value, data.Unit)
+			t.Logf("  - Type: %s, Time: %s, Devices: %d, Values: %v",
+				metric.MeasurementType,
+				metric.OpenTime.AsTime().Format(time.RFC3339),
+				metric.DeviceCount,
+				metric.AggregatedValues)
 		}
-		t.Logf("Total telemetry data points received: %d", len(telemetryResp.Telemetry))
+		t.Logf("Total metric rows received: %d", len(telemetryResp.Metrics))
 
 		t.Logf("✓ Successfully validated telemetry collection via API for device: %s", deviceIdentifier)
 	})
@@ -440,20 +460,30 @@ func createAdminViaAPI(t *testing.T, ctx context.Context, username, password str
 	require.NoError(t, err, "admin user creation should succeed")
 }
 
-// authenticateViaRealAPI authenticates via the real API and returns JWT token
+// authenticateViaRealAPI authenticates via the real API and returns an API key
+// usable as a bearer token. Authenticate no longer returns a token — it
+// establishes a cookie session — so this helper logs in with a cookie-jar
+// client and mints an API key for the Authorization headers the suite uses.
 func authenticateViaRealAPI(t *testing.T, ctx context.Context, username, password string) string {
-	client := authv1connect.NewAuthServiceClient(http.DefaultClient, fleetAPIURL)
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err, "cookie jar creation should succeed")
+	sessionHTTPClient := &http.Client{Jar: transportguard.NewLoopbackSecureJar(jar)}
 
-	req := connect.NewRequest(&authv1.AuthenticateRequest{
+	authClient := authv1connect.NewAuthServiceClient(sessionHTTPClient, fleetAPIURL)
+	_, err = authClient.Authenticate(ctx, connect.NewRequest(&authv1.AuthenticateRequest{
 		Username: username,
 		Password: password,
-	})
-
-	resp, err := client.Authenticate(ctx, req)
+	}))
 	require.NoError(t, err, "authentication should succeed")
-	require.NotEmpty(t, resp.Msg.Token, "token should not be empty")
 
-	return resp.Msg.Token
+	apiKeyClient := apikeyv1connect.NewApiKeyServiceClient(sessionHTTPClient, fleetAPIURL)
+	resp, err := apiKeyClient.CreateApiKey(ctx, connect.NewRequest(&apikeyv1.CreateApiKeyRequest{
+		Name: fmt.Sprintf("e2e-%d", time.Now().UnixNano()),
+	}))
+	require.NoError(t, err, "api key creation should succeed")
+	require.NotEmpty(t, resp.Msg.ApiKey, "api key should not be empty")
+
+	return resp.Msg.ApiKey
 }
 
 // discoverDeviceViaRealAPI discovers devices via the real API
@@ -488,7 +518,11 @@ func pairDeviceViaRealAPI(t *testing.T, ctx context.Context, token, deviceIdenti
 	client := pairingv1connect.NewPairingServiceClient(http.DefaultClient, fleetAPIURL)
 
 	req := connect.NewRequest(&pairingv1.PairRequest{
-		DeviceIdentifiers: []string{deviceIdentifier},
+		DeviceSelector: &minercommandv1.DeviceSelector{
+			SelectionType: &minercommandv1.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonv1.DeviceIdentifierList{DeviceIdentifiers: []string{deviceIdentifier}},
+			},
+		},
 	})
 	req.Header().Set("Authorization", "Bearer "+token)
 
@@ -497,25 +531,35 @@ func pairDeviceViaRealAPI(t *testing.T, ctx context.Context, token, deviceIdenti
 }
 
 // pollForTelemetryViaRealAPI polls the telemetry API until valid data is received
-func pollForTelemetryViaRealAPI(t *testing.T, ctx context.Context, token, deviceID string, timeout time.Duration) *telemetryv1.GetSnapshotResponse {
+func pollForTelemetryViaRealAPI(t *testing.T, ctx context.Context, token, deviceID string, timeout time.Duration) *telemetryv1.GetCombinedMetricsResponse {
 	deadline := time.Now().Add(timeout)
 	pollInterval := 2 * time.Second
 
 	client := telemetryv1connect.NewTelemetryServiceClient(http.DefaultClient, fleetAPIURL)
 
 	for time.Now().Before(deadline) {
-		req := connect.NewRequest(&telemetryv1.GetSnapshotRequest{
-			DeviceIds: []string{deviceID},
+		now := time.Now().UTC()
+		req := connect.NewRequest(&telemetryv1.GetCombinedMetricsRequest{
+			DeviceSelector: &telemetryv1.DeviceSelector{
+				SelectorValue: &telemetryv1.DeviceSelector_DeviceList{
+					DeviceList: &telemetryv1.DeviceList{DeviceIds: []string{deviceID}},
+				},
+			},
 			MeasurementTypes: []telemetryv1.MeasurementType{
 				telemetryv1.MeasurementType_MEASUREMENT_TYPE_HASHRATE,
 				telemetryv1.MeasurementType_MEASUREMENT_TYPE_TEMPERATURE,
 				telemetryv1.MeasurementType_MEASUREMENT_TYPE_POWER,
 			},
+			Aggregations: []telemetryv1.AggregationType{
+				telemetryv1.AggregationType_AGGREGATION_TYPE_AVERAGE,
+			},
+			StartTime: timestamppb.New(now.Add(-5 * time.Minute)),
+			EndTime:   timestamppb.New(now.Add(time.Minute)),
 		})
 		req.Header().Set("Authorization", "Bearer "+token)
 
-		resp, err := client.GetSnapshot(ctx, req)
-		if err == nil && len(resp.Msg.Telemetry) > 0 {
+		resp, err := client.GetCombinedMetrics(ctx, req)
+		if err == nil && len(resp.Msg.Metrics) > 0 {
 			t.Logf("✓ Received telemetry data after polling")
 			return resp.Msg
 		}

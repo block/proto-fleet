@@ -1,0 +1,419 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/tls"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/http/cookiejar"
+	"net/url"
+	"os"
+	"strings"
+	"time"
+
+	apikeyv1 "github.com/block/proto-fleet/server/generated/grpc/apikey/v1"
+	authv1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
+	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	fleetperformancev1 "github.com/block/proto-fleet/server/generated/grpc/fleetperformance/v1"
+	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
+	"github.com/block/proto-fleet/server/internal/transportguard"
+	"golang.org/x/term"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+)
+
+// APIError is returned when the server responds with a non-2xx status. It
+// preserves the raw response body so callers can format it (e.g. colorized
+// JSON) without parsing the error string.
+type APIError struct {
+	Method string
+	Status string
+	Body   []byte
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("%s returned %s: %s", e.Method, e.Status, strings.TrimSpace(string(e.Body)))
+}
+
+type Options struct {
+	Server        string
+	APIKey        string
+	Username      string
+	Password      string
+	PasswordStdin bool
+	Insecure      bool
+}
+
+type Client struct {
+	baseURL       *url.URL
+	httpClient    *http.Client
+	apiKey        string
+	username      string
+	password      string
+	passwordStdin bool
+}
+
+type authPolicy int
+
+const (
+	authUnauthenticated authPolicy = iota
+	authAuthenticated
+	authSessionOnly
+)
+
+func New(_ context.Context, opts Options) (*Client, error) {
+	if opts.Server == "" {
+		return nil, fmt.Errorf("server is required")
+	}
+
+	baseURL, err := normalizeBaseURL(opts.Server, opts.Insecure)
+	if err != nil {
+		return nil, err
+	}
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, fmt.Errorf("create cookie jar: %w", err)
+	}
+
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("default transport is %T, want *http.Transport", http.DefaultTransport)
+	}
+	httpTransport := transport.Clone()
+	httpTransport.TLSClientConfig = &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		// #nosec G402 -- insecure TLS is an explicit user opt-in via --insecure.
+		InsecureSkipVerify: opts.Insecure,
+	}
+
+	return &Client{
+		baseURL: baseURL,
+		httpClient: &http.Client{
+			CheckRedirect: transportguard.RejectRedirect,
+			Jar:           transportguard.NewLoopbackSecureJar(jar),
+			Transport:     httpTransport,
+			Timeout:       30 * time.Second,
+		},
+		apiKey:        opts.APIKey,
+		username:      strings.TrimSpace(opts.Username),
+		password:      opts.Password,
+		passwordStdin: opts.PasswordStdin,
+	}, nil
+}
+
+func (c *Client) Close() error {
+	return nil
+}
+
+func (c *Client) CallAuthenticated(ctx context.Context, method string, req proto.Message, resp proto.Message) error {
+	return c.invoke(ctx, method, req, resp, authAuthenticated)
+}
+
+func (c *Client) CallSessionOnly(ctx context.Context, method string, req proto.Message, resp proto.Message) error {
+	return c.invoke(ctx, method, req, resp, authSessionOnly)
+}
+
+func (c *Client) CallUnauthenticated(ctx context.Context, method string, req proto.Message, resp proto.Message) error {
+	return c.invoke(ctx, method, req, resp, authUnauthenticated)
+}
+
+func (c *Client) Authenticate(ctx context.Context, username, password string) (*authv1.AuthenticateResponse, error) {
+	req := &authv1.AuthenticateRequest{
+		Username: username,
+		Password: password,
+	}
+	resp := &authv1.AuthenticateResponse{}
+	if err := c.invoke(ctx, "/auth.v1.AuthService/Authenticate", req, resp, authUnauthenticated); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Client) CreateAPIKey(ctx context.Context, req *apikeyv1.CreateApiKeyRequest) (*apikeyv1.CreateApiKeyResponse, error) {
+	resp := &apikeyv1.CreateApiKeyResponse{}
+	if err := c.invoke(ctx, "/apikey.v1.ApiKeyService/CreateApiKey", req, resp, authSessionOnly); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Client) ListAPIKeys(ctx context.Context) (*apikeyv1.ListApiKeysResponse, error) {
+	resp := &apikeyv1.ListApiKeysResponse{}
+	if err := c.invoke(ctx, "/apikey.v1.ApiKeyService/ListApiKeys", &apikeyv1.ListApiKeysRequest{}, resp, authSessionOnly); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Client) RevokeAPIKey(ctx context.Context, keyID string) (*apikeyv1.RevokeApiKeyResponse, error) {
+	resp := &apikeyv1.RevokeApiKeyResponse{}
+	req := &apikeyv1.RevokeApiKeyRequest{KeyId: keyID}
+	if err := c.invoke(ctx, "/apikey.v1.ApiKeyService/RevokeApiKey", req, resp, authSessionOnly); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Client) ListMiners(ctx context.Context, pageSize int32, cursor string) (*fleetmanagementv1.ListMinerStateSnapshotsResponse, error) {
+	req := &fleetmanagementv1.ListMinerStateSnapshotsRequest{
+		PageSize: pageSize,
+		Cursor:   cursor,
+	}
+	resp := &fleetmanagementv1.ListMinerStateSnapshotsResponse{}
+	if err := c.invoke(ctx, "/fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots", req, resp, authAuthenticated); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Client) GetFleetPerformance(ctx context.Context) (*fleetperformancev1.GetFleetPerformanceResponse, error) {
+	resp := &fleetperformancev1.GetFleetPerformanceResponse{}
+	if err := c.invoke(ctx, "/fleetperformance.v1.FleetPerformanceService/GetFleetPerformance", &fleetperformancev1.GetFleetPerformanceRequest{}, resp, authAuthenticated); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (c *Client) GetCombinedMetrics(ctx context.Context, req *telemetryv1.GetCombinedMetricsRequest) (*telemetryv1.GetCombinedMetricsResponse, error) {
+	resp := &telemetryv1.GetCombinedMetricsResponse{}
+	if err := c.invoke(ctx, "/telemetry.v1.TelemetryService/GetCombinedMetrics", req, resp, authAuthenticated); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// applyAuthenticatedAuth applies the normal user-authenticated policy: API key
+// when present, otherwise a cookie session established from the global
+// username/password.
+func (c *Client) applyAuthenticatedAuth(ctx context.Context, header http.Header, method string) error {
+	if c.apiKey != "" {
+		header.Set("Authorization", "Bearer "+c.apiKey)
+		return nil
+	}
+	if err := c.ensureSession(ctx); err != nil {
+		return fmt.Errorf("api key or username/password is required for %s: %w", method, err)
+	}
+	return nil
+}
+
+// transferClient returns an HTTP client without an overall timeout, for
+// long-running transfers (large firmware uploads, discovery scans) that can
+// outlive the default per-request budget. It shares the cookie jar and
+// transport so session auth and TLS settings still apply; cancellation comes
+// from ctx.
+func (c *Client) transferClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: transportguard.RejectRedirect,
+		Jar:           c.httpClient.Jar,
+		Transport:     c.httpClient.Transport,
+	}
+}
+
+func (c *Client) invoke(ctx context.Context, method string, req proto.Message, resp proto.Message, policy authPolicy) error {
+	body, err := protojson.MarshalOptions{
+		UseProtoNames:   true,
+		EmitUnpopulated: false,
+	}.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal %s request: %w", method, err)
+	}
+
+	endpoint := c.baseURL.JoinPath(strings.TrimPrefix(method, "/"))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build %s request: %w", method, err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+	switch policy {
+	case authUnauthenticated:
+		// No credentials attached.
+	case authAuthenticated:
+		if err := c.applyAuthenticatedAuth(ctx, httpReq.Header, method); err != nil {
+			return err
+		}
+	case authSessionOnly:
+		if err := c.ensureSession(ctx); err != nil {
+			return fmt.Errorf("session cookie or username/password is required for %s: %w", method, err)
+		}
+	}
+
+	httpResp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("call %s: %w", method, err)
+	}
+	defer func() { _ = httpResp.Body.Close() }()
+
+	respBody, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return fmt.Errorf("read %s response: %w", method, err)
+	}
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		return &APIError{Method: method, Status: httpResp.Status, Body: respBody}
+	}
+
+	if len(bytes.TrimSpace(respBody)) == 0 {
+		return nil
+	}
+
+	unmarshalOptions := protojson.UnmarshalOptions{
+		DiscardUnknown: true,
+	}
+	if err := unmarshalOptions.Unmarshal(respBody, resp); err != nil {
+		return fmt.Errorf("failed to decode %s response: %w", method, err)
+	}
+
+	return nil
+}
+
+func (c *Client) ensureSession(ctx context.Context) error {
+	if c.hasSession() {
+		return nil
+	}
+	username, password, err := c.sessionCredentials()
+	if err != nil {
+		return err
+	}
+	if _, err := c.Authenticate(ctx, username, password); err != nil {
+		return err
+	}
+	if !c.hasSession() {
+		return fmt.Errorf("authenticate did not yield a reusable session")
+	}
+	return nil
+}
+
+func (c *Client) sessionCredentials() (string, string, error) {
+	if c.username == "" {
+		return "", "", fmt.Errorf("username is required")
+	}
+	if c.passwordStdin {
+		password, err := readFleetPasswordFromStdin()
+		if err != nil {
+			return "", "", err
+		}
+		c.password = password
+		c.passwordStdin = false
+	} else if c.password == "" {
+		password, err := promptFleetPassword()
+		if err != nil {
+			return "", "", err
+		}
+		c.password = password
+	}
+	if c.password == "" {
+		return "", "", fmt.Errorf("password is required; set %s, use --password-stdin, or run from a terminal to prompt", envFleetPassword)
+	}
+	return c.username, c.password, nil
+}
+
+var readFleetPasswordFromStdin = func() (string, error) {
+	return readSecretLineFromStdin("password")
+}
+
+var promptFleetPassword = func() (string, error) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return "", fmt.Errorf("password is required; set %s, use --password-stdin, or run from a terminal to prompt", envFleetPassword)
+	}
+	fmt.Fprint(os.Stderr, "Fleet password: ")
+	password, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(os.Stderr)
+	if err != nil {
+		return "", fmt.Errorf("read password: %w", err)
+	}
+	return string(password), nil
+}
+
+func readSecretLineFromStdin(label string) (string, error) {
+	var buf strings.Builder
+	var one [1]byte
+	for {
+		n, err := os.Stdin.Read(one[:])
+		if n > 0 {
+			chunk := string(one[:])
+			if chunk == "\n" {
+				break
+			}
+			if _, err := buf.WriteString(chunk); err != nil {
+				return "", fmt.Errorf("read %s from stdin: %w", label, err)
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", fmt.Errorf("read %s from stdin: %w", label, err)
+		}
+	}
+	secret := strings.TrimSuffix(buf.String(), "\r")
+	if secret == "" {
+		return "", fmt.Errorf("%s from stdin is empty", label)
+	}
+	return secret, nil
+}
+
+func (c *Client) hasSession() bool {
+	// The jar's path matching needs a non-empty request path; a root base URL
+	// has none, so probe with "/" the way real request URLs would.
+	target := *c.baseURL
+	if target.Path == "" {
+		target.Path = "/"
+	}
+	return len(c.httpClient.Jar.Cookies(&target)) > 0
+}
+
+func normalizeBaseURL(server string, insecureOverride bool) (*url.URL, error) {
+	value := strings.TrimSpace(server)
+	if value == "" {
+		return nil, fmt.Errorf("server is required")
+	}
+
+	if !strings.Contains(value, "://") {
+		scheme := "https"
+		if insecureOverride && isBareLoopbackServer(value) {
+			scheme = "http"
+		}
+		value = scheme + "://" + value
+	}
+
+	u, err := url.Parse(value)
+	if err != nil {
+		return nil, fmt.Errorf("invalid server URL: %w", err)
+	}
+	if u.Host == "" {
+		return nil, fmt.Errorf("server URL must include a host")
+	}
+
+	// A bare host defaults to the nginx proxy route, while an explicit
+	// trailing slash ("http://localhost:4000/") targets the RPC root for
+	// direct fleet-api access.
+	path := strings.TrimSuffix(u.Path, "/")
+	if path == "" && u.Path == "" {
+		path = "/api-proxy"
+	}
+	u.Path = path
+	u.RawPath = ""
+	if err := transportguard.ValidateServerURL(u.String(), insecureOverride); err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+func isBareLoopbackServer(server string) bool {
+	u, err := url.Parse("https://" + server)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
