@@ -79,7 +79,9 @@ func TestHandler_CreateCurtailmentResponseProfileRequiresFacilityFanSitePermissi
 	tests := []struct {
 		name        string
 		assignments []authz.Assignment
+		device      *models.ResponseProfileInfrastructureDevice
 		wantCode    connect.Code
+		wantDebug   string
 	}{
 		{
 			name: "masks fan without site read",
@@ -87,7 +89,9 @@ func TestHandler_CreateCurtailmentResponseProfileRequiresFacilityFanSitePermissi
 				testOrgAssignment(authz.PermCurtailmentManage),
 				testSiteAssignment(8),
 			},
-			wantCode: connect.CodeNotFound,
+			device:    &models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true},
+			wantCode:  connect.CodeNotFound,
+			wantDebug: "one or more infrastructure devices were not found",
 		},
 		{
 			name: "rejects fan without curtailment manage at its site",
@@ -95,7 +99,16 @@ func TestHandler_CreateCurtailmentResponseProfileRequiresFacilityFanSitePermissi
 				testOrgAssignment(authz.PermCurtailmentManage),
 				testSiteAssignment(8, authz.PermSiteRead),
 			},
+			device:   &models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true},
 			wantCode: connect.CodePermissionDenied,
+		},
+		{
+			name: "masks a missing fan like an unreadable fan",
+			assignments: []authz.Assignment{
+				testOrgAssignment(authz.PermCurtailmentManage, authz.PermSiteRead),
+			},
+			wantCode:  connect.CodeNotFound,
+			wantDebug: "one or more infrastructure devices were not found",
 		},
 	}
 
@@ -104,7 +117,9 @@ func TestHandler_CreateCurtailmentResponseProfileRequiresFacilityFanSitePermissi
 			t.Parallel()
 
 			store := newHandlerResponseProfileStore()
-			store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true}
+			if tt.device != nil {
+				store.infrastructureDevices[31] = *tt.device
+			}
 			h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 			_, err := h.CreateCurtailmentResponseProfile(
@@ -128,6 +143,9 @@ func TestHandler_CreateCurtailmentResponseProfileRequiresFacilityFanSitePermissi
 			var fleetErr fleeterror.FleetError
 			require.ErrorAs(t, err, &fleetErr)
 			assert.Equal(t, tt.wantCode, fleetErr.GRPCCode)
+			if tt.wantDebug != "" {
+				assert.Equal(t, tt.wantDebug, fleetErr.DebugMessage)
+			}
 			assert.Nil(t, store.created)
 		})
 	}

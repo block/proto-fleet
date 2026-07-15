@@ -238,6 +238,9 @@ func (h *Handler) requireResponseProfileSitePermission(
 func (h *Handler) requireFacilityFanSitePermissions(ctx context.Context, orgID int64, deviceIDs []int64) error {
 	siteIDs, err := h.responseProfiles.FacilityFanSiteIDs(ctx, orgID, deviceIDs)
 	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			return fleeterror.NewNotFoundError("one or more infrastructure devices were not found")
+		}
 		return err
 	}
 	for _, siteID := range siteIDs {
