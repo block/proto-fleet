@@ -1818,7 +1818,7 @@ func validateBuildingRackCapacity(rackRows, buildingRows []map[string]string, sn
 	buildings := desiredBuildingMap(buildingRows, snap.buildings)
 	counts := map[string]int32{}
 	for _, rack := range desiredRackMap(rackRows, snap.racks) {
-		if rack.Site != "" && rack.Building != "" {
+		if rack.Building != "" {
 			counts[rack.Site+"\x00"+rack.Building]++
 		}
 	}
@@ -1849,7 +1849,7 @@ func validateBuildingExistingRacksFitLayout(rackRows, buildingRows []map[string]
 		if !ok {
 			desiredRack = rack
 		}
-		if desiredRack.Site == "" || desiredRack.Building == "" || desiredRack.AisleIndex == "" || desiredRack.PositionInAisle == "" {
+		if desiredRack.Building == "" || desiredRack.AisleIndex == "" || desiredRack.PositionInAisle == "" {
 			continue
 		}
 		building, ok := buildings[desiredRack.Site+"\x00"+desiredRack.Building]

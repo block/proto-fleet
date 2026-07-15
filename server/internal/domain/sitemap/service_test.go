@@ -713,6 +713,35 @@ func TestValidateBuildingRackCapacityBlocksOverfilledBuilding(t *testing.T) {
 	}
 }
 
+func TestValidateBuildingRackCapacityCountsSiteLessBuildings(t *testing.T) {
+	rackRows := []map[string]string{
+		{"site": "", "building": "Building A", "rack": "Rack A"},
+		{"site": "", "building": "Building A", "rack": "Rack B"},
+	}
+	buildingRows := []map[string]string{{"site": "", "building": "Building A", "aisles": "1", "racks_per_aisle": "1"}}
+
+	errs := validateBuildingRackCapacity(rackRows, buildingRows, &snapshot{})
+	if len(errs) != 1 || errs[0].GetSection() != "RACK" {
+		t.Fatalf("errors = %+v, want site-less building rack capacity error", errs)
+	}
+}
+
+func TestValidateBuildingExistingRacksFitLayoutCountsSiteLessBuildings(t *testing.T) {
+	buildingRows := []map[string]string{{"site": "", "building": "Building A", "aisles": "1", "racks_per_aisle": "1"}}
+	snap := &snapshot{racks: []rackSnapshot{{
+		Site:            "",
+		Building:        "Building A",
+		Label:           "Rack A",
+		AisleIndex:      "2",
+		PositionInAisle: "0",
+	}}}
+
+	errs := validateBuildingExistingRacksFitLayout(nil, buildingRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if len(errs) != 1 || !strings.Contains(errs[0].GetMessage(), "does not fit building") {
+		t.Fatalf("errors = %+v, want site-less building layout fit error", errs)
+	}
+}
+
 func TestParseSiteMapCSVAcceptsSpreadsheetPaddedSectionRows(t *testing.T) {
 	csv := validCSV()
 	csv = strings.Replace(csv, "# SECTION: SITE\n", "# SECTION: SITE,,,,,,,,,,\n", 1)
