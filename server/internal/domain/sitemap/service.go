@@ -759,17 +759,19 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	}
 
 	plan.errors = append(plan.errors, validateUnique(parsed.sections["SITE"], "SITE", "site")...)
-	plan.errors = append(plan.errors, validateUniqueCompound(parsed.sections["BUILDING"], "BUILDING", "site", "building")...)
+	plan.errors = append(plan.errors, validateUniqueBuildingRows(parsed.sections["BUILDING"])...)
 	plan.errors = append(plan.errors, validateUnique(parsed.sections["RACK"], "RACK", "rack")...)
 	plan.errors = append(plan.errors, validateUnique(parsed.sections["MINER"], "MINER", "device_identifier")...)
 	plan.errors = append(plan.errors, validateExistingTopologyRows(parsed.sections["SITE"], parsed.sections["BUILDING"], parsed.sections["RACK"], snap)...)
 	plan.errors = append(plan.errors, validateRemoveOmittedMode(mode, plan.omissions)...)
 	plan.errors = append(plan.errors, validateKnownMiners(parsed.sections["MINER"], snap)...)
 	plan.errors = append(plan.errors, validateReadOnlyMinerFields(parsed.sections["MINER"], snap)...)
+	plan.errors = append(plan.errors, validateRackPlacementTargets(parsed.sections["RACK"], snap)...)
 	plan.errors = append(plan.errors, validatePlacementConsistency(parsed.sections["MINER"], parsed.sections["RACK"], parsed.sections["BUILDING"], snap)...)
 	plan.errors = append(plan.errors, validateBuildingLayoutBounds(parsed.sections["BUILDING"])...)
 	plan.errors = append(plan.errors, validateRackDimensions(parsed.sections["RACK"])...)
 	plan.errors = append(plan.errors, validateRackGridPositions(parsed.sections["RACK"], parsed.sections["BUILDING"], snap)...)
+	plan.errors = append(plan.errors, validateRackGridCollisions(parsed.sections["RACK"], snap, mode)...)
 	plan.errors = append(plan.errors, validateRackSlotBounds(parsed.sections["MINER"], parsed.sections["RACK"], snap)...)
 	plan.errors = append(plan.errors, validateExistingSlotsFitRackDimensions(parsed.sections["MINER"], parsed.sections["RACK"], snap, mode)...)
 	plan.errors = append(plan.errors, validateRackCapacity(parsed.sections["MINER"], parsed.sections["RACK"], snap, mode)...)
@@ -789,7 +791,6 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	addChange(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "site", countSiteUpdates(parsed.sections["SITE"], snap.sites), "site rows with changed details")
 	addChange(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "building", countBuildingUpdates(parsed.sections["BUILDING"], snap.buildings), "building rows with changed details")
 	addChange(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "rack", countRackUpdates(parsed.sections["RACK"], snap.racks), "rack rows with changed details")
-	addChange(pb.ImportOperation_IMPORT_OPERATION_RENAME, "miner", countMinerRenames(parsed.sections["MINER"], snap.miners), "miner rows with changed names")
 	addChange(pb.ImportOperation_IMPORT_OPERATION_MOVE, "miner", countMinerPlacementUpdates(parsed.sections["MINER"], parsed.sections["RACK"], parsed.sections["BUILDING"], snap), "miner placement rows with changed site, building, rack, or slot")
 	return plan
 }
@@ -853,9 +854,6 @@ func (s *Service) applyImportPlan(ctx context.Context, orgID int64, parsed *pars
 			return err
 		}
 		if err := s.applyRackRows(txCtx, orgID, parsed.sections["RACK"], sitesByName, buildingsByKey, racksByLabel); err != nil {
-			return err
-		}
-		if err := s.applyMinerRenames(txCtx, orgID, parsed.sections["MINER"], snap.miners); err != nil {
 			return err
 		}
 		return s.applyMinerRows(txCtx, orgID, parsed.sections["MINER"], parsed.sections["BUILDING"], snap.buildings, sitesByName, buildingsByKey, racksByLabel, minersByID)
@@ -949,6 +947,16 @@ func (s *Service) applyRackRows(
 		}
 		if err := s.collectionStore.UpdateRackPlacement(ctx, rack.ID, orgID, siteID, buildingID, row["zone"]); err != nil {
 			return err
+		}
+		if row["site"] != rack.Site {
+			if _, err := s.collectionStore.CascadeRackDeviceSites(ctx, rack.ID, orgID, siteID); err != nil {
+				return err
+			}
+		}
+		if row["building"] != rack.Building {
+			if _, err := s.collectionStore.CascadeRackDeviceBuildings(ctx, rack.ID, orgID, buildingID); err != nil {
+				return err
+			}
 		}
 		aisleIndex, positionInAisle, err := desiredRackGridPosition(row)
 		if err != nil {
@@ -1085,17 +1093,6 @@ func (s *Service) applyMinerRows(
 	return nil
 }
 
-func (s *Service) applyMinerRenames(ctx context.Context, orgID int64, rows []map[string]string, miners []minerSnapshot) error {
-	names := minerRenameUpdates(rows, miners)
-	if len(names) == 0 {
-		return nil
-	}
-	if s.deviceStore == nil {
-		return fleeterror.NewInternalError("site map import requires a device store")
-	}
-	return s.deviceStore.UpdateDeviceCustomNames(ctx, orgID, names)
-}
-
 func commitToken(parsed *parsedCSV, mode pb.OmissionMode, plan importPlan, snap *snapshot) string {
 	payload := mustMarshalJSON(struct {
 		Parsed              *parsedCSV
@@ -1216,7 +1213,7 @@ func rowSet(rows []map[string]string, key string) map[string]bool {
 func compoundRowSet(rows []map[string]string, a, b string) map[string]bool {
 	out := map[string]bool{}
 	for _, row := range rows {
-		if row[a] != "" && row[b] != "" {
+		if row[b] != "" {
 			out[row[a]+"\x00"+row[b]] = true
 		}
 	}
@@ -1257,6 +1254,23 @@ func validateUniqueCompound(rows []map[string]string, section, a, b string) []*p
 	return errs
 }
 
+func validateUniqueBuildingRows(rows []map[string]string) []*pb.ImportValidationError {
+	seen := map[string]bool{}
+	var errs []*pb.ImportValidationError
+	for i, row := range rows {
+		if row["building"] == "" {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", "building is required"))
+			continue
+		}
+		key := row["site"] + "\x00" + row["building"]
+		if seen[key] {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", "duplicate site/building"))
+		}
+		seen[key] = true
+	}
+	return errs
+}
+
 func validateExistingTopologyRows(siteRows, buildingRows, rackRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
 	existingSites := rowSetFromSites(snap.sites)
 	existingBuildings := rowSetFromBuildings(snap.buildings)
@@ -1269,7 +1283,7 @@ func validateExistingTopologyRows(siteRows, buildingRows, rackRows []map[string]
 	}
 	for i, row := range buildingRows {
 		key := row["site"] + "\x00" + row["building"]
-		if row["site"] != "" && row["building"] != "" && !existingBuildings[key] {
+		if row["building"] != "" && !existingBuildings[key] {
 			errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", "creating buildings is not supported by site map CSV v1"))
 		}
 	}
@@ -1314,6 +1328,7 @@ func validateReadOnlyMinerFields(rows []map[string]string, snap *snapshot) []*pb
 			want string
 		}{
 			{name: "serial_number", want: miner.SerialNumber},
+			{name: "name", want: miner.Name},
 			{name: "ip_address", want: miner.IPAddress},
 			{name: "mac_address", want: miner.MACAddress},
 		} {
@@ -1325,9 +1340,28 @@ func validateReadOnlyMinerFields(rows []map[string]string, snap *snapshot) []*pb
 	return errs
 }
 
+func validateRackPlacementTargets(rows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
+	existingSites := rowSetFromSites(snap.sites)
+	existingBuildings := rowSetFromBuildings(snap.buildings)
+	var errs []*pb.ImportValidationError
+	for i, row := range rows {
+		if row["site"] != "" && !existingSites[row["site"]] {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("unknown site %q", row["site"])))
+		}
+		if row["building"] != "" {
+			key := row["site"] + "\x00" + row["building"]
+			if !existingBuildings[key] {
+				errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("unknown building %q for site %q", row["building"], row["site"])))
+			}
+		}
+	}
+	return errs
+}
+
 func validatePlacementConsistency(minerRows, rackRows, buildingRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
 	racks := desiredRackMap(rackRows, snap.racks)
 	buildingsByName, ambiguousBuildings := desiredBuildingNameLookup(buildingRows, snap.buildings)
+	existingSites := rowSetFromSites(snap.sites)
 	var errs []*pb.ImportValidationError
 	for i, row := range minerRows {
 		if row["rack"] != "" {
@@ -1357,6 +1391,10 @@ func validatePlacementConsistency(minerRows, rackRows, buildingRows []map[string
 			if row["site"] != "" && row["site"] != building.SiteLabel {
 				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner site %q does not match building site %q", row["site"], building.SiteLabel)))
 			}
+			continue
+		}
+		if row["site"] != "" && !existingSites[row["site"]] {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("unknown site %q", row["site"])))
 		}
 	}
 	return errs
@@ -1462,6 +1500,50 @@ func validateRackGridPositions(rackRows, buildingRows []map[string]string, snap 
 		if building.RacksPerAisle <= 0 || position >= building.RacksPerAisle {
 			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("position_in_aisle %d is out of bounds for building %q with %d racks per aisle", position, building.Name, building.RacksPerAisle)))
 		}
+	}
+	return errs
+}
+
+func validateRackGridCollisions(rackRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
+	presentRacks := rowSet(rackRows, "rack")
+	seen := map[string]string{}
+	var errs []*pb.ImportValidationError
+	for _, rack := range snap.racks {
+		if presentRacks[rack.Label] || mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
+			continue
+		}
+		if rack.Building == "" || rack.AisleIndex == "" || rack.PositionInAisle == "" {
+			continue
+		}
+		aisle, err := parseInt32Value(rack.AisleIndex, "aisle_index")
+		if err != nil {
+			continue
+		}
+		position, err := parseInt32Value(rack.PositionInAisle, "position_in_aisle")
+		if err != nil {
+			continue
+		}
+		key := fmt.Sprintf("%s\x00%s\x00%d\x00%d", rack.Site, rack.Building, aisle, position)
+		seen[key] = rack.Label
+	}
+	for i, row := range rackRows {
+		if row["building"] == "" || row["aisle_index"] == "" || row["position_in_aisle"] == "" {
+			continue
+		}
+		aisle, err := parseInt32Value(row["aisle_index"], "aisle_index")
+		if err != nil {
+			continue
+		}
+		position, err := parseInt32Value(row["position_in_aisle"], "position_in_aisle")
+		if err != nil {
+			continue
+		}
+		key := fmt.Sprintf("%s\x00%s\x00%d\x00%d", row["site"], row["building"], aisle, position)
+		if existingRack, ok := seen[key]; ok {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack grid cell already occupied by rack %s", existingRack)))
+			continue
+		}
+		seen[key] = row["rack"]
 	}
 	return errs
 }
@@ -1781,25 +1863,6 @@ func countMinerPlacementUpdates(rows, rackRows, buildingRows []map[string]string
 		}
 	}
 	return count
-}
-
-func countMinerRenames(rows []map[string]string, miners []minerSnapshot) int32 {
-	return safeInt32(len(minerRenameUpdates(rows, miners)))
-}
-
-func minerRenameUpdates(rows []map[string]string, miners []minerSnapshot) map[string]string {
-	existing := minerMap(miners)
-	names := map[string]string{}
-	for _, row := range rows {
-		miner, ok := existing[row["device_identifier"]]
-		if !ok {
-			continue
-		}
-		if row["name"] != miner.Name {
-			names[row["device_identifier"]] = row["name"]
-		}
-	}
-	return names
 }
 
 func countExistingRowUpdates(rows []map[string]string, existing map[string]map[string]string, keySpec string, headers []string) int32 {

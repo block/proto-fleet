@@ -70,6 +70,26 @@ func TestBuildPlanRejectsNewTopologyRows(t *testing.T) {
 	}
 }
 
+func TestBuildPlanAcceptsExportedUnassignedBuildings(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": nil,
+		"BUILDING": {
+			{"__row": "5", "site": "", "building": "Unassigned Building", "aisles": "1", "racks_per_aisle": "1"},
+		},
+		"RACK":  nil,
+		"MINER": nil,
+	}}
+	snap := &snapshot{buildings: []buildingmodels.Building{{SiteLabel: "", Name: "Unassigned Building", Aisles: 1, RacksPerAisle: 1}}}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.errors) != 0 {
+		t.Fatalf("plan errors = %v, want unassigned building row accepted", plan.errors)
+	}
+	if plan.omissions.GetBuildings() != 0 {
+		t.Fatalf("building omissions = %d, want 0", plan.omissions.GetBuildings())
+	}
+}
+
 func TestCommitTokenChangesWithSnapshotDrift(t *testing.T) {
 	parsed, errs := parseSiteMapCSV([]byte(validCSV()))
 	if len(errs) != 0 {
@@ -114,7 +134,7 @@ func TestBuildPlanWithNoOmissionsSummarizesMinerPlacementChanges(t *testing.T) {
 	}
 }
 
-func TestBuildPlanWithNoOmissionsSummarizesMinerRenames(t *testing.T) {
+func TestBuildPlanRejectsMinerRenames(t *testing.T) {
 	csv := strings.Replace(validCSV(), "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,0", "miner-1,SN1,Renamed Miner,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,0", 1)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
@@ -122,18 +142,8 @@ func TestBuildPlanWithNoOmissionsSummarizesMinerRenames(t *testing.T) {
 	}
 
 	plan := buildPlan(parsed, testSnapshotMatchingValidCSV(), pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	if len(plan.errors) != 0 {
-		t.Fatalf("plan errors = %v", plan.errors)
-	}
-
-	var sawMinerRename bool
-	for _, change := range plan.changes {
-		if change.Operation == pb.ImportOperation_IMPORT_OPERATION_RENAME && change.EntityType == "miner" && change.Count == 1 {
-			sawMinerRename = true
-		}
-	}
-	if !sawMinerRename {
-		t.Fatalf("changes did not include expected miner rename summary: %+v", plan.changes)
+	if len(plan.errors) != 1 || plan.errors[0].GetMessage() != "name is read-only for existing miner miner-1" {
+		t.Fatalf("plan errors = %v, want name read-only error", plan.errors)
 	}
 }
 
@@ -339,7 +349,7 @@ func TestValidateReadOnlyMinerFieldsIncludesIP(t *testing.T) {
 	}
 }
 
-func TestValidateReadOnlyMinerFieldsAllowsNameChanges(t *testing.T) {
+func TestValidateReadOnlyMinerFieldsIncludesName(t *testing.T) {
 	rows := []map[string]string{{
 		"__row":             "21",
 		"device_identifier": "miner-1",
@@ -356,25 +366,40 @@ func TestValidateReadOnlyMinerFieldsAllowsNameChanges(t *testing.T) {
 		MACAddress:       "aa:bb:cc:dd:ee:ff",
 	}}}
 
-	if errs := validateReadOnlyMinerFields(rows, snap); len(errs) != 0 {
-		t.Fatalf("name change should not be read-only, got %+v", errs)
+	errs := validateReadOnlyMinerFields(rows, snap)
+	if len(errs) != 1 || errs[0].GetMessage() != "name is read-only for existing miner miner-1" {
+		t.Fatalf("errors = %+v, want name read-only error", errs)
 	}
 }
 
-func TestMinerRenameUpdates(t *testing.T) {
-	rows := []map[string]string{
-		{"device_identifier": "miner-1", "name": "Renamed Miner"},
-		{"device_identifier": "miner-2", "name": "Miner 2"},
-		{"device_identifier": "unknown", "name": "Ignored"},
-	}
-	miners := []minerSnapshot{
-		{DeviceIdentifier: "miner-1", Name: "Miner 1"},
-		{DeviceIdentifier: "miner-2", Name: "Miner 2"},
+func TestValidateRackPlacementTargetsRejectsUnknownSiteBuilding(t *testing.T) {
+	rows := []map[string]string{{
+		"__row":    "9",
+		"site":     "Typo Site",
+		"building": "Typo Building",
+		"rack":     "Rack A",
+	}}
+	snap := &snapshot{
+		sites:     []sitemodels.Site{{Name: "Site A"}},
+		buildings: []buildingmodels.Building{{SiteLabel: "Site A", Name: "Building A"}},
 	}
 
-	names := minerRenameUpdates(rows, miners)
-	if len(names) != 1 || names["miner-1"] != "Renamed Miner" {
-		t.Fatalf("rename updates = %+v, want miner-1 only", names)
+	errs := validateRackPlacementTargets(rows, snap)
+	if len(errs) != 2 {
+		t.Fatalf("errors = %+v, want site and building target errors", errs)
+	}
+}
+
+func TestValidatePlacementConsistencyRejectsUnknownDirectSite(t *testing.T) {
+	rows := []map[string]string{{
+		"__row": "21",
+		"site":  "Typo Site",
+	}}
+	snap := &snapshot{sites: []sitemodels.Site{{Name: "Site A"}}}
+
+	errs := validatePlacementConsistency(rows, nil, nil, snap)
+	if len(errs) != 1 || errs[0].GetMessage() != `unknown site "Typo Site"` {
+		t.Fatalf("errors = %+v, want unknown site error", errs)
 	}
 }
 
@@ -435,6 +460,36 @@ func TestValidateRackGridPositionsBlocksOutOfBounds(t *testing.T) {
 	errs := validateRackGridPositions(rackRows, buildingRows, &snapshot{})
 	if len(errs) != 1 || !strings.Contains(errs[0].GetMessage(), "aisle_index 2 is out of bounds") {
 		t.Fatalf("errors = %+v, want aisle bounds error", errs)
+	}
+}
+
+func TestValidateRackGridCollisionsRejectsDuplicateCsvCells(t *testing.T) {
+	rackRows := []map[string]string{
+		{"__row": "10", "site": "Site A", "building": "Building A", "rack": "Rack A", "aisle_index": "0", "position_in_aisle": "0"},
+		{"__row": "11", "site": "Site A", "building": "Building A", "rack": "Rack B", "aisle_index": "0", "position_in_aisle": "0"},
+	}
+
+	errs := validateRackGridCollisions(rackRows, &snapshot{}, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if len(errs) != 1 || errs[0].GetRow() != 11 || errs[0].GetMessage() != "rack grid cell already occupied by rack Rack A" {
+		t.Fatalf("errors = %+v, want duplicate grid cell", errs)
+	}
+}
+
+func TestValidateRackGridCollisionsCountsRetainedOmittedRacks(t *testing.T) {
+	rackRows := []map[string]string{
+		{"__row": "10", "site": "Site A", "building": "Building A", "rack": "Rack B", "aisle_index": "0", "position_in_aisle": "0"},
+	}
+	snap := &snapshot{racks: []rackSnapshot{{
+		Site:            "Site A",
+		Building:        "Building A",
+		Label:           "Rack A",
+		AisleIndex:      "0",
+		PositionInAisle: "0",
+	}}}
+
+	errs := validateRackGridCollisions(rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if len(errs) != 1 || errs[0].GetMessage() != "rack grid cell already occupied by rack Rack A" {
+		t.Fatalf("errors = %+v, want retained rack duplicate grid cell", errs)
 	}
 }
 
