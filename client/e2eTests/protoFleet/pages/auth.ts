@@ -44,6 +44,24 @@ export class AuthPage extends BasePage {
     await expect(this.page).toHaveURL(/.*\/auth/);
   }
 
+  async ensureAuthPage(timeoutMs = 5000) {
+    const loginForm = this.page.locator(`//input[@id='username']`);
+
+    try {
+      await expect
+        .poll(
+          async () => /\/auth(?:[/?#].*)?$/.test(this.page.url()) || (await loginForm.isVisible().catch(() => false)),
+          { timeout: timeoutMs },
+        )
+        .toBe(true);
+    } catch {
+      await this.page.goto("/auth");
+    }
+
+    await expect(this.page).toHaveURL(/.*\/auth/);
+    await expect(loginForm).toBeVisible();
+  }
+
   async inputNewPassword(password: string) {
     await this.page.locator(`//input[@id='newPassword']`).fill(password);
   }

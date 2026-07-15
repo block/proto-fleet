@@ -106,7 +106,7 @@ test.describe("Proto Fleet - Security Settings", () => {
 
     await test.step("Log out", async () => {
       await authPage.logout();
-      await authPage.validateRedirectedToAuth();
+      await authPage.ensureAuthPage();
     });
 
     await test.step("Log in with new username", async () => {
@@ -132,7 +132,7 @@ test.describe("Proto Fleet - Security Settings", () => {
 
     await test.step("Log out", async () => {
       await authPage.logout();
-      await authPage.validateRedirectedToAuth();
+      await authPage.ensureAuthPage();
     });
 
     await test.step("Log in with new password", async () => {
