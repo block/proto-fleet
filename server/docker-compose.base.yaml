@@ -99,7 +99,7 @@ services:
       - "-c"
       - "track_io_timing=${PG_TRACK_IO_TIMING:-on}"
       - "-c"
-      - "log_min_duration_statement=${PG_LOG_MIN_DURATION_STATEMENT:-1000}"
+      - "log_min_duration_statement=${PG_LOG_MIN_DURATION_STATEMENT:-5000}"
       # Never log bind parameter values with slow statements: fleet-api binds
       # session tokens, password hashes, and credential ciphertext
       - "-c"

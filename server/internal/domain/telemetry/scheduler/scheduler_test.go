@@ -1,8 +1,11 @@
 package scheduler
 
 import (
+	"context"
 	"fmt"
+	"log/slog"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +14,41 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 )
+
+type captureLogHandler struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func (h *captureLogHandler) Enabled(context.Context, slog.Level) bool {
+	return true
+}
+
+func (h *captureLogHandler) Handle(_ context.Context, record slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.records = append(h.records, record.Clone())
+	return nil
+}
+
+func (h *captureLogHandler) WithAttrs([]slog.Attr) slog.Handler {
+	return h
+}
+
+func (h *captureLogHandler) WithGroup(string) slog.Handler {
+	return h
+}
+
+func (h *captureLogHandler) findRecord(message string) (slog.Record, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, record := range h.records {
+		if record.Message == message {
+			return record, true
+		}
+	}
+	return slog.Record{}, false
+}
 
 func TestNewScheduler(t *testing.T) {
 	t.Run("creates a new scheduler instance", func(t *testing.T) {
@@ -102,6 +140,32 @@ func TestScheduler_AddNewDevices(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 1, s.GetDeviceCount()) // Should still be 1
 	})
+}
+
+func TestScheduler_DuplicateDeviceLogsAreAggregated(t *testing.T) {
+	oldLogger := slog.Default()
+	handler := &captureLogHandler{}
+	slog.SetDefault(slog.New(handler))
+	t.Cleanup(func() { slog.SetDefault(oldLogger) })
+
+	s := NewScheduler(Config{MaxConsecutiveFailures: 10})
+	ctx := t.Context()
+	deviceIDs := []models.DeviceIdentifier{"123", "456", "789"}
+
+	require.NoError(t, s.AddNewDevices(ctx, deviceIDs...))
+	require.NoError(t, s.AddNewDevices(ctx, deviceIDs...))
+
+	record, ok := handler.findRecord("scheduler skipped already managed devices")
+	require.True(t, ok)
+	assert.Equal(t, slog.LevelInfo, record.Level)
+
+	attrs := map[string]any{}
+	record.Attrs(func(attr slog.Attr) bool {
+		attrs[attr.Key] = attr.Value.Any()
+		return true
+	})
+	assert.Equal(t, int64(3), attrs["count"])
+	assert.Equal(t, []string{"123", "456", "789"}, attrs["sample_device_ids"])
 }
 
 func TestScheduler_AddDevices(t *testing.T) {

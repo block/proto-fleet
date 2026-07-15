@@ -36,10 +36,11 @@ func NewScheduler(config Config) *scheduler {
 
 // AddNewDevices adds new devices to the scheduler.
 func (s *scheduler) AddNewDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
+	var alreadyManaged []models.DeviceIdentifier
 
 	for _, id := range deviceID {
 		if _, exists := s.managedDevices.LoadOrStore(id, true); exists {
-			slog.Warn("Device already managed", "device_id", id)
+			alreadyManaged = append(alreadyManaged, id)
 			continue
 		}
 		s.mu.Lock()
@@ -49,6 +50,7 @@ func (s *scheduler) AddNewDevices(ctx context.Context, deviceID ...models.Device
 		// TODO(Briano-block): do we want to fetch historical telemetry data for the new device?
 		// where does our responsibility for telemetry data start and end? at pairing?
 	}
+	logDuplicateSchedulerDevices("scheduler skipped already managed devices", alreadyManaged)
 	return nil
 }
 
@@ -70,9 +72,7 @@ func (s *scheduler) addDevices(ctx context.Context, devices ...models.Device) er
 		inQueue, exists := s.managedDevices.Load(device.ID)
 		if !exists {
 			s.mu.Unlock()
-			for _, id := range alreadyScheduled {
-				slog.Warn("Device already scheduled", "device_id", id)
-			}
+			logDuplicateSchedulerDevices("scheduler skipped already scheduled devices", alreadyScheduled)
 			return DeviceNotManagedErr{DeviceID: device.ID}
 		}
 		if value, ok := inQueue.(bool); ok && value {
@@ -84,10 +84,28 @@ func (s *scheduler) addDevices(ctx context.Context, devices ...models.Device) er
 	}
 	s.mu.Unlock()
 
-	for _, id := range alreadyScheduled {
-		slog.Warn("Device already scheduled", "device_id", id)
-	}
+	logDuplicateSchedulerDevices("scheduler skipped already scheduled devices", alreadyScheduled)
 	return nil
+}
+
+func logDuplicateSchedulerDevices(message string, deviceIDs []models.DeviceIdentifier) {
+	if len(deviceIDs) == 0 {
+		return
+	}
+
+	attrs := []any{"count", len(deviceIDs)}
+	sampleSize := min(len(deviceIDs), 5)
+	samples := make([]string, 0, sampleSize)
+	for _, id := range deviceIDs[:sampleSize] {
+		samples = append(samples, id.String())
+	}
+	attrs = append(attrs, "sample_device_ids", samples)
+
+	if len(deviceIDs) == 1 {
+		slog.Debug(message, attrs...)
+		return
+	}
+	slog.Info(message, attrs...)
 }
 
 func (s *scheduler) AddFailedDevices(ctx context.Context, devices ...models.Device) error {
