@@ -155,6 +155,8 @@ class ReviewPolicyTest(unittest.TestCase):
     def test_low_risk_config_allows_small_server_app_changes_to_reach_classifier(self):
         deny_paths = load_policy_config()["low_risk"]["deny_paths"]
         files = [
+            {"filename": "server/devtools/hapoc/main.go"},
+            {"filename": "server/fake-proto-rig/rest_api_handler.go"},
             {"filename": "server/internal/domain/telemetry/scheduler/scheduler.go"},
             {"filename": "server/internal/domain/collection/service_test.go"},
         ]

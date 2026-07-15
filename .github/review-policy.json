@@ -93,8 +93,6 @@
       "renovate.json",
       "scripts/**",
       "server/cmd/**",
-      "server/devtools/**",
-      "server/fake-proto-rig/**",
       "server/internal/domain/authz/**",
       "server/internal/domain/stores/interfaces/**",
       "server/internal/domain/stores/sqlstores/**",
