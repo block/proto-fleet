@@ -27,37 +27,46 @@ func TestParseSiteMapCSVAndBuildPlanRequiresOmissionChoice(t *testing.T) {
 	}
 }
 
-func TestBuildPlanWithRemoveOmittedSummarizesDestructiveChanges(t *testing.T) {
+func TestBuildPlanWithRemoveOmittedReturnsValidationError(t *testing.T) {
 	parsed, errs := parseSiteMapCSV([]byte(validCSV()))
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v", errs)
 	}
 
 	plan := buildPlan(parsed, testSnapshot(), pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
-	if len(plan.errors) != 0 {
-		t.Fatalf("plan errors = %v", plan.errors)
+	if len(plan.errors) != 1 {
+		t.Fatalf("plan errors = %v, want one remove-omitted error", plan.errors)
+	}
+	if got := plan.errors[0].GetMessage(); got != "remove omitted rows is not supported by site map CSV v1; choose leave omitted rows in place" {
+		t.Fatalf("error = %q", got)
+	}
+	if len(plan.changes) != 0 {
+		t.Fatalf("unsupported remove-omitted mode should not build changes, got %v", plan.changes)
+	}
+}
+
+func TestBuildPlanRejectsNewTopologyRows(t *testing.T) {
+	csv := strings.Replace(validCSV(), "Site A\n", "Site A\nNew Site\n", 1)
+	csv = strings.Replace(csv, "Site A,Building A,2,2\n", "Site A,Building A,2,2\nSite A,New Building,2,2\n", 1)
+	csv = strings.Replace(csv, "Site A,Building A,Rack A,Z1,4,6,BOTTOM_LEFT,0,0\n", "Site A,Building A,Rack A,Z1,4,6,BOTTOM_LEFT,0,0\nSite A,Building A,New Rack,Z1,4,6,BOTTOM_LEFT,0,1\n", 1)
+	parsed, errs := parseSiteMapCSV([]byte(csv))
+	if len(errs) != 0 {
+		t.Fatalf("parse errors = %v", errs)
 	}
 
-	var sawDeleteSite, sawUnassignMiner bool
-	for _, change := range plan.changes {
-		if change.Operation == pb.ImportOperation_IMPORT_OPERATION_DELETE && change.EntityType == "site" && change.Count == 1 {
-			sawDeleteSite = true
+	plan := buildPlan(parsed, testSnapshotMatchingValidCSV(), pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.errors) != 3 {
+		t.Fatalf("plan errors = %v, want site/building/rack create errors", plan.errors)
+	}
+	want := map[string]string{
+		"SITE":     "creating sites is not supported by site map CSV v1",
+		"BUILDING": "creating buildings is not supported by site map CSV v1",
+		"RACK":     "creating racks is not supported by site map CSV v1",
+	}
+	for _, err := range plan.errors {
+		if want[err.GetSection()] != err.GetMessage() {
+			t.Fatalf("unexpected create error: %+v", err)
 		}
-		if change.Operation == pb.ImportOperation_IMPORT_OPERATION_UNASSIGN && change.EntityType == "miner" && change.Count == 1 {
-			sawUnassignMiner = true
-		}
-	}
-	if !sawDeleteSite || !sawUnassignMiner {
-		t.Fatalf("changes did not include expected destructive summaries: %+v", plan.changes)
-	}
-
-	token := commitToken(parsed, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED, plan, testSnapshot())
-	if token == "" {
-		t.Fatal("commit token is empty")
-	}
-	leavePlan := buildPlan(parsed, testSnapshot(), pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
-	if token == commitToken(parsed, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE, leavePlan, testSnapshot()) {
-		t.Fatal("commit token must include omission mode")
 	}
 }
 

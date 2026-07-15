@@ -22,14 +22,14 @@ func NewHandler(service *sitemapdomain.Service) *Handler {
 }
 
 func (h *Handler) ExportSiteMapCsv(ctx context.Context, _ *connect.Request[pb.ExportSiteMapCsvRequest], stream *connect.ServerStream[pb.ExportSiteMapCsvResponse]) error {
-	info, err := middleware.RequirePermission(ctx, authz.PermMinerExportCSV, authz.ResourceContext{})
+	info, err := middleware.RequireOrgWidePermission(ctx, authz.PermMinerExportCSV)
 	if err != nil {
 		return err
 	}
-	if _, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{}); err != nil {
+	if _, err := middleware.RequireOrgWidePermission(ctx, authz.PermSiteRead); err != nil {
 		return err
 	}
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
+	if _, err := middleware.RequireOrgWidePermission(ctx, authz.PermRackRead); err != nil {
 		return err
 	}
 	return h.service.ExportSiteMapCsv(ctx, info.OrganizationID, func(chunk *pb.ExportSiteMapCsvResponse) error {
@@ -38,14 +38,14 @@ func (h *Handler) ExportSiteMapCsv(ctx context.Context, _ *connect.Request[pb.Ex
 }
 
 func (h *Handler) ImportSiteMapCsv(ctx context.Context, req *connect.Request[pb.ImportSiteMapCsvRequest]) (*connect.Response[pb.ImportSiteMapCsvResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
+	info, err := middleware.RequireOrgWidePermission(ctx, authz.PermSiteManage)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+	if _, err := middleware.RequireOrgWidePermission(ctx, authz.PermRackManage); err != nil {
 		return nil, err
 	}
-	if _, err := middleware.RequirePermission(ctx, authz.PermMinerRename, authz.ResourceContext{}); err != nil {
+	if _, err := middleware.RequireOrgWidePermission(ctx, authz.PermMinerRename); err != nil {
 		return nil, err
 	}
 	resp, err := h.service.ImportSiteMapCsv(ctx, info.OrganizationID, req.Msg)

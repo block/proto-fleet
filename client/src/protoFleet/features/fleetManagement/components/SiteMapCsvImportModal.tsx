@@ -188,7 +188,8 @@ const SiteMapCsvImportModal = ({ open, onDismiss, onImported }: SiteMapCsvImport
               <div className="text-emphasis-300 text-text-primary">Choose how omitted rows are handled</div>
               <div className="text-200 text-text-primary-70">
                 The CSV omits {omissionCounts.sites} sites, {omissionCounts.buildings} buildings,
-                {` ${omissionCounts.racks} racks, and ${omissionCounts.miners} miners.`}
+                {` ${omissionCounts.racks} racks, and ${omissionCounts.miners} miners.`} Site map CSV v1 updates rows
+                included in the CSV only.
               </div>
             </div>
             <div className="flex flex-col gap-3">
@@ -204,21 +205,6 @@ const SiteMapCsvImportModal = ({ open, onDismiss, onImported }: SiteMapCsvImport
                   <div className="text-300 text-text-primary">Leave omitted rows in place</div>
                   <div className="text-200 text-text-primary-70">
                     Keep existing entities that are missing from the CSV.
-                  </div>
-                </div>
-              </label>
-              <label className="flex cursor-pointer gap-3 rounded-lg border border-border-5 p-3">
-                <Radio
-                  name="site-map-omission-mode"
-                  value={OmissionMode.REMOVE_OMITTED}
-                  selected={selectedOmissionMode === OmissionMode.REMOVE_OMITTED}
-                  disabled={isImportingSiteMapCsv}
-                  onChange={() => handleSelectOmissionMode(OmissionMode.REMOVE_OMITTED)}
-                />
-                <div>
-                  <div className="text-300 text-text-primary">Remove omitted rows</div>
-                  <div className="text-200 text-text-primary-70">
-                    Treat missing rows as deletions or unassignments in the preview.
                   </div>
                 </div>
               </label>
@@ -242,7 +228,10 @@ const SiteMapCsvImportModal = ({ open, onDismiss, onImported }: SiteMapCsvImport
             <div className="text-emphasis-300 text-text-critical">Fix these CSV errors</div>
             {preview.errors.map((error, index) => (
               <div key={`${error.section}-${error.row}-${index}`} className="text-200 text-text-primary-70">
-                Row {error.row} {error.section ? `(${error.section})` : null}: {error.message}
+                {error.row > 0 ? `Row ${error.row} ` : null}
+                {error.section ? `(${error.section}) ` : null}
+                {error.row > 0 || error.section ? ": " : null}
+                {error.message}
               </div>
             ))}
           </div>

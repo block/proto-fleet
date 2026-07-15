@@ -326,10 +326,11 @@ var ProcedurePermissions = map[string]string{
 
 	// SiteMapService — full-fleet topology CSV. Export is classified
 	// by miner:export_csv as the primary CSV-export gate; the handler
-	// also checks site:read and rack:read because the file includes
-	// site/building/rack placement. Import is classified by
-	// site:manage; the handler also checks rack:manage and miner:rename
-	// because it previews placement and miner-name mutations.
+	// also requires org-wide site:read and rack:read because the file
+	// includes site/building/rack placement across the organization.
+	// Import is classified by site:manage; the handler also requires
+	// org-wide rack:manage and miner:rename because it previews and
+	// applies full-fleet placement and miner-name mutations.
 	sitemapv1connect.SiteMapServiceExportSiteMapCsvProcedure: authz.PermMinerExportCSV,
 	sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure: authz.PermSiteManage,
 

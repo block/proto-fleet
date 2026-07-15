@@ -756,6 +756,8 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateUniqueCompound(parsed.sections["BUILDING"], "BUILDING", "site", "building")...)
 	plan.errors = append(plan.errors, validateUnique(parsed.sections["RACK"], "RACK", "rack")...)
 	plan.errors = append(plan.errors, validateUnique(parsed.sections["MINER"], "MINER", "device_identifier")...)
+	plan.errors = append(plan.errors, validateExistingTopologyRows(parsed.sections["SITE"], parsed.sections["BUILDING"], parsed.sections["RACK"], snap)...)
+	plan.errors = append(plan.errors, validateRemoveOmittedMode(mode, plan.omissions)...)
 	plan.errors = append(plan.errors, validateKnownMiners(parsed.sections["MINER"], snap)...)
 	plan.errors = append(plan.errors, validateReadOnlyMinerFields(parsed.sections["MINER"], snap)...)
 	plan.errors = append(plan.errors, validatePlacementConsistency(parsed.sections["MINER"], parsed.sections["RACK"], parsed.sections["BUILDING"], snap)...)
@@ -777,18 +779,6 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 		if count > 0 {
 			plan.changes = append(plan.changes, &pb.ImportChangeSummary{Operation: op, EntityType: entityType, Count: count, Description: description})
 		}
-	}
-	existingSites := rowSetFromSites(snap.sites)
-	existingBuildings := rowSetFromBuildings(snap.buildings)
-	existingRacks := rowSetFromRacks(snap.racks)
-	addChange(pb.ImportOperation_IMPORT_OPERATION_CREATE, "site", countCreates(existingSites, siteKeys), "sites present in the CSV that do not exist yet")
-	addChange(pb.ImportOperation_IMPORT_OPERATION_CREATE, "building", countCreates(existingBuildings, buildingKeys), "buildings present in the CSV that do not exist yet")
-	addChange(pb.ImportOperation_IMPORT_OPERATION_CREATE, "rack", countCreates(existingRacks, rackKeys), "racks present in the CSV that do not exist yet")
-	if mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
-		addChange(pb.ImportOperation_IMPORT_OPERATION_DELETE, "site", plan.omissions.Sites, "omitted sites will be deleted")
-		addChange(pb.ImportOperation_IMPORT_OPERATION_DELETE, "building", plan.omissions.Buildings, "omitted buildings will be deleted")
-		addChange(pb.ImportOperation_IMPORT_OPERATION_DELETE, "rack", plan.omissions.Racks, "omitted racks will be deleted")
-		addChange(pb.ImportOperation_IMPORT_OPERATION_UNASSIGN, "miner", plan.omissions.Miners, "omitted miners will be unassigned but remain paired")
 	}
 	addChange(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "site", countSiteUpdates(parsed.sections["SITE"], snap.sites), "site rows with changed details")
 	addChange(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "building", countBuildingUpdates(parsed.sections["BUILDING"], snap.buildings), "building rows with changed details")
@@ -1230,6 +1220,39 @@ func validateUniqueCompound(rows []map[string]string, section, a, b string) []*p
 		seen[key] = true
 	}
 	return errs
+}
+
+func validateExistingTopologyRows(siteRows, buildingRows, rackRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
+	existingSites := rowSetFromSites(snap.sites)
+	existingBuildings := rowSetFromBuildings(snap.buildings)
+	existingRacks := rowSetFromRacks(snap.racks)
+	var errs []*pb.ImportValidationError
+	for i, row := range siteRows {
+		if site := row["site"]; site != "" && !existingSites[site] {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "SITE", "creating sites is not supported by site map CSV v1"))
+		}
+	}
+	for i, row := range buildingRows {
+		key := row["site"] + "\x00" + row["building"]
+		if row["site"] != "" && row["building"] != "" && !existingBuildings[key] {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", "creating buildings is not supported by site map CSV v1"))
+		}
+	}
+	for i, row := range rackRows {
+		if rack := row["rack"]; rack != "" && !existingRacks[rack] {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", "creating racks is not supported by site map CSV v1"))
+		}
+	}
+	return errs
+}
+
+func validateRemoveOmittedMode(mode pb.OmissionMode, omissions *pb.OmissionCounts) []*pb.ImportValidationError {
+	if mode != pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED || !hasOmissions(omissions) {
+		return nil
+	}
+	return []*pb.ImportValidationError{
+		csvErr(0, "", "remove omitted rows is not supported by site map CSV v1; choose leave omitted rows in place"),
+	}
 }
 
 func validateKnownMiners(rows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
