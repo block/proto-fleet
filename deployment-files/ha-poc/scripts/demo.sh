@@ -341,8 +341,8 @@ demo_db_failover() {
   require_fleet_host
   require_cmd docker
 
-  http_get "http://127.0.0.1:${HA_PATRONI_PORT}/patroni" 2
-  [[ "${http_code}" == "200" ]] || die "local Patroni API is not healthy"
+  http_get "http://${HA_NODE_IP}:${HA_PATRONI_PORT}/patroni" 2
+  [[ "${http_code}" == "200" ]] || die "local Patroni API is not healthy at ${HA_NODE_IP}:${HA_PATRONI_PORT}"
   local local_role
   local_role="$(json_value '.role // empty')"
   if [[ "${local_role}" != "primary" ]]; then

@@ -504,7 +504,7 @@ fail_db() {
   load_env
   [[ "$(role_kind)" == "fleet" ]] || die "fail-db only runs on fleet-a or fleet-b"
   local role
-  role="$(curl -fsS --max-time 2 "http://127.0.0.1:${HA_PATRONI_PORT}/patroni" | jq -r '.role // "unknown"')"
+  role="$(curl -fsS --max-time 2 "http://${HA_NODE_IP}:${HA_PATRONI_PORT}/patroni" | jq -r '.role // "unknown"')"
   info "local Patroni role is ${role}; stopping local patroni"
   compose stop patroni
 }
