@@ -50,6 +50,27 @@ func (h *captureLogHandler) findRecord(message string) (slog.Record, bool) {
 	return slog.Record{}, false
 }
 
+func (h *captureLogHandler) recordsForMessage(message string) []slog.Record {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	records := make([]slog.Record, 0)
+	for _, record := range h.records {
+		if record.Message == message {
+			records = append(records, record.Clone())
+		}
+	}
+	return records
+}
+
+func attrsFromRecord(record slog.Record) map[string]any {
+	attrs := map[string]any{}
+	record.Attrs(func(attr slog.Attr) bool {
+		attrs[attr.Key] = attr.Value.Any()
+		return true
+	})
+	return attrs
+}
+
 func TestNewScheduler(t *testing.T) {
 	t.Run("creates a new scheduler instance", func(t *testing.T) {
 		config := Config{
@@ -159,13 +180,43 @@ func TestScheduler_DuplicateDeviceLogsAreAggregated(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, slog.LevelInfo, record.Level)
 
-	attrs := map[string]any{}
-	record.Attrs(func(attr slog.Attr) bool {
-		attrs[attr.Key] = attr.Value.Any()
-		return true
-	})
+	attrs := attrsFromRecord(record)
 	assert.Equal(t, int64(3), attrs["count"])
 	assert.Equal(t, []string{"123", "456", "789"}, attrs["sample_device_ids"])
+}
+
+func TestScheduler_AlreadyScheduledDeviceLogsAreAggregated(t *testing.T) {
+	oldLogger := slog.Default()
+	handler := &captureLogHandler{}
+	slog.SetDefault(slog.New(handler))
+	t.Cleanup(func() { slog.SetDefault(oldLogger) })
+
+	s := NewScheduler(Config{MaxConsecutiveFailures: 10})
+	ctx := t.Context()
+
+	require.NoError(t, s.AddNewDevices(ctx, "123"))
+	require.NoError(t, s.AddDevices(ctx, models.Device{ID: "123", LastUpdatedAt: time.Now()}))
+
+	deviceIDs := []models.DeviceIdentifier{"456", "789", "abc"}
+	require.NoError(t, s.AddNewDevices(ctx, deviceIDs...))
+	devices := make([]models.Device, 0, len(deviceIDs))
+	for _, id := range deviceIDs {
+		devices = append(devices, models.Device{ID: id, LastUpdatedAt: time.Now()})
+	}
+	require.NoError(t, s.AddDevices(ctx, devices...))
+
+	records := handler.recordsForMessage("scheduler skipped already scheduled devices")
+	require.Len(t, records, 2)
+
+	singleAttrs := attrsFromRecord(records[0])
+	assert.Equal(t, slog.LevelDebug, records[0].Level)
+	assert.Equal(t, int64(1), singleAttrs["count"])
+	assert.Equal(t, []string{"123"}, singleAttrs["sample_device_ids"])
+
+	multipleAttrs := attrsFromRecord(records[1])
+	assert.Equal(t, slog.LevelInfo, records[1].Level)
+	assert.Equal(t, int64(3), multipleAttrs["count"])
+	assert.Equal(t, []string{"456", "789", "abc"}, multipleAttrs["sample_device_ids"])
 }
 
 func TestScheduler_AddDevices(t *testing.T) {
