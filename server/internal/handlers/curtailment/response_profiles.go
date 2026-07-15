@@ -32,7 +32,12 @@ func (h *Handler) ListCurtailmentResponseProfiles(ctx context.Context, _ *connec
 	if err != nil {
 		return nil, err
 	}
+	facilityFanDeviceSites, err := h.responseProfileFacilityFanDeviceSitesForProfiles(ctx, info.OrganizationID, profiles)
+	if err != nil {
+		return nil, err
+	}
 	siteAllowed := make(map[int64]bool)
+	facilityFanSiteAllowed := make(map[int64]bool)
 	orgWideAllowed := false
 	orgWideChecked := false
 	for _, profile := range profiles {
@@ -47,6 +52,18 @@ func (h *Handler) ListCurtailmentResponseProfiles(ctx context.Context, _ *connec
 			siteAllowed,
 			&orgWideAllowed,
 			&orgWideChecked,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			continue
+		}
+		allowed, err = facilityFanSiteAccessAllowed(
+			ctx,
+			profile.FacilityFanDeviceIDs,
+			facilityFanDeviceSites,
+			facilityFanSiteAllowed,
 		)
 		if err != nil {
 			return nil, err
@@ -181,6 +198,9 @@ func (h *Handler) getResponseProfileWithSitePermission(ctx context.Context, orgI
 	if err := h.requireResponseProfileSitePermission(ctx, orgID, authz.PermCurtailmentManage, profile, false); err != nil {
 		return nil, err
 	}
+	if err := h.requireFacilityFanSitePermissions(ctx, orgID, profile.FacilityFanDeviceIDs); err != nil {
+		return nil, err
+	}
 	return profile, nil
 }
 
@@ -260,6 +280,64 @@ func (h *Handler) responseProfileDeviceSitesForProfiles(
 		return nil, nil
 	}
 	return h.responseProfiles.ListDeviceSites(ctx, orgID, deviceIdentifiers)
+}
+
+func (h *Handler) responseProfileFacilityFanDeviceSitesForProfiles(
+	ctx context.Context,
+	orgID int64,
+	profiles []*models.ResponseProfile,
+) (map[int64]int64, error) {
+	seen := make(map[int64]struct{})
+	var deviceIDs []int64
+	for _, profile := range profiles {
+		if profile == nil {
+			continue
+		}
+		for _, deviceID := range profile.FacilityFanDeviceIDs {
+			if _, ok := seen[deviceID]; ok {
+				continue
+			}
+			seen[deviceID] = struct{}{}
+			deviceIDs = append(deviceIDs, deviceID)
+		}
+	}
+	return h.responseProfiles.FacilityFanDeviceSites(ctx, orgID, deviceIDs)
+}
+
+func facilityFanSiteAccessAllowed(
+	ctx context.Context,
+	deviceIDs []int64,
+	deviceSites map[int64]int64,
+	siteAllowed map[int64]bool,
+) (bool, error) {
+	for _, deviceID := range deviceIDs {
+		siteID, ok := deviceSites[deviceID]
+		if !ok {
+			return false, fleeterror.NewNotFoundErrorf("infrastructure device not found: %d", deviceID)
+		}
+		if allowed, checked := siteAllowed[siteID]; checked {
+			if !allowed {
+				return false, nil
+			}
+			continue
+		}
+
+		resourceContext := authz.ResourceContext{SiteID: &siteID}
+		readable, err := middleware.HasPermission(ctx, authz.PermSiteRead, resourceContext)
+		if err != nil {
+			return false, err
+		}
+		manageable, err := middleware.HasPermission(ctx, authz.PermCurtailmentManage, resourceContext)
+		if err != nil {
+			return false, err
+		}
+		allowed := readable && manageable
+		siteAllowed[siteID] = allowed
+		if !allowed {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (h *Handler) responseProfileResourceContextRequirements(

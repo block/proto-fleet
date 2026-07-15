@@ -110,6 +110,28 @@ func (s *ResponseProfileService) FacilityFanSiteIDs(ctx context.Context, orgID i
 	return siteIDs, nil
 }
 
+// FacilityFanDeviceSites resolves each requested facility fan to its site.
+// List handlers use the batched result to enforce fan-site visibility without
+// issuing one infrastructure lookup per response profile.
+func (s *ResponseProfileService) FacilityFanDeviceSites(ctx context.Context, orgID int64, deviceIDs []int64) (map[int64]int64, error) {
+	if s == nil || s.store == nil {
+		return nil, fleeterror.NewUnimplementedError("curtailment response profile service is not configured")
+	}
+	if orgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	deviceIDs, devices, err := s.loadFacilityFanDevices(ctx, orgID, deviceIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	deviceSites := make(map[int64]int64, len(deviceIDs))
+	for _, deviceID := range deviceIDs {
+		deviceSites[deviceID] = devices[deviceID].SiteID
+	}
+	return deviceSites, nil
+}
+
 func (s *ResponseProfileService) Create(ctx context.Context, req SaveResponseProfileRequest) (*models.ResponseProfile, error) {
 	if s == nil || s.store == nil {
 		return nil, fleeterror.NewUnimplementedError("curtailment response profile service is not configured")
