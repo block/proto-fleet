@@ -19,8 +19,8 @@ services:
 
   patroni:
     build:
-      context: ../..
-      dockerfile: deployment-files/ha-poc/patroni.Dockerfile
+      context: .
+      dockerfile: patroni.Dockerfile
     restart: unless-stopped
     network_mode: host
     depends_on:

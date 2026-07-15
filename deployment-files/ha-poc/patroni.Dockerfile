@@ -14,8 +14,8 @@ RUN apt-get update \
 
 ENV PATH="/opt/patroni/bin:${PATH}"
 
-COPY deployment-files/ha-poc/patroni.template.yml /etc/patroni/patroni.template.yml
-COPY deployment-files/ha-poc/scripts/render-and-run-patroni.sh /usr/local/bin/render-and-run-patroni
+COPY patroni.template.yml /etc/patroni/patroni.template.yml
+COPY scripts/render-and-run-patroni.sh /usr/local/bin/render-and-run-patroni
 RUN chmod +x /usr/local/bin/render-and-run-patroni \
     && mkdir -p /etc/patroni \
     && chown -R postgres:postgres /etc/patroni /opt/patroni /var/lib/postgresql
