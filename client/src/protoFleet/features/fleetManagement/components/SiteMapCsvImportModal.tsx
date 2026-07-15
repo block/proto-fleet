@@ -103,12 +103,16 @@ const SiteMapCsvImportModal = ({ open, onDismiss, onImported }: SiteMapCsvImport
 
     setErrorMessage(undefined);
     try {
-      await importSiteMapCsv({
+      const response = await importSiteMapCsv({
         file,
         omissionMode: selectedOmissionMode ?? OmissionMode.UNSPECIFIED,
         dryRun: false,
         commitToken: preview.commitToken,
       });
+      setPreview(response);
+      if (response.omissionChoiceRequired || hasValidationErrors(response)) {
+        return;
+      }
       pushToast({
         status: TOAST_STATUSES.success,
         message: "Site map import completed.",
