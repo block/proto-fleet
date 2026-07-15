@@ -3,6 +3,9 @@
 This directory is an isolated proof-of-concept harness for RFC 0002. It is not
 the production HA installer.
 
+See [LEARNINGS.md](./LEARNINGS.md) for the implementation lessons from running
+this POC on real Raspberry Pis.
+
 The POC proves four things on three real same-subnet Linux hosts:
 
 - Patroni promotes a new writable Postgres primary.
