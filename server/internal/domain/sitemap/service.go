@@ -257,6 +257,12 @@ type pendingMinerSlot struct {
 	col              string
 }
 
+type pendingRackGridPosition struct {
+	rackID          int64
+	aisleIndex      *int32
+	positionInAisle *int32
+}
+
 func (s *Service) loadSnapshot(ctx context.Context, orgID int64) (*snapshot, error) {
 	siteRows, err := s.siteStore.ListSites(ctx, orgID)
 	if err != nil {
@@ -766,7 +772,7 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateRackGridPositions(parsed.sections["RACK"], parsed.sections["BUILDING"], snap)...)
 	plan.errors = append(plan.errors, validateRackSlotBounds(parsed.sections["MINER"], parsed.sections["RACK"], snap)...)
 	plan.errors = append(plan.errors, validateExistingSlotsFitRackDimensions(parsed.sections["MINER"], parsed.sections["RACK"], snap, mode)...)
-	plan.errors = append(plan.errors, validateRackCapacity(parsed.sections["MINER"], parsed.sections["RACK"], snap)...)
+	plan.errors = append(plan.errors, validateRackCapacity(parsed.sections["MINER"], parsed.sections["RACK"], snap, mode)...)
 	plan.errors = append(plan.errors, validateBuildingRackCapacity(parsed.sections["RACK"], parsed.sections["BUILDING"], snap)...)
 	plan.errors = append(plan.errors, validateBuildingExistingRacksFitLayout(parsed.sections["RACK"], parsed.sections["BUILDING"], snap, mode)...)
 	plan.errors = append(plan.errors, validateSlotCollisions(parsed.sections["MINER"])...)
@@ -908,6 +914,7 @@ func (s *Service) applyRackRows(
 	buildingsByKey map[string]buildingmodels.Building,
 	existing map[string]rackSnapshot,
 ) error {
+	var pendingGridPositions []pendingRackGridPosition
 	for _, row := range rows {
 		rack, ok := existing[row["rack"]]
 		if !ok {
@@ -947,7 +954,35 @@ func (s *Service) applyRackRows(
 		if err != nil {
 			return err
 		}
-		if err := s.buildingStore.SetRackBuildingPosition(ctx, orgID, rack.ID, aisleIndex, positionInAisle); err != nil {
+		pendingGridPositions = append(pendingGridPositions, pendingRackGridPosition{
+			rackID:          rack.ID,
+			aisleIndex:      aisleIndex,
+			positionInAisle: positionInAisle,
+		})
+	}
+	if len(pendingGridPositions) == 0 {
+		return nil
+	}
+	rackIDs := make([]int64, 0, len(pendingGridPositions))
+	for _, position := range pendingGridPositions {
+		rackIDs = append(rackIDs, position.rackID)
+	}
+	if err := s.buildingStore.SetRackBuildingPositionBulkClear(ctx, orgID, rackIDs); err != nil {
+		return err
+	}
+	placedRackIDs := make([]int64, 0, len(pendingGridPositions))
+	aisleIndexes := make([]int32, 0, len(pendingGridPositions))
+	positionsInAisle := make([]int32, 0, len(pendingGridPositions))
+	for _, position := range pendingGridPositions {
+		if position.aisleIndex == nil || position.positionInAisle == nil {
+			continue
+		}
+		placedRackIDs = append(placedRackIDs, position.rackID)
+		aisleIndexes = append(aisleIndexes, *position.aisleIndex)
+		positionsInAisle = append(positionsInAisle, *position.positionInAisle)
+	}
+	if len(placedRackIDs) > 0 {
+		if err := s.buildingStore.SetRackBuildingPositionBulkPlace(ctx, orgID, placedRackIDs, aisleIndexes, positionsInAisle); err != nil {
 			return err
 		}
 	}
@@ -1514,12 +1549,20 @@ func validateExistingSlotsFitRackDimensions(minerRows, rackRows []map[string]str
 	return errs
 }
 
-func validateRackCapacity(minerRows, rackRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
+func validateRackCapacity(minerRows, rackRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
 	racks := desiredRackMap(rackRows, snap.racks)
 	counts := map[string]int32{}
+	presentMiners := rowSet(minerRows, "device_identifier")
 	for _, row := range minerRows {
 		if row["rack"] != "" {
 			counts[row["rack"]]++
+		}
+	}
+	if mode != pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
+		for _, miner := range snap.miners {
+			if miner.Rack != "" && !presentMiners[miner.DeviceIdentifier] {
+				counts[miner.Rack]++
+			}
 		}
 	}
 	var errs []*pb.ImportValidationError
@@ -1597,10 +1640,10 @@ func validateSlotCollisions(rows []map[string]string) []*pb.ImportValidationErro
 	seen := map[string]bool{}
 	var errs []*pb.ImportValidationError
 	for i, row := range rows {
-		if row["rack"] == "" || row["rack_row"] == "" || row["rack_col"] == "" {
+		key, ok := normalizedRackSlotKey(row["rack"], row["rack_row"], row["rack_col"])
+		if !ok {
 			continue
 		}
-		key := row["rack"] + "\x00" + row["rack_row"] + "\x00" + row["rack_col"]
 		if seen[key] {
 			errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", "duplicate rack slot"))
 		}
@@ -1620,25 +1663,28 @@ func validateSlotConflictsWithExisting(rows []map[string]string, snap *snapshot)
 		if !ok {
 			continue
 		}
-		if row["rack"] != miner.Rack || row["rack_row"] != miner.RackRow || row["rack_col"] != miner.RackCol {
+		currentKey, _ := normalizedRackSlotKey(miner.Rack, miner.RackRow, miner.RackCol)
+		desiredKey, _ := normalizedRackSlotKey(row["rack"], row["rack_row"], row["rack_col"])
+		if row["rack"] != miner.Rack || desiredKey != currentKey {
 			movingMiners[miner.DeviceIdentifier] = true
 		}
 	}
 
 	currentOccupants := map[string]minerSnapshot{}
 	for _, miner := range snap.miners {
-		if miner.Rack == "" || miner.RackRow == "" || miner.RackCol == "" {
+		key, ok := normalizedRackSlotKey(miner.Rack, miner.RackRow, miner.RackCol)
+		if !ok {
 			continue
 		}
-		currentOccupants[miner.Rack+"\x00"+miner.RackRow+"\x00"+miner.RackCol] = miner
+		currentOccupants[key] = miner
 	}
 
 	var errs []*pb.ImportValidationError
 	for i, row := range rows {
-		if row["rack"] == "" || row["rack_row"] == "" || row["rack_col"] == "" {
+		key, ok := normalizedRackSlotKey(row["rack"], row["rack_row"], row["rack_col"])
+		if !ok {
 			continue
 		}
-		key := row["rack"] + "\x00" + row["rack_row"] + "\x00" + row["rack_col"]
 		occupant, ok := currentOccupants[key]
 		if !ok || occupant.DeviceIdentifier == row["device_identifier"] || movingMiners[occupant.DeviceIdentifier] {
 			continue
@@ -1646,6 +1692,21 @@ func validateSlotConflictsWithExisting(rows []map[string]string, snap *snapshot)
 		errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("rack slot already occupied by miner %s", occupant.DeviceIdentifier)))
 	}
 	return errs
+}
+
+func normalizedRackSlotKey(rack, row, col string) (string, bool) {
+	if rack == "" || row == "" || col == "" {
+		return "", false
+	}
+	rowValue, err := parseInt32Value(row, "rack_row")
+	if err != nil {
+		return "", false
+	}
+	colValue, err := parseInt32Value(col, "rack_col")
+	if err != nil {
+		return "", false
+	}
+	return fmt.Sprintf("%s\x00%d\x00%d", rack, rowValue, colValue), true
 }
 
 func rowNumber(row map[string]string, fallback int) int {

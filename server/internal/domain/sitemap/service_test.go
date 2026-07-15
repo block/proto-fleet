@@ -216,6 +216,33 @@ func TestValidateSlotConflictsWithExistingBlocksUnchangedOccupant(t *testing.T) 
 	}
 }
 
+func TestValidateSlotCollisionsNormalizesCoordinates(t *testing.T) {
+	rows := []map[string]string{
+		{"__row": "21", "device_identifier": "miner-1", "rack": "Rack A", "rack_row": "1", "rack_col": "1"},
+		{"__row": "22", "device_identifier": "miner-2", "rack": "Rack A", "rack_row": "01", "rack_col": "1"},
+	}
+
+	errs := validateSlotCollisions(rows)
+	if len(errs) != 1 || errs[0].GetRow() != 22 || errs[0].GetMessage() != "duplicate rack slot" {
+		t.Fatalf("errors = %+v, want normalized duplicate slot", errs)
+	}
+}
+
+func TestValidateSlotConflictsWithExistingNormalizesCoordinates(t *testing.T) {
+	rows := []map[string]string{
+		{"__row": "21", "device_identifier": "miner-1", "rack": "Rack A", "rack_row": "01", "rack_col": "1"},
+	}
+	snap := &snapshot{miners: []minerSnapshot{
+		{DeviceIdentifier: "miner-1", Rack: "Rack A", RackRow: "0", RackCol: "0"},
+		{DeviceIdentifier: "miner-2", Rack: "Rack A", RackRow: "1", RackCol: "1"},
+	}}
+
+	errs := validateSlotConflictsWithExisting(rows, snap)
+	if len(errs) != 1 || errs[0].GetRow() != 21 || errs[0].GetMessage() != "rack slot already occupied by miner miner-2" {
+		t.Fatalf("errors = %+v, want normalized existing slot conflict", errs)
+	}
+}
+
 func TestMinerRowsBlankSiteAndBuildingForRackedMiners(t *testing.T) {
 	rows := minerRows([]minerSnapshot{{
 		DeviceIdentifier: "miner-1",
@@ -358,7 +385,18 @@ func TestValidateRackCapacityBlocksOverfilledRack(t *testing.T) {
 	}
 	rackRows := []map[string]string{{"rack": "Rack A", "rows": "1", "columns": "1"}}
 
-	errs := validateRackCapacity(minerRows, rackRows, &snapshot{})
+	errs := validateRackCapacity(minerRows, rackRows, &snapshot{}, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(errs) != 1 || errs[0].GetSection() != "MINER" {
+		t.Fatalf("errors = %+v, want rack capacity error", errs)
+	}
+}
+
+func TestValidateRackCapacityCountsRetainedOmittedMiners(t *testing.T) {
+	minerRows := []map[string]string{{"device_identifier": "miner-2", "rack": "Rack A"}}
+	rackRows := []map[string]string{{"rack": "Rack A", "rows": "1", "columns": "1"}}
+	snap := &snapshot{miners: []minerSnapshot{{DeviceIdentifier: "miner-1", Rack: "Rack A"}}}
+
+	errs := validateRackCapacity(minerRows, rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
 	if len(errs) != 1 || errs[0].GetSection() != "MINER" {
 		t.Fatalf("errors = %+v, want rack capacity error", errs)
 	}
