@@ -29,6 +29,9 @@ func (h *Handler) ExportSiteMapCsv(ctx context.Context, _ *connect.Request[pb.Ex
 	if _, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{}); err != nil {
 		return err
 	}
+	if _, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{}); err != nil {
+		return err
+	}
 	return h.service.ExportSiteMapCsv(ctx, info.OrganizationID, func(chunk *pb.ExportSiteMapCsvResponse) error {
 		return stream.Send(chunk)
 	})

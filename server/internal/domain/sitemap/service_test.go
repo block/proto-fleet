@@ -51,12 +51,31 @@ func TestBuildPlanWithRemoveOmittedSummarizesDestructiveChanges(t *testing.T) {
 		t.Fatalf("changes did not include expected destructive summaries: %+v", plan.changes)
 	}
 
-	token := commitToken(parsed, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED, plan.omissions)
+	token := commitToken(parsed, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED, plan, testSnapshot())
 	if token == "" {
 		t.Fatal("commit token is empty")
 	}
-	if token == commitToken(parsed, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE, plan.omissions) {
+	leavePlan := buildPlan(parsed, testSnapshot(), pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if token == commitToken(parsed, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE, leavePlan, testSnapshot()) {
 		t.Fatal("commit token must include omission mode")
+	}
+}
+
+func TestCommitTokenChangesWithSnapshotDrift(t *testing.T) {
+	parsed, errs := parseSiteMapCSV([]byte(validCSV()))
+	if len(errs) != 0 {
+		t.Fatalf("parse errors = %v", errs)
+	}
+	before := testSnapshotMatchingValidCSV()
+	plan := buildPlan(parsed, before, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.errors) != 0 {
+		t.Fatalf("plan errors = %v", plan.errors)
+	}
+	after := testSnapshotMatchingValidCSV()
+	after.miners[0].RackCol = "1"
+
+	if commitToken(parsed, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED, plan, before) == commitToken(parsed, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED, plan, after) {
+		t.Fatal("commit token must change when live site-map snapshot changes")
 	}
 }
 
@@ -136,6 +155,22 @@ func TestBuildPlanReportsRowCitedErrors(t *testing.T) {
 	}
 	if !sawDuplicateSlot || !sawDuplicateMiner {
 		t.Fatalf("expected row-cited duplicate errors at row 13, got %+v", plan.errors)
+	}
+}
+
+func TestParseSiteMapCSVUnescapesFormulaProtectedExports(t *testing.T) {
+	csv := strings.Replace(validCSV(), "Rack A", "'-Rack", 1)
+	csv = strings.Replace(csv, "Rack A", "'-Rack", 1)
+	parsed, errs := parseSiteMapCSV([]byte(csv))
+	if len(errs) != 0 {
+		t.Fatalf("parse errors = %v", errs)
+	}
+
+	if got := parsed.sections["RACK"][0]["rack"]; got != "-Rack" {
+		t.Fatalf("rack = %q, want unescaped -Rack", got)
+	}
+	if got := parsed.sections["MINER"][0]["rack"]; got != "-Rack" {
+		t.Fatalf("miner rack = %q, want unescaped -Rack", got)
 	}
 }
 
@@ -317,6 +352,55 @@ func TestValidateRackCapacityBlocksOverfilledRack(t *testing.T) {
 	errs := validateRackCapacity(minerRows, rackRows, &snapshot{})
 	if len(errs) != 1 || errs[0].GetSection() != "MINER" {
 		t.Fatalf("errors = %+v, want rack capacity error", errs)
+	}
+}
+
+func TestValidateRackSlotBoundsRejectsPartialCoordinates(t *testing.T) {
+	minerRows := []map[string]string{{"__row": "21", "device_identifier": "miner-1", "rack": "Rack A", "rack_row": "", "rack_col": "3"}}
+	rackRows := []map[string]string{{"rack": "Rack A", "rows": "4", "columns": "6"}}
+
+	errs := validateRackSlotBounds(minerRows, rackRows, &snapshot{})
+	if len(errs) != 1 || errs[0].GetMessage() != "rack_row and rack_col must both be set or both be blank" {
+		t.Fatalf("errors = %+v, want partial coordinate error", errs)
+	}
+}
+
+func TestValidateRackDimensionsBlocksOutOfRange(t *testing.T) {
+	rows := []map[string]string{{"__row": "7", "rack": "Rack A", "rows": "13", "columns": "0", "order_index": "BOTTOM_LEFT"}}
+
+	errs := validateRackDimensions(rows)
+	if len(errs) != 2 {
+		t.Fatalf("errors = %+v, want row and column dimension errors", errs)
+	}
+}
+
+func TestValidateRackGridPositionsBlocksOutOfBounds(t *testing.T) {
+	rackRows := []map[string]string{{
+		"__row":             "10",
+		"site":              "Site A",
+		"building":          "Building A",
+		"rack":              "Rack A",
+		"aisle_index":       "2",
+		"position_in_aisle": "0",
+	}}
+	buildingRows := []map[string]string{{"site": "Site A", "building": "Building A", "aisles": "2", "racks_per_aisle": "6"}}
+
+	errs := validateRackGridPositions(rackRows, buildingRows, &snapshot{})
+	if len(errs) != 1 || !strings.Contains(errs[0].GetMessage(), "aisle_index 2 is out of bounds") {
+		t.Fatalf("errors = %+v, want aisle bounds error", errs)
+	}
+}
+
+func TestValidateExistingSlotsFitRackDimensionsBlocksShrink(t *testing.T) {
+	rackRows := []map[string]string{{"rack": "Rack A", "rows": "1", "columns": "1"}}
+	snap := &snapshot{
+		racks:  []rackSnapshot{{Label: "Rack A", Rows: 4, Columns: 6}},
+		miners: []minerSnapshot{{DeviceIdentifier: "miner-1", Rack: "Rack A", RackRow: "1", RackCol: "0"}},
+	}
+
+	errs := validateExistingSlotsFitRackDimensions(nil, rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if len(errs) != 1 || !strings.Contains(errs[0].GetMessage(), "does not fit rack") {
+		t.Fatalf("errors = %+v, want slot fit error", errs)
 	}
 }
 

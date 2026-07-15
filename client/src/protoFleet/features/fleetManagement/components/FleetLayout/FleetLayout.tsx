@@ -259,7 +259,7 @@ const FleetLayout = () => {
   // section tabs. Mounting twice (each gated by a `laptop:` visibility
   // class) keeps the DOM simple — only one is interactive at a time.
   const viewTabs = <FleetViewTabs viewsState={viewsState} currentTab={currentTab} filterContext={viewFilterContext} />;
-  const canExportSiteMapCsv = canExportMinerCsv && canReadSites;
+  const canExportSiteMapCsv = canExportMinerCsv && canReadSites && canReadRacks;
   const canImportSiteMapCsv = canManageSites && canManageRacks && canRenameMiners;
   const siteMapActionButtons = useMemo<ResponsiveActionButton[]>(
     () => [

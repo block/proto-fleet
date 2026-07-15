@@ -324,12 +324,12 @@ var ProcedurePermissions = map[string]string{
 	// ServerLogService — gated by PermServerlogRead.
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure: authz.PermServerlogRead,
 
-	// SiteMapService — full-fleet topology CSV. Export requires
-	// miner:export_csv in the handler as the primary CSV-export gate,
-	// plus site:read because the file includes site/building/rack and
-	// infrastructure placement. Import is classified by site:manage;
-	// the handler also checks rack:manage and miner:rename because it
-	// previews placement and miner-name mutations.
+	// SiteMapService — full-fleet topology CSV. Export is classified
+	// by miner:export_csv as the primary CSV-export gate; the handler
+	// also checks site:read and rack:read because the file includes
+	// site/building/rack placement. Import is classified by
+	// site:manage; the handler also checks rack:manage and miner:rename
+	// because it previews placement and miner-name mutations.
 	sitemapv1connect.SiteMapServiceExportSiteMapCsvProcedure: authz.PermMinerExportCSV,
 	sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure: authz.PermSiteManage,
 

@@ -25,7 +25,11 @@ import (
 )
 
 const (
-	maxPageSize = 1000
+	maxPageSize        = 1000
+	maxImportBytes     = 5 * 1024 * 1024
+	maxImportRows      = 100000
+	maxRackDimension   = 12
+	maxLayoutDimension = 100
 )
 
 var (
@@ -82,19 +86,35 @@ func (s *Service) ExportSiteMapCsv(ctx context.Context, orgID int64, send func(*
 	buffer.Write([]byte{0xEF, 0xBB, 0xBF})
 	writer := csv.NewWriter(buffer)
 
+	flush := func(context string) error {
+		writer.Flush()
+		if err := writer.Error(); err != nil {
+			return fleeterror.NewInternalErrorf("failed to write %s section: %v", context, err)
+		}
+		if buffer.Len() == 0 {
+			return nil
+		}
+		chunk := append([]byte(nil), buffer.Bytes()...)
+		buffer.Reset()
+		return send(&pb.ExportSiteMapCsvResponse{CsvData: chunk})
+	}
+
 	writeSection := func(name string, headers []string, rows [][]string) error {
 		if err := writer.Write([]string{fmt.Sprintf("# SECTION: %s", name)}); err != nil {
-			return err
+			return fleeterror.NewInternalErrorf("failed to write %s section marker: %v", name, err)
 		}
 		if err := writer.Write(headers); err != nil {
-			return err
+			return fleeterror.NewInternalErrorf("failed to write %s header row: %v", name, err)
 		}
 		for _, row := range rows {
 			if err := writer.Write(row); err != nil {
-				return err
+				return fleeterror.NewInternalErrorf("failed to write %s data row: %v", name, err)
 			}
 		}
-		return writer.Write(nil)
+		if err := writer.Write(nil); err != nil {
+			return fleeterror.NewInternalErrorf("failed to write %s section spacer: %v", name, err)
+		}
+		return flush(name)
 	}
 
 	if err := writeSection("SITE", siteHeaders, siteRows(snapshot.sites)); err != nil {
@@ -110,16 +130,15 @@ func (s *Service) ExportSiteMapCsv(ctx context.Context, orgID int64, send func(*
 		return fleeterror.NewInternalErrorf("failed to write MINER section: %v", err)
 	}
 
-	writer.Flush()
-	if err := writer.Error(); err != nil {
-		return fleeterror.NewInternalErrorf("failed to flush site map CSV: %v", err)
-	}
-	return send(&pb.ExportSiteMapCsvResponse{CsvData: buffer.Bytes()})
+	return flush("site map")
 }
 
 func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.ImportSiteMapCsvRequest) (*pb.ImportSiteMapCsvResponse, error) {
 	if len(req.GetCsvData()) == 0 {
 		return nil, fleeterror.NewInvalidArgumentError("csv_data is required")
+	}
+	if len(req.GetCsvData()) > maxImportBytes {
+		return nil, fleeterror.NewInvalidArgumentErrorf("csv_data must be at most %d bytes", maxImportBytes)
 	}
 	parsed, parseErrs := parseSiteMapCSV(req.GetCsvData())
 	if len(parseErrs) > 0 {
@@ -145,7 +164,7 @@ func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.Imp
 		}, nil
 	}
 
-	token := commitToken(parsed, req.GetOmissionMode(), plan.omissions)
+	token := commitToken(parsed, req.GetOmissionMode(), plan, snapshot)
 	if !req.GetDryRun() {
 		if req.GetCommitToken() == "" {
 			return nil, fleeterror.NewInvalidArgumentError("commit_token is required when dry_run is false")
@@ -164,6 +183,14 @@ func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.Imp
 			Warnings:       plan.warnings,
 			Changes:        plan.changes,
 			CommitToken:    token,
+		}, nil
+	}
+	if err := ensureSupportedCommitPlan(plan); err != nil {
+		return &pb.ImportSiteMapCsvResponse{
+			OmissionCounts: plan.omissions,
+			Errors:         []*pb.ImportValidationError{csvErr(0, "", err.Error())},
+			Warnings:       plan.warnings,
+			Changes:        plan.changes,
 		}, nil
 	}
 
@@ -245,6 +272,9 @@ func (s *Service) loadSnapshot(ctx context.Context, orgID int64) (*snapshot, err
 	if err != nil {
 		return nil, err
 	}
+	if err := s.fillRackGridPositions(ctx, orgID, buildings, racks); err != nil {
+		return nil, err
+	}
 	miners, err := s.listMiners(ctx, slots)
 	if err != nil {
 		return nil, err
@@ -314,6 +344,39 @@ func (s *Service) listRacksAndSlots(ctx context.Context, orgID int64) ([]rackSna
 		cursor = nextCursor
 	}
 	return racks, slots, nil
+}
+
+func (s *Service) fillRackGridPositions(ctx context.Context, orgID int64, buildings []buildingmodels.Building, racks []rackSnapshot) error {
+	rackIndexes := map[int64]int{}
+	for i, rack := range racks {
+		rackIndexes[rack.ID] = i
+	}
+	for _, building := range buildings {
+		cursor := ""
+		for {
+			buildingRacks, nextCursor, err := s.buildingStore.ListBuildingRacks(ctx, orgID, building.ID, maxPageSize, cursor)
+			if err != nil {
+				return err
+			}
+			for _, buildingRack := range buildingRacks {
+				index, ok := rackIndexes[buildingRack.RackID]
+				if !ok {
+					continue
+				}
+				if buildingRack.AisleIndex != nil {
+					racks[index].AisleIndex = strconv.FormatInt(int64(*buildingRack.AisleIndex), 10)
+				}
+				if buildingRack.PositionInAisle != nil {
+					racks[index].PositionInAisle = strconv.FormatInt(int64(*buildingRack.PositionInAisle), 10)
+				}
+			}
+			if nextCursor == "" {
+				break
+			}
+			cursor = nextCursor
+		}
+	}
+	return nil
 }
 
 func (s *Service) listMiners(ctx context.Context, slots map[string]slotPosition) ([]minerSnapshot, error) {
@@ -493,6 +556,8 @@ func placementLabels3(refs *commonpb.PlacementRefs) (string, string, string) {
 
 func rackCoolingType(value collectionpb.RackCoolingType) string {
 	switch value {
+	case collectionpb.RackCoolingType_RACK_COOLING_TYPE_UNSPECIFIED:
+		return ""
 	case collectionpb.RackCoolingType_RACK_COOLING_TYPE_AIR:
 		return "AIR"
 	case collectionpb.RackCoolingType_RACK_COOLING_TYPE_IMMERSION:
@@ -504,6 +569,8 @@ func rackCoolingType(value collectionpb.RackCoolingType) string {
 
 func rackOrderIndex(value collectionpb.RackOrderIndex) string {
 	switch value {
+	case collectionpb.RackOrderIndex_RACK_ORDER_INDEX_UNSPECIFIED:
+		return ""
 	case collectionpb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT:
 		return "BOTTOM_LEFT"
 	case collectionpb.RackOrderIndex_RACK_ORDER_INDEX_TOP_LEFT:
@@ -529,9 +596,26 @@ func clean(value string) string {
 	if value == "" {
 		return value
 	}
+	if isFormulaLike(value) {
+		return "'" + value
+	}
+	return value
+}
+
+func unescapeCleanedValue(value string) string {
+	if len(value) > 1 && value[0] == '\'' && isFormulaLike(value[1:]) {
+		return value[1:]
+	}
+	return value
+}
+
+func isFormulaLike(value string) bool {
+	if value == "" {
+		return false
+	}
 	switch value[0] {
 	case '=', '+', '-', '@', '\t', '\r', '\n':
-		return "'" + value
+		return true
 	}
 	for _, r := range value {
 		if unicode.IsSpace(r) || unicode.IsControl(r) {
@@ -539,11 +623,11 @@ func clean(value string) string {
 		}
 		switch r {
 		case '=', '+', '-', '@':
-			return "'" + value
+			return true
 		}
 		break
 	}
-	return value
+	return false
 }
 
 type parsedCSV struct {
@@ -557,6 +641,9 @@ func parseSiteMapCSV(data []byte) (*parsedCSV, []*pb.ImportValidationError) {
 	records, err := reader.ReadAll()
 	if err != nil {
 		return nil, []*pb.ImportValidationError{{Message: fmt.Sprintf("invalid CSV: %v", err)}}
+	}
+	if len(records) > maxImportRows {
+		return nil, []*pb.ImportValidationError{{Message: fmt.Sprintf("CSV has too many rows: %d exceeds limit %d", len(records), maxImportRows)}}
 	}
 	out := &parsedCSV{sections: map[string][]map[string]string{}}
 	expected := map[string][]string{
@@ -610,7 +697,7 @@ func parseSiteMapCSV(data []byte) (*parsedCSV, []*pb.ImportValidationError) {
 			}
 			row := map[string]string{}
 			for j, header := range headers {
-				row[header] = strings.TrimSpace(next[j])
+				row[header] = unescapeCleanedValue(strings.TrimSpace(next[j]))
 			}
 			row["__row"] = strconv.Itoa(i + 1)
 			out.sections[section] = append(out.sections[section], row)
@@ -666,9 +753,14 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateKnownMiners(parsed.sections["MINER"], snap)...)
 	plan.errors = append(plan.errors, validateReadOnlyMinerFields(parsed.sections["MINER"], snap)...)
 	plan.errors = append(plan.errors, validatePlacementConsistency(parsed.sections["MINER"], parsed.sections["RACK"], parsed.sections["BUILDING"], snap)...)
+	plan.errors = append(plan.errors, validateBuildingLayoutBounds(parsed.sections["BUILDING"])...)
+	plan.errors = append(plan.errors, validateRackDimensions(parsed.sections["RACK"])...)
+	plan.errors = append(plan.errors, validateRackGridPositions(parsed.sections["RACK"], parsed.sections["BUILDING"], snap)...)
 	plan.errors = append(plan.errors, validateRackSlotBounds(parsed.sections["MINER"], parsed.sections["RACK"], snap)...)
+	plan.errors = append(plan.errors, validateExistingSlotsFitRackDimensions(parsed.sections["MINER"], parsed.sections["RACK"], snap, mode)...)
 	plan.errors = append(plan.errors, validateRackCapacity(parsed.sections["MINER"], parsed.sections["RACK"], snap)...)
 	plan.errors = append(plan.errors, validateBuildingRackCapacity(parsed.sections["RACK"], parsed.sections["BUILDING"], snap)...)
+	plan.errors = append(plan.errors, validateBuildingExistingRacksFitLayout(parsed.sections["RACK"], parsed.sections["BUILDING"], snap, mode)...)
 	plan.errors = append(plan.errors, validateSlotCollisions(parsed.sections["MINER"])...)
 	plan.errors = append(plan.errors, validateSlotConflictsWithExisting(parsed.sections["MINER"], snap)...)
 	if len(plan.errors) > 0 || (mode == pb.OmissionMode_OMISSION_MODE_UNSPECIFIED && hasOmissions(plan.omissions)) {
@@ -716,6 +808,10 @@ func ensureSupportedCommitPlan(plan importPlan) error {
 			if change.GetEntityType() == "miner" {
 				continue
 			}
+		case pb.ImportOperation_IMPORT_OPERATION_UNSPECIFIED,
+			pb.ImportOperation_IMPORT_OPERATION_CREATE,
+			pb.ImportOperation_IMPORT_OPERATION_DELETE,
+			pb.ImportOperation_IMPORT_OPERATION_UNASSIGN:
 		}
 		return fleeterror.NewFailedPreconditionErrorf(
 			"site map commit does not yet support %s %s changes",
@@ -837,13 +933,9 @@ func (s *Service) applyRackRows(
 		if err != nil {
 			return err
 		}
-		coolingType := collectionpb.RackCoolingType_RACK_COOLING_TYPE_AIR
-		if rack.CoolingType != "" {
-			parsedCoolingType, err := parseRackCoolingType(rack.CoolingType)
-			if err != nil {
-				return err
-			}
-			coolingType = parsedCoolingType
+		coolingType, err := parseRackCoolingType(rack.CoolingType)
+		if err != nil {
+			return err
 		}
 		if err := s.collectionStore.UpdateRackInfo(ctx, rack.ID, row["zone"], rowsValue, columnsValue, int32(orderIndex), int32(coolingType), orgID); err != nil {
 			return err
@@ -853,6 +945,13 @@ func (s *Service) applyRackRows(
 			return err
 		}
 		if err := s.collectionStore.UpdateRackPlacement(ctx, rack.ID, orgID, siteID, buildingID, row["zone"]); err != nil {
+			return err
+		}
+		aisleIndex, positionInAisle, err := desiredRackGridPosition(row)
+		if err != nil {
+			return err
+		}
+		if err := s.buildingStore.SetRackBuildingPosition(ctx, orgID, rack.ID, aisleIndex, positionInAisle); err != nil {
 			return err
 		}
 	}
@@ -966,14 +1065,46 @@ func (s *Service) applyMinerRenames(ctx context.Context, orgID int64, rows []map
 	return s.deviceStore.UpdateDeviceCustomNames(ctx, orgID, names)
 }
 
-func commitToken(parsed *parsedCSV, mode pb.OmissionMode, omissions *pb.OmissionCounts) string {
-	payload, _ := json.Marshal(struct {
-		Parsed    *parsedCSV
-		Mode      pb.OmissionMode
-		Omissions *pb.OmissionCounts
-	}{parsed, mode, omissions})
+func commitToken(parsed *parsedCSV, mode pb.OmissionMode, plan importPlan, snap *snapshot) string {
+	payload := mustMarshalJSON(struct {
+		Parsed              *parsedCSV
+		Mode                pb.OmissionMode
+		Omissions           *pb.OmissionCounts
+		Changes             []*pb.ImportChangeSummary
+		SnapshotFingerprint string
+	}{
+		Parsed:              parsed,
+		Mode:                mode,
+		Omissions:           plan.omissions,
+		Changes:             plan.changes,
+		SnapshotFingerprint: snapshotFingerprint(snap),
+	})
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
+}
+
+func snapshotFingerprint(snap *snapshot) string {
+	payload := mustMarshalJSON(struct {
+		Sites     [][]string
+		Buildings [][]string
+		Racks     [][]string
+		Miners    [][]string
+	}{
+		Sites:     siteRows(snap.sites),
+		Buildings: buildingRows(snap.buildings),
+		Racks:     rackRows(snap.racks),
+		Miners:    minerRows(snap.miners),
+	})
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:])
+}
+
+func mustMarshalJSON(value any) []byte {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		panic(fmt.Sprintf("site map token payload must be JSON-marshalable: %v", err))
+	}
+	return payload
 }
 
 func hasOmissions(c *pb.OmissionCounts) bool {
@@ -1038,7 +1169,7 @@ func sameStrings(a, b []string) bool {
 }
 
 func csvErr(row int, section, message string) *pb.ImportValidationError {
-	return &pb.ImportValidationError{Row: int32(row), Section: section, Message: message}
+	return &pb.ImportValidationError{Row: safeInt32(row), Section: section, Message: message}
 }
 
 func rowSet(rows []map[string]string, key string) map[string]bool {
@@ -1167,11 +1298,125 @@ func validatePlacementConsistency(minerRows, rackRows, buildingRows []map[string
 	return errs
 }
 
+func validateBuildingLayoutBounds(rows []map[string]string) []*pb.ImportValidationError {
+	var errs []*pb.ImportValidationError
+	for i, row := range rows {
+		aisles, err := parseInt32Value(row["aisles"], "aisles")
+		if err != nil {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", err.Error()))
+			continue
+		}
+		racksPerAisle, err := parseInt32Value(row["racks_per_aisle"], "racks_per_aisle")
+		if err != nil {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", err.Error()))
+			continue
+		}
+		if aisles < 0 {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", fmt.Sprintf("aisles must be non-negative (got %d)", aisles)))
+		}
+		if aisles > maxLayoutDimension {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", fmt.Sprintf("aisles must be at most %d (got %d)", maxLayoutDimension, aisles)))
+		}
+		if racksPerAisle < 0 {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", fmt.Sprintf("racks_per_aisle must be non-negative (got %d)", racksPerAisle)))
+		}
+		if racksPerAisle > maxLayoutDimension {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", fmt.Sprintf("racks_per_aisle must be at most %d (got %d)", maxLayoutDimension, racksPerAisle)))
+		}
+	}
+	return errs
+}
+
+func validateRackDimensions(rows []map[string]string) []*pb.ImportValidationError {
+	var errs []*pb.ImportValidationError
+	for i, row := range rows {
+		rackRows, err := parseInt32Value(row["rows"], "rows")
+		if err != nil {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", err.Error()))
+			continue
+		}
+		rackCols, err := parseInt32Value(row["columns"], "columns")
+		if err != nil {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", err.Error()))
+			continue
+		}
+		if rackRows < 1 || rackRows > maxRackDimension {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rows must be between 1 and %d", maxRackDimension)))
+		}
+		if rackCols < 1 || rackCols > maxRackDimension {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("columns must be between 1 and %d", maxRackDimension)))
+		}
+		if _, err := parseRackOrderIndex(row["order_index"]); err != nil {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", err.Error()))
+		}
+	}
+	return errs
+}
+
+func validateRackGridPositions(rackRows, buildingRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
+	buildings := desiredBuildingMap(buildingRows, snap.buildings)
+	var errs []*pb.ImportValidationError
+	for i, row := range rackRows {
+		aisleRaw := row["aisle_index"]
+		positionRaw := row["position_in_aisle"]
+		if (aisleRaw == "") != (positionRaw == "") {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", "aisle_index and position_in_aisle must both be set or both be blank"))
+			continue
+		}
+		if aisleRaw == "" {
+			continue
+		}
+		if row["building"] == "" {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", "rack grid position requires a building"))
+			continue
+		}
+		aisle, err := parseInt32Value(aisleRaw, "aisle_index")
+		if err != nil {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", err.Error()))
+			continue
+		}
+		position, err := parseInt32Value(positionRaw, "position_in_aisle")
+		if err != nil {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", err.Error()))
+			continue
+		}
+		if aisle < 0 {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("aisle_index %d is out of bounds", aisle)))
+			continue
+		}
+		if position < 0 {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("position_in_aisle %d is out of bounds", position)))
+			continue
+		}
+		building, ok := buildings[row["site"]+"\x00"+row["building"]]
+		if !ok {
+			continue
+		}
+		if building.Aisles <= 0 || aisle >= building.Aisles {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("aisle_index %d is out of bounds for building %q with %d aisles", aisle, building.Name, building.Aisles)))
+		}
+		if building.RacksPerAisle <= 0 || position >= building.RacksPerAisle {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("position_in_aisle %d is out of bounds for building %q with %d racks per aisle", position, building.Name, building.RacksPerAisle)))
+		}
+	}
+	return errs
+}
+
 func validateRackSlotBounds(minerRows, rackRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
 	racks := desiredRackMap(rackRows, snap.racks)
 	var errs []*pb.ImportValidationError
 	for i, row := range minerRows {
-		if row["rack"] == "" || row["rack_row"] == "" || row["rack_col"] == "" {
+		if row["rack"] == "" {
+			if row["rack_row"] != "" || row["rack_col"] != "" {
+				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", "rack_row and rack_col require rack"))
+			}
+			continue
+		}
+		if (row["rack_row"] == "") != (row["rack_col"] == "") {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", "rack_row and rack_col must both be set or both be blank"))
+			continue
+		}
+		if row["rack_row"] == "" {
 			continue
 		}
 		rack, ok := racks[row["rack"]]
@@ -1193,6 +1438,48 @@ func validateRackSlotBounds(minerRows, rackRows []map[string]string, snap *snaps
 		}
 		if rackCol < 0 || rack.Columns <= 0 || rackCol >= rack.Columns {
 			errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("rack_col %d is out of bounds for rack %q with %d columns", rackCol, row["rack"], rack.Columns)))
+		}
+	}
+	return errs
+}
+
+func validateExistingSlotsFitRackDimensions(minerRows, rackRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
+	racks := desiredRackMap(rackRows, snap.racks)
+	desiredMiners := map[string]map[string]string{}
+	for _, row := range minerRows {
+		desiredMiners[row["device_identifier"]] = row
+	}
+	var errs []*pb.ImportValidationError
+	for _, miner := range snap.miners {
+		row, ok := desiredMiners[miner.DeviceIdentifier]
+		if !ok && mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
+			continue
+		}
+		rackLabel := miner.Rack
+		rackRow := miner.RackRow
+		rackCol := miner.RackCol
+		if ok {
+			rackLabel = row["rack"]
+			rackRow = row["rack_row"]
+			rackCol = row["rack_col"]
+		}
+		if rackLabel == "" || rackRow == "" || rackCol == "" {
+			continue
+		}
+		rack, ok := racks[rackLabel]
+		if !ok {
+			continue
+		}
+		rowValue, err := parseInt32Value(rackRow, "rack_row")
+		if err != nil {
+			continue
+		}
+		colValue, err := parseInt32Value(rackCol, "rack_col")
+		if err != nil {
+			continue
+		}
+		if rowValue >= rack.Rows || colValue >= rack.Columns {
+			errs = append(errs, csvErr(0, "MINER", fmt.Sprintf("miner %s slot %d,%d does not fit rack %q dimensions %dx%d", miner.DeviceIdentifier, rowValue, colValue, rackLabel, rack.Rows, rack.Columns)))
 		}
 	}
 	return errs
@@ -1237,6 +1524,41 @@ func validateBuildingRackCapacity(rackRows, buildingRows []map[string]string, sn
 		capacity := building.Aisles * building.RacksPerAisle
 		if count > capacity {
 			errs = append(errs, csvErr(0, "RACK", fmt.Sprintf("building %q has %d assigned racks but capacity is %d", building.Name, count, capacity)))
+		}
+	}
+	return errs
+}
+
+func validateBuildingExistingRacksFitLayout(rackRows, buildingRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
+	buildings := desiredBuildingMap(buildingRows, snap.buildings)
+	desiredRacks := desiredRackMap(rackRows, snap.racks)
+	presentRacks := rowSet(rackRows, "rack")
+	var errs []*pb.ImportValidationError
+	for _, rack := range snap.racks {
+		if !presentRacks[rack.Label] && mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
+			continue
+		}
+		desiredRack, ok := desiredRacks[rack.Label]
+		if !ok {
+			desiredRack = rack
+		}
+		if desiredRack.Site == "" || desiredRack.Building == "" || desiredRack.AisleIndex == "" || desiredRack.PositionInAisle == "" {
+			continue
+		}
+		building, ok := buildings[desiredRack.Site+"\x00"+desiredRack.Building]
+		if !ok {
+			continue
+		}
+		aisle, err := parseInt32Value(desiredRack.AisleIndex, "aisle_index")
+		if err != nil {
+			continue
+		}
+		position, err := parseInt32Value(desiredRack.PositionInAisle, "position_in_aisle")
+		if err != nil {
+			continue
+		}
+		if aisle >= building.Aisles || position >= building.RacksPerAisle {
+			errs = append(errs, csvErr(0, "RACK", fmt.Sprintf("rack %q grid position %d,%d does not fit building %q layout %dx%d", desiredRack.Label, aisle, position, building.Name, building.Aisles, building.RacksPerAisle)))
 		}
 	}
 	return errs
@@ -1304,6 +1626,17 @@ func rowNumber(row map[string]string, fallback int) int {
 	return fallback
 }
 
+func safeInt32(value int) int32 {
+	const maxInt32 = int64(1<<31 - 1)
+	if value < 0 {
+		return 0
+	}
+	if int64(value) > maxInt32 {
+		return int32(maxInt32)
+	}
+	return int32(value) // #nosec G115 -- value is bounded above to MaxInt32.
+}
+
 func countCreates(existing, desired map[string]bool) int32 {
 	var count int32
 	for key := range desired {
@@ -1361,7 +1694,7 @@ func countMinerPlacementUpdates(rows, rackRows, buildingRows []map[string]string
 }
 
 func countMinerRenames(rows []map[string]string, miners []minerSnapshot) int32 {
-	return int32(len(minerRenameUpdates(rows, miners)))
+	return safeInt32(len(minerRenameUpdates(rows, miners)))
 }
 
 func minerRenameUpdates(rows []map[string]string, miners []minerSnapshot) map[string]string {
@@ -1534,6 +1867,21 @@ func parseRackCoolingType(value string) (collectionpb.RackCoolingType, error) {
 	default:
 		return collectionpb.RackCoolingType_RACK_COOLING_TYPE_UNSPECIFIED, fleeterror.NewInvalidArgumentErrorf("invalid rack cooling type %q", value)
 	}
+}
+
+func desiredRackGridPosition(row map[string]string) (*int32, *int32, error) {
+	if row["aisle_index"] == "" && row["position_in_aisle"] == "" {
+		return nil, nil, nil
+	}
+	aisle, err := parseInt32Value(row["aisle_index"], "aisle_index")
+	if err != nil {
+		return nil, nil, err
+	}
+	position, err := parseInt32Value(row["position_in_aisle"], "position_in_aisle")
+	if err != nil {
+		return nil, nil, err
+	}
+	return &aisle, &position, nil
 }
 
 func desiredSiteBuildingIDs(
