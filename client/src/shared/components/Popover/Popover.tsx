@@ -155,7 +155,10 @@ const Popover = ({
         // The viewport cap (`maxHeight`) is applied to this positioned wrapper via
         // `popoverStyle`, so the wrapper must also be the scroller — otherwise the
         // unconstrained inner content paints past the cap and clips off-screen.
-        constrainHeightToViewport && "overflow-y-auto overscroll-contain",
+        // As the scroller, its `overflow-y-auto` clips the inner PopoverContent's
+        // `shadow-200`, so re-raise the elevation shadow here on the wrapper — its
+        // own box-shadow paints outside the scroll box and isn't clipped (#727 regression).
+        constrainHeightToViewport && "overflow-y-auto overscroll-contain shadow-200",
         popoverAnimation,
       )}
       style={popoverStyle}
