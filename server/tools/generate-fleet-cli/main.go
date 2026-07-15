@@ -38,22 +38,23 @@ type commandsManifest struct {
 }
 
 type commandSpec struct {
-	Method                string            `json:"method"`
-	Group                 string            `json:"group"`
-	Subgroup              string            `json:"subgroup,omitempty"`
-	Command               string            `json:"command"`
-	Usage                 string            `json:"usage,omitempty"`
-	Auth                  string            `json:"auth,omitempty"`
-	IgnoreFields          []string          `json:"ignore_fields,omitempty"`
-	RequiredFields        []string          `json:"required_fields,omitempty"`
-	ValidationExceptions  map[string]string `json:"validation_exceptions,omitempty"`
-	FixedFields           map[string]string `json:"fixed_fields,omitempty"`
-	DefaultFields         map[string]string `json:"default_fields,omitempty"`
-	RequireCollectionType string            `json:"require_collection_type,omitempty"`
-	CommonSelector        string            `json:"common_selector,omitempty"`
-	FieldFlags            []fieldFlagSpec   `json:"field_flags,omitempty"`
-	JSONOnly              bool              `json:"json_only,omitempty"`
-	JSONOptional          bool              `json:"json_optional,omitempty"`
+	Method                string              `json:"method"`
+	Group                 string              `json:"group"`
+	Subgroup              string              `json:"subgroup,omitempty"`
+	Command               string              `json:"command"`
+	Usage                 string              `json:"usage,omitempty"`
+	Auth                  string              `json:"auth,omitempty"`
+	IgnoreFields          []string            `json:"ignore_fields,omitempty"`
+	RequiredFields        []string            `json:"required_fields,omitempty"`
+	ValidationExceptions  map[string]string   `json:"validation_exceptions,omitempty"`
+	FixedFields           map[string]string   `json:"fixed_fields,omitempty"`
+	DefaultFields         map[string]string   `json:"default_fields,omitempty"`
+	SetBoolWhenFieldsSet  map[string][]string `json:"set_bool_when_fields_set,omitempty"`
+	RequireCollectionType string              `json:"require_collection_type,omitempty"`
+	CommonSelector        string              `json:"common_selector,omitempty"`
+	FieldFlags            []fieldFlagSpec     `json:"field_flags,omitempty"`
+	JSONOnly              bool                `json:"json_only,omitempty"`
+	JSONOptional          bool                `json:"json_optional,omitempty"`
 }
 
 type fieldFlagSpec struct {
@@ -115,6 +116,7 @@ type renderOptions struct {
 	ValidationExceptions  map[string]string
 	FixedFields           map[string]string
 	DefaultFields         map[string]string
+	SetBoolWhenFieldsSet  map[string][]string
 	RequireCollectionType string
 	CommonSelector        string
 	FieldFlags            []fieldFlagSpec
@@ -306,6 +308,24 @@ func validateCommandsManifest(manifest commandsManifest) error {
 				return fmt.Errorf("command %q: validation_exceptions reason is required for %q", key, fieldPath)
 			}
 		}
+		for targetField, sourceFields := range command.SetBoolWhenFieldsSet {
+			if targetField == "" {
+				return fmt.Errorf("command %q: set_bool_when_fields_set target field is required", key)
+			}
+			if len(sourceFields) == 0 {
+				return fmt.Errorf("command %q: set_bool_when_fields_set target %q requires at least one source field", key, targetField)
+			}
+			seenSourceFields := map[string]bool{}
+			for _, sourceField := range sourceFields {
+				if sourceField == "" {
+					return fmt.Errorf("command %q: set_bool_when_fields_set source field is required for target %q", key, targetField)
+				}
+				if seenSourceFields[sourceField] {
+					return fmt.Errorf("command %q: duplicate set_bool_when_fields_set source field %q for target %q", key, sourceField, targetField)
+				}
+				seenSourceFields[sourceField] = true
+			}
+		}
 	}
 	return nil
 }
@@ -461,6 +481,7 @@ func buildGroups(
 			ValidationExceptions:  command.ValidationExceptions,
 			FixedFields:           command.FixedFields,
 			DefaultFields:         command.DefaultFields,
+			SetBoolWhenFieldsSet:  command.SetBoolWhenFieldsSet,
 			RequireCollectionType: command.RequireCollectionType,
 			CommonSelector:        command.CommonSelector,
 			FieldFlags:            command.FieldFlags,
@@ -919,8 +940,96 @@ func analyzeRequest(
 		analysis.lines = append(lines, analysis.lines...)
 		analysis.needsFmt = analysis.needsFmt || needsFmt
 	}
+	triggerLines, err := buildSetBoolWhenFieldsSetLines(message, options)
+	if err != nil {
+		return analysis, err
+	}
+	analysis.lines = append(analysis.lines, triggerLines...)
 
 	return analysis, nil
+}
+
+func buildSetBoolWhenFieldsSetLines(message protoreflect.MessageDescriptor, options renderOptions) ([]string, error) {
+	if len(options.SetBoolWhenFieldsSet) == 0 {
+		return nil, nil
+	}
+
+	targetNames := make([]string, 0, len(options.SetBoolWhenFieldsSet))
+	for targetName := range options.SetBoolWhenFieldsSet {
+		targetNames = append(targetNames, targetName)
+	}
+	sort.Strings(targetNames)
+
+	fieldFlagsByRoot := groupFieldFlagsByRoot(options.FieldFlags)
+	var lines []string
+	for _, targetName := range targetNames {
+		targetField := message.Fields().ByName(protoreflect.Name(targetName))
+		if targetField == nil {
+			return nil, fmt.Errorf("set_bool_when_fields_set references unknown target field %q on %s", targetName, message.FullName())
+		}
+		if targetField.IsList() || targetField.IsMap() || targetField.Kind() != protoreflect.BoolKind {
+			return nil, fmt.Errorf("set_bool_when_fields_set target %q on %s must be a boolean scalar", targetName, message.FullName())
+		}
+
+		var sourceFlagNames []string
+		for _, sourceName := range options.SetBoolWhenFieldsSet[targetName] {
+			flagNames, err := fieldFlagNamesForTrigger(message, sourceName, options, fieldFlagsByRoot)
+			if err != nil {
+				return nil, err
+			}
+			sourceFlagNames = append(sourceFlagNames, flagNames...)
+		}
+		conditions := make([]string, len(sourceFlagNames))
+		for i, flagName := range sourceFlagNames {
+			conditions[i] = fmt.Sprintf("cmd.IsSet(%q)", flagName)
+		}
+		lines = append(lines, "if "+strings.Join(conditions, " || ")+" {")
+		for _, assignment := range scalarAssignmentLines(targetField, "true") {
+			lines = append(lines, "\t"+assignment)
+		}
+		lines = append(lines, "}")
+	}
+	return lines, nil
+}
+
+func fieldFlagNamesForTrigger(
+	message protoreflect.MessageDescriptor,
+	fieldName string,
+	options renderOptions,
+	fieldFlagsByRoot map[string][]fieldFlagSpec,
+) ([]string, error) {
+	field := message.Fields().ByName(protoreflect.Name(fieldName))
+	if field == nil {
+		return nil, fmt.Errorf("set_bool_when_fields_set references unknown source field %q on %s", fieldName, message.FullName())
+	}
+	if options.IgnoreFields[fieldName] {
+		return nil, fmt.Errorf("set_bool_when_fields_set source field %q on %s is ignored", fieldName, message.FullName())
+	}
+	if _, fixed := options.FixedFields[fieldName]; fixed {
+		return nil, fmt.Errorf("set_bool_when_fields_set source field %q on %s is fixed and has no flag", fieldName, message.FullName())
+	}
+	if specs := fieldFlagsByRoot[fieldName]; len(specs) > 0 {
+		flagNames := make([]string, len(specs))
+		for i, spec := range specs {
+			flagNames[i] = spec.Flag
+		}
+		return flagNames, nil
+	}
+	if field.IsMap() || field.Kind() == protoreflect.BytesKind ||
+		field.Kind() == protoreflect.MessageKind || field.Kind() == protoreflect.GroupKind {
+		return nil, fmt.Errorf("set_bool_when_fields_set source field %q on %s does not have a direct flag", fieldName, message.FullName())
+	}
+	if field.IsList() {
+		switch field.Kind() {
+		case protoreflect.StringKind, protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind,
+			protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
+		case protoreflect.BoolKind, protoreflect.EnumKind, protoreflect.Uint32Kind, protoreflect.Fixed32Kind,
+			protoreflect.Uint64Kind, protoreflect.Fixed64Kind, protoreflect.FloatKind, protoreflect.DoubleKind,
+			protoreflect.BytesKind, protoreflect.MessageKind, protoreflect.GroupKind:
+			return nil, fmt.Errorf("set_bool_when_fields_set source field %q on %s does not have a direct flag", fieldName, message.FullName())
+		}
+	}
+	return []string{strings.ReplaceAll(fieldName, "_", "-")}, nil
 }
 
 func validateManifestRequirements(message protoreflect.MessageDescriptor, options renderOptions) error {

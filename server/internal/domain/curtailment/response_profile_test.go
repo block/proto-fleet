@@ -150,13 +150,13 @@ func TestResponseProfileService_CreateRejectsUnknownFacilityFan(t *testing.T) {
 	assert.True(t, fleeterror.IsNotFoundError(err))
 }
 
-func TestResponseProfileService_CreateRejectsFacilityFanOutsideProfileScope(t *testing.T) {
+func TestResponseProfileService_CreateAllowsFacilityFanOutsideProfileScope(t *testing.T) {
 	t.Parallel()
 
 	store := newResponseProfileFakeStore()
 	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true}
 
-	_, err := NewResponseProfileService(store).Create(t.Context(), SaveResponseProfileRequest{
+	profile, err := NewResponseProfileService(store).Create(t.Context(), SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{
 			OrgID:                42,
 			ProfileName:          "Wrong-site fan",
@@ -167,16 +167,15 @@ func TestResponseProfileService_CreateRejectsFacilityFanOutsideProfileScope(t *t
 		CanUseAdminControls: true,
 	})
 
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.Contains(t, err.Error(), "outside the response profile scope")
+	require.NoError(t, err)
+	assert.Equal(t, []int64{31}, profile.FacilityFanDeviceIDs)
 }
 
-func TestResponseProfileService_CreateAllowsFacilityFanAtExplicitMinerSite(t *testing.T) {
+func TestResponseProfileService_CreateAllowsFacilityFanOutsideExplicitMinerSite(t *testing.T) {
 	t.Parallel()
 
 	store := newResponseProfileFakeStore()
-	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true}
+	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 9, Enabled: true}
 	store.deviceSites["miner-a"] = ptrInt64(8)
 
 	profile, err := NewResponseProfileService(store).Create(t.Context(), SaveResponseProfileRequest{

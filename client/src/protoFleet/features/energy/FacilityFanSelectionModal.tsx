@@ -180,6 +180,7 @@ function FacilityFanSelectionModal({
           text: "Apply",
           variant: variants.primary,
           onClick: handleApply,
+          disabled: isLoading || loadError !== null,
           dismissModalOnClick: false,
         },
       ]}
@@ -241,7 +242,7 @@ function FacilityFanSelectionModal({
             </div>
           ) : deviceGroups.length === 0 ? (
             <div className="rounded-lg bg-surface-overlay px-5 py-6 text-300 text-text-primary-70">
-              <p>No infrastructure fan devices are available in this site scope.</p>
+              <p>No infrastructure fan devices are available.</p>
               <a
                 className="mt-2 inline-block text-emphasis-300 text-core-accent-fill underline"
                 href="/fleet/infrastructure"

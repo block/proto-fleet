@@ -105,18 +105,18 @@ func TestSQLCurtailmentStore_ResponseProfileFacilityFanSettings(t *testing.T) {
 	assert.Equal(t, updatedFanOff, updated.FanOffDelaySec)
 	assert.Equal(t, updatedFanOn, updated.FanRestoreDelaySec)
 
-	_, err = service.Create(ctx, domainCurtailment.SaveResponseProfileRequest{
+	otherSiteProfile, err := service.Create(ctx, domainCurtailment.SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{
 			OrgID:                orgID,
-			ProfileName:          "Wrong-site fan",
+			ProfileName:          "Independent-site fan",
 			SiteID:               pointerTo(siteID),
 			Mode:                 models.ModeFullFleet,
 			FacilityFanDeviceIDs: []int64{otherSiteFanID},
 		},
 		CanUseAdminControls: true,
 	})
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	require.NoError(t, err)
+	assert.Equal(t, []int64{otherSiteFanID}, otherSiteProfile.FacilityFanDeviceIDs)
 
 	_, err = service.Create(ctx, domainCurtailment.SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{

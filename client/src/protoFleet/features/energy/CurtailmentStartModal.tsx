@@ -1068,19 +1068,6 @@ function getInfrastructureApplyToTarget(values: CurtailmentFormValues): ApplyToT
   };
 }
 
-function getInfrastructureDevicesInScope(
-  devices: FacilityFanDeviceOption[],
-  values: Pick<CurtailmentFormValues, "siteSelection" | "siteId" | "siteIds">,
-): FacilityFanDeviceOption[] {
-  const siteIds = getSiteScopeIds(values);
-  if (siteIds.length === 0) {
-    return devices;
-  }
-
-  const siteIdSet = new Set(siteIds);
-  return devices.filter((device) => siteIdSet.has(device.siteId));
-}
-
 function getSiteApplyToTarget(values: CurtailmentFormValues): ApplyToTarget {
   const selectedSiteIds = getSelectedSiteIds(values);
   if (selectedSiteIds.length > 0) {
@@ -1300,10 +1287,6 @@ function CurtailmentStartModalContent({
   const minerApplyToTarget = getMinerApplyToTarget(effectiveValues);
   const siteApplyToTarget = getSiteApplyToTarget(effectiveValues);
   const infrastructureApplyToTarget = getInfrastructureApplyToTarget(effectiveValues);
-  const scopedInfrastructureDevices = useMemo(
-    () => getInfrastructureDevicesInScope(infrastructureDevices, effectiveValues),
-    [effectiveValues, infrastructureDevices],
-  );
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
   const curtailmentBehaviorSubtext = isLiveCurtailmentEditMode
     ? undefined
@@ -1501,15 +1484,7 @@ function CurtailmentStartModalContent({
           );
         }
 
-        const inScopeDeviceIds = new Set(
-          getInfrastructureDevicesInScope(infrastructureDevices, nextValues).map((device) => device.id),
-        );
-        return {
-          ...nextValues,
-          facilityFanDeviceIds: (nextValues.facilityFanDeviceIds ?? []).filter((deviceId) =>
-            inScopeDeviceIds.has(deviceId),
-          ),
-        };
+        return nextValues;
       },
       { resetResponseProfileSelection: true },
     );
@@ -2065,7 +2040,7 @@ function CurtailmentStartModalContent({
 
       {isResponseProfileVariant && showFacilityFanSelectionModal ? (
         <FacilityFanSelectionModal
-          devices={scopedInfrastructureDevices}
+          devices={infrastructureDevices}
           initialSelectedDeviceIds={values.facilityFanDeviceIds ?? []}
           initialFanOffDelaySec={values.fanOffDelaySec ?? ""}
           initialFanRestoreDelaySec={values.fanRestoreDelaySec ?? ""}

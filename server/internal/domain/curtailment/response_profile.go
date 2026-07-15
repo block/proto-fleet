@@ -155,7 +155,6 @@ func (s *ResponseProfileService) validateAndNormalize(ctx context.Context, req S
 	profile.FacilityFanDeviceIDs, infrastructureDevices, err = s.validateFacilityFanDevices(
 		ctx,
 		profile.OrgID,
-		scope,
 		profile.FacilityFanDeviceIDs,
 	)
 	if err != nil {
@@ -179,7 +178,6 @@ func (s *ResponseProfileService) validateAndNormalize(ctx context.Context, req S
 func (s *ResponseProfileService) validateFacilityFanDevices(
 	ctx context.Context,
 	orgID int64,
-	scope Scope,
 	deviceIDs []int64,
 ) ([]int64, map[int64]models.ResponseProfileInfrastructureDevice, error) {
 	if hasNonPositiveInt64(deviceIDs) {
@@ -199,34 +197,6 @@ func (s *ResponseProfileService) validateFacilityFanDevices(
 			// Missing, deleted, and cross-organization devices are intentionally
 			// indistinguishable so profile validation cannot expose OT inventory.
 			return nil, nil, fleeterror.NewNotFoundErrorf("infrastructure device not found: %d", deviceID)
-		}
-	}
-
-	normalizedScope := normalizeScope(scope)
-	if normalizedScope.Type != models.ScopeTypeWholeOrg {
-		allowedSiteIDs := make(map[int64]struct{}, len(normalizedScope.SiteIDs))
-		for _, siteID := range normalizedScope.SiteIDs {
-			allowedSiteIDs[siteID] = struct{}{}
-		}
-		if len(normalizedScope.DeviceIdentifiers) > 0 {
-			minerSites, err := s.store.ListResponseProfileDeviceSites(ctx, orgID, normalizedScope.DeviceIdentifiers)
-			if err != nil {
-				return nil, nil, err
-			}
-			for _, siteID := range minerSites {
-				if siteID != nil {
-					allowedSiteIDs[*siteID] = struct{}{}
-				}
-			}
-		}
-		for _, deviceID := range deviceIDs {
-			device := devices[deviceID]
-			if _, ok := allowedSiteIDs[device.SiteID]; !ok {
-				return nil, nil, fleeterror.NewInvalidArgumentErrorf(
-					"infrastructure device %d is outside the response profile scope",
-					deviceID,
-				)
-			}
 		}
 	}
 

@@ -5239,7 +5239,8 @@ type CurtailmentResponseProfile struct {
 	// applied when the profile executes (manual start or MQTT automation).
 	ForceIncludeAllPairedMiners bool `protobuf:"varint,18,opt,name=force_include_all_paired_miners,json=forceIncludeAllPairedMiners,proto3" json:"force_include_all_paired_miners,omitempty"`
 	// Facility fans coordinated with this profile. Devices are validated to
-	// belong to the organization and to sites included by the profile scope.
+	// belong to the organization, but may be selected independently of the
+	// miner and site scope.
 	FacilityFanDeviceIds []int64 `protobuf:"varint,19,rep,packed,name=facility_fan_device_ids,json=facilityFanDeviceIds,proto3" json:"facility_fan_device_ids,omitempty"`
 	// Delay after miners are confirmed curtailed before facility fans turn off.
 	FanOffDelaySec uint32 `protobuf:"varint,22,opt,name=fan_off_delay_sec,json=fanOffDelaySec,proto3" json:"fan_off_delay_sec,omitempty"`

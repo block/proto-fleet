@@ -2515,7 +2515,8 @@ export type CurtailmentResponseProfile = Message<"curtailment.v1.CurtailmentResp
 
   /**
    * Facility fans coordinated with this profile. Devices are validated to
-   * belong to the organization and to sites included by the profile scope.
+   * belong to the organization, but may be selected independently of the
+   * miner and site scope.
    *
    * @generated from field: repeated int64 facility_fan_device_ids = 19;
    */

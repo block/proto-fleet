@@ -835,6 +835,13 @@
       "subgroup": "profiles",
       "command": "update",
       "required_fields": ["profile_id", "profile_name", "mode"],
+      "set_bool_when_fields_set": {
+        "replace_facility_fan_settings": [
+          "facility_fan_device_ids",
+          "fan_off_delay_sec",
+          "fan_restore_delay_sec"
+        ]
+      },
       "validation_exceptions": {
         "$message": "mode_params is conditional: FIXED_KW requires fixed_kw while FULL_FLEET requires no mode parameters; generated request validation enforces the selected mode"
       }
