@@ -1000,6 +1000,7 @@ export class BasePage {
       "building-page-action-sheet-content",
       "list-header-action-sheet-content",
       "rack-slot-actions-sheet-content",
+      "site-map-action-sheet-content",
     ];
 
     await expect
@@ -1040,6 +1041,7 @@ export class BasePage {
       "building-page-action-sheet",
       "list-header-action-sheet",
       "rack-slot-actions-sheet",
+      "site-map-action-sheet",
     ];
 
     for (const testId of sheetTestIds) {

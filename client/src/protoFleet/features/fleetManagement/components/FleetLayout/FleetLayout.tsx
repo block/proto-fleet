@@ -70,7 +70,6 @@ const FleetLayout = () => {
   const canExportMinerCsv = useHasPermission("miner:export_csv");
   const canManageSites = useHasPermission("site:manage");
   const canManageRacks = useHasPermission("rack:manage");
-  const canRenameMiners = useHasPermission("miner:rename");
   const { exportSiteMapCsv, isExportingSiteMapCsv } = useSiteMapCsv();
   const [showSiteMapImportModal, setShowSiteMapImportModal] = useState(false);
 
@@ -260,7 +259,7 @@ const FleetLayout = () => {
   // class) keeps the DOM simple — only one is interactive at a time.
   const viewTabs = <FleetViewTabs viewsState={viewsState} currentTab={currentTab} filterContext={viewFilterContext} />;
   const canExportSiteMapCsv = canExportMinerCsv && canReadSites && canReadRacks;
-  const canImportSiteMapCsv = canManageSites && canManageRacks && canRenameMiners;
+  const canImportSiteMapCsv = canManageSites && canManageRacks;
   const siteMapActionButtons = useMemo<ResponsiveActionButton[]>(
     () => [
       ...(canExportSiteMapCsv
@@ -343,6 +342,7 @@ const FleetLayout = () => {
                   primaryTestIdSuffix="mobile"
                   sheetContentTestId="site-map-action-sheet-content"
                   sheetTestId="site-map-action-sheet"
+                  triggerTestId="site-map-actions-trigger"
                 />
               </>
             ) : null}
