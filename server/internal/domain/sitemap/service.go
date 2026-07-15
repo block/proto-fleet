@@ -40,10 +40,10 @@ var (
 		"site",
 	}
 	buildingHeaders = []string{
-		"site", "building", "aisles", "racks_per_aisle",
+		"building", "site", "aisles", "racks_per_aisle",
 	}
 	rackHeaders = []string{
-		"site", "building", "rack", "zone", "rows", "columns",
+		"rack", "building", "site", "zone", "rows", "columns",
 		"order_index", "aisle_index", "position_in_aisle",
 	}
 	minerHeaders = []string{
@@ -109,7 +109,7 @@ func (s *Service) ExportSiteMapCsv(ctx context.Context, orgID int64, send func(*
 		if err := writer.Write([]string{fmt.Sprintf("# SECTION: %s", name)}); err != nil {
 			return fleeterror.NewInternalErrorf("failed to write %s section marker: %v", name, err)
 		}
-		if err := writer.Write(headers); err != nil {
+		if err := writer.Write(displayHeaders(name, headers)); err != nil {
 			return fleeterror.NewInternalErrorf("failed to write %s header row: %v", name, err)
 		}
 		for _, row := range rows {
@@ -134,7 +134,7 @@ func (s *Service) ExportSiteMapCsv(ctx context.Context, orgID int64, send func(*
 	if err := writeSection("BUILDING", buildingHeaders, buildingRows(snapshot.buildings)); err != nil {
 		return fleeterror.NewInternalErrorf("failed to write BUILDING section: %v", err)
 	}
-	if err := writeSection("RACK", rackHeaders, rackRows(snapshot.racks)); err != nil {
+	if err := writeSection("RACK", rackHeaders, rackExportRows(snapshot.racks, snapshot.buildings)); err != nil {
 		return fleeterror.NewInternalErrorf("failed to write RACK section: %v", err)
 	}
 	if err := writeSection("MINER", minerHeaders, minerRows(snapshot.miners, snapshot.buildings)); err != nil {
@@ -472,6 +472,40 @@ func compareStrings(values ...string) bool {
 	return false
 }
 
+func displayHeaders(section string, headers []string) []string {
+	out := make([]string, 0, len(headers))
+	for _, header := range headers {
+		out = append(out, displayHeader(section, header))
+	}
+	return out
+}
+
+func displayHeader(section, header string) string {
+	switch section {
+	case "SITE":
+		if header == "site" {
+			return "name (read only)"
+		}
+	case "BUILDING":
+		switch header {
+		case "building":
+			return "name (read only)"
+		case "site":
+			return "site (read only)"
+		}
+	case "RACK":
+		if header == "rack" {
+			return "label (read only)"
+		}
+	case "MINER":
+		switch header {
+		case "device_identifier", "serial_number", "name", "ip_address", "mac_address":
+			return header + " (read only)"
+		}
+	}
+	return header
+}
+
 func siteRows(sites []sitemodels.Site) [][]string {
 	rows := make([][]string, 0, len(sites))
 	for _, site := range sites {
@@ -486,8 +520,8 @@ func buildingRows(buildings []buildingmodels.Building) [][]string {
 	rows := make([][]string, 0, len(buildings))
 	for _, building := range buildings {
 		rows = append(rows, []string{
-			clean(building.SiteLabel),
 			clean(building.Name),
+			clean(building.SiteLabel),
 			formatInt32(building.Aisles),
 			formatInt32(building.RacksPerAisle),
 		})
@@ -499,9 +533,9 @@ func rackRows(racks []rackSnapshot) [][]string {
 	rows := make([][]string, 0, len(racks))
 	for _, rack := range racks {
 		rows = append(rows, []string{
-			clean(rack.Site),
-			clean(rack.Building),
 			clean(rack.Label),
+			clean(rack.Building),
+			clean(rack.Site),
 			clean(rack.Zone),
 			formatInt32(rack.Rows),
 			formatInt32(rack.Columns),
@@ -511,6 +545,32 @@ func rackRows(racks []rackSnapshot) [][]string {
 		})
 	}
 	return rows
+}
+
+func rackExportRows(racks []rackSnapshot, buildings []buildingmodels.Building) [][]string {
+	rows := make([][]string, 0, len(racks))
+	ambiguousBuildingNames := ambiguousBuildingLabels(buildings)
+	for _, rack := range racks {
+		rows = append(rows, []string{
+			clean(rack.Label),
+			clean(rack.Building),
+			clean(rackExportSite(rack, ambiguousBuildingNames)),
+			clean(rack.Zone),
+			formatInt32(rack.Rows),
+			formatInt32(rack.Columns),
+			rack.OrderIndex,
+			rack.AisleIndex,
+			rack.PositionInAisle,
+		})
+	}
+	return rows
+}
+
+func rackExportSite(rack rackSnapshot, ambiguousBuildingNames map[string]bool) string {
+	if rack.Building != "" && !ambiguousBuildingNames[rack.Building] {
+		return ""
+	}
+	return rack.Site
 }
 
 func minerRows(miners []minerSnapshot, buildings []buildingmodels.Building) [][]string {
@@ -707,8 +767,9 @@ func parseSiteMapCSV(data []byte) (*parsedCSV, []*pb.ImportValidationError) {
 			break
 		}
 		gotHeaders := trimTrailingEmpty(trimRecord(records[i]))
-		if !sameStrings(gotHeaders, headers) {
-			errs = append(errs, csvErr(i+1, section, fmt.Sprintf("unexpected header, want %s", strings.Join(headers, ","))))
+		wantHeaders := displayHeaders(section, headers)
+		if !sameStrings(gotHeaders, wantHeaders) {
+			errs = append(errs, csvErr(i+1, section, fmt.Sprintf("unexpected header, want %s", strings.Join(wantHeaders, ","))))
 			continue
 		}
 		for i+1 < len(records) {
@@ -749,6 +810,7 @@ type importPlan struct {
 }
 
 func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPlan {
+	normalizeInferredPlacement(parsed, snap)
 	plan := importPlan{omissions: &pb.OmissionCounts{}}
 	siteKeys := rowSet(parsed.sections["SITE"], "site")
 	buildingKeys := compoundRowSet(parsed.sections["BUILDING"], "site", "building")
@@ -811,6 +873,18 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	addChange(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "rack", countRackUpdates(parsed.sections["RACK"], snap.racks), "rack rows with changed details")
 	addChange(pb.ImportOperation_IMPORT_OPERATION_MOVE, "miner", countMinerPlacementUpdates(parsed.sections["MINER"], parsed.sections["RACK"], parsed.sections["BUILDING"], snap), "miner placement rows with changed site, building, rack, or slot")
 	return plan
+}
+
+func normalizeInferredPlacement(parsed *parsedCSV, snap *snapshot) {
+	buildingsByName, ambiguousBuildings := desiredBuildingNameLookup(parsed.sections["BUILDING"], snap.buildings)
+	for _, row := range parsed.sections["RACK"] {
+		if row["site"] != "" || row["building"] == "" || ambiguousBuildings[row["building"]] {
+			continue
+		}
+		if building, ok := buildingsByName[row["building"]]; ok {
+			row["site"] = building.SiteLabel
+		}
+	}
 }
 
 func ensureSupportedCommitPlan(plan importPlan) error {
@@ -1399,12 +1473,23 @@ func validateReadOnlyMinerFields(rows []map[string]string, snap *snapshot) []*pb
 func validateRackPlacementTargets(rows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
 	existingSites := rowSetFromSites(snap.sites)
 	existingBuildings := rowSetFromBuildings(snap.buildings)
+	buildingsByName, ambiguousBuildings := desiredBuildingNameLookup(nil, snap.buildings)
 	var errs []*pb.ImportValidationError
 	for i, row := range rows {
 		if row["site"] != "" && !existingSites[row["site"]] {
 			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("unknown site %q", row["site"])))
 		}
 		if row["building"] != "" {
+			if row["site"] == "" {
+				if ambiguousBuildings[row["building"]] {
+					errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack building %q is ambiguous; add site", row["building"])))
+					continue
+				}
+				if _, ok := buildingsByName[row["building"]]; !ok {
+					errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("unknown building %q", row["building"])))
+				}
+				continue
+			}
 			key := row["site"] + "\x00" + row["building"]
 			if !existingBuildings[key] {
 				errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("unknown building %q for site %q", row["building"], row["site"])))

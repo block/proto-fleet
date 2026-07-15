@@ -54,8 +54,8 @@ func TestBuildPlanWithRemoveOmittedReturnsValidationError(t *testing.T) {
 
 func TestBuildPlanRejectsNewTopologyRows(t *testing.T) {
 	csv := strings.Replace(validCSV(), "Site A\n", "Site A\nNew Site\n", 1)
-	csv = strings.Replace(csv, "Site A,Building A,2,2\n", "Site A,Building A,2,2\nSite A,New Building,2,2\n", 1)
-	csv = strings.Replace(csv, "Site A,Building A,Rack A,Z1,4,6,BOTTOM_LEFT,0,0\n", "Site A,Building A,Rack A,Z1,4,6,BOTTOM_LEFT,0,0\nSite A,Building A,New Rack,Z1,4,6,BOTTOM_LEFT,0,1\n", 1)
+	csv = strings.Replace(csv, "Building A,Site A,2,2\n", "Building A,Site A,2,2\nNew Building,Site A,2,2\n", 1)
+	csv = strings.Replace(csv, "Rack A,Building A,,Z1,4,6,BOTTOM_LEFT,0,0\n", "Rack A,Building A,,Z1,4,6,BOTTOM_LEFT,0,0\nNew Rack,Building A,,Z1,4,6,BOTTOM_LEFT,0,1\n", 1)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v", errs)
@@ -421,6 +421,49 @@ func TestMinerRowsPreserveSiteForAmbiguousDirectBuildingAssignment(t *testing.T)
 	}
 }
 
+func TestDisplayHeadersMarkReadOnlyIdentityColumns(t *testing.T) {
+	if got := strings.Join(displayHeaders("SITE", siteHeaders), ","); got != "name (read only)" {
+		t.Fatalf("SITE headers = %q", got)
+	}
+	if got := strings.Join(displayHeaders("BUILDING", buildingHeaders), ","); got != "name (read only),site (read only),aisles,racks_per_aisle" {
+		t.Fatalf("BUILDING headers = %q", got)
+	}
+	if got := strings.Join(displayHeaders("RACK", rackHeaders), ","); got != "label (read only),building,site,zone,rows,columns,order_index,aisle_index,position_in_aisle" {
+		t.Fatalf("RACK headers = %q", got)
+	}
+	if got := strings.Join(displayHeaders("MINER", minerHeaders), ","); got != "device_identifier (read only),serial_number (read only),name (read only),ip_address (read only),mac_address (read only),site,building,rack,rack_row,rack_col" {
+		t.Fatalf("MINER headers = %q", got)
+	}
+}
+
+func TestRackExportRowsBlankSiteForUnambiguousBuildingAssignment(t *testing.T) {
+	rows := rackExportRows(
+		[]rackSnapshot{{Site: "Site A", Building: "Building A", Label: "Rack A"}},
+		[]buildingmodels.Building{{SiteLabel: "Site A", Name: "Building A"}},
+	)
+
+	if got := rows[0][1]; got != "Building A" {
+		t.Fatalf("exported rack building = %q, want Building A", got)
+	}
+	if got := rows[0][2]; got != "" {
+		t.Fatalf("exported rack site = %q, want blank when building is unambiguous", got)
+	}
+}
+
+func TestRackExportRowsPreserveSiteForAmbiguousBuildingAssignment(t *testing.T) {
+	rows := rackExportRows(
+		[]rackSnapshot{{Site: "Site A", Building: "Building A", Label: "Rack A"}},
+		[]buildingmodels.Building{
+			{SiteLabel: "Site A", Name: "Building A"},
+			{SiteLabel: "Site B", Name: "Building A"},
+		},
+	)
+
+	if got := rows[0][2]; got != "Site A" {
+		t.Fatalf("exported rack site = %q, want Site A when building name is ambiguous", got)
+	}
+}
+
 func TestDesiredMinerSiteBuildingResolvesDirectBuildingSite(t *testing.T) {
 	buildingsByName, ambiguous := desiredBuildingNameLookup(
 		[]map[string]string{{"site": "Site A", "building": "Building A"}},
@@ -676,7 +719,7 @@ func TestParseSiteMapCSVAcceptsSpreadsheetPaddedSectionRows(t *testing.T) {
 	csv = strings.Replace(csv, "\n\n# SECTION: BUILDING\n", "\n,,,,,,,,,,\n# SECTION: BUILDING,,,,,,,,,,\n", 1)
 	csv = strings.Replace(csv, "\n\n# SECTION: RACK\n", "\n,,,,,,,,,,\n# SECTION: RACK,,,,,,,,,,\n", 1)
 	csv = strings.Replace(csv, "\n\n# SECTION: MINER\n", "\n,,,,,,,,,,\n# SECTION: MINER,,,,,,,,,,\n", 1)
-	csv = strings.Replace(csv, "site\n", "site,\n", 1)
+	csv = strings.Replace(csv, "name (read only)\n", "name (read only),\n", 1)
 	csv = strings.Replace(csv, "Site A\n", "Site A,\n", 1)
 	csv = strings.Replace(csv, "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,0\n", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,,\n", 1)
 
@@ -697,19 +740,19 @@ func TestParseSiteMapCSVAcceptsSpreadsheetPaddedSectionRows(t *testing.T) {
 
 func validCSV() string {
 	return `# SECTION: SITE
-site
+name (read only)
 Site A
 
 # SECTION: BUILDING
-site,building,aisles,racks_per_aisle
-Site A,Building A,2,2
+name (read only),site (read only),aisles,racks_per_aisle
+Building A,Site A,2,2
 
 # SECTION: RACK
-site,building,rack,zone,rows,columns,order_index,aisle_index,position_in_aisle
-Site A,Building A,Rack A,Z1,4,6,BOTTOM_LEFT,0,0
+label (read only),building,site,zone,rows,columns,order_index,aisle_index,position_in_aisle
+Rack A,Building A,,Z1,4,6,BOTTOM_LEFT,0,0
 
 # SECTION: MINER
-device_identifier,serial_number,name,ip_address,mac_address,site,building,rack,rack_row,rack_col
+device_identifier (read only),serial_number (read only),name (read only),ip_address (read only),mac_address (read only),site,building,rack,rack_row,rack_col
 miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,0
 `
 }
