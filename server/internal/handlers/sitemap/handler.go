@@ -45,9 +45,6 @@ func (h *Handler) ImportSiteMapCsv(ctx context.Context, req *connect.Request[pb.
 	if _, err := middleware.RequireOrgWidePermission(ctx, authz.PermRackManage); err != nil {
 		return nil, err
 	}
-	if _, err := middleware.RequireOrgWidePermission(ctx, authz.PermMinerRename); err != nil {
-		return nil, err
-	}
 	resp, err := h.service.ImportSiteMapCsv(ctx, info.OrganizationID, req.Msg)
 	if err != nil {
 		return nil, err

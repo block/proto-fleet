@@ -329,8 +329,8 @@ var ProcedurePermissions = map[string]string{
 	// also requires org-wide site:read and rack:read because the file
 	// includes site/building/rack placement across the organization.
 	// Import is classified by site:manage; the handler also requires
-	// org-wide rack:manage and miner:rename because it previews and
-	// applies full-fleet placement and miner-name mutations.
+	// org-wide rack:manage because it previews and applies full-fleet
+	// placement mutations.
 	sitemapv1connect.SiteMapServiceExportSiteMapCsvProcedure: authz.PermMinerExportCSV,
 	sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure: authz.PermSiteManage,
 
