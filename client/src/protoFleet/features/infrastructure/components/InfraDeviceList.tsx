@@ -17,7 +17,7 @@ import type {
   InfraBuildingOption,
   InfraDeviceDraft,
   InfraDeviceItem,
-  InfraDeviceUpdate,
+  InfraDevicePatch,
 } from "@/protoFleet/features/infrastructure/types";
 import { ChevronDown, Plus, Slider } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
@@ -118,7 +118,7 @@ interface InfraDeviceListProps {
   initialSiteName?: string;
   updatingDeviceIds?: ReadonlySet<string>;
   onCreateDevice?: (draft: InfraDeviceDraft) => Promise<void>;
-  onUpdateDevice?: (update: InfraDeviceUpdate) => Promise<void>;
+  onUpdateDevice?: (patch: InfraDevicePatch) => Promise<void>;
   onDeleteDevice?: (deviceId: string) => Promise<void>;
   onSetDeviceEnabled?: (device: InfraDeviceItem, enabled: boolean) => Promise<void>;
 }

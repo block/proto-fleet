@@ -12,7 +12,7 @@ import {
 } from "@/protoFleet/api/generated/infrastructure/v1/infrastructure_pb";
 import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
 import { getSiteDisplayName } from "@/protoFleet/api/siteNames";
-import type { InfraDeviceItem, InfraDeviceKind, InfraDeviceKindWire } from "@/protoFleet/features/infrastructure/types";
+import type { InfraDeviceItem, InfraDeviceKind } from "@/protoFleet/features/infrastructure/types";
 import { useAuthErrors } from "@/protoFleet/store";
 
 // Create payload with the site already resolved to an ID (the add modal
@@ -27,13 +27,21 @@ export interface InfrastructureDeviceCreate {
   driverConfig: string;
 }
 
-// Full-row update; the server requires every field except enabled,
-// which preserves the stored value when omitted. deviceKind is the
-// wire type because updates echo the stored kind back verbatim.
-export interface InfrastructureDeviceUpdate extends Omit<InfrastructureDeviceCreate, "deviceKind"> {
+// Partial update; only the fields present are changed. The wire update
+// RPC is full-row, so updateDevice fetches the device's current row
+// first and echoes the fresh values for everything the caller didn't
+// touch — replaying a possibly-stale UI snapshot instead could silently
+// revert another operator's concurrent edit. (A true concurrency guard
+// needs server-side versioning; this shrinks the race window to the
+// Get→Update gap.) Requires site:manage, so the fetched driverConfig
+// arrives unredacted.
+export interface InfrastructureDevicePatch {
   id: string;
-  deviceKind: InfraDeviceKindWire;
+  siteId?: string;
+  buildingName?: string;
+  name?: string;
   enabled?: boolean;
+  driverConfig?: string;
 }
 
 export type UseInfrastructureDevicesResult = {
@@ -43,7 +51,7 @@ export type UseInfrastructureDevicesResult = {
   updatingDeviceIds: ReadonlySet<string>;
   listDevices: (signal?: AbortSignal) => Promise<InfraDeviceItem[]>;
   createDevice: (params: InfrastructureDeviceCreate) => Promise<InfraDeviceItem>;
-  updateDevice: (params: InfrastructureDeviceUpdate) => Promise<InfraDeviceItem>;
+  updateDevice: (params: InfrastructureDevicePatch) => Promise<InfraDeviceItem>;
   setDeviceEnabled: (device: InfraDeviceItem, enabled: boolean) => Promise<InfraDeviceItem>;
   deleteDevice: (deviceId: string) => Promise<void>;
 };
@@ -235,22 +243,34 @@ export default function useInfrastructureDevices(
   );
 
   const updateDevice = useCallback(
-    async (params: InfrastructureDeviceUpdate): Promise<InfraDeviceItem> =>
+    async (params: InfrastructureDevicePatch): Promise<InfraDeviceItem> =>
       withUpdatingDevice(params.id, async () => {
         try {
+          const getResponse = await infrastructureClient.getInfrastructureDevice(
+            create(GetInfrastructureDeviceRequestSchema, {
+              id: parseDeviceId(params.id, "device ID"),
+            }),
+          );
+          const freshDevice = getResponse.device;
+          if (!freshDevice) {
+            throw new Error("Infrastructure device no longer exists.");
+          }
+
           const response = await infrastructureClient.updateInfrastructureDevice(
             create(UpdateInfrastructureDeviceRequestSchema, {
-              id: parseDeviceId(params.id, "device ID"),
-              siteId: parseDeviceId(params.siteId, "site ID"),
-              buildingName: params.buildingName,
-              name: params.name,
-              deviceKind: params.deviceKind,
-              fanCount: params.fanCount,
-              // Omitted (rather than sent as the current UI value) so the
+              id: freshDevice.id,
+              siteId: params.siteId !== undefined ? parseDeviceId(params.siteId, "site ID") : freshDevice.siteId,
+              buildingName: params.buildingName ?? freshDevice.buildingName,
+              name: params.name ?? freshDevice.name,
+              // Not patchable from the client: the detail form doesn't
+              // edit them, so the fresh row's values are always echoed.
+              deviceKind: freshDevice.deviceKind,
+              fanCount: freshDevice.fanCount,
+              // Omitted (rather than sent as the fetched value) so the
               // server preserves enabled when the caller didn't touch it.
               ...(params.enabled !== undefined ? { enabled: params.enabled } : {}),
-              driverType: params.driverType,
-              driverConfig: params.driverConfig,
+              driverType: freshDevice.driverType,
+              driverConfig: params.driverConfig ?? freshDevice.driverConfig,
             }),
           );
           if (!response.device) {
@@ -266,52 +286,10 @@ export default function useInfrastructureDevices(
     [handleFailure, replaceApiDevice, withUpdatingDevice],
   );
 
-  // The update RPC is a full-row write, but a toggle only intends to
-  // change enabled — so fetch the device's current row first and echo
-  // those fresh fields back with the new enabled value. Replaying the
-  // possibly-stale list snapshot instead could silently revert another
-  // operator's concurrent config edit. (A true concurrency guard needs
-  // server-side versioning; this shrinks the race window to the
-  // Get→Update gap.) Requires site:manage, so the fetched driverConfig
-  // arrives unredacted.
   const setDeviceEnabled = useCallback(
     async (device: InfraDeviceItem, nextEnabled: boolean): Promise<InfraDeviceItem> =>
-      withUpdatingDevice(device.id, async () => {
-        try {
-          const getResponse = await infrastructureClient.getInfrastructureDevice(
-            create(GetInfrastructureDeviceRequestSchema, {
-              id: parseDeviceId(device.id, "device ID"),
-            }),
-          );
-          const freshDevice = getResponse.device;
-          if (!freshDevice) {
-            throw new Error("Infrastructure device no longer exists.");
-          }
-
-          const response = await infrastructureClient.updateInfrastructureDevice(
-            create(UpdateInfrastructureDeviceRequestSchema, {
-              id: freshDevice.id,
-              siteId: freshDevice.siteId,
-              buildingName: freshDevice.buildingName,
-              name: freshDevice.name,
-              deviceKind: freshDevice.deviceKind,
-              fanCount: freshDevice.fanCount,
-              enabled: nextEnabled,
-              driverType: freshDevice.driverType,
-              driverConfig: freshDevice.driverConfig,
-            }),
-          );
-          if (!response.device) {
-            throw new Error("Updated infrastructure device response was missing a device.");
-          }
-
-          replaceApiDevice(response.device);
-          return mapApiDevice(response.device);
-        } catch (error) {
-          throw handleFailure(error, "Failed to update infrastructure device.");
-        }
-      }),
-    [handleFailure, replaceApiDevice, withUpdatingDevice],
+      updateDevice({ id: device.id, enabled: nextEnabled }),
+    [updateDevice],
   );
 
   const deleteDevice = useCallback(

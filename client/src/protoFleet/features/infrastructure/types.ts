@@ -42,15 +42,20 @@ export interface InfraDeviceDraft {
   driverConfig: string;
 }
 
-// Update payload produced by the detail modal (full-row update; the
-// server treats every field except enabled as required). enabled is
-// omitted unless the operator actually touched the switch in this
-// modal session, so the server preserves the stored value instead of
-// resending a possibly-stale snapshot. deviceKind is the wire type
-// because updates echo the stored kind back, which may be unknown to
-// this client build.
-export interface InfraDeviceUpdate extends Omit<InfraDeviceDraft, "deviceKind"> {
+// Update payload produced by the detail modal. Every field except id is
+// optional and present only when the operator actually changed it in
+// this modal session — the update path fetches the device's fresh row
+// and fills the rest from there, so a stale modal can't silently
+// overwrite another operator's concurrent edit (the wire update RPC is
+// full-row). siteName stays a catalog name and is only resolved to an
+// ID when the operator picked a different site; otherwise the fresh
+// row's immutable siteId is reused, keeping unchanged saves independent
+// of the site catalog.
+export interface InfraDevicePatch {
   id: string;
-  deviceKind: InfraDeviceKindWire;
+  name?: string;
+  siteName?: string;
+  buildingName?: string;
   enabled?: boolean;
+  driverConfig?: string;
 }

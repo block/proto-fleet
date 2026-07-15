@@ -12,7 +12,7 @@ import {
   uniqueInfraBuildingOptions,
   uniqueSortedLocationNames,
 } from "@/protoFleet/features/infrastructure/locationOptions";
-import type { InfraDeviceDraft, InfraDeviceItem, InfraDeviceUpdate } from "@/protoFleet/features/infrastructure/types";
+import type { InfraDeviceDraft, InfraDeviceItem, InfraDevicePatch } from "@/protoFleet/features/infrastructure/types";
 import { useHasPermission } from "@/protoFleet/store";
 
 interface FleetInfraPageProps {
@@ -161,17 +161,18 @@ const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetI
   );
 
   const handleUpdateDevice = useCallback(
-    async (update: InfraDeviceUpdate) => {
+    async (patch: InfraDevicePatch) => {
       await updateDevice({
-        id: update.id,
-        siteId: resolveSiteId(update.siteName),
-        buildingName: update.buildingName,
-        name: update.name,
-        deviceKind: update.deviceKind,
-        fanCount: update.fanCount,
-        enabled: update.enabled,
-        driverType: update.driverType,
-        driverConfig: update.driverConfig,
+        id: patch.id,
+        // Only an operator-picked site change resolves through the
+        // catalog (and gets scope-validated); an unchanged save reuses
+        // the row's stored siteId, so it can't fail on a renamed site
+        // or an unavailable site catalog.
+        ...(patch.siteName !== undefined ? { siteId: resolveSiteId(patch.siteName) } : {}),
+        buildingName: patch.buildingName,
+        name: patch.name,
+        enabled: patch.enabled,
+        driverConfig: patch.driverConfig,
       });
     },
     [resolveSiteId, updateDevice],

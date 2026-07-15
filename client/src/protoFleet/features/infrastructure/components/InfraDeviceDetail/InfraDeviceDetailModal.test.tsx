@@ -133,10 +133,11 @@ describe("InfraDeviceDetailModal", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(onSave).toHaveBeenCalledTimes(1);
-    const update = onSave.mock.calls[0][0];
-    expect(update).toMatchObject({ id: "101", driverType: "modbus_tcp" });
-    expect(update.enabled).toBeUndefined();
-    expect(JSON.parse(update.driverConfig)).toEqual({
+    const patch = onSave.mock.calls[0][0];
+    expect(patch.id).toBe("101");
+    expect(patch.enabled).toBeUndefined();
+    expect(patch.name).toBeUndefined();
+    expect(JSON.parse(patch.driverConfig)).toEqual({
       endpoint: "10.12.9.9",
       port: 502,
       unit_id: 17,
@@ -145,7 +146,7 @@ describe("InfraDeviceDetailModal", () => {
     });
   });
 
-  test("preserves an unknown driver's raw config on save", async () => {
+  test("leaves an unknown driver's config out of the patch so the stored value is preserved", async () => {
     const user = userEvent.setup();
     const unknownDriverDevice: InfraDeviceItem = {
       ...device,
@@ -159,12 +160,8 @@ describe("InfraDeviceDetailModal", () => {
 
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(onSave).toHaveBeenCalledWith(
-      expect.objectContaining({
-        driverType: "mqtt_bridge",
-        driverConfig: '{"topic":"fans/roof"}',
-      }),
-    );
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][0]).toEqual({ id: "101" });
   });
 
   test("keeps the modal open and shows the RPC failure inline on save", async () => {
@@ -202,7 +199,7 @@ describe("InfraDeviceDetailModal", () => {
     await waitFor(() => expect(onDismiss).toHaveBeenCalled());
   });
 
-  test("a name-only save omits enabled so the server preserves it", async () => {
+  test("a name-only save patches just the name so other fields keep their stored values", async () => {
     const user = userEvent.setup();
     const { onSave } = renderModal();
 
@@ -210,7 +207,8 @@ describe("InfraDeviceDetailModal", () => {
     await user.type(screen.getByLabelText("Name"), "Roof exhaust renamed");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ name: "Roof exhaust renamed", enabled: undefined }));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][0]).toEqual({ id: "101", name: "Roof exhaust renamed" });
   });
 
   test("flipping the switch then saving includes the new enabled value", async () => {
@@ -220,7 +218,20 @@ describe("InfraDeviceDetailModal", () => {
     await user.click(screen.getByRole("checkbox", { name: "Enabled" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][0]).toEqual({ id: "101", enabled: false });
+  });
+
+  test("editing a driver field back to its initial value keeps the config out of the patch", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderModal();
+
+    await user.clear(screen.getByLabelText("Endpoint"));
+    await user.type(screen.getByLabelText("Endpoint"), "10.12.1.21");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][0]).toEqual({ id: "101" });
   });
 
   test("blocks dismissal while a save is in flight", async () => {

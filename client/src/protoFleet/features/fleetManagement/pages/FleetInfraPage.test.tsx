@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 
 import FleetInfraPage from "./FleetInfraPage";
 import type { FleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout";
-import type { InfraDeviceDraft, InfraDeviceItem, InfraDeviceUpdate } from "@/protoFleet/features/infrastructure/types";
+import type { InfraDeviceDraft, InfraDeviceItem, InfraDevicePatch } from "@/protoFleet/features/infrastructure/types";
 import { useHasPermission } from "@/protoFleet/store";
 
 const listAllBuildingsMock = vi.hoisted(() => vi.fn());
@@ -97,7 +97,7 @@ const buildHookResult = (overrides: Record<string, unknown> = {}) => ({
 type InfraDeviceListCallbacks = {
   siteOptions?: string[];
   onCreateDevice?: (draft: InfraDeviceDraft) => Promise<void>;
-  onUpdateDevice?: (update: InfraDeviceUpdate) => Promise<void>;
+  onUpdateDevice?: (patch: InfraDevicePatch) => Promise<void>;
   onRetry?: () => void;
 };
 
@@ -354,25 +354,33 @@ describe("FleetInfraPage", () => {
       id: "101",
       siteName: "Denver",
       buildingName: "Building 1",
-      name: "Roof exhaust",
-      deviceKind: "fan_group",
-      fanCount: 12,
-      driverType: "modbus_tcp",
-      driverConfig: device.driverConfig,
-    } as InfraDeviceUpdate);
+    } as InfraDevicePatch);
 
     expect(updateDevice).toHaveBeenCalledWith(
       expect.objectContaining({
         id: "101",
         siteId: "7",
         buildingName: "Building 1",
-        name: "Roof exhaust",
-        deviceKind: "fan_group",
-        fanCount: 12,
-        driverType: "modbus_tcp",
-        driverConfig: device.driverConfig,
       }),
     );
+  });
+
+  test("a patch without a site change skips catalog resolution entirely", async () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+    const updateDevice = vi.fn().mockResolvedValue(undefined);
+    // An empty catalog would make any name-based resolution throw; a
+    // name-only save must not depend on it.
+    useInfrastructureDevicesMock.mockReturnValue(buildHookResult({ updateDevice }));
+
+    renderPage({ devices: undefined }, { ...fleetContext, sites: [] });
+
+    await lastInfraDeviceListProps().onUpdateDevice!({
+      id: "101",
+      name: "Roof exhaust renamed",
+    } as InfraDevicePatch);
+
+    expect(updateDevice).toHaveBeenCalledWith(expect.objectContaining({ id: "101", name: "Roof exhaust renamed" }));
+    expect(updateDevice.mock.calls[0][0].siteId).toBeUndefined();
   });
 
   test("retries the device list request", () => {

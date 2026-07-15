@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import ActionErrorBanner from "@/protoFleet/features/infrastructure/components/ActionErrorBanner";
@@ -13,7 +13,7 @@ import {
 import type {
   InfraBuildingOption,
   InfraDeviceItem,
-  InfraDeviceUpdate,
+  InfraDevicePatch,
 } from "@/protoFleet/features/infrastructure/types";
 import { variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
@@ -29,7 +29,7 @@ interface InfraDeviceDetailModalProps {
   canManage?: boolean;
   // Persist callbacks; rejections keep the modal open with the error
   // shown inline. The modal dismisses itself after success.
-  onSave: (update: InfraDeviceUpdate) => Promise<void>;
+  onSave: (patch: InfraDevicePatch) => Promise<void>;
   onDelete: (deviceId: string) => Promise<void>;
   onDismiss: () => void;
 }
@@ -55,9 +55,19 @@ const InfraDeviceDetailModal = ({
   // null when the config is redacted (site:read callers), unparseable,
   // or the driver type has no registered module; the raw driverConfig
   // is preserved unchanged on save in that case.
-  const [driverValues, setDriverValues] = useState<DriverFormValues | null>(
+  const [initialDriverValues] = useState<DriverFormValues | null>(
     () => driverFormModule?.decode(device.driverConfig) ?? null,
   );
+  const [driverValues, setDriverValues] = useState<DriverFormValues | null>(initialDriverValues);
+  // Mount-time snapshot the save diff compares against. The device prop
+  // can update mid-session (the row is live in the list cache), so
+  // diffing against the prop would misclassify another operator's
+  // concurrent edit as a local change and resend the stale value.
+  const initialFieldsRef = useRef({
+    name: device.name,
+    siteName: device.siteName,
+    buildingName: device.buildingName,
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -74,18 +84,26 @@ const InfraDeviceDetailModal = ({
     if (!canSave) return;
     setIsSaving(true);
     setActionError(null);
-    onSave({
-      id: device.id,
-      name: name.trim(),
-      siteName: site.trim(),
-      buildingName: building.trim(),
-      deviceKind: device.deviceKind,
-      fanCount: device.fanCount,
-      enabled: enabledOverride,
-      driverType: device.driverType,
-      driverConfig:
-        driverValues !== null && driverFormModule ? driverFormModule.encode(driverValues) : device.driverConfig,
-    })
+    // Only fields the operator touched in this session go in the patch;
+    // the update path fills the rest from the device's fresh row, so a
+    // stale modal can't resend old values over a concurrent edit.
+    const initial = initialFieldsRef.current;
+    const patch: InfraDevicePatch = { id: device.id };
+    const trimmedName = name.trim();
+    if (trimmedName !== initial.name) patch.name = trimmedName;
+    const trimmedSite = site.trim();
+    if (trimmedSite !== initial.siteName) patch.siteName = trimmedSite;
+    const trimmedBuilding = building.trim();
+    if (trimmedBuilding !== initial.buildingName) patch.buildingName = trimmedBuilding;
+    if (enabledOverride !== undefined) patch.enabled = enabledOverride;
+    const driverValuesChanged =
+      driverValues !== null &&
+      initialDriverValues !== null &&
+      Object.keys(driverValues).some((field) => driverValues[field] !== initialDriverValues[field]);
+    if (driverValuesChanged && driverFormModule) {
+      patch.driverConfig = driverFormModule.encode(driverValues);
+    }
+    onSave(patch)
       .then(() => {
         onDismiss();
       })
@@ -93,7 +111,19 @@ const InfraDeviceDetailModal = ({
         setActionError(getErrorMessage(error) || "Failed to update infrastructure device.");
         setIsSaving(false);
       });
-  }, [building, canSave, device, driverFormModule, driverValues, enabledOverride, name, onDismiss, onSave, site]);
+  }, [
+    building,
+    canSave,
+    device.id,
+    driverFormModule,
+    driverValues,
+    enabledOverride,
+    initialDriverValues,
+    name,
+    onDismiss,
+    onSave,
+    site,
+  ]);
 
   const handleDelete = useCallback(() => {
     setIsDeleting(true);

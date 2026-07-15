@@ -263,6 +263,7 @@ describe("useInfrastructureDevices", () => {
 
   it("removes a device from the scoped list when an update moves it out of scope", async () => {
     mockListInfrastructureDevices.mockResolvedValueOnce({ devices: [apiDevice()] });
+    mockGetInfrastructureDevice.mockResolvedValueOnce({ device: apiDevice() });
     mockUpdateInfrastructureDevice.mockResolvedValueOnce({
       device: apiDevice({ siteId: 9n, siteLabel: "Denver" }),
     });
@@ -276,16 +277,7 @@ describe("useInfrastructureDevices", () => {
     expect(result.current.devices).toHaveLength(1);
 
     await act(async () => {
-      await result.current.updateDevice({
-        id: "101",
-        siteId: "9",
-        buildingName: "Building 1",
-        name: "Roof exhaust",
-        deviceKind: "fan_group",
-        fanCount: 12,
-        driverType: "modbus_tcp",
-        driverConfig,
-      });
+      await result.current.updateDevice({ id: "101", siteId: "9" });
     });
 
     expect(result.current.devices).toHaveLength(0);
@@ -418,10 +410,22 @@ describe("useInfrastructureDevices", () => {
     expect(result.current.devices[0].id).toBe("101");
   });
 
-  it("updates a device in place with the full row", async () => {
+  it("fills unpatched update fields from the freshly fetched row, not the stale list row", async () => {
     mockListInfrastructureDevices.mockResolvedValueOnce({ devices: [apiDevice()] });
+    // Another operator changed the driver config after our list
+    // snapshot; a name-only save must not revert that edit.
+    const freshConfig = JSON.stringify({
+      endpoint: "10.12.1.99",
+      port: 502,
+      unit_id: 3,
+      register_address: 4001,
+      write_mode: "coil",
+    });
+    mockGetInfrastructureDevice.mockResolvedValueOnce({
+      device: apiDevice({ driverConfig: freshConfig }),
+    });
     mockUpdateInfrastructureDevice.mockResolvedValueOnce({
-      device: apiDevice({ name: "Renamed exhaust" }),
+      device: apiDevice({ name: "Renamed exhaust", driverConfig: freshConfig }),
     });
 
     const { result } = renderHook(() => useInfrastructureDevices(false));
@@ -431,25 +435,20 @@ describe("useInfrastructureDevices", () => {
     });
 
     await act(async () => {
-      await result.current.updateDevice({
-        id: "101",
-        siteId: "8",
-        buildingName: "Building 1",
-        name: "Renamed exhaust",
-        deviceKind: "fan_group",
-        fanCount: 12,
-        enabled: true,
-        driverType: "modbus_tcp",
-        driverConfig,
-      });
+      await result.current.updateDevice({ id: "101", name: "Renamed exhaust" });
     });
 
+    expect(mockGetInfrastructureDevice).toHaveBeenCalledWith(expect.objectContaining({ id: 101n }));
     expect(mockUpdateInfrastructureDevice).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 101n,
         siteId: 8n,
+        buildingName: "Building 1",
         name: "Renamed exhaust",
-        enabled: true,
+        deviceKind: "fan_group",
+        fanCount: 12,
+        driverType: "modbus_tcp",
+        driverConfig: freshConfig,
       }),
     );
     expect(result.current.devices).toHaveLength(1);
@@ -458,6 +457,7 @@ describe("useInfrastructureDevices", () => {
 
   it("omits enabled from the update request when the caller doesn't set it", async () => {
     mockListInfrastructureDevices.mockResolvedValueOnce({ devices: [apiDevice()] });
+    mockGetInfrastructureDevice.mockResolvedValueOnce({ device: apiDevice() });
     mockUpdateInfrastructureDevice.mockResolvedValueOnce({
       device: apiDevice({ name: "Renamed exhaust" }),
     });
@@ -469,20 +469,30 @@ describe("useInfrastructureDevices", () => {
     });
 
     await act(async () => {
-      await result.current.updateDevice({
-        id: "101",
-        siteId: "8",
-        buildingName: "Building 1",
-        name: "Renamed exhaust",
-        deviceKind: "fan_group",
-        fanCount: 12,
-        driverType: "modbus_tcp",
-        driverConfig,
-      });
+      await result.current.updateDevice({ id: "101", name: "Renamed exhaust" });
     });
 
     const sentRequest = mockUpdateInfrastructureDevice.mock.calls[0][0] as { enabled?: boolean };
     expect(sentRequest.enabled).toBeUndefined();
+  });
+
+  it("fails the update when the device no longer exists", async () => {
+    mockListInfrastructureDevices.mockResolvedValueOnce({ devices: [apiDevice()] });
+    mockGetInfrastructureDevice.mockResolvedValueOnce({ device: undefined });
+
+    const { result } = renderHook(() => useInfrastructureDevices(false));
+
+    await act(async () => {
+      await result.current.listDevices();
+    });
+
+    await act(async () => {
+      await expect(result.current.updateDevice({ id: "101", name: "Renamed exhaust" })).rejects.toThrow(
+        "Infrastructure device no longer exists.",
+      );
+    });
+
+    expect(mockUpdateInfrastructureDevice).not.toHaveBeenCalled();
   });
 
   it("toggles enabled by echoing the freshly fetched row, not the stale list row", async () => {
