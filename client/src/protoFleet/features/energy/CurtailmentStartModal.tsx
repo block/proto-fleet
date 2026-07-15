@@ -1900,7 +1900,7 @@ function CurtailmentStartModalContent({
               subtext={
                 isResponseProfileVariant
                   ? hasSelectedFacilityFans
-                    ? "Save the profile to use facility fans. Immediate runs do not control facility fans yet."
+                    ? "Fan settings are saved for future sequencing. Curtailment does not control facility fans yet."
                     : "Choose the sites, miners, and infrastructure included in this curtailment."
                   : "Choose the sites and miners included in this curtailment."
               }

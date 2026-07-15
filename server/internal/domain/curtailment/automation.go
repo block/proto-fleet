@@ -500,6 +500,11 @@ func automationSignalFromMQTTTarget(target mqttingest.Target) (models.Automation
 }
 
 func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *models.ResponseProfile, signal mqttingest.SignalEdge) (StartRequest, error) {
+	if len(profile.FacilityFanDeviceIDs) > 0 {
+		return StartRequest{}, fleeterror.NewFailedPreconditionError(
+			"automation response profiles with facility fans cannot execute until fan sequencing is available",
+		)
+	}
 	scope, err := ResponseProfileScope(*profile)
 	if err != nil {
 		return StartRequest{}, fleeterror.NewInvalidArgumentErrorf("invalid response profile scope for automation rule %d: %v", rule.ID, err)

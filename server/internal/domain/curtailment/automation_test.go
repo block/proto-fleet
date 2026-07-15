@@ -317,6 +317,26 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 	assert.Equal(t, receivedAt, h.rules.lastActiveAt)
 }
 
+func TestAutomationService_HandleMQTTSignal_OffRejectsFacilityFansUntilSequencingIsAvailable(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	h.profile.FacilityFanDeviceIDs = []int64{31}
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "cannot execute until fan sequencing is available")
+	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+	require.Len(t, h.rules.executionErrors, 1)
+	assert.Contains(t, h.rules.executionErrors[0], "cannot execute until fan sequencing is available")
+}
+
 func TestAutomationService_HandleMQTTSignal_OffBypassesResponseProfileCooldown(t *testing.T) {
 	t.Parallel()
 

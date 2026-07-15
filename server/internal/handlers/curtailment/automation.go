@@ -25,12 +25,44 @@ func (h *Handler) ListCurtailmentAutomationRules(ctx context.Context, _ *connect
 	if err != nil {
 		return nil, err
 	}
+	if h.responseProfiles == nil {
+		return nil, errCurtailmentNotImplemented("ListCurtailmentAutomationRules")
+	}
+	profiles, err := h.responseProfiles.List(ctx, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	profilesByID := make(map[int64]*models.ResponseProfile, len(profiles))
+	for _, profile := range profiles {
+		if profile != nil {
+			profilesByID[profile.ID] = profile
+		}
+	}
+	referencedProfiles := make([]*models.ResponseProfile, 0, len(rules))
+	seenProfileIDs := make(map[int64]struct{}, len(rules))
+	for _, rule := range rules {
+		if rule == nil {
+			continue
+		}
+		if _, seen := seenProfileIDs[rule.ResponseProfileID]; seen {
+			continue
+		}
+		if profile := profilesByID[rule.ResponseProfileID]; profile != nil {
+			referencedProfiles = append(referencedProfiles, profile)
+			seenProfileIDs[rule.ResponseProfileID] = struct{}{}
+		}
+	}
 	out := make([]*pb.CurtailmentAutomationRule, 0, len(rules))
 	deviceSites, err := h.responseProfileDeviceSitesForAutomationRules(ctx, info.OrganizationID, rules)
 	if err != nil {
 		return nil, err
 	}
+	facilityFanDeviceSites, err := h.responseProfileFacilityFanDeviceSitesForProfiles(ctx, info.OrganizationID, referencedProfiles)
+	if err != nil {
+		return nil, err
+	}
 	siteAllowed := make(map[int64]bool)
+	facilityFanSiteAllowed := make(map[int64]bool)
 	orgWideAllowed := false
 	orgWideChecked := false
 	for _, rule := range rules {
@@ -45,6 +77,22 @@ func (h *Handler) ListCurtailmentAutomationRules(ctx context.Context, _ *connect
 			siteAllowed,
 			&orgWideAllowed,
 			&orgWideChecked,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			continue
+		}
+		profile := profilesByID[rule.ResponseProfileID]
+		if profile == nil {
+			continue
+		}
+		allowed, err = facilityFanSiteAccessAllowed(
+			ctx,
+			profile.FacilityFanDeviceIDs,
+			facilityFanDeviceSites,
+			facilityFanSiteAllowed,
 		)
 		if err != nil {
 			return nil, err
@@ -182,7 +230,17 @@ func (h *Handler) requireAutomationRuleProfilePermission(ctx context.Context, ru
 	if err != nil {
 		return err
 	}
-	return requireResourceContextPermissions(ctx, authz.PermCurtailmentManage, requirements)
+	if err := requireResourceContextPermissions(ctx, authz.PermCurtailmentManage, requirements); err != nil {
+		return err
+	}
+	if h.responseProfiles == nil {
+		return errCurtailmentNotImplemented("GetCurtailmentAutomationRule")
+	}
+	profile, err := h.responseProfiles.Get(ctx, rule.OrgID, rule.ResponseProfileID)
+	if err != nil {
+		return err
+	}
+	return h.requireFacilityFanSitePermissions(ctx, rule.OrgID, profile.FacilityFanDeviceIDs)
 }
 
 func (h *Handler) responseProfileDeviceSitesForAutomationRules(

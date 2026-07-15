@@ -783,7 +783,7 @@ describe("CurtailmentStartModal", () => {
 
     expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
     expect(
-      screen.getByText("Save the profile to use facility fans. Immediate runs do not control facility fans yet."),
+      screen.getByText("Fan settings are saved for future sequencing. Curtailment does not control facility fans yet."),
     ).toBeInTheDocument();
     expect(onTestCurtailment).not.toHaveBeenCalled();
 
