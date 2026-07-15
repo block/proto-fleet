@@ -768,6 +768,8 @@ describe("CurtailmentStartModal", () => {
     if (!fanModalSurface) {
       throw new Error("Fan modal surface was not rendered");
     }
+    await user.click(within(fanModalSurface).getByRole("button", { name: "Select all" }));
+    expect(disabledFanCheckbox).toBeChecked();
     await user.click(within(fanModalSurface).getByRole("button", { name: "Select none" }));
     await user.click(screen.getByRole("checkbox", { name: /Fan Unit 1/ }));
     await user.clear(screen.getByTestId("facility-fan-off-delay"));

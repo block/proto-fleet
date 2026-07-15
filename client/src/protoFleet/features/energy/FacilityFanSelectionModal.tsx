@@ -170,7 +170,7 @@ function FacilityFanSelectionModal({
         !isLoading && !loadError && devices.length > 0 ? (
           <ModalSelectAllFooter
             label={`${formatCount(selectedDeviceIdsInScope.length, "device")} selected`}
-            onSelectAll={() => setSelectedDeviceIds(new Set(selectableDeviceIds))}
+            onSelectAll={() => setSelectedDeviceIds(new Set([...selectedDeviceIdsInScope, ...selectableDeviceIds]))}
             onSelectNone={() => setSelectedDeviceIds(new Set())}
           />
         ) : null
