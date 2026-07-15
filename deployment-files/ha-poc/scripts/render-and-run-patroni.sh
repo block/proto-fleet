@@ -4,6 +4,7 @@ set -euo pipefail
 export HA_ETCD_CLIENT_PORT="${HA_ETCD_CLIENT_PORT:-2379}"
 export HA_POSTGRES_PORT="${HA_POSTGRES_PORT:-5432}"
 export HA_PATRONI_PORT="${HA_PATRONI_PORT:-8008}"
+export PGDATA="${PGDATA:-/var/lib/postgresql/data}"
 
 required=(
   HA_CLUSTER_NAME
@@ -26,5 +27,15 @@ for name in "${required[@]}"; do
   fi
 done
 
+mkdir -p "${PGDATA}"
+if [[ "$(id -u)" -eq 0 ]]; then
+  chown postgres:postgres "${PGDATA}"
+  chmod 700 "${PGDATA}"
+fi
+
 envsubst < /etc/patroni/patroni.template.yml > /tmp/patroni.yml
+if [[ "$(id -u)" -eq 0 ]]; then
+  exec gosu postgres patroni /tmp/patroni.yml
+fi
+
 exec patroni /tmp/patroni.yml

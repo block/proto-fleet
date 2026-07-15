@@ -20,5 +20,4 @@ RUN chmod +x /usr/local/bin/render-and-run-patroni \
     && mkdir -p /etc/patroni \
     && chown -R postgres:postgres /etc/patroni /opt/patroni /var/lib/postgresql
 
-USER postgres
 ENTRYPOINT ["/usr/local/bin/render-and-run-patroni"]
