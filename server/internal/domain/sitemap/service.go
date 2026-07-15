@@ -17,6 +17,8 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fleetpb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/sitemap/v1"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	buildingmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	fleetmanagementdomain "github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
@@ -57,6 +59,7 @@ type Service struct {
 	deviceStore     interfaces.DeviceStore
 	fleetMgmtSvc    *fleetmanagementdomain.Service
 	transactor      interfaces.Transactor
+	activitySvc     *activity.Service
 }
 
 func NewService(
@@ -66,6 +69,7 @@ func NewService(
 	deviceStore interfaces.DeviceStore,
 	fleetMgmtSvc *fleetmanagementdomain.Service,
 	transactor interfaces.Transactor,
+	activitySvc *activity.Service,
 ) *Service {
 	return &Service{
 		siteStore:       siteStore,
@@ -74,6 +78,7 @@ func NewService(
 		deviceStore:     deviceStore,
 		fleetMgmtSvc:    fleetMgmtSvc,
 		transactor:      transactor,
+		activitySvc:     activitySvc,
 	}
 }
 
@@ -184,6 +189,7 @@ func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.Imp
 		if err := s.applyImportPlan(ctx, orgID, parsed, snapshot); err != nil {
 			return nil, err
 		}
+		s.logSiteMapImportActivity(ctx, orgID, plan)
 		return &pb.ImportSiteMapCsvResponse{
 			OmissionCounts: plan.omissions,
 			Warnings:       plan.warnings,
@@ -614,6 +620,9 @@ func clean(value string) string {
 	if value == "" {
 		return value
 	}
+	if strings.HasPrefix(value, "'") {
+		return "'" + value
+	}
 	if isFormulaLike(value) {
 		return "'" + value
 	}
@@ -621,6 +630,9 @@ func clean(value string) string {
 }
 
 func unescapeCleanedValue(value string) string {
+	if len(value) > 1 && strings.HasPrefix(value, "''") {
+		return value[1:]
+	}
 	if len(value) > 1 && value[0] == '\'' && isFormulaLike(value[1:]) {
 		return value[1:]
 	}
@@ -866,6 +878,43 @@ func (s *Service) applyImportPlan(ctx context.Context, orgID int64, parsed *pars
 	})
 }
 
+func (s *Service) logSiteMapImportActivity(ctx context.Context, orgID int64, plan importPlan) {
+	if s.activitySvc == nil || len(plan.changes) == 0 {
+		return
+	}
+	scopeType := "site_map"
+	changeCount := 0
+	for _, change := range plan.changes {
+		changeCount += int(change.GetCount())
+	}
+	event := activitymodels.Event{
+		Category:       activitymodels.CategoryFleetManagement,
+		Type:           "site_map_import",
+		Description:    "Import site map CSV",
+		ScopeType:      &scopeType,
+		ScopeCount:     &changeCount,
+		OrganizationID: &orgID,
+		Metadata: map[string]any{
+			"changes": siteMapImportActivityChanges(plan.changes),
+		},
+	}
+	activity.StampActor(ctx, &event)
+	s.activitySvc.Log(ctx, event)
+}
+
+func siteMapImportActivityChanges(changes []*pb.ImportChangeSummary) []map[string]any {
+	out := make([]map[string]any, 0, len(changes))
+	for _, change := range changes {
+		out = append(out, map[string]any{
+			"operation":   strings.ToLower(strings.TrimPrefix(change.GetOperation().String(), "IMPORT_OPERATION_")),
+			"entity_type": change.GetEntityType(),
+			"count":       change.GetCount(),
+			"description": change.GetDescription(),
+		})
+	}
+	return out
+}
+
 func (s *Service) applySiteRows(ctx context.Context, orgID int64, rows []map[string]string, existing map[string]sitemodels.Site) error {
 	// Site-map CSV v1 carries only the site identity. Existing site metadata
 	// is intentionally left to the site editor.
@@ -944,14 +993,15 @@ func (s *Service) applyRackRows(
 		if err != nil {
 			return err
 		}
-		if err := s.collectionStore.UpdateRackInfo(ctx, rack.ID, row["zone"], rowsValue, columnsValue, int32(orderIndex), int32(coolingType), orgID); err != nil {
-			return err
-		}
 		siteID, buildingID, err := desiredSiteBuildingIDs(row["site"], row["building"], sitesByName, buildingsByKey)
 		if err != nil {
 			return err
 		}
-		if err := s.collectionStore.UpdateRackPlacement(ctx, rack.ID, orgID, siteID, buildingID, row["zone"]); err != nil {
+		finalZone := desiredRackZone(row, rack)
+		if err := s.collectionStore.UpdateRackInfo(ctx, rack.ID, finalZone, rowsValue, columnsValue, int32(orderIndex), int32(coolingType), orgID); err != nil {
+			return err
+		}
+		if err := s.collectionStore.UpdateRackPlacement(ctx, rack.ID, orgID, siteID, buildingID, finalZone); err != nil {
 			return err
 		}
 		if row["site"] != rack.Site {
@@ -2107,6 +2157,13 @@ func desiredSiteBuildingIDs(
 		buildingID = &building.ID
 	}
 	return siteID, buildingID, nil
+}
+
+func desiredRackZone(row map[string]string, current rackSnapshot) string {
+	if current.Building != "" && (row["building"] != current.Building || row["site"] != current.Site) {
+		return ""
+	}
+	return row["zone"]
 }
 
 func desiredMinerSiteBuilding(

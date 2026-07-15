@@ -1,12 +1,19 @@
 package sitemap
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"connectrpc.com/authn"
 	pb "github.com/block/proto-fleet/server/generated/grpc/sitemap/v1"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	buildingmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	sitemodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"go.uber.org/mock/gomock"
 )
 
 func TestParseSiteMapCSVAndBuildPlanRequiresOmissionChoice(t *testing.T) {
@@ -191,6 +198,90 @@ func TestParseSiteMapCSVUnescapesFormulaProtectedExports(t *testing.T) {
 	if got := parsed.sections["MINER"][0]["rack"]; got != "-Rack" {
 		t.Fatalf("miner rack = %q, want unescaped -Rack", got)
 	}
+}
+
+func TestCleanRoundTripsLiteralApostropheFormulaLikeLabels(t *testing.T) {
+	exported := clean("'-Rack")
+	if exported != "''-Rack" {
+		t.Fatalf("exported value = %q, want doubled apostrophe", exported)
+	}
+	if got := unescapeCleanedValue(exported); got != "'-Rack" {
+		t.Fatalf("unescaped value = %q, want literal apostrophe preserved", got)
+	}
+	if got := unescapeCleanedValue(clean("-Rack")); got != "-Rack" {
+		t.Fatalf("formula-guarded value = %q, want -Rack", got)
+	}
+}
+
+func TestDesiredRackZoneClearsWhenRackLeavesBuildingScope(t *testing.T) {
+	current := rackSnapshot{Site: "Site A", Building: "Building A", Zone: "Old Zone"}
+
+	if got := desiredRackZone(map[string]string{"site": "Site A", "building": "Building B", "zone": "Old Zone"}, current); got != "" {
+		t.Fatalf("zone crossing building = %q, want cleared", got)
+	}
+	if got := desiredRackZone(map[string]string{"site": "", "building": "", "zone": "Old Zone"}, current); got != "" {
+		t.Fatalf("zone leaving building = %q, want cleared", got)
+	}
+	if got := desiredRackZone(map[string]string{"site": "Site A", "building": "Building A", "zone": "New Zone"}, current); got != "New Zone" {
+		t.Fatalf("zone staying in building = %q, want New Zone", got)
+	}
+}
+
+func TestLogSiteMapImportActivitySummarizesChanges(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	activitySvc := activity.NewService(activityStore)
+	svc := NewService(nil, nil, nil, nil, nil, nil, activitySvc)
+	orgID := int64(42)
+	ctx := authn.SetInfo(context.Background(), &session.Info{
+		OrganizationID: orgID,
+		ExternalUserID: "usr_1",
+		Username:       "alice",
+	})
+	plan := importPlan{changes: []*pb.ImportChangeSummary{
+		{
+			Operation:   pb.ImportOperation_IMPORT_OPERATION_UPDATE,
+			EntityType:  "rack",
+			Count:       2,
+			Description: "rack rows with changed details",
+		},
+		{
+			Operation:   pb.ImportOperation_IMPORT_OPERATION_MOVE,
+			EntityType:  "miner",
+			Count:       3,
+			Description: "miner placement rows with changed site, building, rack, or slot",
+		},
+	}}
+
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activitymodels.Event) error {
+			if event.Type != "site_map_import" {
+				t.Fatalf("event type = %q, want site_map_import", event.Type)
+			}
+			if event.Category != activitymodels.CategoryFleetManagement {
+				t.Fatalf("event category = %q, want fleet_management", event.Category)
+			}
+			if event.OrganizationID == nil || *event.OrganizationID != orgID {
+				t.Fatalf("event org = %v, want %d", event.OrganizationID, orgID)
+			}
+			if event.Username == nil || *event.Username != "alice" {
+				t.Fatalf("event username = %v, want alice", event.Username)
+			}
+			if event.ScopeCount == nil || *event.ScopeCount != 5 {
+				t.Fatalf("event scope count = %v, want 5", event.ScopeCount)
+			}
+			changes, ok := event.Metadata["changes"].([]map[string]any)
+			if !ok || len(changes) != 2 {
+				t.Fatalf("event changes metadata = %#v, want two changes", event.Metadata["changes"])
+			}
+			if changes[0]["operation"] != "update" || changes[0]["entity_type"] != "rack" || changes[0]["count"] != int32(2) {
+				t.Fatalf("first change metadata = %#v", changes[0])
+			}
+			return nil
+		},
+	)
+
+	svc.logSiteMapImportActivity(ctx, orgID, plan)
 }
 
 func TestValidateSlotConflictsWithExistingAllowsSlotSwaps(t *testing.T) {
