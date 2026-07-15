@@ -25,6 +25,8 @@ type Config struct {
 	ConnMaxLifetime time.Duration `help:"Maximum lifetime of a database connection" default:"5m" env:"CONN_MAX_LIFETIME"`
 }
 
+var sensitiveDSNKeys = []string{"password", "sslpassword"}
+
 // DSN returns the PostgreSQL connection string.
 func (c *Config) DSN() string {
 	if c.UsesExplicitDSN() {
@@ -79,7 +81,7 @@ func RedactDSN(dsn string) string {
 		}
 		values := u.Query()
 		for key := range values {
-			if isSensitiveDSNQueryParam(key) {
+			if isSensitiveDSNKey(key) {
 				values.Set(key, "xxxxx")
 				redacted = true
 			}
@@ -96,7 +98,7 @@ func RedactDSN(dsn string) string {
 	queryPasswordPattern := regexp.MustCompile("(?i)([?&](?:password|sslpassword)=)[^&\\s`'\"]*")
 	trimmed = queryPasswordPattern.ReplaceAllString(trimmed, "${1}xxxxx")
 
-	return redactKeywordDSNValue(trimmed, "password")
+	return redactSensitiveKeywordDSNValues(trimmed)
 }
 
 func DSNLooksMultiHost(dsn string) bool {
@@ -127,13 +129,13 @@ func isPostgresURL(u *url.URL) bool {
 	return u.Scheme == "postgres" || u.Scheme == "postgresql"
 }
 
-func isSensitiveDSNQueryParam(key string) bool {
-	switch strings.ToLower(key) {
-	case "password", "sslpassword":
-		return true
-	default:
-		return false
+func isSensitiveDSNKey(key string) bool {
+	for _, sensitiveKey := range sensitiveDSNKeys {
+		if strings.EqualFold(key, sensitiveKey) {
+			return true
+		}
 	}
+	return false
 }
 
 func urlQueryHasMultiHost(values url.Values, key string) bool {
@@ -147,6 +149,14 @@ func urlQueryHasMultiHost(values url.Values, key string) bool {
 		}
 	}
 	return false
+}
+
+func redactSensitiveKeywordDSNValues(dsn string) string {
+	redacted := dsn
+	for _, key := range sensitiveDSNKeys {
+		redacted = redactKeywordDSNValue(redacted, key)
+	}
+	return redacted
 }
 
 func redactKeywordDSNValue(dsn string, key string) string {

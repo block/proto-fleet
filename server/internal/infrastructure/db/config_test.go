@@ -167,6 +167,19 @@ func TestRedactDSNKeywordPassword(t *testing.T) {
 	require.NotContains(t, redacted, "super secret")
 }
 
+func TestRedactDSNKeywordSSLPassword(t *testing.T) {
+	t.Parallel()
+
+	dsn := "host=fleet-a user=fleet password=super-secret sslpassword='cert secret' dbname=fleet sslmode=verify-full"
+
+	redacted := RedactDSN(dsn)
+
+	require.Contains(t, redacted, "password=xxxxx")
+	require.Contains(t, redacted, "sslpassword=xxxxx")
+	require.NotContains(t, redacted, "super-secret")
+	require.NotContains(t, redacted, "cert secret")
+}
+
 func TestRedactDSNDoubleQuotedKeywordPassword(t *testing.T) {
 	t.Parallel()
 
@@ -215,6 +228,20 @@ func TestConfigValidateRedactsEscapedKeywordPassword(t *testing.T) {
 	require.NotContains(t, err.Error(), "abc")
 	require.NotContains(t, err.Error(), "def")
 	require.Contains(t, err.Error(), "password=xxxxx")
+}
+
+func TestConfigValidateRedactsKeywordSSLPassword(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		ExplicitDSN: `host=fleet-a user=fleet sslpassword='cert secret' dbname=fleet sslmode=invalid`,
+	}
+
+	err := cfg.Validate()
+
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "cert secret")
+	require.Contains(t, err.Error(), "sslpassword=xxxxx")
 }
 
 func TestDSNHelpersSupportKeywordDSN(t *testing.T) {
