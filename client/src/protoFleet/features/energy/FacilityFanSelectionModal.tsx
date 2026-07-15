@@ -110,9 +110,14 @@ function FacilityFanSelectionModal({
   const [fanRestoreDelaySec, setFanRestoreDelaySec] = useState(initialFanRestoreDelaySec);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const deviceGroups = useMemo(() => groupDevicesBySite(devices), [devices]);
+  const deviceIds = useMemo(() => new Set(devices.map((device) => device.id)), [devices]);
   const selectableDeviceIds = useMemo(
     () => devices.filter((device) => device.enabled).map((device) => device.id),
     [devices],
+  );
+  const selectedDeviceIdsInScope = useMemo(
+    () => [...selectedDeviceIds].filter((deviceId) => deviceIds.has(deviceId)),
+    [deviceIds, selectedDeviceIds],
   );
   const fanOffDelay = parseOptionalUint32Field(fanOffDelaySec, {
     label: "fan-off delay",
@@ -146,7 +151,7 @@ function FacilityFanSelectionModal({
     }
 
     onApply({
-      selectedDeviceIds: [...selectedDeviceIds],
+      selectedDeviceIds: selectedDeviceIdsInScope,
       fanOffDelaySec: fanOffDelaySec.trim(),
       fanRestoreDelaySec: fanRestoreDelaySec.trim(),
     });
@@ -162,9 +167,9 @@ function FacilityFanSelectionModal({
       testId="facility-fan-selection-modal"
       divider={false}
       fixedFooter={
-        !isLoading && !loadError && selectableDeviceIds.length > 0 ? (
+        !isLoading && !loadError && devices.length > 0 ? (
           <ModalSelectAllFooter
-            label={`${formatCount(selectedDeviceIds.size, "device")} selected`}
+            label={`${formatCount(selectedDeviceIdsInScope.length, "device")} selected`}
             onSelectAll={() => setSelectedDeviceIds(new Set(selectableDeviceIds))}
             onSelectNone={() => setSelectedDeviceIds(new Set())}
           />

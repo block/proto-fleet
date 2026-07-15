@@ -250,6 +250,76 @@ func (q *Queries) ListInfrastructureDevicesByOrg(ctx context.Context, arg ListIn
 	return items, nil
 }
 
+const lockInfrastructureDeviceForWrite = `-- name: LockInfrastructureDeviceForWrite :one
+SELECT id
+FROM infrastructure_device
+WHERE id = $1
+  AND org_id = $2
+  AND site_id = $3
+  AND deleted_at IS NULL
+FOR UPDATE
+`
+
+type LockInfrastructureDeviceForWriteParams struct {
+	ID             int64
+	OrgID          int64
+	ExpectedSiteID int64
+}
+
+// Canonical serialization point for device moves/deletes and response-profile
+// references. Callers lock parent sites first, then device rows by ID.
+func (q *Queries) LockInfrastructureDeviceForWrite(ctx context.Context, arg LockInfrastructureDeviceForWriteParams) (int64, error) {
+	row := q.queryRow(ctx, q.lockInfrastructureDeviceForWriteStmt, lockInfrastructureDeviceForWrite, arg.ID, arg.OrgID, arg.ExpectedSiteID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const lockInfrastructureDevicesForResponseProfile = `-- name: LockInfrastructureDevicesForResponseProfile :many
+SELECT id, site_id
+FROM infrastructure_device
+WHERE org_id = $1
+  AND id = ANY($2::bigint[])
+  AND deleted_at IS NULL
+ORDER BY id
+FOR UPDATE
+`
+
+type LockInfrastructureDevicesForResponseProfileParams struct {
+	OrgID                   int64
+	InfrastructureDeviceIds []int64
+}
+
+type LockInfrastructureDevicesForResponseProfileRow struct {
+	ID     int64
+	SiteID int64
+}
+
+// Locks the exact live fan rows selected by a response profile so concurrent
+// moves/deletes cannot invalidate validation before the profile write commits.
+func (q *Queries) LockInfrastructureDevicesForResponseProfile(ctx context.Context, arg LockInfrastructureDevicesForResponseProfileParams) ([]LockInfrastructureDevicesForResponseProfileRow, error) {
+	rows, err := q.query(ctx, q.lockInfrastructureDevicesForResponseProfileStmt, lockInfrastructureDevicesForResponseProfile, arg.OrgID, pq.Array(arg.InfrastructureDeviceIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LockInfrastructureDevicesForResponseProfileRow
+	for rows.Next() {
+		var i LockInfrastructureDevicesForResponseProfileRow
+		if err := rows.Scan(&i.ID, &i.SiteID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const softDeleteInfrastructureDevice = `-- name: SoftDeleteInfrastructureDevice :one
 UPDATE infrastructure_device
 SET deleted_at = CURRENT_TIMESTAMP

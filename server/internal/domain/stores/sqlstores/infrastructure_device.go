@@ -120,6 +120,21 @@ func (s *SQLInfrastructureDeviceStore) ListInfrastructureDevices(ctx context.Con
 	return out, nil
 }
 
+func (s *SQLInfrastructureDeviceStore) LockInfrastructureDeviceForWrite(ctx context.Context, orgID, id, expectedSiteID int64) error {
+	_, err := s.GetQueries(ctx).LockInfrastructureDeviceForWrite(ctx, sqlc.LockInfrastructureDeviceForWriteParams{
+		ID:             id,
+		OrgID:          orgID,
+		ExpectedSiteID: expectedSiteID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return fleeterror.NewNotFoundErrorf("infrastructure device %d not found", id)
+	}
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to lock infrastructure device: %v", err)
+	}
+	return nil
+}
+
 func (s *SQLInfrastructureDeviceStore) CountResponseProfilesByInfrastructureDevice(ctx context.Context, orgID, id int64) (int64, error) {
 	count, err := s.GetQueries(ctx).CountResponseProfilesByInfrastructureDevice(
 		ctx,

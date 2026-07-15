@@ -242,6 +242,43 @@ func TestService_DeleteRejectsResponseProfileReference_DatabaseIntegration(t *te
 	require.NoError(t, err, "guarded device must remain live")
 }
 
+func TestService_UpdateRejectsMovingReferencedDevice_DatabaseIntegration(t *testing.T) {
+	svc, conn := newTestService(t)
+	ctx := t.Context()
+
+	device, err := svc.Create(ctx, createParams(nil))
+	require.NoError(t, err)
+	_, err = conn.ExecContext(
+		ctx,
+		`INSERT INTO curtailment_response_profile (
+			org_id, profile_name, mode, scope_json, facility_fan_device_ids
+		) VALUES ($1, 'Whole-fleet fans', 'FULL_FLEET', '{"whole_org":true}', ARRAY[$2::bigint])`,
+		testOrgID,
+		device.ID,
+	)
+	require.NoError(t, err)
+
+	_, err = svc.Update(ctx, models.UpdateParams{
+		OrgID:          testOrgID,
+		ID:             device.ID,
+		ExpectedSiteID: testSiteID,
+		SiteID:         secondSiteID,
+		BuildingName:   device.BuildingName,
+		Name:           device.Name,
+		DeviceKind:     device.DeviceKind,
+		FanCount:       device.FanCount,
+		Enabled:        boolPtr(device.Enabled),
+		DriverType:     device.DriverType,
+		DriverConfig:   device.DriverConfig,
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	stillAtSource, err := svc.Get(ctx, testOrgID, device.ID)
+	require.NoError(t, err)
+	assert.Equal(t, testSiteID, stillAtSource.SiteID)
+}
+
 func TestService_UpdateRenameCollision_DatabaseIntegration(t *testing.T) {
 	svc, _ := newTestService(t)
 	ctx := t.Context()

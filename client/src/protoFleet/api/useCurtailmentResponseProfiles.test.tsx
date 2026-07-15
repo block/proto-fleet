@@ -183,6 +183,7 @@ describe("useCurtailmentResponseProfiles", () => {
       expect.objectContaining({
         profileId: 7n,
         profileName: "Updated",
+        replaceFacilityFanSettings: true,
       }),
     );
     expectWholeOrgScope(mockUpdateCurtailmentResponseProfile.mock.calls[0]?.[0]?.scopes);

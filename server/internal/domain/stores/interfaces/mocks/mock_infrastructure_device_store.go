@@ -101,6 +101,20 @@ func (mr *MockInfrastructureDeviceStoreMockRecorder) ListInfrastructureDevices(c
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListInfrastructureDevices", reflect.TypeOf((*MockInfrastructureDeviceStore)(nil).ListInfrastructureDevices), ctx, filter)
 }
 
+// LockInfrastructureDeviceForWrite mocks base method.
+func (m *MockInfrastructureDeviceStore) LockInfrastructureDeviceForWrite(ctx context.Context, orgID, id, expectedSiteID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockInfrastructureDeviceForWrite", ctx, orgID, id, expectedSiteID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockInfrastructureDeviceForWrite indicates an expected call of LockInfrastructureDeviceForWrite.
+func (mr *MockInfrastructureDeviceStoreMockRecorder) LockInfrastructureDeviceForWrite(ctx, orgID, id, expectedSiteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockInfrastructureDeviceForWrite", reflect.TypeOf((*MockInfrastructureDeviceStore)(nil).LockInfrastructureDeviceForWrite), ctx, orgID, id, expectedSiteID)
+}
+
 // SoftDeleteInfrastructureDevice mocks base method.
 func (m *MockInfrastructureDeviceStore) SoftDeleteInfrastructureDevice(ctx context.Context, orgID, id, expectedSiteID int64) (*models.Device, bool, error) {
 	m.ctrl.T.Helper()

@@ -309,6 +309,10 @@ func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.Dele
 		if err := s.store.LockBuildingsBySiteForWrite(txCtx, orgID, id); err != nil {
 			return err
 		}
+		infrastructureDeviceIDs, err := s.store.LockInfrastructureDevicesBySiteForWrite(txCtx, orgID, id)
+		if err != nil {
+			return err
+		}
 		// Clear rack→building linkage + zone for racks under any
 		// building of this site, BEFORE the buildings disappear.
 		if _, err := s.store.UnassignRacksFromBuildingsBySite(txCtx, orgID, id); err != nil {
@@ -347,6 +351,19 @@ func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.Dele
 			return err
 		}
 		out.DeletedResponseProfileCount = profileCount
+		referencingProfileCount, err := s.store.CountResponseProfilesByInfrastructureDevices(
+			txCtx,
+			orgID,
+			infrastructureDeviceIDs,
+		)
+		if err != nil {
+			return err
+		}
+		if referencingProfileCount > 0 {
+			return fleeterror.NewFailedPreconditionError(
+				"infrastructure devices at this site are referenced by curtailment response profiles; update those profiles first",
+			)
+		}
 		// Soft-delete infrastructure devices (facility fans) under the
 		// site so controllable devices cannot outlive the site row.
 		infraCount, err := s.store.SoftDeleteInfrastructureDevicesBySite(txCtx, orgID, id)

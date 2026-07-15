@@ -38,6 +38,28 @@ WHERE d.id = sqlc.arg('id')
   AND d.org_id = sqlc.arg('org_id')
   AND d.deleted_at IS NULL;
 
+-- name: LockInfrastructureDeviceForWrite :one
+-- Canonical serialization point for device moves/deletes and response-profile
+-- references. Callers lock parent sites first, then device rows by ID.
+SELECT id
+FROM infrastructure_device
+WHERE id = sqlc.arg('id')
+  AND org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('expected_site_id')
+  AND deleted_at IS NULL
+FOR UPDATE;
+
+-- name: LockInfrastructureDevicesForResponseProfile :many
+-- Locks the exact live fan rows selected by a response profile so concurrent
+-- moves/deletes cannot invalidate validation before the profile write commits.
+SELECT id, site_id
+FROM infrastructure_device
+WHERE org_id = sqlc.arg('org_id')
+  AND id = ANY(sqlc.arg('infrastructure_device_ids')::bigint[])
+  AND deleted_at IS NULL
+ORDER BY id
+FOR UPDATE;
+
 -- name: ListInfrastructureDevicesByOrg :many
 -- Lists every live infrastructure device in the org. site_ids is an
 -- optional OR filter (empty array = no filter); excluded_site_ids

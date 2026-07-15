@@ -321,12 +321,14 @@ func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
 	// AssignBuildingToSite).
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(11)).Return(nil)
 	h.siteStore.EXPECT().LockBuildingsBySiteForWrite(gomock.Any(), int64(7), int64(11)).Return(nil)
+	h.siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(gomock.Any(), int64(7), int64(11)).Return([]int64{70}, nil)
 	h.siteStore.EXPECT().UnassignRacksFromBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(0), nil)
 	h.buildingStore.EXPECT().ClearDeviceBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(0), nil)
 	h.siteStore.EXPECT().SoftDeleteBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(2), nil)
 	h.siteStore.EXPECT().UnassignRacksFromSite(gomock.Any(), int64(7), int64(11)).Return(int64(4), nil)
 	h.siteStore.EXPECT().UnassignDevicesFromSite(gomock.Any(), int64(7), int64(11)).Return(int64(9), nil)
 	h.siteStore.EXPECT().DeleteCurtailmentResponseProfilesBySite(gomock.Any(), int64(7), int64(11)).Return(int64(3), nil)
+	h.siteStore.EXPECT().CountResponseProfilesByInfrastructureDevices(gomock.Any(), int64(7), []int64{70}).Return(int64(0), nil)
 	h.siteStore.EXPECT().SoftDeleteInfrastructureDevicesBySite(gomock.Any(), int64(7), int64(11)).Return(int64(6), nil)
 	h.siteStore.EXPECT().SoftDeleteSite(gomock.Any(), int64(7), int64(11)).Return(int64(1), nil)
 
@@ -366,12 +368,14 @@ func TestHandler_DeleteSite_deniedWhenNarrowedAwayFromTargetSite(t *testing.T) {
 	// restriction.
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil)
 	h.siteStore.EXPECT().LockBuildingsBySiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil)
+	h.siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil, nil)
 	h.siteStore.EXPECT().UnassignRacksFromBuildingsBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
 	h.buildingStore.EXPECT().ClearDeviceBuildingsBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
 	h.siteStore.EXPECT().SoftDeleteBuildingsBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
 	h.siteStore.EXPECT().UnassignRacksFromSite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
 	h.siteStore.EXPECT().UnassignDevicesFromSite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
 	h.siteStore.EXPECT().DeleteCurtailmentResponseProfilesBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
+	h.siteStore.EXPECT().CountResponseProfilesByInfrastructureDevices(gomock.Any(), int64(7), []int64(nil)).Return(int64(0), nil)
 	h.siteStore.EXPECT().SoftDeleteInfrastructureDevicesBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
 	h.siteStore.EXPECT().SoftDeleteSite(gomock.Any(), int64(7), int64(12)).Return(int64(1), nil)
 

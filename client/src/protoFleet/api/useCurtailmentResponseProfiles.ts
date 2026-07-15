@@ -598,6 +598,7 @@ export default function useCurtailmentResponseProfiles(
           create(UpdateCurtailmentResponseProfileRequestSchema, {
             profileId: BigInt(profileId),
             ...buildResponseProfilePayload(values),
+            replaceFacilityFanSettings: true,
           }),
         );
         if (!response.profile) {

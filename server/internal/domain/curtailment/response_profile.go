@@ -86,11 +86,11 @@ func (s *ResponseProfileService) Create(ctx context.Context, req SaveResponsePro
 	if s == nil || s.store == nil {
 		return nil, fleeterror.NewUnimplementedError("curtailment response profile service is not configured")
 	}
-	profile, err := s.validateAndNormalize(ctx, req)
+	profile, infrastructureDevices, err := s.validateAndNormalize(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	return s.store.CreateResponseProfile(ctx, profile)
+	return s.store.CreateResponseProfile(ctx, profile, infrastructureDevices)
 }
 
 func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponseProfileRequest) (*models.ResponseProfile, error) {
@@ -100,11 +100,11 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 	if req.Profile.ID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("profile_id must be set")
 	}
-	profile, err := s.validateAndNormalize(ctx, req)
+	profile, infrastructureDevices, err := s.validateAndNormalize(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	return s.store.UpdateResponseProfile(ctx, profile, req.ExpectedSiteID, req.ExpectedScopeJSON)
+	return s.store.UpdateResponseProfile(ctx, profile, infrastructureDevices, req.ExpectedSiteID, req.ExpectedScopeJSON)
 }
 
 func (s *ResponseProfileService) Delete(ctx context.Context, orgID, profileID int64, expectedSiteID *int64, expectedScopeJSON []byte) error {
@@ -129,40 +129,41 @@ func (s *ResponseProfileService) Delete(ctx context.Context, orgID, profileID in
 	return s.store.DeleteResponseProfile(ctx, orgID, profileID, expectedSiteID, expectedScopeJSON)
 }
 
-func (s *ResponseProfileService) validateAndNormalize(ctx context.Context, req SaveResponseProfileRequest) (models.ResponseProfile, error) {
+func (s *ResponseProfileService) validateAndNormalize(ctx context.Context, req SaveResponseProfileRequest) (models.ResponseProfile, map[int64]models.ResponseProfileInfrastructureDevice, error) {
 	profile := normalizeResponseProfile(req.Profile)
 	if profile.OrgID <= 0 {
-		return models.ResponseProfile{}, fleeterror.NewInvalidArgumentError("org_id must be set")
+		return models.ResponseProfile{}, nil, fleeterror.NewInvalidArgumentError("org_id must be set")
 	}
 	if err := validateResponseProfileName(profile.ProfileName); err != nil {
-		return models.ResponseProfile{}, err
+		return models.ResponseProfile{}, nil, err
 	}
 	scope, err := ResponseProfileScope(profile)
 	if err != nil {
-		return models.ResponseProfile{}, err
+		return models.ResponseProfile{}, nil, err
 	}
 	explicitWholeOrgScope := isExplicitWholeOrgScopeJSON(profile.ScopeJSON)
 	for _, siteID := range normalizeScope(scope).SiteIDs {
 		belongs, err := s.store.SiteBelongsToOrg(ctx, profile.OrgID, siteID)
 		if err != nil {
-			return models.ResponseProfile{}, err
+			return models.ResponseProfile{}, nil, err
 		}
 		if !belongs {
-			return models.ResponseProfile{}, fleeterror.NewNotFoundErrorf("site not found: %d", siteID)
+			return models.ResponseProfile{}, nil, fleeterror.NewNotFoundErrorf("site not found: %d", siteID)
 		}
 	}
-	profile.FacilityFanDeviceIDs, err = s.validateFacilityFanDevices(
+	var infrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice
+	profile.FacilityFanDeviceIDs, infrastructureDevices, err = s.validateFacilityFanDevices(
 		ctx,
 		profile.OrgID,
 		scope,
 		profile.FacilityFanDeviceIDs,
 	)
 	if err != nil {
-		return models.ResponseProfile{}, err
+		return models.ResponseProfile{}, nil, err
 	}
 	scopeJSON, err := MarshalScopeJSON(scope)
 	if err != nil {
-		return models.ResponseProfile{}, err
+		return models.ResponseProfile{}, nil, err
 	}
 	if normalizeScope(scope).Type == models.ScopeTypeWholeOrg && explicitWholeOrgScope {
 		scopeJSON = []byte(`{"whole_org":true}`)
@@ -170,9 +171,9 @@ func (s *ResponseProfileService) validateAndNormalize(ctx context.Context, req S
 	profile.ScopeJSON = scopeJSON
 	profile.SiteID = responseProfileLegacySiteID(scope)
 	if err := validateResponseProfileBehavior(profile, req.CanUseAdminControls); err != nil {
-		return models.ResponseProfile{}, err
+		return models.ResponseProfile{}, nil, err
 	}
-	return profile, nil
+	return profile, infrastructureDevices, nil
 }
 
 func (s *ResponseProfileService) validateFacilityFanDevices(
@@ -180,24 +181,24 @@ func (s *ResponseProfileService) validateFacilityFanDevices(
 	orgID int64,
 	scope Scope,
 	deviceIDs []int64,
-) ([]int64, error) {
+) ([]int64, map[int64]models.ResponseProfileInfrastructureDevice, error) {
 	if hasNonPositiveInt64(deviceIDs) {
-		return nil, fleeterror.NewInvalidArgumentError("facility_fan_device_ids must be positive")
+		return nil, nil, fleeterror.NewInvalidArgumentError("facility_fan_device_ids must be positive")
 	}
 	deviceIDs = uniquePositiveInt64s(deviceIDs)
 	if len(deviceIDs) == 0 {
-		return nil, nil
+		return nil, map[int64]models.ResponseProfileInfrastructureDevice{}, nil
 	}
 
 	devices, err := s.store.ListResponseProfileInfrastructureDevices(ctx, orgID, deviceIDs)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, deviceID := range deviceIDs {
 		if _, ok := devices[deviceID]; !ok {
 			// Missing, deleted, and cross-organization devices are intentionally
 			// indistinguishable so profile validation cannot expose OT inventory.
-			return nil, fleeterror.NewNotFoundErrorf("infrastructure device not found: %d", deviceID)
+			return nil, nil, fleeterror.NewNotFoundErrorf("infrastructure device not found: %d", deviceID)
 		}
 	}
 
@@ -210,7 +211,7 @@ func (s *ResponseProfileService) validateFacilityFanDevices(
 		if len(normalizedScope.DeviceIdentifiers) > 0 {
 			minerSites, err := s.store.ListResponseProfileDeviceSites(ctx, orgID, normalizedScope.DeviceIdentifiers)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			for _, siteID := range minerSites {
 				if siteID != nil {
@@ -221,7 +222,7 @@ func (s *ResponseProfileService) validateFacilityFanDevices(
 		for _, deviceID := range deviceIDs {
 			device := devices[deviceID]
 			if _, ok := allowedSiteIDs[device.SiteID]; !ok {
-				return nil, fleeterror.NewInvalidArgumentErrorf(
+				return nil, nil, fleeterror.NewInvalidArgumentErrorf(
 					"infrastructure device %d is outside the response profile scope",
 					deviceID,
 				)
@@ -240,7 +241,7 @@ func (s *ResponseProfileService) validateFacilityFanDevices(
 			)
 		}
 	}
-	return deviceIDs, nil
+	return deviceIDs, devices, nil
 }
 
 func normalizeResponseProfile(profile models.ResponseProfile) models.ResponseProfile {

@@ -1176,6 +1176,7 @@ func generatedCurtailmentCommand() *cli.Command {
 							&cli.StringSliceFlag{Name: "facility-fan-device-ids", Usage: "facility fan device ids"},
 							&cli.UintFlag{Name: "fan-off-delay-sec", Usage: "fan off delay sec"},
 							&cli.UintFlag{Name: "fan-restore-delay-sec", Usage: "fan restore delay sec"},
+							&cli.BoolFlag{Name: "replace-facility-fan-settings", Usage: "replace facility fan settings"},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.UpdateCurtailmentResponseProfileRequest{}
@@ -1290,6 +1291,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							}
 							if cmd.IsSet("fan-restore-delay-sec") {
 								req.FanRestoreDelaySec = uint32(cmd.Uint("fan-restore-delay-sec"))
+							}
+							if cmd.IsSet("replace-facility-fan-settings") {
+								req.ReplaceFacilityFanSettings = cmd.Bool("replace-facility-fan-settings")
 							}
 							if err := generatedValidateRequiredFields(req, "mode", "profile_id", "profile_name"); err != nil {
 								return nil, err

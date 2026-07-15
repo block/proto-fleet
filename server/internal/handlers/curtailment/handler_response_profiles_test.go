@@ -351,8 +351,9 @@ func TestHandler_UpdateCurtailmentResponseProfile(t *testing.T) {
 	siteID := int64(7)
 	store := newHandlerResponseProfileStore()
 	store.profiles = []*models.ResponseProfile{
-		{ID: 201, OrgID: 42, ProfileName: "Old", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50},
+		{ID: 201, OrgID: 42, ProfileName: "Old", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50, FacilityFanDeviceIDs: []int64{31}, FanOffDelaySec: 45, FanRestoreDelaySec: 90},
 	}
+	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: siteID, Enabled: true}
 	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	resp, err := h.UpdateCurtailmentResponseProfile(
@@ -383,9 +384,43 @@ func TestHandler_UpdateCurtailmentResponseProfile(t *testing.T) {
 	require.NotNil(t, store.updated)
 	assert.Equal(t, int32(0), store.updated.RestoreBatchIntervalSec)
 	assert.Equal(t, int32(900), store.updated.PostEventCooldownSec)
+	assert.Equal(t, []int64{31}, store.updated.FacilityFanDeviceIDs)
+	assert.Equal(t, int32(45), store.updated.FanOffDelaySec)
+	assert.Equal(t, int32(90), store.updated.FanRestoreDelaySec)
 	require.NotNil(t, store.updateExpectedSiteID)
 	assert.Equal(t, siteID, *store.updateExpectedSiteID)
 	assert.JSONEq(t, `{"site_id":7}`, string(store.updateExpectedScopeJSON))
+}
+
+func TestHandler_UpdateCurtailmentResponseProfileClearsFacilityFanSettingsWhenRequested(t *testing.T) {
+	t.Parallel()
+
+	siteID := int64(7)
+	store := newHandlerResponseProfileStore()
+	store.profiles = []*models.ResponseProfile{
+		{ID: 201, OrgID: 42, ProfileName: "Old", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(1000), RestoreBatchSize: 50, FacilityFanDeviceIDs: []int64{31}, FanOffDelaySec: 45, FanRestoreDelaySec: 90},
+	}
+	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
+
+	_, err := h.UpdateCurtailmentResponseProfile(
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		connect.NewRequest(&pb.UpdateCurtailmentResponseProfileRequest{
+			ProfileId:                  201,
+			ProfileName:                "Updated",
+			Site:                       &pb.ScopeSite{SiteId: siteID},
+			Mode:                       pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+			ModeParams:                 &pb.UpdateCurtailmentResponseProfileRequest_FixedKw{FixedKw: &pb.FixedKwParams{TargetKw: 3000}},
+			ReplaceFacilityFanSettings: true,
+			RestoreBatchSize:           ptrUint32(40),
+			RestoreBatchIntervalSec:    ptrUint32(0),
+		}),
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, store.updated)
+	assert.Empty(t, store.updated.FacilityFanDeviceIDs)
+	assert.Zero(t, store.updated.FanOffDelaySec)
+	assert.Zero(t, store.updated.FanRestoreDelaySec)
 }
 
 func TestHandler_UpdateCurtailmentResponseProfileGuardsStoredCompositeScope(t *testing.T) {
@@ -775,13 +810,13 @@ func (s *handlerResponseProfileStore) ListResponseProfileInfrastructureDevices(_
 	return out, nil
 }
 
-func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
+func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, profile models.ResponseProfile, _ map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error) {
 	profile.ID = 201
 	s.created = &profile
 	return &profile, nil
 }
 
-func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, expectedSiteID *int64, expectedScopeJSON []byte) (*models.ResponseProfile, error) {
+func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ map[int64]models.ResponseProfileInfrastructureDevice, expectedSiteID *int64, expectedScopeJSON []byte) (*models.ResponseProfile, error) {
 	s.updated = &profile
 	s.updateExpectedSiteID = cloneInt64Ptr(expectedSiteID)
 	s.updateExpectedScopeJSON = cloneBytes(expectedScopeJSON)

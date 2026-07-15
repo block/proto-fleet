@@ -332,68 +332,10 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByTestId("curtailment-post-event-cooldown")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Racks\s+Select/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Groups\s+Select/ })).not.toBeInTheDocument();
-    expect(
-      screen.getByText("Choose the sites, miners, and infrastructure included in this curtailment."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Choose the sites and miners included in this curtailment.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /Infrastructure\s+Select/ })).toBeEnabled();
-  });
-
-  it("configures facility fans from the run curtailment Apply to section", async () => {
-    const user = userEvent.setup();
-    const { onSubmit } = renderModal({
-      initialValues: configuredValues,
-      infrastructureDevices,
-    });
-
-    await user.click(screen.getByRole("button", { name: /Infrastructure\s+Select/ }));
-
-    const fanModal = screen.getByTestId("facility-fan-selection-modal");
-    expect(within(fanModal).getByText("Fan behavior during curtailment")).toBeInTheDocument();
-    expect(within(fanModal).getByText("3 devices in scope")).toBeInTheDocument();
-    expect(within(fanModal).getByText("Curtail behavior")).toBeInTheDocument();
-    expect(within(fanModal).getByText("Turn off")).toBeInTheDocument();
-    expect(within(fanModal).getByText("Turn on")).toBeInTheDocument();
-    const selectionFooterLabel = screen.getByText("0 devices selected");
-    expect(fanModal).not.toContainElement(selectionFooterLabel);
-    expect(fanModal.parentElement).toContainElement(selectionFooterLabel);
-    expect(screen.getByRole("checkbox", { name: /Exhaust Fan Group/ })).toBeDisabled();
-
-    const fanModalSurface = fanModal.parentElement;
-    if (!fanModalSurface) {
-      throw new Error("Fan modal surface was not rendered");
-    }
-    await user.click(within(fanModalSurface).getByRole("button", { name: "Select all" }));
-    expect(screen.getByTestId("facility-fan-selection-modal")).toBeInTheDocument();
-    expect(within(fanModalSurface).getByText("2 devices selected")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /Exhaust Fan Group/ })).not.toBeChecked();
-    await user.click(within(fanModalSurface).getByRole("button", { name: "Select none" }));
-    expect(screen.getByTestId("facility-fan-selection-modal")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("checkbox", { name: /Fan Unit 1/ }));
-    await user.type(screen.getByTestId("facility-fan-off-delay"), "-1");
-    await user.click(screen.getByRole("button", { name: "Apply" }));
-    expect(screen.getByText("Enter fan-off delay of 0 or more.")).toBeInTheDocument();
-
-    await user.clear(screen.getByTestId("facility-fan-off-delay"));
-    await user.type(screen.getByTestId("facility-fan-off-delay"), "30");
-    await user.type(screen.getByTestId("facility-fan-restore-delay"), "75");
-    await user.click(screen.getByRole("button", { name: "Apply" }));
-
-    expect(screen.queryByText("Fan behavior during curtailment")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Infrastructure\s+1 device/ })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
-    await confirmCurtailment(user);
-
-    expect(onSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        facilityFanDeviceIds: ["31"],
-        fanOffDelaySec: "30",
-        fanRestoreDelaySec: "75",
-      }),
-    );
+    expect(screen.queryByRole("button", { name: /Infrastructure/ })).not.toBeInTheDocument();
   });
 
   it("prefills new custom curtailments with the default site scope", async () => {
@@ -919,6 +861,34 @@ describe("CurtailmentStartModal", () => {
         deviceIdentifiers: [],
       }),
     );
+  });
+
+  it("removes selected infrastructure devices that fall outside a changed site scope", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      variant: "responseProfile",
+      siteOptions,
+      infrastructureDevices,
+      initialValues: {
+        ...configuredValues,
+        scopeType: "site",
+        scopeId: "Austin, TX",
+        siteSelection: "site",
+        siteId: "101",
+        siteIds: ["101"],
+        facilityFanDeviceIds: ["31"],
+      },
+    });
+
+    expect(screen.getByRole("button", { name: /Infrastructure\s+1 device/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Sites\s+Austin, TX/ }));
+    await user.click(screen.getByTestId("response-profile-scope-site-101"));
+    await user.click(screen.getByTestId("response-profile-scope-site-102"));
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(screen.getByRole("button", { name: /Infrastructure\s+Select/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ facilityFanDeviceIds: [] }));
   });
 
   it("prefills response profile creation with the default site scope", async () => {

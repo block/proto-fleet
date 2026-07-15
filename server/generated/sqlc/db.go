@@ -201,6 +201,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countResponseProfilesByInfrastructureDeviceStmt, err = db.PrepareContext(ctx, countResponseProfilesByInfrastructureDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query CountResponseProfilesByInfrastructureDevice: %w", err)
 	}
+	if q.countResponseProfilesByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countResponseProfilesByInfrastructureDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query CountResponseProfilesByInfrastructureDevices: %w", err)
+	}
 	if q.createApiKeyStmt, err = db.PrepareContext(ctx, createApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateApiKey: %w", err)
 	}
@@ -1038,6 +1041,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockFleetNodeByIDStmt, err = db.PrepareContext(ctx, lockFleetNodeByID); err != nil {
 		return nil, fmt.Errorf("error preparing query LockFleetNodeByID: %w", err)
 	}
+	if q.lockInfrastructureDeviceForWriteStmt, err = db.PrepareContext(ctx, lockInfrastructureDeviceForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockInfrastructureDeviceForWrite: %w", err)
+	}
+	if q.lockInfrastructureDevicesBySiteForWriteStmt, err = db.PrepareContext(ctx, lockInfrastructureDevicesBySiteForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockInfrastructureDevicesBySiteForWrite: %w", err)
+	}
+	if q.lockInfrastructureDevicesForResponseProfileStmt, err = db.PrepareContext(ctx, lockInfrastructureDevicesForResponseProfile); err != nil {
+		return nil, fmt.Errorf("error preparing query LockInfrastructureDevicesForResponseProfile: %w", err)
+	}
 	if q.lockRackPlacementForWriteStmt, err = db.PrepareContext(ctx, lockRackPlacementForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockRackPlacementForWrite: %w", err)
 	}
@@ -1771,6 +1783,11 @@ func (q *Queries) Close() error {
 	if q.countResponseProfilesByInfrastructureDeviceStmt != nil {
 		if cerr := q.countResponseProfilesByInfrastructureDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countResponseProfilesByInfrastructureDeviceStmt: %w", cerr)
+		}
+	}
+	if q.countResponseProfilesByInfrastructureDevicesStmt != nil {
+		if cerr := q.countResponseProfilesByInfrastructureDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countResponseProfilesByInfrastructureDevicesStmt: %w", cerr)
 		}
 	}
 	if q.createApiKeyStmt != nil {
@@ -3168,6 +3185,21 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockFleetNodeByIDStmt: %w", cerr)
 		}
 	}
+	if q.lockInfrastructureDeviceForWriteStmt != nil {
+		if cerr := q.lockInfrastructureDeviceForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockInfrastructureDeviceForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockInfrastructureDevicesBySiteForWriteStmt != nil {
+		if cerr := q.lockInfrastructureDevicesBySiteForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockInfrastructureDevicesBySiteForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockInfrastructureDevicesForResponseProfileStmt != nil {
+		if cerr := q.lockInfrastructureDevicesForResponseProfileStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockInfrastructureDevicesForResponseProfileStmt: %w", cerr)
+		}
+	}
 	if q.lockRackPlacementForWriteStmt != nil {
 		if cerr := q.lockRackPlacementForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockRackPlacementForWriteStmt: %w", cerr)
@@ -3991,6 +4023,7 @@ type Queries struct {
 	countRacksBySiteStmt                                       *sql.Stmt
 	countRacksInBuildingStmt                                   *sql.Stmt
 	countResponseProfilesByInfrastructureDeviceStmt            *sql.Stmt
+	countResponseProfilesByInfrastructureDevicesStmt           *sql.Stmt
 	createApiKeyStmt                                           *sql.Stmt
 	createBuildingStmt                                         *sql.Stmt
 	createCommandBatchLogStmt                                  *sql.Stmt
@@ -4270,6 +4303,9 @@ type Queries struct {
 	lockCurtailmentScopeForWriteStmt                           *sql.Stmt
 	lockDevicesForReassignStmt                                 *sql.Stmt
 	lockFleetNodeByIDStmt                                      *sql.Stmt
+	lockInfrastructureDeviceForWriteStmt                       *sql.Stmt
+	lockInfrastructureDevicesBySiteForWriteStmt                *sql.Stmt
+	lockInfrastructureDevicesForResponseProfileStmt            *sql.Stmt
 	lockRackPlacementForWriteStmt                              *sql.Stmt
 	lockRacksForReparentStmt                                   *sql.Stmt
 	lockSchedulePriorityStmt                                   *sql.Stmt
@@ -4480,6 +4516,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countRacksBySiteStmt:                                       q.countRacksBySiteStmt,
 		countRacksInBuildingStmt:                                   q.countRacksInBuildingStmt,
 		countResponseProfilesByInfrastructureDeviceStmt:            q.countResponseProfilesByInfrastructureDeviceStmt,
+		countResponseProfilesByInfrastructureDevicesStmt:           q.countResponseProfilesByInfrastructureDevicesStmt,
 		createApiKeyStmt:                                           q.createApiKeyStmt,
 		createBuildingStmt:                                         q.createBuildingStmt,
 		createCommandBatchLogStmt:                                  q.createCommandBatchLogStmt,
@@ -4759,6 +4796,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockCurtailmentScopeForWriteStmt:                           q.lockCurtailmentScopeForWriteStmt,
 		lockDevicesForReassignStmt:                                 q.lockDevicesForReassignStmt,
 		lockFleetNodeByIDStmt:                                      q.lockFleetNodeByIDStmt,
+		lockInfrastructureDeviceForWriteStmt:                       q.lockInfrastructureDeviceForWriteStmt,
+		lockInfrastructureDevicesBySiteForWriteStmt:                q.lockInfrastructureDevicesBySiteForWriteStmt,
+		lockInfrastructureDevicesForResponseProfileStmt:            q.lockInfrastructureDevicesForResponseProfileStmt,
 		lockRackPlacementForWriteStmt:                              q.lockRackPlacementForWriteStmt,
 		lockRacksForReparentStmt:                                   q.lockRacksForReparentStmt,
 		lockSchedulePriorityStmt:                                   q.lockSchedulePriorityStmt,

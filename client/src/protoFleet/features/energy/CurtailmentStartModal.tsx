@@ -620,7 +620,16 @@ function getInitialValues(
 
   return variant === "responseProfile"
     ? withResponseProfileScope(valuesWithDefaultSiteScope)
-    : valuesWithDefaultSiteScope;
+    : withoutFacilityFanSettings(valuesWithDefaultSiteScope);
+}
+
+function withoutFacilityFanSettings(values: CurtailmentFormValues): CurtailmentFormValues {
+  return {
+    ...values,
+    facilityFanDeviceIds: [],
+    fanOffDelaySec: "",
+    fanRestoreDelaySec: "",
+  };
 }
 
 function parseRequiredPositiveNumberField(value: string, fieldLabel: string): ParsedNumberField {
@@ -715,10 +724,10 @@ function validateCurtailmentFormValues(
   if (shouldValidateCurtailBatchFields && curtailBatchInterval.error) {
     localErrors.curtailBatchIntervalSec = curtailBatchInterval.error;
   }
-  if (fanOffDelay.error) {
+  if (isResponseProfileVariant && fanOffDelay.error) {
     localErrors.fanOffDelaySec = fanOffDelay.error;
   }
-  if (fanRestoreDelay.error) {
+  if (isResponseProfileVariant && fanRestoreDelay.error) {
     localErrors.fanRestoreDelaySec = fanRestoreDelay.error;
   }
   if (
@@ -1427,10 +1436,13 @@ function CurtailmentStartModalContent({
 
     setEditedFields(new Set());
     setConfirmedForceInclusionKey("");
-    setValues((current) => ({
-      ...withSelectedResponseProfileValues(current, responseProfile.values),
-      responseProfileId: responseProfile.id,
-    }));
+    setValues((current) => {
+      const nextValues = {
+        ...withSelectedResponseProfileValues(current, responseProfile.values),
+        responseProfileId: responseProfile.id,
+      };
+      return isResponseProfileVariant ? nextValues : withoutFacilityFanSettings(nextValues);
+    });
   };
 
   const openSiteScopeModal = () => {
@@ -1468,12 +1480,19 @@ function CurtailmentStartModalContent({
 
     updateValues(
       (current) => {
+        let nextValues: CurtailmentFormValues;
         if (selectedSiteIdsForSave.length === 0) {
-          return withNoSiteScope(current);
-        }
-
-        if (allSelectableSitesSelected) {
-          return withAllSitesScope(
+          nextValues = withNoSiteScope(current);
+        } else if (allSelectableSitesSelected) {
+          nextValues = withAllSitesScope(
+            current,
+            selectedSiteIdsForSave.map((siteId) => ({
+              id: siteId,
+              name: siteScopeOptionById.get(siteId)?.name ?? getSiteNameForId(current, siteId),
+            })),
+          );
+        } else {
+          nextValues = withSiteScopes(
             current,
             selectedSiteIdsForSave.map((siteId) => ({
               id: siteId,
@@ -1482,13 +1501,15 @@ function CurtailmentStartModalContent({
           );
         }
 
-        return withSiteScopes(
-          current,
-          selectedSiteIdsForSave.map((siteId) => ({
-            id: siteId,
-            name: siteScopeOptionById.get(siteId)?.name ?? getSiteNameForId(current, siteId),
-          })),
+        const inScopeDeviceIds = new Set(
+          getInfrastructureDevicesInScope(infrastructureDevices, nextValues).map((device) => device.id),
         );
+        return {
+          ...nextValues,
+          facilityFanDeviceIds: (nextValues.facilityFanDeviceIds ?? []).filter((deviceId) =>
+            inScopeDeviceIds.has(deviceId),
+          ),
+        };
       },
       { resetResponseProfileSelection: true },
     );
@@ -1900,7 +1921,11 @@ function CurtailmentStartModalContent({
 
             <Section
               title="Apply to"
-              subtext="Choose the sites, miners, and infrastructure included in this curtailment."
+              subtext={
+                isResponseProfileVariant
+                  ? "Choose the sites, miners, and infrastructure included in this curtailment."
+                  : "Choose the sites and miners included in this curtailment."
+              }
             >
               <div className="grid">
                 <TargetSelectButton
@@ -1915,12 +1940,13 @@ function CurtailmentStartModalContent({
                   disabled={isLiveCurtailmentEditMode}
                   onClick={() => setShowMinerSelectionModal(true)}
                 />
-                <TargetSelectButton
-                  label={infrastructureApplyToTarget.label}
-                  value={infrastructureApplyToTarget.value}
-                  disabled={isLiveCurtailmentEditMode}
-                  onClick={() => setShowFacilityFanSelectionModal(true)}
-                />
+                {isResponseProfileVariant ? (
+                  <TargetSelectButton
+                    label={infrastructureApplyToTarget.label}
+                    value={infrastructureApplyToTarget.value}
+                    onClick={() => setShowFacilityFanSelectionModal(true)}
+                  />
+                ) : null}
               </div>
             </Section>
 
@@ -2037,7 +2063,7 @@ function CurtailmentStartModalContent({
         />
       ) : null}
 
-      {showFacilityFanSelectionModal ? (
+      {isResponseProfileVariant && showFacilityFanSelectionModal ? (
         <FacilityFanSelectionModal
           devices={scopedInfrastructureDevices}
           initialSelectedDeviceIds={values.facilityFanDeviceIds ?? []}

@@ -129,6 +129,11 @@ func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *con
 			profile.ScopeJSON = cloneBytes(existing.ScopeJSON)
 		}
 	}
+	if !req.Msg.GetReplaceFacilityFanSettings() {
+		profile.FacilityFanDeviceIDs = append([]int64(nil), existing.FacilityFanDeviceIDs...)
+		profile.FanOffDelaySec = existing.FanOffDelaySec
+		profile.FanRestoreDelaySec = existing.FanRestoreDelaySec
+	}
 	if err := h.requireResponseProfileSitePermission(ctx, info.OrganizationID, authz.PermCurtailmentManage, &profile, true); err != nil {
 		return nil, err
 	}

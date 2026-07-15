@@ -170,6 +170,25 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 				return err
 			}
 		}
+		if params.SiteID != params.ExpectedSiteID {
+			if err := s.store.LockInfrastructureDeviceForWrite(
+				txCtx,
+				params.OrgID,
+				params.ID,
+				params.ExpectedSiteID,
+			); err != nil {
+				return err
+			}
+			profileCount, err := s.store.CountResponseProfilesByInfrastructureDevice(txCtx, params.OrgID, params.ID)
+			if err != nil {
+				return err
+			}
+			if profileCount > 0 {
+				return fleeterror.NewFailedPreconditionError(
+					"infrastructure device is referenced by curtailment response profiles; update those profiles before moving it",
+				)
+			}
+		}
 		device, err := s.store.UpdateInfrastructureDevice(txCtx, params)
 		if err != nil {
 			return err
@@ -189,21 +208,35 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 // concurrent site move invalidates the delete (NotFound) rather than
 // removing a device the caller no longer manages.
 func (s *Service) Delete(ctx context.Context, orgID, id, expectedSiteID int64) error {
-	profileCount, err := s.store.CountResponseProfilesByInfrastructureDevice(ctx, orgID, id)
+	var deleted *models.Device
+	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		if err := s.siteStore.LockSiteForWrite(txCtx, orgID, expectedSiteID); err != nil {
+			return err
+		}
+		if err := s.store.LockInfrastructureDeviceForWrite(txCtx, orgID, id, expectedSiteID); err != nil {
+			return err
+		}
+		profileCount, err := s.store.CountResponseProfilesByInfrastructureDevice(txCtx, orgID, id)
+		if err != nil {
+			return err
+		}
+		if profileCount > 0 {
+			return fleeterror.NewFailedPreconditionError(
+				"infrastructure device is referenced by curtailment response profiles; update those profiles first",
+			)
+		}
+		device, found, err := s.store.SoftDeleteInfrastructureDevice(txCtx, orgID, id, expectedSiteID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return fleeterror.NewNotFoundErrorf("infrastructure device %d not found", id)
+		}
+		deleted = device
+		return nil
+	})
 	if err != nil {
 		return err
-	}
-	if profileCount > 0 {
-		return fleeterror.NewFailedPreconditionError(
-			"infrastructure device is referenced by curtailment response profiles; update those profiles first",
-		)
-	}
-	deleted, found, err := s.store.SoftDeleteInfrastructureDevice(ctx, orgID, id, expectedSiteID)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return fleeterror.NewNotFoundErrorf("infrastructure device %d not found", id)
 	}
 	// The audit stamp uses the row returned by the delete itself
 	// (UPDATE … RETURNING), so it reflects the device actually

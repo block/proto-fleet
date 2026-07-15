@@ -234,6 +234,31 @@ func (s *SQLSiteStore) SoftDeleteInfrastructureDevicesBySite(ctx context.Context
 	return rowsAffected, nil
 }
 
+func (s *SQLSiteStore) LockInfrastructureDevicesBySiteForWrite(ctx context.Context, orgID, siteID int64) ([]int64, error) {
+	ids, err := s.GetQueries(ctx).LockInfrastructureDevicesBySiteForWrite(ctx, sqlc.LockInfrastructureDevicesBySiteForWriteParams{
+		OrgID:  orgID,
+		SiteID: siteID,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to lock infrastructure devices for site delete: %v", err)
+	}
+	return ids, nil
+}
+
+func (s *SQLSiteStore) CountResponseProfilesByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	count, err := s.GetQueries(ctx).CountResponseProfilesByInfrastructureDevices(ctx, sqlc.CountResponseProfilesByInfrastructureDevicesParams{
+		OrgID:                   orgID,
+		InfrastructureDeviceIds: ids,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count response profiles by infrastructure devices: %v", err)
+	}
+	return count, nil
+}
+
 func (s *SQLSiteStore) UnassignRacksFromSite(ctx context.Context, orgID, siteID int64) (int64, error) {
 	rowsAffected, err := s.GetQueries(ctx).UnassignRacksFromSite(ctx, sqlc.UnassignRacksFromSiteParams{
 		OrgID:  orgID,

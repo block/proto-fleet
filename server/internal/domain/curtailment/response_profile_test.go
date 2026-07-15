@@ -548,13 +548,13 @@ func (s *responseProfileFakeStore) ListResponseProfileInfrastructureDevices(_ co
 	return out, nil
 }
 
-func (s *responseProfileFakeStore) CreateResponseProfile(_ context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
+func (s *responseProfileFakeStore) CreateResponseProfile(_ context.Context, profile models.ResponseProfile, _ map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error) {
 	profile.ID = 101
 	s.created = &profile
 	return &profile, nil
 }
 
-func (s *responseProfileFakeStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ *int64, _ []byte) (*models.ResponseProfile, error) {
+func (s *responseProfileFakeStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ map[int64]models.ResponseProfileInfrastructureDevice, _ *int64, _ []byte) (*models.ResponseProfile, error) {
 	s.updated = &profile
 	return &profile, nil
 }

@@ -1258,6 +1258,10 @@ message UpdateCurtailmentResponseProfileRequest {
     }];
     uint32 fan_off_delay_sec = 22 [(buf.validate.field).uint32.lte = 2147483647];
     uint32 fan_restore_delay_sec = 23 [(buf.validate.field).uint32.lte = 2147483647];
+    // False or omitted preserves the existing facility fan settings so clients
+    // generated before those fields existed cannot clear them accidentally.
+    // True replaces all three settings; empty IDs and zero delays clear them.
+    bool replace_facility_fan_settings = 24;
 }
 
 message UpdateCurtailmentResponseProfileResponse {

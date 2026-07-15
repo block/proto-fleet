@@ -212,9 +212,16 @@ func (s *SQLCurtailmentStore) ListResponseProfileInfrastructureDevices(
 	return out, nil
 }
 
-func (s *SQLCurtailmentStore) CreateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
+func (s *SQLCurtailmentStore) CreateResponseProfile(
+	ctx context.Context,
+	profile models.ResponseProfile,
+	expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice,
+) (*models.ResponseProfile, error) {
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
 		if err := lockResponseProfileSitesForWrite(ctx, q, profile.OrgID, [][]byte{profile.ScopeJSON}, profile.SiteID); err != nil {
+			return sqlc.CurtailmentResponseProfile{}, err
+		}
+		if err := lockResponseProfileInfrastructureDevicesForWrite(ctx, q, profile.OrgID, expectedInfrastructureDevices); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
 		return q.InsertCurtailmentResponseProfile(ctx, insertResponseProfileParams(profile))
@@ -228,6 +235,7 @@ func (s *SQLCurtailmentStore) CreateResponseProfile(ctx context.Context, profile
 func (s *SQLCurtailmentStore) UpdateResponseProfile(
 	ctx context.Context,
 	profile models.ResponseProfile,
+	expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice,
 	expectedSiteID *int64,
 	expectedScopeJSON []byte,
 ) (*models.ResponseProfile, error) {
@@ -241,6 +249,9 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(
 			expectedSiteID,
 			profile.SiteID,
 		); err != nil {
+			return sqlc.CurtailmentResponseProfile{}, err
+		}
+		if err := lockResponseProfileInfrastructureDevicesForWrite(ctx, q, profile.OrgID, expectedInfrastructureDevices); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
 		row, err := q.UpdateCurtailmentResponseProfile(ctx, updateResponseProfileParams(profile, expectedSiteID, normalizedExpectedScopeJSON))
@@ -717,6 +728,39 @@ func lockResponseProfileSitesForWrite(ctx context.Context, q *sqlc.Queries, orgI
 				return fleeterror.NewNotFoundErrorf("site not found: %d", siteID)
 			}
 			return fleeterror.NewInternalErrorf("failed to lock site for curtailment response profile write: %v", err)
+		}
+	}
+	return nil
+}
+
+func lockResponseProfileInfrastructureDevicesForWrite(
+	ctx context.Context,
+	q *sqlc.Queries,
+	orgID int64,
+	expected map[int64]models.ResponseProfileInfrastructureDevice,
+) error {
+	if len(expected) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(expected))
+	for id := range expected {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	rows, err := q.LockInfrastructureDevicesForResponseProfile(ctx, sqlc.LockInfrastructureDevicesForResponseProfileParams{
+		OrgID:                   orgID,
+		InfrastructureDeviceIds: ids,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to lock infrastructure devices for curtailment response profile: %v", err)
+	}
+	if len(rows) != len(expected) {
+		return fleeterror.NewFailedPreconditionError("infrastructure devices changed before response profile save; retry")
+	}
+	for _, row := range rows {
+		device, ok := expected[row.ID]
+		if !ok || device.SiteID != row.SiteID {
+			return fleeterror.NewFailedPreconditionError("infrastructure devices changed before response profile save; retry")
 		}
 	}
 	return nil

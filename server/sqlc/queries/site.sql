@@ -229,6 +229,23 @@ WHERE org_id = sqlc.arg('org_id')
   AND site_id = sqlc.arg('site_id')
   AND deleted_at IS NULL;
 
+-- name: LockInfrastructureDevicesBySiteForWrite :many
+-- DeleteSite locks these rows before checking surviving response-profile
+-- references and before soft-deleting the devices.
+SELECT id
+FROM infrastructure_device
+WHERE org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('site_id')
+  AND deleted_at IS NULL
+ORDER BY id
+FOR UPDATE;
+
+-- name: CountResponseProfilesByInfrastructureDevices :one
+SELECT COUNT(*)
+FROM curtailment_response_profile
+WHERE org_id = sqlc.arg('org_id')
+  AND facility_fan_device_ids && sqlc.arg('infrastructure_device_ids')::bigint[];
+
 -- name: UnassignRacksFromSite :execrows
 -- Sets device_set_rack.site_id = NULL for every live rack pointing at
 -- the given site (org-guarded by the denormalized rack.org_id; the

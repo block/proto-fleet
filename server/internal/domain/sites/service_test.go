@@ -122,12 +122,14 @@ func TestDeleteSite_cascadeInOneTransaction(t *testing.T) {
 		// deadlock and to keep a concurrent move from slipping a building
 		// out of the cascade.
 		store.EXPECT().LockBuildingsBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
+		store.EXPECT().LockInfrastructureDevicesBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return([]int64{70, 71}, nil),
 		store.EXPECT().UnassignRacksFromBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(7), nil),
 		buildingStore.EXPECT().ClearDeviceBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
 		store.EXPECT().SoftDeleteBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(2), nil),
 		store.EXPECT().UnassignRacksFromSite(inTxCtx, testOrgID, int64(11)).Return(int64(4), nil),
 		store.EXPECT().UnassignDevicesFromSite(inTxCtx, testOrgID, int64(11)).Return(int64(3), nil),
 		store.EXPECT().DeleteCurtailmentResponseProfilesBySite(inTxCtx, testOrgID, int64(11)).Return(int64(5), nil),
+		store.EXPECT().CountResponseProfilesByInfrastructureDevices(inTxCtx, testOrgID, []int64{70, 71}).Return(int64(0), nil),
 		store.EXPECT().SoftDeleteInfrastructureDevicesBySite(inTxCtx, testOrgID, int64(11)).Return(int64(6), nil),
 		store.EXPECT().SoftDeleteSite(inTxCtx, testOrgID, int64(11)).Return(int64(1), nil),
 	)
@@ -157,18 +159,49 @@ func TestDeleteSite_notFoundWhenSoftDeleteAffectsZeroRows(t *testing.T) {
 	// branch). All cascade calls happen inside RunInTx.
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(99)).Return(nil)
 	store.EXPECT().LockBuildingsBySiteForWrite(inTxCtx, testOrgID, int64(99)).Return(nil)
+	store.EXPECT().LockInfrastructureDevicesBySiteForWrite(inTxCtx, testOrgID, int64(99)).Return(nil, nil)
 	store.EXPECT().UnassignRacksFromBuildingsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	buildingStore.EXPECT().ClearDeviceBuildingsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().SoftDeleteBuildingsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().UnassignRacksFromSite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().UnassignDevicesFromSite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().DeleteCurtailmentResponseProfilesBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
+	store.EXPECT().CountResponseProfilesByInfrastructureDevices(inTxCtx, testOrgID, []int64(nil)).Return(int64(0), nil)
 	store.EXPECT().SoftDeleteInfrastructureDevicesBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().SoftDeleteSite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 
 	_, err := svc.DeleteSite(context.Background(), testOrgID, 99)
 	if !fleeterror.IsNotFoundError(err) {
 		t.Fatalf("expected NotFound, got %v", err)
+	}
+}
+
+func TestDeleteSite_rejectsInfrastructureDevicesReferencedBySurvivingProfiles(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, buildingStore, nil, nil, nil, tx, nil)
+
+	gomock.InOrder(
+		store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
+		store.EXPECT().LockBuildingsBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
+		store.EXPECT().LockInfrastructureDevicesBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return([]int64{70}, nil),
+		store.EXPECT().UnassignRacksFromBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
+		buildingStore.EXPECT().ClearDeviceBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
+		store.EXPECT().SoftDeleteBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
+		store.EXPECT().UnassignRacksFromSite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
+		store.EXPECT().UnassignDevicesFromSite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
+		store.EXPECT().DeleteCurtailmentResponseProfilesBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
+		store.EXPECT().CountResponseProfilesByInfrastructureDevices(inTxCtx, testOrgID, []int64{70}).Return(int64(1), nil),
+	)
+
+	_, err := svc.DeleteSite(context.Background(), testOrgID, 11)
+	if !fleeterror.IsFailedPreconditionError(err) {
+		t.Fatalf("expected FailedPrecondition, got %v", err)
+	}
+	if tx.calls != 1 {
+		t.Fatalf("expected exactly one RunInTx, got %d", tx.calls)
 	}
 }
 

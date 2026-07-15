@@ -81,6 +81,25 @@ func (q *Queries) CountRacksBySite(ctx context.Context, arg CountRacksBySitePara
 	return column_1, err
 }
 
+const countResponseProfilesByInfrastructureDevices = `-- name: CountResponseProfilesByInfrastructureDevices :one
+SELECT COUNT(*)
+FROM curtailment_response_profile
+WHERE org_id = $1
+  AND facility_fan_device_ids && $2::bigint[]
+`
+
+type CountResponseProfilesByInfrastructureDevicesParams struct {
+	OrgID                   int64
+	InfrastructureDeviceIds []int64
+}
+
+func (q *Queries) CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error) {
+	row := q.queryRow(ctx, q.countResponseProfilesByInfrastructureDevicesStmt, countResponseProfilesByInfrastructureDevices, arg.OrgID, pq.Array(arg.InfrastructureDeviceIds))
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createSite = `-- name: CreateSite :one
 INSERT INTO site (
     org_id,
@@ -732,6 +751,46 @@ type LockDevicesForReassignParams struct {
 // identifiers exist; the caller still wants the lock side-effect.
 func (q *Queries) LockDevicesForReassign(ctx context.Context, arg LockDevicesForReassignParams) ([]int64, error) {
 	rows, err := q.query(ctx, q.lockDevicesForReassignStmt, lockDevicesForReassign, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockInfrastructureDevicesBySiteForWrite = `-- name: LockInfrastructureDevicesBySiteForWrite :many
+SELECT id
+FROM infrastructure_device
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+ORDER BY id
+FOR UPDATE
+`
+
+type LockInfrastructureDevicesBySiteForWriteParams struct {
+	OrgID  int64
+	SiteID int64
+}
+
+// DeleteSite locks these rows before checking surviving response-profile
+// references and before soft-deleting the devices.
+func (q *Queries) LockInfrastructureDevicesBySiteForWrite(ctx context.Context, arg LockInfrastructureDevicesBySiteForWriteParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockInfrastructureDevicesBySiteForWriteStmt, lockInfrastructureDevicesBySiteForWrite, arg.OrgID, arg.SiteID)
 	if err != nil {
 		return nil, err
 	}
