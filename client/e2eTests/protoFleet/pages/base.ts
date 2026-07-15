@@ -334,6 +334,10 @@ export class BasePage {
   }
 
   async logout() {
+    if (this.page.url().includes("/auth")) {
+      return;
+    }
+
     const logoutButton = this.page.getByTestId("logout-button");
 
     if (!(await logoutButton.isVisible().catch(() => false))) {
