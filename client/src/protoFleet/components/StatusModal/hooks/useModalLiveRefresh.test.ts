@@ -131,4 +131,48 @@ describe("useModalLiveRefresh", () => {
     rerender({ key: "miner-2" });
     expect(onTick).toHaveBeenCalledTimes(2);
   });
+
+  it("does not start an overlapping tick while a slow refresh is in flight", async () => {
+    let resolveTick: () => void = () => {};
+    const onTick = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveTick = resolve;
+        }),
+    );
+    renderHook(() => useModalLiveRefresh({ enabled: true, onTick }));
+    expect(onTick).toHaveBeenCalledTimes(1); // immediate tick, now in flight
+
+    // Interval fires repeatedly but the first tick hasn't resolved — no new call.
+    await act(async () => {
+      vi.advanceTimersByTime(MODAL_REFRESH_INTERVAL_MS * 3);
+    });
+    expect(onTick).toHaveBeenCalledTimes(1);
+
+    // Once the in-flight tick resolves, the next interval may run again.
+    await act(async () => {
+      resolveTick();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(MODAL_REFRESH_INTERVAL_MS);
+    });
+    expect(onTick).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not advance the idle ceiling while the tab is hidden", () => {
+    const onTick = vi.fn();
+    setVisibility("hidden");
+    const { result } = renderHook(() => useModalLiveRefresh({ enabled: true, onTick }));
+    expect(onTick).toHaveBeenCalledTimes(0); // immediate tick skipped while hidden
+
+    // Stay hidden well past the idle ceiling — the loop must NOT pause.
+    act(() => vi.advanceTimersByTime(MODAL_IDLE_CEILING_MS + MODAL_REFRESH_INTERVAL_MS * 2));
+    expect(result.current.isPaused).toBe(false);
+
+    // Returning to the foreground catches up and resumes rather than staying paused.
+    act(() => setVisibility("visible"));
+    expect(onTick).toHaveBeenCalledTimes(1);
+    act(() => vi.advanceTimersByTime(MODAL_REFRESH_INTERVAL_MS));
+    expect(onTick).toHaveBeenCalledTimes(2);
+  });
 });

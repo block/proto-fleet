@@ -71,11 +71,24 @@ export const useModalLiveRefresh = ({
     let interval: ReturnType<typeof setInterval> | null = null;
     let lastInteraction = Date.now();
     let paused = false;
+    let inFlight = false;
 
     const runTick = () => {
       // Skip work the operator can't see; the visibility handler catches them up.
       if (document.visibilityState !== "visible") return;
-      void onTickRef.current();
+      // Serialize ticks: if a refresh is slower than the cadence, don't start a
+      // second one. Overlapping ticks would let a slow older response merge
+      // after a newer one and regress the modal/list back to stale status.
+      if (inFlight) return;
+      const result = onTickRef.current();
+      // Only an async tick can still be running when the next interval fires; a
+      // synchronous tick has already completed, so nothing to guard.
+      if (result && typeof (result as Promise<void>).then === "function") {
+        inFlight = true;
+        (result as Promise<void>).finally(() => {
+          inFlight = false;
+        });
+      }
     };
 
     const stopInterval = () => {
@@ -88,6 +101,11 @@ export const useModalLiveRefresh = ({
     const startInterval = () => {
       stopInterval();
       interval = setInterval(() => {
+        // Don't let hidden-tab time advance the idle ceiling. If the loop is
+        // enabled while the tab is already hidden, no visibilitychange fires to
+        // stop the interval, so guard here too — otherwise it could pause mid
+        // background and then refuse the catch-up tick on return.
+        if (document.visibilityState !== "visible") return;
         if (Date.now() - lastInteraction >= idleCeilingMs) {
           paused = true;
           stopInterval();
@@ -111,8 +129,10 @@ export const useModalLiveRefresh = ({
         stopInterval();
         return;
       }
-      // Back in the foreground — catch up immediately, then resume the cadence.
+      // Back in the foreground — reset the idle baseline so time spent hidden
+      // doesn't count against the ceiling, then catch up and resume the cadence.
       if (!paused) {
+        lastInteraction = Date.now();
         runTick();
         startInterval();
       }
@@ -130,12 +150,16 @@ export const useModalLiveRefresh = ({
     start();
 
     document.addEventListener("visibilitychange", handleVisibility);
-    INTERACTION_EVENTS.forEach((event) => document.addEventListener(event, handleInteraction, { passive: true }));
+    // Capture phase so element-level "scroll" (which does not bubble) still
+    // counts as interaction when the operator scrolls inside the modal.
+    INTERACTION_EVENTS.forEach((event) =>
+      document.addEventListener(event, handleInteraction, { capture: true, passive: true }),
+    );
 
     return () => {
       stopInterval();
       document.removeEventListener("visibilitychange", handleVisibility);
-      INTERACTION_EVENTS.forEach((event) => document.removeEventListener(event, handleInteraction));
+      INTERACTION_EVENTS.forEach((event) => document.removeEventListener(event, handleInteraction, { capture: true }));
       resumeRef.current = () => {};
     };
   }, [enabled, restartKey, intervalMs, idleCeilingMs]);
