@@ -150,7 +150,7 @@ const Popover = ({
     <div
       ref={popoverRef}
       className={clsx(
-        "z-50 rounded-3xl backdrop-blur-[7px]",
+        "z-50 backdrop-blur-[7px]",
         renderMode === "portal-fixed" ? "fixed" : "absolute",
         // The viewport cap (`maxHeight`) is applied to this positioned wrapper via
         // `popoverStyle`, so the wrapper must also be the scroller — otherwise the
@@ -158,7 +158,11 @@ const Popover = ({
         // As the scroller, its `overflow-y-auto` clips the inner PopoverContent's
         // `shadow-200`, so re-raise the elevation shadow here on the wrapper — its
         // own box-shadow paints outside the scroll box and isn't clipped (#727 regression).
-        constrainHeightToViewport && "overflow-y-auto overscroll-contain shadow-200",
+        // Constrained popovers are scrollable menus and use the `rounded-2xl` menu
+        // shape (the only caller, RowActionsMenu, overrides the inner content to match);
+        // keep the wrapper radius aligned so the wrapper's shadow and backdrop-blur trace
+        // the same corners as the visible surface instead of the wider `rounded-3xl`.
+        constrainHeightToViewport ? "overflow-y-auto overscroll-contain rounded-2xl shadow-200" : "rounded-3xl",
         popoverAnimation,
       )}
       style={popoverStyle}
