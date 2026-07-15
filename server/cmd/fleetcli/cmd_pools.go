@@ -15,7 +15,7 @@ func generatedPoolsCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "pools",
 		Usage: "Manage pools commands",
-		Commands: append(manualGroupCommands("pools"), []*cli.Command{
+		Commands: []*cli.Command{
 			generatedRequestCommand(
 				"create",
 				"Create pool",
@@ -198,6 +198,6 @@ func generatedPoolsCommand() *cli.Command {
 				},
 				func() proto.Message { return &poolsv1.ValidatePoolResponse{} },
 			),
-		}...),
+		},
 	}
 }

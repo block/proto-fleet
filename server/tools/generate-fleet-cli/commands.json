@@ -1,6 +1,94 @@
 {
   "commands": [
     {
+      "method": "/cohort.v1.CohortService/AddDevicesToCohort",
+      "group": "cohorts",
+      "command": "add-devices",
+      "required_fields": ["cohort_id", "device_identifiers"]
+    },
+    {
+      "method": "/cohort.v1.CohortService/AdminReassign",
+      "group": "cohorts",
+      "command": "admin-reassign",
+      "required_fields": ["target_cohort_id", "device_identifiers"]
+    },
+    {
+      "method": "/cohort.v1.CohortService/AdminReleaseCohort",
+      "group": "cohorts",
+      "command": "admin-release",
+      "required_fields": ["cohort_id"]
+    },
+    {
+      "method": "/cohort.v1.CohortService/CreateCohort",
+      "group": "cohorts",
+      "command": "create",
+      "required_fields": ["label", "purpose"],
+      "json_only": true
+    },
+    {
+      "method": "/cohort.v1.CohortService/DeleteCohort",
+      "group": "cohorts",
+      "command": "delete",
+      "required_fields": ["cohort_id"]
+    },
+    {
+      "method": "/cohort.v1.CohortService/UpdateCohort",
+      "group": "cohorts",
+      "command": "extend",
+      "required_fields": ["cohort_id"],
+      "json_only": true
+    },
+    {
+      "method": "/cohort.v1.CohortService/GetCohortFirmwareVersionHistory",
+      "group": "cohorts",
+      "command": "firmware-history",
+      "required_fields": ["cohort_id", "start_time", "end_time"],
+      "validation_exceptions": {
+        "$message": "timestamp ordering is validated after the JSON request is decoded"
+      },
+      "json_only": true
+    },
+    {
+      "method": "/cohort.v1.CohortService/ListCohorts",
+      "group": "cohorts",
+      "command": "list"
+    },
+    {
+      "method": "/cohort.v1.CohortService/GetMyCohorts",
+      "group": "cohorts",
+      "command": "my"
+    },
+    {
+      "method": "/cohort.v1.CohortService/ReleaseCohort",
+      "group": "cohorts",
+      "command": "release",
+      "required_fields": ["cohort_id"]
+    },
+    {
+      "method": "/cohort.v1.CohortService/RemoveDevicesFromCohort",
+      "group": "cohorts",
+      "command": "remove-devices",
+      "required_fields": ["cohort_id", "device_identifiers"]
+    },
+    {
+      "method": "/cohort.v1.CohortService/ListDevices",
+      "group": "cohorts",
+      "command": "rigs",
+      "json_only": true
+    },
+    {
+      "method": "/cohort.v1.CohortService/SetCohortFirmwareTarget",
+      "group": "cohorts",
+      "command": "set-firmware-target",
+      "required_fields": ["cohort_id"]
+    },
+    {
+      "method": "/cohort.v1.CohortService/GetCohort",
+      "group": "cohorts",
+      "command": "status",
+      "required_fields": ["cohort_id"]
+    },
+    {
       "method": "/fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots",
       "group": "miners",
       "command": "list"

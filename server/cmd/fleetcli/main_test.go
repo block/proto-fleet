@@ -87,8 +87,8 @@ func TestGeneratedLeafCommandsMatchManifest(t *testing.T) {
 		want[strings.Join(parts, " ")] = true
 	}
 	got := leafCommandPaths(generatedCommands())
-	if len(got) != 115 || len(want) != 115 {
-		t.Fatalf("generated leaves = %d, manifest leaves = %d, want 115 each", len(got), len(want))
+	if len(got) != 129 || len(want) != 129 {
+		t.Fatalf("generated leaves = %d, manifest leaves = %d, want 129 each", len(got), len(want))
 	}
 	for path := range want {
 		if !got[path] {
@@ -100,8 +100,8 @@ func TestGeneratedLeafCommandsMatchManifest(t *testing.T) {
 			t.Errorf("generated command %q missing from manifest", path)
 		}
 	}
-	if gotAll := leafCommandPaths(allCommands()); len(gotAll) != 129 {
-		t.Fatalf("all command leaves = %d, want 129", len(gotAll))
+	if gotAll := leafCommandPaths(allCommands()); len(gotAll) != 143 {
+		t.Fatalf("all command leaves = %d, want 143", len(gotAll))
 	}
 }
 

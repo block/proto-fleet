@@ -26,7 +26,7 @@ This is the novel part of the project. The reconciler is a near-verbatim clone o
 expiry sweep, the command membership filter, UI routes, `fleetcli` cohort commands, `ActorCohort`, and
 per-manufacturer/model firmware targets via `cohort_firmware_target`. It does **not** have any phase-2
 substrate tables, sqlc queries, config-state writers, or cohort reconciler package yet. Treat this
-phase as adding those pieces on top of migrations `000104`-`000107`.
+phase as adding those pieces on top of migrations `000123`-`000126`.
 
 ## Scope
 
@@ -39,12 +39,12 @@ reconciler for **firmware, pools, and cooling**; wiring into `fleetd`.
 ## Files to create / modify
 
 ### Substrate (migrations + sqlc + small writers)
-- `server/migrations/000108_create_cohort_enforcement_substrate.{up,down}.sql` — `device_firmware_state`
+- `server/migrations/000127_create_cohort_enforcement_substrate.{up,down}.sql` — `device_firmware_state`
   (PK `org_id, device_identifier`, `firmware_version`, **`observed_at`**); `device_config_state`
   (observed pools/cooling, `observed_at`); `device_enforcement_state` (PK
   `(device_identifier, dimension)`: `state`, `retry_count`, `last_batch_uuid`,
   `last_dispatched_at`, `last_error`); a cohort reconciler heartbeat (`CHECK(id=1)`, clone from the
-  curtailment heartbeat pattern). Reconfirm `000108` is still the next free migration immediately
+  curtailment heartbeat pattern). Reconfirm `000127` is still the next free migration immediately
   before writing.
 - `server/sqlc/queries/cohort_enforcement.sql` + generated.
 - **Firmware shadow write:** extend `persistFirmwareVersionIfChanged`

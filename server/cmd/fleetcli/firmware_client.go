@@ -35,10 +35,7 @@ type firmwareConfig struct {
 }
 
 type firmwareCheckRequest struct {
-	SHA256             string `json:"sha256"`
-	TargetManufacturer string `json:"target_manufacturer"`
-	TargetModel        string `json:"target_model"`
-	FirmwareVersion    string `json:"firmware_version"`
+	SHA256 string `json:"sha256"`
 }
 
 type firmwareCheckResponse struct {
@@ -47,13 +44,10 @@ type firmwareCheckResponse struct {
 }
 
 type firmwareFileInfo struct {
-	ID                 string `json:"id"`
-	Filename           string `json:"filename"`
-	Size               int64  `json:"size"`
-	UploadedAt         string `json:"uploaded_at"`
-	TargetManufacturer string `json:"target_manufacturer"`
-	TargetModel        string `json:"target_model"`
-	FirmwareVersion    string `json:"firmware_version,omitempty"`
+	ID         string `json:"id"`
+	Filename   string `json:"filename"`
+	Size       int64  `json:"size"`
+	UploadedAt string `json:"uploaded_at"`
 }
 
 type firmwareListResponse struct {
@@ -65,12 +59,8 @@ type firmwareDeleteAllResponse struct {
 }
 
 type firmwareInitiateRequest struct {
-	Filename           string `json:"filename"`
-	FileSize           int64  `json:"file_size"`
-	TargetManufacturer string `json:"target_manufacturer"`
-	TargetModel        string `json:"target_model"`
-	FirmwareVersion    string `json:"firmware_version"`
-	Force              bool   `json:"force,omitempty"`
+	Filename string `json:"filename"`
+	FileSize int64  `json:"file_size"`
 }
 
 type firmwareInitiateResponse struct {
@@ -79,7 +69,6 @@ type firmwareInitiateResponse struct {
 
 type firmwareUploadResponse struct {
 	FirmwareFileID string `json:"firmware_file_id"`
-	Reused         bool   `json:"reused,omitempty"`
 }
 
 // firmwareURL builds an endpoint URL under the firmware HTTP API. Firmware
@@ -211,13 +200,8 @@ func (c *Client) FirmwareConfig(ctx context.Context) (*firmwareConfig, error) {
 
 // FirmwareCheck asks the server whether a firmware file with the given
 // SHA-256 hex digest already exists.
-func (c *Client) FirmwareCheck(ctx context.Context, sha256Hex string, target firmwareTarget) (*firmwareCheckResponse, error) {
-	body, err := json.Marshal(firmwareCheckRequest{
-		SHA256:             sha256Hex,
-		TargetManufacturer: target.Manufacturer,
-		TargetModel:        target.Model,
-		FirmwareVersion:    target.Version,
-	})
+func (c *Client) FirmwareCheck(ctx context.Context, sha256Hex string) (*firmwareCheckResponse, error) {
+	body, err := json.Marshal(firmwareCheckRequest{SHA256: sha256Hex})
 	if err != nil {
 		return nil, fmt.Errorf("marshal firmware check request: %w", err)
 	}
@@ -268,30 +252,10 @@ func (c *Client) FirmwareDeleteAll(ctx context.Context) (*firmwareDeleteAllRespo
 // FirmwareUploadDirect streams the file as a single multipart request. The
 // body is piped so the file is never buffered in memory, which means the
 // request goes out with chunked transfer encoding instead of a Content-Length.
-func (c *Client) FirmwareUploadDirect(ctx context.Context, filename string, file io.Reader, target firmwareTarget, force bool, progress progressFunc) (*firmwareUploadResponse, error) {
+func (c *Client) FirmwareUploadDirect(ctx context.Context, filename string, file io.Reader, progress progressFunc) (string, error) {
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
 	go func() {
-		fields := map[string]string{
-			"target_manufacturer": target.Manufacturer,
-			"target_model":        target.Model,
-			"firmware_version":    target.Version,
-		}
-		for name, value := range fields {
-			if value == "" {
-				continue
-			}
-			if err := mw.WriteField(name, value); err != nil {
-				_ = pw.CloseWithError(err)
-				return
-			}
-		}
-		if force {
-			if err := mw.WriteField("force", "true"); err != nil {
-				_ = pw.CloseWithError(err)
-				return
-			}
-		}
 		part, err := mw.CreateFormFile("file", filename)
 		if err != nil {
 			_ = pw.CloseWithError(err)
@@ -313,25 +277,18 @@ func (c *Client) FirmwareUploadDirect(ctx context.Context, filename string, file
 		transfer:    true,
 		out:         resp,
 	}); err != nil {
-		return nil, err
+		return "", err
 	}
-	return resp, nil
+	return resp.FirmwareFileID, nil
 }
 
 // FirmwareUploadChunked uploads the file through the initiate/chunk/complete
 // flow. Chunks are sent sequentially because the server rejects out-of-order
 // ranges.
-func (c *Client) FirmwareUploadChunked(ctx context.Context, filename string, file io.ReaderAt, size, chunkSize int64, target firmwareTarget, force bool, progress progressFunc) (*firmwareUploadResponse, error) {
-	body, err := json.Marshal(firmwareInitiateRequest{
-		Filename:           filename,
-		FileSize:           size,
-		TargetManufacturer: target.Manufacturer,
-		TargetModel:        target.Model,
-		FirmwareVersion:    target.Version,
-		Force:              force,
-	})
+func (c *Client) FirmwareUploadChunked(ctx context.Context, filename string, file io.ReaderAt, size, chunkSize int64, progress progressFunc) (string, error) {
+	body, err := json.Marshal(firmwareInitiateRequest{Filename: filename, FileSize: size})
 	if err != nil {
-		return nil, fmt.Errorf("marshal chunked upload initiate request: %w", err)
+		return "", fmt.Errorf("marshal chunked upload initiate request: %w", err)
 	}
 	initiate := &firmwareInitiateResponse{}
 	if err := c.doFirmware(ctx, firmwareRequest{
@@ -341,10 +298,10 @@ func (c *Client) FirmwareUploadChunked(ctx context.Context, filename string, fil
 		contentType: contentTypeJSON,
 		out:         initiate,
 	}); err != nil {
-		return nil, err
+		return "", err
 	}
 	if initiate.UploadID == "" {
-		return nil, fmt.Errorf("chunked upload initiate did not return an upload id")
+		return "", fmt.Errorf("chunked upload initiate did not return an upload id")
 	}
 
 	for start := int64(0); start < size; start += chunkSize {
@@ -359,7 +316,7 @@ func (c *Client) FirmwareUploadChunked(ctx context.Context, filename string, fil
 			contentRange:  fmt.Sprintf("bytes %d-%d/%d", start, end-1, size),
 			transfer:      true,
 		}); err != nil {
-			return nil, err
+			return "", err
 		}
 	}
 
@@ -370,7 +327,7 @@ func (c *Client) FirmwareUploadChunked(ctx context.Context, filename string, fil
 		transfer: true,
 		out:      resp,
 	}); err != nil {
-		return nil, err
+		return "", err
 	}
-	return resp, nil
+	return resp.FirmwareFileID, nil
 }

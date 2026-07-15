@@ -1949,13 +1949,23 @@ SELECT
     COALESCE(s.name, '') as site_label,
     d.building_id,
     COALESCE(b.name, '') as building_label,
-    FALSE as embedded_web_view_available
+    FALSE as embedded_web_view_available,
+    COALESCE(explicit_cohort.id, default_cohort.id, 0) as cohort_id,
+    COALESCE(explicit_cohort.label, default_cohort.label, '') as cohort_label
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN site s ON s.id = d.site_id
 LEFT JOIN building b ON b.id = d.building_id
+LEFT JOIN cohort_membership cm ON cm.org_id = d.org_id
+    AND cm.device_identifier = d.device_identifier
+LEFT JOIN cohort explicit_cohort ON explicit_cohort.id = cm.cohort_id
+    AND explicit_cohort.org_id = d.org_id
+    AND explicit_cohort.state = 'active'
+LEFT JOIN cohort default_cohort ON default_cohort.org_id = d.org_id
+    AND default_cohort.is_default = TRUE
+    AND default_cohort.state = 'active'
 WHERE FALSE
 `
 
@@ -1983,6 +1993,8 @@ type ListMinerStateSnapshotsRow struct {
 	BuildingID               sql.NullInt64
 	BuildingLabel            string
 	EmbeddedWebViewAvailable bool
+	CohortID                 int64
+	CohortLabel              string
 }
 
 // TYPE GENERATION STUB - This query is never executed.
@@ -2022,6 +2034,8 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 			&i.BuildingID,
 			&i.BuildingLabel,
 			&i.EmbeddedWebViewAvailable,
+			&i.CohortID,
+			&i.CohortLabel,
 		); err != nil {
 			return nil, err
 		}

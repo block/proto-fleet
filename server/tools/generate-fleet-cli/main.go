@@ -829,21 +829,6 @@ func analyzeRequest(
 			}
 			continue
 		}
-		if isCohortDesiredConfigField(field) {
-			flags, lines := buildCohortDesiredConfigFieldPlan(field, messageInfo)
-			analysis.flags = append(analysis.flags, flags...)
-			analysis.lines = append(analysis.lines, lines...)
-			analysis.jsonFallback = true
-			analysis.needsFmt = true
-			analysis.Reason = "request includes cohort desired config, so the generated command exposes pool flags plus --json fallback"
-			continue
-		}
-		if isTimestampField(field) {
-			flag, lines := buildTimestampFieldPlan(field, messageInfo)
-			analysis.flags = append(analysis.flags, flag)
-			analysis.lines = append(analysis.lines, lines...)
-			continue
-		}
 		if field.IsMap() {
 			hasUnsupported = true
 			continue
@@ -1568,69 +1553,6 @@ func buildStringValueFieldPlan(field protoreflect.FieldDescriptor) (string, []st
 		"}",
 	}
 	return flag, lines
-}
-
-func isTimestampField(field protoreflect.FieldDescriptor) bool {
-	return !field.IsList() && !field.IsMap() &&
-		field.Kind() == protoreflect.MessageKind &&
-		field.Message().FullName() == "google.protobuf.Timestamp"
-}
-
-func buildTimestampFieldPlan(field protoreflect.FieldDescriptor, messageInfo messageInfo) (string, []string) {
-	flagName := strings.ReplaceAll(string(field.Name()), "_", "-")
-	goFieldName := toGoFieldName(field.Name())
-	usage := fieldUsage(field)
-	flag := fmt.Sprintf("&cli.StringFlag{Name: %q, Usage: %q}", flagName, usage)
-
-	lines := []string{
-		fmt.Sprintf("if cmd.IsSet(%q) {", flagName),
-		fmt.Sprintf("\tparsed, err := parseRFC3339Timestamp(cmd.String(%q), %q)", flagName, flagName),
-		"\tif err != nil {",
-		"\t\treturn nil, err",
-		"\t}",
-	}
-	if oneof := field.ContainingOneof(); oneof != nil && !oneof.IsSynthetic() {
-		oneofGoFieldName := toGoFieldName(oneof.Name())
-		wrapperType := messageInfo.GoAlias + "." + messageInfo.GoIdent + "_" + goFieldName
-		lines = append(lines, fmt.Sprintf("\treq.%s = &%s{%s: parsed}", oneofGoFieldName, wrapperType, goFieldName))
-	} else {
-		lines = append(lines, fmt.Sprintf("\treq.%s = parsed", goFieldName))
-	}
-	lines = append(lines, "}")
-	return flag, lines
-}
-
-func isCohortDesiredConfigField(field protoreflect.FieldDescriptor) bool {
-	return field.Kind() == protoreflect.MessageKind && field.Message().FullName() == "cohort.v1.CohortDesiredConfig"
-}
-
-func buildCohortDesiredConfigFieldPlan(field protoreflect.FieldDescriptor, messageInfo messageInfo) ([]string, []string) {
-	configType := fmt.Sprintf("%s.%s", messageInfo.GoAlias, toGoIdent(field.Message().Name()))
-	poolsField := field.Message().Fields().ByName("pools")
-	poolsType := fmt.Sprintf("%s.%s", messageInfo.GoAlias, toGoIdent(poolsField.Message().Name()))
-	flags := []string{
-		`&cli.Int64Flag{Name: "primary-pool-id", Usage: "primary Fleet pool id"}`,
-		`&cli.Int64Flag{Name: "backup-1-pool-id", Usage: "backup 1 Fleet pool id"}`,
-		`&cli.Int64Flag{Name: "backup-2-pool-id", Usage: "backup 2 Fleet pool id"}`,
-	}
-	lines := []string{
-		`if cmd.IsSet("primary-pool-id") || cmd.IsSet("backup-1-pool-id") || cmd.IsSet("backup-2-pool-id") {`,
-		`\tif !cmd.IsSet("primary-pool-id") {`,
-		`\t\treturn nil, fmt.Errorf("--primary-pool-id is required when setting cohort pools")`,
-		`\t}`,
-		fmt.Sprintf(`\tpools := &%s{PrimaryPoolId: cmd.Int64("primary-pool-id")}`, poolsType),
-		`\tif cmd.IsSet("backup-1-pool-id") {`,
-		`\t\tvalue := cmd.Int64("backup-1-pool-id")`,
-		`\t\tpools.Backup_1PoolId = &value`,
-		`\t}`,
-		`\tif cmd.IsSet("backup-2-pool-id") {`,
-		`\t\tvalue := cmd.Int64("backup-2-pool-id")`,
-		`\t\tpools.Backup_2PoolId = &value`,
-		`\t}`,
-		fmt.Sprintf(`\treq.%s = &%s{Pools: pools}`, toGoFieldName(field.Name()), configType),
-		`}`,
-	}
-	return flags, lines
 }
 
 func conditionalAssignmentBlock(field protoreflect.FieldDescriptor, flagName, expr string) []string {

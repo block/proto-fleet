@@ -4,10 +4,9 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	cohortv1 "github.com/block/proto-fleet/server/generated/grpc/cohort/v1"
-	"github.com/urfave/cli/v3"
+	cli "github.com/urfave/cli/v3"
 	proto "google.golang.org/protobuf/proto"
 )
 
@@ -15,15 +14,15 @@ func generatedCohortsCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "cohorts",
 		Usage: "Manage cohorts commands",
-		Commands: append(manualGroupCommands("cohorts"), []*cli.Command{
+		Commands: []*cli.Command{
 			generatedRequestCommand(
 				"add-devices",
 				"Add devices to cohort",
 				"/cohort.v1.CohortService/AddDevicesToCohort",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "cohort-id", Usage: "cohort id"},
-					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "device identifiers"},
+					&cli.Int64Flag{Name: "cohort-id", Usage: "(required) cohort id", Required: true},
+					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "(required) device identifiers", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &cohortv1.AddDevicesToCohortRequest{}
@@ -33,6 +32,9 @@ func generatedCohortsCommand() *cli.Command {
 					if cmd.IsSet("device-identifiers") {
 						req.DeviceIdentifiers = cmd.StringSlice("device-identifiers")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &cohortv1.AddDevicesToCohortResponse{} },
@@ -41,10 +43,10 @@ func generatedCohortsCommand() *cli.Command {
 				"admin-reassign",
 				"Admin reassign",
 				"/cohort.v1.CohortService/AdminReassign",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "target-cohort-id", Usage: "target cohort id"},
-					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "device identifiers"},
+					&cli.Int64Flag{Name: "target-cohort-id", Usage: "(required) target cohort id", Required: true},
+					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "(required) device identifiers", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &cohortv1.AdminReassignRequest{}
@@ -54,6 +56,9 @@ func generatedCohortsCommand() *cli.Command {
 					if cmd.IsSet("device-identifiers") {
 						req.DeviceIdentifiers = cmd.StringSlice("device-identifiers")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &cohortv1.AdminReassignResponse{} },
@@ -62,14 +67,17 @@ func generatedCohortsCommand() *cli.Command {
 				"admin-release",
 				"Admin release cohort",
 				"/cohort.v1.CohortService/AdminReleaseCohort",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "cohort-id", Usage: "cohort id"},
+					&cli.Int64Flag{Name: "cohort-id", Usage: "(required) cohort id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &cohortv1.AdminReleaseCohortRequest{}
 					if cmd.IsSet("cohort-id") {
 						req.CohortId = cmd.Int64("cohort-id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -79,66 +87,20 @@ func generatedCohortsCommand() *cli.Command {
 				"create",
 				"Create cohort",
 				"/cohort.v1.CohortService/CreateCohort",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.StringFlag{Name: "label", Usage: "label"},
-					&cli.StringFlag{Name: "purpose", Usage: "purpose"},
-					&cli.BoolFlag{Name: "claim-ownership", Usage: "claim ownership"},
-					&cli.StringFlag{Name: "expires-at", Usage: "expires at"},
-					&cli.StringFlag{Name: "desired-firmware-file-id", Usage: "desired firmware file id"},
-					&cli.Int64Flag{Name: "primary-pool-id", Usage: "primary Fleet pool id"},
-					&cli.Int64Flag{Name: "backup-1-pool-id", Usage: "backup 1 Fleet pool id"},
-					&cli.Int64Flag{Name: "backup-2-pool-id", Usage: "backup 2 Fleet pool id"},
-					&cli.Int64Flag{Name: "source-device-set-id", Usage: "source device set id"},
-					&cli.StringFlag{Name: "idempotency-key", Usage: "idempotency key"},
+					&cli.StringFlag{Name: "json", Usage: "(required) Path to a request JSON file, or - for stdin", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &cohortv1.CreateCohortRequest{}
-					if jsonPath := cmd.String("json"); jsonPath != "" {
-						if err := readProtoJSON(jsonPath, req); err != nil {
-							return nil, err
-						}
+					if err := readProtoJSON(cmd.String("json"), req); err != nil {
+						return nil, err
 					}
-					if cmd.IsSet("label") {
-						req.Label = cmd.String("label")
+					if err := generatedValidateRequiredFields(req, "label", "purpose"); err != nil {
+						return nil, err
 					}
-					if cmd.IsSet("purpose") {
-						req.Purpose = cmd.String("purpose")
-					}
-					if cmd.IsSet("claim-ownership") {
-						req.ClaimOwnership = cmd.Bool("claim-ownership")
-					}
-					if cmd.IsSet("expires-at") {
-						parsed, err := parseRFC3339Timestamp(cmd.String("expires-at"), "expires-at")
-						if err != nil {
-							return nil, err
-						}
-						req.ExpiresAt = parsed
-					}
-					if cmd.IsSet("desired-firmware-file-id") {
-						req.DesiredFirmwareFileId = cmd.String("desired-firmware-file-id")
-					}
-					if cmd.IsSet("primary-pool-id") || cmd.IsSet("backup-1-pool-id") || cmd.IsSet("backup-2-pool-id") {
-						if !cmd.IsSet("primary-pool-id") {
-							return nil, fmt.Errorf("--primary-pool-id is required when setting cohort pools")
-						}
-						pools := &cohortv1.CohortPoolDesiredConfig{PrimaryPoolId: cmd.Int64("primary-pool-id")}
-						if cmd.IsSet("backup-1-pool-id") {
-							value := cmd.Int64("backup-1-pool-id")
-							pools.Backup_1PoolId = &value
-						}
-						if cmd.IsSet("backup-2-pool-id") {
-							value := cmd.Int64("backup-2-pool-id")
-							pools.Backup_2PoolId = &value
-						}
-						req.DesiredConfig = &cohortv1.CohortDesiredConfig{Pools: pools}
-					}
-					if cmd.IsSet("source-device-set-id") {
-						req.InitialMembers = &cohortv1.CreateCohortRequest_SourceDeviceSetId{SourceDeviceSetId: cmd.Int64("source-device-set-id")}
-					}
-					if cmd.IsSet("idempotency-key") {
-						req.IdempotencyKey = cmd.String("idempotency-key")
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -148,14 +110,17 @@ func generatedCohortsCommand() *cli.Command {
 				"delete",
 				"Delete cohort",
 				"/cohort.v1.CohortService/DeleteCohort",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "cohort-id", Usage: "cohort id"},
+					&cli.Int64Flag{Name: "cohort-id", Usage: "(required) cohort id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &cohortv1.DeleteCohortRequest{}
 					if cmd.IsSet("cohort-id") {
 						req.CohortId = cmd.Int64("cohort-id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -165,108 +130,43 @@ func generatedCohortsCommand() *cli.Command {
 				"extend",
 				"Update cohort",
 				"/cohort.v1.CohortService/UpdateCohort",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.Int64Flag{Name: "cohort-id", Usage: "cohort id"},
-					&cli.StringFlag{Name: "label", Usage: "label"},
-					&cli.StringFlag{Name: "purpose", Usage: "purpose"},
-					&cli.StringFlag{Name: "expires-at", Usage: "expires at"},
-					&cli.StringFlag{Name: "desired-firmware-file-id", Usage: "desired firmware file id"},
-					&cli.Int64Flag{Name: "primary-pool-id", Usage: "primary Fleet pool id"},
-					&cli.Int64Flag{Name: "backup-1-pool-id", Usage: "backup 1 Fleet pool id"},
-					&cli.Int64Flag{Name: "backup-2-pool-id", Usage: "backup 2 Fleet pool id"},
-					&cli.BoolFlag{Name: "clear-expires-at", Usage: "clear expires at"},
-					&cli.BoolFlag{Name: "clear-desired-config", Usage: "clear desired config"},
+					&cli.StringFlag{Name: "json", Usage: "(required) Path to a request JSON file, or - for stdin", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &cohortv1.UpdateCohortRequest{}
-					if jsonPath := cmd.String("json"); jsonPath != "" {
-						if err := readProtoJSON(jsonPath, req); err != nil {
-							return nil, err
-						}
+					if err := readProtoJSON(cmd.String("json"), req); err != nil {
+						return nil, err
 					}
-					if cmd.IsSet("cohort-id") {
-						req.CohortId = cmd.Int64("cohort-id")
+					if err := generatedValidateRequiredFields(req, "cohort_id"); err != nil {
+						return nil, err
 					}
-					if cmd.IsSet("label") {
-						value := cmd.String("label")
-						req.Label = &value
-					}
-					if cmd.IsSet("purpose") {
-						value := cmd.String("purpose")
-						req.Purpose = &value
-					}
-					if cmd.IsSet("expires-at") {
-						parsed, err := parseRFC3339Timestamp(cmd.String("expires-at"), "expires-at")
-						if err != nil {
-							return nil, err
-						}
-						req.ExpiresAt = parsed
-					}
-					if cmd.IsSet("desired-firmware-file-id") {
-						value := cmd.String("desired-firmware-file-id")
-						req.DesiredFirmwareFileId = &value
-					}
-					if cmd.IsSet("primary-pool-id") || cmd.IsSet("backup-1-pool-id") || cmd.IsSet("backup-2-pool-id") {
-						if !cmd.IsSet("primary-pool-id") {
-							return nil, fmt.Errorf("--primary-pool-id is required when setting cohort pools")
-						}
-						pools := &cohortv1.CohortPoolDesiredConfig{PrimaryPoolId: cmd.Int64("primary-pool-id")}
-						if cmd.IsSet("backup-1-pool-id") {
-							value := cmd.Int64("backup-1-pool-id")
-							pools.Backup_1PoolId = &value
-						}
-						if cmd.IsSet("backup-2-pool-id") {
-							value := cmd.Int64("backup-2-pool-id")
-							pools.Backup_2PoolId = &value
-						}
-						req.DesiredConfig = &cohortv1.CohortDesiredConfig{Pools: pools}
-					}
-					if cmd.IsSet("clear-expires-at") {
-						req.ClearExpiresAt = cmd.Bool("clear-expires-at")
-					}
-					if cmd.IsSet("clear-desired-config") {
-						req.ClearDesiredConfig = cmd.Bool("clear-desired-config")
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
 				func() proto.Message { return &cohortv1.UpdateCohortResponse{} },
 			),
 			generatedRequestCommand(
-				"get-cohort-firmware-version-history",
+				"firmware-history",
 				"Get cohort firmware version history",
 				"/cohort.v1.CohortService/GetCohortFirmwareVersionHistory",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.Int64Flag{Name: "cohort-id", Usage: "cohort id"},
-					&cli.StringFlag{Name: "start-time", Usage: "start time"},
-					&cli.StringFlag{Name: "end-time", Usage: "end time"},
+					&cli.StringFlag{Name: "json", Usage: "(required) Path to a request JSON file, or - for stdin", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &cohortv1.GetCohortFirmwareVersionHistoryRequest{}
-					if jsonPath := cmd.String("json"); jsonPath != "" {
-						if err := readProtoJSON(jsonPath, req); err != nil {
-							return nil, err
-						}
+					if err := readProtoJSON(cmd.String("json"), req); err != nil {
+						return nil, err
 					}
-					if cmd.IsSet("cohort-id") {
-						req.CohortId = cmd.Int64("cohort-id")
+					if err := generatedValidateRequiredFields(req, "cohort_id", "end_time", "start_time"); err != nil {
+						return nil, err
 					}
-					if cmd.IsSet("start-time") {
-						parsed, err := parseRFC3339Timestamp(cmd.String("start-time"), "start-time")
-						if err != nil {
-							return nil, err
-						}
-						req.StartTime = parsed
-					}
-					if cmd.IsSet("end-time") {
-						parsed, err := parseRFC3339Timestamp(cmd.String("end-time"), "end-time")
-						if err != nil {
-							return nil, err
-						}
-						req.EndTime = parsed
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -276,7 +176,7 @@ func generatedCohortsCommand() *cli.Command {
 				"list",
 				"List cohorts",
 				"/cohort.v1.CohortService/ListCohorts",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.BoolFlag{Name: "include-released", Usage: "include released"},
 					&cli.IntFlag{Name: "page-size", Usage: "page size"},
@@ -297,6 +197,9 @@ func generatedCohortsCommand() *cli.Command {
 					if cmd.IsSet("search") {
 						req.Search = cmd.String("search")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &cohortv1.ListCohortsResponse{} },
@@ -305,7 +208,7 @@ func generatedCohortsCommand() *cli.Command {
 				"my",
 				"Get my cohorts",
 				"/cohort.v1.CohortService/GetMyCohorts",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
 					&cli.BoolFlag{Name: "include-released", Usage: "include released"},
 					&cli.IntFlag{Name: "page-size", Usage: "page size"},
@@ -326,6 +229,9 @@ func generatedCohortsCommand() *cli.Command {
 					if cmd.IsSet("search") {
 						req.Search = cmd.String("search")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &cohortv1.GetMyCohortsResponse{} },
@@ -334,14 +240,17 @@ func generatedCohortsCommand() *cli.Command {
 				"release",
 				"Release cohort",
 				"/cohort.v1.CohortService/ReleaseCohort",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "cohort-id", Usage: "cohort id"},
+					&cli.Int64Flag{Name: "cohort-id", Usage: "(required) cohort id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &cohortv1.ReleaseCohortRequest{}
 					if cmd.IsSet("cohort-id") {
 						req.CohortId = cmd.Int64("cohort-id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
@@ -351,10 +260,10 @@ func generatedCohortsCommand() *cli.Command {
 				"remove-devices",
 				"Remove devices from cohort",
 				"/cohort.v1.CohortService/RemoveDevicesFromCohort",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "cohort-id", Usage: "cohort id"},
-					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "device identifiers"},
+					&cli.Int64Flag{Name: "cohort-id", Usage: "(required) cohort id", Required: true},
+					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "(required) device identifiers", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &cohortv1.RemoveDevicesFromCohortRequest{}
@@ -364,6 +273,9 @@ func generatedCohortsCommand() *cli.Command {
 					if cmd.IsSet("device-identifiers") {
 						req.DeviceIdentifiers = cmd.StringSlice("device-identifiers")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &cohortv1.RemoveDevicesFromCohortResponse{} },
@@ -372,36 +284,29 @@ func generatedCohortsCommand() *cli.Command {
 				"rigs",
 				"List devices",
 				"/cohort.v1.CohortService/ListDevices",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.StringFlag{Name: "json", Usage: "Path to a request JSON file, or - for stdin"},
-					&cli.IntFlag{Name: "page-size", Usage: "page size"},
-					&cli.StringFlag{Name: "page-token", Usage: "page token"},
+					&cli.StringFlag{Name: "json", Usage: "(required) Path to a request JSON file, or - for stdin", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &cohortv1.ListDevicesRequest{}
-					if jsonPath := cmd.String("json"); jsonPath != "" {
-						if err := readProtoJSON(jsonPath, req); err != nil {
-							return nil, err
-						}
+					if err := readProtoJSON(cmd.String("json"), req); err != nil {
+						return nil, err
 					}
-					if cmd.IsSet("page-size") {
-						req.PageSize = int32(cmd.Int("page-size"))
-					}
-					if cmd.IsSet("page-token") {
-						req.PageToken = cmd.String("page-token")
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
 					}
 					return req, nil
 				},
 				func() proto.Message { return &cohortv1.ListDevicesResponse{} },
 			),
 			generatedRequestCommand(
-				"set-cohort-firmware-target",
+				"set-firmware-target",
 				"Set cohort firmware target",
 				"/cohort.v1.CohortService/SetCohortFirmwareTarget",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "cohort-id", Usage: "cohort id"},
+					&cli.Int64Flag{Name: "cohort-id", Usage: "(required) cohort id", Required: true},
 					&cli.StringFlag{Name: "manufacturer", Usage: "manufacturer"},
 					&cli.StringFlag{Name: "model", Usage: "model"},
 					&cli.StringFlag{Name: "firmware-file-id", Usage: "firmware file id"},
@@ -423,6 +328,9 @@ func generatedCohortsCommand() *cli.Command {
 						value := cmd.String("firmware-file-id")
 						req.FirmwareFileId = &value
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &cohortv1.SetCohortFirmwareTargetResponse{} },
@@ -431,19 +339,22 @@ func generatedCohortsCommand() *cli.Command {
 				"status",
 				"Get cohort",
 				"/cohort.v1.CohortService/GetCohort",
-				generatedAuthBearer,
+				generatedAuthAuthenticated,
 				[]cli.Flag{
-					&cli.Int64Flag{Name: "cohort-id", Usage: "cohort id"},
+					&cli.Int64Flag{Name: "cohort-id", Usage: "(required) cohort id", Required: true},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &cohortv1.GetCohortRequest{}
 					if cmd.IsSet("cohort-id") {
 						req.CohortId = cmd.Int64("cohort-id")
 					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
 					return req, nil
 				},
 				func() proto.Message { return &cohortv1.GetCohortResponse{} },
 			),
-		}...),
+		},
 	}
 }

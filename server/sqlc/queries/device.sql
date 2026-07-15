@@ -626,6 +626,14 @@ LEFT JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN site s ON s.id = d.site_id
 LEFT JOIN building b ON b.id = d.building_id
+LEFT JOIN cohort_membership cm ON cm.org_id = d.org_id
+    AND cm.device_identifier = d.device_identifier
+LEFT JOIN cohort explicit_cohort ON explicit_cohort.id = cm.cohort_id
+    AND explicit_cohort.org_id = d.org_id
+    AND explicit_cohort.state = 'active'
+LEFT JOIN cohort default_cohort ON default_cohort.org_id = d.org_id
+    AND default_cohort.is_default = TRUE
+    AND default_cohort.state = 'active'
 WHERE FALSE;
 
 -- name: GetDevicePropertiesForRename :many
