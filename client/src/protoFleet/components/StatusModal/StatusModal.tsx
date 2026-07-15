@@ -70,20 +70,28 @@ const ProtoFleetStatusModal = ({
   // freshest snapshot flows back in through the `miner` prop once the parent
   // fleet map is updated via onMergeMiners.
   const { refreshMiners } = useRefreshMiners();
-  const handleLiveRefreshTick = useCallback(async () => {
-    if (!deviceId) return;
-    try {
-      const response = await refreshMiners([deviceId]);
-      if (response.snapshots.length > 0) {
-        onMergeMiners?.(response.snapshots);
+  const handleLiveRefreshTick = useCallback(
+    async (signal: AbortSignal) => {
+      if (!deviceId) return;
+      try {
+        const response = await refreshMiners([deviceId]);
+        // Bail if the modal closed / switched devices while this was in flight —
+        // merging now would clobber the newer modal's fresh state in the shared map.
+        if (signal.aborted) return;
+        if (response.snapshots.length > 0) {
+          onMergeMiners?.(response.snapshots);
+        }
+      } catch {
+        // Auth errors are surfaced inside useRefreshMiners; on any failure we keep
+        // the last-good snapshot visible and let the next tick retry.
       }
-    } catch {
-      // Auth errors are surfaced inside useRefreshMiners; on any failure we keep
-      // the last-good snapshot visible and let the next tick retry.
-    }
-    // Errors refresh independently of the snapshot merge.
-    await refetchErrors();
-  }, [deviceId, refreshMiners, onMergeMiners, refetchErrors]);
+      // Errors refresh independently of the snapshot merge.
+      if (!signal.aborted) {
+        await refetchErrors();
+      }
+    },
+    [deviceId, refreshMiners, onMergeMiners, refetchErrors],
+  );
 
   useModalLiveRefresh({
     enabled: isVisible && !!deviceId,

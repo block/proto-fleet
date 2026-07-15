@@ -11,13 +11,16 @@ import {
 // Capture the tick the modal hands to the live-refresh hook so we can drive it
 // deterministically without wiring up real timers/visibility here — that
 // lifecycle is covered by useModalLiveRefresh.test.ts.
-let capturedOnTick: (() => Promise<void>) | null = null;
+let capturedOnTick: ((signal: AbortSignal) => Promise<void>) | null = null;
 vi.mock("./hooks/useModalLiveRefresh", () => ({
-  useModalLiveRefresh: (opts: { onTick: () => Promise<void> }) => {
+  useModalLiveRefresh: (opts: { onTick: (signal: AbortSignal) => Promise<void> }) => {
     capturedOnTick = opts.onTick;
     return { isPaused: false, resume: vi.fn() };
   },
 }));
+
+// A not-yet-aborted signal for the happy-path ticks.
+const liveSignal = () => new AbortController().signal;
 
 const { mockRefreshMiners, mockRefetchErrors } = vi.hoisted(() => ({
   mockRefreshMiners: vi.fn(),
@@ -66,7 +69,7 @@ describe("ProtoFleetStatusModal live refresh wiring", () => {
     );
 
     expect(capturedOnTick).toBeTypeOf("function");
-    await capturedOnTick!();
+    await capturedOnTick!(liveSignal());
 
     expect(mockRefreshMiners).toHaveBeenCalledWith(["miner-1"]);
     expect(onMergeMiners).toHaveBeenCalledWith([snapshot]);
@@ -81,7 +84,7 @@ describe("ProtoFleetStatusModal live refresh wiring", () => {
       <ProtoFleetStatusModal open onClose={vi.fn()} deviceId="miner-1" miner={miner} onMergeMiners={onMergeMiners} />,
     );
 
-    await capturedOnTick!();
+    await capturedOnTick!(liveSignal());
 
     expect(onMergeMiners).not.toHaveBeenCalled();
     expect(mockRefetchErrors).toHaveBeenCalledTimes(1);
@@ -95,9 +98,29 @@ describe("ProtoFleetStatusModal live refresh wiring", () => {
       <ProtoFleetStatusModal open onClose={vi.fn()} deviceId="miner-1" miner={miner} onMergeMiners={onMergeMiners} />,
     );
 
-    await capturedOnTick!();
+    await capturedOnTick!(liveSignal());
 
     expect(onMergeMiners).not.toHaveBeenCalled();
     expect(mockRefetchErrors).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not merge or refetch when the tick was aborted mid-flight", async () => {
+    const snapshot = create(MinerStateSnapshotSchema, { deviceIdentifier: "miner-1", name: "Miner 1 (fresh)" });
+    mockRefreshMiners.mockResolvedValue(create(RefreshMinersResponseSchema, { snapshots: [snapshot], errors: {} }));
+    const onMergeMiners = vi.fn();
+
+    render(
+      <ProtoFleetStatusModal open onClose={vi.fn()} deviceId="miner-1" miner={miner} onMergeMiners={onMergeMiners} />,
+    );
+
+    // Simulate the loop tearing down (modal close / device switch) before the
+    // in-flight refresh resolves: the aborted response must not touch shared state.
+    const controller = new AbortController();
+    controller.abort();
+    await capturedOnTick!(controller.signal);
+
+    expect(mockRefreshMiners).toHaveBeenCalledWith(["miner-1"]);
+    expect(onMergeMiners).not.toHaveBeenCalled();
+    expect(mockRefetchErrors).not.toHaveBeenCalled();
   });
 });

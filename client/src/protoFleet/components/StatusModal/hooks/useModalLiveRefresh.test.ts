@@ -175,4 +175,32 @@ describe("useModalLiveRefresh", () => {
     act(() => vi.advanceTimersByTime(MODAL_REFRESH_INTERVAL_MS));
     expect(onTick).toHaveBeenCalledTimes(2);
   });
+
+  it("aborts the tick's signal on unmount so a late response can be ignored", () => {
+    let signal: AbortSignal | undefined;
+    const onTick = vi.fn((s: AbortSignal) => {
+      signal = s;
+    });
+    const { unmount } = renderHook(() => useModalLiveRefresh({ enabled: true, onTick }));
+    expect(signal?.aborted).toBe(false);
+
+    unmount();
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it("aborts the previous tick's signal when restartKey changes", () => {
+    const signals: AbortSignal[] = [];
+    const onTick = vi.fn((s: AbortSignal) => {
+      signals.push(s);
+    });
+    const { rerender } = renderHook(({ key }) => useModalLiveRefresh({ enabled: true, onTick, restartKey: key }), {
+      initialProps: { key: "miner-1" },
+    });
+
+    rerender({ key: "miner-2" });
+
+    // First device's signal aborts; the new device's is still live.
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+  });
 });

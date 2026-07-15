@@ -16,8 +16,14 @@ const INTERACTION_EVENTS = ["mousemove", "keydown", "click", "scroll"] as const;
 interface UseModalLiveRefreshOptions {
   /** Poll only while true (typically `isVisible && !!deviceId`). */
   enabled: boolean;
-  /** Runs immediately on open, on each tick, and on foreground/idle resume. */
-  onTick: () => void | Promise<void>;
+  /**
+   * Runs immediately on open, on each tick, and on foreground/idle resume.
+   * Receives an `AbortSignal` that fires when this loop is torn down (modal
+   * close, `restartKey` change, unmount); an async tick must check
+   * `signal.aborted` after awaiting and skip any shared side effects (e.g.
+   * merging into a shared store) so a late response can't clobber newer state.
+   */
+  onTick: (signal: AbortSignal) => void | Promise<void>;
   /**
    * Changing this restarts the loop with an immediate tick — pass the device id
    * so switching the modal's subject fetches fresh data right away.
@@ -72,6 +78,11 @@ export const useModalLiveRefresh = ({
     let lastInteraction = Date.now();
     let paused = false;
     let inFlight = false;
+    // Aborted on cleanup so a tick still awaiting when this loop tears down can
+    // be ignored by onTick instead of merging stale data after the next loop's
+    // fresh fetch. The in-flight guard alone is local to this run and can't stop
+    // an already-started async tick from resuming.
+    const abortController = new AbortController();
 
     const runTick = () => {
       // Skip work the operator can't see; the visibility handler catches them up.
@@ -80,7 +91,7 @@ export const useModalLiveRefresh = ({
       // second one. Overlapping ticks would let a slow older response merge
       // after a newer one and regress the modal/list back to stale status.
       if (inFlight) return;
-      const result = onTickRef.current();
+      const result = onTickRef.current(abortController.signal);
       // Only an async tick can still be running when the next interval fires; a
       // synchronous tick has already completed, so nothing to guard.
       if (result && typeof (result as Promise<void>).then === "function") {
@@ -157,6 +168,7 @@ export const useModalLiveRefresh = ({
     );
 
     return () => {
+      abortController.abort();
       stopInterval();
       document.removeEventListener("visibilitychange", handleVisibility);
       INTERACTION_EVENTS.forEach((event) => document.removeEventListener(event, handleInteraction, { capture: true }));
