@@ -161,7 +161,9 @@ Client observability lives in `src/shared/observability/` as a vendor-neutral pr
 registry. Datadog RUM is the first provider; a provider is a complete no-op unless its
 required config is present. When enabled, Datadog RUM captures page/session data, forwards
 React render errors (via the shared `ErrorBoundary`), and injects distributed-tracing
-headers on same-origin `/api-proxy` calls so a slow RPC can be traced client→server.
+headers on same-origin `/api-proxy` calls. This is future-ready client plumbing for
+client→server trace correlation; the bundled backend telemetry path does not currently export
+correlated server spans to Datadog.
 
 **Configuration** resolves runtime-first, then build-time:
 
@@ -186,17 +188,18 @@ Datadog keys (all read via both mechanisms; runtime `DD_*` / build-time `VITE_DD
 Both `DD_APPLICATION_ID` and `DD_CLIENT_TOKEN` must be set to enable; otherwise the client
 runs unchanged with no SDK side effects.
 
-**Privacy:** RUM sends to the operator's own Datadog org. Session Replay is off by default
+**Data minimization:** RUM sends to the operator's own Datadog org. Session Replay is off by default
 (`DD_SESSION_REPLAY_SAMPLE_RATE=0`) and masks all text/inputs when enabled
-(`defaultPrivacyLevel: "mask"`). A `beforeSend` scrubber strips query strings from resource
-URLs before events leave the browser; extend it in `providers/datadog.ts` if the UI surfaces
-further sensitive strings (worker/pool/wallet labels, IPs) in action names or error metadata.
+(`defaultPrivacyLevel: "mask"`). A `beforeSend` scrubber removes query strings that RUM does
+not need for route-level analysis; extend it in `providers/datadog.ts` if the UI later surfaces
+sensitive strings in action names or error metadata.
 
 **Adding a provider** (Sentry, PostHog): implement `ObservabilityProvider` under
 `src/shared/observability/providers/`, then add one `registerProvider(...)` call in
 `src/shared/observability/providers.ts`. The entry point, transport, and error boundary are
-provider-agnostic and do not change. End-to-end distributed traces also require the backend
-to accept/propagate the incoming trace headers.
+provider-agnostic and do not change. End-to-end distributed traces remain follow-up work: the
+backend must deliberately associate the incoming context and export server spans to the same
+observability backend.
 
 ### Import Rules
 

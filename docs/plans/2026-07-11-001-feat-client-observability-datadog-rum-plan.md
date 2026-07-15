@@ -16,7 +16,7 @@ product_contract_source: ce-plan-bootstrap
 Add a vendor-neutral observability layer to the ProtoFleet web client. A small provider
 registry initializes any configured backend at startup; a Datadog RUM provider is the first
 implementation. When the required Datadog config keys are present the provider initializes
-RUM (page/session monitoring, error capture, and distributed tracing on client→server API
+RUM (page/session monitoring, error capture, and trace-context injection on client→server API
 calls); when they are absent it is a complete no-op. The abstraction is shaped so Sentry or
 PostHog can be added later by writing one more provider file — no changes to the entry point,
 transport, or error boundary.
@@ -26,8 +26,8 @@ vars that nginx renders into a `window.__RUNTIME_CONFIG__` blob at container sta
 rebuild), while local dev and CI builds continue to use Vite `VITE_*` vars. This matches the
 repo's existing "operator edits an env file, containers read it" deployment model.
 
-Distributed tracing links front-end RUM sessions to the existing backend OTEL pipeline so
-latency on specific RPCs can be traced end-to-end.
+Trace-context injection provides the client half of future front-end↔back-end correlation.
+Associating and exporting backend spans to the same observability system is explicitly deferred.
 
 **Product Contract preservation:** N/A — solo plan (`ce-plan-bootstrap`), no upstream
 brainstorm to preserve.
@@ -46,7 +46,7 @@ server handling.
 We want:
 1. A way to turn on Datadog RUM by configuration, with a clean no-op when unconfigured.
 2. A bootstrapping pattern generic enough that Sentry/PostHog follow the same shape.
-3. Distributed traces on client→server API calls to troubleshoot latency.
+3. Future-ready trace-context injection on client→server API calls.
 
 ### Scope Boundaries
 
@@ -54,7 +54,7 @@ We want:
 - Generic observability provider interface + registry + startup bootstrap (in `shared/`).
 - Datadog RUM provider (init, error capture, tracing config).
 - Runtime-config accessor with build-time (`VITE_*`) fallback.
-- Distributed tracing on ConnectRPC calls, correlated to the backend.
+- Trace-context injection on ConnectRPC calls, ready for future backend correlation.
 - Wiring into the ProtoFleet entry point and error boundary.
 - Deployment plumbing so operators can enable via env vars without a rebuild.
 
@@ -66,7 +66,7 @@ We want:
   built here).
 - Datadog Session Replay tuning beyond a sample-rate knob (default off).
 - Custom RUM actions / user identification beyond anonymous session + build metadata.
-- Server-side trace ingestion changes beyond confirming header acceptance (see Risks).
+- Server-side trace parenting/linking and export to Datadog (see Risks).
 
 ### Non-goals
 - Replacing or changing the miner-telemetry domain features (`useTelemetryMetrics`, etc.).
@@ -82,8 +82,8 @@ We want:
   registering it; no edits to the entry point, transport, or error boundary.
 - **R3** — Datadog RUM, when enabled, captures page/session data and forwards React
   render-time errors caught by the shared `ErrorBoundary`.
-- **R4** — Client→server API calls (ConnectRPC) carry trace context that correlates with the
-  backend so a slow RPC can be traced end-to-end.
+- **R4** — Client→server API calls (ConnectRPC) carry trace context scoped to the same-origin
+  API path, providing the client half of future backend correlation.
 - **R5** — Configuration is resolvable at deploy time by an operator (runtime injection) and
   at dev/CI time via `VITE_*`, through one accessor with a documented precedence.
 - **R6** — A provider `init()` failure must not crash or block app startup.
@@ -105,9 +105,9 @@ an init context).
 `@datadog/browser-rum` instruments the global `fetch`; connect-web's transport calls global
 `fetch` (its custom wrapper delegates to it), so configuring `allowedTracingUrls` to match the
 `/api-proxy` origin makes RUM inject `traceparent` / `x-datadog-*` headers on every RPC and
-tie them to RUM resource timings + backend APM. This is the supported, RUM-correlated path and
+tie them to RUM resource timings. This provides the client half of a future RUM↔APM path and
 requires no change to how the ~25 clients are built (all share one transport). Rationale:
-directly serves R4 and "troubleshoot latency" with front-end↔back-end correlation.
+directly serves R4 without claiming backend correlation that this change does not configure.
 
 **KTD3 — Vendor-neutral interceptor seam kept, unused by Datadog.**
 The registry exposes an optional `observabilityInterceptors()` contribution that the transport
@@ -154,7 +154,7 @@ flowchart TD
     APP[App.tsx ErrorBoundary onError] --> RE["reportObservabilityError()"] --> REG
     TR[transport.ts createConnectTransport] -->|observabilityInterceptors| REG
     FETCH[global fetch on /api-proxy] -->|RUM allowedTracingUrls| TRACE[traceparent / x-datadog-*]
-    TRACE --> BE[backend OTEL collector -> APM]
+    TRACE --> FUTURE[future backend correlation and export]
   end
 ```
 
@@ -382,12 +382,11 @@ provider" path.
 
 ## Risks & Dependencies
 
-- **Server must accept/propagate trace headers for end-to-end traces (R4).** The backend
-  already runs an OTEL collector (`FLEET_TELEMETRY_ENDPOINT`, otel-collector service). If the
-  server does not propagate incoming `traceparent`/`x-datadog-*` context, front-end spans still
-  record client-side timing but won't stitch to backend spans. *Mitigation:* verify server
-  header handling; treat backend correlation as a follow-up if missing. Client value (RUM
-  resource timing, error capture) lands regardless.
+- **End-to-end trace correlation is deferred.** The backend currently treats incoming requests
+  as public endpoints and the bundled OTEL collector exports server traces to Jaeger, not the
+  operator's Datadog org. This change only injects scoped trace context and records client-side
+  resource timing. A follow-up must define the trust/association policy for browser-supplied
+  context and export server spans to the same backend before claiming end-to-end traces.
 - **Datadog RUM patches global `fetch`.** connect-web's custom `fetch` wrapper delegates to
   global `fetch`, so instrumentation applies — but confirm the wrapper isn't replaced by a
   non-global fetch in future. *Mitigation:* a test asserting the transport uses global fetch;
@@ -409,8 +408,8 @@ provider" path.
   fails the "operator configures → enabled" intent. Rejected as the sole mechanism; kept as the
   dev/CI fallback layer (KTD4).
 - **Bespoke ConnectRPC tracing interceptor as the primary tracing mechanism.** Vendor-neutral,
-  but would duplicate/collide with RUM's own fetch instrumentation and lose automatic RUM↔APM
-  correlation. Rejected as primary; retained as an optional seam (KTD3).
+  but would duplicate/collide with RUM's own fetch instrumentation. Rejected as primary;
+  retained as an optional seam for a future provider (KTD3).
 - **React context provider for observability.** Heavier than needed — init is a one-time
   startup side effect, better placed in `mainWrapper.tsx` next to `logBuildVersion()`. Error
   forwarding uses the existing `ErrorBoundary.onError` seam instead of new context.
