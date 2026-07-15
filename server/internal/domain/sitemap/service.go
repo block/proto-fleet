@@ -30,6 +30,7 @@ const (
 	maxImportRows      = 100000
 	maxRackDimension   = 12
 	maxLayoutDimension = 100
+	exportChunkBytes   = 64 * 1024
 )
 
 var (
@@ -109,6 +110,11 @@ func (s *Service) ExportSiteMapCsv(ctx context.Context, orgID int64, send func(*
 		for _, row := range rows {
 			if err := writer.Write(row); err != nil {
 				return fleeterror.NewInternalErrorf("failed to write %s data row: %v", name, err)
+			}
+			if buffer.Len() >= exportChunkBytes {
+				if err := flush(name); err != nil {
+					return err
+				}
 			}
 		}
 		if err := writer.Write(nil); err != nil {
