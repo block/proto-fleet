@@ -641,7 +641,7 @@ describe("CurtailmentSettingsPage", () => {
       </MemoryRouter>,
     );
 
-    expect(useInfrastructureDevices).toHaveBeenCalledWith(true);
+    expect(useInfrastructureDevices).toHaveBeenCalledWith(true, undefined, true);
     await user.click(screen.getByRole("button", { name: "Create profile" }));
     await user.click(screen.getByRole("button", { name: /Infrastructure\s+Select/ }));
 

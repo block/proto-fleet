@@ -270,6 +270,27 @@ func TestHandler_ListIntersectsRequestFilterWithReadableSites(t *testing.T) {
 	require.Len(t, resp.Msg.GetDevices(), 1)
 }
 
+func TestHandler_ListFiltersToCurtailmentManageableSitesWhenRequested(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ctx := handlerstest.CtxWithAssignments(t, 42,
+		handlerstest.OrgAssignment(authz.PermSiteRead, authz.PermCurtailmentManage),
+		handlerstest.SiteAssignment(11, authz.PermSiteRead),
+	)
+
+	h.store.EXPECT().ListInfrastructureDevices(gomock.Any(), models.ListFilter{OrgID: 42}).
+		Return([]models.Device{*deviceAtSite(1, 10), *deviceAtSite(2, 11)}, nil)
+
+	resp, err := h.handler.ListInfrastructureDevices(ctx, connect.NewRequest(&pb.ListInfrastructureDevicesRequest{
+		RequireCurtailmentManage: true,
+	}))
+
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetDevices(), 1)
+	assert.Equal(t, int64(10), resp.Msg.GetDevices()[0].GetSiteId())
+}
+
 func TestHandler_ListReturnsEmptyWithoutQueryWhenNoReadableSites(t *testing.T) {
 	t.Parallel()
 

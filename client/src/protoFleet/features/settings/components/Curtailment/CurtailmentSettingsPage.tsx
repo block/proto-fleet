@@ -1819,7 +1819,7 @@ function CurtailmentSettingsPage(): ReactElement {
     isLoading: isLoadingInfrastructureDevices,
     loadError: infrastructureDevicesError,
     listDevices: listInfrastructureDevices,
-  } = useInfrastructureDevices(canLoadSiteOptions);
+  } = useInfrastructureDevices(canLoadSiteOptions, undefined, true);
   const retryInfrastructureDevices = useCallback(() => {
     void listInfrastructureDevices().catch(() => {});
   }, [listInfrastructureDevices]);
