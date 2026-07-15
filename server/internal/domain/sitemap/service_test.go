@@ -265,7 +265,7 @@ func TestMinerRowsBlankSiteAndBuildingForRackedMiners(t *testing.T) {
 		Rack:             "Rack A",
 		RackRow:          "0",
 		RackCol:          "0",
-	}})
+	}}, nil)
 
 	if got := rows[0][5]; got != "" {
 		t.Fatalf("exported miner site = %q, want blank when rack is set", got)
@@ -287,7 +287,7 @@ func TestMinerRowsUseRackMembershipDerivedRackForExport(t *testing.T) {
 		Rack:             "Rack A",
 		RackRow:          "0",
 		RackCol:          "0",
-	}})
+	}}, nil)
 
 	if got := rows[0][7]; got != "Rack A" {
 		t.Fatalf("exported miner rack = %q, want Rack A", got)
@@ -299,10 +299,31 @@ func TestMinerRowsBlankSiteForDirectBuildingAssignment(t *testing.T) {
 		DeviceIdentifier: "miner-1",
 		Site:             "Site A",
 		Building:         "Building A",
-	}})
+	}}, []buildingmodels.Building{{SiteLabel: "Site A", Name: "Building A"}})
 
 	if got := rows[0][5]; got != "" {
 		t.Fatalf("exported miner site = %q, want blank when building is set", got)
+	}
+	if got := rows[0][6]; got != "Building A" {
+		t.Fatalf("exported miner building = %q, want Building A", got)
+	}
+}
+
+func TestMinerRowsPreserveSiteForAmbiguousDirectBuildingAssignment(t *testing.T) {
+	rows := minerRows(
+		[]minerSnapshot{{
+			DeviceIdentifier: "miner-1",
+			Site:             "Site A",
+			Building:         "Building A",
+		}},
+		[]buildingmodels.Building{
+			{SiteLabel: "Site A", Name: "Building A"},
+			{SiteLabel: "Site B", Name: "Building A"},
+		},
+	)
+
+	if got := rows[0][5]; got != "Site A" {
+		t.Fatalf("exported miner site = %q, want Site A when building name is ambiguous", got)
 	}
 	if got := rows[0][6]; got != "Building A" {
 		t.Fatalf("exported miner building = %q, want Building A", got)
@@ -323,6 +344,45 @@ func TestDesiredMinerSiteBuildingResolvesDirectBuildingSite(t *testing.T) {
 	)
 	if site != "Site A" || building != "Building A" {
 		t.Fatalf("placement = (%q, %q), want (Site A, Building A)", site, building)
+	}
+}
+
+func TestDesiredMinerSiteBuildingResolvesUnassignedDuplicateBuilding(t *testing.T) {
+	buildingsByName, ambiguous := desiredBuildingNameLookup(nil, []buildingmodels.Building{
+		{SiteLabel: "", Name: "Building A"},
+		{SiteLabel: "Site A", Name: "Building A"},
+	})
+
+	site, building := desiredMinerSiteBuilding(
+		map[string]string{"site": "", "building": "Building A", "rack": ""},
+		nil,
+		buildingsByName,
+		ambiguous,
+	)
+	if site != "" || building != "Building A" {
+		t.Fatalf("placement = (%q, %q), want unassigned Building A", site, building)
+	}
+	if ambiguous["Building A"] {
+		t.Fatal("single unassigned building should disambiguate blank-site building rows")
+	}
+}
+
+func TestValidatePlacementConsistencyHonorsSiteForDuplicateBuildingNames(t *testing.T) {
+	rows := []map[string]string{{
+		"__row":    "21",
+		"site":     "Site A",
+		"building": "Building A",
+	}}
+	snap := &snapshot{
+		sites: []sitemodels.Site{{Name: "Site A"}, {Name: "Site B"}},
+		buildings: []buildingmodels.Building{
+			{SiteLabel: "Site A", Name: "Building A"},
+			{SiteLabel: "Site B", Name: "Building A"},
+		},
+	}
+
+	if errs := validatePlacementConsistency(rows, nil, nil, snap); len(errs) != 0 {
+		t.Fatalf("site-qualified duplicate building should validate, got %+v", errs)
 	}
 }
 

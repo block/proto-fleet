@@ -132,7 +132,7 @@ func (s *Service) ExportSiteMapCsv(ctx context.Context, orgID int64, send func(*
 	if err := writeSection("RACK", rackHeaders, rackRows(snapshot.racks)); err != nil {
 		return fleeterror.NewInternalErrorf("failed to write RACK section: %v", err)
 	}
-	if err := writeSection("MINER", minerHeaders, minerRows(snapshot.miners)); err != nil {
+	if err := writeSection("MINER", minerHeaders, minerRows(snapshot.miners, snapshot.buildings)); err != nil {
 		return fleeterror.NewInternalErrorf("failed to write MINER section: %v", err)
 	}
 
@@ -332,17 +332,19 @@ func (s *Service) listRacksAndSlots(ctx context.Context, orgID int64) ([]rackSna
 					return nil, nil, err
 				}
 				for _, member := range members {
-					if member.GetRack() == nil || member.GetRack().GetSlotPosition() == nil {
+					if member.GetRack() == nil {
 						continue
 					}
-					pos := member.GetRack().GetSlotPosition()
-					slots[member.GetDeviceIdentifier()] = slotPosition{
+					slot := slotPosition{
 						rack:     collection.GetLabel(),
 						site:     rack.Site,
 						building: rack.Building,
-						row:      strconv.FormatInt(int64(pos.GetRow()), 10),
-						col:      strconv.FormatInt(int64(pos.GetColumn()), 10),
 					}
+					if pos := member.GetRack().GetSlotPosition(); pos != nil {
+						slot.row = strconv.FormatInt(int64(pos.GetRow()), 10)
+						slot.col = strconv.FormatInt(int64(pos.GetColumn()), 10)
+					}
+					slots[member.GetDeviceIdentifier()] = slot
 				}
 				if nextMemberCursor == "" {
 					break
@@ -505,8 +507,9 @@ func rackRows(racks []rackSnapshot) [][]string {
 	return rows
 }
 
-func minerRows(miners []minerSnapshot) [][]string {
+func minerRows(miners []minerSnapshot, buildings []buildingmodels.Building) [][]string {
 	rows := make([][]string, 0, len(miners))
+	ambiguousBuildingNames := ambiguousBuildingLabels(buildings)
 	for _, miner := range miners {
 		rows = append(rows, []string{
 			clean(miner.DeviceIdentifier),
@@ -514,7 +517,7 @@ func minerRows(miners []minerSnapshot) [][]string {
 			clean(miner.Name),
 			clean(miner.IPAddress),
 			clean(miner.MACAddress),
-			clean(minerExportSite(miner)),
+			clean(minerExportSite(miner, ambiguousBuildingNames)),
 			clean(minerExportBuilding(miner)),
 			clean(miner.Rack),
 			miner.RackRow,
@@ -524,8 +527,11 @@ func minerRows(miners []minerSnapshot) [][]string {
 	return rows
 }
 
-func minerExportSite(miner minerSnapshot) string {
-	if miner.Rack != "" || miner.Building != "" {
+func minerExportSite(miner minerSnapshot, ambiguousBuildingNames map[string]bool) string {
+	if miner.Rack != "" {
+		return ""
+	}
+	if miner.Building != "" && !ambiguousBuildingNames[miner.Building] {
 		return ""
 	}
 	return miner.Site
@@ -1121,7 +1127,7 @@ func snapshotFingerprint(snap *snapshot) string {
 		Sites:     siteRows(snap.sites),
 		Buildings: buildingRows(snap.buildings),
 		Racks:     rackRows(snap.racks),
-		Miners:    minerRows(snap.miners),
+		Miners:    minerRows(snap.miners, snap.buildings),
 	})
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
@@ -1361,6 +1367,7 @@ func validateRackPlacementTargets(rows []map[string]string, snap *snapshot) []*p
 func validatePlacementConsistency(minerRows, rackRows, buildingRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
 	racks := desiredRackMap(rackRows, snap.racks)
 	buildingsByName, ambiguousBuildings := desiredBuildingNameLookup(buildingRows, snap.buildings)
+	buildingsByKey := desiredBuildingMap(buildingRows, snap.buildings)
 	existingSites := rowSetFromSites(snap.sites)
 	var errs []*pb.ImportValidationError
 	for i, row := range minerRows {
@@ -1379,6 +1386,17 @@ func validatePlacementConsistency(minerRows, rackRows, buildingRows []map[string
 			continue
 		}
 		if row["building"] != "" {
+			if row["site"] != "" {
+				building, ok := buildingsByKey[row["site"]+"\x00"+row["building"]]
+				if !ok {
+					errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("unknown building %q for site %q", row["building"], row["site"])))
+					continue
+				}
+				if row["site"] != building.SiteLabel {
+					errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner site %q does not match building site %q", row["site"], building.SiteLabel)))
+				}
+				continue
+			}
 			if ambiguousBuildings[row["building"]] {
 				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner building %q is ambiguous; add site", row["building"])))
 				continue
@@ -1924,14 +1942,43 @@ func desiredBuildingMap(rows []map[string]string, buildings []buildingmodels.Bui
 func desiredBuildingNameLookup(rows []map[string]string, buildings []buildingmodels.Building) (map[string]buildingmodels.Building, map[string]bool) {
 	byName := map[string]buildingmodels.Building{}
 	ambiguous := map[string]bool{}
+	byBuildingName := map[string][]buildingmodels.Building{}
 	for _, building := range desiredBuildingMap(rows, buildings) {
-		if existing, ok := byName[building.Name]; ok && existing.SiteLabel != building.SiteLabel {
-			ambiguous[building.Name] = true
+		byBuildingName[building.Name] = append(byBuildingName[building.Name], building)
+	}
+	for name, candidates := range byBuildingName {
+		if len(candidates) == 1 {
+			byName[name] = candidates[0]
 			continue
 		}
-		byName[building.Name] = building
+		var unassigned []buildingmodels.Building
+		for _, building := range candidates {
+			if building.SiteLabel == "" {
+				unassigned = append(unassigned, building)
+			}
+		}
+		if len(unassigned) == 1 {
+			byName[name] = unassigned[0]
+			continue
+		}
+		ambiguous[name] = true
 	}
 	return byName, ambiguous
+}
+
+func ambiguousBuildingLabels(buildings []buildingmodels.Building) map[string]bool {
+	firstSiteByName := map[string]string{}
+	ambiguous := map[string]bool{}
+	for _, building := range buildings {
+		if site, ok := firstSiteByName[building.Name]; ok {
+			if site != building.SiteLabel {
+				ambiguous[building.Name] = true
+			}
+			continue
+		}
+		firstSiteByName[building.Name] = building.SiteLabel
+	}
+	return ambiguous
 }
 
 func desiredRackMap(rows []map[string]string, racks []rackSnapshot) map[string]rackSnapshot {
