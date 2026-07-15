@@ -3,7 +3,6 @@ import { testConfig } from "../config/test.config";
 import { expect, test } from "../fixtures/pageFixtures";
 import { installAllSitesInitScript } from "../helpers/fleetLocationsSetup";
 import {
-  cleanupRbacTeamArtifacts,
   ensureVisibleRigMinersAwake,
   provisionRoleAndLoginViaStoredAdminContext,
   selectHashingRigMinerForStopFlow,
@@ -36,10 +35,6 @@ test.describe("Proto Fleet - Miner RBAC", () => {
     await page.goto("/");
   });
 
-  test.afterAll("CLEANUP: delete RBAC team fixtures", async ({ browser }, testInfo) => {
-    await cleanupRbacTeamArtifacts(browser, testInfo);
-  });
-
   test("Miners read-only role can view the miner list and status without mutating action controls", async ({
     browser,
     commonSteps,
@@ -47,6 +42,12 @@ test.describe("Proto Fleet - Miner RBAC", () => {
   }) => {
     let minerIp = "";
     let minerStatus = "";
+
+    await test.step("Prepare a visible hashing Proto rig as admin", async () => {
+      await commonSteps.loginAsAdmin({ forceReauth: true });
+      await commonSteps.goToMinersPage();
+      await ensureVisibleRigMinersAwake(minersPage);
+    });
 
     await test.step("Provision a read-only miner role", async () => {
       await provisionMinerRole(browser, commonSteps, {
@@ -59,11 +60,11 @@ test.describe("Proto Fleet - Miner RBAC", () => {
       await commonSteps.goToMinersPage();
       await minersPage.filterRigMiners();
 
-      minerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
+      minerIp = await minersPage.getMinerIpAddressByStatus("Hashing");
       minerStatus = (await minersPage.getMinerStatus(minerIp)).trim();
 
       expect(minerIp).not.toBe("");
-      expect(minerStatus).not.toBe("");
+      expect(minerStatus).toBe("Hashing");
     });
 
     await test.step("Verify single-miner mutating controls stay hidden", async () => {

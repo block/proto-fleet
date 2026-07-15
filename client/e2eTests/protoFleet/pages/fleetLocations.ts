@@ -303,11 +303,14 @@ export class FleetLocationsPage extends BasePage {
     await this.clickRowAction("Edit site");
     await this.clickManageSiteDelete();
 
+    const deleteDialog = this.page.getByTestId("site-delete-dialog");
     const confirmDeleteButton = this.page.getByTestId("site-delete-dialog-confirm");
     await expect(confirmDeleteButton).toBeVisible();
     await confirmDeleteButton.click({ trial: true });
     await confirmDeleteButton.click();
     await expect(this.getListRowByName(name)).toHaveCount(0);
+    await expect(deleteDialog).toHaveCount(0);
+    await expect(this.page.getByTestId("full-screen-two-pane-modal")).toHaveCount(0);
   }
 
   async deleteBuilding(name: string) {
@@ -315,11 +318,14 @@ export class FleetLocationsPage extends BasePage {
     await this.openManageBuildingFromList(name);
     await this.clickManageBuildingDelete();
 
+    const deleteDialog = this.page.getByTestId("building-delete-dialog");
     const confirmDeleteButton = this.page.getByTestId("building-delete-dialog-confirm");
     await expect(confirmDeleteButton).toBeVisible();
     await confirmDeleteButton.click({ trial: true });
     await confirmDeleteButton.click();
     await expect(this.getListRowByName(name)).toHaveCount(0);
+    await expect(deleteDialog).toHaveCount(0);
+    await expect(this.page.getByTestId("full-screen-two-pane-modal")).toHaveCount(0);
   }
 
   async renameBuilding(currentName: string, nextName: string) {
