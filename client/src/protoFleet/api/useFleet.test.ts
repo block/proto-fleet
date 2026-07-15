@@ -36,6 +36,13 @@ const makeMiner = (deviceIdentifier: string, workerName = "") =>
     workerName,
   });
 
+const makeTimedMiner = (deviceIdentifier: string, workerName: string, seconds: number) =>
+  create(MinerStateSnapshotSchema, {
+    deviceIdentifier,
+    workerName,
+    timestamp: { seconds: BigInt(seconds), nanos: 0 },
+  });
+
 const makeListResponse = (miners: ReturnType<typeof makeMiner>[]) =>
   create(ListMinerStateSnapshotsResponseSchema, {
     miners,
@@ -173,5 +180,76 @@ describe("useFleet", () => {
     });
 
     expect(result.current.miners).toBe(before);
+  });
+
+  it("keeps a newer merged snapshot when a slower page response resolves afterward", async () => {
+    // Initial page load and the later refetch both return the same older
+    // snapshot (ts=100); a live-modal merge in between carries a newer one.
+    vi.mocked(fleetManagementClient.listMinerStateSnapshots).mockResolvedValue(
+      makeListResponse([makeTimedMiner("miner-1", "worker-old", 100)]),
+    );
+
+    const { result } = renderHook(() => useFleet({ pageSize: 10 }));
+
+    await waitFor(() => {
+      expect(result.current.miners["miner-1"]?.workerName).toBe("worker-old");
+    });
+
+    act(() => {
+      result.current.mergeMiners([makeTimedMiner("miner-1", "worker-fresh", 200)]);
+    });
+    expect(result.current.miners["miner-1"]?.workerName).toBe("worker-fresh");
+
+    // A page poll that resolves after the merge carries the older snapshot; it
+    // must not regress the device back to stale state.
+    await act(async () => {
+      result.current.refetch();
+    });
+
+    await waitFor(() => {
+      expect(fleetManagementClient.listMinerStateSnapshots).toHaveBeenCalledTimes(2);
+    });
+    expect(result.current.miners["miner-1"]?.workerName).toBe("worker-fresh");
+  });
+
+  it("lets a newer page response win over an older existing snapshot", async () => {
+    vi.mocked(fleetManagementClient.listMinerStateSnapshots)
+      .mockResolvedValueOnce(makeListResponse([makeTimedMiner("miner-1", "worker-old", 100)]))
+      .mockResolvedValueOnce(makeListResponse([makeTimedMiner("miner-1", "worker-newer", 300)]));
+
+    const { result } = renderHook(() => useFleet({ pageSize: 10 }));
+
+    await waitFor(() => {
+      expect(result.current.miners["miner-1"]?.workerName).toBe("worker-old");
+    });
+
+    await act(async () => {
+      result.current.refetch();
+    });
+
+    await waitFor(() => {
+      expect(result.current.miners["miner-1"]?.workerName).toBe("worker-newer");
+    });
+  });
+
+  it("does not let an older snapshot merge over a newer existing one", async () => {
+    vi.mocked(fleetManagementClient.listMinerStateSnapshots).mockResolvedValue(
+      makeListResponse([makeTimedMiner("miner-1", "worker-fresh", 200)]),
+    );
+
+    const { result } = renderHook(() => useFleet({ pageSize: 10 }));
+
+    await waitFor(() => {
+      expect(result.current.miners["miner-1"]?.workerName).toBe("worker-fresh");
+    });
+
+    const before = result.current.miners;
+
+    act(() => {
+      result.current.mergeMiners([makeTimedMiner("miner-1", "worker-stale", 100)]);
+    });
+
+    expect(result.current.miners).toBe(before);
+    expect(result.current.miners["miner-1"]?.workerName).toBe("worker-fresh");
   });
 });

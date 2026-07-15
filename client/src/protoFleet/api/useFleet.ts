@@ -34,6 +34,24 @@ const DEFAULT_PAIRING_STATUSES: PairingStatus[] = [];
 type PendingFetchMode = "refetch" | "refresh";
 
 /**
+ * True when `a` was captured strictly after `b`, per the server-set snapshot
+ * timestamp. The miner map is updated from more than one source — the page
+ * poll (`fetchMinerList`) and out-of-band per-device refreshes (`mergeMiners`,
+ * e.g. the live status modal). Those can resolve out of order, so a slow page
+ * response must not regress a device to an older snapshot than one already
+ * merged. Missing timestamps are treated as not-newer, so callers fall back to
+ * their existing default (the incoming snapshot wins) and behavior is unchanged
+ * for responses without timestamps.
+ */
+const snapshotIsStrictlyNewer = (a: MinerStateSnapshot, b: MinerStateSnapshot): boolean => {
+  const at = a.timestamp;
+  const bt = b.timestamp;
+  if (!at || !bt) return false;
+  if (at.seconds !== bt.seconds) return at.seconds > bt.seconds;
+  return at.nanos > bt.nanos;
+};
+
+/**
  * Hook for managing fleet data with automatic loading, filtering, and pagination.
  *
  * @param options - Configuration options for the hook
@@ -126,10 +144,6 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
         // Always replace (never append) for page-based pagination
         const ids = miners.map((miner) => miner.deviceIdentifier);
-        const minersMap: Record<string, MinerStateSnapshot> = {};
-        miners.forEach((miner) => {
-          minersMap[miner.deviceIdentifier] = miner;
-        });
 
         // Only update state if data actually changed — avoids unnecessary
         // re-renders of MinerList/deviceItems on every poll when data is unchanged.
@@ -141,13 +155,20 @@ const useFleet = (options: UseFleetOptions = {}) => {
           return prev;
         });
         setMiners((prev) => {
-          const prevKeys = Object.keys(prev);
-          if (prevKeys.length !== ids.length) return minersMap;
+          // The page owns membership/order, but per-device it must not regress a
+          // snapshot that was merged more recently out-of-band (e.g. the live
+          // status modal): keep whichever snapshot is newer for each device.
+          let changed = Object.keys(prev).length !== ids.length;
+          const nextMap: Record<string, MinerStateSnapshot> = {};
           for (const miner of miners) {
             const prevMiner = prev[miner.deviceIdentifier];
-            if (!prevMiner || !equals(MinerStateSnapshotSchema, prevMiner, miner)) return minersMap;
+            const chosen = prevMiner && snapshotIsStrictlyNewer(prevMiner, miner) ? prevMiner : miner;
+            nextMap[miner.deviceIdentifier] = chosen;
+            if (!changed && (!prevMiner || !equals(MinerStateSnapshotSchema, prevMiner, chosen))) {
+              changed = true;
+            }
           }
-          return prev;
+          return changed ? nextMap : prev;
         });
         setTotalMiners(responseTotalMiners);
 
@@ -365,7 +386,13 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
       snapshots.forEach((snapshot) => {
         const existingMiner = prev[snapshot.deviceIdentifier];
-        if (existingMiner && equals(MinerStateSnapshotSchema, existingMiner, snapshot)) {
+        // Skip when unchanged, or when what we already have is newer than this
+        // merge — a late/duplicate merge must not overwrite fresher state.
+        if (
+          existingMiner &&
+          (equals(MinerStateSnapshotSchema, existingMiner, snapshot) ||
+            snapshotIsStrictlyNewer(existingMiner, snapshot))
+        ) {
           return;
         }
 
