@@ -42,7 +42,7 @@ func (q *Queries) DeleteCurtailmentResponseProfileByOrg(ctx context.Context, arg
 }
 
 const getCurtailmentResponseProfileByOrg = `-- name: GetCurtailmentResponseProfileByOrg :one
-SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json, force_include_all_paired_miners
+SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json, force_include_all_paired_miners, facility_fan_device_ids, fan_off_delay_sec, fan_restore_delay_sec
 FROM curtailment_response_profile
 WHERE id = $1
   AND org_id = $2
@@ -78,6 +78,9 @@ func (q *Queries) GetCurtailmentResponseProfileByOrg(ctx context.Context, arg Ge
 		&i.PostEventCooldownSec,
 		&i.ScopeJson,
 		&i.ForceIncludeAllPairedMiners,
+		pq.Array(&i.FacilityFanDeviceIds),
+		&i.FanOffDelaySec,
+		&i.FanRestoreDelaySec,
 	)
 	return i, err
 }
@@ -101,7 +104,10 @@ INSERT INTO curtailment_response_profile (
     include_maintenance,
     force_include_maintenance,
     post_event_cooldown_sec,
-    force_include_all_paired_miners
+    force_include_all_paired_miners,
+    facility_fan_device_ids,
+    fan_off_delay_sec,
+    fan_restore_delay_sec
 ) VALUES (
     $1,
     $2,
@@ -120,9 +126,12 @@ INSERT INTO curtailment_response_profile (
     $15,
     $16,
     $17,
-    $18
+    $18,
+    $19,
+    $20,
+    $21
 )
-RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json, force_include_all_paired_miners
+RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json, force_include_all_paired_miners, facility_fan_device_ids, fan_off_delay_sec, fan_restore_delay_sec
 `
 
 type InsertCurtailmentResponseProfileParams struct {
@@ -144,6 +153,9 @@ type InsertCurtailmentResponseProfileParams struct {
 	ForceIncludeMaintenance     bool
 	PostEventCooldownSec        int32
 	ForceIncludeAllPairedMiners bool
+	FacilityFanDeviceIds        []int64
+	FanOffDelaySec              int32
+	FanRestoreDelaySec          int32
 }
 
 func (q *Queries) InsertCurtailmentResponseProfile(ctx context.Context, arg InsertCurtailmentResponseProfileParams) (CurtailmentResponseProfile, error) {
@@ -166,6 +178,9 @@ func (q *Queries) InsertCurtailmentResponseProfile(ctx context.Context, arg Inse
 		arg.ForceIncludeMaintenance,
 		arg.PostEventCooldownSec,
 		arg.ForceIncludeAllPairedMiners,
+		pq.Array(arg.FacilityFanDeviceIds),
+		arg.FanOffDelaySec,
+		arg.FanRestoreDelaySec,
 	)
 	var i CurtailmentResponseProfile
 	err := row.Scan(
@@ -190,6 +205,9 @@ func (q *Queries) InsertCurtailmentResponseProfile(ctx context.Context, arg Inse
 		&i.PostEventCooldownSec,
 		&i.ScopeJson,
 		&i.ForceIncludeAllPairedMiners,
+		pq.Array(&i.FacilityFanDeviceIds),
+		&i.FanOffDelaySec,
+		&i.FanRestoreDelaySec,
 	)
 	return i, err
 }
@@ -237,7 +255,7 @@ func (q *Queries) ListCurtailmentResponseProfileDeviceSitesByOrg(ctx context.Con
 }
 
 const listCurtailmentResponseProfilesByOrg = `-- name: ListCurtailmentResponseProfilesByOrg :many
-SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json, force_include_all_paired_miners
+SELECT id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json, force_include_all_paired_miners, facility_fan_device_ids, fan_off_delay_sec, fan_restore_delay_sec
 FROM curtailment_response_profile
 WHERE org_id = $1
 ORDER BY profile_name, id
@@ -274,7 +292,53 @@ func (q *Queries) ListCurtailmentResponseProfilesByOrg(ctx context.Context, orgI
 			&i.PostEventCooldownSec,
 			&i.ScopeJson,
 			&i.ForceIncludeAllPairedMiners,
+			pq.Array(&i.FacilityFanDeviceIds),
+			&i.FanOffDelaySec,
+			&i.FanRestoreDelaySec,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listResponseProfileInfrastructureDevicesByOrg = `-- name: ListResponseProfileInfrastructureDevicesByOrg :many
+SELECT id, site_id, enabled
+FROM infrastructure_device
+WHERE org_id = $1
+  AND id = ANY($2::bigint[])
+  AND deleted_at IS NULL
+ORDER BY id
+`
+
+type ListResponseProfileInfrastructureDevicesByOrgParams struct {
+	OrgID                   int64
+	InfrastructureDeviceIds []int64
+}
+
+type ListResponseProfileInfrastructureDevicesByOrgRow struct {
+	ID      int64
+	SiteID  int64
+	Enabled bool
+}
+
+func (q *Queries) ListResponseProfileInfrastructureDevicesByOrg(ctx context.Context, arg ListResponseProfileInfrastructureDevicesByOrgParams) ([]ListResponseProfileInfrastructureDevicesByOrgRow, error) {
+	rows, err := q.query(ctx, q.listResponseProfileInfrastructureDevicesByOrgStmt, listResponseProfileInfrastructureDevicesByOrg, arg.OrgID, pq.Array(arg.InfrastructureDeviceIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListResponseProfileInfrastructureDevicesByOrgRow
+	for rows.Next() {
+		var i ListResponseProfileInfrastructureDevicesByOrgRow
+		if err := rows.Scan(&i.ID, &i.SiteID, &i.Enabled); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -307,12 +371,15 @@ SET
     include_maintenance = $14,
     force_include_maintenance = $15,
     post_event_cooldown_sec = $16,
-    force_include_all_paired_miners = $17
-WHERE id = $18
-  AND org_id = $19
-  AND site_id IS NOT DISTINCT FROM $20
-  AND scope_json = $21::jsonb
-RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json, force_include_all_paired_miners
+    force_include_all_paired_miners = $17,
+    facility_fan_device_ids = $18,
+    fan_off_delay_sec = $19,
+    fan_restore_delay_sec = $20
+WHERE id = $21
+  AND org_id = $22
+  AND site_id IS NOT DISTINCT FROM $23
+  AND scope_json = $24::jsonb
+RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json, force_include_all_paired_miners, facility_fan_device_ids, fan_off_delay_sec, fan_restore_delay_sec
 `
 
 type UpdateCurtailmentResponseProfileParams struct {
@@ -333,6 +400,9 @@ type UpdateCurtailmentResponseProfileParams struct {
 	ForceIncludeMaintenance     bool
 	PostEventCooldownSec        int32
 	ForceIncludeAllPairedMiners bool
+	FacilityFanDeviceIds        []int64
+	FanOffDelaySec              int32
+	FanRestoreDelaySec          int32
 	ID                          int64
 	OrgID                       int64
 	ExpectedSiteID              sql.NullInt64
@@ -358,6 +428,9 @@ func (q *Queries) UpdateCurtailmentResponseProfile(ctx context.Context, arg Upda
 		arg.ForceIncludeMaintenance,
 		arg.PostEventCooldownSec,
 		arg.ForceIncludeAllPairedMiners,
+		pq.Array(arg.FacilityFanDeviceIds),
+		arg.FanOffDelaySec,
+		arg.FanRestoreDelaySec,
 		arg.ID,
 		arg.OrgID,
 		arg.ExpectedSiteID,
@@ -386,6 +459,9 @@ func (q *Queries) UpdateCurtailmentResponseProfile(ctx context.Context, arg Upda
 		&i.PostEventCooldownSec,
 		&i.ScopeJson,
 		&i.ForceIncludeAllPairedMiners,
+		pq.Array(&i.FacilityFanDeviceIds),
+		&i.FanOffDelaySec,
+		&i.FanRestoreDelaySec,
 	)
 	return i, err
 }

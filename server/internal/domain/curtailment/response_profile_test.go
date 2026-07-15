@@ -104,6 +104,96 @@ func TestResponseProfileService_CreateAllowsWholeOrgScope(t *testing.T) {
 	assert.Equal(t, 0, store.siteCheckCount)
 }
 
+func TestResponseProfileService_CreatePersistsFacilityFanSettings(t *testing.T) {
+	t.Parallel()
+
+	store := newResponseProfileFakeStore()
+	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 7, Enabled: true}
+	store.infrastructureDevices[32] = models.ResponseProfileInfrastructureDevice{ID: 32, SiteID: 7, Enabled: false}
+	svc := NewResponseProfileService(store)
+
+	profile, err := svc.Create(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			OrgID:                42,
+			ProfileName:          "Fan-coordinated shed",
+			SiteID:               ptrInt64(7),
+			Mode:                 models.ModeFullFleet,
+			FacilityFanDeviceIDs: []int64{31, 32, 31},
+			FanOffDelaySec:       45,
+			FanRestoreDelaySec:   90,
+		},
+		CanUseAdminControls: true,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []int64{31, 32}, profile.FacilityFanDeviceIDs)
+	assert.Equal(t, int32(45), profile.FanOffDelaySec)
+	assert.Equal(t, int32(90), profile.FanRestoreDelaySec)
+	require.NotNil(t, store.created)
+	assert.Equal(t, []int64{31, 32}, store.created.FacilityFanDeviceIDs)
+}
+
+func TestResponseProfileService_CreateRejectsUnknownFacilityFan(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewResponseProfileService(newResponseProfileFakeStore()).Create(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			OrgID:                42,
+			ProfileName:          "Unknown fan",
+			Mode:                 models.ModeFullFleet,
+			FacilityFanDeviceIDs: []int64{404},
+		},
+		CanUseAdminControls: true,
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsNotFoundError(err))
+}
+
+func TestResponseProfileService_CreateRejectsFacilityFanOutsideProfileScope(t *testing.T) {
+	t.Parallel()
+
+	store := newResponseProfileFakeStore()
+	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true}
+
+	_, err := NewResponseProfileService(store).Create(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			OrgID:                42,
+			ProfileName:          "Wrong-site fan",
+			SiteID:               ptrInt64(7),
+			Mode:                 models.ModeFullFleet,
+			FacilityFanDeviceIDs: []int64{31},
+		},
+		CanUseAdminControls: true,
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "outside the response profile scope")
+}
+
+func TestResponseProfileService_CreateAllowsFacilityFanAtExplicitMinerSite(t *testing.T) {
+	t.Parallel()
+
+	store := newResponseProfileFakeStore()
+	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 8, Enabled: true}
+	store.deviceSites["miner-a"] = ptrInt64(8)
+
+	profile, err := NewResponseProfileService(store).Create(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			OrgID:                42,
+			ProfileName:          "Explicit miner fan",
+			Mode:                 models.ModeFullFleet,
+			ScopeJSON:            []byte(`{"device_identifiers":["miner-a"]}`),
+			FacilityFanDeviceIDs: []int64{31},
+		},
+		CanUseAdminControls: true,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []int64{31}, profile.FacilityFanDeviceIDs)
+}
+
 func TestResponseProfileService_CreateRejectsDeviceSetScope(t *testing.T) {
 	t.Parallel()
 
@@ -404,20 +494,24 @@ func TestResponseProfileService_DeleteRejectsReferencedProfile(t *testing.T) {
 }
 
 type responseProfileFakeStore struct {
-	siteBelongs         bool
-	siteCheckCount      int
-	siteCheckOrgID      int64
-	siteCheckSiteID     int64
-	created             *models.ResponseProfile
-	updated             *models.ResponseProfile
-	deleteCalls         int
-	automationRuleCount int64
-	profiles            []*models.ResponseProfile
+	siteBelongs           bool
+	siteCheckCount        int
+	siteCheckOrgID        int64
+	siteCheckSiteID       int64
+	created               *models.ResponseProfile
+	updated               *models.ResponseProfile
+	deleteCalls           int
+	automationRuleCount   int64
+	profiles              []*models.ResponseProfile
+	infrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice
+	deviceSites           map[string]*int64
 }
 
 func newResponseProfileFakeStore() *responseProfileFakeStore {
 	return &responseProfileFakeStore{
-		siteBelongs: true,
+		siteBelongs:           true,
+		infrastructureDevices: map[int64]models.ResponseProfileInfrastructureDevice{},
+		deviceSites:           map[string]*int64{},
 	}
 }
 
@@ -434,8 +528,24 @@ func (s *responseProfileFakeStore) GetResponseProfile(_ context.Context, _ int64
 	return nil, fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profileID)
 }
 
-func (*responseProfileFakeStore) ListResponseProfileDeviceSites(context.Context, int64, []string) (map[string]*int64, error) {
-	return map[string]*int64{}, nil
+func (s *responseProfileFakeStore) ListResponseProfileDeviceSites(_ context.Context, _ int64, deviceIdentifiers []string) (map[string]*int64, error) {
+	out := make(map[string]*int64, len(deviceIdentifiers))
+	for _, identifier := range deviceIdentifiers {
+		if siteID, ok := s.deviceSites[identifier]; ok {
+			out[identifier] = siteID
+		}
+	}
+	return out, nil
+}
+
+func (s *responseProfileFakeStore) ListResponseProfileInfrastructureDevices(_ context.Context, _ int64, deviceIDs []int64) (map[int64]models.ResponseProfileInfrastructureDevice, error) {
+	out := make(map[int64]models.ResponseProfileInfrastructureDevice, len(deviceIDs))
+	for _, deviceID := range deviceIDs {
+		if device, ok := s.infrastructureDevices[deviceID]; ok {
+			out[deviceID] = device
+		}
+	}
+	return out, nil
 }
 
 func (s *responseProfileFakeStore) CreateResponseProfile(_ context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {

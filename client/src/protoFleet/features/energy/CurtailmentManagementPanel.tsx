@@ -15,6 +15,7 @@ import {
   useCurtailmentApi,
 } from "@/protoFleet/api/useCurtailmentApi";
 import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
+import useInfrastructureDevices from "@/protoFleet/api/useInfrastructureDevices";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import ActiveCurtailmentStatus, {
   type ActiveCurtailmentEvent,
@@ -249,6 +250,9 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
       ? immediateRestoreBatchSizeInputValue
       : "",
     restoreIntervalSec: "",
+    facilityFanDeviceIds: [],
+    fanOffDelaySec: "",
+    fanRestoreDelaySec: "",
     responseDeadlineMinutes,
     includeMaintenance: false,
     forceIncludeAllPairedMiners: false,
@@ -308,6 +312,9 @@ function createCurtailmentResponseProfileOption(profile: ResponseProfile): Curta
       curtailBatchIntervalSec: values.curtailBatchIntervalSec,
       restoreBatchSize,
       restoreIntervalSec: values.restoreIntervalSec,
+      facilityFanDeviceIds: [...(values.facilityFanDeviceIds ?? [])],
+      fanOffDelaySec: values.fanOffDelaySec ?? "",
+      fanRestoreDelaySec: values.fanRestoreDelaySec ?? "",
       includeMaintenance: values.includeMaintenance,
       forceIncludeAllPairedMiners: values.actionType === "fullFleet" && Boolean(values.forceIncludeAllPairedMiners),
     },
@@ -599,6 +606,15 @@ function CurtailmentManagementPanel({
     forceReleaseCurtailment,
   } = useCurtailmentApi({ siteNameById });
   const { responseProfiles } = useCurtailmentResponseProfiles(enableManage, { siteNameById });
+  const {
+    devices: infrastructureDevices,
+    isLoading: isLoadingInfrastructureDevices,
+    loadError: infrastructureDevicesError,
+    listDevices: listInfrastructureDevices,
+  } = useInfrastructureDevices(enableManage && canReadSiteCatalog);
+  const retryInfrastructureDevices = useCallback(() => {
+    void listInfrastructureDevices().catch(() => {});
+  }, [listInfrastructureDevices]);
   const responseProfileOptions = useMemo(
     () => responseProfiles.map(createCurtailmentResponseProfileOption),
     [responseProfiles],
@@ -1080,6 +1096,10 @@ function CurtailmentManagementPanel({
           initialValues={isEditingCurtailment ? (editSession?.initialValues ?? undefined) : undefined}
           responseProfiles={isEditingCurtailment ? [] : responseProfileOptions}
           siteOptions={siteOptions}
+          infrastructureDevices={infrastructureDevices}
+          isLoadingInfrastructureDevices={isLoadingInfrastructureDevices}
+          infrastructureDevicesError={infrastructureDevicesError}
+          onRetryInfrastructureDevices={retryInfrastructureDevices}
           defaultSiteScope={isEditingCurtailment ? undefined : defaultSiteScope}
           siteScopeEnabled={siteOptions.length > 0 || isLoadingSiteOptions}
           isSiteScopeLoading={isLoadingSiteOptions}

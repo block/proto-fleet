@@ -120,6 +120,20 @@ func (s *SQLInfrastructureDeviceStore) ListInfrastructureDevices(ctx context.Con
 	return out, nil
 }
 
+func (s *SQLInfrastructureDeviceStore) CountResponseProfilesByInfrastructureDevice(ctx context.Context, orgID, id int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountResponseProfilesByInfrastructureDevice(
+		ctx,
+		sqlc.CountResponseProfilesByInfrastructureDeviceParams{
+			OrgID:                   orgID,
+			InfrastructureDeviceIds: []int64{id},
+		},
+	)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count response profiles by infrastructure device: %v", err)
+	}
+	return count, nil
+}
+
 func (s *SQLInfrastructureDeviceStore) UpdateInfrastructureDevice(ctx context.Context, params models.UpdateParams) (*models.Device, error) {
 	// Nil Enabled maps to SQL NULL: the query's COALESCE preserves the
 	// row's current value atomically instead of writing back a value

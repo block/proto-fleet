@@ -198,6 +198,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countRacksInBuildingStmt, err = db.PrepareContext(ctx, countRacksInBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query CountRacksInBuilding: %w", err)
 	}
+	if q.countResponseProfilesByInfrastructureDeviceStmt, err = db.PrepareContext(ctx, countResponseProfilesByInfrastructureDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query CountResponseProfilesByInfrastructureDevice: %w", err)
+	}
 	if q.createApiKeyStmt, err = db.PrepareContext(ctx, createApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateApiKey: %w", err)
 	}
@@ -987,6 +990,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRecentlyResolvedCurtailedDevicesByScopeStmt, err = db.PrepareContext(ctx, listRecentlyResolvedCurtailedDevicesByScope); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRecentlyResolvedCurtailedDevicesByScope: %w", err)
 	}
+	if q.listResponseProfileInfrastructureDevicesByOrgStmt, err = db.PrepareContext(ctx, listResponseProfileInfrastructureDevicesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListResponseProfileInfrastructureDevicesByOrg: %w", err)
+	}
 	if q.listRolePermissionKeysStmt, err = db.PrepareContext(ctx, listRolePermissionKeys); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRolePermissionKeys: %w", err)
 	}
@@ -1760,6 +1766,11 @@ func (q *Queries) Close() error {
 	if q.countRacksInBuildingStmt != nil {
 		if cerr := q.countRacksInBuildingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countRacksInBuildingStmt: %w", cerr)
+		}
+	}
+	if q.countResponseProfilesByInfrastructureDeviceStmt != nil {
+		if cerr := q.countResponseProfilesByInfrastructureDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countResponseProfilesByInfrastructureDeviceStmt: %w", cerr)
 		}
 	}
 	if q.createApiKeyStmt != nil {
@@ -3077,6 +3088,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRecentlyResolvedCurtailedDevicesByScopeStmt: %w", cerr)
 		}
 	}
+	if q.listResponseProfileInfrastructureDevicesByOrgStmt != nil {
+		if cerr := q.listResponseProfileInfrastructureDevicesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listResponseProfileInfrastructureDevicesByOrgStmt: %w", cerr)
+		}
+	}
 	if q.listRolePermissionKeysStmt != nil {
 		if cerr := q.listRolePermissionKeysStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRolePermissionKeysStmt: %w", cerr)
@@ -3974,6 +3990,7 @@ type Queries struct {
 	countOrgScopeSuperAdminsExcludingUserStmt                  *sql.Stmt
 	countRacksBySiteStmt                                       *sql.Stmt
 	countRacksInBuildingStmt                                   *sql.Stmt
+	countResponseProfilesByInfrastructureDeviceStmt            *sql.Stmt
 	createApiKeyStmt                                           *sql.Stmt
 	createBuildingStmt                                         *sql.Stmt
 	createCommandBatchLogStmt                                  *sql.Stmt
@@ -4237,6 +4254,7 @@ type Queries struct {
 	listRacksOutsideBuildingBoundsStmt                         *sql.Stmt
 	listRecentlyResolvedCurtailedDevicesByOrgStmt              *sql.Stmt
 	listRecentlyResolvedCurtailedDevicesByScopeStmt            *sql.Stmt
+	listResponseProfileInfrastructureDevicesByOrgStmt          *sql.Stmt
 	listRolePermissionKeysStmt                                 *sql.Stmt
 	listRolesStmt                                              *sql.Stmt
 	listRolesWithDetailsForOrgStmt                             *sql.Stmt
@@ -4461,6 +4479,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countOrgScopeSuperAdminsExcludingUserStmt:                  q.countOrgScopeSuperAdminsExcludingUserStmt,
 		countRacksBySiteStmt:                                       q.countRacksBySiteStmt,
 		countRacksInBuildingStmt:                                   q.countRacksInBuildingStmt,
+		countResponseProfilesByInfrastructureDeviceStmt:            q.countResponseProfilesByInfrastructureDeviceStmt,
 		createApiKeyStmt:                                           q.createApiKeyStmt,
 		createBuildingStmt:                                         q.createBuildingStmt,
 		createCommandBatchLogStmt:                                  q.createCommandBatchLogStmt,
@@ -4724,6 +4743,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRacksOutsideBuildingBoundsStmt:                         q.listRacksOutsideBuildingBoundsStmt,
 		listRecentlyResolvedCurtailedDevicesByOrgStmt:              q.listRecentlyResolvedCurtailedDevicesByOrgStmt,
 		listRecentlyResolvedCurtailedDevicesByScopeStmt:            q.listRecentlyResolvedCurtailedDevicesByScopeStmt,
+		listResponseProfileInfrastructureDevicesByOrgStmt:          q.listResponseProfileInfrastructureDevicesByOrgStmt,
 		listRolePermissionKeysStmt:                                 q.listRolePermissionKeysStmt,
 		listRolesStmt:                                              q.listRolesStmt,
 		listRolesWithDetailsForOrgStmt:                             q.listRolesWithDetailsForOrgStmt,

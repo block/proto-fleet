@@ -60,6 +60,9 @@ export type ResponseProfileFormValues = {
   curtailBatchIntervalSec: string;
   restoreBatchSize: string;
   restoreIntervalSec: string;
+  facilityFanDeviceIds?: string[];
+  fanOffDelaySec?: string;
+  fanRestoreDelaySec?: string;
   responseDeadlineMinutes: string;
   includeMaintenance: boolean;
   forceIncludeAllPairedMiners?: boolean;

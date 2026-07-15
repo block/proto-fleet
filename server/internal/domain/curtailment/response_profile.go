@@ -3,6 +3,7 @@ package curtailment
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"math"
 	"strings"
 	"unicode/utf8"
@@ -150,6 +151,15 @@ func (s *ResponseProfileService) validateAndNormalize(ctx context.Context, req S
 			return models.ResponseProfile{}, fleeterror.NewNotFoundErrorf("site not found: %d", siteID)
 		}
 	}
+	profile.FacilityFanDeviceIDs, err = s.validateFacilityFanDevices(
+		ctx,
+		profile.OrgID,
+		scope,
+		profile.FacilityFanDeviceIDs,
+	)
+	if err != nil {
+		return models.ResponseProfile{}, err
+	}
 	scopeJSON, err := MarshalScopeJSON(scope)
 	if err != nil {
 		return models.ResponseProfile{}, err
@@ -163,6 +173,74 @@ func (s *ResponseProfileService) validateAndNormalize(ctx context.Context, req S
 		return models.ResponseProfile{}, err
 	}
 	return profile, nil
+}
+
+func (s *ResponseProfileService) validateFacilityFanDevices(
+	ctx context.Context,
+	orgID int64,
+	scope Scope,
+	deviceIDs []int64,
+) ([]int64, error) {
+	if hasNonPositiveInt64(deviceIDs) {
+		return nil, fleeterror.NewInvalidArgumentError("facility_fan_device_ids must be positive")
+	}
+	deviceIDs = uniquePositiveInt64s(deviceIDs)
+	if len(deviceIDs) == 0 {
+		return nil, nil
+	}
+
+	devices, err := s.store.ListResponseProfileInfrastructureDevices(ctx, orgID, deviceIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, deviceID := range deviceIDs {
+		if _, ok := devices[deviceID]; !ok {
+			// Missing, deleted, and cross-organization devices are intentionally
+			// indistinguishable so profile validation cannot expose OT inventory.
+			return nil, fleeterror.NewNotFoundErrorf("infrastructure device not found: %d", deviceID)
+		}
+	}
+
+	normalizedScope := normalizeScope(scope)
+	if normalizedScope.Type != models.ScopeTypeWholeOrg {
+		allowedSiteIDs := make(map[int64]struct{}, len(normalizedScope.SiteIDs))
+		for _, siteID := range normalizedScope.SiteIDs {
+			allowedSiteIDs[siteID] = struct{}{}
+		}
+		if len(normalizedScope.DeviceIdentifiers) > 0 {
+			minerSites, err := s.store.ListResponseProfileDeviceSites(ctx, orgID, normalizedScope.DeviceIdentifiers)
+			if err != nil {
+				return nil, err
+			}
+			for _, siteID := range minerSites {
+				if siteID != nil {
+					allowedSiteIDs[*siteID] = struct{}{}
+				}
+			}
+		}
+		for _, deviceID := range deviceIDs {
+			device := devices[deviceID]
+			if _, ok := allowedSiteIDs[device.SiteID]; !ok {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"infrastructure device %d is outside the response profile scope",
+					deviceID,
+				)
+			}
+		}
+	}
+
+	for _, deviceID := range deviceIDs {
+		device := devices[deviceID]
+		if !device.Enabled {
+			slog.WarnContext(
+				ctx,
+				"response profile references disabled infrastructure device",
+				"org_id", orgID,
+				"infrastructure_device_id", deviceID,
+			)
+		}
+	}
+	return deviceIDs, nil
 }
 
 func normalizeResponseProfile(profile models.ResponseProfile) models.ResponseProfile {
@@ -226,6 +304,18 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 	}
 	if profile.Mode == models.ModeFullFleet && (profile.TargetKW != nil || profile.ToleranceKW != nil) {
 		return fleeterror.NewInvalidArgumentError("target_kw and tolerance_kw must be unset for FULL_FLEET response profiles")
+	}
+	if profile.FanOffDelaySec < 0 {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"fan_off_delay_sec must be >= 0, got %d",
+			profile.FanOffDelaySec,
+		)
+	}
+	if profile.FanRestoreDelaySec < 0 {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"fan_restore_delay_sec must be >= 0, got %d",
+			profile.FanRestoreDelaySec,
+		)
 	}
 	if responseProfileRequiresAdminControls(profile) && !canUseAdminControls {
 		return fleeterror.NewForbiddenError("only admins can save response profiles with admin-only controls")

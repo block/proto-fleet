@@ -11,6 +11,7 @@ import CurtailmentStartModal, {
   type CurtailmentResponseProfileOption,
   type CurtailmentSiteOption,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
+import type { FacilityFanDeviceOption } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
 
 type MockFullScreenTwoPaneModalProps = Pick<
   FullScreenTwoPaneModalProps,
@@ -215,6 +216,39 @@ const siteOptions: CurtailmentSiteOption[] = [
   { id: "102", name: "Denver, CO" },
 ];
 
+const infrastructureDevices: FacilityFanDeviceOption[] = [
+  {
+    id: "31",
+    siteId: "101",
+    siteName: "Austin, TX",
+    buildingName: "Building 1",
+    name: "Fan Unit 1",
+    deviceKind: "single_fan",
+    fanCount: 1,
+    enabled: true,
+  },
+  {
+    id: "32",
+    siteId: "101",
+    siteName: "Austin, TX",
+    buildingName: "Building 2",
+    name: "Exhaust Fan Group",
+    deviceKind: "fan_group",
+    fanCount: 4,
+    enabled: false,
+  },
+  {
+    id: "33",
+    siteId: "102",
+    siteName: "Denver, CO",
+    buildingName: "Building 1",
+    name: "Denver Fan",
+    deviceKind: "single_fan",
+    fanCount: 1,
+    enabled: true,
+  },
+];
+
 const scopeLessResponseProfiles: CurtailmentResponseProfileOption[] = [
   {
     ...responseProfiles[1],
@@ -299,10 +333,67 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByRole("button", { name: /Racks\s+Select/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Groups\s+Select/ })).not.toBeInTheDocument();
     expect(
-      screen.getByText("Applies to all miners by default. Use the options below to narrow the scope."),
+      screen.getByText("Choose the sites, miners, and infrastructure included in this curtailment."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Infrastructure\s+Select/ })).toBeEnabled();
+  });
+
+  it("configures facility fans from the run curtailment Apply to section", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: configuredValues,
+      infrastructureDevices,
+    });
+
+    await user.click(screen.getByRole("button", { name: /Infrastructure\s+Select/ }));
+
+    const fanModal = screen.getByTestId("facility-fan-selection-modal");
+    expect(within(fanModal).getByText("Fan behavior during curtailment")).toBeInTheDocument();
+    expect(within(fanModal).getByText("3 devices in scope")).toBeInTheDocument();
+    expect(within(fanModal).getByText("Curtail behavior")).toBeInTheDocument();
+    expect(within(fanModal).getByText("Turn off")).toBeInTheDocument();
+    expect(within(fanModal).getByText("Turn on")).toBeInTheDocument();
+    const selectionFooterLabel = screen.getByText("0 devices selected");
+    expect(fanModal).not.toContainElement(selectionFooterLabel);
+    expect(fanModal.parentElement).toContainElement(selectionFooterLabel);
+    expect(screen.getByRole("checkbox", { name: /Exhaust Fan Group/ })).toBeDisabled();
+
+    const fanModalSurface = fanModal.parentElement;
+    if (!fanModalSurface) {
+      throw new Error("Fan modal surface was not rendered");
+    }
+    await user.click(within(fanModalSurface).getByRole("button", { name: "Select all" }));
+    expect(screen.getByTestId("facility-fan-selection-modal")).toBeInTheDocument();
+    expect(within(fanModalSurface).getByText("2 devices selected")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Exhaust Fan Group/ })).not.toBeChecked();
+    await user.click(within(fanModalSurface).getByRole("button", { name: "Select none" }));
+    expect(screen.getByTestId("facility-fan-selection-modal")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: /Fan Unit 1/ }));
+    await user.type(screen.getByTestId("facility-fan-off-delay"), "-1");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    expect(screen.getByText("Enter fan-off delay of 0 or more.")).toBeInTheDocument();
+
+    await user.clear(screen.getByTestId("facility-fan-off-delay"));
+    await user.type(screen.getByTestId("facility-fan-off-delay"), "30");
+    await user.type(screen.getByTestId("facility-fan-restore-delay"), "75");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(screen.queryByText("Fan behavior during curtailment")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Infrastructure\s+1 device/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        facilityFanDeviceIds: ["31"],
+        fanOffDelaySec: "30",
+        fanRestoreDelaySec: "75",
+      }),
+    );
   });
 
   it("prefills new custom curtailments with the default site scope", async () => {
@@ -673,6 +764,7 @@ describe("CurtailmentStartModal", () => {
     const { onSubmit } = renderModal({
       variant: "responseProfile",
       siteOptions,
+      infrastructureDevices,
       initialValues: {
         ...configuredValues,
         scopeType: "site",
@@ -680,6 +772,9 @@ describe("CurtailmentStartModal", () => {
         siteId: "101",
         curtailmentMode: "fullFleet",
         targetKw: "",
+        facilityFanDeviceIds: ["31", "32"],
+        fanOffDelaySec: "45",
+        fanRestoreDelaySec: "90",
         includeMaintenance: true,
       },
       onTestCurtailment,
@@ -706,9 +801,41 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
     expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("120");
+    expect(screen.queryByText("Facility fans")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Infrastructure\s+2 devices/ })).toBeInTheDocument();
     expect(screen.queryByTestId("response-profile-post-event-cooldown")).not.toBeInTheDocument();
     expect(mockUseCurtailmentPlanPreview).toHaveBeenCalledWith(expect.objectContaining({ disabled: false }));
     expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: /Infrastructure\s+2 devices/ }));
+    expect(screen.getByText("Fan behavior during curtailment")).toBeInTheDocument();
+    expect(screen.getByText("2 devices in scope")).toBeInTheDocument();
+    expect(screen.getByTestId("facility-fan-off-delay")).toHaveValue("45");
+    expect(screen.getByTestId("facility-fan-restore-delay")).toHaveValue("90");
+    expect(screen.getByText("Exhaust Fan Group")).toBeInTheDocument();
+    expect(screen.getByText("Disabled")).toBeInTheDocument();
+    expect(screen.queryByText("Denver Fan")).not.toBeInTheDocument();
+
+    const disabledFanCheckbox = screen.getByRole("checkbox", { name: /Exhaust Fan Group/ });
+    expect(disabledFanCheckbox).toBeDisabled();
+    expect(disabledFanCheckbox).toBeChecked();
+    await user.click(disabledFanCheckbox);
+    expect(disabledFanCheckbox).toBeChecked();
+
+    const fanModalSurface = screen.getByTestId("facility-fan-selection-modal").parentElement;
+    if (!fanModalSurface) {
+      throw new Error("Fan modal surface was not rendered");
+    }
+    await user.click(within(fanModalSurface).getByRole("button", { name: "Select none" }));
+    await user.click(screen.getByRole("checkbox", { name: /Fan Unit 1/ }));
+    await user.clear(screen.getByTestId("facility-fan-off-delay"));
+    await user.type(screen.getByTestId("facility-fan-off-delay"), "60");
+    await user.clear(screen.getByTestId("facility-fan-restore-delay"));
+    await user.type(screen.getByTestId("facility-fan-restore-delay"), "120");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(screen.queryByText("Fan behavior during curtailment")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Infrastructure\s+1 device/ })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     expect(onTestCurtailment).not.toHaveBeenCalled();
@@ -729,6 +856,9 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
+        facilityFanDeviceIds: ["31"],
+        fanOffDelaySec: "60",
+        fanRestoreDelaySec: "120",
         scopeType: "site",
         scopeId: "Austin, TX",
         deviceSetIds: [],
@@ -748,6 +878,9 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
+        facilityFanDeviceIds: ["31"],
+        fanOffDelaySec: "60",
+        fanRestoreDelaySec: "120",
         scopeType: "site",
         scopeId: "Austin, TX",
         deviceSetIds: [],

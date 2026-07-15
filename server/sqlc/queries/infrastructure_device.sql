@@ -100,3 +100,9 @@ WHERE id = sqlc.arg('id')
   AND site_id = sqlc.arg('expected_site_id')
   AND deleted_at IS NULL
 RETURNING *;
+
+-- name: CountResponseProfilesByInfrastructureDevice :one
+SELECT COUNT(*)
+FROM curtailment_response_profile
+WHERE org_id = sqlc.arg('org_id')
+  AND facility_fan_device_ids @> sqlc.arg('infrastructure_device_ids')::bigint[];

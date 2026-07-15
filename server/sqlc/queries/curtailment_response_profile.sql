@@ -18,6 +18,14 @@ WHERE org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL
 ORDER BY device_identifier;
 
+-- name: ListResponseProfileInfrastructureDevicesByOrg :many
+SELECT id, site_id, enabled
+FROM infrastructure_device
+WHERE org_id = sqlc.arg('org_id')
+  AND id = ANY(sqlc.arg('infrastructure_device_ids')::bigint[])
+  AND deleted_at IS NULL
+ORDER BY id;
+
 -- name: InsertCurtailmentResponseProfile :one
 INSERT INTO curtailment_response_profile (
     org_id,
@@ -37,7 +45,10 @@ INSERT INTO curtailment_response_profile (
     include_maintenance,
     force_include_maintenance,
     post_event_cooldown_sec,
-    force_include_all_paired_miners
+    force_include_all_paired_miners,
+    facility_fan_device_ids,
+    fan_off_delay_sec,
+    fan_restore_delay_sec
 ) VALUES (
     sqlc.arg('org_id'),
     sqlc.arg('profile_name'),
@@ -56,7 +67,10 @@ INSERT INTO curtailment_response_profile (
     sqlc.arg('include_maintenance'),
     sqlc.arg('force_include_maintenance'),
     sqlc.arg('post_event_cooldown_sec'),
-    sqlc.arg('force_include_all_paired_miners')
+    sqlc.arg('force_include_all_paired_miners'),
+    sqlc.arg('facility_fan_device_ids'),
+    sqlc.arg('fan_off_delay_sec'),
+    sqlc.arg('fan_restore_delay_sec')
 )
 RETURNING *;
 
@@ -79,7 +93,10 @@ SET
     include_maintenance = sqlc.arg('include_maintenance'),
     force_include_maintenance = sqlc.arg('force_include_maintenance'),
     post_event_cooldown_sec = sqlc.arg('post_event_cooldown_sec'),
-    force_include_all_paired_miners = sqlc.arg('force_include_all_paired_miners')
+    force_include_all_paired_miners = sqlc.arg('force_include_all_paired_miners'),
+    facility_fan_device_ids = sqlc.arg('facility_fan_device_ids'),
+    fan_off_delay_sec = sqlc.arg('fan_off_delay_sec'),
+    fan_restore_delay_sec = sqlc.arg('fan_restore_delay_sec')
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND site_id IS NOT DISTINCT FROM sqlc.narg('expected_site_id')

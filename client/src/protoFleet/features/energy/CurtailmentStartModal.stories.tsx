@@ -6,8 +6,10 @@ import CurtailmentStartModal, {
   type CurtailmentPlanPreview,
   type CurtailmentResponseProfileOption,
   type CurtailmentStartModalMode,
+  type CurtailmentStartModalVariant,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import CurtailmentStopConfirmationDialog from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
+import type { FacilityFanDeviceOption } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
 import { withMockedMinerSelectionApis } from "@/protoFleet/stories/MockedMinerSelectionApis";
 
 const meta = {
@@ -28,6 +30,8 @@ interface ModalStoryProps {
   mode?: CurtailmentStartModalMode;
   preview?: CurtailmentPlanPreview;
   responseProfiles?: CurtailmentResponseProfileOption[];
+  infrastructureDevices?: FacilityFanDeviceOption[];
+  variant?: CurtailmentStartModalVariant;
 }
 
 const configuredValues: Partial<CurtailmentFormValues> = {
@@ -90,6 +94,39 @@ const preview: CurtailmentPlanPreview = {
   scopeLabel: "across the fleet",
 };
 
+const infrastructureDevices: FacilityFanDeviceOption[] = [
+  {
+    id: "31",
+    siteId: "101",
+    siteName: "Austin, TX",
+    buildingName: "Building 1",
+    name: "Fan Unit 1",
+    deviceKind: "single_fan",
+    fanCount: 1,
+    enabled: true,
+  },
+  {
+    id: "32",
+    siteId: "101",
+    siteName: "Austin, TX",
+    buildingName: "Building 1",
+    name: "Exhaust Fan Group",
+    deviceKind: "fan_group",
+    fanCount: 4,
+    enabled: false,
+  },
+  {
+    id: "33",
+    siteId: "102",
+    siteName: "Denver, CO",
+    buildingName: "Building 2",
+    name: "Denver Fan",
+    deviceKind: "single_fan",
+    fanCount: 1,
+    enabled: true,
+  },
+];
+
 function ModalStory(props: ModalStoryProps): ReactElement {
   const [open, setOpen] = useState(true);
   const [showStopDialog, setShowStopDialog] = useState(false);
@@ -123,7 +160,7 @@ function ModalStory(props: ModalStoryProps): ReactElement {
 }
 
 export const Empty: Story = {
-  render: () => <ModalStory responseProfiles={responseProfiles} />,
+  render: () => <ModalStory responseProfiles={responseProfiles} infrastructureDevices={infrastructureDevices} />,
 };
 
 export const WithPreview: Story = {
@@ -144,4 +181,21 @@ export const FullFleet: Story = {
 export const EditMode: Story = {
   name: "Edit mode",
   render: () => <ModalStory initialValues={configuredValues} preview={preview} mode="edit" />,
+};
+
+export const ResponseProfileWithInfrastructure: Story = {
+  name: "Response profile with infrastructure",
+  render: () => (
+    <ModalStory
+      variant="responseProfile"
+      infrastructureDevices={infrastructureDevices}
+      initialValues={{
+        ...configuredValues,
+        facilityFanDeviceIds: ["31", "32"],
+        fanOffDelaySec: "45",
+        fanRestoreDelaySec: "90",
+      }}
+      preview={preview}
+    />
+  ),
 };

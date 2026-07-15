@@ -21,6 +21,7 @@ func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
 	t.Parallel()
 
 	store := newHandlerResponseProfileStore()
+	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 7, Enabled: true}
 	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	resp, err := h.CreateCurtailmentResponseProfile(
@@ -40,6 +41,9 @@ func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
 			RestoreBatchSize:        ptrUint32(20),
 			RestoreBatchIntervalSec: ptrUint32(30),
 			PostEventCooldownSec:    600,
+			FacilityFanDeviceIds:    []int64{31},
+			FanOffDelaySec:          45,
+			FanRestoreDelaySec:      90,
 		}),
 	)
 
@@ -56,11 +60,17 @@ func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
 	assert.Equal(t, uint32(20), profile.GetRestoreBatchSize())
 	assert.Equal(t, uint32(30), profile.GetRestoreBatchIntervalSec())
 	assert.Equal(t, uint32(600), profile.GetPostEventCooldownSec())
+	assert.Equal(t, []int64{31}, profile.GetFacilityFanDeviceIds())
+	assert.Equal(t, uint32(45), profile.GetFanOffDelaySec())
+	assert.Equal(t, uint32(90), profile.GetFanRestoreDelaySec())
 	require.NotNil(t, store.created)
 	assert.Equal(t, int64(42), store.created.OrgID)
 	require.NotNil(t, store.created.SiteID)
 	assert.Equal(t, int64(7), *store.created.SiteID)
 	assert.Equal(t, int32(600), store.created.PostEventCooldownSec)
+	assert.Equal(t, []int64{31}, store.created.FacilityFanDeviceIDs)
+	assert.Equal(t, int32(45), store.created.FanOffDelaySec)
+	assert.Equal(t, int32(90), store.created.FanRestoreDelaySec)
 }
 
 func TestHandler_CreateCurtailmentResponseProfilePreservesExplicitZeroRestoreInterval(t *testing.T) {
@@ -720,11 +730,13 @@ type handlerResponseProfileStore struct {
 	deleteExpectedScopeJSON []byte
 	profiles                []*models.ResponseProfile
 	deviceSites             map[string]*int64
+	infrastructureDevices   map[int64]models.ResponseProfileInfrastructureDevice
 }
 
 func newHandlerResponseProfileStore() *handlerResponseProfileStore {
 	return &handlerResponseProfileStore{
-		siteBelongs: true,
+		siteBelongs:           true,
+		infrastructureDevices: map[int64]models.ResponseProfileInfrastructureDevice{},
 	}
 }
 
@@ -749,6 +761,16 @@ func (s *handlerResponseProfileStore) ListResponseProfileDeviceSites(_ context.C
 			continue
 		}
 		out[deviceIdentifier] = cloneInt64Ptr(siteID)
+	}
+	return out, nil
+}
+
+func (s *handlerResponseProfileStore) ListResponseProfileInfrastructureDevices(_ context.Context, _ int64, deviceIDs []int64) (map[int64]models.ResponseProfileInfrastructureDevice, error) {
+	out := make(map[int64]models.ResponseProfileInfrastructureDevice, len(deviceIDs))
+	for _, deviceID := range deviceIDs {
+		if device, ok := s.infrastructureDevices[deviceID]; ok {
+			out[deviceID] = device
+		}
 	}
 	return out, nil
 }

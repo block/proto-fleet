@@ -188,13 +188,16 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 // as seen at authorization time; the write is predicated on it so a
 // concurrent site move invalidates the delete (NotFound) rather than
 // removing a device the caller no longer manages.
-//
-// TODO(#723, PR 3): once curtailment_response_profile gains
-// facility_fan_device_ids, reject deletion with FailedPrecondition
-// while any response profile references the device — mirroring the
-// guard that blocks response-profile deletion while automation rules
-// reference it.
 func (s *Service) Delete(ctx context.Context, orgID, id, expectedSiteID int64) error {
+	profileCount, err := s.store.CountResponseProfilesByInfrastructureDevice(ctx, orgID, id)
+	if err != nil {
+		return err
+	}
+	if profileCount > 0 {
+		return fleeterror.NewFailedPreconditionError(
+			"infrastructure device is referenced by curtailment response profiles; update those profiles first",
+		)
+	}
 	deleted, found, err := s.store.SoftDeleteInfrastructureDevice(ctx, orgID, id, expectedSiteID)
 	if err != nil {
 		return err

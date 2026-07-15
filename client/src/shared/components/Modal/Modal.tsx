@@ -28,6 +28,7 @@ interface ModalButtonProps extends ButtonProps {
 interface ModalProps {
   children: ReactNode;
   className?: string;
+  surfaceClassName?: string;
   bodyClassName?: string;
   hideHeaderOnPhone?: boolean;
   headerSpacingClassName?: string;
@@ -48,11 +49,13 @@ interface ModalProps {
   zIndex?: string;
   testId?: string;
   forceTitleCollapsed?: boolean;
+  fixedFooter?: ReactNode;
 }
 
 const Modal = ({
   children,
   className,
+  surfaceClassName,
   bodyClassName,
   hideHeaderOnPhone = false,
   headerSpacingClassName = "mt-4",
@@ -73,8 +76,10 @@ const Modal = ({
   iconAriaLabel = "Close dialog",
   testId = "modal",
   forceTitleCollapsed = false,
+  fixedFooter,
 }: ModalProps) => {
   const modalRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [isTitleCollapsed, setIsTitleCollapsed] = useState(false);
@@ -85,7 +90,7 @@ const Modal = ({
   const isPhoneSheet = phoneSheet && size !== sizes.fullscreen;
 
   useEffect(() => {
-    if (!title || !sentinelRef.current || !modalRef.current) {
+    if (!title || !sentinelRef.current || !scrollRef.current) {
       setIsTitleCollapsed(false);
       return;
     }
@@ -97,7 +102,7 @@ const Modal = ({
         setIsTitleCollapsed(!entry.isIntersecting);
       },
       {
-        root: modalRef.current,
+        root: scrollRef.current,
         rootMargin: `-${headerHeight}px 0px 0px 0px`,
         threshold: 0,
       },
@@ -145,19 +150,27 @@ const Modal = ({
   return (
     <PageOverlay open={open} position="top" {...(zIndex && { zIndex })}>
       <div
-        className={clsx("h-fit overflow-hidden rounded-3xl bg-surface-elevated-base shadow-300", sizeClasses[size], {
-          "mt-16 max-h-[calc(100dvh-(--spacing(32)))]": size !== sizes.fullscreen,
-          "phone:mt-10 phone:max-h-[calc(100dvh-theme(spacing.10))] phone:w-screen phone:max-w-none phone:min-w-[100vw] phone:rounded-[16px]":
-            size !== sizes.fullscreen && !isPhoneSheet,
-          "phone:mt-auto phone:mb-3 phone:w-[calc(100vw-theme(spacing.6))] phone:max-w-none phone:min-w-[calc(100vw-theme(spacing.6))] phone:rounded-[16px]":
-            isPhoneSheet,
-        })}
+        ref={modalRef}
+        className={clsx(
+          "h-fit overflow-hidden rounded-3xl bg-surface-elevated-base shadow-300",
+          sizeClasses[size],
+          {
+            "flex flex-col": fixedFooter,
+            "mt-16 max-h-[calc(100dvh-(--spacing(32)))]": size !== sizes.fullscreen,
+            "phone:mt-10 phone:max-h-[calc(100dvh-theme(spacing.10))] phone:w-screen phone:max-w-none phone:min-w-[100vw] phone:rounded-[16px]":
+              size !== sizes.fullscreen && !isPhoneSheet,
+            "phone:mt-auto phone:mb-3 phone:w-[calc(100vw-theme(spacing.6))] phone:max-w-none phone:min-w-[calc(100vw-theme(spacing.6))] phone:rounded-[16px]":
+              isPhoneSheet,
+          },
+          surfaceClassName,
+        )}
       >
         <motion.div
           {...slideUpAnimation}
           className={clsx(
             "relative p-6",
             {
+              "min-h-0 flex-1": fixedFooter,
               "max-h-[calc(100dvh-(--spacing(32)))] overflow-auto phone:max-h-[calc(100dvh-theme(spacing.10))]":
                 size !== sizes.fullscreen,
               "h-full": isFullscreen,
@@ -166,7 +179,7 @@ const Modal = ({
             },
             className,
           )}
-          ref={modalRef}
+          ref={scrollRef}
           data-testid={testId}
         >
           {showHeader ? (
@@ -229,6 +242,7 @@ const Modal = ({
             </div>
           ) : null}
         </motion.div>
+        {fixedFooter ? <div className="shrink-0 px-6 pb-6">{fixedFooter}</div> : null}
       </div>
     </PageOverlay>
   );

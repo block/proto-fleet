@@ -13,6 +13,10 @@ import {
   parseCurtailmentSiteId,
   supportsAllPairedTargeting,
 } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import FacilityFanSelectionModal, {
+  type FacilityFanDeviceOption,
+  type FacilityFanSelectionValue,
+} from "@/protoFleet/features/energy/FacilityFanSelectionModal";
 import {
   createCurtailmentPlanPreview,
   getUnsupportedDeviceSetPreviewError,
@@ -65,6 +69,9 @@ export interface CurtailmentFormValues {
   curtailBatchIntervalSec: string;
   restoreBatchSize: string;
   restoreIntervalSec: string;
+  facilityFanDeviceIds?: string[];
+  fanOffDelaySec?: string;
+  fanRestoreDelaySec?: string;
   reason: string;
   includeMaintenance: boolean;
   forceIncludeAllPairedMiners: boolean;
@@ -119,6 +126,10 @@ interface CurtailmentStartModalProps {
   initialValues?: Partial<CurtailmentFormValues>;
   responseProfiles?: CurtailmentResponseProfileOption[];
   siteOptions?: CurtailmentSiteOption[];
+  infrastructureDevices?: FacilityFanDeviceOption[];
+  isLoadingInfrastructureDevices?: boolean;
+  infrastructureDevicesError?: string | null;
+  onRetryInfrastructureDevices?: () => void;
   defaultSiteScope?: CurtailmentSiteOption;
   siteScopeEnabled?: boolean;
   isSiteScopeLoading?: boolean;
@@ -215,6 +226,9 @@ const defaultValues: CurtailmentFormValues = {
   curtailBatchIntervalSec: "",
   restoreBatchSize: "",
   restoreIntervalSec: "",
+  facilityFanDeviceIds: [],
+  fanOffDelaySec: "",
+  fanRestoreDelaySec: "",
   reason: "",
   // Maintenance-flagged miners are excluded by default: force_include_maintenance
   // is admin-gated server-side, so sending it from every start would lock
@@ -677,6 +691,14 @@ function validateCurtailmentFormValues(
     label: "batch interval",
     max: curtailmentNumericFieldLimits.curtailBatchIntervalSec,
   });
+  const fanOffDelay = parseOptionalUint32Field(values.fanOffDelaySec ?? "", {
+    label: "fan-off delay",
+    max: curtailmentNumericFieldLimits.fanDelaySec,
+  });
+  const fanRestoreDelay = parseOptionalUint32Field(values.fanRestoreDelaySec ?? "", {
+    label: "fan restore delay",
+    max: curtailmentNumericFieldLimits.fanDelaySec,
+  });
 
   if (values.reason.trim() === "") {
     localErrors.reason = variant === "responseProfile" ? "Enter a profile name." : "Enter a reason.";
@@ -692,6 +714,12 @@ function validateCurtailmentFormValues(
   }
   if (shouldValidateCurtailBatchFields && curtailBatchInterval.error) {
     localErrors.curtailBatchIntervalSec = curtailBatchInterval.error;
+  }
+  if (fanOffDelay.error) {
+    localErrors.fanOffDelaySec = fanOffDelay.error;
+  }
+  if (fanRestoreDelay.error) {
+    localErrors.fanRestoreDelaySec = fanRestoreDelay.error;
   }
   if (
     shouldValidateCurtailBatchFields &&
@@ -1022,6 +1050,28 @@ function getMinerApplyToTarget(values: CurtailmentFormValues): ApplyToTarget {
   };
 }
 
+function getInfrastructureApplyToTarget(values: CurtailmentFormValues): ApplyToTarget {
+  const selectedDeviceCount = values.facilityFanDeviceIds?.length ?? 0;
+
+  return {
+    label: "Infrastructure",
+    value: selectedDeviceCount > 0 ? formatCountLabel(selectedDeviceCount, "device") : "Select",
+  };
+}
+
+function getInfrastructureDevicesInScope(
+  devices: FacilityFanDeviceOption[],
+  values: Pick<CurtailmentFormValues, "siteSelection" | "siteId" | "siteIds">,
+): FacilityFanDeviceOption[] {
+  const siteIds = getSiteScopeIds(values);
+  if (siteIds.length === 0) {
+    return devices;
+  }
+
+  const siteIdSet = new Set(siteIds);
+  return devices.filter((device) => siteIdSet.has(device.siteId));
+}
+
 function getSiteApplyToTarget(values: CurtailmentFormValues): ApplyToTarget {
   const selectedSiteIds = getSelectedSiteIds(values);
   if (selectedSiteIds.length > 0) {
@@ -1089,6 +1139,10 @@ function CurtailmentStartModalContent({
   initialValues,
   responseProfiles = [],
   siteOptions = [],
+  infrastructureDevices = [],
+  isLoadingInfrastructureDevices = false,
+  infrastructureDevicesError = null,
+  onRetryInfrastructureDevices,
   defaultSiteScope,
   siteScopeEnabled = true,
   isSiteScopeLoading = false,
@@ -1117,6 +1171,7 @@ function CurtailmentStartModalContent({
     useState<PendingCurtailmentConfirmation | null>(null);
   const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
   const [showSiteScopeModal, setShowSiteScopeModal] = useState(false);
+  const [showFacilityFanSelectionModal, setShowFacilityFanSelectionModal] = useState(false);
   const [draftSelectedSiteIds, setDraftSelectedSiteIds] = useState<string[]>([]);
   const [editedFields, setEditedFields] = useState<ReadonlySet<keyof CurtailmentFormValues>>(() => new Set());
   const isEditMode = mode === "edit";
@@ -1235,6 +1290,11 @@ function CurtailmentStartModalContent({
   const selectedMinerIds = getSelectedMinerIds(effectiveValues);
   const minerApplyToTarget = getMinerApplyToTarget(effectiveValues);
   const siteApplyToTarget = getSiteApplyToTarget(effectiveValues);
+  const infrastructureApplyToTarget = getInfrastructureApplyToTarget(effectiveValues);
+  const scopedInfrastructureDevices = useMemo(
+    () => getInfrastructureDevicesInScope(infrastructureDevices, effectiveValues),
+    [effectiveValues, infrastructureDevices],
+  );
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
   const curtailmentBehaviorSubtext = isLiveCurtailmentEditMode
     ? undefined
@@ -1465,6 +1525,28 @@ function CurtailmentStartModalContent({
       },
       { resetResponseProfileSelection: true },
     );
+  };
+
+  const handleFacilityFanSelection = (selection: FacilityFanSelectionValue) => {
+    setEditedFields(
+      (current) =>
+        new Set<keyof CurtailmentFormValues>([
+          ...current,
+          "facilityFanDeviceIds",
+          "fanOffDelaySec",
+          "fanRestoreDelaySec",
+        ]),
+    );
+    updateValues(
+      (current) => ({
+        ...current,
+        facilityFanDeviceIds: selection.selectedDeviceIds,
+        fanOffDelaySec: selection.fanOffDelaySec,
+        fanRestoreDelaySec: selection.fanRestoreDelaySec,
+      }),
+      { resetResponseProfileSelection: true },
+    );
+    setShowFacilityFanSelectionModal(false);
   };
 
   const closeForceInclusionConfirmation = () => {
@@ -1818,7 +1900,7 @@ function CurtailmentStartModalContent({
 
             <Section
               title="Apply to"
-              subtext="Applies to all miners by default. Use the options below to narrow the scope."
+              subtext="Choose the sites, miners, and infrastructure included in this curtailment."
             >
               <div className="grid">
                 <TargetSelectButton
@@ -1832,6 +1914,12 @@ function CurtailmentStartModalContent({
                   value={minerApplyToTarget.value}
                   disabled={isLiveCurtailmentEditMode}
                   onClick={() => setShowMinerSelectionModal(true)}
+                />
+                <TargetSelectButton
+                  label={infrastructureApplyToTarget.label}
+                  value={infrastructureApplyToTarget.value}
+                  disabled={isLiveCurtailmentEditMode}
+                  onClick={() => setShowFacilityFanSelectionModal(true)}
                 />
               </div>
             </Section>
@@ -1946,6 +2034,20 @@ function CurtailmentStartModalContent({
             handleMinerSelection(selection);
             setShowMinerSelectionModal(false);
           }}
+        />
+      ) : null}
+
+      {showFacilityFanSelectionModal ? (
+        <FacilityFanSelectionModal
+          devices={scopedInfrastructureDevices}
+          initialSelectedDeviceIds={values.facilityFanDeviceIds ?? []}
+          initialFanOffDelaySec={values.fanOffDelaySec ?? ""}
+          initialFanRestoreDelaySec={values.fanRestoreDelaySec ?? ""}
+          isLoading={isLoadingInfrastructureDevices}
+          loadError={infrastructureDevicesError}
+          onRetry={onRetryInfrastructureDevices}
+          onDismiss={() => setShowFacilityFanSelectionModal(false)}
+          onApply={handleFacilityFanSelection}
         />
       ) : null}
 

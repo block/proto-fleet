@@ -204,6 +204,44 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	assert.Equal(t, "Zone B exhaust fans (renamed)", reused.Name)
 }
 
+func TestService_DeleteRejectsResponseProfileReference_DatabaseIntegration(t *testing.T) {
+	svc, conn := newTestService(t)
+	ctx := t.Context()
+
+	device, err := svc.Create(ctx, createParams(nil))
+	require.NoError(t, err)
+	_, err = conn.ExecContext(
+		ctx,
+		`INSERT INTO curtailment_response_profile (
+			org_id,
+			profile_name,
+			site_id,
+			mode,
+			scope_json,
+			facility_fan_device_ids
+		) VALUES (
+			$1,
+			'Fan-coordinated shed',
+			$2,
+			'FULL_FLEET',
+			jsonb_build_object('site_ids', jsonb_build_array($2::bigint)),
+			ARRAY[$3::bigint]
+		)`,
+		testOrgID,
+		testSiteID,
+		device.ID,
+	)
+	require.NoError(t, err)
+
+	err = svc.Delete(ctx, testOrgID, device.ID, testSiteID)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "update those profiles first")
+	_, err = svc.Get(ctx, testOrgID, device.ID)
+	require.NoError(t, err, "guarded device must remain live")
+}
+
 func TestService_UpdateRenameCollision_DatabaseIntegration(t *testing.T) {
 	svc, _ := newTestService(t)
 	ctx := t.Context()

@@ -1,12 +1,14 @@
 import { MemoryRouter } from "react-router-dom";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
 import useCurtailmentAutomationRules from "@/protoFleet/api/useCurtailmentAutomationRules";
 import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
+import useInfrastructureDevices from "@/protoFleet/api/useInfrastructureDevices";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import CurtailmentSettingsPage, {
@@ -56,6 +58,10 @@ vi.mock("@/protoFleet/api/useMqttCurtailmentSources", () => ({
 vi.mock("@/protoFleet/api/useCurtailmentResponseProfiles", () => ({
   default: vi.fn(),
   getResponseProfileScopeLabelForActionType: () => "Whole fleet",
+}));
+
+vi.mock("@/protoFleet/api/useInfrastructureDevices", () => ({
+  default: vi.fn(),
 }));
 
 vi.mock("@/protoFleet/api/useCurtailmentAutomationRules", () => ({
@@ -355,6 +361,7 @@ const setAutomationRuleEnabledMock = vi.fn();
 const deleteAutomationRuleMock = vi.fn();
 const startCurtailmentMock = vi.fn();
 const listSitesMock = vi.fn();
+const listInfrastructureDevicesMock = vi.fn();
 
 const mockResponseProfilesApi = (overrides: Partial<ReturnType<typeof useCurtailmentResponseProfiles>> = {}) => {
   vi.mocked(useCurtailmentResponseProfiles).mockReturnValue({
@@ -471,6 +478,7 @@ describe("CurtailmentSettingsPage", () => {
     vi.mocked(useMqttCurtailmentSources).mockReset();
     vi.mocked(useSites).mockReset();
     vi.mocked(useCurtailmentResponseProfiles).mockReset();
+    vi.mocked(useInfrastructureDevices).mockReset();
     vi.mocked(useCurtailmentAutomationRules).mockReset();
     vi.mocked(useCurtailmentApi).mockReset();
     vi.mocked(pushToast).mockReset();
@@ -495,6 +503,7 @@ describe("CurtailmentSettingsPage", () => {
     deleteAutomationRuleMock.mockReset();
     startCurtailmentMock.mockReset();
     listSitesMock.mockReset();
+    listInfrastructureDevicesMock.mockReset();
     startCurtailmentMock.mockResolvedValue({});
     vi.mocked(useCurtailmentApi).mockReturnValue({
       startCurtailment: startCurtailmentMock,
@@ -503,6 +512,17 @@ describe("CurtailmentSettingsPage", () => {
     mockSourcesApi();
     mockSitesApi();
     mockAutomationRulesApi();
+    vi.mocked(useInfrastructureDevices).mockReturnValue({
+      devices: [],
+      isLoading: false,
+      loadError: null,
+      updatingDeviceIds: new Set<string>(),
+      listDevices: listInfrastructureDevicesMock,
+      createDevice: vi.fn(),
+      updateDevice: vi.fn(),
+      setDeviceEnabled: vi.fn(),
+      deleteDevice: vi.fn(),
+    });
   });
 
   it("renders the curtailment header and section null states", () => {
@@ -585,6 +605,47 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByText("Emergency full shed")).toBeVisible();
     expect(screen.getByText("100% reduction")).toBeVisible();
     expect(within(getResponseProfileCard("Emergency full shed")).getByText("Whole fleet")).toBeVisible();
+  });
+
+  it("populates the response profile fan selector with infrastructure devices from the shared hook", async () => {
+    const user = userEvent.setup();
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage" || key === "site:read");
+    vi.mocked(useInfrastructureDevices).mockReturnValue({
+      devices: [
+        {
+          id: "31",
+          siteId: "101",
+          siteName: "Austin, TX",
+          buildingName: "Building 1",
+          name: "Fan Unit 1",
+          deviceKind: "single_fan",
+          fanCount: 1,
+          enabled: true,
+          driverType: "modbus",
+          driverConfig: "",
+        },
+      ],
+      isLoading: false,
+      loadError: null,
+      updatingDeviceIds: new Set<string>(),
+      listDevices: listInfrastructureDevicesMock,
+      createDevice: vi.fn(),
+      updateDevice: vi.fn(),
+      setDeviceEnabled: vi.fn(),
+      deleteDevice: vi.fn(),
+    });
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    expect(useInfrastructureDevices).toHaveBeenCalledWith(true);
+    await user.click(screen.getByRole("button", { name: "Create profile" }));
+    await user.click(screen.getByRole("button", { name: /Infrastructure\s+Select/ }));
+
+    expect(screen.getByRole("checkbox", { name: /Fan Unit 1/ })).toBeVisible();
   });
 
   it("loads site names for site-scoped response profile cards after reload", async () => {

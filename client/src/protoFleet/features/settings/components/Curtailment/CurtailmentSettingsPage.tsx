@@ -9,6 +9,7 @@ import useCurtailmentAutomationRules from "@/protoFleet/api/useCurtailmentAutoma
 import useCurtailmentResponseProfiles, {
   getResponseProfileScopeLabelForActionType,
 } from "@/protoFleet/api/useCurtailmentResponseProfiles";
+import useInfrastructureDevices from "@/protoFleet/api/useInfrastructureDevices";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { immediateRestoreBatchSizeInputValue } from "@/protoFleet/features/energy/curtailmentNumericFields";
@@ -19,6 +20,7 @@ import CurtailmentStartModal, {
   type CurtailmentSubmitValues,
   type ResponseProfileModalMode,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
+import type { FacilityFanDeviceOption } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
 import CurtailmentAutomationsContent from "@/protoFleet/features/settings/components/Curtailment/CurtailmentAutomations";
 import { isInputEnterSaveEvent } from "@/protoFleet/features/settings/components/Curtailment/keyboard";
 import {
@@ -172,6 +174,9 @@ const emptyResponseProfileFormValues: ResponseProfileFormValues = {
   curtailBatchIntervalSec: "",
   restoreBatchSize: "",
   restoreIntervalSec: "",
+  facilityFanDeviceIds: [],
+  fanOffDelaySec: "",
+  fanRestoreDelaySec: "",
   responseDeadlineMinutes: "15",
   // Maintenance-flagged miners are excluded by default: force_include_maintenance
   // is admin-gated server-side, so defaulting it on would block non-admin
@@ -374,6 +379,9 @@ function createResponseProfileFromFormValues(
     curtailBatchIntervalSec: values.curtailBatchIntervalSec.trim(),
     restoreBatchSize: values.restoreBatchSize.trim(),
     restoreIntervalSec: values.restoreIntervalSec.trim(),
+    facilityFanDeviceIds: [...new Set(values.facilityFanDeviceIds ?? [])],
+    fanOffDelaySec: values.fanOffDelaySec?.trim() ?? "",
+    fanRestoreDelaySec: values.fanRestoreDelaySec?.trim() ?? "",
     responseDeadlineMinutes: values.responseDeadlineMinutes.trim(),
   };
 
@@ -452,6 +460,9 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
         ? immediateRestoreBatchSizeInputValue
         : emptyResponseProfileFormValues.restoreBatchSize,
     restoreIntervalSec: emptyResponseProfileFormValues.restoreIntervalSec,
+    facilityFanDeviceIds: emptyResponseProfileFormValues.facilityFanDeviceIds,
+    fanOffDelaySec: emptyResponseProfileFormValues.fanOffDelaySec,
+    fanRestoreDelaySec: emptyResponseProfileFormValues.fanRestoreDelaySec,
     responseDeadlineMinutes:
       profile.deadlineSummary.match(/(\d+)/)?.[1] ?? emptyResponseProfileFormValues.responseDeadlineMinutes,
     includeMaintenance: emptyResponseProfileFormValues.includeMaintenance,
@@ -513,6 +524,9 @@ function createCurtailmentFormValuesFromResponseProfile(
     curtailBatchIntervalSec: values.curtailBatchIntervalSec,
     restoreBatchSize,
     restoreIntervalSec: values.restoreIntervalSec,
+    facilityFanDeviceIds: [...(values.facilityFanDeviceIds ?? [])],
+    fanOffDelaySec: values.fanOffDelaySec ?? "",
+    fanRestoreDelaySec: values.fanRestoreDelaySec ?? "",
     reason: values.name,
     includeMaintenance: values.includeMaintenance,
     forceIncludeAllPairedMiners: values.actionType === "fullFleet" && Boolean(values.forceIncludeAllPairedMiners),
@@ -572,6 +586,9 @@ function createResponseProfileFormValuesFromCurtailmentValues(
     curtailBatchIntervalSec: values.curtailBatchIntervalSec,
     restoreBatchSize: values.restoreBatchSize,
     restoreIntervalSec: values.restoreIntervalSec,
+    facilityFanDeviceIds: [...(values.facilityFanDeviceIds ?? [])],
+    fanOffDelaySec: values.fanOffDelaySec ?? "",
+    fanRestoreDelaySec: values.fanRestoreDelaySec ?? "",
     responseDeadlineMinutes: secondsToDeadlineMinutes(values.maxDurationSec),
     includeMaintenance: values.includeMaintenance,
     forceIncludeAllPairedMiners: values.curtailmentMode === "fullFleet" && Boolean(values.forceIncludeAllPairedMiners),
@@ -1288,6 +1305,10 @@ type CurtailmentSettingsContentProps = {
   defaultResponseProfileSiteScope?: CurtailmentSiteOption;
   isLoadingSiteOptions?: boolean;
   siteScopeDisabledReason?: string;
+  infrastructureDevices?: FacilityFanDeviceOption[];
+  isLoadingInfrastructureDevices?: boolean;
+  infrastructureDevicesError?: string | null;
+  onRetryInfrastructureDevices?: () => void;
   onResponseProfileModalOpen?: () => void;
   onCreateResponseProfile?: (values: ResponseProfileFormValues) => Promise<ResponseProfile | void>;
   onUpdateResponseProfile?: (
@@ -1353,6 +1374,10 @@ export function CurtailmentSettingsContent({
   defaultResponseProfileSiteScope,
   isLoadingSiteOptions = false,
   siteScopeDisabledReason,
+  infrastructureDevices = [],
+  isLoadingInfrastructureDevices = false,
+  infrastructureDevicesError = null,
+  onRetryInfrastructureDevices,
   onResponseProfileModalOpen,
   onCreateResponseProfile,
   onUpdateResponseProfile,
@@ -1702,6 +1727,10 @@ export function CurtailmentSettingsContent({
         siteScopeEnabled={siteOptions.length > 0 || isLoadingSiteOptions}
         isSiteScopeLoading={isLoadingSiteOptions}
         siteScopeDisabledReason={siteScopeDisabledReason}
+        infrastructureDevices={infrastructureDevices}
+        isLoadingInfrastructureDevices={isLoadingInfrastructureDevices}
+        infrastructureDevicesError={infrastructureDevicesError}
+        onRetryInfrastructureDevices={onRetryInfrastructureDevices}
         actionError={responseProfileActionError}
         onDismiss={closeResponseProfileModal}
         onSubmit={handleResponseProfileModalSubmit}
@@ -1785,6 +1814,15 @@ function CurtailmentSettingsPage(): ReactElement {
     setAutomationRuleEnabled,
     deleteAutomationRule,
   } = useCurtailmentAutomationRules(canManageCurtailment);
+  const {
+    devices: infrastructureDevices,
+    isLoading: isLoadingInfrastructureDevices,
+    loadError: infrastructureDevicesError,
+    listDevices: listInfrastructureDevices,
+  } = useInfrastructureDevices(canLoadSiteOptions);
+  const retryInfrastructureDevices = useCallback(() => {
+    void listInfrastructureDevices().catch(() => {});
+  }, [listInfrastructureDevices]);
 
   const ensureSiteOptionsLoaded = useCallback(() => {
     if (!canLoadSiteOptions || isLoadingSiteOptions || (hasLoadedSiteOptions && !siteOptionsLoadError)) {
@@ -2072,6 +2110,10 @@ function CurtailmentSettingsPage(): ReactElement {
       defaultResponseProfileSiteScope={defaultResponseProfileSiteScope}
       isLoadingSiteOptions={canLoadSiteOptions ? isLoadingSiteOptions : false}
       siteScopeDisabledReason={siteScopeDisabledReason}
+      infrastructureDevices={infrastructureDevices}
+      isLoadingInfrastructureDevices={isLoadingInfrastructureDevices}
+      infrastructureDevicesError={infrastructureDevicesError}
+      onRetryInfrastructureDevices={retryInfrastructureDevices}
       onResponseProfileModalOpen={ensureSiteOptionsLoaded}
       onCreateResponseProfile={handleCreateResponseProfile}
       onUpdateResponseProfile={handleUpdateResponseProfile}

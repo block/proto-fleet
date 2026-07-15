@@ -141,6 +141,9 @@ function getPersistedResponseProfileFormValues(values: ResponseProfileFormValues
 
   return {
     ...values,
+    facilityFanDeviceIds: [...new Set(values.facilityFanDeviceIds ?? [])],
+    fanOffDelaySec: values.fanOffDelaySec?.trim() ?? "",
+    fanRestoreDelaySec: values.fanRestoreDelaySec?.trim() ?? "",
     deviceIdentifiers: hasAllMinersSelected
       ? []
       : [...new Set(values.deviceIdentifiers.map((identifier) => identifier.trim()).filter(Boolean))],
@@ -199,6 +202,9 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
     curtailBatchIntervalSec: curtailBatchIntervalInputValue(profile),
     restoreBatchSize: numberToNonNegativeInputValue(profile.restoreBatchSize),
     restoreIntervalSec: numberToNonNegativeInputValue(profile.restoreBatchIntervalSec),
+    facilityFanDeviceIds: profile.facilityFanDeviceIds.map((id) => id.toString()),
+    fanOffDelaySec: numberToNonNegativeInputValue(profile.fanOffDelaySec),
+    fanRestoreDelaySec: numberToNonNegativeInputValue(profile.fanRestoreDelaySec),
     responseDeadlineMinutes,
     includeMaintenance: profile.includeMaintenance,
     forceIncludeAllPairedMiners: profile.forceIncludeAllPairedMiners,
@@ -455,6 +461,9 @@ function buildResponseProfilePayload(values: ResponseProfileFormValues) {
     curtailBatchIntervalSec: getOptionalNonNegativeNumber(values.curtailBatchIntervalSec),
     restoreBatchSize: getRestoreBatchSize(values),
     restoreBatchIntervalSec: getRestoreBatchIntervalSec(values),
+    facilityFanDeviceIds: [...new Set(values.facilityFanDeviceIds ?? [])].map((id) => BigInt(id)),
+    fanOffDelaySec: getOptionalNonNegativeNumber(values.fanOffDelaySec ?? ""),
+    fanRestoreDelaySec: getOptionalNonNegativeNumber(values.fanRestoreDelaySec ?? ""),
     includeMaintenance,
     forceIncludeMaintenance: includeMaintenance,
     forceIncludeAllPairedMiners,

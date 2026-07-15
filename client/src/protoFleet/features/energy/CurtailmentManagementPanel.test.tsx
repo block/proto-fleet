@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   forceReleaseCurtailment: vi.fn(),
   goToHistoryPage: vi.fn(),
   listSites: vi.fn(),
+  listInfrastructureDevices: vi.fn(),
   navigate: vi.fn(),
   refreshCurtailment: vi.fn(),
   selectActiveCurtailment: vi.fn(),
@@ -33,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   useHasPermission: vi.fn(),
   useCurtailmentApi: vi.fn(),
   useCurtailmentResponseProfiles: vi.fn(),
+  useInfrastructureDevices: vi.fn(),
 }));
 
 vi.mock("@/protoFleet/api/useCurtailmentApi", () => ({
@@ -42,6 +44,10 @@ vi.mock("@/protoFleet/api/useCurtailmentApi", () => ({
 
 vi.mock("@/protoFleet/api/useCurtailmentResponseProfiles", () => ({
   default: (...args: unknown[]) => mocks.useCurtailmentResponseProfiles(...args),
+}));
+
+vi.mock("@/protoFleet/api/useInfrastructureDevices", () => ({
+  default: (...args: unknown[]) => mocks.useInfrastructureDevices(...args),
 }));
 
 vi.mock("@/protoFleet/api/sites", () => ({
@@ -220,6 +226,7 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     responseProfiles,
     siteOptions,
     defaultSiteScope,
+    infrastructureDevices,
   }: {
     initialValues?: Partial<CurtailmentSubmitValues>;
     mode?: string;
@@ -229,6 +236,7 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     responseProfiles?: CurtailmentResponseProfileOption[];
     siteOptions?: CurtailmentSiteOption[];
     defaultSiteScope?: CurtailmentSiteOption;
+    infrastructureDevices?: { name: string }[];
   }) => (
     <div role="dialog" aria-label={mode === "edit" ? "Manage curtailment" : "New curtailment"}>
       <div data-testid="modal-initial-reason">{initialValues?.reason ?? ""}</div>
@@ -236,6 +244,9 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
       <div data-testid="modal-response-profile-values">{JSON.stringify(responseProfiles?.[0]?.values ?? {})}</div>
       <div data-testid="modal-site-options">{siteOptions?.map((siteOption) => siteOption.name).join(",")}</div>
       <div data-testid="modal-default-site-scope">{defaultSiteScope?.name ?? ""}</div>
+      <div data-testid="modal-infrastructure-devices">
+        {infrastructureDevices?.map((device) => device.name).join(",")}
+      </div>
       <div data-testid="modal-preview">
         {preview
           ? `${preview.selectedMinerCount} miners, ${preview.targetKw} kW target, ${preview.estimatedReductionKw} kW estimated`
@@ -378,6 +389,17 @@ describe("CurtailmentManagementPanel", () => {
       updateResponseProfile: vi.fn(),
       deleteResponseProfile: vi.fn(),
     });
+    mocks.useInfrastructureDevices.mockReturnValue({
+      devices: [],
+      isLoading: false,
+      loadError: null,
+      updatingDeviceIds: new Set(),
+      listDevices: mocks.listInfrastructureDevices,
+      createDevice: vi.fn(),
+      updateDevice: vi.fn(),
+      setDeviceEnabled: vi.fn(),
+      deleteDevice: vi.fn(),
+    });
   });
 
   it("loads site names and passes them to curtailment hooks when the operator can read sites", async () => {
@@ -415,6 +437,42 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
 
     expect(screen.getByTestId("modal-default-site-scope")).toHaveTextContent("Austin, TX");
+  });
+
+  it("populates the run curtailment modal with infrastructure devices from the shared hook", async () => {
+    const user = userEvent.setup();
+    mocks.useHasPermission.mockImplementation((key: string) => key === "site:read");
+    mocks.useInfrastructureDevices.mockReturnValue({
+      devices: [
+        {
+          id: "31",
+          siteId: "101",
+          siteName: "Austin, TX",
+          buildingName: "Building 1",
+          name: "Fan Unit 1",
+          deviceKind: "single_fan",
+          fanCount: 1,
+          enabled: true,
+          driverType: "modbus",
+          driverConfig: "",
+        },
+      ],
+      isLoading: false,
+      loadError: null,
+      updatingDeviceIds: new Set(),
+      listDevices: mocks.listInfrastructureDevices,
+      createDevice: vi.fn(),
+      updateDevice: vi.fn(),
+      setDeviceEnabled: vi.fn(),
+      deleteDevice: vi.fn(),
+    });
+
+    render(<CurtailmentManagementPanel />);
+
+    expect(mocks.useInfrastructureDevices).toHaveBeenCalledWith(true);
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+
+    expect(screen.getByTestId("modal-infrastructure-devices")).toHaveTextContent("Fan Unit 1");
   });
 
   it("submits planned curtailments, closes the modal, and passes refreshed history props through", async () => {

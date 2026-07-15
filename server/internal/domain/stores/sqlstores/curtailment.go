@@ -183,6 +183,35 @@ func (s *SQLCurtailmentStore) ListResponseProfileDeviceSites(ctx context.Context
 	return out, nil
 }
 
+func (s *SQLCurtailmentStore) ListResponseProfileInfrastructureDevices(
+	ctx context.Context,
+	orgID int64,
+	infrastructureDeviceIDs []int64,
+) (map[int64]models.ResponseProfileInfrastructureDevice, error) {
+	if len(infrastructureDeviceIDs) == 0 {
+		return map[int64]models.ResponseProfileInfrastructureDevice{}, nil
+	}
+	rows, err := s.GetQueries(ctx).ListResponseProfileInfrastructureDevicesByOrg(
+		ctx,
+		sqlc.ListResponseProfileInfrastructureDevicesByOrgParams{
+			OrgID:                   orgID,
+			InfrastructureDeviceIds: infrastructureDeviceIDs,
+		},
+	)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list response profile infrastructure devices: %v", err)
+	}
+	out := make(map[int64]models.ResponseProfileInfrastructureDevice, len(rows))
+	for _, row := range rows {
+		out[row.ID] = models.ResponseProfileInfrastructureDevice{
+			ID:      row.ID,
+			SiteID:  row.SiteID,
+			Enabled: row.Enabled,
+		}
+	}
+	return out, nil
+}
+
 func (s *SQLCurtailmentStore) CreateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
 		if err := lockResponseProfileSitesForWrite(ctx, q, profile.OrgID, [][]byte{profile.ScopeJSON}, profile.SiteID); err != nil {
@@ -2438,6 +2467,9 @@ func responseProfileFromRow(row sqlc.CurtailmentResponseProfile) *models.Respons
 		ForceIncludeMaintenance:     row.ForceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: row.ForceIncludeAllPairedMiners,
 		PostEventCooldownSec:        row.PostEventCooldownSec,
+		FacilityFanDeviceIDs:        append([]int64(nil), row.FacilityFanDeviceIds...),
+		FanOffDelaySec:              row.FanOffDelaySec,
+		FanRestoreDelaySec:          row.FanRestoreDelaySec,
 		CreatedAt:                   row.CreatedAt,
 		UpdatedAt:                   row.UpdatedAt,
 	}
@@ -2463,6 +2495,9 @@ func insertResponseProfileParams(profile models.ResponseProfile) sqlc.InsertCurt
 		ForceIncludeMaintenance:     profile.ForceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: profile.ForceIncludeAllPairedMiners,
 		PostEventCooldownSec:        profile.PostEventCooldownSec,
+		FacilityFanDeviceIds:        responseProfileFacilityFanDeviceIDs(profile),
+		FanOffDelaySec:              profile.FanOffDelaySec,
+		FanRestoreDelaySec:          profile.FanRestoreDelaySec,
 	}
 }
 
@@ -2493,7 +2528,17 @@ func updateResponseProfileParams(
 		ForceIncludeMaintenance:     profile.ForceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: profile.ForceIncludeAllPairedMiners,
 		PostEventCooldownSec:        profile.PostEventCooldownSec,
+		FacilityFanDeviceIds:        responseProfileFacilityFanDeviceIDs(profile),
+		FanOffDelaySec:              profile.FanOffDelaySec,
+		FanRestoreDelaySec:          profile.FanRestoreDelaySec,
 	}
+}
+
+func responseProfileFacilityFanDeviceIDs(profile models.ResponseProfile) []int64 {
+	if len(profile.FacilityFanDeviceIDs) == 0 {
+		return []int64{}
+	}
+	return append([]int64(nil), profile.FacilityFanDeviceIDs...)
 }
 
 func responseProfileScopeJSON(profile models.ResponseProfile) []byte {

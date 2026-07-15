@@ -86,6 +86,9 @@ function apiProfile(overrides: Partial<CurtailmentResponseProfile> = {}): Curtai
     curtailBatchIntervalSec: 30,
     restoreBatchSize: 0,
     restoreBatchIntervalSec: 0,
+    facilityFanDeviceIds: [31n, 32n],
+    fanOffDelaySec: 45,
+    fanRestoreDelaySec: 90,
   });
 
   return Object.assign(profile, overrides);
@@ -124,6 +127,9 @@ describe("useCurtailmentResponseProfiles", () => {
       deadlineSummary: "Within 15 min",
       formValues: {
         ...fixedKwFormValues,
+        facilityFanDeviceIds: ["31", "32"],
+        fanOffDelaySec: "45",
+        fanRestoreDelaySec: "90",
         siteId: "101",
         siteName: "Site 101",
         siteIds: ["101"],
@@ -142,7 +148,12 @@ describe("useCurtailmentResponseProfiles", () => {
     const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
 
     await act(async () => {
-      await result.current.createResponseProfile(fixedKwFormValues);
+      await result.current.createResponseProfile({
+        ...fixedKwFormValues,
+        facilityFanDeviceIds: ["31", "32"],
+        fanOffDelaySec: "45",
+        fanRestoreDelaySec: "90",
+      });
     });
 
     expect(mockCreateCurtailmentResponseProfile).toHaveBeenCalledWith(
@@ -157,6 +168,9 @@ describe("useCurtailmentResponseProfiles", () => {
         curtailBatchIntervalSec: 30,
         restoreBatchSize: 0,
         restoreBatchIntervalSec: 0,
+        facilityFanDeviceIds: [31n, 32n],
+        fanOffDelaySec: 45,
+        fanRestoreDelaySec: 90,
       }),
     );
     expectWholeOrgScope(mockCreateCurtailmentResponseProfile.mock.calls[0]?.[0]?.scopes);

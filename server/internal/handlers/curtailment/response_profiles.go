@@ -382,6 +382,9 @@ func responseProfileFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentResp
 		msg.GetForceIncludeMaintenance(),
 		msg.GetPostEventCooldownSec(),
 		msg.GetForceIncludeAllPairedMiners(),
+		msg.GetFacilityFanDeviceIds(),
+		msg.GetFanOffDelaySec(),
+		msg.GetFanRestoreDelaySec(),
 	)
 	if err != nil {
 		return models.ResponseProfile{}, err
@@ -410,6 +413,9 @@ func responseProfileFromUpdateRequest(orgID int64, msg *pb.UpdateCurtailmentResp
 		msg.GetForceIncludeMaintenance(),
 		msg.GetPostEventCooldownSec(),
 		msg.GetForceIncludeAllPairedMiners(),
+		msg.GetFacilityFanDeviceIds(),
+		msg.GetFanOffDelaySec(),
+		msg.GetFanRestoreDelaySec(),
 	)
 }
 
@@ -433,6 +439,9 @@ func responseProfileFromPayload(
 	forceIncludeMaintenance bool,
 	postEventCooldownSec uint32,
 	forceIncludeAllPairedMiners bool,
+	facilityFanDeviceIDs []int64,
+	fanOffDelaySec uint32,
+	fanRestoreDelaySec uint32,
 ) (models.ResponseProfile, error) {
 	mode, fixedKw, err := toRequestMode(modeProto, fixedKw, hasModeParams)
 	if err != nil {
@@ -470,6 +479,14 @@ func responseProfileFromPayload(
 	if err != nil {
 		return models.ResponseProfile{}, err
 	}
+	fanOffDelayInt, err := uint32ToInt32Strict("fan_off_delay_sec", fanOffDelaySec)
+	if err != nil {
+		return models.ResponseProfile{}, err
+	}
+	fanRestoreDelayInt, err := uint32ToInt32Strict("fan_restore_delay_sec", fanRestoreDelaySec)
+	if err != nil {
+		return models.ResponseProfile{}, err
+	}
 	var targetKW *float64
 	var toleranceKW *float64
 	if fixedKw != nil {
@@ -498,6 +515,9 @@ func responseProfileFromPayload(
 		ForceIncludeMaintenance:     forceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: forceIncludeAllPairedMiners,
 		PostEventCooldownSec:        postEventCooldownInt,
+		FacilityFanDeviceIDs:        append([]int64(nil), facilityFanDeviceIDs...),
+		FanOffDelaySec:              fanOffDelayInt,
+		FanRestoreDelaySec:          fanRestoreDelayInt,
 	}
 	if site != nil {
 		siteID := site.GetSiteId()
@@ -540,6 +560,9 @@ func toResponseProfileProto(profile *models.ResponseProfile) *pb.CurtailmentResp
 		ForceIncludeMaintenance:     profile.ForceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: profile.ForceIncludeAllPairedMiners,
 		PostEventCooldownSec:        uint32Saturating(profile.PostEventCooldownSec),
+		FacilityFanDeviceIds:        append([]int64(nil), profile.FacilityFanDeviceIDs...),
+		FanOffDelaySec:              uint32Saturating(profile.FanOffDelaySec),
+		FanRestoreDelaySec:          uint32Saturating(profile.FanRestoreDelaySec),
 		CreatedAt:                   profileTimeProto(profile.CreatedAt),
 		UpdatedAt:                   profileTimeProto(profile.UpdatedAt),
 	}

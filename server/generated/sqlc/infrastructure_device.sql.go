@@ -14,6 +14,25 @@ import (
 	"github.com/lib/pq"
 )
 
+const countResponseProfilesByInfrastructureDevice = `-- name: CountResponseProfilesByInfrastructureDevice :one
+SELECT COUNT(*)
+FROM curtailment_response_profile
+WHERE org_id = $1
+  AND facility_fan_device_ids @> $2::bigint[]
+`
+
+type CountResponseProfilesByInfrastructureDeviceParams struct {
+	OrgID                   int64
+	InfrastructureDeviceIds []int64
+}
+
+func (q *Queries) CountResponseProfilesByInfrastructureDevice(ctx context.Context, arg CountResponseProfilesByInfrastructureDeviceParams) (int64, error) {
+	row := q.queryRow(ctx, q.countResponseProfilesByInfrastructureDeviceStmt, countResponseProfilesByInfrastructureDevice, arg.OrgID, pq.Array(arg.InfrastructureDeviceIds))
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createInfrastructureDevice = `-- name: CreateInfrastructureDevice :one
 INSERT INTO infrastructure_device (
     org_id,

@@ -11,6 +11,7 @@ export const curtailmentNumericFieldLimits = {
   curtailBatchIntervalSec: 3600,
   restoreBatchSize: 10000,
   restoreIntervalSec: 3600,
+  fanDelaySec: 2147483647,
   minDurationSec: 2147483647,
 } as const;
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure"
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
@@ -120,6 +121,7 @@ func TestService_UpdateEmitsAuditEvent(t *testing.T) {
 func TestService_DeleteEmitsAuditEvent(t *testing.T) {
 	t.Parallel()
 	h := newAuditHarness(t)
+	h.store.EXPECT().CountResponseProfilesByInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(int64(0), nil)
 	h.store.EXPECT().SoftDeleteInfrastructureDevice(gomock.Any(), testOrgID, int64(7), testSiteID).
 		Return(auditDevice(), true, nil)
 
@@ -130,10 +132,24 @@ func TestService_DeleteEmitsAuditEvent(t *testing.T) {
 func TestService_DeleteNotFoundEmitsNoAuditEvent(t *testing.T) {
 	t.Parallel()
 	h := newAuditHarness(t)
+	h.store.EXPECT().CountResponseProfilesByInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(int64(0), nil)
 	h.store.EXPECT().SoftDeleteInfrastructureDevice(gomock.Any(), testOrgID, int64(7), testSiteID).
 		Return(nil, false, nil)
 
 	err := h.svc.Delete(context.Background(), testOrgID, 7, testSiteID)
 	require.Error(t, err)
 	assert.Empty(t, *h.captured, "failed mutations must not emit audit events")
+}
+
+func TestService_DeleteRejectsDeviceReferencedByResponseProfile(t *testing.T) {
+	t.Parallel()
+	h := newAuditHarness(t)
+	h.store.EXPECT().CountResponseProfilesByInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(int64(1), nil)
+
+	err := h.svc.Delete(context.Background(), testOrgID, 7, testSiteID)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "update those profiles first")
+	assert.Empty(t, *h.captured)
 }

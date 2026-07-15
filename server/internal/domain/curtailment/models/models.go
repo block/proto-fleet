@@ -37,8 +37,19 @@ type ResponseProfile struct {
 	ForceIncludeMaintenance     bool
 	ForceIncludeAllPairedMiners bool
 	PostEventCooldownSec        int32
+	FacilityFanDeviceIDs        []int64
+	FanOffDelaySec              int32
+	FanRestoreDelaySec          int32
 	CreatedAt                   time.Time
 	UpdatedAt                   time.Time
+}
+
+// ResponseProfileInfrastructureDevice is the protocol-blind device state
+// needed while validating a response profile's facility-fan references.
+type ResponseProfileInfrastructureDevice struct {
+	ID      int64
+	SiteID  int64
+	Enabled bool
 }
 
 // AutomationTriggerType identifies the kind of signal an automation rule
