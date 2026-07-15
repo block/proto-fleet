@@ -32,12 +32,15 @@ describe("RowActionsMenu", () => {
     expect(screen.getByText("Delete")).toBeInTheDocument();
   });
 
-  it("caps the desktop popover wrapper to the viewport and makes it the scroller", () => {
+  it("caps the desktop popover to the viewport and scrolls on the content surface", () => {
     render(<RowActionsMenu actions={[{ label: "Edit", onClick: vi.fn() }]} />);
     fireEvent.click(screen.getByTestId("row-actions-menu-trigger"));
-    // The viewport cap lands on the positioned wrapper, so the wrapper itself must
-    // scroll — otherwise unconstrained inner content paints past the cap (#727).
-    expect(screen.getByTestId("row-actions-menu-popover")).toHaveClass("overflow-y-auto", "overscroll-contain");
+    // The viewport cap lands on the positioned wrapper, but scrolling happens on the
+    // inner content surface (which carries the bg/radius/shadow) so the shadow and
+    // rounded corners aren't split across a scrollbar gap (#727 / PR #751).
+    const scroller = screen.getByTestId("row-actions-menu-popover").querySelector(".popover-content");
+    expect(scroller).not.toBeNull();
+    expect(scroller).toHaveClass("overflow-y-auto", "overscroll-contain");
   });
 
   it("fires the action handler and closes the popover", () => {
