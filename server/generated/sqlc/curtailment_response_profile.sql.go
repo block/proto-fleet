@@ -352,6 +352,31 @@ func (q *Queries) ListResponseProfileInfrastructureDevicesByOrg(ctx context.Cont
 	return items, nil
 }
 
+const lockCurtailmentResponseProfileAutomationMutation = `-- name: LockCurtailmentResponseProfileAutomationMutation :exec
+SELECT pg_advisory_xact_lock(
+    hashtextextended(
+        'curtailment_response_profile_automation:'
+            || $1::bigint::text
+            || ':'
+            || $2::bigint::text,
+        0
+    )
+)
+`
+
+type LockCurtailmentResponseProfileAutomationMutationParams struct {
+	OrgID     int64
+	ProfileID int64
+}
+
+// Serializes profile fan changes with automation create/update/enable. Both
+// sides re-read their compatibility condition after acquiring this lock so a
+// concurrent pair cannot commit an automation binding to a fan profile.
+func (q *Queries) LockCurtailmentResponseProfileAutomationMutation(ctx context.Context, arg LockCurtailmentResponseProfileAutomationMutationParams) error {
+	_, err := q.exec(ctx, q.lockCurtailmentResponseProfileAutomationMutationStmt, lockCurtailmentResponseProfileAutomationMutation, arg.OrgID, arg.ProfileID)
+	return err
+}
+
 const updateCurtailmentResponseProfile = `-- name: UpdateCurtailmentResponseProfile :one
 UPDATE curtailment_response_profile
 SET

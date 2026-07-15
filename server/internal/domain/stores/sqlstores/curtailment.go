@@ -35,6 +35,11 @@ const (
 	automationExternalSource     = "curtailment_automation"
 )
 
+type automationRuleMutationResult struct {
+	rule   sqlc.CurtailmentAutomationRule
+	noRows bool
+}
+
 func mapOrgConfigError(err error, orgID int64) error {
 	if err == nil {
 		return nil
@@ -241,6 +246,23 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(
 ) (*models.ResponseProfile, error) {
 	normalizedExpectedScopeJSON := normalizedResponseProfileScopeJSON(expectedScopeJSON)
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
+		if err := lockResponseProfileAutomationMutation(ctx, q, profile.OrgID, profile.ID); err != nil {
+			return sqlc.CurtailmentResponseProfile{}, err
+		}
+		if len(profile.FacilityFanDeviceIDs) > 0 {
+			count, err := q.CountCurtailmentAutomationRulesByResponseProfile(ctx, sqlc.CountCurtailmentAutomationRulesByResponseProfileParams{
+				OrgID:             profile.OrgID,
+				ResponseProfileID: profile.ID,
+			})
+			if err != nil {
+				return sqlc.CurtailmentResponseProfile{}, fleeterror.NewInternalErrorf("failed to count curtailment automation rules during response profile update: %v", err)
+			}
+			if count > 0 {
+				return sqlc.CurtailmentResponseProfile{}, fleeterror.NewFailedPreconditionError(
+					"response profiles used by automation rules cannot include facility fans until fan sequencing is available",
+				)
+			}
+		}
 		if err := lockResponseProfileSitesForWrite(
 			ctx,
 			q,
@@ -377,13 +399,22 @@ func (s *SQLCurtailmentStore) ListMQTTSourcesWithActiveCurtailment(ctx context.C
 }
 
 func (s *SQLCurtailmentStore) CreateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
-	inserted, err := s.GetQueries(ctx).InsertCurtailmentAutomationRule(ctx, sqlc.InsertCurtailmentAutomationRuleParams{
-		OrgID:             rule.OrgID,
-		RuleName:          rule.RuleName,
-		TriggerType:       string(rule.TriggerType),
-		MqttSourceID:      rule.MQTTSourceID,
-		ResponseProfileID: rule.ResponseProfileID,
-		Enabled:           rule.Enabled,
+	inserted, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentAutomationRule, error) {
+		if err := requireAutomationCompatibleResponseProfile(ctx, q, rule.OrgID, rule.ResponseProfileID); err != nil {
+			return sqlc.CurtailmentAutomationRule{}, err
+		}
+		inserted, err := q.InsertCurtailmentAutomationRule(ctx, sqlc.InsertCurtailmentAutomationRuleParams{
+			OrgID:             rule.OrgID,
+			RuleName:          rule.RuleName,
+			TriggerType:       string(rule.TriggerType),
+			MqttSourceID:      rule.MQTTSourceID,
+			ResponseProfileID: rule.ResponseProfileID,
+			Enabled:           rule.Enabled,
+		})
+		if err != nil {
+			return sqlc.CurtailmentAutomationRule{}, mapAutomationRuleWriteError("create", err)
+		}
+		return inserted, nil
 	})
 	if err != nil {
 		return nil, mapAutomationRuleWriteError("create", err)
@@ -392,28 +423,79 @@ func (s *SQLCurtailmentStore) CreateAutomationRule(ctx context.Context, rule mod
 }
 
 func (s *SQLCurtailmentStore) UpdateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
-	updated, err := s.GetQueries(ctx).UpdateCurtailmentAutomationRule(ctx, sqlc.UpdateCurtailmentAutomationRuleParams{
-		ID:                rule.ID,
-		OrgID:             rule.OrgID,
-		RuleName:          rule.RuleName,
-		MqttSourceID:      rule.MQTTSourceID,
-		ResponseProfileID: rule.ResponseProfileID,
+	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (automationRuleMutationResult, error) {
+		if err := requireAutomationCompatibleResponseProfile(ctx, q, rule.OrgID, rule.ResponseProfileID); err != nil {
+			return automationRuleMutationResult{}, err
+		}
+		updated, err := q.UpdateCurtailmentAutomationRule(ctx, sqlc.UpdateCurtailmentAutomationRuleParams{
+			ID:                rule.ID,
+			OrgID:             rule.OrgID,
+			RuleName:          rule.RuleName,
+			MqttSourceID:      rule.MQTTSourceID,
+			ResponseProfileID: rule.ResponseProfileID,
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return automationRuleMutationResult{noRows: true}, nil
+		}
+		if err != nil {
+			return automationRuleMutationResult{}, mapAutomationRuleWriteError("update", err)
+		}
+		return automationRuleMutationResult{rule: updated}, err
 	})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, s.automationRuleLifecycleNoRowsError(ctx, "update", rule.OrgID, rule.ID)
-		}
 		return nil, mapAutomationRuleWriteError("update", err)
 	}
-	return s.GetAutomationRule(ctx, updated.OrgID, updated.ID)
+	if result.noRows {
+		return nil, s.automationRuleLifecycleNoRowsError(ctx, "update", rule.OrgID, rule.ID)
+	}
+	return s.GetAutomationRule(ctx, result.rule.OrgID, result.rule.ID)
 }
 
 func (s *SQLCurtailmentStore) SetAutomationRuleEnabled(ctx context.Context, orgID, ruleID int64, enabled bool) (*models.AutomationRule, error) {
-	updated, err := s.GetQueries(ctx).SetCurtailmentAutomationRuleEnabled(ctx, sqlc.SetCurtailmentAutomationRuleEnabledParams{
-		ID:      ruleID,
-		OrgID:   orgID,
-		Enabled: enabled,
-	})
+	var updated sqlc.CurtailmentAutomationRule
+	var err error
+	if enabled {
+		result, txErr := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (automationRuleMutationResult, error) {
+			rule, err := q.GetCurtailmentAutomationRuleByOrg(ctx, sqlc.GetCurtailmentAutomationRuleByOrgParams{
+				ID:    ruleID,
+				OrgID: orgID,
+			})
+			if errors.Is(err, sql.ErrNoRows) {
+				return automationRuleMutationResult{noRows: true}, nil
+			}
+			if err != nil {
+				return automationRuleMutationResult{}, err
+			}
+			if err := requireAutomationCompatibleResponseProfile(ctx, q, orgID, rule.ResponseProfileID); err != nil {
+				return automationRuleMutationResult{}, err
+			}
+			updated, err := q.SetCurtailmentAutomationRuleEnabled(ctx, sqlc.SetCurtailmentAutomationRuleEnabledParams{
+				ID:      ruleID,
+				OrgID:   orgID,
+				Enabled: true,
+			})
+			if errors.Is(err, sql.ErrNoRows) {
+				return automationRuleMutationResult{noRows: true}, nil
+			}
+			if err != nil {
+				return automationRuleMutationResult{}, mapAutomationRuleWriteError("enable", err)
+			}
+			return automationRuleMutationResult{rule: updated}, err
+		})
+		if txErr != nil {
+			return nil, mapAutomationRuleWriteError("enable", txErr)
+		}
+		if result.noRows {
+			return nil, fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", ruleID)
+		}
+		updated = result.rule
+	} else {
+		updated, err = s.GetQueries(ctx).SetCurtailmentAutomationRuleEnabled(ctx, sqlc.SetCurtailmentAutomationRuleEnabledParams{
+			ID:      ruleID,
+			OrgID:   orgID,
+			Enabled: false,
+		})
+	}
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			if !enabled {
@@ -729,6 +811,38 @@ func lockResponseProfileSitesForWrite(ctx context.Context, q *sqlc.Queries, orgI
 			}
 			return fleeterror.NewInternalErrorf("failed to lock site for curtailment response profile write: %v", err)
 		}
+	}
+	return nil
+}
+
+func lockResponseProfileAutomationMutation(ctx context.Context, q *sqlc.Queries, orgID, profileID int64) error {
+	if err := q.LockCurtailmentResponseProfileAutomationMutation(ctx, sqlc.LockCurtailmentResponseProfileAutomationMutationParams{
+		OrgID:     orgID,
+		ProfileID: profileID,
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to lock response profile automation mutation: %v", err)
+	}
+	return nil
+}
+
+func requireAutomationCompatibleResponseProfile(ctx context.Context, q *sqlc.Queries, orgID, profileID int64) error {
+	if err := lockResponseProfileAutomationMutation(ctx, q, orgID, profileID); err != nil {
+		return err
+	}
+	profile, err := q.GetCurtailmentResponseProfileByOrg(ctx, sqlc.GetCurtailmentResponseProfileByOrgParams{
+		ID:    profileID,
+		OrgID: orgID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profileID)
+	}
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to get response profile during automation mutation: %v", err)
+	}
+	if len(profile.FacilityFanDeviceIds) > 0 {
+		return fleeterror.NewFailedPreconditionError(
+			"automation rules cannot use response profiles with facility fans until fan sequencing is available",
+		)
 	}
 	return nil
 }

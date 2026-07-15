@@ -10,6 +10,20 @@ FROM curtailment_response_profile
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id');
 
+-- name: LockCurtailmentResponseProfileAutomationMutation :exec
+-- Serializes profile fan changes with automation create/update/enable. Both
+-- sides re-read their compatibility condition after acquiring this lock so a
+-- concurrent pair cannot commit an automation binding to a fan profile.
+SELECT pg_advisory_xact_lock(
+    hashtextextended(
+        'curtailment_response_profile_automation:'
+            || sqlc.arg('org_id')::bigint::text
+            || ':'
+            || sqlc.arg('profile_id')::bigint::text,
+        0
+    )
+);
+
 -- name: ListCurtailmentResponseProfileDeviceSitesByOrg :many
 SELECT device_identifier, site_id
 FROM device

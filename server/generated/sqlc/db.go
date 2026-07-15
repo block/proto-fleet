@@ -1032,6 +1032,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockBuildingsBySiteForWriteStmt, err = db.PrepareContext(ctx, lockBuildingsBySiteForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockBuildingsBySiteForWrite: %w", err)
 	}
+	if q.lockCurtailmentResponseProfileAutomationMutationStmt, err = db.PrepareContext(ctx, lockCurtailmentResponseProfileAutomationMutation); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentResponseProfileAutomationMutation: %w", err)
+	}
 	if q.lockCurtailmentScopeForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentScopeForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentScopeForWrite: %w", err)
 	}
@@ -3170,6 +3173,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockBuildingsBySiteForWriteStmt: %w", cerr)
 		}
 	}
+	if q.lockCurtailmentResponseProfileAutomationMutationStmt != nil {
+		if cerr := q.lockCurtailmentResponseProfileAutomationMutationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentResponseProfileAutomationMutationStmt: %w", cerr)
+		}
+	}
 	if q.lockCurtailmentScopeForWriteStmt != nil {
 		if cerr := q.lockCurtailmentScopeForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockCurtailmentScopeForWriteStmt: %w", cerr)
@@ -4300,6 +4308,7 @@ type Queries struct {
 	lockAndCountOrgScopeSuperAdminsStmt                        *sql.Stmt
 	lockBuildingForWriteStmt                                   *sql.Stmt
 	lockBuildingsBySiteForWriteStmt                            *sql.Stmt
+	lockCurtailmentResponseProfileAutomationMutationStmt       *sql.Stmt
 	lockCurtailmentScopeForWriteStmt                           *sql.Stmt
 	lockDevicesForReassignStmt                                 *sql.Stmt
 	lockFleetNodeByIDStmt                                      *sql.Stmt
@@ -4793,6 +4802,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockAndCountOrgScopeSuperAdminsStmt:                        q.lockAndCountOrgScopeSuperAdminsStmt,
 		lockBuildingForWriteStmt:                                   q.lockBuildingForWriteStmt,
 		lockBuildingsBySiteForWriteStmt:                            q.lockBuildingsBySiteForWriteStmt,
+		lockCurtailmentResponseProfileAutomationMutationStmt:       q.lockCurtailmentResponseProfileAutomationMutationStmt,
 		lockCurtailmentScopeForWriteStmt:                           q.lockCurtailmentScopeForWriteStmt,
 		lockDevicesForReassignStmt:                                 q.lockDevicesForReassignStmt,
 		lockFleetNodeByIDStmt:                                      q.lockFleetNodeByIDStmt,
