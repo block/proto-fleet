@@ -1013,19 +1013,19 @@ def evaluate_policy(
             human_review_reasons=human_reasons,
         )
 
-    if human_ok:
+    if not low_blockers:
         return PolicyResult(
             passed=True,
-            decision="human-approved",
+            decision="trusted-author-low-risk",
             reasons=[],
             low_risk_reasons=low_reasons,
             human_review_reasons=human_reasons,
         )
 
-    if not low_blockers:
+    if human_ok:
         return PolicyResult(
             passed=True,
-            decision="trusted-author-low-risk",
+            decision="human-approved",
             reasons=[],
             low_risk_reasons=low_reasons,
             human_review_reasons=human_reasons,

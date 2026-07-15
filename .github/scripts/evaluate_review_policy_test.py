@@ -12,6 +12,7 @@ import evaluate_review_policy as policy
 
 
 WORKFLOWS_DIR = Path(__file__).resolve().parents[1] / "workflows"
+CONFIG_PATH = Path(__file__).resolve().parents[1] / "review-policy.json"
 
 
 def read_workflow(name):
@@ -33,6 +34,10 @@ def load_workflow(name):
         text=True,
     )
     return json.loads(result.stdout)
+
+
+def load_policy_config():
+    return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
 
 
 class ReviewPolicyTest(unittest.TestCase):
@@ -145,6 +150,76 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertEqual(
             policy.denied_paths(files, [".github/**", "server/**"]),
             [".github/workflows/review-policy.yml", "server/main.go"],
+        )
+
+    def test_low_risk_config_allows_small_server_app_changes_to_reach_classifier(self):
+        deny_paths = load_policy_config()["low_risk"]["deny_paths"]
+        files = [
+            {"filename": "server/devtools/hapoc/main.go"},
+            {"filename": "server/fake-proto-rig/rest_api_handler.go"},
+            {"filename": "server/internal/domain/telemetry/scheduler/scheduler.go"},
+            {"filename": "server/internal/domain/collection/service_test.go"},
+        ]
+
+        self.assertEqual(policy.denied_paths(files, deny_paths), [])
+
+    def test_low_risk_config_keeps_sensitive_server_paths_denied(self):
+        deny_paths = load_policy_config()["low_risk"]["deny_paths"]
+        files = [
+            {"filename": "server/cmd/fleetd/main.go"},
+            {"filename": "server/generated/grpc/device/v1/device.pb.go"},
+            {"filename": "server/internal/domain/apikey/service.go"},
+            {"filename": "server/internal/domain/auth/service.go"},
+            {"filename": "server/internal/domain/authz/catalog.go"},
+            {"filename": "server/internal/domain/command/service.go"},
+            {"filename": "server/internal/domain/commandtype/metadata.go"},
+            {"filename": "server/internal/domain/deviceresolver/resolver.go"},
+            {"filename": "server/internal/domain/discoverylimits/service.go"},
+            {"filename": "server/internal/domain/fleetnode/control/service.go"},
+            {"filename": "server/internal/domain/ipscanner/scanner.go"},
+            {"filename": "server/internal/domain/minerdiscovery/service.go"},
+            {"filename": "server/internal/domain/nmaptarget/parser.go"},
+            {"filename": "server/internal/domain/pairing/service.go"},
+            {"filename": "server/internal/domain/pools/service.go"},
+            {"filename": "server/internal/domain/session/service.go"},
+            {"filename": "server/internal/domain/stores/sqlstores/device.go"},
+            {"filename": "server/internal/domain/token/service.go"},
+            {"filename": "server/internal/handlers/pools/handler.go"},
+            {"filename": "server/internal/infrastructure/db/config.go"},
+            {"filename": "server/migrations/000123_example.up.sql"},
+            {"filename": "server/monitoring/grafana/grafana.ini"},
+            {"filename": "server/sqlc/queries/device.sql"},
+            {"filename": "server/tools/generate-fleet-cli/main.go"},
+        ]
+
+        self.assertEqual(
+            policy.denied_paths(files, deny_paths),
+            [
+                "server/cmd/fleetd/main.go",
+                "server/generated/grpc/device/v1/device.pb.go",
+                "server/internal/domain/apikey/service.go",
+                "server/internal/domain/auth/service.go",
+                "server/internal/domain/authz/catalog.go",
+                "server/internal/domain/command/service.go",
+                "server/internal/domain/commandtype/metadata.go",
+                "server/internal/domain/deviceresolver/resolver.go",
+                "server/internal/domain/discoverylimits/service.go",
+                "server/internal/domain/fleetnode/control/service.go",
+                "server/internal/domain/ipscanner/scanner.go",
+                "server/internal/domain/minerdiscovery/service.go",
+                "server/internal/domain/nmaptarget/parser.go",
+                "server/internal/domain/pairing/service.go",
+                "server/internal/domain/pools/service.go",
+                "server/internal/domain/session/service.go",
+                "server/internal/domain/stores/sqlstores/device.go",
+                "server/internal/domain/token/service.go",
+                "server/internal/handlers/pools/handler.go",
+                "server/internal/infrastructure/db/config.go",
+                "server/migrations/000123_example.up.sql",
+                "server/monitoring/grafana/grafana.ini",
+                "server/sqlc/queries/device.sql",
+                "server/tools/generate-fleet-cli/main.go",
+            ],
         )
 
     def test_classifier_allows_low_risk(self):
@@ -922,6 +997,106 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertTrue(result.passed)
         self.assertEqual(result.decision, "trusted-author-low-risk")
         self.assertEqual(result.reasons, [])
+
+    def test_evaluate_policy_prefers_low_risk_when_human_approval_also_exists(self):
+        original_paginate = policy.github_paginate
+        original_request = policy.github_request
+        original_reviewer_has_authority = policy.reviewer_has_authority
+        original_trusted_author_reasons = policy.trusted_author_reasons
+        original_check_statuses = policy.check_statuses
+        original_extract_security_risk = policy.extract_security_risk
+        original_latest_check_runs = policy.latest_check_runs
+        original_workflow_runs = policy.latest_workflow_runs
+        try:
+            def fake_paginate(path, token):
+                if path.endswith("/commits/abc123/pulls"):
+                    return [{"number": 123, "state": "open", "head": {"sha": "abc123"}}]
+                if path.endswith("/files"):
+                    return [
+                        {
+                            "filename": "client/src/foo.ts",
+                            "additions": 2,
+                            "deletions": 1,
+                            "patch": "@@\n+const x = 1",
+                        }
+                    ]
+                if path.endswith("/commits"):
+                    return [{"sha": "abc123", "author": {"login": "author"}, "committer": {"login": "author"}}]
+                if path.endswith("/reviews"):
+                    return [
+                        {
+                            "user": {"login": "reviewer", "type": "User"},
+                            "state": "APPROVED",
+                            "commit_id": "abc123",
+                            "submitted_at": "2026-01-01T00:00:00Z",
+                        }
+                    ]
+                return []
+
+            policy.github_paginate = fake_paginate
+            policy.github_request = lambda method, path, token, body=None: {
+                "state": "open",
+                "head": {"sha": "abc123"},
+                "base": {"sha": "base123"},
+            }
+            policy.reviewer_has_authority = lambda owner, repo, username, token: True
+            policy.trusted_author_reasons = lambda author, trusted_authors, owner, token: (
+                True,
+                [f"author @{author} is explicitly trusted"],
+            )
+            policy.check_statuses = lambda owner, repo, head_sha, required_checks, token, latest_by_name=None: (True, [])
+            policy.extract_security_risk = lambda owner, repo, base_sha, head_sha, token, check_name, workflow_path, artifact_name, latest_by_name=None: (
+                "LOW",
+                [],
+            )
+            policy.latest_check_runs = lambda owner, repo, head_sha, token: {}
+            policy.latest_workflow_runs = lambda owner, repo, head_sha, event, token: {
+                ".github/workflows/pr-gate.yml": {"actor": {"login": "author"}},
+            }
+            result = policy.evaluate_policy(
+                config={
+                    "trusted_authors": ["author"],
+                    "minimum_human_approvals": 1,
+                    "security_review_check": "security-review",
+                    "security_review_workflow_path": ".github/workflows/codex-security-review.yml",
+                    "security_review_artifact": "codex-security-review-result",
+                    "low_risk": {
+                        "max_changed_files": 10,
+                        "max_file_changes": 80,
+                        "max_total_changes": 200,
+                        "minimum_ai_confidence": 0.85,
+                        "trusted_actor_workflow": {
+                            "workflow_path": ".github/workflows/pr-gate.yml",
+                            "event": "pull_request",
+                        },
+                        "allowed_security_risks": ["LOW", "NONE"],
+                        "required_checks": [],
+                        "deny_paths": [".github/**"],
+                        "content_deny_added_patterns": [],
+                    },
+                },
+                owner="block",
+                repo="proto-fleet",
+                pr_number=123,
+                author="author",
+                base_sha="base123",
+                head_sha="abc123",
+                token="token",
+                classifier_output='{"risk":"low","confidence":0.95,"requires_human_review":false,"reasons":["small"]}',
+            )
+        finally:
+            policy.github_paginate = original_paginate
+            policy.github_request = original_request
+            policy.reviewer_has_authority = original_reviewer_has_authority
+            policy.trusted_author_reasons = original_trusted_author_reasons
+            policy.check_statuses = original_check_statuses
+            policy.extract_security_risk = original_extract_security_risk
+            policy.latest_check_runs = original_latest_check_runs
+            policy.latest_workflow_runs = original_workflow_runs
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.decision, "trusted-author-low-risk")
+        self.assertIn("current authorized human approvals: reviewer", result.human_review_reasons)
 
     def test_evaluate_policy_blocks_human_approval_with_unknown_commit_identity(self):
         original_paginate = policy.github_paginate
