@@ -25,6 +25,7 @@ import { PairingService } from "@/protoFleet/api/generated/pairing/v1/pairing_pb
 import { PoolsService } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import { ScheduleService } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
 import { ServerLogService } from "@/protoFleet/api/generated/serverlog/v1/serverlog_pb";
+import { SiteMapService } from "@/protoFleet/api/generated/sitemap/v1/sitemap_pb";
 import { SiteService } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { TelemetryService } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
@@ -43,6 +44,7 @@ const minerCommandClient = createClient(MinerCommandService, transport);
 const poolsClient = createClient(PoolsService, transport);
 const scheduleClient = createClient(ScheduleService, transport);
 const serverLogClient = createClient(ServerLogService, transport);
+const siteMapClient = createClient(SiteMapService, transport);
 const deviceSetClient = createClient(DeviceSetService, transport);
 const telemetryClient = createClient(TelemetryService, transport);
 const foremanImportClient = createClient(ForemanImportService, transport);
@@ -77,6 +79,7 @@ export {
   poolsClient,
   scheduleClient,
   serverLogClient,
+  siteMapClient,
   sitesClient,
   telemetryClient,
   foremanImportClient,

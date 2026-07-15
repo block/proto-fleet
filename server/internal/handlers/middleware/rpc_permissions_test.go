@@ -35,6 +35,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
@@ -89,6 +90,7 @@ var registeredServices = []struct {
 	{poolsv1connect.PoolsServiceName, reflect.TypeOf((*poolsv1connect.PoolsServiceHandler)(nil)).Elem()},
 	{schedulev1connect.ScheduleServiceName, reflect.TypeOf((*schedulev1connect.ScheduleServiceHandler)(nil)).Elem()},
 	{serverlogv1connect.ServerLogServiceName, reflect.TypeOf((*serverlogv1connect.ServerLogServiceHandler)(nil)).Elem()},
+	{sitemapv1connect.SiteMapServiceName, reflect.TypeOf((*sitemapv1connect.SiteMapServiceHandler)(nil)).Elem()},
 	{sitesv1connect.SiteServiceName, reflect.TypeOf((*sitesv1connect.SiteServiceHandler)(nil)).Elem()},
 	{telemetryv1connect.TelemetryServiceName, reflect.TypeOf((*telemetryv1connect.TelemetryServiceHandler)(nil)).Elem()},
 }

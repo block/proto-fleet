@@ -1,3 +1,4 @@
+import { type ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -8,6 +9,21 @@ import { Code } from "@connectrpc/connect";
 // direct-link reachability for authorized QA/dogfood paths.
 vi.mock("@/protoFleet/constants/featureFlags", () => ({
   INFRASTRUCTURE_DEVICES_ENABLED: false,
+}));
+
+vi.mock("@/protoFleet/api/useSiteMapCsv", () => ({
+  default: () => ({
+    exportSiteMapCsv: vi.fn(),
+    isExportingSiteMapCsv: false,
+  }),
+}));
+
+vi.mock("@/protoFleet/features/fleetManagement/components/SiteMapCsvImportModal", () => ({
+  default: ({ open }: { open: boolean }) => (open ? <div data-testid="site-map-import-modal" /> : null),
+}));
+
+vi.mock("@/protoFleet/features/fleetManagement/components/FleetCreateFlow/FleetCreateFlowProvider", () => ({
+  default: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
 import FleetLayout from "./FleetLayout";

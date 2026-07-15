@@ -6,17 +6,21 @@ import { type FleetOutletContext } from "./outletContext";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
 import { useSitesContext, useSitesPolling } from "@/protoFleet/api/SitesContext";
+import useSiteMapCsv from "@/protoFleet/api/useSiteMapCsv";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { INFRASTRUCTURE_DEVICES_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import FleetCreateFlowProvider from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/FleetCreateFlowProvider";
 import FleetViewTabs from "@/protoFleet/features/fleetManagement/components/FleetViewTabs";
+import SiteMapCsvImportModal from "@/protoFleet/features/fleetManagement/components/SiteMapCsvImportModal";
 import { type FleetTabId } from "@/protoFleet/features/fleetManagement/views/savedViews";
 import useFleetViews from "@/protoFleet/features/fleetManagement/views/useFleetViews";
 import { type FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
 import { activeSiteFromScopablePath, scopedPath, unscopedScopablePath } from "@/protoFleet/routing/siteScope";
 import { useHasPermission, useUsername } from "@/protoFleet/store";
+import Button, { sizes, variants } from "@/shared/components/Button";
+import ResponsiveActionGroup, { type ResponsiveActionButton } from "@/shared/components/ResponsiveActionGroup";
 import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 
@@ -63,6 +67,12 @@ const FleetLayout = () => {
   const canReadMiners = useHasPermission("miner:read");
   const canReadRacks = useHasPermission("rack:read");
   const canReadFleet = useHasPermission("fleet:read");
+  const canExportMinerCsv = useHasPermission("miner:export_csv");
+  const canManageSites = useHasPermission("site:manage");
+  const canManageRacks = useHasPermission("rack:manage");
+  const canRenameMiners = useHasPermission("miner:rename");
+  const { exportSiteMapCsv, isExportingSiteMapCsv } = useSiteMapCsv();
+  const [showSiteMapImportModal, setShowSiteMapImportModal] = useState(false);
 
   // The site catalog (fetch + poll + last-good/permission-denied tracking) is
   // owned by the shell-level SitesProvider and shared with PageHeader and the
@@ -249,6 +259,32 @@ const FleetLayout = () => {
   // section tabs. Mounting twice (each gated by a `laptop:` visibility
   // class) keeps the DOM simple — only one is interactive at a time.
   const viewTabs = <FleetViewTabs viewsState={viewsState} currentTab={currentTab} filterContext={viewFilterContext} />;
+  const canExportSiteMapCsv = canExportMinerCsv && canReadSites;
+  const canImportSiteMapCsv = canManageSites && canManageRacks && canRenameMiners;
+  const siteMapActionButtons = useMemo<ResponsiveActionButton[]>(
+    () => [
+      ...(canExportSiteMapCsv
+        ? [
+            {
+              loading: isExportingSiteMapCsv,
+              onClick: exportSiteMapCsv,
+              text: "Export site map",
+              variant: variants.secondary,
+            },
+          ]
+        : []),
+      ...(canImportSiteMapCsv
+        ? [
+            {
+              onClick: () => setShowSiteMapImportModal(true),
+              text: "Import site map",
+              variant: variants.secondary,
+            },
+          ]
+        : []),
+    ],
+    [canExportSiteMapCsv, canImportSiteMapCsv, exportSiteMapCsv, isExportingSiteMapCsv],
+  );
 
   const outlet =
     reachableTabs.length === 0 ? (
@@ -275,10 +311,44 @@ const FleetLayout = () => {
           PAGE_SCROLL_CHROME_WIDTH,
         )}
       >
-        <div className="flex items-baseline justify-between gap-4">
+        <div className="flex items-center justify-between gap-4">
           <h1 className="text-heading-300 text-text-primary">Fleet</h1>
-          <div className="laptop:hidden" data-testid="fleet-view-tabs-mobile">
-            {viewTabs}
+          <div className="flex min-w-0 items-center justify-end gap-2">
+            {siteMapActionButtons.length > 0 ? (
+              <>
+                <div className="hidden items-center gap-2 tablet:flex">
+                  {canExportSiteMapCsv ? (
+                    <Button
+                      text="Export site map"
+                      variant={variants.secondary}
+                      size={sizes.compact}
+                      onClick={exportSiteMapCsv}
+                      loading={isExportingSiteMapCsv}
+                    />
+                  ) : null}
+                  {canImportSiteMapCsv ? (
+                    <Button
+                      text="Import site map"
+                      variant={variants.secondary}
+                      size={sizes.compact}
+                      onClick={() => setShowSiteMapImportModal(true)}
+                    />
+                  ) : null}
+                </div>
+                <ResponsiveActionGroup
+                  buttons={siteMapActionButtons}
+                  buttonSize={sizes.compact}
+                  className="tablet:hidden"
+                  primaryButtonStrategy="last"
+                  primaryTestIdSuffix="mobile"
+                  sheetContentTestId="site-map-action-sheet-content"
+                  sheetTestId="site-map-action-sheet"
+                />
+              </>
+            ) : null}
+            <div className="laptop:hidden" data-testid="fleet-view-tabs-mobile">
+              {viewTabs}
+            </div>
           </div>
         </div>
         {canReadMiners ? (
@@ -313,6 +383,13 @@ const FleetLayout = () => {
           {outlet}
         </FleetCreateFlowProvider>
       </div>
+      {showSiteMapImportModal ? (
+        <SiteMapCsvImportModal
+          open
+          onDismiss={() => setShowSiteMapImportModal(false)}
+          onImported={notifyMinersChanged}
+        />
+      ) : null}
     </div>
   );
 };
