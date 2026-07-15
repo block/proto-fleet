@@ -16,10 +16,6 @@ test.describe("Miners UNPAIR - ADD actions", () => {
       return;
     }
 
-    if (testInfo.status === testInfo.expectedStatus) {
-      return;
-    }
-
     const isMobile = testInfo.project.use?.isMobile ?? false;
     const context = await browser.newContext({ baseURL: testConfig.baseUrl });
     try {
