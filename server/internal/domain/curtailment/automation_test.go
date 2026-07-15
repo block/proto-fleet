@@ -173,6 +173,71 @@ func TestAutomationService_CreateAllowsAdminOnlyProfileWithAdminControls(t *test
 	assert.Equal(t, 1, h.rules.createCalls)
 }
 
+func TestAutomationService_RejectsFacilityFanProfilesAcrossBindingMutations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		run  func(*automationHarness) error
+	}{
+		{
+			name: "create",
+			run: func(h *automationHarness) error {
+				_, err := h.automation.Create(h.t.Context(), SaveAutomationRuleRequest{
+					Rule: models.AutomationRule{
+						OrgID:             h.orgID,
+						RuleName:          "Fan automation",
+						MQTTSourceID:      h.source.ID,
+						ResponseProfileID: h.profile.ID,
+					},
+					CanUseAdminControls: true,
+				})
+				return err
+			},
+		},
+		{
+			name: "update",
+			run: func(h *automationHarness) error {
+				_, err := h.automation.Update(h.t.Context(), SaveAutomationRuleRequest{
+					Rule: models.AutomationRule{
+						ID:                h.rule.ID,
+						OrgID:             h.orgID,
+						RuleName:          "Fan automation",
+						MQTTSourceID:      h.source.ID,
+						ResponseProfileID: h.profile.ID,
+					},
+					CanUseAdminControls: true,
+				})
+				return err
+			},
+		},
+		{
+			name: "enable",
+			run: func(h *automationHarness) error {
+				h.rule.Enabled = false
+				_, err := h.automation.SetEnabled(h.t.Context(), h.orgID, h.rule.ID, true, true)
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAutomationHarness(t)
+			h.profile.FacilityFanDeviceIDs = []int64{31}
+
+			err := tt.run(h)
+
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsFailedPreconditionError(err))
+			assert.Contains(t, err.Error(), "cannot use response profiles with facility fans")
+			assert.Equal(t, 0, h.rules.createCalls)
+		})
+	}
+}
+
 func TestAutomationService_UpdateRejectsAdminOnlyProfileWithoutAdminControls(t *testing.T) {
 	t.Parallel()
 

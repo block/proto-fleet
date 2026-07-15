@@ -71,6 +71,9 @@ func TestHandler_CreateCurtailmentResponseProfile(t *testing.T) {
 	assert.Equal(t, []int64{31}, store.created.FacilityFanDeviceIDs)
 	assert.Equal(t, int32(45), store.created.FanOffDelaySec)
 	assert.Equal(t, int32(90), store.created.FanRestoreDelaySec)
+	assert.Equal(t, 1, store.infrastructureDeviceListCalls)
+	require.Contains(t, store.createdInfrastructureDevices, int64(31))
+	assert.Equal(t, int64(8), store.createdInfrastructureDevices[31].SiteID)
 }
 
 func TestHandler_CreateCurtailmentResponseProfileRequiresFacilityFanSitePermissions(t *testing.T) {
@@ -943,18 +946,20 @@ func TestHandler_ResponseProfileAdminCanCreateAllPairedPolicy(t *testing.T) {
 }
 
 type handlerResponseProfileStore struct {
-	siteBelongs             bool
-	siteCheckCount          int
-	created                 *models.ResponseProfile
-	updated                 *models.ResponseProfile
-	updateExpectedSiteID    *int64
-	updateExpectedScopeJSON []byte
-	deletedProfileID        int64
-	deleteExpectedSiteID    *int64
-	deleteExpectedScopeJSON []byte
-	profiles                []*models.ResponseProfile
-	deviceSites             map[string]*int64
-	infrastructureDevices   map[int64]models.ResponseProfileInfrastructureDevice
+	siteBelongs                   bool
+	siteCheckCount                int
+	created                       *models.ResponseProfile
+	updated                       *models.ResponseProfile
+	updateExpectedSiteID          *int64
+	updateExpectedScopeJSON       []byte
+	deletedProfileID              int64
+	deleteExpectedSiteID          *int64
+	deleteExpectedScopeJSON       []byte
+	profiles                      []*models.ResponseProfile
+	deviceSites                   map[string]*int64
+	infrastructureDevices         map[int64]models.ResponseProfileInfrastructureDevice
+	infrastructureDeviceListCalls int
+	createdInfrastructureDevices  map[int64]models.ResponseProfileInfrastructureDevice
 }
 
 func newHandlerResponseProfileStore() *handlerResponseProfileStore {
@@ -990,6 +995,7 @@ func (s *handlerResponseProfileStore) ListResponseProfileDeviceSites(_ context.C
 }
 
 func (s *handlerResponseProfileStore) ListResponseProfileInfrastructureDevices(_ context.Context, _ int64, deviceIDs []int64) (map[int64]models.ResponseProfileInfrastructureDevice, error) {
+	s.infrastructureDeviceListCalls++
 	out := make(map[int64]models.ResponseProfileInfrastructureDevice, len(deviceIDs))
 	for _, deviceID := range deviceIDs {
 		if device, ok := s.infrastructureDevices[deviceID]; ok {
@@ -999,9 +1005,10 @@ func (s *handlerResponseProfileStore) ListResponseProfileInfrastructureDevices(_
 	return out, nil
 }
 
-func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, profile models.ResponseProfile, _ map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error) {
+func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, profile models.ResponseProfile, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error) {
 	profile.ID = 201
 	s.created = &profile
+	s.createdInfrastructureDevices = expectedInfrastructureDevices
 	return &profile, nil
 }
 

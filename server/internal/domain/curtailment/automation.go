@@ -452,7 +452,15 @@ func (s *AutomationService) ensureProfileCanBeAutomated(
 }
 
 func validateAutomationProfileBinding(profile *models.ResponseProfile, canUseAdminControls bool) error {
-	if profile == nil || canUseAdminControls || !responseProfileRequiresAdminControls(*profile) {
+	if profile == nil {
+		return nil
+	}
+	if len(profile.FacilityFanDeviceIDs) > 0 {
+		return fleeterror.NewFailedPreconditionError(
+			"automation rules cannot use response profiles with facility fans until fan sequencing is available",
+		)
+	}
+	if canUseAdminControls || !responseProfileRequiresAdminControls(*profile) {
 		return nil
 	}
 	return fleeterror.NewForbiddenError("only admins can bind automation rules to response profiles with admin-only controls")

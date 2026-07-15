@@ -110,12 +110,14 @@ func (h *Handler) CreateCurtailmentResponseProfile(ctx context.Context, req *con
 	if err != nil {
 		return nil, err
 	}
-	if err := h.requireFacilityFanSitePermissions(ctx, info.OrganizationID, profile.FacilityFanDeviceIDs); err != nil {
+	authorizedFacilityFanDevices, err := h.authorizeFacilityFanDevices(ctx, info.OrganizationID, profile.FacilityFanDeviceIDs)
+	if err != nil {
 		return nil, err
 	}
 	created, err := h.responseProfiles.Create(ctx, domainCurtailment.SaveResponseProfileRequest{
-		Profile:             profile,
-		CanUseAdminControls: canUseAdminControls(info),
+		Profile:                      profile,
+		CanUseAdminControls:          canUseAdminControls(info),
+		AuthorizedFacilityFanDevices: authorizedFacilityFanDevices,
 	})
 	if err != nil {
 		return nil, err
@@ -157,14 +159,16 @@ func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *con
 	if err := h.requireResponseProfileSitePermission(ctx, info.OrganizationID, authz.PermCurtailmentManage, &profile, true); err != nil {
 		return nil, err
 	}
-	if err := h.requireFacilityFanSitePermissions(ctx, info.OrganizationID, profile.FacilityFanDeviceIDs); err != nil {
+	authorizedFacilityFanDevices, err := h.authorizeFacilityFanDevices(ctx, info.OrganizationID, profile.FacilityFanDeviceIDs)
+	if err != nil {
 		return nil, err
 	}
 	updated, err := h.responseProfiles.Update(ctx, domainCurtailment.SaveResponseProfileRequest{
-		Profile:             profile,
-		CanUseAdminControls: canUseAdminControls(info),
-		ExpectedSiteID:      cloneInt64Ptr(existing.SiteID),
-		ExpectedScopeJSON:   cloneBytes(existing.ScopeJSON),
+		Profile:                      profile,
+		CanUseAdminControls:          canUseAdminControls(info),
+		ExpectedSiteID:               cloneInt64Ptr(existing.SiteID),
+		ExpectedScopeJSON:            cloneBytes(existing.ScopeJSON),
+		AuthorizedFacilityFanDevices: authorizedFacilityFanDevices,
 	})
 	if err != nil {
 		return nil, err
@@ -236,27 +240,42 @@ func (h *Handler) requireResponseProfileSitePermission(
 }
 
 func (h *Handler) requireFacilityFanSitePermissions(ctx context.Context, orgID int64, deviceIDs []int64) error {
-	siteIDs, err := h.responseProfiles.FacilityFanSiteIDs(ctx, orgID, deviceIDs)
+	_, err := h.authorizeFacilityFanDevices(ctx, orgID, deviceIDs)
+	return err
+}
+
+func (h *Handler) authorizeFacilityFanDevices(
+	ctx context.Context,
+	orgID int64,
+	deviceIDs []int64,
+) (map[int64]models.ResponseProfileInfrastructureDevice, error) {
+	devices, err := h.responseProfiles.FacilityFanDevices(ctx, orgID, deviceIDs)
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
-			return fleeterror.NewNotFoundError("one or more infrastructure devices were not found")
+			return nil, fleeterror.NewNotFoundError("one or more infrastructure devices were not found")
 		}
-		return err
+		return nil, err
 	}
-	for _, siteID := range siteIDs {
+	seenSiteIDs := make(map[int64]struct{}, len(devices))
+	for _, device := range devices {
+		if _, seen := seenSiteIDs[device.SiteID]; seen {
+			continue
+		}
+		seenSiteIDs[device.SiteID] = struct{}{}
+		siteID := device.SiteID
 		resourceContext := authz.ResourceContext{SiteID: &siteID}
 		readable, err := middleware.HasPermission(ctx, authz.PermSiteRead, resourceContext)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !readable {
-			return fleeterror.NewNotFoundError("one or more infrastructure devices were not found")
+			return nil, fleeterror.NewNotFoundError("one or more infrastructure devices were not found")
 		}
 		if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, resourceContext); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return devices, nil
 }
 
 func (h *Handler) responseProfileDeviceSitesForProfiles(

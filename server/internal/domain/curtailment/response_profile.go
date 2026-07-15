@@ -40,10 +40,11 @@ func NewResponseProfileService(store interfaces.ResponseProfileStore) *ResponseP
 }
 
 type SaveResponseProfileRequest struct {
-	Profile             models.ResponseProfile
-	CanUseAdminControls bool
-	ExpectedSiteID      *int64
-	ExpectedScopeJSON   []byte
+	Profile                      models.ResponseProfile
+	CanUseAdminControls          bool
+	ExpectedSiteID               *int64
+	ExpectedScopeJSON            []byte
+	AuthorizedFacilityFanDevices map[int64]models.ResponseProfileInfrastructureDevice
 }
 
 func (s *ResponseProfileService) List(ctx context.Context, orgID int64) ([]*models.ResponseProfile, error) {
@@ -82,34 +83,6 @@ func (s *ResponseProfileService) ListDeviceSites(ctx context.Context, orgID int6
 	return s.store.ListResponseProfileDeviceSites(ctx, orgID, deviceIdentifiers)
 }
 
-// FacilityFanSiteIDs resolves the sites that contain the requested facility
-// fans. Handlers use this before saving a profile so fan selection stays
-// independent of miner scope without bypassing each fan site's RBAC boundary.
-func (s *ResponseProfileService) FacilityFanSiteIDs(ctx context.Context, orgID int64, deviceIDs []int64) ([]int64, error) {
-	if s == nil || s.store == nil {
-		return nil, fleeterror.NewUnimplementedError("curtailment response profile service is not configured")
-	}
-	if orgID <= 0 {
-		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
-	}
-	deviceIDs, devices, err := s.loadFacilityFanDevices(ctx, orgID, deviceIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	siteIDs := make([]int64, 0, len(deviceIDs))
-	seen := make(map[int64]struct{}, len(deviceIDs))
-	for _, deviceID := range deviceIDs {
-		siteID := devices[deviceID].SiteID
-		if _, ok := seen[siteID]; ok {
-			continue
-		}
-		seen[siteID] = struct{}{}
-		siteIDs = append(siteIDs, siteID)
-	}
-	return siteIDs, nil
-}
-
 // FacilityFanDeviceSites resolves each requested facility fan to its site.
 // List handlers use the batched result to enforce fan-site visibility without
 // issuing one infrastructure lookup per response profile.
@@ -130,6 +103,20 @@ func (s *ResponseProfileService) FacilityFanDeviceSites(ctx context.Context, org
 		deviceSites[deviceID] = devices[deviceID].SiteID
 	}
 	return deviceSites, nil
+}
+
+// FacilityFanDevices resolves the full fan snapshot used for authorization and
+// the subsequent locked profile save. The store rejects the mutation if any
+// device moves sites after this snapshot is authorized.
+func (s *ResponseProfileService) FacilityFanDevices(ctx context.Context, orgID int64, deviceIDs []int64) (map[int64]models.ResponseProfileInfrastructureDevice, error) {
+	if s == nil || s.store == nil {
+		return nil, fleeterror.NewUnimplementedError("curtailment response profile service is not configured")
+	}
+	if orgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	_, devices, err := s.loadFacilityFanDevices(ctx, orgID, deviceIDs)
+	return devices, err
 }
 
 func (s *ResponseProfileService) Create(ctx context.Context, req SaveResponseProfileRequest) (*models.ResponseProfile, error) {
@@ -153,6 +140,17 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 	profile, infrastructureDevices, err := s.validateAndNormalize(ctx, req)
 	if err != nil {
 		return nil, err
+	}
+	if len(profile.FacilityFanDeviceIDs) > 0 {
+		count, err := s.store.CountAutomationRulesByResponseProfile(ctx, profile.OrgID, profile.ID)
+		if err != nil {
+			return nil, err
+		}
+		if count > 0 {
+			return nil, fleeterror.NewFailedPreconditionError(
+				"response profiles used by automation rules cannot include facility fans until fan sequencing is available",
+			)
+		}
 	}
 	return s.store.UpdateResponseProfile(ctx, profile, infrastructureDevices, req.ExpectedSiteID, req.ExpectedScopeJSON)
 }
@@ -206,6 +204,7 @@ func (s *ResponseProfileService) validateAndNormalize(ctx context.Context, req S
 		ctx,
 		profile.OrgID,
 		profile.FacilityFanDeviceIDs,
+		req.AuthorizedFacilityFanDevices,
 	)
 	if err != nil {
 		return models.ResponseProfile{}, nil, err
@@ -229,10 +228,31 @@ func (s *ResponseProfileService) validateFacilityFanDevices(
 	ctx context.Context,
 	orgID int64,
 	deviceIDs []int64,
+	authorizedDevices map[int64]models.ResponseProfileInfrastructureDevice,
 ) ([]int64, map[int64]models.ResponseProfileInfrastructureDevice, error) {
-	deviceIDs, devices, err := s.loadFacilityFanDevices(ctx, orgID, deviceIDs)
-	if err != nil {
-		return nil, nil, err
+	var devices map[int64]models.ResponseProfileInfrastructureDevice
+	var err error
+	if authorizedDevices == nil {
+		deviceIDs, devices, err = s.loadFacilityFanDevices(ctx, orgID, deviceIDs)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		if hasNonPositiveInt64(deviceIDs) {
+			return nil, nil, fleeterror.NewInvalidArgumentError("facility_fan_device_ids must be positive")
+		}
+		deviceIDs = uniquePositiveInt64s(deviceIDs)
+		if len(deviceIDs) != len(authorizedDevices) {
+			return nil, nil, fleeterror.NewFailedPreconditionError("authorized infrastructure devices do not match the response profile")
+		}
+		devices = make(map[int64]models.ResponseProfileInfrastructureDevice, len(authorizedDevices))
+		for _, deviceID := range deviceIDs {
+			device, ok := authorizedDevices[deviceID]
+			if !ok || device.ID != deviceID {
+				return nil, nil, fleeterror.NewFailedPreconditionError("authorized infrastructure devices do not match the response profile")
+			}
+			devices[deviceID] = device
+		}
 	}
 
 	for _, deviceID := range deviceIDs {

@@ -266,6 +266,33 @@ func TestResponseProfileService_UpdatePreservesImmediateRestoreInterval(t *testi
 	assert.Equal(t, int32(0), store.updated.RestoreBatchSize)
 }
 
+func TestResponseProfileService_UpdateRejectsFacilityFansWhenProfileHasAutomationRules(t *testing.T) {
+	t.Parallel()
+
+	store := newResponseProfileFakeStore()
+	store.automationRuleCount = 1
+	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 7, Enabled: true}
+	svc := NewResponseProfileService(store)
+
+	_, err := svc.Update(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			ID:                      101,
+			OrgID:                   42,
+			ProfileName:             "Automated shed",
+			Mode:                    models.ModeFullFleet,
+			FacilityFanDeviceIDs:    []int64{31},
+			RestoreBatchSize:        10,
+			RestoreBatchIntervalSec: 30,
+		},
+		CanUseAdminControls: true,
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "used by automation rules cannot include facility fans")
+	assert.Nil(t, store.updated)
+}
+
 func TestResponseProfileService_CreateRejectsUnknownSite(t *testing.T) {
 	t.Parallel()
 
