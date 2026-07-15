@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -14,13 +15,32 @@ import (
 const (
 	// PostgreSQL SQLSTATE codes for retryable issues.
 	// See: https://www.postgresql.org/docs/current/errcodes-appendix.html
-	PGSerializationFailure = "40001" // serialization_failure
-	PGDeadlockDetected     = "40P01" // deadlock_detected
+	PGSerializationFailure   = "40001" // serialization_failure
+	PGDeadlockDetected       = "40P01" // deadlock_detected
+	PGReadOnlySQLTransaction = "25006" // read_only_sql_transaction
+	PGAdminShutdown          = "57P01" // admin_shutdown
+	PGCrashShutdown          = "57P02" // crash_shutdown
+	PGCannotConnectNow       = "57P03" // cannot_connect_now
+	PGConnectionFailure      = "08006" // connection_failure
 	// PGUniqueViolation is NOT retryable at the infrastructure level.
 	// Unique violations should be handled at the application level (e.g., "username already exists").
 	// Retrying would cause unnecessary delays for errors that will never succeed.
 	PGUniqueViolation = "23505" // unique_violation - exported for application-level handling
 )
+
+var failoverErrorSubstrings = []string{
+	"bad connection",
+	"broken pipe",
+	"connection refused",
+	"connection reset by peer",
+	"connection is already closed",
+	"server closed the connection unexpectedly",
+	"failed to receive message: unexpected eof",
+	"unexpected eof",
+	"the database system is starting up",
+	"the database system is shutting down",
+	"the database system is in recovery mode",
+}
 
 // RetryConfig holds configuration for retry behavior.
 type RetryConfig struct {
@@ -55,6 +75,29 @@ func IsRetryablePostgresError(err error) bool {
 	return false
 }
 
+func IsFailoverPostgresError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		if strings.HasPrefix(pgErr.Code, "08") {
+			return true
+		}
+		switch pgErr.Code {
+		case PGAdminShutdown, PGCrashShutdown, PGCannotConnectNow, PGReadOnlySQLTransaction:
+			return true
+		}
+	}
+	msg := strings.ToLower(err.Error())
+	for _, needle := range failoverErrorSubstrings {
+		if strings.Contains(msg, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 // IsUniqueViolationError returns true if the error is a PostgreSQL unique constraint violation.
 func IsUniqueViolationError(err error) bool {
 	var pgErr *pgconn.PgError
@@ -69,16 +112,41 @@ func IsUniqueViolationError(err error) bool {
 // Methods without retry: QueryRowContext (error is deferred to Scan), PrepareContext.
 type RetryDB struct {
 	*sql.DB
+	resetPool func()
+}
+
+type RetryDBOption func(*RetryDB)
+
+func WithPoolReset(reset func()) RetryDBOption {
+	return func(r *RetryDB) {
+		r.resetPool = reset
+	}
 }
 
 // NewRetryDB creates a new RetryDB wrapper around the given database connection.
-func NewRetryDB(db *sql.DB) *RetryDB {
-	return &RetryDB{DB: db}
+func NewRetryDB(db *sql.DB, opts ...RetryDBOption) *RetryDB {
+	r := &RetryDB{DB: db}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
+}
+
+func NewIdleConnectionPoolReset(conn *sql.DB, maxIdleConns int) func() {
+	return func() {
+		conn.SetMaxIdleConns(0)
+		conn.SetMaxIdleConns(maxIdleConns)
+	}
+}
+
+type retryOperationOptions struct {
+	retryFailover bool
+	resetPool     func()
 }
 
 // retryOperation executes fn with retry logic on retryable PostgreSQL errors.
 // Uses exponential backoff between retries, respecting context cancellation.
-func retryOperation[T any](ctx context.Context, opName string, fn func() (T, error)) (T, error) {
+func retryOperation[T any](ctx context.Context, opName string, opts retryOperationOptions, fn func() (T, error)) (T, error) {
 	var zero T
 	var lastErr error
 	currentBackoff := DefaultRetryConfig.InitialBackoff
@@ -90,7 +158,12 @@ func retryOperation[T any](ctx context.Context, opName string, fn func() (T, err
 		}
 
 		lastErr = err
-		if !IsRetryablePostgresError(err) {
+		retryable := IsRetryablePostgresError(err)
+		failoverClass := IsFailoverPostgresError(err)
+		if failoverClass && opts.resetPool != nil {
+			opts.resetPool()
+		}
+		if !retryable && !(opts.retryFailover && failoverClass) {
 			return zero, fmt.Errorf("%s: %w", opName, err)
 		}
 
@@ -107,6 +180,7 @@ func retryOperation[T any](ctx context.Context, opName string, fn func() (T, err
 			"attempt", attempt,
 			"max_retries", DefaultRetryConfig.MaxAttempts,
 			"delay", delay,
+			"failover_class", failoverClass,
 			"error", err)
 
 		select {
@@ -123,14 +197,14 @@ func retryOperation[T any](ctx context.Context, opName string, fn func() (T, err
 
 // ExecContext executes a query with automatic retry on retryable PostgreSQL errors.
 func (r *RetryDB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	return retryOperation(ctx, "ExecContext", func() (sql.Result, error) {
+	return retryOperation(ctx, "ExecContext", retryOperationOptions{resetPool: r.resetPool}, func() (sql.Result, error) {
 		return r.DB.ExecContext(ctx, query, args...)
 	})
 }
 
 // QueryContext executes a query with automatic retry on retryable PostgreSQL errors.
 func (r *RetryDB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	return retryOperation(ctx, "QueryContext", func() (*sql.Rows, error) {
+	return retryOperation(ctx, "QueryContext", retryOperationOptions{retryFailover: true, resetPool: r.resetPool}, func() (*sql.Rows, error) {
 		return r.DB.QueryContext(ctx, query, args...)
 	})
 }

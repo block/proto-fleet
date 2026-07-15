@@ -7,6 +7,7 @@ services:
       DB_USERNAME: "fleet"
       DB_PASSWORD: "fleet"
       DB_SSL_MODE: "disable"
+      DB_DSN: "${DB_DSN:-}"
       HTTP_LISTEN_ADDRESS: "0.0.0.0:4000"
       # Base default for stacks that extend this file and serve over plain HTTP
       # (local dev, the real-miners runner, etc.): browsers silently drop a

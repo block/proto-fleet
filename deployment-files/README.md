@@ -104,6 +104,15 @@ only apply through `run-fleet.sh`'s env-file layering, always restart the
 stack with `./run-fleet.sh` rather than a bare `docker compose up`, which
 would recreate the containers untuned.
 
+## Database Connection Override
+
+By default, fleet-api builds its PostgreSQL connection from `DB_USERNAME`,
+`DB_PASSWORD`, `DB_NAME`, `DB_ADDRESS`, and `DB_SSL_MODE`. Advanced deployments
+can set `DB_DSN` to provide the full PostgreSQL connection string instead. When
+`DB_DSN` contains multiple hosts, it must include
+`target_session_attrs=read-write` so fleet-api targets the current writable
+database endpoint.
+
 ## Uninstalling Proto Fleet
 
 ```bash

@@ -186,6 +186,7 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
+	dbPoolReset := db.NewIdleConnectionPoolReset(conn, config.DB.MaxIdleConns)
 
 	metricsProvider, err := metrics.Setup(context.Background(), version, config.Metrics, conn)
 	if err != nil {
@@ -540,15 +541,7 @@ func start(config *Config) error {
 		}
 	}()
 
-	mqttQueries, err := sqlc.Prepare(context.Background(), db.NewRetryDB(conn))
-	if err != nil {
-		return fmt.Errorf("failed to prepare curtailment mqtt sql queries: %w", err)
-	}
-	defer func() {
-		if err := mqttQueries.Close(); err != nil {
-			slog.Error("failed to close curtailment mqtt prepared queries", "error", err)
-		}
-	}()
+	mqttQueries := sqlc.New(db.NewRetryDB(conn, db.WithPoolReset(dbPoolReset)))
 
 	mqttSettingsStore := mqttingest.NewSQLCSettingsStore(mqttQueries)
 	curtailmentAutomationSvc, err := curtailmentDomain.NewAutomationService(curtailmentDomain.AutomationServiceConfig{
@@ -644,7 +637,7 @@ func start(config *Config) error {
 		if config.Metrics.WebhookToken == "" {
 			slog.Warn("FLEET_ALERTS_WEBHOOK_TOKEN is not set; alertmanager webhook will reject every delivery")
 		}
-		orgQueries := sqlc.New(db.NewRetryDB(conn))
+		orgQueries := sqlc.New(db.NewRetryDB(conn, db.WithPoolReset(dbPoolReset)))
 		mux.Handle("POST "+alertmanagerwebhook.Path, alertmanagerwebhook.NewHandler(notificationHistoryStore, config.Metrics.WebhookToken, orgQueries, alertsDeliverer))
 	}
 	mux.Handle("/api/v1/firmware/upload", firmwareHandler.NewUploadHandler(filesService, sessionSvc, userStore, filesService.MaxFirmwareFileSize()))
