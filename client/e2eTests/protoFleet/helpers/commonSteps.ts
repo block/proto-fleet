@@ -40,15 +40,19 @@ export class CommonSteps {
   async loginAsAdmin({ forceReauth = false }: { forceReauth?: boolean } = {}) {
     await test.step("Login as admin", async () => {
       // eslint-disable-next-line playwright/no-conditional-in-test
-      if (forceReauth && (await this.authPage.isAlreadyLoggedIn())) {
-        await this.authPage.logout();
-        await this.authPage.validateRedirectedToAuth();
+      if (forceReauth) {
+        // eslint-disable-next-line playwright/no-conditional-in-test
+        if (await this.authPage.isAlreadyLoggedIn()) {
+          await this.authPage.logout();
+        }
+        await this.authPage.gotoAuthPage();
+      } else {
+        // eslint-disable-next-line playwright/no-conditional-in-test
+        if (await this.authPage.isAlreadyLoggedIn()) {
+          return;
+        }
       }
 
-      // eslint-disable-next-line playwright/no-conditional-in-test
-      if (await this.authPage.isAlreadyLoggedIn()) {
-        return;
-      }
       await this.authPage.inputUsername(testConfig.users.admin.username);
       await this.authPage.inputPassword(testConfig.users.admin.password);
       await this.authPage.clickLogin();
@@ -80,8 +84,8 @@ export class CommonSteps {
       // eslint-disable-next-line playwright/no-conditional-in-test
       if (await this.authPage.isAlreadyLoggedIn()) {
         await this.authPage.logout();
-        await this.authPage.validateRedirectedToAuth();
       }
+      await this.authPage.gotoAuthPage();
       await this.authPage.inputUsername(username);
       await this.authPage.inputPassword(temporaryPassword);
       await this.authPage.clickLogin();

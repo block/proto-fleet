@@ -346,23 +346,12 @@ export class BasePage {
 
   async logout() {
     const logoutButton = this.page.getByTestId("logout-button");
-    const navigationMenuButton = this.page.getByTestId("navigation-menu-button");
 
-    // The current session can be invalidated server-side at any moment
-    // (e.g. cleanup deactivated the member this page is logged in as),
-    // making the app redirect to /auth on its own mid-logout. Treat
-    // either outcome — a successful logout click or the app's own
-    // redirect — as logged out instead of timing out on a button that
-    // no longer exists.
-    await expect(async () => {
-      if (this.page.url().includes("/auth")) {
-        return;
-      }
-      if (this.isMobile && !(await logoutButton.isVisible().catch(() => false))) {
-        await navigationMenuButton.click({ timeout: 2_000 });
-      }
-      await logoutButton.click({ timeout: 2_000 });
-    }).toPass({ timeout: DEFAULT_TIMEOUT });
+    if (!(await logoutButton.isVisible().catch(() => false))) {
+      await this.clickNavigationMenuIfMobile();
+    }
+
+    await logoutButton.click();
   }
 
   async validateTitle(expectedTitle: string) {
