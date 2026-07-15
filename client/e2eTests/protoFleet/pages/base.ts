@@ -2,6 +2,7 @@ import { expect, type Locator, Page } from "@playwright/test";
 import { DEFAULT_TIMEOUT, testConfig } from "../config/test.config";
 
 const FLEET_TAB_ROUTE = /.*\/fleet\/(?:sites|buildings|racks|miners)(?:[/?#].*)?$/;
+const TOAST_DISMISS_TIMEOUT = DEFAULT_TIMEOUT / 6;
 
 export class BasePage {
   constructor(
@@ -31,7 +32,10 @@ export class BasePage {
   }
 
   async clickClearAllFilters() {
-    await this.page.getByRole("button", { name: "Clear all filters", exact: true }).click();
+    await this.dismissVisibleToastIfPresent();
+    const clearAllFiltersButton = this.page.getByRole("button", { name: "Clear all filters", exact: true });
+    await clearAllFiltersButton.scrollIntoViewIfNeeded();
+    await clearAllFiltersButton.click();
   }
 
   async clearActiveFilter(filterValue: string) {
@@ -451,6 +455,18 @@ export class BasePage {
       }
     }
     return false;
+  }
+
+  private async dismissVisibleToastIfPresent() {
+    const toastContainer = this.page.getByTestId("toaster-container");
+    if (!(await toastContainer.isVisible().catch(() => false))) {
+      return;
+    }
+
+    await this.dismissToast().catch(async () => {
+      await toastContainer.waitFor({ state: "hidden", timeout: TOAST_DISMISS_TIMEOUT }).catch(() => undefined);
+    });
+    await toastContainer.waitFor({ state: "hidden", timeout: TOAST_DISMISS_TIMEOUT }).catch(() => undefined);
   }
 
   async validateButtonIsVisible(text: string) {
