@@ -295,27 +295,6 @@ export class BasePage {
       .toEqual([]);
   }
 
-  private async waitForCheckboxFilterSelectionState(
-    container: Locator,
-    categoryKey: string,
-    expectedCheckedLabels: string[],
-  ) {
-    const expected = [...expectedCheckedLabels].sort();
-    await expect
-      .poll(
-        async () =>
-          (await this.readCheckboxFilterOptionStates(container))
-            .filter(({ checked }) => checked)
-            .map(({ label }) => label)
-            .sort(),
-        {
-          timeout: DEFAULT_TIMEOUT,
-          message: `Expected the visible "${categoryKey}" filter selection to be ${expected.join(", ") || "empty"}.`,
-        },
-      )
-      .toEqual(expected);
-  }
-
   private async readCheckboxFilterOptionStates(container: Locator) {
     const options = container.locator('[data-testid^="filter-option-"]');
     const count = await options.count();
