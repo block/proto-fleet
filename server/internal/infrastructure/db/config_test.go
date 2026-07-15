@@ -180,6 +180,19 @@ func TestRedactDSNKeywordSSLPassword(t *testing.T) {
 	require.NotContains(t, redacted, "cert secret")
 }
 
+func TestRedactDSNKeywordPasswordsWithWhitespaceAroundEquals(t *testing.T) {
+	t.Parallel()
+
+	dsn := `host = fleet-a user = fleet password = 'super secret' sslpassword = "cert secret" dbname = fleet sslmode = verify-full`
+
+	redacted := RedactDSN(dsn)
+
+	require.Contains(t, redacted, "password = xxxxx")
+	require.Contains(t, redacted, "sslpassword = xxxxx")
+	require.NotContains(t, redacted, "super secret")
+	require.NotContains(t, redacted, "cert secret")
+}
+
 func TestRedactDSNDoubleQuotedKeywordPassword(t *testing.T) {
 	t.Parallel()
 
@@ -244,6 +257,22 @@ func TestConfigValidateRedactsKeywordSSLPassword(t *testing.T) {
 	require.Contains(t, err.Error(), "sslpassword=xxxxx")
 }
 
+func TestConfigValidateRedactsKeywordPasswordsWithWhitespaceAroundEquals(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		ExplicitDSN: `host = fleet-a user = fleet password = 'super secret' sslpassword = 'cert secret' dbname = fleet sslmode = invalid`,
+	}
+
+	err := cfg.Validate()
+
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "super secret")
+	require.NotContains(t, err.Error(), "cert secret")
+	require.Contains(t, err.Error(), "password = xxxxx")
+	require.Contains(t, err.Error(), "sslpassword = xxxxx")
+}
+
 func TestDSNHelpersSupportKeywordDSN(t *testing.T) {
 	t.Parallel()
 
@@ -252,4 +281,28 @@ func TestDSNHelpersSupportKeywordDSN(t *testing.T) {
 	require.True(t, DSNLooksMultiHost(dsn))
 	require.True(t, DSNHasReadWriteTarget(dsn))
 	require.False(t, strings.Contains(RedactDSN(dsn), "secret"))
+}
+
+func TestDSNHelpersSupportKeywordDSNWhitespaceAroundEquals(t *testing.T) {
+	t.Parallel()
+
+	dsn := "host = fleet-a,fleet-b port = 5432,5432 user = fleet password = secret dbname = fleet target_session_attrs = read-write"
+
+	require.True(t, DSNLooksMultiHost(dsn))
+	require.True(t, DSNHasReadWriteTarget(dsn))
+	require.NoError(t, (&Config{ExplicitDSN: dsn}).Validate())
+	require.False(t, strings.Contains(RedactDSN(dsn), "secret"))
+}
+
+func TestConfigValidateRejectsKeywordMultiHostWhitespaceWithoutReadWriteTarget(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		ExplicitDSN: "host = fleet-a,fleet-b port = 5432,5432 user = fleet password = secret dbname = fleet sslmode = disable",
+	}
+
+	err := cfg.Validate()
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "target_session_attrs=read-write")
 }

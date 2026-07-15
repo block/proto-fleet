@@ -542,7 +542,15 @@ func start(config *Config) error {
 		}
 	}()
 
-	mqttQueries := sqlc.New(db.NewRetryDB(conn, retryDBOptions...))
+	mqttQueries, err := sqlc.Prepare(context.Background(), db.NewRetryDB(conn, retryDBOptions...))
+	if err != nil {
+		return fmt.Errorf("failed to prepare curtailment mqtt sql queries: %w", err)
+	}
+	defer func() {
+		if err := mqttQueries.Close(); err != nil {
+			slog.Error("failed to close curtailment mqtt prepared queries", "error", err)
+		}
+	}()
 
 	mqttSettingsStore := mqttingest.NewSQLCSettingsStore(mqttQueries)
 	curtailmentAutomationSvc, err := curtailmentDomain.NewAutomationService(curtailmentDomain.AutomationServiceConfig{

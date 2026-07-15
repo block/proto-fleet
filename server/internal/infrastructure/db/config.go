@@ -162,16 +162,15 @@ func redactSensitiveKeywordDSNValues(dsn string) string {
 func redactKeywordDSNValue(dsn string, key string) string {
 	var redacted strings.Builder
 	last := 0
-	for i := 0; i < len(dsn); i++ {
-		valueStart, ok := keywordAssignmentValueStart(dsn, key, i)
-		if !ok {
-			continue
+	scanKeywordDSNAssignments(dsn, func(assignment keywordDSNAssignment) bool {
+		if !strings.EqualFold(assignment.key, key) {
+			return true
 		}
-		redacted.WriteString(dsn[last:valueStart])
+		redacted.WriteString(dsn[last:assignment.valueStart])
 		redacted.WriteString("xxxxx")
-		last = keywordDSNValueEnd(dsn, valueStart)
-		i = last - 1
-	}
+		last = assignment.valueEnd
+		return true
+	})
 	if last == 0 {
 		return dsn
 	}
@@ -179,18 +178,50 @@ func redactKeywordDSNValue(dsn string, key string) string {
 	return redacted.String()
 }
 
-func keywordAssignmentValueStart(dsn string, key string, offset int) (int, bool) {
-	keyEnd := offset + len(key)
-	if offset > 0 && !isDSNSpace(dsn[offset-1]) {
-		return 0, false
+type keywordDSNAssignment struct {
+	key        string
+	valueStart int
+	valueEnd   int
+}
+
+func scanKeywordDSNAssignments(dsn string, visit func(keywordDSNAssignment) bool) {
+	for i := 0; i < len(dsn); {
+		i = skipDSNSpace(dsn, i)
+		keyStart := i
+		for i < len(dsn) && !isDSNSpace(dsn[i]) && dsn[i] != '=' {
+			i++
+		}
+		if keyStart == i {
+			i++
+			continue
+		}
+
+		keyEnd := i
+		i = skipDSNSpace(dsn, i)
+		if i >= len(dsn) || dsn[i] != '=' {
+			continue
+		}
+		i++
+		i = skipDSNSpace(dsn, i)
+
+		valueStart := i
+		valueEnd := keywordDSNValueEnd(dsn, valueStart)
+		if !visit(keywordDSNAssignment{
+			key:        dsn[keyStart:keyEnd],
+			valueStart: valueStart,
+			valueEnd:   valueEnd,
+		}) {
+			return
+		}
+		i = valueEnd
 	}
-	if keyEnd >= len(dsn) || dsn[keyEnd] != '=' {
-		return 0, false
+}
+
+func skipDSNSpace(dsn string, offset int) int {
+	for offset < len(dsn) && isDSNSpace(dsn[offset]) {
+		offset++
 	}
-	if !strings.EqualFold(dsn[offset:keyEnd], key) {
-		return 0, false
-	}
-	return keyEnd + 1, true
+	return offset
 }
 
 func keywordDSNValueEnd(dsn string, start int) int {
@@ -232,12 +263,20 @@ func isDSNSpace(b byte) bool {
 }
 
 func keywordDSNValue(dsn string, key string) (string, bool) {
-	pattern := regexp.MustCompile(`(?i)(?:^|\s)` + regexp.QuoteMeta(key) + `=('[^']*'|"[^"]*"|\S+)`)
-	matches := pattern.FindStringSubmatch(dsn)
-	if len(matches) != 2 {
-		return "", false
-	}
-	value := matches[1]
+	var value string
+	found := false
+	scanKeywordDSNAssignments(dsn, func(assignment keywordDSNAssignment) bool {
+		if !strings.EqualFold(assignment.key, key) {
+			return true
+		}
+		value = keywordDSNValueText(dsn[assignment.valueStart:assignment.valueEnd])
+		found = true
+		return false
+	})
+	return value, found
+}
+
+func keywordDSNValueText(value string) string {
 	if len(value) >= 2 {
 		first := value[0]
 		last := value[len(value)-1]
@@ -245,5 +284,20 @@ func keywordDSNValue(dsn string, key string) (string, bool) {
 			value = value[1 : len(value)-1]
 		}
 	}
-	return value, true
+	return unescapeKeywordDSNValue(value)
+}
+
+func unescapeKeywordDSNValue(value string) string {
+	if !strings.Contains(value, `\`) {
+		return value
+	}
+	var out strings.Builder
+	out.Grow(len(value))
+	for i := 0; i < len(value); i++ {
+		if value[i] == '\\' && i+1 < len(value) {
+			i++
+		}
+		out.WriteByte(value[i])
+	}
+	return out.String()
 }
