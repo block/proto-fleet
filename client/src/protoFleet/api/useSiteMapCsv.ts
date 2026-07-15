@@ -46,13 +46,13 @@ const useSiteMapCsv = () => {
         chunks.push(new Uint8Array(chunk.csvData));
       }
 
-      const blob = new Blob(chunks, { type: "text/csv;charset=utf-8;" });
-      downloadBlob(blob, getFileName("proto-fleet-site-map"));
+      const blob = new Blob(chunks, { type: "application/zip" });
+      downloadBlob(blob, getFileName("proto-fleet-site-map", "zip"));
     } catch (error) {
       handleAuthErrors({
         error,
         onError: (err) => {
-          console.error("Error exporting site map CSV:", err);
+          console.error("Error exporting site map:", err);
           const message = getErrorMessage(err, "Failed to export site map. Please try again.");
           pushToast({
             status: TOAST_STATUSES.error,

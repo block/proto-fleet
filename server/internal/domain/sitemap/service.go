@@ -1,6 +1,7 @@
 package sitemap
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -33,6 +34,10 @@ const (
 	maxRackDimension   = 12
 	maxLayoutDimension = 100
 	exportChunkBytes   = 64 * 1024
+
+	siteMapExportFolder       = "proto-fleet-site-map"
+	siteMapExportCSVPath      = siteMapExportFolder + "/site-map.csv"
+	siteMapExportGuideTXTPath = siteMapExportFolder + "/agent-editing-guide.txt"
 )
 
 var (
@@ -88,22 +93,21 @@ func (s *Service) ExportSiteMapCsv(ctx context.Context, orgID int64, send func(*
 		return err
 	}
 
+	csvData, err := buildSiteMapCSV(snapshot)
+	if err != nil {
+		return err
+	}
+	zipData, err := buildSiteMapExportZip(csvData)
+	if err != nil {
+		return err
+	}
+	return streamSiteMapExport(zipData, send)
+}
+
+func buildSiteMapCSV(snapshot *snapshot) ([]byte, error) {
 	buffer := &bytes.Buffer{}
 	buffer.Write([]byte{0xEF, 0xBB, 0xBF})
 	writer := csv.NewWriter(buffer)
-
-	flush := func(context string) error {
-		writer.Flush()
-		if err := writer.Error(); err != nil {
-			return fleeterror.NewInternalErrorf("failed to write %s section: %v", context, err)
-		}
-		if buffer.Len() == 0 {
-			return nil
-		}
-		chunk := append([]byte(nil), buffer.Bytes()...)
-		buffer.Reset()
-		return send(&pb.ExportSiteMapCsvResponse{CsvData: chunk})
-	}
 
 	writeSection := func(name string, headers []string, rows [][]string) error {
 		if err := writer.Write([]string{fmt.Sprintf("# SECTION: %s", name)}); err != nil {
@@ -116,32 +120,134 @@ func (s *Service) ExportSiteMapCsv(ctx context.Context, orgID int64, send func(*
 			if err := writer.Write(row); err != nil {
 				return fleeterror.NewInternalErrorf("failed to write %s data row: %v", name, err)
 			}
-			if buffer.Len() >= exportChunkBytes {
-				if err := flush(name); err != nil {
-					return err
-				}
-			}
 		}
 		if err := writer.Write(nil); err != nil {
 			return fleeterror.NewInternalErrorf("failed to write %s section spacer: %v", name, err)
 		}
-		return flush(name)
+		return nil
 	}
 
 	if err := writeSection("SITE", siteHeaders, siteRows(snapshot.sites)); err != nil {
-		return fleeterror.NewInternalErrorf("failed to write SITE section: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to write SITE section: %v", err)
 	}
 	if err := writeSection("BUILDING", buildingHeaders, buildingRows(snapshot.buildings)); err != nil {
-		return fleeterror.NewInternalErrorf("failed to write BUILDING section: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to write BUILDING section: %v", err)
 	}
 	if err := writeSection("RACK", rackHeaders, rackExportRows(snapshot.racks, snapshot.buildings)); err != nil {
-		return fleeterror.NewInternalErrorf("failed to write RACK section: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to write RACK section: %v", err)
 	}
 	if err := writeSection("MINER", minerHeaders, minerRows(snapshot.miners, snapshot.buildings)); err != nil {
-		return fleeterror.NewInternalErrorf("failed to write MINER section: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to write MINER section: %v", err)
 	}
 
-	return flush("site map")
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to write site map CSV: %v", err)
+	}
+	return buffer.Bytes(), nil
+}
+
+func buildSiteMapExportZip(csvData []byte) ([]byte, error) {
+	buffer := &bytes.Buffer{}
+	writer := zip.NewWriter(buffer)
+
+	addFile := func(path string, data []byte) error {
+		header := &zip.FileHeader{Name: path, Method: zip.Deflate}
+		file, err := writer.CreateHeader(header)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to create %s in site map export: %v", path, err)
+		}
+		if _, err := file.Write(data); err != nil {
+			return fleeterror.NewInternalErrorf("failed to write %s in site map export: %v", path, err)
+		}
+		return nil
+	}
+
+	if err := addFile(siteMapExportCSVPath, csvData); err != nil {
+		_ = writer.Close()
+		return nil, err
+	}
+	if err := addFile(siteMapExportGuideTXTPath, []byte(siteMapAgentEditingGuide())); err != nil {
+		_ = writer.Close()
+		return nil, err
+	}
+	if err := writer.Close(); err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to finalize site map export zip: %v", err)
+	}
+	return buffer.Bytes(), nil
+}
+
+func streamSiteMapExport(data []byte, send func(*pb.ExportSiteMapCsvResponse) error) error {
+	for start := 0; start < len(data); start += exportChunkBytes {
+		end := start + exportChunkBytes
+		if end > len(data) {
+			end = len(data)
+		}
+		if err := send(&pb.ExportSiteMapCsvResponse{CsvData: data[start:end]}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func siteMapAgentEditingGuide() string {
+	return `Proto Fleet site map CSV editing guide for AI agents
+
+Edit proto-fleet-site-map/site-map.csv, then import only the CSV file back into Proto Fleet. Do not import this text file or the zip archive.
+
+File structure
+- The CSV is UTF-8 and includes sections marked exactly as "# SECTION: SITE", "# SECTION: BUILDING", "# SECTION: RACK", and "# SECTION: MINER".
+- Keep section markers, section order, header rows, and column count unchanged.
+- Blank spacer rows between sections are allowed.
+- Headers ending in "(read only)" identify existing records or reference data. Do not edit read-only values.
+- Site map CSV v1 updates existing records and assignments only. It does not create or delete sites, buildings, racks, or miners.
+
+Formatting rules
+- Keep the file as comma-separated CSV, not markdown or a table pasted into prose.
+- Quote cells with commas, quotes, or newlines using normal CSV quoting rules.
+- Use blank cells for empty values.
+- Preserve apostrophe-prefixed values. They protect spreadsheet-sensitive text from formula/date conversion.
+- Numeric indexes are zero-based integers unless noted otherwise.
+
+SITE section
+- Columns: name (read only).
+- Sites are listed as assignment targets only. Site details are not editable through this import.
+
+BUILDING section
+- Columns: name (read only), site (read only), aisles, racks_per_aisle.
+- aisles and racks_per_aisle define rack layout capacity for the building.
+- The site column is read-only context. Building placement is not edited in this section.
+
+RACK section
+- Columns: label (read only), building, site, zone, rows, columns, order_index, aisle_index, position_in_aisle.
+- Set building to place a rack in a building. If the building name is unique, site may be blank and will be inferred.
+- If the building name is ambiguous across sites, set site to disambiguate it.
+- Set site and leave building blank to assign a rack directly to a site.
+- Leave both building and site blank to unassign a rack.
+- zone is scoped to a building. Moving a rack to another building, directly to a site, or unassigned clears incompatible zone assignment.
+- rows and columns define rack slot capacity. Each must be between 1 and 12.
+- order_index controls physical slot ordering. Allowed values are BOTTOM_LEFT, TOP_LEFT, BOTTOM_RIGHT, TOP_RIGHT, or blank.
+- aisle_index and position_in_aisle place a rack in the building layout. They must both be blank or both be set. Aisle and position indexes are zero-based and must fit within aisles and racks_per_aisle.
+
+MINER section
+- Columns: device_identifier (read only), serial_number (read only), name (read only), ip_address (read only), mac_address (read only), site, building, rack, rack_row, rack_col.
+- Edit only placement columns in this section.
+- device_identifier identifies the miner. Unknown miner identifiers fail validation.
+- If rack is set, the rack determines the miner's building and site. Leave miner site and building blank unless needed to disambiguate duplicate rack labels.
+- If building is set and rack is blank, the building determines the miner's site when the building name is unique. Leave miner site blank unless needed to disambiguate duplicate building names.
+- Set site and leave building and rack blank to assign a miner directly to a site.
+- Leave site, building, and rack blank to unassign a miner.
+- rack_row and rack_col must both be blank or both be set. They are zero-based and must fit within the rack's rows and columns.
+- Multiple miners cannot end in the same rack slot. Slot swaps are valid when the final CSV has no duplicate slot positions.
+
+Validation behavior
+- Changing read-only identity fields fails validation.
+- Assigning more racks to a building layout than aisles * racks_per_aisle fails validation.
+- Assigning more miners to a rack than rows * columns fails validation.
+- Assigning miners to rack slots outside the rack dimensions fails validation.
+- Ambiguous names must be disambiguated with the parent placement column.
+- The dry-run preview validates the entire CSV before commit. Fix all reported errors and run preview again before importing.
+`
 }
 
 func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.ImportSiteMapCsvRequest) (*pb.ImportSiteMapCsvResponse, error) {

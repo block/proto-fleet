@@ -1,7 +1,10 @@
 package sitemap
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"io"
 	"strings"
 	"testing"
 
@@ -15,6 +18,38 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"go.uber.org/mock/gomock"
 )
+
+func TestBuildSiteMapExportZipIncludesCSVAndAgentGuide(t *testing.T) {
+	csvData, err := buildSiteMapCSV(testSnapshotMatchingValidCSV())
+	if err != nil {
+		t.Fatalf("buildSiteMapCSV error = %v", err)
+	}
+
+	zipData, err := buildSiteMapExportZip(csvData)
+	if err != nil {
+		t.Fatalf("buildSiteMapExportZip error = %v", err)
+	}
+
+	files := readZipFiles(t, zipData)
+	csvText := files[siteMapExportCSVPath]
+	if !strings.Contains(csvText, "# SECTION: MINER") {
+		t.Fatalf("%s missing MINER section: %q", siteMapExportCSVPath, csvText)
+	}
+	if !strings.Contains(csvText, "label (read only),building,site,zone,rows,columns,order_index,aisle_index,position_in_aisle") {
+		t.Fatalf("%s missing expected RACK headers: %q", siteMapExportCSVPath, csvText)
+	}
+
+	guideText := files[siteMapExportGuideTXTPath]
+	for _, want := range []string{
+		"Edit proto-fleet-site-map/site-map.csv",
+		"If rack is set, the rack determines the miner's building and site.",
+		"Headers ending in \"(read only)\" identify existing records or reference data.",
+	} {
+		if !strings.Contains(guideText, want) {
+			t.Fatalf("%s missing %q: %q", siteMapExportGuideTXTPath, want, guideText)
+		}
+	}
+}
 
 func TestParseSiteMapCSVAndBuildPlanRequiresOmissionChoice(t *testing.T) {
 	parsed, errs := parseSiteMapCSV([]byte(validCSV()))
@@ -765,6 +800,32 @@ func TestParseSiteMapCSVAcceptsSpreadsheetPaddedSectionRows(t *testing.T) {
 	if got := parsed.sections["MINER"][0]["rack_col"]; got != "" {
 		t.Fatalf("MINER rack_col = %q, want blank", got)
 	}
+}
+
+func readZipFiles(t *testing.T, data []byte) map[string]string {
+	t.Helper()
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatalf("zip.NewReader error = %v", err)
+	}
+	files := make(map[string]string, len(reader.File))
+	for _, file := range reader.File {
+		body, err := readZipFile(file)
+		if err != nil {
+			t.Fatalf("read %s error = %v", file.Name, err)
+		}
+		files[file.Name] = string(body)
+	}
+	return files
+}
+
+func readZipFile(file *zip.File) ([]byte, error) {
+	reader, err := file.Open()
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	return io.ReadAll(reader)
 }
 
 func validCSV() string {
