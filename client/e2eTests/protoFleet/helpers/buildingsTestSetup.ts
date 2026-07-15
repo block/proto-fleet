@@ -66,7 +66,7 @@ async function cleanupAutomationFixtures(
     name.startsWith(AUTOMATION_RACK_PREFIX),
   );
   for (const rackName of rackNames) {
-    await racksPage.deleteRackByLabelIfVisible(rackName);
+    await racksPage.deleteRackByLabelIfVisible(rackName, SHORT_CLEANUP_TIMEOUT);
   }
 
   const buildingNames = (await fleetLocationsPage.listBuildingNames()).filter((name) =>

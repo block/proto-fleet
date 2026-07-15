@@ -66,22 +66,7 @@ async function cleanupAllRacks(racksPage: RacksPage) {
   let rackNames = await racksPage.listRackNames(SHORT_CLEANUP_TIMEOUT);
 
   while (rackNames.length > 0) {
-    await racksPage.openRackFromList(rackNames[0]);
-    await racksPage.clickEditRack();
-    await racksPage.clickDeleteRack();
-    await racksPage.clickDeleteConfirm();
-    await racksPage.tryAction(() => racksPage.validateRackDeletedToast(SHORT_CLEANUP_TIMEOUT), SHORT_CLEANUP_TIMEOUT);
-
-    await racksPage.navigateToRacksPage();
-    await racksPage.tryAction(() => racksPage.clickViewList(SHORT_CLEANUP_TIMEOUT), SHORT_CLEANUP_TIMEOUT);
-    if (
-      !(await racksPage.tryAction(
-        () => racksPage.waitForRackListToLoad({ timeout: SHORT_CLEANUP_TIMEOUT }),
-        SHORT_CLEANUP_TIMEOUT,
-      ))
-    ) {
-      return;
-    }
+    await racksPage.deleteRackByLabelIfVisible(rackNames[0], SHORT_CLEANUP_TIMEOUT);
     rackNames = await racksPage.listRackNames(SHORT_CLEANUP_TIMEOUT);
   }
 }

@@ -544,7 +544,7 @@ async function cleanupInfrastructureFixtures(fleetLocationsPage: FleetLocationsP
     name.startsWith(RBAC_RACK_PREFIX),
   );
   for (const rackName of rackNames) {
-    await racksPage.deleteRackByLabelIfVisible(rackName);
+    await racksPage.deleteRackByLabelIfVisible(rackName, SHORT_HOOK_TIMEOUT);
   }
 
   const buildingNames = (await fleetLocationsPage.listBuildingNames()).filter((name) =>

@@ -504,9 +504,9 @@ export class RacksPage extends BasePage {
     await expect(this.getRackListRow(label)).toHaveCount(0);
   }
 
-  async openRackFromList(label: string) {
+  async openRackFromList(label: string, timeout: number = DEFAULT_TIMEOUT) {
     const row = this.getRackListRow(label);
-    await expect(row).toBeVisible();
+    await expect(row).toBeVisible({ timeout });
     await row.getByTestId("name").getByRole("button", { name: label, exact: true }).click();
   }
 
@@ -535,17 +535,17 @@ export class RacksPage extends BasePage {
     await this.selectParentPickerTarget(buildingName);
   }
 
-  async deleteRackByLabelIfVisible(label: string) {
+  async deleteRackByLabelIfVisible(label: string, timeout: number = DEFAULT_TIMEOUT) {
     await this.navigateToRacksPage();
-    await this.tryAction(() => this.clickViewList());
-    if (!(await this.tryAction(() => this.openRackFromList(label)))) {
+    await this.tryAction(() => this.clickViewList(timeout), timeout);
+    if (!(await this.tryAction(() => this.openRackFromList(label, timeout), timeout))) {
       return;
     }
 
     await this.clickEditRack();
     await this.clickDeleteRack();
     await this.clickDeleteConfirm();
-    await this.tryAction(() => this.validateRackDeletedToast());
+    await this.tryAction(() => this.validateRackDeletedToast(timeout), timeout);
   }
 
   async clickEditRack() {
