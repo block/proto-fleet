@@ -78,7 +78,7 @@ type PluginManager interface {
 	plugins.PluginDriverGetter
 }
 
-func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *encrypt.Service, filesService *files.Service, pluginManager PluginManager) *Service {
+func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *encrypt.Service, filesService *files.Service, pluginManager PluginManager, retryOpts ...sqlstores.ConnectionManagerOption) *Service {
 	if db == nil {
 		panic("database cannot be nil")
 	}
@@ -93,7 +93,7 @@ func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *enc
 	}
 
 	return &Service{
-		SQLConnectionManager: sqlstores.NewSQLConnectionManager(db),
+		SQLConnectionManager: sqlstores.NewSQLConnectionManager(db, retryOpts...),
 		userStore:            userStore,
 		encryptService:       encryptService,
 		filesService:         filesService,

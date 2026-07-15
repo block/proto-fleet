@@ -12,8 +12,10 @@ type SQLConnectionManager struct {
 	conn *db.RetryDB
 }
 
-func NewSQLConnectionManager(conn *sql.DB) SQLConnectionManager {
-	return SQLConnectionManager{conn: db.NewRetryDB(conn)}
+type ConnectionManagerOption = db.RetryDBOption
+
+func NewSQLConnectionManager(conn *sql.DB, opts ...ConnectionManagerOption) SQLConnectionManager {
+	return SQLConnectionManager{conn: db.NewRetryDB(conn, opts...)}
 }
 
 // GetQueries returns the tx-bound queries when ctx carries them

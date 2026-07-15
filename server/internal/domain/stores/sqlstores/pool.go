@@ -21,9 +21,9 @@ type SQLPoolStore struct {
 	encryptor *encrypt.Service
 }
 
-func NewSQLPoolStore(conn *sql.DB, encryptor *encrypt.Service) *SQLPoolStore {
+func NewSQLPoolStore(conn *sql.DB, encryptor *encrypt.Service, opts ...ConnectionManagerOption) *SQLPoolStore {
 	return &SQLPoolStore{
-		SQLConnectionManager: NewSQLConnectionManager(conn),
+		SQLConnectionManager: NewSQLConnectionManager(conn, opts...),
 		encryptor:            encryptor,
 	}
 }

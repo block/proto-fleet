@@ -18,9 +18,9 @@ type SQLSessionStore struct {
 }
 
 // NewSQLSessionStore creates a new SQL-backed session store.
-func NewSQLSessionStore(conn *sql.DB) *SQLSessionStore {
+func NewSQLSessionStore(conn *sql.DB, opts ...ConnectionManagerOption) *SQLSessionStore {
 	return &SQLSessionStore{
-		SQLConnectionManager: NewSQLConnectionManager(conn),
+		SQLConnectionManager: NewSQLConnectionManager(conn, opts...),
 	}
 }
 

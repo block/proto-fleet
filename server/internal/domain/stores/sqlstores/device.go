@@ -55,9 +55,9 @@ type SQLDeviceStore struct {
 	SQLConnectionManager
 }
 
-func NewSQLDeviceStore(conn *sql.DB) *SQLDeviceStore {
+func NewSQLDeviceStore(conn *sql.DB, opts ...ConnectionManagerOption) *SQLDeviceStore {
 	return &SQLDeviceStore{
-		SQLConnectionManager: NewSQLConnectionManager(conn),
+		SQLConnectionManager: NewSQLConnectionManager(conn, opts...),
 	}
 }
 

@@ -165,6 +165,31 @@ func TestRetryOperationRetriesFailoverReadsAndResetsPool(t *testing.T) {
 	}
 }
 
+func TestRetryOperationResetsPoolForEachFailoverReadFailure(t *testing.T) {
+	attempts := 0
+	resets := 0
+
+	_, err := retryOperation(context.Background(), "QueryContext", retryOperationOptions{
+		retryFailover: true,
+		resetPool: func() {
+			resets++
+		},
+	}, func() (int, error) {
+		attempts++
+		return 0, &pgconn.PgError{Code: PGConnectionFailure, Message: "connection failure"}
+	})
+
+	if err == nil {
+		t.Fatal("expected failover-class read operation to fail after max attempts")
+	}
+	if attempts != DefaultRetryConfig.MaxAttempts {
+		t.Fatalf("expected max attempts, got %d attempts", attempts)
+	}
+	if resets != DefaultRetryConfig.MaxAttempts {
+		t.Fatalf("expected pool reset for each failover-class failure, got %d", resets)
+	}
+}
+
 func TestRetryOperationDoesNotRetryFailoverWrites(t *testing.T) {
 	attempts := 0
 	resets := 0
@@ -189,6 +214,53 @@ func TestRetryOperationDoesNotRetryFailoverWrites(t *testing.T) {
 	}
 }
 
+func TestIsReadOnlyQuery(t *testing.T) {
+	tests := []struct {
+		name     string
+		query    string
+		expected bool
+	}{
+		{
+			name:     "select",
+			query:    "SELECT 1",
+			expected: true,
+		},
+		{
+			name:     "sqlc comment before select",
+			query:    "-- name: ListDevices :many\nSELECT * FROM device",
+			expected: true,
+		},
+		{
+			name:     "block comment before show",
+			query:    "/* health check */ SHOW transaction_read_only",
+			expected: true,
+		},
+		{
+			name:     "insert returning is not read-only",
+			query:    "INSERT INTO device_set_membership(device_id) VALUES (1) RETURNING device_id",
+			expected: false,
+		},
+		{
+			name:     "sqlc comment before insert returning",
+			query:    "-- name: AddDevicesToDeviceSet :many\nINSERT INTO device_set_membership(device_id) VALUES (1) RETURNING device_id",
+			expected: false,
+		},
+		{
+			name:     "with query is not assumed read-only",
+			query:    "WITH deleted AS (DELETE FROM device RETURNING id) SELECT id FROM deleted",
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsReadOnlyQuery(tt.query); got != tt.expected {
+				t.Fatalf("IsReadOnlyQuery(%q) = %v, want %v", tt.query, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestRetryDBQueryContextRetriesFailoverAndResetsPool(t *testing.T) {
 	state := &retryTestSQLState{
 		queryErrs: []error{
@@ -205,7 +277,7 @@ func TestRetryDBQueryContextRetriesFailoverAndResetsPool(t *testing.T) {
 		resets++
 	}))
 
-	rows, err := retryDB.QueryContext(context.Background(), "SELECT 1")
+	rows, err := retryDB.QueryContext(context.Background(), "-- name: ReadHealth :many\nSELECT 1")
 	if err != nil {
 		t.Fatalf("expected failover-class query retry to succeed: %v", err)
 	}
@@ -219,6 +291,40 @@ func TestRetryDBQueryContextRetriesFailoverAndResetsPool(t *testing.T) {
 	}
 	if resets != 1 {
 		t.Fatalf("expected one pool reset, got %d", resets)
+	}
+}
+
+func TestRetryDBQueryContextDoesNotRetryFailoverForWriteReturning(t *testing.T) {
+	state := &retryTestSQLState{
+		queryErrs: []error{
+			&pgconn.PgError{Code: PGConnectionFailure, Message: "connection failure"},
+		},
+	}
+	sqlDB := sql.OpenDB(retryTestConnector{state: state})
+	t.Cleanup(func() {
+		requireNoError(t, sqlDB.Close())
+	})
+
+	resets := 0
+	retryDB := NewRetryDB(sqlDB, WithPoolReset(func() {
+		resets++
+	}))
+
+	rows, err := retryDB.QueryContext(context.Background(), "-- name: AddDevicesToDeviceSet :many\nINSERT INTO device_set_membership(device_id) VALUES (1) RETURNING device_id")
+	if rows != nil {
+		defer func() {
+			requireNoError(t, rows.Close())
+			requireNoError(t, rows.Err())
+		}()
+	}
+	if err == nil {
+		t.Fatal("expected failover-class write-returning query to return the original error")
+	}
+	if state.queryAttempts() != 1 {
+		t.Fatalf("expected no automatic write-returning retry, got %d attempts", state.queryAttempts())
+	}
+	if resets != 1 {
+		t.Fatalf("expected one pool reset before returning write-returning error, got %d", resets)
 	}
 }
 

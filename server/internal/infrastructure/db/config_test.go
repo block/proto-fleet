@@ -25,6 +25,20 @@ func TestConfigDSNUsesLegacyFieldsByDefault(t *testing.T) {
 	require.Equal(t, "db.internal:5432", cfg.ConnectionTarget())
 }
 
+func TestConfigValidateAcceptsLegacyFields(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		Name:     "fleet",
+		Username: "fleet",
+		Password: "p@ss word",
+		Address:  "db.internal:5432",
+		SSLMode:  "verify-full",
+	}
+
+	require.NoError(t, cfg.Validate())
+}
+
 func TestConfigExplicitDSNOverridesLegacyFields(t *testing.T) {
 	t.Parallel()
 
@@ -66,6 +80,31 @@ func TestConfigValidateRejectsMultiHostDSNWithoutReadWriteTarget(t *testing.T) {
 	err := cfg.Validate()
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "target_session_attrs=read-write")
+}
+
+func TestConfigValidateRejectsURLQueryMultiHostDSNWithoutReadWriteTarget(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		ExplicitDSN: "postgres:///fleet?host=fleet-a,fleet-b&port=5432,5432&sslmode=disable",
+	}
+
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "target_session_attrs=read-write")
+	require.True(t, DSNLooksMultiHost(cfg.DSN()))
+}
+
+func TestConfigValidateAcceptsURLQueryMultiHostReadWriteDSN(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		ExplicitDSN: "postgres:///fleet?host=fleet-a,fleet-b&port=5432,5432&sslmode=disable&target_session_attrs=read-write",
+	}
+
+	require.NoError(t, cfg.Validate())
+	require.True(t, DSNLooksMultiHost(cfg.DSN()))
+	require.True(t, DSNHasReadWriteTarget(cfg.DSN()))
 }
 
 func TestRedactDSNURLPassword(t *testing.T) {
@@ -137,6 +176,45 @@ func TestRedactDSNDoubleQuotedKeywordPassword(t *testing.T) {
 
 	require.Contains(t, redacted, "password=xxxxx")
 	require.NotContains(t, redacted, "super secret")
+}
+
+func TestRedactDSNEscapedQuotedKeywordPassword(t *testing.T) {
+	t.Parallel()
+
+	dsn := `host=fleet-a user=fleet password='abc\'def' dbname=fleet`
+
+	redacted := RedactDSN(dsn)
+
+	require.Contains(t, redacted, "password=xxxxx")
+	require.NotContains(t, redacted, "abc")
+	require.NotContains(t, redacted, "def")
+}
+
+func TestRedactDSNEscapedUnquotedKeywordPassword(t *testing.T) {
+	t.Parallel()
+
+	dsn := `host=fleet-a user=fleet password=abc\ def dbname=fleet`
+
+	redacted := RedactDSN(dsn)
+
+	require.Contains(t, redacted, "password=xxxxx")
+	require.NotContains(t, redacted, "abc")
+	require.NotContains(t, redacted, "def")
+}
+
+func TestConfigValidateRedactsEscapedKeywordPassword(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		ExplicitDSN: `host=fleet-a user=fleet password='abc\'def' dbname=fleet sslmode=invalid`,
+	}
+
+	err := cfg.Validate()
+
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "abc")
+	require.NotContains(t, err.Error(), "def")
+	require.Contains(t, err.Error(), "password=xxxxx")
 }
 
 func TestDSNHelpersSupportKeywordDSN(t *testing.T) {

@@ -21,8 +21,8 @@ type SQLSiteStore struct {
 	SQLConnectionManager
 }
 
-func NewSQLSiteStore(conn *sql.DB) *SQLSiteStore {
-	return &SQLSiteStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
+func NewSQLSiteStore(conn *sql.DB, opts ...ConnectionManagerOption) *SQLSiteStore {
+	return &SQLSiteStore{SQLConnectionManager: NewSQLConnectionManager(conn, opts...)}
 }
 
 func (s *SQLSiteStore) CreateSite(ctx context.Context, params models.CreateSiteParams) (*models.Site, error) {

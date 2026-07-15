@@ -31,9 +31,9 @@ type SQLErrorStore struct {
 	transactor interfaces.Transactor
 }
 
-func NewSQLErrorStore(conn *sql.DB, transactor interfaces.Transactor) *SQLErrorStore {
+func NewSQLErrorStore(conn *sql.DB, transactor interfaces.Transactor, opts ...ConnectionManagerOption) *SQLErrorStore {
 	return &SQLErrorStore{
-		SQLConnectionManager: NewSQLConnectionManager(conn),
+		SQLConnectionManager: NewSQLConnectionManager(conn, opts...),
 		transactor:           transactor,
 	}
 }

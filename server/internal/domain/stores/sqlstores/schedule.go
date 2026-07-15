@@ -27,9 +27,9 @@ type SQLScheduleStore struct {
 	SQLConnectionManager
 }
 
-func NewSQLScheduleStore(conn *sql.DB) *SQLScheduleStore {
+func NewSQLScheduleStore(conn *sql.DB, opts ...ConnectionManagerOption) *SQLScheduleStore {
 	return &SQLScheduleStore{
-		SQLConnectionManager: NewSQLConnectionManager(conn),
+		SQLConnectionManager: NewSQLConnectionManager(conn, opts...),
 	}
 }
 

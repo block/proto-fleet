@@ -18,9 +18,9 @@ type SQLUserStore struct {
 	SQLConnectionManager
 }
 
-func NewSQLUserStore(conn *sql.DB) *SQLUserStore {
+func NewSQLUserStore(conn *sql.DB, opts ...ConnectionManagerOption) *SQLUserStore {
 	return &SQLUserStore{
-		SQLConnectionManager: NewSQLConnectionManager(conn),
+		SQLConnectionManager: NewSQLConnectionManager(conn, opts...),
 	}
 }
 

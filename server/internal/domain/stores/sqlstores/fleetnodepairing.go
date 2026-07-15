@@ -15,8 +15,8 @@ type SQLFleetNodePairingStore struct {
 	SQLConnectionManager
 }
 
-func NewSQLFleetNodePairingStore(conn *sql.DB) *SQLFleetNodePairingStore {
-	return &SQLFleetNodePairingStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
+func NewSQLFleetNodePairingStore(conn *sql.DB, opts ...ConnectionManagerOption) *SQLFleetNodePairingStore {
+	return &SQLFleetNodePairingStore{SQLConnectionManager: NewSQLConnectionManager(conn, opts...)}
 }
 
 func (s *SQLFleetNodePairingStore) q(ctx context.Context) *sqlc.Queries {

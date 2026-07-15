@@ -17,8 +17,8 @@ type SQLFleetNodeEnrollmentStore struct {
 	SQLConnectionManager
 }
 
-func NewSQLFleetNodeEnrollmentStore(conn *sql.DB) *SQLFleetNodeEnrollmentStore {
-	return &SQLFleetNodeEnrollmentStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
+func NewSQLFleetNodeEnrollmentStore(conn *sql.DB, opts ...ConnectionManagerOption) *SQLFleetNodeEnrollmentStore {
+	return &SQLFleetNodeEnrollmentStore{SQLConnectionManager: NewSQLConnectionManager(conn, opts...)}
 }
 
 func (s *SQLFleetNodeEnrollmentStore) q(ctx context.Context) *sqlc.Queries {

@@ -19,9 +19,9 @@ type SQLApiKeyStore struct {
 }
 
 // NewSQLApiKeyStore creates a new SQL-backed API key store.
-func NewSQLApiKeyStore(conn *sql.DB) *SQLApiKeyStore {
+func NewSQLApiKeyStore(conn *sql.DB, opts ...ConnectionManagerOption) *SQLApiKeyStore {
 	return &SQLApiKeyStore{
-		SQLConnectionManager: NewSQLConnectionManager(conn),
+		SQLConnectionManager: NewSQLConnectionManager(conn, opts...),
 	}
 }
 

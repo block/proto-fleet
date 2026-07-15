@@ -24,8 +24,8 @@ type SQLInfrastructureDeviceStore struct {
 
 // NewSQLInfrastructureDeviceStore returns a store bound to the
 // supplied connection.
-func NewSQLInfrastructureDeviceStore(conn *sql.DB) *SQLInfrastructureDeviceStore {
-	return &SQLInfrastructureDeviceStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
+func NewSQLInfrastructureDeviceStore(conn *sql.DB, opts ...ConnectionManagerOption) *SQLInfrastructureDeviceStore {
+	return &SQLInfrastructureDeviceStore{SQLConnectionManager: NewSQLConnectionManager(conn, opts...)}
 }
 
 // deviceFromRow maps the shared Get/List projection (device columns +

@@ -18,9 +18,9 @@ type SQLNotificationHistoryStore struct {
 	SQLConnectionManager
 }
 
-func NewSQLNotificationHistoryStore(conn *sql.DB) *SQLNotificationHistoryStore {
+func NewSQLNotificationHistoryStore(conn *sql.DB, opts ...ConnectionManagerOption) *SQLNotificationHistoryStore {
 	return &SQLNotificationHistoryStore{
-		SQLConnectionManager: NewSQLConnectionManager(conn),
+		SQLConnectionManager: NewSQLConnectionManager(conn, opts...),
 	}
 }
 

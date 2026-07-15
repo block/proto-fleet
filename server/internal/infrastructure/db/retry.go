@@ -139,6 +139,43 @@ func NewIdleConnectionPoolReset(conn *sql.DB, maxIdleConns int) func() {
 	}
 }
 
+func IsReadOnlyQuery(query string) bool {
+	keyword := firstSQLKeyword(query)
+	switch keyword {
+	case "select", "show", "values":
+		return true
+	default:
+		return false
+	}
+}
+
+func firstSQLKeyword(query string) string {
+	remaining := strings.TrimSpace(query)
+	for {
+		switch {
+		case strings.HasPrefix(remaining, "--"):
+			lineEnd := strings.IndexByte(remaining, '\n')
+			if lineEnd < 0 {
+				return ""
+			}
+			remaining = strings.TrimSpace(remaining[lineEnd+1:])
+		case strings.HasPrefix(remaining, "/*"):
+			commentEnd := strings.Index(remaining, "*/")
+			if commentEnd < 0 {
+				return ""
+			}
+			remaining = strings.TrimSpace(remaining[commentEnd+2:])
+		default:
+			for i, r := range remaining {
+				if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')) {
+					return strings.ToLower(remaining[:i])
+				}
+			}
+			return strings.ToLower(remaining)
+		}
+	}
+}
+
 type retryOperationOptions struct {
 	retryFailover bool
 	resetPool     func()
@@ -204,7 +241,7 @@ func (r *RetryDB) ExecContext(ctx context.Context, query string, args ...any) (s
 
 // QueryContext executes a query with automatic retry on retryable PostgreSQL errors.
 func (r *RetryDB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	return retryOperation(ctx, "QueryContext", retryOperationOptions{retryFailover: true, resetPool: r.resetPool}, func() (*sql.Rows, error) {
+	return retryOperation(ctx, "QueryContext", retryOperationOptions{retryFailover: IsReadOnlyQuery(query), resetPool: r.resetPool}, func() (*sql.Rows, error) {
 		return r.DB.QueryContext(ctx, query, args...)
 	})
 }

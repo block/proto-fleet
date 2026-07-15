@@ -17,8 +17,8 @@ type SQLFleetNodeAuthStore struct {
 	SQLConnectionManager
 }
 
-func NewSQLFleetNodeAuthStore(conn *sql.DB) *SQLFleetNodeAuthStore {
-	return &SQLFleetNodeAuthStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
+func NewSQLFleetNodeAuthStore(conn *sql.DB, opts ...ConnectionManagerOption) *SQLFleetNodeAuthStore {
+	return &SQLFleetNodeAuthStore{SQLConnectionManager: NewSQLConnectionManager(conn, opts...)}
 }
 
 func (s *SQLFleetNodeAuthStore) q(ctx context.Context) *sqlc.Queries {

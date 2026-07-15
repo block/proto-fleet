@@ -19,8 +19,8 @@ type SQLBuildingStore struct {
 	SQLConnectionManager
 }
 
-func NewSQLBuildingStore(conn *sql.DB) *SQLBuildingStore {
-	return &SQLBuildingStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
+func NewSQLBuildingStore(conn *sql.DB, opts ...ConnectionManagerOption) *SQLBuildingStore {
+	return &SQLBuildingStore{SQLConnectionManager: NewSQLConnectionManager(conn, opts...)}
 }
 
 func (s *SQLBuildingStore) CreateBuilding(ctx context.Context, params models.CreateParams) (*models.Building, error) {

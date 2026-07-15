@@ -187,6 +187,7 @@ func start(config *Config) error {
 		return err
 	}
 	dbPoolReset := db.NewIdleConnectionPoolReset(conn, config.DB.MaxIdleConns)
+	retryDBOptions := []sqlstores.ConnectionManagerOption{db.WithPoolReset(dbPoolReset)}
 
 	metricsProvider, err := metrics.Setup(context.Background(), version, config.Metrics, conn)
 	if err != nil {
@@ -222,32 +223,32 @@ func start(config *Config) error {
 
 	permissionResolver := authz.NewPermissionResolver(conn)
 
-	transactor := sqlstores.NewSQLTransactor(conn)
+	transactor := sqlstores.NewSQLTransactor(conn, retryDBOptions...)
 
 	encryptSvc, err := encrypt.NewService(&config.Encrypt)
 	if err != nil {
 		return err
 	}
 
-	userStore := sqlstores.NewSQLUserStore(conn)
-	poolStore := sqlstores.NewSQLPoolStore(conn, encryptSvc)
-	deviceStore := sqlstores.NewSQLDeviceStore(conn)
-	collectionStore := sqlstores.NewSQLCollectionStore(conn, config.TimescaleDB.MaxAge)
-	activityStore := sqlstores.NewSQLActivityStore(conn)
-	notificationHistoryStore := sqlstores.NewSQLNotificationHistoryStore(conn)
+	userStore := sqlstores.NewSQLUserStore(conn, retryDBOptions...)
+	poolStore := sqlstores.NewSQLPoolStore(conn, encryptSvc, retryDBOptions...)
+	deviceStore := sqlstores.NewSQLDeviceStore(conn, retryDBOptions...)
+	collectionStore := sqlstores.NewSQLCollectionStoreWithOptions(conn, retryDBOptions, config.TimescaleDB.MaxAge)
+	activityStore := sqlstores.NewSQLActivityStore(conn, retryDBOptions...)
+	notificationHistoryStore := sqlstores.NewSQLNotificationHistoryStore(conn, retryDBOptions...)
 
 	activitySvc := activityDomain.NewService(activityStore)
 
-	apiKeyStore := sqlstores.NewSQLApiKeyStore(conn)
+	apiKeyStore := sqlstores.NewSQLApiKeyStore(conn, retryDBOptions...)
 	apiKeySvc := apikeyDomain.NewService(apiKeyStore, activitySvc)
 
-	fleetNodeEnrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(conn)
+	fleetNodeEnrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(conn, retryDBOptions...)
 	fleetNodeEnrollmentSvc := enrollment.NewService(fleetNodeEnrollmentStore, apiKeySvc, transactor, activitySvc)
-	fleetNodePairingStore := sqlstores.NewSQLFleetNodePairingStore(conn)
+	fleetNodePairingStore := sqlstores.NewSQLFleetNodePairingStore(conn, retryDBOptions...)
 	fleetNodePairingSvc := fleetnodepairing.NewService(fleetNodePairingStore, fleetNodeEnrollmentStore, transactor)
 	fleetNodeControlRegistry := control.NewRegistry()
 	fleetNodeDiscoverySvc := fleetnodediscovery.NewService(fleetNodeControlRegistry, fleetNodeEnrollmentSvc)
-	fleetNodeAuthStore := sqlstores.NewSQLFleetNodeAuthStore(conn)
+	fleetNodeAuthStore := sqlstores.NewSQLFleetNodeAuthStore(conn, retryDBOptions...)
 	fleetNodeAuthSvc := fleetnodeauth.NewService(fleetNodeAuthStore, fleetNodeEnrollmentStore, apiKeySvc)
 
 	tokenSvc, err := tokenDomain.NewService(config.Auth)
@@ -256,7 +257,7 @@ func start(config *Config) error {
 	}
 
 	// Initialize session store and service
-	sessionStore := sqlstores.NewSQLSessionStore(conn)
+	sessionStore := sqlstores.NewSQLSessionStore(conn, retryDBOptions...)
 	sessionSvc := sessionDomain.NewService(config.Session, sessionStore)
 
 	// userStore implements both UserStore and UserManagementStore interfaces
@@ -330,7 +331,7 @@ func start(config *Config) error {
 	}
 
 	discoverer := pluginService.CreateDiscoverer()
-	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(conn)
+	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(conn, retryDBOptions...)
 
 	fleetNodePairingSvc.WithProvisioning(deviceStore, discoveredDeviceStore, fleetNodeControlRegistry)
 
@@ -372,13 +373,13 @@ func start(config *Config) error {
 		}
 	}()
 	defer commandArtifactCleanupCancel()
-	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, pluginManager).
+	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, pluginManager, retryDBOptions...).
 		WithCommandSender(fleetNodeControlRegistry)
 
 	// Create diagnostics service for error polling and auto-closing stale errors
 	diagnosticsCtx, diagnosticsCancel := context.WithCancel(context.Background())
 	defer diagnosticsCancel()
-	errorStore := sqlstores.NewSQLErrorStore(conn, transactor)
+	errorStore := sqlstores.NewSQLErrorStore(conn, transactor, retryDBOptions...)
 	diagnosticsService := diagnostics.NewService(diagnosticsCtx, config.Diagnostics, errorStore, transactor).
 		WithDeviceScopeResolver(deviceStore)
 
@@ -481,8 +482,8 @@ func start(config *Config) error {
 	// buildingStore is constructed below alongside siteStore; both are
 	// needed for the parseFilter cross-org check on building_ids and
 	// zone_keys. Hoist the construction so fleetMgmtSvc can depend on it.
-	siteStore := sqlstores.NewSQLSiteStore(conn)
-	buildingStore := sqlstores.NewSQLBuildingStore(conn)
+	siteStore := sqlstores.NewSQLSiteStore(conn, retryDBOptions...)
+	buildingStore := sqlstores.NewSQLBuildingStore(conn, retryDBOptions...)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, buildingStore, commandSvc, activitySvc)
 	fleetMgmtSvc.WithOptionsCache(fleetOptionsCache)
 	// Filtered "select all" command dispatch resolves its MinerListFilter through
@@ -492,10 +493,10 @@ func start(config *Config) error {
 	defer fleetMgmtSvc.WaitForPendingUnpairs(shutdownTimeout)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools, activitySvc)
-	scheduleStore := sqlstores.NewSQLScheduleStore(conn)
+	scheduleStore := sqlstores.NewSQLScheduleStore(conn, retryDBOptions...)
 	scheduleSvc := scheduleDomain.NewService(scheduleStore, scheduleStore, scheduleStore, transactor, activitySvc)
 
-	curtailmentStore := sqlstores.NewSQLCurtailmentStore(conn)
+	curtailmentStore := sqlstores.NewSQLCurtailmentStore(conn, retryDBOptions...)
 	// Curtailment operational metrics route through this single recorder.
 	// Swap NoOpMetrics for the platform observability implementation once
 	// the pipeline shape lands (OTel Meter, Prometheus, or DogStatsD).
@@ -508,7 +509,7 @@ func start(config *Config) error {
 
 	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
-	infrastructureStore := sqlstores.NewSQLInfrastructureDeviceStore(conn)
+	infrastructureStore := sqlstores.NewSQLInfrastructureDeviceStore(conn, retryDBOptions...)
 	infrastructureSvc := infrastructureDomain.NewService(infrastructureStore, siteStore, infrastructureDomain.NewDefaultDriverRegistry(), transactor, activitySvc)
 
 	// Register the schedule-conflict preflight filter on commandSvc so every
@@ -541,7 +542,7 @@ func start(config *Config) error {
 		}
 	}()
 
-	mqttQueries := sqlc.New(db.NewRetryDB(conn, db.WithPoolReset(dbPoolReset)))
+	mqttQueries := sqlc.New(db.NewRetryDB(conn, retryDBOptions...))
 
 	mqttSettingsStore := mqttingest.NewSQLCSettingsStore(mqttQueries)
 	curtailmentAutomationSvc, err := curtailmentDomain.NewAutomationService(curtailmentDomain.AutomationServiceConfig{
@@ -609,7 +610,7 @@ func start(config *Config) error {
 	grafanaClient := alertsDomain.NewGrafana(config.Metrics.Grafana)
 	// fleet-api owns org channel storage + delivery; Grafana keeps only rule evaluation,
 	// silences (rule pause / maintenance windows), and the internal history webhook.
-	alertChannelStore := sqlstores.NewSQLAlertChannelStore(conn)
+	alertChannelStore := sqlstores.NewSQLAlertChannelStore(conn, retryDBOptions...)
 	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
 	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
 
@@ -637,7 +638,7 @@ func start(config *Config) error {
 		if config.Metrics.WebhookToken == "" {
 			slog.Warn("FLEET_ALERTS_WEBHOOK_TOKEN is not set; alertmanager webhook will reject every delivery")
 		}
-		orgQueries := sqlc.New(db.NewRetryDB(conn, db.WithPoolReset(dbPoolReset)))
+		orgQueries := sqlc.New(db.NewRetryDB(conn, retryDBOptions...))
 		mux.Handle("POST "+alertmanagerwebhook.Path, alertmanagerwebhook.NewHandler(notificationHistoryStore, config.Metrics.WebhookToken, orgQueries, alertsDeliverer))
 	}
 	mux.Handle("/api/v1/firmware/upload", firmwareHandler.NewUploadHandler(filesService, sessionSvc, userStore, filesService.MaxFirmwareFileSize()))
@@ -651,7 +652,7 @@ func start(config *Config) error {
 	mux.Handle("GET /api/v1/firmware/files", firmwareHandler.NewListFilesHandler(filesService, sessionSvc, userStore))
 	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", firmwareHandler.NewDeleteFileHandler(filesService, sessionSvc, userStore))
 	mux.Handle("DELETE /api/v1/firmware/files", firmwareHandler.NewDeleteAllFilesHandler(filesService, sessionSvc, userStore))
-	mux.Handle("/miners/{deviceIdentifier}/api/v1/{rest...}", minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc))
+	mux.Handle("/miners/{deviceIdentifier}/api/v1/{rest...}", minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc, retryDBOptions...))
 
 	chunkedCleanupCtx, chunkedCleanupCancel := context.WithCancel(context.Background())
 	go chunkedMgr.StartCleanup(chunkedCleanupCtx, config.Files.ChunkedUploadSessionTTL)

@@ -15,9 +15,9 @@ type SQLTransactor struct {
 	SQLConnectionManager
 }
 
-func NewSQLTransactor(conn *sql.DB) *SQLTransactor {
+func NewSQLTransactor(conn *sql.DB, opts ...ConnectionManagerOption) *SQLTransactor {
 	return &SQLTransactor{
-		SQLConnectionManager: NewSQLConnectionManager(conn),
+		SQLConnectionManager: NewSQLConnectionManager(conn, opts...),
 	}
 }
 

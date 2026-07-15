@@ -29,12 +29,16 @@ type SQLCollectionStore struct {
 
 // NewSQLCollectionStore creates a new SQLCollectionStore.
 func NewSQLCollectionStore(conn *sql.DB, telemetryMaxAge ...time.Duration) *SQLCollectionStore {
+	return NewSQLCollectionStoreWithOptions(conn, nil, telemetryMaxAge...)
+}
+
+func NewSQLCollectionStoreWithOptions(conn *sql.DB, opts []ConnectionManagerOption, telemetryMaxAge ...time.Duration) *SQLCollectionStore {
 	maxAge := defaultCollectionTelemetryMaxAge
 	if len(telemetryMaxAge) > 0 {
 		maxAge = telemetryMaxAge[0]
 	}
 	return &SQLCollectionStore{
-		SQLConnectionManager:      NewSQLConnectionManager(conn),
+		SQLConnectionManager:      NewSQLConnectionManager(conn, opts...),
 		collectionTelemetryMaxAge: maxAge,
 	}
 }

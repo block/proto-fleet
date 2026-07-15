@@ -96,8 +96,7 @@ func RedactDSN(dsn string) string {
 	queryPasswordPattern := regexp.MustCompile("(?i)([?&](?:password|sslpassword)=)[^&\\s`'\"]*")
 	trimmed = queryPasswordPattern.ReplaceAllString(trimmed, "${1}xxxxx")
 
-	passwordPattern := regexp.MustCompile(`(?i)(^|\s)password=(?:'[^']*'|"[^"]*"|\S+)`)
-	return passwordPattern.ReplaceAllString(trimmed, "${1}password=xxxxx")
+	return redactKeywordDSNValue(trimmed, "password")
 }
 
 func DSNLooksMultiHost(dsn string) bool {
@@ -106,7 +105,7 @@ func DSNLooksMultiHost(dsn string) bool {
 		return false
 	}
 	if u, err := url.Parse(trimmed); err == nil && isPostgresURL(u) {
-		return strings.Contains(u.Host, ",")
+		return strings.Contains(u.Host, ",") || urlQueryHasMultiHost(u.Query(), "host")
 	}
 	host, ok := keywordDSNValue(trimmed, "host")
 	return ok && strings.Contains(host, ",")
@@ -131,6 +130,91 @@ func isPostgresURL(u *url.URL) bool {
 func isSensitiveDSNQueryParam(key string) bool {
 	switch strings.ToLower(key) {
 	case "password", "sslpassword":
+		return true
+	default:
+		return false
+	}
+}
+
+func urlQueryHasMultiHost(values url.Values, key string) bool {
+	hosts := values[key]
+	if len(hosts) > 1 {
+		return true
+	}
+	for _, host := range hosts {
+		if strings.Contains(host, ",") {
+			return true
+		}
+	}
+	return false
+}
+
+func redactKeywordDSNValue(dsn string, key string) string {
+	var redacted strings.Builder
+	last := 0
+	for i := 0; i < len(dsn); i++ {
+		valueStart, ok := keywordAssignmentValueStart(dsn, key, i)
+		if !ok {
+			continue
+		}
+		redacted.WriteString(dsn[last:valueStart])
+		redacted.WriteString("xxxxx")
+		last = keywordDSNValueEnd(dsn, valueStart)
+		i = last - 1
+	}
+	if last == 0 {
+		return dsn
+	}
+	redacted.WriteString(dsn[last:])
+	return redacted.String()
+}
+
+func keywordAssignmentValueStart(dsn string, key string, offset int) (int, bool) {
+	keyEnd := offset + len(key)
+	if offset > 0 && !isDSNSpace(dsn[offset-1]) {
+		return 0, false
+	}
+	if keyEnd >= len(dsn) || dsn[keyEnd] != '=' {
+		return 0, false
+	}
+	if !strings.EqualFold(dsn[offset:keyEnd], key) {
+		return 0, false
+	}
+	return keyEnd + 1, true
+}
+
+func keywordDSNValueEnd(dsn string, start int) int {
+	if start >= len(dsn) {
+		return start
+	}
+	if dsn[start] == '\'' || dsn[start] == '"' {
+		quote := dsn[start]
+		for i := start + 1; i < len(dsn); i++ {
+			if dsn[i] == '\\' && i+1 < len(dsn) {
+				i++
+				continue
+			}
+			if dsn[i] == quote {
+				return i + 1
+			}
+		}
+		return len(dsn)
+	}
+	for i := start; i < len(dsn); i++ {
+		if dsn[i] == '\\' && i+1 < len(dsn) {
+			i++
+			continue
+		}
+		if isDSNSpace(dsn[i]) {
+			return i
+		}
+	}
+	return len(dsn)
+}
+
+func isDSNSpace(b byte) bool {
+	switch b {
+	case ' ', '\t', '\n', '\r':
 		return true
 	default:
 		return false

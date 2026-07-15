@@ -34,9 +34,9 @@ type SQLActivityStore struct {
 	SQLConnectionManager
 }
 
-func NewSQLActivityStore(conn *sql.DB) *SQLActivityStore {
+func NewSQLActivityStore(conn *sql.DB, opts ...ConnectionManagerOption) *SQLActivityStore {
 	return &SQLActivityStore{
-		SQLConnectionManager: NewSQLConnectionManager(conn),
+		SQLConnectionManager: NewSQLConnectionManager(conn, opts...),
 	}
 }
 

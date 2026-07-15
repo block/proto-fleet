@@ -13,8 +13,8 @@ type SQLAlertChannelStore struct {
 	SQLConnectionManager
 }
 
-func NewSQLAlertChannelStore(conn *sql.DB) *SQLAlertChannelStore {
-	return &SQLAlertChannelStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
+func NewSQLAlertChannelStore(conn *sql.DB, opts ...ConnectionManagerOption) *SQLAlertChannelStore {
+	return &SQLAlertChannelStore{SQLConnectionManager: NewSQLConnectionManager(conn, opts...)}
 }
 
 var _ alerts.ChannelStore = (*SQLAlertChannelStore)(nil)

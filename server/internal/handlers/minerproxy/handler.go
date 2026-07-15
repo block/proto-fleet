@@ -103,9 +103,10 @@ func NewHandler(
 	userStore stores.UserStore,
 	permissionResolver *authz.PermissionResolver,
 	encryptService *encrypt.Service,
+	retryOpts ...db.RetryDBOption,
 ) http.Handler {
 	return &Handler{
-		queries:            sqlc.New(db.NewRetryDB(conn)),
+		queries:            sqlc.New(db.NewRetryDB(conn, retryOpts...)),
 		sessionService:     sessionService,
 		userStore:          userStore,
 		permissionResolver: permissionResolver,

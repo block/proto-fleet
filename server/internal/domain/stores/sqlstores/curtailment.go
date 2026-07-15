@@ -59,9 +59,9 @@ type SQLCurtailmentStore struct {
 	SQLConnectionManager
 }
 
-func NewSQLCurtailmentStore(conn *sql.DB) *SQLCurtailmentStore {
+func NewSQLCurtailmentStore(conn *sql.DB, opts ...ConnectionManagerOption) *SQLCurtailmentStore {
 	return &SQLCurtailmentStore{
-		SQLConnectionManager: NewSQLConnectionManager(conn),
+		SQLConnectionManager: NewSQLConnectionManager(conn, opts...),
 	}
 }
 
