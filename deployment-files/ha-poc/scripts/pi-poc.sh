@@ -13,6 +13,7 @@ Usage:
   ./scripts/pi-poc.sh install-deps
   ./scripts/pi-poc.sh doctor
   ./scripts/pi-poc.sh start
+  ./scripts/pi-poc.sh demo [snapshot|loop|app-failover|db-failover|talk-track]
   ./scripts/pi-poc.sh status
   ./scripts/pi-poc.sh active-host
   ./scripts/pi-poc.sh watch
@@ -45,6 +46,7 @@ Examples:
   HA_POC_PASSWORD='change-me' ./scripts/pi-poc.sh configure fleet-a 192.168.2.11 192.168.2.12 192.168.2.13 192.168.2.50 eth0
   ./scripts/pi-poc.sh install-deps
   ./scripts/pi-poc.sh start
+  ./scripts/pi-poc.sh demo loop
   ./scripts/pi-poc.sh status
 EOF
 }
@@ -480,6 +482,11 @@ watch() {
   "${script_dir}/watch-failover.sh" "${env_file}"
 }
 
+demo() {
+  load_env
+  "${script_dir}/demo.sh" "${env_file}" "$@"
+}
+
 fail_app() {
   load_env
   [[ "$(role_kind)" == "fleet" ]] || die "fail-app only runs on fleet-a or fleet-b"
@@ -541,6 +548,7 @@ case "${cmd}" in
   install-deps) install_deps ;;
   doctor) doctor ;;
   start) start ;;
+  demo) demo "$@" ;;
   status) status ;;
   active-host) active_host ;;
   watch) watch ;;

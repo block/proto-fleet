@@ -104,6 +104,8 @@ Common operations:
 
 ```bash
 ./scripts/pi-poc.sh status        # status from a Fleet host
+./scripts/pi-poc.sh demo snapshot # presenter-friendly one-screen summary
+./scripts/pi-poc.sh demo loop     # live presenter-friendly status
 ./scripts/pi-poc.sh active-host   # current VIP-backed active holder
 ./scripts/pi-poc.sh watch         # measure failover from another terminal
 ./scripts/pi-poc.sh fail-app      # run on the currently active Fleet host
@@ -115,6 +117,53 @@ Common operations:
 
 To force the original ports on dedicated hosts, set
 `HA_POC_PORT_MODE=standard` when running `configure`.
+
+## Demo Flow
+
+For a short terminal demo, use two SSH sessions.
+
+In terminal 1, run the live summary from either Fleet host:
+
+```bash
+cd ~/proto-fleet-ha-poc/deployment-files/ha-poc
+./scripts/pi-poc.sh demo loop 2
+```
+
+This view is meant for screen sharing. It shows the active Fleet lease holder,
+the VIP target, and the Patroni primary/replica state in one place.
+
+In terminal 2, print the narration:
+
+```bash
+./scripts/pi-poc.sh demo talk-track
+```
+
+Then run the app failover demo on the currently active app host:
+
+```bash
+./scripts/pi-poc.sh demo app-failover
+```
+
+Expected: terminal 1 shows the active app move to the peer, the lease epoch
+increase, and the VIP route to the new active host. Restore the stopped app
+before continuing:
+
+```bash
+./scripts/pi-poc.sh restore
+```
+
+Run the DB failover demo on the current Patroni primary:
+
+```bash
+./scripts/pi-poc.sh demo db-failover
+```
+
+Expected: terminal 1 shows the peer promote to primary while the app reconnects
+through the multi-host DSN. Restore the stopped DB after the demo:
+
+```bash
+./scripts/pi-poc.sh restore
+```
 
 ## Manual Setup
 
