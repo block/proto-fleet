@@ -1,115 +1,125 @@
-# HA POC Learnings
+# HA POC Implementation Learnings
 
-These are implementation lessons from the active/passive HA POC. The POC is a
-throwaway harness, but the behavior it exercised should shape the real Fleet HA
-implementation.
+These are the implementation-relevant lessons from running the active/passive HA
+POC on three Raspberry Pis. The fake app and scripts are disposable; the
+coordination model, failure behavior, and installer constraints are the useful
+outputs.
 
-## What Worked
+## Core Architecture
 
-- A three-node etcd quorum is enough for Patroni in this shape: two Fleet hosts
-  plus a witness lets one Fleet host fail without losing the DCS quorum.
-- Patroni and a multi-host Postgres DSN fit together cleanly. The app should use
-  both Fleet database endpoints with `target_session_attrs=read-write` so it
-  reconnects to the promoted writable primary instead of pinning to a host.
-- The app active role should be coordinated in the database, not inferred from
-  the local process or the Patroni role. Patroni decides which Postgres is
-  writable; the Fleet lease decides which app instance may perform active work.
-- keepalived should follow the app's local active health endpoint. Tracking
-  `/health/active` moves the VIP to the host that can actually serve active
-  Fleet traffic, independent of whether that host was originally primary.
-- A fenced lease epoch is useful. Heartbeats and future active-only loops should
-  include both `holder_id` and `lease_epoch` so a stalled or restarted old active
-  cannot keep dispatching work after another instance takes over.
-
-## Real Implementation Shape
-
-- Keep the HA concerns separated:
+- Keep the HA responsibilities separate:
   - Patroni/etcd owns Postgres primary election.
   - Fleet owns an application-level active lease in the writable database.
-  - keepalived owns the LAN VIP and tracks the local active Fleet health check.
-- Fleet should fail closed for active duties if it cannot prove it still owns
+  - keepalived owns the LAN VIP and follows Fleet's local active health check.
+- Do not infer Fleet active status from the local Patroni role. The POC proved
+  that the active Fleet process and the Postgres primary can live on different
+  hosts. That is valid as long as Fleet can renew the active lease and write
+  heartbeats through the multi-host DSN.
+- Fleet should use both Postgres hosts in its DSN with
+  `target_session_attrs=read-write`. That lets the app reconnect to whichever
+  node Patroni promotes instead of pinning to a hostname.
+- A third witness node is useful for the first production shape. Two Fleet hosts
+  plus an etcd witness keep DCS quorum available when one Fleet host fails.
+- The VIP is the stable client endpoint, not proof of database leadership. It
+  should move to the host whose Fleet process is currently active.
+
+## Active Lease And Fencing
+
+- Fleet's active role should be coordinated in the database, not by local
+  process state, VIP ownership, or Patroni leadership.
+- Active-only work should fail closed unless the process can prove it still owns
   the current lease epoch in the writable database.
-- Active-only work should be gated at the loop or dispatcher boundary, not
-  scattered through lower-level command/MQTT/ControlStream plumbing first.
-- The first real Fleet POC should replace the fake app with real Fleet only far
-  enough to gate active/passive health and run one harmless active loop.
-  Scheduler, command dispatch, curtailment, MQTT, and ControlStream scale
-  behavior should remain out of scope until the coordinator shape is stable.
+- Active writes should be fenced with both `holder_id` and `lease_epoch`. A
+  restarted, stalled, or partitioned old active must not be able to keep writing
+  after another process takes over.
+- The first real Fleet integration should gate only active/passive health and
+  one harmless active loop. Scheduler, command dispatch, curtailment, MQTT, and
+  ControlStreams should come after the coordinator behavior is proven inside
+  real Fleet.
 
-## Networking Lessons
-
-- VRRP/VIP behavior must be tested on real same-subnet Linux hosts. Docker
-  Desktop, Tailscale-only addressing, and local-only simulations do not prove the
-  L2 behavior that keepalived depends on.
-- Operator access and HA internals are different planes. SSH over Tailscale is
-  fine, but etcd, Patroni, Postgres, VRRP, and the VIP must use LAN interface
-  addresses on the same subnet.
-- The installer should reject Tailscale/CGNAT-looking `100.64.0.0/10`
-  addresses for HA internals and provide an explicit LAN-IP discovery command.
-- If the VIP needs to be reachable from a laptop over Tailscale, advertise the
-  VIP as a narrow subnet route such as `<vip>/32`, not the whole LAN, and require
-  route approval/ACLs in the tailnet.
-- keepalived is host-level state. Even when containers use coexist-safe ports
-  and isolated Docker volumes, installing keepalived can overwrite or compete
-  with existing host VRRP configuration.
-
-## Bootstrap And Operations Lessons
-
-- Start order matters for a clean first boot: witness etcd first, then both
-  Fleet hosts. If a peer's etcd peer port is refused, Patroni will stall or
-  report unhealthy DCS connectivity until quorum is healthy.
-- Passive `/health/active` returning 503 is expected. keepalived logs may show
-  the local active-check script returning curl exit 22 on passive hosts; that is
-  a normal standby signal, not an application crash.
-- The POC needs coexist-safe ports when it runs beside an existing Fleet
-  install. The useful defaults were:
-  - etcd client/peer: `12379` / `12380`
-  - Postgres: `15432`
-  - Patroni API: `18008`
-  - Fleet HTTP/VIP: `14080`
-- Docker build context paths matter on remote Pi checkouts. The Patroni image
-  should copy only files inside the POC context so remote builds do not fail on
-  missing script paths.
-- Postgres data directory permissions need explicit repair before Patroni starts.
-  On the Pi run, Postgres refused to start until the mounted `PGDATA` directory
-  was owned by `postgres` and mode `0700`.
-- Long-running Pi setup should be idempotent and resumable. SSH sessions can
-  drop during package installs or Docker builds, so scripts should make it easy
-  to rerun `start`, `restore`, `status`, and targeted rebuilds safely.
-
-## Health And Diagnostics
+## Health Semantics
 
 - Keep separate health surfaces:
-  - liveness: process is up.
-  - readiness: database path is usable.
-  - active: this instance currently owns the Fleet lease.
-  - HA diagnostics: current holder, epoch, renew time, heartbeat time, and
-    Patroni/database view.
-- The active health endpoint should be strict because keepalived consumes it.
-  Returning 200 while the process is passive or unable to renew the lease would
-  put the VIP on the wrong host.
-- Diagnostic endpoints should be optionally token-protected. The POC data is not
-  highly sensitive, but a real deployment will expose topology, lease holders,
-  and timing data that should not be broadly visible.
+  - liveness: process is running.
+  - readiness: Fleet can reach a writable database path.
+  - active: this process owns the current Fleet active lease.
+  - HA diagnostics: holder, host, epoch, renew time, heartbeat time, DB target,
+    Patroni role, and degraded state.
+- `/health/active` must be strict because keepalived consumes it. It should
+  return 200 only when the process can safely receive active traffic.
+- A passive host returning 503 from `/health/active` is expected. keepalived
+  logs may show curl exit 22 for the tracking script on passive hosts; that is a
+  normal standby signal.
+- Diagnostic timestamps should be initialized or omitted when unknown. Zero-time
+  values are confusing during an outage or demo and should not be exposed as if
+  they were real observations.
+- HA diagnostics should be access-controlled. They expose topology, lease
+  holders, timing, and failover state.
 
-## Failure Cases To Preserve
+## Networking And VIP
 
-The real implementation should keep these as acceptance tests:
+- VRRP/VIP behavior must be tested on real same-subnet Linux hosts. Local Docker
+  simulation and Tailscale-only addressing do not prove the L2 behavior that
+  keepalived depends on.
+- HA internals must use LAN interface addresses: etcd peer/client URLs, Patroni
+  API addresses, Postgres addresses, VRRP peers, and the VIP. Tailscale is fine
+  for SSH/operator access, but not for the HA control plane.
+- Installer/config validation should reject Tailscale/CGNAT-looking
+  `100.64.0.0/10` addresses for HA internals and provide a clear LAN-IP
+  discovery command.
+- Tooling should contact Patroni through its configured LAN listen/connect
+  address, not `127.0.0.1`, because Patroni may not bind loopback.
+- If the VIP needs to be reachable from laptops over Tailscale, advertise the
+  VIP as a narrow subnet route such as `<vip>/32`. Do not advertise the whole
+  LAN unless that is an intentional network policy decision.
+- keepalived is host-level state. Containers, compose projects, and alternate
+  ports do not isolate it. The installer must detect, back up, and avoid
+  clobbering existing keepalived/VRRP configuration.
 
-- exactly one active Fleet instance after cluster start.
+## Installer And Operations
+
+- Existing Fleet deployments must not be disturbed by HA experiments or partial
+  installs. The installer should preflight for occupied ports, existing Docker
+  projects/volumes, and host-level keepalived state before changing anything.
+- Startup should be idempotent and resumable. SSH sessions and package installs
+  can fail mid-run on small hosts, so rerunning setup/start/restore should
+  converge instead of requiring manual cleanup.
+- etcd quorum health should be validated before expecting Patroni to converge.
+  A refused peer port can leave Patroni stuck or degraded.
+- Patroni/Postgres data directory ownership and mode must be enforced before
+  Postgres starts. PostgreSQL refuses to start unless `PGDATA` is owned by the
+  postgres user and has a safe mode such as `0700`.
+- Preflight should make it obvious which host is `fleet-a`, which is `fleet-b`,
+  which is the witness, and which IP is the VIP. Operator mistakes with host
+  identity were more likely than code mistakes.
+- Restore procedures should be explicit after destructive tests. Stopping the
+  app and stopping Patroni are useful demos, but production runbooks need clear
+  commands for returning a host to service and confirming it is healthy.
+
+## Acceptance Tests To Preserve
+
+The real implementation should keep these behaviors as acceptance criteria:
+
+- Exactly one Fleet instance is active after cluster start.
 - VIP traffic reaches the active Fleet instance.
-- killing the active Fleet process causes the peer to take the lease and VIP.
-- killing the DB primary causes Patroni promotion and app reconnection through
+- The active Fleet instance can be on a different host from the Postgres primary.
+- Killing the active Fleet process causes the peer to acquire the lease and VIP.
+- Killing the DB primary causes Patroni promotion and Fleet reconnection through
   the multi-host DSN.
-- killing the standby DB keeps the active app running but reports degraded HA.
-- stopping or partitioning one host does not produce dual-active behavior.
-- restarting an old active cannot dispatch or heartbeat with a stale epoch.
+- Killing the standby DB keeps active Fleet running but reports degraded HA.
+- Stopping or partitioning one host does not produce dual-active behavior.
+- Restarting an old active cannot dispatch, heartbeat, or write with a stale
+  epoch.
+- Passive health stays passive after restart unless that process wins the
+  current database lease.
 
-## What The POC Did Not Prove
+## Still Unproven
 
-- real Fleet command dispatch semantics.
+- Real Fleet command dispatch behavior under active/passive transitions.
 - Fleet Node ControlStream reconnect behavior at scale.
 - MQTT behavior during active/passive transitions.
-- telemetry and Grafana behavior in degraded HA states.
-- production TLS, certificate automation, and secret distribution.
-- final installer UX and upgrade behavior.
+- Curtailment and scheduler behavior under failover.
+- Telemetry and Grafana behavior in degraded HA states.
+- Production TLS, certificate automation, and secret distribution.
+- Installer UX, upgrade behavior, rollback behavior, and existing-deployment
+  migration.
