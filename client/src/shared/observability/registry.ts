@@ -3,11 +3,8 @@ import type { Interceptor } from "@connectrpc/connect";
 import type { ObservabilityErrorMeta, ObservabilityInitContext, ObservabilityProvider } from "./types";
 
 /**
- * Vendor-neutral observability registry.
- *
- * Providers register themselves (see `providers.ts`, imported for its side effect
- * at app startup). Adding a new backend means writing one provider module and
- * registering it here — no changes to the entry point, transport, or error boundary.
+ * Vendor-neutral observability registry. Providers register themselves via
+ * `providers.ts`, imported for its side effect at app startup.
  */
 
 const providers: ObservabilityProvider[] = [];

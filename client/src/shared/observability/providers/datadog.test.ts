@@ -139,7 +139,6 @@ describe("datadogProvider.init", () => {
       resource?: { url: string };
     }) => boolean;
 
-    // Resource event: view URL, referrer, and resource URL are all scrubbed.
     const resourceEvent = {
       type: "resource",
       view: { url: `${origin}/fleet/miners?subnet=10.0.0.0/24&rackId=r1`, referrer: `${origin}/x?token=t` },
@@ -150,7 +149,6 @@ describe("datadogProvider.init", () => {
     expect(resourceEvent.view.referrer).toBe(`${origin}/x`);
     expect(resourceEvent.resource?.url).toBe(`${origin}/api-proxy/svc/Method`);
 
-    // Non-resource (view) event: the view URL is still scrubbed.
     const viewEvent = { type: "view", view: { url: `${origin}/fleet/miners?buildingId=b2` } };
     expect(beforeSend(viewEvent)).toBe(true);
     expect(viewEvent.view.url).toBe(`${origin}/fleet/miners`);

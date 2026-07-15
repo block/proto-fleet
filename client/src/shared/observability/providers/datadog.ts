@@ -3,6 +3,7 @@ import type { RumEvent, RumInitConfiguration } from "@datadog/browser-rum";
 
 import { getConfigValue } from "../runtimeConfig";
 import type { ObservabilityErrorMeta, ObservabilityInitContext, ObservabilityProvider } from "../types";
+import { clamp } from "@/shared/utils/math";
 
 /** Required config keys — the provider is a no-op unless both are present. */
 const REQUIRED_KEYS = ["DD_APPLICATION_ID", "DD_CLIENT_TOKEN"] as const;
@@ -17,7 +18,7 @@ const parseSampleRate = (value: string | undefined, fallback: number): number =>
   if (!Number.isFinite(parsed)) {
     return fallback;
   }
-  return Math.min(100, Math.max(0, parsed));
+  return clamp(parsed, 0, 100);
 };
 
 /** Drop the query string (and fragment) from a URL, keeping origin + path.
@@ -32,12 +33,10 @@ const stripUrlQuery = (url: string): string => {
   }
 };
 
-/** beforeSend scrubber: redact query strings from URL fields before events
- * leave the browser. Every event carries the active view URL, and ProtoFleet
- * stores fleet context (group/rack/building IDs, subnet filters) in the query
- * string, so the view URL/referrer are scrubbed on all event types, plus the
- * resource URL on resource events. Extension point for further redaction
- * (action names, error metadata) if the UI surfaces more sensitive strings. */
+/** beforeSend scrubber: strip query strings from URL fields as defense-in-depth
+ * data minimization. ProtoFleet keeps operational context (group/rack/building
+ * IDs, subnet filters) there, and RUM does not need it for route-level analysis.
+ * Extend here if the UI later surfaces sensitive strings in other fields. */
 const scrubEvent = (event: RumEvent): boolean => {
   event.view.url = stripUrlQuery(event.view.url);
   if (event.view.referrer) {
