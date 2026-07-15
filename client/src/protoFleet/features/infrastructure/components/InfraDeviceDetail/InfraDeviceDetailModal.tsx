@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import ActionErrorBanner from "@/protoFleet/features/infrastructure/components/ActionErrorBanner";
@@ -73,20 +73,13 @@ const InfraDeviceDetailModal = ({
   const [actionError, setActionError] = useState<string | null>(null);
 
   const isDriverConfigValid = driverValues === null || (driverFormModule?.isValid(driverValues) ?? false);
-  const canSave =
-    [name, site, building].every((value) => value.trim().length > 0) && isDriverConfigValid && !isSaving && !isDeleting;
-
-  const handleDriverValueChange = useCallback((field: string, value: string) => {
-    setDriverValues((current) => (current === null ? current : { ...current, [field]: value }));
-  }, []);
-
-  const handleSave = useCallback(() => {
-    if (!canSave) return;
-    setIsSaving(true);
-    setActionError(null);
-    // Only fields the operator touched in this session go in the patch;
-    // the update path fills the rest from the device's fresh row, so a
-    // stale modal can't resend old values over a concurrent edit.
+  // Only fields the operator touched in this session go in the patch;
+  // the update path fills the rest from the device's fresh row, so a
+  // stale modal can't resend old values over a concurrent edit. An
+  // empty patch never reaches the RPC: Save stays disabled until
+  // something changed, because the server's full-row update bumps
+  // updated_at and logs an Updated activity event even for a no-op.
+  const sessionPatch = useMemo(() => {
     const initial = initialFieldsRef.current;
     const patch: InfraDevicePatch = { id: device.id };
     const trimmedName = name.trim();
@@ -103,7 +96,25 @@ const InfraDeviceDetailModal = ({
     if (driverValuesChanged && driverFormModule) {
       patch.driverConfig = driverFormModule.encode(driverValues);
     }
-    onSave(patch)
+    return patch;
+  }, [building, device.id, driverFormModule, driverValues, enabledOverride, initialDriverValues, name, site]);
+  const hasChanges = Object.keys(sessionPatch).length > 1;
+  const canSave =
+    [name, site, building].every((value) => value.trim().length > 0) &&
+    isDriverConfigValid &&
+    hasChanges &&
+    !isSaving &&
+    !isDeleting;
+
+  const handleDriverValueChange = useCallback((field: string, value: string) => {
+    setDriverValues((current) => (current === null ? current : { ...current, [field]: value }));
+  }, []);
+
+  const handleSave = useCallback(() => {
+    if (!canSave) return;
+    setIsSaving(true);
+    setActionError(null);
+    onSave(sessionPatch)
       .then(() => {
         onDismiss();
       })
@@ -111,19 +122,7 @@ const InfraDeviceDetailModal = ({
         setActionError(getErrorMessage(error) || "Failed to update infrastructure device.");
         setIsSaving(false);
       });
-  }, [
-    building,
-    canSave,
-    device.id,
-    driverFormModule,
-    driverValues,
-    enabledOverride,
-    initialDriverValues,
-    name,
-    onDismiss,
-    onSave,
-    site,
-  ]);
+  }, [canSave, onDismiss, onSave, sessionPatch]);
 
   const handleDelete = useCallback(() => {
     setIsDeleting(true);

@@ -158,10 +158,12 @@ describe("InfraDeviceDetailModal", () => {
     expect(screen.getByLabelText("Connection type")).toHaveValue("mqtt_bridge");
     expect(screen.queryByLabelText("Endpoint")).not.toBeInTheDocument();
 
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust renamed");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(onSave).toHaveBeenCalledTimes(1);
-    expect(onSave.mock.calls[0][0]).toEqual({ id: "101" });
+    expect(onSave.mock.calls[0][0]).toEqual({ id: "101", name: "Roof exhaust renamed" });
   });
 
   test("keeps the modal open and shows the RPC failure inline on save", async () => {
@@ -169,6 +171,8 @@ describe("InfraDeviceDetailModal", () => {
     const onSave = vi.fn().mockRejectedValue(new Error("driver_config field port must be a valid int"));
     const { onDismiss } = renderModal({ onSave });
 
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust renamed");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByTestId("infra-device-action-error")).toHaveTextContent(
@@ -222,16 +226,31 @@ describe("InfraDeviceDetailModal", () => {
     expect(onSave.mock.calls[0][0]).toEqual({ id: "101", enabled: false });
   });
 
-  test("editing a driver field back to its initial value keeps the config out of the patch", async () => {
+  test("disables Save until the operator actually changes something", async () => {
     const user = userEvent.setup();
     const { onSave } = renderModal();
 
+    // Untouched modal: a save here would be a no-op full-row write that
+    // still bumps updated_at and logs an Updated activity event.
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust renamed");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+
+    // Reverting the edit disables Save again — same for driver fields.
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    await user.clear(screen.getByLabelText("Endpoint"));
+    await user.type(screen.getByLabelText("Endpoint"), "10.12.9.9");
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
     await user.clear(screen.getByLabelText("Endpoint"));
     await user.type(screen.getByLabelText("Endpoint"), "10.12.1.21");
-    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
 
-    expect(onSave).toHaveBeenCalledTimes(1);
-    expect(onSave.mock.calls[0][0]).toEqual({ id: "101" });
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   test("blocks dismissal while a save is in flight", async () => {
@@ -244,6 +263,8 @@ describe("InfraDeviceDetailModal", () => {
     );
     const { onDismiss } = renderModal({ onSave });
 
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust renamed");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await user.click(screen.getByRole("button", { name: "Close dialog" }));
