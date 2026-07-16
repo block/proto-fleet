@@ -148,6 +148,9 @@ func (c Config) validate() error {
 	if c.RegisterAddress == nil {
 		return errors.New("register_address is required")
 	}
+	if *c.RegisterAddress == 0 {
+		return errors.New("device uses the legacy zero-based register-address convention and must be recommissioned with a one-based application address")
+	}
 	if *c.RegisterAddress < minRegisterAddress || *c.RegisterAddress > maxRegisterAddress {
 		return fmt.Errorf(
 			"register_address must be between %d and %d",

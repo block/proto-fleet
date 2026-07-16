@@ -113,7 +113,7 @@ func TestValidateConfig_RejectsOutOfRangeFields(t *testing.T) {
 		{"unit_id", 248},
 		{"port", 0},
 		{"port", 78901},
-		{"register_address", 0},
+		{"register_address", -1},
 		{"register_address", 78901},
 		{"write_mode", "toggle"},
 		{"write_mode", ""},
@@ -129,6 +129,23 @@ func TestValidateConfig_RejectsOutOfRangeFields(t *testing.T) {
 					"validation error must not echo the submitted value")
 			}
 		})
+	}
+}
+
+func TestValidateConfig_RejectsLegacyZeroBasedRegisterAddress(t *testing.T) {
+	const want = "device uses the legacy zero-based register-address convention and must be recommissioned with a one-based application address"
+	raw := validConfigJSON(t, func(m map[string]any) {
+		m["endpoint"] = "10.88.77.66"
+		m["port"] = 15020
+		m["unit_id"] = 247
+		m["register_address"] = 0
+	})
+
+	err := Controller{}.ValidateConfig(raw)
+	require.EqualError(t, err, want)
+	for _, topology := range []string{"10.88.77.66", "15020", "247", "0", string(raw)} {
+		assert.NotContains(t, err.Error(), topology,
+			"legacy-address error must not echo submitted topology")
 	}
 }
 
@@ -231,7 +248,7 @@ func TestSetState_WritesFC5AndFC6OnAndOffFrames(t *testing.T) {
 	}
 }
 
-func TestSetState_TranslatesApplicationAddressBoundaries(t *testing.T) {
+func TestSetState_PreservesOneBasedMappingForNonzeroApplicationAddresses(t *testing.T) {
 	tests := []struct {
 		applicationAddress int
 		wantWireAddress    uint16
