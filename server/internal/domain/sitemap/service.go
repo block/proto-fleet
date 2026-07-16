@@ -2270,31 +2270,38 @@ func validateRetainedBuildingNames(rows []map[string]string, buildings []buildin
 	keysByID := map[int64]string{}
 	existingKeys := map[string]bool{}
 	for _, building := range buildings {
-		if building.SiteLabel == "" {
-			continue
+		key := ""
+		if building.SiteLabel != "" {
+			key = building.SiteLabel + "\x00" + building.Name
+			ownersByKey[key] = append(ownersByKey[key], topologyOwner{id: building.ID})
+			existingKeys[key] = true
 		}
-		key := building.SiteLabel + "\x00" + building.Name
-		ownersByKey[key] = append(ownersByKey[key], topologyOwner{id: building.ID})
 		keysByID[building.ID] = key
-		existingKeys[key] = true
 	}
 	nextID := int64(-1)
 	for i, row := range rows {
 		name := buildingSectionName(row)
 		site := row[fieldSite]
-		if name == "" || site == "" {
-			continue
+		key := ""
+		if name != "" && site != "" {
+			key = site + "\x00" + name
 		}
-		key := site + "\x00" + name
 		rowNum := rowNumber(row, i+1)
 		if id, ok := rowID(row); ok {
 			currentKey, exists := keysByID[id]
 			if !exists {
 				continue
 			}
-			removeTopologyOwner(ownersByKey, currentKey, id)
-			ownersByKey[key] = append(ownersByKey[key], topologyOwner{id: id, row: rowNum})
+			if currentKey != "" {
+				removeTopologyOwner(ownersByKey, currentKey, id)
+			}
+			if key != "" {
+				ownersByKey[key] = append(ownersByKey[key], topologyOwner{id: id, row: rowNum})
+			}
 			keysByID[id] = key
+			continue
+		}
+		if key == "" {
 			continue
 		}
 		if existingKeys[key] {
@@ -4055,10 +4062,23 @@ func rowSetFromSiteNames(rows []sitemodels.Site) map[string]bool {
 
 func desiredSiteSet(rows []map[string]string, sites []sitemodels.Site) map[string]bool {
 	out := rowSetFromSiteNames(sites)
+	sitesByID := map[int64]sitemodels.Site{}
+	for _, site := range sites {
+		sitesByID[site.ID] = site
+	}
 	for _, row := range rows {
-		if siteSectionName(row) != "" {
-			out[siteSectionName(row)] = true
+		name := siteSectionName(row)
+		if name == "" {
+			continue
 		}
+		if id, ok := rowID(row); ok {
+			site, exists := sitesByID[id]
+			if !exists {
+				continue
+			}
+			delete(out, site.Name)
+		}
+		out[name] = true
 	}
 	return out
 }

@@ -313,6 +313,53 @@ func TestBuildPlanRejectsIDRenamesCollidingWithRetainedOmittedTopology(t *testin
 	}
 }
 
+func TestBuildPlanRejectsUnassignedBuildingIDMoveCollidingWithRetainedBuilding(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": {
+			{"__row": "3", fieldName: "Site A"},
+		},
+		"BUILDING": {
+			{"__row": "7", fieldID: "10", fieldName: "Building B", fieldSite: "Site A", "aisles": "1", "racks_per_aisle": "1"},
+		},
+		"RACK":  nil,
+		"MINER": nil,
+	}}
+	siteID := int64(1)
+	snap := &snapshot{
+		sites: []sitemodels.Site{{ID: 1, Name: "Site A"}},
+		buildings: []buildingmodels.Building{
+			{ID: 10, Name: "Building A", Aisles: 1, RacksPerAisle: 1},
+			{ID: 11, SiteID: &siteID, SiteLabel: "Site A", Name: "Building B", Aisles: 1, RacksPerAisle: 1},
+		},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if !hasValidationError(plan.errors, "BUILDING", "duplicate retained building name at site") {
+		t.Fatalf("plan errors = %+v, want retained building collision", plan.errors)
+	}
+}
+
+func TestBuildPlanRejectsOldSiteReferenceAfterIDRename(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": {
+			{"__row": "3", fieldID: "1", fieldName: "New Site"},
+		},
+		"BUILDING": {
+			{"__row": "7", fieldName: "Building A", fieldSite: "Old Site", "aisles": "1", "racks_per_aisle": "1"},
+		},
+		"RACK":  nil,
+		"MINER": nil,
+	}}
+	snap := &snapshot{
+		sites: []sitemodels.Site{{ID: 1, Name: "Old Site"}},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if !hasValidationError(plan.errors, "BUILDING", `unknown site "Old Site"`) {
+		t.Fatalf("plan errors = %+v, want old site reference rejected after ID rename", plan.errors)
+	}
+}
+
 func TestBuildPlanRejectsOldBuildingReferenceAfterIDRename(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE": {
