@@ -243,6 +243,30 @@ func TestBuildPlanRejectsDuplicateIdentityIDs(t *testing.T) {
 	}
 }
 
+func TestBuildPlanInfersRackSiteAfterBuildingSiteIDNormalization(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": {
+			{"__row": "3", fieldID: "1", fieldName: "Site A"},
+		},
+		"BUILDING": {
+			{"__row": "7", fieldName: "Building A", fieldSiteID: "1", "aisles": "1", "racks_per_aisle": "2"},
+		},
+		"RACK": {
+			{"__row": "11", fieldLabel: "Rack A", fieldBuilding: "Building A", "rows": "4", "columns": "6", "order_index": "BOTTOM_LEFT"},
+		},
+		"MINER": nil,
+	}}
+	snap := &snapshot{sites: []sitemodels.Site{{ID: 1, Name: "Site A"}}}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.errors) != 0 {
+		t.Fatalf("plan errors = %+v, want site_id-backed rack inference accepted", plan.errors)
+	}
+	if got := parsed.sections["RACK"][0][fieldSite]; got != "Site A" {
+		t.Fatalf("rack site = %q, want inferred Site A", got)
+	}
+}
+
 func TestBuildPlanRejectsOldBuildingReferenceAfterIDRename(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE": {
@@ -778,6 +802,36 @@ func TestMoveBuildingsToSiteLocksTargetSiteBeforeBuildings(t *testing.T) {
 
 	if err := svc.moveBuildingsToSite(ctx, orgID, buildingIDs, &targetSiteID); err != nil {
 		t.Fatalf("moveBuildingsToSite error = %v", err)
+	}
+}
+
+func TestApplySiteRowsRegeneratesSlugWhenRenamingByID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	orgID := int64(42)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	svc := NewService(siteStore, nil, nil, nil, nil, nil, nil)
+	site := sitemodels.Site{ID: 11, Name: "Old Site", Slug: "old-site"}
+	existingByName := map[string]sitemodels.Site{site.Name: site}
+	existingByID := map[int64]sitemodels.Site{site.ID: site}
+	rows := []map[string]string{{fieldID: "11", fieldName: "New Site"}}
+
+	siteStore.EXPECT().ListSiteSlugs(ctx, orgID).Return([]string{"old-site"}, nil)
+	siteStore.EXPECT().UpdateSite(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, params sitemodels.UpdateSiteParams) (*sitemodels.Site, error) {
+		if params.Slug != "new-site" {
+			t.Fatalf("slug = %q, want regenerated new-site", params.Slug)
+		}
+		return &sitemodels.Site{ID: params.ID, Name: params.Name, Slug: params.Slug}, nil
+	})
+
+	if err := svc.applySiteRows(ctx, orgID, rows, existingByName, existingByID); err != nil {
+		t.Fatalf("applySiteRows error = %v", err)
+	}
+	if _, ok := existingByName["Old Site"]; ok {
+		t.Fatal("old site name still present in lookup")
+	}
+	if got := existingByName["New Site"].Slug; got != "new-site" {
+		t.Fatalf("updated lookup slug = %q, want new-site", got)
 	}
 }
 
@@ -1332,6 +1386,34 @@ func TestValidateBuildingRackCapacityCountsSiteLessBuildings(t *testing.T) {
 	errs := validateBuildingRackCapacity(rackRows, buildingRows, &snapshot{})
 	if len(errs) != 1 || errs[0].GetSection() != "RACK" {
 		t.Fatalf("errors = %+v, want site-less building rack capacity error", errs)
+	}
+}
+
+func TestValidateBuildingRackCapacitySeparatesIDQualifiedDuplicateBuildings(t *testing.T) {
+	buildingAID := int64(10)
+	buildingBID := int64(11)
+	rackRows := []map[string]string{
+		{fieldBuildingID: "10", fieldBuilding: "Building A", fieldLabel: "Rack A"},
+		{fieldBuildingID: "11", fieldBuilding: "Building A", fieldLabel: "Rack B"},
+	}
+	buildingRows := []map[string]string{
+		{fieldID: "10", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "1"},
+		{fieldID: "11", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "1"},
+	}
+	snap := &snapshot{
+		buildings: []buildingmodels.Building{
+			{ID: 10, Name: "Building A", Aisles: 1, RacksPerAisle: 1},
+			{ID: 11, Name: "Building A", Aisles: 1, RacksPerAisle: 1},
+		},
+		racks: []rackSnapshot{
+			{ID: 20, Label: "Rack A", BuildingID: &buildingAID, Building: "Building A"},
+			{ID: 21, Label: "Rack B", BuildingID: &buildingBID, Building: "Building A"},
+		},
+	}
+
+	errs := validateBuildingRackCapacity(rackRows, buildingRows, snap)
+	if len(errs) != 0 {
+		t.Fatalf("errors = %+v, want ID-qualified duplicate buildings counted separately", errs)
 	}
 }
 

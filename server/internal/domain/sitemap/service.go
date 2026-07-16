@@ -8,6 +8,7 @@ import (
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -24,6 +25,7 @@ import (
 	buildingmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	fleetmanagementdomain "github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
+	sitesdomain "github.com/block/proto-fleet/server/internal/domain/sites"
 	sitemodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
@@ -1128,6 +1130,7 @@ type importPlan struct {
 
 func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPlan {
 	targetSnap := snapshotForOmissionMode(snap, mode)
+	normalizeIDErrors := normalizeIDReferences(parsed, snap)
 	normalizeInferredPlacement(parsed, targetSnap)
 	plan := importPlan{omissions: &pb.OmissionCounts{}}
 	siteKeys := siteIdentitySet(parsed.sections["SITE"], snap.sites)
@@ -1165,7 +1168,7 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateUniqueIDs(parsed.sections["RACK"], "RACK")...)
 	plan.errors = append(plan.errors, validateImportedNameLengths(parsed)...)
 	plan.errors = append(plan.errors, validateKnownEntityIDs(parsed, snap)...)
-	plan.errors = append(plan.errors, normalizeIDReferences(parsed, snap)...)
+	plan.errors = append(plan.errors, normalizeIDErrors...)
 	removeReferenceErrors := validateRemoveOmittedReferences(parsed, mode)
 	plan.errors = append(plan.errors, removeReferenceErrors...)
 	plan.errors = append(plan.errors, validateKnownMiners(parsed.sections["MINER"], snap)...)
@@ -1499,21 +1502,7 @@ func (s *Service) applySiteRows(ctx context.Context, orgID int64, rows []map[str
 			if site.Name == row[fieldName] {
 				continue
 			}
-			updated, err := s.siteStore.UpdateSite(ctx, sitemodels.UpdateSiteParams{
-				OrgID:           orgID,
-				ID:              site.ID,
-				Name:            row[fieldName],
-				Slug:            site.Slug,
-				LocationCity:    site.LocationCity,
-				LocationState:   site.LocationState,
-				Timezone:        site.Timezone,
-				PowerCapacityMw: site.PowerCapacityMw,
-				NetworkConfig:   site.NetworkConfig,
-				Address:         site.Address,
-				PostalCode:      site.PostalCode,
-				Country:         site.Country,
-				Notes:           site.Notes,
-			})
+			updated, err := s.updateSiteNameFromImport(ctx, orgID, site, row[fieldName])
 			if err != nil {
 				return err
 			}
@@ -1536,6 +1525,52 @@ func (s *Service) applySiteRows(ctx context.Context, orgID int64, rows []map[str
 		existingByID[site.ID] = *site
 	}
 	return nil
+}
+
+func (s *Service) updateSiteNameFromImport(ctx context.Context, orgID int64, site sitemodels.Site, name string) (*sitemodels.Site, error) {
+	usedSlugs, err := s.siteStore.ListSiteSlugs(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	usedSlugs = siteMapUsedSlugsExcluding(usedSlugs, site.Slug)
+
+	for {
+		slug := sitesdomain.GenerateSiteSlug(name, usedSlugs)
+		updated, err := s.siteStore.UpdateSite(ctx, sitemodels.UpdateSiteParams{
+			OrgID:           orgID,
+			ID:              site.ID,
+			Name:            name,
+			Slug:            slug,
+			LocationCity:    site.LocationCity,
+			LocationState:   site.LocationState,
+			Timezone:        site.Timezone,
+			PowerCapacityMw: site.PowerCapacityMw,
+			NetworkConfig:   site.NetworkConfig,
+			Address:         site.Address,
+			PostalCode:      site.PostalCode,
+			Country:         site.Country,
+			Notes:           site.Notes,
+		})
+		if errors.Is(err, sitemodels.ErrSiteSlugCollision) {
+			usedSlugs = append(usedSlugs, slug)
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		return updated, nil
+	}
+}
+
+func siteMapUsedSlugsExcluding(slugs []string, excluded string) []string {
+	out := make([]string, 0, len(slugs))
+	for _, slug := range slugs {
+		if slug == excluded {
+			continue
+		}
+		out = append(out, slug)
+	}
+	return out
 }
 
 func (s *Service) applyBuildingRows(
@@ -2339,7 +2374,10 @@ func normalizeIDReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValida
 	var errs []*pb.ImportValidationError
 	for i, row := range parsed.sections["BUILDING"] {
 		if siteID, ok := idFromCell(row[fieldSiteID]); ok {
-			site := sitesByID[siteID]
+			site, ok := sitesByID[siteID]
+			if !ok {
+				continue
+			}
 			if row[fieldSite] != "" && row[fieldSite] != site.Name {
 				errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", fmt.Sprintf("site_id %q does not match site %q", row[fieldSiteID], row[fieldSite])))
 				continue
@@ -2349,7 +2387,10 @@ func normalizeIDReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValida
 	}
 	for i, row := range parsed.sections["RACK"] {
 		if buildingID, ok := idFromCell(row[fieldBuildingID]); ok {
-			building := buildingsByID[buildingID]
+			building, ok := buildingsByID[buildingID]
+			if !ok {
+				continue
+			}
 			if row[fieldBuilding] != "" && row[fieldBuilding] != building.Name {
 				errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("building_id %q does not match building %q", row[fieldBuildingID], row[fieldBuilding])))
 				continue
@@ -2363,7 +2404,10 @@ func normalizeIDReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValida
 			}
 		}
 		if siteID, ok := idFromCell(row[fieldSiteID]); ok {
-			site := sitesByID[siteID]
+			site, ok := sitesByID[siteID]
+			if !ok {
+				continue
+			}
 			if row[fieldSite] != "" && row[fieldSite] != site.Name {
 				errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("site_id %q does not match site %q", row[fieldSiteID], row[fieldSite])))
 				continue
@@ -2373,7 +2417,10 @@ func normalizeIDReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValida
 	}
 	for i, row := range parsed.sections["MINER"] {
 		if rackID, ok := idFromCell(row[fieldRackID]); ok {
-			rack := racksByID[rackID]
+			rack, ok := racksByID[rackID]
+			if !ok {
+				continue
+			}
 			if row[fieldRack] != "" && row[fieldRack] != rack.Label {
 				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("rack_id %q does not match rack %q", row[fieldRackID], row[fieldRack])))
 				continue
@@ -2382,7 +2429,10 @@ func normalizeIDReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValida
 			continue
 		}
 		if buildingID, ok := idFromCell(row[fieldBuildingID]); ok {
-			building := buildingsByID[buildingID]
+			building, ok := buildingsByID[buildingID]
+			if !ok {
+				continue
+			}
 			if row[fieldBuilding] != "" && row[fieldBuilding] != building.Name {
 				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("building_id %q does not match building %q", row[fieldBuildingID], row[fieldBuilding])))
 				continue
@@ -2396,7 +2446,10 @@ func normalizeIDReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValida
 			}
 		}
 		if siteID, ok := idFromCell(row[fieldSiteID]); ok {
-			site := sitesByID[siteID]
+			site, ok := sitesByID[siteID]
+			if !ok {
+				continue
+			}
 			if row[fieldSite] != "" && row[fieldSite] != site.Name {
 				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("site_id %q does not match site %q", row[fieldSiteID], row[fieldSite])))
 				continue
@@ -2908,11 +2961,11 @@ func validateRackCapacity(minerRows, rackRows []map[string]string, snap *snapsho
 }
 
 func validateBuildingRackCapacity(rackRows, buildingRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
-	buildings := desiredBuildingMap(buildingRows, snap.buildings)
+	buildings := desiredBuildingCapacityMap(buildingRows, snap.buildings)
 	counts := map[string]int32{}
 	for _, rack := range desiredRackMap(rackRows, snap.racks) {
-		if rack.Building != "" {
-			counts[rack.Site+"\x00"+rack.Building]++
+		if key, ok := rackBuildingCapacityKey(rack); ok {
+			counts[key]++
 		}
 	}
 	var errs []*pb.ImportValidationError
@@ -2927,6 +2980,54 @@ func validateBuildingRackCapacity(rackRows, buildingRows []map[string]string, sn
 		}
 	}
 	return errs
+}
+
+func desiredBuildingCapacityMap(rows []map[string]string, buildings []buildingmodels.Building) map[string]buildingmodels.Building {
+	out := map[string]buildingmodels.Building{}
+	buildingsByID := map[int64]buildingmodels.Building{}
+	buildingsByKey := map[string]buildingmodels.Building{}
+	for _, building := range buildings {
+		buildingsByID[building.ID] = building
+		buildingsByKey[building.SiteLabel+"\x00"+building.Name] = building
+		out[buildingCapacityKey(building)] = building
+	}
+	for _, row := range rows {
+		building := buildingsByKey[row[fieldSite]+"\x00"+buildingSectionName(row)]
+		if id, ok := rowID(row); ok {
+			if existing, ok := buildingsByID[id]; ok {
+				building = existing
+			} else {
+				building.ID = id
+			}
+		}
+		building.SiteLabel = row[fieldSite]
+		building.Name = buildingSectionName(row)
+		if aisles, err := parseInt32Value(row["aisles"], "aisles"); err == nil {
+			building.Aisles = aisles
+		}
+		if racksPerAisle, err := parseInt32Value(row["racks_per_aisle"], "racks_per_aisle"); err == nil {
+			building.RacksPerAisle = racksPerAisle
+		}
+		out[buildingCapacityKey(building)] = building
+	}
+	return out
+}
+
+func rackBuildingCapacityKey(rack rackSnapshot) (string, bool) {
+	if rack.BuildingID != nil {
+		return "id:" + strconv.FormatInt(*rack.BuildingID, 10), true
+	}
+	if rack.Building == "" {
+		return "", false
+	}
+	return "name:" + rack.Site + "\x00" + rack.Building, true
+}
+
+func buildingCapacityKey(building buildingmodels.Building) string {
+	if building.ID > 0 {
+		return "id:" + strconv.FormatInt(building.ID, 10)
+	}
+	return "name:" + building.SiteLabel + "\x00" + building.Name
 }
 
 func validateBuildingExistingRacksFitLayout(rackRows, buildingRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
