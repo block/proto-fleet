@@ -555,6 +555,11 @@ func (s *Service) confirmRuleSilenceTarget(ctx context.Context, ruleID, silenceI
 		return nil
 	}
 	if !IsNotFound(err) {
+		// Inconclusive check: roll the write back so the reported failure
+		// matches reality (else a retry duplicates an already-active silence).
+		if derr := s.grafana.DeleteSilence(ctx, silenceID); derr != nil && !IsNotFound(derr) {
+			slog.Warn("alerts.silence_rollback_failed", "rule_id", ruleID, "silence_id", silenceID, "error", derr)
+		}
 		return err
 	}
 	if derr := s.grafana.DeleteSilence(ctx, silenceID); derr != nil && !IsNotFound(derr) {

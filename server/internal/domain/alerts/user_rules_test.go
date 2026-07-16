@@ -321,6 +321,8 @@ type fakeGrafanaRules struct {
 	// Per-uid GETs 404 while the list still serves the rule, simulating a
 	// deletion racing a check-then-write.
 	getRuleGone bool
+	// Per-uid GETs 500, simulating an inconclusive post-write recheck.
+	getRuleErr bool
 }
 
 func (f *fakeGrafanaRules) server(t *testing.T) *Grafana {
@@ -334,6 +336,10 @@ func (f *fakeGrafanaRules) server(t *testing.T) *Grafana {
 		writeJSON(w, f.listed)
 	})
 	mux.HandleFunc("GET /api/v1/provisioning/alert-rules/{uid}", func(w http.ResponseWriter, r *http.Request) {
+		if f.getRuleErr {
+			http.Error(w, `{"message":"boom"}`, http.StatusInternalServerError)
+			return
+		}
 		if !f.getRuleGone {
 			for _, rule := range f.listed {
 				if rule.UID == r.PathValue("uid") {
@@ -528,6 +534,16 @@ func TestSilenceWritesUndoneWhenRuleDeletedConcurrently(t *testing.T) {
 		EndsAt:   time.Unix(2000, 0),
 	})
 	assert.ErrorIs(t, err, ErrNotFound)
+	assert.Equal(t, []string{"sil-new"}, fake.deletedSilences)
+
+	// An inconclusive recheck must also roll the write back, or the reported
+	// failure would leave an active silence behind and retries would duplicate it.
+	fake.getRuleGone = false
+	fake.getRuleErr = true
+	fake.deletedSilences = nil
+	_, err = svc.PauseRule(context.Background(), 7, "pfu-mine", "alice")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrNotFound)
 	assert.Equal(t, []string{"sil-new"}, fake.deletedSilences)
 }
 
