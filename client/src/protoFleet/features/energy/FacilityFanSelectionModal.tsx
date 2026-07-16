@@ -45,6 +45,8 @@ interface DeviceGroup {
   devices: FacilityFanDeviceOption[];
 }
 
+const maxFacilityFanDeviceSelections = 1024;
+
 function formatCount(count: number, singular: string): string {
   return `${count} ${count === 1 ? singular : `${singular}s`}`;
 }
@@ -105,7 +107,9 @@ function FacilityFanSelectionModal({
   onApply,
   onRetry,
 }: FacilityFanSelectionModalProps) {
-  const [selectedDeviceIds, setSelectedDeviceIds] = useState(() => new Set(initialSelectedDeviceIds));
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState(
+    () => new Set(initialSelectedDeviceIds.slice(0, maxFacilityFanDeviceSelections)),
+  );
   const [fanOffDelaySec, setFanOffDelaySec] = useState(initialFanOffDelaySec);
   const [fanRestoreDelaySec, setFanRestoreDelaySec] = useState(initialFanRestoreDelaySec);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
@@ -119,6 +123,7 @@ function FacilityFanSelectionModal({
     () => [...selectedDeviceIds].filter((deviceId) => deviceIds.has(deviceId)),
     [deviceIds, selectedDeviceIds],
   );
+  const hasReachedSelectionLimit = selectedDeviceIdsInScope.length >= maxFacilityFanDeviceSelections;
   const fanOffDelay = parseOptionalUint32Field(fanOffDelaySec, {
     label: "fan-off delay",
     max: curtailmentNumericFieldLimits.fanDelaySec,
@@ -130,6 +135,10 @@ function FacilityFanSelectionModal({
 
   const toggleDevice = (device: FacilityFanDeviceOption) => {
     if (!device.enabled) {
+      return;
+    }
+
+    if (!selectedDeviceIds.has(device.id) && hasReachedSelectionLimit) {
       return;
     }
 
@@ -169,8 +178,12 @@ function FacilityFanSelectionModal({
       fixedFooter={
         !isLoading && !loadError && devices.length > 0 ? (
           <ModalSelectAllFooter
-            label={`${formatCount(selectedDeviceIdsInScope.length, "device")} selected`}
-            onSelectAll={() => setSelectedDeviceIds(new Set([...selectedDeviceIdsInScope, ...selectableDeviceIds]))}
+            label={`${formatCount(selectedDeviceIdsInScope.length, "device")} selected${hasReachedSelectionLimit ? " (maximum)" : ""}`}
+            onSelectAll={() =>
+              setSelectedDeviceIds(
+                new Set([...selectedDeviceIdsInScope, ...selectableDeviceIds].slice(0, maxFacilityFanDeviceSelections)),
+              )
+            }
             onSelectNone={() => setSelectedDeviceIds(new Set())}
           />
         ) : null
@@ -256,37 +269,41 @@ function FacilityFanSelectionModal({
                 <div key={group.siteId} className="grid gap-1">
                   <h4 className="px-3 text-emphasis-300 text-text-primary-70">{group.siteName}</h4>
                   <div className="divide-y divide-border-5">
-                    {group.devices.map((device) => (
-                      <label
-                        key={device.id}
-                        className={
-                          device.enabled
-                            ? "flex cursor-pointer items-center gap-4 rounded-lg px-3 py-3 hover:bg-core-primary-5"
-                            : "flex cursor-not-allowed items-center gap-4 rounded-lg px-3 py-3 opacity-60"
-                        }
-                        data-testid={`facility-fan-device-${device.id}`}
-                      >
-                        <Checkbox
-                          checked={selectedDeviceIds.has(device.id)}
-                          disabled={!device.enabled}
-                          onChange={() => toggleDevice(device)}
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-emphasis-300 text-text-primary">{device.name}</span>
-                          <span className="block truncate text-300 text-text-primary-50">
-                            {[device.buildingName, group.siteName].filter(Boolean).join(" · ")}
-                          </span>
-                        </span>
-                        <span className="flex shrink-0 flex-col items-end gap-1 text-300 text-text-primary-70">
-                          <span>{formatDeviceKind(device)}</span>
-                          {!device.enabled ? (
-                            <span className="rounded-full bg-intent-warning-10 px-2 py-0.5 text-200 text-intent-warning-text">
-                              Disabled
+                    {group.devices.map((device) => {
+                      const isSelectionDisabled =
+                        !device.enabled || (hasReachedSelectionLimit && !selectedDeviceIds.has(device.id));
+                      return (
+                        <label
+                          key={device.id}
+                          className={
+                            !isSelectionDisabled
+                              ? "flex cursor-pointer items-center gap-4 rounded-lg px-3 py-3 hover:bg-core-primary-5"
+                              : "flex cursor-not-allowed items-center gap-4 rounded-lg px-3 py-3 opacity-60"
+                          }
+                          data-testid={`facility-fan-device-${device.id}`}
+                        >
+                          <Checkbox
+                            checked={selectedDeviceIds.has(device.id)}
+                            disabled={isSelectionDisabled}
+                            onChange={() => toggleDevice(device)}
+                          />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-emphasis-300 text-text-primary">{device.name}</span>
+                            <span className="block truncate text-300 text-text-primary-50">
+                              {[device.buildingName, group.siteName].filter(Boolean).join(" · ")}
                             </span>
-                          ) : null}
-                        </span>
-                      </label>
-                    ))}
+                          </span>
+                          <span className="flex shrink-0 flex-col items-end gap-1 text-300 text-text-primary-70">
+                            <span>{formatDeviceKind(device)}</span>
+                            {!device.enabled ? (
+                              <span className="rounded-full bg-intent-warning-10 px-2 py-0.5 text-200 text-intent-warning-text">
+                                Disabled
+                              </span>
+                            ) : null}
+                          </span>
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
               ))}
