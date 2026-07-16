@@ -210,6 +210,7 @@ export class BasePage {
 
     const [targetLabel] = targetLabels;
     const activeEditButton = await this.findVisibleTestIdLocator(`active-filter-${categoryKey}-edit`);
+    const hadActiveFilter = Boolean(activeEditButton);
     if (activeEditButton) {
       const currentSummary = ((await activeEditButton.textContent()) ?? "").replace(/\s+/g, " ").trim();
       if (currentSummary === targetLabel) {
@@ -217,11 +218,15 @@ export class BasePage {
       }
 
       await this.clearActiveFilter(categoryKey);
+      await this.waitForActiveFilterToClear(categoryKey);
     }
 
     const addFilterPopover = await this.openVisibleAddFilter();
     const submenu = await this.openNestedFilterSubmenu(addFilterPopover, categoryKey);
     await this.waitForCheckboxFilterOptions(submenu, categoryKey, targetLabels);
+    if (hadActiveFilter) {
+      await this.waitForCheckboxFilterSelectionState(submenu, categoryKey, []);
+    }
     const targetOption = (await this.readCheckboxFilterOptionStates(submenu)).find(
       ({ label }) => label === targetLabel,
     );
@@ -293,6 +298,27 @@ export class BasePage {
         },
       )
       .toEqual([]);
+  }
+
+  private async waitForCheckboxFilterSelectionState(
+    container: Locator,
+    categoryKey: string,
+    expectedCheckedLabels: string[],
+  ) {
+    const expected = [...expectedCheckedLabels].sort();
+    await expect
+      .poll(
+        async () =>
+          (await this.readCheckboxFilterOptionStates(container))
+            .filter(({ checked }) => checked)
+            .map(({ label }) => label)
+            .sort(),
+        {
+          timeout: DEFAULT_TIMEOUT,
+          message: `Expected the visible "${categoryKey}" filter selection to be ${expected.join(", ") || "empty"}.`,
+        },
+      )
+      .toEqual(expected);
   }
 
   private async readCheckboxFilterOptionStates(container: Locator) {
