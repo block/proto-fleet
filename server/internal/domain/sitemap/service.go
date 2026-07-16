@@ -1408,6 +1408,10 @@ func (s *Service) deleteOmittedSites(ctx context.Context, orgID int64, sites []s
 		if err := s.siteStore.LockBuildingsBySiteForWrite(ctx, orgID, site.ID); err != nil {
 			return err
 		}
+		infrastructureDeviceIDs, err := s.siteStore.LockInfrastructureDevicesBySiteForWrite(ctx, orgID, site.ID)
+		if err != nil {
+			return err
+		}
 		if _, err := s.siteStore.UnassignRacksFromBuildingsBySite(ctx, orgID, site.ID); err != nil {
 			return err
 		}
@@ -1425,6 +1429,15 @@ func (s *Service) deleteOmittedSites(ctx context.Context, orgID int64, sites []s
 		}
 		if _, err := s.siteStore.DeleteCurtailmentResponseProfilesBySite(ctx, orgID, site.ID); err != nil {
 			return err
+		}
+		referencingProfileCount, err := s.siteStore.CountResponseProfilesByInfrastructureDevices(ctx, orgID, infrastructureDeviceIDs)
+		if err != nil {
+			return err
+		}
+		if referencingProfileCount > 0 {
+			return fleeterror.NewFailedPreconditionError(
+				"infrastructure devices at this site are referenced by curtailment response profiles; update those profiles first",
+			)
 		}
 		if _, err := s.siteStore.SoftDeleteInfrastructureDevicesBySite(ctx, orgID, site.ID); err != nil {
 			return err
@@ -1791,6 +1804,11 @@ func (s *Service) lockPlacementParents(ctx context.Context, orgID int64, siteID,
 }
 
 func (s *Service) moveBuildingsToSite(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) error {
+	if targetSiteID != nil {
+		if err := s.siteStore.LockSiteForWrite(ctx, orgID, *targetSiteID); err != nil {
+			return err
+		}
+	}
 	for _, buildingID := range buildingIDs {
 		if err := s.siteStore.LockBuildingForWrite(ctx, orgID, buildingID); err != nil {
 			return err

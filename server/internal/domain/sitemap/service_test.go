@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	buildingmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	sitemodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -725,6 +726,58 @@ func TestApplyMinerRowsClearsDirectPlacementWhenAssigningUnassignedRack(t *testi
 
 	if err := svc.applyMinerRows(ctx, orgID, rows, nil, nil, nil, nil, nil, map[string]rackSnapshot{"Rack A": rack}, existing); err != nil {
 		t.Fatalf("applyMinerRows error = %v", err)
+	}
+}
+
+func TestDeleteOmittedSitesRejectsInfrastructureDevicesReferencedByProfiles(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	orgID := int64(42)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	svc := NewService(siteStore, buildingStore, nil, nil, nil, nil, nil)
+
+	gomock.InOrder(
+		siteStore.EXPECT().LockSiteForWrite(ctx, orgID, int64(11)).Return(nil),
+		siteStore.EXPECT().LockBuildingsBySiteForWrite(ctx, orgID, int64(11)).Return(nil),
+		siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(ctx, orgID, int64(11)).Return([]int64{70}, nil),
+		siteStore.EXPECT().UnassignRacksFromBuildingsBySite(ctx, orgID, int64(11)).Return(int64(0), nil),
+		buildingStore.EXPECT().ClearDeviceBuildingsBySite(ctx, orgID, int64(11)).Return(int64(0), nil),
+		siteStore.EXPECT().SoftDeleteBuildingsBySite(ctx, orgID, int64(11)).Return(int64(0), nil),
+		siteStore.EXPECT().UnassignRacksFromSite(ctx, orgID, int64(11)).Return(int64(0), nil),
+		siteStore.EXPECT().UnassignDevicesFromSite(ctx, orgID, int64(11)).Return(int64(0), nil),
+		siteStore.EXPECT().DeleteCurtailmentResponseProfilesBySite(ctx, orgID, int64(11)).Return(int64(0), nil),
+		siteStore.EXPECT().CountResponseProfilesByInfrastructureDevices(ctx, orgID, []int64{70}).Return(int64(1), nil),
+	)
+
+	err := svc.deleteOmittedSites(ctx, orgID, []sitemodels.Site{{ID: 11}})
+	if !fleeterror.IsFailedPreconditionError(err) {
+		t.Fatalf("deleteOmittedSites error = %v, want failed precondition", err)
+	}
+}
+
+func TestMoveBuildingsToSiteLocksTargetSiteBeforeBuildings(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	orgID := int64(42)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	svc := NewService(siteStore, buildingStore, nil, nil, nil, nil, nil)
+	targetSiteID := int64(99)
+	buildingIDs := []int64{11, 12}
+
+	gomock.InOrder(
+		siteStore.EXPECT().LockSiteForWrite(ctx, orgID, targetSiteID).Return(nil),
+		siteStore.EXPECT().LockBuildingForWrite(ctx, orgID, int64(11)).Return(nil),
+		siteStore.EXPECT().LockBuildingForWrite(ctx, orgID, int64(12)).Return(nil),
+		siteStore.EXPECT().AssignBuildingsToSiteBulk(ctx, orgID, buildingIDs, &targetSiteID).Return(int64(2), nil),
+		siteStore.EXPECT().ReassignRacksUnderBuildingsBulk(ctx, orgID, buildingIDs, &targetSiteID).Return(int64(0), nil),
+		siteStore.EXPECT().ReassignDevicesUnderBuildingsBulk(ctx, orgID, buildingIDs, &targetSiteID).Return(int64(0), nil),
+		buildingStore.EXPECT().CascadeDirectDeviceSitesByBuildings(ctx, orgID, buildingIDs, &targetSiteID).Return(int64(0), nil),
+	)
+
+	if err := svc.moveBuildingsToSite(ctx, orgID, buildingIDs, &targetSiteID); err != nil {
+		t.Fatalf("moveBuildingsToSite error = %v", err)
 	}
 }
 
