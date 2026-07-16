@@ -534,12 +534,33 @@ func (s *Service) PauseRule(ctx context.Context, orgID int64, id, actor string) 
 		return rule, nil
 	}
 	silence := buildPauseSilence(orgID, id, actor, s.now())
-	if _, err := s.grafana.PutSilence(ctx, silence); err != nil {
+	silenceID, err := s.grafana.PutSilence(ctx, silence)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.confirmRuleSilenceTarget(ctx, id, silenceID); err != nil {
 		return nil, err
 	}
 	out := *rule
 	out.Enabled = false
 	return &out, nil
+}
+
+// confirmRuleSilenceTarget undoes a silence written concurrently with its
+// target rule's deletion: the delete's sweep cannot see a silence written
+// after it ran, so whichever side runs last performs the cleanup.
+func (s *Service) confirmRuleSilenceTarget(ctx context.Context, ruleID, silenceID string) error {
+	_, err := s.grafana.GetAlertRule(ctx, ruleID)
+	if err == nil {
+		return nil
+	}
+	if !IsNotFound(err) {
+		return err
+	}
+	if derr := s.grafana.DeleteSilence(ctx, silenceID); derr != nil && !IsNotFound(derr) {
+		return derr
+	}
+	return ErrNotFound
 }
 
 // Clears any active pause silence; a YAML-provisioned isPaused still keeps the rule paused.
@@ -685,6 +706,11 @@ func (s *Service) CreateMaintenanceWindow(ctx context.Context, orgID int64, sil 
 	if err != nil {
 		return nil, err
 	}
+	if sil.Scope.Kind == MaintenanceWindowScopeRule && sil.Scope.RuleID != "" {
+		if err := s.confirmRuleSilenceTarget(ctx, sil.Scope.RuleID, id); err != nil {
+			return nil, err
+		}
+	}
 	sil.ID = id
 	sil.Active = maintenanceWindowActive(sil, s.now())
 	return &sil, nil
@@ -732,6 +758,11 @@ func (s *Service) UpdateMaintenanceWindow(ctx context.Context, orgID int64, sil 
 	id, err := s.grafana.PutSilence(ctx, gs)
 	if err != nil {
 		return nil, err
+	}
+	if sil.Scope.Kind == MaintenanceWindowScopeRule && sil.Scope.RuleID != "" {
+		if err := s.confirmRuleSilenceTarget(ctx, sil.Scope.RuleID, id); err != nil {
+			return nil, err
+		}
 	}
 	sil.ID = id
 	sil.Active = maintenanceWindowActive(sil, s.now())

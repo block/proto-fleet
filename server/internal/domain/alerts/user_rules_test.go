@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -317,6 +318,9 @@ type fakeGrafanaRules struct {
 	putGroup        *GrafanaRuleGroup
 	deletedSilences []string
 	silences        []GrafanaSilence
+	// Per-uid GETs 404 while the list still serves the rule, simulating a
+	// deletion racing a check-then-write.
+	getRuleGone bool
 }
 
 func (f *fakeGrafanaRules) server(t *testing.T) *Grafana {
@@ -330,10 +334,12 @@ func (f *fakeGrafanaRules) server(t *testing.T) *Grafana {
 		writeJSON(w, f.listed)
 	})
 	mux.HandleFunc("GET /api/v1/provisioning/alert-rules/{uid}", func(w http.ResponseWriter, r *http.Request) {
-		for _, rule := range f.listed {
-			if rule.UID == r.PathValue("uid") {
-				writeJSON(w, rule)
-				return
+		if !f.getRuleGone {
+			for _, rule := range f.listed {
+				if rule.UID == r.PathValue("uid") {
+					writeJSON(w, rule)
+					return
+				}
 			}
 		}
 		http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
@@ -375,6 +381,9 @@ func (f *fakeGrafanaRules) server(t *testing.T) *Grafana {
 	})
 	mux.HandleFunc("GET /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, f.silences)
+	})
+	mux.HandleFunc("POST /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"silenceID":"sil-new"}`))
 	})
 	mux.HandleFunc("DELETE /api/alertmanager/grafana/api/v2/silence/{id}", func(w http.ResponseWriter, r *http.Request) {
 		f.deletedSilences = append(f.deletedSilences, r.PathValue("id"))
@@ -497,6 +506,29 @@ func TestUpdateRuleKeepsIdentity(t *testing.T) {
 	require.NotNil(t, fake.putGroup)
 	assert.Equal(t, userRuleGroupInterval, fake.putGroup.Interval)
 	assert.Equal(t, existing.RuleGroup, fake.putGroup.Title)
+}
+
+// A silence written just after its target rule's deletion (the check passed
+// against a stale list) must be undone by the post-write recheck, since the
+// delete's sweep can't see it.
+func TestSilenceWritesUndoneWhenRuleDeletedConcurrently(t *testing.T) {
+	existing := userRuleFixture("pfu-mine", "7")
+	existing.Labels[ruleLabelRuleGroup] = "proto-fleet-user-7"
+	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{existing}, getRuleGone: true}
+	svc := NewService(fake.server(t), nil, nil, nil, DestinationPolicy{})
+
+	_, err := svc.PauseRule(context.Background(), 7, "pfu-mine", "alice")
+	assert.ErrorIs(t, err, ErrNotFound)
+	assert.Equal(t, []string{"sil-new"}, fake.deletedSilences)
+
+	fake.deletedSilences = nil
+	_, err = svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		Scope:    MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "pfu-mine"},
+		StartsAt: time.Unix(1000, 0),
+		EndsAt:   time.Unix(2000, 0),
+	})
+	assert.ErrorIs(t, err, ErrNotFound)
+	assert.Equal(t, []string{"sil-new"}, fake.deletedSilences)
 }
 
 // A delete retry after a half-failed earlier delete (rule gone, silences left)

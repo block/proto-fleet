@@ -230,6 +230,17 @@ func fakeGrafanaSilences(t *testing.T, listed []GrafanaSilence, postBody *[]byte
 			{UID: "rule-9", Title: "Rule 9", Labels: map[string]string{ruleLabelScope: ruleScopeShared}},
 		}))
 	})
+	// The post-write target recheck resolves the rule by uid.
+	mux.HandleFunc("GET /api/v1/provisioning/alert-rules/{uid}", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("uid") != "rule-9" {
+			http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(GrafanaAlertRule{
+			UID: "rule-9", Title: "Rule 9", Labels: map[string]string{ruleLabelScope: ruleScopeShared},
+		}))
+	})
 	mux.HandleFunc("GET /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		require.NoError(t, json.NewEncoder(w).Encode(listed))
