@@ -676,8 +676,7 @@ func displayHeaders(section string, headers []string) []string {
 }
 
 func displayHeader(section, header string) string {
-	switch section {
-	case "MINER":
+	if section == "MINER" {
 		switch header {
 		case "device_identifier", "serial_number", "ip_address", "mac_address":
 			return header + " (read only)"
