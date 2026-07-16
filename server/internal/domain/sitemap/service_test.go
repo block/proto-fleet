@@ -448,7 +448,7 @@ func TestValidateSlotConflictsWithExistingAllowsSlotSwaps(t *testing.T) {
 		{DeviceIdentifier: "miner-2", Rack: "Rack A", RackRow: "0", RackCol: "1"},
 	}}
 
-	if errs := validateSlotConflictsWithExisting(rows, snap); len(errs) != 0 {
+	if errs := validateSlotConflictsWithExisting(rows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE); len(errs) != 0 {
 		t.Fatalf("slot swap should not conflict, got %+v", errs)
 	}
 }
@@ -462,12 +462,27 @@ func TestValidateSlotConflictsWithExistingBlocksUnchangedOccupant(t *testing.T) 
 		{DeviceIdentifier: "miner-2", Rack: "Rack A", RackRow: "0", RackCol: "1"},
 	}}
 
-	errs := validateSlotConflictsWithExisting(rows, snap)
+	errs := validateSlotConflictsWithExisting(rows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
 	if len(errs) != 1 {
 		t.Fatalf("errors = %+v, want one conflict", errs)
 	}
 	if errs[0].GetRow() != 21 || errs[0].GetSection() != "MINER" || errs[0].GetMessage() != "rack slot already occupied by miner miner-2" {
 		t.Fatalf("unexpected error: %+v", errs[0])
+	}
+}
+
+func TestValidateSlotConflictsWithExistingAllowsRemoveOmittedVacatedSlot(t *testing.T) {
+	rows := []map[string]string{
+		{"__row": "21", "device_identifier": "miner-1", "rack": "Rack A", "rack_row": "0", "rack_col": "1"},
+	}
+	snap := &snapshot{miners: []minerSnapshot{
+		{DeviceIdentifier: "miner-1", Rack: "Rack A", RackRow: "0", RackCol: "0"},
+		{DeviceIdentifier: "miner-2", Rack: "Rack A", RackRow: "0", RackCol: "1"},
+	}}
+
+	errs := validateSlotConflictsWithExisting(rows, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	if len(errs) != 0 {
+		t.Fatalf("errors = %+v, want omitted miner slot to be reusable", errs)
 	}
 }
 
@@ -480,7 +495,7 @@ func TestValidateSlotConflictsWithExistingBlocksHiddenOccupant(t *testing.T) {
 		hiddenRackMembers: []minerSnapshot{{DeviceIdentifier: "hidden-1", Rack: "Rack A", RackRow: "0", RackCol: "1"}},
 	}
 
-	errs := validateSlotConflictsWithExisting(rows, snap)
+	errs := validateSlotConflictsWithExisting(rows, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
 	if len(errs) != 1 {
 		t.Fatalf("errors = %+v, want one conflict", errs)
 	}
@@ -510,7 +525,7 @@ func TestValidateSlotConflictsWithExistingNormalizesCoordinates(t *testing.T) {
 		{DeviceIdentifier: "miner-2", Rack: "Rack A", RackRow: "1", RackCol: "1"},
 	}}
 
-	errs := validateSlotConflictsWithExisting(rows, snap)
+	errs := validateSlotConflictsWithExisting(rows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
 	if len(errs) != 1 || errs[0].GetRow() != 21 || errs[0].GetMessage() != "rack slot already occupied by miner miner-2" {
 		t.Fatalf("errors = %+v, want normalized existing slot conflict", errs)
 	}

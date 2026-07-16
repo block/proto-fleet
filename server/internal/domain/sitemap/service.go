@@ -1020,7 +1020,7 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateBuildingRackCapacity(parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap)...)
 	plan.errors = append(plan.errors, validateBuildingExistingRacksFitLayout(parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap, mode)...)
 	plan.errors = append(plan.errors, validateSlotCollisions(parsed.sections["MINER"])...)
-	plan.errors = append(plan.errors, validateSlotConflictsWithExisting(parsed.sections["MINER"], snap)...)
+	plan.errors = append(plan.errors, validateSlotConflictsWithExisting(parsed.sections["MINER"], snap, mode)...)
 	if len(plan.errors) > 0 || (mode == pb.OmissionMode_OMISSION_MODE_UNSPECIFIED && hasOmissions(plan.omissions)) {
 		return plan
 	}
@@ -2370,9 +2370,10 @@ func validateSlotCollisions(rows []map[string]string) []*pb.ImportValidationErro
 	return errs
 }
 
-func validateSlotConflictsWithExisting(rows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
+func validateSlotConflictsWithExisting(rows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
 	desiredRows := map[string]map[string]string{}
 	movingMiners := map[string]bool{}
+	presentMiners := rowSet(rows, "device_identifier")
 	for _, row := range rows {
 		desiredRows[row["device_identifier"]] = row
 	}
@@ -2389,7 +2390,17 @@ func validateSlotConflictsWithExisting(rows []map[string]string, snap *snapshot)
 	}
 
 	currentOccupants := map[string]minerSnapshot{}
-	for _, miner := range append(append([]minerSnapshot{}, snap.miners...), snap.hiddenRackMembers...) {
+	for _, miner := range snap.miners {
+		if !presentMiners[miner.DeviceIdentifier] && mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
+			continue
+		}
+		key, ok := normalizedRackSlotKey(miner.Rack, miner.RackRow, miner.RackCol)
+		if !ok {
+			continue
+		}
+		currentOccupants[key] = miner
+	}
+	for _, miner := range snap.hiddenRackMembers {
 		key, ok := normalizedRackSlotKey(miner.Rack, miner.RackRow, miner.RackCol)
 		if !ok {
 			continue
