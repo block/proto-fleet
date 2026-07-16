@@ -545,6 +545,29 @@ func TestSilenceWritesUndoneWhenRuleDeletedConcurrently(t *testing.T) {
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, ErrNotFound)
 	assert.Equal(t, []string{"sil-new"}, fake.deletedSilences)
+
+	// An UPDATE already replaced the previous window; an inconclusive recheck
+	// must not delete it, or a failed edit would lift planned suppression.
+	fake.silences = []GrafanaSilence{{
+		ID:       "sil-old",
+		Comment:  maintenanceWindowCommentMarker + " planned work",
+		StartsAt: time.Unix(1000, 0),
+		EndsAt:   time.Unix(2000, 0),
+		Matchers: []GrafanaSilenceMatcher{
+			{Name: silenceLabelOrganizationID, Value: "7", IsEqual: true},
+			{Name: alertRuleUIDMatcher, Value: "pfu-mine", IsEqual: true},
+		},
+	}}
+	fake.deletedSilences = nil
+	_, err = svc.UpdateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
+		ID:       "sil-old",
+		Scope:    MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "pfu-mine"},
+		StartsAt: time.Unix(1000, 0),
+		EndsAt:   time.Unix(3000, 0),
+	})
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrNotFound)
+	assert.Empty(t, fake.deletedSilences)
 }
 
 // A delete retry after a half-failed earlier delete (rule gone, silences left)

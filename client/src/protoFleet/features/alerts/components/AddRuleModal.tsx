@@ -396,6 +396,15 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
           unitOptions={DURATION_UNIT_OPTIONS}
           unit={durationUnit}
           onUnitChange={(value) => {
+            // Like the threshold units, this is a change of scale: convert the
+            // amount so "1 hour" doesn't silently become "1 minute".
+            if (value !== durationUnit) {
+              const parsed = strictNumber(durationAmount);
+              if (Number.isFinite(parsed)) {
+                const seconds = parsed * UNIT_TO_SECONDS[durationUnit];
+                setDurationAmount(String(Number((seconds / UNIT_TO_SECONDS[value]).toFixed(4))));
+              }
+            }
             setDurationUnit(value);
             clearError();
           }}

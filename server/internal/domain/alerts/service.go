@@ -538,7 +538,7 @@ func (s *Service) PauseRule(ctx context.Context, orgID int64, id, actor string) 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.confirmRuleSilenceTarget(ctx, id, silenceID); err != nil {
+	if err := s.confirmRuleSilenceTarget(ctx, id, silenceID, true); err != nil {
 		return nil, err
 	}
 	out := *rule
@@ -548,20 +548,25 @@ func (s *Service) PauseRule(ctx context.Context, orgID int64, id, actor string) 
 
 // confirmRuleSilenceTarget undoes a silence written concurrently with its
 // target rule's deletion: the delete's sweep cannot see a silence written
-// after it ran, so whichever side runs last performs the cleanup.
-func (s *Service) confirmRuleSilenceTarget(ctx context.Context, ruleID, silenceID string) error {
+// after it ran, so whichever side runs last performs the cleanup. rollbackNew
+// deletes a NEWLY created silence when the check is inconclusive, so a retry
+// can't duplicate it; updates pass false — their edit replaced the previous
+// silence already, and deleting it would lift planned suppression entirely
+// (an update retry converges without duplicating).
+func (s *Service) confirmRuleSilenceTarget(ctx context.Context, ruleID, silenceID string, rollbackNew bool) error {
 	_, err := s.grafana.GetAlertRule(ctx, ruleID)
 	if err == nil {
 		return nil
 	}
 	if !IsNotFound(err) {
-		// Inconclusive check: roll the write back so the reported failure
-		// matches reality (else a retry duplicates an already-active silence).
-		if derr := s.grafana.DeleteSilence(ctx, silenceID); derr != nil && !IsNotFound(derr) {
-			slog.Warn("alerts.silence_rollback_failed", "rule_id", ruleID, "silence_id", silenceID, "error", derr)
+		if rollbackNew {
+			if derr := s.grafana.DeleteSilence(ctx, silenceID); derr != nil && !IsNotFound(derr) {
+				slog.Warn("alerts.silence_rollback_failed", "rule_id", ruleID, "silence_id", silenceID, "error", derr)
+			}
 		}
 		return err
 	}
+	// Rule gone: the silence must die regardless of create-vs-update.
 	if derr := s.grafana.DeleteSilence(ctx, silenceID); derr != nil && !IsNotFound(derr) {
 		return derr
 	}
@@ -712,7 +717,7 @@ func (s *Service) CreateMaintenanceWindow(ctx context.Context, orgID int64, sil 
 		return nil, err
 	}
 	if sil.Scope.Kind == MaintenanceWindowScopeRule && sil.Scope.RuleID != "" {
-		if err := s.confirmRuleSilenceTarget(ctx, sil.Scope.RuleID, id); err != nil {
+		if err := s.confirmRuleSilenceTarget(ctx, sil.Scope.RuleID, id, true); err != nil {
 			return nil, err
 		}
 	}
@@ -765,7 +770,9 @@ func (s *Service) UpdateMaintenanceWindow(ctx context.Context, orgID int64, sil 
 		return nil, err
 	}
 	if sil.Scope.Kind == MaintenanceWindowScopeRule && sil.Scope.RuleID != "" {
-		if err := s.confirmRuleSilenceTarget(ctx, sil.Scope.RuleID, id); err != nil {
+		// rollbackNew=false: this PUT replaced the previous silence, so deleting
+		// it on an inconclusive check would lift planned suppression entirely.
+		if err := s.confirmRuleSilenceTarget(ctx, sil.Scope.RuleID, id, false); err != nil {
 			return nil, err
 		}
 	}
