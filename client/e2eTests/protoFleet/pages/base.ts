@@ -610,6 +610,38 @@ export class BasePage {
     await expect(secondaryNav).toBeVisible();
   }
 
+  private async clickSettingsSubnavLink(path: string) {
+    const link = this.page.getByTestId("secondary-nav").locator(`a[href="${path}"]`);
+    if (!this.isMobile) {
+      await link.click();
+      return;
+    }
+
+    let lastClickError: unknown;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await link.waitFor({ state: "visible", timeout: OVERLAY_DISMISS_TIMEOUT }).catch(() => undefined);
+      await link
+        .evaluate((element) => {
+          (element as HTMLElement).click();
+        })
+        .then(() => {
+          lastClickError = undefined;
+        })
+        .catch((error: unknown) => {
+          lastClickError = error;
+        });
+
+      if (lastClickError === undefined) {
+        return;
+      }
+    }
+
+    if (lastClickError instanceof Error) {
+      throw lastClickError;
+    }
+    await link.click();
+  }
+
   async navigateToHomePage() {
     await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/dashboard"]').click();
@@ -685,7 +717,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/security"]').click();
+    await this.clickSettingsSubnavLink("/settings/security");
     await expect(this.page).toHaveURL(/.*\/settings\/security/);
   }
 
@@ -693,7 +725,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/network"]').click();
+    await this.clickSettingsSubnavLink("/settings/network");
     await expect(this.page).toHaveURL(/.*\/settings\/network/);
   }
 
@@ -701,7 +733,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/preferences"]').click();
+    await this.clickSettingsSubnavLink("/settings/preferences");
     await expect(this.page).toHaveURL(/.*\/settings\/preferences/);
   }
 
@@ -709,7 +741,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/team"]').click();
+    await this.clickSettingsSubnavLink("/settings/team");
     await expect(this.page).toHaveURL(/.*\/settings\/team/);
   }
 
@@ -717,7 +749,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/mining-pools"]').click();
+    await this.clickSettingsSubnavLink("/settings/mining-pools");
     await expect(this.page).toHaveURL(/.*\/settings\/mining-pools/);
   }
 
@@ -725,7 +757,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/firmware"]').click();
+    await this.clickSettingsSubnavLink("/settings/firmware");
     await expect(this.page).toHaveURL(/.*\/settings\/firmware/);
   }
 
@@ -741,7 +773,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/integrations"]').click();
+    await this.clickSettingsSubnavLink("/settings/integrations");
     await expect(this.page).toHaveURL(/.*\/settings\/integrations/);
   }
 
@@ -749,7 +781,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/schedules"]').click();
+    await this.clickSettingsSubnavLink("/settings/schedules");
     await expect(this.page).toHaveURL(/.*\/settings\/schedules/);
   }
 
@@ -757,7 +789,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/curtailment"]').click();
+    await this.clickSettingsSubnavLink("/settings/curtailment");
     await expect(this.page).toHaveURL(/.*\/settings\/curtailment/);
   }
 
@@ -765,7 +797,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/alerts"]').click();
+    await this.clickSettingsSubnavLink("/settings/alerts");
     await expect(this.page).toHaveURL(/.*\/settings\/alerts/);
   }
 
@@ -773,7 +805,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/server-logs"]').click();
+    await this.clickSettingsSubnavLink("/settings/server-logs");
     await expect(this.page).toHaveURL(/.*\/settings\/server-logs/);
   }
 
