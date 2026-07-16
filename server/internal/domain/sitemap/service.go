@@ -1169,6 +1169,7 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateImportedNameLengths(parsed)...)
 	plan.errors = append(plan.errors, validateKnownEntityIDs(parsed, snap)...)
 	plan.errors = append(plan.errors, normalizeIDErrors...)
+	plan.errors = append(plan.errors, validateRetainedTopologyUniqueness(parsed, snap, mode)...)
 	removeReferenceErrors := validateRemoveOmittedReferences(parsed, mode)
 	plan.errors = append(plan.errors, removeReferenceErrors...)
 	plan.errors = append(plan.errors, validateKnownMiners(parsed.sections["MINER"], snap)...)
@@ -2213,6 +2214,164 @@ func validateUniqueIDs(rows []map[string]string, section string) []*pb.ImportVal
 	return errs
 }
 
+type topologyOwner struct {
+	id  int64
+	row int
+}
+
+func validateRetainedTopologyUniqueness(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
+	if mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
+		return nil
+	}
+	var errs []*pb.ImportValidationError
+	errs = append(errs, validateRetainedSiteNames(parsed.sections["SITE"], snap.sites)...)
+	errs = append(errs, validateRetainedBuildingNames(parsed.sections["BUILDING"], snap.buildings)...)
+	errs = append(errs, validateRetainedRackLabels(parsed.sections["RACK"], snap.racks)...)
+	return errs
+}
+
+func validateRetainedSiteNames(rows []map[string]string, sites []sitemodels.Site) []*pb.ImportValidationError {
+	ownersByName := map[string][]topologyOwner{}
+	namesByID := map[int64]string{}
+	existingNames := map[string]bool{}
+	for _, site := range sites {
+		ownersByName[site.Name] = append(ownersByName[site.Name], topologyOwner{id: site.ID})
+		namesByID[site.ID] = site.Name
+		existingNames[site.Name] = true
+	}
+	nextID := int64(-1)
+	for i, row := range rows {
+		name := siteSectionName(row)
+		if name == "" {
+			continue
+		}
+		rowNum := rowNumber(row, i+1)
+		if id, ok := rowID(row); ok {
+			currentName, exists := namesByID[id]
+			if !exists {
+				continue
+			}
+			removeTopologyOwner(ownersByName, currentName, id)
+			ownersByName[name] = append(ownersByName[name], topologyOwner{id: id, row: rowNum})
+			namesByID[id] = name
+			continue
+		}
+		if existingNames[name] {
+			continue
+		}
+		ownersByName[name] = append(ownersByName[name], topologyOwner{id: nextID, row: rowNum})
+		nextID--
+	}
+	return duplicateTopologyErrors(ownersByName, "SITE", "site name")
+}
+
+func validateRetainedBuildingNames(rows []map[string]string, buildings []buildingmodels.Building) []*pb.ImportValidationError {
+	ownersByKey := map[string][]topologyOwner{}
+	keysByID := map[int64]string{}
+	existingKeys := map[string]bool{}
+	for _, building := range buildings {
+		if building.SiteLabel == "" {
+			continue
+		}
+		key := building.SiteLabel + "\x00" + building.Name
+		ownersByKey[key] = append(ownersByKey[key], topologyOwner{id: building.ID})
+		keysByID[building.ID] = key
+		existingKeys[key] = true
+	}
+	nextID := int64(-1)
+	for i, row := range rows {
+		name := buildingSectionName(row)
+		site := row[fieldSite]
+		if name == "" || site == "" {
+			continue
+		}
+		key := site + "\x00" + name
+		rowNum := rowNumber(row, i+1)
+		if id, ok := rowID(row); ok {
+			currentKey, exists := keysByID[id]
+			if !exists {
+				continue
+			}
+			removeTopologyOwner(ownersByKey, currentKey, id)
+			ownersByKey[key] = append(ownersByKey[key], topologyOwner{id: id, row: rowNum})
+			keysByID[id] = key
+			continue
+		}
+		if existingKeys[key] {
+			continue
+		}
+		ownersByKey[key] = append(ownersByKey[key], topologyOwner{id: nextID, row: rowNum})
+		nextID--
+	}
+	return duplicateTopologyErrors(ownersByKey, "BUILDING", "building name at site")
+}
+
+func validateRetainedRackLabels(rows []map[string]string, racks []rackSnapshot) []*pb.ImportValidationError {
+	ownersByLabel := map[string][]topologyOwner{}
+	labelsByID := map[int64]string{}
+	existingLabels := map[string]bool{}
+	for _, rack := range racks {
+		ownersByLabel[rack.Label] = append(ownersByLabel[rack.Label], topologyOwner{id: rack.ID})
+		labelsByID[rack.ID] = rack.Label
+		existingLabels[rack.Label] = true
+	}
+	nextID := int64(-1)
+	for i, row := range rows {
+		label := rackSectionLabel(row)
+		if label == "" {
+			continue
+		}
+		rowNum := rowNumber(row, i+1)
+		if id, ok := rowID(row); ok {
+			currentLabel, exists := labelsByID[id]
+			if !exists {
+				continue
+			}
+			removeTopologyOwner(ownersByLabel, currentLabel, id)
+			ownersByLabel[label] = append(ownersByLabel[label], topologyOwner{id: id, row: rowNum})
+			labelsByID[id] = label
+			continue
+		}
+		if existingLabels[label] {
+			continue
+		}
+		ownersByLabel[label] = append(ownersByLabel[label], topologyOwner{id: nextID, row: rowNum})
+		nextID--
+	}
+	return duplicateTopologyErrors(ownersByLabel, "RACK", "rack label")
+}
+
+func removeTopologyOwner(ownersByKey map[string][]topologyOwner, key string, id int64) {
+	owners := ownersByKey[key]
+	for i, owner := range owners {
+		if owner.id == id {
+			ownersByKey[key] = append(owners[:i], owners[i+1:]...)
+			if len(ownersByKey[key]) == 0 {
+				delete(ownersByKey, key)
+			}
+			return
+		}
+	}
+}
+
+func duplicateTopologyErrors(ownersByKey map[string][]topologyOwner, section, description string) []*pb.ImportValidationError {
+	var errs []*pb.ImportValidationError
+	for _, owners := range ownersByKey {
+		if len(owners) < 2 {
+			continue
+		}
+		row := 0
+		for _, owner := range owners {
+			if owner.row != 0 {
+				row = owner.row
+				break
+			}
+		}
+		errs = append(errs, csvErr(row, section, "duplicate retained "+description))
+	}
+	return errs
+}
+
 func validateRemoveOmittedReferences(parsed *parsedCSV, mode pb.OmissionMode) []*pb.ImportValidationError {
 	if mode != pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
 		return nil
@@ -2765,7 +2924,7 @@ func validateRackGridCollisions(rackRows []map[string]string, snap *snapshot, mo
 		if err != nil {
 			continue
 		}
-		key := fmt.Sprintf("%s\x00%s\x00%d\x00%d", rack.Site, rack.Building, aisle, position)
+		key := rackGridCollisionKey(rack.BuildingID, rack.Site, rack.Building, aisle, position)
 		seen[key] = rack.Label
 	}
 	for i, row := range rackRows {
@@ -2780,7 +2939,8 @@ func validateRackGridCollisions(rackRows []map[string]string, snap *snapshot, mo
 		if err != nil {
 			continue
 		}
-		key := fmt.Sprintf("%s\x00%s\x00%d\x00%d", row[fieldSite], row[fieldBuilding], aisle, position)
+		buildingID, _ := parseOptionalInt64(row[fieldBuildingID], fieldBuildingID)
+		key := rackGridCollisionKey(buildingID, row[fieldSite], row[fieldBuilding], aisle, position)
 		if existingRack, ok := seen[key]; ok {
 			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack grid cell already occupied by rack %s", existingRack)))
 			continue
@@ -2788,6 +2948,13 @@ func validateRackGridCollisions(rackRows []map[string]string, snap *snapshot, mo
 		seen[key] = rackSectionLabel(row)
 	}
 	return errs
+}
+
+func rackGridCollisionKey(buildingID *int64, site, building string, aisle, position int32) string {
+	if buildingID != nil {
+		return fmt.Sprintf("building_id:%d\x00%d\x00%d", *buildingID, aisle, position)
+	}
+	return fmt.Sprintf("building:%s\x00%s\x00%d\x00%d", site, building, aisle, position)
 }
 
 func validateImportedNameLengths(parsed *parsedCSV) []*pb.ImportValidationError {

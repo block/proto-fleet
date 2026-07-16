@@ -267,6 +267,52 @@ func TestBuildPlanInfersRackSiteAfterBuildingSiteIDNormalization(t *testing.T) {
 	}
 }
 
+func TestBuildPlanRejectsIDRenamesCollidingWithRetainedOmittedTopology(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": {
+			{"__row": "3", fieldID: "1", fieldName: "Site B"},
+		},
+		"BUILDING": {
+			{"__row": "7", fieldID: "10", fieldName: "Building B", fieldSite: "Site A", "aisles": "1", "racks_per_aisle": "1"},
+		},
+		"RACK": {
+			{"__row": "11", fieldID: "20", fieldLabel: "Rack B", "rows": "4", "columns": "6", "order_index": "BOTTOM_LEFT"},
+		},
+		"MINER": nil,
+	}}
+	siteAID := int64(1)
+	siteCID := int64(3)
+	snap := &snapshot{
+		sites: []sitemodels.Site{
+			{ID: 1, Name: "Site A"},
+			{ID: 2, Name: "Site B"},
+			{ID: 3, Name: "Site C"},
+		},
+		buildings: []buildingmodels.Building{
+			{ID: 10, SiteID: &siteCID, SiteLabel: "Site C", Name: "Building A", Aisles: 1, RacksPerAisle: 1},
+			{ID: 11, SiteID: &siteAID, SiteLabel: "Site A", Name: "Building B", Aisles: 1, RacksPerAisle: 1},
+		},
+		racks: []rackSnapshot{
+			{ID: 20, Label: "Rack A", Rows: 4, Columns: 6},
+			{ID: 21, Label: "Rack B", Rows: 4, Columns: 6},
+		},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	for _, want := range []struct {
+		section string
+		message string
+	}{
+		{"SITE", "duplicate retained site name"},
+		{"BUILDING", "duplicate retained building name at site"},
+		{"RACK", "duplicate retained rack label"},
+	} {
+		if !hasValidationError(plan.errors, want.section, want.message) {
+			t.Fatalf("plan errors = %+v, want %s error containing %q", plan.errors, want.section, want.message)
+		}
+	}
+}
+
 func TestBuildPlanRejectsOldBuildingReferenceAfterIDRename(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE": {
@@ -1337,6 +1383,24 @@ func TestValidateRackGridCollisionsAllowsIDRenameSameCell(t *testing.T) {
 	errs := validateRackGridCollisions(rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
 	if len(errs) != 0 {
 		t.Fatalf("errors = %+v, want ID-based rack rename to keep its grid cell", errs)
+	}
+}
+
+func TestValidateRackGridCollisionsSeparatesIDQualifiedDuplicateBuildings(t *testing.T) {
+	buildingAID := int64(10)
+	buildingBID := int64(11)
+	rackRows := []map[string]string{
+		{"__row": "10", fieldBuildingID: "10", fieldBuilding: "Building A", fieldLabel: "Rack A", "aisle_index": "0", "position_in_aisle": "0"},
+		{"__row": "11", fieldBuildingID: "11", fieldBuilding: "Building A", fieldLabel: "Rack B", "aisle_index": "0", "position_in_aisle": "0"},
+	}
+	snap := &snapshot{racks: []rackSnapshot{
+		{ID: 20, Label: "Rack A", BuildingID: &buildingAID, Building: "Building A", AisleIndex: "0", PositionInAisle: "0"},
+		{ID: 21, Label: "Rack B", BuildingID: &buildingBID, Building: "Building A", AisleIndex: "0", PositionInAisle: "0"},
+	}}
+
+	errs := validateRackGridCollisions(rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if len(errs) != 0 {
+		t.Fatalf("errors = %+v, want ID-qualified duplicate buildings to have independent grids", errs)
 	}
 }
 
