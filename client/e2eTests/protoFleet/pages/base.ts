@@ -581,18 +581,32 @@ export class BasePage {
     }
 
     const secondaryNav = this.page.getByTestId("secondary-nav");
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    let lastToggleError: unknown;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await this.clickNavigationMenuIfMobile();
       const settingsToggle = this.page.getByTestId("navigation-menu").getByRole("button", {
         name: "Settings menu toggle",
       });
-      await settingsToggle.scrollIntoViewIfNeeded();
-      await settingsToggle.click({ force: attempt > 0 }).catch(() => undefined);
+      await settingsToggle.waitFor({ state: "visible", timeout: OVERLAY_DISMISS_TIMEOUT }).catch(() => undefined);
+      await settingsToggle
+        .evaluate((element) => {
+          (element as HTMLElement).click();
+        })
+        .then(() => {
+          lastToggleError = undefined;
+        })
+        .catch((error: unknown) => {
+          lastToggleError = error;
+        });
       await secondaryNav.waitFor({ state: "visible", timeout: OVERLAY_DISMISS_TIMEOUT }).catch(() => undefined);
       if (await secondaryNav.isVisible().catch(() => false)) {
         return;
       }
     }
 
+    if (lastToggleError instanceof Error && lastToggleError.message.includes("Element is not attached to the DOM")) {
+      throw lastToggleError;
+    }
     await expect(secondaryNav).toBeVisible();
   }
 
