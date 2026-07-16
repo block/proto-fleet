@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -34,6 +35,10 @@ const (
 	maxRackDimension   = 12
 	maxLayoutDimension = 100
 	exportChunkBytes   = 64 * 1024
+
+	maxSiteNameLength     = 255
+	maxBuildingNameLength = 255
+	maxRackLabelLength    = 100
 
 	siteMapExportFolder       = "proto-fleet-site-map"
 	siteMapExportCSVPath      = siteMapExportFolder + "/site-map.csv"
@@ -75,6 +80,10 @@ type Service struct {
 	fleetMgmtSvc    *fleetmanagementdomain.Service
 	transactor      interfaces.Transactor
 	activitySvc     *activity.Service
+}
+
+type ImportPermissions struct {
+	CanRenameMiners bool
 }
 
 func NewService(
@@ -276,7 +285,7 @@ Validation behavior
 `
 }
 
-func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.ImportSiteMapCsvRequest) (*pb.ImportSiteMapCsvResponse, error) {
+func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.ImportSiteMapCsvRequest, permissions ...ImportPermissions) (*pb.ImportSiteMapCsvResponse, error) {
 	if len(req.GetCsvData()) == 0 {
 		return nil, fleeterror.NewInvalidArgumentError("csv_data is required")
 	}
@@ -291,7 +300,14 @@ func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.Imp
 	if err != nil {
 		return nil, err
 	}
+	importPermissions := ImportPermissions{}
+	if len(permissions) > 0 {
+		importPermissions = permissions[0]
+	}
 	plan := buildPlan(parsed, snapshot, req.GetOmissionMode())
+	if !importPermissions.CanRenameMiners {
+		plan.errors = append(plan.errors, validateMinerRenamePermission(parsed.sections["MINER"], snapshot)...)
+	}
 	if len(plan.errors) > 0 {
 		return &pb.ImportSiteMapCsvResponse{
 			OmissionCounts: plan.omissions,
@@ -1145,6 +1161,7 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateUniqueBuildingRows(parsed.sections["BUILDING"])...)
 	plan.errors = append(plan.errors, validateUnique(parsed.sections["RACK"], "RACK", fieldLabel)...)
 	plan.errors = append(plan.errors, validateUnique(parsed.sections["MINER"], "MINER", "device_identifier")...)
+	plan.errors = append(plan.errors, validateImportedNameLengths(parsed)...)
 	plan.errors = append(plan.errors, validateKnownEntityIDs(parsed, snap)...)
 	plan.errors = append(plan.errors, normalizeIDReferences(parsed, snap)...)
 	removeReferenceErrors := validateRemoveOmittedReferences(parsed, mode)
@@ -1623,6 +1640,9 @@ func (s *Service) applyRackRows(
 			return err
 		}
 		if !ok {
+			if err := s.lockPlacementParents(ctx, orgID, siteID, buildingID); err != nil {
+				return err
+			}
 			collection, err := s.collectionStore.CreateCollection(ctx, orgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, row[fieldLabel], "")
 			if err != nil {
 				return err
@@ -1685,6 +1705,9 @@ func (s *Service) applyRackRows(
 		if err := s.collectionStore.UpdateRackInfo(ctx, rack.ID, finalZone, rowsValue, columnsValue, int32(orderIndex), int32(coolingType), orgID); err != nil {
 			return err
 		}
+		if err := s.lockPlacementParents(ctx, orgID, siteID, buildingID); err != nil {
+			return err
+		}
 		if err := s.collectionStore.UpdateRackPlacement(ctx, rack.ID, orgID, siteID, buildingID, finalZone); err != nil {
 			return err
 		}
@@ -1745,6 +1768,20 @@ func (s *Service) applyRackRows(
 	}
 	if len(placedRackIDs) > 0 {
 		if err := s.buildingStore.SetRackBuildingPositionBulkPlace(ctx, orgID, placedRackIDs, aisleIndexes, positionsInAisle); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) lockPlacementParents(ctx context.Context, orgID int64, siteID, buildingID *int64) error {
+	if siteID != nil {
+		if err := s.siteStore.LockSiteForWrite(ctx, orgID, *siteID); err != nil {
+			return err
+		}
+	}
+	if buildingID != nil {
+		if err := s.siteStore.LockBuildingForWrite(ctx, orgID, *buildingID); err != nil {
 			return err
 		}
 	}
@@ -2610,11 +2647,11 @@ func validateRackGridPositions(rackRows, buildingRows []map[string]string, snap 
 }
 
 func validateRackGridCollisions(rackRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
-	presentRacks := rowSet(rackRows, fieldLabel)
+	presentRackIdentities := rackIdentitySet(rackRows, snap.racks)
 	seen := map[string]string{}
 	var errs []*pb.ImportValidationError
 	for _, rack := range snap.racks {
-		if presentRacks[rack.Label] || mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
+		if presentRackIdentities[rackIdentity(rack)] || mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
 			continue
 		}
 		if rack.Building == "" || rack.AisleIndex == "" || rack.PositionInAisle == "" {
@@ -2649,6 +2686,38 @@ func validateRackGridCollisions(rackRows []map[string]string, snap *snapshot, mo
 			continue
 		}
 		seen[key] = rackSectionLabel(row)
+	}
+	return errs
+}
+
+func validateImportedNameLengths(parsed *parsedCSV) []*pb.ImportValidationError {
+	var errs []*pb.ImportValidationError
+	errs = append(errs, validateFieldLength(parsed.sections["SITE"], "SITE", fieldName, maxSiteNameLength)...)
+	errs = append(errs, validateFieldLength(parsed.sections["BUILDING"], "BUILDING", fieldName, maxBuildingNameLength)...)
+	errs = append(errs, validateFieldLength(parsed.sections["RACK"], "RACK", fieldLabel, maxRackLabelLength)...)
+	return errs
+}
+
+func validateFieldLength(rows []map[string]string, section, field string, maxRunes int) []*pb.ImportValidationError {
+	var errs []*pb.ImportValidationError
+	for i, row := range rows {
+		value := row[field]
+		if utf8.RuneCountInString(value) > maxRunes {
+			errs = append(errs, csvErr(rowNumber(row, i+1), section, fmt.Sprintf("%s must be at most %d characters", field, maxRunes)))
+		}
+	}
+	return errs
+}
+
+func validateMinerRenamePermission(rows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
+	miners := minerMap(snap.miners)
+	var errs []*pb.ImportValidationError
+	for i, row := range rows {
+		miner, ok := miners[row["device_identifier"]]
+		if !ok || row[fieldName] == miner.Name {
+			continue
+		}
+		errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", "miner:rename permission is required to change miner name"))
 	}
 	return errs
 }
@@ -3297,6 +3366,7 @@ func desiredBuildingMap(rows []map[string]string, buildings []buildingmodels.Bui
 			for _, existing := range buildings {
 				if existing.ID == id {
 					building = existing
+					delete(out, existing.SiteLabel+"\x00"+existing.Name)
 					break
 				}
 			}
@@ -3611,6 +3681,14 @@ func rowSetFromBuildingNames(rows []buildingmodels.Building) map[string]bool {
 func rowSetFromDesiredBuildings(rows []map[string]string, buildings []buildingmodels.Building) map[string]bool {
 	out := rowSetFromBuildingNames(buildings)
 	for _, row := range rows {
+		if id, ok := rowID(row); ok {
+			for _, existing := range buildings {
+				if existing.ID == id {
+					delete(out, existing.SiteLabel+"\x00"+existing.Name)
+					break
+				}
+			}
+		}
 		if buildingSectionName(row) != "" {
 			out[row[fieldSite]+"\x00"+buildingSectionName(row)] = true
 		}

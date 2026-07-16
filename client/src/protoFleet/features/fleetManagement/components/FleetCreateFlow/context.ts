@@ -60,6 +60,9 @@ export interface FleetCreateFlowContextValue {
   // Bumps whenever a create flow commits, so list pages can refetch
   // without the controller knowing which page is active.
   entitiesChangedAt: number;
+  // Refreshes the shared site catalog and bumps entity/miner list refresh
+  // signals after an external topology mutation such as site map import.
+  refreshEntities: () => void;
 }
 
 export const FleetCreateFlowContext = createContext<FleetCreateFlowContextValue | undefined>(undefined);

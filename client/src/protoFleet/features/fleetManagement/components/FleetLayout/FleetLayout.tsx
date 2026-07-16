@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
@@ -10,6 +10,7 @@ import useSiteMapCsv from "@/protoFleet/api/useSiteMapCsv";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { INFRASTRUCTURE_DEVICES_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
+import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
 import FleetCreateFlowProvider from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/FleetCreateFlowProvider";
 import FleetViewTabs from "@/protoFleet/features/fleetManagement/components/FleetViewTabs";
 import SiteMapCsvImportModal from "@/protoFleet/features/fleetManagement/components/SiteMapCsvImportModal";
@@ -42,6 +43,28 @@ const tabLabel: Record<FleetTabId, string> = {
 // flag-on session isn't discarded as garbage when the flag flips.
 const ALL_TAB_IDS = new Set<FleetTabId>(["sites", "buildings", "racks", "miners", "infrastructure"]);
 const isFleetTabId = (s: string): s is FleetTabId => ALL_TAB_IDS.has(s as FleetTabId);
+
+const FleetImportRefreshBoundary = ({
+  children,
+  importModalOpen,
+  onDismissImportModal,
+}: {
+  children: ReactNode;
+  importModalOpen: boolean;
+  onDismissImportModal: () => void;
+}) => {
+  const createFlow = useFleetCreateFlow();
+  const onImported = useCallback(() => {
+    createFlow?.refreshEntities();
+  }, [createFlow]);
+
+  return (
+    <>
+      {children}
+      {importModalOpen ? <SiteMapCsvImportModal open onDismiss={onDismissImportModal} onImported={onImported} /> : null}
+    </>
+  );
+};
 
 const tabFromPath = (pathname: string): FleetTabId | undefined => {
   const m = unscopedScopablePath(pathname).match(/^\/fleet\/([^/]+)/);
@@ -380,16 +403,14 @@ const FleetLayout = () => {
           refetchSites={refetchSites}
           notifyMinersChanged={notifyMinersChanged}
         >
-          {outlet}
+          <FleetImportRefreshBoundary
+            importModalOpen={showSiteMapImportModal}
+            onDismissImportModal={() => setShowSiteMapImportModal(false)}
+          >
+            {outlet}
+          </FleetImportRefreshBoundary>
         </FleetCreateFlowProvider>
       </div>
-      {showSiteMapImportModal ? (
-        <SiteMapCsvImportModal
-          open
-          onDismiss={() => setShowSiteMapImportModal(false)}
-          onImported={notifyMinersChanged}
-        />
-      ) : null}
     </div>
   );
 };

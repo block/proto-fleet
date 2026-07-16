@@ -187,6 +187,61 @@ func TestBuildPlanAcceptsDuplicateUnassignedBuildingsWithIDs(t *testing.T) {
 	}
 }
 
+func TestBuildPlanRejectsImportedNamesOverServerLimits(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": {
+			{"__row": "5", fieldName: strings.Repeat("s", maxSiteNameLength+1)},
+		},
+		"BUILDING": {
+			{"__row": "9", fieldName: strings.Repeat("b", maxBuildingNameLength+1), "aisles": "1", "racks_per_aisle": "1"},
+		},
+		"RACK": {
+			{"__row": "13", fieldLabel: strings.Repeat("r", maxRackLabelLength+1), "rows": "4", "columns": "6"},
+		},
+		"MINER": nil,
+	}}
+
+	plan := buildPlan(parsed, &snapshot{}, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.errors) != 3 {
+		t.Fatalf("plan errors = %+v, want 3 length errors", plan.errors)
+	}
+	for _, err := range plan.errors {
+		if !strings.Contains(err.GetMessage(), "must be at most") {
+			t.Fatalf("error = %q, want max length error", err.GetMessage())
+		}
+	}
+}
+
+func TestBuildPlanRejectsOldBuildingReferenceAfterIDRename(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": {
+			{"__row": "3", fieldName: "Site A"},
+		},
+		"BUILDING": {
+			{"__row": "7", fieldID: "10", fieldName: "New Building", fieldSite: "Site A", "aisles": "2", "racks_per_aisle": "2"},
+		},
+		"RACK": {
+			{"__row": "11", fieldLabel: "Rack A", fieldBuilding: "Old Building", fieldSite: "Site A", "rows": "4", "columns": "6"},
+		},
+		"MINER": nil,
+	}}
+	snap := &snapshot{
+		sites:     []sitemodels.Site{{Name: "Site A"}},
+		buildings: []buildingmodels.Building{{ID: 10, SiteLabel: "Site A", Name: "Old Building", Aisles: 2, RacksPerAisle: 2}},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.errors) == 0 {
+		t.Fatal("plan errors = nil, want old building reference rejected after ID rename")
+	}
+	for _, err := range plan.errors {
+		if strings.Contains(err.GetMessage(), `unknown building "Old Building"`) {
+			return
+		}
+	}
+	t.Fatalf("plan errors = %+v, want unknown old building reference", plan.errors)
+}
+
 func TestBuildPlanRejectsBuildingUnknownSite(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE": nil,
@@ -1049,6 +1104,25 @@ func TestValidateRackGridCollisionsCountsRetainedOmittedRacks(t *testing.T) {
 	errs := validateRackGridCollisions(rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
 	if len(errs) != 1 || errs[0].GetMessage() != "rack grid cell already occupied by rack Rack A" {
 		t.Fatalf("errors = %+v, want retained rack duplicate grid cell", errs)
+	}
+}
+
+func TestValidateRackGridCollisionsAllowsIDRenameSameCell(t *testing.T) {
+	rackRows := []map[string]string{
+		{"__row": "10", fieldID: "20", fieldSite: "Site A", fieldBuilding: "Building A", fieldLabel: "Renamed Rack", "aisle_index": "0", "position_in_aisle": "0"},
+	}
+	snap := &snapshot{racks: []rackSnapshot{{
+		ID:              20,
+		Site:            "Site A",
+		Building:        "Building A",
+		Label:           "Rack A",
+		AisleIndex:      "0",
+		PositionInAisle: "0",
+	}}}
+
+	errs := validateRackGridCollisions(rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if len(errs) != 0 {
+		t.Fatalf("errors = %+v, want ID-based rack rename to keep its grid cell", errs)
 	}
 }
 
