@@ -1691,7 +1691,8 @@ func (s *Service) applyRackRows(
 			return err
 		}
 		if !ok {
-			if err := s.lockPlacementParents(ctx, orgID, siteID, buildingID); err != nil {
+			siteID, buildingID, err = s.lockPlacementParents(ctx, orgID, siteID, buildingID)
+			if err != nil {
 				return err
 			}
 			collection, err := s.collectionStore.CreateCollection(ctx, orgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, row[fieldLabel], "")
@@ -1756,7 +1757,8 @@ func (s *Service) applyRackRows(
 		if err := s.collectionStore.UpdateRackInfo(ctx, rack.ID, finalZone, rowsValue, columnsValue, int32(orderIndex), int32(coolingType), orgID); err != nil {
 			return err
 		}
-		if err := s.lockPlacementParents(ctx, orgID, siteID, buildingID); err != nil {
+		siteID, buildingID, err = s.lockPlacementParents(ctx, orgID, siteID, buildingID)
+		if err != nil {
 			return err
 		}
 		if err := s.collectionStore.UpdateRackPlacement(ctx, rack.ID, orgID, siteID, buildingID, finalZone); err != nil {
@@ -1825,18 +1827,23 @@ func (s *Service) applyRackRows(
 	return nil
 }
 
-func (s *Service) lockPlacementParents(ctx context.Context, orgID int64, siteID, buildingID *int64) error {
-	if siteID != nil {
-		if err := s.siteStore.LockSiteForWrite(ctx, orgID, *siteID); err != nil {
-			return err
-		}
-	}
+func (s *Service) lockPlacementParents(ctx context.Context, orgID int64, siteID, buildingID *int64) (*int64, *int64, error) {
 	if buildingID != nil {
 		if err := s.siteStore.LockBuildingForWrite(ctx, orgID, *buildingID); err != nil {
-			return err
+			return nil, nil, err
+		}
+		currentSiteID, err := s.buildingStore.GetBuildingSiteID(ctx, orgID, *buildingID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return currentSiteID, buildingID, nil
+	}
+	if siteID != nil {
+		if err := s.siteStore.LockSiteForWrite(ctx, orgID, *siteID); err != nil {
+			return nil, nil, err
 		}
 	}
-	return nil
+	return siteID, buildingID, nil
 }
 
 func (s *Service) moveBuildingsToSite(ctx context.Context, orgID int64, buildingIDs []int64, targetSiteID *int64) error {
@@ -1939,14 +1946,18 @@ func (s *Service) applyMinerRows(
 			continue
 		}
 
+		siteID, buildingID, err := desiredSiteBuildingIDs(row[fieldSiteID], desiredSite, row[fieldBuildingID], desiredBuilding, sitesByName, nil, buildingsByKey, buildingsByID)
+		if err != nil {
+			return err
+		}
+		siteID, buildingID, err = s.lockPlacementParents(ctx, orgID, siteID, buildingID)
+		if err != nil {
+			return err
+		}
 		if _, err := s.collectionStore.LockRacksForReparent(ctx, orgID, deviceIDs, 0); err != nil {
 			return err
 		}
 		if _, err := s.collectionStore.RemoveDevicesFromAnyRack(ctx, orgID, deviceIDs, 0); err != nil {
-			return err
-		}
-		siteID, buildingID, err := desiredSiteBuildingIDs(row[fieldSiteID], desiredSite, row[fieldBuildingID], desiredBuilding, sitesByName, nil, buildingsByKey, buildingsByID)
-		if err != nil {
 			return err
 		}
 		if _, err := s.siteStore.AssignDevicesToSite(ctx, orgID, siteID, deviceIDs); err != nil {
@@ -2865,6 +2876,7 @@ func validateRackDimensions(rows []map[string]string) []*pb.ImportValidationErro
 
 func validateRackGridPositions(rackRows, buildingRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
 	buildings := desiredBuildingMap(buildingRows, snap.buildings)
+	buildingsByID := desiredBuildingLayoutIDMap(buildingRows, snap.buildings)
 	var errs []*pb.ImportValidationError
 	for i, row := range rackRows {
 		aisleRaw := row["aisle_index"]
@@ -2898,7 +2910,7 @@ func validateRackGridPositions(rackRows, buildingRows []map[string]string, snap 
 			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("position_in_aisle %d is out of bounds", position)))
 			continue
 		}
-		building, ok := buildings[row[fieldSite]+"\x00"+row[fieldBuilding]]
+		building, ok := desiredRackGridBuilding(row, buildings, buildingsByID)
 		if !ok {
 			continue
 		}
@@ -2910,6 +2922,15 @@ func validateRackGridPositions(rackRows, buildingRows []map[string]string, snap 
 		}
 	}
 	return errs
+}
+
+func desiredRackGridBuilding(row map[string]string, buildings map[string]buildingmodels.Building, buildingsByID map[int64]buildingmodels.Building) (buildingmodels.Building, bool) {
+	if buildingID, ok := idFromCell(row[fieldBuildingID]); ok {
+		building, ok := buildingsByID[buildingID]
+		return building, ok
+	}
+	building, ok := buildings[row[fieldSite]+"\x00"+row[fieldBuilding]]
+	return building, ok
 }
 
 func validateRackGridCollisions(rackRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
@@ -3183,6 +3204,33 @@ func desiredBuildingCapacityMap(rows []map[string]string, buildings []buildingmo
 			building.RacksPerAisle = racksPerAisle
 		}
 		out[buildingCapacityKey(building)] = building
+	}
+	return out
+}
+
+func desiredBuildingLayoutIDMap(rows []map[string]string, buildings []buildingmodels.Building) map[int64]buildingmodels.Building {
+	out := map[int64]buildingmodels.Building{}
+	for _, building := range buildings {
+		if building.ID > 0 {
+			out[building.ID] = building
+		}
+	}
+	for _, row := range rows {
+		id, ok := rowID(row)
+		if !ok {
+			continue
+		}
+		building := out[id]
+		building.ID = id
+		building.SiteLabel = row[fieldSite]
+		building.Name = buildingSectionName(row)
+		if aisles, err := parseInt32Value(row["aisles"], "aisles"); err == nil {
+			building.Aisles = aisles
+		}
+		if racksPerAisle, err := parseInt32Value(row["racks_per_aisle"], "racks_per_aisle"); err == nil {
+			building.RacksPerAisle = racksPerAisle
+		}
+		out[id] = building
 	}
 	return out
 }

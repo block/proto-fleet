@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"connectrpc.com/authn"
+	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/sitemap/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
@@ -898,6 +899,84 @@ func TestMoveBuildingsToSiteLocksTargetSiteBeforeBuildings(t *testing.T) {
 	}
 }
 
+func TestApplyRackRowsUsesCurrentLockedBuildingSite(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	orgID := int64(42)
+	staleSiteID := int64(5)
+	currentSiteID := int64(6)
+	buildingID := int64(11)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	collectionStore := mocks.NewMockCollectionStore(ctrl)
+	svc := NewService(siteStore, buildingStore, collectionStore, nil, nil, nil, nil)
+	rows := []map[string]string{{
+		fieldLabel:      "Rack A",
+		fieldBuildingID: "11",
+		fieldBuilding:   "Building A",
+		fieldSiteID:     "5",
+		"rows":          "4",
+		"columns":       "6",
+		"order_index":   "BOTTOM_LEFT",
+	}}
+
+	gomock.InOrder(
+		siteStore.EXPECT().LockBuildingForWrite(ctx, orgID, buildingID).Return(nil),
+		buildingStore.EXPECT().GetBuildingSiteID(ctx, orgID, buildingID).Return(&currentSiteID, nil),
+		collectionStore.EXPECT().CreateCollection(ctx, orgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "").Return(&collectionpb.DeviceCollection{Id: 20}, nil),
+		collectionStore.EXPECT().CreateRackExtension(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, params interfaces.CreateRackExtensionParams) error {
+			if !nullableInt64Equal(params.SiteID, &currentSiteID) {
+				t.Fatalf("site_id = %v, want current site %d", params.SiteID, currentSiteID)
+			}
+			if !nullableInt64Equal(params.BuildingID, &buildingID) {
+				t.Fatalf("building_id = %v, want %d", params.BuildingID, buildingID)
+			}
+			return nil
+		}),
+		buildingStore.EXPECT().SetRackBuildingPositionBulkClear(ctx, orgID, []int64{20}).Return(nil),
+	)
+
+	if err := svc.applyRackRows(ctx, orgID, rows, nil, map[int64]sitemodels.Site{staleSiteID: {ID: staleSiteID, Name: "Old Site"}}, nil, map[int64]buildingmodels.Building{buildingID: {ID: buildingID, Name: "Building A", SiteID: &staleSiteID}}, map[string]rackSnapshot{}, map[int64]rackSnapshot{}); err != nil {
+		t.Fatalf("applyRackRows error = %v", err)
+	}
+}
+
+func TestApplyMinerRowsUsesCurrentLockedBuildingSiteForDirectPlacement(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	orgID := int64(42)
+	staleSiteID := int64(5)
+	currentSiteID := int64(6)
+	buildingID := int64(11)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	collectionStore := mocks.NewMockCollectionStore(ctrl)
+	svc := NewService(siteStore, buildingStore, collectionStore, nil, nil, nil, nil)
+	deviceIDs := []string{"miner-1"}
+	rows := []map[string]string{{
+		"device_identifier": "miner-1",
+		fieldName:           "Miner 1",
+		fieldBuildingID:     "11",
+		fieldBuilding:       "Building A",
+	}}
+	existing := map[string]minerSnapshot{
+		"miner-1": {DeviceIdentifier: "miner-1", Name: "Miner 1"},
+	}
+
+	gomock.InOrder(
+		siteStore.EXPECT().LockBuildingForWrite(ctx, orgID, buildingID).Return(nil),
+		buildingStore.EXPECT().GetBuildingSiteID(ctx, orgID, buildingID).Return(&currentSiteID, nil),
+		collectionStore.EXPECT().LockRacksForReparent(ctx, orgID, deviceIDs, int64(0)).Return(nil, nil),
+		collectionStore.EXPECT().RemoveDevicesFromAnyRack(ctx, orgID, deviceIDs, int64(0)).Return(int64(1), nil),
+		siteStore.EXPECT().AssignDevicesToSite(ctx, orgID, &currentSiteID, deviceIDs).Return(int64(1), nil),
+		buildingStore.EXPECT().AssignDevicesToBuilding(ctx, orgID, &buildingID, deviceIDs).Return(int64(1), nil),
+	)
+
+	if err := svc.applyMinerRows(ctx, orgID, rows, nil, nil, nil, nil, map[int64]buildingmodels.Building{buildingID: {ID: buildingID, Name: "Building A", SiteID: &staleSiteID}}, nil, existing); err != nil {
+		t.Fatalf("applyMinerRows error = %v", err)
+	}
+}
+
 func TestApplySiteRowsRegeneratesSlugWhenRenamingByID(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
@@ -1381,6 +1460,29 @@ func TestValidateRackGridPositionsBlocksOutOfBounds(t *testing.T) {
 	errs := validateRackGridPositions(rackRows, buildingRows, &snapshot{})
 	if len(errs) != 1 || !strings.Contains(errs[0].GetMessage(), "aisle_index 2 is out of bounds") {
 		t.Fatalf("errors = %+v, want aisle bounds error", errs)
+	}
+}
+
+func TestValidateRackGridPositionsUsesBuildingIDForDuplicateBuildingNames(t *testing.T) {
+	rackRows := []map[string]string{{
+		fieldBuildingID:     "11",
+		fieldBuilding:       "Building A",
+		fieldLabel:          "Rack A",
+		"aisle_index":       "1",
+		"position_in_aisle": "0",
+	}}
+	buildingRows := []map[string]string{
+		{fieldID: "11", fieldName: "Building A", "aisles": "2", "racks_per_aisle": "1"},
+		{fieldID: "10", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "1"},
+	}
+	snap := &snapshot{buildings: []buildingmodels.Building{
+		{ID: 10, Name: "Building A", Aisles: 1, RacksPerAisle: 1},
+		{ID: 11, Name: "Building A", Aisles: 2, RacksPerAisle: 1},
+	}}
+
+	errs := validateRackGridPositions(rackRows, buildingRows, snap)
+	if len(errs) != 0 {
+		t.Fatalf("errors = %+v, want building_id-specific bounds", errs)
 	}
 }
 
