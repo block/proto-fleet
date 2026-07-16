@@ -1,7 +1,10 @@
 package db
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,5 +116,83 @@ func TestExponentialBackoffCalculation(t *testing.T) {
 			t.Errorf("attempt %d: expected delay %v, got %v", tt.attempt, tt.expected, delay)
 		}
 		currentBackoff = time.Duration(float64(currentBackoff) * DefaultRetryConfig.BackoffMultiplier)
+	}
+}
+
+func TestRetrierRetryQuery(t *testing.T) {
+	tests := []struct {
+		name       string
+		code       string
+		wantCalls  int
+		succeedOn  int
+		wantErrMsg string
+	}{
+		{
+			name:      "retries serialization failure",
+			code:      PGSerializationFailure,
+			wantCalls: 2,
+			succeedOn: 2,
+		},
+		{
+			name:       "does not retry non-retryable error",
+			code:       "42601",
+			wantCalls:  1,
+			wantErrMsg: "TestQuery",
+		},
+		{
+			name:       "stops after max attempts",
+			code:       PGSerializationFailure,
+			wantCalls:  DefaultRetryConfig.MaxAttempts,
+			wantErrMsg: fmt.Sprintf("failed after %d attempts", DefaultRetryConfig.MaxAttempts),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			retrier := Retrier{}
+			calls := 0
+			pgErr := &pgconn.PgError{Code: tt.code, Message: tt.name}
+			err := retrier.RetryQuery(context.Background(), "TestQuery", func() error {
+				calls++
+				if tt.succeedOn != 0 && calls == tt.succeedOn {
+					return nil
+				}
+				return pgErr
+			})
+
+			if calls != tt.wantCalls {
+				t.Fatalf("callback calls = %d, want %d", calls, tt.wantCalls)
+			}
+			if tt.succeedOn != 0 {
+				if err != nil {
+					t.Fatalf("RetryQuery error = %v, want nil", err)
+				}
+				return
+			}
+			if !errors.Is(err, pgErr) {
+				t.Fatalf("RetryQuery error = %v, want wrapped PostgreSQL error", err)
+			}
+			if tt.wantErrMsg != "" && !strings.Contains(err.Error(), tt.wantErrMsg) {
+				t.Fatalf("RetryQuery error = %q, want substring %q", err, tt.wantErrMsg)
+			}
+		})
+	}
+}
+
+func TestRetrierHonorsContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	calls := 0
+	err := (Retrier{}).RetryQuery(ctx, "CancelledQuery", func() error {
+		calls++
+		return &pgconn.PgError{Code: PGDeadlockDetected}
+	})
+
+	if calls != 1 {
+		t.Fatalf("callback calls = %d, want 1", calls)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RetryQuery error = %v, want context.Canceled", err)
 	}
 }

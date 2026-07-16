@@ -60,6 +60,7 @@ gen: gen-db-queries gen-sdk-protos gen-go
 # generate query via sqlc
 gen-db-queries:
   sqlc generate
+  go run ./tools/generate-sqlc-retrier -querier generated/sqlc/querier.go -out generated/sqlc/retrying_querier.gen.go
   goimports -w generated/sqlc
 
 # generate SDK protobuf code

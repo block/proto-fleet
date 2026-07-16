@@ -71,13 +71,22 @@ type RetryDB struct {
 	*sql.DB
 }
 
+// Retrier applies the database retry policy to complete operations.
+type Retrier struct{}
+
 // NewRetryDB creates a new RetryDB wrapper around the given database connection.
 func NewRetryDB(db *sql.DB) *RetryDB {
 	return &RetryDB{DB: db}
 }
 
-// retryOperation executes fn with retry logic on retryable PostgreSQL errors.
-// Uses exponential backoff between retries, respecting context cancellation.
+// RetryQuery executes fn with retry logic on retryable PostgreSQL errors.
+func (Retrier) RetryQuery(ctx context.Context, opName string, fn func() error) error {
+	_, err := retryOperation(ctx, opName, func() (struct{}, error) {
+		return struct{}{}, fn()
+	})
+	return err
+}
+
 func retryOperation[T any](ctx context.Context, opName string, fn func() (T, error)) (T, error) {
 	var zero T
 	var lastErr error

@@ -540,7 +540,7 @@ func start(config *Config) error {
 		}
 	}()
 
-	mqttQueries, err := sqlc.Prepare(context.Background(), db.NewRetryDB(conn))
+	mqttQueries, err := db.NewPreparedQuerier(context.Background(), conn)
 	if err != nil {
 		return fmt.Errorf("failed to prepare curtailment mqtt sql queries: %w", err)
 	}
