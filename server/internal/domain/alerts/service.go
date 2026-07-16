@@ -1009,10 +1009,13 @@ func grafanaRuleToDomain(orgID int64, r GrafanaAlertRule) Rule {
 		out.Description = r.Annotations["description"]
 		if raw := r.Annotations[ruleAnnotationConfig]; raw != "" {
 			var cfg RuleConfig
-			if err := json.Unmarshal([]byte(raw), &cfg); err == nil {
+			err := json.Unmarshal([]byte(raw), &cfg)
+			// A config that fails validation or disagrees with the template label
+			// must not round-trip into the editor (the client hides Edit on nil).
+			if err == nil && validateRuleConfig(cfg) == nil && cfg.Template() == out.Template {
 				out.Config = &cfg
 			} else {
-				slog.Warn("alerts.rule_config_unparseable", "rule_uid", r.UID, "error", err)
+				slog.Warn("alerts.rule_config_invalid", "rule_uid", r.UID, "error", err)
 			}
 		}
 	}

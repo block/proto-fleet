@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAlertsContext } from "@/protoFleet/features/alerts/api/AlertsContext";
 import type { Rule, RuleConfig } from "@/protoFleet/features/alerts/types";
@@ -181,11 +181,16 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
     setDurationAmount(formatDurationAmount(seconds, unit));
   };
 
+  // The modal stays mounted across sessions; a save resolving after a
+  // dismiss-and-reopen must not dismiss or toast into the newer session.
+  const saveSessionRef = useRef(0);
+
   const [syncedFor, setSyncedFor] = useState<string | null>(null);
   const syncKey = open ? (editingRule?.id ?? "__add__") : null;
   if (syncedFor !== syncKey) {
     setSyncedFor(syncKey);
     if (open) {
+      saveSessionRef.current += 1;
       const cfg = editingRule?.config;
       if (cfg?.hashrate) {
         setTemplate("hashrate");
@@ -276,17 +281,22 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
   const handleSave = async () => {
     const config = buildConfig();
     if (!config) return;
+    const session = saveSessionRef.current;
     setSaving(true);
     try {
       if (isEditing && editingRule) {
         await updateRule(editingRule.id, config);
-        pushToast({ message: `Rule updated: ${config.name}`, status: STATUSES.success });
       } else {
         await createRule(config);
-        pushToast({ message: `Rule created: ${config.name}`, status: STATUSES.success });
       }
+      if (saveSessionRef.current !== session) return;
+      pushToast({
+        message: isEditing ? `Rule updated: ${config.name}` : `Rule created: ${config.name}`,
+        status: STATUSES.success,
+      });
       onDismiss();
     } catch (error) {
+      if (saveSessionRef.current !== session) return;
       pushToast({ message: getErrorMessage(error, "Failed to save rule"), status: STATUSES.error });
       setSaving(false);
     }

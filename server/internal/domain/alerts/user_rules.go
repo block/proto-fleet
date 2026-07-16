@@ -134,6 +134,16 @@ func (s *Service) UpdateRule(ctx context.Context, orgID int64, id string, cfg Ru
 	if err != nil {
 		return nil, err
 	}
+	// Re-pin the group interval so an edit converges a pin that failed at create.
+	group := GrafanaRuleGroup{
+		Title:     body.RuleGroup,
+		FolderUID: body.FolderUID,
+		Interval:  userRuleGroupInterval,
+		Rules:     []GrafanaAlertRule{*updated},
+	}
+	if err := s.grafana.SetRuleGroup(ctx, group); err != nil {
+		slog.Warn("alerts.user_rule_group_interval", "org_id", orgID, "error", err)
+	}
 	out := grafanaRuleToDomain(orgID, *updated)
 	// The write is committed; misreporting it as failed over a silence-read
 	// hiccup invites confused retries, so degrade to the rule's own state.
@@ -149,18 +159,37 @@ func (s *Service) DeleteRule(ctx context.Context, orgID int64, id string) error 
 	if err := requireOrg(orgID); err != nil {
 		return err
 	}
-	if _, err := s.requireUserRule(ctx, orgID, id); err != nil {
-		return err
+	if id == "" {
+		return fleeterror.NewInvalidArgumentError("rule id is required")
+	}
+	cleanup := func() error {
+		return s.removeSilencesTargetingRule(ctx, orgID, id, func(sil GrafanaSilence) bool {
+			return isPauseSilence(sil) || isMaintenanceWindowSilence(sil)
+		})
+	}
+	rule, err := s.grafana.GetAlertRule(ctx, id)
+	if err != nil {
+		if !IsNotFound(err) {
+			return err
+		}
+		// The rule is already gone: re-sweep its silences so a half-failed
+		// earlier delete converges, then keep the uniform NotFound (no id oracle).
+		if err := cleanup(); err != nil {
+			return err
+		}
+		return ErrNotFound
+	}
+	// Existing-but-not-ours must not reach cleanup: it would let a delete probe
+	// lift the org's own pause silences on a provisioned rule.
+	if !isMutableUserRule(*rule, orgID) {
+		return ErrNotFound
 	}
 	if err := s.grafana.DeleteAlertRule(ctx, id); err != nil && !IsNotFound(err) {
 		return err
 	}
-	// Pause silences and rule-scoped maintenance windows are inert once the
-	// rule is gone; clean them up, but don't fail the delete over them.
-	err := s.removeSilencesTargetingRule(ctx, orgID, id, func(sil GrafanaSilence) bool {
-		return isPauseSilence(sil) || isMaintenanceWindowSilence(sil)
-	})
-	if err != nil {
+	// Silences are inert once the rule is gone; don't fail the committed delete
+	// over cleanup (a later delete retry re-sweeps via the not-found path).
+	if err := cleanup(); err != nil {
 		slog.Warn("alerts.user_rule_delete_silence_cleanup", "org_id", orgID, "rule_id", id, "error", err)
 	}
 	return nil
@@ -180,16 +209,17 @@ func (s *Service) requireUserRule(ctx context.Context, orgID int64, id string) (
 		}
 		return nil, err
 	}
-	if rule.Labels[ruleLabelOrigin] != ruleOriginUser {
-		return nil, ErrNotFound
-	}
-	if rule.Labels[ruleLabelOrganizationID] != strconv.FormatInt(orgID, 10) {
-		return nil, ErrNotFound
-	}
-	if !ruleVisibleToOrg(*rule, strconv.FormatInt(orgID, 10)) {
+	if !isMutableUserRule(*rule, orgID) {
 		return nil, ErrNotFound
 	}
 	return rule, nil
+}
+
+func isMutableUserRule(rule GrafanaAlertRule, orgID int64) bool {
+	org := strconv.FormatInt(orgID, 10)
+	return rule.Labels[ruleLabelOrigin] == ruleOriginUser &&
+		rule.Labels[ruleLabelOrganizationID] == org &&
+		ruleVisibleToOrg(rule, org)
 }
 
 func newUserRuleUID() (string, error) {

@@ -257,6 +257,38 @@ func TestParseDurationSecondsPrometheusUnits(t *testing.T) {
 	}
 }
 
+// A parseable-but-invalid config annotation must not round-trip into the
+// editor: the client hides Edit on nil Config, which is what prevents the
+// modal's offline fallback from silently rewriting the rule.
+func TestGrafanaRuleToDomainRejectsInvalidConfig(t *testing.T) {
+	base := func(configJSON string) GrafanaAlertRule {
+		return GrafanaAlertRule{
+			UID: "pfu-x",
+			Labels: map[string]string{
+				ruleLabelOrigin:   ruleOriginUser,
+				ruleLabelTemplate: "hashrate",
+			},
+			Annotations: map[string]string{ruleAnnotationConfig: configJSON},
+		}
+	}
+	cases := map[string]string{
+		"empty object":       `{}`,
+		"no template branch": `{"name":"r","duration_seconds":600}`,
+		"unknown mode":       `{"name":"r","duration_seconds":600,"hashrate":{"mode":"bogus","value":50}}`,
+		"out-of-range value": `{"name":"r","duration_seconds":600,"hashrate":{"mode":"pct_expected","value":500}}`,
+		"template mismatch":  `{"name":"r","duration_seconds":600,"temperature":{"max_celsius":85}}`,
+		"not json":           `{"name":`,
+	}
+	for name, configJSON := range cases {
+		t.Run(name, func(t *testing.T) {
+			assert.Nil(t, grafanaRuleToDomain(7, base(configJSON)).Config)
+		})
+	}
+
+	valid := base(`{"name":"r","duration_seconds":600,"hashrate":{"mode":"pct_expected","value":50}}`)
+	require.NotNil(t, grafanaRuleToDomain(7, valid).Config)
+}
+
 func TestGrafanaRuleToDomainProvisionedOrigin(t *testing.T) {
 	domain := grafanaRuleToDomain(7, GrafanaAlertRule{
 		UID:    "protofleet-device-offline",
@@ -451,6 +483,47 @@ func TestUpdateRuleKeepsIdentity(t *testing.T) {
 	assert.Equal(t, existing.FolderUID, fake.updated.FolderUID)
 	assert.Equal(t, existing.RuleGroup, fake.updated.RuleGroup)
 	assert.Equal(t, RuleTemplateTemperature, updated.Template)
+
+	// Edits re-pin the group interval so a pin that failed at create converges.
+	require.NotNil(t, fake.putGroup)
+	assert.Equal(t, userRuleGroupInterval, fake.putGroup.Interval)
+	assert.Equal(t, existing.RuleGroup, fake.putGroup.Title)
+}
+
+// A delete retry after a half-failed earlier delete (rule gone, silences left)
+// must re-sweep the caller's silences even though the rule 404s — while a
+// provisioned rule's id must never reach cleanup, or a delete probe could lift
+// the org's own pause silence on it.
+func TestDeleteRuleSweepIsIdempotentButGuarded(t *testing.T) {
+	pauseFor := func(uid string) GrafanaSilence {
+		return GrafanaSilence{
+			ID:      "sil-" + uid,
+			Comment: pauseSilenceCommentMarker,
+			Matchers: []GrafanaSilenceMatcher{
+				{Name: silenceLabelOrganizationID, Value: "7", IsEqual: true},
+				{Name: alertRuleUIDMatcher, Value: uid, IsEqual: true},
+			},
+		}
+	}
+	provisioned := GrafanaAlertRule{
+		UID:    "protofleet-device-offline",
+		Labels: map[string]string{ruleLabelScope: ruleScopeShared, ruleLabelTemplate: "offline"},
+	}
+	fake := &fakeGrafanaRules{
+		listed:   []GrafanaAlertRule{provisioned},
+		silences: []GrafanaSilence{pauseFor("pfu-gone"), pauseFor("protofleet-device-offline")},
+	}
+	svc := NewService(fake.server(t), nil, nil, nil, DestinationPolicy{})
+
+	// Missing rule: uniform NotFound, but the orphaned silence is swept.
+	err := svc.DeleteRule(context.Background(), 7, "pfu-gone")
+	assert.ErrorIs(t, err, ErrNotFound)
+	assert.Equal(t, []string{"sil-pfu-gone"}, fake.deletedSilences)
+
+	// Provisioned rule: NotFound and its pause silence is untouched.
+	err = svc.DeleteRule(context.Background(), 7, "protofleet-device-offline")
+	assert.ErrorIs(t, err, ErrNotFound)
+	assert.Equal(t, []string{"sil-pfu-gone"}, fake.deletedSilences)
 }
 
 func TestDeleteRuleCleansRuleScopedSilences(t *testing.T) {

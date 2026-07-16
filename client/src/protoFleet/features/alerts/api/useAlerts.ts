@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import * as api from "@/protoFleet/features/alerts/api/alertsApi";
 import type {
@@ -49,67 +49,130 @@ export function useAlerts(): UseAlertsResult {
   const [maintenanceWindows, setMaintenanceWindows] = useState<MaintenanceWindowWithActive[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Ordering guards: deleted ids are tombstoned so a slow mutation response
+  // can't re-add the row, and any mutation bumps the epoch so a refresh
+  // snapshot that raced it is discarded instead of overwriting newer state.
+  const deletedIdsRef = useRef<Set<string>>(new Set());
+  const mutationEpochRef = useRef(0);
+
+  const noteMutation = useCallback(() => {
+    mutationEpochRef.current += 1;
+  }, []);
+
+  const isDeletedWindow = useCallback(
+    (w: MaintenanceWindow): boolean =>
+      deletedIdsRef.current.has(w.id) ||
+      (w.scope.kind === "rule" && w.scope.rule_id != null && deletedIdsRef.current.has(w.scope.rule_id)),
+    [],
+  );
+
+  const upsertRule = useCallback((updated: Rule) => {
+    if (deletedIdsRef.current.has(updated.id)) return;
+    setRules((current) => upsertById(current, updated));
+  }, []);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
+      const epoch = mutationEpochRef.current;
       const [nextRules, nextWindows] = await Promise.all([api.listRules(), api.listMaintenanceWindows()]);
-      setRules(nextRules);
-      setMaintenanceWindows(nextWindows.map((w) => withActive(w)));
+      // A mutation landed mid-flight; its state is newer than this snapshot.
+      if (epoch !== mutationEpochRef.current) return;
+      setRules(nextRules.filter((r) => !deletedIdsRef.current.has(r.id)));
+      setMaintenanceWindows(nextWindows.filter((w) => !isDeletedWindow(w)).map((w) => withActive(w)));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isDeletedWindow]);
 
-  const pauseRule = useCallback(async (id: string) => {
-    const updated = await api.pauseRule(id);
-    setRules((current) => upsertById(current, updated));
-  }, []);
+  const pauseRule = useCallback(
+    async (id: string) => {
+      const updated = await api.pauseRule(id);
+      noteMutation();
+      upsertRule(updated);
+    },
+    [noteMutation, upsertRule],
+  );
 
-  const resumeRule = useCallback(async (id: string) => {
-    const updated = await api.resumeRule(id);
-    setRules((current) => upsertById(current, updated));
-  }, []);
+  const resumeRule = useCallback(
+    async (id: string) => {
+      const updated = await api.resumeRule(id);
+      noteMutation();
+      upsertRule(updated);
+    },
+    [noteMutation, upsertRule],
+  );
 
-  const createRule = useCallback(async (config: RuleConfig) => {
-    const created = await api.createRule(config);
-    setRules((current) => upsertById(current, created));
-    return created;
-  }, []);
+  const createRule = useCallback(
+    async (config: RuleConfig) => {
+      const created = await api.createRule(config);
+      noteMutation();
+      upsertRule(created);
+      return created;
+    },
+    [noteMutation, upsertRule],
+  );
 
-  const updateRule = useCallback(async (id: string, config: RuleConfig) => {
-    const updated = await api.updateRule(id, config);
-    setRules((current) => upsertById(current, updated));
-    return updated;
-  }, []);
+  const updateRule = useCallback(
+    async (id: string, config: RuleConfig) => {
+      const updated = await api.updateRule(id, config);
+      noteMutation();
+      upsertRule(updated);
+      return updated;
+    },
+    [noteMutation, upsertRule],
+  );
 
-  const removeRule = useCallback(async (id: string) => {
-    await api.deleteRule(id);
-    setRules((current) => current.filter((r) => r.id !== id));
-    // The server delete also removes the rule's rule-scoped maintenance
-    // windows; drop them locally so the list doesn't show stale entries.
-    setMaintenanceWindows((current) => current.filter((w) => !(w.scope.kind === "rule" && w.scope.rule_id === id)));
-  }, []);
+  const removeRule = useCallback(
+    async (id: string) => {
+      await api.deleteRule(id);
+      noteMutation();
+      deletedIdsRef.current.add(id);
+      setRules((current) => current.filter((r) => r.id !== id));
+      // The server delete also removes the rule's rule-scoped maintenance
+      // windows; drop them locally so the list doesn't show stale entries.
+      setMaintenanceWindows((current) => current.filter((w) => !(w.scope.kind === "rule" && w.scope.rule_id === id)));
+    },
+    [noteMutation],
+  );
 
-  const createMaintenanceWindow = useCallback(async (input: api.MaintenanceWindowMutationInput) => {
-    const created = await api.createMaintenanceWindow(input);
-    setMaintenanceWindows((current) => upsertById(current, withActive(created)));
-    return created;
-  }, []);
+  const createMaintenanceWindow = useCallback(
+    async (input: api.MaintenanceWindowMutationInput) => {
+      const created = await api.createMaintenanceWindow(input);
+      noteMutation();
+      if (!isDeletedWindow(created)) {
+        setMaintenanceWindows((current) => upsertById(current, withActive(created)));
+      }
+      return created;
+    },
+    [noteMutation, isDeletedWindow],
+  );
 
-  const updateMaintenanceWindow = useCallback(async (input: api.MaintenanceWindowMutationInput & { id: string }) => {
-    const updated = await api.updateMaintenanceWindow(input);
-    // A history-affecting edit (e.g. scope change) makes Alertmanager assign a new silence id; drop the stale row so the window isn't listed twice.
-    setMaintenanceWindows((current) => {
-      const base = updated.id !== input.id ? current.filter((s) => s.id !== input.id) : current;
-      return upsertById(base, withActive(updated));
-    });
-    return updated;
-  }, []);
+  const updateMaintenanceWindow = useCallback(
+    async (input: api.MaintenanceWindowMutationInput & { id: string }) => {
+      const updated = await api.updateMaintenanceWindow(input);
+      noteMutation();
+      if (!isDeletedWindow(updated)) {
+        // A history-affecting edit (e.g. scope change) makes Alertmanager assign a new silence id; drop the stale row so the window isn't listed twice.
+        setMaintenanceWindows((current) => {
+          const base = updated.id !== input.id ? current.filter((s) => s.id !== input.id) : current;
+          return upsertById(base, withActive(updated));
+        });
+      }
+      return updated;
+    },
+    [noteMutation, isDeletedWindow],
+  );
 
-  const removeMaintenanceWindow = useCallback(async (id: string) => {
-    await api.deleteMaintenanceWindow(id);
-    setMaintenanceWindows((current) => current.filter((s) => s.id !== id));
-  }, []);
+  const removeMaintenanceWindow = useCallback(
+    async (id: string) => {
+      await api.deleteMaintenanceWindow(id);
+      noteMutation();
+      deletedIdsRef.current.add(id);
+      setMaintenanceWindows((current) => current.filter((s) => s.id !== id));
+    },
+    [noteMutation],
+  );
 
   return useMemo(
     () => ({
