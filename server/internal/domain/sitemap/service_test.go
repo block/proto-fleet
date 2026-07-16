@@ -70,21 +70,27 @@ func TestParseSiteMapCSVAndBuildPlanRequiresOmissionChoice(t *testing.T) {
 	}
 }
 
-func TestBuildPlanWithRemoveOmittedReturnsValidationError(t *testing.T) {
+func TestBuildPlanWithRemoveOmittedSummarizesDeletes(t *testing.T) {
 	parsed, errs := parseSiteMapCSV([]byte(validCSV()))
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v", errs)
 	}
 
 	plan := buildPlan(parsed, testSnapshot(), pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
-	if len(plan.errors) != 1 {
-		t.Fatalf("plan errors = %v, want one remove-omitted error", plan.errors)
+	if len(plan.errors) != 0 {
+		t.Fatalf("plan errors = %v", plan.errors)
 	}
-	if got := plan.errors[0].GetMessage(); got != "remove omitted rows is not supported by site map CSV v1; choose leave omitted rows in place" {
-		t.Fatalf("error = %q", got)
+	if !hasChange(plan.changes, pb.ImportOperation_IMPORT_OPERATION_UNASSIGN, "miner", 1) {
+		t.Fatalf("changes = %+v, want omitted miner unassign", plan.changes)
 	}
-	if len(plan.changes) != 0 {
-		t.Fatalf("unsupported remove-omitted mode should not build changes, got %v", plan.changes)
+	if !hasChange(plan.changes, pb.ImportOperation_IMPORT_OPERATION_DELETE, "rack", 1) {
+		t.Fatalf("changes = %+v, want omitted rack delete", plan.changes)
+	}
+	if !hasChange(plan.changes, pb.ImportOperation_IMPORT_OPERATION_DELETE, "building", 1) {
+		t.Fatalf("changes = %+v, want omitted building delete", plan.changes)
+	}
+	if !hasChange(plan.changes, pb.ImportOperation_IMPORT_OPERATION_DELETE, "site", 1) {
+		t.Fatalf("changes = %+v, want omitted site delete", plan.changes)
 	}
 }
 
@@ -164,6 +170,40 @@ func TestBuildPlanRejectsBuildingUnknownSite(t *testing.T) {
 	}
 	if len(plan.changes) != 0 {
 		t.Fatalf("changes = %+v, want no token-eligible changes when validation fails", plan.changes)
+	}
+}
+
+func TestBuildPlanRemoveOmittedRejectsReferencesToOmittedParents(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": nil,
+		"BUILDING": {
+			{"__row": "5", "site": "Site A", "building": "Building A", "aisles": "1", "racks_per_aisle": "1"},
+		},
+		"RACK": {
+			{"__row": "9", "rack": "Rack A", "site": "Site A", "building": "Building A", "rows": "4", "columns": "6"},
+		},
+		"MINER": {
+			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", "name": "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", "site": "Site A"},
+		},
+	}}
+	snap := &snapshot{
+		sites:     []sitemodels.Site{{Name: "Site A"}},
+		buildings: []buildingmodels.Building{{SiteLabel: "Site A", Name: "Building A"}},
+		racks:     []rackSnapshot{{Label: "Rack A", Site: "Site A", Building: "Building A", Rows: 4, Columns: 6}},
+		miners:    []minerSnapshot{{DeviceIdentifier: "miner-1", SerialNumber: "SN1", Name: "Miner 1", IPAddress: "10.0.0.5", MACAddress: "aa:bb:cc:dd:ee:ff", Site: "Site A"}},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	if len(plan.errors) == 0 {
+		t.Fatal("plan errors = nil, want remove-mode omitted parent reference errors")
+	}
+	for _, err := range plan.errors {
+		if !strings.Contains(err.GetMessage(), "is omitted") {
+			t.Fatalf("error = %q, want omitted reference error", err.GetMessage())
+		}
+	}
+	if len(plan.changes) != 0 {
+		t.Fatalf("changes = %+v, want no changes when validation fails", plan.changes)
 	}
 }
 

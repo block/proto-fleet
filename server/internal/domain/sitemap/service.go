@@ -297,7 +297,7 @@ func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.Imp
 		if err := ensureSupportedCommitPlan(plan); err != nil {
 			return nil, err
 		}
-		if err := s.applyImportPlan(ctx, orgID, parsed, snapshot); err != nil {
+		if err := s.applyImportPlan(ctx, orgID, parsed, snapshot, req.GetOmissionMode()); err != nil {
 			return nil, err
 		}
 		s.logSiteMapImportActivity(ctx, orgID, plan)
@@ -949,7 +949,8 @@ type importPlan struct {
 }
 
 func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPlan {
-	normalizeInferredPlacement(parsed, snap)
+	targetSnap := snapshotForOmissionMode(snap, mode)
+	normalizeInferredPlacement(parsed, targetSnap)
 	plan := importPlan{omissions: &pb.OmissionCounts{}}
 	siteKeys := rowSet(parsed.sections["SITE"], "site")
 	buildingKeys := compoundRowSet(parsed.sections["BUILDING"], "site", fieldBuilding)
@@ -981,21 +982,24 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateUniqueBuildingRows(parsed.sections["BUILDING"])...)
 	plan.errors = append(plan.errors, validateUnique(parsed.sections["RACK"], "RACK", "rack")...)
 	plan.errors = append(plan.errors, validateUnique(parsed.sections["MINER"], "MINER", "device_identifier")...)
-	plan.errors = append(plan.errors, validateRemoveOmittedMode(mode, plan.omissions)...)
+	removeReferenceErrors := validateRemoveOmittedReferences(parsed, mode)
+	plan.errors = append(plan.errors, removeReferenceErrors...)
 	plan.errors = append(plan.errors, validateKnownMiners(parsed.sections["MINER"], snap)...)
 	plan.errors = append(plan.errors, validateReadOnlyMinerFields(parsed.sections["MINER"], snap)...)
-	plan.errors = append(plan.errors, validateBuildingSiteTargets(parsed.sections["BUILDING"], parsed.sections["SITE"], snap)...)
-	plan.errors = append(plan.errors, validateRackPlacementTargets(parsed.sections["RACK"], parsed.sections["BUILDING"], parsed.sections["SITE"], snap)...)
-	plan.errors = append(plan.errors, validatePlacementConsistency(parsed.sections["MINER"], parsed.sections["RACK"], parsed.sections["BUILDING"], parsed.sections["SITE"], snap)...)
+	if len(removeReferenceErrors) == 0 {
+		plan.errors = append(plan.errors, validateBuildingSiteTargets(parsed.sections["BUILDING"], parsed.sections["SITE"], targetSnap)...)
+		plan.errors = append(plan.errors, validateRackPlacementTargets(parsed.sections["RACK"], parsed.sections["BUILDING"], parsed.sections["SITE"], targetSnap)...)
+		plan.errors = append(plan.errors, validatePlacementConsistency(parsed.sections["MINER"], parsed.sections["RACK"], parsed.sections["BUILDING"], parsed.sections["SITE"], targetSnap)...)
+	}
 	plan.errors = append(plan.errors, validateBuildingLayoutBounds(parsed.sections["BUILDING"])...)
 	plan.errors = append(plan.errors, validateRackDimensions(parsed.sections["RACK"])...)
-	plan.errors = append(plan.errors, validateRackGridPositions(parsed.sections["RACK"], parsed.sections["BUILDING"], snap)...)
+	plan.errors = append(plan.errors, validateRackGridPositions(parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap)...)
 	plan.errors = append(plan.errors, validateRackGridCollisions(parsed.sections["RACK"], snap, mode)...)
-	plan.errors = append(plan.errors, validateRackSlotBounds(parsed.sections["MINER"], parsed.sections["RACK"], snap)...)
-	plan.errors = append(plan.errors, validateExistingSlotsFitRackDimensions(parsed.sections["MINER"], parsed.sections["RACK"], snap, mode)...)
-	plan.errors = append(plan.errors, validateRackCapacity(parsed.sections["MINER"], parsed.sections["RACK"], snap, mode)...)
-	plan.errors = append(plan.errors, validateBuildingRackCapacity(parsed.sections["RACK"], parsed.sections["BUILDING"], snap)...)
-	plan.errors = append(plan.errors, validateBuildingExistingRacksFitLayout(parsed.sections["RACK"], parsed.sections["BUILDING"], snap, mode)...)
+	plan.errors = append(plan.errors, validateRackSlotBounds(parsed.sections["MINER"], parsed.sections["RACK"], targetSnap)...)
+	plan.errors = append(plan.errors, validateExistingSlotsFitRackDimensions(parsed.sections["MINER"], parsed.sections["RACK"], targetSnap, mode)...)
+	plan.errors = append(plan.errors, validateRackCapacity(parsed.sections["MINER"], parsed.sections["RACK"], targetSnap, mode)...)
+	plan.errors = append(plan.errors, validateBuildingRackCapacity(parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap)...)
+	plan.errors = append(plan.errors, validateBuildingExistingRacksFitLayout(parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap, mode)...)
 	plan.errors = append(plan.errors, validateSlotCollisions(parsed.sections["MINER"])...)
 	plan.errors = append(plan.errors, validateSlotConflictsWithExisting(parsed.sections["MINER"], snap)...)
 	if len(plan.errors) > 0 || (mode == pb.OmissionMode_OMISSION_MODE_UNSPECIFIED && hasOmissions(plan.omissions)) {
@@ -1013,8 +1017,24 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	addChange(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "site", countSiteUpdates(parsed.sections["SITE"], snap.sites), "site rows with changed details")
 	addChange(pb.ImportOperation_IMPORT_OPERATION_UPDATE, fieldBuilding, countBuildingUpdates(parsed.sections["BUILDING"], snap.buildings), "building rows with changed details")
 	addChange(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "rack", countRackUpdates(parsed.sections["RACK"], snap.racks), "rack rows with changed details")
-	addChange(pb.ImportOperation_IMPORT_OPERATION_MOVE, "miner", countMinerPlacementUpdates(parsed.sections["MINER"], parsed.sections["RACK"], parsed.sections["BUILDING"], snap), "miner placement rows with changed site, building, rack, or slot")
+	addChange(pb.ImportOperation_IMPORT_OPERATION_MOVE, "miner", countMinerPlacementUpdates(parsed.sections["MINER"], parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap), "miner placement rows with changed site, building, rack, or slot")
+	if mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
+		addChange(pb.ImportOperation_IMPORT_OPERATION_UNASSIGN, "miner", countDeletes(rowSetFromMiners(snap.miners), minerKeys), "omitted miner rows to unassign")
+		addChange(pb.ImportOperation_IMPORT_OPERATION_DELETE, "rack", countDeletes(rowSetFromRacks(snap.racks), rackKeys), "omitted rack rows to delete")
+		addChange(pb.ImportOperation_IMPORT_OPERATION_DELETE, fieldBuilding, countDeletes(rowSetFromBuildings(snap.buildings), buildingKeys), "omitted building rows to delete")
+		addChange(pb.ImportOperation_IMPORT_OPERATION_DELETE, "site", countDeletes(rowSetFromSites(snap.sites), siteKeys), "omitted site rows to delete")
+	}
 	return plan
+}
+
+func snapshotForOmissionMode(snap *snapshot, mode pb.OmissionMode) *snapshot {
+	if mode != pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
+		return snap
+	}
+	return &snapshot{
+		miners:            snap.miners,
+		hiddenRackMembers: snap.hiddenRackMembers,
+	}
 }
 
 func normalizeInferredPlacement(parsed *parsedCSV, snap *snapshot) {
@@ -1050,9 +1070,16 @@ func ensureSupportedCommitPlan(plan importPlan) error {
 			if change.GetEntityType() == "miner" {
 				continue
 			}
-		case pb.ImportOperation_IMPORT_OPERATION_UNSPECIFIED,
-			pb.ImportOperation_IMPORT_OPERATION_DELETE,
-			pb.ImportOperation_IMPORT_OPERATION_UNASSIGN:
+		case pb.ImportOperation_IMPORT_OPERATION_UNASSIGN:
+			if change.GetEntityType() == "miner" {
+				continue
+			}
+		case pb.ImportOperation_IMPORT_OPERATION_DELETE:
+			switch change.GetEntityType() {
+			case "site", fieldBuilding, "rack":
+				continue
+			}
+		case pb.ImportOperation_IMPORT_OPERATION_UNSPECIFIED:
 		}
 		return fleeterror.NewFailedPreconditionErrorf(
 			"site map commit does not yet support %s %s changes",
@@ -1063,7 +1090,7 @@ func ensureSupportedCommitPlan(plan importPlan) error {
 	return nil
 }
 
-func (s *Service) applyImportPlan(ctx context.Context, orgID int64, parsed *parsedCSV, snap *snapshot) error {
+func (s *Service) applyImportPlan(ctx context.Context, orgID int64, parsed *parsedCSV, snap *snapshot, omissionMode pb.OmissionMode) error {
 	if s.transactor == nil {
 		return fleeterror.NewInternalError("site map import requires a transactor")
 	}
@@ -1085,6 +1112,11 @@ func (s *Service) applyImportPlan(ctx context.Context, orgID int64, parsed *pars
 		minersByID[miner.DeviceIdentifier] = miner
 	}
 	return s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		if omissionMode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
+			if err := s.applyOmittedRows(txCtx, orgID, parsed, snap); err != nil {
+				return err
+			}
+		}
 		if err := s.applySiteRows(txCtx, orgID, parsed.sections["SITE"], sitesByName); err != nil {
 			return err
 		}
@@ -1096,6 +1128,125 @@ func (s *Service) applyImportPlan(ctx context.Context, orgID int64, parsed *pars
 		}
 		return s.applyMinerRows(txCtx, orgID, parsed.sections["MINER"], parsed.sections["BUILDING"], snap.buildings, sitesByName, buildingsByKey, racksByLabel, minersByID)
 	})
+}
+
+func (s *Service) applyOmittedRows(ctx context.Context, orgID int64, parsed *parsedCSV, snap *snapshot) error {
+	if err := s.unassignOmittedMiners(ctx, orgID, omittedMiners(parsed.sections["MINER"], snap.miners)); err != nil {
+		return err
+	}
+	if err := s.deleteOmittedRacks(ctx, orgID, omittedRacks(parsed.sections["RACK"], snap.racks)); err != nil {
+		return err
+	}
+	if err := s.deleteOmittedBuildings(ctx, orgID, omittedBuildings(parsed.sections["BUILDING"], snap.buildings)); err != nil {
+		return err
+	}
+	return s.deleteOmittedSites(ctx, orgID, omittedSites(parsed.sections["SITE"], snap.sites))
+}
+
+func (s *Service) unassignOmittedMiners(ctx context.Context, orgID int64, miners []minerSnapshot) error {
+	for _, miner := range miners {
+		deviceIDs := []string{miner.DeviceIdentifier}
+		if _, err := s.collectionStore.LockRacksForReparent(ctx, orgID, deviceIDs, 0); err != nil {
+			return err
+		}
+		if _, err := s.collectionStore.RemoveDevicesFromAnyRack(ctx, orgID, deviceIDs, 0); err != nil {
+			return err
+		}
+		if _, err := s.siteStore.AssignDevicesToSite(ctx, orgID, nil, deviceIDs); err != nil {
+			return err
+		}
+		if _, err := s.buildingStore.AssignDevicesToBuilding(ctx, orgID, nil, deviceIDs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) deleteOmittedRacks(ctx context.Context, orgID int64, racks []rackSnapshot) error {
+	for _, rack := range racks {
+		if _, err := s.collectionStore.LockRackPlacementForWrite(ctx, rack.ID, orgID); err != nil {
+			return err
+		}
+		if _, err := s.collectionStore.UnassignDeviceSitesByRack(ctx, rack.ID, orgID); err != nil {
+			return err
+		}
+		if _, err := s.collectionStore.UnassignDeviceBuildingsByRack(ctx, rack.ID, orgID); err != nil {
+			return err
+		}
+		if err := s.collectionStore.ClearRackPlacementForSoftDelete(ctx, orgID, rack.ID); err != nil {
+			return err
+		}
+		if _, err := s.collectionStore.RemoveAllDevicesFromCollection(ctx, orgID, rack.ID); err != nil {
+			return err
+		}
+		rowsAffected, err := s.collectionStore.SoftDeleteCollection(ctx, orgID, rack.ID)
+		if err != nil {
+			return err
+		}
+		if rowsAffected == 0 {
+			return fleeterror.NewNotFoundErrorf("rack %d not found", rack.ID)
+		}
+	}
+	return nil
+}
+
+func (s *Service) deleteOmittedBuildings(ctx context.Context, orgID int64, buildings []buildingmodels.Building) error {
+	for _, building := range buildings {
+		_, found, err := s.buildingStore.SoftDeleteBuilding(ctx, orgID, building.ID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return fleeterror.NewNotFoundErrorf("building %d not found", building.ID)
+		}
+		if _, err := s.buildingStore.UnassignRacksFromBuilding(ctx, orgID, building.ID); err != nil {
+			return err
+		}
+		if _, err := s.buildingStore.ClearDeviceBuildingsByBuilding(ctx, orgID, building.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) deleteOmittedSites(ctx context.Context, orgID int64, sites []sitemodels.Site) error {
+	for _, site := range sites {
+		if err := s.siteStore.LockSiteForWrite(ctx, orgID, site.ID); err != nil {
+			return err
+		}
+		if err := s.siteStore.LockBuildingsBySiteForWrite(ctx, orgID, site.ID); err != nil {
+			return err
+		}
+		if _, err := s.siteStore.UnassignRacksFromBuildingsBySite(ctx, orgID, site.ID); err != nil {
+			return err
+		}
+		if _, err := s.buildingStore.ClearDeviceBuildingsBySite(ctx, orgID, site.ID); err != nil {
+			return err
+		}
+		if _, err := s.siteStore.SoftDeleteBuildingsBySite(ctx, orgID, site.ID); err != nil {
+			return err
+		}
+		if _, err := s.siteStore.UnassignRacksFromSite(ctx, orgID, site.ID); err != nil {
+			return err
+		}
+		if _, err := s.siteStore.UnassignDevicesFromSite(ctx, orgID, site.ID); err != nil {
+			return err
+		}
+		if _, err := s.siteStore.DeleteCurtailmentResponseProfilesBySite(ctx, orgID, site.ID); err != nil {
+			return err
+		}
+		if _, err := s.siteStore.SoftDeleteInfrastructureDevicesBySite(ctx, orgID, site.ID); err != nil {
+			return err
+		}
+		rowsAffected, err := s.siteStore.SoftDeleteSite(ctx, orgID, site.ID)
+		if err != nil {
+			return err
+		}
+		if rowsAffected == 0 {
+			return fleeterror.NewNotFoundErrorf("site %d not found", site.ID)
+		}
+	}
+	return nil
 }
 
 func (s *Service) logSiteMapImportActivity(ctx context.Context, orgID int64, plan importPlan) {
@@ -1638,13 +1789,75 @@ func validateUniqueBuildingRows(rows []map[string]string) []*pb.ImportValidation
 	return errs
 }
 
-func validateRemoveOmittedMode(mode pb.OmissionMode, omissions *pb.OmissionCounts) []*pb.ImportValidationError {
-	if mode != pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED || !hasOmissions(omissions) {
+func validateRemoveOmittedReferences(parsed *parsedCSV, mode pb.OmissionMode) []*pb.ImportValidationError {
+	if mode != pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
 		return nil
 	}
-	return []*pb.ImportValidationError{
-		csvErr(0, "", "remove omitted rows is not supported by site map CSV v1; choose leave omitted rows in place"),
+	siteRows := parsed.sections["SITE"]
+	buildingRows := parsed.sections["BUILDING"]
+	rackRows := parsed.sections["RACK"]
+	minerRows := parsed.sections["MINER"]
+
+	presentSites := rowSet(siteRows, "site")
+	presentBuildings := compoundRowSet(buildingRows, "site", fieldBuilding)
+	presentRacks := rowSet(rackRows, "rack")
+	buildingsByName, ambiguousBuildings := desiredBuildingNameLookup(buildingRows, nil)
+
+	var errs []*pb.ImportValidationError
+	for i, row := range buildingRows {
+		if row["site"] != "" && !presentSites[row["site"]] {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", fmt.Sprintf("building site %q is omitted; add the SITE row or choose leave omitted rows in place", row["site"])))
+		}
 	}
+	for i, row := range rackRows {
+		if row["site"] != "" && !presentSites[row["site"]] {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack site %q is omitted; add the SITE row or choose leave omitted rows in place", row["site"])))
+		}
+		if row[fieldBuilding] == "" {
+			continue
+		}
+		if row["site"] != "" {
+			if !presentBuildings[row["site"]+"\x00"+row[fieldBuilding]] {
+				errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack building %q for site %q is omitted; add the BUILDING row or choose leave omitted rows in place", row[fieldBuilding], row["site"])))
+			}
+			continue
+		}
+		if ambiguousBuildings[row[fieldBuilding]] {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack building %q is ambiguous; add site", row[fieldBuilding])))
+			continue
+		}
+		if _, ok := buildingsByName[row[fieldBuilding]]; !ok {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack building %q is omitted; add the BUILDING row or choose leave omitted rows in place", row[fieldBuilding])))
+		}
+	}
+	for i, row := range minerRows {
+		if row["rack"] != "" {
+			if !presentRacks[row["rack"]] {
+				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner rack %q is omitted; add the RACK row or choose leave omitted rows in place", row["rack"])))
+			}
+			continue
+		}
+		if row[fieldBuilding] != "" {
+			if row["site"] != "" {
+				if !presentBuildings[row["site"]+"\x00"+row[fieldBuilding]] {
+					errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner building %q for site %q is omitted; add the BUILDING row or choose leave omitted rows in place", row[fieldBuilding], row["site"])))
+				}
+				continue
+			}
+			if ambiguousBuildings[row[fieldBuilding]] {
+				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner building %q is ambiguous; add site", row[fieldBuilding])))
+				continue
+			}
+			if _, ok := buildingsByName[row[fieldBuilding]]; !ok {
+				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner building %q is omitted; add the BUILDING row or choose leave omitted rows in place", row[fieldBuilding])))
+			}
+			continue
+		}
+		if row["site"] != "" && !presentSites[row["site"]] {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner site %q is omitted; add the SITE row or choose leave omitted rows in place", row["site"])))
+		}
+	}
+	return errs
 }
 
 func validateKnownMiners(rows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
@@ -2221,6 +2434,16 @@ func countCreates(existing, desired map[string]bool) int32 {
 	return count
 }
 
+func countDeletes(existing, desired map[string]bool) int32 {
+	var count int32
+	for key := range existing {
+		if !desired[key] {
+			count++
+		}
+	}
+	return count
+}
+
 func countSiteUpdates(rows []map[string]string, sites []sitemodels.Site) int32 {
 	existing := map[string]map[string]string{}
 	for _, site := range sites {
@@ -2566,6 +2789,50 @@ func rowSetFromMiners(rows []minerSnapshot) map[string]bool {
 	out := map[string]bool{}
 	for _, row := range rows {
 		out[row.DeviceIdentifier] = true
+	}
+	return out
+}
+
+func omittedSites(rows []map[string]string, sites []sitemodels.Site) []sitemodels.Site {
+	present := rowSet(rows, "site")
+	var out []sitemodels.Site
+	for _, site := range sites {
+		if !present[site.Name] {
+			out = append(out, site)
+		}
+	}
+	return out
+}
+
+func omittedBuildings(rows []map[string]string, buildings []buildingmodels.Building) []buildingmodels.Building {
+	present := compoundRowSet(rows, "site", fieldBuilding)
+	var out []buildingmodels.Building
+	for _, building := range buildings {
+		if !present[building.SiteLabel+"\x00"+building.Name] {
+			out = append(out, building)
+		}
+	}
+	return out
+}
+
+func omittedRacks(rows []map[string]string, racks []rackSnapshot) []rackSnapshot {
+	present := rowSet(rows, "rack")
+	var out []rackSnapshot
+	for _, rack := range racks {
+		if !present[rack.Label] {
+			out = append(out, rack)
+		}
+	}
+	return out
+}
+
+func omittedMiners(rows []map[string]string, miners []minerSnapshot) []minerSnapshot {
+	present := rowSet(rows, "device_identifier")
+	var out []minerSnapshot
+	for _, miner := range miners {
+		if !present[miner.DeviceIdentifier] {
+			out = append(out, miner)
+		}
 	}
 	return out
 }
