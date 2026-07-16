@@ -334,7 +334,9 @@ export class BasePage {
   }
 
   async logout() {
-    if (this.page.url().includes("/auth")) {
+    const loginForm = this.page.locator("#username");
+
+    if (this.page.url().includes("/auth") || (await loginForm.isVisible().catch(() => false))) {
       return;
     }
 
@@ -342,6 +344,16 @@ export class BasePage {
 
     if (!(await logoutButton.isVisible().catch(() => false))) {
       await this.clickNavigationMenuIfMobile();
+    }
+
+    if (this.page.url().includes("/auth") || (await loginForm.isVisible().catch(() => false))) {
+      return;
+    }
+
+    if (!(await logoutButton.isVisible().catch(() => false))) {
+      await this.page.goto("/auth");
+      await expect(loginForm).toBeVisible();
+      return;
     }
 
     await logoutButton.click();
