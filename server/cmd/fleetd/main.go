@@ -45,6 +45,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/chat/v1/chatv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
@@ -69,6 +70,7 @@ import (
 	apikeyDomain "github.com/block/proto-fleet/server/internal/domain/apikey"
 	authDomain "github.com/block/proto-fleet/server/internal/domain/auth"
 	buildingsDomain "github.com/block/proto-fleet/server/internal/domain/buildings"
+	chatDomain "github.com/block/proto-fleet/server/internal/domain/chat"
 	collectionDomain "github.com/block/proto-fleet/server/internal/domain/collection"
 	commandDomain "github.com/block/proto-fleet/server/internal/domain/command"
 	curtailmentDomain "github.com/block/proto-fleet/server/internal/domain/curtailment"
@@ -102,6 +104,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/auth"
 	authzHandler "github.com/block/proto-fleet/server/internal/handlers/authz"
 	buildingsHandler "github.com/block/proto-fleet/server/internal/handlers/buildings"
+	chatHandler "github.com/block/proto-fleet/server/internal/handlers/chat"
 	collectionHandler "github.com/block/proto-fleet/server/internal/handlers/collection"
 	"github.com/block/proto-fleet/server/internal/handlers/command"
 	curtailmentHandler "github.com/block/proto-fleet/server/internal/handlers/curtailment"
@@ -171,6 +174,7 @@ var reflectEnabledServices = []string{
 	sitemapv1connect.SiteMapServiceName,
 	curtailmentv1connect.CurtailmentServiceName,
 	device_setv1connect.DeviceSetServiceName,
+	chatv1connect.ChatServiceName,
 }
 
 func start(config *Config) error {
@@ -649,6 +653,10 @@ func start(config *Config) error {
 	alertChannelStore := sqlstores.NewSQLAlertChannelStore(conn)
 	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
 	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
+	llmConfigStore := sqlstores.NewSQLLLMConfigStore(conn)
+	llmConfigSvc := chatDomain.NewConfigService(llmConfigStore, encryptSvc)
+	chatModelClient := chatDomain.NewHTTPModelClient()
+	chatAgent := chatDomain.NewAgent(chatModelClient)
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
@@ -705,12 +713,16 @@ func start(config *Config) error {
 	mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboarding.NewHandler(authSvc, onboardingSvc), li))
 	mux.Handle(pairingv1connect.NewPairingServiceHandler(pairing.NewHandler(pairingSvc, fleetNodeDiscoverySvc, fleetNodePairingSvc), li))
 	mux.Handle(networkinfov1connect.NewNetworkInfoServiceHandler(networkinfo.NewHandler(pairingSvc), li))
-	mux.Handle(fleetmanagementv1connect.NewFleetManagementServiceHandler(fleetmanagement.NewHandler(fleetMgmtSvc), li))
+	fleetManagementHandler := fleetmanagement.NewHandler(fleetMgmtSvc)
+	poolsHandler := pools.NewHandler(poolsSvc)
+	siteServiceHandler := sitesHandler.NewHandler(sitesSvc)
+
+	mux.Handle(fleetmanagementv1connect.NewFleetManagementServiceHandler(fleetManagementHandler, li))
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
-	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
+	mux.Handle(poolsv1connect.NewPoolsServiceHandler(poolsHandler, li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc), li))
-	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
+	mux.Handle(sitesv1connect.NewSiteServiceHandler(siteServiceHandler, li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))
 	mux.Handle(sitemapv1connect.NewSiteMapServiceHandler(
@@ -733,6 +745,12 @@ func start(config *Config) error {
 	mux.Handle(apikeyv1connect.NewApiKeyServiceHandler(apikeyHandler.NewHandler(apiKeySvc), li))
 	mux.Handle(authzv1connect.NewAuthzServiceHandler(authzHandler.NewHandler(authz.NewService(conn, activitySvc)), li))
 	mux.Handle(serverlogv1connect.NewServerLogServiceHandler(serverlogHandler.NewHandler(logging.DefaultBuffer()), li))
+	mux.Handle(chatv1connect.NewChatServiceHandler(chatHandler.NewHandler(
+		llmConfigSvc,
+		chatAgent,
+		chatModelClient,
+		chatHandler.NewFleetTools(fleetManagementHandler, siteServiceHandler, poolsHandler),
+	), li))
 
 	alertHandler := alertsHandler.NewHandler(alertsSvc, notificationHistoryStore)
 	mux.Handle(alertsv1connect.NewChannelServiceHandler(alertHandler, li))

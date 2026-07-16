@@ -100,6 +100,18 @@ describe("secondaryNavItems", () => {
     );
   });
 
+  it("gives agent configuration its own Admin destination", () => {
+    expect(secondaryNavItems).toContainEqual(
+      expect.objectContaining({
+        path: "/settings/agents",
+        label: "Agents",
+        parent: "/settings",
+        section: "Admin",
+        requiredPermission: "apikey:manage",
+      }),
+    );
+  });
+
   it("folds role management into the Team destination", () => {
     expect(secondaryNavItems).toContainEqual(
       expect.objectContaining({

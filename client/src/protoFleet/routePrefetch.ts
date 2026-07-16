@@ -41,6 +41,7 @@ export const importSettingsSchedules = () =>
   import("@/protoFleet/features/settings/components/Schedules/SchedulesPage");
 export const importSettingsCurtailment = () => import("@/protoFleet/features/settings/components/Curtailment");
 export const importSettingsAlerts = () => import("@/protoFleet/features/alerts/pages/Alerts");
+export const importSettingsAgents = () => import("@/protoFleet/features/settings/agents");
 export const importSettingsIntegrations = () => import("@/protoFleet/features/settings/components/ApiKeys");
 export const importSiteDetailPage = () => import("@/protoFleet/features/sites/pages/SiteDetailPage");
 export const importBuildingPage = () => import("@/protoFleet/features/buildings/pages/BuildingPage");
@@ -79,6 +80,7 @@ export const settingsRoutePrefetch: readonly RouteImporter[] = [
   importSettingsSchedules,
   importSettingsCurtailment,
   importSettingsAlerts,
+  importSettingsAgents,
   importSettingsIntegrations,
   importSettingsPreferences,
   importServerLogsPage,

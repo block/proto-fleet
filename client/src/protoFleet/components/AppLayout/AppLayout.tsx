@@ -16,6 +16,7 @@ import {
 import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
 import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
+import { ChatFab, ChatPanel } from "@/protoFleet/features/aiChat";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { useHasPermission } from "@/protoFleet/store";
 import { Menu } from "@/shared/assets/icons";
@@ -36,6 +37,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const { activeEvent: activeCurtailmentEvent } = useCurtailmentPillData();
   const hasDismissedSetup = Boolean(dismissedSetup);
   const canReadCurtailment = useHasPermission("curtailment:read");
+  const canReadFleet = useHasPermission("fleet:read");
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
   const headerWidgetCount = getVisibleHeaderWidgetCount({
     hasDismissedSetup,
@@ -115,6 +117,14 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
       >
         {children}
       </div>
+
+      {canReadFleet ? (
+        <>
+          {/* AI Chat: FAB launcher + slide-up panel */}
+          <ChatFab />
+          <ChatPanel />
+        </>
+      ) : null}
     </div>
   );
 };

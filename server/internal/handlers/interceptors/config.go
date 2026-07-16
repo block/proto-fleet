@@ -5,6 +5,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/chat/v1/chatv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
@@ -48,6 +49,8 @@ var RedactedRequestProcedures = []string{
 	alertsv1connect.ChannelServiceTestChannelProcedure,
 	// Site control-subnet commissioning carries OT topology.
 	sitesv1connect.SiteServiceSetInfrastructureControlSubnetsProcedure,
+	chatv1connect.ChatServiceDiscoverModelsProcedure,
+	chatv1connect.ChatServiceUpdateLLMConfigProcedure,
 }
 
 // RedactedResponseProcedures lists procedures whose responses contain secrets
@@ -154,6 +157,13 @@ var SessionOnlyProcedures = []string{
 	alertsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure,
 	alertsv1connect.MaintenanceWindowServiceDeleteMaintenanceWindowProcedure,
 	alertsv1connect.HistoryServiceListAlertsProcedure,
+	// Provider settings and interactive prompts can contain credentials or
+	// operationally sensitive fleet context. Keep the full AI surface bound to
+	// an authenticated browser session rather than reusable API keys.
+	chatv1connect.ChatServiceGetLLMConfigProcedure,
+	chatv1connect.ChatServiceDiscoverModelsProcedure,
+	chatv1connect.ChatServiceUpdateLLMConfigProcedure,
+	chatv1connect.ChatServiceSendMessageProcedure,
 }
 
 var UnauthenticatedProcedures = []string{
@@ -202,6 +212,9 @@ var SensitiveBodyProcedures = map[string]bool{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadTelemetryProcedure:         true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure:            true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadCommandArtifactProcedure:   true,
+	chatv1connect.ChatServiceUpdateLLMConfigProcedure:                                 true,
+	chatv1connect.ChatServiceDiscoverModelsProcedure:                                  true,
+	chatv1connect.ChatServiceSendMessageProcedure:                                     true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceDownloadCommandArtifactProcedure: true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportDiscoveredDevicesProcedure: true,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportPairedDevicesProcedure:     true,

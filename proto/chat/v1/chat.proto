@@ -1,0 +1,160 @@
+syntax = "proto3";
+
+package chat.v1;
+
+import "buf/validate/validate.proto";
+
+option go_package = "github.com/block/proto-fleet/server/generated/grpc/chat/v1;chatv1";
+
+// ChatService owns the organization-scoped BYOLLM configuration and the
+// streaming agent conversation boundary used by the Proto Fleet web client.
+service ChatService {
+  rpc GetLLMConfig(GetLLMConfigRequest) returns (GetLLMConfigResponse);
+  rpc DiscoverModels(DiscoverModelsRequest) returns (DiscoverModelsResponse);
+  rpc UpdateLLMConfig(UpdateLLMConfigRequest) returns (UpdateLLMConfigResponse);
+  rpc SendMessage(SendMessageRequest) returns (stream SendMessageResponse);
+}
+
+enum AgentHarness {
+  AGENT_HARNESS_UNSPECIFIED = 0;
+  AGENT_HARNESS_NATIVE = 1;
+  AGENT_HARNESS_GOOSE = 2;
+}
+
+enum LLMProvider {
+  LLM_PROVIDER_UNSPECIFIED = 0;
+  LLM_PROVIDER_OPENAI = 1;
+  LLM_PROVIDER_ANTHROPIC = 2;
+  LLM_PROVIDER_OLLAMA = 3;
+  LLM_PROVIDER_CUSTOM = 4;
+}
+
+message LLMConfig {
+  reserved 6;
+
+  AgentHarness harness = 1;
+  LLMProvider provider = 2;
+  bool has_api_key = 3;
+  string base_url = 4;
+  string model = 5;
+  string goose_base_url = 7;
+  bool has_goose_secret = 8;
+  bool configured = 9;
+}
+
+message GetLLMConfigRequest {}
+
+message GetLLMConfigResponse {
+  LLMConfig config = 1;
+}
+
+message DiscoverModelsRequest {
+  LLMProvider provider = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  // Write-only credential used for this discovery request. It is not saved.
+  string api_key = 2 [(buf.validate.field).string.max_len = 8192];
+  string base_url = 3 [(buf.validate.field).string.max_len = 2048];
+  // Uses the encrypted credential already saved for this provider. This cannot
+  // be combined with api_key.
+  bool use_stored_api_key = 4;
+}
+
+message AvailableModel {
+  string id = 1;
+  string display_name = 2;
+}
+
+message DiscoverModelsResponse {
+  repeated AvailableModel models = 1;
+}
+
+message UpdateLLMConfigRequest {
+  reserved 6;
+
+  AgentHarness harness = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  LLMProvider provider = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  // Write-only. An empty value preserves the existing key unless
+  // clear_api_key is true.
+  string api_key = 3 [(buf.validate.field).string.max_len = 8192];
+  string base_url = 4 [(buf.validate.field).string.max_len = 2048];
+  string model = 5 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 255
+  }];
+  string goose_base_url = 7 [(buf.validate.field).string.max_len = 2048];
+  // Write-only shared secret for a remote Goose ACP endpoint.
+  string goose_secret = 8 [(buf.validate.field).string.max_len = 8192];
+  bool clear_api_key = 9;
+  bool clear_goose_secret = 10;
+}
+
+message UpdateLLMConfigResponse {
+  LLMConfig config = 1;
+}
+
+enum ChatRole {
+  CHAT_ROLE_UNSPECIFIED = 0;
+  CHAT_ROLE_USER = 1;
+  CHAT_ROLE_ASSISTANT = 2;
+}
+
+message ChatTurn {
+  ChatRole role = 1 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+  string content = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 32768
+  }];
+}
+
+message SendMessageRequest {
+  string conversation_id = 1 [(buf.validate.field).string.max_len = 128];
+  string content = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 32768
+  }];
+  // Conversations remain client-side. Supplying prior turns keeps the server
+  // stateless while preserving multi-turn context.
+  repeated ChatTurn history = 3 [(buf.validate.field).repeated.max_items = 50];
+}
+
+message TextDelta {
+  string content = 1;
+}
+
+message ToolCall {
+  string id = 1;
+  string name = 2;
+  string summary = 3;
+}
+
+message ToolResult {
+  string id = 1;
+  string name = 2;
+  bool success = 3;
+  string summary = 4;
+}
+
+message Done {
+  string finish_reason = 1;
+}
+
+message SendMessageResponse {
+  string message_id = 1;
+  oneof event {
+    TextDelta text_delta = 2;
+    ToolCall tool_call = 3;
+    ToolResult tool_result = 4;
+    Done done = 5;
+  }
+}

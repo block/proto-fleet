@@ -7,6 +7,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/authz/v1/authzv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/chat/v1/chatv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
@@ -49,6 +50,14 @@ import (
 // glance: shrinking ProceduresPendingMigration to zero is the exit
 // criterion for retiring the legacy RequireAdmin middleware.
 var ProcedurePermissions = map[string]string{
+	// AI provider settings share the existing integrations-management gate;
+	// conversations require fleet read and each invoked tool applies its own
+	// narrower handler permission before returning data.
+	chatv1connect.ChatServiceGetLLMConfigProcedure:    authz.PermAPIKeyManage,
+	chatv1connect.ChatServiceDiscoverModelsProcedure:  authz.PermAPIKeyManage,
+	chatv1connect.ChatServiceUpdateLLMConfigProcedure: authz.PermAPIKeyManage,
+	chatv1connect.ChatServiceSendMessageProcedure:     authz.PermFleetRead,
+
 	// Activity log — read-only audit trail. Export is the CSV variant of
 	// the same query; filter options is the lookup endpoint that drives
 	// the UI's filter panel. All three sit on activity:read.

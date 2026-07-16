@@ -11,6 +11,7 @@ import { ApiKeyService } from "@/protoFleet/api/generated/apikey/v1/apikey_pb";
 import { AuthService } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { AuthzService } from "@/protoFleet/api/generated/authz/v1/authz_pb";
 import { BuildingService } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { ChatService } from "@/protoFleet/api/generated/chat/v1/chat_pb";
 import { CurtailmentService } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { DeviceSetService } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { ErrorQueryService } from "@/protoFleet/api/generated/errors/v1/errors_pb";
@@ -51,6 +52,7 @@ const foremanImportClient = createClient(ForemanImportService, transport);
 const infrastructureClient = createClient(InfrastructureService, transport);
 const sitesClient = createClient(SiteService, transport);
 const buildingsClient = createClient(BuildingService, transport);
+const chatClient = createClient(ChatService, transport);
 const alertChannelClient = createClient(AlertChannelService, transport);
 const alertRuleClient = createClient(AlertRuleService, transport);
 const alertMaintenanceWindowClient = createClient(AlertMaintenanceWindowService, transport);
@@ -66,6 +68,7 @@ export {
   authClient,
   authzClient,
   buildingsClient,
+  chatClient,
   curtailmentClient,
   deviceSetClient,
   errorQueryClient,

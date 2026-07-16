@@ -192,6 +192,13 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     requiredAnyPermission: ["user:read", "role:manage"],
   },
   {
+    path: "/settings/agents",
+    label: "Agents",
+    parent: "/settings",
+    section: "Admin",
+    requiredPermission: "apikey:manage",
+  },
+  {
     path: "/settings/integrations",
     label: "Integrations",
     parent: "/settings",

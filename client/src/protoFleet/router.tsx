@@ -24,6 +24,7 @@ import {
   importRacksPage,
   importSecurityPage,
   importServerLogsPage,
+  importSettingsAgents,
   importSettingsAlerts,
   importSettingsAuth,
   importSettingsCurtailment,
@@ -89,6 +90,7 @@ const SettingsNodes = lazy(importSettingsNodes);
 const SettingsSchedules = lazy(importSettingsSchedules);
 const SettingsCurtailment = lazy(importSettingsCurtailment);
 const SettingsAlerts = lazy(importSettingsAlerts);
+const SettingsAgents = lazy(importSettingsAgents);
 const SettingsIntegrations = lazy(importSettingsIntegrations);
 const SiteDetailPage = lazy(importSiteDetailPage);
 const BuildingPage = lazy(importBuildingPage);
@@ -344,6 +346,12 @@ const router = createBrowserRouter([
     path: "/settings/api-keys",
     loader: () => redirect("/settings/integrations"),
   },
+  createRoute(
+    "/settings/agents",
+    <SettingsLayout>
+      <SettingsAgents />
+    </SettingsLayout>,
+  ),
   createRoute(
     "/settings/integrations",
     <SettingsLayout>

@@ -11,6 +11,7 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/grpc/alerts/v1/alertsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/chat/v1/chatv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
@@ -46,6 +47,31 @@ func TestMqttSettingsPasswordProceduresAreRedacted(t *testing.T) {
 	}
 	for _, procedure := range procedures {
 		assert.Contains(t, RedactedRequestProcedures, procedure)
+	}
+}
+
+func TestChatProceduresProtectSecretsAndPromptBodies(t *testing.T) {
+	t.Parallel()
+
+	configProcedure := chatv1connect.ChatServiceUpdateLLMConfigProcedure
+	assert.Contains(t, RedactedRequestProcedures, configProcedure)
+	assert.True(t, SensitiveBodyProcedures[configProcedure])
+	discoveryProcedure := chatv1connect.ChatServiceDiscoverModelsProcedure
+	assert.Contains(t, RedactedRequestProcedures, discoveryProcedure)
+	assert.True(t, SensitiveBodyProcedures[discoveryProcedure])
+
+	chatProcedure := chatv1connect.ChatServiceSendMessageProcedure
+	assert.True(t, SensitiveBodyProcedures[chatProcedure])
+
+	for _, procedure := range []string{
+		chatv1connect.ChatServiceGetLLMConfigProcedure,
+		discoveryProcedure,
+		configProcedure,
+		chatProcedure,
+	} {
+		assert.Contains(t, SessionOnlyProcedures, procedure,
+			"%s must reject API-key auth because the AI surface contains credentials or fleet context",
+			procedure)
 	}
 }
 

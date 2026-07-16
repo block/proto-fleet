@@ -941,6 +941,23 @@ type InfrastructureDevice struct {
 	RackName     string
 }
 
+// Organization-scoped agent harness and encrypted BYOLLM provider configuration.
+type LlmConfig struct {
+	OrganizationID int64
+	Harness        string
+	Provider       string
+	// AES-GCM ciphertext produced by the fleet service master key; never returned over RPC.
+	ApiKeyEncrypted string
+	BaseUrl         string
+	Model           string
+	Temperature     float64
+	GooseBaseUrl    string
+	// Encrypted authentication secret for a future remote Goose ACP adapter.
+	GooseSecretEncrypted string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
 type MinerCredential struct {
 	ID          int64
 	DeviceID    int64
