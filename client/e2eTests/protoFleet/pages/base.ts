@@ -32,10 +32,18 @@ export class BasePage {
   }
 
   async clickClearAllFilters() {
-    await this.dismissVisibleToastIfPresent();
     const clearAllFiltersButton = this.page.getByRole("button", { name: "Clear all filters", exact: true });
     await clearAllFiltersButton.scrollIntoViewIfNeeded();
-    await clearAllFiltersButton.click();
+    await this.dismissVisibleToastIfPresent();
+    try {
+      await clearAllFiltersButton.click();
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("intercepts pointer events")) {
+        throw error;
+      }
+      await this.dismissVisibleToastIfPresent();
+      await clearAllFiltersButton.click();
+    }
   }
 
   async clearActiveFilter(filterValue: string) {
@@ -367,22 +375,23 @@ export class BasePage {
     }
 
     const logoutButton = this.page.getByTestId("logout-button");
+    if (await logoutButton.isVisible().catch(() => false)) {
+      await logoutButton.click();
+      return;
+    }
 
-    if (!(await logoutButton.isVisible().catch(() => false))) {
-      await this.clickNavigationMenuIfMobile();
+    await this.clickNavigationMenuIfMobile();
+    if (await logoutButton.isVisible().catch(() => false)) {
+      await logoutButton.click();
+      return;
     }
 
     if (this.page.url().includes("/auth") || (await loginForm.isVisible().catch(() => false))) {
       return;
     }
 
-    if (!(await logoutButton.isVisible().catch(() => false))) {
-      await this.page.goto("/auth");
-      await expect(loginForm).toBeVisible();
-      return;
-    }
-
-    await logoutButton.click();
+    await this.page.goto("/auth");
+    await expect(loginForm).toBeVisible();
   }
 
   async validateTitle(expectedTitle: string) {
@@ -500,18 +509,34 @@ export class BasePage {
 
   private async dismissVisibleToastIfPresent() {
     const toastContainer = this.page.getByTestId("toaster-container");
-    if (!(await toastContainer.isVisible().catch(() => false))) {
-      return;
-    }
+    if (await toastContainer.isVisible().catch(() => false)) {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await this.dismissToast().catch(() => undefined);
+        await toastContainer.waitFor({ state: "hidden", timeout: OVERLAY_DISMISS_TIMEOUT }).catch(() => undefined);
 
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      await this.dismissToast().catch(() => undefined);
-      await toastContainer.waitFor({ state: "hidden", timeout: OVERLAY_DISMISS_TIMEOUT }).catch(() => undefined);
-
-      if (!(await toastContainer.isVisible().catch(() => false))) {
-        return;
+        if (!(await toastContainer.isVisible().catch(() => false))) {
+          break;
+        }
       }
     }
+
+    const basicToasts = this.page.getByTestId("toast");
+    const count = await basicToasts.count();
+    for (let index = count - 1; index >= 0; index -= 1) {
+      const toast = basicToasts.nth(index);
+      if (await toast.isVisible().catch(() => false)) {
+        await toast
+          .locator("button")
+          .last()
+          .click()
+          .catch(() => undefined);
+      }
+    }
+
+    await basicToasts
+      .first()
+      .waitFor({ state: "detached", timeout: OVERLAY_DISMISS_TIMEOUT })
+      .catch(() => undefined);
   }
 
   async validateButtonIsVisible(text: string) {
@@ -519,9 +544,35 @@ export class BasePage {
   }
 
   async clickNavigationMenuIfMobile() {
-    if (this.isMobile) {
-      await this.page.getByTestId("navigation-menu-button").click();
+    if (!this.isMobile) {
+      return;
     }
+
+    if (
+      await this.page
+        .getByTestId("navigation-menu")
+        .isVisible()
+        .catch(() => false)
+    ) {
+      return;
+    }
+
+    const navigationMenuButton = this.page.getByTestId("navigation-menu-button");
+    if (await navigationMenuButton.isVisible().catch(() => false)) {
+      await navigationMenuButton.click();
+      return;
+    }
+
+    if (
+      await this.page
+        .locator(`//input[@id='username']`)
+        .isVisible()
+        .catch(() => false)
+    ) {
+      return;
+    }
+
+    await navigationMenuButton.click();
   }
 
   async clickExpandSettingsIfMobile() {
