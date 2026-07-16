@@ -139,6 +139,16 @@ func (h *Handler) ListInfrastructureDevices(ctx context.Context, req *connect.Re
 		if !readable {
 			continue
 		}
+		resourceContext := authz.ResourceContext{SiteID: &device.SiteID}
+		if req.Msg.GetRequireCurtailmentManage() {
+			canManageCurtailment, err := middleware.HasPermission(ctx, authz.PermCurtailmentManage, resourceContext)
+			if err != nil {
+				return nil, err
+			}
+			if !canManageCurtailment {
+				continue
+			}
+		}
 		manageable, err := canManageSite(ctx, device.SiteID)
 		if err != nil {
 			return nil, err

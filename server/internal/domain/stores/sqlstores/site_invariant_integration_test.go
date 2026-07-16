@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	sitesdomain "github.com/block/proto-fleet/server/internal/domain/sites"
 	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -100,6 +101,52 @@ func TestDeleteSite_ClearsAllDeviceSitePointers(t *testing.T) {
 	var unassignedCount int
 	require.NoError(t, row.Scan(&unassignedCount))
 	assert.GreaterOrEqual(t, unassignedCount, 3, "all 3 devices should now have site_id IS NULL")
+}
+
+func TestDeleteSite_BlocksWholeOrgProfileInfrastructureReferences(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+	ctx := t.Context()
+	db := testContext.ServiceProvider.DB
+	siteStore := sqlstores.NewSQLSiteStore(db)
+	buildingStore := sqlstores.NewSQLBuildingStore(db)
+	transactor := sqlstores.NewSQLTransactor(db)
+	sitesService := sitesdomain.NewService(siteStore, buildingStore, nil, nil, nil, transactor, nil)
+
+	site, err := siteStore.CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: "Calgary fans"})
+	require.NoError(t, err)
+	var infrastructureDeviceID int64
+	err = db.QueryRowContext(ctx, `
+		INSERT INTO infrastructure_device (
+			org_id, site_id, building_name, name, device_kind, fan_count,
+			enabled, driver_type, driver_config
+		) VALUES ($1, $2, 'Building 1', 'Exhaust fan', 'single_fan', 1, TRUE, 'modbus_tcp', '{}'::jsonb)
+		RETURNING id
+	`, orgID, site.ID).Scan(&infrastructureDeviceID)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO curtailment_response_profile (
+			org_id, profile_name, mode, scope_json, facility_fan_device_ids
+		) VALUES ($1, 'Whole-org response', 'FULL_FLEET', '{"whole_org":true}', ARRAY[$2::bigint])
+	`, orgID, infrastructureDeviceID)
+	require.NoError(t, err)
+
+	_, err = sitesService.DeleteSite(ctx, orgID, site.ID)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+
+	var liveSites, liveDevices, liveProfiles int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM site WHERE id = $1 AND deleted_at IS NULL`, site.ID).Scan(&liveSites))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM infrastructure_device WHERE id = $1 AND deleted_at IS NULL`, infrastructureDeviceID).Scan(&liveDevices))
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT COUNT(*) FROM curtailment_response_profile WHERE org_id = $1 AND facility_fan_device_ids @> ARRAY[$2::bigint]`, orgID, infrastructureDeviceID).Scan(&liveProfiles))
+	assert.Equal(t, 1, liveSites)
+	assert.Equal(t, 1, liveDevices)
+	assert.Equal(t, 1, liveProfiles)
 }
 
 func TestDeleteCurtailmentResponseProfilesBySite_RemovesScopedProfiles(t *testing.T) {

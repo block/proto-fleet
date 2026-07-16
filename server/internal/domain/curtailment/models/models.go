@@ -37,8 +37,28 @@ type ResponseProfile struct {
 	ForceIncludeMaintenance     bool
 	ForceIncludeAllPairedMiners bool
 	PostEventCooldownSec        int32
+	FacilityFanDeviceIDs        []int64
+	FanOffDelaySec              int32
+	FanRestoreDelaySec          int32
 	CreatedAt                   time.Time
 	UpdatedAt                   time.Time
+}
+
+// ResponseProfileFanSettings is the fan state observed before an update. The
+// store uses it as an optimistic guard so a concurrent replacement cannot be
+// overwritten by a stale request.
+type ResponseProfileFanSettings struct {
+	FacilityFanDeviceIDs []int64
+	FanOffDelaySec       int32
+	FanRestoreDelaySec   int32
+}
+
+// ResponseProfileInfrastructureDevice is the protocol-blind device state
+// needed while validating a response profile's facility-fan references.
+type ResponseProfileInfrastructureDevice struct {
+	ID      int64
+	SiteID  int64
+	Enabled bool
 }
 
 // AutomationTriggerType identifies the kind of signal an automation rule

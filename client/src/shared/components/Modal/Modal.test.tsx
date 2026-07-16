@@ -1,5 +1,5 @@
 import type { HTMLAttributes, ReactNode } from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import Modal from ".";
@@ -41,5 +41,33 @@ describe("Modal", () => {
       "phone:min-w-[calc(100vw-theme(spacing.6))]",
     );
     expect(screen.getByTestId("modal").parentElement).not.toHaveClass("phone:mt-10", "phone:w-screen");
+  });
+
+  it("keeps a fixed footer outside the scroll area while preserving the standard sticky header", () => {
+    const onDismiss = vi.fn();
+    render(
+      <Modal
+        title="Selection modal"
+        onDismiss={onDismiss}
+        fixedFooter={
+          <button type="button" data-testid="fixed-footer">
+            Select all
+          </button>
+        }
+      >
+        <div>Scrollable content</div>
+      </Modal>,
+    );
+
+    const scrollArea = screen.getByTestId("modal");
+    const fixedFooter = screen.getByTestId("fixed-footer");
+
+    expect(fixedFooter.parentElement?.parentElement).toBe(scrollArea.parentElement);
+    expect(scrollArea).not.toContainElement(fixedFooter);
+    expect(screen.getByRole("button", { name: "Close dialog" }).closest(".sticky")).not.toBeNull();
+
+    fireEvent.mouseDown(fixedFooter);
+    fireEvent.click(fixedFooter);
+    expect(onDismiss).not.toHaveBeenCalled();
   });
 });

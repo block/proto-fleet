@@ -198,6 +198,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countRacksInBuildingStmt, err = db.PrepareContext(ctx, countRacksInBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query CountRacksInBuilding: %w", err)
 	}
+	if q.countResponseProfilesByInfrastructureDeviceStmt, err = db.PrepareContext(ctx, countResponseProfilesByInfrastructureDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query CountResponseProfilesByInfrastructureDevice: %w", err)
+	}
+	if q.countResponseProfilesByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countResponseProfilesByInfrastructureDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query CountResponseProfilesByInfrastructureDevices: %w", err)
+	}
 	if q.createApiKeyStmt, err = db.PrepareContext(ctx, createApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateApiKey: %w", err)
 	}
@@ -987,6 +993,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRecentlyResolvedCurtailedDevicesByScopeStmt, err = db.PrepareContext(ctx, listRecentlyResolvedCurtailedDevicesByScope); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRecentlyResolvedCurtailedDevicesByScope: %w", err)
 	}
+	if q.listResponseProfileInfrastructureDevicesByOrgStmt, err = db.PrepareContext(ctx, listResponseProfileInfrastructureDevicesByOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListResponseProfileInfrastructureDevicesByOrg: %w", err)
+	}
 	if q.listRolePermissionKeysStmt, err = db.PrepareContext(ctx, listRolePermissionKeys); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRolePermissionKeys: %w", err)
 	}
@@ -1023,6 +1032,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockBuildingsBySiteForWriteStmt, err = db.PrepareContext(ctx, lockBuildingsBySiteForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockBuildingsBySiteForWrite: %w", err)
 	}
+	if q.lockCurtailmentResponseProfileAutomationMutationStmt, err = db.PrepareContext(ctx, lockCurtailmentResponseProfileAutomationMutation); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentResponseProfileAutomationMutation: %w", err)
+	}
 	if q.lockCurtailmentScopeForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentScopeForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentScopeForWrite: %w", err)
 	}
@@ -1031,6 +1043,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockFleetNodeByIDStmt, err = db.PrepareContext(ctx, lockFleetNodeByID); err != nil {
 		return nil, fmt.Errorf("error preparing query LockFleetNodeByID: %w", err)
+	}
+	if q.lockInfrastructureDeviceForWriteStmt, err = db.PrepareContext(ctx, lockInfrastructureDeviceForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockInfrastructureDeviceForWrite: %w", err)
+	}
+	if q.lockInfrastructureDevicesBySiteForWriteStmt, err = db.PrepareContext(ctx, lockInfrastructureDevicesBySiteForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockInfrastructureDevicesBySiteForWrite: %w", err)
+	}
+	if q.lockInfrastructureDevicesForResponseProfileStmt, err = db.PrepareContext(ctx, lockInfrastructureDevicesForResponseProfile); err != nil {
+		return nil, fmt.Errorf("error preparing query LockInfrastructureDevicesForResponseProfile: %w", err)
 	}
 	if q.lockRackPlacementForWriteStmt, err = db.PrepareContext(ctx, lockRackPlacementForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockRackPlacementForWrite: %w", err)
@@ -1760,6 +1781,16 @@ func (q *Queries) Close() error {
 	if q.countRacksInBuildingStmt != nil {
 		if cerr := q.countRacksInBuildingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countRacksInBuildingStmt: %w", cerr)
+		}
+	}
+	if q.countResponseProfilesByInfrastructureDeviceStmt != nil {
+		if cerr := q.countResponseProfilesByInfrastructureDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countResponseProfilesByInfrastructureDeviceStmt: %w", cerr)
+		}
+	}
+	if q.countResponseProfilesByInfrastructureDevicesStmt != nil {
+		if cerr := q.countResponseProfilesByInfrastructureDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countResponseProfilesByInfrastructureDevicesStmt: %w", cerr)
 		}
 	}
 	if q.createApiKeyStmt != nil {
@@ -3077,6 +3108,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRecentlyResolvedCurtailedDevicesByScopeStmt: %w", cerr)
 		}
 	}
+	if q.listResponseProfileInfrastructureDevicesByOrgStmt != nil {
+		if cerr := q.listResponseProfileInfrastructureDevicesByOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listResponseProfileInfrastructureDevicesByOrgStmt: %w", cerr)
+		}
+	}
 	if q.listRolePermissionKeysStmt != nil {
 		if cerr := q.listRolePermissionKeysStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRolePermissionKeysStmt: %w", cerr)
@@ -3137,6 +3173,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockBuildingsBySiteForWriteStmt: %w", cerr)
 		}
 	}
+	if q.lockCurtailmentResponseProfileAutomationMutationStmt != nil {
+		if cerr := q.lockCurtailmentResponseProfileAutomationMutationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentResponseProfileAutomationMutationStmt: %w", cerr)
+		}
+	}
 	if q.lockCurtailmentScopeForWriteStmt != nil {
 		if cerr := q.lockCurtailmentScopeForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockCurtailmentScopeForWriteStmt: %w", cerr)
@@ -3150,6 +3191,21 @@ func (q *Queries) Close() error {
 	if q.lockFleetNodeByIDStmt != nil {
 		if cerr := q.lockFleetNodeByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockFleetNodeByIDStmt: %w", cerr)
+		}
+	}
+	if q.lockInfrastructureDeviceForWriteStmt != nil {
+		if cerr := q.lockInfrastructureDeviceForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockInfrastructureDeviceForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockInfrastructureDevicesBySiteForWriteStmt != nil {
+		if cerr := q.lockInfrastructureDevicesBySiteForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockInfrastructureDevicesBySiteForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockInfrastructureDevicesForResponseProfileStmt != nil {
+		if cerr := q.lockInfrastructureDevicesForResponseProfileStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockInfrastructureDevicesForResponseProfileStmt: %w", cerr)
 		}
 	}
 	if q.lockRackPlacementForWriteStmt != nil {
@@ -3974,6 +4030,8 @@ type Queries struct {
 	countOrgScopeSuperAdminsExcludingUserStmt                  *sql.Stmt
 	countRacksBySiteStmt                                       *sql.Stmt
 	countRacksInBuildingStmt                                   *sql.Stmt
+	countResponseProfilesByInfrastructureDeviceStmt            *sql.Stmt
+	countResponseProfilesByInfrastructureDevicesStmt           *sql.Stmt
 	createApiKeyStmt                                           *sql.Stmt
 	createBuildingStmt                                         *sql.Stmt
 	createCommandBatchLogStmt                                  *sql.Stmt
@@ -4237,6 +4295,7 @@ type Queries struct {
 	listRacksOutsideBuildingBoundsStmt                         *sql.Stmt
 	listRecentlyResolvedCurtailedDevicesByOrgStmt              *sql.Stmt
 	listRecentlyResolvedCurtailedDevicesByScopeStmt            *sql.Stmt
+	listResponseProfileInfrastructureDevicesByOrgStmt          *sql.Stmt
 	listRolePermissionKeysStmt                                 *sql.Stmt
 	listRolesStmt                                              *sql.Stmt
 	listRolesWithDetailsForOrgStmt                             *sql.Stmt
@@ -4249,9 +4308,13 @@ type Queries struct {
 	lockAndCountOrgScopeSuperAdminsStmt                        *sql.Stmt
 	lockBuildingForWriteStmt                                   *sql.Stmt
 	lockBuildingsBySiteForWriteStmt                            *sql.Stmt
+	lockCurtailmentResponseProfileAutomationMutationStmt       *sql.Stmt
 	lockCurtailmentScopeForWriteStmt                           *sql.Stmt
 	lockDevicesForReassignStmt                                 *sql.Stmt
 	lockFleetNodeByIDStmt                                      *sql.Stmt
+	lockInfrastructureDeviceForWriteStmt                       *sql.Stmt
+	lockInfrastructureDevicesBySiteForWriteStmt                *sql.Stmt
+	lockInfrastructureDevicesForResponseProfileStmt            *sql.Stmt
 	lockRackPlacementForWriteStmt                              *sql.Stmt
 	lockRacksForReparentStmt                                   *sql.Stmt
 	lockSchedulePriorityStmt                                   *sql.Stmt
@@ -4461,6 +4524,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countOrgScopeSuperAdminsExcludingUserStmt:                  q.countOrgScopeSuperAdminsExcludingUserStmt,
 		countRacksBySiteStmt:                                       q.countRacksBySiteStmt,
 		countRacksInBuildingStmt:                                   q.countRacksInBuildingStmt,
+		countResponseProfilesByInfrastructureDeviceStmt:            q.countResponseProfilesByInfrastructureDeviceStmt,
+		countResponseProfilesByInfrastructureDevicesStmt:           q.countResponseProfilesByInfrastructureDevicesStmt,
 		createApiKeyStmt:                                           q.createApiKeyStmt,
 		createBuildingStmt:                                         q.createBuildingStmt,
 		createCommandBatchLogStmt:                                  q.createCommandBatchLogStmt,
@@ -4724,6 +4789,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRacksOutsideBuildingBoundsStmt:                         q.listRacksOutsideBuildingBoundsStmt,
 		listRecentlyResolvedCurtailedDevicesByOrgStmt:              q.listRecentlyResolvedCurtailedDevicesByOrgStmt,
 		listRecentlyResolvedCurtailedDevicesByScopeStmt:            q.listRecentlyResolvedCurtailedDevicesByScopeStmt,
+		listResponseProfileInfrastructureDevicesByOrgStmt:          q.listResponseProfileInfrastructureDevicesByOrgStmt,
 		listRolePermissionKeysStmt:                                 q.listRolePermissionKeysStmt,
 		listRolesStmt:                                              q.listRolesStmt,
 		listRolesWithDetailsForOrgStmt:                             q.listRolesWithDetailsForOrgStmt,
@@ -4736,9 +4802,13 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockAndCountOrgScopeSuperAdminsStmt:                        q.lockAndCountOrgScopeSuperAdminsStmt,
 		lockBuildingForWriteStmt:                                   q.lockBuildingForWriteStmt,
 		lockBuildingsBySiteForWriteStmt:                            q.lockBuildingsBySiteForWriteStmt,
+		lockCurtailmentResponseProfileAutomationMutationStmt:       q.lockCurtailmentResponseProfileAutomationMutationStmt,
 		lockCurtailmentScopeForWriteStmt:                           q.lockCurtailmentScopeForWriteStmt,
 		lockDevicesForReassignStmt:                                 q.lockDevicesForReassignStmt,
 		lockFleetNodeByIDStmt:                                      q.lockFleetNodeByIDStmt,
+		lockInfrastructureDeviceForWriteStmt:                       q.lockInfrastructureDeviceForWriteStmt,
+		lockInfrastructureDevicesBySiteForWriteStmt:                q.lockInfrastructureDevicesBySiteForWriteStmt,
+		lockInfrastructureDevicesForResponseProfileStmt:            q.lockInfrastructureDevicesForResponseProfileStmt,
 		lockRackPlacementForWriteStmt:                              q.lockRackPlacementForWriteStmt,
 		lockRacksForReparentStmt:                                   q.lockRacksForReparentStmt,
 		lockSchedulePriorityStmt:                                   q.lockSchedulePriorityStmt,

@@ -32,7 +32,12 @@ func (h *Handler) ListCurtailmentResponseProfiles(ctx context.Context, _ *connec
 	if err != nil {
 		return nil, err
 	}
+	facilityFanDeviceSites, err := h.responseProfileFacilityFanDeviceSitesForProfiles(ctx, info.OrganizationID, profiles)
+	if err != nil {
+		return nil, err
+	}
 	siteAllowed := make(map[int64]bool)
+	facilityFanSiteAllowed := make(map[int64]bool)
 	orgWideAllowed := false
 	orgWideChecked := false
 	for _, profile := range profiles {
@@ -47,6 +52,18 @@ func (h *Handler) ListCurtailmentResponseProfiles(ctx context.Context, _ *connec
 			siteAllowed,
 			&orgWideAllowed,
 			&orgWideChecked,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			continue
+		}
+		allowed, err = facilityFanSiteAccessAllowed(
+			ctx,
+			profile.FacilityFanDeviceIDs,
+			facilityFanDeviceSites,
+			facilityFanSiteAllowed,
 		)
 		if err != nil {
 			return nil, err
@@ -93,9 +110,14 @@ func (h *Handler) CreateCurtailmentResponseProfile(ctx context.Context, req *con
 	if err != nil {
 		return nil, err
 	}
+	authorizedFacilityFanDevices, err := h.authorizeFacilityFanDevices(ctx, info.OrganizationID, profile.FacilityFanDeviceIDs)
+	if err != nil {
+		return nil, err
+	}
 	created, err := h.responseProfiles.Create(ctx, domainCurtailment.SaveResponseProfileRequest{
-		Profile:             profile,
-		CanUseAdminControls: canUseAdminControls(info),
+		Profile:                      profile,
+		CanUseAdminControls:          canUseAdminControls(info),
+		AuthorizedFacilityFanDevices: authorizedFacilityFanDevices,
 	})
 	if err != nil {
 		return nil, err
@@ -129,14 +151,25 @@ func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *con
 			profile.ScopeJSON = cloneBytes(existing.ScopeJSON)
 		}
 	}
+	if !req.Msg.GetReplaceFacilityFanSettings() {
+		profile.FacilityFanDeviceIDs = append([]int64(nil), existing.FacilityFanDeviceIDs...)
+		profile.FanOffDelaySec = existing.FanOffDelaySec
+		profile.FanRestoreDelaySec = existing.FanRestoreDelaySec
+	}
 	if err := h.requireResponseProfileSitePermission(ctx, info.OrganizationID, authz.PermCurtailmentManage, &profile, true); err != nil {
 		return nil, err
 	}
+	authorizedFacilityFanDevices, err := h.authorizeFacilityFanDevices(ctx, info.OrganizationID, profile.FacilityFanDeviceIDs)
+	if err != nil {
+		return nil, err
+	}
 	updated, err := h.responseProfiles.Update(ctx, domainCurtailment.SaveResponseProfileRequest{
-		Profile:             profile,
-		CanUseAdminControls: canUseAdminControls(info),
-		ExpectedSiteID:      cloneInt64Ptr(existing.SiteID),
-		ExpectedScopeJSON:   cloneBytes(existing.ScopeJSON),
+		Profile:                      profile,
+		CanUseAdminControls:          canUseAdminControls(info),
+		ExpectedSiteID:               cloneInt64Ptr(existing.SiteID),
+		ExpectedScopeJSON:            cloneBytes(existing.ScopeJSON),
+		ExpectedFacilityFanSettings:  responseProfileFanSettings(existing),
+		AuthorizedFacilityFanDevices: authorizedFacilityFanDevices,
 	})
 	if err != nil {
 		return nil, err
@@ -156,10 +189,25 @@ func (h *Handler) DeleteCurtailmentResponseProfile(ctx context.Context, req *con
 	if err != nil {
 		return nil, err
 	}
-	if err := h.responseProfiles.Delete(ctx, info.OrganizationID, req.Msg.GetProfileId(), cloneInt64Ptr(profile.SiteID), cloneBytes(profile.ScopeJSON)); err != nil {
+	if err := h.responseProfiles.Delete(
+		ctx,
+		info.OrganizationID,
+		req.Msg.GetProfileId(),
+		cloneInt64Ptr(profile.SiteID),
+		cloneBytes(profile.ScopeJSON),
+		responseProfileFanSettings(profile),
+	); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.DeleteCurtailmentResponseProfileResponse{}), nil
+}
+
+func responseProfileFanSettings(profile *models.ResponseProfile) models.ResponseProfileFanSettings {
+	return models.ResponseProfileFanSettings{
+		FacilityFanDeviceIDs: append([]int64(nil), profile.FacilityFanDeviceIDs...),
+		FanOffDelaySec:       profile.FanOffDelaySec,
+		FanRestoreDelaySec:   profile.FanRestoreDelaySec,
+	}
 }
 
 func (h *Handler) getResponseProfileWithSitePermission(ctx context.Context, orgID, profileID int64) (*models.ResponseProfile, error) {
@@ -168,6 +216,9 @@ func (h *Handler) getResponseProfileWithSitePermission(ctx context.Context, orgI
 		return nil, err
 	}
 	if err := h.requireResponseProfileSitePermission(ctx, orgID, authz.PermCurtailmentManage, profile, false); err != nil {
+		return nil, err
+	}
+	if err := h.requireFacilityFanSitePermissions(ctx, orgID, profile.FacilityFanDeviceIDs); err != nil {
 		return nil, err
 	}
 	return profile, nil
@@ -204,6 +255,45 @@ func (h *Handler) requireResponseProfileSitePermission(
 	return requireResourceContextPermissions(ctx, permission, requirements)
 }
 
+func (h *Handler) requireFacilityFanSitePermissions(ctx context.Context, orgID int64, deviceIDs []int64) error {
+	_, err := h.authorizeFacilityFanDevices(ctx, orgID, deviceIDs)
+	return err
+}
+
+func (h *Handler) authorizeFacilityFanDevices(
+	ctx context.Context,
+	orgID int64,
+	deviceIDs []int64,
+) (map[int64]models.ResponseProfileInfrastructureDevice, error) {
+	devices, err := h.responseProfiles.FacilityFanDevices(ctx, orgID, deviceIDs)
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			return nil, fleeterror.NewNotFoundError("one or more infrastructure devices were not found")
+		}
+		return nil, err
+	}
+	seenSiteIDs := make(map[int64]struct{}, len(devices))
+	for _, device := range devices {
+		if _, seen := seenSiteIDs[device.SiteID]; seen {
+			continue
+		}
+		seenSiteIDs[device.SiteID] = struct{}{}
+		siteID := device.SiteID
+		resourceContext := authz.ResourceContext{SiteID: &siteID}
+		readable, err := middleware.HasPermission(ctx, authz.PermSiteRead, resourceContext)
+		if err != nil {
+			return nil, err
+		}
+		if !readable {
+			return nil, fleeterror.NewNotFoundError("one or more infrastructure devices were not found")
+		}
+		if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, resourceContext); err != nil {
+			return nil, err
+		}
+	}
+	return devices, nil
+}
+
 func (h *Handler) responseProfileDeviceSitesForProfiles(
 	ctx context.Context,
 	orgID int64,
@@ -228,6 +318,64 @@ func (h *Handler) responseProfileDeviceSitesForProfiles(
 		return nil, nil
 	}
 	return h.responseProfiles.ListDeviceSites(ctx, orgID, deviceIdentifiers)
+}
+
+func (h *Handler) responseProfileFacilityFanDeviceSitesForProfiles(
+	ctx context.Context,
+	orgID int64,
+	profiles []*models.ResponseProfile,
+) (map[int64]int64, error) {
+	seen := make(map[int64]struct{})
+	var deviceIDs []int64
+	for _, profile := range profiles {
+		if profile == nil {
+			continue
+		}
+		for _, deviceID := range profile.FacilityFanDeviceIDs {
+			if _, ok := seen[deviceID]; ok {
+				continue
+			}
+			seen[deviceID] = struct{}{}
+			deviceIDs = append(deviceIDs, deviceID)
+		}
+	}
+	return h.responseProfiles.FacilityFanDeviceSites(ctx, orgID, deviceIDs)
+}
+
+func facilityFanSiteAccessAllowed(
+	ctx context.Context,
+	deviceIDs []int64,
+	deviceSites map[int64]int64,
+	siteAllowed map[int64]bool,
+) (bool, error) {
+	for _, deviceID := range deviceIDs {
+		siteID, ok := deviceSites[deviceID]
+		if !ok {
+			return false, fleeterror.NewNotFoundErrorf("infrastructure device not found: %d", deviceID)
+		}
+		if allowed, checked := siteAllowed[siteID]; checked {
+			if !allowed {
+				return false, nil
+			}
+			continue
+		}
+
+		resourceContext := authz.ResourceContext{SiteID: &siteID}
+		readable, err := middleware.HasPermission(ctx, authz.PermSiteRead, resourceContext)
+		if err != nil {
+			return false, err
+		}
+		manageable, err := middleware.HasPermission(ctx, authz.PermCurtailmentManage, resourceContext)
+		if err != nil {
+			return false, err
+		}
+		allowed := readable && manageable
+		siteAllowed[siteID] = allowed
+		if !allowed {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func (h *Handler) responseProfileResourceContextRequirements(
@@ -382,6 +530,9 @@ func responseProfileFromCreateRequest(orgID int64, msg *pb.CreateCurtailmentResp
 		msg.GetForceIncludeMaintenance(),
 		msg.GetPostEventCooldownSec(),
 		msg.GetForceIncludeAllPairedMiners(),
+		msg.GetFacilityFanDeviceIds(),
+		msg.GetFanOffDelaySec(),
+		msg.GetFanRestoreDelaySec(),
 	)
 	if err != nil {
 		return models.ResponseProfile{}, err
@@ -410,6 +561,9 @@ func responseProfileFromUpdateRequest(orgID int64, msg *pb.UpdateCurtailmentResp
 		msg.GetForceIncludeMaintenance(),
 		msg.GetPostEventCooldownSec(),
 		msg.GetForceIncludeAllPairedMiners(),
+		msg.GetFacilityFanDeviceIds(),
+		msg.GetFanOffDelaySec(),
+		msg.GetFanRestoreDelaySec(),
 	)
 }
 
@@ -433,6 +587,9 @@ func responseProfileFromPayload(
 	forceIncludeMaintenance bool,
 	postEventCooldownSec uint32,
 	forceIncludeAllPairedMiners bool,
+	facilityFanDeviceIDs []int64,
+	fanOffDelaySec uint32,
+	fanRestoreDelaySec uint32,
 ) (models.ResponseProfile, error) {
 	mode, fixedKw, err := toRequestMode(modeProto, fixedKw, hasModeParams)
 	if err != nil {
@@ -470,6 +627,14 @@ func responseProfileFromPayload(
 	if err != nil {
 		return models.ResponseProfile{}, err
 	}
+	fanOffDelayInt, err := uint32ToInt32Strict("fan_off_delay_sec", fanOffDelaySec)
+	if err != nil {
+		return models.ResponseProfile{}, err
+	}
+	fanRestoreDelayInt, err := uint32ToInt32Strict("fan_restore_delay_sec", fanRestoreDelaySec)
+	if err != nil {
+		return models.ResponseProfile{}, err
+	}
 	var targetKW *float64
 	var toleranceKW *float64
 	if fixedKw != nil {
@@ -498,6 +663,9 @@ func responseProfileFromPayload(
 		ForceIncludeMaintenance:     forceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: forceIncludeAllPairedMiners,
 		PostEventCooldownSec:        postEventCooldownInt,
+		FacilityFanDeviceIDs:        append([]int64(nil), facilityFanDeviceIDs...),
+		FanOffDelaySec:              fanOffDelayInt,
+		FanRestoreDelaySec:          fanRestoreDelayInt,
 	}
 	if site != nil {
 		siteID := site.GetSiteId()
@@ -540,6 +708,9 @@ func toResponseProfileProto(profile *models.ResponseProfile) *pb.CurtailmentResp
 		ForceIncludeMaintenance:     profile.ForceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: profile.ForceIncludeAllPairedMiners,
 		PostEventCooldownSec:        uint32Saturating(profile.PostEventCooldownSec),
+		FacilityFanDeviceIds:        append([]int64(nil), profile.FacilityFanDeviceIDs...),
+		FanOffDelaySec:              uint32Saturating(profile.FanOffDelaySec),
+		FanRestoreDelaySec:          uint32Saturating(profile.FanRestoreDelaySec),
 		CreatedAt:                   profileTimeProto(profile.CreatedAt),
 		UpdatedAt:                   profileTimeProto(profile.UpdatedAt),
 	}

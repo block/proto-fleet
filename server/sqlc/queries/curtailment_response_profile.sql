@@ -10,6 +10,20 @@ FROM curtailment_response_profile
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id');
 
+-- name: LockCurtailmentResponseProfileAutomationMutation :exec
+-- Serializes profile fan changes with automation create/update/enable. Both
+-- sides re-read their compatibility condition after acquiring this lock so a
+-- concurrent pair cannot commit an automation binding to a fan profile.
+SELECT pg_advisory_xact_lock(
+    hashtextextended(
+        'curtailment_response_profile_automation:'
+            || sqlc.arg('org_id')::bigint::text
+            || ':'
+            || sqlc.arg('profile_id')::bigint::text,
+        0
+    )
+);
+
 -- name: ListCurtailmentResponseProfileDeviceSitesByOrg :many
 SELECT device_identifier, site_id
 FROM device
@@ -17,6 +31,14 @@ WHERE org_id = sqlc.arg('org_id')
   AND device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND deleted_at IS NULL
 ORDER BY device_identifier;
+
+-- name: ListResponseProfileInfrastructureDevicesByOrg :many
+SELECT id, site_id, enabled
+FROM infrastructure_device
+WHERE org_id = sqlc.arg('org_id')
+  AND id = ANY(sqlc.arg('infrastructure_device_ids')::bigint[])
+  AND deleted_at IS NULL
+ORDER BY id;
 
 -- name: InsertCurtailmentResponseProfile :one
 INSERT INTO curtailment_response_profile (
@@ -37,7 +59,10 @@ INSERT INTO curtailment_response_profile (
     include_maintenance,
     force_include_maintenance,
     post_event_cooldown_sec,
-    force_include_all_paired_miners
+    force_include_all_paired_miners,
+    facility_fan_device_ids,
+    fan_off_delay_sec,
+    fan_restore_delay_sec
 ) VALUES (
     sqlc.arg('org_id'),
     sqlc.arg('profile_name'),
@@ -56,7 +81,10 @@ INSERT INTO curtailment_response_profile (
     sqlc.arg('include_maintenance'),
     sqlc.arg('force_include_maintenance'),
     sqlc.arg('post_event_cooldown_sec'),
-    sqlc.arg('force_include_all_paired_miners')
+    sqlc.arg('force_include_all_paired_miners'),
+    sqlc.arg('facility_fan_device_ids'),
+    sqlc.arg('fan_off_delay_sec'),
+    sqlc.arg('fan_restore_delay_sec')
 )
 RETURNING *;
 
@@ -79,11 +107,17 @@ SET
     include_maintenance = sqlc.arg('include_maintenance'),
     force_include_maintenance = sqlc.arg('force_include_maintenance'),
     post_event_cooldown_sec = sqlc.arg('post_event_cooldown_sec'),
-    force_include_all_paired_miners = sqlc.arg('force_include_all_paired_miners')
+    force_include_all_paired_miners = sqlc.arg('force_include_all_paired_miners'),
+    facility_fan_device_ids = sqlc.arg('facility_fan_device_ids'),
+    fan_off_delay_sec = sqlc.arg('fan_off_delay_sec'),
+    fan_restore_delay_sec = sqlc.arg('fan_restore_delay_sec')
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND site_id IS NOT DISTINCT FROM sqlc.narg('expected_site_id')
   AND scope_json = sqlc.arg('expected_scope_json')::jsonb
+  AND facility_fan_device_ids = sqlc.arg('expected_facility_fan_device_ids')::bigint[]
+  AND fan_off_delay_sec = sqlc.arg('expected_fan_off_delay_sec')
+  AND fan_restore_delay_sec = sqlc.arg('expected_fan_restore_delay_sec')
 RETURNING *;
 
 -- name: DeleteCurtailmentResponseProfileByOrg :execrows
@@ -91,4 +125,7 @@ DELETE FROM curtailment_response_profile
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND site_id IS NOT DISTINCT FROM sqlc.narg('expected_site_id')
-  AND scope_json = sqlc.arg('expected_scope_json')::jsonb;
+  AND scope_json = sqlc.arg('expected_scope_json')::jsonb
+  AND facility_fan_device_ids = sqlc.arg('expected_facility_fan_device_ids')::bigint[]
+  AND fan_off_delay_sec = sqlc.arg('expected_fan_off_delay_sec')
+  AND fan_restore_delay_sec = sqlc.arg('expected_fan_restore_delay_sec');

@@ -26,7 +26,7 @@ func TestHandler_ListCurtailmentAutomationRulesFiltersCompositeProfileSites(t *t
 		handlerAutomationRule(102, "Visible site", []byte(`{"site_ids":[8]}`)),
 		handlerAutomationRule(103, "Hidden multi-site", []byte(`{"site_ids":[7,8]}`)),
 	)
-	h := NewHandlerWithAutomation(nil, nil, newHandlerAutomationService(t, store), nil)
+	h := newHandlerAutomationHandler(t, store, nil)
 
 	resp, err := h.ListCurtailmentAutomationRules(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -48,7 +48,7 @@ func TestHandler_GetCurtailmentAutomationRuleChecksCompositeProfileSites(t *test
 	t.Parallel()
 
 	store := newHandlerAutomationStore(handlerAutomationRule(101, "Hidden multi-site", []byte(`{"site_ids":[7,8]}`)))
-	h := NewHandlerWithAutomation(nil, nil, newHandlerAutomationService(t, store), nil)
+	h := newHandlerAutomationHandler(t, store, nil)
 
 	_, err := h.GetCurtailmentAutomationRule(
 		testSessionCtxWithAssignments(t, &session.Info{
@@ -66,12 +66,108 @@ func TestHandler_GetCurtailmentAutomationRuleChecksCompositeProfileSites(t *test
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
-func newHandlerAutomationService(t *testing.T, store *handlerAutomationStore) *domainCurtailment.AutomationService {
+func TestHandler_ListCurtailmentAutomationRulesFiltersFacilityFanSites(t *testing.T) {
+	t.Parallel()
+
+	visibleRule := handlerAutomationRule(101, "Visible fan-free profile", []byte(`{"site_ids":[8]}`))
+	visibleRule.ResponseProfileID = 601
+	hiddenRule := handlerAutomationRule(102, "Hidden cross-site fan", []byte(`{"site_ids":[8]}`))
+	hiddenRule.ResponseProfileID = 602
+	store := newHandlerAutomationStore(visibleRule, hiddenRule)
+	profileStore := newHandlerResponseProfileStore()
+	profileStore.profiles = []*models.ResponseProfile{
+		{ID: 601, OrgID: 42},
+		{ID: 602, OrgID: 42, FacilityFanDeviceIDs: []int64{31}},
+	}
+	profileStore.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 7, Enabled: true}
+	h := newHandlerAutomationHandler(t, store, profileStore)
+
+	resp, err := h.ListCurtailmentAutomationRules(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-automation-fan-list",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage, authz.PermSiteRead),
+			testSiteAssignment(7, authz.PermSiteRead),
+		),
+		connect.NewRequest(&pb.ListCurtailmentAutomationRulesRequest{}),
+	)
+
+	require.NoError(t, err)
+	rules := resp.Msg.GetRules()
+	require.Len(t, rules, 1)
+	assert.Equal(t, int64(101), rules[0].GetRuleId())
+}
+
+func TestHandler_GetCurtailmentAutomationRuleChecksFacilityFanSites(t *testing.T) {
+	t.Parallel()
+
+	rule := handlerAutomationRule(101, "Hidden cross-site fan", []byte(`{"site_ids":[8]}`))
+	rule.ResponseProfileID = 602
+	store := newHandlerAutomationStore(rule)
+	profileStore := newHandlerResponseProfileStore()
+	profileStore.profiles = []*models.ResponseProfile{
+		{ID: 602, OrgID: 42, FacilityFanDeviceIDs: []int64{31}},
+	}
+	profileStore.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: 7, Enabled: true}
+	h := newHandlerAutomationHandler(t, store, profileStore)
+
+	_, err := h.GetCurtailmentAutomationRule(
+		testSessionCtxWithAssignments(t, &session.Info{
+			AuthMethod:     session.AuthMethodSession,
+			OrganizationID: 42,
+			Role:           "OPERATOR",
+			SessionID:      "sess-automation-fan-get",
+		},
+			testOrgAssignment(authz.PermCurtailmentManage, authz.PermSiteRead),
+			testSiteAssignment(7, authz.PermSiteRead),
+		),
+		connect.NewRequest(&pb.GetCurtailmentAutomationRuleRequest{RuleId: 101}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+func newHandlerAutomationHandler(
+	t *testing.T,
+	store *handlerAutomationStore,
+	profileStore *handlerResponseProfileStore,
+) *Handler {
+	t.Helper()
+
+	if profileStore == nil {
+		profileStore = newHandlerResponseProfileStore()
+		seenProfileIDs := make(map[int64]struct{}, len(store.rules))
+		for _, rule := range store.rules {
+			if _, seen := seenProfileIDs[rule.ResponseProfileID]; seen {
+				continue
+			}
+			seenProfileIDs[rule.ResponseProfileID] = struct{}{}
+			profileStore.profiles = append(profileStore.profiles, &models.ResponseProfile{
+				ID:    rule.ResponseProfileID,
+				OrgID: rule.OrgID,
+			})
+		}
+	}
+	profiles := domainCurtailment.NewResponseProfileService(profileStore)
+	return NewHandlerWithAutomation(nil, profiles, newHandlerAutomationService(t, store, profiles), nil)
+}
+
+func newHandlerAutomationService(
+	t *testing.T,
+	store *handlerAutomationStore,
+	profiles *domainCurtailment.ResponseProfileService,
+) *domainCurtailment.AutomationService {
 	t.Helper()
 
 	automation, err := domainCurtailment.NewAutomationService(domainCurtailment.AutomationServiceConfig{
 		Store:       store,
-		Profiles:    domainCurtailment.NewResponseProfileService(newHandlerResponseProfileStore()),
+		Profiles:    profiles,
 		SourceStore: &handlerMqttSettingsStore{},
 		Curtailment: domainCurtailment.NewService(nil),
 		Clock:       func() time.Time { return time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC) },

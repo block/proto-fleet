@@ -35,6 +35,11 @@ const (
 	automationExternalSource     = "curtailment_automation"
 )
 
+type automationRuleMutationResult struct {
+	rule   sqlc.CurtailmentAutomationRule
+	noRows bool
+}
+
 func mapOrgConfigError(err error, orgID int64) error {
 	if err == nil {
 		return nil
@@ -183,9 +188,45 @@ func (s *SQLCurtailmentStore) ListResponseProfileDeviceSites(ctx context.Context
 	return out, nil
 }
 
-func (s *SQLCurtailmentStore) CreateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
+func (s *SQLCurtailmentStore) ListResponseProfileInfrastructureDevices(
+	ctx context.Context,
+	orgID int64,
+	infrastructureDeviceIDs []int64,
+) (map[int64]models.ResponseProfileInfrastructureDevice, error) {
+	if len(infrastructureDeviceIDs) == 0 {
+		return map[int64]models.ResponseProfileInfrastructureDevice{}, nil
+	}
+	rows, err := s.GetQueries(ctx).ListResponseProfileInfrastructureDevicesByOrg(
+		ctx,
+		sqlc.ListResponseProfileInfrastructureDevicesByOrgParams{
+			OrgID:                   orgID,
+			InfrastructureDeviceIds: infrastructureDeviceIDs,
+		},
+	)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list response profile infrastructure devices: %v", err)
+	}
+	out := make(map[int64]models.ResponseProfileInfrastructureDevice, len(rows))
+	for _, row := range rows {
+		out[row.ID] = models.ResponseProfileInfrastructureDevice{
+			ID:      row.ID,
+			SiteID:  row.SiteID,
+			Enabled: row.Enabled,
+		}
+	}
+	return out, nil
+}
+
+func (s *SQLCurtailmentStore) CreateResponseProfile(
+	ctx context.Context,
+	profile models.ResponseProfile,
+	expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice,
+) (*models.ResponseProfile, error) {
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
 		if err := lockResponseProfileSitesForWrite(ctx, q, profile.OrgID, [][]byte{profile.ScopeJSON}, profile.SiteID); err != nil {
+			return sqlc.CurtailmentResponseProfile{}, err
+		}
+		if err := lockResponseProfileInfrastructureDevicesForWrite(ctx, q, profile.OrgID, expectedInfrastructureDevices); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
 		return q.InsertCurtailmentResponseProfile(ctx, insertResponseProfileParams(profile))
@@ -199,11 +240,30 @@ func (s *SQLCurtailmentStore) CreateResponseProfile(ctx context.Context, profile
 func (s *SQLCurtailmentStore) UpdateResponseProfile(
 	ctx context.Context,
 	profile models.ResponseProfile,
+	expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice,
 	expectedSiteID *int64,
 	expectedScopeJSON []byte,
+	expectedFacilityFanSettings models.ResponseProfileFanSettings,
 ) (*models.ResponseProfile, error) {
 	normalizedExpectedScopeJSON := normalizedResponseProfileScopeJSON(expectedScopeJSON)
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
+		if err := lockResponseProfileAutomationMutation(ctx, q, profile.OrgID, profile.ID); err != nil {
+			return sqlc.CurtailmentResponseProfile{}, err
+		}
+		if len(profile.FacilityFanDeviceIDs) > 0 {
+			count, err := q.CountCurtailmentAutomationRulesByResponseProfile(ctx, sqlc.CountCurtailmentAutomationRulesByResponseProfileParams{
+				OrgID:             profile.OrgID,
+				ResponseProfileID: profile.ID,
+			})
+			if err != nil {
+				return sqlc.CurtailmentResponseProfile{}, fleeterror.NewInternalErrorf("failed to count curtailment automation rules during response profile update: %v", err)
+			}
+			if count > 0 {
+				return sqlc.CurtailmentResponseProfile{}, fleeterror.NewFailedPreconditionError(
+					"response profiles used by automation rules cannot include facility fans until fan sequencing is available",
+				)
+			}
+		}
 		if err := lockResponseProfileSitesForWrite(
 			ctx,
 			q,
@@ -214,7 +274,15 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(
 		); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
-		row, err := q.UpdateCurtailmentResponseProfile(ctx, updateResponseProfileParams(profile, expectedSiteID, normalizedExpectedScopeJSON))
+		if err := lockResponseProfileInfrastructureDevicesForWrite(ctx, q, profile.OrgID, expectedInfrastructureDevices); err != nil {
+			return sqlc.CurtailmentResponseProfile{}, err
+		}
+		row, err := q.UpdateCurtailmentResponseProfile(ctx, updateResponseProfileParams(
+			profile,
+			expectedSiteID,
+			normalizedExpectedScopeJSON,
+			expectedFacilityFanSettings,
+		))
 		if errors.Is(err, sql.ErrNoRows) {
 			if _, getErr := q.GetCurtailmentResponseProfileByOrg(ctx, sqlc.GetCurtailmentResponseProfileByOrgParams{
 				ID:    profile.ID,
@@ -240,6 +308,7 @@ func (s *SQLCurtailmentStore) DeleteResponseProfile(
 	profileID int64,
 	expectedSiteID *int64,
 	expectedScopeJSON []byte,
+	expectedFacilityFanSettings models.ResponseProfileFanSettings,
 ) error {
 	count, err := s.CountAutomationRulesByResponseProfile(ctx, orgID, profileID)
 	if err != nil {
@@ -249,10 +318,13 @@ func (s *SQLCurtailmentStore) DeleteResponseProfile(
 		return fleeterror.NewFailedPreconditionError("curtailment response profile is referenced by an automation rule")
 	}
 	rows, err := s.GetQueries(ctx).DeleteCurtailmentResponseProfileByOrg(ctx, sqlc.DeleteCurtailmentResponseProfileByOrgParams{
-		ID:                profileID,
-		OrgID:             orgID,
-		ExpectedSiteID:    ptrToNullInt64(expectedSiteID),
-		ExpectedScopeJson: normalizedResponseProfileScopeJSON(expectedScopeJSON),
+		ID:                           profileID,
+		OrgID:                        orgID,
+		ExpectedSiteID:               ptrToNullInt64(expectedSiteID),
+		ExpectedScopeJson:            normalizedResponseProfileScopeJSON(expectedScopeJSON),
+		ExpectedFacilityFanDeviceIds: append([]int64{}, expectedFacilityFanSettings.FacilityFanDeviceIDs...),
+		ExpectedFanOffDelaySec:       expectedFacilityFanSettings.FanOffDelaySec,
+		ExpectedFanRestoreDelaySec:   expectedFacilityFanSettings.FanRestoreDelaySec,
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to delete curtailment response profile: %v", err)
@@ -337,13 +409,22 @@ func (s *SQLCurtailmentStore) ListMQTTSourcesWithActiveCurtailment(ctx context.C
 }
 
 func (s *SQLCurtailmentStore) CreateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
-	inserted, err := s.GetQueries(ctx).InsertCurtailmentAutomationRule(ctx, sqlc.InsertCurtailmentAutomationRuleParams{
-		OrgID:             rule.OrgID,
-		RuleName:          rule.RuleName,
-		TriggerType:       string(rule.TriggerType),
-		MqttSourceID:      rule.MQTTSourceID,
-		ResponseProfileID: rule.ResponseProfileID,
-		Enabled:           rule.Enabled,
+	inserted, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentAutomationRule, error) {
+		if err := requireAutomationCompatibleResponseProfile(ctx, q, rule.OrgID, rule.ResponseProfileID); err != nil {
+			return sqlc.CurtailmentAutomationRule{}, err
+		}
+		inserted, err := q.InsertCurtailmentAutomationRule(ctx, sqlc.InsertCurtailmentAutomationRuleParams{
+			OrgID:             rule.OrgID,
+			RuleName:          rule.RuleName,
+			TriggerType:       string(rule.TriggerType),
+			MqttSourceID:      rule.MQTTSourceID,
+			ResponseProfileID: rule.ResponseProfileID,
+			Enabled:           rule.Enabled,
+		})
+		if err != nil {
+			return sqlc.CurtailmentAutomationRule{}, mapAutomationRuleWriteError("create", err)
+		}
+		return inserted, nil
 	})
 	if err != nil {
 		return nil, mapAutomationRuleWriteError("create", err)
@@ -352,28 +433,79 @@ func (s *SQLCurtailmentStore) CreateAutomationRule(ctx context.Context, rule mod
 }
 
 func (s *SQLCurtailmentStore) UpdateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
-	updated, err := s.GetQueries(ctx).UpdateCurtailmentAutomationRule(ctx, sqlc.UpdateCurtailmentAutomationRuleParams{
-		ID:                rule.ID,
-		OrgID:             rule.OrgID,
-		RuleName:          rule.RuleName,
-		MqttSourceID:      rule.MQTTSourceID,
-		ResponseProfileID: rule.ResponseProfileID,
+	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (automationRuleMutationResult, error) {
+		if err := requireAutomationCompatibleResponseProfile(ctx, q, rule.OrgID, rule.ResponseProfileID); err != nil {
+			return automationRuleMutationResult{}, err
+		}
+		updated, err := q.UpdateCurtailmentAutomationRule(ctx, sqlc.UpdateCurtailmentAutomationRuleParams{
+			ID:                rule.ID,
+			OrgID:             rule.OrgID,
+			RuleName:          rule.RuleName,
+			MqttSourceID:      rule.MQTTSourceID,
+			ResponseProfileID: rule.ResponseProfileID,
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return automationRuleMutationResult{noRows: true}, nil
+		}
+		if err != nil {
+			return automationRuleMutationResult{}, mapAutomationRuleWriteError("update", err)
+		}
+		return automationRuleMutationResult{rule: updated}, err
 	})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, s.automationRuleLifecycleNoRowsError(ctx, "update", rule.OrgID, rule.ID)
-		}
 		return nil, mapAutomationRuleWriteError("update", err)
 	}
-	return s.GetAutomationRule(ctx, updated.OrgID, updated.ID)
+	if result.noRows {
+		return nil, s.automationRuleLifecycleNoRowsError(ctx, "update", rule.OrgID, rule.ID)
+	}
+	return s.GetAutomationRule(ctx, result.rule.OrgID, result.rule.ID)
 }
 
 func (s *SQLCurtailmentStore) SetAutomationRuleEnabled(ctx context.Context, orgID, ruleID int64, enabled bool) (*models.AutomationRule, error) {
-	updated, err := s.GetQueries(ctx).SetCurtailmentAutomationRuleEnabled(ctx, sqlc.SetCurtailmentAutomationRuleEnabledParams{
-		ID:      ruleID,
-		OrgID:   orgID,
-		Enabled: enabled,
-	})
+	var updated sqlc.CurtailmentAutomationRule
+	var err error
+	if enabled {
+		result, txErr := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (automationRuleMutationResult, error) {
+			rule, err := q.GetCurtailmentAutomationRuleByOrg(ctx, sqlc.GetCurtailmentAutomationRuleByOrgParams{
+				ID:    ruleID,
+				OrgID: orgID,
+			})
+			if errors.Is(err, sql.ErrNoRows) {
+				return automationRuleMutationResult{noRows: true}, nil
+			}
+			if err != nil {
+				return automationRuleMutationResult{}, err
+			}
+			if err := requireAutomationCompatibleResponseProfile(ctx, q, orgID, rule.ResponseProfileID); err != nil {
+				return automationRuleMutationResult{}, err
+			}
+			updated, err := q.SetCurtailmentAutomationRuleEnabled(ctx, sqlc.SetCurtailmentAutomationRuleEnabledParams{
+				ID:      ruleID,
+				OrgID:   orgID,
+				Enabled: true,
+			})
+			if errors.Is(err, sql.ErrNoRows) {
+				return automationRuleMutationResult{noRows: true}, nil
+			}
+			if err != nil {
+				return automationRuleMutationResult{}, mapAutomationRuleWriteError("enable", err)
+			}
+			return automationRuleMutationResult{rule: updated}, err
+		})
+		if txErr != nil {
+			return nil, mapAutomationRuleWriteError("enable", txErr)
+		}
+		if result.noRows {
+			return nil, fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", ruleID)
+		}
+		updated = result.rule
+	} else {
+		updated, err = s.GetQueries(ctx).SetCurtailmentAutomationRuleEnabled(ctx, sqlc.SetCurtailmentAutomationRuleEnabledParams{
+			ID:      ruleID,
+			OrgID:   orgID,
+			Enabled: false,
+		})
+	}
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			if !enabled {
@@ -688,6 +820,71 @@ func lockResponseProfileSitesForWrite(ctx context.Context, q *sqlc.Queries, orgI
 				return fleeterror.NewNotFoundErrorf("site not found: %d", siteID)
 			}
 			return fleeterror.NewInternalErrorf("failed to lock site for curtailment response profile write: %v", err)
+		}
+	}
+	return nil
+}
+
+func lockResponseProfileAutomationMutation(ctx context.Context, q *sqlc.Queries, orgID, profileID int64) error {
+	if err := q.LockCurtailmentResponseProfileAutomationMutation(ctx, sqlc.LockCurtailmentResponseProfileAutomationMutationParams{
+		OrgID:     orgID,
+		ProfileID: profileID,
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to lock response profile automation mutation: %v", err)
+	}
+	return nil
+}
+
+func requireAutomationCompatibleResponseProfile(ctx context.Context, q *sqlc.Queries, orgID, profileID int64) error {
+	if err := lockResponseProfileAutomationMutation(ctx, q, orgID, profileID); err != nil {
+		return err
+	}
+	profile, err := q.GetCurtailmentResponseProfileByOrg(ctx, sqlc.GetCurtailmentResponseProfileByOrgParams{
+		ID:    profileID,
+		OrgID: orgID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profileID)
+	}
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to get response profile during automation mutation: %v", err)
+	}
+	if len(profile.FacilityFanDeviceIds) > 0 {
+		return fleeterror.NewFailedPreconditionError(
+			"automation rules cannot use response profiles with facility fans until fan sequencing is available",
+		)
+	}
+	return nil
+}
+
+func lockResponseProfileInfrastructureDevicesForWrite(
+	ctx context.Context,
+	q *sqlc.Queries,
+	orgID int64,
+	expected map[int64]models.ResponseProfileInfrastructureDevice,
+) error {
+	if len(expected) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(expected))
+	for id := range expected {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	rows, err := q.LockInfrastructureDevicesForResponseProfile(ctx, sqlc.LockInfrastructureDevicesForResponseProfileParams{
+		OrgID:                   orgID,
+		InfrastructureDeviceIds: ids,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to lock infrastructure devices for curtailment response profile: %v", err)
+	}
+	if len(rows) != len(expected) {
+		return fleeterror.NewFailedPreconditionError("infrastructure devices changed before response profile save; retry")
+	}
+	for _, row := range rows {
+		device, ok := expected[row.ID]
+		if !ok || device.SiteID != row.SiteID {
+			return fleeterror.NewFailedPreconditionError("infrastructure devices changed before response profile save; retry")
 		}
 	}
 	return nil
@@ -2438,6 +2635,9 @@ func responseProfileFromRow(row sqlc.CurtailmentResponseProfile) *models.Respons
 		ForceIncludeMaintenance:     row.ForceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: row.ForceIncludeAllPairedMiners,
 		PostEventCooldownSec:        row.PostEventCooldownSec,
+		FacilityFanDeviceIDs:        append([]int64(nil), row.FacilityFanDeviceIds...),
+		FanOffDelaySec:              row.FanOffDelaySec,
+		FanRestoreDelaySec:          row.FanRestoreDelaySec,
 		CreatedAt:                   row.CreatedAt,
 		UpdatedAt:                   row.UpdatedAt,
 	}
@@ -2463,6 +2663,9 @@ func insertResponseProfileParams(profile models.ResponseProfile) sqlc.InsertCurt
 		ForceIncludeMaintenance:     profile.ForceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: profile.ForceIncludeAllPairedMiners,
 		PostEventCooldownSec:        profile.PostEventCooldownSec,
+		FacilityFanDeviceIds:        responseProfileFacilityFanDeviceIDs(profile),
+		FanOffDelaySec:              profile.FanOffDelaySec,
+		FanRestoreDelaySec:          profile.FanRestoreDelaySec,
 	}
 }
 
@@ -2470,30 +2673,44 @@ func updateResponseProfileParams(
 	profile models.ResponseProfile,
 	expectedSiteID *int64,
 	expectedScopeJSON []byte,
+	expectedFacilityFanSettings models.ResponseProfileFanSettings,
 ) sqlc.UpdateCurtailmentResponseProfileParams {
 	return sqlc.UpdateCurtailmentResponseProfileParams{
-		ID:                          profile.ID,
-		OrgID:                       profile.OrgID,
-		ExpectedSiteID:              ptrToNullInt64(expectedSiteID),
-		ExpectedScopeJson:           normalizedResponseProfileScopeJSON(expectedScopeJSON),
-		ProfileName:                 profile.ProfileName,
-		SiteID:                      ptrToNullInt64(profile.SiteID),
-		ScopeJson:                   responseProfileScopeJSON(profile),
-		Mode:                        string(profile.Mode),
-		Strategy:                    string(profile.Strategy),
-		Level:                       string(profile.Level),
-		Priority:                    string(profile.Priority),
-		TargetKw:                    ptrFloat64ToNullString(profile.TargetKW),
-		ToleranceKw:                 ptrFloat64ToNullString(profile.ToleranceKW),
-		CurtailBatchSize:            ptrToNullInt32(profile.CurtailBatchSize),
-		CurtailBatchIntervalSec:     profile.CurtailBatchIntervalSec,
-		RestoreBatchSize:            profile.RestoreBatchSize,
-		RestoreBatchIntervalSec:     profile.RestoreBatchIntervalSec,
-		IncludeMaintenance:          profile.IncludeMaintenance,
-		ForceIncludeMaintenance:     profile.ForceIncludeMaintenance,
-		ForceIncludeAllPairedMiners: profile.ForceIncludeAllPairedMiners,
-		PostEventCooldownSec:        profile.PostEventCooldownSec,
+		ID:                           profile.ID,
+		OrgID:                        profile.OrgID,
+		ExpectedSiteID:               ptrToNullInt64(expectedSiteID),
+		ExpectedScopeJson:            normalizedResponseProfileScopeJSON(expectedScopeJSON),
+		ExpectedFacilityFanDeviceIds: append([]int64{}, expectedFacilityFanSettings.FacilityFanDeviceIDs...),
+		ExpectedFanOffDelaySec:       expectedFacilityFanSettings.FanOffDelaySec,
+		ExpectedFanRestoreDelaySec:   expectedFacilityFanSettings.FanRestoreDelaySec,
+		ProfileName:                  profile.ProfileName,
+		SiteID:                       ptrToNullInt64(profile.SiteID),
+		ScopeJson:                    responseProfileScopeJSON(profile),
+		Mode:                         string(profile.Mode),
+		Strategy:                     string(profile.Strategy),
+		Level:                        string(profile.Level),
+		Priority:                     string(profile.Priority),
+		TargetKw:                     ptrFloat64ToNullString(profile.TargetKW),
+		ToleranceKw:                  ptrFloat64ToNullString(profile.ToleranceKW),
+		CurtailBatchSize:             ptrToNullInt32(profile.CurtailBatchSize),
+		CurtailBatchIntervalSec:      profile.CurtailBatchIntervalSec,
+		RestoreBatchSize:             profile.RestoreBatchSize,
+		RestoreBatchIntervalSec:      profile.RestoreBatchIntervalSec,
+		IncludeMaintenance:           profile.IncludeMaintenance,
+		ForceIncludeMaintenance:      profile.ForceIncludeMaintenance,
+		ForceIncludeAllPairedMiners:  profile.ForceIncludeAllPairedMiners,
+		PostEventCooldownSec:         profile.PostEventCooldownSec,
+		FacilityFanDeviceIds:         responseProfileFacilityFanDeviceIDs(profile),
+		FanOffDelaySec:               profile.FanOffDelaySec,
+		FanRestoreDelaySec:           profile.FanRestoreDelaySec,
 	}
+}
+
+func responseProfileFacilityFanDeviceIDs(profile models.ResponseProfile) []int64 {
+	if len(profile.FacilityFanDeviceIDs) == 0 {
+		return []int64{}
+	}
+	return append([]int64(nil), profile.FacilityFanDeviceIDs...)
 }
 
 func responseProfileScopeJSON(profile models.ResponseProfile) []byte {

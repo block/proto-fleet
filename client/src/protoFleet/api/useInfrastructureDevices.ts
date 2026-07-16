@@ -84,6 +84,7 @@ function parseDeviceId(value: string, label: string): bigint {
 export default function useInfrastructureDevices(
   enabled = true,
   siteIds?: readonly bigint[],
+  requireCurtailmentManage = false,
 ): UseInfrastructureDevicesResult {
   const { handleAuthErrors } = useAuthErrors();
   const [apiDevices, setApiDevices] = useState<ApiInfrastructureDevice[]>([]);
@@ -172,6 +173,7 @@ export default function useInfrastructureDevices(
         const response = await infrastructureClient.listInfrastructureDevices(
           create(ListInfrastructureDevicesRequestSchema, {
             siteIds: siteFilterKey ? siteFilterKey.split(",").map(BigInt) : [],
+            requireCurtailmentManage,
           }),
           signal ? { signal } : undefined,
         );
@@ -198,7 +200,7 @@ export default function useInfrastructureDevices(
         }
       }
     },
-    [handleFailure, siteFilterKey],
+    [handleFailure, requireCurtailmentManage, siteFilterKey],
   );
 
   useEffect(() => {

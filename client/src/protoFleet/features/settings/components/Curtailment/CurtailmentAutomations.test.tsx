@@ -149,6 +149,26 @@ describe("CurtailmentAutomationsContent", () => {
     expect(within(row).getByText("Standard shed")).toBeVisible();
   });
 
+  it("excludes facility-fan response profiles from automation choices", () => {
+    const facilityFanProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "facility-fan-shed",
+      name: "Facility fan shed",
+      formValues: { facilityFanDeviceIds: ["31"] } as NonNullable<ResponseProfile["formValues"]>,
+    };
+    render(
+      <CurtailmentAutomationsContent
+        sources={testSources}
+        responseProfiles={[facilityFanProfile, ...testResponseProfiles]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
+    const responseProfileSelect = screen.getByTestId("automation-response-profile-select");
+    expect(responseProfileSelect).toHaveTextContent("Standard shed");
+    expect(responseProfileSelect).not.toHaveTextContent("Facility fan shed");
+  });
+
   it("edits and deletes automation rows from the row click modal", async () => {
     render(
       <CurtailmentAutomationsContent

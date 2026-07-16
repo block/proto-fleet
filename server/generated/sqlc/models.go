@@ -570,6 +570,9 @@ type CurtailmentResponseProfile struct {
 	PostEventCooldownSec        int32
 	ScopeJson                   json.RawMessage
 	ForceIncludeAllPairedMiners bool
+	FacilityFanDeviceIds        []int64
+	FanOffDelaySec              int32
+	FanRestoreDelaySec          int32
 }
 
 type CurtailmentTarget struct {

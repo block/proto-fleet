@@ -670,6 +670,48 @@ func TestBuildGroupsRendersDefaultFieldsBeforeFlagOverrides(t *testing.T) {
 	}
 }
 
+func TestBuildGroupsRequiresRelatedFlagsTogetherBeforeSettingBoolean(t *testing.T) {
+	file := testFanSettingsServiceFile(t)
+	files := []protoreflect.FileDescriptor{file}
+	messages, enums, err := buildTypeIndexes(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	groups, _, err := buildGroups(files, messages, enums, commandsManifest{
+		Commands: []commandSpec{
+			{
+				Method:  "/test.v1.TestService/Update",
+				Group:   "test",
+				Command: "update",
+				SetBoolWhenFieldsSet: map[string][]string{
+					"replace_facility_fan_settings": {
+						"facility_fan_device_ids",
+						"fan_off_delay_sec",
+						"fan_restore_delay_sec",
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildGroups error = %v, want success", err)
+	}
+	if len(groups) != 1 || len(groups[0].CommandExprs) != 1 {
+		t.Fatalf("generated groups = %#v, want one command expression", groups)
+	}
+
+	expr := groups[0].CommandExprs[0]
+	wantGuard := "if (cmd.IsSet(\"facility-fan-device-ids\") || cmd.IsSet(\"fan-off-delay-sec\") || cmd.IsSet(\"fan-restore-delay-sec\")) && !(cmd.IsSet(\"facility-fan-device-ids\") && cmd.IsSet(\"fan-off-delay-sec\") && cmd.IsSet(\"fan-restore-delay-sec\")) {\n\t\t\treturn nil, fmt.Errorf(\"flags --facility-fan-device-ids, --fan-off-delay-sec, --fan-restore-delay-sec must be provided together\")\n\t\t}"
+	if !strings.Contains(expr, wantGuard) {
+		t.Fatalf("generated command missing partial-field guard:\n%s", expr)
+	}
+	wantTrigger := "if cmd.IsSet(\"facility-fan-device-ids\") && cmd.IsSet(\"fan-off-delay-sec\") && cmd.IsSet(\"fan-restore-delay-sec\") {\n\t\t\treq.ReplaceFacilityFanSettings = true\n\t\t}"
+	if !strings.Contains(expr, wantTrigger) {
+		t.Fatalf("generated command missing related-field trigger:\n%s", expr)
+	}
+}
+
 func testPoolServiceFile(t *testing.T) protoreflect.FileDescriptor {
 	t.Helper()
 	files, err := protodesc.NewFiles(&descriptorpb.FileDescriptorSet{
@@ -816,6 +858,66 @@ func testPageSizeServiceFile(t *testing.T) protoreflect.FileDescriptor {
 						Name:       stringPtr("List"),
 						InputType:  stringPtr(".test.v1.ListRequest"),
 						OutputType: stringPtr(".test.v1.ListResponse"),
+					},
+				},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file
+}
+
+func testFanSettingsServiceFile(t *testing.T) protoreflect.FileDescriptor {
+	t.Helper()
+	file, err := protodesc.NewFile(&descriptorpb.FileDescriptorProto{
+		Name:    stringPtr("test/v1/test.proto"),
+		Syntax:  stringPtr("proto3"),
+		Package: stringPtr("test.v1"),
+		Options: &descriptorpb.FileOptions{
+			GoPackage: stringPtr("github.com/block/proto-fleet/server/generated/grpc/test/v1;testv1"),
+		},
+		MessageType: []*descriptorpb.DescriptorProto{
+			{
+				Name: stringPtr("UpdateRequest"),
+				Field: []*descriptorpb.FieldDescriptorProto{
+					{
+						Name:   stringPtr("facility_fan_device_ids"),
+						Number: int32Ptr(1),
+						Label:  descriptorpb.FieldDescriptorProto_LABEL_REPEATED.Enum(),
+						Type:   descriptorpb.FieldDescriptorProto_TYPE_INT64.Enum(),
+					},
+					{
+						Name:   stringPtr("fan_off_delay_sec"),
+						Number: int32Ptr(2),
+						Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:   descriptorpb.FieldDescriptorProto_TYPE_UINT32.Enum(),
+					},
+					{
+						Name:   stringPtr("fan_restore_delay_sec"),
+						Number: int32Ptr(3),
+						Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:   descriptorpb.FieldDescriptorProto_TYPE_UINT32.Enum(),
+					},
+					{
+						Name:   stringPtr("replace_facility_fan_settings"),
+						Number: int32Ptr(4),
+						Label:  descriptorpb.FieldDescriptorProto_LABEL_OPTIONAL.Enum(),
+						Type:   descriptorpb.FieldDescriptorProto_TYPE_BOOL.Enum(),
+					},
+				},
+			},
+			{Name: stringPtr("UpdateResponse")},
+		},
+		Service: []*descriptorpb.ServiceDescriptorProto{
+			{
+				Name: stringPtr("TestService"),
+				Method: []*descriptorpb.MethodDescriptorProto{
+					{
+						Name:       stringPtr("Update"),
+						InputType:  stringPtr(".test.v1.UpdateRequest"),
+						OutputType: stringPtr(".test.v1.UpdateResponse"),
 					},
 				},
 			},

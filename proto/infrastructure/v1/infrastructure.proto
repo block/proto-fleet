@@ -53,6 +53,11 @@ message ListInfrastructureDevicesRequest {
             int64: {gt: 0}
         }
     }];
+
+    // When true, return only devices at sites where the caller can manage
+    // curtailment. Response-profile fan pickers set this so every listed
+    // device can be selected and saved by the current operator.
+    bool require_curtailment_manage = 2;
 }
 
 message ListInfrastructureDevicesResponse {

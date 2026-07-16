@@ -116,6 +116,21 @@ func (mr *MockSiteStoreMockRecorder) CountRacksBySite(ctx, orgID, siteID any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountRacksBySite", reflect.TypeOf((*MockSiteStore)(nil).CountRacksBySite), ctx, orgID, siteID)
 }
 
+// CountResponseProfilesByInfrastructureDevices mocks base method.
+func (m *MockSiteStore) CountResponseProfilesByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountResponseProfilesByInfrastructureDevices", ctx, orgID, ids)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountResponseProfilesByInfrastructureDevices indicates an expected call of CountResponseProfilesByInfrastructureDevices.
+func (mr *MockSiteStoreMockRecorder) CountResponseProfilesByInfrastructureDevices(ctx, orgID, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountResponseProfilesByInfrastructureDevices", reflect.TypeOf((*MockSiteStore)(nil).CountResponseProfilesByInfrastructureDevices), ctx, orgID, ids)
+}
+
 // CreateSite mocks base method.
 func (m *MockSiteStore) CreateSite(ctx context.Context, params models.CreateSiteParams) (*models.Site, error) {
 	m.ctrl.T.Helper()
@@ -321,6 +336,21 @@ func (m *MockSiteStore) LockDevicesForReassign(ctx context.Context, orgID int64,
 func (mr *MockSiteStoreMockRecorder) LockDevicesForReassign(ctx, orgID, deviceIdentifiers any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockDevicesForReassign", reflect.TypeOf((*MockSiteStore)(nil).LockDevicesForReassign), ctx, orgID, deviceIdentifiers)
+}
+
+// LockInfrastructureDevicesBySiteForWrite mocks base method.
+func (m *MockSiteStore) LockInfrastructureDevicesBySiteForWrite(ctx context.Context, orgID, siteID int64) ([]int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockInfrastructureDevicesBySiteForWrite", ctx, orgID, siteID)
+	ret0, _ := ret[0].([]int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockInfrastructureDevicesBySiteForWrite indicates an expected call of LockInfrastructureDevicesBySiteForWrite.
+func (mr *MockSiteStoreMockRecorder) LockInfrastructureDevicesBySiteForWrite(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockInfrastructureDevicesBySiteForWrite", reflect.TypeOf((*MockSiteStore)(nil).LockInfrastructureDevicesBySiteForWrite), ctx, orgID, siteID)
 }
 
 // LockSiteForWrite mocks base method.

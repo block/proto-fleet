@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   forceReleaseCurtailment: vi.fn(),
   goToHistoryPage: vi.fn(),
   listSites: vi.fn(),
+  listInfrastructureDevices: vi.fn(),
   navigate: vi.fn(),
   refreshCurtailment: vi.fn(),
   selectActiveCurtailment: vi.fn(),
@@ -33,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   useHasPermission: vi.fn(),
   useCurtailmentApi: vi.fn(),
   useCurtailmentResponseProfiles: vi.fn(),
+  useInfrastructureDevices: vi.fn(),
 }));
 
 vi.mock("@/protoFleet/api/useCurtailmentApi", () => ({
@@ -42,6 +44,10 @@ vi.mock("@/protoFleet/api/useCurtailmentApi", () => ({
 
 vi.mock("@/protoFleet/api/useCurtailmentResponseProfiles", () => ({
   default: (...args: unknown[]) => mocks.useCurtailmentResponseProfiles(...args),
+}));
+
+vi.mock("@/protoFleet/api/useInfrastructureDevices", () => ({
+  default: (...args: unknown[]) => mocks.useInfrastructureDevices(...args),
 }));
 
 vi.mock("@/protoFleet/api/sites", () => ({
@@ -378,6 +384,17 @@ describe("CurtailmentManagementPanel", () => {
       updateResponseProfile: vi.fn(),
       deleteResponseProfile: vi.fn(),
     });
+    mocks.useInfrastructureDevices.mockReturnValue({
+      devices: [],
+      isLoading: false,
+      loadError: null,
+      updatingDeviceIds: new Set(),
+      listDevices: mocks.listInfrastructureDevices,
+      createDevice: vi.fn(),
+      updateDevice: vi.fn(),
+      setDeviceEnabled: vi.fn(),
+      deleteDevice: vi.fn(),
+    });
   });
 
   it("loads site names and passes them to curtailment hooks when the operator can read sites", async () => {
@@ -415,6 +432,14 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
 
     expect(screen.getByTestId("modal-default-site-scope")).toHaveTextContent("Austin, TX");
+  });
+
+  it("does not load infrastructure inventory for live curtailment", () => {
+    mocks.useHasPermission.mockImplementation((key: string) => key === "site:read");
+
+    render(<CurtailmentManagementPanel />);
+
+    expect(mocks.useInfrastructureDevices).not.toHaveBeenCalled();
   });
 
   it("submits planned curtailments, closes the modal, and passes refreshed history props through", async () => {

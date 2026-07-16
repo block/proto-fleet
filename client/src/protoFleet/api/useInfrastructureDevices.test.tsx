@@ -217,6 +217,21 @@ describe("useInfrastructureDevices", () => {
     expect(mockListInfrastructureDevices).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [8n] }), undefined);
   });
 
+  it("can request only devices at curtailment-manageable sites", async () => {
+    mockListInfrastructureDevices.mockResolvedValueOnce({ devices: [apiDevice()] });
+
+    const { result } = renderHook(() => useInfrastructureDevices(false, undefined, true));
+
+    await act(async () => {
+      await result.current.listDevices();
+    });
+
+    expect(mockListInfrastructureDevices).toHaveBeenCalledWith(
+      expect.objectContaining({ requireCurtailmentManage: true }),
+      undefined,
+    );
+  });
+
   it("refetches when the site scope changes", async () => {
     mockListInfrastructureDevices.mockResolvedValue({ devices: [apiDevice()] });
 

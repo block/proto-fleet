@@ -63,6 +63,14 @@ type SiteStore interface {
 	// curtailment response behavior scoped to the site being deleted.
 	DeleteCurtailmentResponseProfilesBySite(ctx context.Context, orgID, siteID int64) (int64, error)
 
+	// LockInfrastructureDevicesBySiteForWrite locks live devices at the site
+	// in ID order before a site-delete reference check and cascade.
+	LockInfrastructureDevicesBySiteForWrite(ctx context.Context, orgID, siteID int64) ([]int64, error)
+
+	// CountResponseProfilesByInfrastructureDevices counts surviving profiles
+	// that reference any ID in the supplied set.
+	CountResponseProfilesByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error)
+
 	// SoftDeleteBuildingsBySite soft-deletes every live building under
 	// the site. Caller wraps it in the cascade tx.
 	SoftDeleteBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error)
