@@ -203,7 +203,16 @@ File structure
 - Keep section markers, section order, header rows, and column count unchanged.
 - Blank spacer rows between sections are allowed.
 - Headers ending in "(read only)" identify existing records or reference data. Do not change those values for existing rows.
-- Site, building, and rack rows are upserts: existing names/labels update the existing row, and new names/labels create rows. Miner rows must reference existing miners; unknown miner identifiers fail validation.
+- Site, building, and rack rows are upserts keyed by their identity columns. Existing names/labels update the existing row, and new names/labels create rows. Miner rows must reference existing miners; unknown miner identifiers fail validation.
+
+Omissions and renames
+- Import preview reports omitted existing rows when a site, building, rack, or miner exists in Proto Fleet but is missing from the CSV.
+- The user chooses omission handling during import. Leave omitted rows in place keeps missing rows unchanged. Remove omitted rows soft-deletes omitted sites, buildings, and racks, and unassigns omitted miners.
+- Remove omitted rows can cascade placement cleanup: deleting an omitted site also deletes its buildings and unassigns racks/miners from that site; deleting an omitted building unassigns its racks and miners; deleting an omitted rack removes miners from that rack.
+- Site, building, and rack names/labels are identities, not rename fields. If you change one, Proto Fleet treats the edited row as a new entity and treats the old entity as omitted.
+- Therefore, do not "rename" a site, building, or rack by editing its name/label unless the intended result is create-new plus optional delete-old by omission.
+- If you intentionally replace a site/building/rack name, update all dependent references in the CSV to the new name. For example, a building moved to a new site key must be referenced by that new site in rack and miner placement rows.
+- Miner omission is different from miner deletion: miners cannot be created or deleted by site map import. With remove omitted rows, omitted miners are only unassigned from site/building/rack placement.
 
 Formatting rules
 - Keep the file as comma-separated CSV, not markdown or a table pasted into prose.

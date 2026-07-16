@@ -45,6 +45,9 @@ func TestBuildSiteMapExportZipIncludesCSVAndAgentGuide(t *testing.T) {
 		"Edit proto-fleet-site-map/site-map.csv",
 		"If rack is set, the rack determines the miner's building and site.",
 		"Headers ending in \"(read only)\" identify existing records or reference data.",
+		"Leave omitted rows in place keeps missing rows unchanged.",
+		"Remove omitted rows soft-deletes omitted sites, buildings, and racks, and unassigns omitted miners.",
+		"Site, building, and rack names/labels are identities, not rename fields.",
 	} {
 		if !strings.Contains(guideText, want) {
 			t.Fatalf("%s missing %q: %q", siteMapExportGuideTXTPath, want, guideText)
