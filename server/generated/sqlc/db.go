@@ -1350,6 +1350,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateCustomRoleNameStmt, err = db.PrepareContext(ctx, updateCustomRoleName); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateCustomRoleName: %w", err)
 	}
+	if q.updateDeviceCustomNamesStmt, err = db.PrepareContext(ctx, updateDeviceCustomNames); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateDeviceCustomNames: %w", err)
+	}
 	if q.updateDeviceIPAssignmentStmt, err = db.PrepareContext(ctx, updateDeviceIPAssignment); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateDeviceIPAssignment: %w", err)
 	}
@@ -3709,6 +3712,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateCustomRoleNameStmt: %w", cerr)
 		}
 	}
+	if q.updateDeviceCustomNamesStmt != nil {
+		if cerr := q.updateDeviceCustomNamesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateDeviceCustomNamesStmt: %w", cerr)
+		}
+	}
 	if q.updateDeviceIPAssignmentStmt != nil {
 		if cerr := q.updateDeviceIPAssignmentStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateDeviceIPAssignmentStmt: %w", cerr)
@@ -4430,6 +4438,7 @@ type Queries struct {
 	updateCurtailmentResponseProfileStmt                       *sql.Stmt
 	updateCurtailmentTargetStateStmt                           *sql.Stmt
 	updateCustomRoleNameStmt                                   *sql.Stmt
+	updateDeviceCustomNamesStmt                                *sql.Stmt
 	updateDeviceIPAssignmentStmt                               *sql.Stmt
 	updateDeviceInfoStmt                                       *sql.Stmt
 	updateDevicePairingStatusByIdentifierStmt                  *sql.Stmt
@@ -4926,6 +4935,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateCurtailmentResponseProfileStmt:                       q.updateCurtailmentResponseProfileStmt,
 		updateCurtailmentTargetStateStmt:                           q.updateCurtailmentTargetStateStmt,
 		updateCustomRoleNameStmt:                                   q.updateCustomRoleNameStmt,
+		updateDeviceCustomNamesStmt:                                q.updateDeviceCustomNamesStmt,
 		updateDeviceIPAssignmentStmt:                               q.updateDeviceIPAssignmentStmt,
 		updateDeviceInfoStmt:                                       q.updateDeviceInfoStmt,
 		updateDevicePairingStatusByIdentifierStmt:                  q.updateDevicePairingStatusByIdentifierStmt,

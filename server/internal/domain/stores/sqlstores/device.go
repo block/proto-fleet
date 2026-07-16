@@ -11,8 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lib/pq"
-
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	tm "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
@@ -1781,14 +1779,23 @@ func (s *SQLDeviceStore) GetDevicePropertiesForRename(
 // The names map is keyed by device_identifier. Device ownership is validated by the
 // caller (RenameMiners) before this method is invoked.
 //
-// The UPDATE and the row-count check run in a single transaction so that a short write
-// (e.g. a concurrent soft-delete between selection and write) is rolled back rather than
-// partially committed. This preserves all-or-nothing rename semantics.
+// The UPDATE reuses any transaction carried by ctx. Without an existing
+// transaction, the store opens one so the row-count check can roll back short
+// writes (e.g. a concurrent soft-delete between selection and write).
 func (s *SQLDeviceStore) UpdateDeviceCustomNames(ctx context.Context, orgID int64, names map[string]string) error {
 	if len(names) == 0 {
 		return nil
 	}
 
+	if txQueries := s.GetTxQueries(ctx); txQueries != nil {
+		return updateDeviceCustomNamesWithQueries(ctx, txQueries, orgID, names)
+	}
+	return db.WithTransactionNoResult(ctx, s.conn.DB, func(q *sqlc.Queries) error {
+		return updateDeviceCustomNamesWithQueries(ctx, q, orgID, names)
+	})
+}
+
+func updateDeviceCustomNamesWithQueries(ctx context.Context, q *sqlc.Queries, orgID int64, names map[string]string) error {
 	identifiers := make([]string, 0, len(names))
 	customNames := make([]string, 0, len(names))
 	for id, name := range names {
@@ -1796,36 +1803,16 @@ func (s *SQLDeviceStore) UpdateDeviceCustomNames(ctx context.Context, orgID int6
 		customNames = append(customNames, name)
 	}
 
-	//nolint:forbidigo // This legacy path uses raw array SQL; moving it requires a separately validated sqlc query.
-	tx, err := s.conn.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to begin rename transaction: %v", err)
-	}
-	//goland:noinspection GoUnhandledErrorResult
-	defer tx.Rollback()
-
-	result, err := tx.ExecContext(ctx,
-		`UPDATE device SET custom_name = updates.name
-		FROM unnest($1::text[], $2::text[]) AS updates(identifier, name)
-		WHERE device.device_identifier = updates.identifier
-		  AND device.org_id = $3
-		  AND device.deleted_at IS NULL`,
-		pq.Array(identifiers), pq.Array(customNames), orgID,
-	)
+	affected, err := q.UpdateDeviceCustomNames(ctx, sqlc.UpdateDeviceCustomNamesParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: identifiers,
+		CustomNames:       customNames,
+	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to update device custom names: %v", err)
 	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to read rows affected for custom name update: %v", err)
-	}
 	if int(affected) != len(names) {
 		return fleeterror.NewNotFoundErrorf("one or more devices not found during rename: expected %d updates, got %d", len(names), affected)
-	}
-
-	if err = tx.Commit(); err != nil {
-		return fleeterror.NewInternalErrorf("failed to commit rename transaction: %v", err)
 	}
 
 	return nil

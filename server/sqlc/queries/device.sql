@@ -686,6 +686,17 @@ WHERE d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND d.org_id = sqlc.arg('org_id')
   AND d.deleted_at IS NULL;
 
+-- name: UpdateDeviceCustomNames :execrows
+UPDATE device SET custom_name = updates.name
+FROM (
+    SELECT ids.identifier, names.name
+    FROM unnest(sqlc.arg('device_identifiers')::text[]) WITH ORDINALITY AS ids(identifier, ord)
+    JOIN unnest(sqlc.arg('custom_names')::text[]) WITH ORDINALITY AS names(name, ord) USING (ord)
+) AS updates
+WHERE device.device_identifier = updates.identifier
+  AND device.org_id = sqlc.arg('org_id')
+  AND device.deleted_at IS NULL;
+
 
 -- name: GetTotalMinerStateSnapshots :one
 -- Unified query that supports all filters including component error filtering

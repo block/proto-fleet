@@ -1440,6 +1440,7 @@ type Querier interface {
 	// their own per-org editor that goes through a different code path
 	// because their seed identity (builtin_key) must be preserved.
 	UpdateCustomRoleName(ctx context.Context, arg UpdateCustomRoleNameParams) error
+	UpdateDeviceCustomNames(ctx context.Context, arg UpdateDeviceCustomNamesParams) (int64, error)
 	// PostgreSQL equivalent of UPDATE with INNER JOIN
 	UpdateDeviceIPAssignment(ctx context.Context, arg UpdateDeviceIPAssignmentParams) error
 	UpdateDeviceInfo(ctx context.Context, arg UpdateDeviceInfoParams) error

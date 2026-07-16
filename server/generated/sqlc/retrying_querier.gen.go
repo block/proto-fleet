@@ -4968,6 +4968,18 @@ func (q *retryingQuerier) UpdateCustomRoleName(ctx context.Context, arg UpdateCu
 	})
 }
 
+func (q *retryingQuerier) UpdateDeviceCustomNames(ctx context.Context, arg UpdateDeviceCustomNamesParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "UpdateDeviceCustomNames", func() error {
+		callResult, callErr := q.next.UpdateDeviceCustomNames(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) UpdateDeviceIPAssignment(ctx context.Context, arg UpdateDeviceIPAssignmentParams) error {
 	return q.retrier.RetryQuery(ctx, "UpdateDeviceIPAssignment", func() error {
 		return q.next.UpdateDeviceIPAssignment(ctx, arg)
