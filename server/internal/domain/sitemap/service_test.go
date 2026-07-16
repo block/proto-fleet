@@ -212,6 +212,36 @@ func TestBuildPlanRejectsImportedNamesOverServerLimits(t *testing.T) {
 	}
 }
 
+func TestBuildPlanRejectsDuplicateIdentityIDs(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": {
+			{"__row": "3", fieldID: "10", fieldName: "Site A"},
+			{"__row": "4", fieldID: "10", fieldName: "Site B"},
+		},
+		"BUILDING": {
+			{"__row": "7", fieldID: "20", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "1"},
+			{"__row": "8", fieldID: "20", fieldName: "Building B", "aisles": "1", "racks_per_aisle": "1"},
+		},
+		"RACK": {
+			{"__row": "11", fieldID: "30", fieldLabel: "Rack A", "rows": "4", "columns": "6"},
+			{"__row": "12", fieldID: "30", fieldLabel: "Rack B", "rows": "4", "columns": "6"},
+		},
+		"MINER": nil,
+	}}
+	snap := &snapshot{
+		sites:     []sitemodels.Site{{ID: 10, Name: "Site A"}},
+		buildings: []buildingmodels.Building{{ID: 20, Name: "Building A", Aisles: 1, RacksPerAisle: 1}},
+		racks:     []rackSnapshot{{ID: 30, Label: "Rack A", Rows: 4, Columns: 6}},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	for _, section := range []string{"SITE", "BUILDING", "RACK"} {
+		if !hasValidationError(plan.errors, section, "duplicate id") {
+			t.Fatalf("plan errors = %+v, want duplicate id error for %s", plan.errors, section)
+		}
+	}
+}
+
 func TestBuildPlanRejectsOldBuildingReferenceAfterIDRename(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE": {
@@ -240,6 +270,81 @@ func TestBuildPlanRejectsOldBuildingReferenceAfterIDRename(t *testing.T) {
 		}
 	}
 	t.Fatalf("plan errors = %+v, want unknown old building reference", plan.errors)
+}
+
+func TestBuildPlanAllowsRackTargetDisambiguatedByBuildingID(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": nil,
+		"BUILDING": {
+			{"__row": "5", fieldID: "10", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "2"},
+			{"__row": "6", fieldID: "11", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "2"},
+		},
+		"RACK": {
+			{"__row": "9", fieldLabel: "Rack A", fieldBuildingID: "10", fieldBuilding: "Building A", "rows": "4", "columns": "6"},
+		},
+		"MINER": nil,
+	}}
+	snap := &snapshot{buildings: []buildingmodels.Building{
+		{ID: 10, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
+		{ID: 11, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
+	}}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.errors) != 0 {
+		t.Fatalf("plan errors = %+v, want building_id-disambiguated rack accepted", plan.errors)
+	}
+}
+
+func TestBuildPlanRejectsOldRackReferenceAfterIDRename(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE":     nil,
+		"BUILDING": nil,
+		"RACK": {
+			{"__row": "9", fieldID: "20", fieldLabel: "New Rack", "rows": "4", "columns": "6"},
+		},
+		"MINER": {
+			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldRack: "Old Rack", "rack_row": "0", "rack_col": "0"},
+		},
+	}}
+	snap := &snapshot{
+		racks:  []rackSnapshot{{ID: 20, Label: "Old Rack", Rows: 4, Columns: 6}},
+		miners: []minerSnapshot{{DeviceIdentifier: "miner-1", SerialNumber: "SN1", Name: "Miner 1", IPAddress: "10.0.0.5", MACAddress: "aa:bb:cc:dd:ee:ff"}},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if !hasValidationError(plan.errors, "MINER", `unknown rack "Old Rack"`) {
+		t.Fatalf("plan errors = %+v, want old rack reference rejected after ID rename", plan.errors)
+	}
+}
+
+func TestBuildPlanCountsMinerMoveDisambiguatedByBuildingID(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": nil,
+		"BUILDING": {
+			{"__row": "5", fieldID: "10", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "2"},
+			{"__row": "6", fieldID: "11", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "2"},
+		},
+		"RACK": nil,
+		"MINER": {
+			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldBuildingID: "11", fieldBuilding: "Building A"},
+		},
+	}}
+	buildingID := int64(10)
+	snap := &snapshot{
+		buildings: []buildingmodels.Building{
+			{ID: 10, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
+			{ID: 11, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
+		},
+		miners: []minerSnapshot{{DeviceIdentifier: "miner-1", SerialNumber: "SN1", Name: "Miner 1", IPAddress: "10.0.0.5", MACAddress: "aa:bb:cc:dd:ee:ff", BuildingID: &buildingID, Building: "Building A"}},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.errors) != 0 {
+		t.Fatalf("plan errors = %+v, want building_id-disambiguated miner move accepted", plan.errors)
+	}
+	if !hasChange(plan.changes, pb.ImportOperation_IMPORT_OPERATION_MOVE, "miner", 1) {
+		t.Fatalf("changes = %+v, want miner move summary", plan.changes)
+	}
 }
 
 func TestBuildPlanRejectsBuildingUnknownSite(t *testing.T) {
@@ -618,7 +723,7 @@ func TestApplyMinerRowsClearsDirectPlacementWhenAssigningUnassignedRack(t *testi
 	buildingStore.EXPECT().AssignDevicesToBuilding(ctx, orgID, nil, deviceIDs).Return(int64(1), nil)
 	collectionStore.EXPECT().ClearRackSlotPosition(ctx, rack.ID, "miner-1", orgID).Return(nil)
 
-	if err := svc.applyMinerRows(ctx, orgID, rows, nil, nil, nil, nil, map[string]rackSnapshot{"Rack A": rack}, existing); err != nil {
+	if err := svc.applyMinerRows(ctx, orgID, rows, nil, nil, nil, nil, nil, map[string]rackSnapshot{"Rack A": rack}, existing); err != nil {
 		t.Fatalf("applyMinerRows error = %v", err)
 	}
 }
@@ -867,6 +972,7 @@ func TestDesiredMinerSiteBuildingResolvesDirectBuildingSite(t *testing.T) {
 		map[string]string{"site": "", "building": "Building A", "rack": ""},
 		nil,
 		buildingsByName,
+		nil,
 		ambiguous,
 	)
 	if site != "Site A" || building != "Building A" {
@@ -884,6 +990,7 @@ func TestDesiredMinerSiteBuildingResolvesUnassignedDuplicateBuilding(t *testing.
 		map[string]string{"site": "", "building": "Building A", "rack": ""},
 		nil,
 		buildingsByName,
+		nil,
 		ambiguous,
 	)
 	if site != "" || building != "Building A" {
@@ -1249,6 +1356,15 @@ func readZipFile(file *zip.File) ([]byte, error) {
 func hasChange(changes []*pb.ImportChangeSummary, op pb.ImportOperation, entityType string, count int32) bool {
 	for _, change := range changes {
 		if change.GetOperation() == op && change.GetEntityType() == entityType && change.GetCount() == count {
+			return true
+		}
+	}
+	return false
+}
+
+func hasValidationError(errors []*pb.ImportValidationError, section, message string) bool {
+	for _, err := range errors {
+		if err.GetSection() == section && strings.Contains(err.GetMessage(), message) {
 			return true
 		}
 	}

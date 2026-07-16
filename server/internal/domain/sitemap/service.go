@@ -1160,6 +1160,9 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateUniqueBuildingRows(parsed.sections["BUILDING"])...)
 	plan.errors = append(plan.errors, validateUnique(parsed.sections["RACK"], "RACK", fieldLabel)...)
 	plan.errors = append(plan.errors, validateUnique(parsed.sections["MINER"], "MINER", "device_identifier")...)
+	plan.errors = append(plan.errors, validateUniqueIDs(parsed.sections["SITE"], "SITE")...)
+	plan.errors = append(plan.errors, validateUniqueIDs(parsed.sections["BUILDING"], "BUILDING")...)
+	plan.errors = append(plan.errors, validateUniqueIDs(parsed.sections["RACK"], "RACK")...)
 	plan.errors = append(plan.errors, validateImportedNameLengths(parsed)...)
 	plan.errors = append(plan.errors, validateKnownEntityIDs(parsed, snap)...)
 	plan.errors = append(plan.errors, normalizeIDReferences(parsed, snap)...)
@@ -1314,7 +1317,7 @@ func (s *Service) applyImportPlan(ctx context.Context, orgID int64, parsed *pars
 		if err := s.applyRackRows(txCtx, orgID, parsed.sections["RACK"], sitesByName, sitesByID, buildingsByKey, buildingsByID, racksByLabel, racksByID); err != nil {
 			return err
 		}
-		return s.applyMinerRows(txCtx, orgID, parsed.sections["MINER"], parsed.sections["BUILDING"], snap.buildings, sitesByName, buildingsByKey, racksByLabel, minersByID)
+		return s.applyMinerRows(txCtx, orgID, parsed.sections["MINER"], parsed.sections["BUILDING"], snap.buildings, sitesByName, buildingsByKey, buildingsByID, racksByLabel, minersByID)
 	})
 }
 
@@ -1545,7 +1548,7 @@ func (s *Service) applyBuildingRows(
 			return err
 		}
 		if !ok {
-			siteID, _, err := desiredSiteBuildingIDs(row[fieldSiteID], row[fieldSite], "", sitesByName, sitesByID, nil, nil)
+			siteID, _, err := desiredSiteBuildingIDs(row[fieldSiteID], row[fieldSite], "", "", sitesByName, sitesByID, nil, nil)
 			if err != nil {
 				return err
 			}
@@ -1584,7 +1587,7 @@ func (s *Service) applyBuildingRows(
 		}); err != nil {
 			return err
 		}
-		siteID, _, err := desiredSiteBuildingIDs(row[fieldSiteID], row[fieldSite], "", sitesByName, sitesByID, nil, nil)
+		siteID, _, err := desiredSiteBuildingIDs(row[fieldSiteID], row[fieldSite], "", "", sitesByName, sitesByID, nil, nil)
 		if err != nil {
 			return err
 		}
@@ -1634,7 +1637,7 @@ func (s *Service) applyRackRows(
 		if err != nil {
 			return err
 		}
-		siteID, buildingID, err := desiredSiteBuildingIDs(row[fieldSiteID], row[fieldSite], row[fieldBuilding], sitesByName, sitesByID, buildingsByKey, buildingsByID)
+		siteID, buildingID, err := desiredSiteBuildingIDs(row[fieldSiteID], row[fieldSite], row[fieldBuildingID], row[fieldBuilding], sitesByName, sitesByID, buildingsByKey, buildingsByID)
 		if err != nil {
 			return err
 		}
@@ -1820,6 +1823,7 @@ func (s *Service) applyMinerRows(
 	buildings []buildingmodels.Building,
 	sitesByName map[string]sitemodels.Site,
 	buildingsByKey map[string]buildingmodels.Building,
+	buildingsByID map[int64]buildingmodels.Building,
 	racksByLabel map[string]rackSnapshot,
 	existing map[string]minerSnapshot,
 ) error {
@@ -1834,8 +1838,8 @@ func (s *Service) applyMinerRows(
 		if row[fieldName] != miner.Name {
 			renamedMiners[row["device_identifier"]] = row[fieldName]
 		}
-		desiredSite, desiredBuilding := desiredMinerSiteBuilding(row, racksByLabel, buildingsByName, ambiguousBuildings)
-		if desiredSite == miner.Site && desiredBuilding == miner.Building && row[fieldRack] == miner.Rack && row["rack_row"] == miner.RackRow && row["rack_col"] == miner.RackCol {
+		desiredSite, desiredBuilding := desiredMinerSiteBuilding(row, racksByLabel, buildingsByName, buildingsByID, ambiguousBuildings)
+		if minerPlacementIDsMatch(row, miner) && desiredSite == miner.Site && desiredBuilding == miner.Building && row[fieldRack] == miner.Rack && row["rack_row"] == miner.RackRow && row["rack_col"] == miner.RackCol {
 			continue
 		}
 		deviceIDs := []string{row["device_identifier"]}
@@ -1887,7 +1891,7 @@ func (s *Service) applyMinerRows(
 		if _, err := s.collectionStore.RemoveDevicesFromAnyRack(ctx, orgID, deviceIDs, 0); err != nil {
 			return err
 		}
-		siteID, buildingID, err := desiredSiteBuildingIDs(row[fieldSiteID], desiredSite, desiredBuilding, sitesByName, nil, buildingsByKey, nil)
+		siteID, buildingID, err := desiredSiteBuildingIDs(row[fieldSiteID], desiredSite, row[fieldBuildingID], desiredBuilding, sitesByName, nil, buildingsByKey, buildingsByID)
 		if err != nil {
 			return err
 		}
@@ -2130,6 +2134,26 @@ func validateUniqueBuildingRows(rows []map[string]string) []*pb.ImportValidation
 		key := buildingRowIdentity(row)
 		if seen[key] {
 			errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", "duplicate building identity"))
+		}
+		seen[key] = true
+	}
+	return errs
+}
+
+func validateUniqueIDs(rows []map[string]string, section string) []*pb.ImportValidationError {
+	seen := map[string]bool{}
+	var errs []*pb.ImportValidationError
+	for i, row := range rows {
+		id := row[fieldID]
+		if id == "" {
+			continue
+		}
+		key := id
+		if parsedID, err := parseInt64Value(id, fieldID); err == nil {
+			key = strconv.FormatInt(parsedID, 10)
+		}
+		if seen[key] {
+			errs = append(errs, csvErr(rowNumber(row, i+1), section, "duplicate id"))
 		}
 		seen[key] = true
 	}
@@ -2469,6 +2493,9 @@ func validateRackPlacementTargets(rows, buildingRows, siteRows []map[string]stri
 		}
 		if row[fieldBuilding] != "" {
 			if row[fieldSite] == "" {
+				if row[fieldBuildingID] != "" {
+					continue
+				}
 				if ambiguousBuildings[row[fieldBuilding]] {
 					errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack building %q is ambiguous; add site", row[fieldBuilding])))
 					continue
@@ -2509,6 +2536,9 @@ func validatePlacementConsistency(minerRows, rackRows, buildingRows, siteRows []
 			continue
 		}
 		if row[fieldBuilding] != "" {
+			if row[fieldBuildingID] != "" {
+				continue
+			}
 			if row[fieldSite] != "" {
 				building, ok := buildingsByKey[row[fieldSite]+"\x00"+row[fieldBuilding]]
 				if !ok {
@@ -3271,14 +3301,16 @@ func countMinerPlacementUpdates(rows, rackRows, buildingRows []map[string]string
 	existing := minerMap(snap.miners)
 	racks := desiredRackMap(rackRows, snap.racks)
 	buildingsByName, ambiguousBuildings := desiredBuildingNameLookup(buildingRows, snap.buildings)
+	buildingsByID := desiredBuildingIDMap(buildingRows, snap.buildings)
 	var count int32
 	for _, row := range rows {
 		miner, ok := existing[row["device_identifier"]]
 		if !ok {
 			continue
 		}
-		desiredSite, desiredBuilding := desiredMinerSiteBuilding(row, racks, buildingsByName, ambiguousBuildings)
-		if desiredSite != miner.Site ||
+		desiredSite, desiredBuilding := desiredMinerSiteBuilding(row, racks, buildingsByName, buildingsByID, ambiguousBuildings)
+		if !minerPlacementIDsMatch(row, miner) ||
+			desiredSite != miner.Site ||
 			desiredBuilding != miner.Building ||
 			row[fieldRack] != miner.Rack ||
 			row["rack_row"] != miner.RackRow ||
@@ -3441,6 +3473,7 @@ func desiredRackMap(rows []map[string]string, racks []rackSnapshot) map[string]r
 			for _, existing := range racks {
 				if existing.ID == id {
 					rack = existing
+					delete(out, existing.Label)
 					break
 				}
 			}
@@ -3558,6 +3591,7 @@ func desiredRackGridPosition(row map[string]string) (*int32, *int32, error) {
 func desiredSiteBuildingIDs(
 	siteIDRaw string,
 	siteName string,
+	buildingIDRaw string,
 	buildingName string,
 	sitesByName map[string]sitemodels.Site,
 	sitesByID map[int64]sitemodels.Site,
@@ -3592,7 +3626,36 @@ func desiredSiteBuildingIDs(
 		siteID = &site.ID
 	}
 	var buildingID *int64
+	if buildingIDRaw != "" {
+		id, err := parseInt64Value(buildingIDRaw, fieldBuildingID)
+		if err != nil {
+			return nil, nil, err
+		}
+		buildingID = &id
+		if buildingsByID != nil {
+			building, ok := buildingsByID[id]
+			if !ok {
+				return nil, nil, fleeterror.NewFailedPreconditionErrorf("unknown building_id %q", buildingIDRaw)
+			}
+			if buildingName != "" && buildingName != building.Name {
+				return nil, nil, fleeterror.NewFailedPreconditionErrorf("building_id %q does not match building %q", buildingIDRaw, buildingName)
+			}
+			if siteName != "" && siteName != building.SiteLabel {
+				return nil, nil, fleeterror.NewFailedPreconditionErrorf("building_id %q does not match site %q", buildingIDRaw, siteName)
+			}
+			if siteID != nil {
+				if building.SiteID == nil || *building.SiteID != *siteID {
+					return nil, nil, fleeterror.NewFailedPreconditionErrorf("building_id %q does not match site_id %q", buildingIDRaw, siteIDRaw)
+				}
+			} else if building.SiteID != nil {
+				siteID = building.SiteID
+			}
+		}
+	}
 	if buildingName != "" {
+		if buildingID != nil {
+			return siteID, buildingID, nil
+		}
 		if buildingsByKey == nil {
 			return siteID, nil, nil
 		}
@@ -3621,11 +3684,17 @@ func desiredMinerSiteBuilding(
 	row map[string]string,
 	racksByLabel map[string]rackSnapshot,
 	buildingsByName map[string]buildingmodels.Building,
+	buildingsByID map[int64]buildingmodels.Building,
 	ambiguousBuildings map[string]bool,
 ) (string, string) {
 	if row[fieldRack] != "" {
 		rack := racksByLabel[row[fieldRack]]
 		return rack.Site, rack.Building
+	}
+	if id, ok := idFromCell(row[fieldBuildingID]); ok {
+		if building, ok := buildingsByID[id]; ok {
+			return building.SiteLabel, building.Name
+		}
 	}
 	if row[fieldSite] == "" && row[fieldBuilding] != "" && !ambiguousBuildings[row[fieldBuilding]] {
 		if building, ok := buildingsByName[row[fieldBuilding]]; ok {
@@ -3633,6 +3702,53 @@ func desiredMinerSiteBuilding(
 		}
 	}
 	return row[fieldSite], row[fieldBuilding]
+}
+
+func desiredBuildingIDMap(rows []map[string]string, buildings []buildingmodels.Building) map[int64]buildingmodels.Building {
+	out := map[int64]buildingmodels.Building{}
+	for _, building := range buildings {
+		if building.ID > 0 {
+			out[building.ID] = building
+		}
+	}
+	for _, row := range rows {
+		id, ok := rowID(row)
+		if !ok {
+			continue
+		}
+		building := out[id]
+		building.ID = id
+		building.Name = buildingSectionName(row)
+		building.SiteLabel = row[fieldSite]
+		if siteID, ok := idFromCell(row[fieldSiteID]); ok {
+			building.SiteID = &siteID
+		}
+		out[id] = building
+	}
+	return out
+}
+
+func minerPlacementIDsMatch(row map[string]string, miner minerSnapshot) bool {
+	for _, check := range []struct {
+		field string
+		want  *int64
+	}{
+		{field: fieldSiteID, want: miner.SiteID},
+		{field: fieldBuildingID, want: miner.BuildingID},
+		{field: fieldRackID, want: miner.RackID},
+	} {
+		if check.field == fieldRackID && row[fieldRack] == "" {
+			continue
+		}
+		got := row[check.field]
+		if got == "" {
+			continue
+		}
+		if got != formatNullableInt64(check.want) {
+			return false
+		}
+	}
+	return true
 }
 
 func rowSetFromSites(rows []sitemodels.Site) map[string]bool {
