@@ -263,6 +263,33 @@ func TestCleanRoundTripsLiteralApostropheFormulaLikeLabels(t *testing.T) {
 	}
 }
 
+func TestCleanEscapesSectionMarkerShapedValues(t *testing.T) {
+	exported := clean("# SECTION: RACK")
+	if exported != "'# SECTION: RACK" {
+		t.Fatalf("exported value = %q, want section marker escaped", exported)
+	}
+	if got := unescapeCleanedValue(exported); got != "# SECTION: RACK" {
+		t.Fatalf("unescaped value = %q, want section marker value preserved", got)
+	}
+}
+
+func TestExportedSectionMarkerShapedSiteRoundTrips(t *testing.T) {
+	csvData, err := buildSiteMapCSV(&snapshot{
+		sites: []sitemodels.Site{{Name: "# SECTION: RACK"}},
+	})
+	if err != nil {
+		t.Fatalf("buildSiteMapCSV error = %v", err)
+	}
+
+	parsed, errs := parseSiteMapCSV(csvData)
+	if len(errs) != 0 {
+		t.Fatalf("parse errors = %v\ncsv:\n%s", errs, string(csvData))
+	}
+	if got := parsed.sections["SITE"][0]["site"]; got != "# SECTION: RACK" {
+		t.Fatalf("site = %q, want section-marker-shaped site name", got)
+	}
+}
+
 func TestDesiredRackZoneClearsWhenRackLeavesBuildingScope(t *testing.T) {
 	current := rackSnapshot{Site: "Site A", Building: "Building A", Zone: "Old Zone"}
 

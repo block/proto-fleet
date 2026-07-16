@@ -818,7 +818,7 @@ func clean(value string) string {
 	if strings.HasPrefix(value, "'") {
 		return "'" + value
 	}
-	if isFormulaLike(value) {
+	if isFormulaLike(value) || isSectionMarkerLike(value) {
 		return "'" + value
 	}
 	return value
@@ -828,10 +828,14 @@ func unescapeCleanedValue(value string) string {
 	if len(value) > 1 && strings.HasPrefix(value, "''") {
 		return value[1:]
 	}
-	if len(value) > 1 && value[0] == '\'' && isFormulaLike(value[1:]) {
+	if len(value) > 1 && value[0] == '\'' && (isFormulaLike(value[1:]) || isSectionMarkerLike(value[1:])) {
 		return value[1:]
 	}
 	return value
+}
+
+func isSectionMarkerLike(value string) bool {
+	return strings.HasPrefix(strings.TrimSpace(value), "# SECTION: ")
 }
 
 func isFormulaLike(value string) bool {
