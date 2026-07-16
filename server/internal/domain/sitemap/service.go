@@ -335,6 +335,8 @@ type snapshot struct {
 
 type rackSnapshot struct {
 	ID              int64
+	SiteID          *int64
+	BuildingID      *int64
 	Site            string
 	Building        string
 	Label           string
@@ -431,6 +433,8 @@ func (s *Service) listRacksAndSlots(ctx context.Context, orgID int64) ([]rackSna
 			siteLabel, buildingLabel := placementLabels(collection.GetPlacement())
 			rack := rackSnapshot{
 				ID:              collection.GetId(),
+				SiteID:          placementID(collection.GetPlacement().GetSite()),
+				BuildingID:      placementID(collection.GetPlacement().GetBuilding()),
 				Site:            siteLabel,
 				Building:        buildingLabel,
 				Label:           collection.GetLabel(),
@@ -755,6 +759,21 @@ func placementLabels(refs *commonpb.PlacementRefs) (string, string) {
 		building = refs.GetBuilding().GetLabel()
 	}
 	return site, building
+}
+
+func placementID(ref *commonpb.ResourceRef) *int64 {
+	if ref == nil {
+		return nil
+	}
+	id := ref.GetId()
+	return &id
+}
+
+func nullableInt64Equal(a, b *int64) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }
 
 func placementLabels3(refs *commonpb.PlacementRefs) (string, string, string) {
@@ -1412,6 +1431,8 @@ func (s *Service) applyRackRows(
 			}
 			rack = rackSnapshot{
 				ID:              collection.Id,
+				SiteID:          siteID,
+				BuildingID:      buildingID,
 				Site:            row["site"],
 				Building:        row[fieldBuilding],
 				Label:           row["rack"],
@@ -1449,12 +1470,12 @@ func (s *Service) applyRackRows(
 		if err := s.collectionStore.UpdateRackPlacement(ctx, rack.ID, orgID, siteID, buildingID, finalZone); err != nil {
 			return err
 		}
-		if row["site"] != rack.Site {
+		if !nullableInt64Equal(siteID, rack.SiteID) {
 			if _, err := s.collectionStore.CascadeRackDeviceSites(ctx, rack.ID, orgID, siteID); err != nil {
 				return err
 			}
 		}
-		if row[fieldBuilding] != rack.Building {
+		if !nullableInt64Equal(buildingID, rack.BuildingID) {
 			if _, err := s.collectionStore.CascadeRackDeviceBuildings(ctx, rack.ID, orgID, buildingID); err != nil {
 				return err
 			}

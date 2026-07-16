@@ -333,6 +333,23 @@ func TestCleanEscapesSectionMarkerShapedValues(t *testing.T) {
 	}
 }
 
+func TestNullableInt64EqualComparesPlacementIDs(t *testing.T) {
+	id := func(value int64) *int64 { return &value }
+
+	if nullableInt64Equal(id(1), id(2)) {
+		t.Fatal("different placement IDs should not compare equal")
+	}
+	if nullableInt64Equal(id(1), nil) {
+		t.Fatal("assigned and unassigned placement IDs should not compare equal")
+	}
+	if !nullableInt64Equal(id(1), id(1)) {
+		t.Fatal("matching placement IDs should compare equal")
+	}
+	if !nullableInt64Equal(nil, nil) {
+		t.Fatal("two unassigned placement IDs should compare equal")
+	}
+}
+
 func TestExportedSectionMarkerShapedSiteRoundTrips(t *testing.T) {
 	csvData, err := buildSiteMapCSV(&snapshot{
 		sites: []sitemodels.Site{{Name: "# SECTION: RACK"}},
