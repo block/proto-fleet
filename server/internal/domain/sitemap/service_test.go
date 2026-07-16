@@ -88,7 +88,7 @@ func TestBuildPlanWithRemoveOmittedReturnsValidationError(t *testing.T) {
 	}
 }
 
-func TestBuildPlanRejectsNewTopologyRows(t *testing.T) {
+func TestBuildPlanSummarizesNewTopologyRows(t *testing.T) {
 	csv := strings.Replace(validCSV(), "Site A\n", "Site A\nNew Site\n", 1)
 	csv = strings.Replace(csv, "Building A,Site A,2,2\n", "Building A,Site A,2,2\nNew Building,Site A,2,2\n", 1)
 	csv = strings.Replace(csv, "Rack A,Building A,,Z1,4,6,BOTTOM_LEFT,0,0\n", "Rack A,Building A,,Z1,4,6,BOTTOM_LEFT,0,0\nNew Rack,Building A,,Z1,4,6,BOTTOM_LEFT,0,1\n", 1)
@@ -98,18 +98,32 @@ func TestBuildPlanRejectsNewTopologyRows(t *testing.T) {
 	}
 
 	plan := buildPlan(parsed, testSnapshotMatchingValidCSV(), pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	if len(plan.errors) != 3 {
-		t.Fatalf("plan errors = %v, want site/building/rack create errors", plan.errors)
+	if len(plan.errors) != 0 {
+		t.Fatalf("plan errors = %v, want new topology rows accepted", plan.errors)
 	}
-	want := map[string]string{
-		"SITE":     "creating sites is not supported by site map CSV v1",
-		"BUILDING": "creating buildings is not supported by site map CSV v1",
-		"RACK":     "creating racks is not supported by site map CSV v1",
-	}
-	for _, err := range plan.errors {
-		if want[err.GetSection()] != err.GetMessage() {
-			t.Fatalf("unexpected create error: %+v", err)
+	for _, entityType := range []string{"site", "building", "rack"} {
+		if !hasChange(plan.changes, pb.ImportOperation_IMPORT_OPERATION_CREATE, entityType, 1) {
+			t.Fatalf("changes = %+v, want create summary for %s", plan.changes, entityType)
 		}
+	}
+}
+
+func TestBuildPlanAllowsMinerPlacementIntoNewTopologyRows(t *testing.T) {
+	csv := strings.Replace(validCSV(), "Site A\n", "Site A\nNew Site\n", 1)
+	csv = strings.Replace(csv, "Building A,Site A,2,2\n", "Building A,Site A,2,2\nNew Building,New Site,2,2\n", 1)
+	csv = strings.Replace(csv, "Rack A,Building A,,Z1,4,6,BOTTOM_LEFT,0,0\n", "Rack A,Building A,,Z1,4,6,BOTTOM_LEFT,0,0\nNew Rack,New Building,,Z2,4,6,BOTTOM_LEFT,0,1\n", 1)
+	csv = strings.Replace(csv, "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,0", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,New Rack,0,0", 1)
+	parsed, errs := parseSiteMapCSV([]byte(csv))
+	if len(errs) != 0 {
+		t.Fatalf("parse errors = %v", errs)
+	}
+
+	plan := buildPlan(parsed, testSnapshotMatchingValidCSV(), pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.errors) != 0 {
+		t.Fatalf("plan errors = %v, want miner placement into new topology accepted", plan.errors)
+	}
+	if !hasChange(plan.changes, pb.ImportOperation_IMPORT_OPERATION_MOVE, "miner", 1) {
+		t.Fatalf("changes = %+v, want miner move into new rack", plan.changes)
 	}
 }
 
@@ -569,7 +583,7 @@ func TestValidatePlacementConsistencyHonorsSiteForDuplicateBuildingNames(t *test
 		},
 	}
 
-	if errs := validatePlacementConsistency(rows, nil, nil, snap); len(errs) != 0 {
+	if errs := validatePlacementConsistency(rows, nil, nil, nil, snap); len(errs) != 0 {
 		t.Fatalf("site-qualified duplicate building should validate, got %+v", errs)
 	}
 }
@@ -632,7 +646,7 @@ func TestValidateRackPlacementTargetsRejectsUnknownSiteBuilding(t *testing.T) {
 		buildings: []buildingmodels.Building{{SiteLabel: "Site A", Name: "Building A"}},
 	}
 
-	errs := validateRackPlacementTargets(rows, snap)
+	errs := validateRackPlacementTargets(rows, nil, nil, snap)
 	if len(errs) != 2 {
 		t.Fatalf("errors = %+v, want site and building target errors", errs)
 	}
@@ -645,7 +659,7 @@ func TestValidatePlacementConsistencyRejectsUnknownDirectSite(t *testing.T) {
 	}}
 	snap := &snapshot{sites: []sitemodels.Site{{Name: "Site A"}}}
 
-	errs := validatePlacementConsistency(rows, nil, nil, snap)
+	errs := validatePlacementConsistency(rows, nil, nil, nil, snap)
 	if len(errs) != 1 || errs[0].GetMessage() != `unknown site "Typo Site"` {
 		t.Fatalf("errors = %+v, want unknown site error", errs)
 	}
@@ -870,6 +884,15 @@ func readZipFile(file *zip.File) ([]byte, error) {
 		return nil, fmt.Errorf("read zip file %s: %w", file.Name, err)
 	}
 	return body, nil
+}
+
+func hasChange(changes []*pb.ImportChangeSummary, op pb.ImportOperation, entityType string, count int32) bool {
+	for _, change := range changes {
+		if change.GetOperation() == op && change.GetEntityType() == entityType && change.GetCount() == count {
+			return true
+		}
+	}
+	return false
 }
 
 func validCSV() string {
