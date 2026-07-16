@@ -6,6 +6,7 @@ import { type AssignmentEntry, buildByNameAssignments, buildManualAssignments } 
 import BuildingGridPane from "./BuildingGridPane";
 import BuildingRacksPane, { type AssignedRackRow } from "./BuildingRacksPane";
 import { type BuildingAssignmentMode, type GridCellKey, parseCellKey } from "./types";
+import { useBuildingRackScope } from "./useBuildingRackScope";
 import { type RackPlacementInput, useBuildings } from "@/protoFleet/api/buildings";
 import { type Building, type BuildingRack } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
@@ -48,6 +49,11 @@ const ManageBuildingModal = ({
   unassignedMinerCount,
 }: ManageBuildingModalProps) => {
   const { listBuildingRacks, assignRacksToBuilding } = useBuildings();
+
+  // Header SitePicker scope forwarded to both rack pickers so they list only
+  // the active site's racks (+ site-unassigned) instead of the whole org.
+  // Read once here so the includeUnassigned decision lives in one place.
+  const rackScope = useBuildingRackScope();
 
   // Aisles / racks_per_aisle are read straight from the building prop —
   // BuildingSettingsModal owns those fields now and threads any edits back
@@ -651,6 +657,7 @@ const ManageBuildingModal = ({
           open={showManageRacks}
           siteId={siteId}
           currentBuildingId={building.id}
+          scope={rackScope}
           initialSelectedRackIds={currentRackIds}
           onDismiss={() => setShowManageRacks(false)}
           onConfirm={handleManageRacksConfirm}
@@ -662,6 +669,7 @@ const ManageBuildingModal = ({
           open={showSearchRacks}
           siteId={siteId}
           currentBuildingId={building.id}
+          scope={rackScope}
           onDismiss={() => {
             setShowSearchRacks(false);
             setSelectedCellKey(null);

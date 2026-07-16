@@ -31,6 +31,15 @@ vi.mock("@/protoFleet/api/buildings", async () => {
   };
 });
 
+// ManageBuildingModal reads the header SitePicker scope via useActiveSite,
+// which pulls useNavigate/useLocation from react-router. This host test
+// renders without a Router, so stub the hook to the "all sites" selection
+// (keeps the real siteFilterFromActive). Mirrors ManageRackModal.test.tsx.
+vi.mock("@/protoFleet/components/PageHeader/SitePicker", async (importActual) => ({
+  ...(await importActual<typeof import("@/protoFleet/components/PageHeader/SitePicker")>()),
+  useActiveSite: () => ({ activeSite: { kind: "all" as const }, setActiveSite: vi.fn() }),
+}));
+
 const makeRow = (id: bigint, name: string, rackCount: bigint = 0n) =>
   create(BuildingWithCountsSchema, { building: create(BuildingSchema, { id, name, siteId: 7n }), rackCount });
 

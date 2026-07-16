@@ -4,6 +4,7 @@ import { buildRackPickerItem, type RackPickerItem } from "../rackPickerItem";
 import { reduceToSingleSelection } from "./singleSelect";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
+import { type SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
@@ -20,6 +21,10 @@ interface SearchRacksModalProps {
   // but disabled.
   siteId: bigint;
   currentBuildingId: bigint;
+  // Header SitePicker scope. Governs which racks are *fetched* (active
+  // site + site-unassigned); "all sites" is the empty filter (whole-org
+  // fetch, no regression). Eligibility is still computed against `siteId`.
+  scope: SiteFilterFields;
   onDismiss: () => void;
   // Returns a single chosen rack so the caller can add it to the working
   // set and assign it to the cell that was selected when the popover
@@ -53,7 +58,7 @@ const activeCols: SearchRackColumn[] = ["name", "building", "status"];
 // Single-rack picker with a name filter — mirrors SearchMinersModal in the
 // rack-management feature. Picked rack is added to the building's working
 // set and assigned to whatever cell was selected when the popover opened.
-const SearchRacksModal = ({ open, siteId, currentBuildingId, onDismiss, onConfirm }: SearchRacksModalProps) => {
+const SearchRacksModal = ({ open, siteId, currentBuildingId, scope, onDismiss, onConfirm }: SearchRacksModalProps) => {
   const { listRacks } = useDeviceSets();
   const { listBuildingsBySite } = useBuildings();
   const [items, setItems] = useState<RackPickerItem[] | undefined>(undefined);
@@ -91,6 +96,8 @@ const SearchRacksModal = ({ open, siteId, currentBuildingId, onDismiss, onConfir
     if (!open) return;
     let cancelled = false;
     void listRacks({
+      siteIds: scope.siteIds,
+      includeUnassigned: scope.includeUnassigned,
       onSuccess: (racks) => {
         if (cancelled) return;
         const out: RackPickerItem[] = [];
@@ -110,7 +117,7 @@ const SearchRacksModal = ({ open, siteId, currentBuildingId, onDismiss, onConfir
     return () => {
       cancelled = true;
     };
-  }, [open, siteId, currentBuildingId, buildingMap, listRacks]);
+  }, [open, siteId, currentBuildingId, buildingMap, listRacks, scope.siteIds, scope.includeUnassigned]);
 
   const isRowDisabled = useCallback((item: RackPickerItem) => item.disabled, []);
 
