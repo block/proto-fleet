@@ -71,34 +71,46 @@ racks.
 
 ## Delivery — three PRs (A → C → B)
 
-### PR 1 — Part A: Site scoping (mirror #728)
+### PR 1 — Part A: Site scoping — **shipped as [#760](https://github.com/block/proto-fleet/pull/760)**
 
 Small, low-risk, independently valuable.
 
-- **New** `features/buildings/components/ManageBuildingModal/useBuildingRackScope.ts`
-  — analog of `useRackMinerScope`:
-  - `siteFilterFromActive(useActiveSite())`.
-  - For the `"site"` case, add `includeUnassigned: true` (site-unassigned
-    racks are the common path into a site).
-  - `"all"` → empty filter (no-op fetch, no regression).
-  - `"unassigned"` → already `includeUnassigned: true`.
-- `ManageBuildingModal.tsx` — read the hook once, forward a `scope` prop to
-  both `ManageRacksModal` and `SearchRacksModal`.
+- **New** `features/buildings/components/ManageBuildingModal/buildingRackScope.ts`
+  — pure `buildingRackScope(buildingSiteId)` helper:
+  - real site (id ≠ 0) → `{ siteIds: [id], includeUnassigned: true }`.
+  - site-unassigned building (id = 0) → `{ siteIds: [], includeUnassigned: true }`.
+- `ManageBuildingModal.tsx` — compute the scope once from `building.siteId`,
+  forward a `scope` prop to both `ManageRacksModal` and `SearchRacksModal`.
 - Both pickers — pass `siteIds` / `includeUnassigned` from `scope` into
   their `listRacks(...)` calls instead of `{}`.
 
-**Tests:** `useBuildingRackScope` across the three SitePicker states
-(all / site / unassigned); scoped `listRacks` call assertion in both
-pickers.
+> **Design note — scope from the building, not the header.** The issue
+> proposed mirroring #728's `siteFilterFromActive(useActiveSite())`. In
+> review (Codex P2 on #760) that proved unsafe here: `ManageBuildingModal`
+> is reachable from the **unscoped** `/buildings/:id` and `/sites/:id`
+> routes (outside `SiteScopeLayout`), where `useActiveSite` returns the
+> last-persisted header selection — which may be an unrelated site. Opening
+> a bookmarked North building while "South" is selected would fetch South's
+> racks and hide North's eligible ones. Deriving from `building.siteId`
+> instead is authoritative, route-independent, and exactly matches the
+> per-row eligibility in `buildRackPickerItem` (same-site + site-unassigned =
+> eligible). Consequence: there is no "All sites → empty fetch" case; the
+> fetch is always scoped to the building's own site.
+
+**Tests:** `buildingRackScope` (real-site and unassigned cases);
+`ManageRacksModal` component test asserting the scope reaches `listRacks`
+(guards against reverting to a whole-org fetch).
 
 ### PR 2 — Part C: Filter facets + server-side pagination
 
 - Add a rack `filterConfig` facet set — adapt, don't copy the miner facets.
   Keep only:
-  - **Site** — `siteIds`; hidden when the header scope governs the site
-    (per #728 precedent).
   - **Building** — `buildingIds` / `includeNoBuilding`.
   - **Zone** — `zones`.
+  - **Drop the Site facet.** Part A now pins the fetch to the building's own
+    site (see PR 1 design note), so a Site facet would be a no-op / could only
+    contradict the fixed scope. (This supersedes #728's "hide Site facet when
+    scope governs it" — here the scope *always* governs it.)
   - Drop **Model / Subnet / Group** — no rack analog.
 - Migrate **`ManageRacksModal`** from client-side slicing to **server-side
   pagination** (`pageSize`/`pageToken`, `PAGE_SIZE=50`) so scope + facets are
@@ -106,10 +118,10 @@ pickers.
 - **`SearchRacksModal` stays on fetch-all + client-side name filter** —
   single-select, list is small after site scoping. This is what defers name
   search with zero backend work and no regression.
-- Facets compose (AND) with the header scope.
+- Facets compose (AND) with the building-site scope.
 
-**Tests:** facet → request translation; Site facet hidden when scope
-governs it; scope + facets correct across `ManageRacksModal` pages.
+**Tests:** facet → request translation; scope + facets correct across
+`ManageRacksModal` pages.
 
 ### PR 3 — Part B: "Show assigned racks" toggle + reparent
 
@@ -132,8 +144,10 @@ governs it; scope + facets correct across `ManageRacksModal` pages.
 
 ## Acceptance criteria
 
-- [ ] Rack pickers fetch scoped to the active `SitePicker` site
-      (+ site-unassigned); "All sites" is a no-op fetch (no regression).
+- [x] Rack pickers fetch scoped to the building's own site
+      (+ site-unassigned), correct on scoped and unscoped routes alike.
+      (Revised from the original "scope to header SitePicker" — see the PR 1
+      design note.)
 - [ ] `Show assigned racks` toggle (default off) hides ineligible racks;
       toggling on surfaces them with warning icons.
 - [ ] Selecting an already-placed rack prompts a reparent confirm before

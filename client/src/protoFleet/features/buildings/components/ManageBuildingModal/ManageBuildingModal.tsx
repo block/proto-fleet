@@ -4,9 +4,9 @@ import ManageRacksModal from "../ManageRacksModal";
 import SearchRacksModal from "../SearchRacksModal";
 import { type AssignmentEntry, buildByNameAssignments, buildManualAssignments } from "./assignmentMath";
 import BuildingGridPane from "./BuildingGridPane";
+import { buildingRackScope } from "./buildingRackScope";
 import BuildingRacksPane, { type AssignedRackRow } from "./BuildingRacksPane";
 import { type BuildingAssignmentMode, type GridCellKey, parseCellKey } from "./types";
-import { useBuildingRackScope } from "./useBuildingRackScope";
 import { type RackPlacementInput, useBuildings } from "@/protoFleet/api/buildings";
 import { type Building, type BuildingRack } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
@@ -50,10 +50,13 @@ const ManageBuildingModal = ({
 }: ManageBuildingModalProps) => {
   const { listBuildingRacks, assignRacksToBuilding } = useBuildings();
 
-  // Header SitePicker scope forwarded to both rack pickers so they list only
-  // the active site's racks (+ site-unassigned) instead of the whole org.
-  // Read once here so the includeUnassigned decision lives in one place.
-  const rackScope = useBuildingRackScope();
+  // Rack-fetch scope forwarded to both pickers so they list only racks
+  // eligible for this building (its site + site-unassigned) instead of the
+  // whole org. Derived from the building's own site — not the header
+  // SitePicker — so it stays correct on the unscoped /buildings/:id and
+  // /sites/:id routes where the persisted header selection may be an
+  // unrelated site. Computed once here so the rule lives in one place.
+  const rackScope = useMemo(() => buildingRackScope(building.siteId ?? 0n), [building.siteId]);
 
   // Aisles / racks_per_aisle are read straight from the building prop —
   // BuildingSettingsModal owns those fields now and threads any edits back
