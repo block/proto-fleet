@@ -44,6 +44,15 @@ type ResponseProfile struct {
 	UpdatedAt                   time.Time
 }
 
+// ResponseProfileFanSettings is the fan state observed before an update. The
+// store uses it as an optimistic guard so a concurrent replacement cannot be
+// overwritten by a stale request.
+type ResponseProfileFanSettings struct {
+	FacilityFanDeviceIDs []int64
+	FanOffDelaySec       int32
+	FanRestoreDelaySec   int32
+}
+
 // ResponseProfileInfrastructureDevice is the protocol-blind device state
 // needed while validating a response profile's facility-fan references.
 type ResponseProfileInfrastructureDevice struct {

@@ -404,34 +404,40 @@ WHERE id = $21
   AND org_id = $22
   AND site_id IS NOT DISTINCT FROM $23
   AND scope_json = $24::jsonb
+  AND facility_fan_device_ids = $25::bigint[]
+  AND fan_off_delay_sec = $26
+  AND fan_restore_delay_sec = $27
 RETURNING id, org_id, profile_name, site_id, mode, strategy, level, priority, target_kw, tolerance_kw, curtail_batch_size, curtail_batch_interval_sec, restore_batch_size, restore_batch_interval_sec, include_maintenance, force_include_maintenance, created_at, updated_at, post_event_cooldown_sec, scope_json, force_include_all_paired_miners, facility_fan_device_ids, fan_off_delay_sec, fan_restore_delay_sec
 `
 
 type UpdateCurtailmentResponseProfileParams struct {
-	ProfileName                 string
-	SiteID                      sql.NullInt64
-	ScopeJson                   json.RawMessage
-	Mode                        string
-	Strategy                    string
-	Level                       string
-	Priority                    string
-	TargetKw                    sql.NullString
-	ToleranceKw                 sql.NullString
-	CurtailBatchSize            sql.NullInt32
-	CurtailBatchIntervalSec     int32
-	RestoreBatchSize            int32
-	RestoreBatchIntervalSec     int32
-	IncludeMaintenance          bool
-	ForceIncludeMaintenance     bool
-	PostEventCooldownSec        int32
-	ForceIncludeAllPairedMiners bool
-	FacilityFanDeviceIds        []int64
-	FanOffDelaySec              int32
-	FanRestoreDelaySec          int32
-	ID                          int64
-	OrgID                       int64
-	ExpectedSiteID              sql.NullInt64
-	ExpectedScopeJson           json.RawMessage
+	ProfileName                  string
+	SiteID                       sql.NullInt64
+	ScopeJson                    json.RawMessage
+	Mode                         string
+	Strategy                     string
+	Level                        string
+	Priority                     string
+	TargetKw                     sql.NullString
+	ToleranceKw                  sql.NullString
+	CurtailBatchSize             sql.NullInt32
+	CurtailBatchIntervalSec      int32
+	RestoreBatchSize             int32
+	RestoreBatchIntervalSec      int32
+	IncludeMaintenance           bool
+	ForceIncludeMaintenance      bool
+	PostEventCooldownSec         int32
+	ForceIncludeAllPairedMiners  bool
+	FacilityFanDeviceIds         []int64
+	FanOffDelaySec               int32
+	FanRestoreDelaySec           int32
+	ID                           int64
+	OrgID                        int64
+	ExpectedSiteID               sql.NullInt64
+	ExpectedScopeJson            json.RawMessage
+	ExpectedFacilityFanDeviceIds []int64
+	ExpectedFanOffDelaySec       int32
+	ExpectedFanRestoreDelaySec   int32
 }
 
 func (q *Queries) UpdateCurtailmentResponseProfile(ctx context.Context, arg UpdateCurtailmentResponseProfileParams) (CurtailmentResponseProfile, error) {
@@ -460,6 +466,9 @@ func (q *Queries) UpdateCurtailmentResponseProfile(ctx context.Context, arg Upda
 		arg.OrgID,
 		arg.ExpectedSiteID,
 		arg.ExpectedScopeJson,
+		pq.Array(arg.ExpectedFacilityFanDeviceIds),
+		arg.ExpectedFanOffDelaySec,
+		arg.ExpectedFanRestoreDelaySec,
 	)
 	var i CurtailmentResponseProfile
 	err := row.Scan(

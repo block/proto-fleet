@@ -580,7 +580,7 @@ func (s *responseProfileFakeStore) CreateResponseProfile(_ context.Context, prof
 	return &profile, nil
 }
 
-func (s *responseProfileFakeStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ map[int64]models.ResponseProfileInfrastructureDevice, _ *int64, _ []byte) (*models.ResponseProfile, error) {
+func (s *responseProfileFakeStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ map[int64]models.ResponseProfileInfrastructureDevice, _ *int64, _ []byte, _ models.ResponseProfileFanSettings) (*models.ResponseProfile, error) {
 	s.updated = &profile
 	return &profile, nil
 }

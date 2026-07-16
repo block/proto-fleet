@@ -243,6 +243,7 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(
 	expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice,
 	expectedSiteID *int64,
 	expectedScopeJSON []byte,
+	expectedFacilityFanSettings models.ResponseProfileFanSettings,
 ) (*models.ResponseProfile, error) {
 	normalizedExpectedScopeJSON := normalizedResponseProfileScopeJSON(expectedScopeJSON)
 	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
@@ -276,7 +277,12 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(
 		if err := lockResponseProfileInfrastructureDevicesForWrite(ctx, q, profile.OrgID, expectedInfrastructureDevices); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
-		row, err := q.UpdateCurtailmentResponseProfile(ctx, updateResponseProfileParams(profile, expectedSiteID, normalizedExpectedScopeJSON))
+		row, err := q.UpdateCurtailmentResponseProfile(ctx, updateResponseProfileParams(
+			profile,
+			expectedSiteID,
+			normalizedExpectedScopeJSON,
+			expectedFacilityFanSettings,
+		))
 		if errors.Is(err, sql.ErrNoRows) {
 			if _, getErr := q.GetCurtailmentResponseProfileByOrg(ctx, sqlc.GetCurtailmentResponseProfileByOrgParams{
 				ID:    profile.ID,
@@ -2663,32 +2669,36 @@ func updateResponseProfileParams(
 	profile models.ResponseProfile,
 	expectedSiteID *int64,
 	expectedScopeJSON []byte,
+	expectedFacilityFanSettings models.ResponseProfileFanSettings,
 ) sqlc.UpdateCurtailmentResponseProfileParams {
 	return sqlc.UpdateCurtailmentResponseProfileParams{
-		ID:                          profile.ID,
-		OrgID:                       profile.OrgID,
-		ExpectedSiteID:              ptrToNullInt64(expectedSiteID),
-		ExpectedScopeJson:           normalizedResponseProfileScopeJSON(expectedScopeJSON),
-		ProfileName:                 profile.ProfileName,
-		SiteID:                      ptrToNullInt64(profile.SiteID),
-		ScopeJson:                   responseProfileScopeJSON(profile),
-		Mode:                        string(profile.Mode),
-		Strategy:                    string(profile.Strategy),
-		Level:                       string(profile.Level),
-		Priority:                    string(profile.Priority),
-		TargetKw:                    ptrFloat64ToNullString(profile.TargetKW),
-		ToleranceKw:                 ptrFloat64ToNullString(profile.ToleranceKW),
-		CurtailBatchSize:            ptrToNullInt32(profile.CurtailBatchSize),
-		CurtailBatchIntervalSec:     profile.CurtailBatchIntervalSec,
-		RestoreBatchSize:            profile.RestoreBatchSize,
-		RestoreBatchIntervalSec:     profile.RestoreBatchIntervalSec,
-		IncludeMaintenance:          profile.IncludeMaintenance,
-		ForceIncludeMaintenance:     profile.ForceIncludeMaintenance,
-		ForceIncludeAllPairedMiners: profile.ForceIncludeAllPairedMiners,
-		PostEventCooldownSec:        profile.PostEventCooldownSec,
-		FacilityFanDeviceIds:        responseProfileFacilityFanDeviceIDs(profile),
-		FanOffDelaySec:              profile.FanOffDelaySec,
-		FanRestoreDelaySec:          profile.FanRestoreDelaySec,
+		ID:                           profile.ID,
+		OrgID:                        profile.OrgID,
+		ExpectedSiteID:               ptrToNullInt64(expectedSiteID),
+		ExpectedScopeJson:            normalizedResponseProfileScopeJSON(expectedScopeJSON),
+		ExpectedFacilityFanDeviceIds: append([]int64{}, expectedFacilityFanSettings.FacilityFanDeviceIDs...),
+		ExpectedFanOffDelaySec:       expectedFacilityFanSettings.FanOffDelaySec,
+		ExpectedFanRestoreDelaySec:   expectedFacilityFanSettings.FanRestoreDelaySec,
+		ProfileName:                  profile.ProfileName,
+		SiteID:                       ptrToNullInt64(profile.SiteID),
+		ScopeJson:                    responseProfileScopeJSON(profile),
+		Mode:                         string(profile.Mode),
+		Strategy:                     string(profile.Strategy),
+		Level:                        string(profile.Level),
+		Priority:                     string(profile.Priority),
+		TargetKw:                     ptrFloat64ToNullString(profile.TargetKW),
+		ToleranceKw:                  ptrFloat64ToNullString(profile.ToleranceKW),
+		CurtailBatchSize:             ptrToNullInt32(profile.CurtailBatchSize),
+		CurtailBatchIntervalSec:      profile.CurtailBatchIntervalSec,
+		RestoreBatchSize:             profile.RestoreBatchSize,
+		RestoreBatchIntervalSec:      profile.RestoreBatchIntervalSec,
+		IncludeMaintenance:           profile.IncludeMaintenance,
+		ForceIncludeMaintenance:      profile.ForceIncludeMaintenance,
+		ForceIncludeAllPairedMiners:  profile.ForceIncludeAllPairedMiners,
+		PostEventCooldownSec:         profile.PostEventCooldownSec,
+		FacilityFanDeviceIds:         responseProfileFacilityFanDeviceIDs(profile),
+		FanOffDelaySec:               profile.FanOffDelaySec,
+		FanRestoreDelaySec:           profile.FanRestoreDelaySec,
 	}
 }
 

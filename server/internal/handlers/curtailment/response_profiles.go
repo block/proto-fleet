@@ -168,6 +168,7 @@ func (h *Handler) UpdateCurtailmentResponseProfile(ctx context.Context, req *con
 		CanUseAdminControls:          canUseAdminControls(info),
 		ExpectedSiteID:               cloneInt64Ptr(existing.SiteID),
 		ExpectedScopeJSON:            cloneBytes(existing.ScopeJSON),
+		ExpectedFacilityFanSettings:  responseProfileFanSettings(existing),
 		AuthorizedFacilityFanDevices: authorizedFacilityFanDevices,
 	})
 	if err != nil {
@@ -192,6 +193,14 @@ func (h *Handler) DeleteCurtailmentResponseProfile(ctx context.Context, req *con
 		return nil, err
 	}
 	return connect.NewResponse(&pb.DeleteCurtailmentResponseProfileResponse{}), nil
+}
+
+func responseProfileFanSettings(profile *models.ResponseProfile) models.ResponseProfileFanSettings {
+	return models.ResponseProfileFanSettings{
+		FacilityFanDeviceIDs: append([]int64(nil), profile.FacilityFanDeviceIDs...),
+		FanOffDelaySec:       profile.FanOffDelaySec,
+		FanRestoreDelaySec:   profile.FanRestoreDelaySec,
+	}
 }
 
 func (h *Handler) getResponseProfileWithSitePermission(ctx context.Context, orgID, profileID int64) (*models.ResponseProfile, error) {

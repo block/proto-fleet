@@ -654,6 +654,37 @@ describe("useCurtailmentResponseProfiles", () => {
     });
   });
 
+  it("uses refetched facility fan settings instead of stale session values", async () => {
+    mockCreateCurtailmentResponseProfile.mockResolvedValueOnce({
+      profile: apiProfile({ facilityFanDeviceIds: [31n], fanOffDelaySec: 45, fanRestoreDelaySec: 90 }),
+    });
+    mockListCurtailmentResponseProfiles.mockResolvedValueOnce({
+      profiles: [apiProfile({ facilityFanDeviceIds: [32n], fanOffDelaySec: 60, fanRestoreDelaySec: 120 })],
+    });
+    const { result } = renderHook(() => useCurtailmentResponseProfiles(false));
+
+    await act(async () => {
+      await result.current.createResponseProfile({
+        ...fixedKwFormValues,
+        facilityFanDeviceIds: ["31"],
+        fanOffDelaySec: "45",
+        fanRestoreDelaySec: "90",
+      });
+    });
+
+    await act(async () => {
+      await result.current.listResponseProfiles();
+    });
+
+    expect(result.current.responseProfiles[0]?.formValues).toEqual(
+      expect.objectContaining({
+        facilityFanDeviceIds: ["32"],
+        fanOffDelaySec: "60",
+        fanRestoreDelaySec: "120",
+      }),
+    );
+  });
+
   it("deletes response profiles by id", async () => {
     mockDeleteCurtailmentResponseProfile.mockResolvedValueOnce({});
 

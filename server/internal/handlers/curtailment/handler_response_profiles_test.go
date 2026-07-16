@@ -532,6 +532,9 @@ func TestHandler_UpdateCurtailmentResponseProfile(t *testing.T) {
 	require.NotNil(t, store.updateExpectedSiteID)
 	assert.Equal(t, siteID, *store.updateExpectedSiteID)
 	assert.JSONEq(t, `{"site_id":7}`, string(store.updateExpectedScopeJSON))
+	assert.Equal(t, []int64{31}, store.updateExpectedFanSettings.FacilityFanDeviceIDs)
+	assert.Equal(t, int32(45), store.updateExpectedFanSettings.FanOffDelaySec)
+	assert.Equal(t, int32(90), store.updateExpectedFanSettings.FanRestoreDelaySec)
 }
 
 func TestHandler_UpdateCurtailmentResponseProfileRequiresAccessToPreservedFacilityFans(t *testing.T) {
@@ -952,6 +955,7 @@ type handlerResponseProfileStore struct {
 	updated                       *models.ResponseProfile
 	updateExpectedSiteID          *int64
 	updateExpectedScopeJSON       []byte
+	updateExpectedFanSettings     models.ResponseProfileFanSettings
 	deletedProfileID              int64
 	deleteExpectedSiteID          *int64
 	deleteExpectedScopeJSON       []byte
@@ -1012,10 +1016,15 @@ func (s *handlerResponseProfileStore) CreateResponseProfile(_ context.Context, p
 	return &profile, nil
 }
 
-func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ map[int64]models.ResponseProfileInfrastructureDevice, expectedSiteID *int64, expectedScopeJSON []byte) (*models.ResponseProfile, error) {
+func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, profile models.ResponseProfile, _ map[int64]models.ResponseProfileInfrastructureDevice, expectedSiteID *int64, expectedScopeJSON []byte, expectedFanSettings models.ResponseProfileFanSettings) (*models.ResponseProfile, error) {
 	s.updated = &profile
 	s.updateExpectedSiteID = cloneInt64Ptr(expectedSiteID)
 	s.updateExpectedScopeJSON = cloneBytes(expectedScopeJSON)
+	s.updateExpectedFanSettings = models.ResponseProfileFanSettings{
+		FacilityFanDeviceIDs: append([]int64(nil), expectedFanSettings.FacilityFanDeviceIDs...),
+		FanOffDelaySec:       expectedFanSettings.FanOffDelaySec,
+		FanRestoreDelaySec:   expectedFanSettings.FanRestoreDelaySec,
+	}
 	return &profile, nil
 }
 

@@ -96,14 +96,46 @@ func TestSQLCurtailmentStore_ResponseProfileFacilityFanSettings(t *testing.T) {
 	updatedInput.FanOffDelaySec = updatedFanOff
 	updatedInput.FanRestoreDelaySec = updatedFanOn
 	updated, err := service.Update(ctx, domainCurtailment.SaveResponseProfileRequest{
-		Profile:             updatedInput,
-		CanUseAdminControls: true,
-		ExpectedSiteID:      created.SiteID,
-		ExpectedScopeJSON:   created.ScopeJSON,
+		Profile:                     updatedInput,
+		CanUseAdminControls:         true,
+		ExpectedSiteID:              created.SiteID,
+		ExpectedScopeJSON:           created.ScopeJSON,
+		ExpectedFacilityFanSettings: responseProfileFanSettings(created),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, updatedFanOff, updated.FanOffDelaySec)
 	assert.Equal(t, updatedFanOn, updated.FanRestoreDelaySec)
+
+	staleLegacyInput := *updated
+	replacementInput := *updated
+	replacementInput.FacilityFanDeviceIDs = []int64{otherSiteFanID}
+	replacementInput.FanOffDelaySec = 15
+	replacementInput.FanRestoreDelaySec = 30
+	replacement, err := service.Update(ctx, domainCurtailment.SaveResponseProfileRequest{
+		Profile:                     replacementInput,
+		CanUseAdminControls:         true,
+		ExpectedSiteID:              updated.SiteID,
+		ExpectedScopeJSON:           updated.ScopeJSON,
+		ExpectedFacilityFanSettings: responseProfileFanSettings(updated),
+	})
+	require.NoError(t, err)
+
+	staleLegacyInput.ProfileName = "Stale legacy update"
+	_, err = service.Update(ctx, domainCurtailment.SaveResponseProfileRequest{
+		Profile:                     staleLegacyInput,
+		CanUseAdminControls:         true,
+		ExpectedSiteID:              updated.SiteID,
+		ExpectedScopeJSON:           updated.ScopeJSON,
+		ExpectedFacilityFanSettings: responseProfileFanSettings(updated),
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+
+	loadedAfterConflict, err := service.Get(ctx, orgID, created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, replacement.FacilityFanDeviceIDs, loadedAfterConflict.FacilityFanDeviceIDs)
+	assert.Equal(t, replacement.FanOffDelaySec, loadedAfterConflict.FanOffDelaySec)
+	assert.Equal(t, replacement.FanRestoreDelaySec, loadedAfterConflict.FanRestoreDelaySec)
 
 	otherSiteProfile, err := service.Create(ctx, domainCurtailment.SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{
@@ -186,10 +218,19 @@ func TestSQLCurtailmentStore_AutomationFanProfileInvariant(t *testing.T) {
 		nil,
 		cleanProfile.SiteID,
 		cleanProfile.ScopeJSON,
+		models.ResponseProfileFanSettings{},
 	)
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "adding fans to a bound profile must fail, got %v", err)
 }
 
 func pointerTo[T any](value T) *T {
 	return &value
+}
+
+func responseProfileFanSettings(profile *models.ResponseProfile) models.ResponseProfileFanSettings {
+	return models.ResponseProfileFanSettings{
+		FacilityFanDeviceIDs: append([]int64(nil), profile.FacilityFanDeviceIDs...),
+		FanOffDelaySec:       profile.FanOffDelaySec,
+		FanRestoreDelaySec:   profile.FanRestoreDelaySec,
+	}
 }

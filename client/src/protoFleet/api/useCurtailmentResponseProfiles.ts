@@ -221,6 +221,9 @@ function mapApiResponseProfile(profile: ApiCurtailmentResponseProfile, siteNameB
         siteNamesById,
         deviceIdentifiers: scopeValues.deviceIdentifiers,
         minerSelectionMode: scopeValues.minerSelectionMode,
+        facilityFanDeviceIds: formValues.facilityFanDeviceIds,
+        fanOffDelaySec: formValues.fanOffDelaySec,
+        fanRestoreDelaySec: formValues.fanRestoreDelaySec,
       }
     : formValues;
   const scope = getResponseProfileScopeSummary(mergedFormValues, profile.mode);

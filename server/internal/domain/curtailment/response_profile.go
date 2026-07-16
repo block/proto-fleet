@@ -44,6 +44,7 @@ type SaveResponseProfileRequest struct {
 	CanUseAdminControls          bool
 	ExpectedSiteID               *int64
 	ExpectedScopeJSON            []byte
+	ExpectedFacilityFanSettings  models.ResponseProfileFanSettings
 	AuthorizedFacilityFanDevices map[int64]models.ResponseProfileInfrastructureDevice
 }
 
@@ -152,7 +153,14 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 			)
 		}
 	}
-	return s.store.UpdateResponseProfile(ctx, profile, infrastructureDevices, req.ExpectedSiteID, req.ExpectedScopeJSON)
+	return s.store.UpdateResponseProfile(
+		ctx,
+		profile,
+		infrastructureDevices,
+		req.ExpectedSiteID,
+		req.ExpectedScopeJSON,
+		req.ExpectedFacilityFanSettings,
+	)
 }
 
 func (s *ResponseProfileService) Delete(ctx context.Context, orgID, profileID int64, expectedSiteID *int64, expectedScopeJSON []byte) error {
