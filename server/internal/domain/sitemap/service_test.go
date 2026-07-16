@@ -37,7 +37,7 @@ func TestBuildSiteMapExportZipIncludesCSVAndAgentGuide(t *testing.T) {
 	if !strings.Contains(csvText, "# SECTION: MINER") {
 		t.Fatalf("%s missing MINER section: %q", siteMapExportCSVPath, csvText)
 	}
-	if !strings.Contains(csvText, "label (read only),building,site,zone,rows,columns,order_index,aisle_index,position_in_aisle") {
+	if !strings.Contains(csvText, "label,id (read only),building_id,building,site_id,site,zone,rows,columns,order_index,aisle_index,position_in_aisle") {
 		t.Fatalf("%s missing expected RACK headers: %q", siteMapExportCSVPath, csvText)
 	}
 
@@ -45,10 +45,10 @@ func TestBuildSiteMapExportZipIncludesCSVAndAgentGuide(t *testing.T) {
 	for _, want := range []string{
 		"Edit proto-fleet-site-map/site-map.csv",
 		"If rack is set, the rack determines the miner's building and site.",
-		"Headers ending in \"(read only)\" identify existing records or reference data.",
+		"ID columns identify existing records or disambiguate references.",
 		"Leave omitted rows in place keeps missing rows unchanged.",
 		"Remove omitted rows soft-deletes omitted sites, buildings, and racks, and unassigns omitted miners.",
-		"Site, building, and rack names/labels are identities, not rename fields.",
+		"Prefer name references unless an ID is needed to disambiguate.",
 	} {
 		if !strings.Contains(guideText, want) {
 			t.Fatalf("%s missing %q: %q", siteMapExportGuideTXTPath, want, guideText)
@@ -105,9 +105,9 @@ func TestBuildPlanWithRemoveOmittedSummarizesDeletes(t *testing.T) {
 }
 
 func TestBuildPlanSummarizesNewTopologyRows(t *testing.T) {
-	csv := strings.Replace(validCSV(), "Site A\n", "Site A\nNew Site\n", 1)
-	csv = strings.Replace(csv, "Building A,Site A,2,2\n", "Building A,Site A,2,2\nNew Building,Site A,2,2\n", 1)
-	csv = strings.Replace(csv, "Rack A,Building A,,Z1,4,6,BOTTOM_LEFT,0,0\n", "Rack A,Building A,,Z1,4,6,BOTTOM_LEFT,0,0\nNew Rack,Building A,,Z1,4,6,BOTTOM_LEFT,0,1\n", 1)
+	csv := strings.Replace(validCSV(), "Site A,\n", "Site A,\nNew Site,\n", 1)
+	csv = strings.Replace(csv, "Building A,,,Site A,2,2\n", "Building A,,,Site A,2,2\nNew Building,,,Site A,2,2\n", 1)
+	csv = strings.Replace(csv, "Rack A,,,Building A,,,Z1,4,6,BOTTOM_LEFT,0,0\n", "Rack A,,,Building A,,,Z1,4,6,BOTTOM_LEFT,0,0\nNew Rack,,,Building A,,,Z1,4,6,BOTTOM_LEFT,0,1\n", 1)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v", errs)
@@ -125,10 +125,10 @@ func TestBuildPlanSummarizesNewTopologyRows(t *testing.T) {
 }
 
 func TestBuildPlanAllowsMinerPlacementIntoNewTopologyRows(t *testing.T) {
-	csv := strings.Replace(validCSV(), "Site A\n", "Site A\nNew Site\n", 1)
-	csv = strings.Replace(csv, "Building A,Site A,2,2\n", "Building A,Site A,2,2\nNew Building,New Site,2,2\n", 1)
-	csv = strings.Replace(csv, "Rack A,Building A,,Z1,4,6,BOTTOM_LEFT,0,0\n", "Rack A,Building A,,Z1,4,6,BOTTOM_LEFT,0,0\nNew Rack,New Building,,Z2,4,6,BOTTOM_LEFT,0,1\n", 1)
-	csv = strings.Replace(csv, "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,New Rack,0,0", 1)
+	csv := strings.Replace(validCSV(), "Site A,\n", "Site A,\nNew Site,\n", 1)
+	csv = strings.Replace(csv, "Building A,,,Site A,2,2\n", "Building A,,,Site A,2,2\nNew Building,,,New Site,2,2\n", 1)
+	csv = strings.Replace(csv, "Rack A,,,Building A,,,Z1,4,6,BOTTOM_LEFT,0,0\n", "Rack A,,,Building A,,,Z1,4,6,BOTTOM_LEFT,0,0\nNew Rack,,,New Building,,,Z2,4,6,BOTTOM_LEFT,0,1\n", 1)
+	csv = strings.Replace(csv, "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,New Rack,0,0", 1)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v", errs)
@@ -157,6 +157,30 @@ func TestBuildPlanAcceptsExportedUnassignedBuildings(t *testing.T) {
 	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
 	if len(plan.errors) != 0 {
 		t.Fatalf("plan errors = %v, want unassigned building row accepted", plan.errors)
+	}
+	if plan.omissions.GetBuildings() != 0 {
+		t.Fatalf("building omissions = %d, want 0", plan.omissions.GetBuildings())
+	}
+}
+
+func TestBuildPlanAcceptsDuplicateUnassignedBuildingsWithIDs(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": nil,
+		"BUILDING": {
+			{"__row": "5", "id": "10", "name": "Unassigned Building", "aisles": "1", "racks_per_aisle": "1"},
+			{"__row": "6", "id": "11", "name": "Unassigned Building", "aisles": "1", "racks_per_aisle": "1"},
+		},
+		"RACK":  nil,
+		"MINER": nil,
+	}}
+	snap := &snapshot{buildings: []buildingmodels.Building{
+		{ID: 10, Name: "Unassigned Building", Aisles: 1, RacksPerAisle: 1},
+		{ID: 11, Name: "Unassigned Building", Aisles: 1, RacksPerAisle: 1},
+	}}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.errors) != 0 {
+		t.Fatalf("plan errors = %v, want duplicate unassigned building rows accepted when IDs disambiguate", plan.errors)
 	}
 	if plan.omissions.GetBuildings() != 0 {
 		t.Fatalf("building omissions = %d, want 0", plan.omissions.GetBuildings())
@@ -236,7 +260,7 @@ func TestCommitTokenChangesWithSnapshotDrift(t *testing.T) {
 }
 
 func TestBuildPlanWithNoOmissionsSummarizesMinerPlacementChanges(t *testing.T) {
-	csv := strings.Replace(validCSV(), "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,1", 1)
+	csv := strings.Replace(validCSV(), "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,1", 1)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v", errs)
@@ -261,24 +285,27 @@ func TestBuildPlanWithNoOmissionsSummarizesMinerPlacementChanges(t *testing.T) {
 	}
 }
 
-func TestBuildPlanRejectsMinerRenames(t *testing.T) {
-	csv := strings.Replace(validCSV(), "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0", "miner-1,SN1,Renamed Miner,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0", 1)
+func TestBuildPlanSummarizesMinerRenames(t *testing.T) {
+	csv := strings.Replace(validCSV(), "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0", "miner-1,SN1,Renamed Miner,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0", 1)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v", errs)
 	}
 
 	plan := buildPlan(parsed, testSnapshotMatchingValidCSV(), pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	if len(plan.errors) != 1 || plan.errors[0].GetMessage() != "name is read-only for existing miner miner-1" {
-		t.Fatalf("plan errors = %v, want name read-only error", plan.errors)
+	if len(plan.errors) != 0 {
+		t.Fatalf("plan errors = %v, want miner rename accepted", plan.errors)
+	}
+	if !hasChange(plan.changes, pb.ImportOperation_IMPORT_OPERATION_RENAME, "miner", 1) {
+		t.Fatalf("changes = %+v, want miner rename summary", plan.changes)
 	}
 }
 
 func TestBuildPlanReportsRowCitedErrors(t *testing.T) {
 	csv := strings.Replace(
 		validCSV(),
-		"miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0\n",
-		"miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0\nminer-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0\n",
+		"miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0\n",
+		"miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0\nminer-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0\n",
 		1,
 	)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
@@ -312,7 +339,7 @@ func TestParseSiteMapCSVUnescapesFormulaProtectedExports(t *testing.T) {
 		t.Fatalf("parse errors = %v", errs)
 	}
 
-	if got := parsed.sections["RACK"][0]["rack"]; got != "-Rack" {
+	if got := parsed.sections["RACK"][0]["label"]; got != "-Rack" {
 		t.Fatalf("rack = %q, want unescaped -Rack", got)
 	}
 	if got := parsed.sections["MINER"][0]["rack"]; got != "-Rack" {
@@ -350,12 +377,12 @@ func TestCleanPreservesIdentifierWhitespace(t *testing.T) {
 }
 
 func TestParseSiteMapCSVPreservesDataCellWhitespace(t *testing.T) {
-	csv := strings.Replace(validCSV(), "Site A\n", "\" Site A \"\n", 1)
+	csv := strings.Replace(validCSV(), "Site A,\n", "\" Site A \",\n", 1)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v", errs)
 	}
-	if got := parsed.sections["SITE"][0]["site"]; got != " Site A " {
+	if got := parsed.sections["SITE"][0]["name"]; got != " Site A " {
 		t.Fatalf("site = %q, want surrounding whitespace preserved", got)
 	}
 }
@@ -389,7 +416,7 @@ func TestExportedSectionMarkerShapedSiteRoundTrips(t *testing.T) {
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v\ncsv:\n%s", errs, string(csvData))
 	}
-	if got := parsed.sections["SITE"][0]["site"]; got != "# SECTION: RACK" {
+	if got := parsed.sections["SITE"][0]["name"]; got != "# SECTION: RACK" {
 		t.Fatalf("site = %q, want section-marker-shaped site name", got)
 	}
 }
@@ -648,10 +675,10 @@ func TestMinerRowsBlankSiteAndBuildingForRackedMiners(t *testing.T) {
 		RackCol:          "0",
 	}}, nil)
 
-	if got := rows[0][5]; got != "" {
+	if got := rows[0][6]; got != "" {
 		t.Fatalf("exported miner site = %q, want blank when rack is set", got)
 	}
-	if got := rows[0][6]; got != "" {
+	if got := rows[0][8]; got != "" {
 		t.Fatalf("exported miner building = %q, want blank when rack is set", got)
 	}
 }
@@ -670,7 +697,7 @@ func TestMinerRowsUseRackMembershipDerivedRackForExport(t *testing.T) {
 		RackCol:          "0",
 	}}, nil)
 
-	if got := rows[0][7]; got != "Rack A" {
+	if got := rows[0][10]; got != "Rack A" {
 		t.Fatalf("exported miner rack = %q, want Rack A", got)
 	}
 }
@@ -682,10 +709,10 @@ func TestMinerRowsBlankSiteForDirectBuildingAssignment(t *testing.T) {
 		Building:         "Building A",
 	}}, []buildingmodels.Building{{SiteLabel: "Site A", Name: "Building A"}})
 
-	if got := rows[0][5]; got != "" {
+	if got := rows[0][6]; got != "" {
 		t.Fatalf("exported miner site = %q, want blank when building is set", got)
 	}
-	if got := rows[0][6]; got != "Building A" {
+	if got := rows[0][8]; got != "Building A" {
 		t.Fatalf("exported miner building = %q, want Building A", got)
 	}
 }
@@ -703,25 +730,25 @@ func TestMinerRowsPreserveSiteForAmbiguousDirectBuildingAssignment(t *testing.T)
 		},
 	)
 
-	if got := rows[0][5]; got != "Site A" {
+	if got := rows[0][6]; got != "Site A" {
 		t.Fatalf("exported miner site = %q, want Site A when building name is ambiguous", got)
 	}
-	if got := rows[0][6]; got != "Building A" {
+	if got := rows[0][8]; got != "Building A" {
 		t.Fatalf("exported miner building = %q, want Building A", got)
 	}
 }
 
 func TestDisplayHeadersMarkReadOnlyIdentityColumns(t *testing.T) {
-	if got := strings.Join(displayHeaders("SITE", siteHeaders), ","); got != "name (read only)" {
+	if got := strings.Join(displayHeaders("SITE", siteHeaders), ","); got != "name,id (read only)" {
 		t.Fatalf("SITE headers = %q", got)
 	}
-	if got := strings.Join(displayHeaders("BUILDING", buildingHeaders), ","); got != "name (read only),site (read only),aisles,racks_per_aisle" {
+	if got := strings.Join(displayHeaders("BUILDING", buildingHeaders), ","); got != "name,id (read only),site_id,site,aisles,racks_per_aisle" {
 		t.Fatalf("BUILDING headers = %q", got)
 	}
-	if got := strings.Join(displayHeaders("RACK", rackHeaders), ","); got != "label (read only),building,site,zone,rows,columns,order_index,aisle_index,position_in_aisle" {
+	if got := strings.Join(displayHeaders("RACK", rackHeaders), ","); got != "label,id (read only),building_id,building,site_id,site,zone,rows,columns,order_index,aisle_index,position_in_aisle" {
 		t.Fatalf("RACK headers = %q", got)
 	}
-	if got := strings.Join(displayHeaders("MINER", minerHeaders), ","); got != "device_identifier (read only),serial_number (read only),name (read only),ip_address (read only),mac_address (read only),site,building,rack,rack_row,rack_col" {
+	if got := strings.Join(displayHeaders("MINER", minerHeaders), ","); got != "device_identifier (read only),serial_number (read only),name,ip_address (read only),mac_address (read only),site_id,site,building_id,building,rack_id,rack,rack_row,rack_col" {
 		t.Fatalf("MINER headers = %q", got)
 	}
 }
@@ -732,10 +759,10 @@ func TestRackExportRowsBlankSiteForUnambiguousBuildingAssignment(t *testing.T) {
 		[]buildingmodels.Building{{SiteLabel: "Site A", Name: "Building A"}},
 	)
 
-	if got := rows[0][1]; got != "Building A" {
+	if got := rows[0][3]; got != "Building A" {
 		t.Fatalf("exported rack building = %q, want Building A", got)
 	}
-	if got := rows[0][2]; got != "" {
+	if got := rows[0][5]; got != "" {
 		t.Fatalf("exported rack site = %q, want blank when building is unambiguous", got)
 	}
 }
@@ -749,8 +776,29 @@ func TestRackExportRowsPreserveSiteForAmbiguousBuildingAssignment(t *testing.T) 
 		},
 	)
 
-	if got := rows[0][2]; got != "Site A" {
+	if got := rows[0][5]; got != "Site A" {
 		t.Fatalf("exported rack site = %q, want Site A when building name is ambiguous", got)
+	}
+}
+
+func TestRackExportRowsUseBuildingIDForDuplicateUnassignedBuildingNames(t *testing.T) {
+	buildingID := int64(10)
+	rows := rackExportRows(
+		[]rackSnapshot{{BuildingID: &buildingID, Building: "Building A", Label: "Rack A"}},
+		[]buildingmodels.Building{
+			{ID: 10, Name: "Building A"},
+			{ID: 11, Name: "Building A"},
+		},
+	)
+
+	if got := rows[0][2]; got != "10" {
+		t.Fatalf("exported rack building_id = %q, want 10 when building name is ambiguous", got)
+	}
+	if got := rows[0][3]; got != "Building A" {
+		t.Fatalf("exported rack building = %q, want readable building name", got)
+	}
+	if got := rows[0][5]; got != "" {
+		t.Fatalf("exported rack site = %q, want blank for unassigned building", got)
 	}
 }
 
@@ -833,7 +881,7 @@ func TestValidateReadOnlyMinerFieldsIncludesIP(t *testing.T) {
 	}
 }
 
-func TestValidateReadOnlyMinerFieldsIncludesName(t *testing.T) {
+func TestValidateReadOnlyMinerFieldsAllowsName(t *testing.T) {
 	rows := []map[string]string{{
 		"__row":             "21",
 		"device_identifier": "miner-1",
@@ -851,8 +899,8 @@ func TestValidateReadOnlyMinerFieldsIncludesName(t *testing.T) {
 	}}}
 
 	errs := validateReadOnlyMinerFields(rows, snap)
-	if len(errs) != 1 || errs[0].GetMessage() != "name is read-only for existing miner miner-1" {
-		t.Fatalf("errors = %+v, want name read-only error", errs)
+	if len(errs) != 0 {
+		t.Fatalf("errors = %+v, want name changes allowed", errs)
 	}
 }
 
@@ -1075,9 +1123,9 @@ func TestParseSiteMapCSVAcceptsSpreadsheetPaddedSectionRows(t *testing.T) {
 	csv = strings.Replace(csv, "\n\n# SECTION: BUILDING\n", "\n,,,,,,,,,,\n# SECTION: BUILDING,,,,,,,,,,\n", 1)
 	csv = strings.Replace(csv, "\n\n# SECTION: RACK\n", "\n,,,,,,,,,,\n# SECTION: RACK,,,,,,,,,,\n", 1)
 	csv = strings.Replace(csv, "\n\n# SECTION: MINER\n", "\n,,,,,,,,,,\n# SECTION: MINER,,,,,,,,,,\n", 1)
-	csv = strings.Replace(csv, "name (read only)\n", "name (read only),\n", 1)
-	csv = strings.Replace(csv, "Site A\n", "Site A,\n", 1)
-	csv = strings.Replace(csv, "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0\n", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,,\n", 1)
+	csv = strings.Replace(csv, "name,id (read only)\n", "name,id (read only),\n", 1)
+	csv = strings.Replace(csv, "Site A,\n", "Site A,,\n", 1)
+	csv = strings.Replace(csv, "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0\n", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,,\n", 1)
 
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
@@ -1135,20 +1183,20 @@ func hasChange(changes []*pb.ImportChangeSummary, op pb.ImportOperation, entityT
 
 func validCSV() string {
 	return `# SECTION: SITE
-name (read only)
-Site A
+name,id (read only)
+Site A,
 
 # SECTION: BUILDING
-name (read only),site (read only),aisles,racks_per_aisle
-Building A,Site A,2,2
+name,id (read only),site_id,site,aisles,racks_per_aisle
+Building A,,,Site A,2,2
 
 # SECTION: RACK
-label (read only),building,site,zone,rows,columns,order_index,aisle_index,position_in_aisle
-Rack A,Building A,,Z1,4,6,BOTTOM_LEFT,0,0
+label,id (read only),building_id,building,site_id,site,zone,rows,columns,order_index,aisle_index,position_in_aisle
+Rack A,,,Building A,,,Z1,4,6,BOTTOM_LEFT,0,0
 
 # SECTION: MINER
-device_identifier (read only),serial_number (read only),name (read only),ip_address (read only),mac_address (read only),site,building,rack,rack_row,rack_col
-miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0
+device_identifier (read only),serial_number (read only),name,ip_address (read only),mac_address (read only),site_id,site,building_id,building,rack_id,rack,rack_row,rack_col
+miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0
 `
 }
 
