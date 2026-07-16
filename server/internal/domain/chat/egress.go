@@ -11,12 +11,29 @@ import (
 
 const providerRequestTimeout = 90 * time.Second
 
+var errProviderDestinationDisallowed = errors.New("provider destination resolves to a disallowed internal address")
+
 type providerEgressPolicy struct {
-	allowPrivate bool
+	allowLoopback bool
+	allowPrivate  bool
 }
 
-func providerEgressPolicyFor(provider Provider) providerEgressPolicy {
-	return providerEgressPolicy{allowPrivate: provider == ProviderOllama}
+// ProviderEgressConfig contains deployment-owner-controlled exceptions to the
+// default provider destination policy. Keeping this separate from the
+// organization-scoped LLM settings prevents an API user from granting their
+// own access to services on the Fleet server's private network.
+type ProviderEgressConfig struct {
+	AllowPrivateOllama bool `help:"Allow Ollama to connect to RFC1918/private addresses in addition to loopback. Enable only when the deployment owner trusts that network." default:"false" env:"ALLOW_PRIVATE_OLLAMA"`
+}
+
+func providerEgressPolicyFor(provider Provider, config ProviderEgressConfig) providerEgressPolicy {
+	if provider != ProviderOllama {
+		return providerEgressPolicy{}
+	}
+	return providerEgressPolicy{
+		allowLoopback: true,
+		allowPrivate:  config.AllowPrivateOllama,
+	}
 }
 
 // newProviderHTTPClient validates the address that is actually dialed so a
@@ -40,7 +57,7 @@ func newProviderHTTPClient(policy providerEgressPolicy) *http.Client {
 		lastErr := errors.New("provider destination has no dialable address")
 		for _, ip := range ips {
 			if !providerIPAllowed(policy, ip) {
-				lastErr = errors.New("provider destination resolves to a disallowed internal address")
+				lastErr = errProviderDestinationDisallowed
 				continue
 			}
 			conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
@@ -67,7 +84,10 @@ func providerIPAllowed(policy providerEgressPolicy, ip net.IP) bool {
 		ip.IsMulticast() || providerReservedIP(ip) {
 		return false
 	}
-	if !policy.allowPrivate && (ip.IsLoopback() || ip.IsPrivate()) {
+	if ip.IsLoopback() && !policy.allowLoopback {
+		return false
+	}
+	if ip.IsPrivate() && !policy.allowPrivate {
 		return false
 	}
 	return true

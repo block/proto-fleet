@@ -9,8 +9,10 @@ import (
 )
 
 const (
-	defaultMaxTurns = 6
-	maxDeltaRunes   = 160
+	defaultMaxTurns     = 6
+	maxDeltaRunes       = 160
+	maxToolCallsPerTurn = 4
+	maxToolCallsPerRun  = 8
 )
 
 const systemPrompt = `You are Proto Fleet AI, an operations assistant for bitcoin-miner fleets.
@@ -86,6 +88,11 @@ type Agent struct {
 	maxTurns int
 }
 
+type cachedToolResult struct {
+	output ToolOutput
+	err    error
+}
+
 func NewAgent(model ModelClient) *Agent {
 	return &Agent{model: model, maxTurns: defaultMaxTurns}
 }
@@ -107,6 +114,8 @@ func (a *Agent) Run(
 	messages = append(messages, history...)
 	messages = append(messages, Message{Role: "user", Content: content})
 	definitions := tools.Definitions()
+	toolCallsUsed := 0
+	toolResults := make(map[string]cachedToolResult)
 
 	for range a.maxTurns {
 		completion, err := a.model.Complete(ctx, config, messages, definitions)
@@ -124,6 +133,17 @@ func (a *Agent) Run(
 			}
 			return emit(Event{Kind: EventDone, Summary: "stop", Success: true})
 		}
+		if len(completion.ToolCalls) > maxToolCallsPerTurn {
+			return fleeterror.NewFailedPreconditionErrorf(
+				"agent requested %d tool calls in one turn; limit is %d",
+				len(completion.ToolCalls),
+				maxToolCallsPerTurn,
+			)
+		}
+		if len(completion.ToolCalls) > maxToolCallsPerRun-toolCallsUsed {
+			return fleeterror.NewFailedPreconditionErrorf("agent exceeded the %d-call tool budget", maxToolCallsPerRun)
+		}
+		toolCallsUsed += len(completion.ToolCalls)
 
 		messages = append(messages, Message{
 			Role:      "assistant",
@@ -140,7 +160,13 @@ func (a *Agent) Run(
 				return err
 			}
 
-			output, toolErr := tools.Execute(ctx, call.Name, call.Arguments)
+			cacheKey := toolCallCacheKey(call)
+			cached, alreadyExecuted := toolResults[cacheKey]
+			if !alreadyExecuted {
+				cached.output, cached.err = tools.Execute(ctx, call.Name, call.Arguments)
+				toolResults[cacheKey] = cached
+			}
+			output, toolErr := cached.output, cached.err
 			resultContent := output.Content
 			resultSummary := output.Summary
 			if toolErr != nil {
@@ -168,6 +194,17 @@ func (a *Agent) Run(
 	}
 
 	return fleeterror.NewFailedPreconditionErrorf("agent exceeded the %d-turn tool limit", a.maxTurns)
+}
+
+func toolCallCacheKey(call ModelToolCall) string {
+	arguments := call.Arguments
+	var normalized any
+	if json.Unmarshal(arguments, &normalized) == nil {
+		if encoded, err := json.Marshal(normalized); err == nil {
+			arguments = encoded
+		}
+	}
+	return call.Name + "\x00" + string(arguments)
 }
 
 func chunkText(content string, size int) []string {

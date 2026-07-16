@@ -59,7 +59,7 @@ func (t *FleetTools) Definitions() []chatdomain.ToolDefinition {
 		},
 		{
 			Name:        "list_pools",
-			Description: "List saved mining pool names, endpoints, and usernames. No pool passwords are returned.",
+			Description: "List saved mining pool names. Connection URLs, usernames, wallet identifiers, worker identifiers, and credentials are never returned.",
 			InputSchema: emptyObjectSchema(),
 		},
 	}
@@ -156,14 +156,11 @@ func (t *FleetTools) listPools(ctx context.Context) (chatdomain.ToolOutput, erro
 		return chatdomain.ToolOutput{}, err
 	}
 	type poolView struct {
-		ID       int64  `json:"id"`
-		Name     string `json:"name"`
-		URL      string `json:"url"`
-		Username string `json:"username"`
+		Name string `json:"name"`
 	}
 	pools := make([]poolView, 0, len(response.Msg.GetPools()))
 	for _, pool := range response.Msg.GetPools() {
-		pools = append(pools, poolView{ID: pool.GetPoolId(), Name: pool.GetPoolName(), URL: pool.GetUrl(), Username: pool.GetUsername()})
+		pools = append(pools, poolView{Name: pool.GetPoolName()})
 	}
 	content, err := json.Marshal(map[string]any{"pools": pools})
 	if err != nil {

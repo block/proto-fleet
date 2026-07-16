@@ -24,6 +24,7 @@ func (m *sequenceModel) Complete(_ context.Context, _ RuntimeConfig, messages []
 
 type recordingTools struct {
 	called bool
+	calls  int
 }
 
 func (*recordingTools) Definitions() []ToolDefinition {
@@ -32,6 +33,7 @@ func (*recordingTools) Definitions() []ToolDefinition {
 
 func (t *recordingTools) Execute(context.Context, string, json.RawMessage) (ToolOutput, error) {
 	t.called = true
+	t.calls++
 	return ToolOutput{Content: `{"sites":[]}`, Summary: "Read 0 sites"}, nil
 }
 
@@ -69,4 +71,73 @@ func TestAgentRejectsUnavailableGooseHarness(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Goose ACP harness")
+}
+
+func TestAgentRejectsTooManyToolCallsInOneTurnBeforeExecution(t *testing.T) {
+	model := &sequenceModel{completions: []Completion{{ToolCalls: []ModelToolCall{
+		{ID: "call-1", Name: "list_sites", Arguments: json.RawMessage(`{}`)},
+		{ID: "call-2", Name: "list_sites", Arguments: json.RawMessage(`{}`)},
+		{ID: "call-3", Name: "list_sites", Arguments: json.RawMessage(`{}`)},
+		{ID: "call-4", Name: "list_sites", Arguments: json.RawMessage(`{}`)},
+		{ID: "call-5", Name: "list_sites", Arguments: json.RawMessage(`{}`)},
+	}}}}
+	tools := &recordingTools{}
+	agent := NewAgent(model)
+
+	err := agent.Run(t.Context(), RuntimeConfig{Harness: HarnessNative}, nil, "List sites", tools, func(Event) error { return nil })
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "limit is 4")
+	assert.Zero(t, tools.calls)
+}
+
+func TestAgentEnforcesTotalToolCallBudgetBeforeExecutingOverflow(t *testing.T) {
+	model := &sequenceModel{completions: []Completion{
+		{ToolCalls: []ModelToolCall{
+			{ID: "call-1", Name: "list_sites", Arguments: json.RawMessage(`{"request":1}`)},
+			{ID: "call-2", Name: "list_sites", Arguments: json.RawMessage(`{"request":2}`)},
+			{ID: "call-3", Name: "list_sites", Arguments: json.RawMessage(`{"request":3}`)},
+			{ID: "call-4", Name: "list_sites", Arguments: json.RawMessage(`{"request":4}`)},
+		}},
+		{ToolCalls: []ModelToolCall{
+			{ID: "call-5", Name: "list_sites", Arguments: json.RawMessage(`{"request":5}`)},
+			{ID: "call-6", Name: "list_sites", Arguments: json.RawMessage(`{"request":6}`)},
+			{ID: "call-7", Name: "list_sites", Arguments: json.RawMessage(`{"request":7}`)},
+			{ID: "call-8", Name: "list_sites", Arguments: json.RawMessage(`{"request":8}`)},
+		}},
+		{ToolCalls: []ModelToolCall{{ID: "call-9", Name: "list_sites", Arguments: json.RawMessage(`{"request":9}`)}}},
+	}}
+	tools := &recordingTools{}
+	agent := NewAgent(model)
+
+	err := agent.Run(t.Context(), RuntimeConfig{Harness: HarnessNative}, nil, "Keep checking", tools, func(Event) error { return nil })
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "8-call tool budget")
+	assert.Equal(t, 8, tools.calls)
+}
+
+func TestAgentDeduplicatesEquivalentToolCalls(t *testing.T) {
+	model := &sequenceModel{completions: []Completion{
+		{ToolCalls: []ModelToolCall{
+			{ID: "call-1", Name: "list_sites", Arguments: json.RawMessage(`{"b":2,"a":1}`)},
+			{ID: "call-2", Name: "list_sites", Arguments: json.RawMessage(`{"a":1,"b":2}`)},
+		}},
+		{Content: "Done."},
+	}}
+	tools := &recordingTools{}
+	agent := NewAgent(model)
+
+	err := agent.Run(t.Context(), RuntimeConfig{Harness: HarnessNative}, nil, "List sites", tools, func(Event) error { return nil })
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, tools.calls)
+	require.Len(t, model.messages, 2)
+	toolMessages := 0
+	for _, message := range model.messages[1] {
+		if message.Role == "tool" {
+			toolMessages++
+		}
+	}
+	assert.Equal(t, 2, toolMessages, "each provider tool-call id still receives a result")
 }

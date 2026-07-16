@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -50,10 +51,10 @@ type ModelDiscoverer interface {
 	DiscoverModels(ctx context.Context, config RuntimeConfig) ([]AvailableModel, error)
 }
 
-func NewHTTPModelClient() *HTTPModelClient {
+func NewHTTPModelClient(egressConfig ProviderEgressConfig) *HTTPModelClient {
 	return &HTTPModelClient{
-		publicHTTPClient: newProviderHTTPClient(providerEgressPolicyFor(ProviderOpenAI)),
-		ollamaHTTPClient: newProviderHTTPClient(providerEgressPolicyFor(ProviderOllama)),
+		publicHTTPClient: newProviderHTTPClient(providerEgressPolicyFor(ProviderOpenAI, egressConfig)),
+		ollamaHTTPClient: newProviderHTTPClient(providerEgressPolicyFor(ProviderOllama, egressConfig)),
 	}
 }
 
@@ -468,39 +469,28 @@ func (c *HTTPModelClient) executeJSON(provider Provider, req *http.Request, head
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return fleeterror.NewUnavailableErrorf("LLM provider request failed: %v", err)
+		if errors.Is(err, errProviderDestinationDisallowed) {
+			return fleeterror.NewUnavailableErrorf("LLM provider destination is blocked by the server egress policy")
+		}
+		return fleeterror.NewUnavailableErrorf("LLM provider request failed")
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// Provider-controlled response bodies are deliberately left unread. A
+		// provider or intermediary can reflect request headers, including API
+		// keys, in its error payload; returning that text would expose the secret
+		// to the browser and error-logging interceptors.
+		return fleeterror.NewUnavailableErrorf("LLM provider returned HTTP %d", resp.StatusCode)
+	}
 	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, maxProviderResponseBytes+1))
 	if err != nil {
-		return fleeterror.NewUnavailableErrorf("read LLM provider response: %v", err)
+		return fleeterror.NewUnavailableErrorf("LLM provider response could not be read")
 	}
 	if len(responseBody) > maxProviderResponseBytes {
 		return fleeterror.NewUnavailableErrorf("LLM provider response exceeded %d bytes", maxProviderResponseBytes)
 	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fleeterror.NewUnavailableErrorf("LLM provider returned HTTP %d: %s", resp.StatusCode, providerErrorMessage(responseBody))
-	}
 	if err := json.Unmarshal(responseBody, target); err != nil {
-		return fleeterror.NewUnavailableErrorf("decode LLM provider response: %v", err)
+		return fleeterror.NewUnavailableErrorf("LLM provider returned an invalid JSON response")
 	}
 	return nil
-}
-
-func providerErrorMessage(body []byte) string {
-	var envelope struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-		Message string `json:"message"`
-	}
-	if json.Unmarshal(body, &envelope) == nil {
-		if envelope.Error.Message != "" {
-			return envelope.Error.Message
-		}
-		if envelope.Message != "" {
-			return envelope.Message
-		}
-	}
-	return http.StatusText(http.StatusBadGateway)
 }

@@ -95,12 +95,13 @@ type Cipher interface {
 }
 
 type ConfigService struct {
-	store  ConfigStore
-	cipher Cipher
+	store        ConfigStore
+	cipher       Cipher
+	egressConfig ProviderEgressConfig
 }
 
-func NewConfigService(store ConfigStore, cipher Cipher) *ConfigService {
-	return &ConfigService{store: store, cipher: cipher}
+func NewConfigService(store ConfigStore, cipher Cipher, egressConfig ProviderEgressConfig) *ConfigService {
+	return &ConfigService{store: store, cipher: cipher, egressConfig: egressConfig}
 }
 
 func defaultConfig() ConfigView {
@@ -128,7 +129,7 @@ func (s *ConfigService) Update(ctx context.Context, orgID int64, input UpdateCon
 	if orgID == 0 {
 		return ConfigView{}, fleeterror.NewUnauthenticatedError("organization id missing on session")
 	}
-	if err := normalizeAndValidateConfig(&input); err != nil {
+	if err := normalizeAndValidateConfig(&input, s.egressConfig); err != nil {
 		return ConfigView{}, err
 	}
 	if input.ClearAPIKey && input.APIKey != "" {
@@ -232,7 +233,7 @@ func (s *ConfigService) DiscoveryRuntime(ctx context.Context, orgID int64, input
 	if input.APIKey != "" && input.UseStoredAPIKey {
 		return RuntimeConfig{}, fleeterror.NewInvalidArgumentError("api_key and use_stored_api_key cannot both be set")
 	}
-	if err := normalizeAndValidateDiscoveryConfig(&input); err != nil {
+	if err := normalizeAndValidateDiscoveryConfig(&input, s.egressConfig); err != nil {
 		return RuntimeConfig{}, err
 	}
 
@@ -285,7 +286,7 @@ func (record ConfigRecord) view() ConfigView {
 	return view
 }
 
-func normalizeAndValidateConfig(input *UpdateConfig) error {
+func normalizeAndValidateConfig(input *UpdateConfig, egressConfig ProviderEgressConfig) error {
 	input.BaseURL = strings.TrimRight(strings.TrimSpace(input.BaseURL), "/")
 	input.GooseBaseURL = strings.TrimRight(strings.TrimSpace(input.GooseBaseURL), "/")
 	input.Model = strings.TrimSpace(input.Model)
@@ -320,7 +321,7 @@ func normalizeAndValidateConfig(input *UpdateConfig) error {
 	if input.Model == "" {
 		return fleeterror.NewInvalidArgumentError("an LLM model is required")
 	}
-	if err := validateProviderEndpointURL(input.Provider, input.BaseURL); err != nil {
+	if err := validateProviderEndpointURL(input.Provider, input.BaseURL, egressConfig); err != nil {
 		return err
 	}
 	if input.Harness == HarnessGoose {
@@ -334,7 +335,7 @@ func normalizeAndValidateConfig(input *UpdateConfig) error {
 	return nil
 }
 
-func normalizeAndValidateDiscoveryConfig(input *DiscoverConfig) error {
+func normalizeAndValidateDiscoveryConfig(input *DiscoverConfig, egressConfig ProviderEgressConfig) error {
 	input.BaseURL = strings.TrimRight(strings.TrimSpace(input.BaseURL), "/")
 	switch input.Provider {
 	case ProviderOpenAI:
@@ -356,7 +357,7 @@ func normalizeAndValidateDiscoveryConfig(input *DiscoverConfig) error {
 	default:
 		return fleeterror.NewInvalidArgumentErrorf("unsupported LLM provider %q", input.Provider)
 	}
-	return validateProviderEndpointURL(input.Provider, input.BaseURL)
+	return validateProviderEndpointURL(input.Provider, input.BaseURL, egressConfig)
 }
 
 func validateEndpointURL(label, raw string) error {
@@ -375,7 +376,7 @@ func parseEndpointURL(label, raw string) (*url.URL, error) {
 	return parsed, nil
 }
 
-func validateProviderEndpointURL(provider Provider, raw string) error {
+func validateProviderEndpointURL(provider Provider, raw string, egressConfig ProviderEgressConfig) error {
 	parsed, err := parseEndpointURL("provider base URL", raw)
 	if err != nil {
 		return err
@@ -385,7 +386,7 @@ func validateProviderEndpointURL(provider Provider, raw string) error {
 	}
 
 	host := parsed.Hostname()
-	policy := providerEgressPolicyFor(provider)
+	policy := providerEgressPolicyFor(provider, egressConfig)
 	if provider != ProviderOllama {
 		lowerHost := strings.ToLower(strings.TrimSuffix(host, "."))
 		if lowerHost == "localhost" || strings.HasSuffix(lowerHost, ".localhost") {

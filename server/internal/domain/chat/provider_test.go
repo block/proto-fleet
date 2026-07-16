@@ -69,10 +69,11 @@ func TestHTTPModelClientOmitsTemperatureForGPT5(t *testing.T) {
 	assert.Equal(t, "Hello", completion.Content)
 }
 
-func TestHTTPModelClientDoesNotEchoProviderResponseBodyForUnknownErrors(t *testing.T) {
+func TestHTTPModelClientDoesNotEchoProviderErrorBodiesOrReflectedCredentials(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusBadGateway)
-		_, err := w.Write([]byte("opaque upstream body"))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, err := w.Write([]byte(`{"error":{"message":"rejected credential secret-key"}}`))
 		require.NoError(t, err)
 	}))
 	defer server.Close()
@@ -80,12 +81,15 @@ func TestHTTPModelClientDoesNotEchoProviderResponseBodyForUnknownErrors(t *testi
 	client := newTestHTTPModelClient(server.Client())
 	_, err := client.Complete(t.Context(), RuntimeConfig{
 		Provider: ProviderOpenAI,
+		APIKey:   "secret-key",
 		BaseURL:  server.URL,
 		Model:    "test-model",
 	}, []Message{{Role: "user", Content: "Hello"}}, nil)
 
 	require.Error(t, err)
-	assert.NotContains(t, err.Error(), "opaque upstream body")
+	assert.Contains(t, err.Error(), "HTTP 400")
+	assert.NotContains(t, err.Error(), "rejected credential")
+	assert.NotContains(t, err.Error(), "secret-key")
 }
 
 func TestHTTPModelClientDiscoversOpenAIModels(t *testing.T) {
@@ -170,13 +174,24 @@ func TestHTTPModelClientDiscoversInstalledOllamaModels(t *testing.T) {
 	}))
 	defer server.Close()
 
-	models, err := NewHTTPModelClient().DiscoverModels(t.Context(), RuntimeConfig{
+	models, err := NewHTTPModelClient(ProviderEgressConfig{}).DiscoverModels(t.Context(), RuntimeConfig{
 		Provider: ProviderOllama,
 		BaseURL:  server.URL,
 	})
 
 	require.NoError(t, err)
 	assert.Equal(t, []AvailableModel{{ID: "llama-test:latest", DisplayName: "llama-test:latest"}}, models)
+}
+
+func TestHTTPModelClientReportsServerPolicyForPrivateOllamaDestination(t *testing.T) {
+	_, err := NewHTTPModelClient(ProviderEgressConfig{}).DiscoverModels(t.Context(), RuntimeConfig{
+		Provider: ProviderOllama,
+		BaseURL:  "http://10.0.0.20:11434",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "blocked by the server egress policy")
+	assert.NotContains(t, err.Error(), "10.0.0.20")
 }
 
 func TestHTTPModelClientGeneratesUniqueOllamaToolCallIDs(t *testing.T) {
@@ -187,7 +202,7 @@ func TestHTTPModelClientGeneratesUniqueOllamaToolCallIDs(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewHTTPModelClient()
+	client := NewHTTPModelClient(ProviderEgressConfig{})
 	config := RuntimeConfig{Provider: ProviderOllama, BaseURL: server.URL, Model: "llama-test"}
 	first, err := client.Complete(t.Context(), config, []Message{{Role: "user", Content: "List sites"}}, nil)
 	require.NoError(t, err)
@@ -201,7 +216,7 @@ func TestHTTPModelClientGeneratesUniqueOllamaToolCallIDs(t *testing.T) {
 }
 
 func TestHTTPModelClientRefusesPlainHTTPForCredentialProviders(t *testing.T) {
-	client := NewHTTPModelClient()
+	client := NewHTTPModelClient(ProviderEgressConfig{})
 
 	_, err := client.Complete(t.Context(), RuntimeConfig{
 		Provider: ProviderOpenAI,

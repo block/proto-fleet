@@ -33,7 +33,7 @@ func (prefixCipher) Encrypt(plaintext []byte) (string, error)  { return "enc:" +
 func (prefixCipher) Decrypt(ciphertext string) ([]byte, error) { return []byte(ciphertext[4:]), nil }
 
 func TestConfigServiceGetReturnsSafeDefaults(t *testing.T) {
-	service := NewConfigService(&memoryConfigStore{}, prefixCipher{})
+	service := NewConfigService(&memoryConfigStore{}, prefixCipher{}, ProviderEgressConfig{})
 
 	view, err := service.Get(t.Context(), 42)
 
@@ -46,7 +46,7 @@ func TestConfigServiceGetReturnsSafeDefaults(t *testing.T) {
 
 func TestConfigServiceEncryptsAndNeverReturnsProviderSecret(t *testing.T) {
 	store := &memoryConfigStore{}
-	service := NewConfigService(store, prefixCipher{})
+	service := NewConfigService(store, prefixCipher{}, ProviderEgressConfig{})
 
 	view, err := service.Update(t.Context(), 42, UpdateConfig{
 		Harness:  HarnessNative,
@@ -69,7 +69,7 @@ func TestConfigServiceEncryptsAndNeverReturnsProviderSecret(t *testing.T) {
 }
 
 func TestConfigServiceRequiresExplicitProviderSelection(t *testing.T) {
-	service := NewConfigService(&memoryConfigStore{}, prefixCipher{})
+	service := NewConfigService(&memoryConfigStore{}, prefixCipher{}, ProviderEgressConfig{})
 
 	_, err := service.Update(t.Context(), 42, UpdateConfig{
 		Harness:  HarnessNative,
@@ -91,7 +91,7 @@ func TestConfigServiceBlankSecretPreservesExistingCiphertext(t *testing.T) {
 		Model:           "old-model",
 		Temperature:     0.3,
 	}}
-	service := NewConfigService(store, prefixCipher{})
+	service := NewConfigService(store, prefixCipher{}, ProviderEgressConfig{})
 
 	_, err := service.Update(t.Context(), 42, UpdateConfig{
 		Harness:  HarnessNative,
@@ -113,7 +113,7 @@ func TestConfigServiceDoesNotPreserveSecretForChangedProvider(t *testing.T) {
 		BaseURL:         "https://api.openai.com/v1",
 		Model:           "gpt-model",
 	}}
-	service := NewConfigService(store, prefixCipher{})
+	service := NewConfigService(store, prefixCipher{}, ProviderEgressConfig{})
 
 	view, err := service.Update(t.Context(), 42, UpdateConfig{
 		Harness:  HarnessNative,
@@ -135,7 +135,7 @@ func TestConfigServiceDoesNotPreserveSecretForChangedBaseURL(t *testing.T) {
 		BaseURL:         "https://api.openai.com/v1",
 		Model:           "gpt-model",
 	}}
-	service := NewConfigService(store, prefixCipher{})
+	service := NewConfigService(store, prefixCipher{}, ProviderEgressConfig{})
 
 	view, err := service.Update(t.Context(), 42, UpdateConfig{
 		Harness:  HarnessNative,
@@ -151,7 +151,7 @@ func TestConfigServiceDoesNotPreserveSecretForChangedBaseURL(t *testing.T) {
 }
 
 func TestConfigServiceRejectsCredentialBearingEndpoint(t *testing.T) {
-	service := NewConfigService(&memoryConfigStore{}, prefixCipher{})
+	service := NewConfigService(&memoryConfigStore{}, prefixCipher{}, ProviderEgressConfig{})
 
 	_, err := service.Update(t.Context(), 42, UpdateConfig{
 		Harness:  HarnessNative,
@@ -165,7 +165,7 @@ func TestConfigServiceRejectsCredentialBearingEndpoint(t *testing.T) {
 }
 
 func TestConfigServiceRequiresHTTPSForCredentialBearingProviders(t *testing.T) {
-	service := NewConfigService(&memoryConfigStore{}, prefixCipher{})
+	service := NewConfigService(&memoryConfigStore{}, prefixCipher{}, ProviderEgressConfig{})
 
 	_, err := service.Update(t.Context(), 42, UpdateConfig{
 		Harness:  HarnessNative,
@@ -180,7 +180,7 @@ func TestConfigServiceRequiresHTTPSForCredentialBearingProviders(t *testing.T) {
 }
 
 func TestConfigServiceRejectsOllamaMetadataEndpoint(t *testing.T) {
-	service := NewConfigService(&memoryConfigStore{}, prefixCipher{})
+	service := NewConfigService(&memoryConfigStore{}, prefixCipher{}, ProviderEgressConfig{})
 
 	_, err := service.Update(t.Context(), 42, UpdateConfig{
 		Harness:  HarnessNative,
@@ -193,8 +193,37 @@ func TestConfigServiceRejectsOllamaMetadataEndpoint(t *testing.T) {
 	assert.Contains(t, err.Error(), "internal")
 }
 
+func TestConfigServiceRejectsPrivateOllamaEndpointByDefault(t *testing.T) {
+	service := NewConfigService(&memoryConfigStore{}, prefixCipher{}, ProviderEgressConfig{})
+
+	_, err := service.Update(t.Context(), 42, UpdateConfig{
+		Harness:  HarnessNative,
+		Provider: ProviderOllama,
+		BaseURL:  "http://10.0.0.20:11434",
+		Model:    "model-name",
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "private")
+}
+
+func TestConfigServiceAllowsPrivateOllamaEndpointWithDeploymentOptIn(t *testing.T) {
+	store := &memoryConfigStore{}
+	service := NewConfigService(store, prefixCipher{}, ProviderEgressConfig{AllowPrivateOllama: true})
+
+	view, err := service.Update(t.Context(), 42, UpdateConfig{
+		Harness:  HarnessNative,
+		Provider: ProviderOllama,
+		BaseURL:  "http://10.0.0.20:11434",
+		Model:    "model-name",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "http://10.0.0.20:11434", view.BaseURL)
+}
+
 func TestConfigServiceDiscoveryUsesOneTimeKeyAndProviderDefault(t *testing.T) {
-	service := NewConfigService(&memoryConfigStore{}, prefixCipher{})
+	service := NewConfigService(&memoryConfigStore{}, prefixCipher{}, ProviderEgressConfig{})
 
 	runtime, err := service.DiscoveryRuntime(t.Context(), 42, DiscoverConfig{
 		Provider: ProviderOpenAI,
@@ -213,7 +242,7 @@ func TestConfigServiceDiscoveryCanUseStoredKeyForSameProvider(t *testing.T) {
 		APIKeyEncrypted: "enc:stored-key",
 		BaseURL:         "https://api.anthropic.com",
 	}}
-	service := NewConfigService(store, prefixCipher{})
+	service := NewConfigService(store, prefixCipher{}, ProviderEgressConfig{})
 
 	runtime, err := service.DiscoveryRuntime(t.Context(), 42, DiscoverConfig{
 		Provider:        ProviderAnthropic,
@@ -232,7 +261,7 @@ func TestConfigServiceDiscoveryRejectsStoredKeyForChangedBaseURL(t *testing.T) {
 		APIKeyEncrypted: "enc:stored-key",
 		BaseURL:         "https://api.anthropic.com",
 	}}
-	service := NewConfigService(store, prefixCipher{})
+	service := NewConfigService(store, prefixCipher{}, ProviderEgressConfig{})
 
 	_, err := service.DiscoveryRuntime(t.Context(), 42, DiscoverConfig{
 		Provider:        ProviderAnthropic,
@@ -250,7 +279,7 @@ func TestConfigServiceDiscoveryRejectsStoredKeyFromAnotherProvider(t *testing.T)
 		Provider:        ProviderOpenAI,
 		APIKeyEncrypted: "enc:stored-key",
 	}}
-	service := NewConfigService(store, prefixCipher{})
+	service := NewConfigService(store, prefixCipher{}, ProviderEgressConfig{})
 
 	_, err := service.DiscoveryRuntime(t.Context(), 42, DiscoverConfig{
 		Provider:        ProviderAnthropic,
@@ -262,7 +291,7 @@ func TestConfigServiceDiscoveryRejectsStoredKeyFromAnotherProvider(t *testing.T)
 }
 
 func TestConfigServiceDiscoveryAllowsOllamaWithoutKey(t *testing.T) {
-	service := NewConfigService(&memoryConfigStore{}, prefixCipher{})
+	service := NewConfigService(&memoryConfigStore{}, prefixCipher{}, ProviderEgressConfig{})
 
 	runtime, err := service.DiscoveryRuntime(t.Context(), 42, DiscoverConfig{Provider: ProviderOllama})
 
@@ -272,7 +301,7 @@ func TestConfigServiceDiscoveryAllowsOllamaWithoutKey(t *testing.T) {
 }
 
 func TestConfigServiceDiscoveryRejectsCustomProvider(t *testing.T) {
-	service := NewConfigService(&memoryConfigStore{}, prefixCipher{})
+	service := NewConfigService(&memoryConfigStore{}, prefixCipher{}, ProviderEgressConfig{})
 
 	_, err := service.DiscoveryRuntime(t.Context(), 42, DiscoverConfig{
 		Provider: ProviderCustom,

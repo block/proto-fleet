@@ -654,8 +654,8 @@ func start(config *Config) error {
 	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
 	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
 	llmConfigStore := sqlstores.NewSQLLLMConfigStore(conn)
-	llmConfigSvc := chatDomain.NewConfigService(llmConfigStore, encryptSvc)
-	chatModelClient := chatDomain.NewHTTPModelClient()
+	llmConfigSvc := chatDomain.NewConfigService(llmConfigStore, encryptSvc, config.Chat)
+	chatModelClient := chatDomain.NewHTTPModelClient(config.Chat)
 	chatAgent := chatDomain.NewAgent(chatModelClient)
 
 	middlewares := []server.Middleware{
