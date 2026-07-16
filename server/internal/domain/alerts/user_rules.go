@@ -43,6 +43,9 @@ const (
 
 	// Bounds the absolute hashrate threshold after PH→TH normalization.
 	maxAbsoluteTerahash = 1e9
+
+	// Floor keeps formatRatio's 10-digit rendering exact (0.01% → 0.0001).
+	minHashratePercent = 0.01
 )
 
 // userRuleOrgSlug names the per-org folder and the rule_group label; each rule
@@ -70,28 +73,18 @@ func (s *Service) CreateRule(ctx context.Context, orgID int64, cfg RuleConfig) (
 	if err != nil {
 		return nil, err
 	}
-	created, err := s.createRuleWithinQuota(ctx, orgID, body)
+	created, err := s.createRuleSerialized(ctx, orgID, body, folderUID)
 	if err != nil {
 		return nil, err
-	}
-	// Pin the fresh per-rule group's evaluation interval. Best-effort: a
-	// default-interval group still evaluates; `for` carries the sustain semantics.
-	group := GrafanaRuleGroup{
-		Title:     created.RuleGroup,
-		FolderUID: folderUID,
-		Interval:  userRuleGroupInterval,
-		Rules:     []GrafanaAlertRule{*created},
-	}
-	if err := s.grafana.SetRuleGroup(ctx, group); err != nil {
-		slog.Warn("alerts.user_rule_group_interval", "org_id", orgID, "error", err)
 	}
 	out := grafanaRuleToDomain(orgID, *created)
 	return &out, nil
 }
 
-// createRuleWithinQuota serializes the quota read-then-create — the only
-// section where concurrent creates could exceed the cap.
-func (s *Service) createRuleWithinQuota(ctx context.Context, orgID int64, body GrafanaAlertRule) (*GrafanaAlertRule, error) {
+// createRuleSerialized holds userRuleMu across quota check, create, and the
+// group pin: the pin PUT replays the rule body, so it must not interleave
+// with another mutation of the same rule.
+func (s *Service) createRuleSerialized(ctx context.Context, orgID int64, body GrafanaAlertRule, folderUID string) (*GrafanaAlertRule, error) {
 	s.userRuleMu.Lock()
 	defer s.userRuleMu.Unlock()
 	existing, err := s.grafana.ListAlertRules(ctx)
@@ -108,7 +101,22 @@ func (s *Service) createRuleWithinQuota(ctx context.Context, orgID int64, body G
 	if userCount >= maxUserRulesPerOrg {
 		return nil, fleeterror.NewFailedPreconditionErrorf("rule limit reached (%d); delete a rule first", maxUserRulesPerOrg)
 	}
-	return s.grafana.CreateAlertRule(ctx, body)
+	created, err := s.grafana.CreateAlertRule(ctx, body)
+	if err != nil {
+		return nil, err
+	}
+	// Pin the fresh per-rule group's evaluation interval. Best-effort: a
+	// default-interval group still evaluates; `for` carries the sustain semantics.
+	group := GrafanaRuleGroup{
+		Title:     created.RuleGroup,
+		FolderUID: folderUID,
+		Interval:  userRuleGroupInterval,
+		Rules:     []GrafanaAlertRule{*created},
+	}
+	if err := s.grafana.SetRuleGroup(ctx, group); err != nil {
+		slog.Warn("alerts.user_rule_group_interval", "org_id", orgID, "error", err)
+	}
+	return created, nil
 }
 
 func (s *Service) UpdateRule(ctx context.Context, orgID int64, id string, cfg RuleConfig) (*Rule, error) {
@@ -118,6 +126,26 @@ func (s *Service) UpdateRule(ctx context.Context, orgID int64, id string, cfg Ru
 	if err := validateRuleConfig(cfg); err != nil {
 		return nil, err
 	}
+	updated, err := s.updateRuleSerialized(ctx, orgID, id, cfg)
+	if err != nil {
+		return nil, err
+	}
+	out := grafanaRuleToDomain(orgID, *updated)
+	// The write is committed; misreporting it as failed over a silence-read
+	// hiccup invites confused retries, so degrade to the rule's own state.
+	if paused, err := s.pauseSilencedRules(ctx, orgID); err != nil {
+		slog.Warn("alerts.user_rule_update_pause_state", "org_id", orgID, "rule_id", id, "error", err)
+	} else if paused[out.ID] {
+		out.Enabled = false
+	}
+	return &out, nil
+}
+
+// updateRuleSerialized holds userRuleMu across fetch, PUT, and group re-pin so
+// a concurrent same-rule mutation can't be overwritten by this body replay.
+func (s *Service) updateRuleSerialized(ctx context.Context, orgID int64, id string, cfg RuleConfig) (*GrafanaAlertRule, error) {
+	s.userRuleMu.Lock()
+	defer s.userRuleMu.Unlock()
 	current, err := s.requireUserRule(ctx, orgID, id)
 	if err != nil {
 		return nil, err
@@ -144,15 +172,7 @@ func (s *Service) UpdateRule(ctx context.Context, orgID int64, id string, cfg Ru
 	if err := s.grafana.SetRuleGroup(ctx, group); err != nil {
 		slog.Warn("alerts.user_rule_group_interval", "org_id", orgID, "error", err)
 	}
-	out := grafanaRuleToDomain(orgID, *updated)
-	// The write is committed; misreporting it as failed over a silence-read
-	// hiccup invites confused retries, so degrade to the rule's own state.
-	if paused, err := s.pauseSilencedRules(ctx, orgID); err != nil {
-		slog.Warn("alerts.user_rule_update_pause_state", "org_id", orgID, "rule_id", id, "error", err)
-	} else if paused[out.ID] {
-		out.Enabled = false
-	}
-	return &out, nil
+	return updated, nil
 }
 
 func (s *Service) DeleteRule(ctx context.Context, orgID int64, id string) error {
@@ -167,30 +187,43 @@ func (s *Service) DeleteRule(ctx context.Context, orgID int64, id string) error 
 			return isPauseSilence(sil) || isMaintenanceWindowSilence(sil)
 		})
 	}
-	rule, err := s.grafana.GetAlertRule(ctx, id)
-	if err != nil {
-		if !IsNotFound(err) {
-			return err
+	err := s.deleteRuleSerialized(ctx, orgID, id)
+	switch {
+	case err == nil:
+		// Silences are inert once the rule is gone; don't fail the committed
+		// delete over cleanup (a delete retry re-sweeps via the not-found path).
+		if err := cleanup(); err != nil {
+			slog.Warn("alerts.user_rule_delete_silence_cleanup", "org_id", orgID, "rule_id", id, "error", err)
 		}
+		return nil
+	case IsNotFound(err):
 		// The rule is already gone: re-sweep its silences so a half-failed
 		// earlier delete converges, then keep the uniform NotFound (no id oracle).
 		if err := cleanup(); err != nil {
 			return err
 		}
 		return ErrNotFound
+	default:
+		return err
 	}
-	// Existing-but-not-ours must not reach cleanup: it would let a delete probe
-	// lift the org's own pause silences on a provisioned rule.
+}
+
+// deleteRuleSerialized holds userRuleMu across fetch, guard, and delete so a
+// concurrent update's group re-pin can't replay the rule back after deletion.
+// Existing-but-not-ours resolves ErrNotFound before any cleanup can run: a
+// delete probe must not lift the org's own pause silences on a provisioned rule.
+func (s *Service) deleteRuleSerialized(ctx context.Context, orgID int64, id string) error {
+	s.userRuleMu.Lock()
+	defer s.userRuleMu.Unlock()
+	rule, err := s.grafana.GetAlertRule(ctx, id)
+	if err != nil {
+		return err
+	}
 	if !isMutableUserRule(*rule, orgID) {
 		return ErrNotFound
 	}
 	if err := s.grafana.DeleteAlertRule(ctx, id); err != nil && !IsNotFound(err) {
 		return err
-	}
-	// Silences are inert once the rule is gone; don't fail the committed delete
-	// over cleanup (a later delete retry re-sweeps via the not-found path).
-	if err := cleanup(); err != nil {
-		slog.Warn("alerts.user_rule_delete_silence_cleanup", "org_id", orgID, "rule_id", id, "error", err)
 	}
 	return nil
 }
@@ -260,8 +293,8 @@ func validateRuleConfig(cfg RuleConfig) error {
 		}
 		switch h.Mode {
 		case HashrateModePctExpected:
-			if h.Value <= 0 || h.Value > 100 {
-				return fleeterror.NewInvalidArgumentError("hashrate percent must be greater than 0 and at most 100")
+			if h.Value < minHashratePercent || h.Value > 100 {
+				return fleeterror.NewInvalidArgumentErrorf("hashrate percent must be between %v and 100", minHashratePercent)
 			}
 		case HashrateModeAbsolute:
 			if h.Value <= 0 {

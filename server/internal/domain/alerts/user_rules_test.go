@@ -53,6 +53,15 @@ func TestValidateRuleConfig(t *testing.T) {
 			Name: "r", DurationSeconds: 600,
 			Hashrate: &HashrateRuleConfig{Mode: HashrateModePctExpected, Value: 0},
 		}, true},
+		// Sub-floor percents would render a HAVING < 0 threshold that never fires.
+		{"hashrate pct below floor", RuleConfig{
+			Name: "r", DurationSeconds: 600,
+			Hashrate: &HashrateRuleConfig{Mode: HashrateModePctExpected, Value: 0.001},
+		}, true},
+		{"hashrate pct at floor ok", RuleConfig{
+			Name: "r", DurationSeconds: 600,
+			Hashrate: &HashrateRuleConfig{Mode: HashrateModePctExpected, Value: minHashratePercent},
+		}, false},
 		{"hashrate absolute ok", RuleConfig{
 			Name: "r", DurationSeconds: 600,
 			Hashrate: &HashrateRuleConfig{Mode: HashrateModeAbsolute, Value: 90, Unit: HashrateUnitTerahash},

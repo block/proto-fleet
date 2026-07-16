@@ -52,6 +52,7 @@ const MAX_NAME_LENGTH = 190;
 // Server-side threshold bounds (validateRuleConfig); °F copy derives from these.
 const MIN_CELSIUS = 0;
 const MAX_CELSIUS = 150;
+const MIN_HASHRATE_PERCENT = 0.01;
 
 const DEFAULT_DURATION: Record<UserRuleTemplate, number> = { offline: 1800, hashrate: 1200, temperature: 1200 };
 const DEFAULT_AMOUNT: Record<UserRuleTemplate, string> = { offline: "", hashrate: "75", temperature: "70" };
@@ -254,7 +255,9 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
     if (template === "hashrate") {
       if (!Number.isFinite(value) || value <= 0) return fail("Enter a threshold greater than 0");
       if (unit === "%") {
-        if (value > 100) return fail("Percent of expected must be at most 100");
+        if (value < MIN_HASHRATE_PERCENT || value > 100) {
+          return fail(`Percent of expected must be between ${MIN_HASHRATE_PERCENT} and 100`);
+        }
         return { ...base, hashrate: { mode: "pct_expected" as const, value } };
       }
       return {
