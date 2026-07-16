@@ -127,12 +127,19 @@ this.
 
 ## Current state
 
+> **Implementation snapshot (2026-07-16):** `main` at `092043a5`, after
+> Phases 1–3 merged as PRs
+> [#724](https://github.com/block/proto-fleet/pull/724),
+> [#743](https://github.com/block/proto-fleet/pull/743), and
+> [#750](https://github.com/block/proto-fleet/pull/750). Phases 4–5 have
+> no open or merged PR yet.
+
 | Area | State today |
 | --- | --- |
-| Infrastructure device UI | `client/src/protoFleet/features/infrastructure/` has an Add Infrastructure Device modal (`AddInfraDeviceModal`, `ManualAddStep`), a device list (`InfraDeviceList`), and an existing edit surface — an Edit row action / row click opens `InfraDeviceDetailModal` with editable name/site/endpoint/port/enabled fields and save/delete callbacks. The client still holds everything in local React state, but the backend now exists on `main` (PR 1, [#724](https://github.com/block/proto-fleet/pull/724)): migration `000122`, `proto/infrastructure/v1` + generated TS, domain CRUD service, and Connect handlers. Phase 2 wires the client to it. |
-| Response profiles | Full stack: `curtailment_response_profile` table, `CurtailmentResponseProfile` in `proto/curtailment/v1/curtailment.proto`, `ResponseProfileService` in `server/internal/domain/curtailment/response_profile.go`, and `CurtailmentStartModal` (`variant="responseProfile"`) on Settings → Curtailment. No fan fields. |
-| Curtailment reconciler | 30s polling loop in `server/internal/domain/curtailment/reconciler/` with existing timestamp-gate patterns (batch intervals, max duration). Miner-only; restore currently begins miner batches immediately on entering `restoring`. |
-| Fan command path | None. The server MQTT client is subscribe-only; there is no Modbus, PLC, or facility-device code in `server/`. |
+| Infrastructure devices | Full-stack CRUD is live: migration `000122`, `proto/infrastructure/v1`, sqlc/domain/Connect services, site-scoped authorization and redaction, and API-backed add/edit/enable/delete UI through `useInfrastructureDevices`. Driver-specific fields are owned by the Modbus TCP form module; status/last-seen UI remains hidden until read-back exists. |
+| Response profiles | Migration `000123` and the curtailment proto/service/store/client persist `facility_fan_device_ids`, `fan_off_delay_sec`, and `fan_restore_delay_sec`. The Settings form exposes an Infrastructure picker and delay fields. Reference guards block deleting or moving selected devices, and compatibility guards prevent fan profiles from executing before Phase 5. |
+| Curtailment execution | The 30s reconciler remains miner-only. `curtailment_event`, `StartCurtailmentRequest`, and domain `StartRequest` have no fan fields; restore batches begin without a fan gate. Automation binding/execution and the profile form's "Run curtailment" action are blocked when fans are selected. Energy-page starts prefilled from a profile still submit a miner-only request and silently omit the profile's fan settings (open question below). |
+| Fan command path | The protocol-blind `driver.Controller`/registry and Modbus TCP configuration validation exist, but `modbustcp.SetState` deliberately returns "not implemented." There is no Modbus dependency, dial-time commissioned-subnet authorization, simulator adapter, or devtools Modbus listener yet. |
 | Miner plugin system | HashiCorp go-plugin gRPC subprocesses keyed by `driver_name`, loaded from `PLUGINS_DIR` by `server/internal/domain/plugins/manager.go`. The contract is mining-specific (`StartMining`, hashboards, pools), so infrastructure devices mirror its shape rather than reuse it. |
 
 ## Driver adapter architecture
@@ -210,10 +217,11 @@ If a profile has no fan devices configured, behavior is identical to today.
 > **Status: merged** as [#724](https://github.com/block/proto-fleet/pull/724)
 > (2026-07-14, `27e80188`). Deviations from the plan as written:
 >
-> - **Deferred: response-profile delete guard → PR 3.**
+> - **Completed in PR 3: response-profile reference guards.**
 >   `facility_fan_device_ids` does not exist until Phase 3, so the guard
->   has nothing to check yet. A `TODO(#723, PR 3)` marks the spot on
->   `Service.Delete` in `server/internal/domain/infrastructure/service.go`.
+>   could not land in PR 1. PR 3 added the device delete and site-move
+>   guards and removed the `TODO(#723, PR 3)` from
+>   `server/internal/domain/infrastructure/service.go`.
 > - **Landed beyond plan scope** (mostly review/security hardening):
 >   - SQL-level site-scope filtering for List
 >     (`authz.EffectivePermissions.SiteScopeFor` +
@@ -273,14 +281,19 @@ Phase 1 is not independently executable. Phase 4 retains protocol I/O.
   handlers gated on `site:read` / `site:manage` (matching the existing UI
   gate in
   `client/src/protoFleet/features/fleetManagement/pages/FleetInfraPage.tsx`).
-- **Delete guard** *(moved to Phase 3 — the column it checks doesn't exist
-  until then)*: Delete returns FailedPrecondition while the device ID
+- **Delete guard** *(landed in Phase 3 / PR
+  [#750](https://github.com/block/proto-fleet/pull/750))*: Delete returns
+  FailedPrecondition while the device ID
   appears in any response profile's `facility_fan_device_ids`, telling the
   operator to update those profiles first — mirrors the existing guard that
   blocks response-profile deletion while automation rules reference it
   (`response_profile.go`).
 
 ## Phase 2: Client — add, edit, and persist devices
+
+> **Status: merged** as [#743](https://github.com/block/proto-fleet/pull/743)
+> (2026-07-15, `9246a584`; tracker
+> [#742](https://github.com/block/proto-fleet/issues/742)).
 
 - New API hook `useInfrastructureDevices` (list/create/update/delete)
   following the pattern of
@@ -322,42 +335,61 @@ Phase 1 is not independently executable. Phase 4 retains protocol I/O.
   until v2 read-back can populate them — v1 has no status source, so every
   device would otherwise render permanently offline with error styling.
 
-### Implementation prep notes (post-PR 1 code inventory)
+### Landed implementation notes
 
-- The generated TS client already exists at
+- The generated TS client at
   `client/src/protoFleet/api/generated/infrastructure/v1/infrastructure_pb.ts`
-  (`InfrastructureService` descriptor + request/response schemas), but
-  the service is not yet registered in
-  `client/src/protoFleet/api/clients.ts` — add an `infrastructureClient`
-  there.
+  is registered as `infrastructureClient` in
+  `client/src/protoFleet/api/clients.ts`.
 - **Data-shape mapping**: the UI's `InfraDeviceItem`
-  (`features/infrastructure/types.ts`) uses flat `endpoint`/`port`/
-  `unitId` fields and `siteName` strings; the API uses an opaque
-  `driverConfig` JSON string (`endpoint`, `port`, `unit_id`,
-  `register_address`, `write_mode`) and `site_id: bigint`. Map site name
-  ↔ ID via `FleetOutletContext.sites`; the per-driver form module owns
-  the `driverConfig` encode/decode.
+  (`features/infrastructure/types.ts`) now carries opaque `driverConfig`
+  plus `siteId`/`siteName`; the Modbus TCP form module owns encoding and
+  decoding of `endpoint`, `port`, `unit_id`, `register_address`, and
+  `write_mode`. `FleetInfraPage` maps site name ↔ ID through
+  `FleetOutletContext.sites`.
 - **Redaction**: `driver_config` comes back as an empty string for
   `site:read`-only callers — the connection-summary column and detail
-  rows must degrade gracefully (render an em dash or hide) rather than
-  fail to parse.
+  rows degrade gracefully to an em dash/read-only state rather than fail
+  to parse.
 - **Enabled toggle**: `UpdateInfrastructureDeviceRequest.enabled` is
-  `optional bool`; the toggle should send only `enabled` and rely on the
+  `optional bool`; the toggle sends only `enabled` and relies on the
   server's preserve-on-omit semantics for the other fields it doesn't
   intend to change.
+- **Full-row edits**: detail edits send changed-field patches to the hook;
+  the hook fetches the latest row and merges the patch before the full-row
+  update RPC. This avoids replaying a modal-age snapshot, though a narrow
+  Get→Update last-writer-wins window remains until the API gains a field
+  mask or concurrency token.
 - **Routing**: `/fleet/infrastructure` is already routed and prefetched
   (`routePrefetch.ts` exports `importFleetInfraPage`; `router.tsx` lazy
   route exists) — no route changes needed.
-- **State ownership**: today `InfraDeviceList` holds `localDevices` in
-  `useState` and all CRUD mutates it locally; PR 2 moves ownership into
-  the new `useInfrastructureDevices` hook and passes devices + mutation
-  callbacks down.
-- **Tests to extend**: `InfraDeviceList.test.tsx`,
-  `ManualAddStep.test.tsx`, `InfraDeviceDetailModal.test.tsx`,
-  `FleetInfraPage.test.tsx`; no API-hook test exists yet (mirror
-  `useCurtailmentResponseProfiles.test.tsx`).
+- **State ownership**: `useInfrastructureDevices` owns API-backed device
+  state and passes devices plus mutation callbacks through
+  `FleetInfraPage` to the controlled `InfraDeviceList`.
+- **Tests landed**: `useInfrastructureDevices.test.tsx`,
+  `InfraDeviceList.test.tsx`, `ManualAddStep.test.tsx`,
+  `AddInfraDeviceModal.test.tsx`, `InfraDeviceDetailModal.test.tsx`, and
+  `FleetInfraPage.test.tsx`.
 
 ## Phase 3: Response profile fan settings
+
+> **Status: merged** as [#750](https://github.com/block/proto-fleet/pull/750)
+> (2026-07-16, `092043a5`; tracker
+> [#723](https://github.com/block/proto-fleet/issues/723)).
+>
+> Final merged-contract deviations from the original plan:
+>
+> - Fan devices are validated to the organization and the caller must have
+>   `site:read` plus `curtailment:manage` at each device site, but they may
+>   be selected independently of the profile's miner/site scope. The proto
+>   comments and server/client tests explicitly preserve this behavior.
+> - The concurrent-event fan claim rule did not land here because events
+>   still cannot carry fan settings. It remains a Phase 5 prerequisite.
+> - Until Phase 5, fan profiles cannot be bound to or executed by
+>   automation, and the client disables the profile form's live
+>   "Run curtailment" action when fans are selected.
+> - Updates use `replace_facility_fan_settings` so older clients preserve
+>   existing fan settings instead of clearing them accidentally.
 
 - **Proto + schema**: add to `CurtailmentResponseProfile` and its
   create/update requests: `facility_fan_device_ids` (repeated),
@@ -366,33 +398,33 @@ Phase 1 is not independently executable. Phase 4 retains protocol I/O.
   Migration adds `facility_fan_device_ids bigint[]`, `fan_off_delay_sec`,
   `fan_restore_delay_sec` to `curtailment_response_profile`. Validation in
   `ResponseProfileService.validateAndNormalize`: device IDs exist, belong to
-  the org, and each device's `site_id` falls within the profile's
-  site/scope — org-only validation would let a profile scoped to site B
-  shut off site A's fan while site A's miners hash uncurtailed. Devices
-  with `enabled = false` are accepted with a warning (see enabled
-  semantics in Phase 5).
+  the org, and match the handler-authorized device snapshot. Fan selection
+  is intentionally independent of the profile's miner/site scope; handler
+  authorization and List/Get masking enforce access to every selected
+  device site. Devices with `enabled = false` are accepted with a warning
+  (see enabled semantics in Phase 5).
 - **Device delete guard** (deferred here from Phase 1): once
   `facility_fan_device_ids` exists, `infrastructure.Service.Delete`
   returns FailedPrecondition while the device ID appears in any response
   profile's `facility_fan_device_ids`, telling the operator to update
   those profiles first — mirrors the existing guard that blocks
   response-profile deletion while automation rules reference it
-  (`response_profile.go`). The landing site is marked with a
-  `TODO(#723, PR 3)` on `Service.Delete` in
-  `server/internal/domain/infrastructure/service.go`.
-- **Fan device claim rule**: a fan device may be referenced by at most one
-  non-terminal curtailment event. `Start` (and automation start) rejects
-  when any of the profile's fan devices are already claimed by another
-  non-terminal event — mirrors miner ownership semantics, and is mandatory
-  with per-cycle re-assertion: two concurrent events re-asserting opposite
-  desired states would physically toggle the fan every reconciler tick.
-- **Client**: new "Facility fans" section in
+  (`response_profile.go`). PR 3 also blocks moving a referenced device to
+  another site and blocks a site-delete cascade when a surviving profile
+  references one of its devices.
+- **Interim execution guard**: domain and store invariants reject binding
+  fan profiles to automation rules or executing them from MQTT until
+  Phase 5 can stamp events, claim fans, and sequence commands.
+- **Client**: new "Infrastructure" target under "Apply to" in
   `client/src/protoFleet/features/energy/CurtailmentStartModal.tsx`
   (responseProfile variant only): device multi-select using the modal's
   established `TargetSelectButton` + checkbox-modal pattern (as Sites and
-  Miners do), devices grouped by site and filtered to the profile's site
-  scope, with an empty state directing operators to the Fleet Infra page
-  when no devices exist; disabled devices render with a "disabled" badge.
+  Miners do). Devices are grouped by site and include every device returned
+  by the `require_curtailment_manage` inventory query rather than being
+  filtered to the profile scope. The empty state directs operators to the
+  Fleet Infra page; disabled devices render with a "disabled" badge and
+  cannot be newly selected, while persisted disabled selections remain
+  visible until cleared.
   Two seconds fields validated with `parseOptionalUint32Field` from
   `client/src/protoFleet/features/energy/curtailmentNumericFields.ts`;
   blank means 0 seconds (matching restore-interval semantics). Extend
@@ -401,6 +433,15 @@ Phase 1 is not independently executable. Phase 4 retains protocol I/O.
   and `buildResponseProfilePayload`.
 
 ## Phase 4: Modbus TCP adapter protocol I/O
+
+> **Status: not started.** No Phase 4 PR is open or merged as of
+> 2026-07-16. The Phase 1 adapter has config parsing/validation only;
+> `modbustcp.SetState` is still a deliberate stub. The commissioned
+> control-subnet data model and dial-time authorization check remain a
+> blocking design prerequisite, not an implemented foundation. The current
+> `driver.Device` passed to `SetState` contains no `SiteID` or authorized
+> CIDRs, so Phase 4 must also define how site commissioning data reaches the
+> dial authorization boundary before implementing writes.
 
 The `Controller` interface, registry, and config validation landed in
 Phase 1; this phase implements the write path.
@@ -437,12 +478,24 @@ security precondition on `modbustcp.SetState`.)
 
 ## Phase 5: Reconciler sequencing
 
-- **Event stamping**: at `Start` (and in
-  `startRequestFromAutomationProfile` in
-  `server/internal/domain/curtailment/automation.go`), copy the profile's
-  fan device IDs and delays onto `curtailment_event` (migration:
+> **Status: not started.** No Phase 5 PR is open or merged as of
+> 2026-07-16. The reconciler, event schema/proto, `StartRequest`, and
+> `StartCurtailmentRequest` remain fan-unaware.
+
+- **Event stamping**: extend the start/event path so fan device IDs and
+  delays are copied onto `curtailment_event` (migration:
   `facility_fan_device_ids`, `fan_off_delay_sec`, `fan_restore_delay_sec`,
   `fan_off_sent_at`, `fan_on_sent_at`, `fan_last_error`).
+  `startRequestFromAutomationProfile` copies the profile settings once the
+  interim automation block is removed. If manual profile-prefilled starts
+  are included in v1, `StartCurtailmentRequest`, domain `StartRequest`, and
+  the client request builder must carry the same fields (see the open
+  question below).
+- **Fan device claim rule**: a fan device may be referenced by at most one
+  non-terminal curtailment event. `Start` (including automation start)
+  rejects when any requested fan is already claimed — mandatory with
+  per-cycle re-assertion so concurrent events cannot drive opposite states
+  every reconciler tick.
 - **Curtail path**: in the reconciler's active phase (`observeActive`), when
   the event has fan devices and `fan_off_sent_at` is null, the fan-OFF gate
   requires all of:
@@ -510,17 +563,18 @@ security precondition on `modbustcp.SetState`.)
 
 ## Delivery: PR grouping
 
-Five stacked PRs, one per phase, each independently reviewable and safe to
-merge in order — no fan behavior activates until PR 5 lands, so PRs 1–4
-are pure surface area with no operational risk:
+Five sequential PRs, one per phase, each independently reviewable and safe
+to merge in order. PRs 1–3 are merged; PRs 4–5 are not opened as of
+2026-07-16. No fan behavior activates until PR 5 lands, so PRs 1–4 are
+pure surface area with no operational risk:
 
 | PR | Scope | Contents | Depends on |
 | --- | --- | --- | --- |
-| PR 1 (**merged** — [#724](https://github.com/block/proto-fleet/pull/724), tracker [#723](https://github.com/block/proto-fleet/issues/723)) | Infra device backend (Phase 1) | Migration (landed as `000122` after renumbering past a collision with main), `proto/infrastructure/v1` + generated code, driver `Controller` interface + registry + modbustcp `ValidateConfig`, sqlc queries, CRUD service, Connect handlers. Delete guard deferred to PR 3 (see Phase 1 status note). | — |
-| PR 2 (tracker [#742](https://github.com/block/proto-fleet/issues/742)) | Infra device client (Phase 2) | `useInfrastructureDevices` hook, API-backed `InfraDeviceList` with loading/error states, add-modal rework with per-driver form module, detail-modal edit rework, status-column hiding | PR 1 |
-| PR 3 | Profile fan settings (Phase 3) | Profile proto + migration + site-scope/org validation, "Facility fans" section in the profile modal (picker, delay fields) | PR 1 (PR 2 for the picker's device list) |
-| PR 4 | Modbus write path (Phase 4) | modbustcp protocol I/O, Go Modbus dependency + `go work sync`, `sim` adapter, devtools Modbus TCP listener | PR 1 |
-| PR 5 | Reconciler sequencing (Phase 5) | Event stamping, fan device claim rule at Start, fan-OFF gate, re-assertion, restore path, terminal-path fan ON, `CurtailmentEvent` proto exposure | PRs 3, 4 |
+| PR 1 (**merged** — [#724](https://github.com/block/proto-fleet/pull/724), `27e80188`; tracker [#723](https://github.com/block/proto-fleet/issues/723)) | Infra device backend (Phase 1) | Migration `000122`, `proto/infrastructure/v1` + generated code, driver `Controller` interface + registry + modbustcp `ValidateConfig`, sqlc queries, CRUD service, Connect handlers. Profile reference guard deferred because its column did not exist yet. | — |
+| PR 2 (**merged** — [#743](https://github.com/block/proto-fleet/pull/743), `9246a584`; tracker [#742](https://github.com/block/proto-fleet/issues/742)) | Infra device client (Phase 2) | `useInfrastructureDevices`, API-backed `InfraDeviceList`, loading/error and mutation states, per-driver add/edit forms, redaction handling, status-column hiding | PR 1 |
+| PR 3 (**merged** — [#750](https://github.com/block/proto-fleet/pull/750), `092043a5`; tracker [#723](https://github.com/block/proto-fleet/issues/723)) | Profile fan settings (Phase 3) | Profile proto + migration, org/permission validation with scope-independent fan selection, Infrastructure picker + delay fields, transactional device/site guards, legacy-client replacement semantics, interim automation/live-run blocks | PRs 1, 2 |
+| PR 4 (**not opened**) | Modbus write path (Phase 4) | Commissioned-subnet authorization, modbustcp protocol I/O, Go Modbus dependency + `go work sync`, `sim` adapter, devtools Modbus TCP listener | PR 1 |
+| PR 5 (**not opened**) | Reconciler sequencing (Phase 5) | Event stamping, fan device claim rule at Start, fan-OFF gate, re-assertion, restore path, terminal-path fan ON, `CurtailmentEvent` proto exposure, removal of interim execution blocks | PRs 3, 4 |
 
 Each PR carries its own tests from the Testing section. The site
 commissioning checklist (Hardware review, Gap 1) and the Phase 4 network
@@ -529,17 +583,19 @@ PR merge.
 
 ## Testing
 
-- Server: domain tests for device CRUD/validation (including the delete
-  guard and endpoint restrictions) and profile validation (site-scope and
-  claim rules) against real Postgres (docker-compose, per repo rule);
-  reconciler tests for both delay gates, the miner-rollup fan-OFF gate,
-  no-fan passthrough, send-failure alerting, recurtail reset, terminal-path
-  fan ON (`AdminTerminate`/`ForceRelease`), and per-cycle state
-  re-assertion (including recovery after a simulated device restart);
-  modbustcp driver unit test against the devtools Modbus TCP listener.
-- Client: unit tests for the reworked add/edit modal and the new profile
-  section (extend `useCurtailmentResponseProfiles.test.tsx` and
-  `ManualAddStep.test.tsx`).
+- **Completed through PR 3:** server coverage for infrastructure CRUD,
+  adapter config validation, endpoint restrictions, handler authorization
+  and redaction, response-profile fan persistence/validation, optimistic
+  fan-setting guards, device move/delete/site-cascade reference guards, and
+  interim automation blocks (including real-Postgres integration tests).
+  Client coverage includes the API hook, add/edit/list/error states, driver
+  forms, response-profile payload mapping, Infrastructure picker/delays,
+  disabled devices, scope-independent selection, and the live-run block.
+- **Remaining for PRs 4–5:** Modbus writes against the devtools listener;
+  fan claim conflicts; both delay gates; the miner-rollup fan-OFF gate;
+  no-fan passthrough; send-failure alerting; recurtail reset; terminal-path
+  fan ON (`AdminTerminate`/`ForceRelease`); and per-cycle state
+  re-assertion, including recovery after a simulated device restart.
 - Repo hygiene: `just gen` after proto/sqlc/migration changes,
   `go work sync` after the Modbus dependency, feature branch, `just lint`
   before PR.
