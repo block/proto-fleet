@@ -29,7 +29,7 @@ import (
 
 const (
 	maxPageSize        = 1000
-	maxImportBytes     = 5 * 1024 * 1024
+	maxImportBytes     = 64 * 1024 * 1024
 	maxImportRows      = 100000
 	maxRackDimension   = 12
 	maxLayoutDimension = 100
@@ -664,12 +664,35 @@ func siteRows(sites []sitemodels.Site) [][]string {
 	return rows
 }
 
+func siteRawRows(sites []sitemodels.Site) [][]string {
+	rows := make([][]string, 0, len(sites))
+	for _, site := range sites {
+		rows = append(rows, []string{
+			site.Name,
+		})
+	}
+	return rows
+}
+
 func buildingRows(buildings []buildingmodels.Building) [][]string {
 	rows := make([][]string, 0, len(buildings))
 	for _, building := range buildings {
 		rows = append(rows, []string{
 			clean(building.Name),
 			clean(building.SiteLabel),
+			formatInt32(building.Aisles),
+			formatInt32(building.RacksPerAisle),
+		})
+	}
+	return rows
+}
+
+func buildingRawRows(buildings []buildingmodels.Building) [][]string {
+	rows := make([][]string, 0, len(buildings))
+	for _, building := range buildings {
+		rows = append(rows, []string{
+			building.Name,
+			building.SiteLabel,
 			formatInt32(building.Aisles),
 			formatInt32(building.RacksPerAisle),
 		})
@@ -685,6 +708,24 @@ func rackRows(racks []rackSnapshot) [][]string {
 			clean(rack.Building),
 			clean(rack.Site),
 			clean(rack.Zone),
+			formatInt32(rack.Rows),
+			formatInt32(rack.Columns),
+			rack.OrderIndex,
+			rack.AisleIndex,
+			rack.PositionInAisle,
+		})
+	}
+	return rows
+}
+
+func rackRawRows(racks []rackSnapshot) [][]string {
+	rows := make([][]string, 0, len(racks))
+	for _, rack := range racks {
+		rows = append(rows, []string{
+			rack.Label,
+			rack.Building,
+			rack.Site,
+			rack.Zone,
 			formatInt32(rack.Rows),
 			formatInt32(rack.Columns),
 			rack.OrderIndex,
@@ -839,7 +880,6 @@ func formatInt32(value int32) string {
 }
 
 func clean(value string) string {
-	value = strings.TrimSpace(value)
 	if value == "" {
 		return value
 	}
@@ -940,22 +980,23 @@ func parseSiteMapCSV(data []byte) (*parsedCSV, []*pb.ImportValidationError) {
 			continue
 		}
 		for i+1 < len(records) {
-			next := trimRecord(records[i+1])
-			if isSectionMarker(next) {
+			rawNext := records[i+1]
+			trimmedNext := trimRecord(rawNext)
+			if isSectionMarker(trimmedNext) {
 				break
 			}
 			i++
-			if isBlankRecord(next) {
+			if isBlankRecord(trimmedNext) {
 				continue
 			}
-			next = trimTrailingEmptyToMax(next, len(headers))
+			next := trimTrailingEmptyToMax(rawNext, len(headers))
 			if len(next) != len(headers) {
 				errs = append(errs, csvErr(i+1, section, "row has the wrong number of columns"))
 				continue
 			}
 			row := map[string]string{}
 			for j, header := range headers {
-				row[header] = unescapeCleanedValue(strings.TrimSpace(next[j]))
+				row[header] = unescapeCleanedValue(next[j])
 			}
 			row["__row"] = strconv.Itoa(i + 1)
 			out.sections[section] = append(out.sections[section], row)
@@ -1369,7 +1410,7 @@ func (s *Service) applyBuildingRows(
 			existing[row["site"]+"\x00"+row[fieldBuilding]] = *created
 			continue
 		}
-		current := rowMap(buildingHeaders, buildingRows([]buildingmodels.Building{building})[0])
+		current := rowMap(buildingHeaders, buildingRawRows([]buildingmodels.Building{building})[0])
 		if rowsEqual(row, current, buildingHeaders) {
 			continue
 		}
@@ -1464,7 +1505,7 @@ func (s *Service) applyRackRows(
 			})
 			continue
 		}
-		current := rowMap(rackHeaders, rackRows([]rackSnapshot{rack})[0])
+		current := rowMap(rackHeaders, rackRawRows([]rackSnapshot{rack})[0])
 		if rowsEqual(row, current, rackHeaders) {
 			continue
 		}
@@ -1573,6 +1614,16 @@ func (s *Service) applyMinerRows(
 			}
 			if _, err := s.collectionStore.CascadeAddedDeviceBuildings(ctx, orgID, rack.ID, deviceIDs); err != nil {
 				return err
+			}
+			if rack.SiteID == nil {
+				if _, err := s.siteStore.AssignDevicesToSite(ctx, orgID, nil, deviceIDs); err != nil {
+					return err
+				}
+			}
+			if rack.BuildingID == nil {
+				if _, err := s.buildingStore.AssignDevicesToBuilding(ctx, orgID, nil, deviceIDs); err != nil {
+					return err
+				}
 			}
 			pendingSlots = append(pendingSlots, pendingMinerSlot{
 				rackID:           rack.ID,
@@ -2488,7 +2539,7 @@ func countDeletes(existing, desired map[string]bool) int32 {
 func countSiteUpdates(rows []map[string]string, sites []sitemodels.Site) int32 {
 	existing := map[string]map[string]string{}
 	for _, site := range sites {
-		existing[site.Name] = rowMap(siteHeaders, siteRows([]sitemodels.Site{site})[0])
+		existing[site.Name] = rowMap(siteHeaders, siteRawRows([]sitemodels.Site{site})[0])
 	}
 	return countExistingRowUpdates(rows, existing, "site", siteHeaders)
 }
@@ -2496,7 +2547,7 @@ func countSiteUpdates(rows []map[string]string, sites []sitemodels.Site) int32 {
 func countBuildingUpdates(rows []map[string]string, buildings []buildingmodels.Building) int32 {
 	existing := map[string]map[string]string{}
 	for _, building := range buildings {
-		existing[building.SiteLabel+"\x00"+building.Name] = rowMap(buildingHeaders, buildingRows([]buildingmodels.Building{building})[0])
+		existing[building.SiteLabel+"\x00"+building.Name] = rowMap(buildingHeaders, buildingRawRows([]buildingmodels.Building{building})[0])
 	}
 	return countExistingRowUpdates(rows, existing, "site\x00building", buildingHeaders)
 }
@@ -2504,7 +2555,7 @@ func countBuildingUpdates(rows []map[string]string, buildings []buildingmodels.B
 func countRackUpdates(rows []map[string]string, racks []rackSnapshot) int32 {
 	existing := map[string]map[string]string{}
 	for _, rack := range racks {
-		existing[rack.Label] = rowMap(rackHeaders, rackRows([]rackSnapshot{rack})[0])
+		existing[rack.Label] = rowMap(rackHeaders, rackRawRows([]rackSnapshot{rack})[0])
 	}
 	return countExistingRowUpdates(rows, existing, "rack", rackHeaders)
 }

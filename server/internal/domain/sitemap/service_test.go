@@ -16,6 +16,7 @@ import (
 	buildingmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	sitemodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"go.uber.org/mock/gomock"
 )
@@ -52,6 +53,12 @@ func TestBuildSiteMapExportZipIncludesCSVAndAgentGuide(t *testing.T) {
 		if !strings.Contains(guideText, want) {
 			t.Fatalf("%s missing %q: %q", siteMapExportGuideTXTPath, want, guideText)
 		}
+	}
+}
+
+func TestMaxImportBytesAllowsLargeFleetExports(t *testing.T) {
+	if maxImportBytes < 64*1024*1024 {
+		t.Fatalf("maxImportBytes = %d, want at least 64 MiB", maxImportBytes)
 	}
 }
 
@@ -121,7 +128,7 @@ func TestBuildPlanAllowsMinerPlacementIntoNewTopologyRows(t *testing.T) {
 	csv := strings.Replace(validCSV(), "Site A\n", "Site A\nNew Site\n", 1)
 	csv = strings.Replace(csv, "Building A,Site A,2,2\n", "Building A,Site A,2,2\nNew Building,New Site,2,2\n", 1)
 	csv = strings.Replace(csv, "Rack A,Building A,,Z1,4,6,BOTTOM_LEFT,0,0\n", "Rack A,Building A,,Z1,4,6,BOTTOM_LEFT,0,0\nNew Rack,New Building,,Z2,4,6,BOTTOM_LEFT,0,1\n", 1)
-	csv = strings.Replace(csv, "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,0", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,New Rack,0,0", 1)
+	csv = strings.Replace(csv, "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,New Rack,0,0", 1)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v", errs)
@@ -229,7 +236,7 @@ func TestCommitTokenChangesWithSnapshotDrift(t *testing.T) {
 }
 
 func TestBuildPlanWithNoOmissionsSummarizesMinerPlacementChanges(t *testing.T) {
-	csv := strings.Replace(validCSV(), "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,0", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,1", 1)
+	csv := strings.Replace(validCSV(), "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,1", 1)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v", errs)
@@ -255,7 +262,7 @@ func TestBuildPlanWithNoOmissionsSummarizesMinerPlacementChanges(t *testing.T) {
 }
 
 func TestBuildPlanRejectsMinerRenames(t *testing.T) {
-	csv := strings.Replace(validCSV(), "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,0", "miner-1,SN1,Renamed Miner,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,0", 1)
+	csv := strings.Replace(validCSV(), "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0", "miner-1,SN1,Renamed Miner,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0", 1)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v", errs)
@@ -270,8 +277,8 @@ func TestBuildPlanRejectsMinerRenames(t *testing.T) {
 func TestBuildPlanReportsRowCitedErrors(t *testing.T) {
 	csv := strings.Replace(
 		validCSV(),
-		"miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,0\n",
-		"miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,0\nminer-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,0\n",
+		"miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0\n",
+		"miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0\nminer-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0\n",
 		1,
 	)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
@@ -336,6 +343,23 @@ func TestCleanEscapesSectionMarkerShapedValues(t *testing.T) {
 	}
 }
 
+func TestCleanPreservesIdentifierWhitespace(t *testing.T) {
+	if got := clean(" Rack A "); got != " Rack A " {
+		t.Fatalf("cleaned value = %q, want surrounding whitespace preserved", got)
+	}
+}
+
+func TestParseSiteMapCSVPreservesDataCellWhitespace(t *testing.T) {
+	csv := strings.Replace(validCSV(), "Site A\n", "\" Site A \"\n", 1)
+	parsed, errs := parseSiteMapCSV([]byte(csv))
+	if len(errs) != 0 {
+		t.Fatalf("parse errors = %v", errs)
+	}
+	if got := parsed.sections["SITE"][0]["site"]; got != " Site A " {
+		t.Fatalf("site = %q, want surrounding whitespace preserved", got)
+	}
+}
+
 func TestNullableInt64EqualComparesPlacementIDs(t *testing.T) {
 	id := func(value int64) *int64 { return &value }
 
@@ -367,6 +391,45 @@ func TestExportedSectionMarkerShapedSiteRoundTrips(t *testing.T) {
 	}
 	if got := parsed.sections["SITE"][0]["site"]; got != "# SECTION: RACK" {
 		t.Fatalf("site = %q, want section-marker-shaped site name", got)
+	}
+}
+
+func TestBuildPlanTreatsEscapedExportValuesAsNoOp(t *testing.T) {
+	snap := &snapshot{
+		sites: []sitemodels.Site{{Name: "-Site"}},
+		buildings: []buildingmodels.Building{{
+			SiteLabel:     "-Site",
+			Name:          "+Building",
+			Aisles:        2,
+			RacksPerAisle: 2,
+		}},
+		racks: []rackSnapshot{{
+			Site:            "-Site",
+			Building:        "+Building",
+			Label:           "-Rack",
+			Zone:            "# SECTION: RACK",
+			Rows:            4,
+			Columns:         6,
+			OrderIndex:      "BOTTOM_LEFT",
+			AisleIndex:      "0",
+			PositionInAisle: "0",
+		}},
+	}
+	csvData, err := buildSiteMapCSV(snap)
+	if err != nil {
+		t.Fatalf("buildSiteMapCSV error = %v", err)
+	}
+	parsed, errs := parseSiteMapCSV(csvData)
+	if len(errs) != 0 {
+		t.Fatalf("parse errors = %v\ncsv:\n%s", errs, string(csvData))
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.errors) != 0 {
+		t.Fatalf("plan errors = %v", plan.errors)
+	}
+	if len(plan.changes) != 0 {
+		t.Fatalf("changes = %+v, want escaped export values to reimport as no-op", plan.changes)
 	}
 }
 
@@ -439,6 +502,43 @@ func TestLogSiteMapImportActivitySummarizesChanges(t *testing.T) {
 	)
 
 	svc.logSiteMapImportActivity(ctx, orgID, plan)
+}
+
+func TestApplyMinerRowsClearsDirectPlacementWhenAssigningUnassignedRack(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	collectionStore := mocks.NewMockCollectionStore(ctrl)
+	svc := NewService(siteStore, buildingStore, collectionStore, nil, nil, nil, nil)
+	ctx := context.Background()
+	orgID := int64(42)
+	deviceIDs := []string{"miner-1"}
+	rack := rackSnapshot{ID: 7, Label: "Rack A"}
+	rows := []map[string]string{{
+		"device_identifier": "miner-1",
+		"rack":              "Rack A",
+	}}
+	existing := map[string]minerSnapshot{
+		"miner-1": {
+			DeviceIdentifier: "miner-1",
+			Site:             "Site A",
+			Building:         "Building A",
+		},
+	}
+
+	collectionStore.EXPECT().LockRacksForReparent(ctx, orgID, deviceIDs, rack.ID).Return([]int64{rack.ID}, nil)
+	collectionStore.EXPECT().LockRackPlacementForWrite(ctx, rack.ID, orgID).Return(interfaces.RackPlacement{}, nil)
+	collectionStore.EXPECT().RemoveDevicesFromAnyRack(ctx, orgID, deviceIDs, rack.ID).Return(int64(1), nil)
+	collectionStore.EXPECT().AddDevicesToCollection(ctx, orgID, rack.ID, deviceIDs).Return(int64(1), nil)
+	collectionStore.EXPECT().CascadeAddedDeviceSites(ctx, orgID, rack.ID, deviceIDs).Return(int64(0), nil)
+	collectionStore.EXPECT().CascadeAddedDeviceBuildings(ctx, orgID, rack.ID, deviceIDs).Return(int64(0), nil)
+	siteStore.EXPECT().AssignDevicesToSite(ctx, orgID, nil, deviceIDs).Return(int64(1), nil)
+	buildingStore.EXPECT().AssignDevicesToBuilding(ctx, orgID, nil, deviceIDs).Return(int64(1), nil)
+	collectionStore.EXPECT().ClearRackSlotPosition(ctx, rack.ID, "miner-1", orgID).Return(nil)
+
+	if err := svc.applyMinerRows(ctx, orgID, rows, nil, nil, nil, nil, map[string]rackSnapshot{"Rack A": rack}, existing); err != nil {
+		t.Fatalf("applyMinerRows error = %v", err)
+	}
 }
 
 func TestValidateSlotConflictsWithExistingAllowsSlotSwaps(t *testing.T) {
@@ -977,7 +1077,7 @@ func TestParseSiteMapCSVAcceptsSpreadsheetPaddedSectionRows(t *testing.T) {
 	csv = strings.Replace(csv, "\n\n# SECTION: MINER\n", "\n,,,,,,,,,,\n# SECTION: MINER,,,,,,,,,,\n", 1)
 	csv = strings.Replace(csv, "name (read only)\n", "name (read only),\n", 1)
 	csv = strings.Replace(csv, "Site A\n", "Site A,\n", 1)
-	csv = strings.Replace(csv, "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,0\n", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,,\n", 1)
+	csv = strings.Replace(csv, "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0\n", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,,\n", 1)
 
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
@@ -1048,7 +1148,7 @@ Rack A,Building A,,Z1,4,6,BOTTOM_LEFT,0,0
 
 # SECTION: MINER
 device_identifier (read only),serial_number (read only),name (read only),ip_address (read only),mac_address (read only),site,building,rack,rack_row,rack_col
-miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,, ,Rack A,0,0
+miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,Rack A,0,0
 `
 }
 
