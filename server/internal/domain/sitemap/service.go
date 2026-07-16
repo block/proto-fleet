@@ -984,6 +984,7 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateRemoveOmittedMode(mode, plan.omissions)...)
 	plan.errors = append(plan.errors, validateKnownMiners(parsed.sections["MINER"], snap)...)
 	plan.errors = append(plan.errors, validateReadOnlyMinerFields(parsed.sections["MINER"], snap)...)
+	plan.errors = append(plan.errors, validateBuildingSiteTargets(parsed.sections["BUILDING"], parsed.sections["SITE"], snap)...)
 	plan.errors = append(plan.errors, validateRackPlacementTargets(parsed.sections["RACK"], parsed.sections["BUILDING"], parsed.sections["SITE"], snap)...)
 	plan.errors = append(plan.errors, validatePlacementConsistency(parsed.sections["MINER"], parsed.sections["RACK"], parsed.sections["BUILDING"], parsed.sections["SITE"], snap)...)
 	plan.errors = append(plan.errors, validateBuildingLayoutBounds(parsed.sections["BUILDING"])...)
@@ -1677,6 +1678,17 @@ func validateReadOnlyMinerFields(rows []map[string]string, snap *snapshot) []*pb
 			if row[field.name] != field.want {
 				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("%s is read-only for existing miner %s", field.name, row["device_identifier"])))
 			}
+		}
+	}
+	return errs
+}
+
+func validateBuildingSiteTargets(rows, siteRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
+	existingSites := desiredSiteSet(siteRows, snap.sites)
+	var errs []*pb.ImportValidationError
+	for i, row := range rows {
+		if row["site"] != "" && !existingSites[row["site"]] {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", fmt.Sprintf("unknown site %q", row["site"])))
 		}
 	}
 	return errs

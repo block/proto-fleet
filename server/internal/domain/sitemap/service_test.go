@@ -147,6 +147,26 @@ func TestBuildPlanAcceptsExportedUnassignedBuildings(t *testing.T) {
 	}
 }
 
+func TestBuildPlanRejectsBuildingUnknownSite(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": nil,
+		"BUILDING": {
+			{"__row": "5", "site": "Typo Site", "building": "New Building", "aisles": "1", "racks_per_aisle": "1"},
+		},
+		"RACK":  nil,
+		"MINER": nil,
+	}}
+	snap := &snapshot{sites: []sitemodels.Site{{Name: "Site A"}}}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.errors) != 1 || plan.errors[0].GetSection() != "BUILDING" || plan.errors[0].GetMessage() != `unknown site "Typo Site"` {
+		t.Fatalf("plan errors = %+v, want building unknown site error", plan.errors)
+	}
+	if len(plan.changes) != 0 {
+		t.Fatalf("changes = %+v, want no token-eligible changes when validation fails", plan.changes)
+	}
+}
+
 func TestCommitTokenChangesWithSnapshotDrift(t *testing.T) {
 	parsed, errs := parseSiteMapCSV([]byte(validCSV()))
 	if len(errs) != 0 {
@@ -676,6 +696,22 @@ func TestValidateRackPlacementTargetsRejectsUnknownSiteBuilding(t *testing.T) {
 	errs := validateRackPlacementTargets(rows, nil, nil, snap)
 	if len(errs) != 2 {
 		t.Fatalf("errors = %+v, want site and building target errors", errs)
+	}
+}
+
+func TestValidateBuildingSiteTargetsUsesExistingAndCsvSites(t *testing.T) {
+	rows := []map[string]string{
+		{"__row": "5", "site": "Site A", "building": "Building A"},
+		{"__row": "6", "site": "New Site", "building": "Building B"},
+		{"__row": "7", "site": "", "building": "Unassigned Building"},
+		{"__row": "8", "site": "Typo Site", "building": "Building C"},
+	}
+	siteRows := []map[string]string{{"site": "New Site"}}
+	snap := &snapshot{sites: []sitemodels.Site{{Name: "Site A"}}}
+
+	errs := validateBuildingSiteTargets(rows, siteRows, snap)
+	if len(errs) != 1 || errs[0].GetRow() != 8 || errs[0].GetMessage() != `unknown site "Typo Site"` {
+		t.Fatalf("errors = %+v, want only typo site rejected", errs)
 	}
 }
 
