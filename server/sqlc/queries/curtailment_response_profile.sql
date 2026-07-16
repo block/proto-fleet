@@ -125,4 +125,7 @@ DELETE FROM curtailment_response_profile
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND site_id IS NOT DISTINCT FROM sqlc.narg('expected_site_id')
-  AND scope_json = sqlc.arg('expected_scope_json')::jsonb;
+  AND scope_json = sqlc.arg('expected_scope_json')::jsonb
+  AND facility_fan_device_ids = sqlc.arg('expected_facility_fan_device_ids')::bigint[]
+  AND fan_off_delay_sec = sqlc.arg('expected_fan_off_delay_sec')
+  AND fan_restore_delay_sec = sqlc.arg('expected_fan_restore_delay_sec');

@@ -163,7 +163,14 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 	)
 }
 
-func (s *ResponseProfileService) Delete(ctx context.Context, orgID, profileID int64, expectedSiteID *int64, expectedScopeJSON []byte) error {
+func (s *ResponseProfileService) Delete(
+	ctx context.Context,
+	orgID,
+	profileID int64,
+	expectedSiteID *int64,
+	expectedScopeJSON []byte,
+	expectedFacilityFanSettings models.ResponseProfileFanSettings,
+) error {
 	if s == nil || s.store == nil {
 		return fleeterror.NewUnimplementedError("curtailment response profile service is not configured")
 	}
@@ -182,7 +189,14 @@ func (s *ResponseProfileService) Delete(ctx context.Context, orgID, profileID in
 			"curtailment response profile is referenced by automation rules; delete or update those rules first",
 		)
 	}
-	return s.store.DeleteResponseProfile(ctx, orgID, profileID, expectedSiteID, expectedScopeJSON)
+	return s.store.DeleteResponseProfile(
+		ctx,
+		orgID,
+		profileID,
+		expectedSiteID,
+		expectedScopeJSON,
+		expectedFacilityFanSettings,
+	)
 }
 
 func (s *ResponseProfileService) validateAndNormalize(ctx context.Context, req SaveResponseProfileRequest) (models.ResponseProfile, map[int64]models.ResponseProfileInfrastructureDevice, error) {

@@ -19,13 +19,19 @@ WHERE id = $1
   AND org_id = $2
   AND site_id IS NOT DISTINCT FROM $3
   AND scope_json = $4::jsonb
+  AND facility_fan_device_ids = $5::bigint[]
+  AND fan_off_delay_sec = $6
+  AND fan_restore_delay_sec = $7
 `
 
 type DeleteCurtailmentResponseProfileByOrgParams struct {
-	ID                int64
-	OrgID             int64
-	ExpectedSiteID    sql.NullInt64
-	ExpectedScopeJson json.RawMessage
+	ID                           int64
+	OrgID                        int64
+	ExpectedSiteID               sql.NullInt64
+	ExpectedScopeJson            json.RawMessage
+	ExpectedFacilityFanDeviceIds []int64
+	ExpectedFanOffDelaySec       int32
+	ExpectedFanRestoreDelaySec   int32
 }
 
 func (q *Queries) DeleteCurtailmentResponseProfileByOrg(ctx context.Context, arg DeleteCurtailmentResponseProfileByOrgParams) (int64, error) {
@@ -34,6 +40,9 @@ func (q *Queries) DeleteCurtailmentResponseProfileByOrg(ctx context.Context, arg
 		arg.OrgID,
 		arg.ExpectedSiteID,
 		arg.ExpectedScopeJson,
+		pq.Array(arg.ExpectedFacilityFanDeviceIds),
+		arg.ExpectedFanOffDelaySec,
+		arg.ExpectedFanRestoreDelaySec,
 	)
 	if err != nil {
 		return 0, err

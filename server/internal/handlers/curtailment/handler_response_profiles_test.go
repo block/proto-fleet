@@ -814,12 +814,13 @@ func TestHandler_DeleteCurtailmentResponseProfile(t *testing.T) {
 	siteID := int64(7)
 	store := newHandlerResponseProfileStore()
 	store.profiles = []*models.ResponseProfile{
-		{ID: 201, OrgID: 42, ProfileName: "Standard shed", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50},
+		{ID: 201, OrgID: 42, ProfileName: "Standard shed", SiteID: &siteID, ScopeJSON: siteScopeJSON(t, siteID), Mode: models.ModeFixedKw, TargetKW: ptrFloat64(2500), RestoreBatchSize: 50, FacilityFanDeviceIDs: []int64{31}, FanOffDelaySec: 45, FanRestoreDelaySec: 90},
 	}
+	store.infrastructureDevices[31] = models.ResponseProfileInfrastructureDevice{ID: 31, SiteID: siteID, Enabled: true}
 	h := NewHandlerWithResponseProfiles(nil, domainCurtailment.NewResponseProfileService(store))
 
 	_, err := h.DeleteCurtailmentResponseProfile(
-		sessionCtxWithPerms(42, authz.PermCurtailmentManage),
+		sessionCtxWithPerms(42, authz.PermCurtailmentManage, authz.PermSiteRead),
 		connect.NewRequest(&pb.DeleteCurtailmentResponseProfileRequest{ProfileId: 201}),
 	)
 
@@ -828,6 +829,9 @@ func TestHandler_DeleteCurtailmentResponseProfile(t *testing.T) {
 	require.NotNil(t, store.deleteExpectedSiteID)
 	assert.Equal(t, siteID, *store.deleteExpectedSiteID)
 	assert.JSONEq(t, `{"site_id":7}`, string(store.deleteExpectedScopeJSON))
+	assert.Equal(t, []int64{31}, store.deleteExpectedFanSettings.FacilityFanDeviceIDs)
+	assert.Equal(t, int32(45), store.deleteExpectedFanSettings.FanOffDelaySec)
+	assert.Equal(t, int32(90), store.deleteExpectedFanSettings.FanRestoreDelaySec)
 }
 
 func TestHandler_DeleteCurtailmentResponseProfileChecksStoredSite(t *testing.T) {
@@ -959,6 +963,7 @@ type handlerResponseProfileStore struct {
 	deletedProfileID              int64
 	deleteExpectedSiteID          *int64
 	deleteExpectedScopeJSON       []byte
+	deleteExpectedFanSettings     models.ResponseProfileFanSettings
 	profiles                      []*models.ResponseProfile
 	deviceSites                   map[string]*int64
 	infrastructureDevices         map[int64]models.ResponseProfileInfrastructureDevice
@@ -1028,10 +1033,15 @@ func (s *handlerResponseProfileStore) UpdateResponseProfile(_ context.Context, p
 	return &profile, nil
 }
 
-func (s *handlerResponseProfileStore) DeleteResponseProfile(_ context.Context, _ int64, profileID int64, expectedSiteID *int64, expectedScopeJSON []byte) error {
+func (s *handlerResponseProfileStore) DeleteResponseProfile(_ context.Context, _ int64, profileID int64, expectedSiteID *int64, expectedScopeJSON []byte, expectedFanSettings models.ResponseProfileFanSettings) error {
 	s.deletedProfileID = profileID
 	s.deleteExpectedSiteID = cloneInt64Ptr(expectedSiteID)
 	s.deleteExpectedScopeJSON = cloneBytes(expectedScopeJSON)
+	s.deleteExpectedFanSettings = models.ResponseProfileFanSettings{
+		FacilityFanDeviceIDs: append([]int64(nil), expectedFanSettings.FacilityFanDeviceIDs...),
+		FanOffDelaySec:       expectedFanSettings.FanOffDelaySec,
+		FanRestoreDelaySec:   expectedFanSettings.FanRestoreDelaySec,
+	}
 	return nil
 }
 

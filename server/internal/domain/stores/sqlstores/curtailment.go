@@ -308,6 +308,7 @@ func (s *SQLCurtailmentStore) DeleteResponseProfile(
 	profileID int64,
 	expectedSiteID *int64,
 	expectedScopeJSON []byte,
+	expectedFacilityFanSettings models.ResponseProfileFanSettings,
 ) error {
 	count, err := s.CountAutomationRulesByResponseProfile(ctx, orgID, profileID)
 	if err != nil {
@@ -317,10 +318,13 @@ func (s *SQLCurtailmentStore) DeleteResponseProfile(
 		return fleeterror.NewFailedPreconditionError("curtailment response profile is referenced by an automation rule")
 	}
 	rows, err := s.GetQueries(ctx).DeleteCurtailmentResponseProfileByOrg(ctx, sqlc.DeleteCurtailmentResponseProfileByOrgParams{
-		ID:                profileID,
-		OrgID:             orgID,
-		ExpectedSiteID:    ptrToNullInt64(expectedSiteID),
-		ExpectedScopeJson: normalizedResponseProfileScopeJSON(expectedScopeJSON),
+		ID:                           profileID,
+		OrgID:                        orgID,
+		ExpectedSiteID:               ptrToNullInt64(expectedSiteID),
+		ExpectedScopeJson:            normalizedResponseProfileScopeJSON(expectedScopeJSON),
+		ExpectedFacilityFanDeviceIds: append([]int64{}, expectedFacilityFanSettings.FacilityFanDeviceIDs...),
+		ExpectedFanOffDelaySec:       expectedFacilityFanSettings.FanOffDelaySec,
+		ExpectedFanRestoreDelaySec:   expectedFacilityFanSettings.FanRestoreDelaySec,
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to delete curtailment response profile: %v", err)

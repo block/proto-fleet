@@ -189,7 +189,14 @@ func (h *Handler) DeleteCurtailmentResponseProfile(ctx context.Context, req *con
 	if err != nil {
 		return nil, err
 	}
-	if err := h.responseProfiles.Delete(ctx, info.OrganizationID, req.Msg.GetProfileId(), cloneInt64Ptr(profile.SiteID), cloneBytes(profile.ScopeJSON)); err != nil {
+	if err := h.responseProfiles.Delete(
+		ctx,
+		info.OrganizationID,
+		req.Msg.GetProfileId(),
+		cloneInt64Ptr(profile.SiteID),
+		cloneBytes(profile.ScopeJSON),
+		responseProfileFanSettings(profile),
+	); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.DeleteCurtailmentResponseProfileResponse{}), nil

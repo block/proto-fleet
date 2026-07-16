@@ -137,6 +137,19 @@ func TestSQLCurtailmentStore_ResponseProfileFacilityFanSettings(t *testing.T) {
 	assert.Equal(t, replacement.FanOffDelaySec, loadedAfterConflict.FanOffDelaySec)
 	assert.Equal(t, replacement.FanRestoreDelaySec, loadedAfterConflict.FanRestoreDelaySec)
 
+	err = service.Delete(
+		ctx,
+		orgID,
+		created.ID,
+		updated.SiteID,
+		updated.ScopeJSON,
+		responseProfileFanSettings(updated),
+	)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	_, err = service.Get(ctx, orgID, created.ID)
+	require.NoError(t, err)
+
 	otherSiteProfile, err := service.Create(ctx, domainCurtailment.SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{
 			OrgID:                orgID,
