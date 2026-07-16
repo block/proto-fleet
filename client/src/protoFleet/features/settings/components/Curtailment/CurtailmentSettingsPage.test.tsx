@@ -1288,6 +1288,24 @@ describe("CurtailmentSettingsPage", () => {
     expect(within(disabledRule).getByRole("checkbox")).not.toBeChecked();
   });
 
+  it("disables infrastructure fan edits for a response profile used by an automation", () => {
+    render(
+      <CurtailmentSettingsContent
+        initialResponseProfiles={testResponseProfiles}
+        initialAutomationRules={testAutomationRules}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("response-profile-edit-emergency-full-shed"));
+
+    expect(screen.getByRole("button", { name: /Infrastructure\s+Select/ })).toBeDisabled();
+    expect(
+      screen.getByText(
+        "An automation uses this profile. Update or delete the automation before changing infrastructure fans.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("creates a response profile in local state", async () => {
     render(<CurtailmentSettingsContent initialSources={testSources} />);
 

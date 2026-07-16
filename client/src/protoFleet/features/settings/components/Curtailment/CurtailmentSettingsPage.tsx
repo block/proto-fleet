@@ -1404,6 +1404,7 @@ export function CurtailmentSettingsContent({
   const [editingSource, setEditingSource] = useState<CurtailmentSource | null>(null);
   const responseProfiles = controlledResponseProfiles ?? localResponseProfiles;
   const sources = controlledSources ?? localSources;
+  const knownAutomationRules = controlledAutomationRules ?? initialAutomationRules;
   const responseProfileModalMode: ResponseProfileModalMode = editingResponseProfile ? "edit" : "create";
   const responseProfileModalInitialValues = useMemo(
     () =>
@@ -1424,6 +1425,15 @@ export function CurtailmentSettingsContent({
   const isEditingResponseProfile = editingResponseProfile
     ? updatingResponseProfileIds.has(editingResponseProfile.id)
     : false;
+  const facilityFanSelectionDisabledReason = editingResponseProfile
+    ? isLoadingAutomationRules
+      ? "Checking whether an automation uses this profile. You can change infrastructure fans when this check is complete."
+      : loadAutomationRulesError
+        ? "We couldn't check whether an automation uses this profile. Reload the page before changing infrastructure fans."
+        : knownAutomationRules.some((rule) => rule.responseProfileId === editingResponseProfile.id)
+          ? "An automation uses this profile. Update or delete the automation before changing infrastructure fans."
+          : undefined
+    : undefined;
   const isEditingSource = editingSource ? updatingSourceIds.has(editingSource.id) : false;
 
   const openCreateResponseProfileModal = useCallback(() => {
@@ -1731,6 +1741,7 @@ export function CurtailmentSettingsContent({
         isLoadingInfrastructureDevices={isLoadingInfrastructureDevices}
         infrastructureDevicesError={infrastructureDevicesError}
         onRetryInfrastructureDevices={onRetryInfrastructureDevices}
+        facilityFanSelectionDisabledReason={facilityFanSelectionDisabledReason}
         actionError={responseProfileActionError}
         onDismiss={closeResponseProfileModal}
         onSubmit={handleResponseProfileModalSubmit}

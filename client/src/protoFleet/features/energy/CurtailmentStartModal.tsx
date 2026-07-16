@@ -130,6 +130,7 @@ interface CurtailmentStartModalProps {
   isLoadingInfrastructureDevices?: boolean;
   infrastructureDevicesError?: string | null;
   onRetryInfrastructureDevices?: () => void;
+  facilityFanSelectionDisabledReason?: string;
   defaultSiteScope?: CurtailmentSiteOption;
   siteScopeEnabled?: boolean;
   isSiteScopeLoading?: boolean;
@@ -1139,6 +1140,7 @@ function CurtailmentStartModalContent({
   isLoadingInfrastructureDevices = false,
   infrastructureDevicesError = null,
   onRetryInfrastructureDevices,
+  facilityFanSelectionDisabledReason,
   defaultSiteScope,
   siteScopeEnabled = true,
   isSiteScopeLoading = false,
@@ -1288,6 +1290,7 @@ function CurtailmentStartModalContent({
   const siteApplyToTarget = getSiteApplyToTarget(effectiveValues);
   const infrastructureApplyToTarget = getInfrastructureApplyToTarget(effectiveValues);
   const hasSelectedFacilityFans = isResponseProfileVariant && (effectiveValues.facilityFanDeviceIds?.length ?? 0) > 0;
+  const isFacilityFanSelectionDisabled = facilityFanSelectionDisabledReason !== undefined;
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
   const curtailmentBehaviorSubtext = isLiveCurtailmentEditMode
     ? undefined
@@ -1898,11 +1901,12 @@ function CurtailmentStartModalContent({
             <Section
               title="Apply to"
               subtext={
-                isResponseProfileVariant
+                facilityFanSelectionDisabledReason ??
+                (isResponseProfileVariant
                   ? hasSelectedFacilityFans
                     ? "Fan settings are saved for future sequencing. Curtailment does not control facility fans yet."
                     : "Choose the sites, miners, and infrastructure included in this curtailment."
-                  : "Choose the sites and miners included in this curtailment."
+                  : "Choose the sites and miners included in this curtailment.")
               }
             >
               <div className="grid">
@@ -1922,6 +1926,7 @@ function CurtailmentStartModalContent({
                   <TargetSelectButton
                     label={infrastructureApplyToTarget.label}
                     value={infrastructureApplyToTarget.value}
+                    disabled={isFacilityFanSelectionDisabled}
                     onClick={() => setShowFacilityFanSelectionModal(true)}
                   />
                 ) : null}
@@ -2041,7 +2046,7 @@ function CurtailmentStartModalContent({
         />
       ) : null}
 
-      {isResponseProfileVariant && showFacilityFanSelectionModal ? (
+      {isResponseProfileVariant && !isFacilityFanSelectionDisabled && showFacilityFanSelectionModal ? (
         <FacilityFanSelectionModal
           devices={infrastructureDevices}
           initialSelectedDeviceIds={values.facilityFanDeviceIds ?? []}

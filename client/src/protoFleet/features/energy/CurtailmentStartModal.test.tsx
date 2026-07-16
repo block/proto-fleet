@@ -899,6 +899,26 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
+  it("disables infrastructure fan selection for an automation-bound profile", async () => {
+    const user = userEvent.setup();
+    const disabledReason =
+      "An automation uses this profile. Update or delete the automation before changing infrastructure fans.";
+    renderModal({
+      variant: "responseProfile",
+      responseProfileMode: "edit",
+      initialValues: configuredValues,
+      infrastructureDevices,
+      facilityFanSelectionDisabledReason: disabledReason,
+    });
+
+    const infrastructureButton = screen.getByRole("button", { name: /Infrastructure\s+Select/ });
+    expect(infrastructureButton).toBeDisabled();
+    expect(screen.getByText(disabledReason)).toBeInTheDocument();
+
+    await user.click(infrastructureButton);
+    expect(screen.queryByText("Fan behavior during curtailment")).not.toBeInTheDocument();
+  });
+
   it.each([
     { name: "loading", isLoadingInfrastructureDevices: true, infrastructureDevicesError: null },
     {
