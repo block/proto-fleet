@@ -576,9 +576,24 @@ export class BasePage {
   }
 
   async clickExpandSettingsIfMobile() {
-    if (this.isMobile && !this.page.url().includes("/settings")) {
-      await this.page.getByTestId("navigation-menu").getByText("Settings").click();
+    if (!this.isMobile || this.page.url().includes("/settings")) {
+      return;
     }
+
+    const secondaryNav = this.page.getByTestId("secondary-nav");
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const settingsToggle = this.page.getByTestId("navigation-menu").getByRole("button", {
+        name: "Settings menu toggle",
+      });
+      await settingsToggle.scrollIntoViewIfNeeded();
+      await settingsToggle.click({ force: attempt > 0 }).catch(() => undefined);
+      await secondaryNav.waitFor({ state: "visible", timeout: OVERLAY_DISMISS_TIMEOUT }).catch(() => undefined);
+      if (await secondaryNav.isVisible().catch(() => false)) {
+        return;
+      }
+    }
+
+    await expect(secondaryNav).toBeVisible();
   }
 
   async navigateToHomePage() {
