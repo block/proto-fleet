@@ -167,6 +167,26 @@ mqtt-sim-down:
 mqtt-sim-logs:
   just mqtt-sim-logs
 
+# start the Modbus TCP simulator and allowlisted fleet-api
+[working-directory: 'server']
+modbus-sim-up:
+  just modbus-sim-up
+
+# rebuild and restart the Modbus TCP simulator and allowlisted fleet-api
+[working-directory: 'server']
+modbus-sim-rebuild:
+  just modbus-sim-rebuild
+
+# stop the Modbus TCP simulator and remove its dev allowlist
+[working-directory: 'server']
+modbus-sim-down:
+  just modbus-sim-down
+
+# follow Modbus TCP simulator logs
+[working-directory: 'server']
+modbus-sim-logs:
+  just modbus-sim-logs
+
 # start backend, an enrolled fleet node, isolated fake miners, and the ProtoFleet client for manual UI testing
 fleetnode-ui-test-up:
   #!/usr/bin/env bash

@@ -588,6 +588,10 @@ type Querier interface {
 	GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (GetFleetNodeTelemetryRouteByDeviceIdentifierRow, error)
 	// Batch query to get group refs for multiple devices at once (for miner list)
 	GetGroupRefsForDevices(ctx context.Context, arg GetGroupRefsForDevicesParams) ([]GetGroupRefsForDevicesRow, error)
+	// Dedicated sensitive read: this field is intentionally not projected through
+	// the generic Site API. Org scope and deleted_at mask cross-org/missing sites
+	// as the same not-found result.
+	GetInfrastructureControlSubnets(ctx context.Context, arg GetInfrastructureControlSubnetsParams) (string, error)
 	GetInfrastructureDevice(ctx context.Context, arg GetInfrastructureDeviceParams) (GetInfrastructureDeviceRow, error)
 	GetKnownSubnets(ctx context.Context, arg GetKnownSubnetsParams) ([]string, error)
 	GetLatestAllDeviceMetrics(ctx context.Context, argTime time.Time) ([]DeviceMetric, error)
@@ -1264,6 +1268,9 @@ type Querier interface {
 	// Zero rows means paired-like won.
 	SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, deviceID int64) (int64, error)
 	SetFleetNodeEnrollmentStatus(ctx context.Context, arg SetFleetNodeEnrollmentStatusParams) (int64, error)
+	// Explicitly replaces the commissioned OT allowlist. Empty text
+	// decommissions the site. Canonicalization happens in the sites domain.
+	SetInfrastructureControlSubnets(ctx context.Context, arg SetInfrastructureControlSubnetsParams) (string, error)
 	SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (CurtailmentMqttSourceConfig, error)
 	// Writes the rack's grid placement (aisle_index, position_in_aisle).
 	// Caller must have already set building_id via UpdateRackPlacement —

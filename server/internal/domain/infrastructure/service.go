@@ -30,8 +30,26 @@ const (
 // driver adapter registered. New protocols add a Register call here
 // and nothing else in the core.
 func NewDefaultDriverRegistry() *driver.Registry {
+	return newDriverRegistry(modbustcp.New)
+}
+
+// NewConfiguredDriverRegistry returns the production driver registry with the
+// deployment-global OT allowlist validated and applied to every Modbus
+// controller. Empty config is accepted but remains fail closed for writes.
+func NewConfiguredDriverRegistry(config Config) (*driver.Registry, error) {
+	controlSubnets, err := config.controlSubnets()
+	if err != nil {
+		return nil, err
+	}
+
+	return newDriverRegistry(func() driver.Controller {
+		return modbustcp.NewConfigured(controlSubnets)
+	}), nil
+}
+
+func newDriverRegistry(modbusFactory driver.Factory) *driver.Registry {
 	registry := driver.NewRegistry()
-	registry.Register(modbustcp.DriverType, modbustcp.New)
+	registry.Register(modbustcp.DriverType, modbusFactory)
 	return registry
 }
 

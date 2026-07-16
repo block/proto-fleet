@@ -600,6 +600,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getGroupRefsForDevicesStmt, err = db.PrepareContext(ctx, getGroupRefsForDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetGroupRefsForDevices: %w", err)
 	}
+	if q.getInfrastructureControlSubnetsStmt, err = db.PrepareContext(ctx, getInfrastructureControlSubnets); err != nil {
+		return nil, fmt.Errorf("error preparing query GetInfrastructureControlSubnets: %w", err)
+	}
 	if q.getInfrastructureDeviceStmt, err = db.PrepareContext(ctx, getInfrastructureDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query GetInfrastructureDevice: %w", err)
 	}
@@ -1184,6 +1187,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.setFleetNodeEnrollmentStatusStmt, err = db.PrepareContext(ctx, setFleetNodeEnrollmentStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query SetFleetNodeEnrollmentStatus: %w", err)
+	}
+	if q.setInfrastructureControlSubnetsStmt, err = db.PrepareContext(ctx, setInfrastructureControlSubnets); err != nil {
+		return nil, fmt.Errorf("error preparing query SetInfrastructureControlSubnets: %w", err)
 	}
 	if q.setMQTTSourceConfigEnabledStmt, err = db.PrepareContext(ctx, setMQTTSourceConfigEnabled); err != nil {
 		return nil, fmt.Errorf("error preparing query SetMQTTSourceConfigEnabled: %w", err)
@@ -2453,6 +2459,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getGroupRefsForDevicesStmt: %w", cerr)
 		}
 	}
+	if q.getInfrastructureControlSubnetsStmt != nil {
+		if cerr := q.getInfrastructureControlSubnetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getInfrastructureControlSubnetsStmt: %w", cerr)
+		}
+	}
 	if q.getInfrastructureDeviceStmt != nil {
 		if cerr := q.getInfrastructureDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getInfrastructureDeviceStmt: %w", cerr)
@@ -3428,6 +3439,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing setFleetNodeEnrollmentStatusStmt: %w", cerr)
 		}
 	}
+	if q.setInfrastructureControlSubnetsStmt != nil {
+		if cerr := q.setInfrastructureControlSubnetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setInfrastructureControlSubnetsStmt: %w", cerr)
+		}
+	}
 	if q.setMQTTSourceConfigEnabledStmt != nil {
 		if cerr := q.setMQTTSourceConfigEnabledStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setMQTTSourceConfigEnabledStmt: %w", cerr)
@@ -4164,6 +4180,7 @@ type Queries struct {
 	getFleetNodeSessionByTokenHashStmt                         *sql.Stmt
 	getFleetNodeTelemetryRouteByDeviceIdentifierStmt           *sql.Stmt
 	getGroupRefsForDevicesStmt                                 *sql.Stmt
+	getInfrastructureControlSubnetsStmt                        *sql.Stmt
 	getInfrastructureDeviceStmt                                *sql.Stmt
 	getKnownSubnetsStmt                                        *sql.Stmt
 	getLatestAllDeviceMetricsStmt                              *sql.Stmt
@@ -4359,6 +4376,7 @@ type Queries struct {
 	setCurtailmentAutomationRuleEnabledStmt                    *sql.Stmt
 	setDevicePairingAuthNeededIfNotPairedStmt                  *sql.Stmt
 	setFleetNodeEnrollmentStatusStmt                           *sql.Stmt
+	setInfrastructureControlSubnetsStmt                        *sql.Stmt
 	setMQTTSourceConfigEnabledStmt                             *sql.Stmt
 	setRackBuildingPositionStmt                                *sql.Stmt
 	setRackBuildingPositionBulkClearStmt                       *sql.Stmt
@@ -4658,6 +4676,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFleetNodeSessionByTokenHashStmt:                         q.getFleetNodeSessionByTokenHashStmt,
 		getFleetNodeTelemetryRouteByDeviceIdentifierStmt:           q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt,
 		getGroupRefsForDevicesStmt:                                 q.getGroupRefsForDevicesStmt,
+		getInfrastructureControlSubnetsStmt:                        q.getInfrastructureControlSubnetsStmt,
 		getInfrastructureDeviceStmt:                                q.getInfrastructureDeviceStmt,
 		getKnownSubnetsStmt:                                        q.getKnownSubnetsStmt,
 		getLatestAllDeviceMetricsStmt:                              q.getLatestAllDeviceMetricsStmt,
@@ -4853,6 +4872,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setCurtailmentAutomationRuleEnabledStmt:                    q.setCurtailmentAutomationRuleEnabledStmt,
 		setDevicePairingAuthNeededIfNotPairedStmt:                  q.setDevicePairingAuthNeededIfNotPairedStmt,
 		setFleetNodeEnrollmentStatusStmt:                           q.setFleetNodeEnrollmentStatusStmt,
+		setInfrastructureControlSubnetsStmt:                        q.setInfrastructureControlSubnetsStmt,
 		setMQTTSourceConfigEnabledStmt:                             q.setMQTTSourceConfigEnabledStmt,
 		setRackBuildingPositionStmt:                                q.setRackBuildingPositionStmt,
 		setRackBuildingPositionBulkClearStmt:                       q.setRackBuildingPositionBulkClearStmt,

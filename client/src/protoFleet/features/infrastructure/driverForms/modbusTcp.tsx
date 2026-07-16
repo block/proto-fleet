@@ -12,8 +12,8 @@ const MIN_UNIT_ID = 1;
 const MAX_UNIT_ID = 247;
 const MIN_PORT = 1;
 const MAX_PORT = 65535;
-const MIN_REGISTER_ADDRESS = 0;
-const MAX_REGISTER_ADDRESS = 65535;
+const MIN_REGISTER_ADDRESS = 1;
+const MAX_REGISTER_ADDRESS = 65536;
 
 const WRITE_MODE_COIL = "coil";
 const WRITE_MODE_HOLDING_REGISTER = "holding_register";
@@ -50,7 +50,7 @@ const fieldHelp: Record<"unitId" | "endpoint" | "port" | "registerAddress" | "wr
   registerAddress: {
     ariaLabel: "About register address",
     header: "Register address",
-    body: "Raw application address of the run/stop target from 0 to 65535, e.g. 2001 for a drive control word or 1 for a RUN/STOP coil. Do not use the 4xxxx-prefixed convention (e.g. 42001) — enter the plain address; Fleet handles the wire-level off-by-one translation.",
+    body: "One-based application address of the run/stop target from 1 to 65536, e.g. 2001 for a drive control word or 1 for a RUN/STOP coil. Do not use the 4xxxx-prefixed convention (e.g. 42001) or a zero-based wire address — enter the plain application address; Fleet handles the wire-level off-by-one translation.",
     testId: "infra-device-register-address-help",
   },
   writeMode: {

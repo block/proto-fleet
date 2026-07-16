@@ -1142,22 +1142,23 @@ type Session struct {
 }
 
 type Site struct {
-	ID              int64
-	OrgID           int64
-	Name            string
-	LocationCity    sql.NullString
-	LocationState   sql.NullString
-	PowerCapacityMw sql.NullString
-	NetworkConfig   sql.NullString
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	DeletedAt       sql.NullTime
-	Address         sql.NullString
-	PostalCode      sql.NullString
-	Country         string
-	Notes           sql.NullString
-	Timezone        sql.NullString
-	Slug            string
+	ID                           int64
+	OrgID                        int64
+	Name                         string
+	LocationCity                 sql.NullString
+	LocationState                sql.NullString
+	PowerCapacityMw              sql.NullString
+	NetworkConfig                sql.NullString
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+	DeletedAt                    sql.NullTime
+	Address                      sql.NullString
+	PostalCode                   sql.NullString
+	Country                      string
+	Notes                        sql.NullString
+	Timezone                     sql.NullString
+	Slug                         string
+	InfrastructureControlSubnets string
 }
 
 type User struct {

@@ -2208,6 +2208,18 @@ func (q *retryingQuerier) GetGroupRefsForDevices(ctx context.Context, arg GetGro
 	return result, err
 }
 
+func (q *retryingQuerier) GetInfrastructureControlSubnets(ctx context.Context, arg GetInfrastructureControlSubnetsParams) (string, error) {
+	var result string
+	err := q.retrier.RetryQuery(ctx, "GetInfrastructureControlSubnets", func() error {
+		callResult, callErr := q.next.GetInfrastructureControlSubnets(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetInfrastructureDevice(ctx context.Context, arg GetInfrastructureDeviceParams) (GetInfrastructureDeviceRow, error) {
 	var result GetInfrastructureDeviceRow
 	err := q.retrier.RetryQuery(ctx, "GetInfrastructureDevice", func() error {
@@ -4420,6 +4432,18 @@ func (q *retryingQuerier) SetFleetNodeEnrollmentStatus(ctx context.Context, arg 
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "SetFleetNodeEnrollmentStatus", func() error {
 		callResult, callErr := q.next.SetFleetNodeEnrollmentStatus(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) SetInfrastructureControlSubnets(ctx context.Context, arg SetInfrastructureControlSubnetsParams) (string, error) {
+	var result string
+	err := q.retrier.RetryQuery(ctx, "SetInfrastructureControlSubnets", func() error {
+		callResult, callErr := q.next.SetInfrastructureControlSubnets(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

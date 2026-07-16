@@ -170,6 +170,13 @@ var reflectEnabledServices = []string{
 }
 
 func start(config *Config) error {
+	// Construct one configured registry before starting services. The CRUD
+	// service uses it now; the Phase 5 reconciler will share this same instance.
+	infrastructureDriverRegistry, err := infrastructureDomain.NewConfiguredDriverRegistry(config.Infrastructure)
+	if err != nil {
+		return fmt.Errorf("configure infrastructure drivers: %w", err)
+	}
+
 	shutdownTracer, err := fleet_telemetry.Setup(context.Background(), version, config.FleetTelemetry)
 	if err != nil {
 		return fmt.Errorf("setup fleet telemetry: %w", err)
@@ -508,7 +515,7 @@ func start(config *Config) error {
 	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	infrastructureStore := sqlstores.NewSQLInfrastructureDeviceStore(conn)
-	infrastructureSvc := infrastructureDomain.NewService(infrastructureStore, siteStore, infrastructureDomain.NewDefaultDriverRegistry(), transactor, activitySvc)
+	infrastructureSvc := infrastructureDomain.NewService(infrastructureStore, siteStore, infrastructureDriverRegistry, transactor, activitySvc)
 
 	// Register the schedule-conflict preflight filter on commandSvc so every
 	// caller (manual API, schedule processor, future curtailment reconciler)

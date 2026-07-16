@@ -45,6 +45,27 @@ WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
+-- name: GetInfrastructureControlSubnets :one
+-- Dedicated sensitive read: this field is intentionally not projected through
+-- the generic Site API. Org scope and deleted_at mask cross-org/missing sites
+-- as the same not-found result.
+SELECT infrastructure_control_subnets
+FROM site
+WHERE id = sqlc.arg('id')
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL;
+
+-- name: SetInfrastructureControlSubnets :one
+-- Explicitly replaces the commissioned OT allowlist. Empty text
+-- decommissions the site. Canonicalization happens in the sites domain.
+UPDATE site
+SET infrastructure_control_subnets = sqlc.arg('infrastructure_control_subnets'),
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = sqlc.arg('id')
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL
+RETURNING infrastructure_control_subnets;
+
 -- name: GetSiteBySlug :one
 SELECT *
 FROM site

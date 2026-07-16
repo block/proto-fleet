@@ -72,6 +72,35 @@ func (s *SQLSiteStore) GetSite(ctx context.Context, orgID, id int64) (*models.Si
 	return &out, nil
 }
 
+func (s *SQLSiteStore) GetInfrastructureControlSubnets(ctx context.Context, orgID, siteID int64) (string, error) {
+	value, err := s.GetQueries(ctx).GetInfrastructureControlSubnets(ctx, sqlc.GetInfrastructureControlSubnetsParams{
+		ID:    siteID,
+		OrgID: orgID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fleeterror.NewNotFoundErrorf("site %d not found", siteID)
+		}
+		return "", fleeterror.NewInternalErrorf("failed to get infrastructure control subnets: %v", err)
+	}
+	return value, nil
+}
+
+func (s *SQLSiteStore) SetInfrastructureControlSubnets(ctx context.Context, orgID, siteID int64, canonical string) (string, error) {
+	value, err := s.GetQueries(ctx).SetInfrastructureControlSubnets(ctx, sqlc.SetInfrastructureControlSubnetsParams{
+		InfrastructureControlSubnets: canonical,
+		ID:                           siteID,
+		OrgID:                        orgID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fleeterror.NewNotFoundErrorf("site %d not found", siteID)
+		}
+		return "", fleeterror.NewInternalErrorf("failed to set infrastructure control subnets: %v", err)
+	}
+	return value, nil
+}
+
 func (s *SQLSiteStore) GetSiteBySlug(ctx context.Context, orgID int64, slug string) (*models.Site, error) {
 	row, err := s.GetQueries(ctx).GetSiteBySlug(ctx, sqlc.GetSiteBySlugParams{Slug: slug, OrgID: orgID})
 	if err != nil {

@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"sort"
 )
 
@@ -39,11 +40,15 @@ type DesiredState struct {
 
 // Device is the protocol-blind view of an infrastructure device that
 // adapters receive. DriverConfig is the adapter-owned JSON blob.
+// InfrastructureControlSubnets is the site's canonical, commissioned
+// positive allowlist, parsed once by the caller before command dispatch.
 type Device struct {
-	ID           int64
-	Name         string
-	DriverType   string
-	DriverConfig json.RawMessage
+	ID                           int64
+	OrgID                        int64
+	SiteID                       int64
+	DriverType                   string
+	DriverConfig                 json.RawMessage
+	InfrastructureControlSubnets []netip.Prefix
 }
 
 // Controller is implemented by each driver adapter.

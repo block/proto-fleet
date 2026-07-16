@@ -430,6 +430,22 @@
       "required_fields": ["target_site_id", "rack_ids"]
     },
     {
+      "method": "/sites.v1.SiteService/GetInfrastructureControlSubnets",
+      "group": "sites",
+      "command": "get-infrastructure-control-subnets",
+      "usage": "Get commissioned infrastructure control subnets",
+      "auth": "session_only",
+      "required_fields": ["site_id"]
+    },
+    {
+      "method": "/sites.v1.SiteService/SetInfrastructureControlSubnets",
+      "group": "sites",
+      "command": "set-infrastructure-control-subnets",
+      "usage": "Replace commissioned infrastructure control subnets; omit all subnet flags to decommission",
+      "auth": "session_only",
+      "required_fields": ["site_id"]
+    },
+    {
       "method": "/buildings.v1.BuildingService/CreateBuilding",
       "group": "buildings",
       "command": "create",

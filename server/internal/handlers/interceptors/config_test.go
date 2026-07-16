@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
@@ -75,6 +76,22 @@ func TestInfrastructureProceduresAreSessionOnly(t *testing.T) {
 			"%s must be session-only; the OT control surface should not be reachable via API key",
 			procedure)
 	}
+}
+
+func TestInfrastructureControlSubnetProceduresAreSensitiveAndSessionOnly(t *testing.T) {
+	t.Parallel()
+
+	getProcedure := sitesv1connect.SiteServiceGetInfrastructureControlSubnetsProcedure
+	setProcedure := sitesv1connect.SiteServiceSetInfrastructureControlSubnetsProcedure
+
+	for _, procedure := range []string{getProcedure, setProcedure} {
+		assert.Contains(t, SessionOnlyProcedures, procedure,
+			"%s exposes OT topology and must reject API-key auth", procedure)
+		assert.True(t, SensitiveBodyProcedures[procedure],
+			"%s exposes OT topology and must suppress body logging", procedure)
+	}
+	assert.Contains(t, RedactedRequestProcedures, setProcedure,
+		"commissioning replacement carries OT topology in its request body")
 }
 
 func TestMqttSettingsPasswordProceduresAreSessionOnly(t *testing.T) {

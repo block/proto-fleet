@@ -54,6 +54,12 @@ const (
 	// SiteServiceAssignRacksToSiteProcedure is the fully-qualified name of the SiteService's
 	// AssignRacksToSite RPC.
 	SiteServiceAssignRacksToSiteProcedure = "/sites.v1.SiteService/AssignRacksToSite"
+	// SiteServiceGetInfrastructureControlSubnetsProcedure is the fully-qualified name of the
+	// SiteService's GetInfrastructureControlSubnets RPC.
+	SiteServiceGetInfrastructureControlSubnetsProcedure = "/sites.v1.SiteService/GetInfrastructureControlSubnets"
+	// SiteServiceSetInfrastructureControlSubnetsProcedure is the fully-qualified name of the
+	// SiteService's SetInfrastructureControlSubnets RPC.
+	SiteServiceSetInfrastructureControlSubnetsProcedure = "/sites.v1.SiteService/SetInfrastructureControlSubnets"
 	// SiteServiceGetSiteStatsProcedure is the fully-qualified name of the SiteService's GetSiteStats
 	// RPC.
 	SiteServiceGetSiteStatsProcedure = "/sites.v1.SiteService/GetSiteStats"
@@ -105,6 +111,16 @@ type SiteServiceClient interface {
 	// building was cleared so the UI can prompt for re-assignment.
 	// Same transaction cascades device.site_id for every rack member.
 	AssignRacksToSite(context.Context, *connect.Request[v1.AssignRacksToSiteRequest]) (*connect.Response[v1.AssignRacksToSiteResponse], error)
+	// GetInfrastructureControlSubnets returns the site's commissioned OT
+	// control-subnet allowlist. This sensitive topology is intentionally
+	// separate from Site and requires an interactive ADMIN/SUPER_ADMIN
+	// session with site:manage on the target site.
+	GetInfrastructureControlSubnets(context.Context, *connect.Request[v1.GetInfrastructureControlSubnetsRequest]) (*connect.Response[v1.GetInfrastructureControlSubnetsResponse], error)
+	// SetInfrastructureControlSubnets explicitly replaces the site's
+	// commissioned OT control-subnet allowlist. An empty list decommissions
+	// the site and disables future infrastructure writes. The server
+	// validates, canonicalizes, sorts, persists, and audits the replacement.
+	SetInfrastructureControlSubnets(context.Context, *connect.Request[v1.SetInfrastructureControlSubnetsRequest]) (*connect.Response[v1.SetInfrastructureControlSubnetsResponse], error)
 	// GetSiteStats returns server-rolled telemetry + miner-state counts
 	// for every device assigned to the site, including devices whose
 	// rack has no building set and devices that have no rack at all.
@@ -162,6 +178,16 @@ func NewSiteServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			baseURL+SiteServiceAssignRacksToSiteProcedure,
 			opts...,
 		),
+		getInfrastructureControlSubnets: connect.NewClient[v1.GetInfrastructureControlSubnetsRequest, v1.GetInfrastructureControlSubnetsResponse](
+			httpClient,
+			baseURL+SiteServiceGetInfrastructureControlSubnetsProcedure,
+			opts...,
+		),
+		setInfrastructureControlSubnets: connect.NewClient[v1.SetInfrastructureControlSubnetsRequest, v1.SetInfrastructureControlSubnetsResponse](
+			httpClient,
+			baseURL+SiteServiceSetInfrastructureControlSubnetsProcedure,
+			opts...,
+		),
 		getSiteStats: connect.NewClient[v1.GetSiteStatsRequest, v1.GetSiteStatsResponse](
 			httpClient,
 			baseURL+SiteServiceGetSiteStatsProcedure,
@@ -172,15 +198,17 @@ func NewSiteServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 
 // siteServiceClient implements SiteServiceClient.
 type siteServiceClient struct {
-	listSites             *connect.Client[v1.ListSitesRequest, v1.ListSitesResponse]
-	resolveSiteBySlug     *connect.Client[v1.ResolveSiteBySlugRequest, v1.ResolveSiteBySlugResponse]
-	createSite            *connect.Client[v1.CreateSiteRequest, v1.CreateSiteResponse]
-	updateSite            *connect.Client[v1.UpdateSiteRequest, v1.UpdateSiteResponse]
-	deleteSite            *connect.Client[v1.DeleteSiteRequest, v1.DeleteSiteResponse]
-	assignDevicesToSite   *connect.Client[v1.AssignDevicesToSiteRequest, v1.AssignDevicesToSiteResponse]
-	assignBuildingsToSite *connect.Client[v1.AssignBuildingsToSiteRequest, v1.AssignBuildingsToSiteResponse]
-	assignRacksToSite     *connect.Client[v1.AssignRacksToSiteRequest, v1.AssignRacksToSiteResponse]
-	getSiteStats          *connect.Client[v1.GetSiteStatsRequest, v1.GetSiteStatsResponse]
+	listSites                       *connect.Client[v1.ListSitesRequest, v1.ListSitesResponse]
+	resolveSiteBySlug               *connect.Client[v1.ResolveSiteBySlugRequest, v1.ResolveSiteBySlugResponse]
+	createSite                      *connect.Client[v1.CreateSiteRequest, v1.CreateSiteResponse]
+	updateSite                      *connect.Client[v1.UpdateSiteRequest, v1.UpdateSiteResponse]
+	deleteSite                      *connect.Client[v1.DeleteSiteRequest, v1.DeleteSiteResponse]
+	assignDevicesToSite             *connect.Client[v1.AssignDevicesToSiteRequest, v1.AssignDevicesToSiteResponse]
+	assignBuildingsToSite           *connect.Client[v1.AssignBuildingsToSiteRequest, v1.AssignBuildingsToSiteResponse]
+	assignRacksToSite               *connect.Client[v1.AssignRacksToSiteRequest, v1.AssignRacksToSiteResponse]
+	getInfrastructureControlSubnets *connect.Client[v1.GetInfrastructureControlSubnetsRequest, v1.GetInfrastructureControlSubnetsResponse]
+	setInfrastructureControlSubnets *connect.Client[v1.SetInfrastructureControlSubnetsRequest, v1.SetInfrastructureControlSubnetsResponse]
+	getSiteStats                    *connect.Client[v1.GetSiteStatsRequest, v1.GetSiteStatsResponse]
 }
 
 // ListSites calls sites.v1.SiteService.ListSites.
@@ -221,6 +249,16 @@ func (c *siteServiceClient) AssignBuildingsToSite(ctx context.Context, req *conn
 // AssignRacksToSite calls sites.v1.SiteService.AssignRacksToSite.
 func (c *siteServiceClient) AssignRacksToSite(ctx context.Context, req *connect.Request[v1.AssignRacksToSiteRequest]) (*connect.Response[v1.AssignRacksToSiteResponse], error) {
 	return c.assignRacksToSite.CallUnary(ctx, req)
+}
+
+// GetInfrastructureControlSubnets calls sites.v1.SiteService.GetInfrastructureControlSubnets.
+func (c *siteServiceClient) GetInfrastructureControlSubnets(ctx context.Context, req *connect.Request[v1.GetInfrastructureControlSubnetsRequest]) (*connect.Response[v1.GetInfrastructureControlSubnetsResponse], error) {
+	return c.getInfrastructureControlSubnets.CallUnary(ctx, req)
+}
+
+// SetInfrastructureControlSubnets calls sites.v1.SiteService.SetInfrastructureControlSubnets.
+func (c *siteServiceClient) SetInfrastructureControlSubnets(ctx context.Context, req *connect.Request[v1.SetInfrastructureControlSubnetsRequest]) (*connect.Response[v1.SetInfrastructureControlSubnetsResponse], error) {
+	return c.setInfrastructureControlSubnets.CallUnary(ctx, req)
 }
 
 // GetSiteStats calls sites.v1.SiteService.GetSiteStats.
@@ -274,6 +312,16 @@ type SiteServiceHandler interface {
 	// building was cleared so the UI can prompt for re-assignment.
 	// Same transaction cascades device.site_id for every rack member.
 	AssignRacksToSite(context.Context, *connect.Request[v1.AssignRacksToSiteRequest]) (*connect.Response[v1.AssignRacksToSiteResponse], error)
+	// GetInfrastructureControlSubnets returns the site's commissioned OT
+	// control-subnet allowlist. This sensitive topology is intentionally
+	// separate from Site and requires an interactive ADMIN/SUPER_ADMIN
+	// session with site:manage on the target site.
+	GetInfrastructureControlSubnets(context.Context, *connect.Request[v1.GetInfrastructureControlSubnetsRequest]) (*connect.Response[v1.GetInfrastructureControlSubnetsResponse], error)
+	// SetInfrastructureControlSubnets explicitly replaces the site's
+	// commissioned OT control-subnet allowlist. An empty list decommissions
+	// the site and disables future infrastructure writes. The server
+	// validates, canonicalizes, sorts, persists, and audits the replacement.
+	SetInfrastructureControlSubnets(context.Context, *connect.Request[v1.SetInfrastructureControlSubnetsRequest]) (*connect.Response[v1.SetInfrastructureControlSubnetsResponse], error)
 	// GetSiteStats returns server-rolled telemetry + miner-state counts
 	// for every device assigned to the site, including devices whose
 	// rack has no building set and devices that have no rack at all.
@@ -327,6 +375,16 @@ func NewSiteServiceHandler(svc SiteServiceHandler, opts ...connect.HandlerOption
 		svc.AssignRacksToSite,
 		opts...,
 	)
+	siteServiceGetInfrastructureControlSubnetsHandler := connect.NewUnaryHandler(
+		SiteServiceGetInfrastructureControlSubnetsProcedure,
+		svc.GetInfrastructureControlSubnets,
+		opts...,
+	)
+	siteServiceSetInfrastructureControlSubnetsHandler := connect.NewUnaryHandler(
+		SiteServiceSetInfrastructureControlSubnetsProcedure,
+		svc.SetInfrastructureControlSubnets,
+		opts...,
+	)
 	siteServiceGetSiteStatsHandler := connect.NewUnaryHandler(
 		SiteServiceGetSiteStatsProcedure,
 		svc.GetSiteStats,
@@ -350,6 +408,10 @@ func NewSiteServiceHandler(svc SiteServiceHandler, opts ...connect.HandlerOption
 			siteServiceAssignBuildingsToSiteHandler.ServeHTTP(w, r)
 		case SiteServiceAssignRacksToSiteProcedure:
 			siteServiceAssignRacksToSiteHandler.ServeHTTP(w, r)
+		case SiteServiceGetInfrastructureControlSubnetsProcedure:
+			siteServiceGetInfrastructureControlSubnetsHandler.ServeHTTP(w, r)
+		case SiteServiceSetInfrastructureControlSubnetsProcedure:
+			siteServiceSetInfrastructureControlSubnetsHandler.ServeHTTP(w, r)
 		case SiteServiceGetSiteStatsProcedure:
 			siteServiceGetSiteStatsHandler.ServeHTTP(w, r)
 		default:
@@ -391,6 +453,14 @@ func (UnimplementedSiteServiceHandler) AssignBuildingsToSite(context.Context, *c
 
 func (UnimplementedSiteServiceHandler) AssignRacksToSite(context.Context, *connect.Request[v1.AssignRacksToSiteRequest]) (*connect.Response[v1.AssignRacksToSiteResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sites.v1.SiteService.AssignRacksToSite is not implemented"))
+}
+
+func (UnimplementedSiteServiceHandler) GetInfrastructureControlSubnets(context.Context, *connect.Request[v1.GetInfrastructureControlSubnetsRequest]) (*connect.Response[v1.GetInfrastructureControlSubnetsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sites.v1.SiteService.GetInfrastructureControlSubnets is not implemented"))
+}
+
+func (UnimplementedSiteServiceHandler) SetInfrastructureControlSubnets(context.Context, *connect.Request[v1.SetInfrastructureControlSubnetsRequest]) (*connect.Response[v1.SetInfrastructureControlSubnetsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sites.v1.SiteService.SetInfrastructureControlSubnets is not implemented"))
 }
 
 func (UnimplementedSiteServiceHandler) GetSiteStats(context.Context, *connect.Request[v1.GetSiteStatsRequest]) (*connect.Response[v1.GetSiteStatsResponse], error) {

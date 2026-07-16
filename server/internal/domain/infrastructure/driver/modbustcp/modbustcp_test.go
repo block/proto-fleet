@@ -1,14 +1,24 @@
 package modbustcp
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/netip"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	modbussim "github.com/block/proto-fleet/server/devtools/modbussim/server"
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
 )
 
@@ -36,12 +46,14 @@ func TestValidateConfig_Valid(t *testing.T) {
 		m["write_mode"] = WriteModeCoil
 		m["register_address"] = 1
 	})))
-	// Explicit 0 is a valid raw address (the RUN/STOP coil) and must
-	// stay accepted — presence tracking exists to reject only the
-	// missing/null cases, not the zero value.
+	// The complete one-based application range maps onto every 16-bit wire
+	// address.
 	assert.NoError(t, c.ValidateConfig(validConfigJSON(t, func(m map[string]any) {
 		m["write_mode"] = WriteModeCoil
-		m["register_address"] = 0
+		m["register_address"] = 1
+	})))
+	assert.NoError(t, c.ValidateConfig(validConfigJSON(t, func(m map[string]any) {
+		m["register_address"] = 65536
 	})))
 	// Private RFC1918 ranges are allowed.
 	for _, endpoint := range []string{"10.0.0.5", "172.16.4.9", "192.168.1.50"} {
@@ -101,7 +113,7 @@ func TestValidateConfig_RejectsOutOfRangeFields(t *testing.T) {
 		{"unit_id", 248},
 		{"port", 0},
 		{"port", 78901},
-		{"register_address", -1},
+		{"register_address", 0},
 		{"register_address", 78901},
 		{"write_mode", "toggle"},
 		{"write_mode", ""},
@@ -127,11 +139,8 @@ func TestValidateConfig_RejectsMalformedBlob(t *testing.T) {
 }
 
 func TestValidateConfig_RejectsMissingOrNullRegisterAddress(t *testing.T) {
-	// register_address is the one field whose zero value is a real
-	// control target (the RUN/STOP coil at 0), so an omitted or null
-	// value must not silently decode to 0 and validate — the write
-	// path would command register 0 instead of the intended control
-	// word.
+	// Omitted and null values must not silently decode to application
+	// address 0.
 	c := Controller{}
 
 	err := c.ValidateConfig(validConfigJSON(t, func(m map[string]any) {
@@ -181,11 +190,441 @@ func TestCapabilities(t *testing.T) {
 	assert.Equal(t, map[string]bool{"on_off": true}, Controller{}.Capabilities())
 }
 
-func TestSetState_NotImplementedYet(t *testing.T) {
-	// Protocol I/O is deliberately out of scope for the backend
-	// phase; the write path lands with reconciler sequencing.
-	device := driver.Device{ID: 1, Name: "Zone A exhaust", DriverType: DriverType}
-	err := Controller{}.SetState(t.Context(), device, driver.DesiredState{Power: driver.PowerOff})
+func TestSetState_WritesFC5AndFC6OnAndOffFrames(t *testing.T) {
+	tests := []struct {
+		name         string
+		writeMode    string
+		power        driver.PowerMode
+		wantFunction byte
+		wantValue    uint16
+	}{
+		{"coil off", WriteModeCoil, driver.PowerOff, 5, 0x0000},
+		{"coil on", WriteModeCoil, driver.PowerOn, 5, 0xFF00},
+		{"register off", WriteModeHoldingRegister, driver.PowerOff, 6, 0},
+		{"register on", WriteModeHoldingRegister, driver.PowerOn, 6, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			listener, simulator := startDevtoolModbusSimulator(t)
+			controller := newTestController(t, listener)
+			device := commissionedDevice(t, func(m map[string]any) {
+				m["write_mode"] = tt.writeMode
+			})
+
+			err := controller.SetState(t.Context(), device, driver.DesiredState{Power: tt.power})
+			require.NoError(t, err)
+
+			switch tt.wantFunction {
+			case 5:
+				got, ok := simulator.Coil(1, 2000)
+				require.True(t, ok, "simulator should record the FC5 write")
+				assert.Equal(t, tt.wantValue == 0xFF00, got)
+			case 6:
+				got, ok := simulator.HoldingRegister(1, 2000)
+				require.True(t, ok, "simulator should record the FC6 write")
+				assert.Equal(t, tt.wantValue, got)
+			default:
+				t.Fatalf("unsupported test function code %d", tt.wantFunction)
+			}
+		})
+	}
+}
+
+func TestSetState_TranslatesApplicationAddressBoundaries(t *testing.T) {
+	tests := []struct {
+		applicationAddress int
+		wantWireAddress    uint16
+	}{
+		{1, 0},
+		{2001, 2000},
+		{65536, 65535},
+	}
+
+	for _, tt := range tests {
+		t.Run(strconv.Itoa(tt.applicationAddress), func(t *testing.T) {
+			listener, simulator := startDevtoolModbusSimulator(t)
+			controller := newTestController(t, listener)
+			device := commissionedDevice(t, func(m map[string]any) {
+				m["register_address"] = tt.applicationAddress
+			})
+
+			err := controller.SetState(t.Context(), device, driver.DesiredState{Power: driver.PowerOn})
+			require.NoError(t, err)
+
+			writes := simulator.Writes()
+			require.Len(t, writes, 1)
+			assert.Equal(t, tt.wantWireAddress, writes[0].Address)
+		})
+	}
+}
+
+func TestSetState_RejectsInvalidPowerWithoutDialing(t *testing.T) {
+	var dials atomic.Int32
+	controller := NewConfigured(
+		[]netip.Prefix{mustPrefix(t, "10.20.30.0/24")},
+		WithDialer(func(context.Context, string, string) (net.Conn, error) {
+			dials.Add(1)
+			return nil, errors.New("unexpected dial")
+		}),
+	)
+
+	err := controller.SetState(
+		t.Context(),
+		commissionedDevice(t, nil),
+		driver.DesiredState{Power: driver.PowerMode(99)},
+	)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not implemented")
+	assert.Contains(t, err.Error(), "power mode is invalid")
+	assert.Zero(t, dials.Load())
+}
+
+func TestSetState_ParsesConfigAtCommandTime(t *testing.T) {
+	controller := NewConfigured([]netip.Prefix{mustPrefix(t, "10.20.30.0/24")})
+	device := commissionedDevice(t, nil)
+	device.DriverConfig = json.RawMessage(`{"endpoint":"sensitive-ot-host"}`)
+
+	err := controller.SetState(t.Context(), device, driver.DesiredState{Power: driver.PowerOff})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "configuration invalid")
+	assert.NotContains(t, err.Error(), "sensitive-ot-host")
+	assert.NotContains(t, err.Error(), string(device.DriverConfig))
+}
+
+func TestSetState_FailsClosedWithoutIdentityOrCommissioning(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*driver.Device)
+		want   string
+	}{
+		{"organization", func(d *driver.Device) { d.OrgID = 0 }, "not commissioned"},
+		{"site", func(d *driver.Device) { d.SiteID = 0 }, "not commissioned"},
+		{"site allowlist", func(d *driver.Device) { d.InfrastructureControlSubnets = nil }, "not commissioned"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var dials atomic.Int32
+			controller := NewConfigured(
+				[]netip.Prefix{mustPrefix(t, "10.20.30.0/24")},
+				WithDialer(func(context.Context, string, string) (net.Conn, error) {
+					dials.Add(1)
+					return nil, errors.New("unexpected dial")
+				}),
+			)
+			device := commissionedDevice(t, nil)
+			tt.mutate(&device)
+
+			err := controller.SetState(t.Context(), device, driver.DesiredState{Power: driver.PowerOff})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+			assert.Zero(t, dials.Load())
+		})
+	}
+}
+
+func TestSetState_FailsClosedWithoutDeploymentAllowlist(t *testing.T) {
+	controller := New()
+	err := controller.SetState(
+		t.Context(),
+		commissionedDevice(t, nil),
+		driver.DesiredState{Power: driver.PowerOff},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "deployment allowlist is missing")
+}
+
+func TestSetState_RequiresEndpointInBothAllowlists(t *testing.T) {
+	tests := []struct {
+		name   string
+		global []netip.Prefix
+		site   []netip.Prefix
+	}{
+		{
+			name:   "site only",
+			global: []netip.Prefix{mustPrefix(t, "10.99.0.0/24")},
+			site:   []netip.Prefix{mustPrefix(t, "10.20.30.0/24")},
+		},
+		{
+			name:   "deployment only",
+			global: []netip.Prefix{mustPrefix(t, "10.20.30.0/24")},
+			site:   []netip.Prefix{mustPrefix(t, "10.99.0.0/24")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var dials atomic.Int32
+			controller := NewConfigured(
+				tt.global,
+				WithDialer(func(context.Context, string, string) (net.Conn, error) {
+					dials.Add(1)
+					return nil, errors.New("unexpected dial")
+				}),
+			)
+			device := commissionedDevice(t, nil)
+			device.InfrastructureControlSubnets = tt.site
+
+			err := controller.SetState(t.Context(), device, driver.DesiredState{Power: driver.PowerOff})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "endpoint is not authorized")
+			assert.NotContains(t, err.Error(), "10.20.30.40")
+			assert.Zero(t, dials.Load())
+		})
+	}
+}
+
+func TestSetState_ReportsCanceledAndDeadlineContexts(t *testing.T) {
+	tests := []struct {
+		name       string
+		context    func(t *testing.T) context.Context
+		want       string
+		maxElapsed time.Duration
+	}{
+		{
+			name: "canceled",
+			context: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithCancel(t.Context())
+				cancel()
+				return ctx
+			},
+			want:       "canceled",
+			maxElapsed: time.Second,
+		},
+		{
+			name: "earlier caller deadline",
+			context: func(t *testing.T) context.Context {
+				ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+				t.Cleanup(cancel)
+				return ctx
+			},
+			want:       "timed out",
+			maxElapsed: 500 * time.Millisecond,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			controller := NewConfigured(
+				[]netip.Prefix{mustPrefix(t, "10.20.30.0/24")},
+				WithDialer(func(ctx context.Context, _, _ string) (net.Conn, error) {
+					<-ctx.Done()
+					return nil, ctx.Err()
+				}),
+			)
+			started := time.Now()
+			err := controller.SetState(
+				tt.context(t),
+				commissionedDevice(t, nil),
+				driver.DesiredState{Power: driver.PowerOff},
+			)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+			assert.Less(t, time.Since(started), tt.maxElapsed)
+		})
+	}
+}
+
+func TestSetState_DefaultTimeoutBoundsStalledResponse(t *testing.T) {
+	controller := NewConfigured(
+		[]netip.Prefix{mustPrefix(t, "10.20.30.0/24")},
+		WithDialer(func(context.Context, string, string) (net.Conn, error) {
+			client, server := net.Pipe()
+			t.Cleanup(func() { _ = server.Close() })
+			go func() {
+				request := make([]byte, 12)
+				_, _ = io.ReadFull(server, request)
+			}()
+			return client, nil
+		}),
+	)
+
+	started := time.Now()
+	err := controller.SetState(
+		t.Context(),
+		commissionedDevice(t, nil),
+		driver.DesiredState{Power: driver.PowerOn},
+	)
+	elapsed := time.Since(started)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "timed out")
+	assert.GreaterOrEqual(t, elapsed, defaultWriteTimeout-500*time.Millisecond)
+	assert.Less(t, elapsed, defaultWriteTimeout+2*time.Second)
+}
+
+func TestSetState_ScrubsConnectionFailureDetails(t *testing.T) {
+	const (
+		endpoint = "10.88.77.66"
+		port     = 15020
+		unitID   = 247
+		register = 54321
+	)
+	controller := NewConfigured(
+		[]netip.Prefix{mustPrefix(t, "10.88.77.0/24")},
+		WithDialer(func(context.Context, string, string) (net.Conn, error) {
+			return nil, fmt.Errorf(
+				"dial %s:%d unit %d register %d: connection refused",
+				endpoint, port, unitID, register,
+			)
+		}),
+	)
+	device := commissionedDevice(t, func(m map[string]any) {
+		m["endpoint"] = endpoint
+		m["port"] = port
+		m["unit_id"] = unitID
+		m["register_address"] = register
+	})
+	device.InfrastructureControlSubnets = []netip.Prefix{mustPrefix(t, "10.88.77.0/24")}
+
+	err := controller.SetState(t.Context(), device, driver.DesiredState{Power: driver.PowerOn})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "register write failed")
+	for _, sensitive := range []string{
+		endpoint,
+		strconv.Itoa(port),
+		strconv.Itoa(unitID),
+		strconv.Itoa(register),
+		string(device.DriverConfig),
+	} {
+		assert.NotContains(t, err.Error(), sensitive)
+	}
+}
+
+func TestSetState_ScrubsWriteFailureDetails(t *testing.T) {
+	const (
+		endpoint = "10.88.77.65"
+		port     = 15021
+		unitID   = 246
+		register = 54320
+	)
+	controller := NewConfigured(
+		[]netip.Prefix{mustPrefix(t, "10.88.77.0/24")},
+		WithDialer(func(context.Context, string, string) (net.Conn, error) {
+			client, server := net.Pipe()
+			t.Cleanup(func() { _ = server.Close() })
+			return writeFailConn{
+				Conn: client,
+				err: fmt.Errorf(
+					"write %s:%d unit %d register %d failed",
+					endpoint, port, unitID, register,
+				),
+			}, nil
+		}),
+	)
+	device := commissionedDevice(t, func(m map[string]any) {
+		m["endpoint"] = endpoint
+		m["port"] = port
+		m["unit_id"] = unitID
+		m["register_address"] = register
+		m["write_mode"] = WriteModeCoil
+	})
+	device.InfrastructureControlSubnets = []netip.Prefix{mustPrefix(t, "10.88.77.0/24")}
+
+	err := controller.SetState(t.Context(), device, driver.DesiredState{Power: driver.PowerOn})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "coil write failed")
+	for _, sensitive := range []string{
+		endpoint,
+		strconv.Itoa(port),
+		strconv.Itoa(unitID),
+		strconv.Itoa(register),
+		string(device.DriverConfig),
+	} {
+		assert.NotContains(t, err.Error(), sensitive)
+	}
+}
+
+func TestSetState_PerformsOneProtocolAttempt(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+
+	var dials atomic.Int32
+	controller := NewConfigured(
+		[]netip.Prefix{mustPrefix(t, "10.20.30.0/24")},
+		WithDialer(func(ctx context.Context, network, _ string) (net.Conn, error) {
+			dials.Add(1)
+			return (&net.Dialer{}).DialContext(ctx, network, listener.Addr().String())
+		}),
+	)
+
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		_ = conn.Close()
+	}()
+
+	err = controller.SetState(
+		t.Context(),
+		commissionedDevice(t, nil),
+		driver.DesiredState{Power: driver.PowerOn},
+	)
+	require.Error(t, err)
+	assert.Equal(t, int32(1), dials.Load())
+}
+
+type writeFailConn struct {
+	net.Conn
+	err error
+}
+
+func (c writeFailConn) Write([]byte) (int, error) {
+	return 0, c.err
+}
+
+func commissionedDevice(t *testing.T, mutate func(map[string]any)) driver.Device {
+	t.Helper()
+	return driver.Device{
+		ID:                           9001,
+		OrgID:                        101,
+		SiteID:                       202,
+		DriverType:                   DriverType,
+		DriverConfig:                 validConfigJSON(t, mutate),
+		InfrastructureControlSubnets: []netip.Prefix{mustPrefix(t, "10.20.30.0/24")},
+	}
+}
+
+func mustPrefix(t *testing.T, raw string) netip.Prefix {
+	t.Helper()
+	prefix, err := netip.ParsePrefix(raw)
+	require.NoError(t, err)
+	return prefix
+}
+
+func newTestController(t *testing.T, listener net.Listener) driver.Controller {
+	t.Helper()
+	return NewConfigured(
+		[]netip.Prefix{mustPrefix(t, "10.20.30.0/24")},
+		WithDialer(func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, listener.Addr().String())
+		}),
+	)
+}
+
+func startDevtoolModbusSimulator(t *testing.T) (net.Listener, *modbussim.Server) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	simulator := modbussim.New(
+		modbussim.WithLogger(slog.New(slog.DiscardHandler)),
+	)
+	done := make(chan error, 1)
+	go func() {
+		done <- simulator.Serve(listener)
+	}()
+	t.Cleanup(func() {
+		require.NoError(t, simulator.Close())
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+		case <-time.After(time.Second):
+			t.Fatal("Modbus simulator did not stop")
+		}
+	})
+	return listener, simulator
 }

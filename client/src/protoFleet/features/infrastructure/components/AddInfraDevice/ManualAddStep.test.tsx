@@ -152,18 +152,22 @@ describe("ManualAddStep", () => {
     await waitFor(() => expect(getState()?.canAdd).toBe(true));
   });
 
-  test("requires register address to be a raw application address up to 65535", async () => {
+  test("requires a one-based application register address up to 65536", async () => {
     const user = userEvent.setup();
     const { getState } = renderManualAddStep();
 
     await fillRequiredFields(user);
 
     await user.clear(screen.getByLabelText("Register address"));
-    await user.type(screen.getByLabelText("Register address"), "65536");
+    await user.type(screen.getByLabelText("Register address"), "0");
     expect(getState()?.canAdd).toBe(false);
 
     await user.clear(screen.getByLabelText("Register address"));
-    await user.type(screen.getByLabelText("Register address"), "0");
+    await user.type(screen.getByLabelText("Register address"), "65537");
+    expect(getState()?.canAdd).toBe(false);
+
+    await user.clear(screen.getByLabelText("Register address"));
+    await user.type(screen.getByLabelText("Register address"), "65536");
 
     await waitFor(() => expect(getState()?.canAdd).toBe(true));
   });

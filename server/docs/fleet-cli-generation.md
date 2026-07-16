@@ -247,8 +247,8 @@ applies an uploaded file to explicitly named devices, groups, or racks (never
 all devices) through `minercommand.v1.MinerCommandService/FirmwareUpdate`,
 reusing the bounded miner selector resolver.
 
-The generated manifest contains 115 command entries. Together with 14
-handwritten leaves, fleetcli exposes 129 leaf commands and 117 distinct
+The generated manifest contains 117 command entries. Together with 14
+handwritten leaves, fleetcli exposes 131 leaf commands and 119 distinct
 non-node unary RPCs. Intentional omissions are streaming methods, Fleet Node
 services, direct miner operations, server-LAN network methods, the deprecated
 collection service, account-management RPCs, unimplemented RPCs, the

@@ -144,6 +144,59 @@ mqtt-sim-down:
 mqtt-sim-logs:
   docker compose -f docker-compose.yaml -f docker-compose.mqtt-sim.yaml logs -f mqtt-sim-primary mqtt-sim-secondary mqtt-sim-ui
 
+# start the Modbus TCP simulator and recreate fleet-api with its dev allowlist
+modbus-sim-up:
+  docker compose -f docker-compose.yaml -f docker-compose.modbus-sim.yaml up -d --build modbus-sim fleet-api
+  just _modbus-sim-ready
+
+# rebuild and restart the Modbus TCP simulator and allowlisted fleet-api
+modbus-sim-rebuild:
+  docker compose -f docker-compose.yaml -f docker-compose.modbus-sim.yaml up -d --build --force-recreate modbus-sim fleet-api
+  just _modbus-sim-ready
+
+# stop the Modbus TCP simulator and remove its dev allowlist from fleet-api
+modbus-sim-down:
+  docker compose -f docker-compose.yaml -f docker-compose.modbus-sim.yaml stop modbus-sim
+  docker compose -f docker-compose.yaml -f docker-compose.modbus-sim.yaml rm -f modbus-sim
+  docker compose -f docker-compose.yaml up -d --build --no-deps --force-recreate fleet-api
+
+# follow Modbus TCP simulator logs
+modbus-sim-logs:
+  docker compose -f docker-compose.yaml -f docker-compose.modbus-sim.yaml logs -f modbus-sim
+
+_modbus-sim-ready:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  simulator_ready=false
+  for _ in $(seq 1 60); do
+    if (echo >"/dev/tcp/127.0.0.1/5502") >/dev/null 2>&1; then
+      simulator_ready=true
+      break
+    fi
+    sleep 0.25
+  done
+  fleet_api_ready=false
+  for _ in $(seq 1 120); do
+    if curl --fail --silent --show-error "http://127.0.0.1:4000/health/ready" >/dev/null 2>&1; then
+      fleet_api_ready=true
+      break
+    fi
+    sleep 0.5
+  done
+  if [ "${simulator_ready}" != true ] || [ "${fleet_api_ready}" != true ]; then
+    if [ "${simulator_ready}" != true ]; then
+      echo "Modbus simulator did not become ready on 127.0.0.1:5502" >&2
+    fi
+    if [ "${fleet_api_ready}" != true ]; then
+      echo "fleet-api did not become ready on 127.0.0.1:4000" >&2
+    fi
+    docker compose -f docker-compose.yaml -f docker-compose.modbus-sim.yaml logs --tail=120 modbus-sim fleet-api >&2 || true
+    exit 1
+  fi
+  echo "Modbus simulator host endpoint: 127.0.0.1:5502"
+  echo 'Proto Fleet Docker driver_config: {"endpoint":"192.168.2.242","port":5502,"unit_id":1,"register_address":1,"write_mode":"coil"}'
+  echo "Commission the site control allowlist with: 192.168.2.242/32"
+
 # wipe and rebuild all docker compose services from scratch (includes plugin rebuild)
 rebuild-all: _build-plugins-docker rebuild-services
 

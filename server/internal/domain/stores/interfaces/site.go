@@ -24,6 +24,15 @@ type SiteStore interface {
 	// GetSite returns the live site or NotFound.
 	GetSite(ctx context.Context, orgID, id int64) (*models.Site, error)
 
+	// GetInfrastructureControlSubnets returns the site's canonical
+	// newline-separated commissioned OT allowlist. The query is org-scoped and
+	// excludes soft-deleted sites so cross-org/missing IDs are NotFound-masked.
+	GetInfrastructureControlSubnets(ctx context.Context, orgID, siteID int64) (string, error)
+
+	// SetInfrastructureControlSubnets explicitly replaces the site's canonical
+	// commissioned OT allowlist. Empty text decommissions the site.
+	SetInfrastructureControlSubnets(ctx context.Context, orgID, siteID int64, canonical string) (string, error)
+
 	// GetSiteBySlug returns the live site with the given URL slug or
 	// NotFound. The slug is not user-editable but is regenerated from the
 	// name on a rename. Used by the route-scope resolver before checking

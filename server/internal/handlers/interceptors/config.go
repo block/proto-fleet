@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 )
 
 // RedactedRequestProcedures lists procedures whose requests contain secrets
@@ -41,6 +42,8 @@ var RedactedRequestProcedures = []string{
 	alertsv1connect.ChannelServiceCreateChannelProcedure,
 	alertsv1connect.ChannelServiceUpdateChannelProcedure,
 	alertsv1connect.ChannelServiceTestChannelProcedure,
+	// Site control-subnet commissioning carries OT topology.
+	sitesv1connect.SiteServiceSetInfrastructureControlSubnetsProcedure,
 }
 
 // RedactedResponseProcedures lists procedures whose responses contain secrets
@@ -126,6 +129,10 @@ var SessionOnlyProcedures = []string{
 	infrastructurev1connect.InfrastructureServiceCreateInfrastructureDeviceProcedure,
 	infrastructurev1connect.InfrastructureServiceUpdateInfrastructureDeviceProcedure,
 	infrastructurev1connect.InfrastructureServiceDeleteInfrastructureDeviceProcedure,
+	// Per-site OT control-subnet commissioning is an interactive admin
+	// operation. The read is equally sensitive and has no API-key consumer.
+	sitesv1connect.SiteServiceGetInfrastructureControlSubnetsProcedure,
+	sitesv1connect.SiteServiceSetInfrastructureControlSubnetsProcedure,
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure,
 	alertsv1connect.ChannelServiceListChannelsProcedure,
 	alertsv1connect.ChannelServiceCreateChannelProcedure,
@@ -208,4 +215,6 @@ var SensitiveBodyProcedures = map[string]bool{
 	infrastructurev1connect.InfrastructureServiceCreateInfrastructureDeviceProcedure: true,
 	infrastructurev1connect.InfrastructureServiceUpdateInfrastructureDeviceProcedure: true,
 	infrastructurev1connect.InfrastructureServiceDeleteInfrastructureDeviceProcedure: true,
+	sitesv1connect.SiteServiceGetInfrastructureControlSubnetsProcedure:               true,
+	sitesv1connect.SiteServiceSetInfrastructureControlSubnetsProcedure:               true,
 }

@@ -63,10 +63,10 @@ type Service struct {
 	activitySvc     *activity.Service
 }
 
-// NewService wires a SiteStore, Transactor, and the activity Service
-// used for fire-and-forget audit logs. activitySvc may be nil in tests
-// or in environments where activity logging is disabled; activity.Log
-// is nil-receiver-safe.
+// NewService wires a SiteStore, Transactor, and the activity Service.
+// Most site activity is fire-and-forget and tolerates a nil activitySvc;
+// infrastructure control-subnet commissioning requires both dependencies so
+// its mutation and security audit can commit atomically.
 //
 // buildingStore, deviceQueryer, and telemetry power GetSiteStats only.
 // Any of them may be nil in test setups where the stats RPC isn't

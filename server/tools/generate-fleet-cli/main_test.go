@@ -253,6 +253,8 @@ func TestCommandsManifestSessionOnlyMethods(t *testing.T) {
 		"/curtailment.v1.CurtailmentService/TestMqttCurtailmentSourceConnection",
 		"/curtailment.v1.CurtailmentService/UpdateMqttCurtailmentSource",
 		"/serverlog.v1.ServerLogService/ListServerLogs",
+		"/sites.v1.SiteService/GetInfrastructureControlSubnets",
+		"/sites.v1.SiteService/SetInfrastructureControlSubnets",
 	}
 	sort.Strings(want)
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {

@@ -206,6 +206,21 @@ func (mr *MockSiteStoreMockRecorder) GetDistinctDeviceSiteIDs(ctx, orgID, device
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDistinctDeviceSiteIDs", reflect.TypeOf((*MockSiteStore)(nil).GetDistinctDeviceSiteIDs), ctx, orgID, deviceIdentifiers)
 }
 
+// GetInfrastructureControlSubnets mocks base method.
+func (m *MockSiteStore) GetInfrastructureControlSubnets(ctx context.Context, orgID, siteID int64) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetInfrastructureControlSubnets", ctx, orgID, siteID)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetInfrastructureControlSubnets indicates an expected call of GetInfrastructureControlSubnets.
+func (mr *MockSiteStoreMockRecorder) GetInfrastructureControlSubnets(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetInfrastructureControlSubnets", reflect.TypeOf((*MockSiteStore)(nil).GetInfrastructureControlSubnets), ctx, orgID, siteID)
+}
+
 // GetSite mocks base method.
 func (m *MockSiteStore) GetSite(ctx context.Context, orgID, id int64) (*models.Site, error) {
 	m.ctrl.T.Helper()
@@ -425,6 +440,21 @@ func (m *MockSiteStore) ReassignRacksUnderBuildingsBulk(ctx context.Context, org
 func (mr *MockSiteStoreMockRecorder) ReassignRacksUnderBuildingsBulk(ctx, orgID, buildingIDs, targetSiteID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReassignRacksUnderBuildingsBulk", reflect.TypeOf((*MockSiteStore)(nil).ReassignRacksUnderBuildingsBulk), ctx, orgID, buildingIDs, targetSiteID)
+}
+
+// SetInfrastructureControlSubnets mocks base method.
+func (m *MockSiteStore) SetInfrastructureControlSubnets(ctx context.Context, orgID, siteID int64, canonical string) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetInfrastructureControlSubnets", ctx, orgID, siteID, canonical)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SetInfrastructureControlSubnets indicates an expected call of SetInfrastructureControlSubnets.
+func (mr *MockSiteStoreMockRecorder) SetInfrastructureControlSubnets(ctx, orgID, siteID, canonical any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetInfrastructureControlSubnets", reflect.TypeOf((*MockSiteStore)(nil).SetInfrastructureControlSubnets), ctx, orgID, siteID, canonical)
 }
 
 // SiteBelongsToOrg mocks base method.

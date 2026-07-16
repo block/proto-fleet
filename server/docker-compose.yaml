@@ -39,6 +39,7 @@ services:
       DB_USERNAME: "fleet"
       DB_PASSWORD: "fleet"
       ENCRYPT_SERVICE_MASTER_KEY: "EV0g7BoFQnqshvzep9knZsUUmvsqSBsjDAJus7ri0B8="
+      INFRASTRUCTURE_OT_CONTROL_SUBNETS: "${INFRASTRUCTURE_OT_CONTROL_SUBNETS:-}"
       PLUGINS_DIR: "/app/plugins"
       PLUGINS_ENABLED: "true"
       PROTO_MINER_PORT: "8080"

@@ -35,6 +35,9 @@ services:
       TIMESCALEDB_MAX_TIME_SERIES_ROWS: "${TIMESCALEDB_MAX_TIME_SERIES_ROWS:-100000}"
       TIMESCALEDB_ASYNC_METRIC_COMMIT: "${TIMESCALEDB_ASYNC_METRIC_COMMIT:-false}"
       FLEET_COMMAND_MAX_WORKERS: "${FLEET_COMMAND_MAX_WORKERS:-500}"
+      # Deployment-controlled half of the dual Modbus dial allowlist.
+      # Empty keeps all infrastructure writes disabled.
+      INFRASTRUCTURE_OT_CONTROL_SUBNETS: "${INFRASTRUCTURE_OT_CONTROL_SUBNETS:-}"
     depends_on:
       timescaledb:
         condition: service_healthy

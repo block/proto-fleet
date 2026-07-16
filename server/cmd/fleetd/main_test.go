@@ -95,6 +95,68 @@ logging:
 	require.False(t, config.Log.JSON)
 }
 
+func TestFleetdInfrastructureOTControlSubnetsFlag(t *testing.T) {
+	t.Parallel()
+
+	configPath := writeFleetdConfigFile(t, `
+auth:
+  client:
+    expiration-period: "1h"
+    secret-key: "test-client-secret"
+  miner-token-expiration-period: "30m"
+encrypt:
+  service-master-key: "test-master-key"
+`)
+	config := &Config{}
+	parser, err := kong.New(
+		config,
+		kong.Name("fleetd"),
+		kong.Configuration(kongyaml.Loader, configPath),
+	)
+	require.NoError(t, err)
+
+	const allowlist = "10.20.0.0/24\nfd12:3456::7/128"
+	_, err = parser.Parse([]string{"--infrastructure-ot-control-subnets=" + allowlist})
+	require.NoError(t, err)
+	require.Equal(t, allowlist, config.Infrastructure.OTControlSubnets)
+}
+
+func TestFleetdInfrastructureOTControlSubnetsEnvironment(t *testing.T) {
+	const allowlist = "10.20.0.0/24\nfd12:3456::7/128"
+	t.Setenv("INFRASTRUCTURE_OT_CONTROL_SUBNETS", allowlist)
+
+	configPath := writeFleetdConfigFile(t, `
+auth:
+  client:
+    expiration-period: "1h"
+    secret-key: "test-client-secret"
+  miner-token-expiration-period: "30m"
+encrypt:
+  service-master-key: "test-master-key"
+`)
+	config := &Config{}
+	parser, err := kong.New(
+		config,
+		kong.Name("fleetd"),
+		kong.Configuration(kongyaml.Loader, configPath),
+	)
+	require.NoError(t, err)
+
+	_, err = parser.Parse(nil)
+	require.NoError(t, err)
+	require.Equal(t, allowlist, config.Infrastructure.OTControlSubnets)
+}
+
+func TestFleetdRejectsInvalidInfrastructureOTControlSubnetsBeforeStartup(t *testing.T) {
+	config := &Config{}
+	config.Infrastructure.OTControlSubnets = "sensitive-control-subnet"
+
+	err := start(config)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "configure infrastructure drivers")
+	require.NotContains(t, err.Error(), "sensitive-control-subnet")
+}
+
 func TestFleetdSystemMonitoringConfig(t *testing.T) {
 	t.Parallel()
 

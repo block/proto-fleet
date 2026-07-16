@@ -1,7 +1,5 @@
 // Package modbustcp is the Modbus TCP driver adapter for facility
-// infrastructure devices. v1 scope is config parsing and validation;
-// the write path (FC5 coil / FC6 holding-register 0/1 writes) lands
-// with the protocol I/O phase of the facility fan plan.
+// infrastructure devices.
 package modbustcp
 
 import (
@@ -9,7 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
+	"strconv"
+	"time"
+
+	"github.com/grid-x/modbus"
 
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
 )
@@ -28,11 +31,15 @@ const (
 	maxUnitID = 247
 	minPort   = 1
 	maxPort   = 65535
-	// Register addresses are raw application addresses (e.g. 2001 for
-	// the H-Max FB Control Word, 0001 for the RUN/STOP coil) — not the
-	// 4xxxx-prefixed reference convention. The adapter owns any
-	// wire-level off-by-one translation.
-	maxRegisterAddress = 65535
+	// Register addresses use the one-based application convention (e.g.
+	// 2001 for the H-Max FB Control Word, 0001 for the RUN/STOP coil), not
+	// the 4xxxx-prefixed reference convention or zero-based wire address.
+	// Supporting 1..65536 makes every 16-bit wire address reachable without
+	// allowing 0 and 1 to alias the same physical target.
+	minRegisterAddress = 1
+	maxRegisterAddress = 65536
+
+	defaultWriteTimeout = 3 * time.Second
 )
 
 // Config is the adapter-owned driver_config schema.
@@ -44,23 +51,51 @@ type Config struct {
 	Endpoint string `json:"endpoint"`
 	Port     int    `json:"port"`
 	UnitID   int    `json:"unit_id"`
-	// RegisterAddress is a pointer because 0 is a valid raw address
-	// (the RUN/STOP coil) — unlike every other field, the zero value
-	// cannot double as "missing". Without presence tracking, an
-	// omitted or null register_address would silently validate as
-	// register 0 and the write path would command the wrong register.
+	// RegisterAddress is a pointer so omitted/null can be distinguished from
+	// an explicitly submitted out-of-range value.
 	RegisterAddress *int   `json:"register_address"`
 	WriteMode       string `json:"write_mode"`
 }
 
+// DialFunc opens the one connection used by a SetState call.
+type DialFunc func(ctx context.Context, network, address string) (net.Conn, error)
+
+// Option configures a Modbus TCP controller.
+type Option func(*Controller)
+
+// WithDialer supplies the connection seam used by SetState. Production uses a
+// net.Dialer; tests use it to inspect real Modbus framing without authorizing
+// loopback as an OT endpoint.
+func WithDialer(dial DialFunc) Option {
+	return func(c *Controller) {
+		c.dial = dial
+	}
+}
+
 // Controller implements driver.Controller for Modbus TCP.
-type Controller struct{}
+type Controller struct {
+	globalControlSubnets []netip.Prefix
+	dial                 DialFunc
+}
 
-var _ driver.Controller = Controller{}
+var _ driver.Controller = (*Controller)(nil)
 
-// New is the driver.Factory for this adapter.
+// New returns a fail-closed controller without a deployment allowlist.
 func New() driver.Controller {
-	return Controller{}
+	return NewConfigured(nil)
+}
+
+// NewConfigured returns a controller protected by the deployment-global
+// positive OT control-subnet allowlist.
+func NewConfigured(globalControlSubnets []netip.Prefix, options ...Option) driver.Controller {
+	controller := &Controller{
+		globalControlSubnets: append([]netip.Prefix(nil), globalControlSubnets...),
+		dial:                 (&net.Dialer{}).DialContext,
+	}
+	for _, option := range options {
+		option(controller)
+	}
+	return controller
 }
 
 // ParseConfig decodes and validates a driver_config blob.
@@ -113,8 +148,12 @@ func (c Config) validate() error {
 	if c.RegisterAddress == nil {
 		return errors.New("register_address is required")
 	}
-	if *c.RegisterAddress < 0 || *c.RegisterAddress > maxRegisterAddress {
-		return fmt.Errorf("register_address must be between 0 and %d", maxRegisterAddress)
+	if *c.RegisterAddress < minRegisterAddress || *c.RegisterAddress > maxRegisterAddress {
+		return fmt.Errorf(
+			"register_address must be between %d and %d",
+			minRegisterAddress,
+			maxRegisterAddress,
+		)
 	}
 	if c.WriteMode != WriteModeCoil && c.WriteMode != WriteModeHoldingRegister {
 		return fmt.Errorf("write_mode must be %q or %q", WriteModeCoil, WriteModeHoldingRegister)
@@ -159,20 +198,155 @@ func (Controller) ValidateConfig(raw json.RawMessage) error {
 	return err
 }
 
-// SetState implements driver.Controller. Protocol I/O is out of scope
-// for the backend phase; the reconciler sequencing work wires the
-// actual FC5/FC6 write.
-//
-// SECURITY PRECONDITION for the write-path implementation: RFC1918 is
-// a save-time bound, not a dial-time authorization. Before any frame
-// is sent, the implementation must enforce a per-site commissioned
-// control-subnet allowlist (and reject server-infrastructure CIDRs),
-// so a site:manage caller cannot point the server's raw Modbus writer
-// at unrelated private infrastructure or another site's OT segment.
-// Which subnet is "the OT subnet" is per-site commissioning data that
-// lands with the write path; do not enable writes without it.
-func (Controller) SetState(_ context.Context, device driver.Device, _ driver.DesiredState) error {
-	return fmt.Errorf("modbus_tcp write path is not implemented yet (device %q)", device.Name)
+// SetState performs one bounded FC5 or FC6 request. It reparses the opaque
+// config and applies both positive allowlists immediately before dialing.
+func (c Controller) SetState(ctx context.Context, device driver.Device, state driver.DesiredState) error {
+	cfg, err := ParseConfig(device.DriverConfig)
+	if err != nil {
+		return fmt.Errorf("modbus_tcp configuration invalid for device %d: %w", device.ID, err)
+	}
+
+	if device.OrgID <= 0 || device.SiteID <= 0 || !validPrefixes(device.InfrastructureControlSubnets) {
+		return fmt.Errorf("device %d is not commissioned for infrastructure control", device.ID)
+	}
+	if !validPrefixes(c.globalControlSubnets) {
+		return errors.New("deployment allowlist is missing for infrastructure control")
+	}
+
+	var registerValue uint16
+	switch state.Power {
+	case driver.PowerOff:
+		registerValue = 0
+	case driver.PowerOn:
+		registerValue = 1
+	default:
+		return fmt.Errorf("power mode is invalid for device %d", device.ID)
+	}
+
+	endpoint, err := netip.ParseAddr(cfg.Endpoint)
+	if err != nil {
+		// ParseConfig already enforces this. Keep a fail-closed guard at the
+		// authorization boundary in case its contract changes.
+		return fmt.Errorf("modbus_tcp configuration invalid for device %d", device.ID)
+	}
+	if !contains(device.InfrastructureControlSubnets, endpoint) ||
+		!contains(c.globalControlSubnets, endpoint) {
+		return fmt.Errorf("device %d endpoint is not authorized for infrastructure control", device.ID)
+	}
+
+	timeout := defaultWriteTimeout
+	writeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if err := writeCtx.Err(); err != nil {
+		return contextError(device.ID, err)
+	}
+
+	requestTimeout := timeout
+	if deadline, ok := writeCtx.Deadline(); ok {
+		requestTimeout = time.Until(deadline)
+		if requestTimeout <= 0 {
+			return contextError(device.ID, context.DeadlineExceeded)
+		}
+	}
+
+	handler := modbus.NewTCPClientHandler(
+		net.JoinHostPort(cfg.Endpoint, strconv.Itoa(cfg.Port)),
+		modbus.WithDialer(c.contextDialer(writeCtx)),
+	)
+	handler.Timeout = requestTimeout
+	// grid-x uses zero idle timeout for a single non-cached Send, and zero
+	// recovery budgets disable its reconnect and response-recovery loops.
+	handler.IdleTimeout = 0
+	handler.LinkRecoveryTimeout = 0
+	handler.ProtocolRecoveryTimeout = 0
+	handler.SetSlave(byte(cfg.UnitID))
+	client := modbus.NewClient(handler)
+
+	address := applicationAddressToWire(*cfg.RegisterAddress)
+	switch cfg.WriteMode {
+	case WriteModeCoil:
+		coilValue := uint16(0x0000)
+		if registerValue == 1 {
+			coilValue = 0xFF00
+		}
+		_, err = client.WriteSingleCoil(writeCtx, address, coilValue)
+		if err != nil {
+			return writeError(writeCtx, device.ID, "coil", err)
+		}
+	case WriteModeHoldingRegister:
+		_, err = client.WriteSingleRegister(writeCtx, address, registerValue)
+		if err != nil {
+			return writeError(writeCtx, device.ID, "register", err)
+		}
+	default:
+		// ParseConfig already enforces this; retain a fail-closed command-time
+		// guard if validation is ever loosened independently.
+		return fmt.Errorf("modbus_tcp configuration invalid for device %d", device.ID)
+	}
+	return nil
+}
+
+func (c Controller) contextDialer(ctx context.Context) modbus.DialFunc {
+	dial := c.dial
+	if dial == nil {
+		dial = (&net.Dialer{}).DialContext
+	}
+	return func(_ context.Context, network, address string) (net.Conn, error) {
+		conn, err := dial(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		context.AfterFunc(ctx, func() {
+			_ = conn.SetDeadline(time.Now())
+		})
+		return conn, nil
+	}
+}
+
+func validPrefixes(prefixes []netip.Prefix) bool {
+	if len(prefixes) == 0 {
+		return false
+	}
+	for _, prefix := range prefixes {
+		if !prefix.IsValid() {
+			return false
+		}
+	}
+	return true
+}
+
+func contains(prefixes []netip.Prefix, endpoint netip.Addr) bool {
+	for _, prefix := range prefixes {
+		if prefix.Contains(endpoint) {
+			return true
+		}
+	}
+	return false
+}
+
+func applicationAddressToWire(address int) uint16 {
+	if address < minRegisterAddress || address > maxRegisterAddress {
+		return 0
+	}
+	return uint16(address - 1) // #nosec G115 -- the bounds check above proves this conversion safe.
+}
+
+func writeError(ctx context.Context, deviceID int64, kind string, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return contextError(deviceID, ctxErr)
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return fmt.Errorf("modbus_tcp write timed out for device %d", deviceID)
+	}
+	return fmt.Errorf("modbus_tcp %s write failed for device %d", kind, deviceID)
+}
+
+func contextError(deviceID int64, err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("modbus_tcp write timed out for device %d", deviceID)
+	}
+	return fmt.Errorf("modbus_tcp write canceled for device %d", deviceID)
 }
 
 // Capabilities implements driver.Controller.

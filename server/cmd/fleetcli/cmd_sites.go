@@ -180,6 +180,26 @@ func generatedSitesCommand() *cli.Command {
 				func() proto.Message { return &sitesv1.DeleteSiteResponse{} },
 			),
 			generatedRequestCommand(
+				"get-infrastructure-control-subnets",
+				"Get commissioned infrastructure control subnets",
+				"/sites.v1.SiteService/GetInfrastructureControlSubnets",
+				generatedAuthSessionOnly,
+				[]cli.Flag{
+					&cli.Int64Flag{Name: "site-id", Usage: "(required) site id", Required: true},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &sitesv1.GetInfrastructureControlSubnetsRequest{}
+					if cmd.IsSet("site-id") {
+						req.SiteId = cmd.Int64("site-id")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
+					return req, nil
+				},
+				func() proto.Message { return &sitesv1.GetInfrastructureControlSubnetsResponse{} },
+			),
+			generatedRequestCommand(
 				"list",
 				"List sites",
 				"/sites.v1.SiteService/ListSites",
@@ -213,6 +233,30 @@ func generatedSitesCommand() *cli.Command {
 					return req, nil
 				},
 				func() proto.Message { return &sitesv1.ResolveSiteBySlugResponse{} },
+			),
+			generatedRequestCommand(
+				"set-infrastructure-control-subnets",
+				"Replace commissioned infrastructure control subnets; omit all subnet flags to decommission",
+				"/sites.v1.SiteService/SetInfrastructureControlSubnets",
+				generatedAuthSessionOnly,
+				[]cli.Flag{
+					&cli.Int64Flag{Name: "site-id", Usage: "(required) site id", Required: true},
+					&cli.StringSliceFlag{Name: "infrastructure-control-subnets", Usage: "infrastructure control subnets"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &sitesv1.SetInfrastructureControlSubnetsRequest{}
+					if cmd.IsSet("site-id") {
+						req.SiteId = cmd.Int64("site-id")
+					}
+					if cmd.IsSet("infrastructure-control-subnets") {
+						req.InfrastructureControlSubnets = cmd.StringSlice("infrastructure-control-subnets")
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
+					return req, nil
+				},
+				func() proto.Message { return &sitesv1.SetInfrastructureControlSubnetsResponse{} },
 			),
 			generatedRequestCommand(
 				"stats",

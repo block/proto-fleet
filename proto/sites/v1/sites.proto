@@ -68,6 +68,20 @@ service SiteService {
     rpc AssignRacksToSite(AssignRacksToSiteRequest)
         returns (AssignRacksToSiteResponse);
 
+    // GetInfrastructureControlSubnets returns the site's commissioned OT
+    // control-subnet allowlist. This sensitive topology is intentionally
+    // separate from Site and requires an interactive ADMIN/SUPER_ADMIN
+    // session with site:manage on the target site.
+    rpc GetInfrastructureControlSubnets(GetInfrastructureControlSubnetsRequest)
+        returns (GetInfrastructureControlSubnetsResponse);
+
+    // SetInfrastructureControlSubnets explicitly replaces the site's
+    // commissioned OT control-subnet allowlist. An empty list decommissions
+    // the site and disables future infrastructure writes. The server
+    // validates, canonicalizes, sorts, persists, and audits the replacement.
+    rpc SetInfrastructureControlSubnets(SetInfrastructureControlSubnetsRequest)
+        returns (SetInfrastructureControlSubnetsResponse);
+
     // GetSiteStats returns server-rolled telemetry + miner-state counts
     // for every device assigned to the site, including devices whose
     // rack has no building set and devices that have no rack at all.
@@ -329,6 +343,35 @@ message AssignRacksToSiteResponse {
     // crossed site boundaries. UI can use this to prompt for
     // re-assignment to a building in the new site.
     int64 cleared_building_count = 2;
+}
+
+// Infrastructure control-subnet commissioning
+
+message GetInfrastructureControlSubnetsRequest {
+    int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetInfrastructureControlSubnetsResponse {
+    int64 site_id = 1;
+    // Canonical CIDR strings in stable lexical order.
+    repeated string infrastructure_control_subnets = 2;
+}
+
+message SetInfrastructureControlSubnetsRequest {
+    int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Full replacement. Empty decommissions the site. Domain validation
+    // additionally restricts values to RFC1918 prefixes (IPv4, /20 or
+    // narrower) or ULA host prefixes (IPv6, /128) and rejects overlap.
+    repeated string infrastructure_control_subnets = 2 [(buf.validate.field).repeated = {
+        max_items: 256
+        items: {string: {min_len: 1, max_len: 64}}
+    }];
+}
+
+message SetInfrastructureControlSubnetsResponse {
+    int64 site_id = 1;
+    // Canonical CIDR strings in stable lexical order.
+    repeated string infrastructure_control_subnets = 2;
 }
 
 // GetSiteStats

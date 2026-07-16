@@ -78,6 +78,25 @@ Virtual miners simulate both network latency and miner processing latency. The
 default miner-internal latency is 200-500ms, with occasional 5-8s outliers.
 Generation is capped at 50,000 virtual miners per plugin process.
 
+## Facility Infrastructure Control
+
+Direct Modbus TCP writes are disabled unless the deployment and the target
+site independently authorize the endpoint. Set the deployment-controlled
+positive allowlist in `.env` as comma-separated private CIDRs or host
+prefixes:
+
+```bash
+INFRASTRUCTURE_OT_CONTROL_SUBNETS=10.40.12.0/24,10.52.7.18/32
+```
+
+An ADMIN or SUPER_ADMIN must separately commission the target site's
+allowlist through `SiteService.SetInfrastructureControlSubnets`. The endpoint
+must be in both lists. Empty deployment or site configuration fails closed.
+
+Application allowlists do not replace OT network controls. Before enabling a
+site, restrict Modbus TCP routing with default-deny firewall rules so only the
+Proto Fleet server can reach the commissioned drive/PLC addresses and port.
+
 ## Host Profiles
 
 The installer tunes the database and poller for the host hardware via a

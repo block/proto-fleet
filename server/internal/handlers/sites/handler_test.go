@@ -3,8 +3,10 @@ package sites
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
+	"buf.build/go/protovalidate"
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
@@ -12,6 +14,8 @@ import (
 	"go.uber.org/mock/gomock"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -23,9 +27,7 @@ import (
 )
 
 // testHarness wires a real *sites.Service against mock stores so handler
-// tests exercise both the auth gate and the body. activitySvc is nil;
-// the service's logActivity guards against that path so audit fire-and-
-// forget no-ops in tests.
+// tests exercise both the auth gate and the body.
 type testHarness struct {
 	handler         *Handler
 	siteStore       *mocks.MockSiteStore
@@ -41,6 +43,8 @@ func newTestHandler(t *testing.T) *testHarness {
 	siteStore := mocks.NewMockSiteStore(ctrl)
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	collectionStore := mocks.NewMockCollectionStore(ctrl)
+	activityStore := mocks.NewMockActivityStore(ctrl)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).AnyTimes().Return(nil)
 	tx := mocks.NewMockTransactor(ctrl)
 	// RunInTx fake: runs the closure inline so cascade calls land
 	// against the mock store without a real DB.
@@ -58,7 +62,15 @@ func newTestHandler(t *testing.T) *testHarness {
 	)
 	// GetSiteStats isn't exercised by these tests; pass nil for the
 	// stats-only dependencies and rely on the service's nil-guard.
-	svc := sites.NewService(siteStore, buildingStore, collectionStore, nil, nil, tx, nil)
+	svc := sites.NewService(
+		siteStore,
+		buildingStore,
+		collectionStore,
+		nil,
+		nil,
+		tx,
+		activity.NewService(activityStore),
+	)
 	return &testHarness{
 		handler:         NewHandler(svc),
 		siteStore:       siteStore,
@@ -75,6 +87,16 @@ func newTestHandler(t *testing.T) *testHarness {
 func sitePermsCtx(t *testing.T, orgID int64) context.Context {
 	t.Helper()
 	return handlerstest.CtxWithPermissions(t, orgID, authz.PermSiteRead, authz.PermSiteManage)
+}
+
+func siteRoleCtx(t *testing.T, orgID int64, role string, assignments ...authz.Assignment) context.Context {
+	t.Helper()
+	ctx := handlerstest.CtxWithAssignments(t, orgID, assignments...)
+	return authn.SetInfo(ctx, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		Role:           role,
+	})
 }
 
 func ptrInt64(v int64) *int64 { return &v }
@@ -309,6 +331,198 @@ func TestHandler_UpdateSite_happy(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "renamed", resp.Msg.GetSite().GetName())
 	assert.Equal(t, "renamed", resp.Msg.GetSite().GetSlug())
+}
+
+func TestHandler_InfrastructureControlSubnetsAdminGetAndSet(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ADMIN reads commissioned subnets", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		h.siteStore.EXPECT().
+			GetInfrastructureControlSubnets(gomock.Any(), int64(7), int64(42)).
+			Return("10.20.0.0/24\nfd12:3456::5/128", nil)
+
+		ctx := siteRoleCtx(
+			t,
+			7,
+			domainAuth.AdminRoleName,
+			handlerstest.SiteAssignment(42, authz.PermSiteManage),
+		)
+		resp, err := h.handler.GetInfrastructureControlSubnets(
+			ctx,
+			connect.NewRequest(&pb.GetInfrastructureControlSubnetsRequest{SiteId: 42}),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, int64(42), resp.Msg.GetSiteId())
+		assert.Equal(t,
+			[]string{"10.20.0.0/24", "fd12:3456::5/128"},
+			resp.Msg.GetInfrastructureControlSubnets(),
+		)
+	})
+
+	t.Run("SUPER_ADMIN replaces and canonicalizes subnets", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		h.siteStore.EXPECT().
+			SetInfrastructureControlSubnets(
+				gomock.Any(),
+				int64(7),
+				int64(42),
+				"10.20.0.0/24\nfd12:3456::5/128",
+			).
+			Return("10.20.0.0/24\nfd12:3456::5/128", nil)
+
+		ctx := siteRoleCtx(
+			t,
+			7,
+			domainAuth.SuperAdminRoleName,
+			handlerstest.SiteAssignment(42, authz.PermSiteManage),
+		)
+		resp, err := h.handler.SetInfrastructureControlSubnets(
+			ctx,
+			connect.NewRequest(&pb.SetInfrastructureControlSubnetsRequest{
+				SiteId: 42,
+				InfrastructureControlSubnets: []string{
+					"fd12:3456::5/128",
+					"10.20.0.99/24",
+				},
+			}),
+		)
+		require.NoError(t, err)
+		assert.Equal(t,
+			[]string{"10.20.0.0/24", "fd12:3456::5/128"},
+			resp.Msg.GetInfrastructureControlSubnets(),
+		)
+	})
+
+	t.Run("ADMIN clears to decommission", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		h.siteStore.EXPECT().
+			SetInfrastructureControlSubnets(gomock.Any(), int64(7), int64(42), "").
+			Return("", nil)
+
+		ctx := siteRoleCtx(
+			t,
+			7,
+			domainAuth.AdminRoleName,
+			handlerstest.SiteAssignment(42, authz.PermSiteManage),
+		)
+		resp, err := h.handler.SetInfrastructureControlSubnets(
+			ctx,
+			connect.NewRequest(&pb.SetInfrastructureControlSubnetsRequest{SiteId: 42}),
+		)
+		require.NoError(t, err)
+		assert.Empty(t, resp.Msg.GetInfrastructureControlSubnets())
+	})
+}
+
+func TestHandler_InfrastructureControlSubnetsRequiresAdminAndTargetSiteManage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		role        string
+		assignments []authz.Assignment
+	}{
+		{
+			name: "ordinary site manager is forbidden",
+			role: "SITE_MANAGER",
+			assignments: []authz.Assignment{
+				handlerstest.SiteAssignment(42, authz.PermSiteManage),
+			},
+		},
+		{
+			name: "admin narrowed to another site is forbidden",
+			role: domainAuth.AdminRoleName,
+			assignments: []authz.Assignment{
+				handlerstest.SiteAssignment(99, authz.PermSiteManage),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler(t)
+			ctx := siteRoleCtx(t, 7, tt.role, tt.assignments...)
+
+			_, err := h.handler.GetInfrastructureControlSubnets(
+				ctx,
+				connect.NewRequest(&pb.GetInfrastructureControlSubnetsRequest{SiteId: 42}),
+			)
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+
+			_, err = h.handler.SetInfrastructureControlSubnets(
+				ctx,
+				connect.NewRequest(&pb.SetInfrastructureControlSubnetsRequest{SiteId: 42}),
+			)
+			require.Error(t, err)
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+		})
+	}
+}
+
+func TestHandler_InfrastructureControlSubnetsMasksMissingAndCrossOrgSites(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	notFound := fleeterror.NewNotFoundErrorf("site %d not found", 42)
+	h.siteStore.EXPECT().
+		GetInfrastructureControlSubnets(gomock.Any(), int64(7), int64(42)).
+		Return("", notFound)
+	h.siteStore.EXPECT().
+		SetInfrastructureControlSubnets(gomock.Any(), int64(7), int64(42), "").
+		Return("", notFound)
+
+	ctx := siteRoleCtx(
+		t,
+		7,
+		domainAuth.AdminRoleName,
+		handlerstest.OrgAssignment(authz.PermSiteManage),
+	)
+	_, err := h.handler.GetInfrastructureControlSubnets(
+		ctx,
+		connect.NewRequest(&pb.GetInfrastructureControlSubnetsRequest{SiteId: 42}),
+	)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
+
+	_, err = h.handler.SetInfrastructureControlSubnets(
+		ctx,
+		connect.NewRequest(&pb.SetInfrastructureControlSubnetsRequest{SiteId: 42}),
+	)
+	require.Error(t, err)
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
+}
+
+func TestSetInfrastructureControlSubnetsRequestBufValidationBounds(t *testing.T) {
+	t.Parallel()
+
+	tooMany := make([]string, 257)
+	for i := range tooMany {
+		tooMany[i] = "10.0.0.1/32"
+	}
+	require.Error(t, protovalidate.Validate(&pb.SetInfrastructureControlSubnetsRequest{
+		SiteId:                       42,
+		InfrastructureControlSubnets: tooMany,
+	}))
+	require.Error(t, protovalidate.Validate(&pb.SetInfrastructureControlSubnetsRequest{
+		SiteId:                       42,
+		InfrastructureControlSubnets: []string{strings.Repeat("a", 65)},
+	}))
+	require.NoError(t, protovalidate.Validate(&pb.SetInfrastructureControlSubnetsRequest{
+		SiteId:                       42,
+		InfrastructureControlSubnets: []string{"10.0.0.1/32"},
+	}))
 }
 
 func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {

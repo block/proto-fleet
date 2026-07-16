@@ -128,7 +128,7 @@ INSERT INTO site (
     COALESCE($11::text, 'US'),
     $12
 )
-RETURNING id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes, timezone, slug
+RETURNING id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes, timezone, slug, infrastructure_control_subnets
 `
 
 type CreateSiteParams struct {
@@ -182,6 +182,7 @@ func (q *Queries) CreateSite(ctx context.Context, arg CreateSiteParams) (Site, e
 		&i.Notes,
 		&i.Timezone,
 		&i.Slug,
+		&i.InfrastructureControlSubnets,
 	)
 	return i, err
 }
@@ -362,8 +363,31 @@ func (q *Queries) FindDevicesInSiteLessRacks(ctx context.Context, arg FindDevice
 	return items, nil
 }
 
+const getInfrastructureControlSubnets = `-- name: GetInfrastructureControlSubnets :one
+SELECT infrastructure_control_subnets
+FROM site
+WHERE id = $1
+  AND org_id = $2
+  AND deleted_at IS NULL
+`
+
+type GetInfrastructureControlSubnetsParams struct {
+	ID    int64
+	OrgID int64
+}
+
+// Dedicated sensitive read: this field is intentionally not projected through
+// the generic Site API. Org scope and deleted_at mask cross-org/missing sites
+// as the same not-found result.
+func (q *Queries) GetInfrastructureControlSubnets(ctx context.Context, arg GetInfrastructureControlSubnetsParams) (string, error) {
+	row := q.queryRow(ctx, q.getInfrastructureControlSubnetsStmt, getInfrastructureControlSubnets, arg.ID, arg.OrgID)
+	var infrastructure_control_subnets string
+	err := row.Scan(&infrastructure_control_subnets)
+	return infrastructure_control_subnets, err
+}
+
 const getSite = `-- name: GetSite :one
-SELECT id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes, timezone, slug
+SELECT id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes, timezone, slug, infrastructure_control_subnets
 FROM site
 WHERE id = $1
   AND org_id = $2
@@ -395,12 +419,13 @@ func (q *Queries) GetSite(ctx context.Context, arg GetSiteParams) (Site, error) 
 		&i.Notes,
 		&i.Timezone,
 		&i.Slug,
+		&i.InfrastructureControlSubnets,
 	)
 	return i, err
 }
 
 const getSiteBySlug = `-- name: GetSiteBySlug :one
-SELECT id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes, timezone, slug
+SELECT id, org_id, name, location_city, location_state, power_capacity_mw, network_config, created_at, updated_at, deleted_at, address, postal_code, country, notes, timezone, slug, infrastructure_control_subnets
 FROM site
 WHERE slug = $1
   AND org_id = $2
@@ -432,6 +457,7 @@ func (q *Queries) GetSiteBySlug(ctx context.Context, arg GetSiteBySlugParams) (S
 		&i.Notes,
 		&i.Timezone,
 		&i.Slug,
+		&i.InfrastructureControlSubnets,
 	)
 	return i, err
 }
@@ -554,7 +580,7 @@ func (q *Queries) ListSiteSlugs(ctx context.Context, orgID int64) ([]string, err
 
 const listSites = `-- name: ListSites :many
 SELECT
-    s.id, s.org_id, s.name, s.location_city, s.location_state, s.power_capacity_mw, s.network_config, s.created_at, s.updated_at, s.deleted_at, s.address, s.postal_code, s.country, s.notes, s.timezone, s.slug,
+    s.id, s.org_id, s.name, s.location_city, s.location_state, s.power_capacity_mw, s.network_config, s.created_at, s.updated_at, s.deleted_at, s.address, s.postal_code, s.country, s.notes, s.timezone, s.slug, s.infrastructure_control_subnets,
     COALESCE(d.device_count, 0)::bigint AS device_count,
     COALESCE(b.building_count, 0)::bigint AS building_count,
     COALESCE(r.rack_count, 0)::bigint AS rack_count,
@@ -598,26 +624,27 @@ ORDER BY s.name
 `
 
 type ListSitesRow struct {
-	ID                        int64
-	OrgID                     int64
-	Name                      string
-	LocationCity              sql.NullString
-	LocationState             sql.NullString
-	PowerCapacityMw           sql.NullString
-	NetworkConfig             sql.NullString
-	CreatedAt                 time.Time
-	UpdatedAt                 time.Time
-	DeletedAt                 sql.NullTime
-	Address                   sql.NullString
-	PostalCode                sql.NullString
-	Country                   string
-	Notes                     sql.NullString
-	Timezone                  sql.NullString
-	Slug                      string
-	DeviceCount               int64
-	BuildingCount             int64
-	RackCount                 int64
-	InfrastructureDeviceCount int64
+	ID                           int64
+	OrgID                        int64
+	Name                         string
+	LocationCity                 sql.NullString
+	LocationState                sql.NullString
+	PowerCapacityMw              sql.NullString
+	NetworkConfig                sql.NullString
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+	DeletedAt                    sql.NullTime
+	Address                      sql.NullString
+	PostalCode                   sql.NullString
+	Country                      string
+	Notes                        sql.NullString
+	Timezone                     sql.NullString
+	Slug                         string
+	InfrastructureControlSubnets string
+	DeviceCount                  int64
+	BuildingCount                int64
+	RackCount                    int64
+	InfrastructureDeviceCount    int64
 }
 
 // Returns each site with attachment counts so the delete-confirm dialog
@@ -649,6 +676,7 @@ func (q *Queries) ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, e
 			&i.Notes,
 			&i.Timezone,
 			&i.Slug,
+			&i.InfrastructureControlSubnets,
 			&i.DeviceCount,
 			&i.BuildingCount,
 			&i.RackCount,
@@ -968,6 +996,31 @@ func (q *Queries) ReassignRacksUnderBuildingsBulk(ctx context.Context, arg Reass
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setInfrastructureControlSubnets = `-- name: SetInfrastructureControlSubnets :one
+UPDATE site
+SET infrastructure_control_subnets = $1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2
+  AND org_id = $3
+  AND deleted_at IS NULL
+RETURNING infrastructure_control_subnets
+`
+
+type SetInfrastructureControlSubnetsParams struct {
+	InfrastructureControlSubnets string
+	ID                           int64
+	OrgID                        int64
+}
+
+// Explicitly replaces the commissioned OT allowlist. Empty text
+// decommissions the site. Canonicalization happens in the sites domain.
+func (q *Queries) SetInfrastructureControlSubnets(ctx context.Context, arg SetInfrastructureControlSubnetsParams) (string, error) {
+	row := q.queryRow(ctx, q.setInfrastructureControlSubnetsStmt, setInfrastructureControlSubnets, arg.InfrastructureControlSubnets, arg.ID, arg.OrgID)
+	var infrastructure_control_subnets string
+	err := row.Scan(&infrastructure_control_subnets)
+	return infrastructure_control_subnets, err
 }
 
 const siteBelongsToOrg = `-- name: SiteBelongsToOrg :one
