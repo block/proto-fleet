@@ -4,6 +4,10 @@ import {
   curtailmentNumericFieldLimits,
   parseOptionalUint32Field,
 } from "@/protoFleet/features/energy/curtailmentNumericFields";
+import {
+  maxFacilityFanDeviceSelections,
+  selectAllFacilityFanDeviceIds,
+} from "@/protoFleet/features/energy/facilityFanSelection";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
@@ -44,8 +48,6 @@ interface DeviceGroup {
   siteName: string;
   devices: FacilityFanDeviceOption[];
 }
-
-const maxFacilityFanDeviceSelections = 1024;
 
 function formatCount(count: number, singular: string): string {
   return `${count} ${count === 1 ? singular : `${singular}s`}`;
@@ -180,9 +182,7 @@ function FacilityFanSelectionModal({
           <ModalSelectAllFooter
             label={`${formatCount(selectedDeviceIdsInScope.length, "device")} selected${hasReachedSelectionLimit ? " (maximum)" : ""}`}
             onSelectAll={() =>
-              setSelectedDeviceIds(
-                new Set([...selectedDeviceIdsInScope, ...selectableDeviceIds].slice(0, maxFacilityFanDeviceSelections)),
-              )
+              setSelectedDeviceIds(selectAllFacilityFanDeviceIds(selectedDeviceIdsInScope, selectableDeviceIds))
             }
             onSelectNone={() => setSelectedDeviceIds(new Set())}
           />

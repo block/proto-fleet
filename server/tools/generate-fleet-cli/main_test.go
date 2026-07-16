@@ -670,7 +670,7 @@ func TestBuildGroupsRendersDefaultFieldsBeforeFlagOverrides(t *testing.T) {
 	}
 }
 
-func TestBuildGroupsSetsBooleanFieldWhenRelatedFlagsAreProvided(t *testing.T) {
+func TestBuildGroupsRequiresRelatedFlagsTogetherBeforeSettingBoolean(t *testing.T) {
 	file := testFanSettingsServiceFile(t)
 	files := []protoreflect.FileDescriptor{file}
 	messages, enums, err := buildTypeIndexes(files)
@@ -702,8 +702,12 @@ func TestBuildGroupsSetsBooleanFieldWhenRelatedFlagsAreProvided(t *testing.T) {
 	}
 
 	expr := groups[0].CommandExprs[0]
-	want := "if cmd.IsSet(\"facility-fan-device-ids\") || cmd.IsSet(\"fan-off-delay-sec\") || cmd.IsSet(\"fan-restore-delay-sec\") {\n\t\t\treq.ReplaceFacilityFanSettings = true\n\t\t}"
-	if !strings.Contains(expr, want) {
+	wantGuard := "if (cmd.IsSet(\"facility-fan-device-ids\") || cmd.IsSet(\"fan-off-delay-sec\") || cmd.IsSet(\"fan-restore-delay-sec\")) && !(cmd.IsSet(\"facility-fan-device-ids\") && cmd.IsSet(\"fan-off-delay-sec\") && cmd.IsSet(\"fan-restore-delay-sec\")) {\n\t\t\treturn nil, fmt.Errorf(\"flags --facility-fan-device-ids, --fan-off-delay-sec, --fan-restore-delay-sec must be provided together\")\n\t\t}"
+	if !strings.Contains(expr, wantGuard) {
+		t.Fatalf("generated command missing partial-field guard:\n%s", expr)
+	}
+	wantTrigger := "if cmd.IsSet(\"facility-fan-device-ids\") && cmd.IsSet(\"fan-off-delay-sec\") && cmd.IsSet(\"fan-restore-delay-sec\") {\n\t\t\treq.ReplaceFacilityFanSettings = true\n\t\t}"
+	if !strings.Contains(expr, wantTrigger) {
 		t.Fatalf("generated command missing related-field trigger:\n%s", expr)
 	}
 }

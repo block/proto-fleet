@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { selectAllFacilityFanDeviceIds } from "@/protoFleet/features/energy/facilityFanSelection";
 import FacilityFanSelectionModal, {
   type FacilityFanDeviceOption,
 } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
@@ -19,10 +20,22 @@ function facilityFanDevices(count: number): FacilityFanDeviceOption[] {
 
 describe("FacilityFanSelectionModal", () => {
   it("caps Select all at the response profile fan limit", () => {
+    const selectedDeviceIds = selectAllFacilityFanDeviceIds(
+      ["1"],
+      facilityFanDevices(1025).map(({ id }) => id),
+    );
+
+    expect([...selectedDeviceIds]).toHaveLength(1024);
+    expect(selectedDeviceIds).toContain("1");
+    expect(selectedDeviceIds).toContain("1024");
+    expect(selectedDeviceIds).not.toContain("1025");
+  });
+
+  it("selects all available devices and applies them", () => {
     const onApply = vi.fn();
     render(
       <FacilityFanSelectionModal
-        devices={facilityFanDevices(1025)}
+        devices={facilityFanDevices(2)}
         initialSelectedDeviceIds={[]}
         initialFanOffDelaySec=""
         initialFanRestoreDelaySec=""
@@ -33,19 +46,11 @@ describe("FacilityFanSelectionModal", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Select all" }));
 
-    expect(screen.getByText("1024 devices selected (maximum)")).toBeInTheDocument();
+    expect(screen.getByText("2 devices selected")).toBeInTheDocument();
     expect(within(screen.getByTestId("facility-fan-device-1")).getByRole("checkbox")).toBeChecked();
-    const overflowCheckbox = within(screen.getByTestId("facility-fan-device-1025")).getByRole("checkbox");
-    expect(overflowCheckbox).toBeDisabled();
-    expect(overflowCheckbox).not.toBeChecked();
+    expect(within(screen.getByTestId("facility-fan-device-2")).getByRole("checkbox")).toBeChecked();
 
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
-    expect(onApply).toHaveBeenCalledWith(
-      expect.objectContaining({
-        selectedDeviceIds: expect.arrayContaining(["1", "1024"]),
-      }),
-    );
-    expect(onApply.mock.calls[0]?.[0]?.selectedDeviceIds).toHaveLength(1024);
-    expect(onApply.mock.calls[0]?.[0]?.selectedDeviceIds).not.toContain("1025");
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ selectedDeviceIds: ["1", "2"] }));
   });
 });

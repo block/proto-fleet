@@ -940,18 +940,22 @@ func analyzeRequest(
 		analysis.lines = append(lines, analysis.lines...)
 		analysis.needsFmt = analysis.needsFmt || needsFmt
 	}
-	triggerLines, err := buildSetBoolWhenFieldsSetLines(message, options)
+	triggerLines, triggerNeedsFmt, err := buildSetBoolWhenFieldsSetLines(message, options)
 	if err != nil {
 		return analysis, err
 	}
 	analysis.lines = append(analysis.lines, triggerLines...)
+	analysis.needsFmt = analysis.needsFmt || triggerNeedsFmt
 
 	return analysis, nil
 }
 
-func buildSetBoolWhenFieldsSetLines(message protoreflect.MessageDescriptor, options renderOptions) ([]string, error) {
+func buildSetBoolWhenFieldsSetLines(
+	message protoreflect.MessageDescriptor,
+	options renderOptions,
+) ([]string, bool, error) {
 	if len(options.SetBoolWhenFieldsSet) == 0 {
-		return nil, nil
+		return nil, false, nil
 	}
 
 	targetNames := make([]string, 0, len(options.SetBoolWhenFieldsSet))
@@ -962,20 +966,21 @@ func buildSetBoolWhenFieldsSetLines(message protoreflect.MessageDescriptor, opti
 
 	fieldFlagsByRoot := groupFieldFlagsByRoot(options.FieldFlags)
 	var lines []string
+	needsFmt := false
 	for _, targetName := range targetNames {
 		targetField := message.Fields().ByName(protoreflect.Name(targetName))
 		if targetField == nil {
-			return nil, fmt.Errorf("set_bool_when_fields_set references unknown target field %q on %s", targetName, message.FullName())
+			return nil, false, fmt.Errorf("set_bool_when_fields_set references unknown target field %q on %s", targetName, message.FullName())
 		}
 		if targetField.IsList() || targetField.IsMap() || targetField.Kind() != protoreflect.BoolKind {
-			return nil, fmt.Errorf("set_bool_when_fields_set target %q on %s must be a boolean scalar", targetName, message.FullName())
+			return nil, false, fmt.Errorf("set_bool_when_fields_set target %q on %s must be a boolean scalar", targetName, message.FullName())
 		}
 
 		var sourceFlagNames []string
 		for _, sourceName := range options.SetBoolWhenFieldsSet[targetName] {
 			flagNames, err := fieldFlagNamesForTrigger(message, sourceName, options, fieldFlagsByRoot)
 			if err != nil {
-				return nil, err
+				return nil, false, err
 			}
 			sourceFlagNames = append(sourceFlagNames, flagNames...)
 		}
@@ -983,13 +988,22 @@ func buildSetBoolWhenFieldsSetLines(message protoreflect.MessageDescriptor, opti
 		for i, flagName := range sourceFlagNames {
 			conditions[i] = fmt.Sprintf("cmd.IsSet(%q)", flagName)
 		}
-		lines = append(lines, "if "+strings.Join(conditions, " || ")+" {")
+		if len(conditions) > 1 {
+			needsFmt = true
+			anyCondition := strings.Join(conditions, " || ")
+			allCondition := strings.Join(conditions, " && ")
+			flagList := "--" + strings.Join(sourceFlagNames, ", --")
+			lines = append(lines, "if ("+anyCondition+") && !("+allCondition+") {")
+			lines = append(lines, fmt.Sprintf("\treturn nil, fmt.Errorf(%q)", "flags "+flagList+" must be provided together"))
+			lines = append(lines, "}")
+		}
+		lines = append(lines, "if "+strings.Join(conditions, " && ")+" {")
 		for _, assignment := range scalarAssignmentLines(targetField, "true") {
 			lines = append(lines, "\t"+assignment)
 		}
 		lines = append(lines, "}")
 	}
-	return lines, nil
+	return lines, needsFmt, nil
 }
 
 func fieldFlagNamesForTrigger(

@@ -1295,7 +1295,10 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("replace-facility-fan-settings") {
 								req.ReplaceFacilityFanSettings = cmd.Bool("replace-facility-fan-settings")
 							}
-							if cmd.IsSet("facility-fan-device-ids") || cmd.IsSet("fan-off-delay-sec") || cmd.IsSet("fan-restore-delay-sec") {
+							if (cmd.IsSet("facility-fan-device-ids") || cmd.IsSet("fan-off-delay-sec") || cmd.IsSet("fan-restore-delay-sec")) && !(cmd.IsSet("facility-fan-device-ids") && cmd.IsSet("fan-off-delay-sec") && cmd.IsSet("fan-restore-delay-sec")) {
+								return nil, fmt.Errorf("flags --facility-fan-device-ids, --fan-off-delay-sec, --fan-restore-delay-sec must be provided together")
+							}
+							if cmd.IsSet("facility-fan-device-ids") && cmd.IsSet("fan-off-delay-sec") && cmd.IsSet("fan-restore-delay-sec") {
 								req.ReplaceFacilityFanSettings = true
 							}
 							if err := generatedValidateRequiredFields(req, "mode", "profile_id", "profile_name"); err != nil {

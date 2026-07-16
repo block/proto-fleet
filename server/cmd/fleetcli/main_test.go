@@ -387,6 +387,17 @@ func TestGeneratedReviewedCommandsRejectIncompleteRequestsLocally(t *testing.T) 
 			want: "rule-name",
 		},
 		{
+			name: "response profile partial fan settings update",
+			args: []string{
+				"curtailment", "profiles", "update",
+				"--profile-id", "1",
+				"--profile-name", "Test profile",
+				"--mode", "full-fleet",
+				"--fan-off-delay-sec", "30",
+			},
+			want: "must be provided together",
+		},
+		{
 			name: "pool validate",
 			args: []string{"pools", "validate", "--pool-password-stdin"},
 			want: `required field "url"`,
