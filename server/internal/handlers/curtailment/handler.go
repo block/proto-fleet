@@ -647,7 +647,7 @@ func (h *Handler) requireEventPermission(ctx context.Context, permission string,
 	if err != nil {
 		return nil, nil, err
 	}
-	siteContexts, err := h.eventSiteResourceContexts(ctx, info.OrganizationID, event)
+	requirements, err := h.eventResourceContextRequirements(ctx, info.OrganizationID, event)
 	if err != nil {
 		if isIncompleteTargetSiteContextError(err) {
 			info, err = middleware.RequireOrgWidePermission(ctx, permission)
@@ -658,12 +658,9 @@ func (h *Handler) requireEventPermission(ctx context.Context, permission string,
 		}
 		return nil, nil, err
 	}
-	for _, rc := range siteContexts {
-		checkedInfo, err := middleware.RequirePermission(ctx, permission, rc)
-		if err != nil {
-			return nil, nil, err
-		}
-		info = checkedInfo
+	info, err = requireScopeResourceContextPermissions(ctx, permission, requirements, info)
+	if err != nil {
+		return nil, nil, err
 	}
 	return info, event, nil
 }
@@ -678,7 +675,7 @@ func copyEventTargetSiteCoverage(dst, src *models.Event) {
 }
 
 func (h *Handler) requireForceReleasePermission(ctx context.Context, orgID int64, event *models.Event) error {
-	siteContexts, err := h.eventSiteResourceContexts(ctx, orgID, event)
+	requirements, err := h.eventResourceContextRequirements(ctx, orgID, event)
 	if err != nil {
 		if isIncompleteTargetSiteContextError(err) {
 			_, err := middleware.RequireOrgWidePermission(ctx, authz.PermCurtailmentManage)
@@ -686,16 +683,7 @@ func (h *Handler) requireForceReleasePermission(ctx context.Context, orgID int64
 		}
 		return err
 	}
-	for _, rc := range siteContexts {
-		if _, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, rc); err != nil {
-			return err
-		}
-	}
-	if len(siteContexts) == 0 {
-		_, err := middleware.RequireOrgWidePermission(ctx, authz.PermCurtailmentManage)
-		return err
-	}
-	return nil
+	return requireResourceContextPermissions(ctx, authz.PermCurtailmentManage, requirements)
 }
 
 func (h *Handler) filterEventsByPermission(
@@ -713,7 +701,7 @@ func (h *Handler) filterEventsByPermission(
 	}
 	filtered := make([]*models.Event, 0, len(events))
 	for _, event := range events {
-		siteContexts, err := h.eventSiteResourceContextsWithFanSites(ctx, orgID, event, fanDeviceSites)
+		requirements, err := h.eventResourceContextRequirementsWithFanSites(ctx, orgID, event, fanDeviceSites)
 		if err != nil {
 			if isIncompleteTargetSiteContextError(err) {
 				if _, orgWideErr := middleware.RequireOrgWidePermission(ctx, permission); orgWideErr != nil {
@@ -731,7 +719,7 @@ func (h *Handler) filterEventsByPermission(
 			return nil, err
 		}
 		permitted := true
-		for _, rc := range siteContexts {
+		for _, rc := range requirements.siteContexts {
 			if _, err := middleware.RequirePermission(ctx, permission, rc); err != nil {
 				if fleeterror.IsForbiddenError(err) {
 					permitted = false
@@ -935,29 +923,36 @@ func eventResourceContext(event *models.Event) (authz.ResourceContext, error) {
 	return authz.ResourceContext{SiteID: &payload.SiteID}, nil
 }
 
-func (h *Handler) eventSiteResourceContexts(
+func (h *Handler) eventResourceContextRequirements(
 	ctx context.Context,
 	orgID int64,
 	event *models.Event,
-) ([]authz.ResourceContext, error) {
-	return h.eventSiteResourceContextsWithFanSites(ctx, orgID, event, nil)
+) (scopeResourceContextRequirements, error) {
+	return h.eventResourceContextRequirementsWithFanSites(ctx, orgID, event, nil)
 }
 
-func (h *Handler) eventSiteResourceContextsWithFanSites(
+func (h *Handler) eventResourceContextRequirementsWithFanSites(
 	ctx context.Context,
 	orgID int64,
 	event *models.Event,
 	fanDeviceSites map[int64]int64,
-) ([]authz.ResourceContext, error) {
+) (scopeResourceContextRequirements, error) {
 	targetContexts, err := h.eventTargetSiteResourceContexts(ctx, orgID, event)
 	if err != nil {
-		return nil, err
+		return scopeResourceContextRequirements{}, err
 	}
 	fanContexts, err := h.eventFacilityFanResourceContexts(ctx, orgID, event, fanDeviceSites)
 	if err != nil {
-		return nil, err
+		return scopeResourceContextRequirements{}, err
 	}
-	return mergeSiteResourceContexts(targetContexts, fanContexts), nil
+	siteContexts := mergeSiteResourceContexts(targetContexts, fanContexts)
+	return scopeResourceContextRequirements{
+		siteContexts: siteContexts,
+		requireOrgWide: event == nil ||
+			event.ScopeType == "" ||
+			event.ScopeType == models.ScopeTypeWholeOrg ||
+			len(siteContexts) == 0,
+	}, nil
 }
 
 func (h *Handler) eventTargetSiteResourceContexts(
