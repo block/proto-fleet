@@ -32,7 +32,7 @@ import (
 
 const (
 	maxPageSize        = 1000
-	maxImportBytes     = 64 * 1024 * 1024
+	MaxImportBytes     = 64 * 1024 * 1024
 	maxImportRows      = 100000
 	maxRackDimension   = 12
 	maxLayoutDimension = 100
@@ -292,8 +292,8 @@ func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.Imp
 	if len(req.GetCsvData()) == 0 {
 		return nil, fleeterror.NewInvalidArgumentError("csv_data is required")
 	}
-	if len(req.GetCsvData()) > maxImportBytes {
-		return nil, fleeterror.NewInvalidArgumentErrorf("csv_data must be at most %d bytes", maxImportBytes)
+	if len(req.GetCsvData()) > MaxImportBytes {
+		return nil, fleeterror.NewInvalidArgumentErrorf("csv_data must be at most %d bytes", MaxImportBytes)
 	}
 	parsed, parseErrs := parseSiteMapCSV(req.GetCsvData())
 	if len(parseErrs) > 0 {
@@ -310,6 +310,13 @@ func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.Imp
 	plan := buildPlan(parsed, snapshot, req.GetOmissionMode())
 	if !importPermissions.CanRenameMiners {
 		plan.errors = append(plan.errors, validateMinerRenamePermission(parsed.sections["MINER"], snapshot)...)
+	}
+	if req.GetOmissionMode() == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
+		impactErrs, err := s.validateOmittedSiteDeleteImpacts(ctx, orgID, omittedSites(parsed.sections["SITE"], snapshot.sites))
+		if err != nil {
+			return nil, err
+		}
+		plan.errors = append(plan.errors, impactErrs...)
 	}
 	if len(plan.errors) > 0 {
 		return &pb.ImportSiteMapCsvResponse{
@@ -1061,6 +1068,7 @@ func parseSiteMapCSV(data []byte) (*parsedCSV, []*pb.ImportValidationError) {
 		"RACK":     rackHeaders,
 		"MINER":    minerHeaders,
 	}
+	seenSections := map[string]bool{}
 	var errs []*pb.ImportValidationError
 	for i := 0; i < len(records); i++ {
 		record := trimRecord(records[i])
@@ -1077,6 +1085,7 @@ func parseSiteMapCSV(data []byte) (*parsedCSV, []*pb.ImportValidationError) {
 			errs = append(errs, csvErr(i+1, section, "unknown section"))
 			continue
 		}
+		seenSections[section] = true
 		i++
 		for i < len(records) && isBlankRecord(trimRecord(records[i])) {
 			i++
@@ -1116,6 +1125,9 @@ func parseSiteMapCSV(data []byte) (*parsedCSV, []*pb.ImportValidationError) {
 	}
 	for section := range expected {
 		if _, ok := out.sections[section]; !ok {
+			if !seenSections[section] {
+				errs = append(errs, csvErr(0, section, "missing section"))
+			}
 			out.sections[section] = nil
 		}
 	}
@@ -1308,11 +1320,6 @@ func (s *Service) applyImportPlan(ctx context.Context, orgID int64, parsed *pars
 		minersByID[miner.DeviceIdentifier] = miner
 	}
 	return s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		if omissionMode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
-			if err := s.applyOmittedRows(txCtx, orgID, parsed, snap); err != nil {
-				return err
-			}
-		}
 		if err := s.applySiteRows(txCtx, orgID, parsed.sections["SITE"], sitesByName, sitesByID); err != nil {
 			return err
 		}
@@ -1322,8 +1329,35 @@ func (s *Service) applyImportPlan(ctx context.Context, orgID int64, parsed *pars
 		if err := s.applyRackRows(txCtx, orgID, parsed.sections["RACK"], sitesByName, sitesByID, buildingsByKey, buildingsByID, racksByLabel, racksByID); err != nil {
 			return err
 		}
-		return s.applyMinerRows(txCtx, orgID, parsed.sections["MINER"], parsed.sections["BUILDING"], snap.buildings, sitesByName, buildingsByKey, buildingsByID, racksByLabel, minersByID)
+		if err := s.applyMinerRows(txCtx, orgID, parsed.sections["MINER"], parsed.sections["BUILDING"], snap.buildings, sitesByName, buildingsByKey, buildingsByID, racksByLabel, minersByID); err != nil {
+			return err
+		}
+		if omissionMode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
+			return s.applyOmittedRows(txCtx, orgID, parsed, snap)
+		}
+		return nil
 	})
+}
+
+func (s *Service) validateOmittedSiteDeleteImpacts(ctx context.Context, orgID int64, sites []sitemodels.Site) ([]*pb.ImportValidationError, error) {
+	var errs []*pb.ImportValidationError
+	for _, site := range sites {
+		profileCount, err := s.siteStore.CountCurtailmentResponseProfilesBySite(ctx, orgID, site.ID)
+		if err != nil {
+			return nil, err
+		}
+		if profileCount > 0 {
+			errs = append(errs, csvErr(0, "SITE", fmt.Sprintf("omitted site %q has curtailment response profiles; site map CSV v1 cannot remove hidden curtailment resources", site.Name)))
+		}
+		infrastructureCount, err := s.siteStore.CountInfrastructureDevicesBySite(ctx, orgID, site.ID)
+		if err != nil {
+			return nil, err
+		}
+		if infrastructureCount > 0 {
+			errs = append(errs, csvErr(0, "SITE", fmt.Sprintf("omitted site %q has infrastructure devices; site map CSV v1 cannot remove hidden infrastructure resources", site.Name)))
+		}
+	}
+	return errs, nil
 }
 
 func (s *Service) applyOmittedRows(ctx context.Context, orgID int64, parsed *parsedCSV, snap *snapshot) error {

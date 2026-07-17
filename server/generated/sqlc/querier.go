@@ -239,6 +239,7 @@ type Querier interface {
 	CountComponentsWithErrors(ctx context.Context, arg CountComponentsWithErrorsParams) (int64, error)
 	CountCurtailmentAutomationRulesByMQTTSource(ctx context.Context, arg CountCurtailmentAutomationRulesByMQTTSourceParams) (int64, error)
 	CountCurtailmentAutomationRulesByResponseProfile(ctx context.Context, arg CountCurtailmentAutomationRulesByResponseProfileParams) (int64, error)
+	CountCurtailmentResponseProfilesBySite(ctx context.Context, arg CountCurtailmentResponseProfilesBySiteParams) (int64, error)
 	// Hierarchy for currently supported closed-loop scopes: org > site.
 	// A new whole-org event conflicts with existing whole-org, site, or site-only mixed events.
 	// A new site or site-only mixed event conflicts with existing whole-org or overlapping site ownership.
@@ -247,6 +248,7 @@ type Querier interface {
 	CountDevicesWithErrors(ctx context.Context, arg CountDevicesWithErrorsParams) (int64, error)
 	// Counts errors with AND filter logic (same logic as QueryErrors without pagination).
 	CountErrors(ctx context.Context, arg CountErrorsParams) (int64, error)
+	CountInfrastructureDevicesBySite(ctx context.Context, arg CountInfrastructureDevicesBySiteParams) (int64, error)
 	// Counts miners by their operational state for fleet health dashboard.
 	// Bucket rules must match InsertMinerStateSnapshot (miner_state_snapshots.sql);
 	// the uptime chart stores history against the same classifier.

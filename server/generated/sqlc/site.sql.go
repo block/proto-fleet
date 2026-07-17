@@ -60,6 +60,65 @@ func (q *Queries) CountBuildingsBySite(ctx context.Context, arg CountBuildingsBy
 	return column_1, err
 }
 
+const countCurtailmentResponseProfilesBySite = `-- name: CountCurtailmentResponseProfilesBySite :one
+WITH scoped_profiles AS (
+  SELECT profile.id
+  FROM curtailment_response_profile profile
+  WHERE profile.org_id = $1
+    AND (
+      profile.site_id = $2
+      OR (
+        profile.scope_json ? 'site_id'
+        AND (profile.scope_json->>'site_id')::BIGINT = $2
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements_text(
+          CASE
+            WHEN jsonb_typeof(profile.scope_json->'site_ids') = 'array' THEN profile.scope_json->'site_ids'
+            ELSE '[]'::jsonb
+          END
+        ) AS scope_site(site_id)
+        WHERE scope_site.site_id::BIGINT = $2
+      )
+    )
+)
+SELECT COUNT(*)::BIGINT
+FROM scoped_profiles
+`
+
+type CountCurtailmentResponseProfilesBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+func (q *Queries) CountCurtailmentResponseProfilesBySite(ctx context.Context, arg CountCurtailmentResponseProfilesBySiteParams) (int64, error) {
+	row := q.queryRow(ctx, q.countCurtailmentResponseProfilesBySiteStmt, countCurtailmentResponseProfilesBySite, arg.OrgID, arg.SiteID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countInfrastructureDevicesBySite = `-- name: CountInfrastructureDevicesBySite :one
+SELECT COUNT(*)::BIGINT
+FROM infrastructure_device
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+`
+
+type CountInfrastructureDevicesBySiteParams struct {
+	OrgID  int64
+	SiteID int64
+}
+
+func (q *Queries) CountInfrastructureDevicesBySite(ctx context.Context, arg CountInfrastructureDevicesBySiteParams) (int64, error) {
+	row := q.queryRow(ctx, q.countInfrastructureDevicesBySiteStmt, countInfrastructureDevicesBySite, arg.OrgID, arg.SiteID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countRacksBySite = `-- name: CountRacksBySite :one
 SELECT COUNT(*)::bigint
 FROM device_set_rack dsr

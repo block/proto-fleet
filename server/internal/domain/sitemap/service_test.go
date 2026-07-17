@@ -59,8 +59,26 @@ func TestBuildSiteMapExportZipIncludesCSVAndAgentGuide(t *testing.T) {
 }
 
 func TestMaxImportBytesAllowsLargeFleetExports(t *testing.T) {
-	if maxImportBytes < 64*1024*1024 {
-		t.Fatalf("maxImportBytes = %d, want at least 64 MiB", maxImportBytes)
+	if MaxImportBytes < 64*1024*1024 {
+		t.Fatalf("MaxImportBytes = %d, want at least 64 MiB", MaxImportBytes)
+	}
+}
+
+func TestParseSiteMapCSVRejectsMissingRequiredSection(t *testing.T) {
+	csv := `# SECTION: SITE
+name,id (read only)
+Site A,1
+
+# SECTION: BUILDING
+name,id (read only),site_id,site,aisles,racks_per_aisle
+Building A,10,1,Site A,1,1
+
+# SECTION: MINER
+device_identifier (read only),serial_number (read only),name,ip_address (read only),mac_address (read only),site_id,site,building_id,building,rack_id,rack,rack_row,rack_col
+`
+	_, errs := parseSiteMapCSV([]byte(csv))
+	if !hasValidationError(errs, "RACK", "missing section") {
+		t.Fatalf("parse errors = %+v, want missing RACK section", errs)
 	}
 }
 
@@ -1066,6 +1084,115 @@ func TestDeleteOmittedSitesRejectsInfrastructureDevicesReferencedByProfiles(t *t
 	err := svc.deleteOmittedSites(ctx, orgID, []sitemodels.Site{{ID: 11}})
 	if !fleeterror.IsFailedPreconditionError(err) {
 		t.Fatalf("deleteOmittedSites error = %v, want failed precondition", err)
+	}
+}
+
+func TestValidateOmittedSiteDeleteImpactsRejectsHiddenResources(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	orgID := int64(42)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	svc := NewService(siteStore, nil, nil, nil, nil, nil, nil)
+
+	siteStore.EXPECT().CountCurtailmentResponseProfilesBySite(ctx, orgID, int64(11)).Return(int64(2), nil)
+	siteStore.EXPECT().CountInfrastructureDevicesBySite(ctx, orgID, int64(11)).Return(int64(3), nil)
+
+	errs, err := svc.validateOmittedSiteDeleteImpacts(ctx, orgID, []sitemodels.Site{{ID: 11, Name: "Site A"}})
+	if err != nil {
+		t.Fatalf("validateOmittedSiteDeleteImpacts error = %v", err)
+	}
+	if !hasValidationError(errs, "SITE", `omitted site "Site A" has curtailment response profiles`) {
+		t.Fatalf("errors = %+v, want curtailment profile impact", errs)
+	}
+	if !hasValidationError(errs, "SITE", `omitted site "Site A" has infrastructure devices`) {
+		t.Fatalf("errors = %+v, want infrastructure impact", errs)
+	}
+}
+
+func TestValidateOmittedSiteDeleteImpactsAllowsEmptySites(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	orgID := int64(42)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	svc := NewService(siteStore, nil, nil, nil, nil, nil, nil)
+
+	siteStore.EXPECT().CountCurtailmentResponseProfilesBySite(ctx, orgID, int64(11)).Return(int64(0), nil)
+	siteStore.EXPECT().CountInfrastructureDevicesBySite(ctx, orgID, int64(11)).Return(int64(0), nil)
+
+	errs, err := svc.validateOmittedSiteDeleteImpacts(ctx, orgID, []sitemodels.Site{{ID: 11, Name: "Site A"}})
+	if err != nil {
+		t.Fatalf("validateOmittedSiteDeleteImpacts error = %v", err)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("errors = %+v, want none", errs)
+	}
+}
+
+func TestApplyImportPlanMovesBuildingsBeforeDeletingOmittedSites(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	orgID := int64(42)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	collectionStore := mocks.NewMockCollectionStore(ctrl)
+	transactor := mocks.NewMockTransactor(ctrl)
+	svc := NewService(siteStore, buildingStore, collectionStore, nil, nil, transactor, nil)
+	siteAID := int64(1)
+	siteBID := int64(2)
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": {
+			{"__row": "3", fieldID: "2", fieldName: "Site B"},
+		},
+		"BUILDING": {
+			{"__row": "7", fieldID: "10", fieldName: "Building A", fieldSiteID: "2", fieldSite: "Site B", "aisles": "1", "racks_per_aisle": "2"},
+		},
+		"RACK":  nil,
+		"MINER": nil,
+	}}
+	snap := &snapshot{
+		sites: []sitemodels.Site{
+			{ID: siteAID, Name: "Site A"},
+			{ID: siteBID, Name: "Site B"},
+		},
+		buildings: []buildingmodels.Building{{ID: 10, SiteID: &siteAID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 2}},
+	}
+
+	transactor.EXPECT().RunInTx(ctx, gomock.Any()).DoAndReturn(func(txCtx context.Context, fn func(context.Context) error) error {
+		return fn(txCtx)
+	})
+	gomock.InOrder(
+		siteStore.EXPECT().LockSiteForWrite(ctx, orgID, siteBID).Return(nil),
+		siteStore.EXPECT().LockBuildingForWrite(ctx, orgID, int64(10)).Return(nil),
+		siteStore.EXPECT().AssignBuildingsToSiteBulk(ctx, orgID, []int64{10}, &siteBID).Return(int64(1), nil),
+		siteStore.EXPECT().ReassignRacksUnderBuildingsBulk(ctx, orgID, []int64{10}, &siteBID).Return(int64(0), nil),
+		siteStore.EXPECT().ReassignDevicesUnderBuildingsBulk(ctx, orgID, []int64{10}, &siteBID).Return(int64(0), nil),
+		buildingStore.EXPECT().CascadeDirectDeviceSitesByBuildings(ctx, orgID, []int64{10}, &siteBID).Return(int64(0), nil),
+		siteStore.EXPECT().LockBuildingForWrite(ctx, orgID, int64(10)).Return(nil),
+		buildingStore.EXPECT().GetBuilding(ctx, orgID, int64(10)).Return(&buildingmodels.Building{ID: 10, SiteID: &siteBID, SiteLabel: "Site B", Name: "Building A", Aisles: 1, RacksPerAisle: 2}, nil),
+		buildingStore.EXPECT().CountRacksInBuilding(ctx, orgID, int64(10)).Return(int64(0), nil),
+		buildingStore.EXPECT().UpdateBuilding(ctx, buildingmodels.UpdateParams{
+			OrgID:         orgID,
+			ID:            10,
+			Name:          "Building A",
+			Aisles:        1,
+			RacksPerAisle: 2,
+		}).Return(&buildingmodels.Building{ID: 10, SiteID: &siteBID, SiteLabel: "Site B", Name: "Building A", Aisles: 1, RacksPerAisle: 2}, nil),
+		siteStore.EXPECT().LockSiteForWrite(ctx, orgID, siteAID).Return(nil),
+		siteStore.EXPECT().LockBuildingsBySiteForWrite(ctx, orgID, siteAID).Return(nil),
+		siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(ctx, orgID, siteAID).Return(nil, nil),
+		siteStore.EXPECT().UnassignRacksFromBuildingsBySite(ctx, orgID, siteAID).Return(int64(0), nil),
+		buildingStore.EXPECT().ClearDeviceBuildingsBySite(ctx, orgID, siteAID).Return(int64(0), nil),
+		siteStore.EXPECT().SoftDeleteBuildingsBySite(ctx, orgID, siteAID).Return(int64(0), nil),
+		siteStore.EXPECT().UnassignRacksFromSite(ctx, orgID, siteAID).Return(int64(0), nil),
+		siteStore.EXPECT().UnassignDevicesFromSite(ctx, orgID, siteAID).Return(int64(0), nil),
+		siteStore.EXPECT().DeleteCurtailmentResponseProfilesBySite(ctx, orgID, siteAID).Return(int64(0), nil),
+		siteStore.EXPECT().CountResponseProfilesByInfrastructureDevices(ctx, orgID, []int64(nil)).Return(int64(0), nil),
+		siteStore.EXPECT().SoftDeleteInfrastructureDevicesBySite(ctx, orgID, siteAID).Return(int64(0), nil),
+		siteStore.EXPECT().SoftDeleteSite(ctx, orgID, siteAID).Return(int64(1), nil),
+	)
+
+	if err := svc.applyImportPlan(ctx, orgID, parsed, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED); err != nil {
+		t.Fatalf("applyImportPlan error = %v", err)
 	}
 }
 

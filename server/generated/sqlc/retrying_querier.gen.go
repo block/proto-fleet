@@ -588,6 +588,18 @@ func (q *retryingQuerier) CountCurtailmentAutomationRulesByResponseProfile(ctx c
 	return result, err
 }
 
+func (q *retryingQuerier) CountCurtailmentResponseProfilesBySite(ctx context.Context, arg CountCurtailmentResponseProfilesBySiteParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountCurtailmentResponseProfilesBySite", func() error {
+		callResult, callErr := q.next.CountCurtailmentResponseProfilesBySite(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountCurtailmentScopeConflicts(ctx context.Context, arg CountCurtailmentScopeConflictsParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountCurtailmentScopeConflicts", func() error {
@@ -616,6 +628,18 @@ func (q *retryingQuerier) CountErrors(ctx context.Context, arg CountErrorsParams
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountErrors", func() error {
 		callResult, callErr := q.next.CountErrors(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CountInfrastructureDevicesBySite(ctx context.Context, arg CountInfrastructureDevicesBySiteParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountInfrastructureDevicesBySite", func() error {
+		callResult, callErr := q.next.CountInfrastructureDevicesBySite(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

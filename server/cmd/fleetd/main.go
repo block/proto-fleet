@@ -695,7 +695,11 @@ func start(config *Config) error {
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))
-	mux.Handle(sitemapv1connect.NewSiteMapServiceHandler(sitemapHandler.NewHandler(sitemapSvc), li))
+	mux.Handle(sitemapv1connect.NewSiteMapServiceHandler(
+		sitemapHandler.NewHandler(sitemapSvc),
+		li,
+		connect.WithReadMaxBytes(sitemapDomain.MaxImportBytes+1024),
+	))
 	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(
 		gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry, filesService),
 		li,

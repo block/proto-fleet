@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   ImportOperation,
   type ImportSiteMapCsvResponse,
@@ -44,7 +44,16 @@ const SiteMapCsvImportModal = ({ open, onDismiss, onImported }: SiteMapCsvImport
   const [preview, setPreview] = useState<ImportSiteMapCsvResponse | undefined>();
   const [selectedOmissionMode, setSelectedOmissionMode] = useState<OmissionMode | undefined>();
   const [errorMessage, setErrorMessage] = useState<string | undefined>();
+  const [isCommitting, setIsCommitting] = useState(false);
+  const isMountedRef = useRef(true);
   const { importSiteMapCsv, isImportingSiteMapCsv } = useSiteMapCsv();
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const runPreview = useCallback(
     async (nextFile: File, omissionMode: OmissionMode) => {
@@ -102,6 +111,7 @@ const SiteMapCsvImportModal = ({ open, onDismiss, onImported }: SiteMapCsvImport
     }
 
     setErrorMessage(undefined);
+    setIsCommitting(true);
     try {
       const response = await importSiteMapCsv({
         file,
@@ -109,6 +119,9 @@ const SiteMapCsvImportModal = ({ open, onDismiss, onImported }: SiteMapCsvImport
         dryRun: false,
         commitToken: preview.commitToken,
       });
+      if (!isMountedRef.current) {
+        return;
+      }
       setPreview(response);
       if (response.omissionChoiceRequired || hasValidationErrors(response)) {
         return;
@@ -120,9 +133,23 @@ const SiteMapCsvImportModal = ({ open, onDismiss, onImported }: SiteMapCsvImport
       onImported?.();
       onDismiss();
     } catch (error) {
+      if (!isMountedRef.current) {
+        return;
+      }
       setErrorMessage(error instanceof Error ? error.message : "Failed to import site map.");
+    } finally {
+      if (isMountedRef.current) {
+        setIsCommitting(false);
+      }
     }
   }, [file, importSiteMapCsv, onDismiss, onImported, preview, selectedOmissionMode]);
+
+  const handleDismiss = useCallback(() => {
+    if (isCommitting) {
+      return;
+    }
+    onDismiss();
+  }, [isCommitting, onDismiss]);
 
   const omissionCounts = preview?.omissionCounts;
   const canCommit = Boolean(preview?.commitToken) && !preview?.omissionChoiceRequired && !hasValidationErrors(preview);
@@ -132,20 +159,21 @@ const SiteMapCsvImportModal = ({ open, onDismiss, onImported }: SiteMapCsvImport
       open={open}
       title="Import site map CSV"
       description="Preview changes before applying a site, building, rack, and miner placement CSV."
-      onDismiss={onDismiss}
+      onDismiss={handleDismiss}
       buttonSize={sizes.compact}
       buttons={[
         {
           text: "Cancel",
           variant: variants.secondary,
-          onClick: onDismiss,
+          onClick: handleDismiss,
+          disabled: isCommitting,
         },
         {
           text: "Confirm import",
           variant: variants.primary,
           onClick: handleCommit,
-          disabled: !canCommit,
-          loading: isImportingSiteMapCsv && Boolean(preview?.commitToken),
+          disabled: !canCommit || isCommitting,
+          loading: isCommitting,
           dismissModalOnClick: false,
           testId: "confirm-site-map-import-button",
         },

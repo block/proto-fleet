@@ -241,6 +241,17 @@ func (s *SQLSiteStore) DeleteCurtailmentResponseProfilesBySite(ctx context.Conte
 	return row.DeletedCount, nil
 }
 
+func (s *SQLSiteStore) CountCurtailmentResponseProfilesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountCurtailmentResponseProfilesBySite(ctx, sqlc.CountCurtailmentResponseProfilesBySiteParams{
+		OrgID:  orgID,
+		SiteID: zeroToNullInt64(siteID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count curtailment response profiles by site: %v", err)
+	}
+	return count, nil
+}
+
 func (s *SQLSiteStore) SoftDeleteBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
 	rowsAffected, err := s.GetQueries(ctx).SoftDeleteBuildingsBySite(ctx, sqlc.SoftDeleteBuildingsBySiteParams{
 		OrgID:  orgID,
@@ -272,6 +283,17 @@ func (s *SQLSiteStore) LockInfrastructureDevicesBySiteForWrite(ctx context.Conte
 		return nil, fleeterror.NewInternalErrorf("failed to lock infrastructure devices for site delete: %v", err)
 	}
 	return ids, nil
+}
+
+func (s *SQLSiteStore) CountInfrastructureDevicesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountInfrastructureDevicesBySite(ctx, sqlc.CountInfrastructureDevicesBySiteParams{
+		OrgID:  orgID,
+		SiteID: siteID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count infrastructure devices by site: %v", err)
+	}
+	return count, nil
 }
 
 func (s *SQLSiteStore) CountResponseProfilesByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error) {
