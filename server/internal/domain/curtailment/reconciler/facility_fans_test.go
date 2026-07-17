@@ -83,7 +83,8 @@ func TestReconciler_ActiveFanOffDoesNotUseTargetlessClosedLoopWatcher(t *testing
 func TestReconciler_ClosedLoopReopensFansBeforeDispatchingNewTarget(t *testing.T) {
 	store := newFakeStore()
 	dispatcher := &fakeDispatcher{}
-	fans := &fakeFanController{}
+	fanError := "fan ON failed"
+	fans := &fakeFanController{err: &fanError}
 	r := newReconcilerWithFansForTest(store, dispatcher, fans)
 
 	startedAt := r.now().Add(-time.Minute)
@@ -135,7 +136,7 @@ func TestReconciler_ClosedLoopReopensFansBeforeDispatchingNewTarget(t *testing.T
 		newCandidate,
 	}
 	dispatcher.curtailHook = func(ids []string) {
-		assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers,
+		assert.Equal(t, []driver.PowerMode{driver.PowerOn, driver.PowerOn}, fans.powers,
 			"airflow must reopen before the newly admitted miner is dispatched")
 		assert.Equal(t, []string{"miner-new"}, ids)
 	}
@@ -143,15 +144,22 @@ func TestReconciler_ClosedLoopReopensFansBeforeDispatchingNewTarget(t *testing.T
 	r.runTick(context.Background())
 
 	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
-	assert.Equal(t, 1, dispatcher.curtailCalls)
+	assert.Zero(t, dispatcher.curtailCalls, "a failed fan ON must hold dynamic dispatch")
 	require.Len(t, store.targetsByEventID[event.ID], 2)
+	assert.Equal(t, models.TargetStateDispatching, store.targetsByEventID[event.ID][1].State)
+
+	fans.err = nil
+	r.runTick(context.Background())
+
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn, driver.PowerOn}, fans.powers)
+	assert.Equal(t, 1, dispatcher.curtailCalls)
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[event.ID][1].State)
 
 	newCandidate.LatestPowerW = ptrFloat64(50)
 	newCandidate.LatestHashRateHS = ptrFloat64(0)
 	r.runTick(context.Background())
 
-	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers,
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn, driver.PowerOn}, fans.powers,
 		"confirmation must start a fresh cooling delay before fans turn off")
 	assert.Equal(t, models.TargetStateConfirmed, store.targetsByEventID[event.ID][1].State)
 	require.NotNil(t, event.FanAirflowReopenedAt)
@@ -160,8 +168,52 @@ func TestReconciler_ClosedLoopReopensFansBeforeDispatchingNewTarget(t *testing.T
 
 	r.runTick(context.Background())
 
-	assert.Equal(t, []driver.PowerMode{driver.PowerOn, driver.PowerOff}, fans.powers)
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn, driver.PowerOn, driver.PowerOff}, fans.powers)
 	assert.Nil(t, event.FanAirflowReopenedAt, "the active-airflow marker clears after fans turn off again")
+}
+
+func TestReconciler_DriftRedispatchWaitsForSuccessfulFanOn(t *testing.T) {
+	store := newFakeStore()
+	dispatcher := &fakeDispatcher{}
+	fanError := "fan ON failed"
+	fans := &fakeFanController{err: &fanError}
+	r := newReconcilerWithFansForTest(store, dispatcher, fans)
+	fanOffAt := r.now().Add(-time.Minute)
+	event := &models.Event{
+		ID:                   87,
+		EventUUID:            uuid.New(),
+		OrgID:                1,
+		State:                models.EventStateActive,
+		FacilityFanDeviceIDs: []int64{31},
+		FanOffSentAt:         &fanOffAt,
+	}
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "miner-drifted",
+		DesiredState:       models.DesiredStateCurtailed,
+		State:              models.TargetStateConfirmed,
+		BaselinePowerW:     ptrFloat64(3000),
+	}
+	store.events = []*models.Event{event}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+	store.candidates = []*models.Candidate{{
+		DeviceIdentifier: "miner-drifted",
+		LatestPowerW:     ptrFloat64(3000),
+		LatestHashRateHS: ptrFloat64(100),
+	}}
+
+	r.runTick(context.Background())
+
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	assert.Zero(t, dispatcher.curtailCalls)
+	assert.Equal(t, models.TargetStateDrifted, target.State)
+
+	fans.err = nil
+	r.runTick(context.Background())
+
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn, driver.PowerOn}, fans.powers)
+	assert.Equal(t, 1, dispatcher.curtailCalls)
+	assert.Equal(t, models.TargetStateDispatched, target.State)
 }
 
 func TestReconciler_ActiveFanOffWaitsWhenUnavailableMinerMayStillBeHashing(t *testing.T) {

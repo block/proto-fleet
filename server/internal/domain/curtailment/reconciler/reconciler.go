@@ -724,6 +724,7 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 	}
 	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
 	airflowReopened := false
+	deferredDrifted := make([]*models.Target, 0)
 	if len(targets) > 0 {
 		deviceIDs := make([]string, 0, len(targets))
 		for _, t := range targets {
@@ -745,6 +746,9 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 				switch t.State {
 				case models.TargetStateConfirmed:
 					r.checkDrift(cmdCtx, ev, t, candByID[t.DeviceIdentifier])
+					if t.State == models.TargetStateDrifted && ev.FanOffSentAt != nil {
+						deferredDrifted = append(deferredDrifted, t)
+					}
 				case models.TargetStateDispatched:
 					// Re-entry: drifted-then-redispatched, waiting on confirmation.
 					r.confirmOneDispatched(cmdCtx, ev, t, candByID[t.DeviceIdentifier], models.TargetStateDispatched)
@@ -785,6 +789,10 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 							continue
 						}
 					}
+					if ev.FanOffSentAt != nil {
+						deferredDrifted = append(deferredDrifted, t)
+						continue
+					}
 					r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDrifted)
 				case models.TargetStatePending, models.TargetStateUnavailable,
 					models.TargetStateResolved, models.TargetStateReleased,
@@ -794,8 +802,13 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 				}
 			}
 			if activeFanTargetsNeedAirflow(ev, targets) {
-				r.reconcileActiveFans(ctx, ev, targets)
+				if !r.reconcileActiveFans(ctx, ev, targets) {
+					return
+				}
 				airflowReopened = true
+			}
+			for _, target := range deferredDrifted {
+				r.dispatchOneCurtail(cmdCtx, ev, target, models.TargetStateDrifted)
 			}
 			r.dispatchPendingCurtailBatches(cmdCtx, ev, targets)
 		}
@@ -805,35 +818,40 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 		// A closed-loop event may discover a hashing miner after airflow was
 		// stopped. Reopen the fans while the new target is still undispatched;
 		// later ticks keep them ON until every admitted target confirms curtailment.
-		r.reconcileActiveFans(ctx, ev, append(targets, claimed...))
+		if !r.reconcileActiveFans(ctx, ev, append(targets, claimed...)) {
+			return
+		}
 		airflowReopened = true
 	}
 	r.dispatchClaimedCurtailTargets(cmdCtx, ev, claimed)
 	if !airflowReopened {
-		r.reconcileActiveFans(ctx, ev, append(targets, claimed...))
+		_ = r.reconcileActiveFans(ctx, ev, append(targets, claimed...))
 	}
 }
 
-func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, targets []*models.Target) {
+// reconcileActiveFans reports true only when the requested hardware command
+// and its durable state write both succeed. Dynamic dispatch uses that result
+// to fail closed while airflow is known to need reopening.
+func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, targets []*models.Target) bool {
 	if r.fans == nil || r.fanStore == nil || ev == nil || len(ev.FacilityFanDeviceIDs) == 0 {
-		return
+		return false
 	}
 	confirmed, allConfirmed := activeFanTargetConfirmation(targets)
 	now := r.now()
 	desiredPower := driver.PowerOff
 	if !allConfirmed || confirmed == 0 {
 		if ev.FanOffSentAt == nil {
-			return
+			return false
 		}
 		desiredPower = driver.PowerOn
 	} else if ev.FanOffSentAt == nil {
 		if ev.StartedAt == nil || now.Before(ev.StartedAt.Add(time.Duration(ev.FanOffDelaySec)*time.Second)) {
-			return
+			return false
 		}
 	} else if ev.FanAirflowReopenedAt != nil && now.Before(ev.FanAirflowReopenedAt.Add(time.Duration(ev.FanOffDelaySec)*time.Second)) {
 		// Dynamic admission or drift reopened airflow. Honor the same cooling
 		// delay after the latest ON re-assertion before stopping fans again.
-		return
+		return false
 	}
 
 	params := interfaces.UpdateCurtailmentFanStateParams{
@@ -850,7 +868,7 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 			params.ClearFanAirflowReopenedAt = true
 		}
 	default:
-		return
+		return false
 	}
 	lastError, err := r.fanStore.CommandFanState(ctx, ev.ID, params, func(commandCtx context.Context) *string {
 		return r.fans.SetState(commandCtx, ev, desiredPower)
@@ -859,7 +877,7 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			slog.Error("curtailment reconciler: facility fan state update failed", "event_id", ev.ID, "power", desiredPower, "error", err)
 		}
-		return
+		return false
 	}
 	if desiredPower == driver.PowerOff && ev.FanOffSentAt == nil {
 		ev.FanOffSentAt = &now
@@ -871,6 +889,7 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 		ev.FanAirflowReopenedAt = nil
 	}
 	ev.FanLastError = lastError
+	return lastError == nil
 }
 
 func activeFanTargetsNeedAirflow(ev *models.Event, targets []*models.Target) bool {
@@ -1221,7 +1240,9 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 		if r.retryBudgetTerminalizes(t, t.RetryCount) {
 			return
 		}
-		r.dispatchOneCurtail(ctx, ev, t, models.TargetStateDrifted)
+		if ev.FanOffSentAt == nil {
+			r.dispatchOneCurtail(ctx, ev, t, models.TargetStateDrifted)
+		}
 		return
 	}
 	// Still curtailed: refresh observed_power_w / observed_at as a rolling read.

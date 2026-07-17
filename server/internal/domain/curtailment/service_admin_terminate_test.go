@@ -102,6 +102,46 @@ func TestService_AdminTerminate_RestoringEventTurnsFansOnBeforeTerminal(t *testi
 	assert.Equal(t, 1, store.adminTerminateCalls)
 }
 
+func TestService_AdminTerminate_RecurtailedPendingEventRetriesFansOnBeforeTerminal(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	fanOffAt := time.Now().UTC().Add(-2 * time.Minute)
+	priorError := "restore fan ON failed"
+	store := newFakeStore()
+	store.eventsByUUID[eventUUID] = &models.Event{
+		ID:                   87,
+		EventUUID:            eventUUID,
+		OrgID:                orgID,
+		State:                models.EventStatePending,
+		FacilityFanDeviceIDs: []int64{501},
+		FanOffSentAt:         &fanOffAt,
+		FanLastError:         &priorError,
+	}
+	store.adminTerminateResult = &models.Event{
+		ID:        87,
+		EventUUID: eventUUID,
+		OrgID:     orgID,
+		State:     models.EventStateCancelled,
+	}
+	fans := &fakeTerminalFanController{}
+
+	_, err := NewService(store, WithFacilityFanController(fans)).AdminTerminate(t.Context(), AdminTerminateRequest{
+		OrgID:       orgID,
+		EventUUID:   eventUUID,
+		TargetState: models.EventStateCancelled,
+		Reason:      "operator escalation",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	assert.Equal(t, 1, store.updateFanStateCalls)
+	assert.Equal(t, models.EventStatePending, store.lastUpdateFanStateParams.ExpectedEventState)
+	assert.NotNil(t, store.lastUpdateFanStateParams.FanOnSentAt)
+	assert.Nil(t, store.lastUpdateFanStateParams.LastError)
+	assert.Equal(t, 1, store.adminTerminateCalls)
+}
+
 func TestService_ForceRelease_HappyPathForwardsToStore(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)

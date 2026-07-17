@@ -506,7 +506,7 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 		if err != nil {
 			return nil, err
 		}
-		if event.State == models.EventStateRestoring {
+		if event.State == models.EventStatePending || event.State == models.EventStateRestoring {
 			if err := s.restoreFansForOperatorRecovery(ctx, event, false); err != nil {
 				return nil, err
 			}
