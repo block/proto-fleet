@@ -1189,7 +1189,7 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateBuildingRackCapacity(parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap)...)
 	plan.errors = append(plan.errors, validateBuildingExistingRacksFitLayout(parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap, mode)...)
 	plan.errors = append(plan.errors, validateSlotCollisions(parsed.sections["MINER"])...)
-	plan.errors = append(plan.errors, validateSlotConflictsWithExisting(parsed.sections["MINER"], snap, mode)...)
+	plan.errors = append(plan.errors, validateSlotConflictsWithExisting(parsed.sections["MINER"], parsed.sections["RACK"], snap, mode)...)
 	if len(plan.errors) > 0 || (mode == pb.OmissionMode_OMISSION_MODE_UNSPECIFIED && hasOmissions(plan.omissions)) {
 		return plan
 	}
@@ -2134,6 +2134,17 @@ func rowSet(rows []map[string]string, key string) map[string]bool {
 	return out
 }
 
+func rowIDSet(rows []map[string]string) map[int64]bool {
+	out := map[int64]bool{}
+	for _, row := range rows {
+		id, ok := rowID(row)
+		if ok {
+			out[id] = true
+		}
+	}
+	return out
+}
+
 func compoundRowSet(rows []map[string]string, a, b string) map[string]bool {
 	out := map[string]bool{}
 	for _, row := range rows {
@@ -2405,6 +2416,7 @@ func validateRemoveOmittedReferences(parsed *parsedCSV, mode pb.OmissionMode) []
 
 	presentSites := rowSet(siteRows, fieldName)
 	presentBuildings := compoundRowSet(buildingRows, fieldSite, fieldName)
+	presentBuildingIDs := rowIDSet(buildingRows)
 	presentRacks := rowSet(rackRows, fieldLabel)
 	buildingsByName, ambiguousBuildings := desiredBuildingNameLookup(buildingRows, nil)
 
@@ -2419,6 +2431,9 @@ func validateRemoveOmittedReferences(parsed *parsedCSV, mode pb.OmissionMode) []
 			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack site %q is omitted; add the SITE row or choose leave omitted rows in place", row[fieldSite])))
 		}
 		if row[fieldBuilding] == "" {
+			continue
+		}
+		if id, ok := idFromCell(row[fieldBuildingID]); ok && presentBuildingIDs[id] {
 			continue
 		}
 		if row[fieldSite] != "" {
@@ -2443,6 +2458,9 @@ func validateRemoveOmittedReferences(parsed *parsedCSV, mode pb.OmissionMode) []
 			continue
 		}
 		if row[fieldBuilding] != "" {
+			if id, ok := idFromCell(row[fieldBuildingID]); ok && presentBuildingIDs[id] {
+				continue
+			}
 			if row[fieldSite] != "" {
 				if !presentBuildings[row[fieldSite]+"\x00"+row[fieldBuilding]] {
 					errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner building %q for site %q is omitted; add the BUILDING row or choose leave omitted rows in place", row[fieldBuilding], row[fieldSite])))
@@ -3307,7 +3325,8 @@ func validateSlotCollisions(rows []map[string]string) []*pb.ImportValidationErro
 	return errs
 }
 
-func validateSlotConflictsWithExisting(rows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
+func validateSlotConflictsWithExisting(rows, rackRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
+	desiredRackLabels := desiredRackLabelsByID(rackRows)
 	desiredRows := map[string]map[string]string{}
 	movingMiners := map[string]bool{}
 	presentMiners := rowSet(rows, "device_identifier")
@@ -3319,9 +3338,10 @@ func validateSlotConflictsWithExisting(rows []map[string]string, snap *snapshot,
 		if !ok {
 			continue
 		}
-		currentKey, _ := normalizedRackSlotKey(miner.Rack, miner.RackRow, miner.RackCol)
+		currentRack := desiredRackLabel(miner, desiredRackLabels)
+		currentKey, _ := normalizedRackSlotKey(currentRack, miner.RackRow, miner.RackCol)
 		desiredKey, _ := normalizedRackSlotKey(row[fieldRack], row["rack_row"], row["rack_col"])
-		if row[fieldRack] != miner.Rack || desiredKey != currentKey {
+		if row[fieldRack] != currentRack || desiredKey != currentKey {
 			movingMiners[miner.DeviceIdentifier] = true
 		}
 	}
@@ -3331,14 +3351,14 @@ func validateSlotConflictsWithExisting(rows []map[string]string, snap *snapshot,
 		if !presentMiners[miner.DeviceIdentifier] && mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
 			continue
 		}
-		key, ok := normalizedRackSlotKey(miner.Rack, miner.RackRow, miner.RackCol)
+		key, ok := normalizedRackSlotKey(desiredRackLabel(miner, desiredRackLabels), miner.RackRow, miner.RackCol)
 		if !ok {
 			continue
 		}
 		currentOccupants[key] = miner
 	}
 	for _, miner := range snap.hiddenRackMembers {
-		key, ok := normalizedRackSlotKey(miner.Rack, miner.RackRow, miner.RackCol)
+		key, ok := normalizedRackSlotKey(desiredRackLabel(miner, desiredRackLabels), miner.RackRow, miner.RackCol)
 		if !ok {
 			continue
 		}
@@ -3358,6 +3378,28 @@ func validateSlotConflictsWithExisting(rows []map[string]string, snap *snapshot,
 		errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("rack slot already occupied by miner %s", occupant.DeviceIdentifier)))
 	}
 	return errs
+}
+
+func desiredRackLabelsByID(rows []map[string]string) map[int64]string {
+	out := map[int64]string{}
+	for _, row := range rows {
+		id, ok := rowID(row)
+		if !ok {
+			continue
+		}
+		out[id] = rackSectionLabel(row)
+	}
+	return out
+}
+
+func desiredRackLabel(miner minerSnapshot, desiredRackLabels map[int64]string) string {
+	if miner.RackID == nil {
+		return miner.Rack
+	}
+	if label, ok := desiredRackLabels[*miner.RackID]; ok {
+		return label
+	}
+	return miner.Rack
 }
 
 func normalizedRackSlotKey(rack, row, col string) (string, bool) {
