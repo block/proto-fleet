@@ -18,7 +18,10 @@ import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 // Behavior:
 //   - "all-sites"       → left untouched. Viewing one entity shouldn't collapse
 //                         an intentional org-wide view.
-//   - matching "site"   → no-op (header already agrees).
+//   - matching "site"   → no-op, unless the stored slug is stale (renamed): we
+//                         hold the entity's canonical slug here, so refresh it
+//                         in place rather than leave a dead slug that later
+//                         produces broken scoped paths.
 //   - different "site"  → overwritten to the entity's own site.
 //   - "unassigned"      → overwritten to the entity's own site.
 //
@@ -37,8 +40,10 @@ export const useSyncScopeToEntity = (siteId: string | undefined, slug: string | 
     if (!siteId || !slug) return;
     // Never collapse an intentional org-wide view.
     if (activeSite.kind === "all") return;
-    // Already scoped to this entity's site — nothing to do.
-    if (activeSite.kind === "site" && activeSite.id === siteId) return;
+    // Already scoped to this entity's site with an up-to-date slug — nothing to
+    // do. A matching id but stale slug still falls through so the rename is
+    // reconciled from the entity's canonical slug.
+    if (activeSite.kind === "site" && activeSite.id === siteId && activeSite.slug === slug) return;
     setActiveSite({ kind: "site", id: siteId, slug });
   }, [activeSite, siteId, slug, setActiveSite]);
 };

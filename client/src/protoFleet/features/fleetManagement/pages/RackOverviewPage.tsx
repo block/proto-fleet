@@ -266,7 +266,12 @@ const RackOverviewPage = () => {
 
   // On deep-link/bookmark, align the (headerless-route) scope with the opened
   // rack's own site so ManageRackModal's miner picker scopes correctly (#764).
-  const syncSiteId = rackSiteId && rackSiteId !== "0" ? rackSiteId : undefined;
+  // Prefer the rack's own placement site (carried on the DeviceSet itself) over
+  // the rackInfo→building-catalog derivation, so the sync still fires for a
+  // building-placed rack when the auxiliary listAllBuildings request fails.
+  const rackPlacementSiteId = rack?.placement?.site?.id?.toString();
+  const rawSyncSiteId = rackPlacementSiteId ?? rackSiteId;
+  const syncSiteId = rawSyncSiteId && rawSyncSiteId !== "0" ? rawSyncSiteId : undefined;
   useSyncScopeToEntity(syncSiteId, syncSiteId ? buildSiteSlugById(sites)?.get(syncSiteId) : undefined);
 
   const duration = useDuration();

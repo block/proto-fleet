@@ -376,6 +376,31 @@ describe("RackOverviewPage", () => {
     );
   });
 
+  it("syncs from rack placement site when the building catalog is unavailable (#764)", async () => {
+    // Rack is placed under a building (no rackInfo.siteId), and the auxiliary
+    // listAllBuildings request returns nothing — but the rack's own placement
+    // still carries its site, so the sync must fire off that.
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "site", id: "99", slug: "elsewhere" };
+    });
+    const rackUnderBuilding = create(DeviceSetSchema, {
+      id: 7n,
+      label: rackName,
+      typeDetails: { case: "rackInfo", value: { rows: 6, columns: 5, zone: rackZone, buildingId: 11n } },
+      placement: { site: { id: 22n } },
+    });
+    mockResolvedRackPageData(rackUnderBuilding, {
+      allBuildings: [],
+      sites: [{ site: { id: 22n, name: "Denver", slug: "denver" } }],
+    });
+
+    renderRackOverviewPage();
+
+    await waitFor(() =>
+      expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "22", slug: "denver" }),
+    );
+  });
+
   it("leaves an all-sites header scope untouched when viewing a rack (#764)", async () => {
     const rackInSite = create(DeviceSetSchema, {
       id: 7n,

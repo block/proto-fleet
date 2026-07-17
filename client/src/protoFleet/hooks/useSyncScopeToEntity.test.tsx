@@ -69,6 +69,18 @@ describe("useSyncScopeToEntity", () => {
     expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7", slug: "dallas" });
   });
 
+  it("refreshes a stale slug when the id matches (post-rename reconciliation)", async () => {
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "site", id: "7", slug: "old-dallas" };
+    });
+
+    renderSync("7", "dallas");
+
+    await waitFor(() =>
+      expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7", slug: "dallas" }),
+    );
+  });
+
   it("does nothing until the entity's site id and slug are both resolved", async () => {
     useFleetStore.setState((state) => {
       state.ui.activeSite = { kind: "site", id: "8", slug: "austin" };
