@@ -497,6 +497,7 @@ type CurtailmentEvent struct {
 	FanRestoreDelaySec          int32
 	FanOffSentAt                sql.NullTime
 	FanOnSentAt                 sql.NullTime
+	FanAirflowReopenedAt        sql.NullTime
 	FanLastError                sql.NullString
 }
 

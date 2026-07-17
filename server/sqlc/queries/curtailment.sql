@@ -302,7 +302,7 @@ SELECT
     include_maintenance, force_include_maintenance, force_include_all_paired_miners,
     facility_fan_device_ids, facility_fan_site_ids,
     fan_off_delay_sec, fan_restore_delay_sec,
-    fan_off_sent_at, fan_on_sent_at, fan_last_error,
+    fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error,
     CASE
         WHEN jsonb_typeof(decision_snapshot_jsonb->'skipped') = 'array' THEN
             jsonb_set(
@@ -509,7 +509,7 @@ SELECT
     include_maintenance, force_include_maintenance, force_include_all_paired_miners,
     facility_fan_device_ids, facility_fan_site_ids,
     fan_off_delay_sec, fan_restore_delay_sec,
-    fan_off_sent_at, fan_on_sent_at, fan_last_error,
+    fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error,
     CASE
         WHEN jsonb_typeof(decision_snapshot_jsonb->'skipped') = 'array' THEN
             jsonb_set(
@@ -567,7 +567,7 @@ SELECT
     ce.include_maintenance, ce.force_include_maintenance, ce.force_include_all_paired_miners,
     ce.facility_fan_device_ids, ce.facility_fan_site_ids,
     ce.fan_off_delay_sec, ce.fan_restore_delay_sec,
-    ce.fan_off_sent_at, ce.fan_on_sent_at, ce.fan_last_error,
+    ce.fan_off_sent_at, ce.fan_on_sent_at, ce.fan_airflow_reopened_at, ce.fan_last_error,
     '{}'::JSONB AS decision_snapshot_jsonb,
     ce.source_actor_type, ce.source_actor_id,
     ce.external_source, ce.external_reference, ce.idempotency_key,
@@ -1151,6 +1151,10 @@ WHERE id = sqlc.arg('id')
 UPDATE curtailment_event
 SET fan_off_sent_at = COALESCE(sqlc.narg('fan_off_sent_at'), fan_off_sent_at),
     fan_on_sent_at = COALESCE(sqlc.narg('fan_on_sent_at'), fan_on_sent_at),
+    fan_airflow_reopened_at = CASE
+        WHEN sqlc.arg('clear_fan_airflow_reopened_at')::boolean THEN NULL
+        ELSE COALESCE(sqlc.narg('fan_airflow_reopened_at'), fan_airflow_reopened_at)
+    END,
     fan_last_error = sqlc.narg('fan_last_error'),
     updated_at = NOW()
 WHERE id = sqlc.arg('id')
@@ -1234,12 +1238,13 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
 
 -- name: ResumeCurtailmentFromRestoring :one
 -- Restore reversal: go back through pending so the curtail dispatcher picks
--- up reset targets.
+-- up reset targets. Preserve fan_off_sent_at and fan_last_error until the
+-- active reconciler has positively reopened airflow; clearing them here can
+-- hide fans that remained off after a failed restore command.
 UPDATE curtailment_event
 SET state = 'pending',
-    fan_off_sent_at = NULL,
-    fan_on_sent_at = NULL,
-    fan_last_error = NULL
+    fan_airflow_reopened_at = COALESCE(fan_on_sent_at, fan_airflow_reopened_at),
+    fan_on_sent_at = NULL
 WHERE id = sqlc.arg('id')
   AND state = 'restoring'
 RETURNING *;

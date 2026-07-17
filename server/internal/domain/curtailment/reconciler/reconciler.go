@@ -819,6 +819,7 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 		return
 	}
 	confirmed, allConfirmed := activeFanTargetConfirmation(targets)
+	now := r.now()
 	desiredPower := driver.PowerOff
 	if !allConfirmed || confirmed == 0 {
 		if ev.FanOffSentAt == nil {
@@ -826,17 +827,30 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 		}
 		desiredPower = driver.PowerOn
 	} else if ev.FanOffSentAt == nil {
-		if ev.StartedAt == nil || r.now().Before(ev.StartedAt.Add(time.Duration(ev.FanOffDelaySec)*time.Second)) {
+		if ev.StartedAt == nil || now.Before(ev.StartedAt.Add(time.Duration(ev.FanOffDelaySec)*time.Second)) {
 			return
 		}
+	} else if ev.FanAirflowReopenedAt != nil && now.Before(ev.FanAirflowReopenedAt.Add(time.Duration(ev.FanOffDelaySec)*time.Second)) {
+		// Dynamic admission or drift reopened airflow. Honor the same cooling
+		// delay after the latest ON re-assertion before stopping fans again.
+		return
 	}
 
-	now := r.now()
 	params := interfaces.UpdateCurtailmentFanStateParams{
 		ExpectedEventState: models.EventStateActive,
 	}
-	if desiredPower == driver.PowerOff && ev.FanOffSentAt == nil {
-		params.FanOffSentAt = &now
+	switch desiredPower {
+	case driver.PowerOn:
+		params.FanAirflowReopenedAt = &now
+	case driver.PowerOff:
+		if ev.FanOffSentAt == nil {
+			params.FanOffSentAt = &now
+		}
+		if ev.FanAirflowReopenedAt != nil {
+			params.ClearFanAirflowReopenedAt = true
+		}
+	default:
+		return
 	}
 	lastError, err := r.fanStore.CommandFanState(ctx, ev.ID, params, func(commandCtx context.Context) *string {
 		return r.fans.SetState(commandCtx, ev, desiredPower)
@@ -849,6 +863,12 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 	}
 	if desiredPower == driver.PowerOff && ev.FanOffSentAt == nil {
 		ev.FanOffSentAt = &now
+	}
+	if params.FanAirflowReopenedAt != nil {
+		ev.FanAirflowReopenedAt = params.FanAirflowReopenedAt
+	}
+	if params.ClearFanAirflowReopenedAt {
+		ev.FanAirflowReopenedAt = nil
 	}
 	ev.FanLastError = lastError
 }

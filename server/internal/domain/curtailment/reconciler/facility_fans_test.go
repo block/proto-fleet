@@ -99,6 +99,7 @@ func TestReconciler_ClosedLoopReopensFansBeforeDispatchingNewTarget(t *testing.T
 		StartedAt:            &startedAt,
 		FacilityFanDeviceIDs: []int64{31},
 		FanOffSentAt:         &fanOffAt,
+		FanOffDelaySec:       30,
 	}
 	store.events = []*models.Event{event}
 	store.targetsByEventID[event.ID] = []*models.Target{{
@@ -150,9 +151,17 @@ func TestReconciler_ClosedLoopReopensFansBeforeDispatchingNewTarget(t *testing.T
 	newCandidate.LatestHashRateHS = ptrFloat64(0)
 	r.runTick(context.Background())
 
-	assert.Equal(t, []driver.PowerMode{driver.PowerOn, driver.PowerOff}, fans.powers,
-		"fans may turn off again only after the admitted target confirms curtailment")
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers,
+		"confirmation must start a fresh cooling delay before fans turn off")
 	assert.Equal(t, models.TargetStateConfirmed, store.targetsByEventID[event.ID][1].State)
+	require.NotNil(t, event.FanAirflowReopenedAt)
+	reopenedAt := *event.FanAirflowReopenedAt
+	r.now = func() time.Time { return reopenedAt.Add(30 * time.Second) }
+
+	r.runTick(context.Background())
+
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn, driver.PowerOff}, fans.powers)
+	assert.Nil(t, event.FanAirflowReopenedAt, "the active-airflow marker clears after fans turn off again")
 }
 
 func TestReconciler_ActiveFanOffWaitsWhenUnavailableMinerMayStillBeHashing(t *testing.T) {

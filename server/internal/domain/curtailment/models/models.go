@@ -260,6 +260,7 @@ type Event struct {
 	FanRestoreDelaySec          int32
 	FanOffSentAt                *time.Time
 	FanOnSentAt                 *time.Time
+	FanAirflowReopenedAt        *time.Time
 	FanLastError                *string
 	DecisionSnapshotJSON        []byte
 	SourceActorType             SourceActorType

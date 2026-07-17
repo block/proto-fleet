@@ -1861,11 +1861,13 @@ func (s *SQLCurtailmentStore) CommandFanState(
 
 		lastError := command(ctx)
 		rows, err := q.UpdateCurtailmentEventFanState(ctx, sqlc.UpdateCurtailmentEventFanStateParams{
-			ID:            eventID,
-			ExpectedState: string(params.ExpectedEventState),
-			FanOffSentAt:  ptrToNullTime(params.FanOffSentAt),
-			FanOnSentAt:   ptrToNullTime(params.FanOnSentAt),
-			FanLastError:  ptrToNullString(lastError),
+			ID:                        eventID,
+			ExpectedState:             string(params.ExpectedEventState),
+			FanOffSentAt:              ptrToNullTime(params.FanOffSentAt),
+			FanOnSentAt:               ptrToNullTime(params.FanOnSentAt),
+			FanAirflowReopenedAt:      ptrToNullTime(params.FanAirflowReopenedAt),
+			ClearFanAirflowReopenedAt: params.ClearFanAirflowReopenedAt,
+			FanLastError:              ptrToNullString(lastError),
 		})
 		if err != nil {
 			return lastError, fleeterror.NewInternalErrorf("failed to update curtailment event %d fan state: %v", eventID, err)
@@ -1916,11 +1918,13 @@ func (s *SQLCurtailmentStore) RecoverTerminalFanState(
 
 		lastError := command(ctx)
 		rows, err := q.UpdateCurtailmentEventFanState(ctx, sqlc.UpdateCurtailmentEventFanStateParams{
-			ID:            eventID,
-			ExpectedState: string(params.ExpectedEventState),
-			FanOffSentAt:  ptrToNullTime(params.FanOffSentAt),
-			FanOnSentAt:   ptrToNullTime(params.FanOnSentAt),
-			FanLastError:  ptrToNullString(lastError),
+			ID:                        eventID,
+			ExpectedState:             string(params.ExpectedEventState),
+			FanOffSentAt:              ptrToNullTime(params.FanOffSentAt),
+			FanOnSentAt:               ptrToNullTime(params.FanOnSentAt),
+			FanAirflowReopenedAt:      ptrToNullTime(params.FanAirflowReopenedAt),
+			ClearFanAirflowReopenedAt: params.ClearFanAirflowReopenedAt,
+			FanLastError:              ptrToNullString(lastError),
 		})
 		if err != nil {
 			return struct{}{}, fleeterror.NewInternalErrorf("failed to update terminal curtailment event %d fan state: %v", eventID, err)
@@ -2395,6 +2399,7 @@ func convertEventRow(row sqlc.CurtailmentEvent) *models.Event {
 		row.FanRestoreDelaySec,
 		row.FanOffSentAt,
 		row.FanOnSentAt,
+		row.FanAirflowReopenedAt,
 		row.FanLastError,
 		row.DecisionSnapshotJsonb,
 		row.SourceActorType,
@@ -2444,6 +2449,7 @@ func convertEventDetailRow(row sqlc.GetCurtailmentEventDetailByUUIDRow) *models.
 		row.FanRestoreDelaySec,
 		row.FanOffSentAt,
 		row.FanOnSentAt,
+		row.FanAirflowReopenedAt,
 		row.FanLastError,
 		row.DecisionSnapshotJsonb,
 		row.SourceActorType,
@@ -2493,6 +2499,7 @@ func convertEventListRow(row sqlc.ListCurtailmentEventsForOrgRow) *models.Event 
 		row.FanRestoreDelaySec,
 		row.FanOffSentAt,
 		row.FanOnSentAt,
+		row.FanAirflowReopenedAt,
 		row.FanLastError,
 		row.DecisionSnapshotJsonb,
 		row.SourceActorType,
@@ -2542,6 +2549,7 @@ func convertActiveEventRow(row sqlc.ListActiveCurtailmentEventsRow) *models.Even
 		row.FanRestoreDelaySec,
 		row.FanOffSentAt,
 		row.FanOnSentAt,
+		row.FanAirflowReopenedAt,
 		row.FanLastError,
 		row.DecisionSnapshotJsonb,
 		row.SourceActorType,
@@ -2643,6 +2651,7 @@ func convertEventFields(
 	fanRestoreDelaySec int32,
 	fanOffSentAt sql.NullTime,
 	fanOnSentAt sql.NullTime,
+	fanAirflowReopenedAt sql.NullTime,
 	fanLastError sql.NullString,
 	decisionSnapshotJSON []byte,
 	sourceActorType string,
@@ -2689,6 +2698,7 @@ func convertEventFields(
 		FanRestoreDelaySec:          fanRestoreDelaySec,
 		FanOffSentAt:                nullTimeToPtr(fanOffSentAt),
 		FanOnSentAt:                 nullTimeToPtr(fanOnSentAt),
+		FanAirflowReopenedAt:        nullTimeToPtr(fanAirflowReopenedAt),
 		FanLastError:                nullStringToPtr(fanLastError),
 		DecisionSnapshotJSON:        decisionSnapshotJSON,
 		SourceActorType:             models.SourceActorType(sourceActorType),

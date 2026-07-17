@@ -10,4 +10,5 @@ ALTER TABLE curtailment_event
     DROP COLUMN IF EXISTS fan_restore_delay_sec,
     DROP COLUMN IF EXISTS fan_off_sent_at,
     DROP COLUMN IF EXISTS fan_on_sent_at,
+    DROP COLUMN IF EXISTS fan_airflow_reopened_at,
     DROP COLUMN IF EXISTS fan_last_error;

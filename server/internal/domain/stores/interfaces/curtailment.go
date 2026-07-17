@@ -168,13 +168,16 @@ type UpdateOperatorFieldsParams struct {
 }
 
 // UpdateCurtailmentFanStateParams persists one reconciler or operator-recovery
-// fan attempt. Nil timestamps preserve the corresponding first-send stamp;
+// fan attempt. Nil timestamps preserve the corresponding send stamp;
+// ClearFanAirflowReopenedAt resets the active marker after fans turn off again.
 // LastError nil clears a previous failure after a successful re-assertion.
 type UpdateCurtailmentFanStateParams struct {
-	ExpectedEventState models.EventState
-	FanOffSentAt       *time.Time
-	FanOnSentAt        *time.Time
-	LastError          *string
+	ExpectedEventState        models.EventState
+	FanOffSentAt              *time.Time
+	FanOnSentAt               *time.Time
+	FanAirflowReopenedAt      *time.Time
+	ClearFanAirflowReopenedAt bool
+	LastError                 *string
 }
 
 type CurtailmentFanStateStore interface {

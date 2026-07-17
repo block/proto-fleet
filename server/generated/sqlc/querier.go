@@ -1261,7 +1261,9 @@ type Querier interface {
 	// has an unambiguous queue. Terminal states are untouched.
 	ResetCurtailmentTargetsForRestore(ctx context.Context, curtailmentEventID int64) error
 	// Restore reversal: go back through pending so the curtail dispatcher picks
-	// up reset targets.
+	// up reset targets. Preserve fan_off_sent_at and fan_last_error until the
+	// active reconciler has positively reopened airflow; clearing them here can
+	// hide fans that remained off after a failed restore command.
 	ResumeCurtailmentFromRestoring(ctx context.Context, id int64) (CurtailmentEvent, error)
 	ResumePausedSchedule(ctx context.Context, arg ResumePausedScheduleParams) (int64, error)
 	RevertScheduleToActive(ctx context.Context, id int64) error
