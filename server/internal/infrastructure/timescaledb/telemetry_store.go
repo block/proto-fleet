@@ -371,48 +371,63 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 	ctx, cancel := context.WithTimeout(ctx, s.config.WriteTimeout)
 	defer cancel()
 
-	return db.WithTransactionNoResult(ctx, s.db, func(q *sqlc.Queries) error {
-		if s.config.AsyncMetricCommit {
-			if err := q.DisableSyncCommit(ctx); err != nil {
-				return fmt.Errorf("failed to set async commit: %w", err)
-			}
+	//nolint:forbidigo // The caller falls back per row; helper retries would amplify transient failures across the batch.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			s.logger.Warn("failed to rollback transaction", "error", err)
+		}
+	}()
+
+	qtx := s.queries.WithTx(tx)
+
+	if s.config.AsyncMetricCommit {
+		if err := qtx.DisableSyncCommit(ctx); err != nil {
+			return fmt.Errorf("failed to set async commit: %w", err)
+		}
+	}
+
+	for _, metrics := range data {
+		params := sqlc.InsertDeviceMetricsParams{
+			Time:             metrics.Timestamp,
+			DeviceIdentifier: metrics.DeviceIdentifier,
+			Health:           toNullString(metrics.Health.String()),
 		}
 
-		for _, metrics := range data {
-			params := sqlc.InsertDeviceMetricsParams{
-				Time:             metrics.Timestamp,
-				DeviceIdentifier: metrics.DeviceIdentifier,
-				Health:           toNullString(metrics.Health.String()),
-			}
-
-			if metrics.HashrateHS != nil {
-				params.HashRateHs = sql.NullFloat64{Float64: metrics.HashrateHS.Value, Valid: true}
-				params.HashRateHsKind = toNullString(metrics.HashrateHS.Kind.String())
-			}
-			if metrics.TempC != nil {
-				params.TempC = sql.NullFloat64{Float64: metrics.TempC.Value, Valid: true}
-				params.TempCKind = toNullString(metrics.TempC.Kind.String())
-			}
-			if metrics.FanRPM != nil {
-				params.FanRpm = sql.NullFloat64{Float64: metrics.FanRPM.Value, Valid: true}
-				params.FanRpmKind = toNullString(metrics.FanRPM.Kind.String())
-			}
-			if metrics.PowerW != nil {
-				params.PowerW = sql.NullFloat64{Float64: metrics.PowerW.Value, Valid: true}
-				params.PowerWKind = toNullString(metrics.PowerW.Kind.String())
-			}
-			if metrics.EfficiencyJH != nil {
-				params.EfficiencyJh = sql.NullFloat64{Float64: metrics.EfficiencyJH.Value, Valid: true}
-				params.EfficiencyJhKind = toNullString(metrics.EfficiencyJH.Kind.String())
-			}
-
-			if err := q.InsertDeviceMetrics(ctx, params); err != nil {
-				return fmt.Errorf("failed to insert metrics for device %s: %w", metrics.DeviceIdentifier, err)
-			}
+		if metrics.HashrateHS != nil {
+			params.HashRateHs = sql.NullFloat64{Float64: metrics.HashrateHS.Value, Valid: true}
+			params.HashRateHsKind = toNullString(metrics.HashrateHS.Kind.String())
+		}
+		if metrics.TempC != nil {
+			params.TempC = sql.NullFloat64{Float64: metrics.TempC.Value, Valid: true}
+			params.TempCKind = toNullString(metrics.TempC.Kind.String())
+		}
+		if metrics.FanRPM != nil {
+			params.FanRpm = sql.NullFloat64{Float64: metrics.FanRPM.Value, Valid: true}
+			params.FanRpmKind = toNullString(metrics.FanRPM.Kind.String())
+		}
+		if metrics.PowerW != nil {
+			params.PowerW = sql.NullFloat64{Float64: metrics.PowerW.Value, Valid: true}
+			params.PowerWKind = toNullString(metrics.PowerW.Kind.String())
+		}
+		if metrics.EfficiencyJH != nil {
+			params.EfficiencyJh = sql.NullFloat64{Float64: metrics.EfficiencyJH.Value, Valid: true}
+			params.EfficiencyJhKind = toNullString(metrics.EfficiencyJH.Kind.String())
 		}
 
-		return nil
-	})
+		if err := qtx.InsertDeviceMetrics(ctx, params); err != nil {
+			return fmt.Errorf("failed to insert metrics for device %s: %w", metrics.DeviceIdentifier, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
 }
 
 // GetLatestDeviceMetricsBatch retrieves the latest metrics for multiple devices.

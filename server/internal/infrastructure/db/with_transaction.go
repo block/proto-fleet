@@ -20,15 +20,17 @@ func WithTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc
 func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error), config RetryConfig, txOpts *sql.TxOptions) (T, error) {
 	var zero T
 	var lastErr error
+	attempts := 0
 	currentBackoff := config.InitialBackoff
 
 	for attempt := 1; attempt <= config.MaxAttempts; attempt++ {
 		select {
 		case <-ctx.Done():
-			return zero, fleeterror.NewInternalErrorf("context aborted: %v", ctx.Err())
+			return zero, fleeterror.NewInternalErrorf("context aborted: %w", ctx.Err())
 		default:
 		}
 
+		attempts = attempt
 		result, err := executeTransaction(ctx, db, action, txOpts)
 		if err == nil {
 			return result, nil
@@ -47,19 +49,20 @@ func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action fun
 
 		select {
 		case <-ctx.Done():
-			return zero, fleeterror.NewInternalErrorf("context aborted: %v", ctx.Err())
+			return zero, fleeterror.NewInternalErrorf("context aborted: %w", ctx.Err())
 		case <-time.After(sleepDuration):
 		}
 
 		currentBackoff = time.Duration(float64(currentBackoff) * config.BackoffMultiplier)
 	}
 
-	// Preserve FleetError if the original error was already a business error
+	// Preserve non-retryable FleetError values so business error codes survive
+	// the transaction boundary unchanged.
 	var fleetErr fleeterror.FleetError
-	if errors.As(lastErr, &fleetErr) {
+	if !IsRetryablePostgresError(lastErr) && errors.As(lastErr, &fleetErr) {
 		return zero, fleetErr
 	}
-	return zero, fleeterror.NewInternalErrorf("transaction failed after %d attempts: %v", config.MaxAttempts, lastErr)
+	return zero, fleeterror.NewInternalErrorf("transaction failed after %d attempts: %w", attempts, lastErr)
 }
 
 func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error), txOpts *sql.TxOptions) (T, error) {
@@ -68,7 +71,7 @@ func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q *s
 	//nolint:forbidigo // This helper is the canonical boundary for opening SQL transactions.
 	tx, err := db.BeginTx(ctx, txOpts)
 	if err != nil {
-		return zero, fleeterror.NewInternalErrorf("error opening tx: %v", err)
+		return zero, fleeterror.NewInternalErrorf("error opening tx: %w", err)
 	}
 
 	//goland:noinspection GoUnhandledErrorResult
@@ -82,7 +85,7 @@ func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q *s
 
 	err = tx.Commit()
 	if err != nil {
-		return zero, fleeterror.NewInternalErrorf("error committing tx: %v", err)
+		return zero, fleeterror.NewInternalErrorf("error committing tx: %w", err)
 	}
 
 	return result, nil
