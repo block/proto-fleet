@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lib/pq"
+
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	tm "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
