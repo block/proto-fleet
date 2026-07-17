@@ -252,11 +252,16 @@ func TestSQLCurtailmentStore_BeginRecurtailTransition_ReopensResolvedTarget(t *t
 	)
 	require.NoError(t, err)
 
+	fanOffAt := time.Now().UTC().Add(-2 * time.Minute)
+	fanOnAt := time.Now().UTC().Add(-time.Minute)
 	_, err = db.ExecContext(ctx, `
 		UPDATE curtailment_event
-		SET state = 'restoring'
+		SET state = 'restoring',
+		    fan_off_sent_at = $2,
+		    fan_on_sent_at = $3,
+		    fan_last_error = 'fan restore failed'
 		WHERE id = $1
-	`, source.ID)
+	`, source.ID, fanOffAt, fanOnAt)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `
 		UPDATE curtailment_target

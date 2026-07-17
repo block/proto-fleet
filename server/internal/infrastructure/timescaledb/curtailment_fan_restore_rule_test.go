@@ -38,7 +38,7 @@ func TestCurtailmentFanRestoreRulePersistsTerminalFailureUntilClear(t *testing.T
 		BuildingName: "Fan building",
 		Name:         "fan-alert-integration-device",
 		DeviceKind:   infrastructuremodels.KindFanGroup,
-		FanCount:     1,
+		FanCount:     2,
 		Enabled:      true,
 		DriverType:   "test-driver",
 		DriverConfig: []byte(`{}`),
