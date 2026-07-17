@@ -3,6 +3,7 @@ package curtailment
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -143,7 +145,7 @@ type fakeStore struct {
 	automationDemandGuardCheckRuns int
 }
 
-func TestFacilityFanController_MissingOrDisabledClaimIsFailureOncePerPowerPhase(t *testing.T) {
+func TestFacilityFanController_MissingClaimIsFailureOncePerPowerPhase(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -151,65 +153,106 @@ func TestFacilityFanController_MissingOrDisabledClaimIsFailureOncePerPowerPhase(
 		deviceID = int64(501)
 		siteID   = int64(601)
 	)
-	tests := []struct {
-		name   string
-		device *infrastructuremodels.Device
-		err    error
-		reason string
-	}{
-		{
-			name:   "missing device",
-			err:    fleeterror.NewNotFoundError("infrastructure device not found"),
-			reason: "device is missing",
-		},
-		{
-			name:   "disabled device",
-			device: &infrastructuremodels.Device{ID: deviceID, SiteID: siteID},
-			reason: "device is disabled",
-		},
+	ctrl := gomock.NewController(t)
+	devices := storemocks.NewMockInfrastructureDeviceStore(ctrl)
+	sites := storemocks.NewMockSiteStore(ctrl)
+	devices.EXPECT().
+		GetInfrastructureDevice(gomock.Any(), orgID, deviceID).
+		Return(nil, fleeterror.NewNotFoundError("infrastructure device not found")).
+		Times(4)
+	audit := &recordingAudit{}
+	controller := NewFacilityFanController(devices, sites, driver.NewRegistry(), audit)
+	event := &models.Event{
+		EventUUID:            uuid.New(),
+		OrgID:                orgID,
+		FacilityFanDeviceIDs: []int64{deviceID},
+		FacilityFanSiteIDs:   []int64{siteID},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 
-			ctrl := gomock.NewController(t)
-			devices := storemocks.NewMockInfrastructureDeviceStore(ctrl)
-			sites := storemocks.NewMockSiteStore(ctrl)
-			devices.EXPECT().
-				GetInfrastructureDevice(gomock.Any(), orgID, deviceID).
-				Return(tt.device, tt.err).
-				Times(4)
-			audit := &recordingAudit{}
-			controller := NewFacilityFanController(devices, sites, driver.NewRegistry(), audit)
-			event := &models.Event{
-				EventUUID:            uuid.New(),
-				OrgID:                orgID,
-				FacilityFanDeviceIDs: []int64{deviceID},
-				FacilityFanSiteIDs:   []int64{siteID},
-			}
+	offFailure := controller.SetState(t.Context(), event, driver.PowerOff)
+	require.NotNil(t, offFailure)
+	assert.Contains(t, *offFailure, "device is missing")
+	event.FanLastError = offFailure
+	now := time.Now().UTC()
+	event.FanOffSentAt = &now
+	require.NotNil(t, controller.SetState(t.Context(), event, driver.PowerOff))
+	require.NotNil(t, controller.SetState(t.Context(), event, driver.PowerOn))
+	event.FanOnSentAt = &now
+	require.NotNil(t, controller.SetState(t.Context(), event, driver.PowerOn))
 
-			offFailure := controller.SetState(t.Context(), event, driver.PowerOff)
-			require.NotNil(t, offFailure)
-			assert.Contains(t, *offFailure, tt.reason)
-			event.FanLastError = offFailure
-			now := time.Now().UTC()
-			event.FanOffSentAt = &now
-			require.NotNil(t, controller.SetState(t.Context(), event, driver.PowerOff))
-			require.NotNil(t, controller.SetState(t.Context(), event, driver.PowerOn))
-			event.FanOnSentAt = &now
-			require.NotNil(t, controller.SetState(t.Context(), event, driver.PowerOn))
+	require.Len(t, audit.events, 2)
+	assert.Equal(t, ActivityTypeFacilityFanCommandFailed, audit.events[0].Type)
+	assert.Equal(t, "off", audit.events[0].Metadata["desired_power"])
+	require.NotNil(t, audit.events[0].ErrorMessage)
+	assert.Contains(t, *audit.events[0].ErrorMessage, "device is missing")
+	assert.Equal(t, ActivityTypeFacilityFanCommandFailed, audit.events[1].Type)
+	assert.Equal(t, "on", audit.events[1].Metadata["desired_power"])
+	require.NotNil(t, audit.events[1].ErrorMessage)
+	assert.Contains(t, *audit.events[1].ErrorMessage, "device is missing")
+}
 
-			require.Len(t, audit.events, 2)
-			assert.Equal(t, ActivityTypeFacilityFanCommandFailed, audit.events[0].Type)
-			assert.Equal(t, "off", audit.events[0].Metadata["desired_power"])
-			require.NotNil(t, audit.events[0].ErrorMessage)
-			assert.Contains(t, *audit.events[0].ErrorMessage, tt.reason)
-			assert.Equal(t, ActivityTypeFacilityFanCommandFailed, audit.events[1].Type)
-			assert.Equal(t, "on", audit.events[1].Metadata["desired_power"])
-			require.NotNil(t, audit.events[1].ErrorMessage)
-			assert.Contains(t, *audit.events[1].ErrorMessage, tt.reason)
-		})
+type recordingFacilityFanDriver struct {
+	powers []driver.PowerMode
+}
+
+func (*recordingFacilityFanDriver) ValidateConfig(json.RawMessage) error { return nil }
+func (d *recordingFacilityFanDriver) SetState(_ context.Context, _ driver.Device, state driver.DesiredState) error {
+	d.powers = append(d.powers, state.Power)
+	return nil
+}
+func (*recordingFacilityFanDriver) Capabilities() map[string]bool {
+	return map[string]bool{"on_off": true}
+}
+
+func TestFacilityFanController_DisabledClaimIsAuditedSkip(t *testing.T) {
+	t.Parallel()
+
+	const (
+		orgID      = int64(42)
+		disabledID = int64(501)
+		enabledID  = int64(502)
+		siteID     = int64(601)
+		driverType = "test-fan"
+	)
+	ctrl := gomock.NewController(t)
+	devices := storemocks.NewMockInfrastructureDeviceStore(ctrl)
+	sites := storemocks.NewMockSiteStore(ctrl)
+	gomock.InOrder(
+		devices.EXPECT().
+			GetInfrastructureDevice(gomock.Any(), orgID, disabledID).
+			Return(&infrastructuremodels.Device{ID: disabledID, OrgID: orgID, SiteID: siteID}, nil),
+		devices.EXPECT().
+			GetInfrastructureDevice(gomock.Any(), orgID, enabledID).
+			Return(&infrastructuremodels.Device{
+				ID: enabledID, OrgID: orgID, SiteID: siteID, Enabled: true, DriverType: driverType,
+			}, nil),
+	)
+	sites.EXPECT().
+		GetInfrastructureControlSubnets(gomock.Any(), orgID, siteID).
+		Return("10.0.0.0/24", nil)
+	driverController := &recordingFacilityFanDriver{}
+	registry := driver.NewRegistry()
+	registry.Register(driverType, func() driver.Controller { return driverController })
+	audit := &recordingAudit{}
+	controller := NewFacilityFanController(devices, sites, registry, audit)
+	event := &models.Event{
+		EventUUID:            uuid.New(),
+		OrgID:                orgID,
+		State:                models.EventStateRestoring,
+		FacilityFanDeviceIDs: []int64{disabledID, enabledID},
+		FacilityFanSiteIDs:   []int64{siteID, siteID},
 	}
+
+	failure := controller.SetState(t.Context(), event, driver.PowerOn)
+
+	assert.Nil(t, failure)
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, driverController.powers)
+	require.Len(t, audit.events, 1)
+	assert.Equal(t, ActivityTypeFacilityFanCommandSkipped, audit.events[0].Type)
+	assert.Equal(t, activitymodels.ResultSuccess, audit.events[0].Result)
+	assert.Equal(t, "on", audit.events[0].Metadata["desired_power"])
+	assert.Equal(t, []int64{disabledID}, audit.events[0].Metadata["device_ids"])
+	assert.Equal(t, "device_disabled", audit.events[0].Metadata["skip_reason"])
 }
 
 func TestFacilityFanController_RejectsDeviceMovedFromAuthorizedSite(t *testing.T) {

@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	ActivityTypeFacilityFanCommandFailed = "curtailment_facility_fan_command_failed"
+	ActivityTypeFacilityFanCommandFailed  = "curtailment_facility_fan_command_failed"
+	ActivityTypeFacilityFanCommandSkipped = "curtailment_facility_fan_command_skipped"
 )
 
 // FacilityFanController is the shared protocol-blind command boundary used by
@@ -61,6 +62,7 @@ func (c *facilityFanController) SetState(ctx context.Context, event *models.Even
 		return &message
 	}
 	errorsByDevice := make([]string, 0)
+	skippedDeviceIDs := make([]int64, 0)
 	for index, deviceID := range event.FacilityFanDeviceIDs {
 		device, err := c.devices.GetInfrastructureDevice(ctx, event.OrgID, deviceID)
 		if err != nil {
@@ -76,7 +78,7 @@ func (c *facilityFanController) SetState(ctx context.Context, event *models.Even
 			continue
 		}
 		if !device.Enabled {
-			errorsByDevice = append(errorsByDevice, fmt.Sprintf("device %d: device is disabled", device.ID))
+			skippedDeviceIDs = append(skippedDeviceIDs, device.ID)
 			continue
 		}
 
@@ -107,6 +109,9 @@ func (c *facilityFanController) SetState(ctx context.Context, event *models.Even
 			errorsByDevice = append(errorsByDevice, fmt.Sprintf("device %d: command failed", device.ID))
 		}
 	}
+	if len(skippedDeviceIDs) > 0 && shouldLogFacilityFanSkip(event, power) {
+		c.logSkipped(ctx, event, power, skippedDeviceIDs)
+	}
 	if len(errorsByDevice) == 0 {
 		return nil
 	}
@@ -115,6 +120,20 @@ func (c *facilityFanController) SetState(ctx context.Context, event *models.Even
 		c.logFailure(ctx, event, power, message)
 	}
 	return &message
+}
+
+func shouldLogFacilityFanSkip(event *models.Event, power driver.PowerMode) bool {
+	switch power {
+	case driver.PowerOff:
+		return event.FanOffSentAt == nil
+	case driver.PowerOn:
+		if event.State == models.EventStateActive {
+			return event.FanAirflowReopenedAt == nil
+		}
+		return event.FanOnSentAt == nil
+	default:
+		return false
+	}
 }
 
 func shouldLogFacilityFanFailure(event *models.Event, power driver.PowerMode) bool {
@@ -151,10 +170,47 @@ func (c *facilityFanController) logFailure(ctx context.Context, event *models.Ev
 		OrganizationID: &orgID,
 		Metadata: map[string]any{
 			"event_uuid":    event.EventUUID.String(),
-			"desired_power": map[driver.PowerMode]string{driver.PowerOff: "off", driver.PowerOn: "on"}[power],
+			"desired_power": facilityFanDesiredPower(power),
 		},
 	}
 	if err := c.audit.LogStrict(ctx, row); err != nil {
 		slog.Error("curtailment facility fan failure audit failed", "event_uuid", event.EventUUID, "error", err)
+	}
+}
+
+func (c *facilityFanController) logSkipped(
+	ctx context.Context,
+	event *models.Event,
+	power driver.PowerMode,
+	deviceIDs []int64,
+) {
+	orgID := event.OrgID
+	row := activitymodels.Event{
+		Category:       activitymodels.CategoryCurtailment,
+		Type:           ActivityTypeFacilityFanCommandSkipped,
+		Description:    "Facility fan command skipped for disabled devices",
+		Result:         activitymodels.ResultSuccess,
+		ActorType:      activitymodels.ActorCurtailment,
+		OrganizationID: &orgID,
+		Metadata: map[string]any{
+			"event_uuid":    event.EventUUID.String(),
+			"desired_power": facilityFanDesiredPower(power),
+			"device_ids":    append([]int64(nil), deviceIDs...),
+			"skip_reason":   "device_disabled",
+		},
+	}
+	if err := c.audit.LogStrict(ctx, row); err != nil {
+		slog.Error("curtailment facility fan skip audit failed", "event_uuid", event.EventUUID, "error", err)
+	}
+}
+
+func facilityFanDesiredPower(power driver.PowerMode) string {
+	switch power {
+	case driver.PowerOff:
+		return "off"
+	case driver.PowerOn:
+		return "on"
+	default:
+		return "unknown"
 	}
 }
