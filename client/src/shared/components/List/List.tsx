@@ -285,6 +285,15 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    */
   isRowSelectable?: (item: ListItem) => boolean;
   /**
+   * Whether the row may be selected by *bulk* gestures — the header
+   * "select all" and shift-click range selection — as opposed to a single-row
+   * click. Composes with (does not override) per-row selectability. Defaults to
+   * allowing every per-row-selectable row. Use to keep a row individually
+   * pickable while excluding it from batch selection (e.g. a destructive
+   * reparent that must be an explicit per-row choice).
+   */
+  isRowBulkSelectable?: (item: ListItem) => boolean;
+  /**
    * Optional set of column keys that should NOT be affected by disabled row styling.
    * These columns will maintain full opacity even when the row is disabled.
    */
@@ -774,6 +783,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   isLoadingMore = false,
   isRowDisabled,
   isRowSelectable,
+  isRowBulkSelectable,
   columnsExemptFromDisabledStyling,
   sortableColumns,
   currentSort,
@@ -817,14 +827,16 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     }),
   );
 
-  // Prefers `isRowSelectable`; falls back to `!isRowDisabled(item)` for back-compat.
+  // Rows eligible for *bulk* selection (header "select all", shift-range).
+  // Prefers `isRowSelectable`; falls back to `!isRowDisabled(item)` for
+  // back-compat. Additionally honors `isRowBulkSelectable` so a row can stay
+  // individually pickable while being excluded from batch gestures.
   const getSelectableItems = useCallback(
     (itemList: ListItem[]) => {
-      if (isRowSelectable) return itemList.filter(isRowSelectable);
-      if (!isRowDisabled) return itemList;
-      return itemList.filter((item) => !isRowDisabled(item));
+      const perRow = (item: ListItem) => (isRowSelectable ? isRowSelectable(item) : !(isRowDisabled?.(item) ?? false));
+      return itemList.filter((item) => perRow(item) && (isRowBulkSelectable?.(item) ?? true));
     },
-    [isRowDisabled, isRowSelectable],
+    [isRowDisabled, isRowSelectable, isRowBulkSelectable],
   );
 
   // Calculate total selectable count (total - disabled)

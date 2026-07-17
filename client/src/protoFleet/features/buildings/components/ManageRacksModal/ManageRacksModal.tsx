@@ -202,24 +202,11 @@ const ManageRacksModal = ({
     [showAssigned, reassignmentIdSet],
   );
 
-  // Selection guard: a reassignment rack may only be added by an explicit
-  // single-row pick, never batched in via the List header "select all" (which
-  // would reparent many racks — and every miner in them — in one gesture). Any
-  // multi-row addition keeps its eligible ids and drops reassignment ones; the
-  // eligible-only footer "Select all" is unaffected (it sets state directly).
-  const handleSetSelectedItems = useCallback(
-    (next: string[]) => {
-      setSelectedItems((prev) => {
-        const prevSet = new Set(prev);
-        const added = next.filter((id) => !prevSet.has(id));
-        if (added.length > 1) {
-          return next.filter((id) => prevSet.has(id) || !reassignmentIdSet.has(id));
-        }
-        return next;
-      });
-    },
-    [reassignmentIdSet],
-  );
+  // A reassignment rack may only be added by an explicit single-row pick — it is
+  // excluded from every bulk gesture (header "select all", shift-range) via
+  // `isRowBulkSelectable` below, so moving racks and their miners can never be
+  // triggered by one batch selection.
+  const isRowBulkSelectable = useCallback((item: RackPickerItem) => !item.reassignment, []);
 
   // Name column renders a warning icon on reassignment rows while the toggle is
   // on; tapping it opens the per-row conflict dialog. Other columns unchanged.
@@ -335,9 +322,10 @@ const ManageRacksModal = ({
                 itemSelectable
                 selectionType="checkbox"
                 customSelectedItems={selectedItems}
-                customSetSelectedItems={handleSetSelectedItems}
+                customSetSelectedItems={setSelectedItems}
                 preserveOffPageSelection
                 isRowDisabled={isRowDisabled}
+                isRowBulkSelectable={isRowBulkSelectable}
                 itemName={{ singular: "rack", plural: "racks" }}
                 hideTotal
                 containerClassName="min-h-0"

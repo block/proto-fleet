@@ -145,6 +145,28 @@ describe("ManageRacksModal show-assigned toggle", () => {
     expect(delta.added.map((a: { rackId: bigint }) => a.rackId)).not.toContain(2n);
   });
 
+  it("header select-all excludes reparent rows even with an eligible row pre-picked", async () => {
+    // Codex edge: with an eligible row already selected, the header checkbox
+    // fires a setter that "adds" exactly the reparent id. A count-based guard
+    // (>1) would let that lone id through; the structural isRowBulkSelectable
+    // guard keeps it out regardless of prior selection.
+    const onConfirm = vi.fn();
+    renderModal({ onConfirm });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
+
+    // Pre-select the eligible row, then hit header select-all.
+    await userEvent.click(rowCheckbox(0));
+    const selectAll = screen.getByTestId("select-all-checkbox").querySelector("input")!;
+    await userEvent.click(selectAll);
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+
+    const delta = onConfirm.mock.calls[0][0];
+    expect(delta.reassigned).toEqual([]);
+    expect(delta.added.map((a: { rackId: bigint }) => a.rackId)).not.toContain(2n);
+  });
+
   it("selecting a reparent row then toggling off drops it from the delta", async () => {
     const onConfirm = vi.fn();
     renderModal({ onConfirm });
