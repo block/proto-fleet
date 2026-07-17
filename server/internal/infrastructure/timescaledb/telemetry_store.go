@@ -13,6 +13,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
 const (
@@ -370,63 +371,48 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 	ctx, cancel := context.WithTimeout(ctx, s.config.WriteTimeout)
 	defer cancel()
 
-	//nolint:forbidigo // This legacy telemetry transaction predates the shared transaction helper.
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() {
-		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
-			s.logger.Warn("failed to rollback transaction", "error", err)
-		}
-	}()
-
-	qtx := s.queries.WithTx(tx)
-
-	if s.config.AsyncMetricCommit {
-		if err := qtx.DisableSyncCommit(ctx); err != nil {
-			return fmt.Errorf("failed to set async commit: %w", err)
-		}
-	}
-
-	for _, metrics := range data {
-		params := sqlc.InsertDeviceMetricsParams{
-			Time:             metrics.Timestamp,
-			DeviceIdentifier: metrics.DeviceIdentifier,
-			Health:           toNullString(metrics.Health.String()),
+	return db.WithTransactionNoResult(ctx, s.db, func(q *sqlc.Queries) error {
+		if s.config.AsyncMetricCommit {
+			if err := q.DisableSyncCommit(ctx); err != nil {
+				return fmt.Errorf("failed to set async commit: %w", err)
+			}
 		}
 
-		if metrics.HashrateHS != nil {
-			params.HashRateHs = sql.NullFloat64{Float64: metrics.HashrateHS.Value, Valid: true}
-			params.HashRateHsKind = toNullString(metrics.HashrateHS.Kind.String())
-		}
-		if metrics.TempC != nil {
-			params.TempC = sql.NullFloat64{Float64: metrics.TempC.Value, Valid: true}
-			params.TempCKind = toNullString(metrics.TempC.Kind.String())
-		}
-		if metrics.FanRPM != nil {
-			params.FanRpm = sql.NullFloat64{Float64: metrics.FanRPM.Value, Valid: true}
-			params.FanRpmKind = toNullString(metrics.FanRPM.Kind.String())
-		}
-		if metrics.PowerW != nil {
-			params.PowerW = sql.NullFloat64{Float64: metrics.PowerW.Value, Valid: true}
-			params.PowerWKind = toNullString(metrics.PowerW.Kind.String())
-		}
-		if metrics.EfficiencyJH != nil {
-			params.EfficiencyJh = sql.NullFloat64{Float64: metrics.EfficiencyJH.Value, Valid: true}
-			params.EfficiencyJhKind = toNullString(metrics.EfficiencyJH.Kind.String())
+		for _, metrics := range data {
+			params := sqlc.InsertDeviceMetricsParams{
+				Time:             metrics.Timestamp,
+				DeviceIdentifier: metrics.DeviceIdentifier,
+				Health:           toNullString(metrics.Health.String()),
+			}
+
+			if metrics.HashrateHS != nil {
+				params.HashRateHs = sql.NullFloat64{Float64: metrics.HashrateHS.Value, Valid: true}
+				params.HashRateHsKind = toNullString(metrics.HashrateHS.Kind.String())
+			}
+			if metrics.TempC != nil {
+				params.TempC = sql.NullFloat64{Float64: metrics.TempC.Value, Valid: true}
+				params.TempCKind = toNullString(metrics.TempC.Kind.String())
+			}
+			if metrics.FanRPM != nil {
+				params.FanRpm = sql.NullFloat64{Float64: metrics.FanRPM.Value, Valid: true}
+				params.FanRpmKind = toNullString(metrics.FanRPM.Kind.String())
+			}
+			if metrics.PowerW != nil {
+				params.PowerW = sql.NullFloat64{Float64: metrics.PowerW.Value, Valid: true}
+				params.PowerWKind = toNullString(metrics.PowerW.Kind.String())
+			}
+			if metrics.EfficiencyJH != nil {
+				params.EfficiencyJh = sql.NullFloat64{Float64: metrics.EfficiencyJH.Value, Valid: true}
+				params.EfficiencyJhKind = toNullString(metrics.EfficiencyJH.Kind.String())
+			}
+
+			if err := q.InsertDeviceMetrics(ctx, params); err != nil {
+				return fmt.Errorf("failed to insert metrics for device %s: %w", metrics.DeviceIdentifier, err)
+			}
 		}
 
-		if err := qtx.InsertDeviceMetrics(ctx, params); err != nil {
-			return fmt.Errorf("failed to insert metrics for device %s: %w", metrics.DeviceIdentifier, err)
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
+		return nil
+	})
 }
 
 // GetLatestDeviceMetricsBatch retrieves the latest metrics for multiple devices.
@@ -1841,40 +1827,27 @@ func (s *TimescaleTelemetryStore) UpsertFleetMetricRollups(ctx context.Context, 
 	ctx, cancel := context.WithTimeout(ctx, s.config.WriteTimeout)
 	defer cancel()
 
-	//nolint:forbidigo // This legacy telemetry transaction predates the shared transaction helper.
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin fleet metric rollup tx: %w", err)
-	}
-	defer func() {
-		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
-			s.logger.Warn("failed to rollback fleet metric rollup tx", "error", err)
+	return db.WithTransactionNoResult(ctx, s.db, func(q *sqlc.Queries) error {
+		if err := q.DeleteFleetMetricRollupsForWindow(ctx, sqlc.DeleteFleetMetricRollupsForWindowParams{
+			StartTime: startTime,
+			EndTime:   endTime,
+		}); err != nil {
+			return fmt.Errorf("delete fleet metric rollups for window: %w", err)
 		}
-	}()
-
-	qtx := s.queries.WithTx(tx)
-	if err := qtx.DeleteFleetMetricRollupsForWindow(ctx, sqlc.DeleteFleetMetricRollupsForWindowParams{
-		StartTime: startTime,
-		EndTime:   endTime,
-	}); err != nil {
-		return fmt.Errorf("delete fleet metric rollups for window: %w", err)
-	}
-	if err := qtx.UpsertFleetMetricRollups(ctx, sqlc.UpsertFleetMetricRollupsParams{
-		StartTime: startTime,
-		EndTime:   endTime,
-	}); err != nil {
-		return fmt.Errorf("upsert fleet metric rollups: %w", err)
-	}
-	if err := qtx.AdvanceFleetMetricRollupProgress(ctx, sqlc.AdvanceFleetMetricRollupProgressParams{
-		EarliestBucket: models.TruncateToFleetRollupBucket(startTime),
-		LatestBucket:   models.TruncateToFleetRollupBucket(endTime.Add(-time.Nanosecond)),
-	}); err != nil {
-		return fmt.Errorf("advance fleet metric rollup progress: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit fleet metric rollup tx: %w", err)
-	}
-	return nil
+		if err := q.UpsertFleetMetricRollups(ctx, sqlc.UpsertFleetMetricRollupsParams{
+			StartTime: startTime,
+			EndTime:   endTime,
+		}); err != nil {
+			return fmt.Errorf("upsert fleet metric rollups: %w", err)
+		}
+		if err := q.AdvanceFleetMetricRollupProgress(ctx, sqlc.AdvanceFleetMetricRollupProgressParams{
+			EarliestBucket: models.TruncateToFleetRollupBucket(startTime),
+			LatestBucket:   models.TruncateToFleetRollupBucket(endTime.Add(-time.Nanosecond)),
+		}); err != nil {
+			return fmt.Errorf("advance fleet metric rollup progress: %w", err)
+		}
+		return nil
+	})
 }
 
 func (s *TimescaleTelemetryStore) GetLatestFleetMetricRollupBucket(ctx context.Context) (time.Time, error) {

@@ -1796,7 +1796,7 @@ func (s *SQLDeviceStore) UpdateDeviceCustomNames(ctx context.Context, orgID int6
 		customNames = append(customNames, name)
 	}
 
-	//nolint:forbidigo // This legacy path executes raw SQL and cannot use the sqlc transaction helper yet.
+	//nolint:forbidigo // This legacy path uses raw array SQL; moving it requires a separately validated sqlc query.
 	tx, err := s.conn.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to begin rename transaction: %v", err)
