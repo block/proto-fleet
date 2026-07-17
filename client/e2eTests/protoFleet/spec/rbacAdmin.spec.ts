@@ -17,16 +17,16 @@ test.describe("Proto Fleet - Admin RBAC", () => {
   });
 
   test.afterAll("CLEANUP: delete admin RBAC fixtures", async ({ browser }, testInfo) => {
-    await test.step("Clean up RBAC team fixtures", async () => {
-      await cleanupRbacTeamArtifacts(browser, testInfo);
-    });
-
     await test.step("Clean up RBAC admin API keys", async () => {
       await cleanupAdminApiKeys(
         browser,
         testInfo.project.use?.isMobile ?? false,
         testInfo.project.use?.viewport ?? null,
       );
+    });
+
+    await test.step("Clean up RBAC team fixtures", async () => {
+      await cleanupRbacTeamArtifacts(browser, testInfo);
     });
   });
 
