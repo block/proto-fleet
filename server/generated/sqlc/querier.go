@@ -1081,6 +1081,11 @@ type Querier interface {
 	// the locked ids (result is informational; the FOR UPDATE side-effect
 	// is what matters).
 	LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error)
+	// Physical fan commands run only while this exact lifecycle phase remains
+	// current. Holding the row lock through the command serializes Force Release's
+	// terminal UPDATE behind an in-flight command and rejects stale commands that
+	// begin after the transition.
+	LockCurtailmentEventForFanCommand(ctx context.Context, arg LockCurtailmentEventForFanCommandParams) (int64, error)
 	// Per-device transaction lock closes concurrent Start races before the array
 	// overlap check. Callers acquire these in ascending ID order.
 	LockCurtailmentFanDeviceForWrite(ctx context.Context, infrastructureDeviceID string) error

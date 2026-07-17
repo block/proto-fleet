@@ -178,7 +178,12 @@ type UpdateCurtailmentFanStateParams struct {
 }
 
 type CurtailmentFanStateStore interface {
-	UpdateFanState(ctx context.Context, eventID int64, params UpdateCurtailmentFanStateParams) error
+	CommandFanState(
+		ctx context.Context,
+		eventID int64,
+		params UpdateCurtailmentFanStateParams,
+		command func(context.Context) *string,
+	) (*string, error)
 }
 
 // CurtailmentTerminalFanRecoveryStore serializes an operator's terminal-event

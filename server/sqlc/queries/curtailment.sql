@@ -1156,6 +1156,17 @@ SET fan_off_sent_at = COALESCE(sqlc.narg('fan_off_sent_at'), fan_off_sent_at),
 WHERE id = sqlc.arg('id')
   AND state = sqlc.arg('expected_state');
 
+-- name: LockCurtailmentEventForFanCommand :one
+-- Physical fan commands run only while this exact lifecycle phase remains
+-- current. Holding the row lock through the command serializes Force Release's
+-- terminal UPDATE behind an in-flight command and rejects stale commands that
+-- begin after the transition.
+SELECT id
+FROM curtailment_event
+WHERE id = sqlc.arg('id')
+  AND state = sqlc.arg('expected_state')
+FOR UPDATE;
+
 -- name: BeginCurtailmentRestoration :one
 -- Stop's event-side flip to 'restoring'. The WHERE state-guard is the
 -- concurrency control; the loser sees zero rows and the store re-reads

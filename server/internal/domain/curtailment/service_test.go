@@ -116,6 +116,7 @@ type fakeStore struct {
 	lastUpdateFanStateParams interfaces.UpdateCurtailmentFanStateParams
 	updateFanStateErr        error
 	terminalFanRecoveryErr   error
+	operatorFanCallOrder     []string
 
 	// Idempotent replay fakes. eventsByIdempotencyKey / eventsByExternalRef
 	// drive Service.Start's pre-insert webhook-replay lookup; nil results
@@ -452,6 +453,7 @@ func (f *fakeStore) AdminTerminateEvent(_ context.Context, _ int64, eventUUID uu
 
 func (f *fakeStore) ForceReleaseEvent(_ context.Context, _ int64, eventUUID uuid.UUID, reason string) (interfaces.ForceReleaseEventResult, error) {
 	f.forceReleaseCalls++
+	f.operatorFanCallOrder = append(f.operatorFanCallOrder, "force release")
 	f.lastForceReleaseUUID = eventUUID
 	f.lastForceReleaseReason = reason
 	if f.forceReleaseErr != nil {
@@ -472,6 +474,18 @@ func (f *fakeStore) UpdateFanState(_ context.Context, eventID int64, params inte
 	return f.updateFanStateErr
 }
 
+func (f *fakeStore) CommandFanState(
+	ctx context.Context,
+	eventID int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) (*string, error) {
+	f.operatorFanCallOrder = append(f.operatorFanCallOrder, "nonterminal fan command")
+	lastError := command(ctx)
+	params.LastError = lastError
+	return lastError, f.UpdateFanState(ctx, eventID, params)
+}
+
 func (f *fakeStore) RecoverTerminalFanState(
 	ctx context.Context,
 	eventID, _ int64,
@@ -479,6 +493,7 @@ func (f *fakeStore) RecoverTerminalFanState(
 	params interfaces.UpdateCurtailmentFanStateParams,
 	command func(context.Context) *string,
 ) error {
+	f.operatorFanCallOrder = append(f.operatorFanCallOrder, "terminal fan recovery")
 	if f.terminalFanRecoveryErr != nil {
 		return f.terminalFanRecoveryErr
 	}

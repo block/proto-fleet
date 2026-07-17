@@ -426,6 +426,17 @@ func (f *fakeStore) UpdateFanState(_ context.Context, eventID int64, params inte
 	return nil
 }
 
+func (f *fakeStore) CommandFanState(
+	ctx context.Context,
+	eventID int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) (*string, error) {
+	lastError := command(ctx)
+	params.LastError = lastError
+	return lastError, f.UpdateFanState(ctx, eventID, params)
+}
+
 func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
 	f.updateTargetCalls++
 	f.updateTargetParams[deviceIdentifier] = params

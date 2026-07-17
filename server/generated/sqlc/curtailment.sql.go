@@ -2662,6 +2662,30 @@ func (q *Queries) ListRecentlyResolvedCurtailedDevicesByScope(ctx context.Contex
 	return items, nil
 }
 
+const lockCurtailmentEventForFanCommand = `-- name: LockCurtailmentEventForFanCommand :one
+SELECT id
+FROM curtailment_event
+WHERE id = $1
+  AND state = $2
+FOR UPDATE
+`
+
+type LockCurtailmentEventForFanCommandParams struct {
+	ID            int64
+	ExpectedState string
+}
+
+// Physical fan commands run only while this exact lifecycle phase remains
+// current. Holding the row lock through the command serializes Force Release's
+// terminal UPDATE behind an in-flight command and rejects stale commands that
+// begin after the transition.
+func (q *Queries) LockCurtailmentEventForFanCommand(ctx context.Context, arg LockCurtailmentEventForFanCommandParams) (int64, error) {
+	row := q.queryRow(ctx, q.lockCurtailmentEventForFanCommandStmt, lockCurtailmentEventForFanCommand, arg.ID, arg.ExpectedState)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const lockCurtailmentFanDeviceForWrite = `-- name: LockCurtailmentFanDeviceForWrite :exec
 SELECT pg_advisory_xact_lock(hashtextextended('curtailment-fan:' || $1::TEXT, 0))
 `

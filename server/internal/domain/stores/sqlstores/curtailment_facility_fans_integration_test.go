@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -77,6 +78,72 @@ func TestSQLCurtailmentStore_FacilityFanClaimSnapshotAndRelease(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.False(t, commandCalled, "stale terminal recovery must not override the newer active fan claim")
+}
+
+func TestSQLCurtailmentStore_ForceReleaseSerializesWithFanCommands(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	eventUUID := uuid.New()
+	event := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStateActive, "facility-fan-force-release")
+	inserted, err := store.InsertEventWithTargets(ctx, event, []models.InsertTargetParams{
+		curtailmentStoreTestTarget("facility-fan-force-release-miner", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+	})
+	require.NoError(t, err)
+
+	commandEntered := make(chan struct{})
+	completeCommand := make(chan struct{})
+	commandResult := make(chan error, 1)
+	go func() {
+		_, commandErr := store.CommandFanState(
+			ctx,
+			inserted.ID,
+			interfaces.UpdateCurtailmentFanStateParams{ExpectedEventState: models.EventStateActive},
+			func(context.Context) *string {
+				close(commandEntered)
+				<-completeCommand
+				return nil
+			},
+		)
+		commandResult <- commandErr
+	}()
+	<-commandEntered
+
+	releaseStarted := make(chan struct{})
+	releaseResult := make(chan error, 1)
+	go func() {
+		close(releaseStarted)
+		_, releaseErr := store.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "operator release")
+		releaseResult <- releaseErr
+	}()
+	<-releaseStarted
+	select {
+	case releaseErr := <-releaseResult:
+		require.Failf(t, "Force Release completed before the fan command", "error: %v", releaseErr)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(completeCommand)
+	require.NoError(t, <-commandResult)
+	require.NoError(t, <-releaseResult)
+
+	staleCommandCalled := false
+	_, err = store.CommandFanState(
+		ctx,
+		inserted.ID,
+		interfaces.UpdateCurtailmentFanStateParams{ExpectedEventState: models.EventStateActive},
+		func(context.Context) *string {
+			staleCommandCalled = true
+			return nil
+		},
+	)
+	require.ErrorIs(t, err, interfaces.ErrCurtailmentEventStateRaceLoss)
+	assert.False(t, staleCommandCalled, "a stale fan command must lose its lifecycle guard before touching hardware")
 }
 
 func TestSQLCurtailmentStore_FacilityFanAuthorizationSnapshotRejectsSiteDrift(t *testing.T) {

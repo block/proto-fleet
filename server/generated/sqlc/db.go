@@ -1041,6 +1041,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockBuildingsBySiteForWriteStmt, err = db.PrepareContext(ctx, lockBuildingsBySiteForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockBuildingsBySiteForWrite: %w", err)
 	}
+	if q.lockCurtailmentEventForFanCommandStmt, err = db.PrepareContext(ctx, lockCurtailmentEventForFanCommand); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentEventForFanCommand: %w", err)
+	}
 	if q.lockCurtailmentFanDeviceForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentFanDeviceForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentFanDeviceForWrite: %w", err)
 	}
@@ -3209,6 +3212,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockBuildingsBySiteForWriteStmt: %w", cerr)
 		}
 	}
+	if q.lockCurtailmentEventForFanCommandStmt != nil {
+		if cerr := q.lockCurtailmentEventForFanCommandStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentEventForFanCommandStmt: %w", cerr)
+		}
+	}
 	if q.lockCurtailmentFanDeviceForWriteStmt != nil {
 		if cerr := q.lockCurtailmentFanDeviceForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockCurtailmentFanDeviceForWriteStmt: %w", cerr)
@@ -4367,6 +4375,7 @@ type Queries struct {
 	lockAndCountOrgScopeSuperAdminsStmt                        *sql.Stmt
 	lockBuildingForWriteStmt                                   *sql.Stmt
 	lockBuildingsBySiteForWriteStmt                            *sql.Stmt
+	lockCurtailmentEventForFanCommandStmt                      *sql.Stmt
 	lockCurtailmentFanDeviceForWriteStmt                       *sql.Stmt
 	lockCurtailmentFanDevicesForWriteStmt                      *sql.Stmt
 	lockCurtailmentResponseProfileAutomationMutationStmt       *sql.Stmt
@@ -4868,6 +4877,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockAndCountOrgScopeSuperAdminsStmt:                        q.lockAndCountOrgScopeSuperAdminsStmt,
 		lockBuildingForWriteStmt:                                   q.lockBuildingForWriteStmt,
 		lockBuildingsBySiteForWriteStmt:                            q.lockBuildingsBySiteForWriteStmt,
+		lockCurtailmentEventForFanCommandStmt:                      q.lockCurtailmentEventForFanCommandStmt,
 		lockCurtailmentFanDeviceForWriteStmt:                       q.lockCurtailmentFanDeviceForWriteStmt,
 		lockCurtailmentFanDevicesForWriteStmt:                      q.lockCurtailmentFanDevicesForWriteStmt,
 		lockCurtailmentResponseProfileAutomationMutationStmt:       q.lockCurtailmentResponseProfileAutomationMutationStmt,

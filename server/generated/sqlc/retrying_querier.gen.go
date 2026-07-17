@@ -3942,6 +3942,18 @@ func (q *retryingQuerier) LockBuildingsBySiteForWrite(ctx context.Context, arg L
 	return result, err
 }
 
+func (q *retryingQuerier) LockCurtailmentEventForFanCommand(ctx context.Context, arg LockCurtailmentEventForFanCommandParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockCurtailmentEventForFanCommand", func() error {
+		callResult, callErr := q.next.LockCurtailmentEventForFanCommand(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockCurtailmentFanDeviceForWrite(ctx context.Context, infrastructureDeviceID string) error {
 	return q.retrier.RetryQuery(ctx, "LockCurtailmentFanDeviceForWrite", func() error {
 		return q.next.LockCurtailmentFanDeviceForWrite(ctx, infrastructureDeviceID)

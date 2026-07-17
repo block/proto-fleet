@@ -830,15 +830,16 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 	}
 
 	now := r.now()
-	lastError := r.fans.SetState(ctx, ev, driver.PowerOff)
 	params := interfaces.UpdateCurtailmentFanStateParams{
 		ExpectedEventState: models.EventStateActive,
-		LastError:          lastError,
 	}
 	if ev.FanOffSentAt == nil {
 		params.FanOffSentAt = &now
 	}
-	if err := r.fanStore.UpdateFanState(ctx, ev.ID, params); err != nil {
+	lastError, err := r.fanStore.CommandFanState(ctx, ev.ID, params, func(commandCtx context.Context) *string {
+		return r.fans.SetState(commandCtx, ev, driver.PowerOff)
+	})
+	if err != nil {
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			slog.Error("curtailment reconciler: facility fan OFF state update failed", "event_id", ev.ID, "error", err)
 		}
@@ -1512,15 +1513,16 @@ func (r *Reconciler) reconcileRestoringFans(ctx context.Context, ev *models.Even
 		return
 	}
 	now := r.now()
-	lastError := r.fans.SetState(ctx, ev, driver.PowerOn)
 	params := interfaces.UpdateCurtailmentFanStateParams{
 		ExpectedEventState: models.EventStateRestoring,
-		LastError:          lastError,
 	}
 	if ev.FanOnSentAt == nil {
 		params.FanOnSentAt = &now
 	}
-	if err := r.fanStore.UpdateFanState(ctx, ev.ID, params); err != nil {
+	lastError, err := r.fanStore.CommandFanState(ctx, ev.ID, params, func(commandCtx context.Context) *string {
+		return r.fans.SetState(commandCtx, ev, driver.PowerOn)
+	})
+	if err != nil {
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			slog.Error("curtailment reconciler: facility fan ON state update failed", "event_id", ev.ID, "error", err)
 		}

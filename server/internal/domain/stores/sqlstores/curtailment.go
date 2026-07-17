@@ -1835,24 +1835,46 @@ func (s *SQLCurtailmentStore) UpdateEventState(ctx context.Context, eventID int6
 	return nil
 }
 
-func (s *SQLCurtailmentStore) UpdateFanState(ctx context.Context, eventID int64, params interfaces.UpdateCurtailmentFanStateParams) error {
+func (s *SQLCurtailmentStore) CommandFanState(
+	ctx context.Context,
+	eventID int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) (*string, error) {
 	if params.ExpectedEventState.IsTerminal() {
-		return fleeterror.NewInvalidArgumentError("terminal fan state must use serialized terminal recovery")
+		return nil, fleeterror.NewInvalidArgumentError("terminal fan state must use serialized terminal recovery")
 	}
-	rows, err := s.GetQueries(ctx).UpdateCurtailmentEventFanState(ctx, sqlc.UpdateCurtailmentEventFanStateParams{
-		ID:            eventID,
-		ExpectedState: string(params.ExpectedEventState),
-		FanOffSentAt:  ptrToNullTime(params.FanOffSentAt),
-		FanOnSentAt:   ptrToNullTime(params.FanOnSentAt),
-		FanLastError:  ptrToNullString(params.LastError),
+	if command == nil {
+		return nil, fleeterror.NewInvalidArgumentError("facility fan command is required")
+	}
+	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*string, error) {
+		_, err := q.LockCurtailmentEventForFanCommand(ctx, sqlc.LockCurtailmentEventForFanCommandParams{
+			ID:            eventID,
+			ExpectedState: string(params.ExpectedEventState),
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, interfaces.ErrCurtailmentEventStateRaceLoss
+		}
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to lock curtailment event %d for fan command: %v", eventID, err)
+		}
+
+		lastError := command(ctx)
+		rows, err := q.UpdateCurtailmentEventFanState(ctx, sqlc.UpdateCurtailmentEventFanStateParams{
+			ID:            eventID,
+			ExpectedState: string(params.ExpectedEventState),
+			FanOffSentAt:  ptrToNullTime(params.FanOffSentAt),
+			FanOnSentAt:   ptrToNullTime(params.FanOnSentAt),
+			FanLastError:  ptrToNullString(lastError),
+		})
+		if err != nil {
+			return lastError, fleeterror.NewInternalErrorf("failed to update curtailment event %d fan state: %v", eventID, err)
+		}
+		if rows == 0 {
+			return lastError, interfaces.ErrCurtailmentEventStateRaceLoss
+		}
+		return lastError, nil
 	})
-	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to update curtailment event %d fan state: %v", eventID, err)
-	}
-	if rows == 0 {
-		return interfaces.ErrCurtailmentEventStateRaceLoss
-	}
-	return nil
 }
 
 func (s *SQLCurtailmentStore) RecoverTerminalFanState(
