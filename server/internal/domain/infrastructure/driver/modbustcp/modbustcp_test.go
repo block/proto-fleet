@@ -74,7 +74,6 @@ func TestValidateConfig_RejectsPublicOrHostnameEndpoints(t *testing.T) {
 		"2001:4860::8888", // public IPv6
 		"plc.example.com", // hostname
 		"",                // missing
-		"::ffff:8.8.8.8",  // IPv4-mapped IPv6 public (netip unmaps before checks)
 		"0.0.0.0",         // unspecified IPv4
 		"::",              // unspecified IPv6
 		"255.255.255.255", // broadcast
@@ -94,6 +93,23 @@ func TestValidateConfig_RejectsPublicOrHostnameEndpoints(t *testing.T) {
 			assert.NotContains(t, err.Error(), endpoint,
 				"validation error must not echo the submitted endpoint")
 		}
+	}
+}
+
+func TestValidateConfig_RejectsIPv4MappedIPv6EndpointsWithoutEcho(t *testing.T) {
+	c := Controller{}
+	for _, endpoint := range []string{
+		"::ffff:10.20.30.40", // mapped private IPv4
+		"::ffff:8.8.8.8",     // mapped public IPv4
+	} {
+		raw := validConfigJSON(t, func(m map[string]any) {
+			m["endpoint"] = endpoint
+		})
+
+		err := c.ValidateConfig(raw)
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), endpoint)
+		assert.NotContains(t, err.Error(), string(raw))
 	}
 }
 

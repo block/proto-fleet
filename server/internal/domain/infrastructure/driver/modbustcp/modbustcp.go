@@ -189,6 +189,9 @@ func validateEndpoint(endpoint string) error {
 	if err != nil {
 		return errors.New("endpoint must be an IP address (hostnames are not supported)")
 	}
+	if addr.Is4In6() {
+		return errors.New("endpoint must not use an IPv4-mapped IPv6 address")
+	}
 	if !addr.IsPrivate() {
 		return errors.New("endpoint must be a private (RFC1918 / IPv6 ULA) IP address")
 	}
