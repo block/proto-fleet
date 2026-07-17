@@ -58,6 +58,18 @@ racks.
    **client-side** substring filter in `SearchRacksModal`. It keeps working
    because `SearchRacksModal` stays on the fetch-all + client-side path (see
    Part C).
+3. **Stale header scope on detail pages is fixed at the navigation layer,
+   not per-modal.** `ManageBuildingModal` (and `ManageRackModal`) are
+   reachable from the headerless `/buildings/:id` / `/racks/:rackId` /
+   `/sites/:id` routes, where the persisted SitePicker selection can be an
+   unrelated site. Rather than each picker special-casing the mismatch, a
+   small **scope-sync** effect on those detail pages overwrites the active
+   scope to the entity's own site (leaving `all-sites` untouched). Once the
+   header always agrees with the entity, the pickers can use the simple
+   global-vs-scoped model and lean on `building.siteId` / `rack.siteId`
+   without union or mismatch-fallback logic. This is a **separate PR** (it
+   also repairs a pre-existing miner bug — see "Cross-cutting" below) that
+   Part B depends on.
 
 ## Naming trap
 
@@ -69,7 +81,59 @@ racks.
   not `zoneKeys` (the proto message is `ZoneKey`, the hook field is
   `zones`).
 
-## Delivery — three PRs (A → C → B)
+## Delivery — sequencing
+
+- **Part A** — site scoping. **Shipped** as [#760](https://github.com/block/proto-fleet/pull/760).
+- **Scope-sync PR** — cross-cutting; separate issue. Also fixes a pre-existing
+  miner-rack-modal bug. **Part B depends on it.**
+- **Part C** — facets + server pagination. Independent of scope-sync.
+- **Part B** — toggle + reparent. Built on the scope-sync model; ships last.
+
+## Cross-cutting — scope-sync PR (and the miner-rack-modal fix)
+
+**Separate PR / own issue.** On the headerless detail routes
+(`/buildings/:id`, `/racks/:rackId`, `/sites/:id` — all outside
+`SiteScopeLayout`), the active scope comes from the persisted SitePicker
+value, which can point at an unrelated site. A shared effect fixes this at
+the source:
+
+- **New** `useSyncScopeToEntity(siteId)` — used by `BuildingPage`,
+  `RackOverviewPage`, `SiteDetailPage`. On load: if `activeSite` is a
+  *different* site (or `unassigned`), `setActiveSite` to the entity's own
+  site; leave `all-sites` untouched. Verified safe against
+  `useActiveSite` reconciliation — these routes have no route scope, so the
+  route-scope mirror effect early-returns and won't clobber the write, and
+  the deleted-site guard passes for a real site.
+- Needs the site **slug** (not just id) to build the scoped `ActiveSite`;
+  resolve from `ListSites` / `knownSiteSlugById` (the existing slug-reconcile
+  effect then keeps it fresh).
+- Only ever changes behavior in the deep-link/bookmark case (in-app
+  navigation never mismatches), which is exactly when switching context to
+  the opened entity is desirable. It is a global-nav behavior change, so it
+  wants an explicit product nod.
+
+### Miner selection in the Rack modal — required fix under the new strategy
+
+The **same stale-header bug already exists on the miner side today** (not
+introduced by #758). Reproduced: open a rack whose site ≠ the persisted
+header site via `/racks/:rackId` and —
+
+- Toggle **off**: the list shows only the rack's *current* members, not the
+  rack's site's assignable miners.
+- Toggle **on**: the list shows miners from the *header's* site, and hides
+  the rack's own site's miners.
+
+Cause: `MinerSelectionList` clamps the default view by `eligibility` (the
+rack's site) but drives the toggle-on breadth and the Building/Rack facet
+options off the header `scope` (`:669`, `:679`), which is stale here.
+
+**Fix: the scope-sync PR resolves this with no `MinerSelectionList` change.**
+Once the header is synced to the rack's site on `/racks/:rackId`, `scope`
+== the rack's site, so toggle-on shows the rack's site (within-site
+reparent) and the facet options are correct; cross-site reparent still
+requires explicitly choosing all-sites, as intended. Acceptance for the
+scope-sync PR must include re-running this reproduction on both the rack and
+building modals.
 
 ### PR 1 — Part A: Site scoping — **shipped as [#760](https://github.com/block/proto-fleet/pull/760)**
 
@@ -95,11 +159,15 @@ Small, low-risk, independently valuable.
 > instead is authoritative, route-independent, and exactly matches the
 > per-row eligibility in `buildRackPickerItem` (same-site + site-unassigned =
 > eligible). Consequence: there is no "All sites → empty fetch" case; the
-> fetch is always scoped to the building's own site.
+> fetch is always scoped to the building's own site. That is correct for a
+> default-view-only picker (no toggle yet). The all-sites → global breadth
+> needed for cross-site reparenting arrives in **Part B**, once the
+> **scope-sync PR** guarantees the header agrees with the building — so Part
+> A needs no revision.
 
 **Tests:** `buildingRackScope` (real-site and unassigned cases);
-`ManageRacksModal` component test asserting the scope reaches `listRacks`
-(guards against reverting to a whole-org fetch).
+`ManageRacksModal` + `SearchRacksModal` component tests asserting the scope
+reaches `listRacks` (guards against reverting to a whole-org fetch).
 
 ### PR 2 — Part C: Filter facets + server-side pagination
 
@@ -125,12 +193,25 @@ Small, low-risk, independently valuable.
 
 ### PR 3 — Part B: "Show assigned racks" toggle + reparent
 
+**Depends on the scope-sync PR** — the breadth model below assumes the
+header always agrees with the building (or is all-sites).
+
 - Add a **Show assigned racks** switch (default OFF) + Info button +
   explainer dialog, mirroring the miner toggle.
-  - OFF → fetch/show only the assignable set (this building's racks +
-    unassigned racks); other-building / other-site rows hidden.
+  - OFF → show only the assignable set (this building's site + unassigned,
+    eligible rows); ineligible rows hidden. Default fetch stays clamped to
+    `building.siteId` (Part A), efficient.
   - ON → surface ineligible racks, make them **selectable** behind a reparent
     confirm, flagged with a warning icon + per-row conflict dialog.
+- **Breadth of the toggle-on fetch follows the simple global-vs-scoped model**
+  (mirrors miners — cross-site reparent requires all-sites):
+  - Header **scoped** (guaranteed == building site by scope-sync) → broaden
+    to that site only → surfaces same-site, other-building racks
+    (within-site reparent). No cross-site.
+  - Header **all-sites** → broaden to a global (unscoped) fetch → surfaces
+    other-site racks too (cross-site reparent).
+  - No union / mismatch special-casing is needed, because scope-sync removed
+    the mismatch.
 - **New** `features/buildings/components/ManageBuildingModal/RackReparentWarningDialog.tsx`
   — analog of `ReparentWarningDialog`, copy states the rack's miners move
   with it.
@@ -139,7 +220,8 @@ Small, low-risk, independently valuable.
 - Reuse the existing id-based `buildRackPickerItem` classification for
   reassignment flagging.
 
-**Tests:** toggle default-off + surfacing behavior; reparent reporting
+**Tests:** toggle default-off + surfacing behavior; toggle-on breadth
+(scoped → same-site only, all-sites → global); reparent reporting
 (`reassignedItems`) to the host modal; dialog gating before commit.
 
 ## Acceptance criteria
@@ -148,19 +230,26 @@ Small, low-risk, independently valuable.
       (+ site-unassigned), correct on scoped and unscoped routes alike.
       (Revised from the original "scope to header SitePicker" — see the PR 1
       design note.)
+- [ ] **Scope-sync:** visiting a detail page whose site ≠ the persisted
+      header site overwrites the active scope to the entity's site
+      (`all-sites` left as-is). The rack-modal reproduction (toggle on/off)
+      is correct afterward on **both** the rack and building modals.
 - [ ] `Show assigned racks` toggle (default off) hides ineligible racks;
       toggling on surfaces them with warning icons.
+- [ ] Toggle-on breadth follows global-vs-scoped: scoped header → same-site
+      only; all-sites → cross-site racks surface for reparent.
 - [ ] Selecting an already-placed rack prompts a reparent confirm before
       commit; `reassignedItems` reported to the host modal; dialog states
       miners move with the rack.
-- [ ] Site / Building / Zone facets filter server-side and compose (AND)
-      with the header scope; Site facet hidden when scope governs it.
+- [ ] Building / Zone facets filter server-side and compose (AND) with the
+      building-site scope; Site facet dropped (scope always governs it).
 - [ ] `ManageRacksModal` paginates server-side; scope + facets correct
       across pages.
 - [ ] Name search unchanged — `SearchRacksModal` client-side filter still
       works; no `nameQuery` added.
-- [ ] Unit tests: `useBuildingRackScope` (three states), scoped `listRacks`
-      call, toggle behavior, facet → request translation, reparent reporting.
+- [x] Unit tests: `buildingRackScope` cases + `ManageRacksModal` /
+      `SearchRacksModal` scoped-`listRacks` assertions (Part A). Later:
+      toggle behavior, facet → request translation, reparent reporting.
 
 ## Out of scope
 
@@ -172,9 +261,10 @@ Small, low-risk, independently valuable.
 
 | File | Change | PR |
 |---|---|---|
-| `.../ManageBuildingModal/useBuildingRackScope.ts` | **New** — active-site → scope helper | 1 |
-| `.../ManageBuildingModal/ManageBuildingModal.tsx` | Read scope, forward to both pickers | 1 |
-| `.../ManageRacksModal/ManageRacksModal.tsx` | Scope fetch (1); facets + server pagination (2); toggle + reparent flagging (3) | 1,2,3 |
-| `.../SearchRacksModal/SearchRacksModal.tsx` | Scope fetch (1); keep client-side name filter (2); toggle + reparent flagging (3) | 1,2,3 |
+| `.../ManageBuildingModal/buildingRackScope.ts` (+ `.test.ts`) | **New** — pure `buildingRackScope(siteId)` helper | 1 (shipped) |
+| `.../ManageBuildingModal/ManageBuildingModal.tsx` | Compute scope from `building.siteId`, forward to both pickers | 1 (shipped) |
+| `.../ManageRacksModal/ManageRacksModal.tsx` (+ `.test.tsx`) | Scope fetch (1); facets + server pagination (2); toggle + reparent flagging (3) | 1,2,3 |
+| `.../SearchRacksModal/SearchRacksModal.tsx` (+ `.test.tsx`) | Scope fetch (1); keep client-side name filter (2); toggle + reparent flagging (3) | 1,2,3 |
 | `.../components/rackPickerItem.ts` | Reuse/extend classification for reassignment flagging | 3 |
 | `.../ManageBuildingModal/RackReparentWarningDialog.tsx` | **New** — reparent confirm | 3 |
+| `hooks/useSyncScopeToEntity.ts` + `BuildingPage` / `RackOverviewPage` / `SiteDetailPage` | **New** — sync active scope to the entity's site on headerless detail routes; fixes the pre-existing miner-modal bug | scope-sync (separate) |
