@@ -1698,7 +1698,7 @@ func TestValidateSlotConflictsWithExistingBlocksUnchangedOccupant(t *testing.T) 
 	}
 }
 
-func TestValidateSlotConflictsWithExistingAllowsRemoveOmittedVacatedSlot(t *testing.T) {
+func TestValidateSlotConflictsWithExistingBlocksRemoveOmittedVacatedSlot(t *testing.T) {
 	rows := []map[string]string{
 		{"__row": "21", "device_identifier": "miner-1", "rack": "Rack A", "rack_row": "0", "rack_col": "1"},
 	}
@@ -1708,8 +1708,8 @@ func TestValidateSlotConflictsWithExistingAllowsRemoveOmittedVacatedSlot(t *test
 	}}
 
 	errs := validateSlotConflictsWithExisting(rows, nil, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
-	if len(errs) != 0 {
-		t.Fatalf("errors = %+v, want omitted miner slot to be reusable", errs)
+	if len(errs) != 1 || errs[0].GetMessage() != "rack slot already occupied by miner miner-2" {
+		t.Fatalf("errors = %+v, want omitted miner slot to remain occupied until apply clears it", errs)
 	}
 }
 
@@ -2260,6 +2260,24 @@ func TestValidateRackGridCollisionsCountsRetainedOmittedRacks(t *testing.T) {
 	errs := validateRackGridCollisions(rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
 	if len(errs) != 1 || errs[0].GetMessage() != "rack grid cell already occupied by rack Rack A" {
 		t.Fatalf("errors = %+v, want retained rack duplicate grid cell", errs)
+	}
+}
+
+func TestValidateRackGridCollisionsBlocksRemoveOmittedRackCells(t *testing.T) {
+	rackRows := []map[string]string{
+		{"__row": "10", "site": "Site A", "building": "Building A", "rack": "Rack B", "aisle_index": "0", "position_in_aisle": "0"},
+	}
+	snap := &snapshot{racks: []rackSnapshot{{
+		Site:            "Site A",
+		Building:        "Building A",
+		Label:           "Rack A",
+		AisleIndex:      "0",
+		PositionInAisle: "0",
+	}}}
+
+	errs := validateRackGridCollisions(rackRows, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	if len(errs) != 1 || errs[0].GetMessage() != "rack grid cell already occupied by rack Rack A" {
+		t.Fatalf("errors = %+v, want omitted rack grid cell to remain occupied until apply clears it", errs)
 	}
 }
 

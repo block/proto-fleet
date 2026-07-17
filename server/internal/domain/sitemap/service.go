@@ -3238,7 +3238,7 @@ func validateRackGridCollisions(rackRows []map[string]string, snap *snapshot, mo
 	seen := map[string]string{}
 	var errs []*pb.ImportValidationError
 	for _, rack := range snap.racks {
-		if presentRackIdentities[rackIdentity(rack)] || mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
+		if presentRackIdentities[rackIdentity(rack)] {
 			continue
 		}
 		if rack.Building == "" || rack.AisleIndex == "" || rack.PositionInAisle == "" {
@@ -3627,7 +3627,6 @@ func validateSlotConflictsWithExisting(rows, rackRows []map[string]string, snap 
 	desiredRackLabels := desiredRackLabelsByID(rackRows)
 	desiredRows := map[string]map[string]string{}
 	movingMiners := map[string]bool{}
-	presentMiners := rowSet(rows, "device_identifier")
 	for _, row := range rows {
 		desiredRows[row["device_identifier"]] = row
 	}
@@ -3646,9 +3645,6 @@ func validateSlotConflictsWithExisting(rows, rackRows []map[string]string, snap 
 
 	currentOccupants := map[string]minerSnapshot{}
 	for _, miner := range snap.miners {
-		if !presentMiners[miner.DeviceIdentifier] && mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
-			continue
-		}
 		key, ok := normalizedRackSlotKey(desiredRackLabel(miner, desiredRackLabels), miner.RackRow, miner.RackCol)
 		if !ok {
 			continue
