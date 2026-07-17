@@ -109,9 +109,7 @@ function FacilityFanSelectionModal({
   onApply,
   onRetry,
 }: FacilityFanSelectionModalProps) {
-  const [selectedDeviceIds, setSelectedDeviceIds] = useState(
-    () => new Set(initialSelectedDeviceIds.slice(0, maxFacilityFanDeviceSelections)),
-  );
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState(() => new Set(initialSelectedDeviceIds));
   const [fanOffDelaySec, setFanOffDelaySec] = useState(initialFanOffDelaySec);
   const [fanRestoreDelaySec, setFanRestoreDelaySec] = useState(initialFanRestoreDelaySec);
   const [showValidationErrors, setShowValidationErrors] = useState(false);

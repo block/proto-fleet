@@ -381,7 +381,7 @@ func TestService_Start_RejectsFacilityFanDelaysAboveSafetyCeiling(t *testing.T) 
 	}
 }
 
-func TestService_Start_RejectsFacilityFanListAboveTickSafetyCeiling(t *testing.T) {
+func TestValidateStartRequest_AllowsLegacyFacilityFanListAboveNewSelectionCeiling(t *testing.T) {
 	t.Parallel()
 
 	req := validStartRequest(1)
@@ -390,10 +390,22 @@ func TestService_Start_RejectsFacilityFanListAboveTickSafetyCeiling(t *testing.T
 		req.FacilityFanDeviceIDs[index] = int64(index + 1)
 	}
 
-	_, err := NewService(newFakeStore()).Start(t.Context(), req)
+	require.NoError(t, validateStartRequest(req))
+}
+
+func TestValidateStartRequest_RejectsFacilityFanListAboveLegacyCeiling(t *testing.T) {
+	t.Parallel()
+
+	req := validStartRequest(1)
+	req.FacilityFanDeviceIDs = make([]int64, facilityFanDeviceCountLegacyMax+1)
+	for index := range req.FacilityFanDeviceIDs {
+		req.FacilityFanDeviceIDs[index] = int64(index + 1)
+	}
+
+	err := validateStartRequest(req)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.Contains(t, err.Error(), "must contain at most 8 devices")
+	assert.Contains(t, err.Error(), "must contain at most 1024 devices")
 }
 
 func TestService_Start_RejectsMissingSourceActorType(t *testing.T) {

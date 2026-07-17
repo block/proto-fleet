@@ -40,6 +40,31 @@ func (s *Service) SetInfrastructureControlSubnets(ctx context.Context, orgID, si
 
 	var subnets []string
 	err = s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		// Match DeleteSite's site-then-devices lock order. Curtailment Start
+		// locks claimed infrastructure-device rows before it persists the event,
+		// so this serializes allowlist replacement with fan claims and prevents a
+		// recovery command from losing the commissioning data it depends on.
+		if err := s.store.LockSiteForWrite(txCtx, orgID, siteID); err != nil {
+			return err
+		}
+		infrastructureDeviceIDs, err := s.store.LockInfrastructureDevicesBySiteForWrite(txCtx, orgID, siteID)
+		if err != nil {
+			return err
+		}
+		activeEventCount, err := s.store.CountActiveCurtailmentEventsByInfrastructureDevices(
+			txCtx,
+			orgID,
+			infrastructureDeviceIDs,
+		)
+		if err != nil {
+			return err
+		}
+		if activeEventCount > 0 {
+			return fleeterror.NewFailedPreconditionError(
+				"infrastructure devices at this site are claimed by active curtailment events; wait for those events to finish before changing infrastructure control subnets",
+			)
+		}
+
 		persisted, err := s.store.SetInfrastructureControlSubnets(
 			txCtx,
 			orgID,

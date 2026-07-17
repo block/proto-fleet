@@ -53,4 +53,24 @@ describe("FacilityFanSelectionModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ selectedDeviceIds: ["1", "2"] }));
   });
+
+  it("preserves an oversized legacy selection until the operator reduces it", () => {
+    const onApply = vi.fn();
+    const devices = facilityFanDevices(9);
+    render(
+      <FacilityFanSelectionModal
+        devices={devices}
+        initialSelectedDeviceIds={devices.map(({ id }) => id)}
+        initialFanOffDelaySec=""
+        initialFanRestoreDelaySec=""
+        onDismiss={vi.fn()}
+        onApply={onApply}
+      />,
+    );
+
+    expect(screen.getByText("9 devices selected (maximum)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ selectedDeviceIds: devices.map(({ id }) => id) }));
+  });
 });

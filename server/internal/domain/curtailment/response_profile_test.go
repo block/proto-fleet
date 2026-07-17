@@ -178,6 +178,71 @@ func TestResponseProfileService_CreateRejectsFacilityFanListAboveTickSafetyCeili
 	assert.Contains(t, err.Error(), "must contain at most 8 devices")
 }
 
+func TestResponseProfileService_UpdateGrandfathersShrinkingLegacyFacilityFanList(t *testing.T) {
+	t.Parallel()
+
+	existingDeviceIDs := make([]int64, facilityFanDeviceCountMax+2)
+	store := newResponseProfileFakeStore()
+	for index := range existingDeviceIDs {
+		deviceID := int64(index + 1)
+		existingDeviceIDs[index] = deviceID
+		store.infrastructureDevices[deviceID] = models.ResponseProfileInfrastructureDevice{ID: deviceID, SiteID: 7, Enabled: true}
+	}
+	deviceIDs := existingDeviceIDs[:len(existingDeviceIDs)-1]
+	profile, err := NewResponseProfileService(store).Update(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			ID:                      101,
+			OrgID:                   42,
+			ProfileName:             "Legacy fan set",
+			Mode:                    models.ModeFullFleet,
+			FacilityFanDeviceIDs:    deviceIDs,
+			RestoreBatchSize:        10,
+			RestoreBatchIntervalSec: 30,
+		},
+		CanUseAdminControls: true,
+		ExpectedFacilityFanSettings: models.ResponseProfileFanSettings{
+			FacilityFanDeviceIDs: existingDeviceIDs,
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, deviceIDs, profile.FacilityFanDeviceIDs)
+}
+
+func TestResponseProfileService_UpdateRejectsChangingLegacyFacilityFanListAboveLimit(t *testing.T) {
+	t.Parallel()
+
+	existingDeviceIDs := make([]int64, facilityFanDeviceCountMax+1)
+	store := newResponseProfileFakeStore()
+	for index := range existingDeviceIDs {
+		deviceID := int64(index + 1)
+		existingDeviceIDs[index] = deviceID
+		store.infrastructureDevices[deviceID] = models.ResponseProfileInfrastructureDevice{ID: deviceID, SiteID: 7, Enabled: true}
+	}
+	changedDeviceIDs := append([]int64(nil), existingDeviceIDs...)
+	changedDeviceIDs[len(changedDeviceIDs)-1] = 100
+	store.infrastructureDevices[100] = models.ResponseProfileInfrastructureDevice{ID: 100, SiteID: 7, Enabled: true}
+	_, err := NewResponseProfileService(store).Update(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			ID:                      101,
+			OrgID:                   42,
+			ProfileName:             "Changed legacy fan set",
+			Mode:                    models.ModeFullFleet,
+			FacilityFanDeviceIDs:    changedDeviceIDs,
+			RestoreBatchSize:        10,
+			RestoreBatchIntervalSec: 30,
+		},
+		CanUseAdminControls: true,
+		ExpectedFacilityFanSettings: models.ResponseProfileFanSettings{
+			FacilityFanDeviceIDs: existingDeviceIDs,
+		},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "must contain at most 8 devices")
+}
+
 func TestResponseProfileService_CreateRejectsUnknownFacilityFan(t *testing.T) {
 	t.Parallel()
 

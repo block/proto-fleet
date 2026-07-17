@@ -269,7 +269,7 @@ func (s *SQLSiteStore) LockInfrastructureDevicesBySiteForWrite(ctx context.Conte
 		SiteID: siteID,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to lock infrastructure devices for site delete: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to lock infrastructure devices for site mutation: %v", err)
 	}
 	return ids, nil
 }

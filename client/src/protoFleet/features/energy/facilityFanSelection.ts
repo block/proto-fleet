@@ -4,7 +4,7 @@ export function selectAllFacilityFanDeviceIds(
   selectedDeviceIds: Iterable<string>,
   selectableDeviceIds: Iterable<string>,
 ): Set<string> {
-  const selection = new Set([...selectedDeviceIds].slice(0, maxFacilityFanDeviceSelections));
+  const selection = new Set(selectedDeviceIds);
   for (const deviceId of selectableDeviceIds) {
     if (selection.size >= maxFacilityFanDeviceSelections) {
       break;

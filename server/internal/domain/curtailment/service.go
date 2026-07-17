@@ -1329,10 +1329,11 @@ const (
 	nonAdminRestoreBatchIntervalMax   int32 = 5 * 60
 	restoreBatchIntervalUpperBoundSec int32 = 60 * 60
 	facilityFanDelayUpperBoundSec     int32 = 60 * 60
-	// Fan-group devices aggregate physical fans, so eight independently
-	// commissioned control writes is enough for one event while bounding the
-	// sequential OT timeout budget. The reconciler also divides each tick fairly.
-	facilityFanDeviceCountMax = 8
+	// New response-profile selections are limited to eight, but Start retains
+	// the historical API ceiling so profiles saved before that limit can still
+	// execute until an operator deliberately reduces their fan set.
+	facilityFanDeviceCountMax       = 8
+	facilityFanDeviceCountLegacyMax = 1024
 )
 
 func validateStartRequest(req StartRequest) error {
@@ -1453,10 +1454,10 @@ func validateStartRequest(req StartRequest) error {
 			facilityFanDelayUpperBoundSec, req.FanRestoreDelaySec,
 		)
 	}
-	if len(req.FacilityFanDeviceIDs) > facilityFanDeviceCountMax {
+	if len(req.FacilityFanDeviceIDs) > facilityFanDeviceCountLegacyMax {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"facility_fan_device_ids must contain at most %d devices, got %d",
-			facilityFanDeviceCountMax, len(req.FacilityFanDeviceIDs),
+			facilityFanDeviceCountLegacyMax, len(req.FacilityFanDeviceIDs),
 		)
 	}
 	seenFanIDs := make(map[int64]struct{}, len(req.FacilityFanDeviceIDs))

@@ -9,6 +9,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"go.uber.org/mock/gomock"
 )
@@ -34,6 +35,12 @@ func TestGetInfrastructureControlSubnetsReturnsPersistedCanonicalEntries(t *test
 	}
 }
 
+func expectInfrastructureControlSubnetMutationAllowed(store *mocks.MockSiteStore, siteID int64) {
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, siteID).Return(nil)
+	store.EXPECT().LockInfrastructureDevicesBySiteForWrite(inTxCtx, testOrgID, siteID).Return([]int64{70}, nil)
+	store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(inTxCtx, testOrgID, []int64{70}).Return(int64(0), nil)
+}
+
 func TestSetInfrastructureControlSubnetsPersistsCanonicalAndAuditsWithoutTopology(t *testing.T) {
 	t.Parallel()
 
@@ -48,6 +55,7 @@ func TestSetInfrastructureControlSubnetsPersistsCanonicalAndAuditsWithoutTopolog
 		})
 	svc := NewService(store, nil, nil, nil, nil, &fakeTransactor{}, activity.NewService(mockActivityStore))
 
+	expectInfrastructureControlSubnetMutationAllowed(store, 11)
 	store.EXPECT().
 		SetInfrastructureControlSubnets(
 			gomock.Any(),
@@ -103,6 +111,7 @@ func TestSetInfrastructureControlSubnetsClearAuditsDecommission(t *testing.T) {
 		})
 	svc := NewService(store, nil, nil, nil, nil, &fakeTransactor{}, activity.NewService(mockActivityStore))
 
+	expectInfrastructureControlSubnetMutationAllowed(store, 11)
 	store.EXPECT().
 		SetInfrastructureControlSubnets(gomock.Any(), testOrgID, int64(11), "").
 		Return("", nil)
@@ -131,6 +140,7 @@ func TestSetInfrastructureControlSubnetsFailedWriteDoesNotAudit(t *testing.T) {
 	svc := NewService(store, nil, nil, nil, nil, &fakeTransactor{}, activity.NewService(mockActivityStore))
 
 	writeErr := errors.New("write failed")
+	expectInfrastructureControlSubnetMutationAllowed(store, 11)
 	store.EXPECT().
 		SetInfrastructureControlSubnets(gomock.Any(), testOrgID, int64(11), "10.42.8.0/24").
 		Return("", writeErr)
@@ -168,6 +178,7 @@ func TestSetInfrastructureControlSubnetsFailedAuditFailsMutation(t *testing.T) {
 		&fakeTransactor{},
 		activity.NewService(mockActivityStore),
 	)
+	expectInfrastructureControlSubnetMutationAllowed(store, 11)
 	_, err := svc.SetInfrastructureControlSubnets(
 		t.Context(),
 		testOrgID,
@@ -176,5 +187,25 @@ func TestSetInfrastructureControlSubnetsFailedAuditFailsMutation(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "failed to audit") {
 		t.Fatalf("expected audit failure, got %v", err)
+	}
+}
+
+func TestSetInfrastructureControlSubnetsRejectsClaimedFacilityFans(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	svc := NewService(store, nil, nil, nil, nil, &fakeTransactor{}, activity.NewService(mocks.NewMockActivityStore(ctrl)))
+
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil)
+	store.EXPECT().LockInfrastructureDevicesBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return([]int64{70}, nil)
+	store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(inTxCtx, testOrgID, []int64{70}).Return(int64(1), nil)
+
+	_, err := svc.SetInfrastructureControlSubnets(t.Context(), testOrgID, 11, []string{"10.42.8.0/24"})
+	if err == nil || !fleeterror.IsFailedPreconditionError(err) {
+		t.Fatalf("expected claimed-fan precondition failure, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "claimed by active curtailment events") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
