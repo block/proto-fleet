@@ -7,8 +7,9 @@ import { type SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePi
 // Assert the picker forwards its `scope` prop into the listRacks fetch rather
 // than reverting to an unscoped whole-org call — the regression the site
 // scoping is meant to prevent (see #758 / buildingRackScope).
-const mockListRacks = vi.fn();
-const mockListBuildingsBySite = vi.fn();
+// vi.hoisted so the handles exist when the hoisted vi.mock factories below run.
+const mockListRacks = vi.hoisted(() => vi.fn());
+const mockListBuildingsBySite = vi.hoisted(() => vi.fn());
 
 vi.mock("@/protoFleet/api/useDeviceSets", () => ({
   useDeviceSets: () => ({ listRacks: mockListRacks }),

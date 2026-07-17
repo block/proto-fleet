@@ -7,8 +7,9 @@ import { type SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePi
 // SearchRacksModal owns its own listRacks effect (separate from
 // ManageRacksModal), so it needs independent coverage that the `scope` prop
 // reaches the fetch rather than reverting to an unscoped whole-org call.
-const mockListRacks = vi.fn();
-const mockListBuildingsBySite = vi.fn();
+// vi.hoisted so the handles exist when the hoisted vi.mock factories below run.
+const mockListRacks = vi.hoisted(() => vi.fn());
+const mockListBuildingsBySite = vi.hoisted(() => vi.fn());
 
 vi.mock("@/protoFleet/api/useDeviceSets", () => ({
   useDeviceSets: () => ({ listRacks: mockListRacks }),
