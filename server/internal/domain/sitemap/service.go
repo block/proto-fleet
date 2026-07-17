@@ -3014,6 +3014,12 @@ func desiredRacksByID(rows []map[string]string, racks []rackSnapshot, sitesByID 
 	for _, site := range sitesByID {
 		sitesByName[site.Name] = site
 	}
+	buildingsBySiteName := map[string]buildingmodels.Building{}
+	for _, building := range buildingsByID {
+		if building.SiteLabel != "" {
+			buildingsBySiteName[building.SiteLabel+"\x00"+building.Name] = building
+		}
+	}
 	for _, row := range rows {
 		id, ok := rowID(row)
 		if !ok {
@@ -3029,6 +3035,14 @@ func desiredRacksByID(rows []map[string]string, racks []rackSnapshot, sitesByID 
 			rack.Site = building.SiteLabel
 		} else {
 			rack.Building = row[fieldBuilding]
+			if building, ok := buildingsBySiteName[row[fieldSite]+"\x00"+row[fieldBuilding]]; ok {
+				if building.ID > 0 {
+					rack.BuildingID = &building.ID
+				}
+				rack.Building = building.Name
+				rack.SiteID = building.SiteID
+				rack.Site = building.SiteLabel
+			}
 		}
 		if siteID, ok := idFromCell(row[fieldSiteID]); ok {
 			site := sitesByID[siteID]
@@ -3089,7 +3103,7 @@ func validateRackPlacementTargets(rows, buildingRows, siteRows []map[string]stri
 }
 
 func validatePlacementConsistency(minerRows, rackRows, buildingRows, siteRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
-	racks := desiredRackMap(rackRows, snap.racks, snap.buildings)
+	racks := desiredRackMap(rackRows, snap.racks, buildingRows, snap.buildings)
 	buildingsByName, ambiguousBuildings := desiredBuildingNameLookup(buildingRows, snap.buildings)
 	buildingsByKey := desiredBuildingMap(buildingRows, snap.buildings)
 	existingSites := desiredSiteSet(siteRows, snap.sites)
@@ -3357,7 +3371,7 @@ func validateMinerRenamePermission(rows []map[string]string, snap *snapshot) []*
 }
 
 func validateRackSlotBounds(minerRows, rackRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
-	racks := desiredRackMap(rackRows, snap.racks, snap.buildings)
+	racks := desiredRackMap(rackRows, snap.racks, nil, snap.buildings)
 	var errs []*pb.ImportValidationError
 	for i, row := range minerRows {
 		if row[fieldRack] == "" {
@@ -3398,7 +3412,7 @@ func validateRackSlotBounds(minerRows, rackRows []map[string]string, snap *snaps
 }
 
 func validateExistingSlotsFitRackDimensions(minerRows, rackRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
-	racks := desiredRackMap(rackRows, snap.racks, snap.buildings)
+	racks := desiredRackMap(rackRows, snap.racks, nil, snap.buildings)
 	desiredRackLabels := desiredRackLabelsByID(rackRows)
 	desiredMiners := map[string]map[string]string{}
 	for _, row := range minerRows {
@@ -3462,7 +3476,7 @@ func validateExistingSlotsFitRackDimensions(minerRows, rackRows []map[string]str
 }
 
 func validateRackCapacity(minerRows, rackRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
-	racks := desiredRackMap(rackRows, snap.racks, snap.buildings)
+	racks := desiredRackMap(rackRows, snap.racks, nil, snap.buildings)
 	desiredRackLabels := desiredRackLabelsByID(rackRows)
 	counts := map[string]int32{}
 	presentMiners := rowSet(minerRows, "device_identifier")
@@ -3500,7 +3514,7 @@ func validateRackCapacity(minerRows, rackRows []map[string]string, snap *snapsho
 func validateBuildingRackCapacity(rackRows, buildingRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
 	buildings := desiredBuildingCapacityMap(buildingRows, snap.buildings)
 	counts := map[string]int32{}
-	for _, rack := range desiredRackMap(rackRows, snap.racks, snap.buildings) {
+	for _, rack := range desiredRackMap(rackRows, snap.racks, buildingRows, snap.buildings) {
 		if key, ok := rackBuildingCapacityKey(rack); ok {
 			counts[key]++
 		}
@@ -3597,7 +3611,7 @@ func buildingCapacityKey(building buildingmodels.Building) string {
 func validateBuildingExistingRacksFitLayout(rackRows, buildingRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
 	buildings := desiredBuildingMap(buildingRows, snap.buildings)
 	buildingsByID := desiredBuildingLayoutIDMap(buildingRows, snap.buildings)
-	desiredRacks := desiredRackMap(rackRows, snap.racks, snap.buildings)
+	desiredRacks := desiredRackMap(rackRows, snap.racks, buildingRows, snap.buildings)
 	desiredRacksByID := map[int64]rackSnapshot{}
 	for _, rack := range desiredRacks {
 		if rack.ID > 0 {
@@ -4022,7 +4036,7 @@ func countRackUpdates(rows []map[string]string, racks []rackSnapshot, buildings 
 
 func countMinerPlacementUpdates(rows, rackRows, buildingRows []map[string]string, snap *snapshot) int32 {
 	existing := minerMap(snap.miners)
-	racks := desiredRackMap(rackRows, snap.racks, snap.buildings)
+	racks := desiredRackMap(rackRows, snap.racks, buildingRows, snap.buildings)
 	buildingsByName, ambiguousBuildings := desiredBuildingNameLookup(buildingRows, snap.buildings)
 	buildingsByID := desiredBuildingIDMap(buildingRows, snap.buildings)
 	var count int32
@@ -4249,17 +4263,12 @@ func ambiguousBuildingLabels(buildings []buildingmodels.Building) map[string]boo
 	return ambiguous
 }
 
-func desiredRackMap(rows []map[string]string, racks []rackSnapshot, buildings []buildingmodels.Building) map[string]rackSnapshot {
+func desiredRackMap(rows []map[string]string, racks []rackSnapshot, buildingRows []map[string]string, buildings []buildingmodels.Building) map[string]rackSnapshot {
 	out := map[string]rackSnapshot{}
 	for _, rack := range racks {
 		out[rack.Label] = rack
 	}
-	buildingBySiteName := map[string]buildingmodels.Building{}
-	for _, building := range buildings {
-		if building.SiteLabel != "" {
-			buildingBySiteName[building.SiteLabel+"\x00"+building.Name] = building
-		}
-	}
+	buildingBySiteName := desiredBuildingsBySiteName(buildingRows, buildings)
 	for _, row := range rows {
 		rack := out[rackSectionLabel(row)]
 		if id, ok := rowID(row); ok {
@@ -4281,7 +4290,9 @@ func desiredRackMap(rows []map[string]string, racks []rackSnapshot, buildings []
 			rack.BuildingID = id
 			if id == nil {
 				if building, ok := buildingBySiteName[row[fieldSite]+"\x00"+row[fieldBuilding]]; ok {
-					rack.BuildingID = &building.ID
+					if building.ID > 0 {
+						rack.BuildingID = &building.ID
+					}
 				}
 			}
 		}
@@ -4296,6 +4307,16 @@ func desiredRackMap(rows []map[string]string, racks []rackSnapshot, buildings []
 		rack.AisleIndex = row["aisle_index"]
 		rack.PositionInAisle = row["position_in_aisle"]
 		out[rack.Label] = rack
+	}
+	return out
+}
+
+func desiredBuildingsBySiteName(rows []map[string]string, buildings []buildingmodels.Building) map[string]buildingmodels.Building {
+	out := map[string]buildingmodels.Building{}
+	for _, building := range desiredBuildingList(rows, buildings) {
+		if building.SiteLabel != "" {
+			out[building.SiteLabel+"\x00"+building.Name] = building
+		}
 	}
 	return out
 }

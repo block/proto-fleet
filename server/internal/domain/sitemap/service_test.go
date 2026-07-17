@@ -363,6 +363,39 @@ func TestNormalizeIDReferencesRefreshesRackSiteIDFromSiteName(t *testing.T) {
 	}
 }
 
+func TestNormalizeIDReferencesResolvesRackBuildingMoveFromNames(t *testing.T) {
+	siteAID := int64(1)
+	siteBID := int64(2)
+	buildingAID := int64(10)
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE":     nil,
+		"BUILDING": nil,
+		"RACK": {
+			{"__row": "11", fieldID: "20", fieldLabel: "Rack A", fieldSite: "Site B", fieldBuilding: "Building B"},
+		},
+		"MINER": {
+			{"__row": "15", "device_identifier": "miner-1", fieldBuildingID: "11", fieldRackID: "20"},
+		},
+	}}
+	snap := &snapshot{
+		sites: []sitemodels.Site{
+			{ID: siteAID, Name: "Site A"},
+			{ID: siteBID, Name: "Site B"},
+		},
+		buildings: []buildingmodels.Building{
+			{ID: 10, SiteID: &siteAID, SiteLabel: "Site A", Name: "Building A"},
+			{ID: 11, SiteID: &siteBID, SiteLabel: "Site B", Name: "Building B"},
+		},
+		racks:  []rackSnapshot{{ID: 20, SiteID: &siteAID, BuildingID: &buildingAID, Site: "Site A", Building: "Building A", Label: "Rack A"}},
+		miners: []minerSnapshot{{DeviceIdentifier: "miner-1"}},
+	}
+
+	errs := normalizeIDReferences(parsed, snap)
+	if len(errs) != 0 {
+		t.Fatalf("normalizeIDReferences errors = %+v, want name-based rack building move to refresh desired building_id", errs)
+	}
+}
+
 func TestNormalizeIDReferencesRejectsRackBuildingIDSiteMismatch(t *testing.T) {
 	siteAID := int64(1)
 	siteBID := int64(2)
@@ -2563,6 +2596,30 @@ func TestValidateBuildingRackCapacityResolvesNameOnlyRackBuildingIDs(t *testing.
 	errs := validateBuildingRackCapacity(rackRows, buildingRows, snap)
 	if len(errs) != 1 || errs[0].GetSection() != "RACK" {
 		t.Fatalf("errors = %+v, want name-only rack rows counted against building_id capacity", errs)
+	}
+}
+
+func TestValidateBuildingRackCapacityResolvesRenamedBuildingIDs(t *testing.T) {
+	buildingID := int64(10)
+	rackRows := []map[string]string{
+		{fieldSite: "New Site", fieldBuilding: "New Building", fieldLabel: "Rack A"},
+		{fieldSite: "New Site", fieldBuilding: "New Building", fieldLabel: "Rack B"},
+	}
+	buildingRows := []map[string]string{
+		{fieldID: "10", fieldSite: "New Site", fieldName: "New Building", "aisles": "1", "racks_per_aisle": "1"},
+	}
+	snap := &snapshot{
+		buildings: []buildingmodels.Building{
+			{ID: buildingID, SiteLabel: "Old Site", Name: "Old Building", Aisles: 1, RacksPerAisle: 1},
+		},
+		racks: []rackSnapshot{
+			{ID: 20, Label: "Rack A", Site: "Old Site", BuildingID: &buildingID, Building: "Old Building"},
+		},
+	}
+
+	errs := validateBuildingRackCapacity(rackRows, buildingRows, snap)
+	if len(errs) != 1 || errs[0].GetSection() != "RACK" {
+		t.Fatalf("errors = %+v, want renamed building name references counted against building_id capacity", errs)
 	}
 }
 
