@@ -188,6 +188,17 @@ func TestRequirePermission_NarrowingAtSiteScope(t *testing.T) {
 	require.NoError(t, err, "site 2 falls back to the org grant")
 }
 
+func TestHasOrgWidePermissionHonorsSiteNarrowing(t *testing.T) {
+	ctx := ctxWithEffective(t, userInfo(),
+		orgAssignment(authz.PermMinerRename),
+		siteAssignment(1, authz.PermFleetRead),
+	)
+
+	got, err := middleware.HasOrgWidePermission(ctx, authz.PermMinerRename)
+	require.NoError(t, err)
+	require.False(t, got, "site-scoped narrowing means the permission is not org-wide")
+}
+
 // ---------------------------------------------------------------
 // RequireAnyPermission
 // ---------------------------------------------------------------

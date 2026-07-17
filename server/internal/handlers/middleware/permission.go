@@ -187,6 +187,33 @@ func HasPermission(ctx context.Context, key string, rc authz.ResourceContext) (b
 	return eff.Has(key, rc), nil
 }
 
+func HasOrgWidePermission(ctx context.Context, key string) (bool, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return false, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+
+	if info.Actor != "" {
+		switch info.Actor {
+		case session.ActorScheduler, session.ActorCurtailment:
+			return true, nil
+		default:
+			return false, fleeterror.NewInternalErrorf(
+				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
+				info.Actor,
+			)
+		}
+	}
+
+	eff := effectivePermissionsFromContext(ctx)
+	if eff == nil {
+		return false, fleeterror.NewInternalError(
+			"authz: effective permissions missing from request context; auth interceptor wiring is broken",
+		)
+	}
+	return eff.HasOrgWide(key), nil
+}
+
 // SiteScopeForPermission projects the caller's site-level authority for
 // key into a store-consumable filter shape — see
 // authz.EffectivePermissions.SiteScopeFor for the orgWide/denylist vs

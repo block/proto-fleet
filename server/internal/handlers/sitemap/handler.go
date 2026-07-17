@@ -45,7 +45,7 @@ func (h *Handler) ImportSiteMapCsv(ctx context.Context, req *connect.Request[pb.
 	if _, err := middleware.RequireOrgWidePermission(ctx, authz.PermRackManage); err != nil {
 		return nil, err
 	}
-	canRenameMiners, err := middleware.HasPermission(ctx, authz.PermMinerRename, authz.ResourceContext{})
+	canRenameMiners, err := middleware.HasOrgWidePermission(ctx, authz.PermMinerRename)
 	if err != nil {
 		return nil, err
 	}

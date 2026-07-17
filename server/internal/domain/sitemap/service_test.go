@@ -270,6 +270,52 @@ func TestBuildPlanInfersRackSiteAfterBuildingSiteIDNormalization(t *testing.T) {
 	}
 }
 
+func TestBuildPlanRejectsRackIDWithContradictoryMinerParentIDs(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": {
+			{"__row": "3", fieldID: "1", fieldName: "Site A"},
+			{"__row": "4", fieldID: "2", fieldName: "Site B"},
+		},
+		"BUILDING": {
+			{"__row": "7", fieldID: "10", fieldName: "Building A", fieldSiteID: "1", "aisles": "1", "racks_per_aisle": "2"},
+			{"__row": "8", fieldID: "11", fieldName: "Building B", fieldSiteID: "2", "aisles": "1", "racks_per_aisle": "2"},
+		},
+		"RACK": {
+			{"__row": "11", fieldID: "20", fieldLabel: "Rack A", fieldBuildingID: "10", "rows": "4", "columns": "6", "order_index": "BOTTOM_LEFT"},
+		},
+		"MINER": {
+			{"__row": "15", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.1", "mac_address": "aa:bb:cc:dd:ee:ff", fieldSiteID: "2", fieldRackID: "20"},
+			{"__row": "16", "device_identifier": "miner-2", "serial_number": "SN2", fieldName: "Miner 2", "ip_address": "10.0.0.2", "mac_address": "aa:bb:cc:dd:ee:00", fieldBuildingID: "11", fieldRackID: "20"},
+		},
+	}}
+	siteAID := int64(1)
+	siteBID := int64(2)
+	buildingAID := int64(10)
+	snap := &snapshot{
+		sites: []sitemodels.Site{
+			{ID: 1, Name: "Site A"},
+			{ID: 2, Name: "Site B"},
+		},
+		buildings: []buildingmodels.Building{
+			{ID: 10, SiteID: &siteAID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 2},
+			{ID: 11, SiteID: &siteBID, SiteLabel: "Site B", Name: "Building B", Aisles: 1, RacksPerAisle: 2},
+		},
+		racks: []rackSnapshot{{ID: 20, SiteID: &siteAID, BuildingID: &buildingAID, Site: "Site A", Building: "Building A", Label: "Rack A", Rows: 4, Columns: 6, OrderIndex: "BOTTOM_LEFT"}},
+		miners: []minerSnapshot{
+			{DeviceIdentifier: "miner-1", SerialNumber: "SN1", Name: "Miner 1", IPAddress: "10.0.0.1", MACAddress: "aa:bb:cc:dd:ee:ff"},
+			{DeviceIdentifier: "miner-2", SerialNumber: "SN2", Name: "Miner 2", IPAddress: "10.0.0.2", MACAddress: "aa:bb:cc:dd:ee:00"},
+		},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if !hasValidationError(plan.errors, "MINER", `site_id "2" does not match rack_id "20"`) {
+		t.Fatalf("plan errors = %+v, want site_id/rack_id mismatch", plan.errors)
+	}
+	if !hasValidationError(plan.errors, "MINER", `building_id "11" does not match rack_id "20"`) {
+		t.Fatalf("plan errors = %+v, want building_id/rack_id mismatch", plan.errors)
+	}
+}
+
 func TestBuildPlanRejectsIDRenamesCollidingWithRetainedOmittedTopology(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE": {
@@ -1444,8 +1490,34 @@ func TestCountRackUpdatesMatchesBlankIDExistingRowsByLabel(t *testing.T) {
 	}}
 	racks := []rackSnapshot{{ID: 20, Label: "Rack A", Rows: 4, Columns: 6, OrderIndex: "BOTTOM_LEFT"}}
 
-	if got := countRackUpdates(rows, racks); got != 1 {
+	if got := countRackUpdates(rows, racks, nil); got != 1 {
 		t.Fatalf("countRackUpdates = %d, want blank-ID existing row update counted", got)
+	}
+}
+
+func TestCountRackUpdatesIgnoresExportInferredPlacementIDs(t *testing.T) {
+	siteID := int64(1)
+	buildingID := int64(10)
+	buildings := []buildingmodels.Building{{ID: buildingID, SiteID: &siteID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 2}}
+	racks := []rackSnapshot{{
+		ID:              20,
+		SiteID:          &siteID,
+		BuildingID:      &buildingID,
+		Site:            "Site A",
+		Building:        "Building A",
+		Label:           "Rack A",
+		Zone:            "Zone 1",
+		Rows:            4,
+		Columns:         6,
+		OrderIndex:      "BOTTOM_LEFT",
+		AisleIndex:      "0",
+		PositionInAisle: "1",
+	}}
+	exported := rowMap(rackHeaders, rackExportRows(racks, buildings)[0])
+	exported[fieldSite] = "Site A"
+
+	if got := countRackUpdates([]map[string]string{exported}, racks, buildings); got != 0 {
+		t.Fatalf("countRackUpdates = %d, want exported rack row to be a no-op", got)
 	}
 }
 
