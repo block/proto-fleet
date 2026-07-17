@@ -1,167 +1,15 @@
-import { create, toJsonString } from "@bufbuild/protobuf";
-import { TimestampSchema } from "@bufbuild/protobuf/wkt";
-import { type Browser, type Route } from "@playwright/test";
 import { testConfig } from "../config/test.config";
 import { expect, test } from "../fixtures/pageFixtures";
-import { CommonSteps } from "../helpers/commonSteps";
 import {
-  cleanupRbacTeamArtifacts,
-  provisionRoleAndLoginViaStoredAdminContext,
-  RBAC_ROLE_PREFIX,
-} from "../helpers/rbacTestSetup";
+  ADMIN_RBAC_API_KEY_PREFIX,
+  cleanupAdminApiKeys,
+  mockAdminServerLogs,
+  mockManageableNodes,
+  mockReadOnlyNodes,
+  provisionAdminRole,
+} from "../helpers/rbacAdminTestSetup";
+import { cleanupRbacTeamArtifacts, RBAC_ROLE_PREFIX } from "../helpers/rbacTestSetup";
 import { generateRandomText } from "../helpers/testDataHelper";
-import { AuthPage } from "../pages/auth";
-import { MinersPage } from "../pages/miners";
-import { SettingsPage } from "../pages/settings";
-import { SettingsApiKeysPage } from "../pages/settingsApiKeys";
-import { SettingsTeamPage } from "../pages/settingsTeam";
-import {
-  CreateEnrollmentCodeResponseSchema,
-  FleetNodeEnrollmentStatus,
-  FleetNodeSummarySchema,
-  ListFleetNodesResponseSchema,
-} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
-import {
-  ListServerLogsResponseSchema,
-  LogEntrySchema,
-  LogLevel,
-} from "@/protoFleet/api/generated/serverlog/v1/serverlog_pb";
-
-const ADMIN_RBAC_API_KEY_PREFIX = "rbac_admin_api_key";
-const NODES_RPC_PATTERN = /FleetNodeAdminService\/ListFleetNodes/;
-const CREATE_ENROLLMENT_CODE_RPC_PATTERN = /FleetNodeAdminService\/CreateEnrollmentCode/;
-const SERVER_LOGS_RPC_PATTERN = /ServerLogService\/ListServerLogs/;
-
-async function provisionAdminRole(
-  browser: Browser,
-  commonSteps: Parameters<typeof provisionRoleAndLoginViaStoredAdminContext>[2],
-  {
-    permissionKeys,
-    roleDescription,
-  }: {
-    permissionKeys: string[];
-    roleDescription: string;
-  },
-) {
-  return await provisionRoleAndLoginViaStoredAdminContext(browser, test.info(), commonSteps, {
-    permissionKeys,
-    roleDescription,
-  });
-}
-
-function createTimestamp(date: Date) {
-  return create(TimestampSchema, {
-    seconds: BigInt(Math.floor(date.getTime() / 1000)),
-    nanos: 0,
-  });
-}
-
-function createNodeSummary({
-  fleetNodeId,
-  pendingEnrollmentId,
-  name,
-  enrollmentStatus,
-  createdAt,
-  lastSeenAt,
-  identityFingerprint,
-}: {
-  fleetNodeId: bigint;
-  pendingEnrollmentId?: bigint;
-  name: string;
-  enrollmentStatus: FleetNodeEnrollmentStatus;
-  createdAt?: Date;
-  lastSeenAt?: Date;
-  identityFingerprint: string;
-}) {
-  return create(FleetNodeSummarySchema, {
-    fleetNodeId,
-    pendingEnrollmentId,
-    name,
-    enrollmentStatus,
-    createdAt: createdAt ? createTimestamp(createdAt) : undefined,
-    lastSeenAt: lastSeenAt ? createTimestamp(lastSeenAt) : undefined,
-    identityFingerprint,
-  });
-}
-
-function fulfillFleetNodes(route: Route, nodes: ReturnType<typeof createNodeSummary>[]) {
-  return route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: toJsonString(
-      ListFleetNodesResponseSchema,
-      create(ListFleetNodesResponseSchema, {
-        fleetNodes: nodes,
-      }),
-    ),
-  });
-}
-
-function fulfillEnrollmentCode(route: Route) {
-  return route.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: toJsonString(
-      CreateEnrollmentCodeResponseSchema,
-      create(CreateEnrollmentCodeResponseSchema, {
-        code: "rbac-enrollment-code-1234",
-        pendingEnrollmentId: 11n,
-        expiresAt: createTimestamp(new Date("2026-07-17T10:00:00Z")),
-      }),
-    ),
-  });
-}
-
-function createServerLogEntry({
-  id,
-  level,
-  message,
-  source,
-  time,
-}: {
-  id: bigint;
-  level: LogLevel;
-  message: string;
-  source: string;
-  time: Date;
-}) {
-  return create(LogEntrySchema, {
-    id,
-    level,
-    message,
-    source,
-    time: createTimestamp(time),
-  });
-}
-
-async function cleanupAdminApiKeys(
-  browser: Browser,
-  isMobile: boolean,
-  viewport: { height: number; width: number } | null,
-) {
-  const context = await browser.newContext({
-    baseURL: testConfig.baseUrl,
-    viewport: viewport ?? undefined,
-  });
-
-  try {
-    const page = await context.newPage();
-    await page.goto("/");
-
-    const authPage = new AuthPage(page, isMobile);
-    const minersPage = new MinersPage(page, isMobile);
-    const settingsPage = new SettingsPage(page, isMobile);
-    const settingsTeamPage = new SettingsTeamPage(page, isMobile);
-    const settingsApiKeysPage = new SettingsApiKeysPage(page, isMobile);
-    const commonSteps = new CommonSteps(authPage, minersPage, settingsPage, settingsTeamPage);
-
-    await commonSteps.loginAsAdmin({ forceReauth: true });
-    await settingsApiKeysPage.navigateToApiKeysSettings();
-    await settingsApiKeysPage.deleteApiKeysByPrefix(ADMIN_RBAC_API_KEY_PREFIX);
-  } finally {
-    await context.close();
-  }
-}
 
 test.describe("Proto Fleet - Admin RBAC", () => {
   test.beforeEach(async ({ page }) => {
@@ -169,8 +17,17 @@ test.describe("Proto Fleet - Admin RBAC", () => {
   });
 
   test.afterAll("CLEANUP: delete admin RBAC fixtures", async ({ browser }, testInfo) => {
-    await cleanupRbacTeamArtifacts(browser, testInfo);
-    await cleanupAdminApiKeys(browser, testInfo.project.use?.isMobile ?? false, testInfo.project.use?.viewport ?? null);
+    await test.step("Clean up RBAC team fixtures", async () => {
+      await cleanupRbacTeamArtifacts(browser, testInfo);
+    });
+
+    await test.step("Clean up RBAC admin API keys", async () => {
+      await cleanupAdminApiKeys(
+        browser,
+        testInfo.project.use?.isMobile ?? false,
+        testInfo.project.use?.viewport ?? null,
+      );
+    });
   });
 
   test("Activity read role can view the activity log and export CSV", async ({
@@ -179,7 +36,7 @@ test.describe("Proto Fleet - Admin RBAC", () => {
     commonSteps,
   }) => {
     await test.step("Provision an activity-read role", async () => {
-      await provisionAdminRole(browser, commonSteps, {
+      await provisionAdminRole(browser, test.info(), commonSteps, {
         roleDescription: "Read the organization activity log for RBAC coverage.",
         permissionKeys: ["activity:read"],
       });
@@ -197,39 +54,12 @@ test.describe("Proto Fleet - Admin RBAC", () => {
   });
 
   test("Server-log read role can access recent server logs", async ({ browser, commonSteps, page, serverLogsPage }) => {
-    await page.route(SERVER_LOGS_RPC_PATTERN, async (route) => {
-      return await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: toJsonString(
-          ListServerLogsResponseSchema,
-          create(ListServerLogsResponseSchema, {
-            entries: [
-              createServerLogEntry({
-                id: 1n,
-                level: LogLevel.INFO,
-                message: "server booted",
-                source: "fleetd",
-                time: new Date("2026-07-17T09:00:00Z"),
-              }),
-              createServerLogEntry({
-                id: 2n,
-                level: LogLevel.WARN,
-                message: "node disconnected",
-                source: "scheduler",
-                time: new Date("2026-07-17T09:00:05Z"),
-              }),
-            ],
-            latestId: 2n,
-            bufferSize: 2,
-            truncated: false,
-          }),
-        ),
-      });
+    await test.step("Mock the Server Logs backend data", async () => {
+      await mockAdminServerLogs(page);
     });
 
     await test.step("Provision a server-log-read role", async () => {
-      await provisionAdminRole(browser, commonSteps, {
+      await provisionAdminRole(browser, test.info(), commonSteps, {
         roleDescription: "Read server logs for RBAC coverage.",
         permissionKeys: ["serverlog:read"],
       });
@@ -250,21 +80,12 @@ test.describe("Proto Fleet - Admin RBAC", () => {
     page,
     settingsNodesPage,
   }) => {
-    await page.route(NODES_RPC_PATTERN, async (route) => {
-      return await fulfillFleetNodes(route, [
-        createNodeSummary({
-          fleetNodeId: 7n,
-          name: "node-01",
-          enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
-          identityFingerprint: "SHA256:rbac-node-01",
-          createdAt: new Date("2026-07-17T08:00:00Z"),
-          lastSeenAt: new Date("2026-07-17T09:00:00Z"),
-        }),
-      ]);
+    await test.step("Mock the Nodes backend data", async () => {
+      await mockReadOnlyNodes(page);
     });
 
     await test.step("Provision a fleet-node-read role", async () => {
-      await provisionAdminRole(browser, commonSteps, {
+      await provisionAdminRole(browser, test.info(), commonSteps, {
         roleDescription: "View nodes without enrollment controls for RBAC coverage.",
         permissionKeys: ["fleetnode:read"],
       });
@@ -286,40 +107,12 @@ test.describe("Proto Fleet - Admin RBAC", () => {
     page,
     settingsNodesPage,
   }) => {
-    let showAwaitingNode = false;
-
-    await page.route(NODES_RPC_PATTERN, async (route) => {
-      return await fulfillFleetNodes(
-        route,
-        showAwaitingNode
-          ? [
-              createNodeSummary({
-                fleetNodeId: 11n,
-                pendingEnrollmentId: 11n,
-                name: "node-pending",
-                enrollmentStatus: FleetNodeEnrollmentStatus.AWAITING_CONFIRMATION,
-                identityFingerprint: "SHA256:rbac-pending-node",
-                lastSeenAt: new Date("2026-07-17T09:05:00Z"),
-              }),
-            ]
-          : [
-              createNodeSummary({
-                fleetNodeId: 7n,
-                name: "node-01",
-                enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
-                identityFingerprint: "SHA256:rbac-node-01",
-                createdAt: new Date("2026-07-17T08:00:00Z"),
-                lastSeenAt: new Date("2026-07-17T09:00:00Z"),
-              }),
-            ],
-      );
-    });
-    await page.route(CREATE_ENROLLMENT_CODE_RPC_PATTERN, async (route) => {
-      return await fulfillEnrollmentCode(route);
+    const nodesMock = await test.step("Mock the Nodes backend data and enrollment flow", async () => {
+      return await mockManageableNodes(page);
     });
 
     await test.step("Provision a fleet-node-manage role", async () => {
-      await provisionAdminRole(browser, commonSteps, {
+      await provisionAdminRole(browser, test.info(), commonSteps, {
         roleDescription: "Manage nodes for RBAC coverage.",
         permissionKeys: ["fleetnode:read", "fleetnode:manage"],
       });
@@ -332,7 +125,7 @@ test.describe("Proto Fleet - Admin RBAC", () => {
       await settingsNodesPage.clickEnrollNode();
       await settingsNodesPage.validateEnrollNodeModalOpened();
       await page.keyboard.press("Escape");
-      showAwaitingNode = true;
+      nodesMock.showAwaitingNode();
     });
 
     await test.step("Open the pending-node confirmation controls", async () => {
@@ -350,7 +143,7 @@ test.describe("Proto Fleet - Admin RBAC", () => {
     const apiKeyName = generateRandomText(ADMIN_RBAC_API_KEY_PREFIX);
 
     await test.step("Provision an API-key-manage role", async () => {
-      await provisionAdminRole(browser, commonSteps, {
+      await provisionAdminRole(browser, test.info(), commonSteps, {
         roleDescription: "Manage API keys for RBAC coverage.",
         permissionKeys: ["apikey:manage"],
       });
@@ -381,7 +174,7 @@ test.describe("Proto Fleet - Admin RBAC", () => {
     settingsTeamPage,
   }) => {
     await test.step("Provision a user-read role", async () => {
-      await provisionAdminRole(browser, commonSteps, {
+      await provisionAdminRole(browser, test.info(), commonSteps, {
         roleDescription: "Read team members without management controls for RBAC coverage.",
         permissionKeys: ["user:read"],
       });
@@ -420,7 +213,7 @@ test.describe("Proto Fleet - Admin RBAC", () => {
     });
 
     await test.step("Provision a user-manage role", async () => {
-      await provisionAdminRole(browser, commonSteps, {
+      await provisionAdminRole(browser, test.info(), commonSteps, {
         roleDescription: "Manage users for RBAC coverage.",
         permissionKeys: ["activity:read", "user:read", "user:manage"],
       });
@@ -468,7 +261,7 @@ test.describe("Proto Fleet - Admin RBAC", () => {
     const updatedRoleName = generateRandomText(RBAC_ROLE_PREFIX);
 
     await test.step("Provision a role-manage role", async () => {
-      await provisionAdminRole(browser, commonSteps, {
+      await provisionAdminRole(browser, test.info(), commonSteps, {
         roleDescription: "Manage roles for RBAC coverage.",
         permissionKeys: ["activity:read", "role:manage"],
       });
