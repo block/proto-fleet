@@ -36,6 +36,10 @@ export class SettingsTeamPage extends BasePage {
     await expect(this.page.getByRole("button", { name: "Add team member" })).toBeVisible();
   }
 
+  async validateAddTeamMemberHidden() {
+    await expect(this.page.getByRole("button", { name: "Add team member", exact: true })).toHaveCount(0);
+  }
+
   async clickAddTeamMember() {
     await this.clickButton("Add team member");
   }
@@ -132,6 +136,10 @@ export class SettingsTeamPage extends BasePage {
     await expect(this.page.getByTestId("secondary-nav").locator('a[href="/settings/team"]')).toBeHidden();
   }
 
+  async validateRolesTabHidden() {
+    await expect(this.page.getByTestId("team-tab-roles")).toHaveCount(0);
+  }
+
   async clickCreateRole() {
     await this.clickButton("Create role");
   }
@@ -177,6 +185,14 @@ export class SettingsTeamPage extends BasePage {
 
   async validateRoleVisible(roleName: string) {
     await expect(this.roleRow(roleName)).toBeVisible();
+  }
+
+  async validateRoleNotVisible(roleName: string) {
+    await expect(this.roleRow(roleName)).toHaveCount(0);
+  }
+
+  async validateSystemRoleLockVisible() {
+    await expect(this.page.getByTestId("system-role-lock").first()).toBeVisible();
   }
 
   async deactivateMembersByPrefix(usernamePrefix: string) {
@@ -232,6 +248,10 @@ export class SettingsTeamPage extends BasePage {
     await this.memberRow(username).getByTestId("list-actions-trigger").click();
   }
 
+  async validateMemberActionsHidden(username: string) {
+    await expect(this.memberRow(username).getByTestId("list-actions-trigger")).toHaveCount(0);
+  }
+
   async clickResetPassword() {
     await this.clickButton("Reset Password");
   }
@@ -246,6 +266,26 @@ export class SettingsTeamPage extends BasePage {
 
   async clickSaveEditedRole() {
     await this.clickButton("Save");
+  }
+
+  async clickRoleActionsMenu(roleName: string) {
+    await this.roleRow(roleName).getByTestId("list-actions-trigger").click();
+  }
+
+  async clickEditRoleAction() {
+    await this.clickButton("Edit");
+  }
+
+  async clickDeleteRoleAction() {
+    await this.clickButton("Delete");
+  }
+
+  async clickSaveRoleChanges() {
+    await this.clickButton("Save changes");
+  }
+
+  async clickDeleteRoleConfirm() {
+    await this.clickButton("Delete role");
   }
 
   async clickResetMemberPasswordConfirm() {

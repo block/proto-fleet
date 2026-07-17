@@ -649,6 +649,14 @@ export class BasePage {
     await expect(this.page).toHaveURL(/.*\/settings\/firmware/);
   }
 
+  async navigateToNodesSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/nodes"]').click();
+    await expect(this.page).toHaveURL(/.*\/settings\/nodes/);
+  }
+
   async navigateToApiKeysSettings() {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();

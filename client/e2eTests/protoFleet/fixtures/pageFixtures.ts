@@ -20,6 +20,7 @@ import { SettingsPage } from "../pages/settings";
 import { SettingsApiKeysPage } from "../pages/settingsApiKeys";
 import { SettingsCurtailmentPage } from "../pages/settingsCurtailment";
 import { SettingsFirmwarePage } from "../pages/settingsFirmware";
+import { SettingsNodesPage } from "../pages/settingsNodes";
 import { SettingsPoolsPage } from "../pages/settingsPools";
 import { SettingsSchedulesPage } from "../pages/settingsSchedules";
 import { SettingsSecurityPage } from "../pages/settingsSecurity";
@@ -38,6 +39,7 @@ type PageFixtures = {
   settingsFirmwarePage: SettingsFirmwarePage;
   settingsCurtailmentPage: SettingsCurtailmentPage;
   settingsApiKeysPage: SettingsApiKeysPage;
+  settingsNodesPage: SettingsNodesPage;
   settingsSchedulesPage: SettingsSchedulesPage;
   settingsSecurityPage: SettingsSecurityPage;
   settingsTeamPage: SettingsTeamPage;
@@ -87,6 +89,9 @@ export const test = base.extend<PageFixtures>({
   },
   settingsApiKeysPage: async ({ page, isMobile }, use) => {
     await use(new SettingsApiKeysPage(page, isMobile));
+  },
+  settingsNodesPage: async ({ page, isMobile }, use) => {
+    await use(new SettingsNodesPage(page, isMobile));
   },
   settingsSchedulesPage: async ({ page, isMobile }, use) => {
     await use(new SettingsSchedulesPage(page, isMobile));
