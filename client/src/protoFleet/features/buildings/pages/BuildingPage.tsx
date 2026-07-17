@@ -14,7 +14,7 @@ import {
   BuildingWithCountsSchema,
 } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { buildSiteSlugById, parseBigIntId } from "@/protoFleet/api/sites";
+import { parseBigIntId } from "@/protoFleet/api/sites";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { useBuildingStats } from "@/protoFleet/api/useBuildingStats";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
@@ -23,7 +23,7 @@ import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
-import { useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
+import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useDuration, useSetDuration } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
@@ -211,13 +211,13 @@ const BuildingPage = () => {
   );
 
   // On deep-link/bookmark, align the (headerless-route) scope with the opened
-  // building's own site so its modals' miner pickers scope correctly (#764).
-  const syncSiteId =
-    typeof effectiveOutcome === "object" && effectiveOutcome.status === "found"
-      ? effectiveOutcome.building.siteId?.toString()
-      : undefined;
-  const syncSiteSlug = syncSiteId && syncSiteId !== "0" ? buildSiteSlugById(sites)?.get(syncSiteId) : undefined;
-  useSyncScopeToEntity(syncSiteId === "0" ? undefined : syncSiteId, syncSiteSlug);
+  // building's own site (or the unassigned bucket when it has none) so its
+  // modals' miner pickers scope correctly (#764). Pass undefined while the
+  // building is still loading so an unassigned building isn't treated as such
+  // before it resolves.
+  const loadedBuilding =
+    typeof effectiveOutcome === "object" && effectiveOutcome.status === "found" ? effectiveOutcome.building : undefined;
+  useSyncScopeToEntity(loadedBuilding ? entityScopeTarget(loadedBuilding.siteId, sites) : undefined);
 
   if (effectiveOutcome === "loading") {
     return (

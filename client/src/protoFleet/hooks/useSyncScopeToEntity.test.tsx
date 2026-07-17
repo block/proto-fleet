@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { useSyncScopeToEntity } from "./useSyncScopeToEntity";
+import { type ScopeSyncTarget, useSyncScopeToEntity } from "./useSyncScopeToEntity";
 import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
@@ -13,11 +13,13 @@ import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 // that (satisfies useNavigate/useLocation without adding a route scope).
 const wrapper = ({ children }: { children: ReactNode }) => <MemoryRouter>{children}</MemoryRouter>;
 
-const renderSync = (siteId: string | undefined, slug: string | undefined) =>
-  renderHook(({ id, s }: { id?: string; s?: string }) => useSyncScopeToEntity(id, s), {
+const renderSync = (target: ScopeSyncTarget | undefined) =>
+  renderHook(({ t }: { t?: ScopeSyncTarget }) => useSyncScopeToEntity(t), {
     wrapper,
-    initialProps: { id: siteId, s: slug },
+    initialProps: { t: target },
   });
+
+const site = (id: string, slug: string): ScopeSyncTarget => ({ kind: "site", id, slug });
 
 describe("useSyncScopeToEntity", () => {
   beforeEach(() => {
@@ -31,7 +33,7 @@ describe("useSyncScopeToEntity", () => {
       state.ui.activeSite = { kind: "site", id: "8", slug: "austin" };
     });
 
-    renderSync("7", "dallas");
+    renderSync(site("7", "dallas"));
 
     await waitFor(() =>
       expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7", slug: "dallas" }),
@@ -43,15 +45,15 @@ describe("useSyncScopeToEntity", () => {
       state.ui.activeSite = { kind: "unassigned" };
     });
 
-    renderSync("7", "dallas");
+    renderSync(site("7", "dallas"));
 
     await waitFor(() =>
       expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7", slug: "dallas" }),
     );
   });
 
-  it("leaves an all-sites scope untouched", async () => {
-    renderSync("7", "dallas");
+  it("leaves an all-sites scope untouched for a scoped-site entity", async () => {
+    renderSync(site("7", "dallas"));
 
     // Give the effect a chance to (not) run.
     await Promise.resolve();
@@ -63,7 +65,7 @@ describe("useSyncScopeToEntity", () => {
       state.ui.activeSite = { kind: "site", id: "7", slug: "dallas" };
     });
 
-    renderSync("7", "dallas");
+    renderSync(site("7", "dallas"));
 
     await Promise.resolve();
     expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7", slug: "dallas" });
@@ -74,25 +76,42 @@ describe("useSyncScopeToEntity", () => {
       state.ui.activeSite = { kind: "site", id: "7", slug: "old-dallas" };
     });
 
-    renderSync("7", "dallas");
+    renderSync(site("7", "dallas"));
 
     await waitFor(() =>
       expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7", slug: "dallas" }),
     );
   });
 
-  it("does nothing until the entity's site id and slug are both resolved", async () => {
+  it("moves a specific-site scope to unassigned for an unassigned entity", async () => {
     useFleetStore.setState((state) => {
       state.ui.activeSite = { kind: "site", id: "8", slug: "austin" };
     });
 
-    // id known but slug still resolving.
-    const { rerender } = renderSync("7", undefined);
+    renderSync({ kind: "unassigned" });
+
+    await waitFor(() => expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "unassigned" }));
+  });
+
+  it("leaves an all-sites scope untouched for an unassigned entity", async () => {
+    renderSync({ kind: "unassigned" });
+
+    await Promise.resolve();
+    expect(useFleetStore.getState().ui.activeSite).toEqual(DEFAULT_ACTIVE_SITE);
+  });
+
+  it("does nothing until the target is resolved", async () => {
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "site", id: "8", slug: "austin" };
+    });
+
+    // Entity/slug still loading → undefined target.
+    const { rerender } = renderSync(undefined);
     await Promise.resolve();
     expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "8", slug: "austin" });
 
-    // slug arrives → sync fires.
-    rerender({ id: "7", s: "dallas" });
+    // Target arrives → sync fires.
+    rerender({ t: site("7", "dallas") });
     await waitFor(() =>
       expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7", slug: "dallas" }),
     );

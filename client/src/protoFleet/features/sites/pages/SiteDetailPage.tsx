@@ -17,7 +17,7 @@ import BuildingModals from "@/protoFleet/features/buildings/components/BuildingM
 import BuildingSummaryCard from "@/protoFleet/features/buildings/components/BuildingSummaryCard";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
-import { useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
+import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
 import { useDuration, useHasPermission, useSetDuration } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Breadcrumb from "@/shared/components/Breadcrumb";
@@ -97,7 +97,7 @@ const SiteDetailPage = () => {
   // This is a headerless route, so the persisted scope can point at an
   // unrelated site on deep-link/bookmark. Align it with the site being viewed
   // (leaving "all-sites" as-is) rather than bouncing away to /fleet (#764).
-  useSyncScopeToEntity(site ? targetId : undefined, site?.site?.slug);
+  useSyncScopeToEntity(site ? entityScopeTarget(site.site?.id, sites) : undefined);
 
   // UpdateSite + CreateBuilding require site:manage server-side.
   const canManageSites = useHasPermission("site:manage");

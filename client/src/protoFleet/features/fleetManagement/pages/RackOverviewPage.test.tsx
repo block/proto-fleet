@@ -401,6 +401,20 @@ describe("RackOverviewPage", () => {
     );
   });
 
+  it("moves a specific-site header scope to unassigned for an unassigned rack (#764)", async () => {
+    // Unassigned rack (no placement site, no building) opened while a specific
+    // site is persisted — the header must drop to the unassigned bucket so the
+    // miner picker isn't filtered to the wrong site.
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "site", id: "99", slug: "elsewhere" };
+    });
+    // Default rack (id 7) has no siteId, buildingId, or placement.
+
+    renderRackOverviewPage();
+
+    await waitFor(() => expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "unassigned" }));
+  });
+
   it("leaves an all-sites header scope untouched when viewing a rack (#764)", async () => {
     const rackInSite = create(DeviceSetSchema, {
       id: 7n,
