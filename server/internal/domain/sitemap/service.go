@@ -1180,6 +1180,8 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateUniqueIDs(parsed.sections["SITE"], "SITE")...)
 	plan.errors = append(plan.errors, validateUniqueIDs(parsed.sections["BUILDING"], "BUILDING")...)
 	plan.errors = append(plan.errors, validateUniqueIDs(parsed.sections["RACK"], "RACK")...)
+	plan.errors = append(plan.errors, validateSiteRenameTargets(parsed.sections["SITE"], snap.sites)...)
+	plan.errors = append(plan.errors, validateUniqueAssignedBuildingRows(parsed.sections["BUILDING"])...)
 	plan.errors = append(plan.errors, validateImportedNameLengths(parsed)...)
 	plan.errors = append(plan.errors, validateKnownEntityIDs(parsed, snap)...)
 	plan.errors = append(plan.errors, normalizeIDErrors...)
@@ -2331,6 +2333,23 @@ func validateUniqueBuildingRows(rows []map[string]string) []*pb.ImportValidation
 	return errs
 }
 
+func validateUniqueAssignedBuildingRows(rows []map[string]string) []*pb.ImportValidationError {
+	seen := map[string]bool{}
+	var errs []*pb.ImportValidationError
+	for i, row := range rows {
+		name := buildingSectionName(row)
+		if name == "" || row[fieldSite] == "" {
+			continue
+		}
+		key := row[fieldSite] + "\x00" + name
+		if seen[key] {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", "duplicate building name at site"))
+		}
+		seen[key] = true
+	}
+	return errs
+}
+
 func validateUniqueIDs(rows []map[string]string, section string) []*pb.ImportValidationError {
 	seen := map[string]bool{}
 	var errs []*pb.ImportValidationError
@@ -2347,6 +2366,36 @@ func validateUniqueIDs(rows []map[string]string, section string) []*pb.ImportVal
 			errs = append(errs, csvErr(rowNumber(row, i+1), section, "duplicate id"))
 		}
 		seen[key] = true
+	}
+	return errs
+}
+
+func validateSiteRenameTargets(rows []map[string]string, sites []sitemodels.Site) []*pb.ImportValidationError {
+	nameByID := map[int64]string{}
+	idByName := map[string]int64{}
+	for _, site := range sites {
+		nameByID[site.ID] = site.Name
+		idByName[site.Name] = site.ID
+	}
+
+	var errs []*pb.ImportValidationError
+	for i, row := range rows {
+		id, ok := rowID(row)
+		if !ok {
+			continue
+		}
+		currentName, ok := nameByID[id]
+		if !ok {
+			continue
+		}
+		name := siteSectionName(row)
+		if name == "" || name == currentName {
+			continue
+		}
+		ownerID, exists := idByName[name]
+		if exists && ownerID != id {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "SITE", fmt.Sprintf("site rename target %q is currently used by site_id %d; split this rename into a separate import", name, ownerID)))
+		}
 	}
 	return errs
 }

@@ -381,6 +381,57 @@ func TestBuildPlanRejectsIDRenamesCollidingWithRetainedOmittedTopology(t *testin
 	}
 }
 
+func TestBuildPlanRejectsTransientSiteRenameCollisions(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": {
+			{"__row": "3", fieldID: "1", fieldName: "Site B"},
+			{"__row": "4", fieldID: "2", fieldName: "Site A"},
+		},
+		"BUILDING": nil,
+		"RACK":     nil,
+		"MINER":    nil,
+	}}
+	snap := &snapshot{sites: []sitemodels.Site{
+		{ID: 1, Name: "Site A"},
+		{ID: 2, Name: "Site B"},
+	}}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	if !hasValidationError(plan.errors, "SITE", `site rename target "Site B" is currently used by site_id 2`) {
+		t.Fatalf("plan errors = %+v, want transient site rename collision", plan.errors)
+	}
+	if !hasValidationError(plan.errors, "SITE", `site rename target "Site A" is currently used by site_id 1`) {
+		t.Fatalf("plan errors = %+v, want reciprocal transient site rename collision", plan.errors)
+	}
+}
+
+func TestBuildPlanRejectsRemoveOmittedDuplicateFinalBuildingNames(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": {
+			{"__row": "3", fieldID: "1", fieldName: "Site A"},
+		},
+		"BUILDING": {
+			{"__row": "7", fieldID: "10", fieldName: "Building B", fieldSite: "Site A", "aisles": "1", "racks_per_aisle": "1"},
+			{"__row": "8", fieldID: "11", fieldName: "Building B", fieldSite: "Site A", "aisles": "1", "racks_per_aisle": "1"},
+		},
+		"RACK":  nil,
+		"MINER": nil,
+	}}
+	siteID := int64(1)
+	snap := &snapshot{
+		sites: []sitemodels.Site{{ID: siteID, Name: "Site A"}},
+		buildings: []buildingmodels.Building{
+			{ID: 10, SiteID: &siteID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 1},
+			{ID: 11, SiteID: &siteID, SiteLabel: "Site A", Name: "Building C", Aisles: 1, RacksPerAisle: 1},
+		},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	if !hasValidationError(plan.errors, "BUILDING", "duplicate building name at site") {
+		t.Fatalf("plan errors = %+v, want duplicate final building name", plan.errors)
+	}
+}
+
 func TestBuildPlanRejectsUnassignedBuildingIDMoveCollidingWithRetainedBuilding(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE": {
