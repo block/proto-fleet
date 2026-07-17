@@ -1,4 +1,4 @@
-import { ReactNode, Suspense, useEffect, useMemo, useRef } from "react";
+import { type ErrorInfo, ReactNode, Suspense, useCallback, useEffect, useMemo, useRef } from "react";
 import { useMatches } from "react-router-dom";
 import clsx from "clsx";
 
@@ -14,6 +14,7 @@ import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useApplyTheme } from "@/shared/features/preferences";
 import { Toaster } from "@/shared/features/toaster";
+import { reportObservabilityError } from "@/shared/observability";
 import { isBackendDownError } from "@/shared/utils/backendHealth";
 import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
@@ -102,6 +103,12 @@ const App = ({ children, fullscreen }: AppProps) => {
 
   const isActionBarVisible = useIsActionBarVisible();
 
+  // reportObservabilityError is a stable module-level import, not a reactive
+  // value, so it is intentionally not a dependency (exhaustive-deps agrees).
+  const handleRenderError = useCallback((error: Error, errorInfo: ErrorInfo) => {
+    reportObservabilityError(error, { componentStack: errorInfo.componentStack });
+  }, []);
+
   // Show loading spinner ONLY if auth is required AND (loading OR access denied)
   const showLoading = requireAuth && (loading || hasAccess !== true);
 
@@ -120,7 +127,7 @@ const App = ({ children, fullscreen }: AppProps) => {
   // RENDER
   // ============================================================================
   return (
-    <ErrorBoundary>
+    <ErrorBoundary onError={handleRenderError}>
       {/* Toaster - Fixed position, renders above overlays (z-50) and dialogs (z-40) */}
       <div
         className={clsx(
