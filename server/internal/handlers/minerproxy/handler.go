@@ -63,7 +63,7 @@ type loginResponse struct {
 }
 
 type Handler struct {
-	queries            *sqlc.Queries
+	queries            sqlc.Querier
 	sessionService     *session.Service
 	userStore          stores.UserStore
 	permissionResolver *authz.PermissionResolver
@@ -105,7 +105,7 @@ func NewHandler(
 	encryptService *encrypt.Service,
 ) http.Handler {
 	return &Handler{
-		queries:            sqlc.New(db.NewRetryDB(conn)),
+		queries:            db.NewFailoverResettingQuerier(db.NewRetryDB(conn)),
 		sessionService:     sessionService,
 		userStore:          userStore,
 		permissionResolver: permissionResolver,

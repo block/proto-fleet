@@ -38,9 +38,7 @@ func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action fun
 		}
 
 		lastErr = err
-		if resetPool != nil && IsFailoverPostgresError(err) {
-			resetPool()
-		}
+		resetPoolOnFailover(err, resetPool)
 		if !IsRetryablePostgresError(err) || attempt == config.MaxAttempts {
 			break
 		}

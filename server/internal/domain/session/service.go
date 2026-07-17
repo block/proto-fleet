@@ -24,10 +24,13 @@ type Store interface {
 	DeleteExpiredSessions(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
+const sessionValidationUnavailableMessage = "session validation temporarily unavailable"
+
 // Service provides session management operations.
 type Service struct {
-	cfg   Config
-	store Store
+	cfg                         Config
+	store                       Store
+	validationFailureClassifier func(error) bool
 }
 
 // NewService creates a new session service.
@@ -36,6 +39,15 @@ func NewService(cfg Config, store Store) *Service {
 		cfg:   cfg,
 		store: store,
 	}
+}
+
+// NewServiceWithValidationFailureClassifier creates a session service that
+// treats classified lookup/activity-update failures as transient auth backend
+// outages instead of invalid sessions.
+func NewServiceWithValidationFailureClassifier(cfg Config, store Store, classifier func(error) bool) *Service {
+	s := NewService(cfg, store)
+	s.validationFailureClassifier = classifier
+	return s
 }
 
 // Create generates a new session for the authenticated user.
@@ -68,6 +80,10 @@ func (s *Service) Create(ctx context.Context, userID, orgID int64, userAgent, ip
 func (s *Service) Validate(ctx context.Context, sessionID string) (*Session, error) {
 	session, err := s.store.GetSessionByID(ctx, sessionID)
 	if err != nil {
+		if s.validationFailureClassifier != nil && s.validationFailureClassifier(err) {
+			slog.ErrorContext(ctx, "failed to validate session lookup", "sessionID", truncateSessionID(sessionID), "error", err)
+			return nil, fleeterror.NewUnavailableErrorf(sessionValidationUnavailableMessage)
+		}
 		return nil, fleeterror.NewUnauthenticatedError("invalid session")
 	}
 
@@ -84,13 +100,10 @@ func (s *Service) Validate(ctx context.Context, sessionID string) (*Session, err
 	// Sliding window: extend expiry on activity
 	newExpiry := now.Add(s.cfg.Duration)
 	if err := s.store.UpdateSessionActivity(ctx, sessionID, now, newExpiry); err != nil {
-		// Log but don't fail - session is still valid, it will just expire at the original time
-		// Truncate session ID in logs to avoid leaking full identifier if logs are compromised
-		truncatedID := sessionID
-		if len(sessionID) > 8 {
-			truncatedID = sessionID[:8] + "..."
+		slog.ErrorContext(ctx, "failed to update session activity", "sessionID", truncateSessionID(sessionID), "error", err)
+		if s.validationFailureClassifier != nil && s.validationFailureClassifier(err) {
+			return nil, fleeterror.NewUnavailableErrorf(sessionValidationUnavailableMessage)
 		}
-		slog.ErrorContext(ctx, "failed to update session activity", "sessionID", truncatedID, "error", err)
 	}
 
 	session.LastActivity = now
@@ -156,6 +169,13 @@ func generateSessionID(numBytes int) (string, error) {
 		return "", fmt.Errorf("failed to generate random bytes: %w", err)
 	}
 	return hex.EncodeToString(bytes), nil
+}
+
+func truncateSessionID(sessionID string) string {
+	if len(sessionID) <= 8 {
+		return sessionID
+	}
+	return sessionID[:8] + "..."
 }
 
 func parseSameSite(value string) http.SameSite {

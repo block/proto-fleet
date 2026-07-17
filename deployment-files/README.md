@@ -134,6 +134,12 @@ the final database DSN contains multiple hosts, it must include
 `target_session_attrs=read-write` so fleet-api targets the current writable
 database endpoint.
 
+`DB_DSN` only overrides fleet-api's database connection. The bundled beta
+Grafana alerts datasource still points at `timescaledb:5432` and uses
+`GRAFANA_DB_USERNAME` / `GRAFANA_DB_PASSWORD`; HA deployments that enable the
+alerts stack must update Grafana's datasource target separately so alerts read
+from the same database topology as fleet-api.
+
 ## Uninstalling Proto Fleet
 
 ```bash

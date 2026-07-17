@@ -18,15 +18,14 @@ import (
 // One PermissionResolver is constructed at server boot and reused for
 // every request — it holds no per-request state.
 type PermissionResolver struct {
-	conn *sql.DB
+	queries sqlc.Querier
 }
 
 // NewPermissionResolver wires the resolver to the application's
-// connection pool. The connection is used directly (not via the
-// transaction wrapper) because LoadEffective is a read-only single
-// query called per request, before any handler transaction begins.
+// connection pool. LoadEffective is a read-only single query called per
+// request, before any handler transaction begins.
 func NewPermissionResolver(conn *sql.DB) *PermissionResolver {
-	return &PermissionResolver{conn: conn}
+	return &PermissionResolver{queries: db.NewFailoverResettingQuerier(db.NewRetryDB(conn))}
 }
 
 // LoadEffectiveForUpdateInTx is the resolver-side wrapper around
@@ -55,7 +54,7 @@ func (r *PermissionResolver) LoadEffectiveForUpdateInTx(ctx context.Context, use
 // everything, which is the correct fail-closed default for a
 // freshly-deactivated user or a user who was never in this org.
 func (r *PermissionResolver) LoadEffective(ctx context.Context, userID, organizationID int64) (*EffectivePermissions, error) {
-	return LoadEffectiveTx(ctx, sqlc.New(r.conn), userID, organizationID)
+	return LoadEffectiveTx(ctx, r.queries, userID, organizationID)
 }
 
 // LoadEffectiveTx runs the same query against a caller-supplied
@@ -65,7 +64,7 @@ func (r *PermissionResolver) LoadEffective(ctx context.Context, userID, organiza
 // inside its mutation transactions, closing the TOCTOU window where a
 // concurrent UnassignRole could demote the caller between the
 // middleware gate and the role write.
-func LoadEffectiveTx(ctx context.Context, q *sqlc.Queries, userID, organizationID int64) (*EffectivePermissions, error) {
+func LoadEffectiveTx(ctx context.Context, q sqlc.Querier, userID, organizationID int64) (*EffectivePermissions, error) {
 	rows, err := q.ListEffectivePermissionsForUser(ctx, sqlc.ListEffectivePermissionsForUserParams{
 		UserID:         userID,
 		OrganizationID: organizationID,
@@ -88,7 +87,7 @@ func LoadEffectiveTx(ctx context.Context, q *sqlc.Queries, userID, organizationI
 // Use this from role-management mutations; the request-path resolver
 // (LoadEffective) stays lock-free so authenticated traffic does not
 // fight for row locks on every RPC.
-func LoadEffectiveForUpdate(ctx context.Context, q *sqlc.Queries, userID, organizationID int64) (*EffectivePermissions, error) {
+func LoadEffectiveForUpdate(ctx context.Context, q sqlc.Querier, userID, organizationID int64) (*EffectivePermissions, error) {
 	rows, err := q.ListEffectivePermissionsForUserForUpdate(ctx, sqlc.ListEffectivePermissionsForUserForUpdateParams{
 		UserID:         userID,
 		OrganizationID: organizationID,

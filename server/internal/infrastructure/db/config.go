@@ -3,6 +3,7 @@ package db
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"reflect"
 	"strings"
 	"time"
@@ -51,6 +52,9 @@ func (c *Config) Validate() error {
 	if strings.TrimSpace(dsn) == "" {
 		return fmt.Errorf("database DSN is empty")
 	}
+	if environmentHasHostaddr() {
+		return fmt.Errorf("database PGHOSTADDR hostaddr is not supported; use host")
+	}
 	parsedConfig, err := pgconn.ParseConfig(dsn)
 	if err != nil {
 		return fmt.Errorf("invalid database DSN")
@@ -98,4 +102,9 @@ func parsedConfigHasHostaddr(config *pgconn.Config) bool {
 	}
 	_, ok := config.RuntimeParams["hostaddr"]
 	return ok
+}
+
+func environmentHasHostaddr() bool {
+	value, ok := os.LookupEnv("PGHOSTADDR")
+	return ok && strings.TrimSpace(value) != ""
 }

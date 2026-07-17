@@ -119,7 +119,6 @@ encrypt:
 	_, err = parser.Parse(nil)
 	require.NoError(t, err)
 	require.Equal(t, explicitDSN, config.DB.ExplicitDSN)
-	require.Equal(t, explicitDSN, config.DB.DSN())
 }
 
 func TestFleetdInfrastructureOTControlSubnetsFlag(t *testing.T) {

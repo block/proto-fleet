@@ -8,10 +8,13 @@ import (
 var poolResetRegistry sync.Map
 
 func RegisterIdleConnectionPoolReset(conn *sql.DB, maxIdleConns int) {
-	RegisterPoolReset(conn, NewIdleConnectionPoolReset(conn, maxIdleConns))
+	registerPoolReset(conn, func() {
+		conn.SetMaxIdleConns(0)
+		conn.SetMaxIdleConns(maxIdleConns)
+	})
 }
 
-func RegisterPoolReset(conn *sql.DB, reset func()) {
+func registerPoolReset(conn *sql.DB, reset func()) {
 	if conn == nil || reset == nil {
 		return
 	}
@@ -28,11 +31,4 @@ func poolResetFor(conn *sql.DB) func() {
 	}
 	resetFn, _ := reset.(func())
 	return resetFn
-}
-
-func NewIdleConnectionPoolReset(conn *sql.DB, maxIdleConns int) func() {
-	return func() {
-		conn.SetMaxIdleConns(0)
-		conn.SetMaxIdleConns(maxIdleConns)
-	}
 }

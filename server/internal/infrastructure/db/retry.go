@@ -122,14 +122,8 @@ func NewRetryDB(db *sql.DB) *RetryDB {
 	return &RetryDB{DB: db, resetPool: poolResetFor(db)}
 }
 
-func NewRetrier(conn *sql.DB) Retrier {
+func newRetrier(conn *sql.DB) Retrier {
 	return Retrier{resetPool: poolResetFor(conn)}
-}
-
-func (r *RetryDB) ResetPoolOnFailover(err error) {
-	if r != nil && err != nil && IsFailoverPostgresError(err) && r.resetPool != nil {
-		r.resetPool()
-	}
 }
 
 // RetryQuery executes fn with retry logic on retryable PostgreSQL errors.
@@ -151,10 +145,8 @@ func retryOperation[T any](ctx context.Context, opName string, resetPool func(),
 			return result, nil
 		}
 
+		err = markAfterPoolReset(err, resetPool)
 		lastErr = err
-		if resetPool != nil && IsFailoverPostgresError(err) {
-			resetPool()
-		}
 		if !IsRetryablePostgresError(err) {
 			return zero, fmt.Errorf("%s: %w", opName, err)
 		}

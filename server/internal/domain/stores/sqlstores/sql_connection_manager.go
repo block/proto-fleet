@@ -9,23 +9,28 @@ import (
 )
 
 type SQLConnectionManager struct {
-	conn *db.RetryDB
+	conn    *db.RetryDB
+	queries sqlc.Querier
 }
 
 func NewSQLConnectionManager(conn *sql.DB) SQLConnectionManager {
-	return SQLConnectionManager{conn: db.NewRetryDB(conn)}
+	retryDB := db.NewRetryDB(conn)
+	return SQLConnectionManager{
+		conn:    retryDB,
+		queries: db.NewFailoverResettingQuerier(retryDB),
+	}
 }
 
 // GetQueries returns the tx-bound queries when ctx carries them
 // (set by SQLTransactor.RunInTx via db.WithTxQueries), otherwise a
-// fresh reset-aware handle over the base connection.
+// reset-aware handle over the base connection.
 func (b *SQLConnectionManager) GetQueries(ctx context.Context) sqlc.Querier {
 	if q := db.GetTxQueries(ctx); q != nil {
 		return q
 	}
-	return db.NewFailoverResettingQuerier(b.conn)
+	return b.queries
 }
 
-func (b *SQLConnectionManager) GetTxQueries(ctx context.Context) *sqlc.Queries {
+func (b *SQLConnectionManager) GetTxQueries(ctx context.Context) sqlc.Querier {
 	return db.GetTxQueries(ctx)
 }

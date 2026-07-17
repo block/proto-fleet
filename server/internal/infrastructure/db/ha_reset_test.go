@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -17,7 +18,7 @@ func TestRetryDBExecResetsPoolOnFailoverWithoutRetry(t *testing.T) {
 	defer sqlDB.Close()
 
 	resets := 0
-	RegisterPoolReset(sqlDB, func() {
+	registerPoolResetForTest(t, sqlDB, func() {
 		resets++
 	})
 
@@ -36,7 +37,7 @@ func TestWithTransactionBeginFailoverResetsPoolWithoutRetry(t *testing.T) {
 	defer sqlDB.Close()
 
 	resets := 0
-	RegisterPoolReset(sqlDB, func() {
+	registerPoolResetForTest(t, sqlDB, func() {
 		resets++
 	})
 
@@ -58,7 +59,7 @@ func TestWithTransactionActionFailoverResetsPoolWithoutRetry(t *testing.T) {
 	defer sqlDB.Close()
 
 	resets := 0
-	RegisterPoolReset(sqlDB, func() {
+	registerPoolResetForTest(t, sqlDB, func() {
 		resets++
 	})
 
@@ -78,13 +79,70 @@ func TestWithTransactionActionFailoverResetsPoolWithoutRetry(t *testing.T) {
 	}
 }
 
+func TestWithTransactionQueryFailoverResetsPoolAfterRollback(t *testing.T) {
+	pgErr := &pgconn.PgError{Code: PGConnectionFailure, Message: "connection failure"}
+	rolledBack := false
+	resetAfterRollback := false
+	sqlDB := sql.OpenDB(&haResetConnector{
+		queryErr: pgErr,
+		rollback: func() {
+			rolledBack = true
+		},
+	})
+	defer sqlDB.Close()
+
+	resets := 0
+	registerPoolResetForTest(t, sqlDB, func() {
+		resets++
+		if rolledBack {
+			resetAfterRollback = true
+		}
+	})
+
+	_, err := WithTransaction(context.Background(), sqlDB, func(q *sqlc.Queries) (struct{}, error) {
+		_, queryErr := q.GetSessionByID(context.Background(), "session")
+		if !errors.Is(queryErr, pgErr) {
+			t.Fatalf("query error = %v, want wrapped failover error", queryErr)
+		}
+		return struct{}{}, fmt.Errorf("store wrapped: %w", queryErr)
+	})
+	if !errors.Is(err, pgErr) {
+		t.Fatalf("WithTransaction error = %v, want wrapped failover error", err)
+	}
+	if resets != 1 {
+		t.Fatalf("pool resets = %d, want 1", resets)
+	}
+	if !resetAfterRollback {
+		t.Fatal("pool reset happened before rollback")
+	}
+}
+
+func TestFailoverResettingQuerierOverRetryDBResetsOnce(t *testing.T) {
+	pgErr := &pgconn.PgError{Code: PGConnectionFailure, Message: "connection failure"}
+	sqlDB := sql.OpenDB(&haResetConnector{queryErr: pgErr})
+	defer sqlDB.Close()
+
+	resets := 0
+	registerPoolResetForTest(t, sqlDB, func() {
+		resets++
+	})
+
+	_, err := NewFailoverResettingQuerier(NewRetryDB(sqlDB)).GetSessionByID(context.Background(), "session")
+	if !errors.Is(err, pgErr) {
+		t.Fatalf("query error = %v, want wrapped failover error", err)
+	}
+	if resets != 1 {
+		t.Fatalf("pool resets = %d, want 1", resets)
+	}
+}
+
 func TestWithTransactionCommitFailoverResetsPoolWithoutRetry(t *testing.T) {
 	pgErr := &pgconn.PgError{Code: PGConnectionFailure, Message: "connection failure"}
 	sqlDB := sql.OpenDB(&haResetConnector{commitErr: pgErr})
 	defer sqlDB.Close()
 
 	resets := 0
-	RegisterPoolReset(sqlDB, func() {
+	registerPoolResetForTest(t, sqlDB, func() {
 		resets++
 	})
 
@@ -108,6 +166,8 @@ type haResetConnector struct {
 	beginErr  error
 	commitErr error
 	execErr   error
+	queryErr  error
+	rollback  func()
 }
 
 func (c *haResetConnector) Connect(context.Context) (driver.Conn, error) {
@@ -146,18 +206,26 @@ func (c *haResetConn) BeginTx(context.Context, driver.TxOptions) (driver.Tx, err
 	if c.connector.beginErr != nil {
 		return nil, c.connector.beginErr
 	}
-	return haResetTx{commitErr: c.connector.commitErr}, nil
+	return haResetTx{commitErr: c.connector.commitErr, rollback: c.connector.rollback}, nil
 }
 
 func (c *haResetConn) ExecContext(context.Context, string, []driver.NamedValue) (driver.Result, error) {
 	if c.connector.execErr != nil {
 		return nil, c.connector.execErr
 	}
-	return haResetResult(0), nil
+	return driver.RowsAffected(0), nil
+}
+
+func (c *haResetConn) QueryContext(context.Context, string, []driver.NamedValue) (driver.Rows, error) {
+	if c.connector.queryErr != nil {
+		return nil, c.connector.queryErr
+	}
+	return nil, errors.New("query not implemented")
 }
 
 type haResetTx struct {
 	commitErr error
+	rollback  func()
 }
 
 func (t haResetTx) Commit() error {
@@ -165,15 +233,16 @@ func (t haResetTx) Commit() error {
 }
 
 func (t haResetTx) Rollback() error {
+	if t.rollback != nil {
+		t.rollback()
+	}
 	return nil
 }
 
-type haResetResult int64
-
-func (r haResetResult) LastInsertId() (int64, error) {
-	return 0, nil
-}
-
-func (r haResetResult) RowsAffected() (int64, error) {
-	return int64(r), nil
+func registerPoolResetForTest(t *testing.T, conn *sql.DB, reset func()) {
+	t.Helper()
+	registerPoolReset(conn, reset)
+	t.Cleanup(func() {
+		poolResetRegistry.Delete(conn)
+	})
 }

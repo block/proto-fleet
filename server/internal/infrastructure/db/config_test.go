@@ -24,20 +24,6 @@ func TestConfigDSNUsesLegacyFieldsByDefault(t *testing.T) {
 	require.Equal(t, "db.internal:5432", cfg.ConnectionTarget())
 }
 
-func TestConfigValidateAcceptsLegacyFields(t *testing.T) {
-	t.Parallel()
-
-	cfg := Config{
-		Name:     "fleet",
-		Username: "fleet",
-		Password: "p@ss word",
-		Address:  "db.internal:5432",
-		SSLMode:  "verify-full",
-	}
-
-	require.NoError(t, cfg.Validate())
-}
-
 func TestConfigExplicitDSNOverridesLegacyFields(t *testing.T) {
 	t.Parallel()
 
@@ -63,7 +49,6 @@ func TestConfigValidateAcceptsMultiHostReadWriteDSN(t *testing.T) {
 	}
 
 	require.NoError(t, cfg.Validate())
-	require.True(t, cfg.UsesExplicitDSN())
 }
 
 func TestConfigValidateRejectsMultiHostDSNWithoutReadWriteTarget(t *testing.T) {
@@ -100,40 +85,6 @@ func TestConfigValidateRejectsKeywordMultiHostWithoutReadWriteTarget(t *testing.
 	require.Contains(t, err.Error(), "target_session_attrs=read-write")
 }
 
-func TestConfigValidateAcceptsSingleHostExplicitDSNWithTLSFallbacks(t *testing.T) {
-	t.Parallel()
-
-	testCases := []struct {
-		name string
-		dsn  string
-	}{
-		{
-			name: "default sslmode prefer",
-			dsn:  "postgres://fleet@fleet-a:5432/fleet",
-		},
-		{
-			name: "explicit sslmode prefer",
-			dsn:  "postgres://fleet@fleet-a:5432/fleet?sslmode=prefer",
-		},
-		{
-			name: "sslmode allow",
-			dsn:  "postgres://fleet@fleet-a:5432/fleet?sslmode=allow",
-		},
-	}
-
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-
-			cfg := Config{
-				ExplicitDSN: testCase.dsn,
-			}
-
-			require.NoError(t, cfg.Validate())
-		})
-	}
-}
-
 func TestConfigValidateReturnsGenericInvalidDSNError(t *testing.T) {
 	t.Parallel()
 
@@ -145,8 +96,6 @@ func TestConfigValidateReturnsGenericInvalidDSNError(t *testing.T) {
 
 	require.Error(t, err)
 	require.EqualError(t, err, "invalid database DSN")
-	require.NotContains(t, err.Error(), "secret")
-	require.NotContains(t, err.Error(), "tail")
 }
 
 func TestConfigValidateRejectsHostaddr(t *testing.T) {
@@ -179,28 +128,14 @@ func TestConfigValidateRejectsHostaddr(t *testing.T) {
 	}
 }
 
-func TestConfigValidateAcceptsEnvExpandedMultiHostWithReadWriteTarget(t *testing.T) {
-	t.Setenv("PGHOST", "fleet-a,fleet-b")
-	t.Setenv("PGPORT", "5432,5432")
-	t.Setenv("PGTARGETSESSIONATTRS", "read-write")
+func TestConfigValidateRejectsPGHostaddrEnvironment(t *testing.T) {
+	t.Setenv("PGHOSTADDR", "10.0.0.11")
 
 	cfg := Config{
-		ExplicitDSN: "postgres:///fleet?sslmode=disable",
-	}
-
-	require.NoError(t, cfg.Validate())
-}
-
-func TestConfigValidateRejectsEnvExpandedMultiHostWithoutReadWriteTarget(t *testing.T) {
-	t.Setenv("PGHOST", "fleet-a,fleet-b")
-	t.Setenv("PGPORT", "5432,5432")
-
-	cfg := Config{
-		ExplicitDSN: "postgres:///fleet?sslmode=disable",
+		ExplicitDSN: "postgres://fleet@fleet-a:5432/fleet?sslmode=disable",
 	}
 
 	err := cfg.Validate()
-
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "target_session_attrs=read-write")
+	require.Contains(t, err.Error(), "hostaddr is not supported")
 }

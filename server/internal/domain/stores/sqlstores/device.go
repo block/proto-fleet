@@ -1797,7 +1797,7 @@ func (s *SQLDeviceStore) UpdateDeviceCustomNames(ctx context.Context, orgID int6
 	})
 }
 
-func updateDeviceCustomNamesWithQueries(ctx context.Context, q *sqlc.Queries, orgID int64, names map[string]string) error {
+func updateDeviceCustomNamesWithQueries(ctx context.Context, q sqlc.Querier, orgID int64, names map[string]string) error {
 	identifiers := make([]string, 0, len(names))
 	customNames := make([]string, 0, len(names))
 	for id, name := range names {
