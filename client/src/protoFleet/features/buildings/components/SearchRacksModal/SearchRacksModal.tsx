@@ -21,9 +21,11 @@ interface SearchRacksModalProps {
   // but disabled.
   siteId: bigint;
   currentBuildingId: bigint;
-  // Header SitePicker scope. Governs which racks are *fetched* (active
-  // site + site-unassigned); "all sites" is the empty filter (whole-org
-  // fetch, no regression). Eligibility is still computed against `siteId`.
+  // Rack-fetch scope, derived from the building's own site (see
+  // buildingRackScope) — NOT the header SitePicker. Governs which racks are
+  // *fetched*: the building's site + site-unassigned. There is no "all sites"
+  // fallback; the fetch is always scoped. Per-row eligibility is still
+  // computed against `siteId`.
   scope: SiteFilterFields;
   onDismiss: () => void;
   // Returns a single chosen rack so the caller can add it to the working
