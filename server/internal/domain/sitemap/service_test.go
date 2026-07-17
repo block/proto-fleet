@@ -200,12 +200,14 @@ func TestBuildPlanRejectsImportedNamesOverServerLimits(t *testing.T) {
 		"RACK": {
 			{"__row": "13", fieldLabel: strings.Repeat("r", maxRackLabelLength+1), "rows": "4", "columns": "6"},
 		},
-		"MINER": nil,
+		"MINER": {
+			{"__row": "17", "device_identifier": "miner-1", fieldName: strings.Repeat("m", maxMinerNameLength+1)},
+		},
 	}}
 
-	plan := buildPlan(parsed, &snapshot{}, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	if len(plan.errors) != 3 {
-		t.Fatalf("plan errors = %+v, want 3 length errors", plan.errors)
+	plan := buildPlan(parsed, &snapshot{miners: []minerSnapshot{{DeviceIdentifier: "miner-1"}}}, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.errors) != 4 {
+		t.Fatalf("plan errors = %+v, want 4 length errors", plan.errors)
 	}
 	for _, err := range plan.errors {
 		if !strings.Contains(err.GetMessage(), "must be at most") {
@@ -389,6 +391,45 @@ func TestBuildPlanRejectsOldBuildingReferenceAfterIDRename(t *testing.T) {
 		}
 	}
 	t.Fatalf("plan errors = %+v, want unknown old building reference", plan.errors)
+}
+
+func TestBuildPlanResolvesSiteNameBuildingMoveForIDReferences(t *testing.T) {
+	oldSiteID := int64(1)
+	newSiteID := int64(2)
+	buildingID := int64(10)
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": nil,
+		"BUILDING": {
+			{"__row": "7", fieldID: "10", fieldName: "Building A", fieldSite: "Site B", "aisles": "1", "racks_per_aisle": "2"},
+		},
+		"RACK": {
+			{"__row": "11", fieldLabel: "Rack A", fieldBuildingID: "10", fieldBuilding: "Building A", "rows": "4", "columns": "6"},
+		},
+		"MINER": {
+			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldBuildingID: "10", fieldBuilding: "Building A"},
+		},
+	}}
+	snap := &snapshot{
+		sites: []sitemodels.Site{
+			{ID: oldSiteID, Name: "Site A"},
+			{ID: newSiteID, Name: "Site B"},
+		},
+		buildings: []buildingmodels.Building{
+			{ID: buildingID, SiteID: &oldSiteID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 2},
+		},
+		miners: []minerSnapshot{{DeviceIdentifier: "miner-1", SerialNumber: "SN1", Name: "Miner 1", IPAddress: "10.0.0.5", MACAddress: "aa:bb:cc:dd:ee:ff"}},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.errors) != 0 {
+		t.Fatalf("plan errors = %+v, want site-name building move accepted", plan.errors)
+	}
+	if got := parsed.sections["RACK"][0][fieldSiteID]; got != "2" {
+		t.Fatalf("rack site_id = %q, want normalized Site B id", got)
+	}
+	if got := parsed.sections["MINER"][0][fieldSiteID]; got != "2" {
+		t.Fatalf("miner site_id = %q, want normalized Site B id", got)
+	}
 }
 
 func TestBuildPlanAllowsRackTargetDisambiguatedByBuildingID(t *testing.T) {

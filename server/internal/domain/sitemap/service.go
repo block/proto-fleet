@@ -41,6 +41,7 @@ const (
 	maxSiteNameLength     = 255
 	maxBuildingNameLength = 255
 	maxRackLabelLength    = 100
+	maxMinerNameLength    = 100
 
 	siteMapExportFolder       = "proto-fleet-site-map"
 	siteMapExportCSVPath      = siteMapExportFolder + "/site-map.csv"
@@ -2689,6 +2690,10 @@ func desiredBuildingsByID(rows []map[string]string, buildings []buildingmodels.B
 	for _, building := range buildings {
 		out[building.ID] = building
 	}
+	sitesByName := map[string]sitemodels.Site{}
+	for _, site := range sitesByID {
+		sitesByName[site.Name] = site
+	}
 	for _, row := range rows {
 		id, ok := rowID(row)
 		if !ok {
@@ -2700,7 +2705,11 @@ func desiredBuildingsByID(rows []map[string]string, buildings []buildingmodels.B
 			site := sitesByID[siteID]
 			building.SiteID = &site.ID
 			building.SiteLabel = site.Name
+		} else if site, ok := sitesByName[row[fieldSite]]; ok {
+			building.SiteID = &site.ID
+			building.SiteLabel = site.Name
 		} else {
+			building.SiteID = nil
 			building.SiteLabel = row[fieldSite]
 		}
 		out[id] = building
@@ -3012,6 +3021,7 @@ func validateImportedNameLengths(parsed *parsedCSV) []*pb.ImportValidationError 
 	errs = append(errs, validateFieldLength(parsed.sections["SITE"], "SITE", fieldName, maxSiteNameLength)...)
 	errs = append(errs, validateFieldLength(parsed.sections["BUILDING"], "BUILDING", fieldName, maxBuildingNameLength)...)
 	errs = append(errs, validateFieldLength(parsed.sections["RACK"], "RACK", fieldLabel, maxRackLabelLength)...)
+	errs = append(errs, validateFieldLength(parsed.sections["MINER"], "MINER", fieldName, maxMinerNameLength)...)
 	return errs
 }
 
