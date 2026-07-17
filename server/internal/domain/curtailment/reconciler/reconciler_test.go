@@ -421,6 +421,12 @@ func (f *fakeStore) UpdateFanState(_ context.Context, eventID int64, params inte
 		if params.FanOnSentAt != nil {
 			event.FanOnSentAt = params.FanOnSentAt
 		}
+		if params.FanAirflowReopenedAt != nil {
+			event.FanAirflowReopenedAt = params.FanAirflowReopenedAt
+		}
+		if params.ClearFanAirflowReopenedAt {
+			event.FanAirflowReopenedAt = nil
+		}
 		event.FanLastError = params.LastError
 	}
 	return nil
@@ -433,6 +439,9 @@ func (f *fakeStore) CommandFanState(
 	command func(context.Context) *string,
 ) (*string, error) {
 	lastError := command(ctx)
+	if lastError == nil && params.FanAirflowReopenedAtOnSuccess != nil {
+		params.FanAirflowReopenedAt = params.FanAirflowReopenedAtOnSuccess
+	}
 	params.LastError = lastError
 	return lastError, f.UpdateFanState(ctx, eventID, params)
 }

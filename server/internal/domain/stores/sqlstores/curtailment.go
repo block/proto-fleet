@@ -1887,12 +1887,16 @@ func (s *SQLCurtailmentStore) commandFanStateWithQueries(
 	}
 
 	lastError := command(ctx)
+	fanAirflowReopenedAt := params.FanAirflowReopenedAt
+	if lastError == nil && params.FanAirflowReopenedAtOnSuccess != nil {
+		fanAirflowReopenedAt = params.FanAirflowReopenedAtOnSuccess
+	}
 	rows, err := q.UpdateCurtailmentEventFanState(ctx, sqlc.UpdateCurtailmentEventFanStateParams{
 		ID:                        eventID,
 		ExpectedState:             string(params.ExpectedEventState),
 		FanOffSentAt:              ptrToNullTime(params.FanOffSentAt),
 		FanOnSentAt:               ptrToNullTime(params.FanOnSentAt),
-		FanAirflowReopenedAt:      ptrToNullTime(params.FanAirflowReopenedAt),
+		FanAirflowReopenedAt:      ptrToNullTime(fanAirflowReopenedAt),
 		ClearFanAirflowReopenedAt: params.ClearFanAirflowReopenedAt,
 		FanLastError:              ptrToNullString(lastError),
 	})

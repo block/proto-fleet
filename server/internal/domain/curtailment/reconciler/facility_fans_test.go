@@ -213,13 +213,28 @@ func TestReconciler_DriftRedispatchWaitsForSuccessfulFanOn(t *testing.T) {
 	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
 	assert.Zero(t, dispatcher.curtailCalls)
 	assert.Equal(t, models.TargetStateDrifted, target.State)
+	require.NotNil(t, event.FanAirflowReopenedAt)
+	firstAttemptAt := *event.FanAirflowReopenedAt
 
-	fans.err = nil
+	secondAttemptAt := firstAttemptAt.Add(30 * time.Second)
+	r.now = func() time.Time { return secondAttemptAt }
 	r.runTick(context.Background())
 
 	assert.Equal(t, []driver.PowerMode{driver.PowerOn, driver.PowerOn}, fans.powers)
+	assert.Zero(t, dispatcher.curtailCalls)
+	assert.Equal(t, firstAttemptAt, *event.FanAirflowReopenedAt,
+		"failed retries must preserve the first alert deadline")
+
+	fans.err = nil
+	successAt := firstAttemptAt.Add(time.Minute)
+	r.now = func() time.Time { return successAt }
+	r.runTick(context.Background())
+
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn, driver.PowerOn, driver.PowerOn}, fans.powers)
 	assert.Equal(t, 1, dispatcher.curtailCalls)
 	assert.Equal(t, models.TargetStateDispatched, target.State)
+	assert.Equal(t, successAt, *event.FanAirflowReopenedAt,
+		"successful airflow reopening starts the cooling delay")
 }
 
 func TestReconciler_RecurtailedPendingEventRetriesFanOnBeforeMinerDispatch(t *testing.T) {
@@ -258,11 +273,15 @@ func TestReconciler_RecurtailedPendingEventRetriesFanOnBeforeMinerDispatch(t *te
 		"failed retries must preserve the original alert gate")
 
 	fans.err = nil
+	successAt := r.now().Add(30 * time.Second)
+	r.now = func() time.Time { return successAt }
 	r.runTick(context.Background())
 
 	assert.Equal(t, []driver.PowerMode{driver.PowerOn, driver.PowerOn}, fans.powers)
 	assert.Equal(t, 1, dispatcher.curtailCalls)
 	assert.Nil(t, event.FanLastError)
+	assert.Equal(t, &successAt, event.FanAirflowReopenedAt,
+		"successful pending recovery starts a fresh cooling delay")
 }
 
 func TestReconciler_RestoringFanTimeoutReservesTimeForMinerRestore(t *testing.T) {

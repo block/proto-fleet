@@ -640,7 +640,8 @@ func (s *Service) restoreFansForOperatorRecovery(ctx context.Context, event *mod
 	if event == nil || len(event.FacilityFanDeviceIDs) == 0 {
 		return nil
 	}
-	if event.FanOffSentAt == nil {
+	failedTerminalOn := event.State.IsTerminal() && event.FanOnSentAt != nil && event.FanLastError != nil
+	if event.FanOffSentAt == nil && !failedTerminalOn {
 		return nil
 	}
 	now := time.Now().UTC()

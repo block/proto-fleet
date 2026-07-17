@@ -422,6 +422,7 @@ func (r *Reconciler) reconcilePendingFans(ctx context.Context, ev *models.Event)
 	if ev.FanAirflowReopenedAt == nil {
 		params.FanAirflowReopenedAt = &now
 	}
+	params.FanAirflowReopenedAtOnSuccess = &now
 	fanCtx, cancel := fanCommandContext(ctx)
 	lastError, err := r.fanStore.CommandFanState(fanCtx, ev.ID, params, func(commandCtx context.Context) *string {
 		return r.fans.SetState(commandCtx, ev, driver.PowerOn)
@@ -433,7 +434,9 @@ func (r *Reconciler) reconcilePendingFans(ctx context.Context, ev *models.Event)
 		}
 		return false
 	}
-	if params.FanAirflowReopenedAt != nil {
+	if lastError == nil {
+		ev.FanAirflowReopenedAt = params.FanAirflowReopenedAtOnSuccess
+	} else if params.FanAirflowReopenedAt != nil {
 		ev.FanAirflowReopenedAt = params.FanAirflowReopenedAt
 	}
 	ev.FanLastError = lastError
@@ -895,7 +898,10 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 	}
 	switch desiredPower {
 	case driver.PowerOn:
-		params.FanAirflowReopenedAt = &now
+		if ev.FanAirflowReopenedAt == nil {
+			params.FanAirflowReopenedAt = &now
+		}
+		params.FanAirflowReopenedAtOnSuccess = &now
 	case driver.PowerOff:
 		if ev.FanOffSentAt == nil {
 			params.FanOffSentAt = &now
@@ -920,7 +926,9 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 	if desiredPower == driver.PowerOff && ev.FanOffSentAt == nil {
 		ev.FanOffSentAt = &now
 	}
-	if params.FanAirflowReopenedAt != nil {
+	if lastError == nil && params.FanAirflowReopenedAtOnSuccess != nil {
+		ev.FanAirflowReopenedAt = params.FanAirflowReopenedAtOnSuccess
+	} else if params.FanAirflowReopenedAt != nil {
 		ev.FanAirflowReopenedAt = params.FanAirflowReopenedAt
 	}
 	if params.ClearFanAirflowReopenedAt {

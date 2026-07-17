@@ -172,12 +172,16 @@ type UpdateOperatorFieldsParams struct {
 // ClearFanAirflowReopenedAt resets the active marker after fans turn off again.
 // LastError nil clears a previous failure after a successful re-assertion.
 type UpdateCurtailmentFanStateParams struct {
-	ExpectedEventState        models.EventState
-	FanOffSentAt              *time.Time
-	FanOnSentAt               *time.Time
-	FanAirflowReopenedAt      *time.Time
-	ClearFanAirflowReopenedAt bool
-	LastError                 *string
+	ExpectedEventState models.EventState
+	FanOffSentAt       *time.Time
+	FanOnSentAt        *time.Time
+	// FanAirflowReopenedAt preserves the first reopen attempt for alert timing.
+	// OnSuccess replaces it only when the hardware command succeeds, so the
+	// cooling delay begins from confirmed airflow rather than a failed attempt.
+	FanAirflowReopenedAt          *time.Time
+	FanAirflowReopenedAtOnSuccess *time.Time
+	ClearFanAirflowReopenedAt     bool
+	LastError                     *string
 }
 
 type CurtailmentFanStateStore interface {

@@ -251,6 +251,57 @@ func TestSQLCurtailmentStore_ForceReleaseSerializesWithFanCommands(t *testing.T)
 	assert.False(t, staleCommandCalled, "a stale fan command must lose its lifecycle guard before touching hardware")
 }
 
+func TestSQLCurtailmentStore_AirflowReopenPreservesFirstFailureThenStampsSuccess(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	eventUUID := uuid.New()
+	event := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStateActive, "facility-fan-reopen-timing")
+	inserted, err := store.InsertEventWithTargets(ctx, event, []models.InsertTargetParams{
+		curtailmentStoreTestTarget("facility-fan-reopen-miner", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+	})
+	require.NoError(t, err)
+
+	firstAttemptAt := time.Now().UTC().Add(-time.Minute)
+	firstError := "fan ON failed"
+	_, err = store.CommandFanState(
+		ctx,
+		inserted.ID,
+		interfaces.UpdateCurtailmentFanStateParams{
+			ExpectedEventState:            models.EventStateActive,
+			FanAirflowReopenedAt:          &firstAttemptAt,
+			FanAirflowReopenedAtOnSuccess: &firstAttemptAt,
+		},
+		func(context.Context) *string { return &firstError },
+	)
+	require.NoError(t, err)
+	failed, err := store.GetEventByUUID(ctx, user.OrganizationID, eventUUID)
+	require.NoError(t, err)
+	assert.Equal(t, &firstAttemptAt, failed.FanAirflowReopenedAt)
+	assert.Equal(t, &firstError, failed.FanLastError)
+
+	successAt := time.Now().UTC()
+	_, err = store.CommandFanState(
+		ctx,
+		inserted.ID,
+		interfaces.UpdateCurtailmentFanStateParams{
+			ExpectedEventState:            models.EventStateActive,
+			FanAirflowReopenedAtOnSuccess: &successAt,
+		},
+		func(context.Context) *string { return nil },
+	)
+	require.NoError(t, err)
+	recovered, err := store.GetEventByUUID(ctx, user.OrganizationID, eventUUID)
+	require.NoError(t, err)
+	assert.Equal(t, &successAt, recovered.FanAirflowReopenedAt)
+	assert.Nil(t, recovered.FanLastError)
+}
+
 func TestSQLCurtailmentStore_FacilityFanAuthorizationSnapshotRejectsSiteDrift(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")

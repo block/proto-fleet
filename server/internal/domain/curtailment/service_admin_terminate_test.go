@@ -336,6 +336,41 @@ func TestService_ForceRelease_RetriesAndClearsTerminalFanFailure(t *testing.T) {
 	assert.Equal(t, 1, store.forceReleaseCalls)
 }
 
+func TestService_ForceRelease_RetriesTerminalFanFailureWithoutOffTimestamp(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	firstFanOnAt := time.Now().UTC().Add(-time.Minute)
+	lastError := "device 701: command failed"
+	store := newFakeStore()
+	store.eventsByUUID[eventUUID] = &models.Event{
+		ID:                   96,
+		EventUUID:            eventUUID,
+		OrgID:                orgID,
+		State:                models.EventStateCancelled,
+		FacilityFanDeviceIDs: []int64{701},
+		FanOnSentAt:          &firstFanOnAt,
+		FanLastError:         &lastError,
+	}
+	store.forceReleaseResult = store.eventsByUUID[eventUUID]
+	fans := &fakeTerminalFanController{}
+
+	_, err := NewService(store, WithFacilityFanController(fans)).ForceRelease(t.Context(), ForceReleaseRequest{
+		OrgID:     orgID,
+		EventUUID: eventUUID,
+		Reason:    "retry failed terminal fan recovery",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	assert.Equal(t, 1, store.updateFanStateCalls)
+	assert.Equal(t, models.EventStateCancelled, store.lastUpdateFanStateParams.ExpectedEventState)
+	assert.Nil(t, store.lastUpdateFanStateParams.FanOnSentAt,
+		"the original first-attempt timestamp must remain unchanged")
+	assert.Nil(t, store.lastUpdateFanStateParams.LastError)
+	assert.Equal(t, 1, store.forceReleaseCalls)
+}
+
 func TestService_ForceRelease_DoesNotReassertRecoveredTerminalFanState(t *testing.T) {
 	t.Parallel()
 	eventUUID := uuid.New()

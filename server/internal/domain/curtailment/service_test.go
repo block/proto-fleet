@@ -590,6 +590,9 @@ func (f *fakeStore) CommandFanState(
 ) (*string, error) {
 	f.operatorFanCallOrder = append(f.operatorFanCallOrder, "nonterminal fan command")
 	lastError := command(ctx)
+	if lastError == nil && params.FanAirflowReopenedAtOnSuccess != nil {
+		params.FanAirflowReopenedAt = params.FanAirflowReopenedAtOnSuccess
+	}
 	params.LastError = lastError
 	return lastError, f.UpdateFanState(ctx, eventID, params)
 }
