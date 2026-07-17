@@ -61,7 +61,7 @@ func NewSQLDeviceStore(conn *sql.DB) *SQLDeviceStore {
 	}
 }
 
-func (s *SQLDeviceStore) getQueries(ctx context.Context) *sqlc.Queries {
+func (s *SQLDeviceStore) getQueries(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
 }
 

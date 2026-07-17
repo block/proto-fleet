@@ -26,14 +26,18 @@ const (
 // ConnectToDatabase establishes a connection to the database using the provided config.
 // Returns a sql.DB connection with configured connection pooling settings.
 func ConnectToDatabase(config *Config) (*sql.DB, error) {
+	if err := config.Validate(); err != nil {
+		return nil, err
+	}
 	conn, err := sql.Open("pgx", config.DSN())
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database connection: %w", err)
+		return nil, fmt.Errorf("failed to open database connection for %s: %w", config.ConnectionTarget(), err)
 	}
 
 	conn.SetMaxOpenConns(config.MaxOpenConns)
 	conn.SetMaxIdleConns(config.MaxIdleConns)
 	conn.SetConnMaxLifetime(config.ConnMaxLifetime)
+	RegisterIdleConnectionPoolReset(conn, config.MaxIdleConns)
 
 	return conn, nil
 }
@@ -102,7 +106,7 @@ func ConnectAndMigrate(config *Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to verify database connection: %w", err)
 	}
 
-	slog.Info("connected to database", "address", config.Address, "database", config.Name)
+	slog.Info("connected to database", "target", config.ConnectionTarget(), "database", config.Name)
 
 	err = runMigrations(connection, config)
 	if err != nil {

@@ -89,7 +89,7 @@ func Reconcile(ctx context.Context, conn *sql.DB) error {
 // reconciler handles that once per process via upsertCatalog. Callers
 // outside the boot reconciler are expected to run after the seed
 // migration (000053) has populated the catalog.
-func SeedOrgBuiltins(ctx context.Context, q *sqlc.Queries, orgID int64) (map[BuiltinKey]int64, error) {
+func SeedOrgBuiltins(ctx context.Context, q sqlc.Querier, orgID int64) (map[BuiltinKey]int64, error) {
 	return seedOrgBuiltins(ctx, q, orgID)
 }
 
@@ -105,7 +105,7 @@ func upsertCatalog(ctx context.Context, q *sqlc.Queries) error {
 	return nil
 }
 
-func seedOrgBuiltins(ctx context.Context, q *sqlc.Queries, orgID int64) (map[BuiltinKey]int64, error) {
+func seedOrgBuiltins(ctx context.Context, q sqlc.Querier, orgID int64) (map[BuiltinKey]int64, error) {
 	ids := make(map[BuiltinKey]int64, 3)
 	orgIDValue := sql.NullInt64{Int64: orgID, Valid: true}
 
@@ -155,7 +155,7 @@ func seedOrgBuiltins(ctx context.Context, q *sqlc.Queries, orgID int64) (map[Bui
 // spec's SeedPermissions list. Used on first creation of a per-org built-in
 // row — for additive-only built-ins this is the only path that touches
 // permissions; subsequent boots leave the row alone.
-func assignSeedPermissions(ctx context.Context, q *sqlc.Queries, roleID int64, spec BuiltinRoleSpec) error {
+func assignSeedPermissions(ctx context.Context, q sqlc.Querier, roleID int64, spec BuiltinRoleSpec) error {
 	perms, err := lookupSeedPermissions(ctx, q, spec)
 	if err != nil {
 		return err
@@ -175,7 +175,7 @@ func assignSeedPermissions(ctx context.Context, q *sqlc.Queries, roleID int64, s
 // SeedPermissions set: inserts missing keys, removes any extras. Used only
 // for SUPER_ADMIN, whose contract is "always everything in the current
 // catalog" — operator tampering is repaired and obsolete keys are pruned.
-func fullyReconcilePermissions(ctx context.Context, q *sqlc.Queries, roleID int64, spec BuiltinRoleSpec) error {
+func fullyReconcilePermissions(ctx context.Context, q sqlc.Querier, roleID int64, spec BuiltinRoleSpec) error {
 	if err := assignSeedPermissions(ctx, q, roleID, spec); err != nil {
 		return err
 	}
@@ -192,7 +192,7 @@ func fullyReconcilePermissions(ctx context.Context, q *sqlc.Queries, roleID int6
 // spec's SeedPermissions list, failing loudly if any seed key is missing
 // from the catalog table (which would indicate the in-code seed formula
 // references a permission that catalog.go does not declare).
-func lookupSeedPermissions(ctx context.Context, q *sqlc.Queries, spec BuiltinRoleSpec) ([]sqlc.Permission, error) {
+func lookupSeedPermissions(ctx context.Context, q sqlc.Querier, spec BuiltinRoleSpec) ([]sqlc.Permission, error) {
 	perms, err := q.GetPermissionsByKeys(ctx, spec.SeedPermissions)
 	if err != nil {
 		return nil, fmt.Errorf("lookup seed permissions: %w", err)

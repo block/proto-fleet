@@ -18,12 +18,12 @@ func NewSQLConnectionManager(conn *sql.DB) SQLConnectionManager {
 
 // GetQueries returns the tx-bound queries when ctx carries them
 // (set by SQLTransactor.RunInTx via db.WithTxQueries), otherwise a
-// fresh handle over the base connection.
-func (b *SQLConnectionManager) GetQueries(ctx context.Context) *sqlc.Queries {
+// fresh reset-aware handle over the base connection.
+func (b *SQLConnectionManager) GetQueries(ctx context.Context) sqlc.Querier {
 	if q := db.GetTxQueries(ctx); q != nil {
 		return q
 	}
-	return sqlc.New(b.conn)
+	return db.NewFailoverResettingQuerier(b.conn)
 }
 
 func (b *SQLConnectionManager) GetTxQueries(ctx context.Context) *sqlc.Queries {

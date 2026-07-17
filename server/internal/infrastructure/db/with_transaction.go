@@ -22,6 +22,7 @@ func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action fun
 	var lastErr error
 	attempts := 0
 	currentBackoff := config.InitialBackoff
+	resetPool := poolResetFor(db)
 
 	for attempt := 1; attempt <= config.MaxAttempts; attempt++ {
 		select {
@@ -37,6 +38,9 @@ func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action fun
 		}
 
 		lastErr = err
+		if resetPool != nil && IsFailoverPostgresError(err) {
+			resetPool()
+		}
 		if !IsRetryablePostgresError(err) || attempt == config.MaxAttempts {
 			break
 		}

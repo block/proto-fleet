@@ -21,7 +21,7 @@ func NewSQLFleetNodeAuthStore(conn *sql.DB) *SQLFleetNodeAuthStore {
 	return &SQLFleetNodeAuthStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
 }
 
-func (s *SQLFleetNodeAuthStore) q(ctx context.Context) *sqlc.Queries {
+func (s *SQLFleetNodeAuthStore) q(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
 }
 

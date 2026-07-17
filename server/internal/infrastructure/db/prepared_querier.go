@@ -20,7 +20,7 @@ func NewPreparedQuerier(ctx context.Context, conn *sql.DB) (*PreparedQuerier, er
 		return nil, err
 	}
 	return &PreparedQuerier{
-		Querier:  sqlc.NewRetryingQuerier(prepared, Retrier{}),
+		Querier:  sqlc.NewRetryingQuerier(prepared, NewRetrier(conn)),
 		prepared: prepared,
 	}, nil
 }
