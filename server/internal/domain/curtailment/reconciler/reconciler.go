@@ -276,11 +276,23 @@ func (r *Reconciler) runTick(ctx context.Context) {
 		return
 	}
 
-	for _, ev := range events {
+	for index, ev := range events {
 		if tickCtx.Err() != nil {
 			break
 		}
-		eventCtx, eventCancel := context.WithTimeout(tickCtx, 2*r.cfg.TickInterval)
+		deadline, ok := tickCtx.Deadline()
+		if !ok {
+			break
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		// Divide the remaining tick budget across the remaining events. An
+		// unreachable fan set or another slow boundary on an earlier event can
+		// consume its share, but cannot starve every later event in ID order.
+		remainingEvents := len(events) - index
+		eventCtx, eventCancel := context.WithTimeout(tickCtx, remaining/time.Duration(remainingEvents))
 		r.processEvent(eventCtx, ev)
 		eventCancel()
 	}

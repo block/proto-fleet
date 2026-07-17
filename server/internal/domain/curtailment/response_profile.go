@@ -241,6 +241,16 @@ func (s *ResponseProfileService) validateFacilityFanDevices(
 	deviceIDs []int64,
 	authorizedDevices map[int64]models.ResponseProfileInfrastructureDevice,
 ) ([]int64, map[int64]models.ResponseProfileInfrastructureDevice, error) {
+	if hasNonPositiveInt64(deviceIDs) {
+		return nil, nil, fleeterror.NewInvalidArgumentError("facility_fan_device_ids must be positive")
+	}
+	deviceIDs = uniquePositiveInt64s(deviceIDs)
+	if len(deviceIDs) > facilityFanDeviceCountMax {
+		return nil, nil, fleeterror.NewInvalidArgumentErrorf(
+			"facility_fan_device_ids must contain at most %d devices, got %d",
+			facilityFanDeviceCountMax, len(deviceIDs),
+		)
+	}
 	var devices map[int64]models.ResponseProfileInfrastructureDevice
 	var err error
 	if authorizedDevices == nil {
@@ -249,10 +259,6 @@ func (s *ResponseProfileService) validateFacilityFanDevices(
 			return nil, nil, err
 		}
 	} else {
-		if hasNonPositiveInt64(deviceIDs) {
-			return nil, nil, fleeterror.NewInvalidArgumentError("facility_fan_device_ids must be positive")
-		}
-		deviceIDs = uniquePositiveInt64s(deviceIDs)
 		if len(deviceIDs) != len(authorizedDevices) {
 			return nil, nil, fleeterror.NewFailedPreconditionError("authorized infrastructure devices do not match the response profile")
 		}

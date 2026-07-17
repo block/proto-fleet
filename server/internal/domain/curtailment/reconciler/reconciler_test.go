@@ -3079,7 +3079,7 @@ func TestReconciler_ListEventsErrorAdvancesHeartbeatAndIncrementsFailure(t *test
 	assert.Equal(t, 1, metrics.TickFailureCount())
 }
 
-func TestReconciler_RunTickStopsWhenTickBudgetExpires(t *testing.T) {
+func TestReconciler_RunTickSharesBudgetAcrossEvents(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 	firstUUID := uuid.New()
@@ -3095,13 +3095,13 @@ func TestReconciler_RunTickStopsWhenTickBudgetExpires(t *testing.T) {
 	}
 
 	r := newReconcilerForTest(store, disp)
-	r.cfg.TickInterval = 5 * time.Millisecond
+	r.cfg.TickInterval = 50 * time.Millisecond
 	r.runTick(context.Background())
 
 	assert.ErrorIs(t, store.listTargetsCtxErr[firstUUID], context.DeadlineExceeded)
-	_, processedSecond := store.listTargetsCtxErr[secondUUID]
-	assert.False(t, processedSecond,
-		"later events must wait for the next tick after the tick-scoped budget expires")
+	secondErr, processedSecond := store.listTargetsCtxErr[secondUUID]
+	assert.True(t, processedSecond, "a slow first event must not starve later events in the same tick")
+	assert.NoError(t, secondErr)
 }
 
 func TestReconciler_DispatchErrorMarksLastError(t *testing.T) {

@@ -156,6 +156,28 @@ func TestResponseProfileService_CreateRejectsFacilityFanDelaysAboveSafetyCeiling
 	}
 }
 
+func TestResponseProfileService_CreateRejectsFacilityFanListAboveTickSafetyCeiling(t *testing.T) {
+	t.Parallel()
+
+	deviceIDs := make([]int64, facilityFanDeviceCountMax+1)
+	for index := range deviceIDs {
+		deviceIDs[index] = int64(index + 1)
+	}
+	_, err := NewResponseProfileService(newResponseProfileFakeStore()).Create(t.Context(), SaveResponseProfileRequest{
+		Profile: models.ResponseProfile{
+			OrgID:                42,
+			ProfileName:          "Too many fan controllers",
+			Mode:                 models.ModeFullFleet,
+			FacilityFanDeviceIDs: deviceIDs,
+		},
+		CanUseAdminControls: true,
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "must contain at most 8 devices")
+}
+
 func TestResponseProfileService_CreateRejectsUnknownFacilityFan(t *testing.T) {
 	t.Parallel()
 
