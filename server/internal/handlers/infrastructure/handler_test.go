@@ -361,8 +361,9 @@ func TestHandler_UpdatePredicatesWriteOnAuthorizedSite(t *testing.T) {
 	ctx := sitePermsCtx(t, 42)
 
 	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
-		Return(deviceAtSite(7, 10), nil)
+		Return(deviceAtSite(7, 10), nil).Times(2)
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil)
+	h.store.EXPECT().LockInfrastructureDeviceForWrite(gomock.Any(), int64(42), int64(7), int64(10)).Return(nil)
 	h.store.EXPECT().UpdateInfrastructureDevice(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, params models.UpdateParams) (*models.Device, error) {
 			assert.Equal(t, int64(10), params.ExpectedSiteID)
@@ -403,8 +404,12 @@ func TestHandler_UpdateCarriesEnabledPresenceIntoParams(t *testing.T) {
 			ctx := sitePermsCtx(t, 42)
 
 			h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
-				Return(deviceAtSite(7, 10), nil)
+				Return(deviceAtSite(7, 10), nil).Times(2)
 			h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil)
+			h.store.EXPECT().LockInfrastructureDeviceForWrite(gomock.Any(), int64(42), int64(7), int64(10)).Return(nil)
+			if tc.requestEnabled != nil && !*tc.requestEnabled {
+				h.store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevice(gomock.Any(), int64(42), int64(7)).Return(int64(0), nil)
+			}
 			h.store.EXPECT().UpdateInfrastructureDevice(gomock.Any(), gomock.Any()).DoAndReturn(
 				func(_ context.Context, params models.UpdateParams) (*models.Device, error) {
 					assert.Equal(t, tc.expectedEnabled, params.Enabled)

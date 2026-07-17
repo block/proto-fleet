@@ -60,6 +60,7 @@ var _ interfaces.CurtailmentStore = &SQLCurtailmentStore{}
 var _ interfaces.ResponseProfileStore = &SQLCurtailmentStore{}
 var _ interfaces.AutomationStore = &SQLCurtailmentStore{}
 var _ interfaces.CurtailmentFanStateStore = &SQLCurtailmentStore{}
+var _ interfaces.CurtailmentTerminalFanRecoveryStore = &SQLCurtailmentStore{}
 
 type SQLCurtailmentStore struct {
 	SQLConnectionManager
@@ -1835,6 +1836,9 @@ func (s *SQLCurtailmentStore) UpdateEventState(ctx context.Context, eventID int6
 }
 
 func (s *SQLCurtailmentStore) UpdateFanState(ctx context.Context, eventID int64, params interfaces.UpdateCurtailmentFanStateParams) error {
+	if params.ExpectedEventState.IsTerminal() {
+		return fleeterror.NewInvalidArgumentError("terminal fan state must use serialized terminal recovery")
+	}
 	rows, err := s.GetQueries(ctx).UpdateCurtailmentEventFanState(ctx, sqlc.UpdateCurtailmentEventFanStateParams{
 		ID:            eventID,
 		ExpectedState: string(params.ExpectedEventState),
@@ -1849,6 +1853,62 @@ func (s *SQLCurtailmentStore) UpdateFanState(ctx context.Context, eventID int64,
 		return interfaces.ErrCurtailmentEventStateRaceLoss
 	}
 	return nil
+}
+
+func (s *SQLCurtailmentStore) RecoverTerminalFanState(
+	ctx context.Context,
+	eventID, orgID int64,
+	facilityFanDeviceIDs []int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) error {
+	if !params.ExpectedEventState.IsTerminal() {
+		return fleeterror.NewInvalidArgumentError("terminal fan recovery requires a terminal expected event state")
+	}
+	fanIDs := uniqueSortedInt64s(facilityFanDeviceIDs)
+	if len(fanIDs) == 0 || len(fanIDs) != len(facilityFanDeviceIDs) {
+		return fleeterror.NewInvalidArgumentError("terminal fan recovery requires positive unique facility fan IDs")
+	}
+	if command == nil {
+		return fleeterror.NewInvalidArgumentError("terminal fan recovery command is required")
+	}
+
+	_, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (struct{}, error) {
+		for _, fanID := range fanIDs {
+			if err := q.LockCurtailmentFanDeviceForWrite(ctx, strconv.FormatInt(fanID, 10)); err != nil {
+				return struct{}{}, fleeterror.NewInternalErrorf("failed to lock terminal facility fan recovery: %v", err)
+			}
+		}
+		claims, err := q.CountActiveCurtailmentFanClaims(ctx, sqlc.CountActiveCurtailmentFanClaimsParams{
+			OrgID:                orgID,
+			FacilityFanDeviceIds: fanIDs,
+		})
+		if err != nil {
+			return struct{}{}, fleeterror.NewInternalErrorf("failed to check newer facility fan claims: %v", err)
+		}
+		if claims > 0 {
+			return struct{}{}, fleeterror.NewFailedPreconditionError(
+				"facility fans are claimed by a newer active curtailment event; recover that event instead",
+			)
+		}
+
+		lastError := command(ctx)
+		rows, err := q.UpdateCurtailmentEventFanState(ctx, sqlc.UpdateCurtailmentEventFanStateParams{
+			ID:            eventID,
+			ExpectedState: string(params.ExpectedEventState),
+			FanOffSentAt:  ptrToNullTime(params.FanOffSentAt),
+			FanOnSentAt:   ptrToNullTime(params.FanOnSentAt),
+			FanLastError:  ptrToNullString(lastError),
+		})
+		if err != nil {
+			return struct{}{}, fleeterror.NewInternalErrorf("failed to update terminal curtailment event %d fan state: %v", eventID, err)
+		}
+		if rows == 0 {
+			return struct{}{}, interfaces.ErrCurtailmentEventStateRaceLoss
+		}
+		return struct{}{}, nil
+	})
+	return err
 }
 
 func (s *SQLCurtailmentStore) UpdateTargetState(ctx context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {

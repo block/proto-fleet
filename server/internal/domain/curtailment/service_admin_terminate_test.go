@@ -252,6 +252,51 @@ func TestService_ForceRelease_RetriesAndClearsTerminalFanFailure(t *testing.T) {
 	assert.Equal(t, 1, store.forceReleaseCalls)
 }
 
+func TestService_ForceRelease_DoesNotReassertRecoveredTerminalFanState(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	fanOffAt := time.Now().UTC().Add(-2 * time.Minute)
+	store := newFakeStore()
+	store.eventsByUUID[eventUUID] = &models.Event{
+		ID: 93, EventUUID: eventUUID, OrgID: 1, State: models.EventStateCompleted,
+		FacilityFanDeviceIDs: []int64{701}, FanOffSentAt: &fanOffAt,
+	}
+	store.forceReleaseResult = store.eventsByUUID[eventUUID]
+	fans := &fakeTerminalFanController{}
+
+	_, err := NewService(store, WithFacilityFanController(fans)).ForceRelease(t.Context(), ForceReleaseRequest{
+		OrgID: 1, EventUUID: eventUUID, Reason: "idempotent operator check",
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, fans.powers)
+	assert.Zero(t, store.updateFanStateCalls)
+	assert.Equal(t, 1, store.forceReleaseCalls)
+}
+
+func TestService_ForceRelease_DoesNotOverrideNewerTerminalFanClaim(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	fanOffAt := time.Now().UTC().Add(-2 * time.Minute)
+	lastError := "device 701: command failed"
+	store := newFakeStore()
+	store.eventsByUUID[eventUUID] = &models.Event{
+		ID: 94, EventUUID: eventUUID, OrgID: 1, State: models.EventStateCompletedWithFailures,
+		FacilityFanDeviceIDs: []int64{701}, FanOffSentAt: &fanOffAt, FanLastError: &lastError,
+	}
+	store.terminalFanRecoveryErr = fleeterror.NewFailedPreconditionError("facility fan has a newer owner")
+	fans := &fakeTerminalFanController{}
+
+	_, err := NewService(store, WithFacilityFanController(fans)).ForceRelease(t.Context(), ForceReleaseRequest{
+		OrgID: 1, EventUUID: eventUUID, Reason: "retry stale event",
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Empty(t, fans.powers)
+	assert.Zero(t, store.forceReleaseCalls)
+}
+
 func TestService_OperatorTerminalPathsStopWhenFanRecoveryStateCannotBeLoaded(t *testing.T) {
 	t.Parallel()
 

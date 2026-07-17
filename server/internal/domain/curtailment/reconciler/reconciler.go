@@ -813,18 +813,14 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 			if target.DesiredState != "" && target.DesiredState != models.DesiredStateCurtailed {
 				continue
 			}
-			switch target.State {
-			case models.TargetStateConfirmed:
-				confirmed++
-			case models.TargetStateUnavailable, models.TargetStateReleased,
-				models.TargetStateRestoreFailed, models.TargetStateResolved:
-				// Not hashing or terminal; does not hold the initial fan gate.
-			case models.TargetStatePending, models.TargetStateDispatching,
-				models.TargetStateDispatched, models.TargetStateDrifted:
-				return
-			default:
+			// Only a confirmed curtailment supplies positive evidence that a
+			// potentially powered miner is no longer hashing. Unavailable and
+			// other terminal bookkeeping states may represent a miner that never
+			// received a curtail command, so they must continue to hold this gate.
+			if target.State != models.TargetStateConfirmed {
 				return
 			}
+			confirmed++
 		}
 		// A targetless closed-loop watcher must not turn fans off before it
 		// admits and confirms at least one miner.

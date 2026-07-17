@@ -115,6 +115,7 @@ type fakeStore struct {
 	lastUpdateFanStateID     int64
 	lastUpdateFanStateParams interfaces.UpdateCurtailmentFanStateParams
 	updateFanStateErr        error
+	terminalFanRecoveryErr   error
 
 	// Idempotent replay fakes. eventsByIdempotencyKey / eventsByExternalRef
 	// drive Service.Start's pre-insert webhook-replay lookup; nil results
@@ -469,6 +470,20 @@ func (f *fakeStore) UpdateFanState(_ context.Context, eventID int64, params inte
 	f.lastUpdateFanStateID = eventID
 	f.lastUpdateFanStateParams = params
 	return f.updateFanStateErr
+}
+
+func (f *fakeStore) RecoverTerminalFanState(
+	ctx context.Context,
+	eventID, _ int64,
+	_ []int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) error {
+	if f.terminalFanRecoveryErr != nil {
+		return f.terminalFanRecoveryErr
+	}
+	params.LastError = command(ctx)
+	return f.UpdateFanState(ctx, eventID, params)
 }
 
 // filterNonTerminalReplayEvent mirrors the production SQL's

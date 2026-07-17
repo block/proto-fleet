@@ -103,11 +103,12 @@ type StartRequest struct {
 // Service orchestrates Preview / Start through the shared config / scope /
 // candidate / selector pipeline.
 type Service struct {
-	store    interfaces.CurtailmentStore
-	fanStore interfaces.CurtailmentFanStateStore
-	metrics  Metrics
-	audit    AuditLogger
-	fans     FacilityFanController
+	store                    interfaces.CurtailmentStore
+	fanStore                 interfaces.CurtailmentFanStateStore
+	terminalFanRecoveryStore interfaces.CurtailmentTerminalFanRecoveryStore
+	metrics                  Metrics
+	audit                    AuditLogger
+	fans                     FacilityFanController
 }
 
 // ServiceOption configures a Service at construction time.
@@ -145,6 +146,9 @@ func NewService(store interfaces.CurtailmentStore, opts ...ServiceOption) *Servi
 	}
 	if fanStore, ok := store.(interfaces.CurtailmentFanStateStore); ok {
 		s.fanStore = fanStore
+	}
+	if terminalFanRecoveryStore, ok := store.(interfaces.CurtailmentTerminalFanRecoveryStore); ok {
+		s.terminalFanRecoveryStore = terminalFanRecoveryStore
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -593,13 +597,8 @@ func (s *Service) restoreFansForOperatorRecovery(ctx context.Context, event *mod
 		return nil
 	}
 	now := time.Now().UTC()
-	lastError := s.fans.SetState(ctx, event, driver.PowerOn)
-	if s.fanStore == nil {
-		return fleeterror.NewInternalError("facility fan recovery state store is unavailable")
-	}
 	params := interfaces.UpdateCurtailmentFanStateParams{
 		ExpectedEventState: event.State,
-		LastError:          lastError,
 	}
 	// A prior reconciler attempt may already have stamped the first ON attempt.
 	// Preserve that sequencing timestamp while still making this final
@@ -607,6 +606,31 @@ func (s *Service) restoreFansForOperatorRecovery(ctx context.Context, event *mod
 	if event.FanOnSentAt == nil {
 		params.FanOnSentAt = &now
 	}
+	if event.State.IsTerminal() {
+		// A successful or never-failed terminal event has no outstanding
+		// recovery work. Avoid reasserting stale state after a later event has
+		// legitimately claimed the same fan.
+		if event.FanLastError == nil {
+			return nil
+		}
+		if s.terminalFanRecoveryStore == nil {
+			return fleeterror.NewInternalError("terminal facility fan recovery store is unavailable")
+		}
+		return s.terminalFanRecoveryStore.RecoverTerminalFanState(
+			ctx,
+			event.ID,
+			event.OrgID,
+			event.FacilityFanDeviceIDs,
+			params,
+			func(commandCtx context.Context) *string {
+				return s.fans.SetState(commandCtx, event, driver.PowerOn)
+			},
+		)
+	}
+	if s.fanStore == nil {
+		return fleeterror.NewInternalError("facility fan recovery state store is unavailable")
+	}
+	params.LastError = s.fans.SetState(ctx, event, driver.PowerOn)
 	if err := s.fanStore.UpdateFanState(ctx, event.ID, params); err != nil {
 		return fleeterror.NewInternalErrorf(
 			"failed to persist facility fan operator recovery for event %s: %v",

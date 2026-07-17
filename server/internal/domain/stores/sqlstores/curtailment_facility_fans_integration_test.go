@@ -1,6 +1,7 @@
 package sqlstores_test
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"sync"
@@ -35,7 +36,7 @@ func TestSQLCurtailmentStore_FacilityFanClaimSnapshotAndRelease(t *testing.T) {
 	first := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, firstUUID, models.EventStateActive, "facility-fan-first")
 	first.FacilityFanDeviceIDs = []int64{fanID}
 	first.ExpectedFacilityFanSites = map[int64]int64{fanID: siteID}
-	_, err := store.InsertEventWithTargets(ctx, first, []models.InsertTargetParams{
+	firstResult, err := store.InsertEventWithTargets(ctx, first, []models.InsertTargetParams{
 		curtailmentStoreTestTarget("facility-fan-miner-a", models.TargetStateConfirmed, models.DesiredStateCurtailed),
 	})
 	require.NoError(t, err)
@@ -60,6 +61,22 @@ func TestSQLCurtailmentStore_FacilityFanClaimSnapshotAndRelease(t *testing.T) {
 		curtailmentStoreTestTarget("facility-fan-miner-b", models.TargetStateConfirmed, models.DesiredStateCurtailed),
 	})
 	require.NoError(t, err)
+
+	commandCalled := false
+	err = store.RecoverTerminalFanState(
+		ctx,
+		firstResult.ID,
+		user.OrganizationID,
+		[]int64{fanID},
+		interfaces.UpdateCurtailmentFanStateParams{ExpectedEventState: models.EventStateCancelled},
+		func(context.Context) *string {
+			commandCalled = true
+			return nil
+		},
+	)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.False(t, commandCalled, "stale terminal recovery must not override the newer active fan claim")
 }
 
 func TestSQLCurtailmentStore_FacilityFanAuthorizationSnapshotRejectsSiteDrift(t *testing.T) {

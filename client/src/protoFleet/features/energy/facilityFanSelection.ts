@@ -1,4 +1,4 @@
-export const maxFacilityFanDeviceSelections = 1024;
+export const maxFacilityFanDeviceSelections = 8;
 
 export function selectAllFacilityFanDeviceIds(
   selectedDeviceIds: Iterable<string>,

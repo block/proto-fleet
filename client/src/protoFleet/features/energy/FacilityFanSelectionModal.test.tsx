@@ -22,13 +22,13 @@ describe("FacilityFanSelectionModal", () => {
   it("caps Select all at the response profile fan limit", () => {
     const selectedDeviceIds = selectAllFacilityFanDeviceIds(
       ["1"],
-      facilityFanDevices(1025).map(({ id }) => id),
+      facilityFanDevices(9).map(({ id }) => id),
     );
 
-    expect([...selectedDeviceIds]).toHaveLength(1024);
+    expect([...selectedDeviceIds]).toHaveLength(8);
     expect(selectedDeviceIds).toContain("1");
-    expect(selectedDeviceIds).toContain("1024");
-    expect(selectedDeviceIds).not.toContain("1025");
+    expect(selectedDeviceIds).toContain("8");
+    expect(selectedDeviceIds).not.toContain("9");
   });
 
   it("selects all available devices and applies them", () => {

@@ -1,6 +1,7 @@
 package timescaledb_test
 
 import (
+	"context"
 	"database/sql"
 	"strconv"
 	"testing"
@@ -32,12 +33,12 @@ func TestCurtailmentFanRestoreRulePersistsTerminalFailureUntilClear(t *testing.T
 			loop_type, scope_type, scope_jsonb, restore_batch_size,
 			restore_batch_interval_sec, source_actor_type, reason,
 			created_by_user_id, fan_restore_delay_sec, fan_on_sent_at,
-			fan_last_error
+			fan_last_error, facility_fan_device_ids
 		) VALUES (
 			$1, $2, 'completed_with_failures', 'FIXED_KW',
 			'LEAST_EFFICIENT_FIRST', 'FULL', 'NORMAL', 'open', 'whole_org',
 			'{}'::jsonb, 1, 0, 'user', 'fan alert integration test',
-			$3, 60, $4, 'device 501: command failed'
+			$3, 60, $4, 'device 501: command failed', ARRAY[501]::bigint[]
 		)
 		RETURNING id`, eventUUID, orgID, user.DatabaseID, time.Now().Add(-2*time.Minute)).Scan(&eventID)
 	require.NoError(t, err)
@@ -45,10 +46,14 @@ func TestCurtailmentFanRestoreRulePersistsTerminalFailureUntilClear(t *testing.T
 	ruleSQL := loadRuleSQL(t, "Curtailment Fan Restore Failed", "FROM curtailment_event")
 	require.Equal(t, map[string]float64{eventUUID.String(): 1}, runFanRestoreRule(t, db, ruleSQL, orgID))
 
-	err = sqlstores.NewSQLCurtailmentStore(db).UpdateFanState(t.Context(), eventID, interfaces.UpdateCurtailmentFanStateParams{
-		ExpectedEventState: models.EventStateCompletedWithFailures,
-		LastError:          nil,
-	})
+	err = sqlstores.NewSQLCurtailmentStore(db).RecoverTerminalFanState(
+		t.Context(),
+		eventID,
+		orgID,
+		[]int64{501},
+		interfaces.UpdateCurtailmentFanStateParams{ExpectedEventState: models.EventStateCompletedWithFailures},
+		func(context.Context) *string { return nil },
+	)
 	require.NoError(t, err)
 	require.Empty(t, runFanRestoreRule(t, db, ruleSQL, orgID))
 }

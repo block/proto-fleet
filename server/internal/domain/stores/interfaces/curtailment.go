@@ -181,6 +181,20 @@ type CurtailmentFanStateStore interface {
 	UpdateFanState(ctx context.Context, eventID int64, params UpdateCurtailmentFanStateParams) error
 }
 
+// CurtailmentTerminalFanRecoveryStore serializes an operator's terminal-event
+// fan recovery against new Start claims. The implementation holds the same
+// per-fan claim locks used by Start while it checks for newer owners, invokes
+// command, and persists the resulting error state.
+type CurtailmentTerminalFanRecoveryStore interface {
+	RecoverTerminalFanState(
+		ctx context.Context,
+		eventID, orgID int64,
+		facilityFanDeviceIDs []int64,
+		params UpdateCurtailmentFanStateParams,
+		command func(context.Context) *string,
+	) error
+}
+
 type ForceReleaseEventResult struct {
 	Event              *models.Event
 	SweptTargets       int64

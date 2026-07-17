@@ -80,6 +80,31 @@ func TestReconciler_ActiveFanOffDoesNotUseTargetlessClosedLoopWatcher(t *testing
 	assert.Nil(t, event.FanOffSentAt)
 }
 
+func TestReconciler_ActiveFanOffWaitsWhenUnavailableMinerMayStillBeHashing(t *testing.T) {
+	store := newFakeStore()
+	fans := &fakeFanController{}
+	r := newReconcilerWithFansForTest(store, &fakeDispatcher{}, fans)
+	startedAt := r.now().Add(-time.Minute)
+	event := &models.Event{
+		ID:                   85,
+		EventUUID:            uuid.New(),
+		OrgID:                1,
+		State:                models.EventStateActive,
+		StartedAt:            &startedAt,
+		FacilityFanDeviceIDs: []int64{31},
+	}
+	store.events = []*models.Event{event}
+	store.targetsByEventID[event.ID] = []*models.Target{
+		{CurtailmentEventID: event.ID, DeviceIdentifier: "confirmed", DesiredState: models.DesiredStateCurtailed, State: models.TargetStateConfirmed},
+		{CurtailmentEventID: event.ID, DeviceIdentifier: "unavailable", DesiredState: models.DesiredStateCurtailed, State: models.TargetStateUnavailable},
+	}
+
+	r.runTick(context.Background())
+
+	assert.Empty(t, fans.powers)
+	assert.Nil(t, event.FanOffSentAt)
+}
+
 func TestReconciler_RestoreTurnsFansOnBeforeMinerDelayAndReasserts(t *testing.T) {
 	store := newFakeStore()
 	dispatcher := &fakeDispatcher{}
