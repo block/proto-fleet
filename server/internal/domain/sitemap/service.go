@@ -1623,10 +1623,21 @@ func (s *Service) applyBuildingRows(
 	existingByKey map[string]buildingmodels.Building,
 	existingByID map[int64]buildingmodels.Building,
 ) error {
+	existingBySiteIDName := map[string]buildingmodels.Building{}
+	for _, building := range existingByID {
+		if building.SiteID != nil {
+			existingBySiteIDName[fmt.Sprintf("%d\x00%s", *building.SiteID, building.Name)] = building
+		}
+	}
 	for _, row := range rows {
 		building, ok := existingByIDRow(row, existingByID)
 		if !ok {
 			building, ok = existingByKey[row[fieldSite]+"\x00"+row[fieldName]]
+		}
+		if !ok {
+			if siteID, idOK := idFromCell(row[fieldSiteID]); idOK {
+				building, ok = existingBySiteIDName[fmt.Sprintf("%d\x00%s", siteID, row[fieldName])]
+			}
 		}
 		aisles, err := parseInt32Field(row, "aisles")
 		if err != nil {
@@ -2828,6 +2839,14 @@ func normalizeIDReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValida
 				errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("building_id %q does not match building %q", row[fieldBuildingID], row[fieldBuilding])))
 				continue
 			}
+			if siteID, ok := idFromCell(row[fieldSiteID]); ok && !nullableInt64Equal(&siteID, building.SiteID) {
+				errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("building_id %q does not match site_id %q", row[fieldBuildingID], row[fieldSiteID])))
+				continue
+			}
+			if row[fieldSite] != "" && row[fieldSite] != building.SiteLabel {
+				errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("building_id %q does not match site %q", row[fieldBuildingID], row[fieldSite])))
+				continue
+			}
 			row[fieldBuilding] = building.Name
 			if row[fieldSite] == "" {
 				row[fieldSite] = building.SiteLabel
@@ -2991,6 +3010,10 @@ func desiredRacksByID(rows []map[string]string, racks []rackSnapshot, sitesByID 
 	for _, rack := range racks {
 		out[rack.ID] = rack
 	}
+	sitesByName := map[string]sitemodels.Site{}
+	for _, site := range sitesByID {
+		sitesByName[site.Name] = site
+	}
 	for _, row := range rows {
 		id, ok := rowID(row)
 		if !ok {
@@ -3012,6 +3035,9 @@ func desiredRacksByID(rows []map[string]string, racks []rackSnapshot, sitesByID 
 			rack.SiteID = &site.ID
 			rack.Site = site.Name
 		} else if row[fieldSite] != "" {
+			if site, ok := sitesByName[row[fieldSite]]; ok {
+				rack.SiteID = &site.ID
+			}
 			rack.Site = row[fieldSite]
 		}
 		out[id] = rack
@@ -3235,6 +3261,12 @@ func desiredRackGridBuilding(row map[string]string, buildings map[string]buildin
 
 func validateRackGridCollisions(rackRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
 	presentRackIdentities := rackIdentitySet(rackRows, snap.racks)
+	buildingBySiteName := map[string]buildingmodels.Building{}
+	for _, building := range snap.buildings {
+		if building.SiteLabel != "" {
+			buildingBySiteName[building.SiteLabel+"\x00"+building.Name] = building
+		}
+	}
 	seen := map[string]string{}
 	var errs []*pb.ImportValidationError
 	for _, rack := range snap.racks {
@@ -3268,6 +3300,11 @@ func validateRackGridCollisions(rackRows []map[string]string, snap *snapshot, mo
 			continue
 		}
 		buildingID, _ := parseOptionalInt64(row[fieldBuildingID], fieldBuildingID)
+		if buildingID == nil {
+			if building, ok := buildingBySiteName[row[fieldSite]+"\x00"+row[fieldBuilding]]; ok {
+				buildingID = &building.ID
+			}
+		}
 		key := rackGridCollisionKey(buildingID, row[fieldSite], row[fieldBuilding], aisle, position)
 		if existingRack, ok := seen[key]; ok {
 			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack grid cell already occupied by rack %s", existingRack)))

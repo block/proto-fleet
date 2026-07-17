@@ -335,6 +335,59 @@ func TestBuildPlanRejectsRackIDWithContradictoryMinerParentIDs(t *testing.T) {
 	}
 }
 
+func TestNormalizeIDReferencesRefreshesRackSiteIDFromSiteName(t *testing.T) {
+	siteAID := int64(1)
+	siteBID := int64(2)
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE":     nil,
+		"BUILDING": nil,
+		"RACK": {
+			{"__row": "11", fieldID: "20", fieldLabel: "Rack A", fieldSite: "Site B"},
+		},
+		"MINER": {
+			{"__row": "15", "device_identifier": "miner-1", fieldSiteID: "2", fieldRackID: "20"},
+		},
+	}}
+	snap := &snapshot{
+		sites: []sitemodels.Site{
+			{ID: siteAID, Name: "Site A"},
+			{ID: siteBID, Name: "Site B"},
+		},
+		racks:  []rackSnapshot{{ID: 20, SiteID: &siteAID, Site: "Site A", Label: "Rack A"}},
+		miners: []minerSnapshot{{DeviceIdentifier: "miner-1"}},
+	}
+
+	errs := normalizeIDReferences(parsed, snap)
+	if len(errs) != 0 {
+		t.Fatalf("normalizeIDReferences errors = %+v, want rack site name to refresh desired site_id", errs)
+	}
+}
+
+func TestNormalizeIDReferencesRejectsRackBuildingIDSiteMismatch(t *testing.T) {
+	siteAID := int64(1)
+	siteBID := int64(2)
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE":     nil,
+		"BUILDING": nil,
+		"RACK": {
+			{"__row": "11", fieldLabel: "Rack A", fieldBuildingID: "10", fieldBuilding: "Building A", fieldSiteID: "2", fieldSite: "Site B"},
+		},
+		"MINER": nil,
+	}}
+	snap := &snapshot{
+		sites: []sitemodels.Site{
+			{ID: siteAID, Name: "Site A"},
+			{ID: siteBID, Name: "Site B"},
+		},
+		buildings: []buildingmodels.Building{{ID: 10, SiteID: &siteAID, SiteLabel: "Site A", Name: "Building A"}},
+	}
+
+	errs := normalizeIDReferences(parsed, snap)
+	if !hasValidationError(errs, "RACK", `building_id "10" does not match site_id "2"`) {
+		t.Fatalf("normalizeIDReferences errors = %+v, want building_id/site_id mismatch", errs)
+	}
+}
+
 func TestBuildPlanRejectsIDRenamesCollidingWithRetainedOmittedTopology(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE": {
@@ -1439,6 +1492,49 @@ func TestApplyBuildingRowsLocksParentSiteBeforeCreate(t *testing.T) {
 	}
 }
 
+func TestApplyBuildingRowsMatchesBlankIDBySiteIDAfterSiteRename(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	orgID := int64(42)
+	siteID := int64(99)
+	buildingID := int64(10)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	svc := NewService(siteStore, buildingStore, nil, nil, nil, nil, nil)
+	building := buildingmodels.Building{ID: buildingID, Name: "Building A", SiteID: &siteID, SiteLabel: "Old Site", Aisles: 2, RacksPerAisle: 3}
+	rows := []map[string]string{{
+		fieldName:         "Building A",
+		fieldSiteID:       "99",
+		fieldSite:         "New Site",
+		"aisles":          "2",
+		"racks_per_aisle": "3",
+	}}
+
+	gomock.InOrder(
+		siteStore.EXPECT().LockBuildingForWrite(ctx, orgID, buildingID).Return(nil),
+		buildingStore.EXPECT().GetBuilding(ctx, orgID, buildingID).Return(&building, nil),
+		buildingStore.EXPECT().CountRacksInBuilding(ctx, orgID, buildingID).Return(int64(0), nil),
+		buildingStore.EXPECT().UpdateBuilding(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, params buildingmodels.UpdateParams) (*buildingmodels.Building, error) {
+			if params.ID != buildingID {
+				t.Fatalf("building id = %d, want %d", params.ID, buildingID)
+			}
+			return &buildingmodels.Building{ID: params.ID, Name: params.Name, SiteID: &siteID, SiteLabel: "New Site", Aisles: params.Aisles, RacksPerAisle: params.RacksPerAisle}, nil
+		}),
+	)
+
+	if err := svc.applyBuildingRows(
+		ctx,
+		orgID,
+		rows,
+		map[string]sitemodels.Site{"New Site": {ID: siteID, Name: "New Site"}},
+		map[int64]sitemodels.Site{siteID: {ID: siteID, Name: "New Site"}},
+		map[string]buildingmodels.Building{"Old Site\x00Building A": building},
+		map[int64]buildingmodels.Building{buildingID: building},
+	); err != nil {
+		t.Fatalf("applyBuildingRows error = %v", err)
+	}
+}
+
 func TestApplyBuildingRowsMovesBeforeRename(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
@@ -2260,6 +2356,29 @@ func TestValidateRackGridCollisionsCountsRetainedOmittedRacks(t *testing.T) {
 	errs := validateRackGridCollisions(rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
 	if len(errs) != 1 || errs[0].GetMessage() != "rack grid cell already occupied by rack Rack A" {
 		t.Fatalf("errors = %+v, want retained rack duplicate grid cell", errs)
+	}
+}
+
+func TestValidateRackGridCollisionsResolvesNameOnlyBuildingID(t *testing.T) {
+	buildingID := int64(10)
+	rackRows := []map[string]string{
+		{"__row": "10", fieldSite: "Site A", fieldBuilding: "Building A", fieldLabel: "Rack B", "aisle_index": "0", "position_in_aisle": "0"},
+	}
+	snap := &snapshot{
+		buildings: []buildingmodels.Building{{ID: buildingID, SiteLabel: "Site A", Name: "Building A"}},
+		racks: []rackSnapshot{{
+			BuildingID:      &buildingID,
+			Site:            "Site A",
+			Building:        "Building A",
+			Label:           "Rack A",
+			AisleIndex:      "0",
+			PositionInAisle: "0",
+		}},
+	}
+
+	errs := validateRackGridCollisions(rackRows, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	if len(errs) != 1 || errs[0].GetMessage() != "rack grid cell already occupied by rack Rack A" {
+		t.Fatalf("errors = %+v, want name-only building row to collide with building_id occupant", errs)
 	}
 }
 
