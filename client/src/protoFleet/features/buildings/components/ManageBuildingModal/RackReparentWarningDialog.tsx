@@ -38,7 +38,7 @@ export default function RackReparentWarningDialog({
       title={single ? "Move this rack?" : `Move ${racks.length} racks?`}
       subtitle={
         single
-          ? `Rack "${racks[0].label || "(unnamed rack)"}" is currently in another building or site. Moving it to "${buildingName}" will take the rack and its ${minerPhrase} out of their current placement.`
+          ? `Rack "${racks[0].label || "(unnamed rack)"}" is currently in another building or site. Moving it to "${buildingName}" will take the rack and its ${minerPhrase} out of its current placement.`
           : `${racks.length} of these racks are currently in another building or site. Moving them to "${buildingName}" will take those racks and their ${minerPhrase} out of their current placement.`
       }
       onDismiss={onCancel}

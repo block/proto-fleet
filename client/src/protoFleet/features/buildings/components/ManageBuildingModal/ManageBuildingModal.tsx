@@ -12,7 +12,7 @@ import { type BuildingAssignmentMode, type GridCellKey, parseCellKey } from "./t
 import { type RackPlacementInput, useBuildings } from "@/protoFleet/api/buildings";
 import { type Building, type BuildingRack } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
-import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { DismissCircle } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
@@ -65,9 +65,11 @@ const ManageBuildingModal = ({
   // racks" toggle. Only the header all-sites case broadens the fetch (to a
   // global list, surfacing cross-site racks); a scoped header is guaranteed by
   // scope-sync (#764) to equal the building's own site, so it reuses rackScope.
-  // Reading the header here (not in the pickers) keeps the header dependency in
-  // one place — the pickers stay route-independent, per the Part A design note.
-  const { activeSite } = useActiveSite({});
+  // Reading the persisted active-site directly from the store (not useActiveSite)
+  // keeps the header dependency in one place AND avoids coupling the modal to a
+  // React Router context — it stays renderable in isolated hosts/tests, matching
+  // the Part A goal of route-independent pickers.
+  const activeSite = useFleetStore((state) => state.ui.activeSite);
   const assignedScope = useMemo(
     () => assignedRackScope(building.siteId ?? 0n, activeSite.kind === "all"),
     [building.siteId, activeSite.kind],

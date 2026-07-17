@@ -150,6 +150,22 @@ const SearchRacksModal = ({
   // is disabled.
   const isRowDisabled = useCallback((item: RackPickerItem) => item.disabled && !showAssigned, [showAssigned]);
 
+  // Turning the toggle OFF clears the selection and any open conflict dialog: a
+  // reparent row selected while the toggle was on would otherwise stay selected
+  // but hidden, leaving Assign enabled yet a silent no-op (handleConfirm blocks
+  // a hidden ineligible pick). Clearing keeps the UI honest.
+  const handleToggleShowAssigned = useCallback(
+    (value: boolean | ((prev: boolean) => boolean)) => {
+      const next = typeof value === "function" ? value(showAssigned) : value;
+      setShowAssigned(next);
+      if (!next) {
+        setSelectedItems([]);
+        setConflictInfoItem(null);
+      }
+    },
+    [showAssigned],
+  );
+
   // Client-side filter on the rack label. Case-insensitive substring match —
   // matches the SearchMinersModal feel without bringing in a fuzzy lib. Toggle
   // off also hides the ineligible (reparent) rows entirely.
@@ -259,7 +275,7 @@ const SearchRacksModal = ({
                     label="Show assigned racks"
                     ariaLabel="Show assigned racks"
                     checked={showAssigned}
-                    setChecked={setShowAssigned}
+                    setChecked={handleToggleShowAssigned}
                   />
                 </div>
               }

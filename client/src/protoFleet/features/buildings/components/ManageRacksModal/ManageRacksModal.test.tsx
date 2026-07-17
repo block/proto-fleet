@@ -4,6 +4,7 @@ import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 
 import ManageRacksModal from "./ManageRacksModal";
+import { type RackSelectionDelta } from "./rackSelectionDelta";
 import { DeviceSetSchema, RackInfoSchema } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { type SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 
@@ -38,7 +39,11 @@ const createRack = (id: bigint, label: string, buildingId: bigint, siteId?: bigi
 const SCOPE: SiteFilterFields = { siteIds: [42n], includeUnassigned: true };
 const ALL_SITES_ASSIGNED_SCOPE: SiteFilterFields = { siteIds: [], includeUnassigned: false };
 
-const renderModal = (overrides?: { scope?: SiteFilterFields; assignedScope?: SiteFilterFields }) =>
+const renderModal = (overrides?: {
+  scope?: SiteFilterFields;
+  assignedScope?: SiteFilterFields;
+  onConfirm?: (delta: RackSelectionDelta) => void;
+}) =>
   render(
     <ManageRacksModal
       open
@@ -49,7 +54,7 @@ const renderModal = (overrides?: { scope?: SiteFilterFields; assignedScope?: Sit
       buildingName="North"
       initialSelectedRackIds={[]}
       onDismiss={vi.fn()}
-      onConfirm={vi.fn()}
+      onConfirm={overrides?.onConfirm ?? vi.fn()}
     />,
   );
 
@@ -115,5 +120,60 @@ describe("ManageRacksModal show-assigned toggle", () => {
     await waitFor(() =>
       expect(mockListRacks).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [], includeUnassigned: false })),
     );
+  });
+
+  // Rows sort alphabetically, so body checkbox 0 = Alpha (eligible), 1 = Beta
+  // (reparent candidate).
+  const rowCheckbox = (index: number) =>
+    screen.getByTestId("list-body").querySelectorAll<HTMLInputElement>("input[type='checkbox']")[index];
+
+  it("header select-all does not bulk-select reparent candidates (security guard)", async () => {
+    const onConfirm = vi.fn();
+    renderModal({ onConfirm });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
+
+    // The table header "select all" would otherwise batch in the reparent row.
+    const selectAll = screen.getByTestId("select-all-checkbox").querySelector("input")!;
+    await userEvent.click(selectAll);
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+
+    const delta = onConfirm.mock.calls[0][0];
+    expect(delta.reassigned).toEqual([]); // no accidental reparent
+    expect(delta.added.map((a: { rackId: bigint }) => a.rackId)).toContain(1n); // eligible still selected
+    expect(delta.added.map((a: { rackId: bigint }) => a.rackId)).not.toContain(2n);
+  });
+
+  it("selecting a reparent row then toggling off drops it from the delta", async () => {
+    const onConfirm = vi.fn();
+    renderModal({ onConfirm });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
+
+    // Explicit per-row pick of the reparent candidate is allowed...
+    await userEvent.click(rowCheckbox(1));
+    // ...but toggling off hides it and must not leave it silently selected.
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+
+    const delta = onConfirm.mock.calls[0][0];
+    expect(delta.reassigned).toEqual([]);
+    expect(delta.added.map((a: { rackId: bigint }) => a.rackId)).not.toContain(2n);
+  });
+
+  it("allows an explicit single per-row reparent pick through the delta", async () => {
+    const onConfirm = vi.fn();
+    renderModal({ onConfirm });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
+
+    await userEvent.click(rowCheckbox(1));
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+
+    const delta = onConfirm.mock.calls[0][0];
+    expect(delta.reassigned).toEqual([{ rackId: 2n, label: "Beta", minerCount: 5 }]);
   });
 });

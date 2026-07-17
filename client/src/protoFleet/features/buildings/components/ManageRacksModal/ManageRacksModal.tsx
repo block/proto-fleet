@@ -178,13 +178,48 @@ const ManageRacksModal = ({
   // the reparent confirm at commit); nothing else is ever disabled.
   const isRowDisabled = useCallback((item: RackPickerItem) => item.disabled && !showAssigned, [showAssigned]);
 
+  const reassignmentIdSet = useMemo(
+    () => new Set((items ?? []).filter((r) => r.reassignment).map((r) => r.id)),
+    [items],
+  );
+
   // Flip the toggle and reset to the first page in one go — the visible set
-  // changes shape, so an out-of-range page would otherwise show empty. Matches
-  // Switch's setChecked signature (accepts a value or updater).
-  const handleToggleShowAssigned = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
-    setShowAssigned(value);
-    setPage(0);
-  }, []);
+  // changes shape, so an out-of-range page would otherwise show empty. Turning
+  // the toggle OFF also drops any already-selected reassignment racks (they are
+  // now hidden, so leaving them selected would silently reparent them on
+  // Continue) and closes any open conflict dialog. Matches Switch's setChecked
+  // signature (accepts a value or updater).
+  const handleToggleShowAssigned = useCallback(
+    (value: boolean | ((prev: boolean) => boolean)) => {
+      const next = typeof value === "function" ? value(showAssigned) : value;
+      setShowAssigned(next);
+      setPage(0);
+      if (!next) {
+        setSelectedItems((sel) => sel.filter((id) => !reassignmentIdSet.has(id)));
+        setConflictInfoItem(null);
+      }
+    },
+    [showAssigned, reassignmentIdSet],
+  );
+
+  // Selection guard: a reassignment rack may only be added by an explicit
+  // single-row pick, never batched in via the List header "select all" (which
+  // would reparent many racks — and every miner in them — in one gesture). Any
+  // multi-row addition keeps its eligible ids and drops reassignment ones; the
+  // eligible-only footer "Select all" is unaffected (it sets state directly).
+  const handleSetSelectedItems = useCallback(
+    (next: string[]) => {
+      setSelectedItems((prev) => {
+        const prevSet = new Set(prev);
+        const added = next.filter((id) => !prevSet.has(id));
+        if (added.length > 1) {
+          return next.filter((id) => prevSet.has(id) || !reassignmentIdSet.has(id));
+        }
+        return next;
+      });
+    },
+    [reassignmentIdSet],
+  );
 
   // Name column renders a warning icon on reassignment rows while the toggle is
   // on; tapping it opens the per-row conflict dialog. Other columns unchanged.
@@ -300,7 +335,7 @@ const ManageRacksModal = ({
                 itemSelectable
                 selectionType="checkbox"
                 customSelectedItems={selectedItems}
-                customSetSelectedItems={setSelectedItems}
+                customSetSelectedItems={handleSetSelectedItems}
                 preserveOffPageSelection
                 isRowDisabled={isRowDisabled}
                 itemName={{ singular: "rack", plural: "racks" }}

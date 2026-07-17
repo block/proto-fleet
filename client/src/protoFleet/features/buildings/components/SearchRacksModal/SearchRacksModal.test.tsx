@@ -131,4 +131,19 @@ describe("SearchRacksModal show-assigned toggle + reparent reporting", () => {
 
     expect(onConfirm).toHaveBeenCalledWith(1n, "Alpha", undefined);
   });
+
+  it("clears the selection when the toggle is turned off (no stale hidden pick)", async () => {
+    renderModal();
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
+    await userEvent.click(rowCheckbox(1));
+    // Assign is enabled with a selection...
+    expect(screen.getByTestId("search-racks-modal-confirm")).toBeEnabled();
+
+    // ...toggling off clears it, so Assign can't become a silent no-op.
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    expect(screen.getByTestId("search-racks-modal-confirm")).toBeDisabled();
+  });
 });
