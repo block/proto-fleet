@@ -2506,6 +2506,10 @@ func validateRemoveOmittedReferences(parsed *parsedCSV, mode pb.OmissionMode) []
 		if row[fieldSite] != "" && !presentSites[row[fieldSite]] {
 			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack site %q is omitted; add the SITE row or choose leave omitted rows in place", row[fieldSite])))
 		}
+		if id, ok := idFromCell(row[fieldBuildingID]); ok && !presentBuildingIDs[id] {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack building_id %q is omitted; add the BUILDING row or choose leave omitted rows in place", row[fieldBuildingID])))
+			continue
+		}
 		if row[fieldBuilding] == "" {
 			continue
 		}
@@ -2533,8 +2537,11 @@ func validateRemoveOmittedReferences(parsed *parsedCSV, mode pb.OmissionMode) []
 			}
 			continue
 		}
-		if row[fieldBuilding] != "" {
-			if id, ok := idFromCell(row[fieldBuildingID]); ok && presentBuildingIDs[id] {
+		if row[fieldBuildingID] != "" || row[fieldBuilding] != "" {
+			if id, ok := idFromCell(row[fieldBuildingID]); ok {
+				if !presentBuildingIDs[id] {
+					errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner building_id %q is omitted; add the BUILDING row or choose leave omitted rows in place", row[fieldBuildingID])))
+				}
 				continue
 			}
 			if row[fieldSite] != "" {
@@ -3167,6 +3174,7 @@ func validateRackSlotBounds(minerRows, rackRows []map[string]string, snap *snaps
 
 func validateExistingSlotsFitRackDimensions(minerRows, rackRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
 	racks := desiredRackMap(rackRows, snap.racks)
+	desiredRackLabels := desiredRackLabelsByID(rackRows)
 	desiredMiners := map[string]map[string]string{}
 	for _, row := range minerRows {
 		desiredMiners[row["device_identifier"]] = row
@@ -3177,7 +3185,7 @@ func validateExistingSlotsFitRackDimensions(minerRows, rackRows []map[string]str
 		if !ok && mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
 			continue
 		}
-		rackLabel := miner.Rack
+		rackLabel := desiredRackLabel(miner, desiredRackLabels)
 		rackRow := miner.RackRow
 		rackCol := miner.RackCol
 		if ok {
@@ -3205,10 +3213,11 @@ func validateExistingSlotsFitRackDimensions(minerRows, rackRows []map[string]str
 		}
 	}
 	for _, miner := range snap.hiddenRackMembers {
-		if miner.Rack == "" || miner.RackRow == "" || miner.RackCol == "" {
+		rackLabel := desiredRackLabel(miner, desiredRackLabels)
+		if rackLabel == "" || miner.RackRow == "" || miner.RackCol == "" {
 			continue
 		}
-		rack, ok := racks[miner.Rack]
+		rack, ok := racks[rackLabel]
 		if !ok {
 			continue
 		}
@@ -3221,7 +3230,7 @@ func validateExistingSlotsFitRackDimensions(minerRows, rackRows []map[string]str
 			continue
 		}
 		if rowValue >= rack.Rows || colValue >= rack.Columns {
-			errs = append(errs, csvErr(0, "MINER", fmt.Sprintf("miner %s slot %d,%d does not fit rack %q dimensions %dx%d", miner.DeviceIdentifier, rowValue, colValue, miner.Rack, rack.Rows, rack.Columns)))
+			errs = append(errs, csvErr(0, "MINER", fmt.Sprintf("miner %s slot %d,%d does not fit rack %q dimensions %dx%d", miner.DeviceIdentifier, rowValue, colValue, rackLabel, rack.Rows, rack.Columns)))
 		}
 	}
 	return errs
@@ -3229,6 +3238,7 @@ func validateExistingSlotsFitRackDimensions(minerRows, rackRows []map[string]str
 
 func validateRackCapacity(minerRows, rackRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
 	racks := desiredRackMap(rackRows, snap.racks)
+	desiredRackLabels := desiredRackLabelsByID(rackRows)
 	counts := map[string]int32{}
 	presentMiners := rowSet(minerRows, "device_identifier")
 	for _, row := range minerRows {
@@ -3239,13 +3249,13 @@ func validateRackCapacity(minerRows, rackRows []map[string]string, snap *snapsho
 	if mode != pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
 		for _, miner := range snap.miners {
 			if miner.Rack != "" && !presentMiners[miner.DeviceIdentifier] {
-				counts[miner.Rack]++
+				counts[desiredRackLabel(miner, desiredRackLabels)]++
 			}
 		}
 	}
 	for _, miner := range snap.hiddenRackMembers {
 		if miner.Rack != "" && !presentMiners[miner.DeviceIdentifier] {
-			counts[miner.Rack]++
+			counts[desiredRackLabel(miner, desiredRackLabels)]++
 		}
 	}
 	var errs []*pb.ImportValidationError
@@ -3361,21 +3371,36 @@ func buildingCapacityKey(building buildingmodels.Building) string {
 
 func validateBuildingExistingRacksFitLayout(rackRows, buildingRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
 	buildings := desiredBuildingMap(buildingRows, snap.buildings)
+	buildingsByID := desiredBuildingLayoutIDMap(buildingRows, snap.buildings)
 	desiredRacks := desiredRackMap(rackRows, snap.racks)
+	desiredRacksByID := map[int64]rackSnapshot{}
+	for _, rack := range desiredRacks {
+		if rack.ID > 0 {
+			desiredRacksByID[rack.ID] = rack
+		}
+	}
 	presentRacks := rowSet(rackRows, "rack")
 	var errs []*pb.ImportValidationError
 	for _, rack := range snap.racks {
 		if !presentRacks[rack.Label] && mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
 			continue
 		}
-		desiredRack, ok := desiredRacks[rack.Label]
+		desiredRack, ok := desiredRacksByID[rack.ID]
+		if !ok {
+			desiredRack, ok = desiredRacks[rack.Label]
+		}
 		if !ok {
 			desiredRack = rack
 		}
 		if desiredRack.Building == "" || desiredRack.AisleIndex == "" || desiredRack.PositionInAisle == "" {
 			continue
 		}
-		building, ok := buildings[desiredRack.Site+"\x00"+desiredRack.Building]
+		var building buildingmodels.Building
+		if desiredRack.BuildingID != nil {
+			building, ok = buildingsByID[*desiredRack.BuildingID]
+		} else {
+			building, ok = buildings[desiredRack.Site+"\x00"+desiredRack.Building]
+		}
 		if !ok {
 			continue
 		}

@@ -522,6 +522,47 @@ func TestBuildPlanRemoveOmittedAllowsIDQualifiedDuplicateUnassignedBuildingRefer
 	}
 }
 
+func TestBuildPlanRemoveOmittedRejectsOmittedBuildingIDReferences(t *testing.T) {
+	omittedBuildingID := int64(10)
+	retainedBuildingID := int64(11)
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": nil,
+		"BUILDING": {
+			{"__row": "6", fieldID: "11", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "2"},
+		},
+		"RACK": {
+			{"__row": "9", fieldID: "20", fieldLabel: "Rack A", fieldBuildingID: "10", fieldBuilding: "Building A", "rows": "4", "columns": "6"},
+		},
+		"MINER": {
+			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldBuildingID: "10", fieldBuilding: "Building A"},
+		},
+	}}
+	snap := &snapshot{
+		buildings: []buildingmodels.Building{
+			{ID: omittedBuildingID, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
+			{ID: retainedBuildingID, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
+		},
+		racks: []rackSnapshot{{ID: 20, Label: "Rack A", BuildingID: &omittedBuildingID, Building: "Building A", Rows: 4, Columns: 6}},
+		miners: []minerSnapshot{{
+			DeviceIdentifier: "miner-1",
+			SerialNumber:     "SN1",
+			Name:             "Miner 1",
+			IPAddress:        "10.0.0.5",
+			MACAddress:       "aa:bb:cc:dd:ee:ff",
+			BuildingID:       &omittedBuildingID,
+			Building:         "Building A",
+		}},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	if !hasValidationError(plan.errors, "RACK", `rack building_id "10" is omitted`) {
+		t.Fatalf("plan errors = %+v, want rack omitted building_id error", plan.errors)
+	}
+	if !hasValidationError(plan.errors, "MINER", `miner building_id "10" is omitted`) {
+		t.Fatalf("plan errors = %+v, want miner omitted building_id error", plan.errors)
+	}
+}
+
 func TestBuildPlanRejectsOldRackReferenceAfterIDRename(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE":     nil,
@@ -1735,6 +1776,18 @@ func TestValidateRackCapacityCountsHiddenRackMembers(t *testing.T) {
 	}
 }
 
+func TestValidateRackCapacityMapsHiddenMembersThroughRackRename(t *testing.T) {
+	rackID := int64(20)
+	minerRows := []map[string]string{{"device_identifier": "miner-1", "rack": "New Rack"}}
+	rackRows := []map[string]string{{fieldID: "20", fieldLabel: "New Rack", "rows": "1", "columns": "1"}}
+	snap := &snapshot{hiddenRackMembers: []minerSnapshot{{DeviceIdentifier: "hidden-1", RackID: &rackID, Rack: "Old Rack"}}}
+
+	errs := validateRackCapacity(minerRows, rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if len(errs) != 1 || errs[0].GetSection() != "MINER" || !strings.Contains(errs[0].GetMessage(), `rack "New Rack"`) {
+		t.Fatalf("errors = %+v, want renamed-rack capacity error", errs)
+	}
+}
+
 func TestValidateRackSlotBoundsRejectsPartialCoordinates(t *testing.T) {
 	minerRows := []map[string]string{{"__row": "21", "device_identifier": "miner-1", "rack": "Rack A", "rack_row": "", "rack_col": "3"}}
 	rackRows := []map[string]string{{"rack": "Rack A", "rows": "4", "columns": "6"}}
@@ -1884,6 +1937,34 @@ func TestValidateExistingSlotsFitRackDimensionsCountsHiddenRackMembers(t *testin
 	}
 }
 
+func TestValidateExistingSlotsFitRackDimensionsMapsRetainedMembersThroughRackRename(t *testing.T) {
+	rackID := int64(20)
+	rackRows := []map[string]string{{fieldID: "20", fieldLabel: "New Rack", "rows": "1", "columns": "1"}}
+	snap := &snapshot{
+		racks:  []rackSnapshot{{ID: 20, Label: "Old Rack", Rows: 4, Columns: 6}},
+		miners: []minerSnapshot{{DeviceIdentifier: "miner-1", RackID: &rackID, Rack: "Old Rack", RackRow: "1", RackCol: "0"}},
+	}
+
+	errs := validateExistingSlotsFitRackDimensions(nil, rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if len(errs) != 1 || errs[0].GetSection() != "MINER" || !strings.Contains(errs[0].GetMessage(), `rack "New Rack"`) {
+		t.Fatalf("errors = %+v, want renamed-rack slot fit error", errs)
+	}
+}
+
+func TestValidateExistingSlotsFitRackDimensionsMapsHiddenMembersThroughRackRename(t *testing.T) {
+	rackID := int64(20)
+	rackRows := []map[string]string{{fieldID: "20", fieldLabel: "New Rack", "rows": "1", "columns": "1"}}
+	snap := &snapshot{
+		racks:             []rackSnapshot{{ID: 20, Label: "Old Rack", Rows: 4, Columns: 6}},
+		hiddenRackMembers: []minerSnapshot{{DeviceIdentifier: "hidden-1", RackID: &rackID, Rack: "Old Rack", RackRow: "1", RackCol: "0"}},
+	}
+
+	errs := validateExistingSlotsFitRackDimensions(nil, rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if len(errs) != 1 || errs[0].GetSection() != "MINER" || !strings.Contains(errs[0].GetMessage(), `rack "New Rack"`) {
+		t.Fatalf("errors = %+v, want hidden renamed-rack slot fit error", errs)
+	}
+}
+
 func TestValidateBuildingRackCapacityBlocksOverfilledBuilding(t *testing.T) {
 	rackRows := []map[string]string{
 		{"site": "Site A", "building": "Building A", "rack": "Rack A"},
@@ -1951,6 +2032,33 @@ func TestValidateBuildingExistingRacksFitLayoutCountsSiteLessBuildings(t *testin
 	errs := validateBuildingExistingRacksFitLayout(nil, buildingRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
 	if len(errs) != 1 || !strings.Contains(errs[0].GetMessage(), "does not fit building") {
 		t.Fatalf("errors = %+v, want site-less building layout fit error", errs)
+	}
+}
+
+func TestValidateBuildingExistingRacksFitLayoutUsesBuildingIDForDuplicateBuildings(t *testing.T) {
+	buildingAID := int64(10)
+	buildingRows := []map[string]string{
+		{fieldID: "10", fieldName: "Building A", "aisles": "2", "racks_per_aisle": "1"},
+		{fieldID: "11", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "1"},
+	}
+	snap := &snapshot{
+		buildings: []buildingmodels.Building{
+			{ID: 10, Name: "Building A", Aisles: 2, RacksPerAisle: 1},
+			{ID: 11, Name: "Building A", Aisles: 1, RacksPerAisle: 1},
+		},
+		racks: []rackSnapshot{{
+			ID:              20,
+			BuildingID:      &buildingAID,
+			Building:        "Building A",
+			Label:           "Rack A",
+			AisleIndex:      "1",
+			PositionInAisle: "0",
+		}},
+	}
+
+	errs := validateBuildingExistingRacksFitLayout(nil, buildingRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if len(errs) != 0 {
+		t.Fatalf("errors = %+v, want building_id-specific layout accepted", errs)
 	}
 }
 
