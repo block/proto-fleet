@@ -370,7 +370,11 @@ jobs:
         run: |
           # Pin the merge CLI to the lockfile's @playwright/test version so it can
           # read the shards' blob format without a full `npm ci` on the critical path.
-          PW_VERSION=$(jq -r '.packages["node_modules/@playwright/test"].version' ../../package-lock.json)
+          PW_VERSION=$(jq -r '.packages["node_modules/@playwright/test"].version // empty' ../../package-lock.json)
+          if [ -z "${PW_VERSION}" ]; then
+            echo "::error::Could not resolve @playwright/test version from client/package-lock.json"
+            exit 1
+          fi
           PLAYWRIGHT="npx --yes --package=@playwright/test@${PW_VERSION} playwright"
 
           echo "Merging blob reports with @playwright/test@${PW_VERSION}..."
