@@ -1601,6 +1601,10 @@ func (s *Service) applyBuildingRows(
 			if err != nil {
 				return err
 			}
+			siteID, _, err = s.lockPlacementParents(ctx, orgID, siteID, nil)
+			if err != nil {
+				return err
+			}
 			created, err := s.buildingStore.CreateBuilding(ctx, buildingmodels.CreateParams{
 				OrgID:         orgID,
 				SiteID:        siteID,
@@ -1620,6 +1624,15 @@ func (s *Service) applyBuildingRows(
 		if rowsEqual(row, current, buildingHeaders) {
 			continue
 		}
+		siteID, _, err := desiredSiteBuildingIDs(row[fieldSiteID], row[fieldSite], "", "", sitesByName, sitesByID, nil, nil)
+		if err != nil {
+			return err
+		}
+		if !nullableInt64Equal(siteID, building.SiteID) {
+			if err := s.moveBuildingsToSite(ctx, orgID, []int64{building.ID}, siteID); err != nil {
+				return err
+			}
+		}
 		if _, err := s.buildingStore.UpdateBuilding(ctx, buildingmodels.UpdateParams{
 			OrgID:                 orgID,
 			ID:                    building.ID,
@@ -1635,15 +1648,6 @@ func (s *Service) applyBuildingRows(
 			DefaultRackOrderIndex: building.DefaultRackOrderIndex,
 		}); err != nil {
 			return err
-		}
-		siteID, _, err := desiredSiteBuildingIDs(row[fieldSiteID], row[fieldSite], "", "", sitesByName, sitesByID, nil, nil)
-		if err != nil {
-			return err
-		}
-		if !nullableInt64Equal(siteID, building.SiteID) {
-			if err := s.moveBuildingsToSite(ctx, orgID, []int64{building.ID}, siteID); err != nil {
-				return err
-			}
 		}
 		delete(existingByKey, building.SiteLabel+"\x00"+building.Name)
 		building.Name = row[fieldName]
@@ -2424,7 +2428,7 @@ func validateRemoveOmittedReferences(parsed *parsedCSV, mode pb.OmissionMode) []
 			continue
 		}
 		if ambiguousBuildings[row[fieldBuilding]] {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack building %q is ambiguous; add site", row[fieldBuilding])))
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack building %q is ambiguous; add site or building_id", row[fieldBuilding])))
 			continue
 		}
 		if _, ok := buildingsByName[row[fieldBuilding]]; !ok {
@@ -2446,7 +2450,7 @@ func validateRemoveOmittedReferences(parsed *parsedCSV, mode pb.OmissionMode) []
 				continue
 			}
 			if ambiguousBuildings[row[fieldBuilding]] {
-				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner building %q is ambiguous; add site", row[fieldBuilding])))
+				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner building %q is ambiguous; add site or building_id", row[fieldBuilding])))
 				continue
 			}
 			if _, ok := buildingsByName[row[fieldBuilding]]; !ok {
@@ -2745,7 +2749,7 @@ func validateRackPlacementTargets(rows, buildingRows, siteRows []map[string]stri
 					continue
 				}
 				if ambiguousBuildings[row[fieldBuilding]] {
-					errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack building %q is ambiguous; add site", row[fieldBuilding])))
+					errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack building %q is ambiguous; add site or building_id", row[fieldBuilding])))
 					continue
 				}
 				if _, ok := buildingsByName[row[fieldBuilding]]; !ok {
@@ -2799,7 +2803,7 @@ func validatePlacementConsistency(minerRows, rackRows, buildingRows, siteRows []
 				continue
 			}
 			if ambiguousBuildings[row[fieldBuilding]] {
-				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner building %q is ambiguous; add site", row[fieldBuilding])))
+				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner building %q is ambiguous; add site or building_id", row[fieldBuilding])))
 				continue
 			}
 			building, ok := buildingsByName[row[fieldBuilding]]
@@ -3756,11 +3760,65 @@ func desiredBuildingMap(rows []map[string]string, buildings []buildingmodels.Bui
 	return out
 }
 
+func desiredBuildingList(rows []map[string]string, buildings []buildingmodels.Building) []buildingmodels.Building {
+	out := append([]buildingmodels.Building(nil), buildings...)
+	byID := map[int64]int{}
+	byKey := map[string]int{}
+	duplicateKeys := map[string]bool{}
+	for i, building := range out {
+		if building.ID != 0 {
+			byID[building.ID] = i
+		}
+		key := building.SiteLabel + "\x00" + building.Name
+		if _, ok := byKey[key]; ok {
+			duplicateKeys[key] = true
+			continue
+		}
+		byKey[key] = i
+	}
+	for _, row := range rows {
+		if id, ok := rowID(row); ok {
+			building := buildingmodels.Building{ID: id}
+			if index, exists := byID[id]; exists {
+				building = out[index]
+				applyDesiredBuildingRow(row, &building)
+				out[index] = building
+				continue
+			}
+			applyDesiredBuildingRow(row, &building)
+			out = append(out, building)
+			continue
+		}
+		key := row[fieldSite] + "\x00" + buildingSectionName(row)
+		if index, exists := byKey[key]; exists && !duplicateKeys[key] {
+			building := out[index]
+			applyDesiredBuildingRow(row, &building)
+			out[index] = building
+			continue
+		}
+		building := buildingmodels.Building{}
+		applyDesiredBuildingRow(row, &building)
+		out = append(out, building)
+	}
+	return out
+}
+
+func applyDesiredBuildingRow(row map[string]string, building *buildingmodels.Building) {
+	building.SiteLabel = row[fieldSite]
+	building.Name = buildingSectionName(row)
+	if aisles, err := parseInt32Value(row["aisles"], "aisles"); err == nil {
+		building.Aisles = aisles
+	}
+	if racksPerAisle, err := parseInt32Value(row["racks_per_aisle"], "racks_per_aisle"); err == nil {
+		building.RacksPerAisle = racksPerAisle
+	}
+}
+
 func desiredBuildingNameLookup(rows []map[string]string, buildings []buildingmodels.Building) (map[string]buildingmodels.Building, map[string]bool) {
 	byName := map[string]buildingmodels.Building{}
 	ambiguous := map[string]bool{}
 	byBuildingName := map[string][]buildingmodels.Building{}
-	for _, building := range desiredBuildingMap(rows, buildings) {
+	for _, building := range desiredBuildingList(rows, buildings) {
 		byBuildingName[building.Name] = append(byBuildingName[building.Name], building)
 	}
 	for name, candidates := range byBuildingName {

@@ -414,6 +414,34 @@ func TestBuildPlanAllowsRackTargetDisambiguatedByBuildingID(t *testing.T) {
 	}
 }
 
+func TestBuildPlanRejectsNameOnlyDuplicateUnassignedBuildingReferences(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE":     nil,
+		"BUILDING": nil,
+		"RACK": {
+			{"__row": "9", fieldLabel: "Rack A", fieldBuilding: "Building A", "rows": "4", "columns": "6"},
+		},
+		"MINER": {
+			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldBuilding: "Building A"},
+		},
+	}}
+	snap := &snapshot{
+		buildings: []buildingmodels.Building{
+			{ID: 10, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
+			{ID: 11, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
+		},
+		miners: []minerSnapshot{{DeviceIdentifier: "miner-1", SerialNumber: "SN1", Name: "Miner 1", IPAddress: "10.0.0.5", MACAddress: "aa:bb:cc:dd:ee:ff"}},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if !hasValidationError(plan.errors, "RACK", `rack building "Building A" is ambiguous; add site or building_id`) {
+		t.Fatalf("plan errors = %+v, want rack ambiguous building error", plan.errors)
+	}
+	if !hasValidationError(plan.errors, "MINER", `miner building "Building A" is ambiguous; add site or building_id`) {
+		t.Fatalf("plan errors = %+v, want miner ambiguous building error", plan.errors)
+	}
+}
+
 func TestBuildPlanRejectsOldRackReferenceAfterIDRename(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE":     nil,
@@ -896,6 +924,86 @@ func TestMoveBuildingsToSiteLocksTargetSiteBeforeBuildings(t *testing.T) {
 
 	if err := svc.moveBuildingsToSite(ctx, orgID, buildingIDs, &targetSiteID); err != nil {
 		t.Fatalf("moveBuildingsToSite error = %v", err)
+	}
+}
+
+func TestApplyBuildingRowsLocksParentSiteBeforeCreate(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	orgID := int64(42)
+	siteID := int64(99)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	svc := NewService(siteStore, buildingStore, nil, nil, nil, nil, nil)
+	rows := []map[string]string{{
+		fieldName:         "Building A",
+		fieldSiteID:       "99",
+		fieldSite:         "Site A",
+		"aisles":          "2",
+		"racks_per_aisle": "3",
+	}}
+
+	gomock.InOrder(
+		siteStore.EXPECT().LockSiteForWrite(ctx, orgID, siteID).Return(nil),
+		buildingStore.EXPECT().CreateBuilding(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, params buildingmodels.CreateParams) (*buildingmodels.Building, error) {
+			if !nullableInt64Equal(params.SiteID, &siteID) {
+				t.Fatalf("site_id = %v, want %d", params.SiteID, siteID)
+			}
+			return &buildingmodels.Building{ID: 10, Name: params.Name, SiteID: params.SiteID, SiteLabel: "Site A", Aisles: params.Aisles, RacksPerAisle: params.RacksPerAisle}, nil
+		}),
+	)
+
+	if err := svc.applyBuildingRows(ctx, orgID, rows, map[string]sitemodels.Site{"Site A": {ID: siteID, Name: "Site A"}}, map[int64]sitemodels.Site{siteID: {ID: siteID, Name: "Site A"}}, map[string]buildingmodels.Building{}, map[int64]buildingmodels.Building{}); err != nil {
+		t.Fatalf("applyBuildingRows error = %v", err)
+	}
+}
+
+func TestApplyBuildingRowsMovesBeforeRename(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	orgID := int64(42)
+	oldSiteID := int64(1)
+	newSiteID := int64(2)
+	buildingID := int64(10)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	svc := NewService(siteStore, buildingStore, nil, nil, nil, nil, nil)
+	building := buildingmodels.Building{ID: buildingID, Name: "Old Name", SiteID: &oldSiteID, SiteLabel: "Site A", Aisles: 1, RacksPerAisle: 2}
+	rows := []map[string]string{{
+		fieldID:           "10",
+		fieldName:         "Target Name",
+		fieldSiteID:       "2",
+		fieldSite:         "Site B",
+		"aisles":          "1",
+		"racks_per_aisle": "2",
+	}}
+	buildingIDs := []int64{buildingID}
+
+	gomock.InOrder(
+		siteStore.EXPECT().LockSiteForWrite(ctx, orgID, newSiteID).Return(nil),
+		siteStore.EXPECT().LockBuildingForWrite(ctx, orgID, buildingID).Return(nil),
+		siteStore.EXPECT().AssignBuildingsToSiteBulk(ctx, orgID, buildingIDs, &newSiteID).Return(int64(1), nil),
+		siteStore.EXPECT().ReassignRacksUnderBuildingsBulk(ctx, orgID, buildingIDs, &newSiteID).Return(int64(0), nil),
+		siteStore.EXPECT().ReassignDevicesUnderBuildingsBulk(ctx, orgID, buildingIDs, &newSiteID).Return(int64(0), nil),
+		buildingStore.EXPECT().CascadeDirectDeviceSitesByBuildings(ctx, orgID, buildingIDs, &newSiteID).Return(int64(0), nil),
+		buildingStore.EXPECT().UpdateBuilding(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, params buildingmodels.UpdateParams) (*buildingmodels.Building, error) {
+			if params.Name != "Target Name" {
+				t.Fatalf("name = %q, want Target Name", params.Name)
+			}
+			return &buildingmodels.Building{ID: params.ID, Name: params.Name, SiteID: &newSiteID, SiteLabel: "Site B", Aisles: params.Aisles, RacksPerAisle: params.RacksPerAisle}, nil
+		}),
+	)
+
+	if err := svc.applyBuildingRows(
+		ctx,
+		orgID,
+		rows,
+		map[string]sitemodels.Site{"Site B": {ID: newSiteID, Name: "Site B"}},
+		map[int64]sitemodels.Site{newSiteID: {ID: newSiteID, Name: "Site B"}},
+		map[string]buildingmodels.Building{"Site A\x00Old Name": building},
+		map[int64]buildingmodels.Building{buildingID: building},
+	); err != nil {
+		t.Fatalf("applyBuildingRows error = %v", err)
 	}
 }
 
