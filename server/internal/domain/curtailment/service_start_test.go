@@ -365,6 +365,22 @@ func TestService_Start_RejectsAdminRestoreBatchIntervalAboveAbsoluteCeiling(t *t
 	assert.Contains(t, err.Error(), "restore_batch_interval_sec must be <=")
 }
 
+func TestService_Start_RejectsFacilityFanDelaysAboveSafetyCeiling(t *testing.T) {
+	t.Parallel()
+
+	for _, mutate := range []func(*StartRequest){
+		func(req *StartRequest) { req.FanOffDelaySec = facilityFanDelayUpperBoundSec + 1 },
+		func(req *StartRequest) { req.FanRestoreDelaySec = facilityFanDelayUpperBoundSec + 1 },
+	} {
+		req := validStartRequest(1)
+		mutate(&req)
+		_, err := NewService(newFakeStore()).Start(t.Context(), req)
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsInvalidArgumentError(err))
+		assert.Contains(t, err.Error(), "must be <=")
+	}
+}
+
 func TestService_Start_RejectsMissingSourceActorType(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())

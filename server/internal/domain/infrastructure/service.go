@@ -6,6 +6,7 @@
 package infrastructure
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -188,15 +189,15 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 				return err
 			}
 		}
+		if err := s.store.LockInfrastructureDeviceForWrite(
+			txCtx,
+			params.OrgID,
+			params.ID,
+			params.ExpectedSiteID,
+		); err != nil {
+			return err
+		}
 		if params.SiteID != params.ExpectedSiteID {
-			if err := s.store.LockInfrastructureDeviceForWrite(
-				txCtx,
-				params.OrgID,
-				params.ID,
-				params.ExpectedSiteID,
-			); err != nil {
-				return err
-			}
 			profileCount, err := s.store.CountResponseProfilesByInfrastructureDevice(txCtx, params.OrgID, params.ID)
 			if err != nil {
 				return err
@@ -219,6 +220,26 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 					"infrastructure device is claimed by an active curtailment event; wait for the event to finish before moving it",
 				)
 			}
+		} else {
+			current, err := s.store.GetInfrastructureDevice(txCtx, params.OrgID, params.ID)
+			if err != nil {
+				return err
+			}
+			if infrastructureCommandBehaviorChanged(current, params) {
+				activeEventCount, err := s.store.CountActiveCurtailmentEventsByInfrastructureDevice(
+					txCtx,
+					params.OrgID,
+					params.ID,
+				)
+				if err != nil {
+					return err
+				}
+				if activeEventCount > 0 {
+					return fleeterror.NewFailedPreconditionError(
+						"infrastructure device is claimed by an active curtailment event; wait for the event to finish before changing its enabled state or driver configuration",
+					)
+				}
+			}
 		}
 		device, err := s.store.UpdateInfrastructureDevice(txCtx, params)
 		if err != nil {
@@ -232,6 +253,16 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 	}
 	s.logDeviceEvent(ctx, eventDeviceUpdated, "Updated", updated)
 	return updated, nil
+}
+
+func infrastructureCommandBehaviorChanged(current *models.Device, params models.UpdateParams) bool {
+	if current == nil {
+		return true
+	}
+	if params.Enabled != nil && *params.Enabled != current.Enabled {
+		return true
+	}
+	return params.DriverType != current.DriverType || !bytes.Equal(params.DriverConfig, current.DriverConfig)
 }
 
 // Delete soft-deletes the device. expectedSiteID is the device's site

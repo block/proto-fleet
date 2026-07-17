@@ -318,13 +318,17 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
     throw new Error("Enter curtail batch size before adding a curtail batch interval.");
   }
 
-  const facilityFanDeviceIds = uniqueNonEmptyStrings(values.facilityFanDeviceIds ?? []).map((value) => {
-    const id = parseCurtailmentSiteId(value);
-    if (id === undefined) {
-      throw new Error("Facility fan IDs must be positive integers.");
-    }
-    return id;
-  });
+  const facilityFanDeviceIds = [
+    ...new Set(
+      uniqueNonEmptyStrings(values.facilityFanDeviceIds ?? []).map((value) => {
+        const id = parseCurtailmentSiteId(value);
+        if (id === undefined) {
+          throw new Error("Facility fan IDs must be positive integers.");
+        }
+        return id;
+      }),
+    ),
+  ];
 
   return create(StartCurtailmentRequestSchema, {
     ...buildCurtailmentRequestFields(values),

@@ -174,6 +174,47 @@ func TestService_ForceRelease_NonTerminalEventTurnsFansOnBeforeRelease(t *testin
 	assert.Equal(t, 1, store.forceReleaseCalls)
 }
 
+func TestService_ForceRelease_RetriesFansOnAfterEarlierFailedAttempt(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	fanOffAt := time.Now().UTC().Add(-2 * time.Minute)
+	firstFanOnAt := time.Now().UTC().Add(-time.Minute)
+	store := newFakeStore()
+	store.eventsByUUID[eventUUID] = &models.Event{
+		ID:                   90,
+		EventUUID:            eventUUID,
+		OrgID:                orgID,
+		State:                models.EventStateRestoring,
+		FacilityFanDeviceIDs: []int64{701},
+		FanOffSentAt:         &fanOffAt,
+		FanOnSentAt:          &firstFanOnAt,
+	}
+	store.forceReleaseResult = &models.Event{
+		ID:        90,
+		EventUUID: eventUUID,
+		OrgID:     orgID,
+		State:     models.EventStateCancelled,
+	}
+	fanErr := "first ON command failed"
+	fans := &fakeTerminalFanController{err: &fanErr}
+	svc := NewService(store, WithFacilityFanController(fans))
+
+	_, err := svc.ForceRelease(t.Context(), ForceReleaseRequest{
+		OrgID:     orgID,
+		EventUUID: eventUUID,
+		Reason:    "operator release",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	assert.Equal(t, 1, store.updateFanStateCalls)
+	assert.Nil(t, store.lastUpdateFanStateParams.FanOnSentAt,
+		"the original first-attempt timestamp must remain unchanged")
+	require.NotNil(t, store.lastUpdateFanStateParams.LastError)
+	assert.Equal(t, fanErr, *store.lastUpdateFanStateParams.LastError)
+}
+
 func TestService_ForceRelease_RejectsMissingReason(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())

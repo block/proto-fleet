@@ -341,14 +341,14 @@ groups:
               format: table
               rawSql: |
                 SELECT
-                    organization_id,
-                    kind,
+                    org_id::TEXT AS organization_id,
+                    event_uuid::TEXT AS kind,
                     1 AS value
-                FROM notification_metric_sample
-                WHERE metric = 'fleet_curtailment_fan_restore_failed'
-                  AND time > NOW() - INTERVAL '10 minutes'
-                GROUP BY organization_id, kind
-                HAVING last(value, time) = 1
+                FROM curtailment_event
+                WHERE fan_last_error IS NOT NULL
+                  AND fan_on_sent_at IS NOT NULL
+                  AND fan_on_sent_at
+                      + make_interval(secs => fan_restore_delay_sec) <= NOW()
           - refId: B
             datasourceUid: __expr__
             model:
@@ -369,7 +369,9 @@ groups:
             Curtailment event {{ $labels.kind }} (org {{ $labels.organization_id }})
             reached its miner-restore gate while one or more facility fan ON
             commands were still failing. Miner restoration is fail-open; verify
-            airflow and the commissioned fan-control path immediately.
+            airflow and the commissioned fan-control path immediately. This
+            alert remains active after the event ends until a successful fan ON
+            command clears the failure.
 
   - orgId: 1
     name: proto-fleet-self

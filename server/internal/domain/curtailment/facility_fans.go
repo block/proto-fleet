@@ -16,7 +16,6 @@ import (
 
 const (
 	ActivityTypeFacilityFanCommandFailed = "curtailment_facility_fan_command_failed"
-	ActivityTypeFacilityFanSkipped       = "curtailment_facility_fan_skipped"
 )
 
 // FacilityFanController is the shared protocol-blind command boundary used by
@@ -53,24 +52,20 @@ func (c *facilityFanController) SetState(ctx context.Context, event *models.Even
 		return &message
 	}
 
-	logSkips := isFirstFacilityFanAttempt(event, power)
+	logFailure := shouldLogFacilityFanFailure(event, power)
 	errorsByDevice := make([]string, 0)
 	for _, deviceID := range event.FacilityFanDeviceIDs {
 		device, err := c.devices.GetInfrastructureDevice(ctx, event.OrgID, deviceID)
 		if err != nil {
 			if fleeterror.IsNotFoundError(err) {
-				if logSkips {
-					c.logSkip(ctx, event, deviceID, "device is missing")
-				}
+				errorsByDevice = append(errorsByDevice, fmt.Sprintf("device %d: device is missing", deviceID))
 				continue
 			}
 			errorsByDevice = append(errorsByDevice, fmt.Sprintf("device %d: lookup failed", deviceID))
 			continue
 		}
 		if !device.Enabled {
-			if logSkips {
-				c.logSkip(ctx, event, device.ID, "device is disabled")
-			}
+			errorsByDevice = append(errorsByDevice, fmt.Sprintf("device %d: device is disabled", device.ID))
 			continue
 		}
 
@@ -105,40 +100,24 @@ func (c *facilityFanController) SetState(ctx context.Context, event *models.Even
 		return nil
 	}
 	message := strings.Join(errorsByDevice, "; ")
-	if event.FanLastError == nil {
+	if logFailure {
 		c.logFailure(ctx, event, power, message)
 	}
 	return &message
 }
 
-func isFirstFacilityFanAttempt(event *models.Event, power driver.PowerMode) bool {
+func shouldLogFacilityFanFailure(event *models.Event, power driver.PowerMode) bool {
 	switch power {
 	case driver.PowerOff:
-		return event.FanOffSentAt == nil
+		return event.FanLastError == nil
 	case driver.PowerOn:
-		return event.FanOnSentAt == nil
+		// A failed OFF phase may leave FanLastError populated. The first ON
+		// failure is a distinct recovery incident and must receive its own
+		// audit row; later failures in either phase remain deduplicated until
+		// an intervening success clears FanLastError.
+		return event.FanOnSentAt == nil || event.FanLastError == nil
 	default:
 		return false
-	}
-}
-
-func (c *facilityFanController) logSkip(ctx context.Context, event *models.Event, deviceID int64, reason string) {
-	orgID := event.OrgID
-	row := activitymodels.Event{
-		Category:       activitymodels.CategoryCurtailment,
-		Type:           ActivityTypeFacilityFanSkipped,
-		Description:    "Facility fan command skipped",
-		Result:         activitymodels.ResultSuccess,
-		ActorType:      activitymodels.ActorCurtailment,
-		OrganizationID: &orgID,
-		Metadata: map[string]any{
-			"event_uuid":               event.EventUUID.String(),
-			"infrastructure_device_id": deviceID,
-			"reason":                   reason,
-		},
-	}
-	if err := c.audit.LogStrict(ctx, row); err != nil {
-		slog.Error("curtailment facility fan skip audit failed", "event_uuid", event.EventUUID, "error", err)
 	}
 }
 

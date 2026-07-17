@@ -576,7 +576,7 @@ func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*F
 }
 
 func (s *Service) restoreFansBeforeTerminal(ctx context.Context, event *models.Event) {
-	if event == nil || event.FanOffSentAt == nil || event.FanOnSentAt != nil || len(event.FacilityFanDeviceIDs) == 0 {
+	if event == nil || event.FanOffSentAt == nil || len(event.FacilityFanDeviceIDs) == 0 {
 		return
 	}
 	now := time.Now().UTC()
@@ -584,11 +584,17 @@ func (s *Service) restoreFansBeforeTerminal(ctx context.Context, event *models.E
 	if s.fanStore == nil {
 		return
 	}
-	if err := s.fanStore.UpdateFanState(ctx, event.ID, interfaces.UpdateCurtailmentFanStateParams{
+	params := interfaces.UpdateCurtailmentFanStateParams{
 		ExpectedEventState: event.State,
-		FanOnSentAt:        &now,
 		LastError:          lastError,
-	}); err != nil {
+	}
+	// A prior reconciler attempt may already have stamped the first ON attempt.
+	// Preserve that sequencing timestamp while still making this final
+	// best-effort command before an operator terminalizes the event.
+	if event.FanOnSentAt == nil {
+		params.FanOnSentAt = &now
+	}
+	if err := s.fanStore.UpdateFanState(ctx, event.ID, params); err != nil {
 		slog.Error("failed to stamp best-effort facility fan restore before terminal transition", "event_uuid", event.EventUUID, "error", err)
 	}
 }
@@ -1215,6 +1221,7 @@ const (
 	maxFiniteDurationSeconds          int32 = 7 * 24 * 60 * 60
 	nonAdminRestoreBatchIntervalMax   int32 = 5 * 60
 	restoreBatchIntervalUpperBoundSec int32 = 60 * 60
+	facilityFanDelayUpperBoundSec     int32 = 60 * 60
 )
 
 func validateStartRequest(req StartRequest) error {
@@ -1322,6 +1329,18 @@ func validateStartRequest(req StartRequest) error {
 	}
 	if req.FanRestoreDelaySec < 0 {
 		return fleeterror.NewInvalidArgumentErrorf("fan_restore_delay_sec must be >= 0, got %d", req.FanRestoreDelaySec)
+	}
+	if req.FanOffDelaySec > facilityFanDelayUpperBoundSec {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"fan_off_delay_sec must be <= %d, got %d",
+			facilityFanDelayUpperBoundSec, req.FanOffDelaySec,
+		)
+	}
+	if req.FanRestoreDelaySec > facilityFanDelayUpperBoundSec {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"fan_restore_delay_sec must be <= %d, got %d",
+			facilityFanDelayUpperBoundSec, req.FanRestoreDelaySec,
+		)
 	}
 	seenFanIDs := make(map[int64]struct{}, len(req.FacilityFanDeviceIDs))
 	for _, fanID := range req.FacilityFanDeviceIDs {

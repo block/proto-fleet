@@ -140,7 +140,7 @@ type fakeStore struct {
 	automationDemandGuardCheckRuns int
 }
 
-func TestFacilityFanController_SkipAuditIsEmittedOncePerPowerPhase(t *testing.T) {
+func TestFacilityFanController_MissingOrDisabledClaimIsFailureOncePerPowerPhase(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -183,20 +183,77 @@ func TestFacilityFanController_SkipAuditIsEmittedOncePerPowerPhase(t *testing.T)
 				FacilityFanDeviceIDs: []int64{deviceID},
 			}
 
-			require.Nil(t, controller.SetState(t.Context(), event, driver.PowerOff))
+			offFailure := controller.SetState(t.Context(), event, driver.PowerOff)
+			require.NotNil(t, offFailure)
+			assert.Contains(t, *offFailure, tt.reason)
+			event.FanLastError = offFailure
 			now := time.Now().UTC()
 			event.FanOffSentAt = &now
-			require.Nil(t, controller.SetState(t.Context(), event, driver.PowerOff))
-			require.Nil(t, controller.SetState(t.Context(), event, driver.PowerOn))
+			require.NotNil(t, controller.SetState(t.Context(), event, driver.PowerOff))
+			require.NotNil(t, controller.SetState(t.Context(), event, driver.PowerOn))
 			event.FanOnSentAt = &now
-			require.Nil(t, controller.SetState(t.Context(), event, driver.PowerOn))
+			require.NotNil(t, controller.SetState(t.Context(), event, driver.PowerOn))
 
 			require.Len(t, audit.events, 2)
-			for _, activity := range audit.events {
-				assert.Equal(t, ActivityTypeFacilityFanSkipped, activity.Type)
-				assert.Equal(t, deviceID, activity.Metadata["infrastructure_device_id"])
-				assert.Equal(t, tt.reason, activity.Metadata["reason"])
-			}
+			assert.Equal(t, ActivityTypeFacilityFanCommandFailed, audit.events[0].Type)
+			assert.Equal(t, "off", audit.events[0].Metadata["desired_power"])
+			require.NotNil(t, audit.events[0].ErrorMessage)
+			assert.Contains(t, *audit.events[0].ErrorMessage, tt.reason)
+			assert.Equal(t, ActivityTypeFacilityFanCommandFailed, audit.events[1].Type)
+			assert.Equal(t, "on", audit.events[1].Metadata["desired_power"])
+			require.NotNil(t, audit.events[1].ErrorMessage)
+			assert.Contains(t, *audit.events[1].ErrorMessage, tt.reason)
+		})
+	}
+}
+
+func TestShouldLogFacilityFanFailureGatesEachPowerPhase(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC()
+	failure := "device 501: command failed"
+	tests := []struct {
+		name  string
+		event *models.Event
+		power driver.PowerMode
+		want  bool
+	}{
+		{
+			name:  "later off failure after recovery starts a new incident",
+			event: &models.Event{FanOffSentAt: &now},
+			power: driver.PowerOff,
+			want:  true,
+		},
+		{
+			name:  "repeated off failure remains deduplicated",
+			event: &models.Event{FanOffSentAt: &now, FanLastError: &failure},
+			power: driver.PowerOff,
+			want:  false,
+		},
+		{
+			name:  "first on failure is independent from off failure",
+			event: &models.Event{FanOffSentAt: &now, FanLastError: &failure},
+			power: driver.PowerOn,
+			want:  true,
+		},
+		{
+			name:  "repeated on failure remains deduplicated",
+			event: &models.Event{FanOnSentAt: &now, FanLastError: &failure},
+			power: driver.PowerOn,
+			want:  false,
+		},
+		{
+			name:  "later on failure after recovery starts a new incident",
+			event: &models.Event{FanOnSentAt: &now},
+			power: driver.PowerOn,
+			want:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, shouldLogFacilityFanFailure(tt.event, tt.power))
 		})
 	}
 }

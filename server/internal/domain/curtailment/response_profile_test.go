@@ -133,6 +133,29 @@ func TestResponseProfileService_CreatePersistsFacilityFanSettings(t *testing.T) 
 	assert.Equal(t, []int64{31, 32}, store.created.FacilityFanDeviceIDs)
 }
 
+func TestResponseProfileService_CreateRejectsFacilityFanDelaysAboveSafetyCeiling(t *testing.T) {
+	t.Parallel()
+
+	for _, mutate := range []func(*models.ResponseProfile){
+		func(profile *models.ResponseProfile) { profile.FanOffDelaySec = facilityFanDelayUpperBoundSec + 1 },
+		func(profile *models.ResponseProfile) { profile.FanRestoreDelaySec = facilityFanDelayUpperBoundSec + 1 },
+	} {
+		profile := models.ResponseProfile{
+			OrgID:       42,
+			ProfileName: "Unsafe fan delay",
+			Mode:        models.ModeFullFleet,
+		}
+		mutate(&profile)
+		_, err := NewResponseProfileService(newResponseProfileFakeStore()).Create(t.Context(), SaveResponseProfileRequest{
+			Profile:             profile,
+			CanUseAdminControls: true,
+		})
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsInvalidArgumentError(err))
+		assert.Contains(t, err.Error(), "must be between")
+	}
+}
+
 func TestResponseProfileService_CreateRejectsUnknownFacilityFan(t *testing.T) {
 	t.Parallel()
 

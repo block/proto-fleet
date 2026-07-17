@@ -466,6 +466,20 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 			nonAdminRestoreBatchIntervalMax,
 		)
 	}
+	if profile.FanOffDelaySec < 0 || profile.FanOffDelaySec > facilityFanDelayUpperBoundSec {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"fan_off_delay_sec must be between 0 and %d, got %d",
+			facilityFanDelayUpperBoundSec,
+			profile.FanOffDelaySec,
+		)
+	}
+	if profile.FanRestoreDelaySec < 0 || profile.FanRestoreDelaySec > facilityFanDelayUpperBoundSec {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"fan_restore_delay_sec must be between 0 and %d, got %d",
+			facilityFanDelayUpperBoundSec,
+			profile.FanRestoreDelaySec,
+		)
+	}
 	if profile.ForceIncludeMaintenance && !canUseAdminControls {
 		return fleeterror.NewForbiddenError("only admins can set force_include_maintenance")
 	}

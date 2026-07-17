@@ -79,3 +79,16 @@ func TestFreshnessGateCoversGaugeThrottleCeiling(t *testing.T) {
 	// One-minute heartbeat buckets must always be populated while polling.
 	require.LessOrEqual(t, cfg.PollAggregationInterval, time.Minute)
 }
+
+func TestFanRestoreAlertUsesDurableEventState(t *testing.T) {
+	raw, err := os.ReadFile("../../../monitoring/grafana/provisioning/alerting/proto-fleet-rules.yaml")
+	require.NoError(t, err)
+
+	rule := regexp.MustCompile(`(?s)title: Curtailment Fan Restore Failed.*?rawSql: \|\n(.*?)\n          - refId: B`).
+		FindStringSubmatch(string(raw))
+	require.NotNil(t, rule, "fan restore alert rule not found")
+	require.Contains(t, rule[1], "FROM curtailment_event")
+	require.Contains(t, rule[1], "fan_last_error IS NOT NULL")
+	require.NotContains(t, rule[1], "notification_metric_sample",
+		"a bounded metric window would auto-resolve after the event terminalizes")
+}

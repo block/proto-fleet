@@ -22,8 +22,9 @@ type InfrastructureDeviceStore interface {
 	// ordered by name. Filter optionally narrows to specific sites.
 	ListInfrastructureDevices(ctx context.Context, filter models.ListFilter) ([]models.Device, error)
 
-	// LockInfrastructureDeviceForWrite serializes moves/deletes against
-	// response-profile saves. Parent site rows must be locked first.
+	// LockInfrastructureDeviceForWrite serializes updates/deletes against
+	// response-profile saves and active curtailment claims. Parent site rows
+	// must be locked first.
 	LockInfrastructureDeviceForWrite(ctx context.Context, orgID, id, expectedSiteID int64) error
 
 	// CountResponseProfilesByInfrastructureDevice returns the number of

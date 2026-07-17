@@ -156,6 +156,15 @@ describe("curtailmentRequestBuilders", () => {
     expect(request.fanRestoreDelaySec).toBe(90);
   });
 
+  it("deduplicates facility fan IDs by parsed bigint identity", () => {
+    const request = buildStartCurtailmentRequest({
+      ...baseValues,
+      facilityFanDeviceIds: ["31", "031", "32"],
+    });
+
+    expect(request.facilityFanDeviceIds).toEqual([31n, 32n]);
+  });
+
   it("omits curtail batch settings when the start form leaves them blank", () => {
     const request = buildStartCurtailmentRequest(baseValues);
 

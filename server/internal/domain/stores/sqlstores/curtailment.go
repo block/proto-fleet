@@ -1039,6 +1039,8 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 				return nil, fleeterror.NewAlreadyExistsError("a non-terminal curtailment event already owns this scope")
 			}
 		}
+		// pq.Array encodes a nil slice as SQL NULL. Keep the empty fan list
+		// non-nil because the column is NOT NULL with an empty-array default.
 		row, err := q.InsertCurtailmentEvent(ctx, sqlc.InsertCurtailmentEventParams{
 			EventUuid:                   event.EventUUID,
 			OrgID:                       event.OrgID,
@@ -1061,7 +1063,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			IncludeMaintenance:          event.IncludeMaintenance,
 			ForceIncludeMaintenance:     event.ForceIncludeMaintenance,
 			ForceIncludeAllPairedMiners: event.ForceIncludeAllPairedMiners,
-			FacilityFanDeviceIds:        append([]int64(nil), event.FacilityFanDeviceIDs...),
+			FacilityFanDeviceIds:        append([]int64{}, event.FacilityFanDeviceIDs...),
 			FacilityFanSiteIds:          fanSiteIDs,
 			FanOffDelaySec:              event.FanOffDelaySec,
 			FanRestoreDelaySec:          event.FanRestoreDelaySec,
