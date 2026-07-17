@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildingRackScope } from "./buildingRackScope";
+import { assignedRackScope, buildingRackScope } from "./buildingRackScope";
 
 describe("buildingRackScope", () => {
   it("scopes to the building's site and surfaces site-unassigned racks", () => {
@@ -22,5 +22,25 @@ describe("buildingRackScope", () => {
     // header selection — this is what keeps the unscoped /buildings/:id route
     // correct.
     expect(buildingRackScope(7n)).toEqual({ siteIds: [7n], includeUnassigned: true });
+  });
+});
+
+describe("assignedRackScope", () => {
+  it("scoped header → the building-site scope (same-site reparent only, no broaden)", () => {
+    // A scoped header is guaranteed by scope-sync (#764) to equal the building's
+    // own site, so the toggle-on fetch reuses the site scope. Other-building
+    // same-site racks are already in that fetch — the toggle just stops hiding
+    // them. No cross-site.
+    expect(assignedRackScope(42n, false)).toEqual({ siteIds: [42n], includeUnassigned: true });
+  });
+
+  it("all-sites header → a global (unscoped) fetch so cross-site racks surface", () => {
+    // The empty filter is the whole-org fetch; other-site racks appear and
+    // become reparent candidates.
+    expect(assignedRackScope(42n, true)).toEqual({ siteIds: [], includeUnassigned: false });
+  });
+
+  it("all-sites broadens regardless of the building's own site", () => {
+    expect(assignedRackScope(0n, true)).toEqual({ siteIds: [], includeUnassigned: false });
   });
 });

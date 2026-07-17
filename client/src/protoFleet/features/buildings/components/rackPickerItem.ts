@@ -13,7 +13,18 @@ export interface RackPickerItem {
   label: string;
   buildingLabel: string;
   statusLabel: string;
+  // Ineligible for a plain add — the rack is in another building or another
+  // site. Rendered disabled while the "Show assigned racks" toggle is off; when
+  // the toggle is on the picker keeps these rows selectable (behind a reparent
+  // confirm) so `disabled` alone no longer decides interactivity.
   disabled: boolean;
+  // True for the same ineligible set (`inOtherBuilding || inOtherSite`).
+  // Distinct from `disabled` because the toggle-on flow flips `disabled` off for
+  // these rows but still needs to flag them and gate them behind the confirm.
+  reassignment: boolean;
+  // Miners currently placed in this rack; they move with it on reparent, so the
+  // confirm copy states the count ("…and its N miners…").
+  minerCount: number;
 }
 
 export const buildRackPickerItem = (
@@ -45,5 +56,22 @@ export const buildRackPickerItem = (
         : "Unassigned";
   const buildingLabel =
     buildingId === undefined || buildingId === 0n ? "—" : (buildingLabels[buildingId.toString()] ?? "—");
-  return { id: rack.id.toString(), label: rack.label, buildingLabel, statusLabel, disabled };
+  return {
+    id: rack.id.toString(),
+    label: rack.label,
+    buildingLabel,
+    statusLabel,
+    disabled,
+    reassignment: disabled,
+    minerCount: rack.deviceCount,
+  };
+};
+
+/** Per-row conflict-dialog copy for a reassignment (already-placed) rack,
+ *  surfaced when the operator taps the warning icon while "Show assigned racks"
+ *  is on. States where the rack lives now and that its miners move with it. */
+export const describeRackReassignment = (item: RackPickerItem, buildingName: string): string => {
+  const where = item.statusLabel === "In another site" ? "another site" : "another building";
+  const miners = item.minerCount === 1 ? "its 1 miner" : `its ${item.minerCount} miners`;
+  return `Rack "${item.label || "(unnamed rack)"}" is currently in ${where}. Assigning it to "${buildingName}" will move the rack and ${miners} out of ${where === "another site" ? "that site" : "that building"}.`;
 };

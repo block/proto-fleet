@@ -1,15 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { buildRackPickerItem, type RackPickerItem } from "../rackPickerItem";
+import { type ReparentedRack } from "../ManageBuildingModal/RackReparentWarningDialog";
+import { buildRackPickerItem, describeRackReassignment, type RackPickerItem } from "../rackPickerItem";
 import { reduceToSingleSelection } from "./singleSelect";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { type SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
+import { Alert, Info } from "@/shared/assets/icons";
+import Button, { variants } from "@/shared/components/Button";
+import Dialog from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import Switch from "@/shared/components/Switch";
 
 type SearchRackColumn = "name" | "building" | "status";
 
@@ -27,11 +32,16 @@ interface SearchRacksModalProps {
   // fallback; the fetch is always scoped. Per-row eligibility is still
   // computed against `siteId`.
   scope: SiteFilterFields;
+  // Broadened fetch scope used while "Show assigned racks" is ON, so
+  // already-placed racks surface for reparenting. See assignedRackScope.
+  assignedScope: SiteFilterFields;
+  buildingName: string;
   onDismiss: () => void;
-  // Returns a single chosen rack so the caller can add it to the working
-  // set and assign it to the cell that was selected when the popover
-  // opened.
-  onConfirm: (rackId: bigint, label: string) => void;
+  // Returns a single chosen rack so the caller can add it to the working set
+  // and assign it to the cell that was selected when the popover opened. When
+  // the chosen rack is currently placed elsewhere, `reparent` carries the
+  // reassignment info so the caller can gate the reparent confirm.
+  onConfirm: (rackId: bigint, label: string, reparent?: ReparentedRack) => void;
 }
 
 const colTitles: ColTitles<SearchRackColumn> = {
@@ -60,13 +70,28 @@ const activeCols: SearchRackColumn[] = ["name", "building", "status"];
 // Single-rack picker with a name filter — mirrors SearchMinersModal in the
 // rack-management feature. Picked rack is added to the building's working
 // set and assigned to whatever cell was selected when the popover opened.
-const SearchRacksModal = ({ open, siteId, currentBuildingId, scope, onDismiss, onConfirm }: SearchRacksModalProps) => {
+const SearchRacksModal = ({
+  open,
+  siteId,
+  currentBuildingId,
+  scope,
+  assignedScope,
+  buildingName,
+  onDismiss,
+  onConfirm,
+}: SearchRacksModalProps) => {
   const { listRacks } = useDeviceSets();
   const { listBuildingsBySite } = useBuildings();
   const [items, setItems] = useState<RackPickerItem[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [query, setQuery] = useState("");
+  // "Show assigned racks" — default off (assignable set only). On surfaces
+  // already-placed racks for reparenting, flagged and gated by a confirm.
+  const [showAssigned, setShowAssigned] = useState(false);
+  const [showAssignedInfo, setShowAssignedInfo] = useState(false);
+  const [conflictInfoItem, setConflictInfoItem] = useState<RackPickerItem | null>(null);
+  const activeScope = showAssigned ? assignedScope : scope;
   // Self-fetched building id → display label map for the Building
   // column. Mirrors ManageRacksModal so the two pickers stay aligned.
   const [buildingMap, setBuildingMap] = useState<Record<string, string>>({});
@@ -98,8 +123,8 @@ const SearchRacksModal = ({ open, siteId, currentBuildingId, scope, onDismiss, o
     if (!open) return;
     let cancelled = false;
     void listRacks({
-      siteIds: scope.siteIds,
-      includeUnassigned: scope.includeUnassigned,
+      siteIds: activeScope.siteIds,
+      includeUnassigned: activeScope.includeUnassigned,
       onSuccess: (racks) => {
         if (cancelled) return;
         const out: RackPickerItem[] = [];
@@ -119,26 +144,64 @@ const SearchRacksModal = ({ open, siteId, currentBuildingId, scope, onDismiss, o
     return () => {
       cancelled = true;
     };
-  }, [open, siteId, currentBuildingId, buildingMap, listRacks, scope.siteIds, scope.includeUnassigned]);
+  }, [open, siteId, currentBuildingId, buildingMap, listRacks, activeScope.siteIds, activeScope.includeUnassigned]);
 
-  const isRowDisabled = useCallback((item: RackPickerItem) => item.disabled, []);
+  // Reparent rows are selectable only while the toggle is on; otherwise nothing
+  // is disabled.
+  const isRowDisabled = useCallback((item: RackPickerItem) => item.disabled && !showAssigned, [showAssigned]);
 
   // Client-side filter on the rack label. Case-insensitive substring match —
-  // matches the SearchMinersModal feel without bringing in a fuzzy lib.
+  // matches the SearchMinersModal feel without bringing in a fuzzy lib. Toggle
+  // off also hides the ineligible (reparent) rows entirely.
   const filteredItems = useMemo(() => {
     if (!items) return [];
+    const base = showAssigned ? items : items.filter((i) => !i.reassignment);
     const q = query.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((i) => i.label.toLowerCase().includes(q));
-  }, [items, query]);
+    if (!q) return base;
+    return base.filter((i) => i.label.toLowerCase().includes(q));
+  }, [items, query, showAssigned]);
+
+  // Name column shows a warning icon on reparent rows while the toggle is on.
+  const listColConfig = useMemo<ColConfig<RackPickerItem, string, SearchRackColumn>>(() => {
+    if (!showAssigned) return colConfig;
+    return {
+      ...colConfig,
+      name: {
+        width: "min-w-32",
+        component: (item: RackPickerItem) => (
+          <div className="flex items-center justify-between gap-2">
+            <span>{item.label || "(unnamed rack)"}</span>
+            {item.reassignment ? (
+              <Button
+                variant={variants.textOnly}
+                textOnlyUnderlineOnHover={false}
+                ariaLabel="Reparent conflict — view details"
+                prefixIcon={<Alert className="text-text-emphasis" />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConflictInfoItem(item);
+                }}
+              />
+            ) : null}
+          </div>
+        ),
+      },
+    };
+  }, [showAssigned]);
 
   const handleConfirm = useCallback(() => {
     if (!items || selectedItems.length === 0) return;
     const id = selectedItems[0];
     const item = items.find((r) => r.id === id);
-    if (!item || item.disabled) return;
-    onConfirm(BigInt(id), item.label);
-  }, [items, selectedItems, onConfirm]);
+    if (!item) return;
+    // Block only rows the operator couldn't legitimately pick: an ineligible
+    // rack is pickable only with the toggle on (reparent flow).
+    if (item.disabled && !showAssigned) return;
+    const reparent: ReparentedRack | undefined = item.reassignment
+      ? { rackId: BigInt(id), label: item.label, minerCount: item.minerCount }
+      : undefined;
+    onConfirm(BigInt(id), item.label, reparent);
+  }, [items, selectedItems, showAssigned, onConfirm]);
 
   return (
     <Modal
@@ -182,7 +245,24 @@ const SearchRacksModal = ({ open, siteId, currentBuildingId, scope, onDismiss, o
             <List<RackPickerItem, string, SearchRackColumn>
               activeCols={activeCols}
               colTitles={colTitles}
-              colConfig={colConfig}
+              colConfig={listColConfig}
+              headerControls={
+                <div className="flex items-center gap-1 px-1">
+                  <Button
+                    variant={variants.textOnly}
+                    textOnlyUnderlineOnHover={false}
+                    ariaLabel="About “Show assigned racks”"
+                    prefixIcon={<Info className="text-text-primary-70" />}
+                    onClick={() => setShowAssignedInfo(true)}
+                  />
+                  <Switch
+                    label="Show assigned racks"
+                    ariaLabel="Show assigned racks"
+                    checked={showAssigned}
+                    setChecked={setShowAssigned}
+                  />
+                </div>
+              }
               items={filteredItems}
               itemKey="id"
               itemSelectable
@@ -201,6 +281,24 @@ const SearchRacksModal = ({ open, siteId, currentBuildingId, scope, onDismiss, o
             />
           </div>
         )}
+        {showAssignedInfo ? (
+          <Dialog
+            icon={<Info />}
+            title="Show assigned racks"
+            subtitle="Shows or hides racks that are already placed in another building or site. Assigning one of these racks to this building moves the rack — and every miner in it — out of its current placement."
+            onDismiss={() => setShowAssignedInfo(false)}
+            buttons={[{ text: "Got it", variant: variants.primary, onClick: () => setShowAssignedInfo(false) }]}
+          />
+        ) : null}
+        {conflictInfoItem ? (
+          <Dialog
+            icon={<Alert className="text-text-emphasis" />}
+            title="Reparent conflict"
+            subtitle={describeRackReassignment(conflictInfoItem, buildingName)}
+            onDismiss={() => setConflictInfoItem(null)}
+            buttons={[{ text: "Got it", variant: variants.primary, onClick: () => setConflictInfoItem(null) }]}
+          />
+        ) : null}
       </div>
     </Modal>
   );

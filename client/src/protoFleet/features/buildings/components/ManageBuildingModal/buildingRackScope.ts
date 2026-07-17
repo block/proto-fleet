@@ -23,3 +23,22 @@ export function buildingRackScope(buildingSiteId: bigint): SiteFilterFields {
     includeUnassigned: true,
   };
 }
+
+/** Broadened fetch scope used when the "Show assigned racks" toggle is ON, so
+ *  ineligible (already-placed) racks surface for reparenting. Mirrors the
+ *  miner-side global-vs-scoped model:
+ *    - header all-sites → global (unscoped) fetch → other-site racks surface
+ *      too (cross-site reparent).
+ *    - header scoped → the building-site scope, unchanged. That scope already
+ *      fetches the whole site (every building + site-unassigned), so the
+ *      same-site, other-building racks are already present — turning the toggle
+ *      on simply stops hiding them. No broader fetch is needed and there is no
+ *      cross-site reparent from a scoped header.
+ *
+ *  Relies on scope-sync (#764) keeping the header in agreement with the building
+ *  on the headerless detail routes, so no union / mismatch handling is needed:
+ *  a scoped header is guaranteed to equal the building's own site. */
+export function assignedRackScope(buildingSiteId: bigint, allSites: boolean): SiteFilterFields {
+  if (allSites) return { siteIds: [], includeUnassigned: false };
+  return buildingRackScope(buildingSiteId);
+}

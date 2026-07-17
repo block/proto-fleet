@@ -9,6 +9,11 @@ import { type RackPickerItem } from "../rackPickerItem";
 export interface RackSelectionDelta {
   added: { rackId: bigint; label: string }[];
   removed: bigint[];
+  // Subset of `added` that are being reparented — racks currently placed in
+  // another building or site, selectable only with the "Show assigned racks"
+  // toggle on. Empty on the default path. The host gates the reparent confirm
+  // on this before committing the working-set change.
+  reassigned: { rackId: bigint; label: string; minerCount: number }[];
 }
 
 // Compute the delta between the seeded selection (initial) and the
@@ -33,11 +38,18 @@ export const computeRackSelectionDelta = (
   const selectedSet = new Set(selectedItemIds);
 
   const added: { rackId: bigint; label: string }[] = [];
+  const reassigned: { rackId: bigint; label: string; minerCount: number }[] = [];
   for (const id of selectedItemIds) {
     if (initialSet.has(id)) continue;
     const item = items.find((r) => r.id === id);
-    if (!item || item.disabled) continue;
+    // Absent from items → can't act on it. A reassignment row is a legitimate
+    // add when the toggle surfaced it (it carries `reassignment`), so we no
+    // longer skip on `disabled` — we route it into `reassigned` for the confirm.
+    if (!item) continue;
     added.push({ rackId: BigInt(id), label: item.label });
+    if (item.reassignment) {
+      reassigned.push({ rackId: BigInt(id), label: item.label, minerCount: item.minerCount });
+    }
   }
 
   const removed: bigint[] = [];
@@ -48,5 +60,5 @@ export const computeRackSelectionDelta = (
     removed.push(id);
   }
 
-  return { added, removed };
+  return { added, removed, reassigned };
 };
