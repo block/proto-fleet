@@ -1634,6 +1634,9 @@ func (s *Service) applyBuildingRows(
 				return err
 			}
 		}
+		if err := s.enforceBuildingLayoutUnderLock(ctx, orgID, building.ID, aisles, racksPerAisle); err != nil {
+			return err
+		}
 		if _, err := s.buildingStore.UpdateBuilding(ctx, buildingmodels.UpdateParams{
 			OrgID:                 orgID,
 			ID:                    building.ID,
@@ -1759,22 +1762,29 @@ func (s *Service) applyRackRows(
 				return err
 			}
 		}
-		if err := s.collectionStore.UpdateRackInfo(ctx, rack.ID, finalZone, rowsValue, columnsValue, int32(orderIndex), int32(coolingType), orgID); err != nil {
-			return err
-		}
 		siteID, buildingID, err = s.lockPlacementParents(ctx, orgID, siteID, buildingID)
 		if err != nil {
+			return err
+		}
+		currentPlacement, err := s.collectionStore.LockRackPlacementForWrite(ctx, rack.ID, orgID)
+		if err != nil {
+			return err
+		}
+		if err := s.enforceRackDimensionsFitCurrentMembers(ctx, orgID, rack.ID, rowsValue, columnsValue); err != nil {
+			return err
+		}
+		if err := s.collectionStore.UpdateRackInfo(ctx, rack.ID, finalZone, rowsValue, columnsValue, int32(orderIndex), int32(coolingType), orgID); err != nil {
 			return err
 		}
 		if err := s.collectionStore.UpdateRackPlacement(ctx, rack.ID, orgID, siteID, buildingID, finalZone); err != nil {
 			return err
 		}
-		if !nullableInt64Equal(siteID, rack.SiteID) {
+		if !nullableInt64Equal(siteID, currentPlacement.SiteID) {
 			if _, err := s.collectionStore.CascadeRackDeviceSites(ctx, rack.ID, orgID, siteID); err != nil {
 				return err
 			}
 		}
-		if !nullableInt64Equal(buildingID, rack.BuildingID) {
+		if !nullableInt64Equal(buildingID, currentPlacement.BuildingID) {
 			if _, err := s.collectionStore.CascadeRackDeviceBuildings(ctx, rack.ID, orgID, buildingID); err != nil {
 				return err
 			}
@@ -1828,6 +1838,71 @@ func (s *Service) applyRackRows(
 		if err := s.buildingStore.SetRackBuildingPositionBulkPlace(ctx, orgID, placedRackIDs, aisleIndexes, positionsInAisle); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (s *Service) enforceBuildingLayoutUnderLock(ctx context.Context, orgID, buildingID int64, aisles, racksPerAisle int32) error {
+	if err := s.siteStore.LockBuildingForWrite(ctx, orgID, buildingID); err != nil {
+		return err
+	}
+	current, err := s.buildingStore.GetBuilding(ctx, orgID, buildingID)
+	if err != nil {
+		return err
+	}
+	if aisles < current.Aisles || racksPerAisle < current.RacksPerAisle {
+		orphans, err := s.buildingStore.ListRacksOutsideBuildingBounds(ctx, orgID, buildingID, aisles, racksPerAisle)
+		if err != nil {
+			return err
+		}
+		if len(orphans) > 0 {
+			rack := orphans[0]
+			return fleeterror.NewInvalidArgumentErrorf(
+				"cannot shrink layout: rack %q is at aisle %d, position %d which is outside the new %d aisles x %d racks-per-aisle bounds; unplace it first",
+				rack.RackLabel, *rack.AisleIndex+1, *rack.PositionInAisle+1, aisles, racksPerAisle,
+			)
+		}
+	}
+	if capacity := int64(aisles) * int64(racksPerAisle); capacity > 0 {
+		members, err := s.buildingStore.CountRacksInBuilding(ctx, orgID, buildingID)
+		if err != nil {
+			return err
+		}
+		if members > capacity {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"cannot apply layout: building has %d racks but the new %d aisles x %d racks-per-aisle grid holds only %d; unassign some racks first",
+				members, aisles, racksPerAisle, capacity,
+			)
+		}
+	}
+	return nil
+}
+
+func (s *Service) enforceRackDimensionsFitCurrentMembers(ctx context.Context, orgID, rackID int64, rows, columns int32) error {
+	slots, err := s.collectionStore.GetRackSlots(ctx, rackID, orgID)
+	if err != nil {
+		return err
+	}
+	for _, slot := range slots {
+		if slot.GetPosition() == nil {
+			continue
+		}
+		if slot.GetPosition().GetRow() >= rows || slot.GetPosition().GetColumn() >= columns {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"cannot resize rack to %dx%d: an assigned miner's slot falls outside the smaller grid; remove miners or choose a larger size",
+				rows, columns,
+			)
+		}
+	}
+	collection, err := s.collectionStore.GetCollection(ctx, orgID, rackID)
+	if err != nil {
+		return err
+	}
+	if capacity := int64(rows) * int64(columns); int64(collection.GetDeviceCount()) > capacity {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"cannot resize rack to %d slot(s): %d miner(s) are currently assigned; remove miners or choose a larger size",
+			capacity, collection.GetDeviceCount(),
+		)
 	}
 	return nil
 }
@@ -3681,7 +3756,9 @@ func countSiteUpdates(rows []map[string]string, sites []sitemodels.Site) int32 {
 func countBuildingUpdates(rows []map[string]string, buildings []buildingmodels.Building) int32 {
 	existing := map[string]map[string]string{}
 	for _, building := range buildings {
-		existing[buildingIdentity(building)] = rowMap(buildingHeaders, buildingRawRows([]buildingmodels.Building{building})[0])
+		row := rowMap(buildingHeaders, buildingRawRows([]buildingmodels.Building{building})[0])
+		existing[buildingIdentity(building)] = row
+		existing["name:"+building.SiteLabel+"\x00"+building.Name] = row
 	}
 	return countExistingRowUpdatesByIdentity(rows, existing, buildingRowIdentity, buildingHeaders)
 }
@@ -3689,7 +3766,9 @@ func countBuildingUpdates(rows []map[string]string, buildings []buildingmodels.B
 func countRackUpdates(rows []map[string]string, racks []rackSnapshot) int32 {
 	existing := map[string]map[string]string{}
 	for _, rack := range racks {
-		existing[rackIdentity(rack)] = rowMap(rackHeaders, rackRawRows([]rackSnapshot{rack})[0])
+		row := rowMap(rackHeaders, rackRawRows([]rackSnapshot{rack})[0])
+		existing[rackIdentity(rack)] = row
+		existing["label:"+rack.Label] = row
 	}
 	return countExistingRowUpdatesByIdentity(rows, existing, rackRowIdentity, rackHeaders)
 }

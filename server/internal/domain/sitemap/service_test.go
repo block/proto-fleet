@@ -1066,6 +1066,9 @@ func TestApplyBuildingRowsMovesBeforeRename(t *testing.T) {
 		siteStore.EXPECT().ReassignRacksUnderBuildingsBulk(ctx, orgID, buildingIDs, &newSiteID).Return(int64(0), nil),
 		siteStore.EXPECT().ReassignDevicesUnderBuildingsBulk(ctx, orgID, buildingIDs, &newSiteID).Return(int64(0), nil),
 		buildingStore.EXPECT().CascadeDirectDeviceSitesByBuildings(ctx, orgID, buildingIDs, &newSiteID).Return(int64(0), nil),
+		siteStore.EXPECT().LockBuildingForWrite(ctx, orgID, buildingID).Return(nil),
+		buildingStore.EXPECT().GetBuilding(ctx, orgID, buildingID).Return(&buildingmodels.Building{ID: buildingID, Name: "Old Name", Aisles: 1, RacksPerAisle: 2}, nil),
+		buildingStore.EXPECT().CountRacksInBuilding(ctx, orgID, buildingID).Return(int64(0), nil),
 		buildingStore.EXPECT().UpdateBuilding(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, params buildingmodels.UpdateParams) (*buildingmodels.Building, error) {
 			if params.Name != "Target Name" {
 				t.Fatalf("name = %q, want Target Name", params.Name)
@@ -1084,6 +1087,41 @@ func TestApplyBuildingRowsMovesBeforeRename(t *testing.T) {
 		map[int64]buildingmodels.Building{buildingID: building},
 	); err != nil {
 		t.Fatalf("applyBuildingRows error = %v", err)
+	}
+}
+
+func TestApplyBuildingRowsRechecksLayoutUnderLock(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	orgID := int64(42)
+	buildingID := int64(10)
+	aisle := int32(1)
+	position := int32(0)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	svc := NewService(siteStore, buildingStore, nil, nil, nil, nil, nil)
+	building := buildingmodels.Building{ID: buildingID, Name: "Building A", Aisles: 2, RacksPerAisle: 1}
+	rows := []map[string]string{{
+		fieldID:           "10",
+		fieldName:         "Building A",
+		"aisles":          "1",
+		"racks_per_aisle": "1",
+	}}
+
+	gomock.InOrder(
+		siteStore.EXPECT().LockBuildingForWrite(ctx, orgID, buildingID).Return(nil),
+		buildingStore.EXPECT().GetBuilding(ctx, orgID, buildingID).Return(&building, nil),
+		buildingStore.EXPECT().ListRacksOutsideBuildingBounds(ctx, orgID, buildingID, int32(1), int32(1)).Return([]buildingmodels.BuildingRack{{
+			RackID:          20,
+			RackLabel:       "Rack A",
+			AisleIndex:      &aisle,
+			PositionInAisle: &position,
+		}}, nil),
+	)
+
+	err := svc.applyBuildingRows(ctx, orgID, rows, nil, nil, map[string]buildingmodels.Building{"\x00Building A": building}, map[int64]buildingmodels.Building{buildingID: building})
+	if err == nil || !strings.Contains(err.Error(), "cannot shrink layout") {
+		t.Fatalf("applyBuildingRows error = %v, want shrink-layout rejection", err)
 	}
 }
 
@@ -1126,6 +1164,37 @@ func TestApplyRackRowsUsesCurrentLockedBuildingSite(t *testing.T) {
 
 	if err := svc.applyRackRows(ctx, orgID, rows, nil, map[int64]sitemodels.Site{staleSiteID: {ID: staleSiteID, Name: "Old Site"}}, nil, map[int64]buildingmodels.Building{buildingID: {ID: buildingID, Name: "Building A", SiteID: &staleSiteID}}, map[string]rackSnapshot{}, map[int64]rackSnapshot{}); err != nil {
 		t.Fatalf("applyRackRows error = %v", err)
+	}
+}
+
+func TestApplyRackRowsRechecksDimensionsUnderRackLock(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	orgID := int64(42)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	collectionStore := mocks.NewMockCollectionStore(ctrl)
+	svc := NewService(siteStore, buildingStore, collectionStore, nil, nil, nil, nil)
+	rows := []map[string]string{{
+		fieldID:       "20",
+		fieldLabel:    "Rack A",
+		"rows":        "1",
+		"columns":     "1",
+		"order_index": "BOTTOM_LEFT",
+	}}
+	rack := rackSnapshot{ID: 20, Label: "Rack A", Rows: 4, Columns: 6, OrderIndex: "BOTTOM_LEFT"}
+
+	gomock.InOrder(
+		collectionStore.EXPECT().LockRackPlacementForWrite(ctx, int64(20), orgID).Return(interfaces.RackPlacement{}, nil),
+		collectionStore.EXPECT().GetRackSlots(ctx, int64(20), orgID).Return([]*collectionpb.RackSlot{{
+			DeviceIdentifier: "miner-1",
+			Position:         &collectionpb.RackSlotPosition{Row: 1, Column: 0},
+		}}, nil),
+	)
+
+	err := svc.applyRackRows(ctx, orgID, rows, nil, nil, nil, nil, map[string]rackSnapshot{"Rack A": rack}, map[int64]rackSnapshot{20: rack})
+	if err == nil || !strings.Contains(err.Error(), "cannot resize rack") {
+		t.Fatalf("applyRackRows error = %v, want resize rejection", err)
 	}
 }
 
@@ -1307,6 +1376,35 @@ func TestValidateSlotConflictsWithExistingNormalizesCoordinates(t *testing.T) {
 	errs := validateSlotConflictsWithExisting(rows, nil, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
 	if len(errs) != 1 || errs[0].GetRow() != 21 || errs[0].GetMessage() != "rack slot already occupied by miner miner-2" {
 		t.Fatalf("errors = %+v, want normalized existing slot conflict", errs)
+	}
+}
+
+func TestCountBuildingUpdatesMatchesBlankIDExistingRowsByName(t *testing.T) {
+	rows := []map[string]string{{
+		fieldName:         "Building A",
+		fieldSite:         "Site A",
+		"aisles":          "2",
+		"racks_per_aisle": "2",
+	}}
+	siteID := int64(10)
+	buildings := []buildingmodels.Building{{ID: 20, SiteID: &siteID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 2}}
+
+	if got := countBuildingUpdates(rows, buildings); got != 1 {
+		t.Fatalf("countBuildingUpdates = %d, want blank-ID existing row update counted", got)
+	}
+}
+
+func TestCountRackUpdatesMatchesBlankIDExistingRowsByLabel(t *testing.T) {
+	rows := []map[string]string{{
+		fieldLabel:    "Rack A",
+		"rows":        "4",
+		"columns":     "8",
+		"order_index": "BOTTOM_LEFT",
+	}}
+	racks := []rackSnapshot{{ID: 20, Label: "Rack A", Rows: 4, Columns: 6, OrderIndex: "BOTTOM_LEFT"}}
+
+	if got := countRackUpdates(rows, racks); got != 1 {
+		t.Fatalf("countRackUpdates = %d, want blank-ID existing row update counted", got)
 	}
 }
 
