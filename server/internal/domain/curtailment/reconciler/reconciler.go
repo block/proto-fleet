@@ -882,13 +882,11 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 			return false
 		}
 		desiredPower = driver.PowerOn
-	} else if ev.FanOffSentAt == nil {
-		if ev.StartedAt == nil || now.Before(ev.StartedAt.Add(time.Duration(ev.FanOffDelaySec)*time.Second)) {
-			return false
-		}
-	} else if ev.FanAirflowReopenedAt != nil && now.Before(ev.FanAirflowReopenedAt.Add(time.Duration(ev.FanOffDelaySec)*time.Second)) {
-		// Dynamic admission or drift reopened airflow. Honor the same cooling
-		// delay after the latest ON re-assertion before stopping fans again.
+	} else if (ev.FanOffSentAt == nil || ev.FanAirflowReopenedAt != nil) &&
+		!activeFanOffDelayElapsed(ev, targets, now) {
+		// Initial curtailment, dynamic admission, and drift all start their
+		// cooling delay only after the latest miner confirmation. A later
+		// airflow-reopen command remains the lower bound when applicable.
 		return false
 	}
 
@@ -957,6 +955,32 @@ func activeFanTargetConfirmation(targets []*models.Target) (confirmed int, allCo
 		confirmed++
 	}
 	return confirmed, allConfirmed
+}
+
+func activeFanOffDelayElapsed(ev *models.Event, targets []*models.Target, now time.Time) bool {
+	if ev.FanOffDelaySec <= 0 {
+		return true
+	}
+	var latestConfirmation *time.Time
+	for _, target := range targets {
+		if target.DesiredState != "" && target.DesiredState != models.DesiredStateCurtailed {
+			continue
+		}
+		if target.State != models.TargetStateConfirmed || target.ConfirmedAt == nil {
+			return false
+		}
+		if latestConfirmation == nil || target.ConfirmedAt.After(*latestConfirmation) {
+			latestConfirmation = target.ConfirmedAt
+		}
+	}
+	if latestConfirmation == nil {
+		return false
+	}
+	delayStartedAt := *latestConfirmation
+	if ev.FanAirflowReopenedAt != nil && ev.FanAirflowReopenedAt.After(delayStartedAt) {
+		delayStartedAt = *ev.FanAirflowReopenedAt
+	}
+	return !now.Before(delayStartedAt.Add(time.Duration(ev.FanOffDelaySec) * time.Second))
 }
 
 func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *models.Event, existingTargets []*models.Target) []*models.Target {

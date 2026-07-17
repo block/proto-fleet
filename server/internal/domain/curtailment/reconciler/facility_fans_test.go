@@ -13,18 +13,22 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
 )
 
-func TestReconciler_ActiveFanOffWaitsForDelayAndConfirmedTargetsThenReasserts(t *testing.T) {
+func TestReconciler_ClosedLoopFanOffDelayStartsAtFirstTargetConfirmation(t *testing.T) {
 	store := newFakeStore()
 	dispatcher := &fakeDispatcher{}
 	fans := &fakeFanController{}
 	r := newReconcilerWithFansForTest(store, dispatcher, fans)
 
-	startedAt := r.now().Add(-29 * time.Second)
+	startedAt := r.now().Add(-time.Hour)
+	confirmedAt := r.now().Add(-29 * time.Second)
 	event := &models.Event{
 		ID:                   81,
 		EventUUID:            uuid.New(),
 		OrgID:                1,
 		State:                models.EventStateActive,
+		Mode:                 models.ModeFullFleet,
+		LoopType:             models.LoopTypeClosed,
+		ScopeType:            models.ScopeTypeWholeOrg,
 		StartedAt:            &startedAt,
 		FacilityFanDeviceIDs: []int64{31},
 		FanOffDelaySec:       30,
@@ -35,6 +39,7 @@ func TestReconciler_ActiveFanOffWaitsForDelayAndConfirmedTargetsThenReasserts(t 
 		DeviceIdentifier:   "miner-1",
 		DesiredState:       models.DesiredStateCurtailed,
 		State:              models.TargetStateConfirmed,
+		ConfirmedAt:        &confirmedAt,
 		BaselinePowerW:     ptrFloat64(3000),
 	}}
 	store.candidates = []*models.Candidate{{
@@ -47,7 +52,7 @@ func TestReconciler_ActiveFanOffWaitsForDelayAndConfirmedTargetsThenReasserts(t 
 	assert.Empty(t, fans.powers)
 	assert.Nil(t, event.FanOffSentAt)
 
-	startedAt = r.now().Add(-30 * time.Second)
+	confirmedAt = r.now().Add(-30 * time.Second)
 	r.runTick(context.Background())
 	require.Equal(t, []driver.PowerMode{driver.PowerOff}, fans.powers)
 	require.NotNil(t, event.FanOffSentAt)
@@ -108,6 +113,7 @@ func TestReconciler_ClosedLoopReopensFansBeforeDispatchingNewTarget(t *testing.T
 		DeviceIdentifier:   "miner-existing",
 		DesiredState:       models.DesiredStateCurtailed,
 		State:              models.TargetStateConfirmed,
+		ConfirmedAt:        &startedAt,
 		BaselinePowerW:     ptrFloat64(3000),
 	}}
 	driverName := "antminer"
