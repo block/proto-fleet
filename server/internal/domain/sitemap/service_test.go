@@ -463,6 +463,36 @@ func TestBuildPlanRejectsTransientBuildingMoveRenameCollisions(t *testing.T) {
 	}
 }
 
+func TestBuildPlanRejectsSameSiteBuildingRenameSwaps(t *testing.T) {
+	siteID := int64(1)
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": {
+			{"__row": "3", fieldID: "1", fieldName: "Site A"},
+		},
+		"BUILDING": {
+			{"__row": "7", fieldID: "10", fieldName: "Building Y", fieldSite: "Site A", "aisles": "1", "racks_per_aisle": "1"},
+			{"__row": "8", fieldID: "11", fieldName: "Building X", fieldSite: "Site A", "aisles": "1", "racks_per_aisle": "1"},
+		},
+		"RACK":  nil,
+		"MINER": nil,
+	}}
+	snap := &snapshot{
+		sites: []sitemodels.Site{{ID: siteID, Name: "Site A"}},
+		buildings: []buildingmodels.Building{
+			{ID: 10, SiteID: &siteID, SiteLabel: "Site A", Name: "Building X", Aisles: 1, RacksPerAisle: 1},
+			{ID: 11, SiteID: &siteID, SiteLabel: "Site A", Name: "Building Y", Aisles: 1, RacksPerAisle: 1},
+		},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if !hasValidationError(plan.errors, "BUILDING", `building rename target "Site A"/"Building Y" is currently used by building_id 11`) {
+		t.Fatalf("plan errors = %+v, want first transient building rename collision", plan.errors)
+	}
+	if !hasValidationError(plan.errors, "BUILDING", `building rename target "Site A"/"Building X" is currently used by building_id 10`) {
+		t.Fatalf("plan errors = %+v, want reciprocal transient building rename collision", plan.errors)
+	}
+}
+
 func TestBuildPlanRejectsTransientRackLabelCollisions(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE":     nil,
@@ -2372,6 +2402,30 @@ func TestValidateBuildingRackCapacitySeparatesIDQualifiedDuplicateBuildings(t *t
 	errs := validateBuildingRackCapacity(rackRows, buildingRows, snap)
 	if len(errs) != 0 {
 		t.Fatalf("errors = %+v, want ID-qualified duplicate buildings counted separately", errs)
+	}
+}
+
+func TestValidateBuildingRackCapacityResolvesNameOnlyRackBuildingIDs(t *testing.T) {
+	buildingID := int64(10)
+	rackRows := []map[string]string{
+		{fieldSite: "Site A", fieldBuilding: "Building A", fieldLabel: "Rack A"},
+		{fieldSite: "Site A", fieldBuilding: "Building A", fieldLabel: "Rack B"},
+	}
+	buildingRows := []map[string]string{
+		{fieldID: "10", fieldSite: "Site A", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "1"},
+	}
+	snap := &snapshot{
+		buildings: []buildingmodels.Building{
+			{ID: buildingID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 1},
+		},
+		racks: []rackSnapshot{
+			{ID: 20, Label: "Rack A", Site: "Site A", BuildingID: &buildingID, Building: "Building A"},
+		},
+	}
+
+	errs := validateBuildingRackCapacity(rackRows, buildingRows, snap)
+	if len(errs) != 1 || errs[0].GetSection() != "RACK" {
+		t.Fatalf("errors = %+v, want name-only rack rows counted against building_id capacity", errs)
 	}
 }
 
