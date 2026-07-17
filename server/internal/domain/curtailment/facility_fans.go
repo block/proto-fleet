@@ -53,8 +53,15 @@ func (c *facilityFanController) SetState(ctx context.Context, event *models.Even
 	}
 
 	logFailure := shouldLogFacilityFanFailure(event, power)
+	if len(event.FacilityFanSiteIDs) != len(event.FacilityFanDeviceIDs) {
+		message := "facility fan authorization snapshot is invalid"
+		if logFailure {
+			c.logFailure(ctx, event, power, message)
+		}
+		return &message
+	}
 	errorsByDevice := make([]string, 0)
-	for _, deviceID := range event.FacilityFanDeviceIDs {
+	for index, deviceID := range event.FacilityFanDeviceIDs {
 		device, err := c.devices.GetInfrastructureDevice(ctx, event.OrgID, deviceID)
 		if err != nil {
 			if fleeterror.IsNotFoundError(err) {
@@ -62,6 +69,10 @@ func (c *facilityFanController) SetState(ctx context.Context, event *models.Even
 				continue
 			}
 			errorsByDevice = append(errorsByDevice, fmt.Sprintf("device %d: lookup failed", deviceID))
+			continue
+		}
+		if device.SiteID != event.FacilityFanSiteIDs[index] {
+			errorsByDevice = append(errorsByDevice, fmt.Sprintf("device %d: site changed since curtailment started", device.ID))
 			continue
 		}
 		if !device.Enabled {
@@ -111,6 +122,12 @@ func shouldLogFacilityFanFailure(event *models.Event, power driver.PowerMode) bo
 	case driver.PowerOff:
 		return event.FanLastError == nil
 	case driver.PowerOn:
+		if event.State == models.EventStateActive {
+			// Active closed-loop admission may temporarily reopen airflow without
+			// stamping the restore-phase timestamp. Deduplicate those retries by
+			// durable error state instead of logging on every reconciler tick.
+			return event.FanLastError == nil
+		}
 		// A failed OFF phase may leave FanLastError populated. The first ON
 		// failure is a distinct recovery incident and must receive its own
 		// audit row; later failures in either phase remain deduplicated until

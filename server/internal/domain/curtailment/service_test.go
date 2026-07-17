@@ -149,6 +149,7 @@ func TestFacilityFanController_MissingOrDisabledClaimIsFailureOncePerPowerPhase(
 	const (
 		orgID    = int64(42)
 		deviceID = int64(501)
+		siteID   = int64(601)
 	)
 	tests := []struct {
 		name   string
@@ -163,7 +164,7 @@ func TestFacilityFanController_MissingOrDisabledClaimIsFailureOncePerPowerPhase(
 		},
 		{
 			name:   "disabled device",
-			device: &infrastructuremodels.Device{ID: deviceID},
+			device: &infrastructuremodels.Device{ID: deviceID, SiteID: siteID},
 			reason: "device is disabled",
 		},
 	}
@@ -184,6 +185,7 @@ func TestFacilityFanController_MissingOrDisabledClaimIsFailureOncePerPowerPhase(
 				EventUUID:            uuid.New(),
 				OrgID:                orgID,
 				FacilityFanDeviceIDs: []int64{deviceID},
+				FacilityFanSiteIDs:   []int64{siteID},
 			}
 
 			offFailure := controller.SetState(t.Context(), event, driver.PowerOff)
@@ -208,6 +210,40 @@ func TestFacilityFanController_MissingOrDisabledClaimIsFailureOncePerPowerPhase(
 			assert.Contains(t, *audit.events[1].ErrorMessage, tt.reason)
 		})
 	}
+}
+
+func TestFacilityFanController_RejectsDeviceMovedFromAuthorizedSite(t *testing.T) {
+	t.Parallel()
+
+	const (
+		orgID          = int64(42)
+		deviceID       = int64(501)
+		authorizedSite = int64(601)
+		currentSite    = int64(602)
+	)
+	ctrl := gomock.NewController(t)
+	devices := storemocks.NewMockInfrastructureDeviceStore(ctrl)
+	sites := storemocks.NewMockSiteStore(ctrl)
+	devices.EXPECT().
+		GetInfrastructureDevice(gomock.Any(), orgID, deviceID).
+		Return(&infrastructuremodels.Device{ID: deviceID, OrgID: orgID, SiteID: currentSite, Enabled: true}, nil)
+	audit := &recordingAudit{}
+	controller := NewFacilityFanController(devices, sites, driver.NewRegistry(), audit)
+	event := &models.Event{
+		EventUUID:            uuid.New(),
+		OrgID:                orgID,
+		State:                models.EventStateCompletedWithFailures,
+		FacilityFanDeviceIDs: []int64{deviceID},
+		FacilityFanSiteIDs:   []int64{authorizedSite},
+	}
+
+	failure := controller.SetState(t.Context(), event, driver.PowerOn)
+
+	require.NotNil(t, failure)
+	assert.Contains(t, *failure, "site changed since curtailment started")
+	require.Len(t, audit.events, 1)
+	require.NotNil(t, audit.events[0].ErrorMessage)
+	assert.Contains(t, *audit.events[0].ErrorMessage, "site changed since curtailment started")
 }
 
 func TestShouldLogFacilityFanFailureGatesEachPowerPhase(t *testing.T) {

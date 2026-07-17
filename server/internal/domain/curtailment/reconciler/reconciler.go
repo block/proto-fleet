@@ -723,6 +723,7 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 		return
 	}
 	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
+	airflowReopened := false
 	if len(targets) > 0 {
 		deviceIDs := make([]string, 0, len(targets))
 		for _, t := range targets {
@@ -792,39 +793,40 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 					// below. Terminal states are restorer-owned.
 				}
 			}
+			if activeFanTargetsNeedAirflow(ev, targets) {
+				r.reconcileActiveFans(ctx, ev, targets)
+				airflowReopened = true
+			}
 			r.dispatchPendingCurtailBatches(cmdCtx, ev, targets)
 		}
 	}
 	claimed := r.claimClosedLoopFullFleetTargets(ctx, ev, targets)
+	if len(claimed) > 0 && !airflowReopened && ev.FanOffSentAt != nil {
+		// A closed-loop event may discover a hashing miner after airflow was
+		// stopped. Reopen the fans while the new target is still undispatched;
+		// later ticks keep them ON until every admitted target confirms curtailment.
+		r.reconcileActiveFans(ctx, ev, append(targets, claimed...))
+		airflowReopened = true
+	}
 	r.dispatchClaimedCurtailTargets(cmdCtx, ev, claimed)
-	r.reconcileActiveFans(ctx, ev, append(targets, claimed...))
+	if !airflowReopened {
+		r.reconcileActiveFans(ctx, ev, append(targets, claimed...))
+	}
 }
 
 func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, targets []*models.Target) {
 	if r.fans == nil || r.fanStore == nil || ev == nil || len(ev.FacilityFanDeviceIDs) == 0 {
 		return
 	}
-	if ev.FanOffSentAt == nil {
-		if ev.StartedAt == nil || r.now().Before(ev.StartedAt.Add(time.Duration(ev.FanOffDelaySec)*time.Second)) {
+	confirmed, allConfirmed := activeFanTargetConfirmation(targets)
+	desiredPower := driver.PowerOff
+	if !allConfirmed || confirmed == 0 {
+		if ev.FanOffSentAt == nil {
 			return
 		}
-		confirmed := 0
-		for _, target := range targets {
-			if target.DesiredState != "" && target.DesiredState != models.DesiredStateCurtailed {
-				continue
-			}
-			// Only a confirmed curtailment supplies positive evidence that a
-			// potentially powered miner is no longer hashing. Unavailable and
-			// other terminal bookkeeping states may represent a miner that never
-			// received a curtail command, so they must continue to hold this gate.
-			if target.State != models.TargetStateConfirmed {
-				return
-			}
-			confirmed++
-		}
-		// A targetless closed-loop watcher must not turn fans off before it
-		// admits and confirms at least one miner.
-		if confirmed == 0 {
+		desiredPower = driver.PowerOn
+	} else if ev.FanOffSentAt == nil {
+		if ev.StartedAt == nil || r.now().Before(ev.StartedAt.Add(time.Duration(ev.FanOffDelaySec)*time.Second)) {
 			return
 		}
 	}
@@ -833,22 +835,49 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 	params := interfaces.UpdateCurtailmentFanStateParams{
 		ExpectedEventState: models.EventStateActive,
 	}
-	if ev.FanOffSentAt == nil {
+	if desiredPower == driver.PowerOff && ev.FanOffSentAt == nil {
 		params.FanOffSentAt = &now
 	}
 	lastError, err := r.fanStore.CommandFanState(ctx, ev.ID, params, func(commandCtx context.Context) *string {
-		return r.fans.SetState(commandCtx, ev, driver.PowerOff)
+		return r.fans.SetState(commandCtx, ev, desiredPower)
 	})
 	if err != nil {
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-			slog.Error("curtailment reconciler: facility fan OFF state update failed", "event_id", ev.ID, "error", err)
+			slog.Error("curtailment reconciler: facility fan state update failed", "event_id", ev.ID, "power", desiredPower, "error", err)
 		}
 		return
 	}
-	if ev.FanOffSentAt == nil {
+	if desiredPower == driver.PowerOff && ev.FanOffSentAt == nil {
 		ev.FanOffSentAt = &now
 	}
 	ev.FanLastError = lastError
+}
+
+func activeFanTargetsNeedAirflow(ev *models.Event, targets []*models.Target) bool {
+	if ev == nil || ev.FanOffSentAt == nil {
+		return false
+	}
+	confirmed, allConfirmed := activeFanTargetConfirmation(targets)
+	return !allConfirmed || confirmed == 0
+}
+
+func activeFanTargetConfirmation(targets []*models.Target) (confirmed int, allConfirmed bool) {
+	allConfirmed = true
+	for _, target := range targets {
+		if target.DesiredState != "" && target.DesiredState != models.DesiredStateCurtailed {
+			continue
+		}
+		// Only a confirmed curtailment supplies positive evidence that a
+		// potentially powered miner is no longer hashing. Unavailable and
+		// other terminal bookkeeping states may represent a miner that never
+		// received a curtail command, so they must keep airflow open.
+		if target.State != models.TargetStateConfirmed {
+			allConfirmed = false
+			continue
+		}
+		confirmed++
+	}
+	return confirmed, allConfirmed
 }
 
 func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *models.Event, existingTargets []*models.Target) []*models.Target {

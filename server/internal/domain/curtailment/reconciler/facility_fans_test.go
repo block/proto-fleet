@@ -80,6 +80,81 @@ func TestReconciler_ActiveFanOffDoesNotUseTargetlessClosedLoopWatcher(t *testing
 	assert.Nil(t, event.FanOffSentAt)
 }
 
+func TestReconciler_ClosedLoopReopensFansBeforeDispatchingNewTarget(t *testing.T) {
+	store := newFakeStore()
+	dispatcher := &fakeDispatcher{}
+	fans := &fakeFanController{}
+	r := newReconcilerWithFansForTest(store, dispatcher, fans)
+
+	startedAt := r.now().Add(-time.Minute)
+	fanOffAt := r.now().Add(-30 * time.Second)
+	event := &models.Event{
+		ID:                   86,
+		EventUUID:            uuid.New(),
+		OrgID:                1,
+		State:                models.EventStateActive,
+		Mode:                 models.ModeFullFleet,
+		LoopType:             models.LoopTypeClosed,
+		ScopeType:            models.ScopeTypeWholeOrg,
+		StartedAt:            &startedAt,
+		FacilityFanDeviceIDs: []int64{31},
+		FanOffSentAt:         &fanOffAt,
+	}
+	store.events = []*models.Event{event}
+	store.targetsByEventID[event.ID] = []*models.Target{{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "miner-existing",
+		DesiredState:       models.DesiredStateCurtailed,
+		State:              models.TargetStateConfirmed,
+		BaselinePowerW:     ptrFloat64(3000),
+	}}
+	driverName := "antminer"
+	metricsAt := r.now()
+	newCandidate := &models.Candidate{
+		DeviceIdentifier: "miner-new",
+		DriverName:       &driverName,
+		DeviceStatus:     "ACTIVE",
+		PairingStatus:    "PAIRED",
+		LatestMetricsAt:  &metricsAt,
+		LatestPowerW:     ptrFloat64(3000),
+		LatestHashRateHS: ptrFloat64(100),
+		AvgEfficiencyJH:  ptrFloat64(40),
+	}
+	store.candidates = []*models.Candidate{
+		{
+			DeviceIdentifier: "miner-existing",
+			DriverName:       &driverName,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &metricsAt,
+			LatestPowerW:     ptrFloat64(50),
+			LatestHashRateHS: ptrFloat64(0),
+			AvgEfficiencyJH:  ptrFloat64(40),
+		},
+		newCandidate,
+	}
+	dispatcher.curtailHook = func(ids []string) {
+		assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers,
+			"airflow must reopen before the newly admitted miner is dispatched")
+		assert.Equal(t, []string{"miner-new"}, ids)
+	}
+
+	r.runTick(context.Background())
+
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	assert.Equal(t, 1, dispatcher.curtailCalls)
+	require.Len(t, store.targetsByEventID[event.ID], 2)
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[event.ID][1].State)
+
+	newCandidate.LatestPowerW = ptrFloat64(50)
+	newCandidate.LatestHashRateHS = ptrFloat64(0)
+	r.runTick(context.Background())
+
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn, driver.PowerOff}, fans.powers,
+		"fans may turn off again only after the admitted target confirms curtailment")
+	assert.Equal(t, models.TargetStateConfirmed, store.targetsByEventID[event.ID][1].State)
+}
+
 func TestReconciler_ActiveFanOffWaitsWhenUnavailableMinerMayStillBeHashing(t *testing.T) {
 	store := newFakeStore()
 	fans := &fakeFanController{}
