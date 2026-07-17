@@ -288,6 +288,27 @@ func (s *SQLSiteStore) CountResponseProfilesByInfrastructureDevices(ctx context.
 	return count, nil
 }
 
+func (s *SQLSiteStore) CountActiveCurtailmentEventsByInfrastructureDevices(
+	ctx context.Context,
+	orgID int64,
+	ids []int64,
+) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	count, err := s.GetQueries(ctx).CountActiveCurtailmentEventsByInfrastructureDevices(
+		ctx,
+		sqlc.CountActiveCurtailmentEventsByInfrastructureDevicesParams{
+			OrgID:                   orgID,
+			InfrastructureDeviceIds: ids,
+		},
+	)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count active curtailment events by infrastructure devices: %v", err)
+	}
+	return count, nil
+}
+
 func (s *SQLSiteStore) UnassignRacksFromSite(ctx context.Context, orgID, siteID int64) (int64, error) {
 	rowsAffected, err := s.GetQueries(ctx).UnassignRacksFromSite(ctx, sqlc.UnassignRacksFromSiteParams{
 		OrgID:  orgID,

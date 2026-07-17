@@ -206,6 +206,19 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 					"infrastructure device is referenced by curtailment response profiles; update those profiles before moving it",
 				)
 			}
+			activeEventCount, err := s.store.CountActiveCurtailmentEventsByInfrastructureDevice(
+				txCtx,
+				params.OrgID,
+				params.ID,
+			)
+			if err != nil {
+				return err
+			}
+			if activeEventCount > 0 {
+				return fleeterror.NewFailedPreconditionError(
+					"infrastructure device is claimed by an active curtailment event; wait for the event to finish before moving it",
+				)
+			}
 		}
 		device, err := s.store.UpdateInfrastructureDevice(txCtx, params)
 		if err != nil {
@@ -241,6 +254,15 @@ func (s *Service) Delete(ctx context.Context, orgID, id, expectedSiteID int64) e
 		if profileCount > 0 {
 			return fleeterror.NewFailedPreconditionError(
 				"infrastructure device is referenced by curtailment response profiles; update those profiles first",
+			)
+		}
+		activeEventCount, err := s.store.CountActiveCurtailmentEventsByInfrastructureDevice(txCtx, orgID, id)
+		if err != nil {
+			return err
+		}
+		if activeEventCount > 0 {
+			return fleeterror.NewFailedPreconditionError(
+				"infrastructure device is claimed by an active curtailment event; wait for the event to finish before deleting it",
 			)
 		}
 		device, found, err := s.store.SoftDeleteInfrastructureDevice(txCtx, orgID, id, expectedSiteID)

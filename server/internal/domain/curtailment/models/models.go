@@ -254,6 +254,13 @@ type Event struct {
 	IncludeMaintenance          bool
 	ForceIncludeMaintenance     bool
 	ForceIncludeAllPairedMiners bool
+	FacilityFanDeviceIDs        []int64
+	FacilityFanSiteIDs          []int64
+	FanOffDelaySec              int32
+	FanRestoreDelaySec          int32
+	FanOffSentAt                *time.Time
+	FanOnSentAt                 *time.Time
+	FanLastError                *string
 	DecisionSnapshotJSON        []byte
 	SourceActorType             SourceActorType
 	SourceActorID               *string
@@ -337,15 +344,22 @@ type InsertEventParams struct {
 	IncludeMaintenance          bool
 	ForceIncludeMaintenance     bool
 	ForceIncludeAllPairedMiners bool
-	DecisionSnapshotJSON        []byte
-	SourceActorType             SourceActorType
-	SourceActorID               *string
-	ExternalSource              *string
-	ExternalReference           *string
-	IdempotencyKey              *string
-	Reason                      string
-	ScheduledStartAt            *time.Time
-	StartedAt                   *time.Time
+	FacilityFanDeviceIDs        []int64
+	// ExpectedFacilityFanSites is an optional authorization snapshot keyed by
+	// device ID. The SQL store compares it against row-locked live devices
+	// before persisting FacilityFanSiteIDs, closing handler-to-insert races.
+	ExpectedFacilityFanSites map[int64]int64
+	FanOffDelaySec           int32
+	FanRestoreDelaySec       int32
+	DecisionSnapshotJSON     []byte
+	SourceActorType          SourceActorType
+	SourceActorID            *string
+	ExternalSource           *string
+	ExternalReference        *string
+	IdempotencyKey           *string
+	Reason                   string
+	ScheduledStartAt         *time.Time
+	StartedAt                *time.Time
 	// EndedAt is set only when an event is inserted already terminal — a
 	// vacuously-COMPLETED FULL_FLEET start with no eligible targets — so the
 	// completion time is recorded; the reconciler/restorer set it otherwise.

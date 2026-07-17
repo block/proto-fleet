@@ -19,6 +19,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
@@ -72,6 +73,11 @@ type StartRequest struct {
 	CurtailBatchIntervalSec   int32
 	UseProfileCurtailSettings bool
 
+	FacilityFanDeviceIDs []int64
+	AuthorizedFanSites   map[int64]int64
+	FanOffDelaySec       int32
+	FanRestoreDelaySec   int32
+
 	// MaxDurationSeconds: nil when AllowUnbounded=true, else a finite cap.
 	MaxDurationSeconds  *int32
 	AllowUnbounded      bool
@@ -97,9 +103,11 @@ type StartRequest struct {
 // Service orchestrates Preview / Start through the shared config / scope /
 // candidate / selector pipeline.
 type Service struct {
-	store   interfaces.CurtailmentStore
-	metrics Metrics
-	audit   AuditLogger
+	store    interfaces.CurtailmentStore
+	fanStore interfaces.CurtailmentFanStateStore
+	metrics  Metrics
+	audit    AuditLogger
+	fans     FacilityFanController
 }
 
 // ServiceOption configures a Service at construction time.
@@ -125,11 +133,18 @@ func WithAuditLogger(a AuditLogger) ServiceOption {
 	}
 }
 
+func WithFacilityFanController(controller FacilityFanController) ServiceOption {
+	return func(s *Service) { s.fans = controller }
+}
+
 func NewService(store interfaces.CurtailmentStore, opts ...ServiceOption) *Service {
 	s := &Service{
 		store:   store,
 		metrics: NoOpMetrics{},
 		audit:   NoOpAuditLogger{},
+	}
+	if fanStore, ok := store.(interfaces.CurtailmentFanStateStore); ok {
+		s.fanStore = fanStore
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -482,6 +497,11 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 	if err := validateAdminRecoveryReason(req.Reason); err != nil {
 		return nil, err
 	}
+	if s.fans != nil {
+		if event, err := s.store.GetEventByUUID(ctx, req.OrgID, req.EventUUID); err == nil && event.State == models.EventStateRestoring {
+			s.restoreFansBeforeTerminal(ctx, event)
+		}
+	}
 
 	updated, transitioned, err := s.store.AdminTerminateEvent(ctx, req.OrgID, req.EventUUID, req.TargetState, req.Reason)
 	if err != nil {
@@ -508,8 +528,9 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 }
 
 // ForceReleaseRequest is the service-level shape for operator recovery that
-// releases curtailment ownership immediately. It does not issue restore
-// commands and must not be reported as graceful completion.
+// releases curtailment ownership immediately. It may issue best-effort
+// facility fan restore commands, but it must not be reported as graceful
+// miner restore completion.
 type ForceReleaseRequest struct {
 	OrgID     int64
 	EventUUID uuid.UUID
@@ -533,6 +554,11 @@ func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*F
 	if err := validateAdminRecoveryReason(req.Reason); err != nil {
 		return nil, err
 	}
+	if s.fans != nil {
+		if event, err := s.store.GetEventByUUID(ctx, req.OrgID, req.EventUUID); err == nil && !event.State.IsTerminal() {
+			s.restoreFansBeforeTerminal(ctx, event)
+		}
+	}
 
 	released, err := s.store.ForceReleaseEvent(ctx, req.OrgID, req.EventUUID, req.Reason)
 	if err != nil {
@@ -547,6 +573,24 @@ func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*F
 		OwnershipReleased:   released.OwnershipReleased,
 		AutomationDisabled:  released.AutomationDisabled,
 	}, nil
+}
+
+func (s *Service) restoreFansBeforeTerminal(ctx context.Context, event *models.Event) {
+	if event == nil || event.FanOffSentAt == nil || event.FanOnSentAt != nil || len(event.FacilityFanDeviceIDs) == 0 {
+		return
+	}
+	now := time.Now().UTC()
+	lastError := s.fans.SetState(ctx, event, driver.PowerOn)
+	if s.fanStore == nil {
+		return
+	}
+	if err := s.fanStore.UpdateFanState(ctx, event.ID, interfaces.UpdateCurtailmentFanStateParams{
+		ExpectedEventState: event.State,
+		FanOnSentAt:        &now,
+		LastError:          lastError,
+	}); err != nil {
+		slog.Error("failed to stamp best-effort facility fan restore before terminal transition", "event_uuid", event.EventUUID, "error", err)
+	}
 }
 
 func validateAdminRecoveryReason(reason string) error {
@@ -1273,6 +1317,32 @@ func validateStartRequest(req StartRequest) error {
 	if req.ForceIncludeAllPairedMiners && !req.CanUseAdminControls {
 		return fleeterror.NewForbiddenError("only admins can set force_include_all_paired_miners")
 	}
+	if req.FanOffDelaySec < 0 {
+		return fleeterror.NewInvalidArgumentErrorf("fan_off_delay_sec must be >= 0, got %d", req.FanOffDelaySec)
+	}
+	if req.FanRestoreDelaySec < 0 {
+		return fleeterror.NewInvalidArgumentErrorf("fan_restore_delay_sec must be >= 0, got %d", req.FanRestoreDelaySec)
+	}
+	seenFanIDs := make(map[int64]struct{}, len(req.FacilityFanDeviceIDs))
+	for _, fanID := range req.FacilityFanDeviceIDs {
+		if fanID <= 0 {
+			return fleeterror.NewInvalidArgumentError("facility_fan_device_ids must be positive")
+		}
+		if _, exists := seenFanIDs[fanID]; exists {
+			return fleeterror.NewInvalidArgumentError("facility_fan_device_ids must be unique")
+		}
+		seenFanIDs[fanID] = struct{}{}
+	}
+	if req.AuthorizedFanSites != nil {
+		if len(req.AuthorizedFanSites) != len(seenFanIDs) {
+			return fleeterror.NewFailedPreconditionError("authorized facility fan sites do not match facility_fan_device_ids")
+		}
+		for fanID := range seenFanIDs {
+			if req.AuthorizedFanSites[fanID] <= 0 {
+				return fleeterror.NewFailedPreconditionError("authorized facility fan sites do not match facility_fan_device_ids")
+			}
+		}
+	}
 	if !req.AllowUnbounded && req.MaxDurationSeconds != nil && *req.MaxDurationSeconds <= 0 {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"max_duration_seconds must be > 0, got %d", *req.MaxDurationSeconds,
@@ -1765,6 +1835,10 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		IncludeMaintenance:          req.IncludeMaintenance,
 		ForceIncludeMaintenance:     req.ForceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: req.ForceIncludeAllPairedMiners,
+		FacilityFanDeviceIDs:        append([]int64(nil), req.FacilityFanDeviceIDs...),
+		ExpectedFacilityFanSites:    cloneInt64Map(req.AuthorizedFanSites),
+		FanOffDelaySec:              req.FanOffDelaySec,
+		FanRestoreDelaySec:          req.FanRestoreDelaySec,
 		DecisionSnapshotJSON:        decisionJSON,
 		SourceActorType:             req.SourceActorType,
 		SourceActorID:               req.SourceActorID,
@@ -1795,6 +1869,17 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		targets = BuildInsertTargetParams(plan.Selected, mode, minPowerW)
 	}
 	return event, targets, nil
+}
+
+func cloneInt64Map(values map[int64]int64) map[int64]int64 {
+	if values == nil {
+		return nil
+	}
+	out := make(map[int64]int64, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
 }
 
 // BuildInsertTargetParams converts selected devices into miner target rows.

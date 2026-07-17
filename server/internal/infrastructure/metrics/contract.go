@@ -95,6 +95,12 @@ const (
 	// with kind (the source name). Still emitted for a source disabled
 	// mid-curtailment, so the alert cannot resolve while miners stay down.
 	MetricMQTTCurtailmentActive = "fleet_mqtt_curtailment_active"
+
+	// MetricCurtailmentFanRestoreFailed is a per-event gauge: 1 once the fan
+	// restore delay has elapsed while the latest fan-ON command still has an
+	// error, 0 after a later re-assertion succeeds. Labelled with kind carrying
+	// the curtailment event UUID so each unsafe restore alerts independently.
+	MetricCurtailmentFanRestoreFailed = "fleet_curtailment_fan_restore_failed"
 )
 
 // Label keys. User-authored PromQL may aggregate by any of these.
@@ -164,6 +170,7 @@ var AllMetricNames = []string{
 	MetricSystemHeartbeat,
 	MetricMQTTSourceConnected,
 	MetricMQTTCurtailmentActive,
+	MetricCurtailmentFanRestoreFailed,
 }
 
 // AllLabelKeys is the canonical list of label keys Proto Fleet attaches to its metrics.

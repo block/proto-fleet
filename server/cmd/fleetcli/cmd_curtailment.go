@@ -433,6 +433,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							&cli.BoolFlag{Name: "allow-unbounded", Usage: "allow unbounded"},
 							&cli.UintFlag{Name: "post-event-cooldown-sec", Usage: "post event cooldown sec"},
 							&cli.BoolFlag{Name: "force-include-all-paired-miners", Usage: "force include all paired miners"},
+							&cli.StringSliceFlag{Name: "facility-fan-device-ids", Usage: "facility fan device ids"},
+							&cli.UintFlag{Name: "fan-off-delay-sec", Usage: "fan off delay sec"},
+							&cli.UintFlag{Name: "fan-restore-delay-sec", Usage: "fan restore delay sec"},
 							&cli.StringFlag{Name: "idempotency-key", Usage: "idempotency key"},
 							&cli.StringFlag{Name: "reason", Usage: "(required unless provided by --json) reason"},
 							&cli.StringFlag{Name: "external-source", Usage: "external source"},
@@ -543,6 +546,19 @@ func generatedCurtailmentCommand() *cli.Command {
 							}
 							if cmd.IsSet("force-include-all-paired-miners") {
 								req.ForceIncludeAllPairedMiners = cmd.Bool("force-include-all-paired-miners")
+							}
+							if cmd.IsSet("facility-fan-device-ids") {
+								values, err := parseInt64Slice(cmd.StringSlice("facility-fan-device-ids"))
+								if err != nil {
+									return nil, err
+								}
+								req.FacilityFanDeviceIds = values
+							}
+							if cmd.IsSet("fan-off-delay-sec") {
+								req.FanOffDelaySec = uint32(cmd.Uint("fan-off-delay-sec"))
+							}
+							if cmd.IsSet("fan-restore-delay-sec") {
+								req.FanRestoreDelaySec = uint32(cmd.Uint("fan-restore-delay-sec"))
 							}
 							if cmd.IsSet("idempotency-key") {
 								req.IdempotencyKey = cmd.String("idempotency-key")

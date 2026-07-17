@@ -173,7 +173,7 @@ func TestAutomationService_CreateAllowsAdminOnlyProfileWithAdminControls(t *test
 	assert.Equal(t, 1, h.rules.createCalls)
 }
 
-func TestAutomationService_RejectsFacilityFanProfilesAcrossBindingMutations(t *testing.T) {
+func TestAutomationService_AllowsFacilityFanProfilesAcrossBindingMutations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -230,10 +230,7 @@ func TestAutomationService_RejectsFacilityFanProfilesAcrossBindingMutations(t *t
 
 			err := tt.run(h)
 
-			require.Error(t, err)
-			assert.True(t, fleeterror.IsFailedPreconditionError(err))
-			assert.Contains(t, err.Error(), "cannot use response profiles with facility fans")
-			assert.Equal(t, 0, h.rules.createCalls)
+			require.NoError(t, err)
 		})
 	}
 }
@@ -382,24 +379,26 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 	assert.Equal(t, receivedAt, h.rules.lastActiveAt)
 }
 
-func TestAutomationService_HandleMQTTSignal_OffRejectsFacilityFansUntilSequencingIsAvailable(t *testing.T) {
+func TestAutomationService_HandleMQTTSignal_OffCarriesFacilityFanSettings(t *testing.T) {
 	t.Parallel()
 
 	h := newAutomationHarness(t)
 	h.seedRunnableProfile()
 	h.profile.FacilityFanDeviceIDs = []int64{31}
+	h.profile.FanOffDelaySec = 45
+	h.profile.FanRestoreDelaySec = 90
 
 	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
 		Source: h.source,
 		Target: mqttingest.TargetOff,
 	})
 
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-	assert.Contains(t, err.Error(), "cannot execute until fan sequencing is available")
-	assert.Equal(t, 0, h.curtailments.insertEventCalls)
-	require.Len(t, h.rules.executionErrors, 1)
-	assert.Contains(t, h.rules.executionErrors[0], "cannot execute until fan sequencing is available")
+	require.NoError(t, err)
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+	assert.Equal(t, []int64{31}, h.curtailments.lastInsertEvent.FacilityFanDeviceIDs)
+	assert.Equal(t, int32(45), h.curtailments.lastInsertEvent.FanOffDelaySec)
+	assert.Equal(t, int32(90), h.curtailments.lastInsertEvent.FanRestoreDelaySec)
+	assert.Empty(t, h.rules.executionErrors)
 }
 
 func TestAutomationService_HandleMQTTSignal_OffBypassesResponseProfileCooldown(t *testing.T) {

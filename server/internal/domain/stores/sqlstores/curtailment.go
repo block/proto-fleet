@@ -59,6 +59,7 @@ func mapOrgConfigError(err error, orgID int64) error {
 var _ interfaces.CurtailmentStore = &SQLCurtailmentStore{}
 var _ interfaces.ResponseProfileStore = &SQLCurtailmentStore{}
 var _ interfaces.AutomationStore = &SQLCurtailmentStore{}
+var _ interfaces.CurtailmentFanStateStore = &SQLCurtailmentStore{}
 
 type SQLCurtailmentStore struct {
 	SQLConnectionManager
@@ -250,20 +251,6 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(
 		if err := lockResponseProfileAutomationMutation(ctx, q, profile.OrgID, profile.ID); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
-		if len(profile.FacilityFanDeviceIDs) > 0 {
-			count, err := q.CountCurtailmentAutomationRulesByResponseProfile(ctx, sqlc.CountCurtailmentAutomationRulesByResponseProfileParams{
-				OrgID:             profile.OrgID,
-				ResponseProfileID: profile.ID,
-			})
-			if err != nil {
-				return sqlc.CurtailmentResponseProfile{}, fleeterror.NewInternalErrorf("failed to count curtailment automation rules during response profile update: %v", err)
-			}
-			if count > 0 {
-				return sqlc.CurtailmentResponseProfile{}, fleeterror.NewFailedPreconditionError(
-					"response profiles used by automation rules cannot include facility fans until fan sequencing is available",
-				)
-			}
-		}
 		if err := lockResponseProfileSitesForWrite(
 			ctx,
 			q,
@@ -410,7 +397,7 @@ func (s *SQLCurtailmentStore) ListMQTTSourcesWithActiveCurtailment(ctx context.C
 
 func (s *SQLCurtailmentStore) CreateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
 	inserted, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentAutomationRule, error) {
-		if err := requireAutomationCompatibleResponseProfile(ctx, q, rule.OrgID, rule.ResponseProfileID); err != nil {
+		if err := requireResponseProfileForAutomation(ctx, q, rule.OrgID, rule.ResponseProfileID); err != nil {
 			return sqlc.CurtailmentAutomationRule{}, err
 		}
 		inserted, err := q.InsertCurtailmentAutomationRule(ctx, sqlc.InsertCurtailmentAutomationRuleParams{
@@ -434,7 +421,7 @@ func (s *SQLCurtailmentStore) CreateAutomationRule(ctx context.Context, rule mod
 
 func (s *SQLCurtailmentStore) UpdateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
 	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (automationRuleMutationResult, error) {
-		if err := requireAutomationCompatibleResponseProfile(ctx, q, rule.OrgID, rule.ResponseProfileID); err != nil {
+		if err := requireResponseProfileForAutomation(ctx, q, rule.OrgID, rule.ResponseProfileID); err != nil {
 			return automationRuleMutationResult{}, err
 		}
 		updated, err := q.UpdateCurtailmentAutomationRule(ctx, sqlc.UpdateCurtailmentAutomationRuleParams{
@@ -476,7 +463,7 @@ func (s *SQLCurtailmentStore) SetAutomationRuleEnabled(ctx context.Context, orgI
 			if err != nil {
 				return automationRuleMutationResult{}, err
 			}
-			if err := requireAutomationCompatibleResponseProfile(ctx, q, orgID, rule.ResponseProfileID); err != nil {
+			if err := requireResponseProfileForAutomation(ctx, q, orgID, rule.ResponseProfileID); err != nil {
 				return automationRuleMutationResult{}, err
 			}
 			updated, err := q.SetCurtailmentAutomationRuleEnabled(ctx, sqlc.SetCurtailmentAutomationRuleEnabledParams{
@@ -835,11 +822,11 @@ func lockResponseProfileAutomationMutation(ctx context.Context, q *sqlc.Queries,
 	return nil
 }
 
-func requireAutomationCompatibleResponseProfile(ctx context.Context, q *sqlc.Queries, orgID, profileID int64) error {
+func requireResponseProfileForAutomation(ctx context.Context, q *sqlc.Queries, orgID, profileID int64) error {
 	if err := lockResponseProfileAutomationMutation(ctx, q, orgID, profileID); err != nil {
 		return err
 	}
-	profile, err := q.GetCurtailmentResponseProfileByOrg(ctx, sqlc.GetCurtailmentResponseProfileByOrgParams{
+	_, err := q.GetCurtailmentResponseProfileByOrg(ctx, sqlc.GetCurtailmentResponseProfileByOrgParams{
 		ID:    profileID,
 		OrgID: orgID,
 	})
@@ -848,11 +835,6 @@ func requireAutomationCompatibleResponseProfile(ctx context.Context, q *sqlc.Que
 	}
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to get response profile during automation mutation: %v", err)
-	}
-	if len(profile.FacilityFanDeviceIds) > 0 {
-		return fleeterror.NewFailedPreconditionError(
-			"automation rules cannot use response profiles with facility fans until fan sequencing is available",
-		)
 	}
 	return nil
 }
@@ -960,20 +942,89 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 	}
 	replayRace := false
 	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.InsertEventResult, error) {
+		if replay, err := lookupReplayEventInTx(ctx, q, event); err != nil {
+			return nil, err
+		} else if replay != nil {
+			replayRace = true
+			return nil, nil
+		}
+
 		scopeSiteIDs, usesScopeGuard, err := hierarchicalScopeSiteIDs(event)
 		if err != nil {
 			return nil, err
+		}
+		fanIDs := uniqueSortedInt64s(event.FacilityFanDeviceIDs)
+		if len(fanIDs) != len(event.FacilityFanDeviceIDs) {
+			return nil, fleeterror.NewInvalidArgumentError("facility fan device IDs must be positive and unique")
+		}
+		if event.ExpectedFacilityFanSites != nil && len(event.ExpectedFacilityFanSites) != len(fanIDs) {
+			return nil, fleeterror.NewFailedPreconditionError("facility fan authorization changed; retry the request")
+		}
+		usesFanGuard := !event.State.IsTerminal() && len(fanIDs) > 0
+		if usesFanGuard {
+			for _, fanID := range fanIDs {
+				if err := q.LockCurtailmentFanDeviceForWrite(ctx, strconv.FormatInt(fanID, 10)); err != nil {
+					return nil, fleeterror.NewInternalErrorf("failed to lock facility fan claim: %v", err)
+				}
+			}
 		}
 		if usesScopeGuard {
 			if err := q.LockCurtailmentScopeForWrite(ctx, strconv.FormatInt(event.OrgID, 10)); err != nil {
 				return nil, fleeterror.NewInternalErrorf("failed to lock curtailment scope: %v", err)
 			}
+		}
+		// The fast-path lookup above can race another identical Start. Once all
+		// claim locks are held, recheck before reporting the winner as a fan or
+		// scope conflict instead of an idempotent replay.
+		if usesFanGuard || usesScopeGuard {
 			if replay, err := lookupReplayEventInTx(ctx, q, event); err != nil {
 				return nil, err
 			} else if replay != nil {
 				replayRace = true
 				return nil, nil
 			}
+		}
+		fanSiteIDs := make([]int64, len(event.FacilityFanDeviceIDs))
+		if len(fanIDs) > 0 {
+			lockedFans, err := q.LockCurtailmentFanDevicesForWrite(ctx, sqlc.LockCurtailmentFanDevicesForWriteParams{
+				OrgID:                   event.OrgID,
+				InfrastructureDeviceIds: fanIDs,
+			})
+			if err != nil {
+				return nil, fleeterror.NewInternalErrorf("failed to lock facility fans: %v", err)
+			}
+			if len(lockedFans) != len(fanIDs) {
+				return nil, fleeterror.NewFailedPreconditionError("facility fan authorization changed; retry the request")
+			}
+			siteByFanID := make(map[int64]int64, len(lockedFans))
+			for _, fan := range lockedFans {
+				expectedSiteID, hasExpectedSite := event.ExpectedFacilityFanSites[fan.ID]
+				if event.ExpectedFacilityFanSites != nil && (!hasExpectedSite || expectedSiteID != fan.SiteID) {
+					return nil, fleeterror.NewFailedPreconditionError("facility fan authorization changed; retry the request")
+				}
+				siteByFanID[fan.ID] = fan.SiteID
+			}
+			for index, fanID := range event.FacilityFanDeviceIDs {
+				siteID, ok := siteByFanID[fanID]
+				if !ok {
+					return nil, fleeterror.NewFailedPreconditionError("facility fan authorization changed; retry the request")
+				}
+				fanSiteIDs[index] = siteID
+			}
+		}
+		if usesFanGuard {
+			conflicts, err := q.CountActiveCurtailmentFanClaims(ctx, sqlc.CountActiveCurtailmentFanClaimsParams{
+				OrgID:                event.OrgID,
+				FacilityFanDeviceIds: fanIDs,
+			})
+			if err != nil {
+				return nil, fleeterror.NewInternalErrorf("failed to check facility fan claims: %v", err)
+			}
+			if conflicts > 0 {
+				return nil, fleeterror.NewAlreadyExistsError("one or more facility fans are already claimed by a non-terminal curtailment event")
+			}
+		}
+		if usesScopeGuard {
 			conflicts, err := q.CountCurtailmentScopeConflicts(ctx, sqlc.CountCurtailmentScopeConflictsParams{
 				OrgID:     event.OrgID,
 				Mode:      string(event.Mode),
@@ -1010,6 +1061,10 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			IncludeMaintenance:          event.IncludeMaintenance,
 			ForceIncludeMaintenance:     event.ForceIncludeMaintenance,
 			ForceIncludeAllPairedMiners: event.ForceIncludeAllPairedMiners,
+			FacilityFanDeviceIds:        append([]int64(nil), event.FacilityFanDeviceIDs...),
+			FacilityFanSiteIds:          fanSiteIDs,
+			FanOffDelaySec:              event.FanOffDelaySec,
+			FanRestoreDelaySec:          event.FanRestoreDelaySec,
 			DecisionSnapshotJsonb:       event.DecisionSnapshotJSON,
 			SourceActorType:             string(event.SourceActorType),
 			SourceActorID:               ptrToNullString(event.SourceActorID),
@@ -1777,6 +1832,23 @@ func (s *SQLCurtailmentStore) UpdateEventState(ctx context.Context, eventID int6
 	return nil
 }
 
+func (s *SQLCurtailmentStore) UpdateFanState(ctx context.Context, eventID int64, params interfaces.UpdateCurtailmentFanStateParams) error {
+	rows, err := s.GetQueries(ctx).UpdateCurtailmentEventFanState(ctx, sqlc.UpdateCurtailmentEventFanStateParams{
+		ID:            eventID,
+		ExpectedState: string(params.ExpectedEventState),
+		FanOffSentAt:  ptrToNullTime(params.FanOffSentAt),
+		FanOnSentAt:   ptrToNullTime(params.FanOnSentAt),
+		FanLastError:  ptrToNullString(params.LastError),
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to update curtailment event %d fan state: %v", eventID, err)
+	}
+	if rows == 0 {
+		return interfaces.ErrCurtailmentEventStateRaceLoss
+	}
+	return nil
+}
+
 func (s *SQLCurtailmentStore) UpdateTargetState(ctx context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
 	rows, err := s.GetQueries(ctx).UpdateCurtailmentTargetState(ctx, sqlc.UpdateCurtailmentTargetStateParams{
 		CurtailmentEventID:   eventID,
@@ -1904,7 +1976,7 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to get curtailment target rollup before restore: %v", err)
 		}
-		if rollup.Total == 0 {
+		if rollup.Total == 0 && len(current.FacilityFanDeviceIds) == 0 {
 			now := time.Now().UTC()
 			if rows, err := q.UpdateCurtailmentEventState(ctx, sqlc.UpdateCurtailmentEventStateParams{
 				ID:            current.ID,
@@ -2233,6 +2305,13 @@ func convertEventRow(row sqlc.CurtailmentEvent) *models.Event {
 		row.IncludeMaintenance,
 		row.ForceIncludeMaintenance,
 		row.ForceIncludeAllPairedMiners,
+		row.FacilityFanDeviceIds,
+		row.FacilityFanSiteIds,
+		row.FanOffDelaySec,
+		row.FanRestoreDelaySec,
+		row.FanOffSentAt,
+		row.FanOnSentAt,
+		row.FanLastError,
 		row.DecisionSnapshotJsonb,
 		row.SourceActorType,
 		row.SourceActorID,
@@ -2275,6 +2354,13 @@ func convertEventDetailRow(row sqlc.GetCurtailmentEventDetailByUUIDRow) *models.
 		row.IncludeMaintenance,
 		row.ForceIncludeMaintenance,
 		row.ForceIncludeAllPairedMiners,
+		row.FacilityFanDeviceIds,
+		row.FacilityFanSiteIds,
+		row.FanOffDelaySec,
+		row.FanRestoreDelaySec,
+		row.FanOffSentAt,
+		row.FanOnSentAt,
+		row.FanLastError,
 		row.DecisionSnapshotJsonb,
 		row.SourceActorType,
 		row.SourceActorID,
@@ -2317,6 +2403,13 @@ func convertEventListRow(row sqlc.ListCurtailmentEventsForOrgRow) *models.Event 
 		row.IncludeMaintenance,
 		row.ForceIncludeMaintenance,
 		row.ForceIncludeAllPairedMiners,
+		row.FacilityFanDeviceIds,
+		row.FacilityFanSiteIds,
+		row.FanOffDelaySec,
+		row.FanRestoreDelaySec,
+		row.FanOffSentAt,
+		row.FanOnSentAt,
+		row.FanLastError,
 		row.DecisionSnapshotJsonb,
 		row.SourceActorType,
 		row.SourceActorID,
@@ -2359,6 +2452,13 @@ func convertActiveEventRow(row sqlc.ListActiveCurtailmentEventsRow) *models.Even
 		row.IncludeMaintenance,
 		row.ForceIncludeMaintenance,
 		row.ForceIncludeAllPairedMiners,
+		row.FacilityFanDeviceIds,
+		row.FacilityFanSiteIds,
+		row.FanOffDelaySec,
+		row.FanRestoreDelaySec,
+		row.FanOffSentAt,
+		row.FanOnSentAt,
+		row.FanLastError,
 		row.DecisionSnapshotJsonb,
 		row.SourceActorType,
 		row.SourceActorID,
@@ -2453,6 +2553,13 @@ func convertEventFields(
 	includeMaintenance bool,
 	forceIncludeMaintenance bool,
 	forceIncludeAllPairedMiners bool,
+	facilityFanDeviceIDs []int64,
+	facilityFanSiteIDs []int64,
+	fanOffDelaySec int32,
+	fanRestoreDelaySec int32,
+	fanOffSentAt sql.NullTime,
+	fanOnSentAt sql.NullTime,
+	fanLastError sql.NullString,
 	decisionSnapshotJSON []byte,
 	sourceActorType string,
 	sourceActorID sql.NullString,
@@ -2492,6 +2599,13 @@ func convertEventFields(
 		IncludeMaintenance:          includeMaintenance,
 		ForceIncludeMaintenance:     forceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: forceIncludeAllPairedMiners,
+		FacilityFanDeviceIDs:        append([]int64(nil), facilityFanDeviceIDs...),
+		FacilityFanSiteIDs:          append([]int64(nil), facilityFanSiteIDs...),
+		FanOffDelaySec:              fanOffDelaySec,
+		FanRestoreDelaySec:          fanRestoreDelaySec,
+		FanOffSentAt:                nullTimeToPtr(fanOffSentAt),
+		FanOnSentAt:                 nullTimeToPtr(fanOnSentAt),
+		FanLastError:                nullStringToPtr(fanLastError),
 		DecisionSnapshotJSON:        decisionSnapshotJSON,
 		SourceActorType:             models.SourceActorType(sourceActorType),
 		SourceActorID:               nullStringToPtr(sourceActorID),

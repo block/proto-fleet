@@ -30,6 +30,10 @@ type InfrastructureDeviceStore interface {
 	// response profiles that still reference the device.
 	CountResponseProfilesByInfrastructureDevice(ctx context.Context, orgID, id int64) (int64, error)
 
+	// CountActiveCurtailmentEventsByInfrastructureDevice returns the number of
+	// non-terminal events that currently claim the device as a facility fan.
+	CountActiveCurtailmentEventsByInfrastructureDevice(ctx context.Context, orgID, id int64) (int64, error)
+
 	// UpdateInfrastructureDevice mutates the row's mutable fields. The
 	// write is predicated on params.ExpectedSiteID, so it returns
 	// NotFound when the row is missing / soft-deleted / cross-org OR

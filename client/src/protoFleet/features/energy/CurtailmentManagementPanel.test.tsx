@@ -225,6 +225,10 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     preview,
     responseProfiles,
     siteOptions,
+    infrastructureDevices,
+    isLoadingInfrastructureDevices,
+    infrastructureDevicesError,
+    onRetryInfrastructureDevices,
     defaultSiteScope,
   }: {
     initialValues?: Partial<CurtailmentSubmitValues>;
@@ -234,6 +238,10 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     preview?: CurtailmentPlanPreview;
     responseProfiles?: CurtailmentResponseProfileOption[];
     siteOptions?: CurtailmentSiteOption[];
+    infrastructureDevices?: Array<{ id: string }>;
+    isLoadingInfrastructureDevices?: boolean;
+    infrastructureDevicesError?: string | null;
+    onRetryInfrastructureDevices?: () => void;
     defaultSiteScope?: CurtailmentSiteOption;
   }) => (
     <div role="dialog" aria-label={mode === "edit" ? "Manage curtailment" : "New curtailment"}>
@@ -241,6 +249,14 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
       <div data-testid="modal-response-profiles">{responseProfiles?.map((profile) => profile.label).join(",")}</div>
       <div data-testid="modal-response-profile-values">{JSON.stringify(responseProfiles?.[0]?.values ?? {})}</div>
       <div data-testid="modal-site-options">{siteOptions?.map((siteOption) => siteOption.name).join(",")}</div>
+      <div data-testid="modal-infrastructure-count">{infrastructureDevices?.length ?? 0}</div>
+      <div data-testid="modal-infrastructure-loading">{isLoadingInfrastructureDevices ? "loading" : "idle"}</div>
+      <div data-testid="modal-infrastructure-error">{infrastructureDevicesError ?? ""}</div>
+      {onRetryInfrastructureDevices ? (
+        <button type="button" onClick={onRetryInfrastructureDevices}>
+          Retry infrastructure
+        </button>
+      ) : null}
       <div data-testid="modal-default-site-scope">{defaultSiteScope?.name ?? ""}</div>
       <div data-testid="modal-preview">
         {preview
@@ -434,12 +450,55 @@ describe("CurtailmentManagementPanel", () => {
     expect(screen.getByTestId("modal-default-site-scope")).toHaveTextContent("Austin, TX");
   });
 
-  it("does not load infrastructure inventory for live curtailment", () => {
+  it("loads infrastructure inventory for live curtailment", async () => {
+    const user = userEvent.setup();
     mocks.useHasPermission.mockImplementation((key: string) => key === "site:read");
+    mocks.useInfrastructureDevices.mockReturnValue({
+      devices: [
+        {
+          id: "31",
+          siteId: "101",
+          siteName: "Austin, TX",
+          buildingName: "Building 1",
+          name: "Fan Unit 1",
+          deviceKind: "single_fan",
+          fanCount: 1,
+          enabled: true,
+          driverType: "modbus",
+          driverConfig: "{}",
+        },
+      ],
+      isLoading: false,
+      loadError: null,
+      updatingDeviceIds: new Set(),
+      listDevices: mocks.listInfrastructureDevices,
+      createDevice: vi.fn(),
+      updateDevice: vi.fn(),
+      setDeviceEnabled: vi.fn(),
+      deleteDevice: vi.fn(),
+    });
 
-    render(<CurtailmentManagementPanel />);
+    render(<CurtailmentManagementPanel enableManage />);
 
-    expect(mocks.useInfrastructureDevices).not.toHaveBeenCalled();
+    expect(mocks.useInfrastructureDevices).toHaveBeenCalledWith(true, undefined, true);
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+
+    expect(screen.getByTestId("modal-infrastructure-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("modal-infrastructure-loading")).toHaveTextContent("idle");
+    expect(screen.getByTestId("modal-infrastructure-error")).toHaveTextContent("");
+  });
+
+  it("handles infrastructure inventory retry failures", async () => {
+    const user = userEvent.setup();
+    mocks.listInfrastructureDevices.mockRejectedValueOnce(new Error("Inventory unavailable"));
+
+    render(<CurtailmentManagementPanel enableManage />);
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    await user.click(screen.getByRole("button", { name: "Retry infrastructure" }));
+
+    await waitFor(() => expect(mocks.listInfrastructureDevices).toHaveBeenCalledOnce());
   });
 
   it("submits planned curtailments, closes the modal, and passes refreshed history props through", async () => {
@@ -681,6 +740,7 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Request abort" }));
     expect(screen.getByText("Abort restore?")).toBeInTheDocument();
     expect(screen.getByText(/aborts the restore workflow/i)).toBeInTheDocument();
+    expect(screen.getByText(/attempts to turn facility fans back on/i)).toBeInTheDocument();
 
     const releaseButtons = screen.getAllByRole("button", { name: "Abort restore" });
     await user.click(releaseButtons[releaseButtons.length - 1]);
@@ -736,6 +796,7 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Request abort" }));
     expect(screen.getByText("Abort curtailment?")).toBeInTheDocument();
     expect(screen.getByText(/disables the owning automation rule/i)).toBeInTheDocument();
+    expect(screen.getByText(/attempts to turn facility fans back on/i)).toBeInTheDocument();
 
     await user.type(screen.getByRole("textbox", { name: "Reason" }), "Need to disable automation");
     const abortButtons = screen.getAllByRole("button", { name: "Abort curtailment" });

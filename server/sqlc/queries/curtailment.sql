@@ -202,6 +202,10 @@ INSERT INTO curtailment_event (
     include_maintenance,
     force_include_maintenance,
     force_include_all_paired_miners,
+    facility_fan_device_ids,
+    facility_fan_site_ids,
+    fan_off_delay_sec,
+    fan_restore_delay_sec,
     decision_snapshot_jsonb,
     source_actor_type,
     source_actor_id,
@@ -236,6 +240,10 @@ INSERT INTO curtailment_event (
     sqlc.arg('include_maintenance'),
     sqlc.arg('force_include_maintenance'),
     sqlc.arg('force_include_all_paired_miners'),
+    sqlc.arg('facility_fan_device_ids'),
+    sqlc.arg('facility_fan_site_ids'),
+    sqlc.arg('fan_off_delay_sec'),
+    sqlc.arg('fan_restore_delay_sec'),
     sqlc.arg('decision_snapshot_jsonb'),
     sqlc.arg('source_actor_type'),
     sqlc.narg('source_actor_id'),
@@ -250,6 +258,29 @@ INSERT INTO curtailment_event (
     sqlc.arg('effective_batch_size')
 )
 RETURNING id, event_uuid, created_at, updated_at;
+
+-- name: LockCurtailmentFanDeviceForWrite :exec
+-- Per-device transaction lock closes concurrent Start races before the array
+-- overlap check. Callers acquire these in ascending ID order.
+SELECT pg_advisory_xact_lock(hashtextextended('curtailment-fan:' || sqlc.arg('infrastructure_device_id')::TEXT, 0));
+
+-- name: LockCurtailmentFanDevicesForWrite :many
+-- The row lock turns the authorization snapshot into an insert-time invariant:
+-- a concurrent move/delete must wait until this transaction commits.
+SELECT id, site_id
+FROM infrastructure_device
+WHERE org_id = sqlc.arg('org_id')
+  AND id = ANY(sqlc.arg('infrastructure_device_ids')::BIGINT[])
+  AND deleted_at IS NULL
+ORDER BY id
+FOR UPDATE;
+
+-- name: CountActiveCurtailmentFanClaims :one
+SELECT COUNT(*)
+FROM curtailment_event
+WHERE org_id = sqlc.arg('org_id')
+  AND state IN ('pending', 'active', 'restoring')
+  AND facility_fan_device_ids && sqlc.arg('facility_fan_device_ids')::BIGINT[];
 
 -- name: GetCurtailmentEventByUUID :one
 -- Org-scoped: callers MUST pass org_id to prevent cross-tenant exposure.
@@ -269,6 +300,9 @@ SELECT
     restore_batch_size, restore_batch_interval_sec, effective_batch_size,
     min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
     include_maintenance, force_include_maintenance, force_include_all_paired_miners,
+    facility_fan_device_ids, facility_fan_site_ids,
+    fan_off_delay_sec, fan_restore_delay_sec,
+    fan_off_sent_at, fan_on_sent_at, fan_last_error,
     CASE
         WHEN jsonb_typeof(decision_snapshot_jsonb->'skipped') = 'array' THEN
             jsonb_set(
@@ -473,6 +507,9 @@ SELECT
     restore_batch_size, restore_batch_interval_sec, effective_batch_size,
     min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
     include_maintenance, force_include_maintenance, force_include_all_paired_miners,
+    facility_fan_device_ids, facility_fan_site_ids,
+    fan_off_delay_sec, fan_restore_delay_sec,
+    fan_off_sent_at, fan_on_sent_at, fan_last_error,
     CASE
         WHEN jsonb_typeof(decision_snapshot_jsonb->'skipped') = 'array' THEN
             jsonb_set(
@@ -528,6 +565,9 @@ SELECT
     ce.restore_batch_size, ce.restore_batch_interval_sec, ce.effective_batch_size,
     ce.min_curtailed_duration_sec, ce.max_duration_seconds, ce.allow_unbounded,
     ce.include_maintenance, ce.force_include_maintenance, ce.force_include_all_paired_miners,
+    ce.facility_fan_device_ids, ce.facility_fan_site_ids,
+    ce.fan_off_delay_sec, ce.fan_restore_delay_sec,
+    ce.fan_off_sent_at, ce.fan_on_sent_at, ce.fan_last_error,
     '{}'::JSONB AS decision_snapshot_jsonb,
     ce.source_actor_type, ce.source_actor_id,
     ce.external_source, ce.external_reference, ce.idempotency_key,
@@ -1103,6 +1143,19 @@ WHERE id = sqlc.arg('id')
   AND state = sqlc.arg('expected_state')
   AND state IN ('pending', 'active', 'restoring');
 
+-- name: UpdateCurtailmentEventFanState :execrows
+-- The expected-state guard prevents a stale reconciler phase from stamping
+-- over a concurrent Stop/recurtail/terminal transition. fan_last_error is
+-- always replaced so a successful re-assertion clears a prior failure.
+UPDATE curtailment_event
+SET fan_off_sent_at = COALESCE(sqlc.narg('fan_off_sent_at'), fan_off_sent_at),
+    fan_on_sent_at = COALESCE(sqlc.narg('fan_on_sent_at'), fan_on_sent_at),
+    fan_last_error = sqlc.narg('fan_last_error'),
+    updated_at = NOW()
+WHERE id = sqlc.arg('id')
+  AND state = sqlc.arg('expected_state')
+  AND state IN ('pending', 'active', 'restoring');
+
 -- name: BeginCurtailmentRestoration :one
 -- Stop's event-side flip to 'restoring'. The WHERE state-guard is the
 -- concurrency control; the loser sees zero rows and the store re-reads
@@ -1172,7 +1225,10 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
 -- Restore reversal: go back through pending so the curtail dispatcher picks
 -- up reset targets.
 UPDATE curtailment_event
-SET state = 'pending'
+SET state = 'pending',
+    fan_off_sent_at = NULL,
+    fan_on_sent_at = NULL,
+    fan_last_error = NULL
 WHERE id = sqlc.arg('id')
   AND state = 'restoring'
 RETURNING *;

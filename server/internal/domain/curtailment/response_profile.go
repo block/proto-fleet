@@ -142,17 +142,6 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 	if err != nil {
 		return nil, err
 	}
-	if len(profile.FacilityFanDeviceIDs) > 0 {
-		count, err := s.store.CountAutomationRulesByResponseProfile(ctx, profile.OrgID, profile.ID)
-		if err != nil {
-			return nil, err
-		}
-		if count > 0 {
-			return nil, fleeterror.NewFailedPreconditionError(
-				"response profiles used by automation rules cannot include facility fans until fan sequencing is available",
-			)
-		}
-	}
 	return s.store.UpdateResponseProfile(
 		ctx,
 		profile,

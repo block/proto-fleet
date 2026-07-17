@@ -15,6 +15,7 @@ import {
   useCurtailmentApi,
 } from "@/protoFleet/api/useCurtailmentApi";
 import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
+import useInfrastructureDevices from "@/protoFleet/api/useInfrastructureDevices";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import ActiveCurtailmentStatus, {
   type ActiveCurtailmentEvent,
@@ -434,8 +435,8 @@ function CurtailmentForceReleaseDialog({
   const confirmText = mode === "restore" ? "Abort restore" : "Abort curtailment";
   const body =
     mode === "restore"
-      ? "This aborts the restore workflow by immediately releasing curtailment ownership. If automation owns this event, Abort also disables the automation rule. It does not wake miners or confirm that restore completed."
-      : "This cancels the current automation-owned curtailment event and disables the owning automation rule so it cannot immediately curtail miners again. It does not wake miners.";
+      ? "This aborts the restore workflow by immediately releasing curtailment ownership. If automation owns this event, Abort also disables the automation rule. It attempts to turn facility fans back on, but it does not wake miners or confirm that restore completed."
+      : "This cancels the current automation-owned curtailment event and disables the owning automation rule so it cannot immediately curtail miners again. It attempts to turn facility fans back on, but it does not wake miners.";
 
   const confirmRelease = useCallback(() => {
     const trimmedReason = reason.trim();
@@ -605,6 +606,15 @@ function CurtailmentManagementPanel({
     forceReleaseCurtailment,
   } = useCurtailmentApi({ siteNameById });
   const { responseProfiles } = useCurtailmentResponseProfiles(enableManage, { siteNameById });
+  const {
+    devices: infrastructureDevices,
+    isLoading: isLoadingInfrastructureDevices,
+    loadError: infrastructureDevicesError,
+    listDevices: listInfrastructureDevices,
+  } = useInfrastructureDevices(enableManage, undefined, true);
+  const retryInfrastructureDevices = useCallback(() => {
+    void listInfrastructureDevices().catch(() => {});
+  }, [listInfrastructureDevices]);
   const responseProfileOptions = useMemo(
     () => responseProfiles.map(createCurtailmentResponseProfileOption),
     [responseProfiles],
@@ -1086,6 +1096,10 @@ function CurtailmentManagementPanel({
           initialValues={isEditingCurtailment ? (editSession?.initialValues ?? undefined) : undefined}
           responseProfiles={isEditingCurtailment ? [] : responseProfileOptions}
           siteOptions={siteOptions}
+          infrastructureDevices={infrastructureDevices}
+          isLoadingInfrastructureDevices={isLoadingInfrastructureDevices}
+          infrastructureDevicesError={infrastructureDevicesError}
+          onRetryInfrastructureDevices={retryInfrastructureDevices}
           defaultSiteScope={isEditingCurtailment ? undefined : defaultSiteScope}
           siteScopeEnabled={siteOptions.length > 0 || isLoadingSiteOptions}
           isSiteScopeLoading={isLoadingSiteOptions}

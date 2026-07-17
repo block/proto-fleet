@@ -327,6 +327,50 @@ groups:
             cannot be received and miners can no longer be automatically
             curtailed or restored.
 
+      - uid: protofleet-curtailment-fan-restore-failed
+        title: Curtailment Fan Restore Failed
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: protofleet-timescaledb
+            model:
+              refId: A
+              format: table
+              rawSql: |
+                SELECT
+                    organization_id,
+                    kind,
+                    1 AS value
+                FROM notification_metric_sample
+                WHERE metric = 'fleet_curtailment_fan_restore_failed'
+                  AND time > NOW() - INTERVAL '10 minutes'
+                GROUP BY organization_id, kind
+                HAVING last(value, time) = 1
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: math
+              expression: $A
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels:
+          proto_fleet_scope: shared
+          severity: critical
+          rule_group: proto-fleet-curtailment
+          template: curtailment-fan-restore
+        annotations:
+          summary: "Facility fan restore failed before miners resumed."
+          description: |
+            Curtailment event {{ $labels.kind }} (org {{ $labels.organization_id }})
+            reached its miner-restore gate while one or more facility fan ON
+            commands were still failing. Miner restoration is fail-open; verify
+            airflow and the commissioned fan-control path immediately.
+
   - orgId: 1
     name: proto-fleet-self
     folder: Proto Fleet

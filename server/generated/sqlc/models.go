@@ -491,6 +491,13 @@ type CurtailmentEvent struct {
 	CurtailBatchSize            sql.NullInt32
 	CurtailBatchIntervalSec     int32
 	ForceIncludeAllPairedMiners bool
+	FacilityFanDeviceIds        []int64
+	FacilityFanSiteIds          []int64
+	FanOffDelaySec              int32
+	FanRestoreDelaySec          int32
+	FanOffSentAt                sql.NullTime
+	FanOnSentAt                 sql.NullTime
+	FanLastError                sql.NullString
 }
 
 type CurtailmentMqttSourceConfig struct {

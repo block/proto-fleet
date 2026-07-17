@@ -149,7 +149,7 @@ describe("CurtailmentAutomationsContent", () => {
     expect(within(row).getByText("Standard shed")).toBeVisible();
   });
 
-  it("excludes facility-fan response profiles from automation choices", () => {
+  it("includes facility-fan response profiles in automation choices", () => {
     const facilityFanProfile: ResponseProfile = {
       ...testResponseProfiles[0],
       id: "facility-fan-shed",
@@ -165,8 +165,7 @@ describe("CurtailmentAutomationsContent", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
     const responseProfileSelect = screen.getByTestId("automation-response-profile-select");
-    expect(responseProfileSelect).toHaveTextContent("Standard shed");
-    expect(responseProfileSelect).not.toHaveTextContent("Facility fan shed");
+    expect(responseProfileSelect).toHaveTextContent("Facility fan shed");
   });
 
   it("edits and deletes automation rows from the row click modal", async () => {

@@ -455,11 +455,6 @@ func validateAutomationProfileBinding(profile *models.ResponseProfile, canUseAdm
 	if profile == nil {
 		return nil
 	}
-	if len(profile.FacilityFanDeviceIDs) > 0 {
-		return fleeterror.NewFailedPreconditionError(
-			"automation rules cannot use response profiles with facility fans until fan sequencing is available",
-		)
-	}
 	if canUseAdminControls || !responseProfileRequiresAdminControls(*profile) {
 		return nil
 	}
@@ -508,11 +503,6 @@ func automationSignalFromMQTTTarget(target mqttingest.Target) (models.Automation
 }
 
 func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *models.ResponseProfile, signal mqttingest.SignalEdge) (StartRequest, error) {
-	if len(profile.FacilityFanDeviceIDs) > 0 {
-		return StartRequest{}, fleeterror.NewFailedPreconditionError(
-			"automation response profiles with facility fans cannot execute until fan sequencing is available",
-		)
-	}
 	scope, err := ResponseProfileScope(*profile)
 	if err != nil {
 		return StartRequest{}, fleeterror.NewInvalidArgumentErrorf("invalid response profile scope for automation rule %d: %v", rule.ID, err)
@@ -545,6 +535,9 @@ func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *mod
 		CurtailBatchSize:          cloneInt32Ptr(profile.CurtailBatchSize),
 		CurtailBatchIntervalSec:   profile.CurtailBatchIntervalSec,
 		UseProfileCurtailSettings: true,
+		FacilityFanDeviceIDs:      append([]int64(nil), profile.FacilityFanDeviceIDs...),
+		FanOffDelaySec:            profile.FanOffDelaySec,
+		FanRestoreDelaySec:        profile.FanRestoreDelaySec,
 		IdempotencyKey:            &idempotencyKey,
 		ExternalSource:            stringPtr(automationExternalSource),
 		ExternalReference:         &externalReference,

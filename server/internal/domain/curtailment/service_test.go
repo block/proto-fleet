@@ -13,11 +13,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
+	infrastructuremodels "github.com/block/proto-fleet/server/internal/domain/infrastructure/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
 // fakeStore implements CurtailmentStore for Preview / Start tests; methods
@@ -106,6 +110,11 @@ type fakeStore struct {
 	forceReleaseAutomationDisabled bool
 	forceReleaseErr                error
 
+	updateFanStateCalls      int
+	lastUpdateFanStateID     int64
+	lastUpdateFanStateParams interfaces.UpdateCurtailmentFanStateParams
+	updateFanStateErr        error
+
 	// Idempotent replay fakes. eventsByIdempotencyKey / eventsByExternalRef
 	// drive Service.Start's pre-insert webhook-replay lookup; nil results
 	// signal "no prior match". get*Calls / last* let tests pin the args.
@@ -129,6 +138,67 @@ type fakeStore struct {
 	automationRulesByEventUUID     map[uuid.UUID]*models.AutomationRule
 	automationRulesByExternalRef   map[string]*models.AutomationRule
 	automationDemandGuardCheckRuns int
+}
+
+func TestFacilityFanController_SkipAuditIsEmittedOncePerPowerPhase(t *testing.T) {
+	t.Parallel()
+
+	const (
+		orgID    = int64(42)
+		deviceID = int64(501)
+	)
+	tests := []struct {
+		name   string
+		device *infrastructuremodels.Device
+		err    error
+		reason string
+	}{
+		{
+			name:   "missing device",
+			err:    fleeterror.NewNotFoundError("infrastructure device not found"),
+			reason: "device is missing",
+		},
+		{
+			name:   "disabled device",
+			device: &infrastructuremodels.Device{ID: deviceID},
+			reason: "device is disabled",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctrl := gomock.NewController(t)
+			devices := storemocks.NewMockInfrastructureDeviceStore(ctrl)
+			sites := storemocks.NewMockSiteStore(ctrl)
+			devices.EXPECT().
+				GetInfrastructureDevice(gomock.Any(), orgID, deviceID).
+				Return(tt.device, tt.err).
+				Times(4)
+			audit := &recordingAudit{}
+			controller := NewFacilityFanController(devices, sites, driver.NewRegistry(), audit)
+			event := &models.Event{
+				EventUUID:            uuid.New(),
+				OrgID:                orgID,
+				FacilityFanDeviceIDs: []int64{deviceID},
+			}
+
+			require.Nil(t, controller.SetState(t.Context(), event, driver.PowerOff))
+			now := time.Now().UTC()
+			event.FanOffSentAt = &now
+			require.Nil(t, controller.SetState(t.Context(), event, driver.PowerOff))
+			require.Nil(t, controller.SetState(t.Context(), event, driver.PowerOn))
+			event.FanOnSentAt = &now
+			require.Nil(t, controller.SetState(t.Context(), event, driver.PowerOn))
+
+			require.Len(t, audit.events, 2)
+			for _, activity := range audit.events {
+				assert.Equal(t, ActivityTypeFacilityFanSkipped, activity.Type)
+				assert.Equal(t, deviceID, activity.Metadata["infrastructure_device_id"])
+				assert.Equal(t, tt.reason, activity.Metadata["reason"])
+			}
+		})
+	}
 }
 
 func newFakeStore() *fakeStore {
@@ -331,6 +401,13 @@ func (f *fakeStore) ForceReleaseEvent(_ context.Context, _ int64, eventUUID uuid
 		OwnershipReleased:  true,
 		AutomationDisabled: f.forceReleaseAutomationDisabled,
 	}, nil
+}
+
+func (f *fakeStore) UpdateFanState(_ context.Context, eventID int64, params interfaces.UpdateCurtailmentFanStateParams) error {
+	f.updateFanStateCalls++
+	f.lastUpdateFanStateID = eventID
+	f.lastUpdateFanStateParams = params
+	return f.updateFanStateErr
 }
 
 // filterNonTerminalReplayEvent mirrors the production SQL's

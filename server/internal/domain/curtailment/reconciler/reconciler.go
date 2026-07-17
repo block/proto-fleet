@@ -21,6 +21,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -95,11 +96,14 @@ func (c Config) withDefaults() Config {
 // Each tick reads non-terminal events, dispatches/observes per event with
 // per-event panic isolation, then upserts the heartbeat.
 type Reconciler struct {
-	cfg     Config
-	store   interfaces.CurtailmentStore
-	cmd     CommandDispatcher
-	metrics curtailment.Metrics
-	now     func() time.Time
+	cfg      Config
+	store    interfaces.CurtailmentStore
+	fanStore interfaces.CurtailmentFanStateStore
+	cmd      CommandDispatcher
+	metrics  curtailment.Metrics
+	fans     curtailment.FacilityFanController
+	fanAlert FacilityFanAlertEmitter
+	now      func() time.Time
 
 	stopCancel context.CancelFunc
 	workCancel context.CancelFunc
@@ -122,6 +126,21 @@ func WithMetrics(m curtailment.Metrics) Option {
 	}
 }
 
+func WithFacilityFanController(controller curtailment.FacilityFanController) Option {
+	return func(r *Reconciler) { r.fans = controller }
+}
+
+// FacilityFanAlertEmitter is implemented by the metrics provider. The
+// reconciler emits a per-event state gauge when failed fan-ON commands reach
+// the point where miner restoration is allowed to proceed.
+type FacilityFanAlertEmitter interface {
+	EmitCurtailmentFanRestoreFailure(ctx context.Context, orgID int64, eventUUID string, failed bool)
+}
+
+func WithFacilityFanAlertEmitter(emitter FacilityFanAlertEmitter) Option {
+	return func(r *Reconciler) { r.fanAlert = emitter }
+}
+
 // New builds a Reconciler. nil store/dispatcher is rejected at Start, not
 // here, so a misconfigured fleetd surfaces during lifecycle bring-up.
 func New(cfg Config, store interfaces.CurtailmentStore, cmd CommandDispatcher, opts ...Option) *Reconciler {
@@ -131,6 +150,9 @@ func New(cfg Config, store interfaces.CurtailmentStore, cmd CommandDispatcher, o
 		cmd:     cmd,
 		metrics: curtailment.NoOpMetrics{},
 		now:     time.Now,
+	}
+	if fanStore, ok := store.(interfaces.CurtailmentFanStateStore); ok {
+		r.fanStore = fanStore
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -763,6 +785,61 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 	}
 	claimed := r.claimClosedLoopFullFleetTargets(ctx, ev, targets)
 	r.dispatchClaimedCurtailTargets(cmdCtx, ev, claimed)
+	r.reconcileActiveFans(ctx, ev, append(targets, claimed...))
+}
+
+func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, targets []*models.Target) {
+	if r.fans == nil || r.fanStore == nil || ev == nil || len(ev.FacilityFanDeviceIDs) == 0 {
+		return
+	}
+	if ev.FanOffSentAt == nil {
+		if ev.StartedAt == nil || r.now().Before(ev.StartedAt.Add(time.Duration(ev.FanOffDelaySec)*time.Second)) {
+			return
+		}
+		confirmed := 0
+		for _, target := range targets {
+			if target.DesiredState != "" && target.DesiredState != models.DesiredStateCurtailed {
+				continue
+			}
+			switch target.State {
+			case models.TargetStateConfirmed:
+				confirmed++
+			case models.TargetStateUnavailable, models.TargetStateReleased,
+				models.TargetStateRestoreFailed, models.TargetStateResolved:
+				// Not hashing or terminal; does not hold the initial fan gate.
+			case models.TargetStatePending, models.TargetStateDispatching,
+				models.TargetStateDispatched, models.TargetStateDrifted:
+				return
+			default:
+				return
+			}
+		}
+		// A targetless closed-loop watcher must not turn fans off before it
+		// admits and confirms at least one miner.
+		if confirmed == 0 {
+			return
+		}
+	}
+
+	now := r.now()
+	lastError := r.fans.SetState(ctx, ev, driver.PowerOff)
+	params := interfaces.UpdateCurtailmentFanStateParams{
+		ExpectedEventState: models.EventStateActive,
+		LastError:          lastError,
+	}
+	if ev.FanOffSentAt == nil {
+		params.FanOffSentAt = &now
+	}
+	if err := r.fanStore.UpdateFanState(ctx, ev.ID, params); err != nil {
+		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			slog.Error("curtailment reconciler: facility fan OFF state update failed", "event_id", ev.ID, "error", err)
+		}
+		return
+	}
+	if ev.FanOffSentAt == nil {
+		ev.FanOffSentAt = &now
+	}
+	ev.FanLastError = lastError
 }
 
 func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *models.Event, existingTargets []*models.Target) []*models.Target {
@@ -1413,18 +1490,49 @@ func (r *Reconciler) observeRestoring(ctx context.Context, ev *models.Event) {
 			"event_id", ev.ID, "error", err)
 		return
 	}
-	if len(targets) == 0 {
-		// Contract violation; BeginRestoreTransition needs targets.
-		slog.Error("curtailment reconciler: restoring event has no targets",
-			"event_id", ev.ID, "event_uuid", ev.EventUUID)
-		return
-	}
+	r.reconcileRestoringFans(ctx, ev)
 
 	r.confirmDispatchedRestores(ctx, ev, targets)
 	if r.maybeCompleteRestoring(ctx, ev, targets) {
 		return
 	}
 	r.maybeClaimRestoreBatch(ctx, ev, targets)
+}
+
+func (r *Reconciler) reconcileRestoringFans(ctx context.Context, ev *models.Event) {
+	if r.fans == nil || r.fanStore == nil || ev == nil || len(ev.FacilityFanDeviceIDs) == 0 {
+		return
+	}
+	now := r.now()
+	lastError := r.fans.SetState(ctx, ev, driver.PowerOn)
+	params := interfaces.UpdateCurtailmentFanStateParams{
+		ExpectedEventState: models.EventStateRestoring,
+		LastError:          lastError,
+	}
+	if ev.FanOnSentAt == nil {
+		params.FanOnSentAt = &now
+	}
+	if err := r.fanStore.UpdateFanState(ctx, ev.ID, params); err != nil {
+		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			slog.Error("curtailment reconciler: facility fan ON state update failed", "event_id", ev.ID, "error", err)
+		}
+		return
+	}
+	if ev.FanOnSentAt == nil {
+		ev.FanOnSentAt = &now
+	}
+	ev.FanLastError = lastError
+	if r.fanAlert != nil {
+		switch {
+		case lastError == nil:
+			r.fanAlert.EmitCurtailmentFanRestoreFailure(ctx, ev.OrgID, ev.EventUUID.String(), false)
+		case !now.Before(ev.FanOnSentAt.Add(time.Duration(ev.FanRestoreDelaySec) * time.Second)):
+			// Emit before terminal evaluation so even a targetless or already
+			// resolved event leaves an operator-visible signal when its fan
+			// restore has remained broken through the fail-open delay.
+			r.fanAlert.EmitCurtailmentFanRestoreFailure(ctx, ev.OrgID, ev.EventUUID.String(), true)
+		}
+	}
 }
 
 // confirmDispatchedRestores promotes restore-phase Dispatched targets to
@@ -1513,6 +1621,9 @@ func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t 
 // is in a terminal state. Returns true when the transition was attempted so
 // the caller skips further work this tick.
 func (r *Reconciler) maybeCompleteRestoring(ctx context.Context, ev *models.Event, targets []*models.Target) bool {
+	if len(ev.FacilityFanDeviceIDs) > 0 && ev.FanOnSentAt == nil {
+		return false
+	}
 	successful, failed := 0, 0
 	for _, t := range targets {
 		switch t.State { //nolint:exhaustive // default arm is load-bearing: a future schema-added state must stay non-terminal until it ships its handling, not be silently swept into "complete." TestReconciler_Restoring_UnknownTargetStateKeepsEventNonTerminal pins the contract.
@@ -1554,6 +1665,14 @@ func restoreClaimBatchSize(ev *models.Event) int32 {
 // maybeClaimRestoreBatch enforces the in-flight + interval gates, then claims
 // pending restore targets and dispatches one Uncurtail covering the batch.
 func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Event, targets []*models.Target) {
+	if len(ev.FacilityFanDeviceIDs) > 0 {
+		if ev.FanOnSentAt == nil {
+			return
+		}
+		if r.now().Before(ev.FanOnSentAt.Add(time.Duration(ev.FanRestoreDelaySec) * time.Second)) {
+			return
+		}
+	}
 	// Gate 1: no in-flight restore batch.
 	for _, t := range targets {
 		if t.DesiredState != models.DesiredStateActive {

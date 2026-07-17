@@ -661,6 +661,149 @@ func TestHandler_ListCurtailmentEvents_CapsPermissionFilteringScan(t *testing.T)
 	assert.Equal(t, []string{"", "page-2", "page-3"}, store.listPageTokens)
 }
 
+func TestHandler_ListCurtailmentEvents_FiltersEventsByFacilityFanSite(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID       = int64(42)
+		allowedSite = int64(7)
+		deniedSite  = int64(8)
+		firstFanID  = int64(31)
+		secondFanID = int64(32)
+	)
+	store := &listStubStore{
+		events: []*models.Event{
+			{
+				ID:                   5,
+				EventUUID:            uuid.New(),
+				OrgID:                orgID,
+				State:                models.EventStateCompleted,
+				ScopeType:            models.ScopeTypeSite,
+				ScopeJSON:            siteScopeJSON(t, allowedSite),
+				FacilityFanDeviceIDs: []int64{firstFanID},
+			},
+			{
+				ID:                   4,
+				EventUUID:            uuid.New(),
+				OrgID:                orgID,
+				State:                models.EventStateCompleted,
+				ScopeType:            models.ScopeTypeSite,
+				ScopeJSON:            siteScopeJSON(t, allowedSite),
+				FacilityFanDeviceIDs: []int64{secondFanID},
+			},
+		},
+	}
+	profileStore := newHandlerResponseProfileStore()
+	profileStore.infrastructureDevices[firstFanID] = models.ResponseProfileInfrastructureDevice{
+		ID:      firstFanID,
+		SiteID:  deniedSite,
+		Enabled: true,
+	}
+	profileStore.infrastructureDevices[secondFanID] = models.ResponseProfileInfrastructureDevice{
+		ID:      secondFanID,
+		SiteID:  deniedSite,
+		Enabled: true,
+	}
+	h := NewHandlerWithResponseProfiles(
+		domainCurtailment.NewService(store),
+		domainCurtailment.NewResponseProfileService(profileStore),
+	)
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           "OPERATOR",
+	}, testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(allowedSite, authz.PermCurtailmentRead), testSiteAssignment(deniedSite))
+
+	resp, err := h.ListCurtailmentEvents(ctx, connect.NewRequest(&pb.ListCurtailmentEventsRequest{}))
+	require.NoError(t, err)
+
+	assert.Empty(t, resp.Msg.Events)
+	assert.Equal(t, 1, profileStore.infrastructureDeviceListCalls, "fan sites should be resolved once per event page")
+}
+
+func TestHandler_ListCurtailmentEvents_UsesPersistedFacilityFanSiteSnapshot(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID       = int64(42)
+		allowedSite = int64(7)
+		fanID       = int64(31)
+	)
+	store := &listStubStore{events: []*models.Event{{
+		ID:                   5,
+		EventUUID:            uuid.New(),
+		OrgID:                orgID,
+		State:                models.EventStateCompleted,
+		ScopeType:            models.ScopeTypeSite,
+		ScopeJSON:            siteScopeJSON(t, allowedSite),
+		FacilityFanDeviceIDs: []int64{fanID},
+		FacilityFanSiteIDs:   []int64{allowedSite},
+	}}}
+	h := NewHandler(domainCurtailment.NewService(store))
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           "OPERATOR",
+	}, testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(allowedSite, authz.PermCurtailmentRead))
+
+	resp, err := h.ListCurtailmentEvents(ctx, connect.NewRequest(&pb.ListCurtailmentEventsRequest{}))
+
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Events, 1)
+	assert.Equal(t, store.events[0].EventUUID.String(), resp.Msg.Events[0].GetEventUuid())
+}
+
+func TestHandler_ListCurtailmentEvents_MissingFacilityFanRequiresOrgWideRead(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID        = int64(42)
+		narrowedSite = int64(7)
+		missingFanID = int64(31)
+	)
+
+	for _, test := range []struct {
+		name       string
+		orgWide    bool
+		wantEvents int
+	}{
+		{name: "org-wide read", orgWide: true, wantEvents: 1},
+		{
+			name: "site-narrowed read",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := sessionCtx(orgID)
+			if !test.orgWide {
+				ctx = testSessionCtxWithAssignments(t, &session.Info{
+					AuthMethod:     session.AuthMethodSession,
+					OrganizationID: orgID,
+					UserID:         9,
+					Role:           "OPERATOR",
+				}, testOrgAssignment(authz.PermCurtailmentRead), testSiteAssignment(narrowedSite))
+			}
+			store := &listStubStore{events: []*models.Event{{
+				ID:                   5,
+				EventUUID:            uuid.New(),
+				OrgID:                orgID,
+				State:                models.EventStateCompleted,
+				ScopeType:            models.ScopeTypeWholeOrg,
+				FacilityFanDeviceIDs: []int64{missingFanID},
+			}}}
+			profileStore := newHandlerResponseProfileStore()
+			h := NewHandlerWithResponseProfiles(
+				domainCurtailment.NewService(store),
+				domainCurtailment.NewResponseProfileService(profileStore),
+			)
+
+			resp, err := h.ListCurtailmentEvents(ctx, connect.NewRequest(&pb.ListCurtailmentEventsRequest{}))
+			require.NoError(t, err)
+			assert.Len(t, resp.Msg.Events, test.wantEvents)
+			assert.Equal(t, 1, profileStore.infrastructureDeviceListCalls)
+		})
+	}
+}
+
 func TestHandler_ListActiveCurtailments_FiltersDeviceListEventsByTargetSite(t *testing.T) {
 	t.Parallel()
 	const (

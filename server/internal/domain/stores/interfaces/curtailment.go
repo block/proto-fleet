@@ -167,6 +167,20 @@ type UpdateOperatorFieldsParams struct {
 	MaxDurationSeconds      *int32
 }
 
+// UpdateCurtailmentFanStateParams persists one reconciler fan attempt. Nil
+// timestamps preserve the corresponding first-send stamp; LastError nil clears
+// a previous failure after a successful re-assertion.
+type UpdateCurtailmentFanStateParams struct {
+	ExpectedEventState models.EventState
+	FanOffSentAt       *time.Time
+	FanOnSentAt        *time.Time
+	LastError          *string
+}
+
+type CurtailmentFanStateStore interface {
+	UpdateFanState(ctx context.Context, eventID int64, params UpdateCurtailmentFanStateParams) error
+}
+
 type ForceReleaseEventResult struct {
 	Event              *models.Event
 	SweptTargets       int64

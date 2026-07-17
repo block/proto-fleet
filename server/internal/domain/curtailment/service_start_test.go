@@ -539,6 +539,45 @@ func TestService_Start_PersistsSiteScope(t *testing.T) {
 	assert.JSONEq(t, `{"site_id":99}`, string(store.lastInsertEvent.ScopeJSON))
 }
 
+func TestService_Start_PersistsAuthorizedFacilityFanSites(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID  = int64(1)
+		siteID = int64(99)
+		fanID  = int64(31)
+	)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{minerWithEff("miner", 4000, 100, 40)}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.TargetKW = 3
+	req.FacilityFanDeviceIDs = []int64{fanID}
+	req.AuthorizedFanSites = map[int64]int64{fanID: siteID}
+
+	_, err := svc.Start(t.Context(), req)
+
+	require.NoError(t, err)
+	assert.Equal(t, []int64{fanID}, store.lastInsertEvent.FacilityFanDeviceIDs)
+	assert.Equal(t, map[int64]int64{fanID: siteID}, store.lastInsertEvent.ExpectedFacilityFanSites)
+	req.AuthorizedFanSites[fanID] = siteID + 1
+	assert.Equal(t, siteID, store.lastInsertEvent.ExpectedFacilityFanSites[fanID], "insert params must own the authorization snapshot")
+}
+
+func TestService_Start_RejectsIncompleteAuthorizedFacilityFanSites(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.FacilityFanDeviceIDs = []int64{31}
+	req.AuthorizedFanSites = map[int64]int64{}
+
+	_, err := svc.Start(t.Context(), req)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "authorized facility fan sites")
+}
+
 func TestService_Start_PersistsMultiSiteFullFleetAsClosedLoop(t *testing.T) {
 	t.Parallel()
 	const (

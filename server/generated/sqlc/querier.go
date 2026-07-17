@@ -229,6 +229,8 @@ type Querier interface {
 	// granting anything, so DeleteCustomRole should be allowed to clear
 	// it rather than block the admin on phantom assignments.
 	CountActiveAssignmentsForRole(ctx context.Context, roleID int64) (int64, error)
+	CountActiveCurtailmentEventsByInfrastructureDevices(ctx context.Context, arg CountActiveCurtailmentEventsByInfrastructureDevicesParams) (int64, error)
+	CountActiveCurtailmentFanClaims(ctx context.Context, arg CountActiveCurtailmentFanClaimsParams) (int64, error)
 	CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error)
 	// Site filter must stay byte-for-byte identical to ListActivityLogs so the
 	// pagination total never disagrees with the rendered feed (or the CSV export,
@@ -1079,6 +1081,12 @@ type Querier interface {
 	// the locked ids (result is informational; the FOR UPDATE side-effect
 	// is what matters).
 	LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error)
+	// Per-device transaction lock closes concurrent Start races before the array
+	// overlap check. Callers acquire these in ascending ID order.
+	LockCurtailmentFanDeviceForWrite(ctx context.Context, infrastructureDeviceID string) error
+	// The row lock turns the authorization snapshot into an insert-time invariant:
+	// a concurrent move/delete must wait until this transaction commits.
+	LockCurtailmentFanDevicesForWrite(ctx context.Context, arg LockCurtailmentFanDevicesForWriteParams) ([]LockCurtailmentFanDevicesForWriteRow, error)
 	// Serializes profile fan changes with automation create/update/enable. Both
 	// sides re-read their compatibility condition after acquiring this lock so a
 	// concurrent pair cannot commit an automation binding to a fan profile.
@@ -1415,6 +1423,10 @@ type Querier interface {
 	UpdateApiKeyLastUsed(ctx context.Context, arg UpdateApiKeyLastUsedParams) error
 	UpdateBuilding(ctx context.Context, arg UpdateBuildingParams) error
 	UpdateCurtailmentAutomationRule(ctx context.Context, arg UpdateCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error)
+	// The expected-state guard prevents a stale reconciler phase from stamping
+	// over a concurrent Stop/recurtail/terminal transition. fan_last_error is
+	// always replaced so a successful re-assertion clears a prior failure.
+	UpdateCurtailmentEventFanState(ctx context.Context, arg UpdateCurtailmentEventFanStateParams) (int64, error)
 	// Partial update; nil params COALESCE-preserve. State filter is the
 	// race-loss guard — zero rows means the event advanced between the
 	// service's pre-read and this UPDATE.

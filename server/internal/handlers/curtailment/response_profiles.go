@@ -265,6 +265,12 @@ func (h *Handler) authorizeFacilityFanDevices(
 	orgID int64,
 	deviceIDs []int64,
 ) (map[int64]models.ResponseProfileInfrastructureDevice, error) {
+	if len(deviceIDs) == 0 {
+		return map[int64]models.ResponseProfileInfrastructureDevice{}, nil
+	}
+	if h.responseProfiles == nil {
+		return nil, errCurtailmentNotImplemented("facility fan authorization")
+	}
 	devices, err := h.responseProfiles.FacilityFanDevices(ctx, orgID, deviceIDs)
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {

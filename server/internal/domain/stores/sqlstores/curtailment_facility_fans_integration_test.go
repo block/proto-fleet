@@ -1,0 +1,171 @@
+package sqlstores_test
+
+import (
+	"database/sql"
+	"errors"
+	"sync"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	infrastructuremodels "github.com/block/proto-fleet/server/internal/domain/infrastructure/models"
+	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/testutil"
+)
+
+func TestSQLCurtailmentStore_FacilityFanClaimSnapshotAndRelease(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	db := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(db)
+	siteID, fanID := seedCurtailmentFacilityFan(t, db, user.OrganizationID, "facility-fan-claim")
+
+	firstUUID := uuid.New()
+	first := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, firstUUID, models.EventStateActive, "facility-fan-first")
+	first.FacilityFanDeviceIDs = []int64{fanID}
+	first.ExpectedFacilityFanSites = map[int64]int64{fanID: siteID}
+	_, err := store.InsertEventWithTargets(ctx, first, []models.InsertTargetParams{
+		curtailmentStoreTestTarget("facility-fan-miner-a", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+	})
+	require.NoError(t, err)
+
+	loaded, err := store.GetEventByUUID(ctx, user.OrganizationID, firstUUID)
+	require.NoError(t, err)
+	assert.Equal(t, []int64{fanID}, loaded.FacilityFanDeviceIDs)
+	assert.Equal(t, []int64{siteID}, loaded.FacilityFanSiteIDs)
+
+	second := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, uuid.New(), models.EventStateActive, "facility-fan-second")
+	second.FacilityFanDeviceIDs = []int64{fanID}
+	second.ExpectedFacilityFanSites = map[int64]int64{fanID: siteID}
+	_, err = store.InsertEventWithTargets(ctx, second, []models.InsertTargetParams{
+		curtailmentStoreTestTarget("facility-fan-miner-b", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsAlreadyExistsError(err), "overlapping fan claim must fail, got %v", err)
+
+	_, err = store.ForceReleaseEvent(ctx, user.OrganizationID, firstUUID, "release facility fan claim")
+	require.NoError(t, err)
+	_, err = store.InsertEventWithTargets(ctx, second, []models.InsertTargetParams{
+		curtailmentStoreTestTarget("facility-fan-miner-b", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+	})
+	require.NoError(t, err)
+}
+
+func TestSQLCurtailmentStore_FacilityFanAuthorizationSnapshotRejectsSiteDrift(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	db := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(db)
+	siteID, fanID := seedCurtailmentFacilityFan(t, db, user.OrganizationID, "facility-fan-drift")
+	otherSite, err := sqlstores.NewSQLSiteStore(db).CreateSite(ctx, sitesmodels.CreateSiteParams{
+		OrgID: user.OrganizationID,
+		Name:  "facility-fan-drift-other-site",
+	})
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `UPDATE infrastructure_device SET site_id = $1 WHERE id = $2`, otherSite.ID, fanID)
+	require.NoError(t, err)
+
+	event := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, uuid.New(), models.EventStateActive, "facility-fan-drift")
+	event.FacilityFanDeviceIDs = []int64{fanID}
+	event.ExpectedFacilityFanSites = map[int64]int64{fanID: siteID}
+	_, err = store.InsertEventWithTargets(ctx, event, []models.InsertTargetParams{
+		curtailmentStoreTestTarget("facility-fan-drift-miner", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "site drift must invalidate authorization, got %v", err)
+}
+
+func TestSQLCurtailmentStore_ConcurrentIdempotentFacilityFanStartsHaveOneWinner(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	db := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(db)
+	siteID, fanID := seedCurtailmentFacilityFan(t, db, user.OrganizationID, "facility-fan-idempotent")
+	idempotencyKey := "facility-fan-concurrent-start"
+
+	start := func(eventUUID uuid.UUID) error {
+		event := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStateActive, "facility-fan-idempotent")
+		event.FacilityFanDeviceIDs = []int64{fanID}
+		event.ExpectedFacilityFanSites = map[int64]int64{fanID: siteID}
+		event.IdempotencyKey = &idempotencyKey
+		_, err := store.InsertEventWithTargets(ctx, event, []models.InsertTargetParams{
+			curtailmentStoreTestTarget("facility-fan-idempotent-miner", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+		})
+		return err
+	}
+
+	errs := make([]error, 2)
+	var ready sync.WaitGroup
+	ready.Add(2)
+	begin := make(chan struct{})
+	var workers sync.WaitGroup
+	workers.Add(2)
+	for index := range errs {
+		go func() {
+			defer workers.Done()
+			ready.Done()
+			<-begin
+			errs[index] = start(uuid.New())
+		}()
+	}
+	ready.Wait()
+	close(begin)
+	workers.Wait()
+
+	successes := 0
+	replays := 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			successes++
+		case errors.Is(err, interfaces.ErrCurtailmentReplayRaceLoss):
+			replays++
+		default:
+			t.Errorf("unexpected concurrent Start error: %v", err)
+		}
+	}
+	assert.Equal(t, 1, successes)
+	assert.Equal(t, 1, replays)
+}
+
+func seedCurtailmentFacilityFan(t *testing.T, db *sql.DB, orgID int64, name string) (int64, int64) {
+	t.Helper()
+	ctx := t.Context()
+	site, err := sqlstores.NewSQLSiteStore(db).CreateSite(ctx, sitesmodels.CreateSiteParams{OrgID: orgID, Name: name + "-site"})
+	require.NoError(t, err)
+	device, err := sqlstores.NewSQLInfrastructureDeviceStore(db).CreateInfrastructureDevice(ctx, infrastructuremodels.CreateParams{
+		OrgID:        orgID,
+		SiteID:       site.ID,
+		BuildingName: "Fan building",
+		Name:         name,
+		DeviceKind:   infrastructuremodels.KindFanGroup,
+		FanCount:     4,
+		Enabled:      true,
+		DriverType:   "modbus_tcp",
+		DriverConfig: []byte(`{"endpoint":"127.0.0.1"}`),
+	})
+	require.NoError(t, err)
+	return site.ID, device.ID
+}

@@ -266,7 +266,7 @@ func TestResponseProfileService_UpdatePreservesImmediateRestoreInterval(t *testi
 	assert.Equal(t, int32(0), store.updated.RestoreBatchSize)
 }
 
-func TestResponseProfileService_UpdateRejectsFacilityFansWhenProfileHasAutomationRules(t *testing.T) {
+func TestResponseProfileService_UpdateAllowsFacilityFansWhenProfileHasAutomationRules(t *testing.T) {
 	t.Parallel()
 
 	store := newResponseProfileFakeStore()
@@ -287,10 +287,9 @@ func TestResponseProfileService_UpdateRejectsFacilityFansWhenProfileHasAutomatio
 		CanUseAdminControls: true,
 	})
 
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-	assert.Contains(t, err.Error(), "used by automation rules cannot include facility fans")
-	assert.Nil(t, store.updated)
+	require.NoError(t, err)
+	require.NotNil(t, store.updated)
+	assert.Equal(t, []int64{31}, store.updated.FacilityFanDeviceIDs)
 }
 
 func TestResponseProfileService_CreateRejectsUnknownSite(t *testing.T) {

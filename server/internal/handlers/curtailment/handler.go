@@ -123,6 +123,10 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 	if err != nil {
 		return nil, err
 	}
+	authorizedFans, err := h.authorizeFacilityFanDevices(ctx, info.OrganizationID, req.Msg.GetFacilityFanDeviceIds())
+	if err != nil {
+		return nil, err
+	}
 	if req.Msg.CandidateMinPowerWOverride != nil ||
 		req.Msg.AllowUnbounded ||
 		req.Msg.ForceIncludeMaintenance ||
@@ -140,6 +144,10 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 	startReq, err := toStartRequest(req.Msg, info)
 	if err != nil {
 		return nil, err
+	}
+	startReq.AuthorizedFanSites = make(map[int64]int64, len(authorizedFans))
+	for deviceID, device := range authorizedFans {
+		startReq.AuthorizedFanSites[deviceID] = device.SiteID
 	}
 
 	plan, err := h.service.Start(ctx, startReq)
@@ -559,6 +567,18 @@ func siteResourceContextsForScope(scope curtailment.Scope) []authz.ResourceConte
 	return out
 }
 
+func mergeSiteResourceContexts(groups ...[]authz.ResourceContext) []authz.ResourceContext {
+	var siteIDs []int64
+	for _, group := range groups {
+		for _, rc := range group {
+			if rc.SiteID != nil {
+				siteIDs = append(siteIDs, *rc.SiteID)
+			}
+		}
+	}
+	return siteResourceContextsForScope(curtailment.Scope{SiteIDs: siteIDs})
+}
+
 func requireOrgPermissionWithOptionalSiteContexts(ctx context.Context, permission string, siteContexts []authz.ResourceContext) (*session.Info, error) {
 	info, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{})
 	if err != nil {
@@ -687,9 +707,13 @@ func (h *Handler) filterEventsByPermission(
 	if err := h.hydrateTargetSiteCoverageByEvents(ctx, orgID, events); err != nil {
 		return nil, err
 	}
+	fanDeviceSites, err := h.facilityFanDeviceSitesForEvents(ctx, orgID, events)
+	if err != nil {
+		return nil, err
+	}
 	filtered := make([]*models.Event, 0, len(events))
 	for _, event := range events {
-		siteContexts, err := h.eventSiteResourceContexts(ctx, orgID, event)
+		siteContexts, err := h.eventSiteResourceContextsWithFanSites(ctx, orgID, event, fanDeviceSites)
 		if err != nil {
 			if isIncompleteTargetSiteContextError(err) {
 				if _, orgWideErr := middleware.RequireOrgWidePermission(ctx, permission); orgWideErr != nil {
@@ -721,6 +745,71 @@ func (h *Handler) filterEventsByPermission(
 		}
 	}
 	return filtered, nil
+}
+
+func (h *Handler) facilityFanDeviceSitesForEvents(
+	ctx context.Context,
+	orgID int64,
+	events []*models.Event,
+) (map[int64]int64, error) {
+	seen := make(map[int64]struct{})
+	deviceIDs := make([]int64, 0)
+	for _, event := range events {
+		if event == nil {
+			continue
+		}
+		if len(event.FacilityFanDeviceIDs) == len(event.FacilityFanSiteIDs) {
+			continue
+		}
+		for _, deviceID := range event.FacilityFanDeviceIDs {
+			if _, ok := seen[deviceID]; ok {
+				continue
+			}
+			seen[deviceID] = struct{}{}
+			deviceIDs = append(deviceIDs, deviceID)
+		}
+	}
+	deviceSites := make(map[int64]int64, len(deviceIDs))
+	if len(deviceIDs) == 0 {
+		return deviceSites, nil
+	}
+	if h.responseProfiles == nil {
+		return nil, errCurtailmentNotImplemented("facility fan event authorization")
+	}
+	if err := h.resolveFacilityFanDeviceSites(ctx, orgID, deviceIDs, deviceSites); err != nil {
+		return nil, err
+	}
+	return deviceSites, nil
+}
+
+// resolveFacilityFanDeviceSites batches the normal list path. If a historical
+// event references a deleted fan, split only the failed batch so other events
+// retain their precise site authorization while the missing reference falls
+// back to the existing org-wide incomplete-context policy.
+func (h *Handler) resolveFacilityFanDeviceSites(
+	ctx context.Context,
+	orgID int64,
+	deviceIDs []int64,
+	out map[int64]int64,
+) error {
+	deviceSites, err := h.responseProfiles.FacilityFanDeviceSites(ctx, orgID, deviceIDs)
+	if err == nil {
+		for deviceID, siteID := range deviceSites {
+			out[deviceID] = siteID
+		}
+		return nil
+	}
+	if !fleeterror.IsNotFoundError(err) {
+		return err
+	}
+	if len(deviceIDs) == 1 {
+		return nil
+	}
+	mid := len(deviceIDs) / 2
+	if err := h.resolveFacilityFanDeviceSites(ctx, orgID, deviceIDs[:mid], out); err != nil {
+		return err
+	}
+	return h.resolveFacilityFanDeviceSites(ctx, orgID, deviceIDs[mid:], out)
 }
 
 func (h *Handler) hydrateTargetSiteCoverageByEvents(ctx context.Context, orgID int64, events []*models.Event) error {
@@ -851,12 +940,37 @@ func (h *Handler) eventSiteResourceContexts(
 	orgID int64,
 	event *models.Event,
 ) ([]authz.ResourceContext, error) {
+	return h.eventSiteResourceContextsWithFanSites(ctx, orgID, event, nil)
+}
+
+func (h *Handler) eventSiteResourceContextsWithFanSites(
+	ctx context.Context,
+	orgID int64,
+	event *models.Event,
+	fanDeviceSites map[int64]int64,
+) ([]authz.ResourceContext, error) {
+	targetContexts, err := h.eventTargetSiteResourceContexts(ctx, orgID, event)
+	if err != nil {
+		return nil, err
+	}
+	fanContexts, err := h.eventFacilityFanResourceContexts(ctx, orgID, event, fanDeviceSites)
+	if err != nil {
+		return nil, err
+	}
+	return mergeSiteResourceContexts(targetContexts, fanContexts), nil
+}
+
+func (h *Handler) eventTargetSiteResourceContexts(
+	ctx context.Context,
+	orgID int64,
+	event *models.Event,
+) ([]authz.ResourceContext, error) {
 	rc, err := eventResourceContext(event)
-	if err != nil || rc.SiteID != nil {
-		if rc.SiteID == nil {
-			return nil, err
-		}
-		return []authz.ResourceContext{rc}, err
+	if err != nil {
+		return nil, err
+	}
+	if rc.SiteID != nil {
+		return []authz.ResourceContext{rc}, nil
 	}
 	if event == nil || event.ScopeType == "" || event.ScopeType == models.ScopeTypeWholeOrg {
 		return nil, nil
@@ -888,6 +1002,49 @@ func (h *Handler) eventSiteResourceContexts(
 		contexts = append(contexts, authz.ResourceContext{SiteID: &siteID})
 	}
 	return contexts, nil
+}
+
+func (h *Handler) eventFacilityFanResourceContexts(
+	ctx context.Context,
+	orgID int64,
+	event *models.Event,
+	deviceSites map[int64]int64,
+) ([]authz.ResourceContext, error) {
+	if event == nil || len(event.FacilityFanDeviceIDs) == 0 {
+		return nil, nil
+	}
+	if len(event.FacilityFanDeviceIDs) == len(event.FacilityFanSiteIDs) {
+		for _, siteID := range event.FacilityFanSiteIDs {
+			if siteID <= 0 {
+				return nil, fleeterror.NewForbiddenError(incompleteTargetSiteContextMessage)
+			}
+		}
+		return siteResourceContextsForScope(curtailment.Scope{
+			SiteIDs: append([]int64(nil), event.FacilityFanSiteIDs...),
+		}), nil
+	}
+	if deviceSites == nil {
+		if h.responseProfiles == nil {
+			return nil, errCurtailmentNotImplemented("facility fan event authorization")
+		}
+		var err error
+		deviceSites, err = h.responseProfiles.FacilityFanDeviceSites(ctx, orgID, event.FacilityFanDeviceIDs)
+		if err != nil {
+			if fleeterror.IsNotFoundError(err) {
+				return nil, fleeterror.NewForbiddenError(incompleteTargetSiteContextMessage)
+			}
+			return nil, err
+		}
+	}
+	siteIDs := make([]int64, 0, len(event.FacilityFanDeviceIDs))
+	for _, deviceID := range event.FacilityFanDeviceIDs {
+		siteID, ok := deviceSites[deviceID]
+		if !ok {
+			return nil, fleeterror.NewForbiddenError(incompleteTargetSiteContextMessage)
+		}
+		siteIDs = append(siteIDs, siteID)
+	}
+	return siteResourceContextsForScope(curtailment.Scope{SiteIDs: siteIDs}), nil
 }
 
 func mixedSiteOnlyEventResourceContexts(event *models.Event) ([]authz.ResourceContext, bool, error) {

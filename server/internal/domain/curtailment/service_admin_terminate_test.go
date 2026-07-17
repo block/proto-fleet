@@ -1,8 +1,10 @@
 package curtailment
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -10,8 +12,21 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
+
+type fakeTerminalFanController struct {
+	powers    []driver.PowerMode
+	lastEvent *models.Event
+	err       *string
+}
+
+func (f *fakeTerminalFanController) SetState(_ context.Context, event *models.Event, power driver.PowerMode) *string {
+	f.powers = append(f.powers, power)
+	f.lastEvent = event
+	return f.err
+}
 
 // TestService_AdminTerminate_HappyPathForwardsToStore: the service hands
 // off to the store with the operator-chosen terminal state and reason,
@@ -44,6 +59,49 @@ func TestService_AdminTerminate_HappyPathForwardsToStore(t *testing.T) {
 	assert.Equal(t, "operator escalation", store.lastAdminTerminateReason)
 }
 
+func TestService_AdminTerminate_RestoringEventTurnsFansOnBeforeTerminal(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	fanOffAt := time.Now().UTC()
+	store := newFakeStore()
+	store.eventsByUUID[eventUUID] = &models.Event{
+		ID:                   88,
+		EventUUID:            eventUUID,
+		OrgID:                orgID,
+		State:                models.EventStateRestoring,
+		FacilityFanDeviceIDs: []int64{501, 502},
+		FanOffSentAt:         &fanOffAt,
+	}
+	store.adminTerminateResult = &models.Event{
+		ID:        88,
+		EventUUID: eventUUID,
+		OrgID:     orgID,
+		State:     models.EventStateCancelled,
+	}
+	fans := &fakeTerminalFanController{}
+	svc := NewService(store, WithFacilityFanController(fans))
+
+	got, err := svc.AdminTerminate(t.Context(), AdminTerminateRequest{
+		OrgID:       orgID,
+		EventUUID:   eventUUID,
+		TargetState: models.EventStateCancelled,
+		Reason:      "operator escalation",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	require.NotNil(t, fans.lastEvent)
+	assert.Equal(t, []int64{501, 502}, fans.lastEvent.FacilityFanDeviceIDs)
+	assert.Equal(t, 1, store.updateFanStateCalls)
+	assert.Equal(t, int64(88), store.lastUpdateFanStateID)
+	assert.Equal(t, models.EventStateRestoring, store.lastUpdateFanStateParams.ExpectedEventState)
+	assert.NotNil(t, store.lastUpdateFanStateParams.FanOnSentAt)
+	assert.Nil(t, store.lastUpdateFanStateParams.LastError)
+	assert.Equal(t, 1, store.adminTerminateCalls)
+}
+
 func TestService_ForceRelease_HappyPathForwardsToStore(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
@@ -74,6 +132,46 @@ func TestService_ForceRelease_HappyPathForwardsToStore(t *testing.T) {
 	assert.Equal(t, 1, store.forceReleaseCalls)
 	assert.Equal(t, eventUUID, store.lastForceReleaseUUID)
 	assert.Equal(t, "operator release", store.lastForceReleaseReason)
+}
+
+func TestService_ForceRelease_NonTerminalEventTurnsFansOnBeforeRelease(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	fanOffAt := time.Now().UTC()
+	store := newFakeStore()
+	store.eventsByUUID[eventUUID] = &models.Event{
+		ID:                   89,
+		EventUUID:            eventUUID,
+		OrgID:                orgID,
+		State:                models.EventStateActive,
+		FacilityFanDeviceIDs: []int64{601},
+		FanOffSentAt:         &fanOffAt,
+	}
+	store.forceReleaseResult = &models.Event{
+		ID:        89,
+		EventUUID: eventUUID,
+		OrgID:     orgID,
+		State:     models.EventStateCancelled,
+	}
+	fans := &fakeTerminalFanController{}
+	svc := NewService(store, WithFacilityFanController(fans))
+
+	got, err := svc.ForceRelease(t.Context(), ForceReleaseRequest{
+		OrgID:     orgID,
+		EventUUID: eventUUID,
+		Reason:    "operator release",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	assert.Equal(t, 1, store.updateFanStateCalls)
+	assert.Equal(t, int64(89), store.lastUpdateFanStateID)
+	assert.Equal(t, models.EventStateActive, store.lastUpdateFanStateParams.ExpectedEventState)
+	assert.NotNil(t, store.lastUpdateFanStateParams.FanOnSentAt)
+	assert.Nil(t, store.lastUpdateFanStateParams.LastError)
+	assert.Equal(t, 1, store.forceReleaseCalls)
 }
 
 func TestService_ForceRelease_RejectsMissingReason(t *testing.T) {

@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -84,6 +85,8 @@ type fakeStore struct {
 	beginRestoreCalls       int
 	beginRestoreLastEventID uuid.UUID
 	beginRestoreErr         error
+	updateFanCalls          int
+	lastFanUpdate           interfaces.UpdateCurtailmentFanStateParams
 }
 
 type bumpRetryCall struct {
@@ -402,6 +405,27 @@ func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, expectedS
 	return nil
 }
 
+func (f *fakeStore) UpdateFanState(_ context.Context, eventID int64, params interfaces.UpdateCurtailmentFanStateParams) error {
+	f.updateFanCalls++
+	f.lastFanUpdate = params
+	for _, event := range f.events {
+		if event.ID != eventID {
+			continue
+		}
+		if event.State != params.ExpectedEventState {
+			return interfaces.ErrCurtailmentEventStateRaceLoss
+		}
+		if params.FanOffSentAt != nil {
+			event.FanOffSentAt = params.FanOffSentAt
+		}
+		if params.FanOnSentAt != nil {
+			event.FanOnSentAt = params.FanOnSentAt
+		}
+		event.FanLastError = params.LastError
+	}
+	return nil
+}
+
 func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
 	f.updateTargetCalls++
 	f.updateTargetParams[deviceIdentifier] = params
@@ -667,6 +691,24 @@ type fakeDispatcher struct {
 	uncurtailHook func(ids []string)
 }
 
+type fakeFanController struct {
+	powers []driver.PowerMode
+	err    *string
+}
+
+func (f *fakeFanController) SetState(_ context.Context, _ *models.Event, power driver.PowerMode) *string {
+	f.powers = append(f.powers, power)
+	return f.err
+}
+
+type fakeFanAlertEmitter struct {
+	values []bool
+}
+
+func (f *fakeFanAlertEmitter) EmitCurtailmentFanRestoreFailure(_ context.Context, _ int64, _ string, failed bool) {
+	f.values = append(f.values, failed)
+}
+
 func (f *fakeDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSelector, _ sdk.CurtailLevel) (*command.CommandResult, error) {
 	f.curtailCalls++
 	f.curtailLastIDs = identifiersFromSelector(selector)
@@ -723,6 +765,35 @@ func newReconcilerForTest(store *fakeStore, disp *fakeDispatcher) *Reconciler {
 		CurtailMaxRetries:    3,
 		DriftThresholdFactor: 0.5,
 	}, store, disp)
+	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
+	return r
+}
+
+func newReconcilerWithFansForTest(store *fakeStore, disp *fakeDispatcher, fans *fakeFanController) *Reconciler {
+	r := New(Config{
+		TickInterval:         time.Hour,
+		ShutdownDeadline:     time.Second,
+		MaxRetries:           3,
+		CurtailMaxRetries:    3,
+		DriftThresholdFactor: 0.5,
+	}, store, disp, WithFacilityFanController(fans))
+	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
+	return r
+}
+
+func newReconcilerWithFanAlertForTest(
+	store *fakeStore,
+	disp *fakeDispatcher,
+	fans *fakeFanController,
+	alert *fakeFanAlertEmitter,
+) *Reconciler {
+	r := New(Config{
+		TickInterval:         time.Hour,
+		ShutdownDeadline:     time.Second,
+		MaxRetries:           3,
+		CurtailMaxRetries:    3,
+		DriftThresholdFactor: 0.5,
+	}, store, disp, WithFacilityFanController(fans), WithFacilityFanAlertEmitter(alert))
 	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
 	return r
 }

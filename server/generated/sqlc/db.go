@@ -159,6 +159,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countActiveAssignmentsForRoleStmt, err = db.PrepareContext(ctx, countActiveAssignmentsForRole); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveAssignmentsForRole: %w", err)
 	}
+	if q.countActiveCurtailmentEventsByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countActiveCurtailmentEventsByInfrastructureDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query CountActiveCurtailmentEventsByInfrastructureDevices: %w", err)
+	}
+	if q.countActiveCurtailmentFanClaimsStmt, err = db.PrepareContext(ctx, countActiveCurtailmentFanClaims); err != nil {
+		return nil, fmt.Errorf("error preparing query CountActiveCurtailmentFanClaims: %w", err)
+	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, countActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveUnpairedDiscoveredDevices: %w", err)
 	}
@@ -1035,6 +1041,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockBuildingsBySiteForWriteStmt, err = db.PrepareContext(ctx, lockBuildingsBySiteForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockBuildingsBySiteForWrite: %w", err)
 	}
+	if q.lockCurtailmentFanDeviceForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentFanDeviceForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentFanDeviceForWrite: %w", err)
+	}
+	if q.lockCurtailmentFanDevicesForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentFanDevicesForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockCurtailmentFanDevicesForWrite: %w", err)
+	}
 	if q.lockCurtailmentResponseProfileAutomationMutationStmt, err = db.PrepareContext(ctx, lockCurtailmentResponseProfileAutomationMutation); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentResponseProfileAutomationMutation: %w", err)
 	}
@@ -1334,6 +1346,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.updateCurtailmentAutomationRuleStmt, err = db.PrepareContext(ctx, updateCurtailmentAutomationRule); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateCurtailmentAutomationRule: %w", err)
+	}
+	if q.updateCurtailmentEventFanStateStmt, err = db.PrepareContext(ctx, updateCurtailmentEventFanState); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateCurtailmentEventFanState: %w", err)
 	}
 	if q.updateCurtailmentEventOperatorFieldsStmt, err = db.PrepareContext(ctx, updateCurtailmentEventOperatorFields); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateCurtailmentEventOperatorFields: %w", err)
@@ -1722,6 +1737,16 @@ func (q *Queries) Close() error {
 	if q.countActiveAssignmentsForRoleStmt != nil {
 		if cerr := q.countActiveAssignmentsForRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countActiveAssignmentsForRoleStmt: %w", cerr)
+		}
+	}
+	if q.countActiveCurtailmentEventsByInfrastructureDevicesStmt != nil {
+		if cerr := q.countActiveCurtailmentEventsByInfrastructureDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countActiveCurtailmentEventsByInfrastructureDevicesStmt: %w", cerr)
+		}
+	}
+	if q.countActiveCurtailmentFanClaimsStmt != nil {
+		if cerr := q.countActiveCurtailmentFanClaimsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countActiveCurtailmentFanClaimsStmt: %w", cerr)
 		}
 	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt != nil {
@@ -3184,6 +3209,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockBuildingsBySiteForWriteStmt: %w", cerr)
 		}
 	}
+	if q.lockCurtailmentFanDeviceForWriteStmt != nil {
+		if cerr := q.lockCurtailmentFanDeviceForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentFanDeviceForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockCurtailmentFanDevicesForWriteStmt != nil {
+		if cerr := q.lockCurtailmentFanDevicesForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockCurtailmentFanDevicesForWriteStmt: %w", cerr)
+		}
+	}
 	if q.lockCurtailmentResponseProfileAutomationMutationStmt != nil {
 		if cerr := q.lockCurtailmentResponseProfileAutomationMutationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockCurtailmentResponseProfileAutomationMutationStmt: %w", cerr)
@@ -3684,6 +3719,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateCurtailmentAutomationRuleStmt: %w", cerr)
 		}
 	}
+	if q.updateCurtailmentEventFanStateStmt != nil {
+		if cerr := q.updateCurtailmentEventFanStateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateCurtailmentEventFanStateStmt: %w", cerr)
+		}
+	}
 	if q.updateCurtailmentEventOperatorFieldsStmt != nil {
 		if cerr := q.updateCurtailmentEventOperatorFieldsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateCurtailmentEventOperatorFieldsStmt: %w", cerr)
@@ -4033,6 +4073,8 @@ type Queries struct {
 	confirmEnrollmentStmt                                      *sql.Stmt
 	consumeFleetNodeAuthChallengeStmt                          *sql.Stmt
 	countActiveAssignmentsForRoleStmt                          *sql.Stmt
+	countActiveCurtailmentEventsByInfrastructureDevicesStmt    *sql.Stmt
+	countActiveCurtailmentFanClaimsStmt                        *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt                   *sql.Stmt
 	countActivityLogsStmt                                      *sql.Stmt
 	countBuildingsBySiteStmt                                   *sql.Stmt
@@ -4325,6 +4367,8 @@ type Queries struct {
 	lockAndCountOrgScopeSuperAdminsStmt                        *sql.Stmt
 	lockBuildingForWriteStmt                                   *sql.Stmt
 	lockBuildingsBySiteForWriteStmt                            *sql.Stmt
+	lockCurtailmentFanDeviceForWriteStmt                       *sql.Stmt
+	lockCurtailmentFanDevicesForWriteStmt                      *sql.Stmt
 	lockCurtailmentResponseProfileAutomationMutationStmt       *sql.Stmt
 	lockCurtailmentScopeForWriteStmt                           *sql.Stmt
 	lockDevicesForReassignStmt                                 *sql.Stmt
@@ -4425,6 +4469,7 @@ type Queries struct {
 	updateApiKeyLastUsedStmt                                   *sql.Stmt
 	updateBuildingStmt                                         *sql.Stmt
 	updateCurtailmentAutomationRuleStmt                        *sql.Stmt
+	updateCurtailmentEventFanStateStmt                         *sql.Stmt
 	updateCurtailmentEventOperatorFieldsStmt                   *sql.Stmt
 	updateCurtailmentEventStateStmt                            *sql.Stmt
 	updateCurtailmentResponseProfileStmt                       *sql.Stmt
@@ -4529,6 +4574,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		confirmEnrollmentStmt:                                      q.confirmEnrollmentStmt,
 		consumeFleetNodeAuthChallengeStmt:                          q.consumeFleetNodeAuthChallengeStmt,
 		countActiveAssignmentsForRoleStmt:                          q.countActiveAssignmentsForRoleStmt,
+		countActiveCurtailmentEventsByInfrastructureDevicesStmt:    q.countActiveCurtailmentEventsByInfrastructureDevicesStmt,
+		countActiveCurtailmentFanClaimsStmt:                        q.countActiveCurtailmentFanClaimsStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:                   q.countActiveUnpairedDiscoveredDevicesStmt,
 		countActivityLogsStmt:                                      q.countActivityLogsStmt,
 		countBuildingsBySiteStmt:                                   q.countBuildingsBySiteStmt,
@@ -4821,6 +4868,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockAndCountOrgScopeSuperAdminsStmt:                        q.lockAndCountOrgScopeSuperAdminsStmt,
 		lockBuildingForWriteStmt:                                   q.lockBuildingForWriteStmt,
 		lockBuildingsBySiteForWriteStmt:                            q.lockBuildingsBySiteForWriteStmt,
+		lockCurtailmentFanDeviceForWriteStmt:                       q.lockCurtailmentFanDeviceForWriteStmt,
+		lockCurtailmentFanDevicesForWriteStmt:                      q.lockCurtailmentFanDevicesForWriteStmt,
 		lockCurtailmentResponseProfileAutomationMutationStmt:       q.lockCurtailmentResponseProfileAutomationMutationStmt,
 		lockCurtailmentScopeForWriteStmt:                           q.lockCurtailmentScopeForWriteStmt,
 		lockDevicesForReassignStmt:                                 q.lockDevicesForReassignStmt,
@@ -4921,6 +4970,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateApiKeyLastUsedStmt:                                   q.updateApiKeyLastUsedStmt,
 		updateBuildingStmt:                                         q.updateBuildingStmt,
 		updateCurtailmentAutomationRuleStmt:                        q.updateCurtailmentAutomationRuleStmt,
+		updateCurtailmentEventFanStateStmt:                         q.updateCurtailmentEventFanStateStmt,
 		updateCurtailmentEventOperatorFieldsStmt:                   q.updateCurtailmentEventOperatorFieldsStmt,
 		updateCurtailmentEventStateStmt:                            q.updateCurtailmentEventStateStmt,
 		updateCurtailmentResponseProfileStmt:                       q.updateCurtailmentResponseProfileStmt,

@@ -123,6 +123,7 @@ func TestService_DeleteEmitsAuditEvent(t *testing.T) {
 	h := newAuditHarness(t)
 	h.store.EXPECT().LockInfrastructureDeviceForWrite(gomock.Any(), testOrgID, int64(7), testSiteID).Return(nil)
 	h.store.EXPECT().CountResponseProfilesByInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(int64(0), nil)
+	h.store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(int64(0), nil)
 	h.store.EXPECT().SoftDeleteInfrastructureDevice(gomock.Any(), testOrgID, int64(7), testSiteID).
 		Return(auditDevice(), true, nil)
 
@@ -135,6 +136,7 @@ func TestService_DeleteNotFoundEmitsNoAuditEvent(t *testing.T) {
 	h := newAuditHarness(t)
 	h.store.EXPECT().LockInfrastructureDeviceForWrite(gomock.Any(), testOrgID, int64(7), testSiteID).Return(nil)
 	h.store.EXPECT().CountResponseProfilesByInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(int64(0), nil)
+	h.store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(int64(0), nil)
 	h.store.EXPECT().SoftDeleteInfrastructureDevice(gomock.Any(), testOrgID, int64(7), testSiteID).
 		Return(nil, false, nil)
 
@@ -180,5 +182,47 @@ func TestService_UpdateRejectsMovingDeviceReferencedByResponseProfile(t *testing
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.Contains(t, err.Error(), "before moving it")
+	assert.Empty(t, *h.captured)
+}
+
+func TestService_DeleteRejectsDeviceClaimedByActiveCurtailmentEvent(t *testing.T) {
+	t.Parallel()
+	h := newAuditHarness(t)
+	h.store.EXPECT().LockInfrastructureDeviceForWrite(gomock.Any(), testOrgID, int64(7), testSiteID).Return(nil)
+	h.store.EXPECT().CountResponseProfilesByInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(int64(0), nil)
+	h.store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(int64(1), nil)
+
+	err := h.svc.Delete(context.Background(), testOrgID, 7, testSiteID)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "active curtailment event")
+	assert.Empty(t, *h.captured)
+}
+
+func TestService_UpdateRejectsMovingDeviceClaimedByActiveCurtailmentEvent(t *testing.T) {
+	t.Parallel()
+	h := newAuditHarness(t)
+	h.store.EXPECT().LockInfrastructureDeviceForWrite(gomock.Any(), testOrgID, int64(7), testSiteID).Return(nil)
+	h.store.EXPECT().CountResponseProfilesByInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(int64(0), nil)
+	h.store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(int64(1), nil)
+
+	_, err := h.svc.Update(context.Background(), models.UpdateParams{
+		OrgID:          testOrgID,
+		ID:             7,
+		ExpectedSiteID: testSiteID,
+		SiteID:         testSiteID + 1,
+		BuildingName:   "Building 1",
+		Name:           "Zone A exhaust fans",
+		DeviceKind:     models.KindFanGroup,
+		FanCount:       12,
+		Enabled:        boolPtr(true),
+		DriverType:     "modbus_tcp",
+		DriverConfig:   validModbusConfig(),
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "active curtailment event")
 	assert.Empty(t, *h.captured)
 }

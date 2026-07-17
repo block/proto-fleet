@@ -516,6 +516,30 @@ func (q *retryingQuerier) CountActiveAssignmentsForRole(ctx context.Context, rol
 	return result, err
 }
 
+func (q *retryingQuerier) CountActiveCurtailmentEventsByInfrastructureDevices(ctx context.Context, arg CountActiveCurtailmentEventsByInfrastructureDevicesParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountActiveCurtailmentEventsByInfrastructureDevices", func() error {
+		callResult, callErr := q.next.CountActiveCurtailmentEventsByInfrastructureDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CountActiveCurtailmentFanClaims(ctx context.Context, arg CountActiveCurtailmentFanClaimsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountActiveCurtailmentFanClaims", func() error {
+		callResult, callErr := q.next.CountActiveCurtailmentFanClaims(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountActiveUnpairedDiscoveredDevices", func() error {
@@ -3918,6 +3942,24 @@ func (q *retryingQuerier) LockBuildingsBySiteForWrite(ctx context.Context, arg L
 	return result, err
 }
 
+func (q *retryingQuerier) LockCurtailmentFanDeviceForWrite(ctx context.Context, infrastructureDeviceID string) error {
+	return q.retrier.RetryQuery(ctx, "LockCurtailmentFanDeviceForWrite", func() error {
+		return q.next.LockCurtailmentFanDeviceForWrite(ctx, infrastructureDeviceID)
+	})
+}
+
+func (q *retryingQuerier) LockCurtailmentFanDevicesForWrite(ctx context.Context, arg LockCurtailmentFanDevicesForWriteParams) ([]LockCurtailmentFanDevicesForWriteRow, error) {
+	var result []LockCurtailmentFanDevicesForWriteRow
+	err := q.retrier.RetryQuery(ctx, "LockCurtailmentFanDevicesForWrite", func() error {
+		callResult, callErr := q.next.LockCurtailmentFanDevicesForWrite(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockCurtailmentResponseProfileAutomationMutation(ctx context.Context, arg LockCurtailmentResponseProfileAutomationMutationParams) error {
 	return q.retrier.RetryQuery(ctx, "LockCurtailmentResponseProfileAutomationMutation", func() error {
 		return q.next.LockCurtailmentResponseProfileAutomationMutation(ctx, arg)
@@ -4906,6 +4948,18 @@ func (q *retryingQuerier) UpdateCurtailmentAutomationRule(ctx context.Context, a
 	var result CurtailmentAutomationRule
 	err := q.retrier.RetryQuery(ctx, "UpdateCurtailmentAutomationRule", func() error {
 		callResult, callErr := q.next.UpdateCurtailmentAutomationRule(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) UpdateCurtailmentEventFanState(ctx context.Context, arg UpdateCurtailmentEventFanStateParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "UpdateCurtailmentEventFanState", func() error {
+		callResult, callErr := q.next.UpdateCurtailmentEventFanState(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
