@@ -192,16 +192,68 @@ func TestFacilityFanController_MissingClaimIsFailureOncePerPowerPhase(t *testing
 }
 
 type recordingFacilityFanDriver struct {
-	powers []driver.PowerMode
+	powers       []driver.PowerMode
+	deviceIDs    []int64
+	failDeviceID int64
 }
 
 func (*recordingFacilityFanDriver) ValidateConfig(json.RawMessage) error { return nil }
-func (d *recordingFacilityFanDriver) SetState(_ context.Context, _ driver.Device, state driver.DesiredState) error {
+func (d *recordingFacilityFanDriver) SetState(_ context.Context, device driver.Device, state driver.DesiredState) error {
 	d.powers = append(d.powers, state.Power)
+	d.deviceIDs = append(d.deviceIDs, device.ID)
+	if device.ID == d.failDeviceID {
+		return fmt.Errorf("device %d timed out", device.ID)
+	}
 	return nil
 }
 func (*recordingFacilityFanDriver) Capabilities() map[string]bool {
 	return map[string]bool{"on_off": true}
+}
+
+func TestFacilityFanController_RotatesFailedRetryStartAcrossDevices(t *testing.T) {
+	t.Parallel()
+
+	const (
+		orgID      = int64(42)
+		firstID    = int64(501)
+		secondID   = int64(502)
+		siteID     = int64(601)
+		driverType = "test-fan"
+	)
+	ctrl := gomock.NewController(t)
+	devices := storemocks.NewMockInfrastructureDeviceStore(ctrl)
+	sites := storemocks.NewMockSiteStore(ctrl)
+	device := func(id int64) *infrastructuremodels.Device {
+		return &infrastructuremodels.Device{
+			ID: id, OrgID: orgID, SiteID: siteID, Enabled: true, DriverType: driverType,
+		}
+	}
+	gomock.InOrder(
+		devices.EXPECT().GetInfrastructureDevice(gomock.Any(), orgID, firstID).Return(device(firstID), nil),
+		devices.EXPECT().GetInfrastructureDevice(gomock.Any(), orgID, secondID).Return(device(secondID), nil),
+		devices.EXPECT().GetInfrastructureDevice(gomock.Any(), orgID, secondID).Return(device(secondID), nil),
+		devices.EXPECT().GetInfrastructureDevice(gomock.Any(), orgID, firstID).Return(device(firstID), nil),
+	)
+	sites.EXPECT().GetInfrastructureControlSubnets(gomock.Any(), orgID, siteID).Return("10.0.0.0/24", nil).Times(4)
+	driverController := &recordingFacilityFanDriver{failDeviceID: firstID}
+	registry := driver.NewRegistry()
+	registry.Register(driverType, func() driver.Controller { return driverController })
+	controller := NewFacilityFanController(devices, sites, registry, &recordingAudit{})
+	event := &models.Event{
+		ID:                   77,
+		EventUUID:            uuid.New(),
+		OrgID:                orgID,
+		FacilityFanDeviceIDs: []int64{firstID, secondID},
+		FacilityFanSiteIDs:   []int64{siteID, siteID},
+	}
+
+	firstFailure := controller.SetState(t.Context(), event, driver.PowerOn)
+	require.NotNil(t, firstFailure)
+	event.FanLastError = firstFailure
+	secondFailure := controller.SetState(t.Context(), event, driver.PowerOn)
+	require.NotNil(t, secondFailure)
+
+	assert.Equal(t, []int64{firstID, secondID, secondID, firstID}, driverController.deviceIDs)
 }
 
 func TestFacilityFanController_DisabledClaimIsAuditedSkip(t *testing.T) {

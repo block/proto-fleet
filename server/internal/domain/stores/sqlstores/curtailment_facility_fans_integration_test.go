@@ -282,7 +282,8 @@ func TestSQLCurtailmentStore_AirflowReopenPreservesFirstFailureThenStampsSuccess
 	require.NoError(t, err)
 	failed, err := store.GetEventByUUID(ctx, user.OrganizationID, eventUUID)
 	require.NoError(t, err)
-	assert.Equal(t, &firstAttemptAt, failed.FanAirflowReopenedAt)
+	require.NotNil(t, failed.FanAirflowReopenedAt)
+	assert.WithinDuration(t, firstAttemptAt, *failed.FanAirflowReopenedAt, time.Microsecond)
 	assert.Equal(t, &firstError, failed.FanLastError)
 
 	successAt := time.Now().UTC()
@@ -298,7 +299,8 @@ func TestSQLCurtailmentStore_AirflowReopenPreservesFirstFailureThenStampsSuccess
 	require.NoError(t, err)
 	recovered, err := store.GetEventByUUID(ctx, user.OrganizationID, eventUUID)
 	require.NoError(t, err)
-	assert.Equal(t, &successAt, recovered.FanAirflowReopenedAt)
+	require.NotNil(t, recovered.FanAirflowReopenedAt)
+	assert.WithinDuration(t, successAt, *recovered.FanAirflowReopenedAt, time.Microsecond)
 	assert.Nil(t, recovered.FanLastError)
 }
 

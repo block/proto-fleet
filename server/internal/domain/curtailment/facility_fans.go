@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
@@ -12,6 +13,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
 	"github.com/block/proto-fleet/server/internal/domain/netutil"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/google/uuid"
 )
 
 const (
@@ -26,10 +28,18 @@ type FacilityFanController interface {
 }
 
 type facilityFanController struct {
-	devices  interfaces.InfrastructureDeviceStore
-	sites    interfaces.SiteStore
-	registry *driver.Registry
-	audit    AuditLogger
+	devices     interfaces.InfrastructureDeviceStore
+	sites       interfaces.SiteStore
+	registry    *driver.Registry
+	audit       AuditLogger
+	cursorMu    sync.Mutex
+	nextDevices map[facilityFanCommandKey]int
+}
+
+type facilityFanCommandKey struct {
+	eventID   int64
+	eventUUID uuid.UUID
+	power     driver.PowerMode
 }
 
 func NewFacilityFanController(
@@ -41,7 +51,13 @@ func NewFacilityFanController(
 	if audit == nil {
 		audit = NoOpAuditLogger{}
 	}
-	return &facilityFanController{devices: devices, sites: sites, registry: registry, audit: audit}
+	return &facilityFanController{
+		devices:     devices,
+		sites:       sites,
+		registry:    registry,
+		audit:       audit,
+		nextDevices: make(map[facilityFanCommandKey]int),
+	}
 }
 
 func (c *facilityFanController) SetState(ctx context.Context, event *models.Event, power driver.PowerMode) *string {
@@ -63,7 +79,10 @@ func (c *facilityFanController) SetState(ctx context.Context, event *models.Even
 	}
 	errorsByDevice := make([]string, 0)
 	skippedDeviceIDs := make([]int64, 0)
-	for index, deviceID := range event.FacilityFanDeviceIDs {
+	commandKey, startIndex := c.nextDeviceStart(event, power)
+	for offset := range event.FacilityFanDeviceIDs {
+		index := (startIndex + offset) % len(event.FacilityFanDeviceIDs)
+		deviceID := event.FacilityFanDeviceIDs[index]
 		device, err := c.devices.GetInfrastructureDevice(ctx, event.OrgID, deviceID)
 		if err != nil {
 			if fleeterror.IsNotFoundError(err) {
@@ -113,6 +132,7 @@ func (c *facilityFanController) SetState(ctx context.Context, event *models.Even
 		c.logSkipped(ctx, event, power, skippedDeviceIDs)
 	}
 	if len(errorsByDevice) == 0 {
+		c.clearNextDevice(commandKey)
 		return nil
 	}
 	message := strings.Join(errorsByDevice, "; ")
@@ -120,6 +140,29 @@ func (c *facilityFanController) SetState(ctx context.Context, event *models.Even
 		c.logFailure(ctx, event, power, message)
 	}
 	return &message
+}
+
+func (c *facilityFanController) nextDeviceStart(
+	event *models.Event,
+	power driver.PowerMode,
+) (facilityFanCommandKey, int) {
+	key := facilityFanCommandKey{eventID: event.ID, eventUUID: event.EventUUID, power: power}
+	c.cursorMu.Lock()
+	defer c.cursorMu.Unlock()
+	if c.nextDevices == nil {
+		c.nextDevices = make(map[facilityFanCommandKey]int)
+	}
+	start := c.nextDevices[key] % len(event.FacilityFanDeviceIDs)
+	// Advance before I/O so a timeout or cancellation still gives the next
+	// device first access to the following retry's bounded command budget.
+	c.nextDevices[key] = (start + 1) % len(event.FacilityFanDeviceIDs)
+	return key, start
+}
+
+func (c *facilityFanController) clearNextDevice(key facilityFanCommandKey) {
+	c.cursorMu.Lock()
+	defer c.cursorMu.Unlock()
+	delete(c.nextDevices, key)
 }
 
 func shouldLogFacilityFanSkip(event *models.Event, power driver.PowerMode) bool {
