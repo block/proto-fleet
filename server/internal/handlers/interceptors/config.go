@@ -164,6 +164,7 @@ var SessionOnlyProcedures = []string{
 	chatv1connect.ChatServiceDiscoverModelsProcedure,
 	chatv1connect.ChatServiceUpdateLLMConfigProcedure,
 	chatv1connect.ChatServiceSendMessageProcedure,
+	chatv1connect.ChatServiceResolveToolConfirmationProcedure,
 }
 
 var UnauthenticatedProcedures = []string{

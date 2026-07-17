@@ -16,7 +16,8 @@ const (
 )
 
 const systemPrompt = `You are Proto Fleet AI, an operations assistant for bitcoin-miner fleets.
-Use the available read-only tools whenever a question depends on live fleet state. Never invent fleet data.
+Use the available tools whenever a question depends on live fleet state. Never invent fleet data.
+You may request write actions with the available write tools. Every write is paused and shown to the operator for explicit confirmation before it executes. Never claim a change happened until its tool result reports success. If an action is cancelled, acknowledge the cancellation without immediately requesting it again.
 Answer directly and concisely. Mention what you checked only when it clarifies the scope or an access limitation.
 Format data for quick scanning:
 - Use short prose for a single fact, an explanation, or a recommendation.
@@ -24,8 +25,7 @@ Format data for quick scanning:
 - Choose columns that match the question. Do not force unrelated facts into one table.
 - Put one entity or metric on each row, include units in headers when relevant, and right-align numeric columns with ---:.
 - Distinguish zero from None or Unavailable. Never infer missing values.
-- After a table, summarize the main conclusion in at most two sentences without repeating every value.
-You cannot change device state in this release. If asked to perform a write, explain that write tools require a future confirmation flow.`
+- After a table, summarize the main conclusion in at most two sentences without repeating every value.`
 
 type Message struct {
 	Role       string
@@ -46,9 +46,10 @@ type Completion struct {
 }
 
 type ToolDefinition struct {
-	Name        string
-	Description string
-	InputSchema map[string]any
+	Name                 string
+	Description          string
+	InputSchema          map[string]any
+	RequiresConfirmation bool
 }
 
 type ToolOutput struct {
@@ -61,6 +62,39 @@ type ToolRegistry interface {
 	Execute(ctx context.Context, name string, arguments json.RawMessage) (ToolOutput, error)
 }
 
+type ToolConfirmationDetail struct {
+	Label string
+	Value string
+}
+
+type ToolConfirmation struct {
+	Title        string
+	Description  string
+	ConfirmLabel string
+	Details      []ToolConfirmationDetail
+}
+
+type ToolConfirmationProvider interface {
+	Confirmation(name string, arguments json.RawMessage) (*ToolConfirmation, error)
+}
+
+type ConfirmationDecision string
+
+const (
+	ConfirmationApproved  ConfirmationDecision = "approved"
+	ConfirmationCancelled ConfirmationDecision = "cancelled"
+)
+
+type ConfirmationRequest struct {
+	ToolCallID   string
+	ToolName     string
+	Confirmation ToolConfirmation
+}
+
+type ConfirmationGate interface {
+	Await(ctx context.Context, request ConfirmationRequest, notify func(confirmationID string) error) (ConfirmationDecision, error)
+}
+
 type ModelClient interface {
 	Complete(ctx context.Context, config RuntimeConfig, messages []Message, tools []ToolDefinition) (Completion, error)
 }
@@ -68,33 +102,43 @@ type ModelClient interface {
 type EventKind string
 
 const (
-	EventTextDelta  EventKind = "text_delta"
-	EventToolCall   EventKind = "tool_call"
-	EventToolResult EventKind = "tool_result"
-	EventDone       EventKind = "done"
+	EventTextDelta            EventKind = "text_delta"
+	EventToolCall             EventKind = "tool_call"
+	EventToolResult           EventKind = "tool_result"
+	EventConfirmationRequired EventKind = "confirmation_required"
+	EventDone                 EventKind = "done"
 )
 
 type Event struct {
-	Kind       EventKind
-	Content    string
-	ToolCallID string
-	ToolName   string
-	Summary    string
-	Success    bool
+	Kind           EventKind
+	Content        string
+	ToolCallID     string
+	ToolName       string
+	Summary        string
+	Success        bool
+	Cancelled      bool
+	ConfirmationID string
+	Confirmation   *ToolConfirmation
 }
 
 type Agent struct {
-	model    ModelClient
-	maxTurns int
+	model         ModelClient
+	confirmations ConfirmationGate
+	maxTurns      int
 }
 
 type cachedToolResult struct {
-	output ToolOutput
-	err    error
+	output    ToolOutput
+	err       error
+	cancelled bool
 }
 
-func NewAgent(model ModelClient) *Agent {
-	return &Agent{model: model, maxTurns: defaultMaxTurns}
+func NewAgent(model ModelClient, confirmations ...ConfirmationGate) *Agent {
+	agent := &Agent{model: model, maxTurns: defaultMaxTurns}
+	if len(confirmations) > 0 {
+		agent.confirmations = confirmations[0]
+	}
+	return agent
 }
 
 func (a *Agent) Run(
@@ -114,6 +158,10 @@ func (a *Agent) Run(
 	messages = append(messages, history...)
 	messages = append(messages, Message{Role: "user", Content: content})
 	definitions := tools.Definitions()
+	requiresConfirmation := make(map[string]bool, len(definitions))
+	for _, definition := range definitions {
+		requiresConfirmation[definition.Name] = definition.RequiresConfirmation
+	}
 	toolCallsUsed := 0
 	toolResults := make(map[string]cachedToolResult)
 
@@ -163,25 +211,72 @@ func (a *Agent) Run(
 			cacheKey := toolCallCacheKey(call)
 			cached, alreadyExecuted := toolResults[cacheKey]
 			if !alreadyExecuted {
-				cached.output, cached.err = tools.Execute(ctx, call.Name, call.Arguments)
+				if requiresConfirmation[call.Name] {
+					provider, ok := tools.(ToolConfirmationProvider)
+					if !ok || a.confirmations == nil {
+						return fleeterror.NewFailedPreconditionError("write tool confirmation is unavailable")
+					}
+					confirmation, confirmationErr := provider.Confirmation(call.Name, call.Arguments)
+					if confirmationErr != nil {
+						cached.err = confirmationErr
+					} else if confirmation == nil {
+						return fleeterror.NewFailedPreconditionErrorf("write tool %q did not provide confirmation details", call.Name)
+					} else {
+						decision, confirmationErr := a.confirmations.Await(ctx, ConfirmationRequest{
+							ToolCallID:   call.ID,
+							ToolName:     call.Name,
+							Confirmation: *confirmation,
+						}, func(confirmationID string) error {
+							return emit(Event{
+								Kind:           EventConfirmationRequired,
+								ToolCallID:     call.ID,
+								ToolName:       call.Name,
+								ConfirmationID: confirmationID,
+								Confirmation:   confirmation,
+							})
+						})
+						if confirmationErr != nil {
+							return confirmationErr
+						}
+						switch decision {
+						case ConfirmationCancelled:
+							cached.cancelled = true
+						case ConfirmationApproved:
+							cached.output, cached.err = tools.Execute(ctx, call.Name, call.Arguments)
+						default:
+							return fleeterror.NewFailedPreconditionError("invalid write tool confirmation decision")
+						}
+					}
+				} else {
+					cached.output, cached.err = tools.Execute(ctx, call.Name, call.Arguments)
+				}
 				toolResults[cacheKey] = cached
 			}
-			output, toolErr := cached.output, cached.err
+			output, toolErr, cancelled := cached.output, cached.err, cached.cancelled
 			resultContent := output.Content
 			resultSummary := output.Summary
-			if toolErr != nil {
+			if cancelled {
+				resultContent = "Tool cancelled by operator"
+				resultSummary = "Cancelled by operator"
+			} else if toolErr != nil {
 				// Do not forward internal handler or authorization details to the
 				// external model provider. The operator receives the safe activity
-				// summary while the model only learns that the read was unavailable.
-				resultContent = "Tool failed: fleet data is unavailable or access was denied"
-				resultSummary = "Unable to read this fleet data"
+				// summary while the model only learns that the operation failed.
+				if requiresConfirmation[call.Name] {
+					resultContent = "Tool failed: the requested fleet change was not completed"
+					resultSummary = "Couldn't complete the requested change"
+				} else {
+					resultContent = "Tool failed: fleet data is unavailable or access was denied"
+					resultSummary = "Unable to read this fleet data"
+				}
 			}
 			if err := emit(Event{
 				Kind:       EventToolResult,
 				ToolCallID: call.ID,
 				ToolName:   call.Name,
 				Summary:    resultSummary,
-				Success:    toolErr == nil,
+				Success:    toolErr == nil && !cancelled,
+				Cancelled:  cancelled,
 			}); err != nil {
 				return err
 			}
@@ -226,6 +321,14 @@ func toolCallSummary(name string) string {
 		return "Reading site inventory"
 	case "list_pools":
 		return "Checking mining pools"
+	case "list_racks":
+		return "Reading rack inventory"
+	case "create_site":
+		return "Preparing site creation"
+	case "create_rack":
+		return "Preparing rack creation"
+	case "move_miners_to_rack":
+		return "Preparing miner move"
 	default:
 		return "Reading fleet data"
 	}

@@ -13,8 +13,26 @@ export interface ChatMessage {
 export interface AgentActivity {
   id: string;
   summary: string;
-  status: "running" | "completed" | "failed";
+  status: "running" | "completed" | "failed" | "cancelled";
   timestamp: Date;
+  sequence: number;
+}
+
+export interface ToolConfirmationDetail {
+  label: string;
+  value: string;
+}
+
+export interface ToolConfirmation {
+  id: string;
+  toolCallId: string;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  details: ToolConfirmationDetail[];
+  status: "pending" | "submitting" | "approved" | "cancelled" | "expired";
+  decision?: "approve" | "cancel";
+  error?: string;
   sequence: number;
 }
 

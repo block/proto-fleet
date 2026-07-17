@@ -656,7 +656,8 @@ func start(config *Config) error {
 	llmConfigStore := sqlstores.NewSQLLLMConfigStore(conn)
 	llmConfigSvc := chatDomain.NewConfigService(llmConfigStore, encryptSvc, config.Chat)
 	chatModelClient := chatDomain.NewHTTPModelClient(config.Chat)
-	chatAgent := chatDomain.NewAgent(chatModelClient)
+	chatConfirmationBroker := chatDomain.NewConfirmationBroker()
+	chatAgent := chatDomain.NewAgent(chatModelClient, chatConfirmationBroker)
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
@@ -716,6 +717,7 @@ func start(config *Config) error {
 	fleetManagementHandler := fleetmanagement.NewHandler(fleetMgmtSvc)
 	poolsHandler := pools.NewHandler(poolsSvc)
 	siteServiceHandler := sitesHandler.NewHandler(sitesSvc)
+	deviceSetServiceHandler := devicesetHandler.NewHandler(collectionSvc)
 
 	mux.Handle(fleetmanagementv1connect.NewFleetManagementServiceHandler(fleetManagementHandler, li))
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
@@ -737,7 +739,7 @@ func start(config *Config) error {
 	))
 	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(admin.NewHandler(fleetNodeEnrollmentSvc, fleetNodePairingSvc, fleetNodeDiscoverySvc), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
-	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(devicesetHandler.NewHandler(collectionSvc), li))
+	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(deviceSetServiceHandler, li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))
 	mux.Handle(errorsv1connect.NewErrorQueryServiceHandler(errorqueryHandler.NewHandler(diagnosticsService), li))
 	mux.Handle(foremanimportv1connect.NewForemanImportServiceHandler(foremanImportHandler.NewHandler(foremanImportSvc), li))
@@ -749,7 +751,8 @@ func start(config *Config) error {
 		llmConfigSvc,
 		chatAgent,
 		chatModelClient,
-		chatHandler.NewFleetTools(fleetManagementHandler, siteServiceHandler, poolsHandler),
+		chatHandler.NewFleetTools(fleetManagementHandler, siteServiceHandler, poolsHandler, deviceSetServiceHandler),
+		chatConfirmationBroker,
 	), li))
 
 	alertHandler := alertsHandler.NewHandler(alertsSvc, notificationHistoryStore)

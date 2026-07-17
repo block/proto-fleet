@@ -8,6 +8,7 @@ const STATUS_LABELS: Record<AgentActivity["status"], string> = {
   running: "In progress",
   completed: "Completed",
   failed: "Couldn't complete",
+  cancelled: "Cancelled",
 };
 
 interface AgentActivityStatusProps {
@@ -25,12 +26,14 @@ const AgentActivityStatus = ({ activity }: AgentActivityStatusProps) => (
         "text-text-success": activity.status === "completed",
         "text-intent-info-fill": activity.status === "running",
         "text-text-critical": activity.status === "failed",
+        "text-text-primary-30": activity.status === "cancelled",
       })}
       role="img"
     >
       {activity.status === "completed" ? <Checkmark width="w-3.5" /> : null}
       {activity.status === "running" ? <ProgressCircular indeterminate size={14} /> : null}
       {activity.status === "failed" ? <DismissTiny width="w-3" /> : null}
+      {activity.status === "cancelled" ? <DismissTiny width="w-3" /> : null}
     </span>
     <span className="min-w-0 break-words">{activity.summary}</span>
   </div>

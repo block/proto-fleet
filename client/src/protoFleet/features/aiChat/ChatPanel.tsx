@@ -6,15 +6,18 @@ import AgentActivityStatus from "./AgentActivityStatus";
 import ChatHeaderButton from "./ChatHeaderButton";
 import ChatInput from "./ChatInput";
 import ChatMessageContent from "./ChatMessageContent";
+import ToolConfirmationCard from "./ToolConfirmationCard";
+import type { ToolConfirmation } from "./types";
 import { useChatStore } from "./useChatStore";
 import { chatClient } from "@/protoFleet/api/clients";
-import { ChatRole } from "@/protoFleet/api/generated/chat/v1/chat_pb";
+import { ChatRole, ToolConfirmationDecision } from "@/protoFleet/api/generated/chat/v1/chat_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 
 const ChatPanel = () => {
   const isOpen = useChatStore((state) => state.isOpen);
   const messages = useChatStore((state) => state.messages);
   const agentActivities = useChatStore((state) => state.agentActivities);
+  const toolConfirmations = useChatStore((state) => state.toolConfirmations);
   const isStreaming = useChatStore((state) => state.isStreaming);
   const streamingContent = useChatStore((state) => state.streamingContent);
   const streamError = useChatStore((state) => state.streamError);
@@ -26,6 +29,11 @@ const ChatPanel = () => {
   const setStreamError = useChatStore((state) => state.setStreamError);
   const beginToolActivity = useChatStore((state) => state.beginToolActivity);
   const finishToolActivity = useChatStore((state) => state.finishToolActivity);
+  const addToolConfirmation = useChatStore((state) => state.addToolConfirmation);
+  const submitToolConfirmation = useChatStore((state) => state.submitToolConfirmation);
+  const resolveToolConfirmation = useChatStore((state) => state.resolveToolConfirmation);
+  const failToolConfirmation = useChatStore((state) => state.failToolConfirmation);
+  const expirePendingConfirmations = useChatStore((state) => state.expirePendingConfirmations);
   const resetStream = useChatStore((state) => state.resetStream);
   const clearMessages = useChatStore((state) => state.clearMessages);
   const conversationEndRef = useRef<HTMLDivElement>(null);
@@ -33,13 +41,45 @@ const ChatPanel = () => {
   const requestGenerationRef = useRef(0);
   const activeRequestRef = useRef<AbortController | null>(null);
   const hasConversation = messages.length > 0;
+  const hasPendingConfirmation = toolConfirmations.some(
+    (confirmation) => confirmation.status === "pending" || confirmation.status === "submitting",
+  );
   const conversationItems = useMemo(
     () =>
       [
         ...messages.map((message) => ({ kind: "message" as const, sequence: message.sequence, message })),
         ...agentActivities.map((activity) => ({ kind: "activity" as const, sequence: activity.sequence, activity })),
+        ...toolConfirmations.map((confirmation) => ({
+          kind: "confirmation" as const,
+          sequence: confirmation.sequence,
+          confirmation,
+        })),
       ].sort((first, second) => first.sequence - second.sequence),
-    [agentActivities, messages],
+    [agentActivities, messages, toolConfirmations],
+  );
+
+  const handleConfirmation = useCallback(
+    async (confirmation: ToolConfirmation, decision: "approve" | "cancel") => {
+      const requestGeneration = requestGenerationRef.current;
+      submitToolConfirmation(confirmation.id, decision);
+      try {
+        await chatClient.resolveToolConfirmation({
+          confirmationId: confirmation.id,
+          decision: decision === "approve" ? ToolConfirmationDecision.APPROVE : ToolConfirmationDecision.CANCEL,
+        });
+        if (requestGeneration === requestGenerationRef.current) {
+          resolveToolConfirmation(confirmation.id, decision);
+        }
+      } catch (error) {
+        if (requestGeneration === requestGenerationRef.current) {
+          failToolConfirmation(
+            confirmation.id,
+            getErrorMessage(error, "Proto AI could not submit this confirmation. Try again."),
+          );
+        }
+      }
+    },
+    [failToolConfirmation, resolveToolConfirmation, submitToolConfirmation],
   );
 
   const handleSend = useCallback(
@@ -78,7 +118,22 @@ const ChatPanel = () => {
               beginToolActivity(response.event.value.id, response.event.value.summary);
               break;
             case "toolResult":
-              finishToolActivity(response.event.value.id, response.event.value.success, response.event.value.summary);
+              finishToolActivity(
+                response.event.value.id,
+                response.event.value.success,
+                response.event.value.summary,
+                response.event.value.cancelled,
+              );
+              break;
+            case "confirmationRequired":
+              addToolConfirmation({
+                id: response.event.value.confirmationId,
+                toolCallId: response.event.value.toolCallId,
+                title: response.event.value.title,
+                description: response.event.value.description,
+                confirmLabel: response.event.value.confirmLabel,
+                details: response.event.value.details.map((detail) => ({ label: detail.label, value: detail.value })),
+              });
               break;
           }
         }
@@ -87,6 +142,7 @@ const ChatPanel = () => {
         }
       } catch (error) {
         if (requestGeneration === requestGenerationRef.current) {
+          expirePendingConfirmations();
           setStreamError(getErrorMessage(error, "Proto AI could not complete this request."));
         }
       } finally {
@@ -98,8 +154,10 @@ const ChatPanel = () => {
     },
     [
       addMessage,
+      addToolConfirmation,
       appendStreamingContent,
       beginToolActivity,
+      expirePendingConfirmations,
       finishToolActivity,
       messages,
       resetStream,
@@ -130,7 +188,7 @@ const ChatPanel = () => {
   useEffect(() => {
     if (!isOpen) return;
     conversationEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [agentActivities, isOpen, isStreaming, messages]);
+  }, [agentActivities, isOpen, isStreaming, messages, toolConfirmations]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -177,6 +235,12 @@ const ChatPanel = () => {
                 {conversationItems.map((item) =>
                   item.kind === "activity" ? (
                     <AgentActivityStatus key={`activity-${item.activity.id}`} activity={item.activity} />
+                  ) : item.kind === "confirmation" ? (
+                    <ToolConfirmationCard
+                      key={`confirmation-${item.confirmation.id}`}
+                      confirmation={item.confirmation}
+                      onResolve={handleConfirmation}
+                    />
                   ) : (
                     <div
                       key={`message-${item.message.id}`}
@@ -205,7 +269,7 @@ const ChatPanel = () => {
                     </div>
                   </div>
                 ) : null}
-                {isStreaming && !streamingContent ? (
+                {isStreaming && !streamingContent && !hasPendingConfirmation ? (
                   <div className="flex justify-start" aria-label="Proto AI is responding" role="status">
                     <div className="flex items-center gap-1 rounded-2xl rounded-bl-md bg-core-primary-5 px-4 py-4">
                       {[0, 1, 2].map((dot) => (
@@ -268,7 +332,7 @@ const ChatPanel = () => {
           <div className="shrink-0 border-t border-border-5 bg-surface-elevated-base px-5 pt-4 pb-5 phone:pb-[max(20px,env(safe-area-inset-bottom))]">
             <ChatInput disabled={isStreaming} onSend={handleSend} />
             <p className="mt-2 text-center text-200 text-text-primary-30">
-              Proto AI can read fleet data but cannot make changes.
+              Proto AI asks for confirmation before making changes.
             </p>
           </div>
         </motion.section>

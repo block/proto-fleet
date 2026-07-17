@@ -13,7 +13,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_chat_v1_chat: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChJjaGF0L3YxL2NoYXQucHJvdG8SB2NoYXQudjEi3QEKCUxMTUNvbmZpZxImCgdoYXJuZXNzGAEgASgOMhUuY2hhdC52MS5BZ2VudEhhcm5lc3MSJgoIcHJvdmlkZXIYAiABKA4yFC5jaGF0LnYxLkxMTVByb3ZpZGVyEhMKC2hhc19hcGlfa2V5GAMgASgIEhAKCGJhc2VfdXJsGAQgASgJEg0KBW1vZGVsGAUgASgJEhYKDmdvb3NlX2Jhc2VfdXJsGAcgASgJEhgKEGhhc19nb29zZV9zZWNyZXQYCCABKAgSEgoKY29uZmlndXJlZBgJIAEoCEoECAYQByIVChNHZXRMTE1Db25maWdSZXF1ZXN0IjoKFEdldExMTUNvbmZpZ1Jlc3BvbnNlEiIKBmNvbmZpZxgBIAEoCzISLmNoYXQudjEuTExNQ29uZmlnIp4BChVEaXNjb3Zlck1vZGVsc1JlcXVlc3QSMgoIcHJvdmlkZXIYASABKA4yFC5jaGF0LnYxLkxMTVByb3ZpZGVyQgq6SAeCAQQQASAAEhkKB2FwaV9rZXkYAiABKAlCCLpIBXIDGIBAEhoKCGJhc2VfdXJsGAMgASgJQgi6SAVyAxiAEBIaChJ1c2Vfc3RvcmVkX2FwaV9rZXkYBCABKAgiMgoOQXZhaWxhYmxlTW9kZWwSCgoCaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJIkEKFkRpc2NvdmVyTW9kZWxzUmVzcG9uc2USJwoGbW9kZWxzGAEgAygLMhcuY2hhdC52MS5BdmFpbGFibGVNb2RlbCLNAgoWVXBkYXRlTExNQ29uZmlnUmVxdWVzdBIyCgdoYXJuZXNzGAEgASgOMhUuY2hhdC52MS5BZ2VudEhhcm5lc3NCCrpIB4IBBBABIAASMgoIcHJvdmlkZXIYAiABKA4yFC5jaGF0LnYxLkxMTVByb3ZpZGVyQgq6SAeCAQQQASAAEhkKB2FwaV9rZXkYAyABKAlCCLpIBXIDGIBAEhoKCGJhc2VfdXJsGAQgASgJQgi6SAVyAxiAEBIZCgVtb2RlbBgFIAEoCUIKukgHcgUQARj/ARIgCg5nb29zZV9iYXNlX3VybBgHIAEoCUIIukgFcgMYgBASHgoMZ29vc2Vfc2VjcmV0GAggASgJQgi6SAVyAxiAQBIVCg1jbGVhcl9hcGlfa2V5GAkgASgIEhoKEmNsZWFyX2dvb3NlX3NlY3JldBgKIAEoCEoECAYQByI9ChdVcGRhdGVMTE1Db25maWdSZXNwb25zZRIiCgZjb25maWcYASABKAsyEi5jaGF0LnYxLkxMTUNvbmZpZyJVCghDaGF0VHVybhIrCgRyb2xlGAEgASgOMhEuY2hhdC52MS5DaGF0Um9sZUIKukgHggEEEAEgABIcCgdjb250ZW50GAIgASgJQgu6SAhyBhABGICAAiKDAQoSU2VuZE1lc3NhZ2VSZXF1ZXN0EiEKD2NvbnZlcnNhdGlvbl9pZBgBIAEoCUIIukgFcgMYgAESHAoHY29udGVudBgCIAEoCUILukgIcgYQARiAgAISLAoHaGlzdG9yeRgDIAMoCzIRLmNoYXQudjEuQ2hhdFR1cm5CCLpIBZIBAhAyIhwKCVRleHREZWx0YRIPCgdjb250ZW50GAEgASgJIjUKCFRvb2xDYWxsEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDwoHc3VtbWFyeRgDIAEoCSJICgpUb29sUmVzdWx0EgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDwoHc3VjY2VzcxgDIAEoCBIPCgdzdW1tYXJ5GAQgASgJIh0KBERvbmUSFQoNZmluaXNoX3JlYXNvbhgBIAEoCSLPAQoTU2VuZE1lc3NhZ2VSZXNwb25zZRISCgptZXNzYWdlX2lkGAEgASgJEigKCnRleHRfZGVsdGEYAiABKAsyEi5jaGF0LnYxLlRleHREZWx0YUgAEiYKCXRvb2xfY2FsbBgDIAEoCzIRLmNoYXQudjEuVG9vbENhbGxIABIqCgt0b29sX3Jlc3VsdBgEIAEoCzITLmNoYXQudjEuVG9vbFJlc3VsdEgAEh0KBGRvbmUYBSABKAsyDS5jaGF0LnYxLkRvbmVIAEIHCgVldmVudCpgCgxBZ2VudEhhcm5lc3MSHQoZQUdFTlRfSEFSTkVTU19VTlNQRUNJRklFRBAAEhgKFEFHRU5UX0hBUk5FU1NfTkFUSVZFEAESFwoTQUdFTlRfSEFSTkVTU19HT09TRRACKpIBCgtMTE1Qcm92aWRlchIcChhMTE1fUFJPVklERVJfVU5TUEVDSUZJRUQQABIXChNMTE1fUFJPVklERVJfT1BFTkFJEAESGgoWTExNX1BST1ZJREVSX0FOVEhST1BJQxACEhcKE0xMTV9QUk9WSURFUl9PTExBTUEQAxIXChNMTE1fUFJPVklERVJfQ1VTVE9NEAQqUgoIQ2hhdFJvbGUSGQoVQ0hBVF9ST0xFX1VOU1BFQ0lGSUVEEAASEgoOQ0hBVF9ST0xFX1VTRVIQARIXChNDSEFUX1JPTEVfQVNTSVNUQU5UEAIyzwIKC0NoYXRTZXJ2aWNlEksKDEdldExMTUNvbmZpZxIcLmNoYXQudjEuR2V0TExNQ29uZmlnUmVxdWVzdBodLmNoYXQudjEuR2V0TExNQ29uZmlnUmVzcG9uc2USUQoORGlzY292ZXJNb2RlbHMSHi5jaGF0LnYxLkRpc2NvdmVyTW9kZWxzUmVxdWVzdBofLmNoYXQudjEuRGlzY292ZXJNb2RlbHNSZXNwb25zZRJUCg9VcGRhdGVMTE1Db25maWcSHy5jaGF0LnYxLlVwZGF0ZUxMTUNvbmZpZ1JlcXVlc3QaIC5jaGF0LnYxLlVwZGF0ZUxMTUNvbmZpZ1Jlc3BvbnNlEkoKC1NlbmRNZXNzYWdlEhsuY2hhdC52MS5TZW5kTWVzc2FnZVJlcXVlc3QaHC5jaGF0LnYxLlNlbmRNZXNzYWdlUmVzcG9uc2UwAUKYAQoLY29tLmNoYXQudjFCCUNoYXRQcm90b1ABWkFnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jaGF0L3YxO2NoYXR2MaICA0NYWKoCB0NoYXQuVjHKAgdDaGF0XFYx4gITQ2hhdFxWMVxHUEJNZXRhZGF0YeoCCENoYXQ6OlYxYgZwcm90bzM",
+    "ChJjaGF0L3YxL2NoYXQucHJvdG8SB2NoYXQudjEi3QEKCUxMTUNvbmZpZxImCgdoYXJuZXNzGAEgASgOMhUuY2hhdC52MS5BZ2VudEhhcm5lc3MSJgoIcHJvdmlkZXIYAiABKA4yFC5jaGF0LnYxLkxMTVByb3ZpZGVyEhMKC2hhc19hcGlfa2V5GAMgASgIEhAKCGJhc2VfdXJsGAQgASgJEg0KBW1vZGVsGAUgASgJEhYKDmdvb3NlX2Jhc2VfdXJsGAcgASgJEhgKEGhhc19nb29zZV9zZWNyZXQYCCABKAgSEgoKY29uZmlndXJlZBgJIAEoCEoECAYQByIVChNHZXRMTE1Db25maWdSZXF1ZXN0IjoKFEdldExMTUNvbmZpZ1Jlc3BvbnNlEiIKBmNvbmZpZxgBIAEoCzISLmNoYXQudjEuTExNQ29uZmlnIp4BChVEaXNjb3Zlck1vZGVsc1JlcXVlc3QSMgoIcHJvdmlkZXIYASABKA4yFC5jaGF0LnYxLkxMTVByb3ZpZGVyQgq6SAeCAQQQASAAEhkKB2FwaV9rZXkYAiABKAlCCLpIBXIDGIBAEhoKCGJhc2VfdXJsGAMgASgJQgi6SAVyAxiAEBIaChJ1c2Vfc3RvcmVkX2FwaV9rZXkYBCABKAgiMgoOQXZhaWxhYmxlTW9kZWwSCgoCaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJIkEKFkRpc2NvdmVyTW9kZWxzUmVzcG9uc2USJwoGbW9kZWxzGAEgAygLMhcuY2hhdC52MS5BdmFpbGFibGVNb2RlbCLNAgoWVXBkYXRlTExNQ29uZmlnUmVxdWVzdBIyCgdoYXJuZXNzGAEgASgOMhUuY2hhdC52MS5BZ2VudEhhcm5lc3NCCrpIB4IBBBABIAASMgoIcHJvdmlkZXIYAiABKA4yFC5jaGF0LnYxLkxMTVByb3ZpZGVyQgq6SAeCAQQQASAAEhkKB2FwaV9rZXkYAyABKAlCCLpIBXIDGIBAEhoKCGJhc2VfdXJsGAQgASgJQgi6SAVyAxiAEBIZCgVtb2RlbBgFIAEoCUIKukgHcgUQARj/ARIgCg5nb29zZV9iYXNlX3VybBgHIAEoCUIIukgFcgMYgBASHgoMZ29vc2Vfc2VjcmV0GAggASgJQgi6SAVyAxiAQBIVCg1jbGVhcl9hcGlfa2V5GAkgASgIEhoKEmNsZWFyX2dvb3NlX3NlY3JldBgKIAEoCEoECAYQByI9ChdVcGRhdGVMTE1Db25maWdSZXNwb25zZRIiCgZjb25maWcYASABKAsyEi5jaGF0LnYxLkxMTUNvbmZpZyJVCghDaGF0VHVybhIrCgRyb2xlGAEgASgOMhEuY2hhdC52MS5DaGF0Um9sZUIKukgHggEEEAEgABIcCgdjb250ZW50GAIgASgJQgu6SAhyBhABGICAAiKDAQoSU2VuZE1lc3NhZ2VSZXF1ZXN0EiEKD2NvbnZlcnNhdGlvbl9pZBgBIAEoCUIIukgFcgMYgAESHAoHY29udGVudBgCIAEoCUILukgIcgYQARiAgAISLAoHaGlzdG9yeRgDIAMoCzIRLmNoYXQudjEuQ2hhdFR1cm5CCLpIBZIBAhAyIhwKCVRleHREZWx0YRIPCgdjb250ZW50GAEgASgJIjUKCFRvb2xDYWxsEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDwoHc3VtbWFyeRgDIAEoCSJbCgpUb29sUmVzdWx0EgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDwoHc3VjY2VzcxgDIAEoCBIPCgdzdW1tYXJ5GAQgASgJEhEKCWNhbmNlbGxlZBgFIAEoCCI2ChZUb29sQ29uZmlybWF0aW9uRGV0YWlsEg0KBWxhYmVsGAEgASgJEg0KBXZhbHVlGAIgASgJIskBChhUb29sQ29uZmlybWF0aW9uUmVxdWlyZWQSFwoPY29uZmlybWF0aW9uX2lkGAEgASgJEhQKDHRvb2xfY2FsbF9pZBgCIAEoCRIRCgl0b29sX25hbWUYAyABKAkSDQoFdGl0bGUYBCABKAkSEwoLZGVzY3JpcHRpb24YBSABKAkSFQoNY29uZmlybV9sYWJlbBgGIAEoCRIwCgdkZXRhaWxzGAcgAygLMh8uY2hhdC52MS5Ub29sQ29uZmlybWF0aW9uRGV0YWlsIoYBCh5SZXNvbHZlVG9vbENvbmZpcm1hdGlvblJlcXVlc3QSIwoPY29uZmlybWF0aW9uX2lkGAEgASgJQgq6SAdyBRABGIABEj8KCGRlY2lzaW9uGAIgASgOMiEuY2hhdC52MS5Ub29sQ29uZmlybWF0aW9uRGVjaXNpb25CCrpIB4IBBBABIAAiIQofUmVzb2x2ZVRvb2xDb25maXJtYXRpb25SZXNwb25zZSIdCgREb25lEhUKDWZpbmlzaF9yZWFzb24YASABKAkikwIKE1NlbmRNZXNzYWdlUmVzcG9uc2USEgoKbWVzc2FnZV9pZBgBIAEoCRIoCgp0ZXh0X2RlbHRhGAIgASgLMhIuY2hhdC52MS5UZXh0RGVsdGFIABImCgl0b29sX2NhbGwYAyABKAsyES5jaGF0LnYxLlRvb2xDYWxsSAASKgoLdG9vbF9yZXN1bHQYBCABKAsyEy5jaGF0LnYxLlRvb2xSZXN1bHRIABIdCgRkb25lGAUgASgLMg0uY2hhdC52MS5Eb25lSAASQgoVY29uZmlybWF0aW9uX3JlcXVpcmVkGAYgASgLMiEuY2hhdC52MS5Ub29sQ29uZmlybWF0aW9uUmVxdWlyZWRIAEIHCgVldmVudCpgCgxBZ2VudEhhcm5lc3MSHQoZQUdFTlRfSEFSTkVTU19VTlNQRUNJRklFRBAAEhgKFEFHRU5UX0hBUk5FU1NfTkFUSVZFEAESFwoTQUdFTlRfSEFSTkVTU19HT09TRRACKpIBCgtMTE1Qcm92aWRlchIcChhMTE1fUFJPVklERVJfVU5TUEVDSUZJRUQQABIXChNMTE1fUFJPVklERVJfT1BFTkFJEAESGgoWTExNX1BST1ZJREVSX0FOVEhST1BJQxACEhcKE0xMTV9QUk9WSURFUl9PTExBTUEQAxIXChNMTE1fUFJPVklERVJfQ1VTVE9NEAQqUgoIQ2hhdFJvbGUSGQoVQ0hBVF9ST0xFX1VOU1BFQ0lGSUVEEAASEgoOQ0hBVF9ST0xFX1VTRVIQARIXChNDSEFUX1JPTEVfQVNTSVNUQU5UEAIqlQEKGFRvb2xDb25maXJtYXRpb25EZWNpc2lvbhIqCiZUT09MX0NPTkZJUk1BVElPTl9ERUNJU0lPTl9VTlNQRUNJRklFRBAAEiYKIlRPT0xfQ09ORklSTUFUSU9OX0RFQ0lTSU9OX0FQUFJPVkUQARIlCiFUT09MX0NPTkZJUk1BVElPTl9ERUNJU0lPTl9DQU5DRUwQAjK9AwoLQ2hhdFNlcnZpY2USSwoMR2V0TExNQ29uZmlnEhwuY2hhdC52MS5HZXRMTE1Db25maWdSZXF1ZXN0Gh0uY2hhdC52MS5HZXRMTE1Db25maWdSZXNwb25zZRJRCg5EaXNjb3Zlck1vZGVscxIeLmNoYXQudjEuRGlzY292ZXJNb2RlbHNSZXF1ZXN0Gh8uY2hhdC52MS5EaXNjb3Zlck1vZGVsc1Jlc3BvbnNlElQKD1VwZGF0ZUxMTUNvbmZpZxIfLmNoYXQudjEuVXBkYXRlTExNQ29uZmlnUmVxdWVzdBogLmNoYXQudjEuVXBkYXRlTExNQ29uZmlnUmVzcG9uc2USSgoLU2VuZE1lc3NhZ2USGy5jaGF0LnYxLlNlbmRNZXNzYWdlUmVxdWVzdBocLmNoYXQudjEuU2VuZE1lc3NhZ2VSZXNwb25zZTABEmwKF1Jlc29sdmVUb29sQ29uZmlybWF0aW9uEicuY2hhdC52MS5SZXNvbHZlVG9vbENvbmZpcm1hdGlvblJlcXVlc3QaKC5jaGF0LnYxLlJlc29sdmVUb29sQ29uZmlybWF0aW9uUmVzcG9uc2VCmAEKC2NvbS5jaGF0LnYxQglDaGF0UHJvdG9QAVpBZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvY2hhdC92MTtjaGF0djGiAgNDWFiqAgdDaGF0LlYxygIHQ2hhdFxWMeICE0NoYXRcVjFcR1BCTWV0YWRhdGHqAghDaGF0OjpWMWIGcHJvdG8z",
     [file_buf_validate_validate],
   );
 
@@ -372,6 +372,11 @@ export type ToolResult = Message<"chat.v1.ToolResult"> & {
    * @generated from field: string summary = 4;
    */
   summary: string;
+
+  /**
+   * @generated from field: bool cancelled = 5;
+   */
+  cancelled: boolean;
 };
 
 /**
@@ -379,6 +384,115 @@ export type ToolResult = Message<"chat.v1.ToolResult"> & {
  * Use `create(ToolResultSchema)` to create a new message.
  */
 export const ToolResultSchema: GenMessage<ToolResult> = /*@__PURE__*/ messageDesc(file_chat_v1_chat, 12);
+
+/**
+ * @generated from message chat.v1.ToolConfirmationDetail
+ */
+export type ToolConfirmationDetail = Message<"chat.v1.ToolConfirmationDetail"> & {
+  /**
+   * @generated from field: string label = 1;
+   */
+  label: string;
+
+  /**
+   * @generated from field: string value = 2;
+   */
+  value: string;
+};
+
+/**
+ * Describes the message chat.v1.ToolConfirmationDetail.
+ * Use `create(ToolConfirmationDetailSchema)` to create a new message.
+ */
+export const ToolConfirmationDetailSchema: GenMessage<ToolConfirmationDetail> =
+  /*@__PURE__*/
+  messageDesc(file_chat_v1_chat, 13);
+
+/**
+ * @generated from message chat.v1.ToolConfirmationRequired
+ */
+export type ToolConfirmationRequired = Message<"chat.v1.ToolConfirmationRequired"> & {
+  /**
+   * Opaque, short-lived identifier bound to the current operator and org.
+   *
+   * @generated from field: string confirmation_id = 1;
+   */
+  confirmationId: string;
+
+  /**
+   * @generated from field: string tool_call_id = 2;
+   */
+  toolCallId: string;
+
+  /**
+   * @generated from field: string tool_name = 3;
+   */
+  toolName: string;
+
+  /**
+   * @generated from field: string title = 4;
+   */
+  title: string;
+
+  /**
+   * @generated from field: string description = 5;
+   */
+  description: string;
+
+  /**
+   * @generated from field: string confirm_label = 6;
+   */
+  confirmLabel: string;
+
+  /**
+   * @generated from field: repeated chat.v1.ToolConfirmationDetail details = 7;
+   */
+  details: ToolConfirmationDetail[];
+};
+
+/**
+ * Describes the message chat.v1.ToolConfirmationRequired.
+ * Use `create(ToolConfirmationRequiredSchema)` to create a new message.
+ */
+export const ToolConfirmationRequiredSchema: GenMessage<ToolConfirmationRequired> =
+  /*@__PURE__*/
+  messageDesc(file_chat_v1_chat, 14);
+
+/**
+ * @generated from message chat.v1.ResolveToolConfirmationRequest
+ */
+export type ResolveToolConfirmationRequest = Message<"chat.v1.ResolveToolConfirmationRequest"> & {
+  /**
+   * @generated from field: string confirmation_id = 1;
+   */
+  confirmationId: string;
+
+  /**
+   * @generated from field: chat.v1.ToolConfirmationDecision decision = 2;
+   */
+  decision: ToolConfirmationDecision;
+};
+
+/**
+ * Describes the message chat.v1.ResolveToolConfirmationRequest.
+ * Use `create(ResolveToolConfirmationRequestSchema)` to create a new message.
+ */
+export const ResolveToolConfirmationRequestSchema: GenMessage<ResolveToolConfirmationRequest> =
+  /*@__PURE__*/
+  messageDesc(file_chat_v1_chat, 15);
+
+/**
+ * @generated from message chat.v1.ResolveToolConfirmationResponse
+ */
+export type ResolveToolConfirmationResponse = Message<"chat.v1.ResolveToolConfirmationResponse"> & {};
+
+/**
+ * Describes the message chat.v1.ResolveToolConfirmationResponse.
+ * Use `create(ResolveToolConfirmationResponseSchema)` to create a new message.
+ */
+export const ResolveToolConfirmationResponseSchema: GenMessage<ResolveToolConfirmationResponse> =
+  /*@__PURE__*/
+  messageDesc(file_chat_v1_chat, 16);
 
 /**
  * @generated from message chat.v1.Done
@@ -394,7 +508,7 @@ export type Done = Message<"chat.v1.Done"> & {
  * Describes the message chat.v1.Done.
  * Use `create(DoneSchema)` to create a new message.
  */
-export const DoneSchema: GenMessage<Done> = /*@__PURE__*/ messageDesc(file_chat_v1_chat, 13);
+export const DoneSchema: GenMessage<Done> = /*@__PURE__*/ messageDesc(file_chat_v1_chat, 17);
 
 /**
  * @generated from message chat.v1.SendMessageResponse
@@ -437,6 +551,13 @@ export type SendMessageResponse = Message<"chat.v1.SendMessageResponse"> & {
         value: Done;
         case: "done";
       }
+    | {
+        /**
+         * @generated from field: chat.v1.ToolConfirmationRequired confirmation_required = 6;
+         */
+        value: ToolConfirmationRequired;
+        case: "confirmationRequired";
+      }
     | { case: undefined; value?: undefined };
 };
 
@@ -446,7 +567,7 @@ export type SendMessageResponse = Message<"chat.v1.SendMessageResponse"> & {
  */
 export const SendMessageResponseSchema: GenMessage<SendMessageResponse> =
   /*@__PURE__*/
-  messageDesc(file_chat_v1_chat, 14);
+  messageDesc(file_chat_v1_chat, 18);
 
 /**
  * @generated from enum chat.v1.AgentHarness
@@ -534,6 +655,33 @@ export enum ChatRole {
 export const ChatRoleSchema: GenEnum<ChatRole> = /*@__PURE__*/ enumDesc(file_chat_v1_chat, 2);
 
 /**
+ * @generated from enum chat.v1.ToolConfirmationDecision
+ */
+export enum ToolConfirmationDecision {
+  /**
+   * @generated from enum value: TOOL_CONFIRMATION_DECISION_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: TOOL_CONFIRMATION_DECISION_APPROVE = 1;
+   */
+  APPROVE = 1,
+
+  /**
+   * @generated from enum value: TOOL_CONFIRMATION_DECISION_CANCEL = 2;
+   */
+  CANCEL = 2,
+}
+
+/**
+ * Describes the enum chat.v1.ToolConfirmationDecision.
+ */
+export const ToolConfirmationDecisionSchema: GenEnum<ToolConfirmationDecision> =
+  /*@__PURE__*/
+  enumDesc(file_chat_v1_chat, 3);
+
+/**
  * ChatService owns the organization-scoped BYOLLM configuration and the
  * streaming agent conversation boundary used by the Proto Fleet web client.
  *
@@ -571,5 +719,16 @@ export const ChatService: GenService<{
     methodKind: "server_streaming";
     input: typeof SendMessageRequestSchema;
     output: typeof SendMessageResponseSchema;
+  };
+  /**
+   * ResolveToolConfirmation approves or cancels a pending write requested by
+   * SendMessage. The original stream remains open and resumes after this RPC.
+   *
+   * @generated from rpc chat.v1.ChatService.ResolveToolConfirmation
+   */
+  resolveToolConfirmation: {
+    methodKind: "unary";
+    input: typeof ResolveToolConfirmationRequestSchema;
+    output: typeof ResolveToolConfirmationResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_chat_v1_chat, 0);

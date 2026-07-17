@@ -27,6 +27,40 @@ type recordingTools struct {
 	calls  int
 }
 
+type writeRecordingTools struct {
+	recordingTools
+}
+
+func (*writeRecordingTools) Definitions() []ToolDefinition {
+	return []ToolDefinition{{
+		Name:                 "create_site",
+		InputSchema:          map[string]any{"type": "object"},
+		RequiresConfirmation: true,
+	}}
+}
+
+func (*writeRecordingTools) Confirmation(string, json.RawMessage) (*ToolConfirmation, error) {
+	return &ToolConfirmation{
+		Title:        "Create this site?",
+		Description:  "Create a site.",
+		ConfirmLabel: "Create site",
+		Details:      []ToolConfirmationDetail{{Label: "Name", Value: "North"}},
+	}, nil
+}
+
+type staticConfirmationGate struct {
+	decision ConfirmationDecision
+	request  ConfirmationRequest
+}
+
+func (g *staticConfirmationGate) Await(_ context.Context, request ConfirmationRequest, notify func(string) error) (ConfirmationDecision, error) {
+	g.request = request
+	if err := notify("confirmation-1"); err != nil {
+		return "", err
+	}
+	return g.decision, nil
+}
+
 func (*recordingTools) Definitions() []ToolDefinition {
 	return []ToolDefinition{{Name: "list_sites", InputSchema: map[string]any{"type": "object"}}}
 }
@@ -140,4 +174,61 @@ func TestAgentDeduplicatesEquivalentToolCalls(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 2, toolMessages, "each provider tool-call id still receives a result")
+}
+
+func TestAgentWaitsForApprovalBeforeExecutingWriteTool(t *testing.T) {
+	model := &sequenceModel{completions: []Completion{
+		{ToolCalls: []ModelToolCall{{ID: "call-1", Name: "create_site", Arguments: json.RawMessage(`{"name":"North"}`)}}},
+		{Content: "North was created."},
+	}}
+	tools := &writeRecordingTools{}
+	gate := &staticConfirmationGate{decision: ConfirmationApproved}
+	agent := NewAgent(model, gate)
+	var events []Event
+
+	err := agent.Run(t.Context(), RuntimeConfig{Harness: HarnessNative}, nil, "Create North", tools, func(event Event) error {
+		if event.Kind == EventConfirmationRequired {
+			assert.False(t, tools.called, "write must remain paused while confirmation is emitted")
+		}
+		events = append(events, event)
+		return nil
+	})
+
+	require.NoError(t, err)
+	assert.True(t, tools.called)
+	assert.Equal(t, "call-1", gate.request.ToolCallID)
+	assert.Equal(t, "Create this site?", gate.request.Confirmation.Title)
+	require.Len(t, events, 5)
+	assert.Equal(t, EventToolCall, events[0].Kind)
+	assert.Equal(t, EventConfirmationRequired, events[1].Kind)
+	assert.Equal(t, "confirmation-1", events[1].ConfirmationID)
+	assert.Equal(t, EventToolResult, events[2].Kind)
+	assert.True(t, events[2].Success)
+	assert.Equal(t, EventTextDelta, events[3].Kind)
+	assert.Equal(t, EventDone, events[4].Kind)
+}
+
+func TestAgentCancellationDoesNotExecuteWriteTool(t *testing.T) {
+	model := &sequenceModel{completions: []Completion{
+		{ToolCalls: []ModelToolCall{{ID: "call-1", Name: "create_site", Arguments: json.RawMessage(`{"name":"North"}`)}}},
+		{Content: "I cancelled the site creation."},
+	}}
+	tools := &writeRecordingTools{}
+	gate := &staticConfirmationGate{decision: ConfirmationCancelled}
+	agent := NewAgent(model, gate)
+	var events []Event
+
+	err := agent.Run(t.Context(), RuntimeConfig{Harness: HarnessNative}, nil, "Create North", tools, func(event Event) error {
+		events = append(events, event)
+		return nil
+	})
+
+	require.NoError(t, err)
+	assert.False(t, tools.called)
+	require.Len(t, model.messages, 2)
+	assert.Equal(t, "Tool cancelled by operator", model.messages[1][3].Content)
+	require.Len(t, events, 5)
+	assert.Equal(t, EventToolResult, events[2].Kind)
+	assert.True(t, events[2].Cancelled)
+	assert.False(t, events[2].Success)
 }

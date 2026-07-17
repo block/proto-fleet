@@ -1,12 +1,13 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 
-import type { AgentActivity, ChatMessage, ChatSuggestion } from "./types";
+import type { AgentActivity, ChatMessage, ChatSuggestion, ToolConfirmation } from "./types";
 
 interface ChatState {
   isOpen: boolean;
   messages: ChatMessage[];
   agentActivities: AgentActivity[];
+  toolConfirmations: ToolConfirmation[];
   isStreaming: boolean;
   streamingContent: string;
   streamError: string;
@@ -21,7 +22,12 @@ interface ChatState {
   appendStreamingContent: (content: string) => void;
   setStreamError: (error: string) => void;
   beginToolActivity: (id: string, summary: string) => void;
-  finishToolActivity: (id: string, success: boolean, summary: string) => void;
+  finishToolActivity: (id: string, success: boolean, summary: string, cancelled?: boolean) => void;
+  addToolConfirmation: (confirmation: Omit<ToolConfirmation, "status" | "sequence">) => void;
+  submitToolConfirmation: (id: string, decision: "approve" | "cancel") => void;
+  resolveToolConfirmation: (id: string, decision: "approve" | "cancel") => void;
+  failToolConfirmation: (id: string, error: string) => void;
+  expirePendingConfirmations: () => void;
   resetStream: () => void;
   clearMessages: () => void;
 }
@@ -39,6 +45,7 @@ export const useChatStore = create<ChatState>()(
     isOpen: false,
     messages: [],
     agentActivities: [],
+    toolConfirmations: [],
     isStreaming: false,
     streamingContent: "",
     streamError: "",
@@ -93,12 +100,58 @@ export const useChatStore = create<ChatState>()(
         });
         state.nextSequence += 1;
       }),
-    finishToolActivity: (id, success, summary) =>
+    finishToolActivity: (id, success, summary, cancelled = false) =>
       set((state) => {
         const activity = state.agentActivities.find((candidate) => candidate.id === id);
         if (!activity) return;
         activity.summary = summary;
-        activity.status = success ? "completed" : "failed";
+        activity.status = cancelled ? "cancelled" : success ? "completed" : "failed";
+        const confirmation = state.toolConfirmations.find((candidate) => candidate.toolCallId === id);
+        if (confirmation?.decision) {
+          confirmation.status = confirmation.decision === "approve" ? "approved" : "cancelled";
+          confirmation.error = undefined;
+        }
+      }),
+    addToolConfirmation: (confirmation) =>
+      set((state) => {
+        state.toolConfirmations.push({
+          ...confirmation,
+          status: "pending",
+          sequence: state.nextSequence,
+        });
+        state.nextSequence += 1;
+      }),
+    submitToolConfirmation: (id, decision) =>
+      set((state) => {
+        const confirmation = state.toolConfirmations.find((candidate) => candidate.id === id);
+        if (!confirmation || confirmation.status !== "pending") return;
+        confirmation.status = "submitting";
+        confirmation.decision = decision;
+        confirmation.error = undefined;
+      }),
+    resolveToolConfirmation: (id, decision) =>
+      set((state) => {
+        const confirmation = state.toolConfirmations.find((candidate) => candidate.id === id);
+        if (!confirmation) return;
+        confirmation.status = decision === "approve" ? "approved" : "cancelled";
+        confirmation.decision = decision;
+        confirmation.error = undefined;
+      }),
+    failToolConfirmation: (id, error) =>
+      set((state) => {
+        const confirmation = state.toolConfirmations.find((candidate) => candidate.id === id);
+        if (!confirmation) return;
+        confirmation.status = "pending";
+        confirmation.error = error;
+      }),
+    expirePendingConfirmations: () =>
+      set((state) => {
+        state.toolConfirmations.forEach((confirmation) => {
+          if (confirmation.status === "pending" || confirmation.status === "submitting") {
+            confirmation.status = "expired";
+            confirmation.error = undefined;
+          }
+        });
       }),
     resetStream: () =>
       set((state) => {
@@ -109,6 +162,7 @@ export const useChatStore = create<ChatState>()(
       set((state) => {
         state.messages = [];
         state.agentActivities = [];
+        state.toolConfirmations = [];
         state.streamingContent = "";
         state.streamError = "";
         state.nextSequence = 0;

@@ -7,6 +7,7 @@ import { useChatStore } from "./useChatStore";
 
 const mocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
+  resolveToolConfirmation: vi.fn(),
 }));
 
 vi.mock("@/protoFleet/api/clients", () => ({
@@ -127,5 +128,67 @@ describe("ChatPanel", () => {
     expect(useChatStore.getState().messages).toEqual([]);
     expect(useChatStore.getState().agentActivities).toEqual([]);
     expect(useChatStore.getState().isStreaming).toBe(false);
+  });
+
+  test("keeps a write paused until the operator confirms it", async () => {
+    let releaseConfirmation = () => {};
+    const confirmationResolved = new Promise<void>((resolve) => {
+      releaseConfirmation = resolve;
+    });
+    mocks.resolveToolConfirmation.mockImplementation(async () => {
+      releaseConfirmation();
+      return {};
+    });
+    mocks.sendMessage.mockImplementation(() =>
+      (async function* () {
+        yield { event: { case: "toolCall", value: { id: "call-1", summary: "Preparing site creation" } } };
+        yield {
+          event: {
+            case: "confirmationRequired",
+            value: {
+              confirmationId: "confirmation-1",
+              toolCallId: "call-1",
+              title: "Create this site?",
+              description: "Proto AI will add a new site to your fleet.",
+              confirmLabel: "Create site",
+              details: [{ label: "Name", value: "North" }],
+            },
+          },
+        };
+        await confirmationResolved;
+        yield {
+          event: {
+            case: "toolResult",
+            value: { id: "call-1", success: true, cancelled: false, summary: 'Created site "North"' },
+          },
+        };
+        yield { event: { case: "textDelta", value: { content: "North was created." } } };
+      })(),
+    );
+
+    render(
+      <MemoryRouter>
+        <ChatPanel />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Message Proto AI" }), {
+      target: { value: "Create a site named North" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(await screen.findByRole("heading", { name: "Create this site?" })).toBeInTheDocument();
+    expect(screen.getByText("North")).toBeInTheDocument();
+    expect(screen.queryByText("North was created.")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Create site" }));
+
+    expect(mocks.resolveToolConfirmation).toHaveBeenCalledWith({
+      confirmationId: "confirmation-1",
+      decision: 1,
+    });
+    expect(await screen.findByText("North was created.")).toBeInTheDocument();
+    expect(screen.getByText("Approved")).toBeInTheDocument();
+    expect(screen.getByText('Created site "North"')).toBeInTheDocument();
   });
 });

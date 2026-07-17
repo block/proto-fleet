@@ -62,12 +62,14 @@ func TestChatProceduresProtectSecretsAndPromptBodies(t *testing.T) {
 
 	chatProcedure := chatv1connect.ChatServiceSendMessageProcedure
 	assert.True(t, SensitiveBodyProcedures[chatProcedure])
+	confirmationProcedure := chatv1connect.ChatServiceResolveToolConfirmationProcedure
 
 	for _, procedure := range []string{
 		chatv1connect.ChatServiceGetLLMConfigProcedure,
 		discoveryProcedure,
 		configProcedure,
 		chatProcedure,
+		confirmationProcedure,
 	} {
 		assert.Contains(t, SessionOnlyProcedures, procedure,
 			"%s must reject API-key auth because the AI surface contains credentials or fleet context",

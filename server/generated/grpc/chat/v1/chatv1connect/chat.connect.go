@@ -45,6 +45,9 @@ const (
 	ChatServiceUpdateLLMConfigProcedure = "/chat.v1.ChatService/UpdateLLMConfig"
 	// ChatServiceSendMessageProcedure is the fully-qualified name of the ChatService's SendMessage RPC.
 	ChatServiceSendMessageProcedure = "/chat.v1.ChatService/SendMessage"
+	// ChatServiceResolveToolConfirmationProcedure is the fully-qualified name of the ChatService's
+	// ResolveToolConfirmation RPC.
+	ChatServiceResolveToolConfirmationProcedure = "/chat.v1.ChatService/ResolveToolConfirmation"
 )
 
 // ChatServiceClient is a client for the chat.v1.ChatService service.
@@ -53,6 +56,9 @@ type ChatServiceClient interface {
 	DiscoverModels(context.Context, *connect.Request[v1.DiscoverModelsRequest]) (*connect.Response[v1.DiscoverModelsResponse], error)
 	UpdateLLMConfig(context.Context, *connect.Request[v1.UpdateLLMConfigRequest]) (*connect.Response[v1.UpdateLLMConfigResponse], error)
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest]) (*connect.ServerStreamForClient[v1.SendMessageResponse], error)
+	// ResolveToolConfirmation approves or cancels a pending write requested by
+	// SendMessage. The original stream remains open and resumes after this RPC.
+	ResolveToolConfirmation(context.Context, *connect.Request[v1.ResolveToolConfirmationRequest]) (*connect.Response[v1.ResolveToolConfirmationResponse], error)
 }
 
 // NewChatServiceClient constructs a client for the chat.v1.ChatService service. By default, it uses
@@ -85,15 +91,21 @@ func NewChatServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			baseURL+ChatServiceSendMessageProcedure,
 			opts...,
 		),
+		resolveToolConfirmation: connect.NewClient[v1.ResolveToolConfirmationRequest, v1.ResolveToolConfirmationResponse](
+			httpClient,
+			baseURL+ChatServiceResolveToolConfirmationProcedure,
+			opts...,
+		),
 	}
 }
 
 // chatServiceClient implements ChatServiceClient.
 type chatServiceClient struct {
-	getLLMConfig    *connect.Client[v1.GetLLMConfigRequest, v1.GetLLMConfigResponse]
-	discoverModels  *connect.Client[v1.DiscoverModelsRequest, v1.DiscoverModelsResponse]
-	updateLLMConfig *connect.Client[v1.UpdateLLMConfigRequest, v1.UpdateLLMConfigResponse]
-	sendMessage     *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
+	getLLMConfig            *connect.Client[v1.GetLLMConfigRequest, v1.GetLLMConfigResponse]
+	discoverModels          *connect.Client[v1.DiscoverModelsRequest, v1.DiscoverModelsResponse]
+	updateLLMConfig         *connect.Client[v1.UpdateLLMConfigRequest, v1.UpdateLLMConfigResponse]
+	sendMessage             *connect.Client[v1.SendMessageRequest, v1.SendMessageResponse]
+	resolveToolConfirmation *connect.Client[v1.ResolveToolConfirmationRequest, v1.ResolveToolConfirmationResponse]
 }
 
 // GetLLMConfig calls chat.v1.ChatService.GetLLMConfig.
@@ -116,12 +128,20 @@ func (c *chatServiceClient) SendMessage(ctx context.Context, req *connect.Reques
 	return c.sendMessage.CallServerStream(ctx, req)
 }
 
+// ResolveToolConfirmation calls chat.v1.ChatService.ResolveToolConfirmation.
+func (c *chatServiceClient) ResolveToolConfirmation(ctx context.Context, req *connect.Request[v1.ResolveToolConfirmationRequest]) (*connect.Response[v1.ResolveToolConfirmationResponse], error) {
+	return c.resolveToolConfirmation.CallUnary(ctx, req)
+}
+
 // ChatServiceHandler is an implementation of the chat.v1.ChatService service.
 type ChatServiceHandler interface {
 	GetLLMConfig(context.Context, *connect.Request[v1.GetLLMConfigRequest]) (*connect.Response[v1.GetLLMConfigResponse], error)
 	DiscoverModels(context.Context, *connect.Request[v1.DiscoverModelsRequest]) (*connect.Response[v1.DiscoverModelsResponse], error)
 	UpdateLLMConfig(context.Context, *connect.Request[v1.UpdateLLMConfigRequest]) (*connect.Response[v1.UpdateLLMConfigResponse], error)
 	SendMessage(context.Context, *connect.Request[v1.SendMessageRequest], *connect.ServerStream[v1.SendMessageResponse]) error
+	// ResolveToolConfirmation approves or cancels a pending write requested by
+	// SendMessage. The original stream remains open and resumes after this RPC.
+	ResolveToolConfirmation(context.Context, *connect.Request[v1.ResolveToolConfirmationRequest]) (*connect.Response[v1.ResolveToolConfirmationResponse], error)
 }
 
 // NewChatServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -150,6 +170,11 @@ func NewChatServiceHandler(svc ChatServiceHandler, opts ...connect.HandlerOption
 		svc.SendMessage,
 		opts...,
 	)
+	chatServiceResolveToolConfirmationHandler := connect.NewUnaryHandler(
+		ChatServiceResolveToolConfirmationProcedure,
+		svc.ResolveToolConfirmation,
+		opts...,
+	)
 	return "/chat.v1.ChatService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ChatServiceGetLLMConfigProcedure:
@@ -160,6 +185,8 @@ func NewChatServiceHandler(svc ChatServiceHandler, opts ...connect.HandlerOption
 			chatServiceUpdateLLMConfigHandler.ServeHTTP(w, r)
 		case ChatServiceSendMessageProcedure:
 			chatServiceSendMessageHandler.ServeHTTP(w, r)
+		case ChatServiceResolveToolConfirmationProcedure:
+			chatServiceResolveToolConfirmationHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -183,4 +210,8 @@ func (UnimplementedChatServiceHandler) UpdateLLMConfig(context.Context, *connect
 
 func (UnimplementedChatServiceHandler) SendMessage(context.Context, *connect.Request[v1.SendMessageRequest], *connect.ServerStream[v1.SendMessageResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("chat.v1.ChatService.SendMessage is not implemented"))
+}
+
+func (UnimplementedChatServiceHandler) ResolveToolConfirmation(context.Context, *connect.Request[v1.ResolveToolConfirmationRequest]) (*connect.Response[v1.ResolveToolConfirmationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("chat.v1.ChatService.ResolveToolConfirmation is not implemented"))
 }

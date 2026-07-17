@@ -13,6 +13,9 @@ service ChatService {
   rpc DiscoverModels(DiscoverModelsRequest) returns (DiscoverModelsResponse);
   rpc UpdateLLMConfig(UpdateLLMConfigRequest) returns (UpdateLLMConfigResponse);
   rpc SendMessage(SendMessageRequest) returns (stream SendMessageResponse);
+  // ResolveToolConfirmation approves or cancels a pending write requested by
+  // SendMessage. The original stream remains open and resumes after this RPC.
+  rpc ResolveToolConfirmation(ResolveToolConfirmationRequest) returns (ResolveToolConfirmationResponse);
 }
 
 enum AgentHarness {
@@ -143,7 +146,43 @@ message ToolResult {
   string name = 2;
   bool success = 3;
   string summary = 4;
+  bool cancelled = 5;
 }
+
+message ToolConfirmationDetail {
+  string label = 1;
+  string value = 2;
+}
+
+message ToolConfirmationRequired {
+  // Opaque, short-lived identifier bound to the current operator and org.
+  string confirmation_id = 1;
+  string tool_call_id = 2;
+  string tool_name = 3;
+  string title = 4;
+  string description = 5;
+  string confirm_label = 6;
+  repeated ToolConfirmationDetail details = 7;
+}
+
+enum ToolConfirmationDecision {
+  TOOL_CONFIRMATION_DECISION_UNSPECIFIED = 0;
+  TOOL_CONFIRMATION_DECISION_APPROVE = 1;
+  TOOL_CONFIRMATION_DECISION_CANCEL = 2;
+}
+
+message ResolveToolConfirmationRequest {
+  string confirmation_id = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 128
+  }];
+  ToolConfirmationDecision decision = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: [0]
+  }];
+}
+
+message ResolveToolConfirmationResponse {}
 
 message Done {
   string finish_reason = 1;
@@ -156,5 +195,6 @@ message SendMessageResponse {
     ToolCall tool_call = 3;
     ToolResult tool_result = 4;
     Done done = 5;
+    ToolConfirmationRequired confirmation_required = 6;
   }
 }

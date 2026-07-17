@@ -14,14 +14,21 @@ import (
 )
 
 type Handler struct {
-	config     *chatdomain.ConfigService
-	agent      *chatdomain.Agent
-	discoverer chatdomain.ModelDiscoverer
-	tools      chatdomain.ToolRegistry
+	config        *chatdomain.ConfigService
+	agent         *chatdomain.Agent
+	discoverer    chatdomain.ModelDiscoverer
+	tools         chatdomain.ToolRegistry
+	confirmations *chatdomain.ConfirmationBroker
 }
 
-func NewHandler(config *chatdomain.ConfigService, agent *chatdomain.Agent, discoverer chatdomain.ModelDiscoverer, tools chatdomain.ToolRegistry) *Handler {
-	return &Handler{config: config, agent: agent, discoverer: discoverer, tools: tools}
+func NewHandler(
+	config *chatdomain.ConfigService,
+	agent *chatdomain.Agent,
+	discoverer chatdomain.ModelDiscoverer,
+	tools chatdomain.ToolRegistry,
+	confirmations *chatdomain.ConfirmationBroker,
+) *Handler {
+	return &Handler{config: config, agent: agent, discoverer: discoverer, tools: tools, confirmations: confirmations}
 }
 
 var _ chatv1connect.ChatServiceHandler = (*Handler)(nil)
@@ -108,6 +115,20 @@ func (h *Handler) SendMessage(ctx context.Context, req *connect.Request[chatv1.S
 	})
 }
 
+func (h *Handler) ResolveToolConfirmation(ctx context.Context, req *connect.Request[chatv1.ResolveToolConfirmationRequest]) (*connect.Response[chatv1.ResolveToolConfirmationResponse], error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
+	decision := chatdomain.ConfirmationCancelled
+	if req.Msg.GetDecision() == chatv1.ToolConfirmationDecision_TOOL_CONFIRMATION_DECISION_APPROVE {
+		decision = chatdomain.ConfirmationApproved
+	}
+	if err := h.confirmations.Resolve(ctx, req.Msg.GetConfirmationId(), decision); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&chatv1.ResolveToolConfirmationResponse{}), nil
+}
+
 func configToProto(config chatdomain.ConfigView) *chatv1.LLMConfig {
 	return &chatv1.LLMConfig{
 		Harness:        harnessToProto(config.Harness),
@@ -180,7 +201,22 @@ func eventToProto(messageID string, event chatdomain.Event) *chatv1.SendMessageR
 		}}
 	case chatdomain.EventToolResult:
 		response.Event = &chatv1.SendMessageResponse_ToolResult{ToolResult: &chatv1.ToolResult{
-			Id: event.ToolCallID, Name: event.ToolName, Success: event.Success, Summary: event.Summary,
+			Id: event.ToolCallID, Name: event.ToolName, Success: event.Success, Summary: event.Summary, Cancelled: event.Cancelled,
+		}}
+	case chatdomain.EventConfirmationRequired:
+		confirmation := event.Confirmation
+		details := make([]*chatv1.ToolConfirmationDetail, 0, len(confirmation.Details))
+		for _, detail := range confirmation.Details {
+			details = append(details, &chatv1.ToolConfirmationDetail{Label: detail.Label, Value: detail.Value})
+		}
+		response.Event = &chatv1.SendMessageResponse_ConfirmationRequired{ConfirmationRequired: &chatv1.ToolConfirmationRequired{
+			ConfirmationId: event.ConfirmationID,
+			ToolCallId:     event.ToolCallID,
+			ToolName:       event.ToolName,
+			Title:          confirmation.Title,
+			Description:    confirmation.Description,
+			ConfirmLabel:   confirmation.ConfirmLabel,
+			Details:        details,
 		}}
 	case chatdomain.EventDone:
 		response.Event = &chatv1.SendMessageResponse_Done{Done: &chatv1.Done{FinishReason: event.Summary}}
