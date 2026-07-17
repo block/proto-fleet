@@ -1424,8 +1424,9 @@ type Querier interface {
 	UpdateBuilding(ctx context.Context, arg UpdateBuildingParams) error
 	UpdateCurtailmentAutomationRule(ctx context.Context, arg UpdateCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error)
 	// The expected-state guard prevents a stale reconciler phase from stamping
-	// over a concurrent Stop/recurtail/terminal transition. fan_last_error is
-	// always replaced so a successful re-assertion clears a prior failure.
+	// over a concurrent transition. Terminal states remain addressable so an
+	// explicit operator Force Release can retry fan ON and clear a durable failure.
+	// fan_last_error is always replaced after a successful write.
 	UpdateCurtailmentEventFanState(ctx context.Context, arg UpdateCurtailmentEventFanStateParams) (int64, error)
 	// Partial update; nil params COALESCE-preserve. State filter is the
 	// race-loss guard — zero rows means the event advanced between the

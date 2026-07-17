@@ -167,9 +167,9 @@ type UpdateOperatorFieldsParams struct {
 	MaxDurationSeconds      *int32
 }
 
-// UpdateCurtailmentFanStateParams persists one reconciler fan attempt. Nil
-// timestamps preserve the corresponding first-send stamp; LastError nil clears
-// a previous failure after a successful re-assertion.
+// UpdateCurtailmentFanStateParams persists one reconciler or operator-recovery
+// fan attempt. Nil timestamps preserve the corresponding first-send stamp;
+// LastError nil clears a previous failure after a successful re-assertion.
 type UpdateCurtailmentFanStateParams struct {
 	ExpectedEventState models.EventState
 	FanOffSentAt       *time.Time

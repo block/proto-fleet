@@ -9,6 +9,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 )
 
 func TestCurtailmentFanRestoreRulePersistsTerminalFailureUntilClear(t *testing.T) {
@@ -21,7 +25,8 @@ func TestCurtailmentFanRestoreRulePersistsTerminalFailureUntilClear(t *testing.T
 	orgID := user.OrganizationID
 	eventUUID := uuid.New()
 
-	_, err := db.ExecContext(t.Context(), `
+	var eventID int64
+	err := db.QueryRowContext(t.Context(), `
 		INSERT INTO curtailment_event (
 			event_uuid, org_id, state, mode, strategy, level, priority,
 			loop_type, scope_type, scope_jsonb, restore_batch_size,
@@ -33,16 +38,17 @@ func TestCurtailmentFanRestoreRulePersistsTerminalFailureUntilClear(t *testing.T
 			'LEAST_EFFICIENT_FIRST', 'FULL', 'NORMAL', 'open', 'whole_org',
 			'{}'::jsonb, 1, 0, 'user', 'fan alert integration test',
 			$3, 60, $4, 'device 501: command failed'
-		)`, eventUUID, orgID, user.DatabaseID, time.Now().Add(-2*time.Minute))
+		)
+		RETURNING id`, eventUUID, orgID, user.DatabaseID, time.Now().Add(-2*time.Minute)).Scan(&eventID)
 	require.NoError(t, err)
 
 	ruleSQL := loadRuleSQL(t, "Curtailment Fan Restore Failed", "FROM curtailment_event")
 	require.Equal(t, map[string]float64{eventUUID.String(): 1}, runFanRestoreRule(t, db, ruleSQL, orgID))
 
-	_, err = db.ExecContext(t.Context(), `
-		UPDATE curtailment_event
-		SET fan_last_error = NULL
-		WHERE event_uuid = $1`, eventUUID)
+	err = sqlstores.NewSQLCurtailmentStore(db).UpdateFanState(t.Context(), eventID, interfaces.UpdateCurtailmentFanStateParams{
+		ExpectedEventState: models.EventStateCompletedWithFailures,
+		LastError:          nil,
+	})
 	require.NoError(t, err)
 	require.Empty(t, runFanRestoreRule(t, db, ruleSQL, orgID))
 }

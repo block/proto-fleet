@@ -1145,16 +1145,16 @@ WHERE id = sqlc.arg('id')
 
 -- name: UpdateCurtailmentEventFanState :execrows
 -- The expected-state guard prevents a stale reconciler phase from stamping
--- over a concurrent Stop/recurtail/terminal transition. fan_last_error is
--- always replaced so a successful re-assertion clears a prior failure.
+-- over a concurrent transition. Terminal states remain addressable so an
+-- explicit operator Force Release can retry fan ON and clear a durable failure.
+-- fan_last_error is always replaced after a successful write.
 UPDATE curtailment_event
 SET fan_off_sent_at = COALESCE(sqlc.narg('fan_off_sent_at'), fan_off_sent_at),
     fan_on_sent_at = COALESCE(sqlc.narg('fan_on_sent_at'), fan_on_sent_at),
     fan_last_error = sqlc.narg('fan_last_error'),
     updated_at = NOW()
 WHERE id = sqlc.arg('id')
-  AND state = sqlc.arg('expected_state')
-  AND state IN ('pending', 'active', 'restoring');
+  AND state = sqlc.arg('expected_state');
 
 -- name: BeginCurtailmentRestoration :one
 -- Stop's event-side flip to 'restoring'. The WHERE state-guard is the

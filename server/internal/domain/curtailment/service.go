@@ -498,8 +498,14 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 		return nil, err
 	}
 	if s.fans != nil {
-		if event, err := s.store.GetEventByUUID(ctx, req.OrgID, req.EventUUID); err == nil && event.State == models.EventStateRestoring {
-			s.restoreFansBeforeTerminal(ctx, event)
+		event, err := s.store.GetEventByUUID(ctx, req.OrgID, req.EventUUID)
+		if err != nil {
+			return nil, err
+		}
+		if event.State == models.EventStateRestoring {
+			if err := s.restoreFansForOperatorRecovery(ctx, event); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -555,8 +561,15 @@ func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*F
 		return nil, err
 	}
 	if s.fans != nil {
-		if event, err := s.store.GetEventByUUID(ctx, req.OrgID, req.EventUUID); err == nil && !event.State.IsTerminal() {
-			s.restoreFansBeforeTerminal(ctx, event)
+		event, err := s.store.GetEventByUUID(ctx, req.OrgID, req.EventUUID)
+		if err != nil {
+			return nil, err
+		}
+		// Force Release is also the explicit recovery path for a durable fan
+		// failure on an already-terminal event. Reissuing it retries ON and a
+		// successful write clears fan_last_error before the idempotent release.
+		if err := s.restoreFansForOperatorRecovery(ctx, event); err != nil {
+			return nil, err
 		}
 	}
 
@@ -575,14 +588,14 @@ func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*F
 	}, nil
 }
 
-func (s *Service) restoreFansBeforeTerminal(ctx context.Context, event *models.Event) {
+func (s *Service) restoreFansForOperatorRecovery(ctx context.Context, event *models.Event) error {
 	if event == nil || event.FanOffSentAt == nil || len(event.FacilityFanDeviceIDs) == 0 {
-		return
+		return nil
 	}
 	now := time.Now().UTC()
 	lastError := s.fans.SetState(ctx, event, driver.PowerOn)
 	if s.fanStore == nil {
-		return
+		return fleeterror.NewInternalError("facility fan recovery state store is unavailable")
 	}
 	params := interfaces.UpdateCurtailmentFanStateParams{
 		ExpectedEventState: event.State,
@@ -595,8 +608,13 @@ func (s *Service) restoreFansBeforeTerminal(ctx context.Context, event *models.E
 		params.FanOnSentAt = &now
 	}
 	if err := s.fanStore.UpdateFanState(ctx, event.ID, params); err != nil {
-		slog.Error("failed to stamp best-effort facility fan restore before terminal transition", "event_uuid", event.EventUUID, "error", err)
+		return fleeterror.NewInternalErrorf(
+			"failed to persist facility fan operator recovery for event %s: %v",
+			event.EventUUID,
+			err,
+		)
 	}
+	return nil
 }
 
 func validateAdminRecoveryReason(reason string) error {

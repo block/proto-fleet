@@ -215,6 +215,128 @@ func TestService_ForceRelease_RetriesFansOnAfterEarlierFailedAttempt(t *testing.
 	assert.Equal(t, fanErr, *store.lastUpdateFanStateParams.LastError)
 }
 
+func TestService_ForceRelease_RetriesAndClearsTerminalFanFailure(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	fanOffAt := time.Now().UTC().Add(-2 * time.Minute)
+	firstFanOnAt := time.Now().UTC().Add(-time.Minute)
+	lastError := "device 701: command failed"
+	store := newFakeStore()
+	store.eventsByUUID[eventUUID] = &models.Event{
+		ID:                   91,
+		EventUUID:            eventUUID,
+		OrgID:                orgID,
+		State:                models.EventStateCompletedWithFailures,
+		FacilityFanDeviceIDs: []int64{701},
+		FanOffSentAt:         &fanOffAt,
+		FanOnSentAt:          &firstFanOnAt,
+		FanLastError:         &lastError,
+	}
+	store.forceReleaseResult = store.eventsByUUID[eventUUID]
+	fans := &fakeTerminalFanController{}
+	svc := NewService(store, WithFacilityFanController(fans))
+
+	_, err := svc.ForceRelease(t.Context(), ForceReleaseRequest{
+		OrgID:     orgID,
+		EventUUID: eventUUID,
+		Reason:    "fan control path repaired",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	assert.Equal(t, 1, store.updateFanStateCalls)
+	assert.Equal(t, models.EventStateCompletedWithFailures, store.lastUpdateFanStateParams.ExpectedEventState)
+	assert.Nil(t, store.lastUpdateFanStateParams.FanOnSentAt)
+	assert.Nil(t, store.lastUpdateFanStateParams.LastError)
+	assert.Equal(t, 1, store.forceReleaseCalls)
+}
+
+func TestService_OperatorTerminalPathsStopWhenFanRecoveryStateCannotBeLoaded(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name string
+		run  func(*Service) error
+	}{
+		{
+			name: "admin terminate",
+			run: func(svc *Service) error {
+				_, err := svc.AdminTerminate(context.Background(), AdminTerminateRequest{
+					OrgID: 1, EventUUID: uuid.New(), TargetState: models.EventStateFailed, Reason: "operator recovery",
+				})
+				return err
+			},
+		},
+		{
+			name: "force release",
+			run: func(svc *Service) error {
+				_, err := svc.ForceRelease(context.Background(), ForceReleaseRequest{
+					OrgID: 1, EventUUID: uuid.New(), Reason: "operator recovery",
+				})
+				return err
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			store := newFakeStore()
+			store.getEventByUUIDErr = errors.New("temporary event lookup failure")
+			err := testCase.run(NewService(store, WithFacilityFanController(&fakeTerminalFanController{})))
+			require.ErrorContains(t, err, "temporary event lookup failure")
+			assert.Zero(t, store.adminTerminateCalls)
+			assert.Zero(t, store.forceReleaseCalls)
+		})
+	}
+}
+
+func TestService_OperatorTerminalPathsStopWhenFanRecoveryStateCannotBePersisted(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name  string
+		state models.EventState
+		run   func(*Service, uuid.UUID) error
+	}{
+		{
+			name:  "admin terminate",
+			state: models.EventStateRestoring,
+			run: func(svc *Service, eventUUID uuid.UUID) error {
+				_, err := svc.AdminTerminate(context.Background(), AdminTerminateRequest{
+					OrgID: 1, EventUUID: eventUUID, TargetState: models.EventStateFailed, Reason: "operator recovery",
+				})
+				return err
+			},
+		},
+		{
+			name:  "force release",
+			state: models.EventStateActive,
+			run: func(svc *Service, eventUUID uuid.UUID) error {
+				_, err := svc.ForceRelease(context.Background(), ForceReleaseRequest{
+					OrgID: 1, EventUUID: eventUUID, Reason: "operator recovery",
+				})
+				return err
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			eventUUID := uuid.New()
+			fanOffAt := time.Now().UTC()
+			store := newFakeStore()
+			store.eventsByUUID[eventUUID] = &models.Event{
+				ID: 92, EventUUID: eventUUID, OrgID: 1, State: testCase.state,
+				FacilityFanDeviceIDs: []int64{701}, FanOffSentAt: &fanOffAt,
+			}
+			store.updateFanStateErr = errors.New("temporary fan state write failure")
+			err := testCase.run(NewService(store, WithFacilityFanController(&fakeTerminalFanController{})), eventUUID)
+			require.ErrorContains(t, err, "temporary fan state write failure")
+			assert.Zero(t, store.adminTerminateCalls)
+			assert.Zero(t, store.forceReleaseCalls)
+		})
+	}
+}
+
 func TestService_ForceRelease_RejectsMissingReason(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())

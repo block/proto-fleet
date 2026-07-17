@@ -62,6 +62,7 @@ type fakeStore struct {
 	// beginRestoreErr gives Service.Stop tests control over
 	// BeginRestoreTransition outcomes.
 	eventsByUUID             map[uuid.UUID]*models.Event
+	getEventByUUIDErr        error
 	targetsByEventUUID       map[uuid.UUID][]*models.Target
 	targetSiteIDsByEventUUID map[uuid.UUID][]int64
 	activeEvents             []*models.Event
@@ -353,6 +354,9 @@ func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCand
 // BeginRestoreTransition path is real-faked rather than panicking.
 
 func (f *fakeStore) GetEventByUUID(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
+	if f.getEventByUUIDErr != nil {
+		return nil, f.getEventByUUIDErr
+	}
 	ev, ok := f.eventsByUUID[eventUUID]
 	if !ok {
 		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)

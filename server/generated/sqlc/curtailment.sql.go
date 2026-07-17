@@ -3024,7 +3024,6 @@ SET fan_off_sent_at = COALESCE($1, fan_off_sent_at),
     updated_at = NOW()
 WHERE id = $4
   AND state = $5
-  AND state IN ('pending', 'active', 'restoring')
 `
 
 type UpdateCurtailmentEventFanStateParams struct {
@@ -3036,8 +3035,9 @@ type UpdateCurtailmentEventFanStateParams struct {
 }
 
 // The expected-state guard prevents a stale reconciler phase from stamping
-// over a concurrent Stop/recurtail/terminal transition. fan_last_error is
-// always replaced so a successful re-assertion clears a prior failure.
+// over a concurrent transition. Terminal states remain addressable so an
+// explicit operator Force Release can retry fan ON and clear a durable failure.
+// fan_last_error is always replaced after a successful write.
 func (q *Queries) UpdateCurtailmentEventFanState(ctx context.Context, arg UpdateCurtailmentEventFanStateParams) (int64, error) {
 	result, err := q.exec(ctx, q.updateCurtailmentEventFanStateStmt, updateCurtailmentEventFanState,
 		arg.FanOffSentAt,
