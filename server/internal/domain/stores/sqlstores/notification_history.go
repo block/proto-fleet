@@ -9,6 +9,7 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/notificationhistory"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
 // > Grafana repeat_interval (1h, notification-policies.yaml) with margin for one missed re-notify; keep in sync.
@@ -54,33 +55,24 @@ func (s *SQLNotificationHistoryStore) InsertBatch(ctx context.Context, notifs []
 	if len(notifs) == 0 {
 		return nil
 	}
-	tx, err := s.conn.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin notification batch tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }() // no-op once committed
-
-	q := sqlc.New(tx)
-	for start := 0; start < len(notifs); start += maxBatchRows {
-		end := min(start+maxBatchRows, len(notifs))
-		chunk := notifs[start:end]
-		payload, err := marshalBulkNotificationRows(chunk)
-		if err != nil {
-			return fmt.Errorf("marshal notification batch chunk: %w", err)
+	return db.WithTransactionNoResult(ctx, s.conn.DB, func(q *sqlc.Queries) error {
+		for start := 0; start < len(notifs); start += maxBatchRows {
+			end := min(start+maxBatchRows, len(notifs))
+			chunk := notifs[start:end]
+			payload, err := marshalBulkNotificationRows(chunk)
+			if err != nil {
+				return fmt.Errorf("marshal notification batch chunk: %w", err)
+			}
+			inserted, err := q.BulkInsertNotificationHistory(ctx, payload)
+			if err != nil {
+				return fmt.Errorf("insert notification batch chunk: %w", err)
+			}
+			if inserted != int64(len(chunk)) {
+				return fmt.Errorf("insert notification batch chunk: inserted %d of %d rows", inserted, len(chunk))
+			}
 		}
-		inserted, err := q.BulkInsertNotificationHistory(ctx, payload)
-		if err != nil {
-			return fmt.Errorf("insert notification batch chunk: %w", err)
-		}
-		if inserted != int64(len(chunk)) {
-			return fmt.Errorf("insert notification batch chunk: inserted %d of %d rows", inserted, len(chunk))
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit notification batch: %w", err)
-	}
-	return nil
+		return nil
+	})
 }
 
 // bulkNotificationRow is the per-row JSON shape for BulkInsertNotificationHistory's jsonb_to_recordset; tags match its column names.

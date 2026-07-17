@@ -10,6 +10,9 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
+// WithTransaction runs action in a transaction and retries the entire action for
+// retryable PostgreSQL errors. The action must be safe to replay and should not
+// perform side effects outside the transaction.
 func WithTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error), opts ...*sql.TxOptions) (T, error) {
 	return withTransactionWithRetry(ctx, db, action, DefaultRetryConfig, firstTxOpts(opts))
 }
@@ -62,6 +65,7 @@ func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action fun
 func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error), txOpts *sql.TxOptions) (T, error) {
 	var zero T
 
+	//nolint:forbidigo // This helper is the canonical boundary for opening SQL transactions.
 	tx, err := db.BeginTx(ctx, txOpts)
 	if err != nil {
 		return zero, fleeterror.NewInternalErrorf("error opening tx: %v", err)
@@ -84,6 +88,9 @@ func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q *s
 	return result, nil
 }
 
+// WithTransactionNoResult runs action in a transaction and retries the entire
+// action for retryable PostgreSQL errors. The action must be safe to replay and
+// should not perform side effects outside the transaction.
 func WithTransactionNoResult(ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) error, opts ...*sql.TxOptions) error {
 	return withTransactionNoResultWithRetry(ctx, db, action, DefaultRetryConfig, firstTxOpts(opts))
 }
