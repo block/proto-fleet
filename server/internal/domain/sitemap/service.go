@@ -41,6 +41,7 @@ const (
 	maxSiteNameLength     = 255
 	maxBuildingNameLength = 255
 	maxRackLabelLength    = 100
+	maxRackZoneLength     = 100
 	maxMinerNameLength    = 100
 
 	siteMapExportFolder       = "proto-fleet-site-map"
@@ -3173,6 +3174,7 @@ func validateImportedNameLengths(parsed *parsedCSV) []*pb.ImportValidationError 
 	errs = append(errs, validateFieldLength(parsed.sections["SITE"], "SITE", fieldName, maxSiteNameLength)...)
 	errs = append(errs, validateFieldLength(parsed.sections["BUILDING"], "BUILDING", fieldName, maxBuildingNameLength)...)
 	errs = append(errs, validateFieldLength(parsed.sections["RACK"], "RACK", fieldLabel, maxRackLabelLength)...)
+	errs = append(errs, validateFieldLength(parsed.sections["RACK"], "RACK", "zone", maxRackZoneLength)...)
 	errs = append(errs, validateFieldLength(parsed.sections["MINER"], "MINER", fieldName, maxMinerNameLength)...)
 	return errs
 }
@@ -4071,16 +4073,6 @@ func desiredBuildingNameLookup(rows []map[string]string, buildings []buildingmod
 	for name, candidates := range byBuildingName {
 		if len(candidates) == 1 {
 			byName[name] = candidates[0]
-			continue
-		}
-		var unassigned []buildingmodels.Building
-		for _, building := range candidates {
-			if building.SiteLabel == "" {
-				unassigned = append(unassigned, building)
-			}
-		}
-		if len(unassigned) == 1 {
-			byName[name] = unassigned[0]
 			continue
 		}
 		ambiguous[name] = true

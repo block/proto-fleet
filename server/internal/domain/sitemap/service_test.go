@@ -217,6 +217,7 @@ func TestBuildPlanRejectsImportedNamesOverServerLimits(t *testing.T) {
 		},
 		"RACK": {
 			{"__row": "13", fieldLabel: strings.Repeat("r", maxRackLabelLength+1), "rows": "4", "columns": "6"},
+			{"__row": "14", fieldLabel: "Rack A", "zone": strings.Repeat("z", maxRackZoneLength+1), "rows": "4", "columns": "6"},
 		},
 		"MINER": {
 			{"__row": "17", "device_identifier": "miner-1", fieldName: strings.Repeat("m", maxMinerNameLength+1)},
@@ -224,8 +225,8 @@ func TestBuildPlanRejectsImportedNamesOverServerLimits(t *testing.T) {
 	}}
 
 	plan := buildPlan(parsed, &snapshot{miners: []minerSnapshot{{DeviceIdentifier: "miner-1"}}}, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	if len(plan.errors) != 4 {
-		t.Fatalf("plan errors = %+v, want 4 length errors", plan.errors)
+	if len(plan.errors) != 5 {
+		t.Fatalf("plan errors = %+v, want 5 length errors", plan.errors)
 	}
 	for _, err := range plan.errors {
 		if !strings.Contains(err.GetMessage(), "must be at most") {
@@ -539,6 +540,36 @@ func TestBuildPlanRejectsNameOnlyDuplicateUnassignedBuildingReferences(t *testin
 	}
 
 	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if !hasValidationError(plan.errors, "RACK", `rack building "Building A" is ambiguous; add site or building_id`) {
+		t.Fatalf("plan errors = %+v, want rack ambiguous building error", plan.errors)
+	}
+	if !hasValidationError(plan.errors, "MINER", `miner building "Building A" is ambiguous; add site or building_id`) {
+		t.Fatalf("plan errors = %+v, want miner ambiguous building error", plan.errors)
+	}
+}
+
+func TestBuildPlanRejectsNameOnlyBuildingReferenceWithUnassignedTwin(t *testing.T) {
+	siteID := int64(1)
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE":     nil,
+		"BUILDING": nil,
+		"RACK": {
+			{"__row": "9", fieldLabel: "Rack A", fieldBuilding: "Building A", "rows": "4", "columns": "6"},
+		},
+		"MINER": {
+			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldBuilding: "Building A"},
+		},
+	}}
+	snap := &snapshot{
+		sites: []sitemodels.Site{{ID: siteID, Name: "Site A"}},
+		buildings: []buildingmodels.Building{
+			{ID: 10, SiteID: &siteID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 2},
+			{ID: 11, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
+		},
+		miners: []minerSnapshot{{DeviceIdentifier: "miner-1", SerialNumber: "SN1", Name: "Miner 1", IPAddress: "10.0.0.5", MACAddress: "aa:bb:cc:dd:ee:ff"}},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
 	if !hasValidationError(plan.errors, "RACK", `rack building "Building A" is ambiguous; add site or building_id`) {
 		t.Fatalf("plan errors = %+v, want rack ambiguous building error", plan.errors)
 	}
@@ -1807,7 +1838,7 @@ func TestDesiredMinerSiteBuildingResolvesDirectBuildingSite(t *testing.T) {
 	}
 }
 
-func TestDesiredMinerSiteBuildingResolvesUnassignedDuplicateBuilding(t *testing.T) {
+func TestDesiredMinerSiteBuildingMarksUnassignedDuplicateBuildingAmbiguous(t *testing.T) {
 	buildingsByName, ambiguous := desiredBuildingNameLookup(nil, []buildingmodels.Building{
 		{SiteLabel: "", Name: "Building A"},
 		{SiteLabel: "Site A", Name: "Building A"},
@@ -1821,10 +1852,10 @@ func TestDesiredMinerSiteBuildingResolvesUnassignedDuplicateBuilding(t *testing.
 		ambiguous,
 	)
 	if site != "" || building != "Building A" {
-		t.Fatalf("placement = (%q, %q), want unassigned Building A", site, building)
+		t.Fatalf("placement = (%q, %q), want raw row placement", site, building)
 	}
-	if ambiguous["Building A"] {
-		t.Fatal("single unassigned building should disambiguate blank-site building rows")
+	if !ambiguous["Building A"] {
+		t.Fatal("assigned and unassigned duplicate building names should require site or building_id")
 	}
 }
 
