@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { useModalLiveRefresh } from "./hooks/useModalLiveRefresh";
 import type { ComponentAddress, ProtoFleetStatusModalProps } from "./types";
@@ -10,7 +10,10 @@ import {
   transformFleetErrorsToShared,
 } from "./utils";
 import { ComponentType as ErrorComponentType, type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  type MinerStateSnapshot,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { StartMiningRequestSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
@@ -58,6 +61,22 @@ const ProtoFleetStatusModal = ({
 }: ProtoFleetStatusModalProps) => {
   const isVisible = open ?? true;
 
+  // Decouple the modal's subject from the filtered page map. A page poll can
+  // drop this device from the shared `miners` map (e.g. remediation moves it
+  // out of an active status filter); reading the prop directly would blank the
+  // modal and then flicker it back when the next live-refresh merge re-adds the
+  // device. Holding the last-known snapshot for the current deviceId keeps the
+  // modal stable while each tick still refreshes it through the prop.
+  const lastKnownMinerRef = useRef<MinerStateSnapshot | undefined>(undefined);
+  if (miner?.deviceIdentifier === deviceId) {
+    lastKnownMinerRef.current = miner;
+  } else if (lastKnownMinerRef.current?.deviceIdentifier !== deviceId) {
+    // The modal switched to a different device before its snapshot arrived —
+    // drop the previous subject so we never show another device's data.
+    lastKnownMinerRef.current = undefined;
+  }
+  const activeMiner = miner ?? lastKnownMinerRef.current;
+
   // Component navigation state
   const [component, setComponent] = useState<ComponentAddress | undefined>(componentAddress);
 
@@ -74,7 +93,7 @@ const ProtoFleetStatusModal = ({
     async (signal: AbortSignal) => {
       if (!deviceId) return;
       try {
-        const response = await refreshMiners([deviceId]);
+        const response = await refreshMiners([deviceId], signal);
         // Bail if the modal closed / switched devices while this was in flight —
         // merging now would clobber the newer modal's fresh state in the shared map.
         if (signal.aborted) return;
@@ -175,14 +194,14 @@ const ProtoFleetStatusModal = ({
   const sharedErrors = useMemo(() => transformFleetErrorsToShared(groupedErrors), [groupedErrors]);
 
   // Determine status flags from DeviceStatus and PairingStatus
-  const needsAuthentication = miner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
-  const isOffline = miner?.deviceStatus === DeviceStatus.OFFLINE;
+  const needsAuthentication = activeMiner?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
+  const isOffline = activeMiner?.deviceStatus === DeviceStatus.OFFLINE;
   // When authentication is needed, we can't trust INACTIVE (or MAINTENANCE) status
   // (could be sleeping OR showing as inactive/maintenance because we can't authenticate)
   const isSleeping =
-    (miner?.deviceStatus === DeviceStatus.INACTIVE || miner?.deviceStatus === DeviceStatus.MAINTENANCE) &&
+    (activeMiner?.deviceStatus === DeviceStatus.INACTIVE || activeMiner?.deviceStatus === DeviceStatus.MAINTENANCE) &&
     !needsAuthentication;
-  const needsMiningPool = miner?.deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
+  const needsMiningPool = activeMiner?.deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
 
   // Compute summary using shared hook (replaces API-provided summary)
   const summary = useMinerStatusSummary(sharedErrors, isSleeping, isOffline, needsAuthentication, needsMiningPool);
@@ -206,7 +225,7 @@ const ProtoFleetStatusModal = ({
     // Check if miner is sleeping (offline state in fleet context)
     // Don't show wake button if authentication is needed (can't trust INACTIVE/MAINTENANCE status)
     const isMinersleeping =
-      (miner?.deviceStatus === DeviceStatus.INACTIVE || miner?.deviceStatus === DeviceStatus.MAINTENANCE) &&
+      (activeMiner?.deviceStatus === DeviceStatus.INACTIVE || activeMiner?.deviceStatus === DeviceStatus.MAINTENANCE) &&
       !needsAuthentication;
 
     // Build buttons
@@ -240,14 +259,14 @@ const ProtoFleetStatusModal = ({
         needsAuthentication,
         needsMiningPool,
       },
-      title: `${miner?.name || deviceId} status`,
+      title: `${activeMiner?.name || deviceId} status`,
       buttons,
       onDismiss: handleClose,
     };
   }, [
     groupedErrors,
     summary,
-    miner,
+    activeMiner,
     deviceId,
     handleWakeMiner,
     handleClose,
@@ -262,7 +281,7 @@ const ProtoFleetStatusModal = ({
       const { componentType: type, componentId: id } = address;
 
       // Build component status props using the miner data and errors
-      const props = buildComponentStatusProps(miner, type, id, allErrors);
+      const props = buildComponentStatusProps(activeMiner, type, id, allErrors);
 
       if (!props) {
         // Return undefined if component not found
@@ -286,11 +305,11 @@ const ProtoFleetStatusModal = ({
         onNavigateBack: () => setComponent(undefined),
       };
     },
-    [miner, handleClose, allErrors],
+    [activeMiner, handleClose, allErrors],
   );
 
   // Don't render if no miner data
-  if (!miner) {
+  if (!activeMiner) {
     return null;
   }
 

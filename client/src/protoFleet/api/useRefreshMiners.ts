@@ -15,7 +15,7 @@ const useRefreshMiners = () => {
   const [refreshing, setRefreshing] = useState<Set<string>>(() => new Set());
 
   const refreshMiners = useCallback(
-    async (deviceIds: string[]): Promise<RefreshMinersResponse> => {
+    async (deviceIds: string[], signal?: AbortSignal): Promise<RefreshMinersResponse> => {
       if (deviceIds.length === 0) {
         throw new Error("At least one miner is required.");
       }
@@ -33,10 +33,14 @@ const useRefreshMiners = () => {
       });
 
       try {
+        // Forward the caller's AbortSignal so tearing down (modal close / device
+        // switch) actually cancels the in-flight request and frees the shared
+        // server-side refresh slot, rather than only suppressing our own merge.
         return await fleetManagementClient.refreshMiners(
           create(RefreshMinersRequestSchema, {
             deviceIds,
           }),
+          signal ? { signal } : undefined,
         );
       } catch (error) {
         handleAuthErrors({ error });

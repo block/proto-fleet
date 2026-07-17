@@ -71,7 +71,7 @@ describe("ProtoFleetStatusModal live refresh wiring", () => {
     expect(capturedOnTick).toBeTypeOf("function");
     await capturedOnTick!(liveSignal());
 
-    expect(mockRefreshMiners).toHaveBeenCalledWith(["miner-1"]);
+    expect(mockRefreshMiners).toHaveBeenCalledWith(["miner-1"], expect.any(AbortSignal));
     expect(onMergeMiners).toHaveBeenCalledWith([snapshot]);
     expect(mockRefetchErrors).toHaveBeenCalledTimes(1);
   });
@@ -119,8 +119,38 @@ describe("ProtoFleetStatusModal live refresh wiring", () => {
     controller.abort();
     await capturedOnTick!(controller.signal);
 
-    expect(mockRefreshMiners).toHaveBeenCalledWith(["miner-1"]);
+    // The aborted signal is forwarded to the request so it can actually cancel.
+    expect(mockRefreshMiners).toHaveBeenCalledWith(["miner-1"], controller.signal);
     expect(onMergeMiners).not.toHaveBeenCalled();
     expect(mockRefetchErrors).not.toHaveBeenCalled();
+  });
+
+  it("keeps the modal mounted when the device drops out of the filtered page map", () => {
+    const { rerender, queryByTestId } = render(
+      <ProtoFleetStatusModal open onClose={vi.fn()} deviceId="miner-1" miner={miner} onMergeMiners={vi.fn()} />,
+    );
+    expect(queryByTestId("shared-status-modal")).not.toBeNull();
+
+    // A page poll filters this device out: the prop goes undefined while the
+    // modal's subject (deviceId) is unchanged. The last-known snapshot must keep
+    // the modal on screen instead of blanking until the next merge re-adds it.
+    rerender(
+      <ProtoFleetStatusModal open onClose={vi.fn()} deviceId="miner-1" miner={undefined} onMergeMiners={vi.fn()} />,
+    );
+    expect(queryByTestId("shared-status-modal")).not.toBeNull();
+  });
+
+  it("does not show a stale subject after switching to a device with no snapshot yet", () => {
+    const { rerender, queryByTestId } = render(
+      <ProtoFleetStatusModal open onClose={vi.fn()} deviceId="miner-1" miner={miner} onMergeMiners={vi.fn()} />,
+    );
+    expect(queryByTestId("shared-status-modal")).not.toBeNull();
+
+    // Switching to a different device before its snapshot arrives must drop the
+    // previous subject rather than render the wrong miner's data.
+    rerender(
+      <ProtoFleetStatusModal open onClose={vi.fn()} deviceId="miner-2" miner={undefined} onMergeMiners={vi.fn()} />,
+    );
+    expect(queryByTestId("shared-status-modal")).toBeNull();
   });
 });
