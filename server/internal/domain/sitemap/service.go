@@ -1182,6 +1182,8 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateUniqueIDs(parsed.sections["RACK"], "RACK")...)
 	plan.errors = append(plan.errors, validateSiteRenameTargets(parsed.sections["SITE"], snap.sites)...)
 	plan.errors = append(plan.errors, validateUniqueAssignedBuildingRows(parsed.sections["BUILDING"])...)
+	plan.errors = append(plan.errors, validateBuildingMoveRenameTargets(parsed.sections["BUILDING"], snap.buildings)...)
+	plan.errors = append(plan.errors, validateRackRenameTargets(parsed.sections["RACK"], snap.racks)...)
 	plan.errors = append(plan.errors, validateImportedNameLengths(parsed)...)
 	plan.errors = append(plan.errors, validateKnownEntityIDs(parsed, snap)...)
 	plan.errors = append(plan.errors, normalizeIDErrors...)
@@ -2395,6 +2397,64 @@ func validateSiteRenameTargets(rows []map[string]string, sites []sitemodels.Site
 		ownerID, exists := idByName[name]
 		if exists && ownerID != id {
 			errs = append(errs, csvErr(rowNumber(row, i+1), "SITE", fmt.Sprintf("site rename target %q is currently used by site_id %d; split this rename into a separate import", name, ownerID)))
+		}
+	}
+	return errs
+}
+
+func validateBuildingMoveRenameTargets(rows []map[string]string, buildings []buildingmodels.Building) []*pb.ImportValidationError {
+	byID := map[int64]buildingmodels.Building{}
+	idBySiteName := map[string]int64{}
+	for _, building := range buildings {
+		byID[building.ID] = building
+		if building.SiteLabel != "" {
+			idBySiteName[building.SiteLabel+"\x00"+building.Name] = building.ID
+		}
+	}
+
+	var errs []*pb.ImportValidationError
+	for i, row := range rows {
+		id, ok := rowID(row)
+		if !ok {
+			continue
+		}
+		building, ok := byID[id]
+		if !ok || row[fieldSite] == "" || row[fieldSite] == building.SiteLabel {
+			continue
+		}
+		ownerID, exists := idBySiteName[row[fieldSite]+"\x00"+building.Name]
+		if exists && ownerID != id {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", fmt.Sprintf("building move target %q/%q is currently used by building_id %d; split this move and rename into separate imports", row[fieldSite], building.Name, ownerID)))
+		}
+	}
+	return errs
+}
+
+func validateRackRenameTargets(rows []map[string]string, racks []rackSnapshot) []*pb.ImportValidationError {
+	labelByID := map[int64]string{}
+	idByLabel := map[string]int64{}
+	for _, rack := range racks {
+		labelByID[rack.ID] = rack.Label
+		idByLabel[rack.Label] = rack.ID
+	}
+
+	var errs []*pb.ImportValidationError
+	for i, row := range rows {
+		id, ok := rowID(row)
+		if !ok {
+			continue
+		}
+		currentLabel, ok := labelByID[id]
+		if !ok {
+			continue
+		}
+		label := rackSectionLabel(row)
+		if label == "" || label == currentLabel {
+			continue
+		}
+		ownerID, exists := idByLabel[label]
+		if exists && ownerID != id {
+			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack rename target %q is currently used by rack_id %d; split this rename into a separate import", label, ownerID)))
 		}
 	}
 	return errs

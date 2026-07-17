@@ -432,6 +432,81 @@ func TestBuildPlanRejectsRemoveOmittedDuplicateFinalBuildingNames(t *testing.T) 
 	}
 }
 
+func TestBuildPlanRejectsTransientBuildingMoveRenameCollisions(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": {
+			{"__row": "3", fieldID: "1", fieldName: "Site A"},
+			{"__row": "4", fieldID: "2", fieldName: "Site B"},
+		},
+		"BUILDING": {
+			{"__row": "7", fieldID: "10", fieldName: "Building Y", fieldSite: "Site B", "aisles": "1", "racks_per_aisle": "1"},
+		},
+		"RACK":  nil,
+		"MINER": nil,
+	}}
+	siteAID := int64(1)
+	siteBID := int64(2)
+	snap := &snapshot{
+		sites: []sitemodels.Site{
+			{ID: siteAID, Name: "Site A"},
+			{ID: siteBID, Name: "Site B"},
+		},
+		buildings: []buildingmodels.Building{
+			{ID: 10, SiteID: &siteAID, SiteLabel: "Site A", Name: "Building X", Aisles: 1, RacksPerAisle: 1},
+			{ID: 11, SiteID: &siteBID, SiteLabel: "Site B", Name: "Building X", Aisles: 1, RacksPerAisle: 1},
+		},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	if !hasValidationError(plan.errors, "BUILDING", `building move target "Site B"/"Building X" is currently used by building_id 11`) {
+		t.Fatalf("plan errors = %+v, want transient building move collision", plan.errors)
+	}
+}
+
+func TestBuildPlanRejectsTransientRackLabelCollisions(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE":     nil,
+		"BUILDING": nil,
+		"RACK": {
+			{"__row": "7", fieldID: "20", fieldLabel: "Rack B", "rows": "4", "columns": "6"},
+			{"__row": "8", fieldID: "21", fieldLabel: "Rack A", "rows": "4", "columns": "6"},
+		},
+		"MINER": nil,
+	}}
+	snap := &snapshot{racks: []rackSnapshot{
+		{ID: 20, Label: "Rack A", Rows: 4, Columns: 6},
+		{ID: 21, Label: "Rack B", Rows: 4, Columns: 6},
+	}}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if !hasValidationError(plan.errors, "RACK", `rack rename target "Rack B" is currently used by rack_id 21`) {
+		t.Fatalf("plan errors = %+v, want transient rack label collision", plan.errors)
+	}
+	if !hasValidationError(plan.errors, "RACK", `rack rename target "Rack A" is currently used by rack_id 20`) {
+		t.Fatalf("plan errors = %+v, want reciprocal transient rack label collision", plan.errors)
+	}
+}
+
+func TestBuildPlanRejectsRackRenameToOmittedLabel(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE":     nil,
+		"BUILDING": nil,
+		"RACK": {
+			{"__row": "7", fieldID: "20", fieldLabel: "Rack B", "rows": "4", "columns": "6"},
+		},
+		"MINER": nil,
+	}}
+	snap := &snapshot{racks: []rackSnapshot{
+		{ID: 20, Label: "Rack A", Rows: 4, Columns: 6},
+		{ID: 21, Label: "Rack B", Rows: 4, Columns: 6},
+	}}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	if !hasValidationError(plan.errors, "RACK", `rack rename target "Rack B" is currently used by rack_id 21`) {
+		t.Fatalf("plan errors = %+v, want omitted rack label collision", plan.errors)
+	}
+}
+
 func TestBuildPlanRejectsUnassignedBuildingIDMoveCollidingWithRetainedBuilding(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE": {
