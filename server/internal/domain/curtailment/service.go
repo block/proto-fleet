@@ -603,6 +603,8 @@ func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*F
 		if err := s.restoreFansForOperatorRecovery(ctx, recoveryEvent, true); err != nil {
 			return nil, err
 		}
+		released.Event.FanOnSentAt = recoveryEvent.FanOnSentAt
+		released.Event.FanLastError = recoveryEvent.FanLastError
 	}
 	return result, nil
 }
@@ -631,21 +633,31 @@ func (s *Service) restoreFansForOperatorRecovery(ctx context.Context, event *mod
 		if s.terminalFanRecoveryStore == nil {
 			return fleeterror.NewInternalError("terminal facility fan recovery store is unavailable")
 		}
-		return s.terminalFanRecoveryStore.RecoverTerminalFanState(
+		var lastError *string
+		err := s.terminalFanRecoveryStore.RecoverTerminalFanState(
 			ctx,
 			event.ID,
 			event.OrgID,
 			event.FacilityFanDeviceIDs,
 			params,
 			func(commandCtx context.Context) *string {
-				return s.fans.SetState(commandCtx, event, driver.PowerOn)
+				lastError = s.fans.SetState(commandCtx, event, driver.PowerOn)
+				return lastError
 			},
 		)
+		if err != nil {
+			return err
+		}
+		if params.FanOnSentAt != nil {
+			event.FanOnSentAt = params.FanOnSentAt
+		}
+		event.FanLastError = lastError
+		return nil
 	}
 	if s.fanStore == nil {
 		return fleeterror.NewInternalError("facility fan recovery state store is unavailable")
 	}
-	_, err := s.fanStore.CommandFanState(ctx, event.ID, params, func(commandCtx context.Context) *string {
+	lastError, err := s.fanStore.CommandFanState(ctx, event.ID, params, func(commandCtx context.Context) *string {
 		return s.fans.SetState(commandCtx, event, driver.PowerOn)
 	})
 	if err != nil {
@@ -655,6 +667,10 @@ func (s *Service) restoreFansForOperatorRecovery(ctx context.Context, event *mod
 			err,
 		)
 	}
+	if params.FanOnSentAt != nil {
+		event.FanOnSentAt = params.FanOnSentAt
+	}
+	event.FanLastError = lastError
 	return nil
 }
 

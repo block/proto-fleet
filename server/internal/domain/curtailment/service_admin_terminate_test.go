@@ -165,6 +165,9 @@ func TestService_ForceRelease_TerminalizesBeforeTurningNonTerminalEventFansOn(t 
 
 	require.NoError(t, err)
 	require.NotNil(t, got)
+	require.NotNil(t, got.Event)
+	assert.NotNil(t, got.Event.FanOnSentAt)
+	assert.Nil(t, got.Event.FanLastError)
 	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
 	assert.Equal(t, 1, store.updateFanStateCalls)
 	assert.Equal(t, int64(89), store.lastUpdateFanStateID)
@@ -201,13 +204,18 @@ func TestService_ForceRelease_RetriesFansOnAfterEarlierFailedAttempt(t *testing.
 	fans := &fakeTerminalFanController{err: &fanErr}
 	svc := NewService(store, WithFacilityFanController(fans))
 
-	_, err := svc.ForceRelease(t.Context(), ForceReleaseRequest{
+	got, err := svc.ForceRelease(t.Context(), ForceReleaseRequest{
 		OrgID:     orgID,
 		EventUUID: eventUUID,
 		Reason:    "operator release",
 	})
 
 	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.NotNil(t, got.Event)
+	assert.Equal(t, &firstFanOnAt, got.Event.FanOnSentAt)
+	require.NotNil(t, got.Event.FanLastError)
+	assert.Equal(t, fanErr, *got.Event.FanLastError)
 	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
 	assert.Equal(t, 1, store.updateFanStateCalls)
 	assert.Nil(t, store.lastUpdateFanStateParams.FanOnSentAt,
