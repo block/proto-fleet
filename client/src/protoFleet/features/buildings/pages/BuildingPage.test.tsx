@@ -265,6 +265,35 @@ describe("BuildingPage", () => {
     expect(screen.getByTestId("location-probe")).toHaveTextContent("/austin/fleet/racks?building=123");
   });
 
+  it("syncs a mismatched header scope to the building's own site on this headerless route (#764)", async () => {
+    // Deep-link to a building whose site differs from the persisted header scope.
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "site", id: "99", slug: "elsewhere" };
+    });
+    sitesCtx.current = {
+      ...sitesCtx.current,
+      sites: [create(SiteWithCountsSchema, { site: create(SiteSchema, { id: 8n, name: "Austin", slug: "austin" }) })],
+    };
+
+    renderPage();
+
+    await waitFor(() =>
+      expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "8", slug: "austin" }),
+    );
+  });
+
+  it("leaves an all-sites header scope untouched when viewing a building (#764)", async () => {
+    sitesCtx.current = {
+      ...sitesCtx.current,
+      sites: [create(SiteWithCountsSchema, { site: create(SiteSchema, { id: 8n, name: "Austin", slug: "austin" }) })],
+    };
+
+    renderPage();
+
+    await waitFor(() => expect(screen.getByTestId("building-page-view-miners")).toBeVisible());
+    expect(useFleetStore.getState().ui.activeSite).toEqual(DEFAULT_ACTIVE_SITE);
+  });
+
   it("keeps edit building visible on mobile and moves peer actions into an action sheet", async () => {
     renderPage();
 

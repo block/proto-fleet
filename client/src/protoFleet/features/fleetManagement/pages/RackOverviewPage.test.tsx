@@ -39,7 +39,8 @@ vi.mock("@/protoFleet/api/buildings", () => ({
   useBuildings: () => mockUseBuildings(),
 }));
 
-vi.mock("@/protoFleet/api/sites", () => ({
+vi.mock("@/protoFleet/api/sites", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/api/sites")>()),
   useSites: () => mockUseSites(),
 }));
 
@@ -352,6 +353,43 @@ describe("RackOverviewPage", () => {
     renderRackOverviewPage();
 
     expect(await screen.findByTestId("rack-page-breadcrumb-link-0")).toHaveAttribute("href", "/unassigned/fleet/racks");
+  });
+
+  it("syncs a mismatched header scope to the rack's own site on this headerless route (#764)", async () => {
+    // Deep-link to a rack whose site differs from the persisted header scope.
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "site", id: "99", slug: "elsewhere" };
+    });
+    const rackInSite = create(DeviceSetSchema, {
+      id: 7n,
+      label: rackName,
+      typeDetails: { case: "rackInfo", value: { rows: 6, columns: 5, zone: rackZone, siteId: 22n } },
+    });
+    mockResolvedRackPageData(rackInSite, {
+      sites: [{ site: { id: 22n, name: "Denver", slug: "denver" } }],
+    });
+
+    renderRackOverviewPage();
+
+    await waitFor(() =>
+      expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "22", slug: "denver" }),
+    );
+  });
+
+  it("leaves an all-sites header scope untouched when viewing a rack (#764)", async () => {
+    const rackInSite = create(DeviceSetSchema, {
+      id: 7n,
+      label: rackName,
+      typeDetails: { case: "rackInfo", value: { rows: 6, columns: 5, zone: rackZone, siteId: 22n } },
+    });
+    mockResolvedRackPageData(rackInSite, {
+      sites: [{ site: { id: 22n, name: "Denver", slug: "denver" } }],
+    });
+
+    renderRackOverviewPage();
+
+    await waitFor(() => expect(screen.getAllByText(rackName).length).toBeGreaterThan(0));
+    expect(useFleetStore.getState().ui.activeSite).toEqual(DEFAULT_ACTIVE_SITE);
   });
 
   it("keeps rack detail header actions compact on mobile", async () => {

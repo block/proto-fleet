@@ -170,14 +170,42 @@ describe("SiteDetailPage", () => {
     );
   });
 
-  it("preserves the selected site when a site detail mismatch redirects back to Fleet", async () => {
+  it("syncs a mismatched persisted scope to the site being viewed instead of bouncing away", async () => {
+    // Deep-link to /sites/7 (Dallas) while the header scope points at another
+    // site (Austin). The headerless route must adopt the viewed site rather
+    // than redirect to /fleet (#764).
     useFleetStore.setState((state) => {
       state.ui.activeSite = { kind: "site", id: "8", slug: "austin" };
     });
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByTestId("location-probe")).toHaveTextContent("/austin/fleet"));
+    expect(await screen.findByTestId("site-detail-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("location-probe")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7", slug: "dallas" }),
+    );
+  });
+
+  it("adopts the viewed site when the persisted scope is 'unassigned'", async () => {
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "unassigned" };
+    });
+
+    renderPage();
+
+    expect(await screen.findByTestId("site-detail-page")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7", slug: "dallas" }),
+    );
+  });
+
+  it("leaves an all-sites scope untouched when viewing a site", async () => {
+    // Viewing one entity shouldn't collapse an intentional org-wide view.
+    renderPage();
+
+    expect(await screen.findByTestId("site-detail-page")).toBeInTheDocument();
+    expect(useFleetStore.getState().ui.activeSite).toEqual(DEFAULT_ACTIVE_SITE);
   });
 
   it("renders the metrics row scoped to the resolved site", async () => {

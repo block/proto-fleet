@@ -12,6 +12,7 @@ import {
   RackSlotPositionSchema,
 } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { buildSiteSlugById } from "@/protoFleet/api/sites";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
@@ -30,6 +31,7 @@ import DeviceSetActionsMenu from "@/protoFleet/features/groupManagement/componen
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
+import { useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useDuration, useSetDuration } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
@@ -261,6 +263,11 @@ const RackOverviewPage = () => {
       cancelled = true;
     };
   }, [listRacks, rack, rackInfo, rackSiblingKey, rackSiteId]);
+
+  // On deep-link/bookmark, align the (headerless-route) scope with the opened
+  // rack's own site so ManageRackModal's miner picker scopes correctly (#764).
+  const syncSiteId = rackSiteId && rackSiteId !== "0" ? rackSiteId : undefined;
+  useSyncScopeToEntity(syncSiteId, syncSiteId ? buildSiteSlugById(sites)?.get(syncSiteId) : undefined);
 
   const duration = useDuration();
   const setDuration = useSetDuration();

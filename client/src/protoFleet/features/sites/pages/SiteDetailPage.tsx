@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
 
 import SiteMetricsRow from "../components/SiteMetricsRow";
 import SiteModals from "../components/SiteModals";
@@ -17,7 +17,7 @@ import BuildingModals from "@/protoFleet/features/buildings/components/BuildingM
 import BuildingSummaryCard from "@/protoFleet/features/buildings/components/BuildingSummaryCard";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
-import { scopedPath } from "@/protoFleet/routing/siteScope";
+import { useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
 import { useDuration, useHasPermission, useSetDuration } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Breadcrumb from "@/shared/components/Breadcrumb";
@@ -39,7 +39,6 @@ const ALL_MEASUREMENT_TYPES: MeasurementType[] = [
 const ALL_AGGREGATION_TYPES: AggregationType[] = [AggregationType.AVERAGE, AggregationType.MIN, AggregationType.MAX];
 
 const SiteDetailPage = () => {
-  const navigate = useNavigate();
   const { id: idParam } = useParams<{ id?: string }>();
   const targetId = idParam ?? "";
 
@@ -50,7 +49,6 @@ const SiteDetailPage = () => {
   const { sites, sitesError: error, siteCatalogAccessGranted, refetchSites } = useSitesContext();
   const [buildings, setBuildings] = useState<{ siteId: string; rows: BuildingWithCounts[] } | undefined>(undefined);
   const [buildingsError, setBuildingsError] = useState<{ siteId: string; message: string } | null>(null);
-  const breadcrumbSiteSelectionRef = useRef<string | null>(null);
 
   const fetchBuildings = useCallback(
     (siteId: bigint) => {
@@ -85,16 +83,9 @@ const SiteDetailPage = () => {
     () => (siteCatalogAccessGranted ? buildKnownSiteIds(sites) : undefined),
     [siteCatalogAccessGranted, sites],
   );
-  const { activeSite, setActiveSite } = useActiveSite({ knownSiteIds });
-  useEffect(() => {
-    if (activeSite.kind !== "site") return;
-    if (activeSite.id === targetId) {
-      breadcrumbSiteSelectionRef.current = null;
-      return;
-    }
-    if (breadcrumbSiteSelectionRef.current === activeSite.id) return;
-    navigate(scopedPath("/fleet", activeSite), { replace: true });
-  }, [activeSite, navigate, targetId]);
+  // Keep the deleted-site guard (resets a stored scope that points at a site
+  // the viewer lost access to); setActiveSite drives breadcrumb sibling nav.
+  const { setActiveSite } = useActiveSite({ knownSiteIds });
 
   const site = useMemo(() => {
     if (!sites) return undefined;
@@ -102,6 +93,11 @@ const SiteDetailPage = () => {
     if (parsed === null) return undefined;
     return sites.find((s) => s.site?.id === parsed);
   }, [sites, targetId]);
+
+  // This is a headerless route, so the persisted scope can point at an
+  // unrelated site on deep-link/bookmark. Align it with the site being viewed
+  // (leaving "all-sites" as-is) rather than bouncing away to /fleet (#764).
+  useSyncScopeToEntity(site ? targetId : undefined, site?.site?.slug);
 
   // UpdateSite + CreateBuilding require site:manage server-side.
   const canManageSites = useHasPermission("site:manage");
@@ -222,10 +218,7 @@ const SiteDetailPage = () => {
         to: `/sites/${siblingId}`,
         isActive: siblingSite.id === site.site!.id,
         onSelect: siblingSite.slug
-          ? () => {
-              breadcrumbSiteSelectionRef.current = siblingId;
-              setActiveSite({ kind: "site", id: siblingId, slug: siblingSite.slug });
-            }
+          ? () => setActiveSite({ kind: "site", id: siblingId, slug: siblingSite.slug })
           : undefined,
       };
     });
