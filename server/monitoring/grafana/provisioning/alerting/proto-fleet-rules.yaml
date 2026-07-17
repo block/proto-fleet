@@ -346,8 +346,8 @@ groups:
                     1 AS value
                 FROM curtailment_event
                 WHERE fan_last_error IS NOT NULL
-                  AND fan_on_sent_at IS NOT NULL
-                  AND fan_on_sent_at
+                  AND COALESCE(fan_on_sent_at, fan_airflow_reopened_at) IS NOT NULL
+                  AND COALESCE(fan_on_sent_at, fan_airflow_reopened_at)
                       + make_interval(secs => fan_restore_delay_sec) <= NOW()
           - refId: B
             datasourceUid: __expr__

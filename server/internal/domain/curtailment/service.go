@@ -639,6 +639,7 @@ func (s *Service) restoreFansForOperatorRecovery(ctx context.Context, event *mod
 			event.ID,
 			event.OrgID,
 			event.FacilityFanDeviceIDs,
+			event.FacilityFanSiteIDs,
 			params,
 			func(commandCtx context.Context) *string {
 				lastError = s.fans.SetState(commandCtx, event, driver.PowerOn)

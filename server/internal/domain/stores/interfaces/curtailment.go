@@ -198,6 +198,7 @@ type CurtailmentTerminalFanRecoveryStore interface {
 		ctx context.Context,
 		eventID, orgID int64,
 		facilityFanDeviceIDs []int64,
+		facilityFanSiteIDs []int64,
 		params UpdateCurtailmentFanStateParams,
 		command func(context.Context) *string,
 	) error

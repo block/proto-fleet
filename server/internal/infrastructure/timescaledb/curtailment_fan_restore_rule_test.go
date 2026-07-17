@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	infrastructuremodels "github.com/block/proto-fleet/server/internal/domain/infrastructure/models"
+	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 )
@@ -25,22 +27,39 @@ func TestCurtailmentFanRestoreRulePersistsTerminalFailureUntilClear(t *testing.T
 	db := testContext.DatabaseService.DB
 	orgID := user.OrganizationID
 	eventUUID := uuid.New()
+	site, err := sqlstores.NewSQLSiteStore(db).CreateSite(t.Context(), sitesmodels.CreateSiteParams{
+		OrgID: orgID,
+		Name:  "fan-alert-integration-site",
+	})
+	require.NoError(t, err)
+	device, err := sqlstores.NewSQLInfrastructureDeviceStore(db).CreateInfrastructureDevice(t.Context(), infrastructuremodels.CreateParams{
+		OrgID:        orgID,
+		SiteID:       site.ID,
+		BuildingName: "Fan building",
+		Name:         "fan-alert-integration-device",
+		DeviceKind:   infrastructuremodels.KindFanGroup,
+		FanCount:     1,
+		Enabled:      true,
+		DriverType:   "test-driver",
+		DriverConfig: []byte(`{}`),
+	})
+	require.NoError(t, err)
 
 	var eventID int64
-	err := db.QueryRowContext(t.Context(), `
+	err = db.QueryRowContext(t.Context(), `
 		INSERT INTO curtailment_event (
 			event_uuid, org_id, state, mode, strategy, level, priority,
 			loop_type, scope_type, scope_jsonb, restore_batch_size,
 			restore_batch_interval_sec, source_actor_type, reason,
 			created_by_user_id, fan_restore_delay_sec, fan_on_sent_at,
-			fan_last_error, facility_fan_device_ids
+			fan_last_error, facility_fan_device_ids, facility_fan_site_ids
 		) VALUES (
 			$1, $2, 'completed_with_failures', 'FIXED_KW',
 			'LEAST_EFFICIENT_FIRST', 'FULL', 'NORMAL', 'open', 'whole_org',
 			'{}'::jsonb, 1, 0, 'user', 'fan alert integration test',
-			$3, 60, $4, 'device 501: command failed', ARRAY[501]::bigint[]
+			$3, 60, $4, 'fan command failed', ARRAY[$5]::bigint[], ARRAY[$6]::bigint[]
 		)
-		RETURNING id`, eventUUID, orgID, user.DatabaseID, time.Now().Add(-2*time.Minute)).Scan(&eventID)
+		RETURNING id`, eventUUID, orgID, user.DatabaseID, time.Now().Add(-2*time.Minute), device.ID, site.ID).Scan(&eventID)
 	require.NoError(t, err)
 
 	ruleSQL := loadRuleSQL(t, "Curtailment Fan Restore Failed", "FROM curtailment_event")
@@ -50,7 +69,8 @@ func TestCurtailmentFanRestoreRulePersistsTerminalFailureUntilClear(t *testing.T
 		t.Context(),
 		eventID,
 		orgID,
-		[]int64{501},
+		[]int64{device.ID},
+		[]int64{site.ID},
 		interfaces.UpdateCurtailmentFanStateParams{ExpectedEventState: models.EventStateCompletedWithFailures},
 		func(context.Context) *string { return nil },
 	)

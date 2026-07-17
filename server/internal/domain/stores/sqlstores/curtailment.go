@@ -1883,6 +1883,7 @@ func (s *SQLCurtailmentStore) RecoverTerminalFanState(
 	ctx context.Context,
 	eventID, orgID int64,
 	facilityFanDeviceIDs []int64,
+	facilityFanSiteIDs []int64,
 	params interfaces.UpdateCurtailmentFanStateParams,
 	command func(context.Context) *string,
 ) error {
@@ -1890,8 +1891,15 @@ func (s *SQLCurtailmentStore) RecoverTerminalFanState(
 		return fleeterror.NewInvalidArgumentError("terminal fan recovery requires a terminal expected event state")
 	}
 	fanIDs := uniqueSortedInt64s(facilityFanDeviceIDs)
-	if len(fanIDs) == 0 || len(fanIDs) != len(facilityFanDeviceIDs) {
+	if len(fanIDs) == 0 || len(fanIDs) != len(facilityFanDeviceIDs) || len(facilityFanSiteIDs) != len(facilityFanDeviceIDs) {
 		return fleeterror.NewInvalidArgumentError("terminal fan recovery requires positive unique facility fan IDs")
+	}
+	expectedSiteByFanID := make(map[int64]int64, len(facilityFanDeviceIDs))
+	for index, fanID := range facilityFanDeviceIDs {
+		if facilityFanSiteIDs[index] <= 0 {
+			return fleeterror.NewInvalidArgumentError("terminal fan recovery requires positive aligned facility fan site IDs")
+		}
+		expectedSiteByFanID[fanID] = facilityFanSiteIDs[index]
 	}
 	if command == nil {
 		return fleeterror.NewInvalidArgumentError("terminal fan recovery command is required")
@@ -1901,6 +1909,19 @@ func (s *SQLCurtailmentStore) RecoverTerminalFanState(
 		for _, fanID := range fanIDs {
 			if err := q.LockCurtailmentFanDeviceForWrite(ctx, strconv.FormatInt(fanID, 10)); err != nil {
 				return struct{}{}, fleeterror.NewInternalErrorf("failed to lock terminal facility fan recovery: %v", err)
+			}
+			_, err := q.LockInfrastructureDeviceForWrite(ctx, sqlc.LockInfrastructureDeviceForWriteParams{
+				ID:             fanID,
+				OrgID:          orgID,
+				ExpectedSiteID: expectedSiteByFanID[fanID],
+			})
+			if errors.Is(err, sql.ErrNoRows) {
+				return struct{}{}, fleeterror.NewFailedPreconditionErrorf(
+					"facility fan %d moved or was deleted after curtailment started", fanID,
+				)
+			}
+			if err != nil {
+				return struct{}{}, fleeterror.NewInternalErrorf("failed to lock terminal facility fan device %d: %v", fanID, err)
 			}
 		}
 		claims, err := q.CountActiveCurtailmentFanClaims(ctx, sqlc.CountActiveCurtailmentFanClaimsParams{

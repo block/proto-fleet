@@ -216,6 +216,80 @@ func TestReconciler_DriftRedispatchWaitsForSuccessfulFanOn(t *testing.T) {
 	assert.Equal(t, models.TargetStateDispatched, target.State)
 }
 
+func TestReconciler_RecurtailedPendingEventRetriesFanOnBeforeMinerDispatch(t *testing.T) {
+	store := newFakeStore()
+	dispatcher := &fakeDispatcher{}
+	fanError := "fan ON failed"
+	fans := &fakeFanController{err: &fanError}
+	r := newReconcilerWithFansForTest(store, dispatcher, fans)
+	fanOffAt := r.now().Add(-2 * time.Minute)
+	reopenedAt := r.now().Add(-time.Minute)
+	event := &models.Event{
+		ID:                   88,
+		EventUUID:            uuid.New(),
+		OrgID:                1,
+		State:                models.EventStatePending,
+		FacilityFanDeviceIDs: []int64{31},
+		FanOffSentAt:         &fanOffAt,
+		FanAirflowReopenedAt: &reopenedAt,
+		FanLastError:         &fanError,
+	}
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "miner-recurtailed",
+		DesiredState:       models.DesiredStateCurtailed,
+		State:              models.TargetStatePending,
+		BaselinePowerW:     ptrFloat64(3000),
+	}
+	store.events = []*models.Event{event}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+
+	r.runTick(context.Background())
+
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	assert.Zero(t, dispatcher.curtailCalls)
+	assert.Equal(t, &reopenedAt, event.FanAirflowReopenedAt,
+		"failed retries must preserve the original alert gate")
+
+	fans.err = nil
+	r.runTick(context.Background())
+
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn, driver.PowerOn}, fans.powers)
+	assert.Equal(t, 1, dispatcher.curtailCalls)
+	assert.Nil(t, event.FanLastError)
+}
+
+func TestReconciler_RestoringFanTimeoutReservesTimeForMinerRestore(t *testing.T) {
+	store := newFakeStore()
+	dispatcher := &fakeDispatcher{}
+	fans := &fakeFanController{waitForCancellation: true}
+	r := newReconcilerWithFansForTest(store, dispatcher, fans)
+	event := &models.Event{
+		ID:                   89,
+		EventUUID:            uuid.New(),
+		OrgID:                1,
+		State:                models.EventStateRestoring,
+		RestoreBatchSize:     1,
+		FacilityFanDeviceIDs: []int64{31},
+	}
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "miner-restore",
+		DesiredState:       models.DesiredStateActive,
+		State:              models.TargetStatePending,
+	}
+	store.events = []*models.Event{event}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	r.observeRestoring(ctx, event)
+
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	assert.Equal(t, 1, dispatcher.uncurtailCalls,
+		"the fan timeout must leave event-budget time for fail-open miner restoration")
+}
+
 func TestReconciler_ActiveFanOffWaitsWhenUnavailableMinerMayStillBeHashing(t *testing.T) {
 	store := newFakeStore()
 	fans := &fakeFanController{}

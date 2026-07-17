@@ -526,6 +526,7 @@ func (f *fakeStore) RecoverTerminalFanState(
 	ctx context.Context,
 	eventID, _ int64,
 	_ []int64,
+	_ []int64,
 	params interfaces.UpdateCurtailmentFanStateParams,
 	command func(context.Context) *string,
 ) error {

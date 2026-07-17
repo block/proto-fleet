@@ -58,6 +58,39 @@ func TestSQLCurtailmentStore_FacilityFanClaimSnapshotAndRelease(t *testing.T) {
 
 	_, err = store.ForceReleaseEvent(ctx, user.OrganizationID, firstUUID, "release facility fan claim")
 	require.NoError(t, err)
+	recoveryEntered := make(chan struct{})
+	completeRecovery := make(chan struct{})
+	recoveryResult := make(chan error, 1)
+	go func() {
+		recoveryResult <- store.RecoverTerminalFanState(
+			ctx,
+			firstResult.ID,
+			user.OrganizationID,
+			[]int64{fanID},
+			[]int64{siteID},
+			interfaces.UpdateCurtailmentFanStateParams{ExpectedEventState: models.EventStateCancelled},
+			func(context.Context) *string {
+				close(recoveryEntered)
+				<-completeRecovery
+				return nil
+			},
+		)
+	}()
+	<-recoveryEntered
+	mutationResult := make(chan error, 1)
+	go func() {
+		_, updateErr := db.ExecContext(ctx, `UPDATE infrastructure_device SET name = name || '-updated' WHERE id = $1`, fanID)
+		mutationResult <- updateErr
+	}()
+	select {
+	case mutationErr := <-mutationResult:
+		require.Failf(t, "device mutation completed during terminal fan command", "error: %v", mutationErr)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(completeRecovery)
+	require.NoError(t, <-recoveryResult)
+	require.NoError(t, <-mutationResult)
+
 	_, err = store.InsertEventWithTargets(ctx, second, []models.InsertTargetParams{
 		curtailmentStoreTestTarget("facility-fan-miner-b", models.TargetStateConfirmed, models.DesiredStateCurtailed),
 	})
@@ -69,6 +102,7 @@ func TestSQLCurtailmentStore_FacilityFanClaimSnapshotAndRelease(t *testing.T) {
 		firstResult.ID,
 		user.OrganizationID,
 		[]int64{fanID},
+		[]int64{siteID},
 		interfaces.UpdateCurtailmentFanStateParams{ExpectedEventState: models.EventStateCancelled},
 		func(context.Context) *string {
 			commandCalled = true

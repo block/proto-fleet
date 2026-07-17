@@ -703,12 +703,18 @@ type fakeDispatcher struct {
 }
 
 type fakeFanController struct {
-	powers []driver.PowerMode
-	err    *string
+	powers              []driver.PowerMode
+	err                 *string
+	waitForCancellation bool
 }
 
-func (f *fakeFanController) SetState(_ context.Context, _ *models.Event, power driver.PowerMode) *string {
+func (f *fakeFanController) SetState(ctx context.Context, _ *models.Event, power driver.PowerMode) *string {
 	f.powers = append(f.powers, power)
+	if f.waitForCancellation {
+		<-ctx.Done()
+		message := "fan command timed out"
+		return &message
+	}
 	return f.err
 }
 
