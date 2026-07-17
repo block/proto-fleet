@@ -61,6 +61,7 @@ var _ interfaces.ResponseProfileStore = &SQLCurtailmentStore{}
 var _ interfaces.AutomationStore = &SQLCurtailmentStore{}
 var _ interfaces.CurtailmentFanStateStore = &SQLCurtailmentStore{}
 var _ interfaces.CurtailmentTerminalFanRecoveryStore = &SQLCurtailmentStore{}
+var _ interfaces.CurtailmentForceReleaseFanRecoveryStore = &SQLCurtailmentStore{}
 
 type SQLCurtailmentStore struct {
 	SQLConnectionManager
@@ -1530,61 +1531,67 @@ func (s *SQLCurtailmentStore) ForceReleaseEvent(
 	eventUUID uuid.UUID,
 	reason string,
 ) (interfaces.ForceReleaseEventResult, error) {
-	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (interfaces.ForceReleaseEventResult, error) {
-		updated, err := q.ForceReleaseCurtailmentEvent(ctx, sqlc.ForceReleaseCurtailmentEventParams{
+	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (interfaces.ForceReleaseEventResult, error) {
+		return s.forceReleaseEvent(ctx, q, orgID, eventUUID, reason)
+	})
+}
+
+func (s *SQLCurtailmentStore) forceReleaseEvent(
+	ctx context.Context,
+	q *sqlc.Queries,
+	orgID int64,
+	eventUUID uuid.UUID,
+	reason string,
+) (interfaces.ForceReleaseEventResult, error) {
+	updated, err := q.ForceReleaseCurtailmentEvent(ctx, sqlc.ForceReleaseCurtailmentEventParams{
+		EventUuid: eventUUID,
+		OrgID:     orgID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		current, getErr := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
 			EventUuid: eventUUID,
 			OrgID:     orgID,
 		})
-		if errors.Is(err, sql.ErrNoRows) {
-			current, getErr := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
-				EventUuid: eventUUID,
-				OrgID:     orgID,
-			})
-			if errors.Is(getErr, sql.ErrNoRows) {
-				return interfaces.ForceReleaseEventResult{}, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
-			}
-			if getErr != nil {
-				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to re-read curtailment event after force-release race: %v", getErr)
-			}
-			return interfaces.ForceReleaseEventResult{Event: convertEventRow(current)}, nil
+		if errors.Is(getErr, sql.ErrNoRows) {
+			return interfaces.ForceReleaseEventResult{}, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
 		}
-		if err != nil {
-			return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to force-release curtailment event: %v", err)
+		if getErr != nil {
+			return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to re-read curtailment event after force-release race: %v", getErr)
 		}
+		return interfaces.ForceReleaseEventResult{Event: convertEventRow(current)}, nil
+	}
+	if err != nil {
+		return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to force-release curtailment event: %v", err)
+	}
 
-		swept, err := q.SweepCurtailmentTargetsToReleased(ctx, sqlc.SweepCurtailmentTargetsToReleasedParams{
-			CurtailmentEventID: updated.ID,
-			LastError:          reason,
-		})
-		if err != nil {
-			return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to sweep curtailment targets for force release: %v", err)
-		}
-
-		event := convertEventRow(updated)
-		var disabledAutomationRows int64
-		if isAutomationEvent(event) {
-			disabled, err := q.DisableCurtailmentAutomationRuleByActiveEvent(ctx, sqlc.DisableCurtailmentAutomationRuleByActiveEventParams{
-				OrgID:             orgID,
-				EventUuid:         uuid.NullUUID{UUID: eventUUID, Valid: eventUUID != uuid.Nil},
-				ExternalReference: nullStringFromPtr(event.ExternalReference),
-			})
-			if err != nil {
-				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to disable curtailment automation after force release: %v", err)
-			}
-			disabledAutomationRows = disabled
-		}
-
-		return interfaces.ForceReleaseEventResult{
-			Event:              event,
-			SweptTargets:       swept,
-			OwnershipReleased:  true,
-			AutomationDisabled: disabledAutomationRows > 0,
-		}, nil
+	swept, err := q.SweepCurtailmentTargetsToReleased(ctx, sqlc.SweepCurtailmentTargetsToReleasedParams{
+		CurtailmentEventID: updated.ID,
+		LastError:          reason,
 	})
 	if err != nil {
-		return interfaces.ForceReleaseEventResult{}, err
+		return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to sweep curtailment targets for force release: %v", err)
 	}
-	return result, nil
+
+	event := convertEventRow(updated)
+	var disabledAutomationRows int64
+	if isAutomationEvent(event) {
+		disabled, err := q.DisableCurtailmentAutomationRuleByActiveEvent(ctx, sqlc.DisableCurtailmentAutomationRuleByActiveEventParams{
+			OrgID:             orgID,
+			EventUuid:         uuid.NullUUID{UUID: eventUUID, Valid: eventUUID != uuid.Nil},
+			ExternalReference: nullStringFromPtr(event.ExternalReference),
+		})
+		if err != nil {
+			return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to disable curtailment automation after force release: %v", err)
+		}
+		disabledAutomationRows = disabled
+	}
+
+	return interfaces.ForceReleaseEventResult{
+		Event:              event,
+		SweptTargets:       swept,
+		OwnershipReleased:  true,
+		AutomationDisabled: disabledAutomationRows > 0,
+	}, nil
 }
 
 func isAutomationEvent(event *models.Event) bool {
@@ -1847,35 +1854,135 @@ func (s *SQLCurtailmentStore) CommandFanState(
 	if command == nil {
 		return nil, fleeterror.NewInvalidArgumentError("facility fan command is required")
 	}
+	return s.commandFanState(ctx, eventID, params, command)
+}
+
+func (s *SQLCurtailmentStore) commandFanState(
+	ctx context.Context,
+	eventID int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) (*string, error) {
 	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*string, error) {
-		_, err := q.LockCurtailmentEventForFanCommand(ctx, sqlc.LockCurtailmentEventForFanCommandParams{
-			ID:            eventID,
-			ExpectedState: string(params.ExpectedEventState),
-		})
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, interfaces.ErrCurtailmentEventStateRaceLoss
+		return s.commandFanStateWithQueries(ctx, q, eventID, params, command)
+	})
+}
+
+func (s *SQLCurtailmentStore) commandFanStateWithQueries(
+	ctx context.Context,
+	q *sqlc.Queries,
+	eventID int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) (*string, error) {
+	_, err := q.LockCurtailmentEventForFanCommand(ctx, sqlc.LockCurtailmentEventForFanCommandParams{
+		ID:            eventID,
+		ExpectedState: string(params.ExpectedEventState),
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, interfaces.ErrCurtailmentEventStateRaceLoss
+	}
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to lock curtailment event %d for fan command: %v", eventID, err)
+	}
+
+	lastError := command(ctx)
+	rows, err := q.UpdateCurtailmentEventFanState(ctx, sqlc.UpdateCurtailmentEventFanStateParams{
+		ID:                        eventID,
+		ExpectedState:             string(params.ExpectedEventState),
+		FanOffSentAt:              ptrToNullTime(params.FanOffSentAt),
+		FanOnSentAt:               ptrToNullTime(params.FanOnSentAt),
+		FanAirflowReopenedAt:      ptrToNullTime(params.FanAirflowReopenedAt),
+		ClearFanAirflowReopenedAt: params.ClearFanAirflowReopenedAt,
+		FanLastError:              ptrToNullString(lastError),
+	})
+	if err != nil {
+		return lastError, fleeterror.NewInternalErrorf("failed to update curtailment event %d fan state: %v", eventID, err)
+	}
+	if rows == 0 {
+		return lastError, interfaces.ErrCurtailmentEventStateRaceLoss
+	}
+	return lastError, nil
+}
+
+func (s *SQLCurtailmentStore) ForceReleaseEventWithFanRecovery(
+	ctx context.Context,
+	orgID int64,
+	eventUUID uuid.UUID,
+	reason string,
+	eventID int64,
+	facilityFanDeviceIDs []int64,
+	facilityFanSiteIDs []int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) (interfaces.ForceReleaseEventResult, error) {
+	if params.ExpectedEventState != models.EventStateCancelled {
+		return interfaces.ForceReleaseEventResult{}, fleeterror.NewInvalidArgumentError(
+			"force-release fan recovery requires cancelled expected event state",
+		)
+	}
+	fanIDs := uniqueSortedInt64s(facilityFanDeviceIDs)
+	if len(fanIDs) == 0 || len(fanIDs) != len(facilityFanDeviceIDs) || len(facilityFanSiteIDs) != len(facilityFanDeviceIDs) {
+		return interfaces.ForceReleaseEventResult{}, fleeterror.NewInvalidArgumentError(
+			"force-release fan recovery requires positive unique facility fan IDs",
+		)
+	}
+	expectedSiteByFanID := make(map[int64]int64, len(facilityFanDeviceIDs))
+	for index, fanID := range facilityFanDeviceIDs {
+		if facilityFanSiteIDs[index] <= 0 {
+			return interfaces.ForceReleaseEventResult{}, fleeterror.NewInvalidArgumentError(
+				"force-release fan recovery requires positive aligned facility fan site IDs",
+			)
 		}
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to lock curtailment event %d for fan command: %v", eventID, err)
+		expectedSiteByFanID[fanID] = facilityFanSiteIDs[index]
+	}
+	if command == nil {
+		return interfaces.ForceReleaseEventResult{}, fleeterror.NewInvalidArgumentError(
+			"force-release fan recovery command is required",
+		)
+	}
+
+	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (interfaces.ForceReleaseEventResult, error) {
+		for _, fanID := range fanIDs {
+			if err := q.LockCurtailmentFanDeviceForWrite(ctx, strconv.FormatInt(fanID, 10)); err != nil {
+				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to lock force-release facility fan claim: %v", err)
+			}
+		}
+		for _, fanID := range fanIDs {
+			_, lockErr := q.LockInfrastructureDeviceForWrite(ctx, sqlc.LockInfrastructureDeviceForWriteParams{
+				ID:             fanID,
+				OrgID:          orgID,
+				ExpectedSiteID: expectedSiteByFanID[fanID],
+			})
+			if errors.Is(lockErr, sql.ErrNoRows) {
+				return interfaces.ForceReleaseEventResult{}, fleeterror.NewFailedPreconditionErrorf(
+					"facility fan %d moved or was deleted after curtailment started", fanID,
+				)
+			}
+			if lockErr != nil {
+				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to lock force-release facility fan device %d: %v", fanID, lockErr)
+			}
 		}
 
-		lastError := command(ctx)
-		rows, err := q.UpdateCurtailmentEventFanState(ctx, sqlc.UpdateCurtailmentEventFanStateParams{
-			ID:                        eventID,
-			ExpectedState:             string(params.ExpectedEventState),
-			FanOffSentAt:              ptrToNullTime(params.FanOffSentAt),
-			FanOnSentAt:               ptrToNullTime(params.FanOnSentAt),
-			FanAirflowReopenedAt:      ptrToNullTime(params.FanAirflowReopenedAt),
-			ClearFanAirflowReopenedAt: params.ClearFanAirflowReopenedAt,
-			FanLastError:              ptrToNullString(lastError),
-		})
-		if err != nil {
-			return lastError, fleeterror.NewInternalErrorf("failed to update curtailment event %d fan state: %v", eventID, err)
+		result, releaseErr := s.forceReleaseEvent(ctx, q, orgID, eventUUID, reason)
+		if releaseErr != nil {
+			return interfaces.ForceReleaseEventResult{}, releaseErr
 		}
-		if rows == 0 {
-			return lastError, interfaces.ErrCurtailmentEventStateRaceLoss
+		if !result.OwnershipReleased {
+			return result, nil
 		}
-		return lastError, nil
+
+		lastError, commandErr := s.commandFanStateWithQueries(ctx, q, eventID, params, command)
+		if commandErr != nil {
+			return interfaces.ForceReleaseEventResult{}, commandErr
+		}
+		if result.Event != nil {
+			if params.FanOnSentAt != nil {
+				result.Event.FanOnSentAt = params.FanOnSentAt
+			}
+			result.Event.FanLastError = lastError
+		}
+		return result, nil
 	})
 }
 

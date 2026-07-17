@@ -114,6 +114,77 @@ func TestSQLCurtailmentStore_FacilityFanClaimSnapshotAndRelease(t *testing.T) {
 	assert.False(t, commandCalled, "stale terminal recovery must not override the newer active fan claim")
 }
 
+func TestSQLCurtailmentStore_ForceReleaseKeepsFanClaimUntilRecoveryCompletes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	db := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(db)
+	siteID, fanID := seedCurtailmentFacilityFan(t, db, user.OrganizationID, "facility-fan-force-release-claim")
+
+	firstUUID := uuid.New()
+	first := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, firstUUID, models.EventStateActive, "facility-fan-first-owner")
+	first.FacilityFanDeviceIDs = []int64{fanID}
+	first.ExpectedFacilityFanSites = map[int64]int64{fanID: siteID}
+	inserted, err := store.InsertEventWithTargets(ctx, first, []models.InsertTargetParams{
+		curtailmentStoreTestTarget("facility-fan-first-miner", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+	})
+	require.NoError(t, err)
+
+	second := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, uuid.New(), models.EventStateActive, "facility-fan-second-owner")
+	second.FacilityFanDeviceIDs = []int64{fanID}
+	second.ExpectedFacilityFanSites = map[int64]int64{fanID: siteID}
+	secondTargets := []models.InsertTargetParams{
+		curtailmentStoreTestTarget("facility-fan-second-miner", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+	}
+
+	recoveryEntered := make(chan struct{})
+	completeRecovery := make(chan struct{})
+	releaseResult := make(chan error, 1)
+	now := time.Now().UTC()
+	go func() {
+		_, releaseErr := store.ForceReleaseEventWithFanRecovery(
+			ctx,
+			user.OrganizationID,
+			firstUUID,
+			"release facility fan claim",
+			inserted.ID,
+			[]int64{fanID},
+			[]int64{siteID},
+			interfaces.UpdateCurtailmentFanStateParams{
+				ExpectedEventState: models.EventStateCancelled,
+				FanOnSentAt:        &now,
+			},
+			func(context.Context) *string {
+				close(recoveryEntered)
+				<-completeRecovery
+				return nil
+			},
+		)
+		releaseResult <- releaseErr
+	}()
+	<-recoveryEntered
+
+	startResult := make(chan error, 1)
+	go func() {
+		_, startErr := store.InsertEventWithTargets(ctx, second, secondTargets)
+		startResult <- startErr
+	}()
+	select {
+	case startErr := <-startResult:
+		require.Failf(t, "new fan owner started before force-release recovery completed", "error: %v", startErr)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(completeRecovery)
+	require.NoError(t, <-releaseResult)
+	require.NoError(t, <-startResult)
+}
+
 func TestSQLCurtailmentStore_ForceReleaseSerializesWithFanCommands(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")

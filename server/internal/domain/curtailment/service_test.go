@@ -503,6 +503,35 @@ func (f *fakeStore) ForceReleaseEvent(_ context.Context, _ int64, eventUUID uuid
 	}, nil
 }
 
+func (f *fakeStore) ForceReleaseEventWithFanRecovery(
+	ctx context.Context,
+	_ int64,
+	eventUUID uuid.UUID,
+	reason string,
+	eventID int64,
+	_ []int64,
+	_ []int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) (interfaces.ForceReleaseEventResult, error) {
+	result, err := f.ForceReleaseEvent(ctx, 0, eventUUID, reason)
+	if err != nil || !result.OwnershipReleased {
+		return result, err
+	}
+	f.operatorFanCallOrder = append(f.operatorFanCallOrder, "terminal fan recovery")
+	params.LastError = command(ctx)
+	if err := f.UpdateFanState(ctx, eventID, params); err != nil {
+		return interfaces.ForceReleaseEventResult{}, err
+	}
+	if result.Event != nil {
+		if params.FanOnSentAt != nil {
+			result.Event.FanOnSentAt = params.FanOnSentAt
+		}
+		result.Event.FanLastError = params.LastError
+	}
+	return result, nil
+}
+
 func (f *fakeStore) UpdateFanState(_ context.Context, eventID int64, params interfaces.UpdateCurtailmentFanStateParams) error {
 	f.updateFanStateCalls++
 	f.lastUpdateFanStateID = eventID

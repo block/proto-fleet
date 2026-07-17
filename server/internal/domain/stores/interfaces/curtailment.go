@@ -204,6 +204,24 @@ type CurtailmentTerminalFanRecoveryStore interface {
 	) error
 }
 
+// CurtailmentForceReleaseFanRecoveryStore holds the active event's fan claim
+// locks across terminalization and its authoritative ON command. This keeps a
+// concurrent Start from claiming physically-off fans in the gap between those
+// two operations.
+type CurtailmentForceReleaseFanRecoveryStore interface {
+	ForceReleaseEventWithFanRecovery(
+		ctx context.Context,
+		orgID int64,
+		eventUUID uuid.UUID,
+		reason string,
+		eventID int64,
+		facilityFanDeviceIDs []int64,
+		facilityFanSiteIDs []int64,
+		params UpdateCurtailmentFanStateParams,
+		command func(context.Context) *string,
+	) (ForceReleaseEventResult, error)
+}
+
 type ForceReleaseEventResult struct {
 	Event              *models.Event
 	SweptTargets       int64

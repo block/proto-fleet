@@ -106,6 +106,7 @@ type Service struct {
 	store                    interfaces.CurtailmentStore
 	fanStore                 interfaces.CurtailmentFanStateStore
 	terminalFanRecoveryStore interfaces.CurtailmentTerminalFanRecoveryStore
+	forceReleaseFanStore     interfaces.CurtailmentForceReleaseFanRecoveryStore
 	metrics                  Metrics
 	audit                    AuditLogger
 	fans                     FacilityFanController
@@ -149,6 +150,9 @@ func NewService(store interfaces.CurtailmentStore, opts ...ServiceOption) *Servi
 	}
 	if terminalFanRecoveryStore, ok := store.(interfaces.CurtailmentTerminalFanRecoveryStore); ok {
 		s.terminalFanRecoveryStore = terminalFanRecoveryStore
+	}
+	if forceReleaseFanStore, ok := store.(interfaces.CurtailmentForceReleaseFanRecoveryStore); ok {
+		s.forceReleaseFanStore = forceReleaseFanStore
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -507,7 +511,7 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 			return nil, err
 		}
 		if event.State == models.EventStatePending || event.State == models.EventStateRestoring {
-			if err := s.restoreFansForOperatorRecovery(ctx, event, false); err != nil {
+			if err := s.restoreFansForOperatorRecovery(ctx, event); err != nil {
 				return nil, err
 			}
 		}
@@ -575,18 +579,53 @@ func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*F
 		// failure on an already-terminal event. Reissuing it retries ON and a
 		// successful write clears fan_last_error before the idempotent release.
 		if recoveryEvent.State.IsTerminal() {
-			if err := s.restoreFansForOperatorRecovery(ctx, recoveryEvent, false); err != nil {
+			if err := s.restoreFansForOperatorRecovery(ctx, recoveryEvent); err != nil {
 				return nil, err
 			}
 		}
 	}
 
-	released, err := s.store.ForceReleaseEvent(ctx, req.OrgID, req.EventUUID, req.Reason)
-	if err != nil {
-		return nil, err
+	var released interfaces.ForceReleaseEventResult
+	var err error
+	if recoveryEvent != nil && !recoveryEvent.State.IsTerminal() && len(recoveryEvent.FacilityFanDeviceIDs) > 0 {
+		// Keep the existing fan claims locked across cancellation and the
+		// authoritative ON command. Otherwise a concurrent Start could claim
+		// physically-off fans after cancellation but before recovery begins.
+		if s.forceReleaseFanStore == nil {
+			return nil, fleeterror.NewInternalError("force-release facility fan recovery store is unavailable")
+		}
+		now := time.Now().UTC()
+		params := interfaces.UpdateCurtailmentFanStateParams{
+			ExpectedEventState: models.EventStateCancelled,
+		}
+		if recoveryEvent.FanOnSentAt == nil {
+			params.FanOnSentAt = &now
+		}
+		recoveryEvent.State = models.EventStateCancelled
+		released, err = s.forceReleaseFanStore.ForceReleaseEventWithFanRecovery(
+			ctx,
+			req.OrgID,
+			req.EventUUID,
+			req.Reason,
+			recoveryEvent.ID,
+			recoveryEvent.FacilityFanDeviceIDs,
+			recoveryEvent.FacilityFanSiteIDs,
+			params,
+			func(commandCtx context.Context) *string {
+				return s.fans.SetState(commandCtx, recoveryEvent, driver.PowerOn)
+			},
+		)
+	} else {
+		released, err = s.store.ForceReleaseEvent(ctx, req.OrgID, req.EventUUID, req.Reason)
+	}
+	if released.Event != nil && recoveryEvent != nil && released.Event.FanOnSentAt == nil {
+		released.Event.FanOnSentAt = recoveryEvent.FanOnSentAt
 	}
 	if released.OwnershipReleased {
 		s.emitForceReleaseAuditTrail(ctx, req, released.Event, released.SweptTargets)
+	}
+	if err != nil {
+		return nil, err
 	}
 	result := &ForceReleaseResult{
 		Event:               released.Event,
@@ -594,26 +633,14 @@ func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*F
 		OwnershipReleased:   released.OwnershipReleased,
 		AutomationDisabled:  released.AutomationDisabled,
 	}
-	if recoveryEvent != nil && !recoveryEvent.State.IsTerminal() && released.Event != nil {
-		// Terminalize before issuing the authoritative ON command. Active and
-		// restoring reconciler commands hold the lifecycle row lock, so the
-		// transition waits for any command already in flight; any stale command
-		// starting afterward loses its state guard before touching hardware.
-		recoveryEvent.State = released.Event.State
-		if err := s.restoreFansForOperatorRecovery(ctx, recoveryEvent, true); err != nil {
-			return nil, err
-		}
-		released.Event.FanOnSentAt = recoveryEvent.FanOnSentAt
-		released.Event.FanLastError = recoveryEvent.FanLastError
-	}
 	return result, nil
 }
 
-func (s *Service) restoreFansForOperatorRecovery(ctx context.Context, event *models.Event, forceTerminalRecovery bool) error {
+func (s *Service) restoreFansForOperatorRecovery(ctx context.Context, event *models.Event) error {
 	if event == nil || len(event.FacilityFanDeviceIDs) == 0 {
 		return nil
 	}
-	if event.FanOffSentAt == nil && !forceTerminalRecovery {
+	if event.FanOffSentAt == nil {
 		return nil
 	}
 	now := time.Now().UTC()
@@ -630,7 +657,7 @@ func (s *Service) restoreFansForOperatorRecovery(ctx context.Context, event *mod
 		// A successful or never-failed terminal event has no outstanding
 		// recovery work. Avoid reasserting stale state after a later event has
 		// legitimately claimed the same fan.
-		if !forceTerminalRecovery && event.FanLastError == nil {
+		if event.FanLastError == nil {
 			return nil
 		}
 		if s.terminalFanRecoveryStore == nil {
