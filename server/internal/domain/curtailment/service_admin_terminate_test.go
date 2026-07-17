@@ -218,6 +218,40 @@ func TestService_ForceRelease_TerminalizesBeforeTurningNonTerminalEventFansOn(t 
 	assert.Equal(t, []string{"force release", "terminal fan recovery"}, store.operatorFanCallOrder)
 }
 
+func TestService_ForceRelease_RestoresFansWithoutPersistedOffTimestamp(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	store := newFakeStore()
+	store.eventsByUUID[eventUUID] = &models.Event{
+		ID:                   95,
+		EventUUID:            eventUUID,
+		OrgID:                orgID,
+		State:                models.EventStateActive,
+		FacilityFanDeviceIDs: []int64{601},
+	}
+	store.forceReleaseResult = &models.Event{
+		ID:        95,
+		EventUUID: eventUUID,
+		OrgID:     orgID,
+		State:     models.EventStateCancelled,
+	}
+	fans := &fakeTerminalFanController{}
+
+	_, err := NewService(store, WithFacilityFanController(fans)).ForceRelease(t.Context(), ForceReleaseRequest{
+		OrgID:     orgID,
+		EventUUID: eventUUID,
+		Reason:    "operator release",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	assert.Equal(t, 1, store.updateFanStateCalls)
+	assert.Equal(t, models.EventStateCancelled, store.lastUpdateFanStateParams.ExpectedEventState)
+	assert.NotNil(t, store.lastUpdateFanStateParams.FanOnSentAt)
+	assert.Equal(t, []string{"force release", "terminal fan recovery"}, store.operatorFanCallOrder)
+}
+
 func TestService_ForceRelease_RetriesFansOnAfterEarlierFailedAttempt(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)

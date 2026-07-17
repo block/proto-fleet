@@ -610,7 +610,10 @@ func (s *Service) ForceRelease(ctx context.Context, req ForceReleaseRequest) (*F
 }
 
 func (s *Service) restoreFansForOperatorRecovery(ctx context.Context, event *models.Event, forceTerminalRecovery bool) error {
-	if event == nil || event.FanOffSentAt == nil || len(event.FacilityFanDeviceIDs) == 0 {
+	if event == nil || len(event.FacilityFanDeviceIDs) == 0 {
+		return nil
+	}
+	if event.FanOffSentAt == nil && !forceTerminalRecovery {
 		return nil
 	}
 	now := time.Now().UTC()
