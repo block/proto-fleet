@@ -84,14 +84,18 @@ racks.
 ## Delivery — sequencing
 
 - **Part A** — site scoping. **Shipped** as [#760](https://github.com/block/proto-fleet/pull/760).
-- **Scope-sync PR** — cross-cutting; separate issue. Also fixes a pre-existing
-  miner-rack-modal bug. **Part B depends on it.**
-- **Part C** — facets + server pagination. Independent of scope-sync.
-- **Part B** — toggle + reparent. Built on the scope-sync model; ships last.
+- **Scope-sync PR** ([#764](https://github.com/block/proto-fleet/issues/764)) —
+  cross-cutting. Also fixes a pre-existing miner-rack-modal bug. **Part B
+  depends on it.**
+- **Part C** ([#765](https://github.com/block/proto-fleet/issues/765)) — facets
+  + server pagination. Independent of scope-sync.
+- **Part B** ([#766](https://github.com/block/proto-fleet/issues/766)) — toggle
+  + reparent. Built on the scope-sync model; ships last.
 
 ## Cross-cutting — scope-sync PR (and the miner-rack-modal fix)
 
-**Separate PR / own issue.** On the headerless detail routes
+**Separate PR / own issue ([#764](https://github.com/block/proto-fleet/issues/764)).**
+On the headerless detail routes
 (`/buildings/:id`, `/racks/:rackId`, `/sites/:id` — all outside
 `SiteScopeLayout`), the active scope comes from the persisted SitePicker
 value, which can point at an unrelated site. A shared effect fixes this at
@@ -169,7 +173,7 @@ Small, low-risk, independently valuable.
 `ManageRacksModal` + `SearchRacksModal` component tests asserting the scope
 reaches `listRacks` (guards against reverting to a whole-org fetch).
 
-### PR 2 — Part C: Filter facets + server-side pagination
+### PR 2 — Part C: Filter facets + server-side pagination — [#765](https://github.com/block/proto-fleet/issues/765)
 
 - Add a rack `filterConfig` facet set — adapt, don't copy the miner facets.
   Keep only:
@@ -191,9 +195,9 @@ reaches `listRacks` (guards against reverting to a whole-org fetch).
 **Tests:** facet → request translation; scope + facets correct across
 `ManageRacksModal` pages.
 
-### PR 3 — Part B: "Show assigned racks" toggle + reparent
+### PR 3 — Part B: "Show assigned racks" toggle + reparent — [#766](https://github.com/block/proto-fleet/issues/766)
 
-**Depends on the scope-sync PR** — the breadth model below assumes the
+**Depends on the scope-sync PR ([#764](https://github.com/block/proto-fleet/issues/764))** — the breadth model below assumes the
 header always agrees with the building (or is all-sites).
 
 - Add a **Show assigned racks** switch (default OFF) + Info button +
@@ -267,4 +271,4 @@ header always agrees with the building (or is all-sites).
 | `.../SearchRacksModal/SearchRacksModal.tsx` (+ `.test.tsx`) | Scope fetch (1); keep client-side name filter (2); toggle + reparent flagging (3) | 1,2,3 |
 | `.../components/rackPickerItem.ts` | Reuse/extend classification for reassignment flagging | 3 |
 | `.../ManageBuildingModal/RackReparentWarningDialog.tsx` | **New** — reparent confirm | 3 |
-| `hooks/useSyncScopeToEntity.ts` + `BuildingPage` / `RackOverviewPage` / `SiteDetailPage` | **New** — sync active scope to the entity's site on headerless detail routes; fixes the pre-existing miner-modal bug | scope-sync (separate) |
+| `hooks/useSyncScopeToEntity.ts` + `BuildingPage` / `RackOverviewPage` / `SiteDetailPage` | **New** — sync active scope to the entity's site on headerless detail routes; fixes the pre-existing miner-modal bug | scope-sync ([#764](https://github.com/block/proto-fleet/issues/764)) |
