@@ -89,9 +89,11 @@ prefixes:
 INFRASTRUCTURE_OT_CONTROL_SUBNETS=10.40.12.0/24,10.52.7.18/32
 ```
 
-An ADMIN or SUPER_ADMIN must separately commission the target site's
-allowlist through `SiteService.SetInfrastructureControlSubnets`. The endpoint
-must be in both lists. Empty deployment or site configuration fails closed.
+An ADMIN or SUPER_ADMIN with org-wide `site:manage` must separately commission
+the target site's allowlist through
+`SiteService.SetInfrastructureControlSubnets`. Site-scoped grants are
+insufficient. The endpoint must be in both lists. Empty deployment or site
+configuration fails closed.
 
 Application allowlists do not replace OT network controls. Before enabling a
 site, restrict Modbus TCP routing with default-deny firewall rules so only the

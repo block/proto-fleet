@@ -61,8 +61,9 @@ real write is sent:
 
 1. The Compose overlay sets the deployment-global
    `INFRASTRUCTURE_OT_CONTROL_SUBNETS=192.168.2.242/32`.
-2. An ADMIN or SUPER_ADMIN with `site:manage` must explicitly commission the
-   same CIDR on the target site.
+2. An ADMIN or SUPER_ADMIN with org-wide `site:manage` must explicitly
+   commission the same CIDR on the target site. A site-scoped grant is
+   insufficient.
 
 The generated Fleet CLI exposes the session-only commissioning RPC:
 

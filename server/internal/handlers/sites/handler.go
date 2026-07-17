@@ -182,7 +182,9 @@ func (h *Handler) AssignRacksToSite(ctx context.Context, req *connect.Request[pb
 
 func (h *Handler) GetInfrastructureControlSubnets(ctx context.Context, req *connect.Request[pb.GetInfrastructureControlSubnetsRequest]) (*connect.Response[pb.GetInfrastructureControlSubnetsResponse], error) {
 	siteID := req.Msg.GetSiteId()
-	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: &siteID})
+	// Commissioning controls the deployment-global Modbus write boundary,
+	// so a grant narrowed to one site is insufficient even for that site.
+	info, err := middleware.RequireOrgWidePermission(ctx, authz.PermSiteManage)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +204,8 @@ func (h *Handler) GetInfrastructureControlSubnets(ctx context.Context, req *conn
 
 func (h *Handler) SetInfrastructureControlSubnets(ctx context.Context, req *connect.Request[pb.SetInfrastructureControlSubnetsRequest]) (*connect.Response[pb.SetInfrastructureControlSubnetsResponse], error) {
 	siteID := req.Msg.GetSiteId()
-	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: &siteID})
+	// Keep reads and writes behind the same organization-wide topology gate.
+	info, err := middleware.RequireOrgWidePermission(ctx, authz.PermSiteManage)
 	if err != nil {
 		return nil, err
 	}

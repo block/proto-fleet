@@ -457,11 +457,13 @@ prerequisite for that site, not a follow-up — verify before building.
 **Precondition (dial-time endpoint authorization):** the save-time
 RFC1918/ULA guard bounds what can be persisted, but it cannot know which
 private subnet is a site's commissioned OT segment — so on its own it
-would let a site:manage caller aim the server's raw Modbus writer at
-unrelated private infrastructure. The write path must therefore enforce a
-per-site commissioned control-subnet allowlist at dial time (captured
-during the Gap 1 commissioning checklist) and reject
-server-infrastructure CIDRs, before any frame is sent. Writes stay
+would let a site-scoped `site:manage` caller aim the server's raw Modbus
+writer at unrelated private infrastructure. The write path must therefore
+enforce a per-site commissioned control-subnet allowlist at dial time
+(captured during the Gap 1 commissioning checklist) and reject
+server-infrastructure CIDRs, before any frame is sent. Viewing or replacing
+commissioned allowlists requires an interactive ADMIN/SUPER_ADMIN session
+with org-wide `site:manage`; site-scoped grants are insufficient. Writes stay
 disabled for a site until its allowlist is commissioned. (Recorded as a
 security precondition on `modbustcp.SetState`.)
 

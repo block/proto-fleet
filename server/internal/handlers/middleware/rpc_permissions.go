@@ -331,8 +331,8 @@ var ProcedurePermissions = map[string]string{
 	sitesv1connect.SiteServiceAssignDevicesToSiteProcedure:   authz.PermSiteManage,
 	sitesv1connect.SiteServiceAssignBuildingsToSiteProcedure: authz.PermSiteManage,
 	sitesv1connect.SiteServiceAssignRacksToSiteProcedure:     authz.PermSiteManage,
-	// Dedicated OT commissioning reads/writes both require target-site
-	// site:manage; handlers additionally require ADMIN/SUPER_ADMIN.
+	// Dedicated OT commissioning reads/writes require org-wide site:manage;
+	// handlers additionally require ADMIN/SUPER_ADMIN.
 	sitesv1connect.SiteServiceGetInfrastructureControlSubnetsProcedure: authz.PermSiteManage,
 	sitesv1connect.SiteServiceSetInfrastructureControlSubnetsProcedure: authz.PermSiteManage,
 	// GetSiteStats also calls RequirePermission(PermFleetRead) inline to

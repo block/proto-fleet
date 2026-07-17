@@ -114,12 +114,14 @@ type SiteServiceClient interface {
 	// GetInfrastructureControlSubnets returns the site's commissioned OT
 	// control-subnet allowlist. This sensitive topology is intentionally
 	// separate from Site and requires an interactive ADMIN/SUPER_ADMIN
-	// session with site:manage on the target site.
+	// session with org-wide site:manage.
 	GetInfrastructureControlSubnets(context.Context, *connect.Request[v1.GetInfrastructureControlSubnetsRequest]) (*connect.Response[v1.GetInfrastructureControlSubnetsResponse], error)
 	// SetInfrastructureControlSubnets explicitly replaces the site's
 	// commissioned OT control-subnet allowlist. An empty list decommissions
 	// the site and disables future infrastructure writes. The server
 	// validates, canonicalizes, sorts, persists, and audits the replacement.
+	// Requires an interactive ADMIN/SUPER_ADMIN session with org-wide
+	// site:manage.
 	SetInfrastructureControlSubnets(context.Context, *connect.Request[v1.SetInfrastructureControlSubnetsRequest]) (*connect.Response[v1.SetInfrastructureControlSubnetsResponse], error)
 	// GetSiteStats returns server-rolled telemetry + miner-state counts
 	// for every device assigned to the site, including devices whose
@@ -315,12 +317,14 @@ type SiteServiceHandler interface {
 	// GetInfrastructureControlSubnets returns the site's commissioned OT
 	// control-subnet allowlist. This sensitive topology is intentionally
 	// separate from Site and requires an interactive ADMIN/SUPER_ADMIN
-	// session with site:manage on the target site.
+	// session with org-wide site:manage.
 	GetInfrastructureControlSubnets(context.Context, *connect.Request[v1.GetInfrastructureControlSubnetsRequest]) (*connect.Response[v1.GetInfrastructureControlSubnetsResponse], error)
 	// SetInfrastructureControlSubnets explicitly replaces the site's
 	// commissioned OT control-subnet allowlist. An empty list decommissions
 	// the site and disables future infrastructure writes. The server
 	// validates, canonicalizes, sorts, persists, and audits the replacement.
+	// Requires an interactive ADMIN/SUPER_ADMIN session with org-wide
+	// site:manage.
 	SetInfrastructureControlSubnets(context.Context, *connect.Request[v1.SetInfrastructureControlSubnetsRequest]) (*connect.Response[v1.SetInfrastructureControlSubnetsResponse], error)
 	// GetSiteStats returns server-rolled telemetry + miner-state counts
 	// for every device assigned to the site, including devices whose

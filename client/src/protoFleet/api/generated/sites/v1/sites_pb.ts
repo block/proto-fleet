@@ -1130,7 +1130,7 @@ export const SiteService: GenService<{
    * GetInfrastructureControlSubnets returns the site's commissioned OT
    * control-subnet allowlist. This sensitive topology is intentionally
    * separate from Site and requires an interactive ADMIN/SUPER_ADMIN
-   * session with site:manage on the target site.
+   * session with org-wide site:manage.
    *
    * @generated from rpc sites.v1.SiteService.GetInfrastructureControlSubnets
    */
@@ -1144,6 +1144,8 @@ export const SiteService: GenService<{
    * commissioned OT control-subnet allowlist. An empty list decommissions
    * the site and disables future infrastructure writes. The server
    * validates, canonicalizes, sorts, persists, and audits the replacement.
+   * Requires an interactive ADMIN/SUPER_ADMIN session with org-wide
+   * site:manage.
    *
    * @generated from rpc sites.v1.SiteService.SetInfrastructureControlSubnets
    */

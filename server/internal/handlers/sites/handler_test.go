@@ -347,7 +347,7 @@ func TestHandler_InfrastructureControlSubnetsAdminGetAndSet(t *testing.T) {
 			t,
 			7,
 			domainAuth.AdminRoleName,
-			handlerstest.SiteAssignment(42, authz.PermSiteManage),
+			handlerstest.OrgAssignment(authz.PermSiteManage),
 		)
 		resp, err := h.handler.GetInfrastructureControlSubnets(
 			ctx,
@@ -377,7 +377,7 @@ func TestHandler_InfrastructureControlSubnetsAdminGetAndSet(t *testing.T) {
 			t,
 			7,
 			domainAuth.SuperAdminRoleName,
-			handlerstest.SiteAssignment(42, authz.PermSiteManage),
+			handlerstest.OrgAssignment(authz.PermSiteManage),
 		)
 		resp, err := h.handler.SetInfrastructureControlSubnets(
 			ctx,
@@ -407,7 +407,7 @@ func TestHandler_InfrastructureControlSubnetsAdminGetAndSet(t *testing.T) {
 			t,
 			7,
 			domainAuth.AdminRoleName,
-			handlerstest.SiteAssignment(42, authz.PermSiteManage),
+			handlerstest.OrgAssignment(authz.PermSiteManage),
 		)
 		resp, err := h.handler.SetInfrastructureControlSubnets(
 			ctx,
@@ -418,7 +418,7 @@ func TestHandler_InfrastructureControlSubnetsAdminGetAndSet(t *testing.T) {
 	})
 }
 
-func TestHandler_InfrastructureControlSubnetsRequiresAdminAndTargetSiteManage(t *testing.T) {
+func TestHandler_InfrastructureControlSubnetsRequiresAdminAndOrgWideSiteManage(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -429,6 +429,13 @@ func TestHandler_InfrastructureControlSubnetsRequiresAdminAndTargetSiteManage(t 
 		{
 			name: "ordinary site manager is forbidden",
 			role: "SITE_MANAGER",
+			assignments: []authz.Assignment{
+				handlerstest.OrgAssignment(authz.PermSiteManage),
+			},
+		},
+		{
+			name: "admin narrowed to target site is forbidden",
+			role: domainAuth.AdminRoleName,
 			assignments: []authz.Assignment{
 				handlerstest.SiteAssignment(42, authz.PermSiteManage),
 			},
