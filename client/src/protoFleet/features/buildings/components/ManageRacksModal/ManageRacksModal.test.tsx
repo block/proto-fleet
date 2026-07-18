@@ -167,6 +167,29 @@ describe("ManageRacksModal show-assigned toggle", () => {
     expect(delta.added.map((a: { rackId: bigint }) => a.rackId)).not.toContain(2n);
   });
 
+  it("header deselect clears an explicit reparent pick (bulk guard gates add, not clear)", async () => {
+    // Codex edge: pick the reparent row explicitly, then select the eligible
+    // row so the header checkbox reads "checked", then click it to clear the
+    // page. The bulk guard excludes the reparent row from *adding*, but clearing
+    // must still remove it — otherwise the explicit pick survives a "clear the
+    // page" gesture and Continue proceeds with an unintended reparent.
+    const onConfirm = vi.fn();
+    renderModal({ onConfirm });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
+
+    await userEvent.click(rowCheckbox(1)); // explicit reparent pick (Beta)
+    await userEvent.click(rowCheckbox(0)); // eligible pick (Alpha) → header now checked
+    const selectAll = screen.getByTestId("select-all-checkbox").querySelector("input")!;
+    await userEvent.click(selectAll); // header now checked → this clears the page
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+
+    const delta = onConfirm.mock.calls[0][0];
+    expect(delta.reassigned).toEqual([]); // reparent pick cleared, not stranded
+    expect(delta.added).toEqual([]);
+  });
+
   it("selecting a reparent row then toggling off drops it from the delta", async () => {
     const onConfirm = vi.fn();
     renderModal({ onConfirm });

@@ -827,16 +827,23 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     }),
   );
 
-  // Rows eligible for *bulk* selection (header "select all", shift-range).
-  // Prefers `isRowSelectable`; falls back to `!isRowDisabled(item)` for
-  // back-compat. Additionally honors `isRowBulkSelectable` so a row can stay
-  // individually pickable while being excluded from batch gestures.
+  // Whether a row can be selected at all (single-row click). Prefers
+  // `isRowSelectable`; falls back to `!isRowDisabled(item)` for back-compat.
+  const isRowPerRowSelectable = useCallback(
+    (item: ListItem) => (isRowSelectable ? isRowSelectable(item) : !(isRowDisabled?.(item) ?? false)),
+    [isRowDisabled, isRowSelectable],
+  );
+
+  // Rows eligible for *bulk add* (header "select all", shift-range). Layers
+  // `isRowBulkSelectable` on top of per-row selectability so a row can stay
+  // individually pickable while being excluded from batch add gestures. NOTE:
+  // this gates *adding* only — deselect paths must clear every per-row-
+  // selectable visible key, not just this set, or an explicit pick (e.g. a
+  // reparent rack) would survive a "clear the page" click.
   const getSelectableItems = useCallback(
-    (itemList: ListItem[]) => {
-      const perRow = (item: ListItem) => (isRowSelectable ? isRowSelectable(item) : !(isRowDisabled?.(item) ?? false));
-      return itemList.filter((item) => perRow(item) && (isRowBulkSelectable?.(item) ?? true));
-    },
-    [isRowDisabled, isRowSelectable, isRowBulkSelectable],
+    (itemList: ListItem[]) =>
+      itemList.filter((item) => isRowPerRowSelectable(item) && (isRowBulkSelectable?.(item) ?? true)),
+    [isRowPerRowSelectable, isRowBulkSelectable],
   );
 
   // Calculate total selectable count (total - disabled)
@@ -859,10 +866,21 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     // just this page would silently drop off-page selections. Instead toggle
     // only this page's keys into / out of the existing selection.
     if (preserveOffPageSelection) {
-      const pageKeys = getSelectableItems(filteredItems).map((item) => item[itemKey] as ItemKeyValueType);
-      const next = checked
-        ? Array.from(new Set([...currentSelectedItems, ...pageKeys]))
-        : currentSelectedItems.filter((key) => !pageKeys.includes(key));
+      let next: ItemKeyValueType[];
+      if (checked) {
+        // Add only bulk-eligible page keys (the bulk guard excludes e.g.
+        // reparent rows, which require an explicit per-row pick).
+        const addKeys = getSelectableItems(filteredItems).map((item) => item[itemKey] as ItemKeyValueType);
+        next = Array.from(new Set([...currentSelectedItems, ...addKeys]));
+      } else {
+        // Clearing the page must remove every per-row-selectable visible key —
+        // including explicit picks the bulk guard excludes — so "uncheck the
+        // page" can't leave a hidden selection behind.
+        const removeKeys = new Set(
+          filteredItems.filter(isRowPerRowSelectable).map((item) => item[itemKey] as ItemKeyValueType),
+        );
+        next = currentSelectedItems.filter((key) => !removeKeys.has(key));
+      }
       customSetSelectedItems ? customSetSelectedItems(next) : setSelectedItems(next);
       const newMode = next.length === 0 ? "none" : "subset";
       setSelectionMode(newMode);
