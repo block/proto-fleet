@@ -150,6 +150,12 @@ const SearchRacksModal = ({
   // is disabled.
   const isRowDisabled = useCallback((item: RackPickerItem) => item.disabled && !showAssigned, [showAssigned]);
 
+  // Reparent rows stay individually pickable (the intended reparent flow) but
+  // are excluded from bulk gestures — the List header "select all" would
+  // otherwise feed a reparent id into reduceToSingleSelection and let Assign
+  // move a rack (and its miners) without an explicit per-row pick.
+  const isRowBulkSelectable = useCallback((item: RackPickerItem) => !item.reassignment, []);
+
   // Turning the toggle OFF clears the selection and any open conflict dialog: a
   // reparent row selected while the toggle was on would otherwise stay selected
   // but hidden, leaving Assign enabled yet a silent no-op (handleConfirm blocks
@@ -289,6 +295,13 @@ const SearchRacksModal = ({
                 setSelectedItems(reduceToSingleSelection(selectedItems, ids));
               }}
               isRowDisabled={isRowDisabled}
+              isRowBulkSelectable={isRowBulkSelectable}
+              // Single-select picker: never promote to List "all" mode. Without
+              // this, picking the lone reparent row (excluded from the bulk set
+              // by isRowBulkSelectable) matches the selectable count, trips the
+              // "all selected" heuristic, and the sync effect rewrites the pick
+              // to the eligible row. Staying in "subset" keeps the exact pick.
+              preserveOffPageSelection
               itemName={{ singular: "rack", plural: "racks" }}
               hideTotal
               containerClassName="min-h-0"

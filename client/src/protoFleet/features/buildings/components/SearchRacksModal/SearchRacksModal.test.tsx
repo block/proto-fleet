@@ -132,6 +132,23 @@ describe("SearchRacksModal show-assigned toggle + reparent reporting", () => {
     expect(onConfirm).toHaveBeenCalledWith(1n, "Alpha", undefined);
   });
 
+  it("header select-all cannot pick a reparent rack (single-select bulk guard)", async () => {
+    // The search picker is single-select via reduceToSingleSelection, but the
+    // List header checkbox still fires a bulk setter. Without the
+    // isRowBulkSelectable guard, that bulk set could hand a reparent id to the
+    // reducer and let Assign move a rack with no explicit per-row pick.
+    const onConfirm = vi.fn();
+    renderModal(onConfirm);
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTestId("select-all-checkbox").querySelector("input")!);
+    // Only the eligible row can enter a bulk selection, so Beta (reparent)
+    // never becomes the single pick.
+    expect(rowCheckbox(1).checked).toBe(false);
+  });
+
   it("clears the selection when the toggle is turned off (no stale hidden pick)", async () => {
     renderModal();
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
