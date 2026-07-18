@@ -102,9 +102,10 @@ describe("SearchRacksModal show-assigned toggle + reparent reporting", () => {
     await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
   });
 
-  // Rows sort alphabetically, so body checkbox 0 = Alpha, 1 = Beta.
-  const rowCheckbox = (index: number) =>
-    screen.getByTestId("list-body").querySelectorAll<HTMLInputElement>("input[type='checkbox']")[index];
+  // Single-select radio picker. Rows sort alphabetically, so radio 0 = Alpha,
+  // 1 = Beta.
+  const rowRadio = (index: number) =>
+    screen.getByTestId("list-body").querySelectorAll<HTMLInputElement>("input[type='radio']")[index];
 
   it("reports the reassignment (with miner count) when a placed rack is chosen", async () => {
     const onConfirm = vi.fn();
@@ -115,7 +116,7 @@ describe("SearchRacksModal show-assigned toggle + reparent reporting", () => {
     await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
 
     // Select the reparent candidate (Beta), then Assign.
-    await userEvent.click(rowCheckbox(1));
+    await userEvent.click(rowRadio(1));
     await userEvent.click(screen.getByTestId("search-racks-modal-confirm"));
 
     expect(onConfirm).toHaveBeenCalledWith(2n, "Beta", { rackId: 2n, label: "Beta", minerCount: 5 });
@@ -126,27 +127,37 @@ describe("SearchRacksModal show-assigned toggle + reparent reporting", () => {
     renderModal(onConfirm);
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
 
-    await userEvent.click(rowCheckbox(0));
+    await userEvent.click(rowRadio(0));
     await userEvent.click(screen.getByTestId("search-racks-modal-confirm"));
 
     expect(onConfirm).toHaveBeenCalledWith(1n, "Alpha", undefined);
   });
 
-  it("header select-all cannot pick a reparent rack (single-select bulk guard)", async () => {
-    // The search picker is single-select via reduceToSingleSelection, but the
-    // List header checkbox still fires a bulk setter. Without the
-    // isRowBulkSelectable guard, that bulk set could hand a reparent id to the
-    // reducer and let Assign move a rack with no explicit per-row pick.
-    const onConfirm = vi.fn();
-    renderModal(onConfirm);
+  it("renders no header select-all (radio single-select cannot batch a reparent)", async () => {
+    // Radio mode removes the header select-all entirely, so there is no bulk
+    // gesture that could sweep a reparent rack into the selection.
+    renderModal();
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
     await userEvent.click(screen.getByLabelText("Show assigned racks"));
     await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
+    expect(screen.queryByTestId("select-all-checkbox")).not.toBeInTheDocument();
+  });
 
-    await userEvent.click(screen.getByTestId("select-all-checkbox").querySelector("input")!);
-    // Only the eligible row can enter a bulk selection, so Beta (reparent)
-    // never becomes the single pick.
-    expect(rowCheckbox(1).checked).toBe(false);
+  it("drops a selection hidden by the search query so Assign can't act on it", async () => {
+    // Pick a rack, then filter it out of view. List cleanup clears the now-
+    // hidden selection and handleConfirm resolves against the visible set, so
+    // Assign disables rather than assigning a rack the operator can't see.
+    const onConfirm = vi.fn();
+    renderModal(onConfirm);
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    await userEvent.click(rowRadio(0));
+    expect(screen.getByTestId("search-racks-modal-confirm")).toBeEnabled();
+
+    // Search text that excludes the selected "Alpha" hides its row.
+    await userEvent.type(screen.getByTestId("search-racks-modal-query"), "Beta-only");
+    await waitFor(() => expect(screen.queryByText("Alpha")).not.toBeInTheDocument());
+    expect(screen.getByTestId("search-racks-modal-confirm")).toBeDisabled();
   });
 
   it("clears the selection when the toggle is turned off (no stale hidden pick)", async () => {
@@ -155,7 +166,7 @@ describe("SearchRacksModal show-assigned toggle + reparent reporting", () => {
 
     await userEvent.click(screen.getByLabelText("Show assigned racks"));
     await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
-    await userEvent.click(rowCheckbox(1));
+    await userEvent.click(rowRadio(1));
     // Assign is enabled with a selection...
     expect(screen.getByTestId("search-racks-modal-confirm")).toBeEnabled();
 

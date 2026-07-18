@@ -22,6 +22,10 @@ export interface RackPickerItem {
   // Distinct from `disabled` because the toggle-on flow flips `disabled` off for
   // these rows but still needs to flag them and gate them behind the confirm.
   reassignment: boolean;
+  // The rack lives in a *different site*. A cross-site rack usually also has a
+  // buildingId, so this is tracked explicitly (rather than inferred from the
+  // status label) to describe the higher-stakes site move accurately.
+  crossSite: boolean;
   // Miners currently placed in this rack; they move with it on reparent, so the
   // confirm copy states the count ("…and its N miners…").
   minerCount: number;
@@ -47,10 +51,13 @@ export const buildRackPickerItem = (
   // Ineligible-but-visible: racks in another building or another site
   // render disabled so the operator sees why they can't be added.
   const disabled = inOtherBuilding || inOtherSite;
-  const statusLabel = inOtherBuilding
-    ? "In another building"
-    : inOtherSite
-      ? "In another site"
+  // A cross-site rack usually also has a buildingId, so surface the site move
+  // first — it is the higher-stakes reparent and the operator needs to know a
+  // site boundary is being crossed, not just a building.
+  const statusLabel = inOtherSite
+    ? "In another site"
+    : inOtherBuilding
+      ? "In another building"
       : inThisBuilding
         ? "In this building"
         : "Unassigned";
@@ -63,6 +70,7 @@ export const buildRackPickerItem = (
     statusLabel,
     disabled,
     reassignment: disabled,
+    crossSite: inOtherSite,
     minerCount: rack.deviceCount,
   };
 };
@@ -71,7 +79,7 @@ export const buildRackPickerItem = (
  *  surfaced when the operator taps the warning icon while "Show assigned racks"
  *  is on. States where the rack lives now and that its miners move with it. */
 export const describeRackReassignment = (item: RackPickerItem, buildingName: string): string => {
-  const where = item.statusLabel === "In another site" ? "another site" : "another building";
+  const where = item.crossSite ? "another site" : "another building";
   const miners = item.minerCount === 1 ? "its 1 miner" : `its ${item.minerCount} miners`;
-  return `Rack "${item.label || "(unnamed rack)"}" is currently in ${where}. Assigning it to "${buildingName}" will move the rack and ${miners} out of ${where === "another site" ? "that site" : "that building"}.`;
+  return `Rack "${item.label || "(unnamed rack)"}" is currently in ${where}. Assigning it to "${buildingName}" will move the rack and ${miners} out of ${item.crossSite ? "that site" : "that building"}.`;
 };

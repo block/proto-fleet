@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { type ReparentedRack } from "../ManageBuildingModal/RackReparentWarningDialog";
 import { buildRackPickerItem, describeRackReassignment, type RackPickerItem } from "../rackPickerItem";
-import { reduceToSingleSelection } from "./singleSelect";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { type SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
@@ -150,12 +149,6 @@ const SearchRacksModal = ({
   // is disabled.
   const isRowDisabled = useCallback((item: RackPickerItem) => item.disabled && !showAssigned, [showAssigned]);
 
-  // Reparent rows stay individually pickable (the intended reparent flow) but
-  // are excluded from bulk gestures — the List header "select all" would
-  // otherwise feed a reparent id into reduceToSingleSelection and let Assign
-  // move a rack (and its miners) without an explicit per-row pick.
-  const isRowBulkSelectable = useCallback((item: RackPickerItem) => !item.reassignment, []);
-
   // Turning the toggle OFF clears the selection and any open conflict dialog: a
   // reparent row selected while the toggle was on would otherwise stay selected
   // but hidden, leaving Assign enabled yet a silent no-op (handleConfirm blocks
@@ -211,19 +204,21 @@ const SearchRacksModal = ({
     };
   }, [showAssigned]);
 
+  // The selected rack, only if it is currently visible. A rack hidden by the
+  // search query (or the toggle) must not be assignable — mirrors the miner
+  // side, which preserves the selection but blocks confirm when a filter hides
+  // it (blockedByFilter). Drives both the Assign enablement and handleConfirm.
+  const selectedVisibleItem = useMemo(
+    () => (selectedItems.length === 0 ? undefined : filteredItems.find((r) => r.id === selectedItems[0])),
+    [filteredItems, selectedItems],
+  );
+
   const handleConfirm = useCallback(() => {
-    if (!items || selectedItems.length === 0) return;
-    const id = selectedItems[0];
-    const item = items.find((r) => r.id === id);
-    if (!item) return;
-    // Block only rows the operator couldn't legitimately pick: an ineligible
-    // rack is pickable only with the toggle on (reparent flow).
-    if (item.disabled && !showAssigned) return;
-    const reparent: ReparentedRack | undefined = item.reassignment
-      ? { rackId: BigInt(id), label: item.label, minerCount: item.minerCount }
-      : undefined;
-    onConfirm(BigInt(id), item.label, reparent);
-  }, [items, selectedItems, showAssigned, onConfirm]);
+    if (!selectedVisibleItem) return;
+    const { id, label, reassignment, minerCount } = selectedVisibleItem;
+    const reparent: ReparentedRack | undefined = reassignment ? { rackId: BigInt(id), label, minerCount } : undefined;
+    onConfirm(BigInt(id), label, reparent);
+  }, [selectedVisibleItem, onConfirm]);
 
   return (
     <Modal
@@ -239,7 +234,7 @@ const SearchRacksModal = ({
         {
           text: "Assign",
           variant: "primary",
-          disabled: selectedItems.length === 0,
+          disabled: !selectedVisibleItem,
           onClick: handleConfirm,
           dismissModalOnClick: false,
           testId: "search-racks-modal-confirm",
@@ -288,20 +283,16 @@ const SearchRacksModal = ({
               items={filteredItems}
               itemKey="id"
               itemSelectable
-              selectionType="checkbox"
+              // Radio mode enforces single-select and renders no header
+              // select-all, so bulk gestures can't batch in a reparent rack —
+              // matches the miner-side SearchMinersModal. (A hidden selection is
+              // handled separately via selectedVisibleItem, since selecting the
+              // lone visible rack can promote List into "all" mode, which skips
+              // its own filter cleanup.)
+              selectionType="radio"
               customSelectedItems={selectedItems}
-              customSetSelectedItems={(ids) => {
-                // Single-select enforcement — see ./singleSelect.ts.
-                setSelectedItems(reduceToSingleSelection(selectedItems, ids));
-              }}
+              customSetSelectedItems={setSelectedItems}
               isRowDisabled={isRowDisabled}
-              isRowBulkSelectable={isRowBulkSelectable}
-              // Single-select picker: never promote to List "all" mode. Without
-              // this, picking the lone reparent row (excluded from the bulk set
-              // by isRowBulkSelectable) matches the selectable count, trips the
-              // "all selected" heuristic, and the sync effect rewrites the pick
-              // to the eligible row. Staying in "subset" keeps the exact pick.
-              preserveOffPageSelection
               itemName={{ singular: "rack", plural: "racks" }}
               hideTotal
               containerClassName="min-h-0"

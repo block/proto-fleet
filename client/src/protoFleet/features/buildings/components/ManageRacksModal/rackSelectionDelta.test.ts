@@ -10,6 +10,7 @@ const eligible = (id: string, label = `R-${id}`): RackPickerItem => ({
   statusLabel: "Unassigned",
   disabled: false,
   reassignment: false,
+  crossSite: false,
   minerCount: 0,
 });
 
@@ -23,6 +24,7 @@ const reassignmentItem = (id: string, minerCount: number, label = `R-${id}`): Ra
   statusLabel: "In another building",
   disabled: true,
   reassignment: true,
+  crossSite: false,
   minerCount,
 });
 
