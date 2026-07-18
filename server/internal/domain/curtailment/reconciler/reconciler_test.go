@@ -88,6 +88,7 @@ type fakeStore struct {
 	updateFanCalls          int
 	lastFanUpdate           interfaces.UpdateCurtailmentFanStateParams
 	rejectExpiredFanUpdate  bool
+	failFanUpdateCall       int
 }
 
 type bumpRetryCall struct {
@@ -409,6 +410,9 @@ func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, expectedS
 func (f *fakeStore) UpdateFanState(ctx context.Context, eventID int64, params interfaces.UpdateCurtailmentFanStateParams) error {
 	f.updateFanCalls++
 	f.lastFanUpdate = params
+	if f.failFanUpdateCall == f.updateFanCalls {
+		return errors.New("injected fan state update failure")
+	}
 	if f.rejectExpiredFanUpdate && ctx.Err() != nil {
 		return fmt.Errorf("expired fan update context: %w", ctx.Err())
 	}

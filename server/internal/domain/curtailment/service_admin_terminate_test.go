@@ -59,11 +59,10 @@ func TestService_AdminTerminate_HappyPathForwardsToStore(t *testing.T) {
 	assert.Equal(t, "operator escalation", store.lastAdminTerminateReason)
 }
 
-func TestService_AdminTerminate_RestoringEventTurnsFansOnBeforeTerminal(t *testing.T) {
+func TestService_AdminTerminate_RestoringEventTurnsFansOnWithoutPersistedOffTimestamp(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
 	eventUUID := uuid.New()
-	fanOffAt := time.Now().UTC()
 	store := newFakeStore()
 	store.eventsByUUID[eventUUID] = &models.Event{
 		ID:                   88,
@@ -71,7 +70,6 @@ func TestService_AdminTerminate_RestoringEventTurnsFansOnBeforeTerminal(t *testi
 		OrgID:                orgID,
 		State:                models.EventStateRestoring,
 		FacilityFanDeviceIDs: []int64{501, 502},
-		FanOffSentAt:         &fanOffAt,
 	}
 	store.adminTerminateResult = &models.Event{
 		ID:        88,

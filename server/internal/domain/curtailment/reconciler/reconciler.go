@@ -888,6 +888,26 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 		// airflow-reopen command remains the lower bound when applicable.
 		return false
 	}
+	if desiredPower == driver.PowerOff && ev.FanOffSentAt == nil {
+		// Persist the first OFF intent before hardware I/O. If the command
+		// succeeds but its follow-up state write is lost, later admission and
+		// operator recovery must conservatively assume the fans may be off.
+		intent := interfaces.UpdateCurtailmentFanStateParams{
+			ExpectedEventState: models.EventStateActive,
+			FanOffSentAt:       &now,
+			LastError:          ev.FanLastError,
+		}
+		_, err := r.fanStore.CommandFanState(ctx, ev.ID, intent, func(context.Context) *string {
+			return ev.FanLastError
+		})
+		if err != nil {
+			if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+				slog.Error("curtailment reconciler: facility fan OFF intent update failed", "event_id", ev.ID, "error", err)
+			}
+			return false
+		}
+		ev.FanOffSentAt = &now
+	}
 
 	params := interfaces.UpdateCurtailmentFanStateParams{
 		ExpectedEventState: models.EventStateActive,
@@ -899,9 +919,6 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 		}
 		params.FanAirflowReopenedAtOnSuccess = &now
 	case driver.PowerOff:
-		if ev.FanOffSentAt == nil {
-			params.FanOffSentAt = &now
-		}
 		if ev.FanAirflowReopenedAt != nil {
 			params.ClearFanAirflowReopenedAt = true
 		}
@@ -914,9 +931,6 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 			slog.Error("curtailment reconciler: facility fan state update failed", "event_id", ev.ID, "power", desiredPower, "error", err)
 		}
 		return false
-	}
-	if desiredPower == driver.PowerOff && ev.FanOffSentAt == nil {
-		ev.FanOffSentAt = &now
 	}
 	if lastError == nil && params.FanAirflowReopenedAtOnSuccess != nil {
 		ev.FanAirflowReopenedAt = params.FanAirflowReopenedAtOnSuccess

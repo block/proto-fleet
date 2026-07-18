@@ -61,6 +61,38 @@ func TestReconciler_ClosedLoopFanOffDelayStartsAtFirstTargetConfirmation(t *test
 	assert.Equal(t, []driver.PowerMode{driver.PowerOff, driver.PowerOff}, fans.powers)
 }
 
+func TestReconciler_LostFanOffResultStillRequiresAirflowRecovery(t *testing.T) {
+	store := newFakeStore()
+	fans := &fakeFanController{}
+	r := newReconcilerWithFansForTest(store, &fakeDispatcher{}, fans)
+	confirmedAt := r.now().Add(-time.Minute)
+	event := &models.Event{
+		ID:                   83,
+		EventUUID:            uuid.New(),
+		OrgID:                1,
+		State:                models.EventStateActive,
+		FacilityFanDeviceIDs: []int64{31},
+	}
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "miner-1",
+		DesiredState:       models.DesiredStateCurtailed,
+		State:              models.TargetStateConfirmed,
+		ConfirmedAt:        &confirmedAt,
+	}
+	store.events = []*models.Event{event}
+	store.failFanUpdateCall = 2 // Lose the write after the physical OFF succeeds.
+
+	assert.False(t, r.reconcileActiveFans(t.Context(), event, []*models.Target{target}))
+	assert.Equal(t, []driver.PowerMode{driver.PowerOff}, fans.powers)
+	require.NotNil(t, event.FanOffSentAt,
+		"the durable pre-command intent must preserve the possibility that fans are off")
+
+	target.State = models.TargetStateDispatching
+	assert.True(t, r.reconcileActiveFans(t.Context(), event, []*models.Target{target}))
+	assert.Equal(t, []driver.PowerMode{driver.PowerOff, driver.PowerOn}, fans.powers)
+}
+
 func TestReconciler_ActiveFanOffDoesNotUseTargetlessClosedLoopWatcher(t *testing.T) {
 	store := newFakeStore()
 	fans := &fakeFanController{}
