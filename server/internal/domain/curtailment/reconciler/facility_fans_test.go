@@ -286,6 +286,7 @@ func TestReconciler_RecurtailedPendingEventRetriesFanOnBeforeMinerDispatch(t *te
 
 func TestReconciler_RestoringFanTimeoutReservesTimeForMinerRestore(t *testing.T) {
 	store := newFakeStore()
+	store.rejectExpiredFanUpdate = true
 	dispatcher := &fakeDispatcher{}
 	fans := &fakeFanController{waitForCancellation: true}
 	r := newReconcilerWithFansForTest(store, dispatcher, fans)
@@ -311,6 +312,9 @@ func TestReconciler_RestoringFanTimeoutReservesTimeForMinerRestore(t *testing.T)
 	r.observeRestoring(ctx, event)
 
 	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	require.NotNil(t, event.FanOnSentAt, "fan timeout evidence must persist before the hardware context expires")
+	require.NotNil(t, event.FanLastError)
+	assert.Equal(t, "fan command timed out", *event.FanLastError)
 	assert.Equal(t, 1, dispatcher.uncurtailCalls,
 		"the fan timeout must leave event-budget time for fail-open miner restoration")
 }

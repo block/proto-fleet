@@ -423,11 +423,7 @@ func (r *Reconciler) reconcilePendingFans(ctx context.Context, ev *models.Event)
 		params.FanAirflowReopenedAt = &now
 	}
 	params.FanAirflowReopenedAtOnSuccess = &now
-	fanCtx, cancel := fanCommandContext(ctx)
-	lastError, err := r.fanStore.CommandFanState(fanCtx, ev.ID, params, func(commandCtx context.Context) *string {
-		return r.fans.SetState(commandCtx, ev, driver.PowerOn)
-	})
-	cancel()
+	lastError, err := r.commandAndPersistFanState(ctx, ev, params, driver.PowerOn)
 	if err != nil {
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			slog.Error("curtailment reconciler: pending facility fan ON failed", "event_id", ev.ID, "error", err)
@@ -912,11 +908,7 @@ func (r *Reconciler) reconcileActiveFans(ctx context.Context, ev *models.Event, 
 	default:
 		return false
 	}
-	fanCtx, cancel := fanCommandContext(ctx)
-	lastError, err := r.fanStore.CommandFanState(fanCtx, ev.ID, params, func(commandCtx context.Context) *string {
-		return r.fans.SetState(commandCtx, ev, desiredPower)
-	})
-	cancel()
+	lastError, err := r.commandAndPersistFanState(ctx, ev, params, desiredPower)
 	if err != nil {
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			slog.Error("curtailment reconciler: facility fan state update failed", "event_id", ev.ID, "power", desiredPower, "error", err)
@@ -1661,11 +1653,7 @@ func (r *Reconciler) reconcileRestoringFans(ctx context.Context, ev *models.Even
 	if ev.FanOnSentAt == nil {
 		params.FanOnSentAt = &now
 	}
-	fanCtx, cancel := fanCommandContext(ctx)
-	lastError, err := r.fanStore.CommandFanState(fanCtx, ev.ID, params, func(commandCtx context.Context) *string {
-		return r.fans.SetState(commandCtx, ev, driver.PowerOn)
-	})
-	cancel()
+	lastError, err := r.commandAndPersistFanState(ctx, ev, params, driver.PowerOn)
 	if err != nil {
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			slog.Error("curtailment reconciler: facility fan ON state update failed", "event_id", ev.ID, "error", err)
@@ -1689,6 +1677,19 @@ func (r *Reconciler) reconcileRestoringFans(ctx context.Context, ev *models.Even
 	}
 }
 
+func (r *Reconciler) commandAndPersistFanState(
+	ctx context.Context,
+	event *models.Event,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	power driver.PowerMode,
+) (*string, error) {
+	return r.fanStore.CommandFanState(ctx, event.ID, params, func(commandCtx context.Context) *string {
+		fanCtx, cancel := fanCommandContext(commandCtx)
+		defer cancel()
+		return r.fans.SetState(fanCtx, event, power)
+	})
+}
+
 func fanCommandContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	deadline, ok := ctx.Deadline()
 	if !ok {
@@ -1698,8 +1699,9 @@ func fanCommandContext(ctx context.Context) (context.Context, context.CancelFunc
 	if remaining <= 0 {
 		return context.WithTimeout(ctx, 0)
 	}
-	// Reserve half of the event allocation for telemetry confirmation, state
-	// transitions, and miner dispatch after a slow or unreachable fan write.
+	// This deadline applies only to hardware I/O. The enclosing store call keeps
+	// the event context so the remaining half can persist timeout evidence before
+	// telemetry confirmation, state transitions, and miner dispatch continue.
 	return context.WithTimeout(ctx, remaining/2)
 }
 
