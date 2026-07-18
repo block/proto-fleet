@@ -528,14 +528,29 @@ export class BasePage {
         await toast
           .locator("button")
           .last()
-          .click()
+          .evaluate((button: Element) => {
+            (button as HTMLElement).click();
+          })
           .catch(() => undefined);
       }
     }
 
-    await basicToasts
-      .first()
-      .waitFor({ state: "detached", timeout: OVERLAY_DISMISS_TIMEOUT })
+    await this.page
+      .waitForFunction(
+        () =>
+          Array.from(document.querySelectorAll('[data-testid="toast"]')).every((toast) => {
+            const element = toast as HTMLElement;
+            const style = window.getComputedStyle(element);
+            return (
+              element.getClientRects().length === 0 ||
+              style.display === "none" ||
+              style.visibility === "hidden" ||
+              style.opacity === "0"
+            );
+          }),
+        undefined,
+        { timeout: OVERLAY_DISMISS_TIMEOUT },
+      )
       .catch(() => undefined);
   }
 

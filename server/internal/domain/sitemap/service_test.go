@@ -230,6 +230,26 @@ func TestBuildPlanAcceptsDuplicateUnassignedBuildingsWithIDs(t *testing.T) {
 	}
 }
 
+func TestBuildPlanRejectsAmbiguousBlankIDUnassignedBuildings(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": nil,
+		"BUILDING": {
+			{"__row": "5", "name": "Unassigned Building", "aisles": "1", "racks_per_aisle": "1"},
+		},
+		"RACK":  nil,
+		"MINER": nil,
+	}}
+	snap := &snapshot{buildings: []buildingmodels.Building{
+		{ID: 10, Name: "Unassigned Building", Aisles: 1, RacksPerAisle: 1},
+		{ID: 11, Name: "Unassigned Building", Aisles: 1, RacksPerAisle: 1},
+	}}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	if !hasValidationError(plan.errors, "BUILDING", `building "Unassigned Building" is ambiguous; add id`) {
+		t.Fatalf("plan errors = %+v, want ambiguous blank-id building error", plan.errors)
+	}
+}
+
 func TestBuildPlanRejectsImportedNamesOverServerLimits(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE": {
