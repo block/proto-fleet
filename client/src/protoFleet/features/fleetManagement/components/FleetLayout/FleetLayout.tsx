@@ -48,15 +48,18 @@ const FleetImportRefreshBoundary = ({
   children,
   importModalOpen,
   onDismissImportModal,
+  notifyMinersChanged,
 }: {
   children: ReactNode;
   importModalOpen: boolean;
   onDismissImportModal: () => void;
+  notifyMinersChanged: () => void;
 }) => {
   const createFlow = useFleetCreateFlow();
   const onImported = useCallback(() => {
     createFlow?.refreshEntities();
-  }, [createFlow]);
+    notifyMinersChanged();
+  }, [createFlow, notifyMinersChanged]);
 
   return (
     <>
@@ -406,6 +409,7 @@ const FleetLayout = () => {
           <FleetImportRefreshBoundary
             importModalOpen={showSiteMapImportModal}
             onDismissImportModal={() => setShowSiteMapImportModal(false)}
+            notifyMinersChanged={notifyMinersChanged}
           >
             {outlet}
           </FleetImportRefreshBoundary>

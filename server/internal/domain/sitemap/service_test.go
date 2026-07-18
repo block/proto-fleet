@@ -11,6 +11,7 @@ import (
 
 	"connectrpc.com/authn"
 	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
+	fleetpb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/sitemap/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
@@ -61,6 +62,28 @@ func TestBuildSiteMapExportZipIncludesCSVAndAgentGuide(t *testing.T) {
 func TestMaxImportBytesAllowsLargeFleetExports(t *testing.T) {
 	if MaxImportBytes < 64*1024*1024 {
 		t.Fatalf("MaxImportBytes = %d, want at least 64 MiB", MaxImportBytes)
+	}
+}
+
+func TestSiteMapMinerPairingStatusesIncludeHiddenMutableStatuses(t *testing.T) {
+	statuses := map[fleetpb.PairingStatus]bool{}
+	for _, status := range siteMapMinerPairingStatuses {
+		statuses[status] = true
+	}
+	for _, want := range []fleetpb.PairingStatus{
+		fleetpb.PairingStatus_PAIRING_STATUS_PAIRED,
+		fleetpb.PairingStatus_PAIRING_STATUS_UNPAIRED,
+		fleetpb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+		fleetpb.PairingStatus_PAIRING_STATUS_PENDING,
+		fleetpb.PairingStatus_PAIRING_STATUS_FAILED,
+		fleetpb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+	} {
+		if !statuses[want] {
+			t.Fatalf("siteMapMinerPairingStatuses missing %s", want)
+		}
+	}
+	if statuses[fleetpb.PairingStatus_PAIRING_STATUS_UNSPECIFIED] {
+		t.Fatal("siteMapMinerPairingStatuses should enumerate concrete statuses, not rely on UNSPECIFIED")
 	}
 }
 

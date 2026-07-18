@@ -74,6 +74,14 @@ var (
 		"device_identifier", "serial_number", "name", "ip_address", "mac_address",
 		fieldSiteID, fieldSite, fieldBuildingID, fieldBuilding, fieldRackID, fieldRack, "rack_row", "rack_col",
 	}
+	siteMapMinerPairingStatuses = []fleetpb.PairingStatus{
+		fleetpb.PairingStatus_PAIRING_STATUS_PAIRED,
+		fleetpb.PairingStatus_PAIRING_STATUS_UNPAIRED,
+		fleetpb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
+		fleetpb.PairingStatus_PAIRING_STATUS_PENDING,
+		fleetpb.PairingStatus_PAIRING_STATUS_FAILED,
+		fleetpb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
+	}
 )
 
 type Service struct {
@@ -579,11 +587,7 @@ func (s *Service) listMiners(ctx context.Context, slots map[string]slotPosition)
 		resp, err := s.fleetMgmtSvc.ListMinerStateSnapshots(ctx, &fleetpb.ListMinerStateSnapshotsRequest{
 			PageSize: maxPageSize,
 			Cursor:   cursor,
-			Filter: &fleetpb.MinerListFilter{PairingStatuses: []fleetpb.PairingStatus{
-				fleetpb.PairingStatus_PAIRING_STATUS_PAIRED,
-				fleetpb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED,
-				fleetpb.PairingStatus_PAIRING_STATUS_DEFAULT_PASSWORD,
-			}},
+			Filter:   &fleetpb.MinerListFilter{PairingStatuses: siteMapMinerPairingStatuses},
 		})
 		if err != nil {
 			return nil, err
