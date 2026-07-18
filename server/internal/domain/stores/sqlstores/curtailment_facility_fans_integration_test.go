@@ -185,6 +185,61 @@ func TestSQLCurtailmentStore_ForceReleaseKeepsFanClaimUntilRecoveryCompletes(t *
 	require.NoError(t, <-startResult)
 }
 
+func TestSQLCurtailmentStore_ForceReleaseRecoversFansAfterTerminalTransitionRace(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	db := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(db)
+	siteID, fanID := seedCurtailmentFacilityFan(t, db, user.OrganizationID, "facility-fan-force-release-terminal-race")
+
+	eventUUID := uuid.New()
+	event := curtailmentStoreTestEvent(user.OrganizationID, user.DatabaseID, eventUUID, models.EventStateActive, "facility-fan-terminal-race")
+	event.FacilityFanDeviceIDs = []int64{fanID}
+	event.ExpectedFacilityFanSites = map[int64]int64{fanID: siteID}
+	inserted, err := store.InsertEventWithTargets(ctx, event, []models.InsertTargetParams{
+		curtailmentStoreTestTarget("facility-fan-terminal-race-miner", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+	})
+	require.NoError(t, err)
+
+	// Simulate the reconciler winning the terminal transition after the
+	// service preloaded this active event but before the serialized fan path.
+	released, err := store.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "concurrent terminal transition")
+	require.NoError(t, err)
+	require.True(t, released.OwnershipReleased)
+
+	commandCalled := false
+	fanOnAt := time.Now().UTC()
+	raced, err := store.ForceReleaseEventWithFanRecovery(
+		ctx,
+		user.OrganizationID,
+		eventUUID,
+		"operator force release",
+		inserted.ID,
+		[]int64{fanID},
+		[]int64{siteID},
+		interfaces.UpdateCurtailmentFanStateParams{
+			ExpectedEventState: models.EventStateCancelled,
+			FanOnSentAt:        &fanOnAt,
+		},
+		func(context.Context) *string {
+			commandCalled = true
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	assert.False(t, raced.OwnershipReleased)
+	assert.True(t, commandCalled, "terminal transition race must still issue the authoritative fan ON")
+	require.NotNil(t, raced.Event)
+	require.NotNil(t, raced.Event.FanOnSentAt)
+	assert.WithinDuration(t, fanOnAt, *raced.Event.FanOnSentAt, time.Microsecond)
+	assert.Nil(t, raced.Event.FanLastError)
+}
+
 func TestSQLCurtailmentStore_ForceReleaseSerializesWithFanCommands(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")

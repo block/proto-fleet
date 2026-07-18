@@ -1973,7 +1973,27 @@ func (s *SQLCurtailmentStore) ForceReleaseEventWithFanRecovery(
 			return interfaces.ForceReleaseEventResult{}, releaseErr
 		}
 		if !result.OwnershipReleased {
-			return result, nil
+			if result.Event == nil || !result.Event.State.IsTerminal() || result.Event.ID != eventID {
+				return interfaces.ForceReleaseEventResult{}, interfaces.ErrCurtailmentEventStateRaceLoss
+			}
+			claims, claimErr := q.CountActiveCurtailmentFanClaims(ctx, sqlc.CountActiveCurtailmentFanClaimsParams{
+				OrgID:                orgID,
+				FacilityFanDeviceIds: fanIDs,
+			})
+			if claimErr != nil {
+				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf(
+					"failed to check newer facility fan claims after force-release race: %v", claimErr,
+				)
+			}
+			if claims > 0 {
+				return interfaces.ForceReleaseEventResult{}, fleeterror.NewFailedPreconditionError(
+					"facility fans are claimed by a newer active curtailment event; recover that event instead",
+				)
+			}
+			// The reconciler won the terminal transition after the service's
+			// preload. The fan locks still exclude a new owner, so recover the
+			// returned terminal row instead of silently skipping the promised ON.
+			params.ExpectedEventState = result.Event.State
 		}
 
 		lastError, commandErr := s.commandFanStateWithQueries(ctx, q, eventID, params, command)
