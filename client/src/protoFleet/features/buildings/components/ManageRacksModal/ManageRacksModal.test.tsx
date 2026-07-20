@@ -43,6 +43,7 @@ const renderModal = (overrides?: {
   scope?: SiteFilterFields;
   assignedScope?: SiteFilterFields;
   onConfirm?: (delta: RackSelectionDelta) => void;
+  initialSelectedRackIds?: bigint[];
 }) =>
   render(
     <ManageRacksModal
@@ -52,7 +53,7 @@ const renderModal = (overrides?: {
       scope={overrides?.scope ?? SCOPE}
       assignedScope={overrides?.assignedScope ?? SCOPE}
       buildingName="North"
-      initialSelectedRackIds={[]}
+      initialSelectedRackIds={overrides?.initialSelectedRackIds ?? []}
       onDismiss={vi.fn()}
       onConfirm={overrides?.onConfirm ?? vi.fn()}
     />,
@@ -188,6 +189,27 @@ describe("ManageRacksModal show-assigned toggle", () => {
     const delta = onConfirm.mock.calls[0][0];
     expect(delta.reassigned).toEqual([]); // reparent pick cleared, not stranded
     expect(delta.added).toEqual([]);
+  });
+
+  it("keeps a seeded reparent rack when toggling off (does not silently remove it)", async () => {
+    // Codex edge: Beta was reparented earlier in this unsaved session, so it is
+    // seeded via initialSelectedRackIds — yet listRacks still reports it in its
+    // old building (reassignment row) until Save. Toggling off must NOT strip a
+    // seeded reparent, or Continue would report it in `removed` and undo the
+    // accepted reparent.
+    const onConfirm = vi.fn();
+    renderModal({ onConfirm, initialSelectedRackIds: [2n] });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    // Toggle on, then off — the strip runs on toggle-off.
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+
+    const delta = onConfirm.mock.calls[0][0];
+    expect(delta.removed).not.toContain(2n); // seeded reparent preserved
+    expect(delta.removed).toEqual([]);
   });
 
   it("selecting a reparent row then toggling off drops it from the delta", async () => {

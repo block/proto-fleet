@@ -183,23 +183,34 @@ const ManageRacksModal = ({
     [items],
   );
 
+  // Racks already in the building's working set when the modal opened. A rack
+  // reparented earlier in this unsaved session is seeded here yet still reports
+  // as a reassignment row (listRacks shows its old placement until Save), so it
+  // must be preserved through a toggle-off — see handleToggleShowAssigned.
+  const initialSelectedIdSet = useMemo(
+    () => new Set(initialSelectedRackIds.map((id) => id.toString())),
+    [initialSelectedRackIds],
+  );
+
   // Flip the toggle and reset to the first page in one go — the visible set
   // changes shape, so an out-of-range page would otherwise show empty. Turning
-  // the toggle OFF also drops any already-selected reassignment racks (they are
+  // the toggle OFF also drops any *newly* selected reassignment racks (they are
   // now hidden, so leaving them selected would silently reparent them on
-  // Continue) and closes any open conflict dialog. Matches Switch's setChecked
-  // signature (accepts a value or updater).
+  // Continue) and closes any open conflict dialog. Seeded reparent racks
+  // (already in the working set) are kept — dropping them would report the
+  // rack as `removed` and silently undo an accepted reparent. Matches Switch's
+  // setChecked signature (accepts a value or updater).
   const handleToggleShowAssigned = useCallback(
     (value: boolean | ((prev: boolean) => boolean)) => {
       const next = typeof value === "function" ? value(showAssigned) : value;
       setShowAssigned(next);
       setPage(0);
       if (!next) {
-        setSelectedItems((sel) => sel.filter((id) => !reassignmentIdSet.has(id)));
+        setSelectedItems((sel) => sel.filter((id) => !reassignmentIdSet.has(id) || initialSelectedIdSet.has(id)));
         setConflictInfoItem(null);
       }
     },
-    [showAssigned, reassignmentIdSet],
+    [showAssigned, reassignmentIdSet, initialSelectedIdSet],
   );
 
   // A reassignment rack may only be added by an explicit single-row pick — it is
