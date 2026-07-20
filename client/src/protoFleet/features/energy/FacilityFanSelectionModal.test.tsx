@@ -73,4 +73,24 @@ describe("FacilityFanSelectionModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ selectedDeviceIds: devices.map(({ id }) => id) }));
   });
+
+  it("rejects fan delays above the server limit", () => {
+    const onApply = vi.fn();
+    render(
+      <FacilityFanSelectionModal
+        devices={facilityFanDevices(1)}
+        initialSelectedDeviceIds={["1"]}
+        initialFanOffDelaySec="3601"
+        initialFanRestoreDelaySec="3601"
+        onDismiss={vi.fn()}
+        onApply={onApply}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(screen.getByText("Enter fan-off delay of 3,600 or less.")).toBeInTheDocument();
+    expect(screen.getByText("Enter fan restore delay of 3,600 or less.")).toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
+  });
 });
