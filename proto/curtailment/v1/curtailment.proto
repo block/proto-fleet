@@ -1197,7 +1197,7 @@ message CreateCurtailmentResponseProfileRequest {
     // applied when the profile executes (manual start or MQTT automation).
     bool force_include_all_paired_miners = 18;
     repeated int64 facility_fan_device_ids = 19 [(buf.validate.field).repeated = {
-        max_items: 1024
+        max_items: 8
         items: {
             int64: {gt: 0}
         }
