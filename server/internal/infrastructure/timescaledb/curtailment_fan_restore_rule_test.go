@@ -44,6 +44,23 @@ func TestCurtailmentFanRestoreRulePersistsTerminalFailureUntilClear(t *testing.T
 		DriverConfig: []byte(`{}`),
 	})
 	require.NoError(t, err)
+	recentSite, err := sqlstores.NewSQLSiteStore(db).CreateSite(t.Context(), sitesmodels.CreateSiteParams{
+		OrgID: orgID,
+		Name:  "fan-alert-recent-airflow-site",
+	})
+	require.NoError(t, err)
+	recentDevice, err := sqlstores.NewSQLInfrastructureDeviceStore(db).CreateInfrastructureDevice(t.Context(), infrastructuremodels.CreateParams{
+		OrgID:        orgID,
+		SiteID:       recentSite.ID,
+		BuildingName: "Recent fan building",
+		Name:         "fan-alert-recent-airflow-device",
+		DeviceKind:   infrastructuremodels.KindFanGroup,
+		FanCount:     2,
+		Enabled:      true,
+		DriverType:   "test-driver",
+		DriverConfig: []byte(`{}`),
+	})
+	require.NoError(t, err)
 
 	staleFanOnAt := time.Now().Add(-2 * time.Minute)
 	recentAirflowAt := time.Now().Add(-30 * time.Second)
@@ -79,7 +96,7 @@ func TestCurtailmentFanRestoreRulePersistsTerminalFailureUntilClear(t *testing.T
 			'{}'::jsonb, 1, 0, 'user', 'fan alert recent airflow test',
 			$3, 60, $4, $5, 'fan command failed', ARRAY[$6]::bigint[],
 			ARRAY[$7]::bigint[]
-		)`, recentAirflowEventUUID, orgID, user.DatabaseID, staleFanOnAt, recentAirflowAt, device.ID, site.ID)
+		)`, recentAirflowEventUUID, orgID, user.DatabaseID, staleFanOnAt, recentAirflowAt, recentDevice.ID, recentSite.ID)
 	require.NoError(t, err)
 
 	ruleSQL := loadRuleSQL(t, "Curtailment Fan Restore Failed", "FROM curtailment_event")
