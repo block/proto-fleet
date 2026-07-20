@@ -127,67 +127,61 @@ describe("ManageRacksModal show-assigned toggle", () => {
   const rowCheckbox = (index: number) =>
     screen.getByTestId("list-body").querySelectorAll<HTMLInputElement>("input[type='checkbox']")[index];
 
-  it("header select-all does not bulk-select reparent candidates (security guard)", async () => {
+  it("header select-all selects the whole page including reparent rows and reports them in reassigned", async () => {
+    // The in-table header "select all" selects every row on the page, reparent
+    // candidates included — matches MinerSelectionList. Reparenting is gated by
+    // the confirm the host shows on Continue, not by excluding the row here.
     const onConfirm = vi.fn();
     renderModal({ onConfirm });
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
     await userEvent.click(screen.getByLabelText("Show assigned racks"));
     await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
 
-    // The table header "select all" would otherwise batch in the reparent row.
     const selectAll = screen.getByTestId("select-all-checkbox").querySelector("input")!;
     await userEvent.click(selectAll);
     await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
 
     const delta = onConfirm.mock.calls[0][0];
-    expect(delta.reassigned).toEqual([]); // no accidental reparent
-    expect(delta.added.map((a: { rackId: bigint }) => a.rackId)).toContain(1n); // eligible still selected
-    expect(delta.added.map((a: { rackId: bigint }) => a.rackId)).not.toContain(2n);
+    expect(delta.added.map((a: { rackId: bigint }) => a.rackId)).toEqual(expect.arrayContaining([1n, 2n]));
+    expect(delta.reassigned).toEqual([{ rackId: 2n, label: "Beta", minerCount: 5 }]);
   });
 
-  it("header select-all excludes reparent rows even with an eligible row pre-picked", async () => {
-    // Codex edge: with an eligible row already selected, the header checkbox
-    // fires a setter that "adds" exactly the reparent id. A count-based guard
-    // (>1) would let that lone id through; the structural isRowBulkSelectable
-    // guard keeps it out regardless of prior selection.
+  it("header deselect clears the whole page including reparent picks", async () => {
+    // Pick the reparent row and the eligible row so the header reads "checked",
+    // then click it to clear the page. Both picks clear — nothing is stranded.
     const onConfirm = vi.fn();
     renderModal({ onConfirm });
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
     await userEvent.click(screen.getByLabelText("Show assigned racks"));
     await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
 
-    // Pre-select the eligible row, then hit header select-all.
-    await userEvent.click(rowCheckbox(0));
+    await userEvent.click(rowCheckbox(1)); // reparent pick (Beta)
+    await userEvent.click(rowCheckbox(0)); // eligible pick (Alpha) → header now checked
     const selectAll = screen.getByTestId("select-all-checkbox").querySelector("input")!;
-    await userEvent.click(selectAll);
+    await userEvent.click(selectAll); // header checked → this clears the page
     await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
 
     const delta = onConfirm.mock.calls[0][0];
     expect(delta.reassigned).toEqual([]);
-    expect(delta.added.map((a: { rackId: bigint }) => a.rackId)).not.toContain(2n);
+    expect(delta.added).toEqual([]);
   });
 
-  it("header deselect clears an explicit reparent pick (bulk guard gates add, not clear)", async () => {
-    // Codex edge: pick the reparent row explicitly, then select the eligible
-    // row so the header checkbox reads "checked", then click it to clear the
-    // page. The bulk guard excludes the reparent row from *adding*, but clearing
-    // must still remove it — otherwise the explicit pick survives a "clear the
-    // page" gesture and Continue proceeds with an unintended reparent.
-    const onConfirm = vi.fn();
-    renderModal({ onConfirm });
+  it("hides the footer 'Select all' while assigned racks are shown, and restores it when hidden", async () => {
+    // The footer "Select all" (all pages) must not sweep reparent rows, so it is
+    // dropped while the toggle surfaces them — matches MinerSelectionList. The
+    // in-table header checkbox remains the only page-level bulk gesture, and its
+    // reparent picks are gated by the Continue confirm.
+    renderModal();
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Select all" })).toBeInTheDocument();
+
     await userEvent.click(screen.getByLabelText("Show assigned racks"));
     await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Select all" })).not.toBeInTheDocument();
 
-    await userEvent.click(rowCheckbox(1)); // explicit reparent pick (Beta)
-    await userEvent.click(rowCheckbox(0)); // eligible pick (Alpha) → header now checked
-    const selectAll = screen.getByTestId("select-all-checkbox").querySelector("input")!;
-    await userEvent.click(selectAll); // header now checked → this clears the page
-    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
-
-    const delta = onConfirm.mock.calls[0][0];
-    expect(delta.reassigned).toEqual([]); // reparent pick cleared, not stranded
-    expect(delta.added).toEqual([]);
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    await waitFor(() => expect(screen.queryByText("Beta")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Select all" })).toBeInTheDocument();
   });
 
   it("selecting a reparent row then toggling off drops it from the delta", async () => {

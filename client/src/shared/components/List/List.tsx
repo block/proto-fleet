@@ -285,15 +285,6 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    */
   isRowSelectable?: (item: ListItem) => boolean;
   /**
-   * Whether the row may be selected by *bulk* gestures — the header
-   * "select all" and shift-click range selection — as opposed to a single-row
-   * click. Composes with (does not override) per-row selectability. Defaults to
-   * allowing every per-row-selectable row. Use to keep a row individually
-   * pickable while excluding it from batch selection (e.g. a destructive
-   * reparent that must be an explicit per-row choice).
-   */
-  isRowBulkSelectable?: (item: ListItem) => boolean;
-  /**
    * Optional set of column keys that should NOT be affected by disabled row styling.
    * These columns will maintain full opacity even when the row is disabled.
    */
@@ -783,7 +774,6 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   isLoadingMore = false,
   isRowDisabled,
   isRowSelectable,
-  isRowBulkSelectable,
   columnsExemptFromDisabledStyling,
   sortableColumns,
   currentSort,
@@ -827,23 +817,14 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     }),
   );
 
-  // Whether a row can be selected at all (single-row click). Prefers
-  // `isRowSelectable`; falls back to `!isRowDisabled(item)` for back-compat.
-  const isRowPerRowSelectable = useCallback(
-    (item: ListItem) => (isRowSelectable ? isRowSelectable(item) : !(isRowDisabled?.(item) ?? false)),
-    [isRowDisabled, isRowSelectable],
-  );
-
-  // Rows eligible for *bulk add* (header "select all", shift-range). Layers
-  // `isRowBulkSelectable` on top of per-row selectability so a row can stay
-  // individually pickable while being excluded from batch add gestures. NOTE:
-  // this gates *adding* only — deselect paths must clear every per-row-
-  // selectable visible key, not just this set, or an explicit pick (e.g. a
-  // reparent rack) would survive a "clear the page" click.
+  // Prefers `isRowSelectable`; falls back to `!isRowDisabled(item)` for back-compat.
   const getSelectableItems = useCallback(
-    (itemList: ListItem[]) =>
-      itemList.filter((item) => isRowPerRowSelectable(item) && (isRowBulkSelectable?.(item) ?? true)),
-    [isRowPerRowSelectable, isRowBulkSelectable],
+    (itemList: ListItem[]) => {
+      if (isRowSelectable) return itemList.filter(isRowSelectable);
+      if (!isRowDisabled) return itemList;
+      return itemList.filter((item) => !isRowDisabled(item));
+    },
+    [isRowDisabled, isRowSelectable],
   );
 
   // Calculate total selectable count (total - disabled)
@@ -866,21 +847,10 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     // just this page would silently drop off-page selections. Instead toggle
     // only this page's keys into / out of the existing selection.
     if (preserveOffPageSelection) {
-      let next: ItemKeyValueType[];
-      if (checked) {
-        // Add only bulk-eligible page keys (the bulk guard excludes e.g.
-        // reparent rows, which require an explicit per-row pick).
-        const addKeys = getSelectableItems(filteredItems).map((item) => item[itemKey] as ItemKeyValueType);
-        next = Array.from(new Set([...currentSelectedItems, ...addKeys]));
-      } else {
-        // Clearing the page must remove every per-row-selectable visible key —
-        // including explicit picks the bulk guard excludes — so "uncheck the
-        // page" can't leave a hidden selection behind.
-        const removeKeys = new Set(
-          filteredItems.filter(isRowPerRowSelectable).map((item) => item[itemKey] as ItemKeyValueType),
-        );
-        next = currentSelectedItems.filter((key) => !removeKeys.has(key));
-      }
+      const pageKeys = getSelectableItems(filteredItems).map((item) => item[itemKey] as ItemKeyValueType);
+      const next = checked
+        ? Array.from(new Set([...currentSelectedItems, ...pageKeys]))
+        : currentSelectedItems.filter((key) => !pageKeys.includes(key));
       customSetSelectedItems ? customSetSelectedItems(next) : setSelectedItems(next);
       const newMode = next.length === 0 ? "none" : "subset";
       setSelectionMode(newMode);

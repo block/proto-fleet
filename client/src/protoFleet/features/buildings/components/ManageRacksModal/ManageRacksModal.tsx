@@ -231,12 +231,6 @@ const ManageRacksModal = ({
     [showAssigned, reassignmentIdSet],
   );
 
-  // A reassignment rack may only be added by an explicit single-row pick — it is
-  // excluded from every bulk gesture (header "select all", shift-range) via
-  // `isRowBulkSelectable` below, so moving racks and their miners can never be
-  // triggered by one batch selection.
-  const isRowBulkSelectable = useCallback((item: RackPickerItem) => !item.reassignment, []);
-
   // Name column renders a warning icon on reassignment rows while the toggle is
   // on; tapping it opens the per-row conflict dialog. Other columns unchanged.
   const listColConfig = useMemo<ColConfig<RackPickerItem, string, RackPickerColumn>>(() => {
@@ -285,9 +279,12 @@ const ManageRacksModal = ({
 
   const handleSelectAll = useCallback(() => {
     if (!items) return;
-    // Select-all promotes only the *eligible* (non-reassignment) set — matches
-    // MinerSelectionList, where select-all resolves to the assignable set and
-    // can never reparent. Reparenting stays an explicit per-row pick.
+    // Footer "Select all" selects every eligible rack across all pages. It is
+    // only offered while the "Show assigned racks" toggle is off (see the footer
+    // wiring below), so no reassignment rows are on screen; the `!r.reassignment`
+    // filter still guards the same-site reassignment rows the fetch loads but
+    // keeps hidden. Bulk-selecting reparent rows stays possible only via the
+    // in-table header checkbox, which routes them through the reparent confirm.
     setSelectedItems(items.filter((r) => !r.reassignment).map((r) => r.id));
   }, [items]);
 
@@ -354,7 +351,6 @@ const ManageRacksModal = ({
                 customSetSelectedItems={setSelectedItems}
                 preserveOffPageSelection
                 isRowDisabled={isRowDisabled}
-                isRowBulkSelectable={isRowBulkSelectable}
                 itemName={{ singular: "rack", plural: "racks" }}
                 hideTotal
                 containerClassName="min-h-0"
@@ -393,7 +389,13 @@ const ManageRacksModal = ({
             <div className="shrink-0">
               <ModalSelectAllFooter
                 label={`${selectedItems.length} ${selectedItems.length === 1 ? "rack" : "racks"} selected`}
-                onSelectAll={handleSelectAll}
+                // Hide "Select all" while ineligible (reassignment) racks are on
+                // screen — a bulk select-all can't sweep them into a reparent.
+                // Matches MinerSelectionList, which drops select-all when its
+                // "Show assigned" toggle is on. The in-table header checkbox
+                // still selects the whole page (reparent rows included), gated by
+                // the reparent confirm on Continue.
+                onSelectAll={showAssigned ? undefined : handleSelectAll}
                 onSelectNone={handleSelectNone}
               />
             </div>
