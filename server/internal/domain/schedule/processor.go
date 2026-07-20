@@ -2,6 +2,7 @@ package schedule
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	scheduletargets "github.com/block/proto-fleet/server/internal/domain/schedule/targets"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 const (
@@ -28,14 +30,9 @@ const (
 	revertPerformanceMode = commandpb.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY
 	schedulerActorName    = "scheduler"
 	oneTimeRetryDelay     = time.Second
-	// shutdownDeadline bounds Stop(): drain-before-cancel is the graceful
-	// path, the watchdog cancels workCtx if a DB/dispatch call wedges.
-	// Sized within the fleetd-wide shutdownTimeout (10s).
-	shutdownDeadline = 10 * time.Second
 )
 
-// shutdownDeadlineFn lets tests shrink the watchdog without affecting prod.
-var shutdownDeadlineFn = func() time.Duration { return shutdownDeadline }
+var errProcessorStopping = errors.New("schedule processor is still stopping")
 
 // CommandDispatcher is the subset of command.Service the processor needs.
 // CommandResult carries preflight skips for schedule-level audit.
@@ -64,14 +61,19 @@ type Processor struct {
 	activitySvc     *activity.Service
 	now             func() time.Time
 
-	stopCancel context.CancelFunc
-	workCancel context.CancelFunc
-	wg         sync.WaitGroup
-	timerWG    sync.WaitGroup
-	mu         sync.Mutex
-	jobs       map[int64]jobEntry
-	nextGen    uint64
+	stopCancel  context.CancelFunc
+	workCancel  context.CancelFunc
+	wg          sync.WaitGroup
+	timerWG     sync.WaitGroup
+	lifecycleMu sync.Mutex
+	running     bool
+	stopDone    chan struct{}
+	mu          sync.Mutex
+	jobs        map[int64]jobEntry
+	nextGen     uint64
 }
+
+var _ runtimejobs.Lifecycle = (*Processor)(nil)
 
 func NewProcessor(
 	procStore interfaces.ScheduleProcessorStore,
@@ -114,22 +116,40 @@ func scheduleFingerprint(sched *pb.Schedule) string {
 	return strings.Join(parts, "|")
 }
 
-func (p *Processor) Start(_ context.Context) error {
-	stopCtx, stopCancel := context.WithCancel(context.Background())
-	workCtx, workCancel := context.WithCancel(context.Background())
+func (p *Processor) Start(ctx context.Context) error {
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+
+	if p.running {
+		return nil
+	}
+	if p.stopDone != nil {
+		return errProcessorStopping
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("schedule processor startup: %w", err)
+	}
+
+	// stopCtx follows the activation context so periodic producers stop as
+	// soon as ownership is withdrawn. workCtx keeps the caller's values but is
+	// cancelled by Stop after in-flight callbacks have had a chance to drain.
+	stopCtx, stopCancel := context.WithCancel(ctx)
+	workCtx, workCancel := context.WithCancel(context.WithoutCancel(ctx))
 	p.stopCancel = stopCancel
 	p.workCancel = workCancel
 
 	p.cron = cron.New(cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
+	p.mu.Lock()
+	p.jobs = make(map[int64]jobEntry)
+	p.nextGen = 0
+	p.mu.Unlock()
 
-	if err := p.recoverStaleRunning(workCtx); err != nil {
-		stopCancel()
-		workCancel()
+	if err := p.recoverStaleRunning(stopCtx); err != nil {
+		p.resetFailedStart()
 		return fmt.Errorf("schedule processor startup: %w", err)
 	}
-	if err := p.syncSchedules(workCtx); err != nil {
-		stopCancel()
-		workCancel()
+	if err := p.syncSchedulesForRun(stopCtx, stopCtx, workCtx); err != nil {
+		p.resetFailedStart()
 		return fmt.Errorf("schedule processor startup: %w", err)
 	}
 
@@ -138,53 +158,113 @@ func (p *Processor) Start(_ context.Context) error {
 	p.wg.Add(2)
 	go p.reconcileLoop(stopCtx, workCtx)
 	go p.endOfWindowLoop(stopCtx, workCtx)
+	p.running = true
 
 	slog.Info("schedule processor started")
 	return nil
 }
 
-func (p *Processor) Stop() error {
-	// Watchdog bounds total shutdown: workCancel is idempotent, so an early
-	// fire just unblocks wedged in-flight calls; the drain sequence below
-	// still runs to completion.
-	if p.workCancel != nil {
-		watchdog := time.AfterFunc(shutdownDeadlineFn(), p.workCancel)
-		defer watchdog.Stop()
+// Stop gracefully stops the processor, bounded by ctx. A deadline
+// cancels in-flight work and returns to the caller; the processor remains in
+// the stopping state until its goroutines have actually drained, preventing a
+// later Start from overlapping the old activation.
+func (p *Processor) Stop(ctx context.Context) error {
+	done, workCancel := p.beginStop()
+	if done == nil {
+		return nil
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		workCancel()
+		return fmt.Errorf("stop schedule processor: %w", ctx.Err())
+	}
+}
+
+func (p *Processor) beginStop() (<-chan struct{}, context.CancelFunc) {
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+
+	workCancel := p.workCancel
+	if workCancel == nil {
+		workCancel = func() {}
+	}
+	if p.stopDone != nil {
+		return p.stopDone, workCancel
+	}
+	if !p.running && p.stopCancel == nil && p.workCancel == nil && p.cron == nil {
+		return nil, func() {}
 	}
 
-	if p.stopCancel != nil {
-		p.stopCancel()
+	p.running = false
+	p.stopDone = make(chan struct{})
+	done := p.stopDone
+	stopCancel := p.stopCancel
+	cronRunner := p.cron
+
+	if stopCancel != nil {
+		stopCancel()
+	}
+	var cronCtx context.Context
+	if cronRunner != nil {
+		cronCtx = cronRunner.Stop()
 	}
 
-	// Stop cron before waiting on the loops so no new cron callbacks fire
-	// during shutdown. In-flight callbacks complete with workCtx still live;
-	// cron.Stop() returns a context that's done once they finish. AddFunc on
-	// a stopped cron appends to entries without firing, so a late
-	// registration from the reconcile loop's last iteration is harmless.
-	if p.cron != nil {
-		cronCtx := p.cron.Stop()
+	go p.finishStop(done, cronCtx, workCancel)
+	return done, workCancel
+}
+
+func (p *Processor) finishStop(done chan struct{}, cronCtx context.Context, workCancel context.CancelFunc) {
+	if cronCtx != nil {
 		<-cronCtx.Done()
 	}
-
 	p.wg.Wait()
 
 	p.mu.Lock()
 	for _, entry := range p.jobs {
-		if entry.isOneTime && entry.timer != nil {
-			if entry.timer.Stop() {
-				p.timerWG.Done()
-			}
+		if entry.isOneTime && entry.timer != nil && entry.timer.Stop() {
+			p.timerWG.Done()
 		}
 	}
 	p.mu.Unlock()
-
 	p.timerWG.Wait()
+	workCancel()
 
+	p.lifecycleMu.Lock()
+	p.mu.Lock()
+	p.jobs = make(map[int64]jobEntry)
+	p.nextGen = 0
+	p.mu.Unlock()
+	p.stopCancel = nil
+	p.workCancel = nil
+	p.cron = nil
+	p.stopDone = nil
+	close(done)
+	p.lifecycleMu.Unlock()
+	slog.Info("schedule processor stopped")
+}
+
+func (p *Processor) resetFailedStart() {
+	if p.stopCancel != nil {
+		p.stopCancel()
+	}
 	if p.workCancel != nil {
 		p.workCancel()
 	}
-	slog.Info("schedule processor stopped")
-	return nil
+	p.mu.Lock()
+	for _, entry := range p.jobs {
+		if entry.isOneTime && entry.timer != nil && entry.timer.Stop() {
+			p.timerWG.Done()
+		}
+	}
+	p.jobs = make(map[int64]jobEntry)
+	p.nextGen = 0
+	p.mu.Unlock()
+	p.timerWG.Wait()
+	p.stopCancel = nil
+	p.workCancel = nil
+	p.cron = nil
 }
 
 func (p *Processor) reconcileLoop(stopCtx, workCtx context.Context) {
@@ -196,7 +276,10 @@ func (p *Processor) reconcileLoop(stopCtx, workCtx context.Context) {
 		case <-stopCtx.Done():
 			return
 		case <-ticker.C:
-			if err := p.syncSchedules(workCtx); err != nil {
+			if stopCtx.Err() != nil {
+				return
+			}
+			if err := p.syncSchedulesForRun(stopCtx, workCtx, workCtx); err != nil {
 				slog.Error("reconciliation failed, will retry next cycle", "error", err)
 			}
 		}
@@ -212,6 +295,9 @@ func (p *Processor) endOfWindowLoop(stopCtx, workCtx context.Context) {
 		case <-stopCtx.Done():
 			return
 		case <-ticker.C:
+			if stopCtx.Err() != nil {
+				return
+			}
 			p.checkEndOfWindow(workCtx)
 		}
 	}
@@ -245,7 +331,11 @@ func (p *Processor) recoverStaleRunning(ctx context.Context) error {
 // syncSchedules loads active/running schedules from the DB, diffs against
 // registered jobs, and adds/removes/updates as needed.
 func (p *Processor) syncSchedules(ctx context.Context) error {
-	schedules, err := p.procStore.GetActiveSchedules(ctx)
+	return p.syncSchedulesForRun(ctx, ctx, ctx)
+}
+
+func (p *Processor) syncSchedulesForRun(stopCtx, queryCtx, workCtx context.Context) error {
+	schedules, err := p.procStore.GetActiveSchedules(queryCtx)
 	if err != nil {
 		return fmt.Errorf("failed to load active schedules: %w", err)
 	}
@@ -265,7 +355,7 @@ func (p *Processor) syncSchedules(ctx context.Context) error {
 			p.removeJobLocked(sw.Schedule.Id)
 		}
 
-		if err := p.registerJob(ctx, sw.Schedule); err != nil {
+		if err := p.registerJob(stopCtx, workCtx, sw.Schedule); err != nil {
 			slog.Error("failed to register job", "schedule_id", sw.Schedule.Id, "error", err)
 		}
 	}
@@ -278,7 +368,7 @@ func (p *Processor) syncSchedules(ctx context.Context) error {
 	return nil
 }
 
-func (p *Processor) registerJob(ctx context.Context, sched *pb.Schedule) error {
+func (p *Processor) registerJob(stopCtx, workCtx context.Context, sched *pb.Schedule) error {
 	scheduleID := sched.Id
 	generation := p.nextJobGenerationLocked()
 
@@ -294,7 +384,12 @@ func (p *Processor) registerJob(ctx context.Context, sched *pb.Schedule) error {
 		p.timerWG.Add(1)
 		timer := time.AfterFunc(delay, func() {
 			defer p.timerWG.Done()
-			p.executeSchedule(ctx, scheduleID)
+			select {
+			case <-stopCtx.Done():
+				return
+			default:
+				p.executeSchedule(workCtx, scheduleID)
+			}
 		})
 		p.jobs[scheduleID] = jobEntry{timer: timer, isOneTime: true, fingerprint: scheduleFingerprint(sched), generation: generation}
 		return nil
@@ -309,7 +404,14 @@ func (p *Processor) registerJob(ctx context.Context, sched *pb.Schedule) error {
 		return fmt.Errorf("failed to build cron expression: %w", err)
 	}
 
-	entryID, err := p.cron.AddFunc(cronExpr, func() { p.executeSchedule(ctx, scheduleID) })
+	entryID, err := p.cron.AddFunc(cronExpr, func() {
+		select {
+		case <-stopCtx.Done():
+			return
+		default:
+			p.executeSchedule(workCtx, scheduleID)
+		}
+	})
 	if err != nil {
 		return fmt.Errorf("failed to register cron job: %w", err)
 	}

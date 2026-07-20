@@ -32,6 +32,21 @@ func (blockingSourcesLister) ListEnabledSources(ctx context.Context) ([]mqttinge
 	return nil, fmt.Errorf("list enabled sources: %w", ctx.Err())
 }
 
+type uninterruptibleSourcesLister struct {
+	started chan struct{}
+	release <-chan struct{}
+}
+
+func (l *uninterruptibleSourcesLister) ListEnabledSources(context.Context) ([]mqttingest.SourceConfig, error) {
+	select {
+	case <-l.started:
+	default:
+		close(l.started)
+	}
+	<-l.release
+	return nil, nil
+}
+
 type fakeRuntime struct {
 	statuses map[int64]mqttingest.RuntimeStatus
 }
@@ -378,12 +393,55 @@ func TestAlertMetricsLoopStartStop(t *testing.T) {
 
 	require.NoError(t, loop.Start(context.Background()))
 	require.NoError(t, loop.Start(context.Background()), "second Start must be a no-op")
-	loop.Stop()
-	loop.Stop() // second Stop must be a no-op
+	require.NoError(t, loop.Stop(context.Background()))
+	require.NoError(t, loop.Stop(context.Background())) // second Stop must be a no-op
 
 	// The first tick runs synchronously before the ticker wait, so Stop
 	// after Start guarantees at least one emission.
 	require.NotEmpty(t, emitter.connected)
+}
+
+func TestAlertMetricsLoopActivationContextCancellationAllowsRestart(t *testing.T) {
+	loop := newTestAlertMetricsLoop(t, AlertMetricsConfig{
+		Sources:           &fakeSourcesLister{},
+		Runtime:           &fakeRuntime{},
+		ActiveCurtailment: &fakeActiveLister{},
+		Emitter:           &recordingEmitter{},
+	})
+	runCtx, cancel := context.WithCancel(context.Background())
+	require.NoError(t, loop.Start(runCtx))
+	cancel()
+	require.Eventually(t, func() bool {
+		loop.mu.Lock()
+		defer loop.mu.Unlock()
+		return loop.cancel == nil
+	}, time.Second, 10*time.Millisecond)
+
+	require.NoError(t, loop.Start(context.Background()))
+	require.NoError(t, loop.Stop(context.Background()))
+}
+
+func TestAlertMetricsLoopStopPreventsOverlapAfterTimeout(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	loop := newTestAlertMetricsLoop(t, AlertMetricsConfig{
+		Sources:           &uninterruptibleSourcesLister{started: started, release: release},
+		Runtime:           &fakeRuntime{},
+		ActiveCurtailment: &fakeActiveLister{},
+		Emitter:           &recordingEmitter{},
+	})
+	require.NoError(t, loop.Start(context.Background()))
+	<-started
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer stopCancel()
+	require.ErrorIs(t, loop.Stop(stopCtx), context.DeadlineExceeded)
+	require.Error(t, loop.Start(context.Background()), "timed-out tick must retain the activation")
+
+	close(release)
+	require.NoError(t, loop.Stop(context.Background()))
+	require.NoError(t, loop.Start(context.Background()))
+	require.NoError(t, loop.Stop(context.Background()))
 }
 
 func TestNewAlertMetricsLoopValidatesDependencies(t *testing.T) {

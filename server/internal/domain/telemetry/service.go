@@ -94,6 +94,7 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 const (
@@ -319,7 +320,6 @@ type TelemetryService struct {
 	deviceStore        stores.DeviceStore
 	errorPoller        ErrorPoller
 	metricsObserver    *metricsObserver
-	mux                sync.Mutex
 	// tasks queues devices for full telemetry collection (metrics, telemetry, and status).
 	// Buffer sized to ConcurrencyLimit to ensure at least one queued task per worker.
 	tasks chan models.Device
@@ -338,8 +338,12 @@ type TelemetryService struct {
 	// metricsFlushRequests asks metricsWriterRoutine to flush pending metrics
 	// immediately and report the result to the caller.
 	metricsFlushRequests chan metricsFlushRequest
-	cancelFunc           context.CancelFunc
 	lookBackDuration     time.Duration
+	lifecycleMu          sync.Mutex
+	runCancel            context.CancelFunc
+	runWG                sync.WaitGroup
+	runDone              <-chan struct{}
+	stopping             bool
 	// devicesForStatusPolling tracks all paired devices that need periodic status checks.
 	// This ensures failed devices (removed from scheduler after MaxConsecutiveFailures)
 	// continue to be polled for status so they can recover when they come back online.
@@ -353,10 +357,10 @@ type TelemetryService struct {
 	// lastDefaultPwActive caches the last-seen default-password flag per device so
 	// the poll only checks for a pairing-status change on transitions, not every poll.
 	lastDefaultPwActive sync.Map // map[DeviceIdentifier]bool
-	// inFlight tracks devices currently being processed by a worker via the tasks channel.
+	// inFlight tracks devices currently being processed by workers or request-driven refreshes.
 	// statusPollingRoutine skips devices in this map to avoid double-processing the same
-	// device simultaneously in both the full-telemetry and status-only paths.
-	inFlight sync.Map // map[DeviceIdentifier]struct{}
+	// device simultaneously across the full-telemetry and status-only paths.
+	inFlight sync.Map // map[DeviceIdentifier]inFlightKind
 	// combinedMetricsSingle collapses identical concurrent GetCombinedMetrics
 	// calls (N dashboard viewers polling the same org) into one execution.
 	combinedMetricsSingle singleflight.Group
@@ -367,24 +371,27 @@ type TelemetryService struct {
 	combinedMetricsFlights   map[string]*combinedMetricsFlight
 }
 
+var _ runtimejobs.Lifecycle = (*TelemetryService)(nil)
+
 func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager CachedMinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller) *TelemetryService {
-	return &TelemetryService{
+	s := &TelemetryService{
 		config:                 config,
 		telemetryDataStore:     telemetryDataStore,
 		minerManager:           minerManager,
 		updateScheduler:        scheduler,
 		deviceStore:            deviceStore,
 		errorPoller:            errorPoller,
+		lookBackDuration:       -1 * (config.StalenessThreshold - config.FetchInterval),
+		metricsObserver:        newMetricsObserver(NoMetrics()),
+		combinedMetricsFlights: make(map[string]*combinedMetricsFlight),
 		tasks:                  make(chan models.Device, config.ConcurrencyLimit),
 		statusTasks:            make(chan models.Device, config.ConcurrencyLimit),
 		statusResults:          make(chan statusResult, resultsChannelBuffer),
 		statusFlushRequests:    make(chan statusFlushRequest),
 		metricsResults:         make(chan metricsResult, resultsChannelBuffer),
 		metricsFlushRequests:   make(chan metricsFlushRequest),
-		lookBackDuration:       -1 * (config.StalenessThreshold - config.FetchInterval),
-		metricsObserver:        newMetricsObserver(NoMetrics()),
-		combinedMetricsFlights: make(map[string]*combinedMetricsFlight),
 	}
+	return s
 }
 
 func (s *TelemetryService) WithMetricsEmitter(emitter MetricsEmitter) *TelemetryService {
@@ -535,30 +542,76 @@ func (s *TelemetryService) flushMetrics(ctx context.Context, deviceID *models.De
 }
 
 func (s *TelemetryService) Start(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
-	s.cancelFunc = cancel
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	if s.stopping {
+		return fmt.Errorf("telemetry service is still stopping")
+	}
+	if s.runCancel != nil {
+		return nil
+	}
 
-	go s.gatherMetricsRoutine(ctx)
-	go s.devicePollingRoutine(ctx)
-	go s.statusPollingRoutine(ctx)
-	go s.fleetStateSnapshotRoutine(ctx)
-	go s.fleetMetricRollupRoutine(ctx)
+	runCtx, cancel := context.WithCancel(ctx)
+	runDone := make(chan struct{})
+	s.runCancel = cancel
+	s.runDone = runDone
+	s.runWG.Go(func() { s.gatherMetricsRoutine(runCtx) })
+	s.runWG.Go(func() { s.devicePollingRoutine(runCtx) })
+	s.runWG.Go(func() { s.statusPollingRoutine(runCtx) })
+	s.runWG.Go(func() { s.fleetStateSnapshotRoutine(runCtx) })
+	s.runWG.Go(func() { s.fleetMetricRollupRoutine(runCtx) })
+	go s.finishRun(runDone)
 	return nil
 }
 
-func (s *TelemetryService) Stop(ctx context.Context) error {
-	s.cancelFunc()
-	defer close(s.tasks)
-	defer close(s.statusTasks)
-	defer close(s.statusResults)
+func (s *TelemetryService) finishRun(done chan struct{}) {
+	s.runWG.Wait()
 
-	s.broadcasters.Range(func(_, value any) bool {
+	s.lifecycleMu.Lock()
+	if s.runDone == (<-chan struct{})(done) {
+		s.runCancel = nil
+		s.runDone = nil
+		s.stopping = false
+	}
+	s.lifecycleMu.Unlock()
+	close(done)
+}
+
+func (s *TelemetryService) Stop(ctx context.Context) error {
+	s.lifecycleMu.Lock()
+	if s.runCancel == nil {
+		s.lifecycleMu.Unlock()
+		return nil
+	}
+	if !s.stopping {
+		s.stopping = true
+		s.runCancel()
+	}
+	done := s.runDone
+	s.lifecycleMu.Unlock()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("stop telemetry service: %w", ctx.Err())
+	}
+}
+
+// Close stops polling and closes per-organization broadcasters during process
+// teardown. Runtime demotion should call Stop so read-only streams can remain
+// independent of the active polling lifecycle.
+func (s *TelemetryService) Close(ctx context.Context) error {
+	if err := s.Stop(ctx); err != nil {
+		return err
+	}
+	s.broadcasters.Range(func(key, value any) bool {
 		if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
 			broadcaster.Stop()
 		}
+		s.broadcasters.Delete(key)
 		return true
 	})
-
 	return nil
 }
 
@@ -597,19 +650,14 @@ func (s *TelemetryService) GetOrCreateBroadcaster(ctx context.Context, orgID int
 }
 
 func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
-	if !s.mux.TryLock() {
-		return
-	}
-	defer s.mux.Unlock()
-
 	// Start workers that fetch telemetry/status from miners
 	for range s.config.ConcurrencyLimit {
-		go s.worker(ctx)
+		s.runWG.Go(func() { s.worker(ctx) })
 	}
 
 	// Start routines that collect results from workers and periodically write to DB
-	go s.statusWriterRoutine(ctx)
-	go s.metricsWriterRoutine(ctx)
+	s.runWG.Go(func() { s.statusWriterRoutine(ctx) })
+	s.runWG.Go(func() { s.metricsWriterRoutine(ctx) })
 
 	fetchInterval := s.config.FetchInterval
 	if fetchInterval <= 0 {
@@ -629,7 +677,11 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
 				continue
 			}
 			for _, device := range devices {
-				s.tasks <- device
+				select {
+				case s.tasks <- device:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
 	}

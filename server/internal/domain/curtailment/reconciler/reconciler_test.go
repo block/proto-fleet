@@ -799,7 +799,6 @@ func identifiersFromSelector(selector *pb.DeviceSelector) []string {
 func newReconcilerForTest(store *fakeStore, disp *fakeDispatcher) *Reconciler {
 	r := New(Config{
 		TickInterval:         time.Hour, // tests drive runTick directly
-		ShutdownDeadline:     time.Second,
 		MaxRetries:           3,
 		CurtailMaxRetries:    3,
 		DriftThresholdFactor: 0.5,
@@ -811,7 +810,6 @@ func newReconcilerForTest(store *fakeStore, disp *fakeDispatcher) *Reconciler {
 func newReconcilerWithFansForTest(store *fakeStore, disp *fakeDispatcher, fans *fakeFanController) *Reconciler {
 	r := New(Config{
 		TickInterval:         time.Hour,
-		ShutdownDeadline:     time.Second,
 		MaxRetries:           3,
 		CurtailMaxRetries:    3,
 		DriftThresholdFactor: 0.5,
@@ -828,7 +826,6 @@ func newReconcilerWithFanAlertForTest(
 ) *Reconciler {
 	r := New(Config{
 		TickInterval:         time.Hour,
-		ShutdownDeadline:     time.Second,
 		MaxRetries:           3,
 		CurtailMaxRetries:    3,
 		DriftThresholdFactor: 0.5,
@@ -3105,7 +3102,6 @@ func TestReconciler_ListEventsErrorAdvancesHeartbeatAndIncrementsFailure(t *test
 
 	r := New(Config{
 		TickInterval:         time.Hour,
-		ShutdownDeadline:     time.Second,
 		MaxRetries:           3,
 		DriftThresholdFactor: 0.5,
 	}, store, disp, WithMetrics(metrics))
@@ -3845,7 +3841,6 @@ func TestReconciler_ObserveTickDurationFiresOnHappyPath(t *testing.T) {
 
 	r := New(Config{
 		TickInterval:         time.Hour,
-		ShutdownDeadline:     time.Second,
 		MaxRetries:           3,
 		DriftThresholdFactor: 0.5,
 	}, store, disp, WithMetrics(metrics))
@@ -3870,7 +3865,6 @@ func TestReconciler_TickFailureFiresOnTickInfraPanic(t *testing.T) {
 	store.listEventsPanicErr = "synthetic db panic"
 	r := New(Config{
 		TickInterval:         time.Hour,
-		ShutdownDeadline:     time.Second,
 		MaxRetries:           3,
 		DriftThresholdFactor: 0.5,
 	}, store, disp, WithMetrics(metrics))
@@ -3904,7 +3898,6 @@ func TestReconciler_TickFailureFiresOnPerEventPanic(t *testing.T) {
 	first := true
 	r := New(Config{
 		TickInterval:         time.Hour,
-		ShutdownDeadline:     time.Second,
 		MaxRetries:           3,
 		DriftThresholdFactor: 0.5,
 	}, store, disp, WithMetrics(metrics))
@@ -3950,19 +3943,77 @@ func TestReconciler_PanicInListEventsRecovers(t *testing.T) {
 func TestReconciler_StartIdempotency(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
-	r := New(Config{TickInterval: time.Hour, ShutdownDeadline: time.Second}, store, disp)
+	r := New(Config{TickInterval: time.Hour}, store, disp)
 
 	require.NoError(t, r.Start(context.Background()))
 	require.NoError(t, r.Start(context.Background()), "second Start is a no-op")
-	require.NoError(t, r.Stop())
+	require.NoError(t, r.Stop(context.Background()))
 	// Second Stop is a no-op too; verify no panic / goroutine deadlock.
-	require.NoError(t, r.Stop())
+	require.NoError(t, r.Stop(context.Background()))
+}
+
+func TestReconciler_ActivationContextCancellationAllowsRestart(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	r := New(Config{TickInterval: time.Hour}, store, disp)
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	require.NoError(t, r.Start(runCtx))
+	cancel()
+	require.Eventually(t, func() bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return r.runDone == nil
+	}, time.Second, 10*time.Millisecond)
+
+	require.NoError(t, r.Start(context.Background()))
+	require.NoError(t, r.Stop(context.Background()))
+}
+
+func TestReconciler_StopCancellationPreventsOverlappingRestart(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	r := New(Config{TickInterval: time.Hour}, store, disp)
+
+	workCtx, workCancel := context.WithCancel(context.Background())
+	runDone := make(chan struct{})
+	r.stopCancel = func() {}
+	r.workCancel = workCancel
+	r.runDone = runDone
+
+	workCanceled := make(chan struct{})
+	releaseWork := make(chan struct{})
+	go func() {
+		<-workCtx.Done()
+		close(workCanceled)
+		<-releaseWork
+		r.finishActivation(workCancel)
+		close(runDone)
+	}()
+
+	stopCtx, cancelStop := context.WithCancel(context.Background())
+	cancelStop()
+	require.ErrorIs(t, r.Stop(stopCtx), context.Canceled)
+	require.Eventually(t, func() bool {
+		select {
+		case <-workCanceled:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond)
+	require.ErrorContains(t, r.Start(context.Background()), "previous activation is still stopping")
+
+	close(releaseWork)
+	require.NoError(t, r.Stop(context.Background()))
+	require.NoError(t, r.Start(context.Background()))
+	require.NoError(t, r.Stop(context.Background()))
 }
 
 func TestReconciler_StartRejectsSubSecondTickInterval(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
-	r := New(Config{TickInterval: 500 * time.Millisecond, ShutdownDeadline: time.Second}, store, disp)
+	r := New(Config{TickInterval: 500 * time.Millisecond}, store, disp)
 
 	err := r.Start(context.Background())
 	require.Error(t, err)
@@ -3974,7 +4025,6 @@ func TestReconciler_StartRejectsInvalidCurtailDispatchTimeout(t *testing.T) {
 	disp := &fakeDispatcher{}
 	r := New(Config{
 		TickInterval:              time.Hour,
-		ShutdownDeadline:          time.Second,
 		CurtailDispatchTimeoutSec: -1,
 	}, store, disp)
 
@@ -3986,7 +4036,7 @@ func TestReconciler_StartRejectsInvalidCurtailDispatchTimeout(t *testing.T) {
 func TestReconciler_ConfigDefaultsDispatchTimeouts(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
-	r := New(Config{TickInterval: time.Hour, ShutdownDeadline: time.Second}, store, disp)
+	r := New(Config{TickInterval: time.Hour}, store, disp)
 
 	assert.Equal(t, int32(10), r.cfg.MaxRetries)
 	assert.Equal(t, int32(50), r.cfg.CurtailMaxRetries)

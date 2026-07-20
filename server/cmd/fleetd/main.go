@@ -129,6 +129,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/mqttclient"
 	"github.com/block/proto-fleet/server/internal/infrastructure/server"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -386,11 +387,19 @@ func start(config *Config) error {
 		WithCommandSender(fleetNodeControlRegistry)
 
 	// Create diagnostics service for error polling and auto-closing stale errors
-	diagnosticsCtx, diagnosticsCancel := context.WithCancel(context.Background())
-	defer diagnosticsCancel()
 	errorStore := sqlstores.NewSQLErrorStore(conn, transactor)
-	diagnosticsService := diagnostics.NewService(diagnosticsCtx, config.Diagnostics, errorStore, transactor).
+	diagnosticsService := diagnostics.NewService(config.Diagnostics, errorStore, transactor).
 		WithDeviceScopeResolver(deviceStore)
+	if err := diagnosticsService.Start(context.Background()); err != nil {
+		return fmt.Errorf("start diagnostics error closer: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := diagnosticsService.Stop(shutdownCtx); err != nil {
+			slog.Error("failed to stop diagnostics error closer", "error", err)
+		}
+	}()
 
 	// Shared per-org cache for ListMinerStateSnapshots option arrays
 	// (models, firmware versions). The TTL is the primary freshness
@@ -418,7 +427,7 @@ func start(config *Config) error {
 		slog.Info("Stopping telemetry service")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		if err := telemetryService.Stop(shutdownCtx); err != nil {
+		if err := telemetryService.Close(shutdownCtx); err != nil {
 			slog.Error("Failed to stop telemetry service", "error", err)
 		}
 	}()
@@ -458,15 +467,10 @@ func start(config *Config) error {
 	// Ensure IP scanner service cleanup on shutdown
 	defer func() {
 		slog.Info("Stopping IP scanner service")
-		if err := ipScannerService.Stop(); err != nil {
-			slog.Error("Failed to stop IP scanner service", "error", err)
-		}
+		stopStandaloneJob("IP scanner service", ipScannerService)
 	}()
 
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
-
-	executionServiceCtx, executionServiceCancel := context.WithCancel(context.Background())
-	defer executionServiceCancel()
 
 	// Ensure plugin cleanup on shutdown
 	defer func() {
@@ -478,11 +482,15 @@ func start(config *Config) error {
 		}
 	}()
 
-	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
+	executionService := commandDomain.NewExecutionService(&config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
 	executionService.WithMetricsEmitter(metricsProvider)
-	err = executionService.Start(executionServiceCtx)
+	err = executionService.Start(context.Background())
 	if err != nil {
 		slog.Error("failed to start command execution service", "error", err)
+	} else {
+		defer func() {
+			stopStandaloneJob("command execution service", executionService)
+		}()
 	}
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
@@ -544,9 +552,7 @@ func start(config *Config) error {
 		return fmt.Errorf("failed to start schedule processor: %w", err)
 	}
 	defer func() {
-		if err := scheduleProcessor.Stop(); err != nil {
-			slog.Error("failed to stop schedule processor", "error", err)
-		}
+		stopStandaloneJob("schedule processor", scheduleProcessor)
 	}()
 
 	curtailmentRec := curtailmentReconciler.New(
@@ -561,9 +567,7 @@ func start(config *Config) error {
 		return fmt.Errorf("failed to start curtailment reconciler: %w", err)
 	}
 	defer func() {
-		if err := curtailmentRec.Stop(); err != nil {
-			slog.Error("failed to stop curtailment reconciler", "error", err)
-		}
+		stopStandaloneJob("curtailment reconciler", curtailmentRec)
 	}()
 
 	mqttQueries, err := db.NewPreparedQuerier(context.Background(), conn)
@@ -600,7 +604,13 @@ func start(config *Config) error {
 	if err := mqttSubscriber.Start(context.Background()); err != nil {
 		return fmt.Errorf("failed to start curtailment mqtt subscriber: %w", err)
 	}
-	defer mqttSubscriber.Stop()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := mqttSubscriber.Stop(shutdownCtx); err != nil {
+			slog.Error("failed to stop curtailment mqtt subscriber", "error", err)
+		}
+	}()
 	mqttConnectionTester, err := mqttingest.NewMQTTConnectionTester(mqttingest.ConnectionTesterConfig{
 		NewClient: func() mqttingest.MQTTClient { return mqttclient.New() },
 	})
@@ -632,7 +642,9 @@ func start(config *Config) error {
 		if err := curtailmentAlertMetrics.Start(context.Background()); err != nil {
 			return fmt.Errorf("failed to start curtailment alert metrics loop: %w", err)
 		}
-		defer curtailmentAlertMetrics.Stop()
+		defer func() {
+			stopStandaloneJob("curtailment alert metrics loop", curtailmentAlertMetrics)
+		}()
 	}
 
 	deviceResolver := deviceresolver.New(deviceStore)
@@ -793,6 +805,28 @@ func start(config *Config) error {
 		return fmt.Errorf("server shutting down: %+v", err)
 	}
 	return nil
+}
+
+// stopStandaloneJob gives work one graceful-shutdown budget, then one final
+// bounded drain budget after forced cancellation. Later teardown always gets
+// a chance to run even if a dependency ignores cancellation.
+func stopStandaloneJob(name string, job runtimejobs.Lifecycle) {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	err := job.Stop(shutdownCtx)
+	cancel()
+	if err == nil {
+		return
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		slog.Error("failed to stop runtime job", "job", name, "error", err)
+		return
+	}
+	slog.Error("runtime job exceeded shutdown timeout", "job", name, "error", err)
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer drainCancel()
+	if err := job.Stop(drainCtx); err != nil {
+		slog.Error("failed to drain runtime job", "job", name, "error", err)
+	}
 }
 
 func newHTTP2Server(config HTTPConfig) *http2.Server {

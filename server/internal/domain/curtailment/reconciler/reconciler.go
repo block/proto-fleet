@@ -24,6 +24,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -33,7 +34,6 @@ const (
 	reconcilerActorName = "curtailment-reconciler"
 
 	defaultTickInterval            = 30 * time.Second
-	defaultShutdownDeadline        = 10 * time.Second
 	defaultMaxRetries        int32 = 10
 	defaultCurtailMaxRetries int32 = 50
 
@@ -55,7 +55,6 @@ type CommandDispatcher interface {
 // Config carries runtime tunables. Zero-valued fields use defaults.
 type Config struct {
 	TickInterval         time.Duration `help:"Interval between curtailment reconciler ticks. Zero uses the default; values below 1s are rejected." default:"0s" env:"TICK_INTERVAL"`
-	ShutdownDeadline     time.Duration
 	MaxRetries           int32
 	CurtailMaxRetries    int32
 	DriftThresholdFactor float64
@@ -70,9 +69,6 @@ type Config struct {
 func (c Config) withDefaults() Config {
 	if c.TickInterval <= 0 {
 		c.TickInterval = defaultTickInterval
-	}
-	if c.ShutdownDeadline <= 0 {
-		c.ShutdownDeadline = defaultShutdownDeadline
 	}
 	if c.MaxRetries <= 0 {
 		c.MaxRetries = defaultMaxRetries
@@ -107,11 +103,14 @@ type Reconciler struct {
 
 	stopCancel context.CancelFunc
 	workCancel context.CancelFunc
-	wg         sync.WaitGroup
+	runDone    <-chan struct{}
 
-	mu      sync.Mutex
-	running bool
+	lifecycleMu sync.Mutex
+	mu          sync.Mutex
+	stopping    bool
 }
+
+var _ runtimejobs.Lifecycle = (*Reconciler)(nil)
 
 // Option configures a Reconciler at construction time.
 type Option func(*Reconciler)
@@ -162,7 +161,7 @@ func New(cfg Config, store interfaces.CurtailmentStore, cmd CommandDispatcher, o
 
 // Start spins up the tick loop. Repeat Starts without an intervening Stop
 // are no-ops so misbehaving wiring cannot fork two reconcilers.
-func (r *Reconciler) Start(_ context.Context) error {
+func (r *Reconciler) Start(ctx context.Context) error {
 	if r.store == nil {
 		return fmt.Errorf("curtailment reconciler: store is required")
 	}
@@ -176,58 +175,75 @@ func (r *Reconciler) Start(_ context.Context) error {
 		return fmt.Errorf("curtailment reconciler: curtail_dispatch_timeout_sec must be at least 1, got %d", r.cfg.CurtailDispatchTimeoutSec)
 	}
 
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
 	r.mu.Lock()
-	if r.running {
+	if r.stopping {
+		r.mu.Unlock()
+		return errors.New("curtailment reconciler: previous activation is still stopping")
+	}
+	if r.runDone != nil {
 		r.mu.Unlock()
 		return nil
 	}
-	r.running = true
-	stopCtx, stopCancel := context.WithCancel(context.Background())
-	workCtx, workCancel := context.WithCancel(context.Background())
+	stopCtx, stopCancel := context.WithCancel(ctx)
+	// Stopping the activation prevents new ticks immediately but gives the
+	// current tick a chance to finish. Stop cancels this detached work
+	// context if its caller's shutdown budget expires.
+	workCtx, workCancel := context.WithCancel(context.WithoutCancel(ctx))
+	runDone := make(chan struct{})
 	r.stopCancel = stopCancel
 	r.workCancel = workCancel
+	r.runDone = runDone
 	r.mu.Unlock()
 
-	r.wg.Add(1)
-	go r.tickLoop(stopCtx, workCtx)
+	go r.tickLoop(stopCtx, workCtx, workCancel, runDone)
 	slog.Info("curtailment reconciler started", "tick_interval", r.cfg.TickInterval)
 	return nil
 }
 
-// Stop signals the tick loop and waits up to ShutdownDeadline for the
-// in-flight tick to drain. Concurrent second Stop is a no-op. Adding a
-// Start-after-Stop restart path needs a `stopping` guard to prevent
-// stacking goroutines on the same WaitGroup.
-func (r *Reconciler) Stop() error {
+// Stop prevents new ticks, waits for the current tick to drain within
+// ctx, and force-cancels its work when the budget expires. A timed-out
+// activation retains ownership until its goroutine actually exits, so Start
+// can never overlap it.
+func (r *Reconciler) Stop(ctx context.Context) error {
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
+
 	r.mu.Lock()
-	if !r.running {
+	if r.runDone == nil {
 		r.mu.Unlock()
 		return nil
 	}
-	r.running = false
+	r.stopping = true
 	stopCancel := r.stopCancel
 	workCancel := r.workCancel
-	r.stopCancel = nil
-	r.workCancel = nil
+	runDone := r.runDone
 	r.mu.Unlock()
 
-	if workCancel != nil {
-		watchdog := time.AfterFunc(r.cfg.ShutdownDeadline, workCancel)
-		defer watchdog.Stop()
-	}
 	if stopCancel != nil {
 		stopCancel()
 	}
-	r.wg.Wait()
-	if workCancel != nil {
-		workCancel()
+	select {
+	case <-runDone:
+		slog.Info("curtailment reconciler stopped")
+		return nil
+	case <-ctx.Done():
+		if workCancel != nil {
+			workCancel()
+		}
+		return fmt.Errorf("curtailment reconciler: stop: %w", ctx.Err())
 	}
-	slog.Info("curtailment reconciler stopped")
-	return nil
 }
 
-func (r *Reconciler) tickLoop(stopCtx, workCtx context.Context) {
-	defer r.wg.Done()
+func (r *Reconciler) tickLoop(
+	stopCtx context.Context,
+	workCtx context.Context,
+	workCancel context.CancelFunc,
+	runDone chan<- struct{},
+) {
+	defer close(runDone)
+	defer r.finishActivation(workCancel)
 	ticker := time.NewTicker(r.cfg.TickInterval)
 	defer ticker.Stop()
 	for {
@@ -238,6 +254,16 @@ func (r *Reconciler) tickLoop(stopCtx, workCtx context.Context) {
 			r.safeTick(workCtx)
 		}
 	}
+}
+
+func (r *Reconciler) finishActivation(workCancel context.CancelFunc) {
+	workCancel()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stopping = false
+	r.stopCancel = nil
+	r.workCancel = nil
+	r.runDone = nil
 }
 
 // safeTick recovers panics in tick-level infra so the goroutine survives;

@@ -7,6 +7,7 @@ package curtailment
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/mqttingest"
 	"github.com/block/proto-fleet/server/internal/infrastructure/metrics"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 // 10s keeps alert latency close to the source signal: curtailment engages
@@ -60,11 +62,12 @@ type AlertMetricsConfig struct {
 type AlertMetricsLoop struct {
 	cfg AlertMetricsConfig
 
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	cancel  context.CancelFunc
+	runDone <-chan struct{}
 
-	mu      sync.Mutex
-	running bool
+	lifecycleMu sync.Mutex
+	mu          sync.Mutex
+	stopping    bool
 
 	// prevConnected / prevActive remember the labels each gauge was emitted
 	// with last tick (touched only by the tick goroutine), so a renamed or
@@ -73,6 +76,8 @@ type AlertMetricsLoop struct {
 	prevConnected map[int64]metrics.MQTTSourceLabels
 	prevActive    map[int64]metrics.MQTTSourceLabels
 }
+
+var _ runtimejobs.Lifecycle = (*AlertMetricsLoop)(nil)
 
 // NewAlertMetricsLoop validates dependencies and applies defaults.
 func NewAlertMetricsLoop(cfg AlertMetricsConfig) (*AlertMetricsLoop, error) {
@@ -99,39 +104,62 @@ func NewAlertMetricsLoop(cfg AlertMetricsConfig) (*AlertMetricsLoop, error) {
 
 // Start launches the tick loop; a second Start while running is a no-op.
 // The loop runs until Stop.
-func (l *AlertMetricsLoop) Start(_ context.Context) error {
+func (l *AlertMetricsLoop) Start(ctx context.Context) error {
+	l.lifecycleMu.Lock()
+	defer l.lifecycleMu.Unlock()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.running {
+	if l.stopping {
+		return errors.New("curtailment alert metrics: previous activation is still stopping")
+	}
+	if l.cancel != nil {
 		return nil
 	}
-	runCtx, cancel := context.WithCancel(context.Background())
+	runCtx, cancel := context.WithCancel(ctx)
+	runDone := make(chan struct{})
 	l.cancel = cancel
-	l.running = true
-	l.wg.Add(1)
-	go l.tickLoop(runCtx)
+	l.runDone = runDone
+	go l.tickLoop(runCtx, runDone)
 	l.cfg.Logger.Info("curtailment alert metrics loop started", "interval", l.cfg.Interval)
 	return nil
 }
 
-// Stop cancels the loop and waits for the in-flight tick to drain. The wait
-// holds the mutex so a concurrent Start cannot reuse the WaitGroup mid-Wait;
-// the tick goroutine never takes the mutex, so this cannot deadlock.
-func (l *AlertMetricsLoop) Stop() {
+// Stop cancels the loop and waits for the in-flight tick within ctx.
+// A timed-out activation remains owned, preventing a replacement loop from
+// overlapping work that ignored cancellation.
+func (l *AlertMetricsLoop) Stop(ctx context.Context) error {
+	l.lifecycleMu.Lock()
+	defer l.lifecycleMu.Unlock()
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	if l.cancel == nil {
-		return
+		l.mu.Unlock()
+		return nil
 	}
-	l.cancel()
-	l.cancel = nil
-	l.running = false
-	l.wg.Wait()
-	l.cfg.Logger.Info("curtailment alert metrics loop stopped")
+	l.stopping = true
+	cancel := l.cancel
+	runDone := l.runDone
+	l.mu.Unlock()
+	cancel()
+	select {
+	case <-runDone:
+		l.cfg.Logger.Info("curtailment alert metrics loop stopped")
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("curtailment alert metrics: stop: %w", ctx.Err())
+	}
 }
 
-func (l *AlertMetricsLoop) tickLoop(ctx context.Context) {
-	defer l.wg.Done()
+func (l *AlertMetricsLoop) finishActivation() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.cancel = nil
+	l.runDone = nil
+	l.stopping = false
+}
+
+func (l *AlertMetricsLoop) tickLoop(ctx context.Context, runDone chan<- struct{}) {
+	defer close(runDone)
+	defer l.finishActivation()
 	ticker := time.NewTicker(l.cfg.Interval)
 	defer ticker.Stop()
 	l.tick(ctx)

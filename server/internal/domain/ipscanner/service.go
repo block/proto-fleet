@@ -2,6 +2,8 @@ package ipscanner
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"sync"
@@ -10,7 +12,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/minerdiscovery"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
+
+var errServiceStopping = errors.New("ip scanner service is still stopping")
 
 // Service orchestrates automatic IP address discovery for offline devices
 type Service struct {
@@ -22,12 +27,21 @@ type Service struct {
 	scanner               *NetworkScanner
 	logger                *slog.Logger
 
-	// Worker pool
-	tasks      chan SubnetScanTask
-	results    chan SubnetScanResult
-	cancelFunc context.CancelFunc
-	wg         sync.WaitGroup
-	mux        sync.Mutex // Prevents multiple instances of scanLoop from running
+	lifecycleMu sync.Mutex
+	run         *serviceRun
+}
+
+var _ runtimejobs.Lifecycle = (*Service)(nil)
+
+// serviceRun contains all state owned by a single activation. Keeping queues
+// here prevents stopped runs from leaking buffered work into a later Start.
+type serviceRun struct {
+	tasks    chan SubnetScanTask
+	results  chan SubnetScanResult
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
+	done     chan struct{}
+	stopping bool
 }
 
 // NewIPScannerService creates a new IP scanner service
@@ -47,8 +61,6 @@ func NewIPScannerService(
 		deviceIDCheckService:  deviceIDCheckService,
 		scanner:               NewNetworkScanner(discoverer, deviceIDCheckService, config.MaxConcurrentIPScansPerSubnet, logger),
 		logger:                logger.With("component", "ipscanner"),
-		tasks:                 make(chan SubnetScanTask, config.MaxConcurrentSubnetScans),
-		results:               make(chan SubnetScanResult, config.MaxConcurrentSubnetScans),
 	}
 }
 
@@ -59,21 +71,33 @@ func (s *Service) Start(ctx context.Context) error {
 		return nil
 	}
 
-	// Prevent multiple Start() calls from creating duplicate goroutines
-	if !s.mux.TryLock() {
-		s.logger.Warn("IP scanner service already started")
-		return nil
-	}
-	defer s.mux.Unlock()
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
 
-	// Check if already started by examining cancelFunc
-	if s.cancelFunc != nil {
-		s.logger.Warn("IP scanner service already running")
-		return nil
+	if s.run != nil {
+		select {
+		case <-s.run.done:
+			s.run = nil
+		default:
+			if s.run.stopping {
+				return errServiceStopping
+			}
+			s.logger.Warn("IP scanner service already running")
+			return nil
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("start ip scanner service: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
-	s.cancelFunc = cancel
+	run := &serviceRun{
+		tasks:   make(chan SubnetScanTask, s.config.MaxConcurrentSubnetScans),
+		results: make(chan SubnetScanResult, s.config.MaxConcurrentSubnetScans),
+		cancel:  cancel,
+		done:    make(chan struct{}),
+	}
+	s.run = run
 
 	s.logger.Info("Starting IP scanner service",
 		"scan_interval", s.config.ScanInterval,
@@ -83,55 +107,70 @@ func (s *Service) Start(ctx context.Context) error {
 
 	// Start worker pool
 	for i := range s.config.MaxConcurrentSubnetScans {
-		s.wg.Add(1)
-		go s.scanWorker(ctx, i)
+		run.wg.Go(func() { s.scanWorker(ctx, run, i) })
 	}
 
 	// Start result processor
-	s.wg.Add(1)
-	go s.resultProcessor(ctx)
+	run.wg.Go(func() { s.resultProcessor(ctx, run) })
 
 	// Start main scan loop
-	s.wg.Add(1)
-	go s.scanLoop(ctx)
+	run.wg.Go(func() { s.scanLoop(ctx, run) })
+
+	go func() {
+		run.wg.Wait()
+		close(run.done)
+	}()
 
 	return nil
 }
 
-// Stop gracefully stops the IP scanner service
-func (s *Service) Stop() error {
-	if s.cancelFunc != nil {
-		s.logger.Info("Stopping IP scanner service")
-		s.cancelFunc()
-		s.wg.Wait()
-		s.cancelFunc = nil // Reset to allow restart
-		s.logger.Info("IP scanner service stopped")
+// Stop gracefully stops the active scanner run, bounded by ctx.
+func (s *Service) Stop(ctx context.Context) error {
+	s.lifecycleMu.Lock()
+	run := s.run
+	if run == nil {
+		s.lifecycleMu.Unlock()
+		return nil
 	}
-	return nil
+	s.logger.Info("Stopping IP scanner service")
+	run.stopping = true
+	run.cancel()
+	s.lifecycleMu.Unlock()
+
+	select {
+	case <-run.done:
+		s.lifecycleMu.Lock()
+		if s.run == run {
+			s.run = nil
+		}
+		s.lifecycleMu.Unlock()
+		s.logger.Info("IP scanner service stopped")
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("stop ip scanner service: %w", ctx.Err())
+	}
 }
 
 // scanLoop periodically scans for offline devices
-func (s *Service) scanLoop(ctx context.Context) {
-	defer s.wg.Done()
-
+func (s *Service) scanLoop(ctx context.Context, run *serviceRun) {
 	ticker := time.NewTicker(s.config.ScanInterval)
 	defer ticker.Stop()
 
 	// Run immediately on start
-	s.scanOfflineDevices(ctx)
+	s.scanOfflineDevices(ctx, run.tasks)
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.scanOfflineDevices(ctx)
+			s.scanOfflineDevices(ctx, run.tasks)
 		}
 	}
 }
 
 // scanOfflineDevices fetches offline devices and dispatches scan tasks grouped by subnet
-func (s *Service) scanOfflineDevices(ctx context.Context) {
+func (s *Service) scanOfflineDevices(ctx context.Context, tasks chan<- SubnetScanTask) {
 	s.logger.Debug("Scanning for offline devices")
 
 	// Fetch offline devices from the device store
@@ -242,7 +281,7 @@ func (s *Service) scanOfflineDevices(ctx context.Context) {
 
 		// Try to dispatch task with timeout (blocking)
 		select {
-		case s.tasks <- task:
+		case tasks <- task:
 			tasksDispatched++
 			s.logger.Debug("Dispatched subnet scan task",
 				"subnet", subnet,
@@ -274,9 +313,7 @@ func (s *Service) scanOfflineDevices(ctx context.Context) {
 }
 
 // scanWorker processes scan tasks from the queue
-func (s *Service) scanWorker(ctx context.Context, workerID int) {
-	defer s.wg.Done()
-
+func (s *Service) scanWorker(ctx context.Context, run *serviceRun, workerID int) {
 	logger := s.logger.With("worker_id", workerID)
 	logger.Debug("Starting scan worker")
 
@@ -284,12 +321,16 @@ func (s *Service) scanWorker(ctx context.Context, workerID int) {
 		select {
 		case <-ctx.Done():
 			return
-		case task, ok := <-s.tasks:
+		case task, ok := <-run.tasks:
 			if !ok {
 				return
 			}
 			result := s.processTask(ctx, task)
-			s.results <- result
+			select {
+			case run.results <- result:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}
 }
@@ -330,14 +371,12 @@ func (s *Service) processTask(ctx context.Context, task SubnetScanTask) SubnetSc
 }
 
 // resultProcessor handles scan results
-func (s *Service) resultProcessor(ctx context.Context) {
-	defer s.wg.Done()
-
+func (s *Service) resultProcessor(ctx context.Context, run *serviceRun) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case result, ok := <-s.results:
+		case result, ok := <-run.results:
 			if !ok {
 				return
 			}

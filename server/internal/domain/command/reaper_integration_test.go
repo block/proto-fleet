@@ -153,7 +153,7 @@ func TestReaperIntegration(t *testing.T) {
 		createBatchLog(t, conn, batchUUID, user.DatabaseID, 1)
 		createStuckMessage(t, conn, batchUUID, device.DatabaseID, 10*time.Minute)
 
-		svc := command.NewExecutionService(t.Context(), &command.Config{
+		svc := command.NewExecutionService(&command.Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 100 * time.Millisecond,
 			StuckMessageTimeout:   5 * time.Minute,
@@ -190,7 +190,7 @@ func TestReaperIntegration(t *testing.T) {
 		createBatchLog(t, conn, batchUUID, user.DatabaseID, 1)
 		createStuckMessage(t, conn, batchUUID, device.DatabaseID, 1*time.Minute)
 
-		svc := command.NewExecutionService(t.Context(), &command.Config{
+		svc := command.NewExecutionService(&command.Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 100 * time.Millisecond,
 			StuckMessageTimeout:   5 * time.Minute,
@@ -239,7 +239,7 @@ func TestReaperIntegration(t *testing.T) {
 		_, err = conn.ExecContext(ctx, "ALTER TABLE queue_message ENABLE TRIGGER update_queue_message_updated_at")
 		require.NoError(t, err)
 
-		svc := command.NewExecutionService(t.Context(), &command.Config{
+		svc := command.NewExecutionService(&command.Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 100 * time.Millisecond,
 			StuckMessageTimeout:   5 * time.Minute,
@@ -267,7 +267,7 @@ func TestReaperIntegration(t *testing.T) {
 		createStuckMessage(t, conn, batchUUID, device1.DatabaseID, 10*time.Minute)
 		createStuckMessage(t, conn, batchUUID, device2.DatabaseID, 10*time.Minute)
 
-		svc := command.NewExecutionService(t.Context(), &command.Config{
+		svc := command.NewExecutionService(&command.Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 100 * time.Millisecond,
 			StuckMessageTimeout:   5 * time.Minute,

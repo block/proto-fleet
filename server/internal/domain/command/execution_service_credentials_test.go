@@ -409,9 +409,10 @@ func setupPasswordCommandDeviceWithStatus(t *testing.T, driverName string, withC
 		require.NoError(t, err)
 	}
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers: 1,
 	}, conn, nil, encryptSvc, nil, nil, nil, nil, nil)
+
 	return svc, conn, encryptSvc, dbDeviceID, deviceIdentifier
 }
 

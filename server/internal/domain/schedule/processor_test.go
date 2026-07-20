@@ -126,7 +126,7 @@ func TestStop_WaitsForInFlightTimerCallback(t *testing.T) {
 	waitForSignal(t, started, "timer callback did not start")
 
 	go func() {
-		assert.NoError(t, p.Stop())
+		assert.NoError(t, p.Stop(context.Background()))
 		close(stopped)
 	}()
 
@@ -151,7 +151,7 @@ func TestStop_DoesNotWaitForFutureStoppedTimer(t *testing.T) {
 	p.jobs[1] = jobEntry{timer: timer, isOneTime: true, generation: 1}
 
 	go func() {
-		assert.NoError(t, p.Stop())
+		assert.NoError(t, p.Stop(context.Background()))
 		close(stopped)
 	}()
 
@@ -187,7 +187,7 @@ func TestStop_DrainsTimersRegisteredByStoppingLoop(t *testing.T) {
 	}()
 
 	go func() {
-		assert.NoError(t, p.Stop())
+		assert.NoError(t, p.Stop(context.Background()))
 		close(stopped)
 	}()
 
@@ -217,7 +217,7 @@ func TestStop_CronJobsFinishWithLiveContext(t *testing.T) {
 	waitForSignal(t, started, "cron callback did not start")
 
 	go func() {
-		assert.NoError(t, p.Stop())
+		assert.NoError(t, p.Stop(context.Background()))
 		close(stopped)
 	}()
 
@@ -226,20 +226,15 @@ func TestStop_CronJobsFinishWithLiveContext(t *testing.T) {
 	waitForSignal(t, stopped, "Stop did not return after cron callback finished")
 }
 
-// Drain must still be bounded: if work wedges, the watchdog cancels workCtx
-// so the in-flight call returns and the wg waits release.
-func TestStop_WatchdogCancelsHungWork(t *testing.T) {
-	prev := shutdownDeadlineFn
-	shutdownDeadlineFn = func() time.Duration { return 50 * time.Millisecond }
-	t.Cleanup(func() { shutdownDeadlineFn = prev })
-
+// A caller deadline cancels work that failed to drain and bounds Stop.
+func TestStop_DeadlineCancelsHungWork(t *testing.T) {
 	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
 	workCtx, workCancel := context.WithCancel(context.Background())
 	p.workCancel = workCancel
 
 	started := make(chan struct{})
 	cancelled := make(chan struct{})
-	stopped := make(chan struct{})
+	stopped := make(chan error, 1)
 
 	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).DoAndReturn(
 		func(ctx context.Context, _ int64) (int64, error) {
@@ -261,17 +256,124 @@ func TestStop_WatchdogCancelsHungWork(t *testing.T) {
 	waitForSignal(t, started, "hung callback did not start")
 
 	begin := time.Now()
+	stopCtx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
 	go func() {
-		assert.NoError(t, p.Stop())
-		close(stopped)
+		stopped <- p.Stop(stopCtx)
 	}()
 
-	waitForSignal(t, cancelled, "watchdog did not cancel hung work via workCancel")
-	waitForSignal(t, stopped, "Stop did not return after watchdog fired")
+	waitForSignal(t, cancelled, "deadline did not cancel hung work via workCancel")
+	assert.True(t, errors.Is(<-stopped, context.DeadlineExceeded))
+	assert.NoError(t, p.Stop(context.Background()))
 
 	if elapsed := time.Since(begin); elapsed > time.Second {
-		t.Fatalf("Stop took %v; watchdog should have bounded shutdown well below this", elapsed)
+		t.Fatalf("Stop took %v; caller deadline should have bounded shutdown well below this", elapsed)
 	}
+}
+
+func TestProcessor_StartStopStart_ReRegistersUnchangedSchedules(t *testing.T) {
+	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
+	sched := &pb.Schedule{
+		Id:           1,
+		ScheduleType: pb.ScheduleType_SCHEDULE_TYPE_RECURRING,
+		StartDate:    "2026-04-01",
+		StartTime:    "09:00",
+		Timezone:     "UTC",
+		Status:       pb.ScheduleStatus_SCHEDULE_STATUS_ACTIVE,
+		Recurrence:   &pb.ScheduleRecurrence{Frequency: pb.RecurrenceFrequency_RECURRENCE_FREQUENCY_DAILY, Interval: 1},
+	}
+	schedules := []interfaces.ScheduleWithOrg{{Schedule: sched, OrgID: 1}}
+	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return(schedules, nil).Times(4)
+
+	assert.NoError(t, p.Start(t.Context()))
+	assert.Equal(t, 1, len(p.cron.Entries()))
+	assert.NoError(t, p.Stop(context.Background()))
+
+	assert.NoError(t, p.Start(t.Context()))
+	assert.Equal(t, 1, len(p.cron.Entries()))
+	assert.NoError(t, p.Stop(context.Background()))
+}
+
+func TestProcessor_StartHonorsActivationCancellation(t *testing.T) {
+	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
+	queryStarted := make(chan struct{})
+	procStore.EXPECT().GetActiveSchedules(gomock.Any()).DoAndReturn(
+		func(ctx context.Context) ([]interfaces.ScheduleWithOrg, error) {
+			close(queryStarted)
+			<-ctx.Done()
+			return nil, ctx.Err()
+		},
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	startDone := make(chan error, 1)
+	go func() { startDone <- p.Start(ctx) }()
+	waitForSignal(t, queryStarted, "startup query did not begin")
+	cancel()
+
+	select {
+	case err := <-startDone:
+		assert.Error(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Start did not return after its activation context was canceled")
+	}
+}
+
+func TestProcessor_Stop_PreventsRestartUntilDrainCompletes(t *testing.T) {
+	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
+	workCtx, workCancel := context.WithCancel(context.Background())
+	p.workCancel = workCancel
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).DoAndReturn(
+		func(context.Context, int64) (int64, error) {
+			close(started)
+			<-release
+			return 0, nil
+		},
+	)
+
+	p.timerWG.Add(1)
+	timer := time.AfterFunc(time.Hour, func() {
+		defer p.timerWG.Done()
+		p.executeSchedule(workCtx, 1)
+	})
+	p.jobs[1] = jobEntry{timer: timer, isOneTime: true, generation: 1}
+	timer.Reset(0)
+	waitForSignal(t, started, "timer callback did not start")
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+	assert.Error(t, p.Stop(ctx))
+	assert.Error(t, p.Start(t.Context()))
+
+	close(release)
+	assert.NoError(t, p.Stop(context.Background()))
+}
+
+func TestProcessor_ActivationCancellationPreventsNewTimerWork(t *testing.T) {
+	p, _, _, _, _ := newTestProcessor(t, time.Now())
+	p.cron = cron.New()
+	stopCtx, stop := context.WithCancel(t.Context())
+	workCtx, cancelWork := context.WithCancel(context.WithoutCancel(t.Context()))
+	defer cancelWork()
+
+	sched := &pb.Schedule{
+		Id:           1,
+		ScheduleType: pb.ScheduleType_SCHEDULE_TYPE_ONE_TIME,
+		StartDate:    "2026-04-01",
+		StartTime:    "09:00",
+		Timezone:     "UTC",
+	}
+	p.mu.Lock()
+	assert.NoError(t, p.registerJob(stopCtx, workCtx, sched))
+	timer := p.jobs[1].timer
+	p.mu.Unlock()
+
+	stop()
+	timer.Reset(0)
+	p.timerWG.Wait()
 }
 
 // --- recoverStaleRunning ---

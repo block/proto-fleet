@@ -42,7 +42,6 @@ func newZeroTargetDispatchTestService(t *testing.T, conn *sql.DB) *command.Servi
 	t.Cleanup(cancel)
 
 	executionService := command.NewExecutionService(
-		executionCtx,
 		commandConfig,
 		conn,
 		messageQueue,
@@ -53,6 +52,7 @@ func newZeroTargetDispatchTestService(t *testing.T, conn *sql.DB) *command.Servi
 		nil,
 		nil,
 	)
+
 	require.NoError(t, executionService.Start(executionCtx))
 
 	return command.NewService(

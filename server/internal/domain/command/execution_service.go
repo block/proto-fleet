@@ -31,6 +31,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 const (
@@ -69,12 +70,17 @@ type ExecutionService struct {
 
 	workerSemaphore chan struct{}
 
-	queueProcessorMu      sync.Mutex
+	lifecycleMu           sync.Mutex
 	queueProcessorRunning bool
-	reaperCancel          context.CancelFunc
+	runCancel             context.CancelFunc
+	runWG                 sync.WaitGroup
+	runDone               <-chan struct{}
+	stopping              bool
 }
 
-func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService CachedMinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, filesService *files.Service) *ExecutionService {
+var _ runtimejobs.Lifecycle = (*ExecutionService)(nil)
+
+func NewExecutionService(config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService CachedMinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, filesService *files.Service) *ExecutionService {
 	if config.StuckMessageTimeout <= 0 {
 		config.StuckMessageTimeout = 5 * time.Minute
 	}
@@ -113,42 +119,84 @@ func (es *ExecutionService) WithMetricsEmitter(emitter MetricsEmitter) *Executio
 
 // Start starts the queue processor thread if it is not already running.
 func (es *ExecutionService) Start(ctx context.Context) error {
-	es.queueProcessorMu.Lock()
-	defer es.queueProcessorMu.Unlock()
-
-	if es.queueProcessorRunning {
+	es.lifecycleMu.Lock()
+	if es.stopping {
+		es.lifecycleMu.Unlock()
+		return fmt.Errorf("command execution service is still stopping")
+	}
+	if es.runCancel != nil {
+		es.lifecycleMu.Unlock()
 		return nil
 	}
 
+	runCtx, runCancel := context.WithCancel(ctx)
+	runDone := make(chan struct{})
+	es.runCancel = runCancel
+	es.runDone = runDone
 	es.queueProcessorRunning = true
 
-	if es.reaperCancel != nil {
-		es.reaperCancel()
-	}
-	reaperCtx, reaperCancel := context.WithCancel(ctx)
-	es.reaperCancel = reaperCancel
-
-	go es.startStuckMessageReaper(reaperCtx)
+	es.runWG.Go(func() {
+		es.startStuckMessageReaper(runCtx)
+	})
 
 	// Start the queue processor thread
-	go func() {
-		err := es.startQueueProcessorThread(ctx)
-		reaperCancel()
-		es.queueProcessorMu.Lock()
+	es.runWG.Go(func() {
+		err := es.startQueueProcessorThread(runCtx)
+		runCancel()
+		es.lifecycleMu.Lock()
 		es.queueProcessorRunning = false
-		es.queueProcessorMu.Unlock()
+		es.lifecycleMu.Unlock()
 
 		if err != nil && !errors.Is(err, context.Canceled) {
 			slog.Error("message processing stopped with error", "error", err)
 		}
-	}()
+	})
+	go es.finishRun(runDone)
+	es.lifecycleMu.Unlock()
 
 	return nil
 }
 
+func (es *ExecutionService) finishRun(done chan struct{}) {
+	es.runWG.Wait()
+
+	es.lifecycleMu.Lock()
+	if es.runDone == (<-chan struct{})(done) {
+		es.runCancel = nil
+		es.runDone = nil
+		es.stopping = false
+		es.queueProcessorRunning = false
+	}
+	es.lifecycleMu.Unlock()
+	close(done)
+}
+
+// Stop cancels the active queue processor, reaper, and workers and waits for
+// all execution-owned goroutines to drain.
+func (es *ExecutionService) Stop(ctx context.Context) error {
+	es.lifecycleMu.Lock()
+	if es.runCancel == nil {
+		es.lifecycleMu.Unlock()
+		return nil
+	}
+	if !es.stopping {
+		es.stopping = true
+		es.runCancel()
+	}
+	done := es.runDone
+	es.lifecycleMu.Unlock()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("stop command execution service: %w", ctx.Err())
+	}
+}
+
 func (es *ExecutionService) IsRunning() bool {
-	es.queueProcessorMu.Lock()
-	defer es.queueProcessorMu.Unlock()
+	es.lifecycleMu.Lock()
+	defer es.lifecycleMu.Unlock()
 
 	return es.queueProcessorRunning
 }
@@ -317,25 +365,37 @@ func (es *ExecutionService) startQueueProcessorThread(ctx context.Context) error
 			}
 
 			if len(messages) == 0 {
-				time.Sleep(es.config.MasterPollingInterval)
-				continue
+				timer := time.NewTimer(es.config.MasterPollingInterval)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return fmt.Errorf("queue processor context canceled while idle: %w", ctx.Err())
+				case <-timer.C:
+					continue
+				}
 			}
 
 			for _, message := range messages {
-				es.workerSemaphore <- struct{}{}
+				select {
+				case es.workerSemaphore <- struct{}{}:
+				case <-ctx.Done():
+					return fmt.Errorf("queue processor context canceled waiting for worker slot: %w", ctx.Err())
+				}
 
-				go func(msg queue.Message) {
+				// The processor remains in runWG while it adds workers, so Wait
+				// cannot finish before all worker registrations are complete.
+				es.runWG.Go(func() {
 					defer func() { <-es.workerSemaphore }()
 
 					timeout := es.config.WorkerExecutionTimeout
-					if msg.CommandType == commandtype.FirmwareUpdate {
+					if message.CommandType == commandtype.FirmwareUpdate {
 						timeout = es.config.FirmwareUpdateTimeout
 					}
 					workerCtx, cancel := context.WithTimeout(ctx, timeout)
 					defer cancel()
 
-					es.workerProcessCommand(workerCtx, msg)
-				}(message)
+					es.workerProcessCommand(workerCtx, message)
+				})
 			}
 		}
 	}
