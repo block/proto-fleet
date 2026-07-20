@@ -11,6 +11,12 @@ the superproject commit above to:
 - Submodule: external/hashboard (github.com/btc-mining/hashboard)
   - Commit SHA: 068732a3eac94ce3cf98ea65bcf2d2dc50075837
 
+The OpenAPI spec was extracted from the same miner-firmware commit and verified
+byte-identical to the previous snapshot. At this revision,
+`TemperatureGradient`, `AutoTune`, and F1 values are gRPC-only; the generated
+ProtoOS REST types and fake-proto-rig simulator intentionally remain unchanged
+until `MDK-API.json` exposes them.
+
 ## Files Extracted
 
 ### gRPC Proto Files (from `crates/rpc/protos/`)
