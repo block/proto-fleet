@@ -2,14 +2,14 @@
 
 ## Source
 - Repository: miner-firmware (private)
-- Commit SHA: b093c1e0652164373c963046b152ad3ee29c6be6
-- Commit Date: 2026-07-17
-- Extraction Date: 2026-07-20
+  - Commit SHA: b093c1e0652164373c963046b152ad3ee29c6be6
+  - Commit Date: 2026-07-17
+  - Extraction Date: 2026-07-20
 
 The hashboard proto files live in the `external/hashboard` submodule, pinned by
 the superproject commit above to:
 - Submodule: external/hashboard (github.com/btc-mining/hashboard)
-- Commit SHA: 068732a3eac94ce3cf98ea65bcf2d2dc50075837
+  - Commit SHA: 068732a3eac94ce3cf98ea65bcf2d2dc50075837
 
 ## Files Extracted
 
