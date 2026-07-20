@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { buildRackPickerItem, describeRackReassignment, type RackPickerItem } from "../rackPickerItem";
 import { computeRackSelectionDelta, type RackSelectionDelta } from "./rackSelectionDelta";
@@ -13,6 +13,7 @@ import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Switch from "@/shared/components/Switch";
+import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 type RackPickerColumn = "name" | "building" | "status";
 
@@ -110,6 +111,22 @@ const ManageRacksModal = ({
   // missing (cross-site rack, or fetch in flight).
   const [buildingMap, setBuildingMap] = useState<Record<string, string>>({});
 
+  // Ids of the ineligible (reassignment) racks currently loaded. Used to drop
+  // them from the selection when the toggle goes off — either explicitly, or as
+  // part of recovering from a failed broadened fetch below.
+  const reassignmentIdSet = useMemo(
+    () => new Set((items ?? []).filter((r) => r.reassignment).map((r) => r.id)),
+    [items],
+  );
+  // Mirrors of the toggle + reassignment set for the fetch effect's async error
+  // handler. Read via refs so the effect need not list them as deps —
+  // `reassignmentIdSet` gets a fresh identity on every `items` change, which in
+  // the deps array would trigger an endless refetch loop.
+  const showAssignedRef = useRef(showAssigned);
+  showAssignedRef.current = showAssigned;
+  const reassignmentIdSetRef = useRef(reassignmentIdSet);
+  reassignmentIdSetRef.current = reassignmentIdSet;
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -158,6 +175,21 @@ const ManageRacksModal = ({
       },
       onError: (msg) => {
         if (cancelled) return;
+        // A failed *broadened* (toggle-on) fetch must not strand the operator:
+        // the full-modal error branch below hides the Switch, so they could
+        // never toggle back off. Instead keep the already-loaded eligible racks,
+        // revert the toggle, and surface the failure as a toast — the picker
+        // stays usable with the scoped set. Only the initial scoped fetch (which
+        // has nothing to fall back to) shows the blocking error state.
+        if (showAssignedRef.current) {
+          pushToast({ message: `Couldn't load assigned racks: ${msg}`, status: STATUSES.error });
+          const ineligible = reassignmentIdSetRef.current;
+          setShowAssigned(false);
+          setPage(0);
+          setSelectedItems((sel) => sel.filter((id) => !ineligible.has(id)));
+          setConflictInfoItem(null);
+          return;
+        }
         setError(msg);
         setItems([]);
       },
@@ -177,11 +209,6 @@ const ManageRacksModal = ({
   // With the toggle on, reassignment rows are intentionally selectable (behind
   // the reparent confirm at commit); nothing else is ever disabled.
   const isRowDisabled = useCallback((item: RackPickerItem) => item.disabled && !showAssigned, [showAssigned]);
-
-  const reassignmentIdSet = useMemo(
-    () => new Set((items ?? []).filter((r) => r.reassignment).map((r) => r.id)),
-    [items],
-  );
 
   // Flip the toggle and reset to the first page in one go — the visible set
   // changes shape, so an out-of-range page would otherwise show empty. Turning

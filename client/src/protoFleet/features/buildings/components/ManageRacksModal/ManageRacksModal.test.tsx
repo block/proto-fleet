@@ -208,6 +208,33 @@ describe("ManageRacksModal show-assigned toggle", () => {
     expect(delta.added.map((a: { rackId: bigint }) => a.rackId)).not.toContain(2n);
   });
 
+  it("recovers when the broadened (toggle-on) fetch fails", async () => {
+    // The eligible scoped fetch succeeds; toggling on broadens to a global scope
+    // whose fetch fails. The failure must not strand the operator behind a full-
+    // modal error that hides the Switch — the toggle reverts, the already-loaded
+    // eligible racks stay, and the picker remains usable.
+    mockListRacks.mockReset();
+    mockListRacks.mockImplementation(({ siteIds, onSuccess, onError }) => {
+      if (siteIds.length === 0) {
+        onError?.("network down");
+      } else {
+        onSuccess?.([createRack(1n, "Alpha", 7n, 42n), createRack(2n, "Beta", 9n, 42n, 5)]);
+      }
+    });
+
+    renderModal({ scope: SCOPE, assignedScope: ALL_SITES_ASSIGNED_SCOPE });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+
+    // No blocking error state, the Switch survives, and the toggle is back off.
+    await waitFor(() => expect(screen.getByLabelText("Show assigned racks")).not.toBeChecked());
+    expect(screen.queryByTestId("manage-racks-modal-error")).not.toBeInTheDocument();
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    // The ineligible rack never surfaced (broadened fetch failed).
+    expect(screen.queryByText("Beta")).not.toBeInTheDocument();
+  });
+
   it("allows an explicit single per-row reparent pick through the delta", async () => {
     const onConfirm = vi.fn();
     renderModal({ onConfirm });

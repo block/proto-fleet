@@ -45,7 +45,11 @@ export default function RackReparentWarningDialog({
           ? `Rack "${racks[0].label || "(unnamed rack)"}" is currently in another building or site. Moving it to "${buildingName}" will take the rack and its ${minerPhrase} out of its current placement.`
           : `${racks.length} of these racks are currently in another building or site. Moving them to "${buildingName}" will take those racks and their ${minerPhrase} out of their current placement.`
       }
-      onDismiss={onCancel}
+      // While the move RPC is in flight, disable Escape/outside-click dismissal
+      // too — otherwise an "apparent cancel" would hide the dialog while the
+      // in-flight promise still resolves and commits the reparent. The dialog
+      // stays modal until the RPC settles.
+      onDismiss={busy ? undefined : onCancel}
       buttons={[
         { text: "Cancel", onClick: onCancel, variant: variants.secondary, disabled: busy },
         {
