@@ -68,6 +68,8 @@ enum HashboardPllAlgorithm {
     HASHBOARD_PLL_ALGORITHM_NONE = 0;
     HASHBOARD_PLL_ALGORITHM_VOLTAGE_IMBALANCE_COMPENSATION = 1;
     HASHBOARD_PLL_ALGORITHM_FUZZING = 2;
+    HASHBOARD_PLL_ALGORITHM_TEMPERATURE_GRADIENT = 3;
+    HASHBOARD_PLL_ALGORITHM_AUTOTUNE = 4;
 }
 
 // =============================================================================
@@ -267,6 +269,7 @@ enum HashboardType {
     HASHBOARD_TYPE_B3B = 3;
     HASHBOARD_TYPE_B4_128 = 4;
     HASHBOARD_TYPE_B4_192 = 5;
+    HASHBOARD_TYPE_F1 = 6;
 }
 
 message BoardInfo {

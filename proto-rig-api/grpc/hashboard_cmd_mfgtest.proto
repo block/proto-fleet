@@ -19,9 +19,15 @@ message bist_reading {
     float vddh = 4;
 }
 
-message mfgtest_read_bist_cmd {}
+message mfgtest_read_bist_cmd {
+    oneof stack_balancer {
+        bool enable_stack_balancer = 1;
+    }
+}
 message mfgtest_read_bist_rsp {
     repeated bist_reading bist = 1;
+    float current_before_balance = 2;
+    float current_after_balance = 3;
 }
 
 message mfgtest_serial_write_cmd {
@@ -38,6 +44,28 @@ message mfgtest_serial_read_cmd {
 message mfgtest_serial_read_rsp {
     string serial = 1;
 }
+
+message mfgtest_mac_write_cmd {
+    bytes mac = 1;
+}
+message mfgtest_mac_write_rsp {}
+
+message mfgtest_mac_read_cmd {}
+message mfgtest_mac_read_rsp {
+    bytes mac = 1;
+    bool valid = 2;
+}
+
+message mfgtest_i2c_probe_cmd {
+    uint32 address = 1;
+}
+message mfgtest_i2c_probe_rsp {
+    bool present = 1;
+    uint32 error = 2;
+}
+
+message mfgtest_can_tx_cmd {}
+message mfgtest_can_tx_rsp {}
 
 message mfgtest_binning {
     uint32 version = 1;
@@ -62,29 +90,6 @@ message mfgtest_set_led_cmd {
     bool state = 2;
 }
 message mfgtest_set_led_rsp {}
-
-message mfgtest_stack_set_cmd {
-    uint32 stack = 1;
-    bool state = 2;
-}
-message mfgtest_stack_set_rsp {}
-
-message mfgtest_cycle_stacks_cmd {}
-message mfgtest_cycle_stacks_rsp {
-    repeated bool stack_valid = 1;
-}
-
-message mfgtest_stack_status_cmd {
-    uint32 stack = 1;
-}
-message mfgtest_stack_status_rsp {
-    uint32 status = 1;
-}
-
-message mfgtest_asic_debug_cmd {
-    bool enable = 1;
-}
-message mfgtest_asic_debug_rsp {}
 
 message dfu_write_secure_id_cmd {
     // Encrypted device ID
