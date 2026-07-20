@@ -265,3 +265,51 @@ Grafana; delete it from the UI if it bothers you. fleet-api also
 serves `GET /health/ready` (200 only when its database answers a ping)
 for external uptime monitors, alongside the always-static liveness
 check at `GET /health`.
+
+## Client Observability
+
+The ProtoFleet web client ships a vendor-neutral observability layer: a
+provider registry (`client/src/shared/observability/`) that stays a
+complete no-op until a provider is configured. **Datadog RUM** is the
+first and currently the only bundled provider; the registry has a seam
+for adding others (e.g. PostHog, Sentry) without touching the entry
+point, API transport, or error boundary. See the **Observability**
+section in [`client/README.md`](../client/README.md) for the provider
+model and how to add one.
+
+This section documents the operator-facing config for each provider.
+
+### Datadog RUM
+
+Forwards Real User Monitoring (RUM) data to your own Datadog org. It is
+**off by default** and is a complete no-op unless the two required keys
+are set — the client runs unchanged with no SDK side effects when they
+are absent.
+
+Configuration is read at container start, so you can enable it on a
+prebuilt client image without rebuilding: set the `DD_*` variables in the
+deployment `.env` file and rerun `./run-fleet.sh`. The client's nginx
+image renders them into `config.js` when the container starts.
+
+```bash
+# Required to enable (both must be set)
+DD_APPLICATION_ID=<your-datadog-rum-application-id>
+DD_CLIENT_TOKEN=<your-datadog-rum-client-token>
+
+# Optional
+DD_SITE=datadoghq.com          # your Datadog site (default: datadoghq.com)
+DD_SERVICE=proto-fleet-client  # service name (default: proto-fleet-client)
+DD_ENV=production              # environment tag (default: build env)
+DD_RUM_SAMPLE_RATE=100         # RUM session sample rate (default: 100)
+DD_SESSION_REPLAY_SAMPLE_RATE=0  # Session Replay sample rate (default: 0, off)
+DD_TRACE_SAMPLE_RATE=100       # trace sample rate for API calls (default: 100)
+```
+
+`DD_CLIENT_TOKEN` is a public browser RUM client token, not a secret
+Datadog API key.
+
+When enabled, RUM captures page/session data, forwards React render
+errors, and injects distributed-tracing headers on same-origin
+`/api-proxy` calls. Session Replay is off by default and masks all
+text/inputs when enabled. Data goes only to the Datadog org identified by
+your keys.
