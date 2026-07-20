@@ -291,10 +291,10 @@ prebuilt client image without rebuilding: set the `DD_*` variables in the
 deployment `.env` file and rerun `./run-fleet.sh`. The client's nginx
 image renders them into `config.js` when the container starts.
 
-```bash
+```dotenv
 # Required to enable (both must be set)
-DD_APPLICATION_ID=<your-datadog-rum-application-id>
-DD_CLIENT_TOKEN=<your-datadog-rum-client-token>
+DD_APPLICATION_ID=your-datadog-rum-application-id
+DD_CLIENT_TOKEN=your-datadog-rum-client-token
 
 # Optional
 DD_SITE=datadoghq.com          # your Datadog site (default: datadoghq.com)
