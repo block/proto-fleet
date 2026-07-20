@@ -94,8 +94,8 @@ type SiteStore interface {
 	CountActiveCurtailmentEventsByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error)
 
 	// CountNonTerminalCurtailmentEventsByInfrastructureDevices counts only
-	// non-terminal facility-fan owners for repair-only operations such as
-	// control-subnet commissioning.
+	// non-terminal facility-fan owners. Use CountActive... for mutations that
+	// can affect terminal fan recovery.
 	CountNonTerminalCurtailmentEventsByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error)
 
 	// SoftDeleteBuildingsBySite soft-deletes every live building under

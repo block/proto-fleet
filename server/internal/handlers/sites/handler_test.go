@@ -84,7 +84,7 @@ func newTestHandler(t *testing.T) *testHarness {
 func expectInfrastructureControlSubnetMutationAllowed(h *testHarness, orgID, siteID int64) {
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), orgID, siteID).Return(nil)
 	h.siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(gomock.Any(), orgID, siteID).Return([]int64{70}, nil)
-	h.siteStore.EXPECT().CountNonTerminalCurtailmentEventsByInfrastructureDevices(gomock.Any(), orgID, []int64{70}).Return(int64(0), nil)
+	h.siteStore.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(gomock.Any(), orgID, []int64{70}).Return(int64(0), nil)
 }
 
 // sitePermsCtx is the workhorse for body-level tests: a caller with

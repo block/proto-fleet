@@ -38,7 +38,7 @@ func TestGetInfrastructureControlSubnetsReturnsPersistedCanonicalEntries(t *test
 func expectInfrastructureControlSubnetMutationAllowed(store *mocks.MockSiteStore, siteID int64) {
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, siteID).Return(nil)
 	store.EXPECT().LockInfrastructureDevicesBySiteForWrite(inTxCtx, testOrgID, siteID).Return([]int64{70}, nil)
-	store.EXPECT().CountNonTerminalCurtailmentEventsByInfrastructureDevices(inTxCtx, testOrgID, []int64{70}).Return(int64(0), nil)
+	store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(inTxCtx, testOrgID, []int64{70}).Return(int64(0), nil)
 }
 
 func TestSetInfrastructureControlSubnetsPersistsCanonicalAndAuditsWithoutTopology(t *testing.T) {
@@ -199,13 +199,13 @@ func TestSetInfrastructureControlSubnetsRejectsClaimedFacilityFans(t *testing.T)
 
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil)
 	store.EXPECT().LockInfrastructureDevicesBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return([]int64{70}, nil)
-	store.EXPECT().CountNonTerminalCurtailmentEventsByInfrastructureDevices(inTxCtx, testOrgID, []int64{70}).Return(int64(1), nil)
+	store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(inTxCtx, testOrgID, []int64{70}).Return(int64(1), nil)
 
 	_, err := svc.SetInfrastructureControlSubnets(t.Context(), testOrgID, 11, []string{"10.42.8.0/24"})
 	if err == nil || !fleeterror.IsFailedPreconditionError(err) {
 		t.Fatalf("expected claimed-fan precondition failure, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "active curtailment events") {
+	if !strings.Contains(err.Error(), "unresolved terminal facility fan recovery") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

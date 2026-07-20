@@ -64,6 +64,17 @@ func TestInfrastructureControlSubnetsRejectClaimedFacilityFans(t *testing.T) {
 	got, err := service.SetInfrastructureControlSubnets(ctx, user.OrganizationID, siteID, []string{"10.60.0.1/32"})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"10.60.0.1/32"}, got)
+
+	_, err = db.ExecContext(ctx, `
+		UPDATE curtailment_event
+		SET fan_last_error = 'fan recovery still requires commissioning data'
+		WHERE event_uuid = $1
+	`, eventUUID)
+	require.NoError(t, err)
+
+	_, err = service.SetInfrastructureControlSubnets(ctx, user.OrganizationID, siteID, []string{"10.60.0.2/32"})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "terminal fan recovery must block commissioning mutation: %v", err)
 }
 
 func TestInfrastructureControlSubnetsPersistenceAndOrgMasking(t *testing.T) {
