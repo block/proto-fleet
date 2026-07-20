@@ -98,6 +98,7 @@ func (c *facilityFanController) SetState(ctx context.Context, event *models.Even
 		}
 		if !device.Enabled {
 			skippedDeviceIDs = append(skippedDeviceIDs, device.ID)
+			errorsByDevice = append(errorsByDevice, fmt.Sprintf("device %d: device is disabled", device.ID))
 			continue
 		}
 

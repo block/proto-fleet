@@ -1329,9 +1329,10 @@ const (
 	nonAdminRestoreBatchIntervalMax   int32 = 5 * 60
 	restoreBatchIntervalUpperBoundSec int32 = 60 * 60
 	facilityFanDelayUpperBoundSec     int32 = 60 * 60
-	// New response-profile selections are limited to eight, but Start retains
-	// the historical API ceiling so profiles saved before that limit can still
-	// execute until an operator deliberately reduces their fan set.
+	// New response-profile selections and the public Start RPC are limited to
+	// eight. The domain Start path retains the historical ceiling so profiles
+	// saved before that limit can still execute until an operator deliberately
+	// reduces their fan set.
 	facilityFanDeviceCountMax       = 8
 	facilityFanDeviceCountLegacyMax = 1024
 )

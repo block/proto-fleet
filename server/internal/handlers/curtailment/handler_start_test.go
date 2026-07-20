@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"buf.build/go/protovalidate"
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -247,6 +248,36 @@ func validStartRequestBuilder() *pb.StartCurtailmentRequest {
 		},
 		MaxDurationSeconds: 7200,
 		Reason:             "operator handler test",
+	}
+}
+
+func TestStartCurtailmentRequest_FacilityFanLimit(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		fanCount int
+		wantErr  bool
+	}{
+		{name: "allows safety ceiling", fanCount: 8},
+		{name: "rejects above safety ceiling", fanCount: 9, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			req := validStartRequestBuilder()
+			req.FacilityFanDeviceIds = make([]int64, tc.fanCount)
+			for index := range req.FacilityFanDeviceIds {
+				req.FacilityFanDeviceIds[index] = int64(index + 1)
+			}
+
+			err := protovalidate.Validate(req)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "no more than 8")
+				return
+			}
+			require.NoError(t, err)
+		})
 	}
 }
 

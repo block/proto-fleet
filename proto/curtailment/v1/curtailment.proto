@@ -683,6 +683,7 @@ message StartCurtailmentRequest {
     // Optional facility-fan sequence copied from a response profile. Each fan
     // may be claimed by only one non-terminal event at a time.
     repeated int64 facility_fan_device_ids = 38 [(buf.validate.field).repeated = {
+        max_items: 8
         unique: true
         items: { int64: {gt: 0} }
     }];

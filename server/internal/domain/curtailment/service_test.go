@@ -256,7 +256,7 @@ func TestFacilityFanController_RotatesFailedRetryStartAcrossDevices(t *testing.T
 	assert.Equal(t, []int64{firstID, secondID, secondID, firstID}, driverController.deviceIDs)
 }
 
-func TestFacilityFanController_DisabledClaimIsAuditedSkip(t *testing.T) {
+func TestFacilityFanController_DisabledClaimIsAuditedSkipAndCommandFailure(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -297,14 +297,19 @@ func TestFacilityFanController_DisabledClaimIsAuditedSkip(t *testing.T) {
 
 	failure := controller.SetState(t.Context(), event, driver.PowerOn)
 
-	assert.Nil(t, failure)
+	require.NotNil(t, failure)
+	assert.Contains(t, *failure, "device 501: device is disabled")
 	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, driverController.powers)
-	require.Len(t, audit.events, 1)
+	require.Len(t, audit.events, 2)
 	assert.Equal(t, ActivityTypeFacilityFanCommandSkipped, audit.events[0].Type)
 	assert.Equal(t, activitymodels.ResultSuccess, audit.events[0].Result)
 	assert.Equal(t, "on", audit.events[0].Metadata["desired_power"])
 	assert.Equal(t, []int64{disabledID}, audit.events[0].Metadata["device_ids"])
 	assert.Equal(t, "device_disabled", audit.events[0].Metadata["skip_reason"])
+	assert.Equal(t, ActivityTypeFacilityFanCommandFailed, audit.events[1].Type)
+	assert.Equal(t, activitymodels.ResultFailure, audit.events[1].Result)
+	require.NotNil(t, audit.events[1].ErrorMessage)
+	assert.Contains(t, *audit.events[1].ErrorMessage, "device 501: device is disabled")
 }
 
 func TestFacilityFanController_RejectsDeviceMovedFromAuthorizedSite(t *testing.T) {
