@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { type ReparentedRack } from "../ManageBuildingModal/RackReparentWarningDialog";
 import { buildRackPickerItem, describeRackReassignment, type RackPickerItem } from "../rackPickerItem";
@@ -14,6 +14,7 @@ import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Switch from "@/shared/components/Switch";
+import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 type SearchRackColumn = "name" | "building" | "status";
 
@@ -94,6 +95,10 @@ const SearchRacksModal = ({
   // Self-fetched building id → display label map for the Building
   // column. Mirrors ManageRacksModal so the two pickers stay aligned.
   const [buildingMap, setBuildingMap] = useState<Record<string, string>>({});
+  // Mirror of the toggle for the fetch effect's async error handler, read via a
+  // ref so the effect need not list `showAssigned` as a dep.
+  const showAssignedRef = useRef(showAssigned);
+  showAssignedRef.current = showAssigned;
 
   useEffect(() => {
     if (!open) return;
@@ -136,6 +141,18 @@ const SearchRacksModal = ({
       },
       onError: (msg) => {
         if (cancelled) return;
+        // A failed *broadened* (toggle-on) fetch must not strand the operator:
+        // the error branch below hides the Switch, so they could never toggle
+        // back off. Keep the already-loaded scoped racks, revert the toggle and
+        // clear the (now-hidden) selection, and surface the failure as a toast.
+        // Only the initial scoped fetch shows the blocking error state.
+        if (showAssignedRef.current) {
+          pushToast({ message: `Couldn't load assigned racks: ${msg}`, status: STATUSES.error });
+          setShowAssigned(false);
+          setSelectedItems([]);
+          setConflictInfoItem(null);
+          return;
+        }
         setError(msg);
         setItems([]);
       },

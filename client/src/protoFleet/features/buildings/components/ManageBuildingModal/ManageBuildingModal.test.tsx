@@ -38,7 +38,7 @@ const createRack = (id: bigint, label: string, buildingId: bigint, siteId?: bigi
     typeDetails: { case: "rackInfo", value: create(RackInfoSchema, { rows: 1, columns: 1, buildingId, siteId }) },
   });
 
-const renderModal = () =>
+const renderModal = (onSaved = vi.fn()) =>
   render(
     <ManageBuildingModal
       open
@@ -47,7 +47,7 @@ const renderModal = () =>
       onDismiss={vi.fn()}
       onEditDetails={vi.fn()}
       onDeleteRequested={vi.fn()}
-      onSaved={vi.fn()}
+      onSaved={onSaved}
     />,
   );
 
@@ -104,5 +104,27 @@ describe("ManageBuildingModal reparent commit-on-Continue", () => {
     // Picker stays open; the reparent dialog is gone.
     expect(screen.queryByText("Move this rack?")).not.toBeInTheDocument();
     expect(screen.getByTestId("manage-racks-modal-confirm")).toBeInTheDocument();
+  });
+
+  it("refreshes the host on dismiss after a reparent committed without Save", async () => {
+    // The reparent already mutated the server on Move; dismissing without Save
+    // must still refresh the host so stale rack counts/membership don't linger.
+    const onSaved = vi.fn();
+    renderModal(onSaved);
+    await openPickerAndPickBeta();
+    await userEvent.click(screen.getByRole("button", { name: "Move" }));
+    await waitFor(() => expect(mockApi.assignRacksToBuilding).toHaveBeenCalledTimes(1));
+
+    await userEvent.click(screen.getByLabelText("Close dialog"));
+    expect(onSaved).toHaveBeenCalledWith(building);
+  });
+
+  it("does not refresh the host on dismiss when nothing was committed", async () => {
+    const onSaved = vi.fn();
+    renderModal(onSaved);
+    await screen.findByTestId("manage-building-manage-racks");
+
+    await userEvent.click(screen.getByLabelText("Close dialog"));
+    expect(onSaved).not.toHaveBeenCalled();
   });
 });

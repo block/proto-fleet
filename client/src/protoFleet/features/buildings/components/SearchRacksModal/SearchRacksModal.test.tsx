@@ -34,6 +34,7 @@ const createRack = (id: bigint, label: string, buildingId: bigint, siteId?: bigi
   });
 
 const SCOPE: SiteFilterFields = { siteIds: [42n], includeUnassigned: true };
+const ALL_SITES_ASSIGNED_SCOPE: SiteFilterFields = { siteIds: [], includeUnassigned: false };
 
 const renderModal = (onConfirm = vi.fn(), overrides?: { assignedScope?: SiteFilterFields }) =>
   render(
@@ -158,6 +159,31 @@ describe("SearchRacksModal show-assigned toggle + reparent reporting", () => {
     await userEvent.type(screen.getByTestId("search-racks-modal-query"), "Beta-only");
     await waitFor(() => expect(screen.queryByText("Alpha")).not.toBeInTheDocument());
     expect(screen.getByTestId("search-racks-modal-confirm")).toBeDisabled();
+  });
+
+  it("recovers when the broadened (toggle-on) fetch fails", async () => {
+    // The eligible scoped fetch succeeds; toggling on broadens to a global scope
+    // whose fetch fails. The failure must not strand the operator behind an
+    // error state that hides the Switch — the toggle reverts, the already-loaded
+    // eligible racks stay, and the picker remains usable.
+    mockListRacks.mockReset();
+    mockListRacks.mockImplementation(({ siteIds, onSuccess, onError }) => {
+      if (siteIds.length === 0) {
+        onError?.("network down");
+      } else {
+        onSuccess?.([createRack(1n, "Alpha", 7n, 42n), createRack(2n, "Beta", 9n, 42n, 5)]);
+      }
+    });
+
+    renderModal(vi.fn(), { assignedScope: ALL_SITES_ASSIGNED_SCOPE });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+
+    await waitFor(() => expect(screen.getByLabelText("Show assigned racks")).not.toBeChecked());
+    expect(screen.queryByTestId("search-racks-modal-error")).not.toBeInTheDocument();
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.queryByText("Beta")).not.toBeInTheDocument();
   });
 
   it("clears the selection when the toggle is turned off (no stale hidden pick)", async () => {

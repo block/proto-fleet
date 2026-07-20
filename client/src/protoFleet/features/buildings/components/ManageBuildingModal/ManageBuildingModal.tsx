@@ -130,6 +130,12 @@ const ManageBuildingModal = ({
   // dispatch path twice. Mirrors useSiteModals' savingRef pattern.
   const savingRef = useRef(false);
 
+  // A reparent confirm commits the move server-side immediately (option A),
+  // before the outer Save. If the operator dismisses without Saving, the host
+  // page/cache would keep stale rack counts and membership. Track that a commit
+  // happened so dismiss can trigger the host refresh even without a Save.
+  const committedReparentRef = useRef(false);
+
   // (Re)load assignments when the modal opens.
   useEffect(() => {
     if (!open) return;
@@ -334,6 +340,7 @@ const ManageBuildingModal = ({
       for (const rackId of rackIds) {
         initialPlacementRef.current.set(rackId.toString(), "unplaced");
       }
+      committedReparentRef.current = true;
     },
     [assignRacksToBuilding, building.id],
   );
@@ -640,6 +647,7 @@ const ManageBuildingModal = ({
       }
 
       pushToast({ message: `Building "${building.name}" saved`, status: STATUSES.success });
+      committedReparentRef.current = false;
       onSaved?.(building);
       onDismiss();
     } finally {
@@ -647,6 +655,18 @@ const ManageBuildingModal = ({
       setIsSaving(false);
     }
   }, [building, rackToCell, entries, aislesNum, racksPerAisleNum, assignRacksToBuilding, onSaved, onDismiss]);
+
+  // Dismiss without Save. A reparent confirmed earlier already mutated the
+  // server, so the host must refresh its rack counts/membership even though the
+  // outer Save never ran — otherwise the buildings page shows stale state until
+  // some unrelated refetch. Flush onSaved once, then dismiss.
+  const handleDismiss = useCallback(() => {
+    if (committedReparentRef.current) {
+      committedReparentRef.current = false;
+      onSaved?.(building);
+    }
+    onDismiss();
+  }, [building, onSaved, onDismiss]);
 
   if (!open) return null;
 
@@ -661,7 +681,7 @@ const ManageBuildingModal = ({
       <FullScreenTwoPaneModal
         open={open}
         title={subtitle ? `${title} — ${subtitle}` : title}
-        onDismiss={onDismiss}
+        onDismiss={handleDismiss}
         isBusy={isSaving}
         buttons={[
           {
