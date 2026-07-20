@@ -345,14 +345,28 @@ const ManageBuildingModal = ({
             racks: chunk.map((rackId) => ({ rackId })),
             targetBuildingId: building.id,
             onSuccess: () => resolve(),
-            onError: (msg) => reject(new Error(msg)),
+            // If an earlier chunk already committed, tell the operator to
+            // refresh — some racks have moved server-side even though the
+            // overall move failed. Mirrors the Save path's partial-commit copy.
+            onError: (msg) =>
+              reject(
+                new Error(
+                  i > 0
+                    ? `${msg}. Some racks already moved — refresh the building view to see the current state.`
+                    : msg,
+                ),
+              ),
           });
         });
+        // Record each committed chunk immediately (not once at the end): a
+        // later chunk's failure then still leaves the succeeded moves tracked,
+        // so the snapshot diffs correctly on Save and dismiss refreshes the
+        // host for what already moved.
+        for (const rackId of chunk) {
+          initialPlacementRef.current.set(rackId.toString(), "unplaced");
+        }
+        committedReparentRef.current = true;
       }
-      for (const rackId of rackIds) {
-        initialPlacementRef.current.set(rackId.toString(), "unplaced");
-      }
-      committedReparentRef.current = true;
     },
     [assignRacksToBuilding, building.id],
   );
