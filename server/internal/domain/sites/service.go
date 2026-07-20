@@ -323,7 +323,7 @@ func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.Dele
 		}
 		if activeEventCount > 0 {
 			return fleeterror.NewFailedPreconditionError(
-				"infrastructure devices at this site are claimed by active curtailment events; wait for those events to finish before deleting the site",
+				"infrastructure devices at this site are claimed by active curtailment events or protected by unresolved terminal facility fan recovery; finish those events or resolve their facility fan recovery before deleting the site",
 			)
 		}
 		// Clear rack→building linkage + zone for racks under any

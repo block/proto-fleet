@@ -1666,6 +1666,13 @@ func (r *Reconciler) reconcileRestoringFans(ctx context.Context, ev *models.Even
 	}
 	if ev.FanOnSentAt == nil {
 		params.FanOnSentAt = &now
+		// Airflow markers from the active phase do not prove that this
+		// restoration's ON command succeeded. Clear the old marker when the
+		// first attempt fails; a successful command replaces it atomically.
+		params.ClearFanAirflowReopenedAt = true
+	}
+	if restoringFanAirflowStartedAt(ev) == nil {
+		params.FanAirflowReopenedAtOnSuccess = &now
 	}
 	lastError, err := r.commandAndPersistFanState(ctx, ev, params, driver.PowerOn)
 	if err != nil {
@@ -1676,6 +1683,11 @@ func (r *Reconciler) reconcileRestoringFans(ctx context.Context, ev *models.Even
 	}
 	if ev.FanOnSentAt == nil {
 		ev.FanOnSentAt = &now
+	}
+	if lastError == nil && params.FanAirflowReopenedAtOnSuccess != nil {
+		ev.FanAirflowReopenedAt = params.FanAirflowReopenedAtOnSuccess
+	} else if params.ClearFanAirflowReopenedAt {
+		ev.FanAirflowReopenedAt = nil
 	}
 	ev.FanLastError = lastError
 	if r.fanAlert != nil {
@@ -1689,6 +1701,18 @@ func (r *Reconciler) reconcileRestoringFans(ctx context.Context, ev *models.Even
 			r.fanAlert.EmitCurtailmentFanRestoreFailure(ctx, ev.OrgID, ev.EventUUID.String(), true)
 		}
 	}
+}
+
+// restoringFanAirflowStartedAt returns the first successful ON command in the
+// current restoring phase. FanOnSentAt records the first attempt (and therefore
+// bounds fail-open behavior), while an older airflow marker may belong to the
+// active phase and must not satisfy the restore cooling gate.
+func restoringFanAirflowStartedAt(ev *models.Event) *time.Time {
+	if ev == nil || ev.FanOnSentAt == nil || ev.FanAirflowReopenedAt == nil ||
+		ev.FanAirflowReopenedAt.Before(*ev.FanOnSentAt) {
+		return nil
+	}
+	return ev.FanAirflowReopenedAt
 }
 
 func (r *Reconciler) commandAndPersistFanState(
@@ -1853,7 +1877,11 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 		if ev.FanOnSentAt == nil {
 			return
 		}
-		if r.now().Before(ev.FanOnSentAt.Add(time.Duration(ev.FanRestoreDelaySec) * time.Second)) {
+		delayStartedAt := ev.FanOnSentAt
+		if airflowStartedAt := restoringFanAirflowStartedAt(ev); airflowStartedAt != nil {
+			delayStartedAt = airflowStartedAt
+		}
+		if r.now().Before(delayStartedAt.Add(time.Duration(ev.FanRestoreDelaySec) * time.Second)) {
 			return
 		}
 	}

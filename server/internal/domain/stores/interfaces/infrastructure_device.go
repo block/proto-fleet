@@ -32,7 +32,8 @@ type InfrastructureDeviceStore interface {
 	CountResponseProfilesByInfrastructureDevice(ctx context.Context, orgID, id int64) (int64, error)
 
 	// CountActiveCurtailmentEventsByInfrastructureDevice returns the number of
-	// non-terminal events that currently claim the device as a facility fan.
+	// events that currently protect the device as a facility fan: non-terminal
+	// owners plus terminal events with unresolved fan recovery failures.
 	CountActiveCurtailmentEventsByInfrastructureDevice(ctx context.Context, orgID, id int64) (int64, error)
 
 	// UpdateInfrastructureDevice mutates the row's mutable fields. The

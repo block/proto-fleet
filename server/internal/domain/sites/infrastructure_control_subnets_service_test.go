@@ -205,7 +205,7 @@ func TestSetInfrastructureControlSubnetsRejectsClaimedFacilityFans(t *testing.T)
 	if err == nil || !fleeterror.IsFailedPreconditionError(err) {
 		t.Fatalf("expected claimed-fan precondition failure, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "claimed by active curtailment events") {
+	if !strings.Contains(err.Error(), "active curtailment events") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

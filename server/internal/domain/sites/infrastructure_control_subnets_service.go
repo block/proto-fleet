@@ -61,7 +61,7 @@ func (s *Service) SetInfrastructureControlSubnets(ctx context.Context, orgID, si
 		}
 		if activeEventCount > 0 {
 			return fleeterror.NewFailedPreconditionError(
-				"infrastructure devices at this site are claimed by active curtailment events; wait for those events to finish before changing infrastructure control subnets",
+				"infrastructure devices at this site are claimed by active curtailment events or protected by unresolved terminal facility fan recovery; finish those events or resolve their facility fan recovery before changing infrastructure control subnets",
 			)
 		}
 

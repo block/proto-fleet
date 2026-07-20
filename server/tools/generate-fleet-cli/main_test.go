@@ -714,6 +714,40 @@ func TestBuildGroupsRequiresRelatedFlagsTogetherBeforeSettingBoolean(t *testing.
 	}
 }
 
+func TestBuildGroupsBoundsUint32FlagsBeforeAssignment(t *testing.T) {
+	file := testFanSettingsServiceFile(t)
+	files := []protoreflect.FileDescriptor{file}
+	messages, enums, err := buildTypeIndexes(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	groups, _, err := buildGroups(files, messages, enums, commandsManifest{
+		Commands: []commandSpec{{
+			Method:  "/test.v1.TestService/Update",
+			Group:   "test",
+			Command: "update",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("buildGroups error = %v, want success", err)
+	}
+	if len(groups) != 1 || len(groups[0].CommandExprs) != 1 {
+		t.Fatalf("generated groups = %#v, want one command expression", groups)
+	}
+
+	expr := groups[0].CommandExprs[0]
+	for _, flagName := range []string{"fan-off-delay-sec", "fan-restore-delay-sec"} {
+		want := "value, err := generatedUint32FlagValue(cmd, \"" + flagName + "\")"
+		if !strings.Contains(expr, want) {
+			t.Fatalf("generated command missing bounded %s conversion:\n%s", flagName, expr)
+		}
+	}
+	if strings.Contains(expr, "uint32(cmd.Uint(") {
+		t.Fatalf("generated command contains unchecked uint32 conversion:\n%s", expr)
+	}
+}
+
 func testPoolServiceFile(t *testing.T) protoreflect.FileDescriptor {
 	t.Helper()
 	files, err := protodesc.NewFiles(&descriptorpb.FileDescriptorSet{

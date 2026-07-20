@@ -217,7 +217,7 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 			}
 			if activeEventCount > 0 {
 				return fleeterror.NewFailedPreconditionError(
-					"infrastructure device is claimed by an active curtailment event; wait for the event to finish before moving it",
+					"infrastructure device is claimed by an active curtailment event or protected by unresolved terminal facility fan recovery; finish the event or resolve its facility fan recovery before moving it",
 				)
 			}
 		} else {
@@ -236,7 +236,7 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 				}
 				if activeEventCount > 0 {
 					return fleeterror.NewFailedPreconditionError(
-						"infrastructure device is claimed by an active curtailment event; wait for the event to finish before changing its enabled state or driver configuration",
+						"infrastructure device is claimed by an active curtailment event or protected by unresolved terminal facility fan recovery; finish the event or resolve its facility fan recovery before changing its enabled state or driver configuration",
 					)
 				}
 			}
@@ -293,7 +293,7 @@ func (s *Service) Delete(ctx context.Context, orgID, id, expectedSiteID int64) e
 		}
 		if activeEventCount > 0 {
 			return fleeterror.NewFailedPreconditionError(
-				"infrastructure device is claimed by an active curtailment event; wait for the event to finish before deleting it",
+				"infrastructure device is claimed by an active curtailment event or protected by unresolved terminal facility fan recovery; finish the event or resolve its facility fan recovery before deleting it",
 			)
 		}
 		device, found, err := s.store.SoftDeleteInfrastructureDevice(txCtx, orgID, id, expectedSiteID)

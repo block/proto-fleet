@@ -1890,6 +1890,9 @@ func (s *SQLCurtailmentStore) commandFanStateWithQueries(
 	fanAirflowReopenedAt := params.FanAirflowReopenedAt
 	if lastError == nil && params.FanAirflowReopenedAtOnSuccess != nil {
 		fanAirflowReopenedAt = params.FanAirflowReopenedAtOnSuccess
+		// A successful command replaces an old phase's marker rather than
+		// clearing the newly confirmed airflow timestamp.
+		params.ClearFanAirflowReopenedAt = false
 	}
 	rows, err := q.UpdateCurtailmentEventFanState(ctx, sqlc.UpdateCurtailmentEventFanStateParams{
 		ID:                        eventID,

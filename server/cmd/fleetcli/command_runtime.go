@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"strings"
@@ -23,6 +24,14 @@ func generatedValidateRequest(message proto.Message) error {
 		return fmt.Errorf("validate request: %w", err)
 	}
 	return nil
+}
+
+func generatedUint32FlagValue(cmd *cli.Command, flagName string) (uint32, error) {
+	value := cmd.Uint(flagName)
+	if uint64(value) > math.MaxUint32 {
+		return 0, fmt.Errorf("invalid value for --%s: %d exceeds maximum %d", flagName, value, uint64(math.MaxUint32))
+	}
+	return uint32(value), nil // #nosec G115 -- bounds-checked above
 }
 
 type generatedAuthPolicy string

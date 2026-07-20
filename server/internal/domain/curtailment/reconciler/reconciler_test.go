@@ -449,6 +449,7 @@ func (f *fakeStore) CommandFanState(
 	lastError := command(ctx)
 	if lastError == nil && params.FanAirflowReopenedAtOnSuccess != nil {
 		params.FanAirflowReopenedAt = params.FanAirflowReopenedAtOnSuccess
+		params.ClearFanAirflowReopenedAt = false
 	}
 	params.LastError = lastError
 	return lastError, f.UpdateFanState(ctx, eventID, params)

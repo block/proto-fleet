@@ -18,7 +18,10 @@ const countActiveCurtailmentEventsByInfrastructureDevices = `-- name: CountActiv
 SELECT COUNT(*)
 FROM curtailment_event
 WHERE org_id = $1
-  AND state IN ('pending', 'active', 'restoring')
+  AND (
+    state IN ('pending', 'active', 'restoring')
+    OR fan_last_error IS NOT NULL
+  )
   AND facility_fan_device_ids && $2::BIGINT[]
 `
 

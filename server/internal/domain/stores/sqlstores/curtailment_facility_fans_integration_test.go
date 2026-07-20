@@ -14,6 +14,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/infrastructure"
 	infrastructuremodels "github.com/block/proto-fleet/server/internal/domain/infrastructure/models"
 	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -112,6 +113,85 @@ func TestSQLCurtailmentStore_FacilityFanClaimSnapshotAndRelease(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.False(t, commandCalled, "stale terminal recovery must not override the newer active fan claim")
+}
+
+func TestSQLCurtailmentStore_TerminalFanRecoveryFailureProtectsInfrastructureDevice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	db := testContext.DatabaseService.DB
+	curtailmentStore := sqlstores.NewSQLCurtailmentStore(db)
+	siteID, fanID := seedCurtailmentFacilityFan(t, db, user.OrganizationID, "terminal-fan-recovery-guard")
+
+	eventUUID := uuid.New()
+	event := curtailmentStoreTestEvent(
+		user.OrganizationID,
+		user.DatabaseID,
+		eventUUID,
+		models.EventStateActive,
+		"terminal-fan-recovery-guard",
+	)
+	event.FacilityFanDeviceIDs = []int64{fanID}
+	event.ExpectedFacilityFanSites = map[int64]int64{fanID: siteID}
+	inserted, err := curtailmentStore.InsertEventWithTargets(ctx, event, []models.InsertTargetParams{
+		curtailmentStoreTestTarget("terminal-fan-recovery-guard-miner", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+	})
+	require.NoError(t, err)
+
+	_, err = curtailmentStore.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "terminal fan recovery guard")
+	require.NoError(t, err)
+	recoveryAttemptAt := time.Now().UTC()
+	recoveryFailure := "facility fan ON failed"
+	err = curtailmentStore.RecoverTerminalFanState(
+		ctx,
+		inserted.ID,
+		user.OrganizationID,
+		[]int64{fanID},
+		[]int64{siteID},
+		interfaces.UpdateCurtailmentFanStateParams{
+			ExpectedEventState: models.EventStateCancelled,
+			FanOnSentAt:        &recoveryAttemptAt,
+		},
+		func(context.Context) *string { return &recoveryFailure },
+	)
+	require.NoError(t, err)
+
+	infrastructureStore := sqlstores.NewSQLInfrastructureDeviceStore(db)
+	service := infrastructure.NewService(
+		infrastructureStore,
+		sqlstores.NewSQLSiteStore(db),
+		infrastructure.NewDefaultDriverRegistry(),
+		sqlstores.NewSQLTransactor(db),
+		nil,
+	)
+	err = service.Delete(ctx, user.OrganizationID, fanID, siteID)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "unresolved terminal recovery must protect the fan, got %v", err)
+
+	successfulRecoveryAt := time.Now().UTC()
+	err = curtailmentStore.RecoverTerminalFanState(
+		ctx,
+		inserted.ID,
+		user.OrganizationID,
+		[]int64{fanID},
+		[]int64{siteID},
+		interfaces.UpdateCurtailmentFanStateParams{
+			ExpectedEventState: models.EventStateCancelled,
+			FanOnSentAt:        &successfulRecoveryAt,
+		},
+		func(context.Context) *string { return nil },
+	)
+	require.NoError(t, err)
+
+	recovered, err := curtailmentStore.GetEventByUUID(ctx, user.OrganizationID, eventUUID)
+	require.NoError(t, err)
+	assert.Nil(t, recovered.FanLastError)
+	require.NoError(t, service.Delete(ctx, user.OrganizationID, fanID, siteID),
+		"clearing terminal fan recovery failure must release the infrastructure mutation guard")
 }
 
 func TestSQLCurtailmentStore_ForceReleaseKeepsFanClaimUntilRecoveryCompletes(t *testing.T) {
