@@ -1,5 +1,6 @@
+import { type ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code } from "@connectrpc/connect";
@@ -8,6 +9,37 @@ import { Code } from "@connectrpc/connect";
 // direct-link reachability for authorized QA/dogfood paths.
 vi.mock("@/protoFleet/constants/featureFlags", () => ({
   INFRASTRUCTURE_DEVICES_ENABLED: false,
+}));
+
+vi.mock("@/protoFleet/api/useSiteMapCsv", () => ({
+  default: () => ({
+    exportSiteMapCsv: vi.fn(),
+    isExportingSiteMapCsv: false,
+  }),
+}));
+
+const { completeSetupMock, refreshEntitiesMock } = vi.hoisted(() => ({
+  completeSetupMock: vi.fn(),
+  refreshEntitiesMock: vi.fn(),
+}));
+
+vi.mock("@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context", () => ({
+  useFleetCreateFlow: () => ({
+    refreshEntities: refreshEntitiesMock,
+  }),
+}));
+
+vi.mock("@/protoFleet/features/fleetManagement/components/SiteMapCsvImportModal", () => ({
+  default: ({ open, onImported }: { open: boolean; onImported?: () => void }) =>
+    open ? (
+      <button type="button" data-testid="site-map-import-modal" onClick={onImported}>
+        import
+      </button>
+    ) : null,
+}));
+
+vi.mock("@/protoFleet/features/fleetManagement/components/FleetCreateFlow/FleetCreateFlowProvider", () => ({
+  default: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
 import FleetLayout from "./FleetLayout";
@@ -19,10 +51,12 @@ import { type ActiveSite } from "@/protoFleet/store/types/activeSite";
 // redirect logic. The hook returns a callable that resolves with the
 // provided sites via onSuccess — same shape as the real listSites contract.
 const listSitesMock = vi.hoisted(() => vi.fn());
-vi.mock("@/protoFleet/api/sites", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/protoFleet/api/sites")>();
+vi.mock("@/protoFleet/api/sites", () => {
   return {
-    ...actual,
+    buildKnownSiteIds: (sites: SiteWithCounts[] | undefined): Set<string> | undefined => {
+      if (!sites) return undefined;
+      return new Set(sites.map((s) => (s.site?.id ?? 0n).toString()).filter((id) => id !== "0"));
+    },
     useSites: () => ({
       listSites: listSitesMock,
       // The other useSites members are unused in FleetLayout but the type
@@ -86,7 +120,10 @@ if (typeof globalThis.localStorage === "undefined") {
 // here — stub it so we don't pull in onboarding's RPC/zustand surface area.
 // The sentinel lets us assert the miner:read gate keeps it from mounting.
 vi.mock("@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup", () => ({
-  default: () => <div data-testid="complete-setup-mock" />,
+  default: (props: { minersChangedAt?: number }) => {
+    completeSetupMock(props);
+    return <div data-testid="complete-setup-mock" data-miners-changed-at={props.minersChangedAt ?? 0} />;
+  },
 }));
 
 const buildSite = (id: number, name = `Site ${id}`): SiteWithCounts =>
@@ -386,6 +423,21 @@ describe("FleetLayout CompleteSetup gate", () => {
     renderAt("/fleet/racks");
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks"));
     expect(screen.queryByTestId("complete-setup-mock")).not.toBeInTheDocument();
+  });
+});
+
+describe("FleetLayout site map import refresh", () => {
+  test("refreshes topology and miner data after a successful import", async () => {
+    renderAt("/fleet/miners");
+
+    await waitFor(() => expect(screen.getByTestId("tab-content-miners")).toBeInTheDocument());
+    fireEvent.click(screen.getAllByText("Import site map")[0]);
+    fireEvent.click(screen.getByTestId("site-map-import-modal"));
+
+    expect(refreshEntitiesMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(Number(screen.getByTestId("complete-setup-mock").dataset.minersChangedAt)).toBeGreaterThan(0);
+    });
   });
 });
 

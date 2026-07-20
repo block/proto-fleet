@@ -42,8 +42,11 @@ const scrubEvent = (event: RumEvent): boolean => {
   if (event.view.referrer) {
     event.view.referrer = stripUrlQuery(event.view.referrer);
   }
-  if (event.type === "resource" && event.resource.url) {
-    event.resource.url = stripUrlQuery(event.resource.url);
+  if (event.type === "resource") {
+    const resource = event.resource;
+    if (resource?.url) {
+      resource.url = stripUrlQuery(resource.url);
+    }
   }
   return true;
 };

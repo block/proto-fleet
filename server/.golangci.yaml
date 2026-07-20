@@ -18,7 +18,6 @@ linters:
     - errname
     - errorlint
     - exhaustruct
-    - forbidigo
     - funcorder
     - funlen
     - gochecknoglobals
@@ -66,7 +65,8 @@ linters:
       threshold: 100
     forbidigo:
       forbid:
-        - pattern: fmt\.Errorf
+        - pattern: \.(Begin|BeginTx)$
+          msg: use db.WithTransaction or db.WithTransactionNoResult
     goconst:
       min-len: 8
       min-occurrences: 3
@@ -83,6 +83,7 @@ linters:
     generated: lax
     rules:
       - linters:
+          - forbidigo
           - goconst
           - scopelint
         path: _test\.go

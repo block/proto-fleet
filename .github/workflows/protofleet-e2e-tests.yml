@@ -164,12 +164,12 @@ jobs:
       contents: read
     env:
       # Total shard count. Keep in sync with the length of matrix.shard below.
-      SHARD_TOTAL: "8"
+      SHARD_TOTAL: "16"
     strategy:
       fail-fast: false
       matrix:
         # 0-indexed to match the round-robin modulo in the run step below.
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
         project: [desktop, mobile]
 
     steps:
@@ -357,19 +357,6 @@ jobs:
         with:
           preinstall: "false"
 
-      # See the build job: cache ~/.npm and run a clean `npm ci`.
-      - name: Cache npm dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-npm-
-
-      - name: Install client dependencies
-        working-directory: client
-        run: npm ci --include=optional
-
       - name: Download all blob reports
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -381,7 +368,16 @@ jobs:
         id: merge
         working-directory: client/e2eTests/protoFleet
         run: |
-          echo "Merging blob reports..."
+          # Pin the merge CLI to the lockfile's @playwright/test version so it can
+          # read the shards' blob format without a full `npm ci` on the critical path.
+          PW_VERSION=$(jq -r '.packages["node_modules/@playwright/test"].version // empty' ../../package-lock.json)
+          if [ -z "${PW_VERSION}" ]; then
+            echo "::error::Could not resolve @playwright/test version from client/package-lock.json"
+            exit 1
+          fi
+          PLAYWRIGHT="npx --yes --package=@playwright/test@${PW_VERSION} playwright"
+
+          echo "Merging blob reports with @playwright/test@${PW_VERSION}..."
           mkdir -p merged-reports
 
           # Organize blob reports by project
@@ -407,7 +403,7 @@ jobs:
             mkdir -p merged-reports/desktop/test-results
             PLAYWRIGHT_HTML_OUTPUT_DIR=merged-reports/desktop/playwright-report \
             PLAYWRIGHT_JUNIT_OUTPUT_FILE=merged-reports/desktop/test-results/results.xml \
-            npx playwright merge-reports --reporter=html,junit /tmp/desktop-blobs
+            $PLAYWRIGHT merge-reports --reporter=html,junit /tmp/desktop-blobs
             echo "desktop-report-path=client/e2eTests/protoFleet/merged-reports/desktop" >> $GITHUB_OUTPUT
           else
             echo "No desktop blob reports found"
@@ -419,7 +415,7 @@ jobs:
             mkdir -p merged-reports/mobile/test-results
             PLAYWRIGHT_HTML_OUTPUT_DIR=merged-reports/mobile/playwright-report \
             PLAYWRIGHT_JUNIT_OUTPUT_FILE=merged-reports/mobile/test-results/results.xml \
-            npx playwright merge-reports --reporter=html,junit /tmp/mobile-blobs
+            $PLAYWRIGHT merge-reports --reporter=html,junit /tmp/mobile-blobs
             echo "mobile-report-path=client/e2eTests/protoFleet/merged-reports/mobile" >> $GITHUB_OUTPUT
           else
             echo "No mobile blob reports found"

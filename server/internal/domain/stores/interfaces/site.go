@@ -72,9 +72,17 @@ type SiteStore interface {
 	// curtailment response behavior scoped to the site being deleted.
 	DeleteCurtailmentResponseProfilesBySite(ctx context.Context, orgID, siteID int64) (int64, error)
 
+	// CountCurtailmentResponseProfilesBySite counts reusable curtailment
+	// response behavior scoped to the site without mutating it.
+	CountCurtailmentResponseProfilesBySite(ctx context.Context, orgID, siteID int64) (int64, error)
+
 	// LockInfrastructureDevicesBySiteForWrite locks live devices at the site
 	// in ID order before a site-delete reference check and cascade.
 	LockInfrastructureDevicesBySiteForWrite(ctx context.Context, orgID, siteID int64) ([]int64, error)
+
+	// CountInfrastructureDevicesBySite counts live infrastructure devices
+	// at the site without locking or mutating them.
+	CountInfrastructureDevicesBySite(ctx context.Context, orgID, siteID int64) (int64, error)
 
 	// CountResponseProfilesByInfrastructureDevices counts surviving profiles
 	// that reference any ID in the supplied set.

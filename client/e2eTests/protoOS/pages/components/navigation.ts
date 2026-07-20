@@ -1,15 +1,27 @@
 import { expect } from "@playwright/test";
+import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../../config/test.config";
 import { BasePage } from "../base";
 
 export class NavigationComponent extends BasePage {
   async clickNavigationMenuIfMobile() {
     if (this.isMobile) {
+      const navigation = this.page.getByTestId("navigation");
+      if (await navigation.isVisible().catch(() => false)) {
+        return;
+      }
+
       await this.page.getByTestId("navigation-menu-button").click();
+      await expect(navigation).toBeVisible();
     }
   }
 
   async clickNavigationItem(itemName: string) {
-    await this.page.getByTestId("navigation").getByRole("button", { name: itemName }).click();
+    await expect(async () => {
+      await this.clickNavigationMenuIfMobile();
+      const button = this.page.getByTestId("navigation").getByRole("button", { name: itemName });
+      await expect(button).toBeVisible({ timeout: DEFAULT_INTERVAL });
+      await button.click({ timeout: DEFAULT_INTERVAL });
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
 
   async clickNavigationItemInSettings(itemName: string, expand: boolean) {
