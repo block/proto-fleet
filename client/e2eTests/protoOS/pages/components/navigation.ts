@@ -1,5 +1,5 @@
 import { expect } from "@playwright/test";
-import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../../../protoFleet/config/test.config";
+import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../../config/test.config";
 import { BasePage } from "../base";
 
 export class NavigationComponent extends BasePage {
@@ -17,6 +17,7 @@ export class NavigationComponent extends BasePage {
 
   async clickNavigationItem(itemName: string) {
     await expect(async () => {
+      await this.clickNavigationMenuIfMobile();
       const button = this.page.getByTestId("navigation").getByRole("button", { name: itemName });
       await expect(button).toBeVisible({ timeout: DEFAULT_INTERVAL });
       await button.click({ timeout: DEFAULT_INTERVAL });
