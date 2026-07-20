@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 )
 
@@ -39,6 +40,9 @@ var RedactedRequestProcedures = []string{
 	// PairDiscoveredDevicesOnFleetNode carries miner credentials (username/password)
 	// in the request body.
 	fleetnodeadminv1connect.FleetNodeAdminServicePairDiscoveredDevicesOnFleetNodeProcedure,
+	// ImportSiteMapCsv carries fleet topology plus miner identifiers, IPs, and
+	// MAC addresses in the request body.
+	sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure,
 	alertsv1connect.ChannelServiceCreateChannelProcedure,
 	alertsv1connect.ChannelServiceUpdateChannelProcedure,
 	alertsv1connect.ChannelServiceTestChannelProcedure,
@@ -205,6 +209,10 @@ var SensitiveBodyProcedures = map[string]bool{
 	// PairDiscoveredDevicesOnFleetNode: credentials in the request, plugin/node error
 	// strings in responses that can echo secrets.
 	fleetnodeadminv1connect.FleetNodeAdminServicePairDiscoveredDevicesOnFleetNodeProcedure: true,
+	// Site-map CSV import/export bodies carry fleet topology plus miner
+	// identifiers, serials, IPs, and MAC addresses.
+	sitemapv1connect.SiteMapServiceExportSiteMapCsvProcedure: true,
+	sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure: true,
 	// Infrastructure device bodies carry driver_config — the OT control
 	// network map (endpoint IPs, unit IDs, register addresses) — in
 	// create/update requests and all read/write responses. Keep it out

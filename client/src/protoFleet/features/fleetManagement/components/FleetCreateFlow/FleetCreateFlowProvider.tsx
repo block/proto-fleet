@@ -423,8 +423,14 @@ const FleetCreateFlowProvider = ({
   );
 
   const value = useMemo<FleetCreateFlowContextValue>(
-    () => ({ launchCreateRack, launchCreateBuilding, launchCreateSite, entitiesChangedAt }),
-    [launchCreateRack, launchCreateBuilding, launchCreateSite, entitiesChangedAt],
+    () => ({
+      launchCreateRack,
+      launchCreateBuilding,
+      launchCreateSite,
+      entitiesChangedAt,
+      refreshEntities: refreshSitesAndBump,
+    }),
+    [launchCreateRack, launchCreateBuilding, launchCreateSite, entitiesChangedAt, refreshSitesAndBump],
   );
 
   return (

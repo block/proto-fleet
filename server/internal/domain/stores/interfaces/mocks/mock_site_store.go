@@ -116,6 +116,36 @@ func (mr *MockSiteStoreMockRecorder) CountBuildingsBySite(ctx, orgID, siteID any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountBuildingsBySite", reflect.TypeOf((*MockSiteStore)(nil).CountBuildingsBySite), ctx, orgID, siteID)
 }
 
+// CountCurtailmentResponseProfilesBySite mocks base method.
+func (m *MockSiteStore) CountCurtailmentResponseProfilesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountCurtailmentResponseProfilesBySite", ctx, orgID, siteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountCurtailmentResponseProfilesBySite indicates an expected call of CountCurtailmentResponseProfilesBySite.
+func (mr *MockSiteStoreMockRecorder) CountCurtailmentResponseProfilesBySite(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountCurtailmentResponseProfilesBySite", reflect.TypeOf((*MockSiteStore)(nil).CountCurtailmentResponseProfilesBySite), ctx, orgID, siteID)
+}
+
+// CountInfrastructureDevicesBySite mocks base method.
+func (m *MockSiteStore) CountInfrastructureDevicesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountInfrastructureDevicesBySite", ctx, orgID, siteID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountInfrastructureDevicesBySite indicates an expected call of CountInfrastructureDevicesBySite.
+func (mr *MockSiteStoreMockRecorder) CountInfrastructureDevicesBySite(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountInfrastructureDevicesBySite", reflect.TypeOf((*MockSiteStore)(nil).CountInfrastructureDevicesBySite), ctx, orgID, siteID)
+}
+
 // CountNonTerminalCurtailmentEventsByInfrastructureDevices mocks base method.
 func (m *MockSiteStore) CountNonTerminalCurtailmentEventsByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error) {
 	m.ctrl.T.Helper()

@@ -22,6 +22,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
@@ -322,6 +323,16 @@ var ProcedurePermissions = map[string]string{
 
 	// ServerLogService — gated by PermServerlogRead.
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure: authz.PermServerlogRead,
+
+	// SiteMapService — full-fleet topology CSV. Export is classified
+	// by miner:export_csv as the primary CSV-export gate; the handler
+	// also requires org-wide site:read and rack:read because the file
+	// includes site/building/rack placement across the organization.
+	// Import is classified by site:manage; the handler also requires
+	// org-wide rack:manage because it previews and applies full-fleet
+	// placement mutations.
+	sitemapv1connect.SiteMapServiceExportSiteMapCsvProcedure: authz.PermMinerExportCSV,
+	sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure: authz.PermSiteManage,
 
 	// Sites CRUD — site:read for List, site:manage for everything else.
 	sitesv1connect.SiteServiceListSitesProcedure:             authz.PermSiteRead,

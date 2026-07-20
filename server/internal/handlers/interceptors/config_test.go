@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
@@ -23,6 +24,16 @@ func TestUpdateWorkerNamesProcedureIsRedacted(t *testing.T) {
 
 	assert.Contains(t, RedactedRequestProcedures, procedure)
 	assert.True(t, SensitiveBodyProcedures[procedure])
+}
+
+func TestSiteMapCsvProceduresAreSensitiveBody(t *testing.T) {
+	t.Parallel()
+
+	assert.Contains(t, RedactedRequestProcedures, sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure)
+	assert.True(t, SensitiveBodyProcedures[sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure],
+		"site-map imports carry CSV topology and miner identity data")
+	assert.True(t, SensitiveBodyProcedures[sitemapv1connect.SiteMapServiceExportSiteMapCsvProcedure],
+		"site-map export streams carry CSV topology and miner identity data")
 }
 
 func TestMqttSettingsPasswordProceduresAreRedacted(t *testing.T) {

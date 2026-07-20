@@ -32,10 +32,18 @@ export class BasePage {
   }
 
   async clickClearAllFilters() {
-    await this.dismissVisibleToastIfPresent();
     const clearAllFiltersButton = this.page.getByRole("button", { name: "Clear all filters", exact: true });
     await clearAllFiltersButton.scrollIntoViewIfNeeded();
-    await clearAllFiltersButton.click();
+    await this.dismissVisibleToastIfPresent();
+    try {
+      await clearAllFiltersButton.click();
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("intercepts pointer events")) {
+        throw error;
+      }
+      await this.dismissVisibleToastIfPresent();
+      await clearAllFiltersButton.click();
+    }
   }
 
   async clearActiveFilter(filterValue: string) {
@@ -367,22 +375,23 @@ export class BasePage {
     }
 
     const logoutButton = this.page.getByTestId("logout-button");
+    if (await logoutButton.isVisible().catch(() => false)) {
+      await logoutButton.click();
+      return;
+    }
 
-    if (!(await logoutButton.isVisible().catch(() => false))) {
-      await this.clickNavigationMenuIfMobile();
+    await this.clickNavigationMenuIfMobile();
+    if (await logoutButton.isVisible().catch(() => false)) {
+      await logoutButton.click();
+      return;
     }
 
     if (this.page.url().includes("/auth") || (await loginForm.isVisible().catch(() => false))) {
       return;
     }
 
-    if (!(await logoutButton.isVisible().catch(() => false))) {
-      await this.page.goto("/auth");
-      await expect(loginForm).toBeVisible();
-      return;
-    }
-
-    await logoutButton.click();
+    await this.page.goto("/auth");
+    await expect(loginForm).toBeVisible();
   }
 
   async validateTitle(expectedTitle: string) {
@@ -500,18 +509,49 @@ export class BasePage {
 
   private async dismissVisibleToastIfPresent() {
     const toastContainer = this.page.getByTestId("toaster-container");
-    if (!(await toastContainer.isVisible().catch(() => false))) {
-      return;
-    }
+    if (await toastContainer.isVisible().catch(() => false)) {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await this.dismissToast().catch(() => undefined);
+        await toastContainer.waitFor({ state: "hidden", timeout: OVERLAY_DISMISS_TIMEOUT }).catch(() => undefined);
 
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      await this.dismissToast().catch(() => undefined);
-      await toastContainer.waitFor({ state: "hidden", timeout: OVERLAY_DISMISS_TIMEOUT }).catch(() => undefined);
-
-      if (!(await toastContainer.isVisible().catch(() => false))) {
-        return;
+        if (!(await toastContainer.isVisible().catch(() => false))) {
+          break;
+        }
       }
     }
+
+    const basicToasts = this.page.getByTestId("toast");
+    const count = await basicToasts.count();
+    for (let index = count - 1; index >= 0; index -= 1) {
+      const toast = basicToasts.nth(index);
+      if (await toast.isVisible().catch(() => false)) {
+        await toast
+          .locator("button")
+          .last()
+          .evaluate((button: Element) => {
+            (button as HTMLElement).click();
+          })
+          .catch(() => undefined);
+      }
+    }
+
+    await this.page
+      .waitForFunction(
+        () =>
+          Array.from(document.querySelectorAll('[data-testid="toast"]')).every((toast) => {
+            const element = toast as HTMLElement;
+            const style = window.getComputedStyle(element);
+            return (
+              element.getClientRects().length === 0 ||
+              style.display === "none" ||
+              style.visibility === "hidden" ||
+              style.opacity === "0"
+            );
+          }),
+        undefined,
+        { timeout: OVERLAY_DISMISS_TIMEOUT },
+      )
+      .catch(() => undefined);
   }
 
   async validateButtonIsVisible(text: string) {
@@ -519,15 +559,102 @@ export class BasePage {
   }
 
   async clickNavigationMenuIfMobile() {
-    if (this.isMobile) {
-      await this.page.getByTestId("navigation-menu-button").click();
+    if (!this.isMobile) {
+      return;
     }
+
+    if (
+      await this.page
+        .getByTestId("navigation-menu")
+        .isVisible()
+        .catch(() => false)
+    ) {
+      return;
+    }
+
+    const navigationMenuButton = this.page.getByTestId("navigation-menu-button");
+    if (await navigationMenuButton.isVisible().catch(() => false)) {
+      await navigationMenuButton.click();
+      return;
+    }
+
+    if (
+      await this.page
+        .locator(`//input[@id='username']`)
+        .isVisible()
+        .catch(() => false)
+    ) {
+      return;
+    }
+
+    await navigationMenuButton.click();
   }
 
   async clickExpandSettingsIfMobile() {
-    if (this.isMobile && !this.page.url().includes("/settings")) {
-      await this.page.getByTestId("navigation-menu").getByText("Settings").click();
+    if (!this.isMobile || this.page.url().includes("/settings")) {
+      return;
     }
+
+    const secondaryNav = this.page.getByTestId("secondary-nav");
+    let lastToggleError: unknown;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await this.clickNavigationMenuIfMobile();
+      const settingsToggle = this.page.getByTestId("navigation-menu").getByRole("button", {
+        name: "Settings menu toggle",
+      });
+      await settingsToggle.waitFor({ state: "visible", timeout: OVERLAY_DISMISS_TIMEOUT }).catch(() => undefined);
+      await settingsToggle
+        .evaluate((element) => {
+          (element as HTMLElement).click();
+        })
+        .then(() => {
+          lastToggleError = undefined;
+        })
+        .catch((error: unknown) => {
+          lastToggleError = error;
+        });
+      await secondaryNav.waitFor({ state: "visible", timeout: OVERLAY_DISMISS_TIMEOUT }).catch(() => undefined);
+      if (await secondaryNav.isVisible().catch(() => false)) {
+        return;
+      }
+    }
+
+    if (lastToggleError instanceof Error && lastToggleError.message.includes("Element is not attached to the DOM")) {
+      throw lastToggleError;
+    }
+    await expect(secondaryNav).toBeVisible();
+  }
+
+  private async clickSettingsSubnavLink(path: string) {
+    const link = this.page.getByTestId("secondary-nav").locator(`a[href="${path}"]`);
+    if (!this.isMobile) {
+      await link.click();
+      return;
+    }
+
+    let lastClickError: unknown;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await link.waitFor({ state: "visible", timeout: OVERLAY_DISMISS_TIMEOUT }).catch(() => undefined);
+      await link
+        .evaluate((element) => {
+          (element as HTMLElement).click();
+        })
+        .then(() => {
+          lastClickError = undefined;
+        })
+        .catch((error: unknown) => {
+          lastClickError = error;
+        });
+
+      if (lastClickError === undefined) {
+        return;
+      }
+    }
+
+    if (lastClickError instanceof Error) {
+      throw lastClickError;
+    }
+    await link.click();
   }
 
   async navigateToHomePage() {
@@ -605,7 +732,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/security"]').click();
+    await this.clickSettingsSubnavLink("/settings/security");
     await expect(this.page).toHaveURL(/.*\/settings\/security/);
   }
 
@@ -613,7 +740,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/network"]').click();
+    await this.clickSettingsSubnavLink("/settings/network");
     await expect(this.page).toHaveURL(/.*\/settings\/network/);
   }
 
@@ -621,7 +748,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/preferences"]').click();
+    await this.clickSettingsSubnavLink("/settings/preferences");
     await expect(this.page).toHaveURL(/.*\/settings\/preferences/);
   }
 
@@ -629,7 +756,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/team"]').click();
+    await this.clickSettingsSubnavLink("/settings/team");
     await expect(this.page).toHaveURL(/.*\/settings\/team/);
   }
 
@@ -637,7 +764,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/mining-pools"]').click();
+    await this.clickSettingsSubnavLink("/settings/mining-pools");
     await expect(this.page).toHaveURL(/.*\/settings\/mining-pools/);
   }
 
@@ -645,7 +772,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/firmware"]').click();
+    await this.clickSettingsSubnavLink("/settings/firmware");
     await expect(this.page).toHaveURL(/.*\/settings\/firmware/);
   }
 
@@ -661,7 +788,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/integrations"]').click();
+    await this.clickSettingsSubnavLink("/settings/integrations");
     await expect(this.page).toHaveURL(/.*\/settings\/integrations/);
   }
 
@@ -669,7 +796,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/schedules"]').click();
+    await this.clickSettingsSubnavLink("/settings/schedules");
     await expect(this.page).toHaveURL(/.*\/settings\/schedules/);
   }
 
@@ -677,7 +804,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/curtailment"]').click();
+    await this.clickSettingsSubnavLink("/settings/curtailment");
     await expect(this.page).toHaveURL(/.*\/settings\/curtailment/);
   }
 
@@ -685,7 +812,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/alerts"]').click();
+    await this.clickSettingsSubnavLink("/settings/alerts");
     await expect(this.page).toHaveURL(/.*\/settings\/alerts/);
   }
 
@@ -693,7 +820,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();
     await this.navigateSettingsIfDesktop();
-    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/server-logs"]').click();
+    await this.clickSettingsSubnavLink("/settings/server-logs");
     await expect(this.page).toHaveURL(/.*\/settings\/server-logs/);
   }
 
@@ -1000,6 +1127,7 @@ export class BasePage {
       "building-page-action-sheet-content",
       "list-header-action-sheet-content",
       "rack-slot-actions-sheet-content",
+      "site-map-action-sheet-content",
     ];
 
     await expect
@@ -1040,6 +1168,7 @@ export class BasePage {
       "building-page-action-sheet",
       "list-header-action-sheet",
       "rack-slot-actions-sheet",
+      "site-map-action-sheet",
     ];
 
     for (const testId of sheetTestIds) {

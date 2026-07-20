@@ -183,6 +183,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countCurtailmentAutomationRulesByResponseProfileStmt, err = db.PrepareContext(ctx, countCurtailmentAutomationRulesByResponseProfile); err != nil {
 		return nil, fmt.Errorf("error preparing query CountCurtailmentAutomationRulesByResponseProfile: %w", err)
 	}
+	if q.countCurtailmentResponseProfilesBySiteStmt, err = db.PrepareContext(ctx, countCurtailmentResponseProfilesBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query CountCurtailmentResponseProfilesBySite: %w", err)
+	}
 	if q.countCurtailmentScopeConflictsStmt, err = db.PrepareContext(ctx, countCurtailmentScopeConflicts); err != nil {
 		return nil, fmt.Errorf("error preparing query CountCurtailmentScopeConflicts: %w", err)
 	}
@@ -191,6 +194,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.countErrorsStmt, err = db.PrepareContext(ctx, countErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CountErrors: %w", err)
+	}
+	if q.countInfrastructureDevicesBySiteStmt, err = db.PrepareContext(ctx, countInfrastructureDevicesBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query CountInfrastructureDevicesBySite: %w", err)
 	}
 	if q.countMinersByStateStmt, err = db.PrepareContext(ctx, countMinersByState); err != nil {
 		return nil, fmt.Errorf("error preparing query CountMinersByState: %w", err)
@@ -1374,6 +1380,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateCustomRoleNameStmt, err = db.PrepareContext(ctx, updateCustomRoleName); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateCustomRoleName: %w", err)
 	}
+	if q.updateDeviceCustomNamesStmt, err = db.PrepareContext(ctx, updateDeviceCustomNames); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateDeviceCustomNames: %w", err)
+	}
 	if q.updateDeviceIPAssignmentStmt, err = db.PrepareContext(ctx, updateDeviceIPAssignment); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateDeviceIPAssignment: %w", err)
 	}
@@ -1788,6 +1797,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing countCurtailmentAutomationRulesByResponseProfileStmt: %w", cerr)
 		}
 	}
+	if q.countCurtailmentResponseProfilesBySiteStmt != nil {
+		if cerr := q.countCurtailmentResponseProfilesBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countCurtailmentResponseProfilesBySiteStmt: %w", cerr)
+		}
+	}
 	if q.countCurtailmentScopeConflictsStmt != nil {
 		if cerr := q.countCurtailmentScopeConflictsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countCurtailmentScopeConflictsStmt: %w", cerr)
@@ -1801,6 +1815,11 @@ func (q *Queries) Close() error {
 	if q.countErrorsStmt != nil {
 		if cerr := q.countErrorsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countErrorsStmt: %w", cerr)
+		}
+	}
+	if q.countInfrastructureDevicesBySiteStmt != nil {
+		if cerr := q.countInfrastructureDevicesBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countInfrastructureDevicesBySiteStmt: %w", cerr)
 		}
 	}
 	if q.countMinersByStateStmt != nil {
@@ -3773,6 +3792,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateCustomRoleNameStmt: %w", cerr)
 		}
 	}
+	if q.updateDeviceCustomNamesStmt != nil {
+		if cerr := q.updateDeviceCustomNamesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateDeviceCustomNamesStmt: %w", cerr)
+		}
+	}
 	if q.updateDeviceIPAssignmentStmt != nil {
 		if cerr := q.updateDeviceIPAssignmentStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateDeviceIPAssignmentStmt: %w", cerr)
@@ -4105,9 +4129,11 @@ type Queries struct {
 	countConflictingCurtailmentFanClaimsStmt                     *sql.Stmt
 	countCurtailmentAutomationRulesByMQTTSourceStmt              *sql.Stmt
 	countCurtailmentAutomationRulesByResponseProfileStmt         *sql.Stmt
+	countCurtailmentResponseProfilesBySiteStmt                   *sql.Stmt
 	countCurtailmentScopeConflictsStmt                           *sql.Stmt
 	countDevicesWithErrorsStmt                                   *sql.Stmt
 	countErrorsStmt                                              *sql.Stmt
+	countInfrastructureDevicesBySiteStmt                         *sql.Stmt
 	countMinersByStateStmt                                       *sql.Stmt
 	countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt *sql.Stmt
 	countOrgScopeSuperAdminsExcludingUserStmt                    *sql.Stmt
@@ -4502,6 +4528,7 @@ type Queries struct {
 	updateCurtailmentResponseProfileStmt                         *sql.Stmt
 	updateCurtailmentTargetStateStmt                             *sql.Stmt
 	updateCustomRoleNameStmt                                     *sql.Stmt
+	updateDeviceCustomNamesStmt                                  *sql.Stmt
 	updateDeviceIPAssignmentStmt                                 *sql.Stmt
 	updateDeviceInfoStmt                                         *sql.Stmt
 	updateDevicePairingStatusByIdentifierStmt                    *sql.Stmt
@@ -4609,9 +4636,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countConflictingCurtailmentFanClaimsStmt:                     q.countConflictingCurtailmentFanClaimsStmt,
 		countCurtailmentAutomationRulesByMQTTSourceStmt:              q.countCurtailmentAutomationRulesByMQTTSourceStmt,
 		countCurtailmentAutomationRulesByResponseProfileStmt:         q.countCurtailmentAutomationRulesByResponseProfileStmt,
+		countCurtailmentResponseProfilesBySiteStmt:                   q.countCurtailmentResponseProfilesBySiteStmt,
 		countCurtailmentScopeConflictsStmt:                           q.countCurtailmentScopeConflictsStmt,
 		countDevicesWithErrorsStmt:                                   q.countDevicesWithErrorsStmt,
 		countErrorsStmt:                                              q.countErrorsStmt,
+		countInfrastructureDevicesBySiteStmt:                         q.countInfrastructureDevicesBySiteStmt,
 		countMinersByStateStmt:                                       q.countMinersByStateStmt,
 		countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt: q.countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt,
 		countOrgScopeSuperAdminsExcludingUserStmt:                    q.countOrgScopeSuperAdminsExcludingUserStmt,
@@ -5006,6 +5035,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateCurtailmentResponseProfileStmt:                         q.updateCurtailmentResponseProfileStmt,
 		updateCurtailmentTargetStateStmt:                             q.updateCurtailmentTargetStateStmt,
 		updateCustomRoleNameStmt:                                     q.updateCustomRoleNameStmt,
+		updateDeviceCustomNamesStmt:                                  q.updateDeviceCustomNamesStmt,
 		updateDeviceIPAssignmentStmt:                                 q.updateDeviceIPAssignmentStmt,
 		updateDeviceInfoStmt:                                         q.updateDeviceInfoStmt,
 		updateDevicePairingStatusByIdentifierStmt:                    q.updateDevicePairingStatusByIdentifierStmt,

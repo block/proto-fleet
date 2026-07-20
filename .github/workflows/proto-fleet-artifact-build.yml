@@ -444,6 +444,7 @@ jobs:
           cp deployment-files/client/Dockerfile deployment/client/
           cp deployment-files/client/nginx.http.conf deployment/client/
           cp deployment-files/client/nginx.https.conf deployment/client/
+          cp -r deployment-files/client/docker-entrypoint.d deployment/client/
           cp deployment-files/server/Dockerfile deployment/server/
           cp deployment-files/docker-compose.yaml deployment/
           cp deployment-files/docker-compose.alerts.yaml deployment/
