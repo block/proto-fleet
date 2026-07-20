@@ -44,9 +44,9 @@ type ResponseProfile struct {
 	UpdatedAt                   time.Time
 }
 
-// ResponseProfileFanSettings is the fan state observed before an update. The
-// store uses it as an optimistic guard so a concurrent replacement cannot be
-// overwritten by a stale request.
+// ResponseProfileFanSettings is the fan state observed before an operation.
+// Stores use it as an optimistic guard so a concurrent replacement cannot be
+// overwritten or bound by a stale request.
 type ResponseProfileFanSettings struct {
 	FacilityFanDeviceIDs []int64
 	FanOffDelaySec       int32

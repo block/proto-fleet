@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -397,9 +398,13 @@ func (s *SQLCurtailmentStore) ListMQTTSourcesWithActiveCurtailment(ctx context.C
 	return out, nil
 }
 
-func (s *SQLCurtailmentStore) CreateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
+func (s *SQLCurtailmentStore) CreateAutomationRule(
+	ctx context.Context,
+	rule models.AutomationRule,
+	expectedFanSettings models.ResponseProfileFanSettings,
+) (*models.AutomationRule, error) {
 	inserted, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentAutomationRule, error) {
-		if err := requireResponseProfileForAutomation(ctx, q, rule.OrgID, rule.ResponseProfileID); err != nil {
+		if err := requireResponseProfileForAutomation(ctx, q, rule.OrgID, rule.ResponseProfileID, expectedFanSettings); err != nil {
 			return sqlc.CurtailmentAutomationRule{}, err
 		}
 		inserted, err := q.InsertCurtailmentAutomationRule(ctx, sqlc.InsertCurtailmentAutomationRuleParams{
@@ -421,9 +426,13 @@ func (s *SQLCurtailmentStore) CreateAutomationRule(ctx context.Context, rule mod
 	return s.GetAutomationRule(ctx, inserted.OrgID, inserted.ID)
 }
 
-func (s *SQLCurtailmentStore) UpdateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
+func (s *SQLCurtailmentStore) UpdateAutomationRule(
+	ctx context.Context,
+	rule models.AutomationRule,
+	expectedFanSettings models.ResponseProfileFanSettings,
+) (*models.AutomationRule, error) {
 	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (automationRuleMutationResult, error) {
-		if err := requireResponseProfileForAutomation(ctx, q, rule.OrgID, rule.ResponseProfileID); err != nil {
+		if err := requireResponseProfileForAutomation(ctx, q, rule.OrgID, rule.ResponseProfileID, expectedFanSettings); err != nil {
 			return automationRuleMutationResult{}, err
 		}
 		updated, err := q.UpdateCurtailmentAutomationRule(ctx, sqlc.UpdateCurtailmentAutomationRuleParams{
@@ -450,7 +459,13 @@ func (s *SQLCurtailmentStore) UpdateAutomationRule(ctx context.Context, rule mod
 	return s.GetAutomationRule(ctx, result.rule.OrgID, result.rule.ID)
 }
 
-func (s *SQLCurtailmentStore) SetAutomationRuleEnabled(ctx context.Context, orgID, ruleID int64, enabled bool) (*models.AutomationRule, error) {
+func (s *SQLCurtailmentStore) SetAutomationRuleEnabled(
+	ctx context.Context,
+	orgID,
+	ruleID int64,
+	enabled bool,
+	expectedFanSettings models.ResponseProfileFanSettings,
+) (*models.AutomationRule, error) {
 	var updated sqlc.CurtailmentAutomationRule
 	var err error
 	if enabled {
@@ -465,7 +480,7 @@ func (s *SQLCurtailmentStore) SetAutomationRuleEnabled(ctx context.Context, orgI
 			if err != nil {
 				return automationRuleMutationResult{}, err
 			}
-			if err := requireResponseProfileForAutomation(ctx, q, orgID, rule.ResponseProfileID); err != nil {
+			if err := requireResponseProfileForAutomation(ctx, q, orgID, rule.ResponseProfileID, expectedFanSettings); err != nil {
 				return automationRuleMutationResult{}, err
 			}
 			updated, err := q.SetCurtailmentAutomationRuleEnabled(ctx, sqlc.SetCurtailmentAutomationRuleEnabledParams{
@@ -824,11 +839,17 @@ func lockResponseProfileAutomationMutation(ctx context.Context, q *sqlc.Queries,
 	return nil
 }
 
-func requireResponseProfileForAutomation(ctx context.Context, q *sqlc.Queries, orgID, profileID int64) error {
+func requireResponseProfileForAutomation(
+	ctx context.Context,
+	q *sqlc.Queries,
+	orgID,
+	profileID int64,
+	expectedFanSettings models.ResponseProfileFanSettings,
+) error {
 	if err := lockResponseProfileAutomationMutation(ctx, q, orgID, profileID); err != nil {
 		return err
 	}
-	_, err := q.GetCurtailmentResponseProfileByOrg(ctx, sqlc.GetCurtailmentResponseProfileByOrgParams{
+	profile, err := q.GetCurtailmentResponseProfileByOrg(ctx, sqlc.GetCurtailmentResponseProfileByOrgParams{
 		ID:    profileID,
 		OrgID: orgID,
 	})
@@ -838,7 +859,19 @@ func requireResponseProfileForAutomation(ctx context.Context, q *sqlc.Queries, o
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to get response profile during automation mutation: %v", err)
 	}
+	if !responseProfileFanSettingsMatch(profile, expectedFanSettings) {
+		return fleeterror.NewFailedPreconditionError("curtailment response profile changed before automation rule save; retry")
+	}
 	return nil
+}
+
+func responseProfileFanSettingsMatch(
+	profile sqlc.CurtailmentResponseProfile,
+	expected models.ResponseProfileFanSettings,
+) bool {
+	return slices.Equal(profile.FacilityFanDeviceIds, expected.FacilityFanDeviceIDs) &&
+		profile.FanOffDelaySec == expected.FanOffDelaySec &&
+		profile.FanRestoreDelaySec == expected.FanRestoreDelaySec
 }
 
 func lockResponseProfileInfrastructureDevicesForWrite(

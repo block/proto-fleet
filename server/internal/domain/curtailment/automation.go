@@ -67,8 +67,9 @@ func NewAutomationService(cfg AutomationServiceConfig) (*AutomationService, erro
 }
 
 type SaveAutomationRuleRequest struct {
-	Rule                models.AutomationRule
-	CanUseAdminControls bool
+	Rule                               models.AutomationRule
+	CanUseAdminControls                bool
+	ExpectedResponseProfileFanSettings models.ResponseProfileFanSettings
 }
 
 func (s *AutomationService) List(ctx context.Context, orgID int64) ([]*models.AutomationRule, error) {
@@ -98,11 +99,16 @@ func (s *AutomationService) Create(ctx context.Context, req SaveAutomationRuleRe
 	if err := s.ensureConfigured(); err != nil {
 		return nil, err
 	}
-	rule, err := s.validateAndNormalize(ctx, req.Rule, req.CanUseAdminControls)
+	rule, expectedFanSettings, err := s.validateAndNormalize(
+		ctx,
+		req.Rule,
+		req.CanUseAdminControls,
+		req.ExpectedResponseProfileFanSettings,
+	)
 	if err != nil {
 		return nil, err
 	}
-	return s.store.CreateAutomationRule(ctx, rule)
+	return s.store.CreateAutomationRule(ctx, rule, expectedFanSettings)
 }
 
 func (s *AutomationService) Update(ctx context.Context, req SaveAutomationRuleRequest) (*models.AutomationRule, error) {
@@ -112,7 +118,12 @@ func (s *AutomationService) Update(ctx context.Context, req SaveAutomationRuleRe
 	if req.Rule.ID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("rule_id must be set")
 	}
-	rule, err := s.validateAndNormalize(ctx, req.Rule, req.CanUseAdminControls)
+	rule, expectedFanSettings, err := s.validateAndNormalize(
+		ctx,
+		req.Rule,
+		req.CanUseAdminControls,
+		req.ExpectedResponseProfileFanSettings,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +134,7 @@ func (s *AutomationService) Update(ctx context.Context, req SaveAutomationRuleRe
 	if err := s.ensureNoNonTerminalActiveEvent(ctx, existing, "update"); err != nil {
 		return nil, err
 	}
-	return s.store.UpdateAutomationRule(ctx, rule)
+	return s.store.UpdateAutomationRule(ctx, rule, expectedFanSettings)
 }
 
 func (s *AutomationService) SetEnabled(
@@ -132,6 +143,7 @@ func (s *AutomationService) SetEnabled(
 	ruleID int64,
 	enabled bool,
 	canUseAdminControls bool,
+	expectedFanSettings models.ResponseProfileFanSettings,
 ) (*models.AutomationRule, error) {
 	if err := s.ensureConfigured(); err != nil {
 		return nil, err
@@ -147,7 +159,9 @@ func (s *AutomationService) SetEnabled(
 		return nil, err
 	}
 	if enabled {
-		if err := s.ensureProfileCanBeAutomated(ctx, rule, canUseAdminControls); err != nil {
+		var err error
+		expectedFanSettings, err = s.ensureProfileCanBeAutomated(ctx, rule, canUseAdminControls, expectedFanSettings)
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -156,7 +170,7 @@ func (s *AutomationService) SetEnabled(
 			return nil, err
 		}
 	}
-	return s.store.SetAutomationRuleEnabled(ctx, orgID, ruleID, enabled)
+	return s.store.SetAutomationRuleEnabled(ctx, orgID, ruleID, enabled, expectedFanSettings)
 }
 
 func (s *AutomationService) Delete(ctx context.Context, orgID, ruleID int64) error {
@@ -411,52 +425,67 @@ func (s *AutomationService) validateAndNormalize(
 	ctx context.Context,
 	rule models.AutomationRule,
 	canUseAdminControls bool,
-) (models.AutomationRule, error) {
+	expectedFanSettings models.ResponseProfileFanSettings,
+) (models.AutomationRule, models.ResponseProfileFanSettings, error) {
 	rule.RuleName = strings.TrimSpace(rule.RuleName)
 	if rule.OrgID <= 0 {
-		return models.AutomationRule{}, fleeterror.NewInvalidArgumentError("org_id must be set")
+		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewInvalidArgumentError("org_id must be set")
 	}
 	if err := validateAutomationRuleName(rule.RuleName); err != nil {
-		return models.AutomationRule{}, err
+		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, err
 	}
 	if rule.TriggerType == "" {
 		rule.TriggerType = models.AutomationTriggerTypeMQTT
 	}
 	if rule.TriggerType != models.AutomationTriggerTypeMQTT {
-		return models.AutomationRule{}, fleeterror.NewInvalidArgumentErrorf("trigger_type %q is not supported; only MQTT (MaestroOS source) is supported", rule.TriggerType)
+		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewInvalidArgumentErrorf("trigger_type %q is not supported; only MQTT (MaestroOS source) is supported", rule.TriggerType)
 	}
 	if rule.MQTTSourceID <= 0 {
-		return models.AutomationRule{}, fleeterror.NewInvalidArgumentError("mqtt_source_id must be set")
+		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewInvalidArgumentError("mqtt_source_id must be set")
 	}
 	if rule.ResponseProfileID <= 0 {
-		return models.AutomationRule{}, fleeterror.NewInvalidArgumentError("response_profile_id must be set")
+		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewInvalidArgumentError("response_profile_id must be set")
 	}
 	if _, err := s.sourceStore.GetSourceConfigByOrg(ctx, rule.OrgID, rule.MQTTSourceID); err != nil {
-		return models.AutomationRule{}, mqttSourceLookupError(err)
+		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, mqttSourceLookupError(err)
 	}
 	profile, err := s.profiles.Get(ctx, rule.OrgID, rule.ResponseProfileID)
 	if err != nil {
-		return models.AutomationRule{}, err
+		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, err
 	}
 	if err := validateAutomationProfileBinding(profile, canUseAdminControls); err != nil {
-		return models.AutomationRule{}, err
+		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, err
 	}
-	return rule, nil
+	if !sameResponseProfileFanSettings(responseProfileFanSettings(profile), expectedFanSettings) {
+		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewFailedPreconditionError(
+			"curtailment response profile changed before automation rule save; retry",
+		)
+	}
+	return rule, expectedFanSettings, nil
 }
 
 func (s *AutomationService) ensureProfileCanBeAutomated(
 	ctx context.Context,
 	rule *models.AutomationRule,
 	canUseAdminControls bool,
-) error {
+	expectedFanSettings models.ResponseProfileFanSettings,
+) (models.ResponseProfileFanSettings, error) {
 	if rule == nil {
-		return nil
+		return models.ResponseProfileFanSettings{}, nil
 	}
 	profile, err := s.profiles.Get(ctx, rule.OrgID, rule.ResponseProfileID)
 	if err != nil {
-		return err
+		return models.ResponseProfileFanSettings{}, err
 	}
-	return validateAutomationProfileBinding(profile, canUseAdminControls)
+	if err := validateAutomationProfileBinding(profile, canUseAdminControls); err != nil {
+		return models.ResponseProfileFanSettings{}, err
+	}
+	if !sameResponseProfileFanSettings(responseProfileFanSettings(profile), expectedFanSettings) {
+		return models.ResponseProfileFanSettings{}, fleeterror.NewFailedPreconditionError(
+			"curtailment response profile changed before automation rule save; retry",
+		)
+	}
+	return expectedFanSettings, nil
 }
 
 func validateAutomationProfileBinding(profile *models.ResponseProfile, canUseAdminControls bool) error {
@@ -467,6 +496,23 @@ func validateAutomationProfileBinding(profile *models.ResponseProfile, canUseAdm
 		return nil
 	}
 	return fleeterror.NewForbiddenError("only admins can bind automation rules to response profiles with admin-only controls")
+}
+
+func responseProfileFanSettings(profile *models.ResponseProfile) models.ResponseProfileFanSettings {
+	if profile == nil {
+		return models.ResponseProfileFanSettings{}
+	}
+	return models.ResponseProfileFanSettings{
+		FacilityFanDeviceIDs: append([]int64(nil), profile.FacilityFanDeviceIDs...),
+		FanOffDelaySec:       profile.FanOffDelaySec,
+		FanRestoreDelaySec:   profile.FanRestoreDelaySec,
+	}
+}
+
+func sameResponseProfileFanSettings(a, b models.ResponseProfileFanSettings) bool {
+	return slices.Equal(a.FacilityFanDeviceIDs, b.FacilityFanDeviceIDs) &&
+		a.FanOffDelaySec == b.FanOffDelaySec &&
+		a.FanRestoreDelaySec == b.FanRestoreDelaySec
 }
 
 func (s *AutomationService) ensureConfigured() error {

@@ -118,10 +118,10 @@ func TestSQLCurtailmentStore_RuleMutationGuardsCoverExternalReference(t *testing
 		RuleName:          "guard-rule",
 		MQTTSourceID:      sourceB,
 		ResponseProfileID: profileID,
-	})
+	}, models.ResponseProfileFanSettings{})
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "re-pointing the rule must be blocked, got %v", err)
 
-	_, err = store.SetAutomationRuleEnabled(ctx, orgID, ruleID, false)
+	_, err = store.SetAutomationRuleEnabled(ctx, orgID, ruleID, false, models.ResponseProfileFanSettings{})
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "disabling the rule must be blocked, got %v", err)
 
 	err = store.DeleteAutomationRule(ctx, orgID, ruleID)
