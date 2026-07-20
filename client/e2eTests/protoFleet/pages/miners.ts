@@ -913,6 +913,7 @@ export class MinersPage extends BasePage {
       ipAddress: string;
     }>
   > {
+    await this.waitForMinersListToLoad();
     const rows = this.page.getByTestId("list-body").locator("tr");
     const rowCount = await rows.count();
     expect(rowCount).toBeGreaterThanOrEqual(count);

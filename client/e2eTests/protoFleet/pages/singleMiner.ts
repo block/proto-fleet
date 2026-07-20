@@ -24,7 +24,7 @@ export class SingleMinerPage extends BasePage {
   }
 
   private closeButtonLabel() {
-    return this.page.getByTestId("single-miner-close-button").locator("xpath=following-sibling::span[1]");
+    return this.page.getByTestId("single-miner-close-button").locator(":scope + span");
   }
 
   private async ensureNavigationVisible() {

@@ -1,4 +1,5 @@
 import { expect } from "@playwright/test";
+import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../../../protoFleet/config/test.config";
 import { BasePage } from "../base";
 
 export class HeaderComponent extends BasePage {
@@ -7,8 +8,11 @@ export class HeaderComponent extends BasePage {
   }
 
   async clickPowerPopoverButton(buttonText: string) {
-    const popover = this.page.getByTestId("power-popover");
-    await popover.getByRole("button", { name: buttonText }).click();
+    await expect(async () => {
+      const button = this.page.getByTestId("power-popover").getByRole("button", { name: buttonText });
+      await expect(button).toBeVisible({ timeout: DEFAULT_INTERVAL });
+      await button.click({ timeout: DEFAULT_INTERVAL });
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
 
   async validateWarnRebootDialog() {

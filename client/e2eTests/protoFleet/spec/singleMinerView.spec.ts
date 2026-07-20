@@ -111,7 +111,7 @@ test.describe("Proto Fleet - Single Miner View", () => {
     });
 
     await test.step("Click the row and open the standalone miner URL in a new tab", async () => {
-      const popupPromise = page.context().waitForEvent("page");
+      const popupPromise = page.waitForEvent("popup");
       const popupNavigationPromise = page.context().waitForEvent("request", (request) => {
         return request.isNavigationRequest() && new URL(request.url()).hostname === fallbackMinerIp;
       });
