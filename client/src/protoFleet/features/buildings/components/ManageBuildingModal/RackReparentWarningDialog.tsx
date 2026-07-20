@@ -13,6 +13,9 @@ interface RackReparentWarningDialogProps {
   racks: ReparentedRack[];
   /** Target building name, shown in the message. */
   buildingName: string;
+  /** The move commits on confirm; `busy` disables the actions and shows a
+   *  progress label on Move while that RPC is in flight. */
+  busy?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -27,6 +30,7 @@ interface RackReparentWarningDialogProps {
 export default function RackReparentWarningDialog({
   racks,
   buildingName,
+  busy = false,
   onCancel,
   onConfirm,
 }: RackReparentWarningDialogProps) {
@@ -43,8 +47,14 @@ export default function RackReparentWarningDialog({
       }
       onDismiss={onCancel}
       buttons={[
-        { text: "Cancel", onClick: onCancel, variant: variants.secondary },
-        { text: "Move", onClick: onConfirm, variant: variants.primary },
+        { text: "Cancel", onClick: onCancel, variant: variants.secondary, disabled: busy },
+        {
+          text: busy ? "Moving…" : "Move",
+          onClick: onConfirm,
+          variant: variants.primary,
+          loading: busy,
+          disabled: busy,
+        },
       ]}
     />
   );

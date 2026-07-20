@@ -76,11 +76,17 @@ const ManageBuildingModal = ({
   );
 
   // Pending reparent confirm — set when the operator picks an already-placed
-  // rack. `onConfirm` runs the working-set mutation once the warning is
-  // accepted; cancelling leaves the picker open and the working set untouched.
+  // rack. Accepting it commits the move server-side immediately (mirrors the
+  // miner-side Rack Settings "Continue", which persists placement on confirm),
+  // then folds the rack into the working set; cancelling leaves the picker open
+  // and nothing changes. Committing on confirm means the rack is no longer
+  // "assigned elsewhere" on reopen, so the picker never re-seeds it as a
+  // reassignment row. `isReparenting` drives the dialog's busy state while the
+  // move RPC is in flight.
   const [reparentConfirm, setReparentConfirm] = useState<{ racks: ReparentedRack[]; onConfirm: () => void } | null>(
     null,
   );
+  const [isReparenting, setIsReparenting] = useState(false);
 
   // Aisles / racks_per_aisle are read straight from the building prop —
   // BuildingSettingsModal owns those fields now and threads any edits back
@@ -310,10 +316,64 @@ const ManageBuildingModal = ({
     setShowSearchRacks(true);
   }, []);
 
+  // Commit a reparent immediately: move the rack(s) into this building
+  // server-side (member-only — no cell yet; cell layout still stages to Save).
+  // The RPC cascades each rack's miners to the new placement. On success we
+  // update the load-time snapshot to "unplaced" so a later Save diffs correctly
+  // (assigning a cell → place; removing the rack → unassign).
+  const commitReparent = useCallback(
+    async (rackIds: bigint[]) => {
+      await new Promise<void>((resolve, reject) => {
+        void assignRacksToBuilding({
+          racks: rackIds.map((rackId) => ({ rackId })),
+          targetBuildingId: building.id,
+          onSuccess: () => resolve(),
+          onError: (msg) => reject(new Error(msg)),
+        });
+      });
+      for (const rackId of rackIds) {
+        initialPlacementRef.current.set(rackId.toString(), "unplaced");
+      }
+    },
+    [assignRacksToBuilding, building.id],
+  );
+
+  // Gate a reparent behind the warning dialog, then commit it on confirm before
+  // folding the rack into the working set. Mirrors the miner-side promptReparent
+  // helper. On failure the working set is untouched and the picker stays open so
+  // the operator can retry.
+  const promptReparentCommit = useCallback(
+    (racks: ReparentedRack[], apply: () => void) => {
+      const rackIds = racks.map((r) => r.rackId);
+      setReparentConfirm({
+        racks,
+        onConfirm: async () => {
+          setIsReparenting(true);
+          try {
+            await commitReparent(rackIds);
+          } catch (err) {
+            const detail = err instanceof Error ? err.message : "Please try again";
+            pushToast({
+              message: `Couldn't move ${rackIds.length > 1 ? "racks" : "rack"}: ${detail}`,
+              status: STATUSES.error,
+            });
+            setIsReparenting(false);
+            setReparentConfirm(null);
+            return;
+          }
+          setIsReparenting(false);
+          setReparentConfirm(null);
+          apply();
+        },
+      });
+    },
+    [commitReparent],
+  );
+
   // SearchRacksModal confirm — add the rack to the working set if missing
   // and assign to the cell that was selected when the popover opened. When the
-  // rack is currently placed elsewhere, gate the working-set change behind the
-  // reparent confirm (its miners move with it).
+  // rack is currently placed elsewhere, commit the move behind the reparent
+  // confirm (its miners move with it) before staging the cell.
   const handleSearchRackConfirm = useCallback(
     (rackId: bigint, label: string, reparent?: ReparentedRack) => {
       const targetKey = selectedCellKey;
@@ -343,12 +403,12 @@ const ManageBuildingModal = ({
         setShowSearchRacks(false);
       };
       if (reparent) {
-        setReparentConfirm({ racks: [reparent], onConfirm: apply });
+        promptReparentCommit([reparent], apply);
       } else {
         apply();
       }
     },
-    [selectedCellKey],
+    [selectedCellKey, promptReparentCommit],
   );
 
   const handleRemoveRack = useCallback((rackId: bigint) => {
@@ -363,31 +423,35 @@ const ManageBuildingModal = ({
   // positions; `removed` drops only those entries. Racks not in either
   // list are untouched, so a seeded rack that didn't appear in the
   // picker's listRacks response (race / paging gap) is preserved.
-  // `delta.reassigned` (racks currently placed elsewhere) gates the working-set
-  // change behind the reparent confirm — their miners move with them.
-  const handleManageRacksConfirm = useCallback((delta: RackSelectionDelta) => {
-    const apply = () => {
-      const removedSet = new Set(delta.removed.map((id) => id.toString()));
-      setEntries((prev) => {
-        const kept = prev.filter((e) => !removedSet.has(e.rackId.toString()));
-        const knownIds = new Set(kept.map((e) => e.rackId.toString()));
-        const newcomers: AssignmentEntry[] = [];
-        for (const a of delta.added) {
-          if (knownIds.has(a.rackId.toString())) continue;
-          newcomers.push({ rackId: a.rackId, label: a.label });
-        }
-        return [...kept, ...newcomers];
-      });
-      setSelectedRackId(null);
-      setSelectedCellKey(null);
-      setShowManageRacks(false);
-    };
-    if (delta.reassigned.length > 0) {
-      setReparentConfirm({ racks: delta.reassigned, onConfirm: apply });
-    } else {
-      apply();
-    }
-  }, []);
+  // `delta.reassigned` (racks currently placed elsewhere) commits the move
+  // behind the reparent confirm — their miners move with them — before the
+  // working-set change lands.
+  const handleManageRacksConfirm = useCallback(
+    (delta: RackSelectionDelta) => {
+      const apply = () => {
+        const removedSet = new Set(delta.removed.map((id) => id.toString()));
+        setEntries((prev) => {
+          const kept = prev.filter((e) => !removedSet.has(e.rackId.toString()));
+          const knownIds = new Set(kept.map((e) => e.rackId.toString()));
+          const newcomers: AssignmentEntry[] = [];
+          for (const a of delta.added) {
+            if (knownIds.has(a.rackId.toString())) continue;
+            newcomers.push({ rackId: a.rackId, label: a.label });
+          }
+          return [...kept, ...newcomers];
+        });
+        setSelectedRackId(null);
+        setSelectedCellKey(null);
+        setShowManageRacks(false);
+      };
+      if (delta.reassigned.length > 0) {
+        promptReparentCommit(delta.reassigned, apply);
+      } else {
+        apply();
+      }
+    },
+    [promptReparentCommit],
+  );
 
   // Save: walk activeAssignments, diff against the load-time snapshot, and
   // fire AssignRacksToBuilding once per target building bucket.
@@ -728,12 +792,11 @@ const ManageBuildingModal = ({
         <RackReparentWarningDialog
           racks={reparentConfirm.racks}
           buildingName={building.name}
+          busy={isReparenting}
+          // onConfirm commits the move (async) and clears this dialog itself, so
+          // it stays visible in its busy state while the RPC is in flight.
           onCancel={() => setReparentConfirm(null)}
-          onConfirm={() => {
-            const proceed = reparentConfirm.onConfirm;
-            setReparentConfirm(null);
-            proceed();
-          }}
+          onConfirm={() => void reparentConfirm.onConfirm()}
         />
       ) : null}
     </>
