@@ -4,7 +4,13 @@ import { BasePage } from "../base";
 export class NavigationComponent extends BasePage {
   async clickNavigationMenuIfMobile() {
     if (this.isMobile) {
+      const navigation = this.page.getByTestId("navigation");
+      if (await navigation.isVisible().catch(() => false)) {
+        return;
+      }
+
       await this.page.getByTestId("navigation-menu-button").click();
+      await expect(navigation).toBeVisible();
     }
   }
 

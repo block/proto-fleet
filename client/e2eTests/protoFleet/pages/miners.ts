@@ -907,6 +907,29 @@ export class MinersPage extends BasePage {
     return await row.getByTestId("name").innerText();
   }
 
+  async getVisibleMinerSummaries(count: number): Promise<
+    Array<{
+      name: string;
+      ipAddress: string;
+    }>
+  > {
+    const rows = this.page.getByTestId("list-body").locator("tr");
+    const rowCount = await rows.count();
+    expect(rowCount).toBeGreaterThanOrEqual(count);
+
+    const summaries: Array<{ name: string; ipAddress: string }> = [];
+    for (let i = 0; i < count; i++) {
+      const row = rows.nth(i);
+      await row.scrollIntoViewIfNeeded();
+      summaries.push({
+        name: (await row.getByTestId("name").innerText()).trim(),
+        ipAddress: (await row.getByTestId("ipAddress").innerText()).trim(),
+      });
+    }
+
+    return summaries;
+  }
+
   async getMinerNames(): Promise<string[]> {
     const nameElements = this.page.getByTestId("list-body").locator("tr").getByTestId("name");
     const names = await nameElements.allInnerTexts();
@@ -1215,6 +1238,12 @@ export class MinersPage extends BasePage {
     const rows = this.page.getByTestId("list-body").locator("tr");
     const row = rows.nth(index);
     return await row.getByTestId("ipAddress").innerText();
+  }
+
+  async openMinerRow(ipAddress: string) {
+    const minerRow = await this.getMinerRowByIp(ipAddress);
+    await minerRow.scrollIntoViewIfNeeded();
+    await minerRow.getByTestId("name").click();
   }
 
   async getMinerIpAddressByStatus(status: string): Promise<string> {
