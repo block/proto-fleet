@@ -45,6 +45,8 @@ func TestCurtailmentFanRestoreRulePersistsTerminalFailureUntilClear(t *testing.T
 	})
 	require.NoError(t, err)
 
+	staleFanOnAt := time.Now().Add(-2 * time.Minute)
+	recentAirflowAt := time.Now().Add(-30 * time.Second)
 	var eventID int64
 	err = db.QueryRowContext(t.Context(), `
 		INSERT INTO curtailment_event (
@@ -59,7 +61,25 @@ func TestCurtailmentFanRestoreRulePersistsTerminalFailureUntilClear(t *testing.T
 			'{}'::jsonb, 1, 0, 'user', 'fan alert integration test',
 			$3, 60, $4, 'fan command failed', ARRAY[$5]::bigint[], ARRAY[$6]::bigint[]
 		)
-		RETURNING id`, eventUUID, orgID, user.DatabaseID, time.Now().Add(-2*time.Minute), device.ID, site.ID).Scan(&eventID)
+		RETURNING id`, eventUUID, orgID, user.DatabaseID, staleFanOnAt, device.ID, site.ID).Scan(&eventID)
+	require.NoError(t, err)
+
+	recentAirflowEventUUID := uuid.New()
+	_, err = db.ExecContext(t.Context(), `
+		INSERT INTO curtailment_event (
+			event_uuid, org_id, state, mode, strategy, level, priority,
+			loop_type, scope_type, scope_jsonb, restore_batch_size,
+			restore_batch_interval_sec, source_actor_type, reason,
+			created_by_user_id, fan_restore_delay_sec, fan_on_sent_at,
+			fan_airflow_reopened_at, fan_last_error, facility_fan_device_ids,
+			facility_fan_site_ids
+		) VALUES (
+			$1, $2, 'completed_with_failures', 'FIXED_KW',
+			'LEAST_EFFICIENT_FIRST', 'FULL', 'NORMAL', 'open', 'whole_org',
+			'{}'::jsonb, 1, 0, 'user', 'fan alert recent airflow test',
+			$3, 60, $4, $5, 'fan command failed', ARRAY[$6]::bigint[],
+			ARRAY[$7]::bigint[]
+		)`, recentAirflowEventUUID, orgID, user.DatabaseID, staleFanOnAt, recentAirflowAt, device.ID, site.ID)
 	require.NoError(t, err)
 
 	ruleSQL := loadRuleSQL(t, "Curtailment Fan Restore Failed", "FROM curtailment_event")

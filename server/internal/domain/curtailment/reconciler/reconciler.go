@@ -1763,16 +1763,34 @@ func (r *Reconciler) reconcileRestoringFans(ctx context.Context, ev *models.Even
 	}
 	ev.FanLastError = lastError
 	if r.fanAlert != nil {
+		alertStartedAt := restoreFanFailureAlertStartedAt(ev)
 		switch {
 		case lastError == nil:
 			r.fanAlert.EmitCurtailmentFanRestoreFailure(ctx, ev.OrgID, ev.EventUUID.String(), false)
-		case !now.Before(ev.FanOnSentAt.Add(time.Duration(ev.FanRestoreDelaySec) * time.Second)):
+		case alertStartedAt != nil && !now.Before(alertStartedAt.Add(time.Duration(ev.FanRestoreDelaySec)*time.Second)):
 			// Emit before terminal evaluation so even a targetless or already
 			// resolved event leaves an operator-visible signal when its fan
 			// restore has remained broken through the fail-open delay.
 			r.fanAlert.EmitCurtailmentFanRestoreFailure(ctx, ev.OrgID, ev.EventUUID.String(), true)
 		}
 	}
+}
+
+// restoreFanFailureAlertStartedAt returns the timestamp used to decide when a
+// fan restore failure becomes operator-visible. Prefer confirmed restored
+// airflow so alerting follows the same cooling gate that protects miner
+// restores after a failed first ON attempt.
+func restoreFanFailureAlertStartedAt(ev *models.Event) *time.Time {
+	if airflowStartedAt := restoringFanAirflowStartedAt(ev); airflowStartedAt != nil {
+		return airflowStartedAt
+	}
+	if ev == nil {
+		return nil
+	}
+	if ev.FanOnSentAt != nil {
+		return ev.FanOnSentAt
+	}
+	return ev.FanAirflowReopenedAt
 }
 
 // restoringFanAirflowStartedAt returns the first successful ON command in the

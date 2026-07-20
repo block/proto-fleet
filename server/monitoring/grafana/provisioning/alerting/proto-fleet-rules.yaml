@@ -344,10 +344,27 @@ groups:
                     org_id::TEXT AS organization_id,
                     event_uuid::TEXT AS kind,
                     1 AS value
-                FROM curtailment_event
+                FROM (
+                    SELECT
+                        org_id,
+                        event_uuid,
+                        fan_last_error,
+                        fan_restore_delay_sec,
+                        COALESCE(
+                            CASE
+                                WHEN fan_on_sent_at IS NOT NULL
+                                  AND fan_airflow_reopened_at IS NOT NULL
+                                  AND fan_airflow_reopened_at >= fan_on_sent_at
+                                THEN fan_airflow_reopened_at
+                            END,
+                            fan_on_sent_at,
+                            fan_airflow_reopened_at
+                        ) AS fan_restore_alert_started_at
+                    FROM curtailment_event
+                ) AS fan_event
                 WHERE fan_last_error IS NOT NULL
-                  AND COALESCE(fan_on_sent_at, fan_airflow_reopened_at) IS NOT NULL
-                  AND COALESCE(fan_on_sent_at, fan_airflow_reopened_at)
+                  AND fan_restore_alert_started_at IS NOT NULL
+                  AND fan_restore_alert_started_at
                       + make_interval(secs => fan_restore_delay_sec) <= NOW()
           - refId: B
             datasourceUid: __expr__

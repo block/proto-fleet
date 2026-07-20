@@ -599,3 +599,58 @@ func TestReconciler_RestoreAlertsWhenFanOnFailureReachesMinerGateAndClearsOnReco
 	r.runTick(context.Background())
 	assert.Equal(t, []bool{true, false}, alert.values)
 }
+
+func TestReconciler_RestoreAlertDelayStartsAtFirstSuccessfulFanOn(t *testing.T) {
+	store := newFakeStore()
+	dispatcher := &fakeDispatcher{}
+	failure := "device 31: command failed"
+	fans := &fakeFanController{err: &failure}
+	alert := &fakeFanAlertEmitter{}
+	r := newReconcilerWithFanAlertForTest(store, dispatcher, fans, alert)
+	firstAttemptAt := r.now()
+	oldActiveAirflowAt := firstAttemptAt.Add(-time.Minute)
+
+	event := &models.Event{
+		ID:                   91,
+		EventUUID:            uuid.New(),
+		OrgID:                1,
+		State:                models.EventStateRestoring,
+		RestoreBatchSize:     1,
+		FacilityFanDeviceIDs: []int64{31},
+		FanRestoreDelaySec:   60,
+		FanAirflowReopenedAt: &oldActiveAirflowAt,
+	}
+	store.events = []*models.Event{event}
+	store.targetsByEventID[event.ID] = []*models.Target{{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "miner-1",
+		DesiredState:       models.DesiredStateActive,
+		State:              models.TargetStatePending,
+	}}
+
+	r.runTick(context.Background())
+	require.Equal(t, &firstAttemptAt, event.FanOnSentAt)
+	assert.Nil(t, event.FanAirflowReopenedAt, "a failed restore must clear active-phase airflow evidence")
+	assert.Empty(t, alert.values)
+	assert.Zero(t, dispatcher.uncurtailCalls)
+
+	successAt := firstAttemptAt.Add(59 * time.Second)
+	r.now = func() time.Time { return successAt }
+	fans.err = nil
+	r.runTick(context.Background())
+	require.Equal(t, &successAt, event.FanAirflowReopenedAt)
+	assert.Equal(t, []bool{false}, alert.values)
+	assert.Zero(t, dispatcher.uncurtailCalls)
+
+	fans.err = &failure
+	r.now = func() time.Time { return firstAttemptAt.Add(60 * time.Second) }
+	r.runTick(context.Background())
+	assert.Equal(t, []bool{false}, alert.values,
+		"the original failed attempt must not trigger alerting before the successful airflow delay")
+	assert.Zero(t, dispatcher.uncurtailCalls)
+
+	r.now = func() time.Time { return successAt.Add(60 * time.Second) }
+	r.runTick(context.Background())
+	assert.Equal(t, []bool{false, true}, alert.values)
+	assert.Equal(t, 1, dispatcher.uncurtailCalls)
+}

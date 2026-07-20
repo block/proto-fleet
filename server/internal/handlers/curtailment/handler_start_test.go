@@ -259,8 +259,9 @@ func TestStartCurtailmentRequest_FacilityFanLimit(t *testing.T) {
 		fanCount int
 		wantErr  bool
 	}{
-		{name: "allows safety ceiling", fanCount: 8},
-		{name: "rejects above safety ceiling", fanCount: 9, wantErr: true},
+		{name: "allows current selection ceiling", fanCount: 8},
+		{name: "allows legacy copied profile ceiling", fanCount: 1024},
+		{name: "rejects above legacy ceiling", fanCount: 1025, wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -273,7 +274,7 @@ func TestStartCurtailmentRequest_FacilityFanLimit(t *testing.T) {
 			err := protovalidate.Validate(req)
 			if tc.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), "no more than 8")
+				assert.Contains(t, err.Error(), "no more than 1024")
 				return
 			}
 			require.NoError(t, err)

@@ -680,10 +680,11 @@ message StartCurtailmentRequest {
     // UNAVAILABLE state until maintenance clears.
     bool force_include_all_paired_miners = 37;
 
-    // Optional facility-fan sequence copied from a response profile. Each fan
-    // may be claimed by only one non-terminal event at a time.
+    // Optional facility-fan sequence copied from a response profile. Start
+    // accepts legacy persisted profiles above the current create-profile cap;
+    // each fan may be claimed by only one non-terminal event at a time.
     repeated int64 facility_fan_device_ids = 38 [(buf.validate.field).repeated = {
-        max_items: 8
+        max_items: 1024
         unique: true
         items: { int64: {gt: 0} }
     }];
