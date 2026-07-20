@@ -332,10 +332,12 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByTestId("curtailment-post-event-cooldown")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Racks\s+Select/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Groups\s+Select/ })).not.toBeInTheDocument();
-    expect(screen.getByText("Choose the sites and miners included in this curtailment.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Choose the sites, miners, and infrastructure included in this curtailment."),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeEnabled();
-    expect(screen.queryByRole("button", { name: /Infrastructure/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Infrastructure\s+Select/ })).toBeEnabled();
   });
 
   it("prefills new custom curtailments with the default site scope", async () => {
@@ -572,6 +574,79 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
+  it("allows selecting infrastructure fans in live curtailment create mode", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      infrastructureDevices,
+    });
+
+    await user.click(screen.getByRole("button", { name: /Infrastructure\s+Select/ }));
+
+    expect(screen.getByText("Fan behavior during curtailment")).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: /Fan Unit 1/ }));
+    await user.clear(screen.getByTestId("facility-fan-off-delay"));
+    await user.type(screen.getByTestId("facility-fan-off-delay"), "45");
+    await user.clear(screen.getByTestId("facility-fan-restore-delay"));
+    await user.type(screen.getByTestId("facility-fan-restore-delay"), "90");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(screen.queryByText("Fan behavior during curtailment")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Infrastructure\s+1 device/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        facilityFanDeviceIds: ["31"],
+        fanOffDelaySec: "45",
+        fanRestoreDelaySec: "90",
+      }),
+    );
+  });
+
+  it("keeps response-profile infrastructure fan settings in live curtailment create mode", async () => {
+    const user = userEvent.setup();
+    const fanResponseProfiles: CurtailmentResponseProfileOption[] = [
+      {
+        id: "fan-shed",
+        label: "Fan shed",
+        values: {
+          ...responseProfiles[0].values,
+          facilityFanDeviceIds: ["31"],
+          fanOffDelaySec: "60",
+          fanRestoreDelaySec: "120",
+          includeMaintenance: false,
+        },
+      },
+    ];
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      responseProfiles: fanResponseProfiles,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Fan shed"));
+
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Fan shed");
+    expect(screen.getByRole("button", { name: /Infrastructure\s+1 device/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseProfileId: "fan-shed",
+        facilityFanDeviceIds: ["31"],
+        fanOffDelaySec: "60",
+        fanRestoreDelaySec: "120",
+      }),
+    );
+  });
+
   it("normalizes a site-scoped response profile without a site id to whole fleet", async () => {
     const user = userEvent.setup();
     const malformedSiteResponseProfiles: CurtailmentResponseProfileOption[] = [
@@ -781,11 +856,10 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByText("Fan behavior during curtailment")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Infrastructure\s+1 device/ })).toBeInTheDocument();
 
-    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
     expect(
-      screen.getByText("Fan settings are saved for future sequencing. Curtailment does not control facility fans yet."),
-    ).toBeInTheDocument();
-    expect(onTestCurtailment).not.toHaveBeenCalled();
+      screen.getByText("Choose the sites, miners, and infrastructure included in this curtailment."),
+    ).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Save profile" }));
 

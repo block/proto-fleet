@@ -506,6 +506,13 @@ func start(config *Config) error {
 	scheduleSvc := scheduleDomain.NewService(scheduleStore, scheduleStore, scheduleStore, transactor, activitySvc)
 
 	curtailmentStore := sqlstores.NewSQLCurtailmentStore(conn)
+	infrastructureStore := sqlstores.NewSQLInfrastructureDeviceStore(conn)
+	facilityFanController := curtailmentDomain.NewFacilityFanController(
+		infrastructureStore,
+		siteStore,
+		infrastructureDriverRegistry,
+		activitySvc,
+	)
 	// Curtailment operational metrics route through this single recorder.
 	// Swap NoOpMetrics for the platform observability implementation once
 	// the pipeline shape lands (OTel Meter, Prometheus, or DogStatsD).
@@ -513,12 +520,12 @@ func start(config *Config) error {
 	curtailmentSvc := curtailmentDomain.NewService(curtailmentStore,
 		curtailmentDomain.WithServiceMetrics(curtailmentMetrics),
 		curtailmentDomain.WithAuditLogger(activitySvc),
+		curtailmentDomain.WithFacilityFanController(facilityFanController),
 	)
 	curtailmentResponseProfileSvc := curtailmentDomain.NewResponseProfileService(curtailmentStore)
 
 	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
-	infrastructureStore := sqlstores.NewSQLInfrastructureDeviceStore(conn)
 	infrastructureSvc := infrastructureDomain.NewService(infrastructureStore, siteStore, infrastructureDriverRegistry, transactor, activitySvc)
 	sitemapSvc := sitemapDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, fleetMgmtSvc, transactor, activitySvc)
 
@@ -542,7 +549,14 @@ func start(config *Config) error {
 		}
 	}()
 
-	curtailmentRec := curtailmentReconciler.New(config.Curtailment, curtailmentStore, commandSvc, curtailmentReconciler.WithMetrics(curtailmentMetrics))
+	curtailmentRec := curtailmentReconciler.New(
+		config.Curtailment,
+		curtailmentStore,
+		commandSvc,
+		curtailmentReconciler.WithMetrics(curtailmentMetrics),
+		curtailmentReconciler.WithFacilityFanController(facilityFanController),
+		curtailmentReconciler.WithFacilityFanAlertEmitter(metricsProvider),
+	)
 	if err := curtailmentRec.Start(context.Background()); err != nil {
 		return fmt.Errorf("failed to start curtailment reconciler: %w", err)
 	}

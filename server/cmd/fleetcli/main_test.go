@@ -398,6 +398,26 @@ func TestGeneratedReviewedCommandsRejectIncompleteRequestsLocally(t *testing.T) 
 			want: "must be provided together",
 		},
 		{
+			name: "fan off delay exceeds uint32",
+			args: []string{
+				"curtailment", "events", "start",
+				"--mode", "full-fleet",
+				"--reason", "test",
+				"--fan-off-delay-sec", "4294967296",
+			},
+			want: "invalid value for --fan-off-delay-sec: 4294967296 exceeds maximum 4294967295",
+		},
+		{
+			name: "fan restore delay exceeds uint32",
+			args: []string{
+				"curtailment", "events", "start",
+				"--mode", "full-fleet",
+				"--reason", "test",
+				"--fan-restore-delay-sec", "4294967296",
+			},
+			want: "invalid value for --fan-restore-delay-sec: 4294967296 exceeds maximum 4294967295",
+		},
+		{
 			name: "pool validate",
 			args: []string{"pools", "validate", "--pool-password-stdin"},
 			want: `required field "url"`,

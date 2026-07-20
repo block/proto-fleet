@@ -177,7 +177,7 @@ func TestSQLCurtailmentStore_ResponseProfileFacilityFanSettings(t *testing.T) {
 	assert.True(t, fleeterror.IsNotFoundError(err))
 }
 
-func TestSQLCurtailmentStore_AutomationFanProfileInvariant(t *testing.T) {
+func TestSQLCurtailmentStore_AutomationFanProfilesAreEnabledAfterSequencingLands(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
 	}
@@ -197,6 +197,7 @@ func TestSQLCurtailmentStore_AutomationFanProfileInvariant(t *testing.T) {
 			(org_id, profile_name, mode, facility_fan_device_ids)
 		VALUES ($1, 'fan-profile', 'FULL_FLEET', ARRAY[31]::bigint[])
 		RETURNING id`, orgID).Scan(&fanProfileID))
+	fanProfileSettings := models.ResponseProfileFanSettings{FacilityFanDeviceIDs: []int64{31}}
 
 	_, err := store.CreateAutomationRule(ctx, models.AutomationRule{
 		OrgID:             orgID,
@@ -205,8 +206,8 @@ func TestSQLCurtailmentStore_AutomationFanProfileInvariant(t *testing.T) {
 		MQTTSourceID:      sourceID,
 		ResponseProfileID: fanProfileID,
 		Enabled:           true,
-	})
-	require.True(t, fleeterror.IsFailedPreconditionError(err), "creating a fan-profile rule must fail, got %v", err)
+	}, fanProfileSettings)
+	require.NoError(t, err)
 
 	cleanRuleID := seedAutomationRule(t, db, orgID, sourceID, cleanProfileID, "update-to-fan-rule", false)
 	_, err = store.UpdateAutomationRule(ctx, models.AutomationRule{
@@ -215,12 +216,38 @@ func TestSQLCurtailmentStore_AutomationFanProfileInvariant(t *testing.T) {
 		RuleName:          "update-to-fan-rule",
 		MQTTSourceID:      sourceID,
 		ResponseProfileID: fanProfileID,
-	})
-	require.True(t, fleeterror.IsFailedPreconditionError(err), "repointing a rule to a fan profile must fail, got %v", err)
+	}, fanProfileSettings)
+	require.NoError(t, err)
 
 	disabledFanRuleID := seedAutomationRule(t, db, orgID, sourceID, fanProfileID, "enable-fan-rule", false)
-	_, err = store.SetAutomationRuleEnabled(ctx, orgID, disabledFanRuleID, true)
-	require.True(t, fleeterror.IsFailedPreconditionError(err), "enabling a fan-profile rule must fail, got %v", err)
+	_, err = store.SetAutomationRuleEnabled(ctx, orgID, disabledFanRuleID, true, fanProfileSettings)
+	require.NoError(t, err)
+
+	_, err = store.CreateAutomationRule(ctx, models.AutomationRule{
+		OrgID:             orgID,
+		RuleName:          "stale-create-fan-rule",
+		TriggerType:       models.AutomationTriggerTypeMQTT,
+		MQTTSourceID:      sourceID,
+		ResponseProfileID: fanProfileID,
+		Enabled:           true,
+	}, models.ResponseProfileFanSettings{})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+
+	_, err = store.UpdateAutomationRule(ctx, models.AutomationRule{
+		ID:                cleanRuleID,
+		OrgID:             orgID,
+		RuleName:          "stale-update-to-fan-rule",
+		MQTTSourceID:      sourceID,
+		ResponseProfileID: fanProfileID,
+	}, models.ResponseProfileFanSettings{})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+
+	staleEnableRuleID := seedAutomationRule(t, db, orgID, sourceID, fanProfileID, "stale-enable-fan-rule", false)
+	_, err = store.SetAutomationRuleEnabled(ctx, orgID, staleEnableRuleID, true, models.ResponseProfileFanSettings{})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 
 	cleanProfile, err := store.GetResponseProfile(ctx, orgID, cleanProfileID)
 	require.NoError(t, err)
@@ -233,7 +260,7 @@ func TestSQLCurtailmentStore_AutomationFanProfileInvariant(t *testing.T) {
 		cleanProfile.ScopeJSON,
 		models.ResponseProfileFanSettings{},
 	)
-	require.True(t, fleeterror.IsFailedPreconditionError(err), "adding fans to a bound profile must fail, got %v", err)
+	require.NoError(t, err)
 }
 
 func pointerTo[T any](value T) *T {

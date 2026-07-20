@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"buf.build/go/protovalidate"
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -247,6 +248,37 @@ func validStartRequestBuilder() *pb.StartCurtailmentRequest {
 		},
 		MaxDurationSeconds: 7200,
 		Reason:             "operator handler test",
+	}
+}
+
+func TestStartCurtailmentRequest_FacilityFanLimit(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		fanCount int
+		wantErr  bool
+	}{
+		{name: "allows current selection ceiling", fanCount: 8},
+		{name: "allows legacy copied profile ceiling", fanCount: 1024},
+		{name: "rejects above legacy ceiling", fanCount: 1025, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			req := validStartRequestBuilder()
+			req.FacilityFanDeviceIds = make([]int64, tc.fanCount)
+			for index := range req.FacilityFanDeviceIds {
+				req.FacilityFanDeviceIds[index] = int64(index + 1)
+			}
+
+			err := protovalidate.Validate(req)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "no more than 1024")
+				return
+			}
+			require.NoError(t, err)
+		})
 	}
 }
 
@@ -642,6 +674,58 @@ func TestHandler_StartCurtailment_IdempotentReplayRendersPersistedEvent(t *testi
 	require.Len(t, ev.Targets, 1)
 	assert.Equal(t, pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_CONFIRMED, ev.Targets[0].State)
 	assert.Empty(t, store.lastTargets, "replay must not persist a second event")
+}
+
+func TestHandler_StartCurtailment_IdempotentReplayRequiresPersistedEventPermission(t *testing.T) {
+	t.Parallel()
+
+	const (
+		requestSite = int64(7)
+		replaySite  = int64(8)
+	)
+	eventUUID := uuid.New()
+	store := newStartStubStore()
+	store.replayByKey = map[string]*models.Event{
+		"retry-key": {
+			ID:                      7,
+			EventUUID:               eventUUID,
+			OrgID:                   42,
+			State:                   models.EventStateActive,
+			Mode:                    models.ModeFixedKw,
+			Strategy:                models.StrategyLeastEfficientFirst,
+			Level:                   models.LevelFull,
+			Priority:                models.PriorityNormal,
+			ScopeType:               models.ScopeTypeSite,
+			ScopeJSON:               siteScopeJSON(t, replaySite),
+			RestoreBatchSize:        10,
+			RestoreBatchIntervalSec: 60,
+			Reason:                  "original persisted reason",
+			CreatedAt:               time.Date(2026, 5, 22, 1, 0, 0, 0, time.UTC),
+			UpdatedAt:               time.Date(2026, 5, 22, 1, 0, 0, 0, time.UTC),
+			CreatedByUserID:         9,
+		},
+	}
+	h := NewHandler(curtailment.NewService(store))
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR",
+		SessionID:      "sess-abc",
+	}, testOrgAssignment(authz.PermCurtailmentManage),
+		testSiteAssignment(requestSite, authz.PermCurtailmentManage),
+		testSiteAssignment(replaySite))
+	req := validStartRequestBuilder()
+	req.Scope = &pb.StartCurtailmentRequest_Site{Site: &pb.ScopeSite{SiteId: requestSite}}
+	req.IdempotencyKey = "retry-key"
+
+	_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Empty(t, store.lastTargets, "replay denial must not persist a second event")
 }
 
 // TestHandler_StartCurtailment_APIKeyDerivesAPIKeyActor pins the audit

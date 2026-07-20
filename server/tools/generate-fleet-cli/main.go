@@ -1588,7 +1588,7 @@ func buildFieldPlan(
 	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
 		usage = fieldUsage(field)
 		flag = fmt.Sprintf("&cli.UintFlag{Name: %q, Usage: %q}", flagName, usage)
-		lines = append(lines, assignmentBlock(field, messageInfo, flagName, goFieldName, fmt.Sprintf("uint32(cmd.Uint(%q))", flagName))...)
+		lines = append(lines, uint32AssignmentBlock(field, messageInfo, flagName, goFieldName)...)
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 		usage = fieldUsage(field)
 		flag = fmt.Sprintf("&cli.Uint64Flag{Name: %q, Usage: %q}", flagName, usage)
@@ -1698,6 +1698,26 @@ func assignmentBlock(field protoreflect.FieldDescriptor, msgInfo messageInfo, fl
 		}
 	}
 	return conditionalAssignmentBlock(field, flagName, expr)
+}
+
+func uint32AssignmentBlock(field protoreflect.FieldDescriptor, msgInfo messageInfo, flagName, goFieldName string) []string {
+	lines := []string{
+		fmt.Sprintf("if cmd.IsSet(%q) {", flagName),
+		fmt.Sprintf("\tvalue, err := generatedUint32FlagValue(cmd, %q)", flagName),
+		"\tif err != nil {",
+		"\t\treturn nil, err",
+		"\t}",
+	}
+	if oneof := field.ContainingOneof(); oneof != nil && !oneof.IsSynthetic() {
+		oneofGoFieldName := toGoFieldName(oneof.Name())
+		wrapperType := msgInfo.GoAlias + "." + msgInfo.GoIdent + "_" + goFieldName
+		lines = append(lines, fmt.Sprintf("\treq.%s = &%s{%s: value}", oneofGoFieldName, wrapperType, goFieldName))
+	} else if fieldNeedsPointer(field) {
+		lines = append(lines, fmt.Sprintf("\treq.%s = &value", goFieldName))
+	} else {
+		lines = append(lines, fmt.Sprintf("\treq.%s = value", goFieldName))
+	}
+	return append(lines, "}")
 }
 
 func scalarAssignmentLines(field protoreflect.FieldDescriptor, expr string) []string {

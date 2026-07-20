@@ -143,6 +143,28 @@ describe("curtailmentRequestBuilders", () => {
     expect(request.restoreBatchIntervalSec).toBe(120);
   });
 
+  it("carries response-profile facility fan settings into live starts", () => {
+    const request = buildStartCurtailmentRequest({
+      ...baseValues,
+      facilityFanDeviceIds: ["31", "32", "31"],
+      fanOffDelaySec: "45",
+      fanRestoreDelaySec: "90",
+    });
+
+    expect(request.facilityFanDeviceIds).toEqual([31n, 32n]);
+    expect(request.fanOffDelaySec).toBe(45);
+    expect(request.fanRestoreDelaySec).toBe(90);
+  });
+
+  it("deduplicates facility fan IDs by parsed bigint identity", () => {
+    const request = buildStartCurtailmentRequest({
+      ...baseValues,
+      facilityFanDeviceIds: ["31", "031", "32"],
+    });
+
+    expect(request.facilityFanDeviceIds).toEqual([31n, 32n]);
+  });
+
   it("omits curtail batch settings when the start form leaves them blank", () => {
     const request = buildStartCurtailmentRequest(baseValues);
 

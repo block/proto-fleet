@@ -238,6 +238,26 @@ func (p *Provider) EmitMQTTCurtailmentActive(_ context.Context, labels MQTTSourc
 	})
 }
 
+// EmitCurtailmentFanRestoreFailure records whether a restoring event has
+// reached its miner-restore gate while fan-ON commands are still failing.
+// It stays unthrottled so operators retain a time series of repeated failures
+// and the eventual recovery; the alert itself reads durable event state so it
+// cannot age out after terminalization.
+func (p *Provider) EmitCurtailmentFanRestoreFailure(_ context.Context, orgID int64, eventUUID string, failed bool) {
+	value := 0.0
+	if failed {
+		value = 1.0
+	}
+	p.record(Sample{
+		Metric: MetricCurtailmentFanRestoreFailed,
+		Labels: Labels{
+			OrganizationID: OrgIDToLabel(orgID),
+			Kind:           eventUUID,
+		},
+		Value: value,
+	})
+}
+
 func validateLabelKey(key string) error {
 	if !IsKnownLabel(key) {
 		return fmt.Errorf("metrics: label key %q is not in the contract allowlist", key)

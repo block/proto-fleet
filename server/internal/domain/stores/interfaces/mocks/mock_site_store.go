@@ -86,6 +86,21 @@ func (mr *MockSiteStoreMockRecorder) AssignDevicesToSite(ctx, orgID, targetSiteI
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignDevicesToSite", reflect.TypeOf((*MockSiteStore)(nil).AssignDevicesToSite), ctx, orgID, targetSiteID, deviceIdentifiers)
 }
 
+// CountActiveCurtailmentEventsByInfrastructureDevices mocks base method.
+func (m *MockSiteStore) CountActiveCurtailmentEventsByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountActiveCurtailmentEventsByInfrastructureDevices", ctx, orgID, ids)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountActiveCurtailmentEventsByInfrastructureDevices indicates an expected call of CountActiveCurtailmentEventsByInfrastructureDevices.
+func (mr *MockSiteStoreMockRecorder) CountActiveCurtailmentEventsByInfrastructureDevices(ctx, orgID, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountActiveCurtailmentEventsByInfrastructureDevices", reflect.TypeOf((*MockSiteStore)(nil).CountActiveCurtailmentEventsByInfrastructureDevices), ctx, orgID, ids)
+}
+
 // CountBuildingsBySite mocks base method.
 func (m *MockSiteStore) CountBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
 	m.ctrl.T.Helper()
@@ -129,6 +144,21 @@ func (m *MockSiteStore) CountInfrastructureDevicesBySite(ctx context.Context, or
 func (mr *MockSiteStoreMockRecorder) CountInfrastructureDevicesBySite(ctx, orgID, siteID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountInfrastructureDevicesBySite", reflect.TypeOf((*MockSiteStore)(nil).CountInfrastructureDevicesBySite), ctx, orgID, siteID)
+}
+
+// CountNonTerminalCurtailmentEventsByInfrastructureDevices mocks base method.
+func (m *MockSiteStore) CountNonTerminalCurtailmentEventsByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountNonTerminalCurtailmentEventsByInfrastructureDevices", ctx, orgID, ids)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountNonTerminalCurtailmentEventsByInfrastructureDevices indicates an expected call of CountNonTerminalCurtailmentEventsByInfrastructureDevices.
+func (mr *MockSiteStoreMockRecorder) CountNonTerminalCurtailmentEventsByInfrastructureDevices(ctx, orgID, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountNonTerminalCurtailmentEventsByInfrastructureDevices", reflect.TypeOf((*MockSiteStore)(nil).CountNonTerminalCurtailmentEventsByInfrastructureDevices), ctx, orgID, ids)
 }
 
 // CountRacksBySite mocks base method.

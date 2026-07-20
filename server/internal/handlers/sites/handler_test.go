@@ -81,6 +81,12 @@ func newTestHandler(t *testing.T) *testHarness {
 	}
 }
 
+func expectInfrastructureControlSubnetMutationAllowed(h *testHarness, orgID, siteID int64) {
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), orgID, siteID).Return(nil)
+	h.siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(gomock.Any(), orgID, siteID).Return([]int64{70}, nil)
+	h.siteStore.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(gomock.Any(), orgID, []int64{70}).Return(int64(0), nil)
+}
+
 // sitePermsCtx is the workhorse for body-level tests: a caller with
 // both site:read and site:manage at org scope clears every gate this
 // package defines.
@@ -364,6 +370,7 @@ func TestHandler_InfrastructureControlSubnetsAdminGetAndSet(t *testing.T) {
 	t.Run("SUPER_ADMIN replaces and canonicalizes subnets", func(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)
+		expectInfrastructureControlSubnetMutationAllowed(h, 7, 42)
 		h.siteStore.EXPECT().
 			SetInfrastructureControlSubnets(
 				gomock.Any(),
@@ -399,6 +406,7 @@ func TestHandler_InfrastructureControlSubnetsAdminGetAndSet(t *testing.T) {
 	t.Run("ADMIN clears to decommission", func(t *testing.T) {
 		t.Parallel()
 		h := newTestHandler(t)
+		expectInfrastructureControlSubnetMutationAllowed(h, 7, 42)
 		h.siteStore.EXPECT().
 			SetInfrastructureControlSubnets(gomock.Any(), int64(7), int64(42), "").
 			Return("", nil)
@@ -484,8 +492,8 @@ func TestHandler_InfrastructureControlSubnetsMasksMissingAndCrossOrgSites(t *tes
 		GetInfrastructureControlSubnets(gomock.Any(), int64(7), int64(42)).
 		Return("", notFound)
 	h.siteStore.EXPECT().
-		SetInfrastructureControlSubnets(gomock.Any(), int64(7), int64(42), "").
-		Return("", notFound)
+		LockSiteForWrite(gomock.Any(), int64(7), int64(42)).
+		Return(notFound)
 
 	ctx := siteRoleCtx(
 		t,
@@ -543,6 +551,7 @@ func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(11)).Return(nil)
 	h.siteStore.EXPECT().LockBuildingsBySiteForWrite(gomock.Any(), int64(7), int64(11)).Return(nil)
 	h.siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(gomock.Any(), int64(7), int64(11)).Return([]int64{70}, nil)
+	h.siteStore.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(gomock.Any(), int64(7), []int64{70}).Return(int64(0), nil)
 	h.siteStore.EXPECT().UnassignRacksFromBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(0), nil)
 	h.buildingStore.EXPECT().ClearDeviceBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(0), nil)
 	h.siteStore.EXPECT().SoftDeleteBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(2), nil)
@@ -590,6 +599,7 @@ func TestHandler_DeleteSite_deniedWhenNarrowedAwayFromTargetSite(t *testing.T) {
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil)
 	h.siteStore.EXPECT().LockBuildingsBySiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil)
 	h.siteStore.EXPECT().LockInfrastructureDevicesBySiteForWrite(gomock.Any(), int64(7), int64(12)).Return(nil, nil)
+	h.siteStore.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(gomock.Any(), int64(7), []int64(nil)).Return(int64(0), nil)
 	h.siteStore.EXPECT().UnassignRacksFromBuildingsBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
 	h.buildingStore.EXPECT().ClearDeviceBuildingsBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)
 	h.siteStore.EXPECT().SoftDeleteBuildingsBySite(gomock.Any(), int64(7), int64(12)).Return(int64(0), nil)

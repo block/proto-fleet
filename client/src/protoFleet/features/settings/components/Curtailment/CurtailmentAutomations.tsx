@@ -181,10 +181,6 @@ function createOption(entry: CurtailmentSource | ResponseProfile): SelectOption 
   };
 }
 
-function isAutomationCompatibleResponseProfile(profile: ResponseProfile): boolean {
-  return (profile.formValues?.facilityFanDeviceIds?.length ?? 0) === 0;
-}
-
 function validateAutomationFormValues(values: AutomationRuleFormValues): AutomationFormErrors {
   const errors: AutomationFormErrors = {};
 
@@ -571,19 +567,14 @@ export function CurtailmentAutomationsContent({
   const [editingAutomationRule, setEditingAutomationRule] = useState<AutomationRule | null>(null);
   const automationRules = controlledAutomationRules ?? localAutomationRules;
 
-  const automationCompatibleResponseProfiles = useMemo(
-    () => responseProfiles.filter(isAutomationCompatibleResponseProfile),
-    [responseProfiles],
-  );
-
   const rulesWithDetails = useMemo(
     () => mapAutomationRules(automationRules, responseProfiles),
     [automationRules, responseProfiles],
   );
   const automationModalMode = editingAutomationRule ? "edit" : "create";
   const automationModalInitialValues = useMemo(
-    () => getAutomationFormValuesFromRule(editingAutomationRule, sources, automationCompatibleResponseProfiles),
-    [automationCompatibleResponseProfiles, editingAutomationRule, sources],
+    () => getAutomationFormValuesFromRule(editingAutomationRule, sources, responseProfiles),
+    [editingAutomationRule, responseProfiles, sources],
   );
 
   const openCreateAutomationModal = useCallback(() => {
@@ -755,7 +746,7 @@ export function CurtailmentAutomationsContent({
         mode={automationModalMode}
         initialValues={automationModalInitialValues}
         sources={sources}
-        responseProfiles={automationCompatibleResponseProfiles}
+        responseProfiles={responseProfiles}
         isLoadingSources={isLoadingSources}
         loadSourcesError={loadSourcesError}
         isLoadingResponseProfiles={isLoadingResponseProfiles}

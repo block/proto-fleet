@@ -173,12 +173,13 @@ func TestAutomationService_CreateAllowsAdminOnlyProfileWithAdminControls(t *test
 	assert.Equal(t, 1, h.rules.createCalls)
 }
 
-func TestAutomationService_RejectsFacilityFanProfilesAcrossBindingMutations(t *testing.T) {
+func TestAutomationService_AllowsFacilityFanProfilesAcrossBindingMutations(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		run  func(*automationHarness) error
+		name   string
+		run    func(*automationHarness) error
+		actual func(*automationHarness) models.ResponseProfileFanSettings
 	}{
 		{
 			name: "create",
@@ -190,9 +191,13 @@ func TestAutomationService_RejectsFacilityFanProfilesAcrossBindingMutations(t *t
 						MQTTSourceID:      h.source.ID,
 						ResponseProfileID: h.profile.ID,
 					},
-					CanUseAdminControls: true,
+					CanUseAdminControls:                true,
+					ExpectedResponseProfileFanSettings: responseProfileFanSettings(h.profile),
 				})
 				return err
+			},
+			actual: func(h *automationHarness) models.ResponseProfileFanSettings {
+				return h.rules.lastCreateExpectedFanSettings
 			},
 		},
 		{
@@ -206,17 +211,31 @@ func TestAutomationService_RejectsFacilityFanProfilesAcrossBindingMutations(t *t
 						MQTTSourceID:      h.source.ID,
 						ResponseProfileID: h.profile.ID,
 					},
-					CanUseAdminControls: true,
+					CanUseAdminControls:                true,
+					ExpectedResponseProfileFanSettings: responseProfileFanSettings(h.profile),
 				})
 				return err
+			},
+			actual: func(h *automationHarness) models.ResponseProfileFanSettings {
+				return h.rules.lastUpdateExpectedFanSettings
 			},
 		},
 		{
 			name: "enable",
 			run: func(h *automationHarness) error {
 				h.rule.Enabled = false
-				_, err := h.automation.SetEnabled(h.t.Context(), h.orgID, h.rule.ID, true, true)
+				_, err := h.automation.SetEnabled(
+					h.t.Context(),
+					h.orgID,
+					h.rule.ID,
+					true,
+					true,
+					responseProfileFanSettings(h.profile),
+				)
 				return err
+			},
+			actual: func(h *automationHarness) models.ResponseProfileFanSettings {
+				return h.rules.lastSetEnabledExpectedFanSettings
 			},
 		},
 	}
@@ -227,15 +246,41 @@ func TestAutomationService_RejectsFacilityFanProfilesAcrossBindingMutations(t *t
 
 			h := newAutomationHarness(t)
 			h.profile.FacilityFanDeviceIDs = []int64{31}
+			h.profile.FanOffDelaySec = 45
+			h.profile.FanRestoreDelaySec = 90
 
 			err := tt.run(h)
 
-			require.Error(t, err)
-			assert.True(t, fleeterror.IsFailedPreconditionError(err))
-			assert.Contains(t, err.Error(), "cannot use response profiles with facility fans")
-			assert.Equal(t, 0, h.rules.createCalls)
+			require.NoError(t, err)
+			assert.Equal(t, models.ResponseProfileFanSettings{
+				FacilityFanDeviceIDs: []int64{31},
+				FanOffDelaySec:       45,
+				FanRestoreDelaySec:   90,
+			}, tt.actual(h))
 		})
 	}
+}
+
+func TestAutomationService_CreateRejectsStaleFacilityFanSnapshot(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.profile.FacilityFanDeviceIDs = []int64{31}
+
+	_, err := h.automation.Create(t.Context(), SaveAutomationRuleRequest{
+		Rule: models.AutomationRule{
+			OrgID:             h.orgID,
+			RuleName:          "Fan automation",
+			MQTTSourceID:      h.source.ID,
+			ResponseProfileID: h.profile.ID,
+		},
+		CanUseAdminControls:                true,
+		ExpectedResponseProfileFanSettings: models.ResponseProfileFanSettings{},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Equal(t, 0, h.rules.createCalls)
 }
 
 func TestAutomationService_UpdateRejectsAdminOnlyProfileWithoutAdminControls(t *testing.T) {
@@ -289,7 +334,7 @@ func TestAutomationService_SetEnabledRejectsDisableWhenRuleOwnsActiveEvent(t *te
 	h := newAutomationHarness(t)
 	h.seedAutomationEvent(models.EventStateRestoring)
 
-	_, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, false, false)
+	_, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, false, false, models.ResponseProfileFanSettings{})
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
@@ -305,7 +350,7 @@ func TestAutomationService_SetEnabledRejectsAdminOnlyProfileWithoutAdminControls
 	h.profile.IncludeMaintenance = true
 	h.profile.ForceIncludeMaintenance = true
 
-	_, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, true, false)
+	_, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, true, false, models.ResponseProfileFanSettings{})
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsForbiddenError(err))
@@ -332,7 +377,7 @@ func TestAutomationService_SetEnabledClearsTerminalActiveEventBeforeDisable(t *t
 	h := newAutomationHarness(t)
 	h.seedAutomationEvent(models.EventStateCompleted)
 
-	updated, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, false, false)
+	updated, err := h.automation.SetEnabled(t.Context(), h.orgID, h.rule.ID, false, false, models.ResponseProfileFanSettings{})
 
 	require.NoError(t, err)
 	require.NotNil(t, updated)
@@ -382,12 +427,49 @@ func TestAutomationService_HandleMQTTSignal_OffStartsCurtailmentFromResponseProf
 	assert.Equal(t, receivedAt, h.rules.lastActiveAt)
 }
 
-func TestAutomationService_HandleMQTTSignal_OffRejectsFacilityFansUntilSequencingIsAvailable(t *testing.T) {
+func TestAutomationService_HandleMQTTSignal_OffCarriesFacilityFanSettings(t *testing.T) {
 	t.Parallel()
 
 	h := newAutomationHarness(t)
 	h.seedRunnableProfile()
 	h.profile.FacilityFanDeviceIDs = []int64{31}
+	h.profile.FanOffDelaySec = 45
+	h.profile.FanRestoreDelaySec = 90
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, h.curtailments.insertEventCalls)
+	assert.Equal(t, []int64{31}, h.curtailments.lastInsertEvent.FacilityFanDeviceIDs)
+	assert.Equal(t, int32(45), h.curtailments.lastInsertEvent.FanOffDelaySec)
+	assert.Equal(t, int32(90), h.curtailments.lastInsertEvent.FanRestoreDelaySec)
+	assert.Empty(t, h.rules.executionErrors)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffRejectsNonAutomationIdempotencyReplay(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	eventUUID := uuid.New()
+	_, idempotencyKey := automationRuleEventReference(h.rule.ID)
+	h.curtailments.eventsByIdempotencyKey = map[string]*models.Event{
+		idempotencyKey: {
+			ID:              77,
+			EventUUID:       eventUUID,
+			OrgID:           h.orgID,
+			State:           models.EventStateActive,
+			Mode:            h.profile.Mode,
+			Strategy:        h.profile.Strategy,
+			Level:           h.profile.Level,
+			Priority:        h.profile.Priority,
+			SourceActorType: models.SourceActorUser,
+			IdempotencyKey:  &idempotencyKey,
+		},
+	}
 
 	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
 		Source: h.source,
@@ -395,11 +477,52 @@ func TestAutomationService_HandleMQTTSignal_OffRejectsFacilityFansUntilSequencin
 	})
 
 	require.Error(t, err)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-	assert.Contains(t, err.Error(), "cannot execute until fan sequencing is available")
+	assert.Contains(t, err.Error(), "not owned by this automation rule")
+	assert.Equal(t, 0, h.rules.setActiveCalls)
 	assert.Equal(t, 0, h.curtailments.insertEventCalls)
-	require.Len(t, h.rules.executionErrors, 1)
-	assert.Contains(t, h.rules.executionErrors[0], "cannot execute until fan sequencing is available")
+}
+
+func TestAutomationService_HandleMQTTSignal_OffRejectsProfileMismatchedIdempotencyReplay(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	h.profile.FacilityFanDeviceIDs = []int64{31}
+	h.profile.FanOffDelaySec = 45
+	h.profile.FanRestoreDelaySec = 90
+	eventUUID := uuid.New()
+	externalReference, idempotencyKey := automationRuleEventReference(h.rule.ID)
+	sourceActorID := externalReference
+	h.curtailments.eventsByIdempotencyKey = map[string]*models.Event{
+		idempotencyKey: {
+			ID:                   77,
+			EventUUID:            eventUUID,
+			OrgID:                h.orgID,
+			State:                models.EventStateActive,
+			Mode:                 h.profile.Mode,
+			Strategy:             h.profile.Strategy,
+			Level:                h.profile.Level,
+			Priority:             h.profile.Priority,
+			FacilityFanDeviceIDs: []int64{99},
+			FanOffDelaySec:       h.profile.FanOffDelaySec,
+			FanRestoreDelaySec:   h.profile.FanRestoreDelaySec,
+			SourceActorType:      models.SourceActorAutomation,
+			SourceActorID:        &sourceActorID,
+			ExternalSource:       stringPtr(automationExternalSource),
+			ExternalReference:    &externalReference,
+			IdempotencyKey:       &idempotencyKey,
+		},
+	}
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no longer matches")
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+	assert.Equal(t, 0, h.curtailments.insertEventCalls)
 }
 
 func TestAutomationService_HandleMQTTSignal_OffBypassesResponseProfileCooldown(t *testing.T) {
@@ -722,13 +845,19 @@ func TestAutomationService_HandleMQTTSignal_OnRestoresEventWhenActiveStateWasNot
 	assert.Nil(t, h.rule.ActiveEventUUID)
 	require.Equal(t, 1, h.curtailments.insertEventCalls)
 	eventUUID := h.curtailments.lastInsertEvent.EventUUID
-	event := &models.Event{
-		ID:        77,
-		EventUUID: eventUUID,
-		OrgID:     h.orgID,
-		State:     models.EventStateActive,
-	}
 	externalReference, idempotencyKey := automationRuleEventReference(h.rule.ID)
+	sourceActorID := externalReference
+	event := &models.Event{
+		ID:                77,
+		EventUUID:         eventUUID,
+		OrgID:             h.orgID,
+		State:             models.EventStateActive,
+		SourceActorType:   models.SourceActorAutomation,
+		SourceActorID:     &sourceActorID,
+		ExternalSource:    stringPtr(automationExternalSource),
+		ExternalReference: &externalReference,
+		IdempotencyKey:    &idempotencyKey,
+	}
 	h.curtailments.eventsByUUID[eventUUID] = event
 	h.curtailments.eventsByIdempotencyKey = map[string]*models.Event{idempotencyKey: event}
 	h.curtailments.eventsByExternalRef = map[string]*models.Event{
@@ -908,21 +1037,24 @@ func (h *automationHarness) seedRunnableProfile() {
 }
 
 type automationFakeStore struct {
-	mu                   sync.Mutex
-	nextID               int64
-	rules                []*models.AutomationRule
-	created              *models.AutomationRule
-	createCalls          int
-	recordedSignals      []models.AutomationSignal
-	setActiveCalls       int
-	lastActiveEvent      uuid.UUID
-	lastActiveAt         time.Time
-	setActiveErr         error
-	restoreStartedCalls  int
-	lastRestoreStartedAt time.Time
-	clearActiveCalls     int
-	lastClearedAt        time.Time
-	executionErrors      []string
+	mu                                sync.Mutex
+	nextID                            int64
+	rules                             []*models.AutomationRule
+	created                           *models.AutomationRule
+	createCalls                       int
+	lastCreateExpectedFanSettings     models.ResponseProfileFanSettings
+	lastUpdateExpectedFanSettings     models.ResponseProfileFanSettings
+	lastSetEnabledExpectedFanSettings models.ResponseProfileFanSettings
+	recordedSignals                   []models.AutomationSignal
+	setActiveCalls                    int
+	lastActiveEvent                   uuid.UUID
+	lastActiveAt                      time.Time
+	setActiveErr                      error
+	restoreStartedCalls               int
+	lastRestoreStartedAt              time.Time
+	clearActiveCalls                  int
+	lastClearedAt                     time.Time
+	executionErrors                   []string
 }
 
 func newAutomationFakeStore(rules ...*models.AutomationRule) *automationFakeStore {
@@ -967,10 +1099,11 @@ func (f *automationFakeStore) ListEnabledAutomationRulesByMQTTSource(_ context.C
 	return out, nil
 }
 
-func (f *automationFakeStore) CreateAutomationRule(_ context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
+func (f *automationFakeStore) CreateAutomationRule(_ context.Context, rule models.AutomationRule, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.createCalls++
+	f.lastCreateExpectedFanSettings = cloneResponseProfileFanSettings(expectedFanSettings)
 	if rule.ID == 0 {
 		rule.ID = f.nextID
 		f.nextID++
@@ -980,9 +1113,10 @@ func (f *automationFakeStore) CreateAutomationRule(_ context.Context, rule model
 	return &rule, nil
 }
 
-func (f *automationFakeStore) UpdateAutomationRule(_ context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
+func (f *automationFakeStore) UpdateAutomationRule(_ context.Context, rule models.AutomationRule, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.lastUpdateExpectedFanSettings = cloneResponseProfileFanSettings(expectedFanSettings)
 	for i, existing := range f.rules {
 		if existing.OrgID == rule.OrgID && existing.ID == rule.ID {
 			f.rules[i] = &rule
@@ -992,9 +1126,10 @@ func (f *automationFakeStore) UpdateAutomationRule(_ context.Context, rule model
 	return nil, fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", rule.ID)
 }
 
-func (f *automationFakeStore) SetAutomationRuleEnabled(_ context.Context, orgID, ruleID int64, enabled bool) (*models.AutomationRule, error) {
+func (f *automationFakeStore) SetAutomationRuleEnabled(_ context.Context, orgID, ruleID int64, enabled bool, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.lastSetEnabledExpectedFanSettings = cloneResponseProfileFanSettings(expectedFanSettings)
 	for _, rule := range f.rules {
 		if rule.OrgID == orgID && rule.ID == ruleID {
 			rule.Enabled = enabled
@@ -1002,6 +1137,14 @@ func (f *automationFakeStore) SetAutomationRuleEnabled(_ context.Context, orgID,
 		}
 	}
 	return nil, fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", ruleID)
+}
+
+func cloneResponseProfileFanSettings(settings models.ResponseProfileFanSettings) models.ResponseProfileFanSettings {
+	return models.ResponseProfileFanSettings{
+		FacilityFanDeviceIDs: append([]int64(nil), settings.FacilityFanDeviceIDs...),
+		FanOffDelaySec:       settings.FanOffDelaySec,
+		FanRestoreDelaySec:   settings.FanRestoreDelaySec,
+	}
 }
 
 func (f *automationFakeStore) DeleteAutomationRule(_ context.Context, orgID, ruleID int64) error {

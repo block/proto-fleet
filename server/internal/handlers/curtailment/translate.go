@@ -204,6 +204,14 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 	if err != nil {
 		return curtailment.StartRequest{}, err
 	}
+	fanOffDelaySec, err := uint32ToInt32Strict("fan_off_delay_sec", msg.GetFanOffDelaySec())
+	if err != nil {
+		return curtailment.StartRequest{}, err
+	}
+	fanRestoreDelaySec, err := uint32ToInt32Strict("fan_restore_delay_sec", msg.GetFanRestoreDelaySec())
+	if err != nil {
+		return curtailment.StartRequest{}, err
+	}
 	hasProfileCurtailSettings := msg.CurtailBatchSize != nil
 
 	out := curtailment.StartRequest{
@@ -215,6 +223,9 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 		RestoreBatchSize:          restoreBatchSize,
 		RestoreBatchIntervalSec:   restoreBatchIntervalSec,
 		MinCurtailedDurationSec:   minCurtailedDurationSec,
+		FacilityFanDeviceIDs:      append([]int64(nil), msg.GetFacilityFanDeviceIds()...),
+		FanOffDelaySec:            fanOffDelaySec,
+		FanRestoreDelaySec:        fanRestoreDelaySec,
 		AllowUnbounded:            msg.GetAllowUnbounded(),
 		IdempotencyKey:            nonEmptyPtr(msg.GetIdempotencyKey()),
 		ExternalSource:            nonEmptyPtr(msg.GetExternalSource()),
@@ -388,6 +399,9 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 		IncludeMaintenance:          req.GetIncludeMaintenance(),
 		ForceIncludeMaintenance:     req.GetForceIncludeMaintenance(),
 		ForceIncludeAllPairedMiners: req.GetForceIncludeAllPairedMiners(),
+		FacilityFanDeviceIds:        append([]int64(nil), req.GetFacilityFanDeviceIds()...),
+		FanOffDelaySec:              req.GetFanOffDelaySec(),
+		FanRestoreDelaySec:          req.GetFanRestoreDelaySec(),
 		Reason:                      req.GetReason(),
 		ExternalSource:              req.GetExternalSource(),
 		ExternalReference:           req.GetExternalReference(),
@@ -915,6 +929,9 @@ func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 		IncludeMaintenance:          event.IncludeMaintenance,
 		ForceIncludeMaintenance:     event.ForceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: event.ForceIncludeAllPairedMiners,
+		FacilityFanDeviceIds:        append([]int64(nil), event.FacilityFanDeviceIDs...),
+		FanOffDelaySec:              uint32Saturating(event.FanOffDelaySec),
+		FanRestoreDelaySec:          uint32Saturating(event.FanRestoreDelaySec),
 		Reason:                      event.Reason,
 	}
 	if event.MaxDurationSeconds != nil {
@@ -940,6 +957,15 @@ func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 	}
 	if event.EndedAt != nil {
 		out.EndedAt = timestamppb.New(*event.EndedAt)
+	}
+	if event.FanOffSentAt != nil {
+		out.FanOffSentAt = timestamppb.New(*event.FanOffSentAt)
+	}
+	if event.FanOnSentAt != nil {
+		out.FanOnSentAt = timestamppb.New(*event.FanOnSentAt)
+	}
+	if event.FanLastError != nil {
+		out.FanLastError = *event.FanLastError
 	}
 	out.CreatedAt = timestamppb.New(event.CreatedAt)
 	out.UpdatedAt = timestamppb.New(event.UpdatedAt)

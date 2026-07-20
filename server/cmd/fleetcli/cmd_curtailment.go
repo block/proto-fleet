@@ -391,11 +391,18 @@ func generatedCurtailmentCommand() *cli.Command {
 								req.ForceIncludeMaintenance = cmd.Bool("force-include-maintenance")
 							}
 							if cmd.IsSet("candidate-min-power-w-override") {
-								value := uint32(cmd.Uint("candidate-min-power-w-override"))
+								value, err := generatedUint32FlagValue(cmd, "candidate-min-power-w-override")
+								if err != nil {
+									return nil, err
+								}
 								req.CandidateMinPowerWOverride = &value
 							}
 							if cmd.IsSet("post-event-cooldown-sec") {
-								req.PostEventCooldownSec = uint32(cmd.Uint("post-event-cooldown-sec"))
+								value, err := generatedUint32FlagValue(cmd, "post-event-cooldown-sec")
+								if err != nil {
+									return nil, err
+								}
+								req.PostEventCooldownSec = value
 							}
 							if cmd.IsSet("force-include-all-paired-miners") {
 								req.ForceIncludeAllPairedMiners = cmd.Bool("force-include-all-paired-miners")
@@ -433,6 +440,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							&cli.BoolFlag{Name: "allow-unbounded", Usage: "allow unbounded"},
 							&cli.UintFlag{Name: "post-event-cooldown-sec", Usage: "post event cooldown sec"},
 							&cli.BoolFlag{Name: "force-include-all-paired-miners", Usage: "force include all paired miners"},
+							&cli.StringSliceFlag{Name: "facility-fan-device-ids", Usage: "facility fan device ids"},
+							&cli.UintFlag{Name: "fan-off-delay-sec", Usage: "fan off delay sec"},
+							&cli.UintFlag{Name: "fan-restore-delay-sec", Usage: "fan restore delay sec"},
 							&cli.StringFlag{Name: "idempotency-key", Usage: "idempotency key"},
 							&cli.StringFlag{Name: "reason", Usage: "(required unless provided by --json) reason"},
 							&cli.StringFlag{Name: "external-source", Usage: "external source"},
@@ -506,23 +516,45 @@ func generatedCurtailmentCommand() *cli.Command {
 								}
 							}
 							if cmd.IsSet("max-duration-seconds") {
-								req.MaxDurationSeconds = uint32(cmd.Uint("max-duration-seconds"))
+								value, err := generatedUint32FlagValue(cmd, "max-duration-seconds")
+								if err != nil {
+									return nil, err
+								}
+								req.MaxDurationSeconds = value
 							}
 							if cmd.IsSet("restore-batch-size") {
-								req.RestoreBatchSize = uint32(cmd.Uint("restore-batch-size"))
+								value, err := generatedUint32FlagValue(cmd, "restore-batch-size")
+								if err != nil {
+									return nil, err
+								}
+								req.RestoreBatchSize = value
 							}
 							if cmd.IsSet("restore-batch-interval-sec") {
-								req.RestoreBatchIntervalSec = uint32(cmd.Uint("restore-batch-interval-sec"))
+								value, err := generatedUint32FlagValue(cmd, "restore-batch-interval-sec")
+								if err != nil {
+									return nil, err
+								}
+								req.RestoreBatchIntervalSec = value
 							}
 							if cmd.IsSet("min-curtailed-duration-sec") {
-								req.MinCurtailedDurationSec = uint32(cmd.Uint("min-curtailed-duration-sec"))
+								value, err := generatedUint32FlagValue(cmd, "min-curtailed-duration-sec")
+								if err != nil {
+									return nil, err
+								}
+								req.MinCurtailedDurationSec = value
 							}
 							if cmd.IsSet("curtail-batch-size") {
-								value := uint32(cmd.Uint("curtail-batch-size"))
+								value, err := generatedUint32FlagValue(cmd, "curtail-batch-size")
+								if err != nil {
+									return nil, err
+								}
 								req.CurtailBatchSize = &value
 							}
 							if cmd.IsSet("curtail-batch-interval-sec") {
-								value := uint32(cmd.Uint("curtail-batch-interval-sec"))
+								value, err := generatedUint32FlagValue(cmd, "curtail-batch-interval-sec")
+								if err != nil {
+									return nil, err
+								}
 								req.CurtailBatchIntervalSec = &value
 							}
 							if cmd.IsSet("include-maintenance") {
@@ -532,17 +564,45 @@ func generatedCurtailmentCommand() *cli.Command {
 								req.ForceIncludeMaintenance = cmd.Bool("force-include-maintenance")
 							}
 							if cmd.IsSet("candidate-min-power-w-override") {
-								value := uint32(cmd.Uint("candidate-min-power-w-override"))
+								value, err := generatedUint32FlagValue(cmd, "candidate-min-power-w-override")
+								if err != nil {
+									return nil, err
+								}
 								req.CandidateMinPowerWOverride = &value
 							}
 							if cmd.IsSet("allow-unbounded") {
 								req.AllowUnbounded = cmd.Bool("allow-unbounded")
 							}
 							if cmd.IsSet("post-event-cooldown-sec") {
-								req.PostEventCooldownSec = uint32(cmd.Uint("post-event-cooldown-sec"))
+								value, err := generatedUint32FlagValue(cmd, "post-event-cooldown-sec")
+								if err != nil {
+									return nil, err
+								}
+								req.PostEventCooldownSec = value
 							}
 							if cmd.IsSet("force-include-all-paired-miners") {
 								req.ForceIncludeAllPairedMiners = cmd.Bool("force-include-all-paired-miners")
+							}
+							if cmd.IsSet("facility-fan-device-ids") {
+								values, err := parseInt64Slice(cmd.StringSlice("facility-fan-device-ids"))
+								if err != nil {
+									return nil, err
+								}
+								req.FacilityFanDeviceIds = values
+							}
+							if cmd.IsSet("fan-off-delay-sec") {
+								value, err := generatedUint32FlagValue(cmd, "fan-off-delay-sec")
+								if err != nil {
+									return nil, err
+								}
+								req.FanOffDelaySec = value
+							}
+							if cmd.IsSet("fan-restore-delay-sec") {
+								value, err := generatedUint32FlagValue(cmd, "fan-restore-delay-sec")
+								if err != nil {
+									return nil, err
+								}
+								req.FanRestoreDelaySec = value
 							}
 							if cmd.IsSet("idempotency-key") {
 								req.IdempotencyKey = cmd.String("idempotency-key")
@@ -657,15 +717,24 @@ func generatedCurtailmentCommand() *cli.Command {
 								req.Reason = &value
 							}
 							if cmd.IsSet("restore-batch-size") {
-								value := uint32(cmd.Uint("restore-batch-size"))
+								value, err := generatedUint32FlagValue(cmd, "restore-batch-size")
+								if err != nil {
+									return nil, err
+								}
 								req.RestoreBatchSize = &value
 							}
 							if cmd.IsSet("restore-batch-interval-sec") {
-								value := uint32(cmd.Uint("restore-batch-interval-sec"))
+								value, err := generatedUint32FlagValue(cmd, "restore-batch-interval-sec")
+								if err != nil {
+									return nil, err
+								}
 								req.RestoreBatchIntervalSec = &value
 							}
 							if cmd.IsSet("max-duration-seconds") {
-								value := uint32(cmd.Uint("max-duration-seconds"))
+								value, err := generatedUint32FlagValue(cmd, "max-duration-seconds")
+								if err != nil {
+									return nil, err
+								}
 								req.MaxDurationSeconds = &value
 							}
 							if err := generatedValidateRequest(req); err != nil {
@@ -725,7 +794,11 @@ func generatedCurtailmentCommand() *cli.Command {
 								req.PayloadFormat = cmd.String("payload-format")
 							}
 							if cmd.IsSet("staleness-threshold-sec") {
-								req.StalenessThresholdSec = uint32(cmd.Uint("staleness-threshold-sec"))
+								value, err := generatedUint32FlagValue(cmd, "staleness-threshold-sec")
+								if err != nil {
+									return nil, err
+								}
+								req.StalenessThresholdSec = value
 							}
 							secretMqttPassword, err := generatedReadSecret(cmd, "mqtt-password-stdin", "mqtt password")
 							if err != nil {
@@ -925,7 +998,10 @@ func generatedCurtailmentCommand() *cli.Command {
 								req.PayloadFormat = &value
 							}
 							if cmd.IsSet("staleness-threshold-sec") {
-								value := uint32(cmd.Uint("staleness-threshold-sec"))
+								value, err := generatedUint32FlagValue(cmd, "staleness-threshold-sec")
+								if err != nil {
+									return nil, err
+								}
 								req.StalenessThresholdSec = &value
 							}
 							if cmd.IsSet("clear-staleness-threshold-sec") {
@@ -1047,19 +1123,31 @@ func generatedCurtailmentCommand() *cli.Command {
 								}
 							}
 							if cmd.IsSet("curtail-batch-size") {
-								value := uint32(cmd.Uint("curtail-batch-size"))
+								value, err := generatedUint32FlagValue(cmd, "curtail-batch-size")
+								if err != nil {
+									return nil, err
+								}
 								req.CurtailBatchSize = &value
 							}
 							if cmd.IsSet("curtail-batch-interval-sec") {
-								value := uint32(cmd.Uint("curtail-batch-interval-sec"))
+								value, err := generatedUint32FlagValue(cmd, "curtail-batch-interval-sec")
+								if err != nil {
+									return nil, err
+								}
 								req.CurtailBatchIntervalSec = &value
 							}
 							if cmd.IsSet("restore-batch-size") {
-								value := uint32(cmd.Uint("restore-batch-size"))
+								value, err := generatedUint32FlagValue(cmd, "restore-batch-size")
+								if err != nil {
+									return nil, err
+								}
 								req.RestoreBatchSize = &value
 							}
 							if cmd.IsSet("restore-batch-interval-sec") {
-								value := uint32(cmd.Uint("restore-batch-interval-sec"))
+								value, err := generatedUint32FlagValue(cmd, "restore-batch-interval-sec")
+								if err != nil {
+									return nil, err
+								}
 								req.RestoreBatchIntervalSec = &value
 							}
 							if cmd.IsSet("include-maintenance") {
@@ -1069,7 +1157,11 @@ func generatedCurtailmentCommand() *cli.Command {
 								req.ForceIncludeMaintenance = cmd.Bool("force-include-maintenance")
 							}
 							if cmd.IsSet("post-event-cooldown-sec") {
-								req.PostEventCooldownSec = uint32(cmd.Uint("post-event-cooldown-sec"))
+								value, err := generatedUint32FlagValue(cmd, "post-event-cooldown-sec")
+								if err != nil {
+									return nil, err
+								}
+								req.PostEventCooldownSec = value
 							}
 							if cmd.IsSet("force-include-all-paired-miners") {
 								req.ForceIncludeAllPairedMiners = cmd.Bool("force-include-all-paired-miners")
@@ -1082,10 +1174,18 @@ func generatedCurtailmentCommand() *cli.Command {
 								req.FacilityFanDeviceIds = values
 							}
 							if cmd.IsSet("fan-off-delay-sec") {
-								req.FanOffDelaySec = uint32(cmd.Uint("fan-off-delay-sec"))
+								value, err := generatedUint32FlagValue(cmd, "fan-off-delay-sec")
+								if err != nil {
+									return nil, err
+								}
+								req.FanOffDelaySec = value
 							}
 							if cmd.IsSet("fan-restore-delay-sec") {
-								req.FanRestoreDelaySec = uint32(cmd.Uint("fan-restore-delay-sec"))
+								value, err := generatedUint32FlagValue(cmd, "fan-restore-delay-sec")
+								if err != nil {
+									return nil, err
+								}
+								req.FanRestoreDelaySec = value
 							}
 							if err := generatedValidateRequiredFields(req, "mode", "profile_name"); err != nil {
 								return nil, err
@@ -1252,19 +1352,31 @@ func generatedCurtailmentCommand() *cli.Command {
 								}
 							}
 							if cmd.IsSet("curtail-batch-size") {
-								value := uint32(cmd.Uint("curtail-batch-size"))
+								value, err := generatedUint32FlagValue(cmd, "curtail-batch-size")
+								if err != nil {
+									return nil, err
+								}
 								req.CurtailBatchSize = &value
 							}
 							if cmd.IsSet("curtail-batch-interval-sec") {
-								value := uint32(cmd.Uint("curtail-batch-interval-sec"))
+								value, err := generatedUint32FlagValue(cmd, "curtail-batch-interval-sec")
+								if err != nil {
+									return nil, err
+								}
 								req.CurtailBatchIntervalSec = &value
 							}
 							if cmd.IsSet("restore-batch-size") {
-								value := uint32(cmd.Uint("restore-batch-size"))
+								value, err := generatedUint32FlagValue(cmd, "restore-batch-size")
+								if err != nil {
+									return nil, err
+								}
 								req.RestoreBatchSize = &value
 							}
 							if cmd.IsSet("restore-batch-interval-sec") {
-								value := uint32(cmd.Uint("restore-batch-interval-sec"))
+								value, err := generatedUint32FlagValue(cmd, "restore-batch-interval-sec")
+								if err != nil {
+									return nil, err
+								}
 								req.RestoreBatchIntervalSec = &value
 							}
 							if cmd.IsSet("include-maintenance") {
@@ -1274,7 +1386,11 @@ func generatedCurtailmentCommand() *cli.Command {
 								req.ForceIncludeMaintenance = cmd.Bool("force-include-maintenance")
 							}
 							if cmd.IsSet("post-event-cooldown-sec") {
-								req.PostEventCooldownSec = uint32(cmd.Uint("post-event-cooldown-sec"))
+								value, err := generatedUint32FlagValue(cmd, "post-event-cooldown-sec")
+								if err != nil {
+									return nil, err
+								}
+								req.PostEventCooldownSec = value
 							}
 							if cmd.IsSet("force-include-all-paired-miners") {
 								req.ForceIncludeAllPairedMiners = cmd.Bool("force-include-all-paired-miners")
@@ -1287,10 +1403,18 @@ func generatedCurtailmentCommand() *cli.Command {
 								req.FacilityFanDeviceIds = values
 							}
 							if cmd.IsSet("fan-off-delay-sec") {
-								req.FanOffDelaySec = uint32(cmd.Uint("fan-off-delay-sec"))
+								value, err := generatedUint32FlagValue(cmd, "fan-off-delay-sec")
+								if err != nil {
+									return nil, err
+								}
+								req.FanOffDelaySec = value
 							}
 							if cmd.IsSet("fan-restore-delay-sec") {
-								req.FanRestoreDelaySec = uint32(cmd.Uint("fan-restore-delay-sec"))
+								value, err := generatedUint32FlagValue(cmd, "fan-restore-delay-sec")
+								if err != nil {
+									return nil, err
+								}
+								req.FanRestoreDelaySec = value
 							}
 							if cmd.IsSet("replace-facility-fan-settings") {
 								req.ReplaceFacilityFanSettings = cmd.Bool("replace-facility-fan-settings")

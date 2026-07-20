@@ -5,16 +5,77 @@ import (
 	"testing"
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
+	curtailmentmodels "github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	sitesdomain "github.com/block/proto-fleet/server/internal/domain/sites"
 	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	storesmocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func TestInfrastructureControlSubnetsRejectClaimedFacilityFans(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	db := testContext.ServiceProvider.DB
+	siteID, fanID := seedCurtailmentFacilityFan(t, db, user.OrganizationID, "commissioning-claim")
+
+	curtailmentStore := sqlstores.NewSQLCurtailmentStore(db)
+	eventUUID := uuid.New()
+	event := curtailmentStoreTestEvent(
+		user.OrganizationID,
+		user.DatabaseID,
+		eventUUID,
+		curtailmentmodels.EventStateActive,
+		"commissioning-claim",
+	)
+	event.FacilityFanDeviceIDs = []int64{fanID}
+	event.ExpectedFacilityFanSites = map[int64]int64{fanID: siteID}
+	_, err := curtailmentStore.InsertEventWithTargets(ctx, event, []curtailmentmodels.InsertTargetParams{
+		curtailmentStoreTestTarget("commissioning-claim-miner", curtailmentmodels.TargetStateConfirmed, curtailmentmodels.DesiredStateCurtailed),
+	})
+	require.NoError(t, err)
+
+	siteStore := sqlstores.NewSQLSiteStore(db)
+	service := sitesdomain.NewService(
+		siteStore,
+		nil,
+		nil,
+		nil,
+		nil,
+		sqlstores.NewSQLTransactor(db),
+		activity.NewService(sqlstores.NewSQLActivityStore(db)),
+	)
+	_, err = service.SetInfrastructureControlSubnets(ctx, user.OrganizationID, siteID, []string{"10.60.0.1/32"})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "claimed fan must block commissioning mutation: %v", err)
+
+	_, err = curtailmentStore.ForceReleaseEvent(ctx, user.OrganizationID, eventUUID, "release commissioning claim")
+	require.NoError(t, err)
+	got, err := service.SetInfrastructureControlSubnets(ctx, user.OrganizationID, siteID, []string{"10.60.0.1/32"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"10.60.0.1/32"}, got)
+
+	_, err = db.ExecContext(ctx, `
+		UPDATE curtailment_event
+		SET fan_last_error = 'fan recovery still requires commissioning data'
+		WHERE event_uuid = $1
+	`, eventUUID)
+	require.NoError(t, err)
+
+	_, err = service.SetInfrastructureControlSubnets(ctx, user.OrganizationID, siteID, []string{"10.60.0.2/32"})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err), "terminal fan recovery must block commissioning mutation: %v", err)
+}
 
 func TestInfrastructureControlSubnetsPersistenceAndOrgMasking(t *testing.T) {
 	if testing.Short() {

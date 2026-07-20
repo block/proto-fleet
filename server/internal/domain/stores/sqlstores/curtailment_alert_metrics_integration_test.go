@@ -65,8 +65,12 @@ func seedAutomationEvent(
 	params := curtailmentStoreTestEvent(orgID, userID, eventUUID, state, actor)
 	externalSource := "curtailment_automation"
 	externalReference := strconv.FormatInt(ruleID, 10)
+	idempotencyKey := "curtailment_automation_rule:" + externalReference
+	params.SourceActorType = models.SourceActorAutomation
+	params.SourceActorID = &externalReference
 	params.ExternalSource = &externalSource
 	params.ExternalReference = &externalReference
+	params.IdempotencyKey = &idempotencyKey
 	var targets []models.InsertTargetParams
 	if !state.IsTerminal() {
 		targets = []models.InsertTargetParams{
@@ -114,10 +118,10 @@ func TestSQLCurtailmentStore_RuleMutationGuardsCoverExternalReference(t *testing
 		RuleName:          "guard-rule",
 		MQTTSourceID:      sourceB,
 		ResponseProfileID: profileID,
-	})
+	}, models.ResponseProfileFanSettings{})
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "re-pointing the rule must be blocked, got %v", err)
 
-	_, err = store.SetAutomationRuleEnabled(ctx, orgID, ruleID, false)
+	_, err = store.SetAutomationRuleEnabled(ctx, orgID, ruleID, false, models.ResponseProfileFanSettings{})
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "disabling the rule must be blocked, got %v", err)
 
 	err = store.DeleteAutomationRule(ctx, orgID, ruleID)

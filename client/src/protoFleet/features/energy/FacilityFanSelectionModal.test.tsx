@@ -22,13 +22,13 @@ describe("FacilityFanSelectionModal", () => {
   it("caps Select all at the response profile fan limit", () => {
     const selectedDeviceIds = selectAllFacilityFanDeviceIds(
       ["1"],
-      facilityFanDevices(1025).map(({ id }) => id),
+      facilityFanDevices(9).map(({ id }) => id),
     );
 
-    expect([...selectedDeviceIds]).toHaveLength(1024);
+    expect([...selectedDeviceIds]).toHaveLength(8);
     expect(selectedDeviceIds).toContain("1");
-    expect(selectedDeviceIds).toContain("1024");
-    expect(selectedDeviceIds).not.toContain("1025");
+    expect(selectedDeviceIds).toContain("8");
+    expect(selectedDeviceIds).not.toContain("9");
   });
 
   it("selects all available devices and applies them", () => {
@@ -52,5 +52,45 @@ describe("FacilityFanSelectionModal", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ selectedDeviceIds: ["1", "2"] }));
+  });
+
+  it("preserves an oversized legacy selection until the operator reduces it", () => {
+    const onApply = vi.fn();
+    const devices = facilityFanDevices(9);
+    render(
+      <FacilityFanSelectionModal
+        devices={devices}
+        initialSelectedDeviceIds={devices.map(({ id }) => id)}
+        initialFanOffDelaySec=""
+        initialFanRestoreDelaySec=""
+        onDismiss={vi.fn()}
+        onApply={onApply}
+      />,
+    );
+
+    expect(screen.getByText("9 devices selected (maximum)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ selectedDeviceIds: devices.map(({ id }) => id) }));
+  });
+
+  it("rejects fan delays above the server limit", () => {
+    const onApply = vi.fn();
+    render(
+      <FacilityFanSelectionModal
+        devices={facilityFanDevices(1)}
+        initialSelectedDeviceIds={["1"]}
+        initialFanOffDelaySec="3601"
+        initialFanRestoreDelaySec="3601"
+        onDismiss={vi.fn()}
+        onApply={onApply}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(screen.getByText("Enter fan-off delay of 3,600 or less.")).toBeInTheDocument();
+    expect(screen.getByText("Enter fan restore delay of 3,600 or less.")).toBeInTheDocument();
+    expect(onApply).not.toHaveBeenCalled();
   });
 });

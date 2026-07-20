@@ -80,6 +80,7 @@ func TestEmitsPersistContractMetrics(t *testing.T) {
 	provider.EmitSystemMemoryUsedPercent(ctx, 40.0)
 	provider.EmitSystemDiskUsedPercent(ctx, 63.0)
 	provider.EmitSystemHeartbeat(ctx)
+	provider.EmitCurtailmentFanRestoreFailure(ctx, 42, "event-uuid", true)
 
 	// Shutdown flushes the buffer. Don't rely on a tick — we want the
 	// test to fail loudly if the drain path regresses.
@@ -104,9 +105,36 @@ func TestEmitsPersistContractMetrics(t *testing.T) {
 		MetricSystemMemoryUsedPercent,
 		MetricSystemDiskUsedPercent,
 		MetricSystemHeartbeat,
+		MetricCurtailmentFanRestoreFailed,
 	}
 	for _, name := range want {
 		require.GreaterOrEqual(t, got[name], 1, "expected at least one sample for %q", name)
+	}
+}
+
+func TestCurtailmentFanRestoreFailureEmitsPerEventState(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	store := NewInMemoryStore()
+	provider := SetupWithStore(ctx, "test", Config{
+		Enabled:       true,
+		FlushInterval: 25 * time.Millisecond,
+		BufferSize:    16,
+		BatchSize:     8,
+	}, store)
+
+	provider.EmitCurtailmentFanRestoreFailure(ctx, 42, "event-1", true)
+	provider.EmitCurtailmentFanRestoreFailure(ctx, 42, "event-1", false)
+	require.NoError(t, provider.Shutdown(ctx))
+
+	samples := store.Snapshot()
+	require.Len(t, samples, 2)
+	require.Equal(t, []float64{1, 0}, []float64{samples[0].Value, samples[1].Value})
+	for _, sample := range samples {
+		require.Equal(t, MetricCurtailmentFanRestoreFailed, sample.Metric)
+		require.Equal(t, "42", sample.Labels.OrganizationID)
+		require.Equal(t, "event-1", sample.Labels.Kind)
 	}
 }
 

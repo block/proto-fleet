@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -55,6 +56,7 @@ type fakeStore struct {
 
 	listTargetsByEventCalls int
 	listCandidatesCalls     int
+	listCandidatesErr       error
 	claimTargetsCalls       int
 	claimedTargetParams     []models.InsertTargetParams
 	claimAllPairedCalls     int
@@ -84,6 +86,10 @@ type fakeStore struct {
 	beginRestoreCalls       int
 	beginRestoreLastEventID uuid.UUID
 	beginRestoreErr         error
+	updateFanCalls          int
+	lastFanUpdate           interfaces.UpdateCurtailmentFanStateParams
+	rejectExpiredFanUpdate  bool
+	failFanUpdateCall       int
 }
 
 type bumpRetryCall struct {
@@ -333,6 +339,9 @@ func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCand
 	f.lastListCandidatesSiteIDs = append([]int64(nil), params.SiteIDs...)
 	f.lastListCandidatesFilter = append([]string(nil), params.DeviceIdentifiers...)
 	f.listCandidatesFilters = append(f.listCandidatesFilters, append([]string(nil), params.DeviceIdentifiers...))
+	if f.listCandidatesErr != nil {
+		return nil, f.listCandidatesErr
+	}
 	if len(params.DeviceIdentifiers) == 0 {
 		return f.candidates, nil
 	}
@@ -400,6 +409,54 @@ func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, expectedS
 		}
 	}
 	return nil
+}
+
+func (f *fakeStore) UpdateFanState(ctx context.Context, eventID int64, params interfaces.UpdateCurtailmentFanStateParams) error {
+	f.updateFanCalls++
+	f.lastFanUpdate = params
+	if f.failFanUpdateCall == f.updateFanCalls {
+		return errors.New("injected fan state update failure")
+	}
+	if f.rejectExpiredFanUpdate && ctx.Err() != nil {
+		return fmt.Errorf("expired fan update context: %w", ctx.Err())
+	}
+	for _, event := range f.events {
+		if event.ID != eventID {
+			continue
+		}
+		if event.State != params.ExpectedEventState {
+			return interfaces.ErrCurtailmentEventStateRaceLoss
+		}
+		if params.FanOffSentAt != nil {
+			event.FanOffSentAt = params.FanOffSentAt
+		}
+		if params.FanOnSentAt != nil {
+			event.FanOnSentAt = params.FanOnSentAt
+		}
+		if params.FanAirflowReopenedAt != nil {
+			event.FanAirflowReopenedAt = params.FanAirflowReopenedAt
+		}
+		if params.ClearFanAirflowReopenedAt {
+			event.FanAirflowReopenedAt = nil
+		}
+		event.FanLastError = params.LastError
+	}
+	return nil
+}
+
+func (f *fakeStore) CommandFanState(
+	ctx context.Context,
+	eventID int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) (*string, error) {
+	lastError := command(ctx)
+	if lastError == nil && params.FanAirflowReopenedAtOnSuccess != nil {
+		params.FanAirflowReopenedAt = params.FanAirflowReopenedAtOnSuccess
+		params.ClearFanAirflowReopenedAt = false
+	}
+	params.LastError = lastError
+	return lastError, f.UpdateFanState(ctx, eventID, params)
 }
 
 func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
@@ -667,6 +724,30 @@ type fakeDispatcher struct {
 	uncurtailHook func(ids []string)
 }
 
+type fakeFanController struct {
+	powers              []driver.PowerMode
+	err                 *string
+	waitForCancellation bool
+}
+
+func (f *fakeFanController) SetState(ctx context.Context, _ *models.Event, power driver.PowerMode) *string {
+	f.powers = append(f.powers, power)
+	if f.waitForCancellation {
+		<-ctx.Done()
+		message := "fan command timed out"
+		return &message
+	}
+	return f.err
+}
+
+type fakeFanAlertEmitter struct {
+	values []bool
+}
+
+func (f *fakeFanAlertEmitter) EmitCurtailmentFanRestoreFailure(_ context.Context, _ int64, _ string, failed bool) {
+	f.values = append(f.values, failed)
+}
+
 func (f *fakeDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSelector, _ sdk.CurtailLevel) (*command.CommandResult, error) {
 	f.curtailCalls++
 	f.curtailLastIDs = identifiersFromSelector(selector)
@@ -723,6 +804,35 @@ func newReconcilerForTest(store *fakeStore, disp *fakeDispatcher) *Reconciler {
 		CurtailMaxRetries:    3,
 		DriftThresholdFactor: 0.5,
 	}, store, disp)
+	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
+	return r
+}
+
+func newReconcilerWithFansForTest(store *fakeStore, disp *fakeDispatcher, fans *fakeFanController) *Reconciler {
+	r := New(Config{
+		TickInterval:         time.Hour,
+		ShutdownDeadline:     time.Second,
+		MaxRetries:           3,
+		CurtailMaxRetries:    3,
+		DriftThresholdFactor: 0.5,
+	}, store, disp, WithFacilityFanController(fans))
+	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
+	return r
+}
+
+func newReconcilerWithFanAlertForTest(
+	store *fakeStore,
+	disp *fakeDispatcher,
+	fans *fakeFanController,
+	alert *fakeFanAlertEmitter,
+) *Reconciler {
+	r := New(Config{
+		TickInterval:         time.Hour,
+		ShutdownDeadline:     time.Second,
+		MaxRetries:           3,
+		CurtailMaxRetries:    3,
+		DriftThresholdFactor: 0.5,
+	}, store, disp, WithFacilityFanController(fans), WithFacilityFanAlertEmitter(alert))
 	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
 	return r
 }
@@ -3008,7 +3118,7 @@ func TestReconciler_ListEventsErrorAdvancesHeartbeatAndIncrementsFailure(t *test
 	assert.Equal(t, 1, metrics.TickFailureCount())
 }
 
-func TestReconciler_RunTickStopsWhenTickBudgetExpires(t *testing.T) {
+func TestReconciler_RunTickSharesBudgetAcrossEvents(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 	firstUUID := uuid.New()
@@ -3024,13 +3134,13 @@ func TestReconciler_RunTickStopsWhenTickBudgetExpires(t *testing.T) {
 	}
 
 	r := newReconcilerForTest(store, disp)
-	r.cfg.TickInterval = 5 * time.Millisecond
+	r.cfg.TickInterval = 50 * time.Millisecond
 	r.runTick(context.Background())
 
 	assert.ErrorIs(t, store.listTargetsCtxErr[firstUUID], context.DeadlineExceeded)
-	_, processedSecond := store.listTargetsCtxErr[secondUUID]
-	assert.False(t, processedSecond,
-		"later events must wait for the next tick after the tick-scoped budget expires")
+	secondErr, processedSecond := store.listTargetsCtxErr[secondUUID]
+	assert.True(t, processedSecond, "a slow first event must not starve later events in the same tick")
+	assert.NoError(t, secondErr)
 }
 
 func TestReconciler_DispatchErrorMarksLastError(t *testing.T) {

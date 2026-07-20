@@ -621,16 +621,7 @@ function getInitialValues(
 
   return variant === "responseProfile"
     ? withResponseProfileScope(valuesWithDefaultSiteScope)
-    : withoutFacilityFanSettings(valuesWithDefaultSiteScope);
-}
-
-function withoutFacilityFanSettings(values: CurtailmentFormValues): CurtailmentFormValues {
-  return {
-    ...values,
-    facilityFanDeviceIds: [],
-    fanOffDelaySec: "",
-    fanRestoreDelaySec: "",
-  };
+    : valuesWithDefaultSiteScope;
 }
 
 function parseRequiredPositiveNumberField(value: string, fieldLabel: string): ParsedNumberField {
@@ -688,7 +679,7 @@ function validateCurtailmentFormValues(
   const localErrors: CurtailmentFormErrors = {};
   const isEditMode = mode === "edit";
   const isResponseProfileVariant = variant === "responseProfile";
-  const shouldValidateCurtailBatchFields = !isEditMode || isResponseProfileVariant;
+  const shouldValidateFullFormFields = !isEditMode || isResponseProfileVariant;
   const restoreInterval = parseOptionalUint32Field(values.restoreIntervalSec, {
     label: "batch interval",
     max: curtailmentNumericFieldLimits.restoreIntervalSec,
@@ -716,23 +707,23 @@ function validateCurtailmentFormValues(
   if (restoreInterval.error) {
     localErrors.restoreIntervalSec = restoreInterval.error;
   }
-  if (shouldValidateCurtailBatchFields && curtailBatchSize.error) {
+  if (shouldValidateFullFormFields && curtailBatchSize.error) {
     localErrors.curtailBatchSize = curtailBatchSize.error;
   }
-  if (shouldValidateCurtailBatchFields && curtailBatchSize.error === undefined && curtailBatchSize.parsed === 0) {
+  if (shouldValidateFullFormFields && curtailBatchSize.error === undefined && curtailBatchSize.parsed === 0) {
     localErrors.curtailBatchSize = "Enter batch size greater than 0.";
   }
-  if (shouldValidateCurtailBatchFields && curtailBatchInterval.error) {
+  if (shouldValidateFullFormFields && curtailBatchInterval.error) {
     localErrors.curtailBatchIntervalSec = curtailBatchInterval.error;
   }
-  if (isResponseProfileVariant && fanOffDelay.error) {
+  if (shouldValidateFullFormFields && fanOffDelay.error) {
     localErrors.fanOffDelaySec = fanOffDelay.error;
   }
-  if (isResponseProfileVariant && fanRestoreDelay.error) {
+  if (shouldValidateFullFormFields && fanRestoreDelay.error) {
     localErrors.fanRestoreDelaySec = fanRestoreDelay.error;
   }
   if (
-    shouldValidateCurtailBatchFields &&
+    shouldValidateFullFormFields &&
     curtailBatchInterval.error === undefined &&
     curtailBatchSize.parsed === undefined &&
     curtailBatchInterval.parsed !== undefined
@@ -1289,8 +1280,8 @@ function CurtailmentStartModalContent({
   const minerApplyToTarget = getMinerApplyToTarget(effectiveValues);
   const siteApplyToTarget = getSiteApplyToTarget(effectiveValues);
   const infrastructureApplyToTarget = getInfrastructureApplyToTarget(effectiveValues);
-  const hasSelectedFacilityFans = isResponseProfileVariant && (effectiveValues.facilityFanDeviceIds?.length ?? 0) > 0;
   const isFacilityFanSelectionDisabled = facilityFanSelectionDisabledReason !== undefined;
+  const shouldShowFacilityFanSelector = !isLiveCurtailmentEditMode;
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
   const curtailmentBehaviorSubtext = isLiveCurtailmentEditMode
     ? undefined
@@ -1423,13 +1414,10 @@ function CurtailmentStartModalContent({
 
     setEditedFields(new Set());
     setConfirmedForceInclusionKey("");
-    setValues((current) => {
-      const nextValues = {
-        ...withSelectedResponseProfileValues(current, responseProfile.values),
-        responseProfileId: responseProfile.id,
-      };
-      return isResponseProfileVariant ? nextValues : withoutFacilityFanSettings(nextValues);
-    });
+    setValues((current) => ({
+      ...withSelectedResponseProfileValues(current, responseProfile.values),
+      responseProfileId: responseProfile.id,
+    }));
   };
 
   const openSiteScopeModal = () => {
@@ -1630,7 +1618,7 @@ function CurtailmentStartModalContent({
   };
 
   const requestResponseProfileCurtailment = () => {
-    if (isBusy || hasSelectedFacilityFans) {
+    if (isBusy) {
       return;
     }
 
@@ -1677,7 +1665,7 @@ function CurtailmentStartModalContent({
       text: "Run curtailment",
       variant: variants.secondary,
       onClick: requestResponseProfileCurtailment,
-      disabled: isBusy || hasBlockingRunPreviewState || hasExternalFormError || hasSelectedFacilityFans,
+      disabled: isBusy || hasBlockingRunPreviewState || hasExternalFormError,
       loading: isTestingCurtailment,
     });
   }
@@ -1902,10 +1890,8 @@ function CurtailmentStartModalContent({
               title="Apply to"
               subtext={
                 facilityFanSelectionDisabledReason ??
-                (isResponseProfileVariant
-                  ? hasSelectedFacilityFans
-                    ? "Fan settings are saved for future sequencing. Curtailment does not control facility fans yet."
-                    : "Choose the sites, miners, and infrastructure included in this curtailment."
+                (shouldShowFacilityFanSelector
+                  ? "Choose the sites, miners, and infrastructure included in this curtailment."
                   : "Choose the sites and miners included in this curtailment.")
               }
             >
@@ -1922,7 +1908,7 @@ function CurtailmentStartModalContent({
                   disabled={isLiveCurtailmentEditMode}
                   onClick={() => setShowMinerSelectionModal(true)}
                 />
-                {isResponseProfileVariant ? (
+                {shouldShowFacilityFanSelector ? (
                   <TargetSelectButton
                     label={infrastructureApplyToTarget.label}
                     value={infrastructureApplyToTarget.value}
@@ -2046,7 +2032,7 @@ function CurtailmentStartModalContent({
         />
       ) : null}
 
-      {isResponseProfileVariant && !isFacilityFanSelectionDisabled && showFacilityFanSelectionModal ? (
+      {shouldShowFacilityFanSelector && !isFacilityFanSelectionDisabled && showFacilityFanSelectionModal ? (
         <FacilityFanSelectionModal
           devices={infrastructureDevices}
           initialSelectedDeviceIds={values.facilityFanDeviceIds ?? []}

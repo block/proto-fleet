@@ -41,6 +41,36 @@ func (m *MockInfrastructureDeviceStore) EXPECT() *MockInfrastructureDeviceStoreM
 	return m.recorder
 }
 
+// CountActiveCurtailmentEventsByInfrastructureDevice mocks base method.
+func (m *MockInfrastructureDeviceStore) CountActiveCurtailmentEventsByInfrastructureDevice(ctx context.Context, orgID, id int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountActiveCurtailmentEventsByInfrastructureDevice", ctx, orgID, id)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountActiveCurtailmentEventsByInfrastructureDevice indicates an expected call of CountActiveCurtailmentEventsByInfrastructureDevice.
+func (mr *MockInfrastructureDeviceStoreMockRecorder) CountActiveCurtailmentEventsByInfrastructureDevice(ctx, orgID, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountActiveCurtailmentEventsByInfrastructureDevice", reflect.TypeOf((*MockInfrastructureDeviceStore)(nil).CountActiveCurtailmentEventsByInfrastructureDevice), ctx, orgID, id)
+}
+
+// CountNonTerminalCurtailmentEventsByInfrastructureDevice mocks base method.
+func (m *MockInfrastructureDeviceStore) CountNonTerminalCurtailmentEventsByInfrastructureDevice(ctx context.Context, orgID, id int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountNonTerminalCurtailmentEventsByInfrastructureDevice", ctx, orgID, id)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountNonTerminalCurtailmentEventsByInfrastructureDevice indicates an expected call of CountNonTerminalCurtailmentEventsByInfrastructureDevice.
+func (mr *MockInfrastructureDeviceStoreMockRecorder) CountNonTerminalCurtailmentEventsByInfrastructureDevice(ctx, orgID, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountNonTerminalCurtailmentEventsByInfrastructureDevice", reflect.TypeOf((*MockInfrastructureDeviceStore)(nil).CountNonTerminalCurtailmentEventsByInfrastructureDevice), ctx, orgID, id)
+}
+
 // CountResponseProfilesByInfrastructureDevice mocks base method.
 func (m *MockInfrastructureDeviceStore) CountResponseProfilesByInfrastructureDevice(ctx context.Context, orgID, id int64) (int64, error) {
 	m.ctrl.T.Helper()

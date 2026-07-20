@@ -280,7 +280,7 @@ func (s *SQLSiteStore) LockInfrastructureDevicesBySiteForWrite(ctx context.Conte
 		SiteID: siteID,
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to lock infrastructure devices for site delete: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to lock infrastructure devices for site mutation: %v", err)
 	}
 	return ids, nil
 }
@@ -306,6 +306,48 @@ func (s *SQLSiteStore) CountResponseProfilesByInfrastructureDevices(ctx context.
 	})
 	if err != nil {
 		return 0, fleeterror.NewInternalErrorf("failed to count response profiles by infrastructure devices: %v", err)
+	}
+	return count, nil
+}
+
+func (s *SQLSiteStore) CountActiveCurtailmentEventsByInfrastructureDevices(
+	ctx context.Context,
+	orgID int64,
+	ids []int64,
+) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	count, err := s.GetQueries(ctx).CountActiveCurtailmentEventsByInfrastructureDevices(
+		ctx,
+		sqlc.CountActiveCurtailmentEventsByInfrastructureDevicesParams{
+			OrgID:                   orgID,
+			InfrastructureDeviceIds: ids,
+		},
+	)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count active curtailment events by infrastructure devices: %v", err)
+	}
+	return count, nil
+}
+
+func (s *SQLSiteStore) CountNonTerminalCurtailmentEventsByInfrastructureDevices(
+	ctx context.Context,
+	orgID int64,
+	ids []int64,
+) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	count, err := s.GetQueries(ctx).CountNonTerminalCurtailmentEventsByInfrastructureDevices(
+		ctx,
+		sqlc.CountNonTerminalCurtailmentEventsByInfrastructureDevicesParams{
+			OrgID:                   orgID,
+			InfrastructureDeviceIds: ids,
+		},
+	)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count non-terminal curtailment events by infrastructure devices: %v", err)
 	}
 	return count, nil
 }

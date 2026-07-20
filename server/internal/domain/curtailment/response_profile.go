@@ -124,7 +124,7 @@ func (s *ResponseProfileService) Create(ctx context.Context, req SaveResponsePro
 	if s == nil || s.store == nil {
 		return nil, fleeterror.NewUnimplementedError("curtailment response profile service is not configured")
 	}
-	profile, infrastructureDevices, err := s.validateAndNormalize(ctx, req)
+	profile, infrastructureDevices, err := s.validateAndNormalize(ctx, req, false)
 	if err != nil {
 		return nil, err
 	}
@@ -138,20 +138,9 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 	if req.Profile.ID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("profile_id must be set")
 	}
-	profile, infrastructureDevices, err := s.validateAndNormalize(ctx, req)
+	profile, infrastructureDevices, err := s.validateAndNormalize(ctx, req, true)
 	if err != nil {
 		return nil, err
-	}
-	if len(profile.FacilityFanDeviceIDs) > 0 {
-		count, err := s.store.CountAutomationRulesByResponseProfile(ctx, profile.OrgID, profile.ID)
-		if err != nil {
-			return nil, err
-		}
-		if count > 0 {
-			return nil, fleeterror.NewFailedPreconditionError(
-				"response profiles used by automation rules cannot include facility fans until fan sequencing is available",
-			)
-		}
 	}
 	return s.store.UpdateResponseProfile(
 		ctx,
@@ -199,7 +188,11 @@ func (s *ResponseProfileService) Delete(
 	)
 }
 
-func (s *ResponseProfileService) validateAndNormalize(ctx context.Context, req SaveResponseProfileRequest) (models.ResponseProfile, map[int64]models.ResponseProfileInfrastructureDevice, error) {
+func (s *ResponseProfileService) validateAndNormalize(
+	ctx context.Context,
+	req SaveResponseProfileRequest,
+	allowLegacyFacilityFans bool,
+) (models.ResponseProfile, map[int64]models.ResponseProfileInfrastructureDevice, error) {
 	profile := normalizeResponseProfile(req.Profile)
 	if profile.OrgID <= 0 {
 		return models.ResponseProfile{}, nil, fleeterror.NewInvalidArgumentError("org_id must be set")
@@ -222,10 +215,15 @@ func (s *ResponseProfileService) validateAndNormalize(ctx context.Context, req S
 		}
 	}
 	var infrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice
+	var existingFacilityFanDeviceIDs []int64
+	if allowLegacyFacilityFans {
+		existingFacilityFanDeviceIDs = req.ExpectedFacilityFanSettings.FacilityFanDeviceIDs
+	}
 	profile.FacilityFanDeviceIDs, infrastructureDevices, err = s.validateFacilityFanDevices(
 		ctx,
 		profile.OrgID,
 		profile.FacilityFanDeviceIDs,
+		existingFacilityFanDeviceIDs,
 		req.AuthorizedFacilityFanDevices,
 	)
 	if err != nil {
@@ -250,8 +248,19 @@ func (s *ResponseProfileService) validateFacilityFanDevices(
 	ctx context.Context,
 	orgID int64,
 	deviceIDs []int64,
+	existingDeviceIDs []int64,
 	authorizedDevices map[int64]models.ResponseProfileInfrastructureDevice,
 ) ([]int64, map[int64]models.ResponseProfileInfrastructureDevice, error) {
+	if hasNonPositiveInt64(deviceIDs) {
+		return nil, nil, fleeterror.NewInvalidArgumentError("facility_fan_device_ids must be positive")
+	}
+	deviceIDs = uniquePositiveInt64s(deviceIDs)
+	if len(deviceIDs) > facilityFanDeviceCountMax && !isShrinkingLegacyFacilityFanSelection(deviceIDs, existingDeviceIDs) {
+		return nil, nil, fleeterror.NewInvalidArgumentErrorf(
+			"facility_fan_device_ids must contain at most %d devices, got %d",
+			facilityFanDeviceCountMax, len(deviceIDs),
+		)
+	}
 	var devices map[int64]models.ResponseProfileInfrastructureDevice
 	var err error
 	if authorizedDevices == nil {
@@ -260,10 +269,6 @@ func (s *ResponseProfileService) validateFacilityFanDevices(
 			return nil, nil, err
 		}
 	} else {
-		if hasNonPositiveInt64(deviceIDs) {
-			return nil, nil, fleeterror.NewInvalidArgumentError("facility_fan_device_ids must be positive")
-		}
-		deviceIDs = uniquePositiveInt64s(deviceIDs)
 		if len(deviceIDs) != len(authorizedDevices) {
 			return nil, nil, fleeterror.NewFailedPreconditionError("authorized infrastructure devices do not match the response profile")
 		}
@@ -289,6 +294,22 @@ func (s *ResponseProfileService) validateFacilityFanDevices(
 		}
 	}
 	return deviceIDs, devices, nil
+}
+
+func isShrinkingLegacyFacilityFanSelection(deviceIDs, existingDeviceIDs []int64) bool {
+	if len(existingDeviceIDs) <= facilityFanDeviceCountMax || len(deviceIDs) > len(existingDeviceIDs) {
+		return false
+	}
+	existing := make(map[int64]struct{}, len(existingDeviceIDs))
+	for _, deviceID := range existingDeviceIDs {
+		existing[deviceID] = struct{}{}
+	}
+	for _, deviceID := range deviceIDs {
+		if _, ok := existing[deviceID]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *ResponseProfileService) loadFacilityFanDevices(
@@ -475,6 +496,20 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 		return fleeterror.NewForbiddenErrorf(
 			"only admins can set restore_batch_interval_sec above %d",
 			nonAdminRestoreBatchIntervalMax,
+		)
+	}
+	if profile.FanOffDelaySec < 0 || profile.FanOffDelaySec > facilityFanDelayUpperBoundSec {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"fan_off_delay_sec must be between 0 and %d, got %d",
+			facilityFanDelayUpperBoundSec,
+			profile.FanOffDelaySec,
+		)
+	}
+	if profile.FanRestoreDelaySec < 0 || profile.FanRestoreDelaySec > facilityFanDelayUpperBoundSec {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"fan_restore_delay_sec must be between 0 and %d, got %d",
+			facilityFanDelayUpperBoundSec,
+			profile.FanRestoreDelaySec,
 		)
 	}
 	if profile.ForceIncludeMaintenance && !canUseAdminControls {

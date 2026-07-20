@@ -22,13 +22,26 @@ type InfrastructureDeviceStore interface {
 	// ordered by name. Filter optionally narrows to specific sites.
 	ListInfrastructureDevices(ctx context.Context, filter models.ListFilter) ([]models.Device, error)
 
-	// LockInfrastructureDeviceForWrite serializes moves/deletes against
-	// response-profile saves. Parent site rows must be locked first.
+	// LockInfrastructureDeviceForWrite serializes updates/deletes against
+	// response-profile saves and active curtailment claims. Parent site rows
+	// must be locked first.
 	LockInfrastructureDeviceForWrite(ctx context.Context, orgID, id, expectedSiteID int64) error
 
 	// CountResponseProfilesByInfrastructureDevice returns the number of
 	// response profiles that still reference the device.
 	CountResponseProfilesByInfrastructureDevice(ctx context.Context, orgID, id int64) (int64, error)
+
+	// CountActiveCurtailmentEventsByInfrastructureDevice returns the number of
+	// events that currently protect the device as a facility fan: non-terminal
+	// owners plus terminal events with unresolved fan recovery failures.
+	CountActiveCurtailmentEventsByInfrastructureDevice(ctx context.Context, orgID, id int64) (int64, error)
+
+	// CountNonTerminalCurtailmentEventsByInfrastructureDevice returns the number
+	// of non-terminal events that currently protect the device as a facility
+	// fan. Command-affecting device updates must use
+	// CountActiveCurtailmentEventsByInfrastructureDevice so unresolved terminal
+	// fan recovery keeps protecting the originally controlled endpoint.
+	CountNonTerminalCurtailmentEventsByInfrastructureDevice(ctx context.Context, orgID, id int64) (int64, error)
 
 	// UpdateInfrastructureDevice mutates the row's mutable fields. The
 	// write is predicated on params.ExpectedSiteID, so it returns

@@ -88,6 +88,16 @@ type SiteStore interface {
 	// that reference any ID in the supplied set.
 	CountResponseProfilesByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error)
 
+	// CountActiveCurtailmentEventsByInfrastructureDevices counts events that
+	// protect any supplied infrastructure device as a facility fan: non-terminal
+	// owners plus terminal events with unresolved fan recovery failures.
+	CountActiveCurtailmentEventsByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error)
+
+	// CountNonTerminalCurtailmentEventsByInfrastructureDevices counts only
+	// non-terminal facility-fan owners. Use CountActive... for mutations that
+	// can affect terminal fan recovery.
+	CountNonTerminalCurtailmentEventsByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error)
+
 	// SoftDeleteBuildingsBySite soft-deletes every live building under
 	// the site. Caller wraps it in the cascade tx.
 	SoftDeleteBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error)

@@ -125,9 +125,9 @@ type AutomationStore interface {
 	ListAutomationRules(ctx context.Context, orgID int64) ([]*models.AutomationRule, error)
 	GetAutomationRule(ctx context.Context, orgID, ruleID int64) (*models.AutomationRule, error)
 	ListEnabledAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]*models.AutomationRule, error)
-	CreateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error)
-	UpdateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error)
-	SetAutomationRuleEnabled(ctx context.Context, orgID, ruleID int64, enabled bool) (*models.AutomationRule, error)
+	CreateAutomationRule(ctx context.Context, rule models.AutomationRule, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
+	UpdateAutomationRule(ctx context.Context, rule models.AutomationRule, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
+	SetAutomationRuleEnabled(ctx context.Context, orgID, ruleID int64, enabled bool, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
 	DeleteAutomationRule(ctx context.Context, orgID, ruleID int64) error
 	CountAutomationRulesByMQTTSource(ctx context.Context, orgID, sourceID int64) (int64, error)
 	RecordAutomationSignal(ctx context.Context, ruleID int64, signal models.AutomationSignal, at time.Time) error
@@ -165,6 +165,80 @@ type UpdateOperatorFieldsParams struct {
 	RestoreBatchSize        *int32
 	RestoreBatchIntervalSec *int32
 	MaxDurationSeconds      *int32
+}
+
+// UpdateCurtailmentFanStateParams persists one reconciler or operator-recovery
+// fan attempt. Nil timestamps preserve the corresponding send stamp;
+// ClearFanAirflowReopenedAt resets the active marker after fans turn off again.
+// LastError nil clears a previous failure after a successful re-assertion.
+type UpdateCurtailmentFanStateParams struct {
+	ExpectedEventState models.EventState
+	FanOffSentAt       *time.Time
+	FanOnSentAt        *time.Time
+	// FanAirflowReopenedAt preserves the first reopen attempt for alert timing.
+	// OnSuccess replaces it only when the hardware command succeeds, so the
+	// cooling delay begins from confirmed airflow rather than a failed attempt.
+	FanAirflowReopenedAt          *time.Time
+	FanAirflowReopenedAtOnSuccess *time.Time
+	ClearFanAirflowReopenedAt     bool
+	LastError                     *string
+}
+
+type CurtailmentFanStateStore interface {
+	CommandFanState(
+		ctx context.Context,
+		eventID int64,
+		params UpdateCurtailmentFanStateParams,
+		command func(context.Context) *string,
+	) (*string, error)
+}
+
+// CurtailmentTerminalFanRecoveryStore serializes an operator's terminal-event
+// fan recovery against new Start claims. The implementation holds the same
+// per-fan claim locks used by Start while it checks for newer owners, invokes
+// command, and persists the resulting error state.
+type CurtailmentTerminalFanRecoveryStore interface {
+	RecoverTerminalFanState(
+		ctx context.Context,
+		eventID, orgID int64,
+		facilityFanDeviceIDs []int64,
+		facilityFanSiteIDs []int64,
+		params UpdateCurtailmentFanStateParams,
+		command func(context.Context) *string,
+	) error
+}
+
+// CurtailmentAdminTerminateFanRecoveryStore serializes an operator admin
+// termination against fan recovery and concurrent lifecycle transitions. The
+// implementation holds the event lock while deciding whether recovery is
+// required, commanding fans ON, persisting the fan result, and terminalizing.
+type CurtailmentAdminTerminateFanRecoveryStore interface {
+	AdminTerminateEventWithFanRecovery(
+		ctx context.Context,
+		orgID int64,
+		eventUUID uuid.UUID,
+		targetState models.EventState,
+		reason string,
+		command func(context.Context, *models.Event) *string,
+	) (event *models.Event, transitioned bool, err error)
+}
+
+// CurtailmentForceReleaseFanRecoveryStore holds the active event's fan claim
+// locks across terminalization and its authoritative ON command. This keeps a
+// concurrent Start from claiming physically-off fans in the gap between those
+// two operations.
+type CurtailmentForceReleaseFanRecoveryStore interface {
+	ForceReleaseEventWithFanRecovery(
+		ctx context.Context,
+		orgID int64,
+		eventUUID uuid.UUID,
+		reason string,
+		eventID int64,
+		facilityFanDeviceIDs []int64,
+		facilityFanSiteIDs []int64,
+		params UpdateCurtailmentFanStateParams,
+		command func(context.Context) *string,
+	) (ForceReleaseEventResult, error)
 }
 
 type ForceReleaseEventResult struct {

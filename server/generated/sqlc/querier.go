@@ -229,6 +229,7 @@ type Querier interface {
 	// granting anything, so DeleteCustomRole should be allowed to clear
 	// it rather than block the admin on phantom assignments.
 	CountActiveAssignmentsForRole(ctx context.Context, roleID int64) (int64, error)
+	CountActiveCurtailmentEventsByInfrastructureDevices(ctx context.Context, arg CountActiveCurtailmentEventsByInfrastructureDevicesParams) (int64, error)
 	CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error)
 	// Site filter must stay byte-for-byte identical to ListActivityLogs so the
 	// pagination total never disagrees with the rendered feed (or the CSV export,
@@ -237,6 +238,7 @@ type Querier interface {
 	CountBuildingsBySite(ctx context.Context, arg CountBuildingsBySiteParams) (int64, error)
 	// Counts distinct (device_id, component_type, component_id) tuples that have errors matching filter criteria.
 	CountComponentsWithErrors(ctx context.Context, arg CountComponentsWithErrorsParams) (int64, error)
+	CountConflictingCurtailmentFanClaims(ctx context.Context, arg CountConflictingCurtailmentFanClaimsParams) (int64, error)
 	CountCurtailmentAutomationRulesByMQTTSource(ctx context.Context, arg CountCurtailmentAutomationRulesByMQTTSourceParams) (int64, error)
 	CountCurtailmentAutomationRulesByResponseProfile(ctx context.Context, arg CountCurtailmentAutomationRulesByResponseProfileParams) (int64, error)
 	CountCurtailmentResponseProfilesBySite(ctx context.Context, arg CountCurtailmentResponseProfilesBySiteParams) (int64, error)
@@ -266,6 +268,7 @@ type Querier interface {
 	// UNSPECIFIED (0) is excluded (normalized at ingestion by miner_error_mapper).
 	// Open actionable errors (severity 1-4; excludes UNSPECIFIED=0)
 	CountMinersByState(ctx context.Context, arg CountMinersByStateParams) (CountMinersByStateRow, error)
+	CountNonTerminalCurtailmentEventsByInfrastructureDevices(ctx context.Context, arg CountNonTerminalCurtailmentEventsByInfrastructureDevicesParams) (int64, error)
 	// Same guard, but for DeactivateUser: counts live SUPER_ADMINs in
 	// the org excluding any assignment held by the user being
 	// deactivated. Same liveness filters as above so a deactivated user
@@ -1081,6 +1084,18 @@ type Querier interface {
 	// the locked ids (result is informational; the FOR UPDATE side-effect
 	// is what matters).
 	LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error)
+	LockCurtailmentEventByUUIDForWrite(ctx context.Context, arg LockCurtailmentEventByUUIDForWriteParams) (CurtailmentEvent, error)
+	// Physical fan commands run only while this exact lifecycle phase remains
+	// current. Holding the row lock through the command serializes Force Release's
+	// terminal UPDATE behind an in-flight command and rejects stale commands that
+	// begin after the transition.
+	LockCurtailmentEventForFanCommand(ctx context.Context, arg LockCurtailmentEventForFanCommandParams) (int64, error)
+	// Per-device transaction lock closes concurrent Start races before the array
+	// overlap check. Callers acquire these in ascending ID order.
+	LockCurtailmentFanDeviceForWrite(ctx context.Context, infrastructureDeviceID string) error
+	// The row lock turns the authorization snapshot into an insert-time invariant:
+	// a concurrent move/delete must wait until this transaction commits.
+	LockCurtailmentFanDevicesForWrite(ctx context.Context, arg LockCurtailmentFanDevicesForWriteParams) ([]LockCurtailmentFanDevicesForWriteRow, error)
 	// Serializes profile fan changes with automation create/update/enable. Both
 	// sides re-read their compatibility condition after acquiring this lock so a
 	// concurrent pair cannot commit an automation binding to a fan profile.
@@ -1250,7 +1265,9 @@ type Querier interface {
 	// has an unambiguous queue. Terminal states are untouched.
 	ResetCurtailmentTargetsForRestore(ctx context.Context, curtailmentEventID int64) error
 	// Restore reversal: go back through pending so the curtail dispatcher picks
-	// up reset targets.
+	// up reset targets. Preserve fan_off_sent_at and fan_last_error until the
+	// active reconciler has positively reopened airflow; clearing them here can
+	// hide fans that remained off after a failed restore command.
 	ResumeCurtailmentFromRestoring(ctx context.Context, id int64) (CurtailmentEvent, error)
 	ResumePausedSchedule(ctx context.Context, arg ResumePausedScheduleParams) (int64, error)
 	RevertScheduleToActive(ctx context.Context, id int64) error
@@ -1417,6 +1434,11 @@ type Querier interface {
 	UpdateApiKeyLastUsed(ctx context.Context, arg UpdateApiKeyLastUsedParams) error
 	UpdateBuilding(ctx context.Context, arg UpdateBuildingParams) error
 	UpdateCurtailmentAutomationRule(ctx context.Context, arg UpdateCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error)
+	// The expected-state guard prevents a stale reconciler phase from stamping
+	// over a concurrent transition. Terminal states remain addressable so an
+	// explicit operator Force Release can retry fan ON and clear a durable failure.
+	// fan_last_error is always replaced after a successful write.
+	UpdateCurtailmentEventFanState(ctx context.Context, arg UpdateCurtailmentEventFanStateParams) (int64, error)
 	// Partial update; nil params COALESCE-preserve. State filter is the
 	// race-loss guard — zero rows means the event advanced between the
 	// service's pre-read and this UPDATE.
