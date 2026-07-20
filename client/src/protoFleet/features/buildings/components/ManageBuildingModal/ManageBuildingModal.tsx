@@ -41,6 +41,11 @@ interface ManageBuildingModalProps {
   unassignedMinerCount?: number;
 }
 
+// Proto caps `racks` at 1000 per AssignRacksToBuildingRequest, so every path
+// that dispatches AssignRacksToBuilding (Save and the immediate reparent
+// commit) chunks to this size.
+const RACKS_PER_RPC = 1000;
+
 const ManageBuildingModal = ({
   open,
   building,
@@ -329,14 +334,21 @@ const ManageBuildingModal = ({
   // (assigning a cell → place; removing the rack → unassign).
   const commitReparent = useCallback(
     async (rackIds: bigint[]) => {
-      await new Promise<void>((resolve, reject) => {
-        void assignRacksToBuilding({
-          racks: rackIds.map((rackId) => ({ rackId })),
-          targetBuildingId: building.id,
-          onSuccess: () => resolve(),
-          onError: (msg) => reject(new Error(msg)),
+      // Chunk to the proto's per-request cap and dispatch sequentially — a
+      // >1000-rack reparent (select-all across pages in Show assigned racks)
+      // would otherwise trip request validation before any rack moved. Mirrors
+      // the Save path's chunking.
+      for (let i = 0; i < rackIds.length; i += RACKS_PER_RPC) {
+        const chunk = rackIds.slice(i, i + RACKS_PER_RPC);
+        await new Promise<void>((resolve, reject) => {
+          void assignRacksToBuilding({
+            racks: chunk.map((rackId) => ({ rackId })),
+            targetBuildingId: building.id,
+            onSuccess: () => resolve(),
+            onError: (msg) => reject(new Error(msg)),
+          });
         });
-      });
+      }
       for (const rackId of rackIds) {
         initialPlacementRef.current.set(rackId.toString(), "unplaced");
       }
@@ -549,17 +561,15 @@ const ManageBuildingModal = ({
         unassign.push({ rackId: BigInt(idStr) });
       }
 
-      // Proto caps `racks` at 1000 per AssignRacksToBuildingRequest.
       // Buildings can be 100×100 = 10,000 cells, and this modal loads
       // every page, so a large floor-plan save with >1000 changed/
       // removed racks would otherwise hit request validation. Chunk
-      // each phase into RPC-sized batches, dispatched sequentially
-      // so a mid-chain failure stops the chain (handled by the catch
-      // blocks below). Vacate-before-place is enforced across chunks
-      // by the two-pass dispatch below — the server only orders
+      // each phase into RPC-sized batches (RACKS_PER_RPC), dispatched
+      // sequentially so a mid-chain failure stops the chain (handled by
+      // the catch blocks below). Vacate-before-place is enforced across
+      // chunks by the two-pass dispatch below — the server only orders
       // clear-then-place within a single RPC, so unassigns and cell-
       // clears must all complete before any place runs.
-      const RACKS_PER_RPC = 1000;
       // Tracks whether any chunk has committed so the catch below can
       // distinguish "nothing landed" from "partial commit" — operator
       // needs to know to refresh before retrying when chunks N..M ran
