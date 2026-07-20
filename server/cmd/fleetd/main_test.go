@@ -95,6 +95,32 @@ logging:
 	require.False(t, config.Log.JSON)
 }
 
+func TestFleetdLoadsExplicitDBDSNFromEnv(t *testing.T) {
+	explicitDSN := "postgres://fleet:secret@fleet-a:5432,fleet-b:5432/fleet?sslmode=disable&target_session_attrs=read-write"
+	t.Setenv("DB_DSN", explicitDSN)
+
+	configPath := writeFleetdConfigFile(t, `
+auth:
+  client:
+    expiration-period: "1h"
+    secret-key: "test-client-secret"
+  miner-token-expiration-period: "30m"
+encrypt:
+  service-master-key: "test-master-key"
+`)
+	config := &Config{}
+	parser, err := kong.New(
+		config,
+		kong.Name("fleetd"),
+		kong.Configuration(kongyaml.Loader, configPath),
+	)
+	require.NoError(t, err)
+
+	_, err = parser.Parse(nil)
+	require.NoError(t, err)
+	require.Equal(t, explicitDSN, config.DB.ExplicitDSN)
+}
+
 func TestFleetdInfrastructureOTControlSubnetsFlag(t *testing.T) {
 	t.Parallel()
 

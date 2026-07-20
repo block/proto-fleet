@@ -21,7 +21,7 @@ func NewSQLFleetNodeEnrollmentStore(conn *sql.DB) *SQLFleetNodeEnrollmentStore {
 	return &SQLFleetNodeEnrollmentStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
 }
 
-func (s *SQLFleetNodeEnrollmentStore) q(ctx context.Context) *sqlc.Queries {
+func (s *SQLFleetNodeEnrollmentStore) q(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
 }
 

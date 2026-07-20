@@ -64,7 +64,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
-	"github.com/block/proto-fleet/server/generated/sqlc"
 	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
 	alertsDomain "github.com/block/proto-fleet/server/internal/domain/alerts"
 	apikeyDomain "github.com/block/proto-fleet/server/internal/domain/apikey"
@@ -267,7 +266,11 @@ func start(config *Config) error {
 
 	// Initialize session store and service
 	sessionStore := sqlstores.NewSQLSessionStore(conn)
-	sessionSvc := sessionDomain.NewService(config.Session, sessionStore)
+	sessionSvc := sessionDomain.NewServiceWithValidationFailureClassifier(
+		config.Session,
+		sessionStore,
+		db.IsFailoverPostgresError,
+	)
 
 	// userStore implements both UserStore and UserManagementStore interfaces
 	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, sessionSvc, encryptSvc, activitySvc, permissionResolver)
@@ -670,7 +673,7 @@ func start(config *Config) error {
 		if config.Metrics.WebhookToken == "" {
 			slog.Warn("FLEET_ALERTS_WEBHOOK_TOKEN is not set; alertmanager webhook will reject every delivery")
 		}
-		orgQueries := sqlc.New(db.NewRetryDB(conn))
+		orgQueries := db.NewFailoverResettingQuerier(db.NewRetryDB(conn))
 		mux.Handle("POST "+alertmanagerwebhook.Path, alertmanagerwebhook.NewHandler(notificationHistoryStore, config.Metrics.WebhookToken, orgQueries, alertsDeliverer))
 	}
 	mux.Handle("/api/v1/firmware/upload", firmwareHandler.NewUploadHandler(filesService, sessionSvc, userStore, filesService.MaxFirmwareFileSize()))
