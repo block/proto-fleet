@@ -333,16 +333,16 @@ const ManageBuildingModal = ({
   // update the load-time snapshot to "unplaced" so a later Save diffs correctly
   // (assigning a cell → place; removing the rack → unassign).
   const commitReparent = useCallback(
-    async (rackIds: bigint[]) => {
+    async (racks: ReparentedRack[]) => {
       // Chunk to the proto's per-request cap and dispatch sequentially — a
       // >1000-rack reparent (select-all across pages in Show assigned racks)
       // would otherwise trip request validation before any rack moved. Mirrors
       // the Save path's chunking.
-      for (let i = 0; i < rackIds.length; i += RACKS_PER_RPC) {
-        const chunk = rackIds.slice(i, i + RACKS_PER_RPC);
+      for (let i = 0; i < racks.length; i += RACKS_PER_RPC) {
+        const chunk = racks.slice(i, i + RACKS_PER_RPC);
         await new Promise<void>((resolve, reject) => {
           void assignRacksToBuilding({
-            racks: chunk.map((rackId) => ({ rackId })),
+            racks: chunk.map((r) => ({ rackId: r.rackId })),
             targetBuildingId: building.id,
             onSuccess: () => resolve(),
             // If an earlier chunk already committed, tell the operator to
@@ -358,13 +358,27 @@ const ManageBuildingModal = ({
               ),
           });
         });
-        // Record each committed chunk immediately (not once at the end): a
-        // later chunk's failure then still leaves the succeeded moves tracked,
-        // so the snapshot diffs correctly on Save and dismiss refreshes the
-        // host for what already moved.
-        for (const rackId of chunk) {
-          initialPlacementRef.current.set(rackId.toString(), "unplaced");
+        // A committed chunk is now an unplaced member of this building
+        // server-side. Reflect it in BOTH the load-time snapshot AND the
+        // working set, right after the chunk lands (not once at the end):
+        //   - snapshot "unplaced" + present-in-entries makes a later Save diff
+        //     the rack as a no-op instead of a spurious placement.
+        // Folding into `entries` here — rather than leaving it to the caller's
+        // apply() — is what keeps a partial multi-chunk failure safe. On a
+        // later chunk's failure promptReparentCommit skips apply(), so a
+        // succeeded chunk left only in the snapshot would look "removed from
+        // building" to handleSave's unassign diff and get erroneously
+        // unassigned, undoing a move that already happened server-side.
+        for (const r of chunk) {
+          initialPlacementRef.current.set(r.rackId.toString(), "unplaced");
         }
+        setEntries((prev) => {
+          const known = new Set(prev.map((e) => e.rackId.toString()));
+          const additions = chunk
+            .filter((r) => !known.has(r.rackId.toString()))
+            .map((r) => ({ rackId: r.rackId, label: r.label }));
+          return additions.length > 0 ? [...prev, ...additions] : prev;
+        });
         committedReparentRef.current = true;
       }
     },
@@ -383,7 +397,7 @@ const ManageBuildingModal = ({
         onConfirm: async () => {
           setIsReparenting(true);
           try {
-            await commitReparent(rackIds);
+            await commitReparent(racks);
           } catch (err) {
             const detail = err instanceof Error ? err.message : "Please try again";
             pushToast({
