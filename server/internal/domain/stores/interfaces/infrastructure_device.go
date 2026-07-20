@@ -38,9 +38,9 @@ type InfrastructureDeviceStore interface {
 
 	// CountNonTerminalCurtailmentEventsByInfrastructureDevice returns the number
 	// of non-terminal events that currently protect the device as a facility
-	// fan. Repair-only updates can use this narrower check so terminal recovery
-	// failures do not prevent fixing the command configuration needed to clear
-	// them.
+	// fan. Command-affecting device updates must use
+	// CountActiveCurtailmentEventsByInfrastructureDevice so unresolved terminal
+	// fan recovery keeps protecting the originally controlled endpoint.
 	CountNonTerminalCurtailmentEventsByInfrastructureDevice(ctx context.Context, orgID, id int64) (int64, error)
 
 	// UpdateInfrastructureDevice mutates the row's mutable fields. The

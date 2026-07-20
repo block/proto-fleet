@@ -226,7 +226,7 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 				return err
 			}
 			if infrastructureCommandBehaviorChanged(current, params) {
-				activeEventCount, err := s.store.CountNonTerminalCurtailmentEventsByInfrastructureDevice(
+				activeEventCount, err := s.store.CountActiveCurtailmentEventsByInfrastructureDevice(
 					txCtx,
 					params.OrgID,
 					params.ID,
@@ -236,7 +236,7 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 				}
 				if activeEventCount > 0 {
 					return fleeterror.NewFailedPreconditionError(
-						"infrastructure device is claimed by an active curtailment event; finish the event before changing its enabled state or driver configuration",
+						"infrastructure device is claimed by an active curtailment event or protected by unresolved terminal facility fan recovery; finish the event or resolve its facility fan recovery before changing its enabled state or driver configuration",
 					)
 				}
 			}

@@ -125,7 +125,7 @@ func TestService_UpdateRejectsDisablingDeviceClaimedByActiveCurtailmentEvent(t *
 	h := newAuditHarness(t)
 	h.store.EXPECT().LockInfrastructureDeviceForWrite(gomock.Any(), testOrgID, int64(7), testSiteID).Return(nil)
 	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(auditDevice(), nil)
-	h.store.EXPECT().CountNonTerminalCurtailmentEventsByInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(int64(1), nil)
+	h.store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(int64(1), nil)
 
 	_, err := h.svc.Update(context.Background(), models.UpdateParams{
 		OrgID:          testOrgID,
@@ -147,19 +147,16 @@ func TestService_UpdateRejectsDisablingDeviceClaimedByActiveCurtailmentEvent(t *
 	assert.Empty(t, *h.captured)
 }
 
-func TestService_UpdateAllowsCommandRepairForTerminalFanRecoveryOnly(t *testing.T) {
+func TestService_UpdateRejectsCommandChangeProtectedByTerminalFanRecovery(t *testing.T) {
 	t.Parallel()
 	h := newAuditHarness(t)
 	current := auditDevice()
 	current.Enabled = false
-	updated := auditDevice()
-	updated.Enabled = true
 	h.store.EXPECT().LockInfrastructureDeviceForWrite(gomock.Any(), testOrgID, int64(7), testSiteID).Return(nil)
 	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(current, nil)
-	h.store.EXPECT().CountNonTerminalCurtailmentEventsByInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(int64(0), nil)
-	h.store.EXPECT().UpdateInfrastructureDevice(gomock.Any(), gomock.Any()).Return(updated, nil)
+	h.store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevice(gomock.Any(), testOrgID, int64(7)).Return(int64(1), nil)
 
-	got, err := h.svc.Update(context.Background(), models.UpdateParams{
+	_, err := h.svc.Update(context.Background(), models.UpdateParams{
 		OrgID:          testOrgID,
 		ID:             7,
 		ExpectedSiteID: testSiteID,
@@ -173,9 +170,10 @@ func TestService_UpdateAllowsCommandRepairForTerminalFanRecoveryOnly(t *testing.
 		DriverConfig:   validModbusConfig(),
 	})
 
-	require.NoError(t, err)
-	require.NotNil(t, got)
-	requireAuditEvent(t, *h.captured, "infrastructure_device.updated")
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "unresolved terminal facility fan recovery")
+	assert.Empty(t, *h.captured)
 }
 
 func TestService_UpdateAllowsDisplayOnlyChangeForClaimedDevice(t *testing.T) {
