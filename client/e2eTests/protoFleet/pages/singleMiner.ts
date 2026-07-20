@@ -1,6 +1,4 @@
 import { expect } from "@playwright/test";
-import { NavigationComponent } from "../../protoOS/pages/components/navigation";
-import { LogsPage } from "../../protoOS/pages/logs";
 import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { BasePage } from "./base";
 
@@ -14,13 +12,8 @@ type HostedMinerMetadata = {
 const escapeForRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export class SingleMinerPage extends BasePage {
-  private readonly navigation: NavigationComponent;
-  private readonly logsPage: LogsPage;
-
   constructor(page: ConstructorParameters<typeof BasePage>[0], isMobile: boolean = false) {
     super(page, isMobile);
-    this.navigation = new NavigationComponent(page, isMobile);
-    this.logsPage = new LogsPage(page, isMobile);
   }
 
   private closeButtonLabel() {
@@ -81,20 +74,32 @@ export class SingleMinerPage extends BasePage {
   }
 
   async navigateToLogs() {
-    await this.navigation.navigateToLogs();
-    await this.logsPage.waitForLogsListToBeReady();
+    await this.ensureNavigationVisible();
+    await this.page.getByTestId("navigation").getByRole("button", { name: "Logs" }).click();
+    await expect(this.page).toHaveURL(/.*\/logs/);
+    await this.waitForLogsListToBeReady();
   }
 
   async waitForLogsListToBeReady() {
-    await this.logsPage.waitForLogsListToBeReady();
+    await expect(this.page.getByTestId("log-row").first()).toBeVisible();
   }
 
   async getSearchableSubstringFromFirstLogRow() {
-    return await this.logsPage.getSearchableSubstringFromFirstRow();
+    const firstRowText = (await this.page.getByTestId("log-row").first().textContent()) ?? "";
+    const normalizedText = firstRowText
+      .replace(/^\s*\d+\s*/, "")
+      .replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, "")
+      .trim();
+
+    const match = normalizedText.match(/[A-Za-z0-9][A-Za-z0-9 .:_/-]{4,}/);
+    const query = match?.[0]?.trim().slice(0, 12) ?? normalizedText.slice(0, 12).trim();
+
+    expect(query, "Expected a searchable log substring from the first row").not.toBe("");
+    return query;
   }
 
   async searchLogs(query: string) {
-    await this.logsPage.searchLogs(query);
+    await this.page.getByLabel("Search").fill(query);
   }
 
   async validateLogsSearchQuery(expectedQuery: string) {
