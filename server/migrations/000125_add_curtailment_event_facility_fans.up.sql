@@ -15,4 +15,5 @@ ALTER TABLE curtailment_event
 
 CREATE INDEX idx_curtailment_event_active_facility_fans
     ON curtailment_event USING GIN (facility_fan_device_ids)
-    WHERE state IN ('pending', 'active', 'restoring');
+    WHERE state IN ('pending', 'active', 'restoring')
+       OR fan_last_error IS NOT NULL;
