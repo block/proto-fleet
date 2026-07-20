@@ -65,8 +65,12 @@ func seedAutomationEvent(
 	params := curtailmentStoreTestEvent(orgID, userID, eventUUID, state, actor)
 	externalSource := "curtailment_automation"
 	externalReference := strconv.FormatInt(ruleID, 10)
+	idempotencyKey := "curtailment_automation_rule:" + externalReference
+	params.SourceActorType = models.SourceActorAutomation
+	params.SourceActorID = &externalReference
 	params.ExternalSource = &externalSource
 	params.ExternalReference = &externalReference
+	params.IdempotencyKey = &idempotencyKey
 	var targets []models.InsertTargetParams
 	if !state.IsTerminal() {
 		targets = []models.InsertTargetParams{
