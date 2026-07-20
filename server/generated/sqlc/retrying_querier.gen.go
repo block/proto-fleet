@@ -528,18 +528,6 @@ func (q *retryingQuerier) CountActiveCurtailmentEventsByInfrastructureDevices(ct
 	return result, err
 }
 
-func (q *retryingQuerier) CountActiveCurtailmentFanClaims(ctx context.Context, arg CountActiveCurtailmentFanClaimsParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "CountActiveCurtailmentFanClaims", func() error {
-		callResult, callErr := q.next.CountActiveCurtailmentFanClaims(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountActiveUnpairedDiscoveredDevices", func() error {
@@ -580,6 +568,18 @@ func (q *retryingQuerier) CountComponentsWithErrors(ctx context.Context, arg Cou
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountComponentsWithErrors", func() error {
 		callResult, callErr := q.next.CountComponentsWithErrors(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CountConflictingCurtailmentFanClaims(ctx context.Context, arg CountConflictingCurtailmentFanClaimsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountConflictingCurtailmentFanClaims", func() error {
+		callResult, callErr := q.next.CountConflictingCurtailmentFanClaims(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

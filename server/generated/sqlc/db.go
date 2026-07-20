@@ -162,9 +162,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countActiveCurtailmentEventsByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countActiveCurtailmentEventsByInfrastructureDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveCurtailmentEventsByInfrastructureDevices: %w", err)
 	}
-	if q.countActiveCurtailmentFanClaimsStmt, err = db.PrepareContext(ctx, countActiveCurtailmentFanClaims); err != nil {
-		return nil, fmt.Errorf("error preparing query CountActiveCurtailmentFanClaims: %w", err)
-	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, countActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveUnpairedDiscoveredDevices: %w", err)
 	}
@@ -176,6 +173,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.countComponentsWithErrorsStmt, err = db.PrepareContext(ctx, countComponentsWithErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CountComponentsWithErrors: %w", err)
+	}
+	if q.countConflictingCurtailmentFanClaimsStmt, err = db.PrepareContext(ctx, countConflictingCurtailmentFanClaims); err != nil {
+		return nil, fmt.Errorf("error preparing query CountConflictingCurtailmentFanClaims: %w", err)
 	}
 	if q.countCurtailmentAutomationRulesByMQTTSourceStmt, err = db.PrepareContext(ctx, countCurtailmentAutomationRulesByMQTTSource); err != nil {
 		return nil, fmt.Errorf("error preparing query CountCurtailmentAutomationRulesByMQTTSource: %w", err)
@@ -1747,11 +1747,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing countActiveCurtailmentEventsByInfrastructureDevicesStmt: %w", cerr)
 		}
 	}
-	if q.countActiveCurtailmentFanClaimsStmt != nil {
-		if cerr := q.countActiveCurtailmentFanClaimsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing countActiveCurtailmentFanClaimsStmt: %w", cerr)
-		}
-	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt != nil {
 		if cerr := q.countActiveUnpairedDiscoveredDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countActiveUnpairedDiscoveredDevicesStmt: %w", cerr)
@@ -1770,6 +1765,11 @@ func (q *Queries) Close() error {
 	if q.countComponentsWithErrorsStmt != nil {
 		if cerr := q.countComponentsWithErrorsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countComponentsWithErrorsStmt: %w", cerr)
+		}
+	}
+	if q.countConflictingCurtailmentFanClaimsStmt != nil {
+		if cerr := q.countConflictingCurtailmentFanClaimsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countConflictingCurtailmentFanClaimsStmt: %w", cerr)
 		}
 	}
 	if q.countCurtailmentAutomationRulesByMQTTSourceStmt != nil {
@@ -4082,11 +4082,11 @@ type Queries struct {
 	consumeFleetNodeAuthChallengeStmt                          *sql.Stmt
 	countActiveAssignmentsForRoleStmt                          *sql.Stmt
 	countActiveCurtailmentEventsByInfrastructureDevicesStmt    *sql.Stmt
-	countActiveCurtailmentFanClaimsStmt                        *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt                   *sql.Stmt
 	countActivityLogsStmt                                      *sql.Stmt
 	countBuildingsBySiteStmt                                   *sql.Stmt
 	countComponentsWithErrorsStmt                              *sql.Stmt
+	countConflictingCurtailmentFanClaimsStmt                   *sql.Stmt
 	countCurtailmentAutomationRulesByMQTTSourceStmt            *sql.Stmt
 	countCurtailmentAutomationRulesByResponseProfileStmt       *sql.Stmt
 	countCurtailmentScopeConflictsStmt                         *sql.Stmt
@@ -4584,11 +4584,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		consumeFleetNodeAuthChallengeStmt:                          q.consumeFleetNodeAuthChallengeStmt,
 		countActiveAssignmentsForRoleStmt:                          q.countActiveAssignmentsForRoleStmt,
 		countActiveCurtailmentEventsByInfrastructureDevicesStmt:    q.countActiveCurtailmentEventsByInfrastructureDevicesStmt,
-		countActiveCurtailmentFanClaimsStmt:                        q.countActiveCurtailmentFanClaimsStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:                   q.countActiveUnpairedDiscoveredDevicesStmt,
 		countActivityLogsStmt:                                      q.countActivityLogsStmt,
 		countBuildingsBySiteStmt:                                   q.countBuildingsBySiteStmt,
 		countComponentsWithErrorsStmt:                              q.countComponentsWithErrorsStmt,
+		countConflictingCurtailmentFanClaimsStmt:                   q.countConflictingCurtailmentFanClaimsStmt,
 		countCurtailmentAutomationRulesByMQTTSourceStmt:            q.countCurtailmentAutomationRulesByMQTTSourceStmt,
 		countCurtailmentAutomationRulesByResponseProfileStmt:       q.countCurtailmentAutomationRulesByResponseProfileStmt,
 		countCurtailmentScopeConflictsStmt:                         q.countCurtailmentScopeConflictsStmt,

@@ -602,21 +602,26 @@ func (q *Queries) ClaimClosedLoopFullFleetTargets(ctx context.Context, arg Claim
 	return items, nil
 }
 
-const countActiveCurtailmentFanClaims = `-- name: CountActiveCurtailmentFanClaims :one
+const countConflictingCurtailmentFanClaims = `-- name: CountConflictingCurtailmentFanClaims :one
 SELECT COUNT(*)
 FROM curtailment_event
 WHERE org_id = $1
-  AND state IN ('pending', 'active', 'restoring')
-  AND facility_fan_device_ids && $2::BIGINT[]
+  AND id <> $2
+  AND (
+    state IN ('pending', 'active', 'restoring')
+    OR fan_last_error IS NOT NULL
+  )
+  AND facility_fan_device_ids && $3::BIGINT[]
 `
 
-type CountActiveCurtailmentFanClaimsParams struct {
+type CountConflictingCurtailmentFanClaimsParams struct {
 	OrgID                int64
+	ExcludedEventID      int64
 	FacilityFanDeviceIds []int64
 }
 
-func (q *Queries) CountActiveCurtailmentFanClaims(ctx context.Context, arg CountActiveCurtailmentFanClaimsParams) (int64, error) {
-	row := q.queryRow(ctx, q.countActiveCurtailmentFanClaimsStmt, countActiveCurtailmentFanClaims, arg.OrgID, pq.Array(arg.FacilityFanDeviceIds))
+func (q *Queries) CountConflictingCurtailmentFanClaims(ctx context.Context, arg CountConflictingCurtailmentFanClaimsParams) (int64, error) {
+	row := q.queryRow(ctx, q.countConflictingCurtailmentFanClaimsStmt, countConflictingCurtailmentFanClaims, arg.OrgID, arg.ExcludedEventID, pq.Array(arg.FacilityFanDeviceIds))
 	var count int64
 	err := row.Scan(&count)
 	return count, err

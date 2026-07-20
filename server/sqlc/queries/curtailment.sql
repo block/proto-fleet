@@ -275,11 +275,15 @@ WHERE org_id = sqlc.arg('org_id')
 ORDER BY id
 FOR UPDATE;
 
--- name: CountActiveCurtailmentFanClaims :one
+-- name: CountConflictingCurtailmentFanClaims :one
 SELECT COUNT(*)
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
-  AND state IN ('pending', 'active', 'restoring')
+  AND id <> sqlc.arg('excluded_event_id')
+  AND (
+    state IN ('pending', 'active', 'restoring')
+    OR fan_last_error IS NOT NULL
+  )
   AND facility_fan_device_ids && sqlc.arg('facility_fan_device_ids')::BIGINT[];
 
 -- name: GetCurtailmentEventByUUID :one

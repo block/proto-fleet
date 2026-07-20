@@ -1015,15 +1015,16 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			}
 		}
 		if usesFanGuard {
-			conflicts, err := q.CountActiveCurtailmentFanClaims(ctx, sqlc.CountActiveCurtailmentFanClaimsParams{
+			conflicts, err := q.CountConflictingCurtailmentFanClaims(ctx, sqlc.CountConflictingCurtailmentFanClaimsParams{
 				OrgID:                event.OrgID,
+				ExcludedEventID:      0,
 				FacilityFanDeviceIds: fanIDs,
 			})
 			if err != nil {
 				return nil, fleeterror.NewInternalErrorf("failed to check facility fan claims: %v", err)
 			}
 			if conflicts > 0 {
-				return nil, fleeterror.NewAlreadyExistsError("one or more facility fans are already claimed by a non-terminal curtailment event")
+				return nil, fleeterror.NewAlreadyExistsError("one or more facility fans are already claimed by a non-terminal curtailment event or unresolved terminal fan recovery")
 			}
 		}
 		if usesScopeGuard {
@@ -1979,8 +1980,9 @@ func (s *SQLCurtailmentStore) ForceReleaseEventWithFanRecovery(
 			if result.Event == nil || !result.Event.State.IsTerminal() || result.Event.ID != eventID {
 				return interfaces.ForceReleaseEventResult{}, interfaces.ErrCurtailmentEventStateRaceLoss
 			}
-			claims, claimErr := q.CountActiveCurtailmentFanClaims(ctx, sqlc.CountActiveCurtailmentFanClaimsParams{
+			claims, claimErr := q.CountConflictingCurtailmentFanClaims(ctx, sqlc.CountConflictingCurtailmentFanClaimsParams{
 				OrgID:                orgID,
+				ExcludedEventID:      eventID,
 				FacilityFanDeviceIds: fanIDs,
 			})
 			if claimErr != nil {
@@ -2058,8 +2060,9 @@ func (s *SQLCurtailmentStore) RecoverTerminalFanState(
 				return struct{}{}, fleeterror.NewInternalErrorf("failed to lock terminal facility fan device %d: %v", fanID, err)
 			}
 		}
-		claims, err := q.CountActiveCurtailmentFanClaims(ctx, sqlc.CountActiveCurtailmentFanClaimsParams{
+		claims, err := q.CountConflictingCurtailmentFanClaims(ctx, sqlc.CountConflictingCurtailmentFanClaimsParams{
 			OrgID:                orgID,
+			ExcludedEventID:      eventID,
 			FacilityFanDeviceIds: fanIDs,
 		})
 		if err != nil {

@@ -230,7 +230,6 @@ type Querier interface {
 	// it rather than block the admin on phantom assignments.
 	CountActiveAssignmentsForRole(ctx context.Context, roleID int64) (int64, error)
 	CountActiveCurtailmentEventsByInfrastructureDevices(ctx context.Context, arg CountActiveCurtailmentEventsByInfrastructureDevicesParams) (int64, error)
-	CountActiveCurtailmentFanClaims(ctx context.Context, arg CountActiveCurtailmentFanClaimsParams) (int64, error)
 	CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error)
 	// Site filter must stay byte-for-byte identical to ListActivityLogs so the
 	// pagination total never disagrees with the rendered feed (or the CSV export,
@@ -239,6 +238,7 @@ type Querier interface {
 	CountBuildingsBySite(ctx context.Context, arg CountBuildingsBySiteParams) (int64, error)
 	// Counts distinct (device_id, component_type, component_id) tuples that have errors matching filter criteria.
 	CountComponentsWithErrors(ctx context.Context, arg CountComponentsWithErrorsParams) (int64, error)
+	CountConflictingCurtailmentFanClaims(ctx context.Context, arg CountConflictingCurtailmentFanClaimsParams) (int64, error)
 	CountCurtailmentAutomationRulesByMQTTSource(ctx context.Context, arg CountCurtailmentAutomationRulesByMQTTSourceParams) (int64, error)
 	CountCurtailmentAutomationRulesByResponseProfile(ctx context.Context, arg CountCurtailmentAutomationRulesByResponseProfileParams) (int64, error)
 	// Hierarchy for currently supported closed-loop scopes: org > site.

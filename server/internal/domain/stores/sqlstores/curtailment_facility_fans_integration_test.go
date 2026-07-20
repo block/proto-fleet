@@ -59,6 +59,25 @@ func TestSQLCurtailmentStore_FacilityFanClaimSnapshotAndRelease(t *testing.T) {
 
 	_, err = store.ForceReleaseEvent(ctx, user.OrganizationID, firstUUID, "release facility fan claim")
 	require.NoError(t, err)
+	recoveryFailure := "facility fan ON failed"
+	err = store.RecoverTerminalFanState(
+		ctx,
+		firstResult.ID,
+		user.OrganizationID,
+		[]int64{fanID},
+		[]int64{siteID},
+		interfaces.UpdateCurtailmentFanStateParams{ExpectedEventState: models.EventStateCancelled},
+		func(context.Context) *string { return &recoveryFailure },
+	)
+	require.NoError(t, err)
+
+	_, err = store.InsertEventWithTargets(ctx, second, []models.InsertTargetParams{
+		curtailmentStoreTestTarget("facility-fan-miner-b", models.TargetStateConfirmed, models.DesiredStateCurtailed),
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsAlreadyExistsError(err),
+		"unresolved terminal fan recovery must retain the fan claim, got %v", err)
+
 	recoveryEntered := make(chan struct{})
 	completeRecovery := make(chan struct{})
 	recoveryResult := make(chan error, 1)
