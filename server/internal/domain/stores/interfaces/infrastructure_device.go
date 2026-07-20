@@ -36,6 +36,13 @@ type InfrastructureDeviceStore interface {
 	// owners plus terminal events with unresolved fan recovery failures.
 	CountActiveCurtailmentEventsByInfrastructureDevice(ctx context.Context, orgID, id int64) (int64, error)
 
+	// CountNonTerminalCurtailmentEventsByInfrastructureDevice returns the number
+	// of non-terminal events that currently protect the device as a facility
+	// fan. Repair-only updates can use this narrower check so terminal recovery
+	// failures do not prevent fixing the command configuration needed to clear
+	// them.
+	CountNonTerminalCurtailmentEventsByInfrastructureDevice(ctx context.Context, orgID, id int64) (int64, error)
+
 	// UpdateInfrastructureDevice mutates the row's mutable fields. The
 	// write is predicated on params.ExpectedSiteID, so it returns
 	// NotFound when the row is missing / soft-deleted / cross-org OR

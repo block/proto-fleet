@@ -774,6 +774,12 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 		if err != nil {
 			slog.Error("curtailment reconciler: list candidates (drift) failed",
 				"event_id", ev.ID, "error", err)
+			if ev.FanOffSentAt != nil && len(ev.FacilityFanDeviceIDs) > 0 {
+				if !r.reopenActiveFans(ctx, ev) {
+					return
+				}
+				airflowReopened = true
+			}
 		} else {
 			candByID := candidatesByDeviceID(cands)
 			if isAllPairedPolicyEvent(ev) {
@@ -782,6 +788,16 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 			for _, t := range targets {
 				switch t.State {
 				case models.TargetStateConfirmed:
+					if ev.FanOffSentAt != nil &&
+						!hasFreshTelemetry(candByID[t.DeviceIdentifier]) {
+						if !airflowReopened {
+							if !r.reopenActiveFans(ctx, ev) {
+								return
+							}
+							airflowReopened = true
+						}
+						continue
+					}
 					r.checkDrift(cmdCtx, ev, t, candByID[t.DeviceIdentifier])
 					if t.State == models.TargetStateDrifted && ev.FanOffSentAt != nil {
 						deferredDrifted = append(deferredDrifted, t)
@@ -952,6 +968,23 @@ func activeFanTargetsNeedAirflow(ev *models.Event, targets []*models.Target) boo
 	return !allConfirmed || confirmed == 0
 }
 
+func hasFreshCurtailedFanEvidence(c *models.Candidate, target *models.Target, driftThresholdFactor float64) bool {
+	if c == nil || target == nil || c.LatestMetricsAt == nil {
+		return false
+	}
+	return isCurtailed(c.LatestPowerW, target.BaselinePowerW, c.LatestHashRateHS, driftThresholdFactor, true)
+}
+
+func hasFreshTelemetry(c *models.Candidate) bool {
+	if c == nil || c.LatestMetricsAt == nil {
+		return false
+	}
+	if c.LatestPowerW != nil && isFinite(*c.LatestPowerW) {
+		return true
+	}
+	return c.LatestHashRateHS != nil && isFinite(*c.LatestHashRateHS)
+}
+
 func activeFanTargetConfirmation(targets []*models.Target) (confirmed int, allConfirmed bool) {
 	allConfirmed = true
 	for _, target := range targets {
@@ -983,6 +1016,9 @@ func activeFanOffDelayElapsed(ev *models.Event, targets []*models.Target, now ti
 		if target.State != models.TargetStateConfirmed || target.ConfirmedAt == nil {
 			return false
 		}
+		if ev.FanAirflowReopenedAt != nil && target.ConfirmedAt.Before(*ev.FanAirflowReopenedAt) {
+			return false
+		}
 		if latestConfirmation == nil || target.ConfirmedAt.After(*latestConfirmation) {
 			latestConfirmation = target.ConfirmedAt
 		}
@@ -995,6 +1031,34 @@ func activeFanOffDelayElapsed(ev *models.Event, targets []*models.Target, now ti
 		delayStartedAt = *ev.FanAirflowReopenedAt
 	}
 	return !now.Before(delayStartedAt.Add(time.Duration(ev.FanOffDelaySec) * time.Second))
+}
+
+func (r *Reconciler) reopenActiveFans(ctx context.Context, ev *models.Event) bool {
+	if r.fans == nil || r.fanStore == nil || ev == nil || len(ev.FacilityFanDeviceIDs) == 0 || ev.FanOffSentAt == nil {
+		return false
+	}
+	now := r.now()
+	params := interfaces.UpdateCurtailmentFanStateParams{
+		ExpectedEventState: models.EventStateActive,
+	}
+	if ev.FanAirflowReopenedAt == nil {
+		params.FanAirflowReopenedAt = &now
+	}
+	params.FanAirflowReopenedAtOnSuccess = &now
+	lastError, err := r.commandAndPersistFanState(ctx, ev, params, driver.PowerOn)
+	if err != nil {
+		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			slog.Error("curtailment reconciler: facility fan airflow reopen failed", "event_id", ev.ID, "error", err)
+		}
+		return false
+	}
+	if lastError == nil {
+		ev.FanAirflowReopenedAt = &now
+	} else if params.FanAirflowReopenedAt != nil {
+		ev.FanAirflowReopenedAt = params.FanAirflowReopenedAt
+	}
+	ev.FanLastError = lastError
+	return lastError == nil
 }
 
 func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *models.Event, existingTargets []*models.Target) []*models.Target {
@@ -1329,6 +1393,11 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 		State:      models.TargetStateConfirmed,
 		ObservedAt: &now,
 	}
+	if ev.FanAirflowReopenedAt != nil &&
+		(t.ConfirmedAt == nil || t.ConfirmedAt.Before(*ev.FanAirflowReopenedAt)) &&
+		hasFreshCurtailedFanEvidence(c, t, r.cfg.DriftThresholdFactor) {
+		params.ConfirmedAt = &now
+	}
 	if c.LatestPowerW != nil && isFinite(*c.LatestPowerW) {
 		power := *c.LatestPowerW
 		params.ObservedPowerW = &power
@@ -1341,6 +1410,9 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 		return
 	}
 	t.ObservedAt = &now
+	if params.ConfirmedAt != nil {
+		t.ConfirmedAt = params.ConfirmedAt
+	}
 	if params.ObservedPowerW != nil {
 		t.ObservedPowerW = params.ObservedPowerW
 	}

@@ -208,6 +208,21 @@ type CurtailmentTerminalFanRecoveryStore interface {
 	) error
 }
 
+// CurtailmentAdminTerminateFanRecoveryStore serializes an operator admin
+// termination against fan recovery and concurrent lifecycle transitions. The
+// implementation holds the event lock while deciding whether recovery is
+// required, commanding fans ON, persisting the fan result, and terminalizing.
+type CurtailmentAdminTerminateFanRecoveryStore interface {
+	AdminTerminateEventWithFanRecovery(
+		ctx context.Context,
+		orgID int64,
+		eventUUID uuid.UUID,
+		targetState models.EventState,
+		reason string,
+		command func(context.Context, *models.Event) *string,
+	) (event *models.Event, transitioned bool, err error)
+}
+
 // CurtailmentForceReleaseFanRecoveryStore holds the active event's fan claim
 // locks across terminalization and its authoritative ON command. This keeps a
 // concurrent Start from claiming physically-off fans in the gap between those

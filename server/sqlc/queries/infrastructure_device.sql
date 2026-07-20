@@ -138,3 +138,10 @@ WHERE org_id = sqlc.arg('org_id')
     OR fan_last_error IS NOT NULL
   )
   AND facility_fan_device_ids && sqlc.arg('infrastructure_device_ids')::BIGINT[];
+
+-- name: CountNonTerminalCurtailmentEventsByInfrastructureDevices :one
+SELECT COUNT(*)
+FROM curtailment_event
+WHERE org_id = sqlc.arg('org_id')
+  AND state IN ('pending', 'active', 'restoring')
+  AND facility_fan_device_ids && sqlc.arg('infrastructure_device_ids')::BIGINT[];

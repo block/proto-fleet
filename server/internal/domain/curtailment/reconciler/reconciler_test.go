@@ -56,6 +56,7 @@ type fakeStore struct {
 
 	listTargetsByEventCalls int
 	listCandidatesCalls     int
+	listCandidatesErr       error
 	claimTargetsCalls       int
 	claimedTargetParams     []models.InsertTargetParams
 	claimAllPairedCalls     int
@@ -338,6 +339,9 @@ func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCand
 	f.lastListCandidatesSiteIDs = append([]int64(nil), params.SiteIDs...)
 	f.lastListCandidatesFilter = append([]string(nil), params.DeviceIdentifiers...)
 	f.listCandidatesFilters = append(f.listCandidatesFilters, append([]string(nil), params.DeviceIdentifiers...))
+	if f.listCandidatesErr != nil {
+		return nil, f.listCandidatesErr
+	}
 	if len(params.DeviceIdentifiers) == 0 {
 		return f.candidates, nil
 	}

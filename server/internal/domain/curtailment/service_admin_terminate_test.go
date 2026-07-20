@@ -97,6 +97,7 @@ func TestService_AdminTerminate_RestoringEventTurnsFansOnWithoutPersistedOffTime
 	assert.Equal(t, models.EventStateRestoring, store.lastUpdateFanStateParams.ExpectedEventState)
 	assert.NotNil(t, store.lastUpdateFanStateParams.FanOnSentAt)
 	assert.Nil(t, store.lastUpdateFanStateParams.LastError)
+	assert.Equal(t, 1, store.adminTerminateWithFanRecoveryCalls)
 	assert.Equal(t, 1, store.adminTerminateCalls)
 }
 
@@ -137,6 +138,7 @@ func TestService_AdminTerminate_RecurtailedPendingEventRetriesFansOnBeforeTermin
 	assert.Equal(t, models.EventStatePending, store.lastUpdateFanStateParams.ExpectedEventState)
 	assert.NotNil(t, store.lastUpdateFanStateParams.FanOnSentAt)
 	assert.Nil(t, store.lastUpdateFanStateParams.LastError)
+	assert.Equal(t, 1, store.adminTerminateWithFanRecoveryCalls)
 	assert.Equal(t, 1, store.adminTerminateCalls)
 }
 

@@ -106,6 +106,7 @@ type Service struct {
 	store                    interfaces.CurtailmentStore
 	fanStore                 interfaces.CurtailmentFanStateStore
 	terminalFanRecoveryStore interfaces.CurtailmentTerminalFanRecoveryStore
+	adminTerminateFanStore   interfaces.CurtailmentAdminTerminateFanRecoveryStore
 	forceReleaseFanStore     interfaces.CurtailmentForceReleaseFanRecoveryStore
 	metrics                  Metrics
 	audit                    AuditLogger
@@ -150,6 +151,9 @@ func NewService(store interfaces.CurtailmentStore, opts ...ServiceOption) *Servi
 	}
 	if terminalFanRecoveryStore, ok := store.(interfaces.CurtailmentTerminalFanRecoveryStore); ok {
 		s.terminalFanRecoveryStore = terminalFanRecoveryStore
+	}
+	if adminTerminateFanStore, ok := store.(interfaces.CurtailmentAdminTerminateFanRecoveryStore); ok {
+		s.adminTerminateFanStore = adminTerminateFanStore
 	}
 	if forceReleaseFanStore, ok := store.(interfaces.CurtailmentForceReleaseFanRecoveryStore); ok {
 		s.forceReleaseFanStore = forceReleaseFanStore
@@ -505,19 +509,26 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 	if err := validateAdminRecoveryReason(req.Reason); err != nil {
 		return nil, err
 	}
+	var updated *models.Event
+	var transitioned bool
+	var err error
 	if s.fans != nil {
-		event, err := s.store.GetEventByUUID(ctx, req.OrgID, req.EventUUID)
-		if err != nil {
-			return nil, err
+		if s.adminTerminateFanStore == nil {
+			return nil, fleeterror.NewInternalError("admin-terminate facility fan recovery store is unavailable")
 		}
-		if event.State == models.EventStatePending || event.State == models.EventStateRestoring {
-			if err := s.restoreFansForOperatorRecovery(ctx, event); err != nil {
-				return nil, err
-			}
-		}
+		updated, transitioned, err = s.adminTerminateFanStore.AdminTerminateEventWithFanRecovery(
+			ctx,
+			req.OrgID,
+			req.EventUUID,
+			req.TargetState,
+			req.Reason,
+			func(commandCtx context.Context, event *models.Event) *string {
+				return s.fans.SetState(commandCtx, event, driver.PowerOn)
+			},
+		)
+	} else {
+		updated, transitioned, err = s.store.AdminTerminateEvent(ctx, req.OrgID, req.EventUUID, req.TargetState, req.Reason)
 	}
-
-	updated, transitioned, err := s.store.AdminTerminateEvent(ctx, req.OrgID, req.EventUUID, req.TargetState, req.Reason)
 	if err != nil {
 		if errors.Is(err, interfaces.ErrCurtailmentAdminTerminateStateConflict) {
 			return nil, fleeterror.NewErrorWithServiceCode(
@@ -1354,6 +1365,10 @@ func validateStartRequest(req StartRequest) error {
 			return fleeterror.NewInvalidArgumentErrorf(
 				"idempotency_key must be at most %d characters, got %d", startTextFieldMaxLen, n,
 			)
+		}
+		if strings.HasPrefix(strings.TrimSpace(*req.IdempotencyKey), automationRuleIdempotencyPrefix) &&
+			req.SourceActorType != models.SourceActorAutomation {
+			return fleeterror.NewInvalidArgumentError("idempotency_key namespace is reserved for curtailment automation")
 		}
 	}
 	if req.ExternalSource != nil {

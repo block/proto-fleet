@@ -660,6 +660,18 @@ func (q *retryingQuerier) CountMinersByState(ctx context.Context, arg CountMiner
 	return result, err
 }
 
+func (q *retryingQuerier) CountNonTerminalCurtailmentEventsByInfrastructureDevices(ctx context.Context, arg CountNonTerminalCurtailmentEventsByInfrastructureDevicesParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountNonTerminalCurtailmentEventsByInfrastructureDevices", func() error {
+		callResult, callErr := q.next.CountNonTerminalCurtailmentEventsByInfrastructureDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountOrgScopeSuperAdminsExcludingUser(ctx context.Context, arg CountOrgScopeSuperAdminsExcludingUserParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountOrgScopeSuperAdminsExcludingUser", func() error {
@@ -3934,6 +3946,18 @@ func (q *retryingQuerier) LockBuildingsBySiteForWrite(ctx context.Context, arg L
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "LockBuildingsBySiteForWrite", func() error {
 		callResult, callErr := q.next.LockBuildingsBySiteForWrite(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockCurtailmentEventByUUIDForWrite(ctx context.Context, arg LockCurtailmentEventByUUIDForWriteParams) (CurtailmentEvent, error) {
+	var result CurtailmentEvent
+	err := q.retrier.RetryQuery(ctx, "LockCurtailmentEventByUUIDForWrite", func() error {
+		callResult, callErr := q.next.LockCurtailmentEventByUUIDForWrite(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

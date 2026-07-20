@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -42,8 +43,10 @@ func TestReconciler_ClosedLoopFanOffDelayStartsAtFirstTargetConfirmation(t *test
 		ConfirmedAt:        &confirmedAt,
 		BaselinePowerW:     ptrFloat64(3000),
 	}}
+	metricsAt := r.now()
 	store.candidates = []*models.Candidate{{
 		DeviceIdentifier: "miner-1",
+		LatestMetricsAt:  &metricsAt,
 		LatestPowerW:     ptrFloat64(50),
 		LatestHashRateHS: ptrFloat64(0),
 	}}
@@ -91,6 +94,99 @@ func TestReconciler_LostFanOffResultStillRequiresAirflowRecovery(t *testing.T) {
 	target.State = models.TargetStateDispatching
 	assert.True(t, r.reconcileActiveFans(t.Context(), event, []*models.Target{target}))
 	assert.Equal(t, []driver.PowerMode{driver.PowerOff, driver.PowerOn}, fans.powers)
+}
+
+func TestReconciler_ActiveFanReassertionReopensOnCandidateQueryFailure(t *testing.T) {
+	store := newFakeStore()
+	fans := &fakeFanController{}
+	r := newReconcilerWithFansForTest(store, &fakeDispatcher{}, fans)
+	confirmedAt := r.now().Add(-time.Minute)
+	fanOffAt := r.now().Add(-time.Minute)
+	event := &models.Event{
+		ID:                   91,
+		EventUUID:            uuid.New(),
+		OrgID:                1,
+		State:                models.EventStateActive,
+		FacilityFanDeviceIDs: []int64{31},
+		FanOffSentAt:         &fanOffAt,
+		FanOffDelaySec:       30,
+	}
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "miner-1",
+		DesiredState:       models.DesiredStateCurtailed,
+		State:              models.TargetStateConfirmed,
+		ConfirmedAt:        &confirmedAt,
+		BaselinePowerW:     ptrFloat64(3000),
+	}
+	store.events = []*models.Event{event}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+	store.listCandidatesErr = errors.New("candidate query failed")
+
+	r.runTick(context.Background())
+
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	require.NotNil(t, event.FanAirflowReopenedAt)
+	reopenedAt := *event.FanAirflowReopenedAt
+
+	freshAt := reopenedAt.Add(5 * time.Second)
+	r.now = func() time.Time { return freshAt }
+	store.listCandidatesErr = nil
+	metricsAt := freshAt
+	store.candidates = []*models.Candidate{{
+		DeviceIdentifier: "miner-1",
+		LatestMetricsAt:  &metricsAt,
+		LatestPowerW:     ptrFloat64(50),
+		LatestHashRateHS: ptrFloat64(0),
+	}}
+
+	r.runTick(context.Background())
+
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	require.NotNil(t, target.ConfirmedAt)
+	assert.Equal(t, freshAt, *target.ConfirmedAt)
+
+	r.now = func() time.Time { return freshAt.Add(30 * time.Second) }
+	r.runTick(context.Background())
+
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn, driver.PowerOff}, fans.powers)
+	assert.Nil(t, event.FanAirflowReopenedAt)
+}
+
+func TestReconciler_ActiveFanReassertionReopensOnStaleTelemetry(t *testing.T) {
+	store := newFakeStore()
+	fans := &fakeFanController{}
+	r := newReconcilerWithFansForTest(store, &fakeDispatcher{}, fans)
+	confirmedAt := r.now().Add(-time.Minute)
+	fanOffAt := r.now().Add(-time.Minute)
+	event := &models.Event{
+		ID:                   92,
+		EventUUID:            uuid.New(),
+		OrgID:                1,
+		State:                models.EventStateActive,
+		FacilityFanDeviceIDs: []int64{31},
+		FanOffSentAt:         &fanOffAt,
+		FanOffDelaySec:       30,
+	}
+	target := &models.Target{
+		CurtailmentEventID: event.ID,
+		DeviceIdentifier:   "miner-1",
+		DesiredState:       models.DesiredStateCurtailed,
+		State:              models.TargetStateConfirmed,
+		ConfirmedAt:        &confirmedAt,
+		BaselinePowerW:     ptrFloat64(3000),
+	}
+	store.events = []*models.Event{event}
+	store.targetsByEventID[event.ID] = []*models.Target{target}
+	store.candidates = []*models.Candidate{{
+		DeviceIdentifier: "miner-1",
+	}}
+
+	r.runTick(context.Background())
+
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, fans.powers)
+	require.NotNil(t, event.FanAirflowReopenedAt)
+	assert.Equal(t, confirmedAt, *target.ConfirmedAt)
 }
 
 func TestReconciler_ActiveFanOffDoesNotUseTargetlessClosedLoopWatcher(t *testing.T) {
@@ -234,8 +330,10 @@ func TestReconciler_DriftRedispatchWaitsForSuccessfulFanOn(t *testing.T) {
 	}
 	store.events = []*models.Event{event}
 	store.targetsByEventID[event.ID] = []*models.Target{target}
+	metricsAt := r.now()
 	store.candidates = []*models.Candidate{{
 		DeviceIdentifier: "miner-drifted",
+		LatestMetricsAt:  &metricsAt,
 		LatestPowerW:     ptrFloat64(3000),
 		LatestHashRateHS: ptrFloat64(100),
 	}}

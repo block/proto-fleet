@@ -293,6 +293,13 @@ FROM curtailment_event
 WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
 
+-- name: LockCurtailmentEventByUUIDForWrite :one
+SELECT *
+FROM curtailment_event
+WHERE event_uuid = sqlc.arg('event_uuid')
+    AND org_id = sqlc.arg('org_id')
+FOR UPDATE;
+
 -- name: GetCurtailmentEventDetailByUUID :one
 -- Detail reads keep target rows paginated; collapse per-device skipped
 -- candidates at the SQL boundary so a single large event cannot force a

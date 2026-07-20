@@ -85,6 +85,11 @@ type SiteStore interface {
 	// owners plus terminal events with unresolved fan recovery failures.
 	CountActiveCurtailmentEventsByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error)
 
+	// CountNonTerminalCurtailmentEventsByInfrastructureDevices counts only
+	// non-terminal facility-fan owners for repair-only operations such as
+	// control-subnet commissioning.
+	CountNonTerminalCurtailmentEventsByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error)
+
 	// SoftDeleteBuildingsBySite soft-deletes every live building under
 	// the site. Caller wraps it in the cascade tx.
 	SoftDeleteBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error)

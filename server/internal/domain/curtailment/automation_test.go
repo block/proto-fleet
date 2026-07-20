@@ -401,6 +401,82 @@ func TestAutomationService_HandleMQTTSignal_OffCarriesFacilityFanSettings(t *tes
 	assert.Empty(t, h.rules.executionErrors)
 }
 
+func TestAutomationService_HandleMQTTSignal_OffRejectsNonAutomationIdempotencyReplay(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	eventUUID := uuid.New()
+	_, idempotencyKey := automationRuleEventReference(h.rule.ID)
+	h.curtailments.eventsByIdempotencyKey = map[string]*models.Event{
+		idempotencyKey: {
+			ID:              77,
+			EventUUID:       eventUUID,
+			OrgID:           h.orgID,
+			State:           models.EventStateActive,
+			Mode:            h.profile.Mode,
+			Strategy:        h.profile.Strategy,
+			Level:           h.profile.Level,
+			Priority:        h.profile.Priority,
+			SourceActorType: models.SourceActorUser,
+			IdempotencyKey:  &idempotencyKey,
+		},
+	}
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not owned by this automation rule")
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+}
+
+func TestAutomationService_HandleMQTTSignal_OffRejectsProfileMismatchedIdempotencyReplay(t *testing.T) {
+	t.Parallel()
+
+	h := newAutomationHarness(t)
+	h.seedRunnableProfile()
+	h.profile.FacilityFanDeviceIDs = []int64{31}
+	h.profile.FanOffDelaySec = 45
+	h.profile.FanRestoreDelaySec = 90
+	eventUUID := uuid.New()
+	externalReference, idempotencyKey := automationRuleEventReference(h.rule.ID)
+	sourceActorID := externalReference
+	h.curtailments.eventsByIdempotencyKey = map[string]*models.Event{
+		idempotencyKey: {
+			ID:                   77,
+			EventUUID:            eventUUID,
+			OrgID:                h.orgID,
+			State:                models.EventStateActive,
+			Mode:                 h.profile.Mode,
+			Strategy:             h.profile.Strategy,
+			Level:                h.profile.Level,
+			Priority:             h.profile.Priority,
+			FacilityFanDeviceIDs: []int64{99},
+			FanOffDelaySec:       h.profile.FanOffDelaySec,
+			FanRestoreDelaySec:   h.profile.FanRestoreDelaySec,
+			SourceActorType:      models.SourceActorAutomation,
+			SourceActorID:        &sourceActorID,
+			ExternalSource:       stringPtr(automationExternalSource),
+			ExternalReference:    &externalReference,
+			IdempotencyKey:       &idempotencyKey,
+		},
+	}
+
+	err := h.automation.HandleMQTTSignal(t.Context(), mqttingest.SignalEdge{
+		Source: h.source,
+		Target: mqttingest.TargetOff,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no longer matches")
+	assert.Equal(t, 0, h.rules.setActiveCalls)
+	assert.Equal(t, 0, h.curtailments.insertEventCalls)
+}
+
 func TestAutomationService_HandleMQTTSignal_OffBypassesResponseProfileCooldown(t *testing.T) {
 	t.Parallel()
 
@@ -721,13 +797,19 @@ func TestAutomationService_HandleMQTTSignal_OnRestoresEventWhenActiveStateWasNot
 	assert.Nil(t, h.rule.ActiveEventUUID)
 	require.Equal(t, 1, h.curtailments.insertEventCalls)
 	eventUUID := h.curtailments.lastInsertEvent.EventUUID
-	event := &models.Event{
-		ID:        77,
-		EventUUID: eventUUID,
-		OrgID:     h.orgID,
-		State:     models.EventStateActive,
-	}
 	externalReference, idempotencyKey := automationRuleEventReference(h.rule.ID)
+	sourceActorID := externalReference
+	event := &models.Event{
+		ID:                77,
+		EventUUID:         eventUUID,
+		OrgID:             h.orgID,
+		State:             models.EventStateActive,
+		SourceActorType:   models.SourceActorAutomation,
+		SourceActorID:     &sourceActorID,
+		ExternalSource:    stringPtr(automationExternalSource),
+		ExternalReference: &externalReference,
+		IdempotencyKey:    &idempotencyKey,
+	}
 	h.curtailments.eventsByUUID[eventUUID] = event
 	h.curtailments.eventsByIdempotencyKey = map[string]*models.Event{idempotencyKey: event}
 	h.curtailments.eventsByExternalRef = map[string]*models.Event{

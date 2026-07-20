@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +19,8 @@ import (
 const (
 	maxAutomationRuleNameLength = 64
 
-	automationExternalSource = "curtailment_automation"
+	automationExternalSource        = "curtailment_automation"
+	automationRuleIdempotencyPrefix = "curtailment_automation_rule:"
 )
 
 // AutomationService validates automation rule CRUD and executes MQTT trigger
@@ -325,6 +327,11 @@ func (s *AutomationService) handleRuleOff(ctx context.Context, rule *models.Auto
 	if plan.EventUUID == nil {
 		return fleeterror.NewInternalError("automation response profile start did not return an event UUID")
 	}
+	if plan.ReplayEvent != nil {
+		if err := validateAutomationReplayEvent(plan.ReplayEvent, rule, profile); err != nil {
+			return err
+		}
+	}
 	if err := s.store.SetAutomationActiveEvent(ctx, rule.ID, signal.Source.ID, *plan.EventUUID, at); err != nil {
 		if fleeterror.IsFailedPreconditionError(err) {
 			if _, releaseErr := s.curtailment.ForceRelease(ctx, ForceReleaseRequest{
@@ -372,9 +379,10 @@ func (s *AutomationService) restoreCandidateEvent(ctx context.Context, rule *mod
 	externalReference, idempotencyKey := automationRuleEventReference(rule.ID)
 	event, err := s.curtailment.store.GetEventByIdempotencyKey(ctx, rule.OrgID, idempotencyKey)
 	if err != nil || event != nil {
-		return event, err
+		return event, validateAutomationReplayOwnership(event, rule, err)
 	}
-	return s.curtailment.store.GetEventByExternalReference(ctx, rule.OrgID, automationExternalSource, externalReference)
+	event, err = s.curtailment.store.GetEventByExternalReference(ctx, rule.OrgID, automationExternalSource, externalReference)
+	return event, validateAutomationReplayOwnership(event, rule, err)
 }
 
 func (s *AutomationService) ensureNoNonTerminalActiveEvent(ctx context.Context, rule *models.AutomationRule, action string) error {
@@ -552,7 +560,57 @@ func startRequestFromAutomationProfile(rule *models.AutomationRule, profile *mod
 
 func automationRuleEventReference(ruleID int64) (externalReference, idempotencyKey string) {
 	externalReference = strconv.FormatInt(ruleID, 10)
-	return externalReference, "curtailment_automation_rule:" + externalReference
+	return externalReference, automationRuleIdempotencyPrefix + externalReference
+}
+
+func validateAutomationReplayEvent(event *models.Event, rule *models.AutomationRule, profile *models.ResponseProfile) error {
+	if err := validateAutomationReplayOwnership(event, rule, nil); err != nil {
+		return err
+	}
+	if profile == nil || event == nil {
+		return nil
+	}
+	if event.Mode != profile.Mode ||
+		event.Strategy != profile.Strategy ||
+		event.Level != profile.Level ||
+		event.Priority != profile.Priority ||
+		!sameInt32Ptr(event.CurtailBatchSize, profile.CurtailBatchSize) ||
+		event.CurtailBatchIntervalSec != profile.CurtailBatchIntervalSec ||
+		event.RestoreBatchSize != profile.RestoreBatchSize ||
+		event.RestoreBatchIntervalSec != profile.RestoreBatchIntervalSec ||
+		event.FanOffDelaySec != profile.FanOffDelaySec ||
+		event.FanRestoreDelaySec != profile.FanRestoreDelaySec ||
+		!slices.Equal(event.FacilityFanDeviceIDs, profile.FacilityFanDeviceIDs) {
+		return fleeterror.NewFailedPreconditionError(
+			"automation idempotency replay resolved to an event that no longer matches the automation rule profile",
+		)
+	}
+	return nil
+}
+
+func sameInt32Ptr(a, b *int32) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+func validateAutomationReplayOwnership(event *models.Event, rule *models.AutomationRule, err error) error {
+	if err != nil || event == nil {
+		return err
+	}
+	externalReference, idempotencyKey := automationRuleEventReference(rule.ID)
+	if event.OrgID != rule.OrgID ||
+		event.SourceActorType != models.SourceActorAutomation ||
+		event.ExternalSource == nil || *event.ExternalSource != automationExternalSource ||
+		event.ExternalReference == nil || *event.ExternalReference != externalReference ||
+		event.IdempotencyKey == nil || *event.IdempotencyKey != idempotencyKey ||
+		event.SourceActorID == nil || *event.SourceActorID != externalReference {
+		return fleeterror.NewFailedPreconditionError(
+			"automation idempotency replay resolved to an event not owned by this automation rule",
+		)
+	}
+	return nil
 }
 
 func stringPtr(s string) *string {

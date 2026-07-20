@@ -159,6 +159,9 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 		return nil, toInsufficientLoadError(plan.InsufficientLoadDetail)
 	}
 	if plan.ReplayEvent != nil {
+		if err := h.requirePersistedEventPermission(ctx, info.OrganizationID, authz.PermCurtailmentManage, plan.ReplayEvent); err != nil {
+			return nil, err
+		}
 		return connect.NewResponse(&pb.StartCurtailmentResponse{
 			Event: toEventProtoWithTargets(plan.ReplayEvent, plan.ReplayTargets),
 		}), nil
@@ -675,15 +678,19 @@ func copyEventTargetSiteCoverage(dst, src *models.Event) {
 }
 
 func (h *Handler) requireForceReleasePermission(ctx context.Context, orgID int64, event *models.Event) error {
+	return h.requirePersistedEventPermission(ctx, orgID, authz.PermCurtailmentManage, event)
+}
+
+func (h *Handler) requirePersistedEventPermission(ctx context.Context, orgID int64, permission string, event *models.Event) error {
 	requirements, err := h.eventResourceContextRequirements(ctx, orgID, event)
 	if err != nil {
 		if isIncompleteTargetSiteContextError(err) {
-			_, err := middleware.RequireOrgWidePermission(ctx, authz.PermCurtailmentManage)
+			_, err := middleware.RequireOrgWidePermission(ctx, permission)
 			return err
 		}
 		return err
 	}
-	return requireResourceContextPermissions(ctx, authz.PermCurtailmentManage, requirements)
+	return requireResourceContextPermissions(ctx, permission, requirements)
 }
 
 func (h *Handler) filterEventsByPermission(

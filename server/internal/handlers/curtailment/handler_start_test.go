@@ -675,6 +675,58 @@ func TestHandler_StartCurtailment_IdempotentReplayRendersPersistedEvent(t *testi
 	assert.Empty(t, store.lastTargets, "replay must not persist a second event")
 }
 
+func TestHandler_StartCurtailment_IdempotentReplayRequiresPersistedEventPermission(t *testing.T) {
+	t.Parallel()
+
+	const (
+		requestSite = int64(7)
+		replaySite  = int64(8)
+	)
+	eventUUID := uuid.New()
+	store := newStartStubStore()
+	store.replayByKey = map[string]*models.Event{
+		"retry-key": {
+			ID:                      7,
+			EventUUID:               eventUUID,
+			OrgID:                   42,
+			State:                   models.EventStateActive,
+			Mode:                    models.ModeFixedKw,
+			Strategy:                models.StrategyLeastEfficientFirst,
+			Level:                   models.LevelFull,
+			Priority:                models.PriorityNormal,
+			ScopeType:               models.ScopeTypeSite,
+			ScopeJSON:               siteScopeJSON(t, replaySite),
+			RestoreBatchSize:        10,
+			RestoreBatchIntervalSec: 60,
+			Reason:                  "original persisted reason",
+			CreatedAt:               time.Date(2026, 5, 22, 1, 0, 0, 0, time.UTC),
+			UpdatedAt:               time.Date(2026, 5, 22, 1, 0, 0, 0, time.UTC),
+			CreatedByUserID:         9,
+		},
+	}
+	h := NewHandler(curtailment.NewService(store))
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR",
+		SessionID:      "sess-abc",
+	}, testOrgAssignment(authz.PermCurtailmentManage),
+		testSiteAssignment(requestSite, authz.PermCurtailmentManage),
+		testSiteAssignment(replaySite))
+	req := validStartRequestBuilder()
+	req.Scope = &pb.StartCurtailmentRequest_Site{Site: &pb.ScopeSite{SiteId: requestSite}}
+	req.IdempotencyKey = "retry-key"
+
+	_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Empty(t, store.lastTargets, "replay denial must not persist a second event")
+}
+
 // TestHandler_StartCurtailment_APIKeyDerivesAPIKeyActor pins the audit
 // attribution: an API-key authenticated session must persist
 // source_actor_type='api_key' even though the override fields aren't

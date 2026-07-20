@@ -444,6 +444,29 @@ func TestService_Start_RejectsReservedAutomationExternalSourceForManualActors(t 
 	}
 }
 
+func TestService_Start_RejectsReservedAutomationIdempotencyKeyForManualActors(t *testing.T) {
+	t.Parallel()
+
+	for _, idempotencyKey := range []string{
+		automationRuleIdempotencyPrefix + "9001",
+		" " + automationRuleIdempotencyPrefix + "9001",
+		automationRuleIdempotencyPrefix + "9001 ",
+	} {
+		t.Run(idempotencyKey, func(t *testing.T) {
+			t.Parallel()
+			svc := NewService(newFakeStore())
+			req := validStartRequest(1)
+			req.IdempotencyKey = stringPtr(idempotencyKey)
+
+			_, err := svc.Start(t.Context(), req)
+
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), "idempotency_key")
+		})
+	}
+}
+
 // TestService_Start_RejectsMissingCreatedByUserID pins the service-level
 // backstop for the FK plumbing: a zero or negative UserID must never reach
 // the DB, where curtailment_event.created_by_user_id has a NOT NULL FK to

@@ -591,7 +591,7 @@ func (s *SQLCurtailmentStore) SetAutomationActiveEvent(ctx context.Context, rule
 	rows, err := s.GetQueries(ctx).SetCurtailmentAutomationActiveEvent(ctx, sqlc.SetCurtailmentAutomationActiveEventParams{
 		RuleID:          ruleID,
 		MqttSourceID:    mqttSourceID,
-		ActiveEventUuid: uuid.NullUUID{UUID: eventUUID, Valid: eventUUID != uuid.Nil},
+		ActiveEventUuid: eventUUID,
 		LastStartedAt:   sql.NullTime{Time: at, Valid: !at.IsZero()},
 	})
 	if err != nil {
@@ -599,7 +599,7 @@ func (s *SQLCurtailmentStore) SetAutomationActiveEvent(ctx context.Context, rule
 	}
 	if rows == 0 {
 		return fleeterror.NewFailedPreconditionErrorf(
-			"curtailment automation rule %d is disabled or no longer bound to MQTT source %d", ruleID, mqttSourceID)
+			"curtailment automation rule %d is disabled, no longer bound to MQTT source %d, or cannot bind the supplied event", ruleID, mqttSourceID)
 	}
 	return nil
 }
@@ -1506,6 +1506,88 @@ func (s *SQLCurtailmentStore) AdminTerminateEvent(
 				return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateActiveEvent
 			}
 			return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateStateConflict
+		}
+		if err != nil {
+			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to terminate curtailment event: %v", err)
+		}
+
+		if err := q.SweepCurtailmentTargetsToRestoreFailed(ctx, sqlc.SweepCurtailmentTargetsToRestoreFailedParams{
+			CurtailmentEventID: current.ID,
+			LastError:          reason,
+		}); err != nil {
+			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to sweep curtailment targets: %v", err)
+		}
+
+		return adminTerminateResult{event: convertEventRow(updated), transitioned: true}, nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return result.event, result.transitioned, nil
+}
+
+func (s *SQLCurtailmentStore) AdminTerminateEventWithFanRecovery(
+	ctx context.Context,
+	orgID int64,
+	eventUUID uuid.UUID,
+	targetState models.EventState,
+	reason string,
+	command func(context.Context, *models.Event) *string,
+) (*models.Event, bool, error) {
+	if command == nil {
+		return nil, false, fleeterror.NewInvalidArgumentError("admin-terminate fan recovery command is required")
+	}
+	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (adminTerminateResult, error) {
+		current, err := q.LockCurtailmentEventByUUIDForWrite(ctx, sqlc.LockCurtailmentEventByUUIDForWriteParams{
+			EventUuid: eventUUID,
+			OrgID:     orgID,
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return adminTerminateResult{}, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+		}
+		if err != nil {
+			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to lock curtailment event for admin termination: %v", err)
+		}
+
+		currentState := models.EventState(current.State)
+		if currentState == targetState {
+			return adminTerminateResult{event: convertEventRow(current), transitioned: false}, nil
+		}
+		if currentState.IsTerminal() {
+			return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateStateConflict
+		}
+
+		hasInFlight, err := q.CurtailmentEventHasInFlightTargets(ctx, current.ID)
+		if err != nil {
+			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to check in-flight targets: %v", err)
+		}
+		if hasInFlight || currentState == models.EventStateActive {
+			return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateActiveEvent
+		}
+
+		recoveryEvent := convertEventRow(current)
+		if len(recoveryEvent.FacilityFanDeviceIDs) > 0 {
+			now := time.Now().UTC()
+			params := interfaces.UpdateCurtailmentFanStateParams{
+				ExpectedEventState: currentState,
+			}
+			if recoveryEvent.FanOnSentAt == nil {
+				params.FanOnSentAt = &now
+			}
+			if _, err := s.commandFanStateWithQueries(ctx, q, recoveryEvent.ID, params, func(commandCtx context.Context) *string {
+				return command(commandCtx, recoveryEvent)
+			}); err != nil {
+				return adminTerminateResult{}, err
+			}
+		}
+
+		updated, err := q.AdminTerminateCurtailmentEvent(ctx, sqlc.AdminTerminateCurtailmentEventParams{
+			ID:          current.ID,
+			OrgID:       orgID,
+			TargetState: string(targetState),
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return adminTerminateResult{}, interfaces.ErrCurtailmentEventStateRaceLoss
 		}
 		if err != nil {
 			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to terminate curtailment event: %v", err)

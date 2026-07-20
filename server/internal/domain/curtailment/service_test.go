@@ -97,13 +97,14 @@ type fakeStore struct {
 	// AdminTerminate fakes. adminTerminateResult is the post-transition
 	// event the fake echoes; adminTerminateErr drives error paths
 	// (state conflict, transient db error).
-	adminTerminateCalls            int
-	lastAdminTerminateUUID         uuid.UUID
-	lastAdminTerminateState        models.EventState
-	lastAdminTerminateReason       string
-	adminTerminateResult           *models.Event
-	adminTerminateErr              error
-	adminTerminateIdempotentReplay bool
+	adminTerminateCalls                int
+	adminTerminateWithFanRecoveryCalls int
+	lastAdminTerminateUUID             uuid.UUID
+	lastAdminTerminateState            models.EventState
+	lastAdminTerminateReason           string
+	adminTerminateResult               *models.Event
+	adminTerminateErr                  error
+	adminTerminateIdempotentReplay     bool
 
 	forceReleaseCalls              int
 	lastForceReleaseUUID           uuid.UUID
@@ -585,6 +586,36 @@ func (f *fakeStore) AdminTerminateEvent(_ context.Context, _ int64, eventUUID uu
 	// idempotent-replay path set adminTerminateTransitioned=false.
 	transitioned := !f.adminTerminateIdempotentReplay
 	return f.adminTerminateResult, transitioned, nil
+}
+
+func (f *fakeStore) AdminTerminateEventWithFanRecovery(
+	ctx context.Context,
+	_ int64,
+	eventUUID uuid.UUID,
+	targetState models.EventState,
+	reason string,
+	command func(context.Context, *models.Event) *string,
+) (*models.Event, bool, error) {
+	f.adminTerminateWithFanRecoveryCalls++
+	if f.getEventByUUIDErr != nil {
+		return nil, false, f.getEventByUUIDErr
+	}
+	ev, ok := f.eventsByUUID[eventUUID]
+	if ok && (ev.State == models.EventStatePending || ev.State == models.EventStateRestoring) && len(ev.FacilityFanDeviceIDs) > 0 {
+		now := time.Now().UTC()
+		params := interfaces.UpdateCurtailmentFanStateParams{
+			ExpectedEventState: ev.State,
+		}
+		if ev.FanOnSentAt == nil {
+			params.FanOnSentAt = &now
+		}
+		f.operatorFanCallOrder = append(f.operatorFanCallOrder, "admin terminate fan recovery")
+		params.LastError = command(ctx, ev)
+		if err := f.UpdateFanState(ctx, ev.ID, params); err != nil {
+			return nil, false, err
+		}
+	}
+	return f.AdminTerminateEvent(ctx, 0, eventUUID, targetState, reason)
 }
 
 func (f *fakeStore) ForceReleaseEvent(_ context.Context, _ int64, eventUUID uuid.UUID, reason string) (interfaces.ForceReleaseEventResult, error) {

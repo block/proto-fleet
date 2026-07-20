@@ -630,15 +630,27 @@ func (q *Queries) ListMQTTSourcesWithActiveCurtailment(ctx context.Context) ([]L
 
 const setCurtailmentAutomationActiveEvent = `-- name: SetCurtailmentAutomationActiveEvent :execrows
 WITH enabled_rule AS (
-    SELECT id
+    SELECT curtailment_automation_rule.id, curtailment_automation_rule.org_id
     FROM curtailment_automation_rule
-    WHERE id = $3
+    WHERE curtailment_automation_rule.id = $2
       AND enabled = TRUE
       -- The rule must still be bound to the source whose signal started the
       -- event; a re-point between signal read and event start fails here and
       -- the caller force-releases the orphaned event.
-      AND mqtt_source_id = $4
+      AND mqtt_source_id = $3
     FOR UPDATE
+),
+owned_event AS (
+    SELECT ce.event_uuid
+    FROM curtailment_event ce
+    JOIN enabled_rule er
+        ON er.org_id = ce.org_id
+    WHERE ce.event_uuid = $4
+      AND ce.source_actor_type = 'automation'
+      AND ce.source_actor_id = er.id::TEXT
+      AND ce.external_source = 'curtailment_automation'
+      AND ce.external_reference = er.id::TEXT
+      AND ce.idempotency_key = 'curtailment_automation_rule:' || er.id::TEXT
 )
 INSERT INTO curtailment_automation_rule_state (
     rule_id,
@@ -648,12 +660,13 @@ INSERT INTO curtailment_automation_rule_state (
     last_error_at
 )
 SELECT
-    id,
+    enabled_rule.id,
+    owned_event.event_uuid,
     $1,
-    $2,
     NULL,
     NULL
 FROM enabled_rule
+JOIN owned_event ON true
 ON CONFLICT (rule_id) DO UPDATE
 SET
     active_event_uuid = EXCLUDED.active_event_uuid,
@@ -663,18 +676,18 @@ SET
 `
 
 type SetCurtailmentAutomationActiveEventParams struct {
-	ActiveEventUuid uuid.NullUUID
 	LastStartedAt   sql.NullTime
 	RuleID          int64
 	MqttSourceID    int64
+	ActiveEventUuid uuid.UUID
 }
 
 func (q *Queries) SetCurtailmentAutomationActiveEvent(ctx context.Context, arg SetCurtailmentAutomationActiveEventParams) (int64, error) {
 	result, err := q.exec(ctx, q.setCurtailmentAutomationActiveEventStmt, setCurtailmentAutomationActiveEvent,
-		arg.ActiveEventUuid,
 		arg.LastStartedAt,
 		arg.RuleID,
 		arg.MqttSourceID,
+		arg.ActiveEventUuid,
 	)
 	if err != nil {
 		return 0, err

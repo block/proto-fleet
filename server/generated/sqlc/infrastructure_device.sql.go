@@ -37,6 +37,26 @@ func (q *Queries) CountActiveCurtailmentEventsByInfrastructureDevices(ctx contex
 	return count, err
 }
 
+const countNonTerminalCurtailmentEventsByInfrastructureDevices = `-- name: CountNonTerminalCurtailmentEventsByInfrastructureDevices :one
+SELECT COUNT(*)
+FROM curtailment_event
+WHERE org_id = $1
+  AND state IN ('pending', 'active', 'restoring')
+  AND facility_fan_device_ids && $2::BIGINT[]
+`
+
+type CountNonTerminalCurtailmentEventsByInfrastructureDevicesParams struct {
+	OrgID                   int64
+	InfrastructureDeviceIds []int64
+}
+
+func (q *Queries) CountNonTerminalCurtailmentEventsByInfrastructureDevices(ctx context.Context, arg CountNonTerminalCurtailmentEventsByInfrastructureDevicesParams) (int64, error) {
+	row := q.queryRow(ctx, q.countNonTerminalCurtailmentEventsByInfrastructureDevicesStmt, countNonTerminalCurtailmentEventsByInfrastructureDevices, arg.OrgID, pq.Array(arg.InfrastructureDeviceIds))
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countResponseProfilesByInfrastructureDevice = `-- name: CountResponseProfilesByInfrastructureDevice :one
 SELECT COUNT(*)
 FROM curtailment_response_profile

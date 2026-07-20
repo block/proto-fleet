@@ -275,15 +275,27 @@ SET
 
 -- name: SetCurtailmentAutomationActiveEvent :execrows
 WITH enabled_rule AS (
-    SELECT id
+    SELECT curtailment_automation_rule.id, curtailment_automation_rule.org_id
     FROM curtailment_automation_rule
-    WHERE id = sqlc.arg('rule_id')
+    WHERE curtailment_automation_rule.id = sqlc.arg('rule_id')
       AND enabled = TRUE
       -- The rule must still be bound to the source whose signal started the
       -- event; a re-point between signal read and event start fails here and
       -- the caller force-releases the orphaned event.
       AND mqtt_source_id = sqlc.arg('mqtt_source_id')
     FOR UPDATE
+),
+owned_event AS (
+    SELECT ce.event_uuid
+    FROM curtailment_event ce
+    JOIN enabled_rule er
+        ON er.org_id = ce.org_id
+    WHERE ce.event_uuid = sqlc.arg('active_event_uuid')
+      AND ce.source_actor_type = 'automation'
+      AND ce.source_actor_id = er.id::TEXT
+      AND ce.external_source = 'curtailment_automation'
+      AND ce.external_reference = er.id::TEXT
+      AND ce.idempotency_key = 'curtailment_automation_rule:' || er.id::TEXT
 )
 INSERT INTO curtailment_automation_rule_state (
     rule_id,
@@ -293,12 +305,13 @@ INSERT INTO curtailment_automation_rule_state (
     last_error_at
 )
 SELECT
-    id,
-    sqlc.arg('active_event_uuid'),
+    enabled_rule.id,
+    owned_event.event_uuid,
     sqlc.arg('last_started_at'),
     NULL,
     NULL
 FROM enabled_rule
+JOIN owned_event ON true
 ON CONFLICT (rule_id) DO UPDATE
 SET
     active_event_uuid = EXCLUDED.active_event_uuid,

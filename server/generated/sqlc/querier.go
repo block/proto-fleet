@@ -266,6 +266,7 @@ type Querier interface {
 	// UNSPECIFIED (0) is excluded (normalized at ingestion by miner_error_mapper).
 	// Open actionable errors (severity 1-4; excludes UNSPECIFIED=0)
 	CountMinersByState(ctx context.Context, arg CountMinersByStateParams) (CountMinersByStateRow, error)
+	CountNonTerminalCurtailmentEventsByInfrastructureDevices(ctx context.Context, arg CountNonTerminalCurtailmentEventsByInfrastructureDevicesParams) (int64, error)
 	// Same guard, but for DeactivateUser: counts live SUPER_ADMINs in
 	// the org excluding any assignment held by the user being
 	// deactivated. Same liveness filters as above so a deactivated user
@@ -1081,6 +1082,7 @@ type Querier interface {
 	// the locked ids (result is informational; the FOR UPDATE side-effect
 	// is what matters).
 	LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error)
+	LockCurtailmentEventByUUIDForWrite(ctx context.Context, arg LockCurtailmentEventByUUIDForWriteParams) (CurtailmentEvent, error)
 	// Physical fan commands run only while this exact lifecycle phase remains
 	// current. Holding the row lock through the command serializes Force Release's
 	// terminal UPDATE behind an in-flight command and rejects stale commands that
