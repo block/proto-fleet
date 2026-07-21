@@ -459,4 +459,17 @@ describe("ManageRacksModal review fixes (#789)", () => {
     expect(screen.queryByText("Faraway")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Select all" })).not.toBeInTheDocument();
   });
+
+  it("scopes Building facet options to the rack scope (no org-wide leak for a site-unassigned building)", async () => {
+    // scope.siteIds empty + includeUnassigned true (a site-unassigned building).
+    // The options fetch must carry includeUnassigned, not fall through to the
+    // org-wide list (empty siteIds + false) that would offer every site's
+    // buildings.
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n)]);
+    renderModal({ scope: { siteIds: [], includeUnassigned: true }, allSites: false });
+    await waitFor(() => expect(mockListBuildings).toHaveBeenCalled());
+    const call = mockListBuildings.mock.calls[mockListBuildings.mock.calls.length - 1][0];
+    expect(call.siteIds).toEqual([]);
+    expect(call.includeUnassigned).toBe(true);
+  });
 });

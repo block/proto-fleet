@@ -233,15 +233,18 @@ const ManageRacksModal = ({
     };
   }, [open, siteId, listBuildingsBySite]);
 
-  // Facet dropdown options. Building options scope to the active site(s) (the
-  // building's site, or org-wide under all-sites). Site options only fetched
-  // (and only offered) under all-sites, gated by site:read like the miner picker.
+  // Facet dropdown options. Building options mirror the rack scope: org-wide
+  // under all-sites, otherwise the building's own site scope — including its
+  // include-unassigned flag, so a site-unassigned building doesn't fall through
+  // to an org-wide list (empty siteIds + false = no filter) that would offer
+  // buildings from every site. Site options only fetched (and only offered)
+  // under all-sites, gated by site:read like the miner picker.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    const optionSiteIds = allSites ? [] : scope.siteIds;
     void listBuildings({
-      siteIds: optionSiteIds,
+      siteIds: allSites ? [] : scope.siteIds,
+      includeUnassigned: allSites ? false : scope.includeUnassigned,
       onSuccess: (rows) => {
         if (cancelled) return;
         setAvailableBuildings(
@@ -270,37 +273,34 @@ const ManageRacksModal = ({
     return () => {
       cancelled = true;
     };
-  }, [open, allSites, scope.siteIds, canReadSiteCatalog, listBuildings, listSites]);
+  }, [open, allSites, scope.siteIds, scope.includeUnassigned, canReadSiteCatalog, listBuildings, listSites]);
 
-  // Reset pagination whenever the request shape changes — the described set is
-  // different, so tokens and the accumulator no longer apply. Done during render
-  // (React's "adjust state when a prop changes" pattern) rather than in an effect
-  // so the reset lands before the fetch effect reads pageIndex, and to avoid the
-  // cascading extra render a setState-in-effect would cause.
-  const prevRequestKeyRef = useRef(requestKey);
-  if (prevRequestKeyRef.current !== requestKey) {
-    prevRequestKeyRef.current = requestKey;
+  // Reset pagination when the request shape changes — the described set is
+  // different, so tokens, accumulator, and the visible page no longer apply.
+  // View state (pageItems/nextPageToken/totalCount) is reset alongside the
+  // refs so the list returns to a loading baseline instead of briefly showing
+  // the previous request's rows (with Next still enabled); resetting pageItems
+  // to undefined also makes handleConfirm a no-op until the refetch repopulates
+  // the accumulator, closing the "Continue mid-refetch" delta race. This is a
+  // deliberate "resync on changed input" effect: the set-state-in-effect rule's
+  // cascading-render caveat is exactly the intended behavior (we must re-render
+  // to the new set's first page), so it is suppressed for the resets below.
+  //
+  // The accumulator is then seeded with a placeholder for every initially-
+  // selected rack, so computeRackSelectionDelta can act on a seed even before
+  // its page loads. Without it, a seed the current request never returns — an
+  // off-page member (building > one page) or a staged reparent pinned out of the
+  // assignable fetch — is "absent from items", and the delta's conservative
+  // "absent → preserve" rule silently keeps it, making an explicit "Select none"
+  // (or single deselect) of that rack a no-op on Continue. The seed carries only
+  // the id; real rows overwrite it as pages load (the delta needs only the id to
+  // report a removal).
+  useEffect(() => {
     pageTokensRef.current = [""];
-    accumulatorRef.current = new Map();
-    setPageIndex(0);
-    setError(null);
-  }
-
-  // Seed the accumulator with a placeholder for every initially-selected rack
-  // that isn't already resolved, so computeRackSelectionDelta can act on it even
-  // before its page loads. Without this, a seed that the current request never
-  // returns — an off-page member (building > one page) or a staged reparent
-  // pinned out of the assignable fetch — is "absent from items", and the delta's
-  // conservative "absent → preserve" rule silently keeps it. That makes an
-  // explicit "Select none" (or single deselect) of such a rack a no-op on
-  // Continue. The seed only carries the id; real rows overwrite it as pages load
-  // (and the delta only needs the id to report a removal). Runs after the reset
-  // above so it re-seeds a freshly cleared accumulator. Idempotent per id.
-  for (const id of initialSelectedRackIds) {
-    const key = id.toString();
-    if (!accumulatorRef.current.has(key)) {
-      accumulatorRef.current.set(key, {
-        id: key,
+    const acc = new Map<string, RackPickerItem>();
+    for (const id of initialSelectedRackIds) {
+      acc.set(id.toString(), {
+        id: id.toString(),
         label: "",
         buildingLabel: "—",
         statusLabel: "",
@@ -310,7 +310,15 @@ const ManageRacksModal = ({
         minerCount: 0,
       });
     }
-  }
+    accumulatorRef.current = acc;
+    /* eslint-disable react-hooks/set-state-in-effect -- intentional resync-on-input reset */
+    setPageIndex(0);
+    setError(null);
+    setPageItems(undefined);
+    setNextPageToken("");
+    setTotalCount(0);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [requestKey, initialSelectedRackIds]);
 
   // Fetch the current page. Builds picker items and folds them into the
   // accumulator. Ineligible racks are excluded server-side while the toggle is
