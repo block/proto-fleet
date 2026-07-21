@@ -613,6 +613,88 @@ describe("ManageRacksModal review fixes (#789)", () => {
     expect(onConfirm.mock.calls[0][0].added).toEqual([]);
   });
 
+  it("disables pagination while a page is loading (no stale-token double advance)", async () => {
+    // The current page's rows + nextPageToken stay live during a slow page
+    // fetch; without the loading gate the Next button would remain enabled with
+    // the previous page's token, so a double-click stores a stale token at the
+    // advanced index and fetches the wrong range.
+    const many = Array.from({ length: 60 }, (_, i) =>
+      createRack(BigInt(i + 1), `Rack ${String(i).padStart(2, "0")}`, 7n, 42n),
+    );
+    let resolvePage2: (() => void) | undefined;
+    mockListRacks.mockImplementation((req: FetchReq & { onSuccess?: Function; onFinally?: Function }) => {
+      const matched = many.filter((r) => matchesReq(r, req));
+      if (!req.pageSize) {
+        req.onSuccess?.(matched, "", matched.length);
+        req.onFinally?.();
+        return;
+      }
+      const offset = req.pageToken ? Number(req.pageToken) : 0;
+      const page = matched.slice(offset, offset + req.pageSize);
+      const nextOffset = offset + req.pageSize;
+      const nextToken = nextOffset < matched.length ? String(nextOffset) : "";
+      const resolve = () => {
+        req.onSuccess?.(page, nextToken, matched.length);
+        req.onFinally?.();
+      };
+      // Page 1 resolves immediately; page 2 defers so we can assert the gate.
+      if (offset === 0) resolve();
+      else resolvePage2 = resolve;
+    });
+    renderModal();
+    await waitFor(() => expect(screen.getByText("Showing 1–50 of 60 racks")).toBeInTheDocument());
+
+    const nextBtn = screen.getByRole("button", { name: "Next page" });
+    await userEvent.click(nextBtn);
+    // Page 2 is in flight: both pagination buttons are disabled.
+    expect(nextBtn).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
+    const pageFetchesBefore = reqsMatching((r) => r.pageSize !== undefined).length;
+    await userEvent.click(nextBtn); // no-op while disabled — no extra fetch
+    expect(reqsMatching((r) => r.pageSize !== undefined).length).toBe(pageFetchesBefore);
+
+    resolvePage2!();
+    await waitFor(() => expect(screen.getByText("Showing 51–60 of 60 racks")).toBeInTheDocument());
+    // Exactly the correct page-2 token was used (not a stale re-fetch of page 1).
+    expect(lastRackReq().pageToken).toBe("50");
+  });
+
+  it("ignores a superseded Select all finalizer (Continue stays disabled until the latest resolves)", async () => {
+    // Two footer Select alls in flight: the slower (superseded) one finishing
+    // first must not re-enable Continue while the newer bulk fetch is pending —
+    // otherwise Continue could commit the stale selection.
+    const many = [createRack(1n, "Alpha", 7n, 42n), createRack(2n, "Bravo", 7n, 42n)];
+    const pendingAll: Array<() => void> = [];
+    mockListRacks.mockImplementation((req: FetchReq & { onSuccess?: Function; onFinally?: Function }) => {
+      const matched = many.filter((r) => matchesReq(r, req));
+      if (!req.pageSize) {
+        pendingAll.push(() => {
+          req.onSuccess?.(matched, "", matched.length);
+          req.onFinally?.();
+        });
+        return;
+      }
+      req.onSuccess?.(matched.slice(0, req.pageSize), "", matched.length);
+      req.onFinally?.();
+    });
+    renderModal();
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    const selectAll = screen.getByRole("button", { name: "Select all" });
+    await userEvent.click(selectAll); // fetch #1
+    await userEvent.click(selectAll); // fetch #2 supersedes #1
+    const confirm = screen.getByTestId("manage-racks-modal-confirm");
+    expect(confirm).toBeDisabled();
+
+    // The superseded fetch #1 finalizes first: Continue must stay disabled.
+    pendingAll[0]();
+    expect(confirm).toBeDisabled();
+
+    // The latest fetch #2 finalizes: Continue is now usable.
+    pendingAll[1]();
+    await waitFor(() => expect(confirm).not.toBeDisabled());
+  });
+
   it("renders a filter chip when facing the current building (chip state is controlled by facets)", async () => {
     // Bug: filtering by the building being edited produced no chip because the
     // List remounts on every refetch (displayItems → undefined), wiping the

@@ -127,6 +127,13 @@ const ManageRacksModal = ({
   const [pageIndex, setPageIndex] = useState(0);
   const [nextPageToken, setNextPageToken] = useState("");
   const [totalCount, setTotalCount] = useState(0);
+  // True from a Next/Previous click until that page's fetch resolves. The
+  // current page's rows and `nextPageToken` stay live during the request (no
+  // spinner flash), so without this the pagination buttons would remain enabled
+  // with the *previous* page's token — a double-click then stores a stale token
+  // at the advanced index, fetching the wrong range. Disabling them while a page
+  // is in flight closes that race.
+  const [pageLoading, setPageLoading] = useState(false);
   const pageTokensRef = useRef<string[]>([""]);
   // Every rack seen this session (across pages + select-all), keyed by id.
   // computeRackSelectionDelta needs the FULL set, not just the current page —
@@ -232,6 +239,12 @@ const ManageRacksModal = ({
   // lands after the operator has moved on (Select none, a row toggle, a filter)
   // is ignored instead of silently re-selecting the stale result.
   const selectAllEpochRef = useRef(0);
+  // Distinct from the epoch above: identifies a specific footer "Select all"
+  // *fetch* so its finalizer clears `selectingAll` only when it is still the
+  // latest bulk fetch. The epoch is bumped by any selection change (a row
+  // toggle, Select none), which must NOT strand `selectingAll` true — so the
+  // finalizer keys off this fetch id, not the epoch.
+  const selectAllFetchIdRef = useRef(0);
 
   // Building-label lookup for the Building column (this building's site).
   useEffect(() => {
@@ -357,6 +370,7 @@ const ManageRacksModal = ({
     setPageItems(undefined);
     setNextPageToken("");
     setTotalCount(0);
+    setPageLoading(false);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [requestKey, initialSelectedRackIds]);
 
@@ -383,6 +397,7 @@ const ManageRacksModal = ({
       pageToken: token,
       onSuccess: (racks, next, total) => {
         if (cancelled) return;
+        setPageLoading(false);
         const out: RackPickerItem[] = [];
         for (const rack of racks) {
           const item = buildRackPickerItem(rack, siteId, currentBuildingId, buildingMapRef.current, seededRackIds);
@@ -400,6 +415,7 @@ const ManageRacksModal = ({
       },
       onError: (msg) => {
         if (cancelled) return;
+        setPageLoading(false);
         // A failed *broadened* (toggle-on) fetch must not strand the operator
         // behind the blocking error state (which hides the Switch). Revert the
         // toggle — that changes the request and refetches the scoped set — drop
@@ -432,12 +448,20 @@ const ManageRacksModal = ({
   ]);
 
   const goToNextPage = useCallback(() => {
-    if (!nextPageToken) return;
+    // Ignore clicks while the current page is still loading — `nextPageToken`
+    // then belongs to the page being left, so advancing would store a stale
+    // token at the next index and fetch the wrong range.
+    if (!nextPageToken || pageLoading) return;
     pageTokensRef.current[pageIndex + 1] = nextPageToken;
+    setPageLoading(true);
     setPageIndex((i) => i + 1);
-  }, [nextPageToken, pageIndex]);
+  }, [nextPageToken, pageIndex, pageLoading]);
 
-  const goToPrevPage = useCallback(() => setPageIndex((i) => Math.max(0, i - 1)), []);
+  const goToPrevPage = useCallback(() => {
+    if (pageLoading || pageIndex === 0) return;
+    setPageLoading(true);
+    setPageIndex((i) => i - 1);
+  }, [pageLoading, pageIndex]);
 
   // With the toggle on, reassignment rows are intentionally selectable (behind
   // the reparent confirm at commit); nothing else is ever disabled.
@@ -562,6 +586,7 @@ const ManageRacksModal = ({
   const handleSelectAll = useCallback(() => {
     const req = requestRef.current;
     const epoch = (selectAllEpochRef.current += 1);
+    const fetchId = (selectAllFetchIdRef.current += 1);
     setSelectingAll(true);
     void listRacks({
       siteIds: req.siteIds,
@@ -586,7 +611,14 @@ const ManageRacksModal = ({
       onError: (msg) => {
         pushToast({ message: `Couldn't select all racks: ${msg}`, status: STATUSES.error });
       },
-      onFinally: () => setSelectingAll(false),
+      onFinally: () => {
+        // Clear the loading state only if this is still the latest bulk fetch.
+        // A superseded (slower) Select all finishing after a newer one must not
+        // re-enable Continue while the newer bulk result is still pending — that
+        // would let Continue commit the stale selection.
+        if (selectAllFetchIdRef.current !== fetchId) return;
+        setSelectingAll(false);
+      },
     });
   }, [listRacks, currentBuildingId, siteId, seededRackIds]);
 
@@ -695,7 +727,7 @@ const ManageRacksModal = ({
                           ariaLabel="Previous page"
                           prefixIcon={<ChevronDown className="rotate-90" />}
                           onClick={goToPrevPage}
-                          disabled={pageIndex === 0}
+                          disabled={pageIndex === 0 || pageLoading}
                         />
                         <Button
                           variant={variants.secondary}
@@ -703,7 +735,7 @@ const ManageRacksModal = ({
                           ariaLabel="Next page"
                           prefixIcon={<ChevronDown className="rotate-270" />}
                           onClick={goToNextPage}
-                          disabled={!displayNextToken}
+                          disabled={!displayNextToken || pageLoading}
                         />
                       </div>
                     </div>
