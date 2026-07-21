@@ -104,6 +104,9 @@ const ManageRacksModal = ({
   // with a warning icon.
   const [showAssigned, setShowAssigned] = useState(false);
   const [showAssignedInfo, setShowAssignedInfo] = useState(false);
+  // True while a footer "Select all" fetch is in flight — the selection isn't
+  // final yet, so Continue is disabled/guarded until it resolves.
+  const [selectingAll, setSelectingAll] = useState(false);
   // The reassignment row whose conflict dialog is open, or null.
   const [conflictInfoItem, setConflictInfoItem] = useState<RackPickerItem | null>(null);
   // User facet selections. Building narrows within the fetched set; Site
@@ -149,19 +152,25 @@ const ManageRacksModal = ({
   // derived filter.
   const request = useMemo(() => {
     const base = showAssigned ? assignedScope : scope;
-    let siteIds = base.siteIds;
-    let includeUnassigned = base.includeUnassigned;
-    // Site facet (offered only under all-sites) narrows the site scope.
-    if (facetSiteIds.length > 0) {
-      siteIds = facetSiteIds;
-      includeUnassigned = false;
-    }
+    let siteIds: bigint[];
+    let includeUnassigned: boolean;
     let buildingIds: bigint[];
     let includeNoBuilding: boolean;
     if (!showAssigned) {
-      // Assignable-only: return only this building's racks + no-building racks.
-      // A Building facet on another building yields an empty intersection,
-      // surfaced as placementFacetConflict below rather than a broadened fetch.
+      // Assignable-only: clamp BOTH dimensions to this building's own placement
+      // (its site + itself/no-building). A facet on another building/site is an
+      // empty intersection — surfaced as placementFacetConflict below rather than
+      // a broadened fetch. Clamping (not replacing) the Site facet is what stops a
+      // multi-select like [thisSite, otherSite] from OR-ing in cross-site
+      // no-building racks that would otherwise appear as disabled reassignment
+      // rows and get swept into a footer Select all.
+      if (facetSiteIds.length > 0) {
+        siteIds = facetSiteIds.filter((id) => id === siteId);
+        includeUnassigned = false;
+      } else {
+        siteIds = base.siteIds;
+        includeUnassigned = base.includeUnassigned;
+      }
       if (facetBuildingIds.length > 0) {
         buildingIds = facetBuildingIds.filter((id) => id === currentBuildingId);
         includeNoBuilding = false;
@@ -170,11 +179,19 @@ const ManageRacksModal = ({
         includeNoBuilding = true;
       }
     } else {
+      // Broadened: facets narrow freely (Site offered only under all-sites).
+      if (facetSiteIds.length > 0) {
+        siteIds = facetSiteIds;
+        includeUnassigned = false;
+      } else {
+        siteIds = base.siteIds;
+        includeUnassigned = base.includeUnassigned;
+      }
       buildingIds = facetBuildingIds;
       includeNoBuilding = false;
     }
     return { siteIds, includeUnassigned, buildingIds, includeNoBuilding };
-  }, [showAssigned, scope, assignedScope, facetSiteIds, facetBuildingIds, currentBuildingId]);
+  }, [showAssigned, scope, assignedScope, facetSiteIds, facetBuildingIds, currentBuildingId, siteId]);
 
   // Assignable-only + a placement facet that excludes this building's own
   // building/site = provably no assignable matches. Show empty rather than fetch
@@ -486,9 +503,13 @@ const ManageRacksModal = ({
   }, [showAssigned]);
 
   const handleConfirm = useCallback(() => {
-    if (pageItems === undefined) return;
+    // Guard against confirming mid-load: while the initial page hasn't arrived
+    // (undefined) or a footer "Select all" fetch is still in flight, the
+    // selection/accumulator aren't final, so committing would drop the pending
+    // additions. The Continue button is also disabled in these states.
+    if (pageItems === undefined || selectingAll) return;
     onConfirm(computeRackSelectionDelta([...accumulatorRef.current.values()], initialSelectedRackIds, selectedItems));
-  }, [pageItems, selectedItems, initialSelectedRackIds, onConfirm]);
+  }, [pageItems, selectingAll, selectedItems, initialSelectedRackIds, onConfirm]);
 
   // Footer "Select all" (offered only with the toggle off — see below) selects
   // every ELIGIBLE rack across all pages, not just the visible page. Server
@@ -500,6 +521,7 @@ const ManageRacksModal = ({
   // fetchAllSelectableMinerIds.
   const handleSelectAll = useCallback(() => {
     const req = requestRef.current;
+    setSelectingAll(true);
     void listRacks({
       siteIds: req.siteIds,
       includeUnassigned: req.includeUnassigned,
@@ -519,6 +541,7 @@ const ManageRacksModal = ({
       onError: (msg) => {
         pushToast({ message: `Couldn't select all racks: ${msg}`, status: STATUSES.error });
       },
+      onFinally: () => setSelectingAll(false),
     });
   }, [listRacks, currentBuildingId, siteId, seededRackIds]);
 
@@ -548,6 +571,7 @@ const ManageRacksModal = ({
           text: "Continue",
           variant: "primary",
           onClick: handleConfirm,
+          disabled: selectingAll,
           dismissModalOnClick: false,
           testId: "manage-racks-modal-confirm",
         },

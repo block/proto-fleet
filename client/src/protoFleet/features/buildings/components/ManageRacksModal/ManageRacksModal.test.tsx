@@ -78,18 +78,22 @@ const matchesReq = (rack: DeviceSet, req: FetchReq): boolean => {
 // pageToken (token = numeric offset as a string). No pageSize → return all
 // matches (the fetch-all path used by footer select-all).
 const setupListRacks = (all: DeviceSet[]) => {
-  mockListRacks.mockImplementation((req: FetchReq & { onSuccess?: Function; onError?: Function }) => {
-    const matched = all.filter((r) => matchesReq(r, req));
-    if (!req.pageSize) {
-      req.onSuccess?.(matched, "", matched.length);
-      return;
-    }
-    const offset = req.pageToken ? Number(req.pageToken) : 0;
-    const page = matched.slice(offset, offset + req.pageSize);
-    const nextOffset = offset + req.pageSize;
-    const nextToken = nextOffset < matched.length ? String(nextOffset) : "";
-    req.onSuccess?.(page, nextToken, matched.length);
-  });
+  mockListRacks.mockImplementation(
+    (req: FetchReq & { onSuccess?: Function; onError?: Function; onFinally?: Function }) => {
+      const matched = all.filter((r) => matchesReq(r, req));
+      if (!req.pageSize) {
+        req.onSuccess?.(matched, "", matched.length);
+        req.onFinally?.();
+        return;
+      }
+      const offset = req.pageToken ? Number(req.pageToken) : 0;
+      const page = matched.slice(offset, offset + req.pageSize);
+      const nextOffset = offset + req.pageSize;
+      const nextToken = nextOffset < matched.length ? String(nextOffset) : "";
+      req.onSuccess?.(page, nextToken, matched.length);
+      req.onFinally?.();
+    },
+  );
 };
 
 const SCOPE: SiteFilterFields = { siteIds: [42n], includeUnassigned: true };
@@ -471,5 +475,59 @@ describe("ManageRacksModal review fixes (#789)", () => {
     const call = mockListBuildings.mock.calls[mockListBuildings.mock.calls.length - 1][0];
     expect(call.siteIds).toEqual([]);
     expect(call.includeUnassigned).toBe(true);
+  });
+
+  it("clamps a multi-site Site facet to this building's site in assignable mode", async () => {
+    // Site facet = [thisSite 42, otherSite 99] with the toggle off. The request
+    // must intersect to [42] (not OR both), so a cross-site no-building rack
+    // (Faraway, site 99) never leaks into the assignable view.
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n), createRack(2n, "Faraway", 0n, 99n)]);
+    mockListSites.mockImplementation(({ onSuccess }) =>
+      onSuccess?.([{ site: { id: 42n, name: "HQ" } }, { site: { id: 99n, name: "Remote" } }]),
+    );
+    renderModal({ allSites: true });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTestId("filter-nested-filters-meta"));
+    await userEvent.click(screen.getByTestId("nested-dropdown-filter-row-site"));
+    await userEvent.click(screen.getByTestId("filter-option-42"));
+    await userEvent.click(screen.getByTestId("filter-option-99"));
+
+    await waitFor(() => expect(lastRackReq().siteIds).toEqual([42n]));
+    expect(screen.queryByText("Faraway")).not.toBeInTheDocument();
+  });
+
+  it("disables Continue while a footer 'Select all' fetch is in flight", async () => {
+    const many = [createRack(1n, "Alpha", 7n, 42n), createRack(2n, "Bravo", 7n, 42n)];
+    let resolveAll: (() => void) | undefined;
+    mockListRacks.mockImplementation((req: FetchReq & { onSuccess?: Function; onFinally?: Function }) => {
+      const matched = many.filter((r) => matchesReq(r, req));
+      if (!req.pageSize) {
+        // Defer the unpaginated select-all fetch so it stays in flight.
+        resolveAll = () => {
+          req.onSuccess?.(matched, "", matched.length);
+          req.onFinally?.();
+        };
+        return;
+      }
+      req.onSuccess?.(matched.slice(0, req.pageSize), "", matched.length);
+      req.onFinally?.();
+    });
+    const onConfirm = vi.fn();
+    renderModal({ onConfirm });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Select all" }));
+    const confirm = screen.getByTestId("manage-racks-modal-confirm");
+    expect(confirm).toBeDisabled();
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    resolveAll!();
+    await waitFor(() => expect(screen.getByText("2 racks selected")).toBeInTheDocument());
+    expect(confirm).not.toBeDisabled();
+
+    await userEvent.click(confirm);
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm.mock.calls[0][0].added).toHaveLength(2);
   });
 });
