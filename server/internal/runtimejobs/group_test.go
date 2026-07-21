@@ -297,7 +297,6 @@ func TestGroupRequiresStopAfterActivationContextEnds(t *testing.T) {
 
 	err := group.Start(context.Background())
 	require.ErrorContains(t, err, "activation ended before stop")
-	assert.ErrorIs(t, err, context.Canceled)
 
 	require.NoError(t, group.Stop(context.Background()))
 	require.NoError(t, group.Start(context.Background()))

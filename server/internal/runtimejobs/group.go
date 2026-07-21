@@ -19,7 +19,7 @@ type Group struct {
 	cleanupTimeout time.Duration
 	jobs           []Job
 	terminalErr    error
-	activationCtx  context.Context
+	activationDone <-chan struct{}
 	cancel         context.CancelFunc
 }
 
@@ -62,14 +62,16 @@ func (g *Group) Start(ctx context.Context) error {
 		return fmt.Errorf("runtime job group cannot restart after incomplete cleanup: %w", g.terminalErr)
 	}
 	if g.cancel != nil {
-		if err := g.activationCtx.Err(); err != nil {
-			return fmt.Errorf("runtime job group activation ended before stop: %w", err)
+		select {
+		case <-g.activationDone:
+			return errors.New("runtime job group activation ended before stop")
+		default:
 		}
 		return nil
 	}
 
 	activationCtx, cancel := context.WithCancel(ctx)
-	g.activationCtx = activationCtx
+	g.activationDone = activationCtx.Done()
 	g.cancel = cancel
 	started := 0
 	for _, job := range g.jobs {
@@ -88,7 +90,7 @@ func (g *Group) Start(ctx context.Context) error {
 func (g *Group) failStart(ctx context.Context, started int, startErr error) error {
 	g.cancel()
 	rollbackErr := g.stopJobs(ctx, g.jobs[:started])
-	g.activationCtx = nil
+	g.activationDone = nil
 	g.cancel = nil
 	if rollbackErr == nil {
 		return startErr
@@ -111,7 +113,7 @@ func (g *Group) Stop(ctx context.Context) error {
 	}
 
 	g.cancel()
-	g.activationCtx = nil
+	g.activationDone = nil
 	g.cancel = nil
 	if err := g.stopJobs(ctx, g.jobs); err != nil {
 		g.terminalErr = err
