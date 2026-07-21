@@ -225,6 +225,8 @@ const ManageRacksModal = ({
   showAssignedRef.current = showAssigned;
   const buildingMapRef = useRef(buildingMap);
   buildingMapRef.current = buildingMap;
+  const selectedItemsRef = useRef(selectedItems);
+  selectedItemsRef.current = selectedItems;
 
   // Building-label lookup for the Building column (this building's site).
   useEffect(() => {
@@ -314,10 +316,23 @@ const ManageRacksModal = ({
   // report a removal).
   useEffect(() => {
     pageTokensRef.current = [""];
+    const prev = accumulatorRef.current;
     const acc = new Map<string, RackPickerItem>();
+    // Carry over the resolved item for every still-selected rack, so a selection
+    // the new request hides (e.g. check a rack, then apply a facet that filters
+    // it out) keeps its metadata. selectedItems retains the id via
+    // preserveOffPageSelection, so without this its addition would be silently
+    // dropped from the delta (absent from the accumulator) while the footer still
+    // shows it selected.
+    for (const id of selectedItemsRef.current) {
+      const existing = prev.get(id);
+      if (existing) acc.set(id, existing);
+    }
     for (const id of initialSelectedRackIds) {
-      acc.set(id.toString(), {
-        id: id.toString(),
+      const key = id.toString();
+      if (acc.has(key)) continue;
+      acc.set(key, {
+        id: key,
         label: "",
         buildingLabel: "—",
         statusLabel: "",
@@ -503,13 +518,17 @@ const ManageRacksModal = ({
   }, [showAssigned]);
 
   const handleConfirm = useCallback(() => {
-    // Guard against confirming mid-load: while the initial page hasn't arrived
-    // (undefined) or a footer "Select all" fetch is still in flight, the
-    // selection/accumulator aren't final, so committing would drop the pending
-    // additions. The Continue button is also disabled in these states.
-    if (pageItems === undefined || selectingAll) return;
+    // Guard against confirming mid-load: while a footer "Select all" fetch is in
+    // flight the selection/accumulator aren't final, so committing would drop the
+    // pending additions (Continue is also disabled then). A placement-facet
+    // conflict is a *loaded* empty view (no fetch runs, so pageItems stays
+    // undefined) — Continue must still work there so Select-none-then-Continue
+    // can clear the current racks; the accumulator holds the seeds + preserved
+    // selections needed for the delta.
+    if (selectingAll) return;
+    if (pageItems === undefined && !placementFacetConflict) return;
     onConfirm(computeRackSelectionDelta([...accumulatorRef.current.values()], initialSelectedRackIds, selectedItems));
-  }, [pageItems, selectingAll, selectedItems, initialSelectedRackIds, onConfirm]);
+  }, [pageItems, placementFacetConflict, selectingAll, selectedItems, initialSelectedRackIds, onConfirm]);
 
   // Footer "Select all" (offered only with the toggle off — see below) selects
   // every ELIGIBLE rack across all pages, not just the visible page. Server

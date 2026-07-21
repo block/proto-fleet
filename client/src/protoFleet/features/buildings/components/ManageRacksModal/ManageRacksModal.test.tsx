@@ -530,4 +530,54 @@ describe("ManageRacksModal review fixes (#789)", () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(onConfirm.mock.calls[0][0].added).toHaveLength(2);
   });
+
+  it("keeps a selected rack's addition across a request reset that hides it", async () => {
+    // Check a non-seeded rack, then apply a Building facet that filters it out.
+    // selectedItems retains the id; its addition must still be reported on
+    // Continue (not silently dropped because the reset rebuilt the accumulator).
+    const rowCheckbox = (index: number) =>
+      screen.getByTestId("list-body").querySelectorAll<HTMLInputElement>("input[type='checkbox']")[index];
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n), createRack(2n, "Floating", 0n, 42n)]);
+    mockListBuildings.mockImplementation(({ onSuccess }) => onSuccess?.([{ building: { id: 7n, name: "North" } }]));
+    const onConfirm = vi.fn();
+    renderModal({ onConfirm });
+    await waitFor(() => expect(screen.getByText("Floating")).toBeInTheDocument());
+
+    // Select the no-building rack, then filter to building 7 (hides it).
+    await userEvent.click(rowCheckbox(1));
+    await userEvent.click(screen.getByTestId("filter-nested-filters-meta"));
+    await userEvent.click(screen.getByTestId("nested-dropdown-filter-row-building"));
+    await userEvent.click(screen.getByTestId("filter-option-7"));
+    await waitFor(() => expect(screen.queryByText("Floating")).not.toBeInTheDocument());
+
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+    const delta = onConfirm.mock.calls[0][0];
+    expect(delta.added.map((a: { rackId: bigint; label: string }) => a.rackId)).toContain(2n);
+    expect(delta.added.find((a: { rackId: bigint; label: string }) => a.rackId === 2n).label).toBe("Floating");
+  });
+
+  it("lets Continue proceed (Select none → remove) under a placement-facet conflict", async () => {
+    // Under a conflicting Building facet the view is empty and no fetch runs
+    // (pageItems stays undefined). Continue must still work so the operator can
+    // Select none and remove the seeded racks.
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n)]);
+    mockListBuildings.mockImplementation(({ onSuccess }) =>
+      onSuccess?.([{ building: { id: 7n, name: "North" } }, { building: { id: 9n, name: "South" } }]),
+    );
+    const onConfirm = vi.fn();
+    renderModal({ initialSelectedRackIds: [1n], onConfirm });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    // Conflict: facet a different building than this one.
+    await userEvent.click(screen.getByTestId("filter-nested-filters-meta"));
+    await userEvent.click(screen.getByTestId("nested-dropdown-filter-row-building"));
+    await userEvent.click(screen.getByTestId("filter-option-9"));
+    await waitFor(() => expect(screen.queryByText("Alpha")).not.toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Select none" }));
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm.mock.calls[0][0].removed).toEqual([1n]);
+  });
 });
