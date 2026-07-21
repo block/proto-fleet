@@ -56,6 +56,9 @@ const SingleMinerWrapper = ({ children }: { children: ReactNode }) => {
       ipAddress: cachedMetadata?.ipAddress,
       macAddress: cachedMetadata?.macAddress,
       firmwareVersion: cachedMetadata?.firmwareVersion,
+      site: cachedMetadata?.site,
+      building: cachedMetadata?.building,
+      rack: cachedMetadata?.rack,
     }),
     [cachedMetadata, displayId],
   );

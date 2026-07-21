@@ -1,4 +1,9 @@
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  getMinerBuildingLabel,
+  getMinerRackLabel,
+  getMinerSiteLabel,
+} from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import type { MinerMetadata } from "@/shared/types/minerMetadata";
 
 export type SingleMinerMetadata = MinerMetadata;
@@ -19,6 +24,9 @@ export const buildSingleMinerMetadata = (miner: MinerStateSnapshot): SingleMiner
   ipAddress: nonEmpty(miner.ipAddress),
   macAddress: nonEmpty(miner.macAddress),
   firmwareVersion: nonEmpty(miner.firmwareVersion),
+  site: nonEmpty(getMinerSiteLabel(miner)),
+  building: nonEmpty(getMinerBuildingLabel(miner)),
+  rack: nonEmpty(getMinerRackLabel(miner)),
 });
 
 export const buildSingleMinerRouteState = (miner: MinerStateSnapshot): SingleMinerRouteState => ({

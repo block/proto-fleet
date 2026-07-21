@@ -45,6 +45,12 @@ const AppLayout = ({
   const ipAddress = useIpAddress();
   const pendingNetworkInfo = useNetworkInfoPending();
 
+  // Placement is a Fleet-only concept and rides in on the hosting metadata.
+  // Show a single "Location" row that stacks site / building / rack on their
+  // own lines, omitting any levels the miner isn't placed at.
+  const locationLines = [metadata.site, metadata.building, metadata.rack].filter(Boolean) as string[];
+  const locationInfo = isFleetHosted && locationLines.length ? { values: locationLines } : undefined;
+
   return (
     <div className="flex min-h-screen bg-surface-base">
       <div className="fixed top-0 left-0 z-40 h-screen grow overflow-hidden">
@@ -57,6 +63,7 @@ const AppLayout = ({
           }}
           isVisible={isMenuOpen}
           closeMenu={() => setIsMenuOpen(false)}
+          locationInfo={locationInfo}
           versionInfo={{
             value: isFleetHosted ? metadata.firmwareVersion || osVersion : osVersion,
             loading: isFleetHosted ? !metadata.firmwareVersion && pendingSystemInfo : pendingSystemInfo,

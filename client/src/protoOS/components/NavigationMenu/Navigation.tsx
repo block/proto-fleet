@@ -5,6 +5,8 @@ import clsx from "clsx";
 import { navigationItems, navigationMenuTypes } from "./constants";
 import IpAddressInfo from "./InfoItem/IpAddressInfo";
 import type { IpAddressInfoProps } from "./InfoItem/IpAddressInfo";
+import LocationInfo from "./InfoItem/LocationInfo";
+import type { LocationInfoProps } from "./InfoItem/LocationInfo";
 import MacAddressInfo from "./InfoItem/MacAddressInfo";
 import type { MacAddressInfoProps } from "./InfoItem/MacAddressInfo";
 import MinerNameInfo from "./InfoItem/MinerNameInfo";
@@ -19,6 +21,7 @@ import { useNavigate } from "@/shared/hooks/useNavigate";
 
 interface NavigationProps {
   ipAddressInfo?: IpAddressInfoProps;
+  locationInfo?: LocationInfoProps;
   macInfo?: MacAddressInfoProps;
   minerNameInfo?: MinerNameInfoProps;
   onItemClick?: () => void;
@@ -26,7 +29,15 @@ interface NavigationProps {
   type: NavigationMenuType;
 }
 
-const Navigation = ({ ipAddressInfo, macInfo, minerNameInfo, onItemClick, versionInfo, type }: NavigationProps) => {
+const Navigation = ({
+  ipAddressInfo,
+  locationInfo,
+  macInfo,
+  minerNameInfo,
+  onItemClick,
+  versionInfo,
+  type,
+}: NavigationProps) => {
   const isApp = useMemo(() => type === navigationMenuTypes.app, [type]);
 
   const { minerRoot, closeButton } = useMinerHosting();
@@ -79,6 +90,8 @@ const Navigation = ({ ipAddressInfo, macInfo, minerNameInfo, onItemClick, versio
 
       <div className="px-3 pb-3">
         <MinerNameInfo loading={minerNameInfo?.loading} value={minerNameInfo?.value} />
+
+        {locationInfo ? <LocationInfo loading={locationInfo.loading} values={locationInfo.values} /> : null}
 
         <IpAddressInfo loading={ipAddressInfo?.loading} value={ipAddressInfo?.value} />
 
