@@ -194,6 +194,25 @@ describe("ActiveCurtailmentStatus", () => {
     expect(onRequestStop).toHaveBeenCalledOnce();
   });
 
+  it("renders pending infrastructure failures when fan command evidence exists", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          facilityFanDeviceCount: 2,
+          fanOffSentAt: "2026-05-01T12:05:00.000Z",
+          fanLastError: "fan command failed",
+          observedReductionKw: 0,
+          rollups: [{ state: "pending", count: curtailingCurtailmentEvent.selectedMiners }],
+          state: "pending",
+        }}
+      />,
+    );
+
+    expectStat("Dispatch status", "Pending");
+    expectInfrastructureStatus("Curtail failed");
+  });
+
   it("renders pending events as curtailing once dispatch has started", () => {
     render(
       <ActiveCurtailmentStatus

@@ -163,12 +163,13 @@ function getInfrastructureStatus(
     return null;
   }
 
-  if (displayState === "pending") {
-    return "Pending";
+  const hasFanCommandEvidence = Boolean(event.fanOffSentAt || event.fanOnSentAt || event.fanAirflowReopenedAt);
+  if (event.fanLastError && (displayState !== "pending" || hasFanCommandEvidence)) {
+    return isRestoreFlow ? "Restore failed" : "Curtail failed";
   }
 
-  if (event.fanLastError) {
-    return isRestoreFlow ? "Restore failed" : "Curtail failed";
+  if (displayState === "pending") {
+    return "Pending";
   }
 
   if (isRestoreFlow) {
