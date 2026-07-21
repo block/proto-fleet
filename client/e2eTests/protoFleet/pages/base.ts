@@ -3,6 +3,7 @@ import { DEFAULT_TIMEOUT, testConfig } from "../config/test.config";
 
 const FLEET_TAB_ROUTE = /.*\/fleet\/(?:sites|buildings|racks|miners)(?:[/?#].*)?$/;
 const OVERLAY_DISMISS_TIMEOUT = DEFAULT_TIMEOUT / 6;
+const LOGOUT_ACTION_TIMEOUT = 2_000;
 
 export class BasePage {
   constructor(
@@ -369,29 +370,48 @@ export class BasePage {
 
   async logout() {
     const loginForm = this.page.locator("#username");
+    const isLoggedOut = async () =>
+      this.page.url().includes("/auth") || (await loginForm.isVisible().catch(() => false));
 
-    if (this.page.url().includes("/auth") || (await loginForm.isVisible().catch(() => false))) {
+    if (await isLoggedOut()) {
       return;
     }
 
     const logoutButton = this.page.getByTestId("logout-button");
-    if (await logoutButton.isVisible().catch(() => false)) {
-      await logoutButton.click();
+
+    if (!this.isMobile) {
+      if (await logoutButton.isVisible().catch(() => false)) {
+        await logoutButton.click();
+        return;
+      }
+
+      await this.page.goto("/auth");
+      await expect(loginForm).toBeVisible();
       return;
     }
 
-    await this.clickNavigationMenuIfMobile();
-    if (await logoutButton.isVisible().catch(() => false)) {
-      await logoutButton.click();
-      return;
-    }
+    // A server-invalidated session can redirect to /auth between any locator
+    // probe and click. Retry short actions so each attempt can re-check the
+    // logged-out state instead of waiting on a navigation control that vanished.
+    await expect(async () => {
+      if (await isLoggedOut()) {
+        return;
+      }
 
-    if (this.page.url().includes("/auth") || (await loginForm.isVisible().catch(() => false))) {
-      return;
-    }
+      if (await logoutButton.isVisible().catch(() => false)) {
+        await logoutButton.click({ timeout: LOGOUT_ACTION_TIMEOUT });
+      } else {
+        await this.clickNavigationMenuIfMobile(LOGOUT_ACTION_TIMEOUT);
 
-    await this.page.goto("/auth");
-    await expect(loginForm).toBeVisible();
+        if (await isLoggedOut()) {
+          return;
+        }
+
+        await logoutButton.click({ timeout: LOGOUT_ACTION_TIMEOUT });
+      }
+
+      await expect.poll(isLoggedOut, { timeout: LOGOUT_ACTION_TIMEOUT, intervals: [100] }).toBe(true);
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [100] });
   }
 
   async validateTitle(expectedTitle: string) {
@@ -558,7 +578,7 @@ export class BasePage {
     await expect(this.page.getByRole("button", { name: text })).toBeVisible();
   }
 
-  async clickNavigationMenuIfMobile() {
+  async clickNavigationMenuIfMobile(timeout?: number) {
     if (!this.isMobile) {
       return;
     }
@@ -574,7 +594,7 @@ export class BasePage {
 
     const navigationMenuButton = this.page.getByTestId("navigation-menu-button");
     if (await navigationMenuButton.isVisible().catch(() => false)) {
-      await navigationMenuButton.click();
+      await navigationMenuButton.click({ timeout });
       return;
     }
 
@@ -587,7 +607,7 @@ export class BasePage {
       return;
     }
 
-    await navigationMenuButton.click();
+    await navigationMenuButton.click({ timeout });
   }
 
   async clickExpandSettingsIfMobile() {
