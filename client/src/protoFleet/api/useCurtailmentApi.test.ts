@@ -175,7 +175,12 @@ describe("useCurtailmentApi", () => {
   });
 
   it("loads and maps active curtailment plus history", async () => {
-    const activeEvent = curtailmentEvent();
+    const activeEvent = curtailmentEvent({
+      facilityFanDeviceIds: [31n, 32n],
+      fanOffDelaySec: 45,
+      fanRestoreDelaySec: 90,
+      fanOffSentAt: timestamp("2026-05-01T12:05:00Z"),
+    });
     const completedEvent = curtailmentEvent({
       eventUuid: "curt-2",
       state: CurtailmentEventState.COMPLETED,
@@ -199,6 +204,8 @@ describe("useCurtailmentApi", () => {
         selectedMiners: 2,
         estimatedReductionKw: 6.2,
         targetKw: 5,
+        facilityFanDeviceCount: 2,
+        fanOffSentAt: "2026-05-01T12:05:00.000Z",
         observedReductionKw: 5,
         remainingPowerKw: 1,
         // Live-progress inputs (issue #660): elapsed anchors on startedAt,
@@ -218,6 +225,9 @@ describe("useCurtailmentApi", () => {
         curtailBatchIntervalSec: "",
         restoreBatchSize: "",
         restoreIntervalSec: "60",
+        facilityFanDeviceIds: ["31", "32"],
+        fanOffDelaySec: "45",
+        fanRestoreDelaySec: "90",
       }),
     );
     expect(result.current.activeEvent?.rollups).toEqual([
@@ -229,6 +239,7 @@ describe("useCurtailmentApi", () => {
       expect.objectContaining({
         priority: "emergency",
         sourceLabel: "Manual",
+        facilityFanDeviceCount: 2,
         startedAt: "2026-05-01T12:00:00.000Z",
       }),
     );

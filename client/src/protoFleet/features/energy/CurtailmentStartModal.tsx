@@ -1281,7 +1281,7 @@ function CurtailmentStartModalContent({
   const siteApplyToTarget = getSiteApplyToTarget(effectiveValues);
   const infrastructureApplyToTarget = getInfrastructureApplyToTarget(effectiveValues);
   const isFacilityFanSelectionDisabled = facilityFanSelectionDisabledReason !== undefined;
-  const shouldShowFacilityFanSelector = !isLiveCurtailmentEditMode;
+  const isInfrastructureApplyToDisabled = isLiveCurtailmentEditMode || isFacilityFanSelectionDisabled;
   const isFullFleetMode = values.curtailmentMode === "fullFleet";
   const curtailmentBehaviorSubtext = isLiveCurtailmentEditMode
     ? undefined
@@ -1890,9 +1890,7 @@ function CurtailmentStartModalContent({
               title="Apply to"
               subtext={
                 facilityFanSelectionDisabledReason ??
-                (shouldShowFacilityFanSelector
-                  ? "Choose the sites, miners, and infrastructure included in this curtailment."
-                  : "Choose the sites and miners included in this curtailment.")
+                "Choose the sites, miners, and infrastructure included in this curtailment."
               }
             >
               <div className="grid">
@@ -1908,14 +1906,12 @@ function CurtailmentStartModalContent({
                   disabled={isLiveCurtailmentEditMode}
                   onClick={() => setShowMinerSelectionModal(true)}
                 />
-                {shouldShowFacilityFanSelector ? (
-                  <TargetSelectButton
-                    label={infrastructureApplyToTarget.label}
-                    value={infrastructureApplyToTarget.value}
-                    disabled={isFacilityFanSelectionDisabled}
-                    onClick={() => setShowFacilityFanSelectionModal(true)}
-                  />
-                ) : null}
+                <TargetSelectButton
+                  label={infrastructureApplyToTarget.label}
+                  value={infrastructureApplyToTarget.value}
+                  disabled={isInfrastructureApplyToDisabled}
+                  onClick={() => setShowFacilityFanSelectionModal(true)}
+                />
               </div>
             </Section>
 
@@ -2032,7 +2028,7 @@ function CurtailmentStartModalContent({
         />
       ) : null}
 
-      {shouldShowFacilityFanSelector && !isFacilityFanSelectionDisabled && showFacilityFanSelectionModal ? (
+      {!isInfrastructureApplyToDisabled && showFacilityFanSelectionModal ? (
         <FacilityFanSelectionModal
           devices={infrastructureDevices}
           initialSelectedDeviceIds={values.facilityFanDeviceIds ?? []}

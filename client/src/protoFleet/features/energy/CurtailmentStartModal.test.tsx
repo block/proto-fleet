@@ -1518,6 +1518,7 @@ describe("CurtailmentStartModal", () => {
       mode: "edit",
       initialValues: {
         ...configuredValues,
+        facilityFanDeviceIds: ["31", "32"],
         includeMaintenance: false,
       },
     });
@@ -1528,6 +1529,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByTestId("curtailment-curtail-batch-size")).toBeDisabled();
     expect(screen.getByTestId("curtailment-curtail-batch-interval")).toBeDisabled();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Infrastructure\s+2 devices/ })).toBeDisabled();
     expect(screen.queryByText("Include miners in maintenance")).not.toBeInTheDocument();
 
     const saveButton = screen.getByRole("button", { name: "Save" });

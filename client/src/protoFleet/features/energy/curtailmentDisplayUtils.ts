@@ -611,6 +611,24 @@ export function formatCurtailmentMinerCount(minerCount: number): string {
   return `${minerCount.toLocaleString()} ${getMinerCountLabel(minerCount)}`;
 }
 
+function getFacilityFanCountLabel(fanCount: number): string {
+  return fanCount === 1 ? "fan" : "fans";
+}
+
+export function formatCurtailmentFacilityFanCount(fanCount: number): string {
+  return `${fanCount.toLocaleString()} ${getFacilityFanCountLabel(fanCount)}`;
+}
+
+export function formatCurtailmentAppliesToSummary(minerCount: number, facilityFanDeviceCount = 0): string {
+  const parts = [formatCurtailmentMinerCount(minerCount)];
+
+  if (facilityFanDeviceCount > 0) {
+    parts.push(formatCurtailmentFacilityFanCount(facilityFanDeviceCount));
+  }
+
+  return parts.join(", ");
+}
+
 export function formatCurtailmentSelectedMinerCount(minerCount: number): string {
   return `${minerCount.toLocaleString()} selected ${getMinerCountLabel(minerCount)}`;
 }

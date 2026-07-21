@@ -8,7 +8,8 @@ import {
   type CurtailmentEventState,
   curtailmentEventStateConfigs,
   curtailmentEventStates,
-  formatCurtailmentMinerCount as formatMinerCount,
+  formatCurtailmentAppliesToSummary,
+  formatCurtailmentFacilityFanCount,
   formatCurtailmentTargetVsActual as formatTargetVsActual,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import CurtailmentStopConfirmationDialog from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
@@ -30,6 +31,7 @@ export interface CurtailmentHistoryEvent {
   priority: CurtailmentPriority;
   scopeLabel: string;
   selectedMiners: number;
+  facilityFanDeviceCount?: number;
   estimatedReductionKw: number;
   targetMetricsAvailable: boolean;
   // Distinct from targetMetricsAvailable: live rollups prove counts without
@@ -175,8 +177,18 @@ function DetailRow({ label, value, secondary }: DetailRowProps): ReactElement {
   );
 }
 
-function formatHistoryMinerCount(event: CurtailmentHistoryEvent): string {
-  return event.targetMetricsAvailable ? formatMinerCount(event.selectedMiners) : unavailableTargetMetricsLabel;
+function formatHistoryAppliesToSummary(event: CurtailmentHistoryEvent): string {
+  const facilityFanDeviceCount = event.facilityFanDeviceCount ?? 0;
+
+  if (event.targetMetricsAvailable) {
+    return formatCurtailmentAppliesToSummary(event.selectedMiners, facilityFanDeviceCount);
+  }
+
+  if (facilityFanDeviceCount > 0) {
+    return `${unavailableTargetMetricsLabel}, ${formatCurtailmentFacilityFanCount(facilityFanDeviceCount)}`;
+  }
+
+  return unavailableTargetMetricsLabel;
 }
 
 function formatHistoryTargetVsActual(event: CurtailmentHistoryEvent): string {
@@ -368,7 +380,7 @@ function CurtailmentSummaryModal({
         <div className="rounded-xl border border-border-5 px-4">
           <DetailRow label="Event" value={event.reason} />
           <DetailRow label="ID" value={event.id} />
-          <DetailRow label="Applies to" value={event.scopeLabel} secondary={formatHistoryMinerCount(event)} />
+          <DetailRow label="Applies to" value={event.scopeLabel} secondary={formatHistoryAppliesToSummary(event)} />
           <DetailRow label="Power target vs actual" value={formatHistoryTargetVsActual(event)} />
           <DetailRow label="Status" value={eventStateConfig.label} />
           <DetailRow label="Started" value={startedAt ?? "Not started yet"} />
@@ -442,7 +454,7 @@ function CurtailmentHistoryRow({
         <div className="truncate text-text-primary" title={event.scopeLabel}>
           {event.scopeLabel}
         </div>
-        <div className="text-200 text-text-primary-50">{formatHistoryMinerCount(event)}</div>
+        <div className="text-200 text-text-primary-50">{formatHistoryAppliesToSummary(event)}</div>
       </td>
       <td className="py-4 pr-6 align-top text-text-primary">{formatHistoryTargetVsActual(event)}</td>
       <td className="py-4 pr-6 align-top">
