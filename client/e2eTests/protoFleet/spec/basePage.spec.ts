@@ -1,5 +1,5 @@
 /* eslint-disable playwright/no-conditional-in-test -- scripted page double routes locator calls by selector */
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { BasePage } from "../pages/base";
 
 test.describe("Proto Fleet - Base page", () => {
