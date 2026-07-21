@@ -176,13 +176,17 @@ const ManageRacksModal = ({
     return { siteIds, includeUnassigned, buildingIds, includeNoBuilding };
   }, [showAssigned, scope, assignedScope, facetSiteIds, facetBuildingIds, currentBuildingId]);
 
-  // Assignable-only + a Building facet that excludes this building = provably no
-  // assignable matches. Show empty rather than fetch (an empty building_ids with
-  // include_no_building=false drops the building predicate and would leak the
-  // whole site). Self-correcting once the facet is cleared. Mirrors
-  // MinerSelectionList's placementFacetConflict.
+  // Assignable-only + a placement facet that excludes this building's own
+  // building/site = provably no assignable matches. Show empty rather than fetch
+  // (an empty building_ids with include_no_building=false drops the building
+  // predicate and would leak the whole site; a foreign Site facet replaces the
+  // scope and surfaces cross-site no-building racks as disabled reassignment
+  // rows that distort counts/paging). Self-correcting once the facet is cleared.
+  // Mirrors MinerSelectionList's placementFacetConflict.
   const placementFacetConflict =
-    !showAssigned && facetBuildingIds.length > 0 && !facetBuildingIds.includes(currentBuildingId);
+    !showAssigned &&
+    ((facetBuildingIds.length > 0 && !facetBuildingIds.includes(currentBuildingId)) ||
+      (facetSiteIds.length > 0 && !facetSiteIds.includes(siteId)));
 
   const requestKey = useMemo(
     () =>
@@ -280,6 +284,32 @@ const ManageRacksModal = ({
     accumulatorRef.current = new Map();
     setPageIndex(0);
     setError(null);
+  }
+
+  // Seed the accumulator with a placeholder for every initially-selected rack
+  // that isn't already resolved, so computeRackSelectionDelta can act on it even
+  // before its page loads. Without this, a seed that the current request never
+  // returns — an off-page member (building > one page) or a staged reparent
+  // pinned out of the assignable fetch — is "absent from items", and the delta's
+  // conservative "absent → preserve" rule silently keeps it. That makes an
+  // explicit "Select none" (or single deselect) of such a rack a no-op on
+  // Continue. The seed only carries the id; real rows overwrite it as pages load
+  // (and the delta only needs the id to report a removal). Runs after the reset
+  // above so it re-seeds a freshly cleared accumulator. Idempotent per id.
+  for (const id of initialSelectedRackIds) {
+    const key = id.toString();
+    if (!accumulatorRef.current.has(key)) {
+      accumulatorRef.current.set(key, {
+        id: key,
+        label: "",
+        buildingLabel: "—",
+        statusLabel: "",
+        disabled: false,
+        reassignment: false,
+        crossSite: false,
+        minerCount: 0,
+      });
+    }
   }
 
   // Fetch the current page. Builds picker items and folds them into the
@@ -454,16 +484,19 @@ const ManageRacksModal = ({
 
   // Footer "Select all" (offered only with the toggle off — see below) selects
   // every ELIGIBLE rack across all pages, not just the visible page. Server
-  // pagination hands us one page at a time, so we fetch the full assignable set
-  // (the toggle-off request, unpaginated) and select those ids, folding them
-  // into the accumulator so Continue can build the delta. Mirrors the miner
-  // picker's fetchAllSelectableMinerIds.
+  // pagination hands us one page at a time, so we fetch the current effective
+  // request (the same filter the table shows — scope + any facets), unpaginated,
+  // and select those ids, folding them into the accumulator so Continue can build
+  // the delta. Using the effective request (not the raw scope) keeps bulk-select
+  // consistent with the filtered view. Mirrors the miner picker's
+  // fetchAllSelectableMinerIds.
   const handleSelectAll = useCallback(() => {
+    const req = requestRef.current;
     void listRacks({
-      siteIds: scope.siteIds,
-      includeUnassigned: scope.includeUnassigned,
-      buildingIds: [currentBuildingId],
-      includeNoBuilding: true,
+      siteIds: req.siteIds,
+      includeUnassigned: req.includeUnassigned,
+      buildingIds: req.buildingIds,
+      includeNoBuilding: req.includeNoBuilding,
       onSuccess: (racks) => {
         const ids: string[] = [];
         for (const rack of racks) {
@@ -479,7 +512,7 @@ const ManageRacksModal = ({
         pushToast({ message: `Couldn't select all racks: ${msg}`, status: STATUSES.error });
       },
     });
-  }, [listRacks, scope.siteIds, scope.includeUnassigned, currentBuildingId, siteId, seededRackIds]);
+  }, [listRacks, currentBuildingId, siteId, seededRackIds]);
 
   const handleSelectNone = useCallback(() => setSelectedItems([]), []);
 
@@ -595,10 +628,12 @@ const ManageRacksModal = ({
                 label={`${selectedItems.length} ${selectedItems.length === 1 ? "rack" : "racks"} selected`}
                 // Hide "Select all" while ineligible (reassignment) racks are in
                 // the fetch — a bulk select-all can't sweep them into a reparent.
-                // Matches MinerSelectionList. The in-table header checkbox still
-                // selects the whole page (reparent rows included), gated by the
-                // reparent confirm on Continue.
-                onSelectAll={showAssigned ? undefined : handleSelectAll}
+                // Also hide it under a placement-facet conflict, where the
+                // effective request is provably empty and a bulk select would be
+                // meaningless. Matches MinerSelectionList. The in-table header
+                // checkbox still selects the whole page (reparent rows included),
+                // gated by the reparent confirm on Continue.
+                onSelectAll={showAssigned || placementFacetConflict ? undefined : handleSelectAll}
                 onSelectNone={handleSelectNone}
               />
             </div>

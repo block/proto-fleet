@@ -387,3 +387,76 @@ describe("ManageRacksModal server-side pagination", () => {
     expect(onConfirm.mock.calls[0][0].added).toHaveLength(60);
   });
 });
+
+// Regression tests for the automated PR-review findings on #789.
+describe("ManageRacksModal review fixes (#789)", () => {
+  it("removes an explicitly deselected seed even when it is absent from the fetch", async () => {
+    // Seed 3 is off-page / pinned out of the assignable fetch (only Alpha=1 is
+    // returned). Clicking "Select none" is an explicit clear, so both seeds must
+    // be reported removed — the accumulator is placeholder-seeded so the absent
+    // seed is still actionable. (Contrast the untouched-seed test above, which
+    // preserves it.)
+    const onConfirm = vi.fn();
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n)]);
+    renderModal({ initialSelectedRackIds: [1n, 3n], onConfirm });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Select none" }));
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+
+    const delta = onConfirm.mock.calls[0][0];
+    expect(delta.removed).toEqual(expect.arrayContaining([1n, 3n]));
+    expect(delta.added).toEqual([]);
+  });
+
+  it("footer 'Select all' honors an active Building facet (excludes no-building racks)", async () => {
+    // Building 7 has Alpha; there is also a no-building rack (Floating). With a
+    // Building facet pinned to this building the visible set drops Floating, and
+    // footer Select all must fetch the same effective request — not the raw
+    // scope that would sweep Floating back in.
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n), createRack(2n, "Floating", 0n, 42n)]);
+    mockListBuildings.mockImplementation(({ onSuccess }) => onSuccess?.([{ building: { id: 7n, name: "North" } }]));
+    const onConfirm = vi.fn();
+    renderModal({ onConfirm });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    // No facet: building 7 + no-building → both visible.
+    expect(screen.getByText("Floating")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("filter-nested-filters-meta"));
+    await userEvent.click(screen.getByTestId("nested-dropdown-filter-row-building"));
+    await userEvent.click(screen.getByTestId("filter-option-7"));
+    await waitFor(() => expect(screen.queryByText("Floating")).not.toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Select all" }));
+    await waitFor(() => expect(screen.getByText("1 rack selected")).toBeInTheDocument());
+
+    const fetchAll = reqsMatching((r) => r.pageSize === undefined);
+    expect(fetchAll[fetchAll.length - 1]).toEqual(
+      expect.objectContaining({ buildingIds: [7n], includeNoBuilding: false }),
+    );
+
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+    expect(onConfirm.mock.calls[0][0].added.map((a: { rackId: bigint }) => a.rackId)).toEqual([1n]);
+  });
+
+  it("treats a foreign Site facet as an empty assignable view and hides Select all (toggle off)", async () => {
+    // all-sites; a cross-site no-building rack (Faraway, site 99) exists. Picking
+    // a Site facet for a different site is unsatisfiable for the assignable set,
+    // so the view goes empty rather than surfacing Faraway as a disabled
+    // reassignment row — and footer Select all is hidden.
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n), createRack(2n, "Faraway", 0n, 99n)]);
+    mockListSites.mockImplementation(({ onSuccess }) =>
+      onSuccess?.([{ site: { id: 42n, name: "HQ" } }, { site: { id: 99n, name: "Remote" } }]),
+    );
+    renderModal({ allSites: true });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTestId("filter-nested-filters-meta"));
+    await userEvent.click(screen.getByTestId("nested-dropdown-filter-row-site"));
+    await userEvent.click(screen.getByTestId("filter-option-99"));
+
+    await waitFor(() => expect(screen.queryByText("Alpha")).not.toBeInTheDocument());
+    expect(screen.queryByText("Faraway")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Select all" })).not.toBeInTheDocument();
+  });
+});
