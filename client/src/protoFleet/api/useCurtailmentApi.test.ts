@@ -177,8 +177,8 @@ describe("useCurtailmentApi", () => {
   it("loads and maps active curtailment plus history", async () => {
     const activeEvent = curtailmentEvent({
       facilityFanDeviceIds: [31n, 32n],
-      fanOffDelaySec: 45,
-      fanRestoreDelaySec: 90,
+      fanOffDelaySec: 0,
+      fanRestoreDelaySec: 0,
       fanOffSentAt: timestamp("2026-05-01T12:05:00Z"),
     });
     const completedEvent = curtailmentEvent({
@@ -226,8 +226,8 @@ describe("useCurtailmentApi", () => {
         restoreBatchSize: "",
         restoreIntervalSec: "60",
         facilityFanDeviceIds: ["31", "32"],
-        fanOffDelaySec: "45",
-        fanRestoreDelaySec: "90",
+        fanOffDelaySec: "0",
+        fanRestoreDelaySec: "0",
       }),
     );
     expect(result.current.activeEvent?.rollups).toEqual([

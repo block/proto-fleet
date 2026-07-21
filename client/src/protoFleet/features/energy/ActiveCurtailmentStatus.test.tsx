@@ -158,6 +158,7 @@ describe("ActiveCurtailmentStatus", () => {
       <ActiveCurtailmentStatus
         event={{
           ...curtailingCurtailmentEvent,
+          facilityFanDeviceCount: 2,
           observedReductionKw: 0,
           rollups: [{ state: "pending", count: curtailingCurtailmentEvent.selectedMiners }],
           state: "pending",
@@ -168,6 +169,7 @@ describe("ActiveCurtailmentStatus", () => {
 
     expectPrimaryLockup("Power shed", "0.0 of 60.0 kW");
     expectStat("Dispatch status", "Pending");
+    expectInfrastructureStatus("Pending");
     expect(screen.getAllByText("Pending")[0]).toBeVisible();
     expectProgressSummary("0 of 18 miners curtailed (0%)");
     expectActionButtonHidden("Restore");

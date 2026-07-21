@@ -153,9 +153,17 @@ const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
   restoring: "Restoring",
 };
 
-function getInfrastructureStatus(event: ActiveCurtailmentEvent, isRestoreFlow: boolean): string | null {
+function getInfrastructureStatus(
+  event: ActiveCurtailmentEvent,
+  isRestoreFlow: boolean,
+  displayState: ActiveCurtailmentDisplayState,
+): string | null {
   if ((event.facilityFanDeviceCount ?? 0) <= 0) {
     return null;
+  }
+
+  if (displayState === "pending") {
+    return "Pending";
   }
 
   if (event.fanLastError) {
@@ -773,7 +781,7 @@ export default function ActiveCurtailmentStatus({
     isCurtailmentComplete: displayFlags.isCurtailmentComplete,
   });
   const incompleteSiteCoverageWarning = formatIncompleteSiteCoverageWarning(event.targetSiteCoverage);
-  const infrastructureStatus = getInfrastructureStatus(event, displayFlags.isRestoreFlow);
+  const infrastructureStatus = getInfrastructureStatus(event, displayFlags.isRestoreFlow, displayState);
 
   return (
     <section className={clsx("grid gap-3", className)}>

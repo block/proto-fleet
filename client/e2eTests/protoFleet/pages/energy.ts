@@ -101,9 +101,7 @@ export class EnergyPage extends BasePage {
     const activeCurtailmentSection = this.activeCurtailmentSection(reason);
 
     await expect(activeCurtailmentSection).toBeVisible();
-    await expect(activeCurtailmentSection.getByTestId("active-curtailment-primary-lockup")).toContainText(
-      /Pending|Curtailing|Curtailed/,
-    );
+    await expect(activeCurtailmentSection).toContainText(/Dispatch status\s*(Pending|Curtailing|Curtailed)/);
   }
 
   async validateActiveCurtailmentManageActionsHidden(reason: string) {
@@ -162,9 +160,10 @@ export class EnergyPage extends BasePage {
             return inactiveState;
           }
 
-          const primaryLockupText =
-            (await activeCurtailmentSection.getByTestId("active-curtailment-primary-lockup").textContent()) ?? "";
-          return /Restored|Restore incomplete/.test(primaryLockupText) ? terminalRestoreState : primaryLockupText;
+          const sectionText = (await activeCurtailmentSection.textContent()) ?? "";
+          return /Dispatch status\s*(Restored|Restore incomplete)/.test(sectionText)
+            ? terminalRestoreState
+            : sectionText;
         },
         { timeout: restoreReconciliationTimeout, intervals: [DEFAULT_INTERVAL] },
       )
