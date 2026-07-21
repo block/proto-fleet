@@ -145,7 +145,7 @@ describe("CurtailmentHistory", () => {
     expect(within(modal).getByText("High")).toBeInTheDocument();
   });
 
-  it("includes facility fans in historical applies to summaries when present", async () => {
+  it("includes infrastructure devices in historical applies to summaries when present", async () => {
     const user = userEvent.setup();
     const eventWithFans = {
       ...mockCurtailmentHistoryEvents[0],
@@ -156,13 +156,13 @@ describe("CurtailmentHistory", () => {
 
     const row = screen.getByTestId("curtailment-history-row-curt-1042");
     expect(within(row).getByText("Rockdale, TX")).toBeVisible();
-    expect(within(row).getByText("18 miners, 2 fans")).toBeVisible();
+    expect(within(row).getByText("18 miners, 2 devices")).toBeVisible();
 
     await user.click(row);
 
     const modal = screen.getByTestId("modal");
     expect(within(modal).getByText("Rockdale, TX")).toBeInTheDocument();
-    expect(within(modal).getByText("18 miners, 2 fans")).toBeInTheDocument();
+    expect(within(modal).getByText("18 miners, 2 devices")).toBeInTheDocument();
   });
 
   it("renders unavailable target metrics without misleading zero values", async () => {

@@ -42,6 +42,7 @@ export interface ActiveCurtailmentEvent {
   facilityFanDeviceCount?: number;
   fanOffSentAt?: string;
   fanOnSentAt?: string;
+  fanAirflowReopenedAt?: string;
   fanLastError?: string;
   // Curtail dispatch pacing for the rough time-to-curtail estimate; absent
   // when the event has no explicit batch size (reconciler-side defaults).
@@ -172,6 +173,10 @@ function getInfrastructureStatus(
 
   if (isRestoreFlow) {
     return event.fanOnSentAt ? "Restored" : "Restoring";
+  }
+
+  if (event.fanAirflowReopenedAt) {
+    return "Curtailing";
   }
 
   return event.fanOffSentAt ? "Curtailed" : "Curtailing";

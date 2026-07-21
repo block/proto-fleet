@@ -339,6 +339,7 @@ message CurtailmentEvent {
     google.protobuf.Timestamp fan_off_sent_at = 48;
     google.protobuf.Timestamp fan_on_sent_at = 49;
     string fan_last_error = 50;
+    google.protobuf.Timestamp fan_airflow_reopened_at = 51;
 
     // Server-resolved restore batch size stamped at Start. restore_batch_size=0
     // means restore all pending targets in one wave up to the server's explicit

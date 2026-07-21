@@ -81,7 +81,7 @@ describe("ActiveCurtailmentStatus", () => {
     expect(onRequestStop).toHaveBeenCalledOnce();
   });
 
-  it("includes facility fans in the applies to summary and infrastructure status when present", () => {
+  it("includes infrastructure devices in the applies to summary and infrastructure status when present", () => {
     render(
       <ActiveCurtailmentStatus
         event={{
@@ -91,7 +91,7 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    expect(screen.getByText("18 miners, 2 fans")).toBeVisible();
+    expect(screen.getByText("18 miners, 2 devices")).toBeVisible();
     expectInfrastructureStatus("Curtailing");
   });
 
@@ -107,6 +107,21 @@ describe("ActiveCurtailmentStatus", () => {
     );
 
     expectInfrastructureStatus("Curtailed");
+  });
+
+  it("renders reopened active infrastructure as curtailing until fans turn off again", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          facilityFanDeviceCount: 2,
+          fanOffSentAt: "2026-05-01T12:05:00.000Z",
+          fanAirflowReopenedAt: "2026-05-01T12:10:00.000Z",
+        }}
+      />,
+    );
+
+    expectInfrastructureStatus("Curtailing");
   });
 
   it("renders restoring infrastructure status during restore", () => {

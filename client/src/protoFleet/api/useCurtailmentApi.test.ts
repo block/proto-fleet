@@ -180,6 +180,7 @@ describe("useCurtailmentApi", () => {
       fanOffDelaySec: 0,
       fanRestoreDelaySec: 0,
       fanOffSentAt: timestamp("2026-05-01T12:05:00Z"),
+      fanAirflowReopenedAt: timestamp("2026-05-01T12:10:00Z"),
     });
     const completedEvent = curtailmentEvent({
       eventUuid: "curt-2",
@@ -206,6 +207,7 @@ describe("useCurtailmentApi", () => {
         targetKw: 5,
         facilityFanDeviceCount: 2,
         fanOffSentAt: "2026-05-01T12:05:00.000Z",
+        fanAirflowReopenedAt: "2026-05-01T12:10:00.000Z",
         observedReductionKw: 5,
         remainingPowerKw: 1,
         // Live-progress inputs (issue #660): elapsed anchors on startedAt,

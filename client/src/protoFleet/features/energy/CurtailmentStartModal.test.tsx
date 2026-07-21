@@ -605,7 +605,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "This will curtail miners across the fleet and 1 fan immediately. Schedules stay suppressed until miners are restored.",
+        "This will curtail miners across the fleet and 1 device immediately. Schedules stay suppressed until miners are restored.",
       ),
     ).toBeInTheDocument();
     await confirmCurtailment(user);
@@ -649,7 +649,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "This will curtail 3 miners and 1 fan immediately. Schedules stay suppressed until miners are restored.",
+        "This will curtail 3 miners and 1 device immediately. Schedules stay suppressed until miners are restored.",
       ),
     ).toBeInTheDocument();
     await confirmCurtailment(user);
@@ -1731,7 +1731,7 @@ describe("CurtailmentStartModal", () => {
       },
     });
 
-    expect(screen.getAllByText("Curtail 2 miners, 1 fan from selected miners immediately")).toHaveLength(2);
+    expect(screen.getAllByText("Curtail 2 miners, 1 device from selected miners immediately")).toHaveLength(2);
   });
 
   it("renders singular mixed-scope preview copy without double-counting selected miners", () => {

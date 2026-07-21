@@ -611,12 +611,12 @@ export function formatCurtailmentMinerCount(minerCount: number): string {
   return `${minerCount.toLocaleString()} ${getMinerCountLabel(minerCount)}`;
 }
 
-function getFacilityFanCountLabel(fanCount: number): string {
-  return fanCount === 1 ? "fan" : "fans";
+function getFacilityFanDeviceCountLabel(deviceCount: number): string {
+  return deviceCount === 1 ? "device" : "devices";
 }
 
-export function formatCurtailmentFacilityFanCount(fanCount: number): string {
-  return `${fanCount.toLocaleString()} ${getFacilityFanCountLabel(fanCount)}`;
+export function formatCurtailmentFacilityFanCount(deviceCount: number): string {
+  return `${deviceCount.toLocaleString()} ${getFacilityFanDeviceCountLabel(deviceCount)}`;
 }
 
 export function formatCurtailmentAppliesToSummary(minerCount: number, facilityFanDeviceCount = 0): string {

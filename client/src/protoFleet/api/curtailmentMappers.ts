@@ -379,6 +379,7 @@ export function mapActiveCurtailmentEvent(
     facilityFanDeviceCount: event.facilityFanDeviceIds.length,
     fanOffSentAt: timestampToIsoString(event.fanOffSentAt),
     fanOnSentAt: timestampToIsoString(event.fanOnSentAt),
+    fanAirflowReopenedAt: timestampToIsoString(event.fanAirflowReopenedAt),
     fanLastError: event.fanLastError,
     curtailBatchSize: event.curtailBatchSize,
     curtailBatchIntervalSec: event.curtailBatchIntervalSec,
