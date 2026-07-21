@@ -30,9 +30,15 @@ const { mockUseCurtailmentPlanPreview } = vi.hoisted(() => ({
 vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
   createCurtailmentPlanPreview: (
     values: CurtailmentFormValues,
-    source: { selectedMinerCount: number; targetKw?: number; estimatedReductionKw: number },
+    source: {
+      selectedMinerCount: number;
+      facilityFanDeviceCount?: number;
+      targetKw?: number;
+      estimatedReductionKw: number;
+    },
   ): CurtailmentPlanPreview => ({
     selectedMinerCount: source.selectedMinerCount,
+    facilityFanDeviceCount: source.facilityFanDeviceCount ?? values.facilityFanDeviceIds?.length ?? 0,
     targetKw: source.targetKw ?? Number(values.targetKw),
     estimatedReductionKw: source.estimatedReductionKw,
     curtailEstimate: "~1 minute",
@@ -261,6 +267,7 @@ const scopeLessResponseProfiles: CurtailmentResponseProfileOption[] = [
 
 const preview: CurtailmentPlanPreview = {
   selectedMinerCount: 18,
+  facilityFanDeviceCount: 0,
   targetKw: 40,
   estimatedReductionKw: 45,
   curtailEstimate: "~1 minute",
@@ -596,6 +603,11 @@ describe("CurtailmentStartModal", () => {
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This will curtail miners across the fleet and 1 fan immediately. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
     await confirmCurtailment(user);
 
     expect(onSubmit).toHaveBeenCalledWith(
@@ -635,6 +647,11 @@ describe("CurtailmentStartModal", () => {
 
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
     expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This will curtail 3 miners and 1 fan immediately. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
     await confirmCurtailment(user);
 
     expect(onSubmit).toHaveBeenCalledWith(
@@ -1692,6 +1709,29 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
     expect(screen.getAllByText("45.0 kW of 40.0 kW")).toHaveLength(2);
     expect(screen.getAllByText("~1 minute to curtail, ~2 minutes to restore")).toHaveLength(2);
+  });
+
+  it("renders selected infrastructure in the curtailment preview", () => {
+    mockUseCurtailmentPlanPreview.mockReturnValue({
+      preview: {
+        ...preview,
+        selectedMinerCount: 2,
+        facilityFanDeviceCount: 1,
+        scopeLabel: "from selected miners",
+      },
+      previewError: undefined,
+      isPreviewLoading: false,
+    });
+
+    renderModal({
+      initialValues: {
+        ...configuredValues,
+        deviceIdentifiers: ["miner-1", "miner-2"],
+        facilityFanDeviceIds: ["31"],
+      },
+    });
+
+    expect(screen.getAllByText("Curtail 2 miners, 1 fan from selected miners immediately")).toHaveLength(2);
   });
 
   it("renders singular mixed-scope preview copy without double-counting selected miners", () => {

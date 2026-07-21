@@ -77,6 +77,7 @@ const emptyPreviewState: CurtailmentPlanPreviewState = {
 
 interface CurtailmentPlanPreviewSource {
   selectedMinerCount: number;
+  facilityFanDeviceCount?: number;
   unavailableMinerCount?: number;
   targetKw?: number;
   estimatedReductionKw: number;
@@ -296,6 +297,10 @@ export function createCurtailmentPlanPreview(
   source: CurtailmentPlanPreviewSource,
 ): CurtailmentPlanPreview {
   const selectedMinerCount = Number.isFinite(source.selectedMinerCount) ? source.selectedMinerCount : 0;
+  const facilityFanDeviceCount =
+    source.facilityFanDeviceCount !== undefined && Number.isFinite(source.facilityFanDeviceCount)
+      ? source.facilityFanDeviceCount
+      : (values.facilityFanDeviceIds?.length ?? 0);
   const fallbackTargetKw =
     values.curtailmentMode === "fullFleet" && Number.isFinite(source.estimatedReductionKw)
       ? source.estimatedReductionKw
@@ -306,6 +311,7 @@ export function createCurtailmentPlanPreview(
 
   return {
     selectedMinerCount,
+    facilityFanDeviceCount,
     unavailableMinerCount:
       source.unavailableMinerCount !== undefined && Number.isFinite(source.unavailableMinerCount)
         ? source.unavailableMinerCount
