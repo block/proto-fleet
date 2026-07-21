@@ -312,6 +312,18 @@ type metricsResult struct {
 	metrics    modelsV2.DeviceMetrics
 }
 
+type telemetryResults struct {
+	status  chan statusResult
+	metrics chan metricsResult
+}
+
+func newTelemetryResults() telemetryResults {
+	return telemetryResults{
+		status:  make(chan statusResult, resultsChannelBuffer),
+		metrics: make(chan metricsResult, resultsChannelBuffer),
+	}
+}
+
 type TelemetryService struct {
 	config             Config
 	updateScheduler    UpdateScheduler
@@ -326,12 +338,14 @@ type TelemetryService struct {
 	// statusTasks queues devices for status-only checks (no telemetry fetch).
 	// Used by statusPollingRoutine to check failed devices for recovery.
 	statusTasks chan models.Device
-	// statusResults receives status updates from workers for batch DB writes.
+	// statusResults receives request-driven status updates. Background activations
+	// use per-run channels so stopped runs cannot leak results into a later run.
 	statusResults chan statusResult
 	// statusFlushRequests asks statusWriterRoutine to flush pending status
 	// updates immediately and report the result to the caller.
 	statusFlushRequests chan statusFlushRequest
-	// metricsResults receives device metrics from workers for batch DB writes.
+	// metricsResults receives request-driven device metrics. Background activations
+	// use per-run channels so stopped runs cannot leak results into a later run.
 	// Uses a blocking send so metrics are never dropped; backpressure slows workers
 	// if the DB falls behind rather than losing data.
 	metricsResults chan metricsResult
@@ -374,6 +388,7 @@ type TelemetryService struct {
 var _ runtimejobs.Lifecycle = (*TelemetryService)(nil)
 
 func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager CachedMinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller) *TelemetryService {
+	requestResults := newTelemetryResults()
 	s := &TelemetryService{
 		config:                 config,
 		telemetryDataStore:     telemetryDataStore,
@@ -386,12 +401,16 @@ func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, m
 		combinedMetricsFlights: make(map[string]*combinedMetricsFlight),
 		tasks:                  make(chan models.Device, config.ConcurrencyLimit),
 		statusTasks:            make(chan models.Device, config.ConcurrencyLimit),
-		statusResults:          make(chan statusResult, resultsChannelBuffer),
+		statusResults:          requestResults.status,
 		statusFlushRequests:    make(chan statusFlushRequest),
-		metricsResults:         make(chan metricsResult, resultsChannelBuffer),
+		metricsResults:         requestResults.metrics,
 		metricsFlushRequests:   make(chan metricsFlushRequest),
 	}
 	return s
+}
+
+func (s *TelemetryService) requestResults() telemetryResults {
+	return telemetryResults{status: s.statusResults, metrics: s.metricsResults}
 }
 
 func (s *TelemetryService) WithMetricsEmitter(emitter MetricsEmitter) *TelemetryService {
@@ -553,9 +572,10 @@ func (s *TelemetryService) Start(ctx context.Context) error {
 
 	runCtx, cancel := context.WithCancel(ctx)
 	runDone := make(chan struct{})
+	runResults := newTelemetryResults()
 	s.runCancel = cancel
 	s.runDone = runDone
-	s.runWG.Go(func() { s.gatherMetricsRoutine(runCtx) })
+	s.runWG.Go(func() { s.gatherMetricsRoutine(runCtx, runResults) })
 	s.runWG.Go(func() { s.devicePollingRoutine(runCtx) })
 	s.runWG.Go(func() { s.statusPollingRoutine(runCtx) })
 	s.runWG.Go(func() { s.fleetStateSnapshotRoutine(runCtx) })
@@ -647,15 +667,15 @@ func (s *TelemetryService) GetOrCreateBroadcaster(ctx context.Context, orgID int
 	return broadcaster, nil
 }
 
-func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
+func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, results telemetryResults) {
 	// Start workers that fetch telemetry/status from miners
 	for range s.config.ConcurrencyLimit {
-		s.runWG.Go(func() { s.worker(ctx) })
+		s.runWG.Go(func() { s.workerForActivation(ctx, results) })
 	}
 
 	// Start routines that collect results from workers and periodically write to DB
-	s.runWG.Go(func() { s.statusWriterRoutine(ctx) })
-	s.runWG.Go(func() { s.metricsWriterRoutine(ctx) })
+	s.runWG.Go(func() { s.statusWriterRoutineForActivation(ctx, results.status) })
+	s.runWG.Go(func() { s.metricsWriterRoutineForActivation(ctx, results.metrics) })
 
 	fetchInterval := s.config.FetchInterval
 	if fetchInterval <= 0 {
@@ -871,6 +891,10 @@ func fleetMetricRollupWriteWindow(now, latest time.Time) (startTime, endTime tim
 // It fetches telemetry/status from miners and sends results to the statusResults channel
 // for periodic DB writes by statusWriterRoutine.
 func (s *TelemetryService) worker(ctx context.Context) {
+	s.workerForActivation(ctx, s.requestResults())
+}
+
+func (s *TelemetryService) workerForActivation(ctx context.Context, results telemetryResults) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -886,14 +910,14 @@ func (s *TelemetryService) worker(ctx context.Context) {
 				}
 				continue
 			}
-			_ = s.processDevice(ctx, device)
+			_ = s.processDeviceWithResults(ctx, device, results)
 			s.inFlight.Delete(device.ID)
 
 		case device, ok := <-s.statusTasks:
 			if !ok {
 				return
 			}
-			s.processStatusOnly(ctx, device)
+			s.processStatusOnlyWithResults(ctx, device, results.status)
 			s.inFlight.Delete(device.ID)
 		}
 	}
@@ -909,9 +933,13 @@ func (s *TelemetryService) worker(ctx context.Context) {
 // Connection errors during status fetch are converted to MinerStatusOffline (not errors),
 // so the flow continues. Only auth failures and other non-connection errors cause early return.
 func (s *TelemetryService) processDevice(ctx context.Context, device models.Device) error {
+	return s.processDeviceWithResults(ctx, device, s.requestResults())
+}
+
+func (s *TelemetryService) processDeviceWithResults(ctx context.Context, device models.Device, results telemetryResults) error {
 	// Telemetry failure doesn't block status/error polling - we still want to track online state.
 	// When metrics succeed, status is derived from the health field — no second RPC needed.
-	metricsStatus, hasMetricsStatus, orgID, driverName, siteID, pollSuccess, telemetryErr := s.GetTelemetryFromDevice(ctx, device)
+	metricsStatus, hasMetricsStatus, orgID, driverName, siteID, pollSuccess, telemetryErr := s.getTelemetryFromDevice(ctx, device, results.metrics)
 	var collectionErr error
 	s.metricsObserver.onPollResult(
 		ctx,
@@ -976,7 +1004,7 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 
 	// Send status result to writer (non-blocking to prevent worker stalls)
 	select {
-	case s.statusResults <- statusResult{
+	case results.status <- statusResult{
 		deviceIdentifier: device.ID,
 		status:           status,
 		orgID:            orgID,
@@ -1017,6 +1045,10 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 // This design ensures devices can automatically rejoin telemetry collection when they
 // come back online, without manual intervention.
 func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.Device) {
+	s.processStatusOnlyWithResults(ctx, device, s.statusResults)
+}
+
+func (s *TelemetryService) processStatusOnlyWithResults(ctx context.Context, device models.Device, results chan<- statusResult) {
 	status, orgID, driverName, siteID, statusErr := s.fetchStatusFromMiner(ctx, device.ID)
 	if statusErr != nil {
 		// Non-connection errors (e.g., auth failures) - device stays in failed state.
@@ -1055,7 +1087,7 @@ func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.
 
 	// Always send status to DB for UI visibility (even for offline devices)
 	select {
-	case s.statusResults <- statusResult{
+	case results <- statusResult{
 		deviceIdentifier: device.ID,
 		status:           status,
 		orgID:            orgID,
@@ -1072,6 +1104,10 @@ func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.
 // statusWriterRoutine collects status results from workers and writes them to DB periodically.
 // This centralizes DB writes to reduce connection usage and improve throughput.
 func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
+	s.statusWriterRoutineForActivation(ctx, nil)
+}
+
+func (s *TelemetryService) statusWriterRoutineForActivation(ctx context.Context, activationResults <-chan statusResult) {
 	flushInterval := s.config.StatusFlushInterval
 	if flushInterval <= 0 {
 		flushInterval = defaultStatusFlushInterval
@@ -1101,6 +1137,11 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 		var drainResult statusFlushResult
 		for {
 			select {
+			case result := <-activationResults:
+				addPendingUpdate(result)
+				if len(pendingUpdates) >= maxStatusBatchSize {
+					drainResult = mergeStatusFlushResults(drainResult, flush(flushCtx))
+				}
 			case result, ok := <-s.statusResults:
 				if !ok {
 					return drainResult
@@ -1209,6 +1250,12 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 			_ = flush(shutdownCtx)
 			cancel()
 			return
+
+		case result := <-activationResults:
+			addPendingUpdate(result)
+			if len(pendingUpdates) >= maxStatusBatchSize {
+				_ = flush(ctx)
+			}
 
 		case result, ok := <-s.statusResults:
 			if !ok {
@@ -1458,6 +1505,10 @@ func (s *TelemetryService) resolveTrustedDeviceMetadata(ctx context.Context, dev
 // succeeded, and any error. The first bool is false when the health status is
 // ambiguous; see healthStatusToMinerStatus.
 func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device models.Device) (mm.MinerStatus, bool, int64, string, int64, bool, error) {
+	return s.getTelemetryFromDevice(ctx, device, s.metricsResults)
+}
+
+func (s *TelemetryService) getTelemetryFromDevice(ctx context.Context, device models.Device, results chan<- metricsResult) (mm.MinerStatus, bool, int64, string, int64, bool, error) {
 	fetchCtx, cancel := context.WithTimeout(ctx, s.config.MetricTimeout)
 	defer cancel()
 
@@ -1480,7 +1531,7 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 		// prevent enqueueing metrics we already fetched. Only give up if the service
 		// itself is shutting down (ctx cancelled by the root context).
 		select {
-		case s.metricsResults <- metricsResult{
+		case results <- metricsResult{
 			deviceID:   device.ID,
 			orgID:      result.orgID,
 			siteID:     result.siteID,
@@ -1504,6 +1555,10 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 	return result.status, result.hasStatus, result.orgID, result.driverName, result.siteID, pollSuccess, nil
 }
 func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
+	s.metricsWriterRoutineForActivation(ctx, nil)
+}
+
+func (s *TelemetryService) metricsWriterRoutineForActivation(ctx context.Context, activationResults <-chan metricsResult) {
 	flushInterval := s.config.StatusFlushInterval
 	if flushInterval <= 0 {
 		flushInterval = defaultMetricsFlushInterval
@@ -1551,6 +1606,11 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 		var drainResult metricsFlushResult
 		for {
 			select {
+			case result := <-activationResults:
+				forwardMetrics(result)
+				if len(pending) >= maxMetricsBatchSize {
+					drainResult = mergeMetricsFlushResults(drainResult, flush(flushCtx))
+				}
 			case result, ok := <-s.metricsResults:
 				if !ok {
 					return drainResult
@@ -1574,6 +1634,11 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 			_ = flush(shutdownCtx)
 			cancel()
 			return
+		case result := <-activationResults:
+			forwardMetrics(result)
+			if len(pending) >= maxMetricsBatchSize {
+				_ = flush(ctx)
+			}
 		case result := <-s.metricsResults:
 			forwardMetrics(result)
 			if len(pending) >= maxMetricsBatchSize {
