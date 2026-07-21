@@ -462,9 +462,7 @@ func start(config *Config) error {
 	// Ensure IP scanner service cleanup on shutdown
 	defer func() {
 		slog.Info("Stopping IP scanner service")
-		if err := ipScannerService.Stop(); err != nil {
-			slog.Error("Failed to stop IP scanner service", "error", err)
-		}
+		stopStandaloneJob("IP scanner service", ipScannerService)
 	}()
 
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
