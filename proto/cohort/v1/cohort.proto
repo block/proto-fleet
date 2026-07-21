@@ -5,6 +5,7 @@ package cohort.v1;
 import "buf/validate/validate.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
+import "telemetry/v1/telemetry.proto";
 
 // CohortService manages desired-state cells over exclusive device sets.
 service CohortService {
@@ -37,6 +38,14 @@ service CohortService {
     // GetCohortFirmwareVersionHistory returns the version mix over time for
     // the cohort's current explicit members.
     rpc GetCohortFirmwareVersionHistory(GetCohortFirmwareVersionHistoryRequest) returns (GetCohortFirmwareVersionHistoryResponse);
+
+    // GetCohortFirmwareValidation compares telemetry before a firmware target
+    // was assigned with telemetry after current members converged on it.
+    rpc GetCohortFirmwareValidation(GetCohortFirmwareValidationRequest) returns (GetCohortFirmwareValidationResponse);
+
+    // GetCohortTelemetryComparison compares current operating outcomes across
+    // a small set of active cohorts using their effective current members.
+    rpc GetCohortTelemetryComparison(GetCohortTelemetryComparisonRequest) returns (GetCohortTelemetryComparisonResponse);
 
     // ListCohorts lists cohorts for the caller's organization.
     rpc ListCohorts(ListCohortsRequest) returns (ListCohortsResponse);
@@ -465,4 +474,158 @@ message AdminReleaseCohortRequest {
 
 message AdminReleaseCohortResponse {
     Cohort cohort = 1;
+}
+
+enum CohortFirmwareValidationWindow {
+    COHORT_FIRMWARE_VALIDATION_WINDOW_UNSPECIFIED = 0;
+    COHORT_FIRMWARE_VALIDATION_WINDOW_ONE_HOUR = 1;
+    COHORT_FIRMWARE_VALIDATION_WINDOW_SIX_HOURS = 2;
+    COHORT_FIRMWARE_VALIDATION_WINDOW_TWENTY_FOUR_HOURS = 3;
+}
+
+enum CohortFirmwareValidationState {
+    COHORT_FIRMWARE_VALIDATION_STATE_UNSPECIFIED = 0;
+    COHORT_FIRMWARE_VALIDATION_STATE_AVAILABLE = 1;
+    COHORT_FIRMWARE_VALIDATION_STATE_NO_TARGET = 2;
+    COHORT_FIRMWARE_VALIDATION_STATE_TARGET_VERSION_UNKNOWN = 3;
+    COHORT_FIRMWARE_VALIDATION_STATE_NO_BASELINE = 4;
+    COHORT_FIRMWARE_VALIDATION_STATE_STABILIZING = 5;
+    COHORT_FIRMWARE_VALIDATION_STATE_INSUFFICIENT_TELEMETRY = 6;
+    COHORT_FIRMWARE_VALIDATION_STATE_HISTORY_EXPIRED = 7;
+}
+
+enum CohortFirmwareValidationTelemetryResolution {
+    COHORT_FIRMWARE_VALIDATION_TELEMETRY_RESOLUTION_UNSPECIFIED = 0;
+    COHORT_FIRMWARE_VALIDATION_TELEMETRY_RESOLUTION_RAW = 1;
+    COHORT_FIRMWARE_VALIDATION_TELEMETRY_RESOLUTION_HOURLY = 2;
+}
+
+message GetCohortFirmwareValidationRequest {
+    int64 cohort_id = 1 [(buf.validate.field).int64.gt = 0];
+    string manufacturer = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string model = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    CohortFirmwareValidationWindow comparison_window = 4 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+}
+
+message CohortFirmwareValidationExclusions {
+    int32 added_after_rollout_count = 1;
+    int32 unknown_baseline_count = 2;
+    int32 already_on_target_count = 3;
+    int32 incomplete_count = 4;
+    int32 stabilizing_count = 5;
+    int32 untrusted_transition_count = 6;
+}
+
+message CohortFirmwareValidationPoint {
+    google.protobuf.Duration elapsed = 1;
+    double value = 2;
+    int32 device_count = 3;
+}
+
+message CohortFirmwareValidationMetric {
+    telemetry.v1.MeasurementType measurement_type = 1;
+    repeated CohortFirmwareValidationPoint baseline_points = 2;
+    repeated CohortFirmwareValidationPoint target_points = 3;
+    optional double baseline_average = 4;
+    optional double target_average = 5;
+    optional double absolute_delta = 6;
+    optional double percentage_delta = 7;
+    int32 baseline_reporting_device_count = 8;
+    int32 target_reporting_device_count = 9;
+}
+
+message CohortFirmwareValidationBaseline {
+    string previous_firmware_version = 1;
+    int32 member_count = 2;
+    int32 eligible_count = 3;
+    CohortFirmwareValidationState state = 4;
+    google.protobuf.Timestamp baseline_start_time = 5;
+    google.protobuf.Timestamp baseline_end_time = 6;
+    google.protobuf.Timestamp target_start_time = 7;
+    google.protobuf.Timestamp target_end_time = 8;
+    repeated CohortFirmwareValidationMetric metrics = 9;
+}
+
+message GetCohortFirmwareValidationResponse {
+    CohortFirmwareValidationState state = 1;
+    string manufacturer = 2;
+    string model = 3;
+    string target_firmware_file_id = 4;
+    string target_firmware_version = 5;
+    google.protobuf.Timestamp rollout_started_at = 6;
+    CohortFirmwareValidationWindow comparison_window = 7;
+    google.protobuf.Duration stabilization_gap = 8;
+    google.protobuf.Duration chart_granularity = 9;
+    CohortFirmwareValidationTelemetryResolution telemetry_resolution = 10;
+    int32 targeted_count = 11;
+    int32 complete_count = 12;
+    bool preliminary = 13;
+    CohortFirmwareValidationExclusions exclusions = 14;
+    repeated CohortFirmwareValidationBaseline baselines = 15;
+}
+
+enum CohortTelemetryComparisonWindow {
+    COHORT_TELEMETRY_COMPARISON_WINDOW_UNSPECIFIED = 0;
+    COHORT_TELEMETRY_COMPARISON_WINDOW_ONE_HOUR = 1;
+    COHORT_TELEMETRY_COMPARISON_WINDOW_SIX_HOURS = 2;
+    COHORT_TELEMETRY_COMPARISON_WINDOW_TWENTY_FOUR_HOURS = 3;
+}
+
+message GetCohortTelemetryComparisonRequest {
+    repeated int64 cohort_ids = 1 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 5
+        unique: true
+        items: {int64: {gt: 0}}
+    }];
+    CohortTelemetryComparisonWindow comparison_window = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+}
+
+enum CohortTelemetryComparisonMetric {
+    COHORT_TELEMETRY_COMPARISON_METRIC_UNSPECIFIED = 0;
+    COHORT_TELEMETRY_COMPARISON_METRIC_HASHRATE = 1;
+    COHORT_TELEMETRY_COMPARISON_METRIC_EFFICIENCY = 2;
+    COHORT_TELEMETRY_COMPARISON_METRIC_POWER = 3;
+}
+
+message CohortTelemetryComparisonDistribution {
+    CohortTelemetryComparisonMetric metric = 1;
+
+    // Absolute medians use raw telemetry units: H/s, J/H, and W. Percentage
+    // changes compare each eligible miner with its own preceding baseline.
+    optional double baseline_median = 2;
+    optional double comparison_median = 3;
+    optional double median_percentage_change = 4;
+    optional double p25_percentage_change = 5;
+    optional double p75_percentage_change = 6;
+
+    int32 eligible_device_count = 7;
+    int32 baseline_reporting_device_count = 8;
+    int32 current_reporting_device_count = 9;
+    int32 zero_baseline_device_count = 10;
+}
+
+message CohortTelemetryComparisonSeries {
+    int64 cohort_id = 1;
+    string label = 2;
+    bool is_default = 3;
+    int64 member_count = 4;
+    repeated CohortTelemetryComparisonDistribution distributions = 5;
+    int32 current_non_hashing_device_count = 6;
+
+    // Aggregate efficiency is total average power divided by total average
+    // hashrate for devices that report both metrics in both windows.
+    optional double baseline_aggregate_efficiency = 7;
+    optional double comparison_aggregate_efficiency = 8;
+    optional double aggregate_efficiency_percentage_change = 9;
+    int32 aggregate_efficiency_device_count = 10;
+}
+
+message GetCohortTelemetryComparisonResponse {
+    google.protobuf.Timestamp baseline_start_time = 1;
+    google.protobuf.Timestamp baseline_end_time = 2;
+    google.protobuf.Timestamp comparison_start_time = 3;
+    google.protobuf.Timestamp comparison_end_time = 4;
+    CohortTelemetryComparisonWindow comparison_window = 5;
+    repeated CohortTelemetryComparisonSeries series = 6;
 }

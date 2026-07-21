@@ -164,6 +164,8 @@ var ProcedurePermissions = map[string]string{
 	// membership mutations use cohort:manage.
 	cohortv1connect.CohortServiceGetCohortProcedure:                       authz.PermCohortRead,
 	cohortv1connect.CohortServiceGetCohortFirmwareVersionHistoryProcedure: authz.PermCohortRead,
+	cohortv1connect.CohortServiceGetCohortFirmwareValidationProcedure:     authz.PermCohortRead,
+	cohortv1connect.CohortServiceGetCohortTelemetryComparisonProcedure:    authz.PermCohortRead,
 	cohortv1connect.CohortServiceListCohortsProcedure:                     authz.PermCohortRead,
 	cohortv1connect.CohortServiceGetMyCohortsProcedure:                    authz.PermCohortRead,
 	cohortv1connect.CohortServiceListDevicesProcedure:                     authz.PermCohortRead,

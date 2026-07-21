@@ -1564,6 +1564,76 @@ func (q *Queries) ListCohortMembers(ctx context.Context, arg ListCohortMembersPa
 	return items, nil
 }
 
+const listCohortTelemetryComparisonMemberships = `-- name: ListCohortTelemetryComparisonMemberships :many
+WITH requested_cohorts AS (
+    SELECT c.id, c.label, c.is_default
+    FROM cohort c
+    WHERE c.org_id = $1
+      AND c.state = 'active'
+      AND c.id = ANY($2::bigint[])
+)
+SELECT
+    requested.id AS cohort_id,
+    requested.label,
+    requested.is_default,
+    COALESCE(member.device_identifier, '')::text AS device_identifier
+FROM requested_cohorts requested
+LEFT JOIN LATERAL (
+    SELECT d.device_identifier
+    FROM device d
+    LEFT JOIN cohort_membership membership
+      ON membership.org_id = d.org_id
+     AND membership.device_identifier = d.device_identifier
+    WHERE d.org_id = $1
+      AND d.deleted_at IS NULL
+      AND (
+        (requested.is_default AND membership.cohort_id IS NULL)
+        OR (NOT requested.is_default AND membership.cohort_id = requested.id)
+      )
+) member ON TRUE
+ORDER BY requested.is_default DESC, requested.id, member.device_identifier
+`
+
+type ListCohortTelemetryComparisonMembershipsParams struct {
+	OrgID     int64
+	CohortIds []int64
+}
+
+type ListCohortTelemetryComparisonMembershipsRow struct {
+	CohortID         int64
+	Label            string
+	IsDefault        bool
+	DeviceIdentifier string
+}
+
+func (q *Queries) ListCohortTelemetryComparisonMemberships(ctx context.Context, arg ListCohortTelemetryComparisonMembershipsParams) ([]ListCohortTelemetryComparisonMembershipsRow, error) {
+	rows, err := q.query(ctx, q.listCohortTelemetryComparisonMembershipsStmt, listCohortTelemetryComparisonMemberships, arg.OrgID, pq.Array(arg.CohortIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCohortTelemetryComparisonMembershipsRow
+	for rows.Next() {
+		var i ListCohortTelemetryComparisonMembershipsRow
+		if err := rows.Scan(
+			&i.CohortID,
+			&i.Label,
+			&i.IsDefault,
+			&i.DeviceIdentifier,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCohorts = `-- name: ListCohorts :many
 SELECT
     c.id, c.org_id, c.label, c.is_default, c.owner_user_id, c.owner_username, c.expires_at, c.desired_firmware_file_id, c.desired_config_jsonb, c.state, c.purpose, c.source_actor_type, c.source_actor_id, c.idempotency_key, c.created_at, c.updated_at,

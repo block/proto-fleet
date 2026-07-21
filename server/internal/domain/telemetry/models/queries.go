@@ -49,7 +49,46 @@ type CombinedMetricsQuery struct {
 	SiteIDs []int64 `json:"site_ids,omitempty"`
 	// IncludeUnassigned adds devices currently assigned to no site.
 	IncludeUnassigned bool `json:"include_unassigned,omitempty"`
+	// Resolution forces a backing telemetry source for internal callers that
+	// need two disjoint windows to use comparable aggregation. Public telemetry
+	// requests leave this as auto.
+	Resolution CombinedMetricsResolution `json:"resolution,omitempty"`
 }
+
+// DeviceOutcomeComparisonQuery requests paired per-device averages across two
+// adjacent intervals. It is intentionally organization-scoped even when the
+// caller supplies exact device identifiers.
+type DeviceOutcomeComparisonQuery struct {
+	DeviceIDs       []DeviceIdentifier
+	OrganizationID  int64
+	BaselineStart   time.Time
+	BaselineEnd     time.Time
+	ComparisonStart time.Time
+	ComparisonEnd   time.Time
+}
+
+// DeviceOutcomeAverages contains independently nullable averages for one
+// device. Callers decide which metric pairs are eligible for comparison.
+type DeviceOutcomeAverages struct {
+	DeviceID             DeviceIdentifier
+	BaselineHashrate     *float64
+	ComparisonHashrate   *float64
+	BaselineEfficiency   *float64
+	ComparisonEfficiency *float64
+	BaselinePower        *float64
+	ComparisonPower      *float64
+}
+
+// CombinedMetricsResolution controls which TimescaleDB layer serves a query.
+// Auto preserves the normal duration- and selector-based routing.
+type CombinedMetricsResolution int
+
+const (
+	CombinedMetricsResolutionAuto CombinedMetricsResolution = iota
+	CombinedMetricsResolutionRaw
+	CombinedMetricsResolutionHourly
+	CombinedMetricsResolutionDaily
+)
 
 // ShouldIncludeUptimeStatusCounts reports whether a CombinedMetrics response
 // should include uptime status counts. Empty measurement filters preserve the

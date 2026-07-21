@@ -406,6 +406,8 @@ func TestGetCohortFirmwareVersionHistory_ValidatesRangeAndBucketCount(t *testing
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			_, err := svc.GetCohortFirmwareVersionHistory(t.Context(), models.CohortFirmwareVersionHistoryParams{
 				OrgID: 7, CohortID: 42, StartTime: start, EndTime: tt.end, Granularity: tt.granularity,
 			})

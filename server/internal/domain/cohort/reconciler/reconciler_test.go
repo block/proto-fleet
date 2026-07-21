@@ -13,8 +13,30 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/cohort/models"
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
+
+func TestReconcilerCommandContextAttributesActivityToCohort(t *testing.T) {
+	candidate := models.FirmwareEnforcementCandidate{
+		OrgID:               42,
+		ActorUserID:         7,
+		ActorExternalUserID: "external-user-7",
+		ActorUsername:       "cohort-owner",
+	}
+
+	ctx := reconcilerCommandContext(t.Context(), candidate)
+
+	require.False(t, command.CommandActivitySuppressed(ctx))
+	info, err := session.GetInfo(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, reconcilerActorName, info.SessionID)
+	assert.Equal(t, candidate.ActorUserID, info.UserID)
+	assert.Equal(t, candidate.OrgID, info.OrganizationID)
+	assert.Equal(t, candidate.ActorExternalUserID, info.ExternalUserID)
+	assert.Equal(t, candidate.ActorUsername, info.Username)
+	assert.Equal(t, session.ActorCohort, info.Actor)
+}
 
 func TestProcessCandidate_ConfirmsMatchingFreshFirmware(t *testing.T) {
 	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)

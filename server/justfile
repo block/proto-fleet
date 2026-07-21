@@ -33,6 +33,7 @@ dev-system-monitoring: _build-plugins-docker
 
 # start services in docker compose
 start:
+  docker compose build fleet-api
   docker compose up --wait
 
 # stop services in docker

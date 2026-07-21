@@ -3,11 +3,14 @@ package cohort
 import (
 	"time"
 
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/cohort/v1"
+	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/internal/domain/cohort/models"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
 func toCreateCohortParams(req *pb.CreateCohortRequest, info *session.Info) (models.CreateCohortParams, error) {
@@ -112,6 +115,54 @@ func toCohortFirmwareVersionHistoryParams(req *pb.GetCohortFirmwareVersionHistor
 	return params
 }
 
+func toCohortFirmwareValidationParams(req *pb.GetCohortFirmwareValidationRequest, orgID int64) models.CohortFirmwareValidationParams {
+	return models.CohortFirmwareValidationParams{
+		OrgID:        orgID,
+		CohortID:     req.GetCohortId(),
+		Manufacturer: req.GetManufacturer(),
+		Model:        req.GetModel(),
+		Window:       firmwareValidationWindowFromProto(req.GetComparisonWindow()),
+	}
+}
+
+func toCohortTelemetryComparisonParams(req *pb.GetCohortTelemetryComparisonRequest, orgID int64) models.CohortTelemetryComparisonParams {
+	return models.CohortTelemetryComparisonParams{
+		OrgID:     orgID,
+		CohortIDs: req.GetCohortIds(),
+		Window:    cohortTelemetryComparisonWindowFromProto(req.GetComparisonWindow()),
+	}
+}
+
+func cohortTelemetryComparisonWindowFromProto(window pb.CohortTelemetryComparisonWindow) models.CohortTelemetryComparisonWindow {
+	switch window {
+	case pb.CohortTelemetryComparisonWindow_COHORT_TELEMETRY_COMPARISON_WINDOW_ONE_HOUR:
+		return models.CohortTelemetryComparisonWindowOneHour
+	case pb.CohortTelemetryComparisonWindow_COHORT_TELEMETRY_COMPARISON_WINDOW_SIX_HOURS:
+		return models.CohortTelemetryComparisonWindowSixHours
+	case pb.CohortTelemetryComparisonWindow_COHORT_TELEMETRY_COMPARISON_WINDOW_TWENTY_FOUR_HOURS:
+		return models.CohortTelemetryComparisonWindowTwentyFourHours
+	case pb.CohortTelemetryComparisonWindow_COHORT_TELEMETRY_COMPARISON_WINDOW_UNSPECIFIED:
+		return ""
+	default:
+		return ""
+	}
+}
+
+func firmwareValidationWindowFromProto(window pb.CohortFirmwareValidationWindow) models.CohortFirmwareValidationWindow {
+	switch window {
+	case pb.CohortFirmwareValidationWindow_COHORT_FIRMWARE_VALIDATION_WINDOW_UNSPECIFIED:
+		return ""
+	case pb.CohortFirmwareValidationWindow_COHORT_FIRMWARE_VALIDATION_WINDOW_ONE_HOUR:
+		return models.CohortFirmwareValidationWindowOneHour
+	case pb.CohortFirmwareValidationWindow_COHORT_FIRMWARE_VALIDATION_WINDOW_SIX_HOURS:
+		return models.CohortFirmwareValidationWindowSixHours
+	case pb.CohortFirmwareValidationWindow_COHORT_FIRMWARE_VALIDATION_WINDOW_TWENTY_FOUR_HOURS:
+		return models.CohortFirmwareValidationWindowTwentyFourHours
+	default:
+		return ""
+	}
+}
+
 func toListCohortsByOwnerParams(req *pb.GetMyCohortsRequest, info *session.Info) models.ListCohortsByOwnerParams {
 	return models.ListCohortsByOwnerParams{
 		OrgID:           info.OrganizationID,
@@ -195,6 +246,213 @@ func toProtoCohortFirmwareVersionHistory(history models.CohortFirmwareVersionHis
 		})
 	}
 	return &pb.GetCohortFirmwareVersionHistoryResponse{MemberCount: history.MemberCount, Points: points}
+}
+
+func toProtoCohortFirmwareValidation(validation models.CohortFirmwareValidation) *pb.GetCohortFirmwareValidationResponse {
+	baselines := make([]*pb.CohortFirmwareValidationBaseline, 0, len(validation.Baselines))
+	for _, baseline := range validation.Baselines {
+		metrics := make([]*pb.CohortFirmwareValidationMetric, 0, len(baseline.Metrics))
+		for _, metric := range baseline.Metrics {
+			metrics = append(metrics, &pb.CohortFirmwareValidationMetric{
+				MeasurementType:              validationMeasurementTypeToProto(metric.MeasurementType),
+				BaselinePoints:               toProtoFirmwareValidationPoints(metric.BaselinePoints),
+				TargetPoints:                 toProtoFirmwareValidationPoints(metric.TargetPoints),
+				BaselineAverage:              metric.BaselineAverage,
+				TargetAverage:                metric.TargetAverage,
+				AbsoluteDelta:                metric.AbsoluteDelta,
+				PercentageDelta:              metric.PercentageDelta,
+				BaselineReportingDeviceCount: metric.BaselineReportingDeviceCount,
+				TargetReportingDeviceCount:   metric.TargetReportingDeviceCount,
+			})
+		}
+		baselines = append(baselines, &pb.CohortFirmwareValidationBaseline{
+			PreviousFirmwareVersion: baseline.PreviousFirmwareVersion,
+			MemberCount:             baseline.MemberCount,
+			EligibleCount:           baseline.EligibleCount,
+			State:                   firmwareValidationStateToProto(baseline.State),
+			BaselineStartTime:       validationTimestamp(baseline.BaselineStartTime),
+			BaselineEndTime:         validationTimestamp(baseline.BaselineEndTime),
+			TargetStartTime:         validationTimestamp(baseline.TargetStartTime),
+			TargetEndTime:           validationTimestamp(baseline.TargetEndTime),
+			Metrics:                 metrics,
+		})
+	}
+	return &pb.GetCohortFirmwareValidationResponse{
+		State:                 firmwareValidationStateToProto(validation.State),
+		Manufacturer:          validation.Manufacturer,
+		Model:                 validation.Model,
+		TargetFirmwareFileId:  validation.TargetFirmwareFileID,
+		TargetFirmwareVersion: validation.TargetFirmwareVersion,
+		RolloutStartedAt:      validationTimestamp(validation.RolloutStartedAt),
+		ComparisonWindow:      firmwareValidationWindowToProto(validation.Window),
+		StabilizationGap:      durationpb.New(validation.StabilizationGap),
+		ChartGranularity:      durationpb.New(validation.ChartGranularity),
+		TelemetryResolution:   firmwareValidationResolutionToProto(validation.TelemetryResolution),
+		TargetedCount:         validation.TargetedCount,
+		CompleteCount:         validation.CompleteCount,
+		Preliminary:           validation.Preliminary,
+		Exclusions: &pb.CohortFirmwareValidationExclusions{
+			AddedAfterRolloutCount:   validation.Exclusions.AddedAfterRolloutCount,
+			UnknownBaselineCount:     validation.Exclusions.UnknownBaselineCount,
+			AlreadyOnTargetCount:     validation.Exclusions.AlreadyOnTargetCount,
+			IncompleteCount:          validation.Exclusions.IncompleteCount,
+			StabilizingCount:         validation.Exclusions.StabilizingCount,
+			UntrustedTransitionCount: validation.Exclusions.UntrustedTransitionCount,
+		},
+		Baselines: baselines,
+	}
+}
+
+func toProtoCohortTelemetryComparison(comparison models.CohortTelemetryComparison) *pb.GetCohortTelemetryComparisonResponse {
+	series := make([]*pb.CohortTelemetryComparisonSeries, 0, len(comparison.Series))
+	for _, cohortSeries := range comparison.Series {
+		distributions := make([]*pb.CohortTelemetryComparisonDistribution, 0, len(cohortSeries.Distributions))
+		for _, distribution := range cohortSeries.Distributions {
+			distributions = append(distributions, &pb.CohortTelemetryComparisonDistribution{
+				Metric:                       cohortTelemetryComparisonMetricToProto(distribution.Metric),
+				BaselineMedian:               distribution.BaselineMedian,
+				ComparisonMedian:             distribution.ComparisonMedian,
+				MedianPercentageChange:       distribution.MedianPercentageChange,
+				P25PercentageChange:          distribution.P25PercentageChange,
+				P75PercentageChange:          distribution.P75PercentageChange,
+				EligibleDeviceCount:          distribution.EligibleDeviceCount,
+				BaselineReportingDeviceCount: distribution.BaselineReportingDeviceCount,
+				CurrentReportingDeviceCount:  distribution.CurrentReportingDeviceCount,
+				ZeroBaselineDeviceCount:      distribution.ZeroBaselineDeviceCount,
+			})
+		}
+		series = append(series, &pb.CohortTelemetryComparisonSeries{
+			CohortId:                            cohortSeries.CohortID,
+			Label:                               cohortSeries.Label,
+			IsDefault:                           cohortSeries.IsDefault,
+			MemberCount:                         cohortSeries.MemberCount,
+			Distributions:                       distributions,
+			CurrentNonHashingDeviceCount:        cohortSeries.CurrentNonHashingDeviceCount,
+			BaselineAggregateEfficiency:         cohortSeries.BaselineAggregateEfficiency,
+			ComparisonAggregateEfficiency:       cohortSeries.ComparisonAggregateEfficiency,
+			AggregateEfficiencyPercentageChange: cohortSeries.AggregateEfficiencyPercentageChange,
+			AggregateEfficiencyDeviceCount:      cohortSeries.AggregateEfficiencyDeviceCount,
+		})
+	}
+	return &pb.GetCohortTelemetryComparisonResponse{
+		BaselineStartTime:   timestamppb.New(comparison.BaselineStart),
+		BaselineEndTime:     timestamppb.New(comparison.BaselineEnd),
+		ComparisonStartTime: timestamppb.New(comparison.ComparisonStart),
+		ComparisonEndTime:   timestamppb.New(comparison.ComparisonEnd),
+		ComparisonWindow:    cohortTelemetryComparisonWindowToProto(comparison.Window),
+		Series:              series,
+	}
+}
+
+func cohortTelemetryComparisonMetricToProto(metric models.CohortTelemetryComparisonMetric) pb.CohortTelemetryComparisonMetric {
+	switch metric {
+	case models.CohortTelemetryComparisonMetricHashrate:
+		return pb.CohortTelemetryComparisonMetric_COHORT_TELEMETRY_COMPARISON_METRIC_HASHRATE
+	case models.CohortTelemetryComparisonMetricEfficiency:
+		return pb.CohortTelemetryComparisonMetric_COHORT_TELEMETRY_COMPARISON_METRIC_EFFICIENCY
+	case models.CohortTelemetryComparisonMetricPower:
+		return pb.CohortTelemetryComparisonMetric_COHORT_TELEMETRY_COMPARISON_METRIC_POWER
+	default:
+		return pb.CohortTelemetryComparisonMetric_COHORT_TELEMETRY_COMPARISON_METRIC_UNSPECIFIED
+	}
+}
+
+func cohortTelemetryComparisonWindowToProto(window models.CohortTelemetryComparisonWindow) pb.CohortTelemetryComparisonWindow {
+	switch window {
+	case models.CohortTelemetryComparisonWindowOneHour:
+		return pb.CohortTelemetryComparisonWindow_COHORT_TELEMETRY_COMPARISON_WINDOW_ONE_HOUR
+	case models.CohortTelemetryComparisonWindowSixHours:
+		return pb.CohortTelemetryComparisonWindow_COHORT_TELEMETRY_COMPARISON_WINDOW_SIX_HOURS
+	case models.CohortTelemetryComparisonWindowTwentyFourHours:
+		return pb.CohortTelemetryComparisonWindow_COHORT_TELEMETRY_COMPARISON_WINDOW_TWENTY_FOUR_HOURS
+	default:
+		return pb.CohortTelemetryComparisonWindow_COHORT_TELEMETRY_COMPARISON_WINDOW_UNSPECIFIED
+	}
+}
+
+func toProtoFirmwareValidationPoints(points []models.CohortFirmwareValidationPoint) []*pb.CohortFirmwareValidationPoint {
+	out := make([]*pb.CohortFirmwareValidationPoint, 0, len(points))
+	for _, point := range points {
+		out = append(out, &pb.CohortFirmwareValidationPoint{
+			Elapsed:     durationpb.New(point.Elapsed),
+			Value:       point.Value,
+			DeviceCount: point.DeviceCount,
+		})
+	}
+	return out
+}
+
+func validationTimestamp(value time.Time) *timestamppb.Timestamp {
+	if value.IsZero() {
+		return nil
+	}
+	return timestamppb.New(value)
+}
+
+func firmwareValidationWindowToProto(window models.CohortFirmwareValidationWindow) pb.CohortFirmwareValidationWindow {
+	switch window {
+	case models.CohortFirmwareValidationWindowOneHour:
+		return pb.CohortFirmwareValidationWindow_COHORT_FIRMWARE_VALIDATION_WINDOW_ONE_HOUR
+	case models.CohortFirmwareValidationWindowSixHours:
+		return pb.CohortFirmwareValidationWindow_COHORT_FIRMWARE_VALIDATION_WINDOW_SIX_HOURS
+	case models.CohortFirmwareValidationWindowTwentyFourHours:
+		return pb.CohortFirmwareValidationWindow_COHORT_FIRMWARE_VALIDATION_WINDOW_TWENTY_FOUR_HOURS
+	default:
+		return pb.CohortFirmwareValidationWindow_COHORT_FIRMWARE_VALIDATION_WINDOW_UNSPECIFIED
+	}
+}
+
+func firmwareValidationStateToProto(state models.CohortFirmwareValidationState) pb.CohortFirmwareValidationState {
+	switch state {
+	case models.CohortFirmwareValidationStateAvailable:
+		return pb.CohortFirmwareValidationState_COHORT_FIRMWARE_VALIDATION_STATE_AVAILABLE
+	case models.CohortFirmwareValidationStateNoTarget:
+		return pb.CohortFirmwareValidationState_COHORT_FIRMWARE_VALIDATION_STATE_NO_TARGET
+	case models.CohortFirmwareValidationStateTargetVersionUnknown:
+		return pb.CohortFirmwareValidationState_COHORT_FIRMWARE_VALIDATION_STATE_TARGET_VERSION_UNKNOWN
+	case models.CohortFirmwareValidationStateNoBaseline:
+		return pb.CohortFirmwareValidationState_COHORT_FIRMWARE_VALIDATION_STATE_NO_BASELINE
+	case models.CohortFirmwareValidationStateStabilizing:
+		return pb.CohortFirmwareValidationState_COHORT_FIRMWARE_VALIDATION_STATE_STABILIZING
+	case models.CohortFirmwareValidationStateInsufficientTelemetry:
+		return pb.CohortFirmwareValidationState_COHORT_FIRMWARE_VALIDATION_STATE_INSUFFICIENT_TELEMETRY
+	case models.CohortFirmwareValidationStateHistoryExpired:
+		return pb.CohortFirmwareValidationState_COHORT_FIRMWARE_VALIDATION_STATE_HISTORY_EXPIRED
+	default:
+		return pb.CohortFirmwareValidationState_COHORT_FIRMWARE_VALIDATION_STATE_UNSPECIFIED
+	}
+}
+
+func firmwareValidationResolutionToProto(resolution models.CohortFirmwareValidationTelemetryResolution) pb.CohortFirmwareValidationTelemetryResolution {
+	switch resolution {
+	case models.CohortFirmwareValidationTelemetryResolutionRaw:
+		return pb.CohortFirmwareValidationTelemetryResolution_COHORT_FIRMWARE_VALIDATION_TELEMETRY_RESOLUTION_RAW
+	case models.CohortFirmwareValidationTelemetryResolutionHourly:
+		return pb.CohortFirmwareValidationTelemetryResolution_COHORT_FIRMWARE_VALIDATION_TELEMETRY_RESOLUTION_HOURLY
+	default:
+		return pb.CohortFirmwareValidationTelemetryResolution_COHORT_FIRMWARE_VALIDATION_TELEMETRY_RESOLUTION_UNSPECIFIED
+	}
+}
+
+func validationMeasurementTypeToProto(measurementType telemetrymodels.MeasurementType) telemetrypb.MeasurementType {
+	switch measurementType {
+	case telemetrymodels.MeasurementTypeHashrate:
+		return telemetrypb.MeasurementType_MEASUREMENT_TYPE_HASHRATE
+	case telemetrymodels.MeasurementTypeEfficiency:
+		return telemetrypb.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY
+	case telemetrymodels.MeasurementTypePower:
+		return telemetrypb.MeasurementType_MEASUREMENT_TYPE_POWER
+	case telemetrymodels.MeasurementTypeUnknown,
+		telemetrymodels.MeasurementTypeTemperature,
+		telemetrymodels.MeasurementTypeFanSpeed,
+		telemetrymodels.MeasurementTypeVoltage,
+		telemetrymodels.MeasurementTypeCurrent,
+		telemetrymodels.MeasurementTypeUptime,
+		telemetrymodels.MeasurementTypeErrorRate:
+		return telemetrypb.MeasurementType_MEASUREMENT_TYPE_UNSPECIFIED
+	default:
+		return telemetrypb.MeasurementType_MEASUREMENT_TYPE_UNSPECIFIED
+	}
 }
 
 func toProtoCohortSummary(cohort *models.Cohort) *pb.CohortSummary {

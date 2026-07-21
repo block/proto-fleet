@@ -37,9 +37,7 @@ export type ResourceRef = Message<"common.v1.ResourceRef"> & {
  * Describes the message common.v1.ResourceRef.
  * Use `create(ResourceRefSchema)` to create a new message.
  */
-export const ResourceRefSchema: GenMessage<ResourceRef> =
-  /*@__PURE__*/
-  messageDesc(file_common_v1_common, 0);
+export const ResourceRefSchema: GenMessage<ResourceRef> = /*@__PURE__*/ messageDesc(file_common_v1_common, 0);
 
 /**
  * Shared placement references for fleet list rows.
@@ -85,9 +83,7 @@ export type PlacementRefs = Message<"common.v1.PlacementRefs"> & {
  * Describes the message common.v1.PlacementRefs.
  * Use `create(PlacementRefsSchema)` to create a new message.
  */
-export const PlacementRefsSchema: GenMessage<PlacementRefs> =
-  /*@__PURE__*/
-  messageDesc(file_common_v1_common, 1);
+export const PlacementRefsSchema: GenMessage<PlacementRefs> = /*@__PURE__*/ messageDesc(file_common_v1_common, 1);
 
 /**
  * @generated from message common.v1.FleetErrorDetails
@@ -142,6 +138,4 @@ export enum FleetErrorCode {
 /**
  * Describes the enum common.v1.FleetErrorCode.
  */
-export const FleetErrorCodeSchema: GenEnum<FleetErrorCode> =
-  /*@__PURE__*/
-  enumDesc(file_common_v1_common, 0);
+export const FleetErrorCodeSchema: GenEnum<FleetErrorCode> = /*@__PURE__*/ enumDesc(file_common_v1_common, 0);

@@ -6,31 +6,24 @@ import { timestampMs } from "@bufbuild/protobuf/wkt";
 import {
   type Cohort,
   CohortConfigDimension,
-  CohortConfigLifecycleState,
-  type CohortConfigStatus,
   CohortDesiredConfigSchema,
   type CohortDevice,
   CohortDeviceAssignment,
-  CohortFirmwareRolloutState,
-  type CohortFirmwareStatus,
   type CohortFirmwareTarget,
   type CohortMember,
-  type CohortPoolDesiredConfig,
   CohortPoolDesiredConfigSchema,
   CohortState,
-  type GetCohortFirmwareVersionHistoryResponse,
 } from "@/protoFleet/api/generated/cohort/v1/cohort_pb";
 import type { MinerModelGroup } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { MeasurementType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useCohortApi } from "@/protoFleet/api/useCohortApi";
 import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import useMinerModelGroups from "@/protoFleet/api/useMinerModelGroups";
 import usePools from "@/protoFleet/api/usePools";
-import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import MinerSelectionList, { type MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import CohortActionsMenu from "@/protoFleet/features/cohorts/components/CohortActionsMenu";
-import FirmwareVersionHistoryPanel from "@/protoFleet/features/cohorts/components/FirmwareVersionHistoryPanel";
+import CohortMinersModal from "@/protoFleet/features/cohorts/components/CohortMinersModal";
+import CohortRolloutSection from "@/protoFleet/features/cohorts/components/CohortRolloutSection";
 import {
   cohortDeviceDisplayName,
   cohortDeviceSecondaryText,
@@ -38,7 +31,6 @@ import {
   durationToExpiresAt,
   type ExpiryPreset,
   type ExpiryUnit,
-  firmwareRolloutStateLabel,
   formatCohortExpiryTimeLeft,
   formatCohortTimestamp,
   hasActiveFirmwareProgress,
@@ -46,23 +38,15 @@ import {
   isActiveNonDefaultCohort,
   isSuperAdminRole,
 } from "@/protoFleet/features/cohorts/utils";
-import { EfficiencyPanel } from "@/protoFleet/features/dashboard/components/EfficiencyPanel";
-import { HashratePanel } from "@/protoFleet/features/dashboard/components/HashratePanel";
-import { PowerPanel } from "@/protoFleet/features/dashboard/components/PowerPanel";
-import SectionHeading from "@/protoFleet/features/dashboard/components/SectionHeading";
-import { TemperaturePanel } from "@/protoFleet/features/dashboard/components/TemperaturePanel";
-import { UptimePanel } from "@/protoFleet/features/dashboard/components/UptimePanel";
-import { getGranularityForDuration } from "@/protoFleet/features/dashboard/utils/granularity";
 import { scopedPath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
-import { useDuration, useRole, useSetDuration, useUsername } from "@/protoFleet/store";
+import { useRole, useUsername } from "@/protoFleet/store";
 import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
-import { Alert, ChevronDown, Minus, Pause, Plus, Success, Trash } from "@/shared/assets/icons";
+import { Alert, ChevronDown, Plus, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Checkbox from "@/shared/components/Checkbox";
 import { DatePickerField } from "@/shared/components/DatePicker";
 import Dialog from "@/shared/components/Dialog";
-import DurationSelector, { fleetDurations, getFleetDurationMs } from "@/shared/components/DurationSelector";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
@@ -127,36 +111,7 @@ const minuteOptions = Array.from({ length: 12 }, (_, index) => {
   return { value, label: value };
 });
 
-const cohortPerformanceMeasurementTypes = [
-  MeasurementType.HASHRATE,
-  MeasurementType.POWER,
-  MeasurementType.TEMPERATURE,
-  MeasurementType.EFFICIENCY,
-  MeasurementType.UPTIME,
-];
-
 const cohortProgressRefreshIntervalMs = Math.min(POLL_INTERVAL_MS, 3000);
-
-const configStateLabel = (state: CohortConfigLifecycleState) => {
-  switch (state) {
-    case CohortConfigLifecycleState.UNSUPPORTED:
-      return "Unsupported";
-    case CohortConfigLifecycleState.WAITING_FOR_OBSERVATION:
-      return "Waiting for observation";
-    case CohortConfigLifecycleState.APPLYING:
-      return "Applying";
-    case CohortConfigLifecycleState.VERIFYING:
-      return "Verifying";
-    case CohortConfigLifecycleState.CONVERGED:
-      return "Complete";
-    case CohortConfigLifecycleState.HELD:
-      return "Held";
-    case CohortConfigLifecycleState.FAILED:
-      return "Failed";
-    default:
-      return "Unknown";
-  }
-};
 
 const formatPoolProgress = (summary: NonNullable<Cohort["summary"]>) => {
   if (!summary.desiredConfig?.pools) return "Not managed";
@@ -173,9 +128,6 @@ const formatPoolProgress = (summary: NonNullable<Cohort["summary"]>) => {
     .filter(Boolean)
     .join(" · ");
 };
-
-const memberAddedAt = (member: CohortMember) =>
-  member.addedAt ? new Date(timestampMs(member.addedAt)).toLocaleString() : "Unknown";
 
 const parseCohortId = (value?: string) => {
   if (!value) return undefined;
@@ -325,9 +277,21 @@ const formatFirmwareTargetSummary = (cohort: Cohort, firmwareFiles: FirmwareFile
   return firmwareFileId ? renderFirmwareFileSummary(firmwareFiles, firmwareFileId) : "None";
 };
 
-const firmwareVersionLabel = (version?: string) => {
-  const trimmed = version?.trim();
-  return trimmed || "Unknown";
+const firmwareRolloutTargetLabel = (cohort: Cohort, firmwareFiles: FirmwareFileInfo[]) => {
+  const summary = cohort.summary;
+  if (!summary) return "Unknown";
+  const firmwareFileId =
+    cohort.firmwareTargets.find((target) => target.firmwareFileId)?.firmwareFileId ||
+    summary.firmwareTargets.find((target) => target.firmwareFileId)?.firmwareFileId ||
+    summary.desiredFirmwareFileId;
+  const file = firmwareFiles.find((candidate) => candidate.id === firmwareFileId);
+  return (
+    file?.firmware_version?.trim() ||
+    cohort.members.find((member) => member.firmwareStatus?.targetFirmwareVersion.trim())?.firmwareStatus
+      ?.targetFirmwareVersion ||
+    file?.filename ||
+    "Configured firmware"
+  );
 };
 
 const cohortMemberSecondaryText = (member: CohortMember) => {
@@ -368,10 +332,11 @@ const CohortOverviewPage = () => {
   const [showFirmwareModal, setShowFirmwareModal] = useState(false);
   const [showPoolsModal, setShowPoolsModal] = useState(false);
   const [showReleaseDialog, setShowReleaseDialog] = useState(false);
+  const [showMinersModal, setShowMinersModal] = useState(false);
   const [deviceMutationMode, setDeviceMutationMode] = useState<DeviceMutationMode | null>(null);
 
   const summary = cohort?.summary;
-  const { miningPools, isLoading: poolsLoading } = usePools(Boolean(summary?.desiredConfig?.pools) || showPoolsModal);
+  const { miningPools } = usePools(Boolean(summary?.desiredConfig?.pools) || showPoolsModal);
   const isOwnedByCurrentUser =
     summary?.ownerUsername.trim() !== "" &&
     username.trim() !== "" &&
@@ -644,6 +609,7 @@ const CohortOverviewPage = () => {
     !summary.isDefault && summary.state === CohortState.ACTIVE
       ? formatCohortExpiryTimeLeft(summary.expiresAt)
       : undefined;
+  const rolloutTargetLabel = firmwareRolloutTargetLabel(cohort, firmwareFiles);
 
   return (
     <div className="flex flex-col gap-6 p-6 laptop:p-10" data-testid="cohort-overview-page">
@@ -656,6 +622,12 @@ const CohortOverviewPage = () => {
         iconOnClick={() => navigate(scopedPath("/cohorts", activeSite))}
       >
         <div className="ml-3 flex shrink-0 items-center gap-2">
+          <Button
+            text="View miners"
+            size={sizes.compact}
+            variant={variants.primary}
+            onClick={() => setShowMinersModal(true)}
+          />
           {summary.isDefault ? (
             <CohortActionsMenu
               disabled={!isActiveCohort(summary) || isMutating}
@@ -709,7 +681,11 @@ const CohortOverviewPage = () => {
 
       <section className="grid gap-4 tablet:grid-cols-2 desktop:grid-cols-4">
         <OverviewMetric label="State" value={cohortStateLabel(summary.state)} />
-        <OverviewMetric label="Members" value={summary.explicitMemberCount.toString()} />
+        <OverviewMetric
+          label="Miners"
+          value={summary.isDefault ? "View all" : summary.explicitMemberCount.toString()}
+          onClick={() => setShowMinersModal(true)}
+        />
         <OverviewMetric label="Owner" value={summary.ownerUsername || "Unowned"} />
         <OverviewMetric
           label="Expires"
@@ -722,78 +698,31 @@ const CohortOverviewPage = () => {
         />
       </section>
 
-      {!summary.isDefault ? <CohortPerformanceSection cohortId={summary.id} members={cohort.members} /> : null}
-
-      <section className="overflow-hidden rounded-lg border border-border-5">
-        <div className="border-b border-border-5 px-4 py-3">
-          <Header title="Members" titleSize="text-heading-100" />
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[780px] table-fixed text-left text-300">
-            <thead className="bg-surface-raised text-text-primary-70">
-              <tr>
-                <th className="w-[30%] py-3 pr-3 pl-4 font-medium">Miner</th>
-                <th className="w-[12%] px-3 py-3 font-medium">Firmware</th>
-                <th className="w-[11%] py-3 pr-1 pl-3 font-medium">Pool</th>
-                <th className="w-[30%] py-3 pr-3 pl-1 font-medium">Status</th>
-                <th className="w-[17%] py-3 pr-4 pl-3 font-medium">Added</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cohort.members.map((member) => {
-                const memberName = cohortDeviceDisplayName(member);
-                const memberSecondary = cohortMemberSecondaryText(member);
-
-                return (
-                  <tr key={member.deviceIdentifier} className="border-t border-border-5">
-                    <td className="py-3 pr-3 pl-4">
-                      <div className="truncate font-medium" title={member.deviceIdentifier}>
-                        {memberName}
-                      </div>
-                      {memberSecondary ? (
-                        <div className="truncate text-200 text-text-primary-70">{memberSecondary}</div>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-3">
-                      <MemberFirmwareCell
-                        status={member.firmwareStatus}
-                        fallbackCurrentVersion={member.display?.firmwareVersion}
-                      />
-                    </td>
-                    <MemberPoolTargetCell
-                      pools={summary.desiredConfig?.pools}
-                      miningPools={miningPools}
-                      isLoading={poolsLoading}
-                    />
-                    <td className="py-3 pr-3 pl-1">
-                      <MemberReconciliationCell
-                        firmwareStatus={member.firmwareStatus}
-                        poolsManaged={Boolean(summary.desiredConfig?.pools)}
-                        configStatuses={member.configStatuses}
-                      />
-                    </td>
-                    <td className="py-3 pr-4 pl-3">{memberAddedAt(member)}</td>
-                  </tr>
-                );
-              })}
-              {cohort.members.length === 0 ? (
-                <tr>
-                  <td className="px-4 py-8 text-text-primary-70" colSpan={5}>
-                    No explicit members.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
       <section className="grid gap-4 desktop:grid-cols-2">
         <DetailBlock label="Purpose" value={summary.purpose || "Reservation"} />
         <DetailBlock label="Source" value={formatCohortSource(summary)} />
         <DetailBlock label="Firmware" value={formatFirmwareTargetSummary(cohort, firmwareFiles)} />
         <DetailBlock label="Pools" value={formatPoolProgress(summary)} />
       </section>
+
+      {!summary.isDefault ? (
+        <CohortRolloutSection
+          cohort={cohort}
+          firmwareTargetLabel={rolloutTargetLabel}
+          canAddMiners={canMutate}
+          onAddMiners={() => setDeviceMutationMode("add")}
+        />
+      ) : null}
+
+      {showMinersModal ? (
+        <CohortMinersModal
+          open
+          cohortId={summary.id}
+          cohortLabel={summary.label}
+          desiredPools={summary.desiredConfig?.pools}
+          onDismiss={() => setShowMinersModal(false)}
+        />
+      ) : null}
 
       {showExtendModal ? (
         <ExtendModal
@@ -864,319 +793,31 @@ const CohortOverviewPage = () => {
   );
 };
 
-const metricsByType = (metrics: Metric[] | undefined, measurementType: MeasurementType) =>
-  metrics?.filter((metric) => metric.measurementType === measurementType);
-
-const CohortPerformanceSection = ({ cohortId, members }: { cohortId: bigint; members: CohortMember[] }) => {
-  const duration = useDuration();
-  const setDuration = useSetDuration();
-  const { getFirmwareVersionHistory } = useCohortApi();
-  const [firmwareHistory, setFirmwareHistory] = useState<GetCohortFirmwareVersionHistoryResponse | null>(null);
-  const [firmwareHistoryLoading, setFirmwareHistoryLoading] = useState(false);
-  const [firmwareHistoryError, setFirmwareHistoryError] = useState(false);
-  const deviceIds = useMemo(() => members.map((member) => member.deviceIdentifier), [members]);
-  const hasMembers = deviceIds.length > 0;
-  const firmwareHistoryRefreshKey = useMemo(
-    () =>
-      members
-        .map(
-          (member) =>
-            `${member.deviceIdentifier}:${member.firmwareStatus?.currentFirmwareVersion || member.display?.firmwareVersion || ""}`,
-        )
-        .sort()
-        .join("|"),
-    [members],
-  );
-
-  useEffect(() => {
-    if (!hasMembers) return undefined;
-
-    let cancelled = false;
-    const load = async () => {
-      setFirmwareHistory(null);
-      setFirmwareHistoryLoading(true);
-      setFirmwareHistoryError(false);
-      const endTime = new Date();
-      const startTime = new Date(endTime.getTime() - getFleetDurationMs(duration));
-      try {
-        const history = await getFirmwareVersionHistory({
-          cohortId,
-          startTime,
-          endTime,
-          granularitySeconds: getGranularityForDuration(duration),
-        });
-        if (!cancelled) setFirmwareHistory(history);
-      } catch {
-        if (!cancelled) setFirmwareHistoryError(true);
-      } finally {
-        if (!cancelled) setFirmwareHistoryLoading(false);
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [cohortId, duration, firmwareHistoryRefreshKey, getFirmwareVersionHistory, hasMembers]);
-
-  const { data: telemetryData, error: telemetryError } = useTelemetryMetrics({
-    deviceIds,
-    measurementTypes: cohortPerformanceMeasurementTypes,
-    duration,
-    enabled: hasMembers,
-    pollIntervalMs: POLL_INTERVAL_MS,
-  });
-
-  const allMetrics = useMemo(
-    () => (hasMembers ? (telemetryData?.metrics ?? []) : []),
-    [hasMembers, telemetryData?.metrics],
-  );
-  const hashrateMetrics = useMemo(() => metricsByType(allMetrics, MeasurementType.HASHRATE), [allMetrics]);
-  const powerMetrics = useMemo(() => metricsByType(allMetrics, MeasurementType.POWER), [allMetrics]);
-  const efficiencyMetrics = useMemo(() => metricsByType(allMetrics, MeasurementType.EFFICIENCY), [allMetrics]);
-  const temperatureStatusCounts = hasMembers ? telemetryData?.temperatureStatusCounts : [];
-  const uptimeStatusCounts = hasMembers ? telemetryData?.uptimeStatusCounts : [];
-
-  return (
-    <section data-testid="cohort-performance-section">
-      <SectionHeading heading="Performance">
-        <DurationSelector duration={duration} durations={fleetDurations} onSelect={setDuration} />
-      </SectionHeading>
-      {telemetryError ? (
-        <div className="mt-4">
-          <Callout intent="danger" prefixIcon={<Alert />} title="Couldn't load cohort performance" />
-        </div>
-      ) : null}
-      <div className="mt-4 flex flex-col gap-1">
-        {hasMembers ? (
-          <FirmwareVersionHistoryPanel
-            duration={duration}
-            history={firmwareHistory}
-            isLoading={firmwareHistoryLoading}
-            hasError={firmwareHistoryError}
-          />
-        ) : null}
-        <HashratePanel duration={duration} metrics={hashrateMetrics} />
-        <UptimePanel duration={duration} uptimeStatusCounts={uptimeStatusCounts} />
-        <TemperaturePanel duration={duration} temperatureStatusCounts={temperatureStatusCounts} />
-        <div className="grid grid-cols-1 gap-1 laptop:grid-cols-2">
-          <PowerPanel duration={duration} metrics={powerMetrics} totalMiners={members.length} />
-          <EfficiencyPanel duration={duration} metrics={efficiencyMetrics} totalMiners={members.length} />
-        </div>
-      </div>
-    </section>
-  );
-};
-
-const OverviewMetric = ({ label, value }: { label: string; value: ReactNode }) => (
-  <div className="rounded-lg border border-border-5 bg-surface-base p-4">
-    <div className="text-200 text-text-primary-70">{label}</div>
-    <div className="mt-1 truncate text-heading-100 text-text-primary">{value}</div>
-  </div>
-);
-
-const formatFirmwareTimestamp = (timestamp?: CohortFirmwareStatus["observedAt"]) =>
-  timestamp ? new Date(timestampMs(timestamp)).toLocaleString() : "";
-
-const firmwareStatusTimeLabel = (status?: CohortFirmwareStatus) => {
-  const confirmed = formatFirmwareTimestamp(status?.confirmedAt);
-  if (confirmed) return `Confirmed ${confirmed}`;
-  const observed = formatFirmwareTimestamp(status?.observedAt);
-  if (observed) return `Updated ${observed}`;
-  const dispatched = formatFirmwareTimestamp(status?.lastDispatchedAt);
-  return dispatched ? `Dispatched ${dispatched}` : "";
-};
-
-const configStatusTimeLabel = (status?: CohortConfigStatus) => {
-  const confirmed = status?.confirmedAt ? new Date(timestampMs(status.confirmedAt)).toLocaleString() : "";
-  if (confirmed) return `Confirmed ${confirmed}`;
-  const observed = status?.observedAt ? new Date(timestampMs(status.observedAt)).toLocaleString() : "";
-  if (observed) return `Updated ${observed}`;
-  const dispatched = status?.lastDispatchedAt ? new Date(timestampMs(status.lastDispatchedAt)).toLocaleString() : "";
-  return dispatched ? `Dispatched ${dispatched}` : "";
-};
-
-const MemberFirmwareCell = ({
-  status,
-  fallbackCurrentVersion,
-}: {
-  status?: CohortFirmwareStatus;
-  fallbackCurrentVersion?: string;
-}) => {
-  const current = firmwareVersionLabel(status?.currentFirmwareVersion || fallbackCurrentVersion);
-  const target = status?.targetFirmwareVersion.trim();
-  const hasTarget = Boolean(status?.targetFirmwareFileId);
-
-  return (
-    <div className="min-w-0">
-      <div className="truncate font-medium text-text-primary" title={current}>
-        {current}
-      </div>
-      {hasTarget ? (
-        <div className="mt-1 truncate text-200 text-text-primary-70" title={target || "Target: Unknown"}>
-          Target: {target || "Unknown"}
-        </div>
-      ) : null}
-    </div>
-  );
-};
-
-const poolDisplayName = (poolId: bigint, miningPools: MiningPoolSummary[]) =>
-  miningPools.find((pool) => pool.poolId === poolId.toString())?.name || `Pool ID ${poolId.toString()}`;
-
-const MemberPoolTargetCell = ({
-  pools,
-  miningPools,
-  isLoading,
-}: {
-  pools?: CohortPoolDesiredConfig;
-  miningPools: MiningPoolSummary[];
-  isLoading: boolean;
-}) => {
-  if (!pools) {
-    return <td className="py-3 pr-1 pl-3 text-text-primary-70">Not managed</td>;
-  }
-
-  if (isLoading) {
-    return <td className="py-3 pr-1 pl-3 text-text-primary-70">Loading...</td>;
-  }
-
-  const primary = poolDisplayName(pools.primaryPoolId, miningPools);
-  const backups = [pools.backup1PoolId, pools.backup2PoolId]
-    .filter((poolId): poolId is bigint => poolId !== undefined)
-    .map((poolId) => poolDisplayName(poolId, miningPools));
-
-  return (
-    <td className="py-3 pr-1 pl-3">
-      <div className="truncate font-medium text-text-primary" title={primary}>
-        {primary}
-      </div>
-      {backups.length > 0 ? (
-        <div className="mt-1 truncate text-200 text-text-primary-70" title={backups.join(", ")}>
-          {backups.length === 1 ? "Backup" : "Backups"}: {backups.join(", ")}
-        </div>
-      ) : null}
-    </td>
-  );
-};
-
-interface ReconciliationStatusRowProps {
-  icon: ReactNode;
+interface OverviewMetricProps {
   label: string;
-  stateLabel: string;
-  eventTime?: string;
-  retryCount?: number;
-  lastError?: string;
+  value: ReactNode;
+  onClick?: () => void;
 }
 
-const ReconciliationStatusRow = ({
-  icon,
-  label,
-  stateLabel,
-  eventTime,
-  retryCount = 0,
-  lastError,
-}: ReconciliationStatusRowProps) => (
-  <div className="grid min-w-0 grid-cols-[20px_minmax(0,1fr)] items-start gap-x-1.5">
-    <div
-      className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center"
-      role="img"
-      aria-label={`${label}: ${stateLabel}`}
-      title={stateLabel}
+const OverviewMetric = ({ label, value, onClick }: OverviewMetricProps) => {
+  const content = (
+    <>
+      <div className="text-200 text-text-primary-70">{label}</div>
+      <div className="mt-1 truncate text-heading-100 text-text-primary">{value}</div>
+    </>
+  );
+
+  return onClick ? (
+    <button
+      type="button"
+      className="rounded-lg border border-border-5 bg-surface-base p-4 text-left transition-colors hover:bg-core-primary-5 focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:outline-none"
+      aria-label="View miners"
+      onClick={onClick}
     >
-      {icon}
-    </div>
-    <div className="min-w-0">
-      <div className="font-medium text-text-primary">{label}</div>
-      {eventTime ? (
-        <div className="truncate text-200 text-text-primary-50" title={eventTime}>
-          {eventTime}
-        </div>
-      ) : null}
-      {retryCount > 0 ? (
-        <div className="text-200 text-text-primary-50">
-          {retryCount} {retryCount === 1 ? "retry" : "retries"}
-        </div>
-      ) : null}
-      {lastError ? (
-        <div className="truncate text-200 text-intent-critical-fill" title={lastError}>
-          {lastError}
-        </div>
-      ) : null}
-    </div>
-  </div>
-);
-
-const firmwareStatusIcon = (status: CohortFirmwareStatus | undefined, managed: boolean) => {
-  if (!managed) return <Minus className="text-text-primary-50" />;
-  switch (status?.state) {
-    case CohortFirmwareRolloutState.COMPLETE:
-      return <Success className="text-intent-success-fill" />;
-    case CohortFirmwareRolloutState.QUEUED:
-    case CohortFirmwareRolloutState.UPDATING:
-    case CohortFirmwareRolloutState.VERIFYING:
-      return <ProgressCircular className="text-core-primary-fill" indeterminate size={16} />;
-    case CohortFirmwareRolloutState.NEEDS_ATTENTION:
-      return <Alert className="text-intent-critical-fill" width="w-[18px]" />;
-    default:
-      return <Minus className="text-text-primary-50" />;
-  }
-};
-
-const configStatusIcon = (state: CohortConfigLifecycleState, managed: boolean) => {
-  if (!managed) return <Minus className="text-text-primary-50" />;
-  switch (state) {
-    case CohortConfigLifecycleState.CONVERGED:
-      return <Success className="text-intent-success-fill" />;
-    case CohortConfigLifecycleState.WAITING_FOR_OBSERVATION:
-    case CohortConfigLifecycleState.APPLYING:
-    case CohortConfigLifecycleState.VERIFYING:
-      return <ProgressCircular className="text-core-primary-fill" indeterminate size={16} />;
-    case CohortConfigLifecycleState.HELD:
-      return <Pause className="text-intent-critical-fill" width="w-[18px]" />;
-    case CohortConfigLifecycleState.FAILED:
-      return <Alert className="text-intent-critical-fill" width="w-[18px]" />;
-    default:
-      return <Minus className="text-text-primary-50" />;
-  }
-};
-
-const MemberReconciliationCell = ({
-  firmwareStatus,
-  poolsManaged,
-  configStatuses,
-}: {
-  firmwareStatus?: CohortFirmwareStatus;
-  poolsManaged: boolean;
-  configStatuses: CohortConfigStatus[];
-}) => {
-  const firmwareManaged = Boolean(firmwareStatus?.targetFirmwareFileId);
-  const firmwareStateLabel =
-    firmwareManaged && firmwareStatus ? firmwareRolloutStateLabel(firmwareStatus.state) : "Not managed";
-  const firmwareError = firmwareStatus?.lastError.trim();
-  const poolStatus = configStatuses.find((status) => status.dimension === CohortConfigDimension.POOLS);
-  const poolState = poolStatus?.state ?? CohortConfigLifecycleState.WAITING_FOR_OBSERVATION;
-  const poolStateLabel = poolsManaged ? configStateLabel(poolState) : "Not managed";
-  const poolError = poolStatus?.lastError.trim();
-
-  return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <ReconciliationStatusRow
-        icon={firmwareStatusIcon(firmwareStatus, firmwareManaged)}
-        label="Firmware"
-        stateLabel={firmwareStateLabel}
-        eventTime={firmwareManaged ? firmwareStatusTimeLabel(firmwareStatus) : undefined}
-        retryCount={firmwareManaged ? firmwareStatus?.retryCount : 0}
-        lastError={firmwareManaged ? firmwareError : undefined}
-      />
-      <ReconciliationStatusRow
-        icon={configStatusIcon(poolState, poolsManaged)}
-        label="Pools"
-        stateLabel={poolStateLabel}
-        eventTime={poolsManaged ? configStatusTimeLabel(poolStatus) : undefined}
-        retryCount={poolsManaged ? poolStatus?.retryCount : 0}
-        lastError={poolsManaged ? poolError : undefined}
-      />
-    </div>
+      {content}
+    </button>
+  ) : (
+    <div className="rounded-lg border border-border-5 bg-surface-base p-4">{content}</div>
   );
 };
 

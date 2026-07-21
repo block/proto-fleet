@@ -119,6 +119,21 @@ func selectDataSource(startTime, endTime time.Time, deviceCount int) dataSource 
 	return dataSourceDaily
 }
 
+func selectDataSourceForQuery(query models.CombinedMetricsQuery, startTime, endTime time.Time) dataSource {
+	switch query.Resolution {
+	case models.CombinedMetricsResolutionRaw:
+		return dataSourceRaw
+	case models.CombinedMetricsResolutionHourly:
+		return dataSourceHourly
+	case models.CombinedMetricsResolutionDaily:
+		return dataSourceDaily
+	case models.CombinedMetricsResolutionAuto:
+		return selectDataSource(startTime, endTime, len(query.DeviceIDs))
+	default:
+		return selectDataSource(startTime, endTime, len(query.DeviceIDs))
+	}
+}
+
 // normalizeCompleteBucketRange returns a query range that only includes complete buckets.
 // The SQL queries filter using `bucket <= end`, where `bucket` is the bucket start time.
 // To exclude an in-progress last bucket, shift the end time back by one full bucket.
@@ -464,6 +479,56 @@ func (s *TimescaleTelemetryStore) GetLatestDeviceMetricsBatch(ctx context.Contex
 	return result, nil
 }
 
+// GetDeviceOutcomeAverages returns independently nullable per-device averages
+// for adjacent baseline and comparison windows.
+func (s *TimescaleTelemetryStore) GetDeviceOutcomeAverages(ctx context.Context, query models.DeviceOutcomeComparisonQuery) ([]models.DeviceOutcomeAverages, error) {
+	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+	defer cancel()
+
+	if len(query.DeviceIDs) == 0 {
+		return nil, nil
+	}
+	if query.OrganizationID <= 0 {
+		return nil, fmt.Errorf("device outcome averages require an organization")
+	}
+	if query.BaselineStart.After(query.BaselineEnd) || query.BaselineEnd.After(query.ComparisonStart) || query.ComparisonStart.After(query.ComparisonEnd) {
+		return nil, fmt.Errorf("device outcome average windows must be ordered")
+	}
+
+	rows, err := s.queries.GetDeviceOutcomeAverages(ctx, sqlc.GetDeviceOutcomeAveragesParams{
+		BaselineStart:     query.BaselineStart,
+		BaselineEnd:       query.BaselineEnd,
+		ComparisonStart:   query.ComparisonStart,
+		ComparisonEnd:     query.ComparisonEnd,
+		OrgID:             query.OrganizationID,
+		DeviceIdentifiers: deviceIDsToStrings(query.DeviceIDs),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("query device outcome averages: %w", err)
+	}
+
+	result := make([]models.DeviceOutcomeAverages, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, models.DeviceOutcomeAverages{
+			DeviceID:             models.DeviceIdentifier(row.DeviceIdentifier),
+			BaselineHashrate:     float64WhenPresent(row.BaselineHashrate, row.BaselineHashratePoints),
+			ComparisonHashrate:   float64WhenPresent(row.ComparisonHashrate, row.ComparisonHashratePoints),
+			BaselineEfficiency:   float64WhenPresent(row.BaselineEfficiency, row.BaselineEfficiencyPoints),
+			ComparisonEfficiency: float64WhenPresent(row.ComparisonEfficiency, row.ComparisonEfficiencyPoints),
+			BaselinePower:        float64WhenPresent(row.BaselinePower, row.BaselinePowerPoints),
+			ComparisonPower:      float64WhenPresent(row.ComparisonPower, row.ComparisonPowerPoints),
+		})
+	}
+	return result, nil
+}
+
+func float64WhenPresent(value float64, points int64) *float64 {
+	if points == 0 {
+		return nil
+	}
+	return &value
+}
+
 // GetTimeSeriesTelemetry retrieves time series metrics for devices.
 func (s *TimescaleTelemetryStore) GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]modelsV2.DeviceMetrics, error) {
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
@@ -619,7 +684,7 @@ func (s *TimescaleTelemetryStore) StreamTelemetryUpdates(ctx context.Context, qu
 // - Daily aggregates (device_metrics_daily) for queries > 10d
 func (s *TimescaleTelemetryStore) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
 	startTime, endTime := s.getTimeRange(query.TimeRange)
-	ds := selectDataSource(startTime, endTime, len(query.DeviceIDs))
+	ds := selectDataSourceForQuery(query, startTime, endTime)
 
 	s.logger.Debug("selected data source for combined metrics",
 		slog.String("source", ds.String()),
@@ -839,7 +904,10 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 	// the long-standing complete-bucket behavior with no tail.
 	bodyWindowEnd := endTime
 	var tailStart time.Time
-	hasTail := endTime.After(startTime) && endTime.Sub(startTime) <= rawDataMaxDuration
+	// Explicit hourly comparisons must not splice raw data into one side: the
+	// caller selected hourly specifically so disjoint windows share a source.
+	hasTail := query.Resolution != models.CombinedMetricsResolutionHourly &&
+		endTime.After(startTime) && endTime.Sub(startTime) <= rawDataMaxDuration
 	if hasTail {
 		tailStart = endTime.Add(-hourlyRawTailCoverage).Truncate(time.Hour)
 		if tailStart.Before(startTime) {

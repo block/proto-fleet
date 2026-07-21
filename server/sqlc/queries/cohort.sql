@@ -753,6 +753,35 @@ WHERE d.org_id = sqlc.arg('org_id')
 ORDER BY d.device_identifier
 LIMIT sqlc.arg('limit_count')::int;
 
+-- name: ListCohortTelemetryComparisonMemberships :many
+WITH requested_cohorts AS (
+    SELECT c.id, c.label, c.is_default
+    FROM cohort c
+    WHERE c.org_id = sqlc.arg('org_id')
+      AND c.state = 'active'
+      AND c.id = ANY(sqlc.arg('cohort_ids')::bigint[])
+)
+SELECT
+    requested.id AS cohort_id,
+    requested.label,
+    requested.is_default,
+    COALESCE(member.device_identifier, '')::text AS device_identifier
+FROM requested_cohorts requested
+LEFT JOIN LATERAL (
+    SELECT d.device_identifier
+    FROM device d
+    LEFT JOIN cohort_membership membership
+      ON membership.org_id = d.org_id
+     AND membership.device_identifier = d.device_identifier
+    WHERE d.org_id = sqlc.arg('org_id')
+      AND d.deleted_at IS NULL
+      AND (
+        (requested.is_default AND membership.cohort_id IS NULL)
+        OR (NOT requested.is_default AND membership.cohort_id = requested.id)
+      )
+) member ON TRUE
+ORDER BY requested.is_default DESC, requested.id, member.device_identifier;
+
 -- name: ListCohortDevices :many
 WITH cohort_devices AS (
     SELECT

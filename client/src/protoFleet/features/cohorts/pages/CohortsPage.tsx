@@ -2,16 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import {
-  type CohortDevice,
-  CohortDeviceAssignment,
+  CohortConfigDimension,
   type CohortSummary,
+  CohortTelemetryComparisonWindow,
+  type GetCohortTelemetryComparisonResponse,
 } from "@/protoFleet/api/generated/cohort/v1/cohort_pb";
 import { useCohortApi } from "@/protoFleet/api/useCohortApi";
 import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import CohortComparisonDashboard from "@/protoFleet/features/cohorts/components/CohortComparisonDashboard";
 import CohortModal from "@/protoFleet/features/cohorts/components/CohortModal";
 import {
-  cohortDeviceDisplayName,
-  cohortDeviceSecondaryText,
   formatCohortExpiryTimeLeft,
   formatCohortTimestamp,
   isActiveNonDefaultCohort,
@@ -24,69 +25,15 @@ import { Alert, ArrowRight, ChevronDown, Plus } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
-import { type DropdownOption } from "@/shared/components/List/Filters/DropdownFilter";
-import FilterChipsBar, { type FilterChipsBarFilter } from "@/shared/components/List/Filters/FilterChipsBar";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Search from "@/shared/components/Search";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
+const registerPageSize = 25;
+
 const pluralize = (count: number, singular: string, plural = `${singular}s`) =>
-  `${count} ${count === 1 ? singular : plural}`;
-
-type RigAssignmentFilterKey = "assignment" | "cohort" | "owner" | "target";
-
-const cohortListPageSize = 5;
-const assignmentPageSize = 50;
-const availableAssignmentValue = "available";
-const reservedAssignmentValue = "reserved";
-const defaultCohortFilterValue = "__default__";
-const unownedFilterValue = "__unowned__";
-const targetFilterSeparator = "\u0000";
-
-const emptyRigAssignmentFilters = (): Record<RigAssignmentFilterKey, string[]> => ({
-  assignment: [],
-  cohort: [],
-  owner: [],
-  target: [],
-});
-
-const uniqueOptions = (options: DropdownOption[]) =>
-  Array.from(new Map(options.map((option) => [option.id, option])).values()).sort((a, b) =>
-    a.label.localeCompare(b.label),
-  );
-
-const getCohortFilterValue = (device: CohortDevice) =>
-  device.effectiveCohort && !device.effectiveCohort.isDefault
-    ? device.effectiveCohort.id.toString()
-    : defaultCohortFilterValue;
-
-const getOwnerFilterValue = (device: CohortDevice) =>
-  device.effectiveCohort?.ownerUserId?.toString() || unownedFilterValue;
-
-const getOwnerLabel = (device: CohortDevice) => device.effectiveCohort?.ownerUsername || "Unowned";
-
-const getTargetLabel = (device: CohortDevice) =>
-  [device.display?.manufacturer, device.display?.model].filter(Boolean).join(" ") || "Unknown";
-
-const getTargetFilterValue = (device: CohortDevice) => {
-  const manufacturer = device.display?.manufacturer?.trim();
-  const model = device.display?.model?.trim();
-  return manufacturer && model ? `${manufacturer}${targetFilterSeparator}${model}` : "";
-};
-
-const bigintFromFilterValue = (value: string) => {
-  try {
-    return BigInt(value);
-  } catch {
-    return undefined;
-  }
-};
-
-const pageEndCount = (pageIndex: number, pageSize: number, itemCount: number) => pageIndex * pageSize + itemCount;
-
-const displayedTotalCount = (reportedTotal: number, pageIndex: number, pageSize: number, itemCount: number) =>
-  Math.max(reportedTotal, pageEndCount(pageIndex, pageSize, itemCount));
+  `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
 
 const isOwnedByCurrentUser = (cohort: CohortSummary, username: string) => {
   const ownerUsername = cohort.ownerUsername.trim().toLowerCase();
@@ -94,9 +41,33 @@ const isOwnedByCurrentUser = (cohort: CohortSummary, username: string) => {
   return ownerUsername !== "" && currentUsername !== "" && ownerUsername === currentUsername;
 };
 
+const formatFirmwareFileInfo = (firmwareFileId: string, firmwareFilesById: Map<string, FirmwareFileInfo>) => {
+  const file = firmwareFilesById.get(firmwareFileId);
+  if (!file) return firmwareFileId;
+  const version = file.firmware_version?.trim();
+  const filename = file.filename?.trim();
+  if (version && filename) return `${version} (${filename})`;
+  return version || filename || firmwareFileId;
+};
+
+const formatCohortFirmwareSummary = (cohort: CohortSummary, firmwareFilesById: Map<string, FirmwareFileInfo>) => {
+  const targets = cohort.firmwareTargets.filter((target) => target.firmwareFileId);
+  if (targets.length > 0) {
+    return targets
+      .map((target) => {
+        const minerType = [target.manufacturer, target.model].filter(Boolean).join(" ") || "Target";
+        return `${minerType}: ${formatFirmwareFileInfo(target.firmwareFileId, firmwareFilesById)}`;
+      })
+      .join(" · ");
+  }
+  if (cohort.desiredFirmwareFileId) {
+    return formatFirmwareFileInfo(cohort.desiredFirmwareFileId, firmwareFilesById);
+  }
+  return "Not enforced";
+};
+
 const CohortExpiryText = ({ cohort }: { cohort: CohortSummary }) => {
   const timeLeft = isActiveNonDefaultCohort(cohort) ? formatCohortExpiryTimeLeft(cohort.expiresAt) : undefined;
-
   return (
     <>
       {formatCohortTimestamp(cohort.expiresAt)}
@@ -105,36 +76,23 @@ const CohortExpiryText = ({ cohort }: { cohort: CohortSummary }) => {
   );
 };
 
-const formatFirmwareFileInfo = (firmwareFileId: string, firmwareFilesById: Map<string, FirmwareFileInfo>) => {
-  const file = firmwareFilesById.get(firmwareFileId);
-  if (!file) return "Unknown file";
-  const version = file.firmware_version?.trim();
-  const filename = file.filename?.trim();
-  if (version && filename) return `${version} (${filename})`;
-  return version || filename || firmwareFileId;
+const RolloutSummary = ({ cohort }: { cohort: CohortSummary }) => {
+  const firmwareTargeted = cohort.firmwareProgress?.targetedCount ?? 0;
+  const firmwareComplete = cohort.firmwareProgress?.completeCount ?? 0;
+  const pools = cohort.configProgress.find((progress) => progress.dimension === CohortConfigDimension.POOLS);
+  const poolsTargeted = pools?.targetedCount ?? 0;
+  const poolsComplete = pools?.convergedCount ?? 0;
+  const firmwareEnforced =
+    Boolean(cohort.desiredFirmwareFileId) || cohort.firmwareTargets.some((target) => Boolean(target.firmwareFileId));
+  const poolsEnforced = Boolean(cohort.desiredConfig?.pools);
+
+  return (
+    <div className="space-y-1 text-200 text-text-primary-70">
+      <div>{firmwareEnforced ? `Firmware ${firmwareComplete}/${firmwareTargeted}` : "Firmware not enforced"}</div>
+      <div>{poolsEnforced ? `Pools ${poolsComplete}/${poolsTargeted}` : "Pools not enforced"}</div>
+    </div>
+  );
 };
-
-const formatCohortFirmwareSummary = (cohort: CohortSummary, firmwareFilesById: Map<string, FirmwareFileInfo>) => {
-  const configuredTargets = cohort.firmwareTargets.filter((target) => target.firmwareFileId);
-  if (configuredTargets.length > 0) {
-    return configuredTargets
-      .map((target) => {
-        const targetLabel = [target.manufacturer, target.model].filter(Boolean).join(" ") || "Target";
-        return `${targetLabel}: ${formatFirmwareFileInfo(target.firmwareFileId, firmwareFilesById)}`;
-      })
-      .join(" · ");
-  }
-  if (cohort.desiredFirmwareFileId) {
-    return formatFirmwareFileInfo(cohort.desiredFirmwareFileId, firmwareFilesById);
-  }
-  return "Not set";
-};
-
-const cohortDeviceFirmwareVersion = (device: CohortDevice) =>
-  device.firmwareStatus?.currentFirmwareVersion.trim() || device.display?.firmwareVersion.trim() || "Unknown";
-
-const cohortDeviceAssignmentLabel = (device: CohortDevice) =>
-  device.effectiveCohort && !device.effectiveCohort.isDefault ? "Reserved" : "Available";
 
 const CohortsPage = () => {
   const activeSite = useRouteSiteScope() ?? DEFAULT_ACTIVE_SITE;
@@ -142,279 +100,116 @@ const CohortsPage = () => {
   const role = useRole();
   const username = useUsername();
   const isSuperAdmin = isSuperAdminRole(role);
-  const { listCohorts, getMyCohorts, listDevices, releaseCohort } = useCohortApi();
+  const { listAllCohorts, getTelemetryComparison, releaseCohort } = useCohortApi();
   const { listFirmwareFiles } = useFirmwareApi();
   const [cohorts, setCohorts] = useState<CohortSummary[]>([]);
-  const [myCohorts, setMyCohorts] = useState<CohortSummary[]>([]);
-  const [devices, setDevices] = useState<CohortDevice[]>([]);
   const [firmwareFiles, setFirmwareFiles] = useState<FirmwareFileInfo[]>([]);
-  const [cohortsTotalCount, setCohortsTotalCount] = useState(0);
-  const [myCohortsTotalCount, setMyCohortsTotalCount] = useState(0);
-  const [devicesTotalCount, setDevicesTotalCount] = useState(0);
-  const [availableDevices, setAvailableDevices] = useState(0);
-  const [reservedDevices, setReservedDevices] = useState(0);
-  const [cohortsPageToken, setCohortsPageToken] = useState("");
-  const [cohortsNextPageToken, setCohortsNextPageToken] = useState("");
-  const [cohortsPageHistory, setCohortsPageHistory] = useState<string[]>([]);
-  const [myCohortsPageToken, setMyCohortsPageToken] = useState("");
-  const [myCohortsNextPageToken, setMyCohortsNextPageToken] = useState("");
-  const [myCohortsPageHistory, setMyCohortsPageHistory] = useState<string[]>([]);
-  const [devicesPageToken, setDevicesPageToken] = useState("");
-  const [devicesNextPageToken, setDevicesNextPageToken] = useState("");
-  const [devicesPageHistory, setDevicesPageHistory] = useState<string[]>([]);
-  const [cohortsSearch, setCohortsSearch] = useState("");
-  const [myCohortsSearch, setMyCohortsSearch] = useState("");
-  const [debouncedCohortsSearch, setDebouncedCohortsSearch] = useState("");
-  const [debouncedMyCohortsSearch, setDebouncedMyCohortsSearch] = useState("");
+  const [selectedCohortIds, setSelectedCohortIds] = useState<string[]>([]);
+  const [comparisonWindow, setComparisonWindow] = useState(CohortTelemetryComparisonWindow.SIX_HOURS);
+  const [comparison, setComparison] = useState<GetCohortTelemetryComparisonResponse | null>(null);
+  const [comparisonLoading, setComparisonLoading] = useState(false);
+  const [comparisonError, setComparisonError] = useState(false);
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isMutating, setIsMutating] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [rigAssignmentSearch, setRigAssignmentSearch] = useState("");
-  const [debouncedRigAssignmentSearch, setDebouncedRigAssignmentSearch] = useState("");
-  const [rigAssignmentFilters, setRigAssignmentFilters] =
-    useState<Record<RigAssignmentFilterKey, string[]>>(emptyRigAssignmentFilters);
-  const hasLoadedRef = useRef(false);
+  const [search, setSearch] = useState("");
+  const [pageIndex, setPageIndex] = useState(0);
   const refreshRequestIdRef = useRef(0);
-
-  const rigAssignmentDeviceFilter = useMemo(() => {
-    const assignments: CohortDeviceAssignment[] = [];
-    rigAssignmentFilters.assignment.forEach((value) => {
-      if (value === availableAssignmentValue) assignments.push(CohortDeviceAssignment.AVAILABLE);
-      if (value === reservedAssignmentValue) assignments.push(CohortDeviceAssignment.RESERVED);
-    });
-    const cohortIds: bigint[] = [];
-    rigAssignmentFilters.cohort.forEach((value) => {
-      if (value === defaultCohortFilterValue) {
-        if (!assignments.includes(CohortDeviceAssignment.AVAILABLE)) {
-          assignments.push(CohortDeviceAssignment.AVAILABLE);
-        }
-        return;
-      }
-      const id = bigintFromFilterValue(value);
-      if (id !== undefined) cohortIds.push(id);
-    });
-    const ownerUserIds: bigint[] = [];
-    let includeUnowned = false;
-    rigAssignmentFilters.owner.forEach((value) => {
-      if (value === unownedFilterValue) {
-        includeUnowned = true;
-        return;
-      }
-      const id = bigintFromFilterValue(value);
-      if (id !== undefined) ownerUserIds.push(id);
-    });
-    const manufacturers: string[] = [];
-    const models: string[] = [];
-    rigAssignmentFilters.target.forEach((value) => {
-      const [manufacturer, model] = value.split(targetFilterSeparator);
-      if (manufacturer && model) {
-        manufacturers.push(manufacturer);
-        models.push(model);
-      }
-    });
-    return {
-      assignments,
-      cohortIds,
-      ownerUserIds,
-      includeUnowned,
-      manufacturers,
-      models,
-      search: debouncedRigAssignmentSearch,
-    };
-  }, [debouncedRigAssignmentSearch, rigAssignmentFilters]);
+  const comparisonRequestIdRef = useRef(0);
 
   const refresh = useCallback(async () => {
     const requestId = refreshRequestIdRef.current + 1;
     refreshRequestIdRef.current = requestId;
-    if (!hasLoadedRef.current) {
-      setIsInitialLoading(true);
-    }
     setError(null);
     try {
-      const [nextCohorts, nextMyCohorts, nextDevices, nextFirmwareFiles] = await Promise.allSettled([
-        listCohorts({
-          includeReleased: false,
-          pageSize: cohortListPageSize,
-          pageToken: cohortsPageToken,
-          search: debouncedCohortsSearch,
-        }),
-        getMyCohorts({
-          includeReleased: false,
-          pageSize: cohortListPageSize,
-          pageToken: myCohortsPageToken,
-          search: debouncedMyCohortsSearch,
-        }),
-        listDevices({
-          pageSize: assignmentPageSize,
-          pageToken: devicesPageToken,
-          filter: rigAssignmentDeviceFilter,
-        }),
+      const [nextCohorts, nextFirmwareFiles] = await Promise.allSettled([
+        listAllCohorts({ includeReleased: false }),
         listFirmwareFiles(),
       ]);
       if (requestId !== refreshRequestIdRef.current) return;
-      if (nextCohorts.status === "fulfilled") {
-        setCohorts(nextCohorts.value.cohorts);
-        setCohortsNextPageToken(nextCohorts.value.nextPageToken);
-        setCohortsTotalCount(nextCohorts.value.totalCount);
-      }
-      if (nextMyCohorts.status === "fulfilled") {
-        setMyCohorts(nextMyCohorts.value.cohorts);
-        setMyCohortsNextPageToken(nextMyCohorts.value.nextPageToken);
-        setMyCohortsTotalCount(nextMyCohorts.value.totalCount);
-      }
-      if (nextDevices.status === "fulfilled") {
-        setDevices(nextDevices.value.devices);
-        setDevicesNextPageToken(nextDevices.value.nextPageToken);
-        setDevicesTotalCount(nextDevices.value.totalCount);
-        setAvailableDevices(nextDevices.value.availableCount);
-        setReservedDevices(nextDevices.value.reservedCount);
-      }
-      if (nextFirmwareFiles.status === "fulfilled") {
-        setFirmwareFiles(nextFirmwareFiles.value);
-      } else {
-        setFirmwareFiles([]);
-      }
-      if (
-        nextCohorts.status === "rejected" ||
-        nextMyCohorts.status === "rejected" ||
-        nextDevices.status === "rejected"
-      ) {
+      if (nextCohorts.status === "rejected") {
         setError("Couldn't load cohorts");
+        return;
       }
-      hasLoadedRef.current = true;
+      const activeCohorts = nextCohorts.value;
+      setCohorts(activeCohorts);
+      setFirmwareFiles(nextFirmwareFiles.status === "fulfilled" ? nextFirmwareFiles.value : []);
+      setSelectedCohortIds((current) => {
+        const defaultCohort = activeCohorts.find((cohort) => cohort.isDefault);
+        if (!defaultCohort) return [];
+        const defaultId = defaultCohort.id.toString();
+        const availableIDs = new Set(activeCohorts.map((cohort) => cohort.id.toString()));
+        const preserved = current.filter((id) => id !== defaultId && availableIDs.has(id)).slice(0, 4);
+        const initial =
+          current.length === 0
+            ? activeCohorts
+                .filter((cohort) => !cohort.isDefault)
+                .slice(0, 2)
+                .map((cohort) => cohort.id.toString())
+            : preserved;
+        return [defaultId, ...initial];
+      });
+      setRefreshVersion((version) => version + 1);
     } catch {
-      if (requestId !== refreshRequestIdRef.current) return;
-      setError("Couldn't load cohorts");
+      if (requestId === refreshRequestIdRef.current) setError("Couldn't load cohorts");
     } finally {
-      if (requestId === refreshRequestIdRef.current) {
-        hasLoadedRef.current = true;
-        setIsInitialLoading(false);
-      }
+      if (requestId === refreshRequestIdRef.current) setIsInitialLoading(false);
     }
-  }, [
-    debouncedCohortsSearch,
-    debouncedMyCohortsSearch,
-    cohortsPageToken,
-    devicesPageToken,
-    getMyCohorts,
-    listCohorts,
-    listDevices,
-    listFirmwareFiles,
-    myCohortsPageToken,
-    rigAssignmentDeviceFilter,
-  ]);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => setDebouncedCohortsSearch(cohortsSearch.trim()), 250);
-    return () => window.clearTimeout(timeoutId);
-  }, [cohortsSearch]);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => setDebouncedMyCohortsSearch(myCohortsSearch.trim()), 250);
-    return () => window.clearTimeout(timeoutId);
-  }, [myCohortsSearch]);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => setDebouncedRigAssignmentSearch(rigAssignmentSearch.trim()), 250);
-    return () => window.clearTimeout(timeoutId);
-  }, [rigAssignmentSearch]);
+  }, [listAllCohorts, listFirmwareFiles]);
 
   useEffect(() => {
     queueMicrotask(() => void refresh());
+    const intervalID = window.setInterval(() => void refresh(), POLL_INTERVAL_MS);
+    return () => window.clearInterval(intervalID);
   }, [refresh]);
 
-  const rigAssignmentFilterOptions = useMemo<FilterChipsBarFilter[]>(
-    () => [
-      {
-        key: "assignment",
-        title: "Assignment",
-        options: [
-          { id: availableAssignmentValue, label: "Available" },
-          { id: reservedAssignmentValue, label: "Reserved" },
-        ],
-        selectedValues: rigAssignmentFilters.assignment,
-      },
-      {
-        key: "cohort",
-        title: "Cohort",
-        options: uniqueOptions(
-          devices.map((device) => ({
-            id: getCohortFilterValue(device),
-            label:
-              device.effectiveCohort && !device.effectiveCohort.isDefault ? device.effectiveCohort.label : "Default",
-          })),
-        ),
-        selectedValues: rigAssignmentFilters.cohort,
-      },
-      {
-        key: "owner",
-        title: "Owner",
-        options: uniqueOptions(
-          devices.map((device) => ({
-            id: getOwnerFilterValue(device),
-            label: getOwnerLabel(device),
-          })),
-        ),
-        selectedValues: rigAssignmentFilters.owner,
-      },
-      {
-        key: "target",
-        title: "Product",
-        options: uniqueOptions(
-          devices
-            .map((device) => ({
-              id: getTargetFilterValue(device),
-              label: getTargetLabel(device),
-            }))
-            .filter((option) => option.id !== ""),
-        ),
-        selectedValues: rigAssignmentFilters.target,
-      },
-    ],
-    [devices, rigAssignmentFilters],
-  );
+  // Outcome comparisons scan two historical windows. Refresh them once per
+  // minute while keeping the lightweight cohort register on the shared 15s
+  // polling cadence.
+  const comparisonRefreshTick = Math.floor(Math.max(0, refreshVersion - 1) / 4);
 
-  const hasRigAssignmentFilters =
-    rigAssignmentSearch.trim() !== "" || Object.values(rigAssignmentFilters).some((values) => values.length > 0);
-
-  const visibleReservedDevices = useMemo(
-    () => devices.filter((device) => device.effectiveCohort && !device.effectiveCohort.isDefault).length,
-    [devices],
-  );
-  const visibleAvailableDevices = devices.length - visibleReservedDevices;
-  const shouldUseVisibleAssignmentCounts = devices.length > 0 && availableDevices === 0 && reservedDevices === 0;
-  const displayedAvailableDevices = shouldUseVisibleAssignmentCounts ? visibleAvailableDevices : availableDevices;
-  const displayedReservedDevices = shouldUseVisibleAssignmentCounts ? visibleReservedDevices : reservedDevices;
-  const firmwareFilesById = useMemo(
-    () => new Map(firmwareFiles.map((file) => [file.id, file] as const)),
-    [firmwareFiles],
-  );
-  const cohortsPageIndex = cohortsPageHistory.length;
-  const myCohortsPageIndex = myCohortsPageHistory.length;
-  const devicesPageIndex = devicesPageHistory.length;
-  const displayedCohortsTotalCount = displayedTotalCount(
-    cohortsTotalCount,
-    cohortsPageIndex,
-    cohortListPageSize,
-    cohorts.length,
-  );
-  const displayedMyCohortsTotalCount = displayedTotalCount(
-    myCohortsTotalCount,
-    myCohortsPageIndex,
-    cohortListPageSize,
-    myCohorts.length,
-  );
-  const displayedDevicesTotalCount = displayedTotalCount(
-    devicesTotalCount,
-    devicesPageIndex,
-    assignmentPageSize,
-    devices.length,
-  );
+  useEffect(() => {
+    if (selectedCohortIds.length === 0) {
+      return;
+    }
+    const requestId = comparisonRequestIdRef.current + 1;
+    comparisonRequestIdRef.current = requestId;
+    const load = async () => {
+      setComparisonLoading(true);
+      setComparisonError(false);
+      try {
+        const response = await getTelemetryComparison({
+          cohortIds: selectedCohortIds.map((id) => BigInt(id)),
+          comparisonWindow,
+        });
+        if (requestId === comparisonRequestIdRef.current) setComparison(response);
+      } catch {
+        if (requestId === comparisonRequestIdRef.current) setComparisonError(true);
+      } finally {
+        if (requestId === comparisonRequestIdRef.current) setComparisonLoading(false);
+      }
+    };
+    queueMicrotask(() => void load());
+  }, [comparisonRefreshTick, comparisonWindow, getTelemetryComparison, selectedCohortIds]);
 
   const detailHref = useCallback(
     (cohortId: bigint) => scopedPath(`/cohorts/${cohortId.toString()}`, activeSite),
     [activeSite],
+  );
+
+  const toggleComparedCohort = useCallback(
+    (cohortId: string) => {
+      const cohort = cohorts.find((item) => item.id.toString() === cohortId);
+      if (!cohort || cohort.isDefault) return;
+      setSelectedCohortIds((current) => {
+        if (current.includes(cohortId)) return current.filter((id) => id !== cohortId);
+        if (current.length >= 5) return current;
+        return [...current, cohortId];
+      });
+    },
+    [cohorts],
   );
 
   const handleRelease = useCallback(
@@ -434,80 +229,36 @@ const CohortsPage = () => {
     [refresh, releaseCohort],
   );
 
-  const handleRigAssignmentFilterChange = useCallback((key: string, selectedValues: string[]) => {
-    setRigAssignmentFilters((prev) => ({ ...prev, [key]: selectedValues }));
-    setDevicesPageToken("");
-    setDevicesPageHistory([]);
-  }, []);
+  const normalizedSearch = search.trim().toLocaleLowerCase();
+  const filteredCohorts = useMemo(
+    () =>
+      normalizedSearch === ""
+        ? cohorts
+        : cohorts.filter((cohort) =>
+            [cohort.label, cohort.purpose, cohort.ownerUsername]
+              .join(" ")
+              .toLocaleLowerCase()
+              .includes(normalizedSearch),
+          ),
+    [cohorts, normalizedSearch],
+  );
+  const pageCount = Math.max(1, Math.ceil(filteredCohorts.length / registerPageSize));
+  const safePageIndex = Math.min(pageIndex, pageCount - 1);
+  const visibleCohorts = filteredCohorts.slice(
+    safePageIndex * registerPageSize,
+    safePageIndex * registerPageSize + registerPageSize,
+  );
+  const totalMiners = cohorts.reduce((total, cohort) => total + Number(cohort.explicitMemberCount), 0);
+  const defaultMiners = Number(cohorts.find((cohort) => cohort.isDefault)?.explicitMemberCount ?? 0n);
+  const rolloutCohorts = cohorts.filter((cohort) => !cohort.isDefault).length;
+  const firmwareFilesById = useMemo(
+    () => new Map(firmwareFiles.map((file) => [file.id, file] as const)),
+    [firmwareFiles],
+  );
 
-  const clearRigAssignmentFilters = useCallback(() => {
-    setRigAssignmentSearch("");
-    setRigAssignmentFilters(emptyRigAssignmentFilters());
-    setDevicesPageToken("");
-    setDevicesPageHistory([]);
-  }, []);
-
-  const handleRigAssignmentSearchChange = useCallback((value: string) => {
-    setRigAssignmentSearch(value);
-    setDevicesPageToken("");
-    setDevicesPageHistory([]);
-  }, []);
-
-  const handleCohortsSearchChange = useCallback((value: string) => {
-    setCohortsSearch(value);
-    setCohortsPageToken("");
-    setCohortsPageHistory([]);
-  }, []);
-
-  const handleMyCohortsSearchChange = useCallback((value: string) => {
-    setMyCohortsSearch(value);
-    setMyCohortsPageToken("");
-    setMyCohortsPageHistory([]);
-  }, []);
-
-  const goToNextCohortsPage = useCallback(() => {
-    if (!cohortsNextPageToken) return;
-    setCohortsPageHistory((prev) => [...prev, cohortsPageToken]);
-    setCohortsPageToken(cohortsNextPageToken);
-  }, [cohortsNextPageToken, cohortsPageToken]);
-
-  const goToPreviousCohortsPage = useCallback(() => {
-    setCohortsPageHistory((prev) => {
-      if (prev.length === 0) return prev;
-      const next = prev.slice(0, -1);
-      setCohortsPageToken(prev[prev.length - 1] ?? "");
-      return next;
-    });
-  }, []);
-
-  const goToNextMyCohortsPage = useCallback(() => {
-    if (!myCohortsNextPageToken) return;
-    setMyCohortsPageHistory((prev) => [...prev, myCohortsPageToken]);
-    setMyCohortsPageToken(myCohortsNextPageToken);
-  }, [myCohortsNextPageToken, myCohortsPageToken]);
-
-  const goToPreviousMyCohortsPage = useCallback(() => {
-    setMyCohortsPageHistory((prev) => {
-      if (prev.length === 0) return prev;
-      const next = prev.slice(0, -1);
-      setMyCohortsPageToken(prev[prev.length - 1] ?? "");
-      return next;
-    });
-  }, []);
-
-  const goToNextDevicesPage = useCallback(() => {
-    if (!devicesNextPageToken) return;
-    setDevicesPageHistory((prev) => [...prev, devicesPageToken]);
-    setDevicesPageToken(devicesNextPageToken);
-  }, [devicesNextPageToken, devicesPageToken]);
-
-  const goToPreviousDevicesPage = useCallback(() => {
-    setDevicesPageHistory((prev) => {
-      if (prev.length === 0) return prev;
-      const next = prev.slice(0, -1);
-      setDevicesPageToken(prev[prev.length - 1] ?? "");
-      return next;
-    });
+  const handleSearchChange = useCallback((value: string) => {
+    setSearch(value);
+    setPageIndex(0);
   }, []);
 
   if (isInitialLoading) {
@@ -519,14 +270,17 @@ const CohortsPage = () => {
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6 laptop:p-10" data-testid="cohorts-page">
+    <div className="flex flex-col gap-8 p-6 laptop:p-10" data-testid="cohorts-page">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <Header title="Cohorts" titleSize="text-heading-300" />
-          <div className="mt-2 flex flex-wrap gap-x-6 gap-y-2 text-300 text-text-primary-70">
-            <span>{pluralize(displayedAvailableDevices, "available miner")}</span>
-            <span>{pluralize(displayedReservedDevices, "reserved miner")}</span>
-            <span>{pluralize(displayedCohortsTotalCount, "active cohort")}</span>
+          <p className="mt-2 max-w-2xl text-300 text-text-primary-70">
+            Track fleet rollouts, compare desired-state convergence, and monitor operating outcomes.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-300 text-text-primary-70">
+            <span>{pluralize(totalMiners, "miner")}</span>
+            <span>{pluralize(defaultMiners, "miner")} in default</span>
+            <span>{pluralize(rolloutCohorts, "rollout cohort")}</span>
           </div>
         </div>
         <Button
@@ -540,121 +294,119 @@ const CohortsPage = () => {
 
       {error ? <Callout intent="danger" prefixIcon={<Alert />} title={error} /> : null}
 
-      <section className="grid items-start gap-6 desktop:grid-cols-[1fr_1fr]">
-        <CohortList
-          title="Active cohorts"
+      {cohorts.length > 0 ? (
+        <CohortComparisonDashboard
           cohorts={cohorts}
-          totalCount={displayedCohortsTotalCount}
-          firmwareFilesById={firmwareFilesById}
-          pageIndex={cohortsPageIndex}
-          search={cohortsSearch}
-          emptyText={cohortsSearch.trim() ? "No active cohorts match this search." : "No active cohorts."}
-          isMutating={isMutating}
-          canGoPrevious={cohortsPageHistory.length > 0}
-          canGoNext={cohortsNextPageToken !== ""}
-          detailHref={detailHref}
-          onSearchChange={handleCohortsSearchChange}
-          onPreviousPage={goToPreviousCohortsPage}
-          onNextPage={goToNextCohortsPage}
-          canRelease={(cohort) => isSuperAdmin || isOwnedByCurrentUser(cohort, username)}
-          onRelease={handleRelease}
-          onView={(cohort) => navigate(detailHref(cohort.id))}
+          selectedIds={selectedCohortIds}
+          comparisonWindow={comparisonWindow}
+          comparison={comparison}
+          comparisonLoading={comparisonLoading}
+          comparisonError={comparisonError}
+          onToggleCohort={toggleComparedCohort}
+          onWindowChange={setComparisonWindow}
         />
-        <CohortList
-          title="My cohorts"
-          cohorts={myCohorts}
-          totalCount={displayedMyCohortsTotalCount}
-          firmwareFilesById={firmwareFilesById}
-          pageIndex={myCohortsPageIndex}
-          search={myCohortsSearch}
-          emptyText={myCohortsSearch.trim() ? "No owned cohorts match this search." : "No owned active cohorts."}
-          isMutating={isMutating}
-          canGoPrevious={myCohortsPageHistory.length > 0}
-          canGoNext={myCohortsNextPageToken !== ""}
-          detailHref={detailHref}
-          onSearchChange={handleMyCohortsSearchChange}
-          onPreviousPage={goToPreviousMyCohortsPage}
-          onNextPage={goToNextMyCohortsPage}
-          canRelease={(cohort) => isSuperAdmin || isOwnedByCurrentUser(cohort, username)}
-          onRelease={handleRelease}
-          onView={(cohort) => navigate(detailHref(cohort.id))}
-        />
-      </section>
+      ) : (
+        <section className="rounded-xl border border-border-5 bg-surface-base px-6 py-10 text-center">
+          <h2 className="text-heading-200 text-text-primary">No active cohorts are available</h2>
+          <p className="mt-2 text-300 text-text-primary-70">Create a cohort to begin a managed rollout.</p>
+        </section>
+      )}
 
-      <section className="overflow-hidden rounded-lg border border-border-5">
-        <div className="border-b border-border-5 px-4 py-3">
-          <Header title="Miner assignments" titleSize="text-heading-100" />
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Search compact initValue={rigAssignmentSearch} onChange={handleRigAssignmentSearchChange} />
-            <FilterChipsBar
-              filters={rigAssignmentFilterOptions}
-              onChange={handleRigAssignmentFilterChange}
-              onClearAll={clearRigAssignmentFilters}
-              triggerTestId="cohort-rig-assignment-add-filter"
-            />
+      <section
+        className="overflow-hidden rounded-xl border border-border-5 bg-surface-base"
+        data-testid="cohort-register"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-5 px-5 py-4">
+          <div>
+            <Header title="Cohort register" titleSize="text-heading-100" />
+            <p className="mt-1 text-200 text-text-primary-70">All active cohorts, including the default cohort.</p>
+          </div>
+          <div className="w-full tablet:w-72">
+            <Search compact initValue={search} onChange={handleSearchChange} />
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full table-fixed text-left text-300">
+          <table className="w-full min-w-[980px] text-left text-300">
             <thead className="bg-surface-raised text-text-primary-70">
               <tr>
-                <th className="w-[30%] px-4 py-3 font-medium">Miner</th>
-                <th className="w-[16%] px-4 py-3 font-medium">Assignment</th>
-                <th className="w-[16%] px-4 py-3 font-medium">Firmware</th>
-                <th className="w-[24%] px-4 py-3 font-medium">Cohort</th>
-                <th className="w-[14%] px-4 py-3 font-medium">Owner</th>
+                <th className="w-[22%] px-5 py-3 font-medium">Cohort</th>
+                <th className="w-[12%] px-5 py-3 font-medium">Allocation</th>
+                <th className="w-[28%] px-5 py-3 font-medium">Desired state</th>
+                <th className="w-[16%] px-5 py-3 font-medium">Convergence</th>
+                <th className="w-[15%] px-5 py-3 font-medium">Owner and expiry</th>
+                <th className="w-[7%] px-5 py-3 font-medium" />
               </tr>
             </thead>
             <tbody>
-              {devices.map((device) => {
-                const cohort = device.effectiveCohort;
-                const rigName = cohortDeviceDisplayName(device);
-                const rigSecondary = cohortDeviceSecondaryText(device.display, rigName) || device.deviceIdentifier;
-                return (
-                  <tr key={device.deviceIdentifier} className="border-t border-border-5">
-                    <td className="px-4 py-3">
-                      <div className="truncate font-medium" title={device.deviceIdentifier}>
-                        {rigName}
-                      </div>
-                      <div className="truncate text-200 text-text-primary-70">{rigSecondary}</div>
-                    </td>
-                    <td className="px-4 py-3">{cohortDeviceAssignmentLabel(device)}</td>
-                    <td className="truncate px-4 py-3" title={cohortDeviceFirmwareVersion(device)}>
-                      {cohortDeviceFirmwareVersion(device)}
-                    </td>
-                    <td className="truncate px-4 py-3">
-                      {cohort && !cohort.isDefault ? (
-                        <Link className="hover:underline" to={detailHref(cohort.id)}>
-                          {cohort.label}
-                        </Link>
-                      ) : (
-                        "Default"
-                      )}
-                    </td>
-                    <td className="truncate px-4 py-3">{cohort?.ownerUsername || "Unowned"}</td>
-                  </tr>
-                );
-              })}
-              {devices.length === 0 ? (
+              {visibleCohorts.map((cohort) => (
+                <tr key={cohort.id.toString()} className="border-t border-border-5 align-top">
+                  <td className="px-5 py-4">
+                    <Link className="font-medium text-text-primary hover:underline" to={detailHref(cohort.id)}>
+                      {cohort.label}
+                    </Link>
+                    <div className="mt-1 line-clamp-2 text-200 text-text-primary-70">
+                      {cohort.isDefault ? "Default cohort" : cohort.purpose || "No purpose provided"}
+                    </div>
+                  </td>
+                  <td className="px-5 py-4 font-medium text-text-primary">
+                    {pluralize(Number(cohort.explicitMemberCount), "miner")}
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="line-clamp-2 text-200 text-text-primary">
+                      Firmware · {formatCohortFirmwareSummary(cohort, firmwareFilesById)}
+                    </div>
+                    <div className="mt-1 text-200 text-text-primary-70">
+                      Pools · {cohort.desiredConfig?.pools ? "Configured" : "Not enforced"}
+                    </div>
+                  </td>
+                  <td className="px-5 py-4">
+                    <RolloutSummary cohort={cohort} />
+                  </td>
+                  <td className="px-5 py-4 text-200 text-text-primary-70">
+                    <div className="text-text-primary">{cohort.ownerUsername || "Unowned"}</div>
+                    <div className="mt-1">
+                      <CohortExpiryText cohort={cohort} />
+                    </div>
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="flex justify-end gap-2">
+                      {isActiveNonDefaultCohort(cohort) && (isSuperAdmin || isOwnedByCurrentUser(cohort, username)) ? (
+                        <Button
+                          text="Release"
+                          size={sizes.compact}
+                          variant={variants.secondary}
+                          disabled={isMutating}
+                          onClick={() => void handleRelease(cohort)}
+                        />
+                      ) : null}
+                      <Button
+                        size={sizes.compact}
+                        variant={variants.secondary}
+                        ariaLabel={`View ${cohort.label}`}
+                        prefixIcon={<ArrowRight />}
+                        onClick={() => navigate(detailHref(cohort.id))}
+                      />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {visibleCohorts.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-8 text-text-primary-70" colSpan={5}>
-                    {hasRigAssignmentFilters ? "No miners match these filters." : "No miners found."}
+                  <td className="px-5 py-10 text-center text-text-primary-70" colSpan={6}>
+                    No cohorts match this search.
                   </td>
                 </tr>
               ) : null}
             </tbody>
           </table>
         </div>
-        <PaginationControls
-          itemCount={devices.length}
-          totalCount={displayedDevicesTotalCount}
-          pageIndex={devicesPageIndex}
-          pageSize={assignmentPageSize}
-          itemName={{ singular: "miner", plural: "miners" }}
-          canGoPrevious={devicesPageHistory.length > 0}
-          canGoNext={devicesNextPageToken !== ""}
-          onPrevious={goToPreviousDevicesPage}
-          onNext={goToNextDevicesPage}
+        <RegisterPagination
+          pageIndex={safePageIndex}
+          pageCount={pageCount}
+          totalCount={filteredCohorts.length}
+          visibleCount={visibleCohorts.length}
+          onPrevious={() => setPageIndex((current) => Math.max(0, current - 1))}
+          onNext={() => setPageIndex((current) => Math.min(pageCount - 1, current + 1))}
         />
       </section>
 
@@ -663,137 +415,28 @@ const CohortsPage = () => {
   );
 };
 
-interface CohortListProps {
-  title: string;
-  cohorts: CohortSummary[];
-  totalCount: number;
-  firmwareFilesById: Map<string, FirmwareFileInfo>;
-  pageIndex: number;
-  search: string;
-  emptyText: string;
-  isMutating: boolean;
-  canGoPrevious: boolean;
-  canGoNext: boolean;
-  detailHref: (cohortId: bigint) => string;
-  onSearchChange: (value: string) => void;
-  onPreviousPage: () => void;
-  onNextPage: () => void;
-  canRelease: (cohort: CohortSummary) => boolean;
-  onRelease: (cohort: CohortSummary) => void;
-  onView: (cohort: CohortSummary) => void;
-}
-
-const CohortList = ({
-  title,
-  cohorts,
-  totalCount,
-  firmwareFilesById,
+const RegisterPagination = ({
   pageIndex,
-  search,
-  emptyText,
-  isMutating,
-  canGoPrevious,
-  canGoNext,
-  detailHref,
-  onSearchChange,
-  onPreviousPage,
-  onNextPage,
-  canRelease,
-  onRelease,
-  onView,
-}: CohortListProps) => (
-  <section className="overflow-hidden rounded-lg border border-border-5">
-    <div className="border-b border-border-5 px-4 py-3">
-      <Header title={title} titleSize="text-heading-100" />
-      <div className="mt-3">
-        <Search compact initValue={search} onChange={onSearchChange} />
-      </div>
-    </div>
-    <div className="divide-y divide-border-5">
-      {cohorts.map((cohort) => (
-        <div key={cohort.id.toString()} className="grid gap-3 px-4 py-3 desktop:grid-cols-[minmax(0,1fr)_auto]">
-          <Link to={detailHref(cohort.id)} className="min-w-0">
-            <div className="truncate font-medium text-text-primary hover:underline">{cohort.label}</div>
-            <div className="truncate text-200 text-text-primary-70">
-              {cohort.explicitMemberCount.toString()} miners · {cohort.ownerUsername || "Unowned"} ·{" "}
-              <CohortExpiryText cohort={cohort} />
-            </div>
-            <div className="mt-1 truncate text-200 text-text-primary-70">
-              Software · {formatCohortFirmwareSummary(cohort, firmwareFilesById)}
-            </div>
-          </Link>
-          <div className="flex items-center gap-2">
-            {isActiveNonDefaultCohort(cohort) && canRelease(cohort) ? (
-              <Button
-                text="Release"
-                size={sizes.compact}
-                variant={variants.secondary}
-                disabled={isMutating}
-                onClick={() => onRelease(cohort)}
-              />
-            ) : null}
-            <Button
-              size={sizes.compact}
-              variant={variants.secondary}
-              ariaLabel={`View ${cohort.label}`}
-              prefixIcon={<ArrowRight />}
-              onClick={() => onView(cohort)}
-            />
-          </div>
-        </div>
-      ))}
-      {cohorts.length === 0 ? <div className="px-4 py-8 text-300 text-text-primary-70">{emptyText}</div> : null}
-    </div>
-    <PaginationControls
-      itemCount={cohorts.length}
-      totalCount={totalCount}
-      pageIndex={pageIndex}
-      pageSize={cohortListPageSize}
-      itemName={{ singular: "cohort", plural: "cohorts" }}
-      canGoPrevious={canGoPrevious}
-      canGoNext={canGoNext}
-      onPrevious={onPreviousPage}
-      onNext={onNextPage}
-    />
-  </section>
-);
-
-interface PaginationControlsProps {
-  itemCount: number;
-  totalCount: number;
-  pageIndex: number;
-  pageSize: number;
-  itemName: {
-    singular: string;
-    plural: string;
-  };
-  canGoPrevious: boolean;
-  canGoNext: boolean;
-  onPrevious: () => void;
-  onNext: () => void;
-}
-
-const PaginationControls = ({
-  itemCount,
+  pageCount,
   totalCount,
-  pageIndex,
-  pageSize,
-  itemName,
-  canGoPrevious,
-  canGoNext,
+  visibleCount,
   onPrevious,
   onNext,
-}: PaginationControlsProps) => {
-  if (itemCount === 0 && totalCount === 0 && !canGoPrevious && !canGoNext) return null;
-
-  const firstItemIndex = pageIndex * pageSize + 1;
-  const lastItemIndex = pageEndCount(pageIndex, pageSize, itemCount);
-
+}: {
+  pageIndex: number;
+  pageCount: number;
+  totalCount: number;
+  visibleCount: number;
+  onPrevious: () => void;
+  onNext: () => void;
+}) => {
+  if (totalCount <= registerPageSize) return null;
+  const first = pageIndex * registerPageSize + 1;
+  const last = pageIndex * registerPageSize + visibleCount;
   return (
-    <div className="flex flex-col items-center gap-4 border-t border-border-5 px-4 py-6">
+    <div className="flex flex-col items-center gap-3 border-t border-border-5 px-5 py-5">
       <span className="text-300 text-text-primary">
-        Showing {firstItemIndex.toString()}-{lastItemIndex.toString()} of {totalCount.toString()}{" "}
-        {totalCount === 1 ? itemName.singular : itemName.plural}
+        Showing {first}-{last} of {totalCount} cohorts
       </span>
       <div className="flex gap-3">
         <Button
@@ -802,7 +445,7 @@ const PaginationControls = ({
           ariaLabel="Previous page"
           prefixIcon={<ChevronDown className="rotate-90" />}
           onClick={onPrevious}
-          disabled={!canGoPrevious}
+          disabled={pageIndex === 0}
         />
         <Button
           variant={variants.secondary}
@@ -810,7 +453,7 @@ const PaginationControls = ({
           ariaLabel="Next page"
           prefixIcon={<ChevronDown className="rotate-270" />}
           onClick={onNext}
-          disabled={!canGoNext}
+          disabled={pageIndex >= pageCount - 1}
         />
       </div>
     </div>

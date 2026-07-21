@@ -143,7 +143,7 @@ func TestRequirePermission_SchedulerShortCircuitsToAllow(t *testing.T) {
 
 // Codex security regression (PR 2a MEDIUM): an unknown non-empty
 // Actor must NOT bypass the gate. Allowlist only known constants
-// (ActorScheduler, ActorCurtailment); fail closed for anything else.
+// (ActorScheduler, ActorCurtailment, ActorCohort); fail closed for anything else.
 func TestRequirePermission_UnknownActorDoesNotBypass(t *testing.T) {
 	info := &session.Info{
 		AuthMethod: session.AuthMethodSession,
@@ -158,8 +158,7 @@ func TestRequirePermission_UnknownActorDoesNotBypass(t *testing.T) {
 }
 
 func TestRequirePermission_CurtailmentReconcilerActorAlsoAllowed(t *testing.T) {
-	// Any non-empty Actor short-circuits — the gate trusts internal
-	// orchestrators in general, not just the scheduler.
+	// Allowlisted internal orchestrators short-circuit, including curtailment.
 	info := &session.Info{
 		AuthMethod: session.AuthMethodSession,
 		Actor:      session.ActorCurtailment,
@@ -168,6 +167,30 @@ func TestRequirePermission_CurtailmentReconcilerActorAlsoAllowed(t *testing.T) {
 
 	_, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
 	require.NoError(t, err)
+}
+
+func TestCohortActorShortCircuitsPermissionHelpers(t *testing.T) {
+	t.Parallel()
+
+	info := &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		Actor:          session.ActorCohort,
+		OrganizationID: 1,
+	}
+	ctx := ctxWithInfo(info) // deliberately no WithEffectivePermissions
+
+	got, err := middleware.RequireOrgWidePermission(ctx, authz.PermFleetRead)
+	require.NoError(t, err)
+	require.Equal(t, session.ActorCohort, got.Actor)
+
+	allowed, err := middleware.HasPermission(ctx, authz.PermFleetRead, authz.ResourceContext{})
+	require.NoError(t, err)
+	require.True(t, allowed)
+
+	orgWide, sites, err := middleware.SiteScopeForPermission(ctx, authz.PermSiteRead)
+	require.NoError(t, err)
+	require.True(t, orgWide)
+	require.Empty(t, sites)
 }
 
 func TestRequirePermission_NarrowingAtSiteScope(t *testing.T) {

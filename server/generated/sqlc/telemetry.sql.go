@@ -958,6 +958,135 @@ func (q *Queries) GetDeviceMetricsTimeSeries(ctx context.Context, arg GetDeviceM
 	return items, nil
 }
 
+const getDeviceOutcomeAverages = `-- name: GetDeviceOutcomeAverages :many
+
+WITH scoped_devices AS (
+    SELECT DISTINCT device_identifier
+    FROM device
+    WHERE org_id = $5
+      AND deleted_at IS NULL
+      AND device_identifier = ANY($6::text[])
+)
+SELECT
+    dm.device_identifier,
+    COALESCE(AVG(dm.hash_rate_hs) FILTER (
+        WHERE dm.time >= $1 AND dm.time < $2
+    ), 0)::float8 AS baseline_hashrate,
+    COUNT(dm.hash_rate_hs) FILTER (
+        WHERE dm.time >= $1 AND dm.time < $2
+    )::bigint AS baseline_hashrate_points,
+    COALESCE(AVG(dm.hash_rate_hs) FILTER (
+        WHERE dm.time >= $3 AND dm.time < $4
+    ), 0)::float8 AS comparison_hashrate,
+    COUNT(dm.hash_rate_hs) FILTER (
+        WHERE dm.time >= $3 AND dm.time < $4
+    )::bigint AS comparison_hashrate_points,
+    COALESCE(AVG(dm.efficiency_jh) FILTER (
+        WHERE dm.time >= $1 AND dm.time < $2
+    ), 0)::float8 AS baseline_efficiency,
+    COUNT(dm.efficiency_jh) FILTER (
+        WHERE dm.time >= $1 AND dm.time < $2
+    )::bigint AS baseline_efficiency_points,
+    COALESCE(AVG(dm.efficiency_jh) FILTER (
+        WHERE dm.time >= $3 AND dm.time < $4
+    ), 0)::float8 AS comparison_efficiency,
+    COUNT(dm.efficiency_jh) FILTER (
+        WHERE dm.time >= $3 AND dm.time < $4
+    )::bigint AS comparison_efficiency_points,
+    COALESCE(AVG(dm.power_w) FILTER (
+        WHERE dm.time >= $1 AND dm.time < $2
+    ), 0)::float8 AS baseline_power,
+    COUNT(dm.power_w) FILTER (
+        WHERE dm.time >= $1 AND dm.time < $2
+    )::bigint AS baseline_power_points,
+    COALESCE(AVG(dm.power_w) FILTER (
+        WHERE dm.time >= $3 AND dm.time < $4
+    ), 0)::float8 AS comparison_power,
+    COUNT(dm.power_w) FILTER (
+        WHERE dm.time >= $3 AND dm.time < $4
+    )::bigint AS comparison_power_points
+FROM device_metrics dm
+JOIN scoped_devices sd USING (device_identifier)
+WHERE dm.time >= $1
+  AND dm.time < $4
+GROUP BY dm.device_identifier
+ORDER BY dm.device_identifier
+`
+
+type GetDeviceOutcomeAveragesParams struct {
+	BaselineStart     time.Time
+	BaselineEnd       time.Time
+	ComparisonStart   time.Time
+	ComparisonEnd     time.Time
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+type GetDeviceOutcomeAveragesRow struct {
+	DeviceIdentifier           string
+	BaselineHashrate           float64
+	BaselineHashratePoints     int64
+	ComparisonHashrate         float64
+	ComparisonHashratePoints   int64
+	BaselineEfficiency         float64
+	BaselineEfficiencyPoints   int64
+	ComparisonEfficiency       float64
+	ComparisonEfficiencyPoints int64
+	BaselinePower              float64
+	BaselinePowerPoints        int64
+	ComparisonPower            float64
+	ComparisonPowerPoints      int64
+}
+
+// Telemetry queries for device_metrics table and continuous aggregates
+// Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
+// Returns one row per currently active, organization-scoped device. Baseline
+// and comparison averages are calculated in one scan so both sides use the
+// same raw telemetry source and exact device population.
+func (q *Queries) GetDeviceOutcomeAverages(ctx context.Context, arg GetDeviceOutcomeAveragesParams) ([]GetDeviceOutcomeAveragesRow, error) {
+	rows, err := q.query(ctx, q.getDeviceOutcomeAveragesStmt, getDeviceOutcomeAverages,
+		arg.BaselineStart,
+		arg.BaselineEnd,
+		arg.ComparisonStart,
+		arg.ComparisonEnd,
+		arg.OrgID,
+		pq.Array(arg.DeviceIdentifiers),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDeviceOutcomeAveragesRow
+	for rows.Next() {
+		var i GetDeviceOutcomeAveragesRow
+		if err := rows.Scan(
+			&i.DeviceIdentifier,
+			&i.BaselineHashrate,
+			&i.BaselineHashratePoints,
+			&i.ComparisonHashrate,
+			&i.ComparisonHashratePoints,
+			&i.BaselineEfficiency,
+			&i.BaselineEfficiencyPoints,
+			&i.ComparisonEfficiency,
+			&i.ComparisonEfficiencyPoints,
+			&i.BaselinePower,
+			&i.BaselinePowerPoints,
+			&i.ComparisonPower,
+			&i.ComparisonPowerPoints,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDeviceStatusDailyAggregates = `-- name: GetDeviceStatusDailyAggregates :many
 SELECT
     bucket,
@@ -1630,7 +1759,6 @@ func (q *Queries) GetOrgDeviceStatusHourlyAggregates(ctx context.Context, arg Ge
 }
 
 const insertDeviceMetrics = `-- name: InsertDeviceMetrics :exec
-
 INSERT INTO device_metrics (
     time,
     device_identifier,
@@ -1696,8 +1824,6 @@ type InsertDeviceMetricsParams struct {
 	Health           sql.NullString
 }
 
-// Telemetry queries for device_metrics table and continuous aggregates
-// Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
 // site_id is row-stamped from device.site_id (looked up by
 // device_identifier) so per-site telemetry filters use the row-stamped
 // site even after the device is reassigned. Inline sub-select rather

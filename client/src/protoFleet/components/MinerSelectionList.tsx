@@ -1,4 +1,13 @@
-import { forwardRef, type ReactNode, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { clone, create } from "@bufbuild/protobuf";
 
 import { useBuildings } from "@/protoFleet/api/buildings";
@@ -339,9 +348,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // The user's facet selections (model / subnet / site / building / rack /
     // group). Site scope and eligibility are layered on top in the derived
     // `filter` below so applying a facet never drops those constraints.
-    const [userFilter, setUserFilter] = useState(() =>
-      create(MinerListFilterSchema, { models: fixedModels ?? [] }),
-    );
+    const [userFilter, setUserFilter] = useState(() => create(MinerListFilterSchema, { models: fixedModels ?? [] }));
     const [selectedItems, setSelectedItems] = useState<string[]>(initialSelectedItems ?? []);
     const [allSelected, setAllSelected] = useState(initialAllSelected && !singleSelect);
     const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);

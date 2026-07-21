@@ -162,6 +162,21 @@ func (mr *MockCohortStoreMockRecorder) ListCohortMembers(ctx, orgID, cohortID an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCohortMembers", reflect.TypeOf((*MockCohortStore)(nil).ListCohortMembers), ctx, orgID, cohortID)
 }
 
+// ListCohortTelemetryComparisonMemberships mocks base method.
+func (m *MockCohortStore) ListCohortTelemetryComparisonMemberships(ctx context.Context, orgID int64, cohortIDs []int64) ([]models.CohortTelemetryComparisonMembership, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListCohortTelemetryComparisonMemberships", ctx, orgID, cohortIDs)
+	ret0, _ := ret[0].([]models.CohortTelemetryComparisonMembership)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListCohortTelemetryComparisonMemberships indicates an expected call of ListCohortTelemetryComparisonMemberships.
+func (mr *MockCohortStoreMockRecorder) ListCohortTelemetryComparisonMemberships(ctx, orgID, cohortIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCohortTelemetryComparisonMemberships", reflect.TypeOf((*MockCohortStore)(nil).ListCohortTelemetryComparisonMemberships), ctx, orgID, cohortIDs)
+}
+
 // ListCohorts mocks base method.
 func (m *MockCohortStore) ListCohorts(ctx context.Context, params models.ListCohortsParams) (models.PagedCohorts, error) {
 	m.ctrl.T.Helper()

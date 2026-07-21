@@ -4341,6 +4341,13 @@ func TestCombinedMetricsFlightKey(t *testing.T) {
 			},
 			false,
 		},
+		{
+			"forced resolution splits the key",
+			func(q *models.CombinedMetricsQuery) {
+				q.Resolution = models.CombinedMetricsResolutionHourly
+			},
+			false,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

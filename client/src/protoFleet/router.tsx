@@ -218,9 +218,9 @@ const createScopableRoutes = (absolute: boolean) => [
   createRoute(absolute ? "/dashboard" : "dashboard", <Dashboard />),
   createFleetRoute(absolute ? "/fleet" : "fleet"),
   createRoute(absolute ? "/groups" : "groups", <GroupsPage />),
-  createRoute(absolute ? "/groups/:groupLabel" : "groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
+  createRoute(absolute ? "/groups/:groupLabel" : "groups/:groupLabel", <GroupOverviewPage />),
   createRoute(absolute ? "/cohorts" : "cohorts", <CohortsPage />),
-  createRoute(absolute ? "/cohorts/:cohortId" : "cohorts/:cohortId", <CohortOverviewPage />, { bg: "surface-5" }),
+  createRoute(absolute ? "/cohorts/:cohortId" : "cohorts/:cohortId", <CohortOverviewPage />),
   createRoute(absolute ? "/energy" : "energy", <EnergyPage />),
   createRoute(absolute ? "/activity" : "activity", <ActivityPage />),
 ];

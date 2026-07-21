@@ -100,6 +100,78 @@ func TestTelemetryStore_StoreDeviceMetricsWithAsyncCommit(t *testing.T) {
 	assert.Equal(t, 50_000_000.0, hashRate)
 }
 
+func TestTelemetryStore_GetDeviceOutcomeAveragesPairsWindowsAndEnforcesOrganization(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	dbSvc := testutil.NewDatabaseService(t, nil)
+	db := dbSvc.DB
+	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
+	require.NoError(t, err)
+	user := dbSvc.CreateSuperAdminUser()
+	otherUser := dbSvc.CreateSuperAdminUser2()
+	paired := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	currentOnly := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	otherOrg := dbSvc.CreateDevice(otherUser.OrganizationID, "proto")
+	for _, deviceID := range []string{paired.ID, currentOnly.ID, otherOrg.ID} {
+		deviceID := deviceID
+		t.Cleanup(func() { cleanupDeviceMetrics(t, db, deviceID) })
+	}
+
+	comparisonEnd := time.Now().UTC().Truncate(time.Second)
+	comparisonStart := comparisonEnd.Add(-time.Hour)
+	baselineStart := comparisonStart.Add(-time.Hour)
+	insertOutcomeMetric := func(deviceID string, at time.Time, hashrate, efficiency, power float64) {
+		t.Helper()
+		_, insertErr := db.ExecContext(t.Context(), `
+			INSERT INTO device_metrics (time, device_identifier, hash_rate_hs, efficiency_jh, power_w)
+			VALUES ($1, $2, $3, $4, $5)`, at, deviceID, hashrate, efficiency, power)
+		require.NoError(t, insertErr)
+	}
+	insertOutcomeMetric(paired.ID, baselineStart.Add(10*time.Minute), 100, 10, 1000)
+	insertOutcomeMetric(paired.ID, baselineStart.Add(30*time.Minute), 200, 20, 2000)
+	insertOutcomeMetric(paired.ID, comparisonStart.Add(10*time.Minute), 300, 30, 3000)
+	insertOutcomeMetric(paired.ID, comparisonStart.Add(30*time.Minute), 500, 50, 5000)
+	insertOutcomeMetric(currentOnly.ID, comparisonStart.Add(20*time.Minute), 250, 25, 2500)
+	insertOutcomeMetric(otherOrg.ID, baselineStart.Add(20*time.Minute), 999, 99, 9999)
+	insertOutcomeMetric(otherOrg.ID, comparisonStart.Add(20*time.Minute), 999, 99, 9999)
+
+	result, err := store.GetDeviceOutcomeAverages(t.Context(), models.DeviceOutcomeComparisonQuery{
+		DeviceIDs: []models.DeviceIdentifier{
+			models.DeviceIdentifier(paired.ID),
+			models.DeviceIdentifier(currentOnly.ID),
+			models.DeviceIdentifier(otherOrg.ID),
+		},
+		OrganizationID:  user.OrganizationID,
+		BaselineStart:   baselineStart,
+		BaselineEnd:     comparisonStart,
+		ComparisonStart: comparisonStart,
+		ComparisonEnd:   comparisonEnd,
+	})
+	require.NoError(t, err)
+	require.Len(t, result, 2, "the other organization's device must not be returned")
+	byID := make(map[models.DeviceIdentifier]models.DeviceOutcomeAverages, len(result))
+	for _, device := range result {
+		byID[device.DeviceID] = device
+	}
+
+	pairedResult := byID[models.DeviceIdentifier(paired.ID)]
+	require.NotNil(t, pairedResult.BaselineHashrate)
+	require.NotNil(t, pairedResult.ComparisonHashrate)
+	assert.InDelta(t, 150, *pairedResult.BaselineHashrate, 0.001)
+	assert.InDelta(t, 400, *pairedResult.ComparisonHashrate, 0.001)
+	assert.InDelta(t, 15, *pairedResult.BaselineEfficiency, 0.001)
+	assert.InDelta(t, 40, *pairedResult.ComparisonEfficiency, 0.001)
+	assert.InDelta(t, 1500, *pairedResult.BaselinePower, 0.001)
+	assert.InDelta(t, 4000, *pairedResult.ComparisonPower, 0.001)
+
+	currentOnlyResult := byID[models.DeviceIdentifier(currentOnly.ID)]
+	assert.Nil(t, currentOnlyResult.BaselineHashrate)
+	require.NotNil(t, currentOnlyResult.ComparisonHashrate)
+	assert.InDelta(t, 250, *currentOnlyResult.ComparisonHashrate, 0.001)
+}
+
 func TestTelemetryStore_StoreDeviceMetricsStampsSiteWithDuplicateHistoricalDeviceIdentifier(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

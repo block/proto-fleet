@@ -20,6 +20,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -28,6 +29,8 @@ func TestAdminRPCsRequireSuperAdminRole(t *testing.T) {
 
 	for _, role := range []string{"FIELD_TECH", "ADMIN"} {
 		t.Run(role, func(t *testing.T) {
+			t.Parallel()
+
 			ctrl := gomock.NewController(t)
 			store := mocks.NewMockCohortStore(ctrl)
 			handler := NewHandler(domaincohort.NewService(store))
@@ -168,6 +171,92 @@ func TestGetCohortFirmwareVersionHistory_RequiresReadPermission(t *testing.T) {
 	)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsForbiddenError(err))
+}
+
+func TestGetCohortFirmwareValidation_UsesCallerOrganization(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockCohortStore(ctrl)
+	handler := NewHandler(domaincohort.NewService(store))
+	store.EXPECT().GetCohort(gomock.Any(), int64(7), int64(42)).Return(&models.Cohort{
+		ID: 42, OrgID: 7, State: models.CohortStateActive,
+	}, nil)
+
+	resp, err := handler.GetCohortFirmwareValidation(
+		cohortHandlerContext("ADMIN"),
+		connect.NewRequest(&pb.GetCohortFirmwareValidationRequest{
+			CohortId:         42,
+			Manufacturer:     "Proto",
+			Model:            "Rig",
+			ComparisonWindow: pb.CohortFirmwareValidationWindow_COHORT_FIRMWARE_VALIDATION_WINDOW_ONE_HOUR,
+		}),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, pb.CohortFirmwareValidationState_COHORT_FIRMWARE_VALIDATION_STATE_NO_TARGET, resp.Msg.GetState())
+}
+
+func TestGetCohortFirmwareValidation_RequiresReadPermission(t *testing.T) {
+	t.Parallel()
+
+	handler := NewHandler(domaincohort.NewService(nil))
+	_, err := handler.GetCohortFirmwareValidation(
+		context.Background(),
+		connect.NewRequest(&pb.GetCohortFirmwareValidationRequest{}),
+	)
+	require.Error(t, err)
+}
+
+type handlerComparisonTelemetryProvider struct {
+	query telemetrymodels.DeviceOutcomeComparisonQuery
+}
+
+func (p *handlerComparisonTelemetryProvider) GetDeviceOutcomeAverages(_ context.Context, query telemetrymodels.DeviceOutcomeComparisonQuery) ([]telemetrymodels.DeviceOutcomeAverages, error) {
+	p.query = query
+	baseline, current := 3200.0, 3000.0
+	return []telemetrymodels.DeviceOutcomeAverages{{
+		DeviceID: telemetrymodels.DeviceIdentifier("miner-1"), BaselinePower: &baseline, ComparisonPower: &current,
+	}}, nil
+}
+
+func TestGetCohortTelemetryComparisonUsesCallerOrganizationAndTranslatesResponse(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockCohortStore(ctrl)
+	provider := &handlerComparisonTelemetryProvider{}
+	handler := NewHandler(domaincohort.NewService(store, domaincohort.WithOutcomeTelemetryProvider(provider)))
+	store.EXPECT().ListCohortTelemetryComparisonMemberships(gomock.Any(), int64(7), []int64{1}).Return(
+		[]models.CohortTelemetryComparisonMembership{{
+			CohortID: 1, Label: "Default", IsDefault: true, DeviceIdentifiers: []string{"miner-1"},
+		}}, nil,
+	)
+
+	resp, err := handler.GetCohortTelemetryComparison(
+		cohortHandlerContextWithPermissions("USER", authz.PermCohortRead),
+		connect.NewRequest(&pb.GetCohortTelemetryComparisonRequest{
+			CohortIds:        []int64{1},
+			ComparisonWindow: pb.CohortTelemetryComparisonWindow_COHORT_TELEMETRY_COMPARISON_WINDOW_ONE_HOUR,
+		}),
+	)
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetSeries(), 1)
+	assert.Equal(t, "Default", resp.Msg.GetSeries()[0].GetLabel())
+	assert.True(t, resp.Msg.GetSeries()[0].GetIsDefault())
+	require.Len(t, resp.Msg.GetSeries()[0].GetDistributions(), 3)
+	power := resp.Msg.GetSeries()[0].GetDistributions()[2]
+	assert.Equal(t, pb.CohortTelemetryComparisonMetric_COHORT_TELEMETRY_COMPARISON_METRIC_POWER, power.GetMetric())
+	assert.InDelta(t, 3200, power.GetBaselineMedian(), 0.001)
+	assert.InDelta(t, 3000, power.GetComparisonMedian(), 0.001)
+	assert.InDelta(t, -6.25, power.GetMedianPercentageChange(), 0.001)
+	assert.Equal(t, int64(7), provider.query.OrganizationID)
+}
+
+func TestGetCohortTelemetryComparisonRequiresReadPermission(t *testing.T) {
+	handler := NewHandler(domaincohort.NewService(nil))
+	_, err := handler.GetCohortTelemetryComparison(
+		context.Background(),
+		connect.NewRequest(&pb.GetCohortTelemetryComparisonRequest{}),
+	)
+	require.Error(t, err)
 }
 
 func cohortHandlerContext(role string) context.Context {

@@ -17,6 +17,11 @@ import {
   CohortFirmwareRolloutState,
   CohortFirmwareStatusSchema,
   CohortFirmwareTargetSchema,
+  CohortFirmwareValidationBaselineSchema,
+  CohortFirmwareValidationMetricSchema,
+  CohortFirmwareValidationPointSchema,
+  CohortFirmwareValidationState,
+  CohortFirmwareValidationWindow,
   CohortFirmwareVersionCountSchema,
   CohortFirmwareVersionHistoryPointSchema,
   CohortMemberSchema,
@@ -24,6 +29,7 @@ import {
   CohortSchema,
   CohortState,
   CohortSummarySchema,
+  GetCohortFirmwareValidationResponseSchema,
   GetCohortFirmwareVersionHistoryResponseSchema,
 } from "@/protoFleet/api/generated/cohort/v1/cohort_pb";
 import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
@@ -32,7 +38,9 @@ import type { FleetDuration } from "@/shared/components/DurationSelector";
 const mocks = vi.hoisted(() => ({
   getCohort: vi.fn(),
   getFirmwareVersionHistory: vi.fn(),
+  getFirmwareValidation: vi.fn(),
   addDevices: vi.fn(),
+  listDevices: vi.fn(),
   listAllDevices: vi.fn(),
   listFirmwareFiles: vi.fn(),
   useTelemetryMetrics: vi.fn(),
@@ -56,6 +64,7 @@ vi.mock("@/protoFleet/api/useCohortApi", () => ({
   useCohortApi: () => ({
     getCohort: mocks.getCohort,
     getFirmwareVersionHistory: mocks.getFirmwareVersionHistory,
+    getFirmwareValidation: mocks.getFirmwareValidation,
     extendCohort: vi.fn(),
     setDesiredFirmware: vi.fn(),
     setDesiredPools: vi.fn(),
@@ -63,6 +72,7 @@ vi.mock("@/protoFleet/api/useCohortApi", () => ({
     removeDevices: vi.fn(),
     releaseCohort: vi.fn(),
     adminReassign: vi.fn(),
+    listDevices: mocks.listDevices,
     listAllDevices: mocks.listAllDevices,
   }),
 }));
@@ -155,14 +165,6 @@ vi.mock("@/protoFleet/store", () => ({
 
 vi.mock("@/protoFleet/features/dashboard/components/HashratePanel", () => ({
   HashratePanel: () => <div data-testid="hashrate-panel">Hashrate panel</div>,
-}));
-
-vi.mock("@/protoFleet/features/dashboard/components/UptimePanel", () => ({
-  UptimePanel: () => <div data-testid="uptime-panel">Uptime panel</div>,
-}));
-
-vi.mock("@/protoFleet/features/dashboard/components/TemperaturePanel", () => ({
-  TemperaturePanel: () => <div data-testid="temperature-panel">Temperature panel</div>,
 }));
 
 vi.mock("@/protoFleet/features/dashboard/components/PowerPanel", () => ({
@@ -287,6 +289,81 @@ const buildFirmwareHistory = () => {
   });
 };
 
+const buildFirmwareValidation = () => {
+  const now = Date.now();
+  const metric = (measurementType: MeasurementType, baselineValue: number, targetValue: number) =>
+    create(CohortFirmwareValidationMetricSchema, {
+      measurementType,
+      baselineAverage: baselineValue,
+      targetAverage: targetValue,
+      absoluteDelta: targetValue - baselineValue,
+      percentageDelta: 10,
+      baselineReportingDeviceCount: 1,
+      targetReportingDeviceCount: 1,
+      baselinePoints: [
+        create(CohortFirmwareValidationPointSchema, {
+          elapsed: { seconds: 0n, nanos: 0 },
+          value: baselineValue,
+          deviceCount: 1,
+        }),
+      ],
+      targetPoints: [
+        create(CohortFirmwareValidationPointSchema, {
+          elapsed: { seconds: 0n, nanos: 0 },
+          value: targetValue,
+          deviceCount: 1,
+        }),
+      ],
+    });
+
+  return create(GetCohortFirmwareValidationResponseSchema, {
+    state: CohortFirmwareValidationState.AVAILABLE,
+    manufacturer: "Proto",
+    model: "Rig",
+    targetFirmwareFileId: "fw-1",
+    targetFirmwareVersion: "1.3.6",
+    rolloutStartedAt: historyTimestamp(now - 24 * 60 * 60 * 1000),
+    comparisonWindow: CohortFirmwareValidationWindow.SIX_HOURS,
+    stabilizationGap: { seconds: 1_800n, nanos: 0 },
+    chartGranularity: { seconds: 1_800n, nanos: 0 },
+    targetedCount: 2,
+    completeCount: 1,
+    preliminary: true,
+    baselines: [
+      create(CohortFirmwareValidationBaselineSchema, {
+        previousFirmwareVersion: "1.3.5",
+        memberCount: 2,
+        eligibleCount: 1,
+        state: CohortFirmwareValidationState.AVAILABLE,
+        baselineStartTime: historyTimestamp(now - 30 * 60 * 60 * 1000),
+        baselineEndTime: historyTimestamp(now - 24 * 60 * 60 * 1000),
+        targetStartTime: historyTimestamp(now - 20 * 60 * 60 * 1000),
+        targetEndTime: historyTimestamp(now - 14 * 60 * 60 * 1000),
+        metrics: [
+          metric(MeasurementType.HASHRATE, 100_000_000_000_000, 110_000_000_000_000),
+          metric(MeasurementType.EFFICIENCY, 24e-12, 22e-12),
+          metric(MeasurementType.POWER, 3_200, 3_250),
+        ],
+      }),
+    ],
+  });
+};
+
+const buildDevicePage = (cohort: Cohort) => ({
+  devices: cohort.members.map((member) =>
+    create(CohortDeviceSchema, {
+      deviceIdentifier: member.deviceIdentifier,
+      display: member.display,
+      firmwareStatus: member.firmwareStatus,
+      configStatuses: member.configStatuses,
+    }),
+  ),
+  nextPageToken: "",
+  totalCount: cohort.members.length,
+  availableCount: 0,
+  reservedCount: cohort.members.length,
+});
+
 const renderPage = () =>
   render(
     <MemoryRouter>
@@ -294,7 +371,7 @@ const renderPage = () =>
     </MemoryRouter>,
   );
 
-describe("CohortOverviewPage performance graphs", () => {
+describe("CohortOverviewPage rollout and validation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.useParams.mockReturnValue({ cohortId: "7" });
@@ -307,6 +384,8 @@ describe("CohortOverviewPage performance graphs", () => {
     ];
     mocks.listFirmwareFiles.mockResolvedValue([]);
     mocks.getFirmwareVersionHistory.mockResolvedValue(buildFirmwareHistory());
+    mocks.getFirmwareValidation.mockResolvedValue(buildFirmwareValidation());
+    mocks.listDevices.mockResolvedValue(buildDevicePage(buildCohort()));
     mocks.addDevices.mockResolvedValue(buildCohort({ deviceIdentifiers: ["miner-001", "miner-002", "eligible-1"] }));
     mocks.listAllDevices.mockResolvedValue([
       create(CohortDeviceSchema, {
@@ -333,17 +412,20 @@ describe("CohortOverviewPage performance graphs", () => {
     vi.useRealTimers();
   });
 
-  it("renders performance graphs for non-default cohorts scoped to explicit members", async () => {
-    mocks.getCohort.mockResolvedValue(buildCohort());
+  it("renders cohort-specific rollout and validation scoped to explicit members", async () => {
+    mocks.getCohort.mockResolvedValue(buildCohort({ firmwareFileId: "fw-1" }));
 
     renderPage();
 
-    expect(await screen.findByTestId("cohort-performance-section")).toBeInTheDocument();
-    expect(screen.getByTestId("hashrate-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("uptime-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("temperature-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("power-panel")).toHaveTextContent("Power panel for 2");
-    expect(screen.getByTestId("efficiency-panel")).toHaveTextContent("Efficiency panel for 2");
+    expect(await screen.findByTestId("cohort-rollout-section")).toBeInTheDocument();
+    expect(screen.getByText("Rollout status")).toBeInTheDocument();
+    expect(screen.getByText("Validation outcomes")).toBeInTheDocument();
+    expect(await screen.findByTestId("validation-metric-hashrate")).toBeInTheDocument();
+    expect(screen.queryByTestId("uptime-panel")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("temperature-panel")).not.toBeInTheDocument();
+    expect(screen.getByTestId("validation-metric-power")).toHaveTextContent("Power / miner");
+    expect(screen.getByTestId("validation-metric-efficiency")).toHaveTextContent("Efficiency");
+    expect(screen.getByText("Preliminary")).toBeInTheDocument();
     expect(await screen.findByTestId("firmware-version-history-panel")).toBeInTheDocument();
 
     await waitFor(() => expect(mocks.getFirmwareVersionHistory).toHaveBeenCalledTimes(1));
@@ -351,24 +433,21 @@ describe("CohortOverviewPage performance graphs", () => {
     expect(historyRequest).toEqual(expect.objectContaining({ cohortId: 7n, granularitySeconds: 90 }));
     expect(historyRequest.endTime.getTime() - historyRequest.startTime.getTime()).toBe(24 * 60 * 60 * 1000);
 
-    expect(mocks.useTelemetryMetrics).toHaveBeenCalledWith(
+    expect(mocks.getFirmwareValidation).toHaveBeenCalledWith(
       expect.objectContaining({
-        deviceIds: ["miner-001", "miner-002"],
-        measurementTypes: [
-          MeasurementType.HASHRATE,
-          MeasurementType.POWER,
-          MeasurementType.TEMPERATURE,
-          MeasurementType.EFFICIENCY,
-          MeasurementType.UPTIME,
-        ],
-        duration: "24h",
-        enabled: true,
+        cohortId: 7n,
+        manufacturer: "Proto",
+        model: "Rig",
+        comparisonWindow: CohortFirmwareValidationWindow.SIX_HOURS,
       }),
     );
+    expect(mocks.useTelemetryMetrics).not.toHaveBeenCalled();
   });
 
-  it("shows member firmware versions and desired firmware status", async () => {
-    mocks.getCohort.mockResolvedValue(buildCohort({ firmwareFileId: "fw-1" }));
+  it("shows miner firmware versions and desired firmware status in the modal", async () => {
+    const cohort = buildCohort({ firmwareFileId: "fw-1" });
+    mocks.getCohort.mockResolvedValue(cohort);
+    mocks.listDevices.mockResolvedValue(buildDevicePage(cohort));
     mocks.listFirmwareFiles.mockResolvedValue([
       {
         id: "fw-1",
@@ -383,18 +462,39 @@ describe("CohortOverviewPage performance graphs", () => {
 
     renderPage();
 
-    expect(await screen.findByText("Status")).toBeInTheDocument();
+    await screen.findByText("Rollout status");
+    expect(screen.queryByRole("columnheader", { name: "Miner" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole("button", { name: "View miners" })[0]);
+    expect(await screen.findByRole("columnheader", { name: "Reconciliation status" })).toBeInTheDocument();
     expect(screen.getAllByText("1.3.6").length).toBeGreaterThan(0);
     expect(screen.getAllByText("1.3.5").length).toBeGreaterThan(0);
     expect(screen.getByRole("img", { name: "Firmware: Complete" })).toBeInTheDocument();
     expect(screen.getAllByText("Target: 1.3.6").length).toBeGreaterThan(0);
   });
 
+  it("opens the same miner modal from the header and summary metric without rendering an inline table", async () => {
+    mocks.getCohort.mockResolvedValue(buildCohort());
+    renderPage();
+
+    await screen.findByText("Rollout status");
+    expect(screen.queryByRole("columnheader", { name: "Miner" })).not.toBeInTheDocument();
+    const triggers = screen.getAllByRole("button", { name: "View miners" });
+
+    await userEvent.click(triggers[0]);
+    expect(await screen.findByTestId("cohort-miners-modal")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+    expect(screen.queryByTestId("cohort-miners-modal")).not.toBeInTheDocument();
+    expect(screen.getByText("Rollout status")).toBeInTheDocument();
+
+    await userEvent.click(screen.getAllByRole("button", { name: "View miners" })[1]);
+    expect(await screen.findByTestId("cohort-miners-modal")).toBeInTheDocument();
+  });
+
   it("keeps pool configuration in the cohort actions menu", async () => {
     mocks.getCohort.mockResolvedValue(buildCohort());
     renderPage();
 
-    await screen.findByText("Status");
+    await screen.findByText("Rollout status");
     expect(screen.queryByRole("button", { name: "Pools" })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Cohort actions" }));
@@ -404,11 +504,15 @@ describe("CohortOverviewPage performance graphs", () => {
   });
 
   it("shows the enforced primary and backup pool targets", async () => {
-    mocks.getCohort.mockResolvedValue(buildCohort({ deviceIdentifiers: ["miner-001"], poolIds: [1n, 2n, 3n] }));
+    const cohort = buildCohort({ deviceIdentifiers: ["miner-001"], poolIds: [1n, 2n, 3n] });
+    mocks.getCohort.mockResolvedValue(cohort);
+    mocks.listDevices.mockResolvedValue(buildDevicePage(cohort));
 
     renderPage();
 
-    expect(await screen.findByRole("columnheader", { name: "Pool" })).toBeInTheDocument();
+    await screen.findByText("Rollout status");
+    await userEvent.click(screen.getAllByRole("button", { name: "View miners" })[0]);
+    expect(await screen.findByRole("columnheader", { name: "Desired pools" })).toBeInTheDocument();
     expect(screen.getByText("Primary pool")).toBeInTheDocument();
     expect(screen.getByText("Backups: Backup one, Backup two")).toBeInTheDocument();
   });
@@ -436,15 +540,14 @@ describe("CohortOverviewPage performance graphs", () => {
 
     renderPage();
 
-    expect((await screen.findAllByText("Target: 1.3.6")).length).toBeGreaterThan(0);
-    expect(screen.getByRole("img", { name: "Firmware: Verifying" })).toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: /Firmware rollout: Complete 0, In progress 1/ })).toBeInTheDocument();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
 
     await waitFor(() => expect(mocks.getCohort).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole("img", { name: "Firmware: Complete" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /Firmware rollout: Complete 1, In progress 0/ })).toBeInTheDocument();
   });
 
   it("refreshes cohort details while pool configuration is still applying", async () => {
@@ -479,57 +582,122 @@ describe("CohortOverviewPage performance graphs", () => {
     expect(screen.getByText("1/1 converged")).toBeInTheDocument();
   });
 
-  it("does not render performance graphs for the default cohort", async () => {
+  it("groups firmware and pool lifecycle states into cohort rollout segments", async () => {
+    const cohort = buildCohort({ deviceIdentifiers: ["miner-001"], firmwareFileId: "fw-1", poolIds: [1n] });
+    cohort.summary!.firmwareProgress = create(CohortFirmwareProgressSchema, {
+      targetedCount: 6,
+      completeCount: 1,
+      queuedCount: 1,
+      updatingCount: 1,
+      verifyingCount: 1,
+      needsAttentionCount: 1,
+      unknownCount: 1,
+    });
+    cohort.summary!.configProgress.push(
+      create(CohortConfigProgressSchema, {
+        dimension: CohortConfigDimension.POOLS,
+        targetedCount: 7,
+        convergedCount: 1,
+        waitingCount: 1,
+        applyingCount: 1,
+        verifyingCount: 1,
+        heldCount: 1,
+        failedCount: 1,
+        unsupportedCount: 1,
+      }),
+    );
+    mocks.getCohort.mockResolvedValue(cohort);
+
+    renderPage();
+
+    expect(
+      await screen.findByRole("img", {
+        name: "Firmware rollout: Complete 1, In progress 3, Needs attention 1, Unknown 1",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", {
+        name: "Pools rollout: Converged 1, In progress 3, Held 1, Failed 1, Unsupported 1",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders Not enforced for rollout dimensions without desired targets", async () => {
+    mocks.getCohort.mockResolvedValue(buildCohort());
+    renderPage();
+
+    await screen.findByText("Rollout status");
+    expect(screen.getAllByText("Not enforced")).toHaveLength(2);
+  });
+
+  it("keeps historical graphs hidden for the default cohort", async () => {
     mocks.getCohort.mockResolvedValue(buildCohort({ isDefault: true }));
 
     renderPage();
 
     await screen.findByText("Default cohort");
-    expect(screen.queryByTestId("cohort-performance-section")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("cohort-rollout-section")).not.toBeInTheDocument();
     expect(mocks.useTelemetryMetrics).not.toHaveBeenCalled();
+    expect(mocks.getFirmwareValidation).not.toHaveBeenCalled();
     expect(mocks.getFirmwareVersionHistory).not.toHaveBeenCalled();
   });
 
-  it("does not request telemetry for empty non-default cohorts", async () => {
+  it("shows an add-miners prompt and does not request validation for empty active cohorts", async () => {
     mocks.getCohort.mockResolvedValue(buildCohort({ deviceIdentifiers: [] }));
 
     renderPage();
 
-    expect(await screen.findByTestId("cohort-performance-section")).toBeInTheDocument();
-    expect(mocks.useTelemetryMetrics).toHaveBeenCalledWith(
-      expect.objectContaining({
-        deviceIds: [],
-        enabled: false,
-      }),
+    expect(await screen.findByTestId("cohort-empty-rollout-state")).toHaveTextContent(
+      "Add miners to begin cohort validation",
     );
+    expect(mocks.useTelemetryMetrics).not.toHaveBeenCalled();
+    expect(mocks.getFirmwareValidation).not.toHaveBeenCalled();
     expect(screen.queryByTestId("firmware-version-history-panel")).not.toBeInTheDocument();
     expect(mocks.getFirmwareVersionHistory).not.toHaveBeenCalled();
   });
 
-  it("does not apply route site scope to cohort performance telemetry", async () => {
-    mocks.routeSiteScope = { kind: "site", id: "42", label: "Austin" };
-    mocks.getCohort.mockResolvedValue(buildCohort());
+  it("shows a non-actionable empty state for released cohorts", async () => {
+    const cohort = buildCohort({ deviceIdentifiers: [] });
+    cohort.summary!.state = CohortState.RELEASED;
+    mocks.getCohort.mockResolvedValue(cohort);
 
     renderPage();
 
-    await screen.findByTestId("cohort-performance-section");
-    const telemetryOptions = mocks.useTelemetryMetrics.mock.calls[mocks.useTelemetryMetrics.mock.calls.length - 1]?.[0];
-    expect(telemetryOptions).toEqual(
-      expect.objectContaining({
-        deviceIds: ["miner-001", "miner-002"],
-      }),
+    expect(await screen.findByTestId("cohort-empty-rollout-state")).toHaveTextContent(
+      "No miners remain in this cohort",
     );
-    expect(telemetryOptions).not.toHaveProperty("siteIds");
-    expect(telemetryOptions).not.toHaveProperty("includeUnassigned");
+    expect(screen.queryByRole("button", { name: "Add miners" })).not.toBeInTheDocument();
   });
 
-  it("passes updated duration into the telemetry request", async () => {
-    mocks.getCohort.mockResolvedValue(buildCohort());
+  it("does not apply route site scope to cohort firmware validation", async () => {
+    mocks.routeSiteScope = { kind: "site", id: "42", label: "Austin" };
+    mocks.getCohort.mockResolvedValue(buildCohort({ firmwareFileId: "fw-1" }));
+
+    renderPage();
+
+    await screen.findByTestId("cohort-rollout-section");
+    await waitFor(() => expect(mocks.getFirmwareValidation).toHaveBeenCalled());
+    const validationRequest =
+      mocks.getFirmwareValidation.mock.calls[mocks.getFirmwareValidation.mock.calls.length - 1]?.[0];
+    expect(validationRequest).toEqual(
+      expect.objectContaining({
+        cohortId: 7n,
+        manufacturer: "Proto",
+        model: "Rig",
+      }),
+    );
+    expect(validationRequest).not.toHaveProperty("siteIds");
+    expect(validationRequest).not.toHaveProperty("includeUnassigned");
+  });
+
+  it("keeps firmware history duration separate from the validation window", async () => {
+    mocks.getCohort.mockResolvedValue(buildCohort({ firmwareFileId: "fw-1" }));
     const { rerender } = renderPage();
 
-    await screen.findByTestId("cohort-performance-section");
-    expect(mocks.useTelemetryMetrics.mock.calls[mocks.useTelemetryMetrics.mock.calls.length - 1]?.[0]).toEqual(
-      expect.objectContaining({ duration: "24h" }),
+    await screen.findByTestId("cohort-rollout-section");
+    await waitFor(() => expect(mocks.getFirmwareValidation).toHaveBeenCalled());
+    expect(mocks.getFirmwareValidation.mock.calls[mocks.getFirmwareValidation.mock.calls.length - 1]?.[0]).toEqual(
+      expect.objectContaining({ comparisonWindow: CohortFirmwareValidationWindow.SIX_HOURS }),
     );
 
     mocks.duration = "7d";
@@ -540,14 +708,12 @@ describe("CohortOverviewPage performance graphs", () => {
     );
 
     await waitFor(() =>
-      expect(mocks.useTelemetryMetrics.mock.calls[mocks.useTelemetryMetrics.mock.calls.length - 1]?.[0]).toEqual(
-        expect.objectContaining({ duration: "7d" }),
-      ),
-    );
-    await waitFor(() =>
       expect(
         mocks.getFirmwareVersionHistory.mock.calls[mocks.getFirmwareVersionHistory.mock.calls.length - 1]?.[0],
       ).toEqual(expect.objectContaining({ cohortId: 7n, granularitySeconds: 900 })),
+    );
+    expect(mocks.getFirmwareValidation.mock.calls[mocks.getFirmwareValidation.mock.calls.length - 1]?.[0]).toEqual(
+      expect.objectContaining({ comparisonWindow: CohortFirmwareValidationWindow.SIX_HOURS }),
     );
   });
 
@@ -555,32 +721,32 @@ describe("CohortOverviewPage performance graphs", () => {
     mocks.getCohort.mockResolvedValue(buildCohort());
     renderPage();
 
-    await screen.findByTestId("cohort-performance-section");
+    await screen.findByTestId("cohort-rollout-section");
     await userEvent.click(screen.getByRole("button", { name: "7d" }));
 
     expect(mocks.setDuration).toHaveBeenCalledWith("7d");
   });
 
-  it("shows a local performance error without replacing the cohort page", async () => {
-    mocks.getCohort.mockResolvedValue(buildCohort());
-    mocks.useTelemetryMetrics.mockReturnValue({ data: null, error: new Error("failed") });
+  it("shows a local validation error without replacing the cohort page", async () => {
+    mocks.getCohort.mockResolvedValue(buildCohort({ firmwareFileId: "fw-1" }));
+    mocks.getFirmwareValidation.mockRejectedValue(new Error("failed"));
 
     renderPage();
 
-    expect(await screen.findByTestId("cohort-performance-section")).toBeInTheDocument();
-    expect(screen.getByText("Couldn't load cohort performance")).toBeInTheDocument();
-    expect(screen.getAllByText("Members").length).toBeGreaterThan(0);
+    expect(await screen.findByTestId("cohort-rollout-section")).toBeInTheDocument();
+    expect(await screen.findByText("Couldn't load firmware validation")).toBeInTheDocument();
+    expect(screen.getByText("Miners")).toBeInTheDocument();
   });
 
-  it("shows a local firmware history error without replacing performance or members", async () => {
-    mocks.getCohort.mockResolvedValue(buildCohort());
+  it("shows a local firmware history error without replacing validation or summary", async () => {
+    mocks.getCohort.mockResolvedValue(buildCohort({ firmwareFileId: "fw-1" }));
     mocks.getFirmwareVersionHistory.mockRejectedValue(new Error("failed"));
 
     renderPage();
 
     expect(await screen.findByText("Couldn't load firmware history")).toBeInTheDocument();
-    expect(screen.getByTestId("hashrate-panel")).toBeInTheDocument();
-    expect(screen.getAllByText("Members").length).toBeGreaterThan(0);
+    expect(await screen.findByTestId("validation-metric-hashrate")).toBeInTheDocument();
+    expect(screen.getByText("Miners")).toBeInTheDocument();
   });
 
   it("adds a general count of eligible rigs", async () => {

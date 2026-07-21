@@ -9,6 +9,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/cohort/models"
 	"github.com/block/proto-fleet/server/internal/domain/command"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
@@ -31,6 +32,31 @@ func (*fakeConfigAdapter) Observe(context.Context, models.ConfigEnforcementCandi
 func (a *fakeConfigAdapter) Dispatch(context.Context, models.ConfigEnforcementCandidate, DesiredDimensionState) (*command.CommandResult, error) {
 	a.dispatches++
 	return &command.CommandResult{BatchIdentifier: "batch-1", DispatchedDeviceIdentifiers: []string{"miner-1"}}, nil
+}
+
+func TestReconcilerConfigCommandContextAttributesActivityToCohort(t *testing.T) {
+	candidate := models.ConfigEnforcementCandidate{
+		OrgID:               42,
+		ActorUserID:         7,
+		ActorExternalUserID: "external-user-7",
+		ActorUsername:       "cohort-owner",
+	}
+
+	ctx := reconcilerConfigCommandContext(t.Context(), candidate)
+
+	if command.CommandActivitySuppressed(ctx) {
+		t.Fatal("reconciler config command activity is suppressed")
+	}
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		t.Fatalf("get session info: %v", err)
+	}
+	if info.Actor != session.ActorCohort {
+		t.Fatalf("actor = %q, want %q", info.Actor, session.ActorCohort)
+	}
+	if info.OrganizationID != candidate.OrgID || info.UserID != candidate.ActorUserID || info.Username != candidate.ActorUsername {
+		t.Fatalf("session info = %+v, want candidate attribution %+v", info, candidate)
+	}
 }
 
 func TestConfigEnforcerNewRevisionDispatchesEvenWhenComparableStateMatches(t *testing.T) {

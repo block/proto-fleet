@@ -1,6 +1,62 @@
 -- Telemetry queries for device_metrics table and continuous aggregates
 -- Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
 
+-- name: GetDeviceOutcomeAverages :many
+-- Returns one row per currently active, organization-scoped device. Baseline
+-- and comparison averages are calculated in one scan so both sides use the
+-- same raw telemetry source and exact device population.
+WITH scoped_devices AS (
+    SELECT DISTINCT device_identifier
+    FROM device
+    WHERE org_id = sqlc.arg('org_id')
+      AND deleted_at IS NULL
+      AND device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+)
+SELECT
+    dm.device_identifier,
+    COALESCE(AVG(dm.hash_rate_hs) FILTER (
+        WHERE dm.time >= sqlc.arg('baseline_start') AND dm.time < sqlc.arg('baseline_end')
+    ), 0)::float8 AS baseline_hashrate,
+    COUNT(dm.hash_rate_hs) FILTER (
+        WHERE dm.time >= sqlc.arg('baseline_start') AND dm.time < sqlc.arg('baseline_end')
+    )::bigint AS baseline_hashrate_points,
+    COALESCE(AVG(dm.hash_rate_hs) FILTER (
+        WHERE dm.time >= sqlc.arg('comparison_start') AND dm.time < sqlc.arg('comparison_end')
+    ), 0)::float8 AS comparison_hashrate,
+    COUNT(dm.hash_rate_hs) FILTER (
+        WHERE dm.time >= sqlc.arg('comparison_start') AND dm.time < sqlc.arg('comparison_end')
+    )::bigint AS comparison_hashrate_points,
+    COALESCE(AVG(dm.efficiency_jh) FILTER (
+        WHERE dm.time >= sqlc.arg('baseline_start') AND dm.time < sqlc.arg('baseline_end')
+    ), 0)::float8 AS baseline_efficiency,
+    COUNT(dm.efficiency_jh) FILTER (
+        WHERE dm.time >= sqlc.arg('baseline_start') AND dm.time < sqlc.arg('baseline_end')
+    )::bigint AS baseline_efficiency_points,
+    COALESCE(AVG(dm.efficiency_jh) FILTER (
+        WHERE dm.time >= sqlc.arg('comparison_start') AND dm.time < sqlc.arg('comparison_end')
+    ), 0)::float8 AS comparison_efficiency,
+    COUNT(dm.efficiency_jh) FILTER (
+        WHERE dm.time >= sqlc.arg('comparison_start') AND dm.time < sqlc.arg('comparison_end')
+    )::bigint AS comparison_efficiency_points,
+    COALESCE(AVG(dm.power_w) FILTER (
+        WHERE dm.time >= sqlc.arg('baseline_start') AND dm.time < sqlc.arg('baseline_end')
+    ), 0)::float8 AS baseline_power,
+    COUNT(dm.power_w) FILTER (
+        WHERE dm.time >= sqlc.arg('baseline_start') AND dm.time < sqlc.arg('baseline_end')
+    )::bigint AS baseline_power_points,
+    COALESCE(AVG(dm.power_w) FILTER (
+        WHERE dm.time >= sqlc.arg('comparison_start') AND dm.time < sqlc.arg('comparison_end')
+    ), 0)::float8 AS comparison_power,
+    COUNT(dm.power_w) FILTER (
+        WHERE dm.time >= sqlc.arg('comparison_start') AND dm.time < sqlc.arg('comparison_end')
+    )::bigint AS comparison_power_points
+FROM device_metrics dm
+JOIN scoped_devices sd USING (device_identifier)
+WHERE dm.time >= sqlc.arg('baseline_start')
+  AND dm.time < sqlc.arg('comparison_end')
+GROUP BY dm.device_identifier
+ORDER BY dm.device_identifier;
+
 -- name: InsertDeviceMetrics :exec
 -- site_id is row-stamped from device.site_id (looked up by
 -- device_identifier) so per-site telemetry filters use the row-stamped

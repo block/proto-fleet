@@ -244,6 +244,35 @@ func (s *SQLCohortStore) ListCohortFirmwareVersionEvents(ctx context.Context, or
 	return events, nil
 }
 
+func (s *SQLCohortStore) ListCohortTelemetryComparisonMemberships(ctx context.Context, orgID int64, cohortIDs []int64) ([]models.CohortTelemetryComparisonMembership, error) {
+	rows, err := s.GetQueries(ctx).ListCohortTelemetryComparisonMemberships(ctx, sqlc.ListCohortTelemetryComparisonMembershipsParams{
+		OrgID:     orgID,
+		CohortIds: cohortIDs,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("list cohort telemetry comparison memberships: %v", err)
+	}
+
+	memberships := make([]models.CohortTelemetryComparisonMembership, 0, len(cohortIDs))
+	indexByID := make(map[int64]int, len(cohortIDs))
+	for _, row := range rows {
+		index, ok := indexByID[row.CohortID]
+		if !ok {
+			index = len(memberships)
+			indexByID[row.CohortID] = index
+			memberships = append(memberships, models.CohortTelemetryComparisonMembership{
+				CohortID:  row.CohortID,
+				Label:     row.Label,
+				IsDefault: row.IsDefault,
+			})
+		}
+		if row.DeviceIdentifier != "" {
+			memberships[index].DeviceIdentifiers = append(memberships[index].DeviceIdentifiers, row.DeviceIdentifier)
+		}
+	}
+	return memberships, nil
+}
+
 func (s *SQLCohortStore) ListCohorts(ctx context.Context, params models.ListCohortsParams) (models.PagedCohorts, error) {
 	pageSize := normalizeCohortPageSize(params.PageSize)
 	cursor, err := decodeCohortPageCursor(params.PageToken)
@@ -276,7 +305,7 @@ func (s *SQLCohortStore) ListCohorts(ctx context.Context, params models.ListCoho
 		return models.PagedCohorts{}, fleeterror.NewInternalErrorf("failed to count cohorts: %v", err)
 	}
 	var nextPageToken string
-	if int32(len(rows)) > pageSize {
+	if len(rows) > int(pageSize) {
 		last := rows[pageSize-1]
 		nextPageToken, err = encodeCohortPageCursor(cohortPageCursor{
 			IsDefault: last.IsDefault,
@@ -342,7 +371,7 @@ func (s *SQLCohortStore) ListCohortsByOwner(ctx context.Context, params models.L
 		return models.PagedCohorts{}, fleeterror.NewInternalErrorf("failed to count owned cohorts: %v", err)
 	}
 	var nextPageToken string
-	if int32(len(rows)) > pageSize {
+	if len(rows) > int(pageSize) {
 		last := rows[pageSize-1]
 		nextPageToken, err = encodeCohortPageCursor(cohortPageCursor{
 			UpdatedAt: last.UpdatedAt,
@@ -936,7 +965,7 @@ func (s *SQLCohortStore) ListDevices(ctx context.Context, params models.ListDevi
 		return models.PagedCohortDevices{}, fleeterror.NewInternalErrorf("failed to count cohort devices: %v", err)
 	}
 	var nextPageToken string
-	if int32(len(rows)) > pageSize {
+	if len(rows) > int(pageSize) {
 		last := rows[pageSize-1]
 		nextPageToken, err = encodeCohortDevicePageCursor(cohortDevicePageCursor{
 			DisplayName:      last.DisplayName,

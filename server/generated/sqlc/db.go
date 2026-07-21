@@ -543,6 +543,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceMetricsTimeSeriesStmt, err = db.PrepareContext(ctx, getDeviceMetricsTimeSeries); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceMetricsTimeSeries: %w", err)
 	}
+	if q.getDeviceOutcomeAveragesStmt, err = db.PrepareContext(ctx, getDeviceOutcomeAverages); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceOutcomeAverages: %w", err)
+	}
 	if q.getDevicePairingStatusByDeviceDatabaseIDStmt, err = db.PrepareContext(ctx, getDevicePairingStatusByDeviceDatabaseID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDevicePairingStatusByDeviceDatabaseID: %w", err)
 	}
@@ -953,6 +956,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listCohortMembersStmt, err = db.PrepareContext(ctx, listCohortMembers); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCohortMembers: %w", err)
+	}
+	if q.listCohortTelemetryComparisonMembershipsStmt, err = db.PrepareContext(ctx, listCohortTelemetryComparisonMemberships); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCohortTelemetryComparisonMemberships: %w", err)
 	}
 	if q.listCohortsStmt, err = db.PrepareContext(ctx, listCohorts); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCohorts: %w", err)
@@ -2520,6 +2526,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDeviceMetricsTimeSeriesStmt: %w", cerr)
 		}
 	}
+	if q.getDeviceOutcomeAveragesStmt != nil {
+		if cerr := q.getDeviceOutcomeAveragesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceOutcomeAveragesStmt: %w", cerr)
+		}
+	}
 	if q.getDevicePairingStatusByDeviceDatabaseIDStmt != nil {
 		if cerr := q.getDevicePairingStatusByDeviceDatabaseIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDevicePairingStatusByDeviceDatabaseIDStmt: %w", cerr)
@@ -3203,6 +3214,11 @@ func (q *Queries) Close() error {
 	if q.listCohortMembersStmt != nil {
 		if cerr := q.listCohortMembersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listCohortMembersStmt: %w", cerr)
+		}
+	}
+	if q.listCohortTelemetryComparisonMembershipsStmt != nil {
+		if cerr := q.listCohortTelemetryComparisonMembershipsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCohortTelemetryComparisonMembershipsStmt: %w", cerr)
 		}
 	}
 	if q.listCohortsStmt != nil {
@@ -4577,6 +4593,7 @@ type Queries struct {
 	getDeviceMetricsHourlyAggregatesStmt                       *sql.Stmt
 	getDeviceMetricsRawBucketAggregatesStmt                    *sql.Stmt
 	getDeviceMetricsTimeSeriesStmt                             *sql.Stmt
+	getDeviceOutcomeAveragesStmt                               *sql.Stmt
 	getDevicePairingStatusByDeviceDatabaseIDStmt               *sql.Stmt
 	getDevicePropertiesForRenameStmt                           *sql.Stmt
 	getDevicePropertiesForRenameWithoutTelemetryStmt           *sql.Stmt
@@ -4714,6 +4731,7 @@ type Queries struct {
 	listCohortFirmwareTargetsStmt                              *sql.Stmt
 	listCohortFirmwareVersionEventsStmt                        *sql.Stmt
 	listCohortMembersStmt                                      *sql.Stmt
+	listCohortTelemetryComparisonMembershipsStmt               *sql.Stmt
 	listCohortsStmt                                            *sql.Stmt
 	listCohortsByOwnerStmt                                     *sql.Stmt
 	listConfigEnforcementCandidatesStmt                        *sql.Stmt
@@ -5125,6 +5143,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceMetricsHourlyAggregatesStmt:                       q.getDeviceMetricsHourlyAggregatesStmt,
 		getDeviceMetricsRawBucketAggregatesStmt:                    q.getDeviceMetricsRawBucketAggregatesStmt,
 		getDeviceMetricsTimeSeriesStmt:                             q.getDeviceMetricsTimeSeriesStmt,
+		getDeviceOutcomeAveragesStmt:                               q.getDeviceOutcomeAveragesStmt,
 		getDevicePairingStatusByDeviceDatabaseIDStmt:               q.getDevicePairingStatusByDeviceDatabaseIDStmt,
 		getDevicePropertiesForRenameStmt:                           q.getDevicePropertiesForRenameStmt,
 		getDevicePropertiesForRenameWithoutTelemetryStmt:           q.getDevicePropertiesForRenameWithoutTelemetryStmt,
@@ -5262,6 +5281,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listCohortFirmwareTargetsStmt:                              q.listCohortFirmwareTargetsStmt,
 		listCohortFirmwareVersionEventsStmt:                        q.listCohortFirmwareVersionEventsStmt,
 		listCohortMembersStmt:                                      q.listCohortMembersStmt,
+		listCohortTelemetryComparisonMembershipsStmt:               q.listCohortTelemetryComparisonMembershipsStmt,
 		listCohortsStmt:                                            q.listCohortsStmt,
 		listCohortsByOwnerStmt:                                     q.listCohortsByOwnerStmt,
 		listConfigEnforcementCandidatesStmt:                        q.listConfigEnforcementCandidatesStmt,

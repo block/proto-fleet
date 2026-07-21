@@ -13,11 +13,17 @@ import {
   CohortDeviceFilterSchema,
   CohortDeviceIdentifierListSchema,
   CohortDeviceSelectorSchema,
+  type CohortFirmwareValidationWindow,
   type CohortSummary,
+  type CohortTelemetryComparisonWindow,
   CreateCohortRequestSchema,
+  GetCohortFirmwareValidationRequestSchema,
+  type GetCohortFirmwareValidationResponse,
   GetCohortFirmwareVersionHistoryRequestSchema,
   type GetCohortFirmwareVersionHistoryResponse,
   GetCohortRequestSchema,
+  GetCohortTelemetryComparisonRequestSchema,
+  type GetCohortTelemetryComparisonResponse,
   GetMyCohortsRequestSchema,
   ListCohortsRequestSchema,
   ListDevicesRequestSchema,
@@ -111,6 +117,22 @@ interface GetCohortFirmwareVersionHistoryProps extends MutationCallbacks<GetCoho
   startTime: Date;
   endTime: Date;
   granularitySeconds: number;
+}
+
+interface GetCohortFirmwareValidationProps extends MutationCallbacks<GetCohortFirmwareValidationResponse> {
+  cohortId: bigint;
+  manufacturer: string;
+  model: string;
+  comparisonWindow: CohortFirmwareValidationWindow;
+}
+
+interface GetCohortTelemetryComparisonProps extends MutationCallbacks<GetCohortTelemetryComparisonResponse> {
+  cohortIds: bigint[];
+  comparisonWindow: CohortTelemetryComparisonWindow;
+}
+
+interface ListAllCohortsProps extends MutationCallbacks<CohortSummary[]> {
+  includeReleased?: boolean;
 }
 
 interface CohortDeviceFilterProps {
@@ -218,6 +240,37 @@ export function useCohortApi() {
     [handleError],
   );
 
+  const listAllCohorts = useCallback(
+    async ({ includeReleased, onSuccess, onError, onFinally }: ListAllCohortsProps = {}) => {
+      try {
+        const cohorts: CohortSummary[] = [];
+        let pageToken = "";
+        for (let page = 0; page < maxListAllPages; page += 1) {
+          const response = await cohortClient.listCohorts(
+            create(ListCohortsRequestSchema, {
+              includeReleased,
+              pageSize: allDevicesPageSize,
+              pageToken,
+            }),
+          );
+          cohorts.push(...response.cohorts);
+          if (!response.nextPageToken) {
+            onSuccess?.(cohorts);
+            return cohorts;
+          }
+          pageToken = response.nextPageToken;
+        }
+        throw new Error("Too many cohort pages to load at once");
+      } catch (error) {
+        handleError(error, onError);
+        throw error;
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleError],
+  );
+
   const getCohort = useCallback(
     async ({ cohortId, onSuccess, onError, onFinally }: GetCohortProps) => {
       try {
@@ -253,6 +306,55 @@ export function useCohortApi() {
             endTime: timestampFromDate(endTime),
             granularity: { seconds: BigInt(granularitySeconds), nanos: 0 },
           }),
+        );
+        onSuccess?.(response);
+        return response;
+      } catch (error) {
+        handleError(error, onError);
+        throw error;
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleError],
+  );
+
+  const getFirmwareValidation = useCallback(
+    async ({
+      cohortId,
+      manufacturer,
+      model,
+      comparisonWindow,
+      onSuccess,
+      onError,
+      onFinally,
+    }: GetCohortFirmwareValidationProps) => {
+      try {
+        const response = await cohortClient.getCohortFirmwareValidation(
+          create(GetCohortFirmwareValidationRequestSchema, {
+            cohortId,
+            manufacturer,
+            model,
+            comparisonWindow,
+          }),
+        );
+        onSuccess?.(response);
+        return response;
+      } catch (error) {
+        handleError(error, onError);
+        throw error;
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleError],
+  );
+
+  const getTelemetryComparison = useCallback(
+    async ({ cohortIds, comparisonWindow, onSuccess, onError, onFinally }: GetCohortTelemetryComparisonProps) => {
+      try {
+        const response = await cohortClient.getCohortTelemetryComparison(
+          create(GetCohortTelemetryComparisonRequestSchema, { cohortIds, comparisonWindow }),
         );
         onSuccess?.(response);
         return response;
@@ -508,9 +610,12 @@ export function useCohortApi() {
 
   return {
     listCohorts,
+    listAllCohorts,
     getMyCohorts,
     getCohort,
     getFirmwareVersionHistory,
+    getFirmwareValidation,
+    getTelemetryComparison,
     listDevices,
     listAllDevices,
     createCohort,

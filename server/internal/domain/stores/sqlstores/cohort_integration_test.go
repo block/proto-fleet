@@ -26,11 +26,12 @@ func TestCohortStore_CreateGetListAndRelease(t *testing.T) {
 
 	deviceA := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
 	deviceB := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
+	deviceC := tc.DatabaseService.CreateDevice(user.OrganizationID, "proto")
 	setDeviceDisplayFields(t, tc, user.OrganizationID, deviceA.ID, "Rig A", "worker-a", "SN-A")
 
 	initialCohorts, err := store.ListCohorts(ctx, models.ListCohortsParams{OrgID: user.OrganizationID})
 	require.NoError(t, err)
-	assert.Equal(t, int64(2), requireDefaultCohort(t, initialCohorts.Cohorts).ExplicitMemberCount)
+	assert.Equal(t, int64(3), requireDefaultCohort(t, initialCohorts.Cohorts).ExplicitMemberCount)
 
 	firmwareFileID := "firmware-file-1"
 	ownerUsername := user.Username
@@ -82,11 +83,47 @@ func TestCohortStore_CreateGetListAndRelease(t *testing.T) {
 	listed, err := store.ListCohorts(ctx, models.ListCohortsParams{OrgID: user.OrganizationID})
 	require.NoError(t, err)
 	require.Len(t, listed.Cohorts, 2) // the org default cohort plus the created cohort
-	assert.Equal(t, int64(0), requireDefaultCohort(t, listed.Cohorts).ExplicitMemberCount)
+	defaultCohort := requireDefaultCohort(t, listed.Cohorts)
+	assert.Equal(t, int64(1), defaultCohort.ExplicitMemberCount)
 	userCohorts := nonDefaultCohorts(listed.Cohorts)
 	require.Len(t, userCohorts, 1)
 	assert.Equal(t, created.ID, userCohorts[0].ID)
 	assert.Equal(t, int64(2), userCohorts[0].ExplicitMemberCount)
+
+	deviceStore := sqlstores.NewSQLDeviceStore(tc.DatabaseService.DB)
+	minerSnapshots, _, totalMiners, err := deviceStore.ListMinerStateSnapshots(
+		ctx,
+		user.OrganizationID,
+		"",
+		100,
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), totalMiners)
+	require.Len(t, minerSnapshots, 3)
+	cohortByDevice := make(map[string]int64, len(minerSnapshots))
+	for _, snapshot := range minerSnapshots {
+		cohortByDevice[snapshot.DeviceIdentifier] = snapshot.CohortID
+	}
+	assert.Equal(t, created.ID, cohortByDevice[deviceA.ID])
+	assert.Equal(t, created.ID, cohortByDevice[deviceB.ID])
+	assert.Equal(t, defaultCohort.ID, cohortByDevice[deviceC.ID])
+
+	comparisonMemberships, err := store.ListCohortTelemetryComparisonMemberships(
+		ctx,
+		user.OrganizationID,
+		[]int64{created.ID, defaultCohort.ID},
+	)
+	require.NoError(t, err)
+	require.Len(t, comparisonMemberships, 2)
+	comparisonByID := make(map[int64]models.CohortTelemetryComparisonMembership, len(comparisonMemberships))
+	for _, membership := range comparisonMemberships {
+		comparisonByID[membership.CohortID] = membership
+	}
+	assert.ElementsMatch(t, []string{deviceA.ID, deviceB.ID}, comparisonByID[created.ID].DeviceIdentifiers)
+	assert.Equal(t, []string{deviceC.ID}, comparisonByID[defaultCohort.ID].DeviceIdentifiers)
+	assert.True(t, comparisonByID[defaultCohort.ID].IsDefault)
 
 	owned, err := store.ListCohortsByOwner(ctx, models.ListCohortsByOwnerParams{
 		OrgID:       user.OrganizationID,
@@ -105,7 +142,7 @@ func TestCohortStore_CreateGetListAndRelease(t *testing.T) {
 	active, err := store.ListCohorts(ctx, models.ListCohortsParams{OrgID: user.OrganizationID})
 	require.NoError(t, err)
 	assert.Empty(t, nonDefaultCohorts(active.Cohorts)) // only the org default cohort remains active
-	assert.Equal(t, int64(2), requireDefaultCohort(t, active.Cohorts).ExplicitMemberCount)
+	assert.Equal(t, int64(3), requireDefaultCohort(t, active.Cohorts).ExplicitMemberCount)
 
 	withReleased, err := store.ListCohorts(ctx, models.ListCohortsParams{
 		OrgID:           user.OrganizationID,

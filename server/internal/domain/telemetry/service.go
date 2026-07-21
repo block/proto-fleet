@@ -189,10 +189,18 @@ type TelemetryDataStore interface {
 	GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]modelsV2.DeviceMetrics, error)
 	StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error)
 	GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error)
+	GetDeviceOutcomeAverages(ctx context.Context, query models.DeviceOutcomeComparisonQuery) ([]models.DeviceOutcomeAverages, error)
 	InsertMinerStateSnapshot(ctx context.Context, at time.Time) error
 	UpsertFleetMetricRollups(ctx context.Context, startTime, endTime time.Time) error
 	GetLatestFleetMetricRollupBucket(ctx context.Context) (time.Time, error)
 	Ping(ctx context.Context) error
+}
+
+// GetDeviceOutcomeAverages loads paired per-device averages without applying
+// cohort semantics. Cohort membership and statistics remain in the cohort
+// domain; telemetry owns the raw, organization-scoped read.
+func (s *TelemetryService) GetDeviceOutcomeAverages(ctx context.Context, query models.DeviceOutcomeComparisonQuery) ([]models.DeviceOutcomeAverages, error) {
+	return s.telemetryDataStore.GetDeviceOutcomeAverages(ctx, query)
 }
 
 type MinerGetter interface {
@@ -1846,6 +1854,8 @@ func combinedMetricsFlightKey(query models.CombinedMetricsQuery) string {
 	b.WriteString(strconv.FormatBool(query.IncludeUnassigned))
 	b.WriteByte('|')
 	b.WriteString(strconv.FormatBool(query.DeviceListFromSiteScope))
+	b.WriteByte('|')
+	b.WriteString(strconv.Itoa(int(query.Resolution)))
 	return b.String()
 }
 

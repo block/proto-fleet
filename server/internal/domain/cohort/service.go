@@ -15,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/cohort/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
 
@@ -26,6 +27,9 @@ type Service struct {
 	metrics                 Metrics
 	firmwareMetadata        FirmwareMetadataProvider
 	poolReferences          PoolReferenceProvider
+	validationTelemetry     ValidationTelemetryProvider
+	outcomeTelemetry        OutcomeTelemetryProvider
+	now                     func() time.Time
 }
 
 // SourceDeviceSetResolver resolves group membership for create-from-group.
@@ -42,6 +46,18 @@ type FirmwareMetadataProvider interface {
 // PoolReferenceProvider resolves active, organization-scoped pool references.
 type PoolReferenceProvider interface {
 	GetPool(ctx context.Context, orgID int64, poolID int64) (*poolpb.Pool, error)
+}
+
+// ValidationTelemetryProvider loads organization-scoped historical metrics
+// for the exact device sets selected by firmware validation.
+type ValidationTelemetryProvider interface {
+	GetCombinedMetrics(ctx context.Context, query telemetrymodels.CombinedMetricsQuery) (telemetrymodels.CombinedMetric, error)
+}
+
+// OutcomeTelemetryProvider loads paired per-device averages for cohort-level
+// operating outcome comparisons.
+type OutcomeTelemetryProvider interface {
+	GetDeviceOutcomeAverages(ctx context.Context, query telemetrymodels.DeviceOutcomeComparisonQuery) ([]telemetrymodels.DeviceOutcomeAverages, error)
 }
 
 // Option configures a Service.
@@ -86,9 +102,33 @@ func WithPoolReferenceProvider(provider PoolReferenceProvider) Option {
 	}
 }
 
+// WithValidationTelemetryProvider wires historical telemetry comparisons.
+func WithValidationTelemetryProvider(provider ValidationTelemetryProvider) Option {
+	return func(s *Service) {
+		s.validationTelemetry = provider
+	}
+}
+
+// WithOutcomeTelemetryProvider wires paired per-device outcome comparisons.
+func WithOutcomeTelemetryProvider(provider OutcomeTelemetryProvider) Option {
+	return func(s *Service) {
+		s.outcomeTelemetry = provider
+	}
+}
+
 // SetFirmwareMetadataProvider wires firmware target validation after service construction.
 func (s *Service) SetFirmwareMetadataProvider(provider FirmwareMetadataProvider) {
 	s.firmwareMetadata = provider
+}
+
+// SetValidationTelemetryProvider wires historical telemetry after service construction.
+func (s *Service) SetValidationTelemetryProvider(provider ValidationTelemetryProvider) {
+	s.validationTelemetry = provider
+}
+
+// SetOutcomeTelemetryProvider wires paired per-device outcomes after service construction.
+func (s *Service) SetOutcomeTelemetryProvider(provider OutcomeTelemetryProvider) {
+	s.outcomeTelemetry = provider
 }
 
 // NewService returns a cohort service.
@@ -97,6 +137,7 @@ func NewService(store interfaces.CohortStore, opts ...Option) *Service {
 		store:   store,
 		audit:   NoOpAuditLogger{},
 		metrics: NoOpMetrics{},
+		now:     time.Now,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -290,7 +331,8 @@ func buildCohortFirmwareVersionHistory(params models.CohortFirmwareVersionHistor
 		points = append(points, models.CohortFirmwareVersionHistoryPoint{Timestamp: timestamp, Versions: versions})
 	}
 
-	return models.CohortFirmwareVersionHistory{MemberCount: int32(len(members)), Points: points}
+	// Cohort membership mutations are capped at 10,000 devices.
+	return models.CohortFirmwareVersionHistory{MemberCount: int32(len(members)), Points: points} //nolint:gosec // bounded by the cohort membership cap
 }
 
 // ListCohorts returns cohorts for an org.

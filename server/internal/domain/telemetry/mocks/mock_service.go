@@ -190,6 +190,21 @@ func (mr *MockTelemetryDataStoreMockRecorder) GetCombinedMetrics(ctx, query any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCombinedMetrics", reflect.TypeOf((*MockTelemetryDataStore)(nil).GetCombinedMetrics), ctx, query)
 }
 
+// GetDeviceOutcomeAverages mocks base method.
+func (m *MockTelemetryDataStore) GetDeviceOutcomeAverages(ctx context.Context, query models.DeviceOutcomeComparisonQuery) ([]models.DeviceOutcomeAverages, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceOutcomeAverages", ctx, query)
+	ret0, _ := ret[0].([]models.DeviceOutcomeAverages)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceOutcomeAverages indicates an expected call of GetDeviceOutcomeAverages.
+func (mr *MockTelemetryDataStoreMockRecorder) GetDeviceOutcomeAverages(ctx, query any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceOutcomeAverages", reflect.TypeOf((*MockTelemetryDataStore)(nil).GetDeviceOutcomeAverages), ctx, query)
+}
+
 // GetLatestDeviceMetricsBatch mocks base method.
 func (m *MockTelemetryDataStore) GetLatestDeviceMetricsBatch(ctx context.Context, deviceIDs []models.DeviceIdentifier) (map[models.DeviceIdentifier]models0.DeviceMetrics, error) {
 	m.ctrl.T.Helper()

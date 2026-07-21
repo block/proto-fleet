@@ -33,13 +33,22 @@ const buildSegmentConfig = (series: FirmwareSeries[]): SegmentConfig =>
   }, {});
 
 type FirmwareVersionHistoryPanelProps = {
+  title?: string;
+  headline?: string;
   duration: FleetDuration;
   history: GetCohortFirmwareVersionHistoryResponse | null;
   isLoading: boolean;
   hasError: boolean;
 };
 
-const FirmwareVersionHistoryPanel = ({ duration, history, isLoading, hasError }: FirmwareVersionHistoryPanelProps) => {
+const FirmwareVersionHistoryPanel = ({
+  title = "Firmware versions",
+  headline,
+  duration,
+  history,
+  isLoading,
+  hasError,
+}: FirmwareVersionHistoryPanelProps) => {
   const series = useMemo(() => (history ? buildFirmwareSeries(history) : []), [history]);
   const chartData = useMemo(() => (history ? buildChartData(history, series) : []), [history, series]);
   const segmentConfig = useMemo(() => buildSegmentConfig(series), [series]);
@@ -47,21 +56,19 @@ const FirmwareVersionHistoryPanel = ({ duration, history, isLoading, hasError }:
   let panel;
   if (isLoading) {
     panel = (
-      <ChartWidget stats={{ label: "Firmware versions", value: undefined }}>
+      <ChartWidget stats={{ label: title, value: undefined }}>
         <SkeletonBar className="h-60 w-full" />
       </ChartWidget>
     );
   } else if (hasError) {
-    panel = (
-      <ChartWidget stats={{ label: "Firmware versions", value: "Couldn't load firmware history" }}>{null}</ChartWidget>
-    );
+    panel = <ChartWidget stats={{ label: title, value: "Couldn't load firmware history" }}>{null}</ChartWidget>;
   } else if (!history || chartData.length === 0) {
-    panel = <ChartWidget stats={{ label: "Firmware versions", value: "No data" }}>{null}</ChartWidget>;
+    panel = <ChartWidget stats={{ label: title, value: "No data" }}>{null}</ChartWidget>;
   } else {
     panel = (
       <SegmentedMetricPanel
-        title="Firmware versions"
-        headline={`${history.memberCount} ${history.memberCount === 1 ? "miner" : "miners"}`}
+        title={title}
+        headline={headline ?? `${history.memberCount} ${history.memberCount === 1 ? "miner" : "miners"}`}
         chartData={chartData}
         segmentConfig={segmentConfig}
         duration={duration}

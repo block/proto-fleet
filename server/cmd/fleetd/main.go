@@ -436,6 +436,8 @@ func start(config *Config) error {
 		diagnosticsService,
 	)
 	telemetryService.WithMetricsEmitter(metricsProvider)
+	cohortSvc.SetValidationTelemetryProvider(telemetryService)
+	cohortSvc.SetOutcomeTelemetryProvider(telemetryService)
 	fleetNodePairingSvc.WithTelemetryScheduler(telemetryService)
 	if err := telemetryService.Start(context.Background()); err != nil {
 		slog.Error("failed to start telemetry service", "error", err)

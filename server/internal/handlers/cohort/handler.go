@@ -64,6 +64,30 @@ func (h *Handler) GetCohortFirmwareVersionHistory(ctx context.Context, req *conn
 	return connect.NewResponse(toProtoCohortFirmwareVersionHistory(history)), nil
 }
 
+func (h *Handler) GetCohortFirmwareValidation(ctx context.Context, req *connect.Request[pb.GetCohortFirmwareValidationRequest]) (*connect.Response[pb.GetCohortFirmwareValidationResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCohortRead, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	validation, err := h.service.GetCohortFirmwareValidation(ctx, toCohortFirmwareValidationParams(req.Msg, info.OrganizationID))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(toProtoCohortFirmwareValidation(validation)), nil
+}
+
+func (h *Handler) GetCohortTelemetryComparison(ctx context.Context, req *connect.Request[pb.GetCohortTelemetryComparisonRequest]) (*connect.Response[pb.GetCohortTelemetryComparisonResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermCohortRead, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	comparison, err := h.service.GetCohortTelemetryComparison(ctx, toCohortTelemetryComparisonParams(req.Msg, info.OrganizationID))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(toProtoCohortTelemetryComparison(comparison)), nil
+}
+
 func (h *Handler) ListCohorts(ctx context.Context, req *connect.Request[pb.ListCohortsRequest]) (*connect.Response[pb.ListCohortsResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermCohortRead, authz.ResourceContext{})
 	if err != nil {

@@ -77,7 +77,15 @@ LEFT JOIN site ON site.id = device.site_id
     AND site.deleted_at IS NULL
 LEFT JOIN building ON building.id = device.building_id
     AND building.org_id = $1
-    AND building.deleted_at IS NULL`
+    AND building.deleted_at IS NULL
+LEFT JOIN cohort_membership ON cohort_membership.org_id = device.org_id
+    AND cohort_membership.device_identifier = device.device_identifier
+LEFT JOIN cohort explicit_cohort ON explicit_cohort.id = cohort_membership.cohort_id
+    AND explicit_cohort.org_id = device.org_id
+    AND explicit_cohort.state = 'active'
+LEFT JOIN cohort default_cohort ON default_cohort.org_id = device.org_id
+    AND default_cohort.is_default = TRUE
+    AND default_cohort.state = 'active'`
 
 // minerWhereClause constrains results to the org's active, non-deleted devices.
 // Parameter: $1 = org_id

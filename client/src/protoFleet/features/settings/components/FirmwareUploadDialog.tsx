@@ -11,9 +11,9 @@ import {
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
+import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular/ProgressCircular";
-import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
 
 interface FirmwareUploadDialogProps {

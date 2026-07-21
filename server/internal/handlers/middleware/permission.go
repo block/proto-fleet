@@ -130,7 +130,7 @@ func RequireOrgWidePermission(ctx context.Context, key string) (*session.Info, e
 
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorCohort:
 			return info, nil
 		default:
 			return nil, fleeterror.NewInternalErrorf(
@@ -168,7 +168,7 @@ func HasPermission(ctx context.Context, key string, rc authz.ResourceContext) (b
 
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorCohort:
 			return true, nil
 		default:
 			return false, fleeterror.NewInternalErrorf(
@@ -205,7 +205,7 @@ func SiteScopeForPermission(ctx context.Context, key string) (orgWide bool, site
 
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorCohort:
 			return true, nil, nil
 		default:
 			return false, nil, fleeterror.NewInternalErrorf(

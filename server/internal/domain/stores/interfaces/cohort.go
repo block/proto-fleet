@@ -32,6 +32,7 @@ type CohortStore interface {
 	InsertCohortMember(ctx context.Context, params models.InsertCohortMemberParams) error
 	DeleteCohortMemberships(ctx context.Context, orgID, cohortID int64, deviceIdentifiers []string) (int64, error)
 	ListCohortMembers(ctx context.Context, orgID, cohortID int64) ([]models.CohortMember, error)
+	ListCohortTelemetryComparisonMemberships(ctx context.Context, orgID int64, cohortIDs []int64) ([]models.CohortTelemetryComparisonMembership, error)
 	ResolveEffectiveCohortForDevice(ctx context.Context, orgID int64, deviceIdentifier string) (*models.Cohort, error)
 	ListDefaultCohortDevices(ctx context.Context, orgID int64) ([]models.DefaultCohortDevice, error)
 	ListCohortDeviceOwnership(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]models.CohortDeviceOwnership, error)

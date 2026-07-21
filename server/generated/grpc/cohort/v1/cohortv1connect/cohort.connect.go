@@ -60,6 +60,12 @@ const (
 	// CohortServiceGetCohortFirmwareVersionHistoryProcedure is the fully-qualified name of the
 	// CohortService's GetCohortFirmwareVersionHistory RPC.
 	CohortServiceGetCohortFirmwareVersionHistoryProcedure = "/cohort.v1.CohortService/GetCohortFirmwareVersionHistory"
+	// CohortServiceGetCohortFirmwareValidationProcedure is the fully-qualified name of the
+	// CohortService's GetCohortFirmwareValidation RPC.
+	CohortServiceGetCohortFirmwareValidationProcedure = "/cohort.v1.CohortService/GetCohortFirmwareValidation"
+	// CohortServiceGetCohortTelemetryComparisonProcedure is the fully-qualified name of the
+	// CohortService's GetCohortTelemetryComparison RPC.
+	CohortServiceGetCohortTelemetryComparisonProcedure = "/cohort.v1.CohortService/GetCohortTelemetryComparison"
 	// CohortServiceListCohortsProcedure is the fully-qualified name of the CohortService's ListCohorts
 	// RPC.
 	CohortServiceListCohortsProcedure = "/cohort.v1.CohortService/ListCohorts"
@@ -100,6 +106,12 @@ type CohortServiceClient interface {
 	// GetCohortFirmwareVersionHistory returns the version mix over time for
 	// the cohort's current explicit members.
 	GetCohortFirmwareVersionHistory(context.Context, *connect.Request[v1.GetCohortFirmwareVersionHistoryRequest]) (*connect.Response[v1.GetCohortFirmwareVersionHistoryResponse], error)
+	// GetCohortFirmwareValidation compares telemetry before a firmware target
+	// was assigned with telemetry after current members converged on it.
+	GetCohortFirmwareValidation(context.Context, *connect.Request[v1.GetCohortFirmwareValidationRequest]) (*connect.Response[v1.GetCohortFirmwareValidationResponse], error)
+	// GetCohortTelemetryComparison compares current operating outcomes across
+	// a small set of active cohorts using their effective current members.
+	GetCohortTelemetryComparison(context.Context, *connect.Request[v1.GetCohortTelemetryComparisonRequest]) (*connect.Response[v1.GetCohortTelemetryComparisonResponse], error)
 	// ListCohorts lists cohorts for the caller's organization.
 	ListCohorts(context.Context, *connect.Request[v1.ListCohortsRequest]) (*connect.Response[v1.ListCohortsResponse], error)
 	// GetMyCohorts lists cohorts owned by the caller.
@@ -167,6 +179,16 @@ func NewCohortServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			baseURL+CohortServiceGetCohortFirmwareVersionHistoryProcedure,
 			opts...,
 		),
+		getCohortFirmwareValidation: connect.NewClient[v1.GetCohortFirmwareValidationRequest, v1.GetCohortFirmwareValidationResponse](
+			httpClient,
+			baseURL+CohortServiceGetCohortFirmwareValidationProcedure,
+			opts...,
+		),
+		getCohortTelemetryComparison: connect.NewClient[v1.GetCohortTelemetryComparisonRequest, v1.GetCohortTelemetryComparisonResponse](
+			httpClient,
+			baseURL+CohortServiceGetCohortTelemetryComparisonProcedure,
+			opts...,
+		),
 		listCohorts: connect.NewClient[v1.ListCohortsRequest, v1.ListCohortsResponse](
 			httpClient,
 			baseURL+CohortServiceListCohortsProcedure,
@@ -206,6 +228,8 @@ type cohortServiceClient struct {
 	deleteCohort                    *connect.Client[v1.DeleteCohortRequest, v1.DeleteCohortResponse]
 	getCohort                       *connect.Client[v1.GetCohortRequest, v1.GetCohortResponse]
 	getCohortFirmwareVersionHistory *connect.Client[v1.GetCohortFirmwareVersionHistoryRequest, v1.GetCohortFirmwareVersionHistoryResponse]
+	getCohortFirmwareValidation     *connect.Client[v1.GetCohortFirmwareValidationRequest, v1.GetCohortFirmwareValidationResponse]
+	getCohortTelemetryComparison    *connect.Client[v1.GetCohortTelemetryComparisonRequest, v1.GetCohortTelemetryComparisonResponse]
 	listCohorts                     *connect.Client[v1.ListCohortsRequest, v1.ListCohortsResponse]
 	getMyCohorts                    *connect.Client[v1.GetMyCohortsRequest, v1.GetMyCohortsResponse]
 	listDevices                     *connect.Client[v1.ListDevicesRequest, v1.ListDevicesResponse]
@@ -258,6 +282,16 @@ func (c *cohortServiceClient) GetCohortFirmwareVersionHistory(ctx context.Contex
 	return c.getCohortFirmwareVersionHistory.CallUnary(ctx, req)
 }
 
+// GetCohortFirmwareValidation calls cohort.v1.CohortService.GetCohortFirmwareValidation.
+func (c *cohortServiceClient) GetCohortFirmwareValidation(ctx context.Context, req *connect.Request[v1.GetCohortFirmwareValidationRequest]) (*connect.Response[v1.GetCohortFirmwareValidationResponse], error) {
+	return c.getCohortFirmwareValidation.CallUnary(ctx, req)
+}
+
+// GetCohortTelemetryComparison calls cohort.v1.CohortService.GetCohortTelemetryComparison.
+func (c *cohortServiceClient) GetCohortTelemetryComparison(ctx context.Context, req *connect.Request[v1.GetCohortTelemetryComparisonRequest]) (*connect.Response[v1.GetCohortTelemetryComparisonResponse], error) {
+	return c.getCohortTelemetryComparison.CallUnary(ctx, req)
+}
+
 // ListCohorts calls cohort.v1.CohortService.ListCohorts.
 func (c *cohortServiceClient) ListCohorts(ctx context.Context, req *connect.Request[v1.ListCohortsRequest]) (*connect.Response[v1.ListCohortsResponse], error) {
 	return c.listCohorts.CallUnary(ctx, req)
@@ -306,6 +340,12 @@ type CohortServiceHandler interface {
 	// GetCohortFirmwareVersionHistory returns the version mix over time for
 	// the cohort's current explicit members.
 	GetCohortFirmwareVersionHistory(context.Context, *connect.Request[v1.GetCohortFirmwareVersionHistoryRequest]) (*connect.Response[v1.GetCohortFirmwareVersionHistoryResponse], error)
+	// GetCohortFirmwareValidation compares telemetry before a firmware target
+	// was assigned with telemetry after current members converged on it.
+	GetCohortFirmwareValidation(context.Context, *connect.Request[v1.GetCohortFirmwareValidationRequest]) (*connect.Response[v1.GetCohortFirmwareValidationResponse], error)
+	// GetCohortTelemetryComparison compares current operating outcomes across
+	// a small set of active cohorts using their effective current members.
+	GetCohortTelemetryComparison(context.Context, *connect.Request[v1.GetCohortTelemetryComparisonRequest]) (*connect.Response[v1.GetCohortTelemetryComparisonResponse], error)
 	// ListCohorts lists cohorts for the caller's organization.
 	ListCohorts(context.Context, *connect.Request[v1.ListCohortsRequest]) (*connect.Response[v1.ListCohortsResponse], error)
 	// GetMyCohorts lists cohorts owned by the caller.
@@ -369,6 +409,16 @@ func NewCohortServiceHandler(svc CohortServiceHandler, opts ...connect.HandlerOp
 		svc.GetCohortFirmwareVersionHistory,
 		opts...,
 	)
+	cohortServiceGetCohortFirmwareValidationHandler := connect.NewUnaryHandler(
+		CohortServiceGetCohortFirmwareValidationProcedure,
+		svc.GetCohortFirmwareValidation,
+		opts...,
+	)
+	cohortServiceGetCohortTelemetryComparisonHandler := connect.NewUnaryHandler(
+		CohortServiceGetCohortTelemetryComparisonProcedure,
+		svc.GetCohortTelemetryComparison,
+		opts...,
+	)
 	cohortServiceListCohortsHandler := connect.NewUnaryHandler(
 		CohortServiceListCohortsProcedure,
 		svc.ListCohorts,
@@ -414,6 +464,10 @@ func NewCohortServiceHandler(svc CohortServiceHandler, opts ...connect.HandlerOp
 			cohortServiceGetCohortHandler.ServeHTTP(w, r)
 		case CohortServiceGetCohortFirmwareVersionHistoryProcedure:
 			cohortServiceGetCohortFirmwareVersionHistoryHandler.ServeHTTP(w, r)
+		case CohortServiceGetCohortFirmwareValidationProcedure:
+			cohortServiceGetCohortFirmwareValidationHandler.ServeHTTP(w, r)
+		case CohortServiceGetCohortTelemetryComparisonProcedure:
+			cohortServiceGetCohortTelemetryComparisonHandler.ServeHTTP(w, r)
 		case CohortServiceListCohortsProcedure:
 			cohortServiceListCohortsHandler.ServeHTTP(w, r)
 		case CohortServiceGetMyCohortsProcedure:
@@ -467,6 +521,14 @@ func (UnimplementedCohortServiceHandler) GetCohort(context.Context, *connect.Req
 
 func (UnimplementedCohortServiceHandler) GetCohortFirmwareVersionHistory(context.Context, *connect.Request[v1.GetCohortFirmwareVersionHistoryRequest]) (*connect.Response[v1.GetCohortFirmwareVersionHistoryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cohort.v1.CohortService.GetCohortFirmwareVersionHistory is not implemented"))
+}
+
+func (UnimplementedCohortServiceHandler) GetCohortFirmwareValidation(context.Context, *connect.Request[v1.GetCohortFirmwareValidationRequest]) (*connect.Response[v1.GetCohortFirmwareValidationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cohort.v1.CohortService.GetCohortFirmwareValidation is not implemented"))
+}
+
+func (UnimplementedCohortServiceHandler) GetCohortTelemetryComparison(context.Context, *connect.Request[v1.GetCohortTelemetryComparisonRequest]) (*connect.Response[v1.GetCohortTelemetryComparisonResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("cohort.v1.CohortService.GetCohortTelemetryComparison is not implemented"))
 }
 
 func (UnimplementedCohortServiceHandler) ListCohorts(context.Context, *connect.Request[v1.ListCohortsRequest]) (*connect.Response[v1.ListCohortsResponse], error) {

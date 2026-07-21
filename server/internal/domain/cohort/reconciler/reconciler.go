@@ -324,6 +324,10 @@ func (r *Reconciler) processCandidate(ctx context.Context, c models.FirmwareEnfo
 	}
 
 	switch state {
+	case models.EnforcementStateDispatched:
+		// Dispatched candidates are fully handled above, including batch
+		// completion and cooldown checks.
+		return
 	case models.EnforcementStateConfirmed:
 		_, err := r.store.MarkFirmwareDrifted(ctx, models.MarkFirmwareDriftedParams{
 			OrgID:            c.OrgID,
@@ -521,7 +525,7 @@ func stringValue(value *string) string {
 }
 
 func reconcilerCommandContext(parent context.Context, c models.FirmwareEnforcementCandidate) context.Context {
-	return command.WithCommandActivitySuppressed(authn.SetInfo(parent, &session.Info{
+	return authn.SetInfo(parent, &session.Info{
 		SessionID:      reconcilerActorName,
 		UserID:         c.ActorUserID,
 		OrganizationID: c.OrgID,
@@ -529,7 +533,7 @@ func reconcilerCommandContext(parent context.Context, c models.FirmwareEnforceme
 		Username:       c.ActorUsername,
 		Role:           "SUPER_ADMIN",
 		Actor:          session.ActorCohort,
-	}))
+	})
 }
 
 func containsString(values []string, want string) bool {
