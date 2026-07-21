@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -17,6 +18,47 @@ import (
 	kongyaml "github.com/alecthomas/kong-yaml"
 	"github.com/stretchr/testify/require"
 )
+
+type scriptedLifecycle struct {
+	stopErrors   []error
+	stopContexts []context.Context
+}
+
+func (s *scriptedLifecycle) Start(context.Context) error { return nil }
+
+func (s *scriptedLifecycle) Stop(ctx context.Context) error {
+	s.stopContexts = append(s.stopContexts, ctx)
+	if len(s.stopErrors) == 0 {
+		return nil
+	}
+	err := s.stopErrors[0]
+	s.stopErrors = s.stopErrors[1:]
+	return err
+}
+
+func TestStopStandaloneJobRetriesOnlyAfterTimeout(t *testing.T) {
+	tests := []struct {
+		name      string
+		stopErrs  []error
+		wantCalls int
+	}{
+		{name: "ordinary failure", stopErrs: []error{errors.New("stop failed")}, wantCalls: 1},
+		{name: "timeout", stopErrs: []error{context.DeadlineExceeded, nil}, wantCalls: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			job := &scriptedLifecycle{stopErrors: tt.stopErrs}
+			stopStandaloneJob(tt.name, job)
+
+			require.Len(t, job.stopContexts, tt.wantCalls)
+			for _, ctx := range job.stopContexts {
+				_, hasDeadline := ctx.Deadline()
+				require.True(t, hasDeadline)
+			}
+		})
+	}
+}
 
 func TestFleetdLoadsConfigFromYAML(t *testing.T) {
 	t.Parallel()
