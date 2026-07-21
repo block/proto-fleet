@@ -166,6 +166,45 @@ func TestRunEmitsImmediatelyAndStopsOnCancel(t *testing.T) {
 	}
 }
 
+func TestRunWaitsForInFlightProbes(t *testing.T) {
+	emitter := &fakeEmitter{}
+	collector := New(Config{Interval: time.Hour, DiskPath: "/"}, emitter)
+	probeStarted := make(chan struct{})
+	releaseProbe := make(chan struct{})
+	collector.readCPU = func(context.Context) *float64 { return nil }
+	collector.readMem = func(context.Context) *float64 { return nil }
+	collector.readDisk = func(context.Context, string) *float64 {
+		close(probeStarted)
+		<-releaseProbe
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		collector.Run(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-probeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("disk probe did not start")
+	}
+	cancel()
+	select {
+	case <-done:
+		t.Fatal("Run returned before its in-flight probe drained")
+	case <-time.After(10 * time.Millisecond):
+	}
+
+	close(releaseProbe)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Run did not return after its in-flight probe drained")
+	}
+}
+
 func TestNewClampsIntervalToAllowedRange(t *testing.T) {
 	// Act
 	short := New(Config{Interval: time.Millisecond}, &fakeEmitter{})

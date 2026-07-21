@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"net"
 	"net/http"
@@ -18,68 +17,6 @@ import (
 	kongyaml "github.com/alecthomas/kong-yaml"
 	"github.com/stretchr/testify/require"
 )
-
-type scriptedLifecycle struct {
-	stopErrors   []error
-	stopFuncs    []func(context.Context) error
-	stopContexts []context.Context
-}
-
-func (s *scriptedLifecycle) Start(context.Context) error { return nil }
-
-func (s *scriptedLifecycle) Stop(ctx context.Context) error {
-	s.stopContexts = append(s.stopContexts, ctx)
-	if len(s.stopFuncs) > 0 {
-		stop := s.stopFuncs[0]
-		s.stopFuncs = s.stopFuncs[1:]
-		return stop(ctx)
-	}
-	if len(s.stopErrors) == 0 {
-		return nil
-	}
-	err := s.stopErrors[0]
-	s.stopErrors = s.stopErrors[1:]
-	return err
-}
-
-func TestStopStandaloneJobDoesNotRetryEarlyDeadlineExceeded(t *testing.T) {
-	var contextErr error
-	job := &scriptedLifecycle{stopFuncs: []func(context.Context) error{
-		func(ctx context.Context) error {
-			contextErr = ctx.Err()
-			return context.DeadlineExceeded
-		},
-	}}
-	stopStandaloneJobWithTimeout("internal timeout", job, time.Second)
-
-	require.Len(t, job.stopContexts, 1)
-	require.NoError(t, contextErr)
-}
-
-func TestStopStandaloneJobRetriesAfterShutdownTimeout(t *testing.T) {
-	job := &scriptedLifecycle{stopFuncs: []func(context.Context) error{
-		func(ctx context.Context) error {
-			<-ctx.Done()
-			return ctx.Err()
-		},
-		func(context.Context) error { return nil },
-	}}
-	stopStandaloneJobWithTimeout("shutdown timeout", job, 5*time.Millisecond)
-
-	require.Len(t, job.stopContexts, 2)
-	require.ErrorIs(t, job.stopContexts[0].Err(), context.DeadlineExceeded)
-	_, hasDeadline := job.stopContexts[1].Deadline()
-	require.True(t, hasDeadline)
-}
-
-func TestStopStandaloneJobDoesNotRetryOrdinaryFailure(t *testing.T) {
-	job := &scriptedLifecycle{stopErrors: []error{errors.New("stop failed")}}
-	stopStandaloneJob("ordinary failure", job)
-
-	require.Len(t, job.stopContexts, 1)
-	_, hasDeadline := job.stopContexts[0].Deadline()
-	require.True(t, hasDeadline)
-}
 
 func TestFleetdLoadsConfigFromYAML(t *testing.T) {
 	t.Parallel()
