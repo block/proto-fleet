@@ -7,25 +7,19 @@ import RackReparentWarningDialog from "./RackReparentWarningDialog";
 const racks = [{ rackId: 2n, label: "Beta", minerCount: 5 }];
 
 describe("RackReparentWarningDialog", () => {
-  it("dismisses on Escape when idle", async () => {
+  it("dismisses on Escape", async () => {
     const onCancel = vi.fn();
     render(<RackReparentWarningDialog racks={racks} buildingName="North" onCancel={onCancel} onConfirm={vi.fn()} />);
     await userEvent.keyboard("{Escape}");
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it("cannot be dismissed while the move RPC is in flight", async () => {
-    // With `busy`, Escape/outside-click must not fire onCancel — otherwise an
-    // apparent cancel would hide the dialog while the in-flight promise still
-    // resolves and commits the reparent.
-    const onCancel = vi.fn();
-    render(
-      <RackReparentWarningDialog racks={racks} buildingName="North" busy onCancel={onCancel} onConfirm={vi.fn()} />,
-    );
-    await userEvent.keyboard("{Escape}");
-    expect(onCancel).not.toHaveBeenCalled();
-    // The footer actions are disabled too, so there is no path to dismiss.
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Moving…" })).toBeDisabled();
+  it("confirms the move (staging) via the Move button", async () => {
+    // Confirming stages the reparent into the working set — no in-flight RPC, so
+    // the action is a plain synchronous confirm.
+    const onConfirm = vi.fn();
+    render(<RackReparentWarningDialog racks={racks} buildingName="North" onCancel={vi.fn()} onConfirm={onConfirm} />);
+    await userEvent.click(screen.getByRole("button", { name: "Move" }));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 });

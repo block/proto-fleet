@@ -41,9 +41,8 @@ interface ManageBuildingModalProps {
   unassignedMinerCount?: number;
 }
 
-// Proto caps `racks` at 1000 per AssignRacksToBuildingRequest, so every path
-// that dispatches AssignRacksToBuilding (Save and the immediate reparent
-// commit) chunks to this size.
+// Proto caps `racks` at 1000 per AssignRacksToBuildingRequest, so the Save
+// dispatch chunks to this size.
 const RACKS_PER_RPC = 1000;
 
 const ManageBuildingModal = ({
@@ -81,17 +80,15 @@ const ManageBuildingModal = ({
   );
 
   // Pending reparent confirm — set when the operator picks an already-placed
-  // rack. Accepting it commits the move server-side immediately (mirrors the
-  // miner-side Rack Settings "Continue", which persists placement on confirm),
-  // then folds the rack into the working set; cancelling leaves the picker open
-  // and nothing changes. Committing on confirm means the rack is no longer
-  // "assigned elsewhere" on reopen, so the picker never re-seeds it as a
-  // reassignment row. `isReparenting` drives the dialog's busy state while the
-  // move RPC is in flight.
+  // rack. Accepting it STAGES the move into the working set (parity with the
+  // miner-side promptReparent → setRackMiners: a reparent is staged and only
+  // persisted on the outer Save); cancelling leaves the picker open and nothing
+  // changes. The rack lands in the working set, so the picker seeds it as
+  // "in this building" on reopen (buildRackPickerItem) — never re-derived as a
+  // reassignment row — and the actual move rides handleSave.
   const [reparentConfirm, setReparentConfirm] = useState<{ racks: ReparentedRack[]; onConfirm: () => void } | null>(
     null,
   );
-  const [isReparenting, setIsReparenting] = useState(false);
 
   // Aisles / racks_per_aisle are read straight from the building prop —
   // BuildingSettingsModal owns those fields now and threads any edits back
@@ -134,12 +131,6 @@ const ManageBuildingModal = ({
   // render behind the click — a double-click would otherwise reach the
   // dispatch path twice. Mirrors useSiteModals' savingRef pattern.
   const savingRef = useRef(false);
-
-  // A reparent confirm commits the move server-side immediately (option A),
-  // before the outer Save. If the operator dismisses without Saving, the host
-  // page/cache would keep stale rack counts and membership. Track that a commit
-  // happened so dismiss can trigger the host refresh even without a Save.
-  const committedReparentRef = useRef(false);
 
   // (Re)load assignments when the modal opens.
   useEffect(() => {
@@ -327,95 +318,25 @@ const ManageBuildingModal = ({
     setShowSearchRacks(true);
   }, []);
 
-  // Commit a reparent immediately: move the rack(s) into this building
-  // server-side (member-only — no cell yet; cell layout still stages to Save).
-  // The RPC cascades each rack's miners to the new placement. On success we
-  // update the load-time snapshot to "unplaced" so a later Save diffs correctly
-  // (assigning a cell → place; removing the rack → unassign).
-  const commitReparent = useCallback(
-    async (racks: ReparentedRack[]) => {
-      // Chunk to the proto's per-request cap and dispatch sequentially — a
-      // >1000-rack reparent (select-all across pages in Show assigned racks)
-      // would otherwise trip request validation before any rack moved. Mirrors
-      // the Save path's chunking.
-      for (let i = 0; i < racks.length; i += RACKS_PER_RPC) {
-        const chunk = racks.slice(i, i + RACKS_PER_RPC);
-        await new Promise<void>((resolve, reject) => {
-          void assignRacksToBuilding({
-            racks: chunk.map((r) => ({ rackId: r.rackId })),
-            targetBuildingId: building.id,
-            onSuccess: () => resolve(),
-            // If an earlier chunk already committed, tell the operator to
-            // refresh — some racks have moved server-side even though the
-            // overall move failed. Mirrors the Save path's partial-commit copy.
-            onError: (msg) =>
-              reject(
-                new Error(
-                  i > 0
-                    ? `${msg}. Some racks already moved — refresh the building view to see the current state.`
-                    : msg,
-                ),
-              ),
-          });
-        });
-        // A committed chunk is now an unplaced member of this building
-        // server-side. Reflect it in BOTH the load-time snapshot AND the
-        // working set, right after the chunk lands (not once at the end):
-        //   - snapshot "unplaced" + present-in-entries makes a later Save diff
-        //     the rack as a no-op instead of a spurious placement.
-        // Folding into `entries` here — rather than leaving it to the caller's
-        // apply() — is what keeps a partial multi-chunk failure safe. On a
-        // later chunk's failure promptReparentCommit skips apply(), so a
-        // succeeded chunk left only in the snapshot would look "removed from
-        // building" to handleSave's unassign diff and get erroneously
-        // unassigned, undoing a move that already happened server-side.
-        for (const r of chunk) {
-          initialPlacementRef.current.set(r.rackId.toString(), "unplaced");
-        }
-        setEntries((prev) => {
-          const known = new Set(prev.map((e) => e.rackId.toString()));
-          const additions = chunk
-            .filter((r) => !known.has(r.rackId.toString()))
-            .map((r) => ({ rackId: r.rackId, label: r.label }));
-          return additions.length > 0 ? [...prev, ...additions] : prev;
-        });
-        committedReparentRef.current = true;
-      }
-    },
-    [assignRacksToBuilding, building.id],
-  );
-
-  // Gate a reparent behind the warning dialog, then commit it on confirm before
-  // folding the rack into the working set. Mirrors the miner-side promptReparent
-  // helper. On failure the working set is untouched and the picker stays open so
-  // the operator can retry.
-  const promptReparentCommit = useCallback(
-    (racks: ReparentedRack[], apply: () => void) => {
-      const rackIds = racks.map((r) => r.rackId);
-      setReparentConfirm({
-        racks,
-        onConfirm: async () => {
-          setIsReparenting(true);
-          try {
-            await commitReparent(racks);
-          } catch (err) {
-            const detail = err instanceof Error ? err.message : "Please try again";
-            pushToast({
-              message: `Couldn't move ${rackIds.length > 1 ? "racks" : "rack"}: ${detail}`,
-              status: STATUSES.error,
-            });
-            setIsReparenting(false);
-            setReparentConfirm(null);
-            return;
-          }
-          setIsReparenting(false);
-          setReparentConfirm(null);
-          apply();
-        },
-      });
-    },
-    [commitReparent],
-  );
+  // Gate a reparent behind the warning dialog, then STAGE it on confirm — the
+  // rack joins the working set but nothing is written until the outer Save.
+  // Parity with the miner side (promptReparent → setRackMiners): a reparent is
+  // staged, and the actual move rides handleSave's member-only
+  // AssignRacksToBuilding (targetBuildingId → the rack moves out of its old
+  // building, cascading its miners) exactly like any newly-added rack. A staged
+  // rack is seeded into the picker, so buildRackPickerItem shows it as
+  // "in this building" on reopen — never a reassignment row that a later
+  // toggle-off / Select all / deselect could silently drop. Cancelling leaves
+  // the working set untouched and the picker open.
+  const promptReparent = useCallback((racks: ReparentedRack[], apply: () => void) => {
+    setReparentConfirm({
+      racks,
+      onConfirm: () => {
+        setReparentConfirm(null);
+        apply();
+      },
+    });
+  }, []);
 
   // SearchRacksModal confirm — add the rack to the working set if missing
   // and assign to the cell that was selected when the popover opened. When the
@@ -450,12 +371,12 @@ const ManageBuildingModal = ({
         setShowSearchRacks(false);
       };
       if (reparent) {
-        promptReparentCommit([reparent], apply);
+        promptReparent([reparent], apply);
       } else {
         apply();
       }
     },
-    [selectedCellKey, promptReparentCommit],
+    [selectedCellKey, promptReparent],
   );
 
   const handleRemoveRack = useCallback((rackId: bigint) => {
@@ -492,12 +413,12 @@ const ManageBuildingModal = ({
         setShowManageRacks(false);
       };
       if (delta.reassigned.length > 0) {
-        promptReparentCommit(delta.reassigned, apply);
+        promptReparent(delta.reassigned, apply);
       } else {
         apply();
       }
     },
-    [promptReparentCommit],
+    [promptReparent],
   );
 
   // Save: walk activeAssignments, diff against the load-time snapshot, and
@@ -685,7 +606,6 @@ const ManageBuildingModal = ({
       }
 
       pushToast({ message: `Building "${building.name}" saved`, status: STATUSES.success });
-      committedReparentRef.current = false;
       onSaved?.(building);
       onDismiss();
     } finally {
@@ -693,18 +613,6 @@ const ManageBuildingModal = ({
       setIsSaving(false);
     }
   }, [building, rackToCell, entries, aislesNum, racksPerAisleNum, assignRacksToBuilding, onSaved, onDismiss]);
-
-  // Dismiss without Save. A reparent confirmed earlier already mutated the
-  // server, so the host must refresh its rack counts/membership even though the
-  // outer Save never ran — otherwise the buildings page shows stale state until
-  // some unrelated refetch. Flush onSaved once, then dismiss.
-  const handleDismiss = useCallback(() => {
-    if (committedReparentRef.current) {
-      committedReparentRef.current = false;
-      onSaved?.(building);
-    }
-    onDismiss();
-  }, [building, onSaved, onDismiss]);
 
   if (!open) return null;
 
@@ -719,7 +627,10 @@ const ManageBuildingModal = ({
       <FullScreenTwoPaneModal
         open={open}
         title={subtitle ? `${title} — ${subtitle}` : title}
-        onDismiss={handleDismiss}
+        // Dismiss without Save writes nothing: reparents stage into the working
+        // set instead of committing on confirm, so the server is untouched until
+        // Save and a plain dismiss needs no host refresh.
+        onDismiss={onDismiss}
         isBusy={isSaving}
         buttons={[
           {
@@ -837,6 +748,7 @@ const ManageBuildingModal = ({
           currentBuildingId={building.id}
           scope={rackScope}
           assignedScope={assignedScope}
+          assignedRackIds={currentRackIds}
           buildingName={building.name}
           onDismiss={() => {
             setShowSearchRacks(false);
@@ -850,11 +762,10 @@ const ManageBuildingModal = ({
         <RackReparentWarningDialog
           racks={reparentConfirm.racks}
           buildingName={building.name}
-          busy={isReparenting}
-          // onConfirm commits the move (async) and clears this dialog itself, so
-          // it stays visible in its busy state while the RPC is in flight.
+          // onConfirm stages the move into the working set and clears this
+          // dialog; the actual write happens on the outer Save.
           onCancel={() => setReparentConfirm(null)}
-          onConfirm={() => void reparentConfirm.onConfirm()}
+          onConfirm={reparentConfirm.onConfirm}
         />
       ) : null}
     </>

@@ -7,10 +7,10 @@ import ManageBuildingModal from "./ManageBuildingModal";
 import { BuildingSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { DeviceSetSchema, RackInfoSchema } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 
-// Reparent racks commit on Continue (option A): accepting the reparent warning
-// moves the rack into this building server-side immediately (parity with the
-// miner-side Rack Settings "Continue"), rather than staging until the outer
-// Save. These tests drive that flow end to end.
+// Reparent racks STAGE on confirm (parity with the miner-side promptReparent →
+// setRackMiners): accepting the reparent warning folds the rack into the working
+// set but writes nothing until the outer Save, which persists it via a
+// member-only AssignRacksToBuilding. These tests drive that flow end to end.
 const mockApi = vi.hoisted(() => ({
   listBuildingsBySite: vi.fn(),
   listBuildingRacks: vi.fn(),
@@ -79,22 +79,27 @@ describe("ManageBuildingModal reparent commit-on-Continue", () => {
     );
   });
 
-  it("commits the reparent into this building only after Move is confirmed", async () => {
+  it("stages the reparent on Move without any RPC until Save", async () => {
     renderModal();
     await openPickerAndPickBeta();
 
-    // The move must not fire until the operator confirms the warning.
+    // Neither picking nor confirming the warning writes anything.
+    expect(mockApi.assignRacksToBuilding).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Move" }));
     expect(mockApi.assignRacksToBuilding).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Move" }));
-
-    await waitFor(() => expect(mockApi.assignRacksToBuilding).toHaveBeenCalledTimes(1));
-    const arg = mockApi.assignRacksToBuilding.mock.calls[0][0];
-    expect(arg.targetBuildingId).toBe(20n);
-    expect(arg.racks).toEqual([{ rackId: 2n }]); // member-only; cell layout stages to Save
+    // The staged rack persists on the outer Save via a member-only assign into
+    // this building (targetBuildingId → the rack moves out of its old building).
+    await userEvent.click(screen.getByTestId("manage-building-save"));
+    await waitFor(() => expect(mockApi.assignRacksToBuilding).toHaveBeenCalled());
+    const movedThisBuilding = mockApi.assignRacksToBuilding.mock.calls
+      .map((c) => c[0])
+      .find((arg) => arg.targetBuildingId === 20n && arg.racks.some((r: { rackId: bigint }) => r.rackId === 2n));
+    expect(movedThisBuilding).toBeTruthy();
+    expect(movedThisBuilding.racks).toContainEqual({ rackId: 2n }); // member-only; no cell chosen
   });
 
-  it("leaves the working set untouched and does not commit when the warning is cancelled", async () => {
+  it("leaves the working set untouched and writes nothing when the warning is cancelled", async () => {
     renderModal();
     await openPickerAndPickBeta();
 
@@ -106,20 +111,20 @@ describe("ManageBuildingModal reparent commit-on-Continue", () => {
     expect(screen.getByTestId("manage-racks-modal-confirm")).toBeInTheDocument();
   });
 
-  it("refreshes the host on dismiss after a reparent committed without Save", async () => {
-    // The reparent already mutated the server on Move; dismissing without Save
-    // must still refresh the host so stale rack counts/membership don't linger.
+  it("does not refresh the host on dismiss after staging a reparent (nothing committed until Save)", async () => {
+    // Staging writes nothing server-side, so a plain dismiss must not fire the
+    // host refresh — there is no server change to reconcile.
     const onSaved = vi.fn();
     renderModal(onSaved);
     await openPickerAndPickBeta();
     await userEvent.click(screen.getByRole("button", { name: "Move" }));
-    await waitFor(() => expect(mockApi.assignRacksToBuilding).toHaveBeenCalledTimes(1));
 
     await userEvent.click(screen.getByLabelText("Close dialog"));
-    expect(onSaved).toHaveBeenCalledWith(building);
+    expect(mockApi.assignRacksToBuilding).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
   });
 
-  it("does not refresh the host on dismiss when nothing was committed", async () => {
+  it("does not refresh the host on dismiss when nothing was touched", async () => {
     const onSaved = vi.fn();
     renderModal(onSaved);
     await screen.findByTestId("manage-building-manage-racks");

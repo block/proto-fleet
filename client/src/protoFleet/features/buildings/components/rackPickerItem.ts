@@ -36,13 +36,23 @@ export const buildRackPickerItem = (
   currentSiteId: bigint,
   currentBuildingId: bigint,
   buildingLabels: Record<string, string>,
+  // Ids already in this building's working set (the picker's seeded selection).
+  // A seeded rack belongs to THIS building in the operator's draft — including a
+  // reparent staged this session but not yet Saved, whose server row still
+  // reports its old placement. Trust the draft over the stale server state:
+  // classify it in-this-building so it renders selected + eligible, never as a
+  // reassignment row that the drop-on-reassignment paths (toggle-off, Select
+  // all, header deselect) could silently strip. Mirrors the miner picker, which
+  // seeds from its in-memory draft rather than a re-fetch.
+  seededRackIds?: ReadonlySet<string>,
 ): RackPickerItem | null => {
   if (rack.typeDetails.case !== "rackInfo") return null;
   const info = rack.typeDetails.value;
   const buildingId = info.buildingId;
   const siteId = info.siteId;
-  const inOtherBuilding = buildingId !== undefined && buildingId !== 0n && buildingId !== currentBuildingId;
-  const inThisBuilding = buildingId === currentBuildingId;
+  const seeded = seededRackIds?.has(rack.id.toString()) ?? false;
+  const inOtherBuilding = !seeded && buildingId !== undefined && buildingId !== 0n && buildingId !== currentBuildingId;
+  const inThisBuilding = seeded || buildingId === currentBuildingId;
   // Racks under a *different* site are ineligible because moving them
   // across sites is a separate operator decision; the rack pickers
   // should only add racks that already share this building's site or
@@ -61,8 +71,13 @@ export const buildRackPickerItem = (
       : inThisBuilding
         ? "In this building"
         : "Unassigned";
-  const buildingLabel =
-    buildingId === undefined || buildingId === 0n ? "—" : (buildingLabels[buildingId.toString()] ?? "—");
+  // A seeded reparent still carries its old buildingId; show THIS building's
+  // label so the Building column agrees with the in-this-building status.
+  const buildingLabel = seeded
+    ? (buildingLabels[currentBuildingId.toString()] ?? "—")
+    : buildingId === undefined || buildingId === 0n
+      ? "—"
+      : (buildingLabels[buildingId.toString()] ?? "—");
   return {
     id: rack.id.toString(),
     label: rack.label,

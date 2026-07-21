@@ -53,6 +53,49 @@ describe("buildRackPickerItem eligibility + labels", () => {
     expect(item.reassignment).toBe(true);
     expect(item.crossSite).toBe(true);
   });
+
+  it("classifies a seeded rack as in-this-building even when its server row is elsewhere", () => {
+    // A reparent staged this session but not yet Saved is in the working set
+    // (seeded) while its server row still reports the old building/site. Trusting
+    // the draft over the stale row keeps it eligible + selectable so the
+    // drop-on-reassignment paths never strip it. Also holds for a cross-site row.
+    const seeded = new Set(["1"]);
+    const otherBuilding = buildRackPickerItem(
+      rack({ id: 1n, buildingId: 9n, siteId: CURRENT_SITE }),
+      CURRENT_SITE,
+      CURRENT_BUILDING,
+      { "7": "North" },
+      seeded,
+    )!;
+    expect(otherBuilding.statusLabel).toBe("In this building");
+    expect(otherBuilding.disabled).toBe(false);
+    expect(otherBuilding.reassignment).toBe(false);
+    expect(otherBuilding.buildingLabel).toBe("North");
+
+    const crossSite = buildRackPickerItem(
+      rack({ id: 1n, buildingId: 9n, siteId: 99n }),
+      CURRENT_SITE,
+      CURRENT_BUILDING,
+      {},
+      seeded,
+    )!;
+    expect(crossSite.reassignment).toBe(false);
+    expect(crossSite.crossSite).toBe(false);
+  });
+
+  it("still flags a non-seeded reparent row when a seed set is provided", () => {
+    // The seed override is id-scoped — an unrelated already-placed rack that is
+    // NOT in the working set must remain a reassignment row.
+    const item = buildRackPickerItem(
+      rack({ id: 2n, buildingId: 9n, siteId: CURRENT_SITE }),
+      CURRENT_SITE,
+      CURRENT_BUILDING,
+      {},
+      new Set(["1"]),
+    )!;
+    expect(item.statusLabel).toBe("In another building");
+    expect(item.reassignment).toBe(true);
+  });
 });
 
 describe("describeRackReassignment copy", () => {

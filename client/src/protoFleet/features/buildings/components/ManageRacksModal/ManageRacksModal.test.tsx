@@ -42,6 +42,7 @@ const ALL_SITES_ASSIGNED_SCOPE: SiteFilterFields = { siteIds: [], includeUnassig
 const renderModal = (overrides?: {
   scope?: SiteFilterFields;
   assignedScope?: SiteFilterFields;
+  initialSelectedRackIds?: bigint[];
   onConfirm?: (delta: RackSelectionDelta) => void;
 }) =>
   render(
@@ -52,7 +53,7 @@ const renderModal = (overrides?: {
       scope={overrides?.scope ?? SCOPE}
       assignedScope={overrides?.assignedScope ?? SCOPE}
       buildingName="North"
-      initialSelectedRackIds={[]}
+      initialSelectedRackIds={overrides?.initialSelectedRackIds ?? []}
       onDismiss={vi.fn()}
       onConfirm={overrides?.onConfirm ?? vi.fn()}
     />,
@@ -241,5 +242,30 @@ describe("ManageRacksModal show-assigned toggle", () => {
 
     const delta = onConfirm.mock.calls[0][0];
     expect(delta.reassigned).toEqual([{ rackId: 2n, label: "Beta", minerCount: 5 }]);
+  });
+
+  it("treats a seeded reparent as in-this-building and never drops it on toggle-off", async () => {
+    // Reopen after staging a reparent: Beta is in the working set (seeded) but
+    // its server row still reports building 9n. It must render "In this building"
+    // (visible with the toggle OFF, no warning) and survive a toggle on→off — the
+    // path that strips reassignment picks — without being reported as removed.
+    const onConfirm = vi.fn();
+    renderModal({ initialSelectedRackIds: [2n], onConfirm });
+    await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
+    // Default toggle-off view shows Beta (not hidden as a reassignment row);
+    // both Alpha and the seeded Beta now read "In this building", and nothing
+    // reads "In another building".
+    expect(screen.getAllByText("In this building")).toHaveLength(2);
+    expect(screen.queryByText("In another building")).not.toBeInTheDocument();
+
+    // Toggle on then off — the reassignment-stripping path — must not drop it.
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+
+    const delta = onConfirm.mock.calls[0][0];
+    expect(delta.removed).toEqual([]);
+    expect(delta.reassigned).toEqual([]);
+    expect(delta.added).toEqual([]);
   });
 });

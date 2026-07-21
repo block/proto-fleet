@@ -111,6 +111,16 @@ const ManageRacksModal = ({
   // missing (cross-site rack, or fetch in flight).
   const [buildingMap, setBuildingMap] = useState<Record<string, string>>({});
 
+  // Racks already in the working set. Passed to buildRackPickerItem so a seeded
+  // rack — including a reparent staged earlier this session but not yet Saved —
+  // classifies as "in this building" instead of being re-derived as a
+  // reassignment row from its stale server placement. Stable per open (the host
+  // only mutates entries on this picker's own confirm, which unmounts it).
+  const seededRackIds = useMemo(
+    () => new Set(initialSelectedRackIds.map((id) => id.toString())),
+    [initialSelectedRackIds],
+  );
+
   // Ids of the ineligible (reassignment) racks currently loaded. Used to drop
   // them from the selection when the toggle goes off — either explicitly, or as
   // part of recovering from a failed broadened fetch below.
@@ -167,7 +177,7 @@ const ManageRacksModal = ({
         if (cancelled) return;
         const out: RackPickerItem[] = [];
         for (const rack of racks) {
-          const item = buildRackPickerItem(rack, siteId, currentBuildingId, buildingMap);
+          const item = buildRackPickerItem(rack, siteId, currentBuildingId, buildingMap, seededRackIds);
           if (item) out.push(item);
         }
         out.sort((a, b) => a.label.localeCompare(b.label));
@@ -197,7 +207,16 @@ const ManageRacksModal = ({
     return () => {
       cancelled = true;
     };
-  }, [open, siteId, currentBuildingId, buildingMap, listRacks, activeScope.siteIds, activeScope.includeUnassigned]);
+  }, [
+    open,
+    siteId,
+    currentBuildingId,
+    buildingMap,
+    listRacks,
+    activeScope.siteIds,
+    activeScope.includeUnassigned,
+    seededRackIds,
+  ]);
 
   // Toggle-off hides the ineligible (reassignment) rows entirely — the picker
   // shows only the assignable set. Toggle-on keeps them, selectable and flagged.
@@ -215,9 +234,10 @@ const ManageRacksModal = ({
   // the toggle OFF also drops any selected reassignment racks (they are now
   // hidden, so leaving them selected would silently reparent them on Continue)
   // and closes any open conflict dialog. A reparent accepted earlier in the
-  // session isn't a reassignment row anymore — it was committed into this
-  // building on confirm — so nothing seeded is at risk here. Matches Switch's
-  // setChecked signature (accepts a value or updater).
+  // session isn't a reassignment row anymore — it is seeded into this building's
+  // working set, so buildRackPickerItem classifies it in-this-building — so
+  // nothing seeded is at risk here. Matches Switch's setChecked signature
+  // (accepts a value or updater).
   const handleToggleShowAssigned = useCallback(
     (value: boolean | ((prev: boolean) => boolean)) => {
       const next = typeof value === "function" ? value(showAssigned) : value;

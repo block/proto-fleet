@@ -13,9 +13,6 @@ interface RackReparentWarningDialogProps {
   racks: ReparentedRack[];
   /** Target building name, shown in the message. */
   buildingName: string;
-  /** The move commits on confirm; `busy` disables the actions and shows a
-   *  progress label on Move while that RPC is in flight. */
-  busy?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }
@@ -25,12 +22,13 @@ interface RackReparentWarningDialogProps {
  * building or site — assigning them here moves the rack, and every miner in it,
  * out of its current placement (#766). Analog of the miner-side
  * `ReparentWarningDialog`; copy explicitly states the rack's miners move with it
- * so the operator understands the blast radius.
+ * so the operator understands the blast radius. Confirming stages the move into
+ * the working set — the write happens on the outer Save — so there is no
+ * in-flight state to guard here.
  */
 export default function RackReparentWarningDialog({
   racks,
   buildingName,
-  busy = false,
   onCancel,
   onConfirm,
 }: RackReparentWarningDialogProps) {
@@ -45,20 +43,10 @@ export default function RackReparentWarningDialog({
           ? `Rack "${racks[0].label || "(unnamed rack)"}" is currently in another building or site. Moving it to "${buildingName}" will take the rack and its ${minerPhrase} out of its current placement.`
           : `${racks.length} of these racks are currently in another building or site. Moving them to "${buildingName}" will take those racks and their ${minerPhrase} out of their current placement.`
       }
-      // While the move RPC is in flight, disable Escape/outside-click dismissal
-      // too — otherwise an "apparent cancel" would hide the dialog while the
-      // in-flight promise still resolves and commits the reparent. The dialog
-      // stays modal until the RPC settles.
-      onDismiss={busy ? undefined : onCancel}
+      onDismiss={onCancel}
       buttons={[
-        { text: "Cancel", onClick: onCancel, variant: variants.secondary, disabled: busy },
-        {
-          text: busy ? "Moving…" : "Move",
-          onClick: onConfirm,
-          variant: variants.primary,
-          loading: busy,
-          disabled: busy,
-        },
+        { text: "Cancel", onClick: onCancel, variant: variants.secondary },
+        { text: "Move", onClick: onConfirm, variant: variants.primary },
       ]}
     />
   );

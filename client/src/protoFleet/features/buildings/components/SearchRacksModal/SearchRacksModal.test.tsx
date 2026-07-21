@@ -36,7 +36,10 @@ const createRack = (id: bigint, label: string, buildingId: bigint, siteId?: bigi
 const SCOPE: SiteFilterFields = { siteIds: [42n], includeUnassigned: true };
 const ALL_SITES_ASSIGNED_SCOPE: SiteFilterFields = { siteIds: [], includeUnassigned: false };
 
-const renderModal = (onConfirm = vi.fn(), overrides?: { assignedScope?: SiteFilterFields }) =>
+const renderModal = (
+  onConfirm = vi.fn(),
+  overrides?: { assignedScope?: SiteFilterFields; assignedRackIds?: bigint[] },
+) =>
   render(
     <SearchRacksModal
       open
@@ -44,6 +47,7 @@ const renderModal = (onConfirm = vi.fn(), overrides?: { assignedScope?: SiteFilt
       currentBuildingId={7n}
       scope={SCOPE}
       assignedScope={overrides?.assignedScope ?? SCOPE}
+      assignedRackIds={overrides?.assignedRackIds ?? []}
       buildingName="North"
       onDismiss={vi.fn()}
       onConfirm={onConfirm}
@@ -72,6 +76,7 @@ describe("SearchRacksModal fetch scoping", () => {
         currentBuildingId={7n}
         scope={{ siteIds: [], includeUnassigned: true }}
         assignedScope={{ siteIds: [], includeUnassigned: true }}
+        assignedRackIds={[]}
         buildingName="North"
         onDismiss={vi.fn()}
         onConfirm={vi.fn()}
@@ -121,6 +126,22 @@ describe("SearchRacksModal show-assigned toggle + reparent reporting", () => {
     await userEvent.click(screen.getByTestId("search-racks-modal-confirm"));
 
     expect(onConfirm).toHaveBeenCalledWith(2n, "Beta", { rackId: 2n, label: "Beta", minerCount: 5 });
+  });
+
+  it("treats a seeded rack as in-this-building, not a reparent", async () => {
+    // Beta's server row still says building 9n, but it is already in the working
+    // set (a reparent staged this session). Seeded → it shows "In this building"
+    // (visible with the toggle OFF) and choosing it reports no reparent — parity
+    // with ManageRacksModal, so the same rack isn't a reparent row in one picker
+    // and in-building in the other.
+    const onConfirm = vi.fn();
+    renderModal(onConfirm, { assignedRackIds: [2n] });
+    await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
+    expect(screen.getAllByText("In this building")).toHaveLength(2); // Alpha + seeded Beta
+
+    await userEvent.click(rowRadio(1)); // Beta
+    await userEvent.click(screen.getByTestId("search-racks-modal-confirm"));
+    expect(onConfirm).toHaveBeenCalledWith(2n, "Beta", undefined);
   });
 
   it("omits the reparent descriptor for an eligible rack", async () => {

@@ -35,6 +35,13 @@ interface SearchRacksModalProps {
   // Broadened fetch scope used while "Show assigned racks" is ON, so
   // already-placed racks surface for reparenting. See assignedRackScope.
   assignedScope: SiteFilterFields;
+  // Racks already in the building's working set. A rack in the working set
+  // belongs to THIS building in the operator's draft — including a reparent
+  // staged this session but not yet Saved, whose server row still reports its
+  // old placement. Passed to buildRackPickerItem so it classifies as
+  // "in this building" here too, matching ManageRacksModal — otherwise the same
+  // rack would show as a spurious reparent row in this picker.
+  assignedRackIds: bigint[];
   buildingName: string;
   onDismiss: () => void;
   // Returns a single chosen rack so the caller can add it to the working set
@@ -76,12 +83,15 @@ const SearchRacksModal = ({
   currentBuildingId,
   scope,
   assignedScope,
+  assignedRackIds,
   buildingName,
   onDismiss,
   onConfirm,
 }: SearchRacksModalProps) => {
   const { listRacks } = useDeviceSets();
   const { listBuildingsBySite } = useBuildings();
+  // See prop doc: seed working-set racks as in-this-building for classification.
+  const seededRackIds = useMemo(() => new Set(assignedRackIds.map((id) => id.toString())), [assignedRackIds]);
   const [items, setItems] = useState<RackPickerItem[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
@@ -133,7 +143,7 @@ const SearchRacksModal = ({
         if (cancelled) return;
         const out: RackPickerItem[] = [];
         for (const rack of racks) {
-          const item = buildRackPickerItem(rack, siteId, currentBuildingId, buildingMap);
+          const item = buildRackPickerItem(rack, siteId, currentBuildingId, buildingMap, seededRackIds);
           if (item) out.push(item);
         }
         out.sort((a, b) => a.label.localeCompare(b.label));
@@ -160,7 +170,16 @@ const SearchRacksModal = ({
     return () => {
       cancelled = true;
     };
-  }, [open, siteId, currentBuildingId, buildingMap, listRacks, activeScope.siteIds, activeScope.includeUnassigned]);
+  }, [
+    open,
+    siteId,
+    currentBuildingId,
+    buildingMap,
+    listRacks,
+    activeScope.siteIds,
+    activeScope.includeUnassigned,
+    seededRackIds,
+  ]);
 
   // Reparent rows are selectable only while the toggle is on; otherwise nothing
   // is disabled.
