@@ -820,14 +820,14 @@ func writeFirmwareMetadata(dir string, metadata FirmwareMetadata) error {
 func readFirmwareMetadata(dir string) (FirmwareMetadata, error) {
 	file, err := os.Open(filepath.Join(dir, firmwareMetadataFilename))
 	if err != nil {
-		return FirmwareMetadata{}, err
+		return FirmwareMetadata{}, fmt.Errorf("open firmware metadata: %w", err)
 	}
 	defer file.Close()
 
 	decoder := json.NewDecoder(file)
 	var metadata FirmwareMetadata
 	if err := decoder.Decode(&metadata); err != nil {
-		return FirmwareMetadata{}, err
+		return FirmwareMetadata{}, fmt.Errorf("decode firmware metadata: %w", err)
 	}
 	metadata = metadata.normalized()
 	if err := ValidateFirmwareMetadata(metadata); err != nil {

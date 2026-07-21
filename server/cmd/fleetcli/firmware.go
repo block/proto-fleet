@@ -105,6 +105,10 @@ func firmwareUploadCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
+			target, err := firmwareTargetFromCommandStrict(cmd)
+			if err != nil {
+				return err
+			}
 
 			client, err := openClient(ctx, cmd)
 			if err != nil {
@@ -115,10 +119,6 @@ func firmwareUploadCommand() *cli.Command {
 			var progress io.Writer
 			if !cmd.Bool("quiet") {
 				progress = os.Stderr
-			}
-			target := firmwareTargetFromCommand(cmd)
-			if err := validateFirmwareUploadTarget(path, target); err != nil {
-				return err
 			}
 			result, reused, err := runFirmwareUpload(ctx, client, path, target, cmd.Bool("force"), progress)
 			if err != nil {
@@ -341,15 +341,6 @@ func (t firmwareTarget) validate() error {
 		return fmt.Errorf("--firmware-version is required")
 	}
 	return nil
-}
-
-// validateFirmwareUploadTarget requires full target metadata for non-.swu
-// uploads; .swu images carry their target inside the file itself.
-func validateFirmwareUploadTarget(path string, target firmwareTarget) error {
-	if strings.HasSuffix(strings.ToLower(filepath.Base(path)), ".swu") {
-		return nil
-	}
-	return target.validate()
 }
 
 // runFirmwareUpload drives the full upload flow: fetch config, validate the
