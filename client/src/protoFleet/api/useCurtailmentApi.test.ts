@@ -2036,6 +2036,7 @@ describe("useCurtailmentApi", () => {
     const restoringEvent = curtailmentEvent({
       eventUuid: "curt-restored",
       state: CurtailmentEventState.RESTORING,
+      fanLastError: "stale restore failure",
       targetRollup: create(CurtailmentTargetRollupSchema, {
         confirmed: 1,
         resolved: 1,
@@ -2047,6 +2048,9 @@ describe("useCurtailmentApi", () => {
       state: CurtailmentEventState.COMPLETED,
       endedAt: timestamp("2026-05-01T13:00:00Z"),
       decisionSnapshot: undefined,
+      fanOffSentAt: timestamp("2026-05-01T12:05:00Z"),
+      fanOnSentAt: timestamp("2026-05-01T13:00:00Z"),
+      fanAirflowReopenedAt: timestamp("2026-05-01T12:10:00Z"),
       targetRollup: create(CurtailmentTargetRollupSchema, {
         resolved: 2,
         total: 2,
@@ -2065,6 +2069,8 @@ describe("useCurtailmentApi", () => {
     expect(result.current.activeEventId).toBe("curt-restored");
     expect(result.current.activeEvent?.state).toBe("completed");
     expect(result.current.activeEvent?.endedAt).toBe("2026-05-01T13:00:00.000Z");
+    expect(result.current.activeEvent?.fanOnSentAt).toBe("2026-05-01T13:00:00.000Z");
+    expect(result.current.activeEvent?.fanLastError).toBe("");
     expect(result.current.activeEvent?.remainingPowerKw).toBe(1);
     expect(result.current.activeEvent?.rollups).toEqual([{ state: "resolved", count: 2 }]);
     expect(result.current.historyEvents[0]).toEqual(
@@ -2280,6 +2286,7 @@ describe("useCurtailmentApi", () => {
     const restoringEvent = curtailmentEvent({
       eventUuid: "curt-restore-incomplete",
       state: CurtailmentEventState.RESTORING,
+      fanOnSentAt: timestamp("2026-05-01T12:50:00Z"),
       targetRollup: create(CurtailmentTargetRollupSchema, {
         confirmed: 1,
         resolved: 1,
@@ -2291,6 +2298,7 @@ describe("useCurtailmentApi", () => {
       state: CurtailmentEventState.COMPLETED_WITH_FAILURES,
       endedAt: timestamp("2026-05-01T13:00:00Z"),
       decisionSnapshot: undefined,
+      fanLastError: "failed to restore fan airflow",
       targetRollup: create(CurtailmentTargetRollupSchema, {
         resolved: 1,
         restoreFailed: 1,
@@ -2309,6 +2317,8 @@ describe("useCurtailmentApi", () => {
 
     expect(result.current.activeEventId).toBe("curt-restore-incomplete");
     expect(result.current.activeEvent?.state).toBe("completedWithFailures");
+    expect(result.current.activeEvent?.fanOnSentAt).toBeUndefined();
+    expect(result.current.activeEvent?.fanLastError).toBe("failed to restore fan airflow");
     expect(result.current.activeEvent?.remainingPowerKw).toBe(1);
     expect(result.current.activeEvent?.rollups).toEqual([
       { state: "resolved", count: 1 },

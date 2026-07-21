@@ -103,7 +103,7 @@ interface StatBlockProps {
 
 interface FormatActivePowerValueArgs {
   isRestoreFlow: boolean;
-  observedReductionKw: number;
+  observedReductionKw: number | null;
   targetKw: number;
 }
 
@@ -149,6 +149,7 @@ const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit",
 });
 const millisecondsPerSecond = 1000;
+const unavailablePowerLabel = "Unavailable";
 const unavailableTimeLabel = "Time unavailable";
 
 const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
@@ -275,6 +276,10 @@ function formatPowerProgressValue(currentKw: number, targetKw: number): string {
 }
 
 function formatActivePowerValue({ isRestoreFlow, observedReductionKw, targetKw }: FormatActivePowerValueArgs): string {
+  if (observedReductionKw === null) {
+    return unavailablePowerLabel;
+  }
+
   if (isRestoreFlow) {
     return formatPowerProgressValue(Math.max(targetKw - observedReductionKw, 0), targetKw);
   }
@@ -282,19 +287,24 @@ function formatActivePowerValue({ isRestoreFlow, observedReductionKw, targetKw }
   return formatPowerProgressValue(observedReductionKw, targetKw);
 }
 
+function hasCompleteTerminalRestoreRollup(compliance: ActiveCurtailmentMinerCompliance): boolean {
+  return (
+    compliance.totalCount > 0 && compliance.restoredCount + compliance.restoreFailedCount === compliance.totalCount
+  );
+}
+
 function getPowerObservedReductionKw({
   compliance,
   displayFlags,
   event,
   targetKw,
-}: PowerObservedReductionArgs): number {
-  if (
-    displayFlags.isRestoreIncomplete &&
-    event.observedReductionKw <= 0 &&
-    compliance.restoreFailedCount > 0 &&
-    compliance.totalCount > 0
-  ) {
-    return targetKw * (compliance.restoreFailedCount / compliance.totalCount);
+}: PowerObservedReductionArgs): number | null {
+  if (displayFlags.isRestoreIncomplete && event.observedReductionKw <= 0) {
+    if (hasCompleteTerminalRestoreRollup(compliance)) {
+      return targetKw * (compliance.restoreFailedCount / compliance.totalCount);
+    }
+
+    return null;
   }
 
   return event.observedReductionKw;

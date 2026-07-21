@@ -596,6 +596,27 @@ describe("ActiveCurtailmentStatus", () => {
     expect(onRequestForceRelease).not.toHaveBeenCalled();
   });
 
+  it("does not estimate restored power from all-pending incomplete restore rollups", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...restoreIncompleteCurtailmentEvent,
+          rollups: [{ state: "pending", count: restoreIncompleteCurtailmentEvent.selectedMiners }],
+        }}
+      />,
+    );
+
+    expectPrimaryLockup("Power restored", "Unavailable");
+    expectProgressSummary("0 of 18 miners restored (0%)");
+  });
+
+  it("does not estimate restored power when incomplete restore rollups are empty", () => {
+    render(<ActiveCurtailmentStatus event={{ ...restoreIncompleteCurtailmentEvent, rollups: [] }} />);
+
+    expectPrimaryLockup("Power restored", "Unavailable");
+    expectProgressHidden();
+  });
+
   it("renders curtail progress with segment legend and unavailable annotation", () => {
     render(
       <ActiveCurtailmentStatus
