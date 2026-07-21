@@ -170,6 +170,44 @@ func TestRequirePermission_CurtailmentReconcilerActorAlsoAllowed(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestFirmwareRolloutActorAllowedAcrossPermissionHelpers(t *testing.T) {
+	info := &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		Actor:          session.ActorFirmwareRollout,
+		OrganizationID: 1,
+	}
+	ctx := ctxWithInfo(info) // deliberately no WithEffectivePermissions
+
+	got, err := middleware.RequirePermission(ctx, authz.PermMinerFirmwareUpdate, authz.ResourceContext{})
+	require.NoError(t, err)
+	require.Equal(t, session.ActorFirmwareRollout, got.Actor)
+
+	got, err = middleware.RequireOrgWidePermission(ctx, authz.PermMinerFirmwareUpdate)
+	require.NoError(t, err)
+	require.Equal(t, session.ActorFirmwareRollout, got.Actor)
+
+	allowed, err := middleware.HasPermission(ctx, authz.PermMinerFirmwareUpdate, authz.ResourceContext{})
+	require.NoError(t, err)
+	require.True(t, allowed)
+
+	allowed, err = middleware.HasOrgWidePermission(ctx, authz.PermMinerFirmwareUpdate)
+	require.NoError(t, err)
+	require.True(t, allowed)
+
+	orgWide, sites, err := middleware.SiteScopeForPermission(ctx, authz.PermMinerFirmwareUpdate)
+	require.NoError(t, err)
+	require.True(t, orgWide)
+	require.Empty(t, sites)
+
+	got, err = middleware.RequireAnyPermission(
+		ctx,
+		[]string{authz.PermMinerFirmwareUpdate, authz.PermFirmwareRolloutManage},
+		authz.ResourceContext{},
+	)
+	require.NoError(t, err)
+	require.Equal(t, session.ActorFirmwareRollout, got.Actor)
+}
+
 func TestRequirePermission_NarrowingAtSiteScope(t *testing.T) {
 	// User has org-scope ADMIN (holds miner:reboot) plus a site-scope
 	// FIELD_TECH at site 1 (no miner:reboot). At site 1, narrowing
