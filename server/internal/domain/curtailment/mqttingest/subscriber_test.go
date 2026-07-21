@@ -237,7 +237,30 @@ func TestSubscriber_ReconcileStartsAndStopsWorkers(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond, "broker sessions should drain after the source is removed")
 }
 
-func TestSubscriber_StopKeepsTimedOutActivationOwnedUntilWorkersDrain(t *testing.T) {
+func TestSubscriber_StartContextCancellationAllowsRestartAfterWorkersDrain(t *testing.T) {
+	t.Parallel()
+
+	src := reconcileTestSource(1, "maestro")
+	store := newFakeSourceStore(src)
+	reg := &clientRegistry{}
+	s := newReconcileTestSubscriber(t, store, reg)
+	runCtx, cancel := context.WithCancel(context.Background())
+	require.NoError(t, s.Start(runCtx))
+	requireRunningBrokers(t, s, src.ID, 2)
+
+	cancel()
+	require.Eventually(t, func() bool {
+		return s.Start(context.Background()) == nil
+	}, 2*time.Second, 10*time.Millisecond, "subscriber should restart after its canceled activation drains")
+	requireRunningBrokers(t, s, src.ID, 2)
+
+	_, maxActive, connects := reg.snapshot()
+	assert.LessOrEqual(t, maxActive, 2, "replacement activation must not overlap canceled workers")
+	assert.Equal(t, 4, connects)
+	require.NoError(t, s.Stop(context.Background()))
+}
+
+func TestSubscriber_StopTimeoutAllowsRestartAfterWorkersEventuallyDrain(t *testing.T) {
 	src := reconcileTestSource(1, "maestro")
 	store := newFakeSourceStore(src)
 	reg := &clientRegistry{}
@@ -261,8 +284,12 @@ func TestSubscriber_StopKeepsTimedOutActivationOwnedUntilWorkersDrain(t *testing
 	require.Error(t, s.Reconcile(context.Background()), "a stopping activation must reject new workers")
 
 	close(release)
-	require.NoError(t, s.Stop(context.Background()))
-	require.NoError(t, s.Start(context.Background()))
+	require.Eventually(t, func() bool {
+		return s.Start(context.Background()) == nil
+	}, 2*time.Second, 10*time.Millisecond, "subscriber should restart after timed-out workers eventually drain")
+	requireRunningBrokers(t, s, src.ID, 2)
+	_, maxActive, _ := reg.snapshot()
+	assert.LessOrEqual(t, maxActive, 2, "replacement activation must not overlap timed-out workers")
 	require.NoError(t, s.Stop(context.Background()))
 }
 
