@@ -548,9 +548,7 @@ func start(config *Config) error {
 		return fmt.Errorf("failed to start schedule processor: %w", err)
 	}
 	defer func() {
-		if err := scheduleProcessor.Stop(); err != nil {
-			slog.Error("failed to stop schedule processor", "error", err)
-		}
+		stopStandaloneJob("schedule processor", scheduleProcessor)
 	}()
 
 	curtailmentRec := curtailmentReconciler.New(
