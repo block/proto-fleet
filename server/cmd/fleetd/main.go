@@ -426,7 +426,7 @@ func start(config *Config) error {
 		slog.Info("Stopping telemetry service")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		if err := telemetryService.Stop(shutdownCtx); err != nil {
+		if err := telemetryService.Close(shutdownCtx); err != nil {
 			slog.Error("Failed to stop telemetry service", "error", err)
 		}
 	}()
