@@ -400,16 +400,17 @@ export class BasePage {
 
       if (await logoutButton.isVisible().catch(() => false)) {
         await logoutButton.click({ timeout: LOGOUT_ACTION_TIMEOUT });
-        return;
+      } else {
+        await this.clickNavigationMenuIfMobile(LOGOUT_ACTION_TIMEOUT);
+
+        if (await isLoggedOut()) {
+          return;
+        }
+
+        await logoutButton.click({ timeout: LOGOUT_ACTION_TIMEOUT });
       }
 
-      await this.clickNavigationMenuIfMobile(LOGOUT_ACTION_TIMEOUT);
-
-      if (await isLoggedOut()) {
-        return;
-      }
-
-      await logoutButton.click({ timeout: LOGOUT_ACTION_TIMEOUT });
+      await expect.poll(isLoggedOut, { timeout: LOGOUT_ACTION_TIMEOUT, intervals: [100] }).toBe(true);
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [100] });
   }
 
