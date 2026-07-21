@@ -494,6 +494,22 @@ describe("useCurtailmentPlanPreview", () => {
     expect(preview.restoreEstimate).toBe("Immediately");
   });
 
+  it("adds selected facility fans to local preview metadata", () => {
+    const preview = createCurtailmentPlanPreview(
+      {
+        ...baseValues,
+        facilityFanDeviceIds: ["31", "32"],
+      },
+      {
+        selectedMinerCount: 25,
+        targetKw: 40,
+        estimatedReductionKw: 45,
+      },
+    );
+
+    expect(preview.facilityFanDeviceCount).toBe(2);
+  });
+
   it("estimates zero-sized restore waves with the safety limit when an interval is set", () => {
     const preview = createCurtailmentPlanPreview(
       {

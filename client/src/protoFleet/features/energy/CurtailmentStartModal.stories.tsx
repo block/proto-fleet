@@ -168,6 +168,23 @@ export const WithPreview: Story = {
   render: () => <ModalStory initialValues={configuredValues} preview={preview} responseProfiles={responseProfiles} />,
 };
 
+export const WithSelectedFan: Story = {
+  name: "Fixed kW reduction with selected fan",
+  render: () => (
+    <ModalStory
+      initialValues={{
+        ...configuredValues,
+        facilityFanDeviceIds: ["31"],
+        fanOffDelaySec: "45",
+        fanRestoreDelaySec: "90",
+      }}
+      infrastructureDevices={infrastructureDevices}
+      preview={{ ...preview, facilityFanDeviceCount: 1 }}
+      responseProfiles={responseProfiles}
+    />
+  ),
+};
+
 export const FullFleet: Story = {
   name: "Full shutdown preview",
   render: () => (

@@ -964,6 +964,9 @@ func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 	if event.FanOnSentAt != nil {
 		out.FanOnSentAt = timestamppb.New(*event.FanOnSentAt)
 	}
+	if event.FanAirflowReopenedAt != nil {
+		out.FanAirflowReopenedAt = timestamppb.New(*event.FanAirflowReopenedAt)
+	}
 	if event.FanLastError != nil {
 		out.FanLastError = *event.FanLastError
 	}

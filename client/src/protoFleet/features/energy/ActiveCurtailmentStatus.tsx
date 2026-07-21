@@ -4,9 +4,11 @@ import clsx from "clsx";
 import {
   type ActiveCurtailmentCurtailProgress,
   type ActiveCurtailmentDisplayState,
+  type ActiveCurtailmentMinerCompliance,
   type ActiveCurtailmentRestoreProgress,
   type CurtailmentEventState,
   type CurtailmentTargetRollup,
+  formatCurtailmentAppliesToSummary,
   formatCurtailmentElapsedDuration,
   formatCurtailmentKw as formatKw,
   formatCurtailmentMinerCount as formatMinerCount,
@@ -36,8 +38,14 @@ export interface ActiveCurtailmentEvent {
   selectedMiners: number;
   estimatedReductionKw: number;
   targetKw?: number;
+  hasTargetMetrics?: boolean;
   observedReductionKw: number;
   remainingPowerKw?: number;
+  facilityFanDeviceCount?: number;
+  fanOffSentAt?: string;
+  fanOnSentAt?: string;
+  fanAirflowReopenedAt?: string;
+  fanLastError?: string;
   // Curtail dispatch pacing for the rough time-to-curtail estimate; absent
   // when the event has no explicit batch size (reconciler-side defaults).
   curtailBatchSize?: number;
@@ -95,8 +103,15 @@ interface StatBlockProps {
 }
 
 interface FormatActivePowerValueArgs {
-  isRestored: boolean;
-  isRestoreIncomplete: boolean;
+  isRestoreFlow: boolean;
+  observedReductionKw: number | null;
+  targetKw: number;
+}
+
+interface PowerObservedReductionArgs {
+  compliance: ActiveCurtailmentMinerCompliance;
+  displayFlags: ActiveCurtailmentDisplayFlags;
+  event: ActiveCurtailmentEvent;
   targetKw: number;
 }
 
@@ -135,6 +150,7 @@ const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit",
 });
 const millisecondsPerSecond = 1000;
+const unavailablePowerLabel = "Unavailable";
 const unavailableTimeLabel = "Time unavailable";
 
 const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
@@ -147,6 +163,35 @@ const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
   restored: "Restored",
   restoring: "Restoring",
 };
+
+function getInfrastructureStatus(
+  event: ActiveCurtailmentEvent,
+  isRestoreFlow: boolean,
+  displayState: ActiveCurtailmentDisplayState,
+): string | null {
+  if ((event.facilityFanDeviceCount ?? 0) <= 0) {
+    return null;
+  }
+
+  const hasFanCommandEvidence = Boolean(event.fanOffSentAt || event.fanOnSentAt || event.fanAirflowReopenedAt);
+  if (event.fanLastError && (displayState !== "pending" || hasFanCommandEvidence)) {
+    return isRestoreFlow ? "Restore failed" : "Curtail failed";
+  }
+
+  if (displayState === "pending") {
+    return "Pending";
+  }
+
+  if (isRestoreFlow) {
+    return event.fanOnSentAt ? "Restored" : "Restoring";
+  }
+
+  if (event.fanAirflowReopenedAt) {
+    return "Curtailing";
+  }
+
+  return event.fanOffSentAt ? "Curtailed" : "Curtailing";
+}
 
 const manageableDisplayStates = new Set<ActiveCurtailmentDisplayState>(["curtailed", "curtailing", "pending"]);
 const forceReleaseDisplayStates = new Set<ActiveCurtailmentDisplayState>([
@@ -218,28 +263,72 @@ function formatEstimatedCompletion(remainingSeconds: number, currentTime = new D
     : formatDateTimeValue(estimatedCompletionDate);
 }
 
-function formatActivePowerValue({ isRestored, isRestoreIncomplete, targetKw }: FormatActivePowerValueArgs): string {
-  if (isRestored) {
-    return `${formatKw(targetKw)} restored`;
+function formatKwMagnitude(value: number): string {
+  const finiteValue = Number.isFinite(value) ? value : 0;
+
+  return finiteValue.toLocaleString(undefined, {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1,
+  });
+}
+
+function formatPowerProgressValue(currentKw: number, targetKw: number): string {
+  return `${formatKwMagnitude(currentKw)} of ${formatKw(targetKw)}`;
+}
+
+function formatActivePowerValue({ isRestoreFlow, observedReductionKw, targetKw }: FormatActivePowerValueArgs): string {
+  if (observedReductionKw === null) {
+    return unavailablePowerLabel;
   }
 
-  if (isRestoreIncomplete) {
-    return `${formatKw(targetKw)} restore requested`;
+  if (isRestoreFlow) {
+    return formatPowerProgressValue(Math.max(targetKw - observedReductionKw, 0), targetKw);
   }
 
-  return formatKw(targetKw);
+  return formatPowerProgressValue(observedReductionKw, targetKw);
+}
+
+function hasCompleteTerminalRestoreRollup(compliance: ActiveCurtailmentMinerCompliance): boolean {
+  return (
+    compliance.totalCount > 0 && compliance.restoredCount + compliance.restoreFailedCount === compliance.totalCount
+  );
+}
+
+function hasPowerProgressMetrics(event: ActiveCurtailmentEvent, targetKw: number): boolean {
+  if (event.hasTargetMetrics === false) {
+    return false;
+  }
+
+  return targetKw > 0 || event.selectedMiners > 0 || event.rollups.length > 0;
+}
+
+function getPowerObservedReductionKw({
+  compliance,
+  displayFlags,
+  event,
+  targetKw,
+}: PowerObservedReductionArgs): number | null {
+  if (!hasPowerProgressMetrics(event, targetKw)) {
+    return null;
+  }
+
+  if (displayFlags.isRestoreIncomplete && event.observedReductionKw <= 0) {
+    if (hasCompleteTerminalRestoreRollup(compliance)) {
+      return targetKw * (compliance.restoreFailedCount / compliance.totalCount);
+    }
+
+    return null;
+  }
+
+  return event.observedReductionKw;
 }
 
 function getPowerLabel(displayFlags: ActiveCurtailmentDisplayFlags): string {
-  if (displayFlags.isRestored) {
+  if (displayFlags.isRestoreFlow) {
     return "Power restored";
   }
 
-  if (displayFlags.isRestoreFlow) {
-    return "Power to restore";
-  }
-
-  return "Power to shed";
+  return "Power shed";
 }
 
 function formatDurationLong(totalSeconds: number): string {
@@ -720,8 +809,8 @@ export default function ActiveCurtailmentStatus({
   });
   const powerLabel = getPowerLabel(displayFlags);
   const powerValue = formatActivePowerValue({
-    isRestored: displayFlags.isRestored,
-    isRestoreIncomplete: displayFlags.isRestoreIncomplete,
+    isRestoreFlow: displayFlags.isRestoreFlow,
+    observedReductionKw: getPowerObservedReductionKw({ compliance, displayFlags, event, targetKw }),
     targetKw,
   });
   const dispatchStatus = displayStateLabels[displayState];
@@ -747,6 +836,7 @@ export default function ActiveCurtailmentStatus({
     isCurtailmentComplete: displayFlags.isCurtailmentComplete,
   });
   const incompleteSiteCoverageWarning = formatIncompleteSiteCoverageWarning(event.targetSiteCoverage);
+  const infrastructureStatus = getInfrastructureStatus(event, displayFlags.isRestoreFlow, displayState);
 
   return (
     <section className={clsx("grid gap-3", className)}>
@@ -770,15 +860,16 @@ export default function ActiveCurtailmentStatus({
         <div className="grid gap-3 tablet:pr-32">
           <div className="flex size-10 items-center justify-center rounded-lg bg-core-primary-5">{statusIcon}</div>
           <div data-testid="active-curtailment-primary-lockup">
-            <div className="text-heading-50 text-text-primary-70">Dispatch status</div>
-            <div className="text-heading-300 text-text-primary">{dispatchStatus}</div>
+            <div className="text-heading-50 text-text-primary-70">{powerLabel}</div>
+            <div className="text-heading-300 text-text-primary">{powerValue}</div>
           </div>
         </div>
 
-        <div className="mt-12 grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-4">
-          <StatBlock label={powerLabel} value={powerValue} />
+        <div className="mt-12 grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-5">
+          <StatBlock label="Dispatch status" value={dispatchStatus} />
           {displayFlags.isRestoreFlow ? (
             <>
+              {infrastructureStatus ? <StatBlock label="Infrastructure" value={infrastructureStatus} /> : null}
               <StatBlock label="Restore" value={formatRestoreProfile(event)} />
               <StatBlock label={restoreTimeLabel} value={restoreTimeValue} />
               {displayFlags.isRestoreIncomplete ? (
@@ -789,7 +880,11 @@ export default function ActiveCurtailmentStatus({
             </>
           ) : (
             <>
-              <StatBlock label="Applies to" value={formatMinerCount(event.selectedMiners)} />
+              <StatBlock
+                label="Applies to"
+                value={formatCurtailmentAppliesToSummary(event.selectedMiners, event.facilityFanDeviceCount)}
+              />
+              {infrastructureStatus ? <StatBlock label="Infrastructure" value={infrastructureStatus} /> : null}
               <StatBlock label="Restore" value={formatRestoreProfile(event)} />
               {curtailRemainingSeconds > 0 ? (
                 <StatBlock label="Estimated time to curtail" value={formatDurationLong(curtailRemainingSeconds)} />

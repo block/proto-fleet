@@ -24,11 +24,23 @@ function expectProgressSummary(summary: string): void {
   expect(progress.getByText(summary)).toBeVisible();
 }
 
-function expectPrimaryLockup(value: string): void {
+function expectPrimaryLockup(label: string, value: string): void {
   const lockup = within(screen.getByTestId("active-curtailment-primary-lockup"));
 
-  expect(lockup.getByText("Dispatch status")).toBeVisible();
+  expect(lockup.getByText(label)).toBeVisible();
   expect(lockup.getByText(value)).toBeVisible();
+}
+
+function expectStat(label: string, value: string): void {
+  const labelElement = screen.getByText(label);
+  const stat = labelElement.parentElement;
+
+  expect(stat).not.toBeNull();
+  expect(within(stat as HTMLElement).getByText(value)).toBeVisible();
+}
+
+function expectInfrastructureStatus(value: string): void {
+  expectStat("Infrastructure", value);
 }
 
 function formatExpectedDateTime(value: string): string {
@@ -49,9 +61,9 @@ describe("ActiveCurtailmentStatus", () => {
 
     expect(screen.getByText("Active curtailment")).toBeInTheDocument();
     expect(screen.getByText("ERCOT ERS obligation (Applies to Rockdale, TX)")).toBeVisible();
-    expectPrimaryLockup("Curtailing");
-    expect(screen.getByText("Power to shed")).toBeVisible();
-    expect(screen.getByText("60.0 kW")).toBeVisible();
+    expectPrimaryLockup("Power shed", "59.4 of 60.0 kW");
+    expectStat("Dispatch status", "Curtailing");
+    expect(screen.getByText("18 miners")).toBeVisible();
     expect(screen.getAllByText("Curtailing")[0]).toBeVisible();
     expect(screen.getByText("10 miners every 120s")).toBeVisible();
     // 16 confirmed of 18 dispatchable; dispatched and drifted miners are still
@@ -67,6 +79,82 @@ describe("ActiveCurtailmentStatus", () => {
     await user.click(restoreNowButton);
 
     expect(onRequestStop).toHaveBeenCalledOnce();
+  });
+
+  it("includes infrastructure devices in the applies to summary and infrastructure status when present", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          facilityFanDeviceCount: 2,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("18 miners, 2 devices")).toBeVisible();
+    expectInfrastructureStatus("Curtailing");
+  });
+
+  it("shows unavailable power when active target metrics are withheld", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          selectedMiners: 0,
+          estimatedReductionKw: 0,
+          targetKw: undefined,
+          hasTargetMetrics: false,
+          observedReductionKw: 0,
+          rollups: [],
+        }}
+      />,
+    );
+
+    expectPrimaryLockup("Power shed", "Unavailable");
+    expectStat("Dispatch status", "Curtailing");
+    expectProgressHidden();
+  });
+
+  it("renders infrastructure as curtailed after fan off is sent", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          facilityFanDeviceCount: 2,
+          fanOffSentAt: "2026-05-01T12:05:00.000Z",
+        }}
+      />,
+    );
+
+    expectInfrastructureStatus("Curtailed");
+  });
+
+  it("renders reopened active infrastructure as curtailing until fans turn off again", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          facilityFanDeviceCount: 2,
+          fanOffSentAt: "2026-05-01T12:05:00.000Z",
+          fanAirflowReopenedAt: "2026-05-01T12:10:00.000Z",
+        }}
+      />,
+    );
+
+    expectInfrastructureStatus("Curtailing");
+  });
+
+  it("renders restoring infrastructure status during restore", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...restoringCurtailmentEvent,
+          facilityFanDeviceCount: 2,
+        }}
+      />,
+    );
+
+    expectInfrastructureStatus("Restoring");
   });
 
   it("renders immediate restore profile for zero restore batch size", () => {
@@ -105,6 +193,7 @@ describe("ActiveCurtailmentStatus", () => {
       <ActiveCurtailmentStatus
         event={{
           ...curtailingCurtailmentEvent,
+          facilityFanDeviceCount: 2,
           observedReductionKw: 0,
           rollups: [{ state: "pending", count: curtailingCurtailmentEvent.selectedMiners }],
           state: "pending",
@@ -113,9 +202,9 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    expectPrimaryLockup("Pending");
-    expect(screen.getByText("Power to shed")).toBeVisible();
-    expect(screen.getByText("60.0 kW")).toBeVisible();
+    expectPrimaryLockup("Power shed", "0.0 of 60.0 kW");
+    expectStat("Dispatch status", "Pending");
+    expectInfrastructureStatus("Pending");
     expect(screen.getAllByText("Pending")[0]).toBeVisible();
     expectProgressSummary("0 of 18 miners curtailed (0%)");
     expectActionButtonHidden("Restore");
@@ -123,6 +212,25 @@ describe("ActiveCurtailmentStatus", () => {
     await user.click(screen.getByRole("button", { name: "Restore now" }));
 
     expect(onRequestStop).toHaveBeenCalledOnce();
+  });
+
+  it("renders pending infrastructure failures when fan command evidence exists", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          facilityFanDeviceCount: 2,
+          fanOffSentAt: "2026-05-01T12:05:00.000Z",
+          fanLastError: "fan command failed",
+          observedReductionKw: 0,
+          rollups: [{ state: "pending", count: curtailingCurtailmentEvent.selectedMiners }],
+          state: "pending",
+        }}
+      />,
+    );
+
+    expectStat("Dispatch status", "Pending");
+    expectInfrastructureStatus("Curtail failed");
   });
 
   it("renders pending events as curtailing once dispatch has started", () => {
@@ -140,7 +248,8 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    expectPrimaryLockup("Curtailing");
+    expectPrimaryLockup("Power shed", "0.0 of 60.0 kW");
+    expectStat("Dispatch status", "Curtailing");
     expect(screen.getAllByText("Curtailing")[0]).toBeVisible();
     expect(screen.queryByText("Pending")).not.toBeInTheDocument();
   });
@@ -182,9 +291,8 @@ describe("ActiveCurtailmentStatus", () => {
 
     render(<ActiveCurtailmentStatus event={curtailedCurtailmentEvent} onRequestRestore={onRequestRestore} />);
 
-    expectPrimaryLockup("Curtailed");
-    expect(screen.getByText("Power to shed")).toBeVisible();
-    expect(screen.getByText("60.0 kW")).toBeVisible();
+    expectPrimaryLockup("Power shed", "60.0 of 60.0 kW");
+    expectStat("Dispatch status", "Curtailed");
     expect(screen.getAllByText("Curtailed")[0]).toBeVisible();
     expectProgressSummary("18 miners curtailed (100%)");
     expectActionButtonHidden("Manage");
@@ -235,9 +343,8 @@ describe("ActiveCurtailmentStatus", () => {
   it("renders a restoring event without stop, restore, or manage actions", () => {
     render(<ActiveCurtailmentStatus event={restoringCurtailmentEvent} />);
 
-    expectPrimaryLockup("Restoring");
-    expect(screen.getByText("Power to restore")).toBeVisible();
-    expect(screen.getByText("60.0 kW")).toBeVisible();
+    expectPrimaryLockup("Power restored", "0.6 of 60.0 kW");
+    expectStat("Dispatch status", "Restoring");
     expect(screen.getByText("Restoring")).toBeVisible();
     expect(screen.getByText("10 miners every 120s")).toBeVisible();
     expect(screen.getByText("Estimated time to restore")).toBeVisible();
@@ -320,8 +427,7 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    expect(screen.getByText("Power to restore")).toBeVisible();
-    expect(screen.getByText("60.0 kW")).toBeVisible();
+    expect(screen.getByText("Power restored")).toBeVisible();
     // 8 resolved + 2 released of 18 restorable.
     expectProgressSummary("10 of 18 miners restored (55%)");
   });
@@ -440,9 +546,8 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    expectPrimaryLockup("Restored");
-    expect(screen.getByText("Power restored")).toBeVisible();
-    expect(screen.getByText("60.0 kW restored")).toBeVisible();
+    expectPrimaryLockup("Power restored", "60.0 of 60.0 kW");
+    expectStat("Dispatch status", "Restored");
     expect(screen.getAllByText("Restored")[0]).toBeVisible();
     expect(screen.getByText("Time to restore")).toBeVisible();
     expect(screen.getByText("2 minutes")).toBeVisible();
@@ -494,9 +599,8 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    expectPrimaryLockup("Restore incomplete");
-    expect(screen.getByText("Power to restore")).toBeVisible();
-    expect(screen.getByText("60.0 kW restore requested")).toBeVisible();
+    expectPrimaryLockup("Power restored", "56.7 of 60.0 kW");
+    expectStat("Dispatch status", "Restore incomplete");
     expect(screen.getByText("Restore incomplete")).toBeVisible();
     expect(screen.getByText("Failed to restore")).toBeVisible();
     expect(screen.getByText("1 miner")).toBeVisible();
@@ -510,6 +614,27 @@ describe("ActiveCurtailmentStatus", () => {
 
     expect(onDismissRestored).toHaveBeenCalledOnce();
     expect(onRequestForceRelease).not.toHaveBeenCalled();
+  });
+
+  it("does not estimate restored power from all-pending incomplete restore rollups", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...restoreIncompleteCurtailmentEvent,
+          rollups: [{ state: "pending", count: restoreIncompleteCurtailmentEvent.selectedMiners }],
+        }}
+      />,
+    );
+
+    expectPrimaryLockup("Power restored", "Unavailable");
+    expectProgressSummary("0 of 18 miners restored (0%)");
+  });
+
+  it("does not estimate restored power when incomplete restore rollups are empty", () => {
+    render(<ActiveCurtailmentStatus event={{ ...restoreIncompleteCurtailmentEvent, rollups: [] }} />);
+
+    expectPrimaryLockup("Power restored", "Unavailable");
+    expectProgressHidden();
   });
 
   it("renders curtail progress with segment legend and unavailable annotation", () => {

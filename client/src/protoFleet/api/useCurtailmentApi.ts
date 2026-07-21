@@ -509,6 +509,10 @@ function reconcileActiveEventWithHistory(
     endedAt: matchingHistoryEvent.endedAt ?? activeEvent.endedAt,
     updatedAt: matchingHistoryEvent.updatedAt ?? activeEvent.updatedAt,
     targetRollup: matchingHistoryEvent.targetRollup,
+    fanOffSentAt: matchingHistoryEvent.fanOffSentAt,
+    fanOnSentAt: matchingHistoryEvent.fanOnSentAt,
+    fanAirflowReopenedAt: matchingHistoryEvent.fanAirflowReopenedAt,
+    fanLastError: matchingHistoryEvent.fanLastError,
     targets,
   });
 }
