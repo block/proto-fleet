@@ -471,9 +471,6 @@ func start(config *Config) error {
 
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
 
-	executionServiceCtx, executionServiceCancel := context.WithCancel(context.Background())
-	defer executionServiceCancel()
-
 	// Ensure plugin cleanup on shutdown
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(),
@@ -484,11 +481,15 @@ func start(config *Config) error {
 		}
 	}()
 
-	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
+	executionService := commandDomain.NewExecutionService(&config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
 	executionService.WithMetricsEmitter(metricsProvider)
-	err = executionService.Start(executionServiceCtx)
+	err = executionService.Start(context.Background())
 	if err != nil {
 		slog.Error("failed to start command execution service", "error", err)
+	} else {
+		defer func() {
+			stopStandaloneJob("command execution service", executionService)
+		}()
 	}
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)

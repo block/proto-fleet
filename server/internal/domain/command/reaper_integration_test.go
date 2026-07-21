@@ -122,7 +122,7 @@ func (n *noopMessageQueue) Enqueue(_ context.Context, _ string, _ commandtype.Ty
 func (n *noopMessageQueue) EnqueueMany(_ context.Context, _ string, _ commandtype.Type, _ []queue.EnqueueMessage) error {
 	return nil
 }
-func (n *noopMessageQueue) Dequeue(ctx context.Context) ([]queue.Message, error) {
+func (n *noopMessageQueue) Dequeue(ctx context.Context, _ int32) ([]queue.Message, error) {
 	<-ctx.Done()
 	return nil, fmt.Errorf("dequeue cancelled: %w", ctx.Err())
 }
@@ -153,7 +153,7 @@ func TestReaperIntegration(t *testing.T) {
 		createBatchLog(t, conn, batchUUID, user.DatabaseID, 1)
 		createStuckMessage(t, conn, batchUUID, device.DatabaseID, 10*time.Minute)
 
-		svc := command.NewExecutionService(t.Context(), &command.Config{
+		svc := command.NewExecutionService(&command.Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 100 * time.Millisecond,
 			StuckMessageTimeout:   5 * time.Minute,
@@ -190,7 +190,7 @@ func TestReaperIntegration(t *testing.T) {
 		createBatchLog(t, conn, batchUUID, user.DatabaseID, 1)
 		createStuckMessage(t, conn, batchUUID, device.DatabaseID, 1*time.Minute)
 
-		svc := command.NewExecutionService(t.Context(), &command.Config{
+		svc := command.NewExecutionService(&command.Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 100 * time.Millisecond,
 			StuckMessageTimeout:   5 * time.Minute,
@@ -239,7 +239,7 @@ func TestReaperIntegration(t *testing.T) {
 		_, err = conn.ExecContext(ctx, "ALTER TABLE queue_message ENABLE TRIGGER update_queue_message_updated_at")
 		require.NoError(t, err)
 
-		svc := command.NewExecutionService(t.Context(), &command.Config{
+		svc := command.NewExecutionService(&command.Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 100 * time.Millisecond,
 			StuckMessageTimeout:   5 * time.Minute,
@@ -267,7 +267,7 @@ func TestReaperIntegration(t *testing.T) {
 		createStuckMessage(t, conn, batchUUID, device1.DatabaseID, 10*time.Minute)
 		createStuckMessage(t, conn, batchUUID, device2.DatabaseID, 10*time.Minute)
 
-		svc := command.NewExecutionService(t.Context(), &command.Config{
+		svc := command.NewExecutionService(&command.Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 100 * time.Millisecond,
 			StuckMessageTimeout:   5 * time.Minute,

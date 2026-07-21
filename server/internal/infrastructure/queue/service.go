@@ -76,11 +76,17 @@ func (d DatabaseMessageQueue) enqueueEncoded(ctx context.Context, commandBatchLo
 	})
 }
 
-func (d DatabaseMessageQueue) Dequeue(ctx context.Context) ([]Message, error) {
+func (d DatabaseMessageQueue) Dequeue(ctx context.Context, limit int32) ([]Message, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	if d.config.DequeLimit > 0 {
+		limit = min(limit, d.config.DequeLimit)
+	}
 	messages, err := db.WithTransaction(ctx, d.conn, func(q *sqlc.Queries) ([]Message, error) {
 		dbMessages, err := q.GetMessagesToProcess(ctx, sqlc.GetMessagesToProcessParams{
 			RetryCount: d.config.MaxFailureRetries,
-			Limit:      d.config.DequeLimit,
+			Limit:      limit,
 		})
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to get messages to process: %v", err)

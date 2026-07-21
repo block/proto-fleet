@@ -149,7 +149,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	executionServiceCtx, executionServiceCancel := context.WithCancel(t.Context())
 
-	executionService := command.NewExecutionService(executionServiceCtx, commandConfig, db, dbMessageQueue, encryptService, tokenService, minerService, deviceStore, nil, filesService)
+	executionService := command.NewExecutionService(commandConfig, db, dbMessageQueue, encryptService, tokenService, minerService, deviceStore, nil, filesService)
 	err = executionService.Start(executionServiceCtx)
 	assert.NoError(t, err)
 
