@@ -159,9 +159,15 @@ func (p *Processor) Start(ctx context.Context) error {
 	go p.reconcileLoop(stopCtx, workCtx)
 	go p.endOfWindowLoop(stopCtx, workCtx)
 	p.running = true
+	go p.stopOnActivationCancellation(stopCtx)
 
 	slog.Info("schedule processor started")
 	return nil
+}
+
+func (p *Processor) stopOnActivationCancellation(stopCtx context.Context) {
+	<-stopCtx.Done()
+	p.beginStop()
 }
 
 // Stop gracefully stops the processor, bounded by ctx. A deadline

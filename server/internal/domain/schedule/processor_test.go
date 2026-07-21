@@ -319,6 +319,35 @@ func TestProcessor_StartHonorsActivationCancellation(t *testing.T) {
 	}
 }
 
+func TestProcessor_ActivationCancellationAllowsRestartAfterDrain(t *testing.T) {
+	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
+	getActiveSchedulesCalls := 0
+	procStore.EXPECT().GetActiveSchedules(gomock.Any()).DoAndReturn(
+		func(context.Context) ([]interfaces.ScheduleWithOrg, error) {
+			getActiveSchedulesCalls++
+			return nil, nil
+		},
+	).Times(4)
+
+	activationCtx, cancelActivation := context.WithCancel(context.Background())
+	assert.NoError(t, p.Start(activationCtx))
+	cancelActivation()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for getActiveSchedulesCalls < 4 {
+		err := p.Start(context.Background())
+		if err != nil && !errors.Is(err, errProcessorStopping) {
+			t.Fatalf("restart after activation cancellation: %v", err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("processor did not become restartable after activation cancellation")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	assert.NoError(t, p.Stop(context.Background()))
+}
+
 func TestProcessor_Stop_PreventsRestartUntilDrainCompletes(t *testing.T) {
 	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
 	workCtx, workCancel := context.WithCancel(context.Background())
