@@ -800,21 +800,26 @@ func start(config *Config) error {
 }
 
 // stopStandaloneJob gives work one graceful-shutdown budget, then one final
-// bounded drain budget after forced cancellation. Later teardown always gets
-// a chance to run even if a dependency ignores cancellation.
+// bounded drain budget. Stop is synchronous, so both budgets rely on the
+// implementation honoring the supplied contexts.
 func stopStandaloneJob(name string, job runtimejobs.Lifecycle) {
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	stopStandaloneJobWithTimeout(name, job, shutdownTimeout)
+}
+
+func stopStandaloneJobWithTimeout(name string, job runtimejobs.Lifecycle, timeout time.Duration) {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	err := job.Stop(shutdownCtx)
+	shutdownErr := shutdownCtx.Err()
 	cancel()
 	if err == nil {
 		return
 	}
-	if !errors.Is(err, context.DeadlineExceeded) {
+	if !errors.Is(shutdownErr, context.DeadlineExceeded) {
 		slog.Error("failed to stop runtime job", "job", name, "error", err)
 		return
 	}
 	slog.Error("runtime job exceeded shutdown timeout", "job", name, "error", err)
-	drainCtx, drainCancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), timeout)
 	defer drainCancel()
 	if err := job.Stop(drainCtx); err != nil {
 		slog.Error("failed to drain runtime job", "job", name, "error", err)
