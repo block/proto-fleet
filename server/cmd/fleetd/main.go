@@ -565,9 +565,7 @@ func start(config *Config) error {
 		return fmt.Errorf("failed to start curtailment reconciler: %w", err)
 	}
 	defer func() {
-		if err := curtailmentRec.Stop(); err != nil {
-			slog.Error("failed to stop curtailment reconciler", "error", err)
-		}
+		stopStandaloneJob("curtailment reconciler", curtailmentRec)
 	}()
 
 	mqttQueries, err := db.NewPreparedQuerier(context.Background(), conn)
@@ -604,7 +602,13 @@ func start(config *Config) error {
 	if err := mqttSubscriber.Start(context.Background()); err != nil {
 		return fmt.Errorf("failed to start curtailment mqtt subscriber: %w", err)
 	}
-	defer mqttSubscriber.Stop()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := mqttSubscriber.Stop(shutdownCtx); err != nil {
+			slog.Error("failed to stop curtailment mqtt subscriber", "error", err)
+		}
+	}()
 	mqttConnectionTester, err := mqttingest.NewMQTTConnectionTester(mqttingest.ConnectionTesterConfig{
 		NewClient: func() mqttingest.MQTTClient { return mqttclient.New() },
 	})
@@ -636,7 +640,9 @@ func start(config *Config) error {
 		if err := curtailmentAlertMetrics.Start(context.Background()); err != nil {
 			return fmt.Errorf("failed to start curtailment alert metrics loop: %w", err)
 		}
-		defer curtailmentAlertMetrics.Stop()
+		defer func() {
+			stopStandaloneJob("curtailment alert metrics loop", curtailmentAlertMetrics)
+		}()
 	}
 
 	deviceResolver := deviceresolver.New(deviceStore)
