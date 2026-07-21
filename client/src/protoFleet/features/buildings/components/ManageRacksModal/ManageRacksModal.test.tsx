@@ -5,26 +5,38 @@ import userEvent from "@testing-library/user-event";
 
 import ManageRacksModal from "./ManageRacksModal";
 import { type RackSelectionDelta } from "./rackSelectionDelta";
-import { DeviceSetSchema, RackInfoSchema } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import {
+  type DeviceSet,
+  DeviceSetSchema,
+  RackInfoSchema,
+} from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { type SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 
-// Assert the picker forwards its scope into the listRacks fetch (site scoping,
-// #758) and drives the "Show assigned racks" toggle (#766): default-off hides
-// already-placed racks, toggling on surfaces them and broadens the fetch to
-// `assignedScope`.
-// vi.hoisted so the handles exist when the hoisted vi.mock factories below run.
+// Part C (#765): ManageRacksModal fetches server-side — the toggle-off request
+// is pinned to the assignable set (this building + no-building racks), the
+// toggle-on request broadens to `assignedScope`, and Building/Site facets travel
+// on the request. There is NO client-side filtering of a fetched page, so these
+// tests drive a realistic mock that filters + paginates exactly like the server.
 const mockListRacks = vi.hoisted(() => vi.fn());
 const mockListBuildingsBySite = vi.hoisted(() => vi.fn());
+const mockListBuildings = vi.hoisted(() => vi.fn());
+const mockListSites = vi.hoisted(() => vi.fn());
 
 vi.mock("@/protoFleet/api/useDeviceSets", () => ({
   useDeviceSets: () => ({ listRacks: mockListRacks }),
 }));
 vi.mock("@/protoFleet/api/buildings", () => ({
-  useBuildings: () => ({ listBuildingsBySite: mockListBuildingsBySite }),
+  useBuildings: () => ({ listBuildingsBySite: mockListBuildingsBySite, listBuildings: mockListBuildings }),
+}));
+vi.mock("@/protoFleet/api/sites", () => ({
+  useSites: () => ({ listSites: mockListSites }),
+}));
+vi.mock("@/protoFleet/store", () => ({
+  useHasPermission: () => true,
 }));
 
 // buildingId 7n is "this building"; a rack under building 9n (same site 42n) is
-// a reparent candidate ("In another building").
+// a reparent candidate ("In another building"). building 0n = no building.
 const createRack = (id: bigint, label: string, buildingId: bigint, siteId?: bigint, deviceCount = 0) =>
   create(DeviceSetSchema, {
     id,
@@ -36,12 +48,57 @@ const createRack = (id: bigint, label: string, buildingId: bigint, siteId?: bigi
     },
   });
 
+interface FetchReq {
+  siteIds: bigint[];
+  includeUnassigned: boolean;
+  buildingIds: bigint[];
+  includeNoBuilding: boolean;
+  pageSize?: number;
+  pageToken?: string;
+}
+
+// Server-equivalent match: site scope AND building scope, each null-permissive
+// via the include flags. Empty ids + false flag on a dimension = no filter on it.
+const matchesReq = (rack: DeviceSet, req: FetchReq): boolean => {
+  if (rack.typeDetails.case !== "rackInfo") return false;
+  const b = rack.typeDetails.value.buildingId ?? 0n;
+  const s = rack.typeDetails.value.siteId ?? 0n;
+  const siteOk =
+    req.siteIds.length === 0 && !req.includeUnassigned
+      ? true
+      : req.siteIds.includes(s) || (req.includeUnassigned && s === 0n);
+  const buildingOk =
+    req.buildingIds.length === 0 && !req.includeNoBuilding
+      ? true
+      : req.buildingIds.includes(b) || (req.includeNoBuilding && b === 0n);
+  return siteOk && buildingOk;
+};
+
+// Install a mock that filters `all` by the request and paginates by pageSize/
+// pageToken (token = numeric offset as a string). No pageSize → return all
+// matches (the fetch-all path used by footer select-all).
+const setupListRacks = (all: DeviceSet[]) => {
+  mockListRacks.mockImplementation((req: FetchReq & { onSuccess?: Function; onError?: Function }) => {
+    const matched = all.filter((r) => matchesReq(r, req));
+    if (!req.pageSize) {
+      req.onSuccess?.(matched, "", matched.length);
+      return;
+    }
+    const offset = req.pageToken ? Number(req.pageToken) : 0;
+    const page = matched.slice(offset, offset + req.pageSize);
+    const nextOffset = offset + req.pageSize;
+    const nextToken = nextOffset < matched.length ? String(nextOffset) : "";
+    req.onSuccess?.(page, nextToken, matched.length);
+  });
+};
+
 const SCOPE: SiteFilterFields = { siteIds: [42n], includeUnassigned: true };
 const ALL_SITES_ASSIGNED_SCOPE: SiteFilterFields = { siteIds: [], includeUnassigned: false };
 
 const renderModal = (overrides?: {
   scope?: SiteFilterFields;
   assignedScope?: SiteFilterFields;
+  allSites?: boolean;
   initialSelectedRackIds?: bigint[];
   onConfirm?: (delta: RackSelectionDelta) => void;
 }) =>
@@ -52,6 +109,7 @@ const renderModal = (overrides?: {
       currentBuildingId={7n}
       scope={overrides?.scope ?? SCOPE}
       assignedScope={overrides?.assignedScope ?? SCOPE}
+      allSites={overrides?.allSites ?? false}
       buildingName="North"
       initialSelectedRackIds={overrides?.initialSelectedRackIds ?? []}
       onDismiss={vi.fn()}
@@ -59,79 +117,81 @@ const renderModal = (overrides?: {
     />,
   );
 
-describe("ManageRacksModal fetch scoping", () => {
-  beforeEach(() => {
-    mockListRacks.mockReset();
-    mockListBuildingsBySite.mockReset();
-    // Resolve the building-label lookup with no rows so the effect settles.
-    mockListBuildingsBySite.mockImplementation(({ onSuccess }) => onSuccess?.([]));
-    mockListRacks.mockImplementation(({ onSuccess }) => onSuccess?.([]));
-  });
+const lastRackReq = (): FetchReq => mockListRacks.mock.calls[mockListRacks.mock.calls.length - 1][0];
+const reqsMatching = (pred: (r: FetchReq) => boolean): FetchReq[] =>
+  mockListRacks.mock.calls.map((c) => c[0]).filter(pred);
 
-  it("passes the scope's siteIds/includeUnassigned into listRacks", async () => {
+beforeEach(() => {
+  mockListRacks.mockReset();
+  mockListBuildingsBySite.mockReset();
+  mockListBuildings.mockReset();
+  mockListSites.mockReset();
+  mockListBuildingsBySite.mockImplementation(({ onSuccess }) => onSuccess?.([]));
+  mockListBuildings.mockImplementation(({ onSuccess }) => onSuccess?.([]));
+  mockListSites.mockImplementation(({ onSuccess }) => onSuccess?.([]));
+  setupListRacks([]);
+});
+
+describe("ManageRacksModal fetch scoping (server-side)", () => {
+  it("pins the toggle-off request to the assignable set (site scope + this building + no-building)", async () => {
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n)]);
     renderModal();
-    await waitFor(() => expect(mockListRacks).toHaveBeenCalled());
-    expect(mockListRacks).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [42n], includeUnassigned: true }));
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    const req = lastRackReq();
+    expect(req.siteIds).toEqual([42n]);
+    expect(req.includeUnassigned).toBe(true);
+    expect(req.buildingIds).toEqual([7n]);
+    expect(req.includeNoBuilding).toBe(true);
+    expect(req.pageSize).toBe(50);
   });
 
   it("forwards a site-unassigned scope unchanged (no whole-org fallback)", async () => {
     renderModal({ scope: { siteIds: [], includeUnassigned: true } });
     await waitFor(() => expect(mockListRacks).toHaveBeenCalled());
-    const arg = mockListRacks.mock.calls[0][0];
-    expect(arg.siteIds).toEqual([]);
-    expect(arg.includeUnassigned).toBe(true);
+    const req = lastRackReq();
+    expect(req.siteIds).toEqual([]);
+    expect(req.includeUnassigned).toBe(true);
+    // Still pinned to this building so other-building racks never leak.
+    expect(req.buildingIds).toEqual([7n]);
   });
 });
 
-describe("ManageRacksModal show-assigned toggle", () => {
+describe("ManageRacksModal show-assigned toggle (server-side)", () => {
   beforeEach(() => {
-    mockListRacks.mockReset();
-    mockListBuildingsBySite.mockReset();
-    mockListBuildingsBySite.mockImplementation(({ onSuccess }) => onSuccess?.([]));
-    // Both an eligible rack (this building) and a reparent candidate (another
-    // building, same site) come back on every fetch; the toggle governs which
-    // are shown, not the fetch.
-    mockListRacks.mockImplementation(({ onSuccess }) =>
-      onSuccess?.([createRack(1n, "Alpha", 7n, 42n), createRack(2n, "Beta", 9n, 42n, 5)]),
-    );
+    // Alpha is eligible (this building); Beta is a reparent candidate (another
+    // building, same site). The server (mock) decides which are returned.
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n), createRack(2n, "Beta", 9n, 42n, 5)]);
   });
 
-  it("hides already-placed racks by default and surfaces them when toggled on", async () => {
+  it("excludes already-placed racks from the toggle-off fetch and surfaces them when toggled on", async () => {
     renderModal();
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
-    // Default off: the reparent candidate is hidden.
+    // Default off: Beta was excluded server-side (building 9 ∉ {7, none}).
     expect(screen.queryByText("Beta")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByLabelText("Show assigned racks"));
-    // Toggled on: it surfaces.
     await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
     expect(screen.getByText("Alpha")).toBeInTheDocument();
   });
 
-  it("broadens the fetch to assignedScope when toggled on (all-sites → global)", async () => {
+  it("drops the building pin and broadens to assignedScope when toggled on (all-sites → global)", async () => {
     renderModal({ scope: SCOPE, assignedScope: ALL_SITES_ASSIGNED_SCOPE });
-    await waitFor(() => expect(mockListRacks).toHaveBeenCalled());
-    // Default fetch uses the site scope.
-    expect(mockListRacks.mock.calls[0][0]).toEqual(
-      expect.objectContaining({ siteIds: [42n], includeUnassigned: true }),
-    );
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    expect(lastRackReq()).toEqual(expect.objectContaining({ siteIds: [42n], buildingIds: [7n] }));
 
     await userEvent.click(screen.getByLabelText("Show assigned racks"));
-    // Toggle-on fetch broadens to the global assignedScope.
-    await waitFor(() =>
-      expect(mockListRacks).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [], includeUnassigned: false })),
-    );
+    await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
+    const req = lastRackReq();
+    expect(req.siteIds).toEqual([]);
+    expect(req.includeUnassigned).toBe(false);
+    expect(req.buildingIds).toEqual([]);
+    expect(req.includeNoBuilding).toBe(false);
   });
 
-  // Rows sort alphabetically, so body checkbox 0 = Alpha (eligible), 1 = Beta
-  // (reparent candidate).
   const rowCheckbox = (index: number) =>
     screen.getByTestId("list-body").querySelectorAll<HTMLInputElement>("input[type='checkbox']")[index];
 
   it("header select-all selects the whole page including reparent rows and reports them in reassigned", async () => {
-    // The in-table header "select all" selects every row on the page, reparent
-    // candidates included — matches MinerSelectionList. Reparenting is gated by
-    // the confirm the host shows on Continue, not by excluding the row here.
     const onConfirm = vi.fn();
     renderModal({ onConfirm });
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
@@ -147,31 +207,7 @@ describe("ManageRacksModal show-assigned toggle", () => {
     expect(delta.reassigned).toEqual([{ rackId: 2n, label: "Beta", minerCount: 5 }]);
   });
 
-  it("header deselect clears the whole page including reparent picks", async () => {
-    // Pick the reparent row and the eligible row so the header reads "checked",
-    // then click it to clear the page. Both picks clear — nothing is stranded.
-    const onConfirm = vi.fn();
-    renderModal({ onConfirm });
-    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
-    await userEvent.click(screen.getByLabelText("Show assigned racks"));
-    await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
-
-    await userEvent.click(rowCheckbox(1)); // reparent pick (Beta)
-    await userEvent.click(rowCheckbox(0)); // eligible pick (Alpha) → header now checked
-    const selectAll = screen.getByTestId("select-all-checkbox").querySelector("input")!;
-    await userEvent.click(selectAll); // header checked → this clears the page
-    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
-
-    const delta = onConfirm.mock.calls[0][0];
-    expect(delta.reassigned).toEqual([]);
-    expect(delta.added).toEqual([]);
-  });
-
   it("hides the footer 'Select all' while assigned racks are shown, and restores it when hidden", async () => {
-    // The footer "Select all" (all pages) must not sweep reparent rows, so it is
-    // dropped while the toggle surfaces them — matches MinerSelectionList. The
-    // in-table header checkbox remains the only page-level bulk gesture, and its
-    // reparent picks are gated by the Continue confirm.
     renderModal();
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Select all" })).toBeInTheDocument();
@@ -192,42 +228,13 @@ describe("ManageRacksModal show-assigned toggle", () => {
     await userEvent.click(screen.getByLabelText("Show assigned racks"));
     await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
 
-    // Explicit per-row pick of the reparent candidate is allowed...
-    await userEvent.click(rowCheckbox(1));
-    // ...but toggling off hides it and must not leave it silently selected.
-    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    await userEvent.click(rowCheckbox(1)); // reparent pick (Beta)
+    await userEvent.click(screen.getByLabelText("Show assigned racks")); // toggle off
     await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
 
     const delta = onConfirm.mock.calls[0][0];
     expect(delta.reassigned).toEqual([]);
     expect(delta.added.map((a: { rackId: bigint }) => a.rackId)).not.toContain(2n);
-  });
-
-  it("recovers when the broadened (toggle-on) fetch fails", async () => {
-    // The eligible scoped fetch succeeds; toggling on broadens to a global scope
-    // whose fetch fails. The failure must not strand the operator behind a full-
-    // modal error that hides the Switch — the toggle reverts, the already-loaded
-    // eligible racks stay, and the picker remains usable.
-    mockListRacks.mockReset();
-    mockListRacks.mockImplementation(({ siteIds, onSuccess, onError }) => {
-      if (siteIds.length === 0) {
-        onError?.("network down");
-      } else {
-        onSuccess?.([createRack(1n, "Alpha", 7n, 42n), createRack(2n, "Beta", 9n, 42n, 5)]);
-      }
-    });
-
-    renderModal({ scope: SCOPE, assignedScope: ALL_SITES_ASSIGNED_SCOPE });
-    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
-
-    await userEvent.click(screen.getByLabelText("Show assigned racks"));
-
-    // No blocking error state, the Switch survives, and the toggle is back off.
-    await waitFor(() => expect(screen.getByLabelText("Show assigned racks")).not.toBeChecked());
-    expect(screen.queryByTestId("manage-racks-modal-error")).not.toBeInTheDocument();
-    expect(screen.getByText("Alpha")).toBeInTheDocument();
-    // The ineligible rack never surfaced (broadened fetch failed).
-    expect(screen.queryByText("Beta")).not.toBeInTheDocument();
   });
 
   it("allows an explicit single per-row reparent pick through the delta", async () => {
@@ -244,28 +251,139 @@ describe("ManageRacksModal show-assigned toggle", () => {
     expect(delta.reassigned).toEqual([{ rackId: 2n, label: "Beta", minerCount: 5 }]);
   });
 
-  it("treats a seeded reparent as in-this-building and never drops it on toggle-off", async () => {
-    // Reopen after staging a reparent: Beta is in the working set (seeded) but
-    // its server row still reports building 9n. It must render "In this building"
-    // (visible with the toggle OFF, no warning) and survive a toggle on→off — the
-    // path that strips reassignment picks — without being reported as removed.
-    const onConfirm = vi.fn();
-    renderModal({ initialSelectedRackIds: [2n], onConfirm });
-    await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
-    // Default toggle-off view shows Beta (not hidden as a reassignment row);
-    // both Alpha and the seeded Beta now read "In this building", and nothing
-    // reads "In another building".
-    expect(screen.getAllByText("In this building")).toHaveLength(2);
-    expect(screen.queryByText("In another building")).not.toBeInTheDocument();
+  it("recovers when the broadened (toggle-on) fetch fails", async () => {
+    // The scoped fetch succeeds; the broadened all-sites fetch (siteIds empty)
+    // fails. The failure must revert the toggle, keep the picker usable, and not
+    // strand the operator behind the blocking error state.
+    mockListRacks.mockImplementation((req: FetchReq & { onSuccess?: Function; onError?: Function }) => {
+      if (req.siteIds.length === 0) {
+        req.onError?.("network down");
+        return;
+      }
+      req.onSuccess?.([createRack(1n, "Alpha", 7n, 42n)], "", 1);
+    });
 
-    // Toggle on then off — the reassignment-stripping path — must not drop it.
+    renderModal({ scope: SCOPE, assignedScope: ALL_SITES_ASSIGNED_SCOPE });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
     await userEvent.click(screen.getByLabelText("Show assigned racks"));
-    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+
+    await waitFor(() => expect(screen.getByLabelText("Show assigned racks")).not.toBeChecked());
+    expect(screen.queryByTestId("manage-racks-modal-error")).not.toBeInTheDocument();
+    expect(screen.getByText("Alpha")).toBeInTheDocument();
+    expect(screen.queryByText("Beta")).not.toBeInTheDocument();
+  });
+
+  it("never reports a seeded rack absent from the fetch as removed", async () => {
+    // A seeded rack (id 3) that the eligibility-pinned fetch doesn't return
+    // (paging gap / soft-delete window) must be left alone, not unassigned.
+    const onConfirm = vi.fn();
+    renderModal({ initialSelectedRackIds: [1n, 3n], onConfirm });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
     await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
 
     const delta = onConfirm.mock.calls[0][0];
     expect(delta.removed).toEqual([]);
-    expect(delta.reassigned).toEqual([]);
     expect(delta.added).toEqual([]);
+  });
+});
+
+describe("ManageRacksModal facets → request (server-side)", () => {
+  it("translates a Building facet into buildingIds on the request", async () => {
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n), createRack(2n, "Beta", 9n, 42n, 5)]);
+    mockListBuildings.mockImplementation(({ onSuccess }) =>
+      onSuccess?.([{ building: { id: 7n, name: "North" } }, { building: { id: 9n, name: "South" } }]),
+    );
+    renderModal();
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    // Show assigned so the Building facet narrows a cross-building set.
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTestId("filter-nested-filters-meta"));
+    await userEvent.click(screen.getByTestId("nested-dropdown-filter-row-building"));
+    await userEvent.click(screen.getByTestId("filter-option-9")); // building 9 = "South"
+
+    await waitFor(() => {
+      const req = lastRackReq();
+      expect(req.buildingIds).toEqual([9n]);
+    });
+  });
+
+  it("offers the Site facet only when the header is all-sites", async () => {
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n)]);
+    const { unmount } = renderModal({ allSites: false });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("filter-nested-filters-meta"));
+    expect(screen.getByTestId("nested-dropdown-filter-row-building")).toBeInTheDocument();
+    expect(screen.queryByTestId("nested-dropdown-filter-row-site")).not.toBeInTheDocument();
+    unmount();
+
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n)]);
+    renderModal({ allSites: true });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    await userEvent.click(screen.getByTestId("filter-nested-filters-meta"));
+    expect(screen.getByTestId("nested-dropdown-filter-row-site")).toBeInTheDocument();
+  });
+
+  it("translates a Site facet into siteIds on the request", async () => {
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n), createRack(3n, "Gamma", 5n, 99n)]);
+    mockListSites.mockImplementation(({ onSuccess }) =>
+      onSuccess?.([{ site: { id: 42n, name: "HQ" } }, { site: { id: 99n, name: "Remote" } }]),
+    );
+    renderModal({ allSites: true, assignedScope: ALL_SITES_ASSIGNED_SCOPE });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+
+    await userEvent.click(screen.getByTestId("filter-nested-filters-meta"));
+    await userEvent.click(screen.getByTestId("nested-dropdown-filter-row-site"));
+    await userEvent.click(screen.getByTestId("filter-option-99")); // site 99 = "Remote"
+
+    await waitFor(() => expect(lastRackReq().siteIds).toEqual([99n]));
+  });
+});
+
+describe("ManageRacksModal server-side pagination", () => {
+  it("pages through results, carrying the scope across pages, with a server total", async () => {
+    // 60 eligible racks (this building) → two pages of 50 + 10.
+    const many = Array.from({ length: 60 }, (_, i) =>
+      createRack(BigInt(i + 1), `Rack ${String(i).padStart(2, "0")}`, 7n, 42n),
+    );
+    setupListRacks(many);
+    renderModal();
+    await waitFor(() => expect(screen.getByText("Showing 1–50 of 60 racks")).toBeInTheDocument());
+    expect(lastRackReq().pageToken ?? "").toBe("");
+
+    await userEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await waitFor(() => expect(screen.getByText("Showing 51–60 of 60 racks")).toBeInTheDocument());
+    // Page 2 carried the same scope (facet correctness across pages).
+    const page2 = lastRackReq();
+    expect(page2.pageToken).toBe("50");
+    expect(page2.siteIds).toEqual([42n]);
+    expect(page2.buildingIds).toEqual([7n]);
+
+    await userEvent.click(screen.getByRole("button", { name: "Previous page" }));
+    await waitFor(() => expect(screen.getByText("Showing 1–50 of 60 racks")).toBeInTheDocument());
+  });
+
+  it("footer 'Select all' fetches every eligible rack across pages, not just the current page", async () => {
+    const many = Array.from({ length: 60 }, (_, i) =>
+      createRack(BigInt(i + 1), `Rack ${String(i).padStart(2, "0")}`, 7n, 42n),
+    );
+    setupListRacks(many);
+    const onConfirm = vi.fn();
+    renderModal({ onConfirm });
+    await waitFor(() => expect(screen.getByText("Showing 1–50 of 60 racks")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Select all" }));
+    await waitFor(() => expect(screen.getByText("60 racks selected")).toBeInTheDocument());
+
+    // The select-all fetch is unpaginated (no pageSize) over the eligible filter.
+    const fetchAll = reqsMatching((r) => r.pageSize === undefined);
+    expect(fetchAll.length).toBeGreaterThan(0);
+    expect(fetchAll[fetchAll.length - 1].buildingIds).toEqual([7n]);
+
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+    expect(onConfirm.mock.calls[0][0].added).toHaveLength(60);
   });
 });

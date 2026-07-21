@@ -13,6 +13,7 @@ import { DeviceSetSchema, RackInfoSchema } from "@/protoFleet/api/generated/devi
 // member-only AssignRacksToBuilding. These tests drive that flow end to end.
 const mockApi = vi.hoisted(() => ({
   listBuildingsBySite: vi.fn(),
+  listBuildings: vi.fn(),
   listBuildingRacks: vi.fn(),
   assignRacksToBuilding: vi.fn(),
 }));
@@ -67,12 +68,14 @@ const openPickerAndPickBeta = async () => {
 describe("ManageBuildingModal reparent commit-on-Continue", () => {
   beforeEach(() => {
     mockApi.listBuildingsBySite.mockReset();
+    mockApi.listBuildings.mockReset();
     mockApi.listBuildingRacks.mockReset();
     mockApi.assignRacksToBuilding.mockReset();
     mockListRacks.mockReset();
     // Building opens with no racks placed yet.
     mockApi.listBuildingRacks.mockImplementation(({ onSuccess }) => onSuccess?.([]));
     mockApi.listBuildingsBySite.mockImplementation(({ onSuccess }) => onSuccess?.([]));
+    mockApi.listBuildings.mockImplementation(({ onSuccess }) => onSuccess?.([]));
     mockApi.assignRacksToBuilding.mockImplementation(({ onSuccess }) => onSuccess?.(0n));
     mockListRacks.mockImplementation(({ onSuccess }) =>
       onSuccess?.([createRack(1n, "Alpha", 20n, 7n), createRack(2n, "Beta", 9n, 7n, 5)]),

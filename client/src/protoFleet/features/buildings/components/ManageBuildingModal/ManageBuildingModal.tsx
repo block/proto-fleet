@@ -734,6 +734,7 @@ const ManageBuildingModal = ({
           currentBuildingId={building.id}
           scope={rackScope}
           assignedScope={assignedScope}
+          allSites={activeSite.kind === "all"}
           buildingName={building.name}
           initialSelectedRackIds={currentRackIds}
           onDismiss={() => setShowManageRacks(false)}

@@ -177,23 +177,51 @@ reaches `listRacks` (guards against reverting to a whole-org fetch).
 
 - Add a rack `filterConfig` facet set — adapt, don't copy the miner facets.
   Keep only:
-  - **Building** — `buildingIds` / `includeNoBuilding`.
-  - **Zone** — `zones`.
-  - **Drop the Site facet.** Part A now pins the fetch to the building's own
-    site (see PR 1 design note), so a Site facet would be a no-op / could only
-    contradict the fixed scope. (This supersedes #728's "hide Site facet when
-    scope governs it" — here the scope *always* governs it.)
-  - Drop **Model / Subnet / Group** — no rack analog.
+  - **Building** — `buildingIds` / `includeNoBuilding`. Always shown.
+  - **Site** — `siteIds`. **Shown only when the header is all-sites**, and
+    `site:read`-gated. This mirrors the miner picker exactly
+    (`SearchMinersModal.tsx:75` / `ManageMinersModal.tsx:119`:
+    `showSiteFilter: !scope`): hide Site when a scope already pins one site
+    (the facet would be a no-op), show it when the fetch actually spans sites.
+    The only multi-site fetch is the "Show assigned racks" + all-sites global
+    broadening from Part B; scope-sync (#764) guarantees a scoped header equals
+    the building's site. We accept the harmless no-op in the toggle-off
+    all-sites view for strict parity with the miner picker (which keeps the
+    facet visible in both toggle states and leans on the empty state), rather
+    than adding a rack-only special case. (This *refines* the earlier "drop the
+    Site facet" decision, which was written under Part A when the fetch was
+    always single-site; Part B's all-sites broadening made Site meaningful.)
+  - **Drop the Zone facet — deferred.** Zone labels are unique only *within* a
+    building (`ZoneKey { building_id, zone }`; `proto/common/v1/zone.proto`),
+    so a label-only zone filter collides across buildings ("Room 2" matches
+    every building's "Room 2"). The client still forwards the **deprecated**
+    flat `zones: string[]` wildcard path (`listRacks` sends `zones`, not
+    `zoneKeys`; `listRackZones` returns `string[]`, no building context), so a
+    correct zone facet needs the `zoneKeys`/`ZoneRef` FE migration that the 229
+    plan (`docs/plans/2026-05-14-229-...`) explicitly defers to Phase 2. The
+    miner picker has **no** zone facet either, so deferring keeps parity. The
+    Building facet already provides building-level narrowing. Zone lands as a
+    follow-up alongside the `zoneKeys` migration (composite `Building — Zone`
+    labels + precise `zoneKeys`, per 229's "richer labels, no cascade" path).
+  - Drop **Model / Subnet / Group / Rack** — no rack analog.
 - Migrate **`ManageRacksModal`** from client-side slicing to **server-side
   pagination** (`pageSize`/`pageToken`, `PAGE_SIZE=50`) so scope + facets are
   correct across pages. `ManageRacksModal` has no name box (none today).
+  - Part B (#766, now merged) hides ineligible rows with a **client-side**
+    `items.filter(r => !r.reassignment)` before slicing. That filter does not
+    survive server-side pagination and becomes unnecessary — the toggle already
+    switches `scope → assignedScope`, so scope governs which rows return.
+    **Delete the client-side filter** rather than paginate around it.
 - **`SearchRacksModal` stays on fetch-all + client-side name filter** —
   single-select, list is small after site scoping. This is what defers name
   search with zero backend work and no regression.
 - Facets compose (AND) with the building-site scope.
 
-**Tests:** facet → request translation; scope + facets correct across
-`ManageRacksModal` pages.
+**Tests:** facet → request translation (Building maps to
+`buildingIds`/`includeNoBuilding`; Site maps to `siteIds` and is only offered
+under an all-sites header); scope + facets correct across `ManageRacksModal`
+pages; toggle-on/off breadth still correct after removing the client-side
+reassignment filter.
 
 ### PR 3 — Part B: "Show assigned racks" toggle + reparent — [#766](https://github.com/block/proto-fleet/issues/766)
 
@@ -245,8 +273,10 @@ header always agrees with the building (or is all-sites).
 - [ ] Selecting an already-placed rack prompts a reparent confirm before
       commit; `reassignedItems` reported to the host modal; dialog states
       miners move with the rack.
-- [ ] Building / Zone facets filter server-side and compose (AND) with the
-      building-site scope; Site facet dropped (scope always governs it).
+- [ ] Building facet filters server-side and composes (AND) with the
+      building-site scope. Site facet shown only under an all-sites header
+      (`site:read`-gated), mirroring the miner picker's `showSiteFilter: !scope`.
+      Zone facet deferred (see PR 2 note).
 - [ ] `ManageRacksModal` paginates server-side; scope + facets correct
       across pages.
 - [ ] Name search unchanged — `SearchRacksModal` client-side filter still
@@ -257,7 +287,11 @@ header always agrees with the building (or is all-sites).
 
 ## Out of scope
 
-- Model / Subnet / Group facets (no rack analog).
+- Model / Subnet / Group / Rack facets (no rack analog).
+- **Zone facet — deferred to a follow-up.** Needs the `zoneKeys`/`ZoneRef` FE
+  migration (229 plan, Phase 2) to avoid the cross-building label collision;
+  the client currently only wires the deprecated flat `zones` wildcard. Miner
+  picker has no zone facet either, so deferring holds parity.
 - Telemetry-range / error-component facets (possible follow-up).
 - Server-side name search / `nameQuery` proto field.
 
