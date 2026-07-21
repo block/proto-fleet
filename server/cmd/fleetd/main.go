@@ -390,11 +390,15 @@ func start(config *Config) error {
 		WithCommandSender(fleetNodeControlRegistry)
 
 	// Create diagnostics service for error polling and auto-closing stale errors
-	diagnosticsCtx, diagnosticsCancel := context.WithCancel(context.Background())
-	defer diagnosticsCancel()
 	errorStore := sqlstores.NewSQLErrorStore(conn, transactor)
-	diagnosticsService := diagnostics.NewService(diagnosticsCtx, config.Diagnostics, errorStore, transactor).
+	diagnosticsService := diagnostics.NewService(config.Diagnostics, errorStore, transactor).
 		WithDeviceScopeResolver(deviceStore)
+	if err := diagnosticsService.Start(context.Background()); err != nil {
+		return fmt.Errorf("start diagnostics error closer: %w", err)
+	}
+	defer func() {
+		stopStandaloneJob("diagnostics error closer", diagnosticsService)
+	}()
 
 	// Shared per-org cache for ListMinerStateSnapshots option arrays
 	// (models, firmware versions). The TTL is the primary freshness

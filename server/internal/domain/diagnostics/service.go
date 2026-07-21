@@ -2,7 +2,9 @@ package diagnostics
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -11,6 +13,7 @@ import (
 	minerInterfaces "github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	storeInterfaces "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 // PollResult contains the outcome of a PollErrors operation.
@@ -38,20 +41,85 @@ type Service struct {
 	errorStore  storeInterfaces.ErrorStore
 	transactor  storeInterfaces.Transactor
 	deviceScope DeviceScopeResolver
+
+	closerMu       sync.Mutex
+	closerCancel   context.CancelFunc
+	closerDone     chan struct{}
+	closerStopping bool
 }
 
-// NewService creates a new diagnostics service and starts the error closer goroutine.
-// The closer runs until the provided context is cancelled.
-func NewService(ctx context.Context, config Config, errorStore storeInterfaces.ErrorStore, transactor storeInterfaces.Transactor) *Service {
-	s := &Service{
+var _ runtimejobs.Lifecycle = (*Service)(nil)
+
+// NewService creates a diagnostics service without starting background work.
+func NewService(config Config, errorStore storeInterfaces.ErrorStore, transactor storeInterfaces.Transactor) *Service {
+	return &Service{
 		config:     config,
 		errorStore: errorStore,
 		transactor: transactor,
 	}
+}
 
-	go s.runCloser(ctx)
+// Start starts the stale-error closer. Repeated starts are idempotent.
+func (s *Service) Start(ctx context.Context) error {
+	s.closerMu.Lock()
+	if s.closerStopping {
+		s.closerMu.Unlock()
+		return fmt.Errorf("diagnostics error closer is still stopping")
+	}
+	if s.closerCancel != nil {
+		s.closerMu.Unlock()
+		return nil
+	}
 
-	return s
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	s.closerCancel = cancel
+	s.closerDone = done
+	s.closerMu.Unlock()
+
+	go func() {
+		defer close(done)
+		defer s.clearCloserState(done)
+		s.runCloser(runCtx)
+	}()
+	return nil
+}
+
+// Stop cancels the stale-error closer and waits for it to drain.
+func (s *Service) Stop(ctx context.Context) error {
+	s.closerMu.Lock()
+	if s.closerCancel == nil {
+		s.closerMu.Unlock()
+		return nil
+	}
+
+	s.closerStopping = true
+	cancel := s.closerCancel
+	done := s.closerDone
+	s.closerMu.Unlock()
+
+	cancel()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("stop diagnostics error closer: %w", ctx.Err())
+	}
+}
+
+// clearCloserState releases lifecycle state for this specific run. The
+// identity check prevents an exiting goroutine from clearing a newer run.
+func (s *Service) clearCloserState(done chan struct{}) {
+	s.closerMu.Lock()
+	defer s.closerMu.Unlock()
+
+	if s.closerDone != done {
+		return
+	}
+
+	s.closerCancel = nil
+	s.closerDone = nil
+	s.closerStopping = false
 }
 
 // WithDeviceScopeResolver wires the resolver used to translate a site scope
