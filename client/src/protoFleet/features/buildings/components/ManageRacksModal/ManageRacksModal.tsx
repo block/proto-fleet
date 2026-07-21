@@ -235,16 +235,12 @@ const ManageRacksModal = ({
   const selectedItemsRef = useRef(selectedItems);
   selectedItemsRef.current = selectedItems;
   // Monotonic epoch that invalidates an in-flight footer "Select all": bumped by
-  // any newer selection or request change, so a slow bulk-select completion that
-  // lands after the operator has moved on (Select none, a row toggle, a filter)
-  // is ignored instead of silently re-selecting the stale result.
+  // any newer selection or request change, which also clears `selectingAll` (see
+  // the cancellation paths below). Both the result handler and the finalizer are
+  // gated on it, so a slow bulk-select completion that lands after the operator
+  // has moved on (Select none, a row toggle, a filter) neither re-selects the
+  // stale result nor re-enables Continue while a newer fetch is still pending.
   const selectAllEpochRef = useRef(0);
-  // Distinct from the epoch above: identifies a specific footer "Select all"
-  // *fetch* so its finalizer clears `selectingAll` only when it is still the
-  // latest bulk fetch. The epoch is bumped by any selection change (a row
-  // toggle, Select none), which must NOT strand `selectingAll` true — so the
-  // finalizer keys off this fetch id, not the epoch.
-  const selectAllFetchIdRef = useRef(0);
 
   // Building-label lookup for the Building column (this building's site).
   useEffect(() => {
@@ -371,6 +367,10 @@ const ManageRacksModal = ({
     setNextPageToken("");
     setTotalCount(0);
     setPageLoading(false);
+    // A request change cancels an in-flight select-all (epoch bumped above), so
+    // drop its loading state too — else Continue would stay disabled against the
+    // new, unrelated request.
+    setSelectingAll(false);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [requestKey, initialSelectedRackIds]);
 
@@ -586,7 +586,6 @@ const ManageRacksModal = ({
   const handleSelectAll = useCallback(() => {
     const req = requestRef.current;
     const epoch = (selectAllEpochRef.current += 1);
-    const fetchId = (selectAllFetchIdRef.current += 1);
     setSelectingAll(true);
     void listRacks({
       siteIds: req.siteIds,
@@ -612,25 +611,30 @@ const ManageRacksModal = ({
         pushToast({ message: `Couldn't select all racks: ${msg}`, status: STATUSES.error });
       },
       onFinally: () => {
-        // Clear the loading state only if this is still the latest bulk fetch.
-        // A superseded (slower) Select all finishing after a newer one must not
-        // re-enable Continue while the newer bulk result is still pending — that
-        // would let Continue commit the stale selection.
-        if (selectAllFetchIdRef.current !== fetchId) return;
+        // Only the latest bulk fetch clears the loading state. A cancellation
+        // (row toggle / Select none / filter) already cleared `selectingAll` and
+        // bumped the epoch, and a superseded fetch (cancel → restart) fails this
+        // check too — so a slower earlier fetch can't re-enable Continue while a
+        // newer one is still pending.
+        if (selectAllEpochRef.current !== epoch) return;
         setSelectingAll(false);
       },
     });
   }, [listRacks, currentBuildingId, siteId, seededRackIds]);
 
   // Wraps the List's selection setter so any manual selection change (row
-  // toggle, page header checkbox) invalidates an in-flight footer select-all.
+  // toggle, page header checkbox) cancels an in-flight footer select-all: bump
+  // the epoch (its result/finalizer are then ignored) and drop the loading state
+  // so the operator's manual selection takes over immediately.
   const handleSelectionChange = useCallback((value: string[] | ((prev: string[]) => string[])) => {
     selectAllEpochRef.current += 1;
+    setSelectingAll(false);
     setSelectedItems(value);
   }, []);
 
   const handleSelectNone = useCallback(() => {
     selectAllEpochRef.current += 1;
+    setSelectingAll(false);
     setSelectedItems([]);
   }, []);
 
@@ -755,6 +759,9 @@ const ManageRacksModal = ({
                 // gated by the reparent confirm on Continue.
                 onSelectAll={showAssigned || placementFacetConflict ? undefined : handleSelectAll}
                 onSelectNone={handleSelectNone}
+                // Prevent duplicate/overlapping bulk fetches while one is in
+                // flight. Select none stays live and doubles as cancel.
+                selectAllDisabled={selectingAll}
               />
             </div>
           </>

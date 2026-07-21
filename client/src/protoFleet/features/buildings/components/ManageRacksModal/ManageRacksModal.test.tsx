@@ -520,11 +520,14 @@ describe("ManageRacksModal review fixes (#789)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Select all" }));
     const confirm = screen.getByTestId("manage-racks-modal-confirm");
     expect(confirm).toBeDisabled();
+    // Select all is disabled while its fetch is in flight (no duplicate clicks).
+    expect(screen.getByRole("button", { name: "Select all" })).toBeDisabled();
     expect(onConfirm).not.toHaveBeenCalled();
 
     resolveAll!();
     await waitFor(() => expect(screen.getByText("2 racks selected")).toBeInTheDocument());
     expect(confirm).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Select all" })).not.toBeDisabled();
 
     await userEvent.click(confirm);
     expect(onConfirm).toHaveBeenCalledTimes(1);
@@ -659,10 +662,11 @@ describe("ManageRacksModal review fixes (#789)", () => {
     expect(lastRackReq().pageToken).toBe("50");
   });
 
-  it("ignores a superseded Select all finalizer (Continue stays disabled until the latest resolves)", async () => {
-    // Two footer Select alls in flight: the slower (superseded) one finishing
-    // first must not re-enable Continue while the newer bulk fetch is pending —
-    // otherwise Continue could commit the stale selection.
+  it("a superseded Select all (cancel → restart) doesn't re-enable Continue until the latest resolves", async () => {
+    // Select all is disabled while running, but a cancel (row toggle) re-enables
+    // it — so a cancel-then-restart can still put two bulk fetches in flight. The
+    // slower (superseded) one finishing first must not re-enable Continue while
+    // the newer fetch is pending, or Continue could commit the stale selection.
     const many = [createRack(1n, "Alpha", 7n, 42n), createRack(2n, "Bravo", 7n, 42n)];
     const pendingAll: Array<() => void> = [];
     mockListRacks.mockImplementation((req: FetchReq & { onSuccess?: Function; onFinally?: Function }) => {
@@ -680,10 +684,20 @@ describe("ManageRacksModal review fixes (#789)", () => {
     renderModal();
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
 
-    const selectAll = screen.getByRole("button", { name: "Select all" });
-    await userEvent.click(selectAll); // fetch #1
-    await userEvent.click(selectAll); // fetch #2 supersedes #1
     const confirm = screen.getByTestId("manage-racks-modal-confirm");
+    const rowCheckbox = (i: number) =>
+      screen.getByTestId("list-body").querySelectorAll<HTMLInputElement>("input[type='checkbox']")[i];
+
+    // Fetch #1 in flight; Select all is disabled while it runs.
+    await userEvent.click(screen.getByRole("button", { name: "Select all" }));
+    expect(screen.getByRole("button", { name: "Select all" })).toBeDisabled();
+
+    // A row toggle cancels it — Select all re-enables and Continue is usable.
+    await userEvent.click(rowCheckbox(0));
+    expect(screen.getByRole("button", { name: "Select all" })).not.toBeDisabled();
+
+    // Restart: fetch #2 in flight, Continue disabled again.
+    await userEvent.click(screen.getByRole("button", { name: "Select all" }));
     expect(confirm).toBeDisabled();
 
     // The superseded fetch #1 finalizes first: Continue must stay disabled.
