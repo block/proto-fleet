@@ -227,6 +227,11 @@ const ManageRacksModal = ({
   buildingMapRef.current = buildingMap;
   const selectedItemsRef = useRef(selectedItems);
   selectedItemsRef.current = selectedItems;
+  // Monotonic epoch that invalidates an in-flight footer "Select all": bumped by
+  // any newer selection or request change, so a slow bulk-select completion that
+  // lands after the operator has moved on (Select none, a row toggle, a filter)
+  // is ignored instead of silently re-selecting the stale result.
+  const selectAllEpochRef = useRef(0);
 
   // Building-label lookup for the Building column (this building's site).
   useEffect(() => {
@@ -315,6 +320,9 @@ const ManageRacksModal = ({
   // the id; real rows overwrite it as pages load (the delta needs only the id to
   // report a removal).
   useEffect(() => {
+    // A request change (filter / toggle / site) invalidates any in-flight
+    // footer select-all — its result described the previous request.
+    selectAllEpochRef.current += 1;
     pageTokensRef.current = [""];
     const prev = accumulatorRef.current;
     const acc = new Map<string, RackPickerItem>();
@@ -540,6 +548,7 @@ const ManageRacksModal = ({
   // fetchAllSelectableMinerIds.
   const handleSelectAll = useCallback(() => {
     const req = requestRef.current;
+    const epoch = (selectAllEpochRef.current += 1);
     setSelectingAll(true);
     void listRacks({
       siteIds: req.siteIds,
@@ -547,6 +556,10 @@ const ManageRacksModal = ({
       buildingIds: req.buildingIds,
       includeNoBuilding: req.includeNoBuilding,
       onSuccess: (racks) => {
+        // Drop a stale completion: the operator changed the selection/filter
+        // while this fetch was in flight, so applying its result would clobber
+        // the newer state.
+        if (selectAllEpochRef.current !== epoch) return;
         const ids: string[] = [];
         for (const rack of racks) {
           const item = buildRackPickerItem(rack, siteId, currentBuildingId, buildingMapRef.current, seededRackIds);
@@ -564,7 +577,17 @@ const ManageRacksModal = ({
     });
   }, [listRacks, currentBuildingId, siteId, seededRackIds]);
 
-  const handleSelectNone = useCallback(() => setSelectedItems([]), []);
+  // Wraps the List's selection setter so any manual selection change (row
+  // toggle, page header checkbox) invalidates an in-flight footer select-all.
+  const handleSelectionChange = useCallback((value: string[] | ((prev: string[]) => string[])) => {
+    selectAllEpochRef.current += 1;
+    setSelectedItems(value);
+  }, []);
+
+  const handleSelectNone = useCallback(() => {
+    selectAllEpochRef.current += 1;
+    setSelectedItems([]);
+  }, []);
 
   // A placement-facet conflict is provably empty; present it as such even though
   // the last successful fetch may still be held in pageItems/totalCount.
@@ -636,7 +659,7 @@ const ManageRacksModal = ({
                 itemSelectable
                 selectionType="checkbox"
                 customSelectedItems={selectedItems}
-                customSetSelectedItems={setSelectedItems}
+                customSetSelectedItems={handleSelectionChange}
                 preserveOffPageSelection
                 isRowDisabled={isRowDisabled}
                 itemName={{ singular: "rack", plural: "racks" }}

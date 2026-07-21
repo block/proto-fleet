@@ -580,4 +580,36 @@ describe("ManageRacksModal review fixes (#789)", () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(onConfirm.mock.calls[0][0].removed).toEqual([1n]);
   });
+
+  it("ignores a stale footer 'Select all' completion after Select none", async () => {
+    // Select all is slow; the operator clicks Select none before it resolves.
+    // The late completion must not silently re-select the bulk result.
+    const many = [createRack(1n, "Alpha", 7n, 42n), createRack(2n, "Bravo", 7n, 42n)];
+    let resolveAll: (() => void) | undefined;
+    mockListRacks.mockImplementation((req: FetchReq & { onSuccess?: Function; onFinally?: Function }) => {
+      const matched = many.filter((r) => matchesReq(r, req));
+      if (!req.pageSize) {
+        resolveAll = () => {
+          req.onSuccess?.(matched, "", matched.length);
+          req.onFinally?.();
+        };
+        return;
+      }
+      req.onSuccess?.(matched.slice(0, req.pageSize), "", matched.length);
+      req.onFinally?.();
+    });
+    const onConfirm = vi.fn();
+    renderModal({ onConfirm });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("button", { name: "Select all" }));
+    await userEvent.click(screen.getByRole("button", { name: "Select none" }));
+    // Stale bulk-select completion resolves now.
+    resolveAll!();
+    await waitFor(() => expect(screen.getByTestId("manage-racks-modal-confirm")).not.toBeDisabled());
+    expect(screen.getByText("0 racks selected")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+    expect(onConfirm.mock.calls[0][0].added).toEqual([]);
+  });
 });
