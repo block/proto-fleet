@@ -19,6 +19,7 @@ type Group struct {
 	cleanupTimeout time.Duration
 	jobs           []Job
 	terminalErr    error
+	activationCtx  context.Context
 	cancel         context.CancelFunc
 }
 
@@ -61,10 +62,14 @@ func (g *Group) Start(ctx context.Context) error {
 		return fmt.Errorf("runtime job group cannot restart after incomplete cleanup: %w", g.terminalErr)
 	}
 	if g.cancel != nil {
+		if err := g.activationCtx.Err(); err != nil {
+			return fmt.Errorf("runtime job group activation ended before stop: %w", err)
+		}
 		return nil
 	}
 
 	activationCtx, cancel := context.WithCancel(ctx)
+	g.activationCtx = activationCtx
 	g.cancel = cancel
 	started := 0
 	for _, job := range g.jobs {
@@ -83,6 +88,7 @@ func (g *Group) Start(ctx context.Context) error {
 func (g *Group) failStart(ctx context.Context, started int, startErr error) error {
 	g.cancel()
 	rollbackErr := g.stopJobs(ctx, g.jobs[:started])
+	g.activationCtx = nil
 	g.cancel = nil
 	if rollbackErr == nil {
 		return startErr
@@ -105,6 +111,7 @@ func (g *Group) Stop(ctx context.Context) error {
 	}
 
 	g.cancel()
+	g.activationCtx = nil
 	g.cancel = nil
 	if err := g.stopJobs(ctx, g.jobs); err != nil {
 		g.terminalErr = err
@@ -125,6 +132,9 @@ func (g *Group) stopJobs(parent context.Context, jobs []Job) error {
 			close(stopGoroutineStarted)
 			result <- job.Stop(stopCtx)
 		}()
+		// Schedule every stop attempt before honoring an already-expired group
+		// deadline. Once the caller's budget is gone, entering Stop itself is
+		// necessarily best effort; waiting for it could make shutdown unbounded.
 		<-stopGoroutineStarted
 
 		var err error

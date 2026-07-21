@@ -258,11 +258,14 @@ func TestGroupStopHonorsCallerCancellation(t *testing.T) {
 	err := group.Stop(stopCtx)
 	require.ErrorIs(t, err, context.Canceled)
 
-	select {
-	case <-stopEntered:
-	default:
-		t.Fatal("stop was not attempted")
-	}
+	require.Eventually(t, func() bool {
+		select {
+		case <-stopEntered:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, time.Millisecond, "stop was not attempted")
 }
 
 func TestGroupStartAndStopAreIdempotent(t *testing.T) {
@@ -282,6 +285,23 @@ func TestGroupStartAndStopAreIdempotent(t *testing.T) {
 	require.NoError(t, group.Stop(context.Background()))
 	assert.Equal(t, int32(1), starts.Load())
 	assert.Equal(t, int32(1), stops.Load())
+}
+
+func TestGroupRequiresStopAfterActivationContextEnds(t *testing.T) {
+	t.Parallel()
+
+	group := newTestGroup(t, newTestJob("job", nil, nil))
+	activationCtx, cancel := context.WithCancel(context.Background())
+	require.NoError(t, group.Start(activationCtx))
+	cancel()
+
+	err := group.Start(context.Background())
+	require.ErrorContains(t, err, "activation ended before stop")
+	assert.ErrorIs(t, err, context.Canceled)
+
+	require.NoError(t, group.Stop(context.Background()))
+	require.NoError(t, group.Start(context.Background()))
+	require.NoError(t, group.Stop(context.Background()))
 }
 
 func TestGroupRestartUsesFreshActivationContext(t *testing.T) {
