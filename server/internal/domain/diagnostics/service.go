@@ -62,12 +62,12 @@ func NewService(config Config, errorStore storeInterfaces.ErrorStore, transactor
 // Start starts the stale-error closer. Repeated starts are idempotent.
 func (s *Service) Start(ctx context.Context) error {
 	s.closerMu.Lock()
-	defer s.closerMu.Unlock()
-
 	if s.closerStopping {
+		s.closerMu.Unlock()
 		return fmt.Errorf("diagnostics error closer is still stopping")
 	}
 	if s.closerCancel != nil {
+		s.closerMu.Unlock()
 		return nil
 	}
 
@@ -75,8 +75,11 @@ func (s *Service) Start(ctx context.Context) error {
 	done := make(chan struct{})
 	s.closerCancel = cancel
 	s.closerDone = done
+	s.closerMu.Unlock()
+
 	go func() {
 		defer close(done)
+		defer s.clearCloserState(done)
 		s.runCloser(runCtx)
 	}()
 	return nil
@@ -85,23 +88,38 @@ func (s *Service) Start(ctx context.Context) error {
 // Stop cancels the stale-error closer and waits for it to drain.
 func (s *Service) Stop(ctx context.Context) error {
 	s.closerMu.Lock()
-	defer s.closerMu.Unlock()
-
 	if s.closerCancel == nil {
+		s.closerMu.Unlock()
 		return nil
 	}
 
 	s.closerStopping = true
-	s.closerCancel()
+	cancel := s.closerCancel
+	done := s.closerDone
+	s.closerMu.Unlock()
+
+	cancel()
 	select {
-	case <-s.closerDone:
-		s.closerCancel = nil
-		s.closerDone = nil
-		s.closerStopping = false
+	case <-done:
 		return nil
 	case <-ctx.Done():
 		return fmt.Errorf("stop diagnostics error closer: %w", ctx.Err())
 	}
+}
+
+// clearCloserState releases lifecycle state for this specific run. The
+// identity check prevents an exiting goroutine from clearing a newer run.
+func (s *Service) clearCloserState(done chan struct{}) {
+	s.closerMu.Lock()
+	defer s.closerMu.Unlock()
+
+	if s.closerDone != done {
+		return
+	}
+
+	s.closerCancel = nil
+	s.closerDone = nil
+	s.closerStopping = false
 }
 
 // WithDeviceScopeResolver wires the resolver used to translate a site scope
