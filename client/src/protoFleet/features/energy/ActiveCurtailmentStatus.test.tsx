@@ -579,7 +579,7 @@ describe("ActiveCurtailmentStatus", () => {
       />,
     );
 
-    expectPrimaryLockup("Power restored", "60.0 of 60.0 kW");
+    expectPrimaryLockup("Power restored", "56.7 of 60.0 kW");
     expectStat("Dispatch status", "Restore incomplete");
     expect(screen.getByText("Restore incomplete")).toBeVisible();
     expect(screen.getByText("Failed to restore")).toBeVisible();

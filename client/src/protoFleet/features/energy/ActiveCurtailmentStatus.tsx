@@ -4,6 +4,7 @@ import clsx from "clsx";
 import {
   type ActiveCurtailmentCurtailProgress,
   type ActiveCurtailmentDisplayState,
+  type ActiveCurtailmentMinerCompliance,
   type ActiveCurtailmentRestoreProgress,
   type CurtailmentEventState,
   type CurtailmentTargetRollup,
@@ -103,6 +104,13 @@ interface StatBlockProps {
 interface FormatActivePowerValueArgs {
   isRestoreFlow: boolean;
   observedReductionKw: number;
+  targetKw: number;
+}
+
+interface PowerObservedReductionArgs {
+  compliance: ActiveCurtailmentMinerCompliance;
+  displayFlags: ActiveCurtailmentDisplayFlags;
+  event: ActiveCurtailmentEvent;
   targetKw: number;
 }
 
@@ -272,6 +280,24 @@ function formatActivePowerValue({ isRestoreFlow, observedReductionKw, targetKw }
   }
 
   return formatPowerProgressValue(observedReductionKw, targetKw);
+}
+
+function getPowerObservedReductionKw({
+  compliance,
+  displayFlags,
+  event,
+  targetKw,
+}: PowerObservedReductionArgs): number {
+  if (
+    displayFlags.isRestoreIncomplete &&
+    event.observedReductionKw <= 0 &&
+    compliance.restoreFailedCount > 0 &&
+    compliance.totalCount > 0
+  ) {
+    return targetKw * (compliance.restoreFailedCount / compliance.totalCount);
+  }
+
+  return event.observedReductionKw;
 }
 
 function getPowerLabel(displayFlags: ActiveCurtailmentDisplayFlags): string {
@@ -761,7 +787,7 @@ export default function ActiveCurtailmentStatus({
   const powerLabel = getPowerLabel(displayFlags);
   const powerValue = formatActivePowerValue({
     isRestoreFlow: displayFlags.isRestoreFlow,
-    observedReductionKw: event.observedReductionKw,
+    observedReductionKw: getPowerObservedReductionKw({ compliance, displayFlags, event, targetKw }),
     targetKw,
   });
   const dispatchStatus = displayStateLabels[displayState];
