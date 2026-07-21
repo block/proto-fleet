@@ -47,7 +47,7 @@ func TestExecutionService_Start(t *testing.T) {
 
 		var started atomic.Bool
 		mockQueue := mocks.NewMockMessageQueue(ctrl)
-		mockQueue.EXPECT().Dequeue(gomock.Any()).DoAndReturn(func(ctx context.Context) ([]queue.Message, error) {
+		mockQueue.EXPECT().Dequeue(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ int32) ([]queue.Message, error) {
 			started.Store(true)
 			return nil, nil
 		}).AnyTimes()
@@ -78,7 +78,7 @@ func TestExecutionService_Start(t *testing.T) {
 		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 
 		var dequeues atomic.Int32
-		mockQueue.EXPECT().Dequeue(gomock.Any()).DoAndReturn(func(context.Context) ([]queue.Message, error) {
+		mockQueue.EXPECT().Dequeue(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, int32) ([]queue.Message, error) {
 			dequeues.Add(1)
 			return nil, nil
 		}).AnyTimes()
@@ -108,7 +108,7 @@ func TestExecutionService_StopTimeoutRetainsActivationUntilWorkerDrains(t *testi
 	ctrl := gomock.NewController(t)
 	mockQueue := mocks.NewMockMessageQueue(ctrl)
 	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-	mockQueue.EXPECT().Dequeue(gomock.Any()).DoAndReturn(func(ctx context.Context) ([]queue.Message, error) {
+	mockQueue.EXPECT().Dequeue(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ int32) ([]queue.Message, error) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}).AnyTimes()
@@ -143,12 +143,35 @@ func TestExecutionService_StopTimeoutRetainsActivationUntilWorkerDrains(t *testi
 	require.NoError(t, svc.Stop(context.Background()))
 }
 
+func TestExecutionService_DequeueIsLimitedToAvailableWorkers(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockQueue := mocks.NewMockMessageQueue(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+	dequeued := make(chan struct{})
+	mockQueue.EXPECT().Dequeue(gomock.Any(), int32(1)).DoAndReturn(func(context.Context, int32) ([]queue.Message, error) {
+		close(dequeued)
+		return nil, nil
+	})
+
+	svc := NewExecutionService(&Config{
+		MaxWorkers:            1,
+		MasterPollingInterval: time.Hour,
+	}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- svc.startQueueProcessorThread(ctx) }()
+	<-dequeued
+	cancel()
+
+	require.ErrorIs(t, <-done, context.Canceled)
+}
+
 func TestExecutionService_CanRestartAfterProcessorFailure(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockQueue := mocks.NewMockMessageQueue(ctrl)
 	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-	firstDequeue := mockQueue.EXPECT().Dequeue(gomock.Any()).Return(nil, errors.New("queue unavailable"))
-	mockQueue.EXPECT().Dequeue(gomock.Any()).DoAndReturn(func(ctx context.Context) ([]queue.Message, error) {
+	firstDequeue := mockQueue.EXPECT().Dequeue(gomock.Any(), gomock.Any()).Return(nil, errors.New("queue unavailable"))
+	mockQueue.EXPECT().Dequeue(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ int32) ([]queue.Message, error) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}).AnyTimes().After(firstDequeue)
@@ -180,8 +203,8 @@ func TestQueueProcessorRetries(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		mockQueue := mocks.NewMockMessageQueue(ctrl)
 		mockQueue.EXPECT().
-			Dequeue(gomock.Any()).
-			DoAndReturn(func(context.Context) ([]queue.Message, error) {
+			Dequeue(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(context.Context, int32) ([]queue.Message, error) {
 				cancel()
 				return nil, fleeterror.NewInternalError("error opening tx: context canceled")
 			})
@@ -216,20 +239,20 @@ func TestQueueProcessorRetries(t *testing.T) {
 
 		// First call - returns error
 		mockQueue.EXPECT().
-			Dequeue(gomock.Any()).
+			Dequeue(gomock.Any(), gomock.Any()).
 			Return(nil, testError).
 			Times(1)
 
 		// Second call - returns error
 		mockQueue.EXPECT().
-			Dequeue(gomock.Any()).
+			Dequeue(gomock.Any(), gomock.Any()).
 			Return(nil, testError).
 			Times(1)
 
 		// Third call - returns success and signals completion
 		mockQueue.EXPECT().
-			Dequeue(gomock.Any()).
-			DoAndReturn(func(ctx context.Context) ([]queue.Message, error) {
+			Dequeue(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, _ int32) ([]queue.Message, error) {
 				// Signal that retry sequence completed successfully
 				retrySucceeded.Store(true)
 				close(retryComplete)
@@ -240,8 +263,8 @@ func TestQueueProcessorRetries(t *testing.T) {
 
 		// Subsequent calls just block
 		mockQueue.EXPECT().
-			Dequeue(gomock.Any()).
-			DoAndReturn(func(ctx context.Context) ([]queue.Message, error) {
+			Dequeue(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, _ int32) ([]queue.Message, error) {
 				<-ctx.Done()
 				return nil, ctx.Err()
 			}).
@@ -275,7 +298,7 @@ func TestQueueProcessorRetries(t *testing.T) {
 
 		// First three calls fail (initial + 2 retries)
 		mockQueue.EXPECT().
-			Dequeue(gomock.Any()).
+			Dequeue(gomock.Any(), gomock.Any()).
 			Return(nil, testError).
 			Times(3)
 

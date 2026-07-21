@@ -312,8 +312,8 @@ func (es *ExecutionService) emitReapedCommandMetrics(ctx context.Context, reaped
 	}
 }
 
-func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Message, error) {
-	messages, err := es.messageQueue.Dequeue(ctx)
+func (es *ExecutionService) dequeueWithRetry(ctx context.Context, limit int32) ([]queue.Message, error) {
+	messages, err := es.messageQueue.Dequeue(ctx, limit)
 	if err == nil {
 		return messages, nil
 	}
@@ -336,7 +336,7 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Messa
 		// simple backoff for next attempt
 		delay *= 2
 
-		messages, err = es.messageQueue.Dequeue(ctx)
+		messages, err = es.messageQueue.Dequeue(ctx, limit)
 		if err == nil {
 			return messages, nil
 		}
@@ -351,53 +351,76 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Messa
 
 func (es *ExecutionService) startQueueProcessorThread(ctx context.Context) error {
 	for {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("queue processor context canceled: %w", ctx.Err())
-		default:
-			messages, err := es.dequeueWithRetry(ctx)
-
-			if err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return err
-				}
-				return fleeterror.NewInternalErrorf("error dequeueing messages: %v", err)
+		reservedSlots, err := es.reserveWorkerSlots(ctx)
+		if err != nil {
+			return err
+		}
+		messages, err := es.dequeueWithRetry(ctx, reservedSlots)
+		if err != nil {
+			es.releaseWorkerSlots(int(reservedSlots))
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
 			}
+			return fleeterror.NewInternalErrorf("error dequeueing messages: %v", err)
+		}
+		if len(messages) > int(reservedSlots) {
+			es.releaseWorkerSlots(int(reservedSlots))
+			return fleeterror.NewInternalErrorf("dequeue returned %d messages for %d reserved worker slots", len(messages), reservedSlots)
+		}
+		es.releaseWorkerSlots(int(reservedSlots) - len(messages))
 
-			if len(messages) == 0 {
-				timer := time.NewTimer(es.config.MasterPollingInterval)
-				select {
-				case <-ctx.Done():
-					timer.Stop()
-					return fmt.Errorf("queue processor context canceled while idle: %w", ctx.Err())
-				case <-timer.C:
-					continue
-				}
-			}
-
-			for _, message := range messages {
-				select {
-				case es.workerSemaphore <- struct{}{}:
-				case <-ctx.Done():
-					return fmt.Errorf("queue processor context canceled waiting for worker slot: %w", ctx.Err())
-				}
-
-				// The processor remains in runWG while it adds workers, so Wait
-				// cannot finish before all worker registrations are complete.
-				es.runWG.Go(func() {
-					defer func() { <-es.workerSemaphore }()
-
-					timeout := es.config.WorkerExecutionTimeout
-					if message.CommandType == commandtype.FirmwareUpdate {
-						timeout = es.config.FirmwareUpdateTimeout
-					}
-					workerCtx, cancel := context.WithTimeout(ctx, timeout)
-					defer cancel()
-
-					es.workerProcessCommand(workerCtx, message)
-				})
+		if len(messages) == 0 {
+			timer := time.NewTimer(es.config.MasterPollingInterval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return fmt.Errorf("queue processor context canceled while idle: %w", ctx.Err())
+			case <-timer.C:
+				continue
 			}
 		}
+
+		for _, message := range messages {
+			// The processor remains in runWG while it adds workers, so Wait
+			// cannot finish before all worker registrations are complete.
+			es.runWG.Go(func() {
+				defer func() { <-es.workerSemaphore }()
+
+				timeout := es.config.WorkerExecutionTimeout
+				if message.CommandType == commandtype.FirmwareUpdate {
+					timeout = es.config.FirmwareUpdateTimeout
+				}
+				workerCtx, cancel := context.WithTimeout(ctx, timeout)
+				defer cancel()
+
+				es.workerProcessCommand(workerCtx, message)
+			})
+		}
+	}
+}
+
+func (es *ExecutionService) reserveWorkerSlots(ctx context.Context) (int32, error) {
+	select {
+	case es.workerSemaphore <- struct{}{}:
+	case <-ctx.Done():
+		return 0, fmt.Errorf("queue processor context canceled waiting for worker slot: %w", ctx.Err())
+	}
+
+	reserved := int32(1)
+	for int(reserved) < cap(es.workerSemaphore) {
+		select {
+		case es.workerSemaphore <- struct{}{}:
+			reserved++
+		default:
+			return reserved, nil
+		}
+	}
+	return reserved, nil
+}
+
+func (es *ExecutionService) releaseWorkerSlots(count int) {
+	for range count {
+		<-es.workerSemaphore
 	}
 }
 

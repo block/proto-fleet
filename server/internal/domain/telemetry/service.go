@@ -602,9 +602,7 @@ func (s *TelemetryService) Stop(ctx context.Context) error {
 // teardown. Runtime demotion should call Stop so read-only streams can remain
 // independent of the active polling lifecycle.
 func (s *TelemetryService) Close(ctx context.Context) error {
-	if err := s.Stop(ctx); err != nil {
-		return err
-	}
+	stopErr := s.Stop(ctx)
 	s.broadcasters.Range(func(key, value any) bool {
 		if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
 			broadcaster.Stop()
@@ -612,7 +610,7 @@ func (s *TelemetryService) Close(ctx context.Context) error {
 		s.broadcasters.Delete(key)
 		return true
 	})
-	return nil
+	return stopErr
 }
 
 // GetOrCreateBroadcaster returns the broadcaster for an organization, creating it if needed

@@ -239,6 +239,27 @@ func TestTelemetryService_CanRestartAfterStop(t *testing.T) {
 	require.NoError(t, service.Stop(t.Context()))
 }
 
+func TestTelemetryService_CloseStopsBroadcastersAfterStopTimeout(t *testing.T) {
+	service := &TelemetryService{}
+	_, runCancel := context.WithCancel(t.Context())
+	service.runCancel = runCancel
+	service.runDone = make(chan struct{})
+
+	broadcaster := NewTelemetryBroadcaster(1, nil, time.Hour)
+	require.NoError(t, broadcaster.Start(t.Context()))
+	updates, _, err := broadcaster.Subscribe(t.Context(), SubscriptionConfig{})
+	require.NoError(t, err)
+	service.broadcasters.Store(int64(1), broadcaster)
+
+	stopCtx, cancelStop := context.WithCancel(t.Context())
+	cancelStop()
+	require.ErrorIs(t, service.Close(stopCtx), context.Canceled)
+	_, exists := service.broadcasters.Load(int64(1))
+	require.False(t, exists)
+	_, open := <-updates
+	require.False(t, open)
+}
+
 func TestTelemetryService_StopStartPreservesRefreshDeviceClaim(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
