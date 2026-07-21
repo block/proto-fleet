@@ -19,6 +19,7 @@ import (
 const (
 	firmwareE2ETargetManufacturer = "Proto"
 	firmwareE2ETargetModel        = "Rig"
+	firmwareE2EVersion            = "2.4.6"
 )
 
 // TestFleetCLIFirmwareWorkflow drives the firmware file lifecycle through the
@@ -86,7 +87,11 @@ func TestFleetCLIFirmwareWorkflow(t *testing.T) {
 	var smallFileID string
 
 	t.Run("UploadDirect", func(t *testing.T) {
-		output, err := runFleetCLI(ctx, env, "firmware", "upload", "--quiet", "--target-manufacturer", firmwareE2ETargetManufacturer, "--target-model", firmwareE2ETargetModel, smallPath)
+		output, err := runFleetCLI(ctx, env, "firmware", "upload", "--quiet",
+			"--target-manufacturer", firmwareE2ETargetManufacturer,
+			"--target-model", firmwareE2ETargetModel,
+			"--firmware-version", firmwareE2EVersion,
+			smallPath)
 		require.NoError(t, err, "direct upload should succeed")
 		smallFileID = decodeFirmwareFileID(t, output)
 		t.Logf("✓ Direct upload stored firmware file %s", smallFileID)
@@ -104,7 +109,11 @@ func TestFleetCLIFirmwareWorkflow(t *testing.T) {
 	t.Run("UploadReusesExisting", func(t *testing.T) {
 		require.NotEmpty(t, smallFileID, "smallFileID must be set from the direct upload step")
 
-		output, err := runFleetCLI(ctx, env, "firmware", "upload", "--quiet", "--target-manufacturer", firmwareE2ETargetManufacturer, "--target-model", firmwareE2ETargetModel, smallPath)
+		output, err := runFleetCLI(ctx, env, "firmware", "upload", "--quiet",
+			"--target-manufacturer", firmwareE2ETargetManufacturer,
+			"--target-model", firmwareE2ETargetModel,
+			"--firmware-version", firmwareE2EVersion,
+			smallPath)
 		require.NoError(t, err, "re-upload should succeed")
 		assert.Equal(t, smallFileID, decodeFirmwareFileID(t, output),
 			"re-uploading identical content should return the existing file id")
@@ -122,7 +131,11 @@ func TestFleetCLIFirmwareWorkflow(t *testing.T) {
 			"chunked test file must fit within the server's max file size")
 		chunkedPath := writeRandomFirmwareFile(t, workDir, "e2e-firmware-chunked.swu", chunkedSize)
 
-		output, err := runFleetCLI(ctx, env, "firmware", "upload", "--quiet", "--target-manufacturer", firmwareE2ETargetManufacturer, "--target-model", firmwareE2ETargetModel, chunkedPath)
+		output, err := runFleetCLI(ctx, env, "firmware", "upload", "--quiet",
+			"--target-manufacturer", firmwareE2ETargetManufacturer,
+			"--target-model", firmwareE2ETargetModel,
+			"--firmware-version", firmwareE2EVersion,
+			chunkedPath)
 		require.NoError(t, err, "chunked upload should succeed")
 		chunkedFileID = decodeFirmwareFileID(t, output)
 		assert.NotEqual(t, smallFileID, chunkedFileID, "chunked upload should store a distinct file")
@@ -146,11 +159,17 @@ func TestFleetCLIFirmwareWorkflow(t *testing.T) {
 		require.NotNil(t, small, "list should include the direct upload")
 		assert.Equal(t, "e2e-firmware-small.swu", small.Filename)
 		assert.Equal(t, int64(64*1024), small.Size)
+		assert.Equal(t, firmwareE2ETargetManufacturer, small.TargetManufacturer)
+		assert.Equal(t, firmwareE2ETargetModel, small.TargetModel)
+		assert.Equal(t, firmwareE2EVersion, small.FirmwareVersion)
 
 		chunked := findFirmwareFile(files, chunkedFileID)
 		require.NotNil(t, chunked, "list should include the chunked upload")
 		assert.Equal(t, "e2e-firmware-chunked.swu", chunked.Filename)
 		assert.Equal(t, chunkedSize, chunked.Size, "stored size should match the full chunked file")
+		assert.Equal(t, firmwareE2ETargetManufacturer, chunked.TargetManufacturer)
+		assert.Equal(t, firmwareE2ETargetModel, chunked.TargetModel)
+		assert.Equal(t, firmwareE2EVersion, chunked.FirmwareVersion)
 		t.Logf("✓ List contains both uploads (%d file(s) total)", len(files))
 	})
 
@@ -194,6 +213,7 @@ type firmwareE2EFile struct {
 	Size               int64  `json:"size"`
 	TargetManufacturer string `json:"target_manufacturer"`
 	TargetModel        string `json:"target_model"`
+	FirmwareVersion    string `json:"firmware_version"`
 }
 
 type firmwareE2ECheck struct {
@@ -218,7 +238,11 @@ func writeRandomFirmwareFile(t *testing.T, dir, name string, size int64) string 
 func checkFirmwareFile(t *testing.T, ctx context.Context, env []string, path string) firmwareE2ECheck {
 	t.Helper()
 
-	output, err := runFleetCLI(ctx, env, "firmware", "check", "--target-manufacturer", firmwareE2ETargetManufacturer, "--target-model", firmwareE2ETargetModel, path)
+	output, err := runFleetCLI(ctx, env, "firmware", "check",
+		"--target-manufacturer", firmwareE2ETargetManufacturer,
+		"--target-model", firmwareE2ETargetModel,
+		"--firmware-version", firmwareE2EVersion,
+		path)
 	require.NoError(t, err, "firmware check should succeed")
 
 	var resp firmwareE2ECheck

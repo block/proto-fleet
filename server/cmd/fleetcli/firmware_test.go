@@ -437,42 +437,24 @@ func TestFirmwareUploadChunkedSequence(t *testing.T) {
 	}
 }
 
-func TestFirmwareUploadSWUWithoutMetadataSkipsPrecheck(t *testing.T) {
-	path := writeTempFirmwareFile(t, "proto-rig.swu", []byte("firmware"))
-
-	mux := http.NewServeMux()
-	serveFirmwareConfig(t, mux, firmwareConfig{AllowedExtensions: []string{".swu"}, MaxFileSizeBytes: 1 << 20, ChunkSizeBytes: 1024})
-	forbidFirmwareEndpoint(t, mux, "POST /api/v1/firmware/check")
-	mux.HandleFunc("POST /api/v1/firmware/upload", func(w http.ResponseWriter, r *http.Request) {
-		if got := r.FormValue("target_manufacturer"); got != "" {
-			t.Errorf("target_manufacturer = %q, want empty", got)
-		}
-		if got := r.FormValue("target_model"); got != "" {
-			t.Errorf("target_model = %q, want empty", got)
-		}
-		if got := r.FormValue("firmware_version"); got != "" {
-			t.Errorf("firmware_version = %q, want empty", got)
-		}
-		writeFirmwareJSON(t, w, firmwareUploadResponse{FirmwareFileID: "parsed-id", Reused: true})
-	})
-	client := newFirmwareTestServer(t, mux)
-
-	result, reused, err := runFirmwareUpload(context.Background(), client, path, firmwareTarget{}, false, nil)
-	if err != nil {
-		t.Fatalf("runFirmwareUpload() error = %v", err)
+func TestFirmwareTargetValidateRequiresAllMetadata(t *testing.T) {
+	tests := []struct {
+		name    string
+		target  firmwareTarget
+		wantErr string
+	}{
+		{name: "manufacturer", target: firmwareTarget{}, wantErr: "--target-manufacturer is required"},
+		{name: "model", target: firmwareTarget{Manufacturer: "Proto"}, wantErr: "--target-model is required"},
+		{name: "version", target: firmwareTarget{Manufacturer: "Proto", Model: "S21"}, wantErr: "--firmware-version is required"},
 	}
-	if !reused || !result.Reused {
-		t.Fatalf("reused = %v result.Reused = %v, want true/true", reused, result.Reused)
-	}
-	if result.FirmwareFileID != "parsed-id" {
-		t.Errorf("FirmwareFileID = %q, want parsed-id", result.FirmwareFileID)
-	}
-}
 
-func TestValidateFirmwareUploadTargetRequiresMetadataForNonSWU(t *testing.T) {
-	err := validateFirmwareUploadTarget("firmware.zip", firmwareTarget{})
-	if err == nil || !strings.Contains(err.Error(), "--target-manufacturer is required") {
-		t.Fatalf("validateFirmwareUploadTarget() error = %v, want target-manufacturer requirement", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.target.validate()
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("validate() error = %v, want containing %q", err, tt.wantErr)
+			}
+		})
 	}
 }
 
