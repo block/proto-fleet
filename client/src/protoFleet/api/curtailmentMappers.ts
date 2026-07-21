@@ -374,6 +374,7 @@ export function mapActiveCurtailmentEvent(
     selectedMiners: getCurtailmentEventLiveTargetCount(event),
     estimatedReductionKw,
     targetKw: getFixedKwTarget(event),
+    hasTargetMetrics: hasCurtailmentTargetMetrics(event),
     observedReductionKw: observedPowerSummary.observedReductionKw,
     remainingPowerKw: observedPowerSummary.remainingPowerKw,
     facilityFanDeviceCount: event.facilityFanDeviceIds.length,

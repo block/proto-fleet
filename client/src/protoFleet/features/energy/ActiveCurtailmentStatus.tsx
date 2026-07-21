@@ -38,6 +38,7 @@ export interface ActiveCurtailmentEvent {
   selectedMiners: number;
   estimatedReductionKw: number;
   targetKw?: number;
+  hasTargetMetrics?: boolean;
   observedReductionKw: number;
   remainingPowerKw?: number;
   facilityFanDeviceCount?: number;
@@ -293,12 +294,24 @@ function hasCompleteTerminalRestoreRollup(compliance: ActiveCurtailmentMinerComp
   );
 }
 
+function hasPowerProgressMetrics(event: ActiveCurtailmentEvent, targetKw: number): boolean {
+  if (event.hasTargetMetrics === false) {
+    return false;
+  }
+
+  return targetKw > 0 || event.selectedMiners > 0 || event.rollups.length > 0;
+}
+
 function getPowerObservedReductionKw({
   compliance,
   displayFlags,
   event,
   targetKw,
 }: PowerObservedReductionArgs): number | null {
+  if (!hasPowerProgressMetrics(event, targetKw)) {
+    return null;
+  }
+
   if (displayFlags.isRestoreIncomplete && event.observedReductionKw <= 0) {
     if (hasCompleteTerminalRestoreRollup(compliance)) {
       return targetKw * (compliance.restoreFailedCount / compliance.totalCount);

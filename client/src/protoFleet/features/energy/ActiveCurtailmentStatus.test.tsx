@@ -95,6 +95,26 @@ describe("ActiveCurtailmentStatus", () => {
     expectInfrastructureStatus("Curtailing");
   });
 
+  it("shows unavailable power when active target metrics are withheld", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          selectedMiners: 0,
+          estimatedReductionKw: 0,
+          targetKw: undefined,
+          hasTargetMetrics: false,
+          observedReductionKw: 0,
+          rollups: [],
+        }}
+      />,
+    );
+
+    expectPrimaryLockup("Power shed", "Unavailable");
+    expectStat("Dispatch status", "Curtailing");
+    expectProgressHidden();
+  });
+
   it("renders infrastructure as curtailed after fan off is sent", () => {
     render(
       <ActiveCurtailmentStatus
