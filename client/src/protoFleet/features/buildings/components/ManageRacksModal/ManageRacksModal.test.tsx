@@ -612,4 +612,47 @@ describe("ManageRacksModal review fixes (#789)", () => {
     await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
     expect(onConfirm.mock.calls[0][0].added).toEqual([]);
   });
+
+  it("renders a filter chip when facing the current building (chip state is controlled by facets)", async () => {
+    // Bug: filtering by the building being edited produced no chip because the
+    // List remounts on every refetch (displayItems → undefined), wiping the
+    // Filters-internal chip state. The chip is now driven by facet state.
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n)]);
+    mockListBuildings.mockImplementation(({ onSuccess }) => onSuccess?.([{ building: { id: 7n, name: "North" } }]));
+    renderModal();
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTestId("filter-nested-filters-meta"));
+    await userEvent.click(screen.getByTestId("nested-dropdown-filter-row-building"));
+    await userEvent.click(screen.getByTestId("filter-option-7")); // building 7 = this building
+
+    await waitFor(() => expect(screen.getByTestId("active-filter-building")).toBeInTheDocument());
+    expect(lastRackReq().buildingIds).toEqual([7n]);
+  });
+
+  it("keeps the Building filter chip (and its effect) across the Show assigned toggle", async () => {
+    // Bug: a foreign-building chip (building 9, current 7) was cleared when
+    // toggling Show assigned, and re-applying the facet did nothing. The chip
+    // must survive the toggle and keep narrowing the (now assignable) fetch.
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n), createRack(2n, "Beta", 9n, 42n, 5)]);
+    mockListBuildings.mockImplementation(({ onSuccess }) =>
+      onSuccess?.([{ building: { id: 7n, name: "North" } }, { building: { id: 9n, name: "South" } }]),
+    );
+    renderModal();
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    // Facet a foreign building while the toggle is off: view is a placement
+    // conflict (empty) but the chip must still render.
+    await userEvent.click(screen.getByTestId("filter-nested-filters-meta"));
+    await userEvent.click(screen.getByTestId("nested-dropdown-filter-row-building"));
+    await userEvent.click(screen.getByTestId("filter-option-9"));
+    await waitFor(() => expect(screen.getByTestId("active-filter-building")).toBeInTheDocument());
+
+    // Toggling Show assigned must NOT clear the chip, and the facet must keep
+    // constraining the request to building 9.
+    await userEvent.click(screen.getByLabelText("Show assigned racks"));
+    await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
+    expect(screen.getByTestId("active-filter-building")).toBeInTheDocument();
+    expect(lastRackReq().buildingIds).toEqual([9n]);
+  });
 });

@@ -496,6 +496,19 @@ const ManageRacksModal = ({
     ];
   }, [availableBuildings, availableSites, allSites, canReadSiteCatalog]);
 
+  // Drive the List's filter chips from our own facet state (controlled). The
+  // List/Filters chip state is otherwise internal, and the loading path below
+  // unmounts the List on every request change — which would wipe the chips and
+  // desync them from facetBuildingIds/facetSiteIds (reapplying the same facet
+  // then no-ops). Seeding initialActiveFilters keeps the chips correct across
+  // remounts and toggles.
+  const activeFilters = useMemo((): ActiveFilters => {
+    const dropdownFilters: Record<string, string[]> = {};
+    if (facetBuildingIds.length > 0) dropdownFilters.building = facetBuildingIds.map(String);
+    if (facetSiteIds.length > 0) dropdownFilters.site = facetSiteIds.map(String);
+    return { buttonFilters: [], dropdownFilters, numericFilters: {}, textareaListFilters: {} };
+  }, [facetBuildingIds, facetSiteIds]);
+
   // Name column renders a warning icon on reassignment rows while the toggle is
   // on; tapping it opens the per-row conflict dialog.
   const listColConfig = useMemo<ColConfig<RackPickerItem, string, RackPickerColumn>>(() => {
@@ -636,6 +649,7 @@ const ManageRacksModal = ({
                 colTitles={colTitles}
                 colConfig={listColConfig}
                 filters={filters}
+                initialActiveFilters={activeFilters}
                 onServerFilter={handleServerFilter}
                 headerControls={
                   <div className="flex items-center gap-1 px-1">
