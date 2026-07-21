@@ -46,9 +46,19 @@ func (l *backgroundLoop) Start(ctx context.Context) error {
 	l.done = done
 	go func() {
 		defer close(done)
+		defer l.finishRun(done)
 		l.run(runCtx)
 	}()
 	return nil
+}
+
+func (l *backgroundLoop) finishRun(done chan struct{}) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.done == done {
+		l.cancel = nil
+		l.done = nil
+	}
 }
 
 func (l *backgroundLoop) Stop(ctx context.Context) error {
@@ -64,12 +74,6 @@ func (l *backgroundLoop) Stop(ctx context.Context) error {
 	cancel()
 	select {
 	case <-done:
-		l.mu.Lock()
-		if l.done == done {
-			l.cancel = nil
-			l.done = nil
-		}
-		l.mu.Unlock()
 		return nil
 	case <-ctx.Done():
 		return fmt.Errorf("stop background loop: %w", ctx.Err())
