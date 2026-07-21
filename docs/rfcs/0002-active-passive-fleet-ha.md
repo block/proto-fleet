@@ -1,6 +1,6 @@
 # RFC 0002: Active/passive Fleet HA for real-time control
 
-- **Status**: draft
+- **Status**: approved
 - **Author(s)**: Ankit Goswami (@ankitgoswami)
 - **Created**: 2026-07-13
 - **Last updated**: 2026-07-14
