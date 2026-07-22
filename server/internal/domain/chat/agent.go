@@ -18,7 +18,7 @@ const (
 const systemPrompt = `You are Proto Fleet AI, an operations assistant for bitcoin-miner fleets.
 Use the available tools whenever a question depends on live fleet state. Never invent fleet data.
 You may request write actions with the available write tools. Every write is paused and shown to the operator for explicit confirmation before it executes. Never claim a change happened until its tool result reports success. If an action is cancelled, acknowledge the cancellation without immediately requesting it again.
-When a write tool requires device_identifiers, first resolve the target miners with resolve_miners unless the operator already supplied exact identifiers. Use limit 1000 when resolving all matching miners for a write. If the destination rack is ambiguous, call list_racks before requesting the write. Ask for clarification when miner or rack resolution returns zero matches, ambiguous matches, or truncated results.
+When a write tool requires device_identifiers, first resolve the target miners with resolve_miners unless the operator already supplied exact identifiers. Use limit 1000 when resolving all matching miners for a write. If the destination rack is ambiguous, call list_racks before requesting the write. For rack slot placement, use list_racks to identify the rack layout and numbering origin, use get_rack_slots when existing occupancy matters, then call set_rack_slots with explicit 0-indexed row/column coordinates. Ask for clarification when miner, rack, or slot intent returns zero matches, ambiguous matches, truncated results, or cannot be converted safely to coordinates.
 Answer directly and concisely. Mention what you checked only when it clarifies the scope or an access limitation.
 Format data for quick scanning:
 - Use short prose for a single fact, an explanation, or a recommendation.
@@ -324,6 +324,8 @@ func toolCallSummary(name string) string {
 		return "Checking mining pools"
 	case "list_racks":
 		return "Reading rack inventory"
+	case "get_rack_slots":
+		return "Reading rack slots"
 	case "resolve_miners":
 		return "Resolving miners"
 	case "create_site":
@@ -332,6 +334,10 @@ func toolCallSummary(name string) string {
 		return "Preparing rack creation"
 	case "move_miners_to_rack":
 		return "Preparing miner move"
+	case "set_rack_slots":
+		return "Preparing rack slot assignment"
+	case "clear_rack_slots":
+		return "Preparing rack slot clearing"
 	default:
 		return "Reading fleet data"
 	}

@@ -57,10 +57,44 @@ func (h *recordingSitesHandler) CreateSite(_ context.Context, request *connect.R
 type recordingDeviceSetsHandler struct {
 	createRequest *devicesetv1.CreateDeviceSetRequest
 	moveRequest   *devicesetv1.AssignDevicesToRackRequest
+	setRequests   []*devicesetv1.SetRackSlotPositionRequest
+	clearRequests []*devicesetv1.ClearRackSlotPositionRequest
+	rack          *devicesetv1.DeviceSet
+	members       []*devicesetv1.DeviceSetMember
+	slots         []*devicesetv1.RackSlot
+}
+
+func (h *recordingDeviceSetsHandler) GetDeviceSet(context.Context, *connect.Request[devicesetv1.GetDeviceSetRequest]) (*connect.Response[devicesetv1.GetDeviceSetResponse], error) {
+	rack := h.rack
+	if rack == nil {
+		rack = &devicesetv1.DeviceSet{
+			Id:    21,
+			Type:  devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK,
+			Label: "A1",
+			TypeDetails: &devicesetv1.DeviceSet_RackInfo{RackInfo: &devicesetv1.RackInfo{
+				Rows:        4,
+				Columns:     6,
+				OrderIndex:  devicesetv1.RackOrderIndex_RACK_ORDER_INDEX_TOP_LEFT,
+				CoolingType: devicesetv1.RackCoolingType_RACK_COOLING_TYPE_AIR,
+			}},
+		}
+	}
+	return connect.NewResponse(&devicesetv1.GetDeviceSetResponse{DeviceSet: rack}), nil
 }
 
 func (*recordingDeviceSetsHandler) ListDeviceSets(context.Context, *connect.Request[devicesetv1.ListDeviceSetsRequest]) (*connect.Response[devicesetv1.ListDeviceSetsResponse], error) {
 	return connect.NewResponse(&devicesetv1.ListDeviceSetsResponse{}), nil
+}
+
+func (h *recordingDeviceSetsHandler) ListDeviceSetMembers(context.Context, *connect.Request[devicesetv1.ListDeviceSetMembersRequest]) (*connect.Response[devicesetv1.ListDeviceSetMembersResponse], error) {
+	members := h.members
+	if members == nil {
+		members = []*devicesetv1.DeviceSetMember{
+			{DeviceIdentifier: "miner-a"},
+			{DeviceIdentifier: "miner-b"},
+		}
+	}
+	return connect.NewResponse(&devicesetv1.ListDeviceSetMembersResponse{Members: members}), nil
 }
 
 func (h *recordingDeviceSetsHandler) CreateDeviceSet(_ context.Context, request *connect.Request[devicesetv1.CreateDeviceSetRequest]) (*connect.Response[devicesetv1.CreateDeviceSetResponse], error) {
@@ -71,6 +105,26 @@ func (h *recordingDeviceSetsHandler) CreateDeviceSet(_ context.Context, request 
 func (h *recordingDeviceSetsHandler) AssignDevicesToRack(_ context.Context, request *connect.Request[devicesetv1.AssignDevicesToRackRequest]) (*connect.Response[devicesetv1.AssignDevicesToRackResponse], error) {
 	h.moveRequest = request.Msg
 	return connect.NewResponse(&devicesetv1.AssignDevicesToRackResponse{AssignedCount: 2, RemovedCount: 1}), nil
+}
+
+func (h *recordingDeviceSetsHandler) SetRackSlotPosition(_ context.Context, request *connect.Request[devicesetv1.SetRackSlotPositionRequest]) (*connect.Response[devicesetv1.SetRackSlotPositionResponse], error) {
+	h.setRequests = append(h.setRequests, request.Msg)
+	return connect.NewResponse(&devicesetv1.SetRackSlotPositionResponse{
+		DeviceSetId: request.Msg.GetDeviceSetId(),
+		Slot: &devicesetv1.RackSlot{
+			DeviceIdentifier: request.Msg.GetDeviceIdentifier(),
+			Position:         request.Msg.GetPosition(),
+		},
+	}), nil
+}
+
+func (h *recordingDeviceSetsHandler) ClearRackSlotPosition(_ context.Context, request *connect.Request[devicesetv1.ClearRackSlotPositionRequest]) (*connect.Response[devicesetv1.ClearRackSlotPositionResponse], error) {
+	h.clearRequests = append(h.clearRequests, request.Msg)
+	return connect.NewResponse(&devicesetv1.ClearRackSlotPositionResponse{}), nil
+}
+
+func (h *recordingDeviceSetsHandler) GetRackSlots(context.Context, *connect.Request[devicesetv1.GetRackSlotsRequest]) (*connect.Response[devicesetv1.GetRackSlotsResponse], error) {
+	return connect.NewResponse(&devicesetv1.GetRackSlotsResponse{Slots: h.slots}), nil
 }
 
 func (h staticPoolsHandler) ListPools(context.Context, *connect.Request[poolsv1.ListPoolsRequest]) (*connect.Response[poolsv1.ListPoolsResponse], error) {
@@ -104,8 +158,11 @@ func TestWriteToolDefinitionsRequireConfirmation(t *testing.T) {
 	assert.True(t, requiresConfirmation["create_site"])
 	assert.True(t, requiresConfirmation["create_rack"])
 	assert.True(t, requiresConfirmation["move_miners_to_rack"])
+	assert.True(t, requiresConfirmation["set_rack_slots"])
+	assert.True(t, requiresConfirmation["clear_rack_slots"])
 	assert.False(t, requiresConfirmation["resolve_miners"])
 	assert.False(t, requiresConfirmation["list_sites"])
+	assert.False(t, requiresConfirmation["get_rack_slots"])
 }
 
 func TestResolveMinersReturnsExplicitIdentifiersAndPlacement(t *testing.T) {
@@ -249,6 +306,132 @@ func TestCreateRackAndMoveMinersUseValidatedExplicitInputs(t *testing.T) {
 	require.NotNil(t, deviceSets.moveRequest)
 	assert.Equal(t, int64(21), deviceSets.moveRequest.GetTargetRackId())
 	assert.Equal(t, []string{"miner-a", "miner-b"}, deviceSets.moveRequest.GetDeviceSelector().GetDeviceList().GetDeviceIdentifiers())
+}
+
+func TestGetRackSlotsReturnsOccupiedSlots(t *testing.T) {
+	deviceSets := &recordingDeviceSetsHandler{
+		slots: []*devicesetv1.RackSlot{
+			{DeviceIdentifier: "miner-a", Position: &devicesetv1.RackSlotPosition{Row: 0, Column: 1}},
+			{DeviceIdentifier: "miner-b", Position: &devicesetv1.RackSlotPosition{Row: 1, Column: 0}},
+		},
+	}
+	tools := NewFleetTools(nil, nil, nil, deviceSets)
+
+	output, err := tools.Execute(t.Context(), "get_rack_slots", json.RawMessage(`{"rack_id":21}`))
+
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"rack_id":21,
+		"occupied_count":2,
+		"occupied_slots":[
+			{"device_identifier":"miner-a","row":0,"column":1},
+			{"device_identifier":"miner-b","row":1,"column":0}
+		]
+	}`, output.Content)
+	assert.Equal(t, "Read 2 occupied slot(s) for rack 21", output.Summary)
+}
+
+func TestSetRackSlotsClearsThenAssignsRequestedSlots(t *testing.T) {
+	deviceSets := &recordingDeviceSetsHandler{
+		members: []*devicesetv1.DeviceSetMember{
+			{DeviceIdentifier: "miner-a"},
+			{DeviceIdentifier: "miner-b"},
+			{DeviceIdentifier: "miner-c"},
+		},
+		slots: []*devicesetv1.RackSlot{
+			{DeviceIdentifier: "miner-a", Position: &devicesetv1.RackSlotPosition{Row: 0, Column: 0}},
+			{DeviceIdentifier: "miner-c", Position: &devicesetv1.RackSlotPosition{Row: 2, Column: 0}},
+		},
+	}
+	tools := NewFleetTools(nil, nil, nil, deviceSets)
+	arguments := json.RawMessage(`{"rack_id":21,"slot_assignments":[
+		{"device_identifier":"miner-a","row":0,"column":1},
+		{"device_identifier":"miner-b","row":0,"column":0}
+	]}`)
+
+	confirmation, err := tools.Confirmation("set_rack_slots", arguments)
+	require.NoError(t, err)
+	assert.Equal(t, "Assign 2 rack slot(s)?", confirmation.Title)
+	assert.Contains(t, confirmation.Details, chatdomain.ToolConfirmationDetail{Label: "Rack ID", Value: "21"})
+
+	output, err := tools.Execute(t.Context(), "set_rack_slots", arguments)
+
+	require.NoError(t, err)
+	require.Len(t, deviceSets.clearRequests, 2)
+	assert.ElementsMatch(t, []string{"miner-a", "miner-b"}, []string{
+		deviceSets.clearRequests[0].GetDeviceIdentifier(),
+		deviceSets.clearRequests[1].GetDeviceIdentifier(),
+	})
+	require.Len(t, deviceSets.setRequests, 2)
+	assert.Equal(t, int64(21), deviceSets.setRequests[0].GetDeviceSetId())
+	assert.Equal(t, "miner-a", deviceSets.setRequests[0].GetDeviceIdentifier())
+	assert.Equal(t, int32(0), deviceSets.setRequests[0].GetPosition().GetRow())
+	assert.Equal(t, int32(1), deviceSets.setRequests[0].GetPosition().GetColumn())
+	assert.Equal(t, "miner-b", deviceSets.setRequests[1].GetDeviceIdentifier())
+	assert.Equal(t, int32(0), deviceSets.setRequests[1].GetPosition().GetRow())
+	assert.Equal(t, int32(0), deviceSets.setRequests[1].GetPosition().GetColumn())
+	assert.JSONEq(t, `{
+		"applied":true,
+		"rack_id":21,
+		"rack_label":"A1",
+		"assigned_count":2,
+		"slot_assignments":[
+			{"device_identifier":"miner-a","row":0,"column":1},
+			{"device_identifier":"miner-b","row":0,"column":0}
+		]
+	}`, output.Content)
+}
+
+func TestSetRackSlotsRejectsUnrequestedOccupiedSlot(t *testing.T) {
+	deviceSets := &recordingDeviceSetsHandler{
+		members: []*devicesetv1.DeviceSetMember{
+			{DeviceIdentifier: "miner-a"},
+			{DeviceIdentifier: "miner-b"},
+		},
+		slots: []*devicesetv1.RackSlot{
+			{DeviceIdentifier: "miner-b", Position: &devicesetv1.RackSlotPosition{Row: 0, Column: 1}},
+		},
+	}
+	tools := NewFleetTools(nil, nil, nil, deviceSets)
+
+	_, err := tools.Execute(t.Context(), "set_rack_slots", json.RawMessage(`{"rack_id":21,"slot_assignments":[
+		{"device_identifier":"miner-a","row":0,"column":1}
+	]}`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `slot (0,1) is already occupied by miner "miner-b"`)
+	assert.Empty(t, deviceSets.clearRequests)
+	assert.Empty(t, deviceSets.setRequests)
+}
+
+func TestClearRackSlotsClearsOnlyRequestedMiners(t *testing.T) {
+	deviceSets := &recordingDeviceSetsHandler{
+		members: []*devicesetv1.DeviceSetMember{
+			{DeviceIdentifier: "miner-a"},
+			{DeviceIdentifier: "miner-b"},
+		},
+		slots: []*devicesetv1.RackSlot{
+			{DeviceIdentifier: "miner-a", Position: &devicesetv1.RackSlotPosition{Row: 0, Column: 1}},
+			{DeviceIdentifier: "miner-b", Position: &devicesetv1.RackSlotPosition{Row: 1, Column: 1}},
+		},
+	}
+	tools := NewFleetTools(nil, nil, nil, deviceSets)
+
+	output, err := tools.Execute(t.Context(), "clear_rack_slots", json.RawMessage(`{"rack_id":21,"device_identifiers":["miner-a"]}`))
+
+	require.NoError(t, err)
+	require.Len(t, deviceSets.clearRequests, 1)
+	assert.Equal(t, int64(21), deviceSets.clearRequests[0].GetDeviceSetId())
+	assert.Equal(t, "miner-a", deviceSets.clearRequests[0].GetDeviceIdentifier())
+	assert.Empty(t, deviceSets.setRequests)
+	assert.JSONEq(t, `{
+		"cleared":true,
+		"rack_id":21,
+		"rack_label":"A1",
+		"requested_count":1,
+		"cleared_count":1,
+		"device_identifiers":["miner-a"]
+	}`, output.Content)
 }
 
 func TestWriteConfirmationRejectsArgumentsThatWouldNotBeExecuted(t *testing.T) {

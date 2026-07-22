@@ -23,6 +23,14 @@ const (
 	defaultResolveMinersLimit = 100
 	maxResolveMinersLimit     = 1000
 	maxResolveMinersScan      = 5000
+	maxRackSlotAssignments    = 1000
+)
+
+const (
+	rackOrderIndexBottomLeft  = "bottom_left"
+	rackOrderIndexTopLeft     = "top_left"
+	rackOrderIndexBottomRight = "bottom_right"
+	rackOrderIndexTopRight    = "top_right"
 )
 
 type fleetHandler interface {
@@ -40,9 +48,14 @@ type poolsHandler interface {
 }
 
 type deviceSetsHandler interface {
+	GetDeviceSet(ctx context.Context, req *connect.Request[devicesetv1.GetDeviceSetRequest]) (*connect.Response[devicesetv1.GetDeviceSetResponse], error)
 	ListDeviceSets(ctx context.Context, req *connect.Request[devicesetv1.ListDeviceSetsRequest]) (*connect.Response[devicesetv1.ListDeviceSetsResponse], error)
+	ListDeviceSetMembers(ctx context.Context, req *connect.Request[devicesetv1.ListDeviceSetMembersRequest]) (*connect.Response[devicesetv1.ListDeviceSetMembersResponse], error)
 	CreateDeviceSet(ctx context.Context, req *connect.Request[devicesetv1.CreateDeviceSetRequest]) (*connect.Response[devicesetv1.CreateDeviceSetResponse], error)
 	AssignDevicesToRack(ctx context.Context, req *connect.Request[devicesetv1.AssignDevicesToRackRequest]) (*connect.Response[devicesetv1.AssignDevicesToRackResponse], error)
+	SetRackSlotPosition(ctx context.Context, req *connect.Request[devicesetv1.SetRackSlotPositionRequest]) (*connect.Response[devicesetv1.SetRackSlotPositionResponse], error)
+	ClearRackSlotPosition(ctx context.Context, req *connect.Request[devicesetv1.ClearRackSlotPositionRequest]) (*connect.Response[devicesetv1.ClearRackSlotPositionResponse], error)
+	GetRackSlots(ctx context.Context, req *connect.Request[devicesetv1.GetRackSlotsRequest]) (*connect.Response[devicesetv1.GetRackSlotsResponse], error)
 }
 
 type FleetTools struct {
@@ -120,8 +133,20 @@ func (t *FleetTools) Definitions() []chatdomain.ToolDefinition {
 		},
 		{
 			Name:        "list_racks",
-			Description: "List racks with IDs, labels, layouts, placement labels, and miner counts so an operator request can be resolved to an exact rack.",
+			Description: "List racks with IDs, labels, layouts, numbering origin, placement labels, and miner counts so an operator request can be resolved to an exact rack.",
 			InputSchema: emptyObjectSchema(),
+		},
+		{
+			Name:        "get_rack_slots",
+			Description: "List occupied slot positions for one rack. Slot row and column coordinates are 0-indexed.",
+			InputSchema: map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"required":             []string{"rack_id"},
+				"properties": map[string]any{
+					"rack_id": map[string]any{"type": "integer", "minimum": 1},
+				},
+			},
 		},
 		{
 			Name:                 "create_site",
@@ -159,7 +184,7 @@ func (t *FleetTools) Definitions() []chatdomain.ToolDefinition {
 					"zone":         map[string]any{"type": "string", "maxLength": 100},
 					"site_id":      map[string]any{"type": "integer", "minimum": 1},
 					"building_id":  map[string]any{"type": "integer", "minimum": 1},
-					"order_index":  map[string]any{"type": "string", "enum": []string{"top_left", "top_right", "bottom_left", "bottom_right"}},
+					"order_index":  map[string]any{"type": "string", "enum": []string{rackOrderIndexTopLeft, rackOrderIndexTopRight, rackOrderIndexBottomLeft, rackOrderIndexBottomRight}},
 					"cooling_type": map[string]any{"type": "string", "enum": []string{"air", "immersion"}},
 				},
 			},
@@ -179,6 +204,49 @@ func (t *FleetTools) Definitions() []chatdomain.ToolDefinition {
 						"items": map[string]any{"type": "string", "minLength": 1, "maxLength": 255},
 					},
 					"force_clear_conflicting_site": map[string]any{"type": "boolean"},
+				},
+			},
+		},
+		{
+			Name:                 "set_rack_slots",
+			Description:          "Assign explicitly identified miners that already belong to a rack to specific 0-indexed row/column slot positions. Use resolve_miners with rack_ids first unless exact device identifiers are already supplied; use list_racks to convert human-facing slot numbers according to the rack layout and numbering origin. This write always pauses for explicit operator confirmation before execution.",
+			RequiresConfirmation: true,
+			InputSchema: map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"required":             []string{"rack_id", "slot_assignments"},
+				"properties": map[string]any{
+					"rack_id": map[string]any{"type": "integer", "minimum": 1},
+					"slot_assignments": map[string]any{
+						"type": "array", "minItems": 1, "maxItems": maxRackSlotAssignments,
+						"items": map[string]any{
+							"type":                 "object",
+							"additionalProperties": false,
+							"required":             []string{"device_identifier", "row", "column"},
+							"properties": map[string]any{
+								"device_identifier": map[string]any{"type": "string", "minLength": 1, "maxLength": 255},
+								"row":               map[string]any{"type": "integer", "minimum": 0, "description": "0-indexed row coordinate."},
+								"column":            map[string]any{"type": "integer", "minimum": 0, "description": "0-indexed column coordinate."},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			Name:                 "clear_rack_slots",
+			Description:          "Clear slot positions for explicitly identified miners in a rack while preserving rack membership. This write always pauses for explicit operator confirmation before execution.",
+			RequiresConfirmation: true,
+			InputSchema: map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"required":             []string{"rack_id", "device_identifiers"},
+				"properties": map[string]any{
+					"rack_id": map[string]any{"type": "integer", "minimum": 1},
+					"device_identifiers": map[string]any{
+						"type": "array", "minItems": 1, "maxItems": maxRackSlotAssignments, "uniqueItems": true,
+						"items": map[string]any{"type": "string", "minLength": 1, "maxLength": 255},
+					},
 				},
 			},
 		},
@@ -230,6 +298,22 @@ type moveMinersToRackInput struct {
 	TargetRackID              int64    `json:"target_rack_id"`
 	DeviceIdentifiers         []string `json:"device_identifiers"`
 	ForceClearConflictingSite bool     `json:"force_clear_conflicting_site"`
+}
+
+type rackSlotAssignmentInput struct {
+	DeviceIdentifier string `json:"device_identifier"`
+	Row              int32  `json:"row"`
+	Column           int32  `json:"column"`
+}
+
+type setRackSlotsInput struct {
+	RackID          int64                     `json:"rack_id"`
+	SlotAssignments []rackSlotAssignmentInput `json:"slot_assignments"`
+}
+
+type clearRackSlotsInput struct {
+	RackID            int64    `json:"rack_id"`
+	DeviceIdentifiers []string `json:"device_identifiers"`
 }
 
 func decodeToolArguments(arguments json.RawMessage, destination any) error {
@@ -371,12 +455,12 @@ func buildCreateRackRequest(arguments json.RawMessage) (createRackInput, *device
 	}
 	orderIndex := devicesetv1.RackOrderIndex_RACK_ORDER_INDEX_TOP_LEFT
 	switch input.OrderIndex {
-	case "", "top_left":
-	case "top_right":
+	case "", rackOrderIndexTopLeft:
+	case rackOrderIndexTopRight:
 		orderIndex = devicesetv1.RackOrderIndex_RACK_ORDER_INDEX_TOP_RIGHT
-	case "bottom_left":
+	case rackOrderIndexBottomLeft:
 		orderIndex = devicesetv1.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT
-	case "bottom_right":
+	case rackOrderIndexBottomRight:
 		orderIndex = devicesetv1.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_RIGHT
 	default:
 		return input, nil, fmt.Errorf("invalid create_rack order_index %q", input.OrderIndex)
@@ -442,6 +526,80 @@ func buildMoveMinersRequest(arguments json.RawMessage) (moveMinersToRackInput, *
 	return input, request, nil
 }
 
+func buildGetRackSlotsRequest(arguments json.RawMessage) (int64, *devicesetv1.GetRackSlotsRequest, error) {
+	var input struct {
+		RackID int64 `json:"rack_id"`
+	}
+	if err := decodeToolArguments(arguments, &input); err != nil {
+		return 0, nil, fmt.Errorf("invalid get_rack_slots arguments: %w", err)
+	}
+	if input.RackID <= 0 {
+		return 0, nil, fmt.Errorf("invalid get_rack_slots arguments: rack_id must be positive")
+	}
+	request := &devicesetv1.GetRackSlotsRequest{DeviceSetId: input.RackID}
+	if err := protovalidate.Validate(request); err != nil {
+		return 0, nil, fmt.Errorf("invalid get_rack_slots arguments: %w", err)
+	}
+	return input.RackID, request, nil
+}
+
+func buildSetRackSlotsInput(arguments json.RawMessage) (setRackSlotsInput, error) {
+	var input setRackSlotsInput
+	if err := decodeToolArguments(arguments, &input); err != nil {
+		return input, fmt.Errorf("invalid set_rack_slots arguments: %w", err)
+	}
+	if input.RackID <= 0 {
+		return input, fmt.Errorf("invalid set_rack_slots arguments: rack_id must be positive")
+	}
+	if len(input.SlotAssignments) == 0 || len(input.SlotAssignments) > maxRackSlotAssignments {
+		return input, fmt.Errorf("invalid set_rack_slots arguments: slot_assignments must contain between 1 and %d assignments", maxRackSlotAssignments)
+	}
+	seenDevices := make(map[string]struct{}, len(input.SlotAssignments))
+	seenPositions := make(map[string]string, len(input.SlotAssignments))
+	for i, assignment := range input.SlotAssignments {
+		if strings.TrimSpace(assignment.DeviceIdentifier) == "" || len(assignment.DeviceIdentifier) > 255 {
+			return input, fmt.Errorf("invalid set_rack_slots arguments: slot_assignments[%d].device_identifier must contain 1 to 255 characters", i)
+		}
+		if _, exists := seenDevices[assignment.DeviceIdentifier]; exists {
+			return input, fmt.Errorf("invalid set_rack_slots arguments: duplicate device identifier %q", assignment.DeviceIdentifier)
+		}
+		seenDevices[assignment.DeviceIdentifier] = struct{}{}
+		if assignment.Row < 0 || assignment.Column < 0 {
+			return input, fmt.Errorf("invalid set_rack_slots arguments: row and column must be 0-indexed non-negative coordinates")
+		}
+		positionKey := rackSlotPositionKey(assignment.Row, assignment.Column)
+		if existing, exists := seenPositions[positionKey]; exists {
+			return input, fmt.Errorf("invalid set_rack_slots arguments: devices %q and %q target the same slot (%d,%d)", existing, assignment.DeviceIdentifier, assignment.Row, assignment.Column)
+		}
+		seenPositions[positionKey] = assignment.DeviceIdentifier
+	}
+	return input, nil
+}
+
+func buildClearRackSlotsInput(arguments json.RawMessage) (clearRackSlotsInput, error) {
+	var input clearRackSlotsInput
+	if err := decodeToolArguments(arguments, &input); err != nil {
+		return input, fmt.Errorf("invalid clear_rack_slots arguments: %w", err)
+	}
+	if input.RackID <= 0 {
+		return input, fmt.Errorf("invalid clear_rack_slots arguments: rack_id must be positive")
+	}
+	if len(input.DeviceIdentifiers) == 0 || len(input.DeviceIdentifiers) > maxRackSlotAssignments {
+		return input, fmt.Errorf("invalid clear_rack_slots arguments: device_identifiers must contain between 1 and %d miners", maxRackSlotAssignments)
+	}
+	seen := make(map[string]struct{}, len(input.DeviceIdentifiers))
+	for _, identifier := range input.DeviceIdentifiers {
+		if strings.TrimSpace(identifier) == "" || len(identifier) > 255 {
+			return input, fmt.Errorf("invalid clear_rack_slots arguments: device identifiers must contain 1 to 255 characters")
+		}
+		if _, exists := seen[identifier]; exists {
+			return input, fmt.Errorf("invalid clear_rack_slots arguments: duplicate device identifier %q", identifier)
+		}
+		seen[identifier] = struct{}{}
+	}
+	return input, nil
+}
+
 func (t *FleetTools) Confirmation(name string, arguments json.RawMessage) (*chatdomain.ToolConfirmation, error) {
 	switch name {
 	case "create_site":
@@ -489,7 +647,7 @@ func (t *FleetTools) Confirmation(name string, arguments json.RawMessage) (*chat
 		}
 		orderIndex := input.OrderIndex
 		if orderIndex == "" {
-			orderIndex = "top_left"
+			orderIndex = rackOrderIndexTopLeft
 		}
 		coolingType := input.CoolingType
 		if coolingType == "" {
@@ -530,6 +688,34 @@ func (t *FleetTools) Confirmation(name string, arguments json.RawMessage) (*chat
 				{Label: "Miners", Value: strings.Join(input.DeviceIdentifiers, ", ")},
 			},
 		}, nil
+	case "set_rack_slots":
+		input, err := buildSetRackSlotsInput(arguments)
+		if err != nil {
+			return nil, err
+		}
+		return &chatdomain.ToolConfirmation{
+			Title:        fmt.Sprintf("Assign %d rack slot(s)?", len(input.SlotAssignments)),
+			Description:  "Proto AI will update slot positions for miners already assigned to this rack. Rack membership and rack placement are preserved.",
+			ConfirmLabel: "Assign slots",
+			Details: []chatdomain.ToolConfirmationDetail{
+				{Label: "Rack ID", Value: fmt.Sprint(input.RackID)},
+				{Label: "Slots", Value: formatRackSlotAssignments(input.SlotAssignments, 20)},
+			},
+		}, nil
+	case "clear_rack_slots":
+		input, err := buildClearRackSlotsInput(arguments)
+		if err != nil {
+			return nil, err
+		}
+		return &chatdomain.ToolConfirmation{
+			Title:        fmt.Sprintf("Clear %d rack slot(s)?", len(input.DeviceIdentifiers)),
+			Description:  "Proto AI will clear slot positions for these miners while preserving rack membership.",
+			ConfirmLabel: "Clear slots",
+			Details: []chatdomain.ToolConfirmationDetail{
+				{Label: "Rack ID", Value: fmt.Sprint(input.RackID)},
+				{Label: "Miners", Value: formatStringList(input.DeviceIdentifiers, 20)},
+			},
+		}, nil
 	default:
 		return nil, nil
 	}
@@ -547,12 +733,18 @@ func (t *FleetTools) Execute(ctx context.Context, name string, arguments json.Ra
 		return t.listPools(ctx)
 	case "list_racks":
 		return t.listRacks(ctx)
+	case "get_rack_slots":
+		return t.getRackSlots(ctx, arguments)
 	case "create_site":
 		return t.createSite(ctx, arguments)
 	case "create_rack":
 		return t.createRack(ctx, arguments)
 	case "move_miners_to_rack":
 		return t.moveMinersToRack(ctx, arguments)
+	case "set_rack_slots":
+		return t.setRackSlots(ctx, arguments)
+	case "clear_rack_slots":
+		return t.clearRackSlots(ctx, arguments)
 	default:
 		return chatdomain.ToolOutput{}, fmt.Errorf("unknown tool %q", name)
 	}
@@ -744,6 +936,44 @@ func deviceStatusLabel(status fleetv1.DeviceStatus) string {
 	return strings.ToLower(label)
 }
 
+func rackOrderIndexLabel(orderIndex devicesetv1.RackOrderIndex) string {
+	switch orderIndex {
+	case devicesetv1.RackOrderIndex_RACK_ORDER_INDEX_UNSPECIFIED:
+		return "unspecified"
+	case devicesetv1.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT:
+		return rackOrderIndexBottomLeft
+	case devicesetv1.RackOrderIndex_RACK_ORDER_INDEX_TOP_LEFT:
+		return rackOrderIndexTopLeft
+	case devicesetv1.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_RIGHT:
+		return rackOrderIndexBottomRight
+	case devicesetv1.RackOrderIndex_RACK_ORDER_INDEX_TOP_RIGHT:
+		return rackOrderIndexTopRight
+	default:
+		return "unspecified"
+	}
+}
+
+func formatRackSlotAssignments(assignments []rackSlotAssignmentInput, limit int) string {
+	parts := make([]string, 0, min(len(assignments), limit)+1)
+	for i, assignment := range assignments {
+		if i >= limit {
+			parts = append(parts, fmt.Sprintf("+%d more", len(assignments)-limit))
+			break
+		}
+		parts = append(parts, fmt.Sprintf("%s → row %d, column %d", assignment.DeviceIdentifier, assignment.Row, assignment.Column))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func formatStringList(values []string, limit int) string {
+	if len(values) <= limit {
+		return strings.Join(values, ", ")
+	}
+	parts := append([]string{}, values[:limit]...)
+	parts = append(parts, fmt.Sprintf("+%d more", len(values)-limit))
+	return strings.Join(parts, ", ")
+}
+
 func (t *FleetTools) listSites(ctx context.Context) (chatdomain.ToolOutput, error) {
 	response, err := t.sites.ListSites(ctx, connect.NewRequest(&sitesv1.ListSitesRequest{}))
 	if err != nil {
@@ -803,24 +1033,27 @@ func (t *FleetTools) listRacks(ctx context.Context) (chatdomain.ToolOutput, erro
 		return chatdomain.ToolOutput{}, err
 	}
 	type rackView struct {
-		ID          int64  `json:"id"`
-		Label       string `json:"label"`
-		Rows        int32  `json:"rows"`
-		Columns     int32  `json:"columns"`
-		DeviceCount int32  `json:"device_count"`
-		Site        string `json:"site,omitempty"`
-		Building    string `json:"building,omitempty"`
-		Zone        string `json:"zone,omitempty"`
+		ID              int64  `json:"id"`
+		Label           string `json:"label"`
+		Rows            int32  `json:"rows"`
+		Columns         int32  `json:"columns"`
+		NumberingOrigin string `json:"numbering_origin"`
+		DeviceCount     int32  `json:"device_count"`
+		Site            string `json:"site,omitempty"`
+		Building        string `json:"building,omitempty"`
+		Zone            string `json:"zone,omitempty"`
 	}
 	racks := make([]rackView, 0, len(response.Msg.GetDeviceSets()))
 	for _, rack := range response.Msg.GetDeviceSets() {
+		rackInfo := rack.GetRackInfo()
 		view := rackView{
-			ID:          rack.GetId(),
-			Label:       rack.GetLabel(),
-			Rows:        rack.GetRackInfo().GetRows(),
-			Columns:     rack.GetRackInfo().GetColumns(),
-			DeviceCount: rack.GetDeviceCount(),
-			Zone:        rack.GetRackInfo().GetZone(),
+			ID:              rack.GetId(),
+			Label:           rack.GetLabel(),
+			Rows:            rackInfo.GetRows(),
+			Columns:         rackInfo.GetColumns(),
+			NumberingOrigin: rackOrderIndexLabel(rackInfo.GetOrderIndex()),
+			DeviceCount:     rack.GetDeviceCount(),
+			Zone:            rackInfo.GetZone(),
 		}
 		if placement := rack.GetPlacement(); placement != nil {
 			view.Site = placement.GetSite().GetLabel()
@@ -833,6 +1066,256 @@ func (t *FleetTools) listRacks(ctx context.Context) (chatdomain.ToolOutput, erro
 		return chatdomain.ToolOutput{}, fmt.Errorf("marshal racks: %w", err)
 	}
 	return chatdomain.ToolOutput{Content: string(content), Summary: fmt.Sprintf("Read %d racks", len(racks))}, nil
+}
+
+type rackSlotView struct {
+	DeviceIdentifier string `json:"device_identifier"`
+	Row              int32  `json:"row"`
+	Column           int32  `json:"column"`
+}
+
+func rackSlotViewFromProto(slot *devicesetv1.RackSlot) rackSlotView {
+	return rackSlotView{
+		DeviceIdentifier: slot.GetDeviceIdentifier(),
+		Row:              slot.GetPosition().GetRow(),
+		Column:           slot.GetPosition().GetColumn(),
+	}
+}
+
+func rackSlotAssignmentView(assignment rackSlotAssignmentInput) rackSlotView {
+	return rackSlotView{
+		DeviceIdentifier: assignment.DeviceIdentifier,
+		Row:              assignment.Row,
+		Column:           assignment.Column,
+	}
+}
+
+func (t *FleetTools) getRackSlots(ctx context.Context, arguments json.RawMessage) (chatdomain.ToolOutput, error) {
+	rackID, request, err := buildGetRackSlotsRequest(arguments)
+	if err != nil {
+		return chatdomain.ToolOutput{}, err
+	}
+	response, err := t.deviceSets.GetRackSlots(ctx, connect.NewRequest(request))
+	if err != nil {
+		return chatdomain.ToolOutput{}, err
+	}
+	slots := make([]rackSlotView, 0, len(response.Msg.GetSlots()))
+	for _, slot := range response.Msg.GetSlots() {
+		slots = append(slots, rackSlotViewFromProto(slot))
+	}
+	content, err := json.Marshal(map[string]any{
+		"rack_id":        rackID,
+		"occupied_count": len(slots),
+		"occupied_slots": slots,
+	})
+	if err != nil {
+		return chatdomain.ToolOutput{}, fmt.Errorf("marshal rack slots: %w", err)
+	}
+	return chatdomain.ToolOutput{
+		Content: string(content),
+		Summary: fmt.Sprintf("Read %d occupied slot(s) for rack %d", len(slots), rackID),
+	}, nil
+}
+
+func (t *FleetTools) setRackSlots(ctx context.Context, arguments json.RawMessage) (chatdomain.ToolOutput, error) {
+	input, err := buildSetRackSlotsInput(arguments)
+	if err != nil {
+		return chatdomain.ToolOutput{}, err
+	}
+	rack, members, existingSlots, err := t.loadRackSlotState(ctx, input.RackID)
+	if err != nil {
+		return chatdomain.ToolOutput{}, err
+	}
+	if err := validateSetRackSlots(input, rack, members, existingSlots); err != nil {
+		return chatdomain.ToolOutput{}, err
+	}
+
+	requestedDevices := make(map[string]struct{}, len(input.SlotAssignments))
+	for _, assignment := range input.SlotAssignments {
+		requestedDevices[assignment.DeviceIdentifier] = struct{}{}
+	}
+	assignmentViews := make([]rackSlotView, 0, len(input.SlotAssignments))
+	for _, assignment := range input.SlotAssignments {
+		assignmentViews = append(assignmentViews, rackSlotAssignmentView(assignment))
+	}
+
+	for identifier := range requestedDevices {
+		if _, err := t.deviceSets.ClearRackSlotPosition(ctx, connect.NewRequest(&devicesetv1.ClearRackSlotPositionRequest{
+			DeviceSetId:      input.RackID,
+			DeviceIdentifier: identifier,
+		})); err != nil {
+			return chatdomain.ToolOutput{}, err
+		}
+	}
+	for _, assignment := range input.SlotAssignments {
+		if _, err := t.deviceSets.SetRackSlotPosition(ctx, connect.NewRequest(&devicesetv1.SetRackSlotPositionRequest{
+			DeviceSetId:      input.RackID,
+			DeviceIdentifier: assignment.DeviceIdentifier,
+			Position:         &devicesetv1.RackSlotPosition{Row: assignment.Row, Column: assignment.Column},
+		})); err != nil {
+			return chatdomain.ToolOutput{}, err
+		}
+	}
+	content, err := json.Marshal(map[string]any{
+		"applied":          true,
+		"rack_id":          input.RackID,
+		"rack_label":       rack.GetLabel(),
+		"assigned_count":   len(input.SlotAssignments),
+		"slot_assignments": assignmentViews,
+	})
+	if err != nil {
+		return chatdomain.ToolOutput{}, fmt.Errorf("marshal assigned rack slots: %w", err)
+	}
+	return chatdomain.ToolOutput{
+		Content: string(content),
+		Summary: fmt.Sprintf("Assigned %d slot(s) in rack %d", len(input.SlotAssignments), input.RackID),
+	}, nil
+}
+
+func (t *FleetTools) clearRackSlots(ctx context.Context, arguments json.RawMessage) (chatdomain.ToolOutput, error) {
+	input, err := buildClearRackSlotsInput(arguments)
+	if err != nil {
+		return chatdomain.ToolOutput{}, err
+	}
+	rack, members, existingSlots, err := t.loadRackSlotState(ctx, input.RackID)
+	if err != nil {
+		return chatdomain.ToolOutput{}, err
+	}
+	memberSet := makeStringSet(members)
+	for _, identifier := range input.DeviceIdentifiers {
+		if _, ok := memberSet[identifier]; !ok {
+			return chatdomain.ToolOutput{}, fmt.Errorf("invalid clear_rack_slots arguments: miner %q is not assigned to rack %d", identifier, input.RackID)
+		}
+	}
+	clearDevices := makeStringSet(input.DeviceIdentifiers)
+	cleared := 0
+	for _, slot := range existingSlots {
+		if _, shouldClear := clearDevices[slot.GetDeviceIdentifier()]; shouldClear {
+			cleared++
+		}
+	}
+	for _, identifier := range input.DeviceIdentifiers {
+		if _, err := t.deviceSets.ClearRackSlotPosition(ctx, connect.NewRequest(&devicesetv1.ClearRackSlotPositionRequest{
+			DeviceSetId:      input.RackID,
+			DeviceIdentifier: identifier,
+		})); err != nil {
+			return chatdomain.ToolOutput{}, err
+		}
+	}
+	content, err := json.Marshal(map[string]any{
+		"cleared":            true,
+		"rack_id":            input.RackID,
+		"rack_label":         rack.GetLabel(),
+		"requested_count":    len(input.DeviceIdentifiers),
+		"cleared_count":      cleared,
+		"device_identifiers": input.DeviceIdentifiers,
+	})
+	if err != nil {
+		return chatdomain.ToolOutput{}, fmt.Errorf("marshal cleared rack slots: %w", err)
+	}
+	return chatdomain.ToolOutput{
+		Content: string(content),
+		Summary: fmt.Sprintf("Cleared %d slot(s) in rack %d", cleared, input.RackID),
+	}, nil
+}
+
+func (t *FleetTools) loadRackSlotState(ctx context.Context, rackID int64) (*devicesetv1.DeviceSet, []string, []*devicesetv1.RackSlot, error) {
+	rackResponse, err := t.deviceSets.GetDeviceSet(ctx, connect.NewRequest(&devicesetv1.GetDeviceSetRequest{DeviceSetId: rackID}))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	rack := rackResponse.Msg.GetDeviceSet()
+	if rack.GetType() != devicesetv1.DeviceSetType_DEVICE_SET_TYPE_RACK {
+		return nil, nil, nil, fmt.Errorf("invalid rack slot arguments: device set %d is not a rack", rackID)
+	}
+
+	members, err := t.listRackMemberIdentifiers(ctx, rackID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	slotsResponse, err := t.deviceSets.GetRackSlots(ctx, connect.NewRequest(&devicesetv1.GetRackSlotsRequest{DeviceSetId: rackID}))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return rack, members, slotsResponse.Msg.GetSlots(), nil
+}
+
+func (t *FleetTools) listRackMemberIdentifiers(ctx context.Context, rackID int64) ([]string, error) {
+	const pageSize = 1000
+	members := make([]string, 0)
+	pageToken := ""
+	for {
+		response, err := t.deviceSets.ListDeviceSetMembers(ctx, connect.NewRequest(&devicesetv1.ListDeviceSetMembersRequest{
+			DeviceSetId: rackID,
+			PageSize:    pageSize,
+			PageToken:   pageToken,
+		}))
+		if err != nil {
+			return nil, err
+		}
+		for _, member := range response.Msg.GetMembers() {
+			members = append(members, member.GetDeviceIdentifier())
+		}
+		pageToken = response.Msg.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+	return members, nil
+}
+
+func validateSetRackSlots(input setRackSlotsInput, rack *devicesetv1.DeviceSet, members []string, existingSlots []*devicesetv1.RackSlot) error {
+	rackInfo := rack.GetRackInfo()
+	if rackInfo.GetRows() <= 0 || rackInfo.GetColumns() <= 0 {
+		return fmt.Errorf("invalid set_rack_slots arguments: rack %d does not have a usable slot layout", input.RackID)
+	}
+	memberSet := makeStringSet(members)
+	requestedDevices := make(map[string]struct{}, len(input.SlotAssignments))
+	requestedPositions := make(map[string]rackSlotAssignmentInput, len(input.SlotAssignments))
+	for _, assignment := range input.SlotAssignments {
+		if _, ok := memberSet[assignment.DeviceIdentifier]; !ok {
+			return fmt.Errorf("invalid set_rack_slots arguments: miner %q is not assigned to rack %d", assignment.DeviceIdentifier, input.RackID)
+		}
+		if assignment.Row >= rackInfo.GetRows() {
+			return fmt.Errorf("invalid set_rack_slots arguments: row %d is out of bounds for rack %d (%d rows, 0-indexed)", assignment.Row, input.RackID, rackInfo.GetRows())
+		}
+		if assignment.Column >= rackInfo.GetColumns() {
+			return fmt.Errorf("invalid set_rack_slots arguments: column %d is out of bounds for rack %d (%d columns, 0-indexed)", assignment.Column, input.RackID, rackInfo.GetColumns())
+		}
+		requestedDevices[assignment.DeviceIdentifier] = struct{}{}
+		requestedPositions[rackSlotPositionKey(assignment.Row, assignment.Column)] = assignment
+	}
+	for _, slot := range existingSlots {
+		assignment, positionRequested := requestedPositions[rackSlotPositionKey(slot.GetPosition().GetRow(), slot.GetPosition().GetColumn())]
+		if !positionRequested {
+			continue
+		}
+		if slot.GetDeviceIdentifier() == assignment.DeviceIdentifier {
+			continue
+		}
+		if _, movingOccupant := requestedDevices[slot.GetDeviceIdentifier()]; movingOccupant {
+			continue
+		}
+		return fmt.Errorf(
+			"invalid set_rack_slots arguments: slot (%d,%d) is already occupied by miner %q; include that miner in the request or choose an empty slot",
+			assignment.Row,
+			assignment.Column,
+			slot.GetDeviceIdentifier(),
+		)
+	}
+	return nil
+}
+
+func makeStringSet(values []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		set[value] = struct{}{}
+	}
+	return set
+}
+
+func rackSlotPositionKey(row, column int32) string {
+	return fmt.Sprintf("%d:%d", row, column)
 }
 
 func (t *FleetTools) createSite(ctx context.Context, arguments json.RawMessage) (chatdomain.ToolOutput, error) {
