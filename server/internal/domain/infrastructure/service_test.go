@@ -55,6 +55,7 @@ func auditDevice() *models.Device {
 		OrgID:        testOrgID,
 		SiteID:       testSiteID,
 		BuildingName: "Building 1",
+		RackName:     "Rack A1",
 		Name:         "Zone A exhaust fans",
 		DeviceKind:   models.KindFanGroup,
 		FanCount:     12,
@@ -80,6 +81,7 @@ func requireAuditEvent(t *testing.T, captured []activitymodels.Event, eventType 
 	assert.Contains(t, event.Description, `"Zone A exhaust fans"`)
 	assert.Equal(t, int64(7), event.Metadata["infrastructure_device_id"])
 	assert.Equal(t, "modbus_tcp", event.Metadata["driver_type"])
+	assert.Equal(t, "Rack A1", event.Metadata["rack_name"])
 	assert.NotContains(t, event.Metadata, "driver_config",
 		"audit metadata must not carry OT control topology")
 	assert.NotContains(t, event.Description, "10.1.2.3",

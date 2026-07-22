@@ -54,6 +54,7 @@ function apiDevice(overrides: Partial<InfrastructureDevice> = {}): Infrastructur
     siteId: 8n,
     siteLabel: "Austin",
     buildingName: "Building 1",
+    rackName: "Rack A1",
     name: "Roof exhaust",
     deviceKind: "fan_group",
     fanCount: 12,
@@ -88,6 +89,7 @@ describe("useInfrastructureDevices", () => {
         siteId: "8",
         siteName: "Austin",
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Roof exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -262,6 +264,7 @@ describe("useInfrastructureDevices", () => {
       created = await result.current.createDevice({
         siteId: "9",
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Roof exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -339,6 +342,7 @@ describe("useInfrastructureDevices", () => {
       createPromise = result.current.createDevice({
         siteId: "8",
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Roof exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -368,6 +372,7 @@ describe("useInfrastructureDevices", () => {
       await result.current.createDevice({
         siteId: "8",
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Roof exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -402,6 +407,7 @@ describe("useInfrastructureDevices", () => {
       await result.current.createDevice({
         siteId: "8",
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Roof exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -414,6 +420,7 @@ describe("useInfrastructureDevices", () => {
       expect.objectContaining({
         siteId: 8n,
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Roof exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -459,6 +466,7 @@ describe("useInfrastructureDevices", () => {
         id: 101n,
         siteId: 8n,
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Renamed exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -544,6 +552,7 @@ describe("useInfrastructureDevices", () => {
         id: 101n,
         siteId: 8n,
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Renamed by someone else",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -683,6 +692,7 @@ describe("useInfrastructureDevices", () => {
         result.current.createDevice({
           siteId: "8",
           buildingName: "Building 1",
+          rackName: "Rack A1",
           name: "Roof exhaust",
           deviceKind: "fan_group",
           fanCount: 12,

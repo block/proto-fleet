@@ -28,6 +28,7 @@ type Device struct {
 	SiteID       int64
 	SiteLabel    string
 	BuildingName string
+	RackName     string
 	Name         string
 	DeviceKind   string
 	FanCount     int32
@@ -43,6 +44,7 @@ type CreateParams struct {
 	OrgID        int64
 	SiteID       int64
 	BuildingName string
+	RackName     string
 	Name         string
 	DeviceKind   string
 	FanCount     int32
@@ -63,6 +65,7 @@ type UpdateParams struct {
 	ExpectedSiteID int64
 	SiteID         int64
 	BuildingName   string
+	RackName       string
 	Name           string
 	DeviceKind     string
 	FanCount       int32

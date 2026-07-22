@@ -55,6 +55,7 @@ func validCreateRequest() *pb.CreateInfrastructureDeviceRequest {
 	return &pb.CreateInfrastructureDeviceRequest{
 		SiteId:       10,
 		BuildingName: "Building 1",
+		RackName:     "Rack A1",
 		Name:         "Zone A exhaust fans",
 		DeviceKind:   models.KindFanGroup,
 		FanCount:     12,
@@ -154,7 +155,7 @@ func TestHandler_GetDeleteUpdateAuthorizeAgainstDeviceSite(t *testing.T) {
 
 	update := &pb.UpdateInfrastructureDeviceRequest{
 		Id: 7, SiteId: 10, Name: "renamed", DeviceKind: models.KindFanGroup,
-		FanCount: 12, DriverType: "modbus_tcp", DriverConfig: validConfig,
+		FanCount: 12, RackName: "Rack A1", DriverType: "modbus_tcp", DriverConfig: validConfig,
 	}
 	_, err = h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
 	requireNotFound(t, err)
@@ -368,13 +369,14 @@ func TestHandler_UpdatePredicatesWriteOnAuthorizedSite(t *testing.T) {
 		func(_ context.Context, params models.UpdateParams) (*models.Device, error) {
 			assert.Equal(t, int64(10), params.ExpectedSiteID)
 			assert.Equal(t, int64(10), params.SiteID)
+			assert.Equal(t, "Rack A1", params.RackName)
 			return deviceAtSite(7, 10), nil
 		},
 	)
 
 	update := &pb.UpdateInfrastructureDeviceRequest{
 		Id: 7, SiteId: 10, Name: "renamed", DeviceKind: models.KindFanGroup,
-		FanCount: 12, DriverType: "modbus_tcp", DriverConfig: validConfig,
+		FanCount: 12, RackName: "Rack A1", DriverType: "modbus_tcp", DriverConfig: validConfig,
 	}
 	_, err := h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
 	require.NoError(t, err)
@@ -454,6 +456,7 @@ func TestHandler_CreateTranslatesRoundTrip(t *testing.T) {
 			// request fields into domain params.
 			assert.Equal(t, int64(42), params.OrgID)
 			assert.Equal(t, int64(10), params.SiteID)
+			assert.Equal(t, "Rack A1", params.RackName)
 			assert.Equal(t, "Zone A exhaust fans", params.Name)
 			assert.JSONEq(t, validConfig, string(params.DriverConfig))
 			return &models.Device{
@@ -462,6 +465,7 @@ func TestHandler_CreateTranslatesRoundTrip(t *testing.T) {
 				SiteID:       params.SiteID,
 				SiteLabel:    "Denton",
 				BuildingName: params.BuildingName,
+				RackName:     params.RackName,
 				Name:         params.Name,
 				DeviceKind:   params.DeviceKind,
 				FanCount:     params.FanCount,
@@ -478,6 +482,7 @@ func TestHandler_CreateTranslatesRoundTrip(t *testing.T) {
 	require.NotNil(t, device)
 	assert.Equal(t, int64(7), device.GetId())
 	assert.Equal(t, "Denton", device.GetSiteLabel())
+	assert.Equal(t, "Rack A1", device.GetRackName())
 	assert.Equal(t, int32(12), device.GetFanCount())
 	assert.JSONEq(t, validConfig, device.GetDriverConfig())
 }

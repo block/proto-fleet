@@ -58,6 +58,7 @@ func createParams(mutate func(*models.CreateParams)) models.CreateParams {
 		OrgID:        testOrgID,
 		SiteID:       testSiteID,
 		BuildingName: "Building 1",
+		RackName:     "Rack A1",
 		Name:         "Zone A exhaust fans",
 		DeviceKind:   models.KindFanGroup,
 		FanCount:     12,
@@ -79,6 +80,7 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Zone A exhaust fans", created.Name)
 	assert.Equal(t, "Denton", created.SiteLabel)
+	assert.Equal(t, "Rack A1", created.RackName)
 	assert.Equal(t, int32(12), created.FanCount)
 	assert.True(t, created.Enabled)
 	assert.JSONEq(t, string(validModbusConfig()), string(created.DriverConfig))
@@ -152,6 +154,7 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 		ExpectedSiteID: testSiteID,
 		SiteID:         testSiteID,
 		BuildingName:   "Building 2",
+		RackName:       "Rack B1",
 		Name:           "Zone B exhaust fans",
 		DeviceKind:     models.KindFanGroup,
 		FanCount:       16,
@@ -161,6 +164,7 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Zone B exhaust fans", updated.Name)
+	assert.Equal(t, "Rack B1", updated.RackName)
 	assert.Equal(t, int32(16), updated.FanCount)
 	assert.False(t, updated.Enabled)
 
@@ -173,6 +177,7 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 		ExpectedSiteID: testSiteID,
 		SiteID:         testSiteID,
 		BuildingName:   "Building 2",
+		RackName:       "Rack B1",
 		Name:           "Zone B exhaust fans (renamed)",
 		DeviceKind:     models.KindFanGroup,
 		FanCount:       16,

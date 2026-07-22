@@ -20,6 +20,7 @@ import { useAuthErrors } from "@/protoFleet/store";
 export interface InfrastructureDeviceCreate {
   siteId: string;
   buildingName: string;
+  rackName: string;
   name: string;
   deviceKind: InfraDeviceKind;
   fanCount: number;
@@ -39,6 +40,7 @@ export interface InfrastructureDevicePatch {
   id: string;
   siteId?: string;
   buildingName?: string;
+  rackName?: string;
   name?: string;
   enabled?: boolean;
   driverConfig?: string;
@@ -62,6 +64,7 @@ function mapApiDevice(device: ApiInfrastructureDevice): InfraDeviceItem {
     siteId: device.siteId.toString(),
     siteName: device.siteLabel || getSiteDisplayName(device.siteId),
     buildingName: device.buildingName,
+    rackName: device.rackName,
     name: device.name,
     deviceKind: device.deviceKind,
     fanCount: device.fanCount,
@@ -224,6 +227,7 @@ export default function useInfrastructureDevices(
           create(CreateInfrastructureDeviceRequestSchema, {
             siteId: parseDeviceId(params.siteId, "site ID"),
             buildingName: params.buildingName,
+            rackName: params.rackName,
             name: params.name,
             deviceKind: params.deviceKind,
             fanCount: params.fanCount,
@@ -263,6 +267,7 @@ export default function useInfrastructureDevices(
               id: freshDevice.id,
               siteId: params.siteId !== undefined ? parseDeviceId(params.siteId, "site ID") : freshDevice.siteId,
               buildingName: params.buildingName ?? freshDevice.buildingName,
+              rackName: params.rackName ?? freshDevice.rackName,
               name: params.name ?? freshDevice.name,
               // Not patchable from the client: the detail form doesn't
               // edit them, so the fresh row's values are always echoed.

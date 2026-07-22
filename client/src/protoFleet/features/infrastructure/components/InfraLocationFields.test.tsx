@@ -38,15 +38,19 @@ describe("InfraLocationFields", () => {
       <InfraLocationFields
         site=""
         building=""
+        rack=""
         siteOptions={[]}
         buildingOptions={[]}
+        rackOptions={[]}
         onSiteChange={vi.fn()}
         onBuildingChange={vi.fn()}
+        onRackChange={vi.fn()}
       />,
     );
 
     expect(screen.getByRole("combobox", { name: "Site" })).toBeDisabled();
     expect(screen.getByRole("combobox", { name: "Building" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Rack" })).toBeDisabled();
   });
 
   test("preserves existing location values as selector options", () => {
@@ -54,14 +58,18 @@ describe("InfraLocationFields", () => {
       <InfraLocationFields
         site="Legacy site"
         building="Legacy building"
+        rack="Legacy rack"
         siteOptions={[]}
         buildingOptions={[]}
+        rackOptions={[]}
         onSiteChange={vi.fn()}
         onBuildingChange={vi.fn()}
+        onRackChange={vi.fn()}
       />,
     );
 
     expect(screen.getByRole("combobox", { name: "Site" })).toHaveValue("Legacy site");
     expect(screen.getByRole("combobox", { name: "Building" })).toHaveValue("Legacy building");
+    expect(screen.getByRole("combobox", { name: "Rack" })).toHaveValue("Legacy rack");
   });
 });

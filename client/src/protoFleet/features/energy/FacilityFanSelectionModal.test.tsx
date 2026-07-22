@@ -12,6 +12,7 @@ function facilityFanDevices(count: number): FacilityFanDeviceOption[] {
     siteId: "101",
     siteName: "Austin, TX",
     buildingName: "Building 1",
+    rackName: "Rack A1",
     name: `Fan ${index + 1}`,
     deviceKind: "single_fan",
     enabled: true,
@@ -49,6 +50,7 @@ describe("FacilityFanSelectionModal", () => {
     expect(screen.getByText("2 devices selected")).toBeInTheDocument();
     expect(within(screen.getByTestId("facility-fan-device-1")).getByRole("checkbox")).toBeChecked();
     expect(within(screen.getByTestId("facility-fan-device-2")).getByRole("checkbox")).toBeChecked();
+    expect(screen.getAllByText("Rack A1 · Building 1 · Austin, TX")).toHaveLength(2);
 
     fireEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ selectedDeviceIds: ["1", "2"] }));

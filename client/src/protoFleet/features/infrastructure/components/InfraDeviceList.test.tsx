@@ -17,6 +17,7 @@ const device: InfraDeviceItem = {
   siteId: "8",
   siteName: "Austin",
   buildingName: "Building 1",
+  rackName: "Rack A1",
   name: "Roof exhaust",
   deviceKind: "fan_group",
   fanCount: 12,
@@ -130,6 +131,7 @@ describe("InfraDeviceList", () => {
     expect(onDeleteDevice).not.toHaveBeenCalled();
     expect(screen.getByTestId("infra-device-delete-dialog")).toHaveTextContent("Roof exhaust");
     expect(screen.getByTestId("infra-device-delete-dialog")).toHaveTextContent("Building 1");
+    expect(screen.getByTestId("infra-device-delete-dialog")).toHaveTextContent("Rack A1");
     expect(screen.getByTestId("infra-device-delete-dialog")).toHaveTextContent("Austin");
 
     await user.click(screen.getByRole("button", { name: "Delete device" }));

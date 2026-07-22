@@ -92,6 +92,7 @@ func (s *Service) logDeviceEvent(ctx context.Context, eventType, verb string, de
 			"device_name":              device.Name,
 			"site_id":                  device.SiteID,
 			"building_name":            device.BuildingName,
+			"rack_name":                device.RackName,
 			"device_kind":              device.DeviceKind,
 			"fan_count":                device.FanCount,
 			"enabled":                  device.Enabled,
@@ -118,6 +119,7 @@ func (s *Service) Create(ctx context.Context, params models.CreateParams) (*mode
 	normalized, err := s.validateAndNormalize(deviceInput{
 		SiteID:       params.SiteID,
 		BuildingName: params.BuildingName,
+		RackName:     params.RackName,
 		Name:         params.Name,
 		DeviceKind:   params.DeviceKind,
 		FanCount:     params.FanCount,
@@ -128,6 +130,7 @@ func (s *Service) Create(ctx context.Context, params models.CreateParams) (*mode
 		return nil, err
 	}
 	params.BuildingName = normalized.BuildingName
+	params.RackName = normalized.RackName
 	params.Name = normalized.Name
 	params.FanCount = normalized.FanCount
 	params.DriverType = normalized.DriverType
@@ -161,6 +164,7 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 	normalized, err := s.validateAndNormalize(deviceInput{
 		SiteID:       params.SiteID,
 		BuildingName: params.BuildingName,
+		RackName:     params.RackName,
 		Name:         params.Name,
 		DeviceKind:   params.DeviceKind,
 		FanCount:     params.FanCount,
@@ -171,6 +175,7 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 		return nil, err
 	}
 	params.BuildingName = normalized.BuildingName
+	params.RackName = normalized.RackName
 	params.Name = normalized.Name
 	params.FanCount = normalized.FanCount
 	params.DriverType = normalized.DriverType
@@ -334,6 +339,7 @@ func siteLockOrder(a, b int64) []int64 {
 type deviceInput struct {
 	SiteID       int64
 	BuildingName string
+	RackName     string
 	Name         string
 	DeviceKind   string
 	FanCount     int32
@@ -349,6 +355,7 @@ type deviceInput struct {
 func (s *Service) validateAndNormalize(in deviceInput) (deviceInput, error) {
 	in.Name = strings.TrimSpace(in.Name)
 	in.BuildingName = strings.TrimSpace(in.BuildingName)
+	in.RackName = strings.TrimSpace(in.RackName)
 	if in.Name == "" {
 		return in, fleeterror.NewInvalidArgumentError("name is required")
 	}

@@ -81,6 +81,7 @@ INSERT INTO infrastructure_device (
     org_id,
     site_id,
     building_name,
+    rack_name,
     name,
     device_kind,
     fan_count,
@@ -96,15 +97,17 @@ INSERT INTO infrastructure_device (
     $6,
     $7,
     $8,
-    $9
+    $9,
+    $10
 )
-RETURNING id, org_id, site_id, building_name, name, device_kind, fan_count, enabled, driver_type, driver_config, created_at, updated_at, deleted_at
+RETURNING id, org_id, site_id, building_name, name, device_kind, fan_count, enabled, driver_type, driver_config, created_at, updated_at, deleted_at, rack_name
 `
 
 type CreateInfrastructureDeviceParams struct {
 	OrgID        int64
 	SiteID       int64
 	BuildingName string
+	RackName     string
 	Name         string
 	DeviceKind   string
 	FanCount     int32
@@ -121,6 +124,7 @@ func (q *Queries) CreateInfrastructureDevice(ctx context.Context, arg CreateInfr
 		arg.OrgID,
 		arg.SiteID,
 		arg.BuildingName,
+		arg.RackName,
 		arg.Name,
 		arg.DeviceKind,
 		arg.FanCount,
@@ -143,13 +147,14 @@ func (q *Queries) CreateInfrastructureDevice(ctx context.Context, arg CreateInfr
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.RackName,
 	)
 	return i, err
 }
 
 const getInfrastructureDevice = `-- name: GetInfrastructureDevice :one
 SELECT
-    d.id, d.org_id, d.site_id, d.building_name, d.name, d.device_kind, d.fan_count, d.enabled, d.driver_type, d.driver_config, d.created_at, d.updated_at, d.deleted_at,
+    d.id, d.org_id, d.site_id, d.building_name, d.name, d.device_kind, d.fan_count, d.enabled, d.driver_type, d.driver_config, d.created_at, d.updated_at, d.deleted_at, d.rack_name,
     COALESCE(s.name, '') AS site_label
 FROM infrastructure_device d
 LEFT JOIN site s
@@ -180,6 +185,7 @@ type GetInfrastructureDeviceRow struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	DeletedAt    sql.NullTime
+	RackName     string
 	SiteLabel    string
 }
 
@@ -200,6 +206,7 @@ func (q *Queries) GetInfrastructureDevice(ctx context.Context, arg GetInfrastruc
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.RackName,
 		&i.SiteLabel,
 	)
 	return i, err
@@ -207,7 +214,7 @@ func (q *Queries) GetInfrastructureDevice(ctx context.Context, arg GetInfrastruc
 
 const listInfrastructureDevicesByOrg = `-- name: ListInfrastructureDevicesByOrg :many
 SELECT
-    d.id, d.org_id, d.site_id, d.building_name, d.name, d.device_kind, d.fan_count, d.enabled, d.driver_type, d.driver_config, d.created_at, d.updated_at, d.deleted_at,
+    d.id, d.org_id, d.site_id, d.building_name, d.name, d.device_kind, d.fan_count, d.enabled, d.driver_type, d.driver_config, d.created_at, d.updated_at, d.deleted_at, d.rack_name,
     COALESCE(s.name, '') AS site_label
 FROM infrastructure_device d
 LEFT JOIN site s
@@ -247,6 +254,7 @@ type ListInfrastructureDevicesByOrgRow struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	DeletedAt    sql.NullTime
+	RackName     string
 	SiteLabel    string
 }
 
@@ -278,6 +286,7 @@ func (q *Queries) ListInfrastructureDevicesByOrg(ctx context.Context, arg ListIn
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.RackName,
 			&i.SiteLabel,
 		); err != nil {
 			return nil, err
@@ -370,7 +379,7 @@ WHERE id = $1
   AND org_id = $2
   AND site_id = $3
   AND deleted_at IS NULL
-RETURNING id, org_id, site_id, building_name, name, device_kind, fan_count, enabled, driver_type, driver_config, created_at, updated_at, deleted_at
+RETURNING id, org_id, site_id, building_name, name, device_kind, fan_count, enabled, driver_type, driver_config, created_at, updated_at, deleted_at, rack_name
 `
 
 type SoftDeleteInfrastructureDeviceParams struct {
@@ -401,6 +410,7 @@ func (q *Queries) SoftDeleteInfrastructureDevice(ctx context.Context, arg SoftDe
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.RackName,
 	)
 	return i, err
 }
@@ -409,22 +419,24 @@ const updateInfrastructureDevice = `-- name: UpdateInfrastructureDevice :execrow
 UPDATE infrastructure_device
 SET site_id       = $1,
     building_name = $2,
-    name          = $3,
-    device_kind   = $4,
-    fan_count     = $5,
-    enabled       = COALESCE($6::bool, enabled),
-    driver_type   = $7,
-    driver_config = $8,
+    rack_name     = $3,
+    name          = $4,
+    device_kind   = $5,
+    fan_count     = $6,
+    enabled       = COALESCE($7::bool, enabled),
+    driver_type   = $8,
+    driver_config = $9,
     updated_at    = CURRENT_TIMESTAMP
-WHERE id = $9
-  AND org_id = $10
-  AND site_id = $11
+WHERE id = $10
+  AND org_id = $11
+  AND site_id = $12
   AND deleted_at IS NULL
 `
 
 type UpdateInfrastructureDeviceParams struct {
 	SiteID         int64
 	BuildingName   string
+	RackName       string
 	Name           string
 	DeviceKind     string
 	FanCount       int32
@@ -447,6 +459,7 @@ func (q *Queries) UpdateInfrastructureDevice(ctx context.Context, arg UpdateInfr
 	result, err := q.exec(ctx, q.updateInfrastructureDeviceStmt, updateInfrastructureDevice,
 		arg.SiteID,
 		arg.BuildingName,
+		arg.RackName,
 		arg.Name,
 		arg.DeviceKind,
 		arg.FanCount,

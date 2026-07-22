@@ -6,6 +6,7 @@ INSERT INTO infrastructure_device (
     org_id,
     site_id,
     building_name,
+    rack_name,
     name,
     device_kind,
     fan_count,
@@ -16,6 +17,7 @@ INSERT INTO infrastructure_device (
     sqlc.arg('org_id'),
     sqlc.arg('site_id'),
     sqlc.arg('building_name'),
+    sqlc.arg('rack_name'),
     sqlc.arg('name'),
     sqlc.arg('device_kind'),
     sqlc.arg('fan_count'),
@@ -97,6 +99,7 @@ ORDER BY d.name, d.id;
 UPDATE infrastructure_device
 SET site_id       = sqlc.arg('site_id'),
     building_name = sqlc.arg('building_name'),
+    rack_name     = sqlc.arg('rack_name'),
     name          = sqlc.arg('name'),
     device_kind   = sqlc.arg('device_kind'),
     fan_count     = sqlc.arg('fan_count'),
