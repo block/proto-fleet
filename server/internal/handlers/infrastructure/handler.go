@@ -265,11 +265,13 @@ func (h *Handler) UpdateInfrastructureDevice(ctx context.Context, req *connect.R
 			return nil, err
 		}
 	}
-	if req.Msg.RackName != nil || req.Msg.GetSiteId() != existing.SiteID {
+	siteChanged := req.Msg.GetSiteId() != existing.SiteID
+	buildingChangedWithRack := req.Msg.GetBuildingName() != existing.BuildingName && existing.RackName != ""
+	if req.Msg.RackName != nil || siteChanged || buildingChangedWithRack {
 		if err := requireRackRead(ctx, existing.SiteID); err != nil {
 			return nil, err
 		}
-		if req.Msg.GetSiteId() != existing.SiteID {
+		if siteChanged {
 			if err := requireRackRead(ctx, req.Msg.GetSiteId()); err != nil {
 				return nil, err
 			}

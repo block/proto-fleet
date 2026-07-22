@@ -250,6 +250,25 @@ func TestHandler_UpdateRequiresRackRead(t *testing.T) {
 	requirePermissionDenied(t, err)
 }
 
+func TestHandler_UpdateBuildingWithExistingRackRequiresRackRead(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ctx := handlerstest.CtxWithAssignments(t, 42,
+		handlerstest.SiteAssignment(10, authz.PermSiteRead, authz.PermSiteManage))
+	existing := deviceAtSite(7, 10)
+	existing.BuildingName = "Building 1"
+	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
+		Return(existing, nil)
+
+	update := &pb.UpdateInfrastructureDeviceRequest{
+		Id: 7, SiteId: 10, BuildingName: "Building 2", Name: "renamed", DeviceKind: models.KindFanGroup,
+		FanCount: 12, DriverType: "modbus_tcp", DriverConfig: validConfig,
+	}
+	_, err := h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
+	requirePermissionDenied(t, err)
+}
+
 func TestHandler_UpdateWithoutRackNamePreservesItWithoutRackRead(t *testing.T) {
 	t.Parallel()
 
