@@ -61,15 +61,16 @@ type Processor struct {
 	activitySvc     *activity.Service
 	now             func() time.Time
 
-	stopCancel  context.CancelFunc
-	workCancel  context.CancelFunc
-	wg          sync.WaitGroup
-	timerWG     sync.WaitGroup
-	lifecycleMu sync.Mutex
-	stopDone    chan struct{}
-	mu          sync.Mutex
-	jobs        map[int64]jobEntry
-	nextGen     uint64
+	stopCancel     context.CancelFunc
+	workCancel     context.CancelFunc
+	activationDone <-chan struct{}
+	wg             sync.WaitGroup
+	timerWG        sync.WaitGroup
+	lifecycleMu    sync.Mutex
+	stopDone       chan struct{}
+	mu             sync.Mutex
+	jobs           map[int64]jobEntry
+	nextGen        uint64
 }
 
 var _ runtimejobs.Lifecycle = (*Processor)(nil)
@@ -123,7 +124,12 @@ func (p *Processor) Start(ctx context.Context) error {
 		return errProcessorStopping
 	}
 	if p.stopCancel != nil {
-		return nil
+		select {
+		case <-p.activationDone:
+			return errProcessorStopping
+		default:
+			return nil
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("schedule processor startup: %w", err)
@@ -136,6 +142,7 @@ func (p *Processor) Start(ctx context.Context) error {
 	workCtx, workCancel := context.WithCancel(context.WithoutCancel(ctx))
 	p.stopCancel = stopCancel
 	p.workCancel = workCancel
+	p.activationDone = stopCtx.Done()
 
 	p.cron = cron.New(cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
 	p.mu.Lock()
@@ -157,15 +164,15 @@ func (p *Processor) Start(ctx context.Context) error {
 	p.wg.Add(2)
 	go p.reconcileLoop(stopCtx, workCtx)
 	go p.endOfWindowLoop(stopCtx, workCtx)
-	go p.stopOnActivationCancellation(stopCtx)
+	go p.stopOnActivationCancellation(p.activationDone)
 
 	slog.Info("schedule processor started")
 	return nil
 }
 
-func (p *Processor) stopOnActivationCancellation(stopCtx context.Context) {
-	<-stopCtx.Done()
-	p.beginStop()
+func (p *Processor) stopOnActivationCancellation(activationDone <-chan struct{}) {
+	<-activationDone
+	p.beginStop(activationDone)
 }
 
 // Stop gracefully stops the processor, bounded by ctx. A deadline
@@ -173,7 +180,7 @@ func (p *Processor) stopOnActivationCancellation(stopCtx context.Context) {
 // the stopping state until its goroutines have actually drained, preventing a
 // later Start from overlapping the old activation.
 func (p *Processor) Stop(ctx context.Context) error {
-	done, workCancel := p.beginStop()
+	done, workCancel := p.beginStop(nil)
 	if done == nil {
 		return nil
 	}
@@ -186,9 +193,12 @@ func (p *Processor) Stop(ctx context.Context) error {
 	}
 }
 
-func (p *Processor) beginStop() (<-chan struct{}, context.CancelFunc) {
+func (p *Processor) beginStop(activationDone <-chan struct{}) (<-chan struct{}, context.CancelFunc) {
 	p.lifecycleMu.Lock()
 	defer p.lifecycleMu.Unlock()
+	if activationDone != nil && p.activationDone != activationDone {
+		return nil, func() {}
+	}
 
 	workCancel := p.workCancel
 	if workCancel == nil {
@@ -241,6 +251,7 @@ func (p *Processor) finishStop(done chan struct{}, cronCtx context.Context, work
 	p.mu.Unlock()
 	p.stopCancel = nil
 	p.workCancel = nil
+	p.activationDone = nil
 	p.cron = nil
 	p.stopDone = nil
 	close(done)
@@ -253,6 +264,7 @@ func (p *Processor) resetFailedStart() {
 	p.workCancel()
 	p.stopCancel = nil
 	p.workCancel = nil
+	p.activationDone = nil
 	p.cron = nil
 }
 

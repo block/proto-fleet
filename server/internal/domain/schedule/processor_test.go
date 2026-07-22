@@ -348,6 +348,55 @@ func TestProcessor_ActivationCancellationAllowsRestartAfterDrain(t *testing.T) {
 	assert.NoError(t, p.Stop(context.Background()))
 }
 
+func TestProcessor_ActivationCancellationRejectsRestartUntilDrain(t *testing.T) {
+	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
+	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return(nil, nil).Times(2)
+
+	activationCtx, cancelActivation := context.WithCancel(context.Background())
+	assert.NoError(t, p.Start(activationCtx))
+
+	callbackStarted := make(chan struct{})
+	releaseCallback := make(chan struct{})
+	p.timerWG.Add(1)
+	timer := time.AfterFunc(0, func() {
+		defer p.timerWG.Done()
+		close(callbackStarted)
+		<-releaseCallback
+	})
+	p.mu.Lock()
+	p.jobs[1] = jobEntry{timer: timer, isOneTime: true}
+	p.mu.Unlock()
+	waitForSignal(t, callbackStarted, "timer callback did not start")
+
+	cancelActivation()
+
+	assert.True(t, errors.Is(p.Start(context.Background()), errProcessorStopping))
+	close(releaseCallback)
+	assert.NoError(t, p.Stop(context.Background()))
+}
+
+func TestProcessor_StaleCancellationWatcherCannotStopNewActivation(t *testing.T) {
+	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
+	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return(nil, nil).Times(4)
+
+	assert.NoError(t, p.Start(context.Background()))
+	oldActivationDone := p.activationDone
+	assert.NoError(t, p.Stop(context.Background()))
+
+	assert.NoError(t, p.Start(context.Background()))
+	newActivationDone := p.activationDone
+
+	watcherReturned := make(chan struct{})
+	go func() {
+		p.stopOnActivationCancellation(oldActivationDone)
+		close(watcherReturned)
+	}()
+	waitForSignal(t, watcherReturned, "stale cancellation watcher did not return")
+	assertNoSignal(t, newActivationDone, 10*time.Millisecond, "stale cancellation watcher stopped the new activation")
+
+	assert.NoError(t, p.Stop(context.Background()))
+}
+
 func TestProcessor_Stop_PreventsRestartUntilDrainCompletes(t *testing.T) {
 	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
 	workCtx, workCancel := context.WithCancel(context.Background())
