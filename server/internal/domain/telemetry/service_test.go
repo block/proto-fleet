@@ -25,6 +25,22 @@ import (
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
+type firmwareStateRecordingStore struct {
+	stores.DeviceStore
+	orgID              int64
+	deviceIdentifier   models.DeviceIdentifier
+	firmwareVersion    string
+	firmwareObservedAt time.Time
+}
+
+func (s *firmwareStateRecordingStore) UpsertDeviceFirmwareState(_ context.Context, orgID int64, deviceIdentifier models.DeviceIdentifier, firmwareVersion string, observedAt time.Time) error {
+	s.orgID = orgID
+	s.deviceIdentifier = deviceIdentifier
+	s.firmwareVersion = firmwareVersion
+	s.firmwareObservedAt = observedAt
+	return nil
+}
+
 func TestNewTelemetryService(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -3325,7 +3341,7 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
 
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, "")
+		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, "")
 	})
 
 	t.Run("persists new firmware version", func(t *testing.T) {
@@ -3337,7 +3353,24 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 
 		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
 
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
+		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, firmwareV1)
+	})
+
+	t.Run("records the firmware observation for cohort enforcement", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+		mockDeviceStore.EXPECT().
+			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV1).
+			Return(nil)
+		recordingStore := &firmwareStateRecordingStore{DeviceStore: mockDeviceStore}
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, recordingStore, nil)
+
+		service.persistFirmwareVersionIfChanged(t.Context(), 42, deviceID, firmwareV1)
+
+		assert.Equal(t, int64(42), recordingStore.orgID)
+		assert.Equal(t, deviceID, recordingStore.deviceIdentifier)
+		assert.Equal(t, firmwareV1, recordingStore.firmwareVersion)
+		assert.False(t, recordingStore.firmwareObservedAt.IsZero())
 	})
 
 	t.Run("skips when firmware version unchanged", func(t *testing.T) {
@@ -3350,9 +3383,9 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
 
 		// First call persists
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
+		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, firmwareV1)
 		// Second call with same version should not call UpdateFirmwareVersion again
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
+		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, firmwareV1)
 	})
 
 	t.Run("persists when firmware version changes", func(t *testing.T) {
@@ -3367,8 +3400,8 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 
 		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
 
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV2)
+		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, firmwareV1)
+		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, firmwareV2)
 	})
 
 	t.Run("does not cache on store error", func(t *testing.T) {
@@ -3384,8 +3417,8 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 
 		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
 
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
+		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, firmwareV1)
+		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, firmwareV1)
 	})
 
 }

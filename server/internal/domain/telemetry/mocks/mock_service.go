@@ -400,3 +400,41 @@ func (mr *MockCachedMinerGetterMockRecorder) InvalidateMiner(deviceIdentifier an
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InvalidateMiner", reflect.TypeOf((*MockCachedMinerGetter)(nil).InvalidateMiner), deviceIdentifier)
 }
+
+// MockfirmwareStateStore is a mock of firmwareStateStore interface.
+type MockfirmwareStateStore struct {
+	ctrl     *gomock.Controller
+	recorder *MockfirmwareStateStoreMockRecorder
+	isgomock struct{}
+}
+
+// MockfirmwareStateStoreMockRecorder is the mock recorder for MockfirmwareStateStore.
+type MockfirmwareStateStoreMockRecorder struct {
+	mock *MockfirmwareStateStore
+}
+
+// NewMockfirmwareStateStore creates a new mock instance.
+func NewMockfirmwareStateStore(ctrl *gomock.Controller) *MockfirmwareStateStore {
+	mock := &MockfirmwareStateStore{ctrl: ctrl}
+	mock.recorder = &MockfirmwareStateStoreMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockfirmwareStateStore) EXPECT() *MockfirmwareStateStoreMockRecorder {
+	return m.recorder
+}
+
+// UpsertDeviceFirmwareState mocks base method.
+func (m *MockfirmwareStateStore) UpsertDeviceFirmwareState(ctx context.Context, orgID int64, deviceIdentifier models.DeviceIdentifier, firmwareVersion string, observedAt time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertDeviceFirmwareState", ctx, orgID, deviceIdentifier, firmwareVersion, observedAt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpsertDeviceFirmwareState indicates an expected call of UpsertDeviceFirmwareState.
+func (mr *MockfirmwareStateStoreMockRecorder) UpsertDeviceFirmwareState(ctx, orgID, deviceIdentifier, firmwareVersion, observedAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertDeviceFirmwareState", reflect.TypeOf((*MockfirmwareStateStore)(nil).UpsertDeviceFirmwareState), ctx, orgID, deviceIdentifier, firmwareVersion, observedAt)
+}
