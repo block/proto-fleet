@@ -68,6 +68,20 @@ describe("AppLayout", () => {
     expect(within(screen.getByTestId("location-info-item")).getByText("Rockdale")).toBeInTheDocument();
   });
 
+  it("hides the location row when fleet-hosted with no placement", () => {
+    render(
+      <MemoryRouter>
+        <MinerHostingProvider mode="fleet" metadata={{ minerName: "Antminer S21" }}>
+          <AppLayout title="Home" type={navigationMenuTypes.app} customHeaderButtons={<div />}>
+            <div>Content</div>
+          </AppLayout>
+        </MinerHostingProvider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByTestId("location-info-item")).not.toBeInTheDocument();
+  });
+
   it("hides the location row when not fleet-hosted", () => {
     render(
       <MemoryRouter>
