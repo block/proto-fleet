@@ -192,8 +192,8 @@ func (r *Reconciler) Start(ctx context.Context) error {
 		}
 		return nil
 	}
-	workCtx, workCancel := context.WithCancel(ctx)
-	loopCtx, loopCancel := context.WithCancel(workCtx)
+	workCtx, workCancel := context.WithCancel(context.WithoutCancel(ctx))
+	loopCtx, loopCancel := context.WithCancel(ctx)
 	runDone := make(chan struct{})
 	r.loopCancel = loopCancel
 	r.workCancel = workCancel

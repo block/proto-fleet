@@ -4304,9 +4304,14 @@ func TestReconciler_ActivationContextCancellationPreventsOverlapWhileDraining(t 
 	store := newFakeStore()
 	started := make(chan struct{})
 	release := make(chan struct{})
-	store.listEventsHook = func(context.Context) {
+	workCanceled := make(chan struct{})
+	store.listEventsHook = func(ctx context.Context) {
 		close(started)
-		<-release
+		select {
+		case <-ctx.Done():
+			close(workCanceled)
+		case <-release:
+		}
 	}
 	r := New(Config{TickInterval: time.Second}, store, &fakeDispatcher{})
 	runCtx, cancel := context.WithCancel(context.Background())
@@ -4315,6 +4320,11 @@ func TestReconciler_ActivationContextCancellationPreventsOverlapWhileDraining(t 
 
 	cancel()
 	require.ErrorContains(t, r.Start(context.Background()), "previous activation is still stopping")
+	select {
+	case <-workCanceled:
+		t.Fatal("activation cancellation canceled admitted reconciliation work")
+	default:
+	}
 
 	close(release)
 	require.NoError(t, r.Stop(context.Background()))
