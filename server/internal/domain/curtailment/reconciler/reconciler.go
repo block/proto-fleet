@@ -477,7 +477,12 @@ func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *mode
 	}
 
 	intervalActive := curtailBatchIntervalActive(ev)
-	if !dispatchByState(models.TargetStateDispatching, intervalActive, skipPendingDispatchClock) {
+	// A DISPATCHING row without a durable curtail-phase result may have been
+	// stranded before its command was enqueued. Treat that recovery as a fresh
+	// wave so its physical send is paced. Rows with a durable prior enqueue are
+	// retries and deliberately leave the pending-wave clock alone.
+	recordRecoveryDispatch := intervalActive && hasUnrecordedCurtailDispatch(targets)
+	if !dispatchByState(models.TargetStateDispatching, intervalActive, recordRecoveryDispatch) {
 		return
 	}
 	if intervalActive && !r.curtailBatchIntervalElapsed(ev) {
@@ -538,6 +543,11 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 		return true
 	}
 	if !r.eventStillDispatchable(ctx, ev) {
+		return false
+	}
+	if recordPendingDispatch && !r.recordCurtailPendingDispatch(ctx, ev, r.now()) {
+		// Fail closed before either the DISPATCHING pre-write or the physical
+		// command. A successful command must never outrun a stale durable clock.
 		return false
 	}
 	// last_dispatched_at is *not* stamped here — only successful enqueues
@@ -620,7 +630,6 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 	emptyErr := ""
 	batchID := result.BatchIdentifier
 	desiredCurtailed := models.DesiredStateCurtailed
-	wroteDispatch := false
 	for _, t := range dispatchSet {
 		if skipReason, skipped := skippedSet[t.DeviceIdentifier]; skipped {
 			slog.Warn("curtailment reconciler: dispatch filter-skipped",
@@ -660,10 +669,6 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 		t.CurtailPhase.State = models.TargetStateDispatched
 		t.CurtailPhase.DispatchedAt = &now
 		t.CurtailPhase.BatchUUID = &batchID
-		wroteDispatch = true
-	}
-	if recordPendingDispatch && wroteDispatch {
-		return r.recordCurtailPendingDispatch(ctx, ev, now)
 	}
 	return true
 }
@@ -1640,6 +1645,18 @@ func curtailBatchSizeForEvent(ev *models.Event, targetCount int) int32 {
 
 func curtailBatchIntervalActive(ev *models.Event) bool {
 	return ev != nil && ev.CurtailBatchSize != nil && ev.CurtailBatchIntervalSec > 0
+}
+
+func hasUnrecordedCurtailDispatch(targets []*models.Target) bool {
+	for _, target := range targets {
+		if target == nil || target.State != models.TargetStateDispatching {
+			continue
+		}
+		if target.CurtailPhase.DispatchedAt == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Reconciler) curtailBatchIntervalElapsed(ev *models.Event) bool {

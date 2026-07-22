@@ -3725,7 +3725,7 @@ func TestReconciler_RetryChurnDispatchesEligiblePendingWave(t *testing.T) {
 	assert.Equal(t, now, *store.events[0].LastCurtailPendingDispatchAt)
 }
 
-func TestReconciler_RecoveryDispatchDoesNotResetBlockedPendingWave(t *testing.T) {
+func TestReconciler_RecoveryDispatchWithPriorEnqueueDoesNotResetBlockedPendingWave(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 
@@ -3734,6 +3734,8 @@ func TestReconciler_RecoveryDispatchDoesNotResetBlockedPendingWave(t *testing.T)
 	batchSize := int32(1)
 	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
 	lastPendingWave := now.Add(-30 * time.Second)
+	priorDispatch := now.Add(-10 * time.Second)
+	priorBatch := "batch-prior"
 	store.events = []*models.Event{
 		{
 			ID:                           eventID,
@@ -3753,6 +3755,12 @@ func TestReconciler_RecoveryDispatchDoesNotResetBlockedPendingWave(t *testing.T)
 			State:              models.TargetStateDispatching,
 			DesiredState:       models.DesiredStateCurtailed,
 			RetryCount:         1,
+			CurtailPhase: models.TargetPhaseSummary{
+				Phase:        models.TargetPhaseCurtail,
+				State:        models.TargetStateDispatched,
+				DispatchedAt: &priorDispatch,
+				BatchUUID:    &priorBatch,
+			},
 		},
 		{
 			CurtailmentEventID: eventID,
@@ -3773,7 +3781,53 @@ func TestReconciler_RecoveryDispatchDoesNotResetBlockedPendingWave(t *testing.T)
 		"retry/orphan recovery must not reset the fresh pending-wave clock")
 }
 
-func TestReconciler_PendingDispatchClockWriteFailureLeavesClockStale(t *testing.T) {
+func TestReconciler_UnrecordedDispatchingRecoveryReservesPendingWave(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(1)
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	lastPendingWave := now.Add(-61 * time.Second)
+	store.events = []*models.Event{
+		{
+			ID:                           eventID,
+			EventUUID:                    eventUUID,
+			OrgID:                        1,
+			State:                        models.EventStateActive,
+			CurtailBatchSize:             &batchSize,
+			CurtailBatchIntervalSec:      60,
+			LastCurtailPendingDispatchAt: &lastPendingWave,
+			CreatedByUserID:              99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "recovering",
+			State:              models.TargetStateDispatching,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "pending",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, [][]string{{"recovering"}}, disp.curtailCallIDs,
+		"a recovery without durable enqueue evidence must consume the pending-wave slot")
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][1].State)
+	require.NotNil(t, store.events[0].LastCurtailPendingDispatchAt)
+	assert.Equal(t, now, *store.events[0].LastCurtailPendingDispatchAt)
+}
+
+func TestReconciler_PendingDispatchClockWriteFailureFailsClosed(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 
@@ -3807,10 +3861,56 @@ func TestReconciler_PendingDispatchClockWriteFailureLeavesClockStale(t *testing.
 	r := newReconcilerForTest(store, disp)
 	r.runTick(context.Background())
 
-	assert.Equal(t, [][]string{{"pending"}}, disp.curtailCallIDs)
+	assert.Empty(t, disp.curtailCallIDs,
+		"a fresh pending wave must not send when its durable pacing reservation fails")
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
+	assert.Zero(t, store.updateTargetCalls,
+		"the pacing reservation must fail before the DISPATCHING pre-write")
 	require.NotNil(t, store.events[0].LastCurtailPendingDispatchAt)
 	assert.Equal(t, lastPendingWave, *store.events[0].LastCurtailPendingDispatchAt,
 		"failed durable clock writes must not advance only the in-memory event")
+}
+
+func TestReconciler_PendingDispatchClockReservedBeforeCommand(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(1)
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	lastPendingWave := now.Add(-61 * time.Second)
+	store.events = []*models.Event{
+		{
+			ID:                           eventID,
+			EventUUID:                    eventUUID,
+			OrgID:                        1,
+			State:                        models.EventStateActive,
+			CurtailBatchSize:             &batchSize,
+			CurtailBatchIntervalSec:      60,
+			LastCurtailPendingDispatchAt: &lastPendingWave,
+			CreatedByUserID:              99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "pending",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+	}
+	disp.curtailHook = func(_ []string) {
+		require.NotNil(t, store.events[0].LastCurtailPendingDispatchAt)
+		assert.Equal(t, now, *store.events[0].LastCurtailPendingDispatchAt,
+			"the durable pacing slot must be reserved before the command is sent")
+		assert.Equal(t, models.TargetStateDispatching, store.targetsByEventID[eventID][0].State)
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, [][]string{{"pending"}}, disp.curtailCallIDs)
 }
 
 // TestReconciler_RetryBudgetResetsOnReConfirm: drift → confirm → drift →
