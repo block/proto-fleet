@@ -330,6 +330,23 @@ func validateReadOnlyMinerFields(miners []*resolvedMiner) []*pb.ImportValidation
 	return errs
 }
 
+// validateSlotCollisions rejects two miners claiming the same rack slot in one import.
+func validateSlotCollisions(miners []*resolvedMiner) []*pb.ImportValidationError {
+	seen := map[string]bool{}
+	var errs []*pb.ImportValidationError
+	for _, m := range miners {
+		key, ok := normalizedRackSlotKey(m.rackLabel, m.rackRow, m.rackCol)
+		if !ok {
+			continue
+		}
+		if seen[key] {
+			errs = append(errs, csvErr(m.rowNum, "MINER", "duplicate rack slot"))
+		}
+		seen[key] = true
+	}
+	return errs
+}
+
 // countMinerRenameNodes counts existing miners whose name changed.
 func countMinerRenameNodes(miners []*resolvedMiner) int32 {
 	var n int32

@@ -1187,7 +1187,7 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateRackCapacity(parsed.sections["MINER"], parsed.sections["RACK"], targetSnap, mode)...)
 	plan.errors = append(plan.errors, validateBuildingRackCapacity(parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap)...)
 	plan.errors = append(plan.errors, validateBuildingExistingRacksFitLayout(parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap, mode)...)
-	plan.errors = append(plan.errors, validateSlotCollisions(parsed.sections["MINER"])...)
+	plan.errors = append(plan.errors, validateSlotCollisions(resolved.miners)...)
 	plan.errors = append(plan.errors, validateSlotConflictsWithExisting(parsed.sections["MINER"], parsed.sections["RACK"], snap, mode)...)
 	if len(plan.errors) > 0 || (mode == pb.OmissionMode_OMISSION_MODE_UNSPECIFIED && hasOmissions(plan.omissions)) {
 		return plan
@@ -3602,22 +3602,6 @@ func validateBuildingExistingRacksFitLayout(rackRows, buildingRows []map[string]
 		if aisle >= building.Aisles || position >= building.RacksPerAisle {
 			errs = append(errs, csvErr(0, "RACK", fmt.Sprintf("rack %q grid position %d,%d does not fit building %q layout %dx%d", desiredRack.Label, aisle, position, building.Name, building.Aisles, building.RacksPerAisle)))
 		}
-	}
-	return errs
-}
-
-func validateSlotCollisions(rows []map[string]string) []*pb.ImportValidationError {
-	seen := map[string]bool{}
-	var errs []*pb.ImportValidationError
-	for i, row := range rows {
-		key, ok := normalizedRackSlotKey(row[fieldRack], row["rack_row"], row["rack_col"])
-		if !ok {
-			continue
-		}
-		if seen[key] {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", "duplicate rack slot"))
-		}
-		seen[key] = true
 	}
 	return errs
 }

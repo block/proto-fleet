@@ -1931,7 +1931,7 @@ func TestValidateSlotCollisionsNormalizesCoordinates(t *testing.T) {
 		{"__row": "22", "device_identifier": "miner-2", "rack": "Rack A", "rack_row": "01", "rack_col": "1"},
 	}
 
-	errs := validateSlotCollisions(rows)
+	errs := validateSlotCollisions(resolveMiners(rows, nil))
 	if len(errs) != 1 || errs[0].GetRow() != 22 || errs[0].GetMessage() != "duplicate rack slot" {
 		t.Fatalf("errors = %+v, want normalized duplicate slot", errs)
 	}
