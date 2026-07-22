@@ -9,6 +9,7 @@ func generatedCommands() []*cli.Command {
 		generatedActivityCommand(),
 		generatedAlertsCommand(),
 		generatedBuildingsCommand(),
+		generatedCohortsCommand(),
 		generatedCurtailmentCommand(),
 		generatedErrorsCommand(),
 		generatedGroupsCommand(),

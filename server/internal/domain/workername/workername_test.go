@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestFromPoolUsername(t *testing.T) {
@@ -20,4 +21,11 @@ func TestFromPoolUsername(t *testing.T) {
 		assert.Empty(t, FromPoolUsername(".worker-01"))
 		assert.Empty(t, FromPoolUsername("wallet."))
 	})
+}
+
+func TestEffectivePoolUsername(t *testing.T) {
+	require.Equal(t, "wallet.rig-1", EffectivePoolUsername(" wallet ", "rig-1", true))
+	require.Equal(t, "wallet.existing", EffectivePoolUsername("wallet.existing", "rig-1", true))
+	require.Equal(t, "wallet", EffectivePoolUsername(" wallet ", "rig-1", false))
+	require.Equal(t, "wallet.rig-2", RewritePoolUsername("wallet.old", "rig-2"))
 }

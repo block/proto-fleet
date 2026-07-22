@@ -21,6 +21,7 @@ type stubPoolStore struct {
 	listPoolsFn      func(ctx context.Context, orgID int64) ([]*pb.Pool, error)
 	getTotalPoolsFn  func(ctx context.Context, orgID int64) (int64, error)
 	softDeletePoolFn func(ctx context.Context, orgID int64, poolID int64) error
+	poolReferencedFn func(ctx context.Context, orgID int64, poolID int64) (bool, error)
 }
 
 func (s *stubPoolStore) GetPool(ctx context.Context, orgID int64, poolID int64) (*pb.Pool, error) {
@@ -63,6 +64,13 @@ func (s *stubPoolStore) SoftDeletePool(ctx context.Context, orgID int64, poolID 
 		return s.softDeletePoolFn(ctx, orgID, poolID)
 	}
 	return nil
+}
+
+func (s *stubPoolStore) IsPoolReferencedByActiveCohort(ctx context.Context, orgID int64, poolID int64) (bool, error) {
+	if s.poolReferencedFn != nil {
+		return s.poolReferencedFn(ctx, orgID, poolID)
+	}
+	return false, nil
 }
 
 type stubTransactor struct{}
@@ -355,6 +363,25 @@ func TestActivityLogging_DeletePoolBestEffortPreFetch(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Empty(t, spy.events, "activity log should be skipped when pre-fetch fails")
+}
+
+func TestService_DeletePoolRejectsActiveCohortReference(t *testing.T) {
+	store := &stubPoolStore{
+		poolReferencedFn: func(_ context.Context, orgID, poolID int64) (bool, error) {
+			assert.Equal(t, int64(1), orgID)
+			assert.Equal(t, int64(42), poolID)
+			return true, nil
+		},
+		softDeletePoolFn: func(context.Context, int64, int64) error {
+			t.Fatal("SoftDeletePool should not be called for a referenced pool")
+			return nil
+		},
+	}
+	svc := NewService(store, stubTransactor{}, Config{}, testActivitySvc())
+
+	err := svc.DeletePool(testCtx(t), 42)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 }
 
 func TestValidateConnection_SV2URLRejectsMissingPubkey(t *testing.T) {

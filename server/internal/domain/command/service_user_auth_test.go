@@ -505,3 +505,24 @@ func TestService_UpdateMiningPools_WithUserAuthentication(t *testing.T) {
 		}
 	})
 }
+
+func TestService_UpdateMiningPoolsAsCohort_RequiresCohortActor(t *testing.T) {
+	service := &Service{}
+	userCtx := authn.SetInfo(context.Background(), &session.Info{
+		UserID:         1,
+		OrganizationID: 100,
+	})
+
+	_, err := service.UpdateMiningPoolsAsCohort(userCtx, nil, nil, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires the cohort actor")
+
+	cohortCtx := authn.SetInfo(context.Background(), &session.Info{
+		UserID:         1,
+		OrganizationID: 100,
+		Actor:          session.ActorCohort,
+	})
+	_, err = service.UpdateMiningPoolsAsCohort(cohortCtx, nil, nil, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "default pool is required")
+}
