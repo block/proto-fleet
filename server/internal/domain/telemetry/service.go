@@ -234,13 +234,15 @@ type statusResult struct {
 }
 
 type statusFlushRequest struct {
-	deviceID *models.DeviceIdentifier
-	done     chan error
+	callerDeadline time.Time
+	deviceID       *models.DeviceIdentifier
+	done           chan error
 }
 
 type metricsFlushRequest struct {
-	deviceID *models.DeviceIdentifier
-	done     chan error
+	callerDeadline time.Time
+	deviceID       *models.DeviceIdentifier
+	done           chan error
 }
 
 type statusFlushResult struct {
@@ -296,6 +298,17 @@ func mergeMetricsFlushResults(results ...metricsFlushResult) metricsFlushResult 
 		merged.deviceErrors = nil
 	}
 	return merged
+}
+
+func boundedFlushContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, shutdownFlushTimeout)
+}
+
+func requestFlushContext(ctx context.Context, callerDeadline time.Time) (context.Context, context.CancelFunc) {
+	if callerDeadline.IsZero() {
+		return context.WithCancel(ctx)
+	}
+	return context.WithDeadline(ctx, callerDeadline)
 }
 
 type inFlightKind string
@@ -558,7 +571,12 @@ func (s *TelemetryService) flushStatus(ctx context.Context, deviceID *models.Dev
 }
 
 func (s *TelemetryService) flushStatusForRun(ctx context.Context, deviceID *models.DeviceIdentifier, run *telemetryRun) error {
-	req := statusFlushRequest{deviceID: deviceID, done: make(chan error, 1)}
+	deadline, _ := ctx.Deadline()
+	req := statusFlushRequest{
+		callerDeadline: deadline,
+		deviceID:       deviceID,
+		done:           make(chan error, 1),
+	}
 
 	select {
 	case run.statusFlushRequests <- req:
@@ -598,7 +616,12 @@ func (s *TelemetryService) flushMetrics(ctx context.Context, deviceID *models.De
 }
 
 func (s *TelemetryService) flushMetricsForRun(ctx context.Context, deviceID *models.DeviceIdentifier, run *telemetryRun) error {
-	req := metricsFlushRequest{deviceID: deviceID, done: make(chan error, 1)}
+	deadline, _ := ctx.Deadline()
+	req := metricsFlushRequest{
+		callerDeadline: deadline,
+		deviceID:       deviceID,
+		done:           make(chan error, 1),
+	}
 
 	select {
 	case run.metricsFlushRequests <- req:
@@ -1226,6 +1249,8 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context, run *telemet
 		if len(pendingUpdates) == 0 {
 			return statusFlushResult{}
 		}
+		flushCtx, cancel := boundedFlushContext(flushCtx)
+		defer cancel()
 		result := statusFlushResult{devices: make(map[models.DeviceIdentifier]bool)}
 
 		// Check current DB statuses to avoid overwriting firmware update states
@@ -1331,7 +1356,9 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context, run *telemet
 			_ = flush(ctx)
 
 		case req := <-run.statusFlushRequests:
-			result := mergeStatusFlushResults(drainReadyStatusResults(ctx), flush(ctx))
+			requestCtx, cancel := requestFlushContext(ctx, req.callerDeadline)
+			result := mergeStatusFlushResults(drainReadyStatusResults(requestCtx), flush(requestCtx))
+			cancel()
 			req.done <- result.errorForDevice(req.deviceID)
 		}
 	}
@@ -1633,6 +1660,8 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context, run *teleme
 		if len(pending) == 0 {
 			return metricsFlushResult{}
 		}
+		flushCtx, cancel := boundedFlushContext(flushCtx)
+		defer cancel()
 		result := metricsFlushResult{deviceErrors: make(map[models.DeviceIdentifier]error)}
 		if err := s.telemetryDataStore.StoreDeviceMetrics(flushCtx, pending...); err != nil {
 			// The store wraps the batch in a single transaction, so one bad row fails
@@ -1698,7 +1727,9 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context, run *teleme
 		case <-ticker.C:
 			_ = flush(ctx)
 		case req := <-run.metricsFlushRequests:
-			result := mergeMetricsFlushResults(drainReadyMetricsResults(ctx), flush(ctx))
+			requestCtx, cancel := requestFlushContext(ctx, req.callerDeadline)
+			result := mergeMetricsFlushResults(drainReadyMetricsResults(requestCtx), flush(requestCtx))
+			cancel()
 			req.done <- result.errorForDevice(req.deviceID)
 		}
 	}
