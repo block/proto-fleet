@@ -60,16 +60,18 @@ export function FileDropZone({ extensions, onFileSelect, disabled }: FileDropZon
   );
 
   const handleClick = useCallback(() => {
+    if (disabled) return;
     fileInputRef.current?.click();
-  }, []);
+  }, [disabled]);
 
   const handleFileInputChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
+      if (disabled) return;
       const selected = e.target.files?.[0];
       if (selected) onFileSelect(selected);
       if (fileInputRef.current) fileInputRef.current.value = "";
     },
-    [onFileSelect],
+    [disabled, onFileSelect],
   );
 
   const formattedExtensions =
@@ -92,7 +94,8 @@ export function FileDropZone({ extensions, onFileSelect, disabled }: FileDropZon
         onDrop={handleDrop}
         data-testid="firmware-drop-zone"
         role="button"
-        tabIndex={0}
+        aria-disabled={disabled}
+        tabIndex={disabled ? -1 : 0}
       >
         <div className="text-300 text-text-primary">Drag update files here</div>
         <div className="text-200 text-text-primary-70">or</div>
@@ -112,6 +115,7 @@ export function FileDropZone({ extensions, onFileSelect, disabled }: FileDropZon
         type="file"
         accept={buildAcceptString(extensions)}
         onChange={handleFileInputChange}
+        disabled={disabled}
         className="hidden"
         data-testid="firmware-file-input"
       />

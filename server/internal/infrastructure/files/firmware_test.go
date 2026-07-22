@@ -144,6 +144,10 @@ func TestSaveFirmwareFile_WritesTargetMetadata(t *testing.T) {
 	require.Len(t, files, 1)
 	assert.Equal(t, "Proto", files[0].TargetManufacturer)
 	assert.Equal(t, "S21", files[0].TargetModel)
+
+	publishedEntries := storageDirEntries(t, getFirmwareDirPath(fileID))
+	require.Len(t, publishedEntries, 2)
+	assert.Empty(t, storageDirEntries(t, firmwareStagingDir))
 }
 
 func TestSaveFirmwareFile_RejectsMissingTargetMetadata(t *testing.T) {
@@ -334,7 +338,7 @@ func TestFindFirmwareFileByChecksum_RequiresMatchingTargetMetadata(t *testing.T)
 	assert.Equal(t, fileID, foundID)
 }
 
-func TestFindFirmwareFileByChecksum_DeletesInvalidMetadataDirectory(t *testing.T) {
+func TestFindFirmwareFileByChecksum_PreservesInvalidMetadataDirectory(t *testing.T) {
 	svc := setupService(t)
 
 	content := "firmware with corrupted metadata"
@@ -346,7 +350,8 @@ func TestFindFirmwareFileByChecksum_DeletesInvalidMetadataDirectory(t *testing.T
 
 	assert.False(t, ok)
 	assert.Empty(t, foundID)
-	assert.NoDirExists(t, getFirmwareDirPath(fileID))
+	assert.DirExists(t, getFirmwareDirPath(fileID))
+	assert.NotContains(t, svc.firmwareChecksumByID, fileID)
 }
 
 func TestFindFirmwareFileByChecksum_ReturnsFalseAfterDelete(t *testing.T) {
@@ -459,20 +464,62 @@ func TestNewService_PreservesExistingFirmwareFilesAcrossRestart(t *testing.T) {
 	assert.Equal(t, content, string(data))
 }
 
-func TestNewService_DeletesLegacyFirmwareDirectoriesWithoutMetadata(t *testing.T) {
+func TestNewService_PreservesLegacyFirmwareDirectoriesWithoutMetadata(t *testing.T) {
 	tmp := t.TempDir()
 	t.Chdir(tmp)
 
 	require.NoError(t, os.MkdirAll(filepath.Join(firmwareDir, "11111111-1111-1111-1111-111111111111"), 0750))
 	require.NoError(t, os.WriteFile(filepath.Join(firmwareDir, "11111111-1111-1111-1111-111111111111", "legacy.swu"), []byte("legacy"), 0600))
 
-	_, err := NewService(Config{})
+	svc, err := NewService(Config{})
 	require.NoError(t, err)
 
-	assert.NoDirExists(t, filepath.Join(firmwareDir, "11111111-1111-1111-1111-111111111111"))
+	legacyDir := filepath.Join(firmwareDir, "11111111-1111-1111-1111-111111111111")
+	assert.DirExists(t, legacyDir)
+
+	listed, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Empty(t, listed[0].TargetManufacturer)
+	assert.Empty(t, listed[0].TargetModel)
+	assert.Empty(t, listed[0].FirmwareVersion)
+
+	reader, filename, _, err := svc.OpenFirmwareFile("11111111-1111-1111-1111-111111111111")
+	require.NoError(t, err)
+	defer reader.Close()
+	assert.Equal(t, "legacy.swu", filename)
+	assert.Empty(t, svc.checksumIndex, "legacy firmware must not enter the checksum reuse index")
+
+	foundID, ok := svc.FindFirmwareFileByChecksum(checksumOf("legacy"), testFirmwareMetadata())
+	assert.False(t, ok)
+	assert.Empty(t, foundID)
 }
 
-func TestListFirmwareFiles_DeletesInvalidMetadataDirectories(t *testing.T) {
+func TestNewService_PreservesCorruptFirmwareMetadataDirectories(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	const fileID = "11111111-1111-1111-1111-111111111111"
+	dir := getFirmwareDirPath(fileID)
+	require.NoError(t, os.MkdirAll(dir, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "corrupt.swu"), []byte("corrupt"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, firmwareMetadataFilename), []byte("not-json"), 0600))
+
+	svc, err := NewService(Config{})
+	require.NoError(t, err)
+	assert.FileExists(t, filepath.Join(dir, "corrupt.swu"))
+
+	listed, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	assert.Empty(t, listed)
+	assert.FileExists(t, filepath.Join(dir, "corrupt.swu"))
+
+	foundID, ok := svc.FindFirmwareFileByChecksum(checksumOf("corrupt"), testFirmwareMetadata())
+	assert.False(t, ok)
+	assert.Empty(t, foundID)
+	assert.FileExists(t, filepath.Join(dir, "corrupt.swu"))
+}
+
+func TestListFirmwareFiles_PreservesInvalidMetadataDirectories(t *testing.T) {
 	svc := setupService(t)
 
 	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
@@ -482,7 +529,20 @@ func TestListFirmwareFiles_DeletesInvalidMetadataDirectories(t *testing.T) {
 	files, err := svc.ListFirmwareFiles()
 	require.NoError(t, err)
 	assert.Empty(t, files)
-	assert.NoDirExists(t, getFirmwareDirPath(fileID))
+	assert.DirExists(t, getFirmwareDirPath(fileID))
+}
+
+func TestNewService_CleansOrphanedFirmwareStagingFilesAndDirectories(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+
+	require.NoError(t, os.MkdirAll(filepath.Join(firmwareStagingDir, "publish-orphan"), 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(firmwareStagingDir, "publish-orphan", "payload.swu"), []byte("data"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(firmwareStagingDir, "upload-orphan"), []byte("data"), 0600))
+
+	_, err := NewService(Config{})
+	require.NoError(t, err)
+	assert.Empty(t, storageDirEntries(t, firmwareStagingDir))
 }
 
 func TestInitChecksumIndex_RebuildsOnRestart(t *testing.T) {

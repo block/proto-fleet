@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -166,11 +167,20 @@ func createMultipartRequest(t *testing.T, filename string, content []byte, cooki
 	return req
 }
 
-func createMultipartRequestWithoutMetadata(t *testing.T, filename string, content []byte, cookie *http.Cookie) *http.Request {
+func createMultipartRequestWithFields(
+	t *testing.T,
+	filename string,
+	content []byte,
+	cookie *http.Cookie,
+	fields map[string]string,
+) *http.Request {
 	t.Helper()
 
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
+	for name, value := range fields {
+		require.NoError(t, writer.WriteField(name, value))
+	}
 	part, err := writer.CreateFormFile("file", filename)
 	require.NoError(t, err)
 	_, err = part.Write(content)
@@ -273,15 +283,33 @@ func TestUploadHandler_RejectsInvalidExtension(t *testing.T) {
 }
 
 func TestUploadHandler_RejectsMissingTargetMetadata(t *testing.T) {
-	env := newTestEnv(t)
-	env.expectAuth()
-	req := createMultipartRequestWithoutMetadata(t, "firmware.swu", []byte("data"), validSessionCookie(env.sessionID))
-	rr := httptest.NewRecorder()
+	tests := []struct {
+		name      string
+		fields    map[string]string
+		wantError string
+	}{
+		{name: "all metadata", wantError: "target_manufacturer"},
+		{name: "manufacturer", fields: map[string]string{"target_model": "S21", "firmware_version": "v2.0.0"}, wantError: "target_manufacturer"},
+		{name: "model", fields: map[string]string{"target_manufacturer": "Proto", "firmware_version": "v2.0.0"}, wantError: "target_model"},
+		{name: "version", fields: map[string]string{"target_manufacturer": "Proto", "target_model": "S21"}, wantError: "firmware_version"},
+	}
 
-	env.uploadHandler().ServeHTTP(rr, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t)
+			env.expectAuth()
+			req := createMultipartRequestWithFields(t, "firmware.swu", []byte("data"), validSessionCookie(env.sessionID), tt.fields)
+			rr := httptest.NewRecorder()
 
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "target_manufacturer")
+			env.uploadHandler().ServeHTTP(rr, req)
+
+			assert.Equal(t, http.StatusBadRequest, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantError)
+			entries, err := os.ReadDir(files.StagingDir())
+			require.NoError(t, err)
+			assert.Empty(t, entries)
+		})
+	}
 }
 
 func TestUploadHandler_RejectsMissingFileField(t *testing.T) {

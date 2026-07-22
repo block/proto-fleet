@@ -81,6 +81,23 @@ describe("Firmware", () => {
     });
   });
 
+  it("renders legacy firmware targets as unknown", async () => {
+    mockListFirmwareFiles.mockResolvedValue([
+      {
+        id: "legacy",
+        filename: "legacy.swu",
+        size: 1024,
+        uploaded_at: "2025-06-01T12:00:00Z",
+        target_manufacturer: "",
+        target_model: "",
+      },
+    ]);
+
+    render(<Firmware />);
+
+    expect(await screen.findByText("Unknown")).toBeInTheDocument();
+  });
+
   it("hides Delete all button when no files exist", async () => {
     mockListFirmwareFiles.mockResolvedValue([]);
 

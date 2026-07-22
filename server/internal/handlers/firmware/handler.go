@@ -214,12 +214,18 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	defer fileReader.Close()
-
-	if err := h.filesService.ValidateFirmwareFilename(filename); err != nil {
+	if err := files.ValidateFirmwareUploadMetadata(metadata); err != nil {
+		_ = r.Body.Close()
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	if err := h.filesService.ValidateFirmwareFilename(filename); err != nil {
+		_ = r.Body.Close()
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	defer fileReader.Close()
 
 	saveResult, err := h.filesService.SaveFirmwareUpload(filename, fileReader, metadata, force)
 	if err != nil {
