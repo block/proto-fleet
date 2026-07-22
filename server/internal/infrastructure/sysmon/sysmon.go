@@ -6,7 +6,6 @@ package sysmon
 import (
 	"context"
 	"log/slog"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -41,7 +40,6 @@ type Collector struct {
 	cpuBusy  atomic.Bool
 	memBusy  atomic.Bool
 	diskBusy atomic.Bool
-	probes   sync.WaitGroup
 }
 
 // The Fleet Heartbeat Stale rule's staleness threshold is 120s, so the
@@ -73,7 +71,6 @@ func New(cfg Config, emitter Emitter) *Collector {
 func (c *Collector) Run(ctx context.Context) {
 	ticker := time.NewTicker(c.cfg.Interval)
 	defer ticker.Stop()
-	defer c.probes.Wait()
 	c.collectOnce(ctx)
 	for {
 		select {
@@ -116,10 +113,10 @@ func (c *Collector) launch(busy *atomic.Bool, probe string, work func()) {
 		slog.Warn("sysmon: previous read still in flight, skipping this tick", "probe", probe)
 		return
 	}
-	c.probes.Go(func() {
+	go func() {
 		defer busy.Store(false)
 		work()
-	})
+	}()
 }
 
 func readCPU(ctx context.Context) *float64 {
