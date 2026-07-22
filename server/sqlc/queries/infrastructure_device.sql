@@ -88,6 +88,30 @@ WHERE d.org_id = sqlc.arg('org_id')
   )
 ORDER BY d.name, d.id;
 
+-- name: LockInfrastructureRackForPlacement :one
+-- Validate and lock the live rack catalog entry before persisting its
+-- denormalized label on an infrastructure device. Locking both catalog rows
+-- serializes this write with rack rename/delete and placement changes; those
+-- operations lock rack rows before cascading to infrastructure devices, so
+-- callers must invoke this before locking an infrastructure-device row.
+SELECT ds.id
+FROM device_set ds
+JOIN device_set_rack dsr
+  ON dsr.device_set_id = ds.id
+ AND dsr.org_id = ds.org_id
+JOIN building b
+  ON b.id = dsr.building_id
+ AND b.org_id = ds.org_id
+ AND b.deleted_at IS NULL
+WHERE ds.org_id = sqlc.arg('org_id')
+  AND ds.type = 'rack'
+  AND ds.label = sqlc.arg('rack_name')
+  AND ds.deleted_at IS NULL
+  AND dsr.site_id = sqlc.arg('site_id')
+  AND b.site_id = sqlc.arg('site_id')
+  AND b.name = sqlc.arg('building_name')
+FOR UPDATE OF ds, dsr;
+
 -- name: UpdateInfrastructureDevice :execrows
 -- expected_site_id and expected_rack_name predicate the write on the
 -- placement the caller was authorized against, so a concurrent placement

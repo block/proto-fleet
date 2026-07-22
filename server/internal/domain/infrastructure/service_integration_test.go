@@ -36,6 +36,9 @@ func newTestService(t *testing.T) (*infrastructure.Service, *sql.DB) {
 		fmt.Sprintf(`INSERT INTO site (id, org_id, name, slug) VALUES (%d, %d, 'Denton', 'denton')`, testSiteID, testOrgID),
 		fmt.Sprintf(`INSERT INTO site (id, org_id, name, slug) VALUES (%d, %d, 'Austin', 'austin')`, secondSiteID, testOrgID),
 		fmt.Sprintf(`INSERT INTO site (id, org_id, name, slug) VALUES (%d, %d, 'Miami', 'miami')`, otherOrgSiteID, otherOrgID),
+		fmt.Sprintf(`INSERT INTO building (id, org_id, site_id, name) VALUES (100, %d, %d, 'Building 1'), (101, %d, %d, 'Building 2')`, testOrgID, testSiteID, testOrgID, testSiteID),
+		fmt.Sprintf(`INSERT INTO device_set (id, org_id, type, label) VALUES (1000, %d, 'rack', 'Rack A1'), (1001, %d, 'rack', 'Rack B1')`, testOrgID, testOrgID),
+		fmt.Sprintf(`INSERT INTO device_set_rack (device_set_id, org_id, site_id, building_id, rows, columns) VALUES (1000, %d, %d, 100, 4, 4), (1001, %d, %d, 101, 4, 4)`, testOrgID, testSiteID, testOrgID, testSiteID),
 	}
 	for _, stmt := range seed {
 		_, err := conn.Exec(stmt)
@@ -116,6 +119,7 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	austinDevice, err := svc.Create(ctx, createParams(func(p *models.CreateParams) {
 		p.Name = "Austin roof exhaust"
 		p.SiteID = secondSiteID
+		p.RackName = ""
 	}))
 	require.NoError(t, err)
 	dentonOnly, err := svc.List(ctx, models.ListFilter{OrgID: testOrgID, SiteIDs: []int64{testSiteID}})
@@ -243,22 +247,6 @@ func TestRackAssignmentFollowsCatalogMutations_DatabaseIntegration(t *testing.T)
 	svc, conn := newTestService(t)
 	ctx := t.Context()
 
-	_, err := conn.ExecContext(ctx, `
-		INSERT INTO building (id, org_id, site_id, name)
-		VALUES (100, $1, $2, 'Building 1'), (101, $1, $2, 'Building 2')
-	`, testOrgID, testSiteID)
-	require.NoError(t, err)
-	_, err = conn.ExecContext(ctx, `
-		INSERT INTO device_set (id, org_id, type, label)
-		VALUES (1000, $1, 'rack', 'Rack A1')
-	`, testOrgID)
-	require.NoError(t, err)
-	_, err = conn.ExecContext(ctx, `
-		INSERT INTO device_set_rack (device_set_id, org_id, site_id, building_id, rows, columns)
-		VALUES (1000, $1, $2, 100, 4, 4)
-	`, testOrgID, testSiteID)
-	require.NoError(t, err)
-
 	device, err := svc.Create(ctx, createParams(nil))
 	require.NoError(t, err)
 
@@ -285,6 +273,49 @@ func TestRackAssignmentFollowsCatalogMutations_DatabaseIntegration(t *testing.T)
 	device, err = svc.Get(ctx, testOrgID, device.ID)
 	require.NoError(t, err)
 	assert.Empty(t, device.RackName, "rack delete must clear assigned infrastructure devices")
+}
+
+func TestService_RejectsStaleRackCatalogPlacement_DatabaseIntegration(t *testing.T) {
+	svc, conn := newTestService(t)
+	ctx := t.Context()
+
+	// The operator selected Rack A1, but it was renamed before the create
+	// transaction began. The live catalog lock rejects the stale label instead
+	// of persisting an assignment that the rename trigger can no longer find.
+	_, err := conn.ExecContext(ctx, `UPDATE device_set SET label = 'Rack A2' WHERE id = 1000`)
+	require.NoError(t, err)
+	_, err = svc.Create(ctx, createParams(nil))
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+
+	device, err := svc.Create(ctx, createParams(func(params *models.CreateParams) {
+		params.RackName = "Rack A2"
+	}))
+	require.NoError(t, err)
+
+	// A later rack move clears the existing assignment. A stale edit that still
+	// targets the old building must fail rather than restoring that invalid pair.
+	_, err = conn.ExecContext(ctx, `UPDATE device_set_rack SET building_id = 101 WHERE device_set_id = 1000`)
+	require.NoError(t, err)
+	_, err = svc.Update(ctx, models.UpdateParams{
+		OrgID:          testOrgID,
+		ID:             device.ID,
+		ExpectedSiteID: testSiteID,
+		SiteID:         testSiteID,
+		BuildingName:   "Building 1",
+		RackName:       stringPtr("Rack A2"),
+		Name:           device.Name,
+		DeviceKind:     device.DeviceKind,
+		FanCount:       device.FanCount,
+		Enabled:        &device.Enabled,
+		DriverType:     device.DriverType,
+		DriverConfig:   device.DriverConfig,
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	unchanged, err := svc.Get(ctx, testOrgID, device.ID)
+	require.NoError(t, err)
+	assert.Empty(t, unchanged.RackName)
 }
 
 func TestService_DeleteRejectsResponseProfileReference_DatabaseIntegration(t *testing.T) {

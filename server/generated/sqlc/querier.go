@@ -1118,6 +1118,12 @@ type Querier interface {
 	// Locks the exact live fan rows selected by a response profile so concurrent
 	// moves/deletes cannot invalidate validation before the profile write commits.
 	LockInfrastructureDevicesForResponseProfile(ctx context.Context, arg LockInfrastructureDevicesForResponseProfileParams) ([]LockInfrastructureDevicesForResponseProfileRow, error)
+	// Validate and lock the live rack catalog entry before persisting its
+	// denormalized label on an infrastructure device. Locking both catalog rows
+	// serializes this write with rack rename/delete and placement changes; those
+	// operations lock rack rows before cascading to infrastructure devices, so
+	// callers must invoke this before locking an infrastructure-device row.
+	LockInfrastructureRackForPlacement(ctx context.Context, arg LockInfrastructureRackForPlacementParams) (int64, error)
 	// Locks device_set + rack rows FOR UPDATE and returns current placement.
 	// Must run after the site/building locks (canonical lock order).
 	LockRackPlacementForWrite(ctx context.Context, arg LockRackPlacementForWriteParams) (LockRackPlacementForWriteRow, error)

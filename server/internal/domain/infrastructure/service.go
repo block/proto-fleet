@@ -145,6 +145,17 @@ func (s *Service) Create(ctx context.Context, params models.CreateParams) (*mode
 		if err := s.siteStore.LockSiteForWrite(txCtx, params.OrgID, params.SiteID); err != nil {
 			return err
 		}
+		if params.RackName != "" {
+			if err := s.store.LockInfrastructureRackForPlacement(
+				txCtx,
+				params.OrgID,
+				params.SiteID,
+				params.BuildingName,
+				params.RackName,
+			); err != nil {
+				return err
+			}
+		}
 		device, err := s.store.CreateInfrastructureDevice(txCtx, params)
 		if err != nil {
 			return err
@@ -197,6 +208,17 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 		// ID order keeps crossing moves (A→B vs B→A) deadlock-free.
 		for _, siteID := range siteLockOrder(params.ExpectedSiteID, params.SiteID) {
 			if err := s.siteStore.LockSiteForWrite(txCtx, params.OrgID, siteID); err != nil {
+				return err
+			}
+		}
+		if params.RackName != nil && *params.RackName != "" {
+			if err := s.store.LockInfrastructureRackForPlacement(
+				txCtx,
+				params.OrgID,
+				params.SiteID,
+				params.BuildingName,
+				*params.RackName,
+			); err != nil {
 				return err
 			}
 		}

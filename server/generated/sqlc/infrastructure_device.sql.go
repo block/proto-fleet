@@ -372,6 +372,50 @@ func (q *Queries) LockInfrastructureDevicesForResponseProfile(ctx context.Contex
 	return items, nil
 }
 
+const lockInfrastructureRackForPlacement = `-- name: LockInfrastructureRackForPlacement :one
+SELECT ds.id
+FROM device_set ds
+JOIN device_set_rack dsr
+  ON dsr.device_set_id = ds.id
+ AND dsr.org_id = ds.org_id
+JOIN building b
+  ON b.id = dsr.building_id
+ AND b.org_id = ds.org_id
+ AND b.deleted_at IS NULL
+WHERE ds.org_id = $1
+  AND ds.type = 'rack'
+  AND ds.label = $2
+  AND ds.deleted_at IS NULL
+  AND dsr.site_id = $3
+  AND b.site_id = $3
+  AND b.name = $4
+FOR UPDATE OF ds, dsr
+`
+
+type LockInfrastructureRackForPlacementParams struct {
+	OrgID        int64
+	RackName     string
+	SiteID       sql.NullInt64
+	BuildingName string
+}
+
+// Validate and lock the live rack catalog entry before persisting its
+// denormalized label on an infrastructure device. Locking both catalog rows
+// serializes this write with rack rename/delete and placement changes; those
+// operations lock rack rows before cascading to infrastructure devices, so
+// callers must invoke this before locking an infrastructure-device row.
+func (q *Queries) LockInfrastructureRackForPlacement(ctx context.Context, arg LockInfrastructureRackForPlacementParams) (int64, error) {
+	row := q.queryRow(ctx, q.lockInfrastructureRackForPlacementStmt, lockInfrastructureRackForPlacement,
+		arg.OrgID,
+		arg.RackName,
+		arg.SiteID,
+		arg.BuildingName,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const softDeleteInfrastructureDevice = `-- name: SoftDeleteInfrastructureDevice :one
 UPDATE infrastructure_device
 SET deleted_at = CURRENT_TIMESTAMP

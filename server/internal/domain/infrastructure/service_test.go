@@ -92,11 +92,27 @@ func requireAuditEvent(t *testing.T, captured []activitymodels.Event, eventType 
 func TestService_CreateEmitsAuditEvent(t *testing.T) {
 	t.Parallel()
 	h := newAuditHarness(t)
+	h.store.EXPECT().LockInfrastructureRackForPlacement(
+		gomock.Any(), testOrgID, testSiteID, "Building 1", "Rack A1",
+	).Return(nil)
 	h.store.EXPECT().CreateInfrastructureDevice(gomock.Any(), gomock.Any()).Return(auditDevice(), nil)
 
 	_, err := h.svc.Create(context.Background(), createParams(nil))
 	require.NoError(t, err)
 	requireAuditEvent(t, *h.captured, "infrastructure_device.created")
+}
+
+func TestService_CreateRejectsUnavailableRack(t *testing.T) {
+	t.Parallel()
+	h := newAuditHarness(t)
+	h.store.EXPECT().LockInfrastructureRackForPlacement(
+		gomock.Any(), testOrgID, testSiteID, "Building 1", "Rack A1",
+	).Return(fleeterror.NewFailedPreconditionError("rack is no longer available"))
+
+	_, err := h.svc.Create(context.Background(), createParams(nil))
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Empty(t, *h.captured)
 }
 
 func TestService_UpdateEmitsAuditEvent(t *testing.T) {
@@ -121,6 +137,45 @@ func TestService_UpdateEmitsAuditEvent(t *testing.T) {
 	})
 	require.NoError(t, err)
 	requireAuditEvent(t, *h.captured, "infrastructure_device.updated")
+}
+
+func TestService_UpdateLocksRackBeforeInfrastructureDevice(t *testing.T) {
+	t.Parallel()
+	h := newAuditHarness(t)
+	rackName := "Rack B1"
+	updated := auditDevice()
+	updated.RackName = rackName
+	gomock.InOrder(
+		h.store.EXPECT().LockInfrastructureRackForPlacement(
+			gomock.Any(), testOrgID, testSiteID, "Building 1", rackName,
+		).Return(nil),
+		h.store.EXPECT().LockInfrastructureDeviceForWrite(
+			gomock.Any(), testOrgID, int64(7), testSiteID,
+		).Return(nil),
+		h.store.EXPECT().GetInfrastructureDevice(
+			gomock.Any(), testOrgID, int64(7),
+		).Return(auditDevice(), nil),
+		h.store.EXPECT().UpdateInfrastructureDevice(
+			gomock.Any(), gomock.Any(),
+		).Return(updated, nil),
+	)
+
+	got, err := h.svc.Update(context.Background(), models.UpdateParams{
+		OrgID:          testOrgID,
+		ID:             7,
+		ExpectedSiteID: testSiteID,
+		SiteID:         testSiteID,
+		BuildingName:   "Building 1",
+		RackName:       &rackName,
+		Name:           "Zone A exhaust fans",
+		DeviceKind:     models.KindFanGroup,
+		FanCount:       12,
+		Enabled:        boolPtr(true),
+		DriverType:     "modbus_tcp",
+		DriverConfig:   validModbusConfig(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, rackName, got.RackName)
 }
 
 func TestService_UpdateRejectsDisablingDeviceClaimedByActiveCurtailmentEvent(t *testing.T) {

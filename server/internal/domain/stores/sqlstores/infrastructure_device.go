@@ -122,6 +122,31 @@ func (s *SQLInfrastructureDeviceStore) ListInfrastructureDevices(ctx context.Con
 	return out, nil
 }
 
+func (s *SQLInfrastructureDeviceStore) LockInfrastructureRackForPlacement(
+	ctx context.Context,
+	orgID, siteID int64,
+	buildingName, rackName string,
+) error {
+	_, err := s.GetQueries(ctx).LockInfrastructureRackForPlacement(ctx, sqlc.LockInfrastructureRackForPlacementParams{
+		OrgID:        orgID,
+		RackName:     rackName,
+		SiteID:       sql.NullInt64{Int64: siteID, Valid: true},
+		BuildingName: buildingName,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return fleeterror.NewFailedPreconditionErrorf(
+			"rack %q is not available in building %q at site %d",
+			rackName,
+			buildingName,
+			siteID,
+		)
+	}
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to lock infrastructure rack placement: %v", err)
+	}
+	return nil
+}
+
 func (s *SQLInfrastructureDeviceStore) LockInfrastructureDeviceForWrite(ctx context.Context, orgID, id, expectedSiteID int64) error {
 	_, err := s.GetQueries(ctx).LockInfrastructureDeviceForWrite(ctx, sqlc.LockInfrastructureDeviceForWriteParams{
 		ID:             id,
