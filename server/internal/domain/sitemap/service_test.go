@@ -2310,7 +2310,8 @@ func TestValidateRackCapacityBlocksOverfilledRack(t *testing.T) {
 	}
 	rackRows := []map[string]string{{"rack": "Rack A", "rows": "1", "columns": "1"}}
 
-	errs := validateRackCapacity(minerRows, rackRows, &snapshot{}, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"MINER": minerRows, "RACK": rackRows}}, &snapshot{}, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	errs := validateRackCapacity(p)
 	if len(errs) != 1 || errs[0].GetSection() != "MINER" {
 		t.Fatalf("errors = %+v, want rack capacity error", errs)
 	}
@@ -2321,7 +2322,8 @@ func TestValidateRackCapacityCountsRetainedOmittedMiners(t *testing.T) {
 	rackRows := []map[string]string{{"rack": "Rack A", "rows": "1", "columns": "1"}}
 	snap := &snapshot{miners: []minerSnapshot{{DeviceIdentifier: "miner-1", Rack: "Rack A"}}}
 
-	errs := validateRackCapacity(minerRows, rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"MINER": minerRows, "RACK": rackRows}}, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	errs := validateRackCapacity(p)
 	if len(errs) != 1 || errs[0].GetSection() != "MINER" {
 		t.Fatalf("errors = %+v, want rack capacity error", errs)
 	}
@@ -2332,7 +2334,8 @@ func TestValidateRackCapacityCountsHiddenRackMembers(t *testing.T) {
 	rackRows := []map[string]string{{"rack": "Rack A", "rows": "1", "columns": "1"}}
 	snap := &snapshot{hiddenRackMembers: []minerSnapshot{{DeviceIdentifier: "hidden-1", Rack: "Rack A"}}}
 
-	errs := validateRackCapacity(minerRows, rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"MINER": minerRows, "RACK": rackRows}}, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	errs := validateRackCapacity(p)
 	if len(errs) != 1 || errs[0].GetSection() != "MINER" {
 		t.Fatalf("errors = %+v, want rack capacity error", errs)
 	}
@@ -2344,7 +2347,8 @@ func TestValidateRackCapacityMapsHiddenMembersThroughRackRename(t *testing.T) {
 	rackRows := []map[string]string{{fieldID: "20", fieldLabel: "New Rack", "rows": "1", "columns": "1"}}
 	snap := &snapshot{hiddenRackMembers: []minerSnapshot{{DeviceIdentifier: "hidden-1", RackID: &rackID, Rack: "Old Rack"}}}
 
-	errs := validateRackCapacity(minerRows, rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"MINER": minerRows, "RACK": rackRows}}, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	errs := validateRackCapacity(p)
 	if len(errs) != 1 || errs[0].GetSection() != "MINER" || !strings.Contains(errs[0].GetMessage(), `rack "New Rack"`) {
 		t.Fatalf("errors = %+v, want renamed-rack capacity error", errs)
 	}
@@ -2527,7 +2531,8 @@ func TestValidateExistingSlotsFitRackDimensionsBlocksShrink(t *testing.T) {
 		miners: []minerSnapshot{{DeviceIdentifier: "miner-1", Rack: "Rack A", RackRow: "1", RackCol: "0"}},
 	}
 
-	errs := validateExistingSlotsFitRackDimensions(nil, rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"RACK": rackRows}}, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	errs := validateExistingSlotsFitRackDimensions(p)
 	if len(errs) != 1 || !strings.Contains(errs[0].GetMessage(), "does not fit rack") {
 		t.Fatalf("errors = %+v, want slot fit error", errs)
 	}
@@ -2537,7 +2542,8 @@ func TestValidateExistingSlotsFitRackDimensionsCountsHiddenRackMembers(t *testin
 	rackRows := []map[string]string{{"rack": "Rack A", "rows": "1", "columns": "1"}}
 	snap := &snapshot{hiddenRackMembers: []minerSnapshot{{DeviceIdentifier: "hidden-1", Rack: "Rack A", RackRow: "1", RackCol: "0"}}}
 
-	errs := validateExistingSlotsFitRackDimensions(nil, rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"RACK": rackRows}}, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	errs := validateExistingSlotsFitRackDimensions(p)
 	if len(errs) != 1 || errs[0].GetSection() != "MINER" {
 		t.Fatalf("errors = %+v, want hidden member slot dimension error", errs)
 	}
@@ -2551,7 +2557,8 @@ func TestValidateExistingSlotsFitRackDimensionsMapsRetainedMembersThroughRackRen
 		miners: []minerSnapshot{{DeviceIdentifier: "miner-1", RackID: &rackID, Rack: "Old Rack", RackRow: "1", RackCol: "0"}},
 	}
 
-	errs := validateExistingSlotsFitRackDimensions(nil, rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"RACK": rackRows}}, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	errs := validateExistingSlotsFitRackDimensions(p)
 	if len(errs) != 1 || errs[0].GetSection() != "MINER" || !strings.Contains(errs[0].GetMessage(), `rack "New Rack"`) {
 		t.Fatalf("errors = %+v, want renamed-rack slot fit error", errs)
 	}
@@ -2565,7 +2572,8 @@ func TestValidateExistingSlotsFitRackDimensionsMapsHiddenMembersThroughRackRenam
 		hiddenRackMembers: []minerSnapshot{{DeviceIdentifier: "hidden-1", RackID: &rackID, Rack: "Old Rack", RackRow: "1", RackCol: "0"}},
 	}
 
-	errs := validateExistingSlotsFitRackDimensions(nil, rackRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"RACK": rackRows}}, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	errs := validateExistingSlotsFitRackDimensions(p)
 	if len(errs) != 1 || errs[0].GetSection() != "MINER" || !strings.Contains(errs[0].GetMessage(), `rack "New Rack"`) {
 		t.Fatalf("errors = %+v, want hidden renamed-rack slot fit error", errs)
 	}

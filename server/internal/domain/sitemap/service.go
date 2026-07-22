@@ -1183,8 +1183,8 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateRackGridPositions(resolved.racks, resolved.topology)...)
 	plan.errors = append(plan.errors, validateRackGridCollisions(parsed.sections["RACK"], snap, mode)...)
 	plan.errors = append(plan.errors, validateRackSlotBounds(resolved.miners, resolved.topology)...)
-	plan.errors = append(plan.errors, validateExistingSlotsFitRackDimensions(parsed.sections["MINER"], parsed.sections["RACK"], targetSnap, mode)...)
-	plan.errors = append(plan.errors, validateRackCapacity(parsed.sections["MINER"], parsed.sections["RACK"], targetSnap, mode)...)
+	plan.errors = append(plan.errors, validateExistingSlotsFitRackDimensions(resolved)...)
+	plan.errors = append(plan.errors, validateRackCapacity(resolved)...)
 	plan.errors = append(plan.errors, validateBuildingRackCapacity(parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap)...)
 	plan.errors = append(plan.errors, validateBuildingExistingRacksFitLayout(parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap, mode)...)
 	plan.errors = append(plan.errors, validateSlotCollisions(resolved.miners)...)
@@ -3156,106 +3156,6 @@ func validateMinerRenamePermission(rows []map[string]string, snap *snapshot) []*
 			continue
 		}
 		errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", "miner:rename permission is required to change miner name"))
-	}
-	return errs
-}
-
-func validateExistingSlotsFitRackDimensions(minerRows, rackRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
-	racks := desiredRackMap(rackRows, snap.racks, nil, snap.buildings)
-	desiredRackLabels := desiredRackLabelsByID(rackRows)
-	desiredMiners := map[string]map[string]string{}
-	for _, row := range minerRows {
-		desiredMiners[row["device_identifier"]] = row
-	}
-	var errs []*pb.ImportValidationError
-	for _, miner := range snap.miners {
-		row, ok := desiredMiners[miner.DeviceIdentifier]
-		if !ok && mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
-			continue
-		}
-		rackLabel := desiredRackLabel(miner, desiredRackLabels)
-		rackRow := miner.RackRow
-		rackCol := miner.RackCol
-		if ok {
-			rackLabel = row[fieldRack]
-			rackRow = row["rack_row"]
-			rackCol = row["rack_col"]
-		}
-		if rackLabel == "" || rackRow == "" || rackCol == "" {
-			continue
-		}
-		rack, ok := racks[rackLabel]
-		if !ok {
-			continue
-		}
-		rowValue, err := parseInt32Value(rackRow, "rack_row")
-		if err != nil {
-			continue
-		}
-		colValue, err := parseInt32Value(rackCol, "rack_col")
-		if err != nil {
-			continue
-		}
-		if rowValue >= rack.Rows || colValue >= rack.Columns {
-			errs = append(errs, csvErr(0, "MINER", fmt.Sprintf("miner %s slot %d,%d does not fit rack %q dimensions %dx%d", miner.DeviceIdentifier, rowValue, colValue, rackLabel, rack.Rows, rack.Columns)))
-		}
-	}
-	for _, miner := range snap.hiddenRackMembers {
-		rackLabel := desiredRackLabel(miner, desiredRackLabels)
-		if rackLabel == "" || miner.RackRow == "" || miner.RackCol == "" {
-			continue
-		}
-		rack, ok := racks[rackLabel]
-		if !ok {
-			continue
-		}
-		rowValue, err := parseInt32Value(miner.RackRow, "rack_row")
-		if err != nil {
-			continue
-		}
-		colValue, err := parseInt32Value(miner.RackCol, "rack_col")
-		if err != nil {
-			continue
-		}
-		if rowValue >= rack.Rows || colValue >= rack.Columns {
-			errs = append(errs, csvErr(0, "MINER", fmt.Sprintf("miner %s slot %d,%d does not fit rack %q dimensions %dx%d", miner.DeviceIdentifier, rowValue, colValue, rackLabel, rack.Rows, rack.Columns)))
-		}
-	}
-	return errs
-}
-
-func validateRackCapacity(minerRows, rackRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
-	racks := desiredRackMap(rackRows, snap.racks, nil, snap.buildings)
-	desiredRackLabels := desiredRackLabelsByID(rackRows)
-	counts := map[string]int32{}
-	presentMiners := rowSet(minerRows, "device_identifier")
-	for _, row := range minerRows {
-		if row[fieldRack] != "" {
-			counts[row[fieldRack]]++
-		}
-	}
-	if mode != pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
-		for _, miner := range snap.miners {
-			if miner.Rack != "" && !presentMiners[miner.DeviceIdentifier] {
-				counts[desiredRackLabel(miner, desiredRackLabels)]++
-			}
-		}
-	}
-	for _, miner := range snap.hiddenRackMembers {
-		if miner.Rack != "" && !presentMiners[miner.DeviceIdentifier] {
-			counts[desiredRackLabel(miner, desiredRackLabels)]++
-		}
-	}
-	var errs []*pb.ImportValidationError
-	for rackLabel, count := range counts {
-		rack, ok := racks[rackLabel]
-		if !ok || rack.Rows <= 0 || rack.Columns <= 0 {
-			continue
-		}
-		capacity := rack.Rows * rack.Columns
-		if count > capacity {
-			errs = append(errs, csvErr(0, "MINER", fmt.Sprintf("rack %q has %d assigned miners but capacity is %d", rackLabel, count, capacity)))
-		}
 	}
 	return errs
 }

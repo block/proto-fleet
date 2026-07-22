@@ -586,6 +586,106 @@ func validateRackSlotBounds(miners []*resolvedMiner, tv *topologyView) []*pb.Imp
 	return errs
 }
 
+// rackLabelsByID maps a resolved rack's stable id to its desired label, so an
+// existing miner referencing a renamed rack by id resolves to the new label.
+func rackLabelsByID(racks []*resolvedRack) map[int64]string {
+	out := map[int64]string{}
+	for _, r := range racks {
+		if r.id != nil {
+			out[*r.id] = r.label
+		}
+	}
+	return out
+}
+
+// validateExistingSlotsFitRackDimensions rejects an import that would shrink a
+// rack below the slot coordinates its current or incoming miners occupy.
+func validateExistingSlotsFitRackDimensions(r *resolvedPlan) []*pb.ImportValidationError {
+	racks := r.topology.racksByLabel
+	rackLabels := rackLabelsByID(r.racks)
+	desired := map[string]*resolvedMiner{}
+	for _, m := range r.miners {
+		desired[m.deviceID] = m
+	}
+	var errs []*pb.ImportValidationError
+	fits := func(deviceID, rackLabel, rackRow, rackCol string) {
+		if rackLabel == "" || rackRow == "" || rackCol == "" {
+			return
+		}
+		rack, ok := racks[rackLabel]
+		if !ok {
+			return
+		}
+		rowValue, err := parseInt32Value(rackRow, "rack_row")
+		if err != nil {
+			return
+		}
+		colValue, err := parseInt32Value(rackCol, "rack_col")
+		if err != nil {
+			return
+		}
+		if rowValue >= rack.Rows || colValue >= rack.Columns {
+			errs = append(errs, csvErr(0, "MINER", fmt.Sprintf("miner %s slot %d,%d does not fit rack %q dimensions %dx%d", deviceID, rowValue, colValue, rackLabel, rack.Rows, rack.Columns)))
+		}
+	}
+	for _, miner := range r.population.miners {
+		m, ok := desired[miner.DeviceIdentifier]
+		if !ok && r.mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
+			continue
+		}
+		if ok {
+			fits(miner.DeviceIdentifier, m.rackLabel, m.rackRow, m.rackCol)
+			continue
+		}
+		fits(miner.DeviceIdentifier, desiredRackLabel(miner, rackLabels), miner.RackRow, miner.RackCol)
+	}
+	for _, miner := range r.population.hiddenRackMembers {
+		fits(miner.DeviceIdentifier, desiredRackLabel(miner, rackLabels), miner.RackRow, miner.RackCol)
+	}
+	return errs
+}
+
+// validateRackCapacity rejects racks whose desired assigned-miner count exceeds
+// their slot capacity, counting both incoming and retained existing miners.
+func validateRackCapacity(r *resolvedPlan) []*pb.ImportValidationError {
+	racks := r.topology.racksByLabel
+	rackLabels := rackLabelsByID(r.racks)
+	counts := map[string]int32{}
+	presentMiners := map[string]bool{}
+	for _, m := range r.miners {
+		if m.deviceID != "" {
+			presentMiners[m.deviceID] = true
+		}
+		if m.rackLabel != "" {
+			counts[m.rackLabel]++
+		}
+	}
+	if r.mode != pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
+		for _, miner := range r.population.miners {
+			if miner.Rack != "" && !presentMiners[miner.DeviceIdentifier] {
+				counts[desiredRackLabel(miner, rackLabels)]++
+			}
+		}
+	}
+	for _, miner := range r.population.hiddenRackMembers {
+		if miner.Rack != "" && !presentMiners[miner.DeviceIdentifier] {
+			counts[desiredRackLabel(miner, rackLabels)]++
+		}
+	}
+	var errs []*pb.ImportValidationError
+	for rackLabel, count := range counts {
+		rack, ok := racks[rackLabel]
+		if !ok || rack.Rows <= 0 || rack.Columns <= 0 {
+			continue
+		}
+		capacity := rack.Rows * rack.Columns
+		if count > capacity {
+			errs = append(errs, csvErr(0, "MINER", fmt.Sprintf("rack %q has %d assigned miners but capacity is %d", rackLabel, count, capacity)))
+		}
+	}
+	return errs
+}
+
 // countMinerRenameNodes counts existing miners whose name changed.
 func countMinerRenameNodes(miners []*resolvedMiner) int32 {
 	var n int32
