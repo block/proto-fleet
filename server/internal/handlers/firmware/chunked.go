@@ -148,6 +148,10 @@ func (h *initiateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		TargetModel:        req.TargetModel,
 		FirmwareVersion:    req.FirmwareVersion,
 	}
+	if err := files.ValidateFirmwareUploadMetadata(metadata); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	if req.FileSize <= 0 {
 		writeError(w, http.StatusBadRequest, "file_size must be greater than zero")

@@ -62,7 +62,7 @@ function toFileData(info: FirmwareFileInfo): FirmwareFileData {
   return {
     id: info.id,
     filename: info.filename,
-    target: `${info.target_manufacturer} ${info.target_model}`.trim(),
+    target: `${info.target_manufacturer} ${info.target_model}`.trim() || "Unknown",
     firmwareVersion: info.firmware_version ?? "",
     size: info.size,
     uploadedAt: isoToEpochSeconds(info.uploaded_at),

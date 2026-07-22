@@ -93,6 +93,8 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
     }),
     [firmwareVersion, targetManufacturer, selectedTargetModel],
   );
+  const hasCompleteTarget =
+    target.targetManufacturer !== "" && target.targetModel !== "" && target.firmwareVersion !== "";
 
   const handleDismiss = useCallback(() => {
     const uploaded = state === "ready";
@@ -170,6 +172,7 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
             <FileDropZone
               extensions={serverConfig.allowedExtensions}
               onFileSelect={(selectedFile) => processFile(selectedFile, target)}
+              disabled={!hasCompleteTarget}
             />
           </>
         ) : null}

@@ -5,6 +5,7 @@ import FirmwareUpdateModal from "./FirmwareUpdateModal";
 
 const mockListFirmwareFiles = vi.fn();
 const mockUseFirmwareUpload = vi.fn();
+const target = { targetManufacturer: "Proto", targetModel: "S21" };
 
 vi.mock("@/protoFleet/api/useFirmwareApi", () => ({
   useFirmwareApi: () => ({
@@ -65,7 +66,7 @@ describe("FirmwareUpdateModal", () => {
       }),
     );
 
-    render(<FirmwareUpdateModal open onConfirm={vi.fn()} onDismiss={vi.fn()} />);
+    render(<FirmwareUpdateModal open target={target} onConfirm={vi.fn()} onDismiss={vi.fn()} />);
 
     expect(screen.getByTestId("progress-circular")).toBeInTheDocument();
 
@@ -90,7 +91,7 @@ describe("FirmwareUpdateModal", () => {
       },
     ]);
 
-    render(<FirmwareUpdateModal open onConfirm={vi.fn()} onDismiss={vi.fn()} />);
+    render(<FirmwareUpdateModal open target={target} onConfirm={vi.fn()} onDismiss={vi.fn()} />);
 
     expect(await screen.findByText("Select an existing firmware file")).toBeInTheDocument();
     expect(screen.getByText("alpha.swu")).toBeInTheDocument();
@@ -114,12 +115,20 @@ describe("FirmwareUpdateModal", () => {
         target_manufacturer: "Bitmain",
         target_model: "S21",
       },
+      {
+        id: "legacy",
+        filename: "legacy.swu",
+        size: 1024,
+        uploaded_at: "2025-01-01T00:00:00Z",
+        target_manufacturer: "",
+        target_model: "",
+      },
     ]);
 
     render(
       <FirmwareUpdateModal
         open
-        target={{ targetManufacturer: "Proto", targetModel: "Rig" }}
+        target={{ targetManufacturer: " proto ", targetModel: "rig" }}
         onConfirm={vi.fn()}
         onDismiss={vi.fn()}
       />,
@@ -127,13 +136,33 @@ describe("FirmwareUpdateModal", () => {
 
     expect(await screen.findByText("alpha.swu")).toBeInTheDocument();
     expect(screen.queryByText("beta.swu")).not.toBeInTheDocument();
+    expect(screen.queryByText("legacy.swu")).not.toBeInTheDocument();
   });
 
   it("explains that miners reboot automatically after firmware installation", () => {
     mockListFirmwareFiles.mockResolvedValue([]);
 
-    render(<FirmwareUpdateModal open onConfirm={vi.fn()} onDismiss={vi.fn()} />);
+    render(<FirmwareUpdateModal open target={target} onConfirm={vi.fn()} onDismiss={vi.fn()} />);
 
     expect(screen.getByText(/reboot automatically after installation completes/i)).toBeInTheDocument();
+  });
+
+  it("fails closed when the selected miner target is unavailable", async () => {
+    mockListFirmwareFiles.mockResolvedValue([
+      {
+        id: "fw-1",
+        filename: "alpha.swu",
+        size: 1024,
+        uploaded_at: "2025-01-01T00:00:00Z",
+        target_manufacturer: "Proto",
+        target_model: "S21",
+      },
+    ]);
+
+    render(<FirmwareUpdateModal open onConfirm={vi.fn()} onDismiss={vi.fn()} />);
+
+    expect(screen.getByText(/unable to determine the selected miners/i)).toBeInTheDocument();
+    expect(screen.queryByText("alpha.swu")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("file-drop-zone")).not.toBeInTheDocument();
   });
 });

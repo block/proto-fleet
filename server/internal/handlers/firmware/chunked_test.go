@@ -140,44 +140,39 @@ func TestChunkedUpload_InitiateRejectsInvalidExtension(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "unsupported firmware file type")
 }
 
-func TestChunkedUpload_CompleteRejectsMissingTargetMetadata(t *testing.T) {
-	env := newTestEnv(t)
-	mgr := NewChunkedUploadManager()
+func TestChunkedUpload_InitiateRejectsMissingTargetMetadata(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		wantError string
+	}{
+		{name: "all metadata", body: chunkedInitiateBodyWithoutMetadata("firmware.swu", 10), wantError: "target_manufacturer"},
+		{name: "manufacturer", body: `{"filename":"firmware.swu","file_size":10,"target_model":"S21","firmware_version":"v2.0.0"}`, wantError: "target_manufacturer"},
+		{name: "model", body: `{"filename":"firmware.swu","file_size":10,"target_manufacturer":"Proto","firmware_version":"v2.0.0"}`, wantError: "target_model"},
+		{name: "version", body: `{"filename":"firmware.swu","file_size":10,"target_manufacturer":"Proto","target_model":"S21"}`, wantError: "firmware_version"},
+	}
 
-	initHandler := &initiateHandler{mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc, userStore: env.userStoreMock}
-	chunkH := &chunkHandler{mgr: mgr, sessionService: env.sessionSvc, userStore: env.userStoreMock}
-	completeH := &completeHandler{mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc, userStore: env.userStoreMock}
-	content := "missing metadata firmware"
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newTestEnv(t)
+			mgr := NewChunkedUploadManager()
+			h := &initiateHandler{mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc, userStore: env.userStoreMock}
 
-	env.expectAuth()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(chunkedInitiateBodyWithoutMetadata("firmware.swu", len(content))))
-	req.Header.Set("Content-Type", "application/json")
-	req.AddCookie(validSessionCookie(env.sessionID))
-	rr := httptest.NewRecorder()
-	initHandler.ServeHTTP(rr, req)
-	require.Equal(t, http.StatusOK, rr.Code)
+			env.expectAuth()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			req.AddCookie(validSessionCookie(env.sessionID))
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, req)
 
-	var initResp initiateResponse
-	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &initResp))
-
-	env.expectAuth()
-	req = httptest.NewRequest(http.MethodPut, "/api/v1/firmware/upload/chunked/"+initResp.UploadID, strings.NewReader(content))
-	req.Header.Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", len(content)-1, len(content)))
-	req.AddCookie(validSessionCookie(env.sessionID))
-	req.SetPathValue("uploadId", initResp.UploadID)
-	rr = httptest.NewRecorder()
-	chunkH.ServeHTTP(rr, req)
-	require.Equal(t, http.StatusOK, rr.Code)
-
-	env.expectAuth()
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload/chunked/"+initResp.UploadID+"/complete", nil)
-	req.AddCookie(validSessionCookie(env.sessionID))
-	req.SetPathValue("uploadId", initResp.UploadID)
-	rr = httptest.NewRecorder()
-	completeH.ServeHTTP(rr, req)
-
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "target_manufacturer")
+			assert.Equal(t, http.StatusBadRequest, rr.Code)
+			assert.Contains(t, rr.Body.String(), tt.wantError)
+			assert.Empty(t, mgr.sessions)
+			entries, err := os.ReadDir(files.StagingDir())
+			require.NoError(t, err)
+			assert.Empty(t, entries)
+		})
+	}
 }
 
 func TestChunkedUpload_InitiateRejectsOversizedFile(t *testing.T) {

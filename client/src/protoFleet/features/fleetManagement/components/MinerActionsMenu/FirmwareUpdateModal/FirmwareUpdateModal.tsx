@@ -31,8 +31,13 @@ const fileMatchesTarget = (
   file: FirmwareFileInfo,
   target: { targetManufacturer: string; targetModel: string } | null | undefined,
 ) => {
-  if (!target) return true;
-  return file.target_manufacturer === target.targetManufacturer && file.target_model === target.targetModel;
+  const targetManufacturer = target?.targetManufacturer.trim() ?? "";
+  const targetModel = target?.targetModel.trim() ?? "";
+  if (!targetManufacturer || !targetModel) return false;
+  return (
+    file.target_manufacturer.trim().toLowerCase() === targetManufacturer.toLowerCase() &&
+    file.target_model.trim().toLowerCase() === targetModel.toLowerCase()
+  );
 };
 
 const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpdateModalProps) => {
@@ -52,12 +57,10 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
   const [existingFiles, setExistingFiles] = useState<FirmwareFileInfo[] | null>(null);
   const [selectedExistingFileId, setSelectedExistingFileId] = useState<string | null>(null);
   const [showUploadZone, setShowUploadZone] = useState(false);
-  const [targetManufacturer, setTargetManufacturer] = useState("");
-  const [targetModel, setTargetModel] = useState("");
   const [firmwareVersion, setFirmwareVersion] = useState("");
 
-  const effectiveTargetManufacturer = target?.targetManufacturer ?? targetManufacturer;
-  const effectiveTargetModel = target?.targetModel ?? targetModel;
+  const effectiveTargetManufacturer = target?.targetManufacturer ?? "";
+  const effectiveTargetModel = target?.targetModel ?? "";
   const uploadTarget = useMemo(
     () => ({
       targetManufacturer: effectiveTargetManufacturer.trim(),
@@ -123,8 +126,6 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
       setSelectedExistingFileId(null);
       setExistingFiles(null);
       setShowUploadZone(false);
-      setTargetManufacturer("");
-      setTargetModel("");
       setFirmwareVersion("");
     }
   }, [effectiveFirmwareFileId, onConfirm, reset]);
@@ -134,16 +135,16 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
     setSelectedExistingFileId(null);
     setExistingFiles(null);
     setShowUploadZone(false);
-    setTargetManufacturer("");
-    setTargetModel("");
     setFirmwareVersion("");
     onDismiss();
   }, [onDismiss, reset]);
 
   const isProcessing = uploadState === "hashing" || uploadState === "checking" || uploadState === "uploading";
+  const missingTarget =
+    !!open && (effectiveTargetManufacturer.trim() === "" || effectiveTargetModel.trim() === "");
   const configLoading = uploadState !== "error" && !serverConfig;
   const hasExistingFiles = visibleExistingFiles.length > 0;
-  const showLoadingSpinner = configLoading && !hasExistingFiles;
+  const showLoadingSpinner = !missingTarget && configLoading && !hasExistingFiles;
 
   const buttons = isReady ? [{ text: "Continue", variant: variants.primary, onClick: handleConfirm }] : undefined;
 
@@ -156,6 +157,12 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
         {showLoadingSpinner ? (
           <div className="flex items-center justify-center p-8">
             <ProgressCircular indeterminate size={24} />
+          </div>
+        ) : null}
+
+        {missingTarget ? (
+          <div className="text-300 text-intent-warning-fill">
+            Unable to determine the selected miners&apos; manufacturer and model. Close this dialog and try again.
           </div>
         ) : null}
 
@@ -217,23 +224,21 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
 
         {uploadState === "error" && errorMessage ? <FileErrorStatus message={errorMessage} onRetry={retry} /> : null}
 
-        {uploadState === "idle" && serverConfig && (!hasExistingFiles || showUploadZone) ? (
+        {!missingTarget && uploadState === "idle" && serverConfig && (!hasExistingFiles || showUploadZone) ? (
           <>
             <div className="grid gap-4 tablet:grid-cols-2">
               <Input
                 id="firmware-update-target-manufacturer"
                 label="Product"
                 initValue={effectiveTargetManufacturer}
-                onChange={setTargetManufacturer}
-                disabled={!!target}
+                disabled
                 required
               />
               <Input
                 id="firmware-update-target-model"
                 label="Model"
                 initValue={effectiveTargetModel}
-                onChange={setTargetModel}
-                disabled={!!target}
+                disabled
                 required
               />
             </div>

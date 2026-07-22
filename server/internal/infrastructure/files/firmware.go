@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -48,6 +49,8 @@ type FirmwareUploadSaveResult struct {
 const firmwareDir = "firmware"
 const firmwareStagingDir = "firmware/staging"
 const firmwareMetadataFilename = "metadata.json"
+
+var errFirmwareMetadataNotFound = errors.New("firmware metadata not found")
 
 const defaultMaxFirmwareFileSize int64 = 500 * 1024 * 1024 // 500 MB
 
@@ -144,7 +147,18 @@ func initFirmwareDir() error {
 // sessions are in-memory only, any files in the staging directory at startup
 // are orphans from interrupted uploads.
 func cleanStagingDir() {
-	cleanStorageStagingDir(firmwareStagingDir, "failed to remove orphaned staging file", "removed orphaned staging file")
+	entries, err := os.ReadDir(firmwareStagingDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		path := filepath.Join(firmwareStagingDir, entry.Name())
+		if err := os.RemoveAll(path); err != nil {
+			slog.Warn("failed to remove orphaned staging entry", "path", path, "error", err)
+		} else {
+			slog.Info("removed orphaned staging entry", "path", path)
+		}
+	}
 }
 
 // StagingDir returns the path to the firmware staging directory for chunked uploads.
@@ -203,73 +217,21 @@ func (s *Service) ValidateFirmwareFile(filename string, size int64) error {
 // Callers should call ValidateFirmwareFile or ValidateFirmwareFilename before
 // saving to ensure the filename extension is acceptable.
 func (s *Service) SaveFirmwareFile(filename string, reader io.Reader, metadata FirmwareMetadata) (string, error) {
-	metadata = metadata.normalized()
-	if err := ValidateFirmwareUploadMetadata(metadata); err != nil {
+	result, err := s.SaveFirmwareUpload(filename, reader, metadata, true)
+	if err != nil {
 		return "", err
 	}
-
-	fileID := id.GenerateID()
-	dir := getFirmwareDirPath(fileID)
-
-	if err := os.MkdirAll(dir, 0750); err != nil {
-		return "", fleeterror.NewInternalErrorf("failed to create firmware file dir: %v", err)
-	}
-
-	sanitized := sanitizeFirmwareFilename(filename)
-	filePath := filepath.Join(dir, sanitized)
-
-	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if err != nil {
-		_ = os.RemoveAll(dir)
-		return "", fleeterror.NewInternalErrorf("failed to create firmware file: %v", err)
-	}
-	defer file.Close()
-
-	maxSize := s.maxFirmwareFileSize
-	if maxSize <= 0 {
-		maxSize = defaultMaxFirmwareFileSize
-	}
-	limitedReader := io.LimitReader(reader, maxSize+1)
-
-	hasher := sha256.New()
-	teeReader := io.TeeReader(limitedReader, hasher)
-
-	written, err := io.Copy(file, teeReader)
-	if err != nil {
-		_ = os.RemoveAll(dir)
-		return "", fleeterror.NewInternalErrorf("failed to write firmware file: %v", err)
-	}
-	if written > maxSize {
-		_ = os.RemoveAll(dir)
-		return "", fleeterror.NewInvalidArgumentErrorf("firmware file too large: exceeded %d byte limit during upload", maxSize)
-	}
-	if written == 0 {
-		_ = os.RemoveAll(dir)
-		return "", fleeterror.NewInvalidArgumentError("firmware file is empty")
-	}
-
-	if err := file.Sync(); err != nil {
-		_ = os.RemoveAll(dir)
-		return "", fleeterror.NewInternalErrorf("failed to sync firmware file to disk: %v", err)
-	}
-
-	if err := writeFirmwareMetadata(dir, metadata); err != nil {
-		_ = os.RemoveAll(dir)
-		return "", err
-	}
-
-	checksum := hex.EncodeToString(hasher.Sum(nil))
-
-	s.rememberFirmwareChecksum(checksum, fileID, metadata)
-
-	slog.Info("firmware file saved", "file_id", fileID, "filename", sanitized, "checksum", checksum)
-	return fileID, nil
+	return result.FirmwareFileID, nil
 }
 
 // SaveFirmwareUpload stages a streamed upload and reuses an existing file with
 // the same checksum plus metadata unless force is true.
 func (s *Service) SaveFirmwareUpload(filename string, reader io.Reader, manualMetadata FirmwareMetadata, force bool) (FirmwareUploadSaveResult, error) {
 	var result FirmwareUploadSaveResult
+	metadata := manualMetadata.normalized()
+	if err := ValidateFirmwareUploadMetadata(metadata); err != nil {
+		return result, err
+	}
 
 	tempFile, err := os.CreateTemp(firmwareStagingDir, "direct-*")
 	if err != nil {
@@ -308,7 +270,7 @@ func (s *Service) SaveFirmwareUpload(filename string, reader io.Reader, manualMe
 	}
 
 	checksum := hex.EncodeToString(hasher.Sum(nil))
-	result, err = s.SaveFirmwareUploadFromPath(filename, tempPath, manualMetadata, force, checksum)
+	result, err = s.SaveFirmwareUploadFromPath(filename, tempPath, metadata, force, checksum)
 	if err != nil {
 		return FirmwareUploadSaveResult{}, err
 	}
@@ -378,33 +340,57 @@ func (s *Service) SaveFirmwareFileFromPath(filename string, srcPath string, meta
 
 func (s *Service) saveFirmwareFileFromPathWithChecksum(filename string, srcPath string, metadata FirmwareMetadata, checksum string) (string, error) {
 	fileID := id.GenerateID()
-	dir := getFirmwareDirPath(fileID)
-
-	if err := os.MkdirAll(dir, 0750); err != nil {
-		return "", fleeterror.NewInternalErrorf("failed to create firmware file dir: %v", err)
+	finalDir := getFirmwareDirPath(fileID)
+	stagingDir, err := os.MkdirTemp(firmwareStagingDir, "publish-*")
+	if err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to create firmware publish staging dir: %v", err)
 	}
+	removeStaging := true
+	defer func() {
+		if removeStaging {
+			_ = os.RemoveAll(stagingDir)
+		}
+	}()
 
 	sanitized := sanitizeFirmwareFilename(filename)
-	destPath := filepath.Join(dir, sanitized)
+	destPath := filepath.Join(stagingDir, sanitized)
 
 	if err := os.Rename(srcPath, destPath); err != nil {
-		_ = os.RemoveAll(dir)
 		return "", fleeterror.NewInternalErrorf("failed to move firmware file: %v", err)
 	}
 
 	info, err := os.Stat(destPath)
 	if err != nil {
-		_ = os.RemoveAll(dir)
 		return "", fleeterror.NewInternalErrorf("failed to stat firmware file: %v", err)
 	}
 	if info.Size() == 0 {
-		_ = os.RemoveAll(dir)
 		return "", fleeterror.NewInvalidArgumentError("firmware file is empty")
 	}
 
-	if err := writeFirmwareMetadata(dir, metadata); err != nil {
-		_ = os.RemoveAll(dir)
+	payload, err := os.OpenFile(destPath, os.O_RDWR, 0)
+	if err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to open staged firmware file for sync: %v", err)
+	}
+	if err := payload.Sync(); err != nil {
+		_ = payload.Close()
+		return "", fleeterror.NewInternalErrorf("failed to sync staged firmware file: %v", err)
+	}
+	if err := payload.Close(); err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to close staged firmware file: %v", err)
+	}
+
+	if err := writeFirmwareMetadata(stagingDir, metadata); err != nil {
 		return "", err
+	}
+	if err := syncFirmwareDirectory(stagingDir); err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to sync firmware staging directory: %v", err)
+	}
+	if err := os.Rename(stagingDir, finalDir); err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to publish firmware directory: %v", err)
+	}
+	removeStaging = false
+	if err := syncFirmwareDirectory(firmwareDir); err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to sync firmware directory: %v", err)
 	}
 
 	s.rememberFirmwareChecksum(checksum, fileID, metadata)
@@ -438,6 +424,9 @@ func (s *Service) GetFirmwareMetadata(fileID string) (FirmwareMetadata, error) {
 	}
 	metadata, err := readFirmwareMetadata(dir)
 	if err != nil {
+		if errors.Is(err, errFirmwareMetadataNotFound) {
+			return FirmwareMetadata{}, nil
+		}
 		return FirmwareMetadata{}, fleeterror.NewInternalErrorf("failed to read firmware metadata: %v", err)
 	}
 	return metadata, nil
@@ -491,8 +480,11 @@ func (s *Service) OpenFirmwareFileWithInfo(fileID string) (io.ReadCloser, Firmwa
 	}
 	metadata, err := readFirmwareMetadata(getFirmwareDirPath(canonical))
 	if err != nil {
-		file.Close()
-		return nil, FirmwareFileInfo{}, fleeterror.NewInternalErrorf("failed to read firmware metadata: %v", err)
+		if !errors.Is(err, errFirmwareMetadataNotFound) {
+			file.Close()
+			return nil, FirmwareFileInfo{}, fleeterror.NewInternalErrorf("failed to read firmware metadata: %v", err)
+		}
+		metadata = FirmwareMetadata{}
 	}
 
 	return file, FirmwareFileInfo{
@@ -517,7 +509,11 @@ func (s *Service) firmwareChecksum(canonicalID, filePath string) (string, error)
 	}
 	metadata, err := readFirmwareMetadata(getFirmwareDirPath(canonicalID))
 	if err != nil {
-		return "", fleeterror.NewInternalErrorf("failed to read firmware metadata: %v", err)
+		if !errors.Is(err, errFirmwareMetadataNotFound) {
+			return "", fleeterror.NewInternalErrorf("failed to read firmware metadata: %v", err)
+		}
+		s.rememberFirmwareChecksumByID(checksum, canonicalID)
+		return checksum, nil
 	}
 	s.rememberFirmwareChecksum(checksum, canonicalID, metadata)
 	return checksum, nil
@@ -547,6 +543,12 @@ func (s *Service) rememberFirmwareChecksum(checksum, canonicalID string, metadat
 	})
 }
 
+func (s *Service) rememberFirmwareChecksumByID(checksum, canonicalID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.firmwareChecksumByID[canonicalID] = checksum
+}
+
 // FindFirmwareFileByChecksum looks up a firmware file by its SHA-256 hex digest.
 // Returns the file ID and true if found, or empty string and false otherwise.
 // Used by the pre-upload check endpoint to let clients skip redundant uploads.
@@ -559,8 +561,10 @@ func (s *Service) FindFirmwareFileByChecksum(sha256Hex string, metadata Firmware
 	for _, entry := range entries {
 		storedMetadata, err := readFirmwareMetadata(getFirmwareDirPath(entry.fileID))
 		if err != nil {
-			slog.Warn("deleting invalid firmware dir during checksum lookup", "file_id", entry.fileID, "error", err)
-			_ = os.RemoveAll(getFirmwareDirPath(entry.fileID))
+			if errors.Is(err, errFirmwareMetadataNotFound) {
+				continue
+			}
+			slog.Warn("skipping firmware with invalid metadata during checksum lookup", "file_id", entry.fileID, "error", err)
 			s.mu.Lock()
 			s.removeFirmwareChecksumLocked(sha256Hex, entry.fileID)
 			s.mu.Unlock()
@@ -661,12 +665,12 @@ func (s *Service) ListFirmwareFiles() ([]FirmwareFileInfo, error) {
 		dir := getFirmwareDirPath(fileID)
 		metadata, err := readFirmwareMetadata(dir)
 		if err != nil {
-			slog.Warn("deleting invalid firmware dir during list", "file_id", fileID, "error", err)
-			_ = os.RemoveAll(dir)
-			s.mu.Lock()
-			s.removeFirmwareChecksumByScanLocked(fileID)
-			s.mu.Unlock()
-			continue
+			if errors.Is(err, errFirmwareMetadataNotFound) {
+				metadata = FirmwareMetadata{}
+			} else {
+				slog.Warn("skipping firmware with invalid metadata during list", "file_id", fileID, "error", err)
+				continue
+			}
 		}
 
 		filePath, err := findSingleFirmwarePayloadInDir(dir)
@@ -760,9 +764,12 @@ func (s *Service) initChecksumIndex() error {
 		dir := getFirmwareDirPath(fileID)
 		metadata, err := readFirmwareMetadata(dir)
 		if err != nil {
-			slog.Warn("deleting invalid firmware dir during checksum rebuild", "file_id", fileID, "error", err)
-			_ = os.RemoveAll(dir)
-			continue
+			if errors.Is(err, errFirmwareMetadataNotFound) {
+				continue
+			} else {
+				slog.Warn("skipping firmware with invalid metadata during checksum rebuild", "file_id", fileID, "error", err)
+				continue
+			}
 		}
 		filePath, err := findSingleFirmwarePayloadInDir(dir)
 		if err != nil {
@@ -820,6 +827,9 @@ func writeFirmwareMetadata(dir string, metadata FirmwareMetadata) error {
 func readFirmwareMetadata(dir string) (FirmwareMetadata, error) {
 	file, err := os.Open(filepath.Join(dir, firmwareMetadataFilename))
 	if err != nil {
+		if os.IsNotExist(err) {
+			return FirmwareMetadata{}, fmt.Errorf("%w: %s", errFirmwareMetadataNotFound, dir)
+		}
 		return FirmwareMetadata{}, fmt.Errorf("open firmware metadata: %w", err)
 	}
 	defer file.Close()
@@ -834,6 +844,15 @@ func readFirmwareMetadata(dir string) (FirmwareMetadata, error) {
 		return FirmwareMetadata{}, err
 	}
 	return metadata, nil
+}
+
+func syncFirmwareDirectory(dir string) error {
+	file, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return file.Sync()
 }
 
 // findSingleFirmwarePayloadInDir returns the path to the single non-directory
