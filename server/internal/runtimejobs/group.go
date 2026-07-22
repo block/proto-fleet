@@ -20,6 +20,7 @@ type Group struct {
 	cleanupTimeout time.Duration
 	jobs           []Job
 	terminalErr    error
+	pendingCleanup []Job
 	activationDone <-chan struct{}
 	cancel         context.CancelFunc
 }
@@ -93,13 +94,14 @@ func (g *Group) Start(ctx context.Context) error {
 
 func (g *Group) failStart(ctx context.Context, started int, startErr error) error {
 	g.cancel()
-	rollbackErr := g.stopJobs(ctx, g.jobs[:started])
+	pendingCleanup, rollbackErr := g.stopJobs(ctx, g.jobs[:started])
 	g.activationDone = nil
 	g.cancel = nil
 	if rollbackErr == nil {
 		return startErr
 	}
 
+	g.pendingCleanup = pendingCleanup
 	terminalErr := errors.Join(startErr, fmt.Errorf("rollback runtime jobs: %w", rollbackErr))
 	g.setTerminalErr(terminalErr)
 	return terminalErr
@@ -112,8 +114,10 @@ func (g *Group) Stop(ctx context.Context) error {
 	}
 	defer g.releaseOperation()
 
-	if terminalErr := g.Err(); terminalErr != nil {
-		return terminalErr
+	if len(g.pendingCleanup) > 0 {
+		var err error
+		g.pendingCleanup, err = g.stopJobs(ctx, g.pendingCleanup)
+		return err
 	}
 	if g.cancel == nil {
 		return nil
@@ -122,7 +126,9 @@ func (g *Group) Stop(ctx context.Context) error {
 	g.cancel()
 	g.activationDone = nil
 	g.cancel = nil
-	if err := g.stopJobs(ctx, g.jobs); err != nil {
+	pendingCleanup, err := g.stopJobs(ctx, g.jobs)
+	if err != nil {
+		g.pendingCleanup = pendingCleanup
 		g.setTerminalErr(err)
 		return err
 	}
@@ -160,10 +166,11 @@ func (g *Group) setTerminalErr(err error) {
 	g.terminalErr = err
 }
 
-func (g *Group) stopJobs(parent context.Context, jobs []Job) error {
+func (g *Group) stopJobs(parent context.Context, jobs []Job) ([]Job, error) {
 	stopCtx, cancel := context.WithTimeout(parent, g.cleanupTimeout)
 	defer cancel()
 
+	var pendingCleanup []Job
 	var stopErrors []error
 	for _, job := range slices.Backward(jobs) {
 		result := make(chan error, 1)
@@ -179,10 +186,12 @@ func (g *Group) stopJobs(parent context.Context, jobs []Job) error {
 
 		err := waitForStopResult(stopCtx, result)
 		if err != nil {
+			pendingCleanup = append(pendingCleanup, job)
 			stopErrors = append(stopErrors, fmt.Errorf("stop runtime job %q: %w", job.Name(), err))
 		}
 	}
-	return errors.Join(stopErrors...)
+	slices.Reverse(pendingCleanup)
+	return pendingCleanup, errors.Join(stopErrors...)
 }
 
 func waitForStopResult(stopCtx context.Context, result <-chan error) error {

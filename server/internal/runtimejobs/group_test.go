@@ -200,6 +200,63 @@ func TestGroupStopTimeoutIsGroupWideAndTerminal(t *testing.T) {
 	require.ErrorContains(t, err, "cannot restart after incomplete cleanup")
 }
 
+func TestGroupStopRetriesOnlyIncompleteCleanup(t *testing.T) {
+	t.Parallel()
+
+	var completedStops atomic.Int32
+	var retriedStops atomic.Int32
+	group, err := NewGroup([]Job{
+		newTestJob("retried", noopJob, func(ctx context.Context) error {
+			if retriedStops.Add(1) == 1 {
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			return nil
+		}),
+		newTestJob("completed", noopJob, func(context.Context) error {
+			completedStops.Add(1)
+			return nil
+		}),
+	}, 20*time.Millisecond)
+	require.NoError(t, err)
+	require.NoError(t, group.Start(context.Background()))
+
+	require.ErrorIs(t, group.Stop(context.Background()), context.DeadlineExceeded)
+	require.NoError(t, group.Stop(context.Background()))
+	assert.Equal(t, int32(1), completedStops.Load())
+	assert.Equal(t, int32(2), retriedStops.Load())
+	assert.ErrorIs(t, group.Err(), context.DeadlineExceeded)
+	require.ErrorContains(t, group.Start(context.Background()), "cannot restart after incomplete cleanup")
+}
+
+func TestGroupStopRetriesIncompleteStartupRollback(t *testing.T) {
+	t.Parallel()
+
+	rollbackErr := errors.New("rollback failed")
+	var completedStops atomic.Int32
+	var retriedStops atomic.Int32
+	group := newTestGroup(t,
+		newTestJob("retried", noopJob, func(context.Context) error {
+			if retriedStops.Add(1) == 1 {
+				return rollbackErr
+			}
+			return nil
+		}),
+		newTestJob("completed", noopJob, func(context.Context) error {
+			completedStops.Add(1)
+			return nil
+		}),
+		newTestJob("fails", func(context.Context) error { return errors.New("start failed") }, noopJob),
+	)
+
+	require.ErrorIs(t, group.Start(context.Background()), rollbackErr)
+	require.NoError(t, group.Stop(context.Background()))
+	assert.Equal(t, int32(1), completedStops.Load())
+	assert.Equal(t, int32(2), retriedStops.Load())
+	assert.ErrorIs(t, group.Err(), rollbackErr)
+	require.ErrorContains(t, group.Start(context.Background()), "cannot restart after incomplete cleanup")
+}
+
 func TestGroupStopSharesOneDeadlineAcrossJobs(t *testing.T) {
 	t.Parallel()
 
