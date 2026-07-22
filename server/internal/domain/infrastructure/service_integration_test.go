@@ -212,6 +212,48 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	assert.Equal(t, "Zone B exhaust fans (renamed)", reused.Name)
 }
 
+func TestRackAssignmentFollowsCatalogMutations_DatabaseIntegration(t *testing.T) {
+	svc, conn := newTestService(t)
+	ctx := t.Context()
+
+	_, err := conn.ExecContext(ctx, `
+		INSERT INTO building (id, org_id, site_id, name)
+		VALUES (100, $1, $2, 'Building 1'), (101, $1, $2, 'Building 2');
+		INSERT INTO device_set (id, org_id, type, label)
+		VALUES (1000, $1, 'rack', 'Rack A1');
+		INSERT INTO device_set_rack (device_set_id, org_id, site_id, building_id, rows, columns)
+		VALUES (1000, $1, $2, 100, 4, 4);
+	`, testOrgID, testSiteID)
+	require.NoError(t, err)
+
+	device, err := svc.Create(ctx, createParams(nil))
+	require.NoError(t, err)
+
+	_, err = conn.ExecContext(ctx, `UPDATE device_set SET label = 'Rack A2' WHERE id = 1000`)
+	require.NoError(t, err)
+	device, err = svc.Get(ctx, testOrgID, device.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Rack A2", device.RackName, "rack rename must update assigned infrastructure devices")
+
+	_, err = conn.ExecContext(ctx, `UPDATE device_set_rack SET building_id = 101 WHERE device_set_id = 1000`)
+	require.NoError(t, err)
+	device, err = svc.Get(ctx, testOrgID, device.ID)
+	require.NoError(t, err)
+	assert.Empty(t, device.RackName, "rack move must clear assignments at the old location")
+
+	device, err = svc.Create(ctx, createParams(func(params *models.CreateParams) {
+		params.BuildingName = "Building 2"
+		params.RackName = "Rack A2"
+		params.Name = "Building 2 exhaust fans"
+	}))
+	require.NoError(t, err)
+	_, err = conn.ExecContext(ctx, `UPDATE device_set SET deleted_at = CURRENT_TIMESTAMP WHERE id = 1000`)
+	require.NoError(t, err)
+	device, err = svc.Get(ctx, testOrgID, device.ID)
+	require.NoError(t, err)
+	assert.Empty(t, device.RackName, "rack delete must clear assigned infrastructure devices")
+}
+
 func TestService_DeleteRejectsResponseProfileReference_DatabaseIntegration(t *testing.T) {
 	svc, conn := newTestService(t)
 	ctx := t.Context()
