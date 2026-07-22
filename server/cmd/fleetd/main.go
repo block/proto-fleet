@@ -759,12 +759,12 @@ func start(config *Config) error {
 	if err != nil {
 		return fmt.Errorf("create runtime job group: %w", err)
 	}
-	if err := runtimeJobGroup.Start(context.Background()); err != nil {
-		return fmt.Errorf("start runtime jobs: %w", err)
-	}
 	defer func() {
 		stopRuntimeJobGroup(runtimeJobGroup, shutdownTimeout)
 	}()
+	if err := runtimeJobGroup.Start(context.Background()); err != nil {
+		return fmt.Errorf("start runtime jobs: %w", err)
+	}
 
 	listener, err := net.Listen("tcp", config.HTTP.Address)
 	if err != nil {
