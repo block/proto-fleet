@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
@@ -73,6 +75,28 @@ func (l *backgroundLoop) Stop(ctx context.Context) error {
 		return nil
 	case <-ctx.Done():
 		return fmt.Errorf("stop background loop: %w", ctx.Err())
+	}
+}
+
+type runtimeJobGroupStopper interface {
+	Stop(ctx context.Context) error
+}
+
+// stopRuntimeJobGroup gives the group one graceful-shutdown budget, then one
+// fresh bounded budget to retry only the jobs whose first stop did not finish.
+func stopRuntimeJobGroup(group runtimeJobGroupStopper, timeout time.Duration) {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	err := group.Stop(shutdownCtx)
+	cancel()
+	if err == nil {
+		return
+	}
+
+	slog.Error("failed to stop runtime jobs", "error", err)
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), timeout)
+	defer drainCancel()
+	if err := group.Stop(drainCtx); err != nil {
+		slog.Error("failed to drain runtime jobs", "error", err)
 	}
 }
 
