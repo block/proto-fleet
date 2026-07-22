@@ -6,6 +6,11 @@ import Select from "@/shared/components/Select";
 const buildOptions = (values: string[], currentValue: string) =>
   [...new Set([currentValue, ...values].filter(Boolean))].sort().map((value) => ({ value, label: value }));
 
+const buildRackOptions = (values: string[], currentValue: string) => {
+  const rackOptions = buildOptions(values, currentValue);
+  return rackOptions.length === 0 ? [] : [{ value: "", label: "No rack" }, ...rackOptions];
+};
+
 const selectCurrentOrFirst = (values: string[], currentValue: string) =>
   values.includes(currentValue) ? currentValue : (values[0] ?? "");
 
@@ -52,7 +57,7 @@ const InfraLocationFields = ({
     () => rackNamesForLocation(rackOptions, site, building),
     [building, rackOptions, site],
   );
-  const rackSelectOptions = useMemo(() => buildOptions(matchingRackNames, rack), [matchingRackNames, rack]);
+  const rackSelectOptions = useMemo(() => buildRackOptions(matchingRackNames, rack), [matchingRackNames, rack]);
 
   const handleSiteChange = useCallback(
     (nextSite: string) => {

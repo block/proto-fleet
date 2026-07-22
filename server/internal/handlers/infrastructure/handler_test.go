@@ -269,6 +269,38 @@ func TestHandler_UpdateBuildingWithExistingRackRequiresRackRead(t *testing.T) {
 	requirePermissionDenied(t, err)
 }
 
+func TestHandler_UpdateLocationWithoutRackNameClearsExistingRack(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ctx := sitePermsCtx(t, 42)
+	existing := deviceAtSite(7, 10)
+	existing.BuildingName = "Building 1"
+	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
+		Return(existing, nil).Times(2)
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil)
+	h.store.EXPECT().LockInfrastructureDeviceForWrite(gomock.Any(), int64(42), int64(7), int64(10)).Return(nil)
+	h.store.EXPECT().UpdateInfrastructureDevice(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, params models.UpdateParams) (*models.Device, error) {
+			require.NotNil(t, params.RackName)
+			assert.Empty(t, *params.RackName)
+			assert.Equal(t, "Building 2", params.BuildingName)
+			updated := *existing
+			updated.BuildingName = params.BuildingName
+			updated.RackName = *params.RackName
+			return &updated, nil
+		},
+	)
+
+	update := &pb.UpdateInfrastructureDeviceRequest{
+		Id: 7, SiteId: 10, BuildingName: "Building 2", Name: "renamed", DeviceKind: models.KindFanGroup,
+		FanCount: 12, DriverType: "modbus_tcp", DriverConfig: validConfig,
+	}
+	resp, err := h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetDevice().GetRackName())
+}
+
 func TestHandler_UpdateWithoutRackNamePreservesItWithoutRackRead(t *testing.T) {
 	t.Parallel()
 
