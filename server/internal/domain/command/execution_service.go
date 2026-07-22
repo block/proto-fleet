@@ -73,9 +73,9 @@ type ExecutionService struct {
 	lifecycleMu           sync.Mutex
 	queueProcessorRunning bool
 	runCancel             context.CancelFunc
+	runCtxDone            <-chan struct{}
 	runWG                 sync.WaitGroup
 	runDone               <-chan struct{}
-	stopping              bool
 }
 
 var _ runtimejobs.Lifecycle = (*ExecutionService)(nil)
@@ -121,11 +121,13 @@ func (es *ExecutionService) WithMetricsEmitter(emitter MetricsEmitter) *Executio
 // active.
 func (es *ExecutionService) Start(ctx context.Context) error {
 	es.lifecycleMu.Lock()
-	if es.stopping {
-		es.lifecycleMu.Unlock()
-		return fmt.Errorf("command execution service is still stopping")
-	}
 	if es.runCancel != nil {
+		select {
+		case <-es.runCtxDone:
+			es.lifecycleMu.Unlock()
+			return fmt.Errorf("command execution service activation is still draining")
+		default:
+		}
 		es.lifecycleMu.Unlock()
 		return nil
 	}
@@ -133,6 +135,7 @@ func (es *ExecutionService) Start(ctx context.Context) error {
 	runCtx, runCancel := context.WithCancel(ctx)
 	runDone := make(chan struct{})
 	es.runCancel = runCancel
+	es.runCtxDone = runCtx.Done()
 	es.runDone = runDone
 	es.queueProcessorRunning = true
 
@@ -164,8 +167,8 @@ func (es *ExecutionService) finishRun(done chan struct{}) {
 	es.lifecycleMu.Lock()
 	if es.runDone == (<-chan struct{})(done) {
 		es.runCancel = nil
+		es.runCtxDone = nil
 		es.runDone = nil
-		es.stopping = false
 		es.queueProcessorRunning = false
 	}
 	es.lifecycleMu.Unlock()
@@ -180,10 +183,7 @@ func (es *ExecutionService) Stop(ctx context.Context) error {
 		es.lifecycleMu.Unlock()
 		return nil
 	}
-	if !es.stopping {
-		es.stopping = true
-		es.runCancel()
-	}
+	es.runCancel()
 	done := es.runDone
 	es.lifecycleMu.Unlock()
 

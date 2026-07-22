@@ -73,6 +73,20 @@ func TestExecutionService_Start(t *testing.T) {
 		require.NoError(t, svc.Stop(context.Background()))
 	})
 
+	t.Run("rejects restart while a canceled activation is draining", func(t *testing.T) {
+		runCtx, runCancel := context.WithCancel(t.Context())
+		svc := &ExecutionService{
+			runCancel:  runCancel,
+			runCtxDone: runCtx.Done(),
+			runDone:    make(chan struct{}),
+		}
+		runCancel()
+
+		err := svc.Start(t.Context())
+
+		require.EqualError(t, err, "command execution service activation is still draining")
+	})
+
 	t.Run("activation cancellation stops promptly and allows restart", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mockQueue := mocks.NewMockMessageQueue(ctrl)
@@ -125,9 +139,10 @@ func TestExecutionService_StopTimeoutRetainsActivationUntilWorkerDrains(t *testi
 		MasterPollingInterval: time.Hour,
 	}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
-	_, runCancel := context.WithCancel(context.Background())
+	runCtx, runCancel := context.WithCancel(context.Background())
 	runDone := make(chan struct{})
 	svc.runCancel = runCancel
+	svc.runCtxDone = runCtx.Done()
 	svc.runDone = runDone
 	svc.queueProcessorRunning = true
 	workerStarted := make(chan struct{})
