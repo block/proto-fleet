@@ -3506,12 +3506,11 @@ func validateBuildingRackCapacity(rackRows, buildingRows []map[string]string, sn
 	var errs []*pb.ImportValidationError
 	for key, count := range counts {
 		building, ok := buildings[key]
-		if !ok || building.Aisles <= 0 || building.RacksPerAisle <= 0 {
+		if !ok {
 			continue
 		}
-		capacity := building.Aisles * building.RacksPerAisle
-		if count > capacity {
-			errs = append(errs, csvErr(0, "RACK", fmt.Sprintf("building %q has %d assigned racks but capacity is %d", building.Name, count, capacity)))
+		if buildingmodels.RackCapacityExceeded(building.Aisles, building.RacksPerAisle, int64(count)) {
+			errs = append(errs, csvErr(0, "RACK", fmt.Sprintf("building %q has %d assigned racks but capacity is %d", building.Name, count, buildingmodels.GridCapacity(building.Aisles, building.RacksPerAisle))))
 		}
 	}
 	return errs

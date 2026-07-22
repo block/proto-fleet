@@ -39,7 +39,7 @@ func TestResolvePlanClassifiesSiteIdentity(t *testing.T) {
 func TestResolvePlanCreateClassificationHonorsExistingNames(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE": {
-			{"__row": "3", "name": "Site A", "id": ""},   // name-only, matches existing ⇒ not a create
+			{"__row": "3", "name": "Site A", "id": ""},    // name-only, matches existing ⇒ not a create
 			{"__row": "4", "name": "Brand New", "id": ""}, // new name ⇒ create
 		},
 	}}

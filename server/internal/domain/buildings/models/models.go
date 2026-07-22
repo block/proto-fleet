@@ -23,6 +23,23 @@ func (r RackOrderIndex) Valid() bool {
 	return r >= RackOrderIndexUnspecified && r <= RackOrderIndexTopRight
 }
 
+// GridCapacity is the number of racks a building's grid holds
+// (aisles × racks_per_aisle). Zero means the layout is unconfigured and
+// imposes no rack limit.
+func GridCapacity(aisles, racksPerAisle int32) int64 {
+	return int64(aisles) * int64(racksPerAisle)
+}
+
+// RackCapacityExceeded reports whether resultingCount racks would exceed a
+// building's configured grid. An unconfigured grid (capacity 0) is never
+// exceeded. resultingCount is the net final membership the caller intends,
+// leaving the caller free to derive it from an import graph or a live
+// reassignment.
+func RackCapacityExceeded(aisles, racksPerAisle int32, resultingCount int64) bool {
+	capacity := GridCapacity(aisles, racksPerAisle)
+	return capacity > 0 && resultingCount > capacity
+}
+
 // Building is the canonical domain shape for a building row.
 type Building struct {
 	ID                    int64
