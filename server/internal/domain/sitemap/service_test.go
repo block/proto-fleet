@@ -1847,7 +1847,8 @@ func TestValidateSlotConflictsWithExistingAllowsSlotSwaps(t *testing.T) {
 		{DeviceIdentifier: "miner-2", Rack: "Rack A", RackRow: "0", RackCol: "1"},
 	}}
 
-	if errs := validateSlotConflictsWithExisting(rows, nil, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE); len(errs) != 0 {
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"MINER": rows}}, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	if errs := validateSlotConflictsWithExisting(p); len(errs) != 0 {
 		t.Fatalf("slot swap should not conflict, got %+v", errs)
 	}
 }
@@ -1861,7 +1862,8 @@ func TestValidateSlotConflictsWithExistingBlocksUnchangedOccupant(t *testing.T) 
 		{DeviceIdentifier: "miner-2", Rack: "Rack A", RackRow: "0", RackCol: "1"},
 	}}
 
-	errs := validateSlotConflictsWithExisting(rows, nil, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"MINER": rows}}, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	errs := validateSlotConflictsWithExisting(p)
 	if len(errs) != 1 {
 		t.Fatalf("errors = %+v, want one conflict", errs)
 	}
@@ -1879,7 +1881,8 @@ func TestValidateSlotConflictsWithExistingBlocksRemoveOmittedVacatedSlot(t *test
 		{DeviceIdentifier: "miner-2", Rack: "Rack A", RackRow: "0", RackCol: "1"},
 	}}
 
-	errs := validateSlotConflictsWithExisting(rows, nil, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"MINER": rows}}, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	errs := validateSlotConflictsWithExisting(p)
 	if len(errs) != 1 || errs[0].GetMessage() != "rack slot already occupied by miner miner-2" {
 		t.Fatalf("errors = %+v, want omitted miner slot to remain occupied until apply clears it", errs)
 	}
@@ -1894,7 +1897,8 @@ func TestValidateSlotConflictsWithExistingBlocksHiddenOccupant(t *testing.T) {
 		hiddenRackMembers: []minerSnapshot{{DeviceIdentifier: "hidden-1", Rack: "Rack A", RackRow: "0", RackCol: "1"}},
 	}
 
-	errs := validateSlotConflictsWithExisting(rows, nil, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"MINER": rows}}, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	errs := validateSlotConflictsWithExisting(p)
 	if len(errs) != 1 {
 		t.Fatalf("errors = %+v, want one conflict", errs)
 	}
@@ -1916,7 +1920,8 @@ func TestValidateSlotConflictsWithExistingUsesDesiredRackLabelForHiddenOccupants
 		hiddenRackMembers: []minerSnapshot{{DeviceIdentifier: "hidden-1", RackID: &rackID, Rack: "Old Rack", RackRow: "0", RackCol: "1"}},
 	}
 
-	errs := validateSlotConflictsWithExisting(rows, rackRows, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"MINER": rows, "RACK": rackRows}}, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	errs := validateSlotConflictsWithExisting(p)
 	if len(errs) != 1 {
 		t.Fatalf("errors = %+v, want one conflict", errs)
 	}
@@ -1946,7 +1951,8 @@ func TestValidateSlotConflictsWithExistingNormalizesCoordinates(t *testing.T) {
 		{DeviceIdentifier: "miner-2", Rack: "Rack A", RackRow: "1", RackCol: "1"},
 	}}
 
-	errs := validateSlotConflictsWithExisting(rows, nil, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"MINER": rows}}, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	errs := validateSlotConflictsWithExisting(p)
 	if len(errs) != 1 || errs[0].GetRow() != 21 || errs[0].GetMessage() != "rack slot already occupied by miner miner-2" {
 		t.Fatalf("errors = %+v, want normalized existing slot conflict", errs)
 	}
@@ -2586,7 +2592,8 @@ func TestValidateBuildingRackCapacityBlocksOverfilledBuilding(t *testing.T) {
 	}
 	buildingRows := []map[string]string{{"site": "Site A", "building": "Building A", "aisles": "1", "racks_per_aisle": "1"}}
 
-	errs := validateBuildingRackCapacity(rackRows, buildingRows, &snapshot{})
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"RACK": rackRows, "BUILDING": buildingRows}}, &snapshot{}, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	errs := validateBuildingRackCapacity(p)
 	if len(errs) != 1 || errs[0].GetSection() != "RACK" {
 		t.Fatalf("errors = %+v, want building rack capacity error", errs)
 	}
@@ -2599,7 +2606,8 @@ func TestValidateBuildingRackCapacityCountsSiteLessBuildings(t *testing.T) {
 	}
 	buildingRows := []map[string]string{{"site": "", "building": "Building A", "aisles": "1", "racks_per_aisle": "1"}}
 
-	errs := validateBuildingRackCapacity(rackRows, buildingRows, &snapshot{})
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"RACK": rackRows, "BUILDING": buildingRows}}, &snapshot{}, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	errs := validateBuildingRackCapacity(p)
 	if len(errs) != 1 || errs[0].GetSection() != "RACK" {
 		t.Fatalf("errors = %+v, want site-less building rack capacity error", errs)
 	}
@@ -2627,7 +2635,8 @@ func TestValidateBuildingRackCapacitySeparatesIDQualifiedDuplicateBuildings(t *t
 		},
 	}
 
-	errs := validateBuildingRackCapacity(rackRows, buildingRows, snap)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"RACK": rackRows, "BUILDING": buildingRows}}, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	errs := validateBuildingRackCapacity(p)
 	if len(errs) != 0 {
 		t.Fatalf("errors = %+v, want ID-qualified duplicate buildings counted separately", errs)
 	}
@@ -2651,7 +2660,8 @@ func TestValidateBuildingRackCapacityResolvesNameOnlyRackBuildingIDs(t *testing.
 		},
 	}
 
-	errs := validateBuildingRackCapacity(rackRows, buildingRows, snap)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"RACK": rackRows, "BUILDING": buildingRows}}, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	errs := validateBuildingRackCapacity(p)
 	if len(errs) != 1 || errs[0].GetSection() != "RACK" {
 		t.Fatalf("errors = %+v, want name-only rack rows counted against building_id capacity", errs)
 	}
@@ -2675,7 +2685,8 @@ func TestValidateBuildingRackCapacityResolvesRenamedBuildingIDs(t *testing.T) {
 		},
 	}
 
-	errs := validateBuildingRackCapacity(rackRows, buildingRows, snap)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"RACK": rackRows, "BUILDING": buildingRows}}, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	errs := validateBuildingRackCapacity(p)
 	if len(errs) != 1 || errs[0].GetSection() != "RACK" {
 		t.Fatalf("errors = %+v, want renamed building name references counted against building_id capacity", errs)
 	}
@@ -2691,7 +2702,8 @@ func TestValidateBuildingExistingRacksFitLayoutCountsSiteLessBuildings(t *testin
 		PositionInAisle: "0",
 	}}}
 
-	errs := validateBuildingExistingRacksFitLayout(nil, buildingRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"BUILDING": buildingRows}}, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	errs := validateBuildingExistingRacksFitLayout(p)
 	if len(errs) != 1 || !strings.Contains(errs[0].GetMessage(), "does not fit building") {
 		t.Fatalf("errors = %+v, want site-less building layout fit error", errs)
 	}
@@ -2718,7 +2730,8 @@ func TestValidateBuildingExistingRacksFitLayoutUsesBuildingIDForDuplicateBuildin
 		}},
 	}
 
-	errs := validateBuildingExistingRacksFitLayout(nil, buildingRows, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"BUILDING": buildingRows}}, snap, pb.OmissionMode_OMISSION_MODE_LEAVE_IN_PLACE)
+	errs := validateBuildingExistingRacksFitLayout(p)
 	if len(errs) != 0 {
 		t.Fatalf("errors = %+v, want building_id-specific layout accepted", errs)
 	}

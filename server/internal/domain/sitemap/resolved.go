@@ -112,13 +112,14 @@ type minerPopulation struct {
 // omission-target snapshot) that placement-target validators resolve references
 // against. Built once so validators do not each re-derive it.
 type topologyView struct {
-	sites               map[string]bool
-	buildingKeys        map[string]bool
-	buildingsByKey      map[string]buildingmodels.Building
-	buildingsByLayoutID map[int64]buildingmodels.Building
-	buildingsByName     map[string]buildingmodels.Building
-	buildingAmbig       map[string]bool
-	racksByLabel        map[string]rackSnapshot
+	sites                  map[string]bool
+	buildingKeys           map[string]bool
+	buildingsByKey         map[string]buildingmodels.Building
+	buildingsByLayoutID    map[int64]buildingmodels.Building
+	buildingsByCapacityKey map[string]buildingmodels.Building
+	buildingsByName        map[string]buildingmodels.Building
+	buildingAmbig          map[string]bool
+	racksByLabel           map[string]rackSnapshot
 }
 
 type resolvedPlan struct {
@@ -129,6 +130,9 @@ type resolvedPlan struct {
 	miners     []*resolvedMiner
 	population minerPopulation
 	topology   *topologyView
+	// target is the omission-scoped snapshot whose existing entities reference
+	// resolution and existing-topology reconciliation run against.
+	target *snapshot
 
 	omissions *pb.OmissionCounts
 	errors    []*pb.ImportValidationError
@@ -159,6 +163,7 @@ func resolvePlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) *resol
 	// merged over the omission-target snapshot (which drops omitted topology under
 	// remove-omitted). Action classification and prevName below use the full snap.
 	target := snapshotForOmissionMode(snap, mode)
+	plan.target = target
 	plan.topology = resolveTopologyView(parsed, target)
 
 	plan.sites, plan.errors = resolveSites(parsed.sections["SITE"], sitesByID)
@@ -185,11 +190,12 @@ func resolveTopologyView(parsed *parsedCSV, target *snapshot) *topologyView {
 	buildingRows := parsed.sections["BUILDING"]
 	rackRows := parsed.sections["RACK"]
 	tv := &topologyView{
-		sites:               desiredSiteSet(siteRows, target.sites),
-		buildingKeys:        rowSetFromDesiredBuildings(buildingRows, target.buildings),
-		buildingsByKey:      desiredBuildingMap(buildingRows, target.buildings),
-		buildingsByLayoutID: desiredBuildingLayoutIDMap(buildingRows, target.buildings),
-		racksByLabel:        desiredRackMap(rackRows, target.racks, buildingRows, target.buildings),
+		sites:                  desiredSiteSet(siteRows, target.sites),
+		buildingKeys:           rowSetFromDesiredBuildings(buildingRows, target.buildings),
+		buildingsByKey:         desiredBuildingMap(buildingRows, target.buildings),
+		buildingsByLayoutID:    desiredBuildingLayoutIDMap(buildingRows, target.buildings),
+		buildingsByCapacityKey: desiredBuildingCapacityMap(buildingRows, target.buildings),
+		racksByLabel:           desiredRackMap(rackRows, target.racks, buildingRows, target.buildings),
 	}
 	tv.buildingsByName, tv.buildingAmbig = desiredBuildingNameLookup(buildingRows, target.buildings)
 	return tv
@@ -682,6 +688,127 @@ func validateRackCapacity(r *resolvedPlan) []*pb.ImportValidationError {
 		if count > capacity {
 			errs = append(errs, csvErr(0, "MINER", fmt.Sprintf("rack %q has %d assigned miners but capacity is %d", rackLabel, count, capacity)))
 		}
+	}
+	return errs
+}
+
+// validateBuildingRackCapacity rejects buildings whose desired assigned-rack
+// count exceeds their grid capacity.
+func validateBuildingRackCapacity(r *resolvedPlan) []*pb.ImportValidationError {
+	counts := map[string]int32{}
+	for _, rack := range r.topology.racksByLabel {
+		if key, ok := rackBuildingCapacityKey(rack); ok {
+			counts[key]++
+		}
+	}
+	var errs []*pb.ImportValidationError
+	for key, count := range counts {
+		building, ok := r.topology.buildingsByCapacityKey[key]
+		if !ok {
+			continue
+		}
+		if buildingmodels.RackCapacityExceeded(building.Aisles, building.RacksPerAisle, int64(count)) {
+			errs = append(errs, csvErr(0, "RACK", fmt.Sprintf("building %q has %d assigned racks but capacity is %d", building.Name, count, buildingmodels.GridCapacity(building.Aisles, building.RacksPerAisle))))
+		}
+	}
+	return errs
+}
+
+// validateBuildingExistingRacksFitLayout rejects an import that would shrink a
+// building's grid below the aisle/position an existing rack occupies.
+func validateBuildingExistingRacksFitLayout(r *resolvedPlan) []*pb.ImportValidationError {
+	desiredRacks := r.topology.racksByLabel
+	desiredRacksByID := map[int64]rackSnapshot{}
+	for _, rack := range desiredRacks {
+		if rack.ID > 0 {
+			desiredRacksByID[rack.ID] = rack
+		}
+	}
+	var errs []*pb.ImportValidationError
+	for _, rack := range r.target.racks {
+		desiredRack, ok := desiredRacksByID[rack.ID]
+		if !ok {
+			desiredRack, ok = desiredRacks[rack.Label]
+		}
+		if !ok {
+			desiredRack = rack
+		}
+		if desiredRack.Building == "" || desiredRack.AisleIndex == "" || desiredRack.PositionInAisle == "" {
+			continue
+		}
+		var building buildingmodels.Building
+		if desiredRack.BuildingID != nil {
+			building, ok = r.topology.buildingsByLayoutID[*desiredRack.BuildingID]
+		} else {
+			building, ok = r.topology.buildingsByKey[desiredRack.Site+"\x00"+desiredRack.Building]
+		}
+		if !ok {
+			continue
+		}
+		aisle, err := parseInt32Value(desiredRack.AisleIndex, "aisle_index")
+		if err != nil {
+			continue
+		}
+		position, err := parseInt32Value(desiredRack.PositionInAisle, "position_in_aisle")
+		if err != nil {
+			continue
+		}
+		if aisle >= building.Aisles || position >= building.RacksPerAisle {
+			errs = append(errs, csvErr(0, "RACK", fmt.Sprintf("rack %q grid position %d,%d does not fit building %q layout %dx%d", desiredRack.Label, aisle, position, building.Name, building.Aisles, building.RacksPerAisle)))
+		}
+	}
+	return errs
+}
+
+// validateSlotConflictsWithExisting rejects incoming miner placements that land
+// on a rack slot occupied by an existing miner that is not itself moving away.
+func validateSlotConflictsWithExisting(r *resolvedPlan) []*pb.ImportValidationError {
+	rackLabels := rackLabelsByID(r.racks)
+	desired := map[string]*resolvedMiner{}
+	for _, m := range r.miners {
+		desired[m.deviceID] = m
+	}
+	movingMiners := map[string]bool{}
+	for _, miner := range r.population.miners {
+		m, ok := desired[miner.DeviceIdentifier]
+		if !ok {
+			continue
+		}
+		currentRack := desiredRackLabel(miner, rackLabels)
+		currentKey, _ := normalizedRackSlotKey(currentRack, miner.RackRow, miner.RackCol)
+		desiredKey, _ := normalizedRackSlotKey(m.rackLabel, m.rackRow, m.rackCol)
+		if m.rackLabel != currentRack || desiredKey != currentKey {
+			movingMiners[miner.DeviceIdentifier] = true
+		}
+	}
+
+	currentOccupants := map[string]minerSnapshot{}
+	for _, miner := range r.population.miners {
+		key, ok := normalizedRackSlotKey(desiredRackLabel(miner, rackLabels), miner.RackRow, miner.RackCol)
+		if !ok {
+			continue
+		}
+		currentOccupants[key] = miner
+	}
+	for _, miner := range r.population.hiddenRackMembers {
+		key, ok := normalizedRackSlotKey(desiredRackLabel(miner, rackLabels), miner.RackRow, miner.RackCol)
+		if !ok {
+			continue
+		}
+		currentOccupants[key] = miner
+	}
+
+	var errs []*pb.ImportValidationError
+	for _, m := range r.miners {
+		key, ok := normalizedRackSlotKey(m.rackLabel, m.rackRow, m.rackCol)
+		if !ok {
+			continue
+		}
+		occupant, ok := currentOccupants[key]
+		if !ok || occupant.DeviceIdentifier == m.deviceID || movingMiners[occupant.DeviceIdentifier] {
+			continue
+		}
+		errs = append(errs, csvErr(m.rowNum, "MINER", fmt.Sprintf("rack slot already occupied by miner %s", occupant.DeviceIdentifier)))
 	}
 	return errs
 }
