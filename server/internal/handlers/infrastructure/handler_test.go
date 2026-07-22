@@ -134,6 +134,29 @@ func TestHandler_CreateRejectsManagerOfOtherSite(t *testing.T) {
 	requirePermissionDenied(t, err)
 }
 
+func TestHandler_CreateAllowsUnrackedDeviceWithoutRackRead(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ctx := handlerstest.CtxWithPermissions(t, 42, authz.PermSiteRead, authz.PermSiteManage)
+	req := validCreateRequest()
+	req.RackName = ""
+
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil)
+	h.store.EXPECT().CreateInfrastructureDevice(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, params models.CreateParams) (*models.Device, error) {
+			assert.Empty(t, params.RackName)
+			created := deviceAtSite(7, 10)
+			created.RackName = ""
+			return created, nil
+		},
+	)
+
+	resp, err := h.handler.CreateInfrastructureDevice(ctx, connect.NewRequest(req))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetDevice().GetRackName())
+}
+
 func TestHandler_GetDeleteUpdateAuthorizeAgainstDeviceSite(t *testing.T) {
 	t.Parallel()
 
@@ -157,7 +180,7 @@ func TestHandler_GetDeleteUpdateAuthorizeAgainstDeviceSite(t *testing.T) {
 
 	update := &pb.UpdateInfrastructureDeviceRequest{
 		Id: 7, SiteId: 10, Name: "renamed", DeviceKind: models.KindFanGroup,
-		FanCount: 12, RackName: "Rack A1", DriverType: "modbus_tcp", DriverConfig: validConfig,
+		FanCount: 12, RackName: stringPtr("Rack A1"), DriverType: "modbus_tcp", DriverConfig: validConfig,
 	}
 	_, err = h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
 	requireNotFound(t, err)
@@ -221,10 +244,37 @@ func TestHandler_UpdateRequiresRackRead(t *testing.T) {
 
 	update := &pb.UpdateInfrastructureDeviceRequest{
 		Id: 7, SiteId: 10, Name: "renamed", DeviceKind: models.KindFanGroup,
-		FanCount: 12, RackName: "Rack A1", DriverType: "modbus_tcp", DriverConfig: validConfig,
+		FanCount: 12, RackName: stringPtr("Rack A1"), DriverType: "modbus_tcp", DriverConfig: validConfig,
 	}
 	_, err := h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
 	requirePermissionDenied(t, err)
+}
+
+func TestHandler_UpdateWithoutRackNamePreservesItWithoutRackRead(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ctx := handlerstest.CtxWithAssignments(t, 42,
+		handlerstest.SiteAssignment(10, authz.PermSiteRead, authz.PermSiteManage))
+
+	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
+		Return(deviceAtSite(7, 10), nil).Times(2)
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil)
+	h.store.EXPECT().LockInfrastructureDeviceForWrite(gomock.Any(), int64(42), int64(7), int64(10)).Return(nil)
+	h.store.EXPECT().UpdateInfrastructureDevice(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, params models.UpdateParams) (*models.Device, error) {
+			assert.Nil(t, params.RackName)
+			return deviceAtSite(7, 10), nil
+		},
+	)
+
+	update := &pb.UpdateInfrastructureDeviceRequest{
+		Id: 7, SiteId: 10, Name: "renamed", DeviceKind: models.KindFanGroup,
+		FanCount: 12, DriverType: "modbus_tcp", DriverConfig: validConfig,
+	}
+	resp, err := h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetDevice().GetRackName())
 }
 
 func TestHandler_ListFiltersToReadableSites(t *testing.T) {
@@ -401,14 +451,15 @@ func TestHandler_UpdatePredicatesWriteOnAuthorizedSite(t *testing.T) {
 		func(_ context.Context, params models.UpdateParams) (*models.Device, error) {
 			assert.Equal(t, int64(10), params.ExpectedSiteID)
 			assert.Equal(t, int64(10), params.SiteID)
-			assert.Equal(t, "Rack A1", params.RackName)
+			require.NotNil(t, params.RackName)
+			assert.Equal(t, "Rack A1", *params.RackName)
 			return deviceAtSite(7, 10), nil
 		},
 	)
 
 	update := &pb.UpdateInfrastructureDeviceRequest{
 		Id: 7, SiteId: 10, Name: "renamed", DeviceKind: models.KindFanGroup,
-		FanCount: 12, RackName: "Rack A1", DriverType: "modbus_tcp", DriverConfig: validConfig,
+		FanCount: 12, RackName: stringPtr("Rack A1"), DriverType: "modbus_tcp", DriverConfig: validConfig,
 	}
 	_, err := h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
 	require.NoError(t, err)
@@ -463,6 +514,8 @@ func TestHandler_UpdateCarriesEnabledPresenceIntoParams(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+func stringPtr(s string) *string { return &s }
 
 func TestHandler_unauthenticatedWithoutSession(t *testing.T) {
 	t.Parallel()

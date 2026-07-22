@@ -461,12 +461,12 @@ describe("useInfrastructureDevices", () => {
     });
 
     expect(mockGetInfrastructureDevice).toHaveBeenCalledWith(expect.objectContaining({ id: 101n }));
-    expect(mockUpdateInfrastructureDevice).toHaveBeenCalledWith(
+    const updateRequest = mockUpdateInfrastructureDevice.mock.calls[0][0];
+    expect(updateRequest).toEqual(
       expect.objectContaining({
         id: 101n,
         siteId: 8n,
         buildingName: "Building 1",
-        rackName: "Rack A1",
         name: "Renamed exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -474,6 +474,7 @@ describe("useInfrastructureDevices", () => {
         driverConfig: freshConfig,
       }),
     );
+    expect(updateRequest.rackName).toBeUndefined();
     expect(result.current.devices).toHaveLength(1);
     expect(result.current.devices[0].name).toBe("Renamed exhaust");
   });
@@ -547,12 +548,12 @@ describe("useInfrastructureDevices", () => {
     });
 
     expect(mockGetInfrastructureDevice).toHaveBeenCalledWith(expect.objectContaining({ id: 101n }));
-    expect(mockUpdateInfrastructureDevice).toHaveBeenCalledWith(
+    const updateRequest = mockUpdateInfrastructureDevice.mock.calls[0][0];
+    expect(updateRequest).toEqual(
       expect.objectContaining({
         id: 101n,
         siteId: 8n,
         buildingName: "Building 1",
-        rackName: "Rack A1",
         name: "Renamed by someone else",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -561,6 +562,7 @@ describe("useInfrastructureDevices", () => {
         driverConfig: freshConfig,
       }),
     );
+    expect(updateRequest.rackName).toBeUndefined();
     expect(result.current.devices[0].enabled).toBe(false);
   });
 

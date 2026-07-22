@@ -332,7 +332,9 @@ const InfraDeviceList = ({
             type: "dropdown",
             title: "Rack",
             value: "rack",
-            options: [...new Set(devices.map((d) => d.rackName))].sort().map((r) => ({ id: r, label: r })),
+            options: [...new Set(devices.map((d) => d.rackName).filter(Boolean))]
+              .sort()
+              .map((r) => ({ id: r, label: r })),
             defaultOptionIds: [],
           },
           {
@@ -529,7 +531,7 @@ const InfraDeviceList = ({
         <Dialog
           open
           title={`Delete "${deleteCandidate.name}"?`}
-          subtitle={`This removes the ${formatDeviceType(deleteCandidate)} in ${deleteCandidate.rackName}, ${deleteCandidate.buildingName} at ${deleteCandidate.siteName} from the fleet configuration. Curtailment will no longer control it.`}
+          subtitle={`This removes the ${formatDeviceType(deleteCandidate)} in ${[deleteCandidate.rackName, deleteCandidate.buildingName].filter(Boolean).join(", ")} at ${deleteCandidate.siteName} from the fleet configuration. Curtailment will no longer control it.`}
           testId="infra-device-delete-dialog"
           onDismiss={() => setDeleteCandidateId(null)}
           buttons={[

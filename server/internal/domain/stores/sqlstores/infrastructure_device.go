@@ -186,17 +186,20 @@ func (s *SQLInfrastructureDeviceStore) CountNonTerminalCurtailmentEventsByInfras
 }
 
 func (s *SQLInfrastructureDeviceStore) UpdateInfrastructureDevice(ctx context.Context, params models.UpdateParams) (*models.Device, error) {
-	// Nil Enabled maps to SQL NULL: the query's COALESCE preserves the
-	// row's current value atomically instead of writing back a value
-	// read before the transaction.
+	// Nil Enabled and RackName map to SQL NULL: COALESCE preserves their
+	// current values atomically instead of writing back stale values.
 	enabled := sql.NullBool{}
 	if params.Enabled != nil {
 		enabled = sql.NullBool{Bool: *params.Enabled, Valid: true}
 	}
+	rackName := sql.NullString{}
+	if params.RackName != nil {
+		rackName = sql.NullString{String: *params.RackName, Valid: true}
+	}
 	affected, err := s.GetQueries(ctx).UpdateInfrastructureDevice(ctx, sqlc.UpdateInfrastructureDeviceParams{
 		SiteID:         params.SiteID,
 		BuildingName:   params.BuildingName,
-		RackName:       params.RackName,
+		RackName:       rackName,
 		Name:           params.Name,
 		DeviceKind:     params.DeviceKind,
 		FanCount:       params.FanCount,

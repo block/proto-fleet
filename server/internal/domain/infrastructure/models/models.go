@@ -57,15 +57,15 @@ type CreateParams struct {
 // is the device's current site as seen at authorization time; the
 // write is predicated on it so a concurrent site move invalidates the
 // mutation rather than editing a device the caller no longer manages.
-// Enabled nil preserves the row's current value atomically in the
-// UPDATE itself (no read-then-write race with a concurrent toggle).
+// Enabled and RackName nil preserve their current values atomically in
+// the UPDATE itself (no read-then-write race with concurrent changes).
 type UpdateParams struct {
 	OrgID          int64
 	ID             int64
 	ExpectedSiteID int64
 	SiteID         int64
 	BuildingName   string
-	RackName       string
+	RackName       *string
 	Name           string
 	DeviceKind     string
 	FanCount       int32

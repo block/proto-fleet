@@ -419,7 +419,7 @@ const updateInfrastructureDevice = `-- name: UpdateInfrastructureDevice :execrow
 UPDATE infrastructure_device
 SET site_id       = $1,
     building_name = $2,
-    rack_name     = $3,
+    rack_name     = COALESCE($3::text, rack_name),
     name          = $4,
     device_kind   = $5,
     fan_count     = $6,
@@ -436,7 +436,7 @@ WHERE id = $10
 type UpdateInfrastructureDeviceParams struct {
 	SiteID         int64
 	BuildingName   string
-	RackName       string
+	RackName       sql.NullString
 	Name           string
 	DeviceKind     string
 	FanCount       int32
@@ -452,9 +452,10 @@ type UpdateInfrastructureDeviceParams struct {
 // authorized against, so a concurrent site move between the
 // authorization read and this write invalidates the mutation (0 rows)
 // instead of silently editing a device in a site the caller may not
-// manage. enabled is nullable: NULL preserves the row's current value
-// atomically in the UPDATE itself, so a request that omitted the
-// field can't write back a stale value read before the transaction.
+// manage. enabled and rack_name are nullable inputs: NULL preserves
+// the row's current value atomically in the UPDATE itself, so a request
+// that omitted either field can't write back a stale value read before
+// the transaction.
 func (q *Queries) UpdateInfrastructureDevice(ctx context.Context, arg UpdateInfrastructureDeviceParams) (int64, error) {
 	result, err := q.exec(ctx, q.updateInfrastructureDeviceStmt, updateInfrastructureDevice,
 		arg.SiteID,

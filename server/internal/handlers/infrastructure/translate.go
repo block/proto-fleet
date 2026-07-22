@@ -38,18 +38,17 @@ func toCreateParams(req *pb.CreateInfrastructureDeviceRequest, orgID int64) mode
 	}
 }
 
-// toUpdateParams maps the update request. enabled is optional with
-// presence tracking: the pointer passes through so an omitted field
-// preserves the device's current value atomically in the UPDATE
-// statement itself — an unrelated update can't silently disable (or
-// re-enable) a device, even racing a concurrent toggle.
+// toUpdateParams maps the update request. Enabled and rack_name use
+// presence tracking: their pointers pass through so omitted fields are
+// preserved atomically in the UPDATE statement instead of writing back
+// stale or proto-default values.
 func toUpdateParams(req *pb.UpdateInfrastructureDeviceRequest, orgID int64) models.UpdateParams {
 	return models.UpdateParams{
 		OrgID:        orgID,
 		ID:           req.GetId(),
 		SiteID:       req.GetSiteId(),
 		BuildingName: req.GetBuildingName(),
-		RackName:     req.GetRackName(),
+		RackName:     req.RackName,
 		Name:         req.GetName(),
 		DeviceKind:   req.GetDeviceKind(),
 		FanCount:     req.GetFanCount(),

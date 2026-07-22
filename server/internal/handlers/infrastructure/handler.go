@@ -3,8 +3,8 @@
 //
 // All RPCs enforce site-scoped RBAC: reads require site:read and
 // writes site:manage evaluated against the device's site. Rack names
-// are returned only with rack:read, and create/update require rack:read
-// because they set rack placement. Permissions are evaluated with
+// are returned only with rack:read, and rack assignments or site moves
+// also require rack:read. Permissions are evaluated with
 // ResourceContext{SiteID}, so a caller whose org-wide grant is
 // narrowed away for a site cannot read or mutate that site's device
 // configuration. Get/Update/Delete resolve the device under org scope
@@ -224,17 +224,23 @@ func (h *Handler) CreateInfrastructureDevice(ctx context.Context, req *connect.R
 	if err != nil {
 		return nil, err
 	}
-	if err := requireRackRead(ctx, siteID); err != nil {
-		return nil, err
+	if req.Msg.GetRackName() != "" {
+		if err := requireRackRead(ctx, siteID); err != nil {
+			return nil, err
+		}
 	}
 	device, err := h.service.Create(ctx, toCreateParams(req.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err
 	}
-	// The caller proved site:manage and rack:read above, so the config
-	// and rack placement they just wrote are echoed back.
+	rackReadable, err := canReadRack(ctx, device.SiteID)
+	if err != nil {
+		return nil, err
+	}
+	// The caller proved site:manage, so the config they just wrote is
+	// echoed back. Rack placement still follows its independent read gate.
 	return connect.NewResponse(&pb.CreateInfrastructureDeviceResponse{
-		Device: toProtoDevice(device, true, true),
+		Device: toProtoDevice(device, true, rackReadable),
 	}), nil
 }
 
@@ -259,12 +265,14 @@ func (h *Handler) UpdateInfrastructureDevice(ctx context.Context, req *connect.R
 			return nil, err
 		}
 	}
-	if err := requireRackRead(ctx, existing.SiteID); err != nil {
-		return nil, err
-	}
-	if req.Msg.GetSiteId() != existing.SiteID {
-		if err := requireRackRead(ctx, req.Msg.GetSiteId()); err != nil {
+	if req.Msg.RackName != nil || req.Msg.GetSiteId() != existing.SiteID {
+		if err := requireRackRead(ctx, existing.SiteID); err != nil {
 			return nil, err
+		}
+		if req.Msg.GetSiteId() != existing.SiteID {
+			if err := requireRackRead(ctx, req.Msg.GetSiteId()); err != nil {
+				return nil, err
+			}
 		}
 	}
 	// Predicate the write on the site we authorized against, so a
@@ -277,8 +285,12 @@ func (h *Handler) UpdateInfrastructureDevice(ctx context.Context, req *connect.R
 	if err != nil {
 		return nil, err
 	}
+	rackReadable, err := canReadRack(ctx, device.SiteID)
+	if err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(&pb.UpdateInfrastructureDeviceResponse{
-		Device: toProtoDevice(device, true, true),
+		Device: toProtoDevice(device, true, rackReadable),
 	}), nil
 }
 

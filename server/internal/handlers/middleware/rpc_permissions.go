@@ -115,7 +115,8 @@ var ProcedurePermissions = map[string]string{
 
 	// Infrastructure devices (facility fans / fan groups) — site:read
 	// for reads, site:manage for writes. The handler additionally redacts
-	// rack names without rack:read and requires rack:read for create/update.
+	// rack names without rack:read and requires rack:read for rack assignments
+	// and site moves.
 	// Unlike buildings, the handler enforces these against the device's site
 	// (ResourceContext{SiteID}): Create checks the request's site,
 	// Get/Update/Delete resolve the device then authorize its site

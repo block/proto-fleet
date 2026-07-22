@@ -140,6 +140,19 @@ describe("InfraDeviceList", () => {
     await waitFor(() => expect(screen.queryByTestId("infra-device-delete-dialog")).not.toBeInTheDocument());
   });
 
+  test("formats delete location without a blank rack segment", async () => {
+    const user = userEvent.setup();
+    const unrackedDevice = { ...device, rackName: "" };
+
+    render(<InfraDeviceList devices={[unrackedDevice]} />);
+
+    await user.click(screen.getByRole("button", { name: "Actions for Roof exhaust" }));
+    await user.click(await screen.findByText("Delete"));
+
+    expect(screen.getByTestId("infra-device-delete-dialog")).toHaveTextContent("in Building 1 at Austin");
+    expect(screen.getByTestId("infra-device-delete-dialog")).not.toHaveTextContent("in ,");
+  });
+
   test("cancelling the delete confirmation leaves the device untouched", async () => {
     const user = userEvent.setup();
     const onDeleteDevice = vi.fn();

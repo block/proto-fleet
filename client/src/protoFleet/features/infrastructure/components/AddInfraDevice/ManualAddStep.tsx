@@ -58,7 +58,7 @@ const ManualAddStep = ({
   const fanCountNumber = deviceKind === "single_fan" ? 1 : Number(fanCount);
   const isFanCountValid = deviceKind === "single_fan" || (Number.isInteger(fanCountNumber) && fanCountNumber > 1);
   const isValid =
-    [name, site, building, rack].every((value) => value.trim().length > 0) &&
+    [name, site, building].every((value) => value.trim().length > 0) &&
     isFanCountValid &&
     driverFormModule !== undefined &&
     driverFormModule.isValid(driverValues);

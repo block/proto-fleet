@@ -138,7 +138,7 @@ describe("FleetInfraPage", () => {
     infraDeviceListPropsSpy.mockReset();
   });
 
-  test("uses site manage plus rack read for default management access", () => {
+  test("uses site permissions for default read and management access", () => {
     vi.mocked(useHasPermission).mockImplementation(
       (key) => key === "site:read" || key === "site:manage" || key === "rack:read",
     );
@@ -153,14 +153,14 @@ describe("FleetInfraPage", () => {
     expect(useHasPermission).toHaveBeenCalledWith("rack:read");
   });
 
-  test("disables management controls when rack read is denied", () => {
+  test("keeps non-rack management available when rack read is denied", () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
 
     renderPage();
 
-    expect(screen.queryByRole("button", { name: "Add device" })).not.toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Enabled for Roof exhaust" })).toBeDisabled();
-    expect(lastInfraDeviceListProps().canManage).toBe(false);
+    expect(screen.getByRole("button", { name: "Add device" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Enabled for Roof exhaust" })).toBeEnabled();
+    expect(lastInfraDeviceListProps().canManage).toBe(true);
     expect(listRacksMock).not.toHaveBeenCalled();
   });
 

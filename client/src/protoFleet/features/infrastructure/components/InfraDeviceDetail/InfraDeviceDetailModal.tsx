@@ -107,7 +107,7 @@ const InfraDeviceDetailModal = ({
   }, [building, device.id, driverFormModule, driverValues, enabledOverride, initialDriverValues, name, rack, site]);
   const hasChanges = Object.keys(sessionPatch).length > 1;
   const canSave =
-    [name, site, building, rack].every((value) => value.trim().length > 0) &&
+    [name, site, building].every((value) => value.trim().length > 0) &&
     isDriverConfigValid &&
     hasChanges &&
     !isSaving &&

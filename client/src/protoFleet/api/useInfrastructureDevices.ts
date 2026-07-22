@@ -267,7 +267,7 @@ export default function useInfrastructureDevices(
               id: freshDevice.id,
               siteId: params.siteId !== undefined ? parseDeviceId(params.siteId, "site ID") : freshDevice.siteId,
               buildingName: params.buildingName ?? freshDevice.buildingName,
-              rackName: params.rackName ?? freshDevice.rackName,
+              rackName: params.rackName,
               name: params.name ?? freshDevice.name,
               // Not patchable from the client: the detail form doesn't
               // edit them, so the fresh row's values are always echoed.

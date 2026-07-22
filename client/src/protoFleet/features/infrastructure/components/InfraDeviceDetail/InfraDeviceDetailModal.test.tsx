@@ -186,6 +186,17 @@ describe("InfraDeviceDetailModal", () => {
     expect(onSave.mock.calls[0][0]).toEqual({ id: "101", name: "Roof exhaust renamed" });
   });
 
+  test("allows editing a device that has no rack assignment", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderModal({ targetDevice: { ...device, rackName: "" } });
+
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust renamed");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith({ id: "101", name: "Roof exhaust renamed" });
+  });
+
   test("keeps the modal open and shows the RPC failure inline on save", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn().mockRejectedValue(new Error("driver_config field port must be a valid int"));

@@ -161,10 +161,14 @@ func (s *Service) Create(ctx context.Context, params models.CreateParams) (*mode
 
 // Update validates and mutates an existing device.
 func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*models.Device, error) {
+	rackName := ""
+	if params.RackName != nil {
+		rackName = *params.RackName
+	}
 	normalized, err := s.validateAndNormalize(deviceInput{
 		SiteID:       params.SiteID,
 		BuildingName: params.BuildingName,
-		RackName:     params.RackName,
+		RackName:     rackName,
 		Name:         params.Name,
 		DeviceKind:   params.DeviceKind,
 		FanCount:     params.FanCount,
@@ -175,7 +179,9 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 		return nil, err
 	}
 	params.BuildingName = normalized.BuildingName
-	params.RackName = normalized.RackName
+	if params.RackName != nil {
+		params.RackName = &normalized.RackName
+	}
 	params.Name = normalized.Name
 	params.FanCount = normalized.FanCount
 	params.DriverType = normalized.DriverType

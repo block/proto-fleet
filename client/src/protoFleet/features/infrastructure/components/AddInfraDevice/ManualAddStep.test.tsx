@@ -115,6 +115,24 @@ describe("ManualAddStep", () => {
     });
   });
 
+  test("allows an unracked device when no rack options are available", async () => {
+    const user = userEvent.setup();
+    const { getState, onSuccess } = renderManualAddStep({ rackOptions: [] });
+
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust");
+    await user.selectOptions(screen.getByLabelText("Site"), "Austin");
+    await user.selectOptions(screen.getByLabelText("Building"), "Building 1");
+    await user.type(screen.getByLabelText("Endpoint"), "10.12.1.21");
+    await user.type(screen.getByLabelText("Port"), "502");
+    await user.type(screen.getByLabelText("Unit ID"), "17");
+    await user.type(screen.getByLabelText("Register address"), "2001");
+
+    await waitFor(() => expect(getState()?.canAdd).toBe(true));
+    getState()?.addHandler();
+
+    expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({ rackName: "" }));
+  });
+
   test("requires catalog-backed location selections", async () => {
     const user = userEvent.setup();
     const onSuccess = vi.fn();

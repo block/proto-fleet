@@ -1488,9 +1488,10 @@ type Querier interface {
 	// authorized against, so a concurrent site move between the
 	// authorization read and this write invalidates the mutation (0 rows)
 	// instead of silently editing a device in a site the caller may not
-	// manage. enabled is nullable: NULL preserves the row's current value
-	// atomically in the UPDATE itself, so a request that omitted the
-	// field can't write back a stale value read before the transaction.
+	// manage. enabled and rack_name are nullable inputs: NULL preserves
+	// the row's current value atomically in the UPDATE itself, so a request
+	// that omitted either field can't write back a stale value read before
+	// the transaction.
 	UpdateInfrastructureDevice(ctx context.Context, arg UpdateInfrastructureDeviceParams) (int64, error)
 	UpdateLastLogin(ctx context.Context, id int64) error
 	UpdateMQTTSourceConfig(ctx context.Context, arg UpdateMQTTSourceConfigParams) (CurtailmentMqttSourceConfig, error)

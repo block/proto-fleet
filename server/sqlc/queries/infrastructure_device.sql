@@ -93,13 +93,14 @@ ORDER BY d.name, d.id;
 -- authorized against, so a concurrent site move between the
 -- authorization read and this write invalidates the mutation (0 rows)
 -- instead of silently editing a device in a site the caller may not
--- manage. enabled is nullable: NULL preserves the row's current value
--- atomically in the UPDATE itself, so a request that omitted the
--- field can't write back a stale value read before the transaction.
+-- manage. enabled and rack_name are nullable inputs: NULL preserves
+-- the row's current value atomically in the UPDATE itself, so a request
+-- that omitted either field can't write back a stale value read before
+-- the transaction.
 UPDATE infrastructure_device
 SET site_id       = sqlc.arg('site_id'),
     building_name = sqlc.arg('building_name'),
-    rack_name     = sqlc.arg('rack_name'),
+    rack_name     = COALESCE(sqlc.narg('rack_name')::text, rack_name),
     name          = sqlc.arg('name'),
     device_kind   = sqlc.arg('device_kind'),
     fan_count     = sqlc.arg('fan_count'),

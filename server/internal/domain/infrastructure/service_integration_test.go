@@ -53,6 +53,8 @@ func validModbusConfig() json.RawMessage {
 
 func boolPtr(b bool) *bool { return &b }
 
+func stringPtr(s string) *string { return &s }
+
 func createParams(mutate func(*models.CreateParams)) models.CreateParams {
 	params := models.CreateParams{
 		OrgID:        testOrgID,
@@ -154,7 +156,7 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 		ExpectedSiteID: testSiteID,
 		SiteID:         testSiteID,
 		BuildingName:   "Building 2",
-		RackName:       "Rack B1",
+		RackName:       stringPtr("Rack B1"),
 		Name:           "Zone B exhaust fans",
 		DeviceKind:     models.KindFanGroup,
 		FanCount:       16,
@@ -168,16 +170,16 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	assert.Equal(t, int32(16), updated.FanCount)
 	assert.False(t, updated.Enabled)
 
-	// Nil Enabled preserves the row's current value in the UPDATE
-	// itself (COALESCE against the stored column) — the disabled state
-	// survives an unrelated rename.
+	// Nil Enabled and RackName preserve their current values in the
+	// UPDATE itself (COALESCE against the stored columns), so an older
+	// client performing an unrelated rename cannot clear either field.
 	preserved, err := svc.Update(ctx, models.UpdateParams{
 		OrgID:          testOrgID,
 		ID:             created.ID,
 		ExpectedSiteID: testSiteID,
 		SiteID:         testSiteID,
 		BuildingName:   "Building 2",
-		RackName:       "Rack B1",
+		RackName:       nil,
 		Name:           "Zone B exhaust fans (renamed)",
 		DeviceKind:     models.KindFanGroup,
 		FanCount:       16,
@@ -188,6 +190,7 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Zone B exhaust fans (renamed)", preserved.Name)
 	assert.False(t, preserved.Enabled, "nil Enabled must preserve the stored value, not reset it")
+	assert.Equal(t, "Rack B1", preserved.RackName, "nil RackName must preserve the stored value, not clear it")
 
 	// Delete soft-deletes; the row disappears from Get and List.
 	require.NoError(t, svc.Delete(ctx, testOrgID, created.ID, testSiteID))
