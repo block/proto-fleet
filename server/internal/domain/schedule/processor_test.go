@@ -3,6 +3,7 @@ package schedule
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -85,6 +86,21 @@ func waitForSignal(t *testing.T, ch <-chan struct{}, msg string) {
 	}
 }
 
+type doneObservedContext struct {
+	doneObserved chan struct{}
+	once         sync.Once
+}
+
+func (*doneObservedContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+
+func (c *doneObservedContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.doneObserved) })
+	return nil
+}
+
+func (*doneObservedContext) Err() error    { return nil }
+func (*doneObservedContext) Value(any) any { return nil }
+
 // --- lifecycle shutdown ---
 
 func TestProcessor_StartStopStart_ReRegistersUnchangedSchedules(t *testing.T) {
@@ -141,6 +157,32 @@ func TestProcessor_StopDeadlineDoesNotBlockOnStartup(t *testing.T) {
 	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return(nil, nil).Times(2)
 	assert.NoError(t, p.Start(context.Background()))
 	assert.NoError(t, p.Stop(context.Background()))
+}
+
+func TestProcessor_ConcurrentStartPropagatesStartupFailure(t *testing.T) {
+	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
+	queryStarted := make(chan struct{})
+	joinObserved := make(chan struct{})
+	startupErr := errors.New("startup query failed")
+	procStore.EXPECT().GetActiveSchedules(gomock.Any()).DoAndReturn(
+		func(context.Context) ([]interfaces.ScheduleWithOrg, error) {
+			close(queryStarted)
+			<-joinObserved
+			return nil, startupErr
+		},
+	)
+
+	firstStart := make(chan error, 1)
+	go func() { firstStart <- p.Start(context.Background()) }()
+	waitForSignal(t, queryStarted, "startup query did not begin")
+
+	joinCtx := &doneObservedContext{
+		doneObserved: joinObserved,
+	}
+	secondErr := p.Start(joinCtx)
+	firstErr := <-firstStart
+	assert.True(t, errors.Is(firstErr, startupErr))
+	assert.True(t, errors.Is(secondErr, startupErr))
 }
 
 func TestProcessor_ActivationCancellationDrainsAdmittedSchedule(t *testing.T) {

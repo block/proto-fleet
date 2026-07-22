@@ -62,6 +62,7 @@ type processorActivation struct {
 	cancelWork      context.CancelFunc
 	cron            *cron.Cron
 	startupDone     chan struct{}
+	startupErr      error
 	stopDone        chan struct{}
 	stopOnce        sync.Once
 	wg              sync.WaitGroup
@@ -80,6 +81,16 @@ func newProcessorActivation(ctx context.Context) *processorActivation {
 		startupDone:     make(chan struct{}),
 		stopDone:        make(chan struct{}),
 	}
+}
+
+func (a *processorActivation) startupResult() error {
+	if a.startupErr != nil {
+		return a.startupErr
+	}
+	if a.admissionCtx.Err() != nil {
+		return errProcessorStopping
+	}
+	return nil
 }
 
 type Processor struct {
@@ -150,10 +161,20 @@ func (p *Processor) Start(ctx context.Context) error {
 	p.lifecycleMu.Lock()
 	if active := p.activation; active != nil {
 		p.lifecycleMu.Unlock()
-		if active.admissionCtx.Err() != nil {
-			return errProcessorStopping
+		select {
+		case <-active.startupDone:
+			return active.startupResult()
+		case <-active.admissionCtx.Done():
+			// Startup failures publish their result before canceling admission.
+			select {
+			case <-active.startupDone:
+				return active.startupResult()
+			default:
+				return errProcessorStopping
+			}
+		case <-ctx.Done():
+			return fmt.Errorf("schedule processor startup: %w", ctx.Err())
 		}
-		return nil
 	}
 	run := newProcessorActivation(ctx)
 	p.activation = run
@@ -182,10 +203,11 @@ func (p *Processor) Start(ctx context.Context) error {
 }
 
 func (p *Processor) failStart(run *processorActivation, err error) error {
+	run.startupErr = fmt.Errorf("schedule processor startup: %w", err)
 	close(run.startupDone)
 	p.beginStop(run)
 	<-run.stopDone
-	return fmt.Errorf("schedule processor startup: %w", err)
+	return run.startupErr
 }
 
 // Stop cancels the activation and waits for it to drain, bounded by ctx. The
