@@ -14,7 +14,8 @@ import (
 // Lifecycle operations are serialized. A group can restart after a clean stop,
 // but incomplete cleanup permanently prevents another activation.
 type Group struct {
-	mu sync.Mutex
+	terminalErrMu   sync.Mutex
+	operationPermit chan struct{}
 
 	cleanupTimeout time.Duration
 	jobs           []Job
@@ -41,25 +42,28 @@ func NewGroup(jobs []Job, cleanupTimeout time.Duration) (*Group, error) {
 	}
 
 	return &Group{
-		cleanupTimeout: cleanupTimeout,
-		jobs:           slices.Clone(jobs),
+		cleanupTimeout:  cleanupTimeout,
+		jobs:            slices.Clone(jobs),
+		operationPermit: make(chan struct{}, 1),
 	}, nil
 }
 
 // Err reports the terminal cleanup failure that prevents reactivation.
 func (g *Group) Err() error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+	g.terminalErrMu.Lock()
+	defer g.terminalErrMu.Unlock()
 	return g.terminalErr
 }
 
 // Start starts every job in registration order.
 func (g *Group) Start(ctx context.Context) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+	if err := g.acquireOperation(ctx); err != nil {
+		return err
+	}
+	defer g.releaseOperation()
 
-	if g.terminalErr != nil {
-		return fmt.Errorf("runtime job group cannot restart after incomplete cleanup: %w", g.terminalErr)
+	if terminalErr := g.Err(); terminalErr != nil {
+		return fmt.Errorf("runtime job group cannot restart after incomplete cleanup: %w", terminalErr)
 	}
 	if g.cancel != nil {
 		select {
@@ -96,17 +100,20 @@ func (g *Group) failStart(ctx context.Context, started int, startErr error) erro
 		return startErr
 	}
 
-	g.terminalErr = errors.Join(startErr, fmt.Errorf("rollback runtime jobs: %w", rollbackErr))
-	return g.terminalErr
+	terminalErr := errors.Join(startErr, fmt.Errorf("rollback runtime jobs: %w", rollbackErr))
+	g.setTerminalErr(terminalErr)
+	return terminalErr
 }
 
 // Stop broadcasts cancellation, then stops jobs in reverse registration order.
 func (g *Group) Stop(ctx context.Context) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+	if err := g.acquireOperation(ctx); err != nil {
+		return err
+	}
+	defer g.releaseOperation()
 
-	if g.terminalErr != nil {
-		return g.terminalErr
+	if terminalErr := g.Err(); terminalErr != nil {
+		return terminalErr
 	}
 	if g.cancel == nil {
 		return nil
@@ -116,10 +123,41 @@ func (g *Group) Stop(ctx context.Context) error {
 	g.activationDone = nil
 	g.cancel = nil
 	if err := g.stopJobs(ctx, g.jobs); err != nil {
-		g.terminalErr = err
+		g.setTerminalErr(err)
 		return err
 	}
 	return nil
+}
+
+func (g *Group) acquireOperation(ctx context.Context) error {
+	// Context bounds waiting behind another lifecycle operation. If the permit
+	// is already free, Stop must still make its best-effort cleanup attempt.
+	select {
+	case g.operationPermit <- struct{}{}:
+		return nil
+	default:
+	}
+
+	select {
+	case g.operationPermit <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			g.releaseOperation()
+			return fmt.Errorf("acquire runtime job group operation: %w", err)
+		}
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("acquire runtime job group operation: %w", ctx.Err())
+	}
+}
+
+func (g *Group) releaseOperation() {
+	<-g.operationPermit
+}
+
+func (g *Group) setTerminalErr(err error) {
+	g.terminalErrMu.Lock()
+	defer g.terminalErrMu.Unlock()
+	g.terminalErr = err
 }
 
 func (g *Group) stopJobs(parent context.Context, jobs []Job) error {
@@ -139,15 +177,24 @@ func (g *Group) stopJobs(parent context.Context, jobs []Job) error {
 		// necessarily best effort; waiting for it could make shutdown unbounded.
 		<-stopGoroutineStarted
 
-		var err error
-		select {
-		case err = <-result:
-		case <-stopCtx.Done():
-			err = stopCtx.Err()
-		}
+		err := waitForStopResult(stopCtx, result)
 		if err != nil {
 			stopErrors = append(stopErrors, fmt.Errorf("stop runtime job %q: %w", job.Name(), err))
 		}
 	}
 	return errors.Join(stopErrors...)
+}
+
+func waitForStopResult(stopCtx context.Context, result <-chan error) error {
+	select {
+	case err := <-result:
+		return err
+	case <-stopCtx.Done():
+		select {
+		case err := <-result:
+			return err
+		default:
+			return fmt.Errorf("wait for runtime job stop: %w", stopCtx.Err())
+		}
+	}
 }

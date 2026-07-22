@@ -268,6 +268,64 @@ func TestGroupStopHonorsCallerCancellation(t *testing.T) {
 	}, time.Second, time.Millisecond, "stop was not attempted")
 }
 
+func TestGroupStopReturnsReadyResultAfterContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	stopErr := errors.New("stop failed")
+	result := make(chan error, 1)
+	result <- stopErr
+	stopCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	assert.ErrorIs(t, waitForStopResult(stopCtx, result), stopErr)
+}
+
+func TestGroupStopCanExpireWhileStartIsBlocked(t *testing.T) {
+	t.Parallel()
+
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	group := newTestGroup(t, newTestJob(
+		"job",
+		func(context.Context) error {
+			close(startEntered)
+			<-releaseStart
+			return nil
+		},
+		noopJob,
+	))
+
+	startResult := make(chan error, 1)
+	go func() {
+		startResult <- group.Start(context.Background())
+	}()
+	<-startEntered
+	released := false
+	defer func() {
+		if !released {
+			close(releaseStart)
+		}
+	}()
+
+	stopCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	stopResult := make(chan error, 1)
+	go func() {
+		stopResult <- group.Stop(stopCtx)
+	}()
+	select {
+	case err := <-stopResult:
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not honor its context while Start was blocked")
+	}
+
+	close(releaseStart)
+	released = true
+	require.NoError(t, <-startResult)
+	require.NoError(t, group.Stop(context.Background()))
+}
+
 func TestGroupStartAndStopAreIdempotent(t *testing.T) {
 	t.Parallel()
 
