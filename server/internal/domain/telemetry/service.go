@@ -208,6 +208,10 @@ type CachedMinerGetter interface {
 	InvalidateMiner(deviceIdentifier models.DeviceIdentifier)
 }
 
+type firmwareStateStore interface {
+	UpsertDeviceFirmwareState(ctx context.Context, orgID int64, deviceIdentifier models.DeviceIdentifier, firmwareVersion string, observedAt time.Time) error
+}
+
 type deviceResult struct {
 	device     models.Device
 	metrics    modelsV2.DeviceMetrics
@@ -1257,9 +1261,14 @@ func (s *TelemetryService) pollErrorsForDevice(ctx context.Context, device model
 // so an empty string is ambiguous: the driver may have omitted the field rather
 // than explicitly reporting "no firmware version". We therefore treat empty
 // telemetry values as "no update" instead of clearing stored firmware.
-func (s *TelemetryService) persistFirmwareVersionIfChanged(ctx context.Context, deviceID models.DeviceIdentifier, firmwareVersion string) {
+func (s *TelemetryService) persistFirmwareVersionIfChanged(ctx context.Context, orgID int64, deviceID models.DeviceIdentifier, firmwareVersion string) {
 	if firmwareVersion == "" {
 		return
+	}
+	if stateStore, ok := s.deviceStore.(firmwareStateStore); ok {
+		if err := stateStore.UpsertDeviceFirmwareState(ctx, orgID, deviceID, firmwareVersion, time.Now().UTC()); err != nil {
+			slog.Error("failed to upsert firmware observation", "device_id", deviceID, "error", err)
+		}
 	}
 	oldFW, _ := s.lastKnownFirmware.Load(deviceID)
 	if oldFW == firmwareVersion {
@@ -1441,7 +1450,7 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 			return mm.MinerStatusUnknown, false, result.orgID, result.driverName, result.siteID, pollSuccess, fmt.Errorf("context cancelled enqueueing metrics for device %s: %w", device.ID, ctx.Err())
 		}
 
-		s.persistFirmwareVersionIfChanged(ctx, device.ID, result.metrics.FirmwareVersion)
+		s.persistFirmwareVersionIfChanged(ctx, result.orgID, device.ID, result.metrics.FirmwareVersion)
 		s.reconcileDefaultPasswordState(ctx, device.ID, result.metrics.DefaultPasswordActive)
 	}
 

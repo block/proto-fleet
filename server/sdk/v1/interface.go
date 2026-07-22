@@ -527,6 +527,7 @@ const (
 	CapabilityCoolingModeAir     = "cooling_mode_air"     // Air cooling mode support
 	CapabilityCoolingModeImmerse = "cooling_mode_immerse" // Immersion cooling mode support
 	CapabilityPoolConfig         = "pool_config"          // Pool configuration support
+	CapabilityGetMiningPools     = "get_mining_pools"     // Mining pool readback support
 	CapabilityPoolPriority       = "pool_priority"        // Pool priority support
 	CapabilityNativeStratumV2    = "native_stratum_v2"    // Firmware speaks Stratum V2 natively
 	CapabilityLogsDownload       = "logs_download"        // Device logs download support

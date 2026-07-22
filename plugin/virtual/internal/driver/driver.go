@@ -107,6 +107,7 @@ func (d *Driver) DescribeDriver(_ context.Context) (sdk.DriverIdentifier, sdk.Ca
 			sdk.CapabilityCoolingModeAir:     true,
 			sdk.CapabilityCoolingModeImmerse: true,
 			sdk.CapabilityPoolConfig:         true,
+			sdk.CapabilityGetMiningPools:     true,
 			sdk.CapabilityPoolPriority:       true,
 
 			// Telemetry

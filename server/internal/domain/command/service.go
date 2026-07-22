@@ -173,6 +173,8 @@ func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 		return activitymodels.ActorScheduler
 	case session.ActorCurtailment:
 		return activitymodels.ActorCurtailment
+	case session.ActorCohort:
+		return activitymodels.ActorCohort
 	}
 	return ""
 }
@@ -831,6 +833,8 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 	kept, skipped, err := applyFilters(ctx, s.filters, CommandFilterInput{
 		CommandType:       command.commandType,
 		OrganizationID:    info.OrganizationID,
+		UserID:            info.UserID,
+		Role:              info.Role,
 		Actor:             info.Actor,
 		Source:            info.Source,
 		DeviceIdentifiers: identifiers,
@@ -1311,6 +1315,33 @@ func (s *Service) UpdateMiningPools(
 	if err := s.verifyUserCredentials(ctx, userUsername, userPassword); err != nil {
 		return nil, err
 	}
+	return s.updateMiningPools(ctx, deviceSelector, defaultPool, backup1Pool, backup2Pool)
+}
+
+// UpdateMiningPoolsAsCohort is the non-interactive pool command surface for
+// the cohort reconciler. All command validation and dispatch behavior remains
+// shared with the interactive path; only user credential re-verification is
+// skipped for the authenticated internal cohort actor.
+func (s *Service) UpdateMiningPoolsAsCohort(
+	ctx context.Context,
+	deviceSelector *pb.DeviceSelector,
+	defaultPool, backup1Pool, backup2Pool *pb.PoolSlotConfig,
+) (*CommandResult, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if info.Actor != session.ActorCohort {
+		return nil, fleeterror.NewForbiddenError("cohort pool enforcement requires the cohort actor")
+	}
+	return s.updateMiningPools(ctx, deviceSelector, defaultPool, backup1Pool, backup2Pool)
+}
+
+func (s *Service) updateMiningPools(
+	ctx context.Context,
+	deviceSelector *pb.DeviceSelector,
+	defaultPool, backup1Pool, backup2Pool *pb.PoolSlotConfig,
+) (*CommandResult, error) {
 
 	pld, err := s.createUpdateMiningPoolsPayload(ctx, defaultPool, backup1Pool, backup2Pool)
 	if err != nil {
@@ -1497,7 +1528,6 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 	if _, err := s.filesService.GetFirmwareFilePath(firmwareFileID); err != nil {
 		return nil, fleeterror.NewInvalidArgumentError(fmt.Sprintf("invalid firmware_file_id: %v", err))
 	}
-
 	payload := dto.FirmwareUpdatePayload{FirmwareFileID: firmwareFileID}
 	result, err := s.processCommand(ctx, &Command{
 		commandType:    commandtype.FirmwareUpdate,

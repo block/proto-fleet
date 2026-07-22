@@ -28,6 +28,8 @@ type CommandResult struct {
 type CommandFilterInput struct {
 	CommandType       commandtype.Type
 	OrganizationID    int64
+	UserID            int64
+	Role              string
 	Actor             session.Actor
 	Source            session.Source
 	DeviceIdentifiers []string

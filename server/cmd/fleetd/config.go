@@ -3,6 +3,7 @@ package main
 import (
 	"time"
 
+	cohortReconciler "github.com/block/proto-fleet/server/internal/domain/cohort/reconciler"
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	curtailmentReconciler "github.com/block/proto-fleet/server/internal/domain/curtailment/reconciler"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
@@ -32,6 +33,18 @@ type HTTPConfig struct {
 	SuppressCors      bool          `help:"Suppress CORS" default:"false" env:"SUPPRESS_CORS"`
 	PprofAddr         string        `help:"Address to listen for pprof debug server, e.g. 127.0.0.1:6060 (empty disables it; use a non-loopback address only if you intentionally want remote access)" default:"" env:"PPROF_ADDR"`
 }
+
+type CohortConfig struct {
+	ExpirySweepInterval time.Duration `help:"How often to release expired cohorts." default:"1m" env:"EXPIRY_SWEEP_INTERVAL"`
+}
+
+func (c CohortConfig) NormalizedExpirySweepInterval() time.Duration {
+	if c.ExpirySweepInterval <= 0 {
+		return time.Minute
+	}
+	return c.ExpirySweepInterval
+}
+
 type Config struct {
 	Mode string `help:"Execution mode" enum:"server,agent,combined" default:"combined" env:"MODE"`
 
@@ -43,9 +56,11 @@ type Config struct {
 	HTTP           HTTPConfig                   `embed:"" prefix:"http-" envprefix:"HTTP_"`
 	Auth           token.Config                 `embed:"" prefix:"auth-" envprefix:"AUTH_"`
 	Session        session.Config               `embed:"" prefix:"session-" envprefix:"SESSION_"`
+	Cohort         CohortConfig                 `embed:"" prefix:"cohort-" envprefix:"COHORT_"`
 	Pools          pools.Config                 `embed:"" prefix:"pools-" envprefix:"POOLS_"`
 	Encrypt        encrypt.Config               `embed:"" prefix:"encrypt-" envprefix:"ENCRYPT_"`
 	Command        command.Config               `embed:"" prefix:"fleet-command-" envprefix:"FLEET_COMMAND_"`
+	CohortEnforce  cohortReconciler.Config      `embed:"" prefix:"cohort-enforce-" envprefix:"COHORT_ENFORCE_"`
 	Curtailment    curtailmentReconciler.Config `embed:"" prefix:"curtailment-" envprefix:"CURTAILMENT_"`
 	Queue          queue.Config                 `embed:"" prefix:"fleet-queue-" envprefix:"FLEET_QUEUE_"`
 	TimescaleDB    timescaledb.Config           `embed:"" prefix:"timescaledb-" envprefix:"TIMESCALEDB_"`
