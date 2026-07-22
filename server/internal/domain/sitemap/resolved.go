@@ -263,38 +263,108 @@ func resolveRacks(
 	return out, nil
 }
 
-// classifyTopologyActions marks each topology node: rows without an existing id
-// create, and rows with an id update when a tracked field differs.
-func classifyTopologyActions(plan *resolvedPlan, snap *snapshot, mode pb.OmissionMode) {
+// classifyTopologyActions marks each topology node: a row whose identity is not
+// already present in the live snapshot creates; a row matching an existing
+// entity updates when a tracked field differs.
+func classifyTopologyActions(plan *resolvedPlan, snap *snapshot, _ pb.OmissionMode) {
+	siteNames := map[string]bool{}
+	for _, s := range snap.sites {
+		siteNames[s.Name] = true
+	}
+	buildingKeys := map[string]bool{}
+	for _, b := range snap.buildings {
+		buildingKeys[b.SiteLabel+"\x00"+b.Name] = true
+	}
+	rackLabels := map[string]bool{}
+	for _, r := range snap.racks {
+		rackLabels[r.Label] = true
+	}
+
 	for _, s := range plan.sites {
-		switch {
-		case s.id != nil:
-			if s.name != s.prevName {
-				s.action = actionUpdate
+		if s.id == nil {
+			if !siteNames[s.name] {
+				s.action = actionCreate
 			}
-		default:
-			s.action = actionCreate
+		} else if s.name != s.prevName {
+			s.action = actionUpdate
 		}
 	}
 	for _, b := range plan.buildings {
-		switch {
-		case b.id != nil:
-			if b.name != b.prevName || b.siteLabel != b.prevSiteLabel {
-				b.action = actionUpdate
+		if b.id == nil {
+			if !buildingKeys[b.siteLabel+"\x00"+b.name] {
+				b.action = actionCreate
 			}
-		default:
-			b.action = actionCreate
+		} else if b.name != b.prevName || b.siteLabel != b.prevSiteLabel {
+			b.action = actionUpdate
 		}
 	}
 	for _, r := range plan.racks {
 		if r.id == nil {
-			r.action = actionCreate
+			if !rackLabels[r.label] {
+				r.action = actionCreate
+			}
 		} else if r.label != r.prevLabel {
 			r.action = actionUpdate
 		}
 	}
-	_ = snap
-	_ = mode
+}
+
+func countSiteCreateNodes(sites []*resolvedSite) int32 {
+	var n int32
+	for _, s := range sites {
+		if s.action == actionCreate {
+			n++
+		}
+	}
+	return n
+}
+
+func countBuildingCreateNodes(buildings []*resolvedBuilding) int32 {
+	var n int32
+	for _, b := range buildings {
+		if b.action == actionCreate {
+			n++
+		}
+	}
+	return n
+}
+
+func countRackCreateNodes(racks []*resolvedRack) int32 {
+	var n int32
+	for _, r := range racks {
+		if r.action == actionCreate {
+			n++
+		}
+	}
+	return n
+}
+
+// computeChanges produces the preview change summaries from the resolved plan.
+// Creates come from node classification and deletes from omission counts (the
+// two are the same identity math); updates and miner rename/move still use the
+// row-comparison helpers.
+func computeChanges(resolved *resolvedPlan, parsed *parsedCSV, snap, targetSnap *snapshot, mode pb.OmissionMode) []*pb.ImportChangeSummary {
+	var changes []*pb.ImportChangeSummary
+	add := func(op pb.ImportOperation, entityType string, count int32, description string) {
+		if count > 0 {
+			changes = append(changes, &pb.ImportChangeSummary{Operation: op, EntityType: entityType, Count: count, Description: description})
+		}
+	}
+	add(pb.ImportOperation_IMPORT_OPERATION_CREATE, "site", countSiteCreateNodes(resolved.sites), "new site rows")
+	add(pb.ImportOperation_IMPORT_OPERATION_CREATE, fieldBuilding, countBuildingCreateNodes(resolved.buildings), "new building rows")
+	add(pb.ImportOperation_IMPORT_OPERATION_CREATE, "rack", countRackCreateNodes(resolved.racks), "new rack rows")
+	add(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "site", countSiteUpdates(parsed.sections["SITE"], snap.sites), "site rows with changed details")
+	add(pb.ImportOperation_IMPORT_OPERATION_UPDATE, fieldBuilding, countBuildingUpdates(parsed.sections["BUILDING"], snap.buildings), "building rows with changed details")
+	add(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "rack", countRackUpdates(parsed.sections["RACK"], snap.racks, targetSnap.buildings), "rack rows with changed details")
+	add(pb.ImportOperation_IMPORT_OPERATION_RENAME, "miner", countMinerRenames(parsed.sections["MINER"], snap.miners), "miner rows with changed names")
+	add(pb.ImportOperation_IMPORT_OPERATION_MOVE, "miner", countMinerPlacementUpdates(parsed.sections["MINER"], parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap), "miner placement rows with changed site, building, rack, or slot")
+	if mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
+		add(pb.ImportOperation_IMPORT_OPERATION_UNASSIGN, "miner", resolved.omissions.GetMiners(), "omitted miner rows to unassign")
+		add(pb.ImportOperation_IMPORT_OPERATION_DELETE, "rack", resolved.omissions.GetRacks(), "omitted rack rows to delete")
+		add(pb.ImportOperation_IMPORT_OPERATION_DELETE, fieldBuilding, resolved.omissions.GetBuildings(), "omitted building rows to delete")
+		add(pb.ImportOperation_IMPORT_OPERATION_DELETE, "site", resolved.omissions.GetSites(), "omitted site rows to delete")
+	}
+	return changes
 }
 
 // computeOmissions counts live entities absent from the CSV.

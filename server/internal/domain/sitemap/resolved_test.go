@@ -36,6 +36,27 @@ func TestResolvePlanClassifiesSiteIdentity(t *testing.T) {
 	}
 }
 
+func TestResolvePlanCreateClassificationHonorsExistingNames(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": {
+			{"__row": "3", "name": "Site A", "id": ""},   // name-only, matches existing ⇒ not a create
+			{"__row": "4", "name": "Brand New", "id": ""}, // new name ⇒ create
+		},
+	}}
+	snap := &snapshot{sites: []sitemodels.Site{{ID: 1, Name: "Site A"}}}
+
+	plan := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if plan.sites[0].action != actionNone {
+		t.Errorf("name-only existing site action = %v, want none", plan.sites[0].action)
+	}
+	if plan.sites[1].action != actionCreate {
+		t.Errorf("new site action = %v, want create", plan.sites[1].action)
+	}
+	if got := countSiteCreateNodes(plan.sites); got != 1 {
+		t.Errorf("site create count = %d, want 1", got)
+	}
+}
+
 func TestResolvePlanLinksBuildingToSiteByName(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE":     {{"__row": "3", "name": "Site A", "id": "1"}},

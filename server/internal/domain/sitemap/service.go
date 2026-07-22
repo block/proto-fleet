@@ -1150,32 +1150,8 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	targetSnap := snapshotForOmissionMode(snap, mode)
 	normalizeIDErrors := normalizeIDReferences(parsed, snap)
 	normalizeInferredPlacement(parsed, targetSnap)
-	plan := importPlan{omissions: &pb.OmissionCounts{}}
-	siteKeys := siteIdentitySet(parsed.sections["SITE"], snap.sites)
-	buildingKeys := buildingIdentitySet(parsed.sections["BUILDING"], snap.buildings)
-	rackKeys := rackIdentitySet(parsed.sections["RACK"], snap.racks)
-	minerKeys := rowSet(parsed.sections["MINER"], "device_identifier")
-
-	for _, site := range snap.sites {
-		if !siteKeys[siteIdentity(site)] {
-			plan.omissions.Sites++
-		}
-	}
-	for _, building := range snap.buildings {
-		if !buildingKeys[buildingIdentity(building)] {
-			plan.omissions.Buildings++
-		}
-	}
-	for _, rack := range snap.racks {
-		if !rackKeys[rackIdentity(rack)] {
-			plan.omissions.Racks++
-		}
-	}
-	for _, miner := range snap.miners {
-		if !minerKeys[miner.DeviceIdentifier] {
-			plan.omissions.Miners++
-		}
-	}
+	resolved := resolvePlan(parsed, snap, mode)
+	plan := importPlan{omissions: resolved.omissions}
 
 	plan.errors = append(plan.errors, validateUnique(parsed.sections["SITE"], "SITE", fieldName)...)
 	plan.errors = append(plan.errors, validateUniqueBuildingRows(parsed.sections["BUILDING"])...)
@@ -1217,25 +1193,7 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 		return plan
 	}
 
-	addChange := func(op pb.ImportOperation, entityType string, count int32, description string) {
-		if count > 0 {
-			plan.changes = append(plan.changes, &pb.ImportChangeSummary{Operation: op, EntityType: entityType, Count: count, Description: description})
-		}
-	}
-	addChange(pb.ImportOperation_IMPORT_OPERATION_CREATE, "site", countSiteCreates(parsed.sections["SITE"], snap.sites), "new site rows")
-	addChange(pb.ImportOperation_IMPORT_OPERATION_CREATE, fieldBuilding, countBuildingCreates(parsed.sections["BUILDING"], snap.buildings), "new building rows")
-	addChange(pb.ImportOperation_IMPORT_OPERATION_CREATE, "rack", countRackCreates(parsed.sections["RACK"], snap.racks), "new rack rows")
-	addChange(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "site", countSiteUpdates(parsed.sections["SITE"], snap.sites), "site rows with changed details")
-	addChange(pb.ImportOperation_IMPORT_OPERATION_UPDATE, fieldBuilding, countBuildingUpdates(parsed.sections["BUILDING"], snap.buildings), "building rows with changed details")
-	addChange(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "rack", countRackUpdates(parsed.sections["RACK"], snap.racks, targetSnap.buildings), "rack rows with changed details")
-	addChange(pb.ImportOperation_IMPORT_OPERATION_RENAME, "miner", countMinerRenames(parsed.sections["MINER"], snap.miners), "miner rows with changed names")
-	addChange(pb.ImportOperation_IMPORT_OPERATION_MOVE, "miner", countMinerPlacementUpdates(parsed.sections["MINER"], parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap), "miner placement rows with changed site, building, rack, or slot")
-	if mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
-		addChange(pb.ImportOperation_IMPORT_OPERATION_UNASSIGN, "miner", countDeletes(rowSetFromMiners(snap.miners), minerKeys), "omitted miner rows to unassign")
-		addChange(pb.ImportOperation_IMPORT_OPERATION_DELETE, "rack", countDeletes(rowSetFromRacks(snap.racks), rackKeys), "omitted rack rows to delete")
-		addChange(pb.ImportOperation_IMPORT_OPERATION_DELETE, fieldBuilding, countDeletes(rowSetFromBuildings(snap.buildings), buildingKeys), "omitted building rows to delete")
-		addChange(pb.ImportOperation_IMPORT_OPERATION_DELETE, "site", countDeletes(rowSetFromSites(snap.sites), siteKeys), "omitted site rows to delete")
-	}
+	plan.changes = computeChanges(resolved, parsed, snap, targetSnap, mode)
 	return plan
 }
 
@@ -3968,69 +3926,6 @@ func safeInt32(value int) int32 {
 	return int32(value) // #nosec G115 -- value is bounded above to MaxInt32.
 }
 
-func countCreates(existing, desired map[string]bool) int32 {
-	var count int32
-	for key := range desired {
-		if !existing[key] {
-			count++
-		}
-	}
-	return count
-}
-
-func countSiteCreates(rows []map[string]string, sites []sitemodels.Site) int32 {
-	existingByName := rowSetFromSiteNames(sites)
-	var count int32
-	for _, row := range rows {
-		if row[fieldID] != "" {
-			continue
-		}
-		if !existingByName[siteSectionName(row)] {
-			count++
-		}
-	}
-	return count
-}
-
-func countBuildingCreates(rows []map[string]string, buildings []buildingmodels.Building) int32 {
-	existingByKey := rowSetFromBuildingNames(buildings)
-	var count int32
-	for _, row := range rows {
-		if row[fieldID] != "" {
-			continue
-		}
-		key := row[fieldSite] + "\x00" + buildingSectionName(row)
-		if !existingByKey[key] {
-			count++
-		}
-	}
-	return count
-}
-
-func countRackCreates(rows []map[string]string, racks []rackSnapshot) int32 {
-	existingByLabel := rowSetFromRackLabels(racks)
-	var count int32
-	for _, row := range rows {
-		if row[fieldID] != "" {
-			continue
-		}
-		if !existingByLabel[rackSectionLabel(row)] {
-			count++
-		}
-	}
-	return count
-}
-
-func countDeletes(existing, desired map[string]bool) int32 {
-	var count int32
-	for key := range existing {
-		if !desired[key] {
-			count++
-		}
-	}
-	return count
-}
-
 func countSiteUpdates(rows []map[string]string, sites []sitemodels.Site) int32 {
 	existing := map[string]map[string]string{}
 	for _, site := range sites {
@@ -4596,14 +4491,6 @@ func minerPlacementIDsMatch(row map[string]string, miner minerSnapshot) bool {
 	return true
 }
 
-func rowSetFromSites(rows []sitemodels.Site) map[string]bool {
-	out := map[string]bool{}
-	for _, row := range rows {
-		out[siteIdentity(row)] = true
-	}
-	return out
-}
-
 func rowSetFromSiteNames(rows []sitemodels.Site) map[string]bool {
 	out := map[string]bool{}
 	for _, row := range rows {
@@ -4665,22 +4552,6 @@ func rowSetFromDesiredBuildings(rows []map[string]string, buildings []buildingmo
 		if buildingSectionName(row) != "" {
 			out[row[fieldSite]+"\x00"+buildingSectionName(row)] = true
 		}
-	}
-	return out
-}
-
-func rowSetFromRacks(rows []rackSnapshot) map[string]bool {
-	out := map[string]bool{}
-	for _, row := range rows {
-		out[rackIdentity(row)] = true
-	}
-	return out
-}
-
-func rowSetFromRackLabels(rows []rackSnapshot) map[string]bool {
-	out := map[string]bool{}
-	for _, row := range rows {
-		out[row.Label] = true
 	}
 	return out
 }
