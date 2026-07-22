@@ -2201,7 +2201,8 @@ func TestValidatePlacementConsistencyHonorsSiteForDuplicateBuildingNames(t *test
 		},
 	}
 
-	if errs := validatePlacementConsistency(rows, nil, nil, nil, snap); len(errs) != 0 {
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"MINER": rows}}, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if errs := validatePlacementConsistency(p.miners, p.topology); len(errs) != 0 {
 		t.Fatalf("site-qualified duplicate building should validate, got %+v", errs)
 	}
 }
@@ -2264,7 +2265,8 @@ func TestValidateRackPlacementTargetsRejectsUnknownSiteBuilding(t *testing.T) {
 		buildings: []buildingmodels.Building{{SiteLabel: "Site A", Name: "Building A"}},
 	}
 
-	errs := validateRackPlacementTargets(rows, nil, nil, snap)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"RACK": rows}}, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	errs := validateRackPlacementTargets(p.racks, p.topology)
 	if len(errs) != 2 {
 		t.Fatalf("errors = %+v, want site and building target errors", errs)
 	}
@@ -2280,7 +2282,8 @@ func TestValidateBuildingSiteTargetsUsesExistingAndCsvSites(t *testing.T) {
 	siteRows := []map[string]string{{"site": "New Site"}}
 	snap := &snapshot{sites: []sitemodels.Site{{Name: "Site A"}}}
 
-	errs := validateBuildingSiteTargets(rows, siteRows, snap)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"SITE": siteRows, "BUILDING": rows}}, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	errs := validateBuildingSiteTargets(p.buildings, p.topology)
 	if len(errs) != 1 || errs[0].GetRow() != 8 || errs[0].GetMessage() != `unknown site "Typo Site"` {
 		t.Fatalf("errors = %+v, want only typo site rejected", errs)
 	}
@@ -2293,7 +2296,8 @@ func TestValidatePlacementConsistencyRejectsUnknownDirectSite(t *testing.T) {
 	}}
 	snap := &snapshot{sites: []sitemodels.Site{{Name: "Site A"}}}
 
-	errs := validatePlacementConsistency(rows, nil, nil, nil, snap)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"MINER": rows}}, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	errs := validatePlacementConsistency(p.miners, p.topology)
 	if len(errs) != 1 || errs[0].GetMessage() != `unknown site "Typo Site"` {
 		t.Fatalf("errors = %+v, want unknown site error", errs)
 	}

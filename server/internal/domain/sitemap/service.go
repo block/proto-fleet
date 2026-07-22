@@ -1174,9 +1174,9 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateKnownMiners(resolved.miners)...)
 	plan.errors = append(plan.errors, validateReadOnlyMinerFields(resolved.miners)...)
 	if len(removeReferenceErrors) == 0 {
-		plan.errors = append(plan.errors, validateBuildingSiteTargets(parsed.sections["BUILDING"], parsed.sections["SITE"], targetSnap)...)
-		plan.errors = append(plan.errors, validateRackPlacementTargets(parsed.sections["RACK"], parsed.sections["BUILDING"], parsed.sections["SITE"], targetSnap)...)
-		plan.errors = append(plan.errors, validatePlacementConsistency(parsed.sections["MINER"], parsed.sections["RACK"], parsed.sections["BUILDING"], parsed.sections["SITE"], targetSnap)...)
+		plan.errors = append(plan.errors, validateBuildingSiteTargets(resolved.buildings, resolved.topology)...)
+		plan.errors = append(plan.errors, validateRackPlacementTargets(resolved.racks, resolved.topology)...)
+		plan.errors = append(plan.errors, validatePlacementConsistency(resolved.miners, resolved.topology)...)
 	}
 	plan.errors = append(plan.errors, validateBuildingLayoutBounds(parsed.sections["BUILDING"])...)
 	plan.errors = append(plan.errors, validateRackDimensions(parsed.sections["RACK"])...)
@@ -3006,106 +3006,6 @@ func desiredRacksByID(rows []map[string]string, racks []rackSnapshot, sitesByID 
 		out[id] = rack
 	}
 	return out
-}
-
-func validateBuildingSiteTargets(rows, siteRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
-	existingSites := desiredSiteSet(siteRows, snap.sites)
-	var errs []*pb.ImportValidationError
-	for i, row := range rows {
-		if row[fieldSite] != "" && !existingSites[row[fieldSite]] {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "BUILDING", fmt.Sprintf("unknown site %q", row[fieldSite])))
-		}
-	}
-	return errs
-}
-
-func validateRackPlacementTargets(rows, buildingRows, siteRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
-	existingSites := desiredSiteSet(siteRows, snap.sites)
-	existingBuildings := rowSetFromDesiredBuildings(buildingRows, snap.buildings)
-	buildingsByName, ambiguousBuildings := desiredBuildingNameLookup(buildingRows, snap.buildings)
-	var errs []*pb.ImportValidationError
-	for i, row := range rows {
-		if row[fieldSite] != "" && !existingSites[row[fieldSite]] {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("unknown site %q", row[fieldSite])))
-		}
-		if row[fieldBuilding] != "" {
-			if row[fieldSite] == "" {
-				if row[fieldBuildingID] != "" {
-					continue
-				}
-				if ambiguousBuildings[row[fieldBuilding]] {
-					errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack building %q is ambiguous; add site or building_id", row[fieldBuilding])))
-					continue
-				}
-				if _, ok := buildingsByName[row[fieldBuilding]]; !ok {
-					errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("unknown building %q", row[fieldBuilding])))
-				}
-				continue
-			}
-			key := row[fieldSite] + "\x00" + row[fieldBuilding]
-			if !existingBuildings[key] {
-				errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("unknown building %q for site %q", row[fieldBuilding], row[fieldSite])))
-			}
-		}
-	}
-	return errs
-}
-
-func validatePlacementConsistency(minerRows, rackRows, buildingRows, siteRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
-	racks := desiredRackMap(rackRows, snap.racks, buildingRows, snap.buildings)
-	buildingsByName, ambiguousBuildings := desiredBuildingNameLookup(buildingRows, snap.buildings)
-	buildingsByKey := desiredBuildingMap(buildingRows, snap.buildings)
-	existingSites := desiredSiteSet(siteRows, snap.sites)
-	var errs []*pb.ImportValidationError
-	for i, row := range minerRows {
-		if row[fieldRack] != "" {
-			rack, ok := racks[row[fieldRack]]
-			if !ok {
-				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("unknown rack %q", row[fieldRack])))
-				continue
-			}
-			if row[fieldSite] != "" && row[fieldSite] != rack.Site {
-				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner site %q does not match rack site %q", row[fieldSite], rack.Site)))
-			}
-			if row[fieldBuilding] != "" && row[fieldBuilding] != rack.Building {
-				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner building %q does not match rack building %q", row[fieldBuilding], rack.Building)))
-			}
-			continue
-		}
-		if row[fieldBuilding] != "" {
-			if row[fieldBuildingID] != "" {
-				continue
-			}
-			if row[fieldSite] != "" {
-				building, ok := buildingsByKey[row[fieldSite]+"\x00"+row[fieldBuilding]]
-				if !ok {
-					errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("unknown building %q for site %q", row[fieldBuilding], row[fieldSite])))
-					continue
-				}
-				if row[fieldSite] != building.SiteLabel {
-					errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner site %q does not match building site %q", row[fieldSite], building.SiteLabel)))
-				}
-				continue
-			}
-			if ambiguousBuildings[row[fieldBuilding]] {
-				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner building %q is ambiguous; add site or building_id", row[fieldBuilding])))
-				continue
-			}
-			building, ok := buildingsByName[row[fieldBuilding]]
-			if !ok {
-				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("unknown building %q", row[fieldBuilding])))
-				continue
-			}
-			if row[fieldSite] != "" && row[fieldSite] != building.SiteLabel {
-				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner site %q does not match building site %q", row[fieldSite], building.SiteLabel)))
-			}
-			continue
-		}
-		if row[fieldSite] != "" && !existingSites[row[fieldSite]] {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("unknown site %q", row[fieldSite])))
-		}
-	}
-	return errs
 }
 
 func validateBuildingLayoutBounds(rows []map[string]string) []*pb.ImportValidationError {

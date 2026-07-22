@@ -185,6 +185,28 @@ func TestResolveMinersFlagsIdentityRenameAndReadOnly(t *testing.T) {
 	}
 }
 
+func TestTopologyViewIsOmissionAware(t *testing.T) {
+	// A building references site "Drop", which exists live but is omitted from the
+	// CSV. Under unspecified mode the reference is known; under remove-omitted the
+	// omitted site is dropped from the desired topology, so the reference is unknown.
+	sections := map[string][]map[string]string{
+		"SITE":     {{"__row": "3", "name": "Keep"}},
+		"BUILDING": {{"__row": "6", "name": "Bldg", "site": "Drop"}},
+	}
+	snap := &snapshot{sites: []sitemodels.Site{{Name: "Keep"}, {Name: "Drop"}}}
+
+	keep := resolvePlan(&parsedCSV{sections: sections}, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if errs := validateBuildingSiteTargets(keep.buildings, keep.topology); len(errs) != 0 {
+		t.Fatalf("unspecified mode = %+v, want no errors (Drop still live)", errs)
+	}
+
+	remove := resolvePlan(&parsedCSV{sections: sections}, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	errs := validateBuildingSiteTargets(remove.buildings, remove.topology)
+	if len(errs) != 1 || errs[0].GetRow() != 6 || errs[0].GetMessage() != `unknown site "Drop"` {
+		t.Fatalf("remove-omitted mode = %+v, want unknown site \"Drop\" on row 6", errs)
+	}
+}
+
 func TestScopePopulationIncludesHiddenRackMembers(t *testing.T) {
 	snap := &snapshot{
 		miners:            []minerSnapshot{{DeviceIdentifier: "m1"}},
