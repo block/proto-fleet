@@ -45,15 +45,6 @@ func serviceRunForTest(service *TelemetryService) *telemetryRun {
 	return service.run
 }
 
-func requireContextDeadlineWithin(t *testing.T, ctx context.Context, maximum time.Duration) {
-	t.Helper()
-	deadline, ok := ctx.Deadline()
-	require.True(t, ok, "flush context must have a deadline")
-	remaining := time.Until(deadline)
-	assert.Positive(t, remaining)
-	assert.LessOrEqual(t, remaining, maximum)
-}
-
 func TestNewTelemetryService(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -392,7 +383,7 @@ func TestTelemetryService_StopDrainsResultsProducedWhileWorkersExit(t *testing.T
 	}
 }
 
-func TestTelemetryService_StopAndRestartAfterBlockedStatusFlush(t *testing.T) {
+func TestTelemetryService_CallerDeadlineDoesNotCancelSharedStatusFlush(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
@@ -406,12 +397,7 @@ func TestTelemetryService_StopAndRestartAfterBlockedStatusFlush(t *testing.T) {
 	storeStarted := make(chan struct{})
 	storeCanceled := make(chan struct{})
 	releaseStore := make(chan struct{})
-	releasedStore := false
-	defer func() {
-		if !releasedStore {
-			close(releaseStore)
-		}
-	}()
+	defer close(releaseStore)
 
 	firstFlush := mockDeviceStore.EXPECT().
 		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), []models.DeviceIdentifier{deviceID}).
@@ -460,15 +446,18 @@ func TestTelemetryService_StopAndRestartAfterBlockedStatusFlush(t *testing.T) {
 	require.ErrorIs(t, <-flushDone, context.DeadlineExceeded)
 	select {
 	case <-storeCanceled:
-	case <-time.After(200 * time.Millisecond):
-		t.Errorf("blocked status store did not observe the caller deadline")
-		close(releaseStore)
-		releasedStore = true
+		t.Fatal("caller deadline canceled the shared status store operation")
+	case <-time.After(50 * time.Millisecond):
 	}
 
 	stopCtx, cancelStop := context.WithTimeout(t.Context(), time.Second)
 	defer cancelStop()
 	require.NoError(t, service.Stop(stopCtx))
+	select {
+	case <-storeCanceled:
+	default:
+		t.Fatal("service stop did not cancel the shared status store operation")
+	}
 	require.NoError(t, service.Start(t.Context()))
 	require.NoError(t, service.Stop(stopCtx))
 }
@@ -1746,7 +1735,7 @@ func TestStatusWriterRoutine_BatchFlushesOnInterval(t *testing.T) {
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 	deviceID := models.DeviceIdentifier("test-device-1")
-	flushContexts := make(chan context.Context, 1)
+	flushed := make(chan struct{}, 1)
 
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
@@ -1755,8 +1744,8 @@ func TestStatusWriterRoutine_BatchFlushesOnInterval(t *testing.T) {
 
 	mockDeviceStore.EXPECT().
 		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(ctx context.Context, _ []models.DeviceIdentifier) (map[models.DeviceIdentifier]mm.MinerStatus, error) {
-			flushContexts <- ctx
+		DoAndReturn(func(context.Context, []models.DeviceIdentifier) (map[models.DeviceIdentifier]mm.MinerStatus, error) {
+			flushed <- struct{}{}
 			return map[models.DeviceIdentifier]mm.MinerStatus{}, nil
 		}).
 		AnyTimes()
@@ -1790,10 +1779,9 @@ func TestStatusWriterRoutine_BatchFlushesOnInterval(t *testing.T) {
 		status:           mm.MinerStatusActive,
 	}
 
-	// Assert - wait for the interval flush and verify its store context is bounded.
+	// Assert - wait for the interval flush.
 	select {
-	case flushCtx := <-flushContexts:
-		requireContextDeadlineWithin(t, flushCtx, shutdownFlushTimeout)
+	case <-flushed:
 	case <-time.After(time.Second):
 		t.Fatal("status writer did not flush on interval")
 	}
@@ -2204,7 +2192,7 @@ func TestMetricsWriterRoutine_FlushesOnInterval(t *testing.T) {
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 	metric := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-1"}
-	flushContexts := make(chan context.Context, 1)
+	flushed := make(chan struct{}, 1)
 
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
@@ -2213,8 +2201,8 @@ func TestMetricsWriterRoutine_FlushesOnInterval(t *testing.T) {
 
 	mockDataStore.EXPECT().
 		StoreDeviceMetrics(gomock.Any(), metric).
-		DoAndReturn(func(ctx context.Context, _ ...modelsV2.DeviceMetrics) error {
-			flushContexts <- ctx
+		DoAndReturn(func(context.Context, ...modelsV2.DeviceMetrics) error {
+			flushed <- struct{}{}
 			return nil
 		}).
 		Times(1)
@@ -2235,10 +2223,9 @@ func TestMetricsWriterRoutine_FlushesOnInterval(t *testing.T) {
 	go service.metricsWriterRoutine(ctx, serviceRunForTest(service))
 	serviceRunForTest(service).results.metrics <- metricsResult{metrics: metric}
 
-	// Assert - wait for the interval flush and verify its store context is bounded.
+	// Assert - wait for the interval flush.
 	select {
-	case flushCtx := <-flushContexts:
-		requireContextDeadlineWithin(t, flushCtx, shutdownFlushTimeout)
+	case <-flushed:
 	case <-time.After(time.Second):
 		t.Fatal("metrics writer did not flush on interval")
 	}
