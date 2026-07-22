@@ -106,7 +106,8 @@ type Reconciler struct {
 	fanAlert FacilityFanAlertEmitter
 	now      func() time.Time
 
-	runCancel   context.CancelFunc
+	loopCancel  context.CancelFunc
+	workCancel  context.CancelFunc
 	runCanceled <-chan struct{}
 	runDone     <-chan struct{}
 
@@ -191,14 +192,16 @@ func (r *Reconciler) Start(ctx context.Context) error {
 		}
 		return nil
 	}
-	runCtx, runCancel := context.WithCancel(ctx)
+	workCtx, workCancel := context.WithCancel(ctx)
+	loopCtx, loopCancel := context.WithCancel(workCtx)
 	runDone := make(chan struct{})
-	r.runCancel = runCancel
-	r.runCanceled = runCtx.Done()
+	r.loopCancel = loopCancel
+	r.workCancel = workCancel
+	r.runCanceled = loopCtx.Done()
 	r.runDone = runDone
 	r.mu.Unlock()
 
-	go r.tickLoop(runCtx, runDone)
+	go r.tickLoop(loopCtx, workCtx, runDone)
 	slog.Info("curtailment reconciler started", "tick_interval", r.cfg.TickInterval)
 	return nil
 }
@@ -215,33 +218,40 @@ func (r *Reconciler) Stop(ctx context.Context) error {
 		r.mu.Unlock()
 		return nil
 	}
-	runCancel := r.runCancel
+	loopCancel := r.loopCancel
+	workCancel := r.workCancel
 	runDone := r.runDone
 	r.mu.Unlock()
 
-	if runCancel != nil {
-		runCancel()
+	if loopCancel != nil {
+		loopCancel()
 	}
 	select {
 	case <-runDone:
+		if workCancel != nil {
+			workCancel()
+		}
 		slog.Info("curtailment reconciler stopped")
 		return nil
 	case <-ctx.Done():
+		if workCancel != nil {
+			workCancel()
+		}
 		return fmt.Errorf("curtailment reconciler: stop: %w", ctx.Err())
 	}
 }
 
-func (r *Reconciler) tickLoop(ctx context.Context, runDone chan<- struct{}) {
+func (r *Reconciler) tickLoop(loopCtx, workCtx context.Context, runDone chan<- struct{}) {
 	defer close(runDone)
 	defer r.finishActivation()
 	ticker := time.NewTicker(r.cfg.TickInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-ctx.Done():
+		case <-loopCtx.Done():
 			return
 		case <-ticker.C:
-			r.safeTick(ctx)
+			r.safeTick(workCtx)
 		}
 	}
 }
@@ -249,7 +259,8 @@ func (r *Reconciler) tickLoop(ctx context.Context, runDone chan<- struct{}) {
 func (r *Reconciler) finishActivation() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.runCancel = nil
+	r.loopCancel = nil
+	r.workCancel = nil
 	r.runCanceled = nil
 	r.runDone = nil
 }

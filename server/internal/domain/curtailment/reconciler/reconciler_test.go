@@ -4322,6 +4322,75 @@ func TestReconciler_ActivationContextCancellationPreventsOverlapWhileDraining(t 
 	require.NoError(t, r.Stop(context.Background()))
 }
 
+func TestReconciler_StopLetsInFlightWorkDrain(t *testing.T) {
+	r := New(Config{TickInterval: time.Hour}, newFakeStore(), &fakeDispatcher{})
+	loopCtx, loopCancel := context.WithCancel(context.Background())
+	workCtx, workCancel := context.WithCancel(context.Background())
+	runDone := make(chan struct{})
+	r.loopCancel = loopCancel
+	r.workCancel = workCancel
+	r.runCanceled = loopCtx.Done()
+	r.runDone = runDone
+
+	loopStopped := make(chan struct{})
+	releaseWork := make(chan struct{})
+	go func() {
+		<-loopCtx.Done()
+		close(loopStopped)
+		select {
+		case <-workCtx.Done():
+			t.Error("Stop canceled in-flight work before its drain budget expired")
+		case <-releaseWork:
+		}
+		r.finishActivation()
+		close(runDone)
+	}()
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- r.Stop(context.Background()) }()
+	<-loopStopped
+	select {
+	case <-workCtx.Done():
+		t.Fatal("in-flight work was canceled during graceful drain")
+	default:
+	}
+	close(releaseWork)
+	require.NoError(t, <-stopDone)
+}
+
+func TestReconciler_StopDeadlineCancelsInFlightWork(t *testing.T) {
+	r := New(Config{TickInterval: time.Hour}, newFakeStore(), &fakeDispatcher{})
+	loopCtx, loopCancel := context.WithCancel(context.Background())
+	workCtx, workCancel := context.WithCancel(context.Background())
+	runDone := make(chan struct{})
+	r.loopCancel = loopCancel
+	r.workCancel = workCancel
+	r.runCanceled = loopCtx.Done()
+	r.runDone = runDone
+
+	workCanceled := make(chan struct{})
+	releaseWork := make(chan struct{})
+	go func() {
+		<-loopCtx.Done()
+		<-workCtx.Done()
+		close(workCanceled)
+		<-releaseWork
+		r.finishActivation()
+		close(runDone)
+	}()
+
+	stopCtx, cancelStop := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancelStop()
+	require.ErrorIs(t, r.Stop(stopCtx), context.DeadlineExceeded)
+	select {
+	case <-workCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("Stop deadline did not cancel in-flight work")
+	}
+	close(releaseWork)
+	require.NoError(t, r.Stop(context.Background()))
+}
+
 func TestReconciler_StopCancellationPreventsOverlappingRestart(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -4329,7 +4398,8 @@ func TestReconciler_StopCancellationPreventsOverlappingRestart(t *testing.T) {
 
 	runCtx, runCancel := context.WithCancel(context.Background())
 	runDone := make(chan struct{})
-	r.runCancel = runCancel
+	r.loopCancel = runCancel
+	r.workCancel = runCancel
 	r.runCanceled = runCtx.Done()
 	r.runDone = runDone
 
