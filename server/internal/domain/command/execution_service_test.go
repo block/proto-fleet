@@ -73,7 +73,7 @@ func TestExecutionService_Start(t *testing.T) {
 		require.NoError(t, svc.Stop(context.Background()))
 	})
 
-	t.Run("stops promptly while idle and can restart", func(t *testing.T) {
+	t.Run("activation cancellation stops promptly and allows restart", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mockQueue := mocks.NewMockMessageQueue(ctrl)
 		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
@@ -89,16 +89,22 @@ func TestExecutionService_Start(t *testing.T) {
 			MasterPollingInterval: time.Hour,
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
-		require.NoError(t, svc.Start(t.Context()))
+		activationCtx, cancelActivation := context.WithCancel(t.Context())
+		require.NoError(t, svc.Start(activationCtx))
 		require.Eventually(t, func() bool { return dequeues.Load() >= 1 }, 100*time.Millisecond, time.Millisecond)
+		cancelActivation()
+		require.Eventually(t, func() bool {
+			svc.lifecycleMu.Lock()
+			defer svc.lifecycleMu.Unlock()
+			return svc.runCancel == nil
+		}, 100*time.Millisecond, time.Millisecond)
+		require.False(t, svc.IsRunning())
+
 		stop := func() {
 			stopCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 			require.NoError(t, svc.Stop(stopCtx))
 		}
-		stop()
-		require.False(t, svc.IsRunning())
-
 		require.NoError(t, svc.Start(t.Context()))
 		require.Eventually(t, func() bool { return dequeues.Load() >= 2 }, 100*time.Millisecond, time.Millisecond)
 		stop()

@@ -117,7 +117,8 @@ func (es *ExecutionService) WithMetricsEmitter(emitter MetricsEmitter) *Executio
 	return es
 }
 
-// Start starts the queue processor thread if it is not already running.
+// Start runs command execution for the lifetime of ctx if it is not already
+// active.
 func (es *ExecutionService) Start(ctx context.Context) error {
 	es.lifecycleMu.Lock()
 	if es.stopping {
