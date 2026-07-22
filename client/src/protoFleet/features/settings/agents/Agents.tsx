@@ -3,7 +3,7 @@ import SettingsPageHeader from "@/protoFleet/features/settings/components/Settin
 
 const Agents = () => (
   <div className="flex flex-col gap-8">
-    <SettingsPageHeader title="Agents" description="Configure the agent harness and model provider used by Proto AI." />
+    <SettingsPageHeader title="Agents" description="Configure the agent harness and model provider used by Minerbot." />
     <LLMProviderSettings />
   </div>
 );

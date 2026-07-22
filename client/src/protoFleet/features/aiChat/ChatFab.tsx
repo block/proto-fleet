@@ -14,7 +14,7 @@ const ChatFab = () => {
           type="button"
           aria-controls="ai-chat-panel"
           aria-expanded={false}
-          aria-label="Open AI chat"
+          aria-label="Open Minerbot"
           className="fixed right-6 bottom-6 z-[45] flex size-14 items-center justify-center rounded-full bg-core-primary-fill text-text-contrast shadow-300 outline-none hover:opacity-80 focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base phone:right-4 phone:bottom-4"
           data-testid="ai-chat-fab"
           initial={{ opacity: 0, scale: 0.8 }}

@@ -59,11 +59,11 @@ describe("LLMProviderSettings", () => {
     expect(screen.queryByRole("button", { name: /fetch models/i })).not.toBeInTheDocument();
     const modelSelect = screen.getByRole("button", { name: "Model" });
     expect(modelSelect).toHaveTextContent("Select a model");
-    expect(screen.getByRole("button", { name: "Save AI settings" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save Minerbot settings" })).toBeDisabled();
 
     fireEvent.click(modelSelect);
     fireEvent.click(screen.getByText("GPT Test (gpt-test)"));
-    expect(screen.getByRole("button", { name: "Save AI settings" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save Minerbot settings" })).toBeEnabled();
   });
 
   test("loads the saved provider models on page load", async () => {
@@ -155,7 +155,7 @@ describe("LLMProviderSettings", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Model" })).toHaveTextContent("GPT Saved"));
     fireEvent.click(removeButton);
 
-    const saveButton = screen.getByRole("button", { name: "Save AI settings" });
+    const saveButton = screen.getByRole("button", { name: "Save Minerbot settings" });
     expect(saveButton).toBeEnabled();
     fireEvent.click(saveButton);
 

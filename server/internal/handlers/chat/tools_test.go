@@ -9,11 +9,33 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	devicesetv1 "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
+	fleetv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	poolsv1 "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	sitesv1 "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
 	chatdomain "github.com/block/proto-fleet/server/internal/domain/chat"
 )
+
+type staticFleetHandler struct {
+	miners       []*fleetv1.MinerStateSnapshot
+	totalMiners  int32
+	cursor       string
+	listRequests []*fleetv1.ListMinerStateSnapshotsRequest
+}
+
+func (h *staticFleetHandler) GetMinerStateCounts(context.Context, *connect.Request[fleetv1.GetMinerStateCountsRequest]) (*connect.Response[fleetv1.GetMinerStateCountsResponse], error) {
+	return connect.NewResponse(&fleetv1.GetMinerStateCountsResponse{}), nil
+}
+
+func (h *staticFleetHandler) ListMinerStateSnapshots(_ context.Context, request *connect.Request[fleetv1.ListMinerStateSnapshotsRequest]) (*connect.Response[fleetv1.ListMinerStateSnapshotsResponse], error) {
+	h.listRequests = append(h.listRequests, request.Msg)
+	return connect.NewResponse(&fleetv1.ListMinerStateSnapshotsResponse{
+		Miners:      h.miners,
+		TotalMiners: h.totalMiners,
+		Cursor:      h.cursor,
+	}), nil
+}
 
 type staticPoolsHandler struct {
 	pools []*poolsv1.Pool
@@ -82,7 +104,111 @@ func TestWriteToolDefinitionsRequireConfirmation(t *testing.T) {
 	assert.True(t, requiresConfirmation["create_site"])
 	assert.True(t, requiresConfirmation["create_rack"])
 	assert.True(t, requiresConfirmation["move_miners_to_rack"])
+	assert.False(t, requiresConfirmation["resolve_miners"])
 	assert.False(t, requiresConfirmation["list_sites"])
+}
+
+func TestResolveMinersReturnsExplicitIdentifiersAndPlacement(t *testing.T) {
+	fleet := &staticFleetHandler{
+		totalMiners: 2,
+		miners: []*fleetv1.MinerStateSnapshot{
+			{
+				DeviceIdentifier: "miner-a",
+				Name:             "Alpha 01",
+				MacAddress:       "aa:bb:cc:dd:ee:ff",
+				SerialNumber:     "SN-ALPHA",
+				IpAddress:        "10.0.0.10",
+				DeviceStatus:     fleetv1.DeviceStatus_DEVICE_STATUS_OFFLINE,
+				Model:            "S21",
+				Placement: &commonv1.PlacementRefs{
+					Site:     &commonv1.ResourceRef{Id: 9, Label: "North"},
+					Building: &commonv1.ResourceRef{Id: 3, Label: "Building A"},
+					Rack:     &commonv1.ResourceRef{Id: 21, Label: "A1"},
+					Zone:     "Hot aisle",
+				},
+			},
+			{
+				DeviceIdentifier: "miner-b",
+				Name:             "Beta 01",
+				DeviceStatus:     fleetv1.DeviceStatus_DEVICE_STATUS_ONLINE,
+			},
+		},
+	}
+	tools := NewFleetTools(fleet, nil, nil, nil)
+
+	output, err := tools.Execute(t.Context(), "resolve_miners", json.RawMessage(`{
+		"query":"alpha",
+		"device_statuses":["offline"],
+		"site_ids":[9],
+		"include_no_rack":true,
+		"limit":1
+	}`))
+
+	require.NoError(t, err)
+	require.Len(t, fleet.listRequests, 1)
+	request := fleet.listRequests[0]
+	assert.Equal(t, int32(1000), request.GetPageSize(), "query resolution scans a full page")
+	assert.Equal(t, []fleetv1.DeviceStatus{fleetv1.DeviceStatus_DEVICE_STATUS_OFFLINE}, request.GetFilter().GetDeviceStatus())
+	assert.Equal(t, []int64{9}, request.GetFilter().GetSiteIds())
+	assert.True(t, request.GetFilter().GetIncludeNoRack())
+	assert.JSONEq(t, `{
+		"device_identifiers":["miner-a"],
+		"miners":[{
+			"device_identifier":"miner-a",
+			"name":"Alpha 01",
+			"status":"offline",
+			"model":"S21",
+			"ip_address":"10.0.0.10",
+			"site":{"id":9,"label":"North"},
+			"building":{"id":3,"label":"Building A"},
+			"rack":{"id":21,"label":"A1"},
+			"zone":"Hot aisle"
+		}],
+		"returned":1,
+		"matched_scanned":1,
+		"total_available":2,
+		"truncated":false,
+		"query":"alpha"
+	}`, output.Content)
+	assert.NotContains(t, output.Content, "aa:bb:cc")
+	assert.NotContains(t, output.Content, "SN-ALPHA")
+	assert.Equal(t, "Resolved 1 miner(s)", output.Summary)
+}
+
+func TestResolveMinersReportsTruncatedMatches(t *testing.T) {
+	fleet := &staticFleetHandler{
+		totalMiners: 2,
+		miners: []*fleetv1.MinerStateSnapshot{
+			{DeviceIdentifier: "miner-a", DeviceStatus: fleetv1.DeviceStatus_DEVICE_STATUS_OFFLINE},
+			{DeviceIdentifier: "miner-b", DeviceStatus: fleetv1.DeviceStatus_DEVICE_STATUS_OFFLINE},
+		},
+		cursor: "next-page",
+	}
+	tools := NewFleetTools(fleet, nil, nil, nil)
+
+	output, err := tools.Execute(t.Context(), "resolve_miners", json.RawMessage(`{"device_statuses":["broken"],"limit":1}`))
+
+	require.NoError(t, err)
+	assert.Contains(t, output.Summary, "more matches may exist")
+	assert.JSONEq(t, `{
+		"device_identifiers":["miner-a"],
+		"miners":[{"device_identifier":"miner-a","status":"offline"}],
+		"returned":1,
+		"matched_scanned":2,
+		"total_available":2,
+		"truncated":true
+	}`, output.Content)
+	require.Len(t, fleet.listRequests, 1)
+	assert.Equal(t, []fleetv1.DeviceStatus{fleetv1.DeviceStatus_DEVICE_STATUS_ERROR}, fleet.listRequests[0].GetFilter().GetDeviceStatus())
+}
+
+func TestResolveMinersRejectsInvalidStatus(t *testing.T) {
+	tools := NewFleetTools(&staticFleetHandler{}, nil, nil, nil)
+
+	_, err := tools.Execute(t.Context(), "resolve_miners", json.RawMessage(`{"device_statuses":["reticulating"]}`))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unsupported device_status "reticulating"`)
 }
 
 func TestCreateSiteConfirmationMatchesExecutedRequest(t *testing.T) {

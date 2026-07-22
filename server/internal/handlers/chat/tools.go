@@ -19,8 +19,15 @@ import (
 	chatdomain "github.com/block/proto-fleet/server/internal/domain/chat"
 )
 
-type fleetCountsHandler interface {
+const (
+	defaultResolveMinersLimit = 100
+	maxResolveMinersLimit     = 1000
+	maxResolveMinersScan      = 5000
+)
+
+type fleetHandler interface {
 	GetMinerStateCounts(ctx context.Context, req *connect.Request[fleetv1.GetMinerStateCountsRequest]) (*connect.Response[fleetv1.GetMinerStateCountsResponse], error)
+	ListMinerStateSnapshots(ctx context.Context, req *connect.Request[fleetv1.ListMinerStateSnapshotsRequest]) (*connect.Response[fleetv1.ListMinerStateSnapshotsResponse], error)
 }
 
 type sitesHandler interface {
@@ -39,13 +46,13 @@ type deviceSetsHandler interface {
 }
 
 type FleetTools struct {
-	fleet      fleetCountsHandler
+	fleet      fleetHandler
 	sites      sitesHandler
 	pools      poolsHandler
 	deviceSets deviceSetsHandler
 }
 
-func NewFleetTools(fleet fleetCountsHandler, sites sitesHandler, pools poolsHandler, deviceSets deviceSetsHandler) *FleetTools {
+func NewFleetTools(fleet fleetHandler, sites sitesHandler, pools poolsHandler, deviceSets deviceSetsHandler) *FleetTools {
 	return &FleetTools{fleet: fleet, sites: sites, pools: pools, deviceSets: deviceSets}
 }
 
@@ -69,6 +76,42 @@ func (t *FleetTools) Definitions() []chatdomain.ToolDefinition {
 			Name:        "list_sites",
 			Description: "List sites in the organization with device, building, rack, and infrastructure counts.",
 			InputSchema: emptyObjectSchema(),
+		},
+		{
+			Name:        "resolve_miners",
+			Description: "Resolve miner descriptions into explicit device identifiers for follow-up write tools. Use this before move_miners_to_rack unless the operator supplied exact device identifiers.",
+			InputSchema: map[string]any{
+				"type":                 "object",
+				"additionalProperties": false,
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"maxLength":   255,
+						"description": "Case-insensitive text matched against returned miner identifiers, names, MACs, serials, IPs, and models after server filters.",
+					},
+					"device_statuses": map[string]any{
+						"type": "array",
+						"items": map[string]any{
+							"type": "string",
+							"enum": []string{
+								"online", "offline", "maintenance", "error", "inactive",
+								"needs_mining_pool", "updating", "reboot_required",
+								"hashing", "broken", "sleeping",
+							},
+						},
+						"uniqueItems": true,
+					},
+					"site_ids":            map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}},
+					"include_unassigned":  map[string]any{"type": "boolean"},
+					"building_ids":        map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}},
+					"include_no_building": map[string]any{"type": "boolean"},
+					"rack_ids":            map[string]any{"type": "array", "items": map[string]any{"type": "integer", "minimum": 1}},
+					"include_no_rack":     map[string]any{"type": "boolean"},
+					"models":              map[string]any{"type": "array", "items": map[string]any{"type": "string", "minLength": 1, "maxLength": 255}},
+					"ip_cidrs":            map[string]any{"type": "array", "items": map[string]any{"type": "string", "minLength": 1, "maxLength": 64}},
+					"limit":               map[string]any{"type": "integer", "minimum": 1, "maximum": maxResolveMinersLimit, "description": "Maximum miners to return. Use 1000 when resolving all matching miners for a write."},
+				},
+			},
 		},
 		{
 			Name:        "list_pools",
@@ -158,6 +201,20 @@ type createSiteInput struct {
 	Notes           string  `json:"notes"`
 }
 
+type resolveMinersInput struct {
+	Query             string   `json:"query"`
+	DeviceStatuses    []string `json:"device_statuses"`
+	SiteIDs           []int64  `json:"site_ids"`
+	IncludeUnassigned bool     `json:"include_unassigned"`
+	BuildingIDs       []int64  `json:"building_ids"`
+	IncludeNoBuilding bool     `json:"include_no_building"`
+	RackIDs           []int64  `json:"rack_ids"`
+	IncludeNoRack     bool     `json:"include_no_rack"`
+	Models            []string `json:"models"`
+	IPCIDRs           []string `json:"ip_cidrs"`
+	Limit             int32    `json:"limit"`
+}
+
 type createRackInput struct {
 	Label       string `json:"label"`
 	Rows        int32  `json:"rows"`
@@ -213,6 +270,89 @@ func buildCreateSiteRequest(arguments json.RawMessage) (createSiteInput, *sitesv
 		return input, nil, fmt.Errorf("invalid create_site arguments: %w", err)
 	}
 	return input, request, nil
+}
+
+func buildResolveMinersFilter(arguments json.RawMessage) (resolveMinersInput, *fleetv1.MinerListFilter, error) {
+	var input resolveMinersInput
+	if len(arguments) != 0 {
+		if err := decodeToolArguments(arguments, &input); err != nil {
+			return input, nil, fmt.Errorf("invalid resolve_miners arguments: %w", err)
+		}
+	}
+	input.Query = strings.TrimSpace(input.Query)
+	if len(input.Query) > 255 {
+		return input, nil, fmt.Errorf("invalid resolve_miners arguments: query must be 255 characters or fewer")
+	}
+	if input.Limit == 0 {
+		input.Limit = defaultResolveMinersLimit
+	}
+	if input.Limit < 1 || input.Limit > maxResolveMinersLimit {
+		return input, nil, fmt.Errorf("invalid resolve_miners arguments: limit must be between 1 and %d", maxResolveMinersLimit)
+	}
+	if err := validatePositiveIDs("site_ids", input.SiteIDs); err != nil {
+		return input, nil, err
+	}
+	if err := validatePositiveIDs("building_ids", input.BuildingIDs); err != nil {
+		return input, nil, err
+	}
+	if err := validatePositiveIDs("rack_ids", input.RackIDs); err != nil {
+		return input, nil, err
+	}
+	statuses := make([]fleetv1.DeviceStatus, 0, len(input.DeviceStatuses))
+	for _, status := range input.DeviceStatuses {
+		parsed, err := parseResolveMinerStatus(status)
+		if err != nil {
+			return input, nil, err
+		}
+		statuses = append(statuses, parsed)
+	}
+	filter := &fleetv1.MinerListFilter{
+		DeviceStatus:      statuses,
+		SiteIds:           input.SiteIDs,
+		IncludeUnassigned: input.IncludeUnassigned,
+		BuildingIds:       input.BuildingIDs,
+		IncludeNoBuilding: input.IncludeNoBuilding,
+		RackIds:           input.RackIDs,
+		IncludeNoRack:     input.IncludeNoRack,
+		Models:            input.Models,
+		IpCidrs:           input.IPCIDRs,
+	}
+	return input, filter, nil
+}
+
+func validatePositiveIDs(field string, ids []int64) error {
+	for _, id := range ids {
+		if id <= 0 {
+			return fmt.Errorf("invalid resolve_miners arguments: %s must contain only positive IDs", field)
+		}
+	}
+	return nil
+}
+
+func parseResolveMinerStatus(status string) (fleetv1.DeviceStatus, error) {
+	normalized := strings.ToLower(strings.TrimSpace(status))
+	normalized = strings.ReplaceAll(normalized, "-", "_")
+	normalized = strings.ReplaceAll(normalized, " ", "_")
+	switch normalized {
+	case "online", "hashing":
+		return fleetv1.DeviceStatus_DEVICE_STATUS_ONLINE, nil
+	case "offline":
+		return fleetv1.DeviceStatus_DEVICE_STATUS_OFFLINE, nil
+	case "maintenance":
+		return fleetv1.DeviceStatus_DEVICE_STATUS_MAINTENANCE, nil
+	case "error", "broken":
+		return fleetv1.DeviceStatus_DEVICE_STATUS_ERROR, nil
+	case "inactive", "sleeping":
+		return fleetv1.DeviceStatus_DEVICE_STATUS_INACTIVE, nil
+	case "needs_mining_pool", "needs_pool", "pool_needed":
+		return fleetv1.DeviceStatus_DEVICE_STATUS_NEEDS_MINING_POOL, nil
+	case "updating":
+		return fleetv1.DeviceStatus_DEVICE_STATUS_UPDATING, nil
+	case "reboot_required":
+		return fleetv1.DeviceStatus_DEVICE_STATUS_REBOOT_REQUIRED, nil
+	default:
+		return fleetv1.DeviceStatus_DEVICE_STATUS_UNSPECIFIED, fmt.Errorf("invalid resolve_miners arguments: unsupported device_status %q", status)
+	}
 }
 
 func buildCreateRackRequest(arguments json.RawMessage) (createRackInput, *devicesetv1.CreateDeviceSetRequest, error) {
@@ -399,6 +539,8 @@ func (t *FleetTools) Execute(ctx context.Context, name string, arguments json.Ra
 	switch name {
 	case "get_miner_state_counts":
 		return t.getMinerStateCounts(ctx, arguments)
+	case "resolve_miners":
+		return t.resolveMiners(ctx, arguments)
 	case "list_sites":
 		return t.listSites(ctx)
 	case "list_pools":
@@ -451,6 +593,155 @@ func (t *FleetTools) getMinerStateCounts(ctx context.Context, arguments json.Raw
 		Content: string(content),
 		Summary: fmt.Sprintf("Read state for %d miners", response.Msg.GetTotalMiners()),
 	}, nil
+}
+
+type resourceRefView struct {
+	ID    int64  `json:"id"`
+	Label string `json:"label"`
+}
+
+type resolvedMinerView struct {
+	DeviceIdentifier string           `json:"device_identifier"`
+	Name             string           `json:"name,omitempty"`
+	Status           string           `json:"status"`
+	Model            string           `json:"model,omitempty"`
+	IPAddress        string           `json:"ip_address,omitempty"`
+	Site             *resourceRefView `json:"site,omitempty"`
+	Building         *resourceRefView `json:"building,omitempty"`
+	Rack             *resourceRefView `json:"rack,omitempty"`
+	Zone             string           `json:"zone,omitempty"`
+}
+
+func (t *FleetTools) resolveMiners(ctx context.Context, arguments json.RawMessage) (chatdomain.ToolOutput, error) {
+	input, filter, err := buildResolveMinersFilter(arguments)
+	if err != nil {
+		return chatdomain.ToolOutput{}, err
+	}
+
+	pageSize := input.Limit
+	if input.Query != "" {
+		pageSize = maxResolveMinersLimit
+	}
+	cursor := ""
+	scanned := 0
+	matchedScanned := 0
+	totalAvailable := int32(0)
+	totalAvailableSet := false
+	truncated := false
+	miners := make([]resolvedMinerView, 0, min(int(input.Limit), defaultResolveMinersLimit))
+
+	for {
+		response, err := t.fleet.ListMinerStateSnapshots(ctx, connect.NewRequest(&fleetv1.ListMinerStateSnapshotsRequest{
+			PageSize: pageSize,
+			Cursor:   cursor,
+			Filter:   filter,
+		}))
+		if err != nil {
+			return chatdomain.ToolOutput{}, err
+		}
+		if !totalAvailableSet {
+			totalAvailable = response.Msg.GetTotalMiners()
+			totalAvailableSet = true
+		}
+
+		for _, miner := range response.Msg.GetMiners() {
+			scanned++
+			if !matchesResolveMinerQuery(miner, input.Query) {
+				continue
+			}
+			matchedScanned++
+			if len(miners) >= int(input.Limit) {
+				truncated = true
+				continue
+			}
+			miners = append(miners, resolvedMinerViewFromSnapshot(miner))
+		}
+
+		nextCursor := response.Msg.GetCursor()
+		if nextCursor == "" {
+			break
+		}
+		if input.Query == "" || len(miners) >= int(input.Limit) || scanned >= maxResolveMinersScan {
+			truncated = true
+			break
+		}
+		cursor = nextCursor
+	}
+
+	deviceIdentifiers := make([]string, 0, len(miners))
+	for _, miner := range miners {
+		deviceIdentifiers = append(deviceIdentifiers, miner.DeviceIdentifier)
+	}
+	payload := map[string]any{
+		"device_identifiers": deviceIdentifiers,
+		"miners":             miners,
+		"returned":           len(miners),
+		"matched_scanned":    matchedScanned,
+		"total_available":    totalAvailable,
+		"truncated":          truncated,
+	}
+	if input.Query != "" {
+		payload["query"] = input.Query
+	}
+	content, err := json.Marshal(payload)
+	if err != nil {
+		return chatdomain.ToolOutput{}, fmt.Errorf("marshal resolved miners: %w", err)
+	}
+	summary := fmt.Sprintf("Resolved %d miner(s)", len(miners))
+	if truncated {
+		summary += "; more matches may exist"
+	}
+	return chatdomain.ToolOutput{Content: string(content), Summary: summary}, nil
+}
+
+func matchesResolveMinerQuery(miner *fleetv1.MinerStateSnapshot, query string) bool {
+	if query == "" {
+		return true
+	}
+	needle := strings.ToLower(query)
+	fields := []string{
+		miner.GetDeviceIdentifier(),
+		miner.GetName(),
+		miner.GetMacAddress(),
+		miner.GetSerialNumber(),
+		miner.GetIpAddress(),
+		miner.GetModel(),
+	}
+	for _, field := range fields {
+		if strings.Contains(strings.ToLower(field), needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func resolvedMinerViewFromSnapshot(miner *fleetv1.MinerStateSnapshot) resolvedMinerView {
+	view := resolvedMinerView{
+		DeviceIdentifier: miner.GetDeviceIdentifier(),
+		Name:             miner.GetName(),
+		Status:           deviceStatusLabel(miner.GetDeviceStatus()),
+		Model:            miner.GetModel(),
+		IPAddress:        miner.GetIpAddress(),
+	}
+	if placement := miner.GetPlacement(); placement != nil {
+		view.Site = resourceRefViewFromProto(placement.GetSite())
+		view.Building = resourceRefViewFromProto(placement.GetBuilding())
+		view.Rack = resourceRefViewFromProto(placement.GetRack())
+		view.Zone = placement.GetZone()
+	}
+	return view
+}
+
+func resourceRefViewFromProto(ref *commonv1.ResourceRef) *resourceRefView {
+	if ref == nil {
+		return nil
+	}
+	return &resourceRefView{ID: ref.GetId(), Label: ref.GetLabel()}
+}
+
+func deviceStatusLabel(status fleetv1.DeviceStatus) string {
+	label := strings.TrimPrefix(status.String(), "DEVICE_STATUS_")
+	return strings.ToLower(label)
 }
 
 func (t *FleetTools) listSites(ctx context.Context) (chatdomain.ToolOutput, error) {

@@ -91,6 +91,7 @@ func TestAgentRunsToolThenStreamsFinalAnswer(t *testing.T) {
 	require.NotEmpty(t, model.messages[0])
 	assert.Contains(t, model.messages[0][0].Content, "Use a Markdown table for status breakdowns")
 	assert.Contains(t, model.messages[0][0].Content, "without repeating every value")
+	assert.Contains(t, model.messages[0][0].Content, "first resolve the target miners with resolve_miners")
 	assert.Equal(t, EventToolCall, events[0].Kind)
 	assert.Equal(t, EventToolResult, events[1].Kind)
 	assert.Equal(t, EventTextDelta, events[2].Kind)

@@ -257,7 +257,7 @@ describe("AppLayout", () => {
     expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12)]");
   });
 
-  it("shows AI chat when the operator can read the fleet", () => {
+  it("shows Minerbot chat when the operator can read the fleet", () => {
     render(
       <MemoryRouter>
         <AppLayout>
@@ -270,7 +270,7 @@ describe("AppLayout", () => {
     expect(screen.getByTestId("ai-chat-panel")).toBeInTheDocument();
   });
 
-  it("hides AI chat when the operator cannot read the fleet", () => {
+  it("hides Minerbot chat when the operator cannot read the fleet", () => {
     vi.mocked(useHasPermission).mockImplementation((permission) => permission !== "fleet:read");
 
     render(

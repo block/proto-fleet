@@ -117,7 +117,7 @@ const LLMProviderSettings = () => {
       setForm(nextForm);
       setModels(nextForm.model ? [{ id: nextForm.model, displayName: nextForm.model }] : []);
     } catch (error) {
-      setLoadError(getErrorMessage(error, "Failed to load AI settings."));
+      setLoadError(getErrorMessage(error, "Could not load Minerbot settings."));
     } finally {
       setIsLoading(false);
     }
@@ -257,10 +257,10 @@ const LLMProviderSettings = () => {
         clearGooseSecret: form.clearGooseSecret,
       });
       setForm(formFromConfig(response.config));
-      pushToast({ message: "AI settings saved", status: STATUSES.success });
+      pushToast({ message: "Minerbot settings saved", status: STATUSES.success });
     } catch (error) {
       pushToast({
-        message: getErrorMessage(error, "Failed to save AI settings."),
+        message: getErrorMessage(error, "Could not save Minerbot settings."),
         status: STATUSES.error,
       });
     } finally {
@@ -269,14 +269,14 @@ const LLMProviderSettings = () => {
   }, [canSave, form]);
 
   if (isLoading) {
-    return <div className="text-300 text-text-primary-50">Loading AI settings...</div>;
+    return <div className="text-300 text-text-primary-50">Loading Minerbot settings...</div>;
   }
 
   return (
     <section className="flex flex-col gap-5 rounded-xl border border-border-5 p-6" aria-labelledby="ai-settings-title">
       <div>
         <h2 id="ai-settings-title" className="text-heading-200 text-text-primary">
-          Proto AI
+          Minerbot
         </h2>
         <p className="mt-1 text-300 text-text-primary-50">
           Choose the agent harness and bring your own model provider. Secrets are encrypted by the Fleet server and are
@@ -416,7 +416,7 @@ const LLMProviderSettings = () => {
         <Button
           variant={variants.primary}
           size={sizes.compact}
-          text="Save AI settings"
+          text="Save Minerbot settings"
           disabled={!canSave}
           loading={isSaving}
           onClick={() => void handleSave()}

@@ -53,10 +53,11 @@ var ProcedurePermissions = map[string]string{
 	// AI provider settings share the existing integrations-management gate;
 	// conversations require fleet read and each invoked tool applies its own
 	// narrower handler permission before returning data.
-	chatv1connect.ChatServiceGetLLMConfigProcedure:    authz.PermAPIKeyManage,
-	chatv1connect.ChatServiceDiscoverModelsProcedure:  authz.PermAPIKeyManage,
-	chatv1connect.ChatServiceUpdateLLMConfigProcedure: authz.PermAPIKeyManage,
-	chatv1connect.ChatServiceSendMessageProcedure:     authz.PermFleetRead,
+	chatv1connect.ChatServiceGetLLMConfigProcedure:            authz.PermAPIKeyManage,
+	chatv1connect.ChatServiceDiscoverModelsProcedure:          authz.PermAPIKeyManage,
+	chatv1connect.ChatServiceUpdateLLMConfigProcedure:         authz.PermAPIKeyManage,
+	chatv1connect.ChatServiceSendMessageProcedure:             authz.PermFleetRead,
+	chatv1connect.ChatServiceResolveToolConfirmationProcedure: authz.PermFleetRead,
 
 	// Activity log — read-only audit trail. Export is the CSV variant of
 	// the same query; filter options is the lookup endpoint that drives

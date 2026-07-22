@@ -149,7 +149,7 @@ describe("ChatPanel", () => {
               confirmationId: "confirmation-1",
               toolCallId: "call-1",
               title: "Create this site?",
-              description: "Proto AI will add a new site to your fleet.",
+              description: "Minerbot will add a new site to your fleet.",
               confirmLabel: "Create site",
               details: [{ label: "Name", value: "North" }],
             },
@@ -172,7 +172,7 @@ describe("ChatPanel", () => {
       </MemoryRouter>,
     );
 
-    fireEvent.change(screen.getByRole("textbox", { name: "Message Proto AI" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Message Minerbot" }), {
       target: { value: "Create a site named North" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));

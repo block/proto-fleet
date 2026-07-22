@@ -1,6 +1,7 @@
 import { FormEvent, KeyboardEvent, useState } from "react";
 
 import { ArrowUp } from "@/shared/assets/icons";
+import Button, { variants } from "@/shared/components/Button";
 
 type ChatInputProps = {
   disabled?: boolean;
@@ -33,12 +34,12 @@ const ChatInput = ({ disabled = false, onSend }: ChatInputProps) => {
   return (
     <form className="rounded-2xl border border-border-10 bg-surface-base p-2 shadow-100" onSubmit={handleSubmit}>
       <label className="sr-only" htmlFor="ai-chat-input">
-        Message Proto AI
+        Message Minerbot
       </label>
       <div className="flex items-end gap-2">
         <textarea
           id="ai-chat-input"
-          aria-label="Message Proto AI"
+          aria-label="Message Minerbot"
           className="max-h-24 min-h-10 min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-300 text-text-primary outline-none placeholder:text-text-primary-50 pointer-coarse:text-400"
           disabled={disabled}
           onChange={(event) => setContent(event.target.value)}
@@ -47,14 +48,14 @@ const ChatInput = ({ disabled = false, onSend }: ChatInputProps) => {
           rows={1}
           value={content}
         />
-        <button
-          type="submit"
-          aria-label="Send message"
-          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-core-primary-fill text-text-contrast outline-none hover:opacity-80 focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:ring-offset-2 focus-visible:ring-offset-surface-base disabled:cursor-not-allowed disabled:opacity-30"
+        <Button
+          ariaLabel="Send message"
+          className="size-10 shrink-0 !p-0"
           disabled={!canSend}
-        >
-          <ArrowUp width="w-5" />
-        </button>
+          onClick={submit}
+          prefixIcon={<ArrowUp width="w-5" />}
+          variant={variants.primary}
+        />
       </div>
     </form>
   );

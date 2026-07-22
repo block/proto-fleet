@@ -8,7 +8,7 @@ const pendingConfirmation: ToolConfirmation = {
   id: "confirmation-1",
   toolCallId: "call-1",
   title: "Move 2 miners?",
-  description: "Proto AI will move these miners.",
+  description: "Minerbot will move these miners.",
   confirmLabel: "Move miners",
   details: [
     { label: "Destination rack ID", value: "21" },
