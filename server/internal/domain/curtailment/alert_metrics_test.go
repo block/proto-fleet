@@ -421,6 +421,28 @@ func TestAlertMetricsLoopActivationContextCancellationAllowsRestart(t *testing.T
 	require.NoError(t, loop.Stop(context.Background()))
 }
 
+func TestAlertMetricsLoopActivationContextCancellationPreventsOverlapWhileDraining(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	loop := newTestAlertMetricsLoop(t, AlertMetricsConfig{
+		Sources:           &uninterruptibleSourcesLister{started: started, release: release},
+		Runtime:           &fakeRuntime{},
+		ActiveCurtailment: &fakeActiveLister{},
+		Emitter:           &recordingEmitter{},
+	})
+	runCtx, cancel := context.WithCancel(context.Background())
+	require.NoError(t, loop.Start(runCtx))
+	<-started
+
+	cancel()
+	require.ErrorContains(t, loop.Start(context.Background()), "previous activation is still stopping")
+
+	close(release)
+	require.NoError(t, loop.Stop(context.Background()))
+	require.NoError(t, loop.Start(context.Background()))
+	require.NoError(t, loop.Stop(context.Background()))
+}
+
 func TestAlertMetricsLoopStopPreventsOverlapAfterTimeout(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})

@@ -106,12 +106,12 @@ type Reconciler struct {
 	fanAlert FacilityFanAlertEmitter
 	now      func() time.Time
 
-	runCancel context.CancelFunc
-	runDone   <-chan struct{}
+	runCancel   context.CancelFunc
+	runCanceled <-chan struct{}
+	runDone     <-chan struct{}
 
 	lifecycleMu sync.Mutex
 	mu          sync.Mutex
-	stopping    bool
 }
 
 var _ runtimejobs.Lifecycle = (*Reconciler)(nil)
@@ -183,17 +183,18 @@ func (r *Reconciler) Start(ctx context.Context) error {
 	r.lifecycleMu.Lock()
 	defer r.lifecycleMu.Unlock()
 	r.mu.Lock()
-	if r.stopping {
-		r.mu.Unlock()
-		return errors.New("curtailment reconciler: previous activation is still stopping")
-	}
 	if r.runDone != nil {
+		stopping := channelClosed(r.runCanceled)
 		r.mu.Unlock()
+		if stopping {
+			return errors.New("curtailment reconciler: previous activation is still stopping")
+		}
 		return nil
 	}
 	runCtx, runCancel := context.WithCancel(ctx)
 	runDone := make(chan struct{})
 	r.runCancel = runCancel
+	r.runCanceled = runCtx.Done()
 	r.runDone = runDone
 	r.mu.Unlock()
 
@@ -214,7 +215,6 @@ func (r *Reconciler) Stop(ctx context.Context) error {
 		r.mu.Unlock()
 		return nil
 	}
-	r.stopping = true
 	runCancel := r.runCancel
 	runDone := r.runDone
 	r.mu.Unlock()
@@ -249,9 +249,21 @@ func (r *Reconciler) tickLoop(ctx context.Context, runDone chan<- struct{}) {
 func (r *Reconciler) finishActivation() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.stopping = false
 	r.runCancel = nil
+	r.runCanceled = nil
 	r.runDone = nil
+}
+
+func channelClosed(done <-chan struct{}) bool {
+	if done == nil {
+		return false
+	}
+	select {
+	case <-done:
+		return true
+	default:
+		return false
+	}
 }
 
 // safeTick recovers panics in tick-level infra so the goroutine survives;

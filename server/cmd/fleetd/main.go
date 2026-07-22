@@ -603,11 +603,7 @@ func start(config *Config) error {
 		return fmt.Errorf("failed to start curtailment mqtt subscriber: %w", err)
 	}
 	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
-		if err := mqttSubscriber.Stop(shutdownCtx); err != nil {
-			slog.Error("failed to stop curtailment mqtt subscriber", "error", err)
-		}
+		stopStandaloneJob("curtailment mqtt subscriber", mqttSubscriber)
 	}()
 	mqttConnectionTester, err := mqttingest.NewMQTTConnectionTester(mqttingest.ConnectionTesterConfig{
 		NewClient: func() mqttingest.MQTTClient { return mqttclient.New() },

@@ -150,11 +150,11 @@ func NewSubscriber(cfg Config) (*Subscriber, error) {
 // source reconciliation.
 func (s *Subscriber) Start(ctx context.Context) error {
 	s.lifecycleMu.Lock()
-	defer s.lifecycleMu.Unlock()
 	s.mu.Lock()
 	if s.activation != nil {
 		stopping := channelClosed(s.activation.runCanceled)
 		s.mu.Unlock()
+		s.lifecycleMu.Unlock()
 		if stopping {
 			return errors.New("mqttingest: previous subscriber activation is still stopping")
 		}
@@ -169,6 +169,7 @@ func (s *Subscriber) Start(ctx context.Context) error {
 	s.activation = activation
 	s.workers = make(map[int64]*sourceWorkerHandle)
 	s.mu.Unlock()
+	s.lifecycleMu.Unlock()
 	go s.cleanupActivationWhenCanceled(activation)
 
 	if _, _, err := s.reconcile(runCtx, true); err != nil {
@@ -176,6 +177,11 @@ func (s *Subscriber) Start(ctx context.Context) error {
 		s.startActivationCleanup(activation)
 		<-activation.done
 		return err
+	}
+	if err := runCtx.Err(); err != nil {
+		s.startActivationCleanup(activation)
+		<-activation.done
+		return fmt.Errorf("mqttingest: start subscriber: %w", err)
 	}
 	return nil
 }

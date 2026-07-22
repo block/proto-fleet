@@ -62,12 +62,12 @@ type AlertMetricsConfig struct {
 type AlertMetricsLoop struct {
 	cfg AlertMetricsConfig
 
-	cancel  context.CancelFunc
-	runDone <-chan struct{}
+	cancel      context.CancelFunc
+	runCanceled <-chan struct{}
+	runDone     <-chan struct{}
 
 	lifecycleMu sync.Mutex
 	mu          sync.Mutex
-	stopping    bool
 
 	// prevConnected / prevActive remember the labels each gauge was emitted
 	// with last tick (touched only by the tick goroutine), so a renamed or
@@ -109,15 +109,16 @@ func (l *AlertMetricsLoop) Start(ctx context.Context) error {
 	defer l.lifecycleMu.Unlock()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.stopping {
-		return errors.New("curtailment alert metrics: previous activation is still stopping")
-	}
 	if l.cancel != nil {
+		if channelClosed(l.runCanceled) {
+			return errors.New("curtailment alert metrics: previous activation is still stopping")
+		}
 		return nil
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	runDone := make(chan struct{})
 	l.cancel = cancel
+	l.runCanceled = runCtx.Done()
 	l.runDone = runDone
 	go l.tickLoop(runCtx, runDone)
 	l.cfg.Logger.Info("curtailment alert metrics loop started", "interval", l.cfg.Interval)
@@ -135,7 +136,6 @@ func (l *AlertMetricsLoop) Stop(ctx context.Context) error {
 		l.mu.Unlock()
 		return nil
 	}
-	l.stopping = true
 	cancel := l.cancel
 	runDone := l.runDone
 	l.mu.Unlock()
@@ -153,8 +153,20 @@ func (l *AlertMetricsLoop) finishActivation() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.cancel = nil
+	l.runCanceled = nil
 	l.runDone = nil
-	l.stopping = false
+}
+
+func channelClosed(done <-chan struct{}) bool {
+	if done == nil {
+		return false
+	}
+	select {
+	case <-done:
+		return true
+	default:
+		return false
+	}
 }
 
 func (l *AlertMetricsLoop) tickLoop(ctx context.Context, runDone chan<- struct{}) {

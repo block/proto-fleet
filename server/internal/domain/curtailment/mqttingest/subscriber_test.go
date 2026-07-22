@@ -60,6 +60,19 @@ type blockingDisconnectClient struct {
 	release <-chan struct{}
 }
 
+type blockingListStore struct {
+	Store
+	started     chan struct{}
+	startedOnce sync.Once
+	release     <-chan struct{}
+}
+
+func (s *blockingListStore) ListEnabledSources(context.Context) ([]SourceConfig, error) {
+	s.startedOnce.Do(func() { close(s.started) })
+	<-s.release
+	return nil, nil
+}
+
 func (c *blockingDisconnectClient) Connect(context.Context, string, int32, string, string, string, string) error {
 	c.reg.onConnect()
 	return nil
@@ -257,6 +270,34 @@ func TestSubscriber_StartContextCancellationAllowsRestartAfterWorkersDrain(t *te
 	_, maxActive, connects := reg.snapshot()
 	assert.LessOrEqual(t, maxActive, 2, "replacement activation must not overlap canceled workers")
 	assert.Equal(t, 4, connects)
+	require.NoError(t, s.Stop(context.Background()))
+}
+
+func TestSubscriber_StopCanCancelBlockedInitialReconcile(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	store := &blockingListStore{
+		Store:   newFakeSourceStore(),
+		started: started,
+		release: release,
+	}
+	s := newReconcileTestSubscriber(t, store, &clientRegistry{})
+
+	startDone := make(chan error, 1)
+	go func() {
+		startDone <- s.Start(context.Background())
+	}()
+	<-started
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer stopCancel()
+	require.ErrorIs(t, s.Stop(stopCtx), context.DeadlineExceeded)
+	require.ErrorContains(t, s.Start(context.Background()), "previous subscriber activation is still stopping")
+
+	close(release)
+	require.ErrorIs(t, <-startDone, context.Canceled)
+	require.NoError(t, s.Stop(context.Background()))
+	require.NoError(t, s.Start(context.Background()))
 	require.NoError(t, s.Stop(context.Background()))
 }
 

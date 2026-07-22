@@ -40,6 +40,7 @@ type fakeStore struct {
 	listEventsErr      error
 	listEventsCalls    int
 	listEventsPanicErr string
+	listEventsHook     func(context.Context)
 	listTargetsHook    func(context.Context, uuid.UUID)
 	listTargetsCtxErr  map[uuid.UUID]error
 
@@ -383,8 +384,11 @@ func (f *fakeStore) GetEventByExternalReference(context.Context, int64, string, 
 	panic("GetEventByExternalReference not exercised by reconciler tests")
 }
 
-func (f *fakeStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
+func (f *fakeStore) ListNonTerminalEvents(ctx context.Context) ([]*models.Event, error) {
 	f.listEventsCalls++
+	if f.listEventsHook != nil {
+		f.listEventsHook(ctx)
+	}
 	if f.listEventsPanicErr != "" {
 		panic(f.listEventsPanicErr)
 	}
@@ -4296,6 +4300,28 @@ func TestReconciler_ActivationContextCancellationAllowsRestart(t *testing.T) {
 	require.NoError(t, r.Stop(context.Background()))
 }
 
+func TestReconciler_ActivationContextCancellationPreventsOverlapWhileDraining(t *testing.T) {
+	store := newFakeStore()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	store.listEventsHook = func(context.Context) {
+		close(started)
+		<-release
+	}
+	r := New(Config{TickInterval: time.Second}, store, &fakeDispatcher{})
+	runCtx, cancel := context.WithCancel(context.Background())
+	require.NoError(t, r.Start(runCtx))
+	<-started
+
+	cancel()
+	require.ErrorContains(t, r.Start(context.Background()), "previous activation is still stopping")
+
+	close(release)
+	require.NoError(t, r.Stop(context.Background()))
+	require.NoError(t, r.Start(context.Background()))
+	require.NoError(t, r.Stop(context.Background()))
+}
+
 func TestReconciler_StopCancellationPreventsOverlappingRestart(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -4304,6 +4330,7 @@ func TestReconciler_StopCancellationPreventsOverlappingRestart(t *testing.T) {
 	runCtx, runCancel := context.WithCancel(context.Background())
 	runDone := make(chan struct{})
 	r.runCancel = runCancel
+	r.runCanceled = runCtx.Done()
 	r.runDone = runDone
 
 	workCanceled := make(chan struct{})
