@@ -99,8 +99,8 @@ func assertNoSignal(t *testing.T, ch <-chan struct{}, d time.Duration, msg strin
 
 func TestStop_WaitsForInFlightTimerCallback(t *testing.T) {
 	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
-	workCtx, workCancel := context.WithCancel(context.Background())
-	p.workCancel = workCancel
+	runCtx, runCancel := context.WithCancel(context.Background())
+	p.runCancel = runCancel
 
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -110,7 +110,7 @@ func TestStop_WaitsForInFlightTimerCallback(t *testing.T) {
 		func(ctx context.Context, scheduleID int64) (int64, error) {
 			close(started)
 			<-release
-			assert.NoError(t, ctx.Err())
+			assert.True(t, errors.Is(ctx.Err(), context.Canceled))
 			return int64(0), nil
 		},
 	)
@@ -118,7 +118,7 @@ func TestStop_WaitsForInFlightTimerCallback(t *testing.T) {
 	p.timerWG.Add(1)
 	timer := time.AfterFunc(time.Hour, func() {
 		defer p.timerWG.Done()
-		p.executeSchedule(workCtx, 1)
+		p.executeSchedule(runCtx, 1)
 	})
 	p.jobs[1] = jobEntry{timer: timer, isOneTime: true, generation: 1}
 	timer.Reset(0)
@@ -137,8 +137,8 @@ func TestStop_WaitsForInFlightTimerCallback(t *testing.T) {
 
 func TestStop_DoesNotWaitForFutureStoppedTimer(t *testing.T) {
 	p, _, _, _, _ := newTestProcessor(t, time.Now())
-	_, workCancel := context.WithCancel(context.Background())
-	p.workCancel = workCancel
+	_, runCancel := context.WithCancel(context.Background())
+	p.runCancel = runCancel
 
 	fired := make(chan struct{})
 	stopped := make(chan struct{})
@@ -161,10 +161,8 @@ func TestStop_DoesNotWaitForFutureStoppedTimer(t *testing.T) {
 
 func TestStop_DrainsTimersRegisteredByStoppingLoop(t *testing.T) {
 	p, _, _, _, _ := newTestProcessor(t, time.Now())
-	stopCtx, stopCancel := context.WithCancel(context.Background())
-	_, workCancel := context.WithCancel(context.Background())
-	p.stopCancel = stopCancel
-	p.workCancel = workCancel
+	runCtx, runCancel := context.WithCancel(context.Background())
+	p.runCancel = runCancel
 
 	registered := make(chan struct{})
 	fired := make(chan struct{})
@@ -173,7 +171,7 @@ func TestStop_DrainsTimersRegisteredByStoppingLoop(t *testing.T) {
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()
-		<-stopCtx.Done()
+		<-runCtx.Done()
 
 		p.mu.Lock()
 		defer p.mu.Unlock()
@@ -196,20 +194,18 @@ func TestStop_DrainsTimersRegisteredByStoppingLoop(t *testing.T) {
 	assertNoSignal(t, fired, 10*time.Millisecond, "timer registered during shutdown fired")
 }
 
-func TestStop_CronJobsFinishWithLiveContext(t *testing.T) {
+func TestStop_CancelsCronJobContext(t *testing.T) {
 	p, _, _, _, _ := newTestProcessor(t, time.Now())
-	workCtx, workCancel := context.WithCancel(context.Background())
-	p.workCancel = workCancel
+	runCtx, runCancel := context.WithCancel(context.Background())
+	p.runCancel = runCancel
 	p.cron = cron.New(cron.WithSeconds())
 
 	started := make(chan struct{})
-	release := make(chan struct{})
 	stopped := make(chan struct{})
 
 	_, err := p.cron.AddFunc("@every 1s", func() {
 		close(started)
-		<-release
-		assert.NoError(t, workCtx.Err())
+		<-runCtx.Done()
 	})
 	assert.NoError(t, err)
 	p.cron.Start()
@@ -221,20 +217,16 @@ func TestStop_CronJobsFinishWithLiveContext(t *testing.T) {
 		close(stopped)
 	}()
 
-	assertNoSignal(t, stopped, 50*time.Millisecond, "Stop returned before cron callback finished")
-	close(release)
-	waitForSignal(t, stopped, "Stop did not return after cron callback finished")
+	waitForSignal(t, stopped, "Stop did not cancel the cron callback context")
 }
 
-// A caller deadline cancels work that failed to drain and bounds Stop.
-func TestStop_DeadlineCancelsHungWork(t *testing.T) {
+func TestStop_CancelsInFlightWork(t *testing.T) {
 	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
-	workCtx, workCancel := context.WithCancel(context.Background())
-	p.workCancel = workCancel
+	runCtx, runCancel := context.WithCancel(context.Background())
+	p.runCancel = runCancel
 
 	started := make(chan struct{})
 	cancelled := make(chan struct{})
-	stopped := make(chan error, 1)
 
 	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).DoAndReturn(
 		func(ctx context.Context, _ int64) (int64, error) {
@@ -248,27 +240,15 @@ func TestStop_DeadlineCancelsHungWork(t *testing.T) {
 	p.timerWG.Add(1)
 	timer := time.AfterFunc(time.Hour, func() {
 		defer p.timerWG.Done()
-		p.executeSchedule(workCtx, 1)
+		p.executeSchedule(runCtx, 1)
 	})
 	p.jobs[1] = jobEntry{timer: timer, isOneTime: true, generation: 1}
 	timer.Reset(0)
 
 	waitForSignal(t, started, "hung callback did not start")
 
-	begin := time.Now()
-	stopCtx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
-	defer cancel()
-	go func() {
-		stopped <- p.Stop(stopCtx)
-	}()
-
-	waitForSignal(t, cancelled, "deadline did not cancel hung work via workCancel")
-	assert.True(t, errors.Is(<-stopped, context.DeadlineExceeded))
 	assert.NoError(t, p.Stop(context.Background()))
-
-	if elapsed := time.Since(begin); elapsed > time.Second {
-		t.Fatalf("Stop took %v; caller deadline should have bounded shutdown well below this", elapsed)
-	}
+	waitForSignal(t, cancelled, "Stop did not cancel in-flight work")
 }
 
 func TestProcessor_StartStopStart_ReRegistersUnchangedSchedules(t *testing.T) {
@@ -319,38 +299,9 @@ func TestProcessor_StartHonorsActivationCancellation(t *testing.T) {
 	}
 }
 
-func TestProcessor_ActivationCancellationAllowsRestartAfterDrain(t *testing.T) {
-	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
-	getActiveSchedulesCalls := 0
-	procStore.EXPECT().GetActiveSchedules(gomock.Any()).DoAndReturn(
-		func(context.Context) ([]interfaces.ScheduleWithOrg, error) {
-			getActiveSchedulesCalls++
-			return nil, nil
-		},
-	).Times(4)
-
-	activationCtx, cancelActivation := context.WithCancel(context.Background())
-	assert.NoError(t, p.Start(activationCtx))
-	cancelActivation()
-
-	deadline := time.Now().Add(2 * time.Second)
-	for getActiveSchedulesCalls < 4 {
-		err := p.Start(context.Background())
-		if err != nil && !errors.Is(err, errProcessorStopping) {
-			t.Fatalf("restart after activation cancellation: %v", err)
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("processor did not become restartable after activation cancellation")
-		}
-		time.Sleep(time.Millisecond)
-	}
-
-	assert.NoError(t, p.Stop(context.Background()))
-}
-
 func TestProcessor_ActivationCancellationRejectsRestartUntilDrain(t *testing.T) {
 	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
-	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return(nil, nil).Times(2)
+	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return(nil, nil).Times(4)
 
 	activationCtx, cancelActivation := context.WithCancel(context.Background())
 	assert.NoError(t, p.Start(activationCtx))
@@ -373,34 +324,14 @@ func TestProcessor_ActivationCancellationRejectsRestartUntilDrain(t *testing.T) 
 	assert.True(t, errors.Is(p.Start(context.Background()), errProcessorStopping))
 	close(releaseCallback)
 	assert.NoError(t, p.Stop(context.Background()))
-}
-
-func TestProcessor_StaleCancellationWatcherCannotStopNewActivation(t *testing.T) {
-	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
-	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return(nil, nil).Times(4)
-
 	assert.NoError(t, p.Start(context.Background()))
-	oldActivationDone := p.activationDone
-	assert.NoError(t, p.Stop(context.Background()))
-
-	assert.NoError(t, p.Start(context.Background()))
-	newActivationDone := p.activationDone
-
-	watcherReturned := make(chan struct{})
-	go func() {
-		p.stopOnActivationCancellation(oldActivationDone)
-		close(watcherReturned)
-	}()
-	waitForSignal(t, watcherReturned, "stale cancellation watcher did not return")
-	assertNoSignal(t, newActivationDone, 10*time.Millisecond, "stale cancellation watcher stopped the new activation")
-
 	assert.NoError(t, p.Stop(context.Background()))
 }
 
 func TestProcessor_Stop_PreventsRestartUntilDrainCompletes(t *testing.T) {
 	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
-	workCtx, workCancel := context.WithCancel(context.Background())
-	p.workCancel = workCancel
+	runCtx, runCancel := context.WithCancel(context.Background())
+	p.runCancel = runCancel
 
 	started := make(chan struct{})
 	release := make(chan struct{})
@@ -415,7 +346,7 @@ func TestProcessor_Stop_PreventsRestartUntilDrainCompletes(t *testing.T) {
 	p.timerWG.Add(1)
 	timer := time.AfterFunc(time.Hour, func() {
 		defer p.timerWG.Done()
-		p.executeSchedule(workCtx, 1)
+		p.executeSchedule(runCtx, 1)
 	})
 	p.jobs[1] = jobEntry{timer: timer, isOneTime: true, generation: 1}
 	timer.Reset(0)
@@ -433,9 +364,7 @@ func TestProcessor_Stop_PreventsRestartUntilDrainCompletes(t *testing.T) {
 func TestProcessor_ActivationCancellationPreventsNewTimerWork(t *testing.T) {
 	p, _, _, _, _ := newTestProcessor(t, time.Now())
 	p.cron = cron.New()
-	stopCtx, stop := context.WithCancel(t.Context())
-	workCtx, cancelWork := context.WithCancel(context.WithoutCancel(t.Context()))
-	defer cancelWork()
+	runCtx, cancelRun := context.WithCancel(t.Context())
 
 	sched := &pb.Schedule{
 		Id:           1,
@@ -445,11 +374,11 @@ func TestProcessor_ActivationCancellationPreventsNewTimerWork(t *testing.T) {
 		Timezone:     "UTC",
 	}
 	p.mu.Lock()
-	assert.NoError(t, p.registerJob(stopCtx, workCtx, sched))
+	assert.NoError(t, p.registerJob(runCtx, sched))
 	timer := p.jobs[1].timer
 	p.mu.Unlock()
 
-	stop()
+	cancelRun()
 	timer.Reset(0)
 	p.timerWG.Wait()
 }
