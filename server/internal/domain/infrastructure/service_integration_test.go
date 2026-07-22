@@ -218,11 +218,17 @@ func TestRackAssignmentFollowsCatalogMutations_DatabaseIntegration(t *testing.T)
 
 	_, err := conn.ExecContext(ctx, `
 		INSERT INTO building (id, org_id, site_id, name)
-		VALUES (100, $1, $2, 'Building 1'), (101, $1, $2, 'Building 2');
+		VALUES (100, $1, $2, 'Building 1'), (101, $1, $2, 'Building 2')
+	`, testOrgID, testSiteID)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(ctx, `
 		INSERT INTO device_set (id, org_id, type, label)
-		VALUES (1000, $1, 'rack', 'Rack A1');
+		VALUES (1000, $1, 'rack', 'Rack A1')
+	`, testOrgID)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(ctx, `
 		INSERT INTO device_set_rack (device_set_id, org_id, site_id, building_id, rows, columns)
-		VALUES (1000, $1, $2, 100, 4, 4);
+		VALUES (1000, $1, $2, 100, 4, 4)
 	`, testOrgID, testSiteID)
 	require.NoError(t, err)
 
