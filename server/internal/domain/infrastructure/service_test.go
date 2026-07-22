@@ -66,8 +66,8 @@ func auditDevice() *models.Device {
 }
 
 // requireAuditEvent asserts the single captured event matches the
-// expected type and carries the protocol-blind metadata — and, per the
-// security review, never the driver_config (OT control topology).
+// expected type and carries safe metadata. Fields protected by permissions
+// outside activity:read must not be copied into the activity feed.
 func requireAuditEvent(t *testing.T, captured []activitymodels.Event, eventType string) {
 	t.Helper()
 	require.Len(t, captured, 1)
@@ -81,7 +81,8 @@ func requireAuditEvent(t *testing.T, captured []activitymodels.Event, eventType 
 	assert.Contains(t, event.Description, `"Zone A exhaust fans"`)
 	assert.Equal(t, int64(7), event.Metadata["infrastructure_device_id"])
 	assert.Equal(t, "modbus_tcp", event.Metadata["driver_type"])
-	assert.Equal(t, "Rack A1", event.Metadata["rack_name"])
+	assert.NotContains(t, event.Metadata, "rack_name",
+		"audit metadata must not expose rack placement without rack:read")
 	assert.NotContains(t, event.Metadata, "driver_config",
 		"audit metadata must not carry OT control topology")
 	assert.NotContains(t, event.Description, "10.1.2.3",

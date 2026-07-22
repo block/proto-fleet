@@ -75,9 +75,10 @@ func NewService(store interfaces.InfrastructureDeviceStore, siteStore interfaces
 // AFTER the mutation's tx commits — RunInTx may retry the closure on
 // serialization failures, so an in-closure Log would duplicate.
 //
-// Metadata deliberately excludes driver_config: these records define
-// OT control topology (endpoints, registers), which must not land in
-// the activity feed. Only protocol-blind display fields are logged.
+// Metadata deliberately excludes driver_config and rack_name: the former
+// defines OT control topology, while the latter requires rack:read. Activity
+// readers are not guaranteed either permission, so neither field may land in
+// the activity feed.
 func (s *Service) logDeviceEvent(ctx context.Context, eventType, verb string, device *models.Device) {
 	orgID := device.OrgID
 	siteID := device.SiteID
@@ -92,7 +93,6 @@ func (s *Service) logDeviceEvent(ctx context.Context, eventType, verb string, de
 			"device_name":              device.Name,
 			"site_id":                  device.SiteID,
 			"building_name":            device.BuildingName,
-			"rack_name":                device.RackName,
 			"device_kind":              device.DeviceKind,
 			"fan_count":                device.FanCount,
 			"enabled":                  device.Enabled,
