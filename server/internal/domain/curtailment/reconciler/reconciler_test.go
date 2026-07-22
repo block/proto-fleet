@@ -43,12 +43,13 @@ type fakeStore struct {
 	listTargetsHook    func(context.Context, uuid.UUID)
 	listTargetsCtxErr  map[uuid.UUID]error
 
-	updateEventCalls      int
-	updateEventLast       map[int64]models.EventState
-	updateTargetCalls     int
-	updateTargetParams    map[string]interfaces.UpdateCurtailmentTargetStateParams
-	updateTargetStateErr  error
-	updateTargetStateHook func(device string, params interfaces.UpdateCurtailmentTargetStateParams, call int) error
+	updateEventCalls         int
+	updateEventLast          map[int64]models.EventState
+	updateTargetCalls        int
+	updateTargetParams       map[string]interfaces.UpdateCurtailmentTargetStateParams
+	updateTargetStateErr     error
+	updateTargetStateHook    func(device string, params interfaces.UpdateCurtailmentTargetStateParams, call int) error
+	recordPendingDispatchErr error
 
 	bumpTargetRetryCalls int
 	lastBumpTargetRetry  bumpRetryCall
@@ -412,6 +413,9 @@ func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, expectedS
 }
 
 func (f *fakeStore) RecordCurtailPendingDispatch(_ context.Context, eventID int64, expectedState models.EventState, dispatchedAt time.Time) error {
+	if f.recordPendingDispatchErr != nil {
+		return f.recordPendingDispatchErr
+	}
 	for _, ev := range f.events {
 		if ev.ID != eventID {
 			continue
@@ -3767,6 +3771,46 @@ func TestReconciler_RecoveryDispatchDoesNotResetBlockedPendingWave(t *testing.T)
 	require.NotNil(t, store.events[0].LastCurtailPendingDispatchAt)
 	assert.Equal(t, lastPendingWave, *store.events[0].LastCurtailPendingDispatchAt,
 		"retry/orphan recovery must not reset the fresh pending-wave clock")
+}
+
+func TestReconciler_PendingDispatchClockWriteFailureLeavesClockStale(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(1)
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	lastPendingWave := now.Add(-61 * time.Second)
+	store.recordPendingDispatchErr = errors.New("clock write failed")
+	store.events = []*models.Event{
+		{
+			ID:                           eventID,
+			EventUUID:                    eventUUID,
+			OrgID:                        1,
+			State:                        models.EventStateActive,
+			CurtailBatchSize:             &batchSize,
+			CurtailBatchIntervalSec:      60,
+			LastCurtailPendingDispatchAt: &lastPendingWave,
+			CreatedByUserID:              99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "pending",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, [][]string{{"pending"}}, disp.curtailCallIDs)
+	require.NotNil(t, store.events[0].LastCurtailPendingDispatchAt)
+	assert.Equal(t, lastPendingWave, *store.events[0].LastCurtailPendingDispatchAt,
+		"failed durable clock writes must not advance only the in-memory event")
 }
 
 // TestReconciler_RetryBudgetResetsOnReConfirm: drift → confirm → drift →

@@ -1550,6 +1550,7 @@ func (r *Reconciler) recordCurtailPendingDispatch(ctx context.Context, ev *model
 		}
 		slog.Error("curtailment reconciler: pending dispatch clock update failed",
 			"event_id", ev.ID, "error", err)
+		return false
 	}
 
 	ts := dispatchedAt

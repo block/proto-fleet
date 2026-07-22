@@ -237,6 +237,9 @@ func (s *listStubStore) ListNonTerminalEvents(context.Context) ([]*models.Event,
 func (s *listStubStore) UpdateEventState(context.Context, int64, models.EventState, models.EventState, *time.Time, *time.Time) error {
 	panic("UpdateEventState not exercised by List handler tests")
 }
+func (s *listStubStore) RecordCurtailPendingDispatch(context.Context, int64, models.EventState, time.Time) error {
+	panic("RecordCurtailPendingDispatch not exercised by List handler tests")
+}
 func (s *listStubStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
 	panic("UpdateTargetState not exercised by List handler tests")
 }

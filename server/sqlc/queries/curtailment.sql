@@ -1264,7 +1264,8 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
 UPDATE curtailment_event
 SET state = 'pending',
     fan_airflow_reopened_at = COALESCE(fan_on_sent_at, fan_airflow_reopened_at),
-    fan_on_sent_at = NULL
+    fan_on_sent_at = NULL,
+    last_curtail_pending_dispatch_at = NULL
 WHERE id = sqlc.arg('id')
   AND state = 'restoring'
 RETURNING *;

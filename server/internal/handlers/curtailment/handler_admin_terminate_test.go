@@ -194,6 +194,9 @@ func (s *adminTerminateStubStore) ListEvents(context.Context, interfaces.ListEve
 func (s *adminTerminateStubStore) UpdateEventState(context.Context, int64, models.EventState, models.EventState, *time.Time, *time.Time) error {
 	panic("UpdateEventState not exercised by AdminTerminate handler tests")
 }
+func (s *adminTerminateStubStore) RecordCurtailPendingDispatch(context.Context, int64, models.EventState, time.Time) error {
+	panic("RecordCurtailPendingDispatch not exercised by AdminTerminate handler tests")
+}
 func (s *adminTerminateStubStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
 	panic("UpdateTargetState not exercised by AdminTerminate handler tests")
 }
