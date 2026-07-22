@@ -80,25 +80,30 @@ type resolvedRack struct {
 // mutable facets. existing is the matched live miner, or nil when the device is
 // unknown.
 type resolvedMiner struct {
-	deviceID      string
-	name          string
-	serialNumber  string
-	ipAddress     string
-	macAddress    string
-	existing      *minerSnapshot
-	rack          *resolvedRack
-	building      *resolvedBuilding
-	site          *resolvedSite
-	rackLabel     string
-	siteLabel     string
-	buildLabel    string
-	rackRow       string
-	rackCol       string
-	hasBuildingID bool
-	renamed       bool
-	moved         bool
-	unassigned    bool
-	rowNum        int
+	deviceID     string
+	name         string
+	serialNumber string
+	ipAddress    string
+	macAddress   string
+	existing     *minerSnapshot
+	rack         *resolvedRack
+	building     *resolvedBuilding
+	site         *resolvedSite
+	rackLabel    string
+	siteLabel    string
+	buildLabel   string
+	rackRow      string
+	rackCol      string
+	// siteIDCell / buildingIDCell / rackIDCell are the raw *_id row cells, used to
+	// detect placement identity changes against the existing miner.
+	siteIDCell     string
+	buildingIDCell string
+	rackIDCell     string
+	hasBuildingID  bool
+	renamed        bool
+	moved          bool
+	unassigned     bool
+	rowNum         int
 }
 
 // minerPopulation is the scoped mutable-miner set shared by omission counts,
@@ -178,6 +183,7 @@ func resolvePlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) *resol
 	plan.errors = append(plan.errors, rackErrs...)
 
 	plan.miners = resolveMiners(parsed.sections["MINER"], minerMap(snap.miners))
+	classifyMinerMoves(plan.miners, plan.topology)
 
 	classifyTopologyActions(plan, snap, mode)
 	plan.omissions = computeOmissions(parsed, snap, mode)
@@ -324,18 +330,21 @@ func resolveMiners(rows []map[string]string, existingByID map[string]minerSnapsh
 	out := make([]*resolvedMiner, 0, len(rows))
 	for i, row := range rows {
 		node := &resolvedMiner{
-			deviceID:      row["device_identifier"],
-			name:          row[fieldName],
-			serialNumber:  row["serial_number"],
-			ipAddress:     row["ip_address"],
-			macAddress:    row["mac_address"],
-			rackLabel:     row[fieldRack],
-			siteLabel:     row[fieldSite],
-			buildLabel:    row[fieldBuilding],
-			rackRow:       row["rack_row"],
-			rackCol:       row["rack_col"],
-			hasBuildingID: row[fieldBuildingID] != "",
-			rowNum:        rowNumber(row, i+1),
+			deviceID:       row["device_identifier"],
+			name:           row[fieldName],
+			serialNumber:   row["serial_number"],
+			ipAddress:      row["ip_address"],
+			macAddress:     row["mac_address"],
+			rackLabel:      row[fieldRack],
+			siteLabel:      row[fieldSite],
+			buildLabel:     row[fieldBuilding],
+			rackRow:        row["rack_row"],
+			rackCol:        row["rack_col"],
+			siteIDCell:     row[fieldSiteID],
+			buildingIDCell: row[fieldBuildingID],
+			rackIDCell:     row[fieldRackID],
+			hasBuildingID:  row[fieldBuildingID] != "",
+			rowNum:         rowNumber(row, i+1),
 		}
 		if existing, ok := existingByID[node.deviceID]; ok {
 			e := existing
@@ -345,6 +354,84 @@ func resolveMiners(rows []map[string]string, existingByID map[string]minerSnapsh
 		out = append(out, node)
 	}
 	return out
+}
+
+// classifyMinerMoves flags existing miners whose desired placement (site,
+// building, rack, slot, or placement identity) differs from their live state.
+func classifyMinerMoves(miners []*resolvedMiner, tv *topologyView) {
+	for _, m := range miners {
+		if m.existing == nil {
+			continue
+		}
+		desiredSite, desiredBuilding := minerDesiredSiteBuilding(m, tv)
+		if !minerPlacementIDsMatchNode(m) ||
+			desiredSite != m.existing.Site ||
+			desiredBuilding != m.existing.Building ||
+			m.rackLabel != m.existing.Rack ||
+			m.rackRow != m.existing.RackRow ||
+			m.rackCol != m.existing.RackCol {
+			m.moved = true
+		}
+	}
+}
+
+// minerDesiredSiteBuilding resolves the site and building a miner row targets,
+// following rack, then building_id, then unambiguous building name.
+func minerDesiredSiteBuilding(m *resolvedMiner, tv *topologyView) (string, string) {
+	if m.rackLabel != "" {
+		rack := tv.racksByLabel[m.rackLabel]
+		return rack.Site, rack.Building
+	}
+	if id, ok := idFromCell(m.buildingIDCell); ok {
+		if building, ok := tv.buildingsByLayoutID[id]; ok {
+			return building.SiteLabel, building.Name
+		}
+	}
+	if m.siteLabel == "" && m.buildLabel != "" && !tv.buildingAmbig[m.buildLabel] {
+		if building, ok := tv.buildingsByName[m.buildLabel]; ok {
+			return building.SiteLabel, m.buildLabel
+		}
+	}
+	return m.siteLabel, m.buildLabel
+}
+
+// minerPlacementIDsMatchNode reports whether the row's supplied *_id cells agree
+// with the existing miner's placement ids. The rack id is ignored when the row
+// declares no rack.
+func minerPlacementIDsMatchNode(m *resolvedMiner) bool {
+	checks := []struct {
+		cell   string
+		want   *int64
+		isRack bool
+	}{
+		{m.siteIDCell, m.existing.SiteID, false},
+		{m.buildingIDCell, m.existing.BuildingID, false},
+		{m.rackIDCell, m.existing.RackID, true},
+	}
+	for _, c := range checks {
+		if c.isRack && m.rackLabel == "" {
+			continue
+		}
+		if c.cell == "" {
+			continue
+		}
+		if c.cell != formatNullableInt64(c.want) {
+			return false
+		}
+	}
+	return true
+}
+
+// validateMinerRenamePermission rejects renaming an existing miner without the
+// miner rename permission.
+func validateMinerRenamePermission(miners []*resolvedMiner) []*pb.ImportValidationError {
+	var errs []*pb.ImportValidationError
+	for _, m := range miners {
+		if m.renamed {
+			errs = append(errs, csvErr(m.rowNum, "MINER", "miner:rename permission is required to change miner name"))
+		}
+	}
+	return errs
 }
 
 // validateKnownMiners rejects rows whose device identifier is not a live miner.
@@ -824,6 +911,17 @@ func countMinerRenameNodes(miners []*resolvedMiner) int32 {
 	return n
 }
 
+// countMinerMoveNodes counts existing miners whose placement changed.
+func countMinerMoveNodes(miners []*resolvedMiner) int32 {
+	var n int32
+	for _, m := range miners {
+		if m.moved {
+			n++
+		}
+	}
+	return n
+}
+
 // classifyTopologyActions marks each topology node: a row whose identity is not
 // already present in the live snapshot creates; a row matching an existing
 // entity updates when a tracked field differs.
@@ -918,7 +1016,7 @@ func computeChanges(resolved *resolvedPlan, parsed *parsedCSV, snap, targetSnap 
 	add(pb.ImportOperation_IMPORT_OPERATION_UPDATE, fieldBuilding, countBuildingUpdates(parsed.sections["BUILDING"], snap.buildings), "building rows with changed details")
 	add(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "rack", countRackUpdates(parsed.sections["RACK"], snap.racks, targetSnap.buildings), "rack rows with changed details")
 	add(pb.ImportOperation_IMPORT_OPERATION_RENAME, "miner", countMinerRenameNodes(resolved.miners), "miner rows with changed names")
-	add(pb.ImportOperation_IMPORT_OPERATION_MOVE, "miner", countMinerPlacementUpdates(parsed.sections["MINER"], parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap), "miner placement rows with changed site, building, rack, or slot")
+	add(pb.ImportOperation_IMPORT_OPERATION_MOVE, "miner", countMinerMoveNodes(resolved.miners), "miner placement rows with changed site, building, rack, or slot")
 	if mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
 		add(pb.ImportOperation_IMPORT_OPERATION_UNASSIGN, "miner", resolved.omissions.GetMiners(), "omitted miner rows to unassign")
 		add(pb.ImportOperation_IMPORT_OPERATION_DELETE, "rack", resolved.omissions.GetRacks(), "omitted rack rows to delete")

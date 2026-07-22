@@ -207,6 +207,33 @@ func TestTopologyViewIsOmissionAware(t *testing.T) {
 	}
 }
 
+func TestResolveMinersFlagsPlacementMoves(t *testing.T) {
+	sections := map[string][]map[string]string{
+		"MINER": {
+			{"__row": "20", "device_identifier": "m1", "name": "Orig", "rack": "Rack A", "rack_row": "0", "rack_col": "1"},
+			{"__row": "21", "device_identifier": "m2", "name": "Renamed", "rack": "Rack A", "rack_row": "0", "rack_col": "0"},
+		},
+	}
+	snap := &snapshot{miners: []minerSnapshot{
+		{DeviceIdentifier: "m1", Name: "Orig", Rack: "Rack A", RackRow: "0", RackCol: "0"}, // slot changed ⇒ moved
+		{DeviceIdentifier: "m2", Name: "Orig", Rack: "Rack A", RackRow: "0", RackCol: "0"}, // placement same ⇒ only renamed
+	}}
+
+	plan := resolvePlan(&parsedCSV{sections: sections}, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if !plan.miners[0].moved || plan.miners[0].renamed {
+		t.Errorf("m1 = moved %v renamed %v, want moved-only", plan.miners[0].moved, plan.miners[0].renamed)
+	}
+	if plan.miners[1].moved || !plan.miners[1].renamed {
+		t.Errorf("m2 = moved %v renamed %v, want renamed-only", plan.miners[1].moved, plan.miners[1].renamed)
+	}
+	if got := countMinerMoveNodes(plan.miners); got != 1 {
+		t.Errorf("move count = %d, want 1", got)
+	}
+	if errs := validateMinerRenamePermission(plan.miners); len(errs) != 1 || errs[0].GetRow() != 21 {
+		t.Errorf("rename permission errs = %+v, want one on row 21", errs)
+	}
+}
+
 func TestScopePopulationIncludesHiddenRackMembers(t *testing.T) {
 	snap := &snapshot{
 		miners:            []minerSnapshot{{DeviceIdentifier: "m1"}},

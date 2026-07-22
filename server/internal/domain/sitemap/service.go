@@ -318,7 +318,7 @@ func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.Imp
 	}
 	plan := buildPlan(parsed, snapshot, req.GetOmissionMode())
 	if !importPermissions.CanRenameMiners {
-		plan.errors = append(plan.errors, validateMinerRenamePermission(parsed.sections["MINER"], snapshot)...)
+		plan.errors = append(plan.errors, validateMinerRenamePermission(plan.resolved.miners)...)
 	}
 	if req.GetOmissionMode() == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
 		impactErrs, err := s.validateOmittedSiteDeleteImpacts(ctx, orgID, omittedSites(parsed.sections["SITE"], snapshot.sites))
@@ -1144,6 +1144,7 @@ type importPlan struct {
 	errors    []*pb.ImportValidationError
 	warnings  []string
 	changes   []*pb.ImportChangeSummary
+	resolved  *resolvedPlan
 }
 
 func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPlan {
@@ -1151,7 +1152,7 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	normalizeIDErrors := normalizeIDReferences(parsed, snap)
 	normalizeInferredPlacement(parsed, targetSnap)
 	resolved := resolvePlan(parsed, snap, mode)
-	plan := importPlan{omissions: resolved.omissions}
+	plan := importPlan{omissions: resolved.omissions, resolved: resolved}
 
 	plan.errors = append(plan.errors, validateUnique(parsed.sections["SITE"], "SITE", fieldName)...)
 	plan.errors = append(plan.errors, validateUniqueBuildingRows(parsed.sections["BUILDING"])...)
@@ -3147,19 +3148,6 @@ func validateFieldLength(rows []map[string]string, section, field string, maxRun
 	return errs
 }
 
-func validateMinerRenamePermission(rows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
-	miners := minerMap(snap.miners)
-	var errs []*pb.ImportValidationError
-	for i, row := range rows {
-		miner, ok := miners[row["device_identifier"]]
-		if !ok || row[fieldName] == miner.Name {
-			continue
-		}
-		errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", "miner:rename permission is required to change miner name"))
-	}
-	return errs
-}
-
 func desiredBuildingCapacityMap(rows []map[string]string, buildings []buildingmodels.Building) map[string]buildingmodels.Building {
 	out := map[string]buildingmodels.Building{}
 	buildingsByID := map[int64]buildingmodels.Building{}
@@ -3479,30 +3467,6 @@ func countRackUpdates(rows []map[string]string, racks []rackSnapshot, buildings 
 		existing["label:"+rack.Label] = row
 	}
 	return countExistingRowUpdatesByIdentity(rows, existing, rackRowIdentity, rackHeaders)
-}
-
-func countMinerPlacementUpdates(rows, rackRows, buildingRows []map[string]string, snap *snapshot) int32 {
-	existing := minerMap(snap.miners)
-	racks := desiredRackMap(rackRows, snap.racks, buildingRows, snap.buildings)
-	buildingsByName, ambiguousBuildings := desiredBuildingNameLookup(buildingRows, snap.buildings)
-	buildingsByID := desiredBuildingIDMap(buildingRows, snap.buildings)
-	var count int32
-	for _, row := range rows {
-		miner, ok := existing[row["device_identifier"]]
-		if !ok {
-			continue
-		}
-		desiredSite, desiredBuilding := desiredMinerSiteBuilding(row, racks, buildingsByName, buildingsByID, ambiguousBuildings)
-		if !minerPlacementIDsMatch(row, miner) ||
-			desiredSite != miner.Site ||
-			desiredBuilding != miner.Building ||
-			row[fieldRack] != miner.Rack ||
-			row["rack_row"] != miner.RackRow ||
-			row["rack_col"] != miner.RackCol {
-			count++
-		}
-	}
-	return count
 }
 
 func countExistingRowUpdates(rows []map[string]string, existing map[string]map[string]string, keySpec string, headers []string) int32 {
