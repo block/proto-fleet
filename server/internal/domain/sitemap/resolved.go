@@ -58,9 +58,12 @@ type resolvedRack struct {
 	buildingLabel string
 	siteLabel     string
 	// siteRef / buildingRef are the raw row references, before building_id resolution.
-	siteRef         string
-	buildingRef     string
+	siteRef     string
+	buildingRef string
+	// hasBuildingID is true when the row supplied any building_id; buildingIDRef is
+	// the parsed value, nil when absent or unparseable.
 	hasBuildingID   bool
+	buildingIDRef   *int64
 	label           string
 	prevLabel       string
 	zone            string
@@ -109,12 +112,13 @@ type minerPopulation struct {
 // omission-target snapshot) that placement-target validators resolve references
 // against. Built once so validators do not each re-derive it.
 type topologyView struct {
-	sites           map[string]bool
-	buildingKeys    map[string]bool
-	buildingsByKey  map[string]buildingmodels.Building
-	buildingsByName map[string]buildingmodels.Building
-	buildingAmbig   map[string]bool
-	racksByLabel    map[string]rackSnapshot
+	sites               map[string]bool
+	buildingKeys        map[string]bool
+	buildingsByKey      map[string]buildingmodels.Building
+	buildingsByLayoutID map[int64]buildingmodels.Building
+	buildingsByName     map[string]buildingmodels.Building
+	buildingAmbig       map[string]bool
+	racksByLabel        map[string]rackSnapshot
 }
 
 type resolvedPlan struct {
@@ -181,10 +185,11 @@ func resolveTopologyView(parsed *parsedCSV, target *snapshot) *topologyView {
 	buildingRows := parsed.sections["BUILDING"]
 	rackRows := parsed.sections["RACK"]
 	tv := &topologyView{
-		sites:          desiredSiteSet(siteRows, target.sites),
-		buildingKeys:   rowSetFromDesiredBuildings(buildingRows, target.buildings),
-		buildingsByKey: desiredBuildingMap(buildingRows, target.buildings),
-		racksByLabel:   desiredRackMap(rackRows, target.racks, buildingRows, target.buildings),
+		sites:               desiredSiteSet(siteRows, target.sites),
+		buildingKeys:        rowSetFromDesiredBuildings(buildingRows, target.buildings),
+		buildingsByKey:      desiredBuildingMap(buildingRows, target.buildings),
+		buildingsByLayoutID: desiredBuildingLayoutIDMap(buildingRows, target.buildings),
+		racksByLabel:        desiredRackMap(rackRows, target.racks, buildingRows, target.buildings),
 	}
 	tv.buildingsByName, tv.buildingAmbig = desiredBuildingNameLookup(buildingRows, target.buildings)
 	return tv
@@ -292,6 +297,7 @@ func resolveRacks(
 			}
 		}
 		if buildingID, ok := idFromCell(row[fieldBuildingID]); ok {
+			node.buildingIDRef = int64Ptr(buildingID)
 			if building, found := buildingsByID[buildingID]; found {
 				node.buildingLabel = building.Name
 				node.siteLabel = building.SiteLabel
@@ -476,6 +482,105 @@ func validatePlacementConsistency(miners []*resolvedMiner, tv *topologyView) []*
 		}
 		if m.siteLabel != "" && !tv.sites[m.siteLabel] {
 			errs = append(errs, csvErr(m.rowNum, "MINER", fmt.Sprintf("unknown site %q", m.siteLabel)))
+		}
+	}
+	return errs
+}
+
+// validateRackGridPositions rejects rack aisle/position coordinates that are
+// malformed or out of bounds for their building's grid.
+func validateRackGridPositions(racks []*resolvedRack, tv *topologyView) []*pb.ImportValidationError {
+	var errs []*pb.ImportValidationError
+	for _, r := range racks {
+		if (r.aisleIndex == "") != (r.positionInAisle == "") {
+			errs = append(errs, csvErr(r.rowNum, "RACK", "aisle_index and position_in_aisle must both be set or both be blank"))
+			continue
+		}
+		if r.aisleIndex == "" {
+			continue
+		}
+		if r.buildingRef == "" {
+			errs = append(errs, csvErr(r.rowNum, "RACK", "rack grid position requires a building"))
+			continue
+		}
+		aisle, err := parseInt32Value(r.aisleIndex, "aisle_index")
+		if err != nil {
+			errs = append(errs, csvErr(r.rowNum, "RACK", err.Error()))
+			continue
+		}
+		position, err := parseInt32Value(r.positionInAisle, "position_in_aisle")
+		if err != nil {
+			errs = append(errs, csvErr(r.rowNum, "RACK", err.Error()))
+			continue
+		}
+		if aisle < 0 {
+			errs = append(errs, csvErr(r.rowNum, "RACK", fmt.Sprintf("aisle_index %d is out of bounds", aisle)))
+			continue
+		}
+		if position < 0 {
+			errs = append(errs, csvErr(r.rowNum, "RACK", fmt.Sprintf("position_in_aisle %d is out of bounds", position)))
+			continue
+		}
+		building, ok := rackGridBuilding(r, tv)
+		if !ok {
+			continue
+		}
+		if building.Aisles <= 0 || aisle >= building.Aisles {
+			errs = append(errs, csvErr(r.rowNum, "RACK", fmt.Sprintf("aisle_index %d is out of bounds for building %q with %d aisles", aisle, building.Name, building.Aisles)))
+		}
+		if building.RacksPerAisle <= 0 || position >= building.RacksPerAisle {
+			errs = append(errs, csvErr(r.rowNum, "RACK", fmt.Sprintf("position_in_aisle %d is out of bounds for building %q with %d racks per aisle", position, building.Name, building.RacksPerAisle)))
+		}
+	}
+	return errs
+}
+
+func rackGridBuilding(r *resolvedRack, tv *topologyView) (buildingmodels.Building, bool) {
+	if r.buildingIDRef != nil {
+		building, ok := tv.buildingsByLayoutID[*r.buildingIDRef]
+		return building, ok
+	}
+	building, ok := tv.buildingsByKey[r.siteRef+"\x00"+r.buildingRef]
+	return building, ok
+}
+
+// validateRackSlotBounds rejects miner rack_row/rack_col coordinates that are
+// malformed or out of bounds for their rack's dimensions.
+func validateRackSlotBounds(miners []*resolvedMiner, tv *topologyView) []*pb.ImportValidationError {
+	var errs []*pb.ImportValidationError
+	for _, m := range miners {
+		if m.rackLabel == "" {
+			if m.rackRow != "" || m.rackCol != "" {
+				errs = append(errs, csvErr(m.rowNum, "MINER", "rack_row and rack_col require rack"))
+			}
+			continue
+		}
+		if (m.rackRow == "") != (m.rackCol == "") {
+			errs = append(errs, csvErr(m.rowNum, "MINER", "rack_row and rack_col must both be set or both be blank"))
+			continue
+		}
+		if m.rackRow == "" {
+			continue
+		}
+		rack, ok := tv.racksByLabel[m.rackLabel]
+		if !ok {
+			continue
+		}
+		rackRow, err := parseInt32Value(m.rackRow, "rack_row")
+		if err != nil {
+			errs = append(errs, csvErr(m.rowNum, "MINER", err.Error()))
+			continue
+		}
+		rackCol, err := parseInt32Value(m.rackCol, "rack_col")
+		if err != nil {
+			errs = append(errs, csvErr(m.rowNum, "MINER", err.Error()))
+			continue
+		}
+		if rackRow < 0 || rack.Rows <= 0 || rackRow >= rack.Rows {
+			errs = append(errs, csvErr(m.rowNum, "MINER", fmt.Sprintf("rack_row %d is out of bounds for rack %q with %d rows", rackRow, m.rackLabel, rack.Rows)))
+		}
+		if rackCol < 0 || rack.Columns <= 0 || rackCol >= rack.Columns {
+			errs = append(errs, csvErr(m.rowNum, "MINER", fmt.Sprintf("rack_col %d is out of bounds for rack %q with %d columns", rackCol, m.rackLabel, rack.Columns)))
 		}
 	}
 	return errs

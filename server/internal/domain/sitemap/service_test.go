@@ -2354,7 +2354,8 @@ func TestValidateRackSlotBoundsRejectsPartialCoordinates(t *testing.T) {
 	minerRows := []map[string]string{{"__row": "21", "device_identifier": "miner-1", "rack": "Rack A", "rack_row": "", "rack_col": "3"}}
 	rackRows := []map[string]string{{"rack": "Rack A", "rows": "4", "columns": "6"}}
 
-	errs := validateRackSlotBounds(minerRows, rackRows, &snapshot{})
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"MINER": minerRows, "RACK": rackRows}}, &snapshot{}, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	errs := validateRackSlotBounds(p.miners, p.topology)
 	if len(errs) != 1 || errs[0].GetMessage() != "rack_row and rack_col must both be set or both be blank" {
 		t.Fatalf("errors = %+v, want partial coordinate error", errs)
 	}
@@ -2380,7 +2381,8 @@ func TestValidateRackGridPositionsBlocksOutOfBounds(t *testing.T) {
 	}}
 	buildingRows := []map[string]string{{"site": "Site A", "building": "Building A", "aisles": "2", "racks_per_aisle": "6"}}
 
-	errs := validateRackGridPositions(rackRows, buildingRows, &snapshot{})
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"RACK": rackRows, "BUILDING": buildingRows}}, &snapshot{}, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	errs := validateRackGridPositions(p.racks, p.topology)
 	if len(errs) != 1 || !strings.Contains(errs[0].GetMessage(), "aisle_index 2 is out of bounds") {
 		t.Fatalf("errors = %+v, want aisle bounds error", errs)
 	}
@@ -2403,7 +2405,8 @@ func TestValidateRackGridPositionsUsesBuildingIDForDuplicateBuildingNames(t *tes
 		{ID: 11, Name: "Building A", Aisles: 2, RacksPerAisle: 1},
 	}}
 
-	errs := validateRackGridPositions(rackRows, buildingRows, snap)
+	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"RACK": rackRows, "BUILDING": buildingRows}}, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	errs := validateRackGridPositions(p.racks, p.topology)
 	if len(errs) != 0 {
 		t.Fatalf("errors = %+v, want building_id-specific bounds", errs)
 	}

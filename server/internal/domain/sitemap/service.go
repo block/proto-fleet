@@ -1180,9 +1180,9 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	}
 	plan.errors = append(plan.errors, validateBuildingLayoutBounds(parsed.sections["BUILDING"])...)
 	plan.errors = append(plan.errors, validateRackDimensions(parsed.sections["RACK"])...)
-	plan.errors = append(plan.errors, validateRackGridPositions(parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap)...)
+	plan.errors = append(plan.errors, validateRackGridPositions(resolved.racks, resolved.topology)...)
 	plan.errors = append(plan.errors, validateRackGridCollisions(parsed.sections["RACK"], snap, mode)...)
-	plan.errors = append(plan.errors, validateRackSlotBounds(parsed.sections["MINER"], parsed.sections["RACK"], targetSnap)...)
+	plan.errors = append(plan.errors, validateRackSlotBounds(resolved.miners, resolved.topology)...)
 	plan.errors = append(plan.errors, validateExistingSlotsFitRackDimensions(parsed.sections["MINER"], parsed.sections["RACK"], targetSnap, mode)...)
 	plan.errors = append(plan.errors, validateRackCapacity(parsed.sections["MINER"], parsed.sections["RACK"], targetSnap, mode)...)
 	plan.errors = append(plan.errors, validateBuildingRackCapacity(parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap)...)
@@ -3063,65 +3063,6 @@ func validateRackDimensions(rows []map[string]string) []*pb.ImportValidationErro
 	return errs
 }
 
-func validateRackGridPositions(rackRows, buildingRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
-	buildings := desiredBuildingMap(buildingRows, snap.buildings)
-	buildingsByID := desiredBuildingLayoutIDMap(buildingRows, snap.buildings)
-	var errs []*pb.ImportValidationError
-	for i, row := range rackRows {
-		aisleRaw := row["aisle_index"]
-		positionRaw := row["position_in_aisle"]
-		if (aisleRaw == "") != (positionRaw == "") {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", "aisle_index and position_in_aisle must both be set or both be blank"))
-			continue
-		}
-		if aisleRaw == "" {
-			continue
-		}
-		if row[fieldBuilding] == "" {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", "rack grid position requires a building"))
-			continue
-		}
-		aisle, err := parseInt32Value(aisleRaw, "aisle_index")
-		if err != nil {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", err.Error()))
-			continue
-		}
-		position, err := parseInt32Value(positionRaw, "position_in_aisle")
-		if err != nil {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", err.Error()))
-			continue
-		}
-		if aisle < 0 {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("aisle_index %d is out of bounds", aisle)))
-			continue
-		}
-		if position < 0 {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("position_in_aisle %d is out of bounds", position)))
-			continue
-		}
-		building, ok := desiredRackGridBuilding(row, buildings, buildingsByID)
-		if !ok {
-			continue
-		}
-		if building.Aisles <= 0 || aisle >= building.Aisles {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("aisle_index %d is out of bounds for building %q with %d aisles", aisle, building.Name, building.Aisles)))
-		}
-		if building.RacksPerAisle <= 0 || position >= building.RacksPerAisle {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("position_in_aisle %d is out of bounds for building %q with %d racks per aisle", position, building.Name, building.RacksPerAisle)))
-		}
-	}
-	return errs
-}
-
-func desiredRackGridBuilding(row map[string]string, buildings map[string]buildingmodels.Building, buildingsByID map[int64]buildingmodels.Building) (buildingmodels.Building, bool) {
-	if buildingID, ok := idFromCell(row[fieldBuildingID]); ok {
-		building, ok := buildingsByID[buildingID]
-		return building, ok
-	}
-	building, ok := buildings[row[fieldSite]+"\x00"+row[fieldBuilding]]
-	return building, ok
-}
-
 func validateRackGridCollisions(rackRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
 	presentRackIdentities := rackIdentitySet(rackRows, snap.racks)
 	buildingBySiteName := map[string]buildingmodels.Building{}
@@ -3215,47 +3156,6 @@ func validateMinerRenamePermission(rows []map[string]string, snap *snapshot) []*
 			continue
 		}
 		errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", "miner:rename permission is required to change miner name"))
-	}
-	return errs
-}
-
-func validateRackSlotBounds(minerRows, rackRows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
-	racks := desiredRackMap(rackRows, snap.racks, nil, snap.buildings)
-	var errs []*pb.ImportValidationError
-	for i, row := range minerRows {
-		if row[fieldRack] == "" {
-			if row["rack_row"] != "" || row["rack_col"] != "" {
-				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", "rack_row and rack_col require rack"))
-			}
-			continue
-		}
-		if (row["rack_row"] == "") != (row["rack_col"] == "") {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", "rack_row and rack_col must both be set or both be blank"))
-			continue
-		}
-		if row["rack_row"] == "" {
-			continue
-		}
-		rack, ok := racks[row[fieldRack]]
-		if !ok {
-			continue
-		}
-		rackRow, err := parseInt32Value(row["rack_row"], "rack_row")
-		if err != nil {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", err.Error()))
-			continue
-		}
-		rackCol, err := parseInt32Value(row["rack_col"], "rack_col")
-		if err != nil {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", err.Error()))
-			continue
-		}
-		if rackRow < 0 || rack.Rows <= 0 || rackRow >= rack.Rows {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("rack_row %d is out of bounds for rack %q with %d rows", rackRow, row[fieldRack], rack.Rows)))
-		}
-		if rackCol < 0 || rack.Columns <= 0 || rackCol >= rack.Columns {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("rack_col %d is out of bounds for rack %q with %d columns", rackCol, row[fieldRack], rack.Columns)))
-		}
 	}
 	return errs
 }
