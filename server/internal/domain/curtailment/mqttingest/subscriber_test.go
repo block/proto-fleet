@@ -67,10 +67,10 @@ type blockingListStore struct {
 	release     <-chan struct{}
 }
 
-func (s *blockingListStore) ListEnabledSources(context.Context) ([]SourceConfig, error) {
+func (s *blockingListStore) ListEnabledSources(ctx context.Context) ([]SourceConfig, error) {
 	s.startedOnce.Do(func() { close(s.started) })
 	<-s.release
-	return nil, nil
+	return s.Store.ListEnabledSources(ctx)
 }
 
 func (c *blockingDisconnectClient) Connect(context.Context, string, int32, string, string, string, string) error {
@@ -295,10 +295,50 @@ func TestSubscriber_StopCanCancelBlockedInitialReconcile(t *testing.T) {
 	require.ErrorContains(t, s.Start(context.Background()), "previous subscriber activation is still stopping")
 
 	close(release)
-	require.ErrorIs(t, <-startDone, context.Canceled)
+	require.ErrorContains(t, <-startDone, "subscriber is not started")
 	require.NoError(t, s.Stop(context.Background()))
 	require.NoError(t, s.Start(context.Background()))
 	require.NoError(t, s.Stop(context.Background()))
+}
+
+func TestSubscriber_ReconcileDoesNotStartWorkersAfterStop(t *testing.T) {
+	store := newFakeSourceStore()
+	reg := &clientRegistry{}
+	s := newReconcileTestSubscriber(t, store, reg)
+	require.NoError(t, s.Start(context.Background()))
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	store.setSources(reconcileTestSource(1, "maestro"))
+	s.cfg.Store = &blockingListStore{
+		Store:   store,
+		started: started,
+		release: release,
+	}
+
+	reconcileDone := make(chan error, 1)
+	go func() {
+		reconcileDone <- s.Reconcile(context.Background())
+	}()
+	<-started
+
+	stopDone := make(chan error, 1)
+	go func() {
+		stopDone <- s.Stop(context.Background())
+	}()
+	require.Eventually(t, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.activation != nil && channelClosed(s.activation.runCanceled)
+	}, time.Second, 10*time.Millisecond)
+
+	close(release)
+	require.ErrorContains(t, <-reconcileDone, "subscriber is not started")
+	require.NoError(t, <-stopDone)
+	active, maxActive, connects := reg.snapshot()
+	assert.Zero(t, active)
+	assert.Zero(t, maxActive)
+	assert.Zero(t, connects)
 }
 
 func TestSubscriber_StopTimeoutAllowsRestartAfterWorkersEventuallyDrain(t *testing.T) {

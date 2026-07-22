@@ -50,6 +50,8 @@ const (
 const workerRestartBackoffMax = 30 * time.Second
 const reconcileRetryTimeout = 30 * time.Second
 
+var errSubscriberNotStarted = errors.New("mqttingest: subscriber is not started")
+
 // Config bundles the subscriber's runtime dependencies and tunables.
 type Config struct {
 	Store             Store
@@ -319,13 +321,16 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 	}
 	s.mu.Unlock()
 	if activation == nil || channelClosed(activation.runCanceled) {
-		return 0, 0, errors.New("mqttingest: subscriber is not started")
+		return 0, 0, errSubscriberNotStarted
 	}
 	runCanceled := activation.runCanceled
 
 	sources, err := s.cfg.Store.ListEnabledSources(ctx)
 	if err != nil {
 		return 0, 0, fmt.Errorf("mqttingest: list enabled sources: %w", err)
+	}
+	if channelClosed(runCanceled) {
+		return 0, len(sources), errSubscriberNotStarted
 	}
 	s.cfg.Logger.Info("mqttingest subscriber reconciling", slog.Int("source_count", len(sources)))
 
@@ -370,6 +375,9 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 	started := 0
 	var firstStartErr error
 	for _, src := range sources {
+		if channelClosed(runCanceled) {
+			return started, len(sources), errSubscriberNotStarted
+		}
 		fingerprint := sourceConfigFingerprint(src)
 		s.mu.Lock()
 		current, ok := s.workers[src.ID]
@@ -382,6 +390,10 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 		s.mu.Unlock()
 
 		workerCtx, workerCancel := contextWithDone(runCanceled)
+		if channelClosed(runCanceled) {
+			workerCancel()
+			return started, len(sources), errSubscriberNotStarted
+		}
 		w, done, err := s.startWorker(ctx, workerCtx, src, &activation.workerWG)
 		if err != nil {
 			workerCancel()
@@ -402,10 +414,10 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 			fingerprint: fingerprint,
 		}
 		s.mu.Lock()
-		if s.activation != activation {
+		if s.activation != activation || channelClosed(runCanceled) {
 			s.mu.Unlock()
 			workerCancel()
-			continue
+			return started, len(sources), errSubscriberNotStarted
 		}
 		if previous, ok := s.workers[src.ID]; ok {
 			previous.cancel()
