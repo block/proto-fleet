@@ -499,6 +499,9 @@ func TestHandler_UpdatePredicatesWriteOnAuthorizedSite(t *testing.T) {
 	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
 		Return(deviceAtSite(7, 10), nil).Times(2)
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil)
+	h.store.EXPECT().LockInfrastructureRackForPlacement(
+		gomock.Any(), int64(42), int64(10), "", "Rack A1",
+	).Return(nil)
 	h.store.EXPECT().LockInfrastructureDeviceForWrite(gomock.Any(), int64(42), int64(7), int64(10)).Return(nil)
 	h.store.EXPECT().UpdateInfrastructureDevice(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, params models.UpdateParams) (*models.Device, error) {
@@ -588,6 +591,9 @@ func TestHandler_CreateTranslatesRoundTrip(t *testing.T) {
 	ctx := sitePermsCtx(t, 42)
 
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil)
+	h.store.EXPECT().LockInfrastructureRackForPlacement(
+		gomock.Any(), int64(42), int64(10), "Building 1", "Rack A1",
+	).Return(nil)
 	h.store.EXPECT().CreateInfrastructureDevice(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, params models.CreateParams) (*models.Device, error) {
 			// Translation carries the org from the session and the
@@ -648,6 +654,9 @@ func TestHandler_CreateDefaultsOmittedEnabledToTrue(t *testing.T) {
 	ctx := sitePermsCtx(t, 42)
 
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil).Times(2)
+	h.store.EXPECT().LockInfrastructureRackForPlacement(
+		gomock.Any(), int64(42), int64(10), "Building 1", "Rack A1",
+	).Return(nil).Times(2)
 	var seen []bool
 	h.store.EXPECT().CreateInfrastructureDevice(gomock.Any(), gomock.Any()).Times(2).DoAndReturn(
 		func(_ context.Context, params models.CreateParams) (*models.Device, error) {
