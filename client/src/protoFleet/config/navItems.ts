@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 
-import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Settings } from "@/shared/assets/icons";
+import { Activity, AIStroked, Fleet, Groups, Home, IconProps, LightningAlt, Settings } from "@/shared/assets/icons";
 
 // Runtime-gated features: an entry tagged with one is shown only when the server
 // reports the feature enabled (see SecondaryNavigation). Distinct from
@@ -101,6 +101,12 @@ export const primaryNavItems: NavItem[] = [
     // ActivityService is server-gated on activity:read (PR #347).
     requiredPermission: "activity:read",
     scopable: true,
+  },
+  {
+    path: "/minerbot",
+    label: "Minerbot",
+    icon: AIStroked,
+    requiredPermission: "fleet:read",
   },
   {
     path: "/settings",

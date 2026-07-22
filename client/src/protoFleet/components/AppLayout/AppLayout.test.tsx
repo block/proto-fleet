@@ -189,6 +189,19 @@ describe("AppLayout", () => {
     expect(screen.getByText("Body content").parentElement).toHaveClass("top-[calc(theme(spacing.1)*12)]");
   });
 
+  it("hides the floating Minerbot launcher on the dedicated Minerbot page", () => {
+    render(
+      <MemoryRouter initialEntries={["/minerbot"]}>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByTestId("ai-chat-fab")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("ai-chat-panel")).not.toBeInTheDocument();
+  });
+
   it("uses the two-widget phone content offset when all three header widgets are visible", () => {
     mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
     mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });

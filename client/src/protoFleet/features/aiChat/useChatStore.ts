@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 
-import type { AgentActivity, ChatMessage, ChatSuggestion, ToolConfirmation } from "./types";
+import type { AgentActivity, ChatMessage, ChatSuggestion, ChatTranscriptTurn, ToolConfirmation } from "./types";
 
 interface ChatState {
   isOpen: boolean;
@@ -18,6 +18,7 @@ interface ChatState {
   open: () => void;
   close: () => void;
   addMessage: (role: ChatMessage["role"], content: string) => void;
+  loadMessages: (turns: ChatTranscriptTurn[]) => void;
   setStreaming: (streaming: boolean) => void;
   appendStreamingContent: (content: string) => void;
   setStreamError: (error: string) => void;
@@ -75,6 +76,21 @@ export const useChatStore = create<ChatState>()(
           sequence: state.nextSequence,
         });
         state.nextSequence += 1;
+      }),
+    loadMessages: (turns) =>
+      set((state) => {
+        state.messages = turns.map((turn, index) => ({
+          id: crypto.randomUUID(),
+          role: turn.role,
+          content: turn.content,
+          timestamp: new Date(),
+          sequence: index,
+        }));
+        state.agentActivities = [];
+        state.toolConfirmations = [];
+        state.streamingContent = "";
+        state.streamError = "";
+        state.nextSequence = turns.length;
       }),
 
     setStreaming: (streaming) =>

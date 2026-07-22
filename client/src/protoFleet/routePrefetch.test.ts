@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { importSettingsAgents, importSettingsCurtailment, settingsRoutePrefetch } from "@/protoFleet/routePrefetch";
+import {
+  globalRoutePrefetch,
+  importMinerbotPage,
+  importSettingsAgents,
+  importSettingsCurtailment,
+  settingsRoutePrefetch,
+} from "@/protoFleet/routePrefetch";
+
+describe("globalRoutePrefetch", () => {
+  it("warms the Minerbot primary navigation page", () => {
+    expect(globalRoutePrefetch).toContain(importMinerbotPage);
+  });
+});
 
 describe("settingsRoutePrefetch", () => {
   it("warms the URL-only curtailment settings page", () => {

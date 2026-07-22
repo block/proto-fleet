@@ -15,6 +15,7 @@ import type { RouteImporter } from "@/shared/utils/prefetchRoutes";
 export { singleMinerRoutePrefetch };
 
 export const importDashboard = () => import("@/protoFleet/features/dashboard/pages/Dashboard");
+export const importMinerbotPage = () => import("@/protoFleet/features/aiChat/pages/MinerbotPage");
 export const importMiners = () => import("./features/fleetManagement/components/Fleet");
 export const importActivityPage = () => import("@/protoFleet/features/activity/pages/ActivityPage");
 export const importEnergyPage = () => import("@/protoFleet/features/energy/pages/EnergyPage");
@@ -64,6 +65,7 @@ export const globalRoutePrefetch: readonly RouteImporter[] = [
   importGroupsPage,
   importEnergyPage,
   importActivityPage,
+  importMinerbotPage,
   importSettingsLayout,
   importSettingsNetwork,
 ];

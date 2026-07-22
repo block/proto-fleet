@@ -50,7 +50,7 @@ const ChatInput = ({ disabled = false, onSend }: ChatInputProps) => {
         />
         <Button
           ariaLabel="Send message"
-          className="size-10 shrink-0 !p-0"
+          className="!h-10 !w-10 shrink-0 !rounded-full !p-0"
           disabled={!canSend}
           onClick={submit}
           prefixIcon={<ArrowUp width="w-5" />}

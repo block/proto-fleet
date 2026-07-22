@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import clsx from "clsx";
 
 import NavigationMenu from "../NavigationMenu";
@@ -30,6 +31,7 @@ type Props = {
 
 const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { pathname } = useLocation();
   const { bgClass } = usePageBackground();
   const { isPhone, isTablet } = useWindowDimensions();
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
@@ -48,6 +50,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const phoneRowWidgetCount = getPhoneHeaderWidgetRowCount(headerWidgetCount, inlineFirstPhoneWidget);
   const stackPhoneWidgets = shouldStackPhoneHeaderWidgets(headerWidgetCount);
 
+  const isMinerbotPage = pathname === "/minerbot";
   const showDetailMenuTrigger = hideShellHeader && (isPhone || isTablet) && !isMenuOpen;
   const showPhoneWidgets = !hideShellHeader && isPhone && phoneRowWidgetCount > 0;
 
@@ -118,7 +121,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
         {children}
       </div>
 
-      {canReadFleet ? (
+      {canReadFleet && !isMinerbotPage ? (
         <>
           {/* AI Chat: FAB launcher + slide-up panel */}
           <ChatFab />

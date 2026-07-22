@@ -20,7 +20,11 @@ All miners are offline.`}
     );
 
     const table = screen.getByRole("table");
+    expect(table).toHaveClass("text-300");
+    expect(table).not.toHaveClass("text-200");
     expect(within(table).getByRole("columnheader", { name: "Miner state" })).toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Miner state" })).toHaveClass("text-emphasis-300");
+    expect(within(table).getByRole("columnheader", { name: "Miner state" })).not.toHaveClass("text-emphasis-200");
     expect(within(table).getByRole("columnheader", { name: "Count" })).toHaveClass("text-right");
     const offlineRow = within(table).getByRole("cell", { name: "Offline" }).closest("tr");
     expect(offlineRow).not.toBeNull();

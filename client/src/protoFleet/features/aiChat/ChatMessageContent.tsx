@@ -138,14 +138,14 @@ const ChatMessageContent = ({ content }: ChatMessageContentProps) => {
             key={`table-${blockIndex}`}
             className="max-w-full overflow-x-auto rounded-xl border border-border-5 bg-surface-base"
           >
-            <table className="w-full min-w-max border-collapse text-200">
+            <table className="w-full min-w-max border-collapse text-300">
               <thead className="bg-core-primary-5">
                 <tr>
                   {block.headers.map((header, columnIndex) => (
                     <th
                       key={`${header}-${columnIndex}`}
                       scope="col"
-                      className={`border-b border-border-5 px-3 py-2 text-emphasis-200 whitespace-nowrap ${alignmentClass(block.alignments[columnIndex])}`}
+                      className={`border-b border-border-5 px-3 py-2 text-emphasis-300 whitespace-nowrap ${alignmentClass(block.alignments[columnIndex])}`}
                     >
                       {renderInlineText(header)}
                     </th>

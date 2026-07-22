@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
   resolveToolConfirmation: vi.fn(),
 }));
+const scrollIntoViewMock = vi.fn();
 
 vi.mock("@/protoFleet/api/clients", () => ({
   chatClient: mocks,
@@ -17,7 +18,8 @@ vi.mock("@/protoFleet/api/clients", () => ({
 describe("ChatPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    Element.prototype.scrollIntoView = vi.fn();
+    scrollIntoViewMock.mockClear();
+    Element.prototype.scrollIntoView = scrollIntoViewMock;
     act(() => {
       useChatStore.getState().clearMessages();
       useChatStore.getState().open();
@@ -41,7 +43,8 @@ describe("ChatPanel", () => {
     expect(screen.getByText("Beta")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "What would you like to know?" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Summarize fleet health" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show configured mining pools" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Find profit risks today" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "What needs attention first?" })).toBeInTheDocument();
     expect(screen.queryByText("Demo data")).not.toBeInTheDocument();
     expect(screen.queryByText("RebootBot")).not.toBeInTheDocument();
   });
@@ -85,6 +88,8 @@ describe("ChatPanel", () => {
     expect(statusIndex).toBeGreaterThan(requestIndex);
     expect(responseIndex).toBeGreaterThan(statusIndex);
     expect(screen.getByTestId("agent-activity-status")).not.toHaveClass("rounded-2xl");
+    expect(screen.getByTestId("ai-chat-panel-scroll-area")).toHaveClass("min-h-0", "overflow-y-auto", "scroll-pb-4");
+    expect(scrollIntoViewMock).toHaveBeenLastCalledWith({ behavior: "smooth", block: "end", inline: "nearest" });
   });
 
   test("cancels and ignores an in-flight response when starting a new chat", async () => {
