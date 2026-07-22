@@ -66,7 +66,6 @@ type Processor struct {
 	wg          sync.WaitGroup
 	timerWG     sync.WaitGroup
 	lifecycleMu sync.Mutex
-	running     bool
 	stopDone    chan struct{}
 	mu          sync.Mutex
 	jobs        map[int64]jobEntry
@@ -120,11 +119,11 @@ func (p *Processor) Start(ctx context.Context) error {
 	p.lifecycleMu.Lock()
 	defer p.lifecycleMu.Unlock()
 
-	if p.running {
-		return nil
-	}
 	if p.stopDone != nil {
 		return errProcessorStopping
+	}
+	if p.stopCancel != nil {
+		return nil
 	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("schedule processor startup: %w", err)
@@ -158,7 +157,6 @@ func (p *Processor) Start(ctx context.Context) error {
 	p.wg.Add(2)
 	go p.reconcileLoop(stopCtx, workCtx)
 	go p.endOfWindowLoop(stopCtx, workCtx)
-	p.running = true
 	go p.stopOnActivationCancellation(stopCtx)
 
 	slog.Info("schedule processor started")
@@ -199,11 +197,10 @@ func (p *Processor) beginStop() (<-chan struct{}, context.CancelFunc) {
 	if p.stopDone != nil {
 		return p.stopDone, workCancel
 	}
-	if !p.running && p.stopCancel == nil && p.workCancel == nil && p.cron == nil {
+	if p.stopCancel == nil && p.workCancel == nil && p.cron == nil {
 		return nil, func() {}
 	}
 
-	p.running = false
 	p.stopDone = make(chan struct{})
 	done := p.stopDone
 	stopCancel := p.stopCancel
@@ -252,22 +249,8 @@ func (p *Processor) finishStop(done chan struct{}, cronCtx context.Context, work
 }
 
 func (p *Processor) resetFailedStart() {
-	if p.stopCancel != nil {
-		p.stopCancel()
-	}
-	if p.workCancel != nil {
-		p.workCancel()
-	}
-	p.mu.Lock()
-	for _, entry := range p.jobs {
-		if entry.isOneTime && entry.timer != nil && entry.timer.Stop() {
-			p.timerWG.Done()
-		}
-	}
-	p.jobs = make(map[int64]jobEntry)
-	p.nextGen = 0
-	p.mu.Unlock()
-	p.timerWG.Wait()
+	p.stopCancel()
+	p.workCancel()
 	p.stopCancel = nil
 	p.workCancel = nil
 	p.cron = nil
