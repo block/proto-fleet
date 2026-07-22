@@ -67,6 +67,24 @@ export class AuthPage extends BasePage {
     await this.clickButton("Login");
   }
 
+  async completeInitialSetupOrLogin(username: string, password: string) {
+    await this.inputUsername(username);
+    await this.inputPassword(password);
+
+    const continueButton = this.page.getByRole("button", { name: "Continue", exact: true });
+    const loginButton = this.page.getByTestId("login-button");
+
+    await expect(continueButton.or(loginButton)).toBeVisible();
+
+    if (await continueButton.isVisible().catch(() => false)) {
+      await continueButton.click();
+    } else {
+      await this.clickLogin();
+    }
+
+    await this.validateLoggedIn();
+  }
+
   async clickPasswordVisibilityToggle() {
     await this.page.locator(`//*[@data-testid="eye-icon"]`).click();
   }

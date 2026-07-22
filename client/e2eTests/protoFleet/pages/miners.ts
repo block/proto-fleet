@@ -260,6 +260,20 @@ export class MinersPage extends BasePage {
       .first();
   }
 
+  getSingleMinerActionsPopover(): Locator {
+    return this.singleMinerActionsPopover();
+  }
+
+  getBulkActionsPopover(): Locator {
+    return this.page
+      .locator('[data-testid="actions-menu-popover"], [data-testid="actions-menu-popover-sheet"]')
+      .first();
+  }
+
+  getActionBar(): Locator {
+    return this.page.getByTestId("action-bar");
+  }
+
   async clickBlinkLEDsButton() {
     const singleMinerAction = this.singleMinerActionsPopover().getByTestId("blink-leds-popover-button");
     if (await singleMinerAction.isVisible().catch(() => false)) {

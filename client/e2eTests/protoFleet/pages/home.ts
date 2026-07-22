@@ -1,7 +1,11 @@
-import { expect } from "@playwright/test";
+import { expect, type Locator } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class HomePage extends BasePage {
+  getCompleteSetupModule(): Locator {
+    return this.page.getByTestId("complete-setup");
+  }
+
   private getDurationButton(duration: string) {
     return this.page.getByRole("button", { name: duration, exact: true });
   }
