@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/alecthomas/assert/v2"
-	"github.com/robfig/cron/v3"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -86,170 +85,7 @@ func waitForSignal(t *testing.T, ch <-chan struct{}, msg string) {
 	}
 }
 
-func assertNoSignal(t *testing.T, ch <-chan struct{}, d time.Duration, msg string) {
-	t.Helper()
-	select {
-	case <-ch:
-		t.Fatal(msg)
-	case <-time.After(d):
-	}
-}
-
 // --- lifecycle shutdown ---
-
-func TestStop_WaitsForInFlightTimerCallback(t *testing.T) {
-	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
-	runCtx, runCancel := context.WithCancel(context.Background())
-	p.runCancel = runCancel
-
-	started := make(chan struct{})
-	release := make(chan struct{})
-	stopped := make(chan struct{})
-
-	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).DoAndReturn(
-		func(ctx context.Context, scheduleID int64) (int64, error) {
-			close(started)
-			<-release
-			assert.True(t, errors.Is(ctx.Err(), context.Canceled))
-			return int64(0), nil
-		},
-	)
-
-	p.timerWG.Add(1)
-	timer := time.AfterFunc(time.Hour, func() {
-		defer p.timerWG.Done()
-		p.executeSchedule(runCtx, 1)
-	})
-	p.jobs[1] = jobEntry{timer: timer, isOneTime: true, generation: 1}
-	timer.Reset(0)
-
-	waitForSignal(t, started, "timer callback did not start")
-
-	go func() {
-		assert.NoError(t, p.Stop(context.Background()))
-		close(stopped)
-	}()
-
-	assertNoSignal(t, stopped, 50*time.Millisecond, "Stop returned before timer callback finished")
-	close(release)
-	waitForSignal(t, stopped, "Stop did not return after timer callback finished")
-}
-
-func TestStop_DoesNotWaitForFutureStoppedTimer(t *testing.T) {
-	p, _, _, _, _ := newTestProcessor(t, time.Now())
-	_, runCancel := context.WithCancel(context.Background())
-	p.runCancel = runCancel
-
-	fired := make(chan struct{})
-	stopped := make(chan struct{})
-
-	p.timerWG.Add(1)
-	timer := time.AfterFunc(time.Hour, func() {
-		defer p.timerWG.Done()
-		close(fired)
-	})
-	p.jobs[1] = jobEntry{timer: timer, isOneTime: true, generation: 1}
-
-	go func() {
-		assert.NoError(t, p.Stop(context.Background()))
-		close(stopped)
-	}()
-
-	waitForSignal(t, stopped, "Stop waited for a future timer instead of stopping it")
-	assertNoSignal(t, fired, 10*time.Millisecond, "stopped timer fired")
-}
-
-func TestStop_DrainsTimersRegisteredByStoppingLoop(t *testing.T) {
-	p, _, _, _, _ := newTestProcessor(t, time.Now())
-	runCtx, runCancel := context.WithCancel(context.Background())
-	p.runCancel = runCancel
-
-	registered := make(chan struct{})
-	fired := make(chan struct{})
-	stopped := make(chan struct{})
-
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
-		<-runCtx.Done()
-
-		p.mu.Lock()
-		defer p.mu.Unlock()
-		p.timerWG.Add(1)
-		timer := time.AfterFunc(time.Hour, func() {
-			defer p.timerWG.Done()
-			close(fired)
-		})
-		p.jobs[1] = jobEntry{timer: timer, isOneTime: true, generation: 1}
-		close(registered)
-	}()
-
-	go func() {
-		assert.NoError(t, p.Stop(context.Background()))
-		close(stopped)
-	}()
-
-	waitForSignal(t, stopped, "Stop did not drain timer registered while stopping loops")
-	waitForSignal(t, registered, "stopping loop did not register timer before drain")
-	assertNoSignal(t, fired, 10*time.Millisecond, "timer registered during shutdown fired")
-}
-
-func TestStop_CancelsCronJobContext(t *testing.T) {
-	p, _, _, _, _ := newTestProcessor(t, time.Now())
-	runCtx, runCancel := context.WithCancel(context.Background())
-	p.runCancel = runCancel
-	p.cron = cron.New(cron.WithSeconds())
-
-	started := make(chan struct{})
-	stopped := make(chan struct{})
-
-	_, err := p.cron.AddFunc("@every 1s", func() {
-		close(started)
-		<-runCtx.Done()
-	})
-	assert.NoError(t, err)
-	p.cron.Start()
-
-	waitForSignal(t, started, "cron callback did not start")
-
-	go func() {
-		assert.NoError(t, p.Stop(context.Background()))
-		close(stopped)
-	}()
-
-	waitForSignal(t, stopped, "Stop did not cancel the cron callback context")
-}
-
-func TestStop_CancelsInFlightWork(t *testing.T) {
-	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
-	runCtx, runCancel := context.WithCancel(context.Background())
-	p.runCancel = runCancel
-
-	started := make(chan struct{})
-	cancelled := make(chan struct{})
-
-	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).DoAndReturn(
-		func(ctx context.Context, _ int64) (int64, error) {
-			close(started)
-			<-ctx.Done()
-			close(cancelled)
-			return int64(0), ctx.Err()
-		},
-	)
-
-	p.timerWG.Add(1)
-	timer := time.AfterFunc(time.Hour, func() {
-		defer p.timerWG.Done()
-		p.executeSchedule(runCtx, 1)
-	})
-	p.jobs[1] = jobEntry{timer: timer, isOneTime: true, generation: 1}
-	timer.Reset(0)
-
-	waitForSignal(t, started, "hung callback did not start")
-
-	assert.NoError(t, p.Stop(context.Background()))
-	waitForSignal(t, cancelled, "Stop did not cancel in-flight work")
-}
 
 func TestProcessor_StartStopStart_ReRegistersUnchangedSchedules(t *testing.T) {
 	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
@@ -266,96 +102,153 @@ func TestProcessor_StartStopStart_ReRegistersUnchangedSchedules(t *testing.T) {
 	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return(schedules, nil).Times(4)
 
 	assert.NoError(t, p.Start(t.Context()))
-	assert.Equal(t, 1, len(p.cron.Entries()))
+	assert.Equal(t, 1, len(p.activation.cron.Entries()))
 	assert.NoError(t, p.Stop(context.Background()))
 
 	assert.NoError(t, p.Start(t.Context()))
-	assert.Equal(t, 1, len(p.cron.Entries()))
+	assert.Equal(t, 1, len(p.activation.cron.Entries()))
 	assert.NoError(t, p.Stop(context.Background()))
 }
 
-func TestProcessor_StartHonorsActivationCancellation(t *testing.T) {
+func TestProcessor_StopDeadlineDoesNotBlockOnStartup(t *testing.T) {
 	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
 	queryStarted := make(chan struct{})
+	releaseQuery := make(chan struct{})
 	procStore.EXPECT().GetActiveSchedules(gomock.Any()).DoAndReturn(
-		func(ctx context.Context) ([]interfaces.ScheduleWithOrg, error) {
+		func(context.Context) ([]interfaces.ScheduleWithOrg, error) {
 			close(queryStarted)
-			<-ctx.Done()
-			return nil, ctx.Err()
+			<-releaseQuery
+			return nil, nil
 		},
 	)
+	procStore.EXPECT().GetActiveSchedules(gomock.Any()).DoAndReturn(
+		func(ctx context.Context) ([]interfaces.ScheduleWithOrg, error) { return nil, ctx.Err() },
+	)
 
-	ctx, cancel := context.WithCancel(context.Background())
 	startDone := make(chan error, 1)
-	go func() { startDone <- p.Start(ctx) }()
+	go func() { startDone <- p.Start(context.Background()) }()
 	waitForSignal(t, queryStarted, "startup query did not begin")
-	cancel()
 
-	select {
-	case err := <-startDone:
-		assert.Error(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("Start did not return after its activation context was canceled")
-	}
-}
-
-func TestProcessor_ActivationCancellationRejectsRestartUntilDrain(t *testing.T) {
-	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
-	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return(nil, nil).Times(4)
-
-	activationCtx, cancelActivation := context.WithCancel(context.Background())
-	assert.NoError(t, p.Start(activationCtx))
-
-	callbackStarted := make(chan struct{})
-	releaseCallback := make(chan struct{})
-	p.timerWG.Add(1)
-	timer := time.AfterFunc(0, func() {
-		defer p.timerWG.Done()
-		close(callbackStarted)
-		<-releaseCallback
-	})
-	p.mu.Lock()
-	p.jobs[1] = jobEntry{timer: timer, isOneTime: true}
-	p.mu.Unlock()
-	waitForSignal(t, callbackStarted, "timer callback did not start")
-
-	cancelActivation()
-
+	stopCtx, cancelStop := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancelStop()
+	assert.Error(t, p.Stop(stopCtx))
 	assert.True(t, errors.Is(p.Start(context.Background()), errProcessorStopping))
-	close(releaseCallback)
+
+	close(releaseQuery)
+	assert.Error(t, <-startDone)
 	assert.NoError(t, p.Stop(context.Background()))
+
+	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return(nil, nil).Times(2)
 	assert.NoError(t, p.Start(context.Background()))
 	assert.NoError(t, p.Stop(context.Background()))
 }
 
-func TestProcessor_Stop_PreventsRestartUntilDrainCompletes(t *testing.T) {
-	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
-	runCtx, runCancel := context.WithCancel(context.Background())
-	p.runCancel = runCancel
-
-	started := make(chan struct{})
-	release := make(chan struct{})
-	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).DoAndReturn(
-		func(context.Context, int64) (int64, error) {
-			close(started)
-			<-release
-			return 0, nil
+func TestProcessor_ActivationCancellationDrainsAdmittedSchedule(t *testing.T) {
+	p, procStore, targetStore, _, _ := newTestProcessor(t, time.Now())
+	runStarted := make(chan struct{})
+	releaseRun := make(chan struct{})
+	sched := &pb.Schedule{Id: 1, Action: pb.ScheduleAction_SCHEDULE_ACTION_REBOOT, ScheduleType: pb.ScheduleType_SCHEDULE_TYPE_ONE_TIME, StartDate: "2026-04-01", StartTime: "10:00", Timezone: "UTC"}
+	withOrg := []interfaces.ScheduleWithOrg{{Schedule: sched, OrgID: 1}}
+	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return(withOrg, nil).Times(2)
+	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).Return(int64(1), nil)
+	procStore.EXPECT().GetScheduleByID(gomock.Any(), int64(1)).Return(&interfaces.ScheduleWithOrg{Schedule: sched, OrgID: 1}, nil)
+	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return(nil, nil)
+	// No targets still requires final state persistence.
+	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Nil(), statusCompleted).DoAndReturn(
+		func(ctx context.Context, _ int64, _ *int64, _ *int64, _ string) error {
+			close(runStarted)
+			<-releaseRun
+			assert.NoError(t, ctx.Err())
+			return nil
 		},
 	)
 
-	p.timerWG.Add(1)
-	timer := time.AfterFunc(time.Hour, func() {
-		defer p.timerWG.Done()
-		p.executeSchedule(runCtx, 1)
-	})
-	p.jobs[1] = jobEntry{timer: timer, isOneTime: true, generation: 1}
-	timer.Reset(0)
+	activationCtx, cancelActivation := context.WithCancel(context.Background())
+	assert.NoError(t, p.Start(activationCtx))
+	p.jobs[1].timer.Reset(0)
+	waitForSignal(t, runStarted, "schedule did not reach final state persistence")
+
+	cancelActivation()
+	assert.True(t, errors.Is(p.Start(context.Background()), errProcessorStopping))
+	close(releaseRun)
+	assert.NoError(t, p.Stop(context.Background()))
+}
+
+func TestProcessor_ActivationCancellationDrainsAdmittedWindowRevert(t *testing.T) {
+	now := time.Date(2026, 4, 1, 17, 30, 0, 0, time.UTC)
+	p, procStore, targetStore, _, cmdSvc := newTestProcessor(t, now)
+	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return(nil, nil).Times(2)
+
+	activationCtx, cancelActivation := context.WithCancel(context.Background())
+	assert.NoError(t, p.Start(activationCtx))
+	run := p.activation
+
+	lastRun := time.Date(2026, 4, 1, 9, 0, 0, 0, time.UTC)
+	sched := &pb.Schedule{
+		Id:           1,
+		Action:       pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET,
+		Status:       pb.ScheduleStatus_SCHEDULE_STATUS_RUNNING,
+		StartDate:    "2026-04-01",
+		StartTime:    "09:00",
+		EndTime:      "17:00",
+		Timezone:     "UTC",
+		LastRunAt:    timestamppb.New(lastRun),
+		ScheduleType: pb.ScheduleType_SCHEDULE_TYPE_RECURRING,
+		Recurrence:   &pb.ScheduleRecurrence{Frequency: pb.RecurrenceFrequency_RECURRENCE_FREQUENCY_DAILY, Interval: 1},
+	}
+	dispatchStarted := make(chan struct{})
+	releaseDispatch := make(chan struct{})
+	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return([]interfaces.ScheduleWithOrg{{Schedule: sched, OrgID: 1}}, nil)
+	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"}}, nil)
+	cmdSvc.EXPECT().SetPowerTarget(gomock.Any(), gomock.Any(), revertPerformanceMode).DoAndReturn(
+		func(ctx context.Context, _ *commandpb.DeviceSelector, _ commandpb.PerformanceMode) (*commanddomain.CommandResult, error) {
+			close(dispatchStarted)
+			<-releaseDispatch
+			assert.NoError(t, ctx.Err())
+			return nil, nil
+		},
+	)
+	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Nil(), gomock.Not(gomock.Nil()), statusActive).DoAndReturn(
+		func(ctx context.Context, _ int64, _ *int64, _ *int64, _ string) error {
+			assert.NoError(t, ctx.Err())
+			return nil
+		},
+	)
+
+	run.wg.Add(1)
+	go func() {
+		defer run.wg.Done()
+		p.checkEndOfWindow(run.workCtx)
+	}()
+	waitForSignal(t, dispatchStarted, "window revert was not dispatched")
+	cancelActivation()
+	close(releaseDispatch)
+	assert.NoError(t, p.Stop(context.Background()))
+}
+
+func TestProcessor_StopDeadlineForceCancelsAdmittedWork(t *testing.T) {
+	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
+	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return(nil, nil).Times(2)
+	assert.NoError(t, p.Start(context.Background()))
+	run := p.activation
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	release := make(chan struct{})
+	run.wg.Add(1)
+	go func() {
+		defer run.wg.Done()
+		close(started)
+		<-run.workCtx.Done()
+		close(cancelled)
+		<-release
+	}()
 	waitForSignal(t, started, "timer callback did not start")
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 	defer cancel()
 	assert.Error(t, p.Stop(ctx))
-	assert.Error(t, p.Start(t.Context()))
+	waitForSignal(t, cancelled, "Stop deadline did not cancel admitted work")
+	assert.True(t, errors.Is(p.Start(t.Context()), errProcessorStopping))
 
 	close(release)
 	assert.NoError(t, p.Stop(context.Background()))
@@ -363,8 +256,7 @@ func TestProcessor_Stop_PreventsRestartUntilDrainCompletes(t *testing.T) {
 
 func TestProcessor_ActivationCancellationPreventsNewTimerWork(t *testing.T) {
 	p, _, _, _, _ := newTestProcessor(t, time.Now())
-	p.cron = cron.New()
-	runCtx, cancelRun := context.WithCancel(t.Context())
+	run := newProcessorActivation(t.Context())
 
 	sched := &pb.Schedule{
 		Id:           1,
@@ -374,13 +266,13 @@ func TestProcessor_ActivationCancellationPreventsNewTimerWork(t *testing.T) {
 		Timezone:     "UTC",
 	}
 	p.mu.Lock()
-	assert.NoError(t, p.registerJob(runCtx, sched))
+	assert.NoError(t, p.registerJob(run, sched))
 	timer := p.jobs[1].timer
 	p.mu.Unlock()
 
-	cancelRun()
+	run.cancelAdmission()
 	timer.Reset(0)
-	p.timerWG.Wait()
+	run.timerWG.Wait()
 }
 
 // --- recoverStaleRunning ---
@@ -439,9 +331,9 @@ func TestRecoverStaleRunning_ResetsWindowWithNilLastRunAt(t *testing.T) {
 
 func TestSyncSchedules_RegistersNewJobs(t *testing.T) {
 	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
-	p.cron = cron.New()
-	p.cron.Start()
-	defer p.cron.Stop()
+	run := newProcessorActivation(context.Background())
+	run.cron.Start()
+	defer run.cron.Stop()
 
 	sched := &pb.Schedule{
 		Id:           1,
@@ -457,7 +349,7 @@ func TestSyncSchedules_RegistersNewJobs(t *testing.T) {
 		{Schedule: sched, OrgID: 1},
 	}, nil)
 
-	assert.NoError(t, p.syncSchedules(context.Background()))
+	assert.NoError(t, p.syncSchedules(context.Background(), run))
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -468,17 +360,17 @@ func TestSyncSchedules_RegistersNewJobs(t *testing.T) {
 
 func TestSyncSchedules_RemovesStaleJobs(t *testing.T) {
 	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
-	p.cron = cron.New()
-	p.cron.Start()
-	defer p.cron.Stop()
+	run := newProcessorActivation(context.Background())
+	run.cron.Start()
+	defer run.cron.Stop()
 
 	// Pre-populate a job that won't appear in the DB query.
-	entryID, _ := p.cron.AddFunc("0 9 * * *", func() {})
-	p.jobs[99] = jobEntry{entryID: entryID, fingerprint: "old"}
+	entryID, _ := run.cron.AddFunc("0 9 * * *", func() {})
+	p.jobs[99] = jobEntry{entryID: entryID, activation: run, fingerprint: "old"}
 
 	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return(nil, nil)
 
-	assert.NoError(t, p.syncSchedules(context.Background()))
+	assert.NoError(t, p.syncSchedules(context.Background(), run))
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -487,13 +379,13 @@ func TestSyncSchedules_RemovesStaleJobs(t *testing.T) {
 
 func TestSyncSchedules_ReRegistersOnFingerprintChange(t *testing.T) {
 	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
-	p.cron = cron.New()
-	p.cron.Start()
-	defer p.cron.Stop()
+	run := newProcessorActivation(context.Background())
+	run.cron.Start()
+	defer run.cron.Stop()
 
 	// Pre-populate with old fingerprint.
-	entryID, _ := p.cron.AddFunc("0 9 * * *", func() {})
-	p.jobs[1] = jobEntry{entryID: entryID, fingerprint: "old-fingerprint"}
+	entryID, _ := run.cron.AddFunc("0 9 * * *", func() {})
+	p.jobs[1] = jobEntry{entryID: entryID, activation: run, fingerprint: "old-fingerprint"}
 
 	sched := &pb.Schedule{
 		Id:           1,
@@ -509,7 +401,7 @@ func TestSyncSchedules_ReRegistersOnFingerprintChange(t *testing.T) {
 		{Schedule: sched, OrgID: 1},
 	}, nil)
 
-	assert.NoError(t, p.syncSchedules(context.Background()))
+	assert.NoError(t, p.syncSchedules(context.Background(), run))
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -773,44 +665,6 @@ func TestExecuteSchedule_Success(t *testing.T) {
 	p.executeSchedule(context.Background(), 1)
 }
 
-func TestExecuteSchedule_ActivationCancellationDoesNotCancelFinalization(t *testing.T) {
-	now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
-	p, procStore, targetStore, _, cmdSvc := newTestProcessor(t, now)
-	ctx, cancel := context.WithCancel(context.Background())
-
-	sched := &pb.Schedule{
-		Id:           1,
-		Action:       pb.ScheduleAction_SCHEDULE_ACTION_REBOOT,
-		ScheduleType: pb.ScheduleType_SCHEDULE_TYPE_ONE_TIME,
-		StartDate:    "2026-04-01",
-		StartTime:    "10:00",
-		Timezone:     "UTC",
-	}
-
-	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).Return(int64(1), nil)
-	procStore.EXPECT().GetScheduleByID(gomock.Any(), int64(1)).Return(&interfaces.ScheduleWithOrg{Schedule: sched, OrgID: 1}, nil)
-	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
-		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
-	}, nil)
-	cmdSvc.EXPECT().Reboot(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(context.Context, *commandpb.DeviceSelector) (*commanddomain.CommandResult, error) {
-			cancel()
-			return nil, nil
-		},
-	)
-	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Nil(), statusCompleted).DoAndReturn(
-		func(writeCtx context.Context, _ int64, _ *int64, _ *int64, _ string) error {
-			assert.NoError(t, writeCtx.Err())
-			_, bounded := writeCtx.Deadline()
-			assert.True(t, bounded, "finalization context should be bounded")
-			return nil
-		},
-	)
-
-	p.executeSchedule(ctx, 1)
-	assert.Error(t, ctx.Err())
-}
-
 func TestExecuteSchedule_SkipsWhenNotActive(t *testing.T) {
 	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
 
@@ -850,13 +704,13 @@ func TestExecuteSchedule_DispatchFailureReverts(t *testing.T) {
 func TestExecuteSchedule_DispatchFailureRevertFails_KeepsJob(t *testing.T) {
 	now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
 	p, procStore, targetStore, _, cmdSvc := newTestProcessor(t, now)
-	p.cron = cron.New()
-	p.cron.Start()
-	defer p.cron.Stop()
+	run := newProcessorActivation(context.Background())
+	run.cron.Start()
+	defer run.cron.Stop()
 
 	// Pre-register a job so we can verify it is NOT removed.
-	entryID, _ := p.cron.AddFunc("0 10 * * *", func() {})
-	p.jobs[1] = jobEntry{entryID: entryID, fingerprint: "test"}
+	entryID, _ := run.cron.AddFunc("0 10 * * *", func() {})
+	p.jobs[1] = jobEntry{entryID: entryID, activation: run, fingerprint: "test"}
 
 	sched := &pb.Schedule{
 		Id:           1,
@@ -1052,12 +906,12 @@ func TestUpdateAfterRun_PowerTargetWindowStaysRunning(t *testing.T) {
 func TestUpdateAfterRun_UpdateFailsRevertFails_KeepsJob(t *testing.T) {
 	now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
 	p, procStore, _, _, _ := newTestProcessor(t, now)
-	p.cron = cron.New()
-	p.cron.Start()
-	defer p.cron.Stop()
+	run := newProcessorActivation(context.Background())
+	run.cron.Start()
+	defer run.cron.Stop()
 
-	entryID, _ := p.cron.AddFunc("0 10 * * *", func() {})
-	p.jobs[1] = jobEntry{entryID: entryID, fingerprint: "test"}
+	entryID, _ := run.cron.AddFunc("0 10 * * *", func() {})
+	p.jobs[1] = jobEntry{entryID: entryID, activation: run, fingerprint: "test"}
 
 	sched := &pb.Schedule{
 		Id:           1,
@@ -1118,12 +972,12 @@ func TestUpdateAfterRun_UpdateFails_DoesNotRemoveReregisteredJob(t *testing.T) {
 func TestTransitionToCompleted_UpdateFailsRevertFails_KeepsJob(t *testing.T) {
 	now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
 	p, procStore, _, _, _ := newTestProcessor(t, now)
-	p.cron = cron.New()
-	p.cron.Start()
-	defer p.cron.Stop()
+	run := newProcessorActivation(context.Background())
+	run.cron.Start()
+	defer run.cron.Stop()
 
-	entryID, _ := p.cron.AddFunc("0 10 * * *", func() {})
-	p.jobs[1] = jobEntry{entryID: entryID, fingerprint: "test"}
+	entryID, _ := run.cron.AddFunc("0 10 * * *", func() {})
+	p.jobs[1] = jobEntry{entryID: entryID, activation: run, fingerprint: "test"}
 
 	sched := &pb.Schedule{
 		Id:           1,
