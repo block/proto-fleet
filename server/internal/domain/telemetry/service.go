@@ -368,12 +368,13 @@ func (r *telemetryRun) canceled() bool {
 }
 
 // writerContext keeps result writers alive after activation cancellation until
-// every background producer has exited. Writers can keep draining while slow
-// producers unwind, then their existing cancellation path performs one final,
-// stable drain and flush.
+// every registered producer has exited. Waiting begins after cancellation,
+// when lifecycleMu prevents new producer registrations. Writers keep draining
+// while slow producers unwind, then perform one final, stable drain and flush.
 func (r *telemetryRun) writerContext(ctx context.Context) context.Context {
 	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	go func() {
+		<-r.done
 		r.producerWG.Wait()
 		cancel()
 	}()
@@ -488,10 +489,11 @@ func (s *TelemetryService) RefreshDevice(ctx context.Context, device models.Devi
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("context cancelled waiting for in-flight refresh for device %s: %w", device.ID, err)
 	}
-	run, err := s.activeRun()
+	run, releaseRun, err := s.registerActiveProducer()
 	if err != nil {
 		return err
 	}
+	defer releaseRun()
 
 	waitCtx, cancelWait := context.WithTimeout(ctx, s.refreshDeviceOperationTimeout())
 	claimed, err := s.claimDeviceForRefresh(waitCtx, device.ID)
@@ -648,6 +650,16 @@ func (s *TelemetryService) activeRun() (*telemetryRun, error) {
 		return nil, errTelemetryServiceInactive
 	}
 	return s.run, nil
+}
+
+func (s *TelemetryService) registerActiveProducer() (*telemetryRun, func(), error) {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	if s.runCancel == nil || s.run == nil || s.run.canceled() {
+		return nil, nil, errTelemetryServiceInactive
+	}
+	s.run.producerWG.Add(1)
+	return s.run, s.run.producerWG.Done, nil
 }
 
 // Start activates background telemetry collection for the lifetime of ctx.

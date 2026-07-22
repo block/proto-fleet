@@ -368,8 +368,10 @@ func TestTelemetryService_StopDrainsResultsProducedWhileWorkersExit(t *testing.T
 	service.runWG.Go(func() { service.metricsWriterRoutine(writerCtx, run) })
 	go service.finishRun(runDone, run)
 
+	stopCtx, cancelStop := context.WithTimeout(t.Context(), time.Second)
+	defer cancelStop()
 	stopDone := make(chan error, 1)
-	go func() { stopDone <- service.Stop(t.Context()) }()
+	go func() { stopDone <- service.Stop(stopCtx) }()
 	select {
 	case <-producerCanceled:
 	case <-time.After(time.Second):
@@ -536,7 +538,7 @@ func TestTelemetryService_CloseStopsBroadcastersAfterStopTimeout(t *testing.T) {
 	require.False(t, open)
 }
 
-func TestTelemetryService_StopStartIsolatesInFlightRefreshResults(t *testing.T) {
+func TestTelemetryService_StopDrainsInFlightRefreshBeforeRestart(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
@@ -557,7 +559,17 @@ func TestTelemetryService_StopStartIsolatesInFlightRefreshResults(t *testing.T) 
 	mockScheduler.EXPECT().FetchDevices(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	mockScheduler.EXPECT().AddDevices(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 	mockDeviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).Return(nil, nil).AnyTimes()
+	mockDeviceStore.EXPECT().
+		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), []models.DeviceIdentifier{deviceID}).
+		Return(nil, nil)
+	mockDeviceStore.EXPECT().
+		UpsertDeviceStatuses(gomock.Any(), []stores.DeviceStatusUpdate{{
+			DeviceIdentifier: deviceID,
+			Status:           mm.MinerStatusActive,
+		}}).
+		Return(nil)
 	mockDataStore.EXPECT().InsertMinerStateSnapshot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockDataStore.EXPECT().StoreDeviceMetrics(gomock.Any(), metric).Return(nil)
 	mockMinerGetter.EXPECT().GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).Return(mockMiner, nil).Times(2)
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
@@ -598,22 +610,33 @@ func TestTelemetryService_StopStartIsolatesInFlightRefreshResults(t *testing.T) 
 	}
 	assertRefreshClaimed()
 
-	require.NoError(t, service.Stop(t.Context()))
-	assertRefreshClaimed()
-	require.NoError(t, service.Start(t.Context()))
-	secondRun, err := service.activeRun()
-	require.NoError(t, err)
-	require.NotSame(t, firstRun, secondRun)
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- service.Stop(t.Context()) }()
+	select {
+	case err := <-stopDone:
+		t.Fatalf("Stop returned before the request refresh exited: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
 	assertRefreshClaimed()
 
 	close(releaseRefresh)
-	require.ErrorIs(t, <-refreshDone, errTelemetryServiceInactive)
-	require.Len(t, firstRun.results.status, 1)
-	require.Len(t, firstRun.results.metrics, 1)
-	require.Empty(t, secondRun.results.status)
-	require.Empty(t, secondRun.results.metrics)
+	select {
+	case <-refreshDone:
+	case <-time.After(time.Second):
+		t.Fatal("request refresh did not exit")
+	}
+	select {
+	case err := <-stopDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not drain the request refresh")
+	}
+	require.Empty(t, firstRun.results.status)
+	require.Empty(t, firstRun.results.metrics)
 	_, claimed := service.inFlight.Load(deviceID)
 	assert.False(t, claimed)
+
+	require.NoError(t, service.Start(t.Context()))
 	require.NoError(t, service.Stop(t.Context()))
 }
 
