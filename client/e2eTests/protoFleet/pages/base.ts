@@ -657,10 +657,20 @@ export class BasePage {
     await link.click();
   }
 
+  private async waitForMobileNavigationMenuToClose() {
+    if (!this.isMobile) {
+      return;
+    }
+
+    await expect(this.page.getByRole("dialog", { name: "Navigation menu" })).toHaveCount(0);
+    await expect(this.page.getByTestId("navigation-menu-button")).toBeVisible();
+  }
+
   async navigateToHomePage() {
     await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/dashboard"]').click();
     await expect(this.page).toHaveURL(/.*\/dashboard$/);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async navigateToFleetPage() {
@@ -684,6 +694,7 @@ export class BasePage {
     }
     await expect(this.page.getByTestId("fleet-layout")).toBeVisible();
     await expect(this.page).toHaveURL(FLEET_TAB_ROUTE);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async navigateToMinersPage() {
@@ -696,6 +707,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/groups"]').click();
     await expect(this.page).toHaveURL(/.*\/groups/);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async navigateToRacksPage() {
@@ -708,6 +720,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/activity"]').click();
     await expect(this.page).toHaveURL(/.*\/activity/);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async navigateToSettingsPage() {
@@ -719,6 +732,7 @@ export class BasePage {
       await this.page.getByTestId("navigation-menu").locator('a[href="/settings"]').click();
     }
     await expect(this.page).toHaveURL(/.*\/settings/);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async navigateSettingsIfDesktop() {

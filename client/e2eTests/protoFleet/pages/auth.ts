@@ -112,6 +112,17 @@ export class AuthPage extends BasePage {
     await this.clickButton("Create an account");
   }
 
+  getCreateCredentialsForm() {
+    const heading = this.page.getByText("Create your username and password", { exact: true });
+
+    return this.page
+      .locator("div")
+      .filter({ has: heading })
+      .filter({ has: this.page.locator("#username") })
+      .filter({ has: this.page.getByRole("button", { name: "Continue", exact: true }) })
+      .first();
+  }
+
   async validateCreateCredentialsPrompt() {
     await expect(this.page.getByText("Create your username and password")).toBeVisible();
   }
