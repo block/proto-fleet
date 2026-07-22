@@ -4301,19 +4301,18 @@ func TestReconciler_StopCancellationPreventsOverlappingRestart(t *testing.T) {
 	disp := &fakeDispatcher{}
 	r := New(Config{TickInterval: time.Hour}, store, disp)
 
-	workCtx, workCancel := context.WithCancel(context.Background())
+	runCtx, runCancel := context.WithCancel(context.Background())
 	runDone := make(chan struct{})
-	r.stopCancel = func() {}
-	r.workCancel = workCancel
+	r.runCancel = runCancel
 	r.runDone = runDone
 
 	workCanceled := make(chan struct{})
 	releaseWork := make(chan struct{})
 	go func() {
-		<-workCtx.Done()
+		<-runCtx.Done()
 		close(workCanceled)
 		<-releaseWork
-		r.finishActivation(workCancel)
+		r.finishActivation()
 		close(runDone)
 	}()
 

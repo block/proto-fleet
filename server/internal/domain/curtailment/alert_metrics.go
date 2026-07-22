@@ -102,8 +102,8 @@ func NewAlertMetricsLoop(cfg AlertMetricsConfig) (*AlertMetricsLoop, error) {
 	return &AlertMetricsLoop{cfg: cfg}, nil
 }
 
-// Start launches the tick loop; a second Start while running is a no-op.
-// The loop runs until Stop.
+// Start launches the tick loop for the lifetime of ctx; a second Start while
+// running is a no-op.
 func (l *AlertMetricsLoop) Start(ctx context.Context) error {
 	l.lifecycleMu.Lock()
 	defer l.lifecycleMu.Unlock()

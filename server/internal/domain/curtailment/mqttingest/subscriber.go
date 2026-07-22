@@ -146,7 +146,8 @@ func NewSubscriber(cfg Config) (*Subscriber, error) {
 	return s, nil
 }
 
-// Start starts the runtime and performs the initial source reconciliation.
+// Start runs the subscriber for the lifetime of ctx and performs the initial
+// source reconciliation.
 func (s *Subscriber) Start(ctx context.Context) error {
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()

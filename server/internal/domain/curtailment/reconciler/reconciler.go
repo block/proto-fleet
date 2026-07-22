@@ -106,9 +106,8 @@ type Reconciler struct {
 	fanAlert FacilityFanAlertEmitter
 	now      func() time.Time
 
-	stopCancel context.CancelFunc
-	workCancel context.CancelFunc
-	runDone    <-chan struct{}
+	runCancel context.CancelFunc
+	runDone   <-chan struct{}
 
 	lifecycleMu sync.Mutex
 	mu          sync.Mutex
@@ -164,8 +163,9 @@ func New(cfg Config, store interfaces.CurtailmentStore, cmd CommandDispatcher, o
 	return r
 }
 
-// Start spins up the tick loop. Repeat Starts without an intervening Stop
-// are no-ops so misbehaving wiring cannot fork two reconcilers.
+// Start spins up the tick loop for the lifetime of ctx. Repeat Starts without
+// an intervening Stop are no-ops so misbehaving wiring cannot fork two
+// reconcilers.
 func (r *Reconciler) Start(ctx context.Context) error {
 	if r.store == nil {
 		return fmt.Errorf("curtailment reconciler: store is required")
@@ -191,26 +191,20 @@ func (r *Reconciler) Start(ctx context.Context) error {
 		r.mu.Unlock()
 		return nil
 	}
-	stopCtx, stopCancel := context.WithCancel(ctx)
-	// Stopping the activation prevents new ticks immediately but gives the
-	// current tick a chance to finish. Stop cancels this detached work
-	// context if its caller's shutdown budget expires.
-	workCtx, workCancel := context.WithCancel(context.WithoutCancel(ctx))
+	runCtx, runCancel := context.WithCancel(ctx)
 	runDone := make(chan struct{})
-	r.stopCancel = stopCancel
-	r.workCancel = workCancel
+	r.runCancel = runCancel
 	r.runDone = runDone
 	r.mu.Unlock()
 
-	go r.tickLoop(stopCtx, workCtx, workCancel, runDone)
+	go r.tickLoop(runCtx, runDone)
 	slog.Info("curtailment reconciler started", "tick_interval", r.cfg.TickInterval)
 	return nil
 }
 
-// Stop prevents new ticks, waits for the current tick to drain within
-// ctx, and force-cancels its work when the budget expires. A timed-out
-// activation retains ownership until its goroutine actually exits, so Start
-// can never overlap it.
+// Stop cancels the activation and waits for it to drain within ctx. A timed-out
+// activation retains ownership until its goroutine actually exits, so Start can
+// never overlap it.
 func (r *Reconciler) Stop(ctx context.Context) error {
 	r.lifecycleMu.Lock()
 	defer r.lifecycleMu.Unlock()
@@ -221,53 +215,42 @@ func (r *Reconciler) Stop(ctx context.Context) error {
 		return nil
 	}
 	r.stopping = true
-	stopCancel := r.stopCancel
-	workCancel := r.workCancel
+	runCancel := r.runCancel
 	runDone := r.runDone
 	r.mu.Unlock()
 
-	if stopCancel != nil {
-		stopCancel()
+	if runCancel != nil {
+		runCancel()
 	}
 	select {
 	case <-runDone:
 		slog.Info("curtailment reconciler stopped")
 		return nil
 	case <-ctx.Done():
-		if workCancel != nil {
-			workCancel()
-		}
 		return fmt.Errorf("curtailment reconciler: stop: %w", ctx.Err())
 	}
 }
 
-func (r *Reconciler) tickLoop(
-	stopCtx context.Context,
-	workCtx context.Context,
-	workCancel context.CancelFunc,
-	runDone chan<- struct{},
-) {
+func (r *Reconciler) tickLoop(ctx context.Context, runDone chan<- struct{}) {
 	defer close(runDone)
-	defer r.finishActivation(workCancel)
+	defer r.finishActivation()
 	ticker := time.NewTicker(r.cfg.TickInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-stopCtx.Done():
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			r.safeTick(workCtx)
+			r.safeTick(ctx)
 		}
 	}
 }
 
-func (r *Reconciler) finishActivation(workCancel context.CancelFunc) {
-	workCancel()
+func (r *Reconciler) finishActivation() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.stopping = false
-	r.stopCancel = nil
-	r.workCancel = nil
+	r.runCancel = nil
 	r.runDone = nil
 }
 
