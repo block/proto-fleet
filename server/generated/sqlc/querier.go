@@ -83,6 +83,7 @@ type Querier interface {
 	// buildings in the org. Caller diffs against the requested set
 	// to detect cross-org or missing IDs.
 	BuildingsByIDs(ctx context.Context, arg BuildingsByIDsParams) ([]int64, error)
+	BulkInsertCohortMemberships(ctx context.Context, arg BulkInsertCohortMembershipsParams) (int64, error)
 	// Bulk fan-out via jsonb_to_recordset: per-row fields ride in a JSONB
 	// payload, missing/null keys map to SQL NULL. :execrows lets the caller
 	// pin (rows == len(input)) to detect partial writes.
@@ -176,7 +177,10 @@ type Querier interface {
 	// Same-event duplicates and cross-event target conflicts are no-ops; the
 	// reconciler retries on a later tick if a conflicting event resolves.
 	ClaimClosedLoopFullFleetTargets(ctx context.Context, arg ClaimClosedLoopFullFleetTargetsParams) ([]CurtailmentTarget, error)
+	ClaimConfigDispatch(ctx context.Context, arg ClaimConfigDispatchParams) (int64, error)
+	ClaimFirmwareDispatch(ctx context.Context, arg ClaimFirmwareDispatchParams) (int64, error)
 	ClaimMessageForProcessing(ctx context.Context, id int64) (sql.Result, error)
+	ClearCohortFirmwareTargetFileReferences(ctx context.Context, arg ClearCohortFirmwareTargetFileReferencesParams) (int64, error)
 	ClearCurtailmentAutomationActiveEvent(ctx context.Context, arg ClearCurtailmentAutomationActiveEventParams) error
 	// Nulls device.building_id for every direct-FK device pointing at the
 	// given building. Used by DeleteBuilding's soft-delete cascade so a
@@ -236,6 +240,10 @@ type Querier interface {
 	// which reuses ListActivityLogs).
 	CountActivityLogs(ctx context.Context, arg CountActivityLogsParams) (int64, error)
 	CountBuildingsBySite(ctx context.Context, arg CountBuildingsBySiteParams) (int64, error)
+	CountCohortDevices(ctx context.Context, arg CountCohortDevicesParams) (CountCohortDevicesRow, error)
+	CountCohortMemberships(ctx context.Context, arg CountCohortMembershipsParams) (int64, error)
+	CountCohorts(ctx context.Context, arg CountCohortsParams) (int64, error)
+	CountCohortsByOwner(ctx context.Context, arg CountCohortsByOwnerParams) (int64, error)
 	// Counts distinct (device_id, component_type, component_id) tuples that have errors matching filter criteria.
 	CountComponentsWithErrors(ctx context.Context, arg CountComponentsWithErrorsParams) (int64, error)
 	CountConflictingCurtailmentFanClaims(ctx context.Context, arg CountConflictingCurtailmentFanClaimsParams) (int64, error)
@@ -289,11 +297,16 @@ type Querier interface {
 	// layer. Unassigned buildings (site_id IS NULL) are not name-unique so
 	// cascade-unassign on site delete cannot collide.
 	CreateBuilding(ctx context.Context, arg CreateBuildingParams) (Building, error)
+	CreateCohort(ctx context.Context, arg CreateCohortParams) (Cohort, error)
 	// organization_id is captured from the caller's session so downstream
 	// org-scoped queries (e.g. GetBatchHeaderForOrg) can filter directly on the
 	// batch's owning organization rather than joining through user_organization.
 	CreateCommandBatchLog(ctx context.Context, arg CreateCommandBatchLogParams) (sql.Result, error)
 	CreateCustomRole(ctx context.Context, arg CreateCustomRoleParams) (Role, error)
+	// Seeds the single is_default cohort for a freshly created org. Values mirror
+	// the per-org default seeded for pre-existing orgs in migration 000094; the
+	// uq_cohort_one_default_per_org partial index enforces one default per org.
+	CreateDefaultCohort(ctx context.Context, orgID int64) error
 	CreateDeviceSet(ctx context.Context, arg CreateDeviceSetParams) (CreateDeviceSetRow, error)
 	CreateFleetNode(ctx context.Context, arg CreateFleetNodeParams) (CreateFleetNodeRow, error)
 	CreateFleetNodeApiKey(ctx context.Context, arg CreateFleetNodeApiKeyParams) error
@@ -324,6 +337,10 @@ type Querier interface {
 	// desired_state scope avoids blocking AdminTerminate on RESTORING events
 	// whose in-flight commands are Uncurtails.
 	CurtailmentEventHasInFlightTargets(ctx context.Context, curtailmentEventID int64) (bool, error)
+	DeleteCohortFirmwareTarget(ctx context.Context, arg DeleteCohortFirmwareTargetParams) (int64, error)
+	DeleteCohortMemberships(ctx context.Context, arg DeleteCohortMembershipsParams) (int64, error)
+	DeleteCohortMembershipsByCohort(ctx context.Context, arg DeleteCohortMembershipsByCohortParams) (int64, error)
+	DeleteCohortMembershipsByDevice(ctx context.Context, arg DeleteCohortMembershipsByDeviceParams) (int64, error)
 	DeleteCurtailmentAutomationRuleByOrg(ctx context.Context, arg DeleteCurtailmentAutomationRuleByOrgParams) (int64, error)
 	DeleteCurtailmentResponseProfileByOrg(ctx context.Context, arg DeleteCurtailmentResponseProfileByOrgParams) (int64, error)
 	// Deletes reusable response profiles tied to a site as part of the
@@ -472,6 +489,7 @@ type Querier interface {
 	// The (org, builtin_key) pair is unique among live rows via the
 	// partial index uq_role_org_builtin_key.
 	GetBuiltinRoleForOrg(ctx context.Context, arg GetBuiltinRoleForOrgParams) (Role, error)
+	GetCohort(ctx context.Context, arg GetCohortParams) (GetCohortRow, error)
 	GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg GetCurtailmentAutomationRuleByOrgParams) (GetCurtailmentAutomationRuleByOrgRow, error)
 	// Webhook idempotent replay lookup; mirrors the
 	// uq_curtailment_event_external_ref partial index.
@@ -743,6 +761,7 @@ type Querier interface {
 	// path inserts only the activity_log row.
 	InsertActivityLog(ctx context.Context, arg InsertActivityLogParams) error
 	InsertAlertChannel(ctx context.Context, arg InsertAlertChannelParams) (AlertChannel, error)
+	InsertCohortMembership(ctx context.Context, arg InsertCohortMembershipParams) error
 	InsertCurtailmentAutomationRule(ctx context.Context, arg InsertCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error)
 	// Full column list mirrors the migration so callers can't rely on DEFAULTs
 	// for values the API layer should be normalizing.
@@ -785,6 +804,7 @@ type Querier interface {
 	IsBatchFinished(ctx context.Context, commandBatchLogUuid string) (bool, error)
 	IsBatchProcessing(ctx context.Context, commandBatchLogUuid string) (bool, error)
 	IsDeviceOwnedByFleetNode(ctx context.Context, arg IsDeviceOwnedByFleetNodeParams) (bool, error)
+	IsPoolReferencedByActiveCohort(ctx context.Context, arg IsPoolReferencedByActiveCohortParams) (bool, error)
 	// Devices locked in a non-terminal event; excluded from candidates to
 	// enforce the per-device single-writer rule.
 	ListActiveCurtailedDevicesByOrg(ctx context.Context, orgID int64) ([]string, error)
@@ -813,6 +833,7 @@ type Querier interface {
 	// per-org built-ins. The onboarding flow also seeds built-ins for
 	// new orgs inside its creation transaction.
 	ListActiveOrganizationIDs(ctx context.Context) ([]int64, error)
+	ListActiveOwnedCohortMemberships(ctx context.Context, arg ListActiveOwnedCohortMembershipsParams) ([]ListActiveOwnedCohortMembershipsRow, error)
 	// Array filter contract: the Go store layer must pass nil (not empty slice)
 	// for the narg text[] filters below. An empty non-nil array
 	// (pq.Array([]string{})) produces '{}' which matches nothing via ANY, leading
@@ -863,6 +884,17 @@ type Querier interface {
 	// by the startup reconciler (which iterates orgs) and by the
 	// onboarding hook that seeds built-ins for a new org.
 	ListBuiltinRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error)
+	ListCohortConfigStatuses(ctx context.Context, arg ListCohortConfigStatusesParams) ([]ListCohortConfigStatusesRow, error)
+	ListCohortConfigStatusesForDevices(ctx context.Context, arg ListCohortConfigStatusesForDevicesParams) ([]ListCohortConfigStatusesForDevicesRow, error)
+	ListCohortDeviceOwnership(ctx context.Context, arg ListCohortDeviceOwnershipParams) ([]ListCohortDeviceOwnershipRow, error)
+	ListCohortDevices(ctx context.Context, arg ListCohortDevicesParams) ([]ListCohortDevicesRow, error)
+	ListCohortFirmwareStatuses(ctx context.Context, arg ListCohortFirmwareStatusesParams) ([]ListCohortFirmwareStatusesRow, error)
+	ListCohortFirmwareStatusesForDevices(ctx context.Context, arg ListCohortFirmwareStatusesForDevicesParams) ([]ListCohortFirmwareStatusesForDevicesRow, error)
+	ListCohortFirmwareTargets(ctx context.Context, arg ListCohortFirmwareTargetsParams) ([]CohortFirmwareTarget, error)
+	ListCohortMembers(ctx context.Context, arg ListCohortMembersParams) ([]ListCohortMembersRow, error)
+	ListCohorts(ctx context.Context, arg ListCohortsParams) ([]ListCohortsRow, error)
+	ListCohortsByOwner(ctx context.Context, arg ListCohortsByOwnerParams) ([]ListCohortsByOwnerRow, error)
+	ListConfigEnforcementCandidates(ctx context.Context, arg ListConfigEnforcementCandidatesParams) ([]ListConfigEnforcementCandidatesRow, error)
 	ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID int64) ([]ListCurtailmentAutomationRulesByOrgRow, error)
 	// Per-device state for the selector. Returns every in-scope device;
 	// service applies skip-reason attribution. nil power/hash = stale
@@ -894,6 +926,8 @@ type Querier interface {
 	// orgs, so an admin in org A cannot see or assign org B's custom
 	// roles even if they happen to know an internal id.
 	ListCustomRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error)
+	ListDefaultCohortDevices(ctx context.Context, arg ListDefaultCohortDevicesParams) ([]string, error)
+	ListDeviceIdentifiersForCohortMembership(ctx context.Context, arg ListDeviceIdentifiersForCohortMembershipParams) ([]string, error)
 	ListDeviceSetMembersPaginated(ctx context.Context, arg ListDeviceSetMembersPaginatedParams) ([]ListDeviceSetMembersPaginatedRow, error)
 	ListDeviceSetMembersPaginatedAfter(ctx context.Context, arg ListDeviceSetMembersPaginatedAfterParams) ([]ListDeviceSetMembersPaginatedAfterRow, error)
 	ListDeviceSetMembersPaginatedFiltered(ctx context.Context, arg ListDeviceSetMembersPaginatedFilteredParams) ([]ListDeviceSetMembersPaginatedFilteredRow, error)
@@ -952,6 +986,8 @@ type Querier interface {
 	// exist as live devices in the org. Used to surface "device_not_found"
 	// conflicts in AssignDevicesToSite without an N+1 lookup.
 	ListExistingDeviceIdentifiers(ctx context.Context, arg ListExistingDeviceIdentifiersParams) ([]string, error)
+	ListExpiredActiveCohorts(ctx context.Context) ([]ListExpiredActiveCohortsRow, error)
+	ListFirmwareEnforcementCandidates(ctx context.Context, orgID int64) ([]ListFirmwareEnforcementCandidatesRow, error)
 	ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error)
 	ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDevicesParams) ([]ListFleetNodeDevicesRow, error)
 	// Fleet-node-discovered devices not yet paired to their node. A discovered
@@ -997,6 +1033,8 @@ type Querier interface {
 	ListNonTerminalCurtailmentEvents(ctx context.Context) ([]CurtailmentEvent, error)
 	ListNotificationHistory(ctx context.Context, arg ListNotificationHistoryParams) ([]ListNotificationHistoryRow, error)
 	ListOrganizations(ctx context.Context) ([]Organization, error)
+	ListOrgsWithDesiredConfig(ctx context.Context) ([]int64, error)
+	ListOrgsWithFirmwareTargets(ctx context.Context) ([]int64, error)
 	ListPermissions(ctx context.Context) ([]Permission, error)
 	ListPools(ctx context.Context, orgID int64) ([]Pool, error)
 	ListRackTypes(ctx context.Context, orgID int64) ([]ListRackTypesRow, error)
@@ -1157,6 +1195,16 @@ type Querier interface {
 	MarkCommandBatchFinished(ctx context.Context, uuid string) error
 	MarkCommandBatchFinishedWithStartedAt(ctx context.Context, uuid string) error
 	MarkCommandBatchProcessing(ctx context.Context, uuid string) error
+	MarkConfigConfirmed(ctx context.Context, arg MarkConfigConfirmedParams) (int64, error)
+	MarkConfigDispatchFailure(ctx context.Context, arg MarkConfigDispatchFailureParams) (int64, error)
+	MarkConfigDispatchHeld(ctx context.Context, arg MarkConfigDispatchHeldParams) (int64, error)
+	MarkConfigDispatched(ctx context.Context, arg MarkConfigDispatchedParams) (int64, error)
+	MarkConfigDrifted(ctx context.Context, arg MarkConfigDriftedParams) (int64, error)
+	MarkFirmwareConfirmed(ctx context.Context, arg MarkFirmwareConfirmedParams) (int64, error)
+	MarkFirmwareDispatchFailure(ctx context.Context, arg MarkFirmwareDispatchFailureParams) (int64, error)
+	MarkFirmwareDispatchHeld(ctx context.Context, arg MarkFirmwareDispatchHeldParams) (int64, error)
+	MarkFirmwareDispatched(ctx context.Context, arg MarkFirmwareDispatchedParams) (int64, error)
+	MarkFirmwareDrifted(ctx context.Context, arg MarkFirmwareDriftedParams) (int64, error)
 	NegateSchedulePriorities(ctx context.Context, arg NegateSchedulePrioritiesParams) error
 	PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error)
 	PasswordUpdatedAt(ctx context.Context, id int64) (sql.NullTime, error)
@@ -1222,6 +1270,7 @@ type Querier interface {
 	// Refreshes open errors for a device after an incomplete diagnostics poll.
 	// Uses GREATEST so a delayed partial poll cannot move newer observations backward.
 	RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error)
+	ReleaseCohort(ctx context.Context, arg ReleaseCohortParams) (Cohort, error)
 	// All-paired policy targets that never received a Curtail command do not need
 	// Uncurtail. Release them before the restore reset so graceful Stop does not
 	// enqueue no-op restore work for offline/auth-needed miners.
@@ -1264,6 +1313,11 @@ type Querier interface {
 	// desired_state='active' and clears phase-local cursors so the restorer
 	// has an unambiguous queue. Terminal states are untouched.
 	ResetCurtailmentTargetsForRestore(ctx context.Context, curtailmentEventID int64) error
+	ResetFirmwareEnforcementForCohortMembers(ctx context.Context, arg ResetFirmwareEnforcementForCohortMembersParams) (int64, error)
+	ResetFirmwareEnforcementForCohortTarget(ctx context.Context, arg ResetFirmwareEnforcementForCohortTargetParams) (int64, error)
+	ResetFirmwareEnforcementForDevices(ctx context.Context, arg ResetFirmwareEnforcementForDevicesParams) (int64, error)
+	ResetFirmwareEnforcementForFirmwareFile(ctx context.Context, arg ResetFirmwareEnforcementForFirmwareFileParams) (int64, error)
+	ResolveEffectiveCohortForDevice(ctx context.Context, arg ResolveEffectiveCohortForDeviceParams) (ResolveEffectiveCohortForDeviceRow, error)
 	// Restore reversal: go back through pending so the curtail dispatcher picks
 	// up reset targets. Preserve fan_off_sent_at and fan_last_error until the
 	// active reconciler has positively reopened airflow; clearing them here can
@@ -1433,6 +1487,7 @@ type Querier interface {
 	UpdateAlertChannel(ctx context.Context, arg UpdateAlertChannelParams) (AlertChannel, error)
 	UpdateApiKeyLastUsed(ctx context.Context, arg UpdateApiKeyLastUsedParams) error
 	UpdateBuilding(ctx context.Context, arg UpdateBuildingParams) error
+	UpdateCohort(ctx context.Context, arg UpdateCohortParams) (Cohort, error)
 	UpdateCurtailmentAutomationRule(ctx context.Context, arg UpdateCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error)
 	// The expected-state guard prevents a stale reconciler phase from stamping
 	// over a concurrent transition. Terminal states remain addressable so an
@@ -1464,6 +1519,7 @@ type Querier interface {
 	// their own per-org editor that goes through a different code path
 	// because their seed identity (builtin_key) must be preserved.
 	UpdateCustomRoleName(ctx context.Context, arg UpdateCustomRoleNameParams) error
+	UpdateDefaultCohortConfig(ctx context.Context, arg UpdateDefaultCohortConfigParams) (Cohort, error)
 	UpdateDeviceCustomNames(ctx context.Context, arg UpdateDeviceCustomNamesParams) (int64, error)
 	// PostgreSQL equivalent of UPDATE with INNER JOIN
 	UpdateDeviceIPAssignment(ctx context.Context, arg UpdateDeviceIPAssignmentParams) error
@@ -1569,6 +1625,8 @@ type Querier interface {
 	// the partial unique index uq_role_org_builtin_key WHERE
 	// is_builtin = TRUE AND deleted_at IS NULL.
 	UpsertBuiltinRoleForOrg(ctx context.Context, arg UpsertBuiltinRoleForOrgParams) (Role, error)
+	UpsertCohortFirmwareTarget(ctx context.Context, arg UpsertCohortFirmwareTargetParams) (CohortFirmwareTarget, error)
+	UpsertCohortReconcilerHeartbeat(ctx context.Context, arg UpsertCohortReconcilerHeartbeatParams) error
 	// PostgreSQL version using CTE for the subquery.
 	// error_info is NULL for SUCCESS rows; for FAILED rows it is either the worker
 	// error string (truncated by the caller) or the reaper reason.
@@ -1587,6 +1645,7 @@ type Querier interface {
 	// device $1 exists, and device.discovered_device_id is NOT NULL, so dev
 	// always matches in practice.
 	UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error
+	UpsertConfigSupport(ctx context.Context, arg UpsertConfigSupportParams) error
 	UpsertCurtailmentAutomationSignalState(ctx context.Context, arg UpsertCurtailmentAutomationSignalStateParams) error
 	// Singleton row at id=1; INSERT path only fires on accidental deletion.
 	UpsertCurtailmentReconcilerHeartbeat(ctx context.Context, arg UpsertCurtailmentReconcilerHeartbeatParams) error
@@ -1598,6 +1657,8 @@ type Querier interface {
 	// SUPER_ADMIN/ADMIN/FIELD_TECH would also be rejected by
 	// chk_role_custom_name_not_reserved.
 	UpsertCustomRoleForOrg(ctx context.Context, arg UpsertCustomRoleForOrgParams) (int64, error)
+	UpsertDeviceConfigState(ctx context.Context, arg UpsertDeviceConfigStateParams) error
+	UpsertDeviceFirmwareState(ctx context.Context, arg UpsertDeviceFirmwareStateParams) error
 	UpsertDevicePairing(ctx context.Context, arg UpsertDevicePairingParams) (sql.Result, error)
 	// Zone / building filters are not handled by this static query.
 	// When the caller's filter includes BuildingIDs, IncludeNoBuilding,
