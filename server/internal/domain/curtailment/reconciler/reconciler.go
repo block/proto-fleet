@@ -45,11 +45,9 @@ const (
 	defaultRestoreDispatchTimeoutSec = 30
 )
 
-type pendingDispatchClockAction int
-
 const (
-	skipPendingDispatchClock pendingDispatchClockAction = iota
-	recordPendingDispatchClock
+	skipPendingDispatchClock   = false
+	recordPendingDispatchClock = true
 )
 
 // CommandDispatcher is the subset of command.Service the reconciler needs;
@@ -455,7 +453,7 @@ func (r *Reconciler) reconcilePendingFans(ctx context.Context, ev *models.Event)
 // remaining targets; a positive interval paces fresh pending batches.
 func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *models.Event, targets []*models.Target) {
 	batchSize := curtailBatchSizeForEvent(ev, len(targets))
-	dispatchByState := func(state models.TargetState, dispatchSingleBatch bool, clockAction pendingDispatchClockAction) bool {
+	dispatchByState := func(state models.TargetState, dispatchSingleBatch bool, recordPendingDispatch bool) bool {
 		claim := make([]*models.Target, 0, batchSize)
 		for _, t := range targets {
 			if t.State != state {
@@ -463,7 +461,7 @@ func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *mode
 			}
 			claim = append(claim, t)
 			if int32(len(claim)) >= batchSize { //nolint:gosec // batchSize already bounded
-				if !r.dispatchCurtailBatch(ctx, ev, claim, state, clockAction) {
+				if !r.dispatchCurtailBatch(ctx, ev, claim, state, recordPendingDispatch) {
 					return false
 				}
 				if dispatchSingleBatch {
@@ -475,7 +473,7 @@ func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *mode
 		if len(claim) == 0 {
 			return true
 		}
-		return r.dispatchCurtailBatch(ctx, ev, claim, state, clockAction)
+		return r.dispatchCurtailBatch(ctx, ev, claim, state, recordPendingDispatch)
 	}
 
 	intervalActive := curtailBatchIntervalActive(ev)
@@ -535,7 +533,7 @@ func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t
 
 // dispatchCurtailBatch issues one Curtail command for every device in claim and
 // records per-target dispatched/skipped/failed outcomes.
-func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event, claim []*models.Target, nonTerminalFailureState models.TargetState, clockAction pendingDispatchClockAction) bool {
+func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event, claim []*models.Target, nonTerminalFailureState models.TargetState, recordPendingDispatch bool) bool {
 	if len(claim) == 0 {
 		return true
 	}
@@ -664,7 +662,7 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 		t.CurtailPhase.BatchUUID = &batchID
 		wroteDispatch = true
 	}
-	if clockAction == recordPendingDispatchClock && wroteDispatch {
+	if recordPendingDispatch && wroteDispatch {
 		return r.recordCurtailPendingDispatch(ctx, ev, now)
 	}
 	return true
