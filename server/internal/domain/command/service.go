@@ -173,6 +173,8 @@ func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 		return activitymodels.ActorScheduler
 	case session.ActorCurtailment:
 		return activitymodels.ActorCurtailment
+	case session.ActorCohort:
+		return activitymodels.ActorCohort
 	}
 	return ""
 }
@@ -831,6 +833,8 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 	kept, skipped, err := applyFilters(ctx, s.filters, CommandFilterInput{
 		CommandType:       command.commandType,
 		OrganizationID:    info.OrganizationID,
+		UserID:            info.UserID,
+		Role:              info.Role,
 		Actor:             info.Actor,
 		Source:            info.Source,
 		DeviceIdentifiers: identifiers,
@@ -1292,6 +1296,10 @@ func formatMinerType(manufacturer, model string) string {
 	}
 }
 
+func sameMinerType(left, right string) bool {
+	return strings.EqualFold(strings.TrimSpace(left), strings.TrimSpace(right))
+}
+
 func (s *Service) UpdateMiningPools(
 	ctx context.Context,
 	deviceSelector *pb.DeviceSelector,
@@ -1302,6 +1310,33 @@ func (s *Service) UpdateMiningPools(
 	if err := s.verifyUserCredentials(ctx, userUsername, userPassword); err != nil {
 		return nil, err
 	}
+	return s.updateMiningPools(ctx, deviceSelector, defaultPool, backup1Pool, backup2Pool)
+}
+
+// UpdateMiningPoolsAsCohort is the non-interactive pool command surface for
+// the cohort reconciler. All command validation and dispatch behavior remains
+// shared with the interactive path; only user credential re-verification is
+// skipped for the authenticated internal cohort actor.
+func (s *Service) UpdateMiningPoolsAsCohort(
+	ctx context.Context,
+	deviceSelector *pb.DeviceSelector,
+	defaultPool, backup1Pool, backup2Pool *pb.PoolSlotConfig,
+) (*CommandResult, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if info.Actor != session.ActorCohort {
+		return nil, fleeterror.NewForbiddenError("cohort pool enforcement requires the cohort actor")
+	}
+	return s.updateMiningPools(ctx, deviceSelector, defaultPool, backup1Pool, backup2Pool)
+}
+
+func (s *Service) updateMiningPools(
+	ctx context.Context,
+	deviceSelector *pb.DeviceSelector,
+	defaultPool, backup1Pool, backup2Pool *pb.PoolSlotConfig,
+) (*CommandResult, error) {
 
 	pld, err := s.createUpdateMiningPoolsPayload(ctx, defaultPool, backup1Pool, backup2Pool)
 	if err != nil {
@@ -1488,6 +1523,9 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 	if _, err := s.filesService.GetFirmwareFilePath(firmwareFileID); err != nil {
 		return nil, fleeterror.NewInvalidArgumentError(fmt.Sprintf("invalid firmware_file_id: %v", err))
 	}
+	if err := s.validateFirmwareUpdateTarget(ctx, deviceSelector, firmwareFileID); err != nil {
+		return nil, err
+	}
 
 	payload := dto.FirmwareUpdatePayload{FirmwareFileID: firmwareFileID}
 	result, err := s.processCommand(ctx, &Command{
@@ -1500,6 +1538,66 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 	}
 	s.finalizeDispatch(ctx, result, "firmware_update", "Update firmware")
 	return result, nil
+}
+
+func (s *Service) validateFirmwareUpdateTarget(ctx context.Context, deviceSelector *pb.DeviceSelector, firmwareFileID string) error {
+	metadata, err := s.filesService.GetFirmwareMetadata(firmwareFileID)
+	if err != nil {
+		return fleeterror.NewInvalidArgumentError(fmt.Sprintf("invalid firmware_file_id: %v", err))
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
+	}
+	identifiers, err := s.resolveSelectorIdentifiers(ctx, deviceSelector, commandtype.FirmwareUpdate)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error resolving device identifiers: %v", err)
+	}
+	if len(identifiers) == 0 {
+		return nil
+	}
+
+	_, err = db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (struct{}, error) {
+		rows, err := q.GetDeviceInfoForCapabilityCheck(ctx, sqlc.GetDeviceInfoForCapabilityCheckParams{
+			DeviceIdentifiers: identifiers,
+			OrgID:             info.OrganizationID,
+		})
+		if err != nil {
+			return struct{}{}, fleeterror.NewInternalErrorf("error getting device info for firmware validation: %v", err)
+		}
+		if len(rows) == 0 {
+			return struct{}{}, nil
+		}
+
+		var selectedManufacturer string
+		var selectedModel string
+		for _, row := range rows {
+			manufacturer := strings.TrimSpace(row.Manufacturer.String)
+			model := strings.TrimSpace(row.Model.String)
+			if manufacturer == "" || model == "" {
+				return struct{}{}, fleeterror.NewInvalidArgumentErrorf("firmware update target cannot be validated for %s: miner manufacturer and model are required", row.DeviceIdentifier)
+			}
+			if selectedManufacturer == "" && selectedModel == "" {
+				selectedManufacturer = manufacturer
+				selectedModel = model
+				continue
+			}
+			if manufacturer != selectedManufacturer || model != selectedModel {
+				return struct{}{}, fleeterror.NewInvalidArgumentError("firmware update requires selected miners to have a single manufacturer and model")
+			}
+		}
+
+		if !sameMinerType(selectedManufacturer, metadata.TargetManufacturer) || !sameMinerType(selectedModel, metadata.TargetModel) {
+			return struct{}{}, fleeterror.NewInvalidArgumentErrorf(
+				"firmware target %s does not match selected miners %s",
+				formatMinerType(metadata.TargetManufacturer, metadata.TargetModel),
+				formatMinerType(selectedManufacturer, selectedModel),
+			)
+		}
+		return struct{}{}, nil
+	})
+	return err
 }
 
 func (s *Service) Unpair(ctx context.Context, deviceSelector *pb.DeviceSelector) (*CommandResult, error) {

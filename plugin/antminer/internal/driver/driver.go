@@ -148,6 +148,7 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		sdk.CapabilityCoolingModeAir:     false,
 		sdk.CapabilityCoolingModeImmerse: false,
 		sdk.CapabilityPoolConfig:         true,
+		sdk.CapabilityGetMiningPools:     true,
 		sdk.CapabilityPoolPriority:       true,
 		sdk.CapabilityLogsDownload:       true,
 
