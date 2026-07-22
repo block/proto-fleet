@@ -14,6 +14,9 @@ const buildRackOptions = (values: string[], currentValue: string) => {
 const selectCurrentOrFirst = (values: string[], currentValue: string) =>
   values.includes(currentValue) ? currentValue : (values[0] ?? "");
 
+const selectRackForLocation = (values: string[], currentValue: string) =>
+  currentValue !== "" && values.includes(currentValue) ? currentValue : "";
+
 const buildingNamesForSite = (options: InfraBuildingOption[], site: string) =>
   options.filter((option) => option.siteName === site).map((option) => option.buildingName);
 
@@ -68,7 +71,7 @@ const InfraLocationFields = ({
         onBuildingChange(nextBuilding);
       }
 
-      const nextRack = selectCurrentOrFirst(rackNamesForLocation(rackOptions, nextSite, nextBuilding), rack);
+      const nextRack = selectRackForLocation(rackNamesForLocation(rackOptions, nextSite, nextBuilding), rack);
       if (nextRack !== rack) {
         onRackChange(nextRack);
       }
@@ -79,7 +82,7 @@ const InfraLocationFields = ({
   const handleBuildingChange = useCallback(
     (nextBuilding: string) => {
       onBuildingChange(nextBuilding);
-      const nextRack = selectCurrentOrFirst(rackNamesForLocation(rackOptions, site, nextBuilding), rack);
+      const nextRack = selectRackForLocation(rackNamesForLocation(rackOptions, site, nextBuilding), rack);
       if (nextRack !== rack) {
         onRackChange(nextRack);
       }

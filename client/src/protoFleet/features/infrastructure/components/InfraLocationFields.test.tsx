@@ -94,4 +94,32 @@ describe("InfraLocationFields", () => {
     fireEvent.change(rackSelect, { target: { value: "" } });
     expect(onRackChange).toHaveBeenCalledWith("");
   });
+
+  test("keeps an unracked device unracked when its location changes", () => {
+    const onBuildingChange = vi.fn();
+    const onRackChange = vi.fn();
+    render(
+      <InfraLocationFields
+        site="Austin"
+        building="Building 1"
+        rack=""
+        siteOptions={["Austin", "Denver"]}
+        buildingOptions={[
+          { siteName: "Austin", buildingName: "Building 1" },
+          { siteName: "Denver", buildingName: "Denver Plant" },
+        ]}
+        rackOptions={[
+          { siteName: "Austin", buildingName: "Building 1", rackName: "Rack A1" },
+          { siteName: "Denver", buildingName: "Denver Plant", rackName: "Rack D1" },
+        ]}
+        onSiteChange={vi.fn()}
+        onBuildingChange={onBuildingChange}
+        onRackChange={onRackChange}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Site" }), { target: { value: "Denver" } });
+    expect(onBuildingChange).toHaveBeenCalledWith("Denver Plant");
+    expect(onRackChange).not.toHaveBeenCalled();
+  });
 });

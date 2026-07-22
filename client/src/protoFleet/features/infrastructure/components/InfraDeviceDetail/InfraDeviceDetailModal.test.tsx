@@ -127,7 +127,7 @@ describe("InfraDeviceDetailModal", () => {
     expect(getSelectOptionLabels("Building")).toContain("Denver Plant");
     expect(getSelectOptionLabels("Building")).not.toContain("Building 1");
     expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Building" }).value).toBe("Denver Plant");
-    expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Rack" }).value).toBe("Rack D1");
+    expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Rack" }).value).toBe("");
 
     await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -135,7 +135,7 @@ describe("InfraDeviceDetailModal", () => {
       expect.objectContaining({
         siteName: "Denver",
         buildingName: "Denver Plant",
-        rackName: "Rack D1",
+        rackName: "",
       }),
     );
     await waitFor(() => expect(onDismiss).toHaveBeenCalled());
