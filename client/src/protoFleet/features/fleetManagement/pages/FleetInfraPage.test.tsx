@@ -101,6 +101,7 @@ const buildHookResult = (overrides: Record<string, unknown> = {}) => ({
 });
 
 type InfraDeviceListCallbacks = {
+  canManage?: boolean;
   siteOptions?: string[];
   rackOptions?: Array<{ siteName: string; buildingName: string; rackName: string }>;
   onCreateDevice?: (draft: InfraDeviceDraft) => Promise<void>;
@@ -137,8 +138,10 @@ describe("FleetInfraPage", () => {
     infraDeviceListPropsSpy.mockReset();
   });
 
-  test("uses site permissions for default read and management access", () => {
-    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+  test("uses site manage plus rack read for default management access", () => {
+    vi.mocked(useHasPermission).mockImplementation(
+      (key) => key === "site:read" || key === "site:manage" || key === "rack:read",
+    );
 
     renderPage();
 
@@ -147,6 +150,18 @@ describe("FleetInfraPage", () => {
     expect(screen.getByRole("checkbox", { name: "Enabled for Roof exhaust" })).toBeEnabled();
     expect(useHasPermission).toHaveBeenCalledWith("site:read");
     expect(useHasPermission).toHaveBeenCalledWith("site:manage");
+    expect(useHasPermission).toHaveBeenCalledWith("rack:read");
+  });
+
+  test("disables management controls when rack read is denied", () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+
+    renderPage();
+
+    expect(screen.queryByRole("button", { name: "Add device" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Enabled for Roof exhaust" })).toBeDisabled();
+    expect(lastInfraDeviceListProps().canManage).toBe(false);
+    expect(listRacksMock).not.toHaveBeenCalled();
   });
 
   test("disables management controls when site manage is denied", () => {
@@ -435,7 +450,9 @@ describe("FleetInfraPage", () => {
 
   test("preselects the active site when opening the add device modal", async () => {
     const user = userEvent.setup();
-    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+    vi.mocked(useHasPermission).mockImplementation(
+      (key) => key === "site:read" || key === "site:manage" || key === "rack:read",
+    );
     useActiveSiteMock.mockReturnValue({
       activeSite: { kind: "site", id: "7", slug: "denver" },
       setActiveSite: vi.fn(),

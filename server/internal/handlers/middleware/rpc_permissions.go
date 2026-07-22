@@ -114,8 +114,9 @@ var ProcedurePermissions = map[string]string{
 	buildingsv1connect.BuildingServiceGetBuildingStatsProcedure: authz.PermSiteRead,
 
 	// Infrastructure devices (facility fans / fan groups) — site:read
-	// for reads, site:manage for writes. Unlike buildings, the handler
-	// enforces these against the device's site
+	// for reads, site:manage for writes. The handler additionally redacts
+	// rack names without rack:read and requires rack:read for create/update.
+	// Unlike buildings, the handler enforces these against the device's site
 	// (ResourceContext{SiteID}): Create checks the request's site,
 	// Get/Update/Delete resolve the device then authorize its site
 	// (Update additionally checks the target site on a move), and List

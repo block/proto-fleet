@@ -60,12 +60,10 @@ func toUpdateParams(req *pb.UpdateInfrastructureDeviceRequest, orgID int64) mode
 }
 
 // toProtoDevice maps a domain device to the wire shape.
-// includeDriverConfig gates the opaque config blob: it carries the OT
-// control topology (endpoint, unit ID, register address) and is only
-// returned to callers holding site:manage for the device's site —
-// site:read callers get the display fields with an empty
-// driver_config.
-func toProtoDevice(d *models.Device, includeDriverConfig bool) *pb.InfrastructureDevice {
+// includeDriverConfig gates the opaque OT control topology, while
+// includeRackName gates physical rack inventory. Site-readable callers
+// receive the remaining display fields when either permission is absent.
+func toProtoDevice(d *models.Device, includeDriverConfig, includeRackName bool) *pb.InfrastructureDevice {
 	if d == nil {
 		return nil
 	}
@@ -74,7 +72,6 @@ func toProtoDevice(d *models.Device, includeDriverConfig bool) *pb.Infrastructur
 		SiteId:       d.SiteID,
 		SiteLabel:    d.SiteLabel,
 		BuildingName: d.BuildingName,
-		RackName:     d.RackName,
 		Name:         d.Name,
 		DeviceKind:   d.DeviceKind,
 		FanCount:     d.FanCount,
@@ -85,6 +82,9 @@ func toProtoDevice(d *models.Device, includeDriverConfig bool) *pb.Infrastructur
 	}
 	if includeDriverConfig {
 		out.DriverConfig = string(d.DriverConfig)
+	}
+	if includeRackName {
+		out.RackName = d.RackName
 	}
 	return out
 }

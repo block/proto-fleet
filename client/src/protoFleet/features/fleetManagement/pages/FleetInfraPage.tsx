@@ -38,7 +38,7 @@ const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetI
   const [buildingCatalog, setBuildingCatalog] = useState<BuildingWithCounts[] | undefined>();
   const [rackCatalogByScope, setRackCatalogByScope] = useState<Record<string, DeviceSet[]>>({});
   const canReadInfrastructure = canRead ?? canReadSites;
-  const canManageInfrastructure = canManage ?? canManageSites;
+  const canManageInfrastructure = canManage ?? (canManageSites && canReadRacks);
   const sites = fleetContext?.sites;
   const hasDevicesOverride = devicesOverride !== undefined;
   // Validate scope against catalog access (authoritative now), not sitesLoaded:
