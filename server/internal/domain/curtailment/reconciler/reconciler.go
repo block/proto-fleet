@@ -454,6 +454,13 @@ func (r *Reconciler) reconcilePendingFans(ctx context.Context, ev *models.Event)
 func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *models.Event, targets []*models.Target) {
 	batchSize := curtailBatchSizeForEvent(ev, len(targets))
 	dispatchByState := func(state models.TargetState, dispatchSingleBatch bool, recordPendingDispatch bool) bool {
+		dispatchClaim := func(claim []*models.Target) bool {
+			recordClaimDispatch := recordPendingDispatch
+			if state == models.TargetStateDispatching {
+				recordClaimDispatch = recordPendingDispatch && hasUnrecordedCurtailDispatch(claim)
+			}
+			return r.dispatchCurtailBatch(ctx, ev, claim, state, recordClaimDispatch)
+		}
 		claim := make([]*models.Target, 0, batchSize)
 		for _, t := range targets {
 			if t.State != state {
@@ -461,7 +468,7 @@ func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *mode
 			}
 			claim = append(claim, t)
 			if int32(len(claim)) >= batchSize { //nolint:gosec // batchSize already bounded
-				if !r.dispatchCurtailBatch(ctx, ev, claim, state, recordPendingDispatch) {
+				if !dispatchClaim(claim) {
 					return false
 				}
 				if dispatchSingleBatch {
@@ -473,7 +480,7 @@ func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *mode
 		if len(claim) == 0 {
 			return true
 		}
-		return r.dispatchCurtailBatch(ctx, ev, claim, state, recordPendingDispatch)
+		return dispatchClaim(claim)
 	}
 
 	intervalActive := curtailBatchIntervalActive(ev)
@@ -481,8 +488,7 @@ func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *mode
 	// stranded before its command was enqueued. Treat that recovery as a fresh
 	// wave so its physical send is paced. Rows with a durable prior enqueue are
 	// retries and deliberately leave the pending-wave clock alone.
-	recordRecoveryDispatch := intervalActive && hasUnrecordedCurtailDispatch(targets)
-	if !dispatchByState(models.TargetStateDispatching, intervalActive, recordRecoveryDispatch) {
+	if !dispatchByState(models.TargetStateDispatching, intervalActive, intervalActive) {
 		return
 	}
 	if intervalActive && !r.curtailBatchIntervalElapsed(ev) {

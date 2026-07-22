@@ -3827,6 +3827,65 @@ func TestReconciler_UnrecordedDispatchingRecoveryReservesPendingWave(t *testing.
 	assert.Equal(t, now, *store.events[0].LastCurtailPendingDispatchAt)
 }
 
+func TestReconciler_MixedRecoveryRecordsClockForActualBatch(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(1)
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	lastPendingWave := now.Add(-61 * time.Second)
+	priorDispatch := now.Add(-10 * time.Second)
+	store.events = []*models.Event{
+		{
+			ID:                           eventID,
+			EventUUID:                    eventUUID,
+			OrgID:                        1,
+			State:                        models.EventStateActive,
+			CurtailBatchSize:             &batchSize,
+			CurtailBatchIntervalSec:      60,
+			LastCurtailPendingDispatchAt: &lastPendingWave,
+			CreatedByUserID:              99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "recorded-retry",
+			State:              models.TargetStateDispatching,
+			DesiredState:       models.DesiredStateCurtailed,
+			CurtailPhase: models.TargetPhaseSummary{
+				Phase:        models.TargetPhaseCurtail,
+				State:        models.TargetStateDispatched,
+				DispatchedAt: &priorDispatch,
+			},
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "unrecorded-recovery",
+			State:              models.TargetStateDispatching,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "pending",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, [][]string{{"recorded-retry"}, {"pending"}}, disp.curtailCallIDs,
+		"a later unrecorded orphan must not make the actual retry batch consume the fresh-wave slot")
+	assert.Equal(t, models.TargetStateDispatching, store.targetsByEventID[eventID][1].State)
+	require.NotNil(t, store.events[0].LastCurtailPendingDispatchAt)
+	assert.Equal(t, now, *store.events[0].LastCurtailPendingDispatchAt,
+		"the eligible pending batch, not the recorded retry, must advance the clock")
+}
+
 func TestReconciler_PendingDispatchClockWriteFailureFailsClosed(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
