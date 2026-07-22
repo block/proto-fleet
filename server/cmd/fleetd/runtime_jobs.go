@@ -21,6 +21,23 @@ type backgroundLoop struct {
 
 var _ runtimejobs.Lifecycle = (*backgroundLoop)(nil)
 
+// stopOrderedLifecycle keeps a shared dependency active until the group reaches
+// it in reverse stop order. This lets jobs registered after it finish draining
+// without losing the dependency to the group's broadcast cancellation.
+type stopOrderedLifecycle struct {
+	lifecycle runtimejobs.Lifecycle
+}
+
+var _ runtimejobs.Lifecycle = stopOrderedLifecycle{}
+
+func (l stopOrderedLifecycle) Start(ctx context.Context) error {
+	return l.lifecycle.Start(context.WithoutCancel(ctx))
+}
+
+func (l stopOrderedLifecycle) Stop(ctx context.Context) error {
+	return l.lifecycle.Stop(ctx)
+}
+
 func newBackgroundLoop(run func(context.Context)) *backgroundLoop {
 	return &backgroundLoop{run: run}
 }
@@ -125,6 +142,10 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 		jobs = append(jobs, job)
 		return nil
 	}
+	commandExecution := lifecycles.commandExecution
+	if commandExecution != nil {
+		commandExecution = stopOrderedLifecycle{lifecycle: commandExecution}
+	}
 
 	required := []struct {
 		name      string
@@ -135,7 +156,7 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 		{name: "diagnostics-error-closer", lifecycle: lifecycles.diagnosticsErrorCloser},
 		{name: "telemetry", lifecycle: lifecycles.telemetry},
 		{name: "ip-scanner", lifecycle: lifecycles.ipScanner},
-		{name: "command-execution", lifecycle: lifecycles.commandExecution},
+		{name: "command-execution", lifecycle: commandExecution},
 		{name: "schedule-processor", lifecycle: lifecycles.scheduleProcessor},
 		{name: "curtailment-reconciler", lifecycle: lifecycles.curtailmentReconciler},
 		{name: "curtailment-mqtt-subscriber", lifecycle: lifecycles.curtailmentMQTTSubscriber},
