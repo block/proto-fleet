@@ -23,3 +23,16 @@ func RequireAdmin(ctx context.Context, action string) (*session.Info, error) {
 	}
 	return info, nil
 }
+
+// RequireSuperAdmin returns the authenticated session info only for
+// organization-wide override actions.
+func RequireSuperAdmin(ctx context.Context, action string) (*session.Info, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	if info.Role != domainAuth.SuperAdminRoleName {
+		return nil, fleeterror.NewForbiddenErrorf("only super admins can %s", action)
+	}
+	return info, nil
+}

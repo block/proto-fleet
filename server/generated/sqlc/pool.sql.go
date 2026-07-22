@@ -94,6 +94,33 @@ func (q *Queries) GetTotalPools(ctx context.Context, orgID int64) (int64, error)
 	return count, err
 }
 
+const isPoolReferencedByActiveCohort = `-- name: IsPoolReferencedByActiveCohort :one
+SELECT EXISTS (
+    SELECT 1
+    FROM cohort
+    WHERE org_id = $1
+      AND state = 'active'
+      AND desired_config_jsonb IS NOT NULL
+      AND (
+          NULLIF(desired_config_jsonb #>> '{pools,primary_pool_id}', '')::bigint = $2::bigint
+          OR NULLIF(desired_config_jsonb #>> '{pools,backup_1_pool_id}', '')::bigint = $2::bigint
+          OR NULLIF(desired_config_jsonb #>> '{pools,backup_2_pool_id}', '')::bigint = $2::bigint
+      )
+)
+`
+
+type IsPoolReferencedByActiveCohortParams struct {
+	OrgID  int64
+	PoolID int64
+}
+
+func (q *Queries) IsPoolReferencedByActiveCohort(ctx context.Context, arg IsPoolReferencedByActiveCohortParams) (bool, error) {
+	row := q.queryRow(ctx, q.isPoolReferencedByActiveCohortStmt, isPoolReferencedByActiveCohort, arg.OrgID, arg.PoolID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listPools = `-- name: ListPools :many
 SELECT id, org_id, pool_name, url, username, password_enc, created_at, updated_at, deleted_at
 FROM pool

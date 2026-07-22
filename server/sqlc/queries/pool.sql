@@ -33,6 +33,20 @@ SET deleted_at = CURRENT_TIMESTAMP
 WHERE org_id = $1
   AND id = $2;
 
+-- name: IsPoolReferencedByActiveCohort :one
+SELECT EXISTS (
+    SELECT 1
+    FROM cohort
+    WHERE org_id = sqlc.arg('org_id')
+      AND state = 'active'
+      AND desired_config_jsonb IS NOT NULL
+      AND (
+          NULLIF(desired_config_jsonb #>> '{pools,primary_pool_id}', '')::bigint = sqlc.arg('pool_id')::bigint
+          OR NULLIF(desired_config_jsonb #>> '{pools,backup_1_pool_id}', '')::bigint = sqlc.arg('pool_id')::bigint
+          OR NULLIF(desired_config_jsonb #>> '{pools,backup_2_pool_id}', '')::bigint = sqlc.arg('pool_id')::bigint
+      )
+);
+
 -- name: DeletePool :exec
 DELETE
 FROM pool

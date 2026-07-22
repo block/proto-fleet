@@ -37,6 +37,9 @@ const (
 	// ActorCurtailment marks sessions synthesized by the curtailment
 	// reconciler so CurtailmentActiveFilter can bypass self-traffic.
 	ActorCurtailment Actor = "curtailment"
+	// ActorCohort marks sessions synthesized by cohort enforcement so
+	// CohortMembershipFilter can bypass self-traffic.
+	ActorCohort Actor = "cohort"
 )
 
 // Source carries optional policy context for command preflight filters.
