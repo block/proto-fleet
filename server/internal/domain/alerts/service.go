@@ -34,6 +34,7 @@ type ChannelTester interface {
 type Service struct {
 	grafana  *Grafana
 	channels ChannelStore
+	routes   RouteStore
 	crypto   Cipher
 	tester   ChannelTester
 	policy   DestinationPolicy
@@ -46,8 +47,8 @@ type DestinationPolicy struct {
 	AllowPrivateDestinations bool `help:"Allow alert destinations (webhook URLs, SMTP hosts) that resolve to loopback, link-local, or private network ranges. Enable for dev stacks or deployments whose relays live on internal addresses." default:"false" env:"ALLOW_PRIVATE_DESTINATIONS"`
 }
 
-func NewService(g *Grafana, channels ChannelStore, crypto Cipher, tester ChannelTester, policy DestinationPolicy) *Service {
-	return &Service{grafana: g, channels: channels, crypto: crypto, tester: tester, policy: policy, now: time.Now}
+func NewService(g *Grafana, channels ChannelStore, routes RouteStore, crypto Cipher, tester ChannelTester, policy DestinationPolicy) *Service {
+	return &Service{grafana: g, channels: channels, routes: routes, crypto: crypto, tester: tester, policy: policy, now: time.Now}
 }
 
 var ErrZeroOrgID = errors.New("alerts: organization id is required")
@@ -486,6 +487,26 @@ func isReservedIP(ip net.IP) bool {
 }
 
 func (s *Service) ListRules(ctx context.Context, orgID int64) ([]Rule, error) {
+	out, err := s.listVisibleRules(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	// Fail closed here (unlike the requireRule gate): rendering routed rules as default would mislead operators.
+	if err := s.attachRouting(ctx, orgID, out); err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Group != out[j].Group {
+			return out[i].Group < out[j].Group
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
+}
+
+// listVisibleRules is the routing-free listing shared by requireRule: rule-targeted actions
+// (pause, resume, maintenance windows) must keep working while the route-policy table is unreadable.
+func (s *Service) listVisibleRules(ctx context.Context, orgID int64) ([]Rule, error) {
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
 	}
@@ -512,12 +533,6 @@ func (s *Service) ListRules(ctx context.Context, orgID int64) ([]Rule, error) {
 			out[i].Enabled = false
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Group != out[j].Group {
-			return out[i].Group < out[j].Group
-		}
-		return out[i].Name < out[j].Name
-	})
 	return out, nil
 }
 
@@ -543,6 +558,7 @@ func (s *Service) PauseRule(ctx context.Context, orgID int64, id, actor string) 
 	}
 	out := *rule
 	out.Enabled = false
+	s.attachRoutingBestEffort(ctx, orgID, &out)
 	return &out, nil
 }
 
@@ -589,6 +605,7 @@ func (s *Service) ResumeRule(ctx context.Context, orgID int64, id string) (*Rule
 	if err != nil {
 		return nil, err
 	}
+	s.attachRoutingBestEffort(ctx, orgID, updated)
 	return updated, nil
 }
 
@@ -615,11 +632,12 @@ func (s *Service) removeSilencesTargetingRule(ctx context.Context, orgID int64, 
 	return nil
 }
 
+// requireRule is the routing-free visibility gate: it must not couple rule actions to route-policy reads.
 func (s *Service) requireRule(ctx context.Context, orgID int64, id string) (*Rule, error) {
 	if id == "" {
 		return nil, errors.New("rule id is required")
 	}
-	rules, err := s.ListRules(ctx, orgID)
+	rules, err := s.listVisibleRules(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -983,6 +1001,8 @@ const (
 	ruleLabelSeverity  = "severity"
 	ruleLabelTemplate  = "template"
 	ruleLabelRuleGroup = "rule_group"
+	// Primary rule identity for delivery routing; generatorURL parsing is the fallback for rules compiled before it existed.
+	ruleLabelRuleUID = "proto_fleet_rule_uid"
 )
 
 // Rule visibility is fail-closed and driven by proto_fleet_scope: shared rules are visible to

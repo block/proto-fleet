@@ -15,10 +15,12 @@ import {
   type AlertHistoryEntry as ProtoHistoryEntry,
   type MaintenanceWindow as ProtoMaintenanceWindow,
   MaintenanceWindowScopeKind as ProtoMaintenanceWindowScopeKind,
+  RoutingMode as ProtoRoutingMode,
   type Rule as ProtoRule,
   type RuleConfig as ProtoRuleConfig,
   RuleConfigSchema as ProtoRuleConfigSchema,
   RuleOrigin as ProtoRuleOrigin,
+  type RuleRouting as ProtoRuleRouting,
   RuleTemplate as ProtoRuleTemplate,
   ValidationState as ProtoValidationState,
 } from "@/protoFleet/api/generated/alerts/v1/alerts_pb";
@@ -32,8 +34,10 @@ import type {
   MaintenanceWindow,
   MaintenanceWindowScope,
   MaintenanceWindowScopeKind,
+  RoutingMode,
   Rule,
   RuleConfig,
+  RuleRouting,
   RuleTemplate,
   SlackConfig,
   ValidationState,
@@ -216,6 +220,34 @@ const ruleConfigToProto = (c: RuleConfig): ProtoRuleConfig => {
   return create(ProtoRuleConfigSchema, { ...base, templateConfig: { case: "offline", value: {} } });
 };
 
+const routingFromProto = (r?: ProtoRuleRouting): RuleRouting => {
+  switch (r?.mode) {
+    case ProtoRoutingMode.CUSTOM:
+      return { mode: "custom", channel_ids: r.channelIds };
+    case ProtoRoutingMode.NONE:
+      return { mode: "none", channel_ids: [] };
+    default:
+      return { mode: "default", channel_ids: [] };
+  }
+};
+
+const routingModeToProto = (m: RoutingMode): ProtoRoutingMode => {
+  switch (m) {
+    case "custom":
+      return ProtoRoutingMode.CUSTOM;
+    case "none":
+      return ProtoRoutingMode.NONE;
+    case "default":
+      return ProtoRoutingMode.DEFAULT;
+  }
+};
+
+// channel_ids only carry meaning for custom; clear them for other modes in one place.
+const routingToProto = (r: RuleRouting) => ({
+  mode: routingModeToProto(r.mode),
+  channelIds: r.mode === "custom" ? r.channel_ids : [],
+});
+
 const ruleFromProto = (r: ProtoRule): Rule => ({
   id: r.id,
   organization_id: String(r.organizationId),
@@ -229,6 +261,7 @@ const ruleFromProto = (r: ProtoRule): Rule => ({
   enabled: r.enabled,
   origin: r.origin === ProtoRuleOrigin.USER ? "user" : "provisioned",
   config: r.config ? ruleConfigFromProto(r.config) : null,
+  routing: routingFromProto(r.routing),
 });
 
 const maintenanceWindowFromProto = (s: ProtoMaintenanceWindow): MaintenanceWindow => ({
@@ -356,8 +389,11 @@ export async function resumeRule(id: string): Promise<Rule> {
   return ruleFromProto(required(res.rule, "rule"));
 }
 
-export async function createRule(config: RuleConfig): Promise<Rule> {
-  const res = await alertRuleClient.createRule({ config: ruleConfigToProto(config) });
+export async function createRule(config: RuleConfig, routing?: RuleRouting): Promise<Rule> {
+  const res = await alertRuleClient.createRule({
+    config: ruleConfigToProto(config),
+    routing: routing ? routingToProto(routing) : undefined,
+  });
   return ruleFromProto(required(res.rule, "rule"));
 }
 
@@ -368,6 +404,14 @@ export async function updateRule(id: string, config: RuleConfig): Promise<Rule> 
 
 export async function deleteRule(id: string): Promise<void> {
   await alertRuleClient.deleteRule({ id });
+}
+
+export async function setRuleRouting(id: string, routing: RuleRouting): Promise<Rule> {
+  const res = await alertRuleClient.setRuleRouting({
+    ruleId: id,
+    routing: routingToProto(routing),
+  });
+  return ruleFromProto(required(res.rule, "rule"));
 }
 
 export async function listMaintenanceWindows(): Promise<MaintenanceWindow[]> {

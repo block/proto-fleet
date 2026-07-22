@@ -134,6 +134,8 @@ type Rule struct {
 	Origin          RuleOrigin
 	// Nil for provisioned rules.
 	Config *RuleConfig
+	// Nil means default routing (all org channels).
+	Routing *RoutePolicy
 }
 
 type MaintenanceWindowScopeKind string

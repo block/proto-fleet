@@ -228,7 +228,16 @@ func (h *Handler) CreateRule(ctx context.Context, req *connect.Request[alertsv1.
 	if err != nil {
 		return nil, err
 	}
-	rule, err := h.svc.CreateRule(ctx, orgID, cfg)
+	// Absent routing means default; a present-but-unspecified mode is a client bug and rejected.
+	mode := alerts.RouteModeDefault
+	var channelIDs []string
+	if routing := req.Msg.GetRouting(); routing != nil {
+		mode, channelIDs, err = protoToRouting(routing)
+		if err != nil {
+			return nil, err
+		}
+	}
+	rule, err := h.svc.CreateRule(ctx, orgID, cfg, mode, channelIDs)
 	if err != nil {
 		return nil, mapErr(err)
 	}
@@ -252,6 +261,26 @@ func (h *Handler) UpdateRule(ctx context.Context, req *connect.Request[alertsv1.
 		return nil, mapErr(err)
 	}
 	return connect.NewResponse(&alertsv1.UpdateRuleResponse{Rule: ruleToProto(*rule)}), nil
+}
+
+// SetRuleRouting mirrors channel mutations' requireMinerRead: routing decides which destinations receive the org's per-device alert stream.
+func (h *Handler) SetRuleRouting(ctx context.Context, req *connect.Request[alertsv1.SetRuleRoutingRequest]) (*connect.Response[alertsv1.SetRuleRoutingResponse], error) {
+	orgID, err := h.authorize(ctx, authz.PermAlertManage)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.requireMinerRead(ctx); err != nil {
+		return nil, err
+	}
+	mode, channelIDs, err := protoToRouting(req.Msg.GetRouting())
+	if err != nil {
+		return nil, err
+	}
+	rule, err := h.svc.SetRuleRouting(ctx, orgID, req.Msg.GetRuleId(), mode, channelIDs)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return connect.NewResponse(&alertsv1.SetRuleRoutingResponse{Rule: ruleToProto(*rule)}), nil
 }
 
 func (h *Handler) DeleteRule(ctx context.Context, req *connect.Request[alertsv1.DeleteRuleRequest]) (*connect.Response[alertsv1.DeleteRuleResponse], error) {
@@ -435,7 +464,46 @@ func ruleToProto(r alerts.Rule) *alertsv1.Rule {
 	if r.Config != nil {
 		out.Config = ruleConfigToProto(*r.Config)
 	}
+	out.Routing = routingToProto(r.Routing)
 	return out
+}
+
+func routingToProto(p *alerts.RoutePolicy) *alertsv1.RuleRouting {
+	out := &alertsv1.RuleRouting{Mode: alertsv1.RoutingMode_ROUTING_MODE_DEFAULT}
+	switch {
+	case p == nil:
+	case p.Mode == alerts.RouteModeCustom:
+		out.Mode = alertsv1.RoutingMode_ROUTING_MODE_CUSTOM
+		out.ChannelIds = make([]string, 0, len(p.ChannelIDs))
+		for _, id := range p.ChannelIDs {
+			out.ChannelIds = append(out.ChannelIds, strconv.FormatInt(id, 10))
+		}
+	case p.Mode == alerts.RouteModeNone:
+		out.Mode = alertsv1.RoutingMode_ROUTING_MODE_NONE
+	}
+	return out
+}
+
+// protoToRouting maps a RuleRouting message; nil-safe (nil reads as unspecified mode and is rejected).
+func protoToRouting(r *alertsv1.RuleRouting) (alerts.RouteMode, []string, error) {
+	mode, err := protoToRouteMode(r.GetMode())
+	if err != nil {
+		return "", nil, err
+	}
+	return mode, r.GetChannelIds(), nil
+}
+
+func protoToRouteMode(m alertsv1.RoutingMode) (alerts.RouteMode, error) {
+	switch m {
+	case alertsv1.RoutingMode_ROUTING_MODE_DEFAULT:
+		return alerts.RouteModeDefault, nil
+	case alertsv1.RoutingMode_ROUTING_MODE_CUSTOM:
+		return alerts.RouteModeCustom, nil
+	case alertsv1.RoutingMode_ROUTING_MODE_NONE:
+		return alerts.RouteModeNone, nil
+	case alertsv1.RoutingMode_ROUTING_MODE_UNSPECIFIED:
+	}
+	return "", fleeterror.NewInvalidArgumentError("routing mode is required")
 }
 
 func ruleOriginToProto(o alerts.RuleOrigin) alertsv1.RuleOrigin {

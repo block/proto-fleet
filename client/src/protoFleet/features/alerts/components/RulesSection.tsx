@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import AddMaintenanceWindowModal from "./AddMaintenanceWindowModal";
 import AddRuleModal from "./AddRuleModal";
+import EditDeliveryModal from "./EditDeliveryModal";
 import StatusDot from "./StatusDot";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAlertsContext } from "@/protoFleet/features/alerts/api/AlertsContext";
@@ -8,22 +9,23 @@ import { isMaintenanceWindowActive } from "@/protoFleet/features/alerts/api/useA
 import { useNow } from "@/protoFleet/features/alerts/lib/useNow";
 import type { Rule } from "@/protoFleet/features/alerts/types";
 import { useHasPermission } from "@/protoFleet/store";
-import { Edit, Pause, Play, Stop, Trash } from "@/shared/assets/icons";
+import { Edit, Notification, Pause, Play, Stop, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
-type RuleColumns = "name" | "condition" | "status";
+type RuleColumns = "name" | "condition" | "delivery" | "status";
 
 const colTitles: ColTitles<RuleColumns> = {
   name: "Name",
   condition: "Condition",
+  delivery: "Delivery",
   status: "Status",
 };
 
-const activeCols: RuleColumns[] = ["name", "condition", "status"];
+const activeCols: RuleColumns[] = ["name", "condition", "delivery", "status"];
 
 // Borderless cells with a right-aligned action kebab, per the alerts design.
 const rulesTableClassName = "mb-6 [&_td]:!border-x-0 [&_th]:!border-x-0 [&_td[data-testid='action']>div]:!ml-auto";
@@ -32,6 +34,17 @@ const formatRuleCondition = (rule: Rule): string => {
   if (rule.summary) return rule.summary;
   if (rule.duration_seconds > 0) return `fires after ${rule.duration_seconds}s`;
   return "fires on first matching evaluation";
+};
+
+const formatRuleDelivery = (rule: Rule): string => {
+  switch (rule.routing.mode) {
+    case "custom":
+      return rule.routing.channel_ids.length === 1 ? "1 channel" : `${rule.routing.channel_ids.length} channels`;
+    case "none":
+      return "In-app only";
+    default:
+      return "All channels";
+  }
 };
 
 const RulesSection = () => {
@@ -46,6 +59,7 @@ const RulesSection = () => {
   const [showMaintenanceWindowModal, setShowMaintenanceWindowModal] = useState(false);
   const [showRuleModal, setShowRuleModal] = useState(false);
   const [editingRule, setEditingRule] = useState<Rule | null>(null);
+  const [deliveryRule, setDeliveryRule] = useState<Rule | null>(null);
 
   const now = useNow();
   const activeMaintenanceWindowIdsByRule = useMemo(() => {
@@ -146,6 +160,15 @@ const RulesSection = () => {
         },
       },
       {
+        title: "Edit delivery",
+        icon: <Notification />,
+        // Routing is org-owned, so it applies to provisioned rules too; the server gates it like other rule mutations.
+        hidden: () => !canWriteRules,
+        actionHandler: (rule) => {
+          setDeliveryRule(rule);
+        },
+      },
+      {
         title: (rule) => (rule.enabled ? "Pause" : "Resume"),
         icon: (rule) => (rule.enabled ? <Pause /> : <Play />),
         actionHandler: (rule) => {
@@ -194,6 +217,10 @@ const RulesSection = () => {
           </div>
         ),
         width: "w-96",
+      },
+      delivery: {
+        component: (rule) => <span className="truncate text-text-primary">{formatRuleDelivery(rule)}</span>,
+        width: "w-40",
       },
       status: {
         component: (rule) => {
@@ -273,6 +300,8 @@ const RulesSection = () => {
           setEditingRule(null);
         }}
       />
+
+      <EditDeliveryModal open={deliveryRule !== null} rule={deliveryRule} onDismiss={() => setDeliveryRule(null)} />
     </section>
   );
 };

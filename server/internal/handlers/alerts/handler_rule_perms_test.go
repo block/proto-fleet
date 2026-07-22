@@ -41,10 +41,16 @@ func TestRuleMutationsRequireAlertManage(t *testing.T) {
 
 	_, err = h.DeleteRule(readOnly, connect.NewRequest(&alertsv1.DeleteRuleRequest{Id: "pfu-1"}))
 	requirePermissionDenied(t, err)
+
+	_, err = h.SetRuleRouting(readOnly, connect.NewRequest(&alertsv1.SetRuleRoutingRequest{
+		RuleId:  "pfu-1",
+		Routing: &alertsv1.RuleRouting{Mode: alertsv1.RoutingMode_ROUTING_MODE_NONE},
+	}))
+	requirePermissionDenied(t, err)
 }
 
-// Rule create/update additionally require org-wide miner:read (like channel
-// mutations): rules evaluate every org device and fan per-device alerts out.
+// Rule create/update/routing additionally require org-wide miner:read (like
+// channel mutations): they decide where per-device alerts fan out.
 func TestRuleWritesRequireMinerRead(t *testing.T) {
 	h := NewHandler(nil, nil)
 	manageOnly := ctxWithPerms(authz.PermAlertManage)
@@ -54,6 +60,33 @@ func TestRuleWritesRequireMinerRead(t *testing.T) {
 
 	_, err = h.UpdateRule(manageOnly, connect.NewRequest(&alertsv1.UpdateRuleRequest{Id: "pfu-1", Config: offlineRuleConfig()}))
 	requirePermissionDenied(t, err)
+
+	_, err = h.SetRuleRouting(manageOnly, connect.NewRequest(&alertsv1.SetRuleRoutingRequest{
+		RuleId:  "pfu-1",
+		Routing: &alertsv1.RuleRouting{Mode: alertsv1.RoutingMode_ROUTING_MODE_NONE},
+	}))
+	requirePermissionDenied(t, err)
+}
+
+// An unset routing mode is rejected in the handler, before the service is touched.
+func TestSetRuleRoutingRejectsUnspecifiedMode(t *testing.T) {
+	h := NewHandler(nil, nil)
+	manage := ctxWithPerms(authz.PermAlertManage, authz.PermMinerRead)
+
+	_, err := h.SetRuleRouting(manage, connect.NewRequest(&alertsv1.SetRuleRoutingRequest{
+		RuleId:  "pfu-1",
+		Routing: &alertsv1.RuleRouting{},
+	}))
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+
+	// Same for CreateRule: absent routing means default, but present-and-unspecified is a client bug.
+	_, err = h.CreateRule(manage, connect.NewRequest(&alertsv1.CreateRuleRequest{
+		Config:  offlineRuleConfig(),
+		Routing: &alertsv1.RuleRouting{},
+	}))
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
 // A missing or template-less config is rejected in the handler, before the service is touched.

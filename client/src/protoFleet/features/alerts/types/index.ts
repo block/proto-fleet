@@ -65,6 +65,15 @@ export interface RuleConfig {
   temperature?: TemperatureRuleConfig;
 }
 
+// Where a rule's firing alerts deliver: every org channel, only the listed ones, or nowhere (in-app history only).
+export type RoutingMode = "default" | "custom" | "none";
+
+export interface RuleRouting {
+  mode: RoutingMode;
+  // Non-empty only for custom.
+  channel_ids: string[];
+}
+
 export interface Rule {
   id: string;
   organization_id: string;
@@ -79,6 +88,7 @@ export interface Rule {
   origin: RuleOrigin;
   // Null for provisioned rules.
   config: RuleConfig | null;
+  routing: RuleRouting;
 }
 
 export type MaintenanceWindowScopeKind = "rule" | "group" | "site" | "device";

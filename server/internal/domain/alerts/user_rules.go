@@ -5,11 +5,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -54,11 +56,16 @@ func userRuleOrgSlug(orgID int64) string {
 	return "proto-fleet-user-" + strconv.FormatInt(orgID, 10)
 }
 
-func (s *Service) CreateRule(ctx context.Context, orgID int64, cfg RuleConfig) (*Rule, error) {
+func (s *Service) CreateRule(ctx context.Context, orgID int64, cfg RuleConfig, mode RouteMode, channelIDs []string) (*Rule, error) {
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
 	}
 	if err := validateRuleConfig(cfg); err != nil {
+		return nil, err
+	}
+	// Validate routing before touching Grafana so a bad channel id can't leave an orphaned rule behind.
+	policy, err := s.resolveRoutePolicy(ctx, orgID, mode, channelIDs)
+	if err != nil {
 		return nil, err
 	}
 	folderUID := userRuleOrgSlug(orgID)
@@ -73,11 +80,34 @@ func (s *Service) CreateRule(ctx context.Context, orgID int64, cfg RuleConfig) (
 	if err != nil {
 		return nil, err
 	}
+	// Policy before rule: a policy row for a never-created UID is inert, while the reverse order
+	// would need a rule rollback whose failure mode is a live rule paging channels the user
+	// explicitly routed away from (and that rollback couldn't hold userRuleMu).
+	if policy != nil {
+		policy.RuleUID = uid
+		if err := s.routes.SetPolicy(ctx, orgID, *policy); err != nil {
+			return nil, err
+		}
+		s.invalidateDeliveryPolicyCache(orgID)
+	}
 	created, err := s.createRuleSerialized(ctx, orgID, body, folderUID)
 	if err != nil {
+		if policy != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer cancel()
+			// Tidy only when the rule is provably absent: an ambiguous failure (timeout after Grafana committed) must keep the policy, or a live routed rule would fall back to paging every channel.
+			if _, gerr := s.grafana.GetAlertRule(cleanupCtx, uid); IsNotFound(gerr) {
+				if derr := s.routes.DeletePolicy(cleanupCtx, orgID, uid); derr != nil {
+					slog.Warn("alerts.user_rule_create_policy_cleanup", "org_id", orgID, "rule_id", uid, "error", derr)
+				} else {
+					s.invalidateDeliveryPolicyCache(orgID)
+				}
+			}
+		}
 		return nil, err
 	}
 	out := grafanaRuleToDomain(orgID, *created)
+	out.Routing = policy
 	return &out, nil
 }
 
@@ -131,6 +161,12 @@ func (s *Service) UpdateRule(ctx context.Context, orgID int64, id string, cfg Ru
 		return nil, err
 	}
 	out := grafanaRuleToDomain(orgID, *updated)
+	// Fail closed rather than degrade: a response missing the stored routing reads as DEFAULT and invites the client to overwrite the real policy.
+	outSlice := []Rule{out}
+	if err := s.attachRouting(ctx, orgID, outSlice); err != nil {
+		return nil, err
+	}
+	out = outSlice[0]
 	// The write is committed; misreporting it as failed over a silence-read
 	// hiccup invites confused retries, so degrade to the rule's own state.
 	if paused, err := s.pauseSilencedRules(ctx, orgID); err != nil {
@@ -183,9 +219,17 @@ func (s *Service) DeleteRule(ctx context.Context, orgID int64, id string) error 
 		return fleeterror.NewInvalidArgumentError("rule id is required")
 	}
 	cleanup := func() error {
-		return s.removeSilencesTargetingRule(ctx, orgID, id, func(sil GrafanaSilence) bool {
+		sweepErr := s.removeSilencesTargetingRule(ctx, orgID, id, func(sil GrafanaSilence) bool {
 			return isPauseSilence(sil) || isMaintenanceWindowSilence(sil)
 		})
+		// The policy is inert once the rule is gone; drop it without letting its error gate the safety-relevant silence sweep above.
+		var policyErr error
+		if s.routes != nil {
+			if policyErr = s.routes.DeletePolicy(ctx, orgID, id); policyErr == nil {
+				s.invalidateDeliveryPolicyCache(orgID)
+			}
+		}
+		return errors.Join(sweepErr, policyErr)
 	}
 	err := s.deleteRuleSerialized(ctx, orgID, id)
 	switch {
@@ -369,6 +413,7 @@ func compileUserRule(orgID int64, uid string, cfg RuleConfig) (GrafanaAlertRule,
 			ruleLabelSeverity:       "warning",
 			ruleLabelTemplate:       string(cfg.Template()),
 			ruleLabelRuleGroup:      userRuleOrgSlug(orgID),
+			ruleLabelRuleUID:        uid,
 		},
 		Annotations: map[string]string{
 			"summary":            summary,

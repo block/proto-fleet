@@ -279,6 +279,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.curtailmentEventHasInFlightTargetsStmt, err = db.PrepareContext(ctx, curtailmentEventHasInFlightTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query CurtailmentEventHasInFlightTargets: %w", err)
 	}
+	if q.deleteAlertRouteChannelsStmt, err = db.PrepareContext(ctx, deleteAlertRouteChannels); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteAlertRouteChannels: %w", err)
+	}
+	if q.deleteAlertRoutePolicyStmt, err = db.PrepareContext(ctx, deleteAlertRoutePolicy); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteAlertRoutePolicy: %w", err)
+	}
 	if q.deleteCurtailmentAutomationRuleByOrgStmt, err = db.PrepareContext(ctx, deleteCurtailmentAutomationRuleByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteCurtailmentAutomationRuleByOrg: %w", err)
 	}
@@ -813,6 +819,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertAlertChannelStmt, err = db.PrepareContext(ctx, insertAlertChannel); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertAlertChannel: %w", err)
 	}
+	if q.insertAlertRouteChannelsStmt, err = db.PrepareContext(ctx, insertAlertRouteChannels); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertAlertRouteChannels: %w", err)
+	}
 	if q.insertCurtailmentAutomationRuleStmt, err = db.PrepareContext(ctx, insertCurtailmentAutomationRule); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertCurtailmentAutomationRule: %w", err)
 	}
@@ -872,6 +881,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listAlertChannelsStmt, err = db.PrepareContext(ctx, listAlertChannels); err != nil {
 		return nil, fmt.Errorf("error preparing query ListAlertChannels: %w", err)
+	}
+	if q.listAlertRoutePoliciesStmt, err = db.PrepareContext(ctx, listAlertRoutePolicies); err != nil {
+		return nil, fmt.Errorf("error preparing query ListAlertRoutePolicies: %w", err)
 	}
 	if q.listApiKeysByOrganizationStmt, err = db.PrepareContext(ctx, listApiKeysByOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListApiKeysByOrganization: %w", err)
@@ -1488,6 +1500,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateUserUsernameStmt, err = db.PrepareContext(ctx, updateUserUsername); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateUserUsername: %w", err)
 	}
+	if q.upsertAlertRoutePolicyStmt, err = db.PrepareContext(ctx, upsertAlertRoutePolicy); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertAlertRoutePolicy: %w", err)
+	}
 	if q.upsertBuiltinRoleForOrgStmt, err = db.PrepareContext(ctx, upsertBuiltinRoleForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertBuiltinRoleForOrg: %w", err)
 	}
@@ -1961,6 +1976,16 @@ func (q *Queries) Close() error {
 	if q.curtailmentEventHasInFlightTargetsStmt != nil {
 		if cerr := q.curtailmentEventHasInFlightTargetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing curtailmentEventHasInFlightTargetsStmt: %w", cerr)
+		}
+	}
+	if q.deleteAlertRouteChannelsStmt != nil {
+		if cerr := q.deleteAlertRouteChannelsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteAlertRouteChannelsStmt: %w", cerr)
+		}
+	}
+	if q.deleteAlertRoutePolicyStmt != nil {
+		if cerr := q.deleteAlertRoutePolicyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteAlertRoutePolicyStmt: %w", cerr)
 		}
 	}
 	if q.deleteCurtailmentAutomationRuleByOrgStmt != nil {
@@ -2853,6 +2878,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertAlertChannelStmt: %w", cerr)
 		}
 	}
+	if q.insertAlertRouteChannelsStmt != nil {
+		if cerr := q.insertAlertRouteChannelsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertAlertRouteChannelsStmt: %w", cerr)
+		}
+	}
 	if q.insertCurtailmentAutomationRuleStmt != nil {
 		if cerr := q.insertCurtailmentAutomationRuleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertCurtailmentAutomationRuleStmt: %w", cerr)
@@ -2951,6 +2981,11 @@ func (q *Queries) Close() error {
 	if q.listAlertChannelsStmt != nil {
 		if cerr := q.listAlertChannelsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listAlertChannelsStmt: %w", cerr)
+		}
+	}
+	if q.listAlertRoutePoliciesStmt != nil {
+		if cerr := q.listAlertRoutePoliciesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listAlertRoutePoliciesStmt: %w", cerr)
 		}
 	}
 	if q.listApiKeysByOrganizationStmt != nil {
@@ -3978,6 +4013,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateUserUsernameStmt: %w", cerr)
 		}
 	}
+	if q.upsertAlertRoutePolicyStmt != nil {
+		if cerr := q.upsertAlertRoutePolicyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertAlertRoutePolicyStmt: %w", cerr)
+		}
+	}
 	if q.upsertBuiltinRoleForOrgStmt != nil {
 		if cerr := q.upsertBuiltinRoleForOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertBuiltinRoleForOrgStmt: %w", cerr)
@@ -4177,6 +4217,8 @@ type Queries struct {
 	createUserStmt                                               *sql.Stmt
 	createUserOrganizationStmt                                   *sql.Stmt
 	curtailmentEventHasInFlightTargetsStmt                       *sql.Stmt
+	deleteAlertRouteChannelsStmt                                 *sql.Stmt
+	deleteAlertRoutePolicyStmt                                   *sql.Stmt
 	deleteCurtailmentAutomationRuleByOrgStmt                     *sql.Stmt
 	deleteCurtailmentResponseProfileByOrgStmt                    *sql.Stmt
 	deleteCurtailmentResponseProfilesBySiteStmt                  *sql.Stmt
@@ -4355,6 +4397,7 @@ type Queries struct {
 	hasUserStmt                                                  *sql.Stmt
 	insertActivityLogStmt                                        *sql.Stmt
 	insertAlertChannelStmt                                       *sql.Stmt
+	insertAlertRouteChannelsStmt                                 *sql.Stmt
 	insertCurtailmentAutomationRuleStmt                          *sql.Stmt
 	insertCurtailmentEventStmt                                   *sql.Stmt
 	insertCurtailmentResponseProfileStmt                         *sql.Stmt
@@ -4375,6 +4418,7 @@ type Queries struct {
 	listActiveOrganizationIDsStmt                                *sql.Stmt
 	listActivityLogsStmt                                         *sql.Stmt
 	listAlertChannelsStmt                                        *sql.Stmt
+	listAlertRoutePoliciesStmt                                   *sql.Stmt
 	listApiKeysByOrganizationStmt                                *sql.Stmt
 	listAssignmentsForRoleStmt                                   *sql.Stmt
 	listAssignmentsForUserStmt                                   *sql.Stmt
@@ -4580,6 +4624,7 @@ type Queries struct {
 	updateUserPasswordAndFlagStmt                                *sql.Stmt
 	updateUserRoleStmt                                           *sql.Stmt
 	updateUserUsernameStmt                                       *sql.Stmt
+	upsertAlertRoutePolicyStmt                                   *sql.Stmt
 	upsertBuiltinRoleForOrgStmt                                  *sql.Stmt
 	upsertCommandOnDeviceLogStmt                                 *sql.Stmt
 	upsertCurtailmentAutomationSignalStateStmt                   *sql.Stmt
@@ -4686,6 +4731,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createUserStmt:                                               q.createUserStmt,
 		createUserOrganizationStmt:                                   q.createUserOrganizationStmt,
 		curtailmentEventHasInFlightTargetsStmt:                       q.curtailmentEventHasInFlightTargetsStmt,
+		deleteAlertRouteChannelsStmt:                                 q.deleteAlertRouteChannelsStmt,
+		deleteAlertRoutePolicyStmt:                                   q.deleteAlertRoutePolicyStmt,
 		deleteCurtailmentAutomationRuleByOrgStmt:                     q.deleteCurtailmentAutomationRuleByOrgStmt,
 		deleteCurtailmentResponseProfileByOrgStmt:                    q.deleteCurtailmentResponseProfileByOrgStmt,
 		deleteCurtailmentResponseProfilesBySiteStmt:                  q.deleteCurtailmentResponseProfilesBySiteStmt,
@@ -4864,6 +4911,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		hasUserStmt:                                                  q.hasUserStmt,
 		insertActivityLogStmt:                                        q.insertActivityLogStmt,
 		insertAlertChannelStmt:                                       q.insertAlertChannelStmt,
+		insertAlertRouteChannelsStmt:                                 q.insertAlertRouteChannelsStmt,
 		insertCurtailmentAutomationRuleStmt:                          q.insertCurtailmentAutomationRuleStmt,
 		insertCurtailmentEventStmt:                                   q.insertCurtailmentEventStmt,
 		insertCurtailmentResponseProfileStmt:                         q.insertCurtailmentResponseProfileStmt,
@@ -4884,6 +4932,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listActiveOrganizationIDsStmt:                                q.listActiveOrganizationIDsStmt,
 		listActivityLogsStmt:                                         q.listActivityLogsStmt,
 		listAlertChannelsStmt:                                        q.listAlertChannelsStmt,
+		listAlertRoutePoliciesStmt:                                   q.listAlertRoutePoliciesStmt,
 		listApiKeysByOrganizationStmt:                                q.listApiKeysByOrganizationStmt,
 		listAssignmentsForRoleStmt:                                   q.listAssignmentsForRoleStmt,
 		listAssignmentsForUserStmt:                                   q.listAssignmentsForUserStmt,
@@ -5089,6 +5138,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateUserPasswordAndFlagStmt:                                q.updateUserPasswordAndFlagStmt,
 		updateUserRoleStmt:                                           q.updateUserRoleStmt,
 		updateUserUsernameStmt:                                       q.updateUserUsernameStmt,
+		upsertAlertRoutePolicyStmt:                                   q.upsertAlertRoutePolicyStmt,
 		upsertBuiltinRoleForOrgStmt:                                  q.upsertBuiltinRoleForOrgStmt,
 		upsertCommandOnDeviceLogStmt:                                 q.upsertCommandOnDeviceLogStmt,
 		upsertCurtailmentAutomationSignalStateStmt:                   q.upsertCurtailmentAutomationSignalStateStmt,

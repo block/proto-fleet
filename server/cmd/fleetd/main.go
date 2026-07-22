@@ -649,8 +649,9 @@ func start(config *Config) error {
 	// fleet-api owns org channel storage + delivery; Grafana keeps only rule evaluation,
 	// silences (rule pause / maintenance windows), and the internal history webhook.
 	alertChannelStore := sqlstores.NewSQLAlertChannelStore(conn)
-	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
-	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
+	alertRouteStore := sqlstores.NewSQLAlertRouteStore(conn)
+	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, alertRouteStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
+	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),

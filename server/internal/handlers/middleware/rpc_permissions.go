@@ -285,6 +285,7 @@ var ProcedurePermissions = map[string]string{
 	alertsv1connect.RuleServiceCreateRuleProcedure:                           authz.PermAlertManage,
 	alertsv1connect.RuleServiceUpdateRuleProcedure:                           authz.PermAlertManage,
 	alertsv1connect.RuleServiceDeleteRuleProcedure:                           authz.PermAlertManage,
+	alertsv1connect.RuleServiceSetRuleRoutingProcedure:                       authz.PermAlertManage,
 	alertsv1connect.MaintenanceWindowServiceListMaintenanceWindowsProcedure:  authz.PermAlertRead,
 	alertsv1connect.MaintenanceWindowServiceCreateMaintenanceWindowProcedure: authz.PermAlertManage,
 	alertsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure: authz.PermAlertManage,
