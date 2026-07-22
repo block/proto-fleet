@@ -332,6 +332,7 @@ type telemetryRun struct {
 	results              telemetryResults
 	statusFlushRequests  chan statusFlushRequest
 	metricsFlushRequests chan metricsFlushRequest
+	producerWG           sync.WaitGroup
 	done                 <-chan struct{}
 }
 
@@ -351,6 +352,19 @@ func (r *telemetryRun) canceled() bool {
 	default:
 		return false
 	}
+}
+
+// writerContext keeps result writers alive after activation cancellation until
+// every background producer has exited. Writers can keep draining while slow
+// producers unwind, then their existing cancellation path performs one final,
+// stable drain and flush.
+func (r *telemetryRun) writerContext(ctx context.Context) context.Context {
+	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	go func() {
+		r.producerWG.Wait()
+		cancel()
+	}()
+	return ctx
 }
 
 type TelemetryService struct {
@@ -630,7 +644,13 @@ func (s *TelemetryService) Start(ctx context.Context) error {
 	s.runCancel = cancel
 	s.runDone = runDone
 	s.run = run
-	s.runWG.Go(func() { s.gatherMetricsRoutine(runCtx, run) })
+	for range s.config.ConcurrencyLimit {
+		run.producerWG.Go(func() { s.workerForActivation(runCtx, run.results) })
+	}
+	writerCtx := run.writerContext(runCtx)
+	s.runWG.Go(func() { s.gatherMetricsRoutine(runCtx) })
+	s.runWG.Go(func() { s.statusWriterRoutine(writerCtx, run) })
+	s.runWG.Go(func() { s.metricsWriterRoutine(writerCtx, run) })
 	s.runWG.Go(func() { s.devicePollingRoutine(runCtx) })
 	s.runWG.Go(func() { s.statusPollingRoutine(runCtx) })
 	s.runWG.Go(func() { s.fleetStateSnapshotRoutine(runCtx) })
@@ -719,16 +739,7 @@ func (s *TelemetryService) GetOrCreateBroadcaster(ctx context.Context, orgID int
 	return broadcaster, nil
 }
 
-func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, run *telemetryRun) {
-	// Start workers that fetch telemetry/status from miners
-	for range s.config.ConcurrencyLimit {
-		s.runWG.Go(func() { s.workerForActivation(ctx, run.results) })
-	}
-
-	// Start routines that collect results from workers and periodically write to DB
-	s.runWG.Go(func() { s.statusWriterRoutine(ctx, run) })
-	s.runWG.Go(func() { s.metricsWriterRoutine(ctx, run) })
-
+func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
 	fetchInterval := s.config.FetchInterval
 	if fetchInterval <= 0 {
 		fetchInterval = defaultFetchInterval

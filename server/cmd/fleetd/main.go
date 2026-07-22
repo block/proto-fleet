@@ -421,13 +421,13 @@ func start(config *Config) error {
 		return fmt.Errorf("failed to start telemetry service: %w", err)
 	}
 
-	// Ensure telemetry service cleanup on shutdown
+	// Ensure telemetry service and broadcaster cleanup on shutdown.
 	defer func() {
-		slog.Info("Stopping telemetry service")
+		slog.Info("Closing telemetry service")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		if err := telemetryService.Close(shutdownCtx); err != nil {
-			slog.Error("Failed to stop telemetry service", "error", err)
+			slog.Error("Failed to close telemetry service", "error", err)
 		}
 	}()
 
