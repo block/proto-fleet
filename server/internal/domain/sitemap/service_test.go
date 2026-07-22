@@ -2223,7 +2223,7 @@ func TestValidateReadOnlyMinerFieldsIncludesIP(t *testing.T) {
 		MACAddress:       "aa:bb:cc:dd:ee:ff",
 	}}}
 
-	errs := validateReadOnlyMinerFields(rows, snap)
+	errs := validateReadOnlyMinerFields(resolveMiners(rows, minerMap(snap.miners)))
 	if len(errs) != 1 || errs[0].GetMessage() != "ip_address is read-only for existing miner miner-1" {
 		t.Fatalf("errors = %+v, want ip_address read-only error", errs)
 	}
@@ -2246,7 +2246,7 @@ func TestValidateReadOnlyMinerFieldsAllowsName(t *testing.T) {
 		MACAddress:       "aa:bb:cc:dd:ee:ff",
 	}}}
 
-	errs := validateReadOnlyMinerFields(rows, snap)
+	errs := validateReadOnlyMinerFields(resolveMiners(rows, minerMap(snap.miners)))
 	if len(errs) != 0 {
 		t.Fatalf("errors = %+v, want name changes allowed", errs)
 	}

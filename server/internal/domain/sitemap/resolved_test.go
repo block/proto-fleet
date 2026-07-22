@@ -156,6 +156,35 @@ func TestResolvePlanOmissionsMatchLegacyCounts(t *testing.T) {
 	}
 }
 
+func TestResolveMinersFlagsIdentityRenameAndReadOnly(t *testing.T) {
+	rows := []map[string]string{
+		{"__row": "20", "device_identifier": "m1", "name": "Renamed", "serial_number": "SN1", "ip_address": "10.0.0.9", "mac_address": "aa"},
+		{"__row": "21", "device_identifier": "unknown", "name": "X"},
+	}
+	existing := map[string]minerSnapshot{
+		"m1": {DeviceIdentifier: "m1", Name: "Orig", SerialNumber: "SN1", IPAddress: "10.0.0.5", MACAddress: "aa"},
+	}
+
+	miners := resolveMiners(rows, existing)
+	if !miners[0].renamed {
+		t.Errorf("m1 renamed = false, want true")
+	}
+	if miners[1].existing != nil {
+		t.Errorf("unknown miner existing = %+v, want nil", miners[1].existing)
+	}
+
+	if got := countMinerRenameNodes(miners); got != 1 {
+		t.Errorf("rename count = %d, want 1", got)
+	}
+	if errs := validateKnownMiners(miners); len(errs) != 1 || errs[0].GetRow() != 21 {
+		t.Errorf("validateKnownMiners = %+v, want one error on row 21", errs)
+	}
+	roErrs := validateReadOnlyMinerFields(miners)
+	if len(roErrs) != 1 || roErrs[0].GetMessage() != "ip_address is read-only for existing miner m1" {
+		t.Errorf("read-only errs = %+v, want ip_address error", roErrs)
+	}
+}
+
 func TestScopePopulationIncludesHiddenRackMembers(t *testing.T) {
 	snap := &snapshot{
 		miners:            []minerSnapshot{{DeviceIdentifier: "m1"}},

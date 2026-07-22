@@ -1,6 +1,7 @@
 package sitemap
 
 import (
+	"fmt"
 	"strconv"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/sitemap/v1"
@@ -67,22 +68,27 @@ type resolvedRack struct {
 }
 
 // resolvedMiner is keyed by device identifier; name and placement are its only
-// mutable facets.
+// mutable facets. existing is the matched live miner, or nil when the device is
+// unknown.
 type resolvedMiner struct {
-	deviceID   string
-	name       string
-	rack       *resolvedRack
-	building   *resolvedBuilding
-	site       *resolvedSite
-	rackLabel  string
-	siteLabel  string
-	buildLabel string
-	rackRow    string
-	rackCol    string
-	renamed    bool
-	moved      bool
-	unassigned bool
-	rowNum     int
+	deviceID     string
+	name         string
+	serialNumber string
+	ipAddress    string
+	macAddress   string
+	existing     *minerSnapshot
+	rack         *resolvedRack
+	building     *resolvedBuilding
+	site         *resolvedSite
+	rackLabel    string
+	siteLabel    string
+	buildLabel   string
+	rackRow      string
+	rackCol      string
+	renamed      bool
+	moved        bool
+	unassigned   bool
+	rowNum       int
 }
 
 // minerPopulation is the scoped mutable-miner set shared by omission counts,
@@ -144,6 +150,8 @@ func resolvePlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) *resol
 	var rackErrs []*pb.ImportValidationError
 	plan.racks, rackErrs = resolveRacks(parsed.sections["RACK"], racksByID, buildingsByID, inferSiteByBuilding, inferAmbiguous)
 	plan.errors = append(plan.errors, rackErrs...)
+
+	plan.miners = resolveMiners(parsed.sections["MINER"], minerMap(snap.miners))
 
 	classifyTopologyActions(plan, snap, mode)
 	plan.omissions = computeOmissions(parsed, snap, mode)
@@ -263,6 +271,76 @@ func resolveRacks(
 	return out, nil
 }
 
+// resolveMiners resolves MINER rows, matching each to its live miner by device
+// identifier and flagging renames.
+func resolveMiners(rows []map[string]string, existingByID map[string]minerSnapshot) []*resolvedMiner {
+	out := make([]*resolvedMiner, 0, len(rows))
+	for i, row := range rows {
+		node := &resolvedMiner{
+			deviceID:     row["device_identifier"],
+			name:         row[fieldName],
+			serialNumber: row["serial_number"],
+			ipAddress:    row["ip_address"],
+			macAddress:   row["mac_address"],
+			rackLabel:    row[fieldRack],
+			siteLabel:    row[fieldSite],
+			buildLabel:   row[fieldBuilding],
+			rackRow:      row["rack_row"],
+			rackCol:      row["rack_col"],
+			rowNum:       rowNumber(row, i+1),
+		}
+		if existing, ok := existingByID[node.deviceID]; ok {
+			e := existing
+			node.existing = &e
+			node.renamed = node.name != existing.Name
+		}
+		out = append(out, node)
+	}
+	return out
+}
+
+// validateKnownMiners rejects rows whose device identifier is not a live miner.
+func validateKnownMiners(miners []*resolvedMiner) []*pb.ImportValidationError {
+	var errs []*pb.ImportValidationError
+	for _, m := range miners {
+		if m.deviceID != "" && m.existing == nil {
+			errs = append(errs, csvErr(m.rowNum, "MINER", "unknown miner device_identifier"))
+		}
+	}
+	return errs
+}
+
+// validateReadOnlyMinerFields rejects edits to serial/ip/mac on existing miners.
+func validateReadOnlyMinerFields(miners []*resolvedMiner) []*pb.ImportValidationError {
+	var errs []*pb.ImportValidationError
+	for _, m := range miners {
+		if m.existing == nil {
+			continue
+		}
+		for _, field := range []struct{ name, got, want string }{
+			{"serial_number", m.serialNumber, m.existing.SerialNumber},
+			{"ip_address", m.ipAddress, m.existing.IPAddress},
+			{"mac_address", m.macAddress, m.existing.MACAddress},
+		} {
+			if field.got != field.want {
+				errs = append(errs, csvErr(m.rowNum, "MINER", fmt.Sprintf("%s is read-only for existing miner %s", field.name, m.deviceID)))
+			}
+		}
+	}
+	return errs
+}
+
+// countMinerRenameNodes counts existing miners whose name changed.
+func countMinerRenameNodes(miners []*resolvedMiner) int32 {
+	var n int32
+	for _, m := range miners {
+		if m.renamed {
+			n++
+		}
+	}
+	return n
+}
+
 // classifyTopologyActions marks each topology node: a row whose identity is not
 // already present in the live snapshot creates; a row matching an existing
 // entity updates when a tracked field differs.
@@ -356,7 +434,7 @@ func computeChanges(resolved *resolvedPlan, parsed *parsedCSV, snap, targetSnap 
 	add(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "site", countSiteUpdates(parsed.sections["SITE"], snap.sites), "site rows with changed details")
 	add(pb.ImportOperation_IMPORT_OPERATION_UPDATE, fieldBuilding, countBuildingUpdates(parsed.sections["BUILDING"], snap.buildings), "building rows with changed details")
 	add(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "rack", countRackUpdates(parsed.sections["RACK"], snap.racks, targetSnap.buildings), "rack rows with changed details")
-	add(pb.ImportOperation_IMPORT_OPERATION_RENAME, "miner", countMinerRenames(parsed.sections["MINER"], snap.miners), "miner rows with changed names")
+	add(pb.ImportOperation_IMPORT_OPERATION_RENAME, "miner", countMinerRenameNodes(resolved.miners), "miner rows with changed names")
 	add(pb.ImportOperation_IMPORT_OPERATION_MOVE, "miner", countMinerPlacementUpdates(parsed.sections["MINER"], parsed.sections["RACK"], parsed.sections["BUILDING"], targetSnap), "miner placement rows with changed site, building, rack, or slot")
 	if mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
 		add(pb.ImportOperation_IMPORT_OPERATION_UNASSIGN, "miner", resolved.omissions.GetMiners(), "omitted miner rows to unassign")

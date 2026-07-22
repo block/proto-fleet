@@ -1171,8 +1171,8 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateRetainedTopologyUniqueness(parsed, snap, mode)...)
 	removeReferenceErrors := validateRemoveOmittedReferences(parsed, mode)
 	plan.errors = append(plan.errors, removeReferenceErrors...)
-	plan.errors = append(plan.errors, validateKnownMiners(parsed.sections["MINER"], snap)...)
-	plan.errors = append(plan.errors, validateReadOnlyMinerFields(parsed.sections["MINER"], snap)...)
+	plan.errors = append(plan.errors, validateKnownMiners(resolved.miners)...)
+	plan.errors = append(plan.errors, validateReadOnlyMinerFields(resolved.miners)...)
 	if len(removeReferenceErrors) == 0 {
 		plan.errors = append(plan.errors, validateBuildingSiteTargets(parsed.sections["BUILDING"], parsed.sections["SITE"], targetSnap)...)
 		plan.errors = append(plan.errors, validateRackPlacementTargets(parsed.sections["RACK"], parsed.sections["BUILDING"], parsed.sections["SITE"], targetSnap)...)
@@ -2712,41 +2712,6 @@ func validateRemoveOmittedReferences(parsed *parsedCSV, mode pb.OmissionMode) []
 	return errs
 }
 
-func validateKnownMiners(rows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
-	known := rowSetFromMiners(snap.miners)
-	var errs []*pb.ImportValidationError
-	for i, row := range rows {
-		if row["device_identifier"] != "" && !known[row["device_identifier"]] {
-			errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", "unknown miner device_identifier"))
-		}
-	}
-	return errs
-}
-
-func validateReadOnlyMinerFields(rows []map[string]string, snap *snapshot) []*pb.ImportValidationError {
-	known := minerMap(snap.miners)
-	var errs []*pb.ImportValidationError
-	for i, row := range rows {
-		miner, ok := known[row["device_identifier"]]
-		if !ok {
-			continue
-		}
-		for _, field := range []struct {
-			name string
-			want string
-		}{
-			{name: "serial_number", want: miner.SerialNumber},
-			{name: "ip_address", want: miner.IPAddress},
-			{name: "mac_address", want: miner.MACAddress},
-		} {
-			if row[field.name] != field.want {
-				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("%s is read-only for existing miner %s", field.name, row["device_identifier"])))
-			}
-		}
-	}
-	return errs
-}
-
 func validateKnownEntityIDs(parsed *parsedCSV, snap *snapshot) []*pb.ImportValidationError {
 	sitesByID := map[int64]sitemodels.Site{}
 	for _, site := range snap.sites {
@@ -3972,18 +3937,6 @@ func countMinerPlacementUpdates(rows, rackRows, buildingRows []map[string]string
 			row[fieldRack] != miner.Rack ||
 			row["rack_row"] != miner.RackRow ||
 			row["rack_col"] != miner.RackCol {
-			count++
-		}
-	}
-	return count
-}
-
-func countMinerRenames(rows []map[string]string, miners []minerSnapshot) int32 {
-	existing := minerMap(miners)
-	var count int32
-	for _, row := range rows {
-		miner, ok := existing[row["device_identifier"]]
-		if ok && row[fieldName] != miner.Name {
 			count++
 		}
 	}
