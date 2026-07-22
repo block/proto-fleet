@@ -64,27 +64,24 @@ func TestIPScannerService_StartStopStart(t *testing.T) {
 	}
 }
 
-func TestIPScannerService_Start_CallerCancellationDoesNotStopRun(t *testing.T) {
+func TestIPScannerService_Start_ActivationCancellationStopsRun(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	config := Config{
 		Enabled:                       true,
-		ScanInterval:                  10 * time.Millisecond,
+		ScanInterval:                  time.Hour,
 		MaxConcurrentSubnetScans:      1,
 		MaxConcurrentIPScansPerSubnet: 1,
 		ScanTimeout:                   time.Second,
 		SubnetMaskBits:                24,
 	}
 	deviceStore := storemocks.NewMockDeviceStore(ctrl)
-	scanned := make(chan struct{}, 2)
+	scanned := make(chan struct{}, 1)
 	deviceStore.EXPECT().GetOfflineDevices(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(context.Context, int) ([]stores.OfflineDeviceInfo, error) {
-			select {
-			case scanned <- struct{}{}:
-			default:
-			}
+			scanned <- struct{}{}
 			return nil, nil
 		},
-	).AnyTimes()
+	)
 	service := NewIPScannerService(
 		config,
 		deviceStore,
@@ -94,14 +91,21 @@ func TestIPScannerService_Start_CallerCancellationDoesNotStopRun(t *testing.T) {
 		slog.Default(),
 	)
 
-	startupCtx, cancelStartup := context.WithCancel(t.Context())
-	if err := service.Start(startupCtx); err != nil {
+	activationCtx, cancelActivation := context.WithCancel(t.Context())
+	if err := service.Start(activationCtx); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
 	waitForScannerSignal(t, scanned, "initial scan did not run")
 
-	cancelStartup()
-	waitForScannerSignal(t, scanned, "startup context cancellation stopped periodic scans")
+	service.lifecycleMu.Lock()
+	run := service.run
+	service.lifecycleMu.Unlock()
+	if run == nil {
+		t.Fatal("Start did not create an active scanner run")
+	}
+
+	cancelActivation()
+	waitForScannerSignal(t, run.done, "activation context cancellation did not stop scanner run")
 
 	if err := service.Stop(t.Context()); err != nil {
 		t.Fatalf("Stop failed: %v", err)
