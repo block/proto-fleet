@@ -1,0 +1,147 @@
+package sitemap
+
+import (
+	"testing"
+
+	pb "github.com/block/proto-fleet/server/generated/grpc/sitemap/v1"
+	buildingmodels "github.com/block/proto-fleet/server/internal/domain/buildings/models"
+	sitemodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
+)
+
+func TestResolvePlanClassifiesSiteIdentity(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": {
+			{"__row": "3", "name": "Site A", "id": "1"},   // existing, unchanged
+			{"__row": "4", "name": "Renamed", "id": "2"},  // existing, renamed
+			{"__row": "5", "name": "Brand New", "id": ""}, // create
+		},
+	}}
+	snap := &snapshot{sites: []sitemodels.Site{
+		{ID: 1, Name: "Site A"},
+		{ID: 2, Name: "Site B"},
+	}}
+
+	plan := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.sites) != 3 {
+		t.Fatalf("resolved sites = %d, want 3", len(plan.sites))
+	}
+	if plan.sites[0].action != actionNone {
+		t.Errorf("Site A action = %v, want none", plan.sites[0].action)
+	}
+	if plan.sites[1].action != actionUpdate || plan.sites[1].prevName != "Site B" {
+		t.Errorf("Renamed site = action %v prevName %q, want update/\"Site B\"", plan.sites[1].action, plan.sites[1].prevName)
+	}
+	if plan.sites[2].action != actionCreate || plan.sites[2].id != nil {
+		t.Errorf("Brand New site = action %v id %v, want create/nil", plan.sites[2].action, plan.sites[2].id)
+	}
+}
+
+func TestResolvePlanLinksBuildingToSiteByName(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE":     {{"__row": "3", "name": "Site A", "id": "1"}},
+		"BUILDING": {{"__row": "6", "name": "Bldg", "id": "10", "site": "Site A", "aisles": "2", "racks_per_aisle": "2"}},
+	}}
+	snap := &snapshot{
+		sites:     []sitemodels.Site{{ID: 1, Name: "Site A"}},
+		buildings: []buildingmodels.Building{{ID: 10, Name: "Bldg", SiteLabel: "Site A", Aisles: 2, RacksPerAisle: 2}},
+	}
+
+	plan := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	b := plan.buildings[0]
+	if b.site == nil || b.site != plan.sites[0] {
+		t.Fatalf("building.site = %v, want pointer to resolved Site A node", b.site)
+	}
+	if b.action != actionNone {
+		t.Errorf("building action = %v, want none (unchanged)", b.action)
+	}
+}
+
+func TestResolvePlanReportsBuildingSiteIDNameMismatch(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE":     {{"__row": "3", "name": "Site A", "id": "1"}, {"__row": "4", "name": "Site B", "id": "2"}},
+		"BUILDING": {{"__row": "6", "name": "Bldg", "id": "10", "site_id": "1", "site": "Site B"}},
+	}}
+	snap := &snapshot{
+		sites:     []sitemodels.Site{{ID: 1, Name: "Site A"}, {ID: 2, Name: "Site B"}},
+		buildings: []buildingmodels.Building{{ID: 10, Name: "Bldg", SiteLabel: "Site A"}},
+	}
+
+	plan := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.errors) == 0 {
+		t.Fatalf("errors = none, want site_id/site mismatch error")
+	}
+	if plan.errors[0].GetRow() != 6 {
+		t.Errorf("error row = %d, want 6", plan.errors[0].GetRow())
+	}
+}
+
+func TestResolvePlanInfersRackSiteFromBuildingName(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE":     {{"__row": "3", "name": "Site A", "id": "1"}},
+		"BUILDING": {{"__row": "6", "name": "Bldg", "id": "10", "site": "Site A", "aisles": "2", "racks_per_aisle": "2"}},
+		"RACK":     {{"__row": "9", "label": "R1", "id": "20", "building": "Bldg", "site": ""}},
+	}}
+	snap := &snapshot{
+		sites:     []sitemodels.Site{{ID: 1, Name: "Site A"}},
+		buildings: []buildingmodels.Building{{ID: 10, Name: "Bldg", SiteLabel: "Site A"}},
+		racks:     []rackSnapshot{{ID: 20, Label: "R1", Building: "Bldg", Site: "Site A"}},
+	}
+
+	plan := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	r := plan.racks[0]
+	if r.siteLabel != "Site A" {
+		t.Errorf("rack siteLabel = %q, want inferred \"Site A\"", r.siteLabel)
+	}
+}
+
+func TestResolvePlanRackBuildingIDDictatesSite(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE":     {{"__row": "3", "name": "Site A", "id": "1"}},
+		"BUILDING": {{"__row": "6", "name": "Bldg", "id": "10", "site": "Site A"}},
+		"RACK":     {{"__row": "9", "label": "R1", "id": "20", "building_id": "10", "building": "", "site": ""}},
+	}}
+	snap := &snapshot{
+		sites:     []sitemodels.Site{{ID: 1, Name: "Site A"}},
+		buildings: []buildingmodels.Building{{ID: 10, Name: "Bldg", SiteLabel: "Site A"}},
+		racks:     []rackSnapshot{{ID: 20, Label: "R1"}},
+	}
+
+	plan := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	r := plan.racks[0]
+	if r.buildingLabel != "Bldg" || r.siteLabel != "Site A" {
+		t.Errorf("rack building/site = %q/%q, want Bldg/Site A from building_id", r.buildingLabel, r.siteLabel)
+	}
+}
+
+func TestResolvePlanOmissionsMatchLegacyCounts(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE":     {{"__row": "3", "name": "Site A", "id": "1"}},
+		"BUILDING": nil,
+		"RACK":     nil,
+		"MINER":    nil,
+	}}
+	snap := &snapshot{
+		sites:  []sitemodels.Site{{ID: 1, Name: "Site A"}, {ID: 2, Name: "Site B"}},
+		miners: []minerSnapshot{{DeviceIdentifier: "m1"}},
+	}
+
+	plan := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	want := computeOmissions(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if plan.omissions.GetSites() != want.GetSites() || plan.omissions.GetSites() != 1 {
+		t.Errorf("site omissions = %d, want 1", plan.omissions.GetSites())
+	}
+	if plan.omissions.GetMiners() != 1 {
+		t.Errorf("miner omissions = %d, want 1", plan.omissions.GetMiners())
+	}
+}
+
+func TestScopePopulationIncludesHiddenRackMembers(t *testing.T) {
+	snap := &snapshot{
+		miners:            []minerSnapshot{{DeviceIdentifier: "m1"}},
+		hiddenRackMembers: []minerSnapshot{{DeviceIdentifier: "hidden1"}},
+	}
+	pop := scopePopulation(snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	if len(pop.miners) != 1 || len(pop.hiddenRackMembers) != 1 {
+		t.Fatalf("population = %d miners / %d hidden, want 1/1", len(pop.miners), len(pop.hiddenRackMembers))
+	}
+}
