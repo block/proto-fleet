@@ -30,6 +30,7 @@ const (
 	revertPerformanceMode = commandpb.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY
 	schedulerActorName    = "scheduler"
 	oneTimeRetryDelay     = time.Second
+	scheduleStateTimeout  = 10 * time.Second
 )
 
 var errProcessorStopping = errors.New("schedule processor is still stopping")
@@ -416,7 +417,7 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 	sw, err := p.procStore.GetScheduleByID(ctx, scheduleID)
 	if err != nil {
 		slog.Error("failed to re-read schedule after status transition", "schedule_id", scheduleID, "error", err)
-		if rerr := p.procStore.RevertScheduleToActive(ctx, scheduleID); rerr != nil {
+		if rerr := p.revertScheduleAfterClaim(ctx, scheduleID); rerr != nil {
 			slog.Error("failed to revert schedule after read failure", "schedule_id", scheduleID, "error", rerr)
 			return
 		}
@@ -433,7 +434,7 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 		startDate, err := parseDateInLocation(sched.StartDate, sched.Timezone)
 		if err == nil && now.Before(startDate) {
 			slog.Info("schedule start_date not reached, skipping execution", "schedule_id", scheduleID)
-			if rerr := p.procStore.RevertScheduleToActive(ctx, scheduleID); rerr != nil {
+			if rerr := p.revertScheduleAfterClaim(ctx, scheduleID); rerr != nil {
 				slog.Error("failed to revert schedule before start_date", "schedule_id", scheduleID, "error", rerr)
 			}
 			return
@@ -451,7 +452,7 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 	deviceIdentifiers, err := p.resolveTargets(ctx, sched, orgID)
 	if err != nil {
 		slog.Error("failed to resolve targets", "schedule_id", scheduleID, "error", err)
-		if rerr := p.procStore.RevertScheduleToActive(ctx, scheduleID); rerr != nil {
+		if rerr := p.revertScheduleAfterClaim(ctx, scheduleID); rerr != nil {
 			slog.Error("failed to revert schedule after target resolution failure", "schedule_id", scheduleID, "error", rerr)
 			return
 		}
@@ -479,7 +480,7 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 	result, err := p.dispatch(cmdCtx, sched, selector)
 	if err != nil {
 		slog.Error("failed to dispatch command", "schedule_id", scheduleID, "action", sched.Action, "error", err)
-		if rerr := p.procStore.RevertScheduleToActive(ctx, scheduleID); rerr != nil {
+		if rerr := p.revertScheduleAfterClaim(ctx, scheduleID); rerr != nil {
 			slog.Error("failed to revert schedule after dispatch failure", "schedule_id", scheduleID, "error", rerr)
 			return
 		}
@@ -554,6 +555,20 @@ func (p *Processor) removeJobForRetry(scheduleID int64, gen uint64, hasGen bool)
 	p.removeJobIfCurrent(scheduleID, gen, hasGen)
 }
 
+// State writes after a schedule is claimed must outlive activation
+// cancellation so the row is not left running, but remain bounded.
+func (p *Processor) updateScheduleAfterClaim(ctx context.Context, scheduleID int64, lastRunAt, nextRunAt *int64, status string) error {
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), scheduleStateTimeout)
+	defer cancel()
+	return p.procStore.UpdateScheduleAfterRun(writeCtx, scheduleID, lastRunAt, nextRunAt, status)
+}
+
+func (p *Processor) revertScheduleAfterClaim(ctx context.Context, scheduleID int64) error {
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), scheduleStateTimeout)
+	defer cancel()
+	return p.procStore.RevertScheduleToActive(writeCtx, scheduleID)
+}
+
 func (p *Processor) dispatch(ctx context.Context, sched *pb.Schedule, selector *commandpb.DeviceSelector) (*command.CommandResult, error) {
 	switch sched.Action {
 	case pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET:
@@ -609,7 +624,7 @@ func (p *Processor) updateAfterRunWithGeneration(ctx context.Context, sched *pb.
 	nextRun, err := ComputeNextRun(sched, now)
 	if err != nil {
 		slog.Error("failed to compute next run, keeping active", "schedule_id", sched.Id, "error", err)
-		if uerr := p.procStore.UpdateScheduleAfterRun(ctx, sched.Id, &lastRun, nil, statusActive); uerr != nil {
+		if uerr := p.updateScheduleAfterClaim(ctx, sched.Id, &lastRun, nil, statusActive); uerr != nil {
 			slog.Error("failed to update schedule after run", "schedule_id", sched.Id, "error", uerr)
 		}
 		return
@@ -634,9 +649,9 @@ func (p *Processor) updateAfterRunWithGeneration(ctx context.Context, sched *pb.
 		nextRunPtr = &nru
 	}
 
-	if err := p.procStore.UpdateScheduleAfterRun(ctx, sched.Id, &lastRun, nextRunPtr, status); err != nil {
+	if err := p.updateScheduleAfterClaim(ctx, sched.Id, &lastRun, nextRunPtr, status); err != nil {
 		slog.Error("failed to update schedule after run, reverting to active", "schedule_id", sched.Id, "error", err)
-		if rerr := p.procStore.RevertScheduleToActive(ctx, sched.Id); rerr != nil {
+		if rerr := p.revertScheduleAfterClaim(ctx, sched.Id); rerr != nil {
 			slog.Error("failed to revert schedule after update failure", "schedule_id", sched.Id, "error", rerr)
 			return
 		}
@@ -657,9 +672,9 @@ func (p *Processor) transitionToCompleted(ctx context.Context, sched *pb.Schedul
 
 func (p *Processor) transitionToCompletedWithGeneration(ctx context.Context, sched *pb.Schedule, orgID int64, now time.Time, gen uint64, hasGen bool) {
 	lastRun := now.Unix()
-	if err := p.procStore.UpdateScheduleAfterRun(ctx, sched.Id, &lastRun, nil, statusCompleted); err != nil {
+	if err := p.updateScheduleAfterClaim(ctx, sched.Id, &lastRun, nil, statusCompleted); err != nil {
 		slog.Error("failed to transition schedule to completed, reverting to active", "schedule_id", sched.Id, "error", err)
-		if rerr := p.procStore.RevertScheduleToActive(ctx, sched.Id); rerr != nil {
+		if rerr := p.revertScheduleAfterClaim(ctx, sched.Id); rerr != nil {
 			slog.Error("failed to revert schedule after completion failure", "schedule_id", sched.Id, "error", rerr)
 			return
 		}

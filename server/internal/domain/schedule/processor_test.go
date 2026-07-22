@@ -773,6 +773,44 @@ func TestExecuteSchedule_Success(t *testing.T) {
 	p.executeSchedule(context.Background(), 1)
 }
 
+func TestExecuteSchedule_ActivationCancellationDoesNotCancelFinalization(t *testing.T) {
+	now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+	p, procStore, targetStore, _, cmdSvc := newTestProcessor(t, now)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	sched := &pb.Schedule{
+		Id:           1,
+		Action:       pb.ScheduleAction_SCHEDULE_ACTION_REBOOT,
+		ScheduleType: pb.ScheduleType_SCHEDULE_TYPE_ONE_TIME,
+		StartDate:    "2026-04-01",
+		StartTime:    "10:00",
+		Timezone:     "UTC",
+	}
+
+	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).Return(int64(1), nil)
+	procStore.EXPECT().GetScheduleByID(gomock.Any(), int64(1)).Return(&interfaces.ScheduleWithOrg{Schedule: sched, OrgID: 1}, nil)
+	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
+		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
+	}, nil)
+	cmdSvc.EXPECT().Reboot(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, *commandpb.DeviceSelector) (*commanddomain.CommandResult, error) {
+			cancel()
+			return nil, nil
+		},
+	)
+	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Nil(), statusCompleted).DoAndReturn(
+		func(writeCtx context.Context, _ int64, _ *int64, _ *int64, _ string) error {
+			assert.NoError(t, writeCtx.Err())
+			_, bounded := writeCtx.Deadline()
+			assert.True(t, bounded, "finalization context should be bounded")
+			return nil
+		},
+	)
+
+	p.executeSchedule(ctx, 1)
+	assert.Error(t, ctx.Err())
+}
+
 func TestExecuteSchedule_SkipsWhenNotActive(t *testing.T) {
 	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
 
