@@ -560,6 +560,7 @@ func (s *TelemetryService) flushMetrics(ctx context.Context, deviceID *models.De
 	}
 }
 
+// Start activates background telemetry collection for the lifetime of ctx.
 func (s *TelemetryService) Start(ctx context.Context) error {
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()

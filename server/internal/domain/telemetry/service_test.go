@@ -207,7 +207,7 @@ func TestTelemetryService_RemoveDevices(t *testing.T) {
 	}
 }
 
-func TestTelemetryService_CanRestartAfterStop(t *testing.T) {
+func TestTelemetryService_CanRestartAfterActivationCancellationOrStop(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
 	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
@@ -231,9 +231,15 @@ func TestTelemetryService_CanRestartAfterStop(t *testing.T) {
 		DevicePollInterval: time.Hour,
 	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 
-	require.NoError(t, service.Start(t.Context()))
+	activationCtx, cancelActivation := context.WithCancel(t.Context())
+	require.NoError(t, service.Start(activationCtx))
 	require.Eventually(t, func() bool { return pairedDeviceLoads.Load() >= 1 }, time.Second, time.Millisecond)
-	require.NoError(t, service.Stop(t.Context()))
+	cancelActivation()
+	require.Eventually(t, func() bool {
+		service.lifecycleMu.Lock()
+		defer service.lifecycleMu.Unlock()
+		return service.runCancel == nil
+	}, time.Second, time.Millisecond)
 	require.NoError(t, service.Start(t.Context()))
 	require.Eventually(t, func() bool { return pairedDeviceLoads.Load() >= 2 }, time.Second, time.Millisecond)
 	require.NoError(t, service.Stop(t.Context()))
