@@ -209,6 +209,7 @@ export default function ScanMinerQrModalView({
     <Modal
       open={show}
       size="fullscreen"
+      fullscreenMaxWidth={false}
       showHeader={false}
       className="flex h-full flex-col !p-0"
       bodyClassName="flex h-full min-h-0 flex-col"

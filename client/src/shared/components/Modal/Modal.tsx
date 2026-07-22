@@ -20,6 +20,8 @@ const sizeClasses: Record<keyof typeof sizes, string> = {
   fullscreen: "h-full w-full max-w-full overflow-y-auto rounded-none",
 };
 
+const DEFAULT_FULLSCREEN_MAX_WIDTH = "1920px";
+
 // optional prop to delay close modal on clicking button and allow animations to finish
 interface ModalButtonProps extends ButtonProps {
   dismissModalOnClick?: boolean;
@@ -46,6 +48,7 @@ interface ModalProps {
   description?: string;
   divider?: boolean;
   size?: keyof typeof sizes;
+  fullscreenMaxWidth?: string | false;
   zIndex?: string;
   testId?: string;
   forceTitleCollapsed?: boolean;
@@ -72,6 +75,7 @@ const Modal = ({
   description,
   divider = true,
   size = sizes.standard,
+  fullscreenMaxWidth = DEFAULT_FULLSCREEN_MAX_WIDTH,
   zIndex,
   iconAriaLabel = "Close dialog",
   testId = "modal",
@@ -164,6 +168,7 @@ const Modal = ({
           },
           surfaceClassName,
         )}
+        style={isFullscreen && fullscreenMaxWidth !== false ? { maxWidth: fullscreenMaxWidth } : undefined}
       >
         <motion.div
           {...slideUpAnimation}
