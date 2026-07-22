@@ -1216,6 +1216,7 @@ type Querier interface {
 	// Late samples must not resurrect devices moved to UNPAIRED,
 	// AUTHENTICATION_NEEDED, PENDING, or FAILED by another flow.
 	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, arg ReconcileDefaultPasswordPairingStatusByIdentifierParams) (ReconcileDefaultPasswordPairingStatusByIdentifierRow, error)
+	RecordCurtailPendingDispatch(ctx context.Context, arg RecordCurtailPendingDispatchParams) (int64, error)
 	// ============================================================================
 	// Error Lifecycle Management
 	// ============================================================================

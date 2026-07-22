@@ -1152,6 +1152,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.reconcileDefaultPasswordPairingStatusByIdentifierStmt, err = db.PrepareContext(ctx, reconcileDefaultPasswordPairingStatusByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query ReconcileDefaultPasswordPairingStatusByIdentifier: %w", err)
 	}
+	if q.recordCurtailPendingDispatchStmt, err = db.PrepareContext(ctx, recordCurtailPendingDispatch); err != nil {
+		return nil, fmt.Errorf("error preparing query RecordCurtailPendingDispatch: %w", err)
+	}
 	if q.refreshOpenErrorsLastSeenByDeviceStmt, err = db.PrepareContext(ctx, refreshOpenErrorsLastSeenByDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query RefreshOpenErrorsLastSeenByDevice: %w", err)
 	}
@@ -3412,6 +3415,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing reconcileDefaultPasswordPairingStatusByIdentifierStmt: %w", cerr)
 		}
 	}
+	if q.recordCurtailPendingDispatchStmt != nil {
+		if cerr := q.recordCurtailPendingDispatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing recordCurtailPendingDispatchStmt: %w", cerr)
+		}
+	}
 	if q.refreshOpenErrorsLastSeenByDeviceStmt != nil {
 		if cerr := q.refreshOpenErrorsLastSeenByDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing refreshOpenErrorsLastSeenByDeviceStmt: %w", cerr)
@@ -4452,6 +4460,7 @@ type Queries struct {
 	reassignRacksUnderBuildingsBulkStmt                          *sql.Stmt
 	reconcileAuthenticationNeededPairingStatusByIdentifierStmt   *sql.Stmt
 	reconcileDefaultPasswordPairingStatusByIdentifierStmt        *sql.Stmt
+	recordCurtailPendingDispatchStmt                             *sql.Stmt
 	refreshOpenErrorsLastSeenByDeviceStmt                        *sql.Stmt
 	releaseUndispatchedAllPairedTargetsForRestoreStmt            *sql.Stmt
 	removeAllDevicesFromDeviceSetStmt                            *sql.Stmt
@@ -4959,6 +4968,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		reassignRacksUnderBuildingsBulkStmt:                          q.reassignRacksUnderBuildingsBulkStmt,
 		reconcileAuthenticationNeededPairingStatusByIdentifierStmt:   q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt,
 		reconcileDefaultPasswordPairingStatusByIdentifierStmt:        q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
+		recordCurtailPendingDispatchStmt:                             q.recordCurtailPendingDispatchStmt,
 		refreshOpenErrorsLastSeenByDeviceStmt:                        q.refreshOpenErrorsLastSeenByDeviceStmt,
 		releaseUndispatchedAllPairedTargetsForRestoreStmt:            q.releaseUndispatchedAllPairedTargetsForRestoreStmt,
 		removeAllDevicesFromDeviceSetStmt:                            q.removeAllDevicesFromDeviceSetStmt,

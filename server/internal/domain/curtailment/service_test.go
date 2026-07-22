@@ -822,6 +822,10 @@ func (f *fakeStore) UpdateEventState(context.Context, int64, models.EventState, 
 	panic("UpdateEventState not exercised by Preview/Start/Stop tests")
 }
 
+func (f *fakeStore) RecordCurtailPendingDispatch(context.Context, int64, models.EventState, time.Time) error {
+	panic("RecordCurtailPendingDispatch not exercised by Preview/Start/Stop tests")
+}
+
 func (f *fakeStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
 	panic("UpdateTargetState not exercised by Preview/Start/Stop tests")
 }

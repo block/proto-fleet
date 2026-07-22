@@ -289,6 +289,11 @@ type CurtailmentStore interface {
 	// advance surfaces as ErrCurtailmentEventStateRaceLoss.
 	UpdateOperatorFields(ctx context.Context, eventID, orgID int64, params UpdateOperatorFieldsParams) (*models.Event, error)
 
+	// RecordCurtailPendingDispatch records the pacing clock for a fresh pending
+	// curtail wave. Retry and orphan-recovery dispatches intentionally do not
+	// call this, so they cannot postpone later pending waves.
+	RecordCurtailPendingDispatch(ctx context.Context, eventID int64, expectedState models.EventState, dispatchedAt time.Time) error
+
 	// AdminTerminateEvent forces a non-terminal event to CANCELLED or
 	// FAILED and sweeps non-terminal targets to RESTORE_FAILED in one
 	// transaction. Idempotent: an already-terminal event in the same

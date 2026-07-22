@@ -411,6 +411,21 @@ func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, expectedS
 	return nil
 }
 
+func (f *fakeStore) RecordCurtailPendingDispatch(_ context.Context, eventID int64, expectedState models.EventState, dispatchedAt time.Time) error {
+	for _, ev := range f.events {
+		if ev.ID != eventID {
+			continue
+		}
+		if ev.State != expectedState {
+			return interfaces.ErrCurtailmentEventStateRaceLoss
+		}
+		ts := dispatchedAt
+		ev.LastCurtailPendingDispatchAt = &ts
+		return nil
+	}
+	return interfaces.ErrCurtailmentEventStateRaceLoss
+}
+
 func (f *fakeStore) UpdateFanState(ctx context.Context, eventID int64, params interfaces.UpdateCurtailmentFanStateParams) error {
 	f.updateFanCalls++
 	f.lastFanUpdate = params
@@ -1022,16 +1037,17 @@ func TestReconciler_ActiveClosedLoopFullFleetSkipsCandidateScanWhenAdmissionInte
 	lastBatchUUID := "batch-recent"
 	store.events = []*models.Event{
 		{
-			ID:                      eventID,
-			EventUUID:               eventUUID,
-			OrgID:                   1,
-			State:                   models.EventStateActive,
-			Mode:                    models.ModeFullFleet,
-			LoopType:                models.LoopTypeClosed,
-			ScopeType:               models.ScopeTypeWholeOrg,
-			CurtailBatchSize:        &batchSize,
-			CurtailBatchIntervalSec: 600,
-			CreatedByUserID:         99,
+			ID:                           eventID,
+			EventUUID:                    eventUUID,
+			OrgID:                        1,
+			State:                        models.EventStateActive,
+			Mode:                         models.ModeFullFleet,
+			LoopType:                     models.LoopTypeClosed,
+			ScopeType:                    models.ScopeTypeWholeOrg,
+			CurtailBatchSize:             &batchSize,
+			CurtailBatchIntervalSec:      600,
+			LastCurtailPendingDispatchAt: &lastBatchAt,
+			CreatedByUserID:              99,
 		},
 	}
 	store.targetsByEventID[eventID] = []*models.Target{
@@ -1075,17 +1091,18 @@ func TestReconciler_ActiveAllPairedPolicySkipsAdmissionScanWhenIntervalBlocked(t
 	lastBatchUUID := "batch-recent"
 	store.events = []*models.Event{
 		{
-			ID:                          eventID,
-			EventUUID:                   eventUUID,
-			OrgID:                       1,
-			State:                       models.EventStateActive,
-			Mode:                        models.ModeFullFleet,
-			LoopType:                    models.LoopTypeClosed,
-			ScopeType:                   models.ScopeTypeWholeOrg,
-			ForceIncludeAllPairedMiners: true,
-			CurtailBatchSize:            &batchSize,
-			CurtailBatchIntervalSec:     600,
-			CreatedByUserID:             99,
+			ID:                           eventID,
+			EventUUID:                    eventUUID,
+			OrgID:                        1,
+			State:                        models.EventStateActive,
+			Mode:                         models.ModeFullFleet,
+			LoopType:                     models.LoopTypeClosed,
+			ScopeType:                    models.ScopeTypeWholeOrg,
+			ForceIncludeAllPairedMiners:  true,
+			CurtailBatchSize:             &batchSize,
+			CurtailBatchIntervalSec:      600,
+			LastCurtailPendingDispatchAt: &lastBatchAt,
+			CreatedByUserID:              99,
 		},
 	}
 	store.targetsByEventID[eventID] = []*models.Target{
@@ -3644,6 +3661,112 @@ func TestReconciler_DispatchedReConfirmsViaObserveActive(t *testing.T) {
 	final := store.targetsByEventID[eventID][0]
 	assert.Equal(t, models.TargetStateConfirmed, final.State)
 	assert.Equal(t, int32(0), final.RetryCount, "confirmation resets retry budget for the next drift cycle")
+}
+
+func TestReconciler_RetryChurnDispatchesEligiblePendingWave(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(1)
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	lastPendingWave := now.Add(-61 * time.Second)
+	lastRetryDispatch := now.Add(-10 * time.Second)
+	store.events = []*models.Event{
+		{
+			ID:                           eventID,
+			EventUUID:                    eventUUID,
+			OrgID:                        1,
+			State:                        models.EventStateActive,
+			CurtailBatchSize:             &batchSize,
+			CurtailBatchIntervalSec:      60,
+			LastCurtailPendingDispatchAt: &lastPendingWave,
+			CreatedByUserID:              99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "retrying",
+			State:              models.TargetStateDispatched,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+			LastDispatchedAt:   &lastRetryDispatch,
+			CurtailPhase: models.TargetPhaseSummary{
+				Phase:        models.TargetPhaseCurtail,
+				State:        models.TargetStateDispatched,
+				DispatchedAt: &lastRetryDispatch,
+			},
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "pending",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "retrying", LatestPowerW: ptrFloat64(2500), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.cfg.CurtailDispatchTimeoutSec = 5
+	r.runTick(context.Background())
+
+	assert.Equal(t, [][]string{{"retrying"}, {"pending"}}, disp.curtailCallIDs,
+		"eligible pending work must dispatch in the same tick as retry recovery")
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][1].State)
+	require.NotNil(t, store.events[0].LastCurtailPendingDispatchAt)
+	assert.Equal(t, now, *store.events[0].LastCurtailPendingDispatchAt)
+}
+
+func TestReconciler_RecoveryDispatchDoesNotResetBlockedPendingWave(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(1)
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	lastPendingWave := now.Add(-30 * time.Second)
+	store.events = []*models.Event{
+		{
+			ID:                           eventID,
+			EventUUID:                    eventUUID,
+			OrgID:                        1,
+			State:                        models.EventStateActive,
+			CurtailBatchSize:             &batchSize,
+			CurtailBatchIntervalSec:      60,
+			LastCurtailPendingDispatchAt: &lastPendingWave,
+			CreatedByUserID:              99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "recovering",
+			State:              models.TargetStateDispatching,
+			DesiredState:       models.DesiredStateCurtailed,
+			RetryCount:         1,
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "pending",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, [][]string{{"recovering"}}, disp.curtailCallIDs,
+		"recovery work may run while the fresh pending-wave gate remains closed")
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][1].State)
+	require.NotNil(t, store.events[0].LastCurtailPendingDispatchAt)
+	assert.Equal(t, lastPendingWave, *store.events[0].LastCurtailPendingDispatchAt,
+		"retry/orphan recovery must not reset the fresh pending-wave clock")
 }
 
 // TestReconciler_RetryBudgetResetsOnReConfirm: drift → confirm → drift →

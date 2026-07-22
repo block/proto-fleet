@@ -45,6 +45,13 @@ const (
 	defaultRestoreDispatchTimeoutSec = 30
 )
 
+type pendingDispatchClockAction int
+
+const (
+	skipPendingDispatchClock pendingDispatchClockAction = iota
+	recordPendingDispatchClock
+)
+
 // CommandDispatcher is the subset of command.Service the reconciler needs;
 // keeps tests free of the full command-service graph.
 type CommandDispatcher interface {
@@ -448,7 +455,7 @@ func (r *Reconciler) reconcilePendingFans(ctx context.Context, ev *models.Event)
 // remaining targets; a positive interval paces fresh pending batches.
 func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *models.Event, targets []*models.Target) {
 	batchSize := curtailBatchSizeForEvent(ev, len(targets))
-	dispatchByState := func(state models.TargetState, singleBatch bool) bool {
+	dispatchByState := func(state models.TargetState, dispatchSingleBatch bool, clockAction pendingDispatchClockAction) bool {
 		claim := make([]*models.Target, 0, batchSize)
 		for _, t := range targets {
 			if t.State != state {
@@ -456,10 +463,10 @@ func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *mode
 			}
 			claim = append(claim, t)
 			if int32(len(claim)) >= batchSize { //nolint:gosec // batchSize already bounded
-				if !r.dispatchCurtailBatch(ctx, ev, claim, state) {
+				if !r.dispatchCurtailBatch(ctx, ev, claim, state, clockAction) {
 					return false
 				}
-				if singleBatch {
+				if dispatchSingleBatch {
 					return true
 				}
 				claim = make([]*models.Target, 0, batchSize)
@@ -468,21 +475,17 @@ func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *mode
 		if len(claim) == 0 {
 			return true
 		}
-		return r.dispatchCurtailBatch(ctx, ev, claim, state)
+		return r.dispatchCurtailBatch(ctx, ev, claim, state, clockAction)
 	}
 
 	intervalActive := curtailBatchIntervalActive(ev)
-	hadDispatching := hasTargetsInState(targets, models.TargetStateDispatching)
-	if !dispatchByState(models.TargetStateDispatching, intervalActive) {
+	if !dispatchByState(models.TargetStateDispatching, intervalActive, skipPendingDispatchClock) {
 		return
 	}
-	if intervalActive && hadDispatching {
+	if intervalActive && !r.curtailBatchIntervalElapsed(ev) {
 		return
 	}
-	if intervalActive && !r.curtailBatchIntervalElapsed(ev, targets) {
-		return
-	}
-	_ = dispatchByState(models.TargetStatePending, intervalActive)
+	_ = dispatchByState(models.TargetStatePending, intervalActive, recordPendingDispatchClock)
 }
 
 // confirmDispatched promotes Dispatched → Confirmed when telemetry
@@ -527,12 +530,12 @@ func (r *Reconciler) confirmDispatched(ctx context.Context, ev *models.Event, ta
 // target in DISPATCHING; the next tick redispatches via
 // nonTerminalFailureState (Curtail is device-idempotent).
 func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t *models.Target, nonTerminalFailureState models.TargetState) {
-	_ = r.dispatchCurtailBatch(ctx, ev, []*models.Target{t}, nonTerminalFailureState)
+	_ = r.dispatchCurtailBatch(ctx, ev, []*models.Target{t}, nonTerminalFailureState, skipPendingDispatchClock)
 }
 
 // dispatchCurtailBatch issues one Curtail command for every device in claim and
 // records per-target dispatched/skipped/failed outcomes.
-func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event, claim []*models.Target, nonTerminalFailureState models.TargetState) bool {
+func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event, claim []*models.Target, nonTerminalFailureState models.TargetState, clockAction pendingDispatchClockAction) bool {
 	if len(claim) == 0 {
 		return true
 	}
@@ -619,6 +622,7 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 	emptyErr := ""
 	batchID := result.BatchIdentifier
 	desiredCurtailed := models.DesiredStateCurtailed
+	wroteDispatch := false
 	for _, t := range dispatchSet {
 		if skipReason, skipped := skippedSet[t.DeviceIdentifier]; skipped {
 			slog.Warn("curtailment reconciler: dispatch filter-skipped",
@@ -658,6 +662,10 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 		t.CurtailPhase.State = models.TargetStateDispatched
 		t.CurtailPhase.DispatchedAt = &now
 		t.CurtailPhase.BatchUUID = &batchID
+		wroteDispatch = true
+	}
+	if clockAction == recordPendingDispatchClock && wroteDispatch {
+		return r.recordCurtailPendingDispatch(ctx, ev, now)
 	}
 	return true
 }
@@ -1076,7 +1084,7 @@ func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *mo
 	// policies. For all-paired events this paces only the discovery of
 	// brand-new devices and reopens; readiness refresh of existing targets
 	// stays per-tick via the device-scoped refresh path.
-	if curtailBatchIntervalActive(ev) && !r.curtailBatchIntervalElapsed(ev, existingTargets) {
+	if curtailBatchIntervalActive(ev) && !r.curtailBatchIntervalElapsed(ev) {
 		return nil
 	}
 	if hasInFlightCurtailDispatch(existingTargets) {
@@ -1250,7 +1258,7 @@ func (r *Reconciler) dispatchClaimedCurtailTargets(ctx context.Context, ev *mode
 	if len(dispatchable) == 0 {
 		return
 	}
-	_ = r.dispatchCurtailBatch(ctx, ev, dispatchable, models.TargetStateDispatching)
+	_ = r.dispatchCurtailBatch(ctx, ev, dispatchable, models.TargetStateDispatching, recordPendingDispatchClock)
 }
 
 func isClosedLoopFullFleet(ev *models.Event) bool {
@@ -1530,6 +1538,25 @@ func (r *Reconciler) logEventStateUpdateError(ev *models.Event, transition strin
 		"event_id", ev.ID, "error", err)
 }
 
+func (r *Reconciler) recordCurtailPendingDispatch(ctx context.Context, ev *models.Event, dispatchedAt time.Time) bool {
+	err := r.store.RecordCurtailPendingDispatch(ctx, ev.ID, ev.State, dispatchedAt)
+	if err != nil {
+		if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			r.metrics.IncEventStateRaceLoss()
+			slog.Warn("curtailment reconciler: event state advanced concurrently; skipping pending dispatch clock update",
+				"event_id", ev.ID, "event_uuid", ev.EventUUID,
+				"loaded_state", ev.State)
+			return false
+		}
+		slog.Error("curtailment reconciler: pending dispatch clock update failed",
+			"event_id", ev.ID, "error", err)
+	}
+
+	ts := dispatchedAt
+	ev.LastCurtailPendingDispatchAt = &ts
+	return true
+}
+
 // writeTargetState wraps store.UpdateTargetState so race-loss routes to
 // IncEventStateRaceLoss (benign concurrency) and other errors route to
 // IncTargetWriteFailure (operator-actionable). Returns the error for
@@ -1616,34 +1643,12 @@ func curtailBatchIntervalActive(ev *models.Event) bool {
 	return ev != nil && ev.CurtailBatchSize != nil && ev.CurtailBatchIntervalSec > 0
 }
 
-func hasTargetsInState(targets []*models.Target, state models.TargetState) bool {
-	for _, t := range targets {
-		if t.State == state {
-			return true
-		}
-	}
-	return false
-}
-
-func (r *Reconciler) curtailBatchIntervalElapsed(ev *models.Event, targets []*models.Target) bool {
+func (r *Reconciler) curtailBatchIntervalElapsed(ev *models.Event) bool {
 	if !curtailBatchIntervalActive(ev) {
 		return true
 	}
 	interval := time.Duration(ev.CurtailBatchIntervalSec) * time.Second
-	var newest *time.Time
-	for _, t := range targets {
-		if t.DesiredState != models.DesiredStateCurtailed {
-			continue
-		}
-		if t.CurtailPhase.DispatchedAt == nil {
-			continue
-		}
-		if newest == nil || t.CurtailPhase.DispatchedAt.After(*newest) {
-			ts := *t.CurtailPhase.DispatchedAt
-			newest = &ts
-		}
-	}
-	return newest == nil || r.now().Sub(*newest) >= interval
+	return ev.LastCurtailPendingDispatchAt == nil || r.now().Sub(*ev.LastCurtailPendingDispatchAt) >= interval
 }
 
 // isCurtailed decides whether telemetry shows the target is curtailed.

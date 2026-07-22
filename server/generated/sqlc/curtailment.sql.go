@@ -37,7 +37,7 @@ WHERE curtailment_event.id = locked_event.id
             AND desired_state = 'curtailed'
             AND state IN ('dispatching', 'dispatched', 'confirmed', 'drifted')
     )
-RETURNING curtailment_event.id, curtailment_event.event_uuid, curtailment_event.org_id, curtailment_event.state, curtailment_event.mode, curtailment_event.strategy, curtailment_event.level, curtailment_event.priority, curtailment_event.loop_type, curtailment_event.scope_type, curtailment_event.scope_jsonb, curtailment_event.mode_params_jsonb, curtailment_event.restore_batch_size, curtailment_event.restore_batch_interval_sec, curtailment_event.effective_batch_size, curtailment_event.min_curtailed_duration_sec, curtailment_event.max_duration_seconds, curtailment_event.allow_unbounded, curtailment_event.include_maintenance, curtailment_event.force_include_maintenance, curtailment_event.decision_snapshot_jsonb, curtailment_event.source_actor_type, curtailment_event.source_actor_id, curtailment_event.external_source, curtailment_event.external_reference, curtailment_event.idempotency_key, curtailment_event.supersedes_event_id, curtailment_event.reason, curtailment_event.scheduled_start_at, curtailment_event.started_at, curtailment_event.ended_at, curtailment_event.created_at, curtailment_event.updated_at, curtailment_event.created_by_user_id, curtailment_event.curtail_batch_size, curtailment_event.curtail_batch_interval_sec, curtailment_event.force_include_all_paired_miners, curtailment_event.facility_fan_device_ids, curtailment_event.facility_fan_site_ids, curtailment_event.fan_off_delay_sec, curtailment_event.fan_restore_delay_sec, curtailment_event.fan_off_sent_at, curtailment_event.fan_on_sent_at, curtailment_event.fan_airflow_reopened_at, curtailment_event.fan_last_error
+RETURNING curtailment_event.id, curtailment_event.event_uuid, curtailment_event.org_id, curtailment_event.state, curtailment_event.mode, curtailment_event.strategy, curtailment_event.level, curtailment_event.priority, curtailment_event.loop_type, curtailment_event.scope_type, curtailment_event.scope_jsonb, curtailment_event.mode_params_jsonb, curtailment_event.restore_batch_size, curtailment_event.restore_batch_interval_sec, curtailment_event.effective_batch_size, curtailment_event.min_curtailed_duration_sec, curtailment_event.max_duration_seconds, curtailment_event.allow_unbounded, curtailment_event.include_maintenance, curtailment_event.force_include_maintenance, curtailment_event.decision_snapshot_jsonb, curtailment_event.source_actor_type, curtailment_event.source_actor_id, curtailment_event.external_source, curtailment_event.external_reference, curtailment_event.idempotency_key, curtailment_event.supersedes_event_id, curtailment_event.reason, curtailment_event.scheduled_start_at, curtailment_event.started_at, curtailment_event.ended_at, curtailment_event.created_at, curtailment_event.updated_at, curtailment_event.created_by_user_id, curtailment_event.curtail_batch_size, curtailment_event.curtail_batch_interval_sec, curtailment_event.force_include_all_paired_miners, curtailment_event.facility_fan_device_ids, curtailment_event.facility_fan_site_ids, curtailment_event.fan_off_delay_sec, curtailment_event.fan_restore_delay_sec, curtailment_event.fan_off_sent_at, curtailment_event.fan_on_sent_at, curtailment_event.fan_airflow_reopened_at, curtailment_event.fan_last_error, curtailment_event.last_curtail_pending_dispatch_at
 `
 
 type AdminTerminateCurtailmentEventParams struct {
@@ -100,6 +100,7 @@ func (q *Queries) AdminTerminateCurtailmentEvent(ctx context.Context, arg AdminT
 		&i.FanOnSentAt,
 		&i.FanAirflowReopenedAt,
 		&i.FanLastError,
+		&i.LastCurtailPendingDispatchAt,
 	)
 	return i, err
 }
@@ -109,7 +110,7 @@ UPDATE curtailment_event
 SET state = 'restoring'
 WHERE id = $1
   AND state IN ('pending', 'active')
-RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error
+RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error, last_curtail_pending_dispatch_at
 `
 
 // Stop's event-side flip to 'restoring'. The WHERE state-guard is the
@@ -164,6 +165,7 @@ func (q *Queries) BeginCurtailmentRestoration(ctx context.Context, id int64) (Cu
 		&i.FanOnSentAt,
 		&i.FanAirflowReopenedAt,
 		&i.FanLastError,
+		&i.LastCurtailPendingDispatchAt,
 	)
 	return i, err
 }
@@ -817,7 +819,7 @@ SET state      = 'cancelled',
 WHERE event_uuid = $1
   AND org_id = $2
   AND state IN ('pending', 'active', 'restoring')
-RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error
+RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error, last_curtail_pending_dispatch_at
 `
 
 type ForceReleaseCurtailmentEventParams struct {
@@ -878,12 +880,13 @@ func (q *Queries) ForceReleaseCurtailmentEvent(ctx context.Context, arg ForceRel
 		&i.FanOnSentAt,
 		&i.FanAirflowReopenedAt,
 		&i.FanLastError,
+		&i.LastCurtailPendingDispatchAt,
 	)
 	return i, err
 }
 
 const getCurtailmentEventByExternalReference = `-- name: GetCurtailmentEventByExternalReference :one
-SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error, last_curtail_pending_dispatch_at
 FROM curtailment_event
 WHERE org_id = $1
     AND external_source = $2
@@ -949,12 +952,13 @@ func (q *Queries) GetCurtailmentEventByExternalReference(ctx context.Context, ar
 		&i.FanOnSentAt,
 		&i.FanAirflowReopenedAt,
 		&i.FanLastError,
+		&i.LastCurtailPendingDispatchAt,
 	)
 	return i, err
 }
 
 const getCurtailmentEventByIdempotencyKey = `-- name: GetCurtailmentEventByIdempotencyKey :one
-SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error, last_curtail_pending_dispatch_at
 FROM curtailment_event
 WHERE org_id = $1
     AND idempotency_key = $2
@@ -1018,12 +1022,13 @@ func (q *Queries) GetCurtailmentEventByIdempotencyKey(ctx context.Context, arg G
 		&i.FanOnSentAt,
 		&i.FanAirflowReopenedAt,
 		&i.FanLastError,
+		&i.LastCurtailPendingDispatchAt,
 	)
 	return i, err
 }
 
 const getCurtailmentEventByUUID = `-- name: GetCurtailmentEventByUUID :one
-SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error, last_curtail_pending_dispatch_at
 FROM curtailment_event
 WHERE event_uuid = $1
     AND org_id = $2
@@ -1084,6 +1089,7 @@ func (q *Queries) GetCurtailmentEventByUUID(ctx context.Context, arg GetCurtailm
 		&i.FanOnSentAt,
 		&i.FanAirflowReopenedAt,
 		&i.FanLastError,
+		&i.LastCurtailPendingDispatchAt,
 	)
 	return i, err
 }
@@ -1092,7 +1098,7 @@ const getCurtailmentEventDetailByUUID = `-- name: GetCurtailmentEventDetailByUUI
 SELECT
     id, event_uuid, org_id, state, mode, strategy, level, priority,
     loop_type, scope_type, scope_jsonb, mode_params_jsonb,
-    curtail_batch_size, curtail_batch_interval_sec,
+    curtail_batch_size, curtail_batch_interval_sec, last_curtail_pending_dispatch_at,
     restore_batch_size, restore_batch_interval_sec, effective_batch_size,
     min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
     include_maintenance, force_include_maintenance, force_include_all_paired_miners,
@@ -1135,51 +1141,52 @@ type GetCurtailmentEventDetailByUUIDParams struct {
 }
 
 type GetCurtailmentEventDetailByUUIDRow struct {
-	ID                          int64
-	EventUuid                   uuid.UUID
-	OrgID                       int64
-	State                       string
-	Mode                        string
-	Strategy                    string
-	Level                       string
-	Priority                    string
-	LoopType                    string
-	ScopeType                   string
-	ScopeJsonb                  json.RawMessage
-	ModeParamsJsonb             json.RawMessage
-	CurtailBatchSize            sql.NullInt32
-	CurtailBatchIntervalSec     int32
-	RestoreBatchSize            int32
-	RestoreBatchIntervalSec     int32
-	EffectiveBatchSize          sql.NullInt32
-	MinCurtailedDurationSec     int32
-	MaxDurationSeconds          sql.NullInt32
-	AllowUnbounded              bool
-	IncludeMaintenance          bool
-	ForceIncludeMaintenance     bool
-	ForceIncludeAllPairedMiners bool
-	FacilityFanDeviceIds        []int64
-	FacilityFanSiteIds          []int64
-	FanOffDelaySec              int32
-	FanRestoreDelaySec          int32
-	FanOffSentAt                sql.NullTime
-	FanOnSentAt                 sql.NullTime
-	FanAirflowReopenedAt        sql.NullTime
-	FanLastError                sql.NullString
-	DecisionSnapshotJsonb       json.RawMessage
-	SourceActorType             string
-	SourceActorID               sql.NullString
-	ExternalSource              sql.NullString
-	ExternalReference           sql.NullString
-	IdempotencyKey              sql.NullString
-	SupersedesEventID           sql.NullInt64
-	Reason                      string
-	ScheduledStartAt            sql.NullTime
-	StartedAt                   sql.NullTime
-	EndedAt                     sql.NullTime
-	CreatedAt                   time.Time
-	UpdatedAt                   time.Time
-	CreatedByUserID             int64
+	ID                           int64
+	EventUuid                    uuid.UUID
+	OrgID                        int64
+	State                        string
+	Mode                         string
+	Strategy                     string
+	Level                        string
+	Priority                     string
+	LoopType                     string
+	ScopeType                    string
+	ScopeJsonb                   json.RawMessage
+	ModeParamsJsonb              json.RawMessage
+	CurtailBatchSize             sql.NullInt32
+	CurtailBatchIntervalSec      int32
+	LastCurtailPendingDispatchAt sql.NullTime
+	RestoreBatchSize             int32
+	RestoreBatchIntervalSec      int32
+	EffectiveBatchSize           sql.NullInt32
+	MinCurtailedDurationSec      int32
+	MaxDurationSeconds           sql.NullInt32
+	AllowUnbounded               bool
+	IncludeMaintenance           bool
+	ForceIncludeMaintenance      bool
+	ForceIncludeAllPairedMiners  bool
+	FacilityFanDeviceIds         []int64
+	FacilityFanSiteIds           []int64
+	FanOffDelaySec               int32
+	FanRestoreDelaySec           int32
+	FanOffSentAt                 sql.NullTime
+	FanOnSentAt                  sql.NullTime
+	FanAirflowReopenedAt         sql.NullTime
+	FanLastError                 sql.NullString
+	DecisionSnapshotJsonb        json.RawMessage
+	SourceActorType              string
+	SourceActorID                sql.NullString
+	ExternalSource               sql.NullString
+	ExternalReference            sql.NullString
+	IdempotencyKey               sql.NullString
+	SupersedesEventID            sql.NullInt64
+	Reason                       string
+	ScheduledStartAt             sql.NullTime
+	StartedAt                    sql.NullTime
+	EndedAt                      sql.NullTime
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+	CreatedByUserID              int64
 }
 
 // Detail reads keep target rows paginated; collapse per-device skipped
@@ -1203,6 +1210,7 @@ func (q *Queries) GetCurtailmentEventDetailByUUID(ctx context.Context, arg GetCu
 		&i.ModeParamsJsonb,
 		&i.CurtailBatchSize,
 		&i.CurtailBatchIntervalSec,
+		&i.LastCurtailPendingDispatchAt,
 		&i.RestoreBatchSize,
 		&i.RestoreBatchIntervalSec,
 		&i.EffectiveBatchSize,
@@ -1390,6 +1398,7 @@ INSERT INTO curtailment_event (
     mode_params_jsonb,
     curtail_batch_size,
     curtail_batch_interval_sec,
+    last_curtail_pending_dispatch_at,
     restore_batch_size,
     restore_batch_interval_sec,
     min_curtailed_duration_sec,
@@ -1428,6 +1437,7 @@ INSERT INTO curtailment_event (
     $11,
     $12,
     $13,
+    NULL,
     $14,
     $15,
     $16,
@@ -1660,7 +1670,7 @@ const listActiveCurtailmentEvents = `-- name: ListActiveCurtailmentEvents :many
 SELECT
     ce.id, ce.event_uuid, ce.org_id, ce.state, ce.mode, ce.strategy, ce.level, ce.priority,
     ce.loop_type, ce.scope_type, ce.scope_jsonb, ce.mode_params_jsonb,
-    ce.curtail_batch_size, ce.curtail_batch_interval_sec,
+    ce.curtail_batch_size, ce.curtail_batch_interval_sec, ce.last_curtail_pending_dispatch_at,
     ce.restore_batch_size, ce.restore_batch_interval_sec, ce.effective_batch_size,
     ce.min_curtailed_duration_sec, ce.max_duration_seconds, ce.allow_unbounded,
     ce.include_maintenance, ce.force_include_maintenance, ce.force_include_all_paired_miners,
@@ -1720,61 +1730,62 @@ ORDER BY COALESCE(ce.started_at, ce.created_at) DESC, ce.id DESC
 `
 
 type ListActiveCurtailmentEventsRow struct {
-	ID                          int64
-	EventUuid                   uuid.UUID
-	OrgID                       int64
-	State                       string
-	Mode                        string
-	Strategy                    string
-	Level                       string
-	Priority                    string
-	LoopType                    string
-	ScopeType                   string
-	ScopeJsonb                  json.RawMessage
-	ModeParamsJsonb             json.RawMessage
-	CurtailBatchSize            sql.NullInt32
-	CurtailBatchIntervalSec     int32
-	RestoreBatchSize            int32
-	RestoreBatchIntervalSec     int32
-	EffectiveBatchSize          sql.NullInt32
-	MinCurtailedDurationSec     int32
-	MaxDurationSeconds          sql.NullInt32
-	AllowUnbounded              bool
-	IncludeMaintenance          bool
-	ForceIncludeMaintenance     bool
-	ForceIncludeAllPairedMiners bool
-	FacilityFanDeviceIds        []int64
-	FacilityFanSiteIds          []int64
-	FanOffDelaySec              int32
-	FanRestoreDelaySec          int32
-	FanOffSentAt                sql.NullTime
-	FanOnSentAt                 sql.NullTime
-	FanAirflowReopenedAt        sql.NullTime
-	FanLastError                sql.NullString
-	DecisionSnapshotJsonb       json.RawMessage
-	SourceActorType             string
-	SourceActorID               sql.NullString
-	ExternalSource              sql.NullString
-	ExternalReference           sql.NullString
-	IdempotencyKey              sql.NullString
-	SupersedesEventID           sql.NullInt64
-	Reason                      string
-	ScheduledStartAt            sql.NullTime
-	StartedAt                   sql.NullTime
-	EndedAt                     sql.NullTime
-	CreatedAt                   time.Time
-	UpdatedAt                   time.Time
-	CreatedByUserID             int64
-	RollupPending               int64
-	RollupDispatched            int64
-	RollupConfirmed             int64
-	RollupDrifted               int64
-	RollupResolved              int64
-	RollupReleased              int64
-	RollupRestoreFailed         int64
-	RollupUnavailable           int64
-	RollupTotal                 int64
-	RollupUnavailableReasons    json.RawMessage
+	ID                           int64
+	EventUuid                    uuid.UUID
+	OrgID                        int64
+	State                        string
+	Mode                         string
+	Strategy                     string
+	Level                        string
+	Priority                     string
+	LoopType                     string
+	ScopeType                    string
+	ScopeJsonb                   json.RawMessage
+	ModeParamsJsonb              json.RawMessage
+	CurtailBatchSize             sql.NullInt32
+	CurtailBatchIntervalSec      int32
+	LastCurtailPendingDispatchAt sql.NullTime
+	RestoreBatchSize             int32
+	RestoreBatchIntervalSec      int32
+	EffectiveBatchSize           sql.NullInt32
+	MinCurtailedDurationSec      int32
+	MaxDurationSeconds           sql.NullInt32
+	AllowUnbounded               bool
+	IncludeMaintenance           bool
+	ForceIncludeMaintenance      bool
+	ForceIncludeAllPairedMiners  bool
+	FacilityFanDeviceIds         []int64
+	FacilityFanSiteIds           []int64
+	FanOffDelaySec               int32
+	FanRestoreDelaySec           int32
+	FanOffSentAt                 sql.NullTime
+	FanOnSentAt                  sql.NullTime
+	FanAirflowReopenedAt         sql.NullTime
+	FanLastError                 sql.NullString
+	DecisionSnapshotJsonb        json.RawMessage
+	SourceActorType              string
+	SourceActorID                sql.NullString
+	ExternalSource               sql.NullString
+	ExternalReference            sql.NullString
+	IdempotencyKey               sql.NullString
+	SupersedesEventID            sql.NullInt64
+	Reason                       string
+	ScheduledStartAt             sql.NullTime
+	StartedAt                    sql.NullTime
+	EndedAt                      sql.NullTime
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+	CreatedByUserID              int64
+	RollupPending                int64
+	RollupDispatched             int64
+	RollupConfirmed              int64
+	RollupDrifted                int64
+	RollupResolved               int64
+	RollupReleased               int64
+	RollupRestoreFailed          int64
+	RollupUnavailable            int64
+	RollupTotal                  int64
+	RollupUnavailableReasons     json.RawMessage
 }
 
 // Org-scoped list of every non-terminal event. Multiple can be active when
@@ -1813,6 +1824,7 @@ func (q *Queries) ListActiveCurtailmentEvents(ctx context.Context, orgID int64) 
 			&i.ModeParamsJsonb,
 			&i.CurtailBatchSize,
 			&i.CurtailBatchIntervalSec,
+			&i.LastCurtailPendingDispatchAt,
 			&i.RestoreBatchSize,
 			&i.RestoreBatchIntervalSec,
 			&i.EffectiveBatchSize,
@@ -2023,7 +2035,7 @@ const listCurtailmentEventsForOrg = `-- name: ListCurtailmentEventsForOrg :many
 SELECT
     id, event_uuid, org_id, state, mode, strategy, level, priority,
     loop_type, scope_type, scope_jsonb, mode_params_jsonb,
-    curtail_batch_size, curtail_batch_interval_sec,
+    curtail_batch_size, curtail_batch_interval_sec, last_curtail_pending_dispatch_at,
     restore_batch_size, restore_batch_interval_sec, effective_batch_size,
     min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
     include_maintenance, force_include_maintenance, force_include_all_paired_miners,
@@ -2074,51 +2086,52 @@ type ListCurtailmentEventsForOrgParams struct {
 }
 
 type ListCurtailmentEventsForOrgRow struct {
-	ID                          int64
-	EventUuid                   uuid.UUID
-	OrgID                       int64
-	State                       string
-	Mode                        string
-	Strategy                    string
-	Level                       string
-	Priority                    string
-	LoopType                    string
-	ScopeType                   string
-	ScopeJsonb                  json.RawMessage
-	ModeParamsJsonb             json.RawMessage
-	CurtailBatchSize            sql.NullInt32
-	CurtailBatchIntervalSec     int32
-	RestoreBatchSize            int32
-	RestoreBatchIntervalSec     int32
-	EffectiveBatchSize          sql.NullInt32
-	MinCurtailedDurationSec     int32
-	MaxDurationSeconds          sql.NullInt32
-	AllowUnbounded              bool
-	IncludeMaintenance          bool
-	ForceIncludeMaintenance     bool
-	ForceIncludeAllPairedMiners bool
-	FacilityFanDeviceIds        []int64
-	FacilityFanSiteIds          []int64
-	FanOffDelaySec              int32
-	FanRestoreDelaySec          int32
-	FanOffSentAt                sql.NullTime
-	FanOnSentAt                 sql.NullTime
-	FanAirflowReopenedAt        sql.NullTime
-	FanLastError                sql.NullString
-	DecisionSnapshotJsonb       json.RawMessage
-	SourceActorType             string
-	SourceActorID               sql.NullString
-	ExternalSource              sql.NullString
-	ExternalReference           sql.NullString
-	IdempotencyKey              sql.NullString
-	SupersedesEventID           sql.NullInt64
-	Reason                      string
-	ScheduledStartAt            sql.NullTime
-	StartedAt                   sql.NullTime
-	EndedAt                     sql.NullTime
-	CreatedAt                   time.Time
-	UpdatedAt                   time.Time
-	CreatedByUserID             int64
+	ID                           int64
+	EventUuid                    uuid.UUID
+	OrgID                        int64
+	State                        string
+	Mode                         string
+	Strategy                     string
+	Level                        string
+	Priority                     string
+	LoopType                     string
+	ScopeType                    string
+	ScopeJsonb                   json.RawMessage
+	ModeParamsJsonb              json.RawMessage
+	CurtailBatchSize             sql.NullInt32
+	CurtailBatchIntervalSec      int32
+	LastCurtailPendingDispatchAt sql.NullTime
+	RestoreBatchSize             int32
+	RestoreBatchIntervalSec      int32
+	EffectiveBatchSize           sql.NullInt32
+	MinCurtailedDurationSec      int32
+	MaxDurationSeconds           sql.NullInt32
+	AllowUnbounded               bool
+	IncludeMaintenance           bool
+	ForceIncludeMaintenance      bool
+	ForceIncludeAllPairedMiners  bool
+	FacilityFanDeviceIds         []int64
+	FacilityFanSiteIds           []int64
+	FanOffDelaySec               int32
+	FanRestoreDelaySec           int32
+	FanOffSentAt                 sql.NullTime
+	FanOnSentAt                  sql.NullTime
+	FanAirflowReopenedAt         sql.NullTime
+	FanLastError                 sql.NullString
+	DecisionSnapshotJsonb        json.RawMessage
+	SourceActorType              string
+	SourceActorID                sql.NullString
+	ExternalSource               sql.NullString
+	ExternalReference            sql.NullString
+	IdempotencyKey               sql.NullString
+	SupersedesEventID            sql.NullInt64
+	Reason                       string
+	ScheduledStartAt             sql.NullTime
+	StartedAt                    sql.NullTime
+	EndedAt                      sql.NullTime
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+	CreatedByUserID              int64
 }
 
 // Cursor-paginated history (newest-first). cursor_id=0 is the first page;
@@ -2156,6 +2169,7 @@ func (q *Queries) ListCurtailmentEventsForOrg(ctx context.Context, arg ListCurta
 			&i.ModeParamsJsonb,
 			&i.CurtailBatchSize,
 			&i.CurtailBatchIntervalSec,
+			&i.LastCurtailPendingDispatchAt,
 			&i.RestoreBatchSize,
 			&i.RestoreBatchIntervalSec,
 			&i.EffectiveBatchSize,
@@ -2498,7 +2512,7 @@ func (q *Queries) ListCurtailmentTargetsByEventPage(ctx context.Context, arg Lis
 }
 
 const listNonTerminalCurtailmentEvents = `-- name: ListNonTerminalCurtailmentEvents :many
-SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error, last_curtail_pending_dispatch_at
 FROM curtailment_event
 WHERE state IN ('pending', 'active', 'restoring')
 ORDER BY id
@@ -2561,6 +2575,7 @@ func (q *Queries) ListNonTerminalCurtailmentEvents(ctx context.Context) ([]Curta
 			&i.FanOnSentAt,
 			&i.FanAirflowReopenedAt,
 			&i.FanLastError,
+			&i.LastCurtailPendingDispatchAt,
 		); err != nil {
 			return nil, err
 		}
@@ -2681,7 +2696,7 @@ func (q *Queries) ListRecentlyResolvedCurtailedDevicesByScope(ctx context.Contex
 }
 
 const lockCurtailmentEventByUUIDForWrite = `-- name: LockCurtailmentEventByUUIDForWrite :one
-SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error, last_curtail_pending_dispatch_at
 FROM curtailment_event
 WHERE event_uuid = $1
     AND org_id = $2
@@ -2742,6 +2757,7 @@ func (q *Queries) LockCurtailmentEventByUUIDForWrite(ctx context.Context, arg Lo
 		&i.FanOnSentAt,
 		&i.FanAirflowReopenedAt,
 		&i.FanLastError,
+		&i.LastCurtailPendingDispatchAt,
 	)
 	return i, err
 }
@@ -2835,6 +2851,28 @@ SELECT pg_advisory_xact_lock(hashtextextended('curtailment_scope:' || $1::text, 
 func (q *Queries) LockCurtailmentScopeForWrite(ctx context.Context, orgID string) error {
 	_, err := q.exec(ctx, q.lockCurtailmentScopeForWriteStmt, lockCurtailmentScopeForWrite, orgID)
 	return err
+}
+
+const recordCurtailPendingDispatch = `-- name: RecordCurtailPendingDispatch :execrows
+UPDATE curtailment_event
+SET last_curtail_pending_dispatch_at = $1
+WHERE id = $2
+  AND state = $3
+  AND state IN ('pending', 'active')
+`
+
+type RecordCurtailPendingDispatchParams struct {
+	DispatchedAt  sql.NullTime
+	ID            int64
+	ExpectedState string
+}
+
+func (q *Queries) RecordCurtailPendingDispatch(ctx context.Context, arg RecordCurtailPendingDispatchParams) (int64, error) {
+	result, err := q.exec(ctx, q.recordCurtailPendingDispatchStmt, recordCurtailPendingDispatch, arg.DispatchedAt, arg.ID, arg.ExpectedState)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const releaseUndispatchedAllPairedTargetsForRestore = `-- name: ReleaseUndispatchedAllPairedTargetsForRestore :execrows
@@ -2973,7 +3011,7 @@ SET state = 'pending',
     fan_on_sent_at = NULL
 WHERE id = $1
   AND state = 'restoring'
-RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error
+RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error, last_curtail_pending_dispatch_at
 `
 
 // Restore reversal: go back through pending so the curtail dispatcher picks
@@ -3029,6 +3067,7 @@ func (q *Queries) ResumeCurtailmentFromRestoring(ctx context.Context, id int64) 
 		&i.FanOnSentAt,
 		&i.FanAirflowReopenedAt,
 		&i.FanLastError,
+		&i.LastCurtailPendingDispatchAt,
 	)
 	return i, err
 }
@@ -3180,7 +3219,7 @@ SET reason                     = COALESCE($1::TEXT, reason),
 WHERE id = $5
     AND org_id = $6
     AND state IN ('pending', 'active')
-RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error
+RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error, last_curtail_pending_dispatch_at
 `
 
 type UpdateCurtailmentEventOperatorFieldsParams struct {
@@ -3251,6 +3290,7 @@ func (q *Queries) UpdateCurtailmentEventOperatorFields(ctx context.Context, arg 
 		&i.FanOnSentAt,
 		&i.FanAirflowReopenedAt,
 		&i.FanLastError,
+		&i.LastCurtailPendingDispatchAt,
 	)
 	return i, err
 }

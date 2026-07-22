@@ -4332,6 +4332,18 @@ func (q *retryingQuerier) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx 
 	return result, err
 }
 
+func (q *retryingQuerier) RecordCurtailPendingDispatch(ctx context.Context, arg RecordCurtailPendingDispatchParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "RecordCurtailPendingDispatch", func() error {
+		callResult, callErr := q.next.RecordCurtailPendingDispatch(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) RefreshOpenErrorsLastSeenByDevice(ctx context.Context, arg RefreshOpenErrorsLastSeenByDeviceParams) (sql.Result, error) {
 	var result sql.Result
 	err := q.retrier.RetryQuery(ctx, "RefreshOpenErrorsLastSeenByDevice", func() error {

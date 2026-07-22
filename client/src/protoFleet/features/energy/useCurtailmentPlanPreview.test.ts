@@ -510,6 +510,71 @@ describe("useCurtailmentPlanPreview", () => {
     expect(preview.facilityFanDeviceCount).toBe(2);
   });
 
+  it("adds facility fan delays to curtail and restore estimates when infrastructure is selected", () => {
+    const preview = createCurtailmentPlanPreview(
+      {
+        ...baseValues,
+        curtailBatchSize: "1",
+        curtailBatchIntervalSec: "10",
+        restoreBatchSize: "1",
+        restoreIntervalSec: "10",
+        facilityFanDeviceIds: ["31"],
+        fanOffDelaySec: "45",
+        fanRestoreDelaySec: "20",
+      },
+      {
+        selectedMinerCount: 2,
+        targetKw: 40,
+        estimatedReductionKw: 45,
+      },
+    );
+
+    expect(preview.curtailEstimate).toBe("~55 seconds");
+    expect(preview.restoreEstimate).toBe("~30 seconds");
+  });
+
+  it("ignores facility fan delays when no infrastructure is selected", () => {
+    const preview = createCurtailmentPlanPreview(
+      {
+        ...baseValues,
+        curtailBatchSize: "1",
+        curtailBatchIntervalSec: "10",
+        restoreBatchSize: "1",
+        restoreIntervalSec: "10",
+        facilityFanDeviceIds: [],
+        fanOffDelaySec: "45",
+        fanRestoreDelaySec: "20",
+      },
+      {
+        selectedMinerCount: 2,
+        targetKw: 40,
+        estimatedReductionKw: 45,
+      },
+    );
+
+    expect(preview.curtailEstimate).toBe("~10 seconds");
+    expect(preview.restoreEstimate).toBe("~10 seconds");
+  });
+
+  it("shows infrastructure delay alongside server-default miner curtail timing", () => {
+    const preview = createCurtailmentPlanPreview(
+      {
+        ...baseValues,
+        curtailBatchSize: "",
+        curtailBatchIntervalSec: "",
+        facilityFanDeviceIds: ["31"],
+        fanOffDelaySec: "45",
+      },
+      {
+        selectedMinerCount: 2,
+        targetKw: 40,
+        estimatedReductionKw: 45,
+      },
+    );
+
+    expect(preview.curtailEstimate).toBe("Server default + 45 seconds");
+  });
+
   it("estimates zero-sized restore waves with the safety limit when an interval is set", () => {
     const preview = createCurtailmentPlanPreview(
       {
