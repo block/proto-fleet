@@ -334,53 +334,144 @@ func TestGroupStopReturnsReadyResultAfterContextCancellation(t *testing.T) {
 	stopCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	assert.ErrorIs(t, waitForStopResult(stopCtx, result), stopErr)
+	err, completed := waitForStopResult(stopCtx, result)
+	assert.ErrorIs(t, err, stopErr)
+	assert.True(t, completed)
 }
 
-func TestGroupStopCanExpireWhileStartIsBlocked(t *testing.T) {
+func TestGroupStopCancelsBlockedStartBeforeWaitingForOperation(t *testing.T) {
 	t.Parallel()
 
 	startEntered := make(chan struct{})
-	releaseStart := make(chan struct{})
-	group := newTestGroup(t, newTestJob(
-		"job",
-		func(context.Context) error {
-			close(startEntered)
-			<-releaseStart
+	startCanceled := make(chan struct{})
+	var stops atomic.Int32
+	group := newTestGroup(t,
+		newTestJob("started", noopJob, func(context.Context) error {
+			stops.Add(1)
 			return nil
-		},
-		noopJob,
-	))
+		}),
+		newTestJob("blocked", func(ctx context.Context) error {
+			close(startEntered)
+			<-ctx.Done()
+			close(startCanceled)
+			return ctx.Err()
+		}, noopJob),
+	)
 
 	startResult := make(chan error, 1)
 	go func() {
 		startResult <- group.Start(context.Background())
 	}()
 	<-startEntered
-	released := false
-	defer func() {
-		if !released {
-			close(releaseStart)
-		}
+
+	stopResult := make(chan error, 1)
+	go func() {
+		stopResult <- group.Stop(context.Background())
 	}()
+
+	select {
+	case <-startCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not cancel the blocked Start")
+	}
+
+	require.ErrorIs(t, <-startResult, context.Canceled)
+	require.NoError(t, <-stopResult)
+	assert.Equal(t, int32(1), stops.Load(), "Stop must roll back only the successfully started prefix")
+}
+
+func TestGroupStopRequestCancelsStartWaitingToPublishActivation(t *testing.T) {
+	t.Parallel()
+
+	var starts atomic.Int32
+	group := newTestGroup(t, newTestJob("job", func(context.Context) error {
+		starts.Add(1)
+		return nil
+	}, noopJob))
+
+	// Occupy the operation slot so Start snapshots the current stop generation,
+	// then blocks before it can publish its activation cancel function.
+	group.operationPermit <- struct{}{}
+	startWaiting := make(chan struct{}, 1)
+	startResult := make(chan error, 1)
+	go func() {
+		startResult <- group.Start(doneObservedContext{
+			observed: startWaiting,
+		})
+	}()
+	<-startWaiting
 
 	stopCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	stopResult := make(chan error, 1)
-	go func() {
-		stopResult <- group.Stop(stopCtx)
-	}()
-	select {
-	case err := <-stopResult:
-		assert.ErrorIs(t, err, context.DeadlineExceeded)
-	case <-time.After(time.Second):
-		t.Fatal("Stop did not honor its context while Start was blocked")
-	}
+	require.ErrorIs(t, group.Stop(stopCtx), context.DeadlineExceeded)
 
-	close(releaseStart)
-	released = true
-	require.NoError(t, <-startResult)
-	require.NoError(t, group.Stop(context.Background()))
+	group.releaseOperation()
+	require.ErrorIs(t, <-startResult, context.Canceled)
+	assert.Equal(t, int32(0), starts.Load(), "the pre-publication stop request must cancel before any job starts")
+}
+
+func TestGroupStopRetryJoinsInFlightAttemptBeforeRetrying(t *testing.T) {
+	t.Parallel()
+
+	firstStopEntered := make(chan struct{})
+	releaseFirstStop := make(chan struct{})
+	secondStopEntered := make(chan struct{})
+	firstStopErr := errors.New("first stop failed")
+	var stopCalls atomic.Int32
+	var activeStops atomic.Int32
+	var maxActiveStops atomic.Int32
+	group, err := NewGroup([]Job{newTestJob("job", noopJob, func(context.Context) error {
+		call := stopCalls.Add(1)
+		active := activeStops.Add(1)
+		defer activeStops.Add(-1)
+		for {
+			currentMax := maxActiveStops.Load()
+			if active <= currentMax || maxActiveStops.CompareAndSwap(currentMax, active) {
+				break
+			}
+		}
+		if call == 1 {
+			close(firstStopEntered)
+			<-releaseFirstStop
+			return firstStopErr
+		}
+		close(secondStopEntered)
+		return nil
+	})}, 20*time.Millisecond)
+	require.NoError(t, err)
+	require.NoError(t, group.Start(context.Background()))
+
+	firstResult := make(chan error, 1)
+	go func() {
+		firstResult <- group.Stop(context.Background())
+	}()
+	<-firstStopEntered
+	require.ErrorIs(t, <-firstResult, context.DeadlineExceeded)
+
+	retryResult := make(chan error, 1)
+	go func() {
+		retryResult <- group.Stop(context.Background())
+	}()
+	require.Eventually(t, func() bool {
+		return len(group.operationPermit) == 1
+	}, time.Second, time.Millisecond, "retry did not acquire the serialized operation permit")
+	select {
+	case <-secondStopEntered:
+		t.Fatal("retry overlapped the in-flight job Stop")
+	default:
+	}
+	assert.Equal(t, int32(1), stopCalls.Load())
+
+	close(releaseFirstStop)
+	select {
+	case <-secondStopEntered:
+	case <-time.After(time.Second):
+		t.Fatal("retry did not make a fresh attempt after the joined attempt failed")
+	}
+	require.NoError(t, <-retryResult)
+	assert.Equal(t, int32(2), stopCalls.Load())
+	assert.Equal(t, int32(1), maxActiveStops.Load())
+	assert.ErrorIs(t, group.Err(), context.DeadlineExceeded)
 }
 
 func TestGroupStartAndStopAreIdempotent(t *testing.T) {
@@ -473,6 +564,23 @@ func newTestJob(name string, start, stop func(context.Context) error) Job {
 }
 
 func noopJob(context.Context) error { return nil }
+
+type doneObservedContext struct {
+	observed chan<- struct{}
+}
+
+func (doneObservedContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+
+func (c doneObservedContext) Done() <-chan struct{} {
+	select {
+	case c.observed <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+func (doneObservedContext) Err() error    { return nil }
+func (doneObservedContext) Value(any) any { return nil }
 
 type testLifecycle struct {
 	start func(context.Context) error
