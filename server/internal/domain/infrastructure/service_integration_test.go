@@ -75,7 +75,7 @@ func createParams(mutate func(*models.CreateParams)) models.CreateParams {
 }
 
 func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
-	svc, _ := newTestService(t)
+	svc, conn := newTestService(t)
 	ctx := t.Context()
 
 	created, err := svc.Create(ctx, createParams(nil))
@@ -191,6 +191,33 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	assert.Equal(t, "Zone B exhaust fans (renamed)", preserved.Name)
 	assert.False(t, preserved.Enabled, "nil Enabled must preserve the stored value, not reset it")
 	assert.Equal(t, "Rack B1", preserved.RackName, "nil RackName must preserve the stored value, not clear it")
+
+	// A handler-authorized update is predicated on the rack value observed
+	// before entering the service. If placement changes concurrently, the
+	// stale request fails closed instead of clearing or replacing the new rack.
+	_, err = conn.ExecContext(ctx, `UPDATE infrastructure_device SET rack_name = 'Rack C1' WHERE id = $1`, created.ID)
+	require.NoError(t, err)
+	expectedRackName := "Rack B1"
+	emptyRackName := ""
+	_, err = svc.Update(ctx, models.UpdateParams{
+		OrgID:            testOrgID,
+		ID:               created.ID,
+		ExpectedSiteID:   testSiteID,
+		ExpectedRackName: &expectedRackName,
+		SiteID:           testSiteID,
+		BuildingName:     "Building 2",
+		RackName:         &emptyRackName,
+		Name:             "Zone B exhaust fans (renamed)",
+		DeviceKind:       models.KindFanGroup,
+		FanCount:         16,
+		Enabled:          nil,
+		DriverType:       "modbus_tcp",
+		DriverConfig:     validModbusConfig(),
+	})
+	assert.True(t, fleeterror.IsNotFoundError(err))
+	concurrentlyPlaced, err := svc.Get(ctx, testOrgID, created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Rack C1", concurrentlyPlaced.RackName)
 
 	// Delete soft-deletes; the row disappears from Get and List.
 	require.NoError(t, svc.Delete(ctx, testOrgID, created.ID, testSiteID))

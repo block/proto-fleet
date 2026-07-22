@@ -282,6 +282,8 @@ func TestHandler_UpdateLocationWithoutRackNameClearsExistingRack(t *testing.T) {
 	h.store.EXPECT().LockInfrastructureDeviceForWrite(gomock.Any(), int64(42), int64(7), int64(10)).Return(nil)
 	h.store.EXPECT().UpdateInfrastructureDevice(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, params models.UpdateParams) (*models.Device, error) {
+			require.NotNil(t, params.ExpectedRackName)
+			assert.Equal(t, "Rack A1", *params.ExpectedRackName)
 			require.NotNil(t, params.RackName)
 			assert.Empty(t, *params.RackName)
 			assert.Equal(t, "Building 2", params.BuildingName)

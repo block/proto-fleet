@@ -89,14 +89,13 @@ WHERE d.org_id = sqlc.arg('org_id')
 ORDER BY d.name, d.id;
 
 -- name: UpdateInfrastructureDevice :execrows
--- expected_site_id predicates the write on the site the caller was
--- authorized against, so a concurrent site move between the
--- authorization read and this write invalidates the mutation (0 rows)
--- instead of silently editing a device in a site the caller may not
--- manage. enabled and rack_name are nullable inputs: NULL preserves
--- the row's current value atomically in the UPDATE itself, so a request
--- that omitted either field can't write back a stale value read before
--- the transaction.
+-- expected_site_id and expected_rack_name predicate the write on the
+-- placement the caller was authorized against, so a concurrent placement
+-- change between the authorization read and this write invalidates the
+-- mutation (0 rows). expected_rack_name NULL is reserved for trusted domain
+-- callers that did not perform a handler authorization read. enabled and
+-- rack_name are nullable inputs: NULL preserves the row's current value
+-- atomically in the UPDATE itself.
 UPDATE infrastructure_device
 SET site_id       = sqlc.arg('site_id'),
     building_name = sqlc.arg('building_name'),
@@ -111,6 +110,10 @@ SET site_id       = sqlc.arg('site_id'),
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND site_id = sqlc.arg('expected_site_id')
+  AND (
+    sqlc.narg('expected_rack_name')::text IS NULL
+    OR rack_name = sqlc.narg('expected_rack_name')::text
+  )
   AND deleted_at IS NULL;
 
 -- name: SoftDeleteInfrastructureDevice :one

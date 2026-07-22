@@ -283,6 +283,7 @@ func (h *Handler) UpdateInfrastructureDevice(ctx context.Context, req *connect.R
 	// caller may not manage.
 	params := toUpdateParams(req.Msg, sess.OrganizationID)
 	params.ExpectedSiteID = existing.SiteID
+	params.ExpectedRackName = &existing.RackName
 	if params.RackName == nil && (siteChanged || req.Msg.GetBuildingName() != existing.BuildingName) {
 		// Rack names are scoped to a site/building. Older clients may omit the
 		// optional field, so make a location move explicitly clear the old rack

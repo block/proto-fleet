@@ -430,32 +430,36 @@ SET site_id       = $1,
 WHERE id = $10
   AND org_id = $11
   AND site_id = $12
+  AND (
+    $13::text IS NULL
+    OR rack_name = $13::text
+  )
   AND deleted_at IS NULL
 `
 
 type UpdateInfrastructureDeviceParams struct {
-	SiteID         int64
-	BuildingName   string
-	RackName       sql.NullString
-	Name           string
-	DeviceKind     string
-	FanCount       int32
-	Enabled        sql.NullBool
-	DriverType     string
-	DriverConfig   json.RawMessage
-	ID             int64
-	OrgID          int64
-	ExpectedSiteID int64
+	SiteID           int64
+	BuildingName     string
+	RackName         sql.NullString
+	Name             string
+	DeviceKind       string
+	FanCount         int32
+	Enabled          sql.NullBool
+	DriverType       string
+	DriverConfig     json.RawMessage
+	ID               int64
+	OrgID            int64
+	ExpectedSiteID   int64
+	ExpectedRackName sql.NullString
 }
 
-// expected_site_id predicates the write on the site the caller was
-// authorized against, so a concurrent site move between the
-// authorization read and this write invalidates the mutation (0 rows)
-// instead of silently editing a device in a site the caller may not
-// manage. enabled and rack_name are nullable inputs: NULL preserves
-// the row's current value atomically in the UPDATE itself, so a request
-// that omitted either field can't write back a stale value read before
-// the transaction.
+// expected_site_id and expected_rack_name predicate the write on the
+// placement the caller was authorized against, so a concurrent placement
+// change between the authorization read and this write invalidates the
+// mutation (0 rows). expected_rack_name NULL is reserved for trusted domain
+// callers that did not perform a handler authorization read. enabled and
+// rack_name are nullable inputs: NULL preserves the row's current value
+// atomically in the UPDATE itself.
 func (q *Queries) UpdateInfrastructureDevice(ctx context.Context, arg UpdateInfrastructureDeviceParams) (int64, error) {
 	result, err := q.exec(ctx, q.updateInfrastructureDeviceStmt, updateInfrastructureDevice,
 		arg.SiteID,
@@ -470,6 +474,7 @@ func (q *Queries) UpdateInfrastructureDevice(ctx context.Context, arg UpdateInfr
 		arg.ID,
 		arg.OrgID,
 		arg.ExpectedSiteID,
+		arg.ExpectedRackName,
 	)
 	if err != nil {
 		return 0, err

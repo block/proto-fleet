@@ -1484,14 +1484,13 @@ type Querier interface {
 	UpdateDeviceWorkerNamePoolSyncStatusByID(ctx context.Context, arg UpdateDeviceWorkerNamePoolSyncStatusByIDParams) error
 	UpdateDiscoveredDeviceFirmwareVersion(ctx context.Context, arg UpdateDiscoveredDeviceFirmwareVersionParams) error
 	UpdateFleetNodeLastSeenAt(ctx context.Context, arg UpdateFleetNodeLastSeenAtParams) (int64, error)
-	// expected_site_id predicates the write on the site the caller was
-	// authorized against, so a concurrent site move between the
-	// authorization read and this write invalidates the mutation (0 rows)
-	// instead of silently editing a device in a site the caller may not
-	// manage. enabled and rack_name are nullable inputs: NULL preserves
-	// the row's current value atomically in the UPDATE itself, so a request
-	// that omitted either field can't write back a stale value read before
-	// the transaction.
+	// expected_site_id and expected_rack_name predicate the write on the
+	// placement the caller was authorized against, so a concurrent placement
+	// change between the authorization read and this write invalidates the
+	// mutation (0 rows). expected_rack_name NULL is reserved for trusted domain
+	// callers that did not perform a handler authorization read. enabled and
+	// rack_name are nullable inputs: NULL preserves the row's current value
+	// atomically in the UPDATE itself.
 	UpdateInfrastructureDevice(ctx context.Context, arg UpdateInfrastructureDeviceParams) (int64, error)
 	UpdateLastLogin(ctx context.Context, id int64) error
 	UpdateMQTTSourceConfig(ctx context.Context, arg UpdateMQTTSourceConfigParams) (CurtailmentMqttSourceConfig, error)

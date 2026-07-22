@@ -196,19 +196,24 @@ func (s *SQLInfrastructureDeviceStore) UpdateInfrastructureDevice(ctx context.Co
 	if params.RackName != nil {
 		rackName = sql.NullString{String: *params.RackName, Valid: true}
 	}
+	expectedRackName := sql.NullString{}
+	if params.ExpectedRackName != nil {
+		expectedRackName = sql.NullString{String: *params.ExpectedRackName, Valid: true}
+	}
 	affected, err := s.GetQueries(ctx).UpdateInfrastructureDevice(ctx, sqlc.UpdateInfrastructureDeviceParams{
-		SiteID:         params.SiteID,
-		BuildingName:   params.BuildingName,
-		RackName:       rackName,
-		Name:           params.Name,
-		DeviceKind:     params.DeviceKind,
-		FanCount:       params.FanCount,
-		Enabled:        enabled,
-		DriverType:     params.DriverType,
-		DriverConfig:   normalizeDriverConfig(params.DriverConfig),
-		ID:             params.ID,
-		OrgID:          params.OrgID,
-		ExpectedSiteID: params.ExpectedSiteID,
+		SiteID:           params.SiteID,
+		BuildingName:     params.BuildingName,
+		RackName:         rackName,
+		Name:             params.Name,
+		DeviceKind:       params.DeviceKind,
+		FanCount:         params.FanCount,
+		Enabled:          enabled,
+		DriverType:       params.DriverType,
+		DriverConfig:     normalizeDriverConfig(params.DriverConfig),
+		ID:               params.ID,
+		OrgID:            params.OrgID,
+		ExpectedSiteID:   params.ExpectedSiteID,
+		ExpectedRackName: expectedRackName,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
