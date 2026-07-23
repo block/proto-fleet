@@ -6,6 +6,22 @@ import { BasePage } from "./base";
 const SHORT_CLOSE_TIMEOUT = Math.floor(DEFAULT_TIMEOUT / 6);
 
 export class AddMinersPage extends BasePage {
+  getScanNetworkSection(): Locator {
+    return this.page.getByTestId("section-scan-network");
+  }
+
+  getSearchByIpSection(): Locator {
+    return this.page.getByTestId("section-search-by-ip");
+  }
+
+  getFoundMinersList(): Locator {
+    return this.page.getByTestId("found-miners-list");
+  }
+
+  getValidationErrorDialog(): Locator {
+    return this.page.getByTestId("validation-error-dialog");
+  }
+
   private continueWithMinersButton(minerCount?: number) {
     return minerCount === undefined
       ? this.page.getByRole("button", { name: /Continue with \d+ miner(s)?/ }).first()
