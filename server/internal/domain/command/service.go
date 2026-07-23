@@ -305,6 +305,37 @@ func skipMetadata(eventType string, requestedCount int, skipped []SkippedDevice)
 	}
 }
 
+func preflightBlockedMessage(requestedCount int, skipped []SkippedDevice) string {
+	if skipsOnlyFromFilter(skipped, CurtailmentActiveFilterName) {
+		deviceNoun := "devices"
+		if requestedCount == 1 {
+			deviceNoun = "device"
+		}
+		verb := "are"
+		if len(skipped) == 1 {
+			verb = "is"
+		}
+		return fmt.Sprintf(
+			"command blocked: %d of %d %s %s part of an active curtailment event",
+			len(skipped), requestedCount, deviceNoun, verb)
+	}
+	return fmt.Sprintf(
+		"command blocked: %d of %d device(s) excluded by preflight filters",
+		len(skipped), requestedCount)
+}
+
+func skipsOnlyFromFilter(skipped []SkippedDevice, filterName string) bool {
+	if len(skipped) == 0 {
+		return false
+	}
+	for _, sk := range skipped {
+		if sk.FilterName != filterName {
+			return false
+		}
+	}
+	return true
+}
+
 // composeFinalizers chains onFinished callbacks so commands like DownloadLogs
 // can layer a bundle builder alongside the activity finalizer. Nil callbacks
 // are skipped; empty input returns nil. Best-effort: every callback runs even
@@ -853,9 +884,8 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		if err := s.logPreflightBlockedStrict(ctx, command.commandType, identifiers, skipped); err != nil {
 			return nil, fleeterror.NewInternalErrorf("logging preflight block: %v", err)
 		}
-		return nil, fleeterror.NewFailedPreconditionErrorf(
-			"command blocked: %d of %d device(s) excluded by preflight filters",
-			len(skipped), len(identifiers))
+		return nil, fleeterror.NewFailedPreconditionError(
+			preflightBlockedMessage(len(identifiers), skipped))
 	}
 
 	if len(kept) == 0 && len(skipped) > 0 {
