@@ -26,23 +26,23 @@ import (
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
-func markTelemetryServiceActiveForTest(service *TelemetryService, ctx context.Context) *telemetryRun {
+func markTelemetryServiceActiveForTest(service *TelemetryService, ctx context.Context) *telemetryActivation {
 	service.lifecycleMu.Lock()
 	defer service.lifecycleMu.Unlock()
-	run := newTelemetryRun(ctx.Done(), service.config.ConcurrencyLimit)
-	service.runCancel = func() {}
-	service.run = run
-	return run
+	activation := newTelemetryActivation(ctx.Done(), service.config.ConcurrencyLimit)
+	activation.cancel = func() {}
+	service.activation = activation
+	return activation
 }
 
-func serviceRunForTest(service *TelemetryService) *telemetryRun {
+func telemetryActivationForTest(service *TelemetryService) *telemetryActivation {
 	service.lifecycleMu.Lock()
 	defer service.lifecycleMu.Unlock()
-	if service.run == nil {
-		service.run = newTelemetryRun(make(chan struct{}), service.config.ConcurrencyLimit)
-		service.runCancel = func() {}
+	if service.activation == nil {
+		service.activation = newTelemetryActivation(make(chan struct{}), service.config.ConcurrencyLimit)
+		service.activation.cancel = func() {}
 	}
-	return service.run
+	return service.activation
 }
 
 func TestNewTelemetryService(t *testing.T) {
@@ -72,25 +72,25 @@ func TestTelemetryService_StartRejectsCanceledContext(t *testing.T) {
 	cancel()
 
 	require.ErrorIs(t, service.Start(ctx), context.Canceled)
-	require.Nil(t, service.runCancel)
+	require.Nil(t, service.activation)
 }
 
-func TestTelemetryRunStopsProducerRegistrationBeforeWaiting(t *testing.T) {
-	run := newTelemetryRun(make(chan struct{}), 1)
-	release, registered := run.registerProducer()
+func TestTelemetryActivationStopsProducerRegistrationBeforeWaiting(t *testing.T) {
+	activation := newTelemetryActivation(make(chan struct{}), 1)
+	release, registered := activation.registerProducer()
 	require.True(t, registered)
 
 	waitDone := make(chan struct{})
 	go func() {
-		run.waitForProducers()
+		activation.drainProducers()
 		close(waitDone)
 	}()
 	require.Eventually(t, func() bool {
-		run.producerMu.Lock()
-		defer run.producerMu.Unlock()
-		return !run.acceptingProducers
+		activation.producerMu.Lock()
+		defer activation.producerMu.Unlock()
+		return !activation.acceptingProducers
 	}, time.Second, time.Millisecond)
-	_, registered = run.registerProducer()
+	_, registered = activation.registerProducer()
 	require.False(t, registered)
 	select {
 	case <-waitDone:
@@ -184,7 +184,7 @@ func TestTelemetryService_AddDevicesReturnsWhenTaskQueueFullAndContextCanceled(t
 		FetchInterval:      10 * time.Second,
 		ConcurrencyLimit:   1,
 	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
-	run := serviceRunForTest(service)
+	run := telemetryActivationForTest(service)
 	run.tasks <- models.Device{ID: "already-queued"}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 	defer cancel()
@@ -298,7 +298,7 @@ func TestTelemetryService_CanRestartAfterActivationCancellationOrStop(t *testing
 	require.Eventually(t, func() bool {
 		service.lifecycleMu.Lock()
 		defer service.lifecycleMu.Unlock()
-		return service.runCancel == nil
+		return service.activation == nil
 	}, time.Second, time.Millisecond)
 	require.NoError(t, service.Start(t.Context()))
 	require.Eventually(t, func() bool { return pairedDeviceLoads.Load() >= 2 }, time.Second, time.Millisecond)
@@ -333,37 +333,35 @@ func TestTelemetryService_StopDrainsQueuedActivationStatuses(t *testing.T) {
 		UpsertDeviceStatuses(gomock.Any(), gomock.Len(statusCount)).
 		Return(nil)
 
-	runCtx, runCancel := context.WithCancel(t.Context())
-	runDone := make(chan struct{})
-	run := newTelemetryRun(runCtx.Done(), service.config.ConcurrencyLimit)
-	run.results.status = activationResults
+	activationCtx, cancelActivation := context.WithCancel(t.Context())
+	activation := newTelemetryActivation(activationCtx.Done(), service.config.ConcurrencyLimit)
+	activation.cancel = cancelActivation
+	activation.results.status = activationResults
 	service.lifecycleMu.Lock()
-	service.runCancel = runCancel
-	service.runDone = runDone
-	service.run = run
+	service.activation = activation
 	service.lifecycleMu.Unlock()
-	service.runWG.Go(func() { service.statusWriterRoutine(runCtx, run) })
-	go service.finishRun(runDone, run)
+	activation.background.Go(func() { service.statusWriterRoutine(activationCtx, activation) })
+	go service.finishActivation(activation)
 
 	require.NoError(t, service.Stop(t.Context()))
 }
 
-func TestTelemetryService_FinishRunRequeuesQueuedTelemetryTasks(t *testing.T) {
+func TestTelemetryService_FinishActivationRequeuesQueuedTelemetryTasks(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	scheduler := mock.NewMockUpdateScheduler(ctrl)
 	device := models.Device{ID: "queued-on-stop", LastUpdatedAt: time.Now().Add(-time.Minute)}
 	scheduler.EXPECT().AddDevices(gomock.Any(), device).Return(nil)
 	service := &TelemetryService{updateScheduler: scheduler}
-	run := newTelemetryRun(make(chan struct{}), 1)
-	run.tasks <- device
-	done := make(chan struct{})
+	activation := newTelemetryActivation(make(chan struct{}), 1)
+	activation.tasks <- device
+	service.activation = activation
 
-	service.finishRun(done, run)
+	service.finishActivation(activation)
 
 	select {
-	case <-done:
+	case <-activation.stopped:
 	default:
-		t.Fatal("finishRun did not complete")
+		t.Fatal("finishActivation did not complete")
 	}
 }
 
@@ -419,31 +417,29 @@ func TestTelemetryService_StopDrainsResultsProducedWhileWorkersExit(t *testing.T
 		Return(nil)
 	mockDataStore.EXPECT().StoreDeviceMetrics(gomock.Any(), metric).Return(nil)
 
-	runCtx, runCancel := context.WithCancel(t.Context())
-	runDone := make(chan struct{})
-	run := newTelemetryRun(runCtx.Done(), service.config.ConcurrencyLimit)
+	activationCtx, cancelActivation := context.WithCancel(t.Context())
+	activation := newTelemetryActivation(activationCtx.Done(), service.config.ConcurrencyLimit)
+	activation.cancel = cancelActivation
 	producerCanceled := make(chan struct{})
 	releaseProducer := make(chan struct{})
-	run.producerWG.Go(func() {
-		<-runCtx.Done()
+	activation.producerWG.Go(func() {
+		<-activationCtx.Done()
 		close(producerCanceled)
 		<-releaseProducer
-		run.results.status <- statusResult{
+		activation.results.status <- statusResult{
 			deviceIdentifier: deviceID,
 			status:           mm.MinerStatusActive,
 		}
-		run.results.metrics <- metricsResult{deviceID: deviceID, metrics: metric}
+		activation.results.metrics <- metricsResult{deviceID: deviceID, metrics: metric}
 	})
-	writerCtx := run.writerContext(runCtx)
+	writerCtx := activation.writerContext(activationCtx)
 
 	service.lifecycleMu.Lock()
-	service.runCancel = runCancel
-	service.runDone = runDone
-	service.run = run
+	service.activation = activation
 	service.lifecycleMu.Unlock()
-	service.runWG.Go(func() { service.statusWriterRoutine(writerCtx, run) })
-	service.runWG.Go(func() { service.metricsWriterRoutine(writerCtx, run) })
-	go service.finishRun(runDone, run)
+	activation.background.Go(func() { service.statusWriterRoutine(writerCtx, activation) })
+	activation.background.Go(func() { service.metricsWriterRoutine(writerCtx, activation) })
+	go service.finishActivation(activation)
 
 	stopCtx, cancelStop := context.WithTimeout(t.Context(), time.Second)
 	defer cancelStop()
@@ -516,9 +512,9 @@ func TestTelemetryService_CallerDeadlineDoesNotCancelSharedStatusFlush(t *testin
 		StatusFlushInterval: time.Hour,
 	}, mockDataStore, mock.NewMockCachedMinerGetter(ctrl), mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 	require.NoError(t, service.Start(t.Context()))
-	run, err := service.activeRun()
+	activation, err := service.activeActivation()
 	require.NoError(t, err)
-	run.results.status <- statusResult{deviceIdentifier: deviceID, status: mm.MinerStatusActive}
+	activation.results.status <- statusResult{deviceIdentifier: deviceID, status: mm.MinerStatusActive}
 
 	flushCtx, cancelFlush := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancelFlush()
@@ -594,9 +590,9 @@ func TestTelemetryService_RequestOperationsFailAfterStop(t *testing.T) {
 
 func TestTelemetryService_CloseStopsBroadcastersAfterStopTimeout(t *testing.T) {
 	service := &TelemetryService{}
-	_, runCancel := context.WithCancel(t.Context())
-	service.runCancel = runCancel
-	service.runDone = make(chan struct{})
+	activationCtx, cancelActivation := context.WithCancel(t.Context())
+	service.activation = newTelemetryActivation(activationCtx.Done(), 0)
+	service.activation.cancel = cancelActivation
 
 	broadcaster := NewTelemetryBroadcaster(1, nil, time.Hour)
 	require.NoError(t, broadcaster.Start(t.Context()))
@@ -666,7 +662,7 @@ func TestTelemetryService_StopDrainsInFlightRefreshBeforeRestart(t *testing.T) {
 	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
 
 	require.NoError(t, service.Start(t.Context()))
-	firstRun, err := service.activeRun()
+	firstRun, err := service.activeActivation()
 	require.NoError(t, err)
 	refreshDone := make(chan error, 1)
 	go func() {
@@ -679,9 +675,8 @@ func TestTelemetryService_StopDrainsInFlightRefreshBeforeRestart(t *testing.T) {
 	}
 
 	assertRefreshClaimed := func() {
-		claim, ok := service.inFlight.Load(deviceID)
+		_, ok := service.inFlight.Load(deviceID)
 		require.True(t, ok)
-		assert.Equal(t, inFlightKindFullTelemetry, claim)
 	}
 	assertRefreshClaimed()
 
@@ -713,7 +708,7 @@ func TestTelemetryService_StopDrainsInFlightRefreshBeforeRestart(t *testing.T) {
 	assert.False(t, claimed)
 
 	require.NoError(t, service.Start(t.Context()))
-	secondRun, err := service.activeRun()
+	secondRun, err := service.activeActivation()
 	require.NoError(t, err)
 	assert.NotEqual(t, firstRun.tasks, secondRun.tasks)
 	assert.NotEqual(t, firstRun.statusTasks, secondRun.statusTasks)
@@ -877,7 +872,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 				FetchInterval:      10 * time.Second,
 				ConcurrencyLimit:   5,
 			}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
-			serviceRunForTest(service)
+			telemetryActivationForTest(service)
 
 			for _, scenario := range test.devicesScenario {
 				_, _, _, _, _, _, err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
@@ -935,7 +930,7 @@ func TestGetTelemetryFromDevice_DropsMismatchedDeviceIdentifier(t *testing.T) {
 		FetchInterval:      10 * time.Second,
 		ConcurrencyLimit:   5,
 	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
-	serviceRunForTest(service)
+	telemetryActivationForTest(service)
 
 	status, hasStatus, orgID, driverName, _, pollSuccess, err := service.GetTelemetryFromDevice(t.Context(), device)
 
@@ -950,7 +945,7 @@ func TestGetTelemetryFromDevice_DropsMismatchedDeviceIdentifier(t *testing.T) {
 	// metricsResults must not have received the tainted sample. The channel
 	// is buffered, so a non-blocking receive proves nothing was enqueued.
 	select {
-	case got := <-serviceRunForTest(service).results.metrics:
+	case got := <-telemetryActivationForTest(service).results.metrics:
 		t.Fatalf("forged telemetry sample was enqueued for persistence: %+v", got)
 	default:
 	}
@@ -999,7 +994,7 @@ func TestGetTelemetryFromDevice_NormalizesEmptyDeviceIdentifier(t *testing.T) {
 		FetchInterval:      10 * time.Second,
 		ConcurrencyLimit:   5,
 	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
-	serviceRunForTest(service)
+	telemetryActivationForTest(service)
 
 	_, _, _, _, _, pollSuccess, err := service.GetTelemetryFromDevice(t.Context(), device)
 	require.NoError(t, err, "empty plugin identifier is non-authoritative and must be normalized, not rejected")
@@ -1007,7 +1002,7 @@ func TestGetTelemetryFromDevice_NormalizesEmptyDeviceIdentifier(t *testing.T) {
 
 	// Drain the enqueued metricsResult and verify the trusted ID was stamped on.
 	select {
-	case got := <-serviceRunForTest(service).results.metrics:
+	case got := <-telemetryActivationForTest(service).results.metrics:
 		assert.Equal(t, trustedID, got.deviceID)
 		assert.Equal(t, string(trustedID), got.metrics.DeviceIdentifier,
 			"empty plugin identifier must be overwritten with the trusted poll target so persistence and OTel agree on the device")
@@ -1853,8 +1848,8 @@ func TestStatusWriterRoutine_BatchFlushesOnInterval(t *testing.T) {
 	defer cancel()
 
 	// Act
-	go service.statusWriterRoutine(ctx, serviceRunForTest(service))
-	serviceRunForTest(service).results.status <- statusResult{
+	go service.statusWriterRoutine(ctx, telemetryActivationForTest(service))
+	telemetryActivationForTest(service).results.status <- statusResult{
 		deviceIdentifier: deviceID,
 		status:           mm.MinerStatusActive,
 	}
@@ -1912,8 +1907,8 @@ func TestStatusWriterRoutine_BroadcastsStatusChanges(t *testing.T) {
 	defer cancel()
 
 	// Act
-	go service.statusWriterRoutine(ctx, serviceRunForTest(service))
-	serviceRunForTest(service).results.status <- statusResult{
+	go service.statusWriterRoutine(ctx, telemetryActivationForTest(service))
+	telemetryActivationForTest(service).results.status <- statusResult{
 		deviceIdentifier: deviceID,
 		status:           mm.MinerStatusActive,
 	}
@@ -1968,12 +1963,12 @@ func TestStatusWriterRoutine_FlushesOnContextCancel(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		service.statusWriterRoutine(ctx, serviceRunForTest(service))
+		service.statusWriterRoutine(ctx, telemetryActivationForTest(service))
 		close(done)
 	}()
 
 	// Act
-	serviceRunForTest(service).results.status <- statusResult{
+	telemetryActivationForTest(service).results.status <- statusResult{
 		deviceIdentifier: deviceID,
 		status:           mm.MinerStatusActive,
 	}
@@ -2028,15 +2023,15 @@ func TestStatusWriterRoutine_FlushUsesWorkerSuppliedLabels(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	go service.statusWriterRoutine(ctx, serviceRunForTest(service))
+	go service.statusWriterRoutine(ctx, telemetryActivationForTest(service))
 
-	serviceRunForTest(service).results.status <- statusResult{
+	telemetryActivationForTest(service).results.status <- statusResult{
 		deviceIdentifier: models.DeviceIdentifier("dev-A"),
 		status:           mm.MinerStatusActive,
 		orgID:            42,
 		driverName:       "proto",
 	}
-	serviceRunForTest(service).results.status <- statusResult{
+	telemetryActivationForTest(service).results.status <- statusResult{
 		deviceIdentifier: models.DeviceIdentifier("dev-B"),
 		status:           mm.MinerStatusOffline,
 		orgID:            99,
@@ -2129,10 +2124,10 @@ func TestStatusWriterRoutine_FlushRequestChunksDrainedStatuses(t *testing.T) {
 	markTelemetryServiceActiveForTest(service, ctx)
 
 	for _, status := range statuses {
-		serviceRunForTest(service).results.status <- status
+		telemetryActivationForTest(service).results.status <- status
 	}
 
-	go service.statusWriterRoutine(ctx, serviceRunForTest(service))
+	go service.statusWriterRoutine(ctx, telemetryActivationForTest(service))
 
 	require.NoError(t, service.FlushStatusNow(ctx))
 	assert.ElementsMatch(t, []int{maxStatusBatchSize, 1}, []int{<-statusLookupSizes, <-statusLookupSizes})
@@ -2194,13 +2189,13 @@ func TestStatusWriterRoutine_FirmwareUpdateGuardDoesNotSuppressOnlineMetric(t *t
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() {
-		service.statusWriterRoutine(ctx, serviceRunForTest(service))
+		service.statusWriterRoutine(ctx, telemetryActivationForTest(service))
 		close(done)
 	}()
 
 	// The unreachable miner whose DB row is UPDATING — the case the default
 	// offline alert exists to catch.
-	serviceRunForTest(service).results.status <- statusResult{
+	telemetryActivationForTest(service).results.status <- statusResult{
 		deviceIdentifier: updatingDevice,
 		status:           mm.MinerStatusOffline,
 		orgID:            42,
@@ -2208,7 +2203,7 @@ func TestStatusWriterRoutine_FirmwareUpdateGuardDoesNotSuppressOnlineMetric(t *t
 	}
 	// A device whose DB row is REBOOT_REQUIRED but is now back online —
 	// fleet_device_online must follow the polled value, not the stuck DB row.
-	serviceRunForTest(service).results.status <- statusResult{
+	telemetryActivationForTest(service).results.status <- statusResult{
 		deviceIdentifier: rebootDevice,
 		status:           mm.MinerStatusActive,
 		orgID:            42,
@@ -2216,7 +2211,7 @@ func TestStatusWriterRoutine_FirmwareUpdateGuardDoesNotSuppressOnlineMetric(t *t
 	}
 	// Control device that is not firmware-guarded; verifies the unguarded
 	// path still works alongside the guarded ones in the same flush.
-	serviceRunForTest(service).results.status <- statusResult{
+	telemetryActivationForTest(service).results.status <- statusResult{
 		deviceIdentifier: healthyDevice,
 		status:           mm.MinerStatusActive,
 		orgID:            42,
@@ -2300,8 +2295,8 @@ func TestMetricsWriterRoutine_FlushesOnInterval(t *testing.T) {
 	defer cancel()
 
 	// Act
-	go service.metricsWriterRoutine(ctx, serviceRunForTest(service))
-	serviceRunForTest(service).results.metrics <- metricsResult{metrics: metric}
+	go service.metricsWriterRoutine(ctx, telemetryActivationForTest(service))
+	telemetryActivationForTest(service).results.metrics <- metricsResult{metrics: metric}
 
 	// Assert - wait for the interval flush.
 	select {
@@ -2348,8 +2343,8 @@ func TestMetricsWriterRoutine_FlushesOnRequest(t *testing.T) {
 	defer cancel()
 	markTelemetryServiceActiveForTest(service, ctx)
 
-	go service.metricsWriterRoutine(ctx, serviceRunForTest(service))
-	serviceRunForTest(service).results.metrics <- metricsResult{metrics: metric}
+	go service.metricsWriterRoutine(ctx, telemetryActivationForTest(service))
+	telemetryActivationForTest(service).results.metrics <- metricsResult{metrics: metric}
 
 	require.NoError(t, service.FlushMetricsNow(ctx))
 }
@@ -2401,10 +2396,10 @@ func TestMetricsWriterRoutine_FlushRequestChunksDrainedMetrics(t *testing.T) {
 	markTelemetryServiceActiveForTest(service, ctx)
 
 	for _, metric := range metrics {
-		serviceRunForTest(service).results.metrics <- metricsResult{metrics: metric}
+		telemetryActivationForTest(service).results.metrics <- metricsResult{metrics: metric}
 	}
 
-	go service.metricsWriterRoutine(ctx, serviceRunForTest(service))
+	go service.metricsWriterRoutine(ctx, telemetryActivationForTest(service))
 
 	require.NoError(t, service.FlushMetricsNow(ctx))
 }
@@ -2488,12 +2483,12 @@ func TestMetricsWriterRoutine_FlushesOnContextCancel(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		service.metricsWriterRoutine(ctx, serviceRunForTest(service))
+		service.metricsWriterRoutine(ctx, telemetryActivationForTest(service))
 		close(done)
 	}()
 
 	// Act
-	serviceRunForTest(service).results.metrics <- metricsResult{metrics: metric}
+	telemetryActivationForTest(service).results.metrics <- metricsResult{metrics: metric}
 	time.Sleep(20 * time.Millisecond) // Ensure result is received
 	cancel()                          // Trigger final flush
 
@@ -2543,15 +2538,15 @@ func TestMetricsWriterRoutine_DrainsChannelOnContextCancel(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		service.metricsWriterRoutine(ctx, serviceRunForTest(service))
+		service.metricsWriterRoutine(ctx, telemetryActivationForTest(service))
 		close(done)
 	}()
 
 	// Act - send first metric via channel so the routine consumes it, then queue the
 	// second directly in the buffered channel so it can only be written via the drain.
-	serviceRunForTest(service).results.metrics <- metricsResult{metrics: metric1}
+	telemetryActivationForTest(service).results.metrics <- metricsResult{metrics: metric1}
 	time.Sleep(20 * time.Millisecond) // Let routine pick up metric1 into pending
-	serviceRunForTest(service).results.metrics <- metricsResult{metrics: metric2}
+	telemetryActivationForTest(service).results.metrics <- metricsResult{metrics: metric2}
 	cancel() // Trigger drain + flush
 
 	// Assert
@@ -2611,9 +2606,9 @@ func TestMetricsWriterRoutine_RetriesIndividuallyOnBatchError(t *testing.T) {
 	defer cancel()
 
 	// Act
-	go service.metricsWriterRoutine(ctx, serviceRunForTest(service))
-	serviceRunForTest(service).results.metrics <- metricsResult{metrics: metric1}
-	serviceRunForTest(service).results.metrics <- metricsResult{metrics: metric2}
+	go service.metricsWriterRoutine(ctx, telemetryActivationForTest(service))
+	telemetryActivationForTest(service).results.metrics <- metricsResult{metrics: metric1}
+	telemetryActivationForTest(service).results.metrics <- metricsResult{metrics: metric2}
 
 	// Assert - wait for flush interval to trigger batch + individual retries
 	time.Sleep(100 * time.Millisecond)
@@ -2692,8 +2687,8 @@ func TestRefreshDevice_WaitsForExistingInFlightCollectionAndFlushesWriters(t *te
 	defer cancel()
 	markTelemetryServiceActiveForTest(service, ctx)
 
-	go service.statusWriterRoutine(ctx, serviceRunForTest(service))
-	go service.metricsWriterRoutine(ctx, serviceRunForTest(service))
+	go service.statusWriterRoutine(ctx, telemetryActivationForTest(service))
+	go service.metricsWriterRoutine(ctx, telemetryActivationForTest(service))
 
 	go func() {
 		time.Sleep(20 * time.Millisecond)
@@ -2755,8 +2750,8 @@ func TestRefreshDevice_ConnectionErrorFlushesOfflineStatusAndSucceeds(t *testing
 	defer cancel()
 	markTelemetryServiceActiveForTest(service, ctx)
 
-	go service.statusWriterRoutine(ctx, serviceRunForTest(service))
-	go service.metricsWriterRoutine(ctx, serviceRunForTest(service))
+	go service.statusWriterRoutine(ctx, telemetryActivationForTest(service))
+	go service.metricsWriterRoutine(ctx, telemetryActivationForTest(service))
 
 	require.NoError(t, service.RefreshDevice(ctx, device))
 }
@@ -2839,9 +2834,9 @@ func TestRefreshDevice_IgnoresUnrelatedMetricFlushError(t *testing.T) {
 	defer cancel()
 	markTelemetryServiceActiveForTest(service, ctx)
 
-	go service.statusWriterRoutine(ctx, serviceRunForTest(service))
-	go service.metricsWriterRoutine(ctx, serviceRunForTest(service))
-	serviceRunForTest(service).results.metrics <- metricsResult{metrics: unrelatedMetric}
+	go service.statusWriterRoutine(ctx, telemetryActivationForTest(service))
+	go service.metricsWriterRoutine(ctx, telemetryActivationForTest(service))
+	telemetryActivationForTest(service).results.metrics <- metricsResult{metrics: unrelatedMetric}
 
 	require.NoError(t, service.RefreshDevice(ctx, device))
 }
@@ -2912,8 +2907,8 @@ func TestRefreshDevice_ReturnsRequestedMetricFlushError(t *testing.T) {
 	defer cancel()
 	markTelemetryServiceActiveForTest(service, ctx)
 
-	go service.statusWriterRoutine(ctx, serviceRunForTest(service))
-	go service.metricsWriterRoutine(ctx, serviceRunForTest(service))
+	go service.statusWriterRoutine(ctx, telemetryActivationForTest(service))
+	go service.metricsWriterRoutine(ctx, telemetryActivationForTest(service))
 
 	err := service.RefreshDevice(ctx, device)
 
@@ -2954,14 +2949,14 @@ func TestRefreshDevice_RunsCollectionAndReturnsErrorAfterFullTelemetryInFlightCl
 		mockDeviceStore,
 		mock.NewMockErrorPoller(ctrl),
 	)
-	service.inFlight.Store(deviceID, inFlightKindFullTelemetry)
+	service.inFlight.Store(deviceID, struct{}{})
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	markTelemetryServiceActiveForTest(service, ctx)
 
-	go service.statusWriterRoutine(ctx, serviceRunForTest(service))
-	go service.metricsWriterRoutine(ctx, serviceRunForTest(service))
+	go service.statusWriterRoutine(ctx, telemetryActivationForTest(service))
+	go service.metricsWriterRoutine(ctx, telemetryActivationForTest(service))
 
 	go func() {
 		time.Sleep(20 * time.Millisecond)
@@ -3001,12 +2996,11 @@ func TestRefreshDevice_ReturnsContextErrorWhileWaitingForInFlightCollection(t *t
 func TestClaimDeviceForRefresh_ReturnsWhenActivationStops(t *testing.T) {
 	service := &TelemetryService{}
 	deviceID := models.DeviceIdentifier("queued-status-device")
-	service.inFlight.Store(deviceID, inFlightKindStatusOnly)
+	service.inFlight.Store(deviceID, struct{}{})
 	inactive := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		_, err := service.claimDeviceForRefresh(t.Context(), deviceID, inactive)
-		done <- err
+		done <- service.claimDeviceForRefresh(t.Context(), deviceID, inactive)
 	}()
 
 	close(inactive)
@@ -3026,28 +3020,25 @@ func TestClaimDeviceForRefresh_ClaimsAfterStatusOnlyInFlightCollection(t *testin
 		storesMocks.NewMockDeviceStore(ctrl),
 		mock.NewMockErrorPoller(ctrl),
 	)
-	service.inFlight.Store(deviceID, inFlightKindStatusOnly)
+	service.inFlight.Store(deviceID, struct{}{})
 
-	done := make(chan bool, 1)
+	done := make(chan error, 1)
 	go func() {
-		claimed, err := service.claimDeviceForRefresh(t.Context(), deviceID, make(chan struct{}))
-		require.NoError(t, err)
-		done <- claimed
+		done <- service.claimDeviceForRefresh(t.Context(), deviceID, make(chan struct{}))
 	}()
 
 	time.Sleep(20 * time.Millisecond)
 	service.inFlight.Delete(deviceID)
 
 	select {
-	case claimed := <-done:
-		assert.True(t, claimed)
+	case err := <-done:
+		require.NoError(t, err)
 	case <-time.After(time.Second):
 		t.Fatal("claimDeviceForRefresh did not claim after status-only in-flight collection cleared")
 	}
 
-	value, ok := service.inFlight.Load(deviceID)
+	_, ok := service.inFlight.Load(deviceID)
 	require.True(t, ok)
-	assert.Equal(t, inFlightKindFullTelemetry, value)
 }
 
 func TestWorker_RequeuesSkippedInFlightTelemetryTask(t *testing.T) {
@@ -3073,14 +3064,14 @@ func TestWorker_RequeuesSkippedInFlightTelemetryTask(t *testing.T) {
 		mockDeviceStore,
 		mock.NewMockErrorPoller(ctrl),
 	)
-	service.inFlight.Store(device.ID, inFlightKindStatusOnly)
-	run := serviceRunForTest(service)
-	run.tasks <- device
-	close(run.tasks)
+	service.inFlight.Store(device.ID, struct{}{})
+	activation := telemetryActivationForTest(service)
+	activation.tasks <- device
+	close(activation.tasks)
 
 	done := make(chan struct{})
 	go func() {
-		service.worker(t.Context())
+		service.worker(t.Context(), activation)
 		close(done)
 	}()
 
@@ -3143,18 +3134,18 @@ func TestProcessStatusOnly_RecoversFailedDevice(t *testing.T) {
 
 	ctx := t.Context()
 	device := models.Device{ID: deviceID}
+	activation := telemetryActivationForTest(service)
 
 	// Drain the status results channel
 	go func() {
 		select {
-		case <-serviceRunForTest(service).results.status:
+		case <-activation.results.status:
 		case <-time.After(1 * time.Second):
 		}
 	}()
 
 	// Act
-	serviceRunForTest(service)
-	service.processStatusOnly(ctx, device)
+	service.processStatusOnly(ctx, device, activation.results.status)
 
 	// Assert - mock expectations verify AddDevices was called with recovered device
 }
@@ -3200,18 +3191,18 @@ func TestProcessStatusOnly_DoesNotRecoverNonFailedDevice(t *testing.T) {
 
 	ctx := t.Context()
 	device := models.Device{ID: deviceID}
+	activation := telemetryActivationForTest(service)
 
 	// Drain the status results channel
 	go func() {
 		select {
-		case <-serviceRunForTest(service).results.status:
+		case <-activation.results.status:
 		case <-time.After(1 * time.Second):
 		}
 	}()
 
 	// Act
-	serviceRunForTest(service)
-	service.processStatusOnly(ctx, device)
+	service.processStatusOnly(ctx, device, activation.results.status)
 
 	// Assert - mock expectations verify AddDevices was NOT called
 }
@@ -3254,14 +3245,14 @@ func TestProcessStatusOnly_ConnectionError_SetsStatusOffline(t *testing.T) {
 
 	ctx := t.Context()
 	device := models.Device{ID: deviceID}
+	activation := telemetryActivationForTest(service)
 
 	// Act
-	serviceRunForTest(service)
-	service.processStatusOnly(ctx, device)
+	service.processStatusOnly(ctx, device, activation.results.status)
 
 	var receivedResult statusResult
 	select {
-	case receivedResult = <-serviceRunForTest(service).results.status:
+	case receivedResult = <-activation.results.status:
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for status result")
 	}
@@ -3329,18 +3320,18 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 		errorPoller:        mockErrorPoller,
 		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
 	}
-	run := serviceRunForTest(service)
-	run.results.status = make(chan statusResult, 1) // Small buffer to test non-blocking.
-	run.results.metrics = make(chan metricsResult, 1)
+	activation := telemetryActivationForTest(service)
+	activation.results.status = make(chan statusResult, 1) // Small buffer to test non-blocking.
+	activation.results.metrics = make(chan metricsResult, 1)
 
 	// Fill the channel to force non-blocking send path
-	serviceRunForTest(service).results.status <- statusResult{deviceIdentifier: "blocker", status: mm.MinerStatusActive}
+	activation.results.status <- statusResult{deviceIdentifier: "blocker", status: mm.MinerStatusActive}
 
 	ctx := t.Context()
 
 	done := make(chan error, 1)
 	go func() {
-		done <- service.processDevice(ctx, device)
+		done <- service.processDevice(ctx, device, activation.results)
 	}()
 
 	// Act & Assert - processDevice should complete without blocking
@@ -3423,16 +3414,16 @@ func TestProcessDevice_HealthHealthyInactive_CallsGetDeviceStatus(t *testing.T) 
 	}
 
 	ctx := t.Context()
-	serviceRunForTest(service)
+	activation := telemetryActivationForTest(service)
 	go func() {
 		select {
-		case <-serviceRunForTest(service).results.status:
+		case <-activation.results.status:
 		case <-time.After(1 * time.Second):
 		}
 	}()
 
 	// Act
-	require.NoError(t, service.processDevice(ctx, device))
+	require.NoError(t, service.processDevice(ctx, device, activation.results))
 
 	// Assert — mock expectations verify GetDeviceStatus was called exactly once.
 }
@@ -3503,14 +3494,14 @@ func TestProcessDevice_HealthHealthyActive_SkipsGetDeviceStatus(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	serviceRunForTest(service)
+	activation := telemetryActivationForTest(service)
 
 	// Act
-	require.NoError(t, service.processDevice(ctx, device))
+	require.NoError(t, service.processDevice(ctx, device, activation.results))
 
 	var receivedResult statusResult
 	select {
-	case receivedResult = <-serviceRunForTest(service).results.status:
+	case receivedResult = <-activation.results.status:
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for status result")
 	}
@@ -3583,16 +3574,16 @@ func TestProcessDevice_MetricsFail_CallsGetDeviceStatus(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	serviceRunForTest(service)
+	activation := telemetryActivationForTest(service)
 	go func() {
 		select {
-		case <-serviceRunForTest(service).results.status:
+		case <-activation.results.status:
 		case <-time.After(1 * time.Second):
 		}
 	}()
 
 	// Act
-	require.NoError(t, service.processDevice(ctx, device))
+	require.NoError(t, service.processDevice(ctx, device, activation.results))
 
 	// Assert — mock expectations verify GetDeviceStatus was called exactly once.
 }
@@ -3959,7 +3950,7 @@ func runStatusPollingOnce(t *testing.T, service *TelemetryService) []models.Devi
 
 	// Short interval so the ticker fires immediately.
 	service.config.DeviceStatusPollInterval = 5 * time.Millisecond
-	run := serviceRunForTest(service)
+	run := telemetryActivationForTest(service)
 
 	done := make(chan struct{})
 	go func() {
@@ -4275,8 +4266,8 @@ func TestFetchStatusFromMiner_AuthErrorFromGetMinerFromDeviceIdentifier_Invalida
 	device := models.Device{ID: deviceID}
 
 	// Act
-	serviceRunForTest(service)
-	service.processStatusOnly(ctx, device)
+	activation := telemetryActivationForTest(service)
+	service.processStatusOnly(ctx, device, activation.results.status)
 
 	// Assert — mock expectations verify InvalidateMiner was called exactly once
 }
@@ -4331,8 +4322,8 @@ func TestFetchStatusFromMiner_AuthErrorFromGetDeviceStatus_InvalidatesMinerCache
 	device := models.Device{ID: deviceID}
 
 	// Act
-	serviceRunForTest(service)
-	service.processStatusOnly(ctx, device)
+	activation := telemetryActivationForTest(service)
+	service.processStatusOnly(ctx, device, activation.results.status)
 
 	// Assert — mock expectations verify InvalidateMiner was called exactly once
 }
@@ -4379,9 +4370,8 @@ func TestProcessStatusOnly_ForbiddenError_UpdatesPairingStatus(t *testing.T) {
 	ctx := t.Context()
 	device := models.Device{ID: deviceID}
 
-	serviceRunForTest(service)
-
-	service.processStatusOnly(ctx, device)
+	activation := telemetryActivationForTest(service)
+	service.processStatusOnly(ctx, device, activation.results.status)
 }
 
 func TestReconcileDefaultPasswordState(t *testing.T) {
@@ -4506,9 +4496,8 @@ func TestProcessStatusOnly_GenericForbiddenDoesNotUpdatePairingStatus(t *testing
 	ctx := t.Context()
 	device := models.Device{ID: deviceID}
 
-	serviceRunForTest(service)
-
-	service.processStatusOnly(ctx, device)
+	activation := telemetryActivationForTest(service)
+	service.processStatusOnly(ctx, device, activation.results.status)
 }
 
 func TestWriteFleetStateSnapshot(t *testing.T) {
