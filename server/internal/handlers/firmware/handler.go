@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"connectrpc.com/authn"
+	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -94,11 +95,12 @@ func (h *configHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // NewUploadHandler returns an http.Handler that accepts multipart firmware file uploads.
 // The handler validates the file, streams it to disk, and returns a firmware_file_id.
 // The request body is capped at maxUploadBytes to reject oversized uploads early.
-func NewUploadHandler(filesService *files.Service, sessionService *session.Service, userStore interfaces.UserStore, maxUploadBytes int64) http.Handler {
+func NewUploadHandler(filesService *files.Service, sessionService *session.Service, userStore interfaces.UserStore, activitySvc *activityDomain.Service, maxUploadBytes int64) http.Handler {
 	return &uploadHandler{
 		filesService:   filesService,
 		sessionService: sessionService,
 		userStore:      userStore,
+		activitySvc:    activitySvc,
 		maxUploadBytes: maxUploadBytes,
 	}
 }
@@ -181,6 +183,7 @@ type uploadHandler struct {
 	filesService   *files.Service
 	sessionService *session.Service
 	userStore      interfaces.UserStore
+	activitySvc    *activityDomain.Service
 	maxUploadBytes int64
 }
 
@@ -239,6 +242,7 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("firmware file uploaded successfully", "file_id", saveResult.FirmwareFileID, "filename", filename, "reused", saveResult.Reused)
+	logFirmwareUploadActivity(ctx, h.activitySvc, filename, saveResult)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -367,6 +371,12 @@ type deleteAllFilesResponse struct {
 	Error        string `json:"error,omitempty"`
 }
 
+type updateMetadataRequest struct {
+	TargetManufacturer string `json:"target_manufacturer"`
+	TargetModel        string `json:"target_model"`
+	FirmwareVersion    string `json:"firmware_version"`
+}
+
 // NewListFilesHandler returns an http.Handler that lists all uploaded firmware files.
 func NewListFilesHandler(filesService *files.Service, sessionService *session.Service, userStore interfaces.UserStore) http.Handler {
 	return &listFilesHandler{
@@ -405,6 +415,70 @@ func (h *listFilesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(listFilesResponse{Files: fileList}); err != nil {
 		slog.Error("failed to encode list files response", "error", err)
 	}
+}
+
+// NewUpdateMetadataHandler returns an http.Handler that updates a stored
+// firmware file's deployment metadata.
+func NewUpdateMetadataHandler(filesService *files.Service, sessionService *session.Service, userStore interfaces.UserStore) http.Handler {
+	return &updateMetadataHandler{
+		filesService:   filesService,
+		sessionService: sessionService,
+		userStore:      userStore,
+	}
+}
+
+type updateMetadataHandler struct {
+	filesService   *files.Service
+	sessionService *session.Service
+	userStore      interfaces.UserStore
+}
+
+func (h *updateMetadataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
+		slog.Warn("firmware metadata update authentication failed", "error", err)
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	fileID := r.PathValue("fileId")
+	if fileID == "" {
+		writeError(w, http.StatusBadRequest, "file ID is required")
+		return
+	}
+
+	const maxBodyBytes = 4096
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	var req updateMetadataRequest
+	if err := decoder.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+
+	metadata := files.FirmwareMetadata{
+		TargetManufacturer: req.TargetManufacturer,
+		TargetModel:        req.TargetModel,
+		FirmwareVersion:    req.FirmwareVersion,
+	}
+	if err := h.filesService.UpdateFirmwareMetadata(fileID, metadata); err != nil {
+		switch {
+		case fleeterror.IsNotFoundError(err):
+			writeError(w, http.StatusNotFound, err.Error())
+		case fleeterror.IsInvalidArgumentError(err):
+			writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			slog.Error("failed to update firmware metadata", "file_id", fileID, "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to update firmware metadata")
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // NewDeleteFileHandler returns an http.Handler that deletes a single firmware file by ID.

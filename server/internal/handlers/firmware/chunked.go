@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
@@ -288,8 +289,9 @@ func NewCompleteHandler(
 	filesService *files.Service,
 	sessionService *session.Service,
 	userStore interfaces.UserStore,
+	activitySvc *activityDomain.Service,
 ) http.Handler {
-	return &completeHandler{mgr: mgr, filesService: filesService, sessionService: sessionService, userStore: userStore}
+	return &completeHandler{mgr: mgr, filesService: filesService, sessionService: sessionService, userStore: userStore, activitySvc: activitySvc}
 }
 
 type completeHandler struct {
@@ -297,10 +299,12 @@ type completeHandler struct {
 	filesService   *files.Service
 	sessionService *session.Service
 	userStore      interfaces.UserStore
+	activitySvc    *activityDomain.Service
 }
 
 func (h *completeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
+	ctx, err := authenticate(r, h.sessionService, h.userStore)
+	if err != nil {
 		writeError(w, http.StatusUnauthorized, "authentication required")
 		return
 	}
@@ -356,6 +360,7 @@ func (h *completeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("chunked upload completed", "upload_id", uploadID, "firmware_file_id", saveResult.FirmwareFileID, "reused", saveResult.Reused)
+	logFirmwareUploadActivity(ctx, h.activitySvc, sess.filename, saveResult)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FirmwareUpdateModal from "./FirmwareUpdateModal";
 
@@ -145,6 +145,43 @@ describe("FirmwareUpdateModal", () => {
     render(<FirmwareUpdateModal open target={target} onConfirm={vi.fn()} onDismiss={vi.fn()} />);
 
     expect(screen.getByText(/reboot automatically after installation completes/i)).toBeInTheDocument();
+  });
+
+  it("keeps uploaded firmware metadata visible and read-only", async () => {
+    mockListFirmwareFiles.mockResolvedValue([]);
+    mockUseFirmwareUpload.mockReturnValue({
+      state: "idle",
+      file: null,
+      firmwareFileId: null,
+      uploadProgress: 0,
+      errorMessage: null,
+      serverConfig: { allowedExtensions: [".swu"] },
+      processFile: vi.fn(),
+      reset: vi.fn(),
+      retry: vi.fn(),
+    });
+    const view = render(<FirmwareUpdateModal open target={target} onConfirm={vi.fn()} onDismiss={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText("Firmware version"), { target: { value: "2.0.0" } });
+
+    mockUseFirmwareUpload.mockReturnValue({
+      state: "ready",
+      file: new File(["firmware"], "update.swu"),
+      firmwareFileId: "fw-uploaded",
+      uploadProgress: 100,
+      errorMessage: null,
+      serverConfig: { allowedExtensions: [".swu"] },
+      processFile: vi.fn(),
+      reset: vi.fn(),
+      retry: vi.fn(),
+    });
+    view.rerender(<FirmwareUpdateModal open target={target} onConfirm={vi.fn()} onDismiss={vi.fn()} />);
+
+    expect(await screen.findByLabelText("Product")).toBeDisabled();
+    expect(screen.getByLabelText("Model")).toBeDisabled();
+    expect(screen.getByLabelText("Firmware version")).toBeDisabled();
+    expect(screen.getByLabelText("Firmware version")).toHaveValue("2.0.0");
+    expect(screen.getByTestId("file-ready-status")).toBeInTheDocument();
+    expect(screen.queryByTestId("file-drop-zone")).not.toBeInTheDocument();
   });
 
   it("fails closed when the selected miner target is unavailable", async () => {

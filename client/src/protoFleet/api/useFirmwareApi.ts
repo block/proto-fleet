@@ -104,6 +104,12 @@ export interface FirmwareFileInfo {
   firmware_version?: string;
 }
 
+export interface FirmwareMetadataInput {
+  targetManufacturer: string;
+  targetModel: string;
+  firmwareVersion: string;
+}
+
 interface CheckFirmwareResponse {
   exists: boolean;
   firmware_file_id?: string;
@@ -268,6 +274,39 @@ export const useFirmwareApi = () => {
     [logout],
   );
 
+  const updateFirmwareMetadata = useCallback(
+    async (fileId: string, metadata: FirmwareMetadataInput, signal?: AbortSignal): Promise<void> => {
+      if (!hasCompleteFirmwareTarget(metadata)) {
+        throw new Error("Manufacturer, model, and firmware version are required.");
+      }
+      const response = await fetch(`${API_BASE}/files/${encodeURIComponent(fileId)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          target_manufacturer: metadata.targetManufacturer.trim(),
+          target_model: metadata.targetModel.trim(),
+          firmware_version: metadata.firmwareVersion.trim(),
+        }),
+        signal,
+      });
+
+      if (response.status === 401) {
+        logout();
+        throw new Error("Session expired. Please log in again.");
+      }
+
+      if (!response.ok) {
+        const message = await extractFetchError(
+          response,
+          `Couldn't update firmware metadata: ${response.status} ${response.statusText}`,
+        );
+        throw new Error(message);
+      }
+    },
+    [logout],
+  );
+
   const deleteAllFirmwareFiles = useCallback(
     async (signal?: AbortSignal): Promise<{ deleted_count: number }> => {
       const response = await fetch(`${API_BASE}/files`, {
@@ -300,9 +339,18 @@ export const useFirmwareApi = () => {
       checkFirmwareFile,
       uploadFirmwareFile,
       listFirmwareFiles,
+      updateFirmwareMetadata,
       deleteFirmwareFile,
       deleteAllFirmwareFiles,
     }),
-    [getConfig, checkFirmwareFile, uploadFirmwareFile, listFirmwareFiles, deleteFirmwareFile, deleteAllFirmwareFiles],
+    [
+      getConfig,
+      checkFirmwareFile,
+      uploadFirmwareFile,
+      listFirmwareFiles,
+      updateFirmwareMetadata,
+      deleteFirmwareFile,
+      deleteAllFirmwareFiles,
+    ],
   );
 };
