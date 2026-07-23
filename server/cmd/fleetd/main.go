@@ -560,6 +560,10 @@ func start(config *Config) error {
 		curtailmentReconciler.WithMetrics(curtailmentMetrics),
 		curtailmentReconciler.WithFacilityFanController(facilityFanController),
 		curtailmentReconciler.WithFacilityFanAlertEmitter(metricsProvider),
+		// The confirmation fast path samples device metrics through the
+		// telemetry service's read-only seam (shared worker pool, no
+		// persistence side effects).
+		curtailmentReconciler.WithConfirmationSampler(telemetryService),
 	)
 	if err := curtailmentRec.Start(context.Background()); err != nil {
 		return fmt.Errorf("failed to start curtailment reconciler: %w", err)
