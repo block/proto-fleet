@@ -8,7 +8,6 @@ import {
 import { lookupMinerByIdentifier } from "@/protoFleet/api/lookupMinerByIdentifier";
 import type { MinerEligibility } from "@/protoFleet/components/MinerSelectionList";
 import { canUseLiveCamera, useQrScanner } from "@/protoFleet/features/fleetManagement/hooks/useQrScanner";
-import { FLEET_SELECTABLE_PAIRING_STATUSES } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 import { isMinerSnapshotIneligible } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import { parseScannedIdentifier } from "@/protoFleet/features/fleetManagement/utils/parseScannedIdentifier";
 
@@ -123,10 +122,13 @@ export default function ScanMinerQrModal({
 
       const snapshot = resolvedSnapshots[0];
       const isReassignment = isMinerSnapshotIneligible(snapshot, eligibility);
-      const notPairedForAssignment = !FLEET_SELECTABLE_PAIRING_STATUSES.includes(snapshot.pairingStatus);
       const requiresConfirmation = resolvedSnapshots.length > 1;
 
-      if (requiresConfirmation || isReassignment || notPairedForAssignment) {
+      // LookupMinerByIdentifier only resolves miners in the visible pairing set
+      // (PAIRED / auth-needed / default-password) — the same set the rack list
+      // and search flows allow — so a resolved miner is always assignable; no
+      // pairing gate here.
+      if (requiresConfirmation || isReassignment) {
         setPhase({ kind: "found", snapshot, isReassignment, requiresConfirmation });
         return;
       }

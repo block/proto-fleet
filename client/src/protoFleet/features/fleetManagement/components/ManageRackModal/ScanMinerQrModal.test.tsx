@@ -253,13 +253,16 @@ describe("ScanMinerQrModal", () => {
     expect(onConfirm).toHaveBeenCalledWith("dev-1", true);
   });
 
-  it("blocks assigning a miner that isn't fully paired", async () => {
+  it("assigns a not-fully-paired miner like any other (lookup only returns the visible set)", async () => {
+    // #777: auth-needed / default-password miners are assignable to racks — the
+    // scan lookup only ever resolves the visible pairing set, matching the list
+    // and search flows. No pairing gate blocks assignment.
     mockCanUseLiveCamera.mockReturnValue(true);
     mockLookup.mockResolvedValueOnce({
       status: "found",
       snapshot: snapshot({ pairingStatus: PairingStatus.AUTHENTICATION_NEEDED }),
     });
-    const onAssign = vi.fn();
+    const onAssign = vi.fn().mockReturnValue({ slotLabel: "Slot 1", hasNextSlot: true });
     const onConfirm = vi.fn();
 
     renderScanMinerQrModal({ onAssign, onConfirm });
@@ -268,16 +271,13 @@ describe("ScanMinerQrModal", () => {
       capturedOnDetected?.(["SN123"]);
     });
 
-    await waitFor(() => expect(screen.getByText(/isn't fully paired/i)).toBeInTheDocument());
-    expect(
-      screen.getByText("Only paired miners can be assigned to a rack. Finish pairing this miner, then scan it again."),
-    ).toBeInTheDocument();
-    expect(screen.queryByText("Assign to slot")).not.toBeInTheDocument();
-    expect(onAssign).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByText("Miner assigned")).toBeInTheDocument());
+    expect(screen.queryByText(/isn't fully paired/i)).not.toBeInTheDocument();
+    expect(onAssign).toHaveBeenCalledWith("dev-1");
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it("prioritizes pairing guidance when an unpaired miner is already assigned elsewhere", async () => {
+  it("routes a not-fully-paired miner assigned elsewhere through the reassignment confirm", async () => {
     mockCanUseLiveCamera.mockReturnValue(true);
     mockLookup.mockResolvedValueOnce({
       status: "found",
@@ -295,15 +295,13 @@ describe("ScanMinerQrModal", () => {
       capturedOnDetected?.(["SN123"]);
     });
 
-    await waitFor(() => expect(screen.getByText(/isn't fully paired/i)).toBeInTheDocument());
-    expect(
-      screen.getByText("Only paired miners can be assigned to a rack. Finish pairing this miner, then scan it again."),
-    ).toBeInTheDocument();
-    expect(screen.queryByText("Miner already assigned")).not.toBeInTheDocument();
-    expect(screen.queryByText("Assigning it here will move it from Rack B.")).not.toBeInTheDocument();
-    expect(screen.queryByText("Assign to slot")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Miner already assigned")).toBeInTheDocument());
+    expect(screen.getByText("Assigning it here will move it from Rack B.")).toBeInTheDocument();
+    expect(screen.queryByText(/isn't fully paired/i)).not.toBeInTheDocument();
     expect(onAssign).not.toHaveBeenCalled();
-    expect(onConfirm).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Assign to slot" }));
+    expect(onConfirm).toHaveBeenCalledWith("dev-1", true);
   });
 
   it("shows the target slot in the live scanner copy", () => {
