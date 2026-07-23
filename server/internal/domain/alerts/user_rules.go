@@ -240,6 +240,11 @@ func (s *Service) DeleteRule(ctx context.Context, orgID int64, id string) error 
 			slog.Warn("alerts.user_rule_delete_silence_cleanup", "org_id", orgID, "rule_id", id, "error", err)
 		}
 		return nil
+	case errors.Is(err, errRuleNotDeletable):
+		// The rule exists (provisioned, another org's, or hidden): uniform
+		// NotFound with NO cleanup — a delete probe with only alert:manage must
+		// not clear the org's route policy or pause silences on a live rule.
+		return ErrNotFound
 	case IsNotFound(err):
 		// The rule is already gone: re-sweep its silences so a half-failed
 		// earlier delete converges, then keep the uniform NotFound (no id oracle).
@@ -252,10 +257,12 @@ func (s *Service) DeleteRule(ctx context.Context, orgID int64, id string) error 
 	}
 }
 
+// errRuleNotDeletable: the rule exists in Grafana but is not this org's mutable
+// user rule; distinct from a genuine 404 so DeleteRule never cleans up a live rule.
+var errRuleNotDeletable = errors.New("alerts: rule exists but is not deletable")
+
 // deleteRuleSerialized holds userRuleMu across fetch, guard, and delete so a
 // concurrent update's group re-pin can't replay the rule back after deletion.
-// Existing-but-not-ours resolves ErrNotFound before any cleanup can run: a
-// delete probe must not lift the org's own pause silences on a provisioned rule.
 func (s *Service) deleteRuleSerialized(ctx context.Context, orgID int64, id string) error {
 	s.userRuleMu.Lock()
 	defer s.userRuleMu.Unlock()
@@ -264,7 +271,7 @@ func (s *Service) deleteRuleSerialized(ctx context.Context, orgID int64, id stri
 		return err
 	}
 	if !isMutableUserRule(*rule, orgID) {
-		return ErrNotFound
+		return errRuleNotDeletable
 	}
 	if err := s.grafana.DeleteAlertRule(ctx, id); err != nil && !IsNotFound(err) {
 		return err
