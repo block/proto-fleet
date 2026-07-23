@@ -28,14 +28,9 @@ vi.mock("@/protoFleet/api/lookupMinerByIdentifier", () => ({
 
 // Lightweight Modal stub that renders children + buttons.
 vi.mock("@/shared/components/Modal", () => ({
-  default: ({ children, fullscreenMaxWidth, open, title, description, size, showHeader, buttons }: any) =>
+  default: ({ children, open, title, description, size, showHeader, buttons }: any) =>
     open === false ? null : (
-      <div
-        data-testid="modal"
-        data-fullscreen-max-width={String(fullscreenMaxWidth)}
-        data-size={size}
-        data-show-header={String(showHeader)}
-      >
+      <div data-testid="modal" data-size={size} data-show-header={String(showHeader)}>
         {title ? <h2>{title}</h2> : null}
         {description ? <p>{description}</p> : null}
         {children}
@@ -319,7 +314,6 @@ describe("ScanMinerQrModal", () => {
     expect(screen.getByText("Scan for Slot 2")).toBeInTheDocument();
     expect(screen.getAllByText("Point the camera at the miner QR code to assign it to Slot 2.")).toHaveLength(1);
     expect(screen.getByTestId("modal")).toHaveAttribute("data-size", "fullscreen");
-    expect(screen.getByTestId("modal")).toHaveAttribute("data-fullscreen-max-width", "false");
     expect(screen.getByTestId("modal")).toHaveAttribute("data-show-header", "false");
   });
 

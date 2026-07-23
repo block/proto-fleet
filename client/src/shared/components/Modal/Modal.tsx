@@ -48,7 +48,6 @@ interface ModalProps {
   description?: string;
   divider?: boolean;
   size?: keyof typeof sizes;
-  fullscreenMaxWidth?: string | false;
   zIndex?: string;
   testId?: string;
   forceTitleCollapsed?: boolean;
@@ -75,7 +74,6 @@ const Modal = ({
   description,
   divider = true,
   size = sizes.standard,
-  fullscreenMaxWidth = DEFAULT_FULLSCREEN_MAX_WIDTH,
   zIndex,
   iconAriaLabel = "Close dialog",
   testId = "modal",
@@ -168,7 +166,7 @@ const Modal = ({
           },
           surfaceClassName,
         )}
-        style={isFullscreen && fullscreenMaxWidth !== false ? { maxWidth: fullscreenMaxWidth } : undefined}
+        style={isFullscreen ? { maxWidth: DEFAULT_FULLSCREEN_MAX_WIDTH } : undefined}
       >
         <motion.div
           {...slideUpAnimation}
