@@ -1237,6 +1237,47 @@ func TestApplyMinerRowsClearsDirectPlacementWhenAssigningUnassignedRack(t *testi
 	}
 }
 
+// TestApplyOmittedRowsLeavesHiddenRackMembersUntouched locks in the invariant that
+// remove-omitted only ever acts on the caller-visible snapshot. A miner the
+// importer cannot see (RBAC-hidden, tracked in hiddenRackMembers rather than
+// snap.miners) must never be unassigned just because the CSV omits it — the CSV
+// omits it because the importer never knew it existed. The mock controller fails
+// on any store call naming the hidden device, so the guarantee is enforced by the
+// absence of expectations for it.
+func TestApplyOmittedRowsLeavesHiddenRackMembersUntouched(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ctx := context.Background()
+	orgID := int64(42)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	collectionStore := mocks.NewMockCollectionStore(ctrl)
+	svc := NewService(siteStore, buildingStore, collectionStore, nil, nil, nil, nil)
+
+	visibleIDs := []string{"miner-visible"}
+	snap := &snapshot{
+		miners: []minerSnapshot{
+			{DeviceIdentifier: "miner-visible", Rack: "Rack A", RackRow: "0", RackCol: "0"},
+		},
+		hiddenRackMembers: []minerSnapshot{
+			{DeviceIdentifier: "miner-hidden", Rack: "Rack A", RackRow: "1", RackCol: "0"},
+		},
+	}
+	// Empty MINER section: the visible miner is omitted; the hidden miner is not in
+	// snap.miners at all, so it is not even a deletion candidate.
+	parsed := &parsedCSV{sections: map[string][]map[string]string{"MINER": nil}}
+
+	gomock.InOrder(
+		collectionStore.EXPECT().LockRacksForReparent(ctx, orgID, visibleIDs, int64(0)).Return(nil, nil),
+		collectionStore.EXPECT().RemoveDevicesFromAnyRack(ctx, orgID, visibleIDs, int64(0)).Return(int64(1), nil),
+		siteStore.EXPECT().AssignDevicesToSite(ctx, orgID, nil, visibleIDs).Return(int64(1), nil),
+		buildingStore.EXPECT().AssignDevicesToBuilding(ctx, orgID, nil, visibleIDs).Return(int64(1), nil),
+	)
+
+	if err := svc.applyOmittedRows(ctx, orgID, parsed, snap); err != nil {
+		t.Fatalf("applyOmittedRows error = %v", err)
+	}
+}
+
 func TestDeleteOmittedSitesRejectsInfrastructureDevicesReferencedByProfiles(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
