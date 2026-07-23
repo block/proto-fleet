@@ -24,8 +24,9 @@ jobs:
           cd client/e2eTests/protoFleet/spec
 
           # Setup specs (NN-*.spec.ts) run automatically as Playwright project
-          # dependencies in every shard, so only the target specs are sharded.
-          SPEC_FILES=$( (find . -name "*.spec.ts" | sed 's|^\./||' | sort | grep -Ev '^[0-9]{2}-.*\.spec\.ts$' || true) | jq -R . | jq -cs .)
+          # dependencies in every shard. onboardingVisual.spec.ts runs in its
+          # own fresh-env job, so only the remaining target specs are sharded.
+          SPEC_FILES=$( (find . -name "*.spec.ts" | sed 's|^\./||' | sort | grep -Ev '(^[0-9]{2}-.*\.spec\.ts$|^onboardingVisual\.spec\.ts$)' || true) | jq -R . | jq -cs .)
 
           echo "specs=${SPEC_FILES}" >> "$GITHUB_OUTPUT"
           echo "Detected specs: ${SPEC_FILES}"
@@ -335,10 +336,153 @@ jobs:
         working-directory: server
         run: docker compose down -v
 
+  visual-tests:
+    name: Visual Tests
+    needs: [build]
+    timeout-minutes: 40
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [desktop, mobile]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+        with:
+          preinstall: "false"
+
+      - name: Cache npm dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci --include=optional
+
+      - name: Install Playwright browsers
+        working-directory: client/e2eTests/protoFleet
+        env:
+          PLAYWRIGHT_CACHE_HIT: ${{ steps.playwright-cache.outputs.cache-hit }}
+        run: |
+          npx playwright install --with-deps chromium
+
+      - name: Download prebuilt client
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: protofleet-client-dist
+          path: client/dist
+
+      - name: Download prebuilt plugins
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: protofleet-plugins
+          path: server/plugins
+
+      - name: Make plugins executable
+        run: chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
+
+      - name: Download prebuilt Docker images
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: protofleet-e2e-docker-images
+          path: /tmp/docker-images
+
+      - name: Load Docker images
+        run: |
+          gunzip < /tmp/docker-images/e2e-images.tar.gz | docker load
+
+      - name: Start services (TimeScaleDB + Backend + Simulators)
+        working-directory: server
+        run: docker compose up -d --no-build
+
+      - name: Start frontend
+        working-directory: client
+        env:
+          VITE_VERSION: ${{ github.sha }}
+          VITE_BUILD_DATE: ${{ github.event.repository.updated_at }}
+          VITE_COMMIT: ${{ github.sha }}
+        run: |
+          npx vite preview --mode protoFleet --port 5173 --host &
+          VITE_PID=$!
+          echo "Vite PID: $VITE_PID"
+
+          echo "Waiting for frontend..."
+          timeout 60 bash -c 'until curl -f http://localhost:5173 2>/dev/null; do sleep 2; done'
+          echo "Frontend is ready!"
+
+      - name: Run onboarding visual spec (${{ matrix.project }})
+        working-directory: client/e2eTests/protoFleet
+        env:
+          CI: true
+          PW_UI_NO_DEPS: "1"
+        run: |
+          rm -rf blob-report playwright-report test-results
+          mkdir -p blob-report
+
+          PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${{ matrix.project }}-visual.zip" \
+          PWTEST_BLOB_DO_NOT_REMOVE=1 \
+          npx playwright test --project="${{ matrix.project }}" --reporter=blob spec/onboardingVisual.spec.ts
+
+          echo "Blob reports created:"
+          find blob-report -maxdepth 2 -type f -print | sort || true
+
+      - name: Upload blob report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ always() && !cancelled() }}
+        with:
+          name: blob-report-${{ matrix.project }}-visual
+          path: client/e2eTests/protoFleet/blob-report/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload test screenshots
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ failure() && !cancelled() }}
+        with:
+          name: screenshots-${{ matrix.project }}-visual
+          path: client/e2eTests/protoFleet/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Dump backend logs on failure
+        if: failure()
+        working-directory: server
+        run: |
+          echo "=== Fleet API Logs ==="
+          docker compose logs fleet-api
+          echo "=== TimescaleDB Logs ==="
+          docker compose logs timescaledb
+
+      - name: Cleanup
+        if: always()
+        working-directory: server
+        run: docker compose down -v
+
   merge-reports:
     name: Merge Test Reports
     runs-on: ubuntu-latest
-    needs: [e2e-tests]
+    needs: [e2e-tests, visual-tests]
     if: ${{ always() && !cancelled() }}
     permissions:
       contents: read

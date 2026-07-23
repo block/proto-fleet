@@ -7,7 +7,7 @@ test.describe("Proto Fleet - Visual coverage @visual", () => {
   test.skip(testConfig.target === "real", "Visual snapshots are only supported against the fake E2E environment.");
   test.use({ storageState: { cookies: [], origins: [] } });
 
-  test("Test1: capture the signup form and empty-state visuals", async ({
+  test("Capture sign-up and empty-state visuals", async ({
     page,
     addMinersPage,
     authPage,
@@ -51,7 +51,7 @@ test.describe("Proto Fleet - Visual coverage @visual", () => {
     });
   });
 
-  test("Test2: capture find-miners and complete-setup visuals", async ({
+  test("Capture find-miners and complete-setup visuals", async ({
     page,
     addMinersPage,
     authPage,
@@ -96,7 +96,7 @@ test.describe("Proto Fleet - Visual coverage @visual", () => {
     });
   });
 
-  test("Test3: capture single-miner and bulk action visuals", async ({
+  test("Capture single-miner and bulk-action visuals", async ({
     page,
     addMinersPage,
     authPage,
