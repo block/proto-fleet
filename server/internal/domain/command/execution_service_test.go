@@ -162,9 +162,10 @@ func TestExecutionService_StopTimeoutRetainsActivationUntilWorkerDrains(t *testi
 	require.NoError(t, svc.Stop(context.Background()))
 }
 
-func TestExecutionService_StopDrainsAdmittedWorker(t *testing.T) {
+func TestExecutionService_ActivationCancellationThenStopDrainsAdmittedWorker(t *testing.T) {
 	svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, nil, nil, nil, nil, nil, nil, nil)
-	run := newExecutionRun(t.Context())
+	activationCtx, cancelActivation := context.WithCancel(t.Context())
+	run := newExecutionRun(activationCtx)
 	svc.run = run
 
 	workerStarted := make(chan struct{})
@@ -178,18 +179,25 @@ func TestExecutionService_StopDrainsAdmittedWorker(t *testing.T) {
 		case <-releaseWorker:
 		}
 	})
+	context.AfterFunc(run.admissionCtx, func() {
+		svc.beginStop(run)
+	})
 	go svc.finishRun(run)
 	<-workerStarted
 
+	cancelActivation()
+	require.Eventually(t, func() bool { return !svc.IsRunning() }, 100*time.Millisecond, time.Millisecond)
+
 	stopDone := make(chan error, 1)
 	go func() {
-		stopDone <- svc.Stop(context.Background())
+		stopCtx, cancelStop := context.WithTimeout(context.Background(), time.Second)
+		defer cancelStop()
+		stopDone <- svc.Stop(stopCtx)
 	}()
-	require.Eventually(t, func() bool { return !svc.IsRunning() }, 100*time.Millisecond, time.Millisecond)
 
 	select {
 	case <-workerCanceled:
-		t.Fatal("normal Stop canceled admitted worker")
+		t.Fatal("activation cancellation prematurely canceled admitted worker")
 	default:
 	}
 	select {

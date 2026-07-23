@@ -36,6 +36,7 @@ const (
 	testWorkerExecutionTimeout      = 30 * time.Second
 	testMasterPollingInterval       = time.Second
 	testBatchStatusUpdateInterval   = time.Second
+	testExecutionShutdownTimeout    = 10 * time.Second
 	testDequeueLimit                = 500
 	testMaxFailureRetries           = 5
 	testSessionDuration             = 5 * time.Minute
@@ -53,7 +54,6 @@ type ServiceProvider struct {
 	PairingService         *pairing.Service
 	OnboardingService      *onboarding.Service
 	CommandService         *command.Service
-	ExecutionServiceCancel context.CancelFunc
 	EncryptService         *encrypt.Service
 	FleetManagementService *fleetmanagement.Service
 	DeviceStore            *sqlstores.SQLDeviceStore
@@ -152,6 +152,12 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 	executionService := command.NewExecutionService(commandConfig, db, dbMessageQueue, encryptService, tokenService, minerService, deviceStore, nil, filesService)
 	err = executionService.Start(executionServiceCtx)
 	assert.NoError(t, err)
+	t.Cleanup(func() {
+		executionServiceCancel()
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), testExecutionShutdownTimeout)
+		defer stopCancel()
+		assert.NoError(t, executionService.Stop(stopCtx))
+	})
 
 	statusService := command.NewStatusService(db, dbMessageQueue)
 	commandService := command.NewService(commandConfig, db, executionService, dbMessageQueue, statusService, encryptService, filesService, deviceStore, userStore, authService, nil, pluginService, activitySvc)
@@ -175,7 +181,6 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 		PairingService:         pairingService,
 		OnboardingService:      onboardingService,
 		CommandService:         commandService,
-		ExecutionServiceCancel: executionServiceCancel,
 		EncryptService:         encryptService,
 		FleetManagementService: fleetManagementService,
 		DeviceStore:            deviceStore,
