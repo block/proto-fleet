@@ -364,7 +364,7 @@ func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.Imp
 		if err := ensureSupportedCommitPlan(plan); err != nil {
 			return nil, err
 		}
-		if err := s.applyImportPlan(ctx, orgID, parsed, snapshot, req.GetOmissionMode()); err != nil {
+		if err := s.applyImportPlan(ctx, orgID, plan.resolved, parsed, snapshot, req.GetOmissionMode()); err != nil {
 			return nil, err
 		}
 		s.logSiteMapImportActivity(ctx, orgID, plan)
@@ -1218,7 +1218,7 @@ func ensureSupportedCommitPlan(plan importPlan) error {
 	return nil
 }
 
-func (s *Service) applyImportPlan(ctx context.Context, orgID int64, parsed *parsedCSV, snap *snapshot, omissionMode pb.OmissionMode) error {
+func (s *Service) applyImportPlan(ctx context.Context, orgID int64, resolved *resolvedPlan, parsed *parsedCSV, snap *snapshot, omissionMode pb.OmissionMode) error {
 	if s.transactor == nil {
 		return fleeterror.NewInternalError("site map import requires a transactor")
 	}
@@ -1241,21 +1241,17 @@ func (s *Service) applyImportPlan(ctx context.Context, orgID int64, parsed *pars
 		racksByLabel[rack.Label] = rack
 		racksByID[rack.ID] = rack
 	}
-	minersByID := map[string]minerSnapshot{}
-	for _, miner := range snap.miners {
-		minersByID[miner.DeviceIdentifier] = miner
-	}
 	return s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		if err := s.applySiteRows(txCtx, orgID, parsed.sections["SITE"], sitesByName, sitesByID); err != nil {
+		if err := s.applySites(txCtx, orgID, resolved.sites, sitesByName, sitesByID); err != nil {
 			return err
 		}
-		if err := s.applyBuildingRows(txCtx, orgID, parsed.sections["BUILDING"], sitesByName, buildingsByKey, buildingsByID); err != nil {
+		if err := s.applyBuildings(txCtx, orgID, resolved.buildings, sitesByName, buildingsByKey, buildingsByID); err != nil {
 			return err
 		}
-		if err := s.applyRackRows(txCtx, orgID, parsed.sections["RACK"], sitesByName, buildingsByKey, racksByLabel, racksByID); err != nil {
+		if err := s.applyRacks(txCtx, orgID, resolved.racks, sitesByName, buildingsByKey, buildingsByID, racksByLabel, racksByID); err != nil {
 			return err
 		}
-		if err := s.applyMinerRows(txCtx, orgID, parsed.sections["MINER"], sitesByName, buildingsByKey, racksByLabel, minersByID); err != nil {
+		if err := s.applyMiners(txCtx, orgID, resolved.miners, sitesByName, buildingsByKey, buildingsByID, racksByLabel); err != nil {
 			return err
 		}
 		if omissionMode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
@@ -1455,36 +1451,32 @@ func siteMapImportActivityChanges(changes []*pb.ImportChangeSummary) []map[strin
 	return out
 }
 
-func (s *Service) applySiteRows(ctx context.Context, orgID int64, rows []map[string]string, existingByName map[string]sitemodels.Site, existingByID map[int64]sitemodels.Site) error {
-	// Site-map CSV carries only the site identity. Existing site metadata is
-	// intentionally left to the site editor; unknown site names are created.
-	for _, row := range rows {
-		if id, ok := rowID(row); ok {
-			site := existingByID[id]
-			if site.Name == row[fieldName] {
-				continue
-			}
-			updated, err := s.updateSiteNameFromImport(ctx, orgID, site, row[fieldName])
+// applySites walks the resolved site nodes and enacts each node's classified
+// action. Site-map CSV carries only the site identity; existing site metadata is
+// intentionally left to the site editor.
+func (s *Service) applySites(ctx context.Context, orgID int64, sites []*resolvedSite, existingByName map[string]sitemodels.Site, existingByID map[int64]sitemodels.Site) error {
+	for _, node := range sites {
+		switch node.action {
+		case actionUpdate:
+			site := existingByID[*node.id]
+			updated, err := s.updateSiteNameFromImport(ctx, orgID, site, node.name)
 			if err != nil {
 				return err
 			}
 			delete(existingByName, site.Name)
 			existingByName[updated.Name] = *updated
 			existingByID[updated.ID] = *updated
-			continue
+		case actionCreate:
+			site, err := s.siteStore.CreateSite(ctx, sitemodels.CreateSiteParams{
+				OrgID: orgID,
+				Name:  node.name,
+			})
+			if err != nil {
+				return err
+			}
+			existingByName[site.Name] = *site
+			existingByID[site.ID] = *site
 		}
-		if _, ok := existingByName[row[fieldName]]; ok {
-			continue
-		}
-		site, err := s.siteStore.CreateSite(ctx, sitemodels.CreateSiteParams{
-			OrgID: orgID,
-			Name:  row[fieldName],
-		})
-		if err != nil {
-			return err
-		}
-		existingByName[site.Name] = *site
-		existingByID[site.ID] = *site
 	}
 	return nil
 }
@@ -1535,32 +1527,23 @@ func siteMapUsedSlugsExcluding(slugs []string, excluded string) []string {
 	return out
 }
 
-func (s *Service) applyBuildingRows(
+func (s *Service) applyBuildings(
 	ctx context.Context,
 	orgID int64,
-	rows []map[string]string,
+	buildings []*resolvedBuilding,
 	sitesByName map[string]sitemodels.Site,
 	existingByKey map[string]buildingmodels.Building,
 	existingByID map[int64]buildingmodels.Building,
 ) error {
-	for _, row := range rows {
-		building, ok := existingByIDRow(row, existingByID)
-		if !ok {
-			building, ok = existingByKey[row[fieldSite]+"\x00"+row[fieldName]]
+	for _, node := range buildings {
+		if node.action == actionNone {
+			continue
 		}
-		aisles, err := parseInt32Field(row, "aisles")
+		siteID, _, err := desiredSiteBuildingIDs(node.siteRef, "", sitesByName, nil)
 		if err != nil {
 			return err
 		}
-		racksPerAisle, err := parseInt32Field(row, "racks_per_aisle")
-		if err != nil {
-			return err
-		}
-		if !ok {
-			siteID, _, err := desiredSiteBuildingIDs(row[fieldSite], "", sitesByName, nil)
-			if err != nil {
-				return err
-			}
+		if node.action == actionCreate {
 			siteID, _, err = s.lockPlacementParents(ctx, orgID, siteID, nil)
 			if err != nil {
 				return err
@@ -1568,44 +1551,40 @@ func (s *Service) applyBuildingRows(
 			created, err := s.buildingStore.CreateBuilding(ctx, buildingmodels.CreateParams{
 				OrgID:         orgID,
 				SiteID:        siteID,
-				Name:          row[fieldName],
-				Aisles:        aisles,
-				RacksPerAisle: racksPerAisle,
+				Name:          node.name,
+				Aisles:        node.aisles,
+				RacksPerAisle: node.racksPerAisle,
 			})
 			if err != nil {
 				return err
 			}
-			created.SiteLabel = row[fieldSite]
-			existingByKey[row[fieldSite]+"\x00"+row[fieldName]] = *created
+			created.SiteLabel = node.siteRef
+			existingByKey[node.siteRef+"\x00"+node.name] = *created
 			existingByID[created.ID] = *created
 			continue
 		}
-		current := rowMap(buildingHeaders, buildingRawRows([]buildingmodels.Building{building})[0])
-		if rowsEqual(row, current, buildingHeaders) {
-			continue
-		}
-		siteID, _, err := desiredSiteBuildingIDs(row[fieldSite], "", sitesByName, nil)
-		if err != nil {
-			return err
+		building, ok := applyTargetBuilding(node, existingByKey, existingByID)
+		if !ok {
+			return fleeterror.NewNotFoundErrorf("building %q not found", node.name)
 		}
 		if !nullableInt64Equal(siteID, building.SiteID) {
 			if err := s.moveBuildingsToSite(ctx, orgID, []int64{building.ID}, siteID); err != nil {
 				return err
 			}
 		}
-		if err := s.enforceBuildingLayoutUnderLock(ctx, orgID, building.ID, aisles, racksPerAisle); err != nil {
+		if err := s.enforceBuildingLayoutUnderLock(ctx, orgID, building.ID, node.aisles, node.racksPerAisle); err != nil {
 			return err
 		}
 		if _, err := s.buildingStore.UpdateBuilding(ctx, buildingmodels.UpdateParams{
 			OrgID:                 orgID,
 			ID:                    building.ID,
-			Name:                  row[fieldName],
+			Name:                  node.name,
 			Description:           building.Description,
 			PowerKw:               building.PowerKw,
 			OverheadKw:            building.OverheadKw,
-			Aisles:                aisles,
+			Aisles:                node.aisles,
 			PhysicalRackCount:     building.PhysicalRackCount,
-			RacksPerAisle:         racksPerAisle,
+			RacksPerAisle:         node.racksPerAisle,
 			DefaultRackRows:       building.DefaultRackRows,
 			DefaultRackColumns:    building.DefaultRackColumns,
 			DefaultRackOrderIndex: building.DefaultRackOrderIndex,
@@ -1613,90 +1592,93 @@ func (s *Service) applyBuildingRows(
 			return err
 		}
 		delete(existingByKey, building.SiteLabel+"\x00"+building.Name)
-		building.Name = row[fieldName]
+		building.Name = node.name
 		building.SiteID = siteID
-		building.SiteLabel = row[fieldSite]
-		building.Aisles = aisles
-		building.RacksPerAisle = racksPerAisle
+		building.SiteLabel = node.siteRef
+		building.Aisles = node.aisles
+		building.RacksPerAisle = node.racksPerAisle
 		existingByKey[building.SiteLabel+"\x00"+building.Name] = building
 		existingByID[building.ID] = building
 	}
 	return nil
 }
 
-func (s *Service) applyRackRows(
+// applyTargetBuilding finds the live building an update node acts on: by id when
+// the row carried one, else by its current (site, name) key.
+func applyTargetBuilding(node *resolvedBuilding, existingByKey map[string]buildingmodels.Building, existingByID map[int64]buildingmodels.Building) (buildingmodels.Building, bool) {
+	if node.id != nil {
+		building, ok := existingByID[*node.id]
+		return building, ok
+	}
+	building, ok := existingByKey[node.siteRef+"\x00"+node.name]
+	return building, ok
+}
+
+func (s *Service) applyRacks(
 	ctx context.Context,
 	orgID int64,
-	rows []map[string]string,
+	racks []*resolvedRack,
 	sitesByName map[string]sitemodels.Site,
 	buildingsByKey map[string]buildingmodels.Building,
+	buildingsByID map[int64]buildingmodels.Building,
 	existingByLabel map[string]rackSnapshot,
 	existingByID map[int64]rackSnapshot,
 ) error {
 	var pendingGridPositions []pendingRackGridPosition
-	for _, row := range rows {
-		rack, ok := existingRackByIDRow(row, existingByID)
-		if !ok {
-			rack, ok = existingByLabel[row[fieldLabel]]
+	for _, node := range racks {
+		if node.action == actionNone {
+			continue
 		}
-		rowsValue, err := parseInt32Field(row, "rows")
+		orderIndex, err := parseRackOrderIndex(node.orderIndex)
 		if err != nil {
 			return err
 		}
-		columnsValue, err := parseInt32Field(row, "columns")
+		siteID, buildingID, err := desiredRackPlacementIDs(node, sitesByName, buildingsByKey, buildingsByID)
 		if err != nil {
 			return err
 		}
-		orderIndex, err := parseRackOrderIndex(row["order_index"])
+		aisleIndex, positionInAisle, err := resolvedRackGridPosition(node)
 		if err != nil {
 			return err
 		}
-		siteID, buildingID, err := desiredSiteBuildingIDs(row[fieldSite], row[fieldBuilding], sitesByName, buildingsByKey)
-		if err != nil {
-			return err
-		}
-		if !ok {
+		if node.action == actionCreate {
 			siteID, buildingID, err = s.lockPlacementParents(ctx, orgID, siteID, buildingID)
 			if err != nil {
 				return err
 			}
-			collection, err := s.collectionStore.CreateCollection(ctx, orgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, row[fieldLabel], "")
+			collection, err := s.collectionStore.CreateCollection(ctx, orgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, node.label, "")
 			if err != nil {
 				return err
 			}
 			if err := s.collectionStore.CreateRackExtension(ctx, interfaces.CreateRackExtensionParams{
 				OrgID:        orgID,
 				CollectionID: collection.Id,
-				Rows:         rowsValue,
-				Columns:      columnsValue,
+				Rows:         node.rows,
+				Columns:      node.columns,
 				OrderIndex:   int32(orderIndex),
 				CoolingType:  int32(collectionpb.RackCoolingType_RACK_COOLING_TYPE_UNSPECIFIED),
-				Zone:         row["zone"],
+				Zone:         node.zone,
 				SiteID:       siteID,
 				BuildingID:   buildingID,
 			}); err != nil {
 				return err
 			}
-			rack = rackSnapshot{
+			rack := rackSnapshot{
 				ID:              collection.Id,
 				SiteID:          siteID,
 				BuildingID:      buildingID,
-				Site:            row[fieldSite],
-				Building:        row[fieldBuilding],
-				Label:           row[fieldLabel],
-				Zone:            row["zone"],
-				Rows:            rowsValue,
-				Columns:         columnsValue,
-				OrderIndex:      row["order_index"],
-				AisleIndex:      row["aisle_index"],
-				PositionInAisle: row["position_in_aisle"],
+				Site:            node.siteRef,
+				Building:        node.buildingRef,
+				Label:           node.label,
+				Zone:            node.zone,
+				Rows:            node.rows,
+				Columns:         node.columns,
+				OrderIndex:      node.orderIndex,
+				AisleIndex:      node.aisleIndex,
+				PositionInAisle: node.positionInAisle,
 			}
-			existingByLabel[row[fieldLabel]] = rack
+			existingByLabel[node.label] = rack
 			existingByID[rack.ID] = rack
-			aisleIndex, positionInAisle, err := desiredRackGridPosition(row)
-			if err != nil {
-				return err
-			}
 			pendingGridPositions = append(pendingGridPositions, pendingRackGridPosition{
 				rackID:          rack.ID,
 				aisleIndex:      aisleIndex,
@@ -1704,17 +1686,17 @@ func (s *Service) applyRackRows(
 			})
 			continue
 		}
-		current := rackComparableRow(rack)
-		if rowsEqual(row, current, rackHeaders) {
-			continue
+		rack, ok := applyTargetRack(node, existingByLabel, existingByID)
+		if !ok {
+			return fleeterror.NewNotFoundErrorf("rack %q not found", node.label)
 		}
 		coolingType, err := parseRackCoolingType(rack.CoolingType)
 		if err != nil {
 			return err
 		}
-		finalZone := desiredRackZone(row, rack)
-		if row[fieldLabel] != rack.Label {
-			label := row[fieldLabel]
+		finalZone := desiredRackZoneForNode(node, rack)
+		if node.label != rack.Label {
+			label := node.label
 			if err := s.collectionStore.UpdateCollection(ctx, orgID, rack.ID, &label, nil); err != nil {
 				return err
 			}
@@ -1727,10 +1709,10 @@ func (s *Service) applyRackRows(
 		if err != nil {
 			return err
 		}
-		if err := s.enforceRackDimensionsFitCurrentMembers(ctx, orgID, rack.ID, rowsValue, columnsValue); err != nil {
+		if err := s.enforceRackDimensionsFitCurrentMembers(ctx, orgID, rack.ID, node.rows, node.columns); err != nil {
 			return err
 		}
-		if err := s.collectionStore.UpdateRackInfo(ctx, rack.ID, finalZone, rowsValue, columnsValue, int32(orderIndex), int32(coolingType), orgID); err != nil {
+		if err := s.collectionStore.UpdateRackInfo(ctx, rack.ID, finalZone, node.rows, node.columns, int32(orderIndex), int32(coolingType), orgID); err != nil {
 			return err
 		}
 		if err := s.collectionStore.UpdateRackPlacement(ctx, rack.ID, orgID, siteID, buildingID, finalZone); err != nil {
@@ -1746,10 +1728,6 @@ func (s *Service) applyRackRows(
 				return err
 			}
 		}
-		aisleIndex, positionInAisle, err := desiredRackGridPosition(row)
-		if err != nil {
-			return err
-		}
 		pendingGridPositions = append(pendingGridPositions, pendingRackGridPosition{
 			rackID:          rack.ID,
 			aisleIndex:      aisleIndex,
@@ -1758,15 +1736,15 @@ func (s *Service) applyRackRows(
 		delete(existingByLabel, rack.Label)
 		rack.SiteID = siteID
 		rack.BuildingID = buildingID
-		rack.Site = row[fieldSite]
-		rack.Building = row[fieldBuilding]
-		rack.Label = row[fieldLabel]
+		rack.Site = node.siteRef
+		rack.Building = node.buildingRef
+		rack.Label = node.label
 		rack.Zone = finalZone
-		rack.Rows = rowsValue
-		rack.Columns = columnsValue
-		rack.OrderIndex = row["order_index"]
-		rack.AisleIndex = row["aisle_index"]
-		rack.PositionInAisle = row["position_in_aisle"]
+		rack.Rows = node.rows
+		rack.Columns = node.columns
+		rack.OrderIndex = node.orderIndex
+		rack.AisleIndex = node.aisleIndex
+		rack.PositionInAisle = node.positionInAisle
 		existingByLabel[rack.Label] = rack
 		existingByID[rack.ID] = rack
 	}
@@ -1913,36 +1891,32 @@ func (s *Service) moveBuildingsToSite(ctx context.Context, orgID int64, building
 	return nil
 }
 
-func (s *Service) applyMinerRows(
+func (s *Service) applyMiners(
 	ctx context.Context,
 	orgID int64,
-	rows []map[string]string,
+	miners []*resolvedMiner,
 	sitesByName map[string]sitemodels.Site,
 	buildingsByKey map[string]buildingmodels.Building,
+	buildingsByID map[int64]buildingmodels.Building,
 	racksByLabel map[string]rackSnapshot,
-	existing map[string]minerSnapshot,
 ) error {
 	var pendingSlots []pendingMinerSlot
 	renamedMiners := map[string]string{}
-	for _, row := range rows {
-		miner, ok := existing[row["device_identifier"]]
-		if !ok {
+	for _, node := range miners {
+		if node.existing == nil {
 			continue
 		}
-		if row[fieldName] != miner.Name {
-			renamedMiners[row["device_identifier"]] = row[fieldName]
+		if node.renamed {
+			renamedMiners[node.deviceID] = node.name
 		}
-		// Reference cells are canonicalized names; a rack reference already carries
-		// its building and site.
-		desiredSite, desiredBuilding := row[fieldSite], row[fieldBuilding]
-		if desiredSite == miner.Site && desiredBuilding == miner.Building && row[fieldRack] == miner.Rack && row["rack_row"] == miner.RackRow && row["rack_col"] == miner.RackCol {
+		if !node.moved {
 			continue
 		}
-		deviceIDs := []string{row["device_identifier"]}
-		if row[fieldRack] != "" {
-			rack, ok := racksByLabel[row[fieldRack]]
+		deviceIDs := []string{node.deviceID}
+		if node.rackLabel != "" {
+			rack, ok := racksByLabel[node.rackLabel]
 			if !ok {
-				return fleeterror.NewFailedPreconditionErrorf("unknown rack %q for miner %q", row[fieldRack], row["device_identifier"])
+				return fleeterror.NewFailedPreconditionErrorf("unknown rack %q for miner %q", node.rackLabel, node.deviceID)
 			}
 			if _, err := s.collectionStore.LockRacksForReparent(ctx, orgID, deviceIDs, rack.ID); err != nil {
 				return err
@@ -1974,14 +1948,14 @@ func (s *Service) applyMinerRows(
 			}
 			pendingSlots = append(pendingSlots, pendingMinerSlot{
 				rackID:           rack.ID,
-				deviceIdentifier: row["device_identifier"],
-				row:              row["rack_row"],
-				col:              row["rack_col"],
+				deviceIdentifier: node.deviceID,
+				row:              node.rackRow,
+				col:              node.rackCol,
 			})
 			continue
 		}
 
-		siteID, buildingID, err := desiredSiteBuildingIDs(desiredSite, desiredBuilding, sitesByName, buildingsByKey)
+		siteID, buildingID, err := placementIDsFromRef(node.buildingID, node.siteLabel, node.buildLabel, sitesByName, buildingsByKey, buildingsByID)
 		if err != nil {
 			return err
 		}
@@ -3671,6 +3645,79 @@ func desiredRackZone(row map[string]string, current rackSnapshot) string {
 		return ""
 	}
 	return row["zone"]
+}
+
+// desiredRackZoneForNode is the node-based twin of desiredRackZone: a zone only
+// survives when the rack stays in the same building/site it currently occupies.
+func desiredRackZoneForNode(node *resolvedRack, current rackSnapshot) string {
+	if current.Building != "" && (node.buildingRef != current.Building || node.siteRef != current.Site) {
+		return ""
+	}
+	return node.zone
+}
+
+// resolvedRackGridPosition reads a rack node's desired aisle/position, parsing the
+// canonicalized string cells into the nullable ints the placement store wants.
+func resolvedRackGridPosition(node *resolvedRack) (*int32, *int32, error) {
+	if node.aisleIndex == "" && node.positionInAisle == "" {
+		return nil, nil, nil
+	}
+	aisle, err := parseInt32Value(node.aisleIndex, "aisle_index")
+	if err != nil {
+		return nil, nil, err
+	}
+	position, err := parseInt32Value(node.positionInAisle, "position_in_aisle")
+	if err != nil {
+		return nil, nil, err
+	}
+	return &aisle, &position, nil
+}
+
+// desiredRackPlacementIDs resolves the site/building ids a rack node targets,
+// preferring the resolved existing building id (which disambiguates two buildings
+// sharing a (site, name) pair) and falling back to the canonical name lookup.
+func desiredRackPlacementIDs(
+	node *resolvedRack,
+	sitesByName map[string]sitemodels.Site,
+	buildingsByKey map[string]buildingmodels.Building,
+	buildingsByID map[int64]buildingmodels.Building,
+) (*int64, *int64, error) {
+	return placementIDsFromRef(node.buildingID, node.siteRef, node.buildingRef, sitesByName, buildingsByKey, buildingsByID)
+}
+
+// placementIDsFromRef resolves site/building ids from a resolved building id when
+// present, else from canonical site/building names against the running apply maps.
+func placementIDsFromRef(
+	buildingID *int64,
+	siteRef string,
+	buildingRef string,
+	sitesByName map[string]sitemodels.Site,
+	buildingsByKey map[string]buildingmodels.Building,
+	buildingsByID map[int64]buildingmodels.Building,
+) (*int64, *int64, error) {
+	if buildingID != nil {
+		if b, ok := buildingsByID[*buildingID]; ok {
+			id := b.ID
+			return b.SiteID, &id, nil
+		}
+	}
+	return desiredSiteBuildingIDs(siteRef, buildingRef, sitesByName, buildingsByKey)
+}
+
+// applyTargetRack finds the live rack a node updates: by resolved id when the row
+// carried one, else by its current label.
+func applyTargetRack(node *resolvedRack, existingByLabel map[string]rackSnapshot, existingByID map[int64]rackSnapshot) (rackSnapshot, bool) {
+	if node.id != nil {
+		if rack, ok := existingByID[*node.id]; ok {
+			return rack, true
+		}
+	}
+	label := node.prevLabel
+	if label == "" {
+		label = node.label
+	}
+	rack, ok := existingByLabel[label]
+	return rack, ok
 }
 
 func rowSetFromSiteNames(rows []sitemodels.Site) map[string]bool {

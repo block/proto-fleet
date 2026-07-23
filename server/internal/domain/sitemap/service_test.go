@@ -1207,10 +1207,6 @@ func TestApplyMinerRowsClearsDirectPlacementWhenAssigningUnassignedRack(t *testi
 	orgID := int64(42)
 	deviceIDs := []string{"miner-1"}
 	rack := rackSnapshot{ID: 7, Label: "Rack A"}
-	rows := []map[string]string{{
-		"device_identifier": "miner-1",
-		"rack":              "Rack A",
-	}}
 	existing := map[string]minerSnapshot{
 		"miner-1": {
 			DeviceIdentifier: "miner-1",
@@ -1229,8 +1225,15 @@ func TestApplyMinerRowsClearsDirectPlacementWhenAssigningUnassignedRack(t *testi
 	buildingStore.EXPECT().AssignDevicesToBuilding(ctx, orgID, nil, deviceIDs).Return(int64(1), nil)
 	collectionStore.EXPECT().ClearRackSlotPosition(ctx, rack.ID, "miner-1", orgID).Return(nil)
 
-	if err := svc.applyMinerRows(ctx, orgID, rows, nil, nil, map[string]rackSnapshot{"Rack A": rack}, existing); err != nil {
-		t.Fatalf("applyMinerRows error = %v", err)
+	existingMiner := existing["miner-1"]
+	node := &resolvedMiner{
+		deviceID:  "miner-1",
+		rackLabel: "Rack A",
+		moved:     true,
+		existing:  &existingMiner,
+	}
+	if err := svc.applyMiners(ctx, orgID, []*resolvedMiner{node}, nil, nil, nil, map[string]rackSnapshot{"Rack A": rack}); err != nil {
+		t.Fatalf("applyMiners error = %v", err)
 	}
 }
 
@@ -1318,7 +1321,7 @@ func TestApplyImportPlanMovesBuildingsBeforeDeletingOmittedSites(t *testing.T) {
 			{"__row": "3", fieldID: "2", fieldName: "Site B"},
 		},
 		"BUILDING": {
-			{"__row": "7", fieldID: "10", fieldName: "Building A", fieldSite: "Site B", "aisles": "1", "racks_per_aisle": "2"},
+			{"__row": "7", fieldID: "10", fieldName: "Building A", fieldSite: "2", "aisles": "1", "racks_per_aisle": "2"},
 		},
 		"RACK":  nil,
 		"MINER": nil,
@@ -1365,7 +1368,9 @@ func TestApplyImportPlanMovesBuildingsBeforeDeletingOmittedSites(t *testing.T) {
 		siteStore.EXPECT().SoftDeleteSite(ctx, orgID, siteAID).Return(int64(1), nil),
 	)
 
-	if err := svc.applyImportPlan(ctx, orgID, parsed, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED); err != nil {
+	resolveReferences(parsed, snap)
+	resolved := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	if err := svc.applyImportPlan(ctx, orgID, resolved, parsed, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED); err != nil {
 		t.Fatalf("applyImportPlan error = %v", err)
 	}
 }
@@ -1403,12 +1408,13 @@ func TestApplyBuildingRowsLocksParentSiteBeforeCreate(t *testing.T) {
 	siteStore := mocks.NewMockSiteStore(ctrl)
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	svc := NewService(siteStore, buildingStore, nil, nil, nil, nil, nil)
-	rows := []map[string]string{{
-		fieldName:         "Building A",
-		fieldSite:         "Site A",
-		"aisles":          "2",
-		"racks_per_aisle": "3",
-	}}
+	node := &resolvedBuilding{
+		action:        actionCreate,
+		siteRef:       "Site A",
+		name:          "Building A",
+		aisles:        2,
+		racksPerAisle: 3,
+	}
 
 	gomock.InOrder(
 		siteStore.EXPECT().LockSiteForWrite(ctx, orgID, siteID).Return(nil),
@@ -1420,8 +1426,8 @@ func TestApplyBuildingRowsLocksParentSiteBeforeCreate(t *testing.T) {
 		}),
 	)
 
-	if err := svc.applyBuildingRows(ctx, orgID, rows, map[string]sitemodels.Site{"Site A": {ID: siteID, Name: "Site A"}}, map[string]buildingmodels.Building{}, map[int64]buildingmodels.Building{}); err != nil {
-		t.Fatalf("applyBuildingRows error = %v", err)
+	if err := svc.applyBuildings(ctx, orgID, []*resolvedBuilding{node}, map[string]sitemodels.Site{"Site A": {ID: siteID, Name: "Site A"}}, map[string]buildingmodels.Building{}, map[int64]buildingmodels.Building{}); err != nil {
+		t.Fatalf("applyBuildings error = %v", err)
 	}
 }
 
@@ -1435,12 +1441,13 @@ func TestApplyBuildingRowsMatchesBlankIDBySiteAndName(t *testing.T) {
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	svc := NewService(siteStore, buildingStore, nil, nil, nil, nil, nil)
 	building := buildingmodels.Building{ID: buildingID, Name: "Building A", SiteID: &siteID, SiteLabel: "Site A", Aisles: 2, RacksPerAisle: 3}
-	rows := []map[string]string{{
-		fieldName:         "Building A",
-		fieldSite:         "Site A",
-		"aisles":          "2",
-		"racks_per_aisle": "4",
-	}}
+	node := &resolvedBuilding{
+		action:        actionUpdate,
+		siteRef:       "Site A",
+		name:          "Building A",
+		aisles:        2,
+		racksPerAisle: 4,
+	}
 
 	gomock.InOrder(
 		siteStore.EXPECT().LockBuildingForWrite(ctx, orgID, buildingID).Return(nil),
@@ -1454,15 +1461,15 @@ func TestApplyBuildingRowsMatchesBlankIDBySiteAndName(t *testing.T) {
 		}),
 	)
 
-	if err := svc.applyBuildingRows(
+	if err := svc.applyBuildings(
 		ctx,
 		orgID,
-		rows,
+		[]*resolvedBuilding{node},
 		map[string]sitemodels.Site{"Site A": {ID: siteID, Name: "Site A"}},
 		map[string]buildingmodels.Building{"Site A\x00Building A": building},
 		map[int64]buildingmodels.Building{buildingID: building},
 	); err != nil {
-		t.Fatalf("applyBuildingRows error = %v", err)
+		t.Fatalf("applyBuildings error = %v", err)
 	}
 }
 
@@ -1477,13 +1484,14 @@ func TestApplyBuildingRowsMovesBeforeRename(t *testing.T) {
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	svc := NewService(siteStore, buildingStore, nil, nil, nil, nil, nil)
 	building := buildingmodels.Building{ID: buildingID, Name: "Old Name", SiteID: &oldSiteID, SiteLabel: "Site A", Aisles: 1, RacksPerAisle: 2}
-	rows := []map[string]string{{
-		fieldID:           "10",
-		fieldName:         "Target Name",
-		fieldSite:         "Site B",
-		"aisles":          "1",
-		"racks_per_aisle": "2",
-	}}
+	node := &resolvedBuilding{
+		action:        actionUpdate,
+		id:            &buildingID,
+		siteRef:       "Site B",
+		name:          "Target Name",
+		aisles:        1,
+		racksPerAisle: 2,
+	}
 	buildingIDs := []int64{buildingID}
 
 	gomock.InOrder(
@@ -1504,15 +1512,15 @@ func TestApplyBuildingRowsMovesBeforeRename(t *testing.T) {
 		}),
 	)
 
-	if err := svc.applyBuildingRows(
+	if err := svc.applyBuildings(
 		ctx,
 		orgID,
-		rows,
+		[]*resolvedBuilding{node},
 		map[string]sitemodels.Site{"Site B": {ID: newSiteID, Name: "Site B"}},
 		map[string]buildingmodels.Building{"Site A\x00Old Name": building},
 		map[int64]buildingmodels.Building{buildingID: building},
 	); err != nil {
-		t.Fatalf("applyBuildingRows error = %v", err)
+		t.Fatalf("applyBuildings error = %v", err)
 	}
 }
 
@@ -1527,12 +1535,13 @@ func TestApplyBuildingRowsRechecksLayoutUnderLock(t *testing.T) {
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	svc := NewService(siteStore, buildingStore, nil, nil, nil, nil, nil)
 	building := buildingmodels.Building{ID: buildingID, Name: "Building A", Aisles: 2, RacksPerAisle: 1}
-	rows := []map[string]string{{
-		fieldID:           "10",
-		fieldName:         "Building A",
-		"aisles":          "1",
-		"racks_per_aisle": "1",
-	}}
+	node := &resolvedBuilding{
+		action:        actionUpdate,
+		id:            &buildingID,
+		name:          "Building A",
+		aisles:        1,
+		racksPerAisle: 1,
+	}
 
 	gomock.InOrder(
 		siteStore.EXPECT().LockBuildingForWrite(ctx, orgID, buildingID).Return(nil),
@@ -1545,9 +1554,9 @@ func TestApplyBuildingRowsRechecksLayoutUnderLock(t *testing.T) {
 		}}, nil),
 	)
 
-	err := svc.applyBuildingRows(ctx, orgID, rows, nil, map[string]buildingmodels.Building{"\x00Building A": building}, map[int64]buildingmodels.Building{buildingID: building})
+	err := svc.applyBuildings(ctx, orgID, []*resolvedBuilding{node}, nil, map[string]buildingmodels.Building{"\x00Building A": building}, map[int64]buildingmodels.Building{buildingID: building})
 	if err == nil || !strings.Contains(err.Error(), "cannot shrink layout") {
-		t.Fatalf("applyBuildingRows error = %v, want shrink-layout rejection", err)
+		t.Fatalf("applyBuildings error = %v, want shrink-layout rejection", err)
 	}
 }
 
@@ -1562,14 +1571,15 @@ func TestApplyRackRowsUsesCurrentLockedBuildingSite(t *testing.T) {
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	collectionStore := mocks.NewMockCollectionStore(ctrl)
 	svc := NewService(siteStore, buildingStore, collectionStore, nil, nil, nil, nil)
-	rows := []map[string]string{{
-		fieldLabel:    "Rack A",
-		fieldBuilding: "Building A",
-		fieldSite:     "Old Site",
-		"rows":        "4",
-		"columns":     "6",
-		"order_index": "BOTTOM_LEFT",
-	}}
+	node := &resolvedRack{
+		action:      actionCreate,
+		label:       "Rack A",
+		buildingRef: "Building A",
+		siteRef:     "Old Site",
+		rows:        4,
+		columns:     6,
+		orderIndex:  "BOTTOM_LEFT",
+	}
 
 	gomock.InOrder(
 		siteStore.EXPECT().LockBuildingForWrite(ctx, orgID, buildingID).Return(nil),
@@ -1587,8 +1597,8 @@ func TestApplyRackRowsUsesCurrentLockedBuildingSite(t *testing.T) {
 		buildingStore.EXPECT().SetRackBuildingPositionBulkClear(ctx, orgID, []int64{20}).Return(nil),
 	)
 
-	if err := svc.applyRackRows(ctx, orgID, rows, map[string]sitemodels.Site{"Old Site": {ID: staleSiteID, Name: "Old Site"}}, map[string]buildingmodels.Building{"Old Site\x00Building A": {ID: buildingID, Name: "Building A", SiteID: &staleSiteID, SiteLabel: "Old Site"}}, map[string]rackSnapshot{}, map[int64]rackSnapshot{}); err != nil {
-		t.Fatalf("applyRackRows error = %v", err)
+	if err := svc.applyRacks(ctx, orgID, []*resolvedRack{node}, map[string]sitemodels.Site{"Old Site": {ID: staleSiteID, Name: "Old Site"}}, map[string]buildingmodels.Building{"Old Site\x00Building A": {ID: buildingID, Name: "Building A", SiteID: &staleSiteID, SiteLabel: "Old Site"}}, map[int64]buildingmodels.Building{}, map[string]rackSnapshot{}, map[int64]rackSnapshot{}); err != nil {
+		t.Fatalf("applyRacks error = %v", err)
 	}
 }
 
@@ -1600,13 +1610,16 @@ func TestApplyRackRowsRechecksDimensionsUnderRackLock(t *testing.T) {
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	collectionStore := mocks.NewMockCollectionStore(ctrl)
 	svc := NewService(siteStore, buildingStore, collectionStore, nil, nil, nil, nil)
-	rows := []map[string]string{{
-		fieldID:       "20",
-		fieldLabel:    "Rack A",
-		"rows":        "1",
-		"columns":     "1",
-		"order_index": "BOTTOM_LEFT",
-	}}
+	rackID := int64(20)
+	node := &resolvedRack{
+		action:     actionUpdate,
+		id:         &rackID,
+		label:      "Rack A",
+		prevLabel:  "Rack A",
+		rows:       1,
+		columns:    1,
+		orderIndex: "BOTTOM_LEFT",
+	}
 	rack := rackSnapshot{ID: 20, Label: "Rack A", Rows: 4, Columns: 6, OrderIndex: "BOTTOM_LEFT"}
 
 	gomock.InOrder(
@@ -1617,9 +1630,9 @@ func TestApplyRackRowsRechecksDimensionsUnderRackLock(t *testing.T) {
 		}}, nil),
 	)
 
-	err := svc.applyRackRows(ctx, orgID, rows, nil, nil, map[string]rackSnapshot{"Rack A": rack}, map[int64]rackSnapshot{20: rack})
+	err := svc.applyRacks(ctx, orgID, []*resolvedRack{node}, nil, nil, map[int64]buildingmodels.Building{}, map[string]rackSnapshot{"Rack A": rack}, map[int64]rackSnapshot{20: rack})
 	if err == nil || !strings.Contains(err.Error(), "cannot resize rack") {
-		t.Fatalf("applyRackRows error = %v, want resize rejection", err)
+		t.Fatalf("applyRacks error = %v, want resize rejection", err)
 	}
 }
 
@@ -1635,14 +1648,14 @@ func TestApplyMinerRowsUsesCurrentLockedBuildingSiteForDirectPlacement(t *testin
 	collectionStore := mocks.NewMockCollectionStore(ctrl)
 	svc := NewService(siteStore, buildingStore, collectionStore, nil, nil, nil, nil)
 	deviceIDs := []string{"miner-1"}
-	rows := []map[string]string{{
-		"device_identifier": "miner-1",
-		fieldName:           "Miner 1",
-		fieldBuilding:       "Building A",
-		fieldSite:           "Old Site",
-	}}
-	existing := map[string]minerSnapshot{
-		"miner-1": {DeviceIdentifier: "miner-1", Name: "Miner 1"},
+	existingMiner := minerSnapshot{DeviceIdentifier: "miner-1", Name: "Miner 1"}
+	node := &resolvedMiner{
+		deviceID:   "miner-1",
+		name:       "Miner 1",
+		buildLabel: "Building A",
+		siteLabel:  "Old Site",
+		moved:      true,
+		existing:   &existingMiner,
 	}
 
 	gomock.InOrder(
@@ -1654,8 +1667,8 @@ func TestApplyMinerRowsUsesCurrentLockedBuildingSiteForDirectPlacement(t *testin
 		buildingStore.EXPECT().AssignDevicesToBuilding(ctx, orgID, &buildingID, deviceIDs).Return(int64(1), nil),
 	)
 
-	if err := svc.applyMinerRows(ctx, orgID, rows, map[string]sitemodels.Site{"Old Site": {ID: staleSiteID, Name: "Old Site"}}, map[string]buildingmodels.Building{"Old Site\x00Building A": {ID: buildingID, Name: "Building A", SiteID: &staleSiteID, SiteLabel: "Old Site"}}, nil, existing); err != nil {
-		t.Fatalf("applyMinerRows error = %v", err)
+	if err := svc.applyMiners(ctx, orgID, []*resolvedMiner{node}, map[string]sitemodels.Site{"Old Site": {ID: staleSiteID, Name: "Old Site"}}, map[string]buildingmodels.Building{"Old Site\x00Building A": {ID: buildingID, Name: "Building A", SiteID: &staleSiteID, SiteLabel: "Old Site"}}, map[int64]buildingmodels.Building{}, nil); err != nil {
+		t.Fatalf("applyMiners error = %v", err)
 	}
 }
 
@@ -1668,7 +1681,13 @@ func TestApplySiteRowsRegeneratesSlugWhenRenamingByID(t *testing.T) {
 	site := sitemodels.Site{ID: 11, Name: "Old Site", Slug: "old-site"}
 	existingByName := map[string]sitemodels.Site{site.Name: site}
 	existingByID := map[int64]sitemodels.Site{site.ID: site}
-	rows := []map[string]string{{fieldID: "11", fieldName: "New Site"}}
+	siteID := int64(11)
+	node := &resolvedSite{
+		action:   actionUpdate,
+		id:       &siteID,
+		name:     "New Site",
+		prevName: "Old Site",
+	}
 
 	siteStore.EXPECT().ListSiteSlugs(ctx, orgID).Return([]string{"old-site"}, nil)
 	siteStore.EXPECT().UpdateSite(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, params sitemodels.UpdateSiteParams) (*sitemodels.Site, error) {
@@ -1678,8 +1697,8 @@ func TestApplySiteRowsRegeneratesSlugWhenRenamingByID(t *testing.T) {
 		return &sitemodels.Site{ID: params.ID, Name: params.Name, Slug: params.Slug}, nil
 	})
 
-	if err := svc.applySiteRows(ctx, orgID, rows, existingByName, existingByID); err != nil {
-		t.Fatalf("applySiteRows error = %v", err)
+	if err := svc.applySites(ctx, orgID, []*resolvedSite{node}, existingByName, existingByID); err != nil {
+		t.Fatalf("applySites error = %v", err)
 	}
 	if _, ok := existingByName["Old Site"]; ok {
 		t.Fatal("old site name still present in lookup")
