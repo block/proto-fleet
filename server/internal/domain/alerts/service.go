@@ -507,6 +507,28 @@ func (s *Service) ListRules(ctx context.Context, orgID int64) ([]Rule, error) {
 // listVisibleRules is the routing-free listing shared by requireRule: rule-targeted actions
 // (pause, resume, maintenance windows) must keep working while the route-policy table is unreadable.
 func (s *Service) listVisibleRules(ctx context.Context, orgID int64) ([]Rule, error) {
+	out, err := s.visibleRulesNoPauseState(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	// Fail closed: without pause-silence state we can't trust the Enabled flag, so error
+	// rather than render a muted rule as enabled.
+	paused, err := s.pauseSilencedRules(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if paused[out[i].ID] {
+			out[i].Enabled = false
+		}
+	}
+	return out, nil
+}
+
+// visibleRulesNoPauseState lists the org's visible rules without the pause-silence overlay,
+// so silence-independent mutations (routing) stay available during a silence-API outage.
+// Enabled may read true for a paused rule; callers owning a response must re-apply pause state.
+func (s *Service) visibleRulesNoPauseState(ctx context.Context, orgID int64) ([]Rule, error) {
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
 	}
@@ -521,17 +543,6 @@ func (s *Service) listVisibleRules(ctx context.Context, orgID int64) ([]Rule, er
 			continue
 		}
 		out = append(out, grafanaRuleToDomain(orgID, gr))
-	}
-	// Fail closed: without pause-silence state we can't trust the Enabled flag, so error
-	// rather than render a muted rule as enabled.
-	paused, err := s.pauseSilencedRules(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-	for i := range out {
-		if paused[out[i].ID] {
-			out[i].Enabled = false
-		}
 	}
 	return out, nil
 }
@@ -641,6 +652,23 @@ func (s *Service) requireRule(ctx context.Context, orgID int64, id string) (*Rul
 	if err != nil {
 		return nil, err
 	}
+	return findRuleByID(rules, id)
+}
+
+// requireVisibleRule is requireRule minus the pause-silence read: same uniform NotFound, but
+// usable during a silence-API outage. The caller owns re-applying pause state to any response.
+func (s *Service) requireVisibleRule(ctx context.Context, orgID int64, id string) (*Rule, error) {
+	if id == "" {
+		return nil, errors.New("rule id is required")
+	}
+	rules, err := s.visibleRulesNoPauseState(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	return findRuleByID(rules, id)
+}
+
+func findRuleByID(rules []Rule, id string) (*Rule, error) {
 	for i := range rules {
 		if rules[i].ID == id {
 			return &rules[i], nil

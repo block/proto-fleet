@@ -288,6 +288,48 @@ func TestListRulesFailsClosedOnRouteReadError(t *testing.T) {
 	require.Error(t, err, "rendering every rule as default while policies are unreadable would mislead operators")
 }
 
+// Routing is the muting fallback when the silence API is down (pause needs silences), so the
+// write path must not read silences; the response's pause overlay degrades instead (per UpdateRule).
+func TestSetRuleRoutingSurvivesSilenceOutage(t *testing.T) {
+	svc, routes, fake := routingService(t)
+	fake.silencesErr = true
+
+	rule, err := svc.SetRuleRouting(context.Background(), 7, "pfu-mine", RouteModeNone, nil)
+	require.NoError(t, err, "a silence-API outage must not block routing writes")
+	assert.Equal(t, RouteModeNone, routes.policies[7]["pfu-mine"].Mode)
+	require.NotNil(t, rule.Routing)
+}
+
+// An inconclusive (non-404) post-write recheck must not report the committed policy as failed:
+// unlike a stray silence, an orphaned policy row is inert, and the client would render stale routing.
+func TestSetRuleRoutingKeepsCommitOnInconclusiveRecheck(t *testing.T) {
+	svc, routes, fake := routingService(t)
+	fake.getRuleErr = true
+
+	rule, err := svc.SetRuleRouting(context.Background(), 7, "pfu-mine", RouteModeCustom, []string{"1"})
+	require.NoError(t, err, "a committed routing write must not be reported failed over a recheck blip")
+	assert.Equal(t, RouteModeCustom, routes.policies[7]["pfu-mine"].Mode)
+	require.NotNil(t, rule.Routing)
+}
+
+// The visibility-only gate skips the pause overlay; the response must re-apply it, or a
+// routing edit on a paused rule would repaint it as enabled in the client.
+func TestSetRuleRoutingResponseKeepsPauseState(t *testing.T) {
+	svc, _, fake := routingService(t)
+	fake.silences = []GrafanaSilence{{
+		ID:      "sil-pause",
+		Comment: pauseSilenceCommentMarker,
+		Matchers: []GrafanaSilenceMatcher{
+			{Name: silenceLabelOrganizationID, Value: "7", IsEqual: true},
+			{Name: alertRuleUIDMatcher, Value: "pfu-mine", IsEqual: true},
+		},
+	}}
+
+	rule, err := svc.SetRuleRouting(context.Background(), 7, "pfu-mine", RouteModeNone, nil)
+	require.NoError(t, err)
+	assert.False(t, rule.Enabled, "the routing response must not repaint a paused rule as enabled")
+}
+
 // Pause must still succeed during a route-table outage, but the response must mark routing
 // unknown rather than nil (= DEFAULT), or the client would upsert it over the real policy.
 func TestPauseRuleRouteReadOutageMarksRoutingUnknown(t *testing.T) {

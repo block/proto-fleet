@@ -323,6 +323,8 @@ type fakeGrafanaRules struct {
 	getRuleGone bool
 	// Per-uid GETs 500, simulating an inconclusive post-write recheck.
 	getRuleErr bool
+	// Silence list 500s, simulating an Alertmanager outage.
+	silencesErr bool
 }
 
 func (f *fakeGrafanaRules) server(t *testing.T) *Grafana {
@@ -386,6 +388,10 @@ func (f *fakeGrafanaRules) server(t *testing.T) *Grafana {
 		writeJSON(w, group)
 	})
 	mux.HandleFunc("GET /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {
+		if f.silencesErr {
+			http.Error(w, `{"message":"boom"}`, http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, f.silences)
 	})
 	mux.HandleFunc("POST /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {

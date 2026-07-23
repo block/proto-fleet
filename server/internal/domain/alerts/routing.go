@@ -34,8 +34,9 @@ func (s *Service) SetRuleRouting(ctx context.Context, orgID int64, ruleID string
 	if s.routes == nil {
 		return nil, errors.New("alerts: route store not configured")
 	}
-	// Same visibility gate as pause/maintenance windows: an id the caller can't list is NotFound.
-	rule, err := s.requireRule(ctx, orgID, ruleID)
+	// Visibility-only gate (requireRule minus the silence read): routing must stay writable
+	// during a silence-API outage — it's the fallback for muting when pause itself is down.
+	rule, err := s.requireVisibleRule(ctx, orgID, ruleID)
 	if err != nil {
 		return nil, err
 	}
@@ -49,6 +50,7 @@ func (s *Service) SetRuleRouting(ctx context.Context, orgID int64, ruleID string
 		}
 		s.invalidateDeliveryPolicyCache(orgID)
 		rule.Routing = nil
+		s.applyPauseStateBestEffort(ctx, orgID, rule)
 		return rule, nil
 	}
 	policy.RuleUID = ruleID
@@ -58,17 +60,32 @@ func (s *Service) SetRuleRouting(ctx context.Context, orgID int64, ruleID string
 	s.invalidateDeliveryPolicyCache(orgID)
 	// Like confirmRuleSilenceTarget: undo a policy written concurrently with the rule's deletion, whose sweep couldn't have seen it.
 	if _, err := s.grafana.GetAlertRule(ctx, ruleID); err != nil {
-		if !IsNotFound(err) {
-			return nil, err
+		if IsNotFound(err) {
+			if derr := s.routes.DeletePolicy(ctx, orgID, ruleID); derr != nil {
+				return nil, derr
+			}
+			s.invalidateDeliveryPolicyCache(orgID)
+			return nil, ErrNotFound
 		}
-		if derr := s.routes.DeletePolicy(ctx, orgID, ruleID); derr != nil {
-			return nil, derr
-		}
-		s.invalidateDeliveryPolicyCache(orgID)
-		return nil, ErrNotFound
+		// The write is committed; a transient confirm failure must not report it as failed. Worst case the unclosed race leaves an inert policy row for a deleted rule.
+		slog.Warn("alerts.rule_routing_delete_race_confirm", "org_id", orgID, "rule_id", ruleID, "error", err)
 	}
 	rule.Routing = policy
+	s.applyPauseStateBestEffort(ctx, orgID, rule)
 	return rule, nil
+}
+
+// applyPauseStateBestEffort re-applies the pause overlay requireVisibleRule skipped. Per UpdateRule,
+// a committed write must not be reported failed over a silence-read hiccup, so degrade to the rule's own state.
+func (s *Service) applyPauseStateBestEffort(ctx context.Context, orgID int64, rule *Rule) {
+	paused, err := s.pauseSilencedRules(ctx, orgID)
+	if err != nil {
+		slog.Warn("alerts.rule_routing_pause_state", "org_id", orgID, "rule_id", rule.ID, "error", err)
+		return
+	}
+	if paused[rule.ID] {
+		rule.Enabled = false
+	}
 }
 
 // resolveRoutePolicy validates a requested mode + channel set; a nil policy means default routing (no row).
