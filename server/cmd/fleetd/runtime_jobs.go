@@ -35,6 +35,9 @@ func (l stopOrderedLifecycle) Start(ctx context.Context) error {
 }
 
 func (l stopOrderedLifecycle) Stop(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("stop ordered lifecycle: %w", err)
+	}
 	return l.lifecycle.Stop(ctx)
 }
 

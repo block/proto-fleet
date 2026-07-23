@@ -153,6 +153,39 @@ func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing
 	}
 }
 
+func TestRuntimeJobGroupKeepsCommandExecutionAliveForDrainRetry(t *testing.T) {
+	commandStopCalls := 0
+	producerStopCalls := 0
+	command, err := runtimejobs.NewJob("command", stopOrderedLifecycle{lifecycle: funcLifecycle{
+		stop: func(context.Context) error {
+			commandStopCalls++
+			return nil
+		},
+	}})
+	require.NoError(t, err)
+	producer, err := runtimejobs.NewJob("producer", funcLifecycle{stop: func(ctx context.Context) error {
+		producerStopCalls++
+		if producerStopCalls == 1 {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		if commandStopCalls != 0 {
+			return errors.New("command execution stopped before producer retry")
+		}
+		return nil
+	}})
+	require.NoError(t, err)
+	group, err := runtimejobs.NewGroup([]runtimejobs.Job{command, producer}, time.Millisecond)
+	require.NoError(t, err)
+	require.NoError(t, group.Start(t.Context()))
+
+	require.ErrorIs(t, group.Stop(context.Background()), context.DeadlineExceeded)
+	require.Zero(t, commandStopCalls)
+	require.NoError(t, group.Stop(context.Background()))
+	require.Equal(t, 2, producerStopCalls)
+	require.Equal(t, 1, commandStopCalls)
+}
+
 func TestBackgroundLoopCanRestartAfterDraining(t *testing.T) {
 	started := make(chan struct{}, 2)
 	loop := newBackgroundLoop(func(ctx context.Context) {
