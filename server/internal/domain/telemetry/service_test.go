@@ -348,6 +348,51 @@ func TestTelemetryService_StopDrainsQueuedActivationStatuses(t *testing.T) {
 	require.NoError(t, service.Stop(t.Context()))
 }
 
+func TestTelemetryService_FinishRunRequeuesQueuedTelemetryTasks(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	device := models.Device{ID: "queued-on-stop", LastUpdatedAt: time.Now().Add(-time.Minute)}
+	scheduler.EXPECT().AddDevices(gomock.Any(), device).Return(nil)
+	service := &TelemetryService{updateScheduler: scheduler}
+	run := newTelemetryRun(make(chan struct{}), 1)
+	run.tasks <- device
+	done := make(chan struct{})
+
+	service.finishRun(done, run)
+
+	select {
+	case <-done:
+	default:
+		t.Fatal("finishRun did not complete")
+	}
+}
+
+func TestGatherMetricsRoutineRequeuesUnsentFetchedDevicesOnCancellation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	devices := []models.Device{{ID: "first"}, {ID: "second"}}
+	fetched := make(chan struct{})
+	scheduler.EXPECT().FetchDevices(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, time.Time) ([]models.Device, error) {
+		close(fetched)
+		return devices, nil
+	})
+	scheduler.EXPECT().AddDevices(gomock.Any(), devices[0], devices[1]).Return(nil)
+	service := &TelemetryService{
+		config:          Config{FetchInterval: time.Millisecond},
+		updateScheduler: scheduler,
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		service.gatherMetricsRoutine(ctx, make(chan models.Device))
+		close(done)
+	}()
+
+	<-fetched
+	cancel()
+	<-done
+}
+
 func TestTelemetryService_StopDrainsResultsProducedWhileWorkersExit(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
@@ -2953,6 +2998,21 @@ func TestRefreshDevice_ReturnsContextErrorWhileWaitingForInFlightCollection(t *t
 	assert.Contains(t, err.Error(), "context cancelled waiting for in-flight refresh")
 }
 
+func TestClaimDeviceForRefresh_ReturnsWhenActivationStops(t *testing.T) {
+	service := &TelemetryService{}
+	deviceID := models.DeviceIdentifier("queued-status-device")
+	service.inFlight.Store(deviceID, inFlightKindStatusOnly)
+	inactive := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		_, err := service.claimDeviceForRefresh(t.Context(), deviceID, inactive)
+		done <- err
+	}()
+
+	close(inactive)
+	require.ErrorIs(t, <-done, errTelemetryServiceInactive)
+}
+
 func TestClaimDeviceForRefresh_ClaimsAfterStatusOnlyInFlightCollection(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -2970,7 +3030,7 @@ func TestClaimDeviceForRefresh_ClaimsAfterStatusOnlyInFlightCollection(t *testin
 
 	done := make(chan bool, 1)
 	go func() {
-		claimed, err := service.claimDeviceForRefresh(t.Context(), deviceID)
+		claimed, err := service.claimDeviceForRefresh(t.Context(), deviceID, make(chan struct{}))
 		require.NoError(t, err)
 		done <- claimed
 	}()

@@ -506,7 +506,7 @@ func (s *TelemetryService) RefreshDevice(ctx context.Context, device models.Devi
 	defer releaseRun()
 
 	waitCtx, cancelWait := context.WithTimeout(ctx, s.refreshDeviceOperationTimeout())
-	claimed, err := s.claimDeviceForRefresh(waitCtx, device.ID)
+	claimed, err := s.claimDeviceForRefresh(waitCtx, device.ID, run.done)
 	cancelWait()
 	if err != nil {
 		return err
@@ -538,7 +538,7 @@ func (s *TelemetryService) refreshDeviceOperationTimeout() time.Duration {
 	return metricTimeout + 5*time.Second
 }
 
-func (s *TelemetryService) claimDeviceForRefresh(ctx context.Context, deviceID models.DeviceIdentifier) (bool, error) {
+func (s *TelemetryService) claimDeviceForRefresh(ctx context.Context, deviceID models.DeviceIdentifier, inactive <-chan struct{}) (bool, error) {
 	if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, inFlightKindFullTelemetry); !alreadyClaimed {
 		return true, nil
 	}
@@ -556,6 +556,8 @@ func (s *TelemetryService) claimDeviceForRefresh(ctx context.Context, deviceID m
 		}
 
 		select {
+		case <-inactive:
+			return false, errTelemetryServiceInactive
 		case <-ctx.Done():
 			return false, fmt.Errorf("context cancelled waiting for in-flight refresh for device %s: %w", deviceID, ctx.Err())
 		case <-ticker.C:
@@ -710,6 +712,18 @@ func (s *TelemetryService) Start(ctx context.Context) error {
 func (s *TelemetryService) finishRun(done chan struct{}, run *telemetryRun) {
 	s.runWG.Wait()
 
+	var pendingTelemetry []models.Device
+drainTelemetryTasks:
+	for {
+		select {
+		case device := <-run.tasks:
+			pendingTelemetry = append(pendingTelemetry, device)
+		default:
+			break drainTelemetryTasks
+		}
+	}
+	s.requeueTelemetryTasks(pendingTelemetry)
+
 drainStatusTasks:
 	for {
 		select {
@@ -731,6 +745,17 @@ drainStatusTasks:
 	}
 	s.lifecycleMu.Unlock()
 	close(done)
+}
+
+func (s *TelemetryService) requeueTelemetryTasks(devices []models.Device) {
+	if len(devices) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownFlushTimeout)
+	defer cancel()
+	if err := s.updateScheduler.AddDevices(ctx, devices...); err != nil {
+		slog.Warn("failed to requeue telemetry tasks during shutdown", "count", len(devices), "error", err)
+	}
 }
 
 func (s *TelemetryService) Stop(ctx context.Context) error {
@@ -818,10 +843,11 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, tasks chan<
 				slog.Error("failed to fetch devices for telemetry", "error", err)
 				continue
 			}
-			for _, device := range devices {
+			for index, device := range devices {
 				select {
 				case tasks <- device:
 				case <-ctx.Done():
+					s.requeueTelemetryTasks(devices[index:])
 					return
 				}
 			}
