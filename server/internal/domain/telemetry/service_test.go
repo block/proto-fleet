@@ -29,7 +29,7 @@ import (
 func markTelemetryServiceActiveForTest(service *TelemetryService, ctx context.Context) *telemetryRun {
 	service.lifecycleMu.Lock()
 	defer service.lifecycleMu.Unlock()
-	run := newTelemetryRun(ctx.Done())
+	run := newTelemetryRun(ctx.Done(), service.config.ConcurrencyLimit)
 	service.runCancel = func() {}
 	service.run = run
 	return run
@@ -39,7 +39,7 @@ func serviceRunForTest(service *TelemetryService) *telemetryRun {
 	service.lifecycleMu.Lock()
 	defer service.lifecycleMu.Unlock()
 	if service.run == nil {
-		service.run = newTelemetryRun(make(chan struct{}))
+		service.run = newTelemetryRun(make(chan struct{}), service.config.ConcurrencyLimit)
 		service.runCancel = func() {}
 	}
 	return service.run
@@ -144,7 +144,8 @@ func TestTelemetryService_AddDevicesReturnsWhenTaskQueueFullAndContextCanceled(t
 		FetchInterval:      10 * time.Second,
 		ConcurrencyLimit:   1,
 	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
-	service.tasks <- models.Device{ID: "already-queued"}
+	run := serviceRunForTest(service)
+	run.tasks <- models.Device{ID: "already-queued"}
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
 	defer cancel()
 
@@ -294,7 +295,7 @@ func TestTelemetryService_StopDrainsQueuedActivationStatuses(t *testing.T) {
 
 	runCtx, runCancel := context.WithCancel(t.Context())
 	runDone := make(chan struct{})
-	run := newTelemetryRun(runCtx.Done())
+	run := newTelemetryRun(runCtx.Done(), service.config.ConcurrencyLimit)
 	run.results.status = activationResults
 	service.lifecycleMu.Lock()
 	service.runCancel = runCancel
@@ -335,7 +336,7 @@ func TestTelemetryService_StopDrainsResultsProducedWhileWorkersExit(t *testing.T
 
 	runCtx, runCancel := context.WithCancel(t.Context())
 	runDone := make(chan struct{})
-	run := newTelemetryRun(runCtx.Done())
+	run := newTelemetryRun(runCtx.Done(), service.config.ConcurrencyLimit)
 	producerCanceled := make(chan struct{})
 	releaseProducer := make(chan struct{})
 	run.producerWG.Go(func() {
@@ -627,6 +628,10 @@ func TestTelemetryService_StopDrainsInFlightRefreshBeforeRestart(t *testing.T) {
 	assert.False(t, claimed)
 
 	require.NoError(t, service.Start(t.Context()))
+	secondRun, err := service.activeRun()
+	require.NoError(t, err)
+	assert.NotEqual(t, firstRun.tasks, secondRun.tasks)
+	assert.NotEqual(t, firstRun.statusTasks, secondRun.statusTasks)
 	require.NoError(t, service.Stop(t.Context()))
 }
 
@@ -1047,10 +1052,6 @@ func TestTelemetryService_Integration(t *testing.T) {
 		err := service.AddDevices(ctx, deviceID)
 		require.NoError(t, err)
 
-		// shows that the task was added to get polled as soon as the service starts
-		task := <-service.tasks
-		require.Equal(t, task.ID, deviceID)
-
 		// Step 2: Verify service can be started and stopped
 		err = service.Start(ctx)
 		require.NoError(t, err)
@@ -1234,18 +1235,11 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 		err := service.AddDevices(ctx, deviceIDs...)
 		require.NoError(t, err)
 
-		for range deviceIDs {
-			<-service.tasks
-		}
-
 		err = service.RemoveDevices(ctx, deviceIDs[1])
 		require.NoError(t, err)
 
 		err = service.AddDevices(ctx, deviceIDs[1])
 		require.NoError(t, err)
-
-		task := <-service.tasks
-		require.Equal(t, task.ID, deviceIDs[1])
 
 		// Test service lifecycle
 		err = service.Start(ctx)
@@ -2980,12 +2974,12 @@ func TestWorker_RequeuesSkippedInFlightTelemetryTask(t *testing.T) {
 		mock.NewMockErrorPoller(ctrl),
 	)
 	service.inFlight.Store(device.ID, inFlightKindStatusOnly)
-	service.tasks <- device
-	close(service.tasks)
+	run := serviceRunForTest(service)
+	run.tasks <- device
+	close(run.tasks)
 
 	done := make(chan struct{})
 	go func() {
-		serviceRunForTest(service)
 		service.worker(t.Context())
 		close(done)
 	}()
@@ -3233,8 +3227,6 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 		updateScheduler:    mockScheduler,
 		deviceStore:        mockDeviceStore,
 		errorPoller:        mockErrorPoller,
-		tasks:              make(chan models.Device, 1),
-		statusTasks:        make(chan models.Device, 1),
 		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
 	}
 	run := serviceRunForTest(service)
@@ -3327,8 +3319,6 @@ func TestProcessDevice_HealthHealthyInactive_CallsGetDeviceStatus(t *testing.T) 
 		updateScheduler:    mockScheduler,
 		deviceStore:        mockDeviceStore,
 		errorPoller:        mockErrorPoller,
-		tasks:              make(chan models.Device, 1),
-		statusTasks:        make(chan models.Device, 1),
 		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
 	}
 
@@ -3409,8 +3399,6 @@ func TestProcessDevice_HealthHealthyActive_SkipsGetDeviceStatus(t *testing.T) {
 		updateScheduler:    mockScheduler,
 		deviceStore:        mockDeviceStore,
 		errorPoller:        mockErrorPoller,
-		tasks:              make(chan models.Device, 1),
-		statusTasks:        make(chan models.Device, 1),
 		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
 	}
 
@@ -3491,8 +3479,6 @@ func TestProcessDevice_MetricsFail_CallsGetDeviceStatus(t *testing.T) {
 		updateScheduler:    mockScheduler,
 		deviceStore:        mockDeviceStore,
 		errorPoller:        mockErrorPoller,
-		tasks:              make(chan models.Device, 1),
-		statusTasks:        make(chan models.Device, 1),
 		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
 	}
 
@@ -3873,11 +3859,12 @@ func runStatusPollingOnce(t *testing.T, service *TelemetryService) []models.Devi
 
 	// Short interval so the ticker fires immediately.
 	service.config.DeviceStatusPollInterval = 5 * time.Millisecond
+	run := serviceRunForTest(service)
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		service.statusPollingRoutine(ctx)
+		service.statusPollingRoutine(ctx, run.statusTasks)
 	}()
 
 	// Drain statusTasks until the ticker has had time to fire and the goroutine exits.
@@ -3886,7 +3873,7 @@ func runStatusPollingOnce(t *testing.T, service *TelemetryService) []models.Devi
 	defer timer.Stop()
 	for {
 		select {
-		case device, ok := <-service.statusTasks:
+		case device, ok := <-run.statusTasks:
 			if !ok {
 				return enqueued
 			}
@@ -3897,7 +3884,7 @@ func runStatusPollingOnce(t *testing.T, service *TelemetryService) []models.Devi
 			// Drain any remaining items buffered before cancel.
 			for {
 				select {
-				case device := <-service.statusTasks:
+				case device := <-run.statusTasks:
 					enqueued = append(enqueued, device.ID)
 				default:
 					return enqueued

@@ -329,6 +329,8 @@ func newTelemetryResults() telemetryResults {
 // telemetryRun owns every channel consumed by one activation. A later Start
 // always installs a new run so results and flush requests cannot cross runs.
 type telemetryRun struct {
+	tasks                chan models.Device
+	statusTasks          chan models.Device
 	results              telemetryResults
 	statusFlushRequests  chan statusFlushRequest
 	metricsFlushRequests chan metricsFlushRequest
@@ -336,8 +338,10 @@ type telemetryRun struct {
 	done                 <-chan struct{}
 }
 
-func newTelemetryRun(done <-chan struct{}) *telemetryRun {
+func newTelemetryRun(done <-chan struct{}, concurrencyLimit int) *telemetryRun {
 	return &telemetryRun{
+		tasks:                make(chan models.Device, concurrencyLimit),
+		statusTasks:          make(chan models.Device, concurrencyLimit),
 		results:              newTelemetryResults(),
 		statusFlushRequests:  make(chan statusFlushRequest),
 		metricsFlushRequests: make(chan metricsFlushRequest),
@@ -376,18 +380,12 @@ type TelemetryService struct {
 	deviceStore        stores.DeviceStore
 	errorPoller        ErrorPoller
 	metricsObserver    *metricsObserver
-	// tasks queues devices for full telemetry collection (metrics, telemetry, and status).
-	// Buffer sized to ConcurrencyLimit to ensure at least one queued task per worker.
-	tasks chan models.Device
-	// statusTasks queues devices for status-only checks (no telemetry fetch).
-	// Used by statusPollingRoutine to check failed devices for recovery.
-	statusTasks      chan models.Device
-	lookBackDuration time.Duration
-	lifecycleMu      sync.Mutex
-	runCancel        context.CancelFunc
-	runWG            sync.WaitGroup
-	runDone          <-chan struct{}
-	run              *telemetryRun
+	lookBackDuration   time.Duration
+	lifecycleMu        sync.Mutex
+	runCancel          context.CancelFunc
+	runWG              sync.WaitGroup
+	runDone            <-chan struct{}
+	run                *telemetryRun
 	// devicesForStatusPolling tracks all paired devices that need periodic status checks.
 	// This ensures failed devices (removed from scheduler after MaxConsecutiveFailures)
 	// continue to be polled for status so they can recover when they come back online.
@@ -428,8 +426,6 @@ func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, m
 		lookBackDuration:       -1 * (config.StalenessThreshold - config.FetchInterval),
 		metricsObserver:        newMetricsObserver(NoMetrics()),
 		combinedMetricsFlights: make(map[string]*combinedMetricsFlight),
-		tasks:                  make(chan models.Device, config.ConcurrencyLimit),
-		statusTasks:            make(chan models.Device, config.ConcurrencyLimit),
 	}
 	return s
 }
@@ -443,12 +439,19 @@ func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.De
 	if len(deviceID) == 0 {
 		return nil
 	}
+	run, _ := s.activeRun()
 	for _, id := range deviceID {
 		device := models.Device{ID: id, LastUpdatedAt: time.Now().Add(-s.config.NewDeviceLookback)}
-		select {
-		case s.tasks <- device:
-		case <-ctx.Done():
-			return fmt.Errorf("enqueue telemetry device %s: %w", id, ctx.Err())
+		// Inactive services rely on the scheduler to supply the device after the
+		// next Start instead of retaining work in an undrained activation queue.
+		if run != nil {
+			select {
+			case run.tasks <- device:
+			case <-run.done:
+				run = nil
+			case <-ctx.Done():
+				return fmt.Errorf("enqueue telemetry device %s: %w", id, ctx.Err())
+			}
 		}
 		s.devicesForStatusPolling.Store(id, struct{}{})
 		s.lastDefaultPwActive.Delete(id)
@@ -658,19 +661,19 @@ func (s *TelemetryService) Start(ctx context.Context) error {
 
 	runCtx, cancel := context.WithCancel(ctx)
 	runDone := make(chan struct{})
-	run := newTelemetryRun(runCtx.Done())
+	run := newTelemetryRun(runCtx.Done(), s.config.ConcurrencyLimit)
 	s.runCancel = cancel
 	s.runDone = runDone
 	s.run = run
 	for range s.config.ConcurrencyLimit {
-		run.producerWG.Go(func() { s.workerForActivation(runCtx, run.results) })
+		run.producerWG.Go(func() { s.workerForActivation(runCtx, run) })
 	}
 	writerCtx := run.writerContext(runCtx)
-	s.runWG.Go(func() { s.gatherMetricsRoutine(runCtx) })
+	s.runWG.Go(func() { s.gatherMetricsRoutine(runCtx, run.tasks) })
 	s.runWG.Go(func() { s.statusWriterRoutine(writerCtx, run) })
 	s.runWG.Go(func() { s.metricsWriterRoutine(writerCtx, run) })
 	s.runWG.Go(func() { s.devicePollingRoutine(runCtx) })
-	s.runWG.Go(func() { s.statusPollingRoutine(runCtx) })
+	s.runWG.Go(func() { s.statusPollingRoutine(runCtx, run.statusTasks) })
 	s.runWG.Go(func() { s.fleetStateSnapshotRoutine(runCtx) })
 	s.runWG.Go(func() { s.fleetMetricRollupRoutine(runCtx) })
 	go s.finishRun(runDone, run)
@@ -679,6 +682,19 @@ func (s *TelemetryService) Start(ctx context.Context) error {
 
 func (s *TelemetryService) finishRun(done chan struct{}, run *telemetryRun) {
 	s.runWG.Wait()
+
+drainStatusTasks:
+	for {
+		select {
+		case device, ok := <-run.statusTasks:
+			if !ok {
+				break drainStatusTasks
+			}
+			s.inFlight.Delete(device.ID)
+		default:
+			break drainStatusTasks
+		}
+	}
 
 	s.lifecycleMu.Lock()
 	if s.runDone == (<-chan struct{})(done) && s.run == run {
@@ -757,7 +773,7 @@ func (s *TelemetryService) GetOrCreateBroadcaster(ctx context.Context, orgID int
 	return broadcaster, nil
 }
 
-func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
+func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, tasks chan<- models.Device) {
 	fetchInterval := s.config.FetchInterval
 	if fetchInterval <= 0 {
 		fetchInterval = defaultFetchInterval
@@ -777,7 +793,7 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
 			}
 			for _, device := range devices {
 				select {
-				case s.tasks <- device:
+				case tasks <- device:
 				case <-ctx.Done():
 					return
 				}
@@ -832,7 +848,7 @@ func (s *TelemetryService) loadPairedDevices(ctx context.Context) error {
 // the scheduler stops including it in telemetry fetches. This routine ensures we continue
 // checking status so devices can be restored when they come back online.
 // Status tasks are processed by workers in parallel, enabling efficient handling of large fleets.
-func (s *TelemetryService) statusPollingRoutine(ctx context.Context) {
+func (s *TelemetryService) statusPollingRoutine(ctx context.Context, statusTasks chan<- models.Device) {
 	interval := s.config.DeviceStatusPollInterval
 	if interval <= 0 {
 		interval = defaultStatusPollingInterval
@@ -872,7 +888,7 @@ func (s *TelemetryService) statusPollingRoutine(ctx context.Context) {
 				}
 
 				select {
-				case s.statusTasks <- models.Device{ID: deviceID}:
+				case statusTasks <- models.Device{ID: deviceID}:
 				case <-ctx.Done():
 					s.inFlight.Delete(deviceID) // release claim on context cancellation
 					return false
@@ -976,16 +992,16 @@ func (s *TelemetryService) worker(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	s.workerForActivation(ctx, run.results)
+	s.workerForActivation(ctx, run)
 }
 
-func (s *TelemetryService) workerForActivation(ctx context.Context, results telemetryResults) {
+func (s *TelemetryService) workerForActivation(ctx context.Context, run *telemetryRun) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 
-		case device, ok := <-s.tasks:
+		case device, ok := <-run.tasks:
 			if !ok {
 				return
 			}
@@ -995,14 +1011,14 @@ func (s *TelemetryService) workerForActivation(ctx context.Context, results tele
 				}
 				continue
 			}
-			_ = s.processDeviceWithResults(ctx, device, results)
+			_ = s.processDeviceWithResults(ctx, device, run.results)
 			s.inFlight.Delete(device.ID)
 
-		case device, ok := <-s.statusTasks:
+		case device, ok := <-run.statusTasks:
 			if !ok {
 				return
 			}
-			s.processStatusOnlyWithResults(ctx, device, results.status)
+			s.processStatusOnlyWithResults(ctx, device, run.results.status)
 			s.inFlight.Delete(device.ID)
 		}
 	}
