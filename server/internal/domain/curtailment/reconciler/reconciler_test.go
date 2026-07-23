@@ -4332,6 +4332,31 @@ func TestReconciler_ActivationContextCancellationPreventsOverlapWhileDraining(t 
 	require.NoError(t, r.Stop(context.Background()))
 }
 
+func TestReconciler_ActivationCancellationDoesNotAdmitQueuedTick(t *testing.T) {
+	store := newFakeStore()
+	firstTickStarted := make(chan struct{})
+	releaseFirstTick := make(chan struct{})
+	store.listEventsHook = func(context.Context) {
+		if store.listEventsCalls == 1 {
+			close(firstTickStarted)
+			<-releaseFirstTick
+		}
+	}
+	r := New(Config{}, store, &fakeDispatcher{})
+	r.cfg.TickInterval = time.Millisecond
+	loopCtx, cancelLoop := context.WithCancel(t.Context())
+	runDone := make(chan struct{})
+	go r.tickLoop(loopCtx, context.Background(), runDone)
+
+	<-firstTickStarted
+	time.Sleep(5 * time.Millisecond)
+	cancelLoop()
+	close(releaseFirstTick)
+	<-runDone
+
+	require.Equal(t, 1, store.listEventsCalls)
+}
+
 func TestReconciler_StopLetsInFlightWorkDrain(t *testing.T) {
 	r := New(Config{TickInterval: time.Hour}, newFakeStore(), &fakeDispatcher{})
 	loopCtx, loopCancel := context.WithCancel(context.Background())

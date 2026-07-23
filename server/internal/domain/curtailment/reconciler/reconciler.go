@@ -252,6 +252,9 @@ func (r *Reconciler) tickLoop(loopCtx, workCtx context.Context, runDone chan<- s
 			return
 		case <-ticker.C:
 			r.safeTick(workCtx)
+			if loopCtx.Err() != nil {
+				return
+			}
 		}
 	}
 }
