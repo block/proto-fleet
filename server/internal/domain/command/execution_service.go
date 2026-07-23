@@ -183,6 +183,7 @@ func (es *ExecutionService) Stop(ctx context.Context) error {
 		es.lifecycleMu.Unlock()
 		return nil
 	}
+	es.queueProcessorRunning = false
 	es.runCancel()
 	done := es.runDone
 	es.lifecycleMu.Unlock()

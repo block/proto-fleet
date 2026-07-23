@@ -156,6 +156,7 @@ func TestExecutionService_StopTimeoutRetainsActivationUntilWorkerDrains(t *testi
 
 	stopCtx, cancelStop := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	require.ErrorIs(t, svc.Stop(stopCtx), context.DeadlineExceeded)
+	require.False(t, svc.IsRunning())
 	cancelStop()
 	require.Error(t, svc.Start(t.Context()))
 
