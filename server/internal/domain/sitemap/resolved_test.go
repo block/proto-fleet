@@ -57,7 +57,7 @@ func TestResolvePlanCreateClassificationHonorsExistingNames(t *testing.T) {
 	}
 }
 
-func TestResolvePlanLinksBuildingToSiteByName(t *testing.T) {
+func TestResolvePlanCarriesBuildingSiteRef(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE":     {{"__row": "3", "name": "Site A", "id": "1"}},
 		"BUILDING": {{"__row": "6", "name": "Bldg", "id": "10", "site": "Site A", "aisles": "2", "racks_per_aisle": "2"}},
@@ -69,8 +69,8 @@ func TestResolvePlanLinksBuildingToSiteByName(t *testing.T) {
 
 	plan := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
 	b := plan.buildings[0]
-	if b.site == nil || b.site != plan.sites[0] {
-		t.Fatalf("building.site = %v, want pointer to resolved Site A node", b.site)
+	if b.siteRef != "Site A" || b.siteLabel != "Site A" {
+		t.Fatalf("building site = (%q, %q), want Site A", b.siteRef, b.siteLabel)
 	}
 	if b.action != actionNone {
 		t.Errorf("building action = %v, want none (unchanged)", b.action)

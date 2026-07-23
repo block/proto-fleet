@@ -248,7 +248,7 @@ File structure
 
 Omissions and renames
 - Import preview reports omitted existing rows when a site, building, rack, or miner exists in Proto Fleet but is missing from the CSV.
-- The user chooses omission handling during import. Leave omitted rows in place keeps missing rows unchanged. Remove omitted rows soft-deletes omitted sites, buildings, and racks, and unassigns omitted miners.
+- Omitted rows are removed on import: omitted sites, buildings, and racks are soft-deleted and omitted miners are unassigned. The preview reports the omitted counts and asks you to confirm before removal.
 - Remove omitted rows can cascade placement cleanup: deleting an omitted site also deletes its buildings and unassigns racks/miners from that site; deleting an omitted building unassigns its racks and miners; deleting an omitted rack removes miners from that rack.
 - With a populated id, editing a site/building name or rack label renames the existing entity.
 - With a blank id, editing a site/building name or rack label creates a new entity and the old entity may be counted as omitted.

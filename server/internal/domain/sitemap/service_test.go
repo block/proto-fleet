@@ -48,8 +48,7 @@ func TestBuildSiteMapExportZipIncludesCSVAndAgentGuide(t *testing.T) {
 	for _, want := range []string{
 		"Edit proto-fleet-site-map/site-map.csv",
 		"If rack is set, the rack determines the miner's building and site; leave building and site blank.",
-		"Leave omitted rows in place keeps missing rows unchanged.",
-		"Remove omitted rows soft-deletes omitted sites, buildings, and racks, and unassigns omitted miners.",
+		"Omitted rows are removed on import: omitted sites, buildings, and racks are soft-deleted and omitted miners are unassigned.",
 	} {
 		if !strings.Contains(guideText, want) {
 			t.Fatalf("%s missing %q: %q", siteMapExportGuideTXTPath, want, guideText)

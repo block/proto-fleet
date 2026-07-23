@@ -10,9 +10,11 @@ import (
 )
 
 // resolved.go builds the canonical resolved plan for a sitemap import: parsed
-// rows and the live snapshot are collapsed into one graph of typed nodes keyed
-// by stable ID where one exists, with parents linked as pointers, so preview,
-// validation, the commit token, and apply all consume a single representation.
+// rows and the live snapshot are collapsed into one set of typed nodes keyed by
+// stable ID where one exists. Each node carries its parent references as
+// canonical names (siteRef/buildingRef) plus, where it resolved to an existing
+// entity, the parent's id — so preview, validation, the commit token, and apply
+// all consume a single representation.
 
 // nodeAction is the resolved verb for a topology node (site/building/rack).
 // Miners track renamed/moved/unassigned as independent booleans instead, since
@@ -35,9 +37,8 @@ type resolvedSite struct {
 }
 
 type resolvedBuilding struct {
-	id   *int64
-	site *resolvedSite // nil when the site could not be linked
-	// siteLabel is the desired site name even when no site node was linked.
+	id *int64
+	// siteLabel is the desired site name for this building.
 	siteLabel string
 	// siteRef is the canonical site name the row references, filled by resolveReferences.
 	siteRef       string
@@ -51,10 +52,8 @@ type resolvedBuilding struct {
 }
 
 type resolvedRack struct {
-	id       *int64
-	building *resolvedBuilding // nil ⇒ rack sits directly under a site
-	site     *resolvedSite
-	// buildingLabel / siteLabel are the desired names even when no parent was linked.
+	id *int64
+	// buildingLabel / siteLabel are the desired parent names for this rack.
 	buildingLabel string
 	siteLabel     string
 	// siteRef / buildingRef are the canonical site and building names the row
@@ -87,9 +86,6 @@ type resolvedMiner struct {
 	ipAddress    string
 	macAddress   string
 	existing     *minerSnapshot
-	rack         *resolvedRack
-	building     *resolvedBuilding
-	site         *resolvedSite
 	rackLabel    string
 	siteLabel    string
 	buildLabel   string
@@ -157,7 +153,6 @@ func resolvePlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) *resol
 	}
 
 	sitesByID := existingSitesByID(snap.sites)
-	sitesByName := existingSitesByName(snap.sites)
 	buildingsByID := existingBuildingsByID(snap.buildings)
 	racksByID := existingRacksByID(snap.racks)
 
@@ -169,10 +164,9 @@ func resolvePlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) *resol
 	plan.topology = resolveTopologyView(parsed, target)
 
 	plan.sites, plan.errors = resolveSites(parsed.sections["SITE"], sitesByID)
-	sitesByNode := indexSitesByIdentity(plan.sites)
 
 	var buildingErrs []*pb.ImportValidationError
-	plan.buildings, buildingErrs = resolveBuildings(parsed.sections["BUILDING"], buildingsByID, sitesByName, sitesByNode)
+	plan.buildings, buildingErrs = resolveBuildings(parsed.sections["BUILDING"], buildingsByID)
 	plan.errors = append(plan.errors, buildingErrs...)
 
 	var rackErrs []*pb.ImportValidationError
@@ -230,8 +224,6 @@ func resolveSites(rows []map[string]string, existingByID map[int64]sitemodels.Si
 func resolveBuildings(
 	rows []map[string]string,
 	existingByID map[int64]buildingmodels.Building,
-	sitesByName map[string]sitemodels.Site,
-	sitesByNode map[string]*resolvedSite,
 ) ([]*resolvedBuilding, []*pb.ImportValidationError) {
 	out := make([]*resolvedBuilding, 0, len(rows))
 	for i, row := range rows {
@@ -251,7 +243,6 @@ func resolveBuildings(
 			}
 		}
 		node.siteLabel = row[fieldSite]
-		node.site = linkSite(row[fieldSite], sitesByName, sitesByNode)
 		out = append(out, node)
 	}
 	return out, nil
@@ -374,7 +365,7 @@ func validateKnownMiners(miners []*resolvedMiner) []*pb.ImportValidationError {
 	var errs []*pb.ImportValidationError
 	for _, m := range miners {
 		if m.deviceID != "" && m.existing == nil {
-			errs = append(errs, csvErr(m.rowNum, "MINER", "unknown miner device_identifier"))
+			errs = append(errs, csvErr(m.rowNum, "MINER", fmt.Sprintf("unknown miner device_identifier %q", m.deviceID)))
 		}
 	}
 	return errs
@@ -453,16 +444,12 @@ func validatePlacementConsistency(miners []*resolvedMiner, tv *topologyView) []*
 	var errs []*pb.ImportValidationError
 	for _, m := range miners {
 		if m.rackLabel != "" {
-			rack, ok := tv.racksByLabel[m.rackLabel]
-			if !ok {
+			// A rack reference dictates the miner's building and site; resolveReferences
+			// has already canonicalized the row's site/building to the rack's parents
+			// (rack wins over building wins over site), so there is no explicit-ancestor
+			// mismatch left to check here — only that the referenced rack exists.
+			if _, ok := tv.racksByLabel[m.rackLabel]; !ok {
 				errs = append(errs, csvErr(m.rowNum, "MINER", fmt.Sprintf("unknown rack %q", m.rackLabel)))
-				continue
-			}
-			if m.siteLabel != "" && m.siteLabel != rack.Site {
-				errs = append(errs, csvErr(m.rowNum, "MINER", fmt.Sprintf("miner site %q does not match rack site %q", m.siteLabel, rack.Site)))
-			}
-			if m.buildLabel != "" && m.buildLabel != rack.Building {
-				errs = append(errs, csvErr(m.rowNum, "MINER", fmt.Sprintf("miner building %q does not match rack building %q", m.buildLabel, rack.Building)))
 			}
 			continue
 		}
@@ -1006,44 +993,10 @@ func computeOmissions(parsed *parsedCSV, snap *snapshot, _ pb.OmissionMode) *pb.
 	return out
 }
 
-func linkSite(name string, sitesByName map[string]sitemodels.Site, sitesByNode map[string]*resolvedSite) *resolvedSite {
-	if name == "" {
-		return nil
-	}
-	if node, ok := sitesByNode["name:"+name]; ok {
-		return node
-	}
-	if _, ok := sitesByName[name]; ok {
-		if node, ok := sitesByNode["name:"+name]; ok {
-			return node
-		}
-	}
-	return nil
-}
-
-func indexSitesByIdentity(sites []*resolvedSite) map[string]*resolvedSite {
-	out := map[string]*resolvedSite{}
-	for _, s := range sites {
-		out["name:"+s.name] = s
-		if s.id != nil {
-			out["id:"+strconv.FormatInt(*s.id, 10)] = s
-		}
-	}
-	return out
-}
-
 func existingSitesByID(sites []sitemodels.Site) map[int64]sitemodels.Site {
 	out := map[int64]sitemodels.Site{}
 	for _, s := range sites {
 		out[s.ID] = s
-	}
-	return out
-}
-
-func existingSitesByName(sites []sitemodels.Site) map[string]sitemodels.Site {
-	out := map[string]sitemodels.Site{}
-	for _, s := range sites {
-		out[s.Name] = s
 	}
 	return out
 }
