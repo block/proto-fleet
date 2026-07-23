@@ -2261,9 +2261,9 @@ func (s *SQLCurtailmentStore) UpdateTargetState(ctx context.Context, eventID int
 		ConfirmedAt:               ptrToNullTime(params.ConfirmedAt),
 		RetryCount:                ptrToNullInt32(params.RetryCount),
 		LastError:                 ptrToNullString(params.LastError),
-		ExpectedEventState:        ptrEventStateToNullString(params.ExpectedEventState),
+		ExpectedEventState:        ptrNamedStringToNullString(params.ExpectedEventState),
 		ExpectedDesiredState:      ptrToNullString(params.ExpectedDesiredState),
-		ExpectedState:             ptrTargetStateToNullString(params.ExpectedState),
+		ExpectedState:             ptrNamedStringToNullString(params.ExpectedState),
 		ExpectedDispatchBatchUuid: ptrToNullString(params.ExpectedDispatchBatchUUID),
 	})
 	if err != nil {
@@ -3100,14 +3100,7 @@ func nullInt32ToPtr(n sql.NullInt32) *int32 {
 	return &v
 }
 
-func ptrEventStateToNullString(p *models.EventState) sql.NullString {
-	if p == nil {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: string(*p), Valid: true}
-}
-
-func ptrTargetStateToNullString(p *models.TargetState) sql.NullString {
+func ptrNamedStringToNullString[T ~string](p *T) sql.NullString {
 	if p == nil {
 		return sql.NullString{}
 	}
