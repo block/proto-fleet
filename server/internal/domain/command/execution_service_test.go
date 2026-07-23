@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,51 +40,28 @@ type firmwareStatusMiner struct {
 }
 
 func TestExecutionService_Start(t *testing.T) {
-	t.Run("starts when not running and returns true", func(t *testing.T) {
-		// Arrange
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
+	t.Run("rejects a canceled activation", func(t *testing.T) {
+		svc := &ExecutionService{}
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
 
-		started := false
-		mockQueue := mocks.NewMockMessageQueue(ctrl)
-		mockQueue.EXPECT().Dequeue(gomock.Any()).DoAndReturn(func(ctx context.Context) ([]queue.Message, error) {
-			started = true
-			return nil, nil
-		}).AnyTimes()
-		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-
-		svc := NewExecutionService(t.Context(), &Config{
-			MaxWorkers:            5,
-			MasterPollingInterval: 10 * time.Millisecond,
-		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
-
-		// Act
-		err := svc.Start(t.Context())
-
-		// Assert
-		require.NoError(t, err)
-
-		// Verify the processor started
-		assert.Eventually(t, func() bool {
-			return started
-		}, 100*time.Millisecond, 5*time.Millisecond, "Processor should start")
-
-		assert.True(t, svc.IsRunning())
+		require.ErrorIs(t, svc.Start(ctx), context.Canceled)
+		require.False(t, svc.IsRunning())
 	})
 
-	t.Run("returns false when already running", func(t *testing.T) {
+	t.Run("is idempotent while running", func(t *testing.T) {
 		// Arrange
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
-		started := false
+		var started atomic.Bool
 		mockQueue := mocks.NewMockMessageQueue(ctrl)
-		mockQueue.EXPECT().Dequeue(gomock.Any()).DoAndReturn(func(ctx context.Context) ([]queue.Message, error) {
-			started = true
+		mockQueue.EXPECT().Dequeue(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ int32) ([]queue.Message, error) {
+			started.Store(true)
 			return nil, nil
 		}).AnyTimes()
 		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-		svc := NewExecutionService(t.Context(), &Config{
+		svc := NewExecutionService(&Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 10 * time.Millisecond,
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
@@ -93,9 +71,7 @@ func TestExecutionService_Start(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify the processor started
-		assert.Eventually(t, func() bool {
-			return started
-		}, 100*time.Millisecond, 5*time.Millisecond, "Processor should start")
+		assert.Eventually(t, started.Load, 100*time.Millisecond, 5*time.Millisecond, "Processor should start")
 
 		// Act - try to start again
 		err = svc.Start(t.Context())
@@ -103,40 +79,245 @@ func TestExecutionService_Start(t *testing.T) {
 		// Assert
 		require.NoError(t, err)
 		assert.True(t, svc.IsRunning())
+		require.NoError(t, svc.Stop(context.Background()))
+	})
+
+	t.Run("rejects restart while a canceled activation is draining", func(t *testing.T) {
+		run := newExecutionRun(t.Context())
+		svc := &ExecutionService{run: run}
+		svc.beginStop(run)
+
+		err := svc.Start(t.Context())
+
+		require.EqualError(t, err, "command execution service activation is still draining")
+		run.cancelWork()
+	})
+
+	t.Run("activation cancellation stops promptly and allows restart", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		mockQueue := mocks.NewMockMessageQueue(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+
+		var dequeues atomic.Int32
+		mockQueue.EXPECT().Dequeue(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, int32) ([]queue.Message, error) {
+			dequeues.Add(1)
+			return nil, nil
+		}).AnyTimes()
+
+		svc := NewExecutionService(&Config{
+			MaxWorkers:            1,
+			MasterPollingInterval: time.Hour,
+		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
+
+		activationCtx, cancelActivation := context.WithCancel(t.Context())
+		require.NoError(t, svc.Start(activationCtx))
+		require.Eventually(t, func() bool { return dequeues.Load() >= 1 }, 100*time.Millisecond, time.Millisecond)
+		cancelActivation()
+		require.Eventually(t, func() bool {
+			svc.lifecycleMu.Lock()
+			defer svc.lifecycleMu.Unlock()
+			return svc.run == nil
+		}, 100*time.Millisecond, time.Millisecond)
+		require.False(t, svc.IsRunning())
+
+		stop := func() {
+			stopCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			require.NoError(t, svc.Stop(stopCtx))
+		}
+		require.NoError(t, svc.Start(t.Context()))
+		require.Eventually(t, func() bool { return dequeues.Load() >= 2 }, 100*time.Millisecond, time.Millisecond)
+		stop()
 	})
 }
 
-func TestStuckMessageReaper(t *testing.T) {
-	t.Run("reaper goroutine runs alongside processor", func(t *testing.T) {
-		// Arrange
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
+func TestExecutionService_StopTimeoutRetainsActivationUntilWorkerDrains(t *testing.T) {
+	svc := NewExecutionService(&Config{
+		MaxWorkers:            1,
+		MasterPollingInterval: time.Hour,
+	}, nil, nil, nil, nil, nil, nil, nil, nil)
 
-		mockQueue := mocks.NewMockMessageQueue(ctrl)
-		mockQueue.EXPECT().Dequeue(gomock.Any()).DoAndReturn(func(ctx context.Context) ([]queue.Message, error) {
-			<-ctx.Done()
-			return nil, ctx.Err()
-		}).AnyTimes()
-		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-
-		// conn=nil makes reapStuckMessages skip the DB call, so we just test
-		// that the goroutine starts and the processor runs alongside it.
-		svc := NewExecutionService(t.Context(), &Config{
-			MaxWorkers:            5,
-			MasterPollingInterval: 10 * time.Millisecond,
-			StuckMessageTimeout:   5 * time.Minute,
-			ReaperInterval:        10 * time.Millisecond,
-		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
-
-		// Act
-		err := svc.Start(t.Context())
-
-		// Assert
-		require.NoError(t, err)
-		assert.Eventually(t, func() bool {
-			return svc.IsRunning()
-		}, 100*time.Millisecond, 5*time.Millisecond)
+	run := newExecutionRun(context.Background())
+	svc.run = run
+	workerStarted := make(chan struct{})
+	workerCanceled := make(chan struct{})
+	releaseWorker := make(chan struct{})
+	run.wg.Go(func() {
+		close(workerStarted)
+		<-run.workCtx.Done()
+		close(workerCanceled)
+		<-releaseWorker
 	})
+	go svc.finishRun(run)
+	<-workerStarted
+
+	stopCtx, cancelStop := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	require.ErrorIs(t, svc.Stop(stopCtx), context.DeadlineExceeded)
+	require.False(t, svc.IsRunning())
+	<-workerCanceled
+	cancelStop()
+	require.Error(t, svc.Start(t.Context()))
+
+	close(releaseWorker)
+	require.NoError(t, svc.Stop(context.Background()))
+}
+
+func TestExecutionService_ActivationCancellationThenStopDrainsAdmittedWorker(t *testing.T) {
+	svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, nil, nil, nil, nil, nil, nil, nil)
+	activationCtx, cancelActivation := context.WithCancel(t.Context())
+	run := newExecutionRun(activationCtx)
+	svc.run = run
+
+	workerStarted := make(chan struct{})
+	releaseWorker := make(chan struct{})
+	workerCanceled := make(chan struct{})
+	run.wg.Go(func() {
+		close(workerStarted)
+		select {
+		case <-run.workCtx.Done():
+			close(workerCanceled)
+		case <-releaseWorker:
+		}
+	})
+	context.AfterFunc(run.admissionCtx, func() {
+		svc.beginStop(run)
+	})
+	go svc.finishRun(run)
+	<-workerStarted
+
+	cancelActivation()
+	require.Eventually(t, func() bool { return !svc.IsRunning() }, 100*time.Millisecond, time.Millisecond)
+
+	stopDone := make(chan error, 1)
+	go func() {
+		stopCtx, cancelStop := context.WithTimeout(context.Background(), time.Second)
+		defer cancelStop()
+		stopDone <- svc.Stop(stopCtx)
+	}()
+
+	select {
+	case <-workerCanceled:
+		t.Fatal("activation cancellation prematurely canceled admitted worker")
+	default:
+	}
+	select {
+	case err := <-stopDone:
+		t.Fatalf("Stop returned before admitted worker drained: %v", err)
+	default:
+	}
+
+	close(releaseWorker)
+	require.NoError(t, <-stopDone)
+}
+
+func TestExecutionService_StopWaitsForAdmittedEnqueue(t *testing.T) {
+	svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, nil, nil, nil, nil, nil, nil, nil)
+	run := newExecutionRun(t.Context())
+	svc.run = run
+	run.wg.Add(1) // Matches the processor's lifetime while admission is open.
+	go svc.finishRun(run)
+
+	enqueueStarted := make(chan struct{})
+	releaseEnqueue := make(chan struct{})
+	enqueueDone := make(chan error, 1)
+	go func() {
+		enqueueDone <- svc.withAdmission(t.Context(), func(ctx context.Context) error {
+			close(enqueueStarted)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-releaseEnqueue:
+				return nil
+			}
+		})
+	}()
+	<-enqueueStarted
+	run.wg.Done()
+
+	stopDone := make(chan error, 1)
+	go func() {
+		stopDone <- svc.Stop(context.Background())
+	}()
+	require.Eventually(t, func() bool { return !svc.IsRunning() }, 100*time.Millisecond, time.Millisecond)
+	require.ErrorIs(t, svc.withAdmission(t.Context(), func(context.Context) error {
+		return nil
+	}), errExecutionStoppedBeforeEnqueue)
+
+	select {
+	case err := <-stopDone:
+		t.Fatalf("Stop returned before admitted enqueue drained: %v", err)
+	default:
+	}
+
+	close(releaseEnqueue)
+	require.NoError(t, <-enqueueDone)
+	require.NoError(t, <-stopDone)
+}
+
+func TestExecutionService_ForceCanceledEnqueueIsClassifiedAsStopped(t *testing.T) {
+	svc := &ExecutionService{}
+	run := newExecutionRun(t.Context())
+	svc.run = run
+
+	enqueueStarted := make(chan struct{})
+	enqueueDone := make(chan error, 1)
+	go func() {
+		enqueueDone <- svc.withAdmission(t.Context(), func(ctx context.Context) error {
+			close(enqueueStarted)
+			<-ctx.Done()
+			return ctx.Err()
+		})
+	}()
+	<-enqueueStarted
+	go svc.finishRun(run)
+
+	stopCtx, cancelStop := context.WithCancel(context.Background())
+	cancelStop()
+	require.ErrorIs(t, svc.Stop(stopCtx), context.Canceled)
+
+	require.ErrorIs(t, <-enqueueDone, errExecutionStoppedBeforeEnqueue)
+	require.NoError(t, svc.Stop(context.Background()))
+}
+
+func TestExecutionService_CallerCanceledEnqueueRemainsCallerCancellation(t *testing.T) {
+	svc := &ExecutionService{}
+	run := newExecutionRun(t.Context())
+	svc.run = run
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err := svc.withAdmission(ctx, func(ctx context.Context) error {
+		return ctx.Err()
+	})
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.NotErrorIs(t, err, errExecutionStoppedBeforeEnqueue)
+}
+
+func TestExecutionService_DequeueIsLimitedToAvailableWorkers(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockQueue := mocks.NewMockMessageQueue(ctrl)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+	dequeued := make(chan struct{})
+	mockQueue.EXPECT().Dequeue(gomock.Any(), int32(1)).DoAndReturn(func(context.Context, int32) ([]queue.Message, error) {
+		close(dequeued)
+		return nil, nil
+	})
+
+	svc := NewExecutionService(&Config{
+		MaxWorkers:            1,
+		MasterPollingInterval: time.Hour,
+	}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	run := newExecutionRun(ctx)
+	defer run.cancelWork()
+	done := make(chan error, 1)
+	go func() { done <- svc.startQueueProcessorThread(run) }()
+	<-dequeued
+	cancel()
+
+	require.ErrorIs(t, <-done, context.Canceled)
 }
 
 func TestQueueProcessorRetries(t *testing.T) {
@@ -148,21 +329,23 @@ func TestQueueProcessorRetries(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		mockQueue := mocks.NewMockMessageQueue(ctrl)
 		mockQueue.EXPECT().
-			Dequeue(gomock.Any()).
-			DoAndReturn(func(context.Context) ([]queue.Message, error) {
+			Dequeue(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(_ context.Context, _ int32) ([]queue.Message, error) {
 				cancel()
 				return nil, fleeterror.NewInternalError("error opening tx: context canceled")
 			})
 
 		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-		svc := NewExecutionService(ctx, &Config{
+		svc := NewExecutionService(&Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: time.Millisecond,
 			DequeueRetries:        0,
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
 		// Act
-		err := svc.startQueueProcessorThread(ctx)
+		run := newExecutionRun(ctx)
+		defer run.cancelWork()
+		err := svc.startQueueProcessorThread(run)
 
 		// Assert
 		require.ErrorIs(t, err, context.Canceled)
@@ -175,48 +358,43 @@ func TestQueueProcessorRetries(t *testing.T) {
 
 		testError := errors.New("temporary error")
 
-		retryComplete := make(chan struct{})
-
 		mockQueue := mocks.NewMockMessageQueue(ctrl)
 
 		// Track successful retry completion
-		retrySucceeded := false
+		var retrySucceeded atomic.Bool
 
 		// First call - returns error
 		mockQueue.EXPECT().
-			Dequeue(gomock.Any()).
+			Dequeue(gomock.Any(), gomock.Any()).
 			Return(nil, testError).
 			Times(1)
 
 		// Second call - returns error
 		mockQueue.EXPECT().
-			Dequeue(gomock.Any()).
+			Dequeue(gomock.Any(), gomock.Any()).
 			Return(nil, testError).
 			Times(1)
 
 		// Third call - returns success and signals completion
 		mockQueue.EXPECT().
-			Dequeue(gomock.Any()).
-			DoAndReturn(func(ctx context.Context) ([]queue.Message, error) {
-				// Signal that retry sequence completed successfully
-				retrySucceeded = true
-				close(retryComplete)
-
+			Dequeue(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, _ int32) ([]queue.Message, error) {
+				retrySucceeded.Store(true)
 				return []queue.Message{}, nil
 			}).
 			Times(1)
 
 		// Subsequent calls just block
 		mockQueue.EXPECT().
-			Dequeue(gomock.Any()).
-			DoAndReturn(func(ctx context.Context) ([]queue.Message, error) {
+			Dequeue(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, _ int32) ([]queue.Message, error) {
 				<-ctx.Done()
 				return nil, ctx.Err()
 			}).
 			AnyTimes()
 
 		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-		svc := NewExecutionService(t.Context(), &Config{
+		svc := NewExecutionService(&Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: time.Millisecond,
 			DequeueRetries:        3,
@@ -227,14 +405,13 @@ func TestQueueProcessorRetries(t *testing.T) {
 		require.NoError(t, err)
 
 		// Assert
-		assert.Eventually(t, func() bool {
-			return retrySucceeded
-		}, 200*time.Millisecond, 10*time.Millisecond, "Service should retry and eventually succeed")
+		assert.Eventually(t, retrySucceeded.Load, 200*time.Millisecond, 10*time.Millisecond, "Service should retry and eventually succeed")
 
 		assert.True(t, svc.IsRunning())
+		require.NoError(t, svc.Stop(context.Background()))
 	})
 
-	t.Run("stops running after max retries exhausted", func(t *testing.T) {
+	t.Run("keeps running after max retries exhausted", func(t *testing.T) {
 		// Arrange
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
@@ -245,12 +422,20 @@ func TestQueueProcessorRetries(t *testing.T) {
 
 		// First three calls fail (initial + 2 retries)
 		mockQueue.EXPECT().
-			Dequeue(gomock.Any()).
+			Dequeue(gomock.Any(), gomock.Any()).
 			Return(nil, testError).
 			Times(3)
+		retrying := make(chan struct{})
+		mockQueue.EXPECT().
+			Dequeue(gomock.Any(), gomock.Any()).
+			DoAndReturn(func(ctx context.Context, _ int32) ([]queue.Message, error) {
+				close(retrying)
+				<-ctx.Done()
+				return nil, ctx.Err()
+			})
 
 		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-		svc := NewExecutionService(t.Context(), &Config{
+		svc := NewExecutionService(&Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: time.Millisecond,
 			DequeueRetries:        2, // Only 2 retries allowed
@@ -260,10 +445,13 @@ func TestQueueProcessorRetries(t *testing.T) {
 		err := svc.Start(t.Context())
 		require.NoError(t, err)
 
-		// Assert - wait for the service to stop running with timeout
-		assert.Eventually(t, func() bool {
-			return !svc.IsRunning()
-		}, 500*time.Millisecond, 10*time.Millisecond, "Service should stop running after max retries are exhausted")
+		select {
+		case <-retrying:
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("service did not resume dequeuing after exhausting retries")
+		}
+		assert.True(t, svc.IsRunning())
+		require.NoError(t, svc.Stop(context.Background()))
 	})
 }
 
@@ -295,7 +483,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			Reboot(gomock.Any()).
 			Return(fleeterror.NewUnimplementedError("reboot not supported"))
 
-		svc := NewExecutionService(t.Context(), &Config{
+		svc := NewExecutionService(&Config{
 			MaxWorkers:             5,
 			MasterPollingInterval:  10 * time.Millisecond,
 			WorkerExecutionTimeout: 5 * time.Second,
@@ -335,7 +523,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			Reboot(gomock.Any()).
 			Return(fleeterror.NewInternalErrorf("temporary failure"))
 
-		svc := NewExecutionService(t.Context(), &Config{
+		svc := NewExecutionService(&Config{
 			MaxWorkers:             5,
 			MasterPollingInterval:  10 * time.Millisecond,
 			WorkerExecutionTimeout: 5 * time.Second,
@@ -375,7 +563,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			Reboot(gomock.Any()).
 			Return(nil)
 
-		svc := NewExecutionService(t.Context(), &Config{
+		svc := NewExecutionService(&Config{
 			MaxWorkers:             5,
 			MasterPollingInterval:  10 * time.Millisecond,
 			WorkerExecutionTimeout: 5 * time.Second,
@@ -408,7 +596,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			GetMiner(gomock.Any(), int64(45)).
 			Return(nil, errors.New("device not found"))
 
-		svc := NewExecutionService(t.Context(), &Config{
+		svc := NewExecutionService(&Config{
 			MaxWorkers:             5,
 			MasterPollingInterval:  10 * time.Millisecond,
 			WorkerExecutionTimeout: 5 * time.Second,
@@ -448,7 +636,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			Curtail(gomock.Any(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}).
 			Return(nil)
 
-		svc := NewExecutionService(t.Context(), &Config{
+		svc := NewExecutionService(&Config{
 			MaxWorkers:             5,
 			MasterPollingInterval:  10 * time.Millisecond,
 			WorkerExecutionTimeout: 5 * time.Second,
@@ -478,7 +666,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(51)).Return(mockMiner, nil)
 		// Curtail must NOT be called when payload unmarshal fails.
 
-		svc := NewExecutionService(t.Context(), &Config{
+		svc := NewExecutionService(&Config{
 			MaxWorkers:             5,
 			MasterPollingInterval:  10 * time.Millisecond,
 			WorkerExecutionTimeout: 5 * time.Second,
@@ -516,7 +704,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(53)).Return(mockMiner, nil)
 			// No mockMiner.EXPECT().Curtail(...) — bounds check must short-circuit.
 
-			svc := NewExecutionService(t.Context(), &Config{
+			svc := NewExecutionService(&Config{
 				MaxWorkers:             5,
 				MasterPollingInterval:  10 * time.Millisecond,
 				WorkerExecutionTimeout: 5 * time.Second,
@@ -550,7 +738,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			Uncurtail(gomock.Any(), sdk.UncurtailRequest{}).
 			Return(nil)
 
-		svc := NewExecutionService(t.Context(), &Config{
+		svc := NewExecutionService(&Config{
 			MaxWorkers:             5,
 			MasterPollingInterval:  10 * time.Millisecond,
 			WorkerExecutionTimeout: 5 * time.Second,
@@ -715,7 +903,7 @@ func TestExecuteCommandOnDevice_FirmwareUpdatePassesFileMetadata(t *testing.T) {
 		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), []tmodels.DeviceIdentifier{"device-123"}).
 		Return(map[tmodels.DeviceIdentifier]models.MinerStatus{}, nil)
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers:             5,
 		MasterPollingInterval:  10 * time.Millisecond,
 		WorkerExecutionTimeout: 5 * time.Second,
@@ -793,7 +981,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_UsesStoredWorkerName(t *testin
 			return nil
 		})
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers:             5,
 		MasterPollingInterval:  10 * time.Millisecond,
 		WorkerExecutionTimeout: 5 * time.Second,
@@ -866,7 +1054,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_UsesStoredWorkerNameAfterLooku
 			return nil
 		})
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers:             5,
 		MasterPollingInterval:  10 * time.Millisecond,
 		WorkerExecutionTimeout: 5 * time.Second,
@@ -937,7 +1125,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PrefersCurrentPrimaryPoolWorke
 			return nil
 		})
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers:             5,
 		MasterPollingInterval:  10 * time.Millisecond,
 		WorkerExecutionTimeout: 5 * time.Second,
@@ -1000,7 +1188,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_FallsBackToStoredMacAddress(t 
 			return nil
 		})
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers:             5,
 		MasterPollingInterval:  10 * time.Millisecond,
 		WorkerExecutionTimeout: 5 * time.Second,
@@ -1068,7 +1256,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_LeavesUsernameUnchangedWhenWor
 			return nil
 		})
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers:             5,
 		MasterPollingInterval:  10 * time.Millisecond,
 		WorkerExecutionTimeout: 5 * time.Second,
@@ -1115,7 +1303,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_LeavesRawPoolUsernamesUnchange
 			return nil
 		})
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers:             5,
 		MasterPollingInterval:  10 * time.Millisecond,
 		WorkerExecutionTimeout: 5 * time.Second,
@@ -1164,7 +1352,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PreservesLegacyDottedFleetUser
 			return nil
 		})
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers:             5,
 		MasterPollingInterval:  10 * time.Millisecond,
 		WorkerExecutionTimeout: 5 * time.Second,
@@ -1225,7 +1413,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReappliesCurrentPoolsWithStore
 		UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("device-reapply"), "new-worker").
 		Return(nil)
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers:             5,
 		MasterPollingInterval:  10 * time.Millisecond,
 		WorkerExecutionTimeout: 5 * time.Second,
@@ -1280,7 +1468,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyUsesDesiredWorkerNameFr
 		UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("device-reapply-payload"), "payload-worker").
 		Return(nil)
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers:             5,
 		MasterPollingInterval:  10 * time.Millisecond,
 		WorkerExecutionTimeout: 5 * time.Second,
@@ -1336,7 +1524,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyAppendsStoredWorkerName
 		UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("device-reapply-append"), "new-worker").
 		Return(nil)
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers:             5,
 		MasterPollingInterval:  10 * time.Millisecond,
 		WorkerExecutionTimeout: 5 * time.Second,
@@ -1391,7 +1579,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyReplacesEntireDottedWor
 		UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("device-reapply-dotted-worker"), "new-worker").
 		Return(nil)
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers:             5,
 		MasterPollingInterval:  10 * time.Millisecond,
 		WorkerExecutionTimeout: 5 * time.Second,
@@ -1452,7 +1640,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyNormalizesAllPoolsToSto
 		UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("device-reapply-normalize-all"), "new-worker").
 		Return(nil)
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers:             5,
 		MasterPollingInterval:  10 * time.Millisecond,
 		WorkerExecutionTimeout: 5 * time.Second,
@@ -1497,7 +1685,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PersistsWorkerNameWhenNoCurren
 		UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("device-reapply-empty"), "new-worker").
 		Return(nil)
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers:             5,
 		MasterPollingInterval:  10 * time.Millisecond,
 		WorkerExecutionTimeout: 5 * time.Second,
@@ -1538,7 +1726,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyPreservesGetPoolsErrorC
 		GetMiningPools(gomock.Any()).
 		Return(nil, fleeterror.NewUnimplementedErrorf("get pools not supported"))
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers:             5,
 		MasterPollingInterval:  10 * time.Millisecond,
 		WorkerExecutionTimeout: 5 * time.Second,
@@ -1634,7 +1822,7 @@ func TestExecuteCommand_UpdateMinerPassword_PersistFailureFailsCommand(t *testin
 	mockMiner.EXPECT().UpdateMinerPassword(gomock.Any(), gomock.Any()).Return(nil)
 	mockMinerGetter.EXPECT().InvalidateMiner(models.DeviceIdentifier("dev-50"))
 
-	svc := NewExecutionService(t.Context(), &Config{
+	svc := NewExecutionService(&Config{
 		MaxWorkers:             5,
 		MasterPollingInterval:  10 * time.Millisecond,
 		WorkerExecutionTimeout: 5 * time.Second,

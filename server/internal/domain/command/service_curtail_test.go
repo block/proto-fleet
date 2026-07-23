@@ -49,7 +49,7 @@ func (f *fakeMessageQueue) EnqueueMany(_ context.Context, batchUUID string, ct c
 	return f.enqueueReturnError
 }
 
-func (f *fakeMessageQueue) Dequeue(context.Context) ([]queue.Message, error) {
+func (f *fakeMessageQueue) Dequeue(context.Context, int32) ([]queue.Message, error) {
 	panic("Dequeue not used")
 }
 func (f *fakeMessageQueue) MarkSuccess(context.Context, int64) error {
@@ -82,7 +82,7 @@ func newCurtailDispatchServiceWithActivityStore(t *testing.T) (*Service, *fakeMe
 	store := &recordingActivityStore{}
 	svc := &Service{
 		config:           &Config{},
-		executionService: &ExecutionService{queueProcessorRunning: true},
+		executionService: &ExecutionService{run: newExecutionRun(context.Background())},
 		messageQueue:     q,
 		activitySvc:      activity.NewService(store),
 	}

@@ -518,6 +518,15 @@ func (s *Service) getMarkFinishedBatchFunction(processingMarkedInDB bool) func(c
 	}
 }
 
+func (s *Service) finishUnenqueuedCommandBatch(ctx context.Context, commandBatchLogUUID string) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+	defer cancel()
+	if err := s.getMarkFinishedBatchFunction(false)(cleanupCtx, commandBatchLogUUID); err != nil {
+		return fleeterror.NewInternalErrorf("command execution stopped before enqueue; failed to finish command batch: %v", err)
+	}
+	return fleeterror.NewInternalError("command execution service stopped before enqueue")
+}
+
 func (s *Service) statusUpdateIsFinishedBranch(ctx context.Context, commandBatchLogUUID string) (bool, error) {
 	isFinished, err := s.messageQueue.IsBatchFinished(ctx, commandBatchLogUUID)
 	if err != nil {
@@ -936,16 +945,20 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		return nil, fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
 
-	if len(queuePayloads) == 0 {
-		err = s.messageQueue.Enqueue(ctx, batchLogIdentifier, command.commandType, deviceIDs, command.payload)
-		if err != nil {
+	err = s.executionService.withAdmission(ctx, func(workCtx context.Context) error {
+		if len(queuePayloads) == 0 {
+			return s.messageQueue.Enqueue(workCtx, batchLogIdentifier, command.commandType, deviceIDs, command.payload)
+		}
+		return s.messageQueue.EnqueueMany(workCtx, batchLogIdentifier, command.commandType, queuePayloads)
+	})
+	if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
+		return nil, s.finishUnenqueuedCommandBatch(ctx, batchLogIdentifier)
+	}
+	if err != nil {
+		if len(queuePayloads) == 0 {
 			return nil, fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
 		}
-	} else {
-		err = s.messageQueue.EnqueueMany(ctx, batchLogIdentifier, command.commandType, queuePayloads)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error enqueuing per-device command payloads: %v", err)
-		}
+		return nil, fleeterror.NewInternalErrorf("error enqueuing per-device command payloads: %v", err)
 	}
 
 	return &CommandResult{
@@ -1424,7 +1437,13 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 		return "", err
 	}
 
-	if err := s.enqueueWorkerNameReapplyMessages(ctx, commandBatchLogUUID, deviceIdentifiers, deviceIDsByIdentifier, desiredWorkerNamesByDeviceIdentifier); err != nil {
+	err = s.executionService.withAdmission(ctx, func(workCtx context.Context) error {
+		return s.enqueueWorkerNameReapplyMessages(workCtx, commandBatchLogUUID, deviceIdentifiers, deviceIDsByIdentifier, desiredWorkerNamesByDeviceIdentifier)
+	})
+	if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
+		return "", s.finishUnenqueuedCommandBatch(ctx, commandBatchLogUUID)
+	}
+	if err != nil {
 		return "", err
 	}
 

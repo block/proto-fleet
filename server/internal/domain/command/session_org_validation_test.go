@@ -35,9 +35,9 @@ func sessionCtxWithOrg(orgID int64) context.Context {
 func TestProcessCommand_RejectsMissingOrgID(t *testing.T) {
 	// Constructing a Service struct directly (same-package test) so we never
 	// reach the DB layer -- validation must short-circuit before then. The
-	// executionService is pre-marked running so the IsRunning() check passes
+	// executionService is pre-marked running so startup does not reach the queue
 	// and control reaches the validation we care about.
-	es := &ExecutionService{queueProcessorRunning: true}
+	es := &ExecutionService{run: newExecutionRun(context.Background())}
 	svc := &Service{config: &Config{}, executionService: es}
 
 	cases := []struct {
@@ -63,7 +63,7 @@ func TestProcessCommand_RejectsMissingOrgID(t *testing.T) {
 }
 
 func TestReapplyCurrentPoolsWithWorkerNames_RejectsMissingOrgID(t *testing.T) {
-	es := &ExecutionService{queueProcessorRunning: true}
+	es := &ExecutionService{run: newExecutionRun(context.Background())}
 	svc := &Service{config: &Config{}, executionService: es}
 
 	ctx := sessionCtxWithOrg(0)
