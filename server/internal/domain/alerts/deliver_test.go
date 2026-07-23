@@ -342,6 +342,34 @@ func TestInvalidatePolicyCacheDropsSnapshot(t *testing.T) {
 	assert.Empty(t, *got, "an invalidated snapshot plus unreadable policies fails closed instead of serving stale routing")
 }
 
+// A policy read that races a routing write must not repopulate the snapshot after the write's
+// invalidation, or a later outage would resurrect the routing the operator just removed.
+func TestInvalidationRacingReadDoesNotResurrectStaleSnapshot(t *testing.T) {
+	srv, got := captureServer(t)
+	store := newFakeChannelStore()
+	crypto := testCipher(t)
+	routes := newFakeRouteStore()
+	d := NewDeliverer(store, routes, crypto, fakeDeviceLookup{}, DestinationPolicy{AllowPrivateDestinations: true}, "")
+	seedChannel(t, store, crypto, 7, ChannelKindSlack, srv.URL, "")
+
+	// While the delivery's policy read is in flight (it already computed the pre-write, empty
+	// result), an operator routes the rule to none and the write invalidates the cache.
+	routes.onList = func() {
+		routes.onList = nil
+		require.NoError(t, routes.SetPolicy(context.Background(), 7, RoutePolicy{RuleUID: "rule-none", Mode: RouteModeNone}))
+		d.InvalidatePolicyCache(7)
+	}
+	d.Deliver(context.Background(), []Alert{firingRuleAlert("7", "dev-a", "Pre Write", "rule-none")})
+	require.Len(t, *got, 1, "the pre-write read legitimately saw no policies")
+	*got = nil
+
+	// Outage: the raced pre-write snapshot must not have been cached, so delivery fails closed.
+	routes.listErr = errors.New("db down")
+	d.Deliver(context.Background(), []Alert{firingRuleAlert("7", "dev-b", "Post Write", "rule-none")})
+
+	assert.Empty(t, *got, "a snapshot from before the invalidation must not serve during the outage")
+}
+
 func TestSendTestReturnsAcceptedOnSuccess(t *testing.T) {
 	srv, got := captureServer(t)
 	d, _ := newDeliverer(t, newFakeChannelStore(), fakeDeviceLookup{})

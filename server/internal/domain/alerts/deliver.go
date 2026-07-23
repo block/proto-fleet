@@ -44,18 +44,21 @@ type Deliverer struct {
 	// Last-known-good policies per org: a transient policy-read failure must not bypass explicit custom/none restrictions.
 	policyCacheMu sync.Mutex
 	policyCache   map[int64][]RoutePolicy
+	// Bumped per org by InvalidatePolicyCache: a read that raced a routing write must not land in the cache.
+	policyCacheGen map[int64]uint64
 }
 
 func NewDeliverer(channels ChannelStore, routes RouteStore, crypto Cipher, devices DeviceIdentityLookup, policy DestinationPolicy, publicURL string) *Deliverer {
 	return &Deliverer{
-		channels:    channels,
-		routes:      routes,
-		crypto:      crypto,
-		devices:     devices,
-		httpClient:  newDeliveryHTTPClient(policy),
-		policy:      policy,
-		publicURL:   strings.TrimRight(publicURL, "/"),
-		policyCache: map[int64][]RoutePolicy{},
+		channels:       channels,
+		routes:         routes,
+		crypto:         crypto,
+		devices:        devices,
+		httpClient:     newDeliveryHTTPClient(policy),
+		policy:         policy,
+		publicURL:      strings.TrimRight(publicURL, "/"),
+		policyCache:    map[int64][]RoutePolicy{},
+		policyCacheGen: map[int64]uint64{},
 	}
 }
 
@@ -185,6 +188,9 @@ func (d *Deliverer) routeAlerts(ctx context.Context, orgID int64, orgAlerts []Al
 	if d.routes == nil {
 		return orgAlerts, nil, nil
 	}
+	d.policyCacheMu.Lock()
+	gen := d.policyCacheGen[orgID]
+	d.policyCacheMu.Unlock()
 	policies, err := d.routes.ListPolicies(ctx, orgID)
 	if err != nil {
 		slog.Error("alerts.deliver_list_routes_failed", "org", orgID, "err", err)
@@ -202,7 +208,11 @@ func (d *Deliverer) routeAlerts(ctx context.Context, orgID int64, orgAlerts []Al
 		policies = cached
 	} else {
 		d.policyCacheMu.Lock()
-		d.policyCache[orgID] = policies
+		// Only store if no routing write invalidated the org mid-read: a pre-write snapshot stored
+		// after the invalidation would resurrect routing the operator just removed.
+		if d.policyCacheGen[orgID] == gen {
+			d.policyCache[orgID] = policies
+		}
 		d.policyCacheMu.Unlock()
 	}
 	if len(policies) == 0 {
@@ -317,6 +327,7 @@ func (d *Deliverer) send(ctx context.Context, kind ChannelKind, cfg channelConfi
 func (d *Deliverer) InvalidatePolicyCache(orgID int64) {
 	d.policyCacheMu.Lock()
 	delete(d.policyCache, orgID)
+	d.policyCacheGen[orgID]++
 	d.policyCacheMu.Unlock()
 }
 

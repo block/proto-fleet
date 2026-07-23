@@ -16,6 +16,8 @@ type fakeRouteStore struct {
 	policies map[int64]map[string]RoutePolicy
 	listErr  error
 	setErr   error
+	// Called after a ListPolicies read computes its result but before it returns, to interleave a racing write.
+	onList func()
 }
 
 func newFakeRouteStore() *fakeRouteStore {
@@ -45,6 +47,9 @@ func (f *fakeRouteStore) ListPolicies(_ context.Context, orgID int64) ([]RoutePo
 	out := make([]RoutePolicy, 0, len(f.policies[orgID]))
 	for _, p := range f.policies[orgID] {
 		out = append(out, p)
+	}
+	if f.onList != nil {
+		f.onList()
 	}
 	return out, nil
 }
@@ -328,6 +333,28 @@ func TestSetRuleRoutingResponseKeepsPauseState(t *testing.T) {
 	rule, err := svc.SetRuleRouting(context.Background(), 7, "pfu-mine", RouteModeNone, nil)
 	require.NoError(t, err)
 	assert.False(t, rule.Enabled, "the routing response must not repaint a paused rule as enabled")
+}
+
+// A stale double-pause hits the no-op early return; its response must still carry the stored
+// routing rather than an explicit DEFAULT the client would upsert over the real policy.
+func TestPauseRuleNoOpResponseCarriesRouting(t *testing.T) {
+	svc, routes, fake := routingService(t)
+	ctx := context.Background()
+	require.NoError(t, routes.SetPolicy(ctx, 7, RoutePolicy{RuleUID: "pfu-mine", Mode: RouteModeCustom, ChannelIDs: []int64{1}}))
+	fake.silences = []GrafanaSilence{{
+		ID:      "sil-pause",
+		Comment: pauseSilenceCommentMarker,
+		Matchers: []GrafanaSilenceMatcher{
+			{Name: silenceLabelOrganizationID, Value: "7", IsEqual: true},
+			{Name: alertRuleUIDMatcher, Value: "pfu-mine", IsEqual: true},
+		},
+	}}
+
+	rule, err := svc.PauseRule(ctx, 7, "pfu-mine", "alice")
+	require.NoError(t, err)
+	assert.False(t, rule.Enabled)
+	require.NotNil(t, rule.Routing, "the no-op pause response must carry the stored routing")
+	assert.Equal(t, RouteModeCustom, rule.Routing.Mode)
 }
 
 // Pause must still succeed during a route-table outage, but the response must mark routing

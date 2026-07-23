@@ -557,6 +557,9 @@ func (s *Service) PauseRule(ctx context.Context, orgID int64, id, actor string) 
 		return nil, err
 	}
 	if !rule.Enabled {
+		// The no-op response is upserted by the client like any other: without decoration its
+		// nil routing serializes as an explicit DEFAULT and overwrites the real policy client-side.
+		s.attachRoutingBestEffort(ctx, orgID, rule)
 		return rule, nil
 	}
 	silence := buildPauseSilence(orgID, id, actor, s.now())
