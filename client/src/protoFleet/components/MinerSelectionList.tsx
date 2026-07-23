@@ -20,6 +20,7 @@ import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import type { SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 import { INACTIVE_PLACEHOLDER } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
+import { FLEET_SELECTABLE_PAIRING_STATUSES } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 import {
   getMinerBuildingId,
   getMinerBuildingLabel,
@@ -119,6 +120,8 @@ export interface MinerSelectionListProps {
   eligibility?: MinerEligibility;
   // Label of the target rack, shown in the assignment-conflict dialog.
   targetRackLabel?: string;
+  // Pairing statuses the list fetches; defaults to PAIRED-only. Rack flows pass the wider visible set so non-paired members render.
+  pairingStatuses?: PairingStatus[];
   onSelectionChange?: (state: {
     selectedItems: string[];
     allSelected: boolean;
@@ -264,6 +267,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       scope,
       eligibility,
       targetRackLabel,
+      pairingStatuses = FLEET_SELECTABLE_PAIRING_STATUSES,
       onSelectionChange,
     },
     ref,
@@ -446,7 +450,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       filter,
       sort: sortConfig,
       pageSize: PAGE_SIZE,
-      pairingStatuses: [PairingStatus.PAIRED],
+      pairingStatuses,
     });
 
     const currentPageItems = useMemo(() => {
