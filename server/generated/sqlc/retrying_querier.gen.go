@@ -3546,6 +3546,18 @@ func (q *retryingQuerier) ListEffectivePermissionsForUserForUpdate(ctx context.C
 	return result, err
 }
 
+func (q *retryingQuerier) ListEligibleConfirmationTargets(ctx context.Context) ([]ListEligibleConfirmationTargetsRow, error) {
+	var result []ListEligibleConfirmationTargetsRow
+	err := q.retrier.RetryQuery(ctx, "ListEligibleConfirmationTargets", func() error {
+		callResult, callErr := q.next.ListEligibleConfirmationTargets(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]ListEnabledCurtailmentAutomationRulesByMQTTSourceRow, error) {
 	var result []ListEnabledCurtailmentAutomationRulesByMQTTSourceRow
 	err := q.retrier.RetryQuery(ctx, "ListEnabledCurtailmentAutomationRulesByMQTTSource", func() error {

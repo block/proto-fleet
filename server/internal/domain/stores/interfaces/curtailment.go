@@ -41,17 +41,29 @@ var ErrCurtailmentEventStateRaceLoss = errors.New("curtailment event state advan
 // write to the dispatch direction ('curtailed' on Curtail-phase writes,
 // 'active' on Restore-phase) so a concurrent Stop that flipped desired_state
 // race-loses instead of being clobbered.
+//
+// ExpectedState and ExpectedDispatchBatchUUID are the confirmation fast-path
+// race guards. When set, the target's current state must equal ExpectedState
+// (e.g. 'dispatched') and the applicable phase batch UUID — curtail_batch_uuid
+// when desired_state='curtailed', restore_batch_uuid when 'active' — must equal
+// ExpectedDispatchBatchUUID. Together they make concurrent confirmation writes
+// single-winner: a duplicate promotion (state already advanced) or a
+// timeout/redispatch that stamped a new batch UUID (ABA) matches zero rows and
+// maps to ErrCurtailmentEventStateRaceLoss. Nil leaves the guard off, so the
+// existing full-tick writes are unaffected.
 type UpdateCurtailmentTargetStateParams struct {
-	State                models.TargetState
-	LastDispatchedAt     *time.Time
-	LastBatchUUID        *string
-	ObservedPowerW       *float64
-	ObservedAt           *time.Time
-	ConfirmedAt          *time.Time
-	RetryCount           *int32
-	LastError            *string
-	ExpectedEventState   *models.EventState
-	ExpectedDesiredState *string
+	State                     models.TargetState
+	LastDispatchedAt          *time.Time
+	LastBatchUUID             *string
+	ObservedPowerW            *float64
+	ObservedAt                *time.Time
+	ConfirmedAt               *time.Time
+	RetryCount                *int32
+	LastError                 *string
+	ExpectedEventState        *models.EventState
+	ExpectedDesiredState      *string
+	ExpectedState             *models.TargetState
+	ExpectedDispatchBatchUUID *string
 }
 
 // AllPairedReadinessUpdate is one pending/unavailable readiness flip in the
@@ -375,6 +387,14 @@ type CurtailmentStore interface {
 	// ListNonTerminalEvents returns pending/active/restoring events across
 	// all orgs. Reconciler-only — MUST NOT be exposed through any RPC handler.
 	ListNonTerminalEvents(ctx context.Context) ([]*models.Event, error)
+
+	// ListEligibleConfirmationTargets returns the phase-valid `dispatched`
+	// targets the confirmation fast path may promote, across all orgs: curtail
+	// work under pending/active events (desired_state='curtailed') and restore
+	// work under restoring events (desired_state='active'), each with a durable
+	// phase dispatch timestamp and batch UUID. Reconciler-only — MUST NOT be
+	// exposed through any RPC handler.
+	ListEligibleConfirmationTargets(ctx context.Context) ([]models.ConfirmationTarget, error)
 
 	// UpdateEventState transitions an event row from expectedState. Nil
 	// startedAt/endedAt preserves the column. Returns

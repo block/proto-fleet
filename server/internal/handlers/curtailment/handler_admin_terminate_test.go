@@ -188,6 +188,9 @@ func (s *adminTerminateStubStore) GetHeartbeat(context.Context) (*models.Heartbe
 func (s *adminTerminateStubStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
 	panic("ListNonTerminalEvents not exercised by AdminTerminate handler tests")
 }
+func (s *adminTerminateStubStore) ListEligibleConfirmationTargets(context.Context) ([]models.ConfirmationTarget, error) {
+	panic("ListEligibleConfirmationTargets not exercised by AdminTerminate handler tests")
+}
 func (s *adminTerminateStubStore) ListEvents(context.Context, interfaces.ListEventsParams) ([]*models.Event, string, error) {
 	panic("ListEvents not exercised by AdminTerminate handler tests")
 }

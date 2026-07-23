@@ -2511,6 +2511,108 @@ func (q *Queries) ListCurtailmentTargetsByEventPage(ctx context.Context, arg Lis
 	return items, nil
 }
 
+const listEligibleConfirmationTargets = `-- name: ListEligibleConfirmationTargets :many
+SELECT
+    ce.id                              AS event_id,
+    ce.event_uuid                      AS event_uuid,
+    ce.org_id                          AS org_id,
+    ce.state                           AS event_state,
+    ce.force_include_all_paired_miners AS force_include_all_paired_miners,
+    ct.device_identifier               AS device_identifier,
+    ct.desired_state                   AS desired_state,
+    ct.baseline_power_w                AS baseline_power_w,
+    (CASE
+        WHEN ce.state IN ('pending', 'active') THEN ct.curtail_dispatched_at
+        ELSE ct.restore_dispatched_at
+     END)::timestamptz                 AS phase_dispatched_at,
+    (CASE
+        WHEN ce.state IN ('pending', 'active') THEN ct.curtail_batch_uuid
+        ELSE ct.restore_batch_uuid
+     END)::text                        AS phase_batch_uuid,
+    CASE WHEN dp.id IS NOT NULL THEN dp.pairing_status::text ELSE 'UNPAIRED' END AS pairing_status
+FROM curtailment_target ct
+INNER JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
+LEFT JOIN device d ON d.device_identifier = ct.device_identifier
+    AND d.deleted_at IS NULL
+LEFT JOIN device_pairing dp ON dp.device_id = d.id
+WHERE ct.state = 'dispatched'
+  AND (
+        (ce.state IN ('pending', 'active')
+            AND ct.desired_state = 'curtailed'
+            AND ct.curtail_dispatched_at IS NOT NULL
+            AND ct.curtail_batch_uuid IS NOT NULL)
+     OR (ce.state = 'restoring'
+            AND ct.desired_state = 'active'
+            AND ct.restore_dispatched_at IS NOT NULL
+            AND ct.restore_batch_uuid IS NOT NULL)
+      )
+ORDER BY ce.id, ct.device_identifier
+`
+
+type ListEligibleConfirmationTargetsRow struct {
+	EventID                     int64
+	EventUuid                   uuid.UUID
+	OrgID                       int64
+	EventState                  string
+	ForceIncludeAllPairedMiners bool
+	DeviceIdentifier            string
+	DesiredState                string
+	BaselinePowerW              sql.NullString
+	PhaseDispatchedAt           time.Time
+	PhaseBatchUuid              string
+	PairingStatus               string
+}
+
+// System-scope (no org filter); reconciler-only fast-path confirmation read.
+// MUST NOT be exposed through any RPC handler.
+//
+// Returns only phase-valid `dispatched` targets the confirmation pulse may
+// promote:
+//   - curtail work: pending/active event + target desired_state='curtailed'
+//     with a durable curtail_dispatched_at + curtail_batch_uuid;
+//   - restore work: restoring event + target desired_state='active' with a
+//     durable restore_dispatched_at + restore_batch_uuid.
+//
+// phase_dispatched_at / phase_batch_uuid select the columns for the row's
+// phase so the pulse bounds sample freshness and guards the promoting write
+// on the exact applicable batch UUID. baseline_power_w and pairing_status
+// feed the same confirmation predicates the full tick uses; pairing_status
+// joins like ListCurtailmentCandidatesByOrg (missing device -> 'UNPAIRED').
+func (q *Queries) ListEligibleConfirmationTargets(ctx context.Context) ([]ListEligibleConfirmationTargetsRow, error) {
+	rows, err := q.query(ctx, q.listEligibleConfirmationTargetsStmt, listEligibleConfirmationTargets)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEligibleConfirmationTargetsRow
+	for rows.Next() {
+		var i ListEligibleConfirmationTargetsRow
+		if err := rows.Scan(
+			&i.EventID,
+			&i.EventUuid,
+			&i.OrgID,
+			&i.EventState,
+			&i.ForceIncludeAllPairedMiners,
+			&i.DeviceIdentifier,
+			&i.DesiredState,
+			&i.BaselinePowerW,
+			&i.PhaseDispatchedAt,
+			&i.PhaseBatchUuid,
+			&i.PairingStatus,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listNonTerminalCurtailmentEvents = `-- name: ListNonTerminalCurtailmentEvents :many
 SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id, curtail_batch_size, curtail_batch_interval_sec, force_include_all_paired_miners, facility_fan_device_ids, facility_fan_site_ids, fan_off_delay_sec, fan_restore_delay_sec, fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error, last_curtail_pending_dispatch_at
 FROM curtailment_event
@@ -3335,10 +3437,10 @@ const updateCurtailmentTargetState = `-- name: UpdateCurtailmentTargetState :exe
 WITH locked_event AS MATERIALIZED (
     SELECT id
     FROM curtailment_event
-    WHERE id = $11
+    WHERE id = $13
         AND state IN ('pending', 'active', 'restoring')
-        AND ($12::TEXT IS NULL
-             OR state = $12::TEXT)
+        AND ($14::TEXT IS NULL
+             OR state = $14::TEXT)
     FOR UPDATE
 )
 UPDATE curtailment_target
@@ -3422,21 +3524,30 @@ WHERE curtailment_event_id = locked_event.id
   AND device_identifier    = $9
   AND ($10::text IS NULL
        OR desired_state = $10::text)
+  AND ($11::text IS NULL
+       OR state = $11::text)
+  AND ($12::text IS NULL
+       OR (CASE
+               WHEN desired_state = 'curtailed' THEN curtail_batch_uuid
+               WHEN desired_state = 'active'    THEN restore_batch_uuid
+           END) = $12::text)
 `
 
 type UpdateCurtailmentTargetStateParams struct {
-	State                string
-	LastDispatchedAt     sql.NullTime
-	LastBatchUuid        sql.NullString
-	ObservedPowerW       sql.NullString
-	ObservedAt           sql.NullTime
-	ConfirmedAt          sql.NullTime
-	RetryCount           sql.NullInt32
-	LastError            sql.NullString
-	DeviceIdentifier     string
-	ExpectedDesiredState sql.NullString
-	CurtailmentEventID   int64
-	ExpectedEventState   sql.NullString
+	State                     string
+	LastDispatchedAt          sql.NullTime
+	LastBatchUuid             sql.NullString
+	ObservedPowerW            sql.NullString
+	ObservedAt                sql.NullTime
+	ConfirmedAt               sql.NullTime
+	RetryCount                sql.NullInt32
+	LastError                 sql.NullString
+	DeviceIdentifier          string
+	ExpectedDesiredState      sql.NullString
+	ExpectedState             sql.NullString
+	ExpectedDispatchBatchUuid sql.NullString
+	CurtailmentEventID        int64
+	ExpectedEventState        sql.NullString
 }
 
 // Reconciler patch. COALESCE preserves un-supplied columns; empty
@@ -3449,6 +3560,16 @@ type UpdateCurtailmentTargetStateParams struct {
 // expected_desired_state scopes the write to one dispatch direction so
 // a concurrent Stop's reset isn't clobbered by a Curtail-phase post-cmd
 // write (observeRestoring picks up the reset target afterwards).
+//
+// expected_state and expected_dispatch_batch_uuid are the confirmation
+// fast-path single-winner guards. When set, the target's current state must
+// equal expected_state and the applicable phase batch UUID (curtail_batch_uuid
+// when desired_state='curtailed', restore_batch_uuid when 'active', consistent
+// with the mirror logic) must equal expected_dispatch_batch_uuid. A duplicate
+// confirmation (state advanced past 'dispatched') or a timeout/redispatch that
+// stamped a new batch UUID (ABA) matches zero rows -> ErrCurtailmentEventState
+// RaceLoss. Both narg guards are inert when NULL, so full-tick writes that omit
+// them are unaffected.
 func (q *Queries) UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCurtailmentTargetStateParams) (int64, error) {
 	result, err := q.exec(ctx, q.updateCurtailmentTargetStateStmt, updateCurtailmentTargetState,
 		arg.State,
@@ -3461,6 +3582,8 @@ func (q *Queries) UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCu
 		arg.LastError,
 		arg.DeviceIdentifier,
 		arg.ExpectedDesiredState,
+		arg.ExpectedState,
+		arg.ExpectedDispatchBatchUuid,
 		arg.CurtailmentEventID,
 		arg.ExpectedEventState,
 	)

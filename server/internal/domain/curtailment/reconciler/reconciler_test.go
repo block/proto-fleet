@@ -398,6 +398,10 @@ func (f *fakeStore) ListNonTerminalEvents(context.Context) ([]*models.Event, err
 	return out, nil
 }
 
+func (f *fakeStore) ListEligibleConfirmationTargets(context.Context) ([]models.ConfirmationTarget, error) {
+	panic("ListEligibleConfirmationTargets not exercised by reconciler tests")
+}
+
 func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, expectedState models.EventState, state models.EventState, _ *time.Time, _ *time.Time) error {
 	f.updateEventCalls++
 	f.updateEventLast[eventID] = state
