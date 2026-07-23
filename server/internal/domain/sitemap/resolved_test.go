@@ -77,30 +77,11 @@ func TestResolvePlanLinksBuildingToSiteByName(t *testing.T) {
 	}
 }
 
-func TestResolvePlanReportsBuildingSiteIDNameMismatch(t *testing.T) {
-	parsed := &parsedCSV{sections: map[string][]map[string]string{
-		"SITE":     {{"__row": "3", "name": "Site A", "id": "1"}, {"__row": "4", "name": "Site B", "id": "2"}},
-		"BUILDING": {{"__row": "6", "name": "Bldg", "id": "10", "site_id": "1", "site": "Site B"}},
-	}}
-	snap := &snapshot{
-		sites:     []sitemodels.Site{{ID: 1, Name: "Site A"}, {ID: 2, Name: "Site B"}},
-		buildings: []buildingmodels.Building{{ID: 10, Name: "Bldg", SiteLabel: "Site A"}},
-	}
-
-	plan := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	if len(plan.errors) == 0 {
-		t.Fatalf("errors = none, want site_id/site mismatch error")
-	}
-	if plan.errors[0].GetRow() != 6 {
-		t.Errorf("error row = %d, want 6", plan.errors[0].GetRow())
-	}
-}
-
-func TestResolvePlanInfersRackSiteFromBuildingName(t *testing.T) {
+func TestResolvePlanInfersRackSiteFromBuildingID(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE":     {{"__row": "3", "name": "Site A", "id": "1"}},
-		"BUILDING": {{"__row": "6", "name": "Bldg", "id": "10", "site": "Site A", "aisles": "2", "racks_per_aisle": "2"}},
-		"RACK":     {{"__row": "9", "label": "R1", "id": "20", "building": "Bldg", "site": ""}},
+		"BUILDING": {{"__row": "6", "name": "Bldg", "id": "10", "site": "1", "aisles": "2", "racks_per_aisle": "2"}},
+		"RACK":     {{"__row": "9", "label": "R1", "id": "20", "building": "10", "site": ""}},
 	}}
 	snap := &snapshot{
 		sites:     []sitemodels.Site{{ID: 1, Name: "Site A"}},
@@ -108,29 +89,15 @@ func TestResolvePlanInfersRackSiteFromBuildingName(t *testing.T) {
 		racks:     []rackSnapshot{{ID: 20, Label: "R1", Building: "Bldg", Site: "Site A"}},
 	}
 
-	plan := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	r := plan.racks[0]
-	if r.siteLabel != "Site A" {
-		t.Errorf("rack siteLabel = %q, want inferred \"Site A\"", r.siteLabel)
+	// resolveReferences canonicalizes the rack's building id into a building name
+	// and fills the implied site; resolvePlan then reads those canonical names.
+	if errs := resolveReferences(parsed, snap); len(errs) != 0 {
+		t.Fatalf("resolveReferences errors = %+v", errs)
 	}
-}
-
-func TestResolvePlanRackBuildingIDDictatesSite(t *testing.T) {
-	parsed := &parsedCSV{sections: map[string][]map[string]string{
-		"SITE":     {{"__row": "3", "name": "Site A", "id": "1"}},
-		"BUILDING": {{"__row": "6", "name": "Bldg", "id": "10", "site": "Site A"}},
-		"RACK":     {{"__row": "9", "label": "R1", "id": "20", "building_id": "10", "building": "", "site": ""}},
-	}}
-	snap := &snapshot{
-		sites:     []sitemodels.Site{{ID: 1, Name: "Site A"}},
-		buildings: []buildingmodels.Building{{ID: 10, Name: "Bldg", SiteLabel: "Site A"}},
-		racks:     []rackSnapshot{{ID: 20, Label: "R1"}},
-	}
-
 	plan := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
 	r := plan.racks[0]
 	if r.buildingLabel != "Bldg" || r.siteLabel != "Site A" {
-		t.Errorf("rack building/site = %q/%q, want Bldg/Site A from building_id", r.buildingLabel, r.siteLabel)
+		t.Errorf("rack building/site = %q/%q, want Bldg/Site A inferred from building id", r.buildingLabel, r.siteLabel)
 	}
 }
 

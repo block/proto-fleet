@@ -8,6 +8,29 @@ tracker: https://github.com/block/proto-fleet/issues/767
 
 # Refactor sitemap import around a canonical resolved plan
 
+## Update 2026-07-23 — single reference-cell model adopted
+
+Superseding the `(*_id, name)` column-pair design below: each parent relationship
+is now **one reference cell**. Grammar: blank = unassigned; a bare integer =
+existing entity by id; `NAME:x` = a same-import create whose own name/label is x;
+anything else = validation error. `resolveReferences` (replacing
+`normalizeIDReferences` + `normalizeInferredPlacement`) canonicalizes every cell
+in place to a canonical name with implied ancestors filled (a building reference
+also fills its site), so resolve/validate/apply read names exclusively. This
+deleted the id/name-mismatch errors, `ambiguousBuildingLabels`, the
+`desired*ByID` family, and the building name-lookup fork. Export writes the
+parent id into the single cell; change-detection comparable rows hold canonical
+names.
+
+**Known interim limitation (accepted, to restore in step 7):** because a
+building reference canonicalizes to its `(site, name)` pair, two buildings
+identical in both `(site, name)` — e.g. two site-less buildings sharing a name,
+which the DB permits — are not independently addressable in the name-keyed
+interim, and the grid/collision/capacity/miner-move validators would false-positive
+on them. Step 7 restores id-precision by keying those validators on
+`building_id` via the resolved-plan graph, and re-adds the four id-disambiguation
+tests dropped here (see git history of `service_test.go` for the deleted cases).
+
 ## Context
 
 The sitemap CSV import planner lives in a single 4,738-line file,

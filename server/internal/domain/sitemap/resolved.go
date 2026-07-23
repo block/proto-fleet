@@ -39,7 +39,7 @@ type resolvedBuilding struct {
 	site *resolvedSite // nil when the site could not be linked
 	// siteLabel is the desired site name even when no site node was linked.
 	siteLabel string
-	// siteRef is the raw site name from the row, before site_id resolution.
+	// siteRef is the canonical site name the row references, filled by resolveReferences.
 	siteRef       string
 	name          string
 	prevName      string
@@ -57,13 +57,10 @@ type resolvedRack struct {
 	// buildingLabel / siteLabel are the desired names even when no parent was linked.
 	buildingLabel string
 	siteLabel     string
-	// siteRef / buildingRef are the raw row references, before building_id resolution.
-	siteRef     string
-	buildingRef string
-	// hasBuildingID is true when the row supplied any building_id; buildingIDRef is
-	// the parsed value, nil when absent or unparseable.
-	hasBuildingID   bool
-	buildingIDRef   *int64
+	// siteRef / buildingRef are the canonical site and building names the row
+	// references, filled in by resolveReferences.
+	siteRef         string
+	buildingRef     string
 	label           string
 	prevLabel       string
 	zone            string
@@ -94,16 +91,10 @@ type resolvedMiner struct {
 	buildLabel   string
 	rackRow      string
 	rackCol      string
-	// siteIDCell / buildingIDCell / rackIDCell are the raw *_id row cells, used to
-	// detect placement identity changes against the existing miner.
-	siteIDCell     string
-	buildingIDCell string
-	rackIDCell     string
-	hasBuildingID  bool
-	renamed        bool
-	moved          bool
-	unassigned     bool
-	rowNum         int
+	renamed      bool
+	moved        bool
+	unassigned   bool
+	rowNum       int
 }
 
 // minerPopulation is the scoped mutable-miner set shared by omission counts,
@@ -122,8 +113,6 @@ type topologyView struct {
 	buildingsByKey         map[string]buildingmodels.Building
 	buildingsByLayoutID    map[int64]buildingmodels.Building
 	buildingsByCapacityKey map[string]buildingmodels.Building
-	buildingsByName        map[string]buildingmodels.Building
-	buildingAmbig          map[string]bool
 	racksByLabel           map[string]rackSnapshot
 }
 
@@ -175,11 +164,11 @@ func resolvePlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) *resol
 	sitesByNode := indexSitesByIdentity(plan.sites)
 
 	var buildingErrs []*pb.ImportValidationError
-	plan.buildings, buildingErrs = resolveBuildings(parsed.sections["BUILDING"], buildingsByID, sitesByID, sitesByName, sitesByNode)
+	plan.buildings, buildingErrs = resolveBuildings(parsed.sections["BUILDING"], buildingsByID, sitesByName, sitesByNode)
 	plan.errors = append(plan.errors, buildingErrs...)
 
 	var rackErrs []*pb.ImportValidationError
-	plan.racks, rackErrs = resolveRacks(parsed.sections["RACK"], racksByID, buildingsByID, plan.topology.buildingsByName, plan.topology.buildingAmbig)
+	plan.racks, rackErrs = resolveRacks(parsed.sections["RACK"], racksByID)
 	plan.errors = append(plan.errors, rackErrs...)
 
 	plan.miners = resolveMiners(parsed.sections["MINER"], minerMap(snap.miners))
@@ -203,7 +192,6 @@ func resolveTopologyView(parsed *parsedCSV, target *snapshot) *topologyView {
 		buildingsByCapacityKey: desiredBuildingCapacityMap(buildingRows, target.buildings),
 		racksByLabel:           desiredRackMap(rackRows, target.racks, buildingRows, target.buildings),
 	}
-	tv.buildingsByName, tv.buildingAmbig = desiredBuildingNameLookup(buildingRows, target.buildings)
 	return tv
 }
 
@@ -228,17 +216,16 @@ func resolveSites(rows []map[string]string, existingByID map[int64]sitemodels.Si
 }
 
 // resolveBuildings resolves BUILDING rows, linking each to its resolved site.
-// Site precedence: site_id wins, then site name; a blank or unknown reference
-// keeps the raw label with no linked node. A site_id/site-name mismatch is an error.
+// The site reference cell has already been canonicalized to a site name by
+// resolveReferences; a blank or unknown name keeps the raw label with no linked
+// node.
 func resolveBuildings(
 	rows []map[string]string,
 	existingByID map[int64]buildingmodels.Building,
-	sitesByID map[int64]sitemodels.Site,
 	sitesByName map[string]sitemodels.Site,
 	sitesByNode map[string]*resolvedSite,
 ) ([]*resolvedBuilding, []*pb.ImportValidationError) {
 	out := make([]*resolvedBuilding, 0, len(rows))
-	var errs []*pb.ImportValidationError
 	for i, row := range rows {
 		rn := rowNumber(row, i+1)
 		node := &resolvedBuilding{
@@ -255,34 +242,19 @@ func resolveBuildings(
 				node.prevSiteLabel = existing.SiteLabel
 			}
 		}
-
-		siteName := row[fieldSite]
-		if siteID, ok := idFromCell(row[fieldSiteID]); ok {
-			if site, found := sitesByID[siteID]; found {
-				if siteName != "" && siteName != site.Name {
-					errs = append(errs, csvErr(rn, "BUILDING", "site_id "+quote(row[fieldSiteID])+" does not match site "+quote(siteName)))
-					out = append(out, node)
-					continue
-				}
-				siteName = site.Name
-			}
-		}
-		node.siteLabel = siteName
-		node.site = linkSite(siteName, sitesByName, sitesByNode)
+		node.siteLabel = row[fieldSite]
+		node.site = linkSite(row[fieldSite], sitesByName, sitesByNode)
 		out = append(out, node)
 	}
-	return out, errs
+	return out, nil
 }
 
-// resolveRacks resolves RACK rows, linking each to its building and site.
-// Precedence: building_id wins and dictates the site; otherwise a blank site is
-// inferred from an unambiguous building name.
+// resolveRacks resolves RACK rows. The building and site reference cells have
+// already been canonicalized to names by resolveReferences (a building reference
+// also fills the site), so this just records the resolved labels.
 func resolveRacks(
 	rows []map[string]string,
 	existingByID map[int64]rackSnapshot,
-	buildingsByID map[int64]buildingmodels.Building,
-	inferSiteByBuilding map[string]buildingmodels.Building,
-	inferAmbiguous map[string]bool,
 ) ([]*resolvedRack, []*pb.ImportValidationError) {
 	out := make([]*resolvedRack, 0, len(rows))
 	for i, row := range rows {
@@ -299,24 +271,12 @@ func resolveRacks(
 			siteLabel:       row[fieldSite],
 			siteRef:         row[fieldSite],
 			buildingRef:     row[fieldBuilding],
-			hasBuildingID:   row[fieldBuildingID] != "",
 			rowNum:          rn,
 		}
 		if id, ok := rowID(row); ok {
 			node.id = int64Ptr(id)
 			if existing, found := existingByID[id]; found {
 				node.prevLabel = existing.Label
-			}
-		}
-		if buildingID, ok := idFromCell(row[fieldBuildingID]); ok {
-			node.buildingIDRef = int64Ptr(buildingID)
-			if building, found := buildingsByID[buildingID]; found {
-				node.buildingLabel = building.Name
-				node.siteLabel = building.SiteLabel
-			}
-		} else if node.siteLabel == "" && node.buildingLabel != "" && !inferAmbiguous[node.buildingLabel] {
-			if b, found := inferSiteByBuilding[node.buildingLabel]; found {
-				node.siteLabel = b.SiteLabel
 			}
 		}
 		out = append(out, node)
@@ -330,21 +290,17 @@ func resolveMiners(rows []map[string]string, existingByID map[string]minerSnapsh
 	out := make([]*resolvedMiner, 0, len(rows))
 	for i, row := range rows {
 		node := &resolvedMiner{
-			deviceID:       row["device_identifier"],
-			name:           row[fieldName],
-			serialNumber:   row["serial_number"],
-			ipAddress:      row["ip_address"],
-			macAddress:     row["mac_address"],
-			rackLabel:      row[fieldRack],
-			siteLabel:      row[fieldSite],
-			buildLabel:     row[fieldBuilding],
-			rackRow:        row["rack_row"],
-			rackCol:        row["rack_col"],
-			siteIDCell:     row[fieldSiteID],
-			buildingIDCell: row[fieldBuildingID],
-			rackIDCell:     row[fieldRackID],
-			hasBuildingID:  row[fieldBuildingID] != "",
-			rowNum:         rowNumber(row, i+1),
+			deviceID:     row["device_identifier"],
+			name:         row[fieldName],
+			serialNumber: row["serial_number"],
+			ipAddress:    row["ip_address"],
+			macAddress:   row["mac_address"],
+			rackLabel:    row[fieldRack],
+			siteLabel:    row[fieldSite],
+			buildLabel:   row[fieldBuilding],
+			rackRow:      row["rack_row"],
+			rackCol:      row["rack_col"],
+			rowNum:       rowNumber(row, i+1),
 		}
 		if existing, ok := existingByID[node.deviceID]; ok {
 			e := existing
@@ -364,8 +320,7 @@ func classifyMinerMoves(miners []*resolvedMiner, tv *topologyView) {
 			continue
 		}
 		desiredSite, desiredBuilding := minerDesiredSiteBuilding(m, tv)
-		if !minerPlacementIDsMatchNode(m) ||
-			desiredSite != m.existing.Site ||
+		if desiredSite != m.existing.Site ||
 			desiredBuilding != m.existing.Building ||
 			m.rackLabel != m.existing.Rack ||
 			m.rackRow != m.existing.RackRow ||
@@ -375,51 +330,16 @@ func classifyMinerMoves(miners []*resolvedMiner, tv *topologyView) {
 	}
 }
 
-// minerDesiredSiteBuilding resolves the site and building a miner row targets,
-// following rack, then building_id, then unambiguous building name.
+// minerDesiredSiteBuilding resolves the site and building a miner row targets. A
+// rack reference dictates both; otherwise the row's canonicalized site/building
+// names are authoritative (resolveReferences already filled the site from a
+// building reference).
 func minerDesiredSiteBuilding(m *resolvedMiner, tv *topologyView) (string, string) {
 	if m.rackLabel != "" {
 		rack := tv.racksByLabel[m.rackLabel]
 		return rack.Site, rack.Building
 	}
-	if id, ok := idFromCell(m.buildingIDCell); ok {
-		if building, ok := tv.buildingsByLayoutID[id]; ok {
-			return building.SiteLabel, building.Name
-		}
-	}
-	if m.siteLabel == "" && m.buildLabel != "" && !tv.buildingAmbig[m.buildLabel] {
-		if building, ok := tv.buildingsByName[m.buildLabel]; ok {
-			return building.SiteLabel, m.buildLabel
-		}
-	}
 	return m.siteLabel, m.buildLabel
-}
-
-// minerPlacementIDsMatchNode reports whether the row's supplied *_id cells agree
-// with the existing miner's placement ids. The rack id is ignored when the row
-// declares no rack.
-func minerPlacementIDsMatchNode(m *resolvedMiner) bool {
-	checks := []struct {
-		cell   string
-		want   *int64
-		isRack bool
-	}{
-		{m.siteIDCell, m.existing.SiteID, false},
-		{m.buildingIDCell, m.existing.BuildingID, false},
-		{m.rackIDCell, m.existing.RackID, true},
-	}
-	for _, c := range checks {
-		if c.isRack && m.rackLabel == "" {
-			continue
-		}
-		if c.cell == "" {
-			continue
-		}
-		if c.cell != formatNullableInt64(c.want) {
-			return false
-		}
-	}
-	return true
 }
 
 // validateMinerRenamePermission rejects renaming an existing miner without the
@@ -505,19 +425,6 @@ func validateRackPlacementTargets(racks []*resolvedRack, tv *topologyView) []*pb
 		if r.buildingRef == "" {
 			continue
 		}
-		if r.siteRef == "" {
-			if r.hasBuildingID {
-				continue
-			}
-			if tv.buildingAmbig[r.buildingRef] {
-				errs = append(errs, csvErr(r.rowNum, "RACK", fmt.Sprintf("rack building %q is ambiguous; add site or building_id", r.buildingRef)))
-				continue
-			}
-			if _, ok := tv.buildingsByName[r.buildingRef]; !ok {
-				errs = append(errs, csvErr(r.rowNum, "RACK", fmt.Sprintf("unknown building %q", r.buildingRef)))
-			}
-			continue
-		}
 		if !tv.buildingKeys[r.siteRef+"\x00"+r.buildingRef] {
 			errs = append(errs, csvErr(r.rowNum, "RACK", fmt.Sprintf("unknown building %q for site %q", r.buildingRef, r.siteRef)))
 		}
@@ -545,31 +452,8 @@ func validatePlacementConsistency(miners []*resolvedMiner, tv *topologyView) []*
 			continue
 		}
 		if m.buildLabel != "" {
-			if m.hasBuildingID {
-				continue
-			}
-			if m.siteLabel != "" {
-				building, ok := tv.buildingsByKey[m.siteLabel+"\x00"+m.buildLabel]
-				if !ok {
-					errs = append(errs, csvErr(m.rowNum, "MINER", fmt.Sprintf("unknown building %q for site %q", m.buildLabel, m.siteLabel)))
-					continue
-				}
-				if m.siteLabel != building.SiteLabel {
-					errs = append(errs, csvErr(m.rowNum, "MINER", fmt.Sprintf("miner site %q does not match building site %q", m.siteLabel, building.SiteLabel)))
-				}
-				continue
-			}
-			if tv.buildingAmbig[m.buildLabel] {
-				errs = append(errs, csvErr(m.rowNum, "MINER", fmt.Sprintf("miner building %q is ambiguous; add site or building_id", m.buildLabel)))
-				continue
-			}
-			building, ok := tv.buildingsByName[m.buildLabel]
-			if !ok {
-				errs = append(errs, csvErr(m.rowNum, "MINER", fmt.Sprintf("unknown building %q", m.buildLabel)))
-				continue
-			}
-			if m.siteLabel != "" && m.siteLabel != building.SiteLabel {
-				errs = append(errs, csvErr(m.rowNum, "MINER", fmt.Sprintf("miner site %q does not match building site %q", m.siteLabel, building.SiteLabel)))
+			if _, ok := tv.buildingsByKey[m.siteLabel+"\x00"+m.buildLabel]; !ok {
+				errs = append(errs, csvErr(m.rowNum, "MINER", fmt.Sprintf("unknown building %q for site %q", m.buildLabel, m.siteLabel)))
 			}
 			continue
 		}
@@ -629,10 +513,6 @@ func validateRackGridPositions(racks []*resolvedRack, tv *topologyView) []*pb.Im
 }
 
 func rackGridBuilding(r *resolvedRack, tv *topologyView) (buildingmodels.Building, bool) {
-	if r.buildingIDRef != nil {
-		building, ok := tv.buildingsByLayoutID[*r.buildingIDRef]
-		return building, ok
-	}
 	building, ok := tv.buildingsByKey[r.siteRef+"\x00"+r.buildingRef]
 	return building, ok
 }

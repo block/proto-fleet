@@ -40,18 +40,16 @@ func TestBuildSiteMapExportZipIncludesCSVAndAgentGuide(t *testing.T) {
 	if !strings.Contains(csvText, "# SECTION: MINER") {
 		t.Fatalf("%s missing MINER section: %q", siteMapExportCSVPath, csvText)
 	}
-	if !strings.Contains(csvText, "label,id (read only),building_id,building,site_id,site,zone,rows,columns,order_index,aisle_index,position_in_aisle") {
+	if !strings.Contains(csvText, "label,id (read only),building,site,zone,rows,columns,order_index,aisle_index,position_in_aisle") {
 		t.Fatalf("%s missing expected RACK headers: %q", siteMapExportCSVPath, csvText)
 	}
 
 	guideText := files[siteMapExportGuideTXTPath]
 	for _, want := range []string{
 		"Edit proto-fleet-site-map/site-map.csv",
-		"If rack is set, the rack determines the miner's building and site.",
-		"ID columns identify existing records or disambiguate references.",
+		"If rack is set, the rack determines the miner's building and site; leave building and site blank.",
 		"Leave omitted rows in place keeps missing rows unchanged.",
 		"Remove omitted rows soft-deletes omitted sites, buildings, and racks, and unassigns omitted miners.",
-		"Prefer name references unless an ID is needed to disambiguate.",
 	} {
 		if !strings.Contains(guideText, want) {
 			t.Fatalf("%s missing %q: %q", siteMapExportGuideTXTPath, want, guideText)
@@ -93,11 +91,11 @@ name,id (read only)
 Site A,1
 
 # SECTION: BUILDING
-name,id (read only),site_id,site,aisles,racks_per_aisle
-Building A,10,1,Site A,1,1
+name,id (read only),site,aisles,racks_per_aisle
+Building A,10,1,1,1
 
 # SECTION: MINER
-device_identifier (read only),serial_number (read only),name,ip_address (read only),mac_address (read only),site_id,site,building_id,building,rack_id,rack,rack_row,rack_col
+device_identifier (read only),serial_number (read only),name,ip_address (read only),mac_address (read only),site,building,rack,rack_row,rack_col
 `
 	_, errs := parseSiteMapCSV([]byte(csv))
 	if !hasValidationError(errs, "RACK", "missing section") {
@@ -149,8 +147,8 @@ func TestBuildPlanWithRemoveOmittedSummarizesDeletes(t *testing.T) {
 
 func TestBuildPlanSummarizesNewTopologyRows(t *testing.T) {
 	csv := strings.Replace(validCSV(), "Site A,\n", "Site A,\nNew Site,\n", 1)
-	csv = strings.Replace(csv, "Building A,,,Site A,2,2\n", "Building A,,,Site A,2,2\nNew Building,,,Site A,2,2\n", 1)
-	csv = strings.Replace(csv, "Rack A,,,Building A,,,Z1,4,6,BOTTOM_LEFT,0,0\n", "Rack A,,,Building A,,,Z1,4,6,BOTTOM_LEFT,0,0\nNew Rack,,,Building A,,,Z1,4,6,BOTTOM_LEFT,0,1\n", 1)
+	csv = strings.Replace(csv, "Building A,,NAME:Site A,2,2\n", "Building A,,NAME:Site A,2,2\nNew Building,,NAME:Site A,2,2\n", 1)
+	csv = strings.Replace(csv, "Rack A,,NAME:Building A,,Z1,4,6,BOTTOM_LEFT,0,0\n", "Rack A,,NAME:Building A,,Z1,4,6,BOTTOM_LEFT,0,0\nNew Rack,,NAME:Building A,,Z1,4,6,BOTTOM_LEFT,0,1\n", 1)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v", errs)
@@ -169,9 +167,9 @@ func TestBuildPlanSummarizesNewTopologyRows(t *testing.T) {
 
 func TestBuildPlanAllowsMinerPlacementIntoNewTopologyRows(t *testing.T) {
 	csv := strings.Replace(validCSV(), "Site A,\n", "Site A,\nNew Site,\n", 1)
-	csv = strings.Replace(csv, "Building A,,,Site A,2,2\n", "Building A,,,Site A,2,2\nNew Building,,,New Site,2,2\n", 1)
-	csv = strings.Replace(csv, "Rack A,,,Building A,,,Z1,4,6,BOTTOM_LEFT,0,0\n", "Rack A,,,Building A,,,Z1,4,6,BOTTOM_LEFT,0,0\nNew Rack,,,New Building,,,Z2,4,6,BOTTOM_LEFT,0,1\n", 1)
-	csv = strings.Replace(csv, "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,New Rack,0,0", 1)
+	csv = strings.Replace(csv, "Building A,,NAME:Site A,2,2\n", "Building A,,NAME:Site A,2,2\nNew Building,,NAME:New Site,2,2\n", 1)
+	csv = strings.Replace(csv, "Rack A,,NAME:Building A,,Z1,4,6,BOTTOM_LEFT,0,0\n", "Rack A,,NAME:Building A,,Z1,4,6,BOTTOM_LEFT,0,0\nNew Rack,,NAME:New Building,,Z2,4,6,BOTTOM_LEFT,0,1\n", 1)
+	csv = strings.Replace(csv, "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,NAME:Rack A,0,0", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,NAME:New Rack,0,0", 1)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v", errs)
@@ -314,10 +312,10 @@ func TestBuildPlanInfersRackSiteAfterBuildingSiteIDNormalization(t *testing.T) {
 			{"__row": "3", fieldID: "1", fieldName: "Site A"},
 		},
 		"BUILDING": {
-			{"__row": "7", fieldName: "Building A", fieldSiteID: "1", "aisles": "1", "racks_per_aisle": "2"},
+			{"__row": "7", fieldName: "Building A", fieldSite: "1", "aisles": "1", "racks_per_aisle": "2"},
 		},
 		"RACK": {
-			{"__row": "11", fieldLabel: "Rack A", fieldBuilding: "Building A", "rows": "4", "columns": "6", "order_index": "BOTTOM_LEFT"},
+			{"__row": "11", fieldLabel: "Rack A", fieldBuilding: "NAME:Building A", "rows": "4", "columns": "6", "order_index": "BOTTOM_LEFT"},
 		},
 		"MINER": nil,
 	}}
@@ -325,70 +323,24 @@ func TestBuildPlanInfersRackSiteAfterBuildingSiteIDNormalization(t *testing.T) {
 
 	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
 	if len(plan.errors) != 0 {
-		t.Fatalf("plan errors = %+v, want site_id-backed rack inference accepted", plan.errors)
+		t.Fatalf("plan errors = %+v, want site-backed rack inference accepted", plan.errors)
 	}
 	if got := parsed.sections["RACK"][0][fieldSite]; got != "Site A" {
 		t.Fatalf("rack site = %q, want inferred Site A", got)
 	}
 }
 
-func TestBuildPlanRejectsRackIDWithContradictoryMinerParentIDs(t *testing.T) {
-	parsed := &parsedCSV{sections: map[string][]map[string]string{
-		"SITE": {
-			{"__row": "3", fieldID: "1", fieldName: "Site A"},
-			{"__row": "4", fieldID: "2", fieldName: "Site B"},
-		},
-		"BUILDING": {
-			{"__row": "7", fieldID: "10", fieldName: "Building A", fieldSiteID: "1", "aisles": "1", "racks_per_aisle": "2"},
-			{"__row": "8", fieldID: "11", fieldName: "Building B", fieldSiteID: "2", "aisles": "1", "racks_per_aisle": "2"},
-		},
-		"RACK": {
-			{"__row": "11", fieldID: "20", fieldLabel: "Rack A", fieldBuildingID: "10", "rows": "4", "columns": "6", "order_index": "BOTTOM_LEFT"},
-		},
-		"MINER": {
-			{"__row": "15", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.1", "mac_address": "aa:bb:cc:dd:ee:ff", fieldSiteID: "2", fieldRackID: "20"},
-			{"__row": "16", "device_identifier": "miner-2", "serial_number": "SN2", fieldName: "Miner 2", "ip_address": "10.0.0.2", "mac_address": "aa:bb:cc:dd:ee:00", fieldBuildingID: "11", fieldRackID: "20"},
-		},
-	}}
-	siteAID := int64(1)
-	siteBID := int64(2)
-	buildingAID := int64(10)
-	snap := &snapshot{
-		sites: []sitemodels.Site{
-			{ID: 1, Name: "Site A"},
-			{ID: 2, Name: "Site B"},
-		},
-		buildings: []buildingmodels.Building{
-			{ID: 10, SiteID: &siteAID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 2},
-			{ID: 11, SiteID: &siteBID, SiteLabel: "Site B", Name: "Building B", Aisles: 1, RacksPerAisle: 2},
-		},
-		racks: []rackSnapshot{{ID: 20, SiteID: &siteAID, BuildingID: &buildingAID, Site: "Site A", Building: "Building A", Label: "Rack A", Rows: 4, Columns: 6, OrderIndex: "BOTTOM_LEFT"}},
-		miners: []minerSnapshot{
-			{DeviceIdentifier: "miner-1", SerialNumber: "SN1", Name: "Miner 1", IPAddress: "10.0.0.1", MACAddress: "aa:bb:cc:dd:ee:ff"},
-			{DeviceIdentifier: "miner-2", SerialNumber: "SN2", Name: "Miner 2", IPAddress: "10.0.0.2", MACAddress: "aa:bb:cc:dd:ee:00"},
-		},
-	}
-
-	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	if !hasValidationError(plan.errors, "MINER", `site_id "2" does not match rack_id "20"`) {
-		t.Fatalf("plan errors = %+v, want site_id/rack_id mismatch", plan.errors)
-	}
-	if !hasValidationError(plan.errors, "MINER", `building_id "11" does not match rack_id "20"`) {
-		t.Fatalf("plan errors = %+v, want building_id/rack_id mismatch", plan.errors)
-	}
-}
-
-func TestNormalizeIDReferencesRefreshesRackSiteIDFromSiteName(t *testing.T) {
+func TestResolveReferencesRefreshesRackSiteFromSiteID(t *testing.T) {
 	siteAID := int64(1)
 	siteBID := int64(2)
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE":     nil,
 		"BUILDING": nil,
 		"RACK": {
-			{"__row": "11", fieldID: "20", fieldLabel: "Rack A", fieldSite: "Site B"},
+			{"__row": "11", fieldID: "20", fieldLabel: "Rack A", fieldSite: "2"},
 		},
 		"MINER": {
-			{"__row": "15", "device_identifier": "miner-1", fieldSiteID: "2", fieldRackID: "20"},
+			{"__row": "15", "device_identifier": "miner-1", fieldRack: "20"},
 		},
 	}}
 	snap := &snapshot{
@@ -400,13 +352,16 @@ func TestNormalizeIDReferencesRefreshesRackSiteIDFromSiteName(t *testing.T) {
 		miners: []minerSnapshot{{DeviceIdentifier: "miner-1"}},
 	}
 
-	errs := normalizeIDReferences(parsed, snap)
+	errs := resolveReferences(parsed, snap)
 	if len(errs) != 0 {
-		t.Fatalf("normalizeIDReferences errors = %+v, want rack site name to refresh desired site_id", errs)
+		t.Fatalf("resolveReferences errors = %+v, want rack site id to canonicalize", errs)
+	}
+	if got := parsed.sections["RACK"][0][fieldSite]; got != "Site B" {
+		t.Fatalf("rack site = %q, want canonical Site B", got)
 	}
 }
 
-func TestNormalizeIDReferencesResolvesRackBuildingMoveFromNames(t *testing.T) {
+func TestResolveReferencesResolvesRackBuildingMoveFromID(t *testing.T) {
 	siteAID := int64(1)
 	siteBID := int64(2)
 	buildingAID := int64(10)
@@ -414,10 +369,10 @@ func TestNormalizeIDReferencesResolvesRackBuildingMoveFromNames(t *testing.T) {
 		"SITE":     nil,
 		"BUILDING": nil,
 		"RACK": {
-			{"__row": "11", fieldID: "20", fieldLabel: "Rack A", fieldSite: "Site B", fieldBuilding: "Building B"},
+			{"__row": "11", fieldID: "20", fieldLabel: "Rack A", fieldBuilding: "11"},
 		},
 		"MINER": {
-			{"__row": "15", "device_identifier": "miner-1", fieldBuildingID: "11", fieldRackID: "20"},
+			{"__row": "15", "device_identifier": "miner-1", fieldRack: "20"},
 		},
 	}}
 	snap := &snapshot{
@@ -433,34 +388,15 @@ func TestNormalizeIDReferencesResolvesRackBuildingMoveFromNames(t *testing.T) {
 		miners: []minerSnapshot{{DeviceIdentifier: "miner-1"}},
 	}
 
-	errs := normalizeIDReferences(parsed, snap)
+	errs := resolveReferences(parsed, snap)
 	if len(errs) != 0 {
-		t.Fatalf("normalizeIDReferences errors = %+v, want name-based rack building move to refresh desired building_id", errs)
+		t.Fatalf("resolveReferences errors = %+v, want id-based rack building move to canonicalize", errs)
 	}
-}
-
-func TestNormalizeIDReferencesRejectsRackBuildingIDSiteMismatch(t *testing.T) {
-	siteAID := int64(1)
-	siteBID := int64(2)
-	parsed := &parsedCSV{sections: map[string][]map[string]string{
-		"SITE":     nil,
-		"BUILDING": nil,
-		"RACK": {
-			{"__row": "11", fieldLabel: "Rack A", fieldBuildingID: "10", fieldBuilding: "Building A", fieldSiteID: "2", fieldSite: "Site B"},
-		},
-		"MINER": nil,
-	}}
-	snap := &snapshot{
-		sites: []sitemodels.Site{
-			{ID: siteAID, Name: "Site A"},
-			{ID: siteBID, Name: "Site B"},
-		},
-		buildings: []buildingmodels.Building{{ID: 10, SiteID: &siteAID, SiteLabel: "Site A", Name: "Building A"}},
+	if got := parsed.sections["RACK"][0][fieldBuilding]; got != "Building B" {
+		t.Fatalf("rack building = %q, want canonical Building B", got)
 	}
-
-	errs := normalizeIDReferences(parsed, snap)
-	if !hasValidationError(errs, "RACK", `building_id "10" does not match site_id "2"`) {
-		t.Fatalf("normalizeIDReferences errors = %+v, want building_id/site_id mismatch", errs)
+	if got := parsed.sections["RACK"][0][fieldSite]; got != "Site B" {
+		t.Fatalf("rack site = %q, want Site B inherited from building", got)
 	}
 }
 
@@ -470,14 +406,13 @@ func TestBuildPlanRejectsIDRenamesCollidingWithRetainedOmittedTopology(t *testin
 			{"__row": "3", fieldID: "1", fieldName: "Site B"},
 		},
 		"BUILDING": {
-			{"__row": "7", fieldID: "10", fieldName: "Building B", fieldSite: "Site A", "aisles": "1", "racks_per_aisle": "1"},
+			{"__row": "7", fieldID: "10", fieldName: "Building B", fieldSite: "3", "aisles": "1", "racks_per_aisle": "1"},
 		},
 		"RACK": {
 			{"__row": "11", fieldID: "20", fieldLabel: "Rack B", "rows": "4", "columns": "6", "order_index": "BOTTOM_LEFT"},
 		},
 		"MINER": nil,
 	}}
-	siteAID := int64(1)
 	siteCID := int64(3)
 	snap := &snapshot{
 		sites: []sitemodels.Site{
@@ -487,7 +422,7 @@ func TestBuildPlanRejectsIDRenamesCollidingWithRetainedOmittedTopology(t *testin
 		},
 		buildings: []buildingmodels.Building{
 			{ID: 10, SiteID: &siteCID, SiteLabel: "Site C", Name: "Building A", Aisles: 1, RacksPerAisle: 1},
-			{ID: 11, SiteID: &siteAID, SiteLabel: "Site A", Name: "Building B", Aisles: 1, RacksPerAisle: 1},
+			{ID: 11, SiteID: &siteCID, SiteLabel: "Site C", Name: "Building B", Aisles: 1, RacksPerAisle: 1},
 		},
 		racks: []rackSnapshot{
 			{ID: 20, Label: "Rack A", Rows: 4, Columns: 6},
@@ -540,8 +475,8 @@ func TestBuildPlanRejectsRemoveOmittedDuplicateFinalBuildingNames(t *testing.T) 
 			{"__row": "3", fieldID: "1", fieldName: "Site A"},
 		},
 		"BUILDING": {
-			{"__row": "7", fieldID: "10", fieldName: "Building B", fieldSite: "Site A", "aisles": "1", "racks_per_aisle": "1"},
-			{"__row": "8", fieldID: "11", fieldName: "Building B", fieldSite: "Site A", "aisles": "1", "racks_per_aisle": "1"},
+			{"__row": "7", fieldID: "10", fieldName: "Building B", fieldSite: "1", "aisles": "1", "racks_per_aisle": "1"},
+			{"__row": "8", fieldID: "11", fieldName: "Building B", fieldSite: "1", "aisles": "1", "racks_per_aisle": "1"},
 		},
 		"RACK":  nil,
 		"MINER": nil,
@@ -568,7 +503,7 @@ func TestBuildPlanRejectsTransientBuildingMoveRenameCollisions(t *testing.T) {
 			{"__row": "4", fieldID: "2", fieldName: "Site B"},
 		},
 		"BUILDING": {
-			{"__row": "7", fieldID: "10", fieldName: "Building Y", fieldSite: "Site B", "aisles": "1", "racks_per_aisle": "1"},
+			{"__row": "7", fieldID: "10", fieldName: "Building Y", fieldSite: "2", "aisles": "1", "racks_per_aisle": "1"},
 		},
 		"RACK":  nil,
 		"MINER": nil,
@@ -599,8 +534,8 @@ func TestBuildPlanRejectsSameSiteBuildingRenameSwaps(t *testing.T) {
 			{"__row": "3", fieldID: "1", fieldName: "Site A"},
 		},
 		"BUILDING": {
-			{"__row": "7", fieldID: "10", fieldName: "Building Y", fieldSite: "Site A", "aisles": "1", "racks_per_aisle": "1"},
-			{"__row": "8", fieldID: "11", fieldName: "Building X", fieldSite: "Site A", "aisles": "1", "racks_per_aisle": "1"},
+			{"__row": "7", fieldID: "10", fieldName: "Building Y", fieldSite: "1", "aisles": "1", "racks_per_aisle": "1"},
+			{"__row": "8", fieldID: "11", fieldName: "Building X", fieldSite: "1", "aisles": "1", "racks_per_aisle": "1"},
 		},
 		"RACK":  nil,
 		"MINER": nil,
@@ -672,7 +607,7 @@ func TestBuildPlanRejectsUnassignedBuildingIDMoveCollidingWithRetainedBuilding(t
 			{"__row": "3", fieldName: "Site A"},
 		},
 		"BUILDING": {
-			{"__row": "7", fieldID: "10", fieldName: "Building B", fieldSite: "Site A", "aisles": "1", "racks_per_aisle": "1"},
+			{"__row": "7", fieldID: "10", fieldName: "Building B", fieldSite: "NAME:Site A", "aisles": "1", "racks_per_aisle": "1"},
 		},
 		"RACK":  nil,
 		"MINER": nil,
@@ -698,7 +633,7 @@ func TestBuildPlanRejectsOldSiteReferenceAfterIDRename(t *testing.T) {
 			{"__row": "3", fieldID: "1", fieldName: "New Site"},
 		},
 		"BUILDING": {
-			{"__row": "7", fieldName: "Building A", fieldSite: "Old Site", "aisles": "1", "racks_per_aisle": "1"},
+			{"__row": "7", fieldName: "Building A", fieldSite: "NAME:Old Site", "aisles": "1", "racks_per_aisle": "1"},
 		},
 		"RACK":  nil,
 		"MINER": nil,
@@ -708,7 +643,7 @@ func TestBuildPlanRejectsOldSiteReferenceAfterIDRename(t *testing.T) {
 	}
 
 	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	if !hasValidationError(plan.errors, "BUILDING", `unknown site "Old Site"`) {
+	if !hasValidationError(plan.errors, "BUILDING", "site reference NAME:Old Site matches no SITE row in this import") {
 		t.Fatalf("plan errors = %+v, want old site reference rejected after ID rename", plan.errors)
 	}
 }
@@ -719,10 +654,10 @@ func TestBuildPlanRejectsOldBuildingReferenceAfterIDRename(t *testing.T) {
 			{"__row": "3", fieldName: "Site A"},
 		},
 		"BUILDING": {
-			{"__row": "7", fieldID: "10", fieldName: "New Building", fieldSite: "Site A", "aisles": "2", "racks_per_aisle": "2"},
+			{"__row": "7", fieldID: "10", fieldName: "New Building", fieldSite: "NAME:Site A", "aisles": "2", "racks_per_aisle": "2"},
 		},
 		"RACK": {
-			{"__row": "11", fieldLabel: "Rack A", fieldBuilding: "Old Building", fieldSite: "Site A", "rows": "4", "columns": "6"},
+			{"__row": "11", fieldLabel: "Rack A", fieldBuilding: "NAME:Old Building", "rows": "4", "columns": "6"},
 		},
 		"MINER": nil,
 	}}
@@ -736,7 +671,7 @@ func TestBuildPlanRejectsOldBuildingReferenceAfterIDRename(t *testing.T) {
 		t.Fatal("plan errors = nil, want old building reference rejected after ID rename")
 	}
 	for _, err := range plan.errors {
-		if strings.Contains(err.GetMessage(), `unknown building "Old Building"`) {
+		if strings.Contains(err.GetMessage(), "building reference NAME:Old Building matches no BUILDING row in this import") {
 			return
 		}
 	}
@@ -750,13 +685,13 @@ func TestBuildPlanResolvesSiteNameBuildingMoveForIDReferences(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE": nil,
 		"BUILDING": {
-			{"__row": "7", fieldID: "10", fieldName: "Building A", fieldSite: "Site B", "aisles": "1", "racks_per_aisle": "2"},
+			{"__row": "7", fieldID: "10", fieldName: "Building A", fieldSite: "2", "aisles": "1", "racks_per_aisle": "2"},
 		},
 		"RACK": {
-			{"__row": "11", fieldLabel: "Rack A", fieldBuildingID: "10", fieldBuilding: "Building A", "rows": "4", "columns": "6"},
+			{"__row": "11", fieldLabel: "Rack A", fieldBuilding: "10", "rows": "4", "columns": "6"},
 		},
 		"MINER": {
-			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldBuildingID: "10", fieldBuilding: "Building A"},
+			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldBuilding: "10"},
 		},
 	}}
 	snap := &snapshot{
@@ -774,11 +709,11 @@ func TestBuildPlanResolvesSiteNameBuildingMoveForIDReferences(t *testing.T) {
 	if len(plan.errors) != 0 {
 		t.Fatalf("plan errors = %+v, want site-name building move accepted", plan.errors)
 	}
-	if got := parsed.sections["RACK"][0][fieldSiteID]; got != "2" {
-		t.Fatalf("rack site_id = %q, want normalized Site B id", got)
+	if got := parsed.sections["RACK"][0][fieldSite]; got != "Site B" {
+		t.Fatalf("rack site = %q, want inherited Site B", got)
 	}
-	if got := parsed.sections["MINER"][0][fieldSiteID]; got != "2" {
-		t.Fatalf("miner site_id = %q, want normalized Site B id", got)
+	if got := parsed.sections["MINER"][0][fieldSite]; got != "Site B" {
+		t.Fatalf("miner site = %q, want inherited Site B", got)
 	}
 }
 
@@ -790,7 +725,7 @@ func TestBuildPlanAllowsRackTargetDisambiguatedByBuildingID(t *testing.T) {
 			{"__row": "6", fieldID: "11", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "2"},
 		},
 		"RACK": {
-			{"__row": "9", fieldLabel: "Rack A", fieldBuildingID: "10", fieldBuilding: "Building A", "rows": "4", "columns": "6"},
+			{"__row": "9", fieldLabel: "Rack A", fieldBuilding: "10", "rows": "4", "columns": "6"},
 		},
 		"MINER": nil,
 	}}
@@ -801,65 +736,7 @@ func TestBuildPlanAllowsRackTargetDisambiguatedByBuildingID(t *testing.T) {
 
 	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
 	if len(plan.errors) != 0 {
-		t.Fatalf("plan errors = %+v, want building_id-disambiguated rack accepted", plan.errors)
-	}
-}
-
-func TestBuildPlanRejectsNameOnlyDuplicateUnassignedBuildingReferences(t *testing.T) {
-	parsed := &parsedCSV{sections: map[string][]map[string]string{
-		"SITE":     nil,
-		"BUILDING": nil,
-		"RACK": {
-			{"__row": "9", fieldLabel: "Rack A", fieldBuilding: "Building A", "rows": "4", "columns": "6"},
-		},
-		"MINER": {
-			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldBuilding: "Building A"},
-		},
-	}}
-	snap := &snapshot{
-		buildings: []buildingmodels.Building{
-			{ID: 10, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
-			{ID: 11, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
-		},
-		miners: []minerSnapshot{{DeviceIdentifier: "miner-1", SerialNumber: "SN1", Name: "Miner 1", IPAddress: "10.0.0.5", MACAddress: "aa:bb:cc:dd:ee:ff"}},
-	}
-
-	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	if !hasValidationError(plan.errors, "RACK", `rack building "Building A" is ambiguous; add site or building_id`) {
-		t.Fatalf("plan errors = %+v, want rack ambiguous building error", plan.errors)
-	}
-	if !hasValidationError(plan.errors, "MINER", `miner building "Building A" is ambiguous; add site or building_id`) {
-		t.Fatalf("plan errors = %+v, want miner ambiguous building error", plan.errors)
-	}
-}
-
-func TestBuildPlanRejectsNameOnlyBuildingReferenceWithUnassignedTwin(t *testing.T) {
-	siteID := int64(1)
-	parsed := &parsedCSV{sections: map[string][]map[string]string{
-		"SITE":     nil,
-		"BUILDING": nil,
-		"RACK": {
-			{"__row": "9", fieldLabel: "Rack A", fieldBuilding: "Building A", "rows": "4", "columns": "6"},
-		},
-		"MINER": {
-			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldBuilding: "Building A"},
-		},
-	}}
-	snap := &snapshot{
-		sites: []sitemodels.Site{{ID: siteID, Name: "Site A"}},
-		buildings: []buildingmodels.Building{
-			{ID: 10, SiteID: &siteID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 2},
-			{ID: 11, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
-		},
-		miners: []minerSnapshot{{DeviceIdentifier: "miner-1", SerialNumber: "SN1", Name: "Miner 1", IPAddress: "10.0.0.5", MACAddress: "aa:bb:cc:dd:ee:ff"}},
-	}
-
-	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	if !hasValidationError(plan.errors, "RACK", `rack building "Building A" is ambiguous; add site or building_id`) {
-		t.Fatalf("plan errors = %+v, want rack ambiguous building error", plan.errors)
-	}
-	if !hasValidationError(plan.errors, "MINER", `miner building "Building A" is ambiguous; add site or building_id`) {
-		t.Fatalf("plan errors = %+v, want miner ambiguous building error", plan.errors)
+		t.Fatalf("plan errors = %+v, want building-id-disambiguated rack accepted", plan.errors)
 	}
 }
 
@@ -873,10 +750,10 @@ func TestBuildPlanRemoveOmittedAllowsIDQualifiedDuplicateUnassignedBuildingRefer
 			{"__row": "6", fieldID: "11", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "2"},
 		},
 		"RACK": {
-			{"__row": "9", fieldID: "20", fieldLabel: "Rack A", fieldBuildingID: "10", fieldBuilding: "Building A", "rows": "4", "columns": "6"},
+			{"__row": "9", fieldID: "20", fieldLabel: "Rack A", fieldBuilding: "10", "rows": "4", "columns": "6"},
 		},
 		"MINER": {
-			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldBuildingID: "11", fieldBuilding: "Building A"},
+			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldBuilding: "11"},
 		},
 	}}
 	snap := &snapshot{
@@ -898,7 +775,7 @@ func TestBuildPlanRemoveOmittedAllowsIDQualifiedDuplicateUnassignedBuildingRefer
 
 	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
 	if len(plan.errors) != 0 {
-		t.Fatalf("plan errors = %+v, want ID-qualified duplicate building references accepted", plan.errors)
+		t.Fatalf("plan errors = %+v, want ID-qualified building references accepted", plan.errors)
 	}
 }
 
@@ -911,18 +788,18 @@ func TestBuildPlanRemoveOmittedRejectsOmittedBuildingIDReferences(t *testing.T) 
 			{"__row": "6", fieldID: "11", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "2"},
 		},
 		"RACK": {
-			{"__row": "9", fieldID: "20", fieldLabel: "Rack A", fieldBuildingID: "10", fieldBuilding: "Building A", "rows": "4", "columns": "6"},
+			{"__row": "9", fieldID: "20", fieldLabel: "Rack A", fieldBuilding: "10", "rows": "4", "columns": "6"},
 		},
 		"MINER": {
-			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldBuildingID: "10", fieldBuilding: "Building A"},
+			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldBuilding: "10"},
 		},
 	}}
 	snap := &snapshot{
 		buildings: []buildingmodels.Building{
-			{ID: omittedBuildingID, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
+			{ID: omittedBuildingID, Name: "Building X", Aisles: 1, RacksPerAisle: 2},
 			{ID: retainedBuildingID, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
 		},
-		racks: []rackSnapshot{{ID: 20, Label: "Rack A", BuildingID: &omittedBuildingID, Building: "Building A", Rows: 4, Columns: 6}},
+		racks: []rackSnapshot{{ID: 20, Label: "Rack A", BuildingID: &omittedBuildingID, Building: "Building X", Rows: 4, Columns: 6}},
 		miners: []minerSnapshot{{
 			DeviceIdentifier: "miner-1",
 			SerialNumber:     "SN1",
@@ -930,16 +807,16 @@ func TestBuildPlanRemoveOmittedRejectsOmittedBuildingIDReferences(t *testing.T) 
 			IPAddress:        "10.0.0.5",
 			MACAddress:       "aa:bb:cc:dd:ee:ff",
 			BuildingID:       &omittedBuildingID,
-			Building:         "Building A",
+			Building:         "Building X",
 		}},
 	}
 
 	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
-	if !hasValidationError(plan.errors, "RACK", `rack building_id "10" is omitted`) {
-		t.Fatalf("plan errors = %+v, want rack omitted building_id error", plan.errors)
+	if !hasValidationError(plan.errors, "RACK", `rack building "Building X" for site "" is omitted`) {
+		t.Fatalf("plan errors = %+v, want rack omitted building error", plan.errors)
 	}
-	if !hasValidationError(plan.errors, "MINER", `miner building_id "10" is omitted`) {
-		t.Fatalf("plan errors = %+v, want miner omitted building_id error", plan.errors)
+	if !hasValidationError(plan.errors, "MINER", `miner building "Building X" for site "" is omitted`) {
+		t.Fatalf("plan errors = %+v, want miner omitted building error", plan.errors)
 	}
 }
 
@@ -951,7 +828,7 @@ func TestBuildPlanRejectsOldRackReferenceAfterIDRename(t *testing.T) {
 			{"__row": "9", fieldID: "20", fieldLabel: "New Rack", "rows": "4", "columns": "6"},
 		},
 		"MINER": {
-			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldRack: "Old Rack", "rack_row": "0", "rack_col": "0"},
+			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldRack: "NAME:Old Rack", "rack_row": "0", "rack_col": "0"},
 		},
 	}}
 	snap := &snapshot{
@@ -960,38 +837,8 @@ func TestBuildPlanRejectsOldRackReferenceAfterIDRename(t *testing.T) {
 	}
 
 	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	if !hasValidationError(plan.errors, "MINER", `unknown rack "Old Rack"`) {
+	if !hasValidationError(plan.errors, "MINER", "rack reference NAME:Old Rack matches no RACK row in this import") {
 		t.Fatalf("plan errors = %+v, want old rack reference rejected after ID rename", plan.errors)
-	}
-}
-
-func TestBuildPlanCountsMinerMoveDisambiguatedByBuildingID(t *testing.T) {
-	parsed := &parsedCSV{sections: map[string][]map[string]string{
-		"SITE": nil,
-		"BUILDING": {
-			{"__row": "5", fieldID: "10", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "2"},
-			{"__row": "6", fieldID: "11", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "2"},
-		},
-		"RACK": nil,
-		"MINER": {
-			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldBuildingID: "11", fieldBuilding: "Building A"},
-		},
-	}}
-	buildingID := int64(10)
-	snap := &snapshot{
-		buildings: []buildingmodels.Building{
-			{ID: 10, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
-			{ID: 11, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
-		},
-		miners: []minerSnapshot{{DeviceIdentifier: "miner-1", SerialNumber: "SN1", Name: "Miner 1", IPAddress: "10.0.0.5", MACAddress: "aa:bb:cc:dd:ee:ff", BuildingID: &buildingID, Building: "Building A"}},
-	}
-
-	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	if len(plan.errors) != 0 {
-		t.Fatalf("plan errors = %+v, want building_id-disambiguated miner move accepted", plan.errors)
-	}
-	if !hasChange(plan.changes, pb.ImportOperation_IMPORT_OPERATION_MOVE, "miner", 1) {
-		t.Fatalf("changes = %+v, want miner move summary", plan.changes)
 	}
 }
 
@@ -999,7 +846,7 @@ func TestBuildPlanRejectsBuildingUnknownSite(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE": nil,
 		"BUILDING": {
-			{"__row": "5", "site": "Typo Site", "building": "New Building", "aisles": "1", "racks_per_aisle": "1"},
+			{"__row": "5", "site": "NAME:Typo Site", "building": "New Building", "aisles": "1", "racks_per_aisle": "1"},
 		},
 		"RACK":  nil,
 		"MINER": nil,
@@ -1007,7 +854,7 @@ func TestBuildPlanRejectsBuildingUnknownSite(t *testing.T) {
 	snap := &snapshot{sites: []sitemodels.Site{{Name: "Site A"}}}
 
 	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	if len(plan.errors) != 1 || plan.errors[0].GetSection() != "BUILDING" || plan.errors[0].GetMessage() != `unknown site "Typo Site"` {
+	if len(plan.errors) != 1 || plan.errors[0].GetSection() != "BUILDING" || plan.errors[0].GetMessage() != "site reference NAME:Typo Site matches no SITE row in this import" {
 		t.Fatalf("plan errors = %+v, want building unknown site error", plan.errors)
 	}
 	if len(plan.changes) != 0 {
@@ -1019,19 +866,21 @@ func TestBuildPlanRemoveOmittedRejectsReferencesToOmittedParents(t *testing.T) {
 	parsed := &parsedCSV{sections: map[string][]map[string]string{
 		"SITE": nil,
 		"BUILDING": {
-			{"__row": "5", "site": "Site A", "building": "Building A", "aisles": "1", "racks_per_aisle": "1"},
+			{"__row": "5", fieldID: "10", "name": "Building A", "site": "1", "aisles": "1", "racks_per_aisle": "1"},
 		},
 		"RACK": {
-			{"__row": "9", "rack": "Rack A", "site": "Site A", "building": "Building A", "rows": "4", "columns": "6"},
+			{"__row": "9", fieldID: "20", "label": "Rack A", "building": "10", "rows": "4", "columns": "6"},
 		},
 		"MINER": {
-			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", "name": "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", "site": "Site A"},
+			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", "name": "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", "site": "1"},
 		},
 	}}
+	siteID := int64(1)
+	buildingID := int64(10)
 	snap := &snapshot{
-		sites:     []sitemodels.Site{{Name: "Site A"}},
-		buildings: []buildingmodels.Building{{SiteLabel: "Site A", Name: "Building A"}},
-		racks:     []rackSnapshot{{Label: "Rack A", Site: "Site A", Building: "Building A", Rows: 4, Columns: 6}},
+		sites:     []sitemodels.Site{{ID: 1, Name: "Site A"}},
+		buildings: []buildingmodels.Building{{ID: 10, SiteID: &siteID, SiteLabel: "Site A", Name: "Building A"}},
+		racks:     []rackSnapshot{{ID: 20, BuildingID: &buildingID, Label: "Rack A", Site: "Site A", Building: "Building A", Rows: 4, Columns: 6}},
 		miners:    []minerSnapshot{{DeviceIdentifier: "miner-1", SerialNumber: "SN1", Name: "Miner 1", IPAddress: "10.0.0.5", MACAddress: "aa:bb:cc:dd:ee:ff", Site: "Site A"}},
 	}
 
@@ -1068,7 +917,7 @@ func TestCommitTokenChangesWithSnapshotDrift(t *testing.T) {
 }
 
 func TestBuildPlanWithNoOmissionsSummarizesMinerPlacementChanges(t *testing.T) {
-	csv := strings.Replace(validCSV(), "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,1", 1)
+	csv := strings.Replace(validCSV(), "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,NAME:Rack A,0,0", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,NAME:Rack A,0,1", 1)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v", errs)
@@ -1094,7 +943,7 @@ func TestBuildPlanWithNoOmissionsSummarizesMinerPlacementChanges(t *testing.T) {
 }
 
 func TestBuildPlanSummarizesMinerRenames(t *testing.T) {
-	csv := strings.Replace(validCSV(), "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0", "miner-1,SN1,Renamed Miner,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0", 1)
+	csv := strings.Replace(validCSV(), "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,NAME:Rack A,0,0", "miner-1,SN1,Renamed Miner,10.0.0.5,aa:bb:cc:dd:ee:ff,,,NAME:Rack A,0,0", 1)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v", errs)
@@ -1112,8 +961,8 @@ func TestBuildPlanSummarizesMinerRenames(t *testing.T) {
 func TestBuildPlanReportsRowCitedErrors(t *testing.T) {
 	csv := strings.Replace(
 		validCSV(),
-		"miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0\n",
-		"miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0\nminer-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0\n",
+		"miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,NAME:Rack A,0,0\n",
+		"miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,NAME:Rack A,0,0\nminer-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,NAME:Rack A,0,0\n",
 		1,
 	)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
@@ -1140,8 +989,10 @@ func TestBuildPlanReportsRowCitedErrors(t *testing.T) {
 }
 
 func TestParseSiteMapCSVUnescapesFormulaProtectedExports(t *testing.T) {
-	csv := strings.Replace(validCSV(), "Rack A", "'-Rack", 1)
-	csv = strings.Replace(csv, "Rack A", "'-Rack", 1)
+	// Only the identity cell (the rack's own label) is escaped; the miner's rack
+	// reference points at that same-import rack by its (unescaped) label.
+	csv := strings.Replace(validCSV(), "Rack A,,NAME:Building A", "'-Rack,,NAME:Building A", 1)
+	csv = strings.Replace(csv, "NAME:Rack A", "NAME:-Rack", 1)
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
 		t.Fatalf("parse errors = %v", errs)
@@ -1150,8 +1001,8 @@ func TestParseSiteMapCSVUnescapesFormulaProtectedExports(t *testing.T) {
 	if got := parsed.sections["RACK"][0]["label"]; got != "-Rack" {
 		t.Fatalf("rack = %q, want unescaped -Rack", got)
 	}
-	if got := parsed.sections["MINER"][0]["rack"]; got != "-Rack" {
-		t.Fatalf("miner rack = %q, want unescaped -Rack", got)
+	if got := parsed.sections["MINER"][0]["rack"]; got != "NAME:-Rack" {
+		t.Fatalf("miner rack = %q, want reference to -Rack", got)
 	}
 }
 
@@ -1378,7 +1229,7 @@ func TestApplyMinerRowsClearsDirectPlacementWhenAssigningUnassignedRack(t *testi
 	buildingStore.EXPECT().AssignDevicesToBuilding(ctx, orgID, nil, deviceIDs).Return(int64(1), nil)
 	collectionStore.EXPECT().ClearRackSlotPosition(ctx, rack.ID, "miner-1", orgID).Return(nil)
 
-	if err := svc.applyMinerRows(ctx, orgID, rows, nil, nil, nil, nil, nil, map[string]rackSnapshot{"Rack A": rack}, existing); err != nil {
+	if err := svc.applyMinerRows(ctx, orgID, rows, nil, nil, map[string]rackSnapshot{"Rack A": rack}, existing); err != nil {
 		t.Fatalf("applyMinerRows error = %v", err)
 	}
 }
@@ -1467,7 +1318,7 @@ func TestApplyImportPlanMovesBuildingsBeforeDeletingOmittedSites(t *testing.T) {
 			{"__row": "3", fieldID: "2", fieldName: "Site B"},
 		},
 		"BUILDING": {
-			{"__row": "7", fieldID: "10", fieldName: "Building A", fieldSiteID: "2", fieldSite: "Site B", "aisles": "1", "racks_per_aisle": "2"},
+			{"__row": "7", fieldID: "10", fieldName: "Building A", fieldSite: "Site B", "aisles": "1", "racks_per_aisle": "2"},
 		},
 		"RACK":  nil,
 		"MINER": nil,
@@ -1554,7 +1405,6 @@ func TestApplyBuildingRowsLocksParentSiteBeforeCreate(t *testing.T) {
 	svc := NewService(siteStore, buildingStore, nil, nil, nil, nil, nil)
 	rows := []map[string]string{{
 		fieldName:         "Building A",
-		fieldSiteID:       "99",
 		fieldSite:         "Site A",
 		"aisles":          "2",
 		"racks_per_aisle": "3",
@@ -1570,12 +1420,12 @@ func TestApplyBuildingRowsLocksParentSiteBeforeCreate(t *testing.T) {
 		}),
 	)
 
-	if err := svc.applyBuildingRows(ctx, orgID, rows, map[string]sitemodels.Site{"Site A": {ID: siteID, Name: "Site A"}}, map[int64]sitemodels.Site{siteID: {ID: siteID, Name: "Site A"}}, map[string]buildingmodels.Building{}, map[int64]buildingmodels.Building{}); err != nil {
+	if err := svc.applyBuildingRows(ctx, orgID, rows, map[string]sitemodels.Site{"Site A": {ID: siteID, Name: "Site A"}}, map[string]buildingmodels.Building{}, map[int64]buildingmodels.Building{}); err != nil {
 		t.Fatalf("applyBuildingRows error = %v", err)
 	}
 }
 
-func TestApplyBuildingRowsMatchesBlankIDBySiteIDAfterSiteRename(t *testing.T) {
+func TestApplyBuildingRowsMatchesBlankIDBySiteAndName(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	ctx := context.Background()
 	orgID := int64(42)
@@ -1584,13 +1434,12 @@ func TestApplyBuildingRowsMatchesBlankIDBySiteIDAfterSiteRename(t *testing.T) {
 	siteStore := mocks.NewMockSiteStore(ctrl)
 	buildingStore := mocks.NewMockBuildingStore(ctrl)
 	svc := NewService(siteStore, buildingStore, nil, nil, nil, nil, nil)
-	building := buildingmodels.Building{ID: buildingID, Name: "Building A", SiteID: &siteID, SiteLabel: "Old Site", Aisles: 2, RacksPerAisle: 3}
+	building := buildingmodels.Building{ID: buildingID, Name: "Building A", SiteID: &siteID, SiteLabel: "Site A", Aisles: 2, RacksPerAisle: 3}
 	rows := []map[string]string{{
 		fieldName:         "Building A",
-		fieldSiteID:       "99",
-		fieldSite:         "New Site",
+		fieldSite:         "Site A",
 		"aisles":          "2",
-		"racks_per_aisle": "3",
+		"racks_per_aisle": "4",
 	}}
 
 	gomock.InOrder(
@@ -1601,7 +1450,7 @@ func TestApplyBuildingRowsMatchesBlankIDBySiteIDAfterSiteRename(t *testing.T) {
 			if params.ID != buildingID {
 				t.Fatalf("building id = %d, want %d", params.ID, buildingID)
 			}
-			return &buildingmodels.Building{ID: params.ID, Name: params.Name, SiteID: &siteID, SiteLabel: "New Site", Aisles: params.Aisles, RacksPerAisle: params.RacksPerAisle}, nil
+			return &buildingmodels.Building{ID: params.ID, Name: params.Name, SiteID: &siteID, SiteLabel: "Site A", Aisles: params.Aisles, RacksPerAisle: params.RacksPerAisle}, nil
 		}),
 	)
 
@@ -1609,9 +1458,8 @@ func TestApplyBuildingRowsMatchesBlankIDBySiteIDAfterSiteRename(t *testing.T) {
 		ctx,
 		orgID,
 		rows,
-		map[string]sitemodels.Site{"New Site": {ID: siteID, Name: "New Site"}},
-		map[int64]sitemodels.Site{siteID: {ID: siteID, Name: "New Site"}},
-		map[string]buildingmodels.Building{"Old Site\x00Building A": building},
+		map[string]sitemodels.Site{"Site A": {ID: siteID, Name: "Site A"}},
+		map[string]buildingmodels.Building{"Site A\x00Building A": building},
 		map[int64]buildingmodels.Building{buildingID: building},
 	); err != nil {
 		t.Fatalf("applyBuildingRows error = %v", err)
@@ -1632,7 +1480,6 @@ func TestApplyBuildingRowsMovesBeforeRename(t *testing.T) {
 	rows := []map[string]string{{
 		fieldID:           "10",
 		fieldName:         "Target Name",
-		fieldSiteID:       "2",
 		fieldSite:         "Site B",
 		"aisles":          "1",
 		"racks_per_aisle": "2",
@@ -1662,7 +1509,6 @@ func TestApplyBuildingRowsMovesBeforeRename(t *testing.T) {
 		orgID,
 		rows,
 		map[string]sitemodels.Site{"Site B": {ID: newSiteID, Name: "Site B"}},
-		map[int64]sitemodels.Site{newSiteID: {ID: newSiteID, Name: "Site B"}},
 		map[string]buildingmodels.Building{"Site A\x00Old Name": building},
 		map[int64]buildingmodels.Building{buildingID: building},
 	); err != nil {
@@ -1699,7 +1545,7 @@ func TestApplyBuildingRowsRechecksLayoutUnderLock(t *testing.T) {
 		}}, nil),
 	)
 
-	err := svc.applyBuildingRows(ctx, orgID, rows, nil, nil, map[string]buildingmodels.Building{"\x00Building A": building}, map[int64]buildingmodels.Building{buildingID: building})
+	err := svc.applyBuildingRows(ctx, orgID, rows, nil, map[string]buildingmodels.Building{"\x00Building A": building}, map[int64]buildingmodels.Building{buildingID: building})
 	if err == nil || !strings.Contains(err.Error(), "cannot shrink layout") {
 		t.Fatalf("applyBuildingRows error = %v, want shrink-layout rejection", err)
 	}
@@ -1717,13 +1563,12 @@ func TestApplyRackRowsUsesCurrentLockedBuildingSite(t *testing.T) {
 	collectionStore := mocks.NewMockCollectionStore(ctrl)
 	svc := NewService(siteStore, buildingStore, collectionStore, nil, nil, nil, nil)
 	rows := []map[string]string{{
-		fieldLabel:      "Rack A",
-		fieldBuildingID: "11",
-		fieldBuilding:   "Building A",
-		fieldSiteID:     "5",
-		"rows":          "4",
-		"columns":       "6",
-		"order_index":   "BOTTOM_LEFT",
+		fieldLabel:    "Rack A",
+		fieldBuilding: "Building A",
+		fieldSite:     "Old Site",
+		"rows":        "4",
+		"columns":     "6",
+		"order_index": "BOTTOM_LEFT",
 	}}
 
 	gomock.InOrder(
@@ -1742,7 +1587,7 @@ func TestApplyRackRowsUsesCurrentLockedBuildingSite(t *testing.T) {
 		buildingStore.EXPECT().SetRackBuildingPositionBulkClear(ctx, orgID, []int64{20}).Return(nil),
 	)
 
-	if err := svc.applyRackRows(ctx, orgID, rows, nil, map[int64]sitemodels.Site{staleSiteID: {ID: staleSiteID, Name: "Old Site"}}, nil, map[int64]buildingmodels.Building{buildingID: {ID: buildingID, Name: "Building A", SiteID: &staleSiteID}}, map[string]rackSnapshot{}, map[int64]rackSnapshot{}); err != nil {
+	if err := svc.applyRackRows(ctx, orgID, rows, map[string]sitemodels.Site{"Old Site": {ID: staleSiteID, Name: "Old Site"}}, map[string]buildingmodels.Building{"Old Site\x00Building A": {ID: buildingID, Name: "Building A", SiteID: &staleSiteID, SiteLabel: "Old Site"}}, map[string]rackSnapshot{}, map[int64]rackSnapshot{}); err != nil {
 		t.Fatalf("applyRackRows error = %v", err)
 	}
 }
@@ -1772,7 +1617,7 @@ func TestApplyRackRowsRechecksDimensionsUnderRackLock(t *testing.T) {
 		}}, nil),
 	)
 
-	err := svc.applyRackRows(ctx, orgID, rows, nil, nil, nil, nil, map[string]rackSnapshot{"Rack A": rack}, map[int64]rackSnapshot{20: rack})
+	err := svc.applyRackRows(ctx, orgID, rows, nil, nil, map[string]rackSnapshot{"Rack A": rack}, map[int64]rackSnapshot{20: rack})
 	if err == nil || !strings.Contains(err.Error(), "cannot resize rack") {
 		t.Fatalf("applyRackRows error = %v, want resize rejection", err)
 	}
@@ -1793,8 +1638,8 @@ func TestApplyMinerRowsUsesCurrentLockedBuildingSiteForDirectPlacement(t *testin
 	rows := []map[string]string{{
 		"device_identifier": "miner-1",
 		fieldName:           "Miner 1",
-		fieldBuildingID:     "11",
 		fieldBuilding:       "Building A",
+		fieldSite:           "Old Site",
 	}}
 	existing := map[string]minerSnapshot{
 		"miner-1": {DeviceIdentifier: "miner-1", Name: "Miner 1"},
@@ -1809,7 +1654,7 @@ func TestApplyMinerRowsUsesCurrentLockedBuildingSiteForDirectPlacement(t *testin
 		buildingStore.EXPECT().AssignDevicesToBuilding(ctx, orgID, &buildingID, deviceIDs).Return(int64(1), nil),
 	)
 
-	if err := svc.applyMinerRows(ctx, orgID, rows, nil, nil, nil, nil, map[int64]buildingmodels.Building{buildingID: {ID: buildingID, Name: "Building A", SiteID: &staleSiteID}}, nil, existing); err != nil {
+	if err := svc.applyMinerRows(ctx, orgID, rows, map[string]sitemodels.Site{"Old Site": {ID: staleSiteID, Name: "Old Site"}}, map[string]buildingmodels.Building{"Old Site\x00Building A": {ID: buildingID, Name: "Building A", SiteID: &staleSiteID, SiteLabel: "Old Site"}}, nil, existing); err != nil {
 		t.Fatalf("applyMinerRows error = %v", err)
 	}
 }
@@ -1969,7 +1814,7 @@ func TestCountBuildingUpdatesMatchesExistingRowsByID(t *testing.T) {
 	rows := []map[string]string{{
 		fieldName:         "Building A",
 		fieldID:           "20",
-		fieldSiteID:       "10",
+		fieldSite:         "Site A",
 		"aisles":          "2",
 		"racks_per_aisle": "2",
 	}}
@@ -1982,11 +1827,11 @@ func TestCountBuildingUpdatesMatchesExistingRowsByID(t *testing.T) {
 }
 
 func TestCountBuildingUpdatesIgnoresBlankIDCreateRows(t *testing.T) {
-	// Under id-authoritative resolution a blank-id row is a create, never a
-	// name-match against an existing building, so it is not an update.
+	// A blank-id row whose canonical (site, name) matches no existing building is a
+	// create, not an update.
 	rows := []map[string]string{{
 		fieldName:         "Building A",
-		fieldSiteID:       "10",
+		fieldSite:         "Site B",
 		"aisles":          "2",
 		"racks_per_aisle": "2",
 	}}
@@ -2059,12 +1904,12 @@ func TestMinerRowsUseRackIDAndBlankNamesForRackedMiners(t *testing.T) {
 		RackCol:          "0",
 	}})
 
-	if got := rows[0][9]; got != "30" {
-		t.Fatalf("exported miner rack_id = %q, want 30", got)
+	if got := rows[0][7]; got != "30" {
+		t.Fatalf("exported miner rack ref = %q, want 30", got)
 	}
-	for _, idx := range []int{5, 6, 7, 8, 10} {
+	for _, idx := range []int{5, 6} {
 		if got := rows[0][idx]; got != "" {
-			t.Fatalf("exported miner col %d = %q, want blank when rack_id is set", idx, got)
+			t.Fatalf("exported miner col %d = %q, want blank when rack is set", idx, got)
 		}
 	}
 }
@@ -2080,11 +1925,11 @@ func TestMinerRowsUseBuildingIDForDirectBuildingAssignment(t *testing.T) {
 		Building:         "Building A",
 	}})
 
-	if got := rows[0][7]; got != "20" {
-		t.Fatalf("exported miner building_id = %q, want 20", got)
+	if got := rows[0][6]; got != "20" {
+		t.Fatalf("exported miner building ref = %q, want 20", got)
 	}
 	if got := rows[0][5]; got != "" {
-		t.Fatalf("exported miner site_id = %q, want blank when building_id is set", got)
+		t.Fatalf("exported miner site ref = %q, want blank when building is set", got)
 	}
 }
 
@@ -2105,13 +1950,13 @@ func TestDisplayHeadersMarkReadOnlyIdentityColumns(t *testing.T) {
 	if got := strings.Join(displayHeaders("SITE", siteHeaders), ","); got != "name,id (read only)" {
 		t.Fatalf("SITE headers = %q", got)
 	}
-	if got := strings.Join(displayHeaders("BUILDING", buildingHeaders), ","); got != "name,id (read only),site_id,site,aisles,racks_per_aisle" {
+	if got := strings.Join(displayHeaders("BUILDING", buildingHeaders), ","); got != "name,id (read only),site,aisles,racks_per_aisle" {
 		t.Fatalf("BUILDING headers = %q", got)
 	}
-	if got := strings.Join(displayHeaders("RACK", rackHeaders), ","); got != "label,id (read only),building_id,building,site_id,site,zone,rows,columns,order_index,aisle_index,position_in_aisle" {
+	if got := strings.Join(displayHeaders("RACK", rackHeaders), ","); got != "label,id (read only),building,site,zone,rows,columns,order_index,aisle_index,position_in_aisle" {
 		t.Fatalf("RACK headers = %q", got)
 	}
-	if got := strings.Join(displayHeaders("MINER", minerHeaders), ","); got != "device_identifier (read only),serial_number (read only),name,ip_address (read only),mac_address (read only),site_id,site,building_id,building,rack_id,rack,rack_row,rack_col" {
+	if got := strings.Join(displayHeaders("MINER", minerHeaders), ","); got != "device_identifier (read only),serial_number (read only),name,ip_address (read only),mac_address (read only),site,building,rack,rack_row,rack_col" {
 		t.Fatalf("MINER headers = %q", got)
 	}
 }
@@ -2124,12 +1969,10 @@ func TestRackExportRowsUseBuildingIDAndBlankNames(t *testing.T) {
 	)
 
 	if got := rows[0][2]; got != "10" {
-		t.Fatalf("exported rack building_id = %q, want 10", got)
+		t.Fatalf("exported rack building ref = %q, want 10", got)
 	}
-	for _, idx := range []int{3, 4, 5} {
-		if got := rows[0][idx]; got != "" {
-			t.Fatalf("exported rack col %d = %q, want blank when building_id is set", idx, got)
-		}
+	if got := rows[0][3]; got != "" {
+		t.Fatalf("exported rack site ref = %q, want blank when building is set", got)
 	}
 }
 
@@ -2139,50 +1982,30 @@ func TestRackExportRowsUseSiteIDForDirectSiteAssignment(t *testing.T) {
 		[]rackSnapshot{{SiteID: &siteID, Site: "Site A", Label: "Rack A"}},
 	)
 
-	if got := rows[0][4]; got != "1" {
-		t.Fatalf("exported rack site_id = %q, want 1", got)
+	if got := rows[0][3]; got != "1" {
+		t.Fatalf("exported rack site ref = %q, want 1", got)
 	}
 	if got := rows[0][2]; got != "" {
-		t.Fatalf("exported rack building_id = %q, want blank for direct site assignment", got)
+		t.Fatalf("exported rack building ref = %q, want blank for direct site assignment", got)
 	}
 }
 
 func TestDesiredMinerSiteBuildingResolvesDirectBuildingSite(t *testing.T) {
-	buildingsByName, ambiguous := desiredBuildingNameLookup(
-		[]map[string]string{{"site": "Site A", "building": "Building A"}},
-		nil,
-	)
+	minerRows := []map[string]string{{"__row": "21", "device_identifier": "miner-1", "building": "10"}}
+	snap := &snapshot{
+		sites:     []sitemodels.Site{{ID: 1, Name: "Site A"}},
+		buildings: []buildingmodels.Building{{ID: 10, SiteLabel: "Site A", Name: "Building A"}},
+		miners:    []minerSnapshot{{DeviceIdentifier: "miner-1"}},
+	}
 
-	site, building := desiredMinerSiteBuilding(
-		map[string]string{"site": "", "building": "Building A", "rack": ""},
-		nil,
-		buildingsByName,
-		nil,
-		ambiguous,
-	)
+	parsed := &parsedCSV{sections: map[string][]map[string]string{"MINER": minerRows}}
+	if errs := resolveReferences(parsed, snap); len(errs) != 0 {
+		t.Fatalf("resolveReferences errors = %+v", errs)
+	}
+	p := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	site, building := minerDesiredSiteBuilding(p.miners[0], p.topology)
 	if site != "Site A" || building != "Building A" {
 		t.Fatalf("placement = (%q, %q), want (Site A, Building A)", site, building)
-	}
-}
-
-func TestDesiredMinerSiteBuildingMarksUnassignedDuplicateBuildingAmbiguous(t *testing.T) {
-	buildingsByName, ambiguous := desiredBuildingNameLookup(nil, []buildingmodels.Building{
-		{SiteLabel: "", Name: "Building A"},
-		{SiteLabel: "Site A", Name: "Building A"},
-	})
-
-	site, building := desiredMinerSiteBuilding(
-		map[string]string{"site": "", "building": "Building A", "rack": ""},
-		nil,
-		buildingsByName,
-		nil,
-		ambiguous,
-	)
-	if site != "" || building != "Building A" {
-		t.Fatalf("placement = (%q, %q), want raw row placement", site, building)
-	}
-	if !ambiguous["Building A"] {
-		t.Fatal("assigned and unassigned duplicate building names should require site or building_id")
 	}
 }
 
@@ -2391,30 +2214,6 @@ func TestValidateRackGridPositionsBlocksOutOfBounds(t *testing.T) {
 	}
 }
 
-func TestValidateRackGridPositionsUsesBuildingIDForDuplicateBuildingNames(t *testing.T) {
-	rackRows := []map[string]string{{
-		fieldBuildingID:     "11",
-		fieldBuilding:       "Building A",
-		fieldLabel:          "Rack A",
-		"aisle_index":       "1",
-		"position_in_aisle": "0",
-	}}
-	buildingRows := []map[string]string{
-		{fieldID: "11", fieldName: "Building A", "aisles": "2", "racks_per_aisle": "1"},
-		{fieldID: "10", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "1"},
-	}
-	snap := &snapshot{buildings: []buildingmodels.Building{
-		{ID: 10, Name: "Building A", Aisles: 1, RacksPerAisle: 1},
-		{ID: 11, Name: "Building A", Aisles: 2, RacksPerAisle: 1},
-	}}
-
-	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"RACK": rackRows, "BUILDING": buildingRows}}, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	errs := validateRackGridPositions(p.racks, p.topology)
-	if len(errs) != 0 {
-		t.Fatalf("errors = %+v, want building_id-specific bounds", errs)
-	}
-}
-
 func TestValidateRackGridCollisionsRejectsDuplicateCsvCells(t *testing.T) {
 	rackRows := []map[string]string{
 		{"__row": "10", "site": "Site A", "building": "Building A", "rack": "Rack A", "aisle_index": "0", "position_in_aisle": "0"},
@@ -2505,24 +2304,6 @@ func TestValidateRackGridCollisionsAllowsIDRenameSameCell(t *testing.T) {
 	}
 }
 
-func TestValidateRackGridCollisionsSeparatesIDQualifiedDuplicateBuildings(t *testing.T) {
-	buildingAID := int64(10)
-	buildingBID := int64(11)
-	rackRows := []map[string]string{
-		{"__row": "10", fieldBuildingID: "10", fieldBuilding: "Building A", fieldLabel: "Rack A", "aisle_index": "0", "position_in_aisle": "0"},
-		{"__row": "11", fieldBuildingID: "11", fieldBuilding: "Building A", fieldLabel: "Rack B", "aisle_index": "0", "position_in_aisle": "0"},
-	}
-	snap := &snapshot{racks: []rackSnapshot{
-		{ID: 20, Label: "Rack A", BuildingID: &buildingAID, Building: "Building A", AisleIndex: "0", PositionInAisle: "0"},
-		{ID: 21, Label: "Rack B", BuildingID: &buildingBID, Building: "Building A", AisleIndex: "0", PositionInAisle: "0"},
-	}}
-
-	errs := validateRackGridCollisions(rackRows, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	if len(errs) != 0 {
-		t.Fatalf("errors = %+v, want ID-qualified duplicate buildings to have independent grids", errs)
-	}
-}
-
 func TestValidateExistingSlotsFitRackDimensionsBlocksShrink(t *testing.T) {
 	rackRows := []map[string]string{{"rack": "Rack A", "rows": "1", "columns": "1"}}
 	snap := &snapshot{
@@ -2603,35 +2384,6 @@ func TestValidateBuildingRackCapacityCountsSiteLessBuildings(t *testing.T) {
 	errs := validateBuildingRackCapacity(p)
 	if len(errs) != 1 || errs[0].GetSection() != "RACK" {
 		t.Fatalf("errors = %+v, want site-less building rack capacity error", errs)
-	}
-}
-
-func TestValidateBuildingRackCapacitySeparatesIDQualifiedDuplicateBuildings(t *testing.T) {
-	buildingAID := int64(10)
-	buildingBID := int64(11)
-	rackRows := []map[string]string{
-		{fieldBuildingID: "10", fieldBuilding: "Building A", fieldLabel: "Rack A"},
-		{fieldBuildingID: "11", fieldBuilding: "Building A", fieldLabel: "Rack B"},
-	}
-	buildingRows := []map[string]string{
-		{fieldID: "10", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "1"},
-		{fieldID: "11", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "1"},
-	}
-	snap := &snapshot{
-		buildings: []buildingmodels.Building{
-			{ID: 10, Name: "Building A", Aisles: 1, RacksPerAisle: 1},
-			{ID: 11, Name: "Building A", Aisles: 1, RacksPerAisle: 1},
-		},
-		racks: []rackSnapshot{
-			{ID: 20, Label: "Rack A", BuildingID: &buildingAID, Building: "Building A"},
-			{ID: 21, Label: "Rack B", BuildingID: &buildingBID, Building: "Building A"},
-		},
-	}
-
-	p := resolvePlan(&parsedCSV{sections: map[string][]map[string]string{"RACK": rackRows, "BUILDING": buildingRows}}, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
-	errs := validateBuildingRackCapacity(p)
-	if len(errs) != 0 {
-		t.Fatalf("errors = %+v, want ID-qualified duplicate buildings counted separately", errs)
 	}
 }
 
@@ -2738,7 +2490,7 @@ func TestParseSiteMapCSVAcceptsSpreadsheetPaddedSectionRows(t *testing.T) {
 	csv = strings.Replace(csv, "\n\n# SECTION: MINER\n", "\n,,,,,,,,,,\n# SECTION: MINER,,,,,,,,,,\n", 1)
 	csv = strings.Replace(csv, "name,id (read only)\n", "name,id (read only),\n", 1)
 	csv = strings.Replace(csv, "Site A,\n", "Site A,,\n", 1)
-	csv = strings.Replace(csv, "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0\n", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,,\n", 1)
+	csv = strings.Replace(csv, "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,NAME:Rack A,0,0\n", "miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,NAME:Rack A,0,,\n", 1)
 
 	parsed, errs := parseSiteMapCSV([]byte(csv))
 	if len(errs) != 0 {
@@ -2809,16 +2561,16 @@ name,id (read only)
 Site A,
 
 # SECTION: BUILDING
-name,id (read only),site_id,site,aisles,racks_per_aisle
-Building A,,,Site A,2,2
+name,id (read only),site,aisles,racks_per_aisle
+Building A,,NAME:Site A,2,2
 
 # SECTION: RACK
-label,id (read only),building_id,building,site_id,site,zone,rows,columns,order_index,aisle_index,position_in_aisle
-Rack A,,,Building A,,,Z1,4,6,BOTTOM_LEFT,0,0
+label,id (read only),building,site,zone,rows,columns,order_index,aisle_index,position_in_aisle
+Rack A,,NAME:Building A,,Z1,4,6,BOTTOM_LEFT,0,0
 
 # SECTION: MINER
-device_identifier (read only),serial_number (read only),name,ip_address (read only),mac_address (read only),site_id,site,building_id,building,rack_id,rack,rack_row,rack_col
-miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,,,,Rack A,0,0
+device_identifier (read only),serial_number (read only),name,ip_address (read only),mac_address (read only),site,building,rack,rack_row,rack_col
+miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,NAME:Rack A,0,0
 `
 }
 
