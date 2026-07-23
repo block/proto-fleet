@@ -24,6 +24,7 @@ import (
 	mock "github.com/block/proto-fleet/server/internal/domain/telemetry/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	telemetryScheduler "github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 )
 
 func markTelemetryServiceActiveForTest(service *TelemetryService, ctx context.Context) *telemetryActivation {
@@ -365,6 +366,37 @@ func TestTelemetryService_FinishActivationRequeuesQueuedTelemetryTasks(t *testin
 	}
 }
 
+func TestTelemetryService_RequeueTelemetryTasksContinuesAfterRemovedDevice(t *testing.T) {
+	scheduler := telemetryScheduler.NewScheduler(telemetryScheduler.Config{})
+	deviceIDs := []models.DeviceIdentifier{"valid-before", "removed", "valid-after"}
+	require.NoError(t, scheduler.AddNewDevices(t.Context(), deviceIDs...))
+
+	fetched, err := scheduler.FetchDevices(t.Context(), time.Now())
+	require.NoError(t, err)
+	require.Len(t, fetched, len(deviceIDs))
+
+	fetchedByID := make(map[models.DeviceIdentifier]models.Device, len(fetched))
+	for _, device := range fetched {
+		fetchedByID[device.ID] = device
+	}
+	require.NoError(t, scheduler.RemoveDevices(t.Context(), deviceIDs[1]))
+
+	service := &TelemetryService{updateScheduler: scheduler}
+	service.requeueTelemetryTasks([]models.Device{
+		fetchedByID[deviceIDs[0]],
+		fetchedByID[deviceIDs[1]],
+		fetchedByID[deviceIDs[2]],
+	})
+
+	requeued, err := scheduler.FetchDevices(t.Context(), time.Now())
+	require.NoError(t, err)
+	requeuedIDs := make([]models.DeviceIdentifier, 0, len(requeued))
+	for _, device := range requeued {
+		requeuedIDs = append(requeuedIDs, device.ID)
+	}
+	assert.ElementsMatch(t, []models.DeviceIdentifier{deviceIDs[0], deviceIDs[2]}, requeuedIDs)
+}
+
 func TestGatherMetricsRoutineRequeuesUnsentFetchedDevicesOnCancellation(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	scheduler := mock.NewMockUpdateScheduler(ctrl)
@@ -374,7 +406,8 @@ func TestGatherMetricsRoutineRequeuesUnsentFetchedDevicesOnCancellation(t *testi
 		close(fetched)
 		return devices, nil
 	})
-	scheduler.EXPECT().AddDevices(gomock.Any(), devices[0], devices[1]).Return(nil)
+	scheduler.EXPECT().AddDevices(gomock.Any(), devices[0]).Return(nil)
+	scheduler.EXPECT().AddDevices(gomock.Any(), devices[1]).Return(nil)
 	service := &TelemetryService{
 		config:          Config{FetchInterval: time.Millisecond},
 		updateScheduler: scheduler,
