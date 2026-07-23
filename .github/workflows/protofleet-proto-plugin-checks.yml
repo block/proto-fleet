@@ -70,7 +70,7 @@ jobs:
           docker pull hello-world:latest
           docker run --rm hello-world:latest
           docker pull ubuntu:22.04
-          docker pull golang:1.26.4-alpine
+          docker pull golang:1.26.5-alpine
           docker pull alpine:3.21
 
       - name: Check

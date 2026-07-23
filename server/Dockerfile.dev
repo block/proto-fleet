@@ -1,4 +1,4 @@
-FROM golang:1.26.4-alpine
+FROM golang:1.26.5-alpine
 
 ARG GO_GCFLAGS=""
 ENV GO_GCFLAGS=${GO_GCFLAGS}
