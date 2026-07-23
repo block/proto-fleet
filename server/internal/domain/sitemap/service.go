@@ -1119,7 +1119,6 @@ type importPlan struct {
 }
 
 func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPlan {
-	targetSnap := snapshotForOmissionMode(snap, mode)
 	referenceErrors := resolveReferences(parsed, snap)
 	resolved := resolvePlan(parsed, snap, mode)
 	plan := importPlan{omissions: resolved.omissions, resolved: resolved}
@@ -1164,7 +1163,7 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 		return plan
 	}
 
-	plan.changes = computeChanges(resolved, parsed, snap, targetSnap, mode)
+	plan.changes = computeChanges(resolved, mode)
 	return plan
 }
 
@@ -3378,68 +3377,6 @@ func safeInt32(value int) int32 {
 	return int32(value) // #nosec G115 -- value is bounded above to MaxInt32.
 }
 
-func countSiteUpdates(rows []map[string]string, sites []sitemodels.Site) int32 {
-	existing := map[string]map[string]string{}
-	for _, site := range sites {
-		existing[siteIdentity(site)] = rowMap(siteHeaders, siteRawRows([]sitemodels.Site{site})[0])
-	}
-	return countExistingRowUpdatesByIdentity(rows, existing, siteRowIdentity, siteHeaders)
-}
-
-func countBuildingUpdates(rows []map[string]string, buildings []buildingmodels.Building) int32 {
-	existing := map[string]map[string]string{}
-	for _, building := range buildings {
-		row := rowMap(buildingHeaders, buildingRawRows([]buildingmodels.Building{building})[0])
-		existing[buildingIdentity(building)] = row
-		existing["name:"+building.SiteLabel+"\x00"+building.Name] = row
-	}
-	return countExistingRowUpdatesByIdentity(rows, existing, buildingRowIdentity, buildingHeaders)
-}
-
-func countRackUpdates(rows []map[string]string, racks []rackSnapshot) int32 {
-	existing := map[string]map[string]string{}
-	for _, rack := range racks {
-		row := rackComparableRow(rack)
-		existing[rackIdentity(rack)] = row
-		existing["label:"+rack.Label] = row
-	}
-	return countExistingRowUpdatesByIdentity(rows, existing, rackRowIdentity, rackHeaders)
-}
-
-func countExistingRowUpdates(rows []map[string]string, existing map[string]map[string]string, keySpec string, headers []string) int32 {
-	var count int32
-	for _, row := range rows {
-		existingRow, ok := existing[rowKey(row, keySpec)]
-		if !ok {
-			continue
-		}
-		for _, header := range headers {
-			if row[header] != existingRow[header] {
-				count++
-				break
-			}
-		}
-	}
-	return count
-}
-
-func countExistingRowUpdatesByIdentity(rows []map[string]string, existing map[string]map[string]string, identity func(map[string]string) string, headers []string) int32 {
-	var count int32
-	for _, row := range rows {
-		existingRow, ok := existing[identity(row)]
-		if !ok {
-			continue
-		}
-		for _, header := range headers {
-			if row[header] != existingRow[header] {
-				count++
-				break
-			}
-		}
-	}
-	return count
-}
-
 func rowMap(headers, values []string) map[string]string {
 	out := map[string]string{}
 	for i, header := range headers {
@@ -3627,15 +3564,6 @@ func rowsEqual(a, b map[string]string, headers []string) bool {
 		}
 	}
 	return true
-}
-
-func rowKey(row map[string]string, keySpec string) string {
-	parts := strings.Split(keySpec, "\x00")
-	values := make([]string, 0, len(parts))
-	for _, part := range parts {
-		values = append(values, row[part])
-	}
-	return strings.Join(values, "\x00")
 }
 
 func parseInt32Field(row map[string]string, field string) (int32, error) {

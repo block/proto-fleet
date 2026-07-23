@@ -182,7 +182,7 @@ func resolvePlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) *resol
 	plan.miners = resolveMiners(parsed.sections["MINER"], minerMap(snap.miners))
 	classifyMinerMoves(plan.miners, plan.topology)
 
-	classifyTopologyActions(plan, snap, mode)
+	classifyTopologyActions(plan, parsed, snap)
 	plan.omissions = computeOmissions(parsed, snap, mode)
 
 	return plan
@@ -827,47 +827,65 @@ func countMinerMoveNodes(miners []*resolvedMiner) int32 {
 // classifyTopologyActions marks each topology node: a row whose identity is not
 // already present in the live snapshot creates; a row matching an existing
 // entity updates when a tracked field differs.
-func classifyTopologyActions(plan *resolvedPlan, snap *snapshot, _ pb.OmissionMode) {
-	siteNames := map[string]bool{}
-	for _, s := range snap.sites {
-		siteNames[s.Name] = true
+// classifyTopologyActions assigns each site/building/rack node its create/update
+// verb by comparing the (already canonicalized) CSV row against the live entity's
+// comparable row. A row that matches no live entity is a create; one that matches
+// but differs in any exported column is an update. This is the single derivation
+// preview counts, the commit token, and apply all read, so they cannot drift.
+// Node i corresponds to parsed section row i (resolve* build nodes in row order).
+func classifyTopologyActions(plan *resolvedPlan, parsed *parsedCSV, snap *snapshot) {
+	siteExisting := map[string]map[string]string{}
+	for _, site := range snap.sites {
+		row := rowMap(siteHeaders, siteRawRows([]sitemodels.Site{site})[0])
+		siteExisting[siteIdentity(site)] = row
+		siteExisting["name:"+site.Name] = row
 	}
-	buildingKeys := map[string]bool{}
-	for _, b := range snap.buildings {
-		buildingKeys[b.SiteLabel+"\x00"+b.Name] = true
+	buildingExisting := map[string]map[string]string{}
+	for _, building := range snap.buildings {
+		row := rowMap(buildingHeaders, buildingRawRows([]buildingmodels.Building{building})[0])
+		buildingExisting[buildingIdentity(building)] = row
+		buildingExisting["name:"+building.SiteLabel+"\x00"+building.Name] = row
 	}
-	rackLabels := map[string]bool{}
-	for _, r := range snap.racks {
-		rackLabels[r.Label] = true
+	rackExisting := map[string]map[string]string{}
+	for _, rack := range snap.racks {
+		row := rackComparableRow(rack)
+		rackExisting[rackIdentity(rack)] = row
+		rackExisting["label:"+rack.Label] = row
 	}
 
-	for _, s := range plan.sites {
-		if s.id == nil {
-			if !siteNames[s.name] {
-				s.action = actionCreate
-			}
-		} else if s.name != s.prevName {
-			s.action = actionUpdate
+	siteRows := parsed.sections["SITE"]
+	for i, s := range plan.sites {
+		s.action = rowNodeAction(siteRows[i], siteExisting, siteRowIdentity, siteHeaders)
+	}
+	buildingRows := parsed.sections["BUILDING"]
+	for i, b := range plan.buildings {
+		b.action = rowNodeAction(buildingRows[i], buildingExisting, buildingRowIdentity, buildingHeaders)
+	}
+	rackRows := parsed.sections["RACK"]
+	for i, r := range plan.racks {
+		r.action = rowNodeAction(rackRows[i], rackExisting, rackRowIdentity, rackHeaders)
+	}
+}
+
+// rowNodeAction classifies one CSV row against the live comparable rows: no
+// identity match is a create, a match that differs in any editable column is an
+// update, and an exact match is a no-op. The id column is the row's identity, not
+// an editable field, so it is excluded — a name-matched row with a blank id is
+// not an edit.
+func rowNodeAction(row map[string]string, existing map[string]map[string]string, identity func(map[string]string) string, headers []string) nodeAction {
+	current, ok := existing[identity(row)]
+	if !ok {
+		return actionCreate
+	}
+	for _, header := range headers {
+		if header == fieldID {
+			continue
+		}
+		if row[header] != current[header] {
+			return actionUpdate
 		}
 	}
-	for _, b := range plan.buildings {
-		if b.id == nil {
-			if !buildingKeys[b.siteLabel+"\x00"+b.name] {
-				b.action = actionCreate
-			}
-		} else if b.name != b.prevName || b.siteLabel != b.prevSiteLabel {
-			b.action = actionUpdate
-		}
-	}
-	for _, r := range plan.racks {
-		if r.id == nil {
-			if !rackLabels[r.label] {
-				r.action = actionCreate
-			}
-		} else if r.label != r.prevLabel {
-			r.action = actionUpdate
-		}
-	}
+	return actionNone
 }
 
 func countSiteCreateNodes(sites []*resolvedSite) int32 {
@@ -900,11 +918,41 @@ func countRackCreateNodes(racks []*resolvedRack) int32 {
 	return n
 }
 
+func countSiteUpdateNodes(sites []*resolvedSite) int32 {
+	var n int32
+	for _, s := range sites {
+		if s.action == actionUpdate {
+			n++
+		}
+	}
+	return n
+}
+
+func countBuildingUpdateNodes(buildings []*resolvedBuilding) int32 {
+	var n int32
+	for _, b := range buildings {
+		if b.action == actionUpdate {
+			n++
+		}
+	}
+	return n
+}
+
+func countRackUpdateNodes(racks []*resolvedRack) int32 {
+	var n int32
+	for _, r := range racks {
+		if r.action == actionUpdate {
+			n++
+		}
+	}
+	return n
+}
+
 // computeChanges produces the preview change summaries from the resolved plan.
 // Creates come from node classification and deletes from omission counts (the
 // two are the same identity math); updates and miner rename/move still use the
 // row-comparison helpers.
-func computeChanges(resolved *resolvedPlan, parsed *parsedCSV, snap, targetSnap *snapshot, mode pb.OmissionMode) []*pb.ImportChangeSummary {
+func computeChanges(resolved *resolvedPlan, mode pb.OmissionMode) []*pb.ImportChangeSummary {
 	var changes []*pb.ImportChangeSummary
 	add := func(op pb.ImportOperation, entityType string, count int32, description string) {
 		if count > 0 {
@@ -914,9 +962,9 @@ func computeChanges(resolved *resolvedPlan, parsed *parsedCSV, snap, targetSnap 
 	add(pb.ImportOperation_IMPORT_OPERATION_CREATE, "site", countSiteCreateNodes(resolved.sites), "new site rows")
 	add(pb.ImportOperation_IMPORT_OPERATION_CREATE, fieldBuilding, countBuildingCreateNodes(resolved.buildings), "new building rows")
 	add(pb.ImportOperation_IMPORT_OPERATION_CREATE, "rack", countRackCreateNodes(resolved.racks), "new rack rows")
-	add(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "site", countSiteUpdates(parsed.sections["SITE"], snap.sites), "site rows with changed details")
-	add(pb.ImportOperation_IMPORT_OPERATION_UPDATE, fieldBuilding, countBuildingUpdates(parsed.sections["BUILDING"], snap.buildings), "building rows with changed details")
-	add(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "rack", countRackUpdates(parsed.sections["RACK"], snap.racks), "rack rows with changed details")
+	add(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "site", countSiteUpdateNodes(resolved.sites), "site rows with changed details")
+	add(pb.ImportOperation_IMPORT_OPERATION_UPDATE, fieldBuilding, countBuildingUpdateNodes(resolved.buildings), "building rows with changed details")
+	add(pb.ImportOperation_IMPORT_OPERATION_UPDATE, "rack", countRackUpdateNodes(resolved.racks), "rack rows with changed details")
 	add(pb.ImportOperation_IMPORT_OPERATION_RENAME, "miner", countMinerRenameNodes(resolved.miners), "miner rows with changed names")
 	add(pb.ImportOperation_IMPORT_OPERATION_MOVE, "miner", countMinerMoveNodes(resolved.miners), "miner placement rows with changed site, building, rack, or slot")
 	if mode == pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {

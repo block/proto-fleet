@@ -1810,55 +1810,61 @@ func TestValidateSlotConflictsWithExistingNormalizesCoordinates(t *testing.T) {
 	}
 }
 
-func TestCountBuildingUpdatesMatchesExistingRowsByID(t *testing.T) {
-	rows := []map[string]string{{
+func TestClassifyBuildingUpdateMatchesExistingRowsByID(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{"BUILDING": {{
 		fieldName:         "Building A",
 		fieldID:           "20",
 		fieldSite:         "Site A",
 		"aisles":          "2",
 		"racks_per_aisle": "2",
-	}}
+	}}}}
 	siteID := int64(10)
-	buildings := []buildingmodels.Building{{ID: 20, SiteID: &siteID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 2}}
+	snap := &snapshot{buildings: []buildingmodels.Building{{ID: 20, SiteID: &siteID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 2}}}
 
-	if got := countBuildingUpdates(rows, buildings); got != 1 {
-		t.Fatalf("countBuildingUpdates = %d, want existing row update counted by id", got)
+	p := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if got := countBuildingUpdateNodes(p.buildings); got != 1 {
+		t.Fatalf("countBuildingUpdateNodes = %d, want existing row update counted by id", got)
 	}
 }
 
-func TestCountBuildingUpdatesIgnoresBlankIDCreateRows(t *testing.T) {
+func TestClassifyBuildingUpdateIgnoresBlankIDCreateRows(t *testing.T) {
 	// A blank-id row whose canonical (site, name) matches no existing building is a
 	// create, not an update.
-	rows := []map[string]string{{
+	parsed := &parsedCSV{sections: map[string][]map[string]string{"BUILDING": {{
 		fieldName:         "Building A",
 		fieldSite:         "Site B",
 		"aisles":          "2",
 		"racks_per_aisle": "2",
-	}}
+	}}}}
 	siteID := int64(10)
-	buildings := []buildingmodels.Building{{ID: 20, SiteID: &siteID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 2}}
+	snap := &snapshot{buildings: []buildingmodels.Building{{ID: 20, SiteID: &siteID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 2}}}
 
-	if got := countBuildingUpdates(rows, buildings); got != 0 {
-		t.Fatalf("countBuildingUpdates = %d, want blank-id create row to not count as update", got)
+	p := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if got := countBuildingUpdateNodes(p.buildings); got != 0 {
+		t.Fatalf("countBuildingUpdateNodes = %d, want blank-id create row to not count as update", got)
+	}
+	if p.buildings[0].action != actionCreate {
+		t.Fatalf("action = %v, want create", p.buildings[0].action)
 	}
 }
 
-func TestCountRackUpdatesMatchesExistingRowsByID(t *testing.T) {
-	rows := []map[string]string{{
+func TestClassifyRackUpdateMatchesExistingRowsByID(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{"RACK": {{
 		fieldLabel:    "Rack A",
 		fieldID:       "20",
 		"rows":        "4",
 		"columns":     "8",
 		"order_index": "BOTTOM_LEFT",
-	}}
-	racks := []rackSnapshot{{ID: 20, Label: "Rack A", Rows: 4, Columns: 6, OrderIndex: "BOTTOM_LEFT"}}
+	}}}}
+	snap := &snapshot{racks: []rackSnapshot{{ID: 20, Label: "Rack A", Rows: 4, Columns: 6, OrderIndex: "BOTTOM_LEFT"}}}
 
-	if got := countRackUpdates(rows, racks); got != 1 {
-		t.Fatalf("countRackUpdates = %d, want existing row update counted by id", got)
+	p := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if got := countRackUpdateNodes(p.racks); got != 1 {
+		t.Fatalf("countRackUpdateNodes = %d, want existing row update counted by id", got)
 	}
 }
 
-func TestCountRackUpdatesTreatsCanonicalRowAsNoOp(t *testing.T) {
+func TestClassifyRackUpdateTreatsCanonicalRowAsNoOp(t *testing.T) {
 	siteID := int64(1)
 	buildingID := int64(10)
 	racks := []rackSnapshot{{
@@ -1879,8 +1885,10 @@ func TestCountRackUpdatesTreatsCanonicalRowAsNoOp(t *testing.T) {
 	// no-op against change detection.
 	canonical := rackComparableRow(racks[0])
 
-	if got := countRackUpdates([]map[string]string{canonical}, racks); got != 0 {
-		t.Fatalf("countRackUpdates = %d, want canonical rack row to be a no-op", got)
+	parsed := &parsedCSV{sections: map[string][]map[string]string{"RACK": {canonical}}}
+	p := resolvePlan(parsed, &snapshot{racks: racks}, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if got := countRackUpdateNodes(p.racks); got != 0 {
+		t.Fatalf("countRackUpdateNodes = %d, want canonical rack row to be a no-op", got)
 	}
 }
 
