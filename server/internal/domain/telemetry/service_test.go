@@ -66,6 +66,37 @@ func TestNewTelemetryService(t *testing.T) {
 	assert.NotNil(t, service)
 }
 
+func TestTelemetryRunStopsProducerRegistrationBeforeWaiting(t *testing.T) {
+	run := newTelemetryRun(make(chan struct{}), 1)
+	release, registered := run.registerProducer()
+	require.True(t, registered)
+
+	waitDone := make(chan struct{})
+	go func() {
+		run.waitForProducers()
+		close(waitDone)
+	}()
+	require.Eventually(t, func() bool {
+		run.producerMu.Lock()
+		defer run.producerMu.Unlock()
+		return !run.acceptingProducers
+	}, time.Second, time.Millisecond)
+	_, registered = run.registerProducer()
+	require.False(t, registered)
+	select {
+	case <-waitDone:
+		t.Fatal("producer wait returned before the registered producer exited")
+	default:
+	}
+
+	release()
+	select {
+	case <-waitDone:
+	case <-time.After(time.Second):
+		t.Fatal("producer wait did not finish")
+	}
+}
+
 func TestTelemetryService_AddDevices(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

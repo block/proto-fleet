@@ -334,6 +334,8 @@ type telemetryRun struct {
 	results              telemetryResults
 	statusFlushRequests  chan statusFlushRequest
 	metricsFlushRequests chan metricsFlushRequest
+	producerMu           sync.Mutex
+	acceptingProducers   bool
 	producerWG           sync.WaitGroup
 	done                 <-chan struct{}
 }
@@ -345,6 +347,7 @@ func newTelemetryRun(done <-chan struct{}, concurrencyLimit int) *telemetryRun {
 		results:              newTelemetryResults(),
 		statusFlushRequests:  make(chan statusFlushRequest),
 		metricsFlushRequests: make(chan metricsFlushRequest),
+		acceptingProducers:   true,
 		done:                 done,
 	}
 }
@@ -358,15 +361,32 @@ func (r *telemetryRun) canceled() bool {
 	}
 }
 
+func (r *telemetryRun) registerProducer() (func(), bool) {
+	r.producerMu.Lock()
+	defer r.producerMu.Unlock()
+	if !r.acceptingProducers {
+		return nil, false
+	}
+	r.producerWG.Add(1)
+	return r.producerWG.Done, true
+}
+
+func (r *telemetryRun) waitForProducers() {
+	r.producerMu.Lock()
+	r.acceptingProducers = false
+	r.producerMu.Unlock()
+	r.producerWG.Wait()
+}
+
 // writerContext keeps result writers alive after activation cancellation until
 // every registered producer has exited. Waiting begins after cancellation,
-// when lifecycleMu prevents new producer registrations. Writers keep draining
-// while slow producers unwind, then perform one final, stable drain and flush.
+// after producer registration has been closed. Writers keep draining while
+// slow producers unwind, then perform one final, stable drain and flush.
 func (r *telemetryRun) writerContext(ctx context.Context) context.Context {
 	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	go func() {
 		<-r.done
-		r.producerWG.Wait()
+		r.waitForProducers()
 		cancel()
 	}()
 	return ctx
@@ -644,8 +664,11 @@ func (s *TelemetryService) registerActiveProducer() (*telemetryRun, func(), erro
 	if s.runCancel == nil || s.run == nil || s.run.canceled() {
 		return nil, nil, errTelemetryServiceInactive
 	}
-	s.run.producerWG.Add(1)
-	return s.run, s.run.producerWG.Done, nil
+	release, ok := s.run.registerProducer()
+	if !ok {
+		return nil, nil, errTelemetryServiceInactive
+	}
+	return s.run, release, nil
 }
 
 // Start activates background telemetry collection for the lifetime of ctx.
