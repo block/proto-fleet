@@ -171,7 +171,7 @@ export class OnboardingVisualHelper {
   }
 
   async findAndContinueWithMiners(expectedMinerCount: number) {
-    const { addMinersPage, homePage, minersPage } = this.deps;
+    const { addMinersPage, minersPage } = this.deps;
     await addMinersPage.clickFindMinersInNetwork();
     await addMinersPage.waitForExpectedNetworkMinerCount(expectedMinerCount);
     await addMinersPage.clickContinueWithXMiners(expectedMinerCount);
