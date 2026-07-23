@@ -130,6 +130,33 @@ interface FileProcessingStatusProps {
   uploadProgress: number;
 }
 
+interface FileSelectedStatusProps {
+  fileName: string;
+  fileSize: number;
+  onRemove: () => void;
+}
+
+export function FileSelectedStatus({ fileName, fileSize, onRemove }: FileSelectedStatusProps) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-border-5 p-4">
+      <div className="flex min-w-0 flex-col">
+        <div className="truncate text-300 text-text-primary" title={fileName}>
+          {fileName}
+        </div>
+        <div className="text-200 text-text-primary-70">{formatFileSize(fileSize)}</div>
+      </div>
+      <Button
+        variant={variants.textOnly}
+        textColor="text-core-accent-fill"
+        textOnlyUnderlineOnHover={false}
+        className="shrink-0"
+        onClick={onRemove}
+        text="Remove"
+      />
+    </div>
+  );
+}
+
 export function FileProcessingStatus({ state, fileName, fileSize, uploadProgress }: FileProcessingStatusProps) {
   return (
     <div className="flex items-center gap-4 rounded-lg border border-border-5 p-4">

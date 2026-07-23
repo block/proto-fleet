@@ -11,7 +11,7 @@ export interface UseFirmwareUploadReturn {
   uploadProgress: number;
   errorMessage: string | null;
   serverConfig: FirmwareConfig | null;
-  processFile: (file: File, target: FirmwareUploadTarget) => void;
+  processFile: (file: File, target: FirmwareUploadTarget, onReady?: () => void) => void;
   reset: () => void;
   retry: () => void;
 }
@@ -88,7 +88,7 @@ export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
   }, [reset]);
 
   const processFile = useCallback(
-    async (selectedFile: File, target: FirmwareUploadTarget) => {
+    async (selectedFile: File, target: FirmwareUploadTarget, onReady?: () => void) => {
       abortControllerRef.current?.abort();
       const controller = new AbortController();
       abortControllerRef.current = controller;
@@ -121,6 +121,7 @@ export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
         if (exists && existingId) {
           setFirmwareFileId(existingId);
           setState("ready");
+          onReady?.();
           return;
         }
 
@@ -136,6 +137,7 @@ export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
         if (controller.signal.aborted) return;
         setFirmwareFileId(newId);
         setState("ready");
+        onReady?.();
       } catch (err) {
         if (controller.signal.aborted) return;
         setErrorMessage(err instanceof Error ? err.message : String(err));
@@ -146,7 +148,7 @@ export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
   );
 
   const wrappedProcessFile = useCallback(
-    (f: File, target: FirmwareUploadTarget) => void processFile(f, target),
+    (f: File, target: FirmwareUploadTarget, onReady?: () => void) => void processFile(f, target, onReady),
     [processFile],
   );
 
