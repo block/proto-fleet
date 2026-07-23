@@ -10,8 +10,8 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
-	cohortmodels "github.com/block/proto-fleet/server/internal/domain/cohort/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	minerChannelmodels "github.com/block/proto-fleet/server/internal/domain/minerchannel/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
@@ -41,15 +41,15 @@ func (s *SQLPoolStore) GetPool(ctx context.Context, orgID int64, poolID int64) (
 	return convertToProtoPool(pool), nil
 }
 
-func (s *SQLPoolStore) GetCohortPoolReference(ctx context.Context, orgID, poolID int64) (cohortmodels.CohortPoolReference, error) {
+func (s *SQLPoolStore) GetMinerChannelPoolReference(ctx context.Context, orgID, poolID int64) (minerChannelmodels.MinerChannelPoolReference, error) {
 	pool, err := s.GetQueries(ctx).GetPool(ctx, sqlc.GetPoolParams{ID: poolID, OrgID: orgID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return cohortmodels.CohortPoolReference{}, fleeterror.NewNotFoundErrorf("pool not found: %d", poolID)
+			return minerChannelmodels.MinerChannelPoolReference{}, fleeterror.NewNotFoundErrorf("pool not found: %d", poolID)
 		}
-		return cohortmodels.CohortPoolReference{}, fleeterror.NewInternalErrorf("failed to get cohort pool reference: %v", err)
+		return minerChannelmodels.MinerChannelPoolReference{}, fleeterror.NewInternalErrorf("failed to get miner channel pool reference: %v", err)
 	}
-	return cohortmodels.CohortPoolReference{ID: pool.ID, URL: pool.Url, Username: pool.Username, UpdatedAt: pool.UpdatedAt}, nil
+	return minerChannelmodels.MinerChannelPoolReference{ID: pool.ID, URL: pool.Url, Username: pool.Username, UpdatedAt: pool.UpdatedAt}, nil
 }
 
 func (s *SQLPoolStore) ListPools(ctx context.Context, orgID int64) ([]*pb.Pool, error) {
@@ -70,8 +70,8 @@ func (s *SQLPoolStore) GetTotalPools(ctx context.Context, orgID int64) (int64, e
 	return s.GetQueries(ctx).GetTotalPools(ctx, orgID)
 }
 
-func (s *SQLPoolStore) IsPoolReferencedByActiveCohort(ctx context.Context, orgID int64, poolID int64) (bool, error) {
-	return s.GetQueries(ctx).IsPoolReferencedByActiveCohort(ctx, sqlc.IsPoolReferencedByActiveCohortParams{
+func (s *SQLPoolStore) IsPoolReferencedByActiveMinerChannel(ctx context.Context, orgID int64, poolID int64) (bool, error) {
+	return s.GetQueries(ctx).IsPoolReferencedByActiveMinerChannel(ctx, sqlc.IsPoolReferencedByActiveMinerChannelParams{
 		OrgID:  orgID,
 		PoolID: poolID,
 	})

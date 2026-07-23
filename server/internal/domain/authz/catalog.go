@@ -56,9 +56,9 @@ const (
 	PermCurtailmentManage = "curtailment:manage"
 	PermCurtailmentIngest = "curtailment:ingest"
 
-	// cohort — desired-state cells and rig reservations.
-	PermCohortRead   = "cohort:read"
-	PermCohortManage = "cohort:manage"
+	// miner channel — desired-state cells and rig reservations.
+	PermMinerChannelRead   = "miner_channel:read"
+	PermMinerChannelManage = "miner_channel:manage"
 
 	// pool — org-level mining pool definitions applied to miners. Not
 	// site-scoped: pools are a global org resource.
@@ -98,21 +98,21 @@ const (
 // and as the lookup key for the read-pairing rule (every action
 // permission requires its same-resource read partner).
 const (
-	ResourceFleet       = "fleet"
-	ResourceMiner       = "miner"
-	ResourceRack        = "rack"
-	ResourceSite        = "site"
-	ResourceActivity    = "activity"
-	ResourceServerLog   = "serverlog"
-	ResourceCurtailment = "curtailment"
-	ResourceCohort      = "cohort"
-	ResourcePool        = "pool"
-	ResourceSchedule    = "schedule"
-	ResourceFleetNode   = "fleetnode"
-	ResourceAlert       = "alert"
-	ResourceAPIKey      = "apikey"
-	ResourceUser        = "user"
-	ResourceRole        = "role"
+	ResourceFleet        = "fleet"
+	ResourceMiner        = "miner"
+	ResourceRack         = "rack"
+	ResourceSite         = "site"
+	ResourceActivity     = "activity"
+	ResourceServerLog    = "serverlog"
+	ResourceCurtailment  = "curtailment"
+	ResourceMinerChannel = "miner_channel"
+	ResourcePool         = "pool"
+	ResourceSchedule     = "schedule"
+	ResourceFleetNode    = "fleetnode"
+	ResourceAlert        = "alert"
+	ResourceAPIKey       = "apikey"
+	ResourceUser         = "user"
+	ResourceRole         = "role"
 )
 
 // CatalogEntry is the in-code shape of a single permission. The wire-level
@@ -163,8 +163,8 @@ var catalog = []CatalogEntry{
 	{PermCurtailmentManage, "Preview, start, stop, and override curtailment events, and manage profiles, automation rules, and dispatch sources.", ResourceCurtailment},
 	{PermCurtailmentIngest, "Accept external curtailment dispatch signals. Not yet implemented.", ResourceCurtailment},
 
-	{PermCohortRead, "View cohorts, reservations, and effective desired state.", ResourceCohort},
-	{PermCohortManage, "Create, release, and manage cohorts and cohort memberships.", ResourceCohort},
+	{PermMinerChannelRead, "View miner channels, reservations, and effective desired state.", ResourceMinerChannel},
+	{PermMinerChannelManage, "Create, release, and manage miner channels and miner channel memberships.", ResourceMinerChannel},
 
 	{PermPoolRead, "View saved mining pool configurations.", ResourcePool},
 	{PermPoolManage, "Create, edit, delete, and validate saved mining pool configurations. Validation makes the server connect to a supplied address.", ResourcePool},

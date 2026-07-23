@@ -399,49 +399,6 @@ type Building struct {
 	DeletedAt             sql.NullTime
 }
 
-type Cohort struct {
-	ID                 int64
-	OrgID              int64
-	Label              string
-	IsDefault          bool
-	OwnerUserID        sql.NullInt64
-	OwnerUsername      sql.NullString
-	ExpiresAt          sql.NullTime
-	DesiredConfigJsonb pqtype.NullRawMessage
-	State              string
-	Purpose            string
-	SourceActorType    string
-	SourceActorID      sql.NullString
-	IdempotencyKey     sql.NullString
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-}
-
-type CohortFirmwareTarget struct {
-	CohortID       int64
-	OrgID          int64
-	Manufacturer   string
-	Model          string
-	FirmwareFileID sql.NullString
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-}
-
-type CohortMembership struct {
-	CohortID         int64
-	OrgID            int64
-	DeviceIdentifier string
-	AddedAt          time.Time
-}
-
-type CohortReconcilerHeartbeat struct {
-	ID                 int16
-	LastTickAt         time.Time
-	LastTickUuid       uuid.UUID
-	LastTickDurationMs sql.NullInt32
-	ActiveDeviceCount  int32
-}
-
 type CommandBatchLog struct {
 	ID             int64
 	Uuid           string
@@ -1019,6 +976,49 @@ type InfrastructureDevice struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	DeletedAt    sql.NullTime
+}
+
+type MinerChannel struct {
+	ID                 int64
+	OrgID              int64
+	Label              string
+	IsDefault          bool
+	OwnerUserID        sql.NullInt64
+	OwnerUsername      sql.NullString
+	ExpiresAt          sql.NullTime
+	DesiredConfigJsonb pqtype.NullRawMessage
+	State              string
+	Purpose            string
+	SourceActorType    string
+	SourceActorID      sql.NullString
+	IdempotencyKey     sql.NullString
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+type MinerChannelFirmwareTarget struct {
+	MinerChannelID int64
+	OrgID          int64
+	Manufacturer   string
+	Model          string
+	FirmwareFileID sql.NullString
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type MinerChannelMembership struct {
+	MinerChannelID   int64
+	OrgID            int64
+	DeviceIdentifier string
+	AddedAt          time.Time
+}
+
+type MinerChannelReconcilerHeartbeat struct {
+	ID                 int16
+	LastTickAt         time.Time
+	LastTickUuid       uuid.UUID
+	LastTickDurationMs sql.NullInt32
+	ActiveDeviceCount  int32
 }
 
 type MinerCredential struct {

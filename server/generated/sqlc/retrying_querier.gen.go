@@ -192,10 +192,10 @@ func (q *retryingQuerier) BuildingsByIDs(ctx context.Context, arg BuildingsByIDs
 	return result, err
 }
 
-func (q *retryingQuerier) BulkInsertCohortMemberships(ctx context.Context, arg BulkInsertCohortMembershipsParams) (int64, error) {
+func (q *retryingQuerier) BulkInsertCurtailmentTargets(ctx context.Context, arg BulkInsertCurtailmentTargetsParams) (int64, error) {
 	var result int64
-	err := q.retrier.RetryQuery(ctx, "BulkInsertCohortMemberships", func() error {
-		callResult, callErr := q.next.BulkInsertCohortMemberships(ctx, arg)
+	err := q.retrier.RetryQuery(ctx, "BulkInsertCurtailmentTargets", func() error {
+		callResult, callErr := q.next.BulkInsertCurtailmentTargets(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -204,10 +204,10 @@ func (q *retryingQuerier) BulkInsertCohortMemberships(ctx context.Context, arg B
 	return result, err
 }
 
-func (q *retryingQuerier) BulkInsertCurtailmentTargets(ctx context.Context, arg BulkInsertCurtailmentTargetsParams) (int64, error) {
+func (q *retryingQuerier) BulkInsertMinerChannelMemberships(ctx context.Context, arg BulkInsertMinerChannelMembershipsParams) (int64, error) {
 	var result int64
-	err := q.retrier.RetryQuery(ctx, "BulkInsertCurtailmentTargets", func() error {
-		callResult, callErr := q.next.BulkInsertCurtailmentTargets(ctx, arg)
+	err := q.retrier.RetryQuery(ctx, "BulkInsertMinerChannelMemberships", func() error {
+		callResult, callErr := q.next.BulkInsertMinerChannelMemberships(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -432,18 +432,6 @@ func (q *retryingQuerier) ClaimMessageForProcessing(ctx context.Context, id int6
 	return result, err
 }
 
-func (q *retryingQuerier) ClearCohortFirmwareTargetFileReferences(ctx context.Context, arg ClearCohortFirmwareTargetFileReferencesParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "ClearCohortFirmwareTargetFileReferences", func() error {
-		callResult, callErr := q.next.ClearCohortFirmwareTargetFileReferences(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) ClearCurtailmentAutomationActiveEvent(ctx context.Context, arg ClearCurtailmentAutomationActiveEventParams) error {
 	return q.retrier.RetryQuery(ctx, "ClearCurtailmentAutomationActiveEvent", func() error {
 		return q.next.ClearCurtailmentAutomationActiveEvent(ctx, arg)
@@ -490,6 +478,18 @@ func (q *retryingQuerier) ClearDeviceSitesAndBuildings(ctx context.Context, arg 
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ClearDeviceSitesAndBuildings", func() error {
 		callResult, callErr := q.next.ClearDeviceSitesAndBuildings(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ClearMinerChannelFirmwareTargetFileReferences(ctx context.Context, arg ClearMinerChannelFirmwareTargetFileReferencesParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ClearMinerChannelFirmwareTargetFileReferences", func() error {
+		callResult, callErr := q.next.ClearMinerChannelFirmwareTargetFileReferences(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -612,54 +612,6 @@ func (q *retryingQuerier) CountBuildingsBySite(ctx context.Context, arg CountBui
 	return result, err
 }
 
-func (q *retryingQuerier) CountCohortDevices(ctx context.Context, arg CountCohortDevicesParams) (CountCohortDevicesRow, error) {
-	var result CountCohortDevicesRow
-	err := q.retrier.RetryQuery(ctx, "CountCohortDevices", func() error {
-		callResult, callErr := q.next.CountCohortDevices(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) CountCohortMemberships(ctx context.Context, arg CountCohortMembershipsParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "CountCohortMemberships", func() error {
-		callResult, callErr := q.next.CountCohortMemberships(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) CountCohorts(ctx context.Context, arg CountCohortsParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "CountCohorts", func() error {
-		callResult, callErr := q.next.CountCohorts(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) CountCohortsByOwner(ctx context.Context, arg CountCohortsByOwnerParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "CountCohortsByOwner", func() error {
-		callResult, callErr := q.next.CountCohortsByOwner(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) CountComponentsWithErrors(ctx context.Context, arg CountComponentsWithErrorsParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountComponentsWithErrors", func() error {
@@ -760,6 +712,54 @@ func (q *retryingQuerier) CountInfrastructureDevicesBySite(ctx context.Context, 
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountInfrastructureDevicesBySite", func() error {
 		callResult, callErr := q.next.CountInfrastructureDevicesBySite(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CountMinerChannelDevices(ctx context.Context, arg CountMinerChannelDevicesParams) (CountMinerChannelDevicesRow, error) {
+	var result CountMinerChannelDevicesRow
+	err := q.retrier.RetryQuery(ctx, "CountMinerChannelDevices", func() error {
+		callResult, callErr := q.next.CountMinerChannelDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CountMinerChannelMemberships(ctx context.Context, arg CountMinerChannelMembershipsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountMinerChannelMemberships", func() error {
+		callResult, callErr := q.next.CountMinerChannelMemberships(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CountMinerChannels(ctx context.Context, arg CountMinerChannelsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountMinerChannels", func() error {
+		callResult, callErr := q.next.CountMinerChannels(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CountMinerChannelsByOwner(ctx context.Context, arg CountMinerChannelsByOwnerParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountMinerChannelsByOwner", func() error {
+		callResult, callErr := q.next.CountMinerChannelsByOwner(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -870,18 +870,6 @@ func (q *retryingQuerier) CreateBuilding(ctx context.Context, arg CreateBuilding
 	return result, err
 }
 
-func (q *retryingQuerier) CreateCohort(ctx context.Context, arg CreateCohortParams) (Cohort, error) {
-	var result Cohort
-	err := q.retrier.RetryQuery(ctx, "CreateCohort", func() error {
-		callResult, callErr := q.next.CreateCohort(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) CreateCommandBatchLog(ctx context.Context, arg CreateCommandBatchLogParams) (sql.Result, error) {
 	var result sql.Result
 	err := q.retrier.RetryQuery(ctx, "CreateCommandBatchLog", func() error {
@@ -906,9 +894,9 @@ func (q *retryingQuerier) CreateCustomRole(ctx context.Context, arg CreateCustom
 	return result, err
 }
 
-func (q *retryingQuerier) CreateDefaultCohort(ctx context.Context, orgID int64) error {
-	return q.retrier.RetryQuery(ctx, "CreateDefaultCohort", func() error {
-		return q.next.CreateDefaultCohort(ctx, orgID)
+func (q *retryingQuerier) CreateDefaultMinerChannel(ctx context.Context, orgID int64) error {
+	return q.retrier.RetryQuery(ctx, "CreateDefaultMinerChannel", func() error {
+		return q.next.CreateDefaultMinerChannel(ctx, orgID)
 	})
 }
 
@@ -946,6 +934,18 @@ func (q *retryingQuerier) CreateInfrastructureDevice(ctx context.Context, arg Cr
 	var result InfrastructureDevice
 	err := q.retrier.RetryQuery(ctx, "CreateInfrastructureDevice", func() error {
 		callResult, callErr := q.next.CreateInfrastructureDevice(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CreateMinerChannel(ctx context.Context, arg CreateMinerChannelParams) (MinerChannel, error) {
+	var result MinerChannel
+	err := q.retrier.RetryQuery(ctx, "CreateMinerChannel", func() error {
+		callResult, callErr := q.next.CreateMinerChannel(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -1068,54 +1068,6 @@ func (q *retryingQuerier) CurtailmentEventHasInFlightTargets(ctx context.Context
 	return result, err
 }
 
-func (q *retryingQuerier) DeleteCohortFirmwareTarget(ctx context.Context, arg DeleteCohortFirmwareTargetParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "DeleteCohortFirmwareTarget", func() error {
-		callResult, callErr := q.next.DeleteCohortFirmwareTarget(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) DeleteCohortMemberships(ctx context.Context, arg DeleteCohortMembershipsParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "DeleteCohortMemberships", func() error {
-		callResult, callErr := q.next.DeleteCohortMemberships(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) DeleteCohortMembershipsByCohort(ctx context.Context, arg DeleteCohortMembershipsByCohortParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "DeleteCohortMembershipsByCohort", func() error {
-		callResult, callErr := q.next.DeleteCohortMembershipsByCohort(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) DeleteCohortMembershipsByDevice(ctx context.Context, arg DeleteCohortMembershipsByDeviceParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "DeleteCohortMembershipsByDevice", func() error {
-		callResult, callErr := q.next.DeleteCohortMembershipsByDevice(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) DeleteCurtailmentAutomationRuleByOrg(ctx context.Context, arg DeleteCurtailmentAutomationRuleByOrgParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "DeleteCurtailmentAutomationRuleByOrg", func() error {
@@ -1186,6 +1138,54 @@ func (q *retryingQuerier) DeleteFleetNodeDevicePairings(ctx context.Context, arg
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "DeleteFleetNodeDevicePairings", func() error {
 		callResult, callErr := q.next.DeleteFleetNodeDevicePairings(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) DeleteMinerChannelFirmwareTarget(ctx context.Context, arg DeleteMinerChannelFirmwareTargetParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "DeleteMinerChannelFirmwareTarget", func() error {
+		callResult, callErr := q.next.DeleteMinerChannelFirmwareTarget(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) DeleteMinerChannelMemberships(ctx context.Context, arg DeleteMinerChannelMembershipsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "DeleteMinerChannelMemberships", func() error {
+		callResult, callErr := q.next.DeleteMinerChannelMemberships(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) DeleteMinerChannelMembershipsByDevice(ctx context.Context, arg DeleteMinerChannelMembershipsByDeviceParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "DeleteMinerChannelMembershipsByDevice", func() error {
+		callResult, callErr := q.next.DeleteMinerChannelMembershipsByDevice(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) DeleteMinerChannelMembershipsByMinerChannel(ctx context.Context, arg DeleteMinerChannelMembershipsByMinerChannelParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "DeleteMinerChannelMembershipsByMinerChannel", func() error {
+		callResult, callErr := q.next.DeleteMinerChannelMembershipsByMinerChannel(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -1714,18 +1714,6 @@ func (q *retryingQuerier) GetBuiltinRoleForOrg(ctx context.Context, arg GetBuilt
 	var result Role
 	err := q.retrier.RetryQuery(ctx, "GetBuiltinRoleForOrg", func() error {
 		callResult, callErr := q.next.GetBuiltinRoleForOrg(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) GetCohort(ctx context.Context, arg GetCohortParams) (GetCohortRow, error) {
-	var result GetCohortRow
-	err := q.retrier.RetryQuery(ctx, "GetCohort", func() error {
-		callResult, callErr := q.next.GetCohort(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -2562,6 +2550,18 @@ func (q *retryingQuerier) GetMessagesToProcess(ctx context.Context, arg GetMessa
 	return result, err
 }
 
+func (q *retryingQuerier) GetMinerChannel(ctx context.Context, arg GetMinerChannelParams) (GetMinerChannelRow, error) {
+	var result GetMinerChannelRow
+	err := q.retrier.RetryQuery(ctx, "GetMinerChannel", func() error {
+		callResult, callErr := q.next.GetMinerChannel(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetMinerCredentialsByDeviceID(ctx context.Context, deviceID int64) (MinerCredential, error) {
 	var result MinerCredential
 	err := q.retrier.RetryQuery(ctx, "GetMinerCredentialsByDeviceID", func() error {
@@ -3228,12 +3228,6 @@ func (q *retryingQuerier) InsertAlertChannel(ctx context.Context, arg InsertAler
 	return result, err
 }
 
-func (q *retryingQuerier) InsertCohortMembership(ctx context.Context, arg InsertCohortMembershipParams) error {
-	return q.retrier.RetryQuery(ctx, "InsertCohortMembership", func() error {
-		return q.next.InsertCohortMembership(ctx, arg)
-	})
-}
-
 func (q *retryingQuerier) InsertCurtailmentAutomationRule(ctx context.Context, arg InsertCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error) {
 	var result CurtailmentAutomationRule
 	err := q.retrier.RetryQuery(ctx, "InsertCurtailmentAutomationRule", func() error {
@@ -3312,6 +3306,12 @@ func (q *retryingQuerier) InsertMQTTSourceConfig(ctx context.Context, arg Insert
 	return result, err
 }
 
+func (q *retryingQuerier) InsertMinerChannelMembership(ctx context.Context, arg InsertMinerChannelMembershipParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertMinerChannelMembership", func() error {
+		return q.next.InsertMinerChannelMembership(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) InsertMinerStateSnapshot(ctx context.Context, argTime time.Time) error {
 	return q.retrier.RetryQuery(ctx, "InsertMinerStateSnapshot", func() error {
 		return q.next.InsertMinerStateSnapshot(ctx, argTime)
@@ -3366,10 +3366,10 @@ func (q *retryingQuerier) IsDeviceOwnedByFleetNode(ctx context.Context, arg IsDe
 	return result, err
 }
 
-func (q *retryingQuerier) IsPoolReferencedByActiveCohort(ctx context.Context, arg IsPoolReferencedByActiveCohortParams) (bool, error) {
+func (q *retryingQuerier) IsPoolReferencedByActiveMinerChannel(ctx context.Context, arg IsPoolReferencedByActiveMinerChannelParams) (bool, error) {
 	var result bool
-	err := q.retrier.RetryQuery(ctx, "IsPoolReferencedByActiveCohort", func() error {
-		callResult, callErr := q.next.IsPoolReferencedByActiveCohort(ctx, arg)
+	err := q.retrier.RetryQuery(ctx, "IsPoolReferencedByActiveMinerChannel", func() error {
+		callResult, callErr := q.next.IsPoolReferencedByActiveMinerChannel(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3438,10 +3438,10 @@ func (q *retryingQuerier) ListActiveOrganizationIDs(ctx context.Context) ([]int6
 	return result, err
 }
 
-func (q *retryingQuerier) ListActiveOwnedCohortMemberships(ctx context.Context, arg ListActiveOwnedCohortMembershipsParams) ([]ListActiveOwnedCohortMembershipsRow, error) {
-	var result []ListActiveOwnedCohortMembershipsRow
-	err := q.retrier.RetryQuery(ctx, "ListActiveOwnedCohortMemberships", func() error {
-		callResult, callErr := q.next.ListActiveOwnedCohortMemberships(ctx, arg)
+func (q *retryingQuerier) ListActiveOwnedMinerChannelMemberships(ctx context.Context, arg ListActiveOwnedMinerChannelMembershipsParams) ([]ListActiveOwnedMinerChannelMembershipsRow, error) {
+	var result []ListActiveOwnedMinerChannelMembershipsRow
+	err := q.retrier.RetryQuery(ctx, "ListActiveOwnedMinerChannelMemberships", func() error {
+		callResult, callErr := q.next.ListActiveOwnedMinerChannelMemberships(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3550,126 +3550,6 @@ func (q *retryingQuerier) ListBuiltinRolesForOrg(ctx context.Context, organizati
 	var result []Role
 	err := q.retrier.RetryQuery(ctx, "ListBuiltinRolesForOrg", func() error {
 		callResult, callErr := q.next.ListBuiltinRolesForOrg(ctx, organizationID)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) ListCohortConfigStatuses(ctx context.Context, arg ListCohortConfigStatusesParams) ([]ListCohortConfigStatusesRow, error) {
-	var result []ListCohortConfigStatusesRow
-	err := q.retrier.RetryQuery(ctx, "ListCohortConfigStatuses", func() error {
-		callResult, callErr := q.next.ListCohortConfigStatuses(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) ListCohortConfigStatusesForDevices(ctx context.Context, arg ListCohortConfigStatusesForDevicesParams) ([]ListCohortConfigStatusesForDevicesRow, error) {
-	var result []ListCohortConfigStatusesForDevicesRow
-	err := q.retrier.RetryQuery(ctx, "ListCohortConfigStatusesForDevices", func() error {
-		callResult, callErr := q.next.ListCohortConfigStatusesForDevices(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) ListCohortDeviceOwnership(ctx context.Context, arg ListCohortDeviceOwnershipParams) ([]ListCohortDeviceOwnershipRow, error) {
-	var result []ListCohortDeviceOwnershipRow
-	err := q.retrier.RetryQuery(ctx, "ListCohortDeviceOwnership", func() error {
-		callResult, callErr := q.next.ListCohortDeviceOwnership(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) ListCohortDevices(ctx context.Context, arg ListCohortDevicesParams) ([]ListCohortDevicesRow, error) {
-	var result []ListCohortDevicesRow
-	err := q.retrier.RetryQuery(ctx, "ListCohortDevices", func() error {
-		callResult, callErr := q.next.ListCohortDevices(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) ListCohortFirmwareStatuses(ctx context.Context, arg ListCohortFirmwareStatusesParams) ([]ListCohortFirmwareStatusesRow, error) {
-	var result []ListCohortFirmwareStatusesRow
-	err := q.retrier.RetryQuery(ctx, "ListCohortFirmwareStatuses", func() error {
-		callResult, callErr := q.next.ListCohortFirmwareStatuses(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) ListCohortFirmwareStatusesForDevices(ctx context.Context, arg ListCohortFirmwareStatusesForDevicesParams) ([]ListCohortFirmwareStatusesForDevicesRow, error) {
-	var result []ListCohortFirmwareStatusesForDevicesRow
-	err := q.retrier.RetryQuery(ctx, "ListCohortFirmwareStatusesForDevices", func() error {
-		callResult, callErr := q.next.ListCohortFirmwareStatusesForDevices(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) ListCohortFirmwareTargets(ctx context.Context, arg ListCohortFirmwareTargetsParams) ([]CohortFirmwareTarget, error) {
-	var result []CohortFirmwareTarget
-	err := q.retrier.RetryQuery(ctx, "ListCohortFirmwareTargets", func() error {
-		callResult, callErr := q.next.ListCohortFirmwareTargets(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) ListCohortMembers(ctx context.Context, arg ListCohortMembersParams) ([]ListCohortMembersRow, error) {
-	var result []ListCohortMembersRow
-	err := q.retrier.RetryQuery(ctx, "ListCohortMembers", func() error {
-		callResult, callErr := q.next.ListCohortMembers(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) ListCohorts(ctx context.Context, arg ListCohortsParams) ([]ListCohortsRow, error) {
-	var result []ListCohortsRow
-	err := q.retrier.RetryQuery(ctx, "ListCohorts", func() error {
-		callResult, callErr := q.next.ListCohorts(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) ListCohortsByOwner(ctx context.Context, arg ListCohortsByOwnerParams) ([]ListCohortsByOwnerRow, error) {
-	var result []ListCohortsByOwnerRow
-	err := q.retrier.RetryQuery(ctx, "ListCohortsByOwner", func() error {
-		callResult, callErr := q.next.ListCohortsByOwner(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3810,10 +3690,10 @@ func (q *retryingQuerier) ListCustomRolesForOrg(ctx context.Context, organizatio
 	return result, err
 }
 
-func (q *retryingQuerier) ListDefaultCohortDevices(ctx context.Context, arg ListDefaultCohortDevicesParams) ([]string, error) {
+func (q *retryingQuerier) ListDefaultMinerChannelDevices(ctx context.Context, arg ListDefaultMinerChannelDevicesParams) ([]string, error) {
 	var result []string
-	err := q.retrier.RetryQuery(ctx, "ListDefaultCohortDevices", func() error {
-		callResult, callErr := q.next.ListDefaultCohortDevices(ctx, arg)
+	err := q.retrier.RetryQuery(ctx, "ListDefaultMinerChannelDevices", func() error {
+		callResult, callErr := q.next.ListDefaultMinerChannelDevices(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3822,10 +3702,10 @@ func (q *retryingQuerier) ListDefaultCohortDevices(ctx context.Context, arg List
 	return result, err
 }
 
-func (q *retryingQuerier) ListDeviceIdentifiersForCohortMembership(ctx context.Context, arg ListDeviceIdentifiersForCohortMembershipParams) ([]string, error) {
+func (q *retryingQuerier) ListDeviceIdentifiersForMinerChannelMembership(ctx context.Context, arg ListDeviceIdentifiersForMinerChannelMembershipParams) ([]string, error) {
 	var result []string
-	err := q.retrier.RetryQuery(ctx, "ListDeviceIdentifiersForCohortMembership", func() error {
-		callResult, callErr := q.next.ListDeviceIdentifiersForCohortMembership(ctx, arg)
+	err := q.retrier.RetryQuery(ctx, "ListDeviceIdentifiersForMinerChannelMembership", func() error {
+		callResult, callErr := q.next.ListDeviceIdentifiersForMinerChannelMembership(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3942,10 +3822,10 @@ func (q *retryingQuerier) ListExistingDeviceIdentifiers(ctx context.Context, arg
 	return result, err
 }
 
-func (q *retryingQuerier) ListExpiredActiveCohorts(ctx context.Context) ([]ListExpiredActiveCohortsRow, error) {
-	var result []ListExpiredActiveCohortsRow
-	err := q.retrier.RetryQuery(ctx, "ListExpiredActiveCohorts", func() error {
-		callResult, callErr := q.next.ListExpiredActiveCohorts(ctx)
+func (q *retryingQuerier) ListExpiredActiveMinerChannels(ctx context.Context) ([]ListExpiredActiveMinerChannelsRow, error) {
+	var result []ListExpiredActiveMinerChannelsRow
+	err := q.retrier.RetryQuery(ctx, "ListExpiredActiveMinerChannels", func() error {
+		callResult, callErr := q.next.ListExpiredActiveMinerChannels(ctx)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4054,6 +3934,126 @@ func (q *retryingQuerier) ListMQTTSourcesWithActiveCurtailment(ctx context.Conte
 	var result []ListMQTTSourcesWithActiveCurtailmentRow
 	err := q.retrier.RetryQuery(ctx, "ListMQTTSourcesWithActiveCurtailment", func() error {
 		callResult, callErr := q.next.ListMQTTSourcesWithActiveCurtailment(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListMinerChannelConfigStatuses(ctx context.Context, arg ListMinerChannelConfigStatusesParams) ([]ListMinerChannelConfigStatusesRow, error) {
+	var result []ListMinerChannelConfigStatusesRow
+	err := q.retrier.RetryQuery(ctx, "ListMinerChannelConfigStatuses", func() error {
+		callResult, callErr := q.next.ListMinerChannelConfigStatuses(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListMinerChannelConfigStatusesForDevices(ctx context.Context, arg ListMinerChannelConfigStatusesForDevicesParams) ([]ListMinerChannelConfigStatusesForDevicesRow, error) {
+	var result []ListMinerChannelConfigStatusesForDevicesRow
+	err := q.retrier.RetryQuery(ctx, "ListMinerChannelConfigStatusesForDevices", func() error {
+		callResult, callErr := q.next.ListMinerChannelConfigStatusesForDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListMinerChannelDeviceOwnership(ctx context.Context, arg ListMinerChannelDeviceOwnershipParams) ([]ListMinerChannelDeviceOwnershipRow, error) {
+	var result []ListMinerChannelDeviceOwnershipRow
+	err := q.retrier.RetryQuery(ctx, "ListMinerChannelDeviceOwnership", func() error {
+		callResult, callErr := q.next.ListMinerChannelDeviceOwnership(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListMinerChannelDevices(ctx context.Context, arg ListMinerChannelDevicesParams) ([]ListMinerChannelDevicesRow, error) {
+	var result []ListMinerChannelDevicesRow
+	err := q.retrier.RetryQuery(ctx, "ListMinerChannelDevices", func() error {
+		callResult, callErr := q.next.ListMinerChannelDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListMinerChannelFirmwareStatuses(ctx context.Context, arg ListMinerChannelFirmwareStatusesParams) ([]ListMinerChannelFirmwareStatusesRow, error) {
+	var result []ListMinerChannelFirmwareStatusesRow
+	err := q.retrier.RetryQuery(ctx, "ListMinerChannelFirmwareStatuses", func() error {
+		callResult, callErr := q.next.ListMinerChannelFirmwareStatuses(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListMinerChannelFirmwareStatusesForDevices(ctx context.Context, arg ListMinerChannelFirmwareStatusesForDevicesParams) ([]ListMinerChannelFirmwareStatusesForDevicesRow, error) {
+	var result []ListMinerChannelFirmwareStatusesForDevicesRow
+	err := q.retrier.RetryQuery(ctx, "ListMinerChannelFirmwareStatusesForDevices", func() error {
+		callResult, callErr := q.next.ListMinerChannelFirmwareStatusesForDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListMinerChannelFirmwareTargets(ctx context.Context, arg ListMinerChannelFirmwareTargetsParams) ([]MinerChannelFirmwareTarget, error) {
+	var result []MinerChannelFirmwareTarget
+	err := q.retrier.RetryQuery(ctx, "ListMinerChannelFirmwareTargets", func() error {
+		callResult, callErr := q.next.ListMinerChannelFirmwareTargets(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListMinerChannelMembers(ctx context.Context, arg ListMinerChannelMembersParams) ([]ListMinerChannelMembersRow, error) {
+	var result []ListMinerChannelMembersRow
+	err := q.retrier.RetryQuery(ctx, "ListMinerChannelMembers", func() error {
+		callResult, callErr := q.next.ListMinerChannelMembers(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListMinerChannels(ctx context.Context, arg ListMinerChannelsParams) ([]ListMinerChannelsRow, error) {
+	var result []ListMinerChannelsRow
+	err := q.retrier.RetryQuery(ctx, "ListMinerChannels", func() error {
+		callResult, callErr := q.next.ListMinerChannels(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListMinerChannelsByOwner(ctx context.Context, arg ListMinerChannelsByOwnerParams) ([]ListMinerChannelsByOwnerRow, error) {
+	var result []ListMinerChannelsByOwnerRow
+	err := q.retrier.RetryQuery(ctx, "ListMinerChannelsByOwner", func() error {
+		callResult, callErr := q.next.ListMinerChannelsByOwner(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4872,10 +4872,10 @@ func (q *retryingQuerier) RefreshOpenErrorsLastSeenByDevice(ctx context.Context,
 	return result, err
 }
 
-func (q *retryingQuerier) ReleaseCohort(ctx context.Context, arg ReleaseCohortParams) (Cohort, error) {
-	var result Cohort
-	err := q.retrier.RetryQuery(ctx, "ReleaseCohort", func() error {
-		callResult, callErr := q.next.ReleaseCohort(ctx, arg)
+func (q *retryingQuerier) ReleaseMinerChannel(ctx context.Context, arg ReleaseMinerChannelParams) (MinerChannel, error) {
+	var result MinerChannel
+	err := q.retrier.RetryQuery(ctx, "ReleaseMinerChannel", func() error {
+		callResult, callErr := q.next.ReleaseMinerChannel(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4950,30 +4950,6 @@ func (q *retryingQuerier) ResetCurtailmentTargetsForRestore(ctx context.Context,
 	})
 }
 
-func (q *retryingQuerier) ResetFirmwareEnforcementForCohortMembers(ctx context.Context, arg ResetFirmwareEnforcementForCohortMembersParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "ResetFirmwareEnforcementForCohortMembers", func() error {
-		callResult, callErr := q.next.ResetFirmwareEnforcementForCohortMembers(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) ResetFirmwareEnforcementForCohortTarget(ctx context.Context, arg ResetFirmwareEnforcementForCohortTargetParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "ResetFirmwareEnforcementForCohortTarget", func() error {
-		callResult, callErr := q.next.ResetFirmwareEnforcementForCohortTarget(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) ResetFirmwareEnforcementForDevices(ctx context.Context, arg ResetFirmwareEnforcementForDevicesParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ResetFirmwareEnforcementForDevices", func() error {
@@ -4998,10 +4974,34 @@ func (q *retryingQuerier) ResetFirmwareEnforcementForFirmwareFile(ctx context.Co
 	return result, err
 }
 
-func (q *retryingQuerier) ResolveEffectiveCohortForDevice(ctx context.Context, arg ResolveEffectiveCohortForDeviceParams) (ResolveEffectiveCohortForDeviceRow, error) {
-	var result ResolveEffectiveCohortForDeviceRow
-	err := q.retrier.RetryQuery(ctx, "ResolveEffectiveCohortForDevice", func() error {
-		callResult, callErr := q.next.ResolveEffectiveCohortForDevice(ctx, arg)
+func (q *retryingQuerier) ResetFirmwareEnforcementForMinerChannelMembers(ctx context.Context, arg ResetFirmwareEnforcementForMinerChannelMembersParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ResetFirmwareEnforcementForMinerChannelMembers", func() error {
+		callResult, callErr := q.next.ResetFirmwareEnforcementForMinerChannelMembers(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ResetFirmwareEnforcementForMinerChannelTarget(ctx context.Context, arg ResetFirmwareEnforcementForMinerChannelTargetParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ResetFirmwareEnforcementForMinerChannelTarget", func() error {
+		callResult, callErr := q.next.ResetFirmwareEnforcementForMinerChannelTarget(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ResolveEffectiveMinerChannelForDevice(ctx context.Context, arg ResolveEffectiveMinerChannelForDeviceParams) (ResolveEffectiveMinerChannelForDeviceRow, error) {
+	var result ResolveEffectiveMinerChannelForDeviceRow
+	err := q.retrier.RetryQuery(ctx, "ResolveEffectiveMinerChannelForDevice", func() error {
+		callResult, callErr := q.next.ResolveEffectiveMinerChannelForDevice(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5604,18 +5604,6 @@ func (q *retryingQuerier) UpdateBuilding(ctx context.Context, arg UpdateBuilding
 	})
 }
 
-func (q *retryingQuerier) UpdateCohort(ctx context.Context, arg UpdateCohortParams) (Cohort, error) {
-	var result Cohort
-	err := q.retrier.RetryQuery(ctx, "UpdateCohort", func() error {
-		callResult, callErr := q.next.UpdateCohort(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) UpdateCurtailmentAutomationRule(ctx context.Context, arg UpdateCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error) {
 	var result CurtailmentAutomationRule
 	err := q.retrier.RetryQuery(ctx, "UpdateCurtailmentAutomationRule", func() error {
@@ -5694,10 +5682,10 @@ func (q *retryingQuerier) UpdateCustomRoleName(ctx context.Context, arg UpdateCu
 	})
 }
 
-func (q *retryingQuerier) UpdateDefaultCohortConfig(ctx context.Context, arg UpdateDefaultCohortConfigParams) (Cohort, error) {
-	var result Cohort
-	err := q.retrier.RetryQuery(ctx, "UpdateDefaultCohortConfig", func() error {
-		callResult, callErr := q.next.UpdateDefaultCohortConfig(ctx, arg)
+func (q *retryingQuerier) UpdateDefaultMinerChannelConfig(ctx context.Context, arg UpdateDefaultMinerChannelConfigParams) (MinerChannel, error) {
+	var result MinerChannel
+	err := q.retrier.RetryQuery(ctx, "UpdateDefaultMinerChannelConfig", func() error {
+		callResult, callErr := q.next.UpdateDefaultMinerChannelConfig(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5856,6 +5844,18 @@ func (q *retryingQuerier) UpdateMessageStatus(ctx context.Context, arg UpdateMes
 	return result, err
 }
 
+func (q *retryingQuerier) UpdateMinerChannel(ctx context.Context, arg UpdateMinerChannelParams) (MinerChannel, error) {
+	var result MinerChannel
+	err := q.retrier.RetryQuery(ctx, "UpdateMinerChannel", func() error {
+		callResult, callErr := q.next.UpdateMinerChannel(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) UpdateMinerPassword(ctx context.Context, arg UpdateMinerPasswordParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "UpdateMinerPassword", func() error {
@@ -5988,24 +5988,6 @@ func (q *retryingQuerier) UpsertBuiltinRoleForOrg(ctx context.Context, arg Upser
 	return result, err
 }
 
-func (q *retryingQuerier) UpsertCohortFirmwareTarget(ctx context.Context, arg UpsertCohortFirmwareTargetParams) (CohortFirmwareTarget, error) {
-	var result CohortFirmwareTarget
-	err := q.retrier.RetryQuery(ctx, "UpsertCohortFirmwareTarget", func() error {
-		callResult, callErr := q.next.UpsertCohortFirmwareTarget(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) UpsertCohortReconcilerHeartbeat(ctx context.Context, arg UpsertCohortReconcilerHeartbeatParams) error {
-	return q.retrier.RetryQuery(ctx, "UpsertCohortReconcilerHeartbeat", func() error {
-		return q.next.UpsertCohortReconcilerHeartbeat(ctx, arg)
-	})
-}
-
 func (q *retryingQuerier) UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error {
 	return q.retrier.RetryQuery(ctx, "UpsertCommandOnDeviceLog", func() error {
 		return q.next.UpsertCommandOnDeviceLog(ctx, arg)
@@ -6117,6 +6099,24 @@ func (q *retryingQuerier) UpsertFleetNodeSession(ctx context.Context, arg Upsert
 func (q *retryingQuerier) UpsertMQTTSourceState(ctx context.Context, arg UpsertMQTTSourceStateParams) error {
 	return q.retrier.RetryQuery(ctx, "UpsertMQTTSourceState", func() error {
 		return q.next.UpsertMQTTSourceState(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) UpsertMinerChannelFirmwareTarget(ctx context.Context, arg UpsertMinerChannelFirmwareTargetParams) (MinerChannelFirmwareTarget, error) {
+	var result MinerChannelFirmwareTarget
+	err := q.retrier.RetryQuery(ctx, "UpsertMinerChannelFirmwareTarget", func() error {
+		callResult, callErr := q.next.UpsertMinerChannelFirmwareTarget(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) UpsertMinerChannelReconcilerHeartbeat(ctx context.Context, arg UpsertMinerChannelReconcilerHeartbeatParams) error {
+	return q.retrier.RetryQuery(ctx, "UpsertMinerChannelReconcilerHeartbeat", func() error {
+		return q.next.UpsertMinerChannelReconcilerHeartbeat(ctx, arg)
 	})
 }
 

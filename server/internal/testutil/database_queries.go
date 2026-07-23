@@ -86,8 +86,8 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 			return fleeterror.NewInternalErrorf("error seeding per-org built-in roles: %v", err)
 		}
 
-		if err := q.CreateDefaultCohort(context.Background(), orgID); err != nil {
-			return fleeterror.NewInternalErrorf("error creating default cohort: %v", err)
+		if err := q.CreateDefaultMinerChannel(context.Background(), orgID); err != nil {
+			return fleeterror.NewInternalErrorf("error creating default miner channel: %v", err)
 		}
 
 		roleID, ok := builtinIDs[authz.BuiltinKeySuperAdmin]
@@ -162,8 +162,8 @@ func (s *DatabaseService) CreateSuperAdminUser2() *TestUser {
 			return fleeterror.NewInternalErrorf("error seeding per-org built-in roles: %v", err)
 		}
 
-		if err := q.CreateDefaultCohort(context.Background(), orgID); err != nil {
-			return fleeterror.NewInternalErrorf("error creating default cohort: %v", err)
+		if err := q.CreateDefaultMinerChannel(context.Background(), orgID); err != nil {
+			return fleeterror.NewInternalErrorf("error creating default miner channel: %v", err)
 		}
 
 		roleID, ok := builtinIDs[authz.BuiltinKeySuperAdmin]

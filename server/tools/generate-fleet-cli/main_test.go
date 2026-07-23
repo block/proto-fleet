@@ -60,6 +60,18 @@ func TestGoPackageInfoInfersLocalGeneratedPath(t *testing.T) {
 	}
 }
 
+func TestToGoFieldNameStringSupportsCLISeparators(t *testing.T) {
+	tests := map[string]string{
+		"miner-channels": "MinerChannels",
+		"miner_channels": "MinerChannels",
+	}
+	for input, want := range tests {
+		if got := toGoFieldNameString(input); got != want {
+			t.Fatalf("toGoFieldNameString(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestAuthPolicyConstDefaultsToAuthenticated(t *testing.T) {
 	got, err := authPolicyConst("")
 	if err != nil {

@@ -92,7 +92,7 @@ auth:
   miner-token-expiration-period: "30m"
 db:
   address: "db.internal:5432"
-cohort:
+miner-channel:
   expiry-sweep-interval: "30s"
 encrypt:
   service-master-key: "test-master-key"
@@ -118,7 +118,7 @@ logging:
 	require.Equal(t, 45*time.Second, config.HTTP.WriteByteTimeout)
 	require.True(t, config.HTTP.SuppressCors)
 	require.Equal(t, "db.internal:5432", config.DB.Address)
-	require.Equal(t, 30*time.Second, config.Cohort.ExpirySweepInterval)
+	require.Equal(t, 30*time.Second, config.MinerChannel.ExpirySweepInterval)
 	require.True(t, config.Log.JSON)
 	require.Equal(t, "test-client-secret", config.Auth.ClientToken.SecretKey)
 	require.Equal(t, time.Hour, config.Auth.ClientToken.ExpirationPeriod)
@@ -153,13 +153,13 @@ logging:
 	_, err = parser.Parse([]string{
 		"--http-address=127.0.0.1:8081",
 		"--http-write-byte-timeout=1m",
-		"--cohort-expiry-sweep-interval=15s",
+		"--miner-channel-expiry-sweep-interval=15s",
 		"--logging-json=false",
 	})
 	require.NoError(t, err)
 	require.Equal(t, "127.0.0.1:8081", config.HTTP.Address)
 	require.Equal(t, time.Minute, config.HTTP.WriteByteTimeout)
-	require.Equal(t, 15*time.Second, config.Cohort.ExpirySweepInterval)
+	require.Equal(t, 15*time.Second, config.MinerChannel.ExpirySweepInterval)
 	require.False(t, config.Log.JSON)
 }
 

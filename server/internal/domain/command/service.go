@@ -173,8 +173,8 @@ func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 		return activitymodels.ActorScheduler
 	case session.ActorCurtailment:
 		return activitymodels.ActorCurtailment
-	case session.ActorCohort:
-		return activitymodels.ActorCohort
+	case session.ActorMinerChannel:
+		return activitymodels.ActorMinerChannel
 	}
 	return ""
 }
@@ -1318,11 +1318,11 @@ func (s *Service) UpdateMiningPools(
 	return s.updateMiningPools(ctx, deviceSelector, defaultPool, backup1Pool, backup2Pool)
 }
 
-// UpdateMiningPoolsAsCohort is the non-interactive pool command surface for
-// the cohort reconciler. All command validation and dispatch behavior remains
+// UpdateMiningPoolsAsMinerChannel is the non-interactive pool command surface for
+// the miner channel reconciler. All command validation and dispatch behavior remains
 // shared with the interactive path; only user credential re-verification is
-// skipped for the authenticated internal cohort actor.
-func (s *Service) UpdateMiningPoolsAsCohort(
+// skipped for the authenticated internal miner channel actor.
+func (s *Service) UpdateMiningPoolsAsMinerChannel(
 	ctx context.Context,
 	deviceSelector *pb.DeviceSelector,
 	defaultPool, backup1Pool, backup2Pool *pb.PoolSlotConfig,
@@ -1331,8 +1331,8 @@ func (s *Service) UpdateMiningPoolsAsCohort(
 	if err != nil {
 		return nil, err
 	}
-	if info.Actor != session.ActorCohort {
-		return nil, fleeterror.NewForbiddenError("cohort pool enforcement requires the cohort actor")
+	if info.Actor != session.ActorMinerChannel {
+		return nil, fleeterror.NewForbiddenError("miner channel pool enforcement requires the miner channel actor")
 	}
 	return s.updateMiningPools(ctx, deviceSelector, defaultPool, backup1Pool, backup2Pool)
 }

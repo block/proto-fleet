@@ -96,7 +96,7 @@ func RequirePermission(ctx context.Context, key string, rc authz.ResourceContext
 	// access.
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment, session.ActorCohort:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorMinerChannel:
 			return info, nil
 		default:
 			return nil, fleeterror.NewInternalErrorf(
@@ -130,7 +130,7 @@ func RequireOrgWidePermission(ctx context.Context, key string) (*session.Info, e
 
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment, session.ActorCohort:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorMinerChannel:
 			return info, nil
 		default:
 			return nil, fleeterror.NewInternalErrorf(
@@ -168,7 +168,7 @@ func HasPermission(ctx context.Context, key string, rc authz.ResourceContext) (b
 
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment, session.ActorCohort:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorMinerChannel:
 			return true, nil
 		default:
 			return false, fleeterror.NewInternalErrorf(
@@ -195,7 +195,7 @@ func HasOrgWidePermission(ctx context.Context, key string) (bool, error) {
 
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment, session.ActorCohort:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorMinerChannel:
 			return true, nil
 		default:
 			return false, fleeterror.NewInternalErrorf(
@@ -232,7 +232,7 @@ func SiteScopeForPermission(ctx context.Context, key string) (orgWide bool, site
 
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment, session.ActorCohort:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorMinerChannel:
 			return true, nil, nil
 		default:
 			return false, nil, fleeterror.NewInternalErrorf(
@@ -282,7 +282,7 @@ func RequireAnyPermission(ctx context.Context, keys []string, rc authz.ResourceC
 	// Same allowlisted internal-actor short-circuit as RequirePermission.
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment, session.ActorCohort:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorMinerChannel:
 			return info, nil
 		default:
 			return nil, fleeterror.NewInternalErrorf(

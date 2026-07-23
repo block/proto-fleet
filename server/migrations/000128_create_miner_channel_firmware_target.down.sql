@@ -1,0 +1,4 @@
+DROP TRIGGER IF EXISTS update_miner_channel_firmware_target_updated_at ON miner_channel_firmware_target;
+DROP INDEX IF EXISTS idx_miner_channel_firmware_target_org_type;
+DROP INDEX IF EXISTS uq_miner_channel_firmware_target_canonical_type;
+DROP TABLE IF EXISTS miner_channel_firmware_target;

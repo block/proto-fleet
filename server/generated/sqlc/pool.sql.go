@@ -94,10 +94,10 @@ func (q *Queries) GetTotalPools(ctx context.Context, orgID int64) (int64, error)
 	return count, err
 }
 
-const isPoolReferencedByActiveCohort = `-- name: IsPoolReferencedByActiveCohort :one
+const isPoolReferencedByActiveMinerChannel = `-- name: IsPoolReferencedByActiveMinerChannel :one
 SELECT EXISTS (
     SELECT 1
-    FROM cohort
+    FROM miner_channel
     WHERE org_id = $1
       AND state = 'active'
       AND desired_config_jsonb IS NOT NULL
@@ -109,13 +109,13 @@ SELECT EXISTS (
 )
 `
 
-type IsPoolReferencedByActiveCohortParams struct {
+type IsPoolReferencedByActiveMinerChannelParams struct {
 	OrgID  int64
 	PoolID int64
 }
 
-func (q *Queries) IsPoolReferencedByActiveCohort(ctx context.Context, arg IsPoolReferencedByActiveCohortParams) (bool, error) {
-	row := q.queryRow(ctx, q.isPoolReferencedByActiveCohortStmt, isPoolReferencedByActiveCohort, arg.OrgID, arg.PoolID)
+func (q *Queries) IsPoolReferencedByActiveMinerChannel(ctx context.Context, arg IsPoolReferencedByActiveMinerChannelParams) (bool, error) {
+	row := q.queryRow(ctx, q.isPoolReferencedByActiveMinerChannelStmt, isPoolReferencedByActiveMinerChannel, arg.OrgID, arg.PoolID)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err

@@ -19,8 +19,8 @@ import (
 
 type PoolStatus string
 
-type cohortPoolReferenceStore interface {
-	IsPoolReferencedByActiveCohort(ctx context.Context, orgID int64, poolID int64) (bool, error)
+type minerChannelPoolReferenceStore interface {
+	IsPoolReferencedByActiveMinerChannel(ctx context.Context, orgID int64, poolID int64) (bool, error)
 }
 
 type Service struct {
@@ -53,13 +53,13 @@ func (s *Service) DeletePool(ctx context.Context, id int64) error {
 
 	pool, poolErr := s.poolStore.GetPool(ctx, info.OrganizationID, id)
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		if referenceStore, ok := s.poolStore.(cohortPoolReferenceStore); ok {
-			referenced, err := referenceStore.IsPoolReferencedByActiveCohort(ctx, info.OrganizationID, id)
+		if referenceStore, ok := s.poolStore.(minerChannelPoolReferenceStore); ok {
+			referenced, err := referenceStore.IsPoolReferencedByActiveMinerChannel(ctx, info.OrganizationID, id)
 			if err != nil {
 				return err
 			}
 			if referenced {
-				return fleeterror.NewFailedPreconditionError("Pool is used by an active cohort and cannot be deleted.")
+				return fleeterror.NewFailedPreconditionError("Pool is used by an active miner channel and cannot be deleted.")
 			}
 		}
 		return s.poolStore.SoftDeletePool(ctx, info.OrganizationID, id)

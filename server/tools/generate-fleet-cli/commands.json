@@ -1,82 +1,82 @@
 {
   "commands": [
     {
-      "method": "/cohort.v1.CohortService/AddDevicesToCohort",
-      "group": "cohorts",
+      "method": "/minerchannel.v1.MinerChannelService/AddDevicesToMinerChannel",
+      "group": "miner-channels",
       "command": "add-devices",
-      "required_fields": ["cohort_id", "device_identifiers"]
+      "required_fields": ["miner_channel_id", "device_identifiers"]
     },
     {
-      "method": "/cohort.v1.CohortService/AdminReassign",
-      "group": "cohorts",
+      "method": "/minerchannel.v1.MinerChannelService/AdminReassign",
+      "group": "miner-channels",
       "command": "admin-reassign",
-      "required_fields": ["target_cohort_id", "device_identifiers"]
+      "required_fields": ["target_miner_channel_id", "device_identifiers"]
     },
     {
-      "method": "/cohort.v1.CohortService/AdminReleaseCohort",
-      "group": "cohorts",
+      "method": "/minerchannel.v1.MinerChannelService/AdminReleaseMinerChannel",
+      "group": "miner-channels",
       "command": "admin-release",
-      "required_fields": ["cohort_id"]
+      "required_fields": ["miner_channel_id"]
     },
     {
-      "method": "/cohort.v1.CohortService/CreateCohort",
-      "group": "cohorts",
+      "method": "/minerchannel.v1.MinerChannelService/CreateMinerChannel",
+      "group": "miner-channels",
       "command": "create",
       "required_fields": ["label", "purpose"],
       "json_only": true
     },
     {
-      "method": "/cohort.v1.CohortService/DeleteCohort",
-      "group": "cohorts",
+      "method": "/minerchannel.v1.MinerChannelService/DeleteMinerChannel",
+      "group": "miner-channels",
       "command": "delete",
-      "required_fields": ["cohort_id"]
+      "required_fields": ["miner_channel_id"]
     },
     {
-      "method": "/cohort.v1.CohortService/UpdateCohort",
-      "group": "cohorts",
+      "method": "/minerchannel.v1.MinerChannelService/UpdateMinerChannel",
+      "group": "miner-channels",
       "command": "extend",
-      "required_fields": ["cohort_id"],
+      "required_fields": ["miner_channel_id"],
       "json_only": true
     },
     {
-      "method": "/cohort.v1.CohortService/ListCohorts",
-      "group": "cohorts",
+      "method": "/minerchannel.v1.MinerChannelService/ListMinerChannels",
+      "group": "miner-channels",
       "command": "list"
     },
     {
-      "method": "/cohort.v1.CohortService/GetMyCohorts",
-      "group": "cohorts",
+      "method": "/minerchannel.v1.MinerChannelService/GetMyMinerChannels",
+      "group": "miner-channels",
       "command": "my"
     },
     {
-      "method": "/cohort.v1.CohortService/ReleaseCohort",
-      "group": "cohorts",
+      "method": "/minerchannel.v1.MinerChannelService/ReleaseMinerChannel",
+      "group": "miner-channels",
       "command": "release",
-      "required_fields": ["cohort_id"]
+      "required_fields": ["miner_channel_id"]
     },
     {
-      "method": "/cohort.v1.CohortService/RemoveDevicesFromCohort",
-      "group": "cohorts",
+      "method": "/minerchannel.v1.MinerChannelService/RemoveDevicesFromMinerChannel",
+      "group": "miner-channels",
       "command": "remove-devices",
-      "required_fields": ["cohort_id", "device_identifiers"]
+      "required_fields": ["miner_channel_id", "device_identifiers"]
     },
     {
-      "method": "/cohort.v1.CohortService/ListDevices",
-      "group": "cohorts",
+      "method": "/minerchannel.v1.MinerChannelService/ListDevices",
+      "group": "miner-channels",
       "command": "rigs",
       "json_only": true
     },
     {
-      "method": "/cohort.v1.CohortService/SetCohortFirmwareTarget",
-      "group": "cohorts",
+      "method": "/minerchannel.v1.MinerChannelService/SetMinerChannelFirmwareTarget",
+      "group": "miner-channels",
       "command": "set-firmware-target",
-      "required_fields": ["cohort_id"]
+      "required_fields": ["miner_channel_id"]
     },
     {
-      "method": "/cohort.v1.CohortService/GetCohort",
-      "group": "cohorts",
+      "method": "/minerchannel.v1.MinerChannelService/GetMinerChannel",
+      "group": "miner-channels",
       "command": "status",
-      "required_fields": ["cohort_id"]
+      "required_fields": ["miner_channel_id"]
     },
     {
       "method": "/fleetmanagement.v1.FleetManagementService/ListMinerStateSnapshots",

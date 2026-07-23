@@ -25,7 +25,7 @@ func FromPoolUsername(username string) string {
 }
 
 // EffectivePoolUsername applies the same worker suffix rules used by pool
-// command execution. Cohort normalization uses this to compare desired state.
+// command execution. MinerChannel normalization uses this to compare desired state.
 func EffectivePoolUsername(username, workerName string, appendWorkerName bool) string {
 	trimmed := strings.TrimSpace(username)
 	if !appendWorkerName || workerName == "" || trimmed == "" || strings.Contains(trimmed, ".") {

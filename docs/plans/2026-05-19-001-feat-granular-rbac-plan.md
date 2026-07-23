@@ -426,7 +426,7 @@ constant pattern (`SuperAdminRoleName`, `AdminRoleName`).
 **Test scenarios:**
 - `AllPermissions()` returns no duplicates and covers every constant
   defined in the file (reflection or string-table check).
-- Every permission key matches the regex `^[a-z]+:[a-z_]+$`.
+- Every permission key matches the regex `^[a-z_]+:[a-z_]+$`.
 - `Test expectation: catalog completeness` — the test fails if a new
   constant is added but not registered in `AllPermissions()`.
 

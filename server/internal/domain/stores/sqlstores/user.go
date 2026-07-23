@@ -140,11 +140,11 @@ func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, user
 		return fleeterror.NewInternalErrorf("error seeding per-org built-in roles: %v", err)
 	}
 
-	// Every org gets exactly one default cohort (is_default = TRUE) so device
-	// cohort resolution always has a fallback. Pre-existing orgs are seeded by
-	// the cohort schema migration; new orgs are seeded here in the same transaction.
-	if err := q.CreateDefaultCohort(ctx, orgInternalID); err != nil {
-		return fleeterror.NewInternalErrorf("error creating default cohort: %v", err)
+	// Every org gets exactly one default miner channel (is_default = TRUE) so device
+	// miner channel resolution always has a fallback. Pre-existing orgs are seeded by
+	// the miner channel schema migration; new orgs are seeded here in the same transaction.
+	if err := q.CreateDefaultMinerChannel(ctx, orgInternalID); err != nil {
+		return fleeterror.NewInternalErrorf("error creating default miner channel: %v", err)
 	}
 
 	superAdminRoleID, ok := builtinIDs[authz.BuiltinKeySuperAdmin]

@@ -10,7 +10,7 @@ import (
 )
 
 // UpsertDeviceFirmwareState records the latest observed firmware version used
-// by cohort enforcement without coupling it to the general device list query.
+// by miner channel enforcement without coupling it to the general device list query.
 func (s *SQLDeviceStore) UpsertDeviceFirmwareState(ctx context.Context, orgID int64, deviceIdentifier models.DeviceIdentifier, firmwareVersion string, observedAt time.Time) error {
 	if firmwareVersion == "" || orgID <= 0 {
 		return nil

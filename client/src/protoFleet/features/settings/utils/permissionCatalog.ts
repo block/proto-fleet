@@ -5,7 +5,7 @@ import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
 
 export interface CatalogEntry {
-  /** Stable key, e.g. "miner:reboot". Matches /^[a-z]+:[a-z_]+$/. */
+  /** Stable key, e.g. "miner:reboot". Matches /^[a-z_]+:[a-z_]+$/. */
   key: string;
   description: string;
   /** Resource group ("fleet", "miner", ...) used for UI grouping. */

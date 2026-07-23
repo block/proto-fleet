@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-var permKeyRegex = regexp.MustCompile(`^[a-z]+:[a-z_]+$`)
+var permKeyRegex = regexp.MustCompile(`^[a-z_]+:[a-z_]+$`)
 
 func TestAllPermissions_NoDuplicates(t *testing.T) {
 	seen := make(map[string]bool)
@@ -61,8 +61,8 @@ func TestCatalogCompleteness(t *testing.T) {
 		PermCurtailmentRead,
 		PermCurtailmentManage,
 		PermCurtailmentIngest,
-		PermCohortRead,
-		PermCohortManage,
+		PermMinerChannelRead,
+		PermMinerChannelManage,
 		PermPoolRead,
 		PermPoolManage,
 		PermScheduleRead,
@@ -117,7 +117,7 @@ func TestCatalogByResource_GroupsAndAssociates(t *testing.T) {
 
 	for _, resource := range []string{
 		ResourceFleet, ResourceMiner, ResourceRack, ResourceSite, ResourceActivity,
-		ResourceServerLog, ResourceCurtailment, ResourceCohort, ResourcePool, ResourceSchedule, ResourceFleetNode,
+		ResourceServerLog, ResourceCurtailment, ResourceMinerChannel, ResourcePool, ResourceSchedule, ResourceFleetNode,
 		ResourceAlert, ResourceAPIKey, ResourceUser, ResourceRole,
 	} {
 		if len(groups[resource]) == 0 {
@@ -147,7 +147,7 @@ func TestResourceOrder_MatchesCatalogDeclarationOrder(t *testing.T) {
 		ResourceActivity,
 		ResourceServerLog,
 		ResourceCurtailment,
-		ResourceCohort,
+		ResourceMinerChannel,
 		ResourcePool,
 		ResourceSchedule,
 		ResourceFleetNode,

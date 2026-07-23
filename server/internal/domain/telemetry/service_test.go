@@ -3356,7 +3356,7 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 		service.persistFirmwareVersionIfChanged(t.Context(), 1, deviceID, firmwareV1)
 	})
 
-	t.Run("records the firmware observation for cohort enforcement", func(t *testing.T) {
+	t.Run("records the firmware observation for miner channel enforcement", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 		mockDeviceStore.EXPECT().

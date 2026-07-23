@@ -12,9 +12,9 @@ import (
 func TestActorConstantsAreDistinct(t *testing.T) {
 	t.Parallel()
 	actors := map[Actor]string{
-		ActorScheduler:   "scheduler",
-		ActorCurtailment: "curtailment",
-		ActorCohort:      "cohort",
+		ActorScheduler:    "scheduler",
+		ActorCurtailment:  "curtailment",
+		ActorMinerChannel: "miner_channel",
 	}
 	seen := make(map[string]Actor, len(actors))
 	for a, want := range actors {

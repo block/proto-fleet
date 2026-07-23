@@ -2283,7 +2283,9 @@ func toGoFieldName(name protoreflect.Name) string {
 }
 
 func toGoFieldNameString(name string) string {
-	parts := strings.Split(name, "_")
+	parts := strings.FieldsFunc(name, func(r rune) bool {
+		return r == '_' || r == '-'
+	})
 	for i := range parts {
 		if parts[i] == "" {
 			continue

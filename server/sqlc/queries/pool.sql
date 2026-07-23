@@ -33,10 +33,10 @@ SET deleted_at = CURRENT_TIMESTAMP
 WHERE org_id = $1
   AND id = $2;
 
--- name: IsPoolReferencedByActiveCohort :one
+-- name: IsPoolReferencedByActiveMinerChannel :one
 SELECT EXISTS (
     SELECT 1
-    FROM cohort
+    FROM miner_channel
     WHERE org_id = sqlc.arg('org_id')
       AND state = 'active'
       AND desired_config_jsonb IS NOT NULL

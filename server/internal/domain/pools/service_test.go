@@ -66,7 +66,7 @@ func (s *stubPoolStore) SoftDeletePool(ctx context.Context, orgID int64, poolID 
 	return nil
 }
 
-func (s *stubPoolStore) IsPoolReferencedByActiveCohort(ctx context.Context, orgID int64, poolID int64) (bool, error) {
+func (s *stubPoolStore) IsPoolReferencedByActiveMinerChannel(ctx context.Context, orgID int64, poolID int64) (bool, error) {
 	if s.poolReferencedFn != nil {
 		return s.poolReferencedFn(ctx, orgID, poolID)
 	}
@@ -365,7 +365,7 @@ func TestActivityLogging_DeletePoolBestEffortPreFetch(t *testing.T) {
 	assert.Empty(t, spy.events, "activity log should be skipped when pre-fetch fails")
 }
 
-func TestService_DeletePoolRejectsActiveCohortReference(t *testing.T) {
+func TestService_DeletePoolRejectsActiveMinerChannelReference(t *testing.T) {
 	store := &stubPoolStore{
 		poolReferencedFn: func(_ context.Context, orgID, poolID int64) (bool, error) {
 			assert.Equal(t, int64(1), orgID)
