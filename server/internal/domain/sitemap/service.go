@@ -353,7 +353,7 @@ func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.Imp
 		}, nil
 	}
 
-	token := commitToken(parsed, req.GetOmissionMode(), plan, snapshot)
+	token := commitToken(req.GetOmissionMode(), plan, snapshot)
 	if !req.GetDryRun() {
 		if req.GetCommitToken() == "" {
 			return nil, fleeterror.NewInvalidArgumentError("commit_token is required when dry_run is false")
@@ -2005,22 +2005,66 @@ func (s *Service) applyMiners(
 	return nil
 }
 
-func commitToken(parsed *parsedCSV, mode pb.OmissionMode, plan importPlan, snap *snapshot) string {
+// commitToken binds a dry-run to the exact work a later commit would perform. It
+// hashes the resolved plan (the create/update node set apply iterates), the
+// omission counts and live snapshot fingerprint (the delete path reads the
+// snapshot directly), and the mode. Deriving the token from the resolved plan —
+// rather than the raw CSV rows and preview summary — means a token can never
+// validate a topology that apply would resolve differently.
+func commitToken(mode pb.OmissionMode, plan importPlan, snap *snapshot) string {
 	payload := mustMarshalJSON(struct {
-		Parsed              *parsedCSV
 		Mode                pb.OmissionMode
+		Plan                [][]string
 		Omissions           *pb.OmissionCounts
-		Changes             []*pb.ImportChangeSummary
 		SnapshotFingerprint string
 	}{
-		Parsed:              parsed,
 		Mode:                mode,
+		Plan:                resolvedPlanRows(plan.resolved),
 		Omissions:           plan.omissions,
-		Changes:             plan.changes,
 		SnapshotFingerprint: snapshotFingerprint(snap),
 	})
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
+}
+
+// resolvedPlanRows serializes the resolved plan's create/update node set into a
+// deterministic row form for the commit token. Row order follows CSV order, and
+// each row carries the node's identity plus every mutable facet apply writes.
+func resolvedPlanRows(r *resolvedPlan) [][]string {
+	if r == nil {
+		return nil
+	}
+	rows := [][]string{}
+	for _, s := range r.sites {
+		rows = append(rows, []string{
+			"S", formatNullableInt64(s.id), s.name, strconv.Itoa(int(s.action)),
+		})
+	}
+	for _, b := range r.buildings {
+		rows = append(rows, []string{
+			"B", formatNullableInt64(b.id), b.siteRef, b.name,
+			strconv.Itoa(int(b.aisles)), strconv.Itoa(int(b.racksPerAisle)),
+			strconv.Itoa(int(b.action)),
+		})
+	}
+	for _, rk := range r.racks {
+		rows = append(rows, []string{
+			"R", formatNullableInt64(rk.id), rk.siteRef, rk.buildingRef,
+			formatNullableInt64(rk.buildingID), rk.label, rk.zone,
+			strconv.Itoa(int(rk.rows)), strconv.Itoa(int(rk.columns)),
+			rk.orderIndex, rk.aisleIndex, rk.positionInAisle,
+			strconv.Itoa(int(rk.action)),
+		})
+	}
+	for _, m := range r.miners {
+		rows = append(rows, []string{
+			"M", m.deviceID, m.name, m.siteLabel, m.buildLabel, m.rackLabel,
+			m.rackRow, m.rackCol, formatNullableInt64(m.buildingID),
+			strconv.FormatBool(m.renamed), strconv.FormatBool(m.moved),
+			strconv.FormatBool(m.unassigned),
+		})
+	}
+	return rows
 }
 
 func snapshotFingerprint(snap *snapshot) string {
@@ -3270,15 +3314,6 @@ func existingByIDRow[T any](row map[string]string, existing map[int64]T) (T, boo
 	return value, ok
 }
 
-func existingRackByIDRow(row map[string]string, existing map[int64]rackSnapshot) (rackSnapshot, bool) {
-	id, ok := rowID(row)
-	if !ok {
-		return rackSnapshot{}, false
-	}
-	value, ok := existing[id]
-	return value, ok
-}
-
 func siteIdentitySet(rows []map[string]string, sites []sitemodels.Site) map[string]bool {
 	byName := map[string]sitemodels.Site{}
 	for _, site := range sites {
@@ -3531,19 +3566,6 @@ func desiredBuildingsByID(rows []map[string]string, buildings []buildingmodels.B
 	return out
 }
 
-func rowsEqual(a, b map[string]string, headers []string) bool {
-	for _, header := range headers {
-		if a[header] != b[header] {
-			return false
-		}
-	}
-	return true
-}
-
-func parseInt32Field(row map[string]string, field string) (int32, error) {
-	return parseInt32Value(row[field], field)
-}
-
 func parseInt32Value(raw string, field string) (int32, error) {
 	if raw == "" {
 		return 0, nil
@@ -3593,21 +3615,6 @@ func parseRackCoolingType(value string) (collectionpb.RackCoolingType, error) {
 	}
 }
 
-func desiredRackGridPosition(row map[string]string) (*int32, *int32, error) {
-	if row["aisle_index"] == "" && row["position_in_aisle"] == "" {
-		return nil, nil, nil
-	}
-	aisle, err := parseInt32Value(row["aisle_index"], "aisle_index")
-	if err != nil {
-		return nil, nil, err
-	}
-	position, err := parseInt32Value(row["position_in_aisle"], "position_in_aisle")
-	if err != nil {
-		return nil, nil, err
-	}
-	return &aisle, &position, nil
-}
-
 // desiredSiteBuildingIDs resolves the site and building ids a placement targets.
 // Reference cells have already been canonicalized to names, so this is a pure
 // name lookup against the running apply maps (which include entities created
@@ -3640,15 +3647,8 @@ func desiredSiteBuildingIDs(
 	return siteID, buildingID, nil
 }
 
-func desiredRackZone(row map[string]string, current rackSnapshot) string {
-	if current.Building != "" && (row[fieldBuilding] != current.Building || row[fieldSite] != current.Site) {
-		return ""
-	}
-	return row["zone"]
-}
-
-// desiredRackZoneForNode is the node-based twin of desiredRackZone: a zone only
-// survives when the rack stays in the same building/site it currently occupies.
+// desiredRackZoneForNode clears a rack's zone when the rack leaves the building or
+// site it currently occupies; otherwise the desired zone survives.
 func desiredRackZoneForNode(node *resolvedRack, current rackSnapshot) string {
 	if current.Building != "" && (node.buildingRef != current.Building || node.siteRef != current.Site) {
 		return ""

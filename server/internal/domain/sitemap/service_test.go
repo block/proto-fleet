@@ -911,8 +911,43 @@ func TestCommitTokenChangesWithSnapshotDrift(t *testing.T) {
 	after := testSnapshotMatchingValidCSV()
 	after.miners[0].RackCol = "1"
 
-	if commitToken(parsed, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED, plan, before) == commitToken(parsed, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED, plan, after) {
+	if commitToken(pb.OmissionMode_OMISSION_MODE_UNSPECIFIED, plan, before) == commitToken(pb.OmissionMode_OMISSION_MODE_UNSPECIFIED, plan, after) {
 		t.Fatal("commit token must change when live site-map snapshot changes")
+	}
+}
+
+// TestCommitTokenChangesWithPlanEdit locks in that the token is derived from the
+// resolved plan: editing the CSV so the plan resolves a different placement must
+// change the token even when the live snapshot is identical.
+func TestCommitTokenChangesWithPlanEdit(t *testing.T) {
+	snap := testSnapshotMatchingValidCSV()
+
+	base, errs := parseSiteMapCSV([]byte(validCSV()))
+	if len(errs) != 0 {
+		t.Fatalf("parse errors = %v", errs)
+	}
+	planBase := buildPlan(base, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(planBase.errors) != 0 {
+		t.Fatalf("base plan errors = %v", planBase.errors)
+	}
+
+	editedCSV := strings.Replace(
+		validCSV(),
+		"miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,NAME:Rack A,0,0",
+		"miner-1,SN1,Miner 1,10.0.0.5,aa:bb:cc:dd:ee:ff,,,NAME:Rack A,0,1",
+		1,
+	)
+	edited, errs := parseSiteMapCSV([]byte(editedCSV))
+	if len(errs) != 0 {
+		t.Fatalf("edited parse errors = %v", errs)
+	}
+	planEdited := buildPlan(edited, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(planEdited.errors) != 0 {
+		t.Fatalf("edited plan errors = %v", planEdited.errors)
+	}
+
+	if commitToken(pb.OmissionMode_OMISSION_MODE_UNSPECIFIED, planBase, snap) == commitToken(pb.OmissionMode_OMISSION_MODE_UNSPECIFIED, planEdited, snap) {
+		t.Fatal("commit token must change when the resolved plan changes")
 	}
 }
 
@@ -1126,16 +1161,16 @@ func TestBuildPlanTreatsEscapedExportValuesAsNoOp(t *testing.T) {
 	}
 }
 
-func TestDesiredRackZoneClearsWhenRackLeavesBuildingScope(t *testing.T) {
+func TestDesiredRackZoneForNodeClearsWhenRackLeavesBuildingScope(t *testing.T) {
 	current := rackSnapshot{Site: "Site A", Building: "Building A", Zone: "Old Zone"}
 
-	if got := desiredRackZone(map[string]string{"site": "Site A", "building": "Building B", "zone": "Old Zone"}, current); got != "" {
+	if got := desiredRackZoneForNode(&resolvedRack{siteRef: "Site A", buildingRef: "Building B", zone: "Old Zone"}, current); got != "" {
 		t.Fatalf("zone crossing building = %q, want cleared", got)
 	}
-	if got := desiredRackZone(map[string]string{"site": "", "building": "", "zone": "Old Zone"}, current); got != "" {
+	if got := desiredRackZoneForNode(&resolvedRack{siteRef: "", buildingRef: "", zone: "Old Zone"}, current); got != "" {
 		t.Fatalf("zone leaving building = %q, want cleared", got)
 	}
-	if got := desiredRackZone(map[string]string{"site": "Site A", "building": "Building A", "zone": "New Zone"}, current); got != "New Zone" {
+	if got := desiredRackZoneForNode(&resolvedRack{siteRef: "Site A", buildingRef: "Building A", zone: "New Zone"}, current); got != "New Zone" {
 		t.Fatalf("zone staying in building = %q, want New Zone", got)
 	}
 }
