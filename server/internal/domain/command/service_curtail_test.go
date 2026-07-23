@@ -82,7 +82,7 @@ func newCurtailDispatchServiceWithActivityStore(t *testing.T) (*Service, *fakeMe
 	store := &recordingActivityStore{}
 	svc := &Service{
 		config:           &Config{},
-		executionService: &ExecutionService{queueProcessorRunning: true},
+		executionService: &ExecutionService{run: newExecutionRun(context.Background())},
 		messageQueue:     q,
 		activitySvc:      activity.NewService(store),
 	}

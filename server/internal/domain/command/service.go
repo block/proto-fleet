@@ -915,19 +915,20 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		return nil, fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
 
-	if !s.executionService.IsRunning() {
+	err = s.executionService.withAdmission(ctx, func(workCtx context.Context) error {
+		if len(queuePayloads) == 0 {
+			return s.messageQueue.Enqueue(workCtx, batchLogIdentifier, command.commandType, deviceIDs, command.payload)
+		}
+		return s.messageQueue.EnqueueMany(workCtx, batchLogIdentifier, command.commandType, queuePayloads)
+	})
+	if errors.Is(err, errExecutionNotAccepting) {
 		return nil, s.finishUnenqueuedCommandBatch(ctx, batchLogIdentifier)
 	}
-	if len(queuePayloads) == 0 {
-		err = s.messageQueue.Enqueue(ctx, batchLogIdentifier, command.commandType, deviceIDs, command.payload)
-		if err != nil {
+	if err != nil {
+		if len(queuePayloads) == 0 {
 			return nil, fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
 		}
-	} else {
-		err = s.messageQueue.EnqueueMany(ctx, batchLogIdentifier, command.commandType, queuePayloads)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error enqueuing per-device command payloads: %v", err)
-		}
+		return nil, fleeterror.NewInternalErrorf("error enqueuing per-device command payloads: %v", err)
 	}
 
 	return &CommandResult{
@@ -1406,10 +1407,13 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 		return "", err
 	}
 
-	if !s.executionService.IsRunning() {
+	err = s.executionService.withAdmission(ctx, func(workCtx context.Context) error {
+		return s.enqueueWorkerNameReapplyMessages(workCtx, commandBatchLogUUID, deviceIdentifiers, deviceIDsByIdentifier, desiredWorkerNamesByDeviceIdentifier)
+	})
+	if errors.Is(err, errExecutionNotAccepting) {
 		return "", s.finishUnenqueuedCommandBatch(ctx, commandBatchLogUUID)
 	}
-	if err := s.enqueueWorkerNameReapplyMessages(ctx, commandBatchLogUUID, deviceIdentifiers, deviceIDsByIdentifier, desiredWorkerNamesByDeviceIdentifier); err != nil {
+	if err != nil {
 		return "", err
 	}
 

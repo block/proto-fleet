@@ -83,17 +83,14 @@ func TestExecutionService_Start(t *testing.T) {
 	})
 
 	t.Run("rejects restart while a canceled activation is draining", func(t *testing.T) {
-		runCtx, runCancel := context.WithCancel(t.Context())
-		svc := &ExecutionService{
-			runCancel:  runCancel,
-			runCtxDone: runCtx.Done(),
-			runDone:    make(chan struct{}),
-		}
-		runCancel()
+		run := newExecutionRun(t.Context())
+		svc := &ExecutionService{run: run}
+		svc.beginStop(run)
 
 		err := svc.Start(t.Context())
 
 		require.EqualError(t, err, "command execution service activation is still draining")
+		run.cancelWork()
 	})
 
 	t.Run("activation cancellation stops promptly and allows restart", func(t *testing.T) {
@@ -119,7 +116,7 @@ func TestExecutionService_Start(t *testing.T) {
 		require.Eventually(t, func() bool {
 			svc.lifecycleMu.Lock()
 			defer svc.lifecycleMu.Unlock()
-			return svc.runCancel == nil
+			return svc.run == nil
 		}, 100*time.Millisecond, time.Millisecond)
 		require.False(t, svc.IsRunning())
 
@@ -135,44 +132,118 @@ func TestExecutionService_Start(t *testing.T) {
 }
 
 func TestExecutionService_StopTimeoutRetainsActivationUntilWorkerDrains(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockQueue := mocks.NewMockMessageQueue(ctrl)
-	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-	mockQueue.EXPECT().Dequeue(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ int32) ([]queue.Message, error) {
-		<-ctx.Done()
-		return nil, ctx.Err()
-	}).AnyTimes()
-
 	svc := NewExecutionService(&Config{
 		MaxWorkers:            1,
 		MasterPollingInterval: time.Hour,
-	}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
+	}, nil, nil, nil, nil, nil, nil, nil, nil)
 
-	runCtx, runCancel := context.WithCancel(context.Background())
-	runDone := make(chan struct{})
-	svc.runCancel = runCancel
-	svc.runCtxDone = runCtx.Done()
-	svc.runDone = runDone
-	svc.queueProcessorRunning = true
+	run := newExecutionRun(context.Background())
+	svc.run = run
 	workerStarted := make(chan struct{})
+	workerCanceled := make(chan struct{})
 	releaseWorker := make(chan struct{})
-	svc.runWG.Go(func() {
+	run.wg.Go(func() {
 		close(workerStarted)
+		<-run.workCtx.Done()
+		close(workerCanceled)
 		<-releaseWorker
 	})
-	go svc.finishRun(runDone)
+	go svc.finishRun(run)
 	<-workerStarted
 
 	stopCtx, cancelStop := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	require.ErrorIs(t, svc.Stop(stopCtx), context.DeadlineExceeded)
 	require.False(t, svc.IsRunning())
+	<-workerCanceled
 	cancelStop()
 	require.Error(t, svc.Start(t.Context()))
 
 	close(releaseWorker)
 	require.NoError(t, svc.Stop(context.Background()))
-	require.NoError(t, svc.Start(t.Context()))
-	require.NoError(t, svc.Stop(context.Background()))
+}
+
+func TestExecutionService_StopDrainsAdmittedWorker(t *testing.T) {
+	svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, nil, nil, nil, nil, nil, nil, nil)
+	run := newExecutionRun(t.Context())
+	svc.run = run
+
+	workerStarted := make(chan struct{})
+	releaseWorker := make(chan struct{})
+	workerCanceled := make(chan struct{})
+	run.wg.Go(func() {
+		close(workerStarted)
+		select {
+		case <-run.workCtx.Done():
+			close(workerCanceled)
+		case <-releaseWorker:
+		}
+	})
+	go svc.finishRun(run)
+	<-workerStarted
+
+	stopDone := make(chan error, 1)
+	go func() {
+		stopDone <- svc.Stop(context.Background())
+	}()
+	require.Eventually(t, func() bool { return !svc.IsRunning() }, 100*time.Millisecond, time.Millisecond)
+
+	select {
+	case <-workerCanceled:
+		t.Fatal("normal Stop canceled admitted worker")
+	default:
+	}
+	select {
+	case err := <-stopDone:
+		t.Fatalf("Stop returned before admitted worker drained: %v", err)
+	default:
+	}
+
+	close(releaseWorker)
+	require.NoError(t, <-stopDone)
+}
+
+func TestExecutionService_StopWaitsForAdmittedEnqueue(t *testing.T) {
+	svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, nil, nil, nil, nil, nil, nil, nil)
+	run := newExecutionRun(t.Context())
+	svc.run = run
+	run.wg.Add(1) // Matches the processor's lifetime while admission is open.
+	go svc.finishRun(run)
+
+	enqueueStarted := make(chan struct{})
+	releaseEnqueue := make(chan struct{})
+	enqueueDone := make(chan error, 1)
+	go func() {
+		enqueueDone <- svc.withAdmission(t.Context(), func(ctx context.Context) error {
+			close(enqueueStarted)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-releaseEnqueue:
+				return nil
+			}
+		})
+	}()
+	<-enqueueStarted
+	run.wg.Done()
+
+	stopDone := make(chan error, 1)
+	go func() {
+		stopDone <- svc.Stop(context.Background())
+	}()
+	require.Eventually(t, func() bool { return !svc.IsRunning() }, 100*time.Millisecond, time.Millisecond)
+	require.ErrorIs(t, svc.withAdmission(t.Context(), func(context.Context) error {
+		return nil
+	}), errExecutionNotAccepting)
+
+	select {
+	case err := <-stopDone:
+		t.Fatalf("Stop returned before admitted enqueue drained: %v", err)
+	default:
+	}
+
+	close(releaseEnqueue)
+	require.NoError(t, <-enqueueDone)
+	require.NoError(t, <-stopDone)
 }
 
 func TestExecutionService_DequeueIsLimitedToAvailableWorkers(t *testing.T) {
@@ -190,8 +261,10 @@ func TestExecutionService_DequeueIsLimitedToAvailableWorkers(t *testing.T) {
 		MasterPollingInterval: time.Hour,
 	}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 	ctx, cancel := context.WithCancel(t.Context())
+	run := newExecutionRun(ctx)
+	defer run.cancelWork()
 	done := make(chan error, 1)
-	go func() { done <- svc.startQueueProcessorThread(ctx) }()
+	go func() { done <- svc.startQueueProcessorThread(run) }()
 	<-dequeued
 	cancel()
 
@@ -221,7 +294,9 @@ func TestQueueProcessorRetries(t *testing.T) {
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
 		// Act
-		err := svc.startQueueProcessorThread(ctx)
+		run := newExecutionRun(ctx)
+		defer run.cancelWork()
+		err := svc.startQueueProcessorThread(run)
 
 		// Assert
 		require.ErrorIs(t, err, context.Canceled)

@@ -70,15 +70,36 @@ type ExecutionService struct {
 
 	workerSemaphore chan struct{}
 
-	lifecycleMu           sync.Mutex
-	queueProcessorRunning bool
-	runCancel             context.CancelFunc
-	runCtxDone            <-chan struct{}
-	runWG                 sync.WaitGroup
-	runDone               <-chan struct{}
+	lifecycleMu sync.Mutex
+	run         *executionRun
+}
+
+type executionRun struct {
+	admissionCtx    context.Context //nolint:containedctx // scoped to this activation's admission phase
+	cancelAdmission context.CancelFunc
+	workCtx         context.Context //nolint:containedctx // scoped to this activation's drain phase
+	cancelWork      context.CancelFunc
+	accepting       bool
+	wg              sync.WaitGroup
+	done            chan struct{}
 }
 
 var _ runtimejobs.Lifecycle = (*ExecutionService)(nil)
+
+var errExecutionNotAccepting = errors.New("command execution service is not accepting work")
+
+func newExecutionRun(ctx context.Context) *executionRun {
+	admissionCtx, cancelAdmission := context.WithCancel(ctx)
+	workCtx, cancelWork := context.WithCancel(context.WithoutCancel(ctx))
+	return &executionRun{
+		admissionCtx:    admissionCtx,
+		cancelAdmission: cancelAdmission,
+		workCtx:         workCtx,
+		cancelWork:      cancelWork,
+		accepting:       true,
+		done:            make(chan struct{}),
+	}
+}
 
 func NewExecutionService(config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService CachedMinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, filesService *files.Service) *ExecutionService {
 	if config.StuckMessageTimeout <= 0 {
@@ -94,18 +115,17 @@ func NewExecutionService(config *Config, conn *sql.DB, messageQueue queue.Messag
 		config.FirmwareUpdateStuckTimeout = 20 * time.Minute
 	}
 	return &ExecutionService{
-		config:                config,
-		conn:                  conn,
-		messageQueue:          messageQueue,
-		encryptService:        encryptService,
-		tokenService:          tokenService,
-		minerService:          minerService,
-		deviceStore:           deviceStore,
-		telemetryListener:     telemetryListener,
-		filesService:          filesService,
-		metricsEmitter:        NoCommandMetrics(),
-		workerSemaphore:       make(chan struct{}, config.MaxWorkers),
-		queueProcessorRunning: false,
+		config:            config,
+		conn:              conn,
+		messageQueue:      messageQueue,
+		encryptService:    encryptService,
+		tokenService:      tokenService,
+		minerService:      minerService,
+		deviceStore:       deviceStore,
+		telemetryListener: telemetryListener,
+		filesService:      filesService,
+		metricsEmitter:    NoCommandMetrics(),
+		workerSemaphore:   make(chan struct{}, config.MaxWorkers),
 	}
 }
 
@@ -125,77 +145,78 @@ func (es *ExecutionService) Start(ctx context.Context) error {
 	}
 
 	es.lifecycleMu.Lock()
-	if es.runCancel != nil {
-		select {
-		case <-es.runCtxDone:
+	if es.run != nil {
+		if !es.run.accepting || es.run.admissionCtx.Err() != nil {
 			es.lifecycleMu.Unlock()
 			return fmt.Errorf("command execution service activation is still draining")
-		default:
 		}
 		es.lifecycleMu.Unlock()
 		return nil
 	}
 
-	runCtx, runCancel := context.WithCancel(ctx)
-	runDone := make(chan struct{})
-	es.runCancel = runCancel
-	es.runCtxDone = runCtx.Done()
-	es.runDone = runDone
-	es.queueProcessorRunning = true
+	run := newExecutionRun(ctx)
+	es.run = run
 
-	es.runWG.Go(func() {
-		es.startStuckMessageReaper(runCtx)
+	run.wg.Go(func() {
+		es.startStuckMessageReaper(run.admissionCtx)
 	})
 
 	// Start the queue processor thread
-	es.runWG.Go(func() {
-		err := es.startQueueProcessorThread(runCtx)
-		runCancel()
-		es.lifecycleMu.Lock()
-		es.queueProcessorRunning = false
-		es.lifecycleMu.Unlock()
+	run.wg.Go(func() {
+		err := es.startQueueProcessorThread(run)
+		es.beginStop(run)
 
 		if err != nil && !errors.Is(err, context.Canceled) {
 			slog.Error("message processing stopped with error", "error", err)
 		}
 	})
-	go es.finishRun(runDone)
+	context.AfterFunc(run.admissionCtx, func() {
+		es.beginStop(run)
+	})
+	go es.finishRun(run)
 	es.lifecycleMu.Unlock()
 
 	return nil
 }
 
-func (es *ExecutionService) finishRun(done chan struct{}) {
-	es.runWG.Wait()
-
+func (es *ExecutionService) beginStop(run *executionRun) {
 	es.lifecycleMu.Lock()
-	if es.runDone == (<-chan struct{})(done) {
-		es.runCancel = nil
-		es.runCtxDone = nil
-		es.runDone = nil
-		es.queueProcessorRunning = false
+	if es.run == run {
+		run.accepting = false
 	}
 	es.lifecycleMu.Unlock()
-	close(done)
+	run.cancelAdmission()
 }
 
-// Stop cancels the active queue processor, reaper, and workers and waits for
-// all execution-owned goroutines to drain.
+func (es *ExecutionService) finishRun(run *executionRun) {
+	run.wg.Wait()
+	run.cancelWork()
+	es.lifecycleMu.Lock()
+	if es.run == run {
+		es.run = nil
+	}
+	es.lifecycleMu.Unlock()
+	close(run.done)
+}
+
+// Stop closes admission and waits for admitted work to drain. If ctx expires,
+// it cancels that work before returning.
 func (es *ExecutionService) Stop(ctx context.Context) error {
 	es.lifecycleMu.Lock()
-	if es.runCancel == nil {
+	run := es.run
+	if run == nil {
 		es.lifecycleMu.Unlock()
 		return nil
 	}
-	es.queueProcessorRunning = false
-	es.runCancel()
-	done := es.runDone
+	run.accepting = false
 	es.lifecycleMu.Unlock()
+	run.cancelAdmission()
 
 	select {
-	case <-done:
+	case <-run.done:
 		return nil
 	case <-ctx.Done():
+		run.cancelWork()
 		return fmt.Errorf("stop command execution service: %w", ctx.Err())
 	}
 }
@@ -204,7 +225,34 @@ func (es *ExecutionService) IsRunning() bool {
 	es.lifecycleMu.Lock()
 	defer es.lifecycleMu.Unlock()
 
-	return es.queueProcessorRunning
+	return es.run != nil && es.run.accepting && es.run.admissionCtx.Err() == nil
+}
+
+// withAdmission makes accepting an enqueue atomic with stopping. Once
+// admitted, the operation may drain after Stop begins and is canceled only if
+// the stop context expires.
+func (es *ExecutionService) withAdmission(ctx context.Context, fn func(context.Context) error) error {
+	es.lifecycleMu.Lock()
+	run := es.run
+	if run == nil || !run.accepting || run.admissionCtx.Err() != nil {
+		es.lifecycleMu.Unlock()
+		return errExecutionNotAccepting
+	}
+	run.wg.Add(1)
+	es.lifecycleMu.Unlock()
+	defer run.wg.Done()
+
+	workCtx, cancel := context.WithCancel(ctx)
+	stopCancel := context.AfterFunc(run.workCtx, cancel)
+	defer func() {
+		stopCancel()
+		cancel()
+	}()
+	if run.workCtx.Err() != nil {
+		cancel()
+	}
+
+	return fn(workCtx)
 }
 
 func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
@@ -354,7 +402,8 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context, limit int32) (
 	return nil, err
 }
 
-func (es *ExecutionService) startQueueProcessorThread(ctx context.Context) error {
+func (es *ExecutionService) startQueueProcessorThread(run *executionRun) error {
+	ctx := run.admissionCtx
 	for {
 		reservedSlots, err := es.reserveWorkerSlots(ctx)
 		if err != nil {
@@ -394,16 +443,16 @@ func (es *ExecutionService) startQueueProcessorThread(ctx context.Context) error
 		}
 
 		for _, message := range messages {
-			// The processor remains in runWG while it adds workers, so Wait
+			// The processor remains in the run wait group while it adds workers, so Wait
 			// cannot finish before all worker registrations are complete.
-			es.runWG.Go(func() {
+			run.wg.Go(func() {
 				defer func() { <-es.workerSemaphore }()
 
 				timeout := es.config.WorkerExecutionTimeout
 				if message.CommandType == commandtype.FirmwareUpdate {
 					timeout = es.config.FirmwareUpdateTimeout
 				}
-				workerCtx, cancel := context.WithTimeout(ctx, timeout)
+				workerCtx, cancel := context.WithTimeout(run.workCtx, timeout)
 				defer cancel()
 
 				es.workerProcessCommand(workerCtx, message)

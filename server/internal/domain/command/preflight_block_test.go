@@ -66,7 +66,7 @@ func newPreflightTestService(t *testing.T, filter CommandFilter) (*Service, *rec
 	store := &recordingActivityStore{}
 	svc := &Service{
 		config:           &Config{},
-		executionService: &ExecutionService{queueProcessorRunning: true},
+		executionService: &ExecutionService{run: newExecutionRun(context.Background())},
 		activitySvc:      activity.NewService(store),
 		filters:          []CommandFilter{filter},
 	}
