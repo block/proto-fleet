@@ -164,10 +164,10 @@ func buildSiteMapCSV(snapshot *snapshot) ([]byte, error) {
 	if err := writeSection("BUILDING", buildingHeaders, buildingRows(snapshot.buildings)); err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to write BUILDING section: %v", err)
 	}
-	if err := writeSection("RACK", rackHeaders, rackExportRows(snapshot.racks, snapshot.buildings)); err != nil {
+	if err := writeSection("RACK", rackHeaders, rackExportRows(snapshot.racks)); err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to write RACK section: %v", err)
 	}
-	if err := writeSection("MINER", minerHeaders, minerRows(snapshot.miners, snapshot.buildings)); err != nil {
+	if err := writeSection("MINER", minerHeaders, minerRows(snapshot.miners)); err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to write MINER section: %v", err)
 	}
 
@@ -734,7 +734,10 @@ func buildingRows(buildings []buildingmodels.Building) [][]string {
 			clean(building.Name),
 			formatInt64(building.ID),
 			formatNullableInt64(building.SiteID),
-			clean(building.SiteLabel),
+			// Parent-reference name columns are blank on export: existing parents
+			// are identified by *_id. The name columns exist only so an author can
+			// point a new (blank-id) row at another new row created in the same file.
+			"",
 			formatInt32(building.Aisles),
 			formatInt32(building.RacksPerAisle),
 		})
@@ -749,6 +752,10 @@ func buildingRawRows(buildings []buildingmodels.Building) [][]string {
 			building.Name,
 			formatInt64(building.ID),
 			formatNullableInt64(building.SiteID),
+			// Change-detection compares against parsed rows *after*
+			// normalizeIDReferences back-fills the parent-name columns from ids,
+			// so the comparable row keeps the resolved names populated even though
+			// export blanks them.
 			building.SiteLabel,
 			formatInt32(building.Aisles),
 			formatInt32(building.RacksPerAisle),
@@ -757,27 +764,10 @@ func buildingRawRows(buildings []buildingmodels.Building) [][]string {
 	return rows
 }
 
-func rackRows(racks []rackSnapshot) [][]string {
-	rows := make([][]string, 0, len(racks))
-	for _, rack := range racks {
-		rows = append(rows, []string{
-			clean(rack.Label),
-			formatInt64(rack.ID),
-			formatNullableInt64(rack.BuildingID),
-			clean(rack.Building),
-			formatNullableInt64(rack.SiteID),
-			clean(rack.Site),
-			clean(rack.Zone),
-			formatInt32(rack.Rows),
-			formatInt32(rack.Columns),
-			rack.OrderIndex,
-			rack.AisleIndex,
-			rack.PositionInAisle,
-		})
-	}
-	return rows
-}
-
+// rackRawRows is the uncleaned canonical rack row used for change detection. It
+// carries both parent ids and the resolved parent names so it matches a parsed
+// row after normalizeIDReferences has back-filled names from ids (export itself
+// blanks the parent-name columns).
 func rackRawRows(racks []rackSnapshot) [][]string {
 	rows := make([][]string, 0, len(racks))
 	for _, rack := range racks {
@@ -799,71 +789,69 @@ func rackRawRows(racks []rackSnapshot) [][]string {
 	return rows
 }
 
-func rackExportRows(racks []rackSnapshot, buildings []buildingmodels.Building) [][]string {
+// rackExportRows emits id-authoritative rack rows: the rack's most-specific
+// parent is identified by building_id (or site_id when the rack sits directly
+// under a site). Parent-reference name columns are blank; they exist only to
+// point at a same-file create.
+func rackExportRows(racks []rackSnapshot) [][]string {
 	rows := make([][]string, 0, len(racks))
-	ambiguousBuildingNames := ambiguousBuildingLabels(buildings)
 	for _, rack := range racks {
-		site := rackExportSite(rack, ambiguousBuildingNames)
-		rows = append(rows, []string{
-			clean(rack.Label),
-			formatInt64(rack.ID),
-			rackExportBuildingID(rack, ambiguousBuildingNames),
-			clean(rack.Building),
-			rackExportSiteID(rack, site),
-			clean(site),
-			clean(rack.Zone),
-			formatInt32(rack.Rows),
-			formatInt32(rack.Columns),
-			rack.OrderIndex,
-			rack.AisleIndex,
-			rack.PositionInAisle,
-		})
+		rows = append(rows, rackExportRow(rack))
 	}
 	return rows
 }
 
-func rackExportBuildingID(rack rackSnapshot, ambiguousBuildingNames map[string]bool) string {
-	if rack.Building != "" && ambiguousBuildingNames[rack.Building] {
-		return formatNullableInt64(rack.BuildingID)
+func rackExportRow(rack rackSnapshot) []string {
+	buildingID, siteID := rackParentIDCells(rack)
+	return []string{
+		clean(rack.Label),
+		formatInt64(rack.ID),
+		buildingID,
+		"",
+		siteID,
+		"",
+		clean(rack.Zone),
+		formatInt32(rack.Rows),
+		formatInt32(rack.Columns),
+		rack.OrderIndex,
+		rack.AisleIndex,
+		rack.PositionInAisle,
 	}
-	return ""
 }
 
-func rackExportSiteID(rack rackSnapshot, site string) string {
-	if site != "" {
-		return ""
+// rackParentIDCells returns the building_id and site_id cells for a rack,
+// preferring the building (which implies its site) and falling back to a direct
+// site assignment.
+func rackParentIDCells(rack rackSnapshot) (buildingID, siteID string) {
+	if rack.BuildingID != nil {
+		return formatNullableInt64(rack.BuildingID), ""
 	}
-	if rack.Site != "" && rack.Building == "" {
-		return ""
+	if rack.SiteID != nil {
+		return "", formatNullableInt64(rack.SiteID)
 	}
-	return ""
+	return "", ""
 }
 
-func rackExportSite(rack rackSnapshot, ambiguousBuildingNames map[string]bool) string {
-	if rack.Building != "" && !ambiguousBuildingNames[rack.Building] {
-		return ""
-	}
-	return rack.Site
-}
-
-func minerRows(miners []minerSnapshot, buildings []buildingmodels.Building) [][]string {
+// minerRows emits id-authoritative miner rows: the miner's most-specific parent
+// is identified by rack_id (or building_id / site_id when there is no rack).
+// Parent-reference name columns are blank; they exist only to point at a
+// same-file create.
+func minerRows(miners []minerSnapshot) [][]string {
 	rows := make([][]string, 0, len(miners))
-	ambiguousBuildingNames := ambiguousBuildingLabels(buildings)
 	for _, miner := range miners {
-		site := minerExportSite(miner, ambiguousBuildingNames)
-		building := minerExportBuilding(miner)
+		siteID, buildingID, rackID := minerParentIDCells(miner)
 		rows = append(rows, []string{
 			clean(miner.DeviceIdentifier),
 			clean(miner.SerialNumber),
 			clean(miner.Name),
 			clean(miner.IPAddress),
 			clean(miner.MACAddress),
-			minerExportSiteID(miner, site),
-			clean(site),
-			minerExportBuildingID(miner, ambiguousBuildingNames, building),
-			clean(building),
+			siteID,
 			"",
-			clean(miner.Rack),
+			buildingID,
+			"",
+			rackID,
+			"",
 			miner.RackRow,
 			miner.RackCol,
 		})
@@ -871,35 +859,20 @@ func minerRows(miners []minerSnapshot, buildings []buildingmodels.Building) [][]
 	return rows
 }
 
-func minerExportSite(miner minerSnapshot, ambiguousBuildingNames map[string]bool) string {
-	if miner.Rack != "" {
-		return ""
+// minerParentIDCells returns the site_id, building_id, and rack_id cells for a
+// miner, emitting only the most-specific parent (rack implies building and site;
+// building implies site).
+func minerParentIDCells(miner minerSnapshot) (siteID, buildingID, rackID string) {
+	if miner.RackID != nil {
+		return "", "", formatNullableInt64(miner.RackID)
 	}
-	if miner.Building != "" && !ambiguousBuildingNames[miner.Building] {
-		return ""
+	if miner.BuildingID != nil {
+		return "", formatNullableInt64(miner.BuildingID), ""
 	}
-	return miner.Site
-}
-
-func minerExportBuilding(miner minerSnapshot) string {
-	if miner.Rack != "" {
-		return ""
+	if miner.SiteID != nil {
+		return formatNullableInt64(miner.SiteID), "", ""
 	}
-	return miner.Building
-}
-
-func minerExportSiteID(miner minerSnapshot, site string) string {
-	if site != "" {
-		return ""
-	}
-	return ""
-}
-
-func minerExportBuildingID(miner minerSnapshot, ambiguousBuildingNames map[string]bool, building string) string {
-	if building != "" && ambiguousBuildingNames[building] {
-		return formatNullableInt64(miner.BuildingID)
-	}
-	return ""
+	return "", "", ""
 }
 
 func placementLabels(refs *commonpb.PlacementRefs) (string, string) {
@@ -1761,7 +1734,7 @@ func (s *Service) applyRackRows(
 			})
 			continue
 		}
-		current := rackComparableRow(rack, buildingsByID)
+		current := rackComparableRow(rack)
 		if rowsEqual(row, current, rackHeaders) {
 			continue
 		}
@@ -2118,8 +2091,8 @@ func snapshotFingerprint(snap *snapshot) string {
 	}{
 		Sites:             siteRows(snap.sites),
 		Buildings:         buildingRows(snap.buildings),
-		Racks:             rackRows(snap.racks),
-		Miners:            minerRows(snap.miners, snap.buildings),
+		Racks:             rackExportRows(snap.racks),
+		Miners:            minerRows(snap.miners),
 		HiddenRackMembers: hiddenRackMemberRows(snap.hiddenRackMembers),
 	})
 	sum := sha256.Sum256(payload)
@@ -3458,11 +3431,10 @@ func countBuildingUpdates(rows []map[string]string, buildings []buildingmodels.B
 	return countExistingRowUpdatesByIdentity(rows, existing, buildingRowIdentity, buildingHeaders)
 }
 
-func countRackUpdates(rows []map[string]string, racks []rackSnapshot, buildings []buildingmodels.Building) int32 {
+func countRackUpdates(rows []map[string]string, racks []rackSnapshot) int32 {
 	existing := map[string]map[string]string{}
-	buildingsByID := buildingMapByID(buildings)
 	for _, rack := range racks {
-		row := rackComparableRow(rack, buildingsByID)
+		row := rackComparableRow(rack)
 		existing[rackIdentity(rack)] = row
 		existing["label:"+rack.Label] = row
 	}
@@ -3513,30 +3485,17 @@ func rowMap(headers, values []string) map[string]string {
 	return out
 }
 
-func rackComparableRow(rack rackSnapshot, buildingsByID map[int64]buildingmodels.Building) map[string]string {
-	buildings := make([]buildingmodels.Building, 0, len(buildingsByID))
-	for _, building := range buildingsByID {
-		buildings = append(buildings, building)
-	}
-	ambiguousBuildingNames := ambiguousBuildingLabels(buildings)
-	row := rowMap(rackHeaders, rackRawRows([]rackSnapshot{rack})[0])
-	row[fieldBuildingID] = rackExportBuildingID(rack, ambiguousBuildingNames)
-	row[fieldSiteID] = rackExportSiteID(rack, row[fieldSite])
-	return row
+// rackComparableRow is the canonical row an unedited exported rack row must
+// equal, so change detection reads identically to export (id-authoritative,
+// blank parent-name columns).
+func rackComparableRow(rack rackSnapshot) map[string]string {
+	return rowMap(rackHeaders, rackRawRows([]rackSnapshot{rack})[0])
 }
 
 func minerMap(miners []minerSnapshot) map[string]minerSnapshot {
 	out := map[string]minerSnapshot{}
 	for _, miner := range miners {
 		out[miner.DeviceIdentifier] = miner
-	}
-	return out
-}
-
-func buildingMapByID(buildings []buildingmodels.Building) map[int64]buildingmodels.Building {
-	out := map[int64]buildingmodels.Building{}
-	for _, building := range buildings {
-		out[building.ID] = building
 	}
 	return out
 }
@@ -3640,26 +3599,6 @@ func desiredBuildingNameLookup(rows []map[string]string, buildings []buildingmod
 		ambiguous[name] = true
 	}
 	return byName, ambiguous
-}
-
-func ambiguousBuildingLabels(buildings []buildingmodels.Building) map[string]bool {
-	firstSiteByName := map[string]string{}
-	countByName := map[string]int{}
-	ambiguous := map[string]bool{}
-	for _, building := range buildings {
-		countByName[building.Name]++
-		if countByName[building.Name] > 1 {
-			ambiguous[building.Name] = true
-		}
-		if site, ok := firstSiteByName[building.Name]; ok {
-			if site != building.SiteLabel {
-				ambiguous[building.Name] = true
-			}
-			continue
-		}
-		firstSiteByName[building.Name] = building.SiteLabel
-	}
-	return ambiguous
 }
 
 func desiredRackMap(rows []map[string]string, racks []rackSnapshot, buildingRows []map[string]string, buildings []buildingmodels.Building) map[string]rackSnapshot {

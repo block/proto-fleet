@@ -1230,15 +1230,22 @@ func TestExportedSectionMarkerShapedSiteRoundTrips(t *testing.T) {
 }
 
 func TestBuildPlanTreatsEscapedExportValuesAsNoOp(t *testing.T) {
+	siteID := int64(1)
+	buildingID := int64(2)
 	snap := &snapshot{
-		sites: []sitemodels.Site{{Name: "-Site"}},
+		sites: []sitemodels.Site{{ID: siteID, Name: "-Site"}},
 		buildings: []buildingmodels.Building{{
+			ID:            buildingID,
+			SiteID:        &siteID,
 			SiteLabel:     "-Site",
 			Name:          "+Building",
 			Aisles:        2,
 			RacksPerAisle: 2,
 		}},
 		racks: []rackSnapshot{{
+			ID:              3,
+			SiteID:          &siteID,
+			BuildingID:      &buildingID,
 			Site:            "-Site",
 			Building:        "+Building",
 			Label:           "-Rack",
@@ -1958,10 +1965,11 @@ func TestValidateSlotConflictsWithExistingNormalizesCoordinates(t *testing.T) {
 	}
 }
 
-func TestCountBuildingUpdatesMatchesBlankIDExistingRowsByName(t *testing.T) {
+func TestCountBuildingUpdatesMatchesExistingRowsByID(t *testing.T) {
 	rows := []map[string]string{{
 		fieldName:         "Building A",
-		fieldSite:         "Site A",
+		fieldID:           "20",
+		fieldSiteID:       "10",
 		"aisles":          "2",
 		"racks_per_aisle": "2",
 	}}
@@ -1969,28 +1977,45 @@ func TestCountBuildingUpdatesMatchesBlankIDExistingRowsByName(t *testing.T) {
 	buildings := []buildingmodels.Building{{ID: 20, SiteID: &siteID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 2}}
 
 	if got := countBuildingUpdates(rows, buildings); got != 1 {
-		t.Fatalf("countBuildingUpdates = %d, want blank-ID existing row update counted", got)
+		t.Fatalf("countBuildingUpdates = %d, want existing row update counted by id", got)
 	}
 }
 
-func TestCountRackUpdatesMatchesBlankIDExistingRowsByLabel(t *testing.T) {
+func TestCountBuildingUpdatesIgnoresBlankIDCreateRows(t *testing.T) {
+	// Under id-authoritative resolution a blank-id row is a create, never a
+	// name-match against an existing building, so it is not an update.
+	rows := []map[string]string{{
+		fieldName:         "Building A",
+		fieldSiteID:       "10",
+		"aisles":          "2",
+		"racks_per_aisle": "2",
+	}}
+	siteID := int64(10)
+	buildings := []buildingmodels.Building{{ID: 20, SiteID: &siteID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 2}}
+
+	if got := countBuildingUpdates(rows, buildings); got != 0 {
+		t.Fatalf("countBuildingUpdates = %d, want blank-id create row to not count as update", got)
+	}
+}
+
+func TestCountRackUpdatesMatchesExistingRowsByID(t *testing.T) {
 	rows := []map[string]string{{
 		fieldLabel:    "Rack A",
+		fieldID:       "20",
 		"rows":        "4",
 		"columns":     "8",
 		"order_index": "BOTTOM_LEFT",
 	}}
 	racks := []rackSnapshot{{ID: 20, Label: "Rack A", Rows: 4, Columns: 6, OrderIndex: "BOTTOM_LEFT"}}
 
-	if got := countRackUpdates(rows, racks, nil); got != 1 {
-		t.Fatalf("countRackUpdates = %d, want blank-ID existing row update counted", got)
+	if got := countRackUpdates(rows, racks); got != 1 {
+		t.Fatalf("countRackUpdates = %d, want existing row update counted by id", got)
 	}
 }
 
-func TestCountRackUpdatesIgnoresExportInferredPlacementIDs(t *testing.T) {
+func TestCountRackUpdatesTreatsCanonicalRowAsNoOp(t *testing.T) {
 	siteID := int64(1)
 	buildingID := int64(10)
-	buildings := []buildingmodels.Building{{ID: buildingID, SiteID: &siteID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 2}}
 	racks := []rackSnapshot{{
 		ID:              20,
 		SiteID:          &siteID,
@@ -2005,88 +2030,74 @@ func TestCountRackUpdatesIgnoresExportInferredPlacementIDs(t *testing.T) {
 		AisleIndex:      "0",
 		PositionInAisle: "1",
 	}}
-	exported := rowMap(rackHeaders, rackExportRows(racks, buildings)[0])
-	exported[fieldSite] = "Site A"
+	// The canonical row is what an exported rack row normalizes to; it must be a
+	// no-op against change detection.
+	canonical := rackComparableRow(racks[0])
 
-	if got := countRackUpdates([]map[string]string{exported}, racks, buildings); got != 0 {
-		t.Fatalf("countRackUpdates = %d, want exported rack row to be a no-op", got)
+	if got := countRackUpdates([]map[string]string{canonical}, racks); got != 0 {
+		t.Fatalf("countRackUpdates = %d, want canonical rack row to be a no-op", got)
 	}
 }
 
-func TestMinerRowsBlankSiteAndBuildingForRackedMiners(t *testing.T) {
+func TestMinerRowsUseRackIDAndBlankNamesForRackedMiners(t *testing.T) {
+	rackID := int64(30)
+	siteID := int64(10)
+	buildingID := int64(20)
 	rows := minerRows([]minerSnapshot{{
 		DeviceIdentifier: "miner-1",
 		SerialNumber:     "SN1",
 		Name:             "Miner 1",
 		IPAddress:        "10.0.0.5",
 		MACAddress:       "aa:bb:cc:dd:ee:ff",
+		SiteID:           &siteID,
 		Site:             "Site A",
+		BuildingID:       &buildingID,
 		Building:         "Building A",
+		RackID:           &rackID,
 		Rack:             "Rack A",
 		RackRow:          "0",
 		RackCol:          "0",
-	}}, nil)
+	}})
 
-	if got := rows[0][6]; got != "" {
-		t.Fatalf("exported miner site = %q, want blank when rack is set", got)
+	if got := rows[0][9]; got != "30" {
+		t.Fatalf("exported miner rack_id = %q, want 30", got)
 	}
-	if got := rows[0][8]; got != "" {
-		t.Fatalf("exported miner building = %q, want blank when rack is set", got)
+	for _, idx := range []int{5, 6, 7, 8, 10} {
+		if got := rows[0][idx]; got != "" {
+			t.Fatalf("exported miner col %d = %q, want blank when rack_id is set", idx, got)
+		}
 	}
 }
 
-func TestMinerRowsUseRackMembershipDerivedRackForExport(t *testing.T) {
+func TestMinerRowsUseBuildingIDForDirectBuildingAssignment(t *testing.T) {
+	siteID := int64(10)
+	buildingID := int64(20)
 	rows := minerRows([]minerSnapshot{{
 		DeviceIdentifier: "miner-1",
-		SerialNumber:     "SN1",
-		Name:             "Miner 1",
-		IPAddress:        "10.0.0.5",
-		MACAddress:       "aa:bb:cc:dd:ee:ff",
+		SiteID:           &siteID,
 		Site:             "Site A",
+		BuildingID:       &buildingID,
 		Building:         "Building A",
-		Rack:             "Rack A",
-		RackRow:          "0",
-		RackCol:          "0",
-	}}, nil)
+	}})
 
-	if got := rows[0][10]; got != "Rack A" {
-		t.Fatalf("exported miner rack = %q, want Rack A", got)
+	if got := rows[0][7]; got != "20" {
+		t.Fatalf("exported miner building_id = %q, want 20", got)
+	}
+	if got := rows[0][5]; got != "" {
+		t.Fatalf("exported miner site_id = %q, want blank when building_id is set", got)
 	}
 }
 
-func TestMinerRowsBlankSiteForDirectBuildingAssignment(t *testing.T) {
+func TestMinerRowsUseSiteIDForDirectSiteAssignment(t *testing.T) {
+	siteID := int64(10)
 	rows := minerRows([]minerSnapshot{{
 		DeviceIdentifier: "miner-1",
+		SiteID:           &siteID,
 		Site:             "Site A",
-		Building:         "Building A",
-	}}, []buildingmodels.Building{{SiteLabel: "Site A", Name: "Building A"}})
+	}})
 
-	if got := rows[0][6]; got != "" {
-		t.Fatalf("exported miner site = %q, want blank when building is set", got)
-	}
-	if got := rows[0][8]; got != "Building A" {
-		t.Fatalf("exported miner building = %q, want Building A", got)
-	}
-}
-
-func TestMinerRowsPreserveSiteForAmbiguousDirectBuildingAssignment(t *testing.T) {
-	rows := minerRows(
-		[]minerSnapshot{{
-			DeviceIdentifier: "miner-1",
-			Site:             "Site A",
-			Building:         "Building A",
-		}},
-		[]buildingmodels.Building{
-			{SiteLabel: "Site A", Name: "Building A"},
-			{SiteLabel: "Site B", Name: "Building A"},
-		},
-	)
-
-	if got := rows[0][6]; got != "Site A" {
-		t.Fatalf("exported miner site = %q, want Site A when building name is ambiguous", got)
-	}
-	if got := rows[0][8]; got != "Building A" {
-		t.Fatalf("exported miner building = %q, want Building A", got)
+	if got := rows[0][5]; got != "10" {
+		t.Fatalf("exported miner site_id = %q, want 10", got)
 	}
 }
 
@@ -2105,52 +2116,34 @@ func TestDisplayHeadersMarkReadOnlyIdentityColumns(t *testing.T) {
 	}
 }
 
-func TestRackExportRowsBlankSiteForUnambiguousBuildingAssignment(t *testing.T) {
-	rows := rackExportRows(
-		[]rackSnapshot{{Site: "Site A", Building: "Building A", Label: "Rack A"}},
-		[]buildingmodels.Building{{SiteLabel: "Site A", Name: "Building A"}},
-	)
-
-	if got := rows[0][3]; got != "Building A" {
-		t.Fatalf("exported rack building = %q, want Building A", got)
-	}
-	if got := rows[0][5]; got != "" {
-		t.Fatalf("exported rack site = %q, want blank when building is unambiguous", got)
-	}
-}
-
-func TestRackExportRowsPreserveSiteForAmbiguousBuildingAssignment(t *testing.T) {
-	rows := rackExportRows(
-		[]rackSnapshot{{Site: "Site A", Building: "Building A", Label: "Rack A"}},
-		[]buildingmodels.Building{
-			{SiteLabel: "Site A", Name: "Building A"},
-			{SiteLabel: "Site B", Name: "Building A"},
-		},
-	)
-
-	if got := rows[0][5]; got != "Site A" {
-		t.Fatalf("exported rack site = %q, want Site A when building name is ambiguous", got)
-	}
-}
-
-func TestRackExportRowsUseBuildingIDForDuplicateUnassignedBuildingNames(t *testing.T) {
+func TestRackExportRowsUseBuildingIDAndBlankNames(t *testing.T) {
+	siteID := int64(1)
 	buildingID := int64(10)
 	rows := rackExportRows(
-		[]rackSnapshot{{BuildingID: &buildingID, Building: "Building A", Label: "Rack A"}},
-		[]buildingmodels.Building{
-			{ID: 10, Name: "Building A"},
-			{ID: 11, Name: "Building A"},
-		},
+		[]rackSnapshot{{SiteID: &siteID, BuildingID: &buildingID, Site: "Site A", Building: "Building A", Label: "Rack A"}},
 	)
 
 	if got := rows[0][2]; got != "10" {
-		t.Fatalf("exported rack building_id = %q, want 10 when building name is ambiguous", got)
+		t.Fatalf("exported rack building_id = %q, want 10", got)
 	}
-	if got := rows[0][3]; got != "Building A" {
-		t.Fatalf("exported rack building = %q, want readable building name", got)
+	for _, idx := range []int{3, 4, 5} {
+		if got := rows[0][idx]; got != "" {
+			t.Fatalf("exported rack col %d = %q, want blank when building_id is set", idx, got)
+		}
 	}
-	if got := rows[0][5]; got != "" {
-		t.Fatalf("exported rack site = %q, want blank for unassigned building", got)
+}
+
+func TestRackExportRowsUseSiteIDForDirectSiteAssignment(t *testing.T) {
+	siteID := int64(1)
+	rows := rackExportRows(
+		[]rackSnapshot{{SiteID: &siteID, Site: "Site A", Label: "Rack A"}},
+	)
+
+	if got := rows[0][4]; got != "1" {
+		t.Fatalf("exported rack site_id = %q, want 1", got)
+	}
+	if got := rows[0][2]; got != "" {
+		t.Fatalf("exported rack building_id = %q, want blank for direct site assignment", got)
 	}
 }
 
