@@ -243,7 +243,7 @@ func TestStopRuntimeJobGroupDoesNotRetrySuccessfulStop(t *testing.T) {
 		func(context.Context) error { return nil },
 	}}
 
-	stopRuntimeJobGroup(group, time.Second)
+	stopRuntimeJobGroup(group, noopLifecycle{}, time.Second)
 
 	require.Len(t, group.contexts, 1)
 	_, hasDeadline := group.contexts[0].Deadline()
@@ -256,7 +256,7 @@ func TestStopRuntimeJobGroupRetriesFailureWithFreshDeadline(t *testing.T) {
 		func(context.Context) error { return nil },
 	}}
 
-	stopRuntimeJobGroup(group, time.Second)
+	stopRuntimeJobGroup(group, noopLifecycle{}, time.Second)
 
 	require.Len(t, group.contexts, 2)
 	firstDeadline, firstHasDeadline := group.contexts[0].Deadline()
@@ -274,12 +274,19 @@ func TestStopRuntimeJobGroupBoundsDrainRetry(t *testing.T) {
 			return ctx.Err()
 		},
 	}}
+	commandStopped := make(chan bool, 1)
+	commandExecution := funcLifecycle{stop: func(ctx context.Context) error {
+		_, hasDeadline := ctx.Deadline()
+		commandStopped <- hasDeadline && ctx.Err() == nil
+		return nil
+	}}
 
 	started := time.Now()
-	stopRuntimeJobGroup(group, 5*time.Millisecond)
+	stopRuntimeJobGroup(group, commandExecution, 5*time.Millisecond)
 
 	require.Len(t, group.contexts, 2)
 	require.ErrorIs(t, group.contexts[1].Err(), context.DeadlineExceeded)
+	require.True(t, <-commandStopped)
 	require.Less(t, time.Since(started), time.Second)
 }
 
