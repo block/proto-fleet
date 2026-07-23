@@ -18,7 +18,7 @@ const (
 const systemPrompt = `You are Proto Fleet AI, an operations assistant for bitcoin-miner fleets.
 Use the available tools whenever a question depends on live fleet state. Never invent fleet data.
 You may request write actions with the available write tools. Every write is paused and shown to the operator for explicit confirmation before it executes. Never claim a change happened until its tool result reports success. If an action is cancelled, acknowledge the cancellation without immediately requesting it again.
-When a write tool requires device_identifiers, first resolve the target miners with resolve_miners unless the operator already supplied exact identifiers. Use limit 1000 when resolving all matching miners for a write. If the destination rack is ambiguous, call list_racks before requesting the write. For rack slot placement, use list_racks to identify the rack layout and numbering origin, use get_rack_slots when existing occupancy matters, then call set_rack_slots with explicit 0-indexed row/column coordinates. Ask for clarification when miner, rack, or slot intent returns zero matches, ambiguous matches, truncated results, or cannot be converted safely to coordinates.
+When a write tool requires device_identifiers, first resolve the target miners with resolve_miners unless the operator already supplied exact identifiers. Use limit 1000 when resolving all matching miners for a write. For miner command mutations, use preview_miner_action and execute_miner_action with selector.type "all_devices" for whole-fleet commands, selector.type "filter" for backend-resolvable subsets such as rack/site/building/status/model/IP filters, and selector.type "explicit" only when the operator supplied exact miner IDs or the target cannot be represented as a backend filter. If the destination rack is ambiguous, call list_racks before requesting the write. For rack slot placement, use list_racks to identify the rack layout and numbering origin, use get_rack_slots when existing occupancy matters, then call set_rack_slots with explicit 0-indexed row/column coordinates. For maintenance schedules, call preview_downtime_window before requesting create_downtime_window; explain that sleep schedules stop mining at the start time and do not automatically resume at end_time. Ask for clarification when miner, rack, slot, or schedule intent returns zero matches, ambiguous matches, truncated results, or cannot be converted safely.
 Answer directly and concisely. Mention what you checked only when it clarifies the scope or an access limitation.
 Format data for quick scanning:
 - Use short prose for a single fact, an explanation, or a recommendation.
@@ -318,16 +318,30 @@ func toolCallSummary(name string) string {
 	switch name {
 	case "get_miner_state_counts":
 		return "Checking fleet health"
+	case "get_site_health_summary":
+		return "Checking site health"
 	case "list_sites":
 		return "Reading site inventory"
 	case "list_pools":
 		return "Checking mining pools"
+	case "list_actionable_miner_issues":
+		return "Finding miner issues"
 	case "list_racks":
 		return "Reading rack inventory"
 	case "get_rack_slots":
 		return "Reading rack slots"
+	case "get_rack_health":
+		return "Checking rack health"
 	case "resolve_miners":
 		return "Resolving miners"
+	case "preview_miner_action":
+		return "Checking command support"
+	case "execute_miner_action":
+		return "Preparing miner command"
+	case "preview_downtime_window":
+		return "Previewing maintenance schedule"
+	case "create_downtime_window":
+		return "Preparing maintenance schedule"
 	case "create_site":
 		return "Preparing site creation"
 	case "create_rack":

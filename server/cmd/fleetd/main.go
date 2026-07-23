@@ -718,11 +718,13 @@ func start(config *Config) error {
 	poolsHandler := pools.NewHandler(poolsSvc)
 	siteServiceHandler := sitesHandler.NewHandler(sitesSvc)
 	deviceSetServiceHandler := devicesetHandler.NewHandler(collectionSvc)
+	commandServiceHandler := command.NewHandler(commandSvc)
+	scheduleServiceHandler := scheduleHandler.NewHandler(scheduleSvc)
 
 	mux.Handle(fleetmanagementv1connect.NewFleetManagementServiceHandler(fleetManagementHandler, li))
-	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
+	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(commandServiceHandler, li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(poolsHandler, li))
-	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
+	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleServiceHandler, li))
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc), li))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(siteServiceHandler, li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
@@ -751,7 +753,7 @@ func start(config *Config) error {
 		llmConfigSvc,
 		chatAgent,
 		chatModelClient,
-		chatHandler.NewFleetTools(fleetManagementHandler, siteServiceHandler, poolsHandler, deviceSetServiceHandler),
+		chatHandler.NewFleetTools(fleetManagementHandler, siteServiceHandler, poolsHandler, deviceSetServiceHandler, commandServiceHandler, scheduleServiceHandler),
 		chatConfirmationBroker,
 	), li))
 
