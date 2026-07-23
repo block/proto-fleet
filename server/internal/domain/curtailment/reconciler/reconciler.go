@@ -70,6 +70,10 @@ type Config struct {
 	// RestoreDispatchTimeoutSec ages out restore-phase targets stuck in
 	// Dispatched without confirming telemetry (burns retry budget).
 	RestoreDispatchTimeoutSec int `help:"Seconds a restore target may stay dispatched without telemetry confirmation before consuming retry budget. Zero uses the default." default:"0" env:"RESTORE_DISPATCH_TIMEOUT_SEC"`
+	// ConfirmationFastPathEnabled turns on the wake-driven confirmation
+	// pulse (see confirmation_fast_path.go). Disabled restores exact
+	// tick-only confirmation semantics and starts no pulse goroutine.
+	ConfirmationFastPathEnabled bool `help:"Enable the curtailment confirmation fast path: a wake-driven pulse that confirms dispatched targets from fresh telemetry between full reconciler ticks." default:"true" env:"CONFIRMATION_FAST_PATH_ENABLED"`
 }
 
 func (c Config) withDefaults() Config {
@@ -109,6 +113,16 @@ type Reconciler struct {
 	fans     curtailment.FacilityFanController
 	fanAlert FacilityFanAlertEmitter
 	now      func() time.Time
+
+	// sampler backs the confirmation fast path (see
+	// confirmation_fast_path.go); required only when
+	// cfg.ConfirmationFastPathEnabled.
+	sampler ConfirmationSampler
+	// confirmationWake coalesces pulse wakes; buffered size 1.
+	confirmationWake chan struct{}
+	// confirmationPulse is the between-pass cadence while eligible work
+	// exists. Defaults to confirmationPulseInterval; tests shorten it.
+	confirmationPulse time.Duration
 
 	stopCancel context.CancelFunc
 	workCancel context.CancelFunc
@@ -150,11 +164,13 @@ func WithFacilityFanAlertEmitter(emitter FacilityFanAlertEmitter) Option {
 // here, so a misconfigured fleetd surfaces during lifecycle bring-up.
 func New(cfg Config, store interfaces.CurtailmentStore, cmd CommandDispatcher, opts ...Option) *Reconciler {
 	r := &Reconciler{
-		cfg:     cfg.withDefaults(),
-		store:   store,
-		cmd:     cmd,
-		metrics: curtailment.NoOpMetrics{},
-		now:     time.Now,
+		cfg:               cfg.withDefaults(),
+		store:             store,
+		cmd:               cmd,
+		metrics:           curtailment.NoOpMetrics{},
+		now:               time.Now,
+		confirmationWake:  make(chan struct{}, 1),
+		confirmationPulse: confirmationPulseInterval,
 	}
 	if fanStore, ok := store.(interfaces.CurtailmentFanStateStore); ok {
 		r.fanStore = fanStore
@@ -180,6 +196,9 @@ func (r *Reconciler) Start(_ context.Context) error {
 	if r.cfg.CurtailDispatchTimeoutSec < 1 {
 		return fmt.Errorf("curtailment reconciler: curtail_dispatch_timeout_sec must be at least 1, got %d", r.cfg.CurtailDispatchTimeoutSec)
 	}
+	if r.cfg.ConfirmationFastPathEnabled && r.sampler == nil {
+		return fmt.Errorf("curtailment reconciler: confirmation fast path is enabled but no sampler is configured (WithConfirmationSampler)")
+	}
 
 	r.mu.Lock()
 	if r.running {
@@ -195,7 +214,17 @@ func (r *Reconciler) Start(_ context.Context) error {
 
 	r.wg.Add(1)
 	go r.tickLoop(stopCtx, workCtx)
-	slog.Info("curtailment reconciler started", "tick_interval", r.cfg.TickInterval)
+	if r.cfg.ConfirmationFastPathEnabled {
+		r.wg.Add(1)
+		go r.confirmationLoop(stopCtx, workCtx)
+		// Startup recovery: rows may already sit in dispatched from a
+		// previous process; run one pass immediately rather than waiting
+		// for the first full tick's wake.
+		r.wakeConfirmation()
+	}
+	slog.Info("curtailment reconciler started",
+		"tick_interval", r.cfg.TickInterval,
+		"confirmation_fast_path_enabled", r.cfg.ConfirmationFastPathEnabled)
 	return nil
 }
 
@@ -354,6 +383,9 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 			"event_id", ev.ID, "error", err)
 		return
 	}
+	// Deferred so both fresh dispatches from this pass and rows already
+	// dispatched (recovery) wake the confirmation fast path.
+	defer func() { r.wakeIfDispatchedWork(targets) }()
 	if !r.reconcilePendingFans(ctx, ev) {
 		return
 	}
@@ -768,6 +800,8 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 			"event_id", ev.ID, "error", err)
 		return
 	}
+	// Deferred confirmation fast-path wake; see dispatchPending.
+	defer func() { r.wakeIfDispatchedWork(targets) }()
 	if r.enforceMaxDuration(ctx, ev, targets) {
 		return
 	}
@@ -1334,17 +1368,7 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 		return
 	}
 	now := r.now()
-	zero := int32(0)
-	params := interfaces.UpdateCurtailmentTargetStateParams{
-		State:       models.TargetStateConfirmed,
-		ConfirmedAt: &now,
-		ObservedAt:  &now,
-		RetryCount:  &zero,
-	}
-	if c.LatestPowerW != nil && isFinite(*c.LatestPowerW) {
-		power := *c.LatestPowerW
-		params.ObservedPowerW = &power
-	}
+	params := confirmedCurtailTargetParams(now, c.LatestPowerW)
 	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			slog.Error("curtailment reconciler: target confirm update failed",
@@ -1746,6 +1770,8 @@ func (r *Reconciler) observeRestoring(ctx context.Context, ev *models.Event) {
 			"event_id", ev.ID, "error", err)
 		return
 	}
+	// Deferred confirmation fast-path wake; see dispatchPending.
+	defer func() { r.wakeIfDispatchedWork(targets) }()
 	r.reconcileRestoringFans(ctx, ev)
 
 	r.confirmDispatchedRestores(ctx, ev, targets)
@@ -1918,15 +1944,7 @@ func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t 
 		return
 	}
 	now := r.now()
-	params := interfaces.UpdateCurtailmentTargetStateParams{
-		State:       models.TargetStateResolved,
-		ConfirmedAt: &now,
-		ObservedAt:  &now,
-	}
-	if c.LatestPowerW != nil && isFinite(*c.LatestPowerW) {
-		power := *c.LatestPowerW
-		params.ObservedPowerW = &power
-	}
+	params := resolvedRestoreTargetParams(now, c.LatestPowerW)
 	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			slog.Error("curtailment reconciler: restore confirm update failed",
