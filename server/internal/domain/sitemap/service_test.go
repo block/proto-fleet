@@ -2482,6 +2482,124 @@ func TestValidateBuildingExistingRacksFitLayoutUsesBuildingIDForDuplicateBuildin
 	}
 }
 
+func TestBuildPlanCountsMinerMoveDisambiguatedByBuildingID(t *testing.T) {
+	buildingAID := int64(10)
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"SITE": nil,
+		"BUILDING": {
+			{"__row": "5", fieldID: "10", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "2"},
+			{"__row": "6", fieldID: "11", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "2"},
+		},
+		"RACK": nil,
+		"MINER": {
+			{"__row": "13", "device_identifier": "miner-1", "serial_number": "SN1", fieldName: "Miner 1", "ip_address": "10.0.0.5", "mac_address": "aa:bb:cc:dd:ee:ff", fieldBuilding: "11"},
+		},
+	}}
+	snap := &snapshot{
+		buildings: []buildingmodels.Building{
+			{ID: 10, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
+			{ID: 11, Name: "Building A", Aisles: 1, RacksPerAisle: 2},
+		},
+		miners: []minerSnapshot{{DeviceIdentifier: "miner-1", SerialNumber: "SN1", Name: "Miner 1", IPAddress: "10.0.0.5", MACAddress: "aa:bb:cc:dd:ee:ff", BuildingID: &buildingAID, Building: "Building A"}},
+	}
+
+	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(plan.errors) != 0 {
+		t.Fatalf("plan errors = %+v, want building_id-disambiguated miner move accepted", plan.errors)
+	}
+	if !hasChange(plan.changes, pb.ImportOperation_IMPORT_OPERATION_MOVE, "miner", 1) {
+		t.Fatalf("changes = %+v, want miner move summary", plan.changes)
+	}
+}
+
+func TestValidateRackGridPositionsUsesBuildingIDForDuplicateBuildingNames(t *testing.T) {
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"BUILDING": {
+			{fieldID: "11", fieldName: "Building A", "aisles": "2", "racks_per_aisle": "1"},
+			{fieldID: "10", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "1"},
+		},
+		"RACK": {
+			{fieldBuilding: "11", fieldLabel: "Rack A", "aisle_index": "1", "position_in_aisle": "0"},
+		},
+	}}
+	snap := &snapshot{buildings: []buildingmodels.Building{
+		{ID: 10, Name: "Building A", Aisles: 1, RacksPerAisle: 1},
+		{ID: 11, Name: "Building A", Aisles: 2, RacksPerAisle: 1},
+	}}
+
+	resolveReferences(parsed, snap)
+	p := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	errs := validateRackGridPositions(p.racks, p.topology)
+	if len(errs) != 0 {
+		t.Fatalf("errors = %+v, want building_id-specific bounds", errs)
+	}
+}
+
+func TestValidateRackGridCollisionsSeparatesIDQualifiedDuplicateBuildings(t *testing.T) {
+	buildingAID := int64(10)
+	buildingBID := int64(11)
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"BUILDING": {
+			{fieldID: "10", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "1"},
+			{fieldID: "11", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "1"},
+		},
+		"RACK": {
+			{"__row": "10", fieldBuilding: "10", fieldLabel: "Rack A", "aisle_index": "0", "position_in_aisle": "0"},
+			{"__row": "11", fieldBuilding: "11", fieldLabel: "Rack B", "aisle_index": "0", "position_in_aisle": "0"},
+		},
+	}}
+	snap := &snapshot{
+		buildings: []buildingmodels.Building{
+			{ID: 10, Name: "Building A", Aisles: 1, RacksPerAisle: 1},
+			{ID: 11, Name: "Building A", Aisles: 1, RacksPerAisle: 1},
+		},
+		racks: []rackSnapshot{
+			{ID: 20, Label: "Rack A", BuildingID: &buildingAID, Building: "Building A", AisleIndex: "0", PositionInAisle: "0"},
+			{ID: 21, Label: "Rack B", BuildingID: &buildingBID, Building: "Building A", AisleIndex: "0", PositionInAisle: "0"},
+		},
+	}
+
+	resolveReferences(parsed, snap)
+	errs := validateRackGridCollisions(parsed.sections["RACK"], snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	if len(errs) != 0 {
+		t.Fatalf("errors = %+v, want ID-qualified duplicate buildings to have independent grids", errs)
+	}
+}
+
+func TestValidateBuildingRackCapacitySeparatesIDQualifiedDuplicateBuildings(t *testing.T) {
+	siteID := int64(5)
+	buildingAID := int64(10)
+	buildingBID := int64(11)
+	parsed := &parsedCSV{sections: map[string][]map[string]string{
+		"BUILDING": {
+			{fieldID: "10", fieldSite: "5", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "1"},
+			{fieldID: "11", fieldSite: "5", fieldName: "Building A", "aisles": "1", "racks_per_aisle": "1"},
+		},
+		"RACK": {
+			{fieldBuilding: "10", fieldLabel: "Rack A"},
+			{fieldBuilding: "11", fieldLabel: "Rack B"},
+		},
+	}}
+	snap := &snapshot{
+		sites: []sitemodels.Site{{ID: 5, Name: "Site A"}},
+		buildings: []buildingmodels.Building{
+			{ID: 10, SiteID: &siteID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 1},
+			{ID: 11, SiteID: &siteID, SiteLabel: "Site A", Name: "Building A", Aisles: 1, RacksPerAisle: 1},
+		},
+		racks: []rackSnapshot{
+			{ID: 20, Label: "Rack A", SiteID: &siteID, Site: "Site A", BuildingID: &buildingAID, Building: "Building A"},
+			{ID: 21, Label: "Rack B", SiteID: &siteID, Site: "Site A", BuildingID: &buildingBID, Building: "Building A"},
+		},
+	}
+
+	resolveReferences(parsed, snap)
+	p := resolvePlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_UNSPECIFIED)
+	errs := validateBuildingRackCapacity(p)
+	if len(errs) != 0 {
+		t.Fatalf("errors = %+v, want ID-qualified duplicate buildings counted separately", errs)
+	}
+}
+
 func TestParseSiteMapCSVAcceptsSpreadsheetPaddedSectionRows(t *testing.T) {
 	csv := validCSV()
 	csv = strings.Replace(csv, "# SECTION: SITE\n", "# SECTION: SITE,,,,,,,,,,\n", 1)

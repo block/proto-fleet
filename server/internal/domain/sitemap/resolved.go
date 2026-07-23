@@ -59,8 +59,12 @@ type resolvedRack struct {
 	siteLabel     string
 	// siteRef / buildingRef are the canonical site and building names the row
 	// references, filled in by resolveReferences.
-	siteRef         string
-	buildingRef     string
+	siteRef     string
+	buildingRef string
+	// buildingID is the id of the existing building the rack references, when the
+	// reference resolved to one; nil for a same-import create or an unlinked rack.
+	// It disambiguates two buildings that share a (site, name) pair.
+	buildingID      *int64
 	label           string
 	prevLabel       string
 	zone            string
@@ -89,12 +93,16 @@ type resolvedMiner struct {
 	rackLabel    string
 	siteLabel    string
 	buildLabel   string
-	rackRow      string
-	rackCol      string
-	renamed      bool
-	moved        bool
-	unassigned   bool
-	rowNum       int
+	// buildingID is the id of the existing building the miner's placement targets
+	// (via its building or rack reference), when it resolved to one; nil
+	// otherwise. It disambiguates two buildings that share a (site, name) pair.
+	buildingID *int64
+	rackRow    string
+	rackCol    string
+	renamed    bool
+	moved      bool
+	unassigned bool
+	rowNum     int
 }
 
 // minerPopulation is the scoped mutable-miner set shared by omission counts,
@@ -271,6 +279,7 @@ func resolveRacks(
 			siteLabel:       row[fieldSite],
 			siteRef:         row[fieldSite],
 			buildingRef:     row[fieldBuilding],
+			buildingID:      refID(row, refBuildingIDCell),
 			rowNum:          rn,
 		}
 		if id, ok := rowID(row); ok {
@@ -298,6 +307,7 @@ func resolveMiners(rows []map[string]string, existingByID map[string]minerSnapsh
 			rackLabel:    row[fieldRack],
 			siteLabel:    row[fieldSite],
 			buildLabel:   row[fieldBuilding],
+			buildingID:   refID(row, refBuildingIDCell),
 			rackRow:      row["rack_row"],
 			rackCol:      row["rack_col"],
 			rowNum:       rowNumber(row, i+1),
@@ -320,8 +330,13 @@ func classifyMinerMoves(miners []*resolvedMiner, tv *topologyView) {
 			continue
 		}
 		desiredSite, desiredBuilding := minerDesiredSiteBuilding(m, tv)
-		if desiredSite != m.existing.Site ||
-			desiredBuilding != m.existing.Building ||
+		buildingChanged := desiredSite != m.existing.Site || desiredBuilding != m.existing.Building
+		// Two buildings can share a (site, name) pair, so a move between them shows
+		// no name change; the resolved building id disambiguates them.
+		if m.buildingID != nil && m.existing.BuildingID != nil && *m.buildingID != *m.existing.BuildingID {
+			buildingChanged = true
+		}
+		if buildingChanged ||
 			m.rackLabel != m.existing.Rack ||
 			m.rackRow != m.existing.RackRow ||
 			m.rackCol != m.existing.RackCol {
@@ -513,6 +528,13 @@ func validateRackGridPositions(racks []*resolvedRack, tv *topologyView) []*pb.Im
 }
 
 func rackGridBuilding(r *resolvedRack, tv *topologyView) (buildingmodels.Building, bool) {
+	// Prefer the resolved building id so two buildings sharing a (site, name) pair
+	// keep independent grids; fall back to the (site, name) key for creates.
+	if r.buildingID != nil {
+		if building, ok := tv.buildingsByLayoutID[*r.buildingID]; ok {
+			return building, true
+		}
+	}
 	building, ok := tv.buildingsByKey[r.siteRef+"\x00"+r.buildingRef]
 	return building, ok
 }

@@ -59,6 +59,15 @@ const (
 	// created in the same import, by its own name/label (e.g. "NAME:Building 2").
 	// A bare integer references an existing entity by id; blank is unassigned.
 	refCreatePrefix = "NAME:"
+
+	// refBuildingIDCell is an internal companion cell that resolveReferences writes
+	// next to a canonicalized building reference to preserve the resolved existing
+	// building's id. Canonicalizing a reference to a name loses id precision when
+	// two buildings share a (site, name) pair (a distinct-NULL-site_id case the DB
+	// permits), so id-sensitive validators read the companion cell to key by
+	// identity. The NUL prefix keeps it out of the header-driven CSV export and
+	// every field-scoped reader.
+	refBuildingIDCell = "\x00ref_building_id"
 )
 
 var (
@@ -2718,14 +2727,15 @@ func resolveReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValidation
 			createBuildings[name] = append(createBuildings[name], row[fieldSite])
 		}
 	}
-	// resolveBuilding returns the canonical building name and its site. siteHint is
-	// the row's own already-resolved site reference, used only to disambiguate a
+	// resolveBuilding returns the canonical building name, its site, and the id of
+	// the existing building it resolves to (0 for a same-import create). siteHint
+	// is the row's own already-resolved site reference, used only to disambiguate a
 	// create reference that names more than one same-import building.
-	resolveBuilding := func(cell, siteHint, section string, rn int) (name, site string) {
+	resolveBuilding := func(cell, siteHint, section string, rn int) (name, site string, id int64) {
 		switch ref := parseParentRef(cell); ref.kind {
 		case refExisting:
 			if building, ok := buildingsByID[ref.id]; ok {
-				return building.Name, building.SiteLabel
+				return building.Name, building.SiteLabel, ref.id
 			}
 			errs = append(errs, csvErr(rn, section, fmt.Sprintf("building reference %d matches no existing building", ref.id)))
 		case refCreate:
@@ -2734,12 +2744,12 @@ func resolveReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValidation
 			case 0:
 				errs = append(errs, csvErr(rn, section, fmt.Sprintf("building reference %s%s matches no BUILDING row in this import", refCreatePrefix, ref.name)))
 			case 1:
-				return ref.name, sites[0]
+				return ref.name, sites[0], 0
 			default:
 				if siteHint != "" {
 					for _, s := range sites {
 						if s == siteHint {
-							return ref.name, s
+							return ref.name, s, 0
 						}
 					}
 				}
@@ -2748,7 +2758,7 @@ func resolveReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValidation
 		case refInvalid:
 			errs = append(errs, csvErr(rn, section, fmt.Sprintf("building reference %q must be a numeric id or %sNAME", cell, refCreatePrefix)))
 		}
-		return "", ""
+		return "", "", 0
 	}
 
 	// RACK: resolve the site reference, then the building reference (which wins and
@@ -2757,8 +2767,9 @@ func resolveReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValidation
 		rn := rowNumber(row, i+1)
 		site := resolveSite(row[fieldSite], "RACK", rn)
 		if row[fieldBuilding] != "" {
-			building, bSite := resolveBuilding(row[fieldBuilding], site, "RACK", rn)
+			building, bSite, bID := resolveBuilding(row[fieldBuilding], site, "RACK", rn)
 			row[fieldBuilding] = building
+			setRefID(row, refBuildingIDCell, bID)
 			if bSite != "" {
 				site = bSite
 			}
@@ -2769,7 +2780,10 @@ func resolveReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValidation
 	for _, rack := range snap.racks {
 		racksByID[rack.ID] = rack
 	}
-	type rackPlacement struct{ building, site string }
+	type rackPlacement struct {
+		building, site string
+		buildingID     *int64
+	}
 	createRacks := map[string]rackPlacement{} // label -> placement
 	for _, row := range parsed.sections["RACK"] {
 		if id, ok := rowID(row); ok {
@@ -2779,25 +2793,27 @@ func resolveReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValidation
 			rack.Site = row[fieldSite]
 			racksByID[id] = rack
 		} else if label := row[fieldLabel]; label != "" {
-			createRacks[label] = rackPlacement{building: row[fieldBuilding], site: row[fieldSite]}
+			createRacks[label] = rackPlacement{building: row[fieldBuilding], site: row[fieldSite], buildingID: refID(row, refBuildingIDCell)}
 		}
 	}
-	resolveRack := func(cell, section string, rn int) (label, building, site string) {
+	// resolveRack returns the canonical rack label, its building and site, and the
+	// id of that rack's building when the rack sits under an existing building.
+	resolveRack := func(cell, section string, rn int) (label, building, site string, buildingID *int64) {
 		switch ref := parseParentRef(cell); ref.kind {
 		case refExisting:
 			if rack, ok := racksByID[ref.id]; ok {
-				return rack.Label, rack.Building, rack.Site
+				return rack.Label, rack.Building, rack.Site, rack.BuildingID
 			}
 			errs = append(errs, csvErr(rn, section, fmt.Sprintf("rack reference %d matches no existing rack", ref.id)))
 		case refCreate:
 			if placement, ok := createRacks[ref.name]; ok {
-				return ref.name, placement.building, placement.site
+				return ref.name, placement.building, placement.site, placement.buildingID
 			}
 			errs = append(errs, csvErr(rn, section, fmt.Sprintf("rack reference %s%s matches no RACK row in this import", refCreatePrefix, ref.name)))
 		case refInvalid:
 			errs = append(errs, csvErr(rn, section, fmt.Sprintf("rack reference %q must be a numeric id or %sNAME", cell, refCreatePrefix)))
 		}
-		return "", "", ""
+		return "", "", "", nil
 	}
 
 	// MINER: resolve site, then building (wins over site), then rack (wins over
@@ -2806,18 +2822,21 @@ func resolveReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValidation
 		rn := rowNumber(row, i+1)
 		site := resolveSite(row[fieldSite], "MINER", rn)
 		building := ""
+		var buildingID *int64
 		if row[fieldBuilding] != "" {
-			b, bSite := resolveBuilding(row[fieldBuilding], site, "MINER", rn)
+			b, bSite, bID := resolveBuilding(row[fieldBuilding], site, "MINER", rn)
 			building = b
+			buildingID = nonZeroInt64Ptr(bID)
 			if bSite != "" {
 				site = bSite
 			}
 		}
 		if row[fieldRack] != "" {
-			label, rBuilding, rSite := resolveRack(row[fieldRack], "MINER", rn)
+			label, rBuilding, rSite, rBuildingID := resolveRack(row[fieldRack], "MINER", rn)
 			row[fieldRack] = label
 			if rBuilding != "" {
 				building = rBuilding
+				buildingID = rBuildingID
 			}
 			if rSite != "" {
 				site = rSite
@@ -2825,8 +2844,48 @@ func resolveReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValidation
 		}
 		row[fieldBuilding] = building
 		row[fieldSite] = site
+		setRefIDPtr(row, refBuildingIDCell, buildingID)
 	}
 	return errs
+}
+
+// setRefID writes an existing-entity id companion cell, deleting it when id is 0
+// so a re-resolution never leaves a stale id behind.
+func setRefID(row map[string]string, cell string, id int64) {
+	if id > 0 {
+		row[cell] = strconv.FormatInt(id, 10)
+		return
+	}
+	delete(row, cell)
+}
+
+// setRefIDPtr is setRefID for an optional id.
+func setRefIDPtr(row map[string]string, cell string, id *int64) {
+	if id != nil {
+		setRefID(row, cell, *id)
+		return
+	}
+	delete(row, cell)
+}
+
+// refID reads an existing-entity id companion cell, returning nil when unset.
+func refID(row map[string]string, cell string) *int64 {
+	raw := row[cell]
+	if raw == "" {
+		return nil
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		return nil
+	}
+	return &id
+}
+
+func nonZeroInt64Ptr(id int64) *int64 {
+	if id <= 0 {
+		return nil
+	}
+	return &id
 }
 
 // refKind classifies a parent reference cell.
@@ -2921,6 +2980,7 @@ func validateRackDimensions(rows []map[string]string) []*pb.ImportValidationErro
 
 func validateRackGridCollisions(rackRows []map[string]string, snap *snapshot, mode pb.OmissionMode) []*pb.ImportValidationError {
 	presentRackIdentities := rackIdentitySet(rackRows, snap.racks)
+	buildingIDByName := uniqueBuildingIDsByName(snap.buildings)
 	seen := map[string]string{}
 	var errs []*pb.ImportValidationError
 	for _, rack := range snap.racks {
@@ -2938,8 +2998,8 @@ func validateRackGridCollisions(rackRows []map[string]string, snap *snapshot, mo
 		if err != nil {
 			continue
 		}
-		key := rackGridCollisionKey(rack.Site, rack.Building, aisle, position)
-		seen[key] = rack.Label
+		bKey := buildingIdentityKey(rack.BuildingID, rack.Site, rack.Building, buildingIDByName)
+		seen[rackGridCollisionKey(bKey, aisle, position)] = rack.Label
 	}
 	for i, row := range rackRows {
 		if row[fieldBuilding] == "" || row["aisle_index"] == "" || row["position_in_aisle"] == "" {
@@ -2953,7 +3013,8 @@ func validateRackGridCollisions(rackRows []map[string]string, snap *snapshot, mo
 		if err != nil {
 			continue
 		}
-		key := rackGridCollisionKey(row[fieldSite], row[fieldBuilding], aisle, position)
+		bKey := buildingIdentityKey(refID(row, refBuildingIDCell), row[fieldSite], row[fieldBuilding], buildingIDByName)
+		key := rackGridCollisionKey(bKey, aisle, position)
 		if existingRack, ok := seen[key]; ok {
 			errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack grid cell already occupied by rack %s", existingRack)))
 			continue
@@ -2963,8 +3024,45 @@ func validateRackGridCollisions(rackRows []map[string]string, snap *snapshot, mo
 	return errs
 }
 
-func rackGridCollisionKey(site, building string, aisle, position int32) string {
-	return fmt.Sprintf("building:%s\x00%s\x00%d\x00%d", site, building, aisle, position)
+func rackGridCollisionKey(buildingKey string, aisle, position int32) string {
+	return fmt.Sprintf("%s\x00%d\x00%d", buildingKey, aisle, position)
+}
+
+// buildingIdentityKey keys a building by its stable id so two buildings sharing
+// a (site, name) pair stay distinct. It prefers an explicit id, then a unique
+// snapshot building of that (site, name), and finally the (site, name) pair for
+// same-import creates that have no id yet.
+func buildingIdentityKey(id *int64, site, building string, idByName map[string]int64) string {
+	if id != nil {
+		return "id:" + strconv.FormatInt(*id, 10)
+	}
+	if resolved, ok := idByName[site+"\x00"+building]; ok {
+		return "id:" + strconv.FormatInt(resolved, 10)
+	}
+	return "name:" + site + "\x00" + building
+}
+
+// uniqueBuildingIDsByName maps a (site, name) pair to its building id, omitting
+// any pair shared by more than one building so ambiguous names fall back to
+// name keying.
+func uniqueBuildingIDsByName(buildings []buildingmodels.Building) map[string]int64 {
+	out := map[string]int64{}
+	ambiguous := map[string]bool{}
+	for _, building := range buildings {
+		if building.ID <= 0 {
+			continue
+		}
+		key := building.SiteLabel + "\x00" + building.Name
+		if _, ok := out[key]; ok {
+			ambiguous[key] = true
+			continue
+		}
+		out[key] = building.ID
+	}
+	for key := range ambiguous {
+		delete(out, key)
+	}
+	return out
 }
 
 func validateImportedNameLengths(parsed *parsedCSV) []*pb.ImportValidationError {
@@ -3457,6 +3555,7 @@ func desiredRackMap(rows []map[string]string, racks []rackSnapshot, buildingRows
 		out[rack.Label] = rack
 	}
 	buildingBySiteName := desiredBuildingsBySiteName(buildingRows, buildings)
+	buildingByID := desiredBuildingsByID(buildingRows, buildings)
 	for _, row := range rows {
 		rack := out[rackSectionLabel(row)]
 		if id, ok := rowID(row); ok {
@@ -3471,10 +3570,16 @@ func desiredRackMap(rows []map[string]string, racks []rackSnapshot, buildingRows
 		rack.Label = rackSectionLabel(row)
 		rack.Site = row[fieldSite]
 		rack.Building = row[fieldBuilding]
-		// Reference cells are canonical names; derive parent ids from the desired
-		// building the (site, building) pair names.
+		// Prefer the resolved building id recorded by resolveReferences so two
+		// buildings sharing a (site, name) pair stay distinct; fall back to the
+		// (site, name) key for creates, whose uniqueness is enforced elsewhere.
 		rack.BuildingID = nil
-		if building, ok := buildingBySiteName[row[fieldSite]+"\x00"+row[fieldBuilding]]; ok {
+		if bID := refID(row, refBuildingIDCell); bID != nil {
+			rack.BuildingID = bID
+			if building, ok := buildingByID[*bID]; ok {
+				rack.SiteID = building.SiteID
+			}
+		} else if building, ok := buildingBySiteName[row[fieldSite]+"\x00"+row[fieldBuilding]]; ok {
 			if building.ID > 0 {
 				rack.BuildingID = &building.ID
 			}
@@ -3500,6 +3605,16 @@ func desiredBuildingsBySiteName(rows []map[string]string, buildings []buildingmo
 	for _, building := range desiredBuildingList(rows, buildings) {
 		if building.SiteLabel != "" {
 			out[building.SiteLabel+"\x00"+building.Name] = building
+		}
+	}
+	return out
+}
+
+func desiredBuildingsByID(rows []map[string]string, buildings []buildingmodels.Building) map[int64]buildingmodels.Building {
+	out := map[int64]buildingmodels.Building{}
+	for _, building := range desiredBuildingList(rows, buildings) {
+		if building.ID > 0 {
+			out[building.ID] = building
 		}
 	}
 	return out
