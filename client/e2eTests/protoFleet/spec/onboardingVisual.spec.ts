@@ -3,7 +3,6 @@ import { test } from "../fixtures/pageFixtures";
 import { OnboardingVisualHelper, VisualSnapshotHelper } from "../helpers/onboardingVisuals";
 
 test.describe("Proto Fleet - Visual coverage @visual", () => {
-  test.describe.configure({ mode: "serial" });
   // eslint-disable-next-line playwright/no-skipped-test
   test.skip(testConfig.target === "real", "Visual snapshots are only supported against the fake E2E environment.");
   test.use({ storageState: { cookies: [], origins: [] } });
