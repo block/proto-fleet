@@ -4417,15 +4417,16 @@ func (p *panickyDispatcher) Uncurtail(ctx context.Context, selector *pb.DeviceSe
 // goroutine-safe via a single mutex; the reconciler emits from the tick
 // goroutine but tests poke from the test goroutine.
 type recordingMetrics struct {
-	mu                     sync.Mutex
-	tickDurations          []time.Duration
-	tickFailures           int
-	candidateExcluded      map[string]int
-	maintenance            int
-	eventStateRaces        int
-	targetWriteFailures    int
-	auditWriteFailures     map[string]int
-	allPairedPendingStalls int
+	mu                       sync.Mutex
+	tickDurations            []time.Duration
+	tickFailures             int
+	confirmationPassFailures int
+	candidateExcluded        map[string]int
+	maintenance              int
+	eventStateRaces          int
+	targetWriteFailures      int
+	auditWriteFailures       map[string]int
+	allPairedPendingStalls   int
 }
 
 func newRecordingMetrics() *recordingMetrics {
@@ -4445,6 +4446,12 @@ func (m *recordingMetrics) IncTickFailure() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.tickFailures++
+}
+
+func (m *recordingMetrics) IncConfirmationPassFailure() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.confirmationPassFailures++
 }
 
 func (m *recordingMetrics) IncCandidateExcluded(reason string) {
@@ -4514,4 +4521,10 @@ func (m *recordingMetrics) TickFailureCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.tickFailures
+}
+
+func (m *recordingMetrics) ConfirmationPassFailureCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.confirmationPassFailures
 }

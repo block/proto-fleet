@@ -44,9 +44,17 @@ const (
 	// confirmationBackoffMax caps the exponential backoff applied when a
 	// pass fails (eligibility read error or panic).
 	confirmationBackoffMax = 30 * time.Second
-	// confirmationPassTimeout bounds one pass end to end: eligibility read,
-	// batch sampling, and guarded writes.
+	// confirmationPassTimeout bounds the sampling half of one pass: the
+	// eligibility read plus batch sampling. Guarded writes run under a
+	// separate confirmationWriteTimeout budget (derived after sampling
+	// returns) so a pass whose sampling exhausts this budget still promotes
+	// the samples that already succeeded instead of discarding them.
 	confirmationPassTimeout = 30 * time.Second
+	// confirmationWriteTimeout bounds the guarded-write half of one pass. It
+	// is derived fresh from the pulse's work context once sampling returns,
+	// so Stop still cancels it. Modest by design: the writes are single-row
+	// guarded UPDATEs already scoped by the eligibility read.
+	confirmationWriteTimeout = 10 * time.Second
 )
 
 // ConfirmationSampler is the narrow read-only telemetry seam the pulse
@@ -123,6 +131,7 @@ func (r *Reconciler) confirmationLoop(stopCtx, workCtx context.Context) {
 func (r *Reconciler) safeConfirmationPass(ctx context.Context) (parked, failed bool) {
 	defer func() {
 		if rec := recover(); rec != nil {
+			r.metrics.IncConfirmationPassFailure()
 			slog.Error("curtailment confirmation fast path: recovered panic in pass", "panic", rec)
 			parked, failed = false, true
 		}
@@ -135,12 +144,13 @@ func (r *Reconciler) safeConfirmationPass(ctx context.Context) (parked, failed b
 // post-dispatch sample proves the desired state. Returns parked=true when no
 // eligible work exists.
 func (r *Reconciler) confirmationPass(ctx context.Context) (parked, failed bool) {
-	passCtx, cancel := context.WithTimeout(ctx, confirmationPassTimeout)
+	passCtx, cancel := context.WithTimeout(ctx, r.confirmationPassTimeout)
 	defer cancel()
 
 	items, err := r.store.ListEligibleConfirmationTargets(passCtx)
 	if err != nil {
 		if ctx.Err() == nil {
+			r.metrics.IncConfirmationPassFailure()
 			slog.Error("curtailment confirmation fast path: eligibility read failed", "error", err)
 		}
 		return false, true
@@ -165,8 +175,19 @@ func (r *Reconciler) confirmationPass(ctx context.Context) (parked, failed bool)
 		samplesByDevice[string(res.DeviceID)] = res
 	}
 
+	// passCtx bounded only the eligibility read and sampling above. Promote
+	// every already-successful sample under a fresh write budget derived
+	// from the pulse's work context, so a pass whose sampling exhausted
+	// passCtx still lands its early successes instead of discarding them all.
+	// Deriving from ctx (not passCtx) keeps Stop cancellation working. A
+	// timed-out sampling still reports failed=true so the unsampled remainder
+	// backs off.
+	sampledTimedOut := passCtx.Err() != nil
+	writeCtx, cancelWrite := context.WithTimeout(ctx, confirmationWriteTimeout)
+	defer cancelWrite()
+
 	for _, item := range items {
-		if passCtx.Err() != nil {
+		if writeCtx.Err() != nil {
 			return false, true
 		}
 		sample, ok := samplesByDevice[item.DeviceIdentifier]
@@ -175,9 +196,9 @@ func (r *Reconciler) confirmationPass(ctx context.Context) (parked, failed bool)
 			// this row waits for the next pulse or the full tick.
 			continue
 		}
-		r.confirmFromSample(passCtx, item, sample)
+		r.confirmFromSample(writeCtx, item, sample)
 	}
-	return false, false
+	return false, sampledTimedOut
 }
 
 // confirmFromSample applies one guarded promotion when the sample proves the
@@ -227,14 +248,19 @@ func (r *Reconciler) confirmFromSample(ctx context.Context, item models.Confirma
 	params.ExpectedState = &expectedTargetState
 	params.ExpectedDispatchBatchUUID = &expectedBatch
 
-	if err := r.store.UpdateTargetState(ctx, item.EventID, item.DeviceIdentifier, params); err != nil {
-		if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-			r.metrics.IncEventStateRaceLoss()
-			return
+	// Reuse the full tick's write path so race/failure classification,
+	// race-loss Warn logging, and the IncEventStateRaceLoss /
+	// IncTargetWriteFailure metrics live in one place (writeTargetState,
+	// reconciler.go) instead of being reimplemented here. writeTargetState
+	// only reads ev.ID/State/EventUUID, and it defaults
+	// ExpectedEventState/ExpectedDesiredState only when nil — both are
+	// already set above — so every guard passes through untouched.
+	ev := &models.Event{ID: item.EventID, EventUUID: item.EventUUID, State: item.EventState}
+	if err := r.writeTargetState(ctx, ev, item.DeviceIdentifier, params); err != nil {
+		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			slog.Error("curtailment confirmation fast path: confirm write failed",
+				"event_id", item.EventID, "device", item.DeviceIdentifier, "error", err)
 		}
-		r.metrics.IncTargetWriteFailure()
-		slog.Error("curtailment confirmation fast path: confirm write failed",
-			"event_id", item.EventID, "device", item.DeviceIdentifier, "error", err)
 		return
 	}
 	slog.Info("curtailment confirmation fast path: target confirmed",

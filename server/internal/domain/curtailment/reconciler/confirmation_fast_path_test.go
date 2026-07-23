@@ -164,6 +164,10 @@ type fakeSampler struct {
 	calls   [][]telemetry.SampleRequest
 	// panics makes the next N calls panic, exercising pass panic recovery.
 	panics int
+	// blockUntilCtxDone makes SampleDeviceMetrics return only after its
+	// (pass) context is done, simulating sampling that consumes the whole
+	// pass budget so confirmationPass observes an expired passCtx.
+	blockUntilCtxDone bool
 }
 
 func newFakeSampler() *fakeSampler {
@@ -182,7 +186,18 @@ func (s *fakeSampler) callCount() int {
 	return len(s.calls)
 }
 
-func (s *fakeSampler) SampleDeviceMetrics(_ context.Context, requests []telemetry.SampleRequest) []telemetry.SampleResult {
+func (s *fakeSampler) SampleDeviceMetrics(ctx context.Context, requests []telemetry.SampleRequest) []telemetry.SampleResult {
+	out, block := s.buildSampleResults(requests)
+	if block {
+		// Model sampling that burns the whole pass budget: return only once
+		// the pass context expires, so the caller sees passCtx.Err() != nil
+		// while its freshly derived write budget is still live.
+		<-ctx.Done()
+	}
+	return out
+}
+
+func (s *fakeSampler) buildSampleResults(requests []telemetry.SampleRequest) ([]telemetry.SampleResult, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls = append(s.calls, append([]telemetry.SampleRequest(nil), requests...))
@@ -208,7 +223,7 @@ func (s *fakeSampler) SampleDeviceMetrics(_ context.Context, requests []telemetr
 			Err:      errors.New("no fixture sample"),
 		})
 	}
-	return out
+	return out, s.blockUntilCtxDone
 }
 
 func confirmationSample(device string, powerW float64, flightStart time.Time) telemetry.SampleResult {
@@ -402,6 +417,29 @@ func TestConfirmationPass_NegativeEvidenceLeavesTargetUntouched(t *testing.T) {
 	assert.Equal(t, models.TargetStateDispatched, store.targetState(10, "miner-1"))
 }
 
+func TestConfirmationPass_RestoreNegativeEvidenceLeavesTargetUntouched(t *testing.T) {
+	store := newConfirmationFakeStore()
+	sampler := newFakeSampler()
+	dispatchedAt := fastPathTestNow.Add(-10 * time.Second)
+	item := seedDispatchedWork(store, 20, "miner-r", models.DesiredStateActive, "batch-restore", dispatchedAt)
+	store.setItems(item)
+	// Restore phase, but the miner is still curtailed: a fresh sample well
+	// below the restore threshold (100W against a 3000W baseline, threshold
+	// 1500W) proves mining has NOT resumed. The pulse must not resolve it —
+	// no promotion, no retry burn, no timeout aging (KTD2). Restore aging
+	// stays with the full tick.
+	sampler.setResult("miner-r", confirmationSample("miner-r", 100, fastPathTestNow.Add(-time.Second)))
+
+	r := newFastPathReconcilerForTest(store, sampler, nil)
+	parked, failed := r.confirmationPass(context.Background())
+
+	assert.False(t, parked, "work remains eligible, pulse stays active")
+	assert.False(t, failed)
+	assert.Equal(t, 0, store.confirmCalls(), "negative restore evidence must not produce a write")
+	assert.Equal(t, models.TargetStateDispatched, store.targetState(20, "miner-r"),
+		"a below-threshold restore sample must leave the target dispatched")
+}
+
 func TestConfirmationPass_PreDispatchSampleNeverConfirms(t *testing.T) {
 	store := newConfirmationFakeStore()
 	sampler := newFakeSampler()
@@ -509,6 +547,61 @@ func TestConfirmationPass_WriteFailureCountsAndSkips(t *testing.T) {
 	assert.Equal(t, 0, metrics.EventStateRaceLossCount())
 }
 
+// --- confirmationPass: split pass/write budget (review #3/#4) ---
+
+// A pass whose sampling exhausts the pass budget must still land the samples
+// that already succeeded, promoting them under a fresh write budget derived
+// from the live parent context.
+func TestConfirmationPass_ExpiredPassBudgetStillPromotesSuccessfulSamples(t *testing.T) {
+	store := newConfirmationFakeStore()
+	sampler := newFakeSampler()
+	dispatchedAt := fastPathTestNow.Add(-10 * time.Second)
+	item := seedDispatchedWork(store, 10, "miner-1", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
+	store.setItems(item)
+	sampler.setResult("miner-1", confirmationSample("miner-1", 100, fastPathTestNow.Add(-time.Second)))
+	// The sampler returns only after the pass budget expires, so the per-item
+	// loop runs with passCtx already dead but the parent context still live.
+	sampler.blockUntilCtxDone = true
+
+	r := newFastPathReconcilerForTest(store, sampler, nil)
+	r.confirmationPassTimeout = 20 * time.Millisecond
+
+	parked, failed := r.confirmationPass(context.Background())
+
+	assert.False(t, parked)
+	assert.True(t, failed,
+		"a timed-out sampling still reports failed=true so the unsampled remainder backs off")
+	assert.Equal(t, 1, store.confirmCalls(),
+		"an early-successful sample must promote even though the pass budget expired")
+	assert.Equal(t, models.TargetStateConfirmed, store.targetState(10, "miner-1"))
+}
+
+// When the write budget itself is expired (here: a cancelled parent context,
+// as on Stop), the per-item loop bails before promoting anything.
+func TestConfirmationPass_ExpiredWriteBudgetBailsEarly(t *testing.T) {
+	store := newConfirmationFakeStore()
+	sampler := newFakeSampler()
+	dispatchedAt := fastPathTestNow.Add(-10 * time.Second)
+	a := seedDispatchedWork(store, 10, "miner-a", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
+	b := seedDispatchedWork(store, 10, "miner-b", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
+	store.setItems(a, b)
+	sampler.setResult("miner-a", confirmationSample("miner-a", 100, fastPathTestNow.Add(-time.Second)))
+	sampler.setResult("miner-b", confirmationSample("miner-b", 100, fastPathTestNow.Add(-time.Second)))
+
+	// A cancelled parent expires both the pass budget and the write budget
+	// derived from it, so no item is promoted (0 of 2 eligible items).
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	r := newFastPathReconcilerForTest(store, sampler, nil)
+	parked, failed := r.confirmationPass(ctx)
+
+	assert.False(t, parked)
+	assert.True(t, failed)
+	assert.Equal(t, 0, store.confirmCalls(),
+		"an expired write budget must bail before promoting any of the eligible items")
+}
+
 // --- confirmationPass: eligibility read outcomes ---
 
 func TestConfirmationPass_EmptyEligibilityParks(t *testing.T) {
@@ -526,29 +619,35 @@ func TestConfirmationPass_EmptyEligibilityParks(t *testing.T) {
 func TestConfirmationPass_EligibilityErrorFailsPass(t *testing.T) {
 	store := newConfirmationFakeStore()
 	sampler := newFakeSampler()
+	metrics := newRecordingMetrics()
 	store.setListEligibleErr(errors.New("injected read failure"))
 
-	r := newFastPathReconcilerForTest(store, sampler, nil)
+	r := newFastPathReconcilerForTest(store, sampler, metrics)
 	parked, failed := r.confirmationPass(context.Background())
 
 	assert.False(t, parked, "a failed read must not park the pulse")
 	assert.True(t, failed)
 	assert.Equal(t, 0, sampler.callCount())
+	assert.Equal(t, 1, metrics.ConfirmationPassFailureCount(),
+		"an eligibility-read failure must increment the pass-failure metric (mirrors IncTickFailure)")
 }
 
 func TestSafeConfirmationPass_RecoversPanicAsFailure(t *testing.T) {
 	store := newConfirmationFakeStore()
 	sampler := newFakeSampler()
+	metrics := newRecordingMetrics()
 	dispatchedAt := fastPathTestNow.Add(-10 * time.Second)
 	item := seedDispatchedWork(store, 10, "miner-1", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
 	store.setItems(item)
 	sampler.panics = 1
 
-	r := newFastPathReconcilerForTest(store, sampler, nil)
+	r := newFastPathReconcilerForTest(store, sampler, metrics)
 	parked, failed := r.safeConfirmationPass(context.Background())
 
 	assert.False(t, parked)
 	assert.True(t, failed, "a recovered panic counts as a failed pass for backoff")
+	assert.Equal(t, 1, metrics.ConfirmationPassFailureCount(),
+		"a recovered panic must increment the pass-failure metric")
 }
 
 // --- pulse lifecycle: park, wake, re-park, failure backoff ---
@@ -662,6 +761,126 @@ func TestRunTick_NoDispatchedWorkLeavesPulseParked(t *testing.T) {
 	assert.Empty(t, r.confirmationWake, "nothing dispatched, no wake")
 }
 
+func TestObserveActive_DispatchedWorkWakesConfirmationPulse(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	eventID := int64(10)
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) // == newReconcilerForTest clock
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: uuid.New(), OrgID: 1, State: models.EventStateActive},
+	}
+	// A drifted-then-redispatched target re-entering the active phase in
+	// dispatched: freshly dispatched with not-yet-curtailed telemetry, so the
+	// tick observes it without confirming or aging and leaves it dispatched.
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStateDispatched,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+			LastDispatchedAt:   &now,
+			CurtailPhase: models.TargetPhaseSummary{
+				Phase:        models.TargetPhaseCurtail,
+				State:        models.TargetStateDispatched,
+				DispatchedAt: &now,
+			},
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(3000), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	require.Empty(t, r.confirmationWake, "no wake before the tick")
+	r.runTick(context.Background())
+
+	assert.Len(t, r.confirmationWake, 1,
+		"an active-phase tick that leaves a target dispatched must wake the confirmation pulse")
+}
+
+func TestObserveRestoring_DispatchedWorkWakesConfirmationPulse(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	eventID := int64(30)
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: uuid.New(), OrgID: 1, State: models.EventStateRestoring},
+	}
+	// A freshly dispatched restore target whose telemetry has not yet crossed
+	// the restore threshold, so the tick leaves it dispatched.
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-r",
+			State:              models.TargetStateDispatched,
+			DesiredState:       models.DesiredStateActive,
+			BaselinePowerW:     ptrFloat64(3000),
+			LastDispatchedAt:   &now,
+			RestorePhase: &models.TargetPhaseSummary{
+				Phase:        models.TargetPhaseRestore,
+				State:        models.TargetStateDispatched,
+				DispatchedAt: &now,
+			},
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-r", LatestPowerW: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	require.Empty(t, r.confirmationWake, "no wake before the tick")
+	r.runTick(context.Background())
+
+	assert.Len(t, r.confirmationWake, 1,
+		"a restoring-phase tick that leaves a restore target dispatched must wake the pulse")
+}
+
+func TestRunTick_ClaimedClosedLoopTargetWakesConfirmationPulse(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	eventID := int64(40)
+	store.events = []*models.Event{
+		{
+			ID:              eventID,
+			EventUUID:       uuid.New(),
+			OrgID:           1,
+			State:           models.EventStateActive,
+			Mode:            models.ModeFullFleet,
+			LoopType:        models.LoopTypeClosed,
+			ScopeType:       models.ScopeTypeWholeOrg,
+			CreatedByUserID: 99,
+		},
+	}
+	// No pre-existing targets: the only dispatched work this tick is the
+	// dynamically-claimed miner-new, which is a separate slice the deferred
+	// wakeIfDispatchedWork(targets) never sees. The explicit claimed-work wake
+	// (review #7) is what must fire here.
+	driverName := "antminer"
+	now := time.Now()
+	store.candidates = []*models.Candidate{
+		{
+			DeviceIdentifier: "miner-new",
+			DriverName:       &driverName,
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &now,
+			LatestPowerW:     ptrFloat64(100),
+			LatestHashRateHS: ptrFloat64(100),
+			AvgEfficiencyJH:  ptrFloat64(40),
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	require.Empty(t, r.confirmationWake, "no wake before the tick")
+	r.runTick(context.Background())
+
+	require.Len(t, store.targetsByEventID[eventID], 1, "the closed-loop target was claimed")
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
+	assert.Len(t, r.confirmationWake, 1,
+		"a tick that dispatches only a dynamically-claimed target must wake the pulse (review #7)")
+}
+
 func TestStart_FastPathEnabledRequiresSampler(t *testing.T) {
 	r := New(Config{
 		TickInterval:                time.Hour,
@@ -717,4 +936,125 @@ func TestStart_DisabledFastPathRunsNoPulse(t *testing.T) {
 	assert.Equal(t, 0, store.eligibleCalls(),
 		"disabled fast path must never touch the eligibility read")
 	assert.Equal(t, models.TargetStateDispatched, store.targetState(10, "miner-1"))
+}
+
+// --- tick timeout aging vs. a pulse-confirmed target (review #6) ---
+
+// A dispatch-timeout aging write must not clobber a target the confirmation
+// pulse already confirmed. The tick acts on a stale in-memory snapshot that
+// still says dispatched; the guarded write must race-lose against the durable
+// row the pulse advanced, leaving state and retry budget intact.
+func TestConfirmOneDispatched_TimeoutAgingRaceLosesToPulseConfirmation(t *testing.T) {
+	store := newConfirmationFakeStore()
+	metrics := newRecordingMetrics()
+	// Dispatched an hour ago: well past the 5s curtail dispatch timeout.
+	dispatchedAt := fastPathTestNow.Add(-time.Hour)
+	item := seedDispatchedWork(store, 10, "miner-1", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
+
+	// The pulse already confirmed the target: advance the durable store row
+	// out of dispatched (batch UUID unchanged).
+	store.targetsByEventID[10][0].State = models.TargetStateConfirmed
+
+	r := newFastPathReconcilerForTest(store, newFakeSampler(), metrics)
+
+	// The tick still holds a stale snapshot: dispatched, retry budget spent once.
+	dispatched := dispatchedAt
+	batch := "batch-a"
+	stale := &models.Target{
+		CurtailmentEventID: 10,
+		DeviceIdentifier:   "miner-1",
+		State:              models.TargetStateDispatched,
+		DesiredState:       models.DesiredStateCurtailed,
+		BaselinePowerW:     ptrFloat64(3000),
+		LastDispatchedAt:   &dispatched,
+		RetryCount:         1,
+		CurtailPhase: models.TargetPhaseSummary{
+			Phase:        models.TargetPhaseCurtail,
+			State:        models.TargetStateDispatched,
+			DispatchedAt: &dispatched,
+			BatchUUID:    &batch,
+		},
+	}
+	ev := &models.Event{ID: 10, EventUUID: item.EventUUID, OrgID: 1, State: models.EventStateActive}
+	// Telemetry still shows full power, so the tick enters the timeout-aging branch.
+	cand := &models.Candidate{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(2900), LatestHashRateHS: ptrFloat64(100)}
+
+	r.confirmOneDispatched(context.Background(), ev, stale, cand, models.TargetStateDispatching)
+
+	assert.Equal(t, models.TargetStateConfirmed, store.targetState(10, "miner-1"),
+		"pulse-confirmed target must survive the stale timeout-aging write")
+	assert.Equal(t, models.TargetStateDispatched, stale.State, "stale snapshot must not mutate on race-loss")
+	assert.Equal(t, int32(1), stale.RetryCount, "retry budget must not be burned on race-loss")
+	assert.Equal(t, 1, metrics.EventStateRaceLossCount())
+	assert.Equal(t, 0, metrics.TargetWriteFailureCount(), "a race-loss is not a write failure")
+}
+
+// The restore variant: a pulse-resolved restore target at the retry ceiling
+// must not be reverted to RESTORE_FAILED by the tick's stale timeout aging.
+func TestConfirmOneRestore_TimeoutAgingRaceLosesToPulseResolution(t *testing.T) {
+	store := newConfirmationFakeStore()
+	metrics := newRecordingMetrics()
+	// Dispatched an hour ago: past the 30s restore dispatch timeout.
+	dispatchedAt := fastPathTestNow.Add(-time.Hour)
+	item := seedDispatchedWork(store, 20, "miner-r", models.DesiredStateActive, "batch-r", dispatchedAt)
+
+	// The pulse already resolved it.
+	store.targetsByEventID[20][0].State = models.TargetStateResolved
+
+	r := newFastPathReconcilerForTest(store, newFakeSampler(), metrics)
+
+	// Stale snapshot at the retry ceiling: newRetry hits MaxRetries, so
+	// unguarded aging would terminalize a genuinely-restored miner.
+	dispatched := dispatchedAt
+	batch := "batch-r"
+	stale := &models.Target{
+		CurtailmentEventID: 20,
+		DeviceIdentifier:   "miner-r",
+		State:              models.TargetStateDispatched,
+		DesiredState:       models.DesiredStateActive,
+		BaselinePowerW:     ptrFloat64(3000),
+		LastDispatchedAt:   &dispatched,
+		RetryCount:         r.cfg.MaxRetries - 1,
+		RestorePhase: &models.TargetPhaseSummary{
+			Phase:        models.TargetPhaseRestore,
+			State:        models.TargetStateDispatched,
+			DispatchedAt: &dispatched,
+			BatchUUID:    &batch,
+		},
+	}
+	ev := &models.Event{ID: 20, EventUUID: item.EventUUID, OrgID: 1, State: models.EventStateRestoring}
+	// Still below the restore threshold, so the tick enters timeout aging.
+	cand := &models.Candidate{DeviceIdentifier: "miner-r", LatestPowerW: ptrFloat64(100)}
+
+	r.confirmOneRestore(context.Background(), ev, stale, cand)
+
+	assert.Equal(t, models.TargetStateResolved, store.targetState(20, "miner-r"),
+		"pulse-resolved restore must not be reverted (esp. not to RESTORE_FAILED) by stale timeout aging")
+	assert.Equal(t, models.TargetStateDispatched, stale.State)
+	assert.Equal(t, r.cfg.MaxRetries-1, stale.RetryCount, "retry budget must survive the race-loss")
+	assert.Equal(t, 1, metrics.EventStateRaceLossCount())
+	assert.Equal(t, 0, metrics.TargetWriteFailureCount())
+}
+
+// Positive control: when the target is still dispatched (no pulse race), the
+// dispatched-state guard is transparent and normal timeout aging proceeds.
+func TestConfirmOneDispatched_TimeoutAgingProceedsWhenStillDispatched(t *testing.T) {
+	store := newConfirmationFakeStore()
+	metrics := newRecordingMetrics()
+	dispatchedAt := fastPathTestNow.Add(-time.Hour)
+	item := seedDispatchedWork(store, 10, "miner-1", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
+
+	r := newFastPathReconcilerForTest(store, newFakeSampler(), metrics)
+	// Use the durable row as the tick's snapshot: it is still dispatched, so
+	// the guard matches and the aging write applies.
+	stale := store.targetsByEventID[10][0]
+	ev := &models.Event{ID: 10, EventUUID: item.EventUUID, OrgID: 1, State: models.EventStateActive}
+	cand := &models.Candidate{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(2900), LatestHashRateHS: ptrFloat64(100)}
+
+	r.confirmOneDispatched(context.Background(), ev, stale, cand, models.TargetStateDispatching)
+
+	assert.Equal(t, models.TargetStateDispatching, store.targetState(10, "miner-1"),
+		"a still-dispatched target ages normally through the guarded write")
+	assert.Equal(t, int32(1), store.targetsByEventID[10][0].RetryCount, "normal aging burns one retry")
+	assert.Equal(t, 0, metrics.EventStateRaceLossCount(), "no race when the target is still dispatched")
 }
