@@ -334,7 +334,7 @@ func (s *Service) ImportSiteMapCsv(ctx context.Context, orgID int64, req *pb.Imp
 			Warnings:       plan.warnings,
 		}, nil
 	}
-	if hasOmissions(plan.omissions) && req.GetOmissionMode() == pb.OmissionMode_OMISSION_MODE_UNSPECIFIED {
+	if hasOmissions(plan.omissions) && req.GetOmissionMode() != pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED {
 		return &pb.ImportSiteMapCsvResponse{
 			OmissionChoiceRequired: true,
 			OmissionCounts:         plan.omissions,
@@ -1190,7 +1190,7 @@ func buildPlan(parsed *parsedCSV, snap *snapshot, mode pb.OmissionMode) importPl
 	plan.errors = append(plan.errors, validateBuildingExistingRacksFitLayout(resolved)...)
 	plan.errors = append(plan.errors, validateSlotCollisions(resolved.miners)...)
 	plan.errors = append(plan.errors, validateSlotConflictsWithExisting(resolved)...)
-	if len(plan.errors) > 0 || (mode == pb.OmissionMode_OMISSION_MODE_UNSPECIFIED && hasOmissions(plan.omissions)) {
+	if len(plan.errors) > 0 || (mode != pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED && hasOmissions(plan.omissions)) {
 		return plan
 	}
 
