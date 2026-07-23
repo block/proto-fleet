@@ -341,6 +341,28 @@ func TestSubscriber_ReconcileDoesNotStartWorkersAfterStop(t *testing.T) {
 	assert.Zero(t, connects)
 }
 
+func TestSubscriber_CleanupStopsStatusesForUninstalledWorkers(t *testing.T) {
+	s := newReconcileTestSubscriber(t, newFakeSourceStore(), &clientRegistry{})
+	runCtx, cancel := context.WithCancel(t.Context())
+	activation := &subscriberActivation{
+		runCanceled: runCtx.Done(),
+		cancel:      cancel,
+		done:        make(chan struct{}),
+		sourceIDs:   map[int64]struct{}{1: {}},
+	}
+	s.activation = activation
+	s.statuses[1] = RuntimeStatus{State: RuntimeStateRunning}
+
+	cancel()
+	s.startActivationCleanup(activation)
+	select {
+	case <-activation.done:
+	case <-time.After(time.Second):
+		t.Fatal("subscriber activation did not finish cleanup")
+	}
+	assert.Equal(t, RuntimeStateStopped, s.SourceRuntimeStatus(1).State)
+}
+
 func TestSubscriber_StopTimeoutAllowsRestartAfterWorkersEventuallyDrain(t *testing.T) {
 	src := reconcileTestSource(1, "maestro")
 	store := newFakeSourceStore(src)

@@ -85,6 +85,7 @@ type subscriberActivation struct {
 	runCanceled <-chan struct{}
 	cancel      context.CancelFunc
 	done        chan struct{}
+	sourceIDs   map[int64]struct{}
 	workerWG    sync.WaitGroup
 	cleanupOnce sync.Once
 }
@@ -167,6 +168,7 @@ func (s *Subscriber) Start(ctx context.Context) error {
 		runCanceled: runCtx.Done(),
 		cancel:      cancel,
 		done:        make(chan struct{}),
+		sourceIDs:   make(map[int64]struct{}),
 	}
 	s.activation = activation
 	s.workers = make(map[int64]*sourceWorkerHandle)
@@ -258,7 +260,7 @@ func (s *Subscriber) cleanupActivation(activation *subscriberActivation) {
 
 	s.mu.Lock()
 	if s.activation == activation {
-		for sourceID := range s.workers {
+		for sourceID := range activation.sourceIDs {
 			s.setSourceStatusLocked(sourceID, RuntimeStateStopped, "")
 		}
 		s.workers = make(map[int64]*sourceWorkerHandle)
@@ -386,6 +388,7 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 			continue
 		}
 		s.setSourceStatusLocked(src.ID, RuntimeStateStarting, "")
+		activation.sourceIDs[src.ID] = struct{}{}
 		s.brokerStatuses[src.ID] = make(map[string]brokerRuntimeStatus)
 		s.mu.Unlock()
 
