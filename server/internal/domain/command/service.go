@@ -906,6 +906,9 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		return nil, fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
 
+	if !s.executionService.IsRunning() {
+		return nil, fleeterror.NewInternalError("command execution service stopped before enqueue")
+	}
 	if len(queuePayloads) == 0 {
 		err = s.messageQueue.Enqueue(ctx, batchLogIdentifier, command.commandType, deviceIDs, command.payload)
 		if err != nil {
@@ -1394,6 +1397,9 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 		return "", err
 	}
 
+	if !s.executionService.IsRunning() {
+		return "", fleeterror.NewInternalError("command execution service stopped before enqueue")
+	}
 	if err := s.enqueueWorkerNameReapplyMessages(ctx, commandBatchLogUUID, deviceIdentifiers, deviceIDsByIdentifier, desiredWorkerNamesByDeviceIdentifier); err != nil {
 		return "", err
 	}
