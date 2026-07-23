@@ -66,6 +66,15 @@ func TestNewTelemetryService(t *testing.T) {
 	assert.NotNil(t, service)
 }
 
+func TestTelemetryService_StartRejectsCanceledContext(t *testing.T) {
+	service := &TelemetryService{}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	require.ErrorIs(t, service.Start(ctx), context.Canceled)
+	require.Nil(t, service.runCancel)
+}
+
 func TestTelemetryRunStopsProducerRegistrationBeforeWaiting(t *testing.T) {
 	run := newTelemetryRun(make(chan struct{}), 1)
 	release, registered := run.registerProducer()

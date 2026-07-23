@@ -673,6 +673,10 @@ func (s *TelemetryService) registerActiveProducer() (*telemetryRun, func(), erro
 
 // Start activates background telemetry collection for the lifetime of ctx.
 func (s *TelemetryService) Start(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("start telemetry service: %w", err)
+	}
+
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
 	if s.runCancel != nil {
