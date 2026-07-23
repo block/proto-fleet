@@ -487,6 +487,15 @@ func (s *Service) getMarkFinishedBatchFunction(processingMarkedInDB bool) func(c
 	}
 }
 
+func (s *Service) finishUnenqueuedCommandBatch(ctx context.Context, commandBatchLogUUID string) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+	defer cancel()
+	if err := s.getMarkFinishedBatchFunction(false)(cleanupCtx, commandBatchLogUUID); err != nil {
+		return fleeterror.NewInternalErrorf("command execution stopped before enqueue; failed to finish command batch: %v", err)
+	}
+	return fleeterror.NewInternalError("command execution service stopped before enqueue")
+}
+
 func (s *Service) statusUpdateIsFinishedBranch(ctx context.Context, commandBatchLogUUID string) (bool, error) {
 	isFinished, err := s.messageQueue.IsBatchFinished(ctx, commandBatchLogUUID)
 	if err != nil {
@@ -907,7 +916,7 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 	}
 
 	if !s.executionService.IsRunning() {
-		return nil, fleeterror.NewInternalError("command execution service stopped before enqueue")
+		return nil, s.finishUnenqueuedCommandBatch(ctx, batchLogIdentifier)
 	}
 	if len(queuePayloads) == 0 {
 		err = s.messageQueue.Enqueue(ctx, batchLogIdentifier, command.commandType, deviceIDs, command.payload)
@@ -1398,7 +1407,7 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 	}
 
 	if !s.executionService.IsRunning() {
-		return "", fleeterror.NewInternalError("command execution service stopped before enqueue")
+		return "", s.finishUnenqueuedCommandBatch(ctx, commandBatchLogUUID)
 	}
 	if err := s.enqueueWorkerNameReapplyMessages(ctx, commandBatchLogUUID, deviceIdentifiers, deviceIDsByIdentifier, desiredWorkerNamesByDeviceIdentifier); err != nil {
 		return "", err
