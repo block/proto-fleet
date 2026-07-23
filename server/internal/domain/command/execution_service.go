@@ -120,6 +120,10 @@ func (es *ExecutionService) WithMetricsEmitter(emitter MetricsEmitter) *Executio
 // Start runs command execution for the lifetime of ctx if it is not already
 // active.
 func (es *ExecutionService) Start(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("start command execution service: %w", err)
+	}
+
 	es.lifecycleMu.Lock()
 	if es.runCancel != nil {
 		select {

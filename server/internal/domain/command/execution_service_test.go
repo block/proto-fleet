@@ -40,6 +40,15 @@ type firmwareStatusMiner struct {
 }
 
 func TestExecutionService_Start(t *testing.T) {
+	t.Run("rejects a canceled activation", func(t *testing.T) {
+		svc := &ExecutionService{}
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		require.ErrorIs(t, svc.Start(ctx), context.Canceled)
+		require.False(t, svc.IsRunning())
+	})
+
 	t.Run("is idempotent while running", func(t *testing.T) {
 		// Arrange
 		ctrl := gomock.NewController(t)
