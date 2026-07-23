@@ -287,3 +287,15 @@ func TestListRulesFailsClosedOnRouteReadError(t *testing.T) {
 	_, err := svc.ListRules(context.Background(), 7)
 	require.Error(t, err, "rendering every rule as default while policies are unreadable would mislead operators")
 }
+
+// Pause must still succeed during a route-table outage, but the response must mark routing
+// unknown rather than nil (= DEFAULT), or the client would upsert it over the real policy.
+func TestPauseRuleRouteReadOutageMarksRoutingUnknown(t *testing.T) {
+	svc, routes, _ := routingService(t)
+	routes.listErr = errors.New("db down")
+
+	paused, err := svc.PauseRule(context.Background(), 7, "pfu-mine", "alice")
+	require.NoError(t, err, "pausing a noisy rule must not depend on route-policy reads")
+	assert.True(t, paused.RoutingUnknown)
+	assert.Nil(t, paused.Routing)
+}

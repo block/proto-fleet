@@ -37,13 +37,15 @@ const formatRuleCondition = (rule: Rule): string => {
 };
 
 const formatRuleDelivery = (rule: Rule): string => {
-  switch (rule.routing.mode) {
+  switch (rule.routing?.mode) {
     case "custom":
       return rule.routing.channel_ids.length === 1 ? "1 channel" : `${rule.routing.channel_ids.length} channels`;
     case "none":
       return "In-app only";
-    default:
+    case "default":
       return "All channels";
+    default:
+      return "—";
   }
 };
 

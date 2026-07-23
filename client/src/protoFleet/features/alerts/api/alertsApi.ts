@@ -220,14 +220,17 @@ const ruleConfigToProto = (c: RuleConfig): ProtoRuleConfig => {
   return create(ProtoRuleConfigSchema, { ...base, templateConfig: { case: "offline", value: {} } });
 };
 
-const routingFromProto = (r?: ProtoRuleRouting): RuleRouting => {
+// Absent routing means the server couldn't read it, not default; null lets the caller keep the last-known value.
+const routingFromProto = (r?: ProtoRuleRouting): RuleRouting | null => {
   switch (r?.mode) {
     case ProtoRoutingMode.CUSTOM:
       return { mode: "custom", channel_ids: r.channelIds };
     case ProtoRoutingMode.NONE:
       return { mode: "none", channel_ids: [] };
-    default:
+    case ProtoRoutingMode.DEFAULT:
       return { mode: "default", channel_ids: [] };
+    default:
+      return null;
   }
 };
 

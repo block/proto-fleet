@@ -147,6 +147,8 @@ func (s *Service) attachRoutingBestEffort(ctx context.Context, orgID int64, rule
 	rules := []Rule{*rule}
 	if err := s.attachRouting(ctx, orgID, rules); err != nil {
 		slog.Warn("alerts.rule_routing_decorate", "org_id", orgID, "rule_id", rule.ID, "error", err)
+		// Mark unknown rather than leave nil: nil serializes as DEFAULT, which would let a route-read outage repaint a CUSTOM/NONE rule as "all channels" in the client.
+		rule.RoutingUnknown = true
 		return
 	}
 	*rule = rules[0]

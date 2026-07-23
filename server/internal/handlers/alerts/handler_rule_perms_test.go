@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	alertsv1 "github.com/block/proto-fleet/server/generated/grpc/alerts/v1"
+	"github.com/block/proto-fleet/server/internal/domain/alerts"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
@@ -113,4 +114,14 @@ func TestRuleConfigMappingRejectsMissingTemplate(t *testing.T) {
 	}))
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+// Unknown routing must be unset on the wire — serializing it as DEFAULT would invite the client to overwrite the real policy.
+func TestRuleToProtoOmitsUnknownRouting(t *testing.T) {
+	out := ruleToProto(alerts.Rule{ID: "r", RoutingUnknown: true})
+	assert.Nil(t, out.Routing)
+
+	out = ruleToProto(alerts.Rule{ID: "r"})
+	require.NotNil(t, out.Routing, "a readable rule always carries an explicit mode")
+	assert.Equal(t, alertsv1.RoutingMode_ROUTING_MODE_DEFAULT, out.Routing.Mode)
 }

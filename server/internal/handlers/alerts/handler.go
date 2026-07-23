@@ -464,7 +464,10 @@ func ruleToProto(r alerts.Rule) *alertsv1.Rule {
 	if r.Config != nil {
 		out.Config = ruleConfigToProto(*r.Config)
 	}
-	out.Routing = routingToProto(r.Routing)
+	// Unknown routing stays unset on the wire; a readable rule always carries an explicit mode.
+	if !r.RoutingUnknown {
+		out.Routing = routingToProto(r.Routing)
+	}
 	return out
 }
 

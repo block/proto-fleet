@@ -88,7 +88,8 @@ export interface Rule {
   origin: RuleOrigin;
   // Null for provisioned rules.
   config: RuleConfig | null;
-  routing: RuleRouting;
+  // Null when the server couldn't read routing; keep the last-known value instead of treating it as default.
+  routing: RuleRouting | null;
 }
 
 export type MaintenanceWindowScopeKind = "rule" | "group" | "site" | "device";

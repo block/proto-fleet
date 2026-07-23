@@ -630,6 +630,8 @@ export type Rule = Message<"alerts.v1.Rule"> & {
   config?: RuleConfig | undefined;
 
   /**
+   * Unset means the routing read failed (keep the last-known value); a readable rule always carries an explicit mode.
+   *
    * @generated from field: alerts.v1.RuleRouting routing = 13;
    */
   routing?: RuleRouting | undefined;

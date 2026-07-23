@@ -1651,7 +1651,8 @@ type Rule struct {
 	Enabled         bool                   `protobuf:"varint,10,opt,name=enabled,proto3" json:"enabled,omitempty"`
 	Origin          RuleOrigin             `protobuf:"varint,11,opt,name=origin,proto3,enum=alerts.v1.RuleOrigin" json:"origin,omitempty"`
 	// Populated for USER rules only; round-trips into the edit form.
-	Config        *RuleConfig  `protobuf:"bytes,12,opt,name=config,proto3" json:"config,omitempty"`
+	Config *RuleConfig `protobuf:"bytes,12,opt,name=config,proto3" json:"config,omitempty"`
+	// Unset means the routing read failed (keep the last-known value); a readable rule always carries an explicit mode.
 	Routing       *RuleRouting `protobuf:"bytes,13,opt,name=routing,proto3" json:"routing,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -70,7 +70,13 @@ export function useAlerts(): UseAlertsResult {
 
   const upsertRule = useCallback((updated: Rule) => {
     if (deletedIdsRef.current.has(updated.id)) return;
-    setRules((current) => upsertById(current, updated));
+    setRules((current) => {
+      // Null routing means the server couldn't read it; keep the last-known value so a route-read outage can't repaint a routed rule as default.
+      const next = updated.routing
+        ? updated
+        : { ...updated, routing: current.find((r) => r.id === updated.id)?.routing ?? null };
+      return upsertById(current, next);
+    });
   }, []);
 
   const refresh = useCallback(async () => {

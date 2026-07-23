@@ -229,6 +229,7 @@ message Rule {
     RuleOrigin origin = 11;
     // Populated for USER rules only; round-trips into the edit form.
     RuleConfig config = 12;
+    // Unset means the routing read failed (keep the last-known value); a readable rule always carries an explicit mode.
     RuleRouting routing = 13;
 }
 
