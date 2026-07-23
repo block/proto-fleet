@@ -86,7 +86,7 @@ type executionRun struct {
 
 var _ runtimejobs.Lifecycle = (*ExecutionService)(nil)
 
-var errExecutionNotAccepting = errors.New("command execution service is not accepting work")
+var errExecutionStoppedBeforeEnqueue = errors.New("command execution service stopped before enqueue")
 
 func newExecutionRun(ctx context.Context) *executionRun {
 	admissionCtx, cancelAdmission := context.WithCancel(ctx)
@@ -236,23 +236,29 @@ func (es *ExecutionService) withAdmission(ctx context.Context, fn func(context.C
 	run := es.run
 	if run == nil || !run.accepting || run.admissionCtx.Err() != nil {
 		es.lifecycleMu.Unlock()
-		return errExecutionNotAccepting
+		return errExecutionStoppedBeforeEnqueue
 	}
 	run.wg.Add(1)
 	es.lifecycleMu.Unlock()
 	defer run.wg.Done()
 
-	workCtx, cancel := context.WithCancel(ctx)
-	stopCancel := context.AfterFunc(run.workCtx, cancel)
+	workCtx, cancel := context.WithCancelCause(ctx)
+	stopCancel := context.AfterFunc(run.workCtx, func() {
+		cancel(errExecutionStoppedBeforeEnqueue)
+	})
 	defer func() {
 		stopCancel()
-		cancel()
+		cancel(context.Canceled)
 	}()
 	if run.workCtx.Err() != nil {
-		cancel()
+		cancel(errExecutionStoppedBeforeEnqueue)
 	}
 
-	return fn(workCtx)
+	err := fn(workCtx)
+	if err != nil && errors.Is(context.Cause(workCtx), errExecutionStoppedBeforeEnqueue) {
+		return errExecutionStoppedBeforeEnqueue
+	}
+	return err
 }
 
 func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {

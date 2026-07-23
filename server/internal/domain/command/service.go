@@ -921,7 +921,7 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		}
 		return s.messageQueue.EnqueueMany(workCtx, batchLogIdentifier, command.commandType, queuePayloads)
 	})
-	if errors.Is(err, errExecutionNotAccepting) {
+	if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
 		return nil, s.finishUnenqueuedCommandBatch(ctx, batchLogIdentifier)
 	}
 	if err != nil {
@@ -1410,7 +1410,7 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 	err = s.executionService.withAdmission(ctx, func(workCtx context.Context) error {
 		return s.enqueueWorkerNameReapplyMessages(workCtx, commandBatchLogUUID, deviceIdentifiers, deviceIDsByIdentifier, desiredWorkerNamesByDeviceIdentifier)
 	})
-	if errors.Is(err, errExecutionNotAccepting) {
+	if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
 		return "", s.finishUnenqueuedCommandBatch(ctx, commandBatchLogUUID)
 	}
 	if err != nil {

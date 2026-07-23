@@ -241,7 +241,7 @@ func TestExecutionService_StopWaitsForAdmittedEnqueue(t *testing.T) {
 	require.Eventually(t, func() bool { return !svc.IsRunning() }, 100*time.Millisecond, time.Millisecond)
 	require.ErrorIs(t, svc.withAdmission(t.Context(), func(context.Context) error {
 		return nil
-	}), errExecutionNotAccepting)
+	}), errExecutionStoppedBeforeEnqueue)
 
 	select {
 	case err := <-stopDone:
@@ -252,6 +252,47 @@ func TestExecutionService_StopWaitsForAdmittedEnqueue(t *testing.T) {
 	close(releaseEnqueue)
 	require.NoError(t, <-enqueueDone)
 	require.NoError(t, <-stopDone)
+}
+
+func TestExecutionService_ForceCanceledEnqueueIsClassifiedAsStopped(t *testing.T) {
+	svc := &ExecutionService{}
+	run := newExecutionRun(t.Context())
+	svc.run = run
+
+	enqueueStarted := make(chan struct{})
+	enqueueDone := make(chan error, 1)
+	go func() {
+		enqueueDone <- svc.withAdmission(t.Context(), func(ctx context.Context) error {
+			close(enqueueStarted)
+			<-ctx.Done()
+			return ctx.Err()
+		})
+	}()
+	<-enqueueStarted
+	go svc.finishRun(run)
+
+	stopCtx, cancelStop := context.WithCancel(context.Background())
+	cancelStop()
+	require.ErrorIs(t, svc.Stop(stopCtx), context.Canceled)
+
+	require.ErrorIs(t, <-enqueueDone, errExecutionStoppedBeforeEnqueue)
+	require.NoError(t, svc.Stop(context.Background()))
+}
+
+func TestExecutionService_CallerCanceledEnqueueRemainsCallerCancellation(t *testing.T) {
+	svc := &ExecutionService{}
+	run := newExecutionRun(t.Context())
+	svc.run = run
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	err := svc.withAdmission(ctx, func(ctx context.Context) error {
+		return ctx.Err()
+	})
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.NotErrorIs(t, err, errExecutionStoppedBeforeEnqueue)
 }
 
 func TestExecutionService_DequeueIsLimitedToAvailableWorkers(t *testing.T) {
