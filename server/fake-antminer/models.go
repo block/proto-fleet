@@ -79,24 +79,25 @@ type DeviceInfo struct {
 
 // MinerState holds the state data of the fake miner
 type MinerState struct {
-	mu              sync.RWMutex
-	MinerType       string
-	SerialNumber    string
-	MacAddress      string
-	FirmwareVersion string
-	IPAddress       string
-	Hostname        string
-	NetMask         string
-	Gateway         string
-	DNSServers      string
-	HashRate        float64
-	Temperature     float64
-	Pools           []Pool
-	MinerMode       string
-	BitmainWorkMode string
-	Username        string
-	Password        string
-	IsBlinking      bool
+	mu                     sync.RWMutex
+	MinerType              string
+	SerialNumber           string
+	MacAddress             string
+	FirmwareVersion        string
+	PendingFirmwareVersion string
+	IPAddress              string
+	Hostname               string
+	NetMask                string
+	Gateway                string
+	DNSServers             string
+	HashRate               float64
+	Temperature            float64
+	Pools                  []Pool
+	MinerMode              string
+	BitmainWorkMode        string
+	Username               string
+	Password               string
+	IsBlinking             bool
 	// Error simulation fields
 	ErrorConfig ErrorConfig
 }

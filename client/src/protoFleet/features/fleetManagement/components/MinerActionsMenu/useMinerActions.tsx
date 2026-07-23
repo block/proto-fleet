@@ -1526,9 +1526,7 @@ export const useMinerActions = ({
       await withCapabilityCheck(deviceActions.firmwareUpdate, (filteredSelector, filteredDeviceIds) => {
         const idsToCheck = filteredDeviceIds ?? deviceIdentifiers;
         const { targets, hasMissing } =
-          idsToCheck.length > 0
-            ? getUniqueFirmwareTargets(idsToCheck, miners)
-            : { targets: [], hasMissing: false };
+          idsToCheck.length > 0 ? getUniqueFirmwareTargets(idsToCheck, miners) : { targets: [], hasMissing: false };
 
         if (targets.length === 0) {
           pushToast({
@@ -1541,7 +1539,8 @@ export const useMinerActions = ({
 
         if (hasMissing) {
           pushToast({
-            message: "Some selected miners have an unknown manufacturer or model. Please deselect them before updating firmware.",
+            message:
+              "Some selected miners have an unknown manufacturer or model. Please deselect them before updating firmware.",
             status: TOAST_STATUSES.error,
           });
           onActionComplete?.();

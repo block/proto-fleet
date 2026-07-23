@@ -150,6 +150,71 @@ func TestSaveFirmwareFile_WritesTargetMetadata(t *testing.T) {
 	assert.Empty(t, storageDirEntries(t, firmwareStagingDir))
 }
 
+func TestUpdateFirmwareMetadata_ReplacesMetadataAndChecksumTarget(t *testing.T) {
+	svc := setupService(t)
+	content := "firmware metadata update"
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	updated := FirmwareMetadata{
+		TargetManufacturer: " Bitmain ",
+		TargetModel:        " S19 ",
+		FirmwareVersion:    " v3.0.0 ",
+	}
+	require.NoError(t, svc.UpdateFirmwareMetadata(fileID, updated))
+
+	metadata, err := svc.GetFirmwareMetadata(fileID)
+	require.NoError(t, err)
+	assert.Equal(t, FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	}, metadata)
+
+	_, found := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
+	assert.False(t, found)
+	foundID, found := svc.FindFirmwareFileByChecksum(checksumOf(content), metadata)
+	assert.True(t, found)
+	assert.Equal(t, fileID, foundID)
+
+	entries := storageDirEntries(t, getFirmwareDirPath(fileID))
+	assert.Len(t, entries, 2, "atomic metadata replacement should not leave staging files")
+}
+
+func TestUpdateFirmwareMetadata_AddsMetadataToLegacyPayload(t *testing.T) {
+	tmp := t.TempDir()
+	t.Chdir(tmp)
+
+	const fileID = "11111111-1111-1111-1111-111111111111"
+	dir := getFirmwareDirPath(fileID)
+	require.NoError(t, os.MkdirAll(dir, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "legacy.swu"), []byte("legacy"), 0600))
+
+	svc, err := NewService(Config{})
+	require.NoError(t, err)
+	require.NoError(t, svc.UpdateFirmwareMetadata(fileID, testFirmwareMetadata()))
+
+	metadata, err := svc.GetFirmwareMetadata(fileID)
+	require.NoError(t, err)
+	assert.Equal(t, testFirmwareMetadata(), metadata)
+	foundID, found := svc.FindFirmwareFileByChecksum(checksumOf("legacy"), testFirmwareMetadata())
+	assert.True(t, found)
+	assert.Equal(t, fileID, foundID)
+}
+
+func TestUpdateFirmwareMetadata_RejectsIncompleteMetadataWithoutChangingSidecar(t *testing.T) {
+	svc := setupService(t)
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	err = svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{TargetManufacturer: "Proto"})
+	require.Error(t, err)
+
+	metadata, readErr := svc.GetFirmwareMetadata(fileID)
+	require.NoError(t, readErr)
+	assert.Equal(t, testFirmwareMetadata(), metadata)
+}
+
 func TestSaveFirmwareFile_RejectsMissingTargetMetadata(t *testing.T) {
 	svc := setupService(t)
 

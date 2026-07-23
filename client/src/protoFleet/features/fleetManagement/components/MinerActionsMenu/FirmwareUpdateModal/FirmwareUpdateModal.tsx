@@ -140,11 +140,12 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
   }, [onDismiss, reset]);
 
   const isProcessing = uploadState === "hashing" || uploadState === "checking" || uploadState === "uploading";
-  const missingTarget =
-    !!open && (effectiveTargetManufacturer.trim() === "" || effectiveTargetModel.trim() === "");
+  const missingTarget = !!open && (effectiveTargetManufacturer.trim() === "" || effectiveTargetModel.trim() === "");
   const configLoading = uploadState !== "error" && !serverConfig;
   const hasExistingFiles = visibleExistingFiles.length > 0;
   const showLoadingSpinner = !missingTarget && configLoading && !hasExistingFiles;
+  const showUploadFields = !missingTarget && serverConfig && (!hasExistingFiles || showUploadZone);
+  const uploadMetadataLocked = uploadState !== "idle";
 
   const buttons = isReady ? [{ text: "Continue", variant: variants.primary, onClick: handleConfirm }] : undefined;
 
@@ -224,7 +225,7 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
 
         {uploadState === "error" && errorMessage ? <FileErrorStatus message={errorMessage} onRetry={retry} /> : null}
 
-        {!missingTarget && uploadState === "idle" && serverConfig && (!hasExistingFiles || showUploadZone) ? (
+        {showUploadFields ? (
           <>
             <div className="grid gap-4 tablet:grid-cols-2">
               <Input
@@ -247,13 +248,16 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
               label="Firmware version"
               initValue={firmwareVersion}
               onChange={setFirmwareVersion}
+              disabled={uploadMetadataLocked}
               required
             />
-            <FileDropZone
-              extensions={serverConfig.allowedExtensions}
-              onFileSelect={handleUploadFileSelect}
-              disabled={!hasUploadTarget}
-            />
+            {uploadState === "idle" ? (
+              <FileDropZone
+                extensions={serverConfig.allowedExtensions}
+                onFileSelect={handleUploadFileSelect}
+                disabled={!hasUploadTarget}
+              />
+            ) : null}
           </>
         ) : null}
 

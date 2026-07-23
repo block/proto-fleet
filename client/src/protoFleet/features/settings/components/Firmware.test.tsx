@@ -5,13 +5,29 @@ import Firmware from "./Firmware";
 const mockListFirmwareFiles = vi.fn();
 const mockDeleteFirmwareFile = vi.fn();
 const mockDeleteAllFirmwareFiles = vi.fn();
+const mockUpdateFirmwareMetadata = vi.fn();
 
 vi.mock("@/protoFleet/api/useFirmwareApi", () => ({
   useFirmwareApi: () => ({
     listFirmwareFiles: mockListFirmwareFiles,
+    updateFirmwareMetadata: mockUpdateFirmwareMetadata,
     deleteFirmwareFile: mockDeleteFirmwareFile,
     deleteAllFirmwareFiles: mockDeleteAllFirmwareFiles,
   }),
+}));
+
+vi.mock("@/protoFleet/features/settings/components/EditFirmwareMetadataDialog", () => ({
+  default: ({ open, file, onConfirm }: any) =>
+    open ? (
+      <div data-testid="edit-firmware-metadata-dialog">
+        <span>{file.filename}</span>
+        <button
+          onClick={() => onConfirm({ targetManufacturer: "Proto", targetModel: "Rig", firmwareVersion: "2.0.0" })}
+        >
+          Save changes
+        </button>
+      </div>
+    ) : null,
 }));
 
 vi.mock("@/shared/features/toaster");
@@ -20,6 +36,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockListFirmwareFiles.mockResolvedValue([]);
   mockDeleteFirmwareFile.mockResolvedValue(undefined);
+  mockUpdateFirmwareMetadata.mockResolvedValue(undefined);
   mockDeleteAllFirmwareFiles.mockResolvedValue({ deleted_count: 0 });
 });
 
@@ -81,6 +98,70 @@ describe("Firmware", () => {
     });
   });
 
+  it("expands and collapses a truncated filename", async () => {
+    const filename = "proto-rig-firmware-with-a-very-long-release-name-2.0.0.swu";
+    mockListFirmwareFiles.mockResolvedValue([{ ...sampleFiles[0], filename }]);
+    const scrollWidthSpy = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(500);
+    const clientWidthSpy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(200);
+
+    render(<Firmware />);
+
+    const expandButton = await screen.findByRole("button", { name: `Show full file name: ${filename}` });
+    expect(expandButton).toHaveAttribute("aria-expanded", "false");
+    expect(within(expandButton).getByText(filename)).toHaveClass("truncate");
+
+    fireEvent.click(expandButton);
+
+    const collapseButton = screen.getByRole("button", { name: `Hide full file name: ${filename}` });
+    expect(collapseButton).toHaveAttribute("aria-expanded", "true");
+    expect(within(collapseButton).getByText(filename)).not.toHaveClass("truncate");
+
+    fireEvent.click(collapseButton);
+
+    expect(screen.getByRole("button", { name: `Show full file name: ${filename}` })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    scrollWidthSpy.mockRestore();
+    clientWidthSpy.mockRestore();
+  });
+
+  it("does not show an expand control when the full filename fits", async () => {
+    const filename = "firmware-2.0.0.swu";
+    mockListFirmwareFiles.mockResolvedValue([{ ...sampleFiles[0], filename }]);
+    const scrollWidthSpy = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockReturnValue(150);
+    const clientWidthSpy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(384);
+
+    render(<Firmware />);
+
+    expect(await screen.findByText(filename, { selector: "span:not([aria-hidden])" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: `Show full file name: ${filename}` })).not.toBeInTheDocument();
+
+    scrollWidthSpy.mockRestore();
+    clientWidthSpy.mockRestore();
+  });
+
+  it("updates metadata from the row action", async () => {
+    mockListFirmwareFiles.mockResolvedValue(sampleFiles);
+    render(<Firmware />);
+
+    await screen.findByText("alpha.swu");
+    fireEvent.click(screen.getAllByTestId("list-actions-trigger")[0]);
+    fireEvent.click(await screen.findByText("Edit metadata"));
+    expect(screen.getByTestId("edit-firmware-metadata-dialog")).toHaveTextContent("alpha.swu");
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Save changes"));
+    });
+
+    expect(mockUpdateFirmwareMetadata).toHaveBeenCalledWith("f1", {
+      targetManufacturer: "Proto",
+      targetModel: "Rig",
+      firmwareVersion: "2.0.0",
+    });
+  });
+
   it("renders legacy firmware targets as unknown", async () => {
     mockListFirmwareFiles.mockResolvedValue([
       {
@@ -128,6 +209,7 @@ describe("Firmware", () => {
       expect(getByText("alpha.swu")).toBeInTheDocument();
     });
 
+    fireEvent.click(screen.getAllByTestId("list-actions-trigger")[0]);
     const deleteButtons = getAllByText("Delete");
     fireEvent.click(deleteButtons[0]);
 
@@ -146,6 +228,7 @@ describe("Firmware", () => {
       expect(getByText("alpha.swu")).toBeInTheDocument();
     });
 
+    fireEvent.click(screen.getAllByTestId("list-actions-trigger")[0]);
     const deleteButtons = getAllByText("Delete");
     fireEvent.click(deleteButtons[0]);
 
@@ -175,6 +258,7 @@ describe("Firmware", () => {
 
     mockListFirmwareFiles.mockClear();
 
+    fireEvent.click(screen.getAllByTestId("list-actions-trigger")[0]);
     const deleteButtons = getAllByText("Delete");
     fireEvent.click(deleteButtons[0]);
 

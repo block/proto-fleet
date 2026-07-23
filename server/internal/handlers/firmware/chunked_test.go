@@ -1,6 +1,7 @@
 package firmware
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,7 +14,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
+	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
+	activityModels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	storeMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
 
@@ -70,7 +75,18 @@ func TestChunkedUpload_FullLifecycle(t *testing.T) {
 
 	initHandler := &initiateHandler{mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc, userStore: env.userStoreMock}
 	chunkH := &chunkHandler{mgr: mgr, sessionService: env.sessionSvc, userStore: env.userStoreMock}
-	completeH := &completeHandler{mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc, userStore: env.userStoreMock}
+	activityStore := storeMocks.NewMockActivityStore(env.ctrl)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activityModels.Event) error {
+			assert.Equal(t, firmwareUploadedEventType, event.Type)
+			assert.Equal(t, "firmware.swu", event.Metadata["filename"])
+			return nil
+		},
+	)
+	completeH := &completeHandler{
+		mgr: mgr, filesService: env.fileSvc, sessionService: env.sessionSvc,
+		userStore: env.userStoreMock, activitySvc: activityDomain.NewService(activityStore),
+	}
 
 	content := "abcdefghij" // 10 bytes, 2 chunks of 5
 

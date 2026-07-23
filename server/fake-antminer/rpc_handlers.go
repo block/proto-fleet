@@ -98,6 +98,10 @@ func generateVersionResponse(state *MinerState) VersionResponse {
 	defer state.mu.RUnlock()
 
 	now := time.Now().Unix()
+	firmwareVersion := state.FirmwareVersion
+	if firmwareVersion == "" {
+		firmwareVersion = "2.0.0"
+	}
 	return VersionResponse{
 		RPCResponse: RPCResponse{
 			Status: []StatusInfo{
@@ -111,7 +115,7 @@ func generateVersionResponse(state *MinerState) VersionResponse {
 		},
 		Version: []VersionInfo{
 			{
-				BMMiner:     "2.0.0",
+				BMMiner:     firmwareVersion,
 				API:         "3.1",
 				Miner:       state.MinerType,
 				CompileTime: "2023-05-01",

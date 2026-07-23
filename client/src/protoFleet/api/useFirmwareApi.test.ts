@@ -499,6 +499,70 @@ describe("useFirmwareApi", () => {
     });
   });
 
+  describe("updateFirmwareMetadata", () => {
+    it("sends trimmed metadata in a PATCH request", async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+      vi.stubGlobal("fetch", mockFetch);
+
+      const { result } = renderHook(() => useFirmwareApi());
+      await result.current.updateFirmwareMetadata("file 123", {
+        targetManufacturer: " Proto ",
+        targetModel: " Rig ",
+        firmwareVersion: " 2.0.0 ",
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api-proxy/api/v1/firmware/files/file%20123",
+        expect.objectContaining({
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            target_manufacturer: "Proto",
+            target_model: "Rig",
+            firmware_version: "2.0.0",
+          }),
+        }),
+      );
+    });
+
+    it("rejects incomplete metadata before sending a request", async () => {
+      const mockFetch = vi.fn();
+      vi.stubGlobal("fetch", mockFetch);
+      const { result } = renderHook(() => useFirmwareApi());
+
+      await expect(
+        result.current.updateFirmwareMetadata("file-123", {
+          targetManufacturer: "Proto",
+          targetModel: "",
+          firmwareVersion: "2.0.0",
+        }),
+      ).rejects.toThrow("Manufacturer, model, and firmware version are required");
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("returns the server error when metadata cannot be updated", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 404,
+          statusText: "Not Found",
+          json: () => Promise.resolve({ error: "firmware file not found" }),
+        }),
+      );
+      const { result } = renderHook(() => useFirmwareApi());
+
+      await expect(
+        result.current.updateFirmwareMetadata("missing", {
+          targetManufacturer: "Proto",
+          targetModel: "Rig",
+          firmwareVersion: "2.0.0",
+        }),
+      ).rejects.toThrow("firmware file not found");
+    });
+  });
+
   describe("deleteAllFirmwareFiles", () => {
     it("sends DELETE and returns deleted count", async () => {
       const mockFetch = vi.fn().mockResolvedValue({
