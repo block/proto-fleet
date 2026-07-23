@@ -13,8 +13,10 @@ import (
 	gomock "go.uber.org/mock/gomock"
 
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minerInterfaces "github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	minerMocks "github.com/block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
+	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	storesMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	mock "github.com/block/proto-fleet/server/internal/domain/telemetry/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
@@ -546,6 +548,108 @@ func TestSampleDeviceMetrics_RaceWithScheduledAndRefresh(t *testing.T) {
 		}
 	}()
 	wg.Wait()
+
+	requireEventuallyReleased(t, h.service, deviceID)
+}
+
+// A sample completed by RefreshDevice's real claim/fetch/publish path is
+// retained and reused by a later SampleDeviceMetrics call, exactly as the
+// package doc promises. This drives the full path end-to-end: RefreshDevice
+// -> claimDeviceForRefresh -> processDevice -> GetTelemetryFromDevice ->
+// publishFlightSample -> retainSample, then SampleDeviceMetrics reuses the
+// retained sample instead of issuing a second device read.
+func TestSampleDeviceMetrics_ReusesSampleRetainedByRefreshDevice(t *testing.T) {
+	h := newSamplingHarness(t, samplingTestConfig())
+	deviceID := models.DeviceIdentifier("refresh-retained-device")
+	metrics := sampleMetricsFixture(deviceID, 3200)
+
+	// RefreshDevice's full path: one miner resolution plus fetch for
+	// telemetry, and one more miner resolution for error polling.
+	h.minerGetter.EXPECT().GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).Return(h.miner, nil).Times(2)
+	h.miner.EXPECT().GetDeviceMetrics(gomock.Any()).Return(metrics, nil).Times(1)
+	h.scheduler.EXPECT().AddDevices(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+	h.errorPoller.EXPECT().PollErrors(gomock.Any(), h.miner).Return(diagnostics.PollResult{}).Times(1)
+	h.deviceStore.EXPECT().
+		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), []models.DeviceIdentifier{deviceID}).
+		Return(map[models.DeviceIdentifier]mm.MinerStatus{}, nil).
+		Times(1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go h.service.statusWriterRoutine(ctx)
+	go h.service.metricsWriterRoutine(ctx)
+
+	h.dataStore.EXPECT().StoreDeviceMetrics(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+	h.deviceStore.EXPECT().
+		UpsertDeviceStatuses(gomock.Any(), gomock.Any()).
+		Return(nil).
+		Times(1)
+
+	bound := time.Now()
+	require.NoError(t, h.service.RefreshDevice(ctx, models.Device{ID: deviceID}))
+	requireEventuallyReleased(t, h.service, deviceID)
+
+	// The refresh's flight started after bound, so the retained sample must
+	// satisfy a SampleDeviceMetrics request bounded by it, without a second
+	// device call (enforced by the GetDeviceMetrics Times(1) expectation above).
+	results := h.service.SampleDeviceMetrics(t.Context(), []SampleRequest{{DeviceID: deviceID, SampledAfter: bound}})
+	require.Len(t, results, 1)
+	require.NoError(t, results[0].Err)
+	assert.Equal(t, SampleSourceReused, results[0].Source)
+	assert.Equal(t, metrics, results[0].Metrics)
+	assert.True(t, results[0].FlightStart.After(bound))
+}
+
+// The joined-flight error path (an in-flight scheduled poll whose fetch
+// fails) must surface the fetch error to the joiner, not a false-success
+// zero-value sample. This is a variant of
+// TestSampleDeviceMetrics_JoinsScheduledPollBeforeSideEffects where the
+// scheduled poll's GetDeviceMetrics fails instead of succeeding.
+func TestSampleDeviceMetrics_JoinsScheduledPollErrorBeforeSideEffects(t *testing.T) {
+	h := newSamplingHarness(t, samplingTestConfig())
+	h.startWorkers(t, 1)
+	deviceID := models.DeviceIdentifier("join-error-device")
+	device := models.Device{ID: deviceID}
+	fetchErr := errors.New("miner unreachable")
+	// Subsequent miner resolutions (status fallback, error polling) fail with
+	// a connection error so the flight completes without needing to mock the
+	// full status-fetch/error-poll side-effect chain; that chain is exercised
+	// by TestSampleDeviceMetrics_JoinsScheduledPollBeforeSideEffects already.
+	connErr := fleeterror.NewConnectionError(string(deviceID), errors.New("connection refused"))
+
+	fetchStarted := make(chan struct{})
+	releaseFetch := make(chan struct{})
+	gomock.InOrder(
+		h.minerGetter.EXPECT().GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).Return(h.miner, nil),
+		h.minerGetter.EXPECT().GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).Return(nil, connErr),
+		h.minerGetter.EXPECT().GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).Return(nil, connErr),
+	)
+	h.miner.EXPECT().GetDeviceMetrics(gomock.Any()).DoAndReturn(func(context.Context) (modelsV2.DeviceMetrics, error) {
+		close(fetchStarted)
+		<-releaseFetch
+		return modelsV2.DeviceMetrics{}, fetchErr
+	}).Times(1)
+	h.deviceStore.EXPECT().GetDeviceOrgDriverAndSite(gomock.Any(), deviceID).Return(int64(0), "", int64(0), nil).Times(1)
+	h.scheduler.EXPECT().AddDevices(gomock.Any(), gomock.Any()).Return(nil).Times(1)
+
+	h.service.tasks <- device // scheduled full poll claims the flight
+	<-fetchStarted
+
+	joinDone := make(chan SampleResult, 1)
+	go func() {
+		res := h.service.SampleDeviceMetrics(context.Background(), []SampleRequest{{DeviceID: deviceID}})
+		joinDone <- res[0]
+	}()
+	time.Sleep(20 * time.Millisecond) // let the sampler park on the in-flight poll
+	close(releaseFetch)
+
+	// The joiner must see the fetch error immediately, not a zero-value
+	// "success" sample.
+	result := <-joinDone
+	require.Error(t, result.Err)
+	assert.ErrorIs(t, result.Err, fetchErr)
+	assert.Equal(t, SampleSourceJoined, result.Source)
+	assert.Equal(t, modelsV2.DeviceMetrics{}, result.Metrics)
 
 	requireEventuallyReleased(t, h.service, deviceID)
 }
