@@ -922,10 +922,13 @@ func readFirmwareMetadata(dir string) (FirmwareMetadata, error) {
 func syncFirmwareDirectory(dir string) error {
 	file, err := os.Open(dir)
 	if err != nil {
-		return err
+		return fmt.Errorf("open firmware directory %s: %w", dir, err)
 	}
 	defer file.Close()
-	return file.Sync()
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("sync firmware directory %s: %w", dir, err)
+	}
+	return nil
 }
 
 // findSingleFirmwarePayloadInDir returns the path to the single non-directory
