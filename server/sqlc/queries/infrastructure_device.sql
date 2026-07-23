@@ -95,10 +95,10 @@ ORDER BY d.name, d.id;
 -- operations lock rack rows before cascading to infrastructure devices, so
 -- callers must invoke this before locking an infrastructure-device row.
 SELECT ds.id
-FROM device_set ds
-JOIN device_set_rack dsr
-  ON dsr.device_set_id = ds.id
- AND dsr.org_id = ds.org_id
+FROM device_set_rack dsr
+JOIN device_set ds
+  ON ds.id = dsr.device_set_id
+ AND ds.org_id = dsr.org_id
 JOIN building b
   ON b.id = dsr.building_id
  AND b.org_id = ds.org_id
@@ -110,7 +110,7 @@ WHERE ds.org_id = sqlc.arg('org_id')
   AND dsr.site_id = sqlc.arg('site_id')
   AND b.site_id = sqlc.arg('site_id')
   AND b.name = sqlc.arg('building_name')
-FOR UPDATE OF ds, dsr;
+FOR UPDATE OF dsr, ds;
 
 -- name: UpdateInfrastructureDevice :execrows
 -- expected_site_id and expected_rack_name predicate the write on the

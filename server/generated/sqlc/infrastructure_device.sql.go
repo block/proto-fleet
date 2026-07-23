@@ -374,10 +374,10 @@ func (q *Queries) LockInfrastructureDevicesForResponseProfile(ctx context.Contex
 
 const lockInfrastructureRackForPlacement = `-- name: LockInfrastructureRackForPlacement :one
 SELECT ds.id
-FROM device_set ds
-JOIN device_set_rack dsr
-  ON dsr.device_set_id = ds.id
- AND dsr.org_id = ds.org_id
+FROM device_set_rack dsr
+JOIN device_set ds
+  ON ds.id = dsr.device_set_id
+ AND ds.org_id = dsr.org_id
 JOIN building b
   ON b.id = dsr.building_id
  AND b.org_id = ds.org_id
@@ -389,7 +389,7 @@ WHERE ds.org_id = $1
   AND dsr.site_id = $3
   AND b.site_id = $3
   AND b.name = $4
-FOR UPDATE OF ds, dsr
+FOR UPDATE OF dsr, ds
 `
 
 type LockInfrastructureRackForPlacementParams struct {
