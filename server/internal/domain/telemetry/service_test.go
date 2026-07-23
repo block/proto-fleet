@@ -610,7 +610,8 @@ func TestTelemetryService_StopDrainsInFlightRefreshBeforeRestart(t *testing.T) {
 
 	close(releaseRefresh)
 	select {
-	case <-refreshDone:
+	case err := <-refreshDone:
+		require.NoError(t, err)
 	case <-time.After(time.Second):
 		t.Fatal("request refresh did not exit")
 	}

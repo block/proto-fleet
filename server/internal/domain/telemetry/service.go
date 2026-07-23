@@ -498,8 +498,8 @@ func (s *TelemetryService) RefreshDevice(ctx context.Context, device models.Devi
 		processErr = s.processDeviceWithResults(operationCtx, device, run.results)
 	}
 
-	flushErr := s.flushStatusForRun(operationCtx, &device.ID, run)
-	metricsFlushErr := s.flushMetricsForRun(operationCtx, &device.ID, run)
+	flushErr := s.requestStatusFlush(operationCtx, &device.ID, run, nil)
+	metricsFlushErr := s.requestMetricsFlush(operationCtx, &device.ID, run, nil)
 	return errors.Join(processErr, flushErr, metricsFlushErr)
 }
 
@@ -556,10 +556,10 @@ func (s *TelemetryService) flushStatus(ctx context.Context, deviceID *models.Dev
 	if err != nil {
 		return err
 	}
-	return s.flushStatusForRun(ctx, deviceID, run)
+	return s.requestStatusFlush(ctx, deviceID, run, run.done)
 }
 
-func (s *TelemetryService) flushStatusForRun(ctx context.Context, deviceID *models.DeviceIdentifier, run *telemetryRun) error {
+func (s *TelemetryService) requestStatusFlush(ctx context.Context, deviceID *models.DeviceIdentifier, run *telemetryRun, inactive <-chan struct{}) error {
 	req := statusFlushRequest{
 		deviceID: deviceID,
 		done:     make(chan error, 1),
@@ -567,7 +567,7 @@ func (s *TelemetryService) flushStatusForRun(ctx context.Context, deviceID *mode
 
 	select {
 	case run.statusFlushRequests <- req:
-	case <-run.done:
+	case <-inactive:
 		return errTelemetryServiceInactive
 	case <-ctx.Done():
 		return fmt.Errorf("context cancelled before status flush request was queued: %w", ctx.Err())
@@ -576,7 +576,7 @@ func (s *TelemetryService) flushStatusForRun(ctx context.Context, deviceID *mode
 	select {
 	case err := <-req.done:
 		return err
-	case <-run.done:
+	case <-inactive:
 		return errTelemetryServiceInactive
 	case <-ctx.Done():
 		return fmt.Errorf("context cancelled waiting for status flush: %w", ctx.Err())
@@ -599,10 +599,10 @@ func (s *TelemetryService) flushMetrics(ctx context.Context, deviceID *models.De
 	if err != nil {
 		return err
 	}
-	return s.flushMetricsForRun(ctx, deviceID, run)
+	return s.requestMetricsFlush(ctx, deviceID, run, run.done)
 }
 
-func (s *TelemetryService) flushMetricsForRun(ctx context.Context, deviceID *models.DeviceIdentifier, run *telemetryRun) error {
+func (s *TelemetryService) requestMetricsFlush(ctx context.Context, deviceID *models.DeviceIdentifier, run *telemetryRun, inactive <-chan struct{}) error {
 	req := metricsFlushRequest{
 		deviceID: deviceID,
 		done:     make(chan error, 1),
@@ -610,7 +610,7 @@ func (s *TelemetryService) flushMetricsForRun(ctx context.Context, deviceID *mod
 
 	select {
 	case run.metricsFlushRequests <- req:
-	case <-run.done:
+	case <-inactive:
 		return errTelemetryServiceInactive
 	case <-ctx.Done():
 		return fmt.Errorf("context cancelled before metrics flush request was queued: %w", ctx.Err())
@@ -619,7 +619,7 @@ func (s *TelemetryService) flushMetricsForRun(ctx context.Context, deviceID *mod
 	select {
 	case err := <-req.done:
 		return err
-	case <-run.done:
+	case <-inactive:
 		return errTelemetryServiceInactive
 	case <-ctx.Done():
 		return fmt.Errorf("context cancelled waiting for metrics flush: %w", ctx.Err())
