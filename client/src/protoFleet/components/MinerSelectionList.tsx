@@ -120,7 +120,8 @@ export interface MinerSelectionListProps {
   eligibility?: MinerEligibility;
   // Label of the target rack, shown in the assignment-conflict dialog.
   targetRackLabel?: string;
-  // Pairing statuses the list fetches; defaults to PAIRED-only. Rack flows pass the wider visible set so non-paired members render.
+  // Pairing statuses the list fetches; defaults to PAIRED-only. Rack flows pass
+  // the wider visible set so non-paired members render.
   pairingStatuses?: PairingStatus[];
   onSelectionChange?: (state: {
     selectedItems: string[];
