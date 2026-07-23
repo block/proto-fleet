@@ -16,6 +16,7 @@ export interface InfraDeviceItem {
   siteId: string;
   siteName: string;
   buildingName: string;
+  rackName: string;
   name: string;
   deviceKind: InfraDeviceKindWire;
   fanCount: number;
@@ -29,6 +30,10 @@ export interface InfraBuildingOption {
   buildingName: string;
 }
 
+export interface InfraRackOption extends InfraBuildingOption {
+  rackName: string;
+}
+
 // Create payload produced by the add modal. The site is carried by name
 // (the form works with catalog names); the page translates it to a site
 // ID before calling the API.
@@ -36,6 +41,7 @@ export interface InfraDeviceDraft {
   name: string;
   siteName: string;
   buildingName: string;
+  rackName: string;
   deviceKind: InfraDeviceKind;
   fanCount: number;
   driverType: string;
@@ -56,6 +62,7 @@ export interface InfraDevicePatch {
   name?: string;
   siteName?: string;
   buildingName?: string;
+  rackName?: string;
   enabled?: boolean;
   driverConfig?: string;
 }

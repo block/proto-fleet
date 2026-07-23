@@ -54,6 +54,7 @@ function apiDevice(overrides: Partial<InfrastructureDevice> = {}): Infrastructur
     siteId: 8n,
     siteLabel: "Austin",
     buildingName: "Building 1",
+    rackName: "Rack A1",
     name: "Roof exhaust",
     deviceKind: "fan_group",
     fanCount: 12,
@@ -88,6 +89,7 @@ describe("useInfrastructureDevices", () => {
         siteId: "8",
         siteName: "Austin",
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Roof exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -262,6 +264,7 @@ describe("useInfrastructureDevices", () => {
       created = await result.current.createDevice({
         siteId: "9",
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Roof exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -339,6 +342,7 @@ describe("useInfrastructureDevices", () => {
       createPromise = result.current.createDevice({
         siteId: "8",
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Roof exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -368,6 +372,7 @@ describe("useInfrastructureDevices", () => {
       await result.current.createDevice({
         siteId: "8",
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Roof exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -402,6 +407,7 @@ describe("useInfrastructureDevices", () => {
       await result.current.createDevice({
         siteId: "8",
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Roof exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -414,6 +420,7 @@ describe("useInfrastructureDevices", () => {
       expect.objectContaining({
         siteId: 8n,
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Roof exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -454,7 +461,8 @@ describe("useInfrastructureDevices", () => {
     });
 
     expect(mockGetInfrastructureDevice).toHaveBeenCalledWith(expect.objectContaining({ id: 101n }));
-    expect(mockUpdateInfrastructureDevice).toHaveBeenCalledWith(
+    const updateRequest = mockUpdateInfrastructureDevice.mock.calls[0][0];
+    expect(updateRequest).toEqual(
       expect.objectContaining({
         id: 101n,
         siteId: 8n,
@@ -466,6 +474,7 @@ describe("useInfrastructureDevices", () => {
         driverConfig: freshConfig,
       }),
     );
+    expect(updateRequest.rackName).toBeUndefined();
     expect(result.current.devices).toHaveLength(1);
     expect(result.current.devices[0].name).toBe("Renamed exhaust");
   });
@@ -539,7 +548,8 @@ describe("useInfrastructureDevices", () => {
     });
 
     expect(mockGetInfrastructureDevice).toHaveBeenCalledWith(expect.objectContaining({ id: 101n }));
-    expect(mockUpdateInfrastructureDevice).toHaveBeenCalledWith(
+    const updateRequest = mockUpdateInfrastructureDevice.mock.calls[0][0];
+    expect(updateRequest).toEqual(
       expect.objectContaining({
         id: 101n,
         siteId: 8n,
@@ -552,6 +562,7 @@ describe("useInfrastructureDevices", () => {
         driverConfig: freshConfig,
       }),
     );
+    expect(updateRequest.rackName).toBeUndefined();
     expect(result.current.devices[0].enabled).toBe(false);
   });
 
@@ -683,6 +694,7 @@ describe("useInfrastructureDevices", () => {
         result.current.createDevice({
           siteId: "8",
           buildingName: "Building 1",
+          rackName: "Rack A1",
           name: "Roof exhaust",
           deviceKind: "fan_group",
           fanCount: 12,

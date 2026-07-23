@@ -1118,6 +1118,12 @@ type Querier interface {
 	// Locks the exact live fan rows selected by a response profile so concurrent
 	// moves/deletes cannot invalidate validation before the profile write commits.
 	LockInfrastructureDevicesForResponseProfile(ctx context.Context, arg LockInfrastructureDevicesForResponseProfileParams) ([]LockInfrastructureDevicesForResponseProfileRow, error)
+	// Validate and lock the live rack catalog entry before persisting its
+	// denormalized label on an infrastructure device. Locking both catalog rows
+	// serializes this write with rack rename/delete and placement changes; those
+	// operations lock rack rows before cascading to infrastructure devices, so
+	// callers must invoke this before locking an infrastructure-device row.
+	LockInfrastructureRackForPlacement(ctx context.Context, arg LockInfrastructureRackForPlacementParams) (int64, error)
 	// Locks device_set + rack rows FOR UPDATE and returns current placement.
 	// Must run after the site/building locks (canonical lock order).
 	LockRackPlacementForWrite(ctx context.Context, arg LockRackPlacementForWriteParams) (LockRackPlacementForWriteRow, error)
@@ -1484,13 +1490,13 @@ type Querier interface {
 	UpdateDeviceWorkerNamePoolSyncStatusByID(ctx context.Context, arg UpdateDeviceWorkerNamePoolSyncStatusByIDParams) error
 	UpdateDiscoveredDeviceFirmwareVersion(ctx context.Context, arg UpdateDiscoveredDeviceFirmwareVersionParams) error
 	UpdateFleetNodeLastSeenAt(ctx context.Context, arg UpdateFleetNodeLastSeenAtParams) (int64, error)
-	// expected_site_id predicates the write on the site the caller was
-	// authorized against, so a concurrent site move between the
-	// authorization read and this write invalidates the mutation (0 rows)
-	// instead of silently editing a device in a site the caller may not
-	// manage. enabled is nullable: NULL preserves the row's current value
-	// atomically in the UPDATE itself, so a request that omitted the
-	// field can't write back a stale value read before the transaction.
+	// expected_site_id and expected_rack_name predicate the write on the
+	// placement the caller was authorized against, so a concurrent placement
+	// change between the authorization read and this write invalidates the
+	// mutation (0 rows). expected_rack_name NULL is reserved for trusted domain
+	// callers that did not perform a handler authorization read. enabled and
+	// rack_name are nullable inputs: NULL preserves the row's current value
+	// atomically in the UPDATE itself.
 	UpdateInfrastructureDevice(ctx context.Context, arg UpdateInfrastructureDeviceParams) (int64, error)
 	UpdateLastLogin(ctx context.Context, id int64) error
 	UpdateMQTTSourceConfig(ctx context.Context, arg UpdateMQTTSourceConfigParams) (CurtailmentMqttSourceConfig, error)

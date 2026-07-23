@@ -4092,6 +4092,18 @@ func (q *retryingQuerier) LockInfrastructureDevicesForResponseProfile(ctx contex
 	return result, err
 }
 
+func (q *retryingQuerier) LockInfrastructureRackForPlacement(ctx context.Context, arg LockInfrastructureRackForPlacementParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockInfrastructureRackForPlacement", func() error {
+		callResult, callErr := q.next.LockInfrastructureRackForPlacement(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockRackPlacementForWrite(ctx context.Context, arg LockRackPlacementForWriteParams) (LockRackPlacementForWriteRow, error) {
 	var result LockRackPlacementForWriteRow
 	err := q.retrier.RetryQuery(ctx, "LockRackPlacementForWrite", func() error {

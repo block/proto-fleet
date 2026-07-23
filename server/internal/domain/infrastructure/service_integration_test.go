@@ -36,6 +36,9 @@ func newTestService(t *testing.T) (*infrastructure.Service, *sql.DB) {
 		fmt.Sprintf(`INSERT INTO site (id, org_id, name, slug) VALUES (%d, %d, 'Denton', 'denton')`, testSiteID, testOrgID),
 		fmt.Sprintf(`INSERT INTO site (id, org_id, name, slug) VALUES (%d, %d, 'Austin', 'austin')`, secondSiteID, testOrgID),
 		fmt.Sprintf(`INSERT INTO site (id, org_id, name, slug) VALUES (%d, %d, 'Miami', 'miami')`, otherOrgSiteID, otherOrgID),
+		fmt.Sprintf(`INSERT INTO building (id, org_id, site_id, name) VALUES (100, %d, %d, 'Building 1'), (101, %d, %d, 'Building 2')`, testOrgID, testSiteID, testOrgID, testSiteID),
+		fmt.Sprintf(`INSERT INTO device_set (id, org_id, type, label) VALUES (1000, %d, 'rack', 'Rack A1'), (1001, %d, 'rack', 'Rack B1')`, testOrgID, testOrgID),
+		fmt.Sprintf(`INSERT INTO device_set_rack (device_set_id, org_id, site_id, building_id, rows, columns) VALUES (1000, %d, %d, 100, 4, 4), (1001, %d, %d, 101, 4, 4)`, testOrgID, testSiteID, testOrgID, testSiteID),
 	}
 	for _, stmt := range seed {
 		_, err := conn.Exec(stmt)
@@ -53,11 +56,14 @@ func validModbusConfig() json.RawMessage {
 
 func boolPtr(b bool) *bool { return &b }
 
+func stringPtr(s string) *string { return &s }
+
 func createParams(mutate func(*models.CreateParams)) models.CreateParams {
 	params := models.CreateParams{
 		OrgID:        testOrgID,
 		SiteID:       testSiteID,
 		BuildingName: "Building 1",
+		RackName:     "Rack A1",
 		Name:         "Zone A exhaust fans",
 		DeviceKind:   models.KindFanGroup,
 		FanCount:     12,
@@ -72,13 +78,14 @@ func createParams(mutate func(*models.CreateParams)) models.CreateParams {
 }
 
 func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
-	svc, _ := newTestService(t)
+	svc, conn := newTestService(t)
 	ctx := t.Context()
 
 	created, err := svc.Create(ctx, createParams(nil))
 	require.NoError(t, err)
 	assert.Equal(t, "Zone A exhaust fans", created.Name)
 	assert.Equal(t, "Denton", created.SiteLabel)
+	assert.Equal(t, "Rack A1", created.RackName)
 	assert.Equal(t, int32(12), created.FanCount)
 	assert.True(t, created.Enabled)
 	assert.JSONEq(t, string(validModbusConfig()), string(created.DriverConfig))
@@ -112,6 +119,7 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	austinDevice, err := svc.Create(ctx, createParams(func(p *models.CreateParams) {
 		p.Name = "Austin roof exhaust"
 		p.SiteID = secondSiteID
+		p.RackName = ""
 	}))
 	require.NoError(t, err)
 	dentonOnly, err := svc.List(ctx, models.ListFilter{OrgID: testOrgID, SiteIDs: []int64{testSiteID}})
@@ -152,6 +160,7 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 		ExpectedSiteID: testSiteID,
 		SiteID:         testSiteID,
 		BuildingName:   "Building 2",
+		RackName:       stringPtr("Rack B1"),
 		Name:           "Zone B exhaust fans",
 		DeviceKind:     models.KindFanGroup,
 		FanCount:       16,
@@ -161,18 +170,20 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Zone B exhaust fans", updated.Name)
+	assert.Equal(t, "Rack B1", updated.RackName)
 	assert.Equal(t, int32(16), updated.FanCount)
 	assert.False(t, updated.Enabled)
 
-	// Nil Enabled preserves the row's current value in the UPDATE
-	// itself (COALESCE against the stored column) — the disabled state
-	// survives an unrelated rename.
+	// Nil Enabled and RackName preserve their current values in the
+	// UPDATE itself (COALESCE against the stored columns), so an older
+	// client performing an unrelated rename cannot clear either field.
 	preserved, err := svc.Update(ctx, models.UpdateParams{
 		OrgID:          testOrgID,
 		ID:             created.ID,
 		ExpectedSiteID: testSiteID,
 		SiteID:         testSiteID,
 		BuildingName:   "Building 2",
+		RackName:       nil,
 		Name:           "Zone B exhaust fans (renamed)",
 		DeviceKind:     models.KindFanGroup,
 		FanCount:       16,
@@ -183,6 +194,34 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Zone B exhaust fans (renamed)", preserved.Name)
 	assert.False(t, preserved.Enabled, "nil Enabled must preserve the stored value, not reset it")
+	assert.Equal(t, "Rack B1", preserved.RackName, "nil RackName must preserve the stored value, not clear it")
+
+	// A handler-authorized update is predicated on the rack value observed
+	// before entering the service. If placement changes concurrently, the
+	// stale request fails closed instead of clearing or replacing the new rack.
+	_, err = conn.ExecContext(ctx, `UPDATE infrastructure_device SET rack_name = 'Rack C1' WHERE id = $1`, created.ID)
+	require.NoError(t, err)
+	expectedRackName := "Rack B1"
+	emptyRackName := ""
+	_, err = svc.Update(ctx, models.UpdateParams{
+		OrgID:            testOrgID,
+		ID:               created.ID,
+		ExpectedSiteID:   testSiteID,
+		ExpectedRackName: &expectedRackName,
+		SiteID:           testSiteID,
+		BuildingName:     "Building 2",
+		RackName:         &emptyRackName,
+		Name:             "Zone B exhaust fans (renamed)",
+		DeviceKind:       models.KindFanGroup,
+		FanCount:         16,
+		Enabled:          nil,
+		DriverType:       "modbus_tcp",
+		DriverConfig:     validModbusConfig(),
+	})
+	assert.True(t, fleeterror.IsNotFoundError(err))
+	concurrentlyPlaced, err := svc.Get(ctx, testOrgID, created.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Rack C1", concurrentlyPlaced.RackName)
 
 	// Delete soft-deletes; the row disappears from Get and List.
 	require.NoError(t, svc.Delete(ctx, testOrgID, created.ID, testSiteID))
@@ -202,6 +241,81 @@ func TestService_CreateGetListUpdateDelete_DatabaseIntegration(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, "Zone B exhaust fans (renamed)", reused.Name)
+}
+
+func TestRackAssignmentFollowsCatalogMutations_DatabaseIntegration(t *testing.T) {
+	svc, conn := newTestService(t)
+	ctx := t.Context()
+
+	device, err := svc.Create(ctx, createParams(nil))
+	require.NoError(t, err)
+
+	_, err = conn.ExecContext(ctx, `UPDATE device_set SET label = 'Rack A2' WHERE id = 1000`)
+	require.NoError(t, err)
+	device, err = svc.Get(ctx, testOrgID, device.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Rack A2", device.RackName, "rack rename must update assigned infrastructure devices")
+
+	_, err = conn.ExecContext(ctx, `UPDATE device_set_rack SET building_id = 101 WHERE device_set_id = 1000`)
+	require.NoError(t, err)
+	device, err = svc.Get(ctx, testOrgID, device.ID)
+	require.NoError(t, err)
+	assert.Empty(t, device.RackName, "rack move must clear assignments at the old location")
+
+	device, err = svc.Create(ctx, createParams(func(params *models.CreateParams) {
+		params.BuildingName = "Building 2"
+		params.RackName = "Rack A2"
+		params.Name = "Building 2 exhaust fans"
+	}))
+	require.NoError(t, err)
+	_, err = conn.ExecContext(ctx, `UPDATE device_set SET deleted_at = CURRENT_TIMESTAMP WHERE id = 1000`)
+	require.NoError(t, err)
+	device, err = svc.Get(ctx, testOrgID, device.ID)
+	require.NoError(t, err)
+	assert.Empty(t, device.RackName, "rack delete must clear assigned infrastructure devices")
+}
+
+func TestService_RejectsStaleRackCatalogPlacement_DatabaseIntegration(t *testing.T) {
+	svc, conn := newTestService(t)
+	ctx := t.Context()
+
+	// The operator selected Rack A1, but it was renamed before the create
+	// transaction began. The live catalog lock rejects the stale label instead
+	// of persisting an assignment that the rename trigger can no longer find.
+	_, err := conn.ExecContext(ctx, `UPDATE device_set SET label = 'Rack A2' WHERE id = 1000`)
+	require.NoError(t, err)
+	_, err = svc.Create(ctx, createParams(nil))
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+
+	device, err := svc.Create(ctx, createParams(func(params *models.CreateParams) {
+		params.RackName = "Rack A2"
+	}))
+	require.NoError(t, err)
+
+	// A later rack move clears the existing assignment. A stale edit that still
+	// targets the old building must fail rather than restoring that invalid pair.
+	_, err = conn.ExecContext(ctx, `UPDATE device_set_rack SET building_id = 101 WHERE device_set_id = 1000`)
+	require.NoError(t, err)
+	_, err = svc.Update(ctx, models.UpdateParams{
+		OrgID:          testOrgID,
+		ID:             device.ID,
+		ExpectedSiteID: testSiteID,
+		SiteID:         testSiteID,
+		BuildingName:   "Building 1",
+		RackName:       stringPtr("Rack A2"),
+		Name:           device.Name,
+		DeviceKind:     device.DeviceKind,
+		FanCount:       device.FanCount,
+		Enabled:        &device.Enabled,
+		DriverType:     device.DriverType,
+		DriverConfig:   device.DriverConfig,
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	unchanged, err := svc.Get(ctx, testOrgID, device.ID)
+	require.NoError(t, err)
+	assert.Empty(t, unchanged.RackName)
 }
 
 func TestService_DeleteRejectsResponseProfileReference_DatabaseIntegration(t *testing.T) {

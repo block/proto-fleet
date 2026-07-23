@@ -47,6 +47,11 @@ const renderManualAddStep = (props: Partial<ComponentProps<typeof ManualAddStep>
         { siteName: "Austin", buildingName: "Building 10" },
         { siteName: "Denver", buildingName: "Denver Plant" },
       ]}
+      rackOptions={[
+        { siteName: "Austin", buildingName: "Building 1", rackName: "Rack A1" },
+        { siteName: "Austin", buildingName: "Building 10", rackName: "Rack A10" },
+        { siteName: "Denver", buildingName: "Denver Plant", rackName: "Rack D1" },
+      ]}
       onSuccess={onSuccess}
       onStateChange={(state) => {
         currentState = state;
@@ -65,6 +70,7 @@ const fillRequiredFields = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.type(screen.getByLabelText("Name"), "Roof exhaust");
   await user.selectOptions(screen.getByLabelText("Site"), "Austin");
   await user.selectOptions(screen.getByLabelText("Building"), "Building 1");
+  await user.selectOptions(screen.getByLabelText("Rack"), "Rack A1");
   await user.type(screen.getByLabelText("Endpoint"), "10.12.1.21");
   await user.type(screen.getByLabelText("Port"), "502");
   await user.type(screen.getByLabelText("Unit ID"), "17");
@@ -95,6 +101,7 @@ describe("ManualAddStep", () => {
       name: "Roof exhaust",
       siteName: "Austin",
       buildingName: "Building 1",
+      rackName: "Rack A1",
       deviceKind: "fan_group",
       fanCount: 12,
       driverType: "modbus_tcp",
@@ -106,6 +113,24 @@ describe("ManualAddStep", () => {
       register_address: 2001,
       write_mode: "holding_register",
     });
+  });
+
+  test("allows an unracked device when no rack options are available", async () => {
+    const user = userEvent.setup();
+    const { getState, onSuccess } = renderManualAddStep({ rackOptions: [] });
+
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust");
+    await user.selectOptions(screen.getByLabelText("Site"), "Austin");
+    await user.selectOptions(screen.getByLabelText("Building"), "Building 1");
+    await user.type(screen.getByLabelText("Endpoint"), "10.12.1.21");
+    await user.type(screen.getByLabelText("Port"), "502");
+    await user.type(screen.getByLabelText("Unit ID"), "17");
+    await user.type(screen.getByLabelText("Register address"), "2001");
+
+    await waitFor(() => expect(getState()?.canAdd).toBe(true));
+    getState()?.addHandler();
+
+    expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({ rackName: "" }));
   });
 
   test("requires catalog-backed location selections", async () => {
@@ -124,6 +149,7 @@ describe("ManualAddStep", () => {
 
     expect(screen.getByLabelText("Site")).toBeDisabled();
     expect(screen.getByLabelText("Building")).toBeDisabled();
+    expect(screen.getByLabelText("Rack")).toBeDisabled();
 
     await user.type(screen.getByLabelText("Name"), "Roof exhaust");
     await user.type(screen.getByLabelText("Endpoint"), "10.12.1.21");

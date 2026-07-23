@@ -1,6 +1,6 @@
 import { type ComponentProps, createElement } from "react";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
@@ -10,6 +10,7 @@ import type { InfraDeviceDraft, InfraDeviceItem, InfraDevicePatch } from "@/prot
 import { useHasPermission } from "@/protoFleet/store";
 
 const listAllBuildingsMock = vi.hoisted(() => vi.fn());
+const listRacksMock = vi.hoisted(() => vi.fn());
 const useActiveSiteMock = vi.hoisted(() => vi.fn());
 const useInfrastructureDevicesMock = vi.hoisted(() => vi.fn());
 const infraDeviceListPropsSpy = vi.hoisted(() => vi.fn());
@@ -22,6 +23,10 @@ vi.mock("@/protoFleet/api/buildings", () => ({
 
 vi.mock("@/protoFleet/api/useInfrastructureDevices", () => ({
   default: useInfrastructureDevicesMock,
+}));
+
+vi.mock("@/protoFleet/api/useDeviceSets", () => ({
+  useDeviceSets: () => ({ listRacks: listRacksMock }),
 }));
 
 vi.mock("@/protoFleet/features/infrastructure/components/InfraDeviceList", async (importActual) => {
@@ -56,6 +61,7 @@ const device: InfraDeviceItem = {
   siteId: "8",
   siteName: "Austin",
   buildingName: "Building 1",
+  rackName: "Rack A1",
   name: "Roof exhaust",
   deviceKind: "fan_group",
   fanCount: 12,
@@ -95,7 +101,9 @@ const buildHookResult = (overrides: Record<string, unknown> = {}) => ({
 });
 
 type InfraDeviceListCallbacks = {
+  canManage?: boolean;
   siteOptions?: string[];
+  rackOptions?: Array<{ siteName: string; buildingName: string; rackName: string }>;
   onCreateDevice?: (draft: InfraDeviceDraft) => Promise<void>;
   onUpdateDevice?: (patch: InfraDevicePatch) => Promise<void>;
   onRetry?: () => void;
@@ -124,13 +132,16 @@ describe("FleetInfraPage", () => {
       setActiveSite: vi.fn(),
     });
     listAllBuildingsMock.mockReset();
+    listRacksMock.mockReset();
     useInfrastructureDevicesMock.mockReset();
     useInfrastructureDevicesMock.mockReturnValue(buildHookResult());
     infraDeviceListPropsSpy.mockReset();
   });
 
   test("uses site permissions for default read and management access", () => {
-    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+    vi.mocked(useHasPermission).mockImplementation(
+      (key) => key === "site:read" || key === "site:manage" || key === "rack:read",
+    );
 
     renderPage();
 
@@ -139,6 +150,18 @@ describe("FleetInfraPage", () => {
     expect(screen.getByRole("checkbox", { name: "Enabled for Roof exhaust" })).toBeEnabled();
     expect(useHasPermission).toHaveBeenCalledWith("site:read");
     expect(useHasPermission).toHaveBeenCalledWith("site:manage");
+    expect(useHasPermission).toHaveBeenCalledWith("rack:read");
+  });
+
+  test("keeps non-rack management available when rack read is denied", () => {
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+
+    renderPage();
+
+    expect(screen.getByRole("button", { name: "Add device" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Enabled for Roof exhaust" })).toBeEnabled();
+    expect(lastInfraDeviceListProps().canManage).toBe(true);
+    expect(listRacksMock).not.toHaveBeenCalled();
   });
 
   test("disables management controls when site manage is denied", () => {
@@ -212,6 +235,31 @@ describe("FleetInfraPage", () => {
     expect(lastInfraDeviceListProps().siteOptions).toEqual(["Austin", "Denver"]);
   });
 
+  test("loads rack options from the rack catalog", async () => {
+    vi.mocked(useHasPermission).mockImplementation(
+      (key) => key === "site:read" || key === "site:manage" || key === "rack:read",
+    );
+    listRacksMock.mockImplementation(async ({ onSuccess }) => {
+      onSuccess?.([
+        {
+          label: "Rack A1",
+          placement: {
+            site: { id: 8n, label: "Austin" },
+            building: { id: 80n, label: "Building 1" },
+          },
+        },
+      ]);
+    });
+
+    renderPage({ devices: undefined }, fleetContext);
+
+    await waitFor(() =>
+      expect(lastInfraDeviceListProps().rackOptions).toEqual([
+        { siteName: "Austin", buildingName: "Building 1", rackName: "Rack A1" },
+      ]),
+    );
+  });
+
   test("rejects a create targeting a site outside the active scope", async () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
     useActiveSiteMock.mockReturnValue({
@@ -227,6 +275,7 @@ describe("FleetInfraPage", () => {
       lastInfraDeviceListProps().onCreateDevice!({
         siteName: "Denver",
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Roof exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -266,6 +315,7 @@ describe("FleetInfraPage", () => {
       lastInfraDeviceListProps().onCreateDevice!({
         siteName: "Austin",
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Roof exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -303,6 +353,7 @@ describe("FleetInfraPage", () => {
     await lastInfraDeviceListProps().onCreateDevice!({
       siteName: "Austin",
       buildingName: "Building 1",
+      rackName: "Rack A1",
       name: "Roof exhaust",
       deviceKind: "fan_group",
       fanCount: 12,
@@ -313,6 +364,7 @@ describe("FleetInfraPage", () => {
     expect(createDevice).toHaveBeenCalledWith({
       siteId: "8",
       buildingName: "Building 1",
+      rackName: "Rack A1",
       name: "Roof exhaust",
       deviceKind: "fan_group",
       fanCount: 12,
@@ -332,6 +384,7 @@ describe("FleetInfraPage", () => {
       lastInfraDeviceListProps().onCreateDevice!({
         siteName: "Unknown",
         buildingName: "Building 1",
+        rackName: "Rack A1",
         name: "Roof exhaust",
         deviceKind: "fan_group",
         fanCount: 12,
@@ -397,7 +450,9 @@ describe("FleetInfraPage", () => {
 
   test("preselects the active site when opening the add device modal", async () => {
     const user = userEvent.setup();
-    vi.mocked(useHasPermission).mockImplementation((key) => key === "site:read" || key === "site:manage");
+    vi.mocked(useHasPermission).mockImplementation(
+      (key) => key === "site:read" || key === "site:manage" || key === "rack:read",
+    );
     useActiveSiteMock.mockReturnValue({
       activeSite: { kind: "site", id: "7", slug: "denver" },
       setActiveSite: vi.fn(),

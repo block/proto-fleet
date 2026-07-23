@@ -31,31 +31,26 @@ const writeModeLabels: Record<string, string> = {
 const fieldHelp: Record<"unitId" | "endpoint" | "port" | "registerAddress" | "writeMode", FieldHelpPopoverProps> = {
   unitId: {
     ariaLabel: "About Unit ID",
-    header: "Unit ID",
     body: "Numeric Modbus unit/slave address from 1 to 247 for this device at the configured endpoint.",
     testId: "infra-device-unit-id-help",
   },
   endpoint: {
     ariaLabel: "About endpoint",
-    header: "Endpoint",
     body: "Private IP address of the drive or PLC (RFC1918 or IPv6 ULA). Hostnames, loopback, and public addresses are not accepted.",
     testId: "infra-device-endpoint-help",
   },
   port: {
     ariaLabel: "About port",
-    header: "Port",
     body: "Use the Modbus TCP port, such as 502.",
     testId: "infra-device-port-help",
   },
   registerAddress: {
     ariaLabel: "About register address",
-    header: "Register address",
-    body: "One-based application address of the run/stop target from 1 to 65536, e.g. 2001 for a drive control word or 1 for a RUN/STOP coil. Do not use the 4xxxx-prefixed convention (e.g. 42001) or a zero-based wire address — enter the plain application address; Fleet handles the wire-level off-by-one translation.",
+    body: "Enter the one-based RUN/STOP coil or register address (1–65536), without a 4xxxx prefix; Fleet handles the Modbus wire address.",
     testId: "infra-device-register-address-help",
   },
   writeMode: {
     ariaLabel: "About write mode",
-    header: "Write mode",
     body: "Coil writes the RUN/STOP coil (function code 5). Holding register writes 0/1 to a control word register (function code 6). Use whichever target the site's drive or PLC integration expects.",
     testId: "infra-device-write-mode-help",
   },
@@ -130,15 +125,17 @@ const summarize = (driverConfig: string): string | null => {
 
 const FormFields = ({ idPrefix, values, onChange, disabled = false }: DriverFormFieldsProps) => (
   <div className="flex flex-col gap-4">
-    <div className="grid grid-cols-2 gap-3">
-      <Input
-        id={`${idPrefix}-endpoint`}
-        label="Endpoint"
-        initValue={values.endpoint}
-        readOnly={disabled}
-        suffixAction={<FieldHelpPopover {...fieldHelp.endpoint} />}
-        onChange={(value) => onChange("endpoint", value)}
-      />
+    <div className="grid grid-cols-1 gap-3 tablet:grid-cols-4">
+      <div className="tablet:col-span-2">
+        <Input
+          id={`${idPrefix}-endpoint`}
+          label="Endpoint"
+          initValue={values.endpoint}
+          readOnly={disabled}
+          suffixAction={<FieldHelpPopover {...fieldHelp.endpoint} />}
+          onChange={(value) => onChange("endpoint", value)}
+        />
+      </div>
       <Input
         id={`${idPrefix}-port`}
         label="Port"
@@ -149,8 +146,6 @@ const FormFields = ({ idPrefix, values, onChange, disabled = false }: DriverForm
         suffixAction={<FieldHelpPopover {...fieldHelp.port} />}
         onChange={(value) => onChange("port", value)}
       />
-    </div>
-    <div className="grid grid-cols-2 gap-3">
       <Input
         id={`${idPrefix}-unit-id`}
         label="Unit ID"
@@ -161,6 +156,8 @@ const FormFields = ({ idPrefix, values, onChange, disabled = false }: DriverForm
         suffixAction={<FieldHelpPopover {...fieldHelp.unitId} />}
         onChange={(value) => onChange("unitId", value)}
       />
+    </div>
+    <div className="grid grid-cols-1 gap-3 tablet:grid-cols-2">
       <Select
         id={`${idPrefix}-write-mode`}
         label="Write mode"
@@ -170,17 +167,17 @@ const FormFields = ({ idPrefix, values, onChange, disabled = false }: DriverForm
         disabled={disabled}
         forceBelow
       />
+      <Input
+        id={`${idPrefix}-register-address`}
+        label="Register address"
+        type="number"
+        inputMode="numeric"
+        initValue={values.registerAddress}
+        readOnly={disabled}
+        suffixAction={<FieldHelpPopover {...fieldHelp.registerAddress} />}
+        onChange={(value) => onChange("registerAddress", value)}
+      />
     </div>
-    <Input
-      id={`${idPrefix}-register-address`}
-      label="Register address"
-      type="number"
-      inputMode="numeric"
-      initValue={values.registerAddress}
-      readOnly={disabled}
-      suffixAction={<FieldHelpPopover {...fieldHelp.registerAddress} />}
-      onChange={(value) => onChange("registerAddress", value)}
-    />
   </div>
 );
 

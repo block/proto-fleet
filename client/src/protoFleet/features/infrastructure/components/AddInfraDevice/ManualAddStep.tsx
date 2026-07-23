@@ -11,6 +11,7 @@ import type {
   InfraBuildingOption,
   InfraDeviceDraft,
   InfraDeviceKind,
+  InfraRackOption,
 } from "@/protoFleet/features/infrastructure/types";
 import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
@@ -28,6 +29,7 @@ export interface ManualAddStepState {
 interface ManualAddStepProps {
   siteOptions?: string[];
   buildingOptions?: InfraBuildingOption[];
+  rackOptions?: InfraRackOption[];
   initialSiteName?: string;
   onSuccess: (device: InfraDeviceDraft) => void;
   onStateChange: (state: ManualAddStepState) => void;
@@ -36,6 +38,7 @@ interface ManualAddStepProps {
 const ManualAddStep = ({
   siteOptions = [],
   buildingOptions = [],
+  rackOptions = [],
   initialSiteName,
   onSuccess,
   onStateChange,
@@ -43,6 +46,7 @@ const ManualAddStep = ({
   const [name, setName] = useState("");
   const [site, setSite] = useState(initialSiteName ?? "");
   const [building, setBuilding] = useState("");
+  const [rack, setRack] = useState("");
   const [deviceKind, setDeviceKind] = useState<InfraDeviceKind>("single_fan");
   const [fanCount, setFanCount] = useState("1");
   const [driverType, setDriverType] = useState(DEFAULT_DRIVER_TYPE);
@@ -82,6 +86,7 @@ const ManualAddStep = ({
       name: name.trim(),
       siteName: site.trim(),
       buildingName: building.trim(),
+      rackName: rack.trim(),
       deviceKind,
       fanCount: fanCountNumber,
       driverType,
@@ -97,6 +102,7 @@ const ManualAddStep = ({
     isValid,
     name,
     onSuccess,
+    rack,
     site,
   ]);
 
@@ -110,10 +116,13 @@ const ManualAddStep = ({
       <InfraLocationFields
         site={site}
         building={building}
+        rack={rack}
         siteOptions={siteOptions}
         buildingOptions={buildingOptions}
+        rackOptions={rackOptions}
         onSiteChange={setSite}
         onBuildingChange={setBuilding}
+        onRackChange={setRack}
       />
       <div className="grid grid-cols-2 gap-3">
         <Select

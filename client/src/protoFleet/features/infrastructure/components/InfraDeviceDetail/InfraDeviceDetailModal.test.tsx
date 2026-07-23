@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
 import InfraDeviceDetailModal from "./InfraDeviceDetailModal";
-import type { InfraBuildingOption, InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
+import type { InfraBuildingOption, InfraDeviceItem, InfraRackOption } from "@/protoFleet/features/infrastructure/types";
 
 vi.mock("@/shared/components/Select", () => ({
   default: ({
@@ -50,6 +50,7 @@ const device: InfraDeviceItem = {
   siteId: "8",
   siteName: "Austin",
   buildingName: "Building 1",
+  rackName: "Rack A1",
   name: "Roof exhaust",
   deviceKind: "fan_group",
   fanCount: 12,
@@ -64,6 +65,13 @@ const buildingOptions: InfraBuildingOption[] = [
   { siteName: "Denver", buildingName: "Denver Plant" },
 ];
 
+const rackOptions: InfraRackOption[] = [
+  { siteName: "Austin", buildingName: "Building 1", rackName: "Rack A1" },
+  { siteName: "Austin", buildingName: "Building 1", rackName: "Rack A2" },
+  { siteName: "Austin", buildingName: "Building 10", rackName: "Rack B1" },
+  { siteName: "Denver", buildingName: "Denver Plant", rackName: "Rack D1" },
+];
+
 const renderModal = ({
   onSave = vi.fn().mockResolvedValue(undefined),
   onDelete = vi.fn().mockResolvedValue(undefined),
@@ -76,6 +84,7 @@ const renderModal = ({
       device={targetDevice}
       siteOptions={["Austin", "Denver"]}
       buildingOptions={buildingOptions}
+      rackOptions={rackOptions}
       canManage={canManage}
       onSave={onSave}
       onDelete={onDelete}
@@ -100,6 +109,15 @@ describe("InfraDeviceDetailModal", () => {
     expect(getSelectOptionLabels("Building")).not.toContain("Denver Plant");
   });
 
+  test("filters rack choices to the selected site and building", () => {
+    renderModal();
+
+    expect(getSelectOptionLabels("Rack")).toContain("Rack A1");
+    expect(getSelectOptionLabels("Rack")).toContain("Rack A2");
+    expect(getSelectOptionLabels("Rack")).not.toContain("Rack B1");
+    expect(getSelectOptionLabels("Rack")).not.toContain("Rack D1");
+  });
+
   test("resets the selected building when the site changes", async () => {
     const user = userEvent.setup();
     const { onSave, onDismiss } = renderModal();
@@ -109,6 +127,7 @@ describe("InfraDeviceDetailModal", () => {
     expect(getSelectOptionLabels("Building")).toContain("Denver Plant");
     expect(getSelectOptionLabels("Building")).not.toContain("Building 1");
     expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Building" }).value).toBe("Denver Plant");
+    expect(screen.getByRole<HTMLSelectElement>("combobox", { name: "Rack" }).value).toBe("");
 
     await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -116,6 +135,7 @@ describe("InfraDeviceDetailModal", () => {
       expect.objectContaining({
         siteName: "Denver",
         buildingName: "Denver Plant",
+        rackName: "",
       }),
     );
     await waitFor(() => expect(onDismiss).toHaveBeenCalled());
@@ -164,6 +184,17 @@ describe("InfraDeviceDetailModal", () => {
 
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave.mock.calls[0][0]).toEqual({ id: "101", name: "Roof exhaust renamed" });
+  });
+
+  test("allows editing a device that has no rack assignment", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderModal({ targetDevice: { ...device, rackName: "" } });
+
+    await user.clear(screen.getByLabelText("Name"));
+    await user.type(screen.getByLabelText("Name"), "Roof exhaust renamed");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSave).toHaveBeenCalledWith({ id: "101", name: "Roof exhaust renamed" });
   });
 
   test("keeps the modal open and shows the RPC failure inline on save", async () => {

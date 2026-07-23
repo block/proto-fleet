@@ -45,7 +45,7 @@ func newTestHandler(t *testing.T) *testHarness {
 
 func sitePermsCtx(t *testing.T, orgID int64) context.Context {
 	t.Helper()
-	return handlerstest.CtxWithPermissions(t, orgID, authz.PermSiteRead, authz.PermSiteManage)
+	return handlerstest.CtxWithPermissions(t, orgID, authz.PermSiteRead, authz.PermSiteManage, authz.PermRackRead)
 }
 
 const validConfig = `{"endpoint":"10.1.2.3","port":502,"unit_id":5,"register_address":2001,"write_mode":"holding_register"}`
@@ -55,6 +55,7 @@ func validCreateRequest() *pb.CreateInfrastructureDeviceRequest {
 	return &pb.CreateInfrastructureDeviceRequest{
 		SiteId:       10,
 		BuildingName: "Building 1",
+		RackName:     "Rack A1",
 		Name:         "Zone A exhaust fans",
 		DeviceKind:   models.KindFanGroup,
 		FanCount:     12,
@@ -69,6 +70,7 @@ func deviceAtSite(id, siteID int64) *models.Device {
 		ID:           id,
 		OrgID:        42,
 		SiteID:       siteID,
+		RackName:     "Rack A1",
 		Name:         "Zone A exhaust fans",
 		DeviceKind:   models.KindFanGroup,
 		FanCount:     12,
@@ -108,6 +110,7 @@ func TestHandler_CreateAuthGate(t *testing.T) {
 		{"caller without site permissions is rejected", []string{authz.PermFleetRead}},
 		{"caller with no permissions is rejected", nil},
 		{"caller with only site:read is rejected", []string{authz.PermSiteRead}},
+		{"site manager without rack:read is rejected", []string{authz.PermSiteRead, authz.PermSiteManage}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -129,6 +132,29 @@ func TestHandler_CreateRejectsManagerOfOtherSite(t *testing.T) {
 		handlerstest.SiteAssignment(99, authz.PermSiteRead, authz.PermSiteManage))
 	_, err := h.CreateInfrastructureDevice(ctx, connect.NewRequest(validCreateRequest()))
 	requirePermissionDenied(t, err)
+}
+
+func TestHandler_CreateAllowsUnrackedDeviceWithoutRackRead(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ctx := handlerstest.CtxWithPermissions(t, 42, authz.PermSiteRead, authz.PermSiteManage)
+	req := validCreateRequest()
+	req.RackName = ""
+
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil)
+	h.store.EXPECT().CreateInfrastructureDevice(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, params models.CreateParams) (*models.Device, error) {
+			assert.Empty(t, params.RackName)
+			created := deviceAtSite(7, 10)
+			created.RackName = ""
+			return created, nil
+		},
+	)
+
+	resp, err := h.handler.CreateInfrastructureDevice(ctx, connect.NewRequest(req))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetDevice().GetRackName())
 }
 
 func TestHandler_GetDeleteUpdateAuthorizeAgainstDeviceSite(t *testing.T) {
@@ -154,7 +180,7 @@ func TestHandler_GetDeleteUpdateAuthorizeAgainstDeviceSite(t *testing.T) {
 
 	update := &pb.UpdateInfrastructureDeviceRequest{
 		Id: 7, SiteId: 10, Name: "renamed", DeviceKind: models.KindFanGroup,
-		FanCount: 12, DriverType: "modbus_tcp", DriverConfig: validConfig,
+		FanCount: 12, RackName: stringPtr("Rack A1"), DriverType: "modbus_tcp", DriverConfig: validConfig,
 	}
 	_, err = h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
 	requireNotFound(t, err)
@@ -206,6 +232,104 @@ func TestHandler_UpdateMoveRequiresManageOnBothSites(t *testing.T) {
 	requirePermissionDenied(t, err)
 }
 
+func TestHandler_UpdateRequiresRackRead(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ctx := handlerstest.CtxWithAssignments(t, 42,
+		handlerstest.SiteAssignment(10, authz.PermSiteRead, authz.PermSiteManage))
+
+	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
+		Return(deviceAtSite(7, 10), nil)
+
+	update := &pb.UpdateInfrastructureDeviceRequest{
+		Id: 7, SiteId: 10, Name: "renamed", DeviceKind: models.KindFanGroup,
+		FanCount: 12, RackName: stringPtr("Rack A1"), DriverType: "modbus_tcp", DriverConfig: validConfig,
+	}
+	_, err := h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
+	requirePermissionDenied(t, err)
+}
+
+func TestHandler_UpdateBuildingWithExistingRackRequiresRackRead(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ctx := handlerstest.CtxWithAssignments(t, 42,
+		handlerstest.SiteAssignment(10, authz.PermSiteRead, authz.PermSiteManage))
+	existing := deviceAtSite(7, 10)
+	existing.BuildingName = "Building 1"
+	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
+		Return(existing, nil)
+
+	update := &pb.UpdateInfrastructureDeviceRequest{
+		Id: 7, SiteId: 10, BuildingName: "Building 2", Name: "renamed", DeviceKind: models.KindFanGroup,
+		FanCount: 12, DriverType: "modbus_tcp", DriverConfig: validConfig,
+	}
+	_, err := h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
+	requirePermissionDenied(t, err)
+}
+
+func TestHandler_UpdateLocationWithoutRackNameClearsExistingRack(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ctx := sitePermsCtx(t, 42)
+	existing := deviceAtSite(7, 10)
+	existing.BuildingName = "Building 1"
+	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
+		Return(existing, nil).Times(2)
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil)
+	h.store.EXPECT().LockInfrastructureDeviceForWrite(gomock.Any(), int64(42), int64(7), int64(10)).Return(nil)
+	h.store.EXPECT().UpdateInfrastructureDevice(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, params models.UpdateParams) (*models.Device, error) {
+			require.NotNil(t, params.ExpectedRackName)
+			assert.Equal(t, "Rack A1", *params.ExpectedRackName)
+			require.NotNil(t, params.RackName)
+			assert.Empty(t, *params.RackName)
+			assert.Equal(t, "Building 2", params.BuildingName)
+			updated := *existing
+			updated.BuildingName = params.BuildingName
+			updated.RackName = *params.RackName
+			return &updated, nil
+		},
+	)
+
+	update := &pb.UpdateInfrastructureDeviceRequest{
+		Id: 7, SiteId: 10, BuildingName: "Building 2", Name: "renamed", DeviceKind: models.KindFanGroup,
+		FanCount: 12, DriverType: "modbus_tcp", DriverConfig: validConfig,
+	}
+	resp, err := h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetDevice().GetRackName())
+}
+
+func TestHandler_UpdateWithoutRackNamePreservesItWithoutRackRead(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	ctx := handlerstest.CtxWithAssignments(t, 42,
+		handlerstest.SiteAssignment(10, authz.PermSiteRead, authz.PermSiteManage))
+
+	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
+		Return(deviceAtSite(7, 10), nil).Times(2)
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil)
+	h.store.EXPECT().LockInfrastructureDeviceForWrite(gomock.Any(), int64(42), int64(7), int64(10)).Return(nil)
+	h.store.EXPECT().UpdateInfrastructureDevice(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, params models.UpdateParams) (*models.Device, error) {
+			assert.Nil(t, params.RackName)
+			return deviceAtSite(7, 10), nil
+		},
+	)
+
+	update := &pb.UpdateInfrastructureDeviceRequest{
+		Id: 7, SiteId: 10, Name: "renamed", DeviceKind: models.KindFanGroup,
+		FanCount: 12, DriverType: "modbus_tcp", DriverConfig: validConfig,
+	}
+	resp, err := h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetDevice().GetRackName())
+}
+
 func TestHandler_ListFiltersToReadableSites(t *testing.T) {
 	t.Parallel()
 
@@ -227,6 +351,8 @@ func TestHandler_ListFiltersToReadableSites(t *testing.T) {
 	assert.Equal(t, int64(10), resp.Msg.GetDevices()[0].GetSiteId())
 	assert.Empty(t, resp.Msg.GetDevices()[0].GetDriverConfig(),
 		"site:read caller must not receive driver_config")
+	assert.Empty(t, resp.Msg.GetDevices()[0].GetRackName(),
+		"caller without rack:read must not receive rack placement")
 }
 
 func TestHandler_ListPushesNarrowingDenylistIntoFilter(t *testing.T) {
@@ -326,21 +452,22 @@ func TestHandler_ListReturnsEmptyWithoutQueryWhenNoReadableSites(t *testing.T) {
 	}
 }
 
-func TestHandler_DriverConfigRedactedForReadOnlyCallers(t *testing.T) {
+func TestHandler_SensitiveFieldsRespectIndependentPermissions(t *testing.T) {
 	t.Parallel()
 
-	// driver_config carries the OT control topology: Get returns it
-	// only to site:manage holders; site:read callers get the display
-	// fields with an empty blob. List behaves the same per device.
+	// Driver config carries OT control topology and rack_name exposes rack
+	// inventory. Each field follows its own permission even when the caller
+	// can read the rest of the infrastructure device.
 	h := newTestHandler(t)
 	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
-		Return(deviceAtSite(7, 10), nil).Times(2)
+		Return(deviceAtSite(7, 10), nil).Times(3)
 
 	readOnly := handlerstest.CtxWithAssignments(t, 42,
 		handlerstest.SiteAssignment(10, authz.PermSiteRead))
 	resp, err := h.handler.GetInfrastructureDevice(readOnly, connect.NewRequest(&pb.GetInfrastructureDeviceRequest{Id: 7}))
 	require.NoError(t, err)
 	assert.Empty(t, resp.Msg.GetDevice().GetDriverConfig())
+	assert.Empty(t, resp.Msg.GetDevice().GetRackName())
 	assert.Equal(t, "modbus_tcp", resp.Msg.GetDevice().GetDriverType(),
 		"display fields remain visible to site:read callers")
 
@@ -349,6 +476,15 @@ func TestHandler_DriverConfigRedactedForReadOnlyCallers(t *testing.T) {
 	resp, err = h.handler.GetInfrastructureDevice(manager, connect.NewRequest(&pb.GetInfrastructureDeviceRequest{Id: 7}))
 	require.NoError(t, err)
 	assert.JSONEq(t, validConfig, resp.Msg.GetDevice().GetDriverConfig())
+	assert.Empty(t, resp.Msg.GetDevice().GetRackName())
+
+	managerWithRackRead := handlerstest.CtxWithAssignments(t, 42,
+		handlerstest.SiteAssignment(10, authz.PermSiteRead, authz.PermSiteManage, authz.PermRackRead))
+	resp, err = h.handler.GetInfrastructureDevice(managerWithRackRead,
+		connect.NewRequest(&pb.GetInfrastructureDeviceRequest{Id: 7}))
+	require.NoError(t, err)
+	assert.JSONEq(t, validConfig, resp.Msg.GetDevice().GetDriverConfig())
+	assert.Equal(t, "Rack A1", resp.Msg.GetDevice().GetRackName())
 }
 
 func TestHandler_UpdatePredicatesWriteOnAuthorizedSite(t *testing.T) {
@@ -363,18 +499,23 @@ func TestHandler_UpdatePredicatesWriteOnAuthorizedSite(t *testing.T) {
 	h.store.EXPECT().GetInfrastructureDevice(gomock.Any(), int64(42), int64(7)).
 		Return(deviceAtSite(7, 10), nil).Times(2)
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil)
+	h.store.EXPECT().LockInfrastructureRackForPlacement(
+		gomock.Any(), int64(42), int64(10), "", "Rack A1",
+	).Return(nil)
 	h.store.EXPECT().LockInfrastructureDeviceForWrite(gomock.Any(), int64(42), int64(7), int64(10)).Return(nil)
 	h.store.EXPECT().UpdateInfrastructureDevice(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, params models.UpdateParams) (*models.Device, error) {
 			assert.Equal(t, int64(10), params.ExpectedSiteID)
 			assert.Equal(t, int64(10), params.SiteID)
+			require.NotNil(t, params.RackName)
+			assert.Equal(t, "Rack A1", *params.RackName)
 			return deviceAtSite(7, 10), nil
 		},
 	)
 
 	update := &pb.UpdateInfrastructureDeviceRequest{
 		Id: 7, SiteId: 10, Name: "renamed", DeviceKind: models.KindFanGroup,
-		FanCount: 12, DriverType: "modbus_tcp", DriverConfig: validConfig,
+		FanCount: 12, RackName: stringPtr("Rack A1"), DriverType: "modbus_tcp", DriverConfig: validConfig,
 	}
 	_, err := h.handler.UpdateInfrastructureDevice(ctx, connect.NewRequest(update))
 	require.NoError(t, err)
@@ -430,6 +571,8 @@ func TestHandler_UpdateCarriesEnabledPresenceIntoParams(t *testing.T) {
 
 func boolPtr(b bool) *bool { return &b }
 
+func stringPtr(s string) *string { return &s }
+
 func TestHandler_unauthenticatedWithoutSession(t *testing.T) {
 	t.Parallel()
 
@@ -448,12 +591,16 @@ func TestHandler_CreateTranslatesRoundTrip(t *testing.T) {
 	ctx := sitePermsCtx(t, 42)
 
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil)
+	h.store.EXPECT().LockInfrastructureRackForPlacement(
+		gomock.Any(), int64(42), int64(10), "Building 1", "Rack A1",
+	).Return(nil)
 	h.store.EXPECT().CreateInfrastructureDevice(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, params models.CreateParams) (*models.Device, error) {
 			// Translation carries the org from the session and the
 			// request fields into domain params.
 			assert.Equal(t, int64(42), params.OrgID)
 			assert.Equal(t, int64(10), params.SiteID)
+			assert.Equal(t, "Rack A1", params.RackName)
 			assert.Equal(t, "Zone A exhaust fans", params.Name)
 			assert.JSONEq(t, validConfig, string(params.DriverConfig))
 			return &models.Device{
@@ -462,6 +609,7 @@ func TestHandler_CreateTranslatesRoundTrip(t *testing.T) {
 				SiteID:       params.SiteID,
 				SiteLabel:    "Denton",
 				BuildingName: params.BuildingName,
+				RackName:     params.RackName,
 				Name:         params.Name,
 				DeviceKind:   params.DeviceKind,
 				FanCount:     params.FanCount,
@@ -478,6 +626,7 @@ func TestHandler_CreateTranslatesRoundTrip(t *testing.T) {
 	require.NotNil(t, device)
 	assert.Equal(t, int64(7), device.GetId())
 	assert.Equal(t, "Denton", device.GetSiteLabel())
+	assert.Equal(t, "Rack A1", device.GetRackName())
 	assert.Equal(t, int32(12), device.GetFanCount())
 	assert.JSONEq(t, validConfig, device.GetDriverConfig())
 }
@@ -505,6 +654,9 @@ func TestHandler_CreateDefaultsOmittedEnabledToTrue(t *testing.T) {
 	ctx := sitePermsCtx(t, 42)
 
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(42), int64(10)).Return(nil).Times(2)
+	h.store.EXPECT().LockInfrastructureRackForPlacement(
+		gomock.Any(), int64(42), int64(10), "Building 1", "Rack A1",
+	).Return(nil).Times(2)
 	var seen []bool
 	h.store.EXPECT().CreateInfrastructureDevice(gomock.Any(), gomock.Any()).Times(2).DoAndReturn(
 		func(_ context.Context, params models.CreateParams) (*models.Device, error) {

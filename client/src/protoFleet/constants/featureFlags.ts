@@ -9,14 +9,6 @@
  */
 
 /**
- * Infrastructure devices tab. When on, `/fleet/infrastructure` is
- * discoverable from the Fleet tab strip. The route stays registered so QA
- * and dogfood can still deep-link while the feature is in development.
- * Override with `VITE_INFRASTRUCTURE_DEVICES_ENABLED=true`.
- */
-export const INFRASTRUCTURE_DEVICES_ENABLED = import.meta.env.VITE_INFRASTRUCTURE_DEVICES_ENABLED === "true";
-
-/**
  * Alerts settings (webhook/Slack delivery channels). When on, the
  * `/settings/alerts` entry is discoverable in the settings subnav.
  *
