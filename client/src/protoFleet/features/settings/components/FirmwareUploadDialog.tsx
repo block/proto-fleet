@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MinerModelGroup } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import { type FirmwareMetadataInput, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import useMinerModelGroups from "@/protoFleet/api/useMinerModelGroups";
 import {
   FileDropZone,
   FileErrorStatus,
   FileProcessingStatus,
-  FileReadyStatus,
+  FileSelectedStatus,
+  firmwareVersionFromFilename,
   useFirmwareUpload,
 } from "@/protoFleet/components/FirmwareUpload";
 import { Alert } from "@/shared/assets/icons";
@@ -24,18 +24,15 @@ interface FirmwareUploadDialogProps {
 }
 
 const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDialogProps) => {
-  const { state, file, firmwareFileId, uploadProgress, errorMessage, serverConfig, processFile, reset, retry } =
+  const { state, file, uploadProgress, errorMessage, serverConfig, processFile, reset, retry } =
     useFirmwareUpload(!!open);
-  const { updateFirmwareMetadata } = useFirmwareApi();
   const { getMinerModelGroups } = useMinerModelGroups();
   const [targetManufacturer, setTargetManufacturer] = useState("");
   const [targetModel, setTargetModel] = useState("");
   const [firmwareVersion, setFirmwareVersion] = useState("");
   const [modelGroups, setModelGroups] = useState<MinerModelGroup[] | null>(null);
   const [modelsError, setModelsError] = useState<string | null>(null);
-  const [isSavingMetadata, setIsSavingMetadata] = useState(false);
-  const [metadataSaveError, setMetadataSaveError] = useState<string | null>(null);
-  const [savedMetadata, setSavedMetadata] = useState<FirmwareMetadataInput | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   const configLoaded = serverConfig !== null;
   const modelsLoading = open && modelGroups === null && modelsError === null;
@@ -43,9 +40,8 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
   const isProcessing = state === "hashing" || state === "checking" || state === "uploading";
   const showLoadingSpinner = state === "idle" && (!configLoaded || modelsLoading);
   const showMetadataFields = configLoaded && modelsLoaded;
-  const metadataLocked = (state !== "idle" && state !== "ready") || isSavingMetadata;
+  const metadataLocked = state !== "idle";
   const showProcessingStatus = isProcessing && file != null;
-  const showReadyStatus = state === "ready" && file != null;
   const showError = state === "error" && errorMessage != null;
 
   useEffect(() => {
@@ -101,12 +97,6 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
   );
   const hasCompleteTarget =
     target.targetManufacturer !== "" && target.targetModel !== "" && target.firmwareVersion !== "";
-  const hasMetadataChanges =
-    state === "ready" &&
-    (savedMetadata === null ||
-      savedMetadata.targetManufacturer !== target.targetManufacturer ||
-      savedMetadata.targetModel !== target.targetModel ||
-      savedMetadata.firmwareVersion !== target.firmwareVersion);
 
   const resetDialogState = useCallback((): void => {
     reset();
@@ -115,61 +105,37 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
     setFirmwareVersion("");
     setModelGroups(null);
     setModelsError(null);
-    setIsSavingMetadata(false);
-    setMetadataSaveError(null);
-    setSavedMetadata(null);
+    setPendingFile(null);
   }, [reset]);
 
   const handleDismiss = useCallback(() => {
-    const uploaded = state === "ready";
     resetDialogState();
-    if (uploaded) {
+    onDismiss();
+  }, [onDismiss, resetDialogState]);
+
+  const handleUpload = useCallback((): void => {
+    if (!pendingFile || !hasCompleteTarget) return;
+    processFile(pendingFile, target, () => {
+      resetDialogState();
       onSuccess();
-    } else {
-      onDismiss();
-    }
-  }, [state, onDismiss, onSuccess, resetDialogState]);
-
-  const handleDone = useCallback(async (): Promise<void> => {
-    if (hasMetadataChanges) {
-      if (!firmwareFileId || !hasCompleteTarget) return;
-      setIsSavingMetadata(true);
-      setMetadataSaveError(null);
-      try {
-        await updateFirmwareMetadata(firmwareFileId, target);
-      } catch (error) {
-        setMetadataSaveError(error instanceof Error ? error.message : "We couldn't update the metadata. Try again.");
-        setIsSavingMetadata(false);
-        return;
-      }
-    }
-
-    resetDialogState();
-    onSuccess();
-  }, [
-    firmwareFileId,
-    hasCompleteTarget,
-    hasMetadataChanges,
-    onSuccess,
-    resetDialogState,
-    target,
-    updateFirmwareMetadata,
-  ]);
+    });
+    setPendingFile(null);
+  }, [hasCompleteTarget, onSuccess, pendingFile, processFile, resetDialogState, target]);
 
   const buttons = useMemo(() => {
-    if (state !== "ready") return undefined;
-    return [
-      {
-        text: isSavingMetadata ? "Saving…" : "Done",
-        variant: variants.primary,
-        onClick: (): void => {
-          void handleDone();
+    if (state === "idle" && pendingFile) {
+      return [
+        {
+          text: "Upload",
+          variant: variants.primary,
+          onClick: handleUpload,
+          dismissModalOnClick: false,
+          disabled: !hasCompleteTarget,
         },
-        dismissModalOnClick: false,
-        disabled: isSavingMetadata || (hasMetadataChanges && (!hasCompleteTarget || !firmwareFileId)),
-      },
-    ];
-  }, [firmwareFileId, handleDone, hasCompleteTarget, hasMetadataChanges, isSavingMetadata, state]);
+      ];
+    }
+    return undefined;
+  }, [handleUpload, hasCompleteTarget, pendingFile, state]);
 
   return (
     <Modal open={open} title="Upload firmware" onDismiss={handleDismiss} buttons={buttons} divider={false}>
@@ -192,7 +158,6 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
                 options={manufacturerOptions}
                 value={targetManufacturer}
                 onChange={(value) => {
-                  setMetadataSaveError(null);
                   setTargetManufacturer(value);
                   setTargetModel("");
                 }}
@@ -204,10 +169,7 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
                 label="Model"
                 options={modelOptions}
                 value={selectedTargetModel}
-                onChange={(value) => {
-                  setMetadataSaveError(null);
-                  setTargetModel(value);
-                }}
+                onChange={setTargetModel}
                 disabled={metadataLocked || !targetManufacturer}
                 forceBelow
               />
@@ -216,29 +178,34 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
               id="firmware-version"
               label="Firmware version"
               initValue={firmwareVersion}
-              onChange={(value) => {
-                setMetadataSaveError(null);
-                setFirmwareVersion(value);
-              }}
+              onChange={setFirmwareVersion}
               disabled={metadataLocked}
               required
             />
             {state === "idle" ? (
-              <FileDropZone
-                extensions={serverConfig.allowedExtensions}
-                onFileSelect={(selectedFile) => {
-                  setSavedMetadata(target);
-                  processFile(selectedFile, target);
-                }}
-                disabled={!hasCompleteTarget}
-              />
+              pendingFile ? (
+                <FileSelectedStatus
+                  fileName={pendingFile.name}
+                  fileSize={pendingFile.size}
+                  onRemove={() => setPendingFile(null)}
+                />
+              ) : (
+                <FileDropZone
+                  extensions={serverConfig.allowedExtensions}
+                  onFileSelect={(selectedFile) => {
+                    setPendingFile(selectedFile);
+                    setFirmwareVersion((currentVersion) => {
+                      if (currentVersion.trim()) return currentVersion;
+                      return firmwareVersionFromFilename(selectedFile.name) ?? currentVersion;
+                    });
+                  }}
+                />
+              )
             ) : null}
           </>
         ) : null}
 
         {modelsError ? <Callout intent="danger" prefixIcon={<Alert />} title={modelsError} /> : null}
-
-        {metadataSaveError ? <Callout intent="danger" prefixIcon={<Alert />} title={metadataSaveError} /> : null}
 
         {showProcessingStatus ? (
           <FileProcessingStatus
@@ -248,8 +215,6 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
             uploadProgress={uploadProgress}
           />
         ) : null}
-
-        {showReadyStatus ? <FileReadyStatus fileName={file.name} fileSize={file.size} /> : null}
 
         {showError ? <FileErrorStatus message={errorMessage} onRetry={retry} /> : null}
       </div>

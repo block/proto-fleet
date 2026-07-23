@@ -6,11 +6,7 @@ import FirmwareUploadDialog from "./FirmwareUploadDialog";
 const mockGetMinerModelGroups = vi.fn();
 const mockProcessFile = vi.fn();
 const mockUseFirmwareUpload = vi.fn();
-const mockUpdateFirmwareMetadata = vi.fn();
-
-vi.mock("@/protoFleet/api/useFirmwareApi", () => ({
-  useFirmwareApi: () => ({ updateFirmwareMetadata: mockUpdateFirmwareMetadata }),
-}));
+let mockSelectedFile: File;
 
 vi.mock("@/protoFleet/api/useMinerModelGroups", () => ({
   default: () => ({ getMinerModelGroups: mockGetMinerModelGroups }),
@@ -24,12 +20,20 @@ vi.mock("@/protoFleet/components/FirmwareUpload", () => ({
       data-testid="file-drop-zone"
       data-disabled={String(!!disabled)}
       disabled={disabled}
-      onClick={() => onFileSelect(new File(["firmware"], "update.swu"))}
+      onClick={() => onFileSelect(mockSelectedFile)}
     />
   ),
+  FileSelectedStatus: ({ fileName, onRemove }: { fileName: string; fileSize: number; onRemove: () => void }) => (
+    <div data-testid="file-selected-status">
+      {fileName}
+      <button type="button" onClick={onRemove}>
+        Remove
+      </button>
+    </div>
+  ),
+  firmwareVersionFromFilename: (filename: string) => filename.match(/(\d+\.\d+\.\d+)/)?.[1] ?? null,
   FileErrorStatus: vi.fn(() => null),
   FileProcessingStatus: vi.fn(() => null),
-  FileReadyStatus: vi.fn(() => <div data-testid="file-ready-status" />),
 }));
 
 vi.mock("@/shared/components/Modal/Modal", () => ({
@@ -102,7 +106,7 @@ vi.mock("@/shared/components/Input", () => ({
 describe("FirmwareUploadDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockUpdateFirmwareMetadata.mockResolvedValue(undefined);
+    mockSelectedFile = new File(["firmware"], "update-2.0.0.swu");
     mockGetMinerModelGroups.mockResolvedValue([{ manufacturer: "Proto", model: "Rig", count: 1 }]);
     mockUseFirmwareUpload.mockReturnValue({
       state: "idle",
@@ -117,142 +121,76 @@ describe("FirmwareUploadDialog", () => {
     });
   });
 
-  it("disables file selection until manufacturer, model, and version are complete", async () => {
+  it("selects a file before metadata is complete and infers its version", async () => {
     render(<FirmwareUploadDialog open onSuccess={vi.fn()} onDismiss={vi.fn()} />);
 
     const dropZone = await screen.findByTestId("file-drop-zone");
-    expect(dropZone).toHaveAttribute("data-disabled", "true");
+    expect(dropZone).toHaveAttribute("data-disabled", "false");
+    fireEvent.click(dropZone);
 
-    fireEvent.click(screen.getByTestId("firmware-target-manufacturer"));
-    fireEvent.click(screen.getByTestId("firmware-target-model"));
-    fireEvent.change(screen.getByTestId("firmware-version"), { target: { value: "2.0.0" } });
-
-    expect(screen.getByTestId("file-drop-zone")).toHaveAttribute("data-disabled", "false");
-  });
-
-  it("keeps uploaded firmware metadata visible and editable", async () => {
-    const view = render(<FirmwareUploadDialog open onSuccess={vi.fn()} onDismiss={vi.fn()} />);
-
-    await screen.findByTestId("firmware-target-manufacturer");
-    fireEvent.click(screen.getByTestId("firmware-target-manufacturer"));
-    fireEvent.click(screen.getByTestId("firmware-target-model"));
-    fireEvent.change(screen.getByTestId("firmware-version"), { target: { value: "2.0.0" } });
-    fireEvent.click(screen.getByTestId("file-drop-zone"));
-
-    mockUseFirmwareUpload.mockReturnValue({
-      state: "ready",
-      file: new File(["firmware"], "update.swu"),
-      firmwareFileId: "firmware-1",
-      uploadProgress: 100,
-      errorMessage: null,
-      serverConfig: { allowedExtensions: [".swu"] },
-      processFile: mockProcessFile,
-      reset: vi.fn(),
-      retry: vi.fn(),
-    });
-    view.rerender(<FirmwareUploadDialog open onSuccess={vi.fn()} onDismiss={vi.fn()} />);
-
-    expect(await screen.findByTestId("firmware-target-manufacturer")).not.toBeDisabled();
-    expect(screen.getByTestId("firmware-target-manufacturer")).toHaveAttribute("data-value", "Proto");
-    expect(screen.getByTestId("firmware-target-model")).not.toBeDisabled();
-    expect(screen.getByTestId("firmware-target-model")).toHaveAttribute("data-value", "Rig");
-    expect(screen.getByTestId("firmware-version")).not.toBeDisabled();
+    expect(screen.getByTestId("file-selected-status")).toHaveTextContent("update-2.0.0.swu");
     expect(screen.getByTestId("firmware-version")).toHaveValue("2.0.0");
-    expect(screen.getByTestId("file-ready-status")).toBeInTheDocument();
-    expect(screen.queryByTestId("file-drop-zone")).not.toBeInTheDocument();
-    expect(screen.queryByText("Edit metadata")).not.toBeInTheDocument();
-    expect(screen.getByText("Done")).toBeInTheDocument();
-  });
+    expect(screen.getByText("Upload")).toBeDisabled();
+    expect(mockProcessFile).not.toHaveBeenCalled();
 
-  it("updates changed metadata when Done is selected", async () => {
-    const onSuccess = vi.fn();
-    const view = render(<FirmwareUploadDialog open onSuccess={onSuccess} onDismiss={vi.fn()} />);
-
-    await screen.findByTestId("firmware-target-manufacturer");
     fireEvent.click(screen.getByTestId("firmware-target-manufacturer"));
     fireEvent.click(screen.getByTestId("firmware-target-model"));
-    fireEvent.change(screen.getByTestId("firmware-version"), { target: { value: "2.0.0" } });
-    fireEvent.click(screen.getByTestId("file-drop-zone"));
 
-    mockUseFirmwareUpload.mockReturnValue({
-      state: "ready",
-      file: new File(["firmware"], "update.swu"),
-      firmwareFileId: "firmware-1",
-      uploadProgress: 100,
-      errorMessage: null,
-      serverConfig: { allowedExtensions: [".swu"] },
-      processFile: mockProcessFile,
-      reset: vi.fn(),
-      retry: vi.fn(),
-    });
-    view.rerender(<FirmwareUploadDialog open onSuccess={onSuccess} onDismiss={vi.fn()} />);
+    expect(screen.getByText("Upload")).not.toBeDisabled();
+    fireEvent.click(screen.getByText("Upload"));
 
-    fireEvent.change(screen.getByTestId("firmware-version"), { target: { value: "2.1.0" } });
-    fireEvent.click(screen.getByText("Done"));
-
-    await waitFor(() => {
-      expect(mockUpdateFirmwareMetadata).toHaveBeenCalledWith("firmware-1", {
+    expect(mockProcessFile).toHaveBeenCalledWith(
+      mockSelectedFile,
+      {
         targetManufacturer: "Proto",
         targetModel: "Rig",
-        firmwareVersion: "2.1.0",
-      });
+        firmwareVersion: "2.0.0",
+      },
+      expect.any(Function),
+    );
+  });
+
+  it("does not replace a version entered before file selection", async () => {
+    render(<FirmwareUploadDialog open onSuccess={vi.fn()} onDismiss={vi.fn()} />);
+
+    await screen.findByTestId("file-drop-zone");
+    fireEvent.change(screen.getByTestId("firmware-version"), { target: { value: "9.0.0" } });
+    fireEvent.click(screen.getByTestId("file-drop-zone"));
+
+    expect(screen.getByTestId("firmware-version")).toHaveValue("9.0.0");
+  });
+
+  it("keeps upload unavailable when the filename has no version and metadata is incomplete", async () => {
+    mockSelectedFile = new File(["firmware"], "update.swu");
+    render(<FirmwareUploadDialog open onSuccess={vi.fn()} onDismiss={vi.fn()} />);
+
+    await screen.findByTestId("file-drop-zone");
+    fireEvent.click(screen.getByTestId("file-drop-zone"));
+    fireEvent.click(screen.getByTestId("firmware-target-manufacturer"));
+    fireEvent.click(screen.getByTestId("firmware-target-model"));
+
+    expect(screen.getByTestId("firmware-version")).toHaveValue("");
+    expect(screen.getByText("Upload")).toBeDisabled();
+    expect(mockProcessFile).not.toHaveBeenCalled();
+  });
+
+  it("closes and refreshes after the upload becomes ready", async () => {
+    const onSuccess = vi.fn();
+    render(<FirmwareUploadDialog open onSuccess={onSuccess} onDismiss={vi.fn()} />);
+
+    await screen.findByTestId("firmware-target-manufacturer");
+    fireEvent.click(screen.getByTestId("firmware-target-manufacturer"));
+    fireEvent.click(screen.getByTestId("firmware-target-model"));
+    fireEvent.change(screen.getByTestId("firmware-version"), { target: { value: "2.0.0" } });
+    fireEvent.click(screen.getByTestId("file-drop-zone"));
+    fireEvent.click(screen.getByText("Upload"));
+
+    const onReady = mockProcessFile.mock.calls[0]?.[2] as (() => void) | undefined;
+    onReady?.();
+
+    await waitFor(() => {
       expect(onSuccess).toHaveBeenCalledOnce();
     });
-  });
-
-  it("closes without updating unchanged metadata when Done is selected", async () => {
-    const onSuccess = vi.fn();
-    const view = render(<FirmwareUploadDialog open onSuccess={onSuccess} onDismiss={vi.fn()} />);
-
-    await screen.findByTestId("firmware-target-manufacturer");
-    fireEvent.click(screen.getByTestId("firmware-target-manufacturer"));
-    fireEvent.click(screen.getByTestId("firmware-target-model"));
-    fireEvent.change(screen.getByTestId("firmware-version"), { target: { value: "2.0.0" } });
-    fireEvent.click(screen.getByTestId("file-drop-zone"));
-
-    mockUseFirmwareUpload.mockReturnValue({
-      state: "ready",
-      file: new File(["firmware"], "update.swu"),
-      firmwareFileId: "firmware-1",
-      uploadProgress: 100,
-      errorMessage: null,
-      serverConfig: { allowedExtensions: [".swu"] },
-      processFile: mockProcessFile,
-      reset: vi.fn(),
-      retry: vi.fn(),
-    });
-    view.rerender(<FirmwareUploadDialog open onSuccess={onSuccess} onDismiss={vi.fn()} />);
-
-    fireEvent.click(screen.getByText("Done"));
-
-    expect(mockUpdateFirmwareMetadata).not.toHaveBeenCalled();
-    expect(onSuccess).toHaveBeenCalledOnce();
-  });
-
-  it("keeps Done unavailable while changed metadata is incomplete", async () => {
-    const view = render(<FirmwareUploadDialog open onSuccess={vi.fn()} onDismiss={vi.fn()} />);
-
-    await screen.findByTestId("firmware-target-manufacturer");
-    fireEvent.click(screen.getByTestId("firmware-target-manufacturer"));
-    fireEvent.click(screen.getByTestId("firmware-target-model"));
-    fireEvent.change(screen.getByTestId("firmware-version"), { target: { value: "2.0.0" } });
-    fireEvent.click(screen.getByTestId("file-drop-zone"));
-
-    mockUseFirmwareUpload.mockReturnValue({
-      state: "ready",
-      file: new File(["firmware"], "update.swu"),
-      firmwareFileId: "firmware-1",
-      uploadProgress: 100,
-      errorMessage: null,
-      serverConfig: { allowedExtensions: [".swu"] },
-      processFile: mockProcessFile,
-      reset: vi.fn(),
-      retry: vi.fn(),
-    });
-    view.rerender(<FirmwareUploadDialog open onSuccess={vi.fn()} onDismiss={vi.fn()} />);
-
-    fireEvent.click(screen.getByTestId("firmware-target-manufacturer"));
-
-    expect(screen.getByText("Done")).toBeDisabled();
+    expect(screen.queryByText("Done")).not.toBeInTheDocument();
   });
 });

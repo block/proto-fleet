@@ -106,9 +106,10 @@ describe("useFirmwareUpload", () => {
       });
 
       const file = new File(["data"], "firmware.swu");
+      const onReady = vi.fn();
 
       act(() => {
-        result.current.processFile(file, firmwareTarget);
+        result.current.processFile(file, firmwareTarget, onReady);
       });
 
       await vi.waitFor(() => {
@@ -117,6 +118,7 @@ describe("useFirmwareUpload", () => {
       expect(result.current.firmwareFileId).toBe("fw-new-id");
       expect(result.current.file).toBe(file);
       expect(mockUploadFirmwareFile).toHaveBeenCalled();
+      expect(onReady).toHaveBeenCalledOnce();
     });
 
     it("skips upload when file already exists on server (SHA-256 dedup)", async () => {
@@ -129,9 +131,10 @@ describe("useFirmwareUpload", () => {
       });
 
       const file = new File(["data"], "firmware.swu");
+      const onReady = vi.fn();
 
       act(() => {
-        result.current.processFile(file, firmwareTarget);
+        result.current.processFile(file, firmwareTarget, onReady);
       });
 
       await vi.waitFor(() => {
@@ -139,6 +142,7 @@ describe("useFirmwareUpload", () => {
       });
       expect(result.current.firmwareFileId).toBe("fw-existing");
       expect(mockUploadFirmwareFile).not.toHaveBeenCalled();
+      expect(onReady).toHaveBeenCalledOnce();
     });
 
     it("sets error state when target metadata is incomplete", async () => {
