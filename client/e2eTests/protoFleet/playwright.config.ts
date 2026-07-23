@@ -15,6 +15,7 @@ const skipProjectDeps = process.env.PW_UI_NO_DEPS === "1";
 export default defineConfig({
   testDir: "./spec",
   globalSetup: "./globalSetup.ts",
+  snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}-{projectName}{ext}",
   /* Run tests in serial order (one at a time) */
   fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */

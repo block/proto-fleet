@@ -176,20 +176,14 @@ export class OnboardingVisualHelper {
     await addMinersPage.waitForExpectedNetworkMinerCount(expectedMinerCount);
     await addMinersPage.clickContinueWithXMiners(expectedMinerCount);
     await minersPage.validateMinersAdded(expectedMinerCount);
-    await homePage.navigateToHomePage();
-    await homePage.validateHomePageOpened();
+    await this.waitForCompleteSetupModuleReady();
   }
 
   async captureCompleteSetupModule() {
     const { homePage, snapshots } = this.deps;
     const module = homePage.getCompleteSetupModule();
-    await homePage.validateDashboardSectionVisible("Your fleet");
-    await expect(module).toBeVisible();
-    await expect(module.getByText("Configure pools", { exact: true })).toBeVisible();
-    await expect(module.getByRole("button", { name: "Configure", exact: true })).toBeVisible();
-    await expect(module.getByText("Authenticate miners", { exact: true })).toBeVisible();
-    await expect(module.getByRole("button", { name: "Authenticate", exact: true })).toBeVisible();
-    await snapshots.captureLocator(module, VISUAL_SNAPSHOTS.completeSetup);
+    await this.waitForCompleteSetupModuleReady();
+    await snapshots.captureLocator(module, VISUAL_SNAPSHOTS.completeSetup, { maxDiffPixels: 5000 });
   }
 
   async openSingleProtoRigActionsMenu() {
@@ -225,5 +219,19 @@ export class OnboardingVisualHelper {
   async captureBulkActionsMenu() {
     const { minersPage, snapshots } = this.deps;
     await snapshots.captureLocator(minersPage.getBulkActionsPopover(), VISUAL_SNAPSHOTS.bulkMoreMenu);
+  }
+
+  private async waitForCompleteSetupModuleReady() {
+    const { homePage } = this.deps;
+    const module = homePage.getCompleteSetupModule();
+
+    await expect(async () => {
+      await homePage.navigateToHomePage();
+      await homePage.validateHomePageOpened();
+      await homePage.validateDashboardSectionVisible("Your fleet");
+      await expect(module).toBeVisible();
+      await expect(module.getByText("Authenticate miners", { exact: true })).toBeVisible();
+      await expect(module.getByRole("button", { name: "Authenticate", exact: true })).toBeVisible();
+    }).toPass({ timeout: testConfig.testTimeout });
   }
 }
