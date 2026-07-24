@@ -21,8 +21,6 @@ type Group struct {
 
 	jobs           []Job
 	terminalErr    error
-	pendingCleanup []Job
-	stopAttempts   map[string]<-chan error
 	activationDone <-chan struct{}
 	cancel         context.CancelFunc
 	stopGeneration uint64
@@ -46,7 +44,6 @@ func NewGroup(jobs []Job) (*Group, error) {
 	return &Group{
 		jobs:            slices.Clone(jobs),
 		operationPermit: make(chan struct{}, 1),
-		stopAttempts:    make(map[string]<-chan error),
 	}, nil
 }
 
@@ -108,19 +105,19 @@ func (g *Group) failStart(ctx context.Context, started int, startErr error) erro
 		rollbackCtx, cancel = context.WithDeadline(rollbackCtx, deadline)
 		defer cancel()
 	}
-	pendingCleanup, rollbackErr := g.stopJobs(rollbackCtx, g.jobs[:started])
+	rollbackErr := g.stopJobs(rollbackCtx, g.jobs[:started])
 	g.clearActivation()
 	if rollbackErr == nil {
 		return startErr
 	}
 
-	g.pendingCleanup = pendingCleanup
 	terminalErr := errors.Join(startErr, fmt.Errorf("rollback runtime jobs: %w", rollbackErr))
 	g.setTerminalErr(terminalErr)
 	return terminalErr
 }
 
 // Stop broadcasts cancellation, then stops jobs in reverse registration order.
+// A cleanup failure is terminal and is not retried.
 func (g *Group) Stop(ctx context.Context) error {
 	// Cancellation is not a lifecycle operation: broadcast it before waiting so
 	// a Start blocked inside a job can return and release the operation slot.
@@ -130,10 +127,8 @@ func (g *Group) Stop(ctx context.Context) error {
 	}
 	defer g.releaseOperation()
 
-	if len(g.pendingCleanup) > 0 {
-		var err error
-		g.pendingCleanup, err = g.stopJobs(ctx, g.pendingCleanup)
-		return err
+	if terminalErr := g.Err(); terminalErr != nil {
+		return terminalErr
 	}
 	_, cancel := g.activation()
 	if cancel == nil {
@@ -142,9 +137,8 @@ func (g *Group) Stop(ctx context.Context) error {
 
 	g.cancelActivation()
 	g.clearActivation()
-	pendingCleanup, err := g.stopJobs(ctx, g.jobs)
+	err := g.stopJobs(ctx, g.jobs)
 	if err != nil {
-		g.pendingCleanup = pendingCleanup
 		g.setTerminalErr(err)
 		return err
 	}
@@ -229,41 +223,23 @@ func (g *Group) clearActivation() {
 	g.cancel = nil
 }
 
-func (g *Group) stopJobs(parent context.Context, jobs []Job) ([]Job, error) {
+func (g *Group) stopJobs(parent context.Context, jobs []Job) error {
 	stopCtx, cancel := context.WithTimeout(parent, groupCleanupTimeout)
 	defer cancel()
 
-	var pendingCleanup []Job
 	var stopErrors []error
 	for _, job := range slices.Backward(jobs) {
 		err := g.stopJob(stopCtx, job)
 		if err != nil {
-			pendingCleanup = append(pendingCleanup, job)
 			stopErrors = append(stopErrors, fmt.Errorf("stop runtime job %q: %w", job.Name(), err))
 		}
 	}
-	slices.Reverse(pendingCleanup)
-	return pendingCleanup, errors.Join(stopErrors...)
+	return errors.Join(stopErrors...)
 }
 
 func (g *Group) stopJob(stopCtx context.Context, job Job) error {
-	if result, ok := g.stopAttempts[job.Name()]; ok {
-		err, completed := waitForStopResult(stopCtx, result)
-		if !completed {
-			return err
-		}
-		delete(g.stopAttempts, job.Name())
-		if err == nil {
-			return nil
-		}
-		// This invocation joined the previous attempt. Once that attempt has
-		// returned, one fresh attempt is safe; never retry an attempt started by
-		// this same invocation or an immediate error could loop forever.
-	}
-
 	result := make(chan error, 1)
 	stopGoroutineStarted := make(chan struct{})
-	g.stopAttempts[job.Name()] = result
 	go func() {
 		close(stopGoroutineStarted)
 		result <- job.Stop(stopCtx)
@@ -273,23 +249,19 @@ func (g *Group) stopJob(stopCtx context.Context, job Job) error {
 	// necessarily best effort; waiting for it could make shutdown unbounded.
 	<-stopGoroutineStarted
 
-	err, completed := waitForStopResult(stopCtx, result)
-	if completed {
-		delete(g.stopAttempts, job.Name())
-	}
-	return err
+	return waitForStopResult(stopCtx, result)
 }
 
-func waitForStopResult(stopCtx context.Context, result <-chan error) (error, bool) {
+func waitForStopResult(stopCtx context.Context, result <-chan error) error {
 	select {
 	case err := <-result:
-		return err, true
+		return err
 	case <-stopCtx.Done():
 		select {
 		case err := <-result:
-			return err, true
+			return err
 		default:
-			return fmt.Errorf("wait for runtime job stop: %w", stopCtx.Err()), false
+			return fmt.Errorf("wait for runtime job stop: %w", stopCtx.Err())
 		}
 	}
 }

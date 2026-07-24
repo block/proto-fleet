@@ -149,14 +149,21 @@ func TestGroupRollbackFailureIsTerminal(t *testing.T) {
 	t.Parallel()
 
 	rollbackErr := errors.New("rollback failed")
+	var stopCalls atomic.Int32
 	group := newTestGroup(t,
-		newTestJob("a", nil, func(context.Context) error { return rollbackErr }),
+		newTestJob("a", nil, func(context.Context) error {
+			stopCalls.Add(1)
+			return rollbackErr
+		}),
 		newTestJob("b", func(context.Context) error { return errors.New("start failed") }, nil),
 	)
 
 	err := group.Start(context.Background())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, rollbackErr)
+
+	assert.ErrorIs(t, group.Stop(context.Background()), rollbackErr)
+	assert.Equal(t, int32(1), stopCalls.Load())
 
 	err = group.Start(context.Background())
 	require.ErrorContains(t, err, "cannot restart after incomplete cleanup")
@@ -169,9 +176,16 @@ func TestGroupStopAggregatesErrorsAndBecomesTerminal(t *testing.T) {
 
 	errA := errors.New("stop a")
 	errB := errors.New("stop b")
+	var stopCalls atomic.Int32
 	group := newTestGroup(t,
-		newTestJob("a", nil, func(context.Context) error { return errA }),
-		newTestJob("b", nil, func(context.Context) error { return errB }),
+		newTestJob("a", nil, func(context.Context) error {
+			stopCalls.Add(1)
+			return errA
+		}),
+		newTestJob("b", nil, func(context.Context) error {
+			stopCalls.Add(1)
+			return errB
+		}),
 	)
 	require.NoError(t, group.Start(context.Background()))
 
@@ -179,6 +193,11 @@ func TestGroupStopAggregatesErrorsAndBecomesTerminal(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errA)
 	assert.ErrorIs(t, err, errB)
+
+	err = group.Stop(context.Background())
+	assert.ErrorIs(t, err, errA)
+	assert.ErrorIs(t, err, errB)
+	assert.Equal(t, int32(2), stopCalls.Load())
 
 	err = group.Start(context.Background())
 	require.ErrorContains(t, err, "cannot restart after incomplete cleanup")
@@ -192,10 +211,12 @@ func TestGroupStopTimeoutIsGroupWideAndTerminal(t *testing.T) {
 	stopEntered := make(chan struct{})
 	allowStop := make(chan struct{})
 	defer close(allowStop)
+	var stopCalls atomic.Int32
 	group, err := NewGroup([]Job{newTestJob(
 		"stuck",
 		noopJob,
 		func(context.Context) error {
+			stopCalls.Add(1)
 			close(stopEntered)
 			<-allowStop
 			return nil
@@ -217,67 +238,11 @@ func TestGroupStopTimeoutIsGroupWideAndTerminal(t *testing.T) {
 		t.Fatal("stop was not attempted")
 	}
 
+	require.ErrorIs(t, group.Stop(context.Background()), context.DeadlineExceeded)
+	assert.Equal(t, int32(1), stopCalls.Load())
+
 	err = group.Start(context.Background())
 	require.ErrorContains(t, err, "cannot restart after incomplete cleanup")
-}
-
-func TestGroupStopRetriesOnlyIncompleteCleanup(t *testing.T) {
-	t.Parallel()
-
-	var completedStops atomic.Int32
-	var retriedStops atomic.Int32
-	group, err := NewGroup([]Job{
-		newTestJob("retried", noopJob, func(ctx context.Context) error {
-			if retriedStops.Add(1) == 1 {
-				<-ctx.Done()
-				return ctx.Err()
-			}
-			return nil
-		}),
-		newTestJob("completed", noopJob, func(context.Context) error {
-			completedStops.Add(1)
-			return nil
-		}),
-	})
-	require.NoError(t, err)
-	require.NoError(t, group.Start(context.Background()))
-
-	stopCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	require.ErrorIs(t, group.Stop(stopCtx), context.DeadlineExceeded)
-	require.NoError(t, group.Stop(context.Background()))
-	assert.Equal(t, int32(1), completedStops.Load())
-	assert.Equal(t, int32(2), retriedStops.Load())
-	assert.ErrorIs(t, group.Err(), context.DeadlineExceeded)
-	require.ErrorContains(t, group.Start(context.Background()), "cannot restart after incomplete cleanup")
-}
-
-func TestGroupStopRetriesIncompleteStartupRollback(t *testing.T) {
-	t.Parallel()
-
-	rollbackErr := errors.New("rollback failed")
-	var completedStops atomic.Int32
-	var retriedStops atomic.Int32
-	group := newTestGroup(t,
-		newTestJob("retried", noopJob, func(context.Context) error {
-			if retriedStops.Add(1) == 1 {
-				return rollbackErr
-			}
-			return nil
-		}),
-		newTestJob("completed", noopJob, func(context.Context) error {
-			completedStops.Add(1)
-			return nil
-		}),
-		newTestJob("fails", func(context.Context) error { return errors.New("start failed") }, noopJob),
-	)
-
-	require.ErrorIs(t, group.Start(context.Background()), rollbackErr)
-	require.NoError(t, group.Stop(context.Background()))
-	assert.Equal(t, int32(1), completedStops.Load())
-	assert.Equal(t, int32(2), retriedStops.Load())
-	assert.ErrorIs(t, group.Err(), rollbackErr)
-	require.ErrorContains(t, group.Start(context.Background()), "cannot restart after incomplete cleanup")
 }
 
 func TestGroupStopSharesOneDeadlineAcrossJobs(t *testing.T) {
@@ -359,9 +324,8 @@ func TestGroupStopReturnsReadyResultAfterContextCancellation(t *testing.T) {
 	stopCtx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err, completed := waitForStopResult(stopCtx, result)
+	err := waitForStopResult(stopCtx, result)
 	assert.ErrorIs(t, err, stopErr)
-	assert.True(t, completed)
 }
 
 func TestGroupStopCancelsBlockedStartBeforeWaitingForOperation(t *testing.T) {
@@ -433,72 +397,6 @@ func TestGroupStopRequestCancelsStartWaitingToPublishActivation(t *testing.T) {
 	group.releaseOperation()
 	require.ErrorIs(t, <-startResult, context.Canceled)
 	assert.Equal(t, int32(0), starts.Load(), "the pre-publication stop request must cancel before any job starts")
-}
-
-func TestGroupStopRetryJoinsInFlightAttemptBeforeRetrying(t *testing.T) {
-	t.Parallel()
-
-	firstStopEntered := make(chan struct{})
-	releaseFirstStop := make(chan struct{})
-	secondStopEntered := make(chan struct{})
-	firstStopErr := errors.New("first stop failed")
-	var stopCalls atomic.Int32
-	var activeStops atomic.Int32
-	var maxActiveStops atomic.Int32
-	group, err := NewGroup([]Job{newTestJob("job", noopJob, func(context.Context) error {
-		call := stopCalls.Add(1)
-		active := activeStops.Add(1)
-		defer activeStops.Add(-1)
-		for {
-			currentMax := maxActiveStops.Load()
-			if active <= currentMax || maxActiveStops.CompareAndSwap(currentMax, active) {
-				break
-			}
-		}
-		if call == 1 {
-			close(firstStopEntered)
-			<-releaseFirstStop
-			return firstStopErr
-		}
-		close(secondStopEntered)
-		return nil
-	})})
-	require.NoError(t, err)
-	require.NoError(t, group.Start(context.Background()))
-
-	firstResult := make(chan error, 1)
-	go func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-		defer cancel()
-		firstResult <- group.Stop(stopCtx)
-	}()
-	<-firstStopEntered
-	require.ErrorIs(t, <-firstResult, context.DeadlineExceeded)
-
-	retryResult := make(chan error, 1)
-	go func() {
-		retryResult <- group.Stop(context.Background())
-	}()
-	require.Eventually(t, func() bool {
-		return len(group.operationPermit) == 1
-	}, time.Second, time.Millisecond, "retry did not acquire the serialized operation permit")
-	select {
-	case <-secondStopEntered:
-		t.Fatal("retry overlapped the in-flight job Stop")
-	default:
-	}
-	assert.Equal(t, int32(1), stopCalls.Load())
-
-	close(releaseFirstStop)
-	select {
-	case <-secondStopEntered:
-	case <-time.After(time.Second):
-		t.Fatal("retry did not make a fresh attempt after the joined attempt failed")
-	}
-	require.NoError(t, <-retryResult)
-	assert.Equal(t, int32(2), stopCalls.Load())
-	assert.Equal(t, int32(1), maxActiveStops.Load())
-	assert.ErrorIs(t, group.Err(), context.DeadlineExceeded)
 }
 
 func TestGroupStartAndStopAreIdempotent(t *testing.T) {
