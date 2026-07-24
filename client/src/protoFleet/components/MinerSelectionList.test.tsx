@@ -3,6 +3,11 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import MinerSelectionList from "./MinerSelectionList";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  FLEET_SELECTABLE_PAIRING_STATUSES,
+  FLEET_VISIBLE_PAIRING_STATUSES,
+} from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 
 const { fleetArgsSpy, listPropsSpy, listRacksMock, listGroupsMock, hasPermMock } = vi.hoisted(() => ({
   fleetArgsSpy: vi.fn(),
@@ -391,5 +396,31 @@ describe("MinerSelectionList eligibility", () => {
       <>{colConfig.name.component({ deviceIdentifier: "b", rackId: 9n, siteId: 2n, buildingId: 3n, ...base }, [])}</>,
     );
     expect(ineligible.container.querySelector(conflictButton)).not.toBeNull();
+  });
+});
+
+describe("MinerSelectionList pairing statuses", () => {
+  beforeEach(() => {
+    fleetArgsSpy.mockReset();
+    listRacksMock.mockReset();
+    listGroupsMock.mockReset();
+  });
+
+  const lastFleetPairingStatuses = () => {
+    const calls = fleetArgsSpy.mock.calls;
+    return calls[calls.length - 1]?.[0]?.pairingStatuses;
+  };
+
+  it("fetches PAIRED-only by default (other selection flows unchanged)", () => {
+    render(<MinerSelectionList />);
+    expect(lastFleetPairingStatuses()).toEqual(FLEET_SELECTABLE_PAIRING_STATUSES);
+    expect(lastFleetPairingStatuses()).toEqual([PairingStatus.PAIRED]);
+  });
+
+  it("forwards a widened pairing set so non-paired rack members render (#777)", () => {
+    render(<MinerSelectionList pairingStatuses={FLEET_VISIBLE_PAIRING_STATUSES} />);
+    expect(lastFleetPairingStatuses()).toEqual(FLEET_VISIBLE_PAIRING_STATUSES);
+    expect(lastFleetPairingStatuses()).toContain(PairingStatus.AUTHENTICATION_NEEDED);
+    expect(lastFleetPairingStatuses()).toContain(PairingStatus.DEFAULT_PASSWORD);
   });
 });
