@@ -16,14 +16,13 @@ const groupCleanupTimeout = 10 * time.Second
 // Lifecycle operations are serialized. A group can restart after a clean stop,
 // but incomplete cleanup permanently prevents another activation.
 type Group struct {
-	stateMu         sync.Mutex
-	operationPermit chan struct{}
+	stateMu     sync.Mutex
+	operationMu sync.Mutex
 
 	jobs           []Job
 	terminalErr    error
 	activationDone <-chan struct{}
 	cancel         context.CancelFunc
-	stopGeneration uint64
 }
 
 // NewGroup validates group configuration and creates a stopped group.
@@ -41,10 +40,7 @@ func NewGroup(jobs []Job) (*Group, error) {
 		seen[job.Name()] = struct{}{}
 	}
 
-	return &Group{
-		jobs:            slices.Clone(jobs),
-		operationPermit: make(chan struct{}, 1),
-	}, nil
+	return &Group{jobs: slices.Clone(jobs)}, nil
 }
 
 // Err reports the terminal cleanup failure that prevents reactivation.
@@ -56,14 +52,8 @@ func (g *Group) Err() error {
 
 // Start starts every job in registration order.
 func (g *Group) Start(ctx context.Context) error {
-	// A Stop requested after this Start invocation must cancel this activation,
-	// including the narrow interval between acquiring the operation permit and
-	// publishing the activation cancel function.
-	stopGeneration := g.currentStopGeneration()
-	if err := g.acquireOperation(ctx); err != nil {
-		return err
-	}
-	defer g.releaseOperation()
+	g.operationMu.Lock()
+	defer g.operationMu.Unlock()
 
 	if terminalErr := g.Err(); terminalErr != nil {
 		return fmt.Errorf("runtime job group cannot restart after incomplete cleanup: %w", terminalErr)
@@ -79,7 +69,7 @@ func (g *Group) Start(ctx context.Context) error {
 	}
 
 	activationCtx, cancel := context.WithCancel(ctx)
-	g.setActivation(activationCtx.Done(), cancel, stopGeneration)
+	g.setActivation(activationCtx.Done(), cancel)
 	started := 0
 	for _, job := range g.jobs {
 		if err := activationCtx.Err(); err != nil {
@@ -119,13 +109,8 @@ func (g *Group) failStart(ctx context.Context, started int, startErr error) erro
 // Stop broadcasts cancellation, then stops jobs in reverse registration order.
 // A cleanup failure is terminal and is not retried.
 func (g *Group) Stop(ctx context.Context) error {
-	// Cancellation is not a lifecycle operation: broadcast it before waiting so
-	// a Start blocked inside a job can return and release the operation slot.
-	g.requestStop()
-	if err := g.acquireOperation(ctx); err != nil {
-		return err
-	}
-	defer g.releaseOperation()
+	g.operationMu.Lock()
+	defer g.operationMu.Unlock()
 
 	if terminalErr := g.Err(); terminalErr != nil {
 		return terminalErr
@@ -145,31 +130,6 @@ func (g *Group) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (g *Group) acquireOperation(ctx context.Context) error {
-	// Context bounds waiting behind another lifecycle operation. If the permit
-	// is already free, Stop must still make its best-effort cleanup attempt.
-	select {
-	case g.operationPermit <- struct{}{}:
-		return nil
-	default:
-	}
-
-	select {
-	case g.operationPermit <- struct{}{}:
-		if err := ctx.Err(); err != nil {
-			g.releaseOperation()
-			return fmt.Errorf("acquire runtime job group operation: %w", err)
-		}
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("acquire runtime job group operation: %w", ctx.Err())
-	}
-}
-
-func (g *Group) releaseOperation() {
-	<-g.operationPermit
-}
-
 func (g *Group) setTerminalErr(err error) {
 	g.stateMu.Lock()
 	defer g.stateMu.Unlock()
@@ -182,31 +142,11 @@ func (g *Group) activation() (<-chan struct{}, context.CancelFunc) {
 	return g.activationDone, g.cancel
 }
 
-func (g *Group) currentStopGeneration() uint64 {
+func (g *Group) setActivation(done <-chan struct{}, cancel context.CancelFunc) {
 	g.stateMu.Lock()
 	defer g.stateMu.Unlock()
-	return g.stopGeneration
-}
-
-func (g *Group) setActivation(done <-chan struct{}, cancel context.CancelFunc, stopGeneration uint64) {
-	g.stateMu.Lock()
 	g.activationDone = done
 	g.cancel = cancel
-	stopRequested := g.stopGeneration != stopGeneration
-	g.stateMu.Unlock()
-	if stopRequested {
-		cancel()
-	}
-}
-
-func (g *Group) requestStop() {
-	g.stateMu.Lock()
-	g.stopGeneration++
-	cancel := g.cancel
-	g.stateMu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
 }
 
 func (g *Group) cancelActivation() {

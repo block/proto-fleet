@@ -328,77 +328,6 @@ func TestGroupStopReturnsReadyResultAfterContextCancellation(t *testing.T) {
 	assert.ErrorIs(t, err, stopErr)
 }
 
-func TestGroupStopCancelsBlockedStartBeforeWaitingForOperation(t *testing.T) {
-	t.Parallel()
-
-	startEntered := make(chan struct{})
-	startCanceled := make(chan struct{})
-	var stops atomic.Int32
-	group := newTestGroup(t,
-		newTestJob("started", noopJob, func(context.Context) error {
-			stops.Add(1)
-			return nil
-		}),
-		newTestJob("blocked", func(ctx context.Context) error {
-			close(startEntered)
-			<-ctx.Done()
-			close(startCanceled)
-			return ctx.Err()
-		}, noopJob),
-	)
-
-	startResult := make(chan error, 1)
-	go func() {
-		startResult <- group.Start(context.Background())
-	}()
-	<-startEntered
-
-	stopResult := make(chan error, 1)
-	go func() {
-		stopResult <- group.Stop(context.Background())
-	}()
-
-	select {
-	case <-startCanceled:
-	case <-time.After(time.Second):
-		t.Fatal("Stop did not cancel the blocked Start")
-	}
-
-	require.ErrorIs(t, <-startResult, context.Canceled)
-	require.NoError(t, <-stopResult)
-	assert.Equal(t, int32(1), stops.Load(), "Stop must roll back only the successfully started prefix")
-}
-
-func TestGroupStopRequestCancelsStartWaitingToPublishActivation(t *testing.T) {
-	t.Parallel()
-
-	var starts atomic.Int32
-	group := newTestGroup(t, newTestJob("job", func(context.Context) error {
-		starts.Add(1)
-		return nil
-	}, noopJob))
-
-	// Occupy the operation slot so Start snapshots the current stop generation,
-	// then blocks before it can publish its activation cancel function.
-	group.operationPermit <- struct{}{}
-	startWaiting := make(chan struct{}, 1)
-	startResult := make(chan error, 1)
-	go func() {
-		startResult <- group.Start(doneObservedContext{
-			observed: startWaiting,
-		})
-	}()
-	<-startWaiting
-
-	stopCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	require.ErrorIs(t, group.Stop(stopCtx), context.DeadlineExceeded)
-
-	group.releaseOperation()
-	require.ErrorIs(t, <-startResult, context.Canceled)
-	assert.Equal(t, int32(0), starts.Load(), "the pre-publication stop request must cancel before any job starts")
-}
-
 func TestGroupStartAndStopAreIdempotent(t *testing.T) {
 	t.Parallel()
 
@@ -456,23 +385,6 @@ func newTestJob(name string, start, stop func(context.Context) error) Job {
 }
 
 func noopJob(context.Context) error { return nil }
-
-type doneObservedContext struct {
-	observed chan<- struct{}
-}
-
-func (doneObservedContext) Deadline() (time.Time, bool) { return time.Time{}, false }
-
-func (c doneObservedContext) Done() <-chan struct{} {
-	select {
-	case c.observed <- struct{}{}:
-	default:
-	}
-	return nil
-}
-
-func (doneObservedContext) Err() error    { return nil }
-func (doneObservedContext) Value(any) any { return nil }
 
 type testLifecycle struct {
 	start func(context.Context) error
