@@ -24,15 +24,12 @@ func TestNewJobValidation(t *testing.T) {
 func TestNewGroupValidation(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewGroup([]Job{nil}, time.Second)
+	_, err := NewGroup([]Job{nil})
 	require.ErrorContains(t, err, "runtime job 0 must not be nil")
 
 	job := newTestJob("job", nil, nil)
-	_, err = NewGroup([]Job{job, job}, time.Second)
+	_, err = NewGroup([]Job{job, job})
 	require.ErrorContains(t, err, "appears more than once")
-
-	_, err = NewGroup(nil, 0)
-	require.ErrorContains(t, err, "cleanup timeout must be positive")
 }
 
 func TestGroupStartsInOrderAndStopsInReverseAfterBroadcastingCancellation(t *testing.T) {
@@ -195,7 +192,7 @@ func TestGroupStopTimeoutIsGroupWideAndTerminal(t *testing.T) {
 	stopEntered := make(chan struct{})
 	allowStop := make(chan struct{})
 	defer close(allowStop)
-	group, err := NewGroup([]Job{newTestJob(
+	group, err := newGroup([]Job{newTestJob(
 		"stuck",
 		noopJob,
 		func(context.Context) error {
@@ -227,7 +224,7 @@ func TestGroupStopRetriesOnlyIncompleteCleanup(t *testing.T) {
 
 	var completedStops atomic.Int32
 	var retriedStops atomic.Int32
-	group, err := NewGroup([]Job{
+	group, err := newGroup([]Job{
 		newTestJob("retried", noopJob, func(ctx context.Context) error {
 			if retriedStops.Add(1) == 1 {
 				<-ctx.Done()
@@ -302,7 +299,7 @@ func TestGroupStopSharesOneDeadlineAcrossJobs(t *testing.T) {
 			},
 		)
 	}
-	group, err := NewGroup([]Job{
+	group, err := newGroup([]Job{
 		makeJob("waits-for-deadline", true),
 		makeJob("uses-part-of-budget", false),
 	}, 30*time.Millisecond)
@@ -442,7 +439,7 @@ func TestGroupStopRetryJoinsInFlightAttemptBeforeRetrying(t *testing.T) {
 	var stopCalls atomic.Int32
 	var activeStops atomic.Int32
 	var maxActiveStops atomic.Int32
-	group, err := NewGroup([]Job{newTestJob("job", noopJob, func(context.Context) error {
+	group, err := newGroup([]Job{newTestJob("job", noopJob, func(context.Context) error {
 		call := stopCalls.Add(1)
 		active := activeStops.Add(1)
 		defer activeStops.Add(-1)
@@ -533,7 +530,7 @@ func TestGroupRequiresStopAfterActivationContextEnds(t *testing.T) {
 
 func newTestGroup(t *testing.T, jobs ...Job) *Group {
 	t.Helper()
-	group, err := NewGroup(jobs, time.Second)
+	group, err := newGroup(jobs, time.Second)
 	require.NoError(t, err)
 	return group
 }

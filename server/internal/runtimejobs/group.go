@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const groupCleanupTimeout = 10 * time.Second
+
 // Group owns at most one activation of an ordered set of jobs at a time.
 //
 // Lifecycle operations are serialized. A group can restart after a clean stop,
@@ -28,12 +30,13 @@ type Group struct {
 }
 
 // NewGroup validates group configuration and creates a stopped group.
-// cleanupTimeout is one wall-clock budget shared by every job during a stop
+// The group shares one ten-second cleanup budget across every job during a stop
 // or startup rollback.
-func NewGroup(jobs []Job, cleanupTimeout time.Duration) (*Group, error) {
-	if cleanupTimeout <= 0 {
-		return nil, errors.New("runtime job cleanup timeout must be positive")
-	}
+func NewGroup(jobs []Job) (*Group, error) {
+	return newGroup(jobs, groupCleanupTimeout)
+}
+
+func newGroup(jobs []Job, cleanupTimeout time.Duration) (*Group, error) {
 	seen := make(map[string]struct{}, len(jobs))
 	for i, job := range jobs {
 		if job == nil {
