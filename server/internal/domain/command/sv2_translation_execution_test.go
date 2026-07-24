@@ -8,12 +8,14 @@ import (
 
 	"go.uber.org/mock/gomock"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	minerMocks "github.com/block/proto-fleet/server/internal/domain/command/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	minerIfaceMocks "github.com/block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
+	storeMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/sv2/translator"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	"github.com/stretchr/testify/assert"
@@ -26,6 +28,7 @@ type releaseRecordingTranslatorManager struct {
 	endpoint    translator.Endpoint
 	onApply     func()
 	changed     bool
+	err         error
 }
 
 func (*releaseRecordingTranslatorManager) PreviewAssignment(
@@ -46,7 +49,7 @@ func (m *releaseRecordingTranslatorManager) ApplyAssignment(
 	}
 	m.profiles = append(m.profiles, profile)
 	m.assignments = append(m.assignments, assignment)
-	return m.endpoint, m.changed, nil
+	return m.endpoint, m.changed, m.err
 }
 
 func (*releaseRecordingTranslatorManager) Resume(context.Context) error {
@@ -261,4 +264,56 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReconcilesTranslationAfterMine
 			assert.Equal(t, []string{"miner-a"}, manager.assignments[0].TranslatedDeviceIdentifiers)
 		})
 	}
+}
+
+func TestHandleUnpairPostProcessingByIdentifier_ReleasesTranslationFirst(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
+	pairingStatusUpdated := false
+	manager := &releaseRecordingTranslatorManager{
+		onApply: func() {
+			assert.False(t, pairingStatusUpdated, "translator release must precede Fleet cleanup")
+		},
+	}
+
+	mockDeviceStore.EXPECT().
+		UpdateDevicePairingStatusByIdentifier(
+			gomock.Any(),
+			"miner-a",
+			string(sqlc.PairingStatusEnumUNPAIRED),
+		).
+		DoAndReturn(func(context.Context, string, string) error {
+			pairingStatusUpdated = true
+			return nil
+		})
+	mockMinerGetter.EXPECT().InvalidateMiner(models.DeviceIdentifier("miner-a"))
+
+	service := &ExecutionService{
+		minerService:      mockMinerGetter,
+		deviceStore:       mockDeviceStore,
+		translatorManager: manager,
+	}
+
+	err := service.handleUnpairPostProcessingByIdentifier(t.Context(), "miner-a")
+
+	require.NoError(t, err)
+	require.Len(t, manager.assignments, 1)
+	assert.Nil(t, manager.profiles[0])
+	assert.Equal(t, []string{"miner-a"}, manager.assignments[0].SelectedDeviceIdentifiers)
+	assert.Empty(t, manager.assignments[0].TranslatedDeviceIdentifiers)
+}
+
+func TestHandleUnpairPostProcessingByIdentifier_ReturnsTranslatorReleaseFailure(t *testing.T) {
+	manager := &releaseRecordingTranslatorManager{
+		err: errors.New("persist translator state"),
+	}
+	service := &ExecutionService{translatorManager: manager}
+
+	err := service.handleUnpairPostProcessingByIdentifier(t.Context(), "miner-a")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to release device from Stratum V2 translator after unpair")
+	require.Len(t, manager.assignments, 1)
+	assert.Equal(t, []string{"miner-a"}, manager.assignments[0].SelectedDeviceIdentifiers)
 }

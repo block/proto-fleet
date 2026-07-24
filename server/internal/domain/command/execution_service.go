@@ -1263,13 +1263,34 @@ func normalizePoolUsernameBase(username string) string {
 	return strings.TrimSpace(trimmed[:firstSeparator])
 }
 
-// handleUnpairPostProcessing updates device pairing status and unregisters from telemetry after successful unpair
+// handleUnpairPostProcessing releases local state after a successful miner unpair.
 func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, deviceID int64) error {
 	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
 		return q.GetDeviceIdentifierByID(ctx, deviceID)
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to get device identifier by ID: %v", err)
+	}
+
+	return es.handleUnpairPostProcessingByIdentifier(ctx, deviceIdentifier)
+}
+
+func (es *ExecutionService) handleUnpairPostProcessingByIdentifier(
+	ctx context.Context,
+	deviceIdentifier string,
+) error {
+	if es.translatorManager != nil {
+		_, _, err := es.translatorManager.ApplyAssignment(
+			ctx,
+			nil,
+			translator.Assignment{SelectedDeviceIdentifiers: []string{deviceIdentifier}},
+		)
+		if err != nil {
+			return fleeterror.NewInternalErrorf(
+				"failed to release device from Stratum V2 translator after unpair: %v",
+				err,
+			)
+		}
 	}
 
 	if err := es.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, deviceIdentifier, string(sqlc.PairingStatusEnumUNPAIRED)); err != nil {
