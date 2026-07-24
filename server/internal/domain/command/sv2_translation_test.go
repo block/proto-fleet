@@ -52,11 +52,11 @@ func (f *translationTestManager) ApplyAssignment(
 	_ context.Context,
 	profile *translator.Profile,
 	assignment translator.Assignment,
-) (translator.Endpoint, error) {
+) (translator.Endpoint, bool, error) {
 	f.calls++
 	f.profile = profile
 	f.assignment = assignment
-	return f.endpoint, f.err
+	return f.endpoint, true, f.err
 }
 
 func (f *translationTestManager) Resume(context.Context) error {
@@ -95,8 +95,9 @@ func TestPrepareUpdateMiningPoolsDispatch_RoutesByNativeCapability(t *testing.T)
 	}
 	payload := &dto.UpdateMiningPoolsPayload{
 		DefaultPool: dto.MiningPool{
-			URL:      translationTestSV2URL,
-			Username: "account",
+			URL:             translationTestSV2URL,
+			Username:        "account",
+			AppendMinerName: true,
 		},
 		Backup1Pool: &dto.MiningPool{
 			Priority: 1,
@@ -126,6 +127,7 @@ func TestPrepareUpdateMiningPoolsDispatch_RoutesByNativeCapability(t *testing.T)
 	require.True(t, ok)
 	assert.Equal(t, int64(11), messages[0].DeviceID)
 	assert.Equal(t, translationTestSV2URL, nativePayload.DefaultPool.URL)
+	assert.True(t, nativePayload.DefaultPool.AppendMinerName)
 	assert.True(t, nativePayload.ReleaseSV2Translation)
 	assert.Nil(t, nativePayload.SV2Translation)
 	require.NotNil(t, nativePayload.Backup1Pool)
@@ -135,9 +137,11 @@ func TestPrepareUpdateMiningPoolsDispatch_RoutesByNativeCapability(t *testing.T)
 	require.True(t, ok)
 	assert.Equal(t, int64(12), messages[1].DeviceID)
 	assert.Equal(t, manager.endpoint.String(), sv1Payload.DefaultPool.URL)
+	assert.True(t, sv1Payload.DefaultPool.AppendMinerName)
 	assert.False(t, sv1Payload.ReleaseSV2Translation)
 	require.NotNil(t, sv1Payload.SV2Translation)
 	assert.True(t, translator.ProfilesEqual(planProfileFromTestPayload(t, payload), sv1Payload.SV2Translation.Profile))
+	assert.Equal(t, "account", sv1Payload.SV2Translation.Profile.Upstreams[0].Username)
 	assert.Equal(t, []int{0}, sv1Payload.SV2Translation.TranslatedPoolIndexes)
 	require.NotNil(t, sv1Payload.Backup1Pool)
 	assert.Equal(t, "stratum+tcp://backup.example.com:3333", sv1Payload.Backup1Pool.URL)

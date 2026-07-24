@@ -38,6 +38,10 @@ type UpdateMiningPoolsPayload struct {
 }
 
 type SV2TranslationInstruction struct {
+	// Profile intentionally carries Fleet-level account identities. The
+	// per-miner AppendMinerName flag stays on the mining-pool payload so tProxy
+	// receives the full SV1 username and can forward its worker suffix through
+	// extension 0x0002 when the upstream supports it.
 	Profile               translator.Profile `json:"profile"`
 	TranslatedPoolIndexes []int              `json:"translated_pool_indexes"`
 }

@@ -11,6 +11,7 @@ import (
 	minerMocks "github.com/block/proto-fleet/server/internal/domain/command/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	minerIfaceMocks "github.com/block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/sv2/translator"
@@ -24,6 +25,7 @@ type releaseRecordingTranslatorManager struct {
 	profiles    []*translator.Profile
 	endpoint    translator.Endpoint
 	onApply     func()
+	changed     bool
 }
 
 func (*releaseRecordingTranslatorManager) PreviewAssignment(
@@ -38,13 +40,13 @@ func (m *releaseRecordingTranslatorManager) ApplyAssignment(
 	_ context.Context,
 	profile *translator.Profile,
 	assignment translator.Assignment,
-) (translator.Endpoint, error) {
+) (translator.Endpoint, bool, error) {
 	if m.onApply != nil {
 		m.onApply()
 	}
 	m.profiles = append(m.profiles, profile)
 	m.assignments = append(m.assignments, assignment)
-	return m.endpoint, nil
+	return m.endpoint, m.changed, nil
 }
 
 func (*releaseRecordingTranslatorManager) Resume(context.Context) error {
@@ -168,4 +170,95 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_AppliesTranslationAtDispatch(t
 	require.Len(t, manager.assignments, 1)
 	assert.Equal(t, []string{"miner-a"}, manager.assignments[0].SelectedDeviceIdentifiers)
 	assert.Equal(t, []string{"miner-a"}, manager.assignments[0].TranslatedDeviceIdentifiers)
+}
+
+func TestExecuteCommandOnDevice_UpdateMiningPools_ReconcilesTranslationAfterMinerFailure(t *testing.T) {
+	const oldPoolURL = "stratum+tcp://old-pool.example.com:3333"
+	endpoint := translator.Endpoint("stratum+tcp://10.0.0.9:34255")
+	tests := []struct {
+		name              string
+		assignmentChanged bool
+		currentPoolURL    string
+		wantRollback      bool
+	}{
+		{
+			name:              "new assignment is rolled back when miner kept old pool",
+			assignmentChanged: true,
+			currentPoolURL:    oldPoolURL,
+			wantRollback:      true,
+		},
+		{
+			name:              "new assignment is preserved when miner applied update before error",
+			assignmentChanged: true,
+			currentPoolURL:    endpoint.String(),
+		},
+		{
+			name:           "existing assignment is preserved when miner still uses translator",
+			currentPoolURL: endpoint.String(),
+		},
+		{
+			name:           "unconfirmed assignment is rolled back on retry",
+			currentPoolURL: oldPoolURL,
+			wantRollback:   true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+			miner := minerIfaceMocks.NewMockMiner(ctrl)
+			manager := &releaseRecordingTranslatorManager{
+				endpoint: endpoint,
+				changed:  test.assignmentChanged,
+			}
+			profile := translator.Profile{Upstreams: []translator.Upstream{{
+				URL:      translationTestSV2URL,
+				Username: "account",
+			}}}
+			payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
+				DefaultPool: dto.MiningPool{
+					URL:      "stratum+tcp://planned-endpoint:34255",
+					Username: "account",
+				},
+				SV2Translation: &dto.SV2TranslationInstruction{
+					Profile:               profile,
+					TranslatedPoolIndexes: []int{0},
+				},
+			})
+			require.NoError(t, err)
+
+			mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(41)).Return(miner, nil)
+			miner.EXPECT().GetOrgID().Return(int64(7))
+			miner.EXPECT().GetSiteID().Return(int64(0))
+			miner.EXPECT().GetID().Return(models.DeviceIdentifier("miner-a")).AnyTimes()
+			miner.EXPECT().
+				UpdateMiningPools(gomock.Any(), gomock.AssignableToTypeOf(dto.UpdateMiningPoolsPayload{})).
+				Return(errors.New("miner rejected pool update"))
+			miner.EXPECT().GetMiningPools(gomock.Any()).Return([]interfaces.MinerConfiguredPool{{
+				URL: test.currentPoolURL,
+			}}, nil)
+
+			service := &ExecutionService{
+				minerService:      mockMinerGetter,
+				translatorManager: manager,
+			}
+			_, _, err = service.executeCommandOnDevice(
+				t.Context(),
+				commandtype.UpdateMiningPools,
+				queue.Message{DeviceID: 41, Payload: payloadBytes},
+			)
+
+			require.Error(t, err)
+			if test.wantRollback {
+				require.Len(t, manager.assignments, 2)
+				assert.Equal(t, []string{"miner-a"}, manager.assignments[1].SelectedDeviceIdentifiers)
+				assert.Empty(t, manager.assignments[1].TranslatedDeviceIdentifiers)
+				assert.Nil(t, manager.profiles[1])
+				return
+			}
+			require.Len(t, manager.assignments, 1)
+			assert.Equal(t, []string{"miner-a"}, manager.assignments[0].TranslatedDeviceIdentifiers)
+		})
+	}
 }

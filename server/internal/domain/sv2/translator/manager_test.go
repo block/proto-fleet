@@ -58,7 +58,7 @@ func TestApplyAssignmentRequiresReleaseBeforeProfileChange(t *testing.T) {
 	manager.runtime = runtime
 	profile := Profile{Upstreams: []Upstream{{URL: managerTestURL, Username: "account"}}}
 
-	endpoint, err := manager.ApplyAssignment(
+	endpoint, changed, err := manager.ApplyAssignment(
 		context.Background(),
 		&profile,
 		Assignment{
@@ -68,6 +68,7 @@ func TestApplyAssignmentRequiresReleaseBeforeProfileChange(t *testing.T) {
 	)
 
 	require.NoError(t, err)
+	assert.True(t, changed)
 	assert.Equal(t, "stratum+tcp://sv2-tproxy:"+strconv.Itoa(port), endpoint.String())
 	assert.Equal(t, 1, runtime.startCalls)
 	_, err = os.Stat(filepath.Join(manager.config.StateDir, configFileName))
@@ -75,13 +76,25 @@ func TestApplyAssignmentRequiresReleaseBeforeProfileChange(t *testing.T) {
 	_, err = os.Stat(filepath.Join(manager.config.StateDir, profileFileName))
 	require.NoError(t, err)
 
+	_, changed, err = manager.ApplyAssignment(
+		context.Background(),
+		&profile,
+		Assignment{
+			SelectedDeviceIdentifiers:   []string{"miner-a"},
+			TranslatedDeviceIdentifiers: []string{"miner-a"},
+		},
+	)
+	require.NoError(t, err)
+	assert.False(t, changed)
+	assert.Equal(t, 2, runtime.startCalls)
+
 	otherProfile := Profile{
 		Upstreams: []Upstream{{
 			URL:      "stratum2+tcp://other.example.com:34254/9bXiEd8boQVhq7WddEcERUL5tyyJVFYdU8th3HfbNXK3Yw6GRXh",
 			Username: "other",
 		}},
 	}
-	_, err = manager.ApplyAssignment(
+	_, _, err = manager.ApplyAssignment(
 		context.Background(),
 		&otherProfile,
 		Assignment{
@@ -91,15 +104,16 @@ func TestApplyAssignmentRequiresReleaseBeforeProfileChange(t *testing.T) {
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "move all translated miners")
-	assert.Equal(t, 1, runtime.startCalls)
+	assert.Equal(t, 2, runtime.startCalls)
 	assert.Equal(t, 0, runtime.stopCalls)
 
-	_, err = manager.ApplyAssignment(
+	_, changed, err = manager.ApplyAssignment(
 		context.Background(),
 		nil,
 		Assignment{SelectedDeviceIdentifiers: []string{"miner-b"}},
 	)
 	require.NoError(t, err)
+	assert.True(t, changed)
 	assert.Equal(t, 0, runtime.stopCalls)
 
 	_, err = manager.PreviewAssignment(
@@ -112,15 +126,16 @@ func TestApplyAssignmentRequiresReleaseBeforeProfileChange(t *testing.T) {
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "move all translated miners")
-	assert.Equal(t, 1, runtime.startCalls)
+	assert.Equal(t, 2, runtime.startCalls)
 	assert.Equal(t, 0, runtime.stopCalls)
 
-	_, err = manager.ApplyAssignment(
+	_, changed, err = manager.ApplyAssignment(
 		context.Background(),
 		nil,
 		Assignment{SelectedDeviceIdentifiers: []string{"miner-a"}},
 	)
 	require.NoError(t, err)
+	assert.True(t, changed)
 	assert.Equal(t, 1, runtime.stopCalls)
 	_, err = os.Stat(filepath.Join(manager.config.StateDir, configFileName))
 	assert.ErrorIs(t, err, os.ErrNotExist)
@@ -139,9 +154,9 @@ func TestApplyAssignmentRequiresReleaseBeforeProfileChange(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, endpoint, previewEndpoint)
-	assert.Equal(t, 1, runtime.startCalls)
+	assert.Equal(t, 2, runtime.startCalls)
 
-	_, err = manager.ApplyAssignment(
+	_, changed, err = manager.ApplyAssignment(
 		context.Background(),
 		&otherProfile,
 		Assignment{
@@ -150,7 +165,8 @@ func TestApplyAssignmentRequiresReleaseBeforeProfileChange(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, 2, runtime.startCalls)
+	assert.True(t, changed)
+	assert.Equal(t, 3, runtime.startCalls)
 	assert.Equal(t, 1, runtime.stopCalls)
 }
 
@@ -174,7 +190,7 @@ func TestPersistedAssignmentResumesTranslator(t *testing.T) {
 	manager, err := NewManager(config)
 	require.NoError(t, err)
 	manager.runtime = &managerTestRuntime{}
-	_, err = manager.ApplyAssignment(
+	_, _, err = manager.ApplyAssignment(
 		context.Background(),
 		&profile,
 		Assignment{
@@ -209,6 +225,7 @@ func TestRenderConfigUsesCanonicalAuthorityKeyAndPerUpstreamIdentity(t *testing.
 	require.NoError(t, err)
 	text := string(rendered)
 	assert.Contains(t, text, "downstream_port = 34255")
+	assert.Contains(t, text, "supported_extensions = [0x0002]")
 	assert.Contains(t, text, `authority_pubkey = "9bXiEd8boQVhq7WddEcERUL5tyyJVFYdU8th3HfbNXK3Yw6GRXh"`)
 	assert.Contains(t, text, `user_identity = "account.worker"`)
 }

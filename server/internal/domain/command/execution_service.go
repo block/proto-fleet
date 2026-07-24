@@ -700,7 +700,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 				break
 			}
 			deviceIdentifier := string(minerInfo.GetID())
-			endpoint, applyErr := es.translatorManager.ApplyAssignment(
+			endpoint, assignmentChanged, applyErr := es.translatorManager.ApplyAssignment(
 				ctx,
 				&sv2Translation.Profile,
 				translator.Assignment{
@@ -724,10 +724,23 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 					"prepare translated pool payload: %v",
 					rewriteErr,
 				)
+				if assignmentChanged {
+					err = es.rollbackSV2TranslationAssignment(ctx, deviceIdentifier, err)
+				}
 				break
 			}
+			err = minerInfo.UpdateMiningPools(ctx, p)
+			if err != nil && es.shouldRollbackSV2TranslationAssignment(
+				ctx,
+				minerInfo,
+				endpoint,
+				assignmentChanged,
+			) {
+				err = es.rollbackSV2TranslationAssignment(ctx, deviceIdentifier, err)
+			}
+		} else {
+			err = minerInfo.UpdateMiningPools(ctx, p)
 		}
-		err = minerInfo.UpdateMiningPools(ctx, p)
 		if err == nil && workerNameToPersist != "" {
 			err = es.persistWorkerNameAfterPoolUpdate(ctx, message.DeviceID, minerInfo.GetID(), workerNameToPersist)
 			if err != nil {
@@ -735,7 +748,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			}
 		}
 		if err == nil && releaseSV2Translation && es.translatorManager != nil {
-			_, err = es.translatorManager.ApplyAssignment(
+			_, _, err = es.translatorManager.ApplyAssignment(
 				ctx,
 				nil,
 				translator.Assignment{SelectedDeviceIdentifiers: []string{string(minerInfo.GetID())}},
@@ -848,6 +861,55 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		slog.Error("command execution failed", "command", commandType, "device_id", message.DeviceID, "batch_uuid", message.BatchLogUUID, "error", err)
 	}
 	return orgID, siteID, err
+}
+
+func (es *ExecutionService) shouldRollbackSV2TranslationAssignment(
+	ctx context.Context,
+	minerInfo interfaces.Miner,
+	endpoint translator.Endpoint,
+	assignmentChanged bool,
+) bool {
+	currentPools, err := minerInfo.GetMiningPools(ctx)
+	if err != nil {
+		slog.Warn(
+			"failed to verify Stratum V2 translator assignment after pool update failure",
+			"device_id",
+			minerInfo.GetID(),
+			"error",
+			err,
+		)
+		return assignmentChanged
+	}
+	for _, pool := range currentPools {
+		if strings.TrimSpace(pool.URL) == endpoint.String() {
+			return false
+		}
+	}
+	return true
+}
+
+func (es *ExecutionService) rollbackSV2TranslationAssignment(
+	ctx context.Context,
+	deviceIdentifier string,
+	commandErr error,
+) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+	defer cancel()
+
+	_, _, rollbackErr := es.translatorManager.ApplyAssignment(
+		cleanupCtx,
+		nil,
+		translator.Assignment{SelectedDeviceIdentifiers: []string{deviceIdentifier}},
+	)
+	if rollbackErr == nil {
+		return commandErr
+	}
+	return fleeterror.NewInternalErrorf(
+		"%v; rollback Stratum V2 translator assignment for miner %s: %v",
+		commandErr,
+		deviceIdentifier,
+		rollbackErr,
+	)
 }
 
 func rewriteTranslatedPoolEndpoints(

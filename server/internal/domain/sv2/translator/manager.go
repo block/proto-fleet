@@ -40,7 +40,9 @@ type Assignment struct {
 
 type Manager interface {
 	PreviewAssignment(ctx context.Context, desired *Profile, assignment Assignment) (Endpoint, error)
-	ApplyAssignment(ctx context.Context, desired *Profile, assignment Assignment) (Endpoint, error)
+	// ApplyAssignment reports whether persisted device membership changed so a
+	// caller can compensate if the corresponding miner update later fails.
+	ApplyAssignment(ctx context.Context, desired *Profile, assignment Assignment) (Endpoint, bool, error)
 	Resume(ctx context.Context) error
 	ActiveProfile() (Profile, Endpoint, bool)
 }
@@ -182,10 +184,10 @@ func (m *FileManager) ApplyAssignment(
 	ctx context.Context,
 	desired *Profile,
 	assignment Assignment,
-) (Endpoint, error) {
+) (Endpoint, bool, error) {
 	normalized, selected, translated, err := normalizeAssignment(desired, assignment)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	m.mu.Lock()
@@ -196,10 +198,12 @@ func (m *FileManager) ApplyAssignment(
 		delete(remaining, identifier)
 	}
 	if len(translated) == 0 {
-		return m.releaseSelectedLocked(remaining)
+		changed := !equalDeviceSets(remaining, m.devices)
+		endpoint, err := m.releaseSelectedLocked(remaining)
+		return endpoint, changed && err == nil, err
 	}
 	if m.active && !ProfilesEqual(m.profile, normalized) {
-		return "", fmt.Errorf(
+		return "", false, fmt.Errorf(
 			"SV2 translator profile is active; move all translated miners to non-SV2 pools before changing the pool set",
 		)
 	}
@@ -208,36 +212,37 @@ func (m *FileManager) ApplyAssignment(
 	for _, identifier := range translated {
 		nextDevices[identifier] = struct{}{}
 	}
+	changed := !equalDeviceSets(nextDevices, m.devices)
 	if m.active && ProfilesEqual(m.profile, normalized) {
 		if err := m.startAndWaitLocked(ctx, m.endpoint); err != nil {
-			return "", err
+			return "", false, err
 		}
 		if err := m.persistActiveProfile(m.profile, m.endpoint, nextDevices); err != nil {
-			return "", err
+			return "", false, err
 		}
 		m.devices = nextDevices
-		return m.endpoint, nil
+		return m.endpoint, changed, nil
 	}
 
 	previous := m.snapshotLocked()
 	if previous.active {
 		if err := m.stopLocked(); err != nil {
-			return "", err
+			return "", false, err
 		}
 	}
 	endpoint, err := m.endpointForProfile(ctx, normalized)
 	if err != nil {
 		_ = m.restoreLocked(previous)
-		return "", err
+		return "", false, err
 	}
 	if err := m.activateLocked(ctx, normalized, endpoint, nextDevices); err != nil {
 		restoreErr := m.restoreLocked(previous)
 		if restoreErr != nil {
-			return "", fmt.Errorf("%v; restore previous SV2 translator profile: %w", err, restoreErr)
+			return "", false, fmt.Errorf("%v; restore previous SV2 translator profile: %w", err, restoreErr)
 		}
-		return "", err
+		return "", false, err
 	}
-	return endpoint, nil
+	return endpoint, true, nil
 }
 
 func (m *FileManager) Resume(ctx context.Context) error {
