@@ -2532,7 +2532,8 @@ SELECT
     CASE WHEN dp.id IS NOT NULL THEN dp.pairing_status::text ELSE 'UNPAIRED' END AS pairing_status
 FROM curtailment_target ct
 INNER JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
-LEFT JOIN device d ON d.device_identifier = ct.device_identifier
+INNER JOIN device d ON d.device_identifier = ct.device_identifier
+    AND d.org_id = ce.org_id
     AND d.deleted_at IS NULL
 LEFT JOIN device_pairing dp ON dp.device_id = d.id
 WHERE ct.state = 'dispatched'
@@ -2575,9 +2576,11 @@ type ListEligibleConfirmationTargetsRow struct {
 //
 // phase_dispatched_at / phase_batch_uuid select the columns for the row's
 // phase so the pulse bounds sample freshness and guards the promoting write
-// on the exact applicable batch UUID. baseline_power_w and pairing_status
-// feed the same confirmation predicates the full tick uses; pairing_status
-// joins like ListCurtailmentCandidatesByOrg (missing device -> 'UNPAIRED').
+// on the exact applicable batch UUID. A target is eligible only while its
+// identifier resolves to a current, non-deleted device in the event's org;
+// missing, deleted, or moved identifiers stay on the full reconciler path.
+// baseline_power_w and pairing_status feed the same confirmation predicates
+// the full tick uses, with pairing read from that exact live device.
 func (q *Queries) ListEligibleConfirmationTargets(ctx context.Context) ([]ListEligibleConfirmationTargetsRow, error) {
 	rows, err := q.query(ctx, q.listEligibleConfirmationTargetsStmt, listEligibleConfirmationTargets)
 	if err != nil {

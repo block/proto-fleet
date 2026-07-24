@@ -69,6 +69,15 @@ func confirmationTargetsByDevice(
 	return byDevice
 }
 
+func createConfirmationTestDevices(t *testing.T, db *testutil.DatabaseService, orgID int64, count int) []string {
+	t.Helper()
+	devices := make([]string, count)
+	for i := range count {
+		devices[i] = db.CreateDevice(orgID, "proto").ID
+	}
+	return devices
+}
+
 // TestSQLCurtailmentStore_ConfirmationEligibleWorkIncludesDispatchedPhases
 // covers the inclusion cases: dispatched curtail targets under pending and
 // active events, and dispatched restore targets under restoring events. It
@@ -85,6 +94,8 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkIncludesDispatchedPhases(t 
 	ctx := t.Context()
 	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
 	org := user.OrganizationID
+	devices := createConfirmationTestDevices(t, testContext.DatabaseService, org, 3)
+	pendingDevice, activeDevice, restoreDevice := devices[0], devices[1], devices[2]
 
 	// Pending curtail event with a dispatched curtail target.
 	pendingUUID := uuid.New()
@@ -92,14 +103,14 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkIncludesDispatchedPhases(t 
 		ctx,
 		curtailmentStoreTestEvent(org, user.DatabaseID, pendingUUID, models.EventStatePending, "confirm-pending"),
 		[]models.InsertTargetParams{
-			curtailmentStoreTestTarget("miner-confirm-pending", models.TargetStatePending, models.DesiredStateCurtailed),
+			curtailmentStoreTestTarget(pendingDevice, models.TargetStatePending, models.DesiredStateCurtailed),
 		},
 	)
 	require.NoError(t, err)
 	curtailed := models.DesiredStateCurtailed
 	pendingDispatchedAt := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
 	pendingBatch := "batch-confirm-pending"
-	require.NoError(t, store.UpdateTargetState(ctx, pendingInserted.ID, "miner-confirm-pending", interfaces.UpdateCurtailmentTargetStateParams{
+	require.NoError(t, store.UpdateTargetState(ctx, pendingInserted.ID, pendingDevice, interfaces.UpdateCurtailmentTargetStateParams{
 		State:                models.TargetStateDispatched,
 		LastDispatchedAt:     &pendingDispatchedAt,
 		LastBatchUUID:        &pendingBatch,
@@ -108,19 +119,19 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkIncludesDispatchedPhases(t 
 
 	// Active curtail event with a dispatched curtail target.
 	activeDispatchedAt := time.Date(2026, 7, 1, 11, 0, 0, 0, time.UTC)
-	activeID, _ := insertDispatchedCurtailTarget(t, ctx, store, org, user.DatabaseID, "confirm-active", "miner-confirm-active", "batch-confirm-active", activeDispatchedAt)
+	activeID, _ := insertDispatchedCurtailTarget(t, ctx, store, org, user.DatabaseID, "confirm-active", activeDevice, "batch-confirm-active", activeDispatchedAt)
 
 	// Restoring event with a dispatched restore target. Curtail phase is
 	// stamped first (different timestamp + batch), then the event moves to
 	// restoring and the restore phase is dispatched; the query must return the
 	// restore phase, not the curtail phase.
-	restoreID, restoreUUID := insertDispatchedCurtailTarget(t, ctx, store, org, user.DatabaseID, "confirm-restore", "miner-confirm-restore", "batch-confirm-restore-curtail", time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC))
+	restoreID, restoreUUID := insertDispatchedCurtailTarget(t, ctx, store, org, user.DatabaseID, "confirm-restore", restoreDevice, "batch-confirm-restore-curtail", time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC))
 	_, err = store.BeginRestoreTransition(ctx, org, restoreUUID, interfaces.BeginRestoreTransitionParams{})
 	require.NoError(t, err)
 	activeDesired := models.DesiredStateActive
 	restoreDispatchedAt := time.Date(2026, 7, 1, 13, 0, 0, 0, time.UTC)
 	restoreBatch := "batch-confirm-restore"
-	require.NoError(t, store.UpdateTargetState(ctx, restoreID, "miner-confirm-restore", interfaces.UpdateCurtailmentTargetStateParams{
+	require.NoError(t, store.UpdateTargetState(ctx, restoreID, restoreDevice, interfaces.UpdateCurtailmentTargetStateParams{
 		State:                models.TargetStateDispatched,
 		LastDispatchedAt:     &restoreDispatchedAt,
 		LastBatchUUID:        &restoreBatch,
@@ -130,7 +141,7 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkIncludesDispatchedPhases(t 
 	byDevice := confirmationTargetsByDevice(t, ctx, store)
 	require.Len(t, byDevice, 3)
 
-	pendingRow, ok := byDevice["miner-confirm-pending"]
+	pendingRow, ok := byDevice[pendingDevice]
 	require.True(t, ok, "pending curtail target must be eligible")
 	assert.Equal(t, pendingInserted.ID, pendingRow.EventID)
 	assert.Equal(t, pendingUUID, pendingRow.EventUUID)
@@ -140,7 +151,7 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkIncludesDispatchedPhases(t 
 	assertTimeEqual(t, pendingDispatchedAt, &pendingRow.DispatchedAt)
 	assert.Equal(t, pendingBatch, pendingRow.BatchUUID)
 
-	activeRow, ok := byDevice["miner-confirm-active"]
+	activeRow, ok := byDevice[activeDevice]
 	require.True(t, ok, "active curtail target must be eligible")
 	assert.Equal(t, activeID, activeRow.EventID)
 	assert.Equal(t, models.EventStateActive, activeRow.EventState)
@@ -148,7 +159,7 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkIncludesDispatchedPhases(t 
 	assertTimeEqual(t, activeDispatchedAt, &activeRow.DispatchedAt)
 	assert.Equal(t, "batch-confirm-active", activeRow.BatchUUID)
 
-	restoreRow, ok := byDevice["miner-confirm-restore"]
+	restoreRow, ok := byDevice[restoreDevice]
 	require.True(t, ok, "restoring restore target must be eligible")
 	assert.Equal(t, restoreID, restoreRow.EventID)
 	assert.Equal(t, models.EventStateRestoring, restoreRow.EventState)
@@ -176,6 +187,12 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkExcludesIneligible(t *testi
 	userID := user.DatabaseID
 	curtailed := models.DesiredStateCurtailed
 	activeDesired := models.DesiredStateActive
+	devices := createConfirmationTestDevices(t, testContext.DatabaseService, orgID, 8)
+	pendingDevice := devices[0]
+	confirmedDevice := devices[1]
+	terminalDevices := devices[2:6]
+	restoringMismatchDevice := devices[6]
+	activeMismatchDevice := devices[7]
 
 	// Not dispatched: target still pending under an active event.
 	pendingUUID := uuid.New()
@@ -183,15 +200,15 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkExcludesIneligible(t *testi
 		ctx,
 		curtailmentStoreTestEvent(orgID, userID, pendingUUID, models.EventStateActive, "exclude-pending-state"),
 		[]models.InsertTargetParams{
-			curtailmentStoreTestTarget("miner-exclude-pending", models.TargetStatePending, models.DesiredStateCurtailed),
+			curtailmentStoreTestTarget(pendingDevice, models.TargetStatePending, models.DesiredStateCurtailed),
 		},
 	)
 	require.NoError(t, err)
 
 	// Confirmed: target advanced past dispatched.
-	confirmedID, _ := insertDispatchedCurtailTarget(t, ctx, store, orgID, userID, "exclude-confirmed", "miner-exclude-confirmed", "batch-exclude-confirmed", time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC))
+	confirmedID, _ := insertDispatchedCurtailTarget(t, ctx, store, orgID, userID, "exclude-confirmed", confirmedDevice, "batch-exclude-confirmed", time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC))
 	confirmedAt := time.Date(2026, 7, 2, 10, 0, 30, 0, time.UTC)
-	require.NoError(t, store.UpdateTargetState(ctx, confirmedID, "miner-exclude-confirmed", interfaces.UpdateCurtailmentTargetStateParams{
+	require.NoError(t, store.UpdateTargetState(ctx, confirmedID, confirmedDevice, interfaces.UpdateCurtailmentTargetStateParams{
 		State:                models.TargetStateConfirmed,
 		ConfirmedAt:          &confirmedAt,
 		ExpectedDesiredState: &curtailed,
@@ -205,7 +222,7 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkExcludesIneligible(t *testi
 		models.EventStateCancelled,
 		models.EventStateFailed,
 	} {
-		device := "miner-exclude-terminal-" + string(terminal)
+		device := terminalDevices[i]
 		eventID, _ := insertDispatchedCurtailTarget(t, ctx, store, orgID, userID, "exclude-terminal-"+string(terminal), device, "batch-terminal", time.Date(2026, 7, 2, 11, i, 0, 0, time.UTC))
 		require.NoError(t, store.UpdateEventState(ctx, eventID, models.EventStateActive, terminal, nil, nil))
 	}
@@ -218,13 +235,13 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkExcludesIneligible(t *testi
 		ctx,
 		curtailmentStoreTestEvent(orgID, userID, mismatchRestoringUUID, models.EventStateRestoring, "exclude-mismatch-restoring"),
 		[]models.InsertTargetParams{
-			curtailmentStoreTestTarget("miner-exclude-mismatch-restoring", models.TargetStateDispatched, models.DesiredStateCurtailed),
+			curtailmentStoreTestTarget(restoringMismatchDevice, models.TargetStateDispatched, models.DesiredStateCurtailed),
 		},
 	)
 	require.NoError(t, err)
 	mismatchCurtailAt := time.Date(2026, 7, 2, 12, 0, 0, 0, time.UTC)
 	mismatchCurtailBatch := "batch-exclude-mismatch-restoring"
-	require.NoError(t, store.UpdateTargetState(ctx, mismatchRestoringInserted.ID, "miner-exclude-mismatch-restoring", interfaces.UpdateCurtailmentTargetStateParams{
+	require.NoError(t, store.UpdateTargetState(ctx, mismatchRestoringInserted.ID, restoringMismatchDevice, interfaces.UpdateCurtailmentTargetStateParams{
 		State:                models.TargetStateDispatched,
 		LastDispatchedAt:     &mismatchCurtailAt,
 		LastBatchUUID:        &mismatchCurtailBatch,
@@ -237,13 +254,13 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkExcludesIneligible(t *testi
 		ctx,
 		curtailmentStoreTestEvent(orgID, userID, mismatchActiveUUID, models.EventStateActive, "exclude-mismatch-active"),
 		[]models.InsertTargetParams{
-			curtailmentStoreTestTarget("miner-exclude-mismatch-active", models.TargetStateDispatched, models.DesiredStateActive),
+			curtailmentStoreTestTarget(activeMismatchDevice, models.TargetStateDispatched, models.DesiredStateActive),
 		},
 	)
 	require.NoError(t, err)
 	mismatchRestoreAt := time.Date(2026, 7, 2, 13, 0, 0, 0, time.UTC)
 	mismatchRestoreBatch := "batch-exclude-mismatch-active"
-	require.NoError(t, store.UpdateTargetState(ctx, mismatchActiveInserted.ID, "miner-exclude-mismatch-active", interfaces.UpdateCurtailmentTargetStateParams{
+	require.NoError(t, store.UpdateTargetState(ctx, mismatchActiveInserted.ID, activeMismatchDevice, interfaces.UpdateCurtailmentTargetStateParams{
 		State:                models.TargetStateDispatched,
 		LastDispatchedAt:     &mismatchRestoreAt,
 		LastBatchUUID:        &mismatchRestoreBatch,
@@ -257,8 +274,9 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkExcludesIneligible(t *testi
 
 // TestSQLCurtailmentStore_ConfirmationEligibleWorkReturnsPairingBaselineAndPolicyFlag
 // pins the confirmation-support fields: the pairing-status join (a real paired
-// device vs a device row that does not exist -> 'UNPAIRED'), the baseline power,
-// and the all-paired policy flag the pulse needs to reproduce the pairing gate.
+// device), the baseline power, and the all-paired policy flag the pulse needs
+// to reproduce the pairing gate. A target without a live device is excluded
+// from the fast path instead of being represented as unpaired.
 func TestSQLCurtailmentStore_ConfirmationEligibleWorkReturnsPairingBaselineAndPolicyFlag(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
@@ -292,12 +310,11 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkReturnsPairingBaselineAndPo
 		ExpectedDesiredState: &curtailed,
 	}))
 
-	// Phantom device (no device row) under a normal event: pairing -> UNPAIRED,
-	// flag false, no baseline.
+	// Phantom device (no device row) under a normal event is excluded.
 	_, _ = insertDispatchedCurtailTarget(t, ctx, store, orgID, user.DatabaseID, "confirm-phantom", "miner-confirm-phantom", "batch-confirm-phantom", time.Date(2026, 7, 3, 11, 0, 0, 0, time.UTC))
 
 	byDevice := confirmationTargetsByDevice(t, ctx, store)
-	require.Len(t, byDevice, 2)
+	require.Len(t, byDevice, 1)
 
 	pairedRow, ok := byDevice[pairedDevice]
 	require.True(t, ok)
@@ -306,11 +323,35 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkReturnsPairingBaselineAndPo
 	require.NotNil(t, pairedRow.BaselinePowerW)
 	assert.InDelta(t, baseline, *pairedRow.BaselinePowerW, 0.001)
 
-	phantomRow, ok := byDevice["miner-confirm-phantom"]
-	require.True(t, ok)
-	assert.Equal(t, "UNPAIRED", phantomRow.PairingStatus)
-	assert.False(t, phantomRow.ForceIncludeAllPairedMiners)
-	assert.Nil(t, phantomRow.BaselinePowerW)
+	assert.NotContains(t, byDevice, "miner-confirm-phantom")
+}
+
+// TestSQLCurtailmentStore_ConfirmationEligibleWorkExcludesCrossOrgIdentifierReuse
+// proves a stale target cannot bind to a live device that now carries the same
+// identifier in another org. Only a current device in the event's own org may
+// enter the fast path; the stale target remains for the full reconciler tick.
+func TestSQLCurtailmentStore_ConfirmationEligibleWorkExcludesCrossOrgIdentifierReuse(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	originalOrgUser := testContext.DatabaseService.CreateSuperAdminUser()
+	reuseOrgUser := testContext.DatabaseService.CreateSuperAdminUser2()
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+
+	originalOrgDevice := testContext.DatabaseService.CreateDevice(originalOrgUser.OrganizationID, "proto").ID
+	reusedIdentifier := testContext.DatabaseService.CreateDevice(reuseOrgUser.OrganizationID, "proto").ID
+	dispatchedAt := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
+
+	_, _ = insertDispatchedCurtailTarget(t, ctx, store, originalOrgUser.OrganizationID, originalOrgUser.DatabaseID, "confirm-same-org-control", originalOrgDevice, "batch-confirm-same-org-control", dispatchedAt)
+	_, _ = insertDispatchedCurtailTarget(t, ctx, store, originalOrgUser.OrganizationID, originalOrgUser.DatabaseID, "confirm-cross-org-reuse", reusedIdentifier, "batch-confirm-cross-org-reuse", dispatchedAt)
+
+	byDevice := confirmationTargetsByDevice(t, ctx, store)
+	require.Len(t, byDevice, 1)
+	assert.Contains(t, byDevice, originalOrgDevice)
+	assert.NotContains(t, byDevice, reusedIdentifier)
 }
 
 // TestSQLCurtailmentStore_ConfirmationGuardPromotesOnceAndRejectsDuplicate

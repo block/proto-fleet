@@ -767,19 +767,31 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 	return true
 }
 
+type dispatchFailureGuard struct {
+	expectedState     models.TargetState
+	expectedBatchUUID *string
+}
+
 // recordDispatchFailure bumps retry_count. Restore targets transition to
 // RestoreFailed at MaxRetries so the event can complete; curtail targets stay
 // retryable while OFF remains asserted, with retry_count surfacing the alert.
-//
-// expectedState, when supplied, guards the write on the target's current
-// state (pass models.TargetStateDispatched for dispatch-timeout aging). A
-// confirmation pulse that already advanced the target out of dispatched then
-// race-loses the guard (ErrCurtailmentEventStateRaceLoss, skipped gracefully)
-// instead of reverting the promotion and burning retry budget — including the
-// restore-at-retry-ceiling case that would otherwise mark a genuinely-restored
-// miner RESTORE_FAILED. Omit it for call sites that act on rows the pulse would
-// no-op on (candidate-missing / no-longer-paired), which must always age.
-func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState, expectedState ...models.TargetState) {
+func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState) {
+	r.recordDispatchFailureGuarded(ctx, ev, t, errMsg, nonTerminalFailureState, nil)
+}
+
+// recordDispatchTimeoutFailure guards timeout aging on both the loaded state
+// and dispatch batch. The batch token closes the ABA window where another
+// fleetd confirms and redispatches the row before this stale snapshot writes.
+// Legacy dispatched rows without a batch token retain the state guard so they
+// can still age out instead of becoming permanently stuck.
+func (r *Reconciler) recordDispatchTimeoutFailure(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState) {
+	r.recordDispatchFailureGuarded(ctx, ev, t, errMsg, nonTerminalFailureState, &dispatchFailureGuard{
+		expectedState:     models.TargetStateDispatched,
+		expectedBatchUUID: t.LastBatchUUID,
+	})
+}
+
+func (r *Reconciler) recordDispatchFailureGuarded(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState, guard *dispatchFailureGuard) {
 	newRetry := t.RetryCount + 1
 	state := nonTerminalFailureState
 	if r.retryBudgetTerminalizes(t, newRetry) {
@@ -790,9 +802,9 @@ func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event
 		LastError:  &errMsg,
 		RetryCount: &newRetry,
 	}
-	if len(expectedState) > 0 {
-		guard := expectedState[0]
-		params.ExpectedState = &guard
+	if guard != nil {
+		params.ExpectedState = &guard.expectedState
+		params.ExpectedDispatchBatchUUID = guard.expectedBatchUUID
 	}
 	err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params)
 	if err == nil {
@@ -1435,10 +1447,9 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 				// Guard on dispatched: if the confirmation pulse already
 				// confirmed this target from a fresh sample, this stale-snapshot
 				// aging write race-loses instead of reverting it and burning retry.
-				r.recordDispatchFailure(ctx, ev, t,
+				r.recordDispatchTimeoutFailure(ctx, ev, t,
 					"curtail telemetry timeout",
-					models.TargetStateDispatching,
-					models.TargetStateDispatched)
+					models.TargetStateDispatching)
 			}
 		}
 		return
@@ -1687,13 +1698,17 @@ func (r *Reconciler) writeTargetState(ctx context.Context, ev *models.Event, dev
 		return nil
 	}
 	if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-		r.metrics.IncEventStateRaceLoss()
-		slog.Warn("curtailment reconciler: target state advanced concurrently; skipping update",
-			"event_id", ev.ID, "event_uuid", ev.EventUUID, "device", deviceID)
+		r.recordTargetStateRaceLoss(ev, deviceID)
 		return err
 	}
 	r.metrics.IncTargetWriteFailure()
 	return err
+}
+
+func (r *Reconciler) recordTargetStateRaceLoss(ev *models.Event, deviceID string) {
+	r.metrics.IncEventStateRaceLoss()
+	slog.Warn("curtailment reconciler: target state advanced concurrently; skipping update",
+		"event_id", ev.ID, "event_uuid", ev.EventUUID, "device", deviceID)
 }
 
 func expectedDesiredStateForEventState(state models.EventState) string {
@@ -2016,10 +2031,9 @@ func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t 
 				// resolved this restore target, this stale-snapshot aging write
 				// race-loses instead of reverting it — critically avoiding a
 				// spurious RESTORE_FAILED when retry budget is at the ceiling.
-				r.recordDispatchFailure(ctx, ev, t,
+				r.recordDispatchTimeoutFailure(ctx, ev, t,
 					"restore telemetry timeout",
-					models.TargetStatePending,
-					models.TargetStateDispatched)
+					models.TargetStatePending)
 			}
 		}
 		return

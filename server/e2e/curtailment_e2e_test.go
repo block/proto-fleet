@@ -416,6 +416,9 @@ func configureProtoSimPools(t *testing.T, ctx context.Context) {
 	t.Helper()
 	const simBaseURL = "http://localhost:" + protoSimPort
 
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+
 	loginBody, err := json.Marshal(map[string]string{"password": "proto"})
 	require.NoError(t, err)
 	loginReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
@@ -466,18 +469,28 @@ func pollTargetPhaseCompletionDelta(t *testing.T, eventUUID, phase string, timeo
 		"AND ct." + phase + "_completed_at IS NOT NULL " +
 		"AND ct." + phase + "_dispatched_at IS NOT NULL;"
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		cmd := exec.Command("docker", "exec", containerPrefix+"timescaledb-1",
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		commandTimeout := min(remaining, requestTimeout)
+		commandCtx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		cmd := exec.CommandContext(commandCtx, "docker", "exec", containerPrefix+"timescaledb-1",
 			"psql", "-U", "fleet", "-d", "fleet", "-t", "-A", "-c", query)
-		out, err := cmd.Output()
-		require.NoError(t, err, "psql phase timestamp read should succeed")
+		out, err := cmd.CombinedOutput()
+		cancel()
+		require.NoError(t, err, "psql phase timestamp read should succeed: %s", strings.TrimSpace(string(out)))
 		raw := strings.TrimSpace(string(out))
 		if raw != "" {
 			seconds, err := strconv.ParseFloat(raw, 64)
 			require.NoError(t, err, "phase delta parse should succeed: %q", raw)
 			return time.Duration(seconds * float64(time.Second))
 		}
-		time.Sleep(2 * time.Second)
+		sleepDuration := min(2*time.Second, time.Until(deadline))
+		if sleepDuration > 0 {
+			time.Sleep(sleepDuration)
+		}
 	}
 	t.Fatalf("target %s phase did not complete within %v", phase, timeout)
 	return 0

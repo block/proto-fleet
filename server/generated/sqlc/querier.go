@@ -956,9 +956,11 @@ type Querier interface {
 	//     durable restore_dispatched_at + restore_batch_uuid.
 	// phase_dispatched_at / phase_batch_uuid select the columns for the row's
 	// phase so the pulse bounds sample freshness and guards the promoting write
-	// on the exact applicable batch UUID. baseline_power_w and pairing_status
-	// feed the same confirmation predicates the full tick uses; pairing_status
-	// joins like ListCurtailmentCandidatesByOrg (missing device -> 'UNPAIRED').
+	// on the exact applicable batch UUID. A target is eligible only while its
+	// identifier resolves to a current, non-deleted device in the event's org;
+	// missing, deleted, or moved identifiers stay on the full reconciler path.
+	// baseline_power_w and pairing_status feed the same confirmation predicates
+	// the full tick uses, with pairing read from that exact live device.
 	ListEligibleConfirmationTargets(ctx context.Context) ([]ListEligibleConfirmationTargetsRow, error)
 	ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]ListEnabledCurtailmentAutomationRulesByMQTTSourceRow, error)
 	// Enabled MQTT sources for subscriber reconciliation.

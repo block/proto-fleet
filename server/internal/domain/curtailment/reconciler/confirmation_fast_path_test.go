@@ -968,6 +968,7 @@ func TestConfirmOneDispatched_TimeoutAgingRaceLosesToPulseConfirmation(t *testin
 		DesiredState:       models.DesiredStateCurtailed,
 		BaselinePowerW:     ptrFloat64(3000),
 		LastDispatchedAt:   &dispatched,
+		LastBatchUUID:      &batch,
 		RetryCount:         1,
 		CurtailPhase: models.TargetPhaseSummary{
 			Phase:        models.TargetPhaseCurtail,
@@ -1015,6 +1016,7 @@ func TestConfirmOneRestore_TimeoutAgingRaceLosesToPulseResolution(t *testing.T) 
 		DesiredState:       models.DesiredStateActive,
 		BaselinePowerW:     ptrFloat64(3000),
 		LastDispatchedAt:   &dispatched,
+		LastBatchUUID:      &batch,
 		RetryCount:         r.cfg.MaxRetries - 1,
 		RestorePhase: &models.TargetPhaseSummary{
 			Phase:        models.TargetPhaseRestore,
@@ -1037,8 +1039,106 @@ func TestConfirmOneRestore_TimeoutAgingRaceLosesToPulseResolution(t *testing.T) 
 	assert.Equal(t, 0, metrics.TargetWriteFailureCount())
 }
 
+// A state-only timeout guard is vulnerable to ABA: another fleetd can age
+// batch A, redispatch batch B, and return the durable row to dispatched before
+// the stale batch-A tick writes. The batch UUID guard must reject that stale
+// aging write in both dispatch directions.
+func TestTimeoutAging_StaleBatchRaceLosesToRedispatch(t *testing.T) {
+	tests := []struct {
+		name         string
+		desiredState string
+	}{
+		{
+			name:         "curtail redispatch",
+			desiredState: models.DesiredStateCurtailed,
+		},
+		{
+			name:         "restore redispatch",
+			desiredState: models.DesiredStateActive,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newConfirmationFakeStore()
+			metrics := newRecordingMetrics()
+			dispatchedAt := fastPathTestNow.Add(-time.Hour)
+			item := seedDispatchedWork(store, 10, "miner-1", tt.desiredState, "batch-a", dispatchedAt)
+
+			// Preserve the batch-A snapshot, including a deep copy of the
+			// restore phase pointer, before advancing the durable row to batch B.
+			durable := store.targetsByEventID[10][0]
+			stale := *durable
+			if durable.RestorePhase != nil {
+				restorePhase := *durable.RestorePhase
+				stale.RestorePhase = &restorePhase
+			}
+			batchB := "batch-b"
+			durable.LastBatchUUID = &batchB
+			if tt.desiredState == models.DesiredStateActive {
+				durable.RestorePhase.BatchUUID = &batchB
+			} else {
+				durable.CurtailPhase.BatchUUID = &batchB
+			}
+
+			r := newFastPathReconcilerForTest(store, newFakeSampler(), metrics)
+			if tt.desiredState == models.DesiredStateActive {
+				stale.RetryCount = r.cfg.MaxRetries - 1
+			}
+			ev := &models.Event{ID: 10, EventUUID: item.EventUUID, OrgID: 1, State: item.EventState}
+			cand := &models.Candidate{
+				DeviceIdentifier: "miner-1",
+				LatestPowerW:     ptrFloat64(2900),
+				LatestHashRateHS: ptrFloat64(100),
+			}
+			if tt.desiredState == models.DesiredStateActive {
+				cand.LatestPowerW = ptrFloat64(100)
+				r.confirmOneRestore(context.Background(), ev, &stale, cand)
+			} else {
+				r.confirmOneDispatched(context.Background(), ev, &stale, cand, models.TargetStateDispatching)
+			}
+
+			assert.Equal(t, models.TargetStateDispatched, store.targetState(10, "miner-1"),
+				"batch-B dispatch must survive stale batch-A timeout aging")
+			assert.Equal(t, int32(0), durable.RetryCount, "batch-B retry budget must remain untouched")
+			assert.Equal(t, 1, metrics.EventStateRaceLossCount())
+			assert.Equal(t, 0, metrics.TargetWriteFailureCount())
+			_, _, params := store.lastWrite()
+			require.NotNil(t, params.ExpectedDispatchBatchUUID)
+			assert.Equal(t, "batch-a", *params.ExpectedDispatchBatchUUID)
+		})
+	}
+}
+
+func TestTimeoutAging_MissingLoadedBatchRetainsStateGuard(t *testing.T) {
+	store := newConfirmationFakeStore()
+	metrics := newRecordingMetrics()
+	dispatchedAt := fastPathTestNow.Add(-time.Hour)
+	item := seedDispatchedWork(store, 10, "miner-1", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
+	stale := *store.targetsByEventID[10][0]
+	stale.LastBatchUUID = nil
+	stale.RetryCount = 1
+
+	r := newFastPathReconcilerForTest(store, newFakeSampler(), metrics)
+	ev := &models.Event{ID: 10, EventUUID: item.EventUUID, OrgID: 1, State: models.EventStateActive}
+	cand := &models.Candidate{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(2900), LatestHashRateHS: ptrFloat64(100)}
+
+	r.confirmOneDispatched(context.Background(), ev, &stale, cand, models.TargetStateDispatching)
+
+	assert.Equal(t, 1, store.confirmCalls())
+	assert.Equal(t, models.TargetStateDispatching, store.targetState(10, "miner-1"),
+		"a legacy dispatched row without a batch token must still age out")
+	assert.Equal(t, int32(2), stale.RetryCount)
+	assert.Equal(t, 0, metrics.EventStateRaceLossCount())
+	assert.Equal(t, 0, metrics.TargetWriteFailureCount())
+	_, _, params := store.lastWrite()
+	require.NotNil(t, params.ExpectedState)
+	assert.Nil(t, params.ExpectedDispatchBatchUUID)
+}
+
 // Positive control: when the target is still dispatched (no pulse race), the
-// dispatched-state guard is transparent and normal timeout aging proceeds.
+// dispatched-state and batch guards are transparent and normal timeout aging
+// proceeds.
 func TestConfirmOneDispatched_TimeoutAgingProceedsWhenStillDispatched(t *testing.T) {
 	store := newConfirmationFakeStore()
 	metrics := newRecordingMetrics()
@@ -1058,4 +1158,7 @@ func TestConfirmOneDispatched_TimeoutAgingProceedsWhenStillDispatched(t *testing
 		"a still-dispatched target ages normally through the guarded write")
 	assert.Equal(t, int32(1), store.targetsByEventID[10][0].RetryCount, "normal aging burns one retry")
 	assert.Equal(t, 0, metrics.EventStateRaceLossCount(), "no race when the target is still dispatched")
+	_, _, params := store.lastWrite()
+	require.NotNil(t, params.ExpectedDispatchBatchUUID)
+	assert.Equal(t, "batch-a", *params.ExpectedDispatchBatchUUID)
 }
