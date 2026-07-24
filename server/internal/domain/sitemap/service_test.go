@@ -811,10 +811,10 @@ func TestBuildPlanRemoveOmittedRejectsOmittedBuildingIDReferences(t *testing.T) 
 	}
 
 	plan := buildPlan(parsed, snap, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
-	if !hasValidationError(plan.errors, "RACK", `rack building "Building X" for site "" is omitted`) {
+	if !hasValidationError(plan.errors, "RACK", `rack building "Building X" (id 10) is omitted`) {
 		t.Fatalf("plan errors = %+v, want rack omitted building error", plan.errors)
 	}
-	if !hasValidationError(plan.errors, "MINER", `miner building "Building X" for site "" is omitted`) {
+	if !hasValidationError(plan.errors, "MINER", `miner building "Building X" (id 10) is omitted`) {
 		t.Fatalf("plan errors = %+v, want miner omitted building error", plan.errors)
 	}
 }
@@ -2874,5 +2874,46 @@ func testSnapshotMatchingValidCSV() *snapshot {
 				RackCol:          "0",
 			},
 		},
+	}
+}
+
+// TestValidateRemoveOmittedReferencesRejectsOmittedBuildingTwin locks in the
+// id-precise omission check: when two unassigned buildings share a (site, name)
+// pair and a rack references the omitted twin by id, the (site, name) presence
+// check alone would accept it. The preserved building id must catch it.
+func TestValidateRemoveOmittedReferencesRejectsOmittedBuildingTwin(t *testing.T) {
+	// Live org: two unassigned buildings both named "B" (ids 5 and 7).
+	snap := &snapshot{
+		buildings: []buildingmodels.Building{
+			{ID: 5, Name: "B"}, // omitted from the CSV
+			{ID: 7, Name: "B"}, // retained
+		},
+	}
+	base := func() *parsedCSV {
+		return &parsedCSV{sections: map[string][]map[string]string{
+			"BUILDING": {{"__row": "6", "name": "B", "id": "7"}},
+			"RACK":     {{"__row": "9", "label": "R1", "building": "5"}},
+		}}
+	}
+
+	// Rack references the omitted twin (id 5) — must be rejected even though a
+	// same-name building row (id 7) is retained.
+	parsed := base()
+	if errs := resolveReferences(parsed, snap); len(errs) != 0 {
+		t.Fatalf("resolveReferences errors = %+v", errs)
+	}
+	errs := validateRemoveOmittedReferences(parsed, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED)
+	if len(errs) != 1 || errs[0].GetRow() != 9 {
+		t.Fatalf("omitted-twin reference = %+v, want one error on row 9", errs)
+	}
+
+	// Rack references the retained twin (id 7) — must be accepted.
+	ok := base()
+	ok.sections["RACK"][0]["building"] = "7"
+	if errs := resolveReferences(ok, snap); len(errs) != 0 {
+		t.Fatalf("resolveReferences errors = %+v", errs)
+	}
+	if errs := validateRemoveOmittedReferences(ok, pb.OmissionMode_OMISSION_MODE_REMOVE_OMITTED); len(errs) != 0 {
+		t.Fatalf("retained-twin reference = %+v, want no errors", errs)
 	}
 }

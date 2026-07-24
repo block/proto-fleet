@@ -2599,6 +2599,17 @@ func validateRemoveOmittedReferences(parsed *parsedCSV, mode pb.OmissionMode) []
 	presentSites := rowSet(siteRows, fieldName)
 	presentBuildings := compoundRowSet(buildingRows, fieldSite, fieldName)
 	presentRacks := rowSet(rackRows, fieldLabel)
+	// Two unassigned buildings can share a (site, name) pair via distinct NULL
+	// site_ids, so a rack/miner may reference one specific building by id.
+	// resolveReferences preserves that resolved id in refBuildingIDCell; check it
+	// against the retained BUILDING rows' own ids, since the (site, name) presence
+	// check alone would accept a reference to the omitted twin.
+	retainedBuildingIDs := map[int64]bool{}
+	for _, row := range buildingRows {
+		if id, ok := rowID(row); ok {
+			retainedBuildingIDs[id] = true
+		}
+	}
 
 	// Reference cells have been canonicalized to names with implied parents filled,
 	// so a reference to an omitted entity shows up as a name not present in the CSV.
@@ -2610,6 +2621,12 @@ func validateRemoveOmittedReferences(parsed *parsedCSV, mode pb.OmissionMode) []
 	}
 	for i, row := range rackRows {
 		if row[fieldBuilding] != "" {
+			if bID := refID(row, refBuildingIDCell); bID != nil {
+				if !retainedBuildingIDs[*bID] {
+					errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack building %q (id %d) is omitted; add the BUILDING row or choose leave omitted rows in place", row[fieldBuilding], *bID)))
+				}
+				continue
+			}
 			if !presentBuildings[row[fieldSite]+"\x00"+row[fieldBuilding]] {
 				errs = append(errs, csvErr(rowNumber(row, i+1), "RACK", fmt.Sprintf("rack building %q for site %q is omitted; add the BUILDING row or choose leave omitted rows in place", row[fieldBuilding], row[fieldSite])))
 			}
@@ -2627,6 +2644,12 @@ func validateRemoveOmittedReferences(parsed *parsedCSV, mode pb.OmissionMode) []
 			continue
 		}
 		if row[fieldBuilding] != "" {
+			if bID := refID(row, refBuildingIDCell); bID != nil {
+				if !retainedBuildingIDs[*bID] {
+					errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner building %q (id %d) is omitted; add the BUILDING row or choose leave omitted rows in place", row[fieldBuilding], *bID)))
+				}
+				continue
+			}
 			if !presentBuildings[row[fieldSite]+"\x00"+row[fieldBuilding]] {
 				errs = append(errs, csvErr(rowNumber(row, i+1), "MINER", fmt.Sprintf("miner building %q for site %q is omitted; add the BUILDING row or choose leave omitted rows in place", row[fieldBuilding], row[fieldSite])))
 			}
