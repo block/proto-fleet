@@ -779,12 +779,12 @@ func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event
 	r.recordDispatchFailureGuarded(ctx, ev, t, errMsg, nonTerminalFailureState, nil)
 }
 
-// recordDispatchTimeoutFailure guards timeout aging on both the loaded state
-// and dispatch batch. The batch token closes the ABA window where another
-// fleetd confirms and redispatches the row before this stale snapshot writes.
-// Legacy dispatched rows without a batch token retain the state guard so they
-// can still age out instead of becoming permanently stuck.
-func (r *Reconciler) recordDispatchTimeoutFailure(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState) {
+// recordDispatchedObservationFailure guards failure writes derived from a
+// loaded dispatched target on both its state and dispatch batch. The batch
+// token closes the ABA window where another fleetd confirms and redispatches
+// the row before this stale snapshot writes. Legacy dispatched rows without a
+// batch token retain the state guard so they can still age normally.
+func (r *Reconciler) recordDispatchedObservationFailure(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState) {
 	r.recordDispatchFailureGuarded(ctx, ev, t, errMsg, nonTerminalFailureState, &dispatchFailureGuard{
 		expectedState:     models.TargetStateDispatched,
 		expectedBatchUUID: t.LastBatchUUID,
@@ -1427,14 +1427,14 @@ func listCandidatesParamsForEventScope(ev *models.Event) (interfaces.ListCandida
 
 // confirmOneDispatched promotes Dispatched → Confirmed when telemetry
 // shows curtailment, resetting retry_count. Missing candidate row goes
-// through recordDispatchFailure so a vanished device can't stall.
+// through guarded failure aging so a vanished device can't stall.
 func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate, nonTerminalState models.TargetState) {
 	if c == nil {
-		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", nonTerminalState)
+		r.recordDispatchedObservationFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", nonTerminalState)
 		return
 	}
 	if isAllPairedPolicyEvent(ev) && !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus) {
-		r.recordDispatchFailure(ctx, ev, t, "device is no longer paired-like", nonTerminalState)
+		r.recordDispatchedObservationFailure(ctx, ev, t, "device is no longer paired-like", nonTerminalState)
 		return
 	}
 	if !isCurtailed(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor, true) {
@@ -1447,7 +1447,7 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 				// Guard on dispatched: if the confirmation pulse already
 				// confirmed this target from a fresh sample, this stale-snapshot
 				// aging write race-loses instead of reverting it and burning retry.
-				r.recordDispatchTimeoutFailure(ctx, ev, t,
+				r.recordDispatchedObservationFailure(ctx, ev, t,
 					"curtail telemetry timeout",
 					models.TargetStateDispatching)
 			}
@@ -2013,7 +2013,7 @@ func (r *Reconciler) confirmDispatchedRestores(ctx context.Context, ev *models.E
 // progress.
 func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
 	if c == nil {
-		r.recordDispatchFailure(ctx, ev, t,
+		r.recordDispatchedObservationFailure(ctx, ev, t,
 			"candidate row missing (device unpaired or deleted)",
 			models.TargetStatePending)
 		return
@@ -2031,7 +2031,7 @@ func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t 
 				// resolved this restore target, this stale-snapshot aging write
 				// race-loses instead of reverting it — critically avoiding a
 				// spurious RESTORE_FAILED when retry budget is at the ceiling.
-				r.recordDispatchTimeoutFailure(ctx, ev, t,
+				r.recordDispatchedObservationFailure(ctx, ev, t,
 					"restore telemetry timeout",
 					models.TargetStatePending)
 			}

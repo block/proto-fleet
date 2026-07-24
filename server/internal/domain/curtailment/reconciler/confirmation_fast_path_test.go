@@ -939,6 +939,138 @@ func TestStart_DisabledFastPathRunsNoPulse(t *testing.T) {
 	assert.Equal(t, models.TargetStateDispatched, store.targetState(10, "miner-1"))
 }
 
+// --- stale full-tick observations vs. pulse promotions ---
+
+type dispatchedObservationFailureScenario struct {
+	name           string
+	desiredState   string
+	pulseState     models.TargetState
+	pulseRetry     int32
+	staleRetry     int32
+	invalidPairing bool
+	failureState   models.TargetState
+}
+
+var dispatchedObservationFailureScenarios = []dispatchedObservationFailureScenario{
+	{
+		name:         "curtail candidate missing",
+		desiredState: models.DesiredStateCurtailed,
+		pulseState:   models.TargetStateConfirmed,
+		staleRetry:   1,
+		failureState: models.TargetStateDispatched,
+	},
+	{
+		name:           "curtail pairing invalid",
+		desiredState:   models.DesiredStateCurtailed,
+		pulseState:     models.TargetStateConfirmed,
+		staleRetry:     1,
+		invalidPairing: true,
+		failureState:   models.TargetStateDispatched,
+	},
+	{
+		name:         "restore candidate missing",
+		desiredState: models.DesiredStateActive,
+		pulseState:   models.TargetStateResolved,
+		pulseRetry:   2,
+		staleRetry:   2,
+		failureState: models.TargetStatePending,
+	},
+}
+
+func runDispatchedObservationFailure(
+	r *Reconciler,
+	ev *models.Event,
+	target *models.Target,
+	scenario dispatchedObservationFailureScenario,
+) {
+	var candidate *models.Candidate
+	if scenario.invalidPairing {
+		candidate = &models.Candidate{
+			DeviceIdentifier: target.DeviceIdentifier,
+			PairingStatus:    "UNPAIRED",
+		}
+	}
+	if scenario.desiredState == models.DesiredStateActive {
+		r.confirmOneRestore(context.Background(), ev, target, candidate)
+		return
+	}
+	r.confirmOneDispatched(context.Background(), ev, target, candidate, scenario.failureState)
+}
+
+func TestDispatchedObservationFailure_RaceLosesToPulseAdvance(t *testing.T) {
+	for _, scenario := range dispatchedObservationFailureScenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			store := newConfirmationFakeStore()
+			metrics := newRecordingMetrics()
+			dispatchedAt := fastPathTestNow.Add(-time.Minute)
+			item := seedDispatchedWork(store, 10, "miner-1", scenario.desiredState, "batch-a", dispatchedAt)
+			durable := store.targetsByEventID[10][0]
+			stale := *durable
+			stale.RetryCount = scenario.staleRetry
+
+			// The pulse advanced the durable row after the tick loaded its
+			// dispatched snapshot.
+			durable.State = scenario.pulseState
+			durable.RetryCount = scenario.pulseRetry
+
+			r := newFastPathReconcilerForTest(store, newFakeSampler(), metrics)
+			ev := &models.Event{
+				ID:                          10,
+				EventUUID:                   item.EventUUID,
+				OrgID:                       1,
+				State:                       item.EventState,
+				ForceIncludeAllPairedMiners: scenario.invalidPairing,
+			}
+			runDispatchedObservationFailure(r, ev, &stale, scenario)
+
+			assert.Equal(t, scenario.pulseState, store.targetState(10, "miner-1"))
+			assert.Equal(t, scenario.pulseRetry, durable.RetryCount,
+				"pulse-updated retry budget must survive the stale failure write")
+			assert.Equal(t, models.TargetStateDispatched, stale.State,
+				"stale snapshot must not mutate on race-loss")
+			assert.Equal(t, scenario.staleRetry, stale.RetryCount,
+				"stale snapshot retry budget must not advance on race-loss")
+			assert.Equal(t, 1, metrics.EventStateRaceLossCount())
+			assert.Equal(t, 0, metrics.TargetWriteFailureCount())
+
+			_, _, params := store.lastWrite()
+			require.NotNil(t, params.ExpectedState)
+			assert.Equal(t, models.TargetStateDispatched, *params.ExpectedState)
+			require.NotNil(t, params.ExpectedDispatchBatchUUID)
+			assert.Equal(t, "batch-a", *params.ExpectedDispatchBatchUUID)
+		})
+	}
+}
+
+func TestDispatchedObservationFailure_ProceedsWhenStillDispatched(t *testing.T) {
+	for _, scenario := range dispatchedObservationFailureScenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			store := newConfirmationFakeStore()
+			metrics := newRecordingMetrics()
+			dispatchedAt := fastPathTestNow.Add(-time.Minute)
+			item := seedDispatchedWork(store, 10, "miner-1", scenario.desiredState, "batch-a", dispatchedAt)
+			target := store.targetsByEventID[10][0]
+			target.RetryCount = 1
+
+			r := newFastPathReconcilerForTest(store, newFakeSampler(), metrics)
+			ev := &models.Event{
+				ID:                          10,
+				EventUUID:                   item.EventUUID,
+				OrgID:                       1,
+				State:                       item.EventState,
+				ForceIncludeAllPairedMiners: scenario.invalidPairing,
+			}
+			runDispatchedObservationFailure(r, ev, target, scenario)
+
+			assert.Equal(t, scenario.failureState, store.targetState(10, "miner-1"))
+			assert.Equal(t, int32(2), target.RetryCount,
+				"a still-dispatched failure must consume one retry")
+			assert.Equal(t, 0, metrics.EventStateRaceLossCount())
+			assert.Equal(t, 0, metrics.TargetWriteFailureCount())
+		})
+	}
+}
+
 // --- tick timeout aging vs. a pulse-confirmed target (review #6) ---
 
 // A dispatch-timeout aging write must not clobber a target the confirmation
