@@ -17,6 +17,7 @@ const (
 	statusCodeSummary = 11
 	statusCodePools   = 7
 	statusCodeDevices = 9
+	statusCodeStats   = 70
 
 	// Hashrate variation values (GH/s)
 	hashrate5sVariation  = 2000
@@ -82,6 +83,8 @@ func handleRPCConnection(conn net.Conn, state *MinerState) {
 		response = generatePoolsResponse(state)
 	case "devs":
 		response = generateDevsResponse(state)
+	case "stats":
+		response = generateStatsResponse(state)
 	default:
 		log.Printf("Unknown command: %s", request.Command)
 		response = map[string]string{"error": "unknown command"}
@@ -90,6 +93,44 @@ func handleRPCConnection(conn net.Conn, state *MinerState) {
 	if err := json.NewEncoder(conn).Encode(response); err != nil {
 		log.Printf("Failed to encode response: %v", err)
 		return
+	}
+}
+
+func generateStatsResponse(state *MinerState) StatsResponse {
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+
+	now := time.Now().Unix()
+	hashRateGHS := state.effectiveHashRateLocked() * thsToGhsConversionFactor
+	powerWatts := state.effectivePowerWattsLocked()
+
+	return StatsResponse{
+		Status: []StatusInfo{
+			{
+				Status:      "S",
+				When:        now,
+				Code:        statusCodeStats,
+				Msg:         "CGMiner stats",
+				Description: "cgminer 1.0.0",
+			},
+		},
+		Stats: []map[string]interface{}{
+			{
+				"BMMiner":     "2.0.0",
+				"Miner":       state.MinerType,
+				"CompileTime": "2023-05-01",
+				"Type":        state.MinerType,
+			},
+			{
+				"STATS":       0,
+				"ID":          "BTM_SOC0",
+				"Elapsed":     DefaultElapsedTime,
+				"GHS 5s":      hashRateGHS,
+				"GHS av":      hashRateGHS,
+				"chain_power": fmt.Sprintf("%d W", powerWatts),
+			},
+		},
+		ID: mockMessageID,
 	}
 }
 
