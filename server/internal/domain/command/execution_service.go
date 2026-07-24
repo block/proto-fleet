@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/sv2/translator"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/domain/workername"
 
@@ -67,6 +68,7 @@ type ExecutionService struct {
 	telemetryListener TelemetryListener
 	filesService      *files.Service
 	metricsEmitter    MetricsEmitter
+	translatorManager translator.Manager
 
 	workerSemaphore chan struct{}
 
@@ -135,6 +137,10 @@ func (es *ExecutionService) WithMetricsEmitter(emitter MetricsEmitter) *Executio
 	}
 	es.metricsEmitter = emitter
 	return es
+}
+
+func (es *ExecutionService) SetSV2TranslatorManager(manager translator.Manager) {
+	es.translatorManager = manager
 }
 
 // Start runs command execution for the lifetime of ctx if it is not already
@@ -678,11 +684,77 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 				break
 			}
 		}
-		err = minerInfo.UpdateMiningPools(ctx, p)
+		releaseSV2Translation := p.ReleaseSV2Translation
+		sv2Translation := p.SV2Translation
+		p.ReleaseSV2Translation = false
+		p.SV2Translation = nil
+		if releaseSV2Translation && sv2Translation != nil {
+			err = fleeterror.NewInternalError(
+				"update mining pools payload cannot apply and release SV2 translation together",
+			)
+			break
+		}
+		if sv2Translation != nil {
+			if es.translatorManager == nil {
+				err = fleeterror.NewInternalError("SV2 translator manager is not configured")
+				break
+			}
+			deviceIdentifier := string(minerInfo.GetID())
+			endpoint, assignmentChanged, applyErr := es.translatorManager.ApplyAssignment(
+				ctx,
+				&sv2Translation.Profile,
+				translator.Assignment{
+					SelectedDeviceIdentifiers:   []string{deviceIdentifier},
+					TranslatedDeviceIdentifiers: []string{deviceIdentifier},
+				},
+			)
+			if applyErr != nil {
+				err = fleeterror.NewFailedPreconditionErrorf(
+					"prepare Stratum V2 translator before pool update: %v",
+					applyErr,
+				)
+				break
+			}
+			if rewriteErr := rewriteTranslatedPoolEndpoints(
+				&p,
+				sv2Translation.TranslatedPoolIndexes,
+				endpoint,
+			); rewriteErr != nil {
+				err = fleeterror.NewInternalErrorf(
+					"prepare translated pool payload: %v",
+					rewriteErr,
+				)
+				if assignmentChanged {
+					err = es.rollbackSV2TranslationAssignment(ctx, deviceIdentifier, err)
+				}
+				break
+			}
+			err = minerInfo.UpdateMiningPools(ctx, p)
+			if err != nil && es.shouldRollbackSV2TranslationAssignment(
+				ctx,
+				minerInfo,
+				endpoint,
+				assignmentChanged,
+			) {
+				err = es.rollbackSV2TranslationAssignment(ctx, deviceIdentifier, err)
+			}
+		} else {
+			err = minerInfo.UpdateMiningPools(ctx, p)
+		}
 		if err == nil && workerNameToPersist != "" {
 			err = es.persistWorkerNameAfterPoolUpdate(ctx, message.DeviceID, minerInfo.GetID(), workerNameToPersist)
 			if err != nil {
 				err = fleeterror.NewInternalErrorf("failed to persist worker name after pool update: %v", err)
+			}
+		}
+		if err == nil && releaseSV2Translation && es.translatorManager != nil {
+			_, _, err = es.translatorManager.ApplyAssignment(
+				ctx,
+				nil,
+				translator.Assignment{SelectedDeviceIdentifiers: []string{string(minerInfo.GetID())}},
+			)
+			if err != nil {
+				err = fleeterror.NewInternalErrorf("release miner from Stratum V2 translator after pool update: %v", err)
 			}
 		}
 	case commandtype.DownloadLogs:
@@ -789,6 +861,82 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		slog.Error("command execution failed", "command", commandType, "device_id", message.DeviceID, "batch_uuid", message.BatchLogUUID, "error", err)
 	}
 	return orgID, siteID, err
+}
+
+func (es *ExecutionService) shouldRollbackSV2TranslationAssignment(
+	ctx context.Context,
+	minerInfo interfaces.Miner,
+	endpoint translator.Endpoint,
+	assignmentChanged bool,
+) bool {
+	currentPools, err := minerInfo.GetMiningPools(ctx)
+	if err != nil {
+		slog.Warn(
+			"failed to verify Stratum V2 translator assignment after pool update failure",
+			"device_id",
+			minerInfo.GetID(),
+			"error",
+			err,
+		)
+		return assignmentChanged
+	}
+	for _, pool := range currentPools {
+		if strings.TrimSpace(pool.URL) == endpoint.String() {
+			return false
+		}
+	}
+	return true
+}
+
+func (es *ExecutionService) rollbackSV2TranslationAssignment(
+	ctx context.Context,
+	deviceIdentifier string,
+	commandErr error,
+) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+	defer cancel()
+
+	_, _, rollbackErr := es.translatorManager.ApplyAssignment(
+		cleanupCtx,
+		nil,
+		translator.Assignment{SelectedDeviceIdentifiers: []string{deviceIdentifier}},
+	)
+	if rollbackErr == nil {
+		return commandErr
+	}
+	return fleeterror.NewInternalErrorf(
+		"%v; rollback Stratum V2 translator assignment for miner %s: %v",
+		commandErr,
+		deviceIdentifier,
+		rollbackErr,
+	)
+}
+
+func rewriteTranslatedPoolEndpoints(
+	payload *dto.UpdateMiningPoolsPayload,
+	indexes []int,
+	endpoint translator.Endpoint,
+) error {
+	pools := []*dto.MiningPool{
+		&payload.DefaultPool,
+		payload.Backup1Pool,
+		payload.Backup2Pool,
+	}
+	seen := make(map[int]struct{}, len(indexes))
+	for _, index := range indexes {
+		if index < 0 || index >= len(pools) || pools[index] == nil {
+			return fmt.Errorf("translated pool index %d is missing", index)
+		}
+		if _, duplicate := seen[index]; duplicate {
+			return fmt.Errorf("translated pool index %d is duplicated", index)
+		}
+		seen[index] = struct{}{}
+		pools[index].URL = endpoint.String()
+	}
+	if len(seen) == 0 {
+		return errors.New("translated pool indexes are empty")
+	}
+	return nil
 }
 
 func (es *ExecutionService) resolveMinerForCommand(ctx context.Context, commandType commandtype.Type, deviceID int64, passwordPayload *dto.UpdateMinerPasswordPayload) (interfaces.Miner, error) {
@@ -1115,13 +1263,34 @@ func normalizePoolUsernameBase(username string) string {
 	return strings.TrimSpace(trimmed[:firstSeparator])
 }
 
-// handleUnpairPostProcessing updates device pairing status and unregisters from telemetry after successful unpair
+// handleUnpairPostProcessing releases local state after a successful miner unpair.
 func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, deviceID int64) error {
 	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
 		return q.GetDeviceIdentifierByID(ctx, deviceID)
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to get device identifier by ID: %v", err)
+	}
+
+	return es.handleUnpairPostProcessingByIdentifier(ctx, deviceIdentifier)
+}
+
+func (es *ExecutionService) handleUnpairPostProcessingByIdentifier(
+	ctx context.Context,
+	deviceIdentifier string,
+) error {
+	if es.translatorManager != nil {
+		_, _, err := es.translatorManager.ApplyAssignment(
+			ctx,
+			nil,
+			translator.Assignment{SelectedDeviceIdentifiers: []string{deviceIdentifier}},
+		)
+		if err != nil {
+			return fleeterror.NewInternalErrorf(
+				"failed to release device from Stratum V2 translator after unpair: %v",
+				err,
+			)
+		}
 	}
 
 	if err := es.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, deviceIdentifier, string(sqlc.PairingStatusEnumUNPAIRED)); err != nil {

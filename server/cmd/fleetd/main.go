@@ -92,6 +92,7 @@ import (
 	sitemapDomain "github.com/block/proto-fleet/server/internal/domain/sitemap"
 	sitesDomain "github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/domain/sv2/translator"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
@@ -483,6 +484,17 @@ func start(config *Config) error {
 
 	executionService := commandDomain.NewExecutionService(&config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
 	executionService.WithMetricsEmitter(metricsProvider)
+	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
+	translatorManager, err := translator.NewManager(config.SV2Translator)
+	if err != nil {
+		return fmt.Errorf("initialize SV2 translator: %w", err)
+	}
+	if err := translatorManager.Resume(context.Background()); err != nil {
+		return fmt.Errorf("resume SV2 translator: %w", err)
+	}
+	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
+	commandSvc.SetPluginCapabilitiesProvider(pluginService)
+	commandSvc.SetSV2TranslatorManager(translatorManager)
 	err = executionService.Start(context.Background())
 	if err != nil {
 		slog.Error("failed to start command execution service", "error", err)
@@ -492,9 +504,6 @@ func start(config *Config) error {
 		}()
 	}
 
-	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
-	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
-	commandSvc.SetPluginCapabilitiesProvider(pluginService)
 	// buildingStore is constructed below alongside siteStore; both are
 	// needed for the parseFilter cross-org check on building_ids and
 	// zone_keys. Hoist the construction so fleetMgmtSvc can depend on it.

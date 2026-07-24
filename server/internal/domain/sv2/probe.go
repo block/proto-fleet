@@ -1,6 +1,7 @@
 package sv2
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"net"
@@ -22,7 +23,7 @@ const noisePoolKeyLen = 32
 
 // SRI publishes authority pubkeys in a 38-byte base58check frame:
 // 1 version byte || 1 secp256k1 compressed prefix || 32 X-coordinate
-// bytes (used as the Noise X25519 key) || 4-byte BLAKE2b-256 checksum.
+// bytes (used as the Noise X25519 key) || 4-byte SHA256d checksum.
 // We strip the framing without verifying the checksum — Noise itself
 // authenticates the key over the wire.
 const sriFramedPoolKeyLen = 1 + 1 + noisePoolKeyLen + 4
@@ -52,6 +53,23 @@ func PoolNoiseKeyFromURL(stratumURL string) ([]byte, error) {
 		return nil, fmt.Errorf("authority pubkey %q is not a valid secp256k1 X-only public key: %w", encoded, err)
 	}
 	return key, nil
+}
+
+// CanonicalAuthorityPublicKeyFromURL returns the authority key in the
+// Base58Check-framed representation expected by the SRI translator.
+func CanonicalAuthorityPublicKeyFromURL(stratumURL string) (string, error) {
+	key, err := PoolNoiseKeyFromURL(stratumURL)
+	if err != nil {
+		return "", err
+	}
+
+	framed := make([]byte, 0, 2+noisePoolKeyLen+4)
+	framed = append(framed, 1, 0)
+	framed = append(framed, key...)
+	firstHash := sha256.Sum256(framed)
+	secondHash := sha256.Sum256(firstHash[:])
+	framed = append(framed, secondHash[:4]...)
+	return encodeBase58(framed), nil
 }
 
 func decodeAuthorityKey(encoded string) ([]byte, bool) {
@@ -160,6 +178,39 @@ func decodeBase58(s string) ([]byte, error) {
 	out := make([]byte, leadingZeros+len(num))
 	copy(out[leadingZeros:], num)
 	return out, nil
+}
+
+func encodeBase58(src []byte) string {
+	if len(src) == 0 {
+		return ""
+	}
+	leadingZeros := 0
+	for leadingZeros < len(src) && src[leadingZeros] == 0 {
+		leadingZeros++
+	}
+
+	value := append([]byte(nil), src...)
+	encoded := make([]byte, 0, len(src)*138/100+1)
+	start := leadingZeros
+	for start < len(value) {
+		remainder := 0
+		for i := start; i < len(value); i++ {
+			dividend := remainder*256 + int(value[i])
+			value[i] = byte(dividend / 58)
+			remainder = dividend % 58
+		}
+		encoded = append(encoded, base58Alphabet[remainder])
+		for start < len(value) && value[start] == 0 {
+			start++
+		}
+	}
+	for range leadingZeros {
+		encoded = append(encoded, base58Alphabet[0])
+	}
+	for left, right := 0, len(encoded)-1; left < right; left, right = left+1, right-1 {
+		encoded[left], encoded[right] = encoded[right], encoded[left]
+	}
+	return string(encoded)
 }
 
 func decodeHex(s string) ([]byte, error) {

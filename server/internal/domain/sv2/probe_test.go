@@ -37,6 +37,18 @@ func TestPoolNoiseKeyFromURL_DecodesSRIFramedBase58(t *testing.T) {
 	assert.Len(t, key, 32, "framed pubkey should yield 32 raw key bytes")
 }
 
+func TestCanonicalAuthorityPublicKeyFromURL_MatchesSpecificationVector(t *testing.T) {
+	const rawHex = "76637000979c1c11af0c300bcd8c7fe48610fce9b9c11e3daee35ae0b08a7455"
+	const expected = "9bXiEd8boQVhq7WddEcERUL5tyyJVFYdU8th3HfbNXK3Yw6GRXh"
+
+	got, err := CanonicalAuthorityPublicKeyFromURL(
+		"stratum2+tcp://pool.example.com:34254/" + rawHex,
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, expected, got)
+}
+
 func TestPoolNoiseKeyFromURL_RejectsInvalidPubKey(t *testing.T) {
 	// 32 bytes of 0xff base58-encoded — decodes cleanly but the X
 	// coordinate exceeds the secp256k1 field prime, so it must not

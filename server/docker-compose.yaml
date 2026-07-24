@@ -43,16 +43,65 @@ services:
       PLUGINS_DIR: "/app/plugins"
       PLUGINS_ENABLED: "true"
       PROTO_MINER_PORT: "8080"
+      # Containers on fleet-network can reach the translator by service name.
+      # Override with a LAN IP/hostname when testing physical miners.
+      SV2_TRANSLATOR_ADVERTISED_HOST: "${SV2_TRANSLATOR_ADVERTISED_HOST:-sv2-tproxy}"
+      SV2_TRANSLATOR_CONNECT_HOST: "sv2-tproxy"
     depends_on:
       timescaledb:
         condition: service_healthy
+      sv2-translator-helper:
+        condition: service_healthy
     volumes:
       - ./plugins:/app/plugins:ro
+      - sv2-translator-data:/var/lib/proto-fleet/sv2
+      - sv2-translator-control:/run/proto-fleet-sv2-helper:ro
     restart: unless-stopped
     networks:
       - fleet-network
     ports:
       - "4000:4000"
+
+  sv2-translator-helper:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile.dev
+      args:
+        GO_GCFLAGS: "${GO_GCFLAGS:-}"
+    command: ["/app/out/sv2-translator-helper"]
+    restart: unless-stopped
+    network_mode: none
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /run/proto-fleet-sv2-helper/runtime.sock"]
+      interval: 1s
+      timeout: 1s
+      retries: 30
+      start_period: 1s
+    volumes:
+      - sv2-translator-control:/run/proto-fleet-sv2-helper
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  sv2-tproxy:
+    image: stratumv2/translator_sv2:main@sha256:70f7edbce640f0e70e44757d700de72ce286da95849b1b2692d250d4d549826d
+    container_name: proto-fleet-sv2-tproxy
+    profiles: ["sv2-tproxy"]
+    environment:
+      APP: "translator_sv2 -c /etc/proto-fleet/sv2/tproxy.toml"
+    labels:
+      com.protofleet.component: "sv2-tproxy"
+      com.protofleet.image: "stratumv2/translator_sv2:main@sha256:70f7edbce640f0e70e44757d700de72ce286da95849b1b2692d250d4d549826d"
+    ports:
+      - "34255:34255"
+    volumes:
+      - sv2-translator-data:/etc/proto-fleet/sv2:ro
+    restart: unless-stopped
+    networks:
+      - fleet-network
 
   timescaledb:
     extends:
@@ -332,6 +381,8 @@ services:
       - NET_RAW
 volumes:
   timescaledb-data:
+  sv2-translator-data:
+  sv2-translator-control:
 
 networks:
   fleet-network:

@@ -5,12 +5,13 @@ RUN apk add --no-cache nmap gcompat
 WORKDIR /app
 
 COPY fleetd /app/
+COPY sv2-translator-helper /app/
 
 RUN mkdir -p /app/plugins
 COPY proto-plugin antminer-plugin asicrs-plugin asicrs-config.yaml /app/plugins/
 COPY virtual-plugin virtual-plugin.json /app/optional-plugins/
 
-RUN chmod 755 /app/fleetd /app/plugins/*-plugin /app/optional-plugins/virtual-plugin
+RUN chmod 755 /app/fleetd /app/sv2-translator-helper /app/plugins/*-plugin /app/optional-plugins/virtual-plugin
 
 EXPOSE 4000
 

@@ -507,7 +507,7 @@ prompt_store_reinit() {
     read -p "   Remove & reinitialize this volume now? ALL DATA WILL BE LOST (y/N): " answer
     if [[ $answer =~ ^[Yy]$ ]]; then
       echo "   Shutting down containers…"
-      compose down --remove-orphans
+      compose --profile sv2-tproxy down --remove-orphans
       echo "   Removing volume $vol…"
       docker volume rm "$vol"
       echo "   Volume removed; new credentials will apply next startup."
@@ -839,6 +839,10 @@ refresh_compose_env_args
 # ----------------------------------------------------------------------------
 
 echo "Pulling latest Docker images..."
+if ! compose pull sv2-tproxy; then
+    echo "Error: Failed to pull the Stratum V2 translator image. Exiting."
+    exit 1
+fi
 compose pull
 
 # Load pre-built TimescaleDB image if available (built in CI for the target architecture)
@@ -864,7 +868,13 @@ compose build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
 # ----------------------------------------------------------------------------
 
 echo "Stopping any running services..."
-compose down --remove-orphans
+compose --profile sv2-tproxy down --remove-orphans
+
+echo "Preparing the stopped Stratum V2 translator..."
+if ! compose create sv2-tproxy; then
+    echo "Error: Failed to prepare the Stratum V2 translator. Exiting."
+    exit 1
+fi
 
 echo "Starting services..."
 # --wait blocks until every service is running (or healthy, when a healthcheck is defined).
