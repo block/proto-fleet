@@ -855,15 +855,19 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 	}
 
 	state := sdk.HealthHealthyInactive
+	isCurtailed := false
 	if statusCode != http.StatusNoContent {
 		state = mapMiningState(resp.MiningStatus.Status)
+		isCurtailed = strings.EqualFold(resp.MiningStatus.Status, "curtailed")
 	}
 
-	// The actual pool list is the source of truth, not MiningState (which can be stale).
+	// The actual pool list is normally the source of truth because MiningState
+	// can be stale. Explicit curtailment takes precedence so a pool-less device
+	// remains visibly inactive while it is held at minimal power.
 	needsPool, err := c.checkNeedsMiningPool(ctx)
 	if err != nil {
 		slog.Warn("failed to check pool configuration", "error", err)
-	} else if needsPool {
+	} else if needsPool && !isCurtailed {
 		state = sdk.HealthNeedsMiningPool
 	} else if state == sdk.HealthNeedsMiningPool {
 		state = sdk.HealthHealthyInactive

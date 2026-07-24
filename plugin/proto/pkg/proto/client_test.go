@@ -935,6 +935,12 @@ func TestGetStatusPoolStateOverride(t *testing.T) {
 			expectedState: sdk.HealthHealthyInactive,
 		},
 		{
+			name:          "firmware reports curtailed and no pools are configured",
+			miningStatus:  "curtailed",
+			pools:         []poolData{},
+			expectedState: sdk.HealthHealthyInactive,
+		},
+		{
 			name:          "firmware reports stopped but no pools",
 			miningStatus:  "stopped",
 			pools:         []poolData{},
