@@ -604,7 +604,7 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 					return nil, err
 				}
 				resulting := existing + int64(netNewBuildingMembers)
-				if models.RackCapacityExceeded(targetBuilding.Aisles, targetBuilding.RacksPerAisle, resulting) {
+				if resulting > capacity {
 					return nil, fleeterror.NewInvalidArgumentErrorf(
 						"cannot assign racks: building has %d positions (%d aisles × %d racks per aisle) but %d racks would be assigned",
 						capacity, targetBuilding.Aisles, targetBuilding.RacksPerAisle, resulting,
