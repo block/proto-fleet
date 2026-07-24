@@ -7,7 +7,8 @@ const mockDeleteFirmwareFile = vi.fn();
 const mockDeleteAllFirmwareFiles = vi.fn();
 const mockUpdateFirmwareMetadata = vi.fn();
 
-vi.mock("@/protoFleet/api/useFirmwareApi", () => ({
+vi.mock("@/protoFleet/api/useFirmwareApi", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/api/useFirmwareApi")>()),
   useFirmwareApi: () => ({
     listFirmwareFiles: mockListFirmwareFiles,
     updateFirmwareMetadata: mockUpdateFirmwareMetadata,

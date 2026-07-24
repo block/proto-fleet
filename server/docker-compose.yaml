@@ -137,7 +137,7 @@ services:
       dockerfile: Dockerfile
     environment:
       MINER_TYPE: "Antminer S19 XP"
-      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      FIRMWARE_VERSION: "2.0.0"
       USERNAME: "root19"
       PASSWORD: "root19"
     healthcheck:
@@ -167,7 +167,7 @@ services:
       dockerfile: Dockerfile
     environment:
       MINER_TYPE: "Antminer S17"
-      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      FIRMWARE_VERSION: "2.0.0"
       ERROR_BOARD_TEMP: "96.0"
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://localhost:80/health" ]
@@ -188,7 +188,7 @@ services:
       dockerfile: Dockerfile
     environment:
       MINER_TYPE: "Antminer S21"
-      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      FIRMWARE_VERSION: "2.0.0"
       ERROR_HW_PERCENT: "6.5"
       ERROR_HW_COUNT: "1500"
     healthcheck:
@@ -210,7 +210,7 @@ services:
       dockerfile: Dockerfile
     environment:
       MINER_TYPE: "Antminer S21 XP"
-      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      FIRMWARE_VERSION: "2.0.0"
       USERNAME: "root21"
       PASSWORD: "root21"
       ERROR_BOARD_NOT_ALIVE: "true"
@@ -233,7 +233,7 @@ services:
       dockerfile: Dockerfile
     environment:
       MINER_TYPE: "Antminer S17 XP"
-      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      FIRMWARE_VERSION: "2.0.0"
       USERNAME: "root17"
       PASSWORD: "root17"
       ERROR_POOL_NOT_ALIVE: "true"
@@ -260,7 +260,7 @@ services:
       dockerfile: Dockerfile
     environment:
       MINER_TYPE: "Antminer S18"
-      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      FIRMWARE_VERSION: "2.0.0"
       ERROR_REJECTED_PERCENT: "12.0"
       ERROR_STALE_COUNT: "150"
     healthcheck:
@@ -309,7 +309,7 @@ services:
       dockerfile: Dockerfile
     environment:
       MINER_TYPE: "Antminer S19"
-      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      FIRMWARE_VERSION: "2.0.0"
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://localhost:80/health" ]
       interval: 10s

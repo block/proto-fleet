@@ -1541,9 +1541,7 @@ func (s *Service) validateFirmwareUpdateTargets(
 	mismatchCount := 0
 	for _, identifier := range identifiers {
 		property, ok := propertiesByIdentifier[identifier]
-		if !ok || strings.TrimSpace(property.Manufacturer) == "" || strings.TrimSpace(property.Model) == "" ||
-			!strings.EqualFold(strings.TrimSpace(property.Manufacturer), metadata.TargetManufacturer) ||
-			!strings.EqualFold(strings.TrimSpace(property.Model), metadata.TargetModel) {
+		if !ok || !metadata.MatchesTarget(property.Manufacturer, property.Model) {
 			mismatchCount++
 		}
 	}

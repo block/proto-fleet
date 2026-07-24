@@ -7,7 +7,8 @@ const mockListFirmwareFiles = vi.fn();
 const mockUseFirmwareUpload = vi.fn();
 const target = { targetManufacturer: "Proto", targetModel: "S21" };
 
-vi.mock("@/protoFleet/api/useFirmwareApi", () => ({
+vi.mock("@/protoFleet/api/useFirmwareApi", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/api/useFirmwareApi")>()),
   useFirmwareApi: () => ({
     listFirmwareFiles: mockListFirmwareFiles,
   }),

@@ -247,12 +247,9 @@ func TestFirmwareUploadReusesExistingFile(t *testing.T) {
 	forbidFirmwareEndpoint(t, mux, "POST /api/v1/firmware/upload/chunked")
 	client := newFirmwareTestServer(t, mux)
 
-	result, reused, err := runFirmwareUpload(context.Background(), client, path, testFirmwareTarget(), false, nil)
+	result, err := runFirmwareUpload(context.Background(), client, path, testFirmwareTarget(), false, nil)
 	if err != nil {
 		t.Fatalf("runFirmwareUpload() error = %v", err)
-	}
-	if !reused {
-		t.Error("runFirmwareUpload() reused = false, want true")
 	}
 	if result.FirmwareFileID != "existing-id" {
 		t.Errorf("FirmwareFileID = %q, want %q", result.FirmwareFileID, "existing-id")
@@ -275,15 +272,15 @@ func TestFirmwareUploadForceUploadsDespiteCheckHit(t *testing.T) {
 	})
 	client := newFirmwareTestServer(t, mux)
 
-	result, reused, err := runFirmwareUpload(context.Background(), client, path, testFirmwareTarget(), true, nil)
+	result, err := runFirmwareUpload(context.Background(), client, path, testFirmwareTarget(), true, nil)
 	if err != nil {
 		t.Fatalf("runFirmwareUpload() error = %v", err)
 	}
 	if !uploadHit {
 		t.Error("direct upload endpoint was not called despite --force")
 	}
-	if reused {
-		t.Error("runFirmwareUpload() reused = true, want false")
+	if result.Reused {
+		t.Error("result.Reused = true, want false")
 	}
 	if result.FirmwareFileID != "fresh-id" {
 		t.Errorf("FirmwareFileID = %q, want %q", result.FirmwareFileID, "fresh-id")
@@ -342,12 +339,12 @@ func TestFirmwareUploadDirectUsesMultipart(t *testing.T) {
 			})
 			client := newFirmwareTestServer(t, mux)
 
-			result, reused, err := runFirmwareUpload(context.Background(), client, path, testFirmwareTarget(), false, nil)
+			result, err := runFirmwareUpload(context.Background(), client, path, testFirmwareTarget(), false, nil)
 			if err != nil {
 				t.Fatalf("runFirmwareUpload() error = %v", err)
 			}
-			if reused {
-				t.Error("runFirmwareUpload() reused = true, want false")
+			if result.Reused {
+				t.Error("result.Reused = true, want false")
 			}
 			if result.FirmwareFileID != "direct-id" {
 				t.Errorf("FirmwareFileID = %q, want %q", result.FirmwareFileID, "direct-id")
@@ -401,12 +398,12 @@ func TestFirmwareUploadChunkedSequence(t *testing.T) {
 	})
 	client := newFirmwareTestServer(t, mux)
 
-	result, reused, err := runFirmwareUpload(context.Background(), client, path, testFirmwareTarget(), false, nil)
+	result, err := runFirmwareUpload(context.Background(), client, path, testFirmwareTarget(), false, nil)
 	if err != nil {
 		t.Fatalf("runFirmwareUpload() error = %v", err)
 	}
-	if reused {
-		t.Error("runFirmwareUpload() reused = true, want false")
+	if result.Reused {
+		t.Error("result.Reused = true, want false")
 	}
 	if result.FirmwareFileID != "chunked-id" {
 		t.Errorf("FirmwareFileID = %q, want %q", result.FirmwareFileID, "chunked-id")
@@ -494,7 +491,7 @@ func TestFirmwareUploadValidationRejectsLocally(t *testing.T) {
 			forbidFirmwareEndpoint(t, mux, "POST /api/v1/firmware/upload/chunked")
 			client := newFirmwareTestServer(t, mux)
 
-			_, _, err := runFirmwareUpload(context.Background(), client, tt.path(t), testFirmwareTarget(), false, nil)
+			_, err := runFirmwareUpload(context.Background(), client, tt.path(t), testFirmwareTarget(), false, nil)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("runFirmwareUpload() error = %v, want containing %q", err, tt.wantErr)
 			}
