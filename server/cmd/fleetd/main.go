@@ -276,36 +276,33 @@ func start(config *Config) error {
 	// userStore implements both UserStore and UserManagementStore interfaces
 	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, sessionSvc, encryptSvc, activitySvc, permissionResolver)
 
-	// Start session cleanup goroutine
-	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
-	go func() {
+	identityStateCleanup := newBackgroundLoop(func(ctx context.Context) {
 		ticker := time.NewTicker(sessionSvc.CleanupInterval())
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ticker.C:
-				if deleted, err := sessionSvc.CleanupExpired(cleanupCtx); err != nil {
+				if deleted, err := sessionSvc.CleanupExpired(ctx); err != nil {
 					slog.Error("failed to cleanup expired sessions", "error", err)
 				} else if deleted > 0 {
 					slog.Debug("cleaned up expired sessions", "count", deleted)
 				}
-				if swept, err := fleetNodeEnrollmentSvc.SweepExpired(cleanupCtx); err != nil {
+				if swept, err := fleetNodeEnrollmentSvc.SweepExpired(ctx); err != nil {
 					slog.Error("failed to sweep expired fleet node enrollments", "error", err)
 				} else if swept > 0 {
 					slog.Debug("swept expired fleet node enrollments", "count", swept)
 				}
-				if challenges, sessions, err := fleetNodeAuthSvc.SweepExpired(cleanupCtx); err != nil {
+				if challenges, sessions, err := fleetNodeAuthSvc.SweepExpired(ctx); err != nil {
 					slog.Error("failed to sweep expired fleet node auth state", "error", err)
 				} else if challenges > 0 || sessions > 0 {
 					slog.Debug("swept expired fleet node auth state", "challenges", challenges, "sessions", sessions)
 				}
-			case <-cleanupCtx.Done():
+			case <-ctx.Done():
 				return
 			}
 		}
-	}()
-	defer cleanupCancel()
+	})
 
 	if err := config.Plugins.Validate(); err != nil {
 		return fmt.Errorf("invalid plugin configuration: %w", err)
@@ -360,7 +357,6 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
-	commandArtifactCleanupCtx, commandArtifactCleanupCancel := context.WithCancel(context.Background())
 	runCommandArtifactSweep := func() {
 		deleted, sweepErr := filesService.SweepExpiredCommandArtifacts(time.Now().UTC(), filesService.CommandArtifactRetentionTTL())
 		if sweepErr != nil {
@@ -371,7 +367,7 @@ func start(config *Config) error {
 			slog.Debug("swept expired command artifacts", "count", deleted)
 		}
 	}
-	go func() {
+	commandArtifactCleanup := newBackgroundLoop(func(ctx context.Context) {
 		ticker := time.NewTicker(filesService.CommandArtifactCleanupInterval())
 		defer ticker.Stop()
 		runCommandArtifactSweep()
@@ -380,12 +376,11 @@ func start(config *Config) error {
 			select {
 			case <-ticker.C:
 				runCommandArtifactSweep()
-			case <-commandArtifactCleanupCtx.Done():
+			case <-ctx.Done():
 				return
 			}
 		}
-	}()
-	defer commandArtifactCleanupCancel()
+	})
 	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, pluginManager).
 		WithCommandSender(fleetNodeControlRegistry)
 
@@ -393,12 +388,6 @@ func start(config *Config) error {
 	errorStore := sqlstores.NewSQLErrorStore(conn, transactor)
 	diagnosticsService := diagnostics.NewService(config.Diagnostics, errorStore, transactor).
 		WithDeviceScopeResolver(deviceStore)
-	if err := diagnosticsService.Start(context.Background()); err != nil {
-		return fmt.Errorf("start diagnostics error closer: %w", err)
-	}
-	defer func() {
-		stopStandaloneJob("diagnostics error closer", diagnosticsService)
-	}()
 
 	// Shared per-org cache for ListMinerStateSnapshots option arrays
 	// (models, firmware versions). The TTL is the primary freshness
@@ -416,15 +405,6 @@ func start(config *Config) error {
 	)
 	telemetryService.WithMetricsEmitter(metricsProvider)
 	fleetNodePairingSvc.WithTelemetryScheduler(telemetryService)
-	if err := telemetryService.Start(context.Background()); err != nil {
-		slog.Error("failed to start telemetry service", "error", err)
-		return fmt.Errorf("failed to start telemetry service: %w", err)
-	}
-
-	// Ensure telemetry service cleanup on shutdown.
-	defer func() {
-		stopStandaloneJob("telemetry service", telemetryService)
-	}()
 
 	pluginPairer := plugins.NewPairer(pluginManager, transactor, discoveredDeviceStore, deviceStore, encryptSvc)
 
@@ -453,17 +433,6 @@ func start(config *Config) error {
 		slog.Default(),
 	)
 
-	if err := ipScannerService.Start(context.Background()); err != nil {
-		slog.Error("failed to start IP scanner service", "error", err)
-		return fmt.Errorf("failed to start IP scanner service: %w", err)
-	}
-
-	// Ensure IP scanner service cleanup on shutdown
-	defer func() {
-		slog.Info("Stopping IP scanner service")
-		stopStandaloneJob("IP scanner service", ipScannerService)
-	}()
-
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
 
 	// Ensure plugin cleanup on shutdown
@@ -478,14 +447,6 @@ func start(config *Config) error {
 
 	executionService := commandDomain.NewExecutionService(&config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
 	executionService.WithMetricsEmitter(metricsProvider)
-	err = executionService.Start(context.Background())
-	if err != nil {
-		slog.Error("failed to start command execution service", "error", err)
-	} else {
-		defer func() {
-			stopStandaloneJob("command execution service", executionService)
-		}()
-	}
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
@@ -542,12 +503,6 @@ func start(config *Config) error {
 	commandSvc.RegisterFilter(commandDomain.NewCurtailmentActiveFilter(curtailmentStore))
 
 	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, deviceStore, commandSvc, activitySvc)
-	if err := scheduleProcessor.Start(context.Background()); err != nil {
-		return fmt.Errorf("failed to start schedule processor: %w", err)
-	}
-	defer func() {
-		stopStandaloneJob("schedule processor", scheduleProcessor)
-	}()
 
 	curtailmentRec := curtailmentReconciler.New(
 		config.Curtailment,
@@ -557,12 +512,6 @@ func start(config *Config) error {
 		curtailmentReconciler.WithFacilityFanController(facilityFanController),
 		curtailmentReconciler.WithFacilityFanAlertEmitter(metricsProvider),
 	)
-	if err := curtailmentRec.Start(context.Background()); err != nil {
-		return fmt.Errorf("failed to start curtailment reconciler: %w", err)
-	}
-	defer func() {
-		stopStandaloneJob("curtailment reconciler", curtailmentRec)
-	}()
 
 	mqttQueries, err := db.NewPreparedQuerier(context.Background(), conn)
 	if err != nil {
@@ -595,12 +544,6 @@ func start(config *Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize curtailment mqtt subscriber: %w", err)
 	}
-	if err := mqttSubscriber.Start(context.Background()); err != nil {
-		return fmt.Errorf("failed to start curtailment mqtt subscriber: %w", err)
-	}
-	defer func() {
-		stopStandaloneJob("curtailment mqtt subscriber", mqttSubscriber)
-	}()
 	mqttConnectionTester, err := mqttingest.NewMQTTConnectionTester(mqttingest.ConnectionTesterConfig{
 		NewClient: func() mqttingest.MQTTClient { return mqttclient.New() },
 	})
@@ -619,8 +562,9 @@ func start(config *Config) error {
 
 	// Feeds the MQTT curtailment default alert rules; skipped when the
 	// metrics pipeline is off so its periodic queries aren't wasted work.
+	var curtailmentAlertMetrics runtimejobs.Lifecycle
 	if metricsProvider.Enabled() {
-		curtailmentAlertMetrics, err := curtailmentDomain.NewAlertMetricsLoop(curtailmentDomain.AlertMetricsConfig{
+		alertMetricsLoop, err := curtailmentDomain.NewAlertMetricsLoop(curtailmentDomain.AlertMetricsConfig{
 			Sources:           mqttingest.NewSQLCStore(mqttQueries),
 			Runtime:           mqttSubscriber,
 			ActiveCurtailment: curtailmentStore,
@@ -629,12 +573,7 @@ func start(config *Config) error {
 		if err != nil {
 			return fmt.Errorf("failed to initialize curtailment alert metrics loop: %w", err)
 		}
-		if err := curtailmentAlertMetrics.Start(context.Background()); err != nil {
-			return fmt.Errorf("failed to start curtailment alert metrics loop: %w", err)
-		}
-		defer func() {
-			stopStandaloneJob("curtailment alert metrics loop", curtailmentAlertMetrics)
-		}()
+		curtailmentAlertMetrics = alertMetricsLoop
 	}
 
 	deviceResolver := deviceresolver.New(deviceStore)
@@ -689,9 +628,9 @@ func start(config *Config) error {
 	mux.Handle("DELETE /api/v1/firmware/files", firmwareHandler.NewDeleteAllFilesHandler(filesService, sessionSvc, userStore))
 	mux.Handle("/miners/{deviceIdentifier}/api/v1/{rest...}", minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc))
 
-	chunkedCleanupCtx, chunkedCleanupCancel := context.WithCancel(context.Background())
-	go chunkedMgr.StartCleanup(chunkedCleanupCtx, config.Files.ChunkedUploadSessionTTL)
-	defer chunkedCleanupCancel()
+	chunkedUploadCleanup := newBackgroundLoop(func(ctx context.Context) {
+		chunkedMgr.StartCleanup(ctx, config.Files.ChunkedUploadSessionTTL)
+	})
 
 	if len(reflectEnabledServices) != 0 {
 		slog.Debug("enabling reflection", "services", reflectEnabledServices)
@@ -777,52 +716,67 @@ func start(config *Config) error {
 		Handler:           handler,
 		ReadHeaderTimeout: config.HTTP.ReadHeaderTimeout,
 	}
+
+	// The first heartbeat clears the Fleet Heartbeat Stale alert, so keep it
+	// gated until the HTTP listener is bound. Other jobs may perform synchronous
+	// startup work and must finish before the public port can accept connections.
+	listenerBound := make(chan struct{})
+	var systemMonitoring runtimejobs.Lifecycle
+	if config.SystemMonitoring.Enabled {
+		collector := sysmon.New(config.SystemMonitoring, metricsProvider)
+		systemMonitoring = newBackgroundLoop(func(ctx context.Context) {
+			select {
+			case <-listenerBound:
+				collector.Run(ctx)
+			case <-ctx.Done():
+			}
+		})
+	}
+
+	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
+		identityStateCleanup:      identityStateCleanup,
+		commandArtifactCleanup:    commandArtifactCleanup,
+		diagnosticsErrorCloser:    diagnosticsService,
+		telemetry:                 telemetryService,
+		ipScanner:                 ipScannerService,
+		commandExecution:          executionService,
+		scheduleProcessor:         scheduleProcessor,
+		curtailmentReconciler:     curtailmentRec,
+		curtailmentMQTTSubscriber: mqttSubscriber,
+		curtailmentAlertMetrics:   curtailmentAlertMetrics,
+		chunkedUploadCleanup:      chunkedUploadCleanup,
+		systemMonitoring:          systemMonitoring,
+	})
+	if err != nil {
+		return err
+	}
+	runtimeJobGroup, err := runtimejobs.NewGroup(jobs, shutdownTimeout)
+	if err != nil {
+		return fmt.Errorf("create runtime job group: %w", err)
+	}
+	defer func() {
+		stopRuntimeJobGroup(runtimeJobGroup, executionService, shutdownTimeout)
+	}()
+	if err := runtimeJobGroup.Start(context.Background()); err != nil {
+		return fmt.Errorf("start runtime jobs: %w", err)
+	}
+
 	listener, err := net.Listen("tcp", config.HTTP.Address)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", config.HTTP.Address, err)
 	}
-
-	// Started only once the listener is accepting: the first heartbeat is what
-	// clears the Fleet Heartbeat Stale alert, so a crash-looping boot must not
-	// keep refreshing it and mask a down fleet-api.
-	if config.SystemMonitoring.Enabled {
-		sysmonCtx, sysmonCancel := context.WithCancel(context.Background())
-		defer sysmonCancel()
-		go sysmon.New(config.SystemMonitoring, metricsProvider).Run(sysmonCtx)
-	}
+	close(listenerBound)
+	defer func() {
+		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			slog.Error("failed to close HTTP listener", "error", err)
+		}
+	}()
 
 	err = httpServer.Serve(listener)
 	if err != nil {
 		return fmt.Errorf("server shutting down: %+v", err)
 	}
 	return nil
-}
-
-// stopStandaloneJob gives work one graceful-shutdown budget, then one final
-// bounded drain budget. Stop is synchronous, so both budgets rely on the
-// implementation honoring the supplied contexts.
-func stopStandaloneJob(name string, job runtimejobs.Lifecycle) {
-	stopStandaloneJobWithTimeout(name, job, shutdownTimeout)
-}
-
-func stopStandaloneJobWithTimeout(name string, job runtimejobs.Lifecycle, timeout time.Duration) {
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
-	err := job.Stop(shutdownCtx)
-	shutdownErr := shutdownCtx.Err()
-	cancel()
-	if err == nil {
-		return
-	}
-	if !errors.Is(shutdownErr, context.DeadlineExceeded) {
-		slog.Error("failed to stop runtime job", "job", name, "error", err)
-		return
-	}
-	slog.Error("runtime job exceeded shutdown timeout", "job", name, "error", err)
-	drainCtx, drainCancel := context.WithTimeout(context.Background(), timeout)
-	defer drainCancel()
-	if err := job.Stop(drainCtx); err != nil {
-		slog.Error("failed to drain runtime job", "job", name, "error", err)
-	}
 }
 
 func newHTTP2Server(config HTTPConfig) *http2.Server {
