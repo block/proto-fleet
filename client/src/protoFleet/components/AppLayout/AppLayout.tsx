@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import clsx from "clsx";
 
 import NavigationMenu from "../NavigationMenu";
@@ -16,6 +17,7 @@ import {
 import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
 import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
+import { ChatFab, ChatPanel } from "@/protoFleet/features/aiChat";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { useHasPermission } from "@/protoFleet/store";
 import { Menu } from "@/shared/assets/icons";
@@ -29,6 +31,7 @@ type Props = {
 
 const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const { pathname } = useLocation();
   const { bgClass } = usePageBackground();
   const { isPhone, isTablet } = useWindowDimensions();
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
@@ -36,6 +39,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const { activeEvent: activeCurtailmentEvent } = useCurtailmentPillData();
   const hasDismissedSetup = Boolean(dismissedSetup);
   const canReadCurtailment = useHasPermission("curtailment:read");
+  const canReadFleet = useHasPermission("fleet:read");
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
   const headerWidgetCount = getVisibleHeaderWidgetCount({
     hasDismissedSetup,
@@ -46,6 +50,7 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const phoneRowWidgetCount = getPhoneHeaderWidgetRowCount(headerWidgetCount, inlineFirstPhoneWidget);
   const stackPhoneWidgets = shouldStackPhoneHeaderWidgets(headerWidgetCount);
 
+  const isMinerbotPage = pathname === "/minerbot";
   const showDetailMenuTrigger = hideShellHeader && (isPhone || isTablet) && !isMenuOpen;
   const showPhoneWidgets = !hideShellHeader && isPhone && phoneRowWidgetCount > 0;
 
@@ -115,6 +120,14 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
       >
         {children}
       </div>
+
+      {canReadFleet && !isMinerbotPage ? (
+        <>
+          {/* AI Chat: FAB launcher + slide-up panel */}
+          <ChatFab />
+          <ChatPanel />
+        </>
+      ) : null}
     </div>
   );
 };

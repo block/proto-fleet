@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { getSettingsLandingPath, isNavItemAllowedByPermissions, primaryNavItems, secondaryNavItems } from "./navItems";
-import { LightningAlt } from "@/shared/assets/icons";
+import { AIStroked, LightningAlt } from "@/shared/assets/icons";
 
 describe("primaryNavItems", () => {
   it("shows Energy above Activity with the electric icon", () => {
@@ -51,6 +51,18 @@ describe("primaryNavItems", () => {
     expect(home?.requiredPermission).toBeUndefined();
     expect(home?.requiredAnyPermission).toBeUndefined();
   });
+
+  it("adds Minerbot as a fleet-readable primary destination before Settings", () => {
+    const labels = primaryNavItems.map((item) => item.label);
+    const minerbot = primaryNavItems.find((item) => item.label === "Minerbot");
+
+    expect(minerbot).toMatchObject({
+      path: "/minerbot",
+      icon: AIStroked,
+      requiredPermission: "fleet:read",
+    });
+    expect(labels.indexOf("Minerbot")).toBe(labels.indexOf("Settings") - 1);
+  });
 });
 
 describe("secondaryNavItems", () => {
@@ -93,6 +105,18 @@ describe("secondaryNavItems", () => {
       expect.objectContaining({
         path: "/settings/integrations",
         label: "Integrations",
+        parent: "/settings",
+        section: "Admin",
+        requiredPermission: "apikey:manage",
+      }),
+    );
+  });
+
+  it("gives agent configuration its own Admin destination", () => {
+    expect(secondaryNavItems).toContainEqual(
+      expect.objectContaining({
+        path: "/settings/agents",
+        label: "Agents",
         parent: "/settings",
         section: "Admin",
         requiredPermission: "apikey:manage",

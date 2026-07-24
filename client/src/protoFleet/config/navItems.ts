@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 
-import { Activity, Fleet, Groups, Home, IconProps, LightningAlt, Settings } from "@/shared/assets/icons";
+import { Activity, AIStroked, Fleet, Groups, Home, IconProps, LightningAlt, Settings } from "@/shared/assets/icons";
 
 // Runtime-gated features: an entry tagged with one is shown only when the server
 // reports the feature enabled (see SecondaryNavigation). Distinct from
@@ -103,6 +103,12 @@ export const primaryNavItems: NavItem[] = [
     scopable: true,
   },
   {
+    path: "/minerbot",
+    label: "Minerbot",
+    icon: AIStroked,
+    requiredPermission: "fleet:read",
+  },
+  {
     path: "/settings",
     label: "Settings",
     icon: Settings,
@@ -190,6 +196,13 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     // Team now owns member and role management. Show the entry when either
     // surface is usable so role-only admins are not stranded after the merge.
     requiredAnyPermission: ["user:read", "role:manage"],
+  },
+  {
+    path: "/settings/agents",
+    label: "Agents",
+    parent: "/settings",
+    section: "Admin",
+    requiredPermission: "apikey:manage",
   },
   {
     path: "/settings/integrations",

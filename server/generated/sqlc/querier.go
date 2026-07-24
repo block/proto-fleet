@@ -599,6 +599,7 @@ type Querier interface {
 	GetInfrastructureControlSubnets(ctx context.Context, arg GetInfrastructureControlSubnetsParams) (string, error)
 	GetInfrastructureDevice(ctx context.Context, arg GetInfrastructureDeviceParams) (GetInfrastructureDeviceRow, error)
 	GetKnownSubnets(ctx context.Context, arg GetKnownSubnetsParams) ([]string, error)
+	GetLLMConfig(ctx context.Context, organizationID int64) (LlmConfig, error)
 	GetLatestAllDeviceMetrics(ctx context.Context, argTime time.Time) ([]DeviceMetric, error)
 	GetLatestDeviceMetrics(ctx context.Context, arg GetLatestDeviceMetricsParams) ([]DeviceMetric, error)
 	GetLatestFleetMetricRollupBucket(ctx context.Context) (time.Time, error)
@@ -1624,6 +1625,7 @@ type Querier interface {
 	UpsertFleetMetricRollups(ctx context.Context, arg UpsertFleetMetricRollupsParams) error
 	UpsertFleetNodeAuthChallenge(ctx context.Context, arg UpsertFleetNodeAuthChallengeParams) error
 	UpsertFleetNodeSession(ctx context.Context, arg UpsertFleetNodeSessionParams) error
+	UpsertLLMConfig(ctx context.Context, arg UpsertLLMConfigParams) (LlmConfig, error)
 	// Subscriber upserts source signal state on each successful message receive,
 	// after precedence/dedup processing. Singleton per source.
 	UpsertMQTTSourceState(ctx context.Context, arg UpsertMQTTSourceStateParams) error

@@ -3,6 +3,7 @@ package main
 import (
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/chat"
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	curtailmentReconciler "github.com/block/proto-fleet/server/internal/domain/curtailment/reconciler"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
@@ -42,6 +43,7 @@ type Config struct {
 	Log            logging.Config               `embed:"" prefix:"logging-" envprefix:"LOG_"`
 	HTTP           HTTPConfig                   `embed:"" prefix:"http-" envprefix:"HTTP_"`
 	Auth           token.Config                 `embed:"" prefix:"auth-" envprefix:"AUTH_"`
+	Chat           chat.ProviderEgressConfig    `embed:"" prefix:"chat-" envprefix:"CHAT_"`
 	Session        session.Config               `embed:"" prefix:"session-" envprefix:"SESSION_"`
 	Pools          pools.Config                 `embed:"" prefix:"pools-" envprefix:"POOLS_"`
 	Encrypt        encrypt.Config               `embed:"" prefix:"encrypt-" envprefix:"ENCRYPT_"`

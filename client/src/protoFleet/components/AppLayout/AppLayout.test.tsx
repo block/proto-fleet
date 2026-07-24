@@ -34,6 +34,11 @@ vi.mock("@/protoFleet/components/PageHeader", () => ({
   default: () => <div>Page header</div>,
 }));
 
+vi.mock("@/protoFleet/features/aiChat", () => ({
+  ChatFab: () => <div data-testid="ai-chat-fab" />,
+  ChatPanel: () => <div data-testid="ai-chat-panel" />,
+}));
+
 vi.mock("@/protoFleet/components/PageHeader/useSchedulePillData", () => ({
   useSchedulePillData: () => mockUseSchedulePillData(),
 }));
@@ -184,6 +189,19 @@ describe("AppLayout", () => {
     expect(screen.getByText("Body content").parentElement).toHaveClass("top-[calc(theme(spacing.1)*12)]");
   });
 
+  it("hides the floating Minerbot launcher on the dedicated Minerbot page", () => {
+    render(
+      <MemoryRouter initialEntries={["/minerbot"]}>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByTestId("ai-chat-fab")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("ai-chat-panel")).not.toBeInTheDocument();
+  });
+
   it("uses the two-widget phone content offset when all three header widgets are visible", () => {
     mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
     mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
@@ -250,5 +268,33 @@ describe("AppLayout", () => {
     );
 
     expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12)]");
+  });
+
+  it("shows Minerbot chat when the operator can read the fleet", () => {
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByTestId("ai-chat-fab")).toBeInTheDocument();
+    expect(screen.getByTestId("ai-chat-panel")).toBeInTheDocument();
+  });
+
+  it("hides Minerbot chat when the operator cannot read the fleet", () => {
+    vi.mocked(useHasPermission).mockImplementation((permission) => permission !== "fleet:read");
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByTestId("ai-chat-fab")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("ai-chat-panel")).not.toBeInTheDocument();
   });
 });
