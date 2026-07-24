@@ -684,6 +684,49 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 				break
 			}
 		}
+		releaseSV2Translation := p.ReleaseSV2Translation
+		sv2Translation := p.SV2Translation
+		p.ReleaseSV2Translation = false
+		p.SV2Translation = nil
+		if releaseSV2Translation && sv2Translation != nil {
+			err = fleeterror.NewInternalError(
+				"update mining pools payload cannot apply and release SV2 translation together",
+			)
+			break
+		}
+		if sv2Translation != nil {
+			if es.translatorManager == nil {
+				err = fleeterror.NewInternalError("SV2 translator manager is not configured")
+				break
+			}
+			deviceIdentifier := string(minerInfo.GetID())
+			endpoint, applyErr := es.translatorManager.ApplyAssignment(
+				ctx,
+				&sv2Translation.Profile,
+				translator.Assignment{
+					SelectedDeviceIdentifiers:   []string{deviceIdentifier},
+					TranslatedDeviceIdentifiers: []string{deviceIdentifier},
+				},
+			)
+			if applyErr != nil {
+				err = fleeterror.NewFailedPreconditionErrorf(
+					"prepare Stratum V2 translator before pool update: %v",
+					applyErr,
+				)
+				break
+			}
+			if rewriteErr := rewriteTranslatedPoolEndpoints(
+				&p,
+				sv2Translation.TranslatedPoolIndexes,
+				endpoint,
+			); rewriteErr != nil {
+				err = fleeterror.NewInternalErrorf(
+					"prepare translated pool payload: %v",
+					rewriteErr,
+				)
+				break
+			}
+		}
 		err = minerInfo.UpdateMiningPools(ctx, p)
 		if err == nil && workerNameToPersist != "" {
 			err = es.persistWorkerNameAfterPoolUpdate(ctx, message.DeviceID, minerInfo.GetID(), workerNameToPersist)
@@ -691,7 +734,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 				err = fleeterror.NewInternalErrorf("failed to persist worker name after pool update: %v", err)
 			}
 		}
-		if err == nil && p.ReleaseSV2Translation && es.translatorManager != nil {
+		if err == nil && releaseSV2Translation && es.translatorManager != nil {
 			_, err = es.translatorManager.ApplyAssignment(
 				ctx,
 				nil,
@@ -805,6 +848,33 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		slog.Error("command execution failed", "command", commandType, "device_id", message.DeviceID, "batch_uuid", message.BatchLogUUID, "error", err)
 	}
 	return orgID, siteID, err
+}
+
+func rewriteTranslatedPoolEndpoints(
+	payload *dto.UpdateMiningPoolsPayload,
+	indexes []int,
+	endpoint translator.Endpoint,
+) error {
+	pools := []*dto.MiningPool{
+		&payload.DefaultPool,
+		payload.Backup1Pool,
+		payload.Backup2Pool,
+	}
+	seen := make(map[int]struct{}, len(indexes))
+	for _, index := range indexes {
+		if index < 0 || index >= len(pools) || pools[index] == nil {
+			return fmt.Errorf("translated pool index %d is missing", index)
+		}
+		if _, duplicate := seen[index]; duplicate {
+			return fmt.Errorf("translated pool index %d is duplicated", index)
+		}
+		seen[index] = struct{}{}
+		pools[index].URL = endpoint.String()
+	}
+	if len(seen) == 0 {
+		return errors.New("translated pool indexes are empty")
+	}
+	return nil
 }
 
 func (es *ExecutionService) resolveMinerForCommand(ctx context.Context, commandType commandtype.Type, deviceID int64, passwordPayload *dto.UpdateMinerPasswordPayload) (interfaces.Miner, error) {

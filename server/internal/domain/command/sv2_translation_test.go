@@ -34,6 +34,18 @@ type translationTestManager struct {
 	assignment translator.Assignment
 	err        error
 	calls      int
+	previews   int
+}
+
+func (f *translationTestManager) PreviewAssignment(
+	_ context.Context,
+	profile *translator.Profile,
+	assignment translator.Assignment,
+) (translator.Endpoint, error) {
+	f.previews++
+	f.profile = profile
+	f.assignment = assignment
+	return f.endpoint, f.err
 }
 
 func (f *translationTestManager) ApplyAssignment(
@@ -101,7 +113,8 @@ func TestPrepareUpdateMiningPoolsDispatch_RoutesByNativeCapability(t *testing.T)
 	)
 
 	require.NoError(t, err)
-	require.Equal(t, 1, manager.calls)
+	require.Equal(t, 1, manager.previews)
+	require.Equal(t, 0, manager.calls)
 	require.NotNil(t, manager.profile)
 	require.Equal(t, 1, len(manager.profile.Upstreams))
 	assert.Equal(t, translationTestSV2URL, manager.profile.Upstreams[0].URL)
@@ -114,6 +127,7 @@ func TestPrepareUpdateMiningPoolsDispatch_RoutesByNativeCapability(t *testing.T)
 	assert.Equal(t, int64(11), messages[0].DeviceID)
 	assert.Equal(t, translationTestSV2URL, nativePayload.DefaultPool.URL)
 	assert.True(t, nativePayload.ReleaseSV2Translation)
+	assert.Nil(t, nativePayload.SV2Translation)
 	require.NotNil(t, nativePayload.Backup1Pool)
 	assert.Equal(t, "stratum+tcp://backup.example.com:3333", nativePayload.Backup1Pool.URL)
 
@@ -122,6 +136,9 @@ func TestPrepareUpdateMiningPoolsDispatch_RoutesByNativeCapability(t *testing.T)
 	assert.Equal(t, int64(12), messages[1].DeviceID)
 	assert.Equal(t, manager.endpoint.String(), sv1Payload.DefaultPool.URL)
 	assert.False(t, sv1Payload.ReleaseSV2Translation)
+	require.NotNil(t, sv1Payload.SV2Translation)
+	assert.True(t, translator.ProfilesEqual(planProfileFromTestPayload(t, payload), sv1Payload.SV2Translation.Profile))
+	assert.Equal(t, []int{0}, sv1Payload.SV2Translation.TranslatedPoolIndexes)
 	require.NotNil(t, sv1Payload.Backup1Pool)
 	assert.Equal(t, "stratum+tcp://backup.example.com:3333", sv1Payload.Backup1Pool.URL)
 }
@@ -156,6 +173,7 @@ func TestPrepareUpdateMiningPoolsDispatch_AllNativeLeavesSharedPayload(t *testin
 	require.NoError(t, err)
 	assert.Nil(t, messages)
 	assert.Equal(t, 0, manager.calls)
+	assert.Equal(t, 0, manager.previews)
 	assert.True(t, payload.ReleaseSV2Translation)
 }
 
@@ -177,6 +195,7 @@ func TestPrepareUpdateMiningPoolsDispatch_SV1AssignmentDefersTranslatedDeviceRel
 	require.NoError(t, err)
 	assert.Nil(t, messages)
 	assert.Equal(t, 0, manager.calls)
+	assert.Equal(t, 0, manager.previews)
 	assert.True(t, payload.ReleaseSV2Translation)
 }
 
@@ -207,4 +226,21 @@ func TestPrepareUpdateMiningPoolsDispatch_DoesNotQueueWhenTranslatorFails(t *tes
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "container unavailable")
 	assert.Nil(t, messages)
+	assert.Equal(t, 1, manager.previews)
+	assert.Equal(t, 0, manager.calls)
+}
+
+func planProfileFromTestPayload(
+	t *testing.T,
+	payload *dto.UpdateMiningPoolsPayload,
+) translator.Profile {
+	t.Helper()
+	profile, err := translator.NormalizeProfile(translator.Profile{
+		Upstreams: []translator.Upstream{{
+			URL:      payload.DefaultPool.URL,
+			Username: payload.DefaultPool.Username,
+		}},
+	})
+	require.NoError(t, err)
+	return profile
 }

@@ -484,15 +484,6 @@ func start(config *Config) error {
 
 	executionService := commandDomain.NewExecutionService(&config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
 	executionService.WithMetricsEmitter(metricsProvider)
-	err = executionService.Start(context.Background())
-	if err != nil {
-		slog.Error("failed to start command execution service", "error", err)
-	} else {
-		defer func() {
-			stopStandaloneJob("command execution service", executionService)
-		}()
-	}
-
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	translatorManager, err := translator.NewManager(config.SV2Translator)
 	if err != nil {
@@ -504,6 +495,15 @@ func start(config *Config) error {
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
 	commandSvc.SetPluginCapabilitiesProvider(pluginService)
 	commandSvc.SetSV2TranslatorManager(translatorManager)
+	err = executionService.Start(context.Background())
+	if err != nil {
+		slog.Error("failed to start command execution service", "error", err)
+	} else {
+		defer func() {
+			stopStandaloneJob("command execution service", executionService)
+		}()
+	}
+
 	// buildingStore is constructed below alongside siteStore; both are
 	// needed for the parseFilter cross-org check on building_ids and
 	// zone_keys. Hoist the construction so fleetMgmtSvc can depend on it.

@@ -39,6 +39,7 @@ type Assignment struct {
 }
 
 type Manager interface {
+	PreviewAssignment(ctx context.Context, desired *Profile, assignment Assignment) (Endpoint, error)
 	ApplyAssignment(ctx context.Context, desired *Profile, assignment Assignment) (Endpoint, error)
 	Resume(ctx context.Context) error
 	ActiveProfile() (Profile, Endpoint, bool)
@@ -70,6 +71,47 @@ type managerSnapshot struct {
 }
 
 var _ Manager = (*FileManager)(nil)
+
+func normalizeAssignment(
+	desired *Profile,
+	assignment Assignment,
+) (Profile, []string, []string, error) {
+	selected, err := normalizeDeviceIdentifiers("selected", assignment.SelectedDeviceIdentifiers)
+	if err != nil {
+		return Profile{}, nil, nil, err
+	}
+	translated, err := normalizeDeviceIdentifiers("translated", assignment.TranslatedDeviceIdentifiers)
+	if err != nil {
+		return Profile{}, nil, nil, err
+	}
+	selectedSet := deviceSet(selected)
+	for _, identifier := range translated {
+		if _, ok := selectedSet[identifier]; !ok {
+			return Profile{}, nil, nil, fmt.Errorf(
+				"translated miner %q is not part of the selected assignment",
+				identifier,
+			)
+		}
+	}
+
+	var normalized Profile
+	if len(translated) > 0 {
+		if desired == nil {
+			return Profile{}, nil, nil, fmt.Errorf(
+				"translator profile is required for translated miners",
+			)
+		}
+		normalized, err = NormalizeProfile(*desired)
+		if err != nil {
+			return Profile{}, nil, nil, err
+		}
+	} else if desired != nil {
+		return Profile{}, nil, nil, fmt.Errorf(
+			"translator profile requires at least one translated miner",
+		)
+	}
+	return normalized, selected, translated, nil
+}
 
 func NewManager(config Config) (*FileManager, error) {
 	if !filepath.IsAbs(config.StateDir) {
@@ -107,37 +149,43 @@ func NewManager(config Config) (*FileManager, error) {
 	return manager, nil
 }
 
+// PreviewAssignment validates an assignment and returns the endpoint that
+// queued miner payloads should use without changing persisted translator state
+// or starting/stopping the container.
+func (m *FileManager) PreviewAssignment(
+	ctx context.Context,
+	desired *Profile,
+	assignment Assignment,
+) (Endpoint, error) {
+	normalized, _, translated, err := normalizeAssignment(desired, assignment)
+	if err != nil {
+		return "", err
+	}
+	if len(translated) == 0 {
+		return "", nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.active {
+		if !ProfilesEqual(m.profile, normalized) {
+			return "", fmt.Errorf(
+				"SV2 translator profile is active; move all translated miners to non-SV2 pools before changing the pool set",
+			)
+		}
+		return m.endpoint, nil
+	}
+	return m.endpointForProfile(ctx, normalized)
+}
+
 func (m *FileManager) ApplyAssignment(
 	ctx context.Context,
 	desired *Profile,
 	assignment Assignment,
 ) (Endpoint, error) {
-	selected, err := normalizeDeviceIdentifiers("selected", assignment.SelectedDeviceIdentifiers)
+	normalized, selected, translated, err := normalizeAssignment(desired, assignment)
 	if err != nil {
 		return "", err
-	}
-	translated, err := normalizeDeviceIdentifiers("translated", assignment.TranslatedDeviceIdentifiers)
-	if err != nil {
-		return "", err
-	}
-	selectedSet := deviceSet(selected)
-	for _, identifier := range translated {
-		if _, ok := selectedSet[identifier]; !ok {
-			return "", fmt.Errorf("translated miner %q is not part of the selected assignment", identifier)
-		}
-	}
-
-	var normalized Profile
-	if len(translated) > 0 {
-		if desired == nil {
-			return "", fmt.Errorf("translator profile is required for translated miners")
-		}
-		normalized, err = NormalizeProfile(*desired)
-		if err != nil {
-			return "", err
-		}
-	} else if desired != nil {
-		return "", fmt.Errorf("translator profile requires at least one translated miner")
 	}
 
 	m.mu.Lock()
@@ -150,10 +198,9 @@ func (m *FileManager) ApplyAssignment(
 	if len(translated) == 0 {
 		return m.releaseSelectedLocked(remaining)
 	}
-	if m.active && !ProfilesEqual(m.profile, normalized) && len(remaining) > 0 {
+	if m.active && !ProfilesEqual(m.profile, normalized) {
 		return "", fmt.Errorf(
-			"SV2 translation still serves %d unselected miner(s); reassign them before changing the pool set",
-			len(remaining),
+			"SV2 translator profile is active; move all translated miners to non-SV2 pools before changing the pool set",
 		)
 	}
 

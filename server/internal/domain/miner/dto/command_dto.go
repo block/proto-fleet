@@ -3,6 +3,7 @@ package dto
 import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	"github.com/block/proto-fleet/server/internal/domain/sv2/translator"
 )
 
 type CoolingModePayload struct {
@@ -27,9 +28,18 @@ type UpdateMiningPoolsPayload struct {
 	Backup2Pool                             *MiningPool `json:"backup2_pool,omitempty"`
 	ReapplyCurrentPoolsWithStoredWorkerName bool        `json:"reapply_current_pools_with_stored_worker_name,omitempty"`
 	DesiredWorkerName                       string      `json:"desired_worker_name,omitempty"`
+	// SV2Translation is an internal queue instruction. The executor starts the
+	// translator and replaces the planned pool slots immediately before
+	// dispatching the miner update.
+	SV2Translation *SV2TranslationInstruction `json:"sv2_translation,omitempty"`
 	// ReleaseSV2Translation is an internal queue instruction honored only after
 	// the miner has accepted this pool update.
 	ReleaseSV2Translation bool `json:"release_sv2_translation,omitempty"`
+}
+
+type SV2TranslationInstruction struct {
+	Profile               translator.Profile `json:"profile"`
+	TranslatedPoolIndexes []int              `json:"translated_pool_indexes"`
 }
 
 type UpdateMinerPasswordPayload struct {

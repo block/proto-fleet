@@ -37,7 +37,7 @@ func (f *managerTestRuntime) Stop(context.Context) error {
 	return nil
 }
 
-func TestApplyAssignmentTracksDevicesAndAllowsSafeProfileChange(t *testing.T) {
+func TestApplyAssignmentRequiresReleaseBeforeProfileChange(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = listener.Close() })
@@ -90,7 +90,7 @@ func TestApplyAssignmentTracksDevicesAndAllowsSafeProfileChange(t *testing.T) {
 		},
 	)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "1 unselected miner")
+	assert.Contains(t, err.Error(), "move all translated miners")
 	assert.Equal(t, 1, runtime.startCalls)
 	assert.Equal(t, 0, runtime.stopCalls)
 
@@ -101,6 +101,45 @@ func TestApplyAssignmentTracksDevicesAndAllowsSafeProfileChange(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, 0, runtime.stopCalls)
+
+	_, err = manager.PreviewAssignment(
+		context.Background(),
+		&otherProfile,
+		Assignment{
+			SelectedDeviceIdentifiers:   []string{"miner-a"},
+			TranslatedDeviceIdentifiers: []string{"miner-a"},
+		},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "move all translated miners")
+	assert.Equal(t, 1, runtime.startCalls)
+	assert.Equal(t, 0, runtime.stopCalls)
+
+	_, err = manager.ApplyAssignment(
+		context.Background(),
+		nil,
+		Assignment{SelectedDeviceIdentifiers: []string{"miner-a"}},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 1, runtime.stopCalls)
+	_, err = os.Stat(filepath.Join(manager.config.StateDir, configFileName))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(filepath.Join(manager.config.StateDir, profileFileName))
+	assert.ErrorIs(t, err, os.ErrNotExist)
+	_, _, active := manager.ActiveProfile()
+	assert.False(t, active)
+
+	previewEndpoint, err := manager.PreviewAssignment(
+		context.Background(),
+		&otherProfile,
+		Assignment{
+			SelectedDeviceIdentifiers:   []string{"miner-a"},
+			TranslatedDeviceIdentifiers: []string{"miner-a"},
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, endpoint, previewEndpoint)
+	assert.Equal(t, 1, runtime.startCalls)
 
 	_, err = manager.ApplyAssignment(
 		context.Background(),
@@ -113,20 +152,6 @@ func TestApplyAssignmentTracksDevicesAndAllowsSafeProfileChange(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, runtime.startCalls)
 	assert.Equal(t, 1, runtime.stopCalls)
-
-	_, err = manager.ApplyAssignment(
-		context.Background(),
-		nil,
-		Assignment{SelectedDeviceIdentifiers: []string{"miner-a"}},
-	)
-	require.NoError(t, err)
-	assert.Equal(t, 2, runtime.stopCalls)
-	_, err = os.Stat(filepath.Join(manager.config.StateDir, configFileName))
-	assert.ErrorIs(t, err, os.ErrNotExist)
-	_, err = os.Stat(filepath.Join(manager.config.StateDir, profileFileName))
-	assert.ErrorIs(t, err, os.ErrNotExist)
-	_, _, active := manager.ActiveProfile()
-	assert.False(t, active)
 }
 
 func TestPersistedAssignmentResumesTranslator(t *testing.T) {

@@ -97,7 +97,7 @@ func (s *Service) prepareUpdateMiningPoolsDispatch(
 			}
 		}
 	}
-	endpoint, err := s.translatorManager.ApplyAssignment(
+	endpoint, err := s.translatorManager.PreviewAssignment(
 		ctx,
 		&plan.TranslatorProfile,
 		translator.Assignment{
@@ -106,7 +106,7 @@ func (s *Service) prepareUpdateMiningPoolsDispatch(
 		},
 	)
 	if err != nil {
-		return nil, fleeterror.NewFailedPreconditionErrorf("start Stratum V2 translator: %v", err)
+		return nil, fleeterror.NewFailedPreconditionErrorf("plan Stratum V2 translator assignment: %v", err)
 	}
 
 	routeByIdentifier := make(map[string]preflight.DeviceRoute, len(plan.Devices))
@@ -123,7 +123,14 @@ func (s *Service) prepareUpdateMiningPoolsDispatch(
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("build pool route for miner %s: %v", device.identifier, err)
 		}
-		devicePayload.ReleaseSV2Translation = !routeUsesTranslation(route)
+		if routeUsesTranslation(route) {
+			devicePayload.SV2Translation = &dto.SV2TranslationInstruction{
+				Profile:               plan.TranslatorProfile,
+				TranslatedPoolIndexes: translatedPoolIndexes(route),
+			}
+		} else {
+			devicePayload.ReleaseSV2Translation = true
+		}
 		messages = append(messages, queue.EnqueueMessage{DeviceID: device.id, Payload: devicePayload})
 	}
 	return messages, nil
@@ -136,6 +143,16 @@ func routeUsesTranslation(route preflight.DeviceRoute) bool {
 		}
 	}
 	return false
+}
+
+func translatedPoolIndexes(route preflight.DeviceRoute) []int {
+	indexes := make([]int, 0, len(route.Slots))
+	for index, slot := range route.Slots {
+		if slot.UsesTranslation {
+			indexes = append(indexes, index)
+		}
+	}
+	return indexes
 }
 
 func (s *Service) resolvePoolCapabilityDevices(

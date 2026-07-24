@@ -21,19 +21,30 @@ import (
 
 type releaseRecordingTranslatorManager struct {
 	assignments []translator.Assignment
+	profiles    []*translator.Profile
+	endpoint    translator.Endpoint
 	onApply     func()
+}
+
+func (*releaseRecordingTranslatorManager) PreviewAssignment(
+	context.Context,
+	*translator.Profile,
+	translator.Assignment,
+) (translator.Endpoint, error) {
+	return "", nil
 }
 
 func (m *releaseRecordingTranslatorManager) ApplyAssignment(
 	_ context.Context,
-	_ *translator.Profile,
+	profile *translator.Profile,
 	assignment translator.Assignment,
 ) (translator.Endpoint, error) {
 	if m.onApply != nil {
 		m.onApply()
 	}
+	m.profiles = append(m.profiles, profile)
 	m.assignments = append(m.assignments, assignment)
-	return "", nil
+	return m.endpoint, nil
 }
 
 func (*releaseRecordingTranslatorManager) Resume(context.Context) error {
@@ -102,4 +113,59 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReleasesTranslationOnlyAfterSu
 	require.Len(t, manager.assignments, 1)
 	assert.Equal(t, []string{"miner-success"}, manager.assignments[0].SelectedDeviceIdentifiers)
 	assert.Empty(t, manager.assignments[0].TranslatedDeviceIdentifiers)
+}
+
+func TestExecuteCommandOnDevice_UpdateMiningPools_AppliesTranslationAtDispatch(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+	miner := minerIfaceMocks.NewMockMiner(ctrl)
+	manager := &releaseRecordingTranslatorManager{
+		endpoint: "stratum+tcp://10.0.0.9:34255",
+	}
+	profile := translator.Profile{Upstreams: []translator.Upstream{{
+		URL:      translationTestSV2URL,
+		Username: "account",
+	}}}
+	payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
+		DefaultPool: dto.MiningPool{
+			URL:      "stratum+tcp://planned-endpoint:34255",
+			Username: "account",
+		},
+		SV2Translation: &dto.SV2TranslationInstruction{
+			Profile:               profile,
+			TranslatedPoolIndexes: []int{0},
+		},
+	})
+	require.NoError(t, err)
+
+	mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(41)).Return(miner, nil)
+	miner.EXPECT().GetOrgID().Return(int64(7))
+	miner.EXPECT().GetSiteID().Return(int64(0))
+	miner.EXPECT().GetID().Return(models.DeviceIdentifier("miner-a")).AnyTimes()
+	miner.EXPECT().
+		UpdateMiningPools(gomock.Any(), gomock.AssignableToTypeOf(dto.UpdateMiningPoolsPayload{})).
+		DoAndReturn(func(_ context.Context, payload dto.UpdateMiningPoolsPayload) error {
+			require.Len(t, manager.assignments, 1, "translator must be ready before miner dispatch")
+			assert.Equal(t, manager.endpoint.String(), payload.DefaultPool.URL)
+			assert.Nil(t, payload.SV2Translation)
+			assert.False(t, payload.ReleaseSV2Translation)
+			return nil
+		})
+
+	service := &ExecutionService{
+		minerService:      mockMinerGetter,
+		translatorManager: manager,
+	}
+	_, _, err = service.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, queue.Message{
+		DeviceID: 41,
+		Payload:  payloadBytes,
+	})
+
+	require.NoError(t, err)
+	require.Len(t, manager.profiles, 1)
+	require.NotNil(t, manager.profiles[0])
+	assert.True(t, translator.ProfilesEqual(profile, *manager.profiles[0]))
+	require.Len(t, manager.assignments, 1)
+	assert.Equal(t, []string{"miner-a"}, manager.assignments[0].SelectedDeviceIdentifiers)
+	assert.Equal(t, []string{"miner-a"}, manager.assignments[0].TranslatedDeviceIdentifiers)
 }
