@@ -113,6 +113,7 @@ func TestPrepareUpdateMiningPoolsDispatch_RoutesByNativeCapability(t *testing.T)
 	require.True(t, ok)
 	assert.Equal(t, int64(11), messages[0].DeviceID)
 	assert.Equal(t, translationTestSV2URL, nativePayload.DefaultPool.URL)
+	assert.True(t, nativePayload.ReleaseSV2Translation)
 	require.NotNil(t, nativePayload.Backup1Pool)
 	assert.Equal(t, "stratum+tcp://backup.example.com:3333", nativePayload.Backup1Pool.URL)
 
@@ -120,6 +121,7 @@ func TestPrepareUpdateMiningPoolsDispatch_RoutesByNativeCapability(t *testing.T)
 	require.True(t, ok)
 	assert.Equal(t, int64(12), messages[1].DeviceID)
 	assert.Equal(t, manager.endpoint.String(), sv1Payload.DefaultPool.URL)
+	assert.False(t, sv1Payload.ReleaseSV2Translation)
 	require.NotNil(t, sv1Payload.Backup1Pool)
 	assert.Equal(t, "stratum+tcp://backup.example.com:3333", sv1Payload.Backup1Pool.URL)
 }
@@ -140,44 +142,42 @@ func TestPrepareUpdateMiningPoolsDispatch_AllNativeLeavesSharedPayload(t *testin
 	) ([]poolCapabilityDevice, error) {
 		return []poolCapabilityDevice{{id: 11, identifier: "native-miner", driver: "native"}}, nil
 	}
+	payload := &dto.UpdateMiningPoolsPayload{
+		DefaultPool: dto.MiningPool{URL: translationTestSV2URL},
+	}
 
 	messages, err := service.prepareUpdateMiningPoolsDispatch(
 		context.Background(),
 		7,
 		devices,
-		&dto.UpdateMiningPoolsPayload{
-			DefaultPool: dto.MiningPool{URL: translationTestSV2URL},
-		},
+		payload,
 	)
 
 	require.NoError(t, err)
 	assert.Nil(t, messages)
-	assert.Equal(t, 1, manager.calls)
-	assert.Nil(t, manager.profile)
-	assert.Equal(t, []string{"native-miner"}, manager.assignment.SelectedDeviceIdentifiers)
-	assert.Empty(t, manager.assignment.TranslatedDeviceIdentifiers)
+	assert.Equal(t, 0, manager.calls)
+	assert.True(t, payload.ReleaseSV2Translation)
 }
 
-func TestPrepareUpdateMiningPoolsDispatch_SV1AssignmentReleasesTranslatedDevices(t *testing.T) {
+func TestPrepareUpdateMiningPoolsDispatch_SV1AssignmentDefersTranslatedDeviceRelease(t *testing.T) {
 	manager := &translationTestManager{}
 	service := &Service{translatorManager: manager}
 	devices := []resolvedDevice{{id: 12, identifier: "sv1-miner"}}
+	payload := &dto.UpdateMiningPoolsPayload{
+		DefaultPool: dto.MiningPool{URL: "stratum+tcp://pool.example.com:3333"},
+	}
 
 	messages, err := service.prepareUpdateMiningPoolsDispatch(
 		context.Background(),
 		7,
 		devices,
-		&dto.UpdateMiningPoolsPayload{
-			DefaultPool: dto.MiningPool{URL: "stratum+tcp://pool.example.com:3333"},
-		},
+		payload,
 	)
 
 	require.NoError(t, err)
 	assert.Nil(t, messages)
-	assert.Equal(t, 1, manager.calls)
-	assert.Nil(t, manager.profile)
-	assert.Equal(t, []string{"sv1-miner"}, manager.assignment.SelectedDeviceIdentifiers)
-	assert.Empty(t, manager.assignment.TranslatedDeviceIdentifiers)
+	assert.Equal(t, 0, manager.calls)
+	assert.True(t, payload.ReleaseSV2Translation)
 }
 
 func TestPrepareUpdateMiningPoolsDispatch_DoesNotQueueWhenTranslatorFails(t *testing.T) {

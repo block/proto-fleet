@@ -27,6 +27,9 @@ type UpdateMiningPoolsPayload struct {
 	Backup2Pool                             *MiningPool `json:"backup2_pool,omitempty"`
 	ReapplyCurrentPoolsWithStoredWorkerName bool        `json:"reapply_current_pools_with_stored_worker_name,omitempty"`
 	DesiredWorkerName                       string      `json:"desired_worker_name,omitempty"`
+	// ReleaseSV2Translation is an internal queue instruction honored only after
+	// the miner has accepted this pool update.
+	ReleaseSV2Translation bool `json:"release_sv2_translation,omitempty"`
 }
 
 type UpdateMinerPasswordPayload struct {

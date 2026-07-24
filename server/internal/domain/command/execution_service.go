@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/sv2/translator"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/domain/workername"
 
@@ -66,6 +67,7 @@ type ExecutionService struct {
 	telemetryListener TelemetryListener
 	filesService      *files.Service
 	metricsEmitter    MetricsEmitter
+	translatorManager translator.Manager
 
 	workerSemaphore chan struct{}
 
@@ -109,6 +111,10 @@ func (es *ExecutionService) WithMetricsEmitter(emitter MetricsEmitter) *Executio
 	}
 	es.metricsEmitter = emitter
 	return es
+}
+
+func (es *ExecutionService) SetSV2TranslatorManager(manager translator.Manager) {
+	es.translatorManager = manager
 }
 
 // Start starts the queue processor thread if it is not already running.
@@ -532,6 +538,16 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			err = es.persistWorkerNameAfterPoolUpdate(ctx, message.DeviceID, minerInfo.GetID(), workerNameToPersist)
 			if err != nil {
 				err = fleeterror.NewInternalErrorf("failed to persist worker name after pool update: %v", err)
+			}
+		}
+		if err == nil && p.ReleaseSV2Translation && es.translatorManager != nil {
+			_, err = es.translatorManager.ApplyAssignment(
+				ctx,
+				nil,
+				translator.Assignment{SelectedDeviceIdentifiers: []string{string(minerInfo.GetID())}},
+			)
+			if err != nil {
+				err = fleeterror.NewInternalErrorf("release miner from Stratum V2 translator after pool update: %v", err)
 			}
 		}
 	case commandtype.DownloadLogs:

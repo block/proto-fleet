@@ -112,6 +112,9 @@ func (s *Service) SetPluginCapabilitiesProvider(p PluginCapabilitiesProvider) {
 
 func (s *Service) SetSV2TranslatorManager(manager translator.Manager) {
 	s.translatorManager = manager
+	if s.executionService != nil {
+		s.executionService.SetSV2TranslatorManager(manager)
+	}
 }
 
 // SetDeviceIdentifierResolver injects the rich-filter resolver used by the
