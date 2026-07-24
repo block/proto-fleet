@@ -66,7 +66,7 @@ func TestIPScannerService_StartStopStart(t *testing.T) {
 	}
 }
 
-func TestIPScannerService_Start_ActivationCancellationStopsRun(t *testing.T) {
+func TestIPScannerService_Start_ActivationCancellationAllowsRestartAfterDrain(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	config := Config{
 		Enabled:                       true,
@@ -83,7 +83,7 @@ func TestIPScannerService_Start_ActivationCancellationStopsRun(t *testing.T) {
 			scanned <- struct{}{}
 			return nil, nil
 		},
-	)
+	).Times(2)
 	service := NewIPScannerService(
 		config,
 		deviceStore,
@@ -109,6 +109,10 @@ func TestIPScannerService_Start_ActivationCancellationStopsRun(t *testing.T) {
 	cancelActivation()
 	waitForScannerSignal(t, run.done, "activation context cancellation did not stop scanner run")
 
+	if err := service.Start(t.Context()); err != nil {
+		t.Fatalf("Start after drain failed: %v", err)
+	}
+	waitForScannerSignal(t, scanned, "restarted run did not scan")
 	if err := service.Stop(t.Context()); err != nil {
 		t.Fatalf("Stop failed: %v", err)
 	}

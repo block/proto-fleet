@@ -78,11 +78,14 @@ func (s *Service) Start(ctx context.Context) error {
 		select {
 		case <-s.run.done:
 			s.run = nil
-		case <-s.run.activationDone:
-			return errServiceStopping
 		default:
-			s.logger.Warn("IP scanner service already running")
-			return nil
+			select {
+			case <-s.run.activationDone:
+				return errServiceStopping
+			default:
+				s.logger.Warn("IP scanner service already running")
+				return nil
+			}
 		}
 	}
 	if err := ctx.Err(); err != nil {
