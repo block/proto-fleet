@@ -178,7 +178,7 @@ jobs:
 
       - name: Checkout trusted base policy
         if: steps.pr.outputs.found == 'true'
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.pr.outputs.base_sha }}
           fetch-depth: 0
@@ -296,7 +296,7 @@ jobs:
           steps.preflight.outputs.eligible == 'true'
         continue-on-error: true
         timeout-minutes: 10
-        uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
+        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1.11
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           model: ${{ env.CODEX_MODEL }}
