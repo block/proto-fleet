@@ -194,6 +194,9 @@ func (s *updateStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, erro
 func (s *updateStubStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
 	panic("ListNonTerminalEvents not exercised by Update handler tests")
 }
+func (s *updateStubStore) ListEligibleConfirmationTargets(context.Context) ([]models.ConfirmationTarget, error) {
+	panic("ListEligibleConfirmationTargets not exercised by Update handler tests")
+}
 func (s *updateStubStore) ListEvents(context.Context, interfaces.ListEventsParams) ([]*models.Event, string, error) {
 	panic("ListEvents not exercised by Update handler tests")
 }

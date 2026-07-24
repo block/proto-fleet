@@ -2610,7 +2610,9 @@ func TestClaimDeviceForRefresh_ClaimsAfterStatusOnlyInFlightCollection(t *testin
 
 	value, ok := service.inFlight.Load(deviceID)
 	require.True(t, ok)
-	assert.Equal(t, inFlightKindFullTelemetry, value)
+	entry, ok := value.(*inFlightEntry)
+	require.True(t, ok)
+	assert.Equal(t, inFlightKindRefresh, entry.kind)
 }
 
 func TestWorker_RequeuesSkippedInFlightTelemetryTask(t *testing.T) {
@@ -2815,19 +2817,16 @@ func TestProcessStatusOnly_ConnectionError_SetsStatusOffline(t *testing.T) {
 	ctx := t.Context()
 	device := models.Device{ID: deviceID}
 
-	var receivedResult statusResult
-	go func() {
-		select {
-		case receivedResult = <-service.statusResults:
-		case <-time.After(1 * time.Second):
-		}
-	}()
-
 	// Act
 	service.processStatusOnly(ctx, device)
-	time.Sleep(50 * time.Millisecond)
 
 	// Assert - status is still written to DB for UI visibility
+	var receivedResult statusResult
+	select {
+	case receivedResult = <-service.statusResults:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for status result")
+	}
 	assert.Equal(t, deviceID, receivedResult.deviceIdentifier)
 	assert.Equal(t, mm.MinerStatusOffline, receivedResult.status)
 }
@@ -3073,19 +3072,16 @@ func TestProcessDevice_HealthHealthyActive_SkipsGetDeviceStatus(t *testing.T) {
 
 	ctx := t.Context()
 
-	var receivedResult statusResult
-	go func() {
-		select {
-		case receivedResult = <-service.statusResults:
-		case <-time.After(1 * time.Second):
-		}
-	}()
-
 	// Act
 	require.NoError(t, service.processDevice(ctx, device))
-	time.Sleep(50 * time.Millisecond)
 
 	// Assert — status was derived from metrics health, no GetDeviceStatus call.
+	var receivedResult statusResult
+	select {
+	case receivedResult = <-service.statusResults:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for status result")
+	}
 	assert.Equal(t, deviceID, receivedResult.deviceIdentifier)
 	assert.Equal(t, mm.MinerStatusActive, receivedResult.status)
 }

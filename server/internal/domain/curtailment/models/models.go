@@ -477,3 +477,37 @@ type Candidate struct {
 	// device — the selector ranks unknown-efficiency miners last.
 	AvgEfficiencyJH *float64
 }
+
+// ConfirmationTarget is one eligible `dispatched` work row returned by the
+// reconciler-only ListEligibleConfirmationTargets read that backs the
+// confirmation fast path. It carries everything the pulse needs to confirm a
+// target from a fresh telemetry sample without re-listing per-event targets:
+//
+//   - EventState + DesiredState identify the phase. Curtail work is a
+//     pending/active event with DesiredState 'curtailed'; restore work is a
+//     restoring event with DesiredState 'active'.
+//   - DispatchedAt is the durable phase dispatch timestamp
+//     (curtail_dispatched_at or restore_dispatched_at) the pulse compares the
+//     fleetd-owned flight start against; it is never zero (the query filters
+//     the applicable column NOT NULL).
+//   - BatchUUID is the applicable phase batch UUID (curtail_batch_uuid or
+//     restore_batch_uuid); it is the ABA token the guarded promoting write
+//     passes as ExpectedDispatchBatchUUID.
+//   - BaselinePowerW feeds the existing isCurtailed / isRestored predicates
+//     (the live power/hash sample arrives from the telemetry sampler, not this
+//     read). nil when selection captured no baseline.
+//   - PairingStatus + ForceIncludeAllPairedMiners reproduce the all-paired
+//     policy pairing gate the full tick applies in confirmOneDispatched.
+type ConfirmationTarget struct {
+	EventID                     int64
+	EventUUID                   uuid.UUID
+	OrgID                       int64
+	EventState                  EventState
+	DeviceIdentifier            string
+	DesiredState                string
+	BaselinePowerW              *float64
+	DispatchedAt                time.Time
+	BatchUUID                   string
+	PairingStatus               string
+	ForceIncludeAllPairedMiners bool
+}

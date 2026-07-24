@@ -1941,6 +1941,30 @@ func (s *SQLCurtailmentStore) ListNonTerminalEvents(ctx context.Context) ([]*mod
 	return out, nil
 }
 
+func (s *SQLCurtailmentStore) ListEligibleConfirmationTargets(ctx context.Context) ([]models.ConfirmationTarget, error) {
+	rows, err := s.GetQueries(ctx).ListEligibleConfirmationTargets(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list eligible confirmation targets: %v", err)
+	}
+	out := make([]models.ConfirmationTarget, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, models.ConfirmationTarget{
+			EventID:                     row.EventID,
+			EventUUID:                   row.EventUuid,
+			OrgID:                       row.OrgID,
+			EventState:                  models.EventState(row.EventState),
+			DeviceIdentifier:            row.DeviceIdentifier,
+			DesiredState:                row.DesiredState,
+			BaselinePowerW:              nullStringToFloat64Ptr(row.BaselinePowerW),
+			DispatchedAt:                row.PhaseDispatchedAt,
+			BatchUUID:                   row.PhaseBatchUuid,
+			PairingStatus:               row.PairingStatus,
+			ForceIncludeAllPairedMiners: row.ForceIncludeAllPairedMiners,
+		})
+	}
+	return out, nil
+}
+
 func (s *SQLCurtailmentStore) UpdateEventState(ctx context.Context, eventID int64, expectedState models.EventState, state models.EventState, startedAt *time.Time, endedAt *time.Time) error {
 	rows, err := s.GetQueries(ctx).UpdateCurtailmentEventState(ctx, sqlc.UpdateCurtailmentEventStateParams{
 		ID:            eventID,
@@ -2227,18 +2251,20 @@ func (s *SQLCurtailmentStore) RecoverTerminalFanState(
 
 func (s *SQLCurtailmentStore) UpdateTargetState(ctx context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
 	rows, err := s.GetQueries(ctx).UpdateCurtailmentTargetState(ctx, sqlc.UpdateCurtailmentTargetStateParams{
-		CurtailmentEventID:   eventID,
-		DeviceIdentifier:     deviceIdentifier,
-		State:                string(params.State),
-		LastDispatchedAt:     ptrToNullTime(params.LastDispatchedAt),
-		LastBatchUuid:        ptrToNullString(params.LastBatchUUID),
-		ObservedPowerW:       ptrFloat64ToNullString(params.ObservedPowerW),
-		ObservedAt:           ptrToNullTime(params.ObservedAt),
-		ConfirmedAt:          ptrToNullTime(params.ConfirmedAt),
-		RetryCount:           ptrToNullInt32(params.RetryCount),
-		LastError:            ptrToNullString(params.LastError),
-		ExpectedEventState:   ptrEventStateToNullString(params.ExpectedEventState),
-		ExpectedDesiredState: ptrToNullString(params.ExpectedDesiredState),
+		CurtailmentEventID:        eventID,
+		DeviceIdentifier:          deviceIdentifier,
+		State:                     string(params.State),
+		LastDispatchedAt:          ptrToNullTime(params.LastDispatchedAt),
+		LastBatchUuid:             ptrToNullString(params.LastBatchUUID),
+		ObservedPowerW:            ptrFloat64ToNullString(params.ObservedPowerW),
+		ObservedAt:                ptrToNullTime(params.ObservedAt),
+		ConfirmedAt:               ptrToNullTime(params.ConfirmedAt),
+		RetryCount:                ptrToNullInt32(params.RetryCount),
+		LastError:                 ptrToNullString(params.LastError),
+		ExpectedEventState:        ptrNamedStringToNullString(params.ExpectedEventState),
+		ExpectedDesiredState:      ptrToNullString(params.ExpectedDesiredState),
+		ExpectedState:             ptrNamedStringToNullString(params.ExpectedState),
+		ExpectedDispatchBatchUuid: ptrToNullString(params.ExpectedDispatchBatchUUID),
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to update curtailment target (%d, %s) state: %v", eventID, deviceIdentifier, err)
@@ -3074,7 +3100,7 @@ func nullInt32ToPtr(n sql.NullInt32) *int32 {
 	return &v
 }
 
-func ptrEventStateToNullString(p *models.EventState) sql.NullString {
+func ptrNamedStringToNullString[T ~string](p *T) sql.NullString {
 	if p == nil {
 		return sql.NullString{}
 	}

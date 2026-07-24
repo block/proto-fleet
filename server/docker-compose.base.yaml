@@ -23,6 +23,10 @@ services:
       FLEET_QUEUE_DEQUE_LIMIT: "500"
       FLEET_QUEUE_MAX_FAILURE_RETRIES: "5"
       FLEET_TELEMETRY_ENDPOINT: "http://otel-collector:4318"
+      # Curtailment confirmation fast path (issue #661): defaults on; export
+      # CURTAILMENT_CONFIRMATION_FAST_PATH_ENABLED=false on the host to fall
+      # back to tick-only confirmation in any stack extending this file.
+      CURTAILMENT_CONFIRMATION_FAST_PATH_ENABLED: "${CURTAILMENT_CONFIRMATION_FAST_PATH_ENABLED:-true}"
       # HTTP_PPROF_ADDR: "0.0.0.0:6060"  # Uncomment to enable pprof debug server; port mapping below restricts access to host loopback only
       # ports:
       #   - "127.0.0.1:6060:6060"  # pprof debug server (requires HTTP_PPROF_ADDR=0.0.0.0:6060)

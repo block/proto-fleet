@@ -167,6 +167,9 @@ func (s *stopStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, error)
 func (s *stopStubStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
 	panic("ListNonTerminalEvents not exercised")
 }
+func (s *stopStubStore) ListEligibleConfirmationTargets(context.Context) ([]models.ConfirmationTarget, error) {
+	panic("ListEligibleConfirmationTargets not exercised")
+}
 func (s *stopStubStore) UpdateEventState(context.Context, int64, models.EventState, models.EventState, *time.Time, *time.Time) error {
 	panic("UpdateEventState not exercised")
 }

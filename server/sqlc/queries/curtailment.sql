@@ -1327,6 +1327,16 @@ SELECT
 -- expected_desired_state scopes the write to one dispatch direction so
 -- a concurrent Stop's reset isn't clobbered by a Curtail-phase post-cmd
 -- write (observeRestoring picks up the reset target afterwards).
+--
+-- expected_state and expected_dispatch_batch_uuid are the confirmation
+-- fast-path single-winner guards. When set, the target's current state must
+-- equal expected_state and the applicable phase batch UUID (curtail_batch_uuid
+-- when desired_state='curtailed', restore_batch_uuid when 'active', consistent
+-- with the mirror logic) must equal expected_dispatch_batch_uuid. A duplicate
+-- confirmation (state advanced past 'dispatched') or a timeout/redispatch that
+-- stamped a new batch UUID (ABA) matches zero rows -> ErrCurtailmentEventState
+-- RaceLoss. Both narg guards are inert when NULL, so full-tick writes that omit
+-- them are unaffected.
 WITH locked_event AS MATERIALIZED (
     SELECT id
     FROM curtailment_event
@@ -1416,7 +1426,14 @@ FROM locked_event
 WHERE curtailment_event_id = locked_event.id
   AND device_identifier    = sqlc.arg('device_identifier')
   AND (sqlc.narg('expected_desired_state')::text IS NULL
-       OR desired_state = sqlc.narg('expected_desired_state')::text);
+       OR desired_state = sqlc.narg('expected_desired_state')::text)
+  AND (sqlc.narg('expected_state')::text IS NULL
+       OR state = sqlc.narg('expected_state')::text)
+  AND (sqlc.narg('expected_dispatch_batch_uuid')::text IS NULL
+       OR (CASE
+               WHEN desired_state = 'curtailed' THEN curtail_batch_uuid
+               WHEN desired_state = 'active'    THEN restore_batch_uuid
+           END) = sqlc.narg('expected_dispatch_batch_uuid')::text);
 
 -- name: BumpCurtailmentTargetRetry :execrows
 -- Fallback when UpdateCurtailmentTargetState fails non-race-loss:
@@ -1515,3 +1532,57 @@ WHERE d.org_id = sqlc.arg('org_id')
     )
 -- Stable order so the selector's stable sort is deterministic on ties.
 ORDER BY d.device_identifier;
+
+-- name: ListEligibleConfirmationTargets :many
+-- System-scope (no org filter); reconciler-only fast-path confirmation read.
+-- MUST NOT be exposed through any RPC handler.
+--
+-- Returns only phase-valid `dispatched` targets the confirmation pulse may
+-- promote:
+--   * curtail work: pending/active event + target desired_state='curtailed'
+--     with a durable curtail_dispatched_at + curtail_batch_uuid;
+--   * restore work: restoring event + target desired_state='active' with a
+--     durable restore_dispatched_at + restore_batch_uuid.
+-- phase_dispatched_at / phase_batch_uuid select the columns for the row's
+-- phase so the pulse bounds sample freshness and guards the promoting write
+-- on the exact applicable batch UUID. A target is eligible only while its
+-- identifier resolves to a current, non-deleted device in the event's org;
+-- missing, deleted, or moved identifiers stay on the full reconciler path.
+-- baseline_power_w and pairing_status feed the same confirmation predicates
+-- the full tick uses, with pairing read from that exact live device.
+SELECT
+    ce.id                              AS event_id,
+    ce.event_uuid                      AS event_uuid,
+    ce.org_id                          AS org_id,
+    ce.state                           AS event_state,
+    ce.force_include_all_paired_miners AS force_include_all_paired_miners,
+    ct.device_identifier               AS device_identifier,
+    ct.desired_state                   AS desired_state,
+    ct.baseline_power_w                AS baseline_power_w,
+    (CASE
+        WHEN ce.state IN ('pending', 'active') THEN ct.curtail_dispatched_at
+        ELSE ct.restore_dispatched_at
+     END)::timestamptz                 AS phase_dispatched_at,
+    (CASE
+        WHEN ce.state IN ('pending', 'active') THEN ct.curtail_batch_uuid
+        ELSE ct.restore_batch_uuid
+     END)::text                        AS phase_batch_uuid,
+    CASE WHEN dp.id IS NOT NULL THEN dp.pairing_status::text ELSE 'UNPAIRED' END AS pairing_status
+FROM curtailment_target ct
+INNER JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
+INNER JOIN device d ON d.device_identifier = ct.device_identifier
+    AND d.org_id = ce.org_id
+    AND d.deleted_at IS NULL
+LEFT JOIN device_pairing dp ON dp.device_id = d.id
+WHERE ct.state = 'dispatched'
+  AND (
+        (ce.state IN ('pending', 'active')
+            AND ct.desired_state = 'curtailed'
+            AND ct.curtail_dispatched_at IS NOT NULL
+            AND ct.curtail_batch_uuid IS NOT NULL)
+     OR (ce.state = 'restoring'
+            AND ct.desired_state = 'active'
+            AND ct.restore_dispatched_at IS NOT NULL
+            AND ct.restore_batch_uuid IS NOT NULL)
+      )
+ORDER BY ce.id, ct.device_identifier;

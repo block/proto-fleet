@@ -945,6 +945,23 @@ type Querier interface {
 	//
 	// The non-locking sibling's LEFT JOIN narrowing rule still applies.
 	ListEffectivePermissionsForUserForUpdate(ctx context.Context, arg ListEffectivePermissionsForUserForUpdateParams) ([]ListEffectivePermissionsForUserForUpdateRow, error)
+	// System-scope (no org filter); reconciler-only fast-path confirmation read.
+	// MUST NOT be exposed through any RPC handler.
+	//
+	// Returns only phase-valid `dispatched` targets the confirmation pulse may
+	// promote:
+	//   * curtail work: pending/active event + target desired_state='curtailed'
+	//     with a durable curtail_dispatched_at + curtail_batch_uuid;
+	//   * restore work: restoring event + target desired_state='active' with a
+	//     durable restore_dispatched_at + restore_batch_uuid.
+	// phase_dispatched_at / phase_batch_uuid select the columns for the row's
+	// phase so the pulse bounds sample freshness and guards the promoting write
+	// on the exact applicable batch UUID. A target is eligible only while its
+	// identifier resolves to a current, non-deleted device in the event's org;
+	// missing, deleted, or moved identifiers stay on the full reconciler path.
+	// baseline_power_w and pairing_status feed the same confirmation predicates
+	// the full tick uses, with pairing read from that exact live device.
+	ListEligibleConfirmationTargets(ctx context.Context) ([]ListEligibleConfirmationTargetsRow, error)
 	ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]ListEnabledCurtailmentAutomationRulesByMQTTSourceRow, error)
 	// Enabled MQTT sources for subscriber reconciliation.
 	ListEnabledMQTTSources(ctx context.Context) ([]CurtailmentMqttSourceConfig, error)
@@ -1465,6 +1482,16 @@ type Querier interface {
 	// expected_desired_state scopes the write to one dispatch direction so
 	// a concurrent Stop's reset isn't clobbered by a Curtail-phase post-cmd
 	// write (observeRestoring picks up the reset target afterwards).
+	//
+	// expected_state and expected_dispatch_batch_uuid are the confirmation
+	// fast-path single-winner guards. When set, the target's current state must
+	// equal expected_state and the applicable phase batch UUID (curtail_batch_uuid
+	// when desired_state='curtailed', restore_batch_uuid when 'active', consistent
+	// with the mirror logic) must equal expected_dispatch_batch_uuid. A duplicate
+	// confirmation (state advanced past 'dispatched') or a timeout/redispatch that
+	// stamped a new batch UUID (ABA) matches zero rows -> ErrCurtailmentEventState
+	// RaceLoss. Both narg guards are inert when NULL, so full-tick writes that omit
+	// them are unaffected.
 	UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCurtailmentTargetStateParams) (int64, error)
 	// Renames a custom role. Locked to is_builtin = FALSE so no built-in
 	// row can be modified through this path; ADMIN and FIELD_TECH have
