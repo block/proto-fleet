@@ -19,7 +19,6 @@ type Group struct {
 	stateMu         sync.Mutex
 	operationPermit chan struct{}
 
-	cleanupTimeout time.Duration
 	jobs           []Job
 	terminalErr    error
 	pendingCleanup []Job
@@ -33,10 +32,6 @@ type Group struct {
 // The group shares one ten-second cleanup budget across every job during a stop
 // or startup rollback.
 func NewGroup(jobs []Job) (*Group, error) {
-	return newGroup(jobs, groupCleanupTimeout)
-}
-
-func newGroup(jobs []Job, cleanupTimeout time.Duration) (*Group, error) {
 	seen := make(map[string]struct{}, len(jobs))
 	for i, job := range jobs {
 		if job == nil {
@@ -49,7 +44,6 @@ func newGroup(jobs []Job, cleanupTimeout time.Duration) (*Group, error) {
 	}
 
 	return &Group{
-		cleanupTimeout:  cleanupTimeout,
 		jobs:            slices.Clone(jobs),
 		operationPermit: make(chan struct{}, 1),
 		stopAttempts:    make(map[string]<-chan error),
@@ -236,7 +230,7 @@ func (g *Group) clearActivation() {
 }
 
 func (g *Group) stopJobs(parent context.Context, jobs []Job) ([]Job, error) {
-	stopCtx, cancel := context.WithTimeout(parent, g.cleanupTimeout)
+	stopCtx, cancel := context.WithTimeout(parent, groupCleanupTimeout)
 	defer cancel()
 
 	var pendingCleanup []Job

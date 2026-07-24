@@ -192,7 +192,7 @@ func TestGroupStopTimeoutIsGroupWideAndTerminal(t *testing.T) {
 	stopEntered := make(chan struct{})
 	allowStop := make(chan struct{})
 	defer close(allowStop)
-	group, err := newGroup([]Job{newTestJob(
+	group, err := NewGroup([]Job{newTestJob(
 		"stuck",
 		noopJob,
 		func(context.Context) error {
@@ -200,12 +200,14 @@ func TestGroupStopTimeoutIsGroupWideAndTerminal(t *testing.T) {
 			<-allowStop
 			return nil
 		},
-	)}, 20*time.Millisecond)
+	)})
 	require.NoError(t, err)
 	require.NoError(t, group.Start(context.Background()))
 
+	stopCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
 	started := time.Now()
-	err = group.Stop(context.Background())
+	err = group.Stop(stopCtx)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Less(t, time.Since(started), 500*time.Millisecond)
@@ -224,7 +226,7 @@ func TestGroupStopRetriesOnlyIncompleteCleanup(t *testing.T) {
 
 	var completedStops atomic.Int32
 	var retriedStops atomic.Int32
-	group, err := newGroup([]Job{
+	group, err := NewGroup([]Job{
 		newTestJob("retried", noopJob, func(ctx context.Context) error {
 			if retriedStops.Add(1) == 1 {
 				<-ctx.Done()
@@ -236,11 +238,13 @@ func TestGroupStopRetriesOnlyIncompleteCleanup(t *testing.T) {
 			completedStops.Add(1)
 			return nil
 		}),
-	}, 20*time.Millisecond)
+	})
 	require.NoError(t, err)
 	require.NoError(t, group.Start(context.Background()))
 
-	require.ErrorIs(t, group.Stop(context.Background()), context.DeadlineExceeded)
+	stopCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, group.Stop(stopCtx), context.DeadlineExceeded)
 	require.NoError(t, group.Stop(context.Background()))
 	assert.Equal(t, int32(1), completedStops.Load())
 	assert.Equal(t, int32(2), retriedStops.Load())
@@ -299,13 +303,15 @@ func TestGroupStopSharesOneDeadlineAcrossJobs(t *testing.T) {
 			},
 		)
 	}
-	group, err := newGroup([]Job{
+	group, err := NewGroup([]Job{
 		makeJob("waits-for-deadline", true),
 		makeJob("uses-part-of-budget", false),
-	}, 30*time.Millisecond)
+	})
 	require.NoError(t, err)
 	require.NoError(t, group.Start(context.Background()))
-	require.ErrorIs(t, group.Stop(context.Background()), context.DeadlineExceeded)
+	stopCtx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, group.Stop(stopCtx), context.DeadlineExceeded)
 
 	first := <-deadlines
 	second := <-deadlines
@@ -439,7 +445,7 @@ func TestGroupStopRetryJoinsInFlightAttemptBeforeRetrying(t *testing.T) {
 	var stopCalls atomic.Int32
 	var activeStops atomic.Int32
 	var maxActiveStops atomic.Int32
-	group, err := newGroup([]Job{newTestJob("job", noopJob, func(context.Context) error {
+	group, err := NewGroup([]Job{newTestJob("job", noopJob, func(context.Context) error {
 		call := stopCalls.Add(1)
 		active := activeStops.Add(1)
 		defer activeStops.Add(-1)
@@ -456,13 +462,15 @@ func TestGroupStopRetryJoinsInFlightAttemptBeforeRetrying(t *testing.T) {
 		}
 		close(secondStopEntered)
 		return nil
-	})}, 20*time.Millisecond)
+	})})
 	require.NoError(t, err)
 	require.NoError(t, group.Start(context.Background()))
 
 	firstResult := make(chan error, 1)
 	go func() {
-		firstResult <- group.Stop(context.Background())
+		stopCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		firstResult <- group.Stop(stopCtx)
 	}()
 	<-firstStopEntered
 	require.ErrorIs(t, <-firstResult, context.DeadlineExceeded)
@@ -530,7 +538,7 @@ func TestGroupRequiresStopAfterActivationContextEnds(t *testing.T) {
 
 func newTestGroup(t *testing.T, jobs ...Job) *Group {
 	t.Helper()
-	group, err := newGroup(jobs, time.Second)
+	group, err := NewGroup(jobs)
 	require.NoError(t, err)
 	return group
 }
