@@ -217,11 +217,11 @@ const SiteMapCsvImportModal = ({ open, onDismiss, onImported }: SiteMapCsvImport
         {preview?.omissionChoiceRequired && omissionCounts ? (
           <div className="flex flex-col gap-3 rounded-lg border border-border-5 p-4">
             <div>
-              <div className="text-emphasis-300 text-text-primary">Choose how omitted rows are handled</div>
+              <div className="text-emphasis-300 text-text-primary">Confirm removal of omitted rows</div>
               <div className="text-200 text-text-primary-70">
                 The CSV omits {omissionCounts.sites} sites, {omissionCounts.buildings} buildings,
-                {` ${omissionCounts.racks} racks, and ${omissionCounts.miners} miners.`} Choose whether missing rows
-                stay untouched or are removed from the fleet topology.
+                {` ${omissionCounts.racks} racks, and ${omissionCounts.miners} miners.`} Confirm to remove them from the
+                fleet topology.
               </div>
             </div>
             <div className="flex flex-col gap-3">
@@ -237,21 +237,6 @@ const SiteMapCsvImportModal = ({ open, onDismiss, onImported }: SiteMapCsvImport
                   <div className="text-300 text-text-primary">Remove omitted rows</div>
                   <div className="text-200 text-text-primary-70">
                     Delete omitted sites, buildings, and racks. Omitted miners are unassigned, not deleted.
-                  </div>
-                </div>
-              </label>
-              <label className="flex cursor-pointer gap-3 rounded-lg border border-border-5 p-3">
-                <Radio
-                  name="site-map-omission-mode"
-                  value={OmissionMode.LEAVE_IN_PLACE}
-                  selected={selectedOmissionMode === OmissionMode.LEAVE_IN_PLACE}
-                  disabled={isImportingSiteMapCsv}
-                  onChange={() => handleSelectOmissionMode(OmissionMode.LEAVE_IN_PLACE)}
-                />
-                <div>
-                  <div className="text-300 text-text-primary">Leave omitted rows in place</div>
-                  <div className="text-200 text-text-primary-70">
-                    Keep existing entities that are missing from the CSV.
                   </div>
                 </div>
               </label>
