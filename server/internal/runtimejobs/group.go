@@ -104,7 +104,13 @@ func (g *Group) Start(ctx context.Context) error {
 
 func (g *Group) failStart(ctx context.Context, started int, startErr error) error {
 	g.cancelActivation()
-	pendingCleanup, rollbackErr := g.stopJobs(ctx, g.jobs[:started])
+	rollbackCtx := context.WithoutCancel(ctx)
+	if deadline, ok := ctx.Deadline(); ok {
+		var cancel context.CancelFunc
+		rollbackCtx, cancel = context.WithDeadline(rollbackCtx, deadline)
+		defer cancel()
+	}
+	pendingCleanup, rollbackErr := g.stopJobs(rollbackCtx, g.jobs[:started])
 	g.clearActivation()
 	if rollbackErr == nil {
 		return startErr

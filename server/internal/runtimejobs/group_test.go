@@ -126,6 +126,28 @@ func TestGroupRollbackUsesStartDeadline(t *testing.T) {
 	assert.True(t, wantDeadline.Equal(<-rollbackDeadline), "rollback must retain the Start caller's deadline")
 }
 
+func TestGroupRollbackDetachesManualStartCancellation(t *testing.T) {
+	t.Parallel()
+
+	startCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rollbackResult := make(chan error, 1)
+	group := newTestGroup(t,
+		newTestJob("started", nil, func(ctx context.Context) error {
+			rollbackResult <- ctx.Err()
+			return ctx.Err()
+		}),
+		newTestJob("fails", func(context.Context) error {
+			cancel()
+			return errors.New("start failed")
+		}, nil),
+	)
+
+	require.ErrorContains(t, group.Start(startCtx), "start failed")
+	require.NoError(t, <-rollbackResult, "rollback must not inherit manual Start cancellation")
+	require.NoError(t, group.Err())
+}
+
 func TestGroupRollbackFailureIsTerminal(t *testing.T) {
 	t.Parallel()
 
