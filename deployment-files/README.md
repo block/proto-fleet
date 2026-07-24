@@ -328,3 +328,43 @@ errors, and injects distributed-tracing headers on same-origin
 `/api-proxy` calls. Session Replay is off by default and masks all
 text/inputs when enabled. Data goes only to the Datadog org identified by
 your keys.
+
+## Server Tracing (Datadog APM)
+
+Request tracing on fleet-api is **off by default**. It lives in a
+separate compose file, `docker-compose.tracing.yaml`, that
+`run-fleet.sh` layers in when the `--enable-tracing` flag is passed
+(or `ENABLE_TRACING=true` is set in `.env`). The overlay starts an
+OpenTelemetry collector sidecar and forwards fleet-api request spans
+to Datadog APM:
+
+```bash
+./run-fleet.sh --enable-tracing
+```
+
+```dotenv
+# Required (run-fleet.sh refuses to start without it when tracing is on)
+DD_API_KEY=your-datadog-api-key
+
+# Optional
+DD_SITE=datadoghq.com            # your Datadog site (default: datadoghq.com)
+DD_ENV=production                # APM env tag (default: production)
+FLEET_TELEMETRY_SAMPLE_RATE=1.0  # server-side trace sample cap (default: 1.0)
+FLEET_TELEMETRY_TRUST_INCOMING_TRACES=true  # parent spans to RUM trace context (default: true)
+```
+
+Unlike the RUM client token, `DD_API_KEY` is a secret Datadog API key;
+it stays in `.env` (mode 0600) and the collector container's
+environment.
+
+With `FLEET_TELEMETRY_TRUST_INCOMING_TRACES=true` (this overlay's
+default), fleet-api parents its request spans to the `traceparent`
+header Datadog RUM injects on `/api-proxy` calls, so RUM sessions link
+to their APM traces. Trusting that header means any client on the LAN
+can influence tracing of its own requests: a not-sampled flag is
+honored (an unsampled RUM trace records no server span), sampled
+requests are still capped by `FLEET_TELEMETRY_SAMPLE_RATE`, and trace
+IDs are client-chosen. Set
+`FLEET_TELEMETRY_TRUST_INCOMING_TRACES=false` to ignore client trace
+context; spans then start fresh traces that reference the client
+context as a link only.

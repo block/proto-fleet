@@ -446,9 +446,11 @@ jobs:
           cp deployment-files/client/nginx.https.conf deployment/client/
           cp -r deployment-files/client/docker-entrypoint.d deployment/client/
           cp deployment-files/server/Dockerfile deployment/server/
+          cp deployment-files/server/otel-collector-config.datadog.yaml deployment/server/
           cp deployment-files/docker-compose.yaml deployment/
           cp deployment-files/docker-compose.alerts.yaml deployment/
           cp deployment-files/docker-compose.system-monitoring.yaml deployment/
+          cp deployment-files/docker-compose.tracing.yaml deployment/
           cp -a server/monitoring deployment/server/
           cp server/docker-compose.base.yaml deployment/server/
           cp deployment-files/run-fleet.sh deployment/
