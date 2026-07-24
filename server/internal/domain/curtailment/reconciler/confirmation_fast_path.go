@@ -211,15 +211,15 @@ func (r *Reconciler) confirmFromSample(ctx context.Context, item models.Confirma
 	if !sample.FlightStart.After(item.DispatchedAt) {
 		return
 	}
-	if item.ForceIncludeAllPairedMiners && !curtailment.IsAllPairedPolicyPairingStatus(item.PairingStatus) {
-		return
-	}
 
 	powerW, hashRateHS := sampleMeasurements(sample.Metrics)
 	now := r.now()
 	var params interfaces.UpdateCurtailmentTargetStateParams
 	switch item.DesiredState {
 	case models.DesiredStateCurtailed:
+		if item.ForceIncludeAllPairedMiners && !curtailment.IsAllPairedPolicyPairingStatus(item.PairingStatus) {
+			return
+		}
 		if !isCurtailed(powerW, item.BaselinePowerW, hashRateHS, r.cfg.DriftThresholdFactor, true) {
 			return
 		}

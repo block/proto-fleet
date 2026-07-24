@@ -478,6 +478,26 @@ func TestConfirmationPass_UnpairedAllPairedPolicyDeviceSkipped(t *testing.T) {
 	assert.Equal(t, models.TargetStateDispatched, store.targetState(10, "miner-1"))
 }
 
+func TestConfirmationPass_UnpairedAllPairedPolicyRestoreResolves(t *testing.T) {
+	store := newConfirmationFakeStore()
+	sampler := newFakeSampler()
+	dispatchedAt := fastPathTestNow.Add(-10 * time.Second)
+	item := seedDispatchedWork(store, 20, "miner-r", models.DesiredStateActive, "batch-restore", dispatchedAt)
+	item.ForceIncludeAllPairedMiners = true
+	item.PairingStatus = "UNPAIRED"
+	store.setItems(item)
+	sampler.setResult("miner-r", confirmationSample("miner-r", 2800, fastPathTestNow.Add(-time.Second)))
+
+	r := newFastPathReconcilerForTest(store, sampler, nil)
+	parked, failed := r.confirmationPass(context.Background())
+
+	assert.False(t, parked)
+	assert.False(t, failed)
+	assert.Equal(t, 1, store.confirmCalls(),
+		"restore evidence must be evaluated even when pairing changed after dispatch")
+	assert.Equal(t, models.TargetStateResolved, store.targetState(20, "miner-r"))
+}
+
 // --- confirmationPass: per-device failure isolation ---
 
 func TestConfirmationPass_SampleErrorSkipsDeviceButConfirmsSiblings(t *testing.T) {
