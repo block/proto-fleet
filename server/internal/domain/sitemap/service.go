@@ -1476,6 +1476,8 @@ func (s *Service) applySites(ctx context.Context, orgID int64, sites []*resolved
 			}
 			existingByName[site.Name] = *site
 			existingByID[site.ID] = *site
+		case actionNone, actionDelete:
+			// Unchanged nodes need no write; omitted sites are deleted by applyOmittedRows.
 		}
 	}
 	return nil
@@ -2743,6 +2745,8 @@ func resolveReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValidation
 			errs = append(errs, csvErr(rn, section, fmt.Sprintf("site reference %s%s matches no SITE row in this import", refCreatePrefix, ref.name)))
 		case refInvalid:
 			errs = append(errs, csvErr(rn, section, fmt.Sprintf("site reference %q must be a numeric id or %sNAME", cell, refCreatePrefix)))
+		case refUnassigned:
+			// Blank cell: no site parent, resolves to empty.
 		}
 		return ""
 	}
@@ -2797,6 +2801,8 @@ func resolveReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValidation
 			}
 		case refInvalid:
 			errs = append(errs, csvErr(rn, section, fmt.Sprintf("building reference %q must be a numeric id or %sNAME", cell, refCreatePrefix)))
+		case refUnassigned:
+			// Blank cell: no building parent, resolves to empty.
 		}
 		return "", "", 0
 	}
@@ -2852,6 +2858,8 @@ func resolveReferences(parsed *parsedCSV, snap *snapshot) []*pb.ImportValidation
 			errs = append(errs, csvErr(rn, section, fmt.Sprintf("rack reference %s%s matches no RACK row in this import", refCreatePrefix, ref.name)))
 		case refInvalid:
 			errs = append(errs, csvErr(rn, section, fmt.Sprintf("rack reference %q must be a numeric id or %sNAME", cell, refCreatePrefix)))
+		case refUnassigned:
+			// Blank cell: no rack parent, resolves to empty.
 		}
 		return "", "", "", nil
 	}
