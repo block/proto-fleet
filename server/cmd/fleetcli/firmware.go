@@ -67,7 +67,7 @@ func firmwareCheckCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			target, err := firmwareTargetFromCommandStrict(cmd)
+			target, err := firmwareTargetFromCommand(cmd)
 			if err != nil {
 				return err
 			}
@@ -105,7 +105,7 @@ func firmwareUploadCommand() *cli.Command {
 			if err != nil {
 				return err
 			}
-			target, err := firmwareTargetFromCommandStrict(cmd)
+			target, err := firmwareTargetFromCommand(cmd)
 			if err != nil {
 				return err
 			}
@@ -120,11 +120,11 @@ func firmwareUploadCommand() *cli.Command {
 			if !cmd.Bool("quiet") {
 				progress = os.Stderr
 			}
-			result, reused, err := runFirmwareUpload(ctx, client, path, target, cmd.Bool("force"), progress)
+			result, err := runFirmwareUpload(ctx, client, path, target, cmd.Bool("force"), progress)
 			if err != nil {
 				return err
 			}
-			if reused && progress != nil {
+			if result.Reused && progress != nil {
 				_, _ = fmt.Fprintln(progress, "file with identical sha256 already on server; skipped upload (use --force to re-upload)")
 			}
 			return printJSON(result)
@@ -309,24 +309,18 @@ func firmwareTargetFlags() []cli.Flag {
 	}
 }
 
-func firmwareTargetFromCommandStrict(cmd *cli.Command) (firmwareTarget, error) {
-	target := firmwareTargetFromCommand(cmd)
-	if err := target.validate(); err != nil {
-		return firmwareTarget{}, err
-	}
-	return target, nil
-}
-
-func firmwareTargetFromCommand(cmd *cli.Command) firmwareTarget {
-	return firmwareTarget{
+// firmwareTargetFromCommand reads the firmware target flags and validates that
+// all required fields are present.
+func firmwareTargetFromCommand(cmd *cli.Command) (firmwareTarget, error) {
+	target := firmwareTarget{
 		Manufacturer: strings.TrimSpace(cmd.String("target-manufacturer")),
 		Model:        strings.TrimSpace(cmd.String("target-model")),
 		Version:      strings.TrimSpace(cmd.String("firmware-version")),
 	}
-}
-
-func (t firmwareTarget) complete() bool {
-	return t.Manufacturer != "" && t.Model != "" && t.Version != ""
+	if err := target.validate(); err != nil {
+		return firmwareTarget{}, err
+	}
+	return target, nil
 }
 
 // validate reports the first missing required firmware target field.
@@ -347,31 +341,31 @@ func (t firmwareTarget) validate() error {
 // local file, hash it, reuse the server copy on a checksum hit (unless force),
 // and otherwise stream a direct or chunked upload depending on size. A nil
 // progress writer suppresses all progress output.
-func runFirmwareUpload(ctx context.Context, client *Client, path string, target firmwareTarget, force bool, progress io.Writer) (firmwareUploadResult, bool, error) {
+func runFirmwareUpload(ctx context.Context, client *Client, path string, target firmwareTarget, force bool, progress io.Writer) (firmwareUploadResult, error) {
 	var result firmwareUploadResult
 
 	f, err := os.Open(path)
 	if err != nil {
-		return result, false, fmt.Errorf("open %s: %w", path, err)
+		return result, fmt.Errorf("open %s: %w", path, err)
 	}
 	defer func() { _ = f.Close() }()
 
 	info, err := f.Stat()
 	if err != nil {
-		return result, false, fmt.Errorf("stat %s: %w", path, err)
+		return result, fmt.Errorf("stat %s: %w", path, err)
 	}
 	if info.IsDir() {
-		return result, false, fmt.Errorf("%s is a directory", path)
+		return result, fmt.Errorf("%s is a directory", path)
 	}
 	filename := filepath.Base(path)
 	size := info.Size()
 
 	cfg, err := client.FirmwareConfig(ctx)
 	if err != nil {
-		return result, false, err
+		return result, err
 	}
 	if err := validateFirmwareFile(filename, size, cfg); err != nil {
-		return result, false, err
+		return result, err
 	}
 
 	if progress != nil {
@@ -379,22 +373,20 @@ func runFirmwareUpload(ctx context.Context, client *Client, path string, target 
 	}
 	digest, err := sha256Hex(f)
 	if err != nil {
-		return result, false, fmt.Errorf("hash %s: %w", path, err)
+		return result, fmt.Errorf("hash %s: %w", path, err)
 	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return result, false, fmt.Errorf("rewind %s: %w", path, err)
+		return result, fmt.Errorf("rewind %s: %w", path, err)
 	}
 
-	if target.complete() {
-		check, err := client.FirmwareCheck(ctx, digest, target)
-		if err != nil {
-			return result, false, err
-		}
-		if check.Exists && check.FirmwareFileID != "" && !force {
-			result.FirmwareFileID = check.FirmwareFileID
-			result.Reused = true
-			return result, true, nil
-		}
+	check, err := client.FirmwareCheck(ctx, digest, target)
+	if err != nil {
+		return result, err
+	}
+	if check.Exists && check.FirmwareFileID != "" && !force {
+		result.FirmwareFileID = check.FirmwareFileID
+		result.Reused = true
+		return result, nil
 	}
 
 	reporter := newProgressPrinter(progress, size)
@@ -408,11 +400,11 @@ func runFirmwareUpload(ctx context.Context, client *Client, path string, target 
 		_, _ = fmt.Fprintln(progress)
 	}
 	if err != nil {
-		return result, false, err
+		return result, err
 	}
 	result.FirmwareFileID = uploadResp.FirmwareFileID
 	result.Reused = uploadResp.Reused
-	return result, uploadResp.Reused, nil
+	return result, nil
 }
 
 // validateFirmwareFile applies the same local checks as the web client before

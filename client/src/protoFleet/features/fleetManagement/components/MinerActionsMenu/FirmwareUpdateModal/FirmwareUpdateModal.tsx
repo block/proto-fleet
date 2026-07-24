@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
-import { useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
+import { hasCompleteFirmwareTarget, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import {
   FileDropZone,
   FileErrorStatus,
@@ -9,6 +9,10 @@ import {
   FileReadyStatus,
   useFirmwareUpload,
 } from "@/protoFleet/components/FirmwareUpload";
+import {
+  type FirmwareUpdateTarget,
+  minerTargetKey,
+} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import { formatFileSize } from "@/shared/components/FileSizeValue";
 import Input from "@/shared/components/Input";
@@ -19,25 +23,14 @@ import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimesta
 
 interface FirmwareUpdateModalProps {
   open?: boolean;
-  target?: {
-    targetManufacturer: string;
-    targetModel: string;
-  } | null;
+  target?: FirmwareUpdateTarget | null;
   onConfirm: (firmwareFileId: string) => void;
   onDismiss: () => void;
 }
 
-const fileMatchesTarget = (
-  file: FirmwareFileInfo,
-  target: { targetManufacturer: string; targetModel: string } | null | undefined,
-) => {
-  const targetManufacturer = target?.targetManufacturer.trim() ?? "";
-  const targetModel = target?.targetModel.trim() ?? "";
-  if (!targetManufacturer || !targetModel) return false;
-  return (
-    file.target_manufacturer.trim().toLowerCase() === targetManufacturer.toLowerCase() &&
-    file.target_model.trim().toLowerCase() === targetModel.toLowerCase()
-  );
+const fileMatchesTarget = (file: FirmwareFileInfo, target: FirmwareUpdateTarget | null | undefined) => {
+  const targetKey = minerTargetKey(target?.targetManufacturer, target?.targetModel);
+  return targetKey !== null && targetKey === minerTargetKey(file.target_manufacturer, file.target_model);
 };
 
 const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpdateModalProps) => {
@@ -63,14 +56,13 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
   const effectiveTargetModel = target?.targetModel ?? "";
   const uploadTarget = useMemo(
     () => ({
-      targetManufacturer: effectiveTargetManufacturer.trim(),
-      targetModel: effectiveTargetModel.trim(),
-      firmwareVersion: firmwareVersion.trim(),
+      targetManufacturer: effectiveTargetManufacturer,
+      targetModel: effectiveTargetModel,
+      firmwareVersion,
     }),
     [effectiveTargetManufacturer, effectiveTargetModel, firmwareVersion],
   );
-  const hasUploadTarget =
-    uploadTarget.targetManufacturer !== "" && uploadTarget.targetModel !== "" && uploadTarget.firmwareVersion !== "";
+  const hasUploadTarget = hasCompleteFirmwareTarget(uploadTarget);
 
   useEffect(() => {
     if (open) {
@@ -113,11 +105,10 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
 
   const effectiveFirmwareFileId = selectedExistingFileId ?? uploadedFileId;
   const isReady = selectedExistingFileId != null || uploadState === "ready";
-  const compatibleExistingFiles = useMemo(
-    () => existingFiles?.filter((file) => fileMatchesTarget(file, target)) ?? null,
+  const visibleExistingFiles = useMemo(
+    () => existingFiles?.filter((file) => fileMatchesTarget(file, target)) ?? [],
     [existingFiles, target],
   );
-  const visibleExistingFiles = compatibleExistingFiles ?? [];
 
   const handleConfirm = useCallback(() => {
     if (effectiveFirmwareFileId) {
@@ -140,7 +131,7 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
   }, [onDismiss, reset]);
 
   const isProcessing = uploadState === "hashing" || uploadState === "checking" || uploadState === "uploading";
-  const missingTarget = !!open && (effectiveTargetManufacturer.trim() === "" || effectiveTargetModel.trim() === "");
+  const missingTarget = !!open && minerTargetKey(effectiveTargetManufacturer, effectiveTargetModel) === null;
   const configLoading = uploadState !== "error" && !serverConfig;
   const hasExistingFiles = visibleExistingFiles.length > 0;
   const showLoadingSpinner = !missingTarget && configLoading && !hasExistingFiles;

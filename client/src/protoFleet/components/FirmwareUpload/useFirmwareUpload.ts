@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FirmwareConfig } from "@/protoFleet/api/useFirmwareApi";
-import { computeSha256, useFirmwareApi, validateFirmwareFile } from "@/protoFleet/api/useFirmwareApi";
+import type { FirmwareConfig, FirmwareMetadataInput } from "@/protoFleet/api/useFirmwareApi";
+import {
+  computeSha256,
+  FIRMWARE_TARGET_REQUIRED_MESSAGE,
+  hasCompleteFirmwareTarget,
+  useFirmwareApi,
+  validateFirmwareFile,
+} from "@/protoFleet/api/useFirmwareApi";
 
 export type UploadState = "idle" | "hashing" | "checking" | "uploading" | "ready" | "error";
 
@@ -11,21 +17,9 @@ export interface UseFirmwareUploadReturn {
   uploadProgress: number;
   errorMessage: string | null;
   serverConfig: FirmwareConfig | null;
-  processFile: (file: File, target: FirmwareUploadTarget, onReady?: () => void) => void;
+  processFile: (file: File, target: FirmwareMetadataInput) => void;
   reset: () => void;
   retry: () => void;
-}
-
-export interface FirmwareUploadTarget {
-  targetManufacturer: string;
-  targetModel: string;
-  firmwareVersion: string;
-}
-
-function hasCompleteFirmwareTarget(target: FirmwareUploadTarget): boolean {
-  return (
-    target.targetManufacturer.trim() !== "" && target.targetModel.trim() !== "" && target.firmwareVersion.trim() !== ""
-  );
 }
 
 export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
@@ -88,7 +82,7 @@ export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
   }, [reset]);
 
   const processFile = useCallback(
-    async (selectedFile: File, target: FirmwareUploadTarget, onReady?: () => void) => {
+    async (selectedFile: File, target: FirmwareMetadataInput) => {
       abortControllerRef.current?.abort();
       const controller = new AbortController();
       abortControllerRef.current = controller;
@@ -104,7 +98,7 @@ export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
           return;
         }
         if (!hasCompleteFirmwareTarget(target)) {
-          setErrorMessage("Manufacturer, model, and firmware version are required.");
+          setErrorMessage(FIRMWARE_TARGET_REQUIRED_MESSAGE);
           setState("error");
           return;
         }
@@ -121,7 +115,6 @@ export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
         if (exists && existingId) {
           setFirmwareFileId(existingId);
           setState("ready");
-          onReady?.();
           return;
         }
 
@@ -137,7 +130,6 @@ export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
         if (controller.signal.aborted) return;
         setFirmwareFileId(newId);
         setState("ready");
-        onReady?.();
       } catch (err) {
         if (controller.signal.aborted) return;
         setErrorMessage(err instanceof Error ? err.message : String(err));
@@ -148,7 +140,7 @@ export function useFirmwareUpload(active: boolean): UseFirmwareUploadReturn {
   );
 
   const wrappedProcessFile = useCallback(
-    (f: File, target: FirmwareUploadTarget, onReady?: () => void) => void processFile(f, target, onReady),
+    (f: File, target: FirmwareMetadataInput) => void processFile(f, target),
     [processFile],
   );
 

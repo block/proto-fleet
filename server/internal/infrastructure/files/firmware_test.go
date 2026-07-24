@@ -723,15 +723,16 @@ func TestAllowedExtensionsList_IsDeterministic(t *testing.T) {
 	}
 }
 
-func TestSaveFirmwareFileFromPath_MovesAndRegistersChecksum(t *testing.T) {
+func TestSaveFirmwareUploadFromPath_MovesAndRegistersChecksum(t *testing.T) {
 	svc := setupService(t)
 
 	content := "firmware via chunked upload"
 	srcPath := filepath.Join(firmwareStagingDir, "test-upload")
 	require.NoError(t, os.WriteFile(srcPath, []byte(content), 0600))
 
-	fileID, err := svc.SaveFirmwareFileFromPath("chunked.swu", srcPath, testFirmwareMetadata())
+	result, err := svc.SaveFirmwareUploadFromPath("chunked.swu", srcPath, testFirmwareMetadata(), true, "")
 	require.NoError(t, err)
+	fileID := result.FirmwareFileID
 	assert.NotEmpty(t, fileID)
 
 	filePath, err := svc.GetFirmwareFilePath(fileID)
@@ -743,7 +744,7 @@ func TestSaveFirmwareFileFromPath_MovesAndRegistersChecksum(t *testing.T) {
 	assert.Equal(t, "chunked.swu", filepath.Base(filePath))
 
 	foundID, ok := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
-	assert.True(t, ok, "checksum index should contain the file after SaveFirmwareFileFromPath")
+	assert.True(t, ok, "checksum index should contain the file after SaveFirmwareUploadFromPath")
 	assert.Equal(t, fileID, foundID)
 
 	_, statErr := os.Stat(srcPath)
@@ -804,13 +805,13 @@ func TestSaveFirmwareUpload_ForceBypassesDedupe(t *testing.T) {
 	assert.Len(t, firmwareFileEntries(t), 2)
 }
 
-func TestSaveFirmwareFileFromPath_RejectsEmptyFile(t *testing.T) {
+func TestSaveFirmwareUploadFromPath_RejectsEmptyFile(t *testing.T) {
 	svc := setupService(t)
 
 	srcPath := filepath.Join(firmwareStagingDir, "empty-upload")
 	require.NoError(t, os.WriteFile(srcPath, []byte{}, 0600))
 
-	_, err := svc.SaveFirmwareFileFromPath("empty.swu", srcPath, testFirmwareMetadata())
+	_, err := svc.SaveFirmwareUploadFromPath("empty.swu", srcPath, testFirmwareMetadata(), true, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "empty")
 }

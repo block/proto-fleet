@@ -13,6 +13,7 @@ import {
   successMessages,
   SupportedAction,
 } from "./constants";
+import { type FirmwareUpdateTarget, minerTargetKey } from "./minerTarget";
 import { useFleetAuthentication } from "./useFleetAuthentication";
 import { useManageSecurityFlow } from "./useManageSecurityFlow";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
@@ -89,11 +90,6 @@ export interface MinerSelection {
   deviceStatus?: DeviceStatus;
 }
 
-export interface FirmwareUpdateTarget {
-  targetManufacturer: string;
-  targetModel: string;
-}
-
 interface UseMinerActionsParams {
   selectedMiners: MinerSelection[];
   selectionMode: SelectionMode;
@@ -161,13 +157,13 @@ function getUniqueFirmwareTargets(
   let hasMissing = false;
   for (const id of deviceIds) {
     const miner = miners[id];
-    const manufacturer = miner?.manufacturer?.trim();
-    const model = miner?.model?.trim();
-    if (!manufacturer || !model) {
+    const manufacturer = miner?.manufacturer?.trim() ?? "";
+    const model = miner?.model?.trim() ?? "";
+    const key = minerTargetKey(manufacturer, model);
+    if (!key) {
       hasMissing = true;
       continue;
     }
-    const key = `${manufacturer.toLowerCase()}\u0000${model.toLowerCase()}`;
     if (!targets.has(key)) {
       targets.set(key, { targetManufacturer: manufacturer, targetModel: model });
     }
@@ -1525,8 +1521,7 @@ export const useMinerActions = ({
 
       await withCapabilityCheck(deviceActions.firmwareUpdate, (filteredSelector, filteredDeviceIds) => {
         const idsToCheck = filteredDeviceIds ?? deviceIdentifiers;
-        const { targets, hasMissing } =
-          idsToCheck.length > 0 ? getUniqueFirmwareTargets(idsToCheck, miners) : { targets: [], hasMissing: false };
+        const { targets, hasMissing } = getUniqueFirmwareTargets(idsToCheck, miners);
 
         if (targets.length === 0) {
           pushToast({

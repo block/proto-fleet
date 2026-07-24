@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -24,8 +25,10 @@ func canonicalizeStorageUUID(kind, value string) (string, error) {
 }
 
 // findSingleFileInDir returns the path to the single non-directory entry inside
-// a directory, ignoring any named sidecars. It returns an error if zero or more
-// than one data file exists, so callers fail fast on corrupted storage dirs.
+// a directory, ignoring any named sidecars and dot-prefixed entries (temp files
+// from atomic sidecar writes are never payloads). It returns an error if zero
+// or more than one data file exists, so callers fail fast on corrupted storage
+// dirs.
 func findSingleFileInDir(dir string, ignoredNames ...string) (string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -38,7 +41,7 @@ func findSingleFileInDir(dir string, ignoredNames ...string) (string, error) {
 
 	var foundPath string
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
 		if _, ok := ignored[e.Name()]; ok {
@@ -55,17 +58,16 @@ func findSingleFileInDir(dir string, ignoredNames ...string) (string, error) {
 	return foundPath, nil
 }
 
+// cleanStorageStagingDir removes every entry (files and directories) left in a
+// staging dir by interrupted operations from previous runs.
 func cleanStorageStagingDir(dir, failureMessage, successMessage string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
 	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
 		path := filepath.Join(dir, entry.Name())
-		if err := os.Remove(path); err != nil {
+		if err := os.RemoveAll(path); err != nil {
 			slog.Warn(failureMessage, "path", path, "error", err)
 		} else if successMessage != "" {
 			slog.Info(successMessage, "path", path)

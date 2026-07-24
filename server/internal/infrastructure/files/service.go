@@ -83,8 +83,8 @@ type Service struct {
 	commandArtifactCleanupInterval time.Duration
 
 	mu                   sync.Mutex
-	checksumIndex        map[string][]firmwareChecksumEntry // SHA-256 hex -> matching file metadata
-	firmwareChecksumByID map[string]string                  // fileID -> SHA-256 hex
+	checksumIndex        map[string][]string // SHA-256 hex -> reuse-eligible file IDs
+	firmwareChecksumByID map[string]string   // fileID -> SHA-256 hex
 }
 
 // MaxFirmwareFileSize returns the configured maximum firmware file size in bytes.
@@ -155,7 +155,7 @@ func NewService(cfg Config) (*Service, error) {
 		maxCommandArtifactSize:         maxArtifactSize,
 		commandArtifactRetentionTTL:    retentionTTL,
 		commandArtifactCleanupInterval: cleanupInterval,
-		checksumIndex:                  make(map[string][]firmwareChecksumEntry),
+		checksumIndex:                  make(map[string][]string),
 		firmwareChecksumByID:           make(map[string]string),
 	}
 

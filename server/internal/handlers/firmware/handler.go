@@ -27,10 +27,8 @@ type uploadResponse struct {
 }
 
 type checkRequest struct {
-	SHA256             string `json:"sha256"`
-	TargetManufacturer string `json:"target_manufacturer"`
-	TargetModel        string `json:"target_model"`
-	FirmwareVersion    string `json:"firmware_version"`
+	SHA256 string `json:"sha256"`
+	files.FirmwareMetadata
 }
 
 type checkResponse struct {
@@ -154,17 +152,12 @@ func (h *checkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metadata := files.FirmwareMetadata{
-		TargetManufacturer: req.TargetManufacturer,
-		TargetModel:        req.TargetModel,
-		FirmwareVersion:    req.FirmwareVersion,
-	}
-	if err := files.ValidateFirmwareUploadMetadata(metadata); err != nil {
+	if err := files.ValidateFirmwareUploadMetadata(req.FirmwareMetadata); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	fileID, ok := h.filesService.FindFirmwareFileByChecksum(strings.ToLower(req.SHA256), metadata)
+	fileID, ok := h.filesService.FindFirmwareFileByChecksum(strings.ToLower(req.SHA256), req.FirmwareMetadata)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -266,8 +259,11 @@ func extractMultipartFile(r *http.Request) (filename string, reader io.ReadClose
 	}
 
 	mr := multipart.NewReader(r.Body, boundary)
-	var filePart io.ReadCloser
-	var fileName string
+	metadataFields := map[string]*string{
+		"target_manufacturer": &metadata.TargetManufacturer,
+		"target_model":        &metadata.TargetModel,
+		"firmware_version":    &metadata.FirmwareVersion,
+	}
 	for {
 		part, err := mr.NextPart()
 		if err == io.EOF {
@@ -277,44 +273,38 @@ func extractMultipartFile(r *http.Request) (filename string, reader io.ReadClose
 			return "", nil, files.FirmwareMetadata{}, false, fmt.Errorf("failed to read multipart form: %w", err)
 		}
 
-		switch part.FormName() {
-		case "file":
-			filePart = part
-			fileName = part.FileName()
-			return fileName, filePart, metadata, force, nil
-		case "target_manufacturer":
-			value, readErr := io.ReadAll(io.LimitReader(part, 1024))
-			part.Close()
+		name := part.FormName()
+		switch {
+		case name == "file":
+			return part.FileName(), part, metadata, force, nil
+		case metadataFields[name] != nil:
+			value, readErr := readPartValue(part, 1024, name)
 			if readErr != nil {
-				return "", nil, files.FirmwareMetadata{}, false, fmt.Errorf("failed to read target_manufacturer: %w", readErr)
+				return "", nil, files.FirmwareMetadata{}, false, readErr
 			}
-			metadata.TargetManufacturer = string(value)
-		case "target_model":
-			value, readErr := io.ReadAll(io.LimitReader(part, 1024))
-			part.Close()
+			*metadataFields[name] = value
+		case name == "force":
+			value, readErr := readPartValue(part, 16, name)
 			if readErr != nil {
-				return "", nil, files.FirmwareMetadata{}, false, fmt.Errorf("failed to read target_model: %w", readErr)
+				return "", nil, files.FirmwareMetadata{}, false, readErr
 			}
-			metadata.TargetModel = string(value)
-		case "firmware_version":
-			value, readErr := io.ReadAll(io.LimitReader(part, 1024))
-			part.Close()
-			if readErr != nil {
-				return "", nil, files.FirmwareMetadata{}, false, fmt.Errorf("failed to read firmware_version: %w", readErr)
-			}
-			metadata.FirmwareVersion = string(value)
-		case "force":
-			value, readErr := io.ReadAll(io.LimitReader(part, 16))
-			part.Close()
-			if readErr != nil {
-				return "", nil, files.FirmwareMetadata{}, false, fmt.Errorf("failed to read force: %w", readErr)
-			}
-			force = strings.EqualFold(strings.TrimSpace(string(value)), "true") || strings.TrimSpace(string(value)) == "1"
+			value = strings.TrimSpace(value)
+			force = strings.EqualFold(value, "true") || value == "1"
 		default:
 			part.Close()
 		}
 	}
 	return "", nil, files.FirmwareMetadata{}, false, fmt.Errorf("missing 'file' field in multipart form")
+}
+
+// readPartValue reads a small text form field up to limit bytes and closes the part.
+func readPartValue(part *multipart.Part, limit int64, name string) (string, error) {
+	value, err := io.ReadAll(io.LimitReader(part, limit))
+	part.Close()
+	if err != nil {
+		return "", fmt.Errorf("failed to read %s: %w", name, err)
+	}
+	return string(value), nil
 }
 
 // authenticate extracts and validates the session cookie from the HTTP request,
@@ -369,12 +359,6 @@ type listFilesResponse struct {
 type deleteAllFilesResponse struct {
 	DeletedCount int    `json:"deleted_count"`
 	Error        string `json:"error,omitempty"`
-}
-
-type updateMetadataRequest struct {
-	TargetManufacturer string `json:"target_manufacturer"`
-	TargetModel        string `json:"target_model"`
-	FirmwareVersion    string `json:"firmware_version"`
 }
 
 // NewListFilesHandler returns an http.Handler that lists all uploaded firmware files.
@@ -450,8 +434,8 @@ func (h *updateMetadataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	var req updateMetadataRequest
-	if err := decoder.Decode(&req); err != nil {
+	var metadata files.FirmwareMetadata
+	if err := decoder.Decode(&metadata); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
@@ -460,11 +444,6 @@ func (h *updateMetadataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	metadata := files.FirmwareMetadata{
-		TargetManufacturer: req.TargetManufacturer,
-		TargetModel:        req.TargetModel,
-		FirmwareVersion:    req.FirmwareVersion,
-	}
 	if err := h.filesService.UpdateFirmwareMetadata(fileID, metadata); err != nil {
 		switch {
 		case fleeterror.IsNotFoundError(err):

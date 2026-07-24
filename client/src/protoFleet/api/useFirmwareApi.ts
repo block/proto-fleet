@@ -115,23 +115,19 @@ interface CheckFirmwareResponse {
   firmware_file_id?: string;
 }
 
-function hasCompleteFirmwareTarget(target: {
-  targetManufacturer?: string;
-  targetModel?: string;
-  firmwareVersion?: string;
-}): boolean {
+export const FIRMWARE_TARGET_REQUIRED_MESSAGE = "Manufacturer, model, and firmware version are required.";
+
+/** The client mirror of the server's upload metadata completeness rule. */
+export function hasCompleteFirmwareTarget(target: Partial<FirmwareMetadataInput>): boolean {
   return Boolean(target.targetManufacturer?.trim() && target.targetModel?.trim() && target.firmwareVersion?.trim());
 }
 
-function firmwareMetadataFields(options?: FirmwareUploadOptions): Record<string, string> {
-  const fields: Record<string, string> = {};
-  const targetManufacturer = options?.targetManufacturer?.trim();
-  const targetModel = options?.targetModel?.trim();
-  const firmwareVersion = options?.firmwareVersion?.trim();
-  if (targetManufacturer) fields.target_manufacturer = targetManufacturer;
-  if (targetModel) fields.target_model = targetModel;
-  if (firmwareVersion) fields.firmware_version = firmwareVersion;
-  return fields;
+function firmwareMetadataFields(target: FirmwareMetadataInput): Record<string, string> {
+  return {
+    target_manufacturer: target.targetManufacturer.trim(),
+    target_model: target.targetModel.trim(),
+    firmware_version: target.firmwareVersion.trim(),
+  };
 }
 
 export const useFirmwareApi = () => {
@@ -145,19 +141,14 @@ export const useFirmwareApi = () => {
   const checkFirmwareFile = useCallback(
     async (
       sha256: string,
-      target: { targetManufacturer: string; targetModel: string; firmwareVersion: string },
+      target: FirmwareMetadataInput,
       signal?: AbortSignal,
     ): Promise<{ exists: boolean; firmwareFileId?: string }> => {
       const response = await fetch(`${API_BASE}/check`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sha256,
-          target_manufacturer: target.targetManufacturer,
-          target_model: target.targetModel,
-          firmware_version: target.firmwareVersion,
-        }),
+        body: JSON.stringify({ sha256, ...firmwareMetadataFields(target) }),
         signal,
       });
 
@@ -186,10 +177,12 @@ export const useFirmwareApi = () => {
   const uploadFirmwareFile = useCallback(
     async (file: File, options?: FirmwareUploadOptions): Promise<string> => {
       const config = await fetchFirmwareConfig(logout);
-      if (!hasCompleteFirmwareTarget(options ?? {})) {
-        throw new Error("Manufacturer, model, and firmware version are required.");
+      const { targetManufacturer = "", targetModel = "", firmwareVersion = "" } = options ?? {};
+      const target = { targetManufacturer, targetModel, firmwareVersion };
+      if (!hasCompleteFirmwareTarget(target)) {
+        throw new Error(FIRMWARE_TARGET_REQUIRED_MESSAGE);
       }
-      const metadataFields = firmwareMetadataFields(options);
+      const metadataFields = firmwareMetadataFields(target);
 
       let data: unknown;
       const useChunked = file.size > config.chunkSizeBytes;
@@ -277,17 +270,13 @@ export const useFirmwareApi = () => {
   const updateFirmwareMetadata = useCallback(
     async (fileId: string, metadata: FirmwareMetadataInput, signal?: AbortSignal): Promise<void> => {
       if (!hasCompleteFirmwareTarget(metadata)) {
-        throw new Error("Manufacturer, model, and firmware version are required.");
+        throw new Error(FIRMWARE_TARGET_REQUIRED_MESSAGE);
       }
       const response = await fetch(`${API_BASE}/files/${encodeURIComponent(fileId)}`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          target_manufacturer: metadata.targetManufacturer.trim(),
-          target_model: metadata.targetModel.trim(),
-          firmware_version: metadata.firmwareVersion.trim(),
-        }),
+        body: JSON.stringify(firmwareMetadataFields(metadata)),
         signal,
       });
 

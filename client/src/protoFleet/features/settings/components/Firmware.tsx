@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
+import { type FirmwareFileInfo, type FirmwareMetadataInput, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import DeleteAllFirmwareDialog from "@/protoFleet/features/settings/components/DeleteAllFirmwareDialog";
 import DeleteFirmwareDialog from "@/protoFleet/features/settings/components/DeleteFirmwareDialog";
 import EditFirmwareMetadataDialog from "@/protoFleet/features/settings/components/EditFirmwareMetadataDialog";
@@ -18,7 +18,6 @@ import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimesta
 type FirmwareFileData = {
   id: string;
   filename: string;
-  target: string;
   targetManufacturer: string;
   targetModel: string;
   firmwareVersion: string;
@@ -55,14 +54,15 @@ const ExpandableFilename = ({ filename }: { filename: string }) => {
     };
 
     updateOverflow();
-    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateOverflow) : undefined;
-    observer?.observe(container);
-    window.addEventListener("resize", updateOverflow);
+    if (typeof ResizeObserver === "undefined") {
+      // Without ResizeObserver, approximate container resizes with window resizes.
+      window.addEventListener("resize", updateOverflow);
+      return () => window.removeEventListener("resize", updateOverflow);
+    }
 
-    return () => {
-      observer?.disconnect();
-      window.removeEventListener("resize", updateOverflow);
-    };
+    const observer = new ResizeObserver(updateOverflow);
+    observer.observe(container);
+    return () => observer.disconnect();
   }, [filename]);
 
   return (
@@ -99,7 +99,7 @@ const colConfig: ColConfig<FirmwareFileData, string, FirmwareColumns> = {
     allowWrap: true,
   },
   target: {
-    component: (file) => <span>{file.target}</span>,
+    component: (file) => <span>{`${file.targetManufacturer} ${file.targetModel}`.trim() || "Unknown"}</span>,
     width: "w-48",
   },
   firmwareVersion: {
@@ -123,7 +123,6 @@ function toFileData(info: FirmwareFileInfo): FirmwareFileData {
   return {
     id: info.id,
     filename: info.filename,
-    target: `${info.target_manufacturer} ${info.target_model}`.trim() || "Unknown",
     targetManufacturer: info.target_manufacturer,
     targetModel: info.target_model,
     firmwareVersion: info.firmware_version ?? "",
@@ -175,7 +174,7 @@ const Firmware = () => {
   }, []);
 
   const handleEditConfirm = useCallback(
-    (metadata: { targetManufacturer: string; targetModel: string; firmwareVersion: string }) => {
+    (metadata: FirmwareMetadataInput) => {
       if (!fileToEdit) return;
       setIsEditing(true);
       updateFirmwareMetadata(fileToEdit.id, metadata)

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { MinerModelGroup } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import useMinerModelGroups from "@/protoFleet/api/useMinerModelGroups";
+import { hasCompleteFirmwareTarget } from "@/protoFleet/api/useFirmwareApi";
 import {
   FileDropZone,
   FileErrorStatus,
@@ -9,13 +8,13 @@ import {
   firmwareVersionFromFilename,
   useFirmwareUpload,
 } from "@/protoFleet/components/FirmwareUpload";
+import FirmwareTargetFields from "@/protoFleet/features/settings/components/FirmwareTargetFields";
+import { useMinerTargetOptions } from "@/protoFleet/features/settings/components/useMinerTargetOptions";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
-import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular/ProgressCircular";
-import Select from "@/shared/components/Select";
 
 interface FirmwareUploadDialogProps {
   open?: boolean;
@@ -26,87 +25,42 @@ interface FirmwareUploadDialogProps {
 const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDialogProps) => {
   const { state, file, uploadProgress, errorMessage, serverConfig, processFile, reset, retry } =
     useFirmwareUpload(!!open);
-  const { getMinerModelGroups } = useMinerModelGroups();
   const [targetManufacturer, setTargetManufacturer] = useState("");
   const [targetModel, setTargetModel] = useState("");
   const [firmwareVersion, setFirmwareVersion] = useState("");
-  const [modelGroups, setModelGroups] = useState<MinerModelGroup[] | null>(null);
-  const [modelsError, setModelsError] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const {
+    modelGroups,
+    modelsError,
+    manufacturerOptions,
+    modelOptions,
+    reset: resetModelOptions,
+  } = useMinerTargetOptions({ active: !!open, selectedManufacturer: targetManufacturer });
 
   const configLoaded = serverConfig !== null;
   const modelsLoading = open && modelGroups === null && modelsError === null;
-  const modelsLoaded = !modelsLoading && modelsError === null;
   const isProcessing = state === "hashing" || state === "checking" || state === "uploading";
   const showLoadingSpinner = state === "idle" && (!configLoaded || modelsLoading);
-  const showMetadataFields = configLoaded && modelsLoaded;
+  const showMetadataFields = configLoaded && !modelsLoading && modelsError === null;
   const metadataLocked = state !== "idle";
   const showProcessingStatus = isProcessing && file != null;
   const showError = state === "error" && errorMessage != null;
 
-  useEffect(() => {
-    if (!open || modelGroups !== null || modelsError !== null) return;
-
-    let cancelled = false;
-    void getMinerModelGroups(null)
-      .then((groups) => {
-        if (!cancelled) setModelGroups(groups);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setModelGroups([]);
-          setModelsError("Couldn't load fleet miner models.");
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [getMinerModelGroups, modelGroups, modelsError, open]);
-
-  const manufacturerOptions = useMemo(() => {
-    const manufacturers = [
-      ...new Set((modelGroups ?? []).map((group) => group.manufacturer.trim()).filter(Boolean)),
-    ].sort();
-    return [
-      { value: "", label: "Select manufacturer" },
-      ...manufacturers.map((manufacturer) => ({ value: manufacturer, label: manufacturer })),
-    ];
-  }, [modelGroups]);
-
-  const modelOptions = useMemo(() => {
-    const models = (modelGroups ?? [])
-      .filter((group) => group.manufacturer === targetManufacturer)
-      .map((group) => group.model.trim())
-      .filter(Boolean)
-      .sort();
-    return [
-      { value: "", label: "Select model" },
-      ...models.map((modelName) => ({ value: modelName, label: modelName })),
-    ];
-  }, [modelGroups, targetManufacturer]);
-
   const selectedTargetModel = modelOptions.some((option) => option.value === targetModel) ? targetModel : "";
   const target = useMemo(
-    () => ({
-      targetManufacturer: targetManufacturer.trim(),
-      targetModel: selectedTargetModel.trim(),
-      firmwareVersion: firmwareVersion.trim(),
-    }),
+    () => ({ targetManufacturer, targetModel: selectedTargetModel, firmwareVersion }),
     [firmwareVersion, targetManufacturer, selectedTargetModel],
   );
-  const hasCompleteTarget =
-    target.targetManufacturer !== "" && target.targetModel !== "" && target.firmwareVersion !== "";
+  const hasCompleteTarget = hasCompleteFirmwareTarget(target);
 
   const resetDialogState = useCallback((): void => {
     reset();
     setTargetManufacturer("");
     setTargetModel("");
     setFirmwareVersion("");
-    setModelGroups(null);
-    setModelsError(null);
+    resetModelOptions();
     setPendingFile(null);
-  }, [reset]);
+  }, [reset, resetModelOptions]);
 
   const handleDismiss = useCallback(() => {
     resetDialogState();
@@ -115,12 +69,16 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
 
   const handleUpload = useCallback((): void => {
     if (!pendingFile || !hasCompleteTarget) return;
-    processFile(pendingFile, target, () => {
-      resetDialogState();
-      onSuccess();
-    });
+    processFile(pendingFile, target);
     setPendingFile(null);
-  }, [hasCompleteTarget, onSuccess, pendingFile, processFile, resetDialogState, target]);
+  }, [hasCompleteTarget, pendingFile, processFile, target]);
+
+  useEffect(() => {
+    if (state !== "ready") return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot reset synchronizing dialog state with the upload hook's async completion
+    resetDialogState();
+    onSuccess();
+  }, [onSuccess, resetDialogState, state]);
 
   const buttons = useMemo(() => {
     if (state === "idle" && pendingFile) {
@@ -151,36 +109,17 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
 
         {showMetadataFields ? (
           <>
-            <div className="grid gap-4 tablet:grid-cols-2">
-              <Select
-                id="firmware-target-manufacturer"
-                label="Manufacturer"
-                options={manufacturerOptions}
-                value={targetManufacturer}
-                onChange={(value) => {
-                  setTargetManufacturer(value);
-                  setTargetModel("");
-                }}
-                disabled={metadataLocked}
-                forceBelow
-              />
-              <Select
-                id="firmware-target-model"
-                label="Model"
-                options={modelOptions}
-                value={selectedTargetModel}
-                onChange={setTargetModel}
-                disabled={metadataLocked || !targetManufacturer}
-                forceBelow
-              />
-            </div>
-            <Input
-              id="firmware-version"
-              label="Firmware version"
-              initValue={firmwareVersion}
-              onChange={setFirmwareVersion}
+            <FirmwareTargetFields
+              idPrefix="firmware"
+              manufacturerOptions={manufacturerOptions}
+              modelOptions={modelOptions}
+              manufacturer={targetManufacturer}
+              model={selectedTargetModel}
+              version={firmwareVersion}
               disabled={metadataLocked}
-              required
+              onManufacturerChange={setTargetManufacturer}
+              onModelChange={setTargetModel}
+              onVersionChange={setFirmwareVersion}
             />
             {state === "idle" ? (
               pendingFile ? (

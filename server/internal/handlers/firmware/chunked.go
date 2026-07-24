@@ -37,12 +37,10 @@ type uploadSession struct {
 }
 
 type initiateRequest struct {
-	Filename           string `json:"filename"`
-	FileSize           int64  `json:"file_size"`
-	TargetManufacturer string `json:"target_manufacturer"`
-	TargetModel        string `json:"target_model"`
-	FirmwareVersion    string `json:"firmware_version"`
-	Force              bool   `json:"force,omitempty"`
+	Filename string `json:"filename"`
+	FileSize int64  `json:"file_size"`
+	files.FirmwareMetadata
+	Force bool `json:"force,omitempty"`
 }
 
 type initiateResponse struct {
@@ -147,12 +145,7 @@ func (h *initiateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	metadata := files.FirmwareMetadata{
-		TargetManufacturer: req.TargetManufacturer,
-		TargetModel:        req.TargetModel,
-		FirmwareVersion:    req.FirmwareVersion,
-	}
-	if err := files.ValidateFirmwareUploadMetadata(metadata); err != nil {
+	if err := files.ValidateFirmwareUploadMetadata(req.FirmwareMetadata); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -187,7 +180,7 @@ func (h *initiateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mgr.sessions[uploadID] = &uploadSession{
 		uploadID:     uploadID,
 		filename:     req.Filename,
-		metadata:     metadata,
+		metadata:     req.FirmwareMetadata,
 		expectedSize: req.FileSize,
 		tempFilePath: tempPath,
 		force:        req.Force,
