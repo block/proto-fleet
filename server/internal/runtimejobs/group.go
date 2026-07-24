@@ -27,16 +27,17 @@ type Group struct {
 	stopGeneration uint64
 }
 
-// NewGroup validates jobs and creates a stopped group. cleanupTimeout is one
-// wall-clock budget shared by every job during a stop or startup rollback.
+// NewGroup validates group configuration and creates a stopped group.
+// cleanupTimeout is one wall-clock budget shared by every job during a stop
+// or startup rollback.
 func NewGroup(jobs []Job, cleanupTimeout time.Duration) (*Group, error) {
 	if cleanupTimeout <= 0 {
 		return nil, errors.New("runtime job cleanup timeout must be positive")
 	}
 	seen := make(map[string]struct{}, len(jobs))
 	for i, job := range jobs {
-		if err := job.validate(); err != nil {
-			return nil, fmt.Errorf("runtime job %d: %w", i, err)
+		if job == nil {
+			return nil, fmt.Errorf("runtime job %d must not be nil", i)
 		}
 		if _, ok := seen[job.Name()]; ok {
 			return nil, fmt.Errorf("runtime job name %q appears more than once", job.Name())

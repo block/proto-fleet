@@ -24,8 +24,8 @@ func TestNewJobValidation(t *testing.T) {
 func TestNewGroupValidation(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewGroup([]Job{{name: "job"}}, time.Second)
-	require.ErrorContains(t, err, "runtime job 0: lifecycle must not be nil")
+	_, err := NewGroup([]Job{nil}, time.Second)
+	require.ErrorContains(t, err, "runtime job 0 must not be nil")
 
 	job := newTestJob("job", nil, nil)
 	_, err = NewGroup([]Job{job, job}, time.Second)

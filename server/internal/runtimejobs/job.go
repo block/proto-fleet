@@ -6,43 +6,44 @@ import (
 )
 
 // Job is a validated, named Lifecycle managed by a Group.
-type Job struct {
+// Implementations are created by NewJob.
+type Job interface {
+	Lifecycle
+	Name() string
+	isJob()
+}
+
+type job struct {
 	name      string
 	lifecycle Lifecycle
 }
 
-var _ Lifecycle = Job{}
+var _ Job = job{}
 
 // NewJob validates and names a lifecycle for runtime orchestration.
 func NewJob(name string, lifecycle Lifecycle) (Job, error) {
-	job := Job{name: name, lifecycle: lifecycle}
-	if err := job.validate(); err != nil {
-		return Job{}, err
+	if name == "" {
+		return nil, errors.New("name must not be empty")
 	}
-	return job, nil
+	if lifecycle == nil {
+		return nil, errors.New("lifecycle must not be nil")
+	}
+	return job{name: name, lifecycle: lifecycle}, nil
 }
 
 // Name identifies the job within its group.
-func (j Job) Name() string {
+func (j job) Name() string {
 	return j.name
 }
 
 // Start delegates activation to the job's lifecycle.
-func (j Job) Start(ctx context.Context) error {
+func (j job) Start(ctx context.Context) error {
 	return j.lifecycle.Start(ctx)
 }
 
 // Stop delegates cleanup to the job's lifecycle.
-func (j Job) Stop(ctx context.Context) error {
+func (j job) Stop(ctx context.Context) error {
 	return j.lifecycle.Stop(ctx)
 }
 
-func (j Job) validate() error {
-	if j.name == "" {
-		return errors.New("name must not be empty")
-	}
-	if j.lifecycle == nil {
-		return errors.New("lifecycle must not be nil")
-	}
-	return nil
-}
+func (job) isJob() {}
