@@ -3,13 +3,16 @@ import { Navigate } from "react-router-dom";
 
 import { useBuildings } from "@/protoFleet/api/buildings";
 import type { BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { buildKnownSiteIds } from "@/protoFleet/api/sites";
+import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useInfrastructureDevices from "@/protoFleet/api/useInfrastructureDevices";
 import { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { useOptionalFleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout/outletContext";
 import InfraDeviceList from "@/protoFleet/features/infrastructure/components/InfraDeviceList";
 import {
   uniqueInfraBuildingOptions,
+  uniqueInfraRackOptions,
   uniqueSortedLocationNames,
 } from "@/protoFleet/features/infrastructure/locationOptions";
 import type { InfraDeviceDraft, InfraDeviceItem, InfraDevicePatch } from "@/protoFleet/features/infrastructure/types";
@@ -28,9 +31,12 @@ const NO_DEVICES: InfraDeviceItem[] = [];
 const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetInfraPageProps) => {
   const canReadSites = useHasPermission("site:read");
   const canManageSites = useHasPermission("site:manage");
+  const canReadRacks = useHasPermission("rack:read");
   const fleetContext = useOptionalFleetOutletContext();
   const { listAllBuildings } = useBuildings();
+  const { listRacks } = useDeviceSets();
   const [buildingCatalog, setBuildingCatalog] = useState<BuildingWithCounts[] | undefined>();
+  const [rackCatalogByScope, setRackCatalogByScope] = useState<Record<string, DeviceSet[]>>({});
   const canReadInfrastructure = canRead ?? canReadSites;
   const canManageInfrastructure = canManage ?? canManageSites;
   const sites = fleetContext?.sites;
@@ -49,6 +55,8 @@ const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetI
   // skip the fetch and render an empty list.
   const scopeFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
   const isUnassignedScope = scopeFilter.includeUnassigned;
+  const rackCatalogScopeKey =
+    canReadInfrastructure && canReadRacks && !isUnassignedScope ? scopeFilter.siteIds.map(String).join(",") : null;
   const {
     devices: apiDevices,
     isLoading,
@@ -115,6 +123,18 @@ const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetI
       }),
     );
   }, [buildingCatalog, siteNameById]);
+  const catalogRackOptions = useMemo(() => {
+    if (rackCatalogScopeKey === null) return undefined;
+    const racks = rackCatalogByScope[rackCatalogScopeKey];
+    if (!racks) return undefined;
+    return uniqueInfraRackOptions(
+      racks.flatMap((rack) => {
+        const siteName = rack.placement?.site?.label ?? "";
+        const buildingName = rack.placement?.building?.label ?? "";
+        return siteName && buildingName ? [{ siteName, buildingName, rackName: rack.label }] : [];
+      }),
+    );
+  }, [rackCatalogByScope, rackCatalogScopeKey]);
 
   useEffect(() => {
     if (!canReadInfrastructure) {
@@ -130,6 +150,22 @@ const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetI
 
     return () => controller.abort();
   }, [canReadInfrastructure, listAllBuildings]);
+
+  useEffect(() => {
+    if (rackCatalogScopeKey === null) return;
+
+    void listRacks({
+      siteIds: scopeFilter.siteIds,
+      includeUnassigned: false,
+      onSuccess: (racks) => setRackCatalogByScope((current) => ({ ...current, [rackCatalogScopeKey]: racks })),
+      onError: () =>
+        setRackCatalogByScope((current) => {
+          const next = { ...current };
+          delete next[rackCatalogScopeKey];
+          return next;
+        }),
+    });
+  }, [listRacks, rackCatalogScopeKey, scopeFilter.siteIds]);
 
   const resolveSiteId = useCallback(
     (siteName: string): string => {
@@ -150,6 +186,7 @@ const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetI
       await createDevice({
         siteId: resolveSiteId(draft.siteName),
         buildingName: draft.buildingName,
+        rackName: draft.rackName,
         name: draft.name,
         deviceKind: draft.deviceKind,
         fanCount: draft.fanCount,
@@ -170,6 +207,7 @@ const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetI
         // or an unavailable site catalog.
         ...(patch.siteName !== undefined ? { siteId: resolveSiteId(patch.siteName) } : {}),
         buildingName: patch.buildingName,
+        rackName: patch.rackName,
         name: patch.name,
         enabled: patch.enabled,
         driverConfig: patch.driverConfig,
@@ -216,6 +254,7 @@ const FleetInfraPage = ({ devices: devicesOverride, canRead, canManage }: FleetI
       canManage={canManageInScope}
       siteOptions={catalogSiteOptions}
       buildingOptions={catalogBuildingOptions}
+      rackOptions={catalogRackOptions}
       initialSiteName={selectedSiteName}
       updatingDeviceIds={updatingDeviceIds}
       {...(hasDevicesOverride

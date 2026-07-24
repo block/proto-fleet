@@ -34,8 +34,8 @@ type MessageQueue interface {
 	// EnqueueMany adds commands with per-device payloads in one atomic operation.
 	EnqueueMany(ctx context.Context, commandBatchLogUUID string, commandType commandtype.Type, messages []EnqueueMessage) error
 
-	// Dequeue retrieves and locks batch of commands for processing
-	Dequeue(ctx context.Context) ([]Message, error)
+	// Dequeue retrieves and locks at most limit commands for processing.
+	Dequeue(ctx context.Context, limit int32) ([]Message, error)
 
 	// MarkSuccess updates a command as successfully processed.
 	// Returns ErrStale if the message is no longer PROCESSING.

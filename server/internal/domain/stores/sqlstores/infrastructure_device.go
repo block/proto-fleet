@@ -40,6 +40,7 @@ func deviceFromRow(row sqlc.GetInfrastructureDeviceRow) models.Device {
 		SiteID:       row.SiteID,
 		SiteLabel:    row.SiteLabel,
 		BuildingName: row.BuildingName,
+		RackName:     row.RackName,
 		Name:         row.Name,
 		DeviceKind:   row.DeviceKind,
 		FanCount:     row.FanCount,
@@ -68,6 +69,7 @@ func (s *SQLInfrastructureDeviceStore) CreateInfrastructureDevice(ctx context.Co
 		OrgID:        params.OrgID,
 		SiteID:       params.SiteID,
 		BuildingName: params.BuildingName,
+		RackName:     params.RackName,
 		Name:         params.Name,
 		DeviceKind:   params.DeviceKind,
 		FanCount:     params.FanCount,
@@ -118,6 +120,31 @@ func (s *SQLInfrastructureDeviceStore) ListInfrastructureDevices(ctx context.Con
 		out = append(out, deviceFromRow(sqlc.GetInfrastructureDeviceRow(row)))
 	}
 	return out, nil
+}
+
+func (s *SQLInfrastructureDeviceStore) LockInfrastructureRackForPlacement(
+	ctx context.Context,
+	orgID, siteID int64,
+	buildingName, rackName string,
+) error {
+	_, err := s.GetQueries(ctx).LockInfrastructureRackForPlacement(ctx, sqlc.LockInfrastructureRackForPlacementParams{
+		OrgID:        orgID,
+		RackName:     rackName,
+		SiteID:       sql.NullInt64{Int64: siteID, Valid: true},
+		BuildingName: buildingName,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return fleeterror.NewFailedPreconditionErrorf(
+			"rack %q is not available in building %q at site %d",
+			rackName,
+			buildingName,
+			siteID,
+		)
+	}
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to lock infrastructure rack placement: %v", err)
+	}
+	return nil
 }
 
 func (s *SQLInfrastructureDeviceStore) LockInfrastructureDeviceForWrite(ctx context.Context, orgID, id, expectedSiteID int64) error {
@@ -184,25 +211,34 @@ func (s *SQLInfrastructureDeviceStore) CountNonTerminalCurtailmentEventsByInfras
 }
 
 func (s *SQLInfrastructureDeviceStore) UpdateInfrastructureDevice(ctx context.Context, params models.UpdateParams) (*models.Device, error) {
-	// Nil Enabled maps to SQL NULL: the query's COALESCE preserves the
-	// row's current value atomically instead of writing back a value
-	// read before the transaction.
+	// Nil Enabled and RackName map to SQL NULL: COALESCE preserves their
+	// current values atomically instead of writing back stale values.
 	enabled := sql.NullBool{}
 	if params.Enabled != nil {
 		enabled = sql.NullBool{Bool: *params.Enabled, Valid: true}
 	}
+	rackName := sql.NullString{}
+	if params.RackName != nil {
+		rackName = sql.NullString{String: *params.RackName, Valid: true}
+	}
+	expectedRackName := sql.NullString{}
+	if params.ExpectedRackName != nil {
+		expectedRackName = sql.NullString{String: *params.ExpectedRackName, Valid: true}
+	}
 	affected, err := s.GetQueries(ctx).UpdateInfrastructureDevice(ctx, sqlc.UpdateInfrastructureDeviceParams{
-		SiteID:         params.SiteID,
-		BuildingName:   params.BuildingName,
-		Name:           params.Name,
-		DeviceKind:     params.DeviceKind,
-		FanCount:       params.FanCount,
-		Enabled:        enabled,
-		DriverType:     params.DriverType,
-		DriverConfig:   normalizeDriverConfig(params.DriverConfig),
-		ID:             params.ID,
-		OrgID:          params.OrgID,
-		ExpectedSiteID: params.ExpectedSiteID,
+		SiteID:           params.SiteID,
+		BuildingName:     params.BuildingName,
+		RackName:         rackName,
+		Name:             params.Name,
+		DeviceKind:       params.DeviceKind,
+		FanCount:         params.FanCount,
+		Enabled:          enabled,
+		DriverType:       params.DriverType,
+		DriverConfig:     normalizeDriverConfig(params.DriverConfig),
+		ID:               params.ID,
+		OrgID:            params.OrgID,
+		ExpectedSiteID:   params.ExpectedSiteID,
+		ExpectedRackName: expectedRackName,
 	})
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -229,6 +265,7 @@ func (s *SQLInfrastructureDeviceStore) SoftDeleteInfrastructureDevice(ctx contex
 		OrgID:        row.OrgID,
 		SiteID:       row.SiteID,
 		BuildingName: row.BuildingName,
+		RackName:     row.RackName,
 		Name:         row.Name,
 		DeviceKind:   row.DeviceKind,
 		FanCount:     row.FanCount,

@@ -22,6 +22,11 @@ type InfrastructureDeviceStore interface {
 	// ordered by name. Filter optionally narrows to specific sites.
 	ListInfrastructureDevices(ctx context.Context, filter models.ListFilter) ([]models.Device, error)
 
+	// LockInfrastructureRackForPlacement validates that the named live rack is
+	// assigned to the requested site/building and locks its catalog rows. Site
+	// rows must be locked first; infrastructure-device rows must be locked after.
+	LockInfrastructureRackForPlacement(ctx context.Context, orgID, siteID int64, buildingName, rackName string) error
+
 	// LockInfrastructureDeviceForWrite serializes updates/deletes against
 	// response-profile saves and active curtailment claims. Parent site rows
 	// must be locked first.

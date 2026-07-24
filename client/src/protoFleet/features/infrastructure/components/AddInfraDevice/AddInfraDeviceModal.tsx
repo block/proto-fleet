@@ -3,13 +3,18 @@ import { useCallback, useState } from "react";
 import ManualAddStep, { type ManualAddStepState } from "./ManualAddStep";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import ActionErrorBanner from "@/protoFleet/features/infrastructure/components/ActionErrorBanner";
-import type { InfraBuildingOption, InfraDeviceDraft } from "@/protoFleet/features/infrastructure/types";
+import type {
+  InfraBuildingOption,
+  InfraDeviceDraft,
+  InfraRackOption,
+} from "@/protoFleet/features/infrastructure/types";
 import { variants } from "@/shared/components/Button";
 import Modal from "@/shared/components/Modal";
 
 interface AddInfraDeviceModalProps {
   siteOptions?: string[];
   buildingOptions?: InfraBuildingOption[];
+  rackOptions?: InfraRackOption[];
   initialSiteName?: string;
   onDismiss: () => void;
   // Persists the draft; rejection keeps the modal open with the error
@@ -20,6 +25,7 @@ interface AddInfraDeviceModalProps {
 const AddInfraDeviceModal = ({
   siteOptions = [],
   buildingOptions = [],
+  rackOptions = [],
   initialSiteName,
   onDismiss,
   onSubmit,
@@ -78,6 +84,7 @@ const AddInfraDeviceModal = ({
         <ManualAddStep
           siteOptions={siteOptions}
           buildingOptions={buildingOptions}
+          rackOptions={rackOptions}
           initialSiteName={initialSiteName}
           onSuccess={handleDraft}
           onStateChange={handleManualStateChange}

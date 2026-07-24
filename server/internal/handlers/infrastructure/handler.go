@@ -2,8 +2,10 @@
 // InfrastructureService.
 //
 // All RPCs enforce site-scoped RBAC: reads require site:read and
-// writes site:manage evaluated against the device's site
-// (ResourceContext{SiteID}), so a caller whose org-wide grant is
+// writes site:manage evaluated against the device's site. Rack names
+// are returned only with rack:read, and rack assignments or site moves
+// also require rack:read. Permissions are evaluated with
+// ResourceContext{SiteID}, so a caller whose org-wide grant is
 // narrowed away for a site cannot read or mutate that site's device
 // configuration. Get/Update/Delete resolve the device under org scope
 // first and then authorize against its current site; a caller without
@@ -67,8 +69,20 @@ func canManageSite(ctx context.Context, siteID int64) (bool, error) {
 	return middleware.HasPermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: &siteID})
 }
 
+// canReadRack reports whether the caller can see rack inventory at the
+// given site. Infrastructure reads use it to redact rack placement
+// without hiding the rest of the site-readable device.
+func canReadRack(ctx context.Context, siteID int64) (bool, error) {
+	return middleware.HasPermission(ctx, authz.PermRackRead, authz.ResourceContext{SiteID: &siteID})
+}
+
 func requireSiteManage(ctx context.Context, siteID int64) error {
 	_, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: &siteID})
+	return err
+}
+
+func requireRackRead(ctx context.Context, siteID int64) error {
+	_, err := middleware.RequirePermission(ctx, authz.PermRackRead, authz.ResourceContext{SiteID: &siteID})
 	return err
 }
 
@@ -153,7 +167,11 @@ func (h *Handler) ListInfrastructureDevices(ctx context.Context, req *connect.Re
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, toProtoDevice(device, manageable))
+		rackReadable, err := canReadRack(ctx, device.SiteID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, toProtoDevice(device, manageable, rackReadable))
 	}
 	return connect.NewResponse(&pb.ListInfrastructureDevicesResponse{Devices: out}), nil
 }
@@ -191,8 +209,12 @@ func (h *Handler) GetInfrastructureDevice(ctx context.Context, req *connect.Requ
 	if err != nil {
 		return nil, err
 	}
+	rackReadable, err := canReadRack(ctx, device.SiteID)
+	if err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(&pb.GetInfrastructureDeviceResponse{
-		Device: toProtoDevice(device, manageable),
+		Device: toProtoDevice(device, manageable, rackReadable),
 	}), nil
 }
 
@@ -202,14 +224,23 @@ func (h *Handler) CreateInfrastructureDevice(ctx context.Context, req *connect.R
 	if err != nil {
 		return nil, err
 	}
+	if req.Msg.GetRackName() != "" {
+		if err := requireRackRead(ctx, siteID); err != nil {
+			return nil, err
+		}
+	}
 	device, err := h.service.Create(ctx, toCreateParams(req.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err
 	}
-	// Create/Update callers proved site:manage above, so the config
-	// they just wrote is echoed back.
+	rackReadable, err := canReadRack(ctx, device.SiteID)
+	if err != nil {
+		return nil, err
+	}
+	// The caller proved site:manage, so the config they just wrote is
+	// echoed back. Rack placement still follows its independent read gate.
 	return connect.NewResponse(&pb.CreateInfrastructureDeviceResponse{
-		Device: toProtoDevice(device, true),
+		Device: toProtoDevice(device, true, rackReadable),
 	}), nil
 }
 
@@ -234,18 +265,42 @@ func (h *Handler) UpdateInfrastructureDevice(ctx context.Context, req *connect.R
 			return nil, err
 		}
 	}
+	siteChanged := req.Msg.GetSiteId() != existing.SiteID
+	buildingChangedWithRack := req.Msg.GetBuildingName() != existing.BuildingName && existing.RackName != ""
+	if req.Msg.RackName != nil || siteChanged || buildingChangedWithRack {
+		if err := requireRackRead(ctx, existing.SiteID); err != nil {
+			return nil, err
+		}
+		if siteChanged {
+			if err := requireRackRead(ctx, req.Msg.GetSiteId()); err != nil {
+				return nil, err
+			}
+		}
+	}
 	// Predicate the write on the site we authorized against, so a
 	// concurrent move between the read above and the write fails
 	// closed (NotFound) instead of mutating a device now in a site the
 	// caller may not manage.
 	params := toUpdateParams(req.Msg, sess.OrganizationID)
 	params.ExpectedSiteID = existing.SiteID
+	params.ExpectedRackName = &existing.RackName
+	if params.RackName == nil && (siteChanged || req.Msg.GetBuildingName() != existing.BuildingName) {
+		// Rack names are scoped to a site/building. Older clients may omit the
+		// optional field, so make a location move explicitly clear the old rack
+		// instead of carrying an invalid placement into the new location.
+		emptyRack := ""
+		params.RackName = &emptyRack
+	}
 	device, err := h.service.Update(ctx, params)
 	if err != nil {
 		return nil, err
 	}
+	rackReadable, err := canReadRack(ctx, device.SiteID)
+	if err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(&pb.UpdateInfrastructureDeviceResponse{
-		Device: toProtoDevice(device, true),
+		Device: toProtoDevice(device, true, rackReadable),
 	}), nil
 }
 

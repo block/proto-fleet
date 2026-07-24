@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 // MQTTClient is one broker connection for one source.
@@ -48,6 +50,8 @@ const (
 const workerRestartBackoffMax = 30 * time.Second
 const reconcileRetryTimeout = 30 * time.Second
 
+var errSubscriberNotStarted = errors.New("mqttingest: subscriber is not started")
+
 // Config bundles the subscriber's runtime dependencies and tunables.
 type Config struct {
 	Store             Store
@@ -77,18 +81,28 @@ type brokerRuntimeStatus struct {
 	lastError  string
 }
 
+type subscriberActivation struct {
+	runCanceled <-chan struct{}
+	cancel      context.CancelFunc
+	done        chan struct{}
+	sourceIDs   map[int64]struct{}
+	workerWG    sync.WaitGroup
+	cleanupOnce sync.Once
+}
+
 // Subscriber owns per-source workers.
 type Subscriber struct {
 	cfg            Config
-	runDone        <-chan struct{}
 	workers        map[int64]*sourceWorkerHandle
 	statuses       map[int64]RuntimeStatus
 	brokerStatuses map[int64]map[string]brokerRuntimeStatus
-	cancel         context.CancelFunc
-	wg             sync.WaitGroup
+	activation     *subscriberActivation
+	lifecycleMu    sync.Mutex
 	mu             sync.Mutex
 	reconcileMu    sync.Mutex
 }
+
+var _ runtimejobs.Lifecycle = (*Subscriber)(nil)
 
 // NewSubscriber validates dependencies and applies runtime defaults.
 func NewSubscriber(cfg Config) (*Subscriber, error) {
@@ -135,27 +149,43 @@ func NewSubscriber(cfg Config) (*Subscriber, error) {
 	return s, nil
 }
 
-// Start starts the runtime and performs the initial source reconciliation.
+// Start runs the subscriber for the lifetime of ctx and performs the initial
+// source reconciliation.
 func (s *Subscriber) Start(ctx context.Context) error {
+	s.lifecycleMu.Lock()
 	s.mu.Lock()
-	if s.cancel != nil {
+	if s.activation != nil {
+		stopping := channelClosed(s.activation.runCanceled)
 		s.mu.Unlock()
+		s.lifecycleMu.Unlock()
+		if stopping {
+			return errors.New("mqttingest: previous subscriber activation is still stopping")
+		}
 		return errors.New("mqttingest: subscriber already started")
 	}
 	runCtx, cancel := context.WithCancel(ctx)
-	s.runDone = runCtx.Done()
-	s.cancel = cancel
+	activation := &subscriberActivation{
+		runCanceled: runCtx.Done(),
+		cancel:      cancel,
+		done:        make(chan struct{}),
+		sourceIDs:   make(map[int64]struct{}),
+	}
+	s.activation = activation
 	s.workers = make(map[int64]*sourceWorkerHandle)
 	s.mu.Unlock()
+	s.lifecycleMu.Unlock()
+	go s.cleanupActivationWhenCanceled(activation)
 
 	if _, _, err := s.reconcile(runCtx, true); err != nil {
 		cancel()
-		s.mu.Lock()
-		s.runDone = nil
-		s.cancel = nil
-		s.workers = make(map[int64]*sourceWorkerHandle)
-		s.mu.Unlock()
+		s.startActivationCleanup(activation)
+		<-activation.done
 		return err
+	}
+	if err := runCtx.Err(); err != nil {
+		s.startActivationCleanup(activation)
+		<-activation.done
+		return fmt.Errorf("mqttingest: start subscriber: %w", err)
 	}
 	return nil
 }
@@ -166,60 +196,80 @@ func (s *Subscriber) Reconcile(ctx context.Context) error {
 	return err
 }
 
-// Stop cancels all workers and waits up to ShutdownDeadline for them to drain.
-func (s *Subscriber) Stop() {
-	s.reconcileMu.Lock()
-	defer s.reconcileMu.Unlock()
-
+// Stop cancels all workers and waits for them within ctx. Cleanup continues
+// after the caller's budget expires, and the activation remains installed
+// until every worker has drained so a replacement activation cannot overlap it.
+func (s *Subscriber) Stop(ctx context.Context) error {
+	s.lifecycleMu.Lock()
 	s.mu.Lock()
-	cancel := s.cancel
-	if cancel == nil {
+	activation := s.activation
+	if activation == nil {
 		s.mu.Unlock()
+		s.lifecycleMu.Unlock()
+		return nil
+	}
+	cancel := activation.cancel
+	done := activation.done
+	s.mu.Unlock()
+	s.lifecycleMu.Unlock()
+
+	cancel()
+	s.startActivationCleanup(activation)
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("mqttingest: stop subscriber: %w", ctx.Err())
+	}
+}
+
+func (s *Subscriber) cleanupActivationWhenCanceled(activation *subscriberActivation) {
+	<-activation.runCanceled
+	s.startActivationCleanup(activation)
+}
+
+func (s *Subscriber) startActivationCleanup(activation *subscriberActivation) {
+	activation.cleanupOnce.Do(func() {
+		go s.cleanupActivation(activation)
+	})
+}
+
+func (s *Subscriber) cleanupActivation(activation *subscriberActivation) {
+	// Exclude Add calls before waiting on this activation's WaitGroup. Once the
+	// activation context is canceled, later reconciles fail before adding work.
+	s.reconcileMu.Lock()
+	s.mu.Lock()
+	if s.activation != activation {
+		close(activation.done)
+		s.mu.Unlock()
+		s.reconcileMu.Unlock()
 		return
 	}
 	handles := make([]*sourceWorkerHandle, 0, len(s.workers))
 	for _, handle := range s.workers {
 		handles = append(handles, handle)
 	}
-	s.runDone = nil
-	s.cancel = nil
 	s.mu.Unlock()
-
 	for _, handle := range handles {
 		handle.cancel()
 	}
-	cancel()
-	s.cfg.Logger.Info("mqttingest subscriber draining workers",
-		slog.Duration("deadline", s.cfg.ShutdownDeadline))
-	done := make(chan struct{})
-	go func() {
-		s.wg.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-		s.cfg.Logger.Info("mqttingest subscriber stopped cleanly")
-	case <-time.After(s.cfg.ShutdownDeadline):
-		s.cfg.Logger.Warn("mqttingest subscriber shutdown deadline exceeded")
-	}
+	s.reconcileMu.Unlock()
+
+	s.cfg.Logger.Info("mqttingest subscriber draining workers")
+	activation.workerWG.Wait()
 
 	s.mu.Lock()
-	for sourceID := range s.workers {
-		s.setSourceStatusLocked(sourceID, RuntimeStateStopped, "")
+	if s.activation == activation {
+		for sourceID := range activation.sourceIDs {
+			s.setSourceStatusLocked(sourceID, RuntimeStateStopped, "")
+		}
+		s.workers = make(map[int64]*sourceWorkerHandle)
+		s.brokerStatuses = make(map[int64]map[string]brokerRuntimeStatus)
+		s.activation = nil
 	}
-	s.workers = make(map[int64]*sourceWorkerHandle)
-	s.brokerStatuses = make(map[int64]map[string]brokerRuntimeStatus)
+	close(activation.done)
 	s.mu.Unlock()
-}
-
-// Run starts enabled sources once and blocks until ctx is canceled.
-func (s *Subscriber) Run(ctx context.Context) error {
-	if err := s.Start(ctx); err != nil {
-		return err
-	}
-	<-ctx.Done()
-	s.Stop()
-	return nil
+	s.cfg.Logger.Info("mqttingest subscriber stopped cleanly")
 }
 
 func (s *Subscriber) SourceRuntimeStatus(sourceID int64) RuntimeStatus {
@@ -236,16 +286,17 @@ func (s *Subscriber) QuiesceSource(ctx context.Context, sourceID int64) error {
 	defer s.reconcileMu.Unlock()
 
 	s.mu.Lock()
-	runDone := s.runDone
+	activation := s.activation
 	handle := s.workers[sourceID]
 	s.mu.Unlock()
-	if runDone == nil || handle == nil {
+	if activation == nil || handle == nil {
 		return nil
 	}
+	runCanceled := activation.runCanceled
 	handle.cancel()
 	if err := s.waitForHandleStopped(ctx, handle); err != nil {
 		s.recordSourceError(handle.worker.source.ID, err.Error())
-		s.reconcileWhenHandleStops(runDone, handle)
+		s.reconcileWhenHandleStops(runCanceled, handle)
 		return err
 	}
 	s.mu.Lock()
@@ -265,19 +316,23 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 	defer s.reconcileMu.Unlock()
 
 	s.mu.Lock()
-	runDone := s.runDone
+	activation := s.activation
 	existing := make(map[int64]*sourceWorkerHandle, len(s.workers))
 	for id, handle := range s.workers {
 		existing[id] = handle
 	}
 	s.mu.Unlock()
-	if runDone == nil {
-		return 0, 0, errors.New("mqttingest: subscriber is not started")
+	if activation == nil || channelClosed(activation.runCanceled) {
+		return 0, 0, errSubscriberNotStarted
 	}
+	runCanceled := activation.runCanceled
 
 	sources, err := s.cfg.Store.ListEnabledSources(ctx)
 	if err != nil {
 		return 0, 0, fmt.Errorf("mqttingest: list enabled sources: %w", err)
+	}
+	if channelClosed(runCanceled) {
+		return 0, len(sources), errSubscriberNotStarted
 	}
 	s.cfg.Logger.Info("mqttingest subscriber reconciling", slog.Int("source_count", len(sources)))
 
@@ -307,7 +362,7 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 	for _, handle := range stopping {
 		if err := s.waitForHandleStopped(ctx, handle); err != nil {
 			s.recordSourceError(handle.worker.source.ID, err.Error())
-			s.reconcileWhenHandleStops(runDone, handle)
+			s.reconcileWhenHandleStops(runCanceled, handle)
 			return 0, len(sources), err
 		}
 		s.mu.Lock()
@@ -322,6 +377,9 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 	started := 0
 	var firstStartErr error
 	for _, src := range sources {
+		if channelClosed(runCanceled) {
+			return started, len(sources), errSubscriberNotStarted
+		}
 		fingerprint := sourceConfigFingerprint(src)
 		s.mu.Lock()
 		current, ok := s.workers[src.ID]
@@ -330,11 +388,16 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 			continue
 		}
 		s.setSourceStatusLocked(src.ID, RuntimeStateStarting, "")
+		activation.sourceIDs[src.ID] = struct{}{}
 		s.brokerStatuses[src.ID] = make(map[string]brokerRuntimeStatus)
 		s.mu.Unlock()
 
-		workerCtx, workerCancel := contextWithDone(runDone)
-		w, done, err := s.startWorker(ctx, workerCtx, src, &s.wg)
+		workerCtx, workerCancel := contextWithDone(runCanceled)
+		if channelClosed(runCanceled) {
+			workerCancel()
+			return started, len(sources), errSubscriberNotStarted
+		}
+		w, done, err := s.startWorker(ctx, workerCtx, src, &activation.workerWG)
 		if err != nil {
 			workerCancel()
 			if firstStartErr == nil {
@@ -354,10 +417,10 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 			fingerprint: fingerprint,
 		}
 		s.mu.Lock()
-		if s.runDone != runDone {
+		if s.activation != activation || channelClosed(runCanceled) {
 			s.mu.Unlock()
 			workerCancel()
-			continue
+			return started, len(sources), errSubscriberNotStarted
 		}
 		if previous, ok := s.workers[src.ID]; ok {
 			previous.cancel()
@@ -411,30 +474,30 @@ func handleStopped(handle *sourceWorkerHandle) bool {
 	}
 }
 
-func (s *Subscriber) reconcileWhenHandleStops(runDone <-chan struct{}, handle *sourceWorkerHandle) {
+func (s *Subscriber) reconcileWhenHandleStops(runCanceled <-chan struct{}, handle *sourceWorkerHandle) {
 	if handle == nil || handle.done == nil {
 		return
 	}
 	handle.retryOnce.Do(func() {
-		go s.reconcileAfterHandleStops(runDone, handle)
+		go s.reconcileAfterHandleStops(runCanceled, handle)
 	})
 }
 
-func (s *Subscriber) reconcileAfterHandleStops(runDone <-chan struct{}, handle *sourceWorkerHandle) {
-	if runDone == nil {
+func (s *Subscriber) reconcileAfterHandleStops(runCanceled <-chan struct{}, handle *sourceWorkerHandle) {
+	if runCanceled == nil {
 		return
 	}
 	select {
-	case <-runDone:
+	case <-runCanceled:
 		return
 	case <-handle.done:
 	}
 	select {
-	case <-runDone:
+	case <-runCanceled:
 		return
 	default:
 	}
-	runCtx, runCancel := contextWithDone(runDone)
+	runCtx, runCancel := contextWithDone(runCanceled)
 	defer runCancel()
 	reconcileCtx, timeoutCancel := context.WithTimeout(runCtx, s.cfg.ReconcileTimeout)
 	defer timeoutCancel()
@@ -455,6 +518,18 @@ func contextWithDone(done <-chan struct{}) (context.Context, context.CancelFunc)
 		}
 	}()
 	return ctx, cancel
+}
+
+func channelClosed(done <-chan struct{}) bool {
+	if done == nil {
+		return false
+	}
+	select {
+	case <-done:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Subscriber) waitForHandleStopped(ctx context.Context, handle *sourceWorkerHandle) error {

@@ -14,6 +14,7 @@ import type {
   InfraBuildingOption,
   InfraDeviceItem,
   InfraDevicePatch,
+  InfraRackOption,
 } from "@/protoFleet/features/infrastructure/types";
 import { variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
@@ -26,6 +27,7 @@ interface InfraDeviceDetailModalProps {
   device: InfraDeviceItem;
   siteOptions?: string[];
   buildingOptions?: InfraBuildingOption[];
+  rackOptions?: InfraRackOption[];
   canManage?: boolean;
   // Persist callbacks; rejections keep the modal open with the error
   // shown inline. The modal dismisses itself after success.
@@ -38,6 +40,7 @@ const InfraDeviceDetailModal = ({
   device,
   siteOptions = [],
   buildingOptions = [],
+  rackOptions = [],
   canManage = true,
   onSave,
   onDelete,
@@ -46,6 +49,7 @@ const InfraDeviceDetailModal = ({
   const [site, setSite] = useState(device.siteName);
   const [name, setName] = useState(device.name);
   const [building, setBuilding] = useState(device.buildingName);
+  const [rack, setRack] = useState(device.rackName);
   // Stays undefined until the operator flips the switch in this
   // session, so an unrelated save doesn't resend a possibly-stale
   // enabled snapshot and clobber a concurrent enable/disable.
@@ -67,6 +71,7 @@ const InfraDeviceDetailModal = ({
     name: device.name,
     siteName: device.siteName,
     buildingName: device.buildingName,
+    rackName: device.rackName,
   });
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -88,6 +93,8 @@ const InfraDeviceDetailModal = ({
     if (trimmedSite !== initial.siteName) patch.siteName = trimmedSite;
     const trimmedBuilding = building.trim();
     if (trimmedBuilding !== initial.buildingName) patch.buildingName = trimmedBuilding;
+    const trimmedRack = rack.trim();
+    if (trimmedRack !== initial.rackName) patch.rackName = trimmedRack;
     if (enabledOverride !== undefined) patch.enabled = enabledOverride;
     const driverValuesChanged =
       driverValues !== null &&
@@ -97,7 +104,7 @@ const InfraDeviceDetailModal = ({
       patch.driverConfig = driverFormModule.encode(driverValues);
     }
     return patch;
-  }, [building, device.id, driverFormModule, driverValues, enabledOverride, initialDriverValues, name, site]);
+  }, [building, device.id, driverFormModule, driverValues, enabledOverride, initialDriverValues, name, rack, site]);
   const hasChanges = Object.keys(sessionPatch).length > 1;
   const canSave =
     [name, site, building].every((value) => value.trim().length > 0) &&
@@ -191,10 +198,13 @@ const InfraDeviceDetailModal = ({
           <InfraLocationFields
             site={site}
             building={building}
+            rack={rack}
             siteOptions={siteOptions}
             buildingOptions={buildingOptions}
+            rackOptions={rackOptions}
             onSiteChange={setSite}
             onBuildingChange={setBuilding}
+            onRackChange={setRack}
             disabled={!canManage}
           />
           <Input id="device-connection-type" label="Connection type" initValue={connectionTypeLabel} readOnly />

@@ -55,6 +55,7 @@ func auditDevice() *models.Device {
 		OrgID:        testOrgID,
 		SiteID:       testSiteID,
 		BuildingName: "Building 1",
+		RackName:     "Rack A1",
 		Name:         "Zone A exhaust fans",
 		DeviceKind:   models.KindFanGroup,
 		FanCount:     12,
@@ -65,8 +66,8 @@ func auditDevice() *models.Device {
 }
 
 // requireAuditEvent asserts the single captured event matches the
-// expected type and carries the protocol-blind metadata — and, per the
-// security review, never the driver_config (OT control topology).
+// expected type and carries safe metadata. Fields protected by permissions
+// outside activity:read must not be copied into the activity feed.
 func requireAuditEvent(t *testing.T, captured []activitymodels.Event, eventType string) {
 	t.Helper()
 	require.Len(t, captured, 1)
@@ -80,6 +81,8 @@ func requireAuditEvent(t *testing.T, captured []activitymodels.Event, eventType 
 	assert.Contains(t, event.Description, `"Zone A exhaust fans"`)
 	assert.Equal(t, int64(7), event.Metadata["infrastructure_device_id"])
 	assert.Equal(t, "modbus_tcp", event.Metadata["driver_type"])
+	assert.NotContains(t, event.Metadata, "rack_name",
+		"audit metadata must not expose rack placement without rack:read")
 	assert.NotContains(t, event.Metadata, "driver_config",
 		"audit metadata must not carry OT control topology")
 	assert.NotContains(t, event.Description, "10.1.2.3",
@@ -89,11 +92,27 @@ func requireAuditEvent(t *testing.T, captured []activitymodels.Event, eventType 
 func TestService_CreateEmitsAuditEvent(t *testing.T) {
 	t.Parallel()
 	h := newAuditHarness(t)
+	h.store.EXPECT().LockInfrastructureRackForPlacement(
+		gomock.Any(), testOrgID, testSiteID, "Building 1", "Rack A1",
+	).Return(nil)
 	h.store.EXPECT().CreateInfrastructureDevice(gomock.Any(), gomock.Any()).Return(auditDevice(), nil)
 
 	_, err := h.svc.Create(context.Background(), createParams(nil))
 	require.NoError(t, err)
 	requireAuditEvent(t, *h.captured, "infrastructure_device.created")
+}
+
+func TestService_CreateRejectsUnavailableRack(t *testing.T) {
+	t.Parallel()
+	h := newAuditHarness(t)
+	h.store.EXPECT().LockInfrastructureRackForPlacement(
+		gomock.Any(), testOrgID, testSiteID, "Building 1", "Rack A1",
+	).Return(fleeterror.NewFailedPreconditionError("rack is no longer available"))
+
+	_, err := h.svc.Create(context.Background(), createParams(nil))
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Empty(t, *h.captured)
 }
 
 func TestService_UpdateEmitsAuditEvent(t *testing.T) {
@@ -118,6 +137,45 @@ func TestService_UpdateEmitsAuditEvent(t *testing.T) {
 	})
 	require.NoError(t, err)
 	requireAuditEvent(t, *h.captured, "infrastructure_device.updated")
+}
+
+func TestService_UpdateLocksRackBeforeInfrastructureDevice(t *testing.T) {
+	t.Parallel()
+	h := newAuditHarness(t)
+	rackName := "Rack B1"
+	updated := auditDevice()
+	updated.RackName = rackName
+	gomock.InOrder(
+		h.store.EXPECT().LockInfrastructureRackForPlacement(
+			gomock.Any(), testOrgID, testSiteID, "Building 1", rackName,
+		).Return(nil),
+		h.store.EXPECT().LockInfrastructureDeviceForWrite(
+			gomock.Any(), testOrgID, int64(7), testSiteID,
+		).Return(nil),
+		h.store.EXPECT().GetInfrastructureDevice(
+			gomock.Any(), testOrgID, int64(7),
+		).Return(auditDevice(), nil),
+		h.store.EXPECT().UpdateInfrastructureDevice(
+			gomock.Any(), gomock.Any(),
+		).Return(updated, nil),
+	)
+
+	got, err := h.svc.Update(context.Background(), models.UpdateParams{
+		OrgID:          testOrgID,
+		ID:             7,
+		ExpectedSiteID: testSiteID,
+		SiteID:         testSiteID,
+		BuildingName:   "Building 1",
+		RackName:       &rackName,
+		Name:           "Zone A exhaust fans",
+		DeviceKind:     models.KindFanGroup,
+		FanCount:       12,
+		Enabled:        boolPtr(true),
+		DriverType:     "modbus_tcp",
+		DriverConfig:   validModbusConfig(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, rackName, got.RackName)
 }
 
 func TestService_UpdateRejectsDisablingDeviceClaimedByActiveCurtailmentEvent(t *testing.T) {

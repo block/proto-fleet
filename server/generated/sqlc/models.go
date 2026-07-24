@@ -938,6 +938,7 @@ type InfrastructureDevice struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	DeletedAt    sql.NullTime
+	RackName     string
 }
 
 type MinerCredential struct {
