@@ -248,9 +248,11 @@ func TestIPScannerService_Stop_ReturnsAtDeadline(t *testing.T) {
 		mocks.NewMockDeviceIdentityCheckService(ctrl),
 		slog.Default(),
 	)
+	activationCtx, cancelActivation := context.WithCancel(t.Context())
 	service.run = &serviceRun{
-		cancel: func() {},
-		done:   make(chan struct{}),
+		activationDone: activationCtx.Done(),
+		cancel:         cancelActivation,
+		done:           make(chan struct{}),
 	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)

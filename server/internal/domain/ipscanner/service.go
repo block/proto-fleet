@@ -42,7 +42,6 @@ type serviceRun struct {
 	cancel         context.CancelFunc
 	wg             sync.WaitGroup
 	done           chan struct{}
-	stopping       bool
 }
 
 // NewIPScannerService creates a new IP scanner service
@@ -79,16 +78,9 @@ func (s *Service) Start(ctx context.Context) error {
 		select {
 		case <-s.run.done:
 			s.run = nil
+		case <-s.run.activationDone:
+			return errServiceStopping
 		default:
-			if s.run.stopping {
-				return errServiceStopping
-			}
-			select {
-			case <-s.run.activationDone:
-				s.run.stopping = true
-				return errServiceStopping
-			default:
-			}
 			s.logger.Warn("IP scanner service already running")
 			return nil
 		}
@@ -141,7 +133,6 @@ func (s *Service) Stop(ctx context.Context) error {
 		return nil
 	}
 	s.logger.Info("Stopping IP scanner service")
-	run.stopping = true
 	run.cancel()
 	s.lifecycleMu.Unlock()
 

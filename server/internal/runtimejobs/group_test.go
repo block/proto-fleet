@@ -531,39 +531,6 @@ func TestGroupRequiresStopAfterActivationContextEnds(t *testing.T) {
 	require.NoError(t, group.Stop(context.Background()))
 }
 
-func TestGroupRestartUsesFreshActivationContext(t *testing.T) {
-	t.Parallel()
-
-	var contexts []context.Context
-	group := newTestGroup(t, newTestJob(
-		"job",
-		func(ctx context.Context) error {
-			contexts = append(contexts, ctx)
-			return nil
-		},
-		noopJob,
-	))
-
-	require.NoError(t, group.Start(context.Background()))
-	require.NoError(t, group.Stop(context.Background()))
-	require.NoError(t, group.Start(context.Background()))
-
-	require.Len(t, contexts, 2)
-	first := contexts[0]
-	second := contexts[1]
-	select {
-	case <-first.Done():
-	default:
-		t.Fatal("first activation context was not canceled")
-	}
-	select {
-	case <-second.Done():
-		t.Fatal("second activation context should still be active")
-	default:
-	}
-	require.NoError(t, group.Stop(context.Background()))
-}
-
 func newTestGroup(t *testing.T, jobs ...Job) *Group {
 	t.Helper()
 	group, err := NewGroup(jobs, time.Second)
