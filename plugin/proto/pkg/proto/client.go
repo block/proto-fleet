@@ -582,6 +582,10 @@ func (c *Client) Close() error {
 // doRequest executes an authenticated request, re-logging in and retrying once on
 // a 401 (token expired or invalidated by an out-of-band login).
 func (c *Client) doRequest(ctx context.Context, method, path string, body any) (*http.Response, error) {
+	return c.doRequestWithHeaders(ctx, method, path, body, nil)
+}
+
+func (c *Client) doRequestWithHeaders(ctx context.Context, method, path string, body any, headers http.Header) (*http.Response, error) {
 	var bodyBytes []byte
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -596,7 +600,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body any) (
 		return nil, err
 	}
 
-	resp, err := c.sendRequest(ctx, method, path, bodyBytes, token)
+	resp, err := c.sendRequest(ctx, method, path, bodyBytes, token, headers)
 	if err != nil {
 		return nil, err
 	}
@@ -607,13 +611,13 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body any) (
 		if err != nil {
 			return nil, err
 		}
-		return c.sendRequest(ctx, method, path, bodyBytes, token)
+		return c.sendRequest(ctx, method, path, bodyBytes, token, headers)
 	}
 
 	return resp, nil
 }
 
-func (c *Client) sendRequest(ctx context.Context, method, path string, bodyBytes []byte, token string) (*http.Response, error) {
+func (c *Client) sendRequest(ctx context.Context, method, path string, bodyBytes []byte, token string, headers http.Header) (*http.Response, error) {
 	var bodyReader io.Reader
 	if bodyBytes != nil {
 		bodyReader = bytes.NewReader(bodyBytes)
@@ -629,6 +633,11 @@ func (c *Client) sendRequest(ctx context.Context, method, path string, bodyBytes
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for key, values := range headers {
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -686,7 +695,11 @@ func (c *Client) doGetWithStatus(ctx context.Context, path string, result any) (
 
 // doPost performs a POST request and checks the response.
 func (c *Client) doPost(ctx context.Context, path string) error {
-	resp, err := c.doRequest(ctx, http.MethodPost, path, nil)
+	return c.doPostWithHeaders(ctx, path, nil)
+}
+
+func (c *Client) doPostWithHeaders(ctx context.Context, path string, headers http.Header) error {
+	resp, err := c.doRequestWithHeaders(ctx, http.MethodPost, path, nil, headers)
 	if err != nil {
 		return err
 	}
@@ -842,15 +855,19 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 	}
 
 	state := sdk.HealthHealthyInactive
+	isCurtailed := false
 	if statusCode != http.StatusNoContent {
 		state = mapMiningState(resp.MiningStatus.Status)
+		isCurtailed = strings.EqualFold(resp.MiningStatus.Status, "curtailed")
 	}
 
-	// The actual pool list is the source of truth, not MiningState (which can be stale).
+	// The actual pool list is normally the source of truth because MiningState
+	// can be stale. Explicit curtailment takes precedence so a pool-less device
+	// remains visibly inactive while it is held at minimal power.
 	needsPool, err := c.checkNeedsMiningPool(ctx)
 	if err != nil {
 		slog.Warn("failed to check pool configuration", "error", err)
-	} else if needsPool {
+	} else if needsPool && !isCurtailed {
 		state = sdk.HealthNeedsMiningPool
 	} else if state == sdk.HealthNeedsMiningPool {
 		state = sdk.HealthHealthyInactive
@@ -870,7 +887,7 @@ func mapMiningState(status string) sdk.HealthStatus {
 		return sdk.HealthHealthyActive
 	case "degradedmining", "degraded_mining", "degraded":
 		return sdk.HealthWarning
-	case "stopped":
+	case "stopped", "curtailed":
 		return sdk.HealthHealthyInactive
 	case "poweringon", "powering_on":
 		return sdk.HealthHealthyInactive
@@ -1116,6 +1133,14 @@ func (c *Client) StartMining(ctx context.Context) error {
 // StopMining stops mining operations.
 func (c *Client) StopMining(ctx context.Context) error {
 	return c.doPost(ctx, "/api/v1/mining/stop")
+}
+
+// CurtailMining enters the same minimal-power mode as StopMining while
+// identifying that the command came from the full-curtailment workflow.
+func (c *Client) CurtailMining(ctx context.Context) error {
+	return c.doPostWithHeaders(ctx, "/api/v1/mining/stop", http.Header{
+		"X-Proto-Fleet-Curtailment": []string{"full"},
+	})
 }
 
 // SetCoolingMode configures the cooling system.

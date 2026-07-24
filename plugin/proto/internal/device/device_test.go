@@ -369,21 +369,55 @@ func TestDevice_CurtailFullStopsAndUncurtailStartsMining(t *testing.T) {
 }
 
 func TestDevice_CurtailFullOnInactiveMinerDoesNotStartOnUncurtail(t *testing.T) {
-	var stopped, started bool
+	var stopCount int
+	var started bool
 	dev := newMiningControlTestDeviceWithMiningState(t, http.StatusOK, "Stopped", func(path string) {
 		switch path {
 		case "/api/v1/mining/stop":
-			stopped = true
+			stopCount++
 		case "/api/v1/mining/start":
 			started = true
 		}
 	})
 
 	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
-	require.True(t, stopped)
+	require.Equal(t, 1, stopCount)
 
 	require.NoError(t, dev.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
 	require.False(t, started)
+	require.Equal(t, 2, stopCount)
+}
+
+func TestDevice_CurtailFullOnPoollessMinerRestoresIdleWithoutStarting(t *testing.T) {
+	var stopCount int
+	var started bool
+	dev := newMiningControlTestDeviceWithPools(t, http.StatusOK, "NoPools", `{"pools":[]}`, func(path string) {
+		switch path {
+		case "/api/v1/mining/stop":
+			stopCount++
+		case "/api/v1/mining/start":
+			started = true
+		}
+	})
+
+	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	require.Equal(t, 1, stopCount)
+
+	require.NoError(t, dev.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
+	require.False(t, started)
+	require.Equal(t, 2, stopCount)
+}
+
+func TestDevice_CurtailFullMarksStopRequestAsCurtailment(t *testing.T) {
+	var curtailmentHeader string
+	dev := newMiningControlTestDeviceWithRequestCallback(t, http.StatusOK, "Mining", func(r *http.Request) {
+		if r.URL.Path == "/api/v1/mining/stop" {
+			curtailmentHeader = r.Header.Get("X-Proto-Fleet-Curtailment")
+		}
+	})
+
+	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	require.Equal(t, "full", curtailmentHeader)
 }
 
 func TestDevice_CurtailFullRefreshesStatusBeforeSnapshot(t *testing.T) {
@@ -547,6 +581,8 @@ func TestDevice_CurtailEfficiencyMissingTargetReturnsTransient(t *testing.T) {
 	assert.Contains(t, sdkErr.Err.Error(), "power target not available")
 }
 
+const configuredPoolsJSON = `{"pools":[{"id":0,"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`
+
 func newMiningControlTestDevice(t *testing.T, miningControlStatus int) *Device {
 	t.Helper()
 	return newMiningControlTestDeviceWithCallback(t, miningControlStatus, nil)
@@ -563,6 +599,51 @@ func newMiningControlTestDeviceWithMiningState(t *testing.T, miningControlStatus
 
 func newMiningControlTestDeviceWithDynamicMiningState(t *testing.T, miningControlStatus int, miningState *string, onControl func(path string), opts ...DeviceOption) *Device {
 	t.Helper()
+	return newMiningControlTestDeviceWithDynamicStateAndPools(
+		t,
+		miningControlStatus,
+		miningState,
+		configuredPoolsJSON,
+		requestPathCallback(onControl),
+		opts...,
+	)
+}
+
+func newMiningControlTestDeviceWithPools(t *testing.T, miningControlStatus int, miningState, poolsJSON string, onControl func(path string)) *Device {
+	t.Helper()
+	return newMiningControlTestDeviceWithDynamicStateAndPools(
+		t,
+		miningControlStatus,
+		&miningState,
+		poolsJSON,
+		requestPathCallback(onControl),
+		SetStatusTTL(0*time.Second),
+	)
+}
+
+func newMiningControlTestDeviceWithRequestCallback(t *testing.T, miningControlStatus int, miningState string, onControl func(*http.Request)) *Device {
+	t.Helper()
+	return newMiningControlTestDeviceWithDynamicStateAndPools(
+		t,
+		miningControlStatus,
+		&miningState,
+		configuredPoolsJSON,
+		onControl,
+		SetStatusTTL(0*time.Second),
+	)
+}
+
+func requestPathCallback(callback func(path string)) func(*http.Request) {
+	if callback == nil {
+		return nil
+	}
+	return func(r *http.Request) {
+		callback(r.URL.Path)
+	}
+}
+
+func newMiningControlTestDeviceWithDynamicStateAndPools(t *testing.T, miningControlStatus int, miningState *string, poolsJSON string, onControl func(*http.Request), opts ...DeviceOption) *Device {
+	t.Helper()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -574,10 +655,10 @@ func newMiningControlTestDeviceWithDynamicMiningState(t *testing.T, miningContro
 			_, _ = w.Write([]byte(fmt.Sprintf(`{"mining-status":{"status":%q}}`, *miningState)))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"pools":[{"id":0,"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`))
+			_, _ = w.Write([]byte(poolsJSON))
 		case r.Method == http.MethodPost && (r.URL.Path == "/api/v1/mining/start" || r.URL.Path == "/api/v1/mining/stop"):
 			if onControl != nil {
-				onControl(r.URL.Path)
+				onControl(r)
 			}
 			w.WriteHeader(miningControlStatus)
 		default:

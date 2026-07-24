@@ -2208,8 +2208,16 @@ func (h *RESTApiHandler) handleMiningStop(w http.ResponseWriter, r *http.Request
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
-	h.state.SetMiningState(MiningStateStopped)
-	h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: "Mining stopped"})
+
+	state := MiningStateStopped
+	message := "Mining stopped"
+	if r.Header.Get("X-Proto-Fleet-Curtailment") == "full" {
+		state = MiningStateCurtailed
+		message = "Mining curtailed"
+	}
+
+	h.state.SetMiningState(state)
+	h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: message})
 }
 
 func (h *RESTApiHandler) handleMiningTuning(w http.ResponseWriter, r *http.Request) {

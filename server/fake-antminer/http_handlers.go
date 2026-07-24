@@ -126,6 +126,7 @@ func createStatsHandler(state *MinerState) http.HandlerFunc {
 
 		now := time.Now().Unix()
 		hashRate := state.effectiveHashRateLocked()
+		powerWatts := state.effectivePowerWattsLocked()
 
 		const chainCount = 3
 		chains := make([]map[string]interface{}, chainCount)
@@ -183,16 +184,17 @@ func createStatsHandler(state *MinerState) http.HandlerFunc {
 			},
 			"STATS": []map[string]interface{}{
 				{
-					"elapsed":    3600,
-					"rate_5s":    hashRate * 1000,
-					"rate_30m":   hashRate * 1000,
-					"rate_avg":   hashRate * 1000,
-					"rate_ideal": hashRate * 1000,
-					"rate_unit":  "GH/s",
-					"chain_num":  chainCount,
-					"fan_num":    4,
-					"fan":        fanSpeeds,
-					"hwp_total":  0.0006,
+					"elapsed":     3600,
+					"rate_5s":     hashRate * 1000,
+					"rate_30m":    hashRate * 1000,
+					"rate_avg":    hashRate * 1000,
+					"rate_ideal":  hashRate * 1000,
+					"rate_unit":   "GH/s",
+					"chain_power": fmt.Sprintf("%d W", powerWatts),
+					"chain_num":   chainCount,
+					"fan_num":     4,
+					"fan":         fanSpeeds,
+					"hwp_total":   0.0006,
 					"psu": map[string]interface{}{
 						"index":  0,
 						"status": psuStatus,
