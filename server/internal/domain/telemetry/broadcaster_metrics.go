@@ -1,5 +1,5 @@
-// Package telemetry: broadcaster_metrics.go translates the telemetry
-// broadcaster's per-device updates into emissions on the metrics contract
+// Package telemetry: broadcaster_metrics.go translates telemetry writers'
+// per-device updates into emissions on the metrics contract
 // declared in server/internal/infrastructure/metrics.
 package telemetry
 

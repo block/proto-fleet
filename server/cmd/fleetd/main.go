@@ -421,14 +421,9 @@ func start(config *Config) error {
 		return fmt.Errorf("failed to start telemetry service: %w", err)
 	}
 
-	// Ensure telemetry service cleanup on shutdown
+	// Ensure telemetry service cleanup on shutdown.
 	defer func() {
-		slog.Info("Stopping telemetry service")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
-		if err := telemetryService.Stop(shutdownCtx); err != nil {
-			slog.Error("Failed to stop telemetry service", "error", err)
-		}
+		stopStandaloneJob("telemetry service", telemetryService)
 	}()
 
 	pluginPairer := plugins.NewPairer(pluginManager, transactor, discoveredDeviceStore, deviceStore, encryptSvc)
