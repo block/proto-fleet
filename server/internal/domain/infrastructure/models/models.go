@@ -28,6 +28,7 @@ type Device struct {
 	SiteID       int64
 	SiteLabel    string
 	BuildingName string
+	RackName     string
 	Name         string
 	DeviceKind   string
 	FanCount     int32
@@ -43,6 +44,7 @@ type CreateParams struct {
 	OrgID        int64
 	SiteID       int64
 	BuildingName string
+	RackName     string
 	Name         string
 	DeviceKind   string
 	FanCount     int32
@@ -51,24 +53,26 @@ type CreateParams struct {
 	DriverConfig json.RawMessage
 }
 
-// UpdateParams is the input shape for device updates. ExpectedSiteID
-// is the device's current site as seen at authorization time; the
-// write is predicated on it so a concurrent site move invalidates the
-// mutation rather than editing a device the caller no longer manages.
-// Enabled nil preserves the row's current value atomically in the
-// UPDATE itself (no read-then-write race with a concurrent toggle).
+// UpdateParams is the input shape for device updates. ExpectedSiteID and
+// ExpectedRackName are the placement observed at authorization time; the
+// write is predicated on them so a concurrent placement change invalidates
+// the mutation rather than editing placement the caller did not authorize.
+// Enabled and RackName nil preserve their current values atomically in
+// the UPDATE itself (no read-then-write race with concurrent changes).
 type UpdateParams struct {
-	OrgID          int64
-	ID             int64
-	ExpectedSiteID int64
-	SiteID         int64
-	BuildingName   string
-	Name           string
-	DeviceKind     string
-	FanCount       int32
-	Enabled        *bool
-	DriverType     string
-	DriverConfig   json.RawMessage
+	OrgID            int64
+	ID               int64
+	ExpectedSiteID   int64
+	ExpectedRackName *string
+	SiteID           int64
+	BuildingName     string
+	RackName         *string
+	Name             string
+	DeviceKind       string
+	FanCount         int32
+	Enabled          *bool
+	DriverType       string
+	DriverConfig     json.RawMessage
 }
 
 // ListFilter selects the list scope. SiteIDs is an optional allowlist

@@ -617,6 +617,7 @@ describe("CurtailmentSettingsPage", () => {
           siteId: "101",
           siteName: "Austin, TX",
           buildingName: "Building 1",
+          rackName: "Rack A1",
           name: "Fan Unit 1",
           deviceKind: "single_fan",
           fanCount: 1,

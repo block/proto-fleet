@@ -19,6 +19,7 @@ export interface FacilityFanDeviceOption {
   siteId: string;
   siteName: string;
   buildingName: string;
+  rackName?: string;
   name: string;
   deviceKind: string;
   fanCount?: number;
@@ -84,7 +85,10 @@ function groupDevicesBySite(devices: FacilityFanDeviceOption[]): DeviceGroup[] {
     .map((group) => ({
       ...group,
       devices: group.devices.sort(
-        (left, right) => left.buildingName.localeCompare(right.buildingName) || left.name.localeCompare(right.name),
+        (left, right) =>
+          left.buildingName.localeCompare(right.buildingName) ||
+          (left.rackName ?? "").localeCompare(right.rackName ?? "") ||
+          left.name.localeCompare(right.name),
       ),
     }));
 }
@@ -288,7 +292,7 @@ function FacilityFanSelectionModal({
                           <span className="min-w-0 flex-1">
                             <span className="block truncate text-emphasis-300 text-text-primary">{device.name}</span>
                             <span className="block truncate text-300 text-text-primary-50">
-                              {[device.buildingName, group.siteName].filter(Boolean).join(" · ")}
+                              {[device.rackName, device.buildingName, group.siteName].filter(Boolean).join(" · ")}
                             </span>
                           </span>
                           <span className="flex shrink-0 flex-col items-end gap-1 text-300 text-text-primary-70">

@@ -5,12 +5,6 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code } from "@connectrpc/connect";
 
-// Keep Infrastructure hidden in the tab strip under test while preserving
-// direct-link reachability for authorized QA/dogfood paths.
-vi.mock("@/protoFleet/constants/featureFlags", () => ({
-  INFRASTRUCTURE_DEVICES_ENABLED: false,
-}));
-
 vi.mock("@/protoFleet/api/useSiteMapCsv", () => ({
   default: () => ({
     exportSiteMapCsv: vi.fn(),
@@ -238,17 +232,17 @@ describe("FleetLayout redirect logic", () => {
     expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks");
   });
 
-  test("hides Infrastructure tab while the infrastructure devices flag is off", async () => {
+  test("shows the Infrastructure tab to authorized users", async () => {
     renderAt("/fleet/racks");
     await waitFor(() => expect(screen.getByTestId("tab-content-racks")).toBeInTheDocument());
-    expect(screen.queryByTestId("fleet-tab-infrastructure")).not.toBeInTheDocument();
+    expect(screen.getByTestId("fleet-tab-infrastructure")).toBeInTheDocument();
   });
 
-  test("keeps Infrastructure deep links reachable while the infrastructure devices flag is off", async () => {
+  test("keeps Infrastructure deep links reachable and selected", async () => {
     renderAt("/fleet/infrastructure");
     await waitFor(() => expect(screen.getByTestId("tab-content-infrastructure")).toBeInTheDocument());
     expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/infrastructure");
-    expect(screen.queryByTestId("fleet-tab-infrastructure")).not.toBeInTheDocument();
+    expect(screen.getByTestId("fleet-tab-infrastructure")).toBeInTheDocument();
   });
 
   test("redirects hidden tab deep links without mounting their content", async () => {

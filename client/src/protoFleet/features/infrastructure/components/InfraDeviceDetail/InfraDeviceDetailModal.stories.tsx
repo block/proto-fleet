@@ -3,6 +3,7 @@ import { mockInfraDevices } from "../stories/mockInfraDevices";
 import InfraDeviceDetailModal from "./InfraDeviceDetailModal";
 import {
   infraBuildingOptionsFromDevices,
+  infraRackOptionsFromDevices,
   uniqueSortedLocationNames,
 } from "@/protoFleet/features/infrastructure/locationOptions";
 import type { InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
@@ -15,6 +16,7 @@ export default {
 
 const siteOptions = uniqueSortedLocationNames(mockInfraDevices.map((device) => device.siteName));
 const buildingOptions = infraBuildingOptionsFromDevices(mockInfraDevices);
+const rackOptions = infraRackOptionsFromDevices(mockInfraDevices);
 const findDevice = (id: string): InfraDeviceItem => {
   const device = mockInfraDevices.find((candidate) => candidate.id === id);
   if (!device) throw new Error(`Missing infrastructure device story fixture: ${id}`);
@@ -32,6 +34,7 @@ export const Editable = () => {
           device={device}
           siteOptions={siteOptions}
           buildingOptions={buildingOptions}
+          rackOptions={rackOptions}
           onSave={async () => setOpen(false)}
           onDelete={async () => setOpen(false)}
           onDismiss={() => setOpen(false)}
@@ -52,6 +55,7 @@ export const RedactedConnection = () => {
           device={device}
           siteOptions={siteOptions}
           buildingOptions={buildingOptions}
+          rackOptions={rackOptions}
           canManage={false}
           onSave={async () => setOpen(false)}
           onDelete={async () => setOpen(false)}

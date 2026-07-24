@@ -43,6 +43,16 @@ describe("Modal", () => {
     expect(screen.getByTestId("modal").parentElement).not.toHaveClass("phone:mt-10", "phone:w-screen");
   });
 
+  it("caps fullscreen modal width", () => {
+    render(
+      <Modal title="Fullscreen modal" size="fullscreen">
+        <div>Fullscreen content</div>
+      </Modal>,
+    );
+
+    expect(screen.getByTestId("modal").parentElement).toHaveStyle({ maxWidth: "1920px" });
+  });
+
   it("keeps a fixed footer outside the scroll area while preserving the standard sticky header", () => {
     const onDismiss = vi.fn();
     render(

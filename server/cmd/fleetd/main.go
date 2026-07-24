@@ -471,9 +471,6 @@ func start(config *Config) error {
 
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
 
-	executionServiceCtx, executionServiceCancel := context.WithCancel(context.Background())
-	defer executionServiceCancel()
-
 	// Ensure plugin cleanup on shutdown
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(),
@@ -484,11 +481,15 @@ func start(config *Config) error {
 		}
 	}()
 
-	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
+	executionService := commandDomain.NewExecutionService(&config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
 	executionService.WithMetricsEmitter(metricsProvider)
-	err = executionService.Start(executionServiceCtx)
+	err = executionService.Start(context.Background())
 	if err != nil {
 		slog.Error("failed to start command execution service", "error", err)
+	} else {
+		defer func() {
+			stopStandaloneJob("command execution service", executionService)
+		}()
 	}
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
@@ -569,9 +570,7 @@ func start(config *Config) error {
 		return fmt.Errorf("failed to start curtailment reconciler: %w", err)
 	}
 	defer func() {
-		if err := curtailmentRec.Stop(); err != nil {
-			slog.Error("failed to stop curtailment reconciler", "error", err)
-		}
+		stopStandaloneJob("curtailment reconciler", curtailmentRec)
 	}()
 
 	mqttQueries, err := db.NewPreparedQuerier(context.Background(), conn)
@@ -608,7 +607,9 @@ func start(config *Config) error {
 	if err := mqttSubscriber.Start(context.Background()); err != nil {
 		return fmt.Errorf("failed to start curtailment mqtt subscriber: %w", err)
 	}
-	defer mqttSubscriber.Stop()
+	defer func() {
+		stopStandaloneJob("curtailment mqtt subscriber", mqttSubscriber)
+	}()
 	mqttConnectionTester, err := mqttingest.NewMQTTConnectionTester(mqttingest.ConnectionTesterConfig{
 		NewClient: func() mqttingest.MQTTClient { return mqttclient.New() },
 	})
@@ -640,7 +641,9 @@ func start(config *Config) error {
 		if err := curtailmentAlertMetrics.Start(context.Background()); err != nil {
 			return fmt.Errorf("failed to start curtailment alert metrics loop: %w", err)
 		}
-		defer curtailmentAlertMetrics.Stop()
+		defer func() {
+			stopStandaloneJob("curtailment alert metrics loop", curtailmentAlertMetrics)
+		}()
 	}
 
 	deviceResolver := deviceresolver.New(deviceStore)

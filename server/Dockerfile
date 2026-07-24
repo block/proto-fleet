@@ -1,5 +1,5 @@
 # Use the official Go image as a base image
-FROM golang:1.26.4-alpine AS builder
+FROM golang:1.26.5-alpine AS builder
 
 RUN apk add git
 

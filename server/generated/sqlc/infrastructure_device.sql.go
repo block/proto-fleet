@@ -81,6 +81,7 @@ INSERT INTO infrastructure_device (
     org_id,
     site_id,
     building_name,
+    rack_name,
     name,
     device_kind,
     fan_count,
@@ -96,15 +97,17 @@ INSERT INTO infrastructure_device (
     $6,
     $7,
     $8,
-    $9
+    $9,
+    $10
 )
-RETURNING id, org_id, site_id, building_name, name, device_kind, fan_count, enabled, driver_type, driver_config, created_at, updated_at, deleted_at
+RETURNING id, org_id, site_id, building_name, name, device_kind, fan_count, enabled, driver_type, driver_config, created_at, updated_at, deleted_at, rack_name
 `
 
 type CreateInfrastructureDeviceParams struct {
 	OrgID        int64
 	SiteID       int64
 	BuildingName string
+	RackName     string
 	Name         string
 	DeviceKind   string
 	FanCount     int32
@@ -121,6 +124,7 @@ func (q *Queries) CreateInfrastructureDevice(ctx context.Context, arg CreateInfr
 		arg.OrgID,
 		arg.SiteID,
 		arg.BuildingName,
+		arg.RackName,
 		arg.Name,
 		arg.DeviceKind,
 		arg.FanCount,
@@ -143,13 +147,14 @@ func (q *Queries) CreateInfrastructureDevice(ctx context.Context, arg CreateInfr
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.RackName,
 	)
 	return i, err
 }
 
 const getInfrastructureDevice = `-- name: GetInfrastructureDevice :one
 SELECT
-    d.id, d.org_id, d.site_id, d.building_name, d.name, d.device_kind, d.fan_count, d.enabled, d.driver_type, d.driver_config, d.created_at, d.updated_at, d.deleted_at,
+    d.id, d.org_id, d.site_id, d.building_name, d.name, d.device_kind, d.fan_count, d.enabled, d.driver_type, d.driver_config, d.created_at, d.updated_at, d.deleted_at, d.rack_name,
     COALESCE(s.name, '') AS site_label
 FROM infrastructure_device d
 LEFT JOIN site s
@@ -180,6 +185,7 @@ type GetInfrastructureDeviceRow struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	DeletedAt    sql.NullTime
+	RackName     string
 	SiteLabel    string
 }
 
@@ -200,6 +206,7 @@ func (q *Queries) GetInfrastructureDevice(ctx context.Context, arg GetInfrastruc
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.RackName,
 		&i.SiteLabel,
 	)
 	return i, err
@@ -207,7 +214,7 @@ func (q *Queries) GetInfrastructureDevice(ctx context.Context, arg GetInfrastruc
 
 const listInfrastructureDevicesByOrg = `-- name: ListInfrastructureDevicesByOrg :many
 SELECT
-    d.id, d.org_id, d.site_id, d.building_name, d.name, d.device_kind, d.fan_count, d.enabled, d.driver_type, d.driver_config, d.created_at, d.updated_at, d.deleted_at,
+    d.id, d.org_id, d.site_id, d.building_name, d.name, d.device_kind, d.fan_count, d.enabled, d.driver_type, d.driver_config, d.created_at, d.updated_at, d.deleted_at, d.rack_name,
     COALESCE(s.name, '') AS site_label
 FROM infrastructure_device d
 LEFT JOIN site s
@@ -247,6 +254,7 @@ type ListInfrastructureDevicesByOrgRow struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	DeletedAt    sql.NullTime
+	RackName     string
 	SiteLabel    string
 }
 
@@ -278,6 +286,7 @@ func (q *Queries) ListInfrastructureDevicesByOrg(ctx context.Context, arg ListIn
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.RackName,
 			&i.SiteLabel,
 		); err != nil {
 			return nil, err
@@ -363,6 +372,50 @@ func (q *Queries) LockInfrastructureDevicesForResponseProfile(ctx context.Contex
 	return items, nil
 }
 
+const lockInfrastructureRackForPlacement = `-- name: LockInfrastructureRackForPlacement :one
+SELECT ds.id
+FROM device_set_rack dsr
+JOIN device_set ds
+  ON ds.id = dsr.device_set_id
+ AND ds.org_id = dsr.org_id
+JOIN building b
+  ON b.id = dsr.building_id
+ AND b.org_id = ds.org_id
+ AND b.deleted_at IS NULL
+WHERE ds.org_id = $1
+  AND ds.type = 'rack'
+  AND ds.label = $2
+  AND ds.deleted_at IS NULL
+  AND dsr.site_id = $3
+  AND b.site_id = $3
+  AND b.name = $4
+FOR UPDATE OF dsr, ds
+`
+
+type LockInfrastructureRackForPlacementParams struct {
+	OrgID        int64
+	RackName     string
+	SiteID       sql.NullInt64
+	BuildingName string
+}
+
+// Validate and lock the live rack catalog entry before persisting its
+// denormalized label on an infrastructure device. Locking both catalog rows
+// serializes this write with rack rename/delete and placement changes; those
+// operations lock rack rows before cascading to infrastructure devices, so
+// callers must invoke this before locking an infrastructure-device row.
+func (q *Queries) LockInfrastructureRackForPlacement(ctx context.Context, arg LockInfrastructureRackForPlacementParams) (int64, error) {
+	row := q.queryRow(ctx, q.lockInfrastructureRackForPlacementStmt, lockInfrastructureRackForPlacement,
+		arg.OrgID,
+		arg.RackName,
+		arg.SiteID,
+		arg.BuildingName,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const softDeleteInfrastructureDevice = `-- name: SoftDeleteInfrastructureDevice :one
 UPDATE infrastructure_device
 SET deleted_at = CURRENT_TIMESTAMP
@@ -370,7 +423,7 @@ WHERE id = $1
   AND org_id = $2
   AND site_id = $3
   AND deleted_at IS NULL
-RETURNING id, org_id, site_id, building_name, name, device_kind, fan_count, enabled, driver_type, driver_config, created_at, updated_at, deleted_at
+RETURNING id, org_id, site_id, building_name, name, device_kind, fan_count, enabled, driver_type, driver_config, created_at, updated_at, deleted_at, rack_name
 `
 
 type SoftDeleteInfrastructureDeviceParams struct {
@@ -401,6 +454,7 @@ func (q *Queries) SoftDeleteInfrastructureDevice(ctx context.Context, arg SoftDe
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.RackName,
 	)
 	return i, err
 }
@@ -409,44 +463,52 @@ const updateInfrastructureDevice = `-- name: UpdateInfrastructureDevice :execrow
 UPDATE infrastructure_device
 SET site_id       = $1,
     building_name = $2,
-    name          = $3,
-    device_kind   = $4,
-    fan_count     = $5,
-    enabled       = COALESCE($6::bool, enabled),
-    driver_type   = $7,
-    driver_config = $8,
+    rack_name     = COALESCE($3::text, rack_name),
+    name          = $4,
+    device_kind   = $5,
+    fan_count     = $6,
+    enabled       = COALESCE($7::bool, enabled),
+    driver_type   = $8,
+    driver_config = $9,
     updated_at    = CURRENT_TIMESTAMP
-WHERE id = $9
-  AND org_id = $10
-  AND site_id = $11
+WHERE id = $10
+  AND org_id = $11
+  AND site_id = $12
+  AND (
+    $13::text IS NULL
+    OR rack_name = $13::text
+  )
   AND deleted_at IS NULL
 `
 
 type UpdateInfrastructureDeviceParams struct {
-	SiteID         int64
-	BuildingName   string
-	Name           string
-	DeviceKind     string
-	FanCount       int32
-	Enabled        sql.NullBool
-	DriverType     string
-	DriverConfig   json.RawMessage
-	ID             int64
-	OrgID          int64
-	ExpectedSiteID int64
+	SiteID           int64
+	BuildingName     string
+	RackName         sql.NullString
+	Name             string
+	DeviceKind       string
+	FanCount         int32
+	Enabled          sql.NullBool
+	DriverType       string
+	DriverConfig     json.RawMessage
+	ID               int64
+	OrgID            int64
+	ExpectedSiteID   int64
+	ExpectedRackName sql.NullString
 }
 
-// expected_site_id predicates the write on the site the caller was
-// authorized against, so a concurrent site move between the
-// authorization read and this write invalidates the mutation (0 rows)
-// instead of silently editing a device in a site the caller may not
-// manage. enabled is nullable: NULL preserves the row's current value
-// atomically in the UPDATE itself, so a request that omitted the
-// field can't write back a stale value read before the transaction.
+// expected_site_id and expected_rack_name predicate the write on the
+// placement the caller was authorized against, so a concurrent placement
+// change between the authorization read and this write invalidates the
+// mutation (0 rows). expected_rack_name NULL is reserved for trusted domain
+// callers that did not perform a handler authorization read. enabled and
+// rack_name are nullable inputs: NULL preserves the row's current value
+// atomically in the UPDATE itself.
 func (q *Queries) UpdateInfrastructureDevice(ctx context.Context, arg UpdateInfrastructureDeviceParams) (int64, error) {
 	result, err := q.exec(ctx, q.updateInfrastructureDeviceStmt, updateInfrastructureDevice,
 		arg.SiteID,
 		arg.BuildingName,
+		arg.RackName,
 		arg.Name,
 		arg.DeviceKind,
 		arg.FanCount,
@@ -456,6 +518,7 @@ func (q *Queries) UpdateInfrastructureDevice(ctx context.Context, arg UpdateInfr
 		arg.ID,
 		arg.OrgID,
 		arg.ExpectedSiteID,
+		arg.ExpectedRackName,
 	)
 	if err != nil {
 		return 0, err

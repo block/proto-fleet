@@ -305,6 +305,37 @@ func skipMetadata(eventType string, requestedCount int, skipped []SkippedDevice)
 	}
 }
 
+func preflightBlockedMessage(requestedCount int, skipped []SkippedDevice) string {
+	if skipsOnlyFromFilter(skipped, CurtailmentActiveFilterName) {
+		deviceNoun := "devices"
+		if requestedCount == 1 {
+			deviceNoun = "device"
+		}
+		verb := "are"
+		if len(skipped) == 1 {
+			verb = "is"
+		}
+		return fmt.Sprintf(
+			"command blocked: %d of %d %s %s part of an active curtailment event",
+			len(skipped), requestedCount, deviceNoun, verb)
+	}
+	return fmt.Sprintf(
+		"command blocked: %d of %d device(s) excluded by preflight filters",
+		len(skipped), requestedCount)
+}
+
+func skipsOnlyFromFilter(skipped []SkippedDevice, filterName string) bool {
+	if len(skipped) == 0 {
+		return false
+	}
+	for _, sk := range skipped {
+		if sk.FilterName != filterName {
+			return false
+		}
+	}
+	return true
+}
+
 // composeFinalizers chains onFinished callbacks so commands like DownloadLogs
 // can layer a bundle builder alongside the activity finalizer. Nil callbacks
 // are skipped; empty input returns nil. Best-effort: every callback runs even
@@ -485,6 +516,15 @@ func (s *Service) getMarkFinishedBatchFunction(processingMarkedInDB bool) func(c
 			return q.MarkCommandBatchFinishedWithStartedAt(ctx, commandBatchLogUUID)
 		})
 	}
+}
+
+func (s *Service) finishUnenqueuedCommandBatch(ctx context.Context, commandBatchLogUUID string) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+	defer cancel()
+	if err := s.getMarkFinishedBatchFunction(false)(cleanupCtx, commandBatchLogUUID); err != nil {
+		return fleeterror.NewInternalErrorf("command execution stopped before enqueue; failed to finish command batch: %v", err)
+	}
+	return fleeterror.NewInternalError("command execution service stopped before enqueue")
 }
 
 func (s *Service) statusUpdateIsFinishedBranch(ctx context.Context, commandBatchLogUUID string) (bool, error) {
@@ -853,9 +893,8 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		if err := s.logPreflightBlockedStrict(ctx, command.commandType, identifiers, skipped); err != nil {
 			return nil, fleeterror.NewInternalErrorf("logging preflight block: %v", err)
 		}
-		return nil, fleeterror.NewFailedPreconditionErrorf(
-			"command blocked: %d of %d device(s) excluded by preflight filters",
-			len(skipped), len(identifiers))
+		return nil, fleeterror.NewFailedPreconditionError(
+			preflightBlockedMessage(len(identifiers), skipped))
 	}
 
 	if len(kept) == 0 && len(skipped) > 0 {
@@ -906,16 +945,20 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		return nil, fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
 
-	if len(queuePayloads) == 0 {
-		err = s.messageQueue.Enqueue(ctx, batchLogIdentifier, command.commandType, deviceIDs, command.payload)
-		if err != nil {
+	err = s.executionService.withAdmission(ctx, func(workCtx context.Context) error {
+		if len(queuePayloads) == 0 {
+			return s.messageQueue.Enqueue(workCtx, batchLogIdentifier, command.commandType, deviceIDs, command.payload)
+		}
+		return s.messageQueue.EnqueueMany(workCtx, batchLogIdentifier, command.commandType, queuePayloads)
+	})
+	if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
+		return nil, s.finishUnenqueuedCommandBatch(ctx, batchLogIdentifier)
+	}
+	if err != nil {
+		if len(queuePayloads) == 0 {
 			return nil, fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
 		}
-	} else {
-		err = s.messageQueue.EnqueueMany(ctx, batchLogIdentifier, command.commandType, queuePayloads)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error enqueuing per-device command payloads: %v", err)
-		}
+		return nil, fleeterror.NewInternalErrorf("error enqueuing per-device command payloads: %v", err)
 	}
 
 	return &CommandResult{
@@ -1394,7 +1437,13 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 		return "", err
 	}
 
-	if err := s.enqueueWorkerNameReapplyMessages(ctx, commandBatchLogUUID, deviceIdentifiers, deviceIDsByIdentifier, desiredWorkerNamesByDeviceIdentifier); err != nil {
+	err = s.executionService.withAdmission(ctx, func(workCtx context.Context) error {
+		return s.enqueueWorkerNameReapplyMessages(workCtx, commandBatchLogUUID, deviceIdentifiers, deviceIDsByIdentifier, desiredWorkerNamesByDeviceIdentifier)
+	})
+	if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
+		return "", s.finishUnenqueuedCommandBatch(ctx, commandBatchLogUUID)
+	}
+	if err != nil {
 		return "", err
 	}
 

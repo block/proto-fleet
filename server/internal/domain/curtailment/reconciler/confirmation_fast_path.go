@@ -95,7 +95,6 @@ func (r *Reconciler) wakeIfDispatchedWork(targets []*models.Target) {
 // confirmationLoop is the pulse goroutine: parked on the wake channel,
 // active on a pulse cadence while eligible work remains.
 func (r *Reconciler) confirmationLoop(stopCtx, workCtx context.Context) {
-	defer r.wg.Done()
 	for {
 		// Parked: zero periodic work until something dispatches.
 		select {

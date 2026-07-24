@@ -250,7 +250,6 @@ func newFastPathReconcilerForTest(store *confirmationFakeStore, sampler Confirma
 	}
 	r := New(Config{
 		TickInterval:                time.Hour, // pass/loop driven directly by tests
-		ShutdownDeadline:            time.Second,
 		MaxRetries:                  3,
 		CurtailMaxRetries:           3,
 		DriftThresholdFactor:        0.5,
@@ -656,11 +655,14 @@ func TestSafeConfirmationPass_RecoversPanicAsFailure(t *testing.T) {
 // loop) and returns a stop func that cancels it and waits for exit.
 func startConfirmationLoop(r *Reconciler) (stop func()) {
 	stopCtx, cancel := context.WithCancel(context.Background())
-	r.wg.Add(1)
-	go r.confirmationLoop(stopCtx, context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.confirmationLoop(stopCtx, context.Background())
+	}()
 	return func() {
 		cancel()
-		r.wg.Wait()
+		<-done
 	}
 }
 
@@ -903,7 +905,7 @@ func TestStart_RunsStartupRecoveryPass(t *testing.T) {
 
 	r := newFastPathReconcilerForTest(store, sampler, nil)
 	require.NoError(t, r.Start(context.Background()))
-	defer func() { require.NoError(t, r.Stop()) }()
+	defer func() { require.NoError(t, r.Stop(context.Background())) }()
 
 	// No tick ran (interval 1h); the initial wake alone must confirm.
 	require.Eventually(t, func() bool {
@@ -920,14 +922,13 @@ func TestStart_DisabledFastPathRunsNoPulse(t *testing.T) {
 
 	r := New(Config{
 		TickInterval:         time.Hour,
-		ShutdownDeadline:     time.Second,
 		MaxRetries:           3,
 		CurtailMaxRetries:    3,
 		DriftThresholdFactor: 0.5,
 		// ConfirmationFastPathEnabled deliberately false; no sampler needed.
 	}, store, &fakeDispatcher{})
 	require.NoError(t, r.Start(context.Background()))
-	defer func() { require.NoError(t, r.Stop()) }()
+	defer func() { require.NoError(t, r.Stop(context.Background())) }()
 
 	// Wakes are inert when disabled: nothing consumes them and no
 	// eligibility read ever runs.

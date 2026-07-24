@@ -7,11 +7,10 @@ import { positions } from "@/shared/constants";
 export interface FieldHelpPopoverProps {
   ariaLabel: string;
   body: string;
-  header: string;
   testId: string;
 }
 
-const FieldHelpPopoverContent = ({ ariaLabel, body, header, testId }: FieldHelpPopoverProps) => {
+const FieldHelpPopoverContent = ({ ariaLabel, body, testId }: FieldHelpPopoverProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const { triggerRef, setPopoverRenderMode } = usePopover();
 
@@ -45,8 +44,7 @@ const FieldHelpPopoverContent = ({ ariaLabel, body, header, testId }: FieldHelpP
           closeIgnoreSelectors={[`[data-testid='${testId}']`]}
           testId={`${testId}-popover`}
         >
-          <div className="text-emphasis-300 text-text-primary">{header}</div>
-          <p className="mt-1 text-300 leading-6 text-text-primary-70">{body}</p>
+          <p className="text-300 leading-6 text-text-primary-70">{body}</p>
         </Popover>
       ) : null}
     </div>

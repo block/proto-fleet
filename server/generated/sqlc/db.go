@@ -1086,6 +1086,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockInfrastructureDevicesForResponseProfileStmt, err = db.PrepareContext(ctx, lockInfrastructureDevicesForResponseProfile); err != nil {
 		return nil, fmt.Errorf("error preparing query LockInfrastructureDevicesForResponseProfile: %w", err)
 	}
+	if q.lockInfrastructureRackForPlacementStmt, err = db.PrepareContext(ctx, lockInfrastructureRackForPlacement); err != nil {
+		return nil, fmt.Errorf("error preparing query LockInfrastructureRackForPlacement: %w", err)
+	}
 	if q.lockRackPlacementForWriteStmt, err = db.PrepareContext(ctx, lockRackPlacementForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockRackPlacementForWrite: %w", err)
 	}
@@ -3308,6 +3311,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockInfrastructureDevicesForResponseProfileStmt: %w", cerr)
 		}
 	}
+	if q.lockInfrastructureRackForPlacementStmt != nil {
+		if cerr := q.lockInfrastructureRackForPlacementStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockInfrastructureRackForPlacementStmt: %w", cerr)
+		}
+	}
 	if q.lockRackPlacementForWriteStmt != nil {
 		if cerr := q.lockRackPlacementForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockRackPlacementForWriteStmt: %w", cerr)
@@ -4446,6 +4454,7 @@ type Queries struct {
 	lockInfrastructureDeviceForWriteStmt                         *sql.Stmt
 	lockInfrastructureDevicesBySiteForWriteStmt                  *sql.Stmt
 	lockInfrastructureDevicesForResponseProfileStmt              *sql.Stmt
+	lockInfrastructureRackForPlacementStmt                       *sql.Stmt
 	lockRackPlacementForWriteStmt                                *sql.Stmt
 	lockRacksForReparentStmt                                     *sql.Stmt
 	lockSchedulePriorityStmt                                     *sql.Stmt
@@ -4955,6 +4964,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockInfrastructureDeviceForWriteStmt:                         q.lockInfrastructureDeviceForWriteStmt,
 		lockInfrastructureDevicesBySiteForWriteStmt:                  q.lockInfrastructureDevicesBySiteForWriteStmt,
 		lockInfrastructureDevicesForResponseProfileStmt:              q.lockInfrastructureDevicesForResponseProfileStmt,
+		lockInfrastructureRackForPlacementStmt:                       q.lockInfrastructureRackForPlacementStmt,
 		lockRackPlacementForWriteStmt:                                q.lockRackPlacementForWriteStmt,
 		lockRacksForReparentStmt:                                     q.lockRacksForReparentStmt,
 		lockSchedulePriorityStmt:                                     q.lockSchedulePriorityStmt,

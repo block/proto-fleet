@@ -6,6 +6,7 @@ INSERT INTO infrastructure_device (
     org_id,
     site_id,
     building_name,
+    rack_name,
     name,
     device_kind,
     fan_count,
@@ -16,6 +17,7 @@ INSERT INTO infrastructure_device (
     sqlc.arg('org_id'),
     sqlc.arg('site_id'),
     sqlc.arg('building_name'),
+    sqlc.arg('rack_name'),
     sqlc.arg('name'),
     sqlc.arg('device_kind'),
     sqlc.arg('fan_count'),
@@ -86,17 +88,42 @@ WHERE d.org_id = sqlc.arg('org_id')
   )
 ORDER BY d.name, d.id;
 
+-- name: LockInfrastructureRackForPlacement :one
+-- Validate and lock the live rack catalog entry before persisting its
+-- denormalized label on an infrastructure device. Locking both catalog rows
+-- serializes this write with rack rename/delete and placement changes; those
+-- operations lock rack rows before cascading to infrastructure devices, so
+-- callers must invoke this before locking an infrastructure-device row.
+SELECT ds.id
+FROM device_set_rack dsr
+JOIN device_set ds
+  ON ds.id = dsr.device_set_id
+ AND ds.org_id = dsr.org_id
+JOIN building b
+  ON b.id = dsr.building_id
+ AND b.org_id = ds.org_id
+ AND b.deleted_at IS NULL
+WHERE ds.org_id = sqlc.arg('org_id')
+  AND ds.type = 'rack'
+  AND ds.label = sqlc.arg('rack_name')
+  AND ds.deleted_at IS NULL
+  AND dsr.site_id = sqlc.arg('site_id')
+  AND b.site_id = sqlc.arg('site_id')
+  AND b.name = sqlc.arg('building_name')
+FOR UPDATE OF dsr, ds;
+
 -- name: UpdateInfrastructureDevice :execrows
--- expected_site_id predicates the write on the site the caller was
--- authorized against, so a concurrent site move between the
--- authorization read and this write invalidates the mutation (0 rows)
--- instead of silently editing a device in a site the caller may not
--- manage. enabled is nullable: NULL preserves the row's current value
--- atomically in the UPDATE itself, so a request that omitted the
--- field can't write back a stale value read before the transaction.
+-- expected_site_id and expected_rack_name predicate the write on the
+-- placement the caller was authorized against, so a concurrent placement
+-- change between the authorization read and this write invalidates the
+-- mutation (0 rows). expected_rack_name NULL is reserved for trusted domain
+-- callers that did not perform a handler authorization read. enabled and
+-- rack_name are nullable inputs: NULL preserves the row's current value
+-- atomically in the UPDATE itself.
 UPDATE infrastructure_device
 SET site_id       = sqlc.arg('site_id'),
     building_name = sqlc.arg('building_name'),
+    rack_name     = COALESCE(sqlc.narg('rack_name')::text, rack_name),
     name          = sqlc.arg('name'),
     device_kind   = sqlc.arg('device_kind'),
     fan_count     = sqlc.arg('fan_count'),
@@ -107,6 +134,10 @@ SET site_id       = sqlc.arg('site_id'),
 WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND site_id = sqlc.arg('expected_site_id')
+  AND (
+    sqlc.narg('expected_rack_name')::text IS NULL
+    OR rack_name = sqlc.narg('expected_rack_name')::text
+  )
   AND deleted_at IS NULL;
 
 -- name: SoftDeleteInfrastructureDevice :one

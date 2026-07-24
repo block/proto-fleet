@@ -24,6 +24,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -33,7 +34,6 @@ const (
 	reconcilerActorName = "curtailment-reconciler"
 
 	defaultTickInterval            = 30 * time.Second
-	defaultShutdownDeadline        = 10 * time.Second
 	defaultMaxRetries        int32 = 10
 	defaultCurtailMaxRetries int32 = 50
 
@@ -60,7 +60,6 @@ type CommandDispatcher interface {
 // Config carries runtime tunables. Zero-valued fields use defaults.
 type Config struct {
 	TickInterval         time.Duration `help:"Interval between curtailment reconciler ticks. Zero uses the default; values below 1s are rejected." default:"0s" env:"TICK_INTERVAL"`
-	ShutdownDeadline     time.Duration
 	MaxRetries           int32
 	CurtailMaxRetries    int32
 	DriftThresholdFactor float64
@@ -79,9 +78,6 @@ type Config struct {
 func (c Config) withDefaults() Config {
 	if c.TickInterval <= 0 {
 		c.TickInterval = defaultTickInterval
-	}
-	if c.ShutdownDeadline <= 0 {
-		c.ShutdownDeadline = defaultShutdownDeadline
 	}
 	if c.MaxRetries <= 0 {
 		c.MaxRetries = defaultMaxRetries
@@ -130,13 +126,16 @@ type Reconciler struct {
 	// separate write budget stays live.
 	confirmationPassTimeout time.Duration
 
-	stopCancel context.CancelFunc
-	workCancel context.CancelFunc
-	wg         sync.WaitGroup
+	loopCancel  context.CancelFunc
+	workCancel  context.CancelFunc
+	runCanceled <-chan struct{}
+	runDone     <-chan struct{}
 
-	mu      sync.Mutex
-	running bool
+	lifecycleMu sync.Mutex
+	mu          sync.Mutex
 }
+
+var _ runtimejobs.Lifecycle = (*Reconciler)(nil)
 
 // Option configures a Reconciler at construction time.
 type Option func(*Reconciler)
@@ -188,9 +187,10 @@ func New(cfg Config, store interfaces.CurtailmentStore, cmd CommandDispatcher, o
 	return r
 }
 
-// Start spins up the tick loop. Repeat Starts without an intervening Stop
-// are no-ops so misbehaving wiring cannot fork two reconcilers.
-func (r *Reconciler) Start(_ context.Context) error {
+// Start spins up the tick loop for the lifetime of ctx. Repeat Starts without
+// an intervening Stop are no-ops so misbehaving wiring cannot fork two
+// reconcilers.
+func (r *Reconciler) Start(ctx context.Context) error {
 	if r.store == nil {
 		return fmt.Errorf("curtailment reconciler: store is required")
 	}
@@ -207,77 +207,122 @@ func (r *Reconciler) Start(_ context.Context) error {
 		return fmt.Errorf("curtailment reconciler: confirmation fast path is enabled but no sampler is configured (WithConfirmationSampler)")
 	}
 
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
 	r.mu.Lock()
-	if r.running {
+	if r.runDone != nil {
+		stopping := channelClosed(r.runCanceled)
 		r.mu.Unlock()
+		if stopping {
+			return errors.New("curtailment reconciler: previous activation is still stopping")
+		}
 		return nil
 	}
-	r.running = true
-	stopCtx, stopCancel := context.WithCancel(context.Background())
-	workCtx, workCancel := context.WithCancel(context.Background())
-	r.stopCancel = stopCancel
+	workCtx, workCancel := context.WithCancel(context.WithoutCancel(ctx))
+	loopCtx, loopCancel := context.WithCancel(ctx)
+	runDone := make(chan struct{})
+	r.loopCancel = loopCancel
 	r.workCancel = workCancel
+	r.runCanceled = loopCtx.Done()
+	r.runDone = runDone
 	r.mu.Unlock()
 
-	r.wg.Add(1)
-	go r.tickLoop(stopCtx, workCtx)
-	if r.cfg.ConfirmationFastPathEnabled {
-		r.wg.Add(1)
-		go r.confirmationLoop(stopCtx, workCtx)
-		// Startup recovery: rows may already sit in dispatched from a
-		// previous process; run one pass immediately rather than waiting
-		// for the first full tick's wake.
-		r.wakeConfirmation()
-	}
+	go r.tickLoop(loopCtx, workCtx, runDone)
 	slog.Info("curtailment reconciler started",
 		"tick_interval", r.cfg.TickInterval,
 		"confirmation_fast_path_enabled", r.cfg.ConfirmationFastPathEnabled)
 	return nil
 }
 
-// Stop signals the tick loop and waits up to ShutdownDeadline for the
-// in-flight tick to drain. Concurrent second Stop is a no-op. Adding a
-// Start-after-Stop restart path needs a `stopping` guard to prevent
-// stacking goroutines on the same WaitGroup.
-func (r *Reconciler) Stop() error {
+// Stop cancels the activation and waits for it to drain within ctx. A timed-out
+// activation retains ownership until its goroutine actually exits, so Start can
+// never overlap it.
+func (r *Reconciler) Stop(ctx context.Context) error {
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
+
 	r.mu.Lock()
-	if !r.running {
+	if r.runDone == nil {
 		r.mu.Unlock()
 		return nil
 	}
-	r.running = false
-	stopCancel := r.stopCancel
+	loopCancel := r.loopCancel
 	workCancel := r.workCancel
-	r.stopCancel = nil
-	r.workCancel = nil
+	runDone := r.runDone
 	r.mu.Unlock()
 
-	if workCancel != nil {
-		watchdog := time.AfterFunc(r.cfg.ShutdownDeadline, workCancel)
-		defer watchdog.Stop()
+	if loopCancel != nil {
+		loopCancel()
 	}
-	if stopCancel != nil {
-		stopCancel()
+	select {
+	case <-runDone:
+		if workCancel != nil {
+			workCancel()
+		}
+		slog.Info("curtailment reconciler stopped")
+		return nil
+	case <-ctx.Done():
+		if workCancel != nil {
+			workCancel()
+		}
+		return fmt.Errorf("curtailment reconciler: stop: %w", ctx.Err())
 	}
-	r.wg.Wait()
-	if workCancel != nil {
-		workCancel()
-	}
-	slog.Info("curtailment reconciler stopped")
-	return nil
 }
 
-func (r *Reconciler) tickLoop(stopCtx, workCtx context.Context) {
-	defer r.wg.Done()
+func (r *Reconciler) tickLoop(loopCtx, workCtx context.Context, runDone chan<- struct{}) {
+	defer close(runDone)
+	defer r.finishActivation()
+
+	var confirmationDone <-chan struct{}
+	if r.cfg.ConfirmationFastPathEnabled {
+		done := make(chan struct{})
+		confirmationDone = done
+		go func() {
+			defer close(done)
+			r.confirmationLoop(loopCtx, workCtx)
+		}()
+		// Startup recovery: rows may already sit in dispatched from a
+		// previous process; run one pass immediately rather than waiting
+		// for the first full tick's wake.
+		r.wakeConfirmation()
+	}
+	if confirmationDone != nil {
+		defer func() { <-confirmationDone }()
+	}
+
 	ticker := time.NewTicker(r.cfg.TickInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-stopCtx.Done():
+		case <-loopCtx.Done():
 			return
 		case <-ticker.C:
 			r.safeTick(workCtx)
+			if loopCtx.Err() != nil {
+				return
+			}
 		}
+	}
+}
+
+func (r *Reconciler) finishActivation() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.loopCancel = nil
+	r.workCancel = nil
+	r.runCanceled = nil
+	r.runDone = nil
+}
+
+func channelClosed(done <-chan struct{}) bool {
+	if done == nil {
+		return false
+	}
+	select {
+	case <-done:
+		return true
+	default:
+		return false
 	}
 }
 

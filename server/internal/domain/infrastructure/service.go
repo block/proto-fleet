@@ -75,9 +75,10 @@ func NewService(store interfaces.InfrastructureDeviceStore, siteStore interfaces
 // AFTER the mutation's tx commits — RunInTx may retry the closure on
 // serialization failures, so an in-closure Log would duplicate.
 //
-// Metadata deliberately excludes driver_config: these records define
-// OT control topology (endpoints, registers), which must not land in
-// the activity feed. Only protocol-blind display fields are logged.
+// Metadata deliberately excludes driver_config and rack_name: the former
+// defines OT control topology, while the latter requires rack:read. Activity
+// readers are not guaranteed either permission, so neither field may land in
+// the activity feed.
 func (s *Service) logDeviceEvent(ctx context.Context, eventType, verb string, device *models.Device) {
 	orgID := device.OrgID
 	siteID := device.SiteID
@@ -118,6 +119,7 @@ func (s *Service) Create(ctx context.Context, params models.CreateParams) (*mode
 	normalized, err := s.validateAndNormalize(deviceInput{
 		SiteID:       params.SiteID,
 		BuildingName: params.BuildingName,
+		RackName:     params.RackName,
 		Name:         params.Name,
 		DeviceKind:   params.DeviceKind,
 		FanCount:     params.FanCount,
@@ -128,6 +130,7 @@ func (s *Service) Create(ctx context.Context, params models.CreateParams) (*mode
 		return nil, err
 	}
 	params.BuildingName = normalized.BuildingName
+	params.RackName = normalized.RackName
 	params.Name = normalized.Name
 	params.FanCount = normalized.FanCount
 	params.DriverType = normalized.DriverType
@@ -141,6 +144,17 @@ func (s *Service) Create(ctx context.Context, params models.CreateParams) (*mode
 		// missing/soft-deleted/cross-org).
 		if err := s.siteStore.LockSiteForWrite(txCtx, params.OrgID, params.SiteID); err != nil {
 			return err
+		}
+		if params.RackName != "" {
+			if err := s.store.LockInfrastructureRackForPlacement(
+				txCtx,
+				params.OrgID,
+				params.SiteID,
+				params.BuildingName,
+				params.RackName,
+			); err != nil {
+				return err
+			}
 		}
 		device, err := s.store.CreateInfrastructureDevice(txCtx, params)
 		if err != nil {
@@ -158,9 +172,14 @@ func (s *Service) Create(ctx context.Context, params models.CreateParams) (*mode
 
 // Update validates and mutates an existing device.
 func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*models.Device, error) {
+	rackName := ""
+	if params.RackName != nil {
+		rackName = *params.RackName
+	}
 	normalized, err := s.validateAndNormalize(deviceInput{
 		SiteID:       params.SiteID,
 		BuildingName: params.BuildingName,
+		RackName:     rackName,
 		Name:         params.Name,
 		DeviceKind:   params.DeviceKind,
 		FanCount:     params.FanCount,
@@ -171,6 +190,9 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 		return nil, err
 	}
 	params.BuildingName = normalized.BuildingName
+	if params.RackName != nil {
+		params.RackName = &normalized.RackName
+	}
 	params.Name = normalized.Name
 	params.FanCount = normalized.FanCount
 	params.DriverType = normalized.DriverType
@@ -186,6 +208,17 @@ func (s *Service) Update(ctx context.Context, params models.UpdateParams) (*mode
 		// ID order keeps crossing moves (A→B vs B→A) deadlock-free.
 		for _, siteID := range siteLockOrder(params.ExpectedSiteID, params.SiteID) {
 			if err := s.siteStore.LockSiteForWrite(txCtx, params.OrgID, siteID); err != nil {
+				return err
+			}
+		}
+		if params.RackName != nil && *params.RackName != "" {
+			if err := s.store.LockInfrastructureRackForPlacement(
+				txCtx,
+				params.OrgID,
+				params.SiteID,
+				params.BuildingName,
+				*params.RackName,
+			); err != nil {
 				return err
 			}
 		}
@@ -334,6 +367,7 @@ func siteLockOrder(a, b int64) []int64 {
 type deviceInput struct {
 	SiteID       int64
 	BuildingName string
+	RackName     string
 	Name         string
 	DeviceKind   string
 	FanCount     int32
@@ -349,6 +383,7 @@ type deviceInput struct {
 func (s *Service) validateAndNormalize(in deviceInput) (deviceInput, error) {
 	in.Name = strings.TrimSpace(in.Name)
 	in.BuildingName = strings.TrimSpace(in.BuildingName)
+	in.RackName = strings.TrimSpace(in.RackName)
 	if in.Name == "" {
 		return in, fleeterror.NewInvalidArgumentError("name is required")
 	}

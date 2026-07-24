@@ -11,6 +11,7 @@ import { formatDeviceType } from "@/protoFleet/features/infrastructure/deviceTyp
 import { summarizeDriverConfig } from "@/protoFleet/features/infrastructure/driverForms";
 import {
   infraBuildingOptionsFromDevices,
+  infraRackOptionsFromDevices,
   uniqueSortedLocationNames,
 } from "@/protoFleet/features/infrastructure/locationOptions";
 import type {
@@ -18,6 +19,7 @@ import type {
   InfraDeviceDraft,
   InfraDeviceItem,
   InfraDevicePatch,
+  InfraRackOption,
 } from "@/protoFleet/features/infrastructure/types";
 import { ChevronDown, Plus, Slider } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
@@ -34,6 +36,7 @@ const infraCols = {
   name: "name",
   site: "site",
   building: "building",
+  rack: "rack",
   type: "type",
   enabled: "enabled",
   connection: "connection",
@@ -45,6 +48,7 @@ const infraColTitles: ColTitles<InfraColumn> = {
   name: "Name",
   site: "Site",
   building: "Building",
+  rack: "Rack",
   type: "Target type",
   enabled: "Enabled",
   connection: "Connection",
@@ -54,8 +58,8 @@ const infraColTitles: ColTitles<InfraColumn> = {
 // are deliberately absent until v2 status read-back gives them a data
 // source; v1 has none, so every device would render permanently
 // offline with error styling.
-const DEFAULT_VISIBLE: InfraColumn[] = ["name", "site", "building", "type", "enabled", "connection"];
-const CONFIGURABLE_COLS: InfraColumn[] = ["site", "building", "type", "enabled", "connection"];
+const DEFAULT_VISIBLE: InfraColumn[] = ["name", "site", "building", "rack", "type", "enabled", "connection"];
+const CONFIGURABLE_COLS: InfraColumn[] = ["site", "building", "rack", "type", "enabled", "connection"];
 
 const ENABLED_OPTIONS = [
   { id: "auto", label: "Auto/on" },
@@ -77,6 +81,8 @@ const getSortValue = (device: InfraDeviceItem, field: InfraColumn) => {
       return device.siteName;
     case "building":
       return device.buildingName;
+    case "rack":
+      return device.rackName;
     case "type":
       return formatDeviceType(device);
     case "enabled":
@@ -115,6 +121,7 @@ interface InfraDeviceListProps {
   canManage?: boolean;
   siteOptions?: string[];
   buildingOptions?: InfraBuildingOption[];
+  rackOptions?: InfraRackOption[];
   initialSiteName?: string;
   updatingDeviceIds?: ReadonlySet<string>;
   onCreateDevice?: (draft: InfraDeviceDraft) => Promise<void>;
@@ -140,6 +147,7 @@ const InfraDeviceList = ({
   canManage = true,
   siteOptions,
   buildingOptions,
+  rackOptions,
   initialSiteName,
   updatingDeviceIds = EMPTY_UPDATING_IDS,
   onCreateDevice = noopSubmit,
@@ -176,8 +184,10 @@ const InfraDeviceList = ({
     [devices],
   );
   const fallbackBuildingOptions = useMemo(() => infraBuildingOptionsFromDevices(devices), [devices]);
+  const fallbackRackOptions = useMemo(() => infraRackOptionsFromDevices(devices), [devices]);
   const resolvedSiteOptions = siteOptions ?? fallbackSiteOptions;
   const resolvedBuildingOptions = buildingOptions ?? fallbackBuildingOptions;
+  const resolvedRackOptions = rackOptions ?? fallbackRackOptions;
 
   const handleCreateDevice = useCallback(
     async (draft: InfraDeviceDraft) => {
@@ -259,6 +269,10 @@ const InfraDeviceList = ({
         component: (device) => <span className="text-300">{device.buildingName}</span>,
         width: "w-[148px]",
       },
+      [infraCols.rack]: {
+        component: (device) => <span className="text-300">{device.rackName}</span>,
+        width: "w-[148px]",
+      },
       [infraCols.connection]: {
         component: (device) => {
           const summary = getConnectionSummary(device);
@@ -316,6 +330,15 @@ const InfraDeviceList = ({
           },
           {
             type: "dropdown",
+            title: "Rack",
+            value: "rack",
+            options: [...new Set(devices.map((d) => d.rackName).filter(Boolean))]
+              .sort()
+              .map((r) => ({ id: r, label: r })),
+            defaultOptionIds: [],
+          },
+          {
+            type: "dropdown",
             title: "Target type",
             value: "type",
             options: TYPE_OPTIONS,
@@ -341,6 +364,8 @@ const InfraDeviceList = ({
     if (typeF?.length && !typeF.includes(_device.deviceKind)) return false;
     const buildingF = _filters.dropdownFilters["building"];
     if (buildingF?.length && !buildingF.includes(_device.buildingName)) return false;
+    const rackF = _filters.dropdownFilters["rack"];
+    if (rackF?.length && !rackF.includes(_device.rackName)) return false;
     const siteF = _filters.dropdownFilters["site"];
     if (siteF?.length && !siteF.includes(_device.siteName)) return false;
     return true;
@@ -506,7 +531,7 @@ const InfraDeviceList = ({
         <Dialog
           open
           title={`Delete "${deleteCandidate.name}"?`}
-          subtitle={`This removes the ${formatDeviceType(deleteCandidate)} in ${deleteCandidate.buildingName} at ${deleteCandidate.siteName} from the fleet configuration. Curtailment will no longer control it.`}
+          subtitle={`This removes the ${formatDeviceType(deleteCandidate)} in ${[deleteCandidate.rackName, deleteCandidate.buildingName].filter(Boolean).join(", ")} at ${deleteCandidate.siteName} from the fleet configuration. Curtailment will no longer control it.`}
           testId="infra-device-delete-dialog"
           onDismiss={() => setDeleteCandidateId(null)}
           buttons={[
@@ -529,6 +554,7 @@ const InfraDeviceList = ({
           device={detailDevice}
           siteOptions={resolvedSiteOptions}
           buildingOptions={resolvedBuildingOptions}
+          rackOptions={resolvedRackOptions}
           canManage={canManage}
           onSave={onUpdateDevice}
           onDelete={onDeleteDevice}
@@ -540,6 +566,7 @@ const InfraDeviceList = ({
         <AddInfraDeviceModal
           siteOptions={resolvedSiteOptions}
           buildingOptions={resolvedBuildingOptions}
+          rackOptions={resolvedRackOptions}
           initialSiteName={initialSiteName}
           onDismiss={() => setShowAddModal(false)}
           onSubmit={handleCreateDevice}

@@ -25,7 +25,7 @@
 ############################
 # Build timescaledb-tune from source
 ############################
-FROM golang:1.26.4-alpine AS tools
+FROM golang:1.26.5-alpine AS tools
 
 RUN CGO_ENABLED=0 go install github.com/timescale/timescaledb-tune/cmd/timescaledb-tune@v0.18.1
 

@@ -43,6 +43,7 @@ message InfrastructureDevice {
     string driver_config = 10;
     google.protobuf.Timestamp created_at = 11;
     google.protobuf.Timestamp updated_at = 12;
+    string rack_name = 13;
 }
 
 message ListInfrastructureDevicesRequest {
@@ -96,6 +97,7 @@ message CreateInfrastructureDeviceRequest {
         max_len: 64
     }];
     string driver_config = 8 [(buf.validate.field).string.max_len = 8192];
+    string rack_name = 9 [(buf.validate.field).string.max_len = 100];
 }
 
 message CreateInfrastructureDeviceResponse {
@@ -125,6 +127,7 @@ message UpdateInfrastructureDeviceRequest {
         max_len: 64
     }];
     string driver_config = 9 [(buf.validate.field).string.max_len = 8192];
+    optional string rack_name = 10 [(buf.validate.field).string.max_len = 100];
 }
 
 message UpdateInfrastructureDeviceResponse {

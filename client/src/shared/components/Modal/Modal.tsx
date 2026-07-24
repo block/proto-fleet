@@ -20,6 +20,8 @@ const sizeClasses: Record<keyof typeof sizes, string> = {
   fullscreen: "h-full w-full max-w-full overflow-y-auto rounded-none",
 };
 
+const DEFAULT_FULLSCREEN_MAX_WIDTH = "1920px";
+
 // optional prop to delay close modal on clicking button and allow animations to finish
 interface ModalButtonProps extends ButtonProps {
   dismissModalOnClick?: boolean;
@@ -164,6 +166,7 @@ const Modal = ({
           },
           surfaceClassName,
         )}
+        style={isFullscreen ? { maxWidth: DEFAULT_FULLSCREEN_MAX_WIDTH } : undefined}
       >
         <motion.div
           {...slideUpAnimation}

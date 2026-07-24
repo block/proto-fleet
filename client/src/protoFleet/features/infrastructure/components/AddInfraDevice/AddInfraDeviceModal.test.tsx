@@ -11,6 +11,7 @@ const draft: InfraDeviceDraft = {
   name: "Roof exhaust",
   siteName: "Austin",
   buildingName: "Building 1",
+  rackName: "Rack A1",
   deviceKind: "fan_group",
   fanCount: 12,
   driverType: "modbus_tcp",

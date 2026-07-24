@@ -17,6 +17,7 @@ const device: InfraDeviceItem = {
   siteId: "8",
   siteName: "Austin",
   buildingName: "Building 1",
+  rackName: "Rack A1",
   name: "Roof exhaust",
   deviceKind: "fan_group",
   fanCount: 12,
@@ -130,12 +131,26 @@ describe("InfraDeviceList", () => {
     expect(onDeleteDevice).not.toHaveBeenCalled();
     expect(screen.getByTestId("infra-device-delete-dialog")).toHaveTextContent("Roof exhaust");
     expect(screen.getByTestId("infra-device-delete-dialog")).toHaveTextContent("Building 1");
+    expect(screen.getByTestId("infra-device-delete-dialog")).toHaveTextContent("Rack A1");
     expect(screen.getByTestId("infra-device-delete-dialog")).toHaveTextContent("Austin");
 
     await user.click(screen.getByRole("button", { name: "Delete device" }));
 
     expect(onDeleteDevice).toHaveBeenCalledWith("101");
     await waitFor(() => expect(screen.queryByTestId("infra-device-delete-dialog")).not.toBeInTheDocument());
+  });
+
+  test("formats delete location without a blank rack segment", async () => {
+    const user = userEvent.setup();
+    const unrackedDevice = { ...device, rackName: "" };
+
+    render(<InfraDeviceList devices={[unrackedDevice]} />);
+
+    await user.click(screen.getByRole("button", { name: "Actions for Roof exhaust" }));
+    await user.click(await screen.findByText("Delete"));
+
+    expect(screen.getByTestId("infra-device-delete-dialog")).toHaveTextContent("in Building 1 at Austin");
+    expect(screen.getByTestId("infra-device-delete-dialog")).not.toHaveTextContent("in ,");
   });
 
   test("cancelling the delete confirmation leaves the device untouched", async () => {
