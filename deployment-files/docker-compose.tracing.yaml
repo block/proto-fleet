@@ -1,0 +1,43 @@
+# Tracing overlay (run-fleet.sh --enable-tracing): fleet-api request spans →
+# OTel collector → Datadog APM. Requires DD_API_KEY in the operator .env;
+# run-fleet.sh enforces that before layering this file.
+services:
+  fleet-api:
+    environment:
+      # Hard-coded on: the overlay is the feature toggle.
+      FLEET_TELEMETRY_ENABLED: "true"
+      FLEET_TELEMETRY_SAMPLE_RATE: "${FLEET_TELEMETRY_SAMPLE_RATE:-1.0}"
+      # Parent server spans to the traceparent header Datadog RUM injects on
+      # API calls (client observability), so RUM sessions link to APM traces.
+      FLEET_TELEMETRY_TRUST_INCOMING_TRACES: "${FLEET_TELEMETRY_TRUST_INCOMING_TRACES:-true}"
+    depends_on:
+      otel-collector:
+        condition: service_started
+    # Host-networked fleet-api inherits FLEET_TELEMETRY_ENDPOINT=http://otel-collector:4318
+    # from the base compose; resolve it to the loopback port published below.
+    extra_hosts:
+      - "otel-collector:127.0.0.1"
+
+  otel-collector:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: otel-collector
+    environment:
+      DD_API_KEY: "${DD_API_KEY:?DD_API_KEY is required for the tracing overlay (set it in .env)}"
+      DD_SITE: "${DD_SITE:-datadoghq.com}"
+      DD_ENV: "${DD_ENV:-production}"
+    volumes:
+      - ./server/otel-collector-config.datadog.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      # Loopback-only OTLP ingest for the host-networked fleet-api; not exposed on the LAN.
+      - "127.0.0.1:4318:4318"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+
+networks:
+  monitoring:
+    driver: bridge
