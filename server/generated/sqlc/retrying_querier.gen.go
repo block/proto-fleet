@@ -954,6 +954,24 @@ func (q *retryingQuerier) CurtailmentEventHasInFlightTargets(ctx context.Context
 	return result, err
 }
 
+func (q *retryingQuerier) DeleteAlertRouteChannels(ctx context.Context, policyID int64) error {
+	return q.retrier.RetryQuery(ctx, "DeleteAlertRouteChannels", func() error {
+		return q.next.DeleteAlertRouteChannels(ctx, policyID)
+	})
+}
+
+func (q *retryingQuerier) DeleteAlertRoutePolicy(ctx context.Context, arg DeleteAlertRoutePolicyParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "DeleteAlertRoutePolicy", func() error {
+		callResult, callErr := q.next.DeleteAlertRoutePolicy(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) DeleteCurtailmentAutomationRuleByOrg(ctx context.Context, arg DeleteCurtailmentAutomationRuleByOrgParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "DeleteCurtailmentAutomationRuleByOrg", func() error {
@@ -3054,6 +3072,12 @@ func (q *retryingQuerier) InsertAlertChannel(ctx context.Context, arg InsertAler
 	return result, err
 }
 
+func (q *retryingQuerier) InsertAlertRouteChannels(ctx context.Context, arg InsertAlertRouteChannelsParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertAlertRouteChannels", func() error {
+		return q.next.InsertAlertRouteChannels(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) InsertCurtailmentAutomationRule(ctx context.Context, arg InsertCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error) {
 	var result CurtailmentAutomationRule
 	err := q.retrier.RetryQuery(ctx, "InsertCurtailmentAutomationRule", func() error {
@@ -3262,6 +3286,18 @@ func (q *retryingQuerier) ListAlertChannels(ctx context.Context, orgID int64) ([
 	var result []AlertChannel
 	err := q.retrier.RetryQuery(ctx, "ListAlertChannels", func() error {
 		callResult, callErr := q.next.ListAlertChannels(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListAlertRoutePolicies(ctx context.Context, orgID int64) ([]ListAlertRoutePoliciesRow, error) {
+	var result []ListAlertRoutePoliciesRow
+	err := q.retrier.RetryQuery(ctx, "ListAlertRoutePolicies", func() error {
+		callResult, callErr := q.next.ListAlertRoutePolicies(ctx, orgID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5374,6 +5410,18 @@ func (q *retryingQuerier) UpdateUserUsername(ctx context.Context, arg UpdateUser
 	return q.retrier.RetryQuery(ctx, "UpdateUserUsername", func() error {
 		return q.next.UpdateUserUsername(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) UpsertAlertRoutePolicy(ctx context.Context, arg UpsertAlertRoutePolicyParams) (AlertRoutePolicy, error) {
+	var result AlertRoutePolicy
+	err := q.retrier.RetryQuery(ctx, "UpsertAlertRoutePolicy", func() error {
+		callResult, callErr := q.next.UpsertAlertRoutePolicy(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) UpsertBuiltinRoleForOrg(ctx context.Context, arg UpsertBuiltinRoleForOrgParams) (Role, error) {

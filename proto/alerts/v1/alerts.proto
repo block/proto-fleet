@@ -29,6 +29,9 @@ service RuleService {
     rpc UpdateRule(UpdateRuleRequest) returns (UpdateRuleResponse);
 
     rpc DeleteRule(DeleteRuleRequest) returns (DeleteRuleResponse);
+
+    // Works on both provisioned and user rules: routing is org-owned even when the rule is shared.
+    rpc SetRuleRouting(SetRuleRoutingRequest) returns (SetRuleRoutingResponse);
 }
 
 service MaintenanceWindowService {
@@ -198,6 +201,20 @@ message RuleConfig {
     }
 }
 
+// Where a rule's firing alerts deliver: DEFAULT = every org channel, CUSTOM = only channel_ids, NONE = nowhere; history records the alert either way.
+enum RoutingMode {
+    ROUTING_MODE_UNSPECIFIED = 0;
+    ROUTING_MODE_DEFAULT = 1;
+    ROUTING_MODE_CUSTOM = 2;
+    ROUTING_MODE_NONE = 3;
+}
+
+message RuleRouting {
+    RoutingMode mode = 1;
+    // Writes: required non-empty for CUSTOM, empty otherwise. Reads may return CUSTOM with no ids when every routed channel was deleted (such a rule delivers nowhere).
+    repeated string channel_ids = 2 [(buf.validate.field).repeated = {max_items: 100, items: {string: {min_len: 1, max_len: 20}}}];
+}
+
 message Rule {
     string id = 1;
     int64 organization_id = 2;
@@ -212,6 +229,8 @@ message Rule {
     RuleOrigin origin = 11;
     // Populated for USER rules only; round-trips into the edit form.
     RuleConfig config = 12;
+    // Unset means the routing read failed (keep the last-known value); a readable rule always carries an explicit mode.
+    RuleRouting routing = 13;
 }
 
 message ListRulesRequest {}
@@ -221,6 +240,8 @@ message ListRulesResponse {
 
 message CreateRuleRequest {
     RuleConfig config = 1 [(buf.validate.field).required = true];
+    // Optional delivery routing applied atomically with creation; unset means default (all channels).
+    RuleRouting routing = 2;
 }
 message CreateRuleResponse {
     Rule rule = 1;
@@ -238,6 +259,14 @@ message DeleteRuleRequest {
     string id = 1 [(buf.validate.field).string.min_len = 1];
 }
 message DeleteRuleResponse {}
+
+message SetRuleRoutingRequest {
+    string rule_id = 1 [(buf.validate.field).string.min_len = 1];
+    RuleRouting routing = 2 [(buf.validate.field).required = true];
+}
+message SetRuleRoutingResponse {
+    Rule rule = 1;
+}
 
 message PauseRuleRequest {
     string id = 1 [(buf.validate.field).string.min_len = 1];

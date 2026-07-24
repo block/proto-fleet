@@ -324,6 +324,8 @@ type Querier interface {
 	// desired_state scope avoids blocking AdminTerminate on RESTORING events
 	// whose in-flight commands are Uncurtails.
 	CurtailmentEventHasInFlightTargets(ctx context.Context, curtailmentEventID int64) (bool, error)
+	DeleteAlertRouteChannels(ctx context.Context, policyID int64) error
+	DeleteAlertRoutePolicy(ctx context.Context, arg DeleteAlertRoutePolicyParams) (int64, error)
 	DeleteCurtailmentAutomationRuleByOrg(ctx context.Context, arg DeleteCurtailmentAutomationRuleByOrgParams) (int64, error)
 	DeleteCurtailmentResponseProfileByOrg(ctx context.Context, arg DeleteCurtailmentResponseProfileByOrgParams) (int64, error)
 	// Deletes reusable response profiles tied to a site as part of the
@@ -743,6 +745,8 @@ type Querier interface {
 	// path inserts only the activity_log row.
 	InsertActivityLog(ctx context.Context, arg InsertActivityLogParams) error
 	InsertAlertChannel(ctx context.Context, arg InsertAlertChannelParams) (AlertChannel, error)
+	// DO NOTHING tolerates duplicate ids in one call rather than aborting the surrounding SetPolicy transaction.
+	InsertAlertRouteChannels(ctx context.Context, arg InsertAlertRouteChannelsParams) error
 	InsertCurtailmentAutomationRule(ctx context.Context, arg InsertCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error)
 	// Full column list mirrors the migration so callers can't rely on DEFAULTs
 	// for values the API layer should be normalizing.
@@ -824,6 +828,8 @@ type Querier interface {
 	// matching the ListBuildings / ListRacks / ListMiners contract.
 	ListActivityLogs(ctx context.Context, arg ListActivityLogsParams) ([]ListActivityLogsRow, error)
 	ListAlertChannels(ctx context.Context, orgID int64) ([]AlertChannel, error)
+	// channel_ids counts only the org's live channels, so a soft-deleted channel drops out of every policy that referenced it.
+	ListAlertRoutePolicies(ctx context.Context, orgID int64) ([]ListAlertRoutePoliciesRow, error)
 	ListApiKeysByOrganization(ctx context.Context, organizationID int64) ([]ListApiKeysByOrganizationRow, error)
 	// The role-delete handler uses this to refuse deletion while
 	// assignments still reference the role; the response also lists the
@@ -1572,6 +1578,7 @@ type Querier interface {
 	UpdateUserPasswordAndFlag(ctx context.Context, arg UpdateUserPasswordAndFlagParams) error
 	UpdateUserRole(ctx context.Context, arg UpdateUserRoleParams) error
 	UpdateUserUsername(ctx context.Context, arg UpdateUserUsernameParams) error
+	UpsertAlertRoutePolicy(ctx context.Context, arg UpsertAlertRoutePolicyParams) (AlertRoutePolicy, error)
 	// Seed reconciliation entry point. The ON CONFLICT target matches
 	// the partial unique index uq_role_org_builtin_key WHERE
 	// is_builtin = TRUE AND deleted_at IS NULL.

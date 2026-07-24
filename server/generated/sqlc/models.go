@@ -364,6 +364,20 @@ type AlertChannel struct {
 	DeletedAt       sql.NullTime
 }
 
+type AlertRouteChannel struct {
+	PolicyID  int64
+	ChannelID int64
+}
+
+type AlertRoutePolicy struct {
+	ID        int64
+	OrgID     int64
+	RuleUid   string
+	Mode      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type ApiKey struct {
 	ID             int64
 	KeyID          string

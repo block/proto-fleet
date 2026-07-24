@@ -59,6 +59,8 @@ groups:
         # on a small host without waiting out a self-resolving spike for ten.
         for: 5m
         labels:
+          # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
+          proto_fleet_rule_uid: protofleet-system-cpu-high
           # Shared: visible to every org (a pause stays org-scoped). Instances
           # always carry organization_id via the SQL fan-out.
           proto_fleet_scope: shared
@@ -113,6 +115,8 @@ groups:
         # little noise for earlier warning of OOM risk.
         for: 5m
         labels:
+          # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
+          proto_fleet_rule_uid: protofleet-system-memory-high
           proto_fleet_scope: shared
           severity: warning
           rule_group: proto-fleet-system
@@ -166,6 +170,8 @@ groups:
         # Disk moves slowly; the wider window avoids flapping on temp files.
         for: 15m
         labels:
+          # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
+          proto_fleet_rule_uid: protofleet-system-disk-warning
           proto_fleet_scope: shared
           severity: warning
           rule_group: proto-fleet-system
@@ -216,6 +222,8 @@ groups:
         # Disk moves slowly; the wider window avoids flapping on temp files.
         for: 15m
         labels:
+          # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
+          proto_fleet_rule_uid: protofleet-system-disk-low
           proto_fleet_scope: shared
           # Critical, not warning: a full disk stops TimescaleDB and with it
           # every other alert in this file.
@@ -287,6 +295,8 @@ groups:
         execErrState: Error
         for: 3m
         labels:
+          # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
+          proto_fleet_rule_uid: protofleet-system-disk-stale
           proto_fleet_scope: shared
           severity: warning
           rule_group: proto-fleet-system
@@ -357,6 +367,8 @@ groups:
         # must not page before fleet-api's first boot heartbeat lands.
         for: 3m
         labels:
+          # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
+          proto_fleet_rule_uid: protofleet-system-heartbeat-stale
           proto_fleet_scope: shared
           severity: critical
           rule_group: proto-fleet-system

@@ -1,6 +1,8 @@
 import { type ReactNode, useRef, useState } from "react";
+import DeliveryPicker from "./DeliveryPicker";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAlertsContext } from "@/protoFleet/features/alerts/api/AlertsContext";
+import { useDeliveryRouting } from "@/protoFleet/features/alerts/api/useDeliveryRouting";
 import type { Rule, RuleConfig } from "@/protoFleet/features/alerts/types";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
@@ -161,6 +163,8 @@ interface AddRuleModalProps {
 
 const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
   const { createRule, updateRule } = useAlertsContext();
+  // Delivery routing, applied with creation; edits keep the dedicated Edit delivery action.
+  const routing = useDeliveryRouting();
   const preferredTemperatureUnit: TemperatureFieldUnit = useTemperatureUnit() === "F" ? "°F" : "°C";
 
   const isEditing = editingRule != null;
@@ -215,6 +219,7 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
       }
       setName(cfg?.name ?? editingRule?.name ?? "");
       setDurationSeconds(cfg?.duration_seconds ?? editingRule?.duration_seconds ?? DEFAULT_DURATION.offline);
+      routing.reset(null);
       setErrorMsg("");
       setSaving(false);
     }
@@ -284,13 +289,22 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
   const handleSave = async () => {
     const config = buildConfig();
     if (!config) return;
+    if (!isEditing) {
+      const invalid = routing.validate();
+      if (invalid) {
+        setErrorMsg(invalid);
+        return;
+      }
+    }
     const session = saveSessionRef.current;
     setSaving(true);
     try {
       if (isEditing && editingRule) {
         await updateRule(editingRule.id, config);
       } else {
-        await createRule(config);
+        // Default routing is the absence of a policy; omit it on the wire like the domain does.
+        const ruleRouting = routing.toRuleRouting();
+        await createRule(config, ruleRouting.mode === "default" ? undefined : ruleRouting);
       }
       if (saveSessionRef.current !== session) return;
       pushToast({
@@ -411,6 +425,27 @@ const AddRuleModal = ({ open, editingRule, onDismiss }: AddRuleModalProps) => {
         />
 
         <p className="text-300 text-text-primary-50">{summary}</p>
+
+        {!isEditing ? (
+          <>
+            <div className="pt-2 text-300 text-text-primary">Delivery</div>
+            <DeliveryPicker
+              key={routing.sessionKey}
+              mode={routing.mode}
+              onModeChange={(next) => {
+                routing.setMode(next);
+                clearError();
+              }}
+              channels={routing.channels}
+              channelsLoaded={routing.channelsLoaded}
+              selectedIds={routing.selectedIds}
+              onToggleChannel={(id) => {
+                routing.toggleChannel(id);
+                clearError();
+              }}
+            />
+          </>
+        ) : null}
       </div>
     </Modal>
   );

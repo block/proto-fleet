@@ -323,6 +323,8 @@ type fakeGrafanaRules struct {
 	getRuleGone bool
 	// Per-uid GETs 500, simulating an inconclusive post-write recheck.
 	getRuleErr bool
+	// Silence list 500s, simulating an Alertmanager outage.
+	silencesErr bool
 }
 
 func (f *fakeGrafanaRules) server(t *testing.T) *Grafana {
@@ -386,6 +388,10 @@ func (f *fakeGrafanaRules) server(t *testing.T) *Grafana {
 		writeJSON(w, group)
 	})
 	mux.HandleFunc("GET /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {
+		if f.silencesErr {
+			http.Error(w, `{"message":"boom"}`, http.StatusInternalServerError)
+			return
+		}
 		writeJSON(w, f.silences)
 	})
 	mux.HandleFunc("POST /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {
@@ -416,9 +422,9 @@ func userRuleFixture(uid string, org string) GrafanaAlertRule {
 
 func TestCreateRule(t *testing.T) {
 	fake := &fakeGrafanaRules{}
-	svc := NewService(fake.server(t), nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, DestinationPolicy{})
 
-	rule, err := svc.CreateRule(context.Background(), 7, offlineConfig("Offline too long", 1800))
+	rule, err := svc.CreateRule(context.Background(), 7, offlineConfig("Offline too long", 1800), RouteModeDefault, nil)
 	require.NoError(t, err)
 
 	require.NotNil(t, fake.created)
@@ -444,9 +450,9 @@ func TestCreateRuleQuota(t *testing.T) {
 	for i := range maxUserRulesPerOrg {
 		fake.listed = append(fake.listed, userRuleFixture(fmt.Sprintf("pfu-%d", i), "7"))
 	}
-	svc := NewService(fake.server(t), nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, DestinationPolicy{})
 
-	_, err := svc.CreateRule(context.Background(), 7, offlineConfig("One more", 1800))
+	_, err := svc.CreateRule(context.Background(), 7, offlineConfig("One more", 1800), RouteModeDefault, nil)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.Nil(t, fake.created)
@@ -458,9 +464,9 @@ func TestCreateRuleQuotaIsPerOrg(t *testing.T) {
 	for i := range maxUserRulesPerOrg {
 		fake.listed = append(fake.listed, userRuleFixture(fmt.Sprintf("pfu-%d", i), "8"))
 	}
-	svc := NewService(fake.server(t), nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, DestinationPolicy{})
 
-	_, err := svc.CreateRule(context.Background(), 7, offlineConfig("First for org 7", 1800))
+	_, err := svc.CreateRule(context.Background(), 7, offlineConfig("First for org 7", 1800), RouteModeDefault, nil)
 	require.NoError(t, err)
 	require.NotNil(t, fake.created)
 }
@@ -475,7 +481,7 @@ func TestUpdateRuleGuards(t *testing.T) {
 	hidden := userRuleFixture("pfu-hidden", "7")
 	hidden.Labels[ruleLabelScope] = ruleScopeInternal
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{provisioned, otherOrg, hidden}}
-	svc := NewService(fake.server(t), nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, DestinationPolicy{})
 
 	ids := []string{"protofleet-device-offline", "pfu-other", "pfu-missing", "pfu-hidden"}
 	for _, id := range ids {
@@ -494,7 +500,7 @@ func TestUpdateRuleGuards(t *testing.T) {
 func TestUpdateRuleKeepsIdentity(t *testing.T) {
 	existing := userRuleFixture("pfu-mine", "7")
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{existing}}
-	svc := NewService(fake.server(t), nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, DestinationPolicy{})
 
 	updated, err := svc.UpdateRule(context.Background(), 7, "pfu-mine", RuleConfig{
 		Name: "Hotter", DurationSeconds: 600,
@@ -521,7 +527,7 @@ func TestSilenceWritesUndoneWhenRuleDeletedConcurrently(t *testing.T) {
 	existing := userRuleFixture("pfu-mine", "7")
 	existing.Labels[ruleLabelRuleGroup] = "proto-fleet-user-7"
 	fake := &fakeGrafanaRules{listed: []GrafanaAlertRule{existing}, getRuleGone: true}
-	svc := NewService(fake.server(t), nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.PauseRule(context.Background(), 7, "pfu-mine", "alice")
 	assert.ErrorIs(t, err, ErrNotFound)
@@ -593,7 +599,7 @@ func TestDeleteRuleSweepIsIdempotentButGuarded(t *testing.T) {
 		listed:   []GrafanaAlertRule{provisioned},
 		silences: []GrafanaSilence{pauseFor("pfu-gone"), pauseFor("protofleet-device-offline")},
 	}
-	svc := NewService(fake.server(t), nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, DestinationPolicy{})
 
 	// Missing rule: uniform NotFound, but the orphaned silence is swept.
 	err := svc.DeleteRule(context.Background(), 7, "pfu-gone")
@@ -625,7 +631,7 @@ func TestDeleteRuleCleansRuleScopedSilences(t *testing.T) {
 			}},
 		},
 	}
-	svc := NewService(fake.server(t), nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fake.server(t), nil, nil, nil, nil, DestinationPolicy{})
 
 	require.NoError(t, svc.DeleteRule(context.Background(), 7, "pfu-mine"))
 	assert.Equal(t, "pfu-mine", fake.deletedUID)

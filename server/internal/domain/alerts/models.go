@@ -134,6 +134,10 @@ type Rule struct {
 	Origin          RuleOrigin
 	// Nil for provisioned rules.
 	Config *RuleConfig
+	// Nil means default routing (all org channels).
+	Routing *RoutePolicy
+	// Set when a best-effort routing read failed: the wire omits routing entirely so the client keeps its last-known value instead of reading nil as default.
+	RoutingUnknown bool
 }
 
 type MaintenanceWindowScopeKind string

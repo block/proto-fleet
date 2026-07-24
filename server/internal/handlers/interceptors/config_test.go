@@ -129,6 +129,7 @@ func TestAlertRuleMutationProceduresAreSessionOnly(t *testing.T) {
 		alertsv1connect.RuleServiceCreateRuleProcedure,
 		alertsv1connect.RuleServiceUpdateRuleProcedure,
 		alertsv1connect.RuleServiceDeleteRuleProcedure,
+		alertsv1connect.RuleServiceSetRuleRoutingProcedure,
 	}
 	for _, procedure := range procedures {
 		assert.Contains(t, SessionOnlyProcedures, procedure,
