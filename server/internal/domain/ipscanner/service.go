@@ -90,7 +90,7 @@ func (s *Service) Start(ctx context.Context) error {
 		return fmt.Errorf("start ip scanner service: %w", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	ctx, cancel := context.WithCancel(ctx)
 	run := &serviceRun{
 		tasks:   make(chan SubnetScanTask, s.config.MaxConcurrentSubnetScans),
 		results: make(chan SubnetScanResult, s.config.MaxConcurrentSubnetScans),
