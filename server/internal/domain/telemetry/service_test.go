@@ -621,27 +621,6 @@ func TestTelemetryService_RequestOperationsFailAfterStop(t *testing.T) {
 	}
 }
 
-func TestTelemetryService_CloseStopsBroadcastersAfterStopTimeout(t *testing.T) {
-	service := &TelemetryService{}
-	activationCtx, cancelActivation := context.WithCancel(t.Context())
-	service.activation = newTelemetryActivation(activationCtx.Done(), 0)
-	service.activation.cancel = cancelActivation
-
-	broadcaster := NewTelemetryBroadcaster(1, nil, time.Hour)
-	require.NoError(t, broadcaster.Start(t.Context()))
-	updates, _, err := broadcaster.Subscribe(t.Context(), SubscriptionConfig{})
-	require.NoError(t, err)
-	service.broadcasters.Store(int64(1), broadcaster)
-
-	stopCtx, cancelStop := context.WithCancel(t.Context())
-	cancelStop()
-	require.ErrorIs(t, service.Close(stopCtx), context.Canceled)
-	_, exists := service.broadcasters.Load(int64(1))
-	require.False(t, exists)
-	_, open := <-updates
-	require.False(t, open)
-}
-
 func TestTelemetryService_StopDrainsInFlightRefreshBeforeRestart(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
@@ -1893,61 +1872,6 @@ func TestStatusWriterRoutine_BatchFlushesOnInterval(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("status writer did not flush on interval")
 	}
-	cancel()
-	time.Sleep(50 * time.Millisecond)
-}
-
-func TestStatusWriterRoutine_BroadcastsStatusChanges(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	// Arrange
-	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
-	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
-	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
-	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
-
-	deviceID := models.DeviceIdentifier("test-device-1")
-
-	mockMinerGetter.EXPECT().
-		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
-		Return(nil, errors.New("metrics observer stub")).
-		AnyTimes()
-
-	mockDeviceStore.EXPECT().
-		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), gomock.Any()).
-		Return(map[models.DeviceIdentifier]mm.MinerStatus{}, nil).
-		AnyTimes()
-
-	mockDeviceStore.EXPECT().
-		UpsertDeviceStatuses(gomock.Any(), gomock.Any()).
-		Return(nil).
-		AnyTimes()
-
-	config := Config{
-		StalenessThreshold:  1 * time.Minute,
-		FetchInterval:       10 * time.Second,
-		ConcurrencyLimit:    5,
-		StatusFlushInterval: 50 * time.Millisecond,
-	}
-
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
-
-	// Pre-populate in-memory state with OFFLINE so change to ACTIVE triggers broadcast
-	service.lastKnownStatuses.Store(deviceID, mm.MinerStatusOffline)
-
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-
-	// Act
-	go service.statusWriterRoutine(ctx, telemetryActivationForTest(service))
-	telemetryActivationForTest(service).results.status <- statusResult{
-		deviceIdentifier: deviceID,
-		status:           mm.MinerStatusActive,
-	}
-
-	// Assert - wait for flush interval to trigger broadcast
-	time.Sleep(100 * time.Millisecond)
 	cancel()
 	time.Sleep(50 * time.Millisecond)
 }

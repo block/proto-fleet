@@ -34,7 +34,7 @@ The telemetry system uses a producer-consumer pattern with three main components
 	│ statusWriterRoutine │ (consumer)
 	│ - Batches updates   │
 	│ - Writes to DB      │
-	│ - Broadcasts changes│
+	│ - Updates status    │
 	└─────────────────────┘
 
 # Component Details
@@ -53,8 +53,8 @@ simple and stateless - no batching logic.
 statusWriterRoutine: A single goroutine that collects status updates from
 all workers and batches them for efficient DB writes. It flushes on a
 configurable interval (StatusFlushInterval) or when the context is
-cancelled. After writing, it broadcasts status changes to connected
-clients using in-memory state for change detection.
+cancelled. After writing, it updates the in-memory status cache used by
+the recovery polling loop.
 
 statusPollingRoutine: A separate routine that periodically checks failed
 devices (those removed from the main scheduler after too many failures).
@@ -98,12 +98,11 @@ import (
 
 const (
 	// Default intervals
-	defaultStatusUpdateInterval    = 1 * time.Second
-	defaultFetchInterval           = 5 * time.Second
-	defaultDevicePollInterval      = 10 * time.Minute
-	defaultHeartbeatInterval       = 30 * time.Second
-	defaultBroadcasterPollInterval = 5 * time.Second
-	defaultStatusPollingInterval   = 10 * time.Second
+	defaultStatusUpdateInterval  = 1 * time.Second
+	defaultFetchInterval         = 5 * time.Second
+	defaultDevicePollInterval    = 10 * time.Minute
+	defaultHeartbeatInterval     = 30 * time.Second
+	defaultStatusPollingInterval = 10 * time.Second
 
 	// Channel buffer sizes - prevent blocking on temporary consumer delays while limiting memory.
 
@@ -114,10 +113,6 @@ const (
 	// statusUpdateChannelBuffer: miner state count updates for streaming.
 	// Provides buffer for consumer processing delays at the configured update interval.
 	statusUpdateChannelBuffer = 100
-
-	// subscriberChannelBuffer: telemetry updates per subscriber.
-	// Allows asynchronous processing without dropping updates during brief delays.
-	subscriberChannelBuffer = 100
 
 	// resultsChannelBuffer: status results from workers before batch DB writes.
 	// Larger than others because all workers (ConcurrencyLimit) write here concurrently,
@@ -321,10 +316,8 @@ type TelemetryService struct {
 	// This ensures failed devices (removed from scheduler after MaxConsecutiveFailures)
 	// continue to be polled for status so they can recover when they come back online.
 	devicesForStatusPolling sync.Map
-	broadcasters            sync.Map // map[int64]*TelemetryBroadcaster - keyed by orgID
 	// lastKnownStatuses tracks the most recent status written to DB for each device.
-	// Used for change detection when broadcasting status updates. Using in-memory state
-	// avoids a race condition between reading old statuses and writing new ones.
+	// Used by status polling to avoid re-polling healthy devices.
 	lastKnownStatuses sync.Map // map[DeviceIdentifier]MinerStatus
 	lastKnownFirmware sync.Map // map[DeviceIdentifier]string
 	// lastDefaultPwActive caches the last-seen default-password flag per device so
@@ -555,40 +548,6 @@ func requestFlush(
 	case <-ctx.Done():
 		return fmt.Errorf("context cancelled waiting for %s flush: %w", kind, ctx.Err())
 	}
-}
-
-// GetOrCreateBroadcaster returns the broadcaster for an organization, creating it if needed
-func (s *TelemetryService) GetOrCreateBroadcaster(ctx context.Context, orgID int64) (*TelemetryBroadcaster, error) {
-	if val, ok := s.broadcasters.Load(orgID); ok {
-		broadcaster, ok := val.(*TelemetryBroadcaster)
-		if !ok {
-			return nil, fmt.Errorf("invalid broadcaster type for org %d", orgID)
-		}
-		return broadcaster, nil
-	}
-
-	pollInterval := defaultBroadcasterPollInterval
-	if s.config.FetchInterval > 0 {
-		pollInterval = s.config.FetchInterval
-	}
-
-	broadcaster := NewTelemetryBroadcaster(orgID, s.telemetryDataStore, pollInterval)
-
-	actual, loaded := s.broadcasters.LoadOrStore(orgID, broadcaster)
-	if loaded {
-		actualBroadcaster, ok := actual.(*TelemetryBroadcaster)
-		if !ok {
-			return nil, fmt.Errorf("invalid broadcaster type for org %d", orgID)
-		}
-		return actualBroadcaster, nil
-	}
-
-	if err := broadcaster.Start(ctx); err != nil {
-		s.broadcasters.Delete(orgID)
-		return nil, fmt.Errorf("failed to start broadcaster for org %d: %w", orgID, err)
-	}
-
-	return broadcaster, nil
 }
 
 func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, tasks chan<- models.Device) {
@@ -1099,23 +1058,8 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context, activation *
 		}
 
 		if upsertOK {
-			// Broadcast status changes using in-memory state for change detection.
 			for _, u := range statusUpdates {
-				oldStatus, hadOldStatus := s.lastKnownStatuses.Load(u.DeviceIdentifier)
-				oldStatusTyped, validType := oldStatus.(mm.MinerStatus)
-				statusChanged := !hadOldStatus || !validType || oldStatusTyped != u.Status
-
-				if statusChanged {
-					// Store BEFORE broadcasting to ensure in-memory state is current
-					// before any broadcast handlers execute.
-					s.lastKnownStatuses.Store(u.DeviceIdentifier, u.Status)
-					s.broadcasters.Range(func(_, value any) bool {
-						if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
-							broadcaster.PublishStatusChange(u.DeviceIdentifier, u.Status)
-						}
-						return true
-					})
-				}
+				s.lastKnownStatuses.Store(u.DeviceIdentifier, u.Status)
 			}
 		}
 
@@ -2018,28 +1962,6 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 	case <-ctx.Done():
 		return fmt.Errorf("context cancelled: %w", ctx.Err())
 	}
-}
-
-// SubscribeToTelemetryUpdates subscribes to raw telemetry updates for an organization
-// This allows consumers to receive telemetry events without the conversion to protobuf responses
-// eventTypes filters which event types to receive (empty means all types)
-func (s *TelemetryService) SubscribeToTelemetryUpdates(ctx context.Context, orgID int64, deviceIDs []string, eventTypes []models.UpdateType) (<-chan models.TelemetryUpdate, func(), error) {
-	broadcaster, err := s.GetOrCreateBroadcaster(ctx, orgID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get broadcaster: %w", err)
-	}
-
-	updateChan, unsubscribe, err := broadcaster.Subscribe(ctx, SubscriptionConfig{
-		DeviceIDs:        models.ToDeviceIdentifiers(deviceIDs),
-		MeasurementTypes: nil,
-		EventTypes:       eventTypes,
-		BufferSize:       subscriberChannelBuffer,
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to subscribe to broadcaster: %w", err)
-	}
-
-	return updateChan, unsubscribe, nil
 }
 
 // GetLatestDeviceMetrics retrieves the latest telemetry metrics for a batch of devices.

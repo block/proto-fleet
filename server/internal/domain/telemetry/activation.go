@@ -204,18 +204,3 @@ func (s *TelemetryService) Stop(ctx context.Context) error {
 		return fmt.Errorf("stop telemetry service: %w", ctx.Err())
 	}
 }
-
-// Close stops polling and closes per-organization broadcasters during process
-// teardown. Runtime demotion should call Stop so read-only streams can remain
-// independent of the active polling lifecycle.
-func (s *TelemetryService) Close(ctx context.Context) error {
-	stopErr := s.Stop(ctx)
-	s.broadcasters.Range(func(key, value any) bool {
-		if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
-			broadcaster.Stop()
-		}
-		s.broadcasters.Delete(key)
-		return true
-	})
-	return stopErr
-}
