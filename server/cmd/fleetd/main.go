@@ -421,14 +421,9 @@ func start(config *Config) error {
 		return fmt.Errorf("failed to start telemetry service: %w", err)
 	}
 
-	// Ensure telemetry service cleanup on shutdown
+	// Ensure telemetry service cleanup on shutdown.
 	defer func() {
-		slog.Info("Stopping telemetry service")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
-		if err := telemetryService.Stop(shutdownCtx); err != nil {
-			slog.Error("Failed to stop telemetry service", "error", err)
-		}
+		stopStandaloneJob("telemetry service", telemetryService)
 	}()
 
 	pluginPairer := plugins.NewPairer(pluginManager, transactor, discoveredDeviceStore, deviceStore, encryptSvc)
@@ -654,8 +649,9 @@ func start(config *Config) error {
 	// fleet-api owns org channel storage + delivery; Grafana keeps only rule evaluation,
 	// silences (rule pause / maintenance windows), and the internal history webhook.
 	alertChannelStore := sqlstores.NewSQLAlertChannelStore(conn)
-	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
-	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
+	alertRouteStore := sqlstores.NewSQLAlertRouteStore(conn)
+	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, alertRouteStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
+	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),

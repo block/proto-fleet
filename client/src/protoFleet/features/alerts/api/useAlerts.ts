@@ -6,6 +6,7 @@ import type {
   MaintenanceWindowWithActive,
   Rule,
   RuleConfig,
+  RuleRouting,
 } from "@/protoFleet/features/alerts/types";
 
 // `now` is injectable so callers can recompute against a ticking clock at render time instead of trusting the load-time snapshot.
@@ -35,9 +36,10 @@ export interface UseAlertsResult {
   refresh: () => Promise<void>;
   pauseRule: (id: string) => Promise<void>;
   resumeRule: (id: string) => Promise<void>;
-  createRule: (config: RuleConfig) => Promise<Rule>;
+  createRule: (config: RuleConfig, routing?: RuleRouting) => Promise<Rule>;
   updateRule: (id: string, config: RuleConfig) => Promise<Rule>;
   removeRule: (id: string) => Promise<void>;
+  setRuleRouting: (id: string, routing: RuleRouting) => Promise<Rule>;
   createMaintenanceWindow: (input: api.MaintenanceWindowMutationInput) => Promise<MaintenanceWindow>;
   updateMaintenanceWindow: (input: api.MaintenanceWindowMutationInput & { id: string }) => Promise<MaintenanceWindow>;
   removeMaintenanceWindow: (id: string) => Promise<void>;
@@ -68,7 +70,13 @@ export function useAlerts(): UseAlertsResult {
 
   const upsertRule = useCallback((updated: Rule) => {
     if (deletedIdsRef.current.has(updated.id)) return;
-    setRules((current) => upsertById(current, updated));
+    setRules((current) => {
+      // Null routing means the server couldn't read it; keep the last-known value so a route-read outage can't repaint a routed rule as default.
+      const next = updated.routing
+        ? updated
+        : { ...updated, routing: current.find((r) => r.id === updated.id)?.routing ?? null };
+      return upsertById(current, next);
+    });
   }, []);
 
   const refresh = useCallback(async () => {
@@ -104,8 +112,8 @@ export function useAlerts(): UseAlertsResult {
   );
 
   const createRule = useCallback(
-    async (config: RuleConfig) => {
-      const created = await api.createRule(config);
+    async (config: RuleConfig, routing?: RuleRouting) => {
+      const created = await api.createRule(config, routing);
       noteMutation();
       upsertRule(created);
       return created;
@@ -116,6 +124,16 @@ export function useAlerts(): UseAlertsResult {
   const updateRule = useCallback(
     async (id: string, config: RuleConfig) => {
       const updated = await api.updateRule(id, config);
+      noteMutation();
+      upsertRule(updated);
+      return updated;
+    },
+    [noteMutation, upsertRule],
+  );
+
+  const setRuleRouting = useCallback(
+    async (id: string, routing: RuleRouting) => {
+      const updated = await api.setRuleRouting(id, routing);
       noteMutation();
       upsertRule(updated);
       return updated;
@@ -185,6 +203,7 @@ export function useAlerts(): UseAlertsResult {
       createRule,
       updateRule,
       removeRule,
+      setRuleRouting,
       createMaintenanceWindow,
       updateMaintenanceWindow,
       removeMaintenanceWindow,
@@ -199,6 +218,7 @@ export function useAlerts(): UseAlertsResult {
       createRule,
       updateRule,
       removeRule,
+      setRuleRouting,
       createMaintenanceWindow,
       updateMaintenanceWindow,
       removeMaintenanceWindow,

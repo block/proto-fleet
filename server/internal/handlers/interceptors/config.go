@@ -149,6 +149,7 @@ var SessionOnlyProcedures = []string{
 	alertsv1connect.RuleServiceCreateRuleProcedure,
 	alertsv1connect.RuleServiceUpdateRuleProcedure,
 	alertsv1connect.RuleServiceDeleteRuleProcedure,
+	alertsv1connect.RuleServiceSetRuleRoutingProcedure,
 	alertsv1connect.MaintenanceWindowServiceListMaintenanceWindowsProcedure,
 	alertsv1connect.MaintenanceWindowServiceCreateMaintenanceWindowProcedure,
 	alertsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure,

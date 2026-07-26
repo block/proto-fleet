@@ -29,6 +29,10 @@ import (
 // or diagnostics side effects beyond what it explicitly expects.
 type samplingHarness struct {
 	service     *TelemetryService
+	activation  *telemetryActivation
+	runContext  func() context.Context
+	cancel      context.CancelFunc
+	stopOnce    sync.Once
 	minerGetter *mock.MockCachedMinerGetter
 	miner       *minerMocks.MockMiner
 	scheduler   *mock.MockUpdateScheduler
@@ -51,10 +55,23 @@ func newSamplingHarness(t *testing.T, config Config) *samplingHarness {
 		errorPoller: mock.NewMockErrorPoller(ctrl),
 	}
 	h.service = NewTelemetryService(config, h.dataStore, h.minerGetter, h.scheduler, h.deviceStore, h.errorPoller)
+	runCtx, cancel := context.WithCancel(context.Background())
+	h.runContext = func() context.Context { return runCtx }
+	h.cancel = cancel
+	h.activation = markTelemetryServiceActiveForTest(h.service, runCtx)
+	t.Cleanup(h.stop)
 	h.miner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
 	h.miner.EXPECT().GetSiteID().Return(int64(1)).AnyTimes()
 	h.miner.EXPECT().GetDriverName().Return("test-driver").AnyTimes()
 	return h
+}
+
+func (h *samplingHarness) stop() {
+	h.stopOnce.Do(func() {
+		h.cancel()
+		h.activation.producerWG.Wait()
+		h.service.finishActivation(h.activation)
+	})
 }
 
 func samplingTestConfig() Config {
@@ -69,11 +86,17 @@ func samplingTestConfig() Config {
 // startWorkers runs n shared pool workers until the test ends.
 func (h *samplingHarness) startWorkers(t *testing.T, n int) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
 	for range n {
-		go h.service.worker(ctx)
+		h.activation.producerWG.Go(func() {
+			h.service.worker(h.runContext(), h.activation)
+		})
 	}
+}
+
+func (h *samplingHarness) startWriters() {
+	writerCtx := h.activation.writerContext(h.runContext())
+	h.activation.background.Go(func() { h.service.statusWriterRoutine(writerCtx, h.activation) })
+	h.activation.background.Go(func() { h.service.metricsWriterRoutine(writerCtx, h.activation) })
 }
 
 func sampleMetricsFixture(deviceID models.DeviceIdentifier, powerW float64) modelsV2.DeviceMetrics {
@@ -92,6 +115,208 @@ func requireEventuallyReleased(t *testing.T, service *TelemetryService, deviceID
 		_, held := service.inFlight.Load(deviceID)
 		return !held
 	}, 2*time.Second, 5*time.Millisecond, "in-flight claim for %s was not released", deviceID)
+}
+
+func requireQueuedSampleTask(t *testing.T, activation *telemetryActivation) sampleTask {
+	t.Helper()
+	select {
+	case task := <-activation.sampleTasks:
+		activation.sampleTasks <- task
+		return task
+	case <-time.After(time.Second):
+		t.Fatal("sample was not queued")
+		return sampleTask{}
+	}
+}
+
+func TestSampleDeviceMetrics_InactiveReturnsPerDeviceErrorsWithoutAdmission(t *testing.T) {
+	h := newSamplingHarness(t, samplingTestConfig())
+	h.service.lifecycleMu.Lock()
+	h.service.activation = nil
+	h.service.lifecycleMu.Unlock()
+
+	deviceIDs := []models.DeviceIdentifier{"inactive-1", "inactive-2"}
+	results := h.service.SampleDeviceMetrics(t.Context(), []SampleRequest{
+		{DeviceID: deviceIDs[0]},
+		{DeviceID: deviceIDs[1]},
+	})
+
+	require.Len(t, results, len(deviceIDs))
+	for i, result := range results {
+		assert.Equal(t, deviceIDs[i], result.DeviceID)
+		require.ErrorIs(t, result.Err, errTelemetryServiceInactive)
+		_, claimed := h.service.inFlight.Load(deviceIDs[i])
+		assert.False(t, claimed)
+	}
+	assert.Empty(t, h.activation.sampleTasks)
+}
+
+func TestSampleDeviceMetrics_ActivationShutdownReleasesQueuedSample(t *testing.T) {
+	h := newSamplingHarness(t, samplingTestConfig())
+	deviceID := models.DeviceIdentifier("queued-sample")
+	sampleDone := make(chan SampleResult, 1)
+	go func() {
+		sampleDone <- h.service.SampleDeviceMetrics(context.Background(), []SampleRequest{{DeviceID: deviceID}})[0]
+	}()
+
+	queuedTask := requireQueuedSampleTask(t, h.activation)
+	assert.Equal(t, deviceID, queuedTask.deviceID)
+	value, claimed := h.service.inFlight.Load(deviceID)
+	require.True(t, claimed)
+	entry, ok := value.(*inFlightEntry)
+	require.True(t, ok)
+	assert.Equal(t, inFlightKindSample, entry.kind)
+
+	h.stop()
+
+	result := <-sampleDone
+	require.ErrorIs(t, result.Err, errTelemetryServiceInactive)
+	_, claimed = h.service.inFlight.Load(deviceID)
+	assert.False(t, claimed)
+	assert.Empty(t, h.activation.sampleTasks)
+	select {
+	case <-entry.metricsReady:
+	default:
+		t.Fatal("shutdown did not release the queued sample waiter")
+	}
+	select {
+	case <-entry.claimDone:
+	default:
+		t.Fatal("shutdown did not release the queued sample claim")
+	}
+}
+
+func TestSampleDeviceMetrics_RestartDoesNotExecuteOldActivationSample(t *testing.T) {
+	h := newSamplingHarness(t, samplingTestConfig())
+	deviceID := models.DeviceIdentifier("restart-sample")
+	metrics := sampleMetricsFixture(deviceID, 3200)
+	h.minerGetter.EXPECT().GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).Return(h.miner, nil).Times(1)
+	h.miner.EXPECT().GetDeviceMetrics(gomock.Any()).Return(metrics, nil).Times(1)
+
+	oldActivation := h.activation
+	oldSampleDone := make(chan SampleResult, 1)
+	go func() {
+		oldSampleDone <- h.service.SampleDeviceMetrics(context.Background(), []SampleRequest{{DeviceID: deviceID}})[0]
+	}()
+	queuedTask := requireQueuedSampleTask(t, oldActivation)
+	assert.Equal(t, deviceID, queuedTask.deviceID)
+
+	h.stop()
+	require.ErrorIs(t, (<-oldSampleDone).Err, errTelemetryServiceInactive)
+	assert.Empty(t, oldActivation.sampleTasks)
+
+	restartCtx, cancelRestart := context.WithCancel(context.Background())
+	newActivation := markTelemetryServiceActiveForTest(h.service, restartCtx)
+	newActivation.producerWG.Go(func() {
+		h.service.worker(restartCtx, newActivation)
+	})
+	t.Cleanup(func() {
+		cancelRestart()
+		newActivation.producerWG.Wait()
+		h.service.finishActivation(newActivation)
+	})
+
+	result := h.service.SampleDeviceMetrics(t.Context(), []SampleRequest{{DeviceID: deviceID}})
+	require.Len(t, result, 1)
+	require.NoError(t, result[0].Err)
+	assert.Equal(t, SampleSourceDirect, result[0].Source)
+	assert.Equal(t, metrics, result[0].Metrics)
+	assert.NotEqual(t, oldActivation.sampleTasks, newActivation.sampleTasks)
+}
+
+// This lifecycle-level regression uses the public Start/Stop API. A sample
+// retained by one activation must not be reusable after the service restarts.
+func TestSampleDeviceMetrics_RetainedSampleClearedAcrossStartStopRestart(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	dataStore := mock.NewMockTelemetryDataStore(ctrl)
+	minerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	miner := minerMocks.NewMockMiner(ctrl)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	deviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	// Keep Start's unrelated background routines quiet while exercising the
+	// real lifecycle, matching the setup used by the service restart tests.
+	scheduler.EXPECT().FetchDevices(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).Return(nil, nil).AnyTimes()
+	dataStore.EXPECT().InsertMinerStateSnapshot(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	deviceID := models.DeviceIdentifier("retained-across-restart")
+	firstMetrics := sampleMetricsFixture(deviceID, 3200)
+	secondMetrics := sampleMetricsFixture(deviceID, 60)
+	gomock.InOrder(
+		minerGetter.EXPECT().GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).Return(miner, nil),
+		minerGetter.EXPECT().GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).Return(miner, nil),
+	)
+	gomock.InOrder(
+		miner.EXPECT().GetDeviceMetrics(gomock.Any()).Return(firstMetrics, nil),
+		miner.EXPECT().GetDeviceMetrics(gomock.Any()).Return(secondMetrics, nil),
+	)
+	miner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
+	miner.EXPECT().GetSiteID().Return(int64(1)).AnyTimes()
+	miner.EXPECT().GetDriverName().Return("test-driver").AnyTimes()
+
+	service := NewTelemetryService(Config{
+		StalenessThreshold:       time.Minute,
+		FetchInterval:            time.Hour,
+		ConcurrencyLimit:         2,
+		MetricTimeout:            time.Second,
+		DevicePollInterval:       time.Hour,
+		DeviceStatusPollInterval: time.Hour,
+		StateSnapshotInterval:    time.Hour,
+		StatusFlushInterval:      time.Hour,
+	}, dataStore, minerGetter, scheduler, deviceStore, mock.NewMockErrorPoller(ctrl))
+	t.Cleanup(func() {
+		stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = service.Stop(stopCtx)
+	})
+
+	require.NoError(t, service.Start(t.Context()))
+	first := service.SampleDeviceMetrics(t.Context(), []SampleRequest{{DeviceID: deviceID}})
+	require.Len(t, first, 1)
+	require.NoError(t, first[0].Err)
+	assert.Equal(t, SampleSourceDirect, first[0].Source)
+	assert.Equal(t, firstMetrics, first[0].Metrics)
+	_, retained := service.retainedSamples.Load(deviceID)
+	require.True(t, retained)
+
+	require.NoError(t, service.Stop(t.Context()))
+	_, retained = service.retainedSamples.Load(deviceID)
+	assert.False(t, retained, "stopped activation must clear retained samples")
+
+	require.NoError(t, service.Start(t.Context()))
+	second := service.SampleDeviceMetrics(t.Context(), []SampleRequest{{DeviceID: deviceID}})
+	require.Len(t, second, 1)
+	require.NoError(t, second[0].Err)
+	assert.Equal(t, SampleSourceDirect, second[0].Source)
+	assert.Equal(t, secondMetrics, second[0].Metrics)
+	require.NoError(t, service.Stop(t.Context()))
+}
+
+func TestPublishFlightSample_DoesNotPublishIntoReplacementClaim(t *testing.T) {
+	service := &TelemetryService{}
+	deviceID := models.DeviceIdentifier("replacement-claim")
+	claimA := newInFlightEntry(inFlightKindFullTelemetry)
+	claimB := newInFlightEntry(inFlightKindFullTelemetry)
+	service.inFlight.Store(deviceID, claimA)
+	service.inFlight.Store(deviceID, claimB)
+
+	service.publishFlightSample(deviceID, claimA, &deviceResult{
+		metrics: sampleMetricsFixture(deviceID, 3200),
+	}, nil)
+
+	select {
+	case <-claimA.metricsReady:
+		t.Fatal("superseded claim A received a sample")
+	default:
+	}
+	select {
+	case <-claimB.metricsReady:
+		t.Fatal("replacement claim B received claim A's sample")
+	default:
+	}
+	_, retained := service.retainedSamples.Load(deviceID)
+	assert.False(t, retained, "claim A's sample must not be retained after claim B replaces it")
 }
 
 // A qualifying recently completed sample is reused without a second device call.
@@ -119,6 +344,35 @@ func TestSampleDeviceMetrics_ReusesFreshSample(t *testing.T) {
 	assert.Equal(t, SampleSourceReused, second[0].Source)
 	assert.Equal(t, first[0].Metrics, second[0].Metrics)
 	assert.Equal(t, first[0].FlightStart, second[0].FlightStart)
+}
+
+func TestSampleDeviceMetrics_ExpiredRetainedSampleTriggersFreshDirectRead(t *testing.T) {
+	h := newSamplingHarness(t, samplingTestConfig())
+	h.startWorkers(t, 1)
+	deviceID := models.DeviceIdentifier("expired-retained-device")
+	expired := &retainedSample{
+		metrics:     sampleMetricsFixture(deviceID, 3200),
+		flightStart: time.Now().Add(-sampleReuseWindow),
+		completedAt: time.Now().Add(-sampleReuseWindow - time.Second),
+	}
+	h.service.retainedSamples.Store(deviceID, expired)
+
+	freshMetrics := sampleMetricsFixture(deviceID, 60)
+	h.minerGetter.EXPECT().GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).Return(h.miner, nil).Times(1)
+	h.miner.EXPECT().GetDeviceMetrics(gomock.Any()).Return(freshMetrics, nil).Times(1)
+
+	results := h.service.SampleDeviceMetrics(t.Context(), []SampleRequest{{DeviceID: deviceID}})
+	require.Len(t, results, 1)
+	require.NoError(t, results[0].Err)
+	assert.Equal(t, SampleSourceDirect, results[0].Source)
+	assert.Equal(t, freshMetrics, results[0].Metrics)
+
+	value, retained := h.service.retainedSamples.Load(deviceID)
+	require.True(t, retained)
+	assert.NotSame(t, expired, value, "the expired identity must not remain retained")
+	fresh, ok := value.(*retainedSample)
+	require.True(t, ok)
+	assert.Equal(t, freshMetrics, fresh.metrics)
 }
 
 // A flight (and retained sample) that started before the caller's bound can
@@ -205,7 +459,7 @@ func TestSampleDeviceMetrics_JoinsScheduledPollBeforeSideEffects(t *testing.T) {
 		return diagnostics.PollResult{}
 	}).Times(1)
 
-	h.service.tasks <- device // scheduled full poll claims the flight
+	h.activation.tasks <- device // scheduled full poll claims the flight
 	<-fetchStarted
 
 	joinDone := make(chan SampleResult, 1)
@@ -228,7 +482,7 @@ func TestSampleDeviceMetrics_JoinsScheduledPollBeforeSideEffects(t *testing.T) {
 
 	// Drain the scheduled poll's queued writes so they are accounted for.
 	select {
-	case res := <-h.service.metricsResults:
+	case res := <-h.activation.results.metrics:
 		assert.Equal(t, string(deviceID), res.metrics.DeviceIdentifier)
 	case <-time.After(time.Second):
 		t.Fatal("scheduled poll never enqueued its metrics write")
@@ -360,8 +614,8 @@ func TestSampleDeviceMetrics_SharesConcurrencyLimitWithScheduledPolls(t *testing
 	h.errorPoller.EXPECT().PollErrors(gomock.Any(), h.miner).Return(diagnostics.PollResult{}).Times(2)
 
 	// Two scheduled polls plus four direct samples, all in flight together.
-	h.service.tasks <- models.Device{ID: deviceIDs[0]}
-	h.service.tasks <- models.Device{ID: deviceIDs[1]}
+	h.activation.tasks <- models.Device{ID: deviceIDs[0]}
+	h.activation.tasks <- models.Device{ID: deviceIDs[1]}
 	requests := make([]SampleRequest, 0, 4)
 	for _, id := range deviceIDs[2:] {
 		requests = append(requests, SampleRequest{DeviceID: id})
@@ -376,13 +630,64 @@ func TestSampleDeviceMetrics_SharesConcurrencyLimitWithScheduledPolls(t *testing
 	requireEventuallyReleased(t, h.service, deviceIDs[1])
 	for range 2 {
 		select {
-		case <-h.service.metricsResults:
+		case <-h.activation.results.metrics:
 		case <-time.After(time.Second):
 			t.Fatal("scheduled poll never enqueued its metrics write")
 		}
 	}
 	assert.LessOrEqual(t, peak.Load(), int64(config.ConcurrencyLimit),
 		"combined scheduled+sample fetch concurrency must respect ConcurrencyLimit")
+}
+
+// This deterministic admission test intentionally starts with no workers.
+// Separate concurrent SampleDeviceMetrics calls must share one activation-wide
+// half-pool reservation cap, rather than each admitting half the pool.
+func TestSampleDeviceMetrics_ActivationWideSlotCapAcrossConcurrentCalls(t *testing.T) {
+	config := samplingTestConfig()
+	config.ConcurrencyLimit = 4
+	h := newSamplingHarness(t, config)
+	deviceIDs := []models.DeviceIdentifier{"global-cap-1", "global-cap-2", "global-cap-3", "global-cap-4"}
+
+	for _, deviceID := range deviceIDs {
+		h.minerGetter.EXPECT().GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).Return(h.miner, nil).Times(1)
+	}
+	h.miner.EXPECT().
+		GetDeviceMetrics(gomock.Any()).
+		Return(modelsV2.DeviceMetrics{Health: modelsV2.HealthHealthyActive}, nil).
+		Times(len(deviceIDs))
+
+	results := make(chan SampleResult, len(deviceIDs))
+	for _, deviceID := range deviceIDs {
+		go func() {
+			results <- h.service.SampleDeviceMetrics(context.Background(), []SampleRequest{{DeviceID: deviceID}})[0]
+		}()
+	}
+
+	claimCount := func() int {
+		count := 0
+		h.service.inFlight.Range(func(_, _ any) bool {
+			count++
+			return true
+		})
+		return count
+	}
+	slotCap := config.ConcurrencyLimit / 2
+	require.Equal(t, slotCap, cap(h.activation.sampleSlots))
+	require.Eventually(t, func() bool {
+		return len(h.activation.sampleSlots) == slotCap &&
+			len(h.activation.sampleTasks) == slotCap &&
+			claimCount() == slotCap
+	}, time.Second, time.Millisecond)
+
+	h.startWorkers(t, config.ConcurrencyLimit)
+	for range deviceIDs {
+		result := <-results
+		require.NoError(t, result.Err)
+		assert.Equal(t, SampleSourceDirect, result.Source)
+	}
+	require.Eventually(t, func() bool {
+		return len(h.activation.sampleSlots) == 0 && claimCount() == 0
+	}, time.Second, time.Millisecond)
 }
 
 // Failed devices in a batch never invalidate their successful siblings.
@@ -438,6 +743,41 @@ func TestSampleDeviceMetrics_TimeoutReleasesWaiterAndClaim(t *testing.T) {
 	requireEventuallyReleased(t, h.service, deviceID)
 }
 
+// This deterministic queue-unit test starts without workers so the caller's
+// operation expires while its admitted task is still queued. A later worker
+// must skip the abandoned RPC and release both admission resources.
+func TestSampleDeviceMetrics_QueuedTimeoutIsSkippedAndReleasesClaimAndSlot(t *testing.T) {
+	config := samplingTestConfig()
+	config.MetricTimeout = 40 * time.Millisecond
+	h := newSamplingHarness(t, config)
+	deviceID := models.DeviceIdentifier("queued-timeout-device")
+
+	sampleDone := make(chan SampleResult, 1)
+	go func() {
+		sampleDone <- h.service.SampleDeviceMetrics(context.Background(), []SampleRequest{{DeviceID: deviceID}})[0]
+	}()
+
+	task := requireQueuedSampleTask(t, h.activation)
+	assert.Equal(t, deviceID, task.deviceID)
+	result := <-sampleDone
+	require.ErrorIs(t, result.Err, context.DeadlineExceeded)
+	select {
+	case <-task.done:
+	default:
+		t.Fatal("queued task did not retain the caller operation's done signal")
+	}
+	_, claimed := h.service.inFlight.Load(deviceID)
+	require.True(t, claimed, "queued task owns the claim until a worker drains it")
+	require.Len(t, h.activation.sampleSlots, 1, "queued task owns one activation-wide slot")
+
+	// Strict mocks have no miner expectations: any RPC would fail the test.
+	h.startWorkers(t, 1)
+	require.Eventually(t, func() bool {
+		_, claimed := h.service.inFlight.Load(deviceID)
+		return !claimed && len(h.activation.sampleSlots) == 0 && len(h.activation.sampleTasks) == 0
+	}, time.Second, time.Millisecond)
+}
+
 // A cancelled caller context fails fast and leaves no claim behind.
 func TestSampleDeviceMetrics_CancelledContextReleasesClaim(t *testing.T) {
 	h := newSamplingHarness(t, samplingTestConfig())
@@ -471,12 +811,12 @@ func TestSampleDeviceMetrics_DirectReadHasNoSideEffects(t *testing.T) {
 	requireEventuallyReleased(t, h.service, deviceID)
 
 	select {
-	case res := <-h.service.metricsResults:
+	case res := <-h.activation.results.metrics:
 		t.Fatalf("direct sampling enqueued a metrics write: %+v", res)
 	default:
 	}
 	select {
-	case res := <-h.service.statusResults:
+	case res := <-h.activation.results.status:
 		t.Fatalf("direct sampling enqueued a status write: %+v", res)
 	default:
 	}
@@ -522,8 +862,8 @@ func TestSampleDeviceMetrics_RaceWithScheduledAndRefresh(t *testing.T) {
 			select {
 			case <-drainCtx.Done():
 				return
-			case <-h.service.metricsResults:
-			case <-h.service.statusResults:
+			case <-h.activation.results.metrics:
+			case <-h.activation.results.status:
 			}
 		}
 	}()
@@ -543,7 +883,7 @@ func TestSampleDeviceMetrics_RaceWithScheduledAndRefresh(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for range 10 {
-			h.service.tasks <- models.Device{ID: deviceID}
+			h.activation.tasks <- models.Device{ID: deviceID}
 			time.Sleep(time.Millisecond)
 		}
 	}()
@@ -574,10 +914,7 @@ func TestSampleDeviceMetrics_ReusesSampleRetainedByRefreshDevice(t *testing.T) {
 		Return(map[models.DeviceIdentifier]mm.MinerStatus{}, nil).
 		Times(1)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go h.service.statusWriterRoutine(ctx)
-	go h.service.metricsWriterRoutine(ctx)
+	h.startWriters()
 
 	h.dataStore.EXPECT().StoreDeviceMetrics(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 	h.deviceStore.EXPECT().
@@ -586,7 +923,7 @@ func TestSampleDeviceMetrics_ReusesSampleRetainedByRefreshDevice(t *testing.T) {
 		Times(1)
 
 	bound := time.Now()
-	require.NoError(t, h.service.RefreshDevice(ctx, models.Device{ID: deviceID}))
+	require.NoError(t, h.service.RefreshDevice(h.runContext(), models.Device{ID: deviceID}))
 	requireEventuallyReleased(t, h.service, deviceID)
 
 	// The refresh's flight started after bound, so the retained sample must
@@ -632,7 +969,7 @@ func TestSampleDeviceMetrics_JoinsScheduledPollErrorBeforeSideEffects(t *testing
 	h.deviceStore.EXPECT().GetDeviceOrgDriverAndSite(gomock.Any(), deviceID).Return(int64(0), "", int64(0), nil).Times(1)
 	h.scheduler.EXPECT().AddDevices(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 
-	h.service.tasks <- device // scheduled full poll claims the flight
+	h.activation.tasks <- device // scheduled full poll claims the flight
 	<-fetchStarted
 
 	joinDone := make(chan SampleResult, 1)

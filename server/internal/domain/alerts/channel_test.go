@@ -109,7 +109,7 @@ func newChannelService(t *testing.T) (*Service, *fakeChannelStore, *stubTester) 
 	t.Helper()
 	store := newFakeChannelStore()
 	tester := &stubTester{ok: true}
-	svc := NewService(nil, store, testCipher(t), tester, DestinationPolicy{AllowPrivateDestinations: true})
+	svc := NewService(nil, store, nil, testCipher(t), tester, DestinationPolicy{AllowPrivateDestinations: true})
 	return svc, store, tester
 }
 

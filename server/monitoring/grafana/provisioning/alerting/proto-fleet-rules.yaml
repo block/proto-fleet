@@ -41,6 +41,8 @@ groups:
         execErrState: Error
         for: 5m
         labels:
+          # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
+          proto_fleet_rule_uid: protofleet-device-offline
           # Shared default rule: proto_fleet_scope=shared makes it visible to every org
           # (ruleVisibleToOrg fails closed without it). A pause is still org-scoped, so one
           # org pausing it never affects another.
@@ -89,6 +91,8 @@ groups:
         # Longer than offline's 5m: hashrate dips transiently on pool reconnects and board resets, so a wider window avoids flapping.
         for: 10m
         labels:
+          # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
+          proto_fleet_rule_uid: protofleet-device-hashrate-low
           # proto_fleet_scope=shared makes the rule visible to every org; a pause stays org-scoped so one org never affects another.
           proto_fleet_scope: shared
           severity: warning
@@ -146,6 +150,8 @@ groups:
         execErrState: Error
         for: 10m
         labels:
+          # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
+          proto_fleet_rule_uid: protofleet-device-temperature-high
           # Shared default rule: proto_fleet_scope=shared makes it visible to every org
           # (ruleVisibleToOrg fails closed without it). A pause is still org-scoped, so one
           # org pausing it never affects another.
@@ -198,6 +204,8 @@ groups:
         execErrState: Error
         for: 10m
         labels:
+          # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
+          proto_fleet_rule_uid: protofleet-telemetry-poll-failure-rate
           # Shared default rule: proto_fleet_scope=shared makes it visible to every org
           # (ruleVisibleToOrg fails closed without it). A pause is still org-scoped, so one
           # org pausing it never affects another.
@@ -258,6 +266,8 @@ groups:
         # resolved notification then marks miners restored.
         for: 0s
         labels:
+          # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
+          proto_fleet_rule_uid: protofleet-mqtt-curtailment-active
           # Shared default rule: proto_fleet_scope=shared makes it visible to every org
           # (ruleVisibleToOrg fails closed without it). A pause is still org-scoped, so one
           # org pausing it never affects another.
@@ -312,6 +322,8 @@ groups:
         # the watchdog curtails miners as soon as the source goes silent.
         for: 30s
         labels:
+          # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
+          proto_fleet_rule_uid: protofleet-mqtt-source-disconnected
           # Shared default rule: proto_fleet_scope=shared makes it visible to every org
           # (ruleVisibleToOrg fails closed without it). A pause is still org-scoped, so one
           # org pausing it never affects another.
@@ -376,6 +388,8 @@ groups:
         execErrState: Error
         for: 0s
         labels:
+          # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
+          proto_fleet_rule_uid: protofleet-curtailment-fan-restore-failed
           proto_fleet_scope: shared
           severity: critical
           rule_group: proto-fleet-curtailment
@@ -436,6 +450,8 @@ groups:
         execErrState: Error
         for: 5m
         labels:
+          # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
+          proto_fleet_rule_uid: protofleet-ingest-stalled
           # Operator-only, unlike the shared device rules above: this rule's
           # noDataState=Alerting path emits a single unscoped instance (no organization_id),
           # which an org-scoped pause/maintenance silence can never match. Exposing it per-org

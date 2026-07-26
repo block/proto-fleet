@@ -50,6 +50,7 @@ const (
 	labelSeverity       = "severity"
 	labelRuleGroup      = "rule_group"
 	labelTemplate       = "template"
+	labelRuleUID        = "proto_fleet_rule_uid"
 )
 
 const ruleGroupSelfMonitoring = "proto-fleet-self"
@@ -66,6 +67,8 @@ type alertmanagerAlert struct {
 	StartsAt    time.Time         `json:"startsAt"`
 	EndsAt      time.Time         `json:"endsAt"`
 	Fingerprint string            `json:"fingerprint"`
+	// Grafana's rule-view URL; delivery derives the producing rule's UID from it.
+	GeneratorURL string `json:"generatorURL"`
 }
 
 type OrgLister interface {
@@ -243,7 +246,17 @@ func (h *Handler) deliver(ctx context.Context, alerts []alertmanagerAlert) {
 	}()
 	out := make([]alertsdomain.Alert, 0, len(alerts))
 	for _, a := range alerts {
-		out = append(out, alertsdomain.Alert{Status: a.Status, Labels: a.Labels, Annotations: a.Annotations})
+		// The server-controlled label is the primary rule identity; generatorURL parsing covers rules compiled before the label existed.
+		ruleUID := a.Labels[labelRuleUID]
+		if ruleUID == "" {
+			ruleUID = alertsdomain.RuleUIDFromGeneratorURL(a.GeneratorURL)
+		}
+		out = append(out, alertsdomain.Alert{
+			Status:      a.Status,
+			Labels:      a.Labels,
+			Annotations: a.Annotations,
+			RuleUID:     ruleUID,
+		})
 	}
 	// Detach from request cancellation so a client disconnect can't abort in-flight sends partway;
 	// deliverTimeout still bounds the fan-out.

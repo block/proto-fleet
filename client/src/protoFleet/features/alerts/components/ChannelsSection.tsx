@@ -231,8 +231,8 @@ const ChannelsSection = () => {
         ) : null}
       </div>
       <p className="text-300 text-text-primary-50">
-        Webhook and Slack destinations for alert delivery. Saved channels are not yet attached to alert routing — "Test"
-        sends a synthetic alert directly to the destination, but live alerts won't deliver here until routing ships.
+        Webhook and Slack destinations for alert delivery. Every rule delivers to every channel unless it has custom
+        delivery set in the Rules section above. "Test" sends a synthetic alert directly to the destination.
       </p>
 
       <List<Channel, string, ChannelColumns>
