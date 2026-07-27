@@ -2,6 +2,12 @@ import { expect } from "@playwright/test";
 import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { BasePage } from "./base";
 
+type FirmwareUploadMetadata = {
+  manufacturer: string;
+  model: string;
+  firmwareVersion: string;
+};
+
 export class SettingsFirmwarePage extends BasePage {
   async validateFirmwarePageOpened() {
     await expect(this.page).toHaveURL(/.*\/settings\/firmware/);
@@ -16,9 +22,7 @@ export class SettingsFirmwarePage extends BasePage {
   async uploadFirmwareFile(
     fileName: string,
     fileContents: string,
-    manufacturer = "Proto",
-    model = "Rig",
-    firmwareVersion = "2.4.6",
+    { manufacturer, model, firmwareVersion }: FirmwareUploadMetadata,
   ) {
     const modal = this.page.getByTestId("modal");
     await modal.getByLabel("Manufacturer").click();
@@ -31,10 +35,8 @@ export class SettingsFirmwarePage extends BasePage {
       mimeType: "application/octet-stream",
       buffer: Buffer.from(fileContents),
     });
-  }
-
-  async clickDoneInUploadDialog() {
-    await this.clickIn("Done", "modal");
+    await modal.getByRole("button", { name: "Upload", exact: true }).click();
+    await expect(modal).toBeHidden();
   }
 
   async validateFirmwareFileVisible(fileName: string) {
