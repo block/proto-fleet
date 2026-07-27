@@ -651,7 +651,7 @@ func start(config *Config) error {
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
-		middleware.TelemetryMiddleware{},
+		middleware.TelemetryMiddleware{TrustIncomingTraces: config.FleetTelemetry.TrustIncomingTraces},
 	}
 
 	validateInterceptor := validate.NewInterceptor()
