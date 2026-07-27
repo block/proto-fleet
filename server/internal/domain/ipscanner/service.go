@@ -36,12 +36,12 @@ var _ runtimejobs.Lifecycle = (*Service)(nil)
 // serviceRun contains all state owned by a single activation. Keeping queues
 // here prevents stopped runs from leaking buffered work into a later Start.
 type serviceRun struct {
-	tasks    chan SubnetScanTask
-	results  chan SubnetScanResult
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	done     chan struct{}
-	stopping bool
+	tasks          chan SubnetScanTask
+	results        chan SubnetScanResult
+	activationDone <-chan struct{}
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	done           chan struct{}
 }
 
 // NewIPScannerService creates a new IP scanner service
@@ -79,23 +79,26 @@ func (s *Service) Start(ctx context.Context) error {
 		case <-s.run.done:
 			s.run = nil
 		default:
-			if s.run.stopping {
+			select {
+			case <-s.run.activationDone:
 				return errServiceStopping
+			default:
+				s.logger.Warn("IP scanner service already running")
+				return nil
 			}
-			s.logger.Warn("IP scanner service already running")
-			return nil
 		}
 	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("start ip scanner service: %w", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	ctx, cancel := context.WithCancel(ctx)
 	run := &serviceRun{
-		tasks:   make(chan SubnetScanTask, s.config.MaxConcurrentSubnetScans),
-		results: make(chan SubnetScanResult, s.config.MaxConcurrentSubnetScans),
-		cancel:  cancel,
-		done:    make(chan struct{}),
+		tasks:          make(chan SubnetScanTask, s.config.MaxConcurrentSubnetScans),
+		results:        make(chan SubnetScanResult, s.config.MaxConcurrentSubnetScans),
+		activationDone: ctx.Done(),
+		cancel:         cancel,
+		done:           make(chan struct{}),
 	}
 	s.run = run
 
@@ -133,7 +136,6 @@ func (s *Service) Stop(ctx context.Context) error {
 		return nil
 	}
 	s.logger.Info("Stopping IP scanner service")
-	run.stopping = true
 	run.cancel()
 	s.lifecycleMu.Unlock()
 
