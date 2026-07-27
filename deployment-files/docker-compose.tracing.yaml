@@ -10,11 +10,12 @@ services:
       # Parent server spans to the traceparent header Datadog RUM injects on
       # API calls (client observability), so RUM sessions link to APM traces.
       FLEET_TELEMETRY_TRUST_INCOMING_TRACES: "${FLEET_TELEMETRY_TRUST_INCOMING_TRACES:-true}"
+      # Overrides the base-compose 4318 endpoint; the collector is published on host port 4319 below.
+      FLEET_TELEMETRY_ENDPOINT: "http://otel-collector:4319"
     depends_on:
       otel-collector:
         condition: service_started
-    # Host-networked fleet-api inherits FLEET_TELEMETRY_ENDPOINT=http://otel-collector:4318
-    # from the base compose; resolve it to the loopback port published below.
+    # Host-networked fleet-api resolves otel-collector to the loopback port published below.
     extra_hosts:
       - "otel-collector:127.0.0.1"
 
@@ -29,8 +30,8 @@ services:
     volumes:
       - ./server/otel-collector-config.datadog.yaml:/etc/otelcol-contrib/config.yaml:ro
     ports:
-      # Loopback-only OTLP ingest for the host-networked fleet-api; not exposed on the LAN.
-      - "127.0.0.1:4318:4318"
+      # Loopback-only OTLP ingest for the host-networked fleet-api
+      - "127.0.0.1:4319:4318"
     logging:
       driver: "json-file"
       options:
