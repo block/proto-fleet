@@ -1,0 +1,131 @@
+x-etcd-common: &etcd-common
+  image: gcr.io/etcd-development/etcd:v3.6.11
+  networks:
+    - ha-generation
+  healthcheck:
+    test:
+      - CMD
+      - /usr/local/bin/etcdctl
+      - --endpoints=http://127.0.0.1:2379
+      - endpoint
+      - health
+    interval: 2s
+    timeout: 2s
+    retries: 30
+  stop_grace_period: 5s
+
+x-patroni-common: &patroni-common
+  image: proto-fleet-ha07-patroni:local
+  build:
+    context: .
+    dockerfile: patroni.Dockerfile
+    args:
+      BASE_IMAGE: proto-fleet-timescaledb:ha07
+      PATRONI_VERSION: 4.1.4
+  networks:
+    - ha-generation
+  depends_on:
+    etcd-a:
+      condition: service_healthy
+    etcd-b:
+      condition: service_healthy
+    etcd-witness:
+      condition: service_healthy
+  environment: &patroni-environment
+    HA_GENERATION_CLUSTER_PATH: /service/proto-fleet-ha07
+    HA_GENERATION_DB_DSN: postgresql://postgres:ha07-postgres@patroni-a:5432,patroni-b:5432/postgres?target_session_attrs=read-write&connect_timeout=2
+    HA_GENERATION_DCS_ENDPOINT: http://etcd-a:2379
+    HA_GENERATION_SCOPE: proto-fleet-ha07
+    PATRONI_REPLICATION_PASSWORD: ha07-replication
+    PATRONI_REPLICATION_USERNAME: replicator
+    PATRONI_REWIND_PASSWORD: ha07-postgres
+    PATRONI_REWIND_USERNAME: postgres
+    PATRONI_SUPERUSER_PASSWORD: ha07-postgres
+  healthcheck:
+    test:
+      - CMD
+      - curl
+      - --fail
+      - --silent
+      - --show-error
+      - http://127.0.0.1:8008/patroni
+    interval: 2s
+    timeout: 2s
+    retries: 60
+  stop_grace_period: 10s
+
+services:
+  etcd-a:
+    <<: *etcd-common
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd-a
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd-a:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd-a:2380
+      - --initial-cluster=etcd-a=http://etcd-a:2380,etcd-b=http://etcd-b:2380,etcd-witness=http://etcd-witness:2380
+      - --initial-cluster-state=new
+      - --initial-cluster-token=proto-fleet-ha07
+    volumes:
+      - etcd-a-data:/etcd-data
+
+  etcd-b:
+    <<: *etcd-common
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd-b
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd-b:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd-b:2380
+      - --initial-cluster=etcd-a=http://etcd-a:2380,etcd-b=http://etcd-b:2380,etcd-witness=http://etcd-witness:2380
+      - --initial-cluster-state=new
+      - --initial-cluster-token=proto-fleet-ha07
+    volumes:
+      - etcd-b-data:/etcd-data
+
+  etcd-witness:
+    <<: *etcd-common
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd-witness
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd-witness:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd-witness:2380
+      - --initial-cluster=etcd-a=http://etcd-a:2380,etcd-b=http://etcd-b:2380,etcd-witness=http://etcd-witness:2380
+      - --initial-cluster-state=new
+      - --initial-cluster-token=proto-fleet-ha07
+    volumes:
+      - etcd-witness-data:/etcd-data
+
+  patroni-a:
+    <<: *patroni-common
+    environment:
+      <<: *patroni-environment
+      PATRONI_NAME: patroni-a
+    volumes:
+      - patroni-a-data:/home/postgres/pgdata/data
+
+  patroni-b:
+    <<: *patroni-common
+    environment:
+      <<: *patroni-environment
+      PATRONI_NAME: patroni-b
+    volumes:
+      - patroni-b-data:/home/postgres/pgdata/data
+
+networks:
+  ha-generation:
+    name: ${HA_GENERATION_PROJECT_NAME:-proto-fleet-ha07}-network
+
+volumes:
+  etcd-a-data:
+  etcd-b-data:
+  etcd-witness-data:
+  patroni-a-data:
+  patroni-b-data:

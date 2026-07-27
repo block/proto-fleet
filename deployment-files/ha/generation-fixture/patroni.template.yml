@@ -1,0 +1,67 @@
+scope: ${HA_GENERATION_SCOPE}
+namespace: /service/
+name: ${PATRONI_NAME}
+
+restapi:
+  listen: 0.0.0.0:8008
+  connect_address: ${PATRONI_NAME}:8008
+
+etcd3:
+  hosts:
+    - etcd-a:2379
+    - etcd-b:2379
+    - etcd-witness:2379
+
+bootstrap:
+  dcs:
+    ttl: 20
+    loop_wait: 2
+    retry_timeout: 3
+    maximum_lag_on_failover: 1073741824
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        hot_standby: "on"
+        max_replication_slots: 10
+        max_wal_senders: 10
+        synchronous_commit: "on"
+        wal_level: replica
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+  pg_hba:
+    - host all all 0.0.0.0/0 scram-sha-256
+    - host replication ${PATRONI_REPLICATION_USERNAME} 0.0.0.0/0 scram-sha-256
+postgresql:
+  listen: 0.0.0.0:5432
+  connect_address: ${PATRONI_NAME}:5432
+  data_dir: /home/postgres/pgdata/data
+  bin_dir: /usr/lib/postgresql/18/bin
+  authentication:
+    superuser:
+      username: postgres
+      password: ${PATRONI_SUPERUSER_PASSWORD}
+    replication:
+      username: ${PATRONI_REPLICATION_USERNAME}
+      password: ${PATRONI_REPLICATION_PASSWORD}
+    rewind:
+      username: ${PATRONI_REWIND_USERNAME}
+      password: ${PATRONI_REWIND_PASSWORD}
+  parameters:
+    hot_standby: "on"
+    max_replication_slots: 10
+    max_wal_senders: 10
+    synchronous_commit: "on"
+    unix_socket_directories: /var/run/postgresql
+    wal_level: replica
+  pg_hba:
+    - local all all trust
+    - host all all 0.0.0.0/0 scram-sha-256
+    - host replication ${PATRONI_REPLICATION_USERNAME} 0.0.0.0/0 scram-sha-256
+
+tags:
+  clonefrom: false
+  nofailover: false
+  noloadbalance: false
+  nosync: false
