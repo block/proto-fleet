@@ -406,11 +406,6 @@ func start(config *Config) error {
 	telemetryService.WithMetricsEmitter(metricsProvider)
 	fleetNodePairingSvc.WithTelemetryScheduler(telemetryService)
 
-	// Ensure telemetry service cleanup on shutdown.
-	defer func() {
-		stopStandaloneJob("telemetry service", telemetryService)
-	}()
-
 	pluginPairer := plugins.NewPairer(pluginManager, transactor, discoveredDeviceStore, deviceStore, encryptSvc)
 
 	pairingSvc := pairingDomain.NewService(
