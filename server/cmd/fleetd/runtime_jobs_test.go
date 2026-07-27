@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -84,22 +85,35 @@ func TestBackgroundLoopCanRestartAfterDraining(t *testing.T) {
 	}
 }
 
-func TestBackgroundLoopCannotRestartEndedActivationBeforeStop(t *testing.T) {
-	done := make(chan struct{})
-	loop := newBackgroundLoop(func(context.Context) { close(done) })
+func TestBackgroundLoopActivationCancellationAllowsRestart(t *testing.T) {
+	started := make(chan struct{}, 2)
+	loop := newBackgroundLoop(func(ctx context.Context) {
+		started <- struct{}{}
+		<-ctx.Done()
+	})
 
-	require.NoError(t, loop.Start(context.Background()))
-	requireReceive(t, done)
-	require.ErrorContains(t, loop.Start(context.Background()), "activation ended before stop")
+	firstCtx, cancelFirst := context.WithCancel(context.Background())
+	require.NoError(t, loop.Start(firstCtx))
+	requireReceive(t, started)
+	cancelFirst()
+	require.Eventually(t, func() bool {
+		return loop.Start(context.Background()) == nil
+	}, time.Second, time.Millisecond)
+	requireReceive(t, started)
 	require.NoError(t, loop.Stop(context.Background()))
 }
 
-func TestBackgroundLoopStopHonorsDeadlineAndCanFinishDraining(t *testing.T) {
-	started := make(chan struct{}, 1)
+func TestBackgroundLoopStopTimeoutEventuallyAllowsRestart(t *testing.T) {
+	started := make(chan struct{}, 2)
 	release := make(chan struct{})
-	loop := newBackgroundLoop(func(context.Context) {
+	var runs atomic.Int32
+	loop := newBackgroundLoop(func(ctx context.Context) {
 		started <- struct{}{}
-		<-release
+		if runs.Add(1) == 1 {
+			<-release
+			return
+		}
+		<-ctx.Done()
 	})
 
 	require.NoError(t, loop.Start(context.Background()))
@@ -109,8 +123,11 @@ func TestBackgroundLoopStopHonorsDeadlineAndCanFinishDraining(t *testing.T) {
 	require.ErrorIs(t, loop.Stop(stopCtx), context.DeadlineExceeded)
 
 	close(release)
+	require.Eventually(t, func() bool {
+		return loop.Start(context.Background()) == nil
+	}, time.Second, time.Millisecond)
+	requireReceive(t, started)
 	require.NoError(t, loop.Stop(context.Background()))
-	require.NoError(t, loop.Start(context.Background()))
 }
 
 func jobNames(jobs []runtimejobs.Job) []string {
