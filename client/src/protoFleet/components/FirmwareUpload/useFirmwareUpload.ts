@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { FirmwareConfig, FirmwareMetadataInput } from "@/protoFleet/api/useFirmwareApi";
 import {
   computeSha256,
   FIRMWARE_TARGET_REQUIRED_MESSAGE,
+  type FirmwareConfig,
+  type FirmwareMetadataInput,
   hasCompleteFirmwareTarget,
   useFirmwareApi,
   validateFirmwareFile,

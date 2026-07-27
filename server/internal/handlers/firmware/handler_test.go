@@ -162,7 +162,7 @@ func createMultipartRequest(t *testing.T, filename string, content []byte, cooki
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 	require.NoError(t, writer.WriteField("target_manufacturer", "Proto"))
-	require.NoError(t, writer.WriteField("target_model", "S21"))
+	require.NoError(t, writer.WriteField("target_model", "Rig"))
 	require.NoError(t, writer.WriteField("firmware_version", "v2.0.0"))
 	part, err := writer.CreateFormFile("file", filename)
 	require.NoError(t, err)
@@ -207,11 +207,11 @@ func createMultipartRequestWithFields(
 }
 
 func testFirmwareMetadata() files.FirmwareMetadata {
-	return files.FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "S21", FirmwareVersion: "v2.0.0"}
+	return files.FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "Rig", FirmwareVersion: "v2.0.0"}
 }
 
 func firmwareCheckBody(checksum string) string {
-	return fmt.Sprintf(`{"sha256":%q,"target_manufacturer":"Proto","target_model":"S21","firmware_version":"v2.0.0"}`, checksum)
+	return fmt.Sprintf(`{"sha256":%q,"target_manufacturer":"Proto","target_model":"Rig","firmware_version":"v2.0.0"}`, checksum)
 }
 
 func createCheckRequest(t *testing.T, body string, cookie *http.Cookie) *http.Request {
@@ -300,9 +300,9 @@ func TestUploadHandler_RejectsMissingTargetMetadata(t *testing.T) {
 		wantError string
 	}{
 		{name: "all metadata", wantError: "target_manufacturer"},
-		{name: "manufacturer", fields: map[string]string{"target_model": "S21", "firmware_version": "v2.0.0"}, wantError: "target_manufacturer"},
+		{name: "manufacturer", fields: map[string]string{"target_model": "Rig", "firmware_version": "v2.0.0"}, wantError: "target_manufacturer"},
 		{name: "model", fields: map[string]string{"target_manufacturer": "Proto", "firmware_version": "v2.0.0"}, wantError: "target_model"},
-		{name: "version", fields: map[string]string{"target_manufacturer": "Proto", "target_model": "S21"}, wantError: "firmware_version"},
+		{name: "version", fields: map[string]string{"target_manufacturer": "Proto", "target_model": "Rig"}, wantError: "firmware_version"},
 	}
 
 	for _, tt := range tests {
@@ -362,7 +362,7 @@ func TestUploadHandler_LogsNewFirmwareActivity(t *testing.T) {
 			assert.Equal(t, "testuser", *event.Username)
 			assert.Equal(t, int64(1), *event.OrganizationID)
 			assert.Equal(t, "Proto", event.Metadata["target_manufacturer"])
-			assert.Equal(t, "S21", event.Metadata["target_model"])
+			assert.Equal(t, "Rig", event.Metadata["target_model"])
 			assert.Equal(t, "v2.0.0", event.Metadata["firmware_version"])
 			return nil
 		},
@@ -699,7 +699,7 @@ func TestListFilesHandler_ReturnsSavedFiles(t *testing.T) {
 	assert.Len(t, resp.Files, 2)
 	for _, file := range resp.Files {
 		assert.Equal(t, "Proto", file.TargetManufacturer)
-		assert.Equal(t, "S21", file.TargetModel)
+		assert.Equal(t, "Rig", file.TargetModel)
 	}
 }
 
@@ -750,7 +750,7 @@ func TestUpdateMetadataHandler_Returns404ForMissingFile(t *testing.T) {
 	env := newTestEnv(t)
 	env.expectAuth()
 	fileID := "00000000-0000-0000-0000-000000000000"
-	body := `{"target_manufacturer":"Proto","target_model":"S21","firmware_version":"v2.0.0"}`
+	body := `{"target_manufacturer":"Proto","target_model":"Rig","firmware_version":"v2.0.0"}`
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/firmware/files/"+fileID, strings.NewReader(body))
 	req.SetPathValue("fileId", fileID)
 	req.AddCookie(validSessionCookie(env.sessionID))

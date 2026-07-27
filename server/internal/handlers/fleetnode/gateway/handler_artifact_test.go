@@ -242,7 +242,7 @@ func TestDownloadCommandArtifactServesFirmwarePayload(t *testing.T) {
 	payload := []byte("firmware image bytes")
 	fileID, err := h.files.SaveFirmwareFile("update.swu", bytes.NewReader(payload), files.FirmwareMetadata{
 		TargetManufacturer: "Proto",
-		TargetModel:        "S21",
+		TargetModel:        "Rig",
 		FirmwareVersion:    "1.2.3",
 	})
 	require.NoError(t, err)

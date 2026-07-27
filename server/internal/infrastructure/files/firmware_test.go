@@ -20,7 +20,7 @@ func checksumOf(content string) string {
 }
 
 func testFirmwareMetadata() FirmwareMetadata {
-	return FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "S21", FirmwareVersion: "v2.0.0"}
+	return FirmwareMetadata{TargetManufacturer: "Proto", TargetModel: "Rig", FirmwareVersion: "v2.0.0"}
 }
 
 func storageDirEntries(t *testing.T, dir string) []os.DirEntry {
@@ -143,7 +143,7 @@ func TestSaveFirmwareFile_WritesTargetMetadata(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, files, 1)
 	assert.Equal(t, "Proto", files[0].TargetManufacturer)
-	assert.Equal(t, "S21", files[0].TargetModel)
+	assert.Equal(t, "Rig", files[0].TargetModel)
 
 	publishedEntries := storageDirEntries(t, getFirmwareDirPath(fileID))
 	require.Len(t, publishedEntries, 2)
@@ -589,7 +589,7 @@ func TestListFirmwareFiles_PreservesInvalidMetadataDirectories(t *testing.T) {
 
 	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(getFirmwareDirPath(fileID), firmwareMetadataFilename), []byte(`{"target_manufacturer":"","target_model":"S21"}`), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(getFirmwareDirPath(fileID), firmwareMetadataFilename), []byte(`{"target_manufacturer":"","target_model":"Rig"}`), 0600))
 
 	files, err := svc.ListFirmwareFiles()
 	require.NoError(t, err)

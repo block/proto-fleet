@@ -17,7 +17,7 @@ vi.mock("@/protoFleet/api/useFirmwareApi", async (importOriginal) => ({
   validateFirmwareFile: vi.fn().mockReturnValue(null),
 }));
 
-const firmwareTarget = { targetManufacturer: "Proto", targetModel: "S21", firmwareVersion: "v2.0.0" };
+const firmwareTarget = { targetManufacturer: "Proto", targetModel: "Rig", firmwareVersion: "v2.0.0" };
 
 const defaultConfig = {
   allowedExtensions: [".swu", ".tar.gz", ".zip"],

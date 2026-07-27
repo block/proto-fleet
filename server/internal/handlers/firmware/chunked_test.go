@@ -59,7 +59,7 @@ func TestParseContentRange(t *testing.T) {
 
 func chunkedInitiateBody(filename string, size int) string {
 	return fmt.Sprintf(
-		`{"filename":%q,"file_size":%d,"target_manufacturer":"Proto","target_model":"S21","firmware_version":"v2.0.0"}`,
+		`{"filename":%q,"file_size":%d,"target_manufacturer":"Proto","target_model":"Rig","firmware_version":"v2.0.0"}`,
 		filename,
 		size,
 	)
@@ -163,9 +163,9 @@ func TestChunkedUpload_InitiateRejectsMissingTargetMetadata(t *testing.T) {
 		wantError string
 	}{
 		{name: "all metadata", body: chunkedInitiateBodyWithoutMetadata("firmware.swu", 10), wantError: "target_manufacturer"},
-		{name: "manufacturer", body: `{"filename":"firmware.swu","file_size":10,"target_model":"S21","firmware_version":"v2.0.0"}`, wantError: "target_manufacturer"},
+		{name: "manufacturer", body: `{"filename":"firmware.swu","file_size":10,"target_model":"Rig","firmware_version":"v2.0.0"}`, wantError: "target_manufacturer"},
 		{name: "model", body: `{"filename":"firmware.swu","file_size":10,"target_manufacturer":"Proto","firmware_version":"v2.0.0"}`, wantError: "target_model"},
-		{name: "version", body: `{"filename":"firmware.swu","file_size":10,"target_manufacturer":"Proto","target_model":"S21"}`, wantError: "firmware_version"},
+		{name: "version", body: `{"filename":"firmware.swu","file_size":10,"target_manufacturer":"Proto","target_model":"Rig"}`, wantError: "firmware_version"},
 	}
 
 	for _, tt := range tests {

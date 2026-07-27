@@ -4,7 +4,7 @@ import { _resetConfigCache, useFirmwareApi, validateFirmwareFile } from "./useFi
 
 const mockLogout = vi.fn();
 const mockUpload = vi.fn();
-const firmwareTarget = { targetManufacturer: "Proto", targetModel: "S21", firmwareVersion: "v2.0.0" };
+const firmwareTarget = { targetManufacturer: "Proto", targetModel: "Rig", firmwareVersion: "v2.0.0" };
 
 vi.mock("@/protoFleet/store", () => ({
   useLogout: () => mockLogout,
@@ -102,7 +102,7 @@ describe("useFirmwareApi", () => {
           body: JSON.stringify({
             sha256: "abc123",
             target_manufacturer: "Proto",
-            target_model: "S21",
+            target_model: "Rig",
             firmware_version: "v2.0.0",
           }),
         }),
@@ -222,7 +222,7 @@ describe("useFirmwareApi", () => {
           signal: undefined,
           formFields: {
             target_manufacturer: "Proto",
-            target_model: "S21",
+            target_model: "Rig",
             firmware_version: "v2.0.0",
           },
         }),
@@ -255,7 +255,7 @@ describe("useFirmwareApi", () => {
           onProgress,
           initiateFields: {
             target_manufacturer: "Proto",
-            target_model: "S21",
+            target_model: "Rig",
             firmware_version: "v2.0.0",
           },
           chunked: expect.objectContaining({
@@ -377,7 +377,7 @@ describe("useFirmwareApi", () => {
           size: 1024,
           uploaded_at: "2025-01-01T00:00:00Z",
           target_manufacturer: "Proto",
-          target_model: "S21",
+          target_model: "Rig",
           firmware_version: "v2.0.0",
         },
       ];

@@ -867,7 +867,7 @@ func TestExecuteCommandOnDevice_FirmwareUpdatePassesFileMetadata(t *testing.T) {
 	content := "firmware image"
 	fileID, err := filesService.SaveFirmwareFile("update.swu", strings.NewReader(content), files.FirmwareMetadata{
 		TargetManufacturer: "Proto",
-		TargetModel:        "S21",
+		TargetModel:        "Rig",
 		FirmwareVersion:    "1.2.3",
 	})
 	require.NoError(t, err)

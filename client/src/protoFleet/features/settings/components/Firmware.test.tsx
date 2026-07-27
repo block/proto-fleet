@@ -48,7 +48,7 @@ const sampleFiles = [
     size: 1024,
     uploaded_at: "2025-06-01T12:00:00Z",
     target_manufacturer: "Proto",
-    target_model: "S21",
+    target_model: "Rig",
   },
   {
     id: "f2",

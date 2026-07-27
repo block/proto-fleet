@@ -9,6 +9,7 @@ const API_BASE = `${API_PROXY_BASE}/api/v1/firmware`;
 
 const DEFAULT_MAX_FILE_SIZE = 500 * 1024 * 1024;
 const DEFAULT_CHUNK_SIZE = 32 * 1024 * 1024;
+export const FIRMWARE_TARGET_REQUIRED_MESSAGE = "Manufacturer, model, and firmware version are required.";
 
 export interface FirmwareConfig {
   allowedExtensions: string[];
@@ -114,8 +115,6 @@ interface CheckFirmwareResponse {
   exists: boolean;
   firmware_file_id?: string;
 }
-
-export const FIRMWARE_TARGET_REQUIRED_MESSAGE = "Manufacturer, model, and firmware version are required.";
 
 /** The client mirror of the server's upload metadata completeness rule. */
 export function hasCompleteFirmwareTarget(target: Partial<FirmwareMetadataInput>): boolean {

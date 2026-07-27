@@ -5,7 +5,7 @@ import FirmwareUpdateModal from "./FirmwareUpdateModal";
 
 const mockListFirmwareFiles = vi.fn();
 const mockUseFirmwareUpload = vi.fn();
-const target = { targetManufacturer: "Proto", targetModel: "S21" };
+const target = { targetManufacturer: "Proto", targetModel: "Rig" };
 
 vi.mock("@/protoFleet/api/useFirmwareApi", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/protoFleet/api/useFirmwareApi")>()),
@@ -88,7 +88,7 @@ describe("FirmwareUpdateModal", () => {
         size: 1024,
         uploaded_at: "2025-01-01T00:00:00Z",
         target_manufacturer: "Proto",
-        target_model: "S21",
+        target_model: "Rig",
       },
     ]);
 
@@ -193,7 +193,7 @@ describe("FirmwareUpdateModal", () => {
         size: 1024,
         uploaded_at: "2025-01-01T00:00:00Z",
         target_manufacturer: "Proto",
-        target_model: "S21",
+        target_model: "Rig",
       },
     ]);
 

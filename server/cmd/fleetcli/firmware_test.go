@@ -90,7 +90,7 @@ func writeTempFirmwareFile(t *testing.T, name string, content []byte) string {
 }
 
 func testFirmwareTarget() firmwareTarget {
-	return firmwareTarget{Manufacturer: "Proto", Model: "S21", Version: "v2.0.0"}
+	return firmwareTarget{Manufacturer: "Proto", Model: "Rig", Version: "v2.0.0"}
 }
 
 func TestFileSHA256(t *testing.T) {
@@ -199,7 +199,7 @@ func TestFirmwareCheckSendsSHA256(t *testing.T) {
 	if gotContentType != contentTypeJSON {
 		t.Errorf("check Content-Type = %q, want %q", gotContentType, contentTypeJSON)
 	}
-	wantBody := fmt.Sprintf(`{"sha256":%q,"target_manufacturer":"Proto","target_model":"S21","firmware_version":"v2.0.0"}`, digest)
+	wantBody := fmt.Sprintf(`{"sha256":%q,"target_manufacturer":"Proto","target_model":"Rig","firmware_version":"v2.0.0"}`, digest)
 	if string(gotBody) != wantBody {
 		t.Errorf("check body = %s, want %s", gotBody, wantBody)
 	}
@@ -322,8 +322,8 @@ func TestFirmwareUploadDirectUsesMultipart(t *testing.T) {
 				if got := r.FormValue("target_manufacturer"); got != "Proto" {
 					t.Errorf("target_manufacturer = %q, want Proto", got)
 				}
-				if got := r.FormValue("target_model"); got != "S21" {
-					t.Errorf("target_model = %q, want S21", got)
+				if got := r.FormValue("target_model"); got != "Rig" {
+					t.Errorf("target_model = %q, want Rig", got)
 				}
 				if got := r.FormValue("firmware_version"); got != "v2.0.0" {
 					t.Errorf("firmware_version = %q, want v2.0.0", got)
@@ -411,8 +411,8 @@ func TestFirmwareUploadChunkedSequence(t *testing.T) {
 	if initiateBody.Filename != "big-firmware.swu" || initiateBody.FileSize != int64(len(content)) {
 		t.Errorf("initiate body = %+v, want filename big-firmware.swu and file_size %d", initiateBody, len(content))
 	}
-	if initiateBody.TargetManufacturer != "Proto" || initiateBody.TargetModel != "S21" {
-		t.Errorf("initiate target = %s %s, want Proto S21", initiateBody.TargetManufacturer, initiateBody.TargetModel)
+	if initiateBody.TargetManufacturer != "Proto" || initiateBody.TargetModel != "Rig" {
+		t.Errorf("initiate target = %s %s, want Proto Rig", initiateBody.TargetManufacturer, initiateBody.TargetModel)
 	}
 	if initiateBody.Force {
 		t.Error("initiate force = true, want false")
@@ -442,7 +442,7 @@ func TestFirmwareTargetValidateRequiresAllMetadata(t *testing.T) {
 	}{
 		{name: "manufacturer", target: firmwareTarget{}, wantErr: "--target-manufacturer is required"},
 		{name: "model", target: firmwareTarget{Manufacturer: "Proto"}, wantErr: "--target-model is required"},
-		{name: "version", target: firmwareTarget{Manufacturer: "Proto", Model: "S21"}, wantErr: "--firmware-version is required"},
+		{name: "version", target: firmwareTarget{Manufacturer: "Proto", Model: "Rig"}, wantErr: "--firmware-version is required"},
 	}
 
 	for _, tt := range tests {
