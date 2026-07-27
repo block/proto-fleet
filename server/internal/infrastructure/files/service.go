@@ -49,6 +49,18 @@ type FSFile struct {
 	Data     []byte
 }
 
+type firmwareUploadKey struct {
+	checksum     string
+	manufacturer string
+	model        string
+	version      string
+}
+
+type firmwareUploadLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
 func getBatchLogsZipFilePath(batchLogUUID string) string {
 	return filepath.Join(tempDir, fmt.Sprintf("logs_batch_%s.zip", batchLogUUID))
 }
@@ -85,6 +97,7 @@ type Service struct {
 	mu                   sync.Mutex
 	checksumIndex        map[string][]string // SHA-256 hex -> reuse-eligible file IDs
 	firmwareChecksumByID map[string]string   // fileID -> SHA-256 hex
+	firmwareUploadLocks  map[firmwareUploadKey]*firmwareUploadLock
 }
 
 // MaxFirmwareFileSize returns the configured maximum firmware file size in bytes.
@@ -157,6 +170,7 @@ func NewService(cfg Config) (*Service, error) {
 		commandArtifactCleanupInterval: cleanupInterval,
 		checksumIndex:                  make(map[string][]string),
 		firmwareChecksumByID:           make(map[string]string),
+		firmwareUploadLocks:            make(map[firmwareUploadKey]*firmwareUploadLock),
 	}
 
 	if err := svc.initChecksumIndex(); err != nil {

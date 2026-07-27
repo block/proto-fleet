@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/stretchr/testify/assert"
@@ -179,6 +181,54 @@ func TestUpdateFirmwareMetadata_ReplacesMetadataAndChecksumTarget(t *testing.T) 
 
 	entries := storageDirEntries(t, getFirmwareDirPath(fileID))
 	assert.Len(t, entries, 2, "atomic metadata replacement should not leave staging files")
+}
+
+func TestUpdateFirmwareMetadata_PreservesUploadTime(t *testing.T) {
+	svc := setupService(t)
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	before, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	require.Len(t, before, 1)
+
+	time.Sleep(10 * time.Millisecond)
+	require.NoError(t, svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	}))
+
+	after, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	require.Len(t, after, 1)
+	assert.Equal(t, before[0].UploadedAt, after[0].UploadedAt)
+}
+
+func TestUpdateFirmwareMetadata_PersistsLegacyUploadTimeFallback(t *testing.T) {
+	svc := setupService(t)
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	dir := getFirmwareDirPath(fileID)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, firmwareMetadataFilename),
+		[]byte(`{"target_manufacturer":"Proto","target_model":"Rig","firmware_version":"v2.0.0"}`),
+		0600,
+	))
+	fallbackTime := time.Date(2025, time.January, 2, 3, 4, 5, 0, time.UTC)
+	require.NoError(t, os.Chtimes(dir, fallbackTime, fallbackTime))
+
+	require.NoError(t, svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	}))
+
+	files, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	assert.True(t, fallbackTime.Equal(files[0].UploadedAt))
 }
 
 func TestUpdateFirmwareMetadata_AddsMetadataToLegacyPayload(t *testing.T) {
@@ -788,6 +838,57 @@ func TestSaveFirmwareUpload_ReusesExistingWithSameMetadata(t *testing.T) {
 	assert.True(t, second.Reused)
 	assert.Equal(t, first.FirmwareFileID, second.FirmwareFileID)
 	assert.Len(t, firmwareFileEntries(t), 1)
+}
+
+func TestSaveFirmwareUpload_ConcurrentIdenticalUploadsReuseOneFile(t *testing.T) {
+	svc := setupService(t)
+	const uploadCount = 16
+
+	type uploadOutcome struct {
+		result FirmwareUploadSaveResult
+		err    error
+	}
+	start := make(chan struct{})
+	outcomes := make(chan uploadOutcome, uploadCount)
+	var wg sync.WaitGroup
+	for range uploadCount {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			result, err := svc.SaveFirmwareUpload(
+				"proto-rig.swu",
+				strings.NewReader("firmware content"),
+				testFirmwareMetadata(),
+				false,
+			)
+			outcomes <- uploadOutcome{result: result, err: err}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(outcomes)
+
+	var fileID string
+	newCount := 0
+	reusedCount := 0
+	for outcome := range outcomes {
+		require.NoError(t, outcome.err)
+		if fileID == "" {
+			fileID = outcome.result.FirmwareFileID
+		}
+		assert.Equal(t, fileID, outcome.result.FirmwareFileID)
+		if outcome.result.Reused {
+			reusedCount++
+		} else {
+			newCount++
+		}
+	}
+
+	assert.Equal(t, 1, newCount)
+	assert.Equal(t, uploadCount-1, reusedCount)
+	assert.Len(t, firmwareFileEntries(t), 1)
+	assert.Empty(t, svc.firmwareUploadLocks)
 }
 
 func TestSaveFirmwareUpload_ForceBypassesDedupe(t *testing.T) {
