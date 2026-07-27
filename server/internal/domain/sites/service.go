@@ -139,12 +139,19 @@ func (s *Service) CreateSite(ctx context.Context, params models.CreateSiteParams
 		break
 	}
 
-	orgID := params.OrgID
+	s.logSiteCreated(ctx, params.OrgID, site)
+	return &CreateResult{Site: site, NetworkConfigWarnings: warnings}, nil
+}
+
+// logSiteCreated emits the "site created" activity event AFTER the owning
+// statement/tx commits. Shared by CreateSite and CreateSiteWithSeed.
+func (s *Service) logSiteCreated(ctx context.Context, orgID int64, site *models.Site) {
+	orgIDVal := orgID
 	siteID := site.ID
 	event := activitymodels.Event{
 		Category:       activitymodels.CategoryFleetManagement,
 		Type:           eventSiteCreated,
-		OrganizationID: &orgID,
+		OrganizationID: &orgIDVal,
 		SiteID:         &siteID,
 		Description:    fmt.Sprintf("Created site %q (id=%d)", site.Name, site.ID),
 		Metadata: map[string]any{
@@ -154,8 +161,6 @@ func (s *Service) CreateSite(ctx context.Context, params models.CreateSiteParams
 	}
 	activity.StampActor(ctx, &event)
 	s.activitySvc.Log(ctx, event)
-
-	return &CreateResult{Site: site, NetworkConfigWarnings: warnings}, nil
 }
 
 // UpdateResult mirrors CreateResult for the update flow.
@@ -450,12 +455,25 @@ type assignDevicesToSiteTx struct {
 // fails the check; no partial writes. The conflict check and the
 // UPDATE run inside the same row-locked transaction so a concurrent
 // assign can't slip between them.
-func (s *Service) AssignDevicesToSite(ctx context.Context, params models.AssignDevicesToSiteParams) (int64, []models.PerDeviceConflict, error) {
+// dedupeAndValidateSiteDeviceIdentifiers dedupes and validates the device
+// identifiers for a site assignment. Shared by AssignDevicesToSite and
+// CreateSiteWithSeed.
+func dedupeAndValidateSiteDeviceIdentifiers(params models.AssignDevicesToSiteParams) ([]string, error) {
 	identifiers := dedupeStrings(params.DeviceIdentifiers)
 	if len(identifiers) == 0 {
-		return 0, nil, fleeterror.NewInvalidArgumentError("device_identifiers must not be empty")
+		return nil, fleeterror.NewInvalidArgumentError("device_identifiers must not be empty")
 	}
+	return identifiers, nil
+}
 
+// assignDevicesToSiteInTx is the transactional core of AssignDevicesToSite: it
+// locks the target site + devices, computes cross-site conflicts, optionally
+// force-clears rack membership, and bulk-updates device.site_id (clearing any
+// now-mismatched device.building_id). It returns the per-attempt struct — a
+// non-empty txConflicts means no write happened. It does NOT log activity; the
+// caller logs post-commit. Re-entrant: joins an ambient tx (CreateSiteWithSeed)
+// rather than nesting.
+func (s *Service) assignDevicesToSiteInTx(ctx context.Context, params models.AssignDevicesToSiteParams, identifiers []string) (assignDevicesToSiteTx, error) {
 	targetSiteID := params.TargetSiteID
 	// Per-attempt state lives inside the RunInTxWithResult closure so a
 	// SQLTransactor retry (serialization / deadlock failure on the first
@@ -551,58 +569,79 @@ func (s *Service) AssignDevicesToSite(ctx context.Context, params models.AssignD
 		return attempt, nil
 	})
 	if err != nil {
-		return 0, nil, err
+		return assignDevicesToSiteTx{}, err
 	}
 	committed, _ := result.(assignDevicesToSiteTx)
+	return committed, nil
+}
+
+// AssignDevicesToSite validates the request, runs the transactional core, and —
+// when a write happened — logs the result. Returns per-device conflicts (and no
+// write) when the batch can't be applied without force.
+func (s *Service) AssignDevicesToSite(ctx context.Context, params models.AssignDevicesToSiteParams) (int64, []models.PerDeviceConflict, error) {
+	identifiers, err := dedupeAndValidateSiteDeviceIdentifiers(params)
+	if err != nil {
+		return 0, nil, err
+	}
+	committed, err := s.assignDevicesToSiteInTx(ctx, params, identifiers)
+	if err != nil {
+		return 0, nil, err
+	}
 	if len(committed.txConflicts) > 0 {
 		return 0, committed.txConflicts, nil
 	}
-
-	// Only fire when the write happened (no conflicts; rowsAffected
-	// reflects the SQL UPDATE row count).
-	if committed.rowsAffected > 0 {
-		orgIDVal := params.OrgID
-		idents := identifiers
-		if len(idents) > maxDeviceIdentifiersInMetadata {
-			idents = idents[:maxDeviceIdentifiersInMetadata]
-		}
-		metadata := map[string]any{
-			"target_site_id":     targetSiteID,
-			"device_count":       committed.rowsAffected,
-			"device_identifiers": idents,
-		}
-		description := fmt.Sprintf(
-			"Reassigned %d device(s) to site %s",
-			committed.rowsAffected, formatSiteIDForDescription(targetSiteID),
-		)
-		// Record the rack-detachment side effect alongside the site move
-		// so the audit log makes the cascade visible. Truncate the
-		// identifier list to the same cap the regular field uses.
-		if len(committed.forceClearedIDs) > 0 {
-			clearedCount := len(committed.forceClearedIDs)
-			clearedIdents := committed.forceClearedIDs
-			if len(clearedIdents) > maxDeviceIdentifiersInMetadata {
-				clearedIdents = clearedIdents[:maxDeviceIdentifiersInMetadata]
-			}
-			metadata["force_cleared_rack_membership_count"] = clearedCount
-			metadata["force_cleared_device_identifiers"] = clearedIdents
-			description = fmt.Sprintf(
-				"%s (%d rack membership(s) force-cleared)",
-				description, clearedCount,
-			)
-		}
-		event := activitymodels.Event{
-			Category:       activitymodels.CategoryFleetManagement,
-			Type:           eventDevicesReassignedToSite,
-			OrganizationID: &orgIDVal,
-			SiteID:         targetSiteID,
-			Description:    description,
-			Metadata:       metadata,
-		}
-		activity.StampActor(ctx, &event)
-		s.activitySvc.Log(ctx, event)
-	}
+	s.logDevicesAssignedToSite(ctx, params, identifiers, committed)
 	return committed.rowsAffected, nil, nil
+}
+
+// logDevicesAssignedToSite emits the "devices reassigned to site" activity event
+// AFTER the owning tx commits, only when a write happened. Shared by
+// AssignDevicesToSite and CreateSiteWithSeed.
+func (s *Service) logDevicesAssignedToSite(ctx context.Context, params models.AssignDevicesToSiteParams, identifiers []string, committed assignDevicesToSiteTx) {
+	if committed.rowsAffected == 0 {
+		return
+	}
+	targetSiteID := params.TargetSiteID
+	orgIDVal := params.OrgID
+	idents := identifiers
+	if len(idents) > maxDeviceIdentifiersInMetadata {
+		idents = idents[:maxDeviceIdentifiersInMetadata]
+	}
+	metadata := map[string]any{
+		"target_site_id":     targetSiteID,
+		"device_count":       committed.rowsAffected,
+		"device_identifiers": idents,
+	}
+	description := fmt.Sprintf(
+		"Reassigned %d device(s) to site %s",
+		committed.rowsAffected, formatSiteIDForDescription(targetSiteID),
+	)
+	// Record the rack-detachment side effect alongside the site move
+	// so the audit log makes the cascade visible. Truncate the
+	// identifier list to the same cap the regular field uses.
+	if len(committed.forceClearedIDs) > 0 {
+		clearedCount := len(committed.forceClearedIDs)
+		clearedIdents := committed.forceClearedIDs
+		if len(clearedIdents) > maxDeviceIdentifiersInMetadata {
+			clearedIdents = clearedIdents[:maxDeviceIdentifiersInMetadata]
+		}
+		metadata["force_cleared_rack_membership_count"] = clearedCount
+		metadata["force_cleared_device_identifiers"] = clearedIdents
+		description = fmt.Sprintf(
+			"%s (%d rack membership(s) force-cleared)",
+			description, clearedCount,
+		)
+	}
+	event := activitymodels.Event{
+		Category:       activitymodels.CategoryFleetManagement,
+		Type:           eventDevicesReassignedToSite,
+		OrganizationID: &orgIDVal,
+		SiteID:         targetSiteID,
+		Description:    description,
+		Metadata:       metadata,
+	}
+	activity.StampActor(ctx, &event)
+	s.activitySvc.Log(ctx, event)
 }
 
 // assignBuildingsTx carries the per-attempt counters out of the
@@ -619,7 +658,10 @@ type assignBuildingsTx struct {
 // down to each building's racks and their devices. Everything runs in
 // one transaction; if any building fails, the batch rolls back.
 // Returns the aggregate cascade counts across every building.
-func (s *Service) AssignBuildingsToSite(ctx context.Context, params models.AssignBuildingsToSiteParams) (*models.AssignBuildingsToSiteResult, error) {
+// validateAndSortBuildingIDs dedupes, validates, and sorts (stable lock order)
+// the building ids for a site assignment. Shared by AssignBuildingsToSite and
+// CreateSiteWithSeed.
+func validateAndSortBuildingIDs(params models.AssignBuildingsToSiteParams) ([]int64, error) {
 	buildingIDs := dedupeInt64s(params.BuildingIDs)
 	if len(buildingIDs) == 0 {
 		return nil, fleeterror.NewInvalidArgumentError("building_ids must not be empty")
@@ -633,7 +675,16 @@ func (s *Service) AssignBuildingsToSite(ctx context.Context, params models.Assig
 	// Sort for stable lock order: deadlock-safe against concurrent
 	// AssignBuildingsToSite touching an overlapping building set.
 	sort.Slice(buildingIDs, func(i, j int) bool { return buildingIDs[i] < buildingIDs[j] })
+	return buildingIDs, nil
+}
 
+// assignBuildingsToSiteInTx is the transactional core of AssignBuildingsToSite:
+// it locks the target site + buildings (site → building order) and bulk-moves
+// the buildings plus their rack/device cascades, returning the per-attempt
+// counters. It does NOT log activity; the caller logs post-commit. Re-entrant:
+// joins an ambient tx (CreateSiteWithSeed) rather than nesting. `buildingIDs`
+// must already be validated and sorted (see validateAndSortBuildingIDs).
+func (s *Service) assignBuildingsToSiteInTx(ctx context.Context, params models.AssignBuildingsToSiteParams, buildingIDs []int64) (assignBuildingsTx, error) {
 	// Counters live inside the RunInTxWithResult closure so a
 	// SQLTransactor retry (serialization / deadlock failure on the
 	// first attempt) starts from zero on every attempt. The returned
@@ -704,15 +755,37 @@ func (s *Service) AssignBuildingsToSite(ctx context.Context, params models.Assig
 		return assignBuildingsTx{rackCount: rackCount, deviceCount: deviceCount}, nil
 	})
 	if err != nil {
-		return nil, err
+		return assignBuildingsTx{}, err
 	}
 	txResult, ok := result.(assignBuildingsTx)
 	if !ok {
-		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+		return assignBuildingsTx{}, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
-	rackCount := txResult.rackCount
-	deviceCount := txResult.deviceCount
+	return txResult, nil
+}
 
+// AssignBuildingsToSite validates + sorts the batch, runs the transactional
+// core, and logs the result.
+func (s *Service) AssignBuildingsToSite(ctx context.Context, params models.AssignBuildingsToSiteParams) (*models.AssignBuildingsToSiteResult, error) {
+	buildingIDs, err := validateAndSortBuildingIDs(params)
+	if err != nil {
+		return nil, err
+	}
+	txResult, err := s.assignBuildingsToSiteInTx(ctx, params, buildingIDs)
+	if err != nil {
+		return nil, err
+	}
+	s.logBuildingsAssignedToSite(ctx, params, buildingIDs, txResult)
+	return &models.AssignBuildingsToSiteResult{
+		ReassignedRackCount:   txResult.rackCount,
+		ReassignedDeviceCount: txResult.deviceCount,
+	}, nil
+}
+
+// logBuildingsAssignedToSite emits the "buildings assigned to site" activity
+// event AFTER the owning tx commits. Shared by AssignBuildingsToSite and
+// CreateSiteWithSeed.
+func (s *Service) logBuildingsAssignedToSite(ctx context.Context, params models.AssignBuildingsToSiteParams, buildingIDs []int64, txResult assignBuildingsTx) {
 	orgIDVal := params.OrgID
 	event := activitymodels.Event{
 		Category:       activitymodels.CategoryFleetManagement,
@@ -721,22 +794,17 @@ func (s *Service) AssignBuildingsToSite(ctx context.Context, params models.Assig
 		SiteID:         params.TargetSiteID,
 		Description: fmt.Sprintf(
 			"Assigned %d building(s) to site %s (%d racks, %d devices cascaded)",
-			len(buildingIDs), formatSiteIDForDescription(params.TargetSiteID), rackCount, deviceCount,
+			len(buildingIDs), formatSiteIDForDescription(params.TargetSiteID), txResult.rackCount, txResult.deviceCount,
 		),
 		Metadata: map[string]any{
 			"building_ids":            buildingIDs,
 			"target_site_id":          params.TargetSiteID,
-			"reassigned_rack_count":   rackCount,
-			"reassigned_device_count": deviceCount,
+			"reassigned_rack_count":   txResult.rackCount,
+			"reassigned_device_count": txResult.deviceCount,
 		},
 	}
 	activity.StampActor(ctx, &event)
 	s.activitySvc.Log(ctx, event)
-
-	return &models.AssignBuildingsToSiteResult{
-		ReassignedRackCount:   rackCount,
-		ReassignedDeviceCount: deviceCount,
-	}, nil
 }
 
 // assignRacksToSiteTx carries the per-attempt counters and cascaded
@@ -761,10 +829,10 @@ type assignRacksToSiteTx struct {
 // Lock order: target site → each rack id ascending. Matches
 // AssignBuildingsToSite + AssignDevicesToSite so concurrent site-scope
 // writers can't deadlock against an overlapping rack set.
-func (s *Service) AssignRacksToSite(ctx context.Context, params models.AssignRacksToSiteParams) (*models.AssignRacksToSiteResult, error) {
-	if s.collectionStore == nil {
-		return nil, fleeterror.NewInternalErrorf("collection store not configured")
-	}
+// validateAndSortRackIDsForSite dedupes, validates, and sorts (stable lock
+// order) the rack ids for a site assignment. Shared by AssignRacksToSite and
+// CreateSiteWithSeed.
+func validateAndSortRackIDsForSite(params models.AssignRacksToSiteParams) ([]int64, error) {
 	rackIDs := dedupeInt64s(params.RackIDs)
 	if len(rackIDs) == 0 {
 		return nil, fleeterror.NewInvalidArgumentError("rack_ids must not be empty")
@@ -776,7 +844,19 @@ func (s *Service) AssignRacksToSite(ctx context.Context, params models.AssignRac
 		return nil, fleeterror.NewInvalidArgumentError("target_site_id must be > 0 (use nil for Unassigned)")
 	}
 	sort.Slice(rackIDs, func(i, j int) bool { return rackIDs[i] < rackIDs[j] })
+	return rackIDs, nil
+}
 
+// assignRacksToSiteInTx is the transactional core of AssignRacksToSite: it locks
+// the target site + racks (site → rack asc order), moves cross-site racks
+// (clearing building_id/zone/grid) and cascades device site/building, returning
+// the per-attempt counters. It does NOT log activity; the caller logs
+// post-commit. Re-entrant: joins an ambient tx (CreateSiteWithSeed) rather than
+// nesting. `rackIDs` must already be validated and sorted.
+func (s *Service) assignRacksToSiteInTx(ctx context.Context, params models.AssignRacksToSiteParams, rackIDs []int64) (assignRacksToSiteTx, error) {
+	if s.collectionStore == nil {
+		return assignRacksToSiteTx{}, fleeterror.NewInternalErrorf("collection store not configured")
+	}
 	// Counters + cascaded-id slice live inside the RunInTxWithResult
 	// closure so a SQLTransactor retry (serialization / deadlock
 	// failure on the first attempt) starts from zero on every attempt.
@@ -859,16 +939,36 @@ func (s *Service) AssignRacksToSite(ctx context.Context, params models.AssignRac
 		}, nil
 	})
 	if err != nil {
-		return nil, err
+		return assignRacksToSiteTx{}, err
 	}
 	txResult, ok := result.(assignRacksToSiteTx)
 	if !ok {
-		return nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+		return assignRacksToSiteTx{}, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
-	deviceCount := txResult.deviceCount
-	clearedCount := txResult.clearedCount
-	cascadedRackIDs := txResult.cascadedRackIDs
+	return txResult, nil
+}
 
+// AssignRacksToSite validates + sorts the batch, runs the transactional core,
+// and logs the result.
+func (s *Service) AssignRacksToSite(ctx context.Context, params models.AssignRacksToSiteParams) (*models.AssignRacksToSiteResult, error) {
+	rackIDs, err := validateAndSortRackIDsForSite(params)
+	if err != nil {
+		return nil, err
+	}
+	txResult, err := s.assignRacksToSiteInTx(ctx, params, rackIDs)
+	if err != nil {
+		return nil, err
+	}
+	s.logRacksAssignedToSite(ctx, params, rackIDs, txResult)
+	return &models.AssignRacksToSiteResult{
+		ReassignedDeviceCount: txResult.deviceCount,
+		ClearedBuildingCount:  txResult.clearedCount,
+	}, nil
+}
+
+// logRacksAssignedToSite emits the "racks assigned to site" activity event AFTER
+// the owning tx commits. Shared by AssignRacksToSite and CreateSiteWithSeed.
+func (s *Service) logRacksAssignedToSite(ctx context.Context, params models.AssignRacksToSiteParams, rackIDs []int64, txResult assignRacksToSiteTx) {
 	orgIDVal := params.OrgID
 	event := activitymodels.Event{
 		Category:       activitymodels.CategoryFleetManagement,
@@ -877,25 +977,20 @@ func (s *Service) AssignRacksToSite(ctx context.Context, params models.AssignRac
 		SiteID:         params.TargetSiteID,
 		Description: fmt.Sprintf(
 			"Assigned %d rack(s) to site %s (%d devices cascaded, %d building(s) cleared)",
-			len(rackIDs), formatSiteIDForDescription(params.TargetSiteID), deviceCount, clearedCount,
+			len(rackIDs), formatSiteIDForDescription(params.TargetSiteID), txResult.deviceCount, txResult.clearedCount,
 		),
 		Metadata: map[string]any{
 			"rack_ids":                rackIDs,
 			"target_site_id":          params.TargetSiteID,
-			"reassigned_device_count": deviceCount,
-			"cleared_building_count":  clearedCount,
+			"reassigned_device_count": txResult.deviceCount,
+			"cleared_building_count":  txResult.clearedCount,
 		},
 	}
-	if len(cascadedRackIDs) > 0 {
-		event.Metadata["site_cascaded_rack_ids"] = cascadedRackIDs
+	if len(txResult.cascadedRackIDs) > 0 {
+		event.Metadata["site_cascaded_rack_ids"] = txResult.cascadedRackIDs
 	}
 	activity.StampActor(ctx, &event)
 	s.activitySvc.Log(ctx, event)
-
-	return &models.AssignRacksToSiteResult{
-		ReassignedDeviceCount: deviceCount,
-		ClearedBuildingCount:  clearedCount,
-	}, nil
 }
 
 // int64PtrEqual treats two *int64 as equal when both are nil or both
