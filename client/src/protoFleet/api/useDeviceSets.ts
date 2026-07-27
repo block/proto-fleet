@@ -1054,9 +1054,17 @@ const useDeviceSets = () => {
 
         // Site-strip conflicts: the server wrote nothing and returned the
         // per-device list. Surface it so the caller can confirm and retry
-        // with forceClearConflictingSite=true.
+        // with forceClearConflictingSite=true. Fall back to onError when the
+        // caller wired no onConflicts handler, so a no-write conflict is never
+        // a silent no-op (no onSuccess either).
         if (response.conflicts.length > 0) {
-          onConflicts?.(response.conflicts);
+          if (onConflicts) {
+            onConflicts(response.conflicts);
+          } else {
+            onError?.(
+              `${response.conflicts.length} device(s) would lose their site or building placement by joining this rack`,
+            );
+          }
           return;
         }
 

@@ -264,6 +264,32 @@ describe("useDeviceSets — saveRack placement encoding", () => {
     expect(onSuccess).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
   });
+
+  it("falls back to onError when conflicts are returned but no onConflicts handler is provided", async () => {
+    const conflicts = [{ deviceIdentifier: "d1", reason: 1 }];
+    mockSaveRack.mockResolvedValue({ deviceSet: undefined, assignedCount: 0, conflicts });
+    const onSuccess = vi.fn();
+    const onError = vi.fn();
+
+    const { result } = renderHook(() => useDeviceSets());
+    await act(async () => {
+      await result.current.saveRack({
+        label: "Rack A",
+        zone: "",
+        rows: 2,
+        columns: 2,
+        orderIndex: 0,
+        coolingType: 0,
+        deviceIdentifiers: ["d1"],
+        slotAssignments: [],
+        onSuccess,
+        onError,
+      });
+    });
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
 });
 
 describe("useDeviceSets — updateRack placement encoding", () => {

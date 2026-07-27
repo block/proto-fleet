@@ -830,6 +830,7 @@ func TestSaveRack_SiteLessConflictReturnedNoForce(t *testing.T) {
 		Return(&collectionpb.DeviceCollection{Id: 10, Label: "Rack", Type: collectionpb.CollectionType_COLLECTION_TYPE_RACK}, nil)
 	h.collectionStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).Return(nil)
 	h.collectionStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, int64(0)).Return(nil, nil)
+	h.collectionStore.EXPECT().LockDevicesForReassign(gomock.Any(), testOrgID, deviceIDs).Return(nil)
 	h.collectionStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return(deviceIDs, nil)
 
 	req := connect.NewRequest(&dspb.SaveRackRequest{

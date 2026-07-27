@@ -1045,8 +1045,10 @@ func TestService_SaveRack_CreateNewRack(t *testing.T) {
 	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, int64(0)).Return(nil, nil)
 	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, int64(10)).Return(int64(0), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, int64(10), deviceIDs).Return(int64(2), nil)
-	// Site-less rack: the placement-consistency guard checks members for a
-	// site/building before the cascade; none here, so the save proceeds.
+	// Site-less rack: the placement-consistency guard locks the members,
+	// then checks them for a site/building before the cascade; none here,
+	// so the save proceeds.
+	mockStore.EXPECT().LockDevicesForReassign(gomock.Any(), testOrgID, deviceIDs).Return(nil)
 	mockStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return(nil, nil)
 	// A rack ALWAYS dictates member placement now — a site-less rack
 	// cascades nil/nil, stripping any member's direct site/building to
@@ -1104,6 +1106,7 @@ func TestService_SaveRack_SiteLessRackConflictNoForce(t *testing.T) {
 		Return(&pb.DeviceCollection{Id: 10, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
 	mockStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).Return(nil)
 	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, int64(0)).Return(nil, nil)
+	mockStore.EXPECT().LockDevicesForReassign(gomock.Any(), testOrgID, deviceIDs).Return(nil)
 	mockStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return(deviceIDs, nil)
 
 	res, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
@@ -1190,8 +1193,10 @@ func TestService_SaveRack_UpdateExistingRack(t *testing.T) {
 	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, collectionID).Return(nil, nil)
 	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, collectionID).Return(int64(0), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
-	// Site-less rack: the placement-consistency guard checks members for a
-	// site/building before the cascade; none here, so the save proceeds.
+	// Site-less rack: the placement-consistency guard locks the members,
+	// then checks them for a site/building before the cascade; none here,
+	// so the save proceeds.
+	mockStore.EXPECT().LockDevicesForReassign(gomock.Any(), testOrgID, deviceIDs).Return(nil)
 	mockStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return(nil, nil)
 	// Site-less rack now cascades nil/nil unconditionally — members can't
 	// keep a direct site/building the rack lacks.
@@ -1505,8 +1510,10 @@ func TestService_SaveRack_StoreErrorRollsBack(t *testing.T) {
 	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, int64(10)).Return(int64(0), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, int64(10), deviceIDs).
 		Return(int64(0), fleeterror.NewInternalError("database error"))
-	// Site-less rack: the placement guard runs first and finds nothing to
-	// strip, so the save proceeds to the failing AddDevicesToCollection.
+	// Site-less rack: the placement guard locks the members and finds
+	// nothing to strip, so the save proceeds to the failing
+	// AddDevicesToCollection.
+	mockStore.EXPECT().LockDevicesForReassign(gomock.Any(), testOrgID, deviceIDs).Return(nil)
 	mockStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return(nil, nil)
 
 	// Act

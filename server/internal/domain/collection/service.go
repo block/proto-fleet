@@ -1966,6 +1966,15 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest, forceCl
 		// (write nothing) and surface the conflict list so the caller confirms.
 		// With force, fall through and let the cascade clear them.
 		if !forceClearConflictingSite && finalSiteID == nil && finalBuildingID == nil && len(deviceIdentifiers) > 0 {
+			// Row-lock the members first so the conflict check and the
+			// placement cascade below share one stable snapshot. Without
+			// the lock a concurrent sites.AssignDevicesToSite (which locks
+			// these same rows FOR UPDATE) could commit a site between the
+			// check reading NULL and the cascade, silently stripping it
+			// back to NULL despite force being false.
+			if err := s.collectionStore.LockDevicesForReassign(ctx, info.OrganizationID, deviceIdentifiers); err != nil {
+				return nil, err
+			}
 			withPlacement, err := s.collectionStore.FindDevicesWithSiteOrBuilding(ctx, info.OrganizationID, deviceIdentifiers)
 			if err != nil {
 				return nil, err
