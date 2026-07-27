@@ -144,6 +144,9 @@ describe("CurtailmentAutomationsContent", () => {
 
     await waitFor(() => expect(screen.queryByTestId("curtailment-automation-modal")).not.toBeInTheDocument());
 
+    // The row list re-renders with the new rule a tick after the modal closes;
+    // wait for it before the synchronous row lookup to avoid a load-dependent race.
+    await screen.findByText("High LMP spike");
     const row = getAutomationRow("High LMP spike");
     expect(within(row).getByText("Site Alpha MaestroOS grid signal changes to 0")).toBeVisible();
     expect(within(row).getByText("Standard shed")).toBeVisible();
