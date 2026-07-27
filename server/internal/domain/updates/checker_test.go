@@ -168,7 +168,7 @@ func newTestChecker(t *testing.T, cfg Config) (*Checker, *recordingHandler) {
 	return newChecker(cfg, "test-version", slog.New(h)), h
 }
 
-// Scenario 1: a stable release from /releases/latest lands in the snapshot
+// A stable release from /releases/latest lands in the snapshot
 // with version, notes URL, and publish time. Also pins the request headers.
 func TestCheckCachesLatestStable(t *testing.T) {
 	t.Parallel()
@@ -198,9 +198,9 @@ func TestCheckCachesLatestStable(t *testing.T) {
 	}
 }
 
-// Scenario 2 (AE3): the checker is channel-agnostic — it caches BOTH the
+// The checker is channel-agnostic — it caches BOTH the
 // latest stable and the latest RC; channel filtering happens at read time.
-// Scenario 4 (R3) rides along: the fixture contains semver-valid
+// The fixture contains semver-valid
 // feature-branch builds (v0.3.0-pr800.1 outranks every RC under plain semver)
 // that must never be selected because only vX.Y.Z-rc.N grammar qualifies.
 func TestCheckCachesBothStableAndRC(t *testing.T) {
@@ -221,7 +221,7 @@ func TestCheckCachesBothStableAndRC(t *testing.T) {
 	assert.True(t, snap.LatestRC.Prerelease)
 }
 
-// Scenario 3 (AE2): nightly and hand-made non-semver tags are never selected,
+// Nightly and hand-made non-semver tags are never selected,
 // on either the stable or the RC side.
 func TestNonSemverTagsNeverSelected(t *testing.T) {
 	t.Parallel()
@@ -240,7 +240,7 @@ func TestNonSemverTagsNeverSelected(t *testing.T) {
 	assert.False(t, snap.FetchedAt.IsZero(), "an invalid tag is not a fetch failure; the cycle still succeeds")
 }
 
-// Scenario 5: with per_page=100 requested (the API max), an RC preceded by a
+// With per_page=100 requested (the API max), an RC preceded by a
 // month of nightlies on the same page is still found.
 func TestRCSelectedBehindManyNightlies(t *testing.T) {
 	t.Parallel()
@@ -266,7 +266,7 @@ func TestRCSelectedBehindManyNightlies(t *testing.T) {
 	assert.Equal(t, "100", listReq.query.Get("per_page"))
 }
 
-// Scenario 7: RC selection is a semver max-compare, never list position. All
+// RC selection is a semver max-compare, never list position. All
 // entries share a publish time and the newest RC is buried mid-list; rc.10
 // must beat rc.9 (numeric, not lexicographic prerelease comparison).
 func TestRCPickedBySemverMaxNotListOrder(t *testing.T) {
@@ -301,7 +301,7 @@ func TestMalformedListEntrySkipped(t *testing.T) {
 	assert.Empty(t, h.recordsAbove(slog.LevelDebug))
 }
 
-// Scenario 8 (AE4): every failure mode degrades silently — the previous
+// Every failure mode degrades silently — the previous
 // snapshot is retained, no error escapes, and nothing is logged above Debug.
 func TestFailuresRetainSnapshotSilently(t *testing.T) {
 	t.Parallel()
@@ -366,7 +366,7 @@ func TestFailuresRetainSnapshotSilently(t *testing.T) {
 	}
 }
 
-// Scenario 9: a 304 Not Modified reuses the previously parsed result. The 304
+// A 304 Not Modified reuses the previously parsed result. The 304
 // responses have empty bodies, so the snapshot content can only come from the
 // cached parse; FetchedAt advancing proves the cycle counted as a success.
 func TestNotModifiedReusesCachedParse(t *testing.T) {
@@ -400,7 +400,7 @@ func TestNotModifiedReusesCachedParse(t *testing.T) {
 	assert.Equal(t, `"etag-list-1"`, reqs[3].header.Get("If-None-Match"))
 }
 
-// Scenario 10: idempotent Start, draining Stop, no-op second Stop, and a
+// Idempotent Start, draining Stop, no-op second Stop, and a
 // working Start-after-Stop.
 func TestLifecycle(t *testing.T) {
 	t.Parallel()

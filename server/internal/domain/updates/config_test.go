@@ -15,7 +15,7 @@ func validConfig() Config {
 	}
 }
 
-// Scenario 6: both URLs feed a copy-paste shell command, so only https:// may
+// Both URLs feed a copy-paste shell command, so only https:// may
 // pass validation; http:// (or garbage) must fail startup.
 func TestConfigValidate(t *testing.T) {
 	t.Parallel()

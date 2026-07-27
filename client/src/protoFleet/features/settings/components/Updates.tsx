@@ -6,6 +6,7 @@ import type { GetUpdateStatusResponse } from "@/protoFleet/api/generated/updates
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
+import { copyInstallCommand } from "@/protoFleet/features/updates/copyInstallCommand";
 import { useAuthErrors, useHasPermission } from "@/protoFleet/store";
 import { Copy } from "@/shared/assets/icons";
 import Header from "@/shared/components/Header";
@@ -13,7 +14,6 @@ import Row from "@/shared/components/Row";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
-import { copyToClipboard } from "@/shared/utils/utility";
 
 const SkeletonLoader = <SkeletonBar className="h-[22px] w-24" />;
 const UPDATES_PAGE_DESCRIPTION = "View the server version and choose which releases this instance installs.";
@@ -52,22 +52,6 @@ const Updates = () => {
         });
       });
   }, [canUpdateInstance, handleAuthErrors]);
-
-  const handleCopy = () => {
-    copyToClipboard(status?.installCommand ?? "")
-      .then(() => {
-        pushToast({
-          message: "Install command copied to clipboard",
-          status: STATUSES.success,
-        });
-      })
-      .catch(() => {
-        pushToast({
-          message: "Failed to copy install command",
-          status: STATUSES.error,
-        });
-      });
-  };
 
   const handleChannelSelect = (selectedKey: string) => {
     const nextChannel = Number(selectedKey) as ReleaseChannel;
@@ -143,7 +127,7 @@ const Updates = () => {
                     </code>
                     <button
                       type="button"
-                      onClick={handleCopy}
+                      onClick={() => copyInstallCommand(status?.installCommand ?? "")}
                       className="flex h-8 shrink-0 items-center gap-2 rounded-lg bg-core-primary-10 px-2 text-200 whitespace-nowrap text-text-primary hover:cursor-pointer hover:bg-core-primary-20"
                     >
                       <Copy width="w-4" />

@@ -66,7 +66,7 @@ func newTestService(t *testing.T, current string, snapshots *fakeSnapshots, stor
 	return newService(cfg, current, snapshots, store, slog.New(h)), h
 }
 
-// Scenario 2 (AE1): on the stable channel a newer RC alone must not surface;
+// On the stable channel a newer RC alone must not surface;
 // the moment the snapshot gains a newer stable, that stable is offered.
 func TestStatusStableChannelIgnoresRC(t *testing.T) {
 	t.Parallel()
@@ -93,7 +93,7 @@ func TestStatusStableChannelIgnoresRC(t *testing.T) {
 	assert.Equal(t, "v0.2.9", status.LatestEligible.Version)
 }
 
-// Scenario 3: on stable_and_rc a newer RC is eligible, and an RC newer than
+// On stable_and_rc a newer RC is eligible, and an RC newer than
 // the latest stable wins the semver max.
 func TestStatusStableAndRCOffersNewestRC(t *testing.T) {
 	t.Parallel()
@@ -116,7 +116,7 @@ func TestStatusStableAndRCOffersNewestRC(t *testing.T) {
 	assert.True(t, status.LatestEligible.Prerelease)
 }
 
-// Scenario 4 (AE3): running an RC when its stable lands must offer the stable
+// Running an RC when its stable lands must offer the stable
 // on BOTH channels — semver ranks v0.2.9 above v0.2.9-rc.5, and on
 // stable_and_rc the max-compare picks the stable over the RC.
 func TestStatusRCPromotedToStable(t *testing.T) {
@@ -141,7 +141,7 @@ func TestStatusRCPromotedToStable(t *testing.T) {
 	}
 }
 
-// Scenario 5: a non-semver running version (dev builds, nightlies) never
+// A non-semver running version (dev builds, nightlies) never
 // reports an update regardless of the snapshot, logs at most one Debug
 // record, and nothing above Debug.
 func TestStatusNonSemverCurrentNeverOffers(t *testing.T) {
@@ -169,7 +169,7 @@ func TestStatusNonSemverCurrentNeverOffers(t *testing.T) {
 	}
 }
 
-// Scenario 6: a running version newer than every published release reports no
+// A running version newer than every published release reports no
 // update on either channel.
 func TestStatusCurrentNewerThanEveryRelease(t *testing.T) {
 	t.Parallel()
@@ -193,7 +193,7 @@ func TestStatusCurrentNewerThanEveryRelease(t *testing.T) {
 	}
 }
 
-// Scenario 7: flipping stable_and_rc → stable with an RC pending recomputes
+// Flipping stable_and_rc → stable with an RC pending recomputes
 // on the next status call and drops the RC offer.
 func TestChannelFlipDropsPendingRC(t *testing.T) {
 	t.Parallel()
@@ -221,7 +221,7 @@ func TestChannelFlipDropsPendingRC(t *testing.T) {
 	assert.Empty(t, status.InstallCommand)
 }
 
-// Scenario 8: install_command matches the exact template for the eligible tag.
+// Install_command matches the exact template for the eligible tag.
 func TestInstallCommandExactTemplate(t *testing.T) {
 	t.Parallel()
 
@@ -239,7 +239,7 @@ func TestInstallCommandExactTemplate(t *testing.T) {
 		status.InstallCommand)
 }
 
-// Scenario 9: before the first successful fetch (or with no releases) the
+// Before the first successful fetch (or with no releases) the
 // snapshot is empty — no update, no eligible release, no command, on both
 // channels.
 func TestStatusEmptySnapshot(t *testing.T) {
@@ -259,7 +259,7 @@ func TestStatusEmptySnapshot(t *testing.T) {
 	}
 }
 
-// Scenario 10: SetReleaseChannel persists per org and the next status call
+// SetReleaseChannel persists per org and the next status call
 // reads it back; an unknown channel value is rejected as invalid argument
 // before touching storage.
 func TestSetReleaseChannelPersists(t *testing.T) {
@@ -281,7 +281,7 @@ func TestSetReleaseChannelPersists(t *testing.T) {
 	assert.Equal(t, string(ChannelStableAndRC), store.channels[7], "a rejected channel must not overwrite the stored one")
 }
 
-// Scenario 12 (defensive): a candidate that fails semver.IsValid must never
+// A candidate that fails semver.IsValid must never
 // yield an install command, and update_available stays false — even though
 // the checker should never cache such a release.
 func TestNonSemverCandidateNeverOffered(t *testing.T) {

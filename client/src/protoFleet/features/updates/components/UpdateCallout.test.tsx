@@ -73,7 +73,6 @@ const mockPushToast = vi.mocked(pushToast);
 const mockUpdateAvailable = (overrides?: Partial<ReturnType<typeof useUpdateStatus>>) => {
   mockUseUpdateStatus.mockReturnValue({
     status: buildStatus(),
-    loading: false,
     hasUpdatePermission: true,
     ...overrides,
   });

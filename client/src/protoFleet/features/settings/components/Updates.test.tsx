@@ -4,6 +4,7 @@ import Updates from "./Updates";
 import { updatesClient } from "@/protoFleet/api/clients";
 import type { GetUpdateStatusResponse } from "@/protoFleet/api/generated/updates/v1/updates_pb";
 import { ReleaseChannel } from "@/protoFleet/api/generated/updates/v1/updates_pb";
+import { DISMISSED_UPDATE_TAG_KEY } from "@/protoFleet/features/updates/components/UpdateCallout";
 import { useHasPermission } from "@/protoFleet/store";
 import { pushToast } from "@/shared/features/toaster";
 import { copyToClipboard } from "@/shared/utils/utility";
@@ -77,7 +78,7 @@ beforeEach(() => {
 describe("Updates", () => {
   it("renders the current version, latest release, notes link, and copy control regardless of callout dismissal", async () => {
     // The nav callout's dismissal must not hide the release on this page.
-    localStorage.setItem("dismissedUpdateTag", "v1.3.0");
+    localStorage.setItem(DISMISSED_UPDATE_TAG_KEY, "v1.3.0");
     mockGetUpdateStatus.mockResolvedValue(buildStatus());
 
     const { findByText, getByText, getByRole } = render(<Updates />);

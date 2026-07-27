@@ -21,7 +21,7 @@ func requirePermissionDenied(t *testing.T, err error) {
 	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
 }
 
-// AE5: update status and channel mutation are gated on org-wide
+// Update status and channel mutation are gated on org-wide
 // instance:update before the service is touched (svc is nil).
 func TestGetUpdateStatusRequiresInstanceUpdate(t *testing.T) {
 	t.Parallel()
@@ -56,7 +56,7 @@ func TestUpdateStatusRejectsSiteScopedPermission(t *testing.T) {
 	requirePermissionDenied(t, err)
 }
 
-// AE5: GetVersion needs only an authenticated session, no instance:update.
+// GetVersion needs only an authenticated session, no instance:update.
 func TestGetVersionRequiresNoPermission(t *testing.T) {
 	t.Parallel()
 

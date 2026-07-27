@@ -11,9 +11,15 @@ const UPDATE_STATUS_POLL_INTERVAL_MS = 15 * 60 * 1000;
 
 export interface UseUpdateStatusResult {
   status: GetUpdateStatusResponse | null;
-  loading: boolean;
   hasUpdatePermission: boolean;
 }
+
+const statusUnchanged = (prev: GetUpdateStatusResponse, next: GetUpdateStatusResponse) =>
+  prev.currentVersion === next.currentVersion &&
+  prev.updateAvailable === next.updateAvailable &&
+  prev.channel === next.channel &&
+  prev.installCommand === next.installCommand &&
+  prev.latestEligible?.version === next.latestEligible?.version;
 
 // Polls GetUpdateStatus for permission holders only: the RPC is gated by
 // instance:update, so non-holders never fire it. Errors are swallowed by
@@ -22,16 +28,15 @@ export interface UseUpdateStatusResult {
 export function useUpdateStatus(): UseUpdateStatusResult {
   const hasUpdatePermission = useHasPermission("instance:update");
   const [status, setStatus] = useState<GetUpdateStatusResponse | null>(null);
-  const [loading, setLoading] = useState(false);
 
   const fetchData = useCallback(async () => {
-    setLoading(true);
     try {
-      setStatus(await updatesClient.getUpdateStatus({}));
+      const next = await updatesClient.getUpdateStatus({});
+      // Most polls return identical data; keep the previous reference so
+      // consumers don't re-render for a no-op tick.
+      setStatus((prev) => (prev && statusUnchanged(prev, next) ? prev : next));
     } catch {
       // Silent: keep the last known status (if any) and retry on the next poll.
-    } finally {
-      setLoading(false);
     }
   }, []);
 
@@ -42,5 +47,5 @@ export function useUpdateStatus(): UseUpdateStatusResult {
     enabled: hasUpdatePermission,
   });
 
-  return { status, loading, hasUpdatePermission };
+  return { status, hasUpdatePermission };
 }

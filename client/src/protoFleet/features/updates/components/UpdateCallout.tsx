@@ -1,10 +1,9 @@
 import { useUpdateStatus } from "@/protoFleet/features/updates/api/useUpdateStatus";
+import { copyInstallCommand } from "@/protoFleet/features/updates/copyInstallCommand";
 import { ArrowUp, Copy, Dismiss } from "@/shared/assets/icons";
-import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
-import { copyToClipboard } from "@/shared/utils/utility";
 
-const DISMISSED_UPDATE_TAG_KEY = "dismissedUpdateTag";
+export const DISMISSED_UPDATE_TAG_KEY = "dismissedUpdateTag";
 
 // Pinned in the nav footer above the logout button. Only instance:update
 // holders ever see it (the hook also gates the RPC), and each release tag can
@@ -17,22 +16,6 @@ const UpdateCallout = () => {
   if (!hasUpdatePermission || !status?.updateAvailable || !release || release.version === dismissedTag) {
     return null;
   }
-
-  const handleCopy = () => {
-    copyToClipboard(status.installCommand)
-      .then(() => {
-        pushToast({
-          message: "Install command copied to clipboard",
-          status: STATUSES.success,
-        });
-      })
-      .catch(() => {
-        pushToast({
-          message: "Failed to copy install command",
-          status: STATUSES.error,
-        });
-      });
-  };
 
   return (
     <div data-testid="update-callout" className="mb-1 w-full">
@@ -77,7 +60,7 @@ const UpdateCallout = () => {
         </a>
         <button
           type="button"
-          onClick={handleCopy}
+          onClick={() => copyInstallCommand(status.installCommand)}
           className="mt-2 flex h-8 w-full items-center gap-2 rounded-lg bg-core-primary-10 px-2 text-200 whitespace-nowrap text-text-primary hover:cursor-pointer hover:bg-core-primary-20"
         >
           <Copy width="w-4" />
