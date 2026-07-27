@@ -65,7 +65,7 @@ func (m *ChunkedUploadManager) StartCleanup(ctx context.Context, ttl time.Durati
 	if interval < time.Minute {
 		interval = time.Minute
 	}
-	reportProgress := runtimejobs.TrackProgress(ctx, 3*interval)
+	reportProgress := runtimejobs.TrackProgress(ctx, interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

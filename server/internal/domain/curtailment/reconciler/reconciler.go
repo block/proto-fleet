@@ -243,7 +243,7 @@ func (r *Reconciler) Stop(ctx context.Context) error {
 func (r *Reconciler) tickLoop(loopCtx, workCtx context.Context, runDone chan<- struct{}) {
 	defer close(runDone)
 	defer r.finishActivation()
-	reportProgress := runtimejobs.TrackProgress(loopCtx, 3*r.cfg.TickInterval)
+	reportProgress := runtimejobs.TrackProgress(loopCtx, r.cfg.TickInterval)
 	ticker := time.NewTicker(r.cfg.TickInterval)
 	defer ticker.Stop()
 	for {

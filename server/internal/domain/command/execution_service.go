@@ -262,7 +262,7 @@ func (es *ExecutionService) withAdmission(ctx context.Context, fn func(context.C
 }
 
 func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
-	reportProgress := runtimejobs.TrackProgress(ctx, 3*es.config.ReaperInterval)
+	reportProgress := runtimejobs.TrackProgress(ctx, es.config.ReaperInterval)
 	ticker := time.NewTicker(es.config.ReaperInterval)
 	defer ticker.Stop()
 

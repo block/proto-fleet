@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const progressStaleIntervalCount = 3
+
 // State is the current lifecycle state of a group or job.
 type State string
 
@@ -23,14 +25,14 @@ type GroupStatus struct {
 	Jobs          []JobStatus
 }
 
-// JobStatus is a point-in-time snapshot of one job.
+// JobStatus is a point-in-time snapshot of one job. StaleAfter is zero when
+// progress is not tracked.
 type JobStatus struct {
-	Name            string
-	State           State
-	ProgressTracked bool
-	LastProgress    time.Time
-	StaleAfter      time.Duration
-	Stale           bool
+	Name         string
+	State        State
+	LastProgress time.Time
+	StaleAfter   time.Duration
+	Stale        bool
 }
 
 type progressContext struct {
@@ -42,18 +44,23 @@ type progressContext struct {
 type progressContextKey struct{}
 
 // TrackProgress registers freshness tracking for the managed job associated
-// with ctx. The returned reporter records completion of a representative work
-// cycle. It is a no-op outside a Group-managed Start context or when staleAfter
-// is not positive.
-func TrackProgress(ctx context.Context, staleAfter time.Duration) func() {
-	if staleAfter <= 0 || ctx.Err() != nil {
+// with ctx. A job becomes stale after three loop intervals without a completed
+// representative work cycle. Calling the returned function reports completion
+// of one such cycle. It is a no-op outside a Group-managed Start context or
+// when effectiveInterval is not positive.
+func TrackProgress(ctx context.Context, effectiveInterval time.Duration) func() {
+	if effectiveInterval <= 0 || ctx.Err() != nil {
 		return func() {}
 	}
 	progress, ok := ctx.Value(progressContextKey{}).(progressContext)
 	if !ok {
 		return func() {}
 	}
-	report := progress.group.trackProgress(progress.jobIndex, progress.generation, staleAfter)
+	report := progress.group.trackProgress(
+		progress.jobIndex,
+		progress.generation,
+		progressStaleIntervalCount*effectiveInterval,
+	)
 	return func() {
 		if ctx.Err() == nil {
 			report()

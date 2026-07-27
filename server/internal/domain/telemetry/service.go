@@ -556,7 +556,7 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, tasks chan<
 	if fetchInterval <= 0 {
 		fetchInterval = defaultFetchInterval
 	}
-	reportProgress := runtimejobs.TrackProgress(ctx, 3*fetchInterval)
+	reportProgress := runtimejobs.TrackProgress(ctx, fetchInterval)
 	ticker := time.NewTicker(fetchInterval)
 	defer ticker.Stop()
 	for {

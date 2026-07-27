@@ -278,7 +278,7 @@ func start(config *Config) error {
 
 	identityStateCleanup := newBackgroundLoop(func(ctx context.Context) {
 		cleanupInterval := sessionSvc.CleanupInterval()
-		reportProgress := runtimejobs.TrackProgress(ctx, 3*cleanupInterval)
+		reportProgress := runtimejobs.TrackProgress(ctx, cleanupInterval)
 		ticker := time.NewTicker(cleanupInterval)
 		defer ticker.Stop()
 
@@ -372,7 +372,7 @@ func start(config *Config) error {
 	}
 	commandArtifactCleanup := newBackgroundLoop(func(ctx context.Context) {
 		cleanupInterval := filesService.CommandArtifactCleanupInterval()
-		reportProgress := runtimejobs.TrackProgress(ctx, 3*cleanupInterval)
+		reportProgress := runtimejobs.TrackProgress(ctx, cleanupInterval)
 		ticker := time.NewTicker(cleanupInterval)
 		defer ticker.Stop()
 		runCommandArtifactSweep()

@@ -91,12 +91,11 @@ func (g *Group) Status() GroupStatus {
 	for i, job := range g.jobs {
 		runtimeStatus := g.jobStatuses[i]
 		status.Jobs[i] = JobStatus{
-			Name:            job.Name(),
-			State:           runtimeStatus.state,
-			ProgressTracked: runtimeStatus.staleAfter > 0,
-			LastProgress:    runtimeStatus.lastProgress,
-			StaleAfter:      runtimeStatus.staleAfter,
-			Stale:           isStale(runtimeStatus, now),
+			Name:         job.Name(),
+			State:        runtimeStatus.state,
+			LastProgress: runtimeStatus.lastProgress,
+			StaleAfter:   runtimeStatus.staleAfter,
+			Stale:        isStale(runtimeStatus, now),
 		}
 	}
 	return status

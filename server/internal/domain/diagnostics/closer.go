@@ -23,7 +23,7 @@ func (s *Service) runCloser(ctx context.Context) {
 		"pollInterval", pollInterval,
 		"stalenessThreshold", stalenessThreshold)
 
-	reportProgress := runtimejobs.TrackProgress(ctx, 3*pollInterval)
+	reportProgress := runtimejobs.TrackProgress(ctx, pollInterval)
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 

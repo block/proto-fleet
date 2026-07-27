@@ -171,7 +171,7 @@ func channelClosed(done <-chan struct{}) bool {
 func (l *AlertMetricsLoop) tickLoop(ctx context.Context, runDone chan<- struct{}) {
 	defer close(runDone)
 	defer l.finishActivation()
-	reportProgress := runtimejobs.TrackProgress(ctx, 3*l.cfg.Interval)
+	reportProgress := runtimejobs.TrackProgress(ctx, l.cfg.Interval)
 	ticker := time.NewTicker(l.cfg.Interval)
 	defer ticker.Stop()
 	l.tick(ctx)

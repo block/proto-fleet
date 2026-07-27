@@ -265,7 +265,7 @@ func (p *Processor) finishStop(run *processorActivation) {
 
 func (p *Processor) reconcileLoop(run *processorActivation) {
 	defer run.wg.Done()
-	reportProgress := runtimejobs.TrackProgress(run.admissionCtx, 3*reconcileInterval)
+	reportProgress := runtimejobs.TrackProgress(run.admissionCtx, reconcileInterval)
 	ticker := time.NewTicker(reconcileInterval)
 	defer ticker.Stop()
 	for {

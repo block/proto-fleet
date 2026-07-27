@@ -153,7 +153,7 @@ func (s *Service) Stop(ctx context.Context) error {
 
 // scanLoop periodically scans for offline devices
 func (s *Service) scanLoop(ctx context.Context, run *serviceRun) {
-	reportProgress := runtimejobs.TrackProgress(ctx, 3*s.config.ScanInterval)
+	reportProgress := runtimejobs.TrackProgress(ctx, s.config.ScanInterval)
 	ticker := time.NewTicker(s.config.ScanInterval)
 	defer ticker.Stop()
 

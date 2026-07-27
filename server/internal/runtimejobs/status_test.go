@@ -99,14 +99,12 @@ func TestTrackProgressReportsFreshnessAndIsolatesActivations(t *testing.T) {
 	require.NoError(t, group.Start(context.Background()))
 	oldReporter := <-reporters
 	first := group.Status()
-	require.True(t, first.Jobs[0].ProgressTracked)
 	assert.WithinDuration(t, time.Now(), first.Jobs[0].LastProgress, time.Second)
-	assert.Equal(t, time.Hour, first.Jobs[0].StaleAfter)
+	assert.Equal(t, 3*time.Hour, first.Jobs[0].StaleAfter)
 	assert.False(t, first.Jobs[0].Stale)
 	require.NoError(t, group.Stop(context.Background()))
 
 	stopped := group.Status()
-	assert.True(t, stopped.Jobs[0].ProgressTracked)
 	assert.False(t, stopped.Jobs[0].Stale)
 
 	activationCtx, cancelActivation := context.WithCancel(context.Background())
@@ -152,7 +150,7 @@ func TestProgressMonitorLogsOnlyStaleAndRecoveredTransitions(t *testing.T) {
 
 	reporter := make(chan func(), 1)
 	group := newTestGroup(t, newTestJob("periodic", func(ctx context.Context) error {
-		reporter <- TrackProgress(ctx, 15*time.Millisecond)
+		reporter <- TrackProgress(ctx, 5*time.Millisecond)
 		return nil
 	}, nil))
 	logs := &recordingHandler{}
