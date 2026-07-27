@@ -145,6 +145,7 @@ func (s *TelemetryService) Start(ctx context.Context) error {
 	activation.background.Go(func() { s.statusPollingRoutine(activationCtx, activation.statusTasks) })
 	activation.background.Go(func() { s.fleetStateSnapshotRoutine(activationCtx) })
 	activation.background.Go(func() { s.fleetMetricRollupRoutine(activationCtx) })
+	activation.background.Go(func() { s.retainedSampleEvictionRoutine(activationCtx) })
 	go s.finishActivation(activation)
 	return nil
 }
@@ -189,6 +190,7 @@ drainSampleTasks:
 	// All admitted producers and workers are gone, so no old-epoch result can
 	// repopulate retention after this clear.
 	s.retainedSamples.Clear()
+	s.clearSampleGenerations()
 
 	s.lifecycleMu.Lock()
 	if s.activation == activation {

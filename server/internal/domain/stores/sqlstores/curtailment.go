@@ -1956,13 +1956,59 @@ func (s *SQLCurtailmentStore) ListEligibleConfirmationTargets(ctx context.Contex
 			DeviceIdentifier:            row.DeviceIdentifier,
 			DesiredState:                row.DesiredState,
 			BaselinePowerW:              nullStringToFloat64Ptr(row.BaselinePowerW),
-			DispatchedAt:                row.PhaseDispatchedAt,
 			BatchUUID:                   row.PhaseBatchUuid,
 			PairingStatus:               row.PairingStatus,
 			ForceIncludeAllPairedMiners: row.ForceIncludeAllPairedMiners,
 		})
 	}
 	return out, nil
+}
+
+type confirmationUpdateRow struct {
+	DeviceIdentifier string    `json:"device_identifier"`
+	Phase            string    `json:"phase"`
+	BatchUUID        string    `json:"batch_uuid"`
+	ObservedPowerW   *float64  `json:"observed_power_w"`
+	ObservedAt       time.Time `json:"observed_at"`
+	ConfirmedAt      time.Time `json:"confirmed_at"`
+}
+
+func (s *SQLCurtailmentStore) BulkConfirmTargets(
+	ctx context.Context,
+	eventID int64,
+	expectedEventState models.EventState,
+	updates []interfaces.ConfirmationUpdate,
+) (interfaces.ConfirmationBulkResult, error) {
+	if len(updates) == 0 {
+		return interfaces.ConfirmationBulkResult{}, nil
+	}
+	rows := make([]confirmationUpdateRow, len(updates))
+	for i, update := range updates {
+		rows[i] = confirmationUpdateRow{
+			DeviceIdentifier: update.DeviceIdentifier,
+			Phase:            string(update.Phase),
+			BatchUUID:        update.BatchUUID,
+			ObservedPowerW:   update.ObservedPowerW,
+			ObservedAt:       update.ObservedAt,
+			ConfirmedAt:      update.ConfirmedAt,
+		}
+	}
+	payload, err := json.Marshal(rows)
+	if err != nil {
+		return interfaces.ConfirmationBulkResult{}, fleeterror.NewInternalErrorf("encode confirmation update payload: %v", err)
+	}
+	applied, err := s.GetQueries(ctx).BulkConfirmCurtailmentTargets(ctx, sqlc.BulkConfirmCurtailmentTargetsParams{
+		CurtailmentEventID: eventID,
+		ExpectedEventState: string(expectedEventState),
+		UpdatesJsonb:       payload,
+	})
+	if err != nil {
+		return interfaces.ConfirmationBulkResult{}, fleeterror.NewInternalErrorf("bulk confirm curtailment targets for event %d: %v", eventID, err)
+	}
+	return interfaces.ConfirmationBulkResult{
+		AppliedCount:            int(applied.AppliedCount),
+		SampleDeviceIdentifiers: applied.SampleDeviceIdentifiers,
+	}, nil
 }
 
 func (s *SQLCurtailmentStore) UpdateEventState(ctx context.Context, eventID int64, expectedState models.EventState, state models.EventState, startedAt *time.Time, endedAt *time.Time) error {

@@ -319,6 +319,57 @@ func TestPublishFlightSample_DoesNotPublishIntoReplacementClaim(t *testing.T) {
 	assert.False(t, retained, "claim A's sample must not be retained after claim B replaces it")
 }
 
+func TestEvictExpiredRetainedSamples_RemovesOnlyExpiredIdentity(t *testing.T) {
+	service := &TelemetryService{}
+	now := time.Now()
+	expiredDevice := models.DeviceIdentifier("expired")
+	freshDevice := models.DeviceIdentifier("fresh")
+	expired := &retainedSample{completedAt: now.Add(-sampleReuseWindow)}
+	fresh := &retainedSample{completedAt: now.Add(-sampleReuseWindow + time.Second)}
+	service.retainedSamples.Store(expiredDevice, expired)
+	service.retainedSamples.Store(freshDevice, fresh)
+
+	service.evictExpiredRetainedSamples(now)
+
+	_, ok := service.retainedSamples.Load(expiredDevice)
+	assert.False(t, ok)
+	value, ok := service.retainedSamples.Load(freshDevice)
+	require.True(t, ok)
+	assert.Same(t, fresh, value)
+}
+
+func TestRetainSample_RejectsFlightFromRemovedGeneration(t *testing.T) {
+	service := &TelemetryService{}
+	deviceID := models.DeviceIdentifier("removed-during-flight")
+	entry := service.newDeviceInFlightEntry(deviceID, inFlightKindFullTelemetry)
+	service.advanceSampleGeneration(deviceID)
+
+	service.retainSample(deviceID, 1, sampleMetricsFixture(deviceID, 3200), entry.flightStart, entry.sampleGeneration)
+
+	_, retained := service.retainedSamples.Load(deviceID)
+	assert.False(t, retained, "a flight admitted before removal must not repopulate retention")
+}
+
+func TestSampleDeviceMetrics_RejectsWrongOrganizationBeforeDirectRead(t *testing.T) {
+	h := newSamplingHarness(t, samplingTestConfig())
+	h.startWorkers(t, 1)
+	deviceID := models.DeviceIdentifier("moved-device")
+	h.minerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+		Return(h.miner, nil).
+		Times(1)
+
+	results := h.service.SampleDeviceMetrics(t.Context(), []SampleRequest{{
+		DeviceID: deviceID,
+		OrgID:    42,
+	}})
+
+	require.Len(t, results, 1)
+	require.Error(t, results[0].Err)
+	assert.Contains(t, results[0].Err.Error(), "expected org 42")
+	assert.Equal(t, int64(42), results[0].OrgID)
+}
+
 // A qualifying recently completed sample is reused without a second device call.
 func TestSampleDeviceMetrics_ReusesFreshSample(t *testing.T) {
 	h := newSamplingHarness(t, samplingTestConfig())

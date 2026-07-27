@@ -113,7 +113,8 @@ type Reconciler struct {
 	// sampler backs the confirmation fast path (see
 	// confirmation_fast_path.go); required only when
 	// cfg.ConfirmationFastPathEnabled.
-	sampler ConfirmationSampler
+	sampler           ConfirmationSampler
+	confirmationStore interfaces.CurtailmentConfirmationStore
 	// confirmationWake coalesces pulse wakes; buffered size 1.
 	confirmationWake chan struct{}
 	// confirmationPulse is the between-pass cadence while eligible work
@@ -181,6 +182,9 @@ func New(cfg Config, store interfaces.CurtailmentStore, cmd CommandDispatcher, o
 	if fanStore, ok := store.(interfaces.CurtailmentFanStateStore); ok {
 		r.fanStore = fanStore
 	}
+	if confirmationStore, ok := store.(interfaces.CurtailmentConfirmationStore); ok {
+		r.confirmationStore = confirmationStore
+	}
 	for _, opt := range opts {
 		opt(r)
 	}
@@ -205,6 +209,9 @@ func (r *Reconciler) Start(ctx context.Context) error {
 	}
 	if r.cfg.ConfirmationFastPathEnabled && r.sampler == nil {
 		return fmt.Errorf("curtailment reconciler: confirmation fast path is enabled but no sampler is configured (WithConfirmationSampler)")
+	}
+	if r.cfg.ConfirmationFastPathEnabled && r.confirmationStore == nil {
+		return fmt.Errorf("curtailment reconciler: confirmation fast path is enabled but the store does not support bulk confirmation")
 	}
 
 	r.lifecycleMu.Lock()
@@ -279,7 +286,11 @@ func (r *Reconciler) tickLoop(loopCtx, workCtx context.Context, runDone chan<- s
 		confirmationDone = done
 		go func() {
 			defer close(done)
-			r.confirmationLoop(loopCtx, workCtx)
+			// The confirmation pulse is an acceleration only, so Stop may
+			// cancel an active pass immediately. Full ticks keep using the
+			// detached work context so their existing drain semantics remain
+			// unchanged.
+			r.confirmationLoop(loopCtx, loopCtx)
 		}()
 		// Startup recovery: rows may already sit in dispatched from a
 		// previous process; run one pass immediately rather than waiting
@@ -772,6 +783,16 @@ type dispatchFailureGuard struct {
 	expectedBatchUUID *string
 }
 
+func loadedDispatchBatchUUID(t *models.Target) *string {
+	if t.DesiredState == models.DesiredStateActive {
+		if t.RestorePhase == nil {
+			return nil
+		}
+		return t.RestorePhase.BatchUUID
+	}
+	return t.CurtailPhase.BatchUUID
+}
+
 // recordDispatchFailure bumps retry_count. Restore targets transition to
 // RestoreFailed at MaxRetries so the event can complete; curtail targets stay
 // retryable while OFF remains asserted, with retry_count surfacing the alert.
@@ -787,7 +808,7 @@ func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event
 func (r *Reconciler) recordDispatchedObservationFailure(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState) {
 	r.recordDispatchFailureGuarded(ctx, ev, t, errMsg, nonTerminalFailureState, &dispatchFailureGuard{
 		expectedState:     models.TargetStateDispatched,
-		expectedBatchUUID: t.LastBatchUUID,
+		expectedBatchUUID: loadedDispatchBatchUUID(t),
 	})
 }
 
@@ -818,6 +839,12 @@ func (r *Reconciler) recordDispatchFailureGuarded(ctx context.Context, ev *model
 	}
 	slog.Error("curtailment reconciler: target update after dispatch failure failed",
 		"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+	if guard != nil {
+		// BumpTargetRetry cannot carry the dispatched-state and phase-batch
+		// guards. Falling back here could consume retry budget on a target the
+		// pulse already confirmed or on a replacement dispatch batch.
+		return
+	}
 	// Fallback: advance retry budget only. State stays at the prior value;
 	// terminal restore escalation lands on the next successful UpdateTargetState.
 	if bumpErr := r.store.BumpTargetRetry(ctx, ev.ID, t.DeviceIdentifier); bumpErr != nil {
@@ -1456,6 +1483,9 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 	}
 	now := r.now()
 	params := confirmedCurtailTargetParams(now, c.LatestPowerW)
+	expectedTargetState := models.TargetStateDispatched
+	params.ExpectedState = &expectedTargetState
+	params.ExpectedDispatchBatchUUID = loadedDispatchBatchUUID(t)
 	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			slog.Error("curtailment reconciler: target confirm update failed",
@@ -2040,6 +2070,9 @@ func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t 
 	}
 	now := r.now()
 	params := resolvedRestoreTargetParams(now, c.LatestPowerW)
+	expectedTargetState := models.TargetStateDispatched
+	params.ExpectedState = &expectedTargetState
+	params.ExpectedDispatchBatchUUID = loadedDispatchBatchUUID(t)
 	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			slog.Error("curtailment reconciler: restore confirm update failed",

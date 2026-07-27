@@ -4,11 +4,9 @@
 // confirmed/resolved from fresh telemetry samples between full ticks. The
 // pulse is confirmation-only: it never dispatches commands, never burns retry
 // budget, never ages dispatch timeouts, and never transitions event state —
-// all corrective and event-level work stays on the full 30s tick. Its only
-// writes are the same guarded promotions the tick performs
-// (dispatched → confirmed for curtail work, dispatched → resolved for restore
-// work), made single-winner by the expected-state and expected-batch-UUID
-// guards on UpdateTargetState.
+// all corrective and event-level work stays on the full 30s tick. Positive
+// promotions are grouped by event; the bulk write revalidates event phase,
+// target state/direction/batch, and live device ownership before committing.
 //
 // Lifecycle: the pulse goroutine parks with zero periodic work while no
 // eligible rows exist. Wakes arrive when a tick observes durable dispatched
@@ -18,14 +16,14 @@
 // failures, and parks again once the eligibility read returns no rows.
 //
 // Freshness (R3): a sample only confirms a target when its fleetd-owned
-// flight start is strictly later than the target's durable phase dispatch
-// timestamp. Device-reported timestamps are never compared against fleetd
-// clocks.
+// flight start is strictly later than the local eligibility-read boundary.
+// The read can only return a durably dispatched row, so this proves physical
+// post-dispatch ordering without comparing wall clocks from different fleetd
+// processes. Device-reported timestamps are never used for ordering.
 package reconciler
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
@@ -52,9 +50,11 @@ const (
 	confirmationPassTimeout = 30 * time.Second
 	// confirmationWriteTimeout bounds the guarded-write half of one pass. It
 	// is derived fresh from the pulse's work context once sampling returns,
-	// so Stop still cancels it. Modest by design: the writes are single-row
-	// guarded UPDATEs already scoped by the eligibility read.
-	confirmationWriteTimeout = 10 * time.Second
+	// so Stop still cancels it. Modest by design: writes are guarded bulk
+	// updates already scoped by the eligibility read.
+	confirmationWriteTimeout  = 10 * time.Second
+	confirmationLogSampleSize = 5
+	confirmationBulkChunkSize = 500
 )
 
 // ConfirmationSampler is the narrow read-only telemetry seam the pulse
@@ -158,20 +158,47 @@ func (r *Reconciler) confirmationPass(ctx context.Context) (parked, failed bool)
 		return true, false
 	}
 
+	// This local boundary is captured only after the durable eligibility read
+	// returned. Requiring local telemetry flights to start after it avoids
+	// cross-process wall-clock comparisons and guarantees post-dispatch
+	// evidence even during startup recovery.
+	sampledAfter := r.now()
+
 	// One request per item; the sampler deduplicates device IDs keeping the
-	// strictest (latest) dispatch bound, so a device targeted by multiple
-	// events is still read once.
+	// organization boundary. A device targeted by multiple rows in one org is
+	// still read once.
 	requests := make([]telemetry.SampleRequest, 0, len(items))
 	for _, item := range items {
 		requests = append(requests, telemetry.SampleRequest{
 			DeviceID:     telemetryModels.DeviceIdentifier(item.DeviceIdentifier),
-			SampledAfter: item.DispatchedAt,
+			OrgID:        item.OrgID,
+			SampledAfter: sampledAfter,
 		})
 	}
 	results := r.sampler.SampleDeviceMetrics(passCtx, requests)
-	samplesByDevice := make(map[string]telemetry.SampleResult, len(results))
+	type sampleKey struct {
+		orgID  int64
+		device string
+	}
+	samplesByDevice := make(map[sampleKey]telemetry.SampleResult, len(results))
+	sampleFailures := 0
+	reusedSamples := 0
+	joinedSamples := 0
+	directSamples := 0
 	for _, res := range results {
-		samplesByDevice[string(res.DeviceID)] = res
+		samplesByDevice[sampleKey{orgID: res.OrgID, device: string(res.DeviceID)}] = res
+		if res.Err != nil {
+			sampleFailures++
+			continue
+		}
+		switch res.Source {
+		case telemetry.SampleSourceReused:
+			reusedSamples++
+		case telemetry.SampleSourceJoined:
+			joinedSamples++
+		case telemetry.SampleSourceDirect:
+			directSamples++
+		}
 	}
 
 	// passCtx bounded only the eligibility read and sampling above. Promote
@@ -185,87 +212,138 @@ func (r *Reconciler) confirmationPass(ctx context.Context) (parked, failed bool)
 	writeCtx, cancelWrite := context.WithTimeout(ctx, confirmationWriteTimeout)
 	defer cancelWrite()
 
+	type eventUpdates struct {
+		eventState models.EventState
+		updates    []interfaces.ConfirmationUpdate
+	}
+	updatesByEvent := make(map[int64]*eventUpdates)
+	eventOrder := make([]int64, 0)
+	positiveCount := 0
 	for _, item := range items {
-		if writeCtx.Err() != nil {
-			return false, true
-		}
-		sample, ok := samplesByDevice[item.DeviceIdentifier]
+		sample, ok := samplesByDevice[sampleKey{orgID: item.OrgID, device: item.DeviceIdentifier}]
 		if !ok || sample.Err != nil {
 			// Per-device sampling failure: preserved siblings still confirm;
 			// this row waits for the next pulse or the full tick.
 			continue
 		}
-		r.confirmFromSample(writeCtx, item, sample)
+		update, ok := r.confirmationUpdateFromSample(item, sample, sampledAfter)
+		if !ok {
+			continue
+		}
+		group := updatesByEvent[item.EventID]
+		if group == nil {
+			group = &eventUpdates{eventState: item.EventState}
+			updatesByEvent[item.EventID] = group
+			eventOrder = append(eventOrder, item.EventID)
+		}
+		group.updates = append(group.updates, update)
+		positiveCount++
+	}
+
+	appliedCount := 0
+	raceLossCount := 0
+	writeFailureCount := 0
+	var firstWriteError error
+	sampleDeviceIDs := make([]string, 0, confirmationLogSampleSize)
+	for _, eventID := range eventOrder {
+		group := updatesByEvent[eventID]
+		for start := 0; start < len(group.updates); start += confirmationBulkChunkSize {
+			if writeCtx.Err() != nil {
+				return false, true
+			}
+			end := min(start+confirmationBulkChunkSize, len(group.updates))
+			chunk := group.updates[start:end]
+			result, err := r.confirmationStore.BulkConfirmTargets(writeCtx, eventID, group.eventState, chunk)
+			if err != nil {
+				writeFailureCount += len(chunk)
+				r.metrics.IncTargetWriteFailure()
+				if firstWriteError == nil {
+					firstWriteError = err
+				}
+				continue
+			}
+			appliedCount += result.AppliedCount
+			if result.AppliedCount < len(chunk) {
+				raceLossCount += len(chunk) - result.AppliedCount
+				r.metrics.IncEventStateRaceLoss()
+			}
+			for _, deviceID := range result.SampleDeviceIdentifiers {
+				if len(sampleDeviceIDs) >= confirmationLogSampleSize {
+					break
+				}
+				sampleDeviceIDs = append(sampleDeviceIDs, deviceID)
+			}
+		}
+	}
+	logAttrs := []any{
+		"eligible_count", len(items),
+		"sample_failure_count", sampleFailures,
+		"reused_sample_count", reusedSamples,
+		"joined_sample_count", joinedSamples,
+		"direct_sample_count", directSamples,
+		"positive_count", positiveCount,
+		"confirmed_count", appliedCount,
+		"race_loss_count", raceLossCount,
+		"write_failure_count", writeFailureCount,
+		"sample_device_ids", sampleDeviceIDs,
+	}
+	switch {
+	case writeFailureCount > 0:
+		slog.Error("curtailment confirmation fast path: pass completed",
+			append(logAttrs, "first_write_error", firstWriteError)...)
+	case appliedCount > 1 || raceLossCount > 0 || sampleFailures > 0:
+		slog.Info("curtailment confirmation fast path: pass completed", logAttrs...)
+	case appliedCount == 1:
+		slog.Debug("curtailment confirmation fast path: pass completed", logAttrs...)
 	}
 	return false, sampledTimedOut
 }
 
-// confirmFromSample applies one guarded promotion when the sample proves the
-// item's desired state. Negative or insufficient evidence is a no-op: retry
-// budget, dispatch-timeout aging, and unpaired-device handling belong to the
-// full tick (KTD2).
-func (r *Reconciler) confirmFromSample(ctx context.Context, item models.ConfirmationTarget, sample telemetry.SampleResult) {
-	// R3: only evidence observed strictly after this item's own dispatch
-	// counts. The sampler already enforced the deduplicated bound; re-check
-	// per item so a device shared across events cannot leak evidence.
-	if !sample.FlightStart.After(item.DispatchedAt) {
-		return
+// confirmationUpdateFromSample builds one guarded promotion payload when the
+// sample proves the item's desired state. Negative or insufficient evidence
+// is a no-op: retry budget and dispatch-timeout aging belong to the full tick.
+func (r *Reconciler) confirmationUpdateFromSample(
+	item models.ConfirmationTarget,
+	sample telemetry.SampleResult,
+	sampledAfter time.Time,
+) (interfaces.ConfirmationUpdate, bool) {
+	// Re-check the sampler contract before trusting the result. OrgID prevents
+	// a same-identifier sample from another tenant being associated with this
+	// row; the bulk write repeats live ownership and pairing checks atomically.
+	if sample.OrgID != item.OrgID || !sample.FlightStart.After(sampledAfter) {
+		return interfaces.ConfirmationUpdate{}, false
 	}
 
 	powerW, hashRateHS := sampleMeasurements(sample.Metrics)
 	now := r.now()
-	var params interfaces.UpdateCurtailmentTargetStateParams
+	update := interfaces.ConfirmationUpdate{
+		DeviceIdentifier: item.DeviceIdentifier,
+		BatchUUID:        item.BatchUUID,
+		ObservedAt:       now,
+		ConfirmedAt:      now,
+	}
+	if powerW != nil && isFinite(*powerW) {
+		power := *powerW
+		update.ObservedPowerW = &power
+	}
 	switch item.DesiredState {
 	case models.DesiredStateCurtailed:
 		if item.ForceIncludeAllPairedMiners && !curtailment.IsAllPairedPolicyPairingStatus(item.PairingStatus) {
-			return
+			return interfaces.ConfirmationUpdate{}, false
 		}
 		if !isCurtailed(powerW, item.BaselinePowerW, hashRateHS, r.cfg.DriftThresholdFactor, true) {
-			return
+			return interfaces.ConfirmationUpdate{}, false
 		}
-		params = confirmedCurtailTargetParams(now, powerW)
+		update.Phase = models.TargetPhaseCurtail
 	case models.DesiredStateActive:
 		if !isRestored(powerW, item.BaselinePowerW, hashRateHS, r.cfg.DriftThresholdFactor) {
-			return
+			return interfaces.ConfirmationUpdate{}, false
 		}
-		params = resolvedRestoreTargetParams(now, powerW)
+		update.Phase = models.TargetPhaseRestore
 	default:
-		return
+		return interfaces.ConfirmationUpdate{}, false
 	}
-
-	// Full guard set: expected event state and desired state (as the full
-	// tick uses) plus the fast-path guards — current target state and the
-	// exact phase batch UUID from the eligibility read — so a concurrent
-	// tick promotion, stop/restore flip, or timeout redispatch (new batch
-	// UUID) race-loses instead of double-writing.
-	expectedEventState := item.EventState
-	expectedDesired := item.DesiredState
-	expectedTargetState := models.TargetStateDispatched
-	expectedBatch := item.BatchUUID
-	params.ExpectedEventState = &expectedEventState
-	params.ExpectedDesiredState = &expectedDesired
-	params.ExpectedState = &expectedTargetState
-	params.ExpectedDispatchBatchUUID = &expectedBatch
-
-	// Reuse the full tick's write path so race/failure classification,
-	// race-loss Warn logging, and the IncEventStateRaceLoss /
-	// IncTargetWriteFailure metrics live in one place (writeTargetState,
-	// reconciler.go) instead of being reimplemented here. writeTargetState
-	// only reads ev.ID/State/EventUUID, and it defaults
-	// ExpectedEventState/ExpectedDesiredState only when nil — both are
-	// already set above — so every guard passes through untouched.
-	ev := &models.Event{ID: item.EventID, EventUUID: item.EventUUID, State: item.EventState}
-	if err := r.writeTargetState(ctx, ev, item.DeviceIdentifier, params); err != nil {
-		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-			slog.Error("curtailment confirmation fast path: confirm write failed",
-				"event_id", item.EventID, "device", item.DeviceIdentifier, "error", err)
-		}
-		return
-	}
-	slog.Info("curtailment confirmation fast path: target confirmed",
-		"event_id", item.EventID, "event_uuid", item.EventUUID,
-		"device", item.DeviceIdentifier, "desired_state", item.DesiredState,
-		"sample_source", sample.Source, "flight_start", sample.FlightStart)
+	return update, true
 }
 
 // sampleMeasurements extracts the power/hash pointers the isCurtailed /

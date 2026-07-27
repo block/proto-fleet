@@ -83,6 +83,14 @@ type Querier interface {
 	// buildings in the org. Caller diffs against the requested set
 	// to detect cross-org or missing IDs.
 	BuildingsByIDs(ctx context.Context, arg BuildingsByIDsParams) ([]int64, error)
+	// Applies positive confirmation updates for one event in one statement.
+	// Every row repeats all authority checks at commit time:
+	//   * parent event remains in the sampled phase;
+	//   * target remains dispatched in the sampled direction and batch;
+	//   * identifier still resolves to a live device in the event organization;
+	//   * all-paired curtail work still has a paired-like device row.
+	// Rows that lose any guard are skipped and returned to the next full tick.
+	BulkConfirmCurtailmentTargets(ctx context.Context, arg BulkConfirmCurtailmentTargetsParams) (BulkConfirmCurtailmentTargetsRow, error)
 	// Bulk fan-out via jsonb_to_recordset: per-row fields ride in a JSONB
 	// payload, missing/null keys map to SQL NULL. :execrows lets the caller
 	// pin (rows == len(input)) to detect partial writes.
@@ -954,19 +962,10 @@ type Querier interface {
 	// System-scope (no org filter); reconciler-only fast-path confirmation read.
 	// MUST NOT be exposed through any RPC handler.
 	//
-	// Returns only phase-valid `dispatched` targets the confirmation pulse may
-	// promote:
-	//   * curtail work: pending/active event + target desired_state='curtailed'
-	//     with a durable curtail_dispatched_at + curtail_batch_uuid;
-	//   * restore work: restoring event + target desired_state='active' with a
-	//     durable restore_dispatched_at + restore_batch_uuid.
-	// phase_dispatched_at / phase_batch_uuid select the columns for the row's
-	// phase so the pulse bounds sample freshness and guards the promoting write
-	// on the exact applicable batch UUID. A target is eligible only while its
-	// identifier resolves to a current, non-deleted device in the event's org;
-	// missing, deleted, or moved identifiers stay on the full reconciler path.
-	// baseline_power_w and pairing_status feed the same confirmation predicates
-	// the full tick uses, with pairing read from that exact live device.
+	// Returns only phase-valid `dispatched` targets backed by a current live
+	// device in the event organization. The bulk promotion below repeats that
+	// ownership check at commit time; this read is eligibility evidence, not
+	// durable write authority.
 	ListEligibleConfirmationTargets(ctx context.Context) ([]ListEligibleConfirmationTargetsRow, error)
 	ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]ListEnabledCurtailmentAutomationRulesByMQTTSourceRow, error)
 	// Enabled MQTT sources for subscriber reconciliation.

@@ -192,6 +192,18 @@ func (q *retryingQuerier) BuildingsByIDs(ctx context.Context, arg BuildingsByIDs
 	return result, err
 }
 
+func (q *retryingQuerier) BulkConfirmCurtailmentTargets(ctx context.Context, arg BulkConfirmCurtailmentTargetsParams) (BulkConfirmCurtailmentTargetsRow, error) {
+	var result BulkConfirmCurtailmentTargetsRow
+	err := q.retrier.RetryQuery(ctx, "BulkConfirmCurtailmentTargets", func() error {
+		callResult, callErr := q.next.BulkConfirmCurtailmentTargets(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) BulkInsertCurtailmentTargets(ctx context.Context, arg BulkInsertCurtailmentTargetsParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "BulkInsertCurtailmentTargets", func() error {

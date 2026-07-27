@@ -79,6 +79,37 @@ type AllPairedReadinessUpdate struct {
 	BaselinePowerW   *float64
 }
 
+// ConfirmationUpdate is one positive fast-path promotion submitted to the
+// guarded bulk confirmation write. The store revalidates event phase, target
+// state/direction/batch, and live device ownership before applying it.
+type ConfirmationUpdate struct {
+	DeviceIdentifier string
+	Phase            models.TargetPhase
+	BatchUUID        string
+	ObservedPowerW   *float64
+	ObservedAt       time.Time
+	ConfirmedAt      time.Time
+}
+
+type ConfirmationBulkResult struct {
+	AppliedCount            int
+	SampleDeviceIdentifiers []string
+}
+
+// CurtailmentConfirmationStore is the write surface required only by the
+// optional confirmation fast path. Keeping it separate from CurtailmentStore
+// avoids expanding handler/test doubles that can never run the pulse.
+type CurtailmentConfirmationStore interface {
+	// BulkConfirmTargets applies positive confirmations for one event in one
+	// guarded statement and returns only device identifiers that won.
+	BulkConfirmTargets(
+		ctx context.Context,
+		eventID int64,
+		expectedEventState models.EventState,
+		updates []ConfirmationUpdate,
+	) (ConfirmationBulkResult, error)
+}
+
 // UpsertCurtailmentHeartbeatParams describes the singleton liveness row
 // upserted at the end of every successful reconciler tick.
 type UpsertCurtailmentHeartbeatParams struct {

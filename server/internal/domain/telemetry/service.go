@@ -347,6 +347,9 @@ type TelemetryService struct {
 	// device (with its fleetd-owned flight start) for short-window reuse by
 	// SampleDeviceMetrics. See sampling.go.
 	retainedSamples sync.Map // map[DeviceIdentifier]*retainedSample
+	// sampleGenerations invalidate flights admitted before a device removal,
+	// preventing their eventual completion from repopulating retention.
+	sampleGenerations sync.Map // map[DeviceIdentifier]uint64
 	// combinedMetricsSingle collapses identical concurrent GetCombinedMetrics
 	// calls (N dashboard viewers polling the same org) into one execution.
 	combinedMetricsSingle singleflight.Group
@@ -406,6 +409,7 @@ func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...model
 		return nil
 	}
 	for _, id := range deviceIDs {
+		s.advanceSampleGeneration(id)
 		s.devicesForStatusPolling.Delete(id)
 		s.lastKnownStatuses.Delete(id)
 		s.lastKnownFirmware.Delete(id)
@@ -460,7 +464,7 @@ func (s *TelemetryService) refreshDeviceOperationTimeout() time.Duration {
 
 func (s *TelemetryService) claimDeviceForRefresh(ctx context.Context, deviceID models.DeviceIdentifier, inactive <-chan struct{}) error {
 	for {
-		current, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, newInFlightEntry(inFlightKindRefresh))
+		current, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, s.newDeviceInFlightEntry(deviceID, inFlightKindRefresh))
 		if !alreadyClaimed {
 			return nil
 		}
@@ -685,7 +689,7 @@ func (s *TelemetryService) statusPollingRoutine(ctx context.Context, statusTasks
 				}
 
 				// Atomically claim the device; skip if already queued or processing.
-				entry := newInFlightEntry(inFlightKindStatusOnly)
+				entry := s.newDeviceInFlightEntry(deviceID, inFlightKindStatusOnly)
 				if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, entry); alreadyClaimed {
 					return true
 				}
@@ -798,7 +802,7 @@ func (s *TelemetryService) worker(ctx context.Context, activation *telemetryActi
 			if !ok {
 				return
 			}
-			entry := newInFlightEntry(inFlightKindFullTelemetry)
+			entry := s.newDeviceInFlightEntry(device.ID, inFlightKindFullTelemetry)
 			if _, alreadyClaimed := s.inFlight.LoadOrStore(device.ID, entry); alreadyClaimed {
 				if err := s.updateScheduler.AddDevices(ctx, device); err != nil {
 					slog.Warn("failed to requeue skipped in-flight telemetry task", "deviceID", device.ID, "error", err)
@@ -1280,14 +1284,29 @@ func (s *TelemetryService) reconcileDefaultPasswordState(ctx context.Context, de
 }
 
 func (s *TelemetryService) fetchTelemetryFromMiner(ctx context.Context, device models.Device) (*deviceResult, error) {
+	return s.fetchTelemetryFromMinerForOrg(ctx, device, 0)
+}
+
+func (s *TelemetryService) fetchTelemetryFromMinerForOrg(
+	ctx context.Context,
+	device models.Device,
+	expectedOrgID int64,
+) (*deviceResult, error) {
 	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
 	if err != nil {
 		return nil, err
 	}
+	orgID := miner.GetOrgID()
+	if expectedOrgID != 0 && orgID != expectedOrgID {
+		return nil, fmt.Errorf(
+			"device %s belongs to org %d, expected org %d",
+			device.ID, orgID, expectedOrgID,
+		)
+	}
 
 	result := &deviceResult{
 		device:     device,
-		orgID:      miner.GetOrgID(),
+		orgID:      orgID,
 		siteID:     miner.GetSiteID(),
 		driverName: miner.GetDriverName(),
 	}

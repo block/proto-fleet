@@ -81,9 +81,8 @@ func createConfirmationTestDevices(t *testing.T, db *testutil.DatabaseService, o
 // TestSQLCurtailmentStore_ConfirmationEligibleWorkIncludesDispatchedPhases
 // covers the inclusion cases: dispatched curtail targets under pending and
 // active events, and dispatched restore targets under restoring events. It
-// also pins that each returned row carries the phase-correct dispatch
-// timestamp and batch UUID (the restore row must reflect its restore phase,
-// not the earlier curtail phase).
+// also pins that each returned row carries the phase-correct batch UUID (the
+// restore row must reflect its restore phase, not the earlier curtail phase).
 func TestSQLCurtailmentStore_ConfirmationEligibleWorkIncludesDispatchedPhases(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping database integration test in short mode")
@@ -148,7 +147,6 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkIncludesDispatchedPhases(t 
 	assert.Equal(t, org, pendingRow.OrgID)
 	assert.Equal(t, models.EventStatePending, pendingRow.EventState)
 	assert.Equal(t, models.DesiredStateCurtailed, pendingRow.DesiredState)
-	assertTimeEqual(t, pendingDispatchedAt, &pendingRow.DispatchedAt)
 	assert.Equal(t, pendingBatch, pendingRow.BatchUUID)
 
 	activeRow, ok := byDevice[activeDevice]
@@ -156,7 +154,6 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkIncludesDispatchedPhases(t 
 	assert.Equal(t, activeID, activeRow.EventID)
 	assert.Equal(t, models.EventStateActive, activeRow.EventState)
 	assert.Equal(t, models.DesiredStateCurtailed, activeRow.DesiredState)
-	assertTimeEqual(t, activeDispatchedAt, &activeRow.DispatchedAt)
 	assert.Equal(t, "batch-confirm-active", activeRow.BatchUUID)
 
 	restoreRow, ok := byDevice[restoreDevice]
@@ -164,8 +161,7 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkIncludesDispatchedPhases(t 
 	assert.Equal(t, restoreID, restoreRow.EventID)
 	assert.Equal(t, models.EventStateRestoring, restoreRow.EventState)
 	assert.Equal(t, models.DesiredStateActive, restoreRow.DesiredState)
-	// The returned phase values must be the restore phase, not the curtail phase.
-	assertTimeEqual(t, restoreDispatchedAt, &restoreRow.DispatchedAt)
+	// The returned batch must be the restore phase, not the curtail phase.
 	assert.Equal(t, restoreBatch, restoreRow.BatchUUID)
 }
 
@@ -491,4 +487,151 @@ func TestSQLCurtailmentStore_ConfirmationGuardExpectedDesiredStateStillEnforced(
 		ExpectedDispatchBatchUUID: &batch,
 	})
 	require.ErrorIs(t, err, interfaces.ErrCurtailmentEventStateRaceLoss)
+}
+
+func TestSQLCurtailmentStore_BulkConfirmTargets_AppliesOnlyCurrentOwnedRows(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	db := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(db)
+	orgID := user.OrganizationID
+	devices := createConfirmationTestDevices(t, testContext.DatabaseService, orgID, 3)
+	eventUUID := uuid.New()
+	inserted, err := store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreTestEvent(orgID, user.DatabaseID, eventUUID, models.EventStateActive, "bulk-confirm"),
+		[]models.InsertTargetParams{
+			curtailmentStoreTestTarget(devices[0], models.TargetStatePending, models.DesiredStateCurtailed),
+			curtailmentStoreTestTarget(devices[1], models.TargetStatePending, models.DesiredStateCurtailed),
+			curtailmentStoreTestTarget(devices[2], models.TargetStatePending, models.DesiredStateCurtailed),
+		},
+	)
+	require.NoError(t, err)
+
+	dispatchedAt := time.Date(2026, 7, 7, 10, 0, 0, 0, time.UTC)
+	oldBatches := []string{"batch-owned", "batch-deleted", "batch-stale"}
+	curtailed := models.DesiredStateCurtailed
+	for i, deviceID := range devices {
+		require.NoError(t, store.UpdateTargetState(ctx, inserted.ID, deviceID, interfaces.UpdateCurtailmentTargetStateParams{
+			State:                models.TargetStateDispatched,
+			LastDispatchedAt:     &dispatchedAt,
+			LastBatchUUID:        &oldBatches[i],
+			ExpectedDesiredState: &curtailed,
+		}))
+	}
+
+	// Ownership changed after eligibility: this row must be skipped by the
+	// commit-time live-device/org join.
+	_, err = db.ExecContext(ctx,
+		`UPDATE device SET deleted_at = CURRENT_TIMESTAMP WHERE device_identifier = $1 AND org_id = $2`,
+		devices[1], orgID)
+	require.NoError(t, err)
+
+	// Batch changed after eligibility: this row must lose the ABA guard.
+	newBatch := "batch-current"
+	require.NoError(t, store.UpdateTargetState(ctx, inserted.ID, devices[2], interfaces.UpdateCurtailmentTargetStateParams{
+		State:                models.TargetStateDispatched,
+		LastDispatchedAt:     &dispatchedAt,
+		LastBatchUUID:        &newBatch,
+		ExpectedDesiredState: &curtailed,
+	}))
+
+	confirmedAt := dispatchedAt.Add(time.Second)
+	powerW := 100.0
+	updates := make([]interfaces.ConfirmationUpdate, 0, len(devices))
+	for i, deviceID := range devices {
+		updates = append(updates, interfaces.ConfirmationUpdate{
+			DeviceIdentifier: deviceID,
+			Phase:            models.TargetPhaseCurtail,
+			BatchUUID:        oldBatches[i],
+			ObservedPowerW:   &powerW,
+			ObservedAt:       confirmedAt,
+			ConfirmedAt:      confirmedAt,
+		})
+	}
+	result, err := store.BulkConfirmTargets(ctx, inserted.ID, models.EventStateActive, updates)
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.AppliedCount)
+	assert.Equal(t, []string{devices[0]}, result.SampleDeviceIdentifiers)
+
+	targets, err := store.ListTargetsByEvent(ctx, orgID, eventUUID)
+	require.NoError(t, err)
+	byDevice := make(map[string]*models.Target, len(targets))
+	for _, target := range targets {
+		byDevice[target.DeviceIdentifier] = target
+	}
+	assert.Equal(t, models.TargetStateConfirmed, byDevice[devices[0]].State)
+	assert.Equal(t, models.TargetStateDispatched, byDevice[devices[1]].State)
+	assert.Equal(t, models.TargetStateDispatched, byDevice[devices[2]].State)
+	assert.Equal(t, newBatch, *byDevice[devices[2]].CurtailPhase.BatchUUID)
+}
+
+func TestSQLCurtailmentStore_BulkConfirmTargets_RevalidatesAllPairedStatus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	db := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(db)
+	orgID := user.OrganizationID
+	deviceID := testContext.DatabaseService.CreateTestMiners(orgID, 1, confirmationTestMinerURL)[0]
+	eventUUID := uuid.New()
+	event := curtailmentStoreTestEvent(orgID, user.DatabaseID, eventUUID, models.EventStateActive, "bulk-confirm-pairing")
+	event.Mode = models.ModeFullFleet
+	event.ForceIncludeAllPairedMiners = true
+	inserted, err := store.InsertEventWithTargets(
+		ctx,
+		event,
+		[]models.InsertTargetParams{
+			curtailmentStoreTestTarget(deviceID, models.TargetStatePending, models.DesiredStateCurtailed),
+		},
+	)
+	require.NoError(t, err)
+
+	dispatchedAt := time.Date(2026, 7, 8, 10, 0, 0, 0, time.UTC)
+	batch := "batch-pairing"
+	curtailed := models.DesiredStateCurtailed
+	require.NoError(t, store.UpdateTargetState(ctx, inserted.ID, deviceID, interfaces.UpdateCurtailmentTargetStateParams{
+		State:                models.TargetStateDispatched,
+		LastDispatchedAt:     &dispatchedAt,
+		LastBatchUUID:        &batch,
+		ExpectedDesiredState: &curtailed,
+	}))
+
+	// Pairing changed after eligibility. The final write must repeat the
+	// all-paired policy gate rather than trusting the earlier snapshot.
+	_, err = db.ExecContext(ctx, `
+		UPDATE device_pairing
+		SET pairing_status = 'UNPAIRED'
+		WHERE device_id = (
+			SELECT id FROM device
+			WHERE device_identifier = $1 AND org_id = $2 AND deleted_at IS NULL
+		)
+	`, deviceID, orgID)
+	require.NoError(t, err)
+
+	confirmedAt := dispatchedAt.Add(time.Second)
+	result, err := store.BulkConfirmTargets(ctx, inserted.ID, models.EventStateActive, []interfaces.ConfirmationUpdate{{
+		DeviceIdentifier: deviceID,
+		Phase:            models.TargetPhaseCurtail,
+		BatchUUID:        batch,
+		ObservedAt:       confirmedAt,
+		ConfirmedAt:      confirmedAt,
+	}})
+	require.NoError(t, err)
+	assert.Zero(t, result.AppliedCount)
+	assert.Empty(t, result.SampleDeviceIdentifiers)
+
+	targets, err := store.ListTargetsByEvent(ctx, orgID, eventUUID)
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	assert.Equal(t, models.TargetStateDispatched, targets[0].State)
 }

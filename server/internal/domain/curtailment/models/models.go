@@ -486,10 +486,6 @@ type Candidate struct {
 //   - EventState + DesiredState identify the phase. Curtail work is a
 //     pending/active event with DesiredState 'curtailed'; restore work is a
 //     restoring event with DesiredState 'active'.
-//   - DispatchedAt is the durable phase dispatch timestamp
-//     (curtail_dispatched_at or restore_dispatched_at) the pulse compares the
-//     fleetd-owned flight start against; it is never zero (the query filters
-//     the applicable column NOT NULL).
 //   - BatchUUID is the applicable phase batch UUID (curtail_batch_uuid or
 //     restore_batch_uuid); it is the ABA token the guarded promoting write
 //     passes as ExpectedDispatchBatchUUID.
@@ -506,7 +502,6 @@ type ConfirmationTarget struct {
 	DeviceIdentifier            string
 	DesiredState                string
 	BaselinePowerW              *float64
-	DispatchedAt                time.Time
 	BatchUUID                   string
 	PairingStatus               string
 	ForceIncludeAllPairedMiners bool
