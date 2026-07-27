@@ -1,4 +1,5 @@
 # Proto Fleet alert rules — provisioned for Grafana's built-in alerting engine.
+# Rule UIDs are limited to 40 characters; one longer UID aborts provisioning of ALL alerting files at boot.
 
 apiVersion: 1
 
@@ -339,7 +340,7 @@ groups:
             cannot be received and miners can no longer be automatically
             curtailed or restored.
 
-      - uid: protofleet-curtailment-fan-restore-failed
+      - uid: protofleet-curtailment-fan-restore-fail
         title: Curtailment Fan Restore Failed
         condition: B
         data:
@@ -389,7 +390,7 @@ groups:
         for: 0s
         labels:
           # Primary rule identity for delivery routing (see ruleLabelRuleUID); must match this rule's uid.
-          proto_fleet_rule_uid: protofleet-curtailment-fan-restore-failed
+          proto_fleet_rule_uid: protofleet-curtailment-fan-restore-fail
           proto_fleet_scope: shared
           severity: critical
           rule_group: proto-fleet-curtailment
