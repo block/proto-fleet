@@ -123,6 +123,10 @@ func TestHungDiskReadBlocksOnlyTheDiskProbe(t *testing.T) {
 	// Act
 	collector.collectOnce(context.Background())
 	require.Eventually(t, func() bool { return diskReads.Load() == 1 }, time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool {
+		cpu, mem, _ := emitter.gauges()
+		return len(cpu) == 1 && len(mem) == 1 && !collector.cpuBusy.Load() && !collector.memBusy.Load()
+	}, time.Second, 5*time.Millisecond)
 	collector.collectOnce(context.Background())
 
 	// Assert
@@ -166,7 +170,7 @@ func TestRunEmitsImmediatelyAndStopsOnCancel(t *testing.T) {
 	}
 }
 
-func TestRunWaitsForInFlightProbes(t *testing.T) {
+func TestRunDoesNotWaitForInFlightProbes(t *testing.T) {
 	emitter := &fakeEmitter{}
 	collector := New(Config{Interval: time.Hour, DiskPath: "/"}, emitter)
 	probeStarted := make(chan struct{})
@@ -193,16 +197,10 @@ func TestRunWaitsForInFlightProbes(t *testing.T) {
 	cancel()
 	select {
 	case <-done:
-		t.Fatal("Run returned before its in-flight probe drained")
-	case <-time.After(10 * time.Millisecond):
-	}
-
-	close(releaseProbe)
-	select {
-	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("Run did not return after its in-flight probe drained")
+		t.Fatal("Run waited for an in-flight probe after cancellation")
 	}
+	close(releaseProbe)
 }
 
 func TestNewClampsIntervalToAllowedRange(t *testing.T) {

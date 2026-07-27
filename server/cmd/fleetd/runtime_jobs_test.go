@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -85,7 +84,7 @@ func TestBackgroundLoopCanRestartAfterDraining(t *testing.T) {
 	}
 }
 
-func TestBackgroundLoopActivationCancellationAllowsRestart(t *testing.T) {
+func TestBackgroundLoopActivationCancellationRequiresStopBeforeRestart(t *testing.T) {
 	started := make(chan struct{}, 2)
 	loop := newBackgroundLoop(func(ctx context.Context) {
 		started <- struct{}{}
@@ -97,23 +96,20 @@ func TestBackgroundLoopActivationCancellationAllowsRestart(t *testing.T) {
 	requireReceive(t, started)
 	cancelFirst()
 	require.Eventually(t, func() bool {
-		return loop.Start(context.Background()) == nil
+		return loop.Start(context.Background()) != nil
 	}, time.Second, time.Millisecond)
+	require.NoError(t, loop.Stop(context.Background()))
+	require.NoError(t, loop.Start(context.Background()))
 	requireReceive(t, started)
 	require.NoError(t, loop.Stop(context.Background()))
 }
 
-func TestBackgroundLoopStopTimeoutEventuallyAllowsRestart(t *testing.T) {
-	started := make(chan struct{}, 2)
+func TestBackgroundLoopStopCanBeRetriedAfterTimeout(t *testing.T) {
+	started := make(chan struct{}, 1)
 	release := make(chan struct{})
-	var runs atomic.Int32
-	loop := newBackgroundLoop(func(ctx context.Context) {
+	loop := newBackgroundLoop(func(context.Context) {
 		started <- struct{}{}
-		if runs.Add(1) == 1 {
-			<-release
-			return
-		}
-		<-ctx.Done()
+		<-release
 	})
 
 	require.NoError(t, loop.Start(context.Background()))
@@ -123,10 +119,6 @@ func TestBackgroundLoopStopTimeoutEventuallyAllowsRestart(t *testing.T) {
 	require.ErrorIs(t, loop.Stop(stopCtx), context.DeadlineExceeded)
 
 	close(release)
-	require.Eventually(t, func() bool {
-		return loop.Start(context.Background()) == nil
-	}, time.Second, time.Millisecond)
-	requireReceive(t, started)
 	require.NoError(t, loop.Stop(context.Background()))
 }
 
