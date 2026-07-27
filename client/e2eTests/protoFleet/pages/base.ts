@@ -677,7 +677,7 @@ export class BasePage {
     await link.click();
   }
 
-  private async waitForMobileNavigationMenuToClose() {
+  protected async waitForMobileNavigationMenuToClose() {
     if (!this.isMobile) {
       return;
     }

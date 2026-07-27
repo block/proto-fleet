@@ -19,6 +19,10 @@ const OVERWRITE_VISUAL_SNAPSHOTS = process.env.PROTOFLEET_VISUAL_OVERWRITE === "
 const DEFAULT_VISUAL_OPTIONS = { animations: "disabled" as const, scale: "css" as const };
 const FIXED_VISUAL_DATE = "2026-01-15T12:00:00Z";
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export const VISUAL_SNAPSHOTS = {
   signUpForm: ["visual", "sign-up-form.png"],
   emptyHome: ["visual", "home-empty-fleet.png"],
@@ -230,22 +234,17 @@ export class OnboardingVisualHelper {
   private async waitForCompleteSetupModuleReady() {
     const { homePage, page } = this.deps;
     const module = homePage.getCompleteSetupModule();
-    const authenticateCard = this.getCompleteSetupCard(module, "Authenticate miners");
-    const configurePoolsCard = this.getCompleteSetupCard(module, "Configure pools");
+    const authenticateCard = homePage.getCompleteSetupCard("Authenticate miners");
+    const configurePoolsCard = homePage.getCompleteSetupCard("Configure pools");
 
-    await expect(async () => {
-      await expect(page).toHaveURL(/\/(dashboard|fleet\/miners)(?:[?#].*)?$/);
-      await expect(module).toBeVisible();
-      await expect(authenticateCard).toBeVisible();
-      await expect(configurePoolsCard).toBeVisible();
-      await expect(module.getByRole("button", { name: "Authenticate", exact: true })).toBeVisible();
-      await expect(module.getByRole("button", { name: "Configure", exact: true })).toBeVisible();
-      expect(await this.completeSetupCardsDoNotOverlap(authenticateCard, configurePoolsCard)).toBe(true);
-    }).toPass({ timeout: testConfig.testTimeout });
+    await expect(page).toHaveURL(/\/(dashboard|fleet\/miners)(?:[?#].*)?$/);
+    await expect(module).toBeVisible();
+    await expect(authenticateCard).toBeVisible();
+    await expect(configurePoolsCard).toBeVisible();
+    await expect(homePage.getCompleteSetupButton("Authenticate")).toBeVisible();
+    await expect(homePage.getCompleteSetupButton("Configure")).toBeVisible();
 
-    await this.waitForStableBoundingBox(module);
-    await this.waitForStableBoundingBox(authenticateCard);
-    await this.waitForStableBoundingBox(configurePoolsCard);
+    await this.waitForCompleteSetupLayoutToSettle(module, authenticateCard, configurePoolsCard);
   }
 
   private async waitForPairingToFinish(expectedMinerCount: number) {
@@ -256,13 +255,6 @@ export class OnboardingVisualHelper {
       await minersPage.validateMinersPageOpened();
       await minersPage.validateMinersAdded(expectedMinerCount);
     }).toPass({ timeout: testConfig.testTimeout });
-  }
-
-  private getCompleteSetupCard(module: Locator, title: string) {
-    return module
-      .getByText(title, { exact: true })
-      .locator("xpath=ancestor::div[contains(@class,'rounded-2xl')]")
-      .first();
   }
 
   private async completeSetupCardsDoNotOverlap(firstCard: Locator, secondCard: Locator): Promise<boolean> {
@@ -279,39 +271,64 @@ export class OnboardingVisualHelper {
     return firstBox.y + firstBox.height <= secondBox.y + 1 || secondBox.y + secondBox.height <= firstBox.y + 1;
   }
 
-  private async waitForStableBoundingBox(locator: Locator, stableSamples = 3, intervalMs = 100) {
-    const initialBox = await locator.boundingBox();
-    if (!initialBox) {
-      throw new Error("Expected locator bounding box to be available while waiting for layout to settle.");
+  private async waitForCompleteSetupLayoutToSettle(
+    module: Locator,
+    authenticateCard: Locator,
+    configurePoolsCard: Locator,
+  ) {
+    const stableSamples = 3;
+    const intervalMs = 100;
+    const maxWaitMs = 2_000;
+
+    let previousSignature = await this.getLayoutSignature(module, authenticateCard, configurePoolsCard);
+    let stableCount = 0;
+    const deadline = Date.now() + maxWaitMs;
+
+    while (Date.now() < deadline) {
+      await delay(intervalMs);
+      const nextSignature = await this.getLayoutSignature(module, authenticateCard, configurePoolsCard);
+      const cardsDoNotOverlap = await this.completeSetupCardsDoNotOverlap(authenticateCard, configurePoolsCard);
+
+      if (this.layoutSignaturesMatch(previousSignature, nextSignature) && cardsDoNotOverlap) {
+        stableCount += 1;
+        if (stableCount >= stableSamples) {
+          return;
+        }
+      } else {
+        stableCount = 0;
+      }
+
+      previousSignature = nextSignature;
+    }
+  }
+
+  private async getLayoutSignature(...locators: Locator[]) {
+    const boxes = await Promise.all(locators.map(async (locator) => locator.boundingBox()));
+
+    if (boxes.some((box) => !box)) {
+      throw new Error("Expected complete setup layout boxes to be available while waiting for layout to settle.");
     }
 
-    let previousBox = initialBox;
-    let stableCount = 0;
-    await expect
-      .poll(
-        async () => {
-          if (stableCount >= stableSamples) {
-            return stableCount;
-          }
+    return boxes.map((box) => ({
+      x: Number(box!.x.toFixed(2)),
+      y: Number(box!.y.toFixed(2)),
+      width: Number(box!.width.toFixed(2)),
+      height: Number(box!.height.toFixed(2)),
+    }));
+  }
 
-          const nextBox = await locator.boundingBox();
-          if (!nextBox) {
-            throw new Error("Locator disappeared while waiting for layout to settle.");
-          }
-
-          const boxChanged =
-            Math.abs(previousBox.x - nextBox.x) > 0.5 ||
-            Math.abs(previousBox.y - nextBox.y) > 0.5 ||
-            Math.abs(previousBox.width - nextBox.width) > 0.5 ||
-            Math.abs(previousBox.height - nextBox.height) > 0.5;
-
-          stableCount = boxChanged ? 0 : stableCount + 1;
-          previousBox = nextBox;
-
-          return stableCount;
-        },
-        { timeout: testConfig.actionTimeout, intervals: [intervalMs] },
-      )
-      .toBeGreaterThanOrEqual(stableSamples);
+  private layoutSignaturesMatch(
+    previousSignature: Array<{ x: number; y: number; width: number; height: number }>,
+    nextSignature: Array<{ x: number; y: number; width: number; height: number }>,
+  ) {
+    return previousSignature.every((previousBox, index) => {
+      const nextBox = nextSignature[index];
+      return (
+        Math.abs(previousBox.x - nextBox.x) <= 0.5 &&
+        Math.abs(previousBox.y - nextBox.y) <= 0.5 &&
+        Math.abs(previousBox.width - nextBox.width) <= 0.5 &&
+        Math.abs(previousBox.height - nextBox.height) <= 0.5
+      );
+    });
   }
 }

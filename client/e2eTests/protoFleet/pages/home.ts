@@ -6,6 +6,17 @@ export class HomePage extends BasePage {
     return this.page.getByTestId("complete-setup");
   }
 
+  getCompleteSetupCard(title: string): Locator {
+    return this.getCompleteSetupModule()
+      .getByText(title, { exact: true })
+      .locator("xpath=ancestor::div[contains(@class,'rounded-2xl')]")
+      .first();
+  }
+
+  getCompleteSetupButton(label: string): Locator {
+    return this.getCompleteSetupModule().getByRole("button", { name: label, exact: true });
+  }
+
   private getDurationButton(duration: string) {
     return this.page.getByRole("button", { name: duration, exact: true });
   }
