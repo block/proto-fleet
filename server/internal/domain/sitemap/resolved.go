@@ -186,13 +186,31 @@ func resolveTopologyView(parsed *parsedCSV, target *snapshot) *topologyView {
 	siteRows := parsed.sections["SITE"]
 	buildingRows := parsed.sections["BUILDING"]
 	rackRows := parsed.sections["RACK"]
+
+	// Resolve the desired buildings once, then index them the three ways the
+	// topology view needs (by (site,name), by id, by capacity key). Rack
+	// resolution reuses the same (site,name) and id indexes. Previously each
+	// index re-walked the rows+snapshot in its own helper, so a CSV column
+	// change meant editing several parallel walks.
+	desiredBuildings := desiredBuildingList(buildingRows, target.buildings)
+	buildingsByKey := make(map[string]buildingmodels.Building, len(desiredBuildings))
+	buildingsByID := map[int64]buildingmodels.Building{}
+	buildingsByCapacityKey := make(map[string]buildingmodels.Building, len(desiredBuildings))
+	for _, b := range desiredBuildings {
+		buildingsByKey[b.SiteLabel+"\x00"+b.Name] = b
+		if b.ID > 0 {
+			buildingsByID[b.ID] = b
+		}
+		buildingsByCapacityKey[buildingCapacityKey(b)] = b
+	}
+
 	tv := &topologyView{
 		sites:                  desiredSiteSet(siteRows, target.sites),
 		buildingKeys:           rowSetFromDesiredBuildings(buildingRows, target.buildings),
-		buildingsByKey:         desiredBuildingMap(buildingRows, target.buildings),
-		buildingsByLayoutID:    desiredBuildingLayoutIDMap(buildingRows, target.buildings),
-		buildingsByCapacityKey: desiredBuildingCapacityMap(buildingRows, target.buildings),
-		racksByLabel:           desiredRackMap(rackRows, target.racks, buildingRows, target.buildings),
+		buildingsByKey:         buildingsByKey,
+		buildingsByLayoutID:    buildingsByID,
+		buildingsByCapacityKey: buildingsByCapacityKey,
+		racksByLabel:           desiredRackMap(rackRows, target.racks, buildingsByKey, buildingsByID),
 	}
 	return tv
 }

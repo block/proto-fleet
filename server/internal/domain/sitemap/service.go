@@ -3134,64 +3134,6 @@ func validateFieldLength(rows []map[string]string, section, field string, maxRun
 	return errs
 }
 
-func desiredBuildingCapacityMap(rows []map[string]string, buildings []buildingmodels.Building) map[string]buildingmodels.Building {
-	out := map[string]buildingmodels.Building{}
-	buildingsByID := map[int64]buildingmodels.Building{}
-	buildingsByKey := map[string]buildingmodels.Building{}
-	for _, building := range buildings {
-		buildingsByID[building.ID] = building
-		buildingsByKey[building.SiteLabel+"\x00"+building.Name] = building
-		out[buildingCapacityKey(building)] = building
-	}
-	for _, row := range rows {
-		building := buildingsByKey[row[fieldSite]+"\x00"+buildingSectionName(row)]
-		if id, ok := rowID(row); ok {
-			if existing, ok := buildingsByID[id]; ok {
-				building = existing
-			} else {
-				building.ID = id
-			}
-		}
-		building.SiteLabel = row[fieldSite]
-		building.Name = buildingSectionName(row)
-		if aisles, err := parseInt32Value(row["aisles"], "aisles"); err == nil {
-			building.Aisles = aisles
-		}
-		if racksPerAisle, err := parseInt32Value(row["racks_per_aisle"], "racks_per_aisle"); err == nil {
-			building.RacksPerAisle = racksPerAisle
-		}
-		out[buildingCapacityKey(building)] = building
-	}
-	return out
-}
-
-func desiredBuildingLayoutIDMap(rows []map[string]string, buildings []buildingmodels.Building) map[int64]buildingmodels.Building {
-	out := map[int64]buildingmodels.Building{}
-	for _, building := range buildings {
-		if building.ID > 0 {
-			out[building.ID] = building
-		}
-	}
-	for _, row := range rows {
-		id, ok := rowID(row)
-		if !ok {
-			continue
-		}
-		building := out[id]
-		building.ID = id
-		building.SiteLabel = row[fieldSite]
-		building.Name = buildingSectionName(row)
-		if aisles, err := parseInt32Value(row["aisles"], "aisles"); err == nil {
-			building.Aisles = aisles
-		}
-		if racksPerAisle, err := parseInt32Value(row["racks_per_aisle"], "racks_per_aisle"); err == nil {
-			building.RacksPerAisle = racksPerAisle
-		}
-		out[id] = building
-	}
-	return out
-}
-
 func rackBuildingCapacityKey(rack rackSnapshot) (string, bool) {
 	if rack.BuildingID != nil {
 		return "id:" + strconv.FormatInt(*rack.BuildingID, 10), true
@@ -3442,36 +3384,6 @@ func minerMap(miners []minerSnapshot) map[string]minerSnapshot {
 	return out
 }
 
-func desiredBuildingMap(rows []map[string]string, buildings []buildingmodels.Building) map[string]buildingmodels.Building {
-	out := map[string]buildingmodels.Building{}
-	for _, building := range buildings {
-		out[building.SiteLabel+"\x00"+building.Name] = building
-	}
-	for _, row := range rows {
-		key := row[fieldSite] + "\x00" + buildingSectionName(row)
-		building := out[key]
-		if id, ok := rowID(row); ok {
-			for _, existing := range buildings {
-				if existing.ID == id {
-					building = existing
-					delete(out, existing.SiteLabel+"\x00"+existing.Name)
-					break
-				}
-			}
-		}
-		building.SiteLabel = row[fieldSite]
-		building.Name = buildingSectionName(row)
-		if aisles, err := parseInt32Value(row["aisles"], "aisles"); err == nil {
-			building.Aisles = aisles
-		}
-		if racksPerAisle, err := parseInt32Value(row["racks_per_aisle"], "racks_per_aisle"); err == nil {
-			building.RacksPerAisle = racksPerAisle
-		}
-		out[building.SiteLabel+"\x00"+building.Name] = building
-	}
-	return out
-}
-
 func desiredBuildingList(rows []map[string]string, buildings []buildingmodels.Building) []buildingmodels.Building {
 	out := append([]buildingmodels.Building(nil), buildings...)
 	byID := map[int64]int{}
@@ -3526,13 +3438,11 @@ func applyDesiredBuildingRow(row map[string]string, building *buildingmodels.Bui
 	}
 }
 
-func desiredRackMap(rows []map[string]string, racks []rackSnapshot, buildingRows []map[string]string, buildings []buildingmodels.Building) map[string]rackSnapshot {
+func desiredRackMap(rows []map[string]string, racks []rackSnapshot, buildingsByKey map[string]buildingmodels.Building, buildingsByID map[int64]buildingmodels.Building) map[string]rackSnapshot {
 	out := map[string]rackSnapshot{}
 	for _, rack := range racks {
 		out[rack.Label] = rack
 	}
-	buildingBySiteName := desiredBuildingsBySiteName(buildingRows, buildings)
-	buildingByID := desiredBuildingsByID(buildingRows, buildings)
 	for _, row := range rows {
 		rack := out[rackSectionLabel(row)]
 		if id, ok := rowID(row); ok {
@@ -3553,10 +3463,10 @@ func desiredRackMap(rows []map[string]string, racks []rackSnapshot, buildingRows
 		rack.BuildingID = nil
 		if bID := refID(row, refBuildingIDCell); bID != nil {
 			rack.BuildingID = bID
-			if building, ok := buildingByID[*bID]; ok {
+			if building, ok := buildingsByID[*bID]; ok {
 				rack.SiteID = building.SiteID
 			}
-		} else if building, ok := buildingBySiteName[row[fieldSite]+"\x00"+row[fieldBuilding]]; ok {
+		} else if building, ok := buildingsByKey[row[fieldSite]+"\x00"+row[fieldBuilding]]; ok {
 			if building.ID > 0 {
 				rack.BuildingID = &building.ID
 			}
@@ -3573,26 +3483,6 @@ func desiredRackMap(rows []map[string]string, racks []rackSnapshot, buildingRows
 		rack.AisleIndex = row["aisle_index"]
 		rack.PositionInAisle = row["position_in_aisle"]
 		out[rack.Label] = rack
-	}
-	return out
-}
-
-func desiredBuildingsBySiteName(rows []map[string]string, buildings []buildingmodels.Building) map[string]buildingmodels.Building {
-	out := map[string]buildingmodels.Building{}
-	for _, building := range desiredBuildingList(rows, buildings) {
-		if building.SiteLabel != "" {
-			out[building.SiteLabel+"\x00"+building.Name] = building
-		}
-	}
-	return out
-}
-
-func desiredBuildingsByID(rows []map[string]string, buildings []buildingmodels.Building) map[int64]buildingmodels.Building {
-	out := map[int64]buildingmodels.Building{}
-	for _, building := range desiredBuildingList(rows, buildings) {
-		if building.ID > 0 {
-			out[building.ID] = building
-		}
 	}
 	return out
 }
