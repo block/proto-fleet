@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 // Fallback defaults for closer configuration.
@@ -17,20 +19,23 @@ func (s *Service) runCloser(ctx context.Context) {
 	pollInterval := getConfigDurationOrDefault(s.config.CloserPollInterval, defaultCloserPollInterval)
 	stalenessThreshold := getConfigDurationOrDefault(s.config.CloserStalenessThreshold, defaultCloserStalenessThreshold)
 
-	slog.Info("starting error closer",
+	slog.Debug("configured error closer",
 		"pollInterval", pollInterval,
 		"stalenessThreshold", stalenessThreshold)
 
+	reportProgress := runtimejobs.TrackProgress(ctx, 3*pollInterval)
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Info("error closer stopped")
 			return
 		case <-ticker.C:
 			s.closeStaleErrors(ctx, stalenessThreshold)
+			if ctx.Err() == nil {
+				reportProgress()
+			}
 		}
 	}
 }

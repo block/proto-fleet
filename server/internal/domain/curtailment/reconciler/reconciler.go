@@ -202,7 +202,7 @@ func (r *Reconciler) Start(ctx context.Context) error {
 	r.mu.Unlock()
 
 	go r.tickLoop(loopCtx, workCtx, runDone)
-	slog.Info("curtailment reconciler started", "tick_interval", r.cfg.TickInterval)
+	slog.Debug("configured curtailment reconciler", "tick_interval", r.cfg.TickInterval)
 	return nil
 }
 
@@ -231,7 +231,6 @@ func (r *Reconciler) Stop(ctx context.Context) error {
 		if workCancel != nil {
 			workCancel()
 		}
-		slog.Info("curtailment reconciler stopped")
 		return nil
 	case <-ctx.Done():
 		if workCancel != nil {
@@ -244,6 +243,7 @@ func (r *Reconciler) Stop(ctx context.Context) error {
 func (r *Reconciler) tickLoop(loopCtx, workCtx context.Context, runDone chan<- struct{}) {
 	defer close(runDone)
 	defer r.finishActivation()
+	reportProgress := runtimejobs.TrackProgress(loopCtx, 3*r.cfg.TickInterval)
 	ticker := time.NewTicker(r.cfg.TickInterval)
 	defer ticker.Stop()
 	for {
@@ -255,6 +255,7 @@ func (r *Reconciler) tickLoop(loopCtx, workCtx context.Context, runDone chan<- s
 			if loopCtx.Err() != nil {
 				return
 			}
+			reportProgress()
 		}
 	}
 }

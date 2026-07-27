@@ -19,6 +19,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 type uploadSession struct {
@@ -64,6 +65,7 @@ func (m *ChunkedUploadManager) StartCleanup(ctx context.Context, ttl time.Durati
 	if interval < time.Minute {
 		interval = time.Minute
 	}
+	reportProgress := runtimejobs.TrackProgress(ctx, 3*interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -71,6 +73,9 @@ func (m *ChunkedUploadManager) StartCleanup(ctx context.Context, ttl time.Durati
 		select {
 		case <-ticker.C:
 			m.cleanupExpired(ttl)
+			if ctx.Err() == nil {
+				reportProgress()
+			}
 		case <-ctx.Done():
 			return
 		}

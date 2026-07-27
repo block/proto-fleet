@@ -102,7 +102,7 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 	s.run = run
 
-	s.logger.Info("Starting IP scanner service",
+	s.logger.Debug("configured IP scanner service",
 		"scan_interval", s.config.ScanInterval,
 		"max_concurrent_subnet_scans", s.config.MaxConcurrentSubnetScans,
 		"max_concurrent_ip_scans_per_subnet", s.config.MaxConcurrentIPScansPerSubnet,
@@ -135,7 +135,6 @@ func (s *Service) Stop(ctx context.Context) error {
 		s.lifecycleMu.Unlock()
 		return nil
 	}
-	s.logger.Info("Stopping IP scanner service")
 	run.cancel()
 	s.lifecycleMu.Unlock()
 
@@ -146,7 +145,6 @@ func (s *Service) Stop(ctx context.Context) error {
 			s.run = nil
 		}
 		s.lifecycleMu.Unlock()
-		s.logger.Info("IP scanner service stopped")
 		return nil
 	case <-ctx.Done():
 		return fmt.Errorf("stop ip scanner service: %w", ctx.Err())
@@ -155,11 +153,15 @@ func (s *Service) Stop(ctx context.Context) error {
 
 // scanLoop periodically scans for offline devices
 func (s *Service) scanLoop(ctx context.Context, run *serviceRun) {
+	reportProgress := runtimejobs.TrackProgress(ctx, 3*s.config.ScanInterval)
 	ticker := time.NewTicker(s.config.ScanInterval)
 	defer ticker.Stop()
 
 	// Run immediately on start
 	s.scanOfflineDevices(ctx, run.tasks)
+	if ctx.Err() == nil {
+		reportProgress()
+	}
 
 	for {
 		select {
@@ -167,6 +169,9 @@ func (s *Service) scanLoop(ctx context.Context, run *serviceRun) {
 			return
 		case <-ticker.C:
 			s.scanOfflineDevices(ctx, run.tasks)
+			if ctx.Err() == nil {
+				reportProgress()
+			}
 		}
 	}
 }

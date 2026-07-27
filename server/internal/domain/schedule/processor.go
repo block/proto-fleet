@@ -198,7 +198,6 @@ func (p *Processor) Start(ctx context.Context) error {
 	go p.endOfWindowLoop(run)
 	close(run.startupDone)
 
-	slog.Info("schedule processor started")
 	return nil
 }
 
@@ -262,11 +261,11 @@ func (p *Processor) finishStop(run *processorActivation) {
 	}
 	close(run.stopDone)
 	p.lifecycleMu.Unlock()
-	slog.Info("schedule processor stopped")
 }
 
 func (p *Processor) reconcileLoop(run *processorActivation) {
 	defer run.wg.Done()
+	reportProgress := runtimejobs.TrackProgress(run.admissionCtx, 3*reconcileInterval)
 	ticker := time.NewTicker(reconcileInterval)
 	defer ticker.Stop()
 	for {
@@ -279,6 +278,9 @@ func (p *Processor) reconcileLoop(run *processorActivation) {
 			}
 			if err := p.syncSchedules(run.workCtx, run); err != nil {
 				slog.Error("reconciliation failed, will retry next cycle", "error", err)
+			}
+			if run.admissionCtx.Err() == nil {
+				reportProgress()
 			}
 		}
 	}
