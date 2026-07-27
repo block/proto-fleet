@@ -312,6 +312,66 @@ func TestStatusReturnsIndependentSnapshotsAndSupportsConcurrentProgress(t *testi
 	require.NoError(t, group.Stop(context.Background()))
 }
 
+func TestStatusIsSafeDuringConcurrentLifecycleAndProgress(t *testing.T) {
+	t.Parallel()
+
+	startEntered := make(chan struct{})
+	releaseStart := make(chan struct{})
+	stopEntered := make(chan struct{})
+	releaseStop := make(chan struct{})
+	reporter := make(chan func(), 1)
+	group := newTestGroup(t, newTestJob("job", func(ctx context.Context) error {
+		reporter <- TrackProgress(ctx, time.Hour)
+		close(startEntered)
+		<-releaseStart
+		return nil
+	}, func(context.Context) error {
+		close(stopEntered)
+		<-releaseStop
+		return nil
+	}))
+
+	startResult := make(chan error, 1)
+	go func() {
+		startResult <- group.Start(context.Background())
+	}()
+	<-startEntered
+	report := <-reporter
+
+	done := make(chan struct{})
+	var observers sync.WaitGroup
+	for range 8 {
+		observers.Add(1)
+		go func() {
+			defer observers.Done()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					report()
+					_ = group.Status()
+				}
+			}
+		}()
+	}
+
+	close(releaseStart)
+	require.NoError(t, <-startResult)
+
+	stopResult := make(chan error, 1)
+	go func() {
+		stopResult <- group.Stop(context.Background())
+	}()
+	<-stopEntered
+	close(releaseStop)
+	require.NoError(t, <-stopResult)
+
+	close(done)
+	observers.Wait()
+	assert.Equal(t, StateStopped, group.Status().State)
+}
+
 func TestGroupLogsCanonicalJobLifecycleTransitions(t *testing.T) {
 	t.Parallel()
 
