@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package updates.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service UpdatesService {
+    // GetVersion reports the release version of the running server binary.
+    // Requires only an authenticated session; carries no release information.
+    rpc GetVersion(GetVersionRequest) returns (GetVersionResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
+    // GetUpdateStatus reports the latest eligible release for the instance's
+    // channel and the command that installs it. Gated by instance:update.
+    rpc GetUpdateStatus(GetUpdateStatusRequest) returns (GetUpdateStatusResponse) {
+        option idempotency_level = NO_SIDE_EFFECTS;
+    }
+
+    // SetReleaseChannel switches the instance between Stable and Stable + RC.
+    // Gated by instance:update.
+    rpc SetReleaseChannel(SetReleaseChannelRequest) returns (SetReleaseChannelResponse);
+}
+
+enum ReleaseChannel {
+    RELEASE_CHANNEL_UNSPECIFIED = 0;
+    RELEASE_CHANNEL_STABLE = 1;
+    RELEASE_CHANNEL_STABLE_AND_RC = 2;
+}
+
+message ReleaseInfo {
+    string version = 1;
+    string release_notes_url = 2;
+    google.protobuf.Timestamp published_at = 3;
+    bool prerelease = 4;
+}
+
+message GetVersionRequest {}
+
+message GetVersionResponse {
+    string current_version = 1;
+}
+
+message GetUpdateStatusRequest {}
+
+message GetUpdateStatusResponse {
+    string current_version = 1;
+    ReleaseChannel channel = 2;
+    // Unset when no release newer than current_version is eligible.
+    ReleaseInfo latest_eligible = 3;
+    bool update_available = 4;
+    // Full copy-paste installer invocation for latest_eligible; empty when
+    // update_available is false.
+    string install_command = 5;
+}
+
+message SetReleaseChannelRequest {
+    ReleaseChannel channel = 1;
+}
+
+message SetReleaseChannelResponse {}
