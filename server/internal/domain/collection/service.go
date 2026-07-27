@@ -2,6 +2,7 @@ package collection
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -234,6 +235,22 @@ func (s *Service) enforceBuildingRackCapacity(ctx context.Context, orgID, buildi
 // (both ids nil). Explicit zero (unassign) returns false.
 func rackPlacementOmitted(rackInfo *pb.RackInfo) bool {
 	return rackInfo != nil && rackInfo.SiteId == nil && rackInfo.BuildingId == nil
+}
+
+// deviceLosesSiteConflicts builds the per-device conflict list returned when
+// adding devices to a site-less rack would strip their site/building. Sorted
+// for a deterministic response. Shared by AssignDevicesToRack and SaveRack so
+// both enforce the same "losing placement" contract identically.
+func deviceLosesSiteConflicts(deviceIdentifiers []string) []PerDeviceRackConflict {
+	sort.Strings(deviceIdentifiers)
+	conflicts := make([]PerDeviceRackConflict, 0, len(deviceIdentifiers))
+	for _, id := range deviceIdentifiers {
+		conflicts = append(conflicts, PerDeviceRackConflict{
+			DeviceIdentifier: id,
+			Reason:           RackConflictReasonDeviceLosesSite,
+		})
+	}
+	return conflicts
 }
 
 func int64PtrEqual(a, b *int64) bool {
@@ -1215,15 +1232,7 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 				return nil, err
 			}
 			if len(withPlacement) > 0 && !params.ForceClearConflictingSite {
-				sort.Strings(withPlacement)
-				conflicts := make([]PerDeviceRackConflict, 0, len(withPlacement))
-				for _, id := range withPlacement {
-					conflicts = append(conflicts, PerDeviceRackConflict{
-						DeviceIdentifier: id,
-						Reason:           RackConflictReasonDeviceLosesSite,
-					})
-				}
-				return &txOut{conflicts: conflicts}, nil
+				return &txOut{conflicts: deviceLosesSiteConflicts(withPlacement)}, nil
 			}
 		}
 
@@ -1827,10 +1836,35 @@ type saveRackResult struct {
 	totalAffected     int
 }
 
+// SaveRackResult is the domain outcome of SaveRack. Conflicts is non-empty
+// only when the save would strip a member's site/building by moving it into a
+// site-less rack and the caller didn't pass forceClearConflictingSite; when
+// set, NO write happened. Callers map it onto their transport response
+// (device_set.v1 carries the conflict list; the deprecated collection.v1 path
+// rejects instead — see its handler).
+type SaveRackResult struct {
+	Collection          *pb.DeviceCollection
+	AssignedCount       int32
+	SiteReassignedCount int32
+	Conflicts           []PerDeviceRackConflict
+}
+
+// errSaveRackSiteConflict aborts the SaveRack transaction so nothing persists
+// when a site-less-rack save would strip member placement without force. It is
+// a sentinel used only to force a rollback; the conflict list is carried out
+// via a captured variable, so the error value itself is discarded.
+var errSaveRackSiteConflict = errors.New("save rack: members would lose site placement")
+
 // SaveRack atomically creates or updates a rack with its membership and slot
 // assignments. Lock order is the canonical site -> building -> rack -> devices.
 // On site change, the cascade rewrites descendant device.site_id.
-func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.SaveRackResponse, error) {
+//
+// When the saved rack ends up site-less AND building-less, any member that
+// currently has a site or building would have it stripped. Mirroring
+// AssignDevicesToRack, such a save returns Conflicts and writes nothing unless
+// forceClearConflictingSite is set — so a stale or direct client can't bypass
+// the confirmation contract the reparent RPC enforces.
+func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest, forceClearConflictingSite bool) (*SaveRackResult, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
@@ -1873,7 +1907,12 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 
 	isUpdate := req.CollectionId != nil
 
+	// Carries the site-strip conflict list out of the tx: when set, the tx is
+	// rolled back via errSaveRackSiteConflict so nothing persists. Reset at the
+	// top of the closure so a transactor retry can't surface a stale list.
+	var pendingConflicts []PerDeviceRackConflict
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
+		pendingConflicts = nil
 		var (
 			collectionID    int64
 			finalSiteID     *int64
@@ -1920,6 +1959,23 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			buildingChanged = finalBuildingID != nil
 		}
 
+		// Placement-consistency guard, mirroring AssignDevicesToRack: when the
+		// saved rack ends up site-less AND building-less, the cascade below
+		// would strip site/building from any member that currently has one.
+		// Detect those under the locks already held; without force, roll back
+		// (write nothing) and surface the conflict list so the caller confirms.
+		// With force, fall through and let the cascade clear them.
+		if !forceClearConflictingSite && finalSiteID == nil && finalBuildingID == nil && len(deviceIdentifiers) > 0 {
+			withPlacement, err := s.collectionStore.FindDevicesWithSiteOrBuilding(ctx, info.OrganizationID, deviceIdentifiers)
+			if err != nil {
+				return nil, err
+			}
+			if len(withPlacement) > 0 {
+				pendingConflicts = deviceLosesSiteConflicts(withPlacement)
+				return nil, errSaveRackSiteConflict
+			}
+		}
+
 		// Cascade runs after membership replace so it touches only the
 		// final member set; removed devices keep their prior site_id.
 		cascade, err := s.replaceRackMembershipAndSlots(ctx, info.OrganizationID, collectionID, deviceIdentifiers, req.SlotAssignments, finalSiteID, finalBuildingID)
@@ -1954,6 +2010,11 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			totalAffected:       totalAffected,
 		}, nil
 	})
+	// A site-strip conflict rolled the tx back on purpose: nothing persisted,
+	// so return the conflict list (not an error) for the caller to confirm.
+	if len(pendingConflicts) > 0 {
+		return &SaveRackResult{Conflicts: pendingConflicts}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1996,7 +2057,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 	}
 	s.logActivity(ctx, saveEvent)
 
-	return &pb.SaveRackResponse{
+	return &SaveRackResult{
 		Collection:    txResult.collection,
 		AssignedCount: txResult.assignedCount,
 		// #nosec G115 -- cascadeCount bounded by rack member count (~144)

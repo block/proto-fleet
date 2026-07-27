@@ -172,7 +172,8 @@ describe("useDeviceSets — listGroupMembers", () => {
 describe("useDeviceSets — saveRack placement encoding", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSaveRack.mockResolvedValue({ deviceSet: { id: 1n }, assignedCount: 0 });
+    // protobuf-es always returns `conflicts` as an array (empty on success).
+    mockSaveRack.mockResolvedValue({ deviceSet: { id: 1n }, assignedCount: 0, conflicts: [] });
   });
 
   const runSaveRack = async (placement: { siteId?: bigint; buildingId?: bigint }) => {
@@ -215,6 +216,53 @@ describe("useDeviceSets — saveRack placement encoding", () => {
     const rackInfo = await runSaveRack({});
     expect(rackInfo.siteId).toBeUndefined();
     expect(rackInfo.buildingId).toBeUndefined();
+  });
+
+  it("forwards forceClearConflictingSite to the RPC", async () => {
+    const { result } = renderHook(() => useDeviceSets());
+    await act(async () => {
+      await result.current.saveRack({
+        label: "Rack A",
+        zone: "",
+        rows: 2,
+        columns: 2,
+        orderIndex: 0,
+        coolingType: 0,
+        deviceIdentifiers: ["d1"],
+        slotAssignments: [],
+        forceClearConflictingSite: true,
+      });
+    });
+    expect(mockSaveRack.mock.calls[0][0].forceClearConflictingSite).toBe(true);
+  });
+
+  it("surfaces site-strip conflicts via onConflicts and does not fire onSuccess", async () => {
+    const conflicts = [{ deviceIdentifier: "d1", reason: 1 }];
+    mockSaveRack.mockResolvedValue({ deviceSet: undefined, assignedCount: 0, conflicts });
+    const onSuccess = vi.fn();
+    const onConflicts = vi.fn();
+    const onError = vi.fn();
+
+    const { result } = renderHook(() => useDeviceSets());
+    await act(async () => {
+      await result.current.saveRack({
+        label: "Rack A",
+        zone: "",
+        rows: 2,
+        columns: 2,
+        orderIndex: 0,
+        coolingType: 0,
+        deviceIdentifiers: ["d1"],
+        slotAssignments: [],
+        onSuccess,
+        onConflicts,
+        onError,
+      });
+    });
+
+    expect(onConflicts).toHaveBeenCalledWith(conflicts);
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
   });
 });
 
