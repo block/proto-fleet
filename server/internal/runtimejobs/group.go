@@ -318,9 +318,25 @@ func (g *Group) monitorProgress(ctx context.Context, generation uint64) {
 	for {
 		select {
 		case <-ctx.Done():
+			g.markActivationStopping(generation)
 			return
 		case now := <-ticker.C:
 			g.logProgressTransitions(generation, now)
+		}
+	}
+}
+
+func (g *Group) markActivationStopping(generation uint64) {
+	g.stateMu.Lock()
+	defer g.stateMu.Unlock()
+	if generation != g.generation || g.state != StateRunning {
+		return
+	}
+	g.state = StateStopping
+	for i := range g.jobStatuses {
+		if g.jobStatuses[i].state == StateRunning {
+			g.jobStatuses[i].state = StateStopping
+			g.jobStatuses[i].staleLogged = false
 		}
 	}
 }
