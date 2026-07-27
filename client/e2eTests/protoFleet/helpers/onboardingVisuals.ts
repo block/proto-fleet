@@ -238,11 +238,13 @@ export class OnboardingVisualHelper {
     const configurePoolsCard = homePage.getCompleteSetupCard("Configure pools");
 
     await expect(page).toHaveURL(/\/(dashboard|fleet\/miners)(?:[?#].*)?$/);
-    await expect(module).toBeVisible();
-    await expect(authenticateCard).toBeVisible();
-    await expect(configurePoolsCard).toBeVisible();
-    await expect(homePage.getCompleteSetupButton("Authenticate")).toBeVisible();
-    await expect(homePage.getCompleteSetupButton("Configure")).toBeVisible();
+    await expect(async () => {
+      await expect(module).toBeVisible({ timeout: 2_000 });
+      await expect(authenticateCard).toBeVisible({ timeout: 2_000 });
+      await expect(configurePoolsCard).toBeVisible({ timeout: 2_000 });
+      await expect(homePage.getCompleteSetupButton("Authenticate")).toBeVisible({ timeout: 2_000 });
+      await expect(homePage.getCompleteSetupButton("Configure")).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: testConfig.testTimeout, intervals: [250, 500, 1_000] });
 
     await this.waitForCompleteSetupLayoutToSettle(module, authenticateCard, configurePoolsCard);
   }
@@ -250,8 +252,7 @@ export class OnboardingVisualHelper {
   private async waitForPairingToFinish(expectedMinerCount: number) {
     const { addMinersPage, minersPage } = this.deps;
     await expect(async () => {
-      await addMinersPage.closeAddMinersFlowIfOpen();
-      await addMinersPage.validateAddMinersFlowClosed(1_000);
+      await addMinersPage.validateAddMinersFlowClosed();
       await minersPage.validateMinersPageOpened();
       await minersPage.validateMinersAdded(expectedMinerCount);
     }).toPass({ timeout: testConfig.testTimeout });
