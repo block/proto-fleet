@@ -750,7 +750,7 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
-	runtimeJobGroup, err := runtimejobs.NewGroup(jobs, shutdownTimeout)
+	runtimeJobGroup, err := runtimejobs.NewGroup(jobs)
 	if err != nil {
 		return fmt.Errorf("create runtime job group: %w", err)
 	}

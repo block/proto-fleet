@@ -35,15 +35,13 @@ func (l funcLifecycle) Stop(ctx context.Context) error {
 }
 
 type scriptedRuntimeJobGroupStopper struct {
-	stops    []func(context.Context) error
+	stop     func(context.Context) error
 	contexts []context.Context
 }
 
 func (s *scriptedRuntimeJobGroupStopper) Stop(ctx context.Context) error {
 	s.contexts = append(s.contexts, ctx)
-	stop := s.stops[0]
-	s.stops = s.stops[1:]
-	return stop(ctx)
+	return s.stop(ctx)
 }
 
 func TestNewRuntimeJobs(t *testing.T) {
@@ -142,7 +140,7 @@ func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing
 		chunkedUploadCleanup:      noopLifecycle{},
 	})
 	require.NoError(t, err)
-	group, err := runtimejobs.NewGroup(jobs, time.Second)
+	group, err := runtimejobs.NewGroup(jobs)
 	require.NoError(t, err)
 	require.NoError(t, group.Start(t.Context()))
 	require.NoError(t, group.Stop(t.Context()))
@@ -151,39 +149,6 @@ func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing
 	default:
 		t.Fatal("command execution was not stopped")
 	}
-}
-
-func TestRuntimeJobGroupKeepsCommandExecutionAliveForDrainRetry(t *testing.T) {
-	commandStopCalls := 0
-	producerStopCalls := 0
-	command, err := runtimejobs.NewJob("command", stopOrderedLifecycle{lifecycle: funcLifecycle{
-		stop: func(context.Context) error {
-			commandStopCalls++
-			return nil
-		},
-	}})
-	require.NoError(t, err)
-	producer, err := runtimejobs.NewJob("producer", funcLifecycle{stop: func(ctx context.Context) error {
-		producerStopCalls++
-		if producerStopCalls == 1 {
-			<-ctx.Done()
-			return ctx.Err()
-		}
-		if commandStopCalls != 0 {
-			return errors.New("command execution stopped before producer retry")
-		}
-		return nil
-	}})
-	require.NoError(t, err)
-	group, err := runtimejobs.NewGroup([]runtimejobs.Job{command, producer}, time.Millisecond)
-	require.NoError(t, err)
-	require.NoError(t, group.Start(t.Context()))
-
-	require.ErrorIs(t, group.Stop(context.Background()), context.DeadlineExceeded)
-	require.Zero(t, commandStopCalls)
-	require.NoError(t, group.Stop(context.Background()))
-	require.Equal(t, 2, producerStopCalls)
-	require.Equal(t, 1, commandStopCalls)
 }
 
 func TestBackgroundLoopCanRestartAfterDraining(t *testing.T) {
@@ -239,9 +204,9 @@ func TestBackgroundLoopStopCanBeRetriedAfterTimeout(t *testing.T) {
 }
 
 func TestStopRuntimeJobGroupDoesNotRetrySuccessfulStop(t *testing.T) {
-	group := &scriptedRuntimeJobGroupStopper{stops: []func(context.Context) error{
-		func(context.Context) error { return nil },
-	}}
+	group := &scriptedRuntimeJobGroupStopper{
+		stop: func(context.Context) error { return nil },
+	}
 
 	stopRuntimeJobGroup(group, noopLifecycle{}, time.Second)
 
@@ -250,30 +215,28 @@ func TestStopRuntimeJobGroupDoesNotRetrySuccessfulStop(t *testing.T) {
 	require.True(t, hasDeadline)
 }
 
-func TestStopRuntimeJobGroupRetriesFailureWithFreshDeadline(t *testing.T) {
-	group := &scriptedRuntimeJobGroupStopper{stops: []func(context.Context) error{
-		func(context.Context) error { return errors.New("first stop failed") },
-		func(context.Context) error { return nil },
-	}}
+func TestStopRuntimeJobGroupStopsCommandAfterGroupFailure(t *testing.T) {
+	group := &scriptedRuntimeJobGroupStopper{
+		stop: func(context.Context) error { return errors.New("stop failed") },
+	}
+	commandStopped := false
 
-	stopRuntimeJobGroup(group, noopLifecycle{}, time.Second)
+	stopRuntimeJobGroup(group, funcLifecycle{stop: func(context.Context) error {
+		commandStopped = true
+		return nil
+	}}, time.Second)
 
-	require.Len(t, group.contexts, 2)
-	firstDeadline, firstHasDeadline := group.contexts[0].Deadline()
-	secondDeadline, secondHasDeadline := group.contexts[1].Deadline()
-	require.True(t, firstHasDeadline)
-	require.True(t, secondHasDeadline)
-	require.True(t, secondDeadline.After(firstDeadline))
+	require.Len(t, group.contexts, 1)
+	require.True(t, commandStopped)
 }
 
-func TestStopRuntimeJobGroupBoundsDrainRetry(t *testing.T) {
-	group := &scriptedRuntimeJobGroupStopper{stops: []func(context.Context) error{
-		func(context.Context) error { return errors.New("first stop failed") },
-		func(ctx context.Context) error {
+func TestStopRuntimeJobGroupBoundsGroupAndCommandStops(t *testing.T) {
+	group := &scriptedRuntimeJobGroupStopper{
+		stop: func(ctx context.Context) error {
 			<-ctx.Done()
 			return ctx.Err()
 		},
-	}}
+	}
 	commandStopped := make(chan bool, 1)
 	commandExecution := funcLifecycle{stop: func(ctx context.Context) error {
 		_, hasDeadline := ctx.Deadline()
@@ -284,8 +247,8 @@ func TestStopRuntimeJobGroupBoundsDrainRetry(t *testing.T) {
 	started := time.Now()
 	stopRuntimeJobGroup(group, commandExecution, 5*time.Millisecond)
 
-	require.Len(t, group.contexts, 2)
-	require.ErrorIs(t, group.contexts[1].Err(), context.DeadlineExceeded)
+	require.Len(t, group.contexts, 1)
+	require.ErrorIs(t, group.contexts[0].Err(), context.DeadlineExceeded)
 	require.True(t, <-commandStopped)
 	require.Less(t, time.Since(started), time.Second)
 }

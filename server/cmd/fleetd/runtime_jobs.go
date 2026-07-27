@@ -102,21 +102,15 @@ type runtimeJobGroupStopper interface {
 	Stop(ctx context.Context) error
 }
 
-// stopRuntimeJobGroup gives the group one graceful-shutdown budget, then one
-// fresh bounded retry. Command execution receives a final independent budget
-// after producer retries because its activation is detached from group
-// cancellation to preserve shutdown ordering.
+// stopRuntimeJobGroup gives the group one graceful-shutdown budget. Command
+// execution receives a final independent budget because its activation is
+// detached from group cancellation to preserve shutdown ordering.
 func stopRuntimeJobGroup(group runtimeJobGroupStopper, commandExecution runtimejobs.Lifecycle, timeout time.Duration) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	err := group.Stop(shutdownCtx)
 	cancel()
 	if err != nil {
 		slog.Error("failed to stop runtime jobs", "error", err)
-		drainCtx, drainCancel := context.WithTimeout(context.Background(), timeout)
-		if err := group.Stop(drainCtx); err != nil {
-			slog.Error("failed to drain runtime jobs", "error", err)
-		}
-		drainCancel()
 	}
 
 	commandCtx, commandCancel := context.WithTimeout(context.Background(), timeout)
