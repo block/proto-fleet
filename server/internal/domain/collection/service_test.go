@@ -1099,12 +1099,11 @@ func TestService_SaveRack_SiteLessRackConflictNoForce(t *testing.T) {
 	svc, mockStore, _ := newTestServiceWithResolver(t, resolver)
 	ctx := testCtx(t)
 
-	// Placement resolves site-less, source racks lock, the rack row is created —
-	// then the guard finds device-1 has a site and bails. No RemoveAllDevices /
-	// RemoveDevicesFromAnyRack / AddDevices / cascade: nothing persists.
-	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "").
-		Return(&pb.DeviceCollection{Id: 10, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
-	mockStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).Return(nil)
+	// Placement resolves site-less and the source racks lock — then, BEFORE any
+	// write, the guard finds device-1 has a site and bails. No CreateCollection /
+	// CreateRackExtension / membership / cascade: nothing persists, so the guard
+	// holds even inside an outer transaction where a rollback couldn't unwind an
+	// already-applied write.
 	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, int64(0)).Return(nil, nil)
 	mockStore.EXPECT().LockDevicesForReassign(gomock.Any(), testOrgID, deviceIDs).Return(nil)
 	mockStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return(deviceIDs, nil)
@@ -1169,6 +1168,51 @@ func TestService_SaveRack_SiteLessRackForceStrips(t *testing.T) {
 	assert.Empty(t, res.Conflicts)
 	assert.Equal(t, "Rack A", res.Collection.Label)
 	assert.Equal(t, int32(1), res.SiteReassignedCount)
+}
+
+// TestService_SaveRack_UpdateSiteLessRackConflictNoForce is the update-path
+// counterpart to TestService_SaveRack_SiteLessRackConflictNoForce: re-saving an
+// existing site-less rack whose incoming member currently has a site returns
+// the conflict list and writes NOTHING. The guard runs as resolveAndApplyRack
+// Placement's afterLock hook — after the canonical locks but BEFORE the
+// placement/label writes — so no UpdateRackInfo / UpdateRackPlacement /
+// UpdateCollection / membership call is reached.
+func TestService_SaveRack_UpdateSiteLessRackConflictNoForce(t *testing.T) {
+	deviceIDs := []string{"device-3"}
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return deviceIDs, nil
+	}
+	svc, mockStore, _ := newTestServiceWithResolver(t, resolver)
+	ctx := testCtx(t)
+
+	collectionID := int64(42)
+
+	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), collectionID, testOrgID).Return(true, nil)
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+	// Omitted placement → the rack keeps its current (site-less) placement.
+	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, collectionID).Return(nil, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
+		Return(interfaces.RackPlacement{}, nil)
+	// afterLock guard: device-3 has a site → conflict, abort before any write.
+	mockStore.EXPECT().LockDevicesForReassign(gomock.Any(), testOrgID, deviceIDs).Return(nil)
+	mockStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return(deviceIDs, nil)
+
+	res, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		CollectionId: &collectionID,
+		Label:        "Updated Rack",
+		RackInfo:     testRackInfo,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+			},
+		},
+	}, false)
+
+	require.NoError(t, err)
+	require.Len(t, res.Conflicts, 1)
+	assert.Equal(t, "device-3", res.Conflicts[0].DeviceIdentifier)
+	assert.Equal(t, RackConflictReasonDeviceLosesSite, res.Conflicts[0].Reason)
+	assert.Nil(t, res.Collection, "no rack should be returned when the save is rejected")
 }
 
 func TestService_SaveRack_UpdateExistingRack(t *testing.T) {

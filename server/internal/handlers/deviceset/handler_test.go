@@ -822,13 +822,9 @@ func TestSaveRack_SiteLessConflictReturnedNoForce(t *testing.T) {
 	h := newGroupHandlerWithResolver(t, deviceIDs)
 	ctx := ctxWithPerms(authz.PermRackManage)
 
-	// Site-less rack (no placement → rack:manage suffices). The rack row is
-	// created, then the guard finds d1 has a site and bails before any
-	// membership write.
-	h.collectionStore.EXPECT().
-		CreateCollection(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack", "").
-		Return(&collectionpb.DeviceCollection{Id: 10, Label: "Rack", Type: collectionpb.CollectionType_COLLECTION_TYPE_RACK}, nil)
-	h.collectionStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).Return(nil)
+	// Site-less rack (no placement → rack:manage suffices). The guard finds d1
+	// has a site and bails BEFORE any write — no CreateCollection /
+	// CreateRackExtension / membership: nothing persists.
 	h.collectionStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, int64(0)).Return(nil, nil)
 	h.collectionStore.EXPECT().LockDevicesForReassign(gomock.Any(), testOrgID, deviceIDs).Return(nil)
 	h.collectionStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return(deviceIDs, nil)

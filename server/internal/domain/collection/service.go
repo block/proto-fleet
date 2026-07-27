@@ -558,7 +558,7 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 			//     govern — recheck under the rack row lock (afterLock) so a
 			//     concurrent SaveRack can't add members between the read and the
 			//     resize.
-			var afterLock func(context.Context) error
+			var afterLock func(ctx context.Context, resolvedSiteID, resolvedBuildingID *int64) error
 			if hasDeviceSelector {
 				if capacity := int(rackInfo.Rows) * int(rackInfo.Columns); len(deviceIdentifiers) > capacity {
 					return nil, fleeterror.NewInvalidArgumentErrorf(
@@ -566,7 +566,7 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 						len(deviceIdentifiers), capacity, rackInfo.Rows, rackInfo.Columns)
 				}
 			} else {
-				afterLock = func(ctx context.Context) error {
+				afterLock = func(ctx context.Context, _, _ *int64) error {
 					return s.enforceRackDimensionsFitCurrentMembers(ctx, info.OrganizationID, req.CollectionId, rackInfo.Rows, rackInfo.Columns)
 				}
 			}
@@ -1922,6 +1922,39 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest, forceCl
 			buildingChanged bool
 		)
 
+		// Placement-consistency guard, mirroring AssignDevicesToRack: when the
+		// saved rack ends up site-less AND building-less, the cascade would
+		// strip site/building from any member that currently has one. The
+		// create/update helpers run this BEFORE their first write (once the
+		// rack's final placement is resolved under the canonical locks) so a
+		// no-force conflict returns with nothing persisted — the contract
+		// holds even when SaveRack runs inside an outer transaction, where the
+		// sentinel rollback below cannot unwind an already-applied write.
+		// With force, it is a no-op and the cascade clears the members.
+		checkSiteStrip := func(ctx context.Context, resolvedSiteID, resolvedBuildingID *int64) error {
+			if forceClearConflictingSite || resolvedSiteID != nil || resolvedBuildingID != nil || len(deviceIdentifiers) == 0 {
+				return nil
+			}
+			// Row-lock the members first so the conflict check and the
+			// placement cascade share one stable snapshot. Without the lock a
+			// concurrent sites.AssignDevicesToSite (which locks these same rows
+			// FOR UPDATE) could commit a site between the check reading NULL
+			// and the cascade, silently stripping it back to NULL despite
+			// force being false.
+			if err := s.collectionStore.LockDevicesForReassign(ctx, info.OrganizationID, deviceIdentifiers); err != nil {
+				return err
+			}
+			withPlacement, err := s.collectionStore.FindDevicesWithSiteOrBuilding(ctx, info.OrganizationID, deviceIdentifiers)
+			if err != nil {
+				return err
+			}
+			if len(withPlacement) > 0 {
+				pendingConflicts = deviceLosesSiteConflicts(withPlacement)
+				return errSaveRackSiteConflict
+			}
+			return nil
+		}
+
 		// The rack-locking pre-pass (LockRacksForReparent) lives INSIDE the
 		// path helpers below rather than at the top of the tx. On a placement
 		// path it runs AFTER the target site/building lock, preserving the
@@ -1934,7 +1967,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest, forceCl
 		// the RemoveDevicesFromAnyRack delete from deadlocking against a
 		// concurrent rack save moving devices the opposite way.
 		if isUpdate {
-			res, err := s.saveRackUpdate(ctx, info, req, rackInfo, deviceIdentifiers)
+			res, err := s.saveRackUpdate(ctx, info, req, rackInfo, deviceIdentifiers, checkSiteStrip)
 			if err != nil {
 				return nil, err
 			}
@@ -1945,7 +1978,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest, forceCl
 			siteChanged = res.siteChanged
 			buildingChanged = res.buildingChanged
 		} else {
-			res, err := s.saveRackCreate(ctx, info, req, rackInfo, deviceIdentifiers)
+			res, err := s.saveRackCreate(ctx, info, req, rackInfo, deviceIdentifiers, checkSiteStrip)
 			if err != nil {
 				return nil, err
 			}
@@ -1957,32 +1990,6 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest, forceCl
 			// with the rack's site/building when one is stamped.
 			siteChanged = finalSiteID != nil
 			buildingChanged = finalBuildingID != nil
-		}
-
-		// Placement-consistency guard, mirroring AssignDevicesToRack: when the
-		// saved rack ends up site-less AND building-less, the cascade below
-		// would strip site/building from any member that currently has one.
-		// Detect those under the locks already held; without force, roll back
-		// (write nothing) and surface the conflict list so the caller confirms.
-		// With force, fall through and let the cascade clear them.
-		if !forceClearConflictingSite && finalSiteID == nil && finalBuildingID == nil && len(deviceIdentifiers) > 0 {
-			// Row-lock the members first so the conflict check and the
-			// placement cascade below share one stable snapshot. Without
-			// the lock a concurrent sites.AssignDevicesToSite (which locks
-			// these same rows FOR UPDATE) could commit a site between the
-			// check reading NULL and the cascade, silently stripping it
-			// back to NULL despite force being false.
-			if err := s.collectionStore.LockDevicesForReassign(ctx, info.OrganizationID, deviceIdentifiers); err != nil {
-				return nil, err
-			}
-			withPlacement, err := s.collectionStore.FindDevicesWithSiteOrBuilding(ctx, info.OrganizationID, deviceIdentifiers)
-			if err != nil {
-				return nil, err
-			}
-			if len(withPlacement) > 0 {
-				pendingConflicts = deviceLosesSiteConflicts(withPlacement)
-				return nil, errSaveRackSiteConflict
-			}
 		}
 
 		// Cascade runs after membership replace so it touches only the
@@ -2167,8 +2174,10 @@ func (s *Service) lockSourceRacksForReparent(ctx context.Context, orgID int64, d
 }
 
 // saveRackCreate runs the SaveRack create branch in-tx: resolve placement,
-// then insert device_set + device_set_rack rows.
-func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *pb.SaveRackRequest, rackInfo *pb.RackInfo, deviceIdentifiers []string) (*saveRackCreatePathResult, error) {
+// then insert device_set + device_set_rack rows. siteStripCheck runs after the
+// placement + source-rack locks are held but BEFORE the first write, so a
+// site-strip conflict aborts with nothing created.
+func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *pb.SaveRackRequest, rackInfo *pb.RackInfo, deviceIdentifiers []string, siteStripCheck func(ctx context.Context, resolvedSiteID, resolvedBuildingID *int64) error) (*saveRackCreatePathResult, error) {
 	newSiteID, newBuildingID, err := s.resolveAndLockRackPlacement(ctx, info.OrganizationID, rackInfo)
 	if err != nil {
 		return nil, err
@@ -2185,6 +2194,12 @@ func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *p
 	// the source racks the members currently sit in. Runs after placement
 	// resolution above and before the membership writes below.
 	if err := s.lockSourceRacksForReparent(ctx, info.OrganizationID, deviceIdentifiers, 0); err != nil {
+		return nil, err
+	}
+
+	// Site-strip conflict guard runs under the locks just taken, before the
+	// first write, so a no-force conflict returns without creating the rack.
+	if err := siteStripCheck(ctx, newSiteID, newBuildingID); err != nil {
 		return nil, err
 	}
 
@@ -2232,7 +2247,10 @@ type saveRackUpdatePathResult struct {
 // saveRackUpdate runs the SaveRack update branch: validate ownership,
 // lock site/building/rack in canonical order, derive the final zone,
 // persist placement, and flag siteChanged for the downstream cascade.
-func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *pb.SaveRackRequest, rackInfo *pb.RackInfo, deviceIdentifiers []string) (*saveRackUpdatePathResult, error) {
+// siteStripCheck runs as resolveAndApplyRackPlacement's afterLock hook — after
+// the canonical locks are held but BEFORE any placement/label write — so a
+// site-strip conflict aborts with nothing persisted.
+func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *pb.SaveRackRequest, rackInfo *pb.RackInfo, deviceIdentifiers []string, siteStripCheck func(ctx context.Context, resolvedSiteID, resolvedBuildingID *int64) error) (*saveRackUpdatePathResult, error) {
 	collectionID := *req.CollectionId
 
 	belongs, err := s.collectionStore.CollectionBelongsToOrg(ctx, collectionID, info.OrganizationID)
@@ -2254,7 +2272,7 @@ func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *p
 	// AND may carry an empty zone without meaning to clear it, so preserve the
 	// current zone on empty (see resolveAndApplyRackPlacement + the
 	// omitted-placement contract in service_test.go).
-	res, err := s.resolveAndApplyRackPlacement(ctx, info, collectionID, rackInfo, deviceIdentifiers, true /* preserveZoneOnEmpty */, nil /* afterLock */)
+	res, err := s.resolveAndApplyRackPlacement(ctx, info, collectionID, rackInfo, deviceIdentifiers, true /* preserveZoneOnEmpty */, siteStripCheck)
 	if err != nil {
 		return nil, err
 	}
@@ -2317,10 +2335,12 @@ func (s *Service) enforceRackDimensionsFitCurrentMembers(ctx context.Context, or
 // submits the current zone, so an empty value is an explicit clear.
 //
 // afterLock, when non-nil, runs AFTER the rack row lock is held but BEFORE any
-// write. It lets a caller re-validate under the lock (e.g. the dimension guard)
-// so a concurrent SaveRack can't mutate membership/slots between the caller's
-// pre-read and this resize. nil for callers with nothing to recheck.
-func (s *Service) resolveAndApplyRackPlacement(ctx context.Context, info *session.Info, collectionID int64, rackInfo *pb.RackInfo, deviceIdentifiers []string, preserveZoneOnEmpty bool, afterLock func(context.Context) error) (*saveRackUpdatePathResult, error) {
+// write, receiving the resolved final site/building. It lets a caller
+// re-validate under the lock (e.g. the dimension guard or the site-strip
+// conflict guard) so a concurrent SaveRack can't mutate membership/slots
+// between the caller's pre-read and this resize, and so a rejection aborts
+// before any write lands. nil for callers with nothing to recheck.
+func (s *Service) resolveAndApplyRackPlacement(ctx context.Context, info *session.Info, collectionID int64, rackInfo *pb.RackInfo, deviceIdentifiers []string, preserveZoneOnEmpty bool, afterLock func(ctx context.Context, resolvedSiteID, resolvedBuildingID *int64) error) (*saveRackUpdatePathResult, error) {
 	var (
 		current       interfaces.RackPlacement
 		newSiteID     *int64
@@ -2362,7 +2382,7 @@ func (s *Service) resolveAndApplyRackPlacement(ctx context.Context, info *sessio
 	// touching membership/slots holds this same row lock, so it either
 	// committed before us (this recheck sees it) or waits until we commit.
 	if afterLock != nil {
-		if err := afterLock(ctx); err != nil {
+		if err := afterLock(ctx, newSiteID, newBuildingID); err != nil {
 			return nil, err
 		}
 	}
