@@ -5,6 +5,7 @@ import clsx from "clsx";
 import { useLogoutAction } from "@/protoFleet/api/useLogout";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { isNavItemAllowedByPermissions, NavItem, secondaryNavItems } from "@/protoFleet/config/navItems";
+import UpdateCallout from "@/protoFleet/features/updates/components/UpdateCallout";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { scopedPath, unscopedScopablePath } from "@/protoFleet/routing/siteScope";
 import { usePermissions } from "@/protoFleet/store";
@@ -277,6 +278,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
         </ul>
       </div>
       <div className={clsx("shrink-0 px-3 pb-3", isFloatingMenu && "border-t border-border-5 pt-3")}>
+        <UpdateCallout />
         <button
           onClick={() => {
             logout();

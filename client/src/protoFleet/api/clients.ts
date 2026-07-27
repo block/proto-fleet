@@ -28,6 +28,7 @@ import { ServerLogService } from "@/protoFleet/api/generated/serverlog/v1/server
 import { SiteMapService } from "@/protoFleet/api/generated/sitemap/v1/sitemap_pb";
 import { SiteService } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { TelemetryService } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { UpdatesService } from "@/protoFleet/api/generated/updates/v1/updates_pb";
 
 const activityClient = createClient(ActivityService, transport);
 const apiKeyClient = createClient(ApiKeyService, transport);
@@ -55,6 +56,7 @@ const alertChannelClient = createClient(AlertChannelService, transport);
 const alertRuleClient = createClient(AlertRuleService, transport);
 const alertMaintenanceWindowClient = createClient(AlertMaintenanceWindowService, transport);
 const alertHistoryClient = createClient(AlertHistoryService, transport);
+const updatesClient = createClient(UpdatesService, transport);
 
 export {
   alertChannelClient,
@@ -82,5 +84,6 @@ export {
   siteMapClient,
   sitesClient,
   telemetryClient,
+  updatesClient,
   foremanImportClient,
 };
