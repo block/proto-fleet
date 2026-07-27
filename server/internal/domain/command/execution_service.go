@@ -272,9 +272,7 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if es.conn == nil {
-				if ctx.Err() == nil {
-					reportProgress()
-				}
+				reportProgress()
 				continue
 			}
 			reapCtx, reapCancel := context.WithTimeout(ctx, dbWriteTimeout)
@@ -282,9 +280,7 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 			reapCancel()
 			if err != nil {
 				slog.Error("stuck message reaper error", "error", err)
-				if ctx.Err() == nil {
-					reportProgress()
-				}
+				reportProgress()
 				continue
 			}
 			if len(reaped) > 0 {
@@ -294,9 +290,7 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 			for _, deviceID := range fwDeviceIDs {
 				es.clearFirmwareUpdateStatus(ctx, deviceID)
 			}
-			if ctx.Err() == nil {
-				reportProgress()
-			}
+			reportProgress()
 		}
 	}
 }

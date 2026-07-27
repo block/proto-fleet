@@ -269,7 +269,6 @@ func (s *Subscriber) cleanupActivation(activation *subscriberActivation) {
 	}
 	close(activation.done)
 	s.mu.Unlock()
-	s.cfg.Logger.Info("mqttingest subscriber stopped cleanly")
 }
 
 func (s *Subscriber) SourceRuntimeStatus(sourceID int64) RuntimeStatus {

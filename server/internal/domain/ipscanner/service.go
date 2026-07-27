@@ -159,9 +159,7 @@ func (s *Service) scanLoop(ctx context.Context, run *serviceRun) {
 
 	// Run immediately on start
 	s.scanOfflineDevices(ctx, run.tasks)
-	if ctx.Err() == nil {
-		reportProgress()
-	}
+	reportProgress()
 
 	for {
 		select {
@@ -169,9 +167,7 @@ func (s *Service) scanLoop(ctx context.Context, run *serviceRun) {
 			return
 		case <-ticker.C:
 			s.scanOfflineDevices(ctx, run.tasks)
-			if ctx.Err() == nil {
-				reportProgress()
-			}
+			reportProgress()
 		}
 	}
 }

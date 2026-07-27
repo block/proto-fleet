@@ -75,18 +75,14 @@ func (c *Collector) Run(ctx context.Context) {
 	ticker := time.NewTicker(c.cfg.Interval)
 	defer ticker.Stop()
 	c.collectOnce(ctx)
-	if ctx.Err() == nil {
-		reportProgress()
-	}
+	reportProgress()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			c.collectOnce(ctx)
-			if ctx.Err() == nil {
-				reportProgress()
-			}
+			reportProgress()
 		}
 	}
 }

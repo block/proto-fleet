@@ -300,9 +300,7 @@ func start(config *Config) error {
 				} else if challenges > 0 || sessions > 0 {
 					slog.Debug("swept expired fleet node auth state", "challenges", challenges, "sessions", sessions)
 				}
-				if ctx.Err() == nil {
-					reportProgress()
-				}
+				reportProgress()
 			case <-ctx.Done():
 				return
 			}
@@ -378,17 +376,13 @@ func start(config *Config) error {
 		ticker := time.NewTicker(cleanupInterval)
 		defer ticker.Stop()
 		runCommandArtifactSweep()
-		if ctx.Err() == nil {
-			reportProgress()
-		}
+		reportProgress()
 
 		for {
 			select {
 			case <-ticker.C:
 				runCommandArtifactSweep()
-				if ctx.Err() == nil {
-					reportProgress()
-				}
+				reportProgress()
 			case <-ctx.Done():
 				return
 			}

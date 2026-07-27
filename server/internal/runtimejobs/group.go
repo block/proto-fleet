@@ -16,11 +16,10 @@ const (
 )
 
 type jobRuntimeStatus struct {
-	state           State
-	progressTracked bool
-	lastProgress    time.Time
-	staleAfter      time.Duration
-	staleLogged     bool
+	state        State
+	lastProgress time.Time
+	staleAfter   time.Duration
+	staleLogged  bool
 }
 
 // Group owns at most one activation of an ordered set of jobs at a time.
@@ -94,7 +93,7 @@ func (g *Group) Status() GroupStatus {
 		status.Jobs[i] = JobStatus{
 			Name:            job.Name(),
 			State:           runtimeStatus.state,
-			ProgressTracked: runtimeStatus.progressTracked,
+			ProgressTracked: runtimeStatus.staleAfter > 0,
 			LastProgress:    runtimeStatus.lastProgress,
 			StaleAfter:      runtimeStatus.staleAfter,
 			Stale:           isStale(runtimeStatus, now),
@@ -245,8 +244,7 @@ func (g *Group) stopJobs(parent context.Context, jobs []Job) error {
 	defer cancel()
 
 	var stopErrors []error
-	for i := len(jobs) - 1; i >= 0; i-- {
-		job := jobs[i]
+	for i, job := range slices.Backward(jobs) {
 		g.setJobState(i, StateStopping)
 		startedAt := time.Now()
 		err := g.stopJob(stopCtx, job)
@@ -299,7 +297,6 @@ func (g *Group) trackProgress(index int, generation uint64, staleAfter time.Dura
 		g.stateMu.Unlock()
 		return func() {}
 	}
-	g.jobStatuses[index].progressTracked = true
 	g.jobStatuses[index].lastProgress = time.Now()
 	g.jobStatuses[index].staleAfter = staleAfter
 	g.jobStatuses[index].staleLogged = false
@@ -331,7 +328,7 @@ func (g *Group) monitorProgress(ctx context.Context, generation uint64) {
 
 func (g *Group) logProgressTransitions(generation uint64, now time.Time) {
 	type transition struct {
-		message      string
+		stale        bool
 		name         string
 		lastProgress time.Time
 		staleAfter   time.Duration
@@ -345,7 +342,7 @@ func (g *Group) logProgressTransitions(generation uint64, now time.Time) {
 	}
 	for i, job := range g.jobs {
 		status := &g.jobStatuses[i]
-		if status.state != StateRunning || !status.progressTracked {
+		if status.state != StateRunning || status.staleAfter <= 0 {
 			continue
 		}
 		stale := isStale(*status, now)
@@ -353,7 +350,7 @@ func (g *Group) logProgressTransitions(generation uint64, now time.Time) {
 		case stale && !status.staleLogged:
 			status.staleLogged = true
 			transitions = append(transitions, transition{
-				message:      "runtime job stale",
+				stale:        true,
 				name:         job.Name(),
 				lastProgress: status.lastProgress,
 				staleAfter:   status.staleAfter,
@@ -361,7 +358,6 @@ func (g *Group) logProgressTransitions(generation uint64, now time.Time) {
 		case !stale && status.staleLogged:
 			status.staleLogged = false
 			transitions = append(transitions, transition{
-				message:      "runtime job recovered",
 				name:         job.Name(),
 				lastProgress: status.lastProgress,
 				staleAfter:   status.staleAfter,
@@ -371,15 +367,15 @@ func (g *Group) logProgressTransitions(generation uint64, now time.Time) {
 	g.stateMu.Unlock()
 
 	for _, transition := range transitions {
-		if transition.message == "runtime job stale" {
-			g.logger.Warn(transition.message,
+		if transition.stale {
+			g.logger.Warn("runtime job stale",
 				"job", transition.name,
 				"last_progress", transition.lastProgress,
 				"stale_after", transition.staleAfter,
 			)
 			continue
 		}
-		g.logger.Info(transition.message,
+		g.logger.Info("runtime job recovered",
 			"job", transition.name,
 			"last_progress", transition.lastProgress,
 			"stale_after", transition.staleAfter,
@@ -389,7 +385,7 @@ func (g *Group) logProgressTransitions(generation uint64, now time.Time) {
 
 func isStale(status jobRuntimeStatus, now time.Time) bool {
 	return status.state == StateRunning &&
-		status.progressTracked &&
+		status.staleAfter > 0 &&
 		!status.lastProgress.IsZero() &&
 		!now.Before(status.lastProgress.Add(status.staleAfter))
 }

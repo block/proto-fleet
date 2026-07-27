@@ -158,7 +158,8 @@ func TestTrackProgressReportsFreshnessAndIsolatesActivations(t *testing.T) {
 	assert.True(t, stopped.Jobs[0].ProgressTracked)
 	assert.False(t, stopped.Jobs[0].Stale)
 
-	require.NoError(t, group.Start(context.Background()))
+	activationCtx, cancelActivation := context.WithCancel(context.Background())
+	require.NoError(t, group.Start(activationCtx))
 	currentReporter := <-reporters
 	beforeOldReport := group.Status().Jobs[0].LastProgress
 	time.Sleep(time.Millisecond)
@@ -168,6 +169,11 @@ func TestTrackProgressReportsFreshnessAndIsolatesActivations(t *testing.T) {
 	time.Sleep(time.Millisecond)
 	currentReporter()
 	assert.True(t, group.Status().Jobs[0].LastProgress.After(beforeOldReport))
+
+	beforeCancellation := group.Status().Jobs[0].LastProgress
+	cancelActivation()
+	currentReporter()
+	assert.Equal(t, beforeCancellation, group.Status().Jobs[0].LastProgress)
 	require.NoError(t, group.Stop(context.Background()))
 }
 
@@ -367,6 +373,8 @@ func TestGroupLogsCanonicalJobLifecycleTransitions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			logs := &recordingHandler{}
 			group := newTestGroup(t, tt.job)
 			group.logger = slog.New(logs)
@@ -385,7 +393,9 @@ func TestGroupLogsCanonicalJobLifecycleTransitions(t *testing.T) {
 			assert.Equal(t, "job", attrs["job"].String())
 			assert.Equal(t, slog.KindDuration, attrs["duration"].Kind())
 			if tt.expectedError != nil {
-				assert.Equal(t, tt.expectedError.Error(), attrs["error"].Any().(error).Error())
+				loggedErr, ok := attrs["error"].Any().(error)
+				require.True(t, ok)
+				assert.Equal(t, tt.expectedError.Error(), loggedErr.Error())
 			}
 		})
 	}

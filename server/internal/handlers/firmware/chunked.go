@@ -73,9 +73,7 @@ func (m *ChunkedUploadManager) StartCleanup(ctx context.Context, ttl time.Durati
 		select {
 		case <-ticker.C:
 			m.cleanupExpired(ttl)
-			if ctx.Err() == nil {
-				reportProgress()
-			}
+			reportProgress()
 		case <-ctx.Done():
 			return
 		}

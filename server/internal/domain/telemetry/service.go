@@ -568,9 +568,7 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, tasks chan<
 			devices, err := s.updateScheduler.FetchDevices(ctx, lookback)
 			if err != nil {
 				slog.Error("failed to fetch devices for telemetry", "error", err)
-				if ctx.Err() == nil {
-					reportProgress()
-				}
+				reportProgress()
 				continue
 			}
 			for index, device := range devices {
@@ -581,9 +579,7 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, tasks chan<
 					return
 				}
 			}
-			if ctx.Err() == nil {
-				reportProgress()
-			}
+			reportProgress()
 		}
 	}
 }

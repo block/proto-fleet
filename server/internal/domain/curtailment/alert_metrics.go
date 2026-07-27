@@ -175,18 +175,14 @@ func (l *AlertMetricsLoop) tickLoop(ctx context.Context, runDone chan<- struct{}
 	ticker := time.NewTicker(l.cfg.Interval)
 	defer ticker.Stop()
 	l.tick(ctx)
-	if ctx.Err() == nil {
-		reportProgress()
-	}
+	reportProgress()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			l.tick(ctx)
-			if ctx.Err() == nil {
-				reportProgress()
-			}
+			reportProgress()
 		}
 	}
 }

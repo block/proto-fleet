@@ -33,9 +33,7 @@ func (s *Service) runCloser(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.closeStaleErrors(ctx, stalenessThreshold)
-			if ctx.Err() == nil {
-				reportProgress()
-			}
+			reportProgress()
 		}
 	}
 }

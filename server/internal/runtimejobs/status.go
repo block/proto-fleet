@@ -46,12 +46,17 @@ type progressContextKey struct{}
 // cycle. It is a no-op outside a Group-managed Start context or when staleAfter
 // is not positive.
 func TrackProgress(ctx context.Context, staleAfter time.Duration) func() {
-	if staleAfter <= 0 {
+	if staleAfter <= 0 || ctx.Err() != nil {
 		return func() {}
 	}
 	progress, ok := ctx.Value(progressContextKey{}).(progressContext)
 	if !ok {
 		return func() {}
 	}
-	return progress.group.trackProgress(progress.jobIndex, progress.generation, staleAfter)
+	report := progress.group.trackProgress(progress.jobIndex, progress.generation, staleAfter)
+	return func() {
+		if ctx.Err() == nil {
+			report()
+		}
+	}
 }

@@ -279,9 +279,7 @@ func (p *Processor) reconcileLoop(run *processorActivation) {
 			if err := p.syncSchedules(run.workCtx, run); err != nil {
 				slog.Error("reconciliation failed, will retry next cycle", "error", err)
 			}
-			if run.admissionCtx.Err() == nil {
-				reportProgress()
-			}
+			reportProgress()
 		}
 	}
 }
