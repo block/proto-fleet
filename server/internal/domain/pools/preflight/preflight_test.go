@@ -1,93 +1,80 @@
 package preflight
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestRun_SV1URLPassesAnyMiner(t *testing.T) {
-	// Arrange
-	devs := []Device{
-		{Identifier: "a", NativeStratumV2: true},
-		{Identifier: "b", NativeStratumV2: false},
-		{Identifier: "c", NativeStratumV2: false},
-	}
-	slots := []SlotAssignment{{Slot: SlotDefault, URL: "stratum+tcp://pool.example.com:3333"}}
+const testSV2URL = "stratum2+tcp://pool.example.com:3336/9bXiEd8boQVhq7WddEcERUL5tyyJVFYdU8th3HfbNXK3Yw6GRXh"
 
-	// Act
-	got := Run(devs, slots)
-
-	// Assert
-	assert.Empty(t, got)
-}
-
-func TestRun_SV2URLPassesNativeOnly(t *testing.T) {
-	// Arrange
-	devs := []Device{
+func TestPlan_MixedCapabilitiesKeepNativeDirectAndTranslateSV1(t *testing.T) {
+	devices := []Device{
 		{Identifier: "native", NativeStratumV2: true},
+		{Identifier: "sv1-only"},
 	}
-	slots := []SlotAssignment{{Slot: SlotDefault, URL: "stratum2+tcp://pool.example.com:3336/ABC"}}
-
-	// Act
-	got := Run(devs, slots)
-
-	// Assert
-	assert.Empty(t, got)
-}
-
-func TestRun_SV2URLRejectsNonNative(t *testing.T) {
-	// Arrange
-	devs := []Device{
-		{Identifier: "sv1", Make: "Antminer", Model: "S19", NativeStratumV2: false},
-		{Identifier: "unknown", Make: "Whatsminer", Model: "M30S", NativeStratumV2: false},
-		{Identifier: "unspec", NativeStratumV2: false},
-		{Identifier: "native", Make: "Antminer", Model: "S19j Pro", NativeStratumV2: true},
-	}
-	slots := []SlotAssignment{{Slot: SlotBackup1, URL: "stratum2+tcp://pool.example.com:3336/ABC"}}
-
-	// Act
-	got := Run(devs, slots)
-
-	// Assert
-	assert.Len(t, got, 3)
-	for _, m := range got {
-		assert.NotEqual(t, "native", m.DeviceIdentifier)
-		assert.Equal(t, SlotBackup1, m.Slot)
-	}
-}
-
-func TestRun_PropagatesMakeAndModel(t *testing.T) {
-	// Arrange
-	devs := []Device{
-		{Identifier: "sv1", Make: "Antminer", Model: "S19", NativeStratumV2: false},
-	}
-	slots := []SlotAssignment{{Slot: SlotDefault, URL: "stratum2+tcp://pool.example.com:3336/ABC"}}
-
-	// Act
-	got := Run(devs, slots)
-
-	// Assert
-	assert.Len(t, got, 1)
-	assert.Equal(t, "Antminer", got[0].Make)
-	assert.Equal(t, "S19", got[0].Model)
-}
-
-func TestRun_MultipleSlotsReportPerSlot(t *testing.T) {
-	// Arrange
-	devs := []Device{{Identifier: "sv1", NativeStratumV2: false}}
 	slots := []SlotAssignment{
-		{Slot: SlotDefault, URL: "stratum2+tcp://a:3336/k"},
-		{Slot: SlotBackup1, URL: "stratum+tcp://b:3333"},
-		{Slot: SlotBackup2, URL: "stratum2+tcp://c:3336/k"},
+		{URL: testSV2URL, Username: "account"},
+		{URL: "stratum+tcp://backup.example.com:3333", Username: "account"},
 	}
 
-	// Act
-	got := Run(devs, slots)
+	plan, err := Plan(devices, slots)
 
-	// Assert
-	assert.Len(t, got, 2)
-	slotsHit := []Slot{got[0].Slot, got[1].Slot}
-	assert.Contains(t, slotsHit, SlotDefault)
-	assert.Contains(t, slotsHit, SlotBackup2)
+	require.NoError(t, err)
+	require.True(t, plan.TranslationRequired())
+	require.Equal(t, 1, len(plan.TranslatorProfile.Upstreams))
+	assert.Equal(t, testSV2URL, plan.TranslatorProfile.Upstreams[0].URL)
+	assert.Equal(t, "account", plan.TranslatorProfile.Upstreams[0].Username)
+	require.Equal(t, 2, len(plan.Devices))
+	assert.Equal(t, []EffectiveSlot{
+		{SourceIndex: 0},
+		{SourceIndex: 1},
+	}, plan.Devices[0].Slots)
+	assert.Equal(t, []EffectiveSlot{
+		{SourceIndex: 0, UsesTranslation: true},
+		{SourceIndex: 1},
+	}, plan.Devices[1].Slots)
+}
+
+func TestPlan_AdjacentSV2SlotsCollapseIntoOneTranslatedSlot(t *testing.T) {
+	slots := []SlotAssignment{
+		{URL: "stratum+tcp://default.example.com:3333"},
+		{URL: testSV2URL, Username: "primary"},
+		{URL: "stratum2+tcp://backup.example.com:3336/9bXiEd8boQVhq7WddEcERUL5tyyJVFYdU8th3HfbNXK3Yw6GRXh", Username: "backup"},
+	}
+
+	plan, err := Plan([]Device{{Identifier: "sv1-only"}}, slots)
+
+	require.NoError(t, err)
+	require.Equal(t, 2, len(plan.TranslatorProfile.Upstreams))
+	assert.Equal(t, []EffectiveSlot{
+		{SourceIndex: 0},
+		{SourceIndex: 1, UsesTranslation: true},
+	}, plan.Devices[0].Slots)
+}
+
+func TestPlan_NonContiguousSV2SlotsFailForSV1OnlyMiner(t *testing.T) {
+	slots := []SlotAssignment{
+		{URL: testSV2URL},
+		{URL: "stratum+tcp://middle.example.com:3333"},
+		{URL: testSV2URL},
+	}
+
+	_, err := Plan([]Device{{Identifier: "sv1-only"}}, slots)
+
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrNonContiguousSV2Slots))
+}
+
+func TestPlan_AllNativeDoesNotActivateTranslation(t *testing.T) {
+	plan, err := Plan(
+		[]Device{{Identifier: "native", NativeStratumV2: true}},
+		[]SlotAssignment{{URL: testSV2URL}},
+	)
+
+	require.NoError(t, err)
+	assert.False(t, plan.TranslationRequired())
+	assert.Equal(t, []EffectiveSlot{{SourceIndex: 0}}, plan.Devices[0].Slots)
 }

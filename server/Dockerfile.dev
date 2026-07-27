@@ -16,7 +16,8 @@ COPY server/ ./
 # Warm /root/.cache/go-build in the image layer so sync+restart rebuilds are
 # incremental without relying on a writable persistent cache volume.
 RUN mkdir -p /app/plugins /app/out \
- && go build -gcflags="$GO_GCFLAGS" -o /app/out/fleetd ./cmd/fleetd
+ && go build -gcflags="$GO_GCFLAGS" -o /app/out/fleetd ./cmd/fleetd \
+ && go build -gcflags="$GO_GCFLAGS" -o /app/out/sv2-translator-helper ./cmd/sv2-translator-helper
 
 EXPOSE 4000
 EXPOSE 40000

@@ -23,11 +23,11 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
-	"github.com/block/proto-fleet/server/internal/domain/pools/preflight"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/domain/sv2"
+	"github.com/block/proto-fleet/server/internal/domain/sv2/translator"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
@@ -73,9 +73,15 @@ type Service struct {
 	capabilityChecker   *CapabilityChecker
 	activitySvc         *activity.Service
 	deviceResolver      DeviceIdentifierResolver
+	translatorManager   translator.Manager
 
-	resolveDeviceIDsOverride func(context.Context, []string) ([]int64, error)
-	resolveDevicesOverride   func(context.Context, []string) ([]resolvedDevice, error)
+	resolveDeviceIDsOverride        func(context.Context, []string) ([]int64, error)
+	resolveDevicesOverride          func(context.Context, []string) ([]resolvedDevice, error)
+	resolvePoolCapabilitiesOverride func(
+		context.Context,
+		int64,
+		[]resolvedDevice,
+	) ([]poolCapabilityDevice, error)
 	// Test-only hooks; production never sets these. When set, processCommand
 	// uses them instead of the real DB batch insert / status-update goroutine.
 	saveCommandBatchLogOverride      func(ctx context.Context, userID, organizationID int64, command *Command, payloadBytes []byte, devicesCount int) (string, error)
@@ -91,9 +97,24 @@ type resolvedDevice struct {
 	identifier string
 }
 
+type poolCapabilityDevice struct {
+	id           int64
+	identifier   string
+	driver       string
+	manufacturer string
+	model        string
+}
+
 // SetPluginCapabilitiesProvider — nil disables the SV2 gate (test default).
 func (s *Service) SetPluginCapabilitiesProvider(p PluginCapabilitiesProvider) {
 	s.pluginCaps = p
+}
+
+func (s *Service) SetSV2TranslatorManager(manager translator.Manager) {
+	s.translatorManager = manager
+	if s.executionService != nil {
+		s.executionService.SetSV2TranslatorManager(manager)
+	}
 }
 
 // SetDeviceIdentifierResolver injects the rich-filter resolver used by the
@@ -922,6 +943,21 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 			return nil, err
 		}
 	}
+	if command.commandType == commandtype.UpdateMiningPools {
+		poolPayload, ok := command.payload.(*dto.UpdateMiningPoolsPayload)
+		if !ok {
+			return nil, fleeterror.NewInternalError("invalid update mining pools payload")
+		}
+		queuePayloads, err = s.prepareUpdateMiningPoolsDispatch(
+			ctx,
+			info.OrganizationID,
+			resolvedDevices,
+			poolPayload,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	payloadBytes, err := json.Marshal(logPayload)
 	if err != nil {
@@ -1150,190 +1186,10 @@ func (s *Service) createUpdateMiningPoolsPayload(ctx context.Context, defaultPoo
 	return pld, nil
 }
 
-// SV2FilterName tags Skipped entries produced by the SV2 capability gate.
-// Handlers filter by this to derive the per-command response (toast).
+// SV2FilterName is retained for the response mapper while older clients still
+// understand SV2 capability skips. Translation dispatches every compatible
+// selected miner and does not emit this skip type.
 const SV2FilterName = "sv2"
-
-// SV2UnavailableReason is the Reason value for selected miners absent
-// from the capability lookup (unpaired, deleted, or out-of-org).
-const SV2UnavailableReason = "unavailable miners"
-
-// preflightSV2Capabilities runs the gate and returns the dispatched set
-// plus per-device skips. Both are nil when the gate didn't run; both are
-// populated otherwise (dispatched freezes the set against a selector race).
-// Returns FAILED_PRECONDITION when every selected miner is skipped.
-func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.DeviceSelector, pld *dto.UpdateMiningPoolsPayload) (dispatched []string, skipped []SkippedDevice, err error) {
-	if s.pluginCaps == nil {
-		slog.Warn("SV2 preflight skipped: plugin caps provider not wired", "default_pool_url", pld.DefaultPool.URL)
-		return nil, nil, nil
-	}
-	slots := preflightSlotsFromPayload(pld)
-	if !anySV2(slots) {
-		return nil, nil, nil
-	}
-	// CEL validates URL shape; this rejects undecodable authority pubkeys.
-	for _, s := range slots {
-		if !sv2.IsSV2URL(s.URL) {
-			continue
-		}
-		if _, err := sv2.PoolNoiseKeyFromURL(s.URL); err != nil {
-			return nil, nil, fleeterror.NewInvalidArgumentErrorf("invalid Stratum V2 pool URL %q: %v", s.URL, err)
-		}
-	}
-
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, nil, fleeterror.NewInternalErrorf("error getting session info for SV2 preflight: %v", err)
-	}
-
-	identifiers, err := s.resolveSelectorIdentifiers(ctx, selector, commandtype.UpdateMiningPools)
-	if err != nil {
-		return nil, nil, fleeterror.NewInternalErrorf("error resolving devices for SV2 preflight: %v", err)
-	}
-	if len(identifiers) == 0 {
-		slog.Info("SV2 preflight: selector resolved to zero devices", "default_pool_url", pld.DefaultPool.URL)
-		return nil, nil, nil
-	}
-
-	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.GetDeviceInfoForCapabilityCheckRow, error) {
-		return q.GetDeviceInfoForCapabilityCheck(ctx, sqlc.GetDeviceInfoForCapabilityCheckParams{
-			DeviceIdentifiers: identifiers,
-			OrgID:             info.OrganizationID,
-		})
-	})
-	if err != nil {
-		return nil, nil, fleeterror.NewInternalErrorf("error resolving device identifiers for SV2 preflight: %v", err)
-	}
-
-	type capsKey struct{ driver, manufacturer, model string }
-	nativeSV2 := map[capsKey]bool{}
-	devices := make([]preflight.Device, 0, len(rows))
-	rowSeen := make(map[string]struct{}, len(rows))
-	for _, r := range rows {
-		key := capsKey{r.DriverName, r.Manufacturer.String, r.Model.String}
-		native, cached := nativeSV2[key]
-		if !cached {
-			caps := s.pluginCaps.GetRawCapabilitiesForDevice(ctx, key.driver, key.manufacturer, key.model)
-			native = caps[sdk.CapabilityNativeStratumV2]
-			nativeSV2[key] = native
-		}
-		devices = append(devices, preflight.Device{
-			Identifier:      r.DeviceIdentifier,
-			Make:            r.Manufacturer.String,
-			Model:           r.Model.String,
-			NativeStratumV2: native,
-		})
-		rowSeen[r.DeviceIdentifier] = struct{}{}
-	}
-
-	// Identifiers absent from rows (unpaired, deleted, or out-of-org)
-	// surface as explicit skips rather than silent drops.
-	skippedSet := make(map[string]SkippedDevice, len(identifiers))
-	for _, id := range identifiers {
-		if _, ok := rowSeen[id]; !ok {
-			skippedSet[id] = SkippedDevice{
-				DeviceIdentifier: id,
-				FilterName:       SV2FilterName,
-				Reason:           SV2UnavailableReason,
-			}
-		}
-	}
-
-	mismatches := preflight.Run(devices, slots)
-	slog.Info("SV2 preflight evaluated",
-		"selected_count", len(identifiers),
-		"resolved_count", len(devices),
-		"slot_count", len(slots),
-		"mismatches", len(mismatches),
-		"unavailable", len(skippedSet),
-	)
-	for _, m := range mismatches {
-		skippedSet[m.DeviceIdentifier] = SkippedDevice{
-			DeviceIdentifier: m.DeviceIdentifier,
-			FilterName:       SV2FilterName,
-			Reason:           formatMinerType(m.Make, m.Model),
-		}
-	}
-
-	if len(skippedSet) == 0 {
-		kept := make([]string, len(devices))
-		for i, d := range devices {
-			kept[i] = d.Identifier
-		}
-		return kept, nil, nil
-	}
-
-	if len(skippedSet) >= len(identifiers) {
-		return nil, nil, sv2AllIncompatibleError(skippedSet)
-	}
-
-	kept := make([]string, 0, len(devices))
-	for _, d := range devices {
-		if _, skip := skippedSet[d.Identifier]; !skip {
-			kept = append(kept, d.Identifier)
-		}
-	}
-	skipped = make([]SkippedDevice, 0, len(skippedSet))
-	for _, sd := range skippedSet {
-		skipped = append(skipped, sd)
-	}
-	return kept, skipped, nil
-}
-
-func sv2AllIncompatibleError(skippedSet map[string]SkippedDevice) error {
-	plural := "s"
-	if len(skippedSet) == 1 {
-		plural = ""
-	}
-	typeSet := make(map[string]struct{}, len(skippedSet))
-	for _, sd := range skippedSet {
-		typeSet[sd.Reason] = struct{}{}
-	}
-	sortedTypes := make([]string, 0, len(typeSet))
-	for t := range typeSet {
-		sortedTypes = append(sortedTypes, t)
-	}
-	sort.Strings(sortedTypes)
-	return fleeterror.NewFailedPreconditionErrorf(
-		"%d miner%s can't use this Stratum V2 pool. Incompatible types: %s",
-		len(skippedSet), plural, strings.Join(sortedTypes, ", "),
-	)
-}
-
-func preflightSlotsFromPayload(pld *dto.UpdateMiningPoolsPayload) []preflight.SlotAssignment {
-	slots := []preflight.SlotAssignment{{Slot: preflight.SlotDefault, URL: pld.DefaultPool.URL}}
-	if pld.Backup1Pool != nil {
-		slots = append(slots, preflight.SlotAssignment{Slot: preflight.SlotBackup1, URL: pld.Backup1Pool.URL})
-	}
-	if pld.Backup2Pool != nil {
-		slots = append(slots, preflight.SlotAssignment{Slot: preflight.SlotBackup2, URL: pld.Backup2Pool.URL})
-	}
-	return slots
-}
-
-func anySV2(slots []preflight.SlotAssignment) bool {
-	for _, s := range slots {
-		if sv2.IsSV2URL(s.URL) {
-			return true
-		}
-	}
-	return false
-}
-
-func formatMinerType(manufacturer, model string) string {
-	manufacturer = strings.TrimSpace(manufacturer)
-	model = strings.TrimSpace(model)
-	switch {
-	case manufacturer != "" && model != "":
-		return manufacturer + " " + model
-	case manufacturer != "":
-		return manufacturer
-	case model != "":
-		return model
-	default:
-		return "unknown type"
-	}
-}
 
 func (s *Service) UpdateMiningPools(
 	ctx context.Context,
@@ -1351,27 +1207,12 @@ func (s *Service) UpdateMiningPools(
 		return nil, err
 	}
 
-	dispatched, sv2Skipped, err := s.preflightSV2Capabilities(ctx, deviceSelector, pld)
-	if err != nil {
-		return nil, err
-	}
-	if dispatched != nil {
-		deviceSelector = &pb.DeviceSelector{
-			SelectionType: &pb.DeviceSelector_IncludeDevices{
-				IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: dispatched},
-			},
-		}
-	}
-
 	result, err := s.processCommand(
 		ctx,
 		&Command{commandType: commandtype.UpdateMiningPools, deviceSelector: deviceSelector, payload: pld},
 	)
 	if err != nil {
 		return nil, err
-	}
-	if dispatched != nil {
-		result.Skipped = append(result.Skipped, sv2Skipped...)
 	}
 	s.finalizeDispatch(ctx, result, "update_mining_pools", "Edit pool")
 	return result, nil

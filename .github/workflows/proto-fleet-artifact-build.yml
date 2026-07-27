@@ -169,6 +169,7 @@ jobs:
         run: |
           go mod download
           go build -v -ldflags "-X main.version=$VERSION" -o fleetd-${{ matrix.arch }} ./cmd/fleetd
+          go build -v -o sv2-translator-helper-${{ matrix.arch }} ./cmd/sv2-translator-helper
           echo "version: $VERSION" > version.txt
           echo "is_prerelease: $IS_PRERELEASE" >> version.txt
           echo "build_date: $BUILD_DATE" >> version.txt
@@ -204,6 +205,7 @@ jobs:
         run: |
           tar -czf "proto-fleet-server-${VERSION}-${{ matrix.arch }}.tar.gz" \
             fleetd-${{ matrix.arch }} \
+            sv2-translator-helper-${{ matrix.arch }} \
             proto-plugin-${{ matrix.arch }} \
             antminer-plugin-${{ matrix.arch }} \
             virtual-plugin-${{ matrix.arch }} \
@@ -422,6 +424,7 @@ jobs:
           tar -xzf "/tmp/server-artifacts/proto-fleet-server-${VERSION}-${{ matrix.arch }}.tar.gz" -C deployment/server
           cd deployment/server
           mv fleetd-${{ matrix.arch }} fleetd
+          mv sv2-translator-helper-${{ matrix.arch }} sv2-translator-helper
           mv proto-plugin-${{ matrix.arch }} proto-plugin
           mv antminer-plugin-${{ matrix.arch }} antminer-plugin
           mv virtual-plugin-${{ matrix.arch }} virtual-plugin

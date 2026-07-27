@@ -31,8 +31,9 @@ WORKDIR /app
 # Copy the binary from builder and set permissions
 COPY --from=builder /go/bin/dlv /app/dlv
 COPY --from=builder /app/out/fleetd /app/fleetd
+COPY --from=builder /app/out/sv2-translator-helper /app/sv2-translator-helper
 
-RUN chmod 755 /app/fleetd
+RUN chmod 755 /app/fleetd /app/sv2-translator-helper
 
 # Create plugins directory
 # Plugins are typically mounted via docker-compose volume for local dev

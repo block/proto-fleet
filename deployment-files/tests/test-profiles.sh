@@ -250,6 +250,36 @@ assert_rendered "no-profile render keeps defaults" "$out" \
     "log_parameter_max_length=0" "log_parameter_max_length_on_error=0" \
     'shm_size: "268435456"'
 
+service_block() { # rendered_output service_name
+    printf '%s\n' "$1" | awk -v service="$2" '
+        $0 == "  " service ":" { active=1 }
+        active && /^  [^ ]/ && $0 != "  " service ":" { exit }
+        active { print }
+    '
+}
+
+fleet_api_block=$(service_block "$out" fleet-api)
+helper_block=$(service_block "$out" sv2-translator-helper)
+if printf '%s\n' "$fleet_api_block" | grep -qF "/var/run/docker.sock"; then
+    fail "fleet-api must not mount the host Docker socket"
+elif ! printf '%s\n' "$fleet_api_block" | grep -qF "source: sv2-translator-control" ||
+     ! printf '%s\n' "$fleet_api_block" | grep -qF "read_only: true"; then
+    fail "fleet-api must mount the private translator helper socket read-only"
+else
+    pass "fleet-api Docker access is isolated behind the private helper socket"
+fi
+
+for expected in \
+    "network_mode: none" \
+    "read_only: true" \
+    "no-new-privileges:true" \
+    "source: /var/run/docker.sock"; do
+    if ! printf '%s\n' "$helper_block" | grep -qF "$expected"; then
+        fail "sv2-translator-helper: expected hardened setting '$expected'"
+    fi
+done
+pass "sv2 translator helper hardening is rendered"
+
 out=$(render --env-file profiles/mini.env --env-file base-secrets.env)
 assert_rendered "mini render" "$out" \
     "max_connections=100" "max_worker_processes=9" "random_page_cost=2.0" \

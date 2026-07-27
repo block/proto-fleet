@@ -1,64 +1,110 @@
-// Package preflight gates SV2 URL assignments on per-device native-SV2
-// capability reported by the plugin via GetCapabilitiesForModel.
+// Package preflight builds direct and translated pool routes from one
+// capability snapshot before any miner update is queued.
 package preflight
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/block/proto-fleet/server/internal/domain/sv2"
+	"github.com/block/proto-fleet/server/internal/domain/sv2/translator"
 )
 
-type Slot int
-
-const (
-	SlotUnspecified Slot = iota
-	SlotDefault
-	SlotBackup1
-	SlotBackup2
-)
+var ErrNonContiguousSV2Slots = errors.New("translated Stratum V2 slots must be contiguous")
 
 type SlotAssignment struct {
-	Slot Slot
-	URL  string
+	URL      string
+	Username string
 }
 
-// Device pairs the operator-facing identifier with the firmware-derived
-// make/model (for the rejection toast) and the native-SV2 capability.
 type Device struct {
 	Identifier      string
-	Make            string
-	Model           string
 	NativeStratumV2 bool
 }
 
-type Mismatch struct {
-	DeviceIdentifier string
-	Make             string
-	Model            string
-	Slot             Slot
+type EffectiveSlot struct {
+	SourceIndex     int
+	UsesTranslation bool
 }
 
-// Run returns one Mismatch per (device, slot) pair that pairs an SV2
-// URL with a non-native-SV2 device. Fails closed: only NativeStratumV2
-// = true passes.
-func Run(devices []Device, slots []SlotAssignment) []Mismatch {
+type DeviceRoute struct {
+	DeviceIdentifier string
+	Slots            []EffectiveSlot
+}
+
+type PlanResult struct {
+	Devices           []DeviceRoute
+	TranslatorProfile translator.Profile
+}
+
+func (r PlanResult) TranslationRequired() bool {
+	return len(r.TranslatorProfile.Upstreams) > 0
+}
+
+// Plan leaves native-SV2 devices unchanged. For SV1-only devices, one
+// contiguous run of SV2 slots becomes one local tProxy slot while surrounding
+// SV1 slots retain their order.
+func Plan(devices []Device, slots []SlotAssignment) (PlanResult, error) {
+	result := PlanResult{Devices: make([]DeviceRoute, 0, len(devices))}
 	if len(devices) == 0 || len(slots) == 0 {
-		return nil
+		return result, nil
 	}
-	var mismatches []Mismatch
-	for _, d := range devices {
-		for _, s := range slots {
-			if !sv2.IsSV2URL(s.URL) {
-				continue
-			}
-			if d.NativeStratumV2 {
-				continue
-			}
-			mismatches = append(mismatches, Mismatch{
-				DeviceIdentifier: d.Identifier,
-				Make:             d.Make,
-				Model:            d.Model,
-				Slot:             s.Slot,
-			})
+
+	firstSV2, lastSV2 := -1, -1
+	for index, slot := range slots {
+		if !sv2.IsSV2URL(slot.URL) {
+			continue
+		}
+		if firstSV2 == -1 {
+			firstSV2 = index
+		}
+		lastSV2 = index
+	}
+
+	translationRequired := false
+	for _, device := range devices {
+		if firstSV2 >= 0 && !device.NativeStratumV2 {
+			translationRequired = true
+			break
 		}
 	}
-	return mismatches
+	if translationRequired {
+		for index := firstSV2; index <= lastSV2; index++ {
+			if !sv2.IsSV2URL(slots[index].URL) {
+				return PlanResult{}, ErrNonContiguousSV2Slots
+			}
+		}
+		upstreams := make([]translator.Upstream, 0, lastSV2-firstSV2+1)
+		for index := firstSV2; index <= lastSV2; index++ {
+			upstreams = append(upstreams, translator.Upstream{
+				URL:      slots[index].URL,
+				Username: slots[index].Username,
+			})
+		}
+		profile, err := translator.NormalizeProfile(translator.Profile{Upstreams: upstreams})
+		if err != nil {
+			return PlanResult{}, fmt.Errorf("build translator profile: %w", err)
+		}
+		result.TranslatorProfile = profile
+	}
+
+	for _, device := range devices {
+		route := DeviceRoute{
+			DeviceIdentifier: device.Identifier,
+			Slots:            make([]EffectiveSlot, 0, len(slots)),
+		}
+		for index := 0; index < len(slots); index++ {
+			if translationRequired && !device.NativeStratumV2 && index == firstSV2 {
+				route.Slots = append(route.Slots, EffectiveSlot{
+					SourceIndex:     firstSV2,
+					UsesTranslation: true,
+				})
+				index = lastSV2
+				continue
+			}
+			route.Slots = append(route.Slots, EffectiveSlot{SourceIndex: index})
+		}
+		result.Devices = append(result.Devices, route)
+	}
+	return result, nil
 }

@@ -32,12 +32,12 @@ dev-system-monitoring: _build-plugins-docker
   docker compose -f docker-compose.yaml -f docker-compose.alerts.yaml -f docker-compose.system-monitoring.yaml up --watch fleet-api --remove-orphans --no-deps
 
 # start services in docker compose
-start:
+start: _prepare-sv2-translator
   docker compose up --wait
 
 # stop services in docker
 stop:
-  docker compose down
+  docker compose --profile sv2-tproxy down
 
 # run all tests (DB_PASSWORD defaults to 'fleet' for local/CI testing)
 test:
@@ -203,7 +203,15 @@ rebuild-all: _build-plugins-docker rebuild-services
 # wipe and rebuild docker compose services, reusing existing plugin binaries
 rebuild-services:
     # `--rmi local` keeps pulled images (jaeger, otel-collector) to avoid re-pulling.
-    docker compose down --rmi local --volumes && docker compose up --build -d
+    docker compose --profile sv2-tproxy down --rmi local --volumes
+    just _prepare-sv2-translator
+    docker compose up --build -d
+
+_prepare-sv2-translator:
+    # Pull during setup/dev so the first SV2 assignment only starts the cached image.
+    docker compose pull sv2-tproxy
+    # Keep the fixed container stopped until Fleet needs translation.
+    docker compose create sv2-tproxy
 
 _build-plugins-docker:
   #!/usr/bin/env bash
