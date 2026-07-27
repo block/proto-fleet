@@ -56,6 +56,7 @@ func TestReconcile_FreshInstall_AdminExcludesRoleManagement(t *testing.T) {
 
 	got := orgRolePermissionKeys(t, db, orgID, "ADMIN")
 	require.NotContains(t, got, authz.PermRoleManage, "ADMIN must not seed with role:manage")
+	require.NotContains(t, got, authz.PermInstanceUpdate, "ADMIN must not seed with instance:update; instance administration is reserved for SUPER_ADMIN")
 	require.Contains(t, got, authz.PermUserRead, "ADMIN holds user:read so org admins can view the team roster")
 	require.Contains(t, got, authz.PermUserManage, "ADMIN holds user:manage; hierarchy check blocks elevated targets at the domain layer")
 	require.Contains(t, got, authz.PermMinerReboot, "ADMIN should still hold miner action permissions")
@@ -196,6 +197,25 @@ func TestReconcile_SuperAdminTamperingRepaired(t *testing.T) {
 		"full reconcile must restore tampered SUPER_ADMIN permissions")
 	require.Equal(t, authz.AllPermissionsSorted(), got,
 		"SUPER_ADMIN must converge back to the full catalog")
+}
+
+// instance:update ships with no seed migration: the boot-time reconcile
+// upserts the catalog row and ReconcileFull grants it to SUPER_ADMIN. This
+// pins that path, including repair after tampering, so the permission is
+// grantable (and held by SUPER_ADMIN) on both fresh and upgraded installs.
+func TestReconcile_SuperAdminHoldsInstanceUpdate(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	orgID := insertTestOrganization(t, db)
+	require.NoError(t, authz.Reconcile(ctx, db))
+
+	require.Contains(t, orgRolePermissionKeys(t, db, orgID, "SUPER_ADMIN"), authz.PermInstanceUpdate,
+		"reconcile must grant instance:update to SUPER_ADMIN without a seed migration")
+
+	revokeOrgPermission(t, db, orgID, "SUPER_ADMIN", authz.PermInstanceUpdate)
+	require.NoError(t, authz.Reconcile(ctx, db))
+	require.Contains(t, orgRolePermissionKeys(t, db, orgID, "SUPER_ADMIN"), authz.PermInstanceUpdate,
+		"full reconcile must restore instance:update after tampering")
 }
 
 func TestReconcile_ConcurrentRunsConverge(t *testing.T) {

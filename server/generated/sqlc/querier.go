@@ -693,6 +693,9 @@ type Querier interface {
 	GetRackInfo(ctx context.Context, arg GetRackInfoParams) (GetRackInfoRow, error)
 	GetRackInfoBatch(ctx context.Context, arg GetRackInfoBatchParams) ([]GetRackInfoBatchRow, error)
 	GetRackSlots(ctx context.Context, arg GetRackSlotsParams) ([]GetRackSlotsRow, error)
+	// No row means the org has never chosen a channel; the service layer maps
+	// sql.ErrNoRows to the 'stable' default rather than seeding a row here.
+	GetReleaseChannelSetting(ctx context.Context, organizationID int64) (ReleaseChannelSetting, error)
 	GetRoleByID(ctx context.Context, id int64) (Role, error)
 	// Locking counterpart of GetRoleByID. Used by mutations that must serialize
 	// against a concurrent SoftDeleteCustomRole on the same role row:
@@ -1639,6 +1642,7 @@ type Querier interface {
 	// the in-code catalog so catalog text changes propagate without a new
 	// migration.
 	UpsertPermission(ctx context.Context, arg UpsertPermissionParams) (Permission, error)
+	UpsertReleaseChannelSetting(ctx context.Context, arg UpsertReleaseChannelSettingParams) (ReleaseChannelSetting, error)
 }
 
 var _ Querier = (*Queries)(nil)

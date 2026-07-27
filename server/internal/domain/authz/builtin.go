@@ -78,17 +78,19 @@ func BuiltinRoles() []BuiltinRoleSpec {
 	}
 }
 
-// adminSeedPermissions is the formula AllPermissions() − {role:manage}.
-// ADMIN holds user:read for the team roster and user:manage to mutate
-// non-elevated users. role:manage is excluded for two compounding
-// reasons: it can grant arbitrary permissions (so it's the catalog's
-// ultimate authority key), and the privilege-parity check in the auth
-// domain layer (see requireCallerCanManageTarget) uses *org-scope
-// role:manage* as the bypass for peer-tier management — only callers
-// who hold it can mutate a target whose permissions equal their own.
-// Without that gate, ADMIN could create new ADMINs (the target's seed
-// equals the caller's) and walk away with the new account's temp
-// password.
+// adminSeedPermissions is the formula AllPermissions() − {role:manage,
+// instance:update}. ADMIN holds user:read for the team roster and
+// user:manage to mutate non-elevated users. role:manage is excluded
+// for two compounding reasons: it can grant arbitrary permissions (so
+// it's the catalog's ultimate authority key), and the privilege-parity
+// check in the auth domain layer (see requireCallerCanManageTarget)
+// uses *org-scope role:manage* as the bypass for peer-tier management
+// — only callers who hold it can mutate a target whose permissions
+// equal their own. Without that gate, ADMIN could create new ADMINs
+// (the target's seed equals the caller's) and walk away with the new
+// account's temp password. instance:update is excluded because the
+// release channel and server upgrades affect the whole instance, not
+// just the admin's own org, so it stays reserved for SUPER_ADMIN.
 //
 // Computed from the catalog so adding a new permission in catalog.go
 // automatically grows the seed for *new* orgs; seed-formula changes
@@ -97,7 +99,8 @@ func BuiltinRoles() []BuiltinRoleSpec {
 // user:read/user:manage backfill).
 func adminSeedPermissions() []string {
 	excluded := map[string]bool{
-		PermRoleManage: true,
+		PermRoleManage:     true,
+		PermInstanceUpdate: true,
 	}
 	all := AllPermissions()
 	out := make([]string, 0, len(all))

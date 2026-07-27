@@ -2778,6 +2778,18 @@ func (q *retryingQuerier) GetRackSlots(ctx context.Context, arg GetRackSlotsPara
 	return result, err
 }
 
+func (q *retryingQuerier) GetReleaseChannelSetting(ctx context.Context, organizationID int64) (ReleaseChannelSetting, error) {
+	var result ReleaseChannelSetting
+	err := q.retrier.RetryQuery(ctx, "GetReleaseChannelSetting", func() error {
+		callResult, callErr := q.next.GetReleaseChannelSetting(ctx, organizationID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetRoleByID(ctx context.Context, id int64) (Role, error) {
 	var result Role
 	err := q.retrier.RetryQuery(ctx, "GetRoleByID", func() error {
@@ -5542,6 +5554,18 @@ func (q *retryingQuerier) UpsertPermission(ctx context.Context, arg UpsertPermis
 	var result Permission
 	err := q.retrier.RetryQuery(ctx, "UpsertPermission", func() error {
 		callResult, callErr := q.next.UpsertPermission(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) UpsertReleaseChannelSetting(ctx context.Context, arg UpsertReleaseChannelSettingParams) (ReleaseChannelSetting, error) {
+	var result ReleaseChannelSetting
+	err := q.retrier.RetryQuery(ctx, "UpsertReleaseChannelSetting", func() error {
+		callResult, callErr := q.next.UpsertReleaseChannelSetting(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

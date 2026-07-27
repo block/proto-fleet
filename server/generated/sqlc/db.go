@@ -744,6 +744,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getRackSlotsStmt, err = db.PrepareContext(ctx, getRackSlots); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRackSlots: %w", err)
 	}
+	if q.getReleaseChannelSettingStmt, err = db.PrepareContext(ctx, getReleaseChannelSetting); err != nil {
+		return nil, fmt.Errorf("error preparing query GetReleaseChannelSetting: %w", err)
+	}
 	if q.getRoleByIDStmt, err = db.PrepareContext(ctx, getRoleByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRoleByID: %w", err)
 	}
@@ -1547,6 +1550,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.upsertPermissionStmt, err = db.PrepareContext(ctx, upsertPermission); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertPermission: %w", err)
+	}
+	if q.upsertReleaseChannelSettingStmt, err = db.PrepareContext(ctx, upsertReleaseChannelSetting); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertReleaseChannelSetting: %w", err)
 	}
 	return &q, nil
 }
@@ -2751,6 +2757,11 @@ func (q *Queries) Close() error {
 	if q.getRackSlotsStmt != nil {
 		if cerr := q.getRackSlotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRackSlotsStmt: %w", cerr)
+		}
+	}
+	if q.getReleaseChannelSettingStmt != nil {
+		if cerr := q.getReleaseChannelSettingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getReleaseChannelSettingStmt: %w", cerr)
 		}
 	}
 	if q.getRoleByIDStmt != nil {
@@ -4093,6 +4104,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertPermissionStmt: %w", cerr)
 		}
 	}
+	if q.upsertReleaseChannelSettingStmt != nil {
+		if cerr := q.upsertReleaseChannelSettingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertReleaseChannelSettingStmt: %w", cerr)
+		}
+	}
 	return err
 }
 
@@ -4372,6 +4388,7 @@ type Queries struct {
 	getRackInfoStmt                                              *sql.Stmt
 	getRackInfoBatchStmt                                         *sql.Stmt
 	getRackSlotsStmt                                             *sql.Stmt
+	getReleaseChannelSettingStmt                                 *sql.Stmt
 	getRoleByIDStmt                                              *sql.Stmt
 	getRoleByIDForUpdateStmt                                     *sql.Stmt
 	getRunningPowerTargetScheduleOverlapsStmt                    *sql.Stmt
@@ -4640,6 +4657,7 @@ type Queries struct {
 	upsertMQTTSourceStateStmt                                    *sql.Stmt
 	upsertMinerCredentialsStmt                                   *sql.Stmt
 	upsertPermissionStmt                                         *sql.Stmt
+	upsertReleaseChannelSettingStmt                              *sql.Stmt
 }
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
@@ -4886,6 +4904,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRackInfoStmt:                                              q.getRackInfoStmt,
 		getRackInfoBatchStmt:                                         q.getRackInfoBatchStmt,
 		getRackSlotsStmt:                                             q.getRackSlotsStmt,
+		getReleaseChannelSettingStmt:                                 q.getReleaseChannelSettingStmt,
 		getRoleByIDStmt:                                              q.getRoleByIDStmt,
 		getRoleByIDForUpdateStmt:                                     q.getRoleByIDForUpdateStmt,
 		getRunningPowerTargetScheduleOverlapsStmt:                    q.getRunningPowerTargetScheduleOverlapsStmt,
@@ -5154,5 +5173,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertMQTTSourceStateStmt:                                    q.upsertMQTTSourceStateStmt,
 		upsertMinerCredentialsStmt:                                   q.upsertMinerCredentialsStmt,
 		upsertPermissionStmt:                                         q.upsertPermissionStmt,
+		upsertReleaseChannelSettingStmt:                              q.upsertReleaseChannelSettingStmt,
 	}
 }
