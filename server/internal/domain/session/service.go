@@ -80,6 +80,9 @@ func (s *Service) Create(ctx context.Context, userID, orgID int64, userAgent, ip
 func (s *Service) Validate(ctx context.Context, sessionID string) (*Session, error) {
 	session, err := s.store.GetSessionByID(ctx, sessionID)
 	if err != nil {
+		if fleeterror.IsCanceledError(err) {
+			return nil, fleeterror.NewCanceledError()
+		}
 		if s.validationFailureClassifier != nil && s.validationFailureClassifier(err) {
 			slog.ErrorContext(ctx, "failed to validate session lookup", "sessionID", truncateSessionID(sessionID), "error", err)
 			return nil, fleeterror.NewUnavailableErrorf(sessionValidationUnavailableMessage)
@@ -100,6 +103,9 @@ func (s *Service) Validate(ctx context.Context, sessionID string) (*Session, err
 	// Sliding window: extend expiry on activity
 	newExpiry := now.Add(s.cfg.Duration)
 	if err := s.store.UpdateSessionActivity(ctx, sessionID, now, newExpiry); err != nil {
+		if fleeterror.IsCanceledError(err) {
+			return nil, fleeterror.NewCanceledError()
+		}
 		slog.ErrorContext(ctx, "failed to update session activity", "sessionID", truncateSessionID(sessionID), "error", err)
 		if s.validationFailureClassifier != nil && s.validationFailureClassifier(err) {
 			return nil, fleeterror.NewUnavailableErrorf(sessionValidationUnavailableMessage)

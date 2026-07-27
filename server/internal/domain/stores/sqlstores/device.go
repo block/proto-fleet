@@ -1054,7 +1054,7 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 			FirmwareVersionValues:     fp.firmwareVersionValues,
 		})
 		if err != nil {
-			return nil, "", 0, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
+			return nil, "", 0, fleeterror.NewInternalErrorf("failed to get total count: %w", err)
 		}
 	}
 
@@ -1079,7 +1079,7 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 
 	sqlRows, err := s.conn.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %w", err)
 	}
 	defer sqlRows.Close()
 
@@ -1113,13 +1113,13 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 			&row.SortValue,
 		)
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %v", err)
+			return nil, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %w", err)
 		}
 		rows = append(rows, row)
 	}
 
 	if err := sqlRows.Err(); err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %w", err)
 	}
 
 	return rows, nil
@@ -1151,7 +1151,7 @@ func (s *SQLDeviceStore) executeCountQuery(ctx context.Context, orgID int64, fp 
 	query, args := s.buildCountQuerySQL(orgID, fp)
 	var total int64
 	if err := s.conn.QueryRowContext(ctx, query, args...).Scan(&total); err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
+		return 0, fleeterror.NewInternalErrorf("failed to get total count: %w", err)
 	}
 	return total, nil
 }
