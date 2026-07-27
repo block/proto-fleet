@@ -49,8 +49,8 @@ func mapErr(err error) error {
 }
 
 // GetVersion needs only an authenticated session — the auth interceptor
-// guarantees that — because the running version gates client-bundle skew
-// detection for every operator, not just instance:update holders.
+// guarantees that. It returns nothing but the running version, so any
+// signed-in surface can display it without holding instance:update.
 func (h *Handler) GetVersion(_ context.Context, _ *connect.Request[updatesv1.GetVersionRequest]) (*connect.Response[updatesv1.GetVersionResponse], error) {
 	return connect.NewResponse(&updatesv1.GetVersionResponse{
 		CurrentVersion: h.svc.CurrentVersion(),

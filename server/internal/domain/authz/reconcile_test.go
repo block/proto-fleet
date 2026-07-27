@@ -199,10 +199,11 @@ func TestReconcile_SuperAdminTamperingRepaired(t *testing.T) {
 		"SUPER_ADMIN must converge back to the full catalog")
 }
 
-// instance:update ships with no seed migration: the boot-time reconcile
-// upserts the catalog row and ReconcileFull grants it to SUPER_ADMIN. This
-// pins that path, including repair after tampering, so the permission is
-// grantable (and held by SUPER_ADMIN) on both fresh and upgraded installs.
+// instance:update ships with no role-grant seed: migration 000130 seeds only
+// the permission catalog row, and it is the boot-time reconcile that upserts
+// the catalog and grants the permission to SUPER_ADMIN. This pins that path,
+// including repair after tampering, so the permission is grantable (and held
+// by SUPER_ADMIN) on both fresh and upgraded installs.
 func TestReconcile_SuperAdminHoldsInstanceUpdate(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
@@ -210,7 +211,7 @@ func TestReconcile_SuperAdminHoldsInstanceUpdate(t *testing.T) {
 	require.NoError(t, authz.Reconcile(ctx, db))
 
 	require.Contains(t, orgRolePermissionKeys(t, db, orgID, "SUPER_ADMIN"), authz.PermInstanceUpdate,
-		"reconcile must grant instance:update to SUPER_ADMIN without a seed migration")
+		"reconcile must grant instance:update to SUPER_ADMIN without a role-grant seed migration")
 
 	revokeOrgPermission(t, db, orgID, "SUPER_ADMIN", authz.PermInstanceUpdate)
 	require.NoError(t, authz.Reconcile(ctx, db))

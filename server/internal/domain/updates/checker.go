@@ -200,9 +200,12 @@ func (c *Checker) check(ctx context.Context) {
 }
 
 // stableRelease converts the /releases/latest payload, rejecting drafts and
-// tags that are not canonical semver: hand-made tags must never be offered.
+// tags that are not canonical stable semver (vX.Y.Z): hand-made tags must
+// never be offered. GitHub's /releases/latest already excludes releases
+// flagged prerelease, but that flag is set by hand on out-of-band publishes —
+// the tag grammar is the guard here, mirroring latestRC's stance.
 func stableRelease(rel githubRelease) *Release {
-	if rel.Draft || !semver.IsValid(rel.TagName) {
+	if rel.Draft || !semver.IsValid(rel.TagName) || semver.Prerelease(rel.TagName) != "" {
 		return nil
 	}
 	return newRelease(rel)

@@ -221,6 +221,24 @@ func TestCheckCachesBothStableAndRC(t *testing.T) {
 	assert.True(t, snap.LatestRC.Prerelease)
 }
 
+// A prerelease-grammar tag served by /releases/latest — a release published
+// by hand without the prerelease flag — must not become the stable offer;
+// the tag grammar decides, not GitHub's flag.
+func TestMisflaggedPrereleaseTagNeverStableOffer(t *testing.T) {
+	t.Parallel()
+
+	gh := newGHServer(t)
+	gh.setLatest(http.StatusOK, fixture(t, "latest_misflagged_rc.json"))
+	gh.setList(http.StatusOK, fixture(t, "releases.json"))
+	c, _ := newTestChecker(t, gh.config())
+
+	c.check(context.Background())
+
+	snap := c.Snapshot()
+	assert.Nil(t, snap.LatestStable, "a prerelease-suffixed tag must never be the stable offer, whatever GitHub's prerelease flag says")
+	assert.False(t, snap.FetchedAt.IsZero(), "a mis-flagged tag is not a fetch failure; the cycle still succeeds")
+}
+
 // Nightly and hand-made non-semver tags are never selected,
 // on either the stable or the RC side.
 func TestNonSemverTagsNeverSelected(t *testing.T) {

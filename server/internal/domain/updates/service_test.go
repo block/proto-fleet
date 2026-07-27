@@ -3,6 +3,7 @@ package updates
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -23,9 +24,12 @@ type fakeSnapshots struct{ snap Snapshot }
 func (f *fakeSnapshots) Snapshot() Snapshot { return f.snap }
 
 // fakeChannelStore is an in-memory channelSettingQuerier: absent org rows
-// return sql.ErrNoRows exactly like the generated sqlc query.
+// return sql.ErrNoRows exactly like the generated sqlc query. getErr and
+// upsertErr, when set, model a transient database failure.
 type fakeChannelStore struct {
-	channels map[int64]string
+	channels  map[int64]string
+	getErr    error
+	upsertErr error
 }
 
 func newFakeChannelStore() *fakeChannelStore {
@@ -33,6 +37,9 @@ func newFakeChannelStore() *fakeChannelStore {
 }
 
 func (f *fakeChannelStore) GetReleaseChannelSetting(_ context.Context, organizationID int64) (sqlc.ReleaseChannelSetting, error) {
+	if f.getErr != nil {
+		return sqlc.ReleaseChannelSetting{}, f.getErr
+	}
 	channel, ok := f.channels[organizationID]
 	if !ok {
 		return sqlc.ReleaseChannelSetting{}, sql.ErrNoRows
@@ -41,6 +48,9 @@ func (f *fakeChannelStore) GetReleaseChannelSetting(_ context.Context, organizat
 }
 
 func (f *fakeChannelStore) UpsertReleaseChannelSetting(_ context.Context, arg sqlc.UpsertReleaseChannelSettingParams) (sqlc.ReleaseChannelSetting, error) {
+	if f.upsertErr != nil {
+		return sqlc.ReleaseChannelSetting{}, f.upsertErr
+	}
 	f.channels[arg.OrganizationID] = arg.Channel
 	return sqlc.ReleaseChannelSetting{OrganizationID: arg.OrganizationID, Channel: arg.Channel}, nil
 }
@@ -279,6 +289,39 @@ func TestSetReleaseChannelPersists(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 	assert.Equal(t, string(ChannelStableAndRC), store.channels[7], "a rejected channel must not overwrite the stored one")
+}
+
+// A transient store failure must propagate as an error — never read as the
+// stable default, which would silently mask an operator's RC opt-in.
+func TestStatusPropagatesChannelReadError(t *testing.T) {
+	t.Parallel()
+
+	snaps := &fakeSnapshots{snap: Snapshot{
+		LatestStable: rel("v0.2.9"),
+		FetchedAt:    testPublishedAt,
+	}}
+	store := newFakeChannelStore()
+	store.getErr = errors.New("connection reset by peer")
+	svc, _ := newTestService(t, "v0.2.8", snaps, store)
+
+	_, err := svc.GetUpdateStatus(context.Background(), 1)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "get release channel setting")
+}
+
+// A failed upsert must surface to the caller so the client can revert the
+// control instead of showing a channel that was never persisted.
+func TestSetReleaseChannelPropagatesUpsertError(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeChannelStore()
+	store.upsertErr = errors.New("deadlock detected")
+	svc, _ := newTestService(t, "v0.2.8", &fakeSnapshots{}, store)
+
+	err := svc.SetReleaseChannel(context.Background(), 1, ChannelStableAndRC)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "upsert release channel setting")
+	assert.Empty(t, store.channels, "a failed upsert must not appear persisted")
 }
 
 // A candidate that fails semver.IsValid must never
