@@ -16,6 +16,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/updates/v1/updatesv1connect"
 )
 
 // RedactedRequestProcedures lists procedures whose requests contain secrets
@@ -155,6 +156,14 @@ var SessionOnlyProcedures = []string{
 	alertsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure,
 	alertsv1connect.MaintenanceWindowServiceDeleteMaintenanceWindowProcedure,
 	alertsv1connect.HistoryServiceListAlertsProcedure,
+	// The updates surface is session-only across all three procedures —
+	// uniform surface, same rationale as the authz entries above. Update
+	// status and the install command describe the instance's patch level,
+	// SetReleaseChannel changes which builds every operator is offered,
+	// and no API-key automation consumes this service.
+	updatesv1connect.UpdatesServiceGetVersionProcedure,
+	updatesv1connect.UpdatesServiceGetUpdateStatusProcedure,
+	updatesv1connect.UpdatesServiceSetReleaseChannelProcedure,
 }
 
 var UnauthenticatedProcedures = []string{

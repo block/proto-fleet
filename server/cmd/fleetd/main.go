@@ -64,6 +64,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/updates/v1/updatesv1connect"
 	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
 	alertsDomain "github.com/block/proto-fleet/server/internal/domain/alerts"
 	apikeyDomain "github.com/block/proto-fleet/server/internal/domain/apikey"
@@ -95,6 +96,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
+	updatesDomain "github.com/block/proto-fleet/server/internal/domain/updates"
 	activityHandler "github.com/block/proto-fleet/server/internal/handlers/activity"
 	"github.com/block/proto-fleet/server/internal/handlers/alertmanagerwebhook"
 	alertsHandler "github.com/block/proto-fleet/server/internal/handlers/alerts"
@@ -125,6 +127,7 @@ import (
 	sitemapHandler "github.com/block/proto-fleet/server/internal/handlers/sitemap"
 	sitesHandler "github.com/block/proto-fleet/server/internal/handlers/sites"
 	telemetryHandler "github.com/block/proto-fleet/server/internal/handlers/telemetry"
+	updatesHandler "github.com/block/proto-fleet/server/internal/handlers/updates"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/mqttclient"
 	"github.com/block/proto-fleet/server/internal/infrastructure/server"
@@ -171,6 +174,7 @@ var reflectEnabledServices = []string{
 	sitemapv1connect.SiteMapServiceName,
 	curtailmentv1connect.CurtailmentServiceName,
 	device_setv1connect.DeviceSetServiceName,
+	updatesv1connect.UpdatesServiceName,
 }
 
 func start(config *Config) error {
@@ -588,6 +592,18 @@ func start(config *Config) error {
 	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, alertRouteStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
 	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
 
+	// Both updates URLs end up inside a copy-paste upgrade command, so an
+	// http:// base must fail startup (explicit Validate, like Plugins above —
+	// kong only auto-validates flag leaves, not embedded config structs).
+	if err := config.Updates.Validate(); err != nil {
+		return fmt.Errorf("invalid updates configuration: %w", err)
+	}
+	// The checker is constructed even when disabled: the updates service still
+	// answers version/status calls, reading the zero snapshot as "no offer".
+	releaseChecker := updatesDomain.NewChecker(config.Updates, version)
+	updatesSvc := updatesDomain.NewService(config.Updates, version, releaseChecker,
+		db.NewFailoverResettingQuerier(db.NewRetryDB(conn)))
+
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
 		middleware.TelemetryMiddleware{TrustIncomingTraces: config.FleetTelemetry.TrustIncomingTraces},
@@ -681,6 +697,8 @@ func start(config *Config) error {
 	// nav only when the sidecar this feature proxies is actually enabled.
 	mux.HandleFunc("GET /api/v1/alerts/enabled", alertsHandler.NewEnabledHandler(config.Metrics.Enabled))
 
+	mux.Handle(updatesv1connect.NewUpdatesServiceHandler(updatesHandler.NewHandler(updatesSvc), li))
+
 	if config.HTTP.PprofAddr != "" {
 		ln, err := net.Listen("tcp", config.HTTP.PprofAddr)
 		if err != nil {
@@ -733,6 +751,13 @@ func start(config *Config) error {
 		})
 	}
 
+	// nil-when-disabled mirrors systemMonitoring: newRuntimeJobs skips
+	// optional jobs entirely instead of starting a lifecycle that no-ops.
+	var releaseCheckerJob runtimejobs.Lifecycle
+	if !config.Updates.Disabled {
+		releaseCheckerJob = releaseChecker
+	}
+
 	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
 		identityStateCleanup:      identityStateCleanup,
 		commandArtifactCleanup:    commandArtifactCleanup,
@@ -746,6 +771,7 @@ func start(config *Config) error {
 		curtailmentAlertMetrics:   curtailmentAlertMetrics,
 		chunkedUploadCleanup:      chunkedUploadCleanup,
 		systemMonitoring:          systemMonitoring,
+		releaseChecker:            releaseCheckerJob,
 	})
 	if err != nil {
 		return err
