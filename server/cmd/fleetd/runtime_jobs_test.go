@@ -15,6 +15,25 @@ type noopLifecycle struct{}
 func (noopLifecycle) Start(context.Context) error { return nil }
 func (noopLifecycle) Stop(context.Context) error  { return nil }
 
+type funcLifecycle struct {
+	start func(context.Context) error
+	stop  func(context.Context) error
+}
+
+func (l funcLifecycle) Start(ctx context.Context) error {
+	if l.start == nil {
+		return nil
+	}
+	return l.start(ctx)
+}
+
+func (l funcLifecycle) Stop(ctx context.Context) error {
+	if l.stop == nil {
+		return nil
+	}
+	return l.stop(ctx)
+}
+
 type scriptedRuntimeJobGroupStopper struct {
 	stops    []func(context.Context) error
 	contexts []context.Context
@@ -81,6 +100,57 @@ func TestNewRuntimeJobs(t *testing.T) {
 func TestNewRuntimeJobsRejectsMissingRequiredLifecycle(t *testing.T) {
 	_, err := newRuntimeJobs(runtimeJobLifecycles{})
 	require.ErrorContains(t, err, `create runtime job "identity-state-cleanup"`)
+}
+
+func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing.T) {
+	var commandDone <-chan struct{}
+	commandStopped := make(chan struct{})
+	commandExecution := funcLifecycle{
+		start: func(ctx context.Context) error {
+			commandDone = ctx.Done()
+			return nil
+		},
+		stop: func(context.Context) error {
+			close(commandStopped)
+			return nil
+		},
+	}
+	producer := funcLifecycle{stop: func(context.Context) error {
+		select {
+		case <-commandDone:
+			return errors.New("command execution canceled before producer drained")
+		default:
+		}
+		select {
+		case <-commandStopped:
+			return errors.New("command execution stopped before producer drained")
+		default:
+			return nil
+		}
+	}}
+
+	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
+		identityStateCleanup:      noopLifecycle{},
+		commandArtifactCleanup:    noopLifecycle{},
+		diagnosticsErrorCloser:    noopLifecycle{},
+		telemetry:                 noopLifecycle{},
+		ipScanner:                 noopLifecycle{},
+		commandExecution:          commandExecution,
+		scheduleProcessor:         producer,
+		curtailmentReconciler:     noopLifecycle{},
+		curtailmentMQTTSubscriber: noopLifecycle{},
+		chunkedUploadCleanup:      noopLifecycle{},
+	})
+	require.NoError(t, err)
+	group, err := runtimejobs.NewGroup(jobs, time.Second)
+	require.NoError(t, err)
+	require.NoError(t, group.Start(t.Context()))
+	require.NoError(t, group.Stop(t.Context()))
+	select {
+	case <-commandStopped:
+	default:
+		t.Fatal("command execution was not stopped")
+	}
 }
 
 func TestBackgroundLoopCanRestartAfterDraining(t *testing.T) {
