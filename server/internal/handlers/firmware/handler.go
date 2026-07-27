@@ -2,6 +2,7 @@ package firmware
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"strings"
 
 	"connectrpc.com/authn"
@@ -24,6 +26,14 @@ import (
 type uploadResponse struct {
 	FirmwareFileID string `json:"firmware_file_id"`
 	Reused         bool   `json:"reused,omitempty"`
+}
+
+type extractedMultipartUpload struct {
+	filename   string
+	stagedPath string
+	checksum   string
+	metadata   files.FirmwareMetadata
+	force      bool
 }
 
 type checkRequest struct {
@@ -205,25 +215,29 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	const multipartOverhead int64 = 1 * 1024 * 1024 // 1 MB
 	r.Body = http.MaxBytesReader(w, r.Body, h.maxUploadBytes+multipartOverhead)
 
-	filename, fileReader, metadata, force, err := extractMultipartFile(r)
+	upload, err := extractMultipartFile(r, h.filesService.MaxFirmwareFileSize())
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := files.ValidateFirmwareUploadMetadata(metadata); err != nil {
-		_ = r.Body.Close()
+	defer func() { _ = os.Remove(upload.stagedPath) }()
+	if err := files.ValidateFirmwareUploadMetadata(upload.metadata); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	if err := h.filesService.ValidateFirmwareFilename(filename); err != nil {
-		_ = r.Body.Close()
+	if err := h.filesService.ValidateFirmwareFilename(upload.filename); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	defer fileReader.Close()
 
-	saveResult, err := h.filesService.SaveFirmwareUpload(filename, fileReader, metadata, force)
+	saveResult, err := h.filesService.SaveFirmwareUploadFromPath(
+		upload.filename,
+		upload.stagedPath,
+		upload.metadata,
+		upload.force,
+		upload.checksum,
+	)
 	if err != nil {
 		if isClientError(err) {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -234,8 +248,8 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("firmware file uploaded successfully", "file_id", saveResult.FirmwareFileID, "filename", filename, "reused", saveResult.Reused)
-	logFirmwareUploadActivity(ctx, h.activitySvc, filename, saveResult)
+	slog.Info("firmware file uploaded successfully", "file_id", saveResult.FirmwareFileID, "filename", upload.filename, "reused", saveResult.Reused)
+	logFirmwareUploadActivity(ctx, h.activitySvc, upload.filename, saveResult)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -244,25 +258,34 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// extractMultipartFile streams the multipart body to find the "file" part
-// without buffering the entire body in memory or spilling to temp files.
-func extractMultipartFile(r *http.Request) (filename string, reader io.ReadCloser, metadata files.FirmwareMetadata, force bool, err error) {
+// extractMultipartFile stages the file while reading the complete multipart
+// body, so metadata fields are accepted regardless of whether they appear
+// before or after the file part.
+func extractMultipartFile(r *http.Request, maxFileBytes int64) (extractedMultipartUpload, error) {
+	var upload extractedMultipartUpload
 	contentType := r.Header.Get("Content-Type")
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil || !strings.HasPrefix(mediaType, "multipart/") {
-		return "", nil, files.FirmwareMetadata{}, false, fmt.Errorf("expected multipart/form-data content type")
+		return extractedMultipartUpload{}, fmt.Errorf("expected multipart/form-data content type")
 	}
 
 	boundary := params["boundary"]
 	if boundary == "" {
-		return "", nil, files.FirmwareMetadata{}, false, fmt.Errorf("missing multipart boundary")
+		return extractedMultipartUpload{}, fmt.Errorf("missing multipart boundary")
 	}
+
+	completed := false
+	defer func() {
+		if !completed && upload.stagedPath != "" {
+			_ = os.Remove(upload.stagedPath)
+		}
+	}()
 
 	mr := multipart.NewReader(r.Body, boundary)
 	metadataFields := map[string]*string{
-		"target_manufacturer": &metadata.TargetManufacturer,
-		"target_model":        &metadata.TargetModel,
-		"firmware_version":    &metadata.FirmwareVersion,
+		"target_manufacturer": &upload.metadata.TargetManufacturer,
+		"target_model":        &upload.metadata.TargetModel,
+		"firmware_version":    &upload.metadata.FirmwareVersion,
 	}
 	for {
 		part, err := mr.NextPart()
@@ -270,31 +293,59 @@ func extractMultipartFile(r *http.Request) (filename string, reader io.ReadClose
 			break
 		}
 		if err != nil {
-			return "", nil, files.FirmwareMetadata{}, false, fmt.Errorf("failed to read multipart form: %w", err)
+			return extractedMultipartUpload{}, fmt.Errorf("failed to read multipart form: %w", err)
 		}
 
 		name := part.FormName()
 		switch {
 		case name == "file":
-			return part.FileName(), part, metadata, force, nil
+			if upload.stagedPath != "" {
+				_ = part.Close()
+				return extractedMultipartUpload{}, fmt.Errorf("multiple 'file' fields are not supported")
+			}
+			upload.filename = part.FileName()
+			tempFile, createErr := os.CreateTemp(files.StagingDir(), "multipart-*")
+			if createErr != nil {
+				_ = part.Close()
+				return extractedMultipartUpload{}, fmt.Errorf("failed to stage firmware file: %w", createErr)
+			}
+			upload.stagedPath = tempFile.Name()
+			hasher := sha256.New()
+			written, copyErr := io.Copy(io.MultiWriter(tempFile, hasher), io.LimitReader(part, maxFileBytes+1))
+			closeErr := tempFile.Close()
+			_ = part.Close()
+			if copyErr != nil {
+				return extractedMultipartUpload{}, fmt.Errorf("failed to read firmware file: %w", copyErr)
+			}
+			if closeErr != nil {
+				return extractedMultipartUpload{}, fmt.Errorf("failed to close staged firmware file: %w", closeErr)
+			}
+			if written > maxFileBytes {
+				return extractedMultipartUpload{}, fmt.Errorf("firmware file too large: exceeded %d byte limit during upload", maxFileBytes)
+			}
+			upload.checksum = hex.EncodeToString(hasher.Sum(nil))
 		case metadataFields[name] != nil:
 			value, readErr := readPartValue(part, 1024, name)
 			if readErr != nil {
-				return "", nil, files.FirmwareMetadata{}, false, readErr
+				return extractedMultipartUpload{}, readErr
 			}
 			*metadataFields[name] = value
 		case name == "force":
 			value, readErr := readPartValue(part, 16, name)
 			if readErr != nil {
-				return "", nil, files.FirmwareMetadata{}, false, readErr
+				return extractedMultipartUpload{}, readErr
 			}
 			value = strings.TrimSpace(value)
-			force = strings.EqualFold(value, "true") || value == "1"
+			upload.force = strings.EqualFold(value, "true") || value == "1"
 		default:
 			part.Close()
 		}
 	}
-	return "", nil, files.FirmwareMetadata{}, false, fmt.Errorf("missing 'file' field in multipart form")
+	if upload.stagedPath == "" {
+		return extractedMultipartUpload{}, fmt.Errorf("missing 'file' field in multipart form")
+	}
+	completed = true
+	return upload, nil
 }
 
 // readPartValue reads a small text form field up to limit bytes and closes the part.

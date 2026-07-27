@@ -178,6 +178,28 @@ func createMultipartRequest(t *testing.T, filename string, content []byte, cooki
 	return req
 }
 
+func createFileFirstMultipartRequest(t *testing.T, filename string, content []byte, cookie *http.Cookie) *http.Request {
+	t.Helper()
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("file", filename)
+	require.NoError(t, err)
+	_, err = part.Write(content)
+	require.NoError(t, err)
+	require.NoError(t, writer.WriteField("target_manufacturer", "Proto"))
+	require.NoError(t, writer.WriteField("target_model", "Rig"))
+	require.NoError(t, writer.WriteField("firmware_version", "v2.0.0"))
+	require.NoError(t, writer.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	if cookie != nil {
+		req.AddCookie(cookie)
+	}
+	return req
+}
+
 func createMultipartRequestWithFields(
 	t *testing.T,
 	filename string,
@@ -348,6 +370,26 @@ func TestUploadHandler_SuccessfulUpload(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Contains(t, rr.Body.String(), "firmware_file_id")
 	assert.Contains(t, rr.Header().Get("Content-Type"), "application/json")
+}
+
+func TestUploadHandler_AcceptsMetadataAfterFile(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	req := createFileFirstMultipartRequest(t, "firmware-v2.0.swu", []byte("file-first firmware"), validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	env.uploadHandler().ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	stored, err := env.fileSvc.ListFirmwareFiles()
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+	assert.Equal(t, "Proto", stored[0].TargetManufacturer)
+	assert.Equal(t, "Rig", stored[0].TargetModel)
+	assert.Equal(t, "v2.0.0", stored[0].FirmwareVersion)
+	stagingEntries, err := os.ReadDir(files.StagingDir())
+	require.NoError(t, err)
+	assert.Empty(t, stagingEntries)
 }
 
 func TestUploadHandler_LogsNewFirmwareActivity(t *testing.T) {
