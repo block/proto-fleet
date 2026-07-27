@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { fetchAllSelectableMinerIds } from "./fetchAllSelectableMinerIds";
 import ManageMinersModal from "./ManageMinersModal";
 import MinersPane from "./MinersPane";
 import RackPane from "./RackPane";
@@ -8,12 +9,10 @@ import ScanMinerQrModal, { type ScanAssignmentResult } from "./ScanMinerQrModal"
 import SearchMinersModal from "./SearchMinersModal";
 import { type AssignmentMode, orderIndexToOrigin, originLabel, type RackFormData, type SelectedSlot } from "./types";
 import { useRackMinerScope } from "./useRackMinerScope";
-import { fetchAllMinerSnapshots } from "@/protoFleet/api/fetchAllMinerSnapshots";
 import { type DeviceSet, type RackSlot } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import {
   type MinerListFilter,
   type MinerStateSnapshot,
-  PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
@@ -21,7 +20,6 @@ import useFleet from "@/protoFleet/api/useFleet";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import type { MinerEligibility } from "@/protoFleet/components/MinerSelectionList";
 import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
-import { isMinerSnapshotIneligible } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import { slotNumberToRowCol } from "@/protoFleet/features/fleetManagement/utils/slotNumbering";
 import { useHasPermission } from "@/protoFleet/store";
 
@@ -31,24 +29,6 @@ import Callout from "@/shared/components/Callout";
 import Dialog from "@/shared/components/Dialog";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
-
-/** Fetch all miner IDs eligible for a rack by paginating through the fleet API.
- *  Applies the same filter the user had active in MinerSelectionList so "select all"
- *  respects model/subnet filters. Miners in a different rack/building/site are
- *  excluded id-based (matches the list's eligibility predicate) so "select all"
- *  can't pull in ineligible miners even if the assignable-only toggle was off. */
-async function fetchAllSelectableMinerIds(
-  eligibility: MinerEligibility,
-  listFilter?: MinerListFilter,
-): Promise<string[]> {
-  const filter = listFilter
-    ? { ...listFilter, pairingStatuses: [PairingStatus.PAIRED] }
-    : { pairingStatuses: [PairingStatus.PAIRED] };
-  const snapshots = await fetchAllMinerSnapshots(filter);
-  return Object.values(snapshots)
-    .filter((m) => !isMinerSnapshotIneligible(m, eligibility))
-    .map((m) => m.deviceIdentifier);
-}
 
 /** Remove the first entry whose value matches `target` from a record, returning a shallow copy. */
 function removeAssignmentByValue(record: Record<string, string>, target: string): Record<string, string> {

@@ -6,6 +6,7 @@ import MinerSelectionList, {
   type MinerSelectionListHandle,
 } from "@/protoFleet/components/MinerSelectionList";
 import type { SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
+import { FLEET_VISIBLE_PAIRING_STATUSES } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 
 import { Alert } from "@/shared/assets/icons";
 import Callout from "@/shared/components/Callout";
@@ -125,6 +126,7 @@ export default function ManageMinersModal({
           initialSelectedItems={currentRackMiners}
           eligibility={eligibility}
           targetRackLabel={targetRackLabel}
+          pairingStatuses={FLEET_VISIBLE_PAIRING_STATUSES}
         />
       </div>
     </Modal>
