@@ -965,8 +965,9 @@ type Querier interface {
 	// Returns only phase-valid `dispatched` targets backed by a current live
 	// device in the event organization. The bulk promotion below repeats that
 	// ownership check at commit time; this read is eligibility evidence, not
-	// durable write authority.
-	ListEligibleConfirmationTargets(ctx context.Context) ([]ListEligibleConfirmationTargetsRow, error)
+	// durable write authority. The page size is the shared confirmation batch
+	// bound supplied by the SQL store.
+	ListEligibleConfirmationTargets(ctx context.Context, pageSize int32) ([]ListEligibleConfirmationTargetsRow, error)
 	ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]ListEnabledCurtailmentAutomationRulesByMQTTSourceRow, error)
 	// Enabled MQTT sources for subscriber reconciliation.
 	ListEnabledMQTTSources(ctx context.Context) ([]CurtailmentMqttSourceConfig, error)

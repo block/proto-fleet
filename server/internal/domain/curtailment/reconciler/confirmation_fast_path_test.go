@@ -231,6 +231,7 @@ func phaseBatchUUIDForTest(row *models.Target) *string {
 type fakeSampler struct {
 	mu      sync.Mutex
 	results map[string]telemetry.SampleResult
+	omitted map[string]bool
 	calls   [][]telemetry.SampleRequest
 	// panics makes the next N calls panic, exercising pass panic recovery.
 	panics int
@@ -241,13 +242,22 @@ type fakeSampler struct {
 }
 
 func newFakeSampler() *fakeSampler {
-	return &fakeSampler{results: map[string]telemetry.SampleResult{}}
+	return &fakeSampler{
+		results: map[string]telemetry.SampleResult{},
+		omitted: map[string]bool{},
+	}
 }
 
 func (s *fakeSampler) setResult(device string, res telemetry.SampleResult) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.results[device] = res
+}
+
+func (s *fakeSampler) omitResult(device string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.omitted[device] = true
 }
 
 func (s *fakeSampler) callCount() int {
@@ -283,6 +293,9 @@ func (s *fakeSampler) buildSampleResults(requests []telemetry.SampleRequest) ([]
 			continue
 		}
 		seen[device] = true
+		if s.omitted[device] {
+			continue
+		}
 		if res, ok := s.results[device]; ok {
 			res.OrgID = req.OrgID
 			out = append(out, res)
@@ -574,6 +587,7 @@ func TestConfirmationPass_UnpairedAllPairedPolicyRestoreResolves(t *testing.T) {
 func TestConfirmationPass_SampleErrorSkipsDeviceButConfirmsSiblings(t *testing.T) {
 	store := newConfirmationFakeStore()
 	sampler := newFakeSampler()
+	metrics := newRecordingMetrics()
 	dispatchedAt := fastPathTestNow.Add(-10 * time.Second)
 	bad := seedDispatchedWork(store, 10, "miner-bad", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
 	good := seedDispatchedWork(store, 10, "miner-good", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
@@ -581,13 +595,64 @@ func TestConfirmationPass_SampleErrorSkipsDeviceButConfirmsSiblings(t *testing.T
 	// miner-bad has no fixture result → per-device error; miner-good confirms.
 	sampler.setResult("miner-good", confirmationSample("miner-good", 100, fastPathTestNow.Add(time.Second)))
 
-	r := newFastPathReconcilerForTest(store, sampler, nil)
+	r := newFastPathReconcilerForTest(store, sampler, metrics)
 	parked, failed := r.confirmationPass(context.Background())
 
 	assert.False(t, parked)
-	assert.False(t, failed, "per-device sample errors are not pass failures")
+	assert.False(t, failed, "one of two sample errors is not a strict majority")
 	assert.Equal(t, models.TargetStateDispatched, store.targetState(10, "miner-bad"))
 	assert.Equal(t, models.TargetStateConfirmed, store.targetState(10, "miner-good"))
+	assert.Equal(t, 0, metrics.ConfirmationPassFailureCount())
+}
+
+func TestConfirmationPass_MajoritySampleErrorsFailPassButConfirmSibling(t *testing.T) {
+	store := newConfirmationFakeStore()
+	sampler := newFakeSampler()
+	metrics := newRecordingMetrics()
+	dispatchedAt := fastPathTestNow.Add(-10 * time.Second)
+	badA := seedDispatchedWork(store, 10, "miner-bad-a", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
+	badB := seedDispatchedWork(store, 10, "miner-bad-b", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
+	good := seedDispatchedWork(store, 10, "miner-good", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
+	store.setItems(badA, badB, good)
+	sampler.setResult("miner-good", confirmationSample("miner-good", 100, fastPathTestNow.Add(time.Second)))
+
+	r := newFastPathReconcilerForTest(store, sampler, metrics)
+	parked, failed := r.confirmationPass(context.Background())
+
+	assert.False(t, parked)
+	assert.True(t, failed, "two of three sample errors must trigger loop backoff")
+	assert.Equal(t, models.TargetStateDispatched, store.targetState(10, "miner-bad-a"))
+	assert.Equal(t, models.TargetStateDispatched, store.targetState(10, "miner-bad-b"))
+	assert.Equal(t, models.TargetStateConfirmed, store.targetState(10, "miner-good"),
+		"successful siblings must still promote during a failed pass")
+	assert.Equal(t, 1, metrics.ConfirmationPassFailureCount(),
+		"a failed pass increments the pass-failure metric once")
+}
+
+func TestConfirmationPass_MajorityOmittedResultsFailPassButConfirmSibling(t *testing.T) {
+	store := newConfirmationFakeStore()
+	sampler := newFakeSampler()
+	metrics := newRecordingMetrics()
+	dispatchedAt := fastPathTestNow.Add(-10 * time.Second)
+	omittedA := seedDispatchedWork(store, 10, "miner-omitted-a", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
+	omittedB := seedDispatchedWork(store, 10, "miner-omitted-b", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
+	good := seedDispatchedWork(store, 10, "miner-good", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
+	store.setItems(omittedA, omittedB, good)
+	sampler.omitResult("miner-omitted-a")
+	sampler.omitResult("miner-omitted-b")
+	sampler.setResult("miner-good", confirmationSample("miner-good", 100, fastPathTestNow.Add(time.Second)))
+
+	r := newFastPathReconcilerForTest(store, sampler, metrics)
+	parked, failed := r.confirmationPass(context.Background())
+
+	assert.False(t, parked)
+	assert.True(t, failed, "two of three omitted results must trigger loop backoff")
+	assert.Equal(t, models.TargetStateDispatched, store.targetState(10, "miner-omitted-a"))
+	assert.Equal(t, models.TargetStateDispatched, store.targetState(10, "miner-omitted-b"))
+	assert.Equal(t, models.TargetStateConfirmed, store.targetState(10, "miner-good"),
+		"successful siblings must still promote during a failed pass")
+	assert.Equal(t, 1, metrics.ConfirmationPassFailureCount(),
+		"a failed pass increments the pass-failure metric once")
 }
 
 func TestConfirmationPass_ChunksFleetWaveIntoBoundedEventWrites(t *testing.T) {
@@ -643,25 +708,31 @@ func TestConfirmationPass_StaleBatchUUIDRaceLoses(t *testing.T) {
 		"stale-batch confirmation must lose to the redispatched row")
 	assert.Equal(t, 1, metrics.EventStateRaceLossCount())
 	assert.Equal(t, 0, metrics.TargetWriteFailureCount(), "race loss is not a write failure")
+	assert.Equal(t, 0, metrics.ConfirmationPassFailureCount(), "race loss must not trigger backoff")
 }
 
-func TestConfirmationPass_WriteFailureCountsAndSkips(t *testing.T) {
+func TestConfirmationPass_BulkWriteFailuresFailPassOnceForBackoff(t *testing.T) {
 	store := newConfirmationFakeStore()
 	sampler := newFakeSampler()
 	metrics := newRecordingMetrics()
 	dispatchedAt := fastPathTestNow.Add(-10 * time.Second)
-	item := seedDispatchedWork(store, 10, "miner-1", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
-	store.setItems(item)
+	first := seedDispatchedWork(store, 10, "miner-1", models.DesiredStateCurtailed, "batch-a", dispatchedAt)
+	second := seedDispatchedWork(store, 20, "miner-2", models.DesiredStateCurtailed, "batch-b", dispatchedAt)
+	store.setItems(first, second)
 	sampler.setResult("miner-1", confirmationSample("miner-1", 100, fastPathTestNow.Add(time.Second)))
+	sampler.setResult("miner-2", confirmationSample("miner-2", 100, fastPathTestNow.Add(time.Second)))
 	store.updateTargetStateErr = errors.New("injected write failure")
 
 	r := newFastPathReconcilerForTest(store, sampler, metrics)
 	parked, failed := r.confirmationPass(context.Background())
 
 	assert.False(t, parked)
-	assert.False(t, failed, "a single failed write does not fail the pass")
+	assert.True(t, failed, "any failed bulk-write chunk must trigger loop backoff")
 	assert.Equal(t, models.TargetStateDispatched, store.targetState(10, "miner-1"))
-	assert.Equal(t, 1, metrics.TargetWriteFailureCount())
+	assert.Equal(t, models.TargetStateDispatched, store.targetState(20, "miner-2"))
+	assert.Equal(t, 2, metrics.TargetWriteFailureCount(), "each failed chunk retains its write-failure signal")
+	assert.Equal(t, 1, metrics.ConfirmationPassFailureCount(),
+		"multiple failed chunks still increment the pass-failure metric once")
 	assert.Equal(t, 0, metrics.EventStateRaceLossCount())
 }
 

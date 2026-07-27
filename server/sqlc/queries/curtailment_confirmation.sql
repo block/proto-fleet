@@ -5,7 +5,8 @@
 -- Returns only phase-valid `dispatched` targets backed by a current live
 -- device in the event organization. The bulk promotion below repeats that
 -- ownership check at commit time; this read is eligibility evidence, not
--- durable write authority.
+-- durable write authority. The page size is the shared confirmation batch
+-- bound supplied by the SQL store.
 SELECT
     ce.id                              AS event_id,
     ce.event_uuid                      AS event_uuid,
@@ -37,7 +38,8 @@ WHERE ct.state = 'dispatched'
             AND ct.restore_dispatched_at IS NOT NULL
             AND ct.restore_batch_uuid IS NOT NULL)
       )
-ORDER BY ce.id, ct.device_identifier;
+ORDER BY ce.id, ct.device_identifier
+LIMIT sqlc.arg('page_size')::int;
 
 -- name: BulkConfirmCurtailmentTargets :one
 -- Applies positive confirmation updates for one event in one statement.

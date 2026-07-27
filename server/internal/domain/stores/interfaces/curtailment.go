@@ -79,6 +79,11 @@ type AllPairedReadinessUpdate struct {
 	BaselinePowerW   *float64
 }
 
+// ConfirmationBatchSize bounds both one fast-path eligibility page and each
+// guarded bulk write so a single pulse cannot monopolize sampler or DB
+// capacity.
+const ConfirmationBatchSize = 500
+
 // ConfirmationUpdate is one positive fast-path promotion submitted to the
 // guarded bulk confirmation write. The store revalidates event phase, target
 // state/direction/batch, and live device ownership before applying it.
@@ -423,8 +428,9 @@ type CurtailmentStore interface {
 	// targets the confirmation fast path may promote, across all orgs: curtail
 	// work under pending/active events (desired_state='curtailed') and restore
 	// work under restoring events (desired_state='active'), each with a durable
-	// phase dispatch timestamp and batch UUID. Reconciler-only — MUST NOT be
-	// exposed through any RPC handler.
+	// phase dispatch timestamp and batch UUID. Returns at most
+	// ConfirmationBatchSize rows. Reconciler-only — MUST NOT be exposed
+	// through any RPC handler.
 	ListEligibleConfirmationTargets(ctx context.Context) ([]models.ConfirmationTarget, error)
 
 	// UpdateEventState transitions an event row from expectedState. Nil

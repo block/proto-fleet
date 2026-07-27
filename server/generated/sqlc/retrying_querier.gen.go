@@ -3594,10 +3594,10 @@ func (q *retryingQuerier) ListEffectivePermissionsForUserForUpdate(ctx context.C
 	return result, err
 }
 
-func (q *retryingQuerier) ListEligibleConfirmationTargets(ctx context.Context) ([]ListEligibleConfirmationTargetsRow, error) {
+func (q *retryingQuerier) ListEligibleConfirmationTargets(ctx context.Context, pageSize int32) ([]ListEligibleConfirmationTargetsRow, error) {
 	var result []ListEligibleConfirmationTargetsRow
 	err := q.retrier.RetryQuery(ctx, "ListEligibleConfirmationTargets", func() error {
-		callResult, callErr := q.next.ListEligibleConfirmationTargets(ctx)
+		callResult, callErr := q.next.ListEligibleConfirmationTargets(ctx, pageSize)
 		if callErr == nil {
 			result = callResult
 		}

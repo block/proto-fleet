@@ -40,7 +40,7 @@ const (
 	// work exists. Internal constant, not config (KTD8).
 	confirmationPulseInterval = 3 * time.Second
 	// confirmationBackoffMax caps the exponential backoff applied when a
-	// pass fails (eligibility read error or panic).
+	// pass fails (read, widespread sampling, write, timeout, or panic).
 	confirmationBackoffMax = 30 * time.Second
 	// confirmationPassTimeout bounds the sampling half of one pass: the
 	// eligibility read plus batch sampling. Guarded writes run under a
@@ -54,7 +54,6 @@ const (
 	// updates already scoped by the eligibility read.
 	confirmationWriteTimeout  = 10 * time.Second
 	confirmationLogSampleSize = 5
-	confirmationBulkChunkSize = 500
 )
 
 // ConfirmationSampler is the narrow read-only telemetry seam the pulse
@@ -143,13 +142,18 @@ func (r *Reconciler) safeConfirmationPass(ctx context.Context) (parked, failed b
 // post-dispatch sample proves the desired state. Returns parked=true when no
 // eligible work exists.
 func (r *Reconciler) confirmationPass(ctx context.Context) (parked, failed bool) {
+	defer func() {
+		if failed && ctx.Err() == nil {
+			r.metrics.IncConfirmationPassFailure()
+		}
+	}()
+
 	passCtx, cancel := context.WithTimeout(ctx, r.confirmationPassTimeout)
 	defer cancel()
 
 	items, err := r.store.ListEligibleConfirmationTargets(passCtx)
 	if err != nil {
 		if ctx.Err() == nil {
-			r.metrics.IncConfirmationPassFailure()
 			slog.Error("curtailment confirmation fast path: eligibility read failed", "error", err)
 		}
 		return false, true
@@ -167,8 +171,15 @@ func (r *Reconciler) confirmationPass(ctx context.Context) (parked, failed bool)
 	// One request per item; the sampler deduplicates device IDs keeping the
 	// organization boundary. A device targeted by multiple rows in one org is
 	// still read once.
+	type sampleKey struct {
+		orgID  int64
+		device string
+	}
 	requests := make([]telemetry.SampleRequest, 0, len(items))
+	expectedSamples := make(map[sampleKey]struct{}, len(items))
 	for _, item := range items {
+		key := sampleKey{orgID: item.OrgID, device: item.DeviceIdentifier}
+		expectedSamples[key] = struct{}{}
 		requests = append(requests, telemetry.SampleRequest{
 			DeviceID:     telemetryModels.DeviceIdentifier(item.DeviceIdentifier),
 			OrgID:        item.OrgID,
@@ -176,17 +187,24 @@ func (r *Reconciler) confirmationPass(ctx context.Context) (parked, failed bool)
 		})
 	}
 	results := r.sampler.SampleDeviceMetrics(passCtx, requests)
-	type sampleKey struct {
-		orgID  int64
-		device string
-	}
 	samplesByDevice := make(map[sampleKey]telemetry.SampleResult, len(results))
 	sampleFailures := 0
+	sampleOmissions := 0
 	reusedSamples := 0
 	joinedSamples := 0
 	directSamples := 0
 	for _, res := range results {
-		samplesByDevice[sampleKey{orgID: res.OrgID, device: string(res.DeviceID)}] = res
+		key := sampleKey{orgID: res.OrgID, device: string(res.DeviceID)}
+		if _, expected := expectedSamples[key]; expected {
+			samplesByDevice[key] = res
+		}
+	}
+	for key := range expectedSamples {
+		res, ok := samplesByDevice[key]
+		if !ok {
+			sampleOmissions++
+			continue
+		}
 		if res.Err != nil {
 			sampleFailures++
 			continue
@@ -209,6 +227,7 @@ func (r *Reconciler) confirmationPass(ctx context.Context) (parked, failed bool)
 	// timed-out sampling still reports failed=true so the unsampled remainder
 	// backs off.
 	sampledTimedOut := passCtx.Err() != nil
+	passFailed := sampledTimedOut || sampleOmissions > len(expectedSamples)/2
 	writeCtx, cancelWrite := context.WithTimeout(ctx, confirmationWriteTimeout)
 	defer cancelWrite()
 
@@ -219,11 +238,16 @@ func (r *Reconciler) confirmationPass(ctx context.Context) (parked, failed bool)
 	updatesByEvent := make(map[int64]*eventUpdates)
 	eventOrder := make([]int64, 0)
 	positiveCount := 0
+	failedSampleRows := 0
 	for _, item := range items {
 		sample, ok := samplesByDevice[sampleKey{orgID: item.OrgID, device: item.DeviceIdentifier}]
-		if !ok || sample.Err != nil {
+		if !ok {
+			continue
+		}
+		if sample.Err != nil {
 			// Per-device sampling failure: preserved siblings still confirm;
 			// this row waits for the next pulse or the full tick.
+			failedSampleRows++
 			continue
 		}
 		update, ok := r.confirmationUpdateFromSample(item, sample, sampledAfter)
@@ -239,6 +263,7 @@ func (r *Reconciler) confirmationPass(ctx context.Context) (parked, failed bool)
 		group.updates = append(group.updates, update)
 		positiveCount++
 	}
+	passFailed = passFailed || failedSampleRows > len(items)/2
 
 	appliedCount := 0
 	raceLossCount := 0
@@ -247,14 +272,15 @@ func (r *Reconciler) confirmationPass(ctx context.Context) (parked, failed bool)
 	sampleDeviceIDs := make([]string, 0, confirmationLogSampleSize)
 	for _, eventID := range eventOrder {
 		group := updatesByEvent[eventID]
-		for start := 0; start < len(group.updates); start += confirmationBulkChunkSize {
+		for start := 0; start < len(group.updates); start += interfaces.ConfirmationBatchSize {
 			if writeCtx.Err() != nil {
 				return false, true
 			}
-			end := min(start+confirmationBulkChunkSize, len(group.updates))
+			end := min(start+interfaces.ConfirmationBatchSize, len(group.updates))
 			chunk := group.updates[start:end]
 			result, err := r.confirmationStore.BulkConfirmTargets(writeCtx, eventID, group.eventState, chunk)
 			if err != nil {
+				passFailed = true
 				writeFailureCount += len(chunk)
 				r.metrics.IncTargetWriteFailure()
 				if firstWriteError == nil {
@@ -278,6 +304,8 @@ func (r *Reconciler) confirmationPass(ctx context.Context) (parked, failed bool)
 	logAttrs := []any{
 		"eligible_count", len(items),
 		"sample_failure_count", sampleFailures,
+		"sample_failure_row_count", failedSampleRows,
+		"sample_omission_count", sampleOmissions,
 		"reused_sample_count", reusedSamples,
 		"joined_sample_count", joinedSamples,
 		"direct_sample_count", directSamples,
@@ -291,12 +319,12 @@ func (r *Reconciler) confirmationPass(ctx context.Context) (parked, failed bool)
 	case writeFailureCount > 0:
 		slog.Error("curtailment confirmation fast path: pass completed",
 			append(logAttrs, "first_write_error", firstWriteError)...)
-	case appliedCount > 1 || raceLossCount > 0 || sampleFailures > 0:
+	case appliedCount > 1 || raceLossCount > 0 || sampleFailures > 0 || sampleOmissions > 0:
 		slog.Info("curtailment confirmation fast path: pass completed", logAttrs...)
 	case appliedCount == 1:
 		slog.Debug("curtailment confirmation fast path: pass completed", logAttrs...)
 	}
-	return false, sampledTimedOut
+	return false, passFailed
 }
 
 // confirmationUpdateFromSample builds one guarded promotion payload when the

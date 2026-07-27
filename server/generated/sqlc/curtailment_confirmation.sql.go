@@ -157,6 +157,7 @@ WHERE ct.state = 'dispatched'
             AND ct.restore_batch_uuid IS NOT NULL)
       )
 ORDER BY ce.id, ct.device_identifier
+LIMIT $1::int
 `
 
 type ListEligibleConfirmationTargetsRow struct {
@@ -178,9 +179,10 @@ type ListEligibleConfirmationTargetsRow struct {
 // Returns only phase-valid `dispatched` targets backed by a current live
 // device in the event organization. The bulk promotion below repeats that
 // ownership check at commit time; this read is eligibility evidence, not
-// durable write authority.
-func (q *Queries) ListEligibleConfirmationTargets(ctx context.Context) ([]ListEligibleConfirmationTargetsRow, error) {
-	rows, err := q.query(ctx, q.listEligibleConfirmationTargetsStmt, listEligibleConfirmationTargets)
+// durable write authority. The page size is the shared confirmation batch
+// bound supplied by the SQL store.
+func (q *Queries) ListEligibleConfirmationTargets(ctx context.Context, pageSize int32) ([]ListEligibleConfirmationTargetsRow, error) {
+	rows, err := q.query(ctx, q.listEligibleConfirmationTargetsStmt, listEligibleConfirmationTargets, pageSize)
 	if err != nil {
 		return nil, err
 	}

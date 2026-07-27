@@ -1942,7 +1942,7 @@ func (s *SQLCurtailmentStore) ListNonTerminalEvents(ctx context.Context) ([]*mod
 }
 
 func (s *SQLCurtailmentStore) ListEligibleConfirmationTargets(ctx context.Context) ([]models.ConfirmationTarget, error) {
-	rows, err := s.GetQueries(ctx).ListEligibleConfirmationTargets(ctx)
+	rows, err := s.GetQueries(ctx).ListEligibleConfirmationTargets(ctx, interfaces.ConfirmationBatchSize)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list eligible confirmation targets: %v", err)
 	}
