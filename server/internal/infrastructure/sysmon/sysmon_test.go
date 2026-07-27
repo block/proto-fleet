@@ -123,6 +123,10 @@ func TestHungDiskReadBlocksOnlyTheDiskProbe(t *testing.T) {
 	// Act
 	collector.collectOnce(context.Background())
 	require.Eventually(t, func() bool { return diskReads.Load() == 1 }, time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool {
+		cpu, mem, _ := emitter.gauges()
+		return len(cpu) == 1 && len(mem) == 1 && !collector.cpuBusy.Load() && !collector.memBusy.Load()
+	}, time.Second, 5*time.Millisecond)
 	collector.collectOnce(context.Background())
 
 	// Assert
@@ -164,6 +168,39 @@ func TestRunEmitsImmediatelyAndStopsOnCancel(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Run did not return after context cancellation")
 	}
+}
+
+func TestRunDoesNotWaitForInFlightProbes(t *testing.T) {
+	emitter := &fakeEmitter{}
+	collector := New(Config{Interval: time.Hour, DiskPath: "/"}, emitter)
+	probeStarted := make(chan struct{})
+	releaseProbe := make(chan struct{})
+	collector.readCPU = func(context.Context) *float64 { return nil }
+	collector.readMem = func(context.Context) *float64 { return nil }
+	collector.readDisk = func(context.Context, string) *float64 {
+		close(probeStarted)
+		<-releaseProbe
+		return nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		collector.Run(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-probeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("disk probe did not start")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("Run waited for an in-flight probe after cancellation")
+	}
+	close(releaseProbe)
 }
 
 func TestNewClampsIntervalToAllowedRange(t *testing.T) {
