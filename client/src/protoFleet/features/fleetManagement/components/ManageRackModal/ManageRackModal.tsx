@@ -740,31 +740,61 @@ export default function ManageRackModal({
         });
       }
 
-      await new Promise<void>((resolve, reject) => {
-        saveRack({
-          deviceSetId: existingRackId,
-          label: meta.label,
-          zone: meta.zone,
-          rows: meta.rows,
-          columns: meta.columns,
-          orderIndex: meta.orderIndex,
-          coolingType: meta.coolingType,
-          deviceIdentifiers: rackMiners,
-          slotAssignments: slotAssignmentsList,
-          // Create sends its chosen placement (unset level → NULL), gated on
-          // site:manage. Edit omits placement (persisted on Continue).
-          siteId: sendPlacement ? (rackSettings.siteId ?? 0n) : undefined,
-          buildingId: sendPlacement ? (rackSettings.buildingId ?? 0n) : undefined,
-          onSuccess: () => resolve(),
-          onError: (msg) => reject(new Error(msg)),
+      const finishSuccess = () => {
+        pushToast({
+          message: existingRackId ? `Rack "${meta.label}" updated` : `Rack "${meta.label}" created`,
+          status: STATUSES.success,
         });
-      });
+        onSave();
+      };
 
-      pushToast({
-        message: existingRackId ? `Rack "${meta.label}" updated` : `Rack "${meta.label}" created`,
-        status: STATUSES.success,
-      });
-      onSave();
+      // Persist the miners. When the rack is site-less, the server rejects a
+      // member that currently has a site/building (it would be stripped) and
+      // returns a conflict list without writing — mirroring the reparent RPC.
+      // We surface the same ReparentWarningDialog and, on confirm, retry with
+      // forceClearConflictingSite so the strip is explicit, not silent.
+      const runSaveRack = (force: boolean): Promise<"ok" | "conflict"> =>
+        new Promise((resolve, reject) => {
+          saveRack({
+            deviceSetId: existingRackId,
+            label: meta.label,
+            zone: meta.zone,
+            rows: meta.rows,
+            columns: meta.columns,
+            orderIndex: meta.orderIndex,
+            coolingType: meta.coolingType,
+            deviceIdentifiers: rackMiners,
+            slotAssignments: slotAssignmentsList,
+            // Create sends its chosen placement (unset level → NULL), gated on
+            // site:manage. Edit omits placement (persisted on Continue).
+            siteId: sendPlacement ? (rackSettings.siteId ?? 0n) : undefined,
+            buildingId: sendPlacement ? (rackSettings.buildingId ?? 0n) : undefined,
+            forceClearConflictingSite: force,
+            onSuccess: () => resolve("ok"),
+            onConflicts: (conflicts) => {
+              setReparentConfirm({
+                count: conflicts.length,
+                onConfirm: () => {
+                  setReparentConfirm(null);
+                  setIsSaving(true);
+                  setErrorMsg("");
+                  runSaveRack(true)
+                    .then((outcome) => {
+                      if (outcome === "ok") finishSuccess();
+                    })
+                    .catch((err) => setErrorMsg(getErrorMessage(err, "Failed to save. Please try again.")))
+                    .finally(() => setIsSaving(false));
+                },
+              });
+              resolve("conflict");
+            },
+            onError: (msg) => reject(new Error(msg)),
+          });
+        });
+
+      // conflict → the dialog above drives the confirm/force retry; don't toast
+      // success or close the modal until that resolves.
+      if ((await runSaveRack(false)) === "ok") finishSuccess();
     } catch (err) {
       setErrorMsg(getErrorMessage(err, "Failed to save. Please try again."));
     } finally {
