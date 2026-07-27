@@ -137,7 +137,7 @@ type runtimeJobLifecycles struct {
 }
 
 func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) {
-	jobs := make([]runtimejobs.Job, 0, 12)
+	var jobs []runtimejobs.Job
 	add := func(name string, lifecycle runtimejobs.Lifecycle) error {
 		job, err := runtimejobs.NewJob(name, lifecycle)
 		if err != nil {
