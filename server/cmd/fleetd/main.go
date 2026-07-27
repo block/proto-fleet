@@ -721,24 +721,21 @@ func start(config *Config) error {
 		Handler:           handler,
 		ReadHeaderTimeout: config.HTTP.ReadHeaderTimeout,
 	}
-	listener, err := net.Listen("tcp", config.HTTP.Address)
-	if err != nil {
-		return fmt.Errorf("listen on %s: %w", config.HTTP.Address, err)
-	}
-	defer func() {
-		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-			slog.Error("failed to close HTTP listener", "error", err)
-		}
-	}()
 
-	// Start only after binding the listener: the first heartbeat clears the Fleet
-	// Heartbeat Stale alert, so a crash-looping boot must not keep refreshing it
-	// and mask a down fleet-api. The kernel may briefly queue connections before
-	// Serve starts while the runtime jobs activate.
+	// The first heartbeat clears the Fleet Heartbeat Stale alert, so keep it
+	// gated until the HTTP listener is bound. Other jobs may perform synchronous
+	// startup work and must finish before the public port can accept connections.
+	listenerBound := make(chan struct{})
 	var systemMonitoring runtimejobs.Lifecycle
 	if config.SystemMonitoring.Enabled {
 		collector := sysmon.New(config.SystemMonitoring, metricsProvider)
-		systemMonitoring = newBackgroundLoop(collector.Run)
+		systemMonitoring = newBackgroundLoop(func(ctx context.Context) {
+			select {
+			case <-listenerBound:
+				collector.Run(ctx)
+			case <-ctx.Done():
+			}
+		})
 	}
 
 	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
@@ -766,10 +763,17 @@ func start(config *Config) error {
 		return fmt.Errorf("start runtime jobs: %w", err)
 	}
 	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
-		if err := runtimeJobGroup.Stop(shutdownCtx); err != nil {
-			slog.Error("failed to stop runtime jobs", "error", err)
+		stopRuntimeJobGroup(runtimeJobGroup, shutdownTimeout)
+	}()
+
+	listener, err := net.Listen("tcp", config.HTTP.Address)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", config.HTTP.Address, err)
+	}
+	close(listenerBound)
+	defer func() {
+		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			slog.Error("failed to close HTTP listener", "error", err)
 		}
 	}()
 

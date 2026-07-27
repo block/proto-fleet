@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -13,6 +14,18 @@ type noopLifecycle struct{}
 
 func (noopLifecycle) Start(context.Context) error { return nil }
 func (noopLifecycle) Stop(context.Context) error  { return nil }
+
+type scriptedRuntimeJobGroupStopper struct {
+	stops    []func(context.Context) error
+	contexts []context.Context
+}
+
+func (s *scriptedRuntimeJobGroupStopper) Stop(ctx context.Context) error {
+	s.contexts = append(s.contexts, ctx)
+	stop := s.stops[0]
+	s.stops = s.stops[1:]
+	return stop(ctx)
+}
 
 func TestNewRuntimeJobs(t *testing.T) {
 	all := runtimeJobLifecycles{
@@ -120,6 +133,51 @@ func TestBackgroundLoopStopCanBeRetriedAfterTimeout(t *testing.T) {
 
 	close(release)
 	require.NoError(t, loop.Stop(context.Background()))
+}
+
+func TestStopRuntimeJobGroupDoesNotRetrySuccessfulStop(t *testing.T) {
+	group := &scriptedRuntimeJobGroupStopper{stops: []func(context.Context) error{
+		func(context.Context) error { return nil },
+	}}
+
+	stopRuntimeJobGroup(group, time.Second)
+
+	require.Len(t, group.contexts, 1)
+	_, hasDeadline := group.contexts[0].Deadline()
+	require.True(t, hasDeadline)
+}
+
+func TestStopRuntimeJobGroupRetriesFailureWithFreshDeadline(t *testing.T) {
+	group := &scriptedRuntimeJobGroupStopper{stops: []func(context.Context) error{
+		func(context.Context) error { return errors.New("first stop failed") },
+		func(context.Context) error { return nil },
+	}}
+
+	stopRuntimeJobGroup(group, time.Second)
+
+	require.Len(t, group.contexts, 2)
+	firstDeadline, firstHasDeadline := group.contexts[0].Deadline()
+	secondDeadline, secondHasDeadline := group.contexts[1].Deadline()
+	require.True(t, firstHasDeadline)
+	require.True(t, secondHasDeadline)
+	require.True(t, secondDeadline.After(firstDeadline))
+}
+
+func TestStopRuntimeJobGroupBoundsDrainRetry(t *testing.T) {
+	group := &scriptedRuntimeJobGroupStopper{stops: []func(context.Context) error{
+		func(context.Context) error { return errors.New("first stop failed") },
+		func(ctx context.Context) error {
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}}
+
+	started := time.Now()
+	stopRuntimeJobGroup(group, 5*time.Millisecond)
+
+	require.Len(t, group.contexts, 2)
+	require.ErrorIs(t, group.contexts[1].Err(), context.DeadlineExceeded)
+	require.Less(t, time.Since(started), time.Second)
 }
 
 func jobNames(jobs []runtimejobs.Job) []string {
