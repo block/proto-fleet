@@ -287,6 +287,23 @@ func TestSaveFirmwareFile_SanitizesFilename(t *testing.T) {
 	assert.Equal(t, "passwd", filepath.Base(filePath))
 }
 
+func TestSaveFirmwareFile_PreservesDotPrefixedFilename(t *testing.T) {
+	svc := setupService(t)
+	require.NoError(t, svc.ValidateFirmwareFilename(".firmware.swu"))
+
+	fileID, err := svc.SaveFirmwareFile(".firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	filePath, err := svc.GetFirmwareFilePath(fileID)
+	require.NoError(t, err)
+	assert.Equal(t, ".firmware.swu", filepath.Base(filePath))
+
+	listed, err := svc.ListFirmwareFiles()
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
+	assert.Equal(t, ".firmware.swu", listed[0].Filename)
+}
+
 func TestSaveFirmwareFile_RejectsOversizedStream(t *testing.T) {
 	svc := setupService(t)
 	svc.maxFirmwareFileSize = 10

@@ -54,6 +54,7 @@ type FirmwareUploadSaveResult struct {
 const firmwareDir = "firmware"
 const firmwareStagingDir = "firmware/staging"
 const firmwareMetadataFilename = "metadata.json"
+const firmwareMetadataStagingDirname = ".metadata-staging"
 
 var errFirmwareMetadataNotFound = errors.New("firmware metadata not found")
 
@@ -882,7 +883,17 @@ func computeFileChecksum(filePath string) (string, error) {
 // writeFirmwareMetadata atomically publishes the metadata sidecar via a
 // temp-file-and-rename, so readers never observe a partially written sidecar.
 func writeFirmwareMetadata(dir string, metadata FirmwareMetadata, uploadedAt time.Time) error {
-	tempFile, err := os.CreateTemp(dir, ".metadata-*.tmp")
+	stagingDir := filepath.Join(dir, firmwareMetadataStagingDirname)
+	if err := os.MkdirAll(stagingDir, 0700); err != nil {
+		return fleeterror.NewInternalErrorf("failed to create firmware metadata staging directory: %v", err)
+	}
+	defer func() {
+		// Remove only an empty staging directory so concurrent metadata writers
+		// cannot delete one another's temporary files.
+		_ = os.Remove(stagingDir)
+	}()
+
+	tempFile, err := os.CreateTemp(stagingDir, "metadata-*.tmp")
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to create firmware metadata staging file: %v", err)
 	}
