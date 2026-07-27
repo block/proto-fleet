@@ -15,6 +15,7 @@
     "lint": "eslint . --max-warnings 0",
     "preview:protoOS": "vite preview --mode protoOS",
     "preview:protoFleet": "vite preview --mode protoFleet",
+    "test:e2e:visual:update:linux": "./scripts/update-protofleet-visual-snapshots-linux.sh",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "tsc --noEmit && BUILD_STORYBOOK=1 storybook build",
     "test": "vitest",

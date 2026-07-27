@@ -51,8 +51,6 @@ if (rawTarget && !targetFromEnv) {
   throw new Error(`Invalid E2E_TARGET value "${rawTarget}". Expected "fake" or "real".`);
 }
 const resolvedTarget: E2ETarget = targetFromEnv ?? mergedConfig.target;
-
-// Intentionally derived from target only (no base URL overrides).
 const resolvedBaseUrl = resolvedTarget === "real" ? realBaseUrl : fakeBaseUrl;
 
 export const testConfig: TestConfig = {

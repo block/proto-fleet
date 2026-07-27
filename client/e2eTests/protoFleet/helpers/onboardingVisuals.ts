@@ -1,0 +1,317 @@
+import type { Locator, Page, TestInfo } from "@playwright/test";
+import { expect } from "@playwright/test";
+import fs from "fs/promises";
+import path from "path";
+import { testConfig } from "../config/test.config";
+import type { AddMinersPage } from "../pages/addMiners";
+import type { AuthPage } from "../pages/auth";
+import type { EnergyPage } from "../pages/energy";
+import type { FleetLocationsPage } from "../pages/fleetLocations";
+import type { GroupsPage } from "../pages/groups";
+import type { HomePage } from "../pages/home";
+import type { MinersPage } from "../pages/miners";
+import type { RacksPage } from "../pages/racks";
+import type { SettingsPage } from "../pages/settings";
+import type { SettingsPoolsPage } from "../pages/settingsPools";
+import type { CommonSteps } from "./commonSteps";
+
+const OVERWRITE_VISUAL_SNAPSHOTS = process.env.PROTOFLEET_VISUAL_OVERWRITE === "1";
+const DEFAULT_VISUAL_OPTIONS = { animations: "disabled" as const, scale: "css" as const };
+const FIXED_VISUAL_DATE = "2026-01-15T12:00:00Z";
+
+export const VISUAL_SNAPSHOTS = {
+  signUpForm: ["visual", "sign-up-form.png"],
+  emptyHome: ["visual", "home-empty-fleet.png"],
+  emptySites: ["visual", "fleet-sites-empty.png"],
+  emptyBuildings: ["visual", "fleet-buildings-empty.png"],
+  emptyRacks: ["visual", "fleet-racks-empty.png"],
+  emptyMiners: ["visual", "fleet-miners-empty.png"],
+  groups: ["visual", "groups-screen.png"],
+  energy: ["visual", "energy-screen.png"],
+  settingsPools: ["visual", "settings-pools-screen.png"],
+  findMiners: ["visual", "find-miners-screen.png"],
+  completeSetup: ["visual", "complete-setup-module.png"],
+  singleMinerActions: ["visual", "single-miner-actions-menu.png"],
+  bulkActionBar: ["visual", "miner-bulk-action-bar.png"],
+  bulkMoreMenu: ["visual", "miner-bulk-more-menu.png"],
+} as const;
+
+export class VisualSnapshotHelper {
+  constructor(private readonly testInfo: TestInfo) {}
+
+  async capturePage(page: Page, snapshotName: readonly string[], options: { maxDiffPixels?: number } = {}) {
+    if (OVERWRITE_VISUAL_SNAPSHOTS) {
+      const snapshotPath = this.testInfo.snapshotPath(...snapshotName);
+      await fs.mkdir(path.dirname(snapshotPath), { recursive: true });
+      await page.screenshot({ path: snapshotPath, ...DEFAULT_VISUAL_OPTIONS });
+      return;
+    }
+
+    await expect(page).toHaveScreenshot(snapshotName, { ...DEFAULT_VISUAL_OPTIONS, ...options });
+  }
+
+  async captureLocator(locator: Locator, snapshotName: readonly string[], options: { maxDiffPixels?: number } = {}) {
+    if (OVERWRITE_VISUAL_SNAPSHOTS) {
+      const snapshotPath = this.testInfo.snapshotPath(...snapshotName);
+      await fs.mkdir(path.dirname(snapshotPath), { recursive: true });
+      await locator.screenshot({ path: snapshotPath, ...DEFAULT_VISUAL_OPTIONS });
+      return;
+    }
+
+    await expect(locator).toHaveScreenshot(snapshotName, { ...DEFAULT_VISUAL_OPTIONS, ...options });
+  }
+}
+
+type OnboardingVisualDependencies = {
+  page: Page;
+  addMinersPage: AddMinersPage;
+  authPage: AuthPage;
+  commonSteps: CommonSteps;
+  energyPage: EnergyPage;
+  fleetLocationsPage: FleetLocationsPage;
+  groupsPage: GroupsPage;
+  homePage: HomePage;
+  minersPage: MinersPage;
+  racksPage: RacksPage;
+  settingsPage: SettingsPage;
+  settingsPoolsPage: SettingsPoolsPage;
+  snapshots: VisualSnapshotHelper;
+};
+
+export class OnboardingVisualHelper {
+  constructor(private readonly deps: OnboardingVisualDependencies) {}
+
+  async openSignUpPage() {
+    const { page, authPage } = this.deps;
+    await page.clock.setFixedTime(FIXED_VISUAL_DATE);
+    await page.goto("/welcome");
+    await expect(page).toHaveURL(/\/welcome(?:[?#].*)?$/);
+    await authPage.validateCreateCredentialsPrompt();
+  }
+
+  async captureSignUpForm() {
+    const { authPage, snapshots } = this.deps;
+    await snapshots.captureLocator(authPage.getCreateCredentialsForm(), VISUAL_SNAPSHOTS.signUpForm);
+  }
+
+  async signUpAsNewAdmin() {
+    const { authPage } = this.deps;
+    await authPage.inputUsername(testConfig.users.admin.username);
+    await authPage.inputPassword(testConfig.users.admin.password);
+    await authPage.clickContinue();
+    await authPage.validateLoggedIn();
+  }
+
+  async loginAsAdmin() {
+    const { page, commonSteps } = this.deps;
+    await page.goto("/");
+    await commonSteps.loginAsAdmin({ forceReauth: true });
+  }
+
+  async captureEmptyStateScreens() {
+    const {
+      page,
+      fleetLocationsPage,
+      groupsPage,
+      energyPage,
+      minersPage,
+      racksPage,
+      settingsPage,
+      settingsPoolsPage,
+      snapshots,
+    } = this.deps;
+
+    await expect(page).toHaveURL(/\/onboarding\/miners(?:[?#].*)?$/);
+    await minersPage.validateTextIsVisible("Let's set up your fleet.");
+    await snapshots.capturePage(page, VISUAL_SNAPSHOTS.emptyHome);
+
+    await fleetLocationsPage.navigateToSitesPage();
+    await fleetLocationsPage.validateTextIsVisible("No sites yet");
+    await snapshots.capturePage(page, VISUAL_SNAPSHOTS.emptySites);
+
+    await fleetLocationsPage.navigateToBuildingsPage();
+    await fleetLocationsPage.validateTextIsVisible("No buildings yet");
+    await snapshots.capturePage(page, VISUAL_SNAPSHOTS.emptyBuildings);
+
+    await racksPage.navigateToRacksPage();
+    await racksPage.validateRacksPageOpened();
+    await racksPage.waitForRackListToLoad();
+    await racksPage.validateTextIsVisible("You haven't set up any racks");
+    await snapshots.capturePage(page, VISUAL_SNAPSHOTS.emptyRacks);
+
+    await minersPage.navigateToMinersPage();
+    await minersPage.validateMinersPageOpened();
+    await minersPage.validateTextIsVisible("You haven't paired any miners");
+    await snapshots.capturePage(page, VISUAL_SNAPSHOTS.emptyMiners);
+
+    await groupsPage.navigateToGroupsPage();
+    await groupsPage.waitForSavedGroupsListToLoad();
+    await groupsPage.validateTextIsVisible("Organize your miners into groups.");
+    await snapshots.capturePage(page, VISUAL_SNAPSHOTS.groups);
+
+    await energyPage.navigateToEnergyPage();
+    await energyPage.validateEnergyPageOpened();
+    await snapshots.capturePage(page, VISUAL_SNAPSHOTS.energy);
+
+    await settingsPage.navigateToMiningPoolsSettings();
+    await settingsPoolsPage.validateMiningPoolsPageOpened();
+    await settingsPoolsPage.validateTextIsVisible("Add a pool to start assigning your miners.");
+    await snapshots.capturePage(page, VISUAL_SNAPSHOTS.settingsPools);
+  }
+
+  async openFindMinersFromMinersPage() {
+    const { addMinersPage, minersPage, page } = this.deps;
+    await minersPage.navigateToMinersPage();
+    await minersPage.validateMinersPageOpened();
+    const openedViaGetStarted = await minersPage.tryAction(() => minersPage.clickGetStarted(), 2_000);
+    if (!openedViaGetStarted) {
+      await minersPage.clickAddMinersButton();
+    }
+    await addMinersPage.validateAddMinersFlowOpened();
+    await expect(page.getByTestId("section-import-foreman")).toBeVisible();
+  }
+
+  async captureFindMinersScreen() {
+    const { page, snapshots } = this.deps;
+    await snapshots.capturePage(page, VISUAL_SNAPSHOTS.findMiners);
+  }
+
+  async findAndContinueWithMiners(expectedMinerCount: number) {
+    const { addMinersPage } = this.deps;
+    await addMinersPage.clickFindMinersInNetwork();
+    await addMinersPage.waitForExpectedNetworkMinerCount(expectedMinerCount);
+    await addMinersPage.clickContinueWithXMiners(expectedMinerCount);
+    await this.waitForPairingToFinish(expectedMinerCount);
+    await this.waitForCompleteSetupModuleReady();
+  }
+
+  async captureCompleteSetupModule() {
+    const { homePage, snapshots } = this.deps;
+    const module = homePage.getCompleteSetupModule();
+    await this.waitForCompleteSetupModuleReady();
+    await snapshots.captureLocator(module, VISUAL_SNAPSHOTS.completeSetup, { maxDiffPixels: 5000 });
+  }
+
+  async openSingleProtoRigActionsMenu() {
+    const { minersPage } = this.deps;
+    await minersPage.navigateToMinersPage();
+    await minersPage.validateMinersPageOpened();
+    await minersPage.waitForMinersListToLoad();
+    await minersPage.openSingleMinerActionsForFirstProtoRig();
+  }
+
+  async captureSingleMinerActionsMenu() {
+    const { minersPage, snapshots } = this.deps;
+    await snapshots.captureLocator(minersPage.getSingleMinerActionsPopover(), VISUAL_SNAPSHOTS.singleMinerActions);
+  }
+
+  async selectProtoRigMiners(count: number) {
+    const { minersPage } = this.deps;
+    await minersPage.dismissSingleMinerActionsPopoverIfVisible();
+    await minersPage.selectProtoRigMiners(count);
+    await expect(minersPage.getActionBar()).toBeVisible();
+  }
+
+  async captureBulkActionBar() {
+    const { minersPage, snapshots } = this.deps;
+    await snapshots.captureLocator(minersPage.getActionBar(), VISUAL_SNAPSHOTS.bulkActionBar);
+  }
+
+  async openBulkActionsMenu() {
+    const { minersPage } = this.deps;
+    await minersPage.clickBulkActionsMoreButton();
+  }
+
+  async captureBulkActionsMenu() {
+    const { minersPage, snapshots } = this.deps;
+    await snapshots.captureLocator(minersPage.getBulkActionsPopover(), VISUAL_SNAPSHOTS.bulkMoreMenu);
+  }
+
+  private async waitForCompleteSetupModuleReady() {
+    const { homePage, page } = this.deps;
+    const module = homePage.getCompleteSetupModule();
+    const authenticateCard = this.getCompleteSetupCard(module, "Authenticate miners");
+    const configurePoolsCard = this.getCompleteSetupCard(module, "Configure pools");
+
+    await expect(async () => {
+      await expect(page).toHaveURL(/\/(dashboard|fleet\/miners)(?:[?#].*)?$/);
+      await expect(module).toBeVisible();
+      await expect(authenticateCard).toBeVisible();
+      await expect(configurePoolsCard).toBeVisible();
+      await expect(module.getByRole("button", { name: "Authenticate", exact: true })).toBeVisible();
+      await expect(module.getByRole("button", { name: "Configure", exact: true })).toBeVisible();
+      expect(await this.completeSetupCardsDoNotOverlap(authenticateCard, configurePoolsCard)).toBe(true);
+    }).toPass({ timeout: testConfig.testTimeout });
+
+    await this.waitForStableBoundingBox(module);
+    await this.waitForStableBoundingBox(authenticateCard);
+    await this.waitForStableBoundingBox(configurePoolsCard);
+  }
+
+  private async waitForPairingToFinish(expectedMinerCount: number) {
+    const { addMinersPage, minersPage } = this.deps;
+    await expect(async () => {
+      await addMinersPage.closeAddMinersFlowIfOpen();
+      await addMinersPage.validateAddMinersFlowClosed(1_000);
+      await minersPage.validateMinersPageOpened();
+      await minersPage.validateMinersAdded(expectedMinerCount);
+    }).toPass({ timeout: testConfig.testTimeout });
+  }
+
+  private getCompleteSetupCard(module: Locator, title: string) {
+    return module
+      .getByText(title, { exact: true })
+      .locator("xpath=ancestor::div[contains(@class,'rounded-2xl')]")
+      .first();
+  }
+
+  private async completeSetupCardsDoNotOverlap(firstCard: Locator, secondCard: Locator): Promise<boolean> {
+    const [firstBox, secondBox] = await Promise.all([firstCard.boundingBox(), secondCard.boundingBox()]);
+    if (!firstBox || !secondBox) {
+      return false;
+    }
+
+    const sameRow = Math.abs(firstBox.y - secondBox.y) <= 4;
+    if (sameRow) {
+      return true;
+    }
+
+    return firstBox.y + firstBox.height <= secondBox.y + 1 || secondBox.y + secondBox.height <= firstBox.y + 1;
+  }
+
+  private async waitForStableBoundingBox(locator: Locator, stableSamples = 3, intervalMs = 100) {
+    const initialBox = await locator.boundingBox();
+    if (!initialBox) {
+      throw new Error("Expected locator bounding box to be available while waiting for layout to settle.");
+    }
+
+    let previousBox = initialBox;
+    let stableCount = 0;
+    await expect
+      .poll(
+        async () => {
+          if (stableCount >= stableSamples) {
+            return stableCount;
+          }
+
+          const nextBox = await locator.boundingBox();
+          if (!nextBox) {
+            throw new Error("Locator disappeared while waiting for layout to settle.");
+          }
+
+          const boxChanged =
+            Math.abs(previousBox.x - nextBox.x) > 0.5 ||
+            Math.abs(previousBox.y - nextBox.y) > 0.5 ||
+            Math.abs(previousBox.width - nextBox.width) > 0.5 ||
+            Math.abs(previousBox.height - nextBox.height) > 0.5;
+
+          stableCount = boxChanged ? 0 : stableCount + 1;
+          previousBox = nextBox;
+
+          return stableCount;
+        },
+        { timeout: testConfig.actionTimeout, intervals: [intervalMs] },
+      )
+      .toBeGreaterThanOrEqual(stableSamples);
+  }
+}
