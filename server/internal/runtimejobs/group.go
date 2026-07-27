@@ -4,12 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sync"
 	"time"
 )
 
-const groupCleanupTimeout = 10 * time.Second
+const (
+	groupCleanupTimeout   = 10 * time.Second
+	progressCheckInterval = 5 * time.Second
+)
+
+type jobRuntimeStatus struct {
+	state           State
+	progressTracked bool
+	lastProgress    time.Time
+	staleAfter      time.Duration
+	staleLogged     bool
+}
 
 // Group owns at most one activation of an ordered set of jobs at a time.
 //
@@ -23,6 +35,12 @@ type Group struct {
 	terminalErr    error
 	activationDone <-chan struct{}
 	cancel         context.CancelFunc
+	state          State
+	jobStatuses    []jobRuntimeStatus
+	generation     uint64
+
+	logger          *slog.Logger
+	monitorInterval time.Duration
 }
 
 // NewGroup validates group configuration and creates a stopped group.
@@ -40,7 +58,17 @@ func NewGroup(jobs []Job) (*Group, error) {
 		seen[job.Name()] = struct{}{}
 	}
 
-	return &Group{jobs: slices.Clone(jobs)}, nil
+	jobStatuses := make([]jobRuntimeStatus, len(jobs))
+	for i := range jobStatuses {
+		jobStatuses[i].state = StateStopped
+	}
+	return &Group{
+		jobs:            slices.Clone(jobs),
+		state:           StateStopped,
+		jobStatuses:     jobStatuses,
+		logger:          slog.Default(),
+		monitorInterval: progressCheckInterval,
+	}, nil
 }
 
 // Err reports the terminal cleanup failure that prevents reactivation.
@@ -48,6 +76,31 @@ func (g *Group) Err() error {
 	g.stateMu.Lock()
 	defer g.stateMu.Unlock()
 	return g.terminalErr
+}
+
+// Status returns a concurrency-safe snapshot in job registration order.
+func (g *Group) Status() GroupStatus {
+	now := time.Now()
+	g.stateMu.Lock()
+	defer g.stateMu.Unlock()
+
+	status := GroupStatus{
+		State:         g.state,
+		TerminalError: g.terminalErr,
+		Jobs:          make([]JobStatus, len(g.jobs)),
+	}
+	for i, job := range g.jobs {
+		runtimeStatus := g.jobStatuses[i]
+		status.Jobs[i] = JobStatus{
+			Name:            job.Name(),
+			State:           runtimeStatus.state,
+			ProgressTracked: runtimeStatus.progressTracked,
+			LastProgress:    runtimeStatus.lastProgress,
+			StaleAfter:      runtimeStatus.staleAfter,
+			Stale:           isStale(runtimeStatus, now),
+		}
+	}
+	return status
 }
 
 // Start starts every job in registration order.
@@ -69,26 +122,44 @@ func (g *Group) Start(ctx context.Context) error {
 	}
 
 	activationCtx, cancel := context.WithCancel(ctx)
-	g.setActivation(activationCtx.Done(), cancel)
+	generation := g.beginActivation(activationCtx.Done(), cancel)
 	started := 0
-	for _, job := range g.jobs {
+	for i, job := range g.jobs {
+		g.setJobState(i, StateStarting)
 		if err := activationCtx.Err(); err != nil {
+			g.logStartFailure(job, 0, err)
+			g.setJobState(i, StateFailed)
 			return g.failStart(ctx, started, fmt.Errorf("start runtime job %q: %w", job.Name(), err))
 		}
-		if err := job.Start(activationCtx); err != nil {
+		jobCtx := context.WithValue(activationCtx, progressContextKey{}, progressContext{
+			group:      g,
+			jobIndex:   i,
+			generation: generation,
+		})
+		startedAt := time.Now()
+		if err := job.Start(jobCtx); err != nil {
+			g.logStartFailure(job, time.Since(startedAt), err)
+			g.setJobState(i, StateFailed)
 			return g.failStart(ctx, started, fmt.Errorf("start runtime job %q: %w", job.Name(), err))
 		}
+		g.logger.Info("runtime job started",
+			"job", job.Name(),
+			"duration", time.Since(startedAt),
+		)
+		g.setJobState(i, StateRunning)
 		started++
 	}
 	if err := activationCtx.Err(); err != nil {
 		return g.failStart(ctx, started, fmt.Errorf("start runtime job group: %w", err))
 	}
 
+	g.setGroupState(StateRunning)
+	go g.monitorProgress(activationCtx, generation)
 	return nil
 }
 
 func (g *Group) failStart(ctx context.Context, started int, startErr error) error {
-	g.cancelActivation()
+	g.endActivation()
 	rollbackCtx := context.WithoutCancel(ctx)
 	if deadline, ok := ctx.Deadline(); ok {
 		var cancel context.CancelFunc
@@ -96,8 +167,8 @@ func (g *Group) failStart(ctx context.Context, started int, startErr error) erro
 		defer cancel()
 	}
 	rollbackErr := g.stopJobs(rollbackCtx, g.jobs[:started])
-	g.clearActivation()
 	if rollbackErr == nil {
+		g.setGroupState(StateStopped)
 		return startErr
 	}
 
@@ -120,13 +191,14 @@ func (g *Group) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	g.cancelActivation()
-	g.clearActivation()
+	g.endActivation()
+	g.setGroupState(StateStopping)
 	err := g.stopJobs(ctx, g.jobs)
 	if err != nil {
 		g.setTerminalErr(err)
 		return err
 	}
+	g.setGroupState(StateStopped)
 	return nil
 }
 
@@ -134,6 +206,7 @@ func (g *Group) setTerminalErr(err error) {
 	g.stateMu.Lock()
 	defer g.stateMu.Unlock()
 	g.terminalErr = err
+	g.state = StateFailed
 }
 
 func (g *Group) activation() (<-chan struct{}, context.CancelFunc) {
@@ -142,25 +215,29 @@ func (g *Group) activation() (<-chan struct{}, context.CancelFunc) {
 	return g.activationDone, g.cancel
 }
 
-func (g *Group) setActivation(done <-chan struct{}, cancel context.CancelFunc) {
+func (g *Group) beginActivation(done <-chan struct{}, cancel context.CancelFunc) uint64 {
 	g.stateMu.Lock()
 	defer g.stateMu.Unlock()
+	g.generation++
 	g.activationDone = done
 	g.cancel = cancel
+	g.state = StateStarting
+	for i := range g.jobStatuses {
+		g.jobStatuses[i] = jobRuntimeStatus{state: StateStopped}
+	}
+	return g.generation
 }
 
-func (g *Group) cancelActivation() {
-	_, cancel := g.activation()
+func (g *Group) endActivation() {
+	g.stateMu.Lock()
+	cancel := g.cancel
+	g.activationDone = nil
+	g.cancel = nil
+	g.generation++
+	g.stateMu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
-}
-
-func (g *Group) clearActivation() {
-	g.stateMu.Lock()
-	defer g.stateMu.Unlock()
-	g.activationDone = nil
-	g.cancel = nil
 }
 
 func (g *Group) stopJobs(parent context.Context, jobs []Job) error {
@@ -168,13 +245,153 @@ func (g *Group) stopJobs(parent context.Context, jobs []Job) error {
 	defer cancel()
 
 	var stopErrors []error
-	for _, job := range slices.Backward(jobs) {
+	for i := len(jobs) - 1; i >= 0; i-- {
+		job := jobs[i]
+		g.setJobState(i, StateStopping)
+		startedAt := time.Now()
 		err := g.stopJob(stopCtx, job)
 		if err != nil {
+			g.logger.Error("runtime job stop failed",
+				"job", job.Name(),
+				"duration", time.Since(startedAt),
+				"error", err,
+			)
+			g.setJobState(i, StateFailed)
 			stopErrors = append(stopErrors, fmt.Errorf("stop runtime job %q: %w", job.Name(), err))
+			continue
 		}
+		g.logger.Info("runtime job stopped",
+			"job", job.Name(),
+			"duration", time.Since(startedAt),
+		)
+		g.setJobState(i, StateStopped)
 	}
 	return errors.Join(stopErrors...)
+}
+
+func (g *Group) setGroupState(state State) {
+	g.stateMu.Lock()
+	defer g.stateMu.Unlock()
+	g.state = state
+}
+
+func (g *Group) setJobState(index int, state State) {
+	g.stateMu.Lock()
+	defer g.stateMu.Unlock()
+	g.jobStatuses[index].state = state
+	if state != StateRunning && state != StateStarting {
+		g.jobStatuses[index].staleLogged = false
+	}
+}
+
+func (g *Group) logStartFailure(job Job, duration time.Duration, err error) {
+	g.logger.Error("runtime job start failed",
+		"job", job.Name(),
+		"duration", duration,
+		"error", err,
+	)
+}
+
+func (g *Group) trackProgress(index int, generation uint64, staleAfter time.Duration) func() {
+	g.stateMu.Lock()
+	if generation != g.generation ||
+		(g.jobStatuses[index].state != StateStarting && g.jobStatuses[index].state != StateRunning) {
+		g.stateMu.Unlock()
+		return func() {}
+	}
+	g.jobStatuses[index].progressTracked = true
+	g.jobStatuses[index].lastProgress = time.Now()
+	g.jobStatuses[index].staleAfter = staleAfter
+	g.jobStatuses[index].staleLogged = false
+	g.stateMu.Unlock()
+
+	return func() {
+		g.stateMu.Lock()
+		defer g.stateMu.Unlock()
+		if generation != g.generation ||
+			(g.jobStatuses[index].state != StateStarting && g.jobStatuses[index].state != StateRunning) {
+			return
+		}
+		g.jobStatuses[index].lastProgress = time.Now()
+	}
+}
+
+func (g *Group) monitorProgress(ctx context.Context, generation uint64) {
+	ticker := time.NewTicker(g.monitorInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			g.logProgressTransitions(generation, now)
+		}
+	}
+}
+
+func (g *Group) logProgressTransitions(generation uint64, now time.Time) {
+	type transition struct {
+		message      string
+		name         string
+		lastProgress time.Time
+		staleAfter   time.Duration
+	}
+	var transitions []transition
+
+	g.stateMu.Lock()
+	if generation != g.generation {
+		g.stateMu.Unlock()
+		return
+	}
+	for i, job := range g.jobs {
+		status := &g.jobStatuses[i]
+		if status.state != StateRunning || !status.progressTracked {
+			continue
+		}
+		stale := isStale(*status, now)
+		switch {
+		case stale && !status.staleLogged:
+			status.staleLogged = true
+			transitions = append(transitions, transition{
+				message:      "runtime job stale",
+				name:         job.Name(),
+				lastProgress: status.lastProgress,
+				staleAfter:   status.staleAfter,
+			})
+		case !stale && status.staleLogged:
+			status.staleLogged = false
+			transitions = append(transitions, transition{
+				message:      "runtime job recovered",
+				name:         job.Name(),
+				lastProgress: status.lastProgress,
+				staleAfter:   status.staleAfter,
+			})
+		}
+	}
+	g.stateMu.Unlock()
+
+	for _, transition := range transitions {
+		if transition.message == "runtime job stale" {
+			g.logger.Warn(transition.message,
+				"job", transition.name,
+				"last_progress", transition.lastProgress,
+				"stale_after", transition.staleAfter,
+			)
+			continue
+		}
+		g.logger.Info(transition.message,
+			"job", transition.name,
+			"last_progress", transition.lastProgress,
+			"stale_after", transition.staleAfter,
+		)
+	}
+}
+
+func isStale(status jobRuntimeStatus, now time.Time) bool {
+	return status.state == StateRunning &&
+		status.progressTracked &&
+		!status.lastProgress.IsZero() &&
+		!now.Before(status.lastProgress.Add(status.staleAfter))
 }
 
 func (g *Group) stopJob(stopCtx context.Context, job Job) error {
