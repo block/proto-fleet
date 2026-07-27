@@ -760,7 +760,7 @@ func start(config *Config) error {
 		return fmt.Errorf("create runtime job group: %w", err)
 	}
 	defer func() {
-		stopRuntimeJobGroup(runtimeJobGroup, shutdownTimeout)
+		stopRuntimeJobGroup(runtimeJobGroup, executionService, shutdownTimeout)
 	}()
 	if err := runtimeJobGroup.Start(context.Background()); err != nil {
 		return fmt.Errorf("start runtime jobs: %w", err)

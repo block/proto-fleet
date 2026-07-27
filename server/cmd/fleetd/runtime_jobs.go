@@ -103,20 +103,27 @@ type runtimeJobGroupStopper interface {
 }
 
 // stopRuntimeJobGroup gives the group one graceful-shutdown budget, then one
-// fresh bounded budget to retry only the jobs whose first stop did not finish.
-func stopRuntimeJobGroup(group runtimeJobGroupStopper, timeout time.Duration) {
+// fresh bounded retry. Command execution receives a final independent budget
+// after producer retries because its activation is detached from group
+// cancellation to preserve shutdown ordering.
+func stopRuntimeJobGroup(group runtimeJobGroupStopper, commandExecution runtimejobs.Lifecycle, timeout time.Duration) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	err := group.Stop(shutdownCtx)
 	cancel()
-	if err == nil {
-		return
+	if err != nil {
+		slog.Error("failed to stop runtime jobs", "error", err)
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), timeout)
+		if err := group.Stop(drainCtx); err != nil {
+			slog.Error("failed to drain runtime jobs", "error", err)
+		}
+		drainCancel()
 	}
 
-	slog.Error("failed to stop runtime jobs", "error", err)
-	drainCtx, drainCancel := context.WithTimeout(context.Background(), timeout)
-	defer drainCancel()
-	if err := group.Stop(drainCtx); err != nil {
-		slog.Error("failed to drain runtime jobs", "error", err)
+	commandCtx, commandCancel := context.WithTimeout(context.Background(), timeout)
+	err = commandExecution.Stop(commandCtx)
+	commandCancel()
+	if err != nil {
+		slog.Error("failed to stop command execution after runtime jobs", "error", err)
 	}
 }
 
