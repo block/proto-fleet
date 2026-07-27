@@ -110,6 +110,7 @@ export class OnboardingVisualHelper {
     const { page, commonSteps } = this.deps;
     await page.goto("/");
     await commonSteps.loginAsAdmin({ forceReauth: true });
+    await this.clearCompleteSetupDismissals();
   }
 
   async captureEmptyStateScreens() {
@@ -247,6 +248,15 @@ export class OnboardingVisualHelper {
     }).toPass({ timeout: testConfig.testTimeout, intervals: [250, 500, 1_000] });
 
     await this.waitForCompleteSetupLayoutToSettle(module, authenticateCard, configurePoolsCard);
+  }
+
+  private async clearCompleteSetupDismissals() {
+    const { page } = this.deps;
+
+    await page.evaluate(() => {
+      localStorage.removeItem("completeSetupDismissed");
+      localStorage.removeItem("configurePoolDismissed");
+    });
   }
 
   private async waitForPairingToFinish(expectedMinerCount: number) {
