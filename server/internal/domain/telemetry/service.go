@@ -94,6 +94,7 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 const (
@@ -555,6 +556,7 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, tasks chan<
 	if fetchInterval <= 0 {
 		fetchInterval = defaultFetchInterval
 	}
+	reportProgress := runtimejobs.TrackProgress(ctx, fetchInterval)
 	ticker := time.NewTicker(fetchInterval)
 	defer ticker.Stop()
 	for {
@@ -566,6 +568,7 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, tasks chan<
 			devices, err := s.updateScheduler.FetchDevices(ctx, lookback)
 			if err != nil {
 				slog.Error("failed to fetch devices for telemetry", "error", err)
+				reportProgress()
 				continue
 			}
 			for index, device := range devices {
@@ -576,6 +579,7 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, tasks chan<
 					return
 				}
 			}
+			reportProgress()
 		}
 	}
 }

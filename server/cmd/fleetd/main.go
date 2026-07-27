@@ -277,7 +277,9 @@ func start(config *Config) error {
 	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, sessionSvc, encryptSvc, activitySvc, permissionResolver)
 
 	identityStateCleanup := newBackgroundLoop(func(ctx context.Context) {
-		ticker := time.NewTicker(sessionSvc.CleanupInterval())
+		cleanupInterval := sessionSvc.CleanupInterval()
+		reportProgress := runtimejobs.TrackProgress(ctx, cleanupInterval)
+		ticker := time.NewTicker(cleanupInterval)
 		defer ticker.Stop()
 
 		for {
@@ -298,6 +300,7 @@ func start(config *Config) error {
 				} else if challenges > 0 || sessions > 0 {
 					slog.Debug("swept expired fleet node auth state", "challenges", challenges, "sessions", sessions)
 				}
+				reportProgress()
 			case <-ctx.Done():
 				return
 			}
@@ -368,14 +371,18 @@ func start(config *Config) error {
 		}
 	}
 	commandArtifactCleanup := newBackgroundLoop(func(ctx context.Context) {
-		ticker := time.NewTicker(filesService.CommandArtifactCleanupInterval())
+		cleanupInterval := filesService.CommandArtifactCleanupInterval()
+		reportProgress := runtimejobs.TrackProgress(ctx, cleanupInterval)
+		ticker := time.NewTicker(cleanupInterval)
 		defer ticker.Stop()
 		runCommandArtifactSweep()
+		reportProgress()
 
 		for {
 			select {
 			case <-ticker.C:
 				runCommandArtifactSweep()
+				reportProgress()
 			case <-ctx.Done():
 				return
 			}

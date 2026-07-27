@@ -257,7 +257,6 @@ func (h *Handler) StreamCommandBatchUpdates(ctx context.Context, r *connect.Requ
 			return fleeterror.NewInternalErrorf("context done with error: %v", ctx.Err())
 		case resp, ok := <-responseChan:
 			if !ok {
-				slog.Warn("channel closed")
 				return nil
 			}
 			slog.Debug("sending update", "payload", resp)
