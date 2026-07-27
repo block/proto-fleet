@@ -38,6 +38,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/updates/v1/updatesv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
@@ -93,6 +94,7 @@ var registeredServices = []struct {
 	{sitemapv1connect.SiteMapServiceName, reflect.TypeOf((*sitemapv1connect.SiteMapServiceHandler)(nil)).Elem()},
 	{sitesv1connect.SiteServiceName, reflect.TypeOf((*sitesv1connect.SiteServiceHandler)(nil)).Elem()},
 	{telemetryv1connect.TelemetryServiceName, reflect.TypeOf((*telemetryv1connect.TelemetryServiceHandler)(nil)).Elem()},
+	{updatesv1connect.UpdatesServiceName, reflect.TypeOf((*updatesv1connect.UpdatesServiceHandler)(nil)).Elem()},
 }
 
 func allRegisteredProcedures() []string {

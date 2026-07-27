@@ -25,6 +25,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/updates/v1/updatesv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 )
 
@@ -357,6 +358,12 @@ var ProcedurePermissions = map[string]string{
 	// TelemetryService — fleet:read for combined-metrics surfaces.
 	telemetryv1connect.TelemetryServiceGetCombinedMetricsProcedure:          authz.PermFleetRead,
 	telemetryv1connect.TelemetryServiceStreamCombinedMetricUpdatesProcedure: authz.PermFleetRead,
+
+	// UpdatesService — release visibility and channel selection share the
+	// one instance-administration key with the future upgrade trigger.
+	// GetVersion is deliberately ungated (see ProceduresPendingMigration).
+	updatesv1connect.UpdatesServiceGetUpdateStatusProcedure:   authz.PermInstanceUpdate,
+	updatesv1connect.UpdatesServiceSetReleaseChannelProcedure: authz.PermInstanceUpdate,
 }
 
 // ProceduresPendingMigration lists authenticated Connect procedures that
@@ -393,4 +400,10 @@ var ProceduresPendingMigration = map[string]string{
 	// site_id. Putting it in ProcedurePermissions would force the
 	// same org-scoped site:read gate that this endpoint avoids.
 	sitesv1connect.SiteServiceResolveSiteBySlugProcedure: "inline site:read after slug resolves to site_id",
+
+	// Updates version read — the running server version is visible to any
+	// signed-in user by design (the client already shows its own build
+	// version ungated); release info and channel control are gated in
+	// ProcedurePermissions.
+	updatesv1connect.UpdatesServiceGetVersionProcedure: "session-only by design; no role check",
 }
