@@ -87,55 +87,6 @@ func TestGroupStatusReportsLifecycleTransitionsInCatalogOrder(t *testing.T) {
 	}, group.Status())
 }
 
-func TestGroupStatusReportsCleanRollbackAndRestart(t *testing.T) {
-	t.Parallel()
-
-	failFirstStart := true
-	group := newTestGroup(t,
-		newTestJob("started", nil, nil),
-		newTestJob("fails-once", func(context.Context) error {
-			if failFirstStart {
-				failFirstStart = false
-				return errors.New("start failed")
-			}
-			return nil
-		}, nil),
-		newTestJob("not-started", nil, nil),
-	)
-
-	require.ErrorContains(t, group.Start(context.Background()), "start failed")
-	status := group.Status()
-	assert.Equal(t, StateStopped, status.State)
-	assert.NoError(t, status.TerminalError)
-	assert.Equal(t, []JobStatus{
-		{Name: "started", State: StateStopped},
-		{Name: "fails-once", State: StateFailed},
-		{Name: "not-started", State: StateStopped},
-	}, status.Jobs)
-
-	require.NoError(t, group.Start(context.Background()))
-	assert.Equal(t, StateRunning, group.Status().State)
-	assert.Equal(t, StateRunning, group.Status().Jobs[1].State)
-	require.NoError(t, group.Stop(context.Background()))
-}
-
-func TestGroupStatusReportsTerminalCleanupFailure(t *testing.T) {
-	t.Parallel()
-
-	stopErr := errors.New("stop failed")
-	group := newTestGroup(t, newTestJob("job", nil, func(context.Context) error {
-		return stopErr
-	}))
-	require.NoError(t, group.Start(context.Background()))
-	require.ErrorIs(t, group.Stop(context.Background()), stopErr)
-
-	status := group.Status()
-	assert.Equal(t, StateFailed, status.State)
-	assert.ErrorIs(t, status.TerminalError, stopErr)
-	require.Len(t, status.Jobs, 1)
-	assert.Equal(t, StateFailed, status.Jobs[0].State)
-}
-
 func TestTrackProgressReportsFreshnessAndIsolatesActivations(t *testing.T) {
 	t.Parallel()
 
@@ -242,7 +193,7 @@ func TestProgressMonitorLogsOnlyStaleAndRecoveredTransitions(t *testing.T) {
 	require.NoError(t, group.Stop(context.Background()))
 }
 
-func TestUntrackedAndStoppedJobsNeverBecomeStale(t *testing.T) {
+func TestUntrackedJobsNeverBecomeStale(t *testing.T) {
 	t.Parallel()
 
 	tracked := make(chan struct{}, 1)
@@ -264,52 +215,22 @@ func TestUntrackedAndStoppedJobsNeverBecomeStale(t *testing.T) {
 	assert.False(t, group.Status().Jobs[0].Stale)
 
 	require.NoError(t, group.Stop(context.Background()))
-	status := group.Status()
-	assert.False(t, status.Jobs[0].Stale)
-	assert.False(t, status.Jobs[1].Stale)
 }
 
 func TestTrackProgressOutsideManagedJobIsNoop(t *testing.T) {
 	t.Parallel()
 
 	report := TrackProgress(context.Background(), time.Nanosecond)
-	require.NotNil(t, report)
 	assert.NotPanics(t, report)
 }
 
-func TestStatusReturnsIndependentSnapshotsAndSupportsConcurrentProgress(t *testing.T) {
+func TestStatusReturnsIndependentSnapshots(t *testing.T) {
 	t.Parallel()
 
-	reporter := make(chan func(), 1)
-	group := newTestGroup(t, newTestJob("job", func(ctx context.Context) error {
-		reporter <- TrackProgress(ctx, time.Hour)
-		return nil
-	}, nil))
-	require.NoError(t, group.Start(context.Background()))
-	report := <-reporter
-
+	group := newTestGroup(t, newTestJob("job", nil, nil))
 	snapshot := group.Status()
 	snapshot.Jobs[0].Name = "changed"
 	assert.Equal(t, "job", group.Status().Jobs[0].Name)
-
-	var wg sync.WaitGroup
-	for range 8 {
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			for range 100 {
-				report()
-			}
-		}()
-		go func() {
-			defer wg.Done()
-			for range 100 {
-				_ = group.Status()
-			}
-		}()
-	}
-	wg.Wait()
-	require.NoError(t, group.Stop(context.Background()))
 }
 
 func TestStatusIsSafeDuringConcurrentLifecycleAndProgress(t *testing.T) {

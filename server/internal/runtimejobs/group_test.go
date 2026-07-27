@@ -93,8 +93,17 @@ func TestGroupRollsBackCleanlyAndCanRetry(t *testing.T) {
 	err := group.Start(context.Background())
 	require.ErrorContains(t, err, "start c")
 	assert.Equal(t, []string{"start:a", "start:b", "start:c", "stop:b", "stop:a"}, events.snapshot())
+	assert.Equal(t, GroupStatus{
+		State: StateStopped,
+		Jobs: []JobStatus{
+			{Name: "a", State: StateStopped},
+			{Name: "b", State: StateStopped},
+			{Name: "c", State: StateFailed},
+		},
+	}, group.Status())
 
 	require.NoError(t, group.Start(context.Background()))
+	assert.Equal(t, StateRunning, group.Status().State)
 	require.NoError(t, group.Stop(context.Background()))
 }
 
@@ -193,6 +202,14 @@ func TestGroupStopAggregatesErrorsAndBecomesTerminal(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errA)
 	assert.ErrorIs(t, err, errB)
+	status := group.Status()
+	assert.Equal(t, StateFailed, status.State)
+	assert.ErrorIs(t, status.TerminalError, errA)
+	assert.ErrorIs(t, status.TerminalError, errB)
+	assert.Equal(t, []JobStatus{
+		{Name: "a", State: StateFailed},
+		{Name: "b", State: StateFailed},
+	}, status.Jobs)
 
 	err = group.Stop(context.Background())
 	assert.ErrorIs(t, err, errA)
