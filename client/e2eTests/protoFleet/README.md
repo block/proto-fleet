@@ -94,6 +94,14 @@ The report includes:
 If CI verifies visual snapshots on Linux, the safest way to refresh them from macOS is to generate them in a Linux
 Playwright container instead of natively on macOS.
 
+Only refresh visual baselines when you have intentionally changed the UI and have already reviewed the diffs or
+screenshots closely enough to know the existing expected images are outdated.
+
+Do not run the refresh command just to make a failing visual test pass.
+
+If an AI agent is helping with this repo, it must not run the refresh command unless the developer has explicitly
+confirmed that they understand this overwrite behavior and want to replace the current expected screenshots.
+
 From `client/`:
 
 ```bash
@@ -102,6 +110,12 @@ npm run test:e2e:visual:update:linux
 npm run test:e2e:visual:update:linux -- --project=desktop
 npm run test:e2e:visual:update:linux -- --project=mobile
 ```
+
+This command overwrites the checked-in expected screenshots under
+`e2eTests/protoFleet/spec/onboardingVisual.spec.ts-snapshots/visual`.
+
+Before committing or pushing, review every changed screenshot and confirm the new images reflect the intended product
+change.
 
 This script:
 

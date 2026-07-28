@@ -19,6 +19,12 @@ What it does:
   3. Resets the fake backend before each project
   4. Runs the visual spec inside the official Linux Playwright image
   5. Copies the refreshed screenshots back into the repo
+
+Important:
+  - This command overwrites the checked-in expected screenshots.
+  - Only run it after reviewing the visual changes and deciding the old screenshots are outdated.
+  - Do not run it just to make a failing visual test pass.
+  - Review every updated screenshot before committing or pushing.
 EOF
 }
 
