@@ -9,29 +9,23 @@ import SettingsPageHeader from "@/protoFleet/features/settings/components/Settin
 import { copyInstallCommand } from "@/protoFleet/features/updates/copyInstallCommand";
 import { useAuthErrors, useHasPermission } from "@/protoFleet/store";
 import { Copy } from "@/shared/assets/icons";
+import Checkbox from "@/shared/components/Checkbox";
 import Header from "@/shared/components/Header";
 import Row from "@/shared/components/Row";
-import SegmentedControl from "@/shared/components/SegmentedControl";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 const SkeletonLoader = <SkeletonBar className="h-[22px] w-24" />;
 const UPDATES_PAGE_DESCRIPTION = "View the server version and choose which releases this instance installs.";
 
-const CHANNEL_SEGMENTS = [
-  { key: String(ReleaseChannel.STABLE), title: "Stable" },
-  { key: String(ReleaseChannel.STABLE_AND_RC), title: "Stable + RC" },
-];
-
 const Updates = () => {
   const canUpdateInstance = useHasPermission("instance:update");
   const { handleAuthErrors } = useAuthErrors();
   const [status, setStatus] = useState<GetUpdateStatusResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  // The channel the server has persisted; the source of truth the control
-  // reverts to when a save fails.
+  // The channel the server has persisted; the checkbox is controlled by it,
+  // so a failed save never moves the control.
   const [channel, setChannel] = useState<ReleaseChannel>(ReleaseChannel.UNSPECIFIED);
-  const [channelControlResetKey, setChannelControlResetKey] = useState(0);
 
   const fetchStatus = useCallback(() => {
     updatesClient
@@ -57,8 +51,8 @@ const Updates = () => {
     fetchStatus();
   }, [canUpdateInstance, fetchStatus]);
 
-  const handleChannelSelect = (selectedKey: string) => {
-    const nextChannel = Number(selectedKey) as ReleaseChannel;
+  const handleIncludeRCChange = (includeRC: boolean) => {
+    const nextChannel = includeRC ? ReleaseChannel.STABLE_AND_RC : ReleaseChannel.STABLE;
     if (nextChannel === channel) {
       return;
     }
@@ -78,9 +72,6 @@ const Updates = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
-            // The SegmentedControl is uncontrolled, so revert by bumping its
-            // key: the remount re-reads the still-persisted channel.
-            setChannelControlResetKey((key) => key + 1);
             pushToast({
               message: getErrorMessage(err, "Failed to update release channel"),
               status: STATUSES.error,
@@ -156,18 +147,19 @@ const Updates = () => {
           <div className="flex flex-col gap-4 rounded-xl border border-border-5 p-6">
             <Header title="Release channel" titleSize="text-heading-200" />
             {status ? (
-              <SegmentedControl
-                key={`${channel}-${channelControlResetKey}`}
-                segments={CHANNEL_SEGMENTS}
-                initialSegmentKey={String(channel)}
-                onSelect={handleChannelSelect}
-              />
+              <label className="flex w-fit cursor-pointer items-center gap-3">
+                <Checkbox
+                  className="shrink-0"
+                  checked={channel === ReleaseChannel.STABLE_AND_RC}
+                  onChange={(e) => handleIncludeRCChange(e.target.checked)}
+                />
+                <span className="text-300">Include release candidates</span>
+              </label>
             ) : (
               <SkeletonBar className="h-8 w-44" />
             )}
             <p className="text-200 text-text-primary-50">
-              Stable + RC also installs release candidates; an RC install cannot downgrade until the next stable
-              release.
+              An RC install cannot downgrade until the next stable release.
             </p>
           </div>
         </div>

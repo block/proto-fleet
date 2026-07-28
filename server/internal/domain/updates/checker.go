@@ -91,7 +91,7 @@ func (c *Checker) Start(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("start release checker: %w", err)
 	}
-	if c.cfg.Disabled {
+	if !c.cfg.Enabled {
 		return nil
 	}
 

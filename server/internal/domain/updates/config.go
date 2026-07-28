@@ -14,7 +14,7 @@ type Config struct {
 	CheckInterval   time.Duration `help:"Interval between GitHub release checks" default:"24h" env:"CHECK_INTERVAL"`
 	ReleasesAPIURL  string        `help:"GitHub API base URL of the repository releases are fetched from" default:"https://api.github.com/repos/block/proto-fleet" env:"RELEASES_API_URL"`
 	DownloadBaseURL string        `help:"Base URL release artifacts are downloaded from" default:"https://github.com/block/proto-fleet/releases/download" env:"DOWNLOAD_BASE_URL"`
-	Disabled        bool          `help:"Disable release update checks" env:"DISABLED"`
+	Enabled         bool          `help:"Enable release update checks" default:"true" env:"ENABLED"`
 }
 
 // Validate validates the configuration. Both URLs end up inside a copy-paste

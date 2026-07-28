@@ -67,7 +67,7 @@ const mockSetReleaseChannel = vi.mocked(updatesClient.setReleaseChannel);
 const mockCopyToClipboard = vi.mocked(copyToClipboard);
 const mockPushToast = vi.mocked(pushToast);
 
-const SELECTED_SEGMENT_CLASS = "text-emphasis-200";
+const RC_CHECKBOX_NAME = "Include release candidates";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -180,7 +180,7 @@ describe("Updates", () => {
     mockSetReleaseChannel.mockResolvedValue({} as never);
 
     const { findByRole, getByRole } = render(<Updates />);
-    fireEvent.mouseDown(await findByRole("button", { name: "Stable + RC" }));
+    fireEvent.click(await findByRole("checkbox", { name: RC_CHECKBOX_NAME }));
 
     expect(mockSetReleaseChannel).toHaveBeenCalledWith({ channel: ReleaseChannel.STABLE_AND_RC });
     await waitFor(() =>
@@ -189,7 +189,22 @@ describe("Updates", () => {
         status: "success",
       }),
     );
-    await waitFor(() => expect(getByRole("button", { name: "Stable + RC" })).toHaveClass(SELECTED_SEGMENT_CLASS));
+    await waitFor(() => expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeChecked());
+  });
+
+  it("saves a switch back to stable when the checkbox is unchecked", async () => {
+    mockGetUpdateStatus
+      .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE_AND_RC }))
+      .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }));
+    mockSetReleaseChannel.mockResolvedValue({} as never);
+
+    const { findByRole, getByRole } = render(<Updates />);
+    const checkbox = await findByRole("checkbox", { name: RC_CHECKBOX_NAME });
+    expect(checkbox).toBeChecked();
+    fireEvent.click(checkbox);
+
+    expect(mockSetReleaseChannel).toHaveBeenCalledWith({ channel: ReleaseChannel.STABLE });
+    await waitFor(() => expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).not.toBeChecked());
   });
 
   it("refetches the update status after a successful channel change", async () => {
@@ -212,18 +227,18 @@ describe("Updates", () => {
     const { findByText, findByRole } = render(<Updates />);
     expect(await findByText("v1.3.0")).toBeInTheDocument();
 
-    fireEvent.mouseDown(await findByRole("button", { name: "Stable + RC" }));
+    fireEvent.click(await findByRole("checkbox", { name: RC_CHECKBOX_NAME }));
 
     expect(await findByText("v1.4.0-rc.1")).toBeInTheDocument();
     expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2);
   });
 
-  it("toasts an error and reverts the control when saving the channel fails", async () => {
+  it("toasts an error and leaves the checkbox unchecked when saving the channel fails", async () => {
     mockGetUpdateStatus.mockResolvedValue(buildStatus({ channel: ReleaseChannel.STABLE }));
     mockSetReleaseChannel.mockRejectedValue(new Error("registry rejected the channel"));
 
     const { findByRole, getByRole } = render(<Updates />);
-    fireEvent.mouseDown(await findByRole("button", { name: "Stable + RC" }));
+    fireEvent.click(await findByRole("checkbox", { name: RC_CHECKBOX_NAME }));
 
     expect(mockSetReleaseChannel).toHaveBeenCalledWith({ channel: ReleaseChannel.STABLE_AND_RC });
     await waitFor(() =>
@@ -232,9 +247,8 @@ describe("Updates", () => {
         status: "error",
       }),
     );
-    // The control snaps back to the persisted channel.
-    await waitFor(() => expect(getByRole("button", { name: "Stable" })).toHaveClass(SELECTED_SEGMENT_CLASS));
-    expect(getByRole("button", { name: "Stable + RC" })).not.toHaveClass(SELECTED_SEGMENT_CLASS);
+    // The checkbox is controlled by the persisted channel, which never moved.
+    expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).not.toBeChecked();
   });
 
   it("redirects and does not fire the status RPC without the instance:update permission", async () => {

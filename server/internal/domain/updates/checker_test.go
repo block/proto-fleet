@@ -190,6 +190,8 @@ func (g *ghServer) config() Config {
 		CheckInterval:   24 * time.Hour,
 		ReleasesAPIURL:  g.srv.URL,
 		DownloadBaseURL: "https://github.com/block/proto-fleet/releases/download",
+		// Kong's default:"true" only applies to parsed config, not literals.
+		Enabled: true,
 	}
 }
 
@@ -692,7 +694,7 @@ func TestStartDisabledIsNoOp(t *testing.T) {
 
 	gh := newGHServer(t)
 	cfg := gh.config()
-	cfg.Disabled = true
+	cfg.Enabled = false
 	c, _ := newTestChecker(t, cfg)
 
 	require.NoError(t, c.Start(context.Background()))

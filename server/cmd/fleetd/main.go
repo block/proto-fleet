@@ -754,7 +754,7 @@ func start(config *Config) error {
 	// nil-when-disabled mirrors systemMonitoring: newRuntimeJobs skips
 	// optional jobs entirely instead of starting a lifecycle that no-ops.
 	var releaseCheckerJob runtimejobs.Lifecycle
-	if !config.Updates.Disabled {
+	if config.Updates.Enabled {
 		releaseCheckerJob = releaseChecker
 	}
 
