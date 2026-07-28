@@ -13,7 +13,7 @@ import (
 )
 
 const acquireFleetRuntimeLease = `-- name: AcquireFleetRuntimeLease :one
-WITH writer_identity AS MATERIALIZED (
+WITH lease_context AS (
     SELECT
         clock_timestamp() AS database_time,
         (
@@ -38,11 +38,11 @@ SELECT
     $2,
     1,
     $3,
-    writer_identity.database_time
+    lease_context.database_time
         + $4::BIGINT
         * INTERVAL '1 millisecond'
-FROM writer_identity
-WHERE writer_identity.matches
+FROM lease_context
+WHERE lease_context.matches
 ON CONFLICT (lease_name) DO UPDATE
 SET
     highest_writer_generation = EXCLUDED.highest_writer_generation,
@@ -52,7 +52,7 @@ SET
             AND fleet_runtime_lease.highest_writer_generation
                 = EXCLUDED.highest_writer_generation
             AND fleet_runtime_lease.expires_at
-                > (SELECT database_time FROM writer_identity)
+                > (SELECT database_time FROM lease_context)
         THEN fleet_runtime_lease.lease_epoch
         ELSE fleet_runtime_lease.lease_epoch + 1
     END,
@@ -69,7 +69,7 @@ WHERE
             AND (
                 fleet_runtime_lease.holder_id = EXCLUDED.holder_id
                 OR fleet_runtime_lease.expires_at
-                    <= (SELECT database_time FROM writer_identity)
+                    <= (SELECT database_time FROM lease_context)
             )
         )
     )
@@ -79,7 +79,7 @@ RETURNING
     lease_epoch,
     holder_id,
     expires_at,
-    (SELECT database_time FROM writer_identity)::TIMESTAMPTZ AS database_time
+    (SELECT database_time FROM lease_context)::TIMESTAMPTZ AS database_time
 `
 
 type AcquireFleetRuntimeLeaseParams struct {
@@ -145,7 +145,7 @@ func (q *Queries) GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPo
 }
 
 const renewFleetRuntimeLease = `-- name: RenewFleetRuntimeLease :one
-WITH writer_identity AS MATERIALIZED (
+WITH lease_context AS (
     SELECT
         clock_timestamp() AS database_time,
         (
@@ -158,25 +158,25 @@ WITH writer_identity AS MATERIALIZED (
 )
 UPDATE fleet_runtime_lease
 SET
-    expires_at = writer_identity.database_time
+    expires_at = lease_context.database_time
         + $1::BIGINT
         * INTERVAL '1 millisecond'
-FROM writer_identity
+FROM lease_context
 WHERE
-    writer_identity.matches
+    lease_context.matches
     AND lease_name = 'fleet-active'
     AND dcs_cluster_id = $2
     AND highest_writer_generation = $3
     AND lease_epoch = $4
     AND holder_id = $5
-    AND expires_at > writer_identity.database_time
+    AND expires_at > lease_context.database_time
 RETURNING
     fleet_runtime_lease.dcs_cluster_id,
     fleet_runtime_lease.highest_writer_generation,
     fleet_runtime_lease.lease_epoch,
     fleet_runtime_lease.holder_id,
     fleet_runtime_lease.expires_at,
-    writer_identity.database_time::TIMESTAMPTZ AS database_time
+    lease_context.database_time::TIMESTAMPTZ AS database_time
 `
 
 type RenewFleetRuntimeLeaseParams struct {
