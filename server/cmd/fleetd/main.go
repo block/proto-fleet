@@ -641,7 +641,7 @@ func start(config *Config) error {
 		return fmt.Errorf("create runtime job group: %w", err)
 	}
 	// HA configuration is not exposed yet, so production stays standalone.
-	fleetRuntime, err := ha.NewStandaloneRuntime(runtimeJobGroup)
+	fleetRuntime, err := ha.NewStandaloneRuntime(runtimeJobGroup, executionService.IsRunning)
 	if err != nil {
 		return fmt.Errorf("create Fleet runtime: %w", err)
 	}

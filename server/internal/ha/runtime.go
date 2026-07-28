@@ -62,22 +62,35 @@ func NewRuntime(
 	if group == nil {
 		return nil, errors.New("HA runtime requires a runtime job group")
 	}
-	if len(healthChecks) == 0 {
-		return nil, errors.New("HA runtime requires at least one critical health check")
-	}
-	for _, check := range healthChecks {
-		if check == nil {
-			return nil, errors.New("HA runtime critical health checks must not be nil")
-		}
+	if err := validateHealthChecks(healthChecks); err != nil {
+		return nil, fmt.Errorf("HA runtime: %w", err)
 	}
 	return newRuntime(owner, group, healthChecks, RuntimeConfig{}), nil
 }
 
-func NewStandaloneRuntime(group *runtimejobs.Group) (*Runtime, error) {
+func NewStandaloneRuntime(
+	group *runtimejobs.Group,
+	healthChecks ...HealthCheck,
+) (*Runtime, error) {
 	if group == nil {
 		return nil, errors.New("standalone runtime requires a runtime job group")
 	}
-	return newRuntime(nil, group, nil, RuntimeConfig{}), nil
+	if err := validateHealthChecks(healthChecks); err != nil {
+		return nil, fmt.Errorf("standalone runtime: %w", err)
+	}
+	return newRuntime(nil, group, healthChecks, RuntimeConfig{}), nil
+}
+
+func validateHealthChecks(healthChecks []HealthCheck) error {
+	if len(healthChecks) == 0 {
+		return errors.New("requires at least one critical health check")
+	}
+	for _, check := range healthChecks {
+		if check == nil {
+			return errors.New("critical health checks must not be nil")
+		}
+	}
+	return nil
 }
 
 func newRuntime(
@@ -95,8 +108,12 @@ func newRuntime(
 	}
 }
 
-func newStandaloneRuntime(group runtimeGroup, config RuntimeConfig) *Runtime {
-	return newRuntime(nil, group, nil, config)
+func newStandaloneRuntime(
+	group runtimeGroup,
+	healthChecks []HealthCheck,
+	config RuntimeConfig,
+) *Runtime {
+	return newRuntime(nil, group, healthChecks, config)
 }
 
 func withRuntimeDefaults(config RuntimeConfig) RuntimeConfig {

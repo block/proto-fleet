@@ -131,6 +131,12 @@ func TestNewRuntimeRequiresExplicitCriticalHealth(t *testing.T) {
 
 	_, err = NewRuntime(&Coordinator{}, group, nil)
 	require.ErrorContains(t, err, "must not be nil")
+
+	_, err = NewStandaloneRuntime(group)
+	require.ErrorContains(t, err, "at least one critical health check")
+
+	_, err = NewStandaloneRuntime(group, nil)
+	require.ErrorContains(t, err, "must not be nil")
 }
 
 func TestRuntimeStartsOnlyForOwnedLifetimeAndDrainsOnDemotion(t *testing.T) {
@@ -305,7 +311,7 @@ func TestRuntimeTerminalStartFailureStopsCoordinator(t *testing.T) {
 
 func TestStandaloneRuntimePreservesSingleHostLifecycle(t *testing.T) {
 	group := newRuntimeTestGroup()
-	runtime := newStandaloneRuntime(group, runtimeTestConfig())
+	runtime := newStandaloneRuntime(group, []HealthCheck{func() bool { return true }}, runtimeTestConfig())
 	runCtx, cancelRun := context.WithCancel(t.Context())
 	runResult := make(chan error, 1)
 	go func() {
@@ -321,7 +327,7 @@ func TestStandaloneRuntimePreservesSingleHostLifecycle(t *testing.T) {
 
 func TestStandaloneRuntimeIgnoresObservationalJobStaleness(t *testing.T) {
 	group := newRuntimeTestGroup()
-	runtime := newStandaloneRuntime(group, runtimeTestConfig())
+	runtime := newStandaloneRuntime(group, []HealthCheck{func() bool { return true }}, runtimeTestConfig())
 	runCtx, cancelRun := context.WithCancel(t.Context())
 	runResult := make(chan error, 1)
 	go func() {
@@ -342,6 +348,31 @@ func TestStandaloneRuntimeIgnoresObservationalJobStaleness(t *testing.T) {
 	requireReceive(t, group.stoppedCh)
 	require.NoError(t, <-runResult)
 	require.False(t, runtime.Active())
+}
+
+func TestStandaloneRuntimeStopsWhenCriticalHealthFails(t *testing.T) {
+	group := newRuntimeTestGroup()
+	var healthy atomic.Bool
+	healthy.Store(true)
+	runtime := newStandaloneRuntime(group, []HealthCheck{healthy.Load}, runtimeTestConfig())
+	runCtx, cancelRun := context.WithCancel(t.Context())
+	defer cancelRun()
+	runResult := make(chan error, 1)
+	go func() {
+		runResult <- runtime.Run(runCtx)
+	}()
+
+	requireReceiveContext(t, group.startedCh)
+	require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
+	requestCtx, release, err := runtime.Admit(t.Context())
+	require.NoError(t, err)
+	defer release()
+
+	healthy.Store(false)
+	requireReceive(t, group.stoppedCh)
+	require.Eventually(t, func() bool { return requestCtx.Err() != nil }, eventuallyTimeout, eventuallyInterval)
+	require.False(t, runtime.Active())
+	require.ErrorIs(t, <-runResult, errCriticalRuntimeUnhealthy)
 }
 
 func runtimeTestConfig() RuntimeConfig {
