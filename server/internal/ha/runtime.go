@@ -17,6 +17,8 @@ const (
 
 var errCriticalRuntimeUnhealthy = errors.New("critical Fleet runtime is unhealthy")
 
+// HealthCheck reports one explicitly control-critical condition. Generic
+// runtime-job freshness remains observational and must not demote Fleet.
 type HealthCheck func() bool
 
 type RuntimeConfig struct {
@@ -60,17 +62,22 @@ func NewRuntime(
 	if group == nil {
 		return nil, errors.New("HA runtime requires a runtime job group")
 	}
+	if len(healthChecks) == 0 {
+		return nil, errors.New("HA runtime requires at least one critical health check")
+	}
+	for _, check := range healthChecks {
+		if check == nil {
+			return nil, errors.New("HA runtime critical health checks must not be nil")
+		}
+	}
 	return newRuntime(owner, group, healthChecks, RuntimeConfig{}), nil
 }
 
-func NewStandaloneRuntime(
-	group *runtimejobs.Group,
-	healthChecks ...HealthCheck,
-) (*Runtime, error) {
+func NewStandaloneRuntime(group *runtimejobs.Group) (*Runtime, error) {
 	if group == nil {
 		return nil, errors.New("standalone runtime requires a runtime job group")
 	}
-	return newRuntime(nil, group, healthChecks, RuntimeConfig{}), nil
+	return newRuntime(nil, group, nil, RuntimeConfig{}), nil
 }
 
 func newRuntime(
@@ -248,13 +255,8 @@ func (r *Runtime) healthy() bool {
 	if status.State != runtimejobs.StateRunning || status.TerminalError != nil {
 		return false
 	}
-	for _, job := range status.Jobs {
-		if job.State != runtimejobs.StateRunning || job.Stale {
-			return false
-		}
-	}
 	for _, check := range r.healthChecks {
-		if check == nil || !check() {
+		if !check() {
 			return false
 		}
 	}

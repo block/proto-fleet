@@ -122,6 +122,17 @@ func (g *runtimeTestGroup) setStale(stale bool) {
 	g.status.Jobs[0].Stale = stale
 }
 
+func TestNewRuntimeRequiresExplicitCriticalHealth(t *testing.T) {
+	group, err := runtimejobs.NewGroup(nil)
+	require.NoError(t, err)
+
+	_, err = NewRuntime(&Coordinator{}, group)
+	require.ErrorContains(t, err, "at least one critical health check")
+
+	_, err = NewRuntime(&Coordinator{}, group, nil)
+	require.ErrorContains(t, err, "must not be nil")
+}
+
 func TestRuntimeStartsOnlyForOwnedLifetimeAndDrainsOnDemotion(t *testing.T) {
 	owner := newRuntimeTestOwner()
 	group := newRuntimeTestGroup()
@@ -150,6 +161,9 @@ func TestRuntimeStartsOnlyForOwnedLifetimeAndDrainsOnDemotion(t *testing.T) {
 	requestCtx, release, err := runtime.Admit(t.Context())
 	require.NoError(t, err)
 	defer release()
+
+	group.setStale(true)
+	require.Never(t, func() bool { return requestCtx.Err() != nil }, 20*time.Millisecond, time.Millisecond)
 
 	cancelActive()
 	require.Eventually(t, func() bool { return requestCtx.Err() != nil }, eventuallyTimeout, eventuallyInterval)
@@ -305,12 +319,13 @@ func TestStandaloneRuntimePreservesSingleHostLifecycle(t *testing.T) {
 	require.NoError(t, <-runResult)
 }
 
-func TestStandaloneRuntimeStopsAfterHealthLoss(t *testing.T) {
+func TestStandaloneRuntimeIgnoresObservationalJobStaleness(t *testing.T) {
 	group := newRuntimeTestGroup()
 	runtime := newStandaloneRuntime(group, runtimeTestConfig())
+	runCtx, cancelRun := context.WithCancel(t.Context())
 	runResult := make(chan error, 1)
 	go func() {
-		runResult <- runtime.Run(t.Context())
+		runResult <- runtime.Run(runCtx)
 	}()
 
 	requireReceiveContext(t, group.startedCh)
@@ -320,9 +335,12 @@ func TestStandaloneRuntimeStopsAfterHealthLoss(t *testing.T) {
 	defer release()
 
 	group.setStale(true)
-	require.Eventually(t, func() bool { return requestCtx.Err() != nil }, eventuallyTimeout, eventuallyInterval)
+	require.Never(t, func() bool { return requestCtx.Err() != nil }, 20*time.Millisecond, time.Millisecond)
+	require.True(t, runtime.Active())
+
+	cancelRun()
 	requireReceive(t, group.stoppedCh)
-	require.ErrorIs(t, <-runResult, errCriticalRuntimeUnhealthy)
+	require.NoError(t, <-runResult)
 	require.False(t, runtime.Active())
 }
 
