@@ -47,6 +47,26 @@ func (r *clientRegistry) snapshot() (active, maxActive, connects int) {
 	return r.active, r.maxActive, r.connects
 }
 
+func TestSubscriberHealthyRequiresEveryEnabledSourceToBeRunning(t *testing.T) {
+	runCtx, cancel := context.WithCancel(t.Context())
+	subscriber := &Subscriber{
+		activation: &subscriberActivation{
+			runCanceled: runCtx.Done(),
+			sourceIDs:   map[int64]struct{}{1: {}, 2: {}},
+		},
+		statuses: map[int64]RuntimeStatus{
+			1: {State: RuntimeStateRunning},
+			2: {State: RuntimeStateStarting},
+		},
+	}
+
+	require.False(t, subscriber.Healthy())
+	subscriber.statuses[2] = RuntimeStatus{State: RuntimeStateRunning}
+	require.True(t, subscriber.Healthy())
+	cancel()
+	require.False(t, subscriber.Healthy())
+}
+
 // countingClient is a no-op MQTT client that reports its connect/disconnect
 // transitions to a shared registry exactly once each.
 type countingClient struct {
@@ -234,6 +254,7 @@ func TestSubscriber_ReconcileStartsAndStopsWorkers(t *testing.T) {
 	defer func() { require.NoError(t, s.Stop(context.Background())) }()
 
 	requireRunningBrokers(t, s, src.ID, 2)
+	require.True(t, s.Healthy())
 
 	// Removing the source from the enabled set must stop its worker on the next
 	// reconcile and report it stopped with no running brokers.
@@ -243,6 +264,7 @@ func TestSubscriber_ReconcileStartsAndStopsWorkers(t *testing.T) {
 	status := s.SourceRuntimeStatus(src.ID)
 	assert.Equal(t, RuntimeStateStopped, status.State)
 	assert.Zero(t, status.RunningBrokerCount)
+	assert.True(t, s.Healthy())
 
 	require.Eventually(t, func() bool {
 		active, _, _ := reg.snapshot()

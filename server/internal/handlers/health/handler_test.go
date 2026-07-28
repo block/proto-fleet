@@ -16,6 +16,10 @@ type fakePinger struct {
 
 func (f fakePinger) PingContext(context.Context) error { return f.err }
 
+type fakeActiveState bool
+
+func (s fakeActiveState) Active() bool { return bool(s) }
+
 func TestLivenessHandlerStaysStatic(t *testing.T) {
 	// Arrange
 	recorder := httptest.NewRecorder()
@@ -86,4 +90,26 @@ func TestReadyHandlerRejectsNonGet(t *testing.T) {
 
 	// Assert
 	require.Equal(t, http.StatusMethodNotAllowed, recorder.Code)
+}
+
+func TestActiveHandlerReflectsStrictActiveState(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		active     bool
+		statusCode int
+	}{
+		{name: "active", active: true, statusCode: http.StatusOK},
+		{name: "passive", active: false, statusCode: http.StatusServiceUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+
+			NewActiveHandler(fakeActiveState(test.active))(
+				recorder,
+				httptest.NewRequest(http.MethodGet, "/health/active", nil),
+			)
+
+			require.Equal(t, test.statusCode, recorder.Code)
+		})
+	}
 }

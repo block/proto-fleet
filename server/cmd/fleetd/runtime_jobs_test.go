@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
+	"net"
+	"net/http"
 	"testing"
 	"time"
 
@@ -37,6 +40,14 @@ func (l funcLifecycle) Stop(ctx context.Context) error {
 type scriptedRuntimeJobGroupStopper struct {
 	stop     func(context.Context) error
 	contexts []context.Context
+}
+
+type scriptedFleetRuntime struct {
+	run func(context.Context) error
+}
+
+func (r scriptedFleetRuntime) Run(ctx context.Context) error {
+	return r.run(ctx)
 }
 
 func (s *scriptedRuntimeJobGroupStopper) Stop(ctx context.Context) error {
@@ -251,6 +262,57 @@ func TestStopRuntimeJobGroupBoundsGroupAndCommandStops(t *testing.T) {
 	require.ErrorIs(t, group.contexts[0].Err(), context.DeadlineExceeded)
 	require.True(t, <-commandStopped)
 	require.Less(t, time.Since(started), time.Second)
+}
+
+func TestServeFleetRuntimeServesHealthBeforeRuntimeActivation(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = io.WriteString(w, "ok")
+		}),
+		ReadHeaderTimeout: time.Second,
+	}
+	runtimeStarted := make(chan struct{})
+	runtime := scriptedFleetRuntime{run: func(ctx context.Context) error {
+		close(runtimeStarted)
+		<-ctx.Done()
+		return nil
+	}}
+	result := make(chan error, 1)
+	go func() {
+		result <- serveFleetRuntime(server, listener, runtime, time.Second)
+	}()
+	requireReceive(t, runtimeStarted)
+
+	response, err := http.Get("http://" + listener.Addr().String()) //nolint:noctx // Test-only local request.
+	require.NoError(t, err)
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.Equal(t, "ok", string(body))
+
+	require.NoError(t, server.Close())
+	require.NoError(t, <-result)
+}
+
+func TestServeFleetRuntimeStopsHTTPWhenRuntimeFails(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	server := &http.Server{
+		Handler:           http.NotFoundHandler(),
+		ReadHeaderTimeout: time.Second,
+	}
+	runtimeErr := errors.New("activation failed")
+
+	err = serveFleetRuntime(
+		server,
+		listener,
+		scriptedFleetRuntime{run: func(context.Context) error { return runtimeErr }},
+		time.Second,
+	)
+
+	require.ErrorIs(t, err, runtimeErr)
 }
 
 func jobNames(jobs []runtimejobs.Job) []string {

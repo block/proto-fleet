@@ -846,11 +846,7 @@ func commandPayloadRedacted(kind string) map[string]any {
 // CommandResult.Skipped.
 func (s *Service) processCommand(ctx context.Context, command *Command) (*CommandResult, error) {
 	if !s.executionService.IsRunning() {
-		slog.Error("command execution service is not running, attempting to start it")
-		err := s.executionService.Start(ctx)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to start command execution service: %v", err)
-		}
+		return nil, fleeterror.NewNotActiveError()
 	}
 
 	info, err := session.GetInfo(ctx)
@@ -1404,11 +1400,7 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 	}
 
 	if !s.executionService.IsRunning() {
-		slog.Error("command execution service is not running, attempting to start it")
-		err := s.executionService.Start(ctx)
-		if err != nil {
-			return "", fleeterror.NewInternalErrorf("failed to start command execution service: %v", err)
-		}
+		return "", fleeterror.NewNotActiveError()
 	}
 
 	info, err := session.GetInfo(ctx)

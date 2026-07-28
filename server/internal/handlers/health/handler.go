@@ -68,6 +68,27 @@ func NewReadyHandler(db Pinger) func(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+type ActiveState interface {
+	Active() bool
+}
+
+// NewActiveHandler reports whether this process currently owns a healthy
+// active runtime. It does not grant ownership.
+func NewActiveHandler(state ActiveState) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if !state.Active() {
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		writeOK(w, r, "health-active")
+	}
+}
+
 func writeOK(w http.ResponseWriter, r *http.Request, handler string) {
 	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)

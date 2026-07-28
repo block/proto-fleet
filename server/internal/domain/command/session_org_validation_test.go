@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"connectrpc.com/authn"
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -74,4 +75,20 @@ func TestReapplyCurrentPoolsWithWorkerNames_RejectsMissingOrgID(t *testing.T) {
 	var fleetErr fleeterror.FleetError
 	require.True(t, errors.As(err, &fleetErr), "expected FleetError, got %T", err)
 	assert.Contains(t, err.Error(), "session missing organization_id")
+}
+
+func TestCommandServiceDoesNotRestartExecutionFromPassiveTraffic(t *testing.T) {
+	execution := &ExecutionService{}
+	svc := &Service{config: &Config{}, executionService: execution}
+
+	_, err := svc.processCommand(sessionCtxWithOrg(1), &Command{
+		commandType:    commandtype.Reboot,
+		deviceSelector: &pb.DeviceSelector{},
+	})
+
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	require.Equal(t, connect.CodeUnavailable, fleetErr.GRPCCode)
+	require.Contains(t, fleetErr.DebugMessage, "not active")
+	require.False(t, execution.IsRunning())
 }
