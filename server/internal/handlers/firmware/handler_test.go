@@ -43,6 +43,16 @@ type staticPermissionResolver struct {
 	err         error
 }
 
+func assertJSONErrorResponse(t *testing.T, rr *httptest.ResponseRecorder, status int, message string) {
+	t.Helper()
+	require.Equal(t, status, rr.Code)
+	assert.Equal(t, "application/json", rr.Header().Get("Content-Type"))
+
+	var response errorResponse
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &response))
+	assert.Equal(t, message, response.Error)
+}
+
 func (r staticPermissionResolver) LoadEffective(
 	_ context.Context,
 	_,
@@ -809,8 +819,7 @@ func TestUpdateMetadataHandler_RejectsIncompleteMetadata(t *testing.T) {
 
 	env.updateMetadataHandler().ServeHTTP(rr, req)
 
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "target_model")
+	assertJSONErrorResponse(t, rr, http.StatusBadRequest, "FleetError: invalid_argument (Common: 0) target_model is required")
 }
 
 func TestUpdateMetadataHandler_Returns404ForMissingFile(t *testing.T) {
@@ -825,7 +834,7 @@ func TestUpdateMetadataHandler_Returns404ForMissingFile(t *testing.T) {
 
 	env.updateMetadataHandler().ServeHTTP(rr, req)
 
-	assert.Equal(t, http.StatusNotFound, rr.Code)
+	assertJSONErrorResponse(t, rr, http.StatusNotFound, "FleetError: not_found (Common: 0) firmware file not found: "+fileID)
 }
 
 // --- Delete file handler tests ---
@@ -837,7 +846,7 @@ func TestDeleteFileHandler_RejectsNoCookie(t *testing.T) {
 
 	env.deleteFileHandler().ServeHTTP(rr, req)
 
-	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	assertJSONErrorResponse(t, rr, http.StatusUnauthorized, "authentication required")
 }
 
 func TestDeleteFileHandler_DeletesExistingFile(t *testing.T) {
@@ -871,8 +880,7 @@ func TestDeleteFileHandler_Returns400ForInvalidID(t *testing.T) {
 
 	env.deleteFileHandler().ServeHTTP(rr, req)
 
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
-	assert.Contains(t, rr.Body.String(), "invalid firmware file ID")
+	assertJSONErrorResponse(t, rr, http.StatusBadRequest, "FleetError: invalid_argument (Common: 0) invalid firmware file ID: not-a-uuid")
 }
 
 func TestDeleteFileHandler_Returns404ForMissingFile(t *testing.T) {
@@ -887,8 +895,7 @@ func TestDeleteFileHandler_Returns404ForMissingFile(t *testing.T) {
 
 	env.deleteFileHandler().ServeHTTP(rr, req)
 
-	assert.Equal(t, http.StatusNotFound, rr.Code)
-	assert.Contains(t, rr.Body.String(), "firmware file not found")
+	assertJSONErrorResponse(t, rr, http.StatusNotFound, "FleetError: not_found (Common: 0) firmware file not found: "+missingID)
 }
 
 // --- Delete all files handler tests ---
@@ -900,7 +907,7 @@ func TestDeleteAllFilesHandler_RejectsNoCookie(t *testing.T) {
 
 	env.deleteAllFilesHandler().ServeHTTP(rr, req)
 
-	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+	assertJSONErrorResponse(t, rr, http.StatusUnauthorized, "authentication required")
 }
 
 func TestDeleteAllFilesHandler_DeletesAllFiles(t *testing.T) {

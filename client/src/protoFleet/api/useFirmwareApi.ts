@@ -66,10 +66,13 @@ async function fetchFirmwareConfig(logout: () => void): Promise<FirmwareConfig> 
   return configPromise;
 }
 
-export interface FirmwareUploadOptions {
-  targetManufacturer?: string;
-  targetModel?: string;
-  firmwareVersion?: string;
+export interface FirmwareMetadataInput {
+  targetManufacturer: string;
+  targetModel: string;
+  firmwareVersion: string;
+}
+
+export interface FirmwareUploadOptions extends FirmwareMetadataInput {
   onProgress?: (percent: number) => void;
   signal?: AbortSignal;
 }
@@ -103,12 +106,6 @@ export interface FirmwareFileInfo {
   target_manufacturer: string;
   target_model: string;
   firmware_version?: string;
-}
-
-export interface FirmwareMetadataInput {
-  targetManufacturer: string;
-  targetModel: string;
-  firmwareVersion: string;
 }
 
 interface CheckFirmwareResponse {
@@ -174,7 +171,7 @@ export const useFirmwareApi = () => {
   );
 
   const uploadFirmwareFile = useCallback(
-    async (file: File, options?: FirmwareUploadOptions): Promise<string> => {
+    async (file: File, options: FirmwareUploadOptions): Promise<string> => {
       const config = await fetchFirmwareConfig(logout);
       const { targetManufacturer = "", targetModel = "", firmwareVersion = "" } = options ?? {};
       const target = { targetManufacturer, targetModel, firmwareVersion };

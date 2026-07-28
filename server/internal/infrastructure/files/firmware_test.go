@@ -3,6 +3,7 @@ package files
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -183,6 +185,47 @@ func TestUpdateFirmwareMetadata_ReplacesMetadataAndChecksumTarget(t *testing.T) 
 	assert.Len(t, entries, 2, "atomic metadata replacement should not leave staging files")
 }
 
+func TestUpdateFirmwareMetadata_ClassifiesCorruptPayloadDirectoryAsInternal(t *testing.T) {
+	svc := setupService(t)
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(getFirmwareDirPath(fileID), "extra.swu"), []byte("extra"), 0600))
+
+	err = svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	})
+
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+}
+
+func TestUpdateFirmwareMetadata_DoesNotIndexMetadataBeforeDirectorySync(t *testing.T) {
+	svc := setupService(t)
+	const content = "indexed firmware"
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+	svc.syncFirmwareDir = func(string) error {
+		return errors.New("injected directory sync failure")
+	}
+
+	metadata := FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	}
+	err = svc.UpdateFirmwareMetadata(fileID, metadata)
+
+	require.Error(t, err)
+	_, found := svc.FindFirmwareFileByChecksum(checksumOf(content), metadata)
+	assert.False(t, found, "renamed metadata must not become reuse-eligible until its directory entry is durable")
+	cachedChecksum, cached := svc.lookupFirmwareChecksum(fileID)
+	assert.True(t, cached, "failed metadata sync should retain the immutable payload checksum")
+	assert.Equal(t, checksumOf(content), cachedChecksum)
+}
+
 func TestUpdateFirmwareMetadata_PreservesUploadTime(t *testing.T) {
 	svc := setupService(t)
 	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
@@ -203,6 +246,19 @@ func TestUpdateFirmwareMetadata_PreservesUploadTime(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, after, 1)
 	assert.Equal(t, before[0].UploadedAt, after[0].UploadedAt)
+}
+
+func TestGetFirmwareFilePath_ClassifiesCorruptPayloadDirectoryAsInternal(t *testing.T) {
+	svc := setupService(t)
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(getFirmwareDirPath(fileID), "extra.swu"), []byte("extra"), 0600))
+
+	_, err = svc.GetFirmwareFilePath(fileID)
+
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
 }
 
 func TestUpdateFirmwareMetadata_PersistsLegacyUploadTimeFallback(t *testing.T) {

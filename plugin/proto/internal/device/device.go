@@ -760,6 +760,13 @@ func (d *Device) invalidateStatusCache() {
 	d.clearStatusCacheLocked()
 }
 
+func (d *Device) invalidateStatusAndFirmwareCaches() {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	d.clearStatusCacheLocked()
+	d.lastFirmwareCheckAt = time.Time{}
+}
+
 func (d *Device) clearStatusCacheLocked() {
 	d.lastStatus = nil
 	d.lastStatusAt = time.Time{}
@@ -904,7 +911,7 @@ func (d *Device) Reboot(ctx context.Context) error {
 		return fmt.Errorf("failed to reboot device: %w", err)
 	}
 
-	d.invalidateStatusCache()
+	d.invalidateStatusAndFirmwareCaches()
 
 	return nil
 }

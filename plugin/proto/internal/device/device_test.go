@@ -281,6 +281,68 @@ func TestUpdateMinerPasswordClearsDefaultPasswordStatusCache(t *testing.T) {
 	assert.Equal(t, 1, systemStatusCalls, "post-change status should not need an immediate extra probe")
 }
 
+func TestRebootRefreshesFirmwareVersionOnNextStatus(t *testing.T) {
+	firmwareVersion := "1.0.0"
+	var firmwareVersionCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/auth/login":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"r"}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"mining-status":{"status":"Mining"}}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"pools":[{"id":0,"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/telemetry":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system/status":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"default_password_active":false}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/system/reboot":
+			firmwareVersion = "2.0.0"
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/system":
+			firmwareVersionCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"system-info":{"os":{"name":"Proto OS","version":%q}}}`, firmwareVersion)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	parsed, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	host, portStr, err := net.SplitHostPort(parsed.Host)
+	require.NoError(t, err)
+	port, err := strconv.ParseInt(portStr, 10, 32)
+	require.NoError(t, err)
+
+	dev, err := New("device-firmware-reboot", sdk.DeviceInfo{
+		Host:            host,
+		Port:            int32(port),
+		URLScheme:       "http",
+		FirmwareVersion: firmwareVersion,
+	}, sdk.UsernamePassword{Username: "admin", Password: "proto"}, SetStatusTTL(time.Hour))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dev.Close(context.Background()) })
+
+	cached, err := dev.Status(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "1.0.0", cached.FirmwareVersion)
+	require.Equal(t, 0, firmwareVersionCalls, "known firmware should remain throttled before reboot")
+
+	require.NoError(t, dev.Reboot(context.Background()))
+
+	refreshed, err := dev.Status(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "2.0.0", refreshed.FirmwareVersion)
+	assert.Equal(t, 1, firmwareVersionCalls, "first post-reboot status should refresh activated firmware")
+}
+
 func TestDevice_CurtailFullWrapsDispatchFailureAsTransient(t *testing.T) {
 	dev := newMiningControlTestDevice(t, http.StatusInternalServerError)
 

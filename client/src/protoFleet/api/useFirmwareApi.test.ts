@@ -284,6 +284,7 @@ describe("useFirmwareApi", () => {
       const file = new File(["data"], "proto-rig.swu");
       const { result } = renderHook(() => useFirmwareApi());
 
+      // @ts-expect-error Runtime validation still protects untyped callers.
       await expect(result.current.uploadFirmwareFile(file)).rejects.toThrow(
         "Manufacturer, model, and firmware version are required.",
       );
@@ -308,6 +309,7 @@ describe("useFirmwareApi", () => {
       const file = new File(["data"], "firmware.zip");
       const { result } = renderHook(() => useFirmwareApi());
 
+      // @ts-expect-error Runtime validation still protects untyped callers.
       await expect(result.current.uploadFirmwareFile(file)).rejects.toThrow(
         "Manufacturer, model, and firmware version are required.",
       );

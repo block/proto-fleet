@@ -98,6 +98,7 @@ type Service struct {
 	checksumIndex        map[string][]string // SHA-256 hex -> reuse-eligible file IDs
 	firmwareChecksumByID map[string]string   // fileID -> SHA-256 hex
 	firmwareUploadLocks  map[firmwareUploadKey]*firmwareUploadLock
+	syncFirmwareDir      func(string) error
 }
 
 // MaxFirmwareFileSize returns the configured maximum firmware file size in bytes.
@@ -171,6 +172,7 @@ func NewService(cfg Config) (*Service, error) {
 		checksumIndex:                  make(map[string][]string),
 		firmwareChecksumByID:           make(map[string]string),
 		firmwareUploadLocks:            make(map[firmwareUploadKey]*firmwareUploadLock),
+		syncFirmwareDir:                syncFirmwareDirectory,
 	}
 
 	if err := svc.initChecksumIndex(); err != nil {

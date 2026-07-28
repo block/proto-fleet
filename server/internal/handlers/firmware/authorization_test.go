@@ -109,8 +109,7 @@ func TestFirmwareMutationHandlers_RejectUserWithoutFirmwareUpdatePermission(t *t
 
 			tt.handler(env).ServeHTTP(rr, req)
 
-			assert.Equal(t, http.StatusForbidden, rr.Code)
-			assert.JSONEq(t, `{"error":"permission denied"}`, rr.Body.String())
+			assertJSONErrorResponse(t, rr, http.StatusForbidden, "permission denied")
 		})
 	}
 }

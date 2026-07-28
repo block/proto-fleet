@@ -456,14 +456,14 @@ func (s *Service) saveFirmwareFileFromPathWithChecksum(filename string, srcPath 
 	if err := writeFirmwareMetadata(stagingDir, metadata, time.Now().UTC()); err != nil {
 		return "", err
 	}
-	if err := syncFirmwareDirectory(stagingDir); err != nil {
+	if err := s.syncFirmwareDir(stagingDir); err != nil {
 		return "", fleeterror.NewInternalErrorf("failed to sync firmware staging directory: %v", err)
 	}
 	if err := os.Rename(stagingDir, finalDir); err != nil {
 		return "", fleeterror.NewInternalErrorf("failed to publish firmware directory: %v", err)
 	}
 	removeStaging = false
-	if err := syncFirmwareDirectory(firmwareDir); err != nil {
+	if err := s.syncFirmwareDir(firmwareDir); err != nil {
 		return "", fleeterror.NewInternalErrorf("failed to sync firmware directory: %v", err)
 	}
 
@@ -532,9 +532,9 @@ func (s *Service) UpdateFirmwareMetadata(fileID string, metadata FirmwareMetadat
 	if record, readErr := readFirmwareMetadataRecord(dir); readErr == nil && !record.UploadedAt.IsZero() {
 		uploadedAt = record.UploadedAt
 	}
-	filePath, err := findSingleFileInDir(dir, firmwareMetadataFilename)
+	filePath, err := getFirmwareFilePathForCanonicalID(canonical)
 	if err != nil {
-		return fleeterror.NewNotFoundErrorf("firmware file not found: %s", canonical)
+		return err
 	}
 	// The payload is immutable after publish, so a cached checksum is trusted;
 	// only legacy files that were never indexed need a fresh hash.
@@ -546,23 +546,29 @@ func (s *Service) UpdateFirmwareMetadata(fileID string, metadata FirmwareMetadat
 		}
 	}
 
+	// Keep the cached checksum, but stop advertising this file for reuse while
+	// its replacement metadata is not yet durable.
+	s.removeFirmwareChecksumEligibility(checksum, canonical)
 	if err := writeFirmwareMetadata(dir, metadata, uploadedAt); err != nil {
 		return err
 	}
-	s.rememberFirmwareChecksum(checksum, canonical)
-	if err := syncFirmwareDirectory(dir); err != nil {
+	if err := s.syncFirmwareDir(dir); err != nil {
 		return fleeterror.NewInternalErrorf("failed to sync firmware directory: %v", err)
 	}
+	s.rememberFirmwareChecksum(checksum, canonical)
 	return nil
 }
 
 func getFirmwareFilePathForCanonicalID(canonical string) (string, error) {
 	dir := getFirmwareDirPath(canonical)
 	path, err := findSingleFileInDir(dir, firmwareMetadataFilename)
-	if err != nil {
+	if err == nil {
+		return path, nil
+	}
+	if errors.Is(err, errStorageDirNoFile) || errors.Is(err, os.ErrNotExist) {
 		return "", fleeterror.NewNotFoundErrorf("firmware file not found: %s", canonical)
 	}
-	return path, nil
+	return "", fleeterror.NewInternalErrorf("failed to inspect firmware directory %s: %v", canonical, err)
 }
 
 // OpenFirmwareFile opens the firmware file for reading and returns the reader,
@@ -671,6 +677,24 @@ func (s *Service) rememberFirmwareChecksumByID(checksum, canonicalID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.firmwareChecksumByID[canonicalID] = checksum
+}
+
+func (s *Service) removeFirmwareChecksumEligibility(checksum, canonicalID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ids := s.checksumIndex[checksum]
+	for i, id := range ids {
+		if id != canonicalID {
+			continue
+		}
+		ids = append(ids[:i], ids[i+1:]...)
+		if len(ids) == 0 {
+			delete(s.checksumIndex, checksum)
+		} else {
+			s.checksumIndex[checksum] = ids
+		}
+		return
+	}
 }
 
 // FindFirmwareFileByChecksum looks up a firmware file by its SHA-256 hex digest.
