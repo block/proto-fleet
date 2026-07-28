@@ -279,11 +279,12 @@ export const stripSortFromSearchParams = (searchParams: string): string => {
 };
 
 /**
- * Tabs that own a `display` URL param. Miners has no grid/list toggle, so
- * surfacing display on that tab would let the modal offer an "Include
- * display mode" control whose value the canonicalization whitelist strips.
+ * Tabs that own a `display` (grid/list) URL param. Racks and Buildings both
+ * have a grid/list toggle. Miners and Sites have no toggle, so surfacing
+ * display on those tabs would let the modal offer an "Include display mode"
+ * control whose value the canonicalization whitelist strips.
  */
-const TABS_WITH_DISPLAY: ReadonlySet<FleetTabId> = new Set(["racks"]);
+const TABS_WITH_DISPLAY: ReadonlySet<FleetTabId> = new Set(["racks", "buildings"]);
 
 export const summarizeDisplay = (params: URLSearchParams, tab: FleetTabId): DisplaySummary | undefined => {
   if (!TABS_WITH_DISPLAY.has(tab)) return undefined;

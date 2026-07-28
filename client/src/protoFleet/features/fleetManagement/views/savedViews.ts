@@ -44,7 +44,9 @@ const TELEMETRY_FILTER_KEYS: readonly string[] = Object.keys(TELEMETRY_FILTER_BO
 ]);
 
 const RACK_FILTER_KEYS: readonly string[] = ["building", "site", "zone", "issues", "display", ...TELEMETRY_FILTER_KEYS];
-const BUILDING_FILTER_KEYS: readonly string[] = ["site", "issues", ...TELEMETRY_FILTER_KEYS];
+// Buildings tab, like Racks, owns a `display` (grid/list) toggle, so its
+// view-mode is capturable into a saved view.
+const BUILDING_FILTER_KEYS: readonly string[] = ["site", "issues", "display", ...TELEMETRY_FILTER_KEYS];
 const SITE_FILTER_KEYS: readonly string[] = ["issues", ...TELEMETRY_FILTER_KEYS];
 const INFRASTRUCTURE_FILTER_KEYS: readonly string[] = [];
 
