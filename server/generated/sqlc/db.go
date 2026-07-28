@@ -72,6 +72,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.buildingsByIDsStmt, err = db.PrepareContext(ctx, buildingsByIDs); err != nil {
 		return nil, fmt.Errorf("error preparing query BuildingsByIDs: %w", err)
 	}
+	if q.bulkConfirmCurtailmentTargetsStmt, err = db.PrepareContext(ctx, bulkConfirmCurtailmentTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query BulkConfirmCurtailmentTargets: %w", err)
+	}
 	if q.bulkInsertCurtailmentTargetsStmt, err = db.PrepareContext(ctx, bulkInsertCurtailmentTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query BulkInsertCurtailmentTargets: %w", err)
 	}
@@ -954,6 +957,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listEffectivePermissionsForUserForUpdateStmt, err = db.PrepareContext(ctx, listEffectivePermissionsForUserForUpdate); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEffectivePermissionsForUserForUpdate: %w", err)
 	}
+	if q.listEligibleConfirmationTargetsStmt, err = db.PrepareContext(ctx, listEligibleConfirmationTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query ListEligibleConfirmationTargets: %w", err)
+	}
 	if q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt, err = db.PrepareContext(ctx, listEnabledCurtailmentAutomationRulesByMQTTSource); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEnabledCurtailmentAutomationRulesByMQTTSource: %w", err)
 	}
@@ -1631,6 +1637,11 @@ func (q *Queries) Close() error {
 	if q.buildingsByIDsStmt != nil {
 		if cerr := q.buildingsByIDsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing buildingsByIDsStmt: %w", cerr)
+		}
+	}
+	if q.bulkConfirmCurtailmentTargetsStmt != nil {
+		if cerr := q.bulkConfirmCurtailmentTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bulkConfirmCurtailmentTargetsStmt: %w", cerr)
 		}
 	}
 	if q.bulkInsertCurtailmentTargetsStmt != nil {
@@ -3103,6 +3114,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listEffectivePermissionsForUserForUpdateStmt: %w", cerr)
 		}
 	}
+	if q.listEligibleConfirmationTargetsStmt != nil {
+		if cerr := q.listEligibleConfirmationTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listEligibleConfirmationTargetsStmt: %w", cerr)
+		}
+	}
 	if q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt != nil {
 		if cerr := q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listEnabledCurtailmentAutomationRulesByMQTTSourceStmt: %w", cerr)
@@ -4148,6 +4164,7 @@ type Queries struct {
 	bindEnrollmentToFleetNodeStmt                                *sql.Stmt
 	buildingBelongsToOrgStmt                                     *sql.Stmt
 	buildingsByIDsStmt                                           *sql.Stmt
+	bulkConfirmCurtailmentTargetsStmt                            *sql.Stmt
 	bulkInsertCurtailmentTargetsStmt                             *sql.Stmt
 	bulkInsertNotificationHistoryStmt                            *sql.Stmt
 	bulkRefreshAllPairedTargetReadinessStmt                      *sql.Stmt
@@ -4442,6 +4459,7 @@ type Queries struct {
 	listDeviceSetMembersPaginatedFilteredAfterStmt               *sql.Stmt
 	listEffectivePermissionsForUserStmt                          *sql.Stmt
 	listEffectivePermissionsForUserForUpdateStmt                 *sql.Stmt
+	listEligibleConfirmationTargetsStmt                          *sql.Stmt
 	listEnabledCurtailmentAutomationRulesByMQTTSourceStmt        *sql.Stmt
 	listEnabledMQTTSourcesStmt                                   *sql.Stmt
 	listExistingDeviceIdentifiersStmt                            *sql.Stmt
@@ -4662,6 +4680,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		bindEnrollmentToFleetNodeStmt:                                q.bindEnrollmentToFleetNodeStmt,
 		buildingBelongsToOrgStmt:                                     q.buildingBelongsToOrgStmt,
 		buildingsByIDsStmt:                                           q.buildingsByIDsStmt,
+		bulkConfirmCurtailmentTargetsStmt:                            q.bulkConfirmCurtailmentTargetsStmt,
 		bulkInsertCurtailmentTargetsStmt:                             q.bulkInsertCurtailmentTargetsStmt,
 		bulkInsertNotificationHistoryStmt:                            q.bulkInsertNotificationHistoryStmt,
 		bulkRefreshAllPairedTargetReadinessStmt:                      q.bulkRefreshAllPairedTargetReadinessStmt,
@@ -4956,6 +4975,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listDeviceSetMembersPaginatedFilteredAfterStmt:               q.listDeviceSetMembersPaginatedFilteredAfterStmt,
 		listEffectivePermissionsForUserStmt:                          q.listEffectivePermissionsForUserStmt,
 		listEffectivePermissionsForUserForUpdateStmt:                 q.listEffectivePermissionsForUserForUpdateStmt,
+		listEligibleConfirmationTargetsStmt:                          q.listEligibleConfirmationTargetsStmt,
 		listEnabledCurtailmentAutomationRulesByMQTTSourceStmt:        q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt,
 		listEnabledMQTTSourcesStmt:                                   q.listEnabledMQTTSourcesStmt,
 		listExistingDeviceIdentifiersStmt:                            q.listExistingDeviceIdentifiersStmt,

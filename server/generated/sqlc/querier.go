@@ -83,6 +83,14 @@ type Querier interface {
 	// buildings in the org. Caller diffs against the requested set
 	// to detect cross-org or missing IDs.
 	BuildingsByIDs(ctx context.Context, arg BuildingsByIDsParams) ([]int64, error)
+	// Applies positive confirmation updates for one event in one statement.
+	// Every row repeats all authority checks at commit time:
+	//   * parent event remains in the sampled phase;
+	//   * target remains dispatched in the sampled direction and batch;
+	//   * the exact eligible device row remains live in the event organization;
+	//   * all-paired curtail work still has a paired-like device row.
+	// Rows that lose any guard are skipped and returned to the next full tick.
+	BulkConfirmCurtailmentTargets(ctx context.Context, arg BulkConfirmCurtailmentTargetsParams) (BulkConfirmCurtailmentTargetsRow, error)
 	// Bulk fan-out via jsonb_to_recordset: per-row fields ride in a JSONB
 	// payload, missing/null keys map to SQL NULL. :execrows lets the caller
 	// pin (rows == len(input)) to detect partial writes.
@@ -951,6 +959,17 @@ type Querier interface {
 	//
 	// The non-locking sibling's LEFT JOIN narrowing rule still applies.
 	ListEffectivePermissionsForUserForUpdate(ctx context.Context, arg ListEffectivePermissionsForUserForUpdateParams) ([]ListEffectivePermissionsForUserForUpdateRow, error)
+	// System-scope (no org filter); reconciler-only fast-path confirmation read.
+	// MUST NOT be exposed through any RPC handler.
+	//
+	// Returns only phase-valid `dispatched` targets backed by a current live
+	// device in the event organization. The bulk promotion below repeats that
+	// ownership check at commit time; this read is eligibility evidence, not
+	// durable write authority. The page size is the shared confirmation batch
+	// bound supplied by the SQL store. The exclusive composite cursor follows
+	// curtailment_target's primary-key order so every active pulse can sweep and
+	// wrap without OFFSET drift as confirmed rows leave the working set.
+	ListEligibleConfirmationTargets(ctx context.Context, arg ListEligibleConfirmationTargetsParams) ([]ListEligibleConfirmationTargetsRow, error)
 	ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]ListEnabledCurtailmentAutomationRulesByMQTTSourceRow, error)
 	// Enabled MQTT sources for subscriber reconciliation.
 	ListEnabledMQTTSources(ctx context.Context) ([]CurtailmentMqttSourceConfig, error)
@@ -1471,6 +1490,16 @@ type Querier interface {
 	// expected_desired_state scopes the write to one dispatch direction so
 	// a concurrent Stop's reset isn't clobbered by a Curtail-phase post-cmd
 	// write (observeRestoring picks up the reset target afterwards).
+	//
+	// expected_state and expected_dispatch_batch_uuid are the confirmation
+	// fast-path single-winner guards. When set, the target's current state must
+	// equal expected_state and the applicable phase batch UUID (curtail_batch_uuid
+	// when desired_state='curtailed', restore_batch_uuid when 'active', consistent
+	// with the mirror logic) must equal expected_dispatch_batch_uuid. A duplicate
+	// confirmation (state advanced past 'dispatched') or a timeout/redispatch that
+	// stamped a new batch UUID (ABA) matches zero rows -> ErrCurtailmentEventState
+	// RaceLoss. Both narg guards are inert when NULL, so full-tick writes that omit
+	// them are unaffected.
 	UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCurtailmentTargetStateParams) (int64, error)
 	// Renames a custom role. Locked to is_builtin = FALSE so no built-in
 	// row can be modified through this path; ADMIN and FIELD_TECH have

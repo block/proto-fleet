@@ -107,6 +107,114 @@ func TestTelemetryActivationStopsProducerRegistrationBeforeWaiting(t *testing.T)
 	}
 }
 
+func TestGetTelemetryFromDevice_InactiveServiceRejectsBeforeFetching(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	service := NewTelemetryService(
+		Config{MetricTimeout: time.Second, ConcurrencyLimit: 1},
+		mock.NewMockTelemetryDataStore(ctrl),
+		mock.NewMockCachedMinerGetter(ctrl),
+		mock.NewMockUpdateScheduler(ctrl),
+		storesMocks.NewMockDeviceStore(ctrl),
+		mock.NewMockErrorPoller(ctrl),
+	)
+
+	_, _, _, _, _, _, err := service.GetTelemetryFromDevice(
+		t.Context(),
+		models.Device{ID: "inactive-wrapper-device"},
+	)
+
+	require.ErrorIs(t, err, errTelemetryServiceInactive)
+}
+
+// This low-level activation fixture isolates producer admission. Once the
+// exported compatibility wrapper starts a fetch, activation finish must wait
+// for it, and the wrapper must not publish into a claim that it does not own.
+func TestGetTelemetryFromDevice_RegistersProducerWithoutPublishingForeignClaim(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	dataStore := mock.NewMockTelemetryDataStore(ctrl)
+	minerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	miner := minerMocks.NewMockMiner(ctrl)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	deviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	deviceID := models.DeviceIdentifier("producer-wrapper-device")
+	metrics := modelsV2.DeviceMetrics{
+		DeviceIdentifier: string(deviceID),
+		Health:           modelsV2.HealthHealthyActive,
+		Timestamp:        time.Now(),
+	}
+
+	fetchStarted := make(chan struct{})
+	releaseFetch := make(chan struct{})
+	minerGetter.EXPECT().GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).Return(miner, nil)
+	miner.EXPECT().GetOrgID().Return(int64(1)).AnyTimes()
+	miner.EXPECT().GetSiteID().Return(int64(1)).AnyTimes()
+	miner.EXPECT().GetDriverName().Return("test-driver").AnyTimes()
+	miner.EXPECT().GetDeviceMetrics(gomock.Any()).DoAndReturn(func(context.Context) (modelsV2.DeviceMetrics, error) {
+		close(fetchStarted)
+		<-releaseFetch
+		return metrics, nil
+	})
+	scheduler.EXPECT().AddDevices(gomock.Any(), gomock.Any()).Return(nil)
+
+	service := NewTelemetryService(
+		Config{MetricTimeout: time.Second, ConcurrencyLimit: 1},
+		dataStore,
+		minerGetter,
+		scheduler,
+		deviceStore,
+		mock.NewMockErrorPoller(ctrl),
+	)
+	activationCtx, cancelActivation := context.WithCancel(context.Background())
+	activation := newTelemetryActivation(activationCtx.Done(), service.config.ConcurrencyLimit)
+	activation.cancel = cancelActivation
+	service.lifecycleMu.Lock()
+	service.activation = activation
+	service.lifecycleMu.Unlock()
+
+	foreignClaim := newInFlightEntry(inFlightKindFullTelemetry)
+	service.inFlight.Store(deviceID, foreignClaim)
+	wrapperDone := make(chan error, 1)
+	go func() {
+		_, _, _, _, _, _, err := service.GetTelemetryFromDevice(context.Background(), models.Device{ID: deviceID})
+		wrapperDone <- err
+	}()
+	<-fetchStarted
+
+	cancelActivation()
+	finishDone := make(chan struct{})
+	go func() {
+		service.finishActivation(activation)
+		close(finishDone)
+	}()
+	require.Eventually(t, func() bool {
+		activation.producerMu.Lock()
+		defer activation.producerMu.Unlock()
+		return !activation.acceptingProducers
+	}, time.Second, time.Millisecond)
+	select {
+	case <-finishDone:
+		t.Fatal("activation finished before the admitted wrapper fetch exited")
+	default:
+	}
+
+	close(releaseFetch)
+	require.NoError(t, <-wrapperDone)
+	select {
+	case <-finishDone:
+	case <-time.After(time.Second):
+		t.Fatal("activation did not finish after the admitted wrapper fetch exited")
+	}
+
+	select {
+	case <-foreignClaim.metricsReady:
+		t.Fatal("compatibility wrapper published into a claim it did not own")
+	default:
+	}
+	_, retained := service.retainedSamples.Load(deviceID)
+	assert.False(t, retained, "compatibility wrapper must not retain against a foreign claim")
+	service.releaseInFlight(deviceID, foreignClaim)
+}
+
 func TestTelemetryService_AddDevices(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -2638,7 +2746,8 @@ func TestRefreshDevice_WaitsForExistingInFlightCollectionAndFlushesWriters(t *te
 	}
 
 	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
-	service.inFlight.Store(deviceID, struct{}{})
+	inFlight := newInFlightEntry(inFlightKindFullTelemetry)
+	service.inFlight.Store(deviceID, inFlight)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -2649,7 +2758,7 @@ func TestRefreshDevice_WaitsForExistingInFlightCollectionAndFlushesWriters(t *te
 
 	go func() {
 		time.Sleep(20 * time.Millisecond)
-		service.inFlight.Delete(deviceID)
+		service.releaseInFlight(deviceID, inFlight)
 	}()
 
 	require.NoError(t, service.RefreshDevice(ctx, models.Device{ID: deviceID}))
@@ -2906,7 +3015,8 @@ func TestRefreshDevice_RunsCollectionAndReturnsErrorAfterFullTelemetryInFlightCl
 		mockDeviceStore,
 		mock.NewMockErrorPoller(ctrl),
 	)
-	service.inFlight.Store(deviceID, struct{}{})
+	inFlight := newInFlightEntry(inFlightKindFullTelemetry)
+	service.inFlight.Store(deviceID, inFlight)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -2917,7 +3027,7 @@ func TestRefreshDevice_RunsCollectionAndReturnsErrorAfterFullTelemetryInFlightCl
 
 	go func() {
 		time.Sleep(20 * time.Millisecond)
-		service.inFlight.Delete(deviceID)
+		service.releaseInFlight(deviceID, inFlight)
 	}()
 
 	err := service.RefreshDevice(ctx, models.Device{ID: deviceID})
@@ -2939,7 +3049,7 @@ func TestRefreshDevice_ReturnsContextErrorWhileWaitingForInFlightCollection(t *t
 		storesMocks.NewMockDeviceStore(ctrl),
 		mock.NewMockErrorPoller(ctrl),
 	)
-	service.inFlight.Store(deviceID, struct{}{})
+	service.inFlight.Store(deviceID, newInFlightEntry(inFlightKindFullTelemetry))
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -2953,7 +3063,7 @@ func TestRefreshDevice_ReturnsContextErrorWhileWaitingForInFlightCollection(t *t
 func TestClaimDeviceForRefresh_ReturnsWhenActivationStops(t *testing.T) {
 	service := &TelemetryService{}
 	deviceID := models.DeviceIdentifier("queued-status-device")
-	service.inFlight.Store(deviceID, struct{}{})
+	service.inFlight.Store(deviceID, newInFlightEntry(inFlightKindStatusOnly))
 	inactive := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
@@ -2977,7 +3087,8 @@ func TestClaimDeviceForRefresh_ClaimsAfterStatusOnlyInFlightCollection(t *testin
 		storesMocks.NewMockDeviceStore(ctrl),
 		mock.NewMockErrorPoller(ctrl),
 	)
-	service.inFlight.Store(deviceID, struct{}{})
+	inFlight := newInFlightEntry(inFlightKindStatusOnly)
+	service.inFlight.Store(deviceID, inFlight)
 
 	done := make(chan error, 1)
 	go func() {
@@ -2985,7 +3096,7 @@ func TestClaimDeviceForRefresh_ClaimsAfterStatusOnlyInFlightCollection(t *testin
 	}()
 
 	time.Sleep(20 * time.Millisecond)
-	service.inFlight.Delete(deviceID)
+	service.releaseInFlight(deviceID, inFlight)
 
 	select {
 	case err := <-done:
@@ -2994,8 +3105,12 @@ func TestClaimDeviceForRefresh_ClaimsAfterStatusOnlyInFlightCollection(t *testin
 		t.Fatal("claimDeviceForRefresh did not claim after status-only in-flight collection cleared")
 	}
 
-	_, ok := service.inFlight.Load(deviceID)
+	value, ok := service.inFlight.Load(deviceID)
 	require.True(t, ok)
+	entry, ok := value.(*inFlightEntry)
+	require.True(t, ok)
+	assert.Equal(t, inFlightKindRefresh, entry.kind)
+	service.releaseInFlight(deviceID, entry)
 }
 
 func TestWorker_RequeuesSkippedInFlightTelemetryTask(t *testing.T) {
@@ -3021,7 +3136,7 @@ func TestWorker_RequeuesSkippedInFlightTelemetryTask(t *testing.T) {
 		mockDeviceStore,
 		mock.NewMockErrorPoller(ctrl),
 	)
-	service.inFlight.Store(device.ID, struct{}{})
+	service.inFlight.Store(device.ID, newInFlightEntry(inFlightKindFullTelemetry))
 	activation := telemetryActivationForTest(service)
 	activation.tasks <- device
 	close(activation.tasks)
@@ -4054,7 +4169,7 @@ func TestStatusPollingRoutine_SkipsInFlightDevice(t *testing.T) {
 	service := newStatusPollingService(t, ctrl, mockScheduler)
 	service.devicesForStatusPolling.Store(deviceID, struct{}{})
 	// No cached status (would normally be enqueued), but already claimed in inFlight.
-	service.inFlight.Store(deviceID, struct{}{})
+	service.inFlight.Store(deviceID, newInFlightEntry(inFlightKindFullTelemetry))
 
 	// Act
 	enqueued := runStatusPollingOnce(t, service)
@@ -4091,7 +4206,7 @@ func TestStatusPollingRoutine_MixedDevices(t *testing.T) {
 	service.lastKnownStatuses.Store(offlineDevice, mm.MinerStatusOffline)
 	service.lastKnownStatuses.Store(failedCachedActive, mm.MinerStatusActive)
 	service.lastKnownStatuses.Store(inFlightDevice, mm.MinerStatusOffline)
-	service.inFlight.Store(inFlightDevice, struct{}{})
+	service.inFlight.Store(inFlightDevice, newInFlightEntry(inFlightKindFullTelemetry))
 
 	// Act
 	enqueued := runStatusPollingOnce(t, service)

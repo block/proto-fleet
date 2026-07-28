@@ -192,6 +192,18 @@ func (q *retryingQuerier) BuildingsByIDs(ctx context.Context, arg BuildingsByIDs
 	return result, err
 }
 
+func (q *retryingQuerier) BulkConfirmCurtailmentTargets(ctx context.Context, arg BulkConfirmCurtailmentTargetsParams) (BulkConfirmCurtailmentTargetsRow, error) {
+	var result BulkConfirmCurtailmentTargetsRow
+	err := q.retrier.RetryQuery(ctx, "BulkConfirmCurtailmentTargets", func() error {
+		callResult, callErr := q.next.BulkConfirmCurtailmentTargets(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) BulkInsertCurtailmentTargets(ctx context.Context, arg BulkInsertCurtailmentTargetsParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "BulkInsertCurtailmentTargets", func() error {
@@ -3574,6 +3586,18 @@ func (q *retryingQuerier) ListEffectivePermissionsForUserForUpdate(ctx context.C
 	var result []ListEffectivePermissionsForUserForUpdateRow
 	err := q.retrier.RetryQuery(ctx, "ListEffectivePermissionsForUserForUpdate", func() error {
 		callResult, callErr := q.next.ListEffectivePermissionsForUserForUpdate(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListEligibleConfirmationTargets(ctx context.Context, arg ListEligibleConfirmationTargetsParams) ([]ListEligibleConfirmationTargetsRow, error) {
+	var result []ListEligibleConfirmationTargetsRow
+	err := q.retrier.RetryQuery(ctx, "ListEligibleConfirmationTargets", func() error {
+		callResult, callErr := q.next.ListEligibleConfirmationTargets(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

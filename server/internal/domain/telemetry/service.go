@@ -288,6 +288,19 @@ func mergeMetricsFlushResults(results ...metricsFlushResult) metricsFlushResult 
 	return merged
 }
 
+type inFlightKind string
+
+const (
+	inFlightKindFullTelemetry inFlightKind = "full_telemetry"
+	inFlightKindStatusOnly    inFlightKind = "status_only"
+	// inFlightKindRefresh marks a RefreshDevice claim. It runs the same full
+	// collection path but is not joinable by samplers, keeping the
+	// RefreshDevice contract opaque (see sampling.go).
+	inFlightKindRefresh inFlightKind = "refresh"
+	// inFlightKindSample marks a read-only direct sample (see sampling.go).
+	inFlightKindSample inFlightKind = "sample"
+)
+
 // metricsResult holds device metrics queued by a worker for batch DB writes.
 type metricsResult struct {
 	deviceID   models.DeviceIdentifier
@@ -324,10 +337,22 @@ type TelemetryService struct {
 	// lastDefaultPwActive caches the last-seen default-password flag per device so
 	// the poll only checks for a pairing-status change on transitions, not every poll.
 	lastDefaultPwActive sync.Map // map[DeviceIdentifier]bool
-	// inFlight tracks devices currently being processed by workers or request-driven refreshes.
-	// statusPollingRoutine skips devices in this map to avoid double-processing the same
-	// device simultaneously across the full-telemetry and status-only paths.
-	inFlight sync.Map // map[DeviceIdentifier]struct{}
+	// inFlight tracks devices currently claimed for processing (scheduled
+	// full telemetry, status-only recovery, RefreshDevice, or a direct
+	// sample). Values are *inFlightEntry carrying the fleetd-owned flight
+	// start plus metrics-ready and claim-complete signals so read-only
+	// samplers can join or wait out a flight (see sampling.go). Claim
+	// holders are the only releasers.
+	inFlight sync.Map // map[DeviceIdentifier]*inFlightEntry
+	// retainedSamples holds the most recent successful metrics sample per
+	// device (with its fleetd-owned flight start) for short-window reuse by
+	// SampleDeviceMetrics. See sampling.go.
+	retainedSamples sync.Map // map[DeviceIdentifier]*retainedSample
+	// sampleGenerations invalidate flights admitted before a device removal,
+	// preventing their eventual completion from reaching samplers or
+	// repopulating retention. Each device has an independent lock that
+	// linearizes invalidation with successful sample publication.
+	sampleGenerations sync.Map // map[DeviceIdentifier]*sampleGenerationState
 	// combinedMetricsSingle collapses identical concurrent GetCombinedMetrics
 	// calls (N dashboard viewers polling the same org) into one execution.
 	combinedMetricsSingle singleflight.Group
@@ -387,6 +412,7 @@ func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...model
 		return nil
 	}
 	for _, id := range deviceIDs {
+		s.invalidateDeviceSamples(id)
 		s.devicesForStatusPolling.Delete(id)
 		s.lastKnownStatuses.Delete(id)
 		s.lastKnownFirmware.Delete(id)
@@ -415,7 +441,7 @@ func (s *TelemetryService) RefreshDevice(ctx context.Context, device models.Devi
 	if err != nil {
 		return err
 	}
-	defer s.inFlight.Delete(device.ID)
+	defer s.releaseInFlightByID(device.ID)
 
 	operationCtx, cancelOperation := context.WithTimeout(ctx, operationTimeout)
 	defer cancelOperation()
@@ -439,28 +465,31 @@ func (s *TelemetryService) refreshDeviceOperationTimeout() time.Duration {
 }
 
 func (s *TelemetryService) claimDeviceForRefresh(ctx context.Context, deviceID models.DeviceIdentifier, inactive <-chan struct{}) error {
-	if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, struct{}{}); !alreadyClaimed {
-		return nil
-	}
-
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-
 	for {
-		_, stillInFlight := s.inFlight.Load(deviceID)
-		if !stillInFlight {
-			if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, struct{}{}); !alreadyClaimed {
-				return nil
+		current, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, s.newDeviceInFlightEntry(deviceID, inFlightKindRefresh))
+		if !alreadyClaimed {
+			return nil
+		}
+		if entry, ok := current.(*inFlightEntry); ok {
+			select {
+			case <-entry.claimDone:
+				continue
+			case <-inactive:
+				return errTelemetryServiceInactive
+			case <-ctx.Done():
+				return fmt.Errorf("context cancelled waiting for in-flight refresh for device %s: %w", deviceID, ctx.Err())
 			}
-			continue
 		}
 
+		// Foreign claim values are test-only defensive compatibility. Typed
+		// production entries signal claimDone and never require polling.
 		select {
 		case <-inactive:
 			return errTelemetryServiceInactive
 		case <-ctx.Done():
 			return fmt.Errorf("context cancelled waiting for in-flight refresh for device %s: %w", deviceID, ctx.Err())
-		case <-ticker.C:
+		case <-time.After(10 * time.Millisecond):
+			continue
 		}
 	}
 }
@@ -665,14 +694,15 @@ func (s *TelemetryService) statusPollingRoutine(ctx context.Context, statusTasks
 				}
 
 				// Atomically claim the device; skip if already queued or processing.
-				if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, struct{}{}); alreadyClaimed {
+				entry := s.newDeviceInFlightEntry(deviceID, inFlightKindStatusOnly)
+				if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, entry); alreadyClaimed {
 					return true
 				}
 
 				select {
 				case statusTasks <- models.Device{ID: deviceID}:
 				case <-ctx.Done():
-					s.inFlight.Delete(deviceID) // release claim on context cancellation
+					s.releaseInFlight(deviceID, entry) // release claim on context cancellation
 					return false
 				}
 				return true
@@ -777,21 +807,35 @@ func (s *TelemetryService) worker(ctx context.Context, activation *telemetryActi
 			if !ok {
 				return
 			}
-			if _, alreadyClaimed := s.inFlight.LoadOrStore(device.ID, struct{}{}); alreadyClaimed {
+			entry := s.newDeviceInFlightEntry(device.ID, inFlightKindFullTelemetry)
+			if _, alreadyClaimed := s.inFlight.LoadOrStore(device.ID, entry); alreadyClaimed {
 				if err := s.updateScheduler.AddDevices(ctx, device); err != nil {
 					slog.Warn("failed to requeue skipped in-flight telemetry task", "deviceID", device.ID, "error", err)
 				}
 				continue
 			}
 			_ = s.processDevice(ctx, device, activation.results)
-			s.inFlight.Delete(device.ID)
+			s.releaseInFlight(device.ID, entry)
 
 		case device, ok := <-activation.statusTasks:
 			if !ok {
 				return
 			}
 			s.processStatusOnly(ctx, device, activation.results.status)
-			s.inFlight.Delete(device.ID)
+			s.releaseInFlightByID(device.ID)
+
+		case task, ok := <-activation.sampleTasks:
+			if !ok {
+				return
+			}
+			select {
+			case <-task.done:
+				// The caller's operation ended while this task was queued.
+			default:
+				s.processSample(ctx, task)
+			}
+			s.releaseInFlight(task.deviceID, task.entry)
+			activation.releaseSampleSlot()
 		}
 	}
 }
@@ -1245,14 +1289,29 @@ func (s *TelemetryService) reconcileDefaultPasswordState(ctx context.Context, de
 }
 
 func (s *TelemetryService) fetchTelemetryFromMiner(ctx context.Context, device models.Device) (*deviceResult, error) {
+	return s.fetchTelemetryFromMinerForOrg(ctx, device, 0)
+}
+
+func (s *TelemetryService) fetchTelemetryFromMinerForOrg(
+	ctx context.Context,
+	device models.Device,
+	expectedOrgID int64,
+) (*deviceResult, error) {
 	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
 	if err != nil {
 		return nil, err
 	}
+	orgID := miner.GetOrgID()
+	if expectedOrgID != 0 && orgID != expectedOrgID {
+		return nil, fmt.Errorf(
+			"device %s belongs to org %d, expected org %d",
+			device.ID, orgID, expectedOrgID,
+		)
+	}
 
 	result := &deviceResult{
 		device:     device,
-		orgID:      miner.GetOrgID(),
+		orgID:      orgID,
 		siteID:     miner.GetSiteID(),
 		driverName: miner.GetDriverName(),
 	}
@@ -1341,18 +1400,33 @@ func (s *TelemetryService) resolveTrustedDeviceMetadata(ctx context.Context, dev
 // succeeded, and any error. The first bool is false when the health status is
 // ambiguous; see healthStatusToMinerStatus.
 func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device models.Device) (mm.MinerStatus, bool, int64, string, int64, bool, error) {
-	activation, err := s.activeActivation()
+	activation, releaseProducer, err := s.registerActivationProducer()
 	if err != nil {
 		return mm.MinerStatusUnknown, false, 0, "", 0, false, err
 	}
-	return s.getTelemetryFromDevice(ctx, device, activation.results.metrics)
+	defer releaseProducer()
+
+	// This compatibility wrapper owns no in-flight claim, so it must not
+	// publish its fetch into another producer's flight.
+	return s.collectTelemetryFromDevice(ctx, device, activation.results.metrics, nil)
 }
 
 func (s *TelemetryService) getTelemetryFromDevice(ctx context.Context, device models.Device, results chan<- metricsResult) (mm.MinerStatus, bool, int64, string, int64, bool, error) {
+	var expectedEntry *inFlightEntry
+	if current, ok := s.inFlight.Load(device.ID); ok {
+		expectedEntry, _ = current.(*inFlightEntry)
+	}
+	return s.collectTelemetryFromDevice(ctx, device, results, expectedEntry)
+}
+
+func (s *TelemetryService) collectTelemetryFromDevice(ctx context.Context, device models.Device, results chan<- metricsResult, expectedEntry *inFlightEntry) (mm.MinerStatus, bool, int64, string, int64, bool, error) {
 	fetchCtx, cancel := context.WithTimeout(ctx, s.config.MetricTimeout)
 	defer cancel()
 
 	result, err := s.fetchTelemetryFromMiner(fetchCtx, device)
+	// Share the fetch outcome with any sampler joined to this flight before
+	// running persistence side effects (see sampling.go).
+	s.publishFlightSample(device.ID, expectedEntry, result, err)
 	if err != nil {
 		var orgID, siteID int64
 		var driverName string

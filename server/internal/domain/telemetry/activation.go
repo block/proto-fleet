@@ -20,6 +20,8 @@ type telemetryActivation struct {
 
 	tasks                chan models.Device
 	statusTasks          chan models.Device
+	sampleTasks          chan sampleTask
+	sampleSlots          chan struct{} // one token per admitted direct-read claim
 	results              telemetryResults
 	statusFlushRequests  chan flushRequest
 	metricsFlushRequests chan flushRequest
@@ -35,6 +37,8 @@ func newTelemetryActivation(stopping <-chan struct{}, concurrencyLimit int) *tel
 		stopped:     make(chan struct{}),
 		tasks:       make(chan models.Device, concurrencyLimit),
 		statusTasks: make(chan models.Device, concurrencyLimit),
+		sampleTasks: make(chan sampleTask, concurrencyLimit),
+		sampleSlots: make(chan struct{}, max(1, concurrencyLimit/2)),
 		results: telemetryResults{
 			status:  make(chan statusResult, resultsChannelBuffer),
 			metrics: make(chan metricsResult, resultsChannelBuffer),
@@ -52,6 +56,10 @@ func (a *telemetryActivation) isStopping() bool {
 	default:
 		return false
 	}
+}
+
+func (a *telemetryActivation) releaseSampleSlot() {
+	<-a.sampleSlots
 }
 
 func (a *telemetryActivation) registerProducer() (func(), bool) {
@@ -137,12 +145,14 @@ func (s *TelemetryService) Start(ctx context.Context) error {
 	activation.background.Go(func() { s.statusPollingRoutine(activationCtx, activation.statusTasks) })
 	activation.background.Go(func() { s.fleetStateSnapshotRoutine(activationCtx) })
 	activation.background.Go(func() { s.fleetMetricRollupRoutine(activationCtx) })
+	activation.background.Go(func() { s.retainedSampleEvictionRoutine(activationCtx) })
 	go s.finishActivation(activation)
 	return nil
 }
 
 func (s *TelemetryService) finishActivation(activation *telemetryActivation) {
 	activation.background.Wait()
+	activation.drainProducers()
 
 	var pendingTelemetry []models.Device
 drainTelemetryTasks:
@@ -160,11 +170,28 @@ drainStatusTasks:
 	for {
 		select {
 		case device := <-activation.statusTasks:
-			s.inFlight.Delete(device.ID)
+			s.releaseInFlightByID(device.ID)
 		default:
 			break drainStatusTasks
 		}
 	}
+
+drainSampleTasks:
+	for {
+		select {
+		case task := <-activation.sampleTasks:
+			s.releaseInFlight(task.deviceID, task.entry)
+			activation.releaseSampleSlot()
+		default:
+			break drainSampleTasks
+		}
+	}
+
+	// All admitted producers and workers are gone, so no old-epoch result can
+	// repopulate retention after this clear. Generation states intentionally
+	// survive activation restarts: they are per-device ABA tombstones and keep
+	// removal/publication on one lock even if RemoveDevices overlaps restart.
+	s.retainedSamples.Clear()
 
 	s.lifecycleMu.Lock()
 	if s.activation == activation {

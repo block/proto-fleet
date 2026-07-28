@@ -41,17 +41,29 @@ var ErrCurtailmentEventStateRaceLoss = errors.New("curtailment event state advan
 // write to the dispatch direction ('curtailed' on Curtail-phase writes,
 // 'active' on Restore-phase) so a concurrent Stop that flipped desired_state
 // race-loses instead of being clobbered.
+//
+// ExpectedState and ExpectedDispatchBatchUUID are the confirmation fast-path
+// race guards. When set, the target's current state must equal ExpectedState
+// (e.g. 'dispatched') and the applicable phase batch UUID — curtail_batch_uuid
+// when desired_state='curtailed', restore_batch_uuid when 'active' — must equal
+// ExpectedDispatchBatchUUID. Together they make concurrent confirmation writes
+// single-winner: a duplicate promotion (state already advanced) or a
+// timeout/redispatch that stamped a new batch UUID (ABA) matches zero rows and
+// maps to ErrCurtailmentEventStateRaceLoss. Nil leaves the guard off, so the
+// existing full-tick writes are unaffected.
 type UpdateCurtailmentTargetStateParams struct {
-	State                models.TargetState
-	LastDispatchedAt     *time.Time
-	LastBatchUUID        *string
-	ObservedPowerW       *float64
-	ObservedAt           *time.Time
-	ConfirmedAt          *time.Time
-	RetryCount           *int32
-	LastError            *string
-	ExpectedEventState   *models.EventState
-	ExpectedDesiredState *string
+	State                     models.TargetState
+	LastDispatchedAt          *time.Time
+	LastBatchUUID             *string
+	ObservedPowerW            *float64
+	ObservedAt                *time.Time
+	ConfirmedAt               *time.Time
+	RetryCount                *int32
+	LastError                 *string
+	ExpectedEventState        *models.EventState
+	ExpectedDesiredState      *string
+	ExpectedState             *models.TargetState
+	ExpectedDispatchBatchUUID *string
 }
 
 // AllPairedReadinessUpdate is one pending/unavailable readiness flip in the
@@ -65,6 +77,59 @@ type AllPairedReadinessUpdate struct {
 	State            models.TargetState
 	Reason           string
 	BaselinePowerW   *float64
+}
+
+// ConfirmationBatchSize bounds both one fast-path eligibility page and each
+// guarded bulk write so a single pulse cannot monopolize sampler or DB
+// capacity.
+const ConfirmationBatchSize = 500
+
+// ConfirmationPageCursor is the stable keyset position for the global
+// eligibility scan. The zero value starts a new sweep.
+type ConfirmationPageCursor struct {
+	AfterEventID          int64
+	AfterDeviceIdentifier string
+}
+
+// ConfirmationUpdate is one positive fast-path promotion submitted to the
+// guarded bulk confirmation write. The store revalidates event phase, target
+// state/direction/batch, and the exact live device row before applying it.
+type ConfirmationUpdate struct {
+	DeviceDatabaseID int64
+	DeviceIdentifier string
+	Phase            models.TargetPhase
+	BatchUUID        string
+	ObservedPowerW   *float64
+	ObservedAt       time.Time
+	ConfirmedAt      time.Time
+}
+
+type ConfirmationBulkResult struct {
+	AppliedCount            int
+	SampleDeviceIdentifiers []string
+}
+
+// CurtailmentConfirmationStore is the store surface required only by the
+// optional confirmation fast path. Keeping it separate from CurtailmentStore
+// avoids expanding handler/test doubles that can never run the pulse.
+type CurtailmentConfirmationStore interface {
+	// ListEligibleConfirmationTargets returns at most ConfirmationBatchSize
+	// phase-valid dispatched targets across all orgs after the exclusive
+	// cursor: curtail work under pending/active events and restore work under
+	// restoring events. The cursor's zero value starts a new global sweep.
+	ListEligibleConfirmationTargets(
+		ctx context.Context,
+		cursor ConfirmationPageCursor,
+	) ([]models.ConfirmationTarget, error)
+
+	// BulkConfirmTargets applies positive confirmations for one event in one
+	// guarded statement and returns only device identifiers that won.
+	BulkConfirmTargets(
+		ctx context.Context,
+		eventID int64,
+		expectedEventState models.EventState,
+		updates []ConfirmationUpdate,
+	) (ConfirmationBulkResult, error)
 }
 
 // UpsertCurtailmentHeartbeatParams describes the singleton liveness row

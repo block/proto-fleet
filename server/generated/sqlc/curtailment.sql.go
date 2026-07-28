@@ -3335,10 +3335,10 @@ const updateCurtailmentTargetState = `-- name: UpdateCurtailmentTargetState :exe
 WITH locked_event AS MATERIALIZED (
     SELECT id
     FROM curtailment_event
-    WHERE id = $11
+    WHERE id = $13
         AND state IN ('pending', 'active', 'restoring')
-        AND ($12::TEXT IS NULL
-             OR state = $12::TEXT)
+        AND ($14::TEXT IS NULL
+             OR state = $14::TEXT)
     FOR UPDATE
 )
 UPDATE curtailment_target
@@ -3422,21 +3422,30 @@ WHERE curtailment_event_id = locked_event.id
   AND device_identifier    = $9
   AND ($10::text IS NULL
        OR desired_state = $10::text)
+  AND ($11::text IS NULL
+       OR state = $11::text)
+  AND ($12::text IS NULL
+       OR (CASE
+               WHEN desired_state = 'curtailed' THEN curtail_batch_uuid
+               WHEN desired_state = 'active'    THEN restore_batch_uuid
+           END) = $12::text)
 `
 
 type UpdateCurtailmentTargetStateParams struct {
-	State                string
-	LastDispatchedAt     sql.NullTime
-	LastBatchUuid        sql.NullString
-	ObservedPowerW       sql.NullString
-	ObservedAt           sql.NullTime
-	ConfirmedAt          sql.NullTime
-	RetryCount           sql.NullInt32
-	LastError            sql.NullString
-	DeviceIdentifier     string
-	ExpectedDesiredState sql.NullString
-	CurtailmentEventID   int64
-	ExpectedEventState   sql.NullString
+	State                     string
+	LastDispatchedAt          sql.NullTime
+	LastBatchUuid             sql.NullString
+	ObservedPowerW            sql.NullString
+	ObservedAt                sql.NullTime
+	ConfirmedAt               sql.NullTime
+	RetryCount                sql.NullInt32
+	LastError                 sql.NullString
+	DeviceIdentifier          string
+	ExpectedDesiredState      sql.NullString
+	ExpectedState             sql.NullString
+	ExpectedDispatchBatchUuid sql.NullString
+	CurtailmentEventID        int64
+	ExpectedEventState        sql.NullString
 }
 
 // Reconciler patch. COALESCE preserves un-supplied columns; empty
@@ -3449,6 +3458,16 @@ type UpdateCurtailmentTargetStateParams struct {
 // expected_desired_state scopes the write to one dispatch direction so
 // a concurrent Stop's reset isn't clobbered by a Curtail-phase post-cmd
 // write (observeRestoring picks up the reset target afterwards).
+//
+// expected_state and expected_dispatch_batch_uuid are the confirmation
+// fast-path single-winner guards. When set, the target's current state must
+// equal expected_state and the applicable phase batch UUID (curtail_batch_uuid
+// when desired_state='curtailed', restore_batch_uuid when 'active', consistent
+// with the mirror logic) must equal expected_dispatch_batch_uuid. A duplicate
+// confirmation (state advanced past 'dispatched') or a timeout/redispatch that
+// stamped a new batch UUID (ABA) matches zero rows -> ErrCurtailmentEventState
+// RaceLoss. Both narg guards are inert when NULL, so full-tick writes that omit
+// them are unaffected.
 func (q *Queries) UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCurtailmentTargetStateParams) (int64, error) {
 	result, err := q.exec(ctx, q.updateCurtailmentTargetStateStmt, updateCurtailmentTargetState,
 		arg.State,
@@ -3461,6 +3480,8 @@ func (q *Queries) UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCu
 		arg.LastError,
 		arg.DeviceIdentifier,
 		arg.ExpectedDesiredState,
+		arg.ExpectedState,
+		arg.ExpectedDispatchBatchUuid,
 		arg.CurtailmentEventID,
 		arg.ExpectedEventState,
 	)

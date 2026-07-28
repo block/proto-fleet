@@ -187,7 +187,6 @@ func (s *startStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, error
 func (s *startStubStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
 	panic("ListNonTerminalEvents not exercised by handler Start tests")
 }
-
 func (s *startStubStore) UpdateEventState(context.Context, int64, models.EventState, models.EventState, *time.Time, *time.Time) error {
 	panic("UpdateEventState not exercised by handler Start tests")
 }

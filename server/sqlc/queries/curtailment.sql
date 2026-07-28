@@ -1327,6 +1327,16 @@ SELECT
 -- expected_desired_state scopes the write to one dispatch direction so
 -- a concurrent Stop's reset isn't clobbered by a Curtail-phase post-cmd
 -- write (observeRestoring picks up the reset target afterwards).
+--
+-- expected_state and expected_dispatch_batch_uuid are the confirmation
+-- fast-path single-winner guards. When set, the target's current state must
+-- equal expected_state and the applicable phase batch UUID (curtail_batch_uuid
+-- when desired_state='curtailed', restore_batch_uuid when 'active', consistent
+-- with the mirror logic) must equal expected_dispatch_batch_uuid. A duplicate
+-- confirmation (state advanced past 'dispatched') or a timeout/redispatch that
+-- stamped a new batch UUID (ABA) matches zero rows -> ErrCurtailmentEventState
+-- RaceLoss. Both narg guards are inert when NULL, so full-tick writes that omit
+-- them are unaffected.
 WITH locked_event AS MATERIALIZED (
     SELECT id
     FROM curtailment_event
@@ -1416,7 +1426,14 @@ FROM locked_event
 WHERE curtailment_event_id = locked_event.id
   AND device_identifier    = sqlc.arg('device_identifier')
   AND (sqlc.narg('expected_desired_state')::text IS NULL
-       OR desired_state = sqlc.narg('expected_desired_state')::text);
+       OR desired_state = sqlc.narg('expected_desired_state')::text)
+  AND (sqlc.narg('expected_state')::text IS NULL
+       OR state = sqlc.narg('expected_state')::text)
+  AND (sqlc.narg('expected_dispatch_batch_uuid')::text IS NULL
+       OR (CASE
+               WHEN desired_state = 'curtailed' THEN curtail_batch_uuid
+               WHEN desired_state = 'active'    THEN restore_batch_uuid
+           END) = sqlc.narg('expected_dispatch_batch_uuid')::text);
 
 -- name: BumpCurtailmentTargetRetry :execrows
 -- Fallback when UpdateCurtailmentTargetState fails non-race-loss:
