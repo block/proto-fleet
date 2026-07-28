@@ -43,6 +43,7 @@ type confirmationFakeStore struct {
 	confirmWriteCalls   int
 	bulkConfirmCalls    int
 	lastBulkUpdateSize  int
+	lastBulkDeviceID    int64
 	lastConfirmWrite    interfaces.UpdateCurtailmentTargetStateParams
 	lastConfirmDevice   string
 	lastConfirmEventID  int64
@@ -86,6 +87,12 @@ func (f *confirmationFakeStore) bulkCalls() (calls, lastSize int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bulkConfirmCalls, f.lastBulkUpdateSize
+}
+
+func (f *confirmationFakeStore) lastBulkDeviceDatabaseID() int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastBulkDeviceID
 }
 
 func (f *confirmationFakeStore) targetState(eventID int64, device string) models.TargetState {
@@ -193,6 +200,7 @@ func (f *confirmationFakeStore) BulkConfirmTargets(
 	f.lastBulkUpdateSize = len(updates)
 	var applied []string
 	for _, update := range updates {
+		f.lastBulkDeviceID = update.DeviceDatabaseID
 		f.confirmWriteCalls++
 		desiredState := models.DesiredStateCurtailed
 		targetState := models.TargetStateConfirmed
@@ -426,6 +434,7 @@ func seedDispatchedWork(store *confirmationFakeStore, eventID int64, device, des
 		EventUUID:        eventUUID,
 		OrgID:            1,
 		EventState:       eventState,
+		DeviceDatabaseID: eventID*1000 + int64(len(store.targetsByEventID[eventID])),
 		DeviceIdentifier: device,
 		DesiredState:     desired,
 		BaselinePowerW:   ptrFloat64(3000),
@@ -452,6 +461,7 @@ func TestConfirmationPass_ConfirmsCurtailTargetFromFreshSample(t *testing.T) {
 	assert.False(t, parked)
 	assert.False(t, failed)
 	assert.Equal(t, models.TargetStateConfirmed, store.targetState(10, "miner-1"))
+	assert.Equal(t, item.DeviceDatabaseID, store.lastBulkDeviceDatabaseID())
 
 	eventID, device, params := store.lastWrite()
 	assert.Equal(t, int64(10), eventID)

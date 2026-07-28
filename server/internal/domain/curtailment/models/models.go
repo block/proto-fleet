@@ -499,6 +499,7 @@ type ConfirmationTarget struct {
 	EventUUID                   uuid.UUID
 	OrgID                       int64
 	EventState                  EventState
+	DeviceDatabaseID            int64
 	DeviceIdentifier            string
 	DesiredState                string
 	BaselinePowerW              *float64

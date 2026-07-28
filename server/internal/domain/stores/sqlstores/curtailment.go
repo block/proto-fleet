@@ -1960,6 +1960,7 @@ func (s *SQLCurtailmentStore) ListEligibleConfirmationTargets(
 			EventUUID:                   row.EventUuid,
 			OrgID:                       row.OrgID,
 			EventState:                  models.EventState(row.EventState),
+			DeviceDatabaseID:            row.DeviceDatabaseID,
 			DeviceIdentifier:            row.DeviceIdentifier,
 			DesiredState:                row.DesiredState,
 			BaselinePowerW:              nullStringToFloat64Ptr(row.BaselinePowerW),
@@ -1972,6 +1973,7 @@ func (s *SQLCurtailmentStore) ListEligibleConfirmationTargets(
 }
 
 type confirmationUpdateRow struct {
+	DeviceDatabaseID int64     `json:"device_database_id"`
 	DeviceIdentifier string    `json:"device_identifier"`
 	Phase            string    `json:"phase"`
 	BatchUUID        string    `json:"batch_uuid"`
@@ -1992,6 +1994,7 @@ func (s *SQLCurtailmentStore) BulkConfirmTargets(
 	rows := make([]confirmationUpdateRow, len(updates))
 	for i, update := range updates {
 		rows[i] = confirmationUpdateRow{
+			DeviceDatabaseID: update.DeviceDatabaseID,
 			DeviceIdentifier: update.DeviceIdentifier,
 			Phase:            string(update.Phase),
 			BatchUUID:        update.BatchUUID,

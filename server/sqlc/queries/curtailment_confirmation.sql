@@ -15,6 +15,7 @@ SELECT
     ce.org_id                          AS org_id,
     ce.state                           AS event_state,
     ce.force_include_all_paired_miners AS force_include_all_paired_miners,
+    d.id                               AS device_database_id,
     ct.device_identifier               AS device_identifier,
     ct.desired_state                   AS desired_state,
     ct.baseline_power_w                AS baseline_power_w,
@@ -50,7 +51,7 @@ LIMIT sqlc.arg('page_size')::int;
 -- Every row repeats all authority checks at commit time:
 --   * parent event remains in the sampled phase;
 --   * target remains dispatched in the sampled direction and batch;
---   * identifier still resolves to a live device in the event organization;
+--   * the exact eligible device row remains live in the event organization;
 --   * all-paired curtail work still has a paired-like device row.
 -- Rows that lose any guard are skipped and returned to the next full tick.
 WITH locked_event AS MATERIALIZED (
@@ -60,6 +61,20 @@ WITH locked_event AS MATERIALIZED (
       AND event.state IN ('pending', 'active', 'restoring')
       AND event.state = sqlc.arg('expected_event_state')::TEXT
     FOR UPDATE
+),
+locked_devices AS MATERIALIZED (
+    SELECT d.id, d.device_identifier
+    FROM locked_event,
+         jsonb_to_recordset(sqlc.arg('updates_jsonb')::JSONB) AS u(
+             device_database_id BIGINT,
+             device_identifier TEXT
+         ),
+         device d
+    WHERE d.id = u.device_database_id
+      AND d.device_identifier = u.device_identifier
+      AND d.org_id = locked_event.org_id
+      AND d.deleted_at IS NULL
+    FOR UPDATE OF d
 ),
 updated AS (
 UPDATE curtailment_target AS target
@@ -93,6 +108,7 @@ SET state            = CASE WHEN u.phase = 'curtail' THEN 'confirmed' ELSE 'reso
     END
 FROM locked_event,
      jsonb_to_recordset(sqlc.arg('updates_jsonb')::JSONB) AS u(
+         device_database_id BIGINT,
          device_identifier TEXT,
          phase             TEXT,
          batch_uuid        TEXT,
@@ -100,7 +116,7 @@ FROM locked_event,
          observed_at       TIMESTAMPTZ,
          confirmed_at      TIMESTAMPTZ
      ),
-     device d
+     locked_devices d
 WHERE target.curtailment_event_id = locked_event.id
   AND target.device_identifier = u.device_identifier
   AND target.state = 'dispatched'
@@ -113,8 +129,7 @@ WHERE target.curtailment_event_id = locked_event.id
           WHEN u.phase = 'restore' THEN target.restore_batch_uuid
        END) = u.batch_uuid
   AND d.device_identifier = target.device_identifier
-  AND d.org_id = locked_event.org_id
-  AND d.deleted_at IS NULL
+  AND d.id = u.device_database_id
   AND (
         target.desired_state <> 'curtailed'
      OR NOT locked_event.force_include_all_paired_miners

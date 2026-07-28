@@ -372,6 +372,7 @@ func (r *Reconciler) confirmationUpdateFromSample(
 	powerW, hashRateHS := sampleMeasurements(sample.Metrics)
 	now := r.now()
 	update := interfaces.ConfirmationUpdate{
+		DeviceDatabaseID: item.DeviceDatabaseID,
 		DeviceIdentifier: item.DeviceIdentifier,
 		BatchUUID:        item.BatchUUID,
 		ObservedAt:       now,

@@ -144,6 +144,7 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkIncludesDispatchedPhases(t 
 	pendingRow, ok := byDevice[pendingDevice]
 	require.True(t, ok, "pending curtail target must be eligible")
 	assert.Equal(t, pendingInserted.ID, pendingRow.EventID)
+	assert.Positive(t, pendingRow.DeviceDatabaseID)
 	assert.Equal(t, pendingUUID, pendingRow.EventUUID)
 	assert.Equal(t, org, pendingRow.OrgID)
 	assert.Equal(t, models.EventStatePending, pendingRow.EventState)
@@ -650,12 +651,19 @@ func TestSQLCurtailmentStore_BulkConfirmTargets_AppliesOnlyCurrentOwnedRows(t *t
 			ExpectedDesiredState: &curtailed,
 		}))
 	}
+	eligible := confirmationTargetsByDevice(t, ctx, store)
 
-	// Ownership changed after eligibility: this row must be skipped by the
-	// commit-time live-device/org join.
+	// Device incarnation changed after eligibility: soft-delete the eligible
+	// row and replace it with a live row using the same org and identifier.
+	// Identifier-only ownership checks would incorrectly confirm it.
 	_, err = db.ExecContext(ctx,
 		`UPDATE device SET deleted_at = CURRENT_TIMESTAMP WHERE device_identifier = $1 AND org_id = $2`,
 		devices[1], orgID)
+	require.NoError(t, err)
+	replacement := testContext.DatabaseService.CreateDevice(orgID, "proto")
+	_, err = db.ExecContext(ctx,
+		`UPDATE device SET device_identifier = $1 WHERE id = $2`,
+		devices[1], replacement.DatabaseID)
 	require.NoError(t, err)
 
 	// Batch changed after eligibility: this row must lose the ABA guard.
@@ -672,6 +680,7 @@ func TestSQLCurtailmentStore_BulkConfirmTargets_AppliesOnlyCurrentOwnedRows(t *t
 	updates := make([]interfaces.ConfirmationUpdate, 0, len(devices))
 	for i, deviceID := range devices {
 		updates = append(updates, interfaces.ConfirmationUpdate{
+			DeviceDatabaseID: eligible[deviceID].DeviceDatabaseID,
 			DeviceIdentifier: deviceID,
 			Phase:            models.TargetPhaseCurtail,
 			BatchUUID:        oldBatches[i],
@@ -695,6 +704,78 @@ func TestSQLCurtailmentStore_BulkConfirmTargets_AppliesOnlyCurrentOwnedRows(t *t
 	assert.Equal(t, models.TargetStateDispatched, byDevice[devices[1]].State)
 	assert.Equal(t, models.TargetStateDispatched, byDevice[devices[2]].State)
 	assert.Equal(t, newBatch, *byDevice[devices[2]].CurtailPhase.BatchUUID)
+}
+
+func TestSQLCurtailmentStore_BulkConfirmTargets_SerializesConcurrentDeviceDeletion(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	db := testContext.DatabaseService.DB
+	store := sqlstores.NewSQLCurtailmentStore(db)
+	orgID := user.OrganizationID
+	deviceID := testContext.DatabaseService.CreateDevice(orgID, "proto").ID
+	batch := "batch-concurrent-delete"
+	dispatchedAt := time.Date(2026, 7, 7, 11, 0, 0, 0, time.UTC)
+	eventID, eventUUID := insertDispatchedCurtailTarget(
+		t, ctx, store, orgID, user.DatabaseID, "bulk-confirm-concurrent-delete",
+		deviceID, batch, dispatchedAt,
+	)
+	eligible := confirmationTargetsByDevice(t, ctx, store)[deviceID]
+
+	deleteTx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	_, err = deleteTx.ExecContext(ctx,
+		`UPDATE device SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`,
+		eligible.DeviceDatabaseID)
+	require.NoError(t, err)
+
+	type confirmationResult struct {
+		result interfaces.ConfirmationBulkResult
+		err    error
+	}
+	resultCh := make(chan confirmationResult, 1)
+	go func() {
+		confirmedAt := dispatchedAt.Add(time.Second)
+		result, confirmErr := store.BulkConfirmTargets(ctx, eventID, models.EventStateActive, []interfaces.ConfirmationUpdate{{
+			DeviceDatabaseID: eligible.DeviceDatabaseID,
+			DeviceIdentifier: deviceID,
+			Phase:            models.TargetPhaseCurtail,
+			BatchUUID:        batch,
+			ObservedAt:       confirmedAt,
+			ConfirmedAt:      confirmedAt,
+		}})
+		resultCh <- confirmationResult{result: result, err: confirmErr}
+	}()
+
+	var outcome confirmationResult
+	returnedBeforeDelete := false
+	select {
+	case outcome = <-resultCh:
+		returnedBeforeDelete = true
+	case <-time.After(100 * time.Millisecond):
+	}
+	require.NoError(t, deleteTx.Commit())
+	if !returnedBeforeDelete {
+		select {
+		case outcome = <-resultCh:
+		case <-time.After(5 * time.Second):
+			t.Fatal("bulk confirmation did not resume after device deletion committed")
+		}
+	}
+
+	assert.False(t, returnedBeforeDelete,
+		"bulk confirmation must wait for an in-flight deletion of the eligible device row")
+	require.NoError(t, outcome.err)
+	assert.Zero(t, outcome.result.AppliedCount)
+
+	targets, err := store.ListTargetsByEvent(ctx, orgID, eventUUID)
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	assert.Equal(t, models.TargetStateDispatched, targets[0].State)
 }
 
 func TestSQLCurtailmentStore_BulkConfirmTargets_RevalidatesAllPairedStatus(t *testing.T) {
@@ -731,6 +812,7 @@ func TestSQLCurtailmentStore_BulkConfirmTargets_RevalidatesAllPairedStatus(t *te
 		LastBatchUUID:        &batch,
 		ExpectedDesiredState: &curtailed,
 	}))
+	eligible := confirmationTargetsByDevice(t, ctx, store)
 
 	// Pairing changed after eligibility. The final write must repeat the
 	// all-paired policy gate rather than trusting the earlier snapshot.
@@ -746,6 +828,7 @@ func TestSQLCurtailmentStore_BulkConfirmTargets_RevalidatesAllPairedStatus(t *te
 
 	confirmedAt := dispatchedAt.Add(time.Second)
 	result, err := store.BulkConfirmTargets(ctx, inserted.ID, models.EventStateActive, []interfaces.ConfirmationUpdate{{
+		DeviceDatabaseID: eligible[deviceID].DeviceDatabaseID,
 		DeviceIdentifier: deviceID,
 		Phase:            models.TargetPhaseCurtail,
 		BatchUUID:        batch,

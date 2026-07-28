@@ -93,8 +93,9 @@ type ConfirmationPageCursor struct {
 
 // ConfirmationUpdate is one positive fast-path promotion submitted to the
 // guarded bulk confirmation write. The store revalidates event phase, target
-// state/direction/batch, and live device ownership before applying it.
+// state/direction/batch, and the exact live device row before applying it.
 type ConfirmationUpdate struct {
+	DeviceDatabaseID int64
 	DeviceIdentifier string
 	Phase            models.TargetPhase
 	BatchUUID        string

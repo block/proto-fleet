@@ -87,7 +87,7 @@ type Querier interface {
 	// Every row repeats all authority checks at commit time:
 	//   * parent event remains in the sampled phase;
 	//   * target remains dispatched in the sampled direction and batch;
-	//   * identifier still resolves to a live device in the event organization;
+	//   * the exact eligible device row remains live in the event organization;
 	//   * all-paired curtail work still has a paired-like device row.
 	// Rows that lose any guard are skipped and returned to the next full tick.
 	BulkConfirmCurtailmentTargets(ctx context.Context, arg BulkConfirmCurtailmentTargetsParams) (BulkConfirmCurtailmentTargetsRow, error)
