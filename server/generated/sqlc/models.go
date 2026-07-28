@@ -932,6 +932,16 @@ type FleetPollableDevicePresence struct {
 	OrganizationID string
 }
 
+type FleetRuntimeLease struct {
+	LeaseName               string
+	DcsClusterID            string
+	HighestWriterGeneration int64
+	LeaseEpoch              int64
+	HolderID                uuid.UUID
+	ExpiresAt               time.Time
+	UpdatedAt               time.Time
+}
+
 type FleetTelemetryPollHeartbeat struct {
 	Bucket         interface{}
 	OrganizationID string

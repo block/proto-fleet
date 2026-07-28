@@ -12,6 +12,7 @@ import (
 )
 
 type Querier interface {
+	AcquireFleetRuntimeLease(ctx context.Context, arg AcquireFleetRuntimeLeaseParams) (AcquireFleetRuntimeLeaseRow, error)
 	// Permission catalog queries. The catalog is reconciled at startup
 	// against domain/authz/catalog.go via domain/authz/reconcile.go.
 	// Transaction-scoped advisory lock that serializes concurrent boot
@@ -595,6 +596,7 @@ type Querier interface {
 	GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (GetFleetNodeTelemetryRouteByDeviceIdentifierRow, error)
 	// Batch query to get group refs for multiple devices at once (for miner list)
 	GetGroupRefsForDevices(ctx context.Context, arg GetGroupRefsForDevicesParams) ([]GetGroupRefsForDevicesRow, error)
+	GetHAWritableIdentity(ctx context.Context) (GetHAWritableIdentityRow, error)
 	// Dedicated sensitive read: this field is intentionally not projected through
 	// the generic Site API. Org scope and deleted_at mask cross-org/missing sites
 	// as the same not-found result.
@@ -1269,6 +1271,7 @@ type Querier interface {
 	// the changed set for activity site scope (#538). Equivalent affected-row
 	// count to the prior :execrows shape.
 	RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error)
+	RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error)
 	// Reopen restore targets for curtailment. Counts let the store reject partial
 	// resets when another non-terminal event already has unresolved work for one
 	// of the same devices.

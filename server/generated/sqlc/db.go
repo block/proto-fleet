@@ -24,6 +24,9 @@ func New(db DBTX) *Queries {
 func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	q := Queries{db: db}
 	var err error
+	if q.acquireFleetRuntimeLeaseStmt, err = db.PrepareContext(ctx, acquireFleetRuntimeLease); err != nil {
+		return nil, fmt.Errorf("error preparing query AcquireFleetRuntimeLease: %w", err)
+	}
 	if q.acquireReconcileLockStmt, err = db.PrepareContext(ctx, acquireReconcileLock); err != nil {
 		return nil, fmt.Errorf("error preparing query AcquireReconcileLock: %w", err)
 	}
@@ -621,6 +624,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getGroupRefsForDevicesStmt, err = db.PrepareContext(ctx, getGroupRefsForDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetGroupRefsForDevices: %w", err)
 	}
+	if q.getHAWritableIdentityStmt, err = db.PrepareContext(ctx, getHAWritableIdentity); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHAWritableIdentity: %w", err)
+	}
 	if q.getInfrastructureControlSubnetsStmt, err = db.PrepareContext(ctx, getInfrastructureControlSubnets); err != nil {
 		return nil, fmt.Errorf("error preparing query GetInfrastructureControlSubnets: %w", err)
 	}
@@ -1185,6 +1191,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.removeDevicesFromDeviceSetStmt, err = db.PrepareContext(ctx, removeDevicesFromDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveDevicesFromDeviceSet: %w", err)
 	}
+	if q.renewFleetRuntimeLeaseStmt, err = db.PrepareContext(ctx, renewFleetRuntimeLease); err != nil {
+		return nil, fmt.Errorf("error preparing query RenewFleetRuntimeLease: %w", err)
+	}
 	if q.resetCurtailmentTargetsForRecurtailStmt, err = db.PrepareContext(ctx, resetCurtailmentTargetsForRecurtail); err != nil {
 		return nil, fmt.Errorf("error preparing query ResetCurtailmentTargetsForRecurtail: %w", err)
 	}
@@ -1553,6 +1562,11 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 
 func (q *Queries) Close() error {
 	var err error
+	if q.acquireFleetRuntimeLeaseStmt != nil {
+		if cerr := q.acquireFleetRuntimeLeaseStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing acquireFleetRuntimeLeaseStmt: %w", cerr)
+		}
+	}
 	if q.acquireReconcileLockStmt != nil {
 		if cerr := q.acquireReconcileLockStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing acquireReconcileLockStmt: %w", cerr)
@@ -2548,6 +2562,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getGroupRefsForDevicesStmt: %w", cerr)
 		}
 	}
+	if q.getHAWritableIdentityStmt != nil {
+		if cerr := q.getHAWritableIdentityStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHAWritableIdentityStmt: %w", cerr)
+		}
+	}
 	if q.getInfrastructureControlSubnetsStmt != nil {
 		if cerr := q.getInfrastructureControlSubnetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getInfrastructureControlSubnetsStmt: %w", cerr)
@@ -3488,6 +3507,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing removeDevicesFromDeviceSetStmt: %w", cerr)
 		}
 	}
+	if q.renewFleetRuntimeLeaseStmt != nil {
+		if cerr := q.renewFleetRuntimeLeaseStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing renewFleetRuntimeLeaseStmt: %w", cerr)
+		}
+	}
 	if q.resetCurtailmentTargetsForRecurtailStmt != nil {
 		if cerr := q.resetCurtailmentTargetsForRecurtailStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing resetCurtailmentTargetsForRecurtailStmt: %w", cerr)
@@ -4132,6 +4156,7 @@ func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, ar
 type Queries struct {
 	db                                                           DBTX
 	tx                                                           *sql.Tx
+	acquireFleetRuntimeLeaseStmt                                 *sql.Stmt
 	acquireReconcileLockStmt                                     *sql.Stmt
 	addDevicesToDeviceSetStmt                                    *sql.Stmt
 	adminResetUserPasswordStmt                                   *sql.Stmt
@@ -4331,6 +4356,7 @@ type Queries struct {
 	getFleetNodeSessionByTokenHashStmt                           *sql.Stmt
 	getFleetNodeTelemetryRouteByDeviceIdentifierStmt             *sql.Stmt
 	getGroupRefsForDevicesStmt                                   *sql.Stmt
+	getHAWritableIdentityStmt                                    *sql.Stmt
 	getInfrastructureControlSubnetsStmt                          *sql.Stmt
 	getInfrastructureDeviceStmt                                  *sql.Stmt
 	getKnownSubnetsStmt                                          *sql.Stmt
@@ -4519,6 +4545,7 @@ type Queries struct {
 	removeAllDevicesFromDeviceSetStmt                            *sql.Stmt
 	removeDevicesFromAnyRackStmt                                 *sql.Stmt
 	removeDevicesFromDeviceSetStmt                               *sql.Stmt
+	renewFleetRuntimeLeaseStmt                                   *sql.Stmt
 	resetCurtailmentTargetsForRecurtailStmt                      *sql.Stmt
 	resetCurtailmentTargetsForRestoreStmt                        *sql.Stmt
 	resumeCurtailmentFromRestoringStmt                           *sql.Stmt
@@ -4646,6 +4673,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
 		db:                                                           tx,
 		tx:                                                           tx,
+		acquireFleetRuntimeLeaseStmt:                                 q.acquireFleetRuntimeLeaseStmt,
 		acquireReconcileLockStmt:                                     q.acquireReconcileLockStmt,
 		addDevicesToDeviceSetStmt:                                    q.addDevicesToDeviceSetStmt,
 		adminResetUserPasswordStmt:                                   q.adminResetUserPasswordStmt,
@@ -4845,6 +4873,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFleetNodeSessionByTokenHashStmt:                           q.getFleetNodeSessionByTokenHashStmt,
 		getFleetNodeTelemetryRouteByDeviceIdentifierStmt:             q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt,
 		getGroupRefsForDevicesStmt:                                   q.getGroupRefsForDevicesStmt,
+		getHAWritableIdentityStmt:                                    q.getHAWritableIdentityStmt,
 		getInfrastructureControlSubnetsStmt:                          q.getInfrastructureControlSubnetsStmt,
 		getInfrastructureDeviceStmt:                                  q.getInfrastructureDeviceStmt,
 		getKnownSubnetsStmt:                                          q.getKnownSubnetsStmt,
@@ -5033,6 +5062,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		removeAllDevicesFromDeviceSetStmt:                            q.removeAllDevicesFromDeviceSetStmt,
 		removeDevicesFromAnyRackStmt:                                 q.removeDevicesFromAnyRackStmt,
 		removeDevicesFromDeviceSetStmt:                               q.removeDevicesFromDeviceSetStmt,
+		renewFleetRuntimeLeaseStmt:                                   q.renewFleetRuntimeLeaseStmt,
 		resetCurtailmentTargetsForRecurtailStmt:                      q.resetCurtailmentTargetsForRecurtailStmt,
 		resetCurtailmentTargetsForRestoreStmt:                        q.resetCurtailmentTargetsForRestoreStmt,
 		resumeCurtailmentFromRestoringStmt:                           q.resumeCurtailmentFromRestoringStmt,
