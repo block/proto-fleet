@@ -66,6 +66,41 @@ func TestRacingCoordinatorsProduceOneOwner(t *testing.T) {
 	require.Equal(t, 1, countMatchingErrors(errs, ErrLeaseUnavailable))
 }
 
+func TestLeaseStoreCoordinatorDemotionRequiresExpiryBeforeSameWriterReacquisition(t *testing.T) {
+	store, reader := leaseTestSurfaces(t)
+	observed := databaseObservation(t, reader, "cluster-a", 41)
+	observer := &sequenceObserver{
+		results: []observerResult{
+			{observation: observed},
+			{err: errors.New("DCS unavailable")},
+			{observation: observed},
+			{observation: observed},
+		},
+	}
+	config := coordinatorTestConfig()
+	config.LeaseDuration = shortIntegrationLeaseDuration
+	coordinator := newCoordinatorWithHolder(observer, store, config, uuid.New())
+
+	require.NoError(t, coordinator.step(t.Context()))
+	first := coordinator.Snapshot()
+	firstHolder := first.HolderID
+
+	require.Error(t, coordinator.step(t.Context()))
+	require.Equal(t, StatePassive, coordinator.Snapshot().State)
+	require.NotEqual(t, firstHolder, coordinator.HolderID())
+
+	require.ErrorIs(t, coordinator.step(t.Context()), ErrLeaseUnavailable)
+
+	waitForLeaseExpiry(t, Ownership{
+		DatabaseTime: first.ExpiresAt.Add(-config.LeaseDuration),
+		ExpiresAt:    first.ExpiresAt,
+	})
+	require.NoError(t, coordinator.step(t.Context()))
+	second := coordinator.Snapshot()
+	require.Equal(t, StateActive, second.State)
+	require.Greater(t, second.Token.LeaseEpoch, first.Token.LeaseEpoch)
+}
+
 func TestPromotionAfterLostAsyncLeaseStateSupersedesUnexpiredLease(t *testing.T) {
 	store, reader := leaseTestSurfaces(t)
 	// This unexpired generation-41 row represents lease state acknowledged on

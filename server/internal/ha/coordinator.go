@@ -101,6 +101,8 @@ func validateCoordinatorConfig(
 }
 
 func (c *Coordinator) HolderID() uuid.UUID {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.holderID
 }
 
@@ -157,6 +159,7 @@ func (c *Coordinator) step(ctx context.Context) error {
 	c.mu.RLock()
 	activeCtx := c.activeCtx
 	current := c.ownership
+	holderID := c.holderID
 	c.mu.RUnlock()
 
 	stepCtx := activeCtx
@@ -179,7 +182,7 @@ func (c *Coordinator) step(ctx context.Context) error {
 				ownership, acquireErr = c.store.Acquire(
 					actionCtx,
 					observed,
-					c.holderID,
+					holderID,
 					c.config.LeaseDuration,
 				)
 				return acquireErr
@@ -360,11 +363,15 @@ func (c *Coordinator) deactivate(cause error) {
 }
 
 func (c *Coordinator) deactivateLocked(cause error) {
+	wasActive := c.activeCtx != nil
 	c.stopLeaseTimerLocked()
 	if c.cancelActive != nil {
 		c.cancelActive()
 		c.cancelActive = nil
 		c.activeCtx = nil
+	}
+	if wasActive {
+		c.holderID = uuid.New()
 	}
 	c.ownership = Ownership{}
 	c.updatedAt = time.Now()

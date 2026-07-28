@@ -56,6 +56,7 @@ func TestCoordinatorActivatesAndExposesLifetime(t *testing.T) {
 }
 
 func TestCoordinatorCancelsLifetimeOnObservationLoss(t *testing.T) {
+	holder := uuid.New()
 	observer := &sequenceObserver{
 		results: []observerResult{
 			{observation: coordinatorObservation("cluster-a", 41, time.Second)},
@@ -63,7 +64,7 @@ func TestCoordinatorCancelsLifetimeOnObservationLoss(t *testing.T) {
 		},
 	}
 	coordinator := newCoordinatorWithHolder(
-		observer, &fakeLeaseStore{}, coordinatorTestConfig(), uuid.New(),
+		observer, &fakeLeaseStore{}, coordinatorTestConfig(), holder,
 	)
 	require.NoError(t, coordinator.step(t.Context()))
 	activeCtx, _, active := coordinator.ActiveLifetime()
@@ -72,6 +73,25 @@ func TestCoordinatorCancelsLifetimeOnObservationLoss(t *testing.T) {
 	require.Error(t, coordinator.step(t.Context()))
 	require.Error(t, activeCtx.Err())
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
+	require.NotEqual(t, holder, coordinator.HolderID())
+}
+
+func TestCoordinatorKeepsHolderAfterPassiveAcquisitionProofFailure(t *testing.T) {
+	holder := uuid.New()
+	proofErr := errors.New("closing DCS proof failed")
+	coordinator := newCoordinatorWithHolder(
+		actionThenErrorObserver{
+			observation: coordinatorObservation("cluster-a", 41, time.Second),
+			err:         proofErr,
+		},
+		&fakeLeaseStore{},
+		coordinatorTestConfig(),
+		holder,
+	)
+
+	require.ErrorIs(t, coordinator.step(t.Context()), proofErr)
+	require.Equal(t, StatePassive, coordinator.Snapshot().State)
+	require.Equal(t, holder, coordinator.HolderID())
 }
 
 func TestCoordinatorCancelsLifetimeOnRenewalLoss(t *testing.T) {
@@ -286,6 +306,21 @@ func (s staticObserver) ObserveAndRun(
 		return WriterObservation{}, err
 	}
 	return s.observation, nil
+}
+
+type actionThenErrorObserver struct {
+	observation WriterObservation
+	err         error
+}
+
+func (o actionThenErrorObserver) ObserveAndRun(
+	ctx context.Context,
+	action func(context.Context, WriterObservation) error,
+) (WriterObservation, error) {
+	if err := action(ctx, o.observation); err != nil {
+		return WriterObservation{}, err
+	}
+	return WriterObservation{}, o.err
 }
 
 type observerResult struct {
