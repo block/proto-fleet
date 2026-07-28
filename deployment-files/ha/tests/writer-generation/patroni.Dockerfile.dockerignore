@@ -1,9 +1,0 @@
-**
-!server/
-!server/**
-!deployment-files/
-!deployment-files/ha/
-!deployment-files/ha/tests/
-!deployment-files/ha/tests/writer-generation/
-!deployment-files/ha/tests/writer-generation/patroni.template.yml
-!deployment-files/ha/tests/writer-generation/patroni-entrypoint.sh
