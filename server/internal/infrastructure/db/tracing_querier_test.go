@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -53,14 +55,31 @@ func TestTracingInterceptorRecordsQueryError(t *testing.T) {
 	ctx, requestSpan := tracer.Start(context.Background(), "http.request")
 	defer requestSpan.End()
 
-	queryErr := errors.New("connection refused")
+	queryErr := errors.New("connection refused to 10.0.0.5")
 	err := interceptor.RetryQuery(ctx, "GetUserById", func() error { return queryErr })
 	require.ErrorIs(t, err, queryErr)
 
 	spans := recorder.Ended()
 	require.Len(t, spans, 1)
 	require.Equal(t, codes.Error, spans[0].Status().Code)
-	require.NotEmpty(t, spans[0].Events())
+	require.Equal(t, "query failed", spans[0].Status().Description)
+	require.Empty(t, spans[0].Events(), "raw error text must not be exported as an event")
+}
+
+func TestTracingInterceptorExportsOnlySQLStateForPostgresErrors(t *testing.T) {
+	recorder, interceptor, tracer := newRecordingInterceptor()
+	ctx, requestSpan := tracer.Start(context.Background(), "http.request")
+	defer requestSpan.End()
+
+	pgErr := &pgconn.PgError{Code: "23505", Message: "duplicate key", Detail: `Key (email)=(pii@example.com) already exists.`}
+	err := interceptor.RetryQuery(ctx, "GetUserById", func() error { return fmt.Errorf("insert user: %w", pgErr) })
+	require.ErrorIs(t, err, error(pgErr))
+
+	spans := recorder.Ended()
+	require.Len(t, spans, 1)
+	require.Equal(t, codes.Error, spans[0].Status().Code)
+	require.Equal(t, "SQLSTATE 23505", spans[0].Status().Description)
+	require.Empty(t, spans[0].Events())
 }
 
 func TestTracingInterceptorTreatsNoRowsAsSuccess(t *testing.T) {

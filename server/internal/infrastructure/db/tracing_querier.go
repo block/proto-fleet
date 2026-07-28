@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
@@ -49,8 +50,16 @@ func (t tracingInterceptor) RetryQuery(ctx context.Context, operationName string
 	completed = true
 	// sql.ErrNoRows is an expected outcome for lookups, not a span failure.
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		span.SetStatus(codes.Error, statusDescription(err))
 	}
 	return err
+}
+
+// statusDescription keeps raw error text (which can embed user-supplied values) out of exported spans; SQLSTATE codes are data-free.
+func statusDescription(err error) string {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return "SQLSTATE " + pgErr.Code
+	}
+	return "query failed"
 }
