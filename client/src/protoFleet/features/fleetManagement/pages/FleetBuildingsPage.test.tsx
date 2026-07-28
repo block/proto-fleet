@@ -12,6 +12,7 @@ const listBuildingsMock = vi.hoisted(() => vi.fn());
 const useActiveSiteMock = vi.hoisted(() => vi.fn());
 const buildingListSpy = vi.hoisted(() => vi.fn());
 const buildingCardSpy = vi.hoisted(() => vi.fn());
+const hasPermissionMock = vi.hoisted(() => vi.fn((_: string) => true));
 
 vi.mock("@/protoFleet/api/buildings", async (importActual) => {
   const actual = await importActual<typeof import("@/protoFleet/api/buildings")>();
@@ -38,12 +39,12 @@ vi.mock("@/protoFleet/components/PageHeader/SitePicker", async (importActual) =>
 });
 
 // Keep the real Zustand store (so view-mode persistence is under test) and
-// only force permissions on.
+// route permission checks through a per-test mock.
 vi.mock("@/protoFleet/store", async (importActual) => {
   const actual = await importActual<typeof import("@/protoFleet/store")>();
   return {
     ...actual,
-    useHasPermission: () => true,
+    useHasPermission: (permission: string) => hasPermissionMock(permission),
   };
 });
 
@@ -109,6 +110,9 @@ describe("FleetBuildingsPage view toggle", () => {
     useActiveSiteMock.mockReturnValue({ activeSite: { kind: "all" }, setActiveSite: vi.fn() });
     buildingListSpy.mockReset();
     buildingCardSpy.mockReset();
+    // Default: all permissions granted. Individual cases override.
+    hasPermissionMock.mockReset();
+    hasPermissionMock.mockImplementation(() => true);
     // Reset the persisted preference to the default before each case.
     useFleetStore.getState().ui.setBuildingsViewMode("list");
   });
@@ -138,5 +142,18 @@ describe("FleetBuildingsPage view toggle", () => {
 
     expect(screen.getAllByTestId("building-card")).toHaveLength(2);
     expect(screen.queryByTestId("building-list")).not.toBeInTheDocument();
+  });
+
+  test("forces list view and hides the toggle when the reader lacks stats permissions", () => {
+    // A site:read-only reader (no fleet:read / miner:read) reaches the tab,
+    // but the grid's BuildingCards would 403 on GetBuildingStats, so grid is
+    // unavailable even via ?display=grid.
+    hasPermissionMock.mockImplementation((permission: string) => permission === "site:read");
+
+    renderPage("/fleet/buildings?display=grid");
+
+    expect(screen.getByTestId("building-list")).toBeInTheDocument();
+    expect(screen.queryByTestId("building-card")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View grid" })).not.toBeInTheDocument();
   });
 });

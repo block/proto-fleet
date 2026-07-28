@@ -89,6 +89,18 @@ const FleetBuildingsPage = () => {
   const storedBuildingsViewMode = useFleetStore((s) => s.ui.buildingsViewMode);
   const setStoredBuildingsViewMode = useFleetStore((s) => s.ui.setBuildingsViewMode);
 
+  // Grid renders a BuildingCard per row, each of which polls GetBuildingStats
+  // (server requires site:read + fleet:read + miner:read). A site:read-only
+  // reader can still reach this tab, so for them the grid would 403 on every
+  // card every poll and show permanent skeletons. Gate grid on the stats
+  // permissions and fall back to the list, which renders the same buildings
+  // from the ListBuildings counts (site:read only).
+  // Both hooks must be called unconditionally (rules of hooks) — don't
+  // short-circuit the second behind `&&`.
+  const canReadFleet = useHasPermission("fleet:read");
+  const canReadMinerStats = useHasPermission("miner:read");
+  const canViewBuildingStats = canReadFleet && canReadMinerStats;
+
   // URL is the source of truth for the segmented control (so a `?display=`
   // deep link wins), falling back to the persisted Zustand preference so a
   // default session keeps the operator's last choice. Mirrors RacksPage.
@@ -96,7 +108,7 @@ const FleetBuildingsPage = () => {
     const raw = searchParams.get("display");
     return raw === "grid" || raw === "list" ? raw : undefined;
   })();
-  const buildingsViewMode = urlBuildingsViewMode ?? storedBuildingsViewMode;
+  const buildingsViewMode = canViewBuildingStats ? (urlBuildingsViewMode ?? storedBuildingsViewMode) : "list";
 
   const setBuildingsViewMode = useCallback(
     (mode: "grid" | "list") => {
@@ -512,26 +524,14 @@ const FleetBuildingsPage = () => {
 
   const filterControls = (
     <div className="flex flex-col gap-2">
-      {/* View toggle — full width on tablet/phone */}
-      <div className="block laptop:hidden">
-        <SegmentedControl
-          key={`buildings-mobile-${buildingsViewMode}`}
-          className="!w-full whitespace-nowrap [&>button]:flex-1"
-          segmentClassName="text-center"
-          segments={[
-            { key: "grid", title: "View grid" },
-            { key: "list", title: "View list" },
-          ]}
-          initialSegmentKey={buildingsViewMode}
-          onSelect={handleBuildingsViewModeSelect}
-        />
-      </div>
-      <div className="flex flex-row flex-wrap items-center gap-2">
-        {/* View toggle — inline on desktop */}
-        <div className="hidden laptop:block">
+      {/* View toggle — full width on tablet/phone. Hidden without stats
+          permissions, since grid is unavailable and list is the only view. */}
+      {canViewBuildingStats ? (
+        <div className="block laptop:hidden">
           <SegmentedControl
-            key={`buildings-desktop-${buildingsViewMode}`}
-            className="shrink-0 whitespace-nowrap"
+            key={`buildings-mobile-${buildingsViewMode}`}
+            className="!w-full whitespace-nowrap [&>button]:flex-1"
+            segmentClassName="text-center"
             segments={[
               { key: "grid", title: "View grid" },
               { key: "list", title: "View list" },
@@ -540,6 +540,23 @@ const FleetBuildingsPage = () => {
             onSelect={handleBuildingsViewModeSelect}
           />
         </div>
+      ) : null}
+      <div className="flex flex-row flex-wrap items-center gap-2">
+        {/* View toggle — inline on desktop */}
+        {canViewBuildingStats ? (
+          <div className="hidden laptop:block">
+            <SegmentedControl
+              key={`buildings-desktop-${buildingsViewMode}`}
+              className="shrink-0 whitespace-nowrap"
+              segments={[
+                { key: "grid", title: "View grid" },
+                { key: "list", title: "View list" },
+              ]}
+              initialSegmentKey={buildingsViewMode}
+              onSelect={handleBuildingsViewModeSelect}
+            />
+          </div>
+        ) : null}
         <FilterChipsBar
           filters={filterChipsBarFilters}
           onChange={handleFilterChange}
