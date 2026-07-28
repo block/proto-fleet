@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"net/url"
 	"regexp"
 	"sync"
 	"time"
@@ -182,7 +183,7 @@ func (c *Checker) check(ctx context.Context) {
 		c.logger.Debug("release check skipped", "error", err)
 		return
 	}
-	list, err := c.client.fetchReleases(ctx)
+	list, err := c.client.fetchReleases(ctx, hasRCCandidate)
 	if err != nil {
 		c.logger.Debug("release check skipped", "error", err)
 		return
@@ -211,6 +212,19 @@ func stableRelease(rel githubRelease) *Release {
 	return newRelease(rel)
 }
 
+// hasRCCandidate is the pagination stop predicate: it reports whether the
+// accumulated list already holds a selectable RC. GitHub pages the list
+// newest-created-first, so once any canonical RC is in hand, deeper pages
+// only offer older ones.
+func hasRCCandidate(list []githubRelease) bool {
+	for i := range list {
+		if !list[i].Draft && rcTagPattern.MatchString(list[i].TagName) {
+			return true
+		}
+	}
+	return false
+}
+
 // latestRC picks the newest release candidate from the list by semver
 // max-compare; GitHub's list order is not a reliable recency signal.
 func latestRC(list []githubRelease) *Release {
@@ -233,8 +247,22 @@ func latestRC(list []githubRelease) *Release {
 func newRelease(rel githubRelease) *Release {
 	return &Release{
 		Version:     rel.TagName,
-		NotesURL:    rel.HTMLURL,
+		NotesURL:    safeNotesURL(rel.HTMLURL),
 		PublishedAt: rel.PublishedAt,
 		Prerelease:  rel.Prerelease,
 	}
+}
+
+// safeNotesURL keeps a body-derived html_url only when it parses as an
+// absolute https URL. Unlike the tag, this field never passes a grammar
+// check, and the client renders it as a link — so a compromised or
+// misconfigured releases API could otherwise smuggle a javascript: href into
+// the UI. Anything short of https is dropped and the client hides the link.
+// This extends Config.Validate's https-only stance to body-derived fields.
+func safeNotesURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return ""
+	}
+	return raw
 }

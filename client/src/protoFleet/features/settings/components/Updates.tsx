@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { updatesClient } from "@/protoFleet/api/clients";
 import { ReleaseChannel } from "@/protoFleet/api/generated/updates/v1/updates_pb";
@@ -33,12 +33,7 @@ const Updates = () => {
   const [channel, setChannel] = useState<ReleaseChannel>(ReleaseChannel.UNSPECIFIED);
   const [channelControlResetKey, setChannelControlResetKey] = useState(0);
 
-  useEffect(() => {
-    // The RPC is server-gated on instance:update; non-holders are redirected
-    // below and must not fire it.
-    if (!canUpdateInstance) {
-      return;
-    }
+  const fetchStatus = useCallback(() => {
     updatesClient
       .getUpdateStatus({})
       .then((response) => {
@@ -51,7 +46,16 @@ const Updates = () => {
           onError: () => setLoadError(getErrorMessage(err, "Failed to load update status")),
         });
       });
-  }, [canUpdateInstance, handleAuthErrors]);
+  }, [handleAuthErrors]);
+
+  useEffect(() => {
+    // The RPC is server-gated on instance:update; non-holders are redirected
+    // below and must not fire it.
+    if (!canUpdateInstance) {
+      return;
+    }
+    fetchStatus();
+  }, [canUpdateInstance, fetchStatus]);
 
   const handleChannelSelect = (selectedKey: string) => {
     const nextChannel = Number(selectedKey) as ReleaseChannel;
@@ -66,6 +70,9 @@ const Updates = () => {
           message: "Release channel updated",
           status: STATUSES.success,
         });
+        // The eligible release differs per channel, so refetch to keep the
+        // offered version and install command in sync with the new channel.
+        fetchStatus();
       })
       .catch((err) => {
         handleAuthErrors({
@@ -111,14 +118,18 @@ const Updates = () => {
                     <div className="text-300">Latest available</div>
                     <div className="flex items-center gap-3">
                       <span className="text-300">{release.version}</span>
-                      <a
-                        href={release.releaseNotesUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-300 text-text-primary-70 underline underline-offset-2 hover:text-text-primary"
-                      >
-                        Release notes
-                      </a>
+                      {/* The server blanks non-https notes URLs, so an empty
+                          string means "no link to offer". */}
+                      {release.releaseNotesUrl ? (
+                        <a
+                          href={release.releaseNotesUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-300 text-text-primary-70 underline underline-offset-2 hover:text-text-primary"
+                        >
+                          Release notes
+                        </a>
+                      ) : null}
                     </div>
                   </Row>
                   <Row className="flex items-center justify-between gap-2" divider={false}>

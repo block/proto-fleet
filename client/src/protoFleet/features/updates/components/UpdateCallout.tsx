@@ -50,14 +50,18 @@ const UpdateCallout = () => {
             className="text-text-primary-50 hover:text-text-primary"
           />
         </div>
-        <a
-          href={release.releaseNotesUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-0.5 inline-block text-200 text-text-primary-70 underline underline-offset-2 hover:text-text-primary"
-        >
-          Release notes
-        </a>
+        {/* The server blanks non-https notes URLs, so an empty string means
+            "no link to offer". */}
+        {release.releaseNotesUrl ? (
+          <a
+            href={release.releaseNotesUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-0.5 inline-block text-200 text-text-primary-70 underline underline-offset-2 hover:text-text-primary"
+          >
+            Release notes
+          </a>
+        ) : null}
         <button
           type="button"
           onClick={() => copyInstallCommand(status.installCommand)}

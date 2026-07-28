@@ -41,6 +41,7 @@ const RESOURCE_TO_GROUP: Record<string, string> = {
   apikey: "admin",
   user: "admin",
   role: "admin",
+  instance: "admin",
 };
 
 const GROUP_LABELS: Record<string, string> = {

@@ -137,7 +137,26 @@ describe("UpdateCallout", () => {
     const link = getByRole("link", { name: "Release notes" });
     expect(link).toHaveAttribute("href", RELEASE_NOTES_URL);
     expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
     expect(getByRole("button", { name: "Copy install command" })).toBeInTheDocument();
+  });
+
+  it("omits the release notes link when the server provides no URL", () => {
+    // The server blanks non-https notes URLs; the callout still renders.
+    mockUpdateAvailable({
+      status: buildStatus({
+        latestEligible: {
+          version: "v1.3.0",
+          releaseNotesUrl: "",
+          prerelease: false,
+        } as GetUpdateStatusResponse["latestEligible"],
+      }),
+    });
+
+    const { getByText, queryByRole } = render(<UpdateCallout />);
+
+    expect(getByText("v1.3.0")).toBeInTheDocument();
+    expect(queryByRole("link", { name: "Release notes" })).not.toBeInTheDocument();
   });
 
   it("copies the install command and shows a success toast", async () => {

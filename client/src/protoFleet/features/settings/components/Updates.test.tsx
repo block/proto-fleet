@@ -88,8 +88,27 @@ describe("Updates", () => {
     const link = getByRole("link", { name: "Release notes" });
     expect(link).toHaveAttribute("href", RELEASE_NOTES_URL);
     expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
     expect(getByText(INSTALL_COMMAND)).toBeInTheDocument();
     expect(getByRole("button", { name: "Copy install command" })).toBeInTheDocument();
+  });
+
+  it("omits the release notes link when the server provides no URL", async () => {
+    // The server blanks non-https notes URLs; the release still renders.
+    mockGetUpdateStatus.mockResolvedValue(
+      buildStatus({
+        latestEligible: {
+          version: "v1.3.0",
+          releaseNotesUrl: "",
+          prerelease: false,
+        } as GetUpdateStatusResponse["latestEligible"],
+      }),
+    );
+
+    const { findByText, queryByRole } = render(<Updates />);
+
+    expect(await findByText("v1.3.0")).toBeInTheDocument();
+    expect(queryByRole("link", { name: "Release notes" })).not.toBeInTheDocument();
   });
 
   it("copies the install command and shows a success toast", async () => {
@@ -153,7 +172,11 @@ describe("Updates", () => {
   });
 
   it("saves a channel change and toasts success", async () => {
-    mockGetUpdateStatus.mockResolvedValue(buildStatus({ channel: ReleaseChannel.STABLE }));
+    // The success path refetches; the second response carries the persisted
+    // new channel.
+    mockGetUpdateStatus
+      .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }))
+      .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE_AND_RC }));
     mockSetReleaseChannel.mockResolvedValue({} as never);
 
     const { findByRole, getByRole } = render(<Updates />);
@@ -167,6 +190,32 @@ describe("Updates", () => {
       }),
     );
     await waitFor(() => expect(getByRole("button", { name: "Stable + RC" })).toHaveClass(SELECTED_SEGMENT_CLASS));
+  });
+
+  it("refetches the update status after a successful channel change", async () => {
+    // Each channel offers a different eligible release; the page must not
+    // keep showing the old channel's offer after the switch.
+    const rcStatus = buildStatus({
+      channel: ReleaseChannel.STABLE_AND_RC,
+      installCommand: "curl -fsSL https://fleet.example.com/install.sh | sh -s -- v1.4.0-rc.1",
+      latestEligible: {
+        version: "v1.4.0-rc.1",
+        releaseNotesUrl: "https://github.com/block/proto-fleet/releases/tag/v1.4.0-rc.1",
+        prerelease: true,
+      } as GetUpdateStatusResponse["latestEligible"],
+    });
+    mockGetUpdateStatus
+      .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }))
+      .mockResolvedValueOnce(rcStatus);
+    mockSetReleaseChannel.mockResolvedValue({} as never);
+
+    const { findByText, findByRole } = render(<Updates />);
+    expect(await findByText("v1.3.0")).toBeInTheDocument();
+
+    fireEvent.mouseDown(await findByRole("button", { name: "Stable + RC" }));
+
+    expect(await findByText("v1.4.0-rc.1")).toBeInTheDocument();
+    expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2);
   });
 
   it("toasts an error and reverts the control when saving the channel fails", async () => {

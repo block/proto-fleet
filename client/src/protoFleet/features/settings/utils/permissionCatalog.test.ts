@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type CatalogEntry, dependencyGaps, withRequiredReads } from "./permissionCatalog";
+import { buildPermissionGroups, type CatalogEntry, dependencyGaps, withRequiredReads } from "./permissionCatalog";
 
 // Minimal catalog covering the keys the dependency rules reference.
 const catalog: CatalogEntry[] = [
@@ -14,6 +14,22 @@ const catalog: CatalogEntry[] = [
   { key: "schedule:read", description: "View scheduled miner actions.", resource: "schedule" },
   { key: "schedule:manage", description: "Create, edit, pause, resume, and delete schedules.", resource: "schedule" },
 ];
+
+describe("buildPermissionGroups", () => {
+  it("places instance-resource entries in the Administration group instead of dropping them", () => {
+    const groups = buildPermissionGroups([
+      ...catalog,
+      {
+        key: "instance:update",
+        description: "See available server updates, change the release channel, and apply server upgrades.",
+        resource: "instance",
+      },
+    ]);
+    const admin = groups.find((group) => group.resource === "admin");
+    expect(admin?.label).toBe("Administration");
+    expect(admin?.entries.map((entry) => entry.key)).toContain("instance:update");
+  });
+});
 
 describe("dependencyGaps", () => {
   it("gives schedule:manage no hard requirements, only a choose-one-of action set", () => {

@@ -16,8 +16,21 @@ const (
 	githubMediaType   = "application/vnd.github+json"
 	githubHTTPTimeout = 10 * time.Second
 	// releasesPageSize is the GitHub API maximum. Daily nightlies share the
-	// list with RCs, so a smaller page could push a month-old RC off the page.
-	releasesPageSize = "100"
+	// list with RCs, so a smaller page would just force more pages to reach
+	// the newest RC.
+	releasesPageSize = 100
+	// maxReleasePages bounds the release-list crawl. Ten full pages is
+	// roughly 2.7 years of daily nightlies; an RC older than every release
+	// in that window is not a live upgrade offer, and the bound caps a
+	// cycle's worst-case API cost at a handful of requests.
+	maxReleasePages = 10
+	// maxResponseBytes caps how much of a response body a decode may
+	// consume. per_page limits what we ask for, but the remote controls
+	// what it actually sends; a page of 100 release objects is well under
+	// 1 MiB, so 8 MiB is a generous ceiling. JSON truncated by the cap
+	// fails to decode, degrading the cycle silently like any other bad
+	// body.
+	maxResponseBytes = 8 << 20
 )
 
 // githubRelease mirrors the subset of a GitHub release object we consume.
@@ -46,6 +59,8 @@ type githubClient struct {
 	latestETag   string
 	latestCached githubRelease
 
+	// listETag is page 1's ETag; listCached is the whole accumulated crawl
+	// it stands for, however many pages that took.
 	listETag   string
 	listCached []githubRelease
 }
@@ -76,7 +91,7 @@ func (c *githubClient) fetchLatestStable(ctx context.Context) (githubRelease, er
 	}
 
 	var rel githubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&rel); err != nil {
 		return githubRelease{}, fmt.Errorf("decode /releases/latest: %w", err)
 	}
 	// Record the ETag only after a successful parse so a bad body can't pin a
@@ -86,38 +101,89 @@ func (c *githubClient) fetchLatestStable(ctx context.Context) (githubRelease, er
 	return rel, nil
 }
 
-// fetchReleases returns the first page of releases. A malformed individual
-// entry is skipped; only an unparseable page aborts the cycle.
-func (c *githubClient) fetchReleases(ctx context.Context) ([]githubRelease, error) {
-	resp, err := c.get(ctx, c.baseURL+"/releases?per_page="+releasesPageSize, c.listETag)
+// fetchReleases returns releases newest-first, following pagination until the
+// caller's enough predicate is satisfied by the accumulated list, a short page
+// signals the list is exhausted, or maxReleasePages is reached. Daily
+// nightlies crowd the newest pages, so a still-current RC can sit hundreds of
+// entries deep; the predicate tells the crawl when it may stop early.
+//
+// Only page 1 is requested conditionally: publishing a release prepends to the
+// list, so an unchanged first page means nothing new and the whole previously
+// accumulated crawl is replayed. (A deletion deep in the list can leave page 1
+// untouched and the replayed tail stale until the ETag rotates — acceptable
+// for a best-effort daily check.)
+func (c *githubClient) fetchReleases(ctx context.Context, enough func([]githubRelease) bool) ([]githubRelease, error) {
+	var accumulated []githubRelease
+	var firstPageETag string
+	for page := 1; page <= maxReleasePages; page++ {
+		etag := ""
+		if page == 1 {
+			etag = c.listETag
+		}
+		pg, err := c.fetchReleasesPage(ctx, page, etag)
+		if err != nil {
+			return nil, err
+		}
+		if pg.notModified {
+			return c.listCached, nil
+		}
+		if page == 1 {
+			firstPageETag = pg.etag
+		}
+		accumulated = append(accumulated, pg.entries...)
+		if pg.rawCount < releasesPageSize || enough(accumulated) {
+			break
+		}
+	}
+	// Record the ETag and cache only after every fetched page parsed, so a
+	// bad body can't pin a partial crawl behind future 304s.
+	c.listETag = firstPageETag
+	c.listCached = accumulated
+	return accumulated, nil
+}
+
+// releasesPage is one decoded page of the release list.
+type releasesPage struct {
+	entries []githubRelease
+	// rawCount is the pre-skip entry count: whether the list continues past
+	// this page depends on how many entries GitHub sent, not on how many
+	// survived decoding.
+	rawCount    int
+	etag        string
+	notModified bool
+}
+
+// fetchReleasesPage fetches one page of the release list. A malformed
+// individual entry is skipped; only an unparseable page aborts the cycle.
+func (c *githubClient) fetchReleasesPage(ctx context.Context, page int, etag string) (releasesPage, error) {
+	url := fmt.Sprintf("%s/releases?per_page=%d&page=%d", c.baseURL, releasesPageSize, page)
+	resp, err := c.get(ctx, url, etag)
 	if err != nil {
-		return nil, err
+		return releasesPage{}, err
 	}
 	defer closeBody(resp)
 
 	switch {
-	case resp.StatusCode == http.StatusNotModified && c.listETag != "":
-		return c.listCached, nil
+	case resp.StatusCode == http.StatusNotModified && etag != "":
+		return releasesPage{notModified: true}, nil
 	case resp.StatusCode != http.StatusOK:
-		return nil, fmt.Errorf("GET /releases: status %d", resp.StatusCode)
+		return releasesPage{}, fmt.Errorf("GET /releases page %d: status %d", page, resp.StatusCode)
 	}
 
 	var raw []json.RawMessage
-	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
-		return nil, fmt.Errorf("decode /releases: %w", err)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&raw); err != nil {
+		return releasesPage{}, fmt.Errorf("decode /releases page %d: %w", page, err)
 	}
-	releases := make([]githubRelease, 0, len(raw))
+	entries := make([]githubRelease, 0, len(raw))
 	for _, entry := range raw {
 		var rel githubRelease
 		if err := json.Unmarshal(entry, &rel); err != nil {
 			c.logger.Debug("skipping malformed release entry", "error", err)
 			continue
 		}
-		releases = append(releases, rel)
+		entries = append(entries, rel)
 	}
-	c.listETag = resp.Header.Get("ETag")
-	c.listCached = releases
-	return releases, nil
+	return releasesPage{entries: entries, rawCount: len(raw), etag: resp.Header.Get("ETag")}, nil
 }
 
 func (c *githubClient) get(ctx context.Context, url, etag string) (*http.Response, error) {
@@ -141,7 +207,10 @@ func (c *githubClient) get(ctx context.Context, url, etag string) (*http.Respons
 }
 
 // closeBody drains before closing so the keep-alive connection is reusable.
+// The drain is capped: the remote controls the body size, and past the cap a
+// fresh connection is cheaper than swallowing the rest.
 func closeBody(resp *http.Response) {
-	_, _ = io.Copy(io.Discard, resp.Body)
+	const maxDrainBytes = 1 << 20
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDrainBytes))
 	_ = resp.Body.Close()
 }
