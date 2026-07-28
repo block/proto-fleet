@@ -73,7 +73,7 @@ const ActionSheet = ({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-60 flex items-end bg-grayscale-gray-5"
+      className="fixed inset-0 z-60 flex items-end bg-grayscale-gray-20"
       data-testid={testId}
       role="presentation"
       onClick={(event) => {
