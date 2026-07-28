@@ -32,7 +32,8 @@ PLAYWRIGHT_VERSION=$(
   cd "${CLIENT_DIR}"
   node -p 'require("./package.json").devDependencies["@playwright/test"]'
 )
-PLAYWRIGHT_IMAGE="${PLAYWRIGHT_DOCKER_IMAGE:-mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble}"
+PLAYWRIGHT_IMAGE_OVERRIDE="${PLAYWRIGHT_DOCKER_IMAGE:-}"
+PLAYWRIGHT_IMAGE=""
 PLAYWRIGHT_NODE_MODULES_SOURCE="${PLAYWRIGHT_NODE_MODULES_SOURCE:-}"
 JUST_BIN="${JUST_BIN:-}"
 
@@ -205,8 +206,13 @@ fi
 
 CACHED_PLAYWRIGHT_VERSION=$(node -p 'require(process.argv[1]).version' "${PLAYWRIGHT_NODE_MODULES_SOURCE}/playwright/package.json")
 
-if [[ "${CACHED_PLAYWRIGHT_VERSION}" != "${PLAYWRIGHT_VERSION}" ]]; then
-  echo "Warning: using Playwright ${CACHED_PLAYWRIGHT_VERSION} from ${PLAYWRIGHT_NODE_MODULES_SOURCE} because ${PLAYWRIGHT_VERSION} is not available there." >&2
+if [[ -n "${PLAYWRIGHT_IMAGE_OVERRIDE}" ]]; then
+  PLAYWRIGHT_IMAGE="${PLAYWRIGHT_IMAGE_OVERRIDE}"
+elif [[ "${CACHED_PLAYWRIGHT_VERSION}" == "${PLAYWRIGHT_VERSION}" ]]; then
+  PLAYWRIGHT_IMAGE="mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble"
+else
+  PLAYWRIGHT_IMAGE="mcr.microsoft.com/playwright:v${CACHED_PLAYWRIGHT_VERSION}-noble"
+  echo "Using Playwright ${CACHED_PLAYWRIGHT_VERSION} from ${PLAYWRIGHT_NODE_MODULES_SOURCE} and matching Docker image ${PLAYWRIGHT_IMAGE} because ${PLAYWRIGHT_VERSION} is not available there." >&2
 fi
 
 find_available_preview_port() {
@@ -241,11 +247,19 @@ fi
 HOST_PREVIEW_URL="http://127.0.0.1:${PREVIEW_PORT}"
 CONTAINER_BASE_URL="${E2E_BASE_URL_FOR_CONTAINER:-http://host.docker.internal:${PREVIEW_PORT}}"
 
+BACKEND_MANAGED=0
 PREVIEW_PID=""
 PREVIEW_LOG="${REPO_ROOT}/.tmp/protofleet-visual-preview.log"
 mkdir -p "${REPO_ROOT}/.tmp"
 
 cleanup() {
+  if [[ "${BACKEND_MANAGED}" -eq 1 ]]; then
+    (
+      cd "${REPO_ROOT}/server"
+      "${JUST_BIN}" stop
+    ) >/dev/null 2>&1 || true
+  fi
+
   if [[ -n "${PREVIEW_PID}" ]] && kill -0 "${PREVIEW_PID}" >/dev/null 2>&1; then
     kill "${PREVIEW_PID}" >/dev/null 2>&1 || true
   fi
@@ -273,6 +287,12 @@ if [[ "${SKIP_BUILD}" -eq 0 ]]; then
   )
 fi
 
+echo "Building Linux plugin binaries for the fake backend..."
+(
+  cd "${REPO_ROOT}"
+  "${JUST_BIN}" build-plugins-docker
+)
+
 echo "Starting Proto Fleet preview on ${HOST_PREVIEW_URL}..."
 (
   cd "${CLIENT_DIR}"
@@ -297,6 +317,7 @@ run_linux_playwright() {
 
   echo
   echo "Resetting fake backend for ${project}..."
+  BACKEND_MANAGED=1
   (
     cd "${REPO_ROOT}/server"
     "${JUST_BIN}" rebuild-services

@@ -166,8 +166,7 @@ export class OnboardingVisualHelper {
 
   async openFindMinersFromMinersPage() {
     const { addMinersPage, minersPage, page } = this.deps;
-    await minersPage.navigateToMinersPage();
-    await minersPage.validateMinersPageOpened();
+    await this.goToReadyMinersPage();
     const openedViaGetStarted = await minersPage.tryAction(() => minersPage.clickGetStarted(), 2_000);
     if (!openedViaGetStarted) {
       await minersPage.clickAddMinersButton();
@@ -199,9 +198,7 @@ export class OnboardingVisualHelper {
 
   async openSingleProtoRigActionsMenu() {
     const { minersPage } = this.deps;
-    await minersPage.navigateToMinersPage();
-    await minersPage.validateMinersPageOpened();
-    await minersPage.waitForMinersListToLoad();
+    await this.goToReadyMinersPage();
     await minersPage.openSingleMinerActionsForFirstProtoRig();
   }
 
@@ -257,6 +254,13 @@ export class OnboardingVisualHelper {
       localStorage.removeItem("completeSetupDismissed");
       localStorage.removeItem("configurePoolDismissed");
     });
+  }
+
+  private async goToReadyMinersPage() {
+    const { minersPage } = this.deps;
+    await minersPage.navigateToMinersPage();
+    await minersPage.validateMinersPageOpened();
+    await minersPage.waitForMinersListToLoad();
   }
 
   private async waitForPairingToFinish(expectedMinerCount: number) {
