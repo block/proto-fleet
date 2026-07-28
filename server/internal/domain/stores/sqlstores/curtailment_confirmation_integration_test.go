@@ -189,17 +189,18 @@ func TestSQLCurtailmentStore_ConfirmationEligibilityUsesExclusiveCompositeCursor
 	require.NoError(t, err)
 
 	dispatchedAt := time.Date(2026, 7, 1, 14, 0, 0, 0, time.UTC)
+	secondBatch := uuid.NewString()
 	secondEventID, _ := insertDispatchedCurtailTarget(
 		t, ctx, store, orgID, user.DatabaseID, "confirm-cursor-second",
-		devices[2], "batch-confirm-cursor-"+devices[2], dispatchedAt,
+		devices[2], secondBatch, dispatchedAt,
 	)
 	curtailed := models.DesiredStateCurtailed
+	firstBatch := uuid.NewString()
 	for _, deviceID := range devices[:2] {
-		batch := "batch-confirm-cursor-" + deviceID
 		require.NoError(t, store.UpdateTargetState(ctx, firstEvent.ID, deviceID, interfaces.UpdateCurtailmentTargetStateParams{
 			State:                models.TargetStateDispatched,
 			LastDispatchedAt:     &dispatchedAt,
-			LastBatchUUID:        &batch,
+			LastBatchUUID:        &firstBatch,
 			ExpectedDesiredState: &curtailed,
 		}))
 	}
