@@ -29,15 +29,21 @@ type Pinger interface {
 // per interval no matter the request rate.
 const readyCacheInterval = 2 * time.Second
 
-// NewReadyHandler reports readiness: 200 when the database answers a ping,
-// 503 otherwise. /health stays a static liveness check.
-func NewReadyHandler(db Pinger) func(w http.ResponseWriter, r *http.Request) {
+// NewReadyHandler reports traffic readiness: 200 only while this process is
+// active and the database answers a ping. /health stays a static liveness
+// check.
+func NewReadyHandler(db Pinger, active ActiveState) func(w http.ResponseWriter, r *http.Request) {
 	var mu sync.Mutex
 	var lastCheck time.Time
 	var lastErr error
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if !active.Active() {
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
 

@@ -670,7 +670,7 @@ func start(config *Config) error {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", health.NewHandler())
-	mux.HandleFunc("/health/ready", health.NewReadyHandler(conn))
+	mux.HandleFunc("/health/ready", health.NewReadyHandler(conn, fleetRuntime))
 	mux.HandleFunc("/health/active", health.NewActiveHandler(fleetRuntime))
 	if config.Metrics.Enabled {
 		if config.Metrics.WebhookToken == "" {

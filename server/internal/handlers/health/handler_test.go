@@ -37,7 +37,10 @@ func TestReadyHandlerOKWhenDBReachable(t *testing.T) {
 	recorder := httptest.NewRecorder()
 
 	// Act
-	NewReadyHandler(fakePinger{})(recorder, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
+	NewReadyHandler(fakePinger{}, fakeActiveState(true))(
+		recorder,
+		httptest.NewRequest(http.MethodGet, "/health/ready", nil),
+	)
 
 	// Assert
 	require.Equal(t, http.StatusOK, recorder.Code)
@@ -50,7 +53,10 @@ func TestReadyHandlerServiceUnavailableWhenPingFails(t *testing.T) {
 	pinger := fakePinger{err: errors.New("connection refused")}
 
 	// Act
-	NewReadyHandler(pinger)(recorder, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
+	NewReadyHandler(pinger, fakeActiveState(true))(
+		recorder,
+		httptest.NewRequest(http.MethodGet, "/health/ready", nil),
+	)
 
 	// Assert
 	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
@@ -68,7 +74,7 @@ func (c *countingPinger) PingContext(context.Context) error {
 func TestReadyHandlerCachesPingResults(t *testing.T) {
 	// Arrange
 	pinger := &countingPinger{}
-	handler := NewReadyHandler(pinger)
+	handler := NewReadyHandler(pinger, fakeActiveState(true))
 
 	// Act
 	for range 3 {
@@ -86,10 +92,26 @@ func TestReadyHandlerRejectsNonGet(t *testing.T) {
 	recorder := httptest.NewRecorder()
 
 	// Act
-	NewReadyHandler(fakePinger{})(recorder, httptest.NewRequest(http.MethodPost, "/health/ready", nil))
+	NewReadyHandler(fakePinger{}, fakeActiveState(true))(
+		recorder,
+		httptest.NewRequest(http.MethodPost, "/health/ready", nil),
+	)
 
 	// Assert
 	require.Equal(t, http.StatusMethodNotAllowed, recorder.Code)
+}
+
+func TestReadyHandlerServiceUnavailableWhilePassive(t *testing.T) {
+	pinger := &countingPinger{}
+	recorder := httptest.NewRecorder()
+
+	NewReadyHandler(pinger, fakeActiveState(false))(
+		recorder,
+		httptest.NewRequest(http.MethodGet, "/health/ready", nil),
+	)
+
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	require.Zero(t, pinger.pings, "a passive process must not report traffic readiness or ping the database")
 }
 
 func TestActiveHandlerReflectsStrictActiveState(t *testing.T) {
