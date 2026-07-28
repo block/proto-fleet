@@ -692,8 +692,11 @@ const FleetBuildingsPage = () => {
             </div>
             <div className="px-6 pb-6 laptop:px-10" ref={measureRef}>
               <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${numColumns}, 1fr)` }}>
-                {visibleBuildings.map((building) => (
-                  <BuildingCard key={(building.building?.id ?? 0n).toString()} building={building} />
+                {visibleBuildings.map((building, index) => (
+                  <BuildingCard
+                    key={building.building?.id ? building.building.id.toString() : `building-${index}`}
+                    building={building}
+                  />
                 ))}
               </div>
             </div>

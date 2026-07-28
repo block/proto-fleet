@@ -110,33 +110,33 @@ describe("FleetBuildingsPage view toggle", () => {
     buildingListSpy.mockReset();
     buildingCardSpy.mockReset();
     // Reset the persisted preference to the default before each case.
-    useFleetStore.getState().ui.setBuildingsViewMode("grid");
+    useFleetStore.getState().ui.setBuildingsViewMode("list");
   });
 
-  test("defaults to the grid view, rendering a BuildingCard per building with a count line", () => {
+  test("defaults to the list view, rendering the BuildingList table", () => {
     renderPage();
 
-    expect(screen.getAllByTestId("building-card")).toHaveLength(2);
-    expect(screen.queryByTestId("building-list")).not.toBeInTheDocument();
-    expect(screen.getByTestId("fleet-buildings-count-label")).toHaveTextContent("2 buildings");
+    expect(screen.getByTestId("building-list")).toBeInTheDocument();
+    expect(screen.queryByTestId("building-card")).not.toBeInTheDocument();
   });
 
-  test("switching to list view renders the table and persists the preference", async () => {
+  test("switching to grid view renders a BuildingCard per building with a count line and persists the preference", async () => {
     const user = userEvent.setup();
     renderPage();
 
     // Both the mobile and desktop toggles render the control; either works.
-    await user.click(screen.getAllByRole("button", { name: "View list" })[0]!);
+    await user.click(screen.getAllByRole("button", { name: "View grid" })[0]!);
 
-    expect(screen.getByTestId("building-list")).toBeInTheDocument();
-    expect(screen.queryByTestId("building-card")).not.toBeInTheDocument();
-    expect(useFleetStore.getState().ui.buildingsViewMode).toBe("list");
+    expect(screen.getAllByTestId("building-card")).toHaveLength(2);
+    expect(screen.queryByTestId("building-list")).not.toBeInTheDocument();
+    expect(screen.getByTestId("fleet-buildings-count-label")).toHaveTextContent("2 buildings");
+    expect(useFleetStore.getState().ui.buildingsViewMode).toBe("grid");
   });
 
-  test("respects the ?display=list URL param over the stored grid preference", () => {
-    renderPage("/fleet/buildings?display=list");
+  test("respects the ?display=grid URL param over the stored list preference", () => {
+    renderPage("/fleet/buildings?display=grid");
 
-    expect(screen.getByTestId("building-list")).toBeInTheDocument();
-    expect(screen.queryByTestId("building-card")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("building-card")).toHaveLength(2);
+    expect(screen.queryByTestId("building-list")).not.toBeInTheDocument();
   });
 });

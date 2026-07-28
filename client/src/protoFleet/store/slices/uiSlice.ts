@@ -62,7 +62,10 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   bulkRenamePreferences: createDefaultBulkRenamePreferences(),
   bulkWorkerNamePreferences: createDefaultBulkRenamePreferences(bulkRenameModes.worker),
   racksViewMode: "grid",
-  buildingsViewMode: "grid",
+  // Buildings defaults to the list: the tab's actions (counts, rack
+  // placement, bulk select) live in the table; the grid is a browse-only
+  // affordance. Racks defaults to grid because its cards are interactive.
+  buildingsViewMode: "list",
   isActionBarVisible: false,
   activeSite: DEFAULT_ACTIVE_SITE,
   sitesRevision: 0,
