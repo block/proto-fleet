@@ -6,7 +6,9 @@
 -- device in the event organization. The bulk promotion below repeats that
 -- ownership check at commit time; this read is eligibility evidence, not
 -- durable write authority. The page size is the shared confirmation batch
--- bound supplied by the SQL store.
+-- bound supplied by the SQL store. The exclusive composite cursor follows
+-- curtailment_target's primary-key order so every active pulse can sweep and
+-- wrap without OFFSET drift as confirmed rows leave the working set.
 SELECT
     ce.id                              AS event_id,
     ce.event_uuid                      AS event_uuid,
@@ -38,7 +40,9 @@ WHERE ct.state = 'dispatched'
             AND ct.restore_dispatched_at IS NOT NULL
             AND ct.restore_batch_uuid IS NOT NULL)
       )
-ORDER BY ce.id, ct.device_identifier
+  AND (ct.curtailment_event_id, ct.device_identifier) >
+      (sqlc.arg('after_event_id')::bigint, sqlc.arg('after_device_identifier')::varchar)
+ORDER BY ct.curtailment_event_id, ct.device_identifier
 LIMIT sqlc.arg('page_size')::int;
 
 -- name: BulkConfirmCurtailmentTargets :one

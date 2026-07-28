@@ -137,6 +137,33 @@ func (r *Reconciler) safeConfirmationPass(ctx context.Context) (parked, failed b
 	return r.confirmationPass(ctx)
 }
 
+// nextConfirmationPage advances the activation-local keyset cursor as soon as
+// eligibility is established, before sampling or writes can fail. Reaching the
+// end of the ordering wraps once; only an empty read from the beginning means
+// the pulse has no work and may park.
+func (r *Reconciler) nextConfirmationPage(ctx context.Context) ([]models.ConfirmationTarget, error) {
+	items, err := r.confirmationStore.ListEligibleConfirmationTargets(ctx, r.confirmationCursor)
+	if err != nil {
+		return nil, err
+	}
+	zeroCursor := interfaces.ConfirmationPageCursor{}
+	if len(items) == 0 && r.confirmationCursor != zeroCursor {
+		r.confirmationCursor = zeroCursor
+		items, err = r.confirmationStore.ListEligibleConfirmationTargets(ctx, r.confirmationCursor)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(items) > 0 {
+		last := items[len(items)-1]
+		r.confirmationCursor = interfaces.ConfirmationPageCursor{
+			AfterEventID:          last.EventID,
+			AfterDeviceIdentifier: last.DeviceIdentifier,
+		}
+	}
+	return items, nil
+}
+
 // confirmationPass runs one confirmation wave: read eligible work, sample
 // each unique device once, and apply guarded promotions for targets whose
 // post-dispatch sample proves the desired state. Returns parked=true when no
@@ -151,7 +178,7 @@ func (r *Reconciler) confirmationPass(ctx context.Context) (parked, failed bool)
 	passCtx, cancel := context.WithTimeout(ctx, r.confirmationPassTimeout)
 	defer cancel()
 
-	items, err := r.store.ListEligibleConfirmationTargets(passCtx)
+	items, err := r.nextConfirmationPage(passCtx)
 	if err != nil {
 		if ctx.Err() == nil {
 			slog.Error("curtailment confirmation fast path: eligibility read failed", "error", err)

@@ -84,6 +84,13 @@ type AllPairedReadinessUpdate struct {
 // capacity.
 const ConfirmationBatchSize = 500
 
+// ConfirmationPageCursor is the stable keyset position for the global
+// eligibility scan. The zero value starts a new sweep.
+type ConfirmationPageCursor struct {
+	AfterEventID          int64
+	AfterDeviceIdentifier string
+}
+
 // ConfirmationUpdate is one positive fast-path promotion submitted to the
 // guarded bulk confirmation write. The store revalidates event phase, target
 // state/direction/batch, and live device ownership before applying it.
@@ -101,10 +108,19 @@ type ConfirmationBulkResult struct {
 	SampleDeviceIdentifiers []string
 }
 
-// CurtailmentConfirmationStore is the write surface required only by the
+// CurtailmentConfirmationStore is the store surface required only by the
 // optional confirmation fast path. Keeping it separate from CurtailmentStore
 // avoids expanding handler/test doubles that can never run the pulse.
 type CurtailmentConfirmationStore interface {
+	// ListEligibleConfirmationTargets returns at most ConfirmationBatchSize
+	// phase-valid dispatched targets across all orgs after the exclusive
+	// cursor: curtail work under pending/active events and restore work under
+	// restoring events. The cursor's zero value starts a new global sweep.
+	ListEligibleConfirmationTargets(
+		ctx context.Context,
+		cursor ConfirmationPageCursor,
+	) ([]models.ConfirmationTarget, error)
+
 	// BulkConfirmTargets applies positive confirmations for one event in one
 	// guarded statement and returns only device identifiers that won.
 	BulkConfirmTargets(
@@ -423,15 +439,6 @@ type CurtailmentStore interface {
 	// ListNonTerminalEvents returns pending/active/restoring events across
 	// all orgs. Reconciler-only — MUST NOT be exposed through any RPC handler.
 	ListNonTerminalEvents(ctx context.Context) ([]*models.Event, error)
-
-	// ListEligibleConfirmationTargets returns the phase-valid `dispatched`
-	// targets the confirmation fast path may promote, across all orgs: curtail
-	// work under pending/active events (desired_state='curtailed') and restore
-	// work under restoring events (desired_state='active'), each with a durable
-	// phase dispatch timestamp and batch UUID. Returns at most
-	// ConfirmationBatchSize rows. Reconciler-only — MUST NOT be exposed
-	// through any RPC handler.
-	ListEligibleConfirmationTargets(ctx context.Context) ([]models.ConfirmationTarget, error)
 
 	// UpdateEventState transitions an event row from expectedState. Nil
 	// startedAt/endedAt preserves the column. Returns

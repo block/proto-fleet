@@ -966,8 +966,10 @@ type Querier interface {
 	// device in the event organization. The bulk promotion below repeats that
 	// ownership check at commit time; this read is eligibility evidence, not
 	// durable write authority. The page size is the shared confirmation batch
-	// bound supplied by the SQL store.
-	ListEligibleConfirmationTargets(ctx context.Context, pageSize int32) ([]ListEligibleConfirmationTargetsRow, error)
+	// bound supplied by the SQL store. The exclusive composite cursor follows
+	// curtailment_target's primary-key order so every active pulse can sweep and
+	// wrap without OFFSET drift as confirmed rows leave the working set.
+	ListEligibleConfirmationTargets(ctx context.Context, arg ListEligibleConfirmationTargetsParams) ([]ListEligibleConfirmationTargetsRow, error)
 	ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]ListEnabledCurtailmentAutomationRulesByMQTTSourceRow, error)
 	// Enabled MQTT sources for subscriber reconciliation.
 	ListEnabledMQTTSources(ctx context.Context) ([]CurtailmentMqttSourceConfig, error)

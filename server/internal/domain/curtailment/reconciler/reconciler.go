@@ -126,6 +126,10 @@ type Reconciler struct {
 	// split-budget path where sampling exhausts the pass budget while the
 	// separate write budget stays live.
 	confirmationPassTimeout time.Duration
+	// confirmationCursor is activation-owned keyset state. Each successful
+	// eligibility read advances it even when no target promotes, preventing
+	// a nonconfirming page from monopolizing the active pulse.
+	confirmationCursor interfaces.ConfirmationPageCursor
 
 	loopCancel  context.CancelFunc
 	workCancel  context.CancelFunc
@@ -232,6 +236,7 @@ func (r *Reconciler) Start(ctx context.Context) error {
 	r.workCancel = workCancel
 	r.runCanceled = loopCtx.Done()
 	r.runDone = runDone
+	r.confirmationCursor = interfaces.ConfirmationPageCursor{}
 	r.mu.Unlock()
 
 	go r.tickLoop(loopCtx, workCtx, runDone)

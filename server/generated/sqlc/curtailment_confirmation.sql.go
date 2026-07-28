@@ -156,9 +156,17 @@ WHERE ct.state = 'dispatched'
             AND ct.restore_dispatched_at IS NOT NULL
             AND ct.restore_batch_uuid IS NOT NULL)
       )
-ORDER BY ce.id, ct.device_identifier
-LIMIT $1::int
+  AND (ct.curtailment_event_id, ct.device_identifier) >
+      ($1::bigint, $2::varchar)
+ORDER BY ct.curtailment_event_id, ct.device_identifier
+LIMIT $3::int
 `
+
+type ListEligibleConfirmationTargetsParams struct {
+	AfterEventID          int64
+	AfterDeviceIdentifier string
+	PageSize              int32
+}
 
 type ListEligibleConfirmationTargetsRow struct {
 	EventID                     int64
@@ -180,9 +188,11 @@ type ListEligibleConfirmationTargetsRow struct {
 // device in the event organization. The bulk promotion below repeats that
 // ownership check at commit time; this read is eligibility evidence, not
 // durable write authority. The page size is the shared confirmation batch
-// bound supplied by the SQL store.
-func (q *Queries) ListEligibleConfirmationTargets(ctx context.Context, pageSize int32) ([]ListEligibleConfirmationTargetsRow, error) {
-	rows, err := q.query(ctx, q.listEligibleConfirmationTargetsStmt, listEligibleConfirmationTargets, pageSize)
+// bound supplied by the SQL store. The exclusive composite cursor follows
+// curtailment_target's primary-key order so every active pulse can sweep and
+// wrap without OFFSET drift as confirmed rows leave the working set.
+func (q *Queries) ListEligibleConfirmationTargets(ctx context.Context, arg ListEligibleConfirmationTargetsParams) ([]ListEligibleConfirmationTargetsRow, error) {
+	rows, err := q.query(ctx, q.listEligibleConfirmationTargetsStmt, listEligibleConfirmationTargets, arg.AfterEventID, arg.AfterDeviceIdentifier, arg.PageSize)
 	if err != nil {
 		return nil, err
 	}

@@ -1941,8 +1941,15 @@ func (s *SQLCurtailmentStore) ListNonTerminalEvents(ctx context.Context) ([]*mod
 	return out, nil
 }
 
-func (s *SQLCurtailmentStore) ListEligibleConfirmationTargets(ctx context.Context) ([]models.ConfirmationTarget, error) {
-	rows, err := s.GetQueries(ctx).ListEligibleConfirmationTargets(ctx, interfaces.ConfirmationBatchSize)
+func (s *SQLCurtailmentStore) ListEligibleConfirmationTargets(
+	ctx context.Context,
+	cursor interfaces.ConfirmationPageCursor,
+) ([]models.ConfirmationTarget, error) {
+	rows, err := s.GetQueries(ctx).ListEligibleConfirmationTargets(ctx, sqlc.ListEligibleConfirmationTargetsParams{
+		AfterEventID:          cursor.AfterEventID,
+		AfterDeviceIdentifier: cursor.AfterDeviceIdentifier,
+		PageSize:              interfaces.ConfirmationBatchSize,
+	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to list eligible confirmation targets: %v", err)
 	}

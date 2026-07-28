@@ -2,6 +2,7 @@ package sqlstores_test
 
 import (
 	"context"
+	"sort"
 	"testing"
 	"time"
 
@@ -60,7 +61,7 @@ func confirmationTargetsByDevice(
 	store *sqlstores.SQLCurtailmentStore,
 ) map[string]models.ConfirmationTarget {
 	t.Helper()
-	rows, err := store.ListEligibleConfirmationTargets(ctx)
+	rows, err := store.ListEligibleConfirmationTargets(ctx, interfaces.ConfirmationPageCursor{})
 	require.NoError(t, err)
 	byDevice := make(map[string]models.ConfirmationTarget, len(rows))
 	for _, row := range rows {
@@ -165,6 +166,130 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkIncludesDispatchedPhases(t 
 	assert.Equal(t, restoreBatch, restoreRow.BatchUUID)
 }
 
+func TestSQLCurtailmentStore_ConfirmationEligibilityUsesExclusiveCompositeCursor(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	orgID := user.OrganizationID
+	devices := createConfirmationTestDevices(t, testContext.DatabaseService, orgID, 3)
+
+	firstEvent, err := store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreTestEvent(orgID, user.DatabaseID, uuid.New(), models.EventStateActive, "confirm-cursor-first"),
+		[]models.InsertTargetParams{
+			curtailmentStoreTestTarget(devices[0], models.TargetStatePending, models.DesiredStateCurtailed),
+			curtailmentStoreTestTarget(devices[1], models.TargetStatePending, models.DesiredStateCurtailed),
+		},
+	)
+	require.NoError(t, err)
+
+	dispatchedAt := time.Date(2026, 7, 1, 14, 0, 0, 0, time.UTC)
+	secondEventID, _ := insertDispatchedCurtailTarget(
+		t, ctx, store, orgID, user.DatabaseID, "confirm-cursor-second",
+		devices[2], "batch-confirm-cursor-"+devices[2], dispatchedAt,
+	)
+	curtailed := models.DesiredStateCurtailed
+	for _, deviceID := range devices[:2] {
+		batch := "batch-confirm-cursor-" + deviceID
+		require.NoError(t, store.UpdateTargetState(ctx, firstEvent.ID, deviceID, interfaces.UpdateCurtailmentTargetStateParams{
+			State:                models.TargetStateDispatched,
+			LastDispatchedAt:     &dispatchedAt,
+			LastBatchUUID:        &batch,
+			ExpectedDesiredState: &curtailed,
+		}))
+	}
+
+	all, err := store.ListEligibleConfirmationTargets(ctx, interfaces.ConfirmationPageCursor{})
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+	assert.True(t, all[0].DeviceIdentifier < all[1].DeviceIdentifier)
+	assert.Equal(t, firstEvent.ID, all[0].EventID)
+	assert.Equal(t, firstEvent.ID, all[1].EventID)
+	assert.Equal(t, secondEventID, all[2].EventID)
+
+	afterFirst, err := store.ListEligibleConfirmationTargets(ctx, interfaces.ConfirmationPageCursor{
+		AfterEventID:          all[0].EventID,
+		AfterDeviceIdentifier: all[0].DeviceIdentifier,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, all[1:], afterFirst)
+
+	afterFirstEvent, err := store.ListEligibleConfirmationTargets(ctx, interfaces.ConfirmationPageCursor{
+		AfterEventID:          all[1].EventID,
+		AfterDeviceIdentifier: all[1].DeviceIdentifier,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, all[2:], afterFirstEvent)
+
+	afterEnd, err := store.ListEligibleConfirmationTargets(ctx, interfaces.ConfirmationPageCursor{
+		AfterEventID:          all[2].EventID,
+		AfterDeviceIdentifier: all[2].DeviceIdentifier,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, afterEnd)
+}
+
+func TestSQLCurtailmentStore_ConfirmationEligibilityEnforcesPageSizeBoundary(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
+	ctx := t.Context()
+	store := sqlstores.NewSQLCurtailmentStore(testContext.DatabaseService.DB)
+	orgID := user.OrganizationID
+
+	const targetCount = interfaces.ConfirmationBatchSize + 1
+	devices := createConfirmationTestDevices(t, testContext.DatabaseService, orgID, targetCount)
+	targets := make([]models.InsertTargetParams, targetCount)
+	for i, deviceID := range devices {
+		targets[i] = curtailmentStoreTestTarget(deviceID, models.TargetStatePending, models.DesiredStateCurtailed)
+	}
+	inserted, err := store.InsertEventWithTargets(
+		ctx,
+		curtailmentStoreTestEvent(orgID, user.DatabaseID, uuid.New(), models.EventStateActive, "confirm-page-boundary"),
+		targets,
+	)
+	require.NoError(t, err)
+
+	dispatchedAt := time.Date(2026, 7, 1, 15, 0, 0, 0, time.UTC)
+	batch := "batch-confirm-page-boundary"
+	curtailed := models.DesiredStateCurtailed
+	for _, deviceID := range devices {
+		require.NoError(t, store.UpdateTargetState(ctx, inserted.ID, deviceID, interfaces.UpdateCurtailmentTargetStateParams{
+			State:                models.TargetStateDispatched,
+			LastDispatchedAt:     &dispatchedAt,
+			LastBatchUUID:        &batch,
+			ExpectedDesiredState: &curtailed,
+		}), "dispatch target %s", deviceID)
+	}
+
+	sort.Strings(devices)
+	firstPage, err := store.ListEligibleConfirmationTargets(ctx, interfaces.ConfirmationPageCursor{})
+	require.NoError(t, err)
+	require.Len(t, firstPage, interfaces.ConfirmationBatchSize)
+	for i, row := range firstPage {
+		assert.Equal(t, inserted.ID, row.EventID)
+		assert.Equal(t, devices[i], row.DeviceIdentifier)
+	}
+
+	last := firstPage[len(firstPage)-1]
+	remainder, err := store.ListEligibleConfirmationTargets(ctx, interfaces.ConfirmationPageCursor{
+		AfterEventID:          last.EventID,
+		AfterDeviceIdentifier: last.DeviceIdentifier,
+	})
+	require.NoError(t, err)
+	require.Len(t, remainder, 1)
+	assert.Equal(t, inserted.ID, remainder[0].EventID)
+	assert.Equal(t, devices[interfaces.ConfirmationBatchSize], remainder[0].DeviceIdentifier)
+}
+
 // TestSQLCurtailmentStore_ConfirmationEligibleWorkExcludesIneligible covers the
 // exclusion cases: non-dispatched target states, targets under every terminal
 // event state, and phase mismatches (a curtail-desired target under a restoring
@@ -263,7 +388,7 @@ func TestSQLCurtailmentStore_ConfirmationEligibleWorkExcludesIneligible(t *testi
 		ExpectedDesiredState: &activeDesired,
 	}))
 
-	rows, err := store.ListEligibleConfirmationTargets(ctx)
+	rows, err := store.ListEligibleConfirmationTargets(ctx, interfaces.ConfirmationPageCursor{})
 	require.NoError(t, err)
 	assert.Empty(t, rows, "no ineligible target may appear in confirmation work")
 }

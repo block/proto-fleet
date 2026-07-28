@@ -3,7 +3,8 @@ package reconciler
 import (
 	"context"
 	"errors"
-	"strconv"
+	"fmt"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -35,15 +36,16 @@ type confirmationFakeStore struct {
 	mu sync.Mutex
 	// items is the authored eligibility fixture; the read filters it by the
 	// in-memory target's current state.
-	items              []models.ConfirmationTarget
-	listEligibleErr    error
-	listEligibleCalls  int
-	confirmWriteCalls  int
-	bulkConfirmCalls   int
-	lastBulkUpdateSize int
-	lastConfirmWrite   interfaces.UpdateCurtailmentTargetStateParams
-	lastConfirmDevice  string
-	lastConfirmEventID int64
+	items               []models.ConfirmationTarget
+	listEligibleErr     error
+	listEligibleCalls   int
+	listEligibleCursors []interfaces.ConfirmationPageCursor
+	confirmWriteCalls   int
+	bulkConfirmCalls    int
+	lastBulkUpdateSize  int
+	lastConfirmWrite    interfaces.UpdateCurtailmentTargetStateParams
+	lastConfirmDevice   string
+	lastConfirmEventID  int64
 }
 
 func newConfirmationFakeStore() *confirmationFakeStore {
@@ -66,6 +68,12 @@ func (f *confirmationFakeStore) eligibleCalls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.listEligibleCalls
+}
+
+func (f *confirmationFakeStore) eligibleCursors() []interfaces.ConfirmationPageCursor {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]interfaces.ConfirmationPageCursor(nil), f.listEligibleCursors...)
 }
 
 func (f *confirmationFakeStore) confirmCalls() int {
@@ -108,10 +116,14 @@ func (f *confirmationFakeStore) findTarget(eventID int64, device string) *models
 // ListEligibleConfirmationTargets mirrors the real query's state filter:
 // only rows whose target is still 'dispatched' are returned, so a target
 // the pass just promoted disappears from the next read.
-func (f *confirmationFakeStore) ListEligibleConfirmationTargets(context.Context) ([]models.ConfirmationTarget, error) {
+func (f *confirmationFakeStore) ListEligibleConfirmationTargets(
+	_ context.Context,
+	cursor interfaces.ConfirmationPageCursor,
+) ([]models.ConfirmationTarget, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.listEligibleCalls++
+	f.listEligibleCursors = append(f.listEligibleCursors, cursor)
 	if f.listEligibleErr != nil {
 		return nil, f.listEligibleErr
 	}
@@ -122,6 +134,21 @@ func (f *confirmationFakeStore) ListEligibleConfirmationTargets(context.Context)
 			continue
 		}
 		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].EventID != out[j].EventID {
+			return out[i].EventID < out[j].EventID
+		}
+		return out[i].DeviceIdentifier < out[j].DeviceIdentifier
+	})
+	start := sort.Search(len(out), func(i int) bool {
+		return out[i].EventID > cursor.AfterEventID ||
+			(out[i].EventID == cursor.AfterEventID &&
+				out[i].DeviceIdentifier > cursor.AfterDeviceIdentifier)
+	})
+	out = out[start:]
+	if len(out) > interfaces.ConfirmationBatchSize {
+		out = out[:interfaces.ConfirmationBatchSize]
 	}
 	return out, nil
 }
@@ -655,14 +682,14 @@ func TestConfirmationPass_MajorityOmittedResultsFailPassButConfirmSibling(t *tes
 		"a failed pass increments the pass-failure metric once")
 }
 
-func TestConfirmationPass_ChunksFleetWaveIntoBoundedEventWrites(t *testing.T) {
+func TestConfirmationPass_BoundsFleetWavePageAndBulkWrite(t *testing.T) {
 	store := newConfirmationFakeStore()
 	sampler := newFakeSampler()
 	dispatchedAt := fastPathTestNow.Add(-10 * time.Second)
-	const targetCount = 1001
+	const targetCount = interfaces.ConfirmationBatchSize + 1
 	items := make([]models.ConfirmationTarget, 0, targetCount)
 	for i := range targetCount {
-		deviceID := "miner-" + strconv.Itoa(i)
+		deviceID := fmt.Sprintf("miner-%04d", i)
 		items = append(items, seedDispatchedWork(
 			store, 10, deviceID, models.DesiredStateCurtailed, "batch-a", dispatchedAt,
 		))
@@ -676,11 +703,60 @@ func TestConfirmationPass_ChunksFleetWaveIntoBoundedEventWrites(t *testing.T) {
 	assert.False(t, parked)
 	assert.False(t, failed)
 	calls, size := store.bulkCalls()
-	assert.Equal(t, 3, calls)
-	assert.Equal(t, 1, size)
+	assert.Equal(t, 1, calls)
+	assert.Equal(t, interfaces.ConfirmationBatchSize, size)
+	assert.Equal(t, models.TargetStateDispatched,
+		store.targetState(10, fmt.Sprintf("miner-%04d", interfaces.ConfirmationBatchSize)),
+		"one target must remain outside the bounded eligibility page")
+}
+
+func TestConfirmationPass_RotatesPastDegradedNonconfirmingPage(t *testing.T) {
+	store := newConfirmationFakeStore()
+	sampler := newFakeSampler()
+	dispatchedAt := fastPathTestNow.Add(-10 * time.Second)
+	const targetCount = interfaces.ConfirmationBatchSize + 1
+	items := make([]models.ConfirmationTarget, 0, targetCount)
 	for i := range targetCount {
-		assert.Equal(t, models.TargetStateConfirmed, store.targetState(10, "miner-"+strconv.Itoa(i)))
+		deviceID := fmt.Sprintf("miner-%04d", i)
+		items = append(items, seedDispatchedWork(
+			store, 10, deviceID, models.DesiredStateCurtailed, "batch-a", dispatchedAt,
+		))
+		if i <= interfaces.ConfirmationBatchSize/2 {
+			continue // Missing fixture simulates an offline miner/sample error.
+		}
+		powerW := 2900.0
+		if i == interfaces.ConfirmationBatchSize {
+			powerW = 100
+		}
+		sampler.setResult(deviceID, confirmationSample(deviceID, powerW, fastPathTestNow.Add(time.Second)))
 	}
+	store.setItems(items...)
+
+	r := newFastPathReconcilerForTest(store, sampler, nil)
+	parked, failed := r.confirmationPass(context.Background())
+	require.False(t, parked)
+	require.True(t, failed, "a strict-majority sample failure must back off without pinning the cursor")
+
+	parked, failed = r.confirmationPass(context.Background())
+	assert.False(t, parked)
+	assert.False(t, failed)
+	assert.Equal(t, models.TargetStateConfirmed,
+		store.targetState(10, fmt.Sprintf("miner-%04d", interfaces.ConfirmationBatchSize)),
+		"a degraded nonconfirming first page must not monopolize every pulse")
+
+	parked, failed = r.confirmationPass(context.Background())
+	assert.False(t, parked, "wrapping must retry the degraded first page instead of parking")
+	assert.True(t, failed, "the retried degraded page must retain its strict-majority failure")
+	assert.Equal(t, 3, sampler.callCount(), "the wrapped pass must sample the first page again")
+	cursors := store.eligibleCursors()
+	require.Len(t, cursors, 4)
+	assert.Equal(t, []interfaces.ConfirmationPageCursor{
+		{
+			AfterEventID:          10,
+			AfterDeviceIdentifier: fmt.Sprintf("miner-%04d", interfaces.ConfirmationBatchSize),
+		},
+		{},
+	}, cursors[2:], "the wrapped pass must read the empty tail, then retry from the zero cursor")
 }
 
 // --- confirmationPass: single-winner guards ---
