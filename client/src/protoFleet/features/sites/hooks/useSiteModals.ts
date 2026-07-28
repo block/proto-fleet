@@ -284,7 +284,7 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
           const created = await new Promise<{ site: Site; warnings: string[] } | null>((resolve) => {
             void createSite({
               values: draft,
-              onSuccess: (site, warnings) => resolve({ site, warnings }),
+              onSuccess: ({ site, networkConfigWarnings }) => resolve({ site, warnings: networkConfigWarnings }),
               onError: (msg) => {
                 pushToast({ message: `Failed to create site: ${msg}`, status: STATUSES.error });
                 resolve(null);
