@@ -63,7 +63,7 @@ func TestRacingCoordinatorsProduceOneOwner(t *testing.T) {
 	}
 	require.Equal(t, 1, active)
 	require.Equal(t, 1, countMatchingErrors(errs, nil))
-	require.Equal(t, 1, countMatchingErrors(errs, ErrLeaseHeld))
+	require.Equal(t, 1, countMatchingErrors(errs, ErrLeaseUnavailable))
 }
 
 func TestPromotionAfterLostAsyncLeaseStateSupersedesUnexpiredLease(t *testing.T) {
@@ -93,7 +93,7 @@ func TestLeaseStoreRejectsClusterIdentityMismatch(t *testing.T) {
 	_, err = store.Acquire(
 		t.Context(), databaseObservation(t, reader, "cluster-b", 42), uuid.New(), time.Minute,
 	)
-	require.ErrorIs(t, err, ErrDCSClusterIdentityMismatch)
+	require.ErrorIs(t, err, ErrLeaseUnavailable)
 }
 
 func TestLeaseStoreRejectsGenerationRegression(t *testing.T) {
@@ -106,7 +106,7 @@ func TestLeaseStoreRejectsGenerationRegression(t *testing.T) {
 	_, err = store.Acquire(
 		t.Context(), databaseObservation(t, reader, "cluster-a", 41), uuid.New(), time.Minute,
 	)
-	require.ErrorIs(t, err, ErrWriterGenerationRegression)
+	require.ErrorIs(t, err, ErrLeaseUnavailable)
 }
 
 func TestLeaseStoreSameGenerationWaitsForExpiry(t *testing.T) {
@@ -121,7 +121,7 @@ func TestLeaseStoreSameGenerationWaitsForExpiry(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = store.Acquire(t.Context(), observed, uuid.New(), time.Second)
-	require.ErrorIs(t, err, ErrLeaseHeld)
+	require.ErrorIs(t, err, ErrLeaseUnavailable)
 
 	waitForLeaseExpiry(t, first)
 	second, err := store.Acquire(t.Context(), observed, uuid.New(), time.Second)
@@ -203,7 +203,7 @@ func TestLeaseStoreRejectsDifferentWritableServerIdentity(t *testing.T) {
 	observed.ServerAddress = "203.0.113.1"
 
 	_, err := store.Acquire(t.Context(), observed, uuid.New(), time.Minute)
-	require.ErrorIs(t, err, ErrWritableServerMismatch)
+	require.ErrorIs(t, err, ErrLeaseUnavailable)
 
 	ownership, err := store.Acquire(
 		t.Context(),
@@ -223,7 +223,7 @@ func TestLeaseStoreRejectsRenewalOnDifferentWritableServerIdentity(t *testing.T)
 	observed.Timeline++
 
 	_, err = store.Renew(t.Context(), observed, ownership, time.Minute)
-	require.ErrorIs(t, err, ErrWritableServerMismatch)
+	require.ErrorIs(t, err, ErrOwnershipLost)
 }
 
 func databaseObservation(

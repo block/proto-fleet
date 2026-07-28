@@ -9,6 +9,5 @@ CREATE TABLE fleet_runtime_lease (
         CONSTRAINT fleet_runtime_lease_epoch_positive
         CHECK (lease_epoch > 0),
     holder_id UUID NOT NULL,
-    expires_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL
+    expires_at TIMESTAMPTZ NOT NULL
 );

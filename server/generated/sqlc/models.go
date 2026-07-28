@@ -939,7 +939,6 @@ type FleetRuntimeLease struct {
 	LeaseEpoch              int64
 	HolderID                uuid.UUID
 	ExpiresAt               time.Time
-	UpdatedAt               time.Time
 }
 
 type FleetTelemetryPollHeartbeat struct {

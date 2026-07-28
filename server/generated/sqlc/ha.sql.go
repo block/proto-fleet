@@ -18,135 +18,80 @@ WITH writer_identity AS MATERIALIZED (
         clock_timestamp() AS database_time,
         (
             NOT pg_is_in_recovery()
-            AND host(inet_server_addr()) = $1::TEXT
-            AND inet_server_port() = $2::INTEGER
+            AND host(inet_server_addr()) = $5::TEXT
+            AND inet_server_port() = $6::INTEGER
             AND (pg_control_checkpoint()).timeline_id::BIGINT
-                = $3::BIGINT
+                = $7::BIGINT
         ) AS matches
-),
-attempted AS (
-    INSERT INTO fleet_runtime_lease (
-        lease_name,
-        dcs_cluster_id,
-        highest_writer_generation,
-        lease_epoch,
-        holder_id,
-        expires_at,
-        updated_at
-    )
-    SELECT
-        'fleet-active',
-        $4,
-        $5,
-        1,
-        $6,
-        writer_identity.database_time
-            + $7::BIGINT
-            * INTERVAL '1 millisecond',
-        writer_identity.database_time
-    FROM writer_identity
-    WHERE writer_identity.matches
-    ON CONFLICT (lease_name) DO UPDATE
-    SET
-        highest_writer_generation = EXCLUDED.highest_writer_generation,
-        lease_epoch = CASE
-            WHEN
-                fleet_runtime_lease.holder_id = EXCLUDED.holder_id
-                AND fleet_runtime_lease.highest_writer_generation
-                    = EXCLUDED.highest_writer_generation
-                AND fleet_runtime_lease.expires_at
-                    > (SELECT database_time FROM writer_identity)
-            THEN fleet_runtime_lease.lease_epoch
-            ELSE fleet_runtime_lease.lease_epoch + 1
-        END,
-        holder_id = EXCLUDED.holder_id,
-        expires_at = (SELECT database_time FROM writer_identity)
-            + $7::BIGINT
-            * INTERVAL '1 millisecond',
-        updated_at = (SELECT database_time FROM writer_identity)
-    WHERE
-        fleet_runtime_lease.dcs_cluster_id = EXCLUDED.dcs_cluster_id
-        AND (
-            EXCLUDED.highest_writer_generation
-                > fleet_runtime_lease.highest_writer_generation
-            OR (
-                EXCLUDED.highest_writer_generation
-                    = fleet_runtime_lease.highest_writer_generation
-                AND (
-                    fleet_runtime_lease.holder_id = EXCLUDED.holder_id
-                    OR fleet_runtime_lease.expires_at
-                        <= (SELECT database_time FROM writer_identity)
-                )
-            )
-        )
-    RETURNING
-        dcs_cluster_id,
-        highest_writer_generation,
-        lease_epoch,
-        holder_id,
-        expires_at,
-        updated_at
-),
-existing AS MATERIALIZED (
-    SELECT
-        dcs_cluster_id,
-        highest_writer_generation,
-        lease_epoch,
-        holder_id,
-        expires_at
-    FROM fleet_runtime_lease
-    WHERE lease_name = 'fleet-active'
+)
+INSERT INTO fleet_runtime_lease (
+    lease_name,
+    dcs_cluster_id,
+    highest_writer_generation,
+    lease_epoch,
+    holder_id,
+    expires_at
 )
 SELECT
-    attempted.dcs_cluster_id,
-    attempted.highest_writer_generation,
-    attempted.lease_epoch,
-    attempted.holder_id,
-    attempted.expires_at,
-    writer_identity.database_time::TIMESTAMPTZ AS database_time,
-    TRUE AS acquired,
-    TRUE AS writer_matches
-FROM attempted
-INNER JOIN writer_identity ON TRUE
-UNION ALL
-SELECT
-    existing.dcs_cluster_id,
-    existing.highest_writer_generation,
-    existing.lease_epoch,
-    existing.holder_id,
-    existing.expires_at,
-    writer_identity.database_time::TIMESTAMPTZ AS database_time,
-    FALSE AS acquired,
-    writer_identity.matches AS writer_matches
-FROM existing
-INNER JOIN writer_identity ON TRUE
-WHERE NOT EXISTS (SELECT 1 FROM attempted)
-UNION ALL
-SELECT
-    $4::TEXT AS dcs_cluster_id,
-    $5::BIGINT AS highest_writer_generation,
-    0::BIGINT AS lease_epoch,
-    $6::UUID AS holder_id,
-    writer_identity.database_time AS expires_at,
-    writer_identity.database_time::TIMESTAMPTZ AS database_time,
-    FALSE AS acquired,
-    FALSE AS writer_matches
+    'fleet-active',
+    $1,
+    $2,
+    1,
+    $3,
+    writer_identity.database_time
+        + $4::BIGINT
+        * INTERVAL '1 millisecond'
 FROM writer_identity
+WHERE writer_identity.matches
+ON CONFLICT (lease_name) DO UPDATE
+SET
+    highest_writer_generation = EXCLUDED.highest_writer_generation,
+    lease_epoch = CASE
+        WHEN
+            fleet_runtime_lease.holder_id = EXCLUDED.holder_id
+            AND fleet_runtime_lease.highest_writer_generation
+                = EXCLUDED.highest_writer_generation
+            AND fleet_runtime_lease.expires_at
+                > (SELECT database_time FROM writer_identity)
+        THEN fleet_runtime_lease.lease_epoch
+        ELSE fleet_runtime_lease.lease_epoch + 1
+    END,
+    holder_id = EXCLUDED.holder_id,
+    expires_at = (SELECT database_time FROM writer_identity)
+        + $4::BIGINT
+        * INTERVAL '1 millisecond'
 WHERE
-    NOT writer_identity.matches
-    AND NOT EXISTS (SELECT 1 FROM attempted)
-    AND NOT EXISTS (SELECT 1 FROM existing)
-LIMIT 1
+    fleet_runtime_lease.dcs_cluster_id = EXCLUDED.dcs_cluster_id
+    AND (
+        EXCLUDED.highest_writer_generation
+            > fleet_runtime_lease.highest_writer_generation
+        OR (
+            EXCLUDED.highest_writer_generation
+                = fleet_runtime_lease.highest_writer_generation
+            AND (
+                fleet_runtime_lease.holder_id = EXCLUDED.holder_id
+                OR fleet_runtime_lease.expires_at
+                    <= (SELECT database_time FROM writer_identity)
+            )
+        )
+    )
+RETURNING
+    dcs_cluster_id,
+    highest_writer_generation,
+    lease_epoch,
+    holder_id,
+    expires_at,
+    (SELECT database_time FROM writer_identity)::TIMESTAMPTZ AS database_time
 `
 
 type AcquireFleetRuntimeLeaseParams struct {
-	ServerAddress             string
-	ServerPort                int32
-	Timeline                  int64
 	DcsClusterID              string
 	WriterGeneration          int64
 	HolderID                  uuid.UUID
 	LeaseDurationMilliseconds int64
+	ServerAddress             string
+	ServerPort                int32
+	Timeline                  int64
 }
 
 type AcquireFleetRuntimeLeaseRow struct {
@@ -156,19 +101,17 @@ type AcquireFleetRuntimeLeaseRow struct {
 	HolderID                uuid.UUID
 	ExpiresAt               time.Time
 	DatabaseTime            time.Time
-	Acquired                bool
-	WriterMatches           bool
 }
 
 func (q *Queries) AcquireFleetRuntimeLease(ctx context.Context, arg AcquireFleetRuntimeLeaseParams) (AcquireFleetRuntimeLeaseRow, error) {
 	row := q.queryRow(ctx, q.acquireFleetRuntimeLeaseStmt, acquireFleetRuntimeLease,
-		arg.ServerAddress,
-		arg.ServerPort,
-		arg.Timeline,
 		arg.DcsClusterID,
 		arg.WriterGeneration,
 		arg.HolderID,
 		arg.LeaseDurationMilliseconds,
+		arg.ServerAddress,
+		arg.ServerPort,
+		arg.Timeline,
 	)
 	var i AcquireFleetRuntimeLeaseRow
 	err := row.Scan(
@@ -178,8 +121,6 @@ func (q *Queries) AcquireFleetRuntimeLease(ctx context.Context, arg AcquireFleet
 		&i.HolderID,
 		&i.ExpiresAt,
 		&i.DatabaseTime,
-		&i.Acquired,
-		&i.WriterMatches,
 	)
 	return i, err
 }
@@ -217,68 +158,44 @@ WITH writer_identity AS MATERIALIZED (
         clock_timestamp() AS database_time,
         (
             NOT pg_is_in_recovery()
-            AND host(inet_server_addr()) = $1::TEXT
-            AND inet_server_port() = $2::INTEGER
+            AND host(inet_server_addr()) = $6::TEXT
+            AND inet_server_port() = $7::INTEGER
             AND (pg_control_checkpoint()).timeline_id::BIGINT
-                = $3::BIGINT
+                = $8::BIGINT
         ) AS matches
-),
-renewed AS (
-    UPDATE fleet_runtime_lease
-    SET
-        expires_at = writer_identity.database_time
-            + $4::BIGINT
-            * INTERVAL '1 millisecond',
-        updated_at = writer_identity.database_time
-    FROM writer_identity
-    WHERE
-        writer_identity.matches
-        AND lease_name = 'fleet-active'
-        AND dcs_cluster_id = $5
-        AND highest_writer_generation = $6
-        AND lease_epoch = $7
-        AND holder_id = $8
-        AND expires_at > writer_identity.database_time
-    RETURNING
-        fleet_runtime_lease.dcs_cluster_id,
-        fleet_runtime_lease.highest_writer_generation,
-        fleet_runtime_lease.lease_epoch,
-        fleet_runtime_lease.holder_id,
-        fleet_runtime_lease.expires_at
 )
-SELECT
-    renewed.dcs_cluster_id,
-    renewed.highest_writer_generation,
-    renewed.lease_epoch,
-    renewed.holder_id,
-    renewed.expires_at,
-    writer_identity.database_time::TIMESTAMPTZ AS database_time,
-    TRUE AS writer_matches
-FROM renewed
-INNER JOIN writer_identity ON TRUE
-UNION ALL
-SELECT
-    $5::TEXT AS dcs_cluster_id,
-    $6::BIGINT AS highest_writer_generation,
-    $7::BIGINT AS lease_epoch,
-    $8::UUID AS holder_id,
-    writer_identity.database_time AS expires_at,
-    writer_identity.database_time::TIMESTAMPTZ AS database_time,
-    FALSE AS writer_matches
+UPDATE fleet_runtime_lease
+SET
+    expires_at = writer_identity.database_time
+        + $1::BIGINT
+        * INTERVAL '1 millisecond'
 FROM writer_identity
-WHERE NOT writer_identity.matches
-LIMIT 1
+WHERE
+    writer_identity.matches
+    AND lease_name = 'fleet-active'
+    AND dcs_cluster_id = $2
+    AND highest_writer_generation = $3
+    AND lease_epoch = $4
+    AND holder_id = $5
+    AND expires_at > writer_identity.database_time
+RETURNING
+    fleet_runtime_lease.dcs_cluster_id,
+    fleet_runtime_lease.highest_writer_generation,
+    fleet_runtime_lease.lease_epoch,
+    fleet_runtime_lease.holder_id,
+    fleet_runtime_lease.expires_at,
+    writer_identity.database_time::TIMESTAMPTZ AS database_time
 `
 
 type RenewFleetRuntimeLeaseParams struct {
-	ServerAddress             string
-	ServerPort                int32
-	Timeline                  int64
 	LeaseDurationMilliseconds int64
 	DcsClusterID              string
 	WriterGeneration          int64
 	LeaseEpoch                int64
 	HolderID                  uuid.UUID
+	ServerAddress             string
+	ServerPort                int32
+	Timeline                  int64
 }
 
 type RenewFleetRuntimeLeaseRow struct {
@@ -288,19 +205,18 @@ type RenewFleetRuntimeLeaseRow struct {
 	HolderID                uuid.UUID
 	ExpiresAt               time.Time
 	DatabaseTime            time.Time
-	WriterMatches           bool
 }
 
 func (q *Queries) RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error) {
 	row := q.queryRow(ctx, q.renewFleetRuntimeLeaseStmt, renewFleetRuntimeLease,
-		arg.ServerAddress,
-		arg.ServerPort,
-		arg.Timeline,
 		arg.LeaseDurationMilliseconds,
 		arg.DcsClusterID,
 		arg.WriterGeneration,
 		arg.LeaseEpoch,
 		arg.HolderID,
+		arg.ServerAddress,
+		arg.ServerPort,
+		arg.Timeline,
 	)
 	var i RenewFleetRuntimeLeaseRow
 	err := row.Scan(
@@ -310,7 +226,6 @@ func (q *Queries) RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRunt
 		&i.HolderID,
 		&i.ExpiresAt,
 		&i.DatabaseTime,
-		&i.WriterMatches,
 	)
 	return i, err
 }

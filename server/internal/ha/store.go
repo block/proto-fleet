@@ -13,10 +13,9 @@ import (
 )
 
 var (
-	ErrLeaseHeld                  = errors.New("Fleet active lease is held")
-	ErrOwnershipLost              = errors.New("Fleet active lease ownership was lost")
-	ErrOwnershipExpired           = errors.New("Fleet active lease expired")
-	ErrWriterGenerationRegression = errors.New("writer generation regressed")
+	ErrLeaseUnavailable = errors.New("Fleet active lease is unavailable")
+	ErrOwnershipLost    = errors.New("Fleet active lease ownership was lost")
+	ErrOwnershipExpired = errors.New("Fleet active lease expired")
 )
 
 type leaseQuerier interface {
@@ -65,39 +64,10 @@ func (s *LeaseStore) Acquire(
 		},
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Ownership{}, ErrLeaseHeld
+		return Ownership{}, ErrLeaseUnavailable
 	}
 	if err != nil {
 		return Ownership{}, fmt.Errorf("acquire Fleet active lease: %w", err)
-	}
-	if !row.WriterMatches {
-		return Ownership{}, fmt.Errorf(
-			"%w: observed %s:%d timeline %d",
-			ErrWritableServerMismatch,
-			observed.ServerAddress,
-			observed.ServerPort,
-			observed.Timeline,
-		)
-	}
-	if !row.Acquired {
-		switch {
-		case row.DcsClusterID != observed.DCSClusterID:
-			return Ownership{}, fmt.Errorf(
-				"%w: stored=%s observed=%s",
-				ErrDCSClusterIdentityMismatch,
-				row.DcsClusterID,
-				observed.DCSClusterID,
-			)
-		case observed.WriterGeneration < row.HighestWriterGeneration:
-			return Ownership{}, fmt.Errorf(
-				"%w: stored=%d observed=%d",
-				ErrWriterGenerationRegression,
-				row.HighestWriterGeneration,
-				observed.WriterGeneration,
-			)
-		default:
-			return Ownership{}, ErrLeaseHeld
-		}
 	}
 	return ownershipFromAcquire(row), nil
 }
@@ -139,15 +109,6 @@ func (s *LeaseStore) Renew(
 	}
 	if err != nil {
 		return Ownership{}, fmt.Errorf("renew Fleet active lease: %w", err)
-	}
-	if !row.WriterMatches {
-		return Ownership{}, fmt.Errorf(
-			"%w: observed %s:%d timeline %d",
-			ErrWritableServerMismatch,
-			observed.ServerAddress,
-			observed.ServerPort,
-			observed.Timeline,
-		)
 	}
 	return Ownership{
 		DCSClusterID: row.DcsClusterID,
