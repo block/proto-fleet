@@ -9,16 +9,15 @@ FROM connected_postgres_identity;
 -- name: AcquireFleetRuntimeLease :one
 WITH lease_context AS (
     SELECT
-        clock_timestamp() AS database_time,
-        (
-            NOT connected.in_recovery
-            AND connected.server_address = sqlc.arg('server_address')::TEXT
-            AND connected.server_port = sqlc.arg('server_port')::INTEGER
-            AND connected.timeline = sqlc.arg('timeline')::BIGINT
-        ) AS matches
+        clock_timestamp() AS database_time
     FROM connected_postgres_identity AS connected
+    WHERE
+        NOT connected.in_recovery
+        AND connected.server_address = sqlc.arg('server_address')::TEXT
+        AND connected.server_port = sqlc.arg('server_port')::INTEGER
+        AND connected.timeline = sqlc.arg('timeline')::BIGINT
 )
-INSERT INTO fleet_runtime_lease (
+INSERT INTO fleet_runtime_lease AS current_lease (
     lease_name,
     dcs_cluster_id,
     highest_writer_generation,
@@ -36,36 +35,31 @@ SELECT
         + sqlc.arg('lease_duration_milliseconds')::BIGINT
         * INTERVAL '1 millisecond'
 FROM lease_context
-WHERE lease_context.matches
 ON CONFLICT (lease_name) DO UPDATE
 SET
     highest_writer_generation = EXCLUDED.highest_writer_generation,
     lease_epoch = CASE
         WHEN
-            fleet_runtime_lease.holder_id = EXCLUDED.holder_id
-            AND fleet_runtime_lease.highest_writer_generation
+            current_lease.holder_id = EXCLUDED.holder_id
+            AND current_lease.highest_writer_generation
                 = EXCLUDED.highest_writer_generation
-            AND fleet_runtime_lease.expires_at
+            AND current_lease.expires_at
                 > (SELECT database_time FROM lease_context)
-        THEN fleet_runtime_lease.lease_epoch
-        ELSE fleet_runtime_lease.lease_epoch + 1
+        THEN current_lease.lease_epoch
+        ELSE current_lease.lease_epoch + 1
     END,
     holder_id = EXCLUDED.holder_id,
     expires_at = EXCLUDED.expires_at
 WHERE
-    fleet_runtime_lease.dcs_cluster_id = EXCLUDED.dcs_cluster_id
+    current_lease.dcs_cluster_id = EXCLUDED.dcs_cluster_id
+    AND EXCLUDED.highest_writer_generation
+        >= current_lease.highest_writer_generation
     AND (
         EXCLUDED.highest_writer_generation
-            > fleet_runtime_lease.highest_writer_generation
-        OR (
-            EXCLUDED.highest_writer_generation
-                = fleet_runtime_lease.highest_writer_generation
-            AND (
-                fleet_runtime_lease.holder_id = EXCLUDED.holder_id
-                OR fleet_runtime_lease.expires_at
-                    <= (SELECT database_time FROM lease_context)
-            )
-        )
+            > current_lease.highest_writer_generation
+        OR current_lease.holder_id = EXCLUDED.holder_id
+        OR current_lease.expires_at
+            <= (SELECT database_time FROM lease_context)
     )
 RETURNING
     dcs_cluster_id,
