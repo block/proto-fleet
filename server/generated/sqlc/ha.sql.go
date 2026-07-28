@@ -57,9 +57,7 @@ SET
         ELSE fleet_runtime_lease.lease_epoch + 1
     END,
     holder_id = EXCLUDED.holder_id,
-    expires_at = (SELECT database_time FROM writer_identity)
-        + $4::BIGINT
-        * INTERVAL '1 millisecond'
+    expires_at = EXCLUDED.expires_at
 WHERE
     fleet_runtime_lease.dcs_cluster_id = EXCLUDED.dcs_cluster_id
     AND (
@@ -125,7 +123,7 @@ func (q *Queries) AcquireFleetRuntimeLease(ctx context.Context, arg AcquireFleet
 	return i, err
 }
 
-const getHAWritableIdentity = `-- name: GetHAWritableIdentity :one
+const getConnectedPostgresIdentity = `-- name: GetConnectedPostgresIdentity :one
 SELECT
     host(inet_server_addr())::TEXT AS server_address,
     inet_server_port()::INTEGER AS server_port,
@@ -133,16 +131,16 @@ SELECT
     (pg_control_checkpoint()).timeline_id::BIGINT AS timeline
 `
 
-type GetHAWritableIdentityRow struct {
+type GetConnectedPostgresIdentityRow struct {
 	ServerAddress string
 	ServerPort    int32
 	InRecovery    bool
 	Timeline      int64
 }
 
-func (q *Queries) GetHAWritableIdentity(ctx context.Context) (GetHAWritableIdentityRow, error) {
-	row := q.queryRow(ctx, q.getHAWritableIdentityStmt, getHAWritableIdentity)
-	var i GetHAWritableIdentityRow
+func (q *Queries) GetConnectedPostgresIdentity(ctx context.Context) (GetConnectedPostgresIdentityRow, error) {
+	row := q.queryRow(ctx, q.getConnectedPostgresIdentityStmt, getConnectedPostgresIdentity)
+	var i GetConnectedPostgresIdentityRow
 	err := row.Scan(
 		&i.ServerAddress,
 		&i.ServerPort,

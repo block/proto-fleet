@@ -1,4 +1,4 @@
--- name: GetHAWritableIdentity :one
+-- name: GetConnectedPostgresIdentity :one
 SELECT
     host(inet_server_addr())::TEXT AS server_address,
     inet_server_port()::INTEGER AS server_port,
@@ -50,9 +50,7 @@ SET
         ELSE fleet_runtime_lease.lease_epoch + 1
     END,
     holder_id = EXCLUDED.holder_id,
-    expires_at = (SELECT database_time FROM writer_identity)
-        + sqlc.arg('lease_duration_milliseconds')::BIGINT
-        * INTERVAL '1 millisecond'
+    expires_at = EXCLUDED.expires_at
 WHERE
     fleet_runtime_lease.dcs_cluster_id = EXCLUDED.dcs_cluster_id
     AND (

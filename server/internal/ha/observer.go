@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/block/proto-fleet/server/generated/sqlc"
 )
 
 var (
@@ -43,14 +45,6 @@ type DCSSnapshot struct {
 	Member           DCSMember
 }
 
-// PostgresIdentity identifies the server selected by Fleet's writable DSN.
-type PostgresIdentity struct {
-	ServerAddress string
-	ServerPort    int32
-	InRecovery    bool
-	Timeline      int64
-}
-
 // PatroniIdentity is returned only when Patroni's /primary check succeeds.
 type PatroniIdentity struct {
 	Role     string
@@ -62,8 +56,10 @@ type dcsReader interface {
 	LeaseTTL(ctx context.Context, leaseID int64) (time.Duration, error)
 }
 
-type writerIdentityReader interface {
-	WritableIdentity(ctx context.Context) (PostgresIdentity, error)
+type postgresIdentityReader interface {
+	GetConnectedPostgresIdentity(
+		ctx context.Context,
+	) (sqlc.GetConnectedPostgresIdentityRow, error)
 }
 
 type patroniIdentityReader interface {
@@ -77,7 +73,7 @@ type hostResolver func(context.Context, string) ([]string, error)
 type Observer struct {
 	clusterPath string
 	dcs         dcsReader
-	writer      writerIdentityReader
+	postgres    postgresIdentityReader
 	patroni     patroniIdentityReader
 	resolve     hostResolver
 }
@@ -88,17 +84,17 @@ type Observer struct {
 func NewObserver(
 	clusterPath string,
 	dcs dcsReader,
-	writer writerIdentityReader,
+	postgres postgresIdentityReader,
 	patroni patroniIdentityReader,
 ) (*Observer, error) {
 	clusterPath = strings.TrimRight(clusterPath, "/")
-	if clusterPath == "" || dcs == nil || writer == nil || patroni == nil {
+	if clusterPath == "" || dcs == nil || postgres == nil || patroni == nil {
 		return nil, errors.New("HA writer observer requires cluster path and readers")
 	}
 	return &Observer{
 		clusterPath: clusterPath,
 		dcs:         dcs,
-		writer:      writer,
+		postgres:    postgres,
 		patroni:     patroni,
 		resolve:     resolveHost,
 	}, nil
@@ -136,14 +132,20 @@ func (o *Observer) observeAndRun(
 		return WriterObservation{}, err
 	}
 
-	writer, err := o.writer.WritableIdentity(ctx)
+	connected, err := o.postgres.GetConnectedPostgresIdentity(ctx)
 	if err != nil {
-		return WriterObservation{}, fmt.Errorf("read writable PostgreSQL identity: %w", err)
+		return WriterObservation{}, fmt.Errorf("read connected PostgreSQL identity: %w", err)
 	}
-	if writer.InRecovery || writer.ServerAddress == "" || writer.ServerPort <= 0 || writer.Timeline <= 0 {
-		return WriterObservation{}, fmt.Errorf("%w: invalid writable PostgreSQL identity", ErrWritableServerMismatch)
+	if connected.InRecovery ||
+		connected.ServerAddress == "" ||
+		connected.ServerPort <= 0 ||
+		connected.Timeline <= 0 {
+		return WriterObservation{}, fmt.Errorf(
+			"%w: invalid connected PostgreSQL identity",
+			ErrWritableServerMismatch,
+		)
 	}
-	if err := o.validateWriterEndpoints(ctx, first.Member, writer); err != nil {
+	if err := o.validateConnectedPostgresEndpoints(ctx, first.Member, connected); err != nil {
 		return WriterObservation{}, err
 	}
 
@@ -154,16 +156,16 @@ func (o *Observer) observeAndRun(
 	if patroni.Role != "primary" && patroni.Role != "master" {
 		return WriterObservation{}, fmt.Errorf("%w: Patroni role is %q", ErrWritableServerMismatch, patroni.Role)
 	}
-	if patroni.Timeline != writer.Timeline {
+	if patroni.Timeline != connected.Timeline {
 		return WriterObservation{}, fmt.Errorf(
 			"%w: PostgreSQL=%d Patroni=%d",
 			ErrTimelineMismatch,
-			writer.Timeline,
+			connected.Timeline,
 			patroni.Timeline,
 		)
 	}
 
-	observed := writerObservation(first, writer)
+	observed := writerObservation(first, connected)
 	if action != nil {
 		if err := action(ctx, observed); err != nil {
 			return WriterObservation{}, err
@@ -213,26 +215,29 @@ func (o *Observer) observeAndRun(
 		return WriterObservation{}, ErrLeaderLeaseExpired
 	}
 
-	observed = writerObservation(second, writer)
+	observed = writerObservation(second, connected)
 	observed.DCSProofDeadline = proofDeadline
 	return observed, nil
 }
 
-func writerObservation(snapshot DCSSnapshot, writer PostgresIdentity) WriterObservation {
+func writerObservation(
+	snapshot DCSSnapshot,
+	connected sqlc.GetConnectedPostgresIdentityRow,
+) WriterObservation {
 	return WriterObservation{
 		DCSClusterID:     snapshot.ClusterID,
 		WriterGeneration: snapshot.WriterGeneration,
 		LeaderName:       snapshot.LeaderName,
-		ServerAddress:    writer.ServerAddress,
-		ServerPort:       writer.ServerPort,
-		Timeline:         writer.Timeline,
+		ServerAddress:    connected.ServerAddress,
+		ServerPort:       connected.ServerPort,
+		Timeline:         connected.Timeline,
 	}
 }
 
-func (o *Observer) validateWriterEndpoints(
+func (o *Observer) validateConnectedPostgresEndpoints(
 	ctx context.Context,
 	member DCSMember,
-	writer PostgresIdentity,
+	connected sqlc.GetConnectedPostgresIdentityRow,
 ) error {
 	conn, err := url.Parse(member.ConnURL)
 	if err != nil || conn.Hostname() == "" {
@@ -246,11 +251,11 @@ func (o *Observer) validateWriterEndpoints(
 		}
 		port = int32(parsedPort)
 	}
-	if port != writer.ServerPort {
+	if port != connected.ServerPort {
 		return fmt.Errorf(
 			"%w: SQL selected port %d, DCS advertised %d",
 			ErrWritableServerMismatch,
-			writer.ServerPort,
+			connected.ServerPort,
 			port,
 		)
 	}
@@ -259,7 +264,7 @@ func (o *Observer) validateWriterEndpoints(
 		return fmt.Errorf("%w: invalid Patroni member URL", ErrWritableServerMismatch)
 	}
 
-	writerAddress := normalizedIP(writer.ServerAddress)
+	connectedAddress := normalizedIP(connected.ServerAddress)
 	resolvedHosts := make(map[string][]string, 2)
 	for _, endpoint := range []struct {
 		host string
@@ -278,7 +283,7 @@ func (o *Observer) validateWriterEndpoints(
 		}
 		matched := false
 		for _, address := range addresses {
-			if normalizedIP(address) == writerAddress {
+			if normalizedIP(address) == connectedAddress {
 				matched = true
 				break
 			}
@@ -287,8 +292,8 @@ func (o *Observer) validateWriterEndpoints(
 			return fmt.Errorf(
 				"%w: SQL selected %s:%d, DCS advertised %s",
 				ErrWritableServerMismatch,
-				writer.ServerAddress,
-				writer.ServerPort,
+				connected.ServerAddress,
+				connected.ServerPort,
 				endpoint.url,
 			)
 		}

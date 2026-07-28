@@ -162,32 +162,3 @@ func ownershipFromAcquire(row sqlc.AcquireFleetRuntimeLeaseRow) Ownership {
 		DatabaseTime: row.DatabaseTime,
 	}
 }
-
-type writableIdentityQuerier interface {
-	GetHAWritableIdentity(ctx context.Context) (sqlc.GetHAWritableIdentityRow, error)
-}
-
-// SQLWriterIdentityReader adapts the generated writable-server identity query
-// to the observer's narrow boundary.
-type SQLWriterIdentityReader struct {
-	queries writableIdentityQuerier
-}
-
-func NewSQLWriterIdentityReader(queries writableIdentityQuerier) *SQLWriterIdentityReader {
-	return &SQLWriterIdentityReader{queries: queries}
-}
-
-func (r *SQLWriterIdentityReader) WritableIdentity(
-	ctx context.Context,
-) (PostgresIdentity, error) {
-	row, err := r.queries.GetHAWritableIdentity(ctx)
-	if err != nil {
-		return PostgresIdentity{}, err
-	}
-	return PostgresIdentity{
-		ServerAddress: row.ServerAddress,
-		ServerPort:    row.ServerPort,
-		InRecovery:    row.InRecovery,
-		Timeline:      row.Timeline,
-	}, nil
-}

@@ -228,12 +228,12 @@ func TestLeaseStoreRejectsRenewalOnDifferentWritableServerIdentity(t *testing.T)
 
 func databaseObservation(
 	t *testing.T,
-	reader *SQLWriterIdentityReader,
+	reader postgresIdentityReader,
 	clusterID string,
 	generation int64,
 ) WriterObservation {
 	t.Helper()
-	identity, err := reader.WritableIdentity(t.Context())
+	identity, err := reader.GetConnectedPostgresIdentity(t.Context())
 	require.NoError(t, err)
 	return WriterObservation{
 		DCSClusterID:     clusterID,
@@ -246,10 +246,10 @@ func databaseObservation(
 	}
 }
 
-func leaseTestSurfaces(t *testing.T) (*LeaseStore, *SQLWriterIdentityReader) {
+func leaseTestSurfaces(t *testing.T) (*LeaseStore, postgresIdentityReader) {
 	t.Helper()
 	queries := sqlc.New(testutil.GetTestDB(t))
-	return NewLeaseStore(queries), NewSQLWriterIdentityReader(queries)
+	return NewLeaseStore(queries), queries
 }
 
 func observation(clusterID string, generation int64) WriterObservation {

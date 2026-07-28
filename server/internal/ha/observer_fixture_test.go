@@ -38,7 +38,7 @@ func TestWriterObserverFixture(t *testing.T) {
 	observer, err := NewObserver(
 		requireEnv(t, "HA_WRITER_CLUSTER_PATH"),
 		NewEtcdHTTPClient(requireEnv(t, "HA_WRITER_DCS_ENDPOINT"), httpClient),
-		NewSQLWriterIdentityReader(queries),
+		queries,
 		NewPatroniHTTPClient(httpClient),
 	)
 	require.NoError(t, err)

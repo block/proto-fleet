@@ -1590,6 +1590,18 @@ func (q *retryingQuerier) GetBuiltinRoleForOrg(ctx context.Context, arg GetBuilt
 	return result, err
 }
 
+func (q *retryingQuerier) GetConnectedPostgresIdentity(ctx context.Context) (GetConnectedPostgresIdentityRow, error) {
+	var result GetConnectedPostgresIdentityRow
+	err := q.retrier.RetryQuery(ctx, "GetConnectedPostgresIdentity", func() error {
+		callResult, callErr := q.next.GetConnectedPostgresIdentity(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg GetCurtailmentAutomationRuleByOrgParams) (GetCurtailmentAutomationRuleByOrgRow, error) {
 	var result GetCurtailmentAutomationRuleByOrgRow
 	err := q.retrier.RetryQuery(ctx, "GetCurtailmentAutomationRuleByOrg", func() error {
@@ -2290,18 +2302,6 @@ func (q *retryingQuerier) GetGroupRefsForDevices(ctx context.Context, arg GetGro
 	var result []GetGroupRefsForDevicesRow
 	err := q.retrier.RetryQuery(ctx, "GetGroupRefsForDevices", func() error {
 		callResult, callErr := q.next.GetGroupRefsForDevices(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
-func (q *retryingQuerier) GetHAWritableIdentity(ctx context.Context) (GetHAWritableIdentityRow, error) {
-	var result GetHAWritableIdentityRow
-	err := q.retrier.RetryQuery(ctx, "GetHAWritableIdentity", func() error {
-		callResult, callErr := q.next.GetHAWritableIdentity(ctx)
 		if callErr == nil {
 			result = callResult
 		}

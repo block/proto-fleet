@@ -447,6 +447,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getBuiltinRoleForOrgStmt, err = db.PrepareContext(ctx, getBuiltinRoleForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBuiltinRoleForOrg: %w", err)
 	}
+	if q.getConnectedPostgresIdentityStmt, err = db.PrepareContext(ctx, getConnectedPostgresIdentity); err != nil {
+		return nil, fmt.Errorf("error preparing query GetConnectedPostgresIdentity: %w", err)
+	}
 	if q.getCurtailmentAutomationRuleByOrgStmt, err = db.PrepareContext(ctx, getCurtailmentAutomationRuleByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentAutomationRuleByOrg: %w", err)
 	}
@@ -623,9 +626,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getGroupRefsForDevicesStmt, err = db.PrepareContext(ctx, getGroupRefsForDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetGroupRefsForDevices: %w", err)
-	}
-	if q.getHAWritableIdentityStmt, err = db.PrepareContext(ctx, getHAWritableIdentity); err != nil {
-		return nil, fmt.Errorf("error preparing query GetHAWritableIdentity: %w", err)
 	}
 	if q.getInfrastructureControlSubnetsStmt, err = db.PrepareContext(ctx, getInfrastructureControlSubnets); err != nil {
 		return nil, fmt.Errorf("error preparing query GetInfrastructureControlSubnets: %w", err)
@@ -2267,6 +2267,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getBuiltinRoleForOrgStmt: %w", cerr)
 		}
 	}
+	if q.getConnectedPostgresIdentityStmt != nil {
+		if cerr := q.getConnectedPostgresIdentityStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getConnectedPostgresIdentityStmt: %w", cerr)
+		}
+	}
 	if q.getCurtailmentAutomationRuleByOrgStmt != nil {
 		if cerr := q.getCurtailmentAutomationRuleByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getCurtailmentAutomationRuleByOrgStmt: %w", cerr)
@@ -2560,11 +2565,6 @@ func (q *Queries) Close() error {
 	if q.getGroupRefsForDevicesStmt != nil {
 		if cerr := q.getGroupRefsForDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getGroupRefsForDevicesStmt: %w", cerr)
-		}
-	}
-	if q.getHAWritableIdentityStmt != nil {
-		if cerr := q.getHAWritableIdentityStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getHAWritableIdentityStmt: %w", cerr)
 		}
 	}
 	if q.getInfrastructureControlSubnetsStmt != nil {
@@ -4297,6 +4297,7 @@ type Queries struct {
 	getBuildingSiteStmt                                          *sql.Stmt
 	getBuildingSiteIDStmt                                        *sql.Stmt
 	getBuiltinRoleForOrgStmt                                     *sql.Stmt
+	getConnectedPostgresIdentityStmt                             *sql.Stmt
 	getCurtailmentAutomationRuleByOrgStmt                        *sql.Stmt
 	getCurtailmentEventByExternalReferenceStmt                   *sql.Stmt
 	getCurtailmentEventByIdempotencyKeyStmt                      *sql.Stmt
@@ -4356,7 +4357,6 @@ type Queries struct {
 	getFleetNodeSessionByTokenHashStmt                           *sql.Stmt
 	getFleetNodeTelemetryRouteByDeviceIdentifierStmt             *sql.Stmt
 	getGroupRefsForDevicesStmt                                   *sql.Stmt
-	getHAWritableIdentityStmt                                    *sql.Stmt
 	getInfrastructureControlSubnetsStmt                          *sql.Stmt
 	getInfrastructureDeviceStmt                                  *sql.Stmt
 	getKnownSubnetsStmt                                          *sql.Stmt
@@ -4814,6 +4814,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getBuildingSiteStmt:                                          q.getBuildingSiteStmt,
 		getBuildingSiteIDStmt:                                        q.getBuildingSiteIDStmt,
 		getBuiltinRoleForOrgStmt:                                     q.getBuiltinRoleForOrgStmt,
+		getConnectedPostgresIdentityStmt:                             q.getConnectedPostgresIdentityStmt,
 		getCurtailmentAutomationRuleByOrgStmt:                        q.getCurtailmentAutomationRuleByOrgStmt,
 		getCurtailmentEventByExternalReferenceStmt:                   q.getCurtailmentEventByExternalReferenceStmt,
 		getCurtailmentEventByIdempotencyKeyStmt:                      q.getCurtailmentEventByIdempotencyKeyStmt,
@@ -4873,7 +4874,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFleetNodeSessionByTokenHashStmt:                           q.getFleetNodeSessionByTokenHashStmt,
 		getFleetNodeTelemetryRouteByDeviceIdentifierStmt:             q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt,
 		getGroupRefsForDevicesStmt:                                   q.getGroupRefsForDevicesStmt,
-		getHAWritableIdentityStmt:                                    q.getHAWritableIdentityStmt,
 		getInfrastructureControlSubnetsStmt:                          q.getInfrastructureControlSubnetsStmt,
 		getInfrastructureDeviceStmt:                                  q.getInfrastructureDeviceStmt,
 		getKnownSubnetsStmt:                                          q.getKnownSubnetsStmt,

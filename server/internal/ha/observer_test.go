@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/block/proto-fleet/server/generated/sqlc"
 )
 
 func TestEtcdHTTPClientSnapshotUsesLinearizablePrefixRead(t *testing.T) {
@@ -72,8 +74,8 @@ func TestObserverValidatesAuthoritiesInOrder(t *testing.T) {
 	dcs, ok := observer.dcs.(*fakeDCSReader)
 	require.True(t, ok)
 	dcs.calls = &calls
-	observer.writer = fakeWriterReader{
-		identity: PostgresIdentity{
+	observer.postgres = fakePostgresReader{
+		identity: sqlc.GetConnectedPostgresIdentityRow{
 			ServerAddress: "172.30.0.12",
 			ServerPort:    5432,
 			Timeline:      7,
@@ -111,8 +113,8 @@ func TestObserverRunsActionInsideDCSValidationBracket(t *testing.T) {
 	dcs, ok := observer.dcs.(*fakeDCSReader)
 	require.True(t, ok)
 	dcs.calls = &calls
-	observer.writer = fakeWriterReader{
-		identity: PostgresIdentity{
+	observer.postgres = fakePostgresReader{
+		identity: sqlc.GetConnectedPostgresIdentityRow{
 			ServerAddress: "172.30.0.12",
 			ServerPort:    5432,
 			Timeline:      7,
@@ -231,7 +233,7 @@ func TestObserverRejectsWritableServerMismatch(t *testing.T) {
 
 func TestObserverRejectsPostgresReplica(t *testing.T) {
 	observer := validObserver([]DCSSnapshot{validDCSSnapshot()})
-	observer.writer = fakeWriterReader{identity: PostgresIdentity{
+	observer.postgres = fakePostgresReader{identity: sqlc.GetConnectedPostgresIdentityRow{
 		ServerAddress: "172.30.0.12",
 		ServerPort:    5432,
 		InRecovery:    true,
@@ -281,7 +283,7 @@ func validObserver(snapshots []DCSSnapshot) *Observer {
 			snapshots: snapshots,
 			leaseTTL:  10 * time.Second,
 		},
-		writer: fakeWriterReader{identity: PostgresIdentity{
+		postgres: fakePostgresReader{identity: sqlc.GetConnectedPostgresIdentityRow{
 			ServerAddress: "172.30.0.12",
 			ServerPort:    5432,
 			Timeline:      7,
@@ -336,13 +338,15 @@ func (f *fakeDCSReader) LeaseTTL(context.Context, int64) (time.Duration, error) 
 	return f.leaseTTL, nil
 }
 
-type fakeWriterReader struct {
-	identity PostgresIdentity
+type fakePostgresReader struct {
+	identity sqlc.GetConnectedPostgresIdentityRow
 	err      error
 	calls    *[]string
 }
 
-func (f fakeWriterReader) WritableIdentity(context.Context) (PostgresIdentity, error) {
+func (f fakePostgresReader) GetConnectedPostgresIdentity(
+	context.Context,
+) (sqlc.GetConnectedPostgresIdentityRow, error) {
 	if f.calls != nil {
 		*f.calls = append(*f.calls, "postgres")
 	}
