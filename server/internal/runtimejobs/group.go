@@ -200,6 +200,16 @@ func (g *Group) Stop(ctx context.Context) error {
 	return nil
 }
 
+// Abort immediately cancels work that must not survive ownership loss.
+// Stop must follow to finish cleanup and make the group restartable.
+func (g *Group) Abort() {
+	for _, job := range g.jobs {
+		if aborter, ok := job.(Aborter); ok {
+			aborter.Abort()
+		}
+	}
+}
+
 func (g *Group) setTerminalErr(err error) {
 	g.stateMu.Lock()
 	defer g.stateMu.Unlock()

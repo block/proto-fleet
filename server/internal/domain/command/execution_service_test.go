@@ -261,6 +261,37 @@ func TestExecutionService_ActivationCancellationThenStopDrainsAdmittedWorker(t *
 	require.NoError(t, <-stopDone)
 }
 
+func TestExecutionService_AbortCancelsAdmittedWorker(t *testing.T) {
+	svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, nil, nil, nil, nil, nil, nil, nil)
+	run := newExecutionRun(t.Context())
+	svc.run = run
+
+	workerCanceled := make(chan struct{})
+	run.wg.Go(func() {
+		<-run.workCtx.Done()
+		close(workerCanceled)
+	})
+	go svc.finishRun(run)
+
+	svc.Abort()
+
+	select {
+	case <-workerCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for command worker cancellation")
+	}
+	require.False(t, svc.IsRunning())
+	require.NoError(t, svc.Stop(t.Context()))
+}
+
+func TestNewExecutionServiceDefaultsNonPositiveMasterPollingInterval(t *testing.T) {
+	config := &Config{}
+
+	NewExecutionService(config, nil, nil, nil, nil, nil, nil, nil, nil)
+
+	require.Equal(t, defaultMasterPollingInterval, config.MasterPollingInterval)
+}
+
 func TestExecutionService_StopWaitsForAdmittedEnqueue(t *testing.T) {
 	svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, nil, nil, nil, nil, nil, nil, nil)
 	run := newExecutionRun(t.Context())

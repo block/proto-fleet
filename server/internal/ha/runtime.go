@@ -36,6 +36,7 @@ type runtimeOwner interface {
 
 type runtimeGroup interface {
 	Start(ctx context.Context) error
+	Abort()
 	Stop(ctx context.Context) error
 	Status() runtimejobs.GroupStatus
 	Err() error
@@ -198,6 +199,7 @@ func (r *Runtime) runHA(ctx context.Context) error {
 		}
 
 		if err := r.waitUntilHealthy(activeCtx); err != nil {
+			r.group.Abort()
 			if activeCtx.Err() == nil {
 				r.owner.RequestDemotion(err)
 			}
@@ -213,6 +215,7 @@ func (r *Runtime) runHA(ctx context.Context) error {
 		r.gate.activate(activeCtx)
 		activeErr := r.waitWhileHealthy(ctx, activeCtx)
 		r.gate.deactivate()
+		r.group.Abort()
 		if errors.Is(activeErr, errCriticalRuntimeUnhealthy) {
 			r.owner.RequestDemotion(activeErr)
 		}

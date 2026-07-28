@@ -21,6 +21,7 @@ func (noopLifecycle) Stop(context.Context) error  { return nil }
 type funcLifecycle struct {
 	start func(context.Context) error
 	stop  func(context.Context) error
+	abort func()
 }
 
 func (l funcLifecycle) Start(ctx context.Context) error {
@@ -35,6 +36,12 @@ func (l funcLifecycle) Stop(ctx context.Context) error {
 		return nil
 	}
 	return l.stop(ctx)
+}
+
+func (l funcLifecycle) Abort() {
+	if l.abort != nil {
+		l.abort()
+	}
 }
 
 type scriptedRuntimeJobGroupStopper struct {
@@ -160,6 +167,29 @@ func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing
 	default:
 		t.Fatal("command execution was not stopped")
 	}
+}
+
+func TestRuntimeJobGroupAbortsCommandExecution(t *testing.T) {
+	commandAborted := false
+	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
+		identityStateCleanup:      noopLifecycle{},
+		commandArtifactCleanup:    noopLifecycle{},
+		diagnosticsErrorCloser:    noopLifecycle{},
+		telemetry:                 noopLifecycle{},
+		ipScanner:                 noopLifecycle{},
+		commandExecution:          funcLifecycle{abort: func() { commandAborted = true }},
+		scheduleProcessor:         noopLifecycle{},
+		curtailmentReconciler:     noopLifecycle{},
+		curtailmentMQTTSubscriber: noopLifecycle{},
+		chunkedUploadCleanup:      noopLifecycle{},
+	})
+	require.NoError(t, err)
+	group, err := runtimejobs.NewGroup(jobs)
+	require.NoError(t, err)
+
+	group.Abort()
+
+	require.True(t, commandAborted)
 }
 
 func TestBackgroundLoopCanRestartAfterDraining(t *testing.T) {

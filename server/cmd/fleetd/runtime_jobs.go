@@ -44,6 +44,12 @@ func (l stopOrderedLifecycle) Stop(ctx context.Context) error {
 	return l.lifecycle.Stop(ctx)
 }
 
+func (l stopOrderedLifecycle) Abort() {
+	if aborter, ok := l.lifecycle.(runtimejobs.Aborter); ok {
+		aborter.Abort()
+	}
+}
+
 func newBackgroundLoop(run func(context.Context)) *backgroundLoop {
 	return &backgroundLoop{run: run}
 }

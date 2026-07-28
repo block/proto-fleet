@@ -68,6 +68,8 @@ type runtimeTestGroup struct {
 	stopErr     error
 	terminalErr error
 	status      runtimejobs.GroupStatus
+	aborted     int
+	abortFirst  bool
 	startedCh   chan context.Context
 	stoppedCh   chan struct{}
 }
@@ -89,6 +91,7 @@ func newRuntimeTestGroup() *runtimeTestGroup {
 func (g *runtimeTestGroup) Start(ctx context.Context) error {
 	g.mu.Lock()
 	g.started++
+	g.aborted = 0
 	err := g.startErr
 	g.mu.Unlock()
 	g.startedCh <- ctx
@@ -98,10 +101,23 @@ func (g *runtimeTestGroup) Start(ctx context.Context) error {
 func (g *runtimeTestGroup) Stop(context.Context) error {
 	g.mu.Lock()
 	g.stopped++
+	g.abortFirst = g.aborted > 0
 	err := g.stopErr
 	g.mu.Unlock()
 	g.stoppedCh <- struct{}{}
 	return err
+}
+
+func (g *runtimeTestGroup) Abort() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.aborted++
+}
+
+func (g *runtimeTestGroup) wasAbortedBeforeStop() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.abortFirst
 }
 
 func (g *runtimeTestGroup) Status() runtimejobs.GroupStatus {
@@ -208,6 +224,7 @@ func TestRuntimeDemotesWhenCriticalHealthFailsAfterAdmission(t *testing.T) {
 	requireReceive(t, owner.resumed)
 	require.Eventually(t, func() bool { return requestCtx.Err() != nil }, eventuallyTimeout, eventuallyInterval)
 	require.False(t, runtime.Active())
+	require.True(t, group.wasAbortedBeforeStop())
 
 	cancelRun()
 	require.NoError(t, <-runResult)

@@ -35,8 +35,9 @@ import (
 )
 
 const (
-	dbWriteTimeout          = 10 * time.Second
-	workerNameLookupTimeout = 5 * time.Second
+	dbWriteTimeout               = 10 * time.Second
+	workerNameLookupTimeout      = 5 * time.Second
+	defaultMasterPollingInterval = time.Second
 )
 
 //go:generate go run go.uber.org/mock/mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter,CachedMinerGetter
@@ -102,6 +103,9 @@ func newExecutionRun(ctx context.Context) *executionRun {
 }
 
 func NewExecutionService(config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService CachedMinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, filesService *files.Service) *ExecutionService {
+	if config.MasterPollingInterval <= 0 {
+		config.MasterPollingInterval = defaultMasterPollingInterval
+	}
 	if config.StuckMessageTimeout <= 0 {
 		config.StuckMessageTimeout = 5 * time.Minute
 	}
@@ -226,6 +230,22 @@ func (es *ExecutionService) IsRunning() bool {
 	defer es.lifecycleMu.Unlock()
 
 	return es.run != nil && es.run.accepting && es.run.admissionCtx.Err() == nil
+}
+
+// Abort cancels both new and already-admitted command work. HA demotion uses
+// this before graceful group cleanup so commands cannot outlive ownership.
+func (es *ExecutionService) Abort() {
+	es.lifecycleMu.Lock()
+	run := es.run
+	if run != nil {
+		run.accepting = false
+	}
+	es.lifecycleMu.Unlock()
+	if run == nil {
+		return
+	}
+	run.cancelAdmission()
+	run.cancelWork()
 }
 
 // withAdmission makes accepting an enqueue atomic with stopping. Once
