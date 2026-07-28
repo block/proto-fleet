@@ -2,7 +2,6 @@ package firmware
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -12,7 +11,6 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
-	"os"
 	"strings"
 
 	"connectrpc.com/authn"
@@ -29,11 +27,10 @@ type uploadResponse struct {
 }
 
 type extractedMultipartUpload struct {
-	filename   string
-	stagedPath string
-	checksum   string
-	metadata   files.FirmwareMetadata
-	force      bool
+	filename string
+	staged   *files.StagedFirmwareUpload
+	metadata files.FirmwareMetadata
+	force    bool
 }
 
 type checkRequest struct {
@@ -102,14 +99,21 @@ func (h *configHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // NewUploadHandler returns an http.Handler that accepts multipart firmware file uploads.
 // The handler validates the file, streams it to disk, and returns a firmware_file_id.
-// The request body is capped at maxUploadBytes to reject oversized uploads early.
-func NewUploadHandler(filesService *files.Service, sessionService *session.Service, userStore interfaces.UserStore, activitySvc *activityDomain.Service, maxUploadBytes int64) http.Handler {
+// The request body is capped at the files service's firmware size limit to reject
+// oversized uploads early.
+func NewUploadHandler(
+	filesService *files.Service,
+	sessionService *session.Service,
+	userStore interfaces.UserStore,
+	activitySvc *activityDomain.Service,
+	permissionResolver effectivePermissionResolver,
+) http.Handler {
 	return &uploadHandler{
-		filesService:   filesService,
-		sessionService: sessionService,
-		userStore:      userStore,
-		activitySvc:    activitySvc,
-		maxUploadBytes: maxUploadBytes,
+		filesService:       filesService,
+		sessionService:     sessionService,
+		userStore:          userStore,
+		activitySvc:        activitySvc,
+		permissionResolver: permissionResolver,
 	}
 }
 
@@ -183,11 +187,11 @@ func (h *checkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type uploadHandler struct {
-	filesService   *files.Service
-	sessionService *session.Service
-	userStore      interfaces.UserStore
-	activitySvc    *activityDomain.Service
-	maxUploadBytes int64
+	filesService       *files.Service
+	sessionService     *session.Service
+	userStore          interfaces.UserStore
+	activitySvc        *activityDomain.Service
+	permissionResolver effectivePermissionResolver
 }
 
 func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -197,10 +201,15 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, err := authenticate(r, h.sessionService, h.userStore)
-	if err != nil {
-		slog.Warn("firmware upload authentication failed", "error", err)
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	ctx, ok := requireMutationPermission(
+		w,
+		r,
+		h.sessionService,
+		h.userStore,
+		h.permissionResolver,
+		"upload",
+	)
+	if !ok {
 		return
 	}
 
@@ -213,18 +222,14 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Pad the body limit to account for multipart boundaries and part headers.
 	const multipartOverhead int64 = 1 * 1024 * 1024 // 1 MB
-	r.Body = http.MaxBytesReader(w, r.Body, h.maxUploadBytes+multipartOverhead)
+	r.Body = http.MaxBytesReader(w, r.Body, h.filesService.MaxFirmwareFileSize()+multipartOverhead)
 
-	upload, err := extractMultipartFile(r, h.filesService.MaxFirmwareFileSize())
+	upload, err := extractMultipartFile(r, h.filesService)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	defer func() { _ = os.Remove(upload.stagedPath) }()
-	if err := files.ValidateFirmwareUploadMetadata(upload.metadata); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	defer upload.staged.Discard()
 
 	if err := h.filesService.ValidateFirmwareFilename(upload.filename); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -233,10 +238,10 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	saveResult, err := h.filesService.SaveFirmwareUploadFromPath(
 		upload.filename,
-		upload.stagedPath,
+		upload.staged.Path,
 		upload.metadata,
 		upload.force,
-		upload.checksum,
+		upload.staged.Checksum,
 	)
 	if err != nil {
 		if isClientError(err) {
@@ -261,7 +266,7 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // extractMultipartFile stages the file while reading the complete multipart
 // body, so metadata fields are accepted regardless of whether they appear
 // before or after the file part.
-func extractMultipartFile(r *http.Request, maxFileBytes int64) (extractedMultipartUpload, error) {
+func extractMultipartFile(r *http.Request, filesService *files.Service) (extractedMultipartUpload, error) {
 	var upload extractedMultipartUpload
 	contentType := r.Header.Get("Content-Type")
 	mediaType, params, err := mime.ParseMediaType(contentType)
@@ -276,8 +281,8 @@ func extractMultipartFile(r *http.Request, maxFileBytes int64) (extractedMultipa
 
 	completed := false
 	defer func() {
-		if !completed && upload.stagedPath != "" {
-			_ = os.Remove(upload.stagedPath)
+		if !completed {
+			upload.staged.Discard()
 		}
 	}()
 
@@ -299,31 +304,17 @@ func extractMultipartFile(r *http.Request, maxFileBytes int64) (extractedMultipa
 		name := part.FormName()
 		switch {
 		case name == "file":
-			if upload.stagedPath != "" {
+			if upload.staged != nil {
 				_ = part.Close()
 				return extractedMultipartUpload{}, fmt.Errorf("multiple 'file' fields are not supported")
 			}
 			upload.filename = part.FileName()
-			tempFile, createErr := os.CreateTemp(files.StagingDir(), "multipart-*")
-			if createErr != nil {
-				_ = part.Close()
-				return extractedMultipartUpload{}, fmt.Errorf("failed to stage firmware file: %w", createErr)
-			}
-			upload.stagedPath = tempFile.Name()
-			hasher := sha256.New()
-			written, copyErr := io.Copy(io.MultiWriter(tempFile, hasher), io.LimitReader(part, maxFileBytes+1))
-			closeErr := tempFile.Close()
+			staged, stageErr := filesService.StageFirmwareUpload(part)
 			_ = part.Close()
-			if copyErr != nil {
-				return extractedMultipartUpload{}, fmt.Errorf("failed to read firmware file: %w", copyErr)
+			if stageErr != nil {
+				return extractedMultipartUpload{}, stageErr
 			}
-			if closeErr != nil {
-				return extractedMultipartUpload{}, fmt.Errorf("failed to close staged firmware file: %w", closeErr)
-			}
-			if written > maxFileBytes {
-				return extractedMultipartUpload{}, fmt.Errorf("firmware file too large: exceeded %d byte limit during upload", maxFileBytes)
-			}
-			upload.checksum = hex.EncodeToString(hasher.Sum(nil))
+			upload.staged = staged
 		case metadataFields[name] != nil:
 			value, readErr := readPartValue(part, 1024, name)
 			if readErr != nil {
@@ -341,7 +332,7 @@ func extractMultipartFile(r *http.Request, maxFileBytes int64) (extractedMultipa
 			part.Close()
 		}
 	}
-	if upload.stagedPath == "" {
+	if upload.staged == nil {
 		return extractedMultipartUpload{}, fmt.Errorf("missing 'file' field in multipart form")
 	}
 	completed = true
@@ -454,24 +445,36 @@ func (h *listFilesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // NewUpdateMetadataHandler returns an http.Handler that updates a stored
 // firmware file's deployment metadata.
-func NewUpdateMetadataHandler(filesService *files.Service, sessionService *session.Service, userStore interfaces.UserStore) http.Handler {
+func NewUpdateMetadataHandler(
+	filesService *files.Service,
+	sessionService *session.Service,
+	userStore interfaces.UserStore,
+	permissionResolver effectivePermissionResolver,
+) http.Handler {
 	return &updateMetadataHandler{
-		filesService:   filesService,
-		sessionService: sessionService,
-		userStore:      userStore,
+		filesService:       filesService,
+		sessionService:     sessionService,
+		userStore:          userStore,
+		permissionResolver: permissionResolver,
 	}
 }
 
 type updateMetadataHandler struct {
-	filesService   *files.Service
-	sessionService *session.Service
-	userStore      interfaces.UserStore
+	filesService       *files.Service
+	sessionService     *session.Service
+	userStore          interfaces.UserStore
+	permissionResolver effectivePermissionResolver
 }
 
 func (h *updateMetadataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
-		slog.Warn("firmware metadata update authentication failed", "error", err)
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	if _, ok := requireMutationPermission(
+		w,
+		r,
+		h.sessionService,
+		h.userStore,
+		h.permissionResolver,
+		"update metadata",
+	); !ok {
 		return
 	}
 
@@ -512,24 +515,36 @@ func (h *updateMetadataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 }
 
 // NewDeleteFileHandler returns an http.Handler that deletes a single firmware file by ID.
-func NewDeleteFileHandler(filesService *files.Service, sessionService *session.Service, userStore interfaces.UserStore) http.Handler {
+func NewDeleteFileHandler(
+	filesService *files.Service,
+	sessionService *session.Service,
+	userStore interfaces.UserStore,
+	permissionResolver effectivePermissionResolver,
+) http.Handler {
 	return &deleteFileHandler{
-		filesService:   filesService,
-		sessionService: sessionService,
-		userStore:      userStore,
+		filesService:       filesService,
+		sessionService:     sessionService,
+		userStore:          userStore,
+		permissionResolver: permissionResolver,
 	}
 }
 
 type deleteFileHandler struct {
-	filesService   *files.Service
-	sessionService *session.Service
-	userStore      interfaces.UserStore
+	filesService       *files.Service
+	sessionService     *session.Service
+	userStore          interfaces.UserStore
+	permissionResolver effectivePermissionResolver
 }
 
 func (h *deleteFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
-		slog.Warn("firmware delete authentication failed", "error", err)
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	if _, ok := requireMutationPermission(
+		w,
+		r,
+		h.sessionService,
+		h.userStore,
+		h.permissionResolver,
+		"delete file",
+	); !ok {
 		return
 	}
 
@@ -557,24 +572,36 @@ func (h *deleteFileHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // NewDeleteAllFilesHandler returns an http.Handler that deletes all firmware files.
-func NewDeleteAllFilesHandler(filesService *files.Service, sessionService *session.Service, userStore interfaces.UserStore) http.Handler {
+func NewDeleteAllFilesHandler(
+	filesService *files.Service,
+	sessionService *session.Service,
+	userStore interfaces.UserStore,
+	permissionResolver effectivePermissionResolver,
+) http.Handler {
 	return &deleteAllFilesHandler{
-		filesService:   filesService,
-		sessionService: sessionService,
-		userStore:      userStore,
+		filesService:       filesService,
+		sessionService:     sessionService,
+		userStore:          userStore,
+		permissionResolver: permissionResolver,
 	}
 }
 
 type deleteAllFilesHandler struct {
-	filesService   *files.Service
-	sessionService *session.Service
-	userStore      interfaces.UserStore
+	filesService       *files.Service
+	sessionService     *session.Service
+	userStore          interfaces.UserStore
+	permissionResolver effectivePermissionResolver
 }
 
 func (h *deleteAllFilesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
-		slog.Warn("firmware delete-all authentication failed", "error", err)
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	if _, ok := requireMutationPermission(
+		w,
+		r,
+		h.sessionService,
+		h.userStore,
+		h.permissionResolver,
+		"delete all files",
+	); !ok {
 		return
 	}
 

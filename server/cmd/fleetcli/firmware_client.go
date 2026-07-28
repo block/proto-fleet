@@ -272,16 +272,15 @@ func (c *Client) FirmwareUploadDirect(ctx context.Context, filename string, file
 	pr, pw := io.Pipe()
 	mw := multipart.NewWriter(pw)
 	go func() {
-		fields := map[string]string{
-			"target_manufacturer": target.Manufacturer,
-			"target_model":        target.Model,
-			"firmware_version":    target.Version,
+		// Ordered so the request body is byte-for-byte reproducible; the
+		// target fields are already required to be non-empty by validate.
+		fields := []struct{ name, value string }{
+			{"target_manufacturer", target.Manufacturer},
+			{"target_model", target.Model},
+			{"firmware_version", target.Version},
 		}
-		for name, value := range fields {
-			if value == "" {
-				continue
-			}
-			if err := mw.WriteField(name, value); err != nil {
+		for _, field := range fields {
+			if err := mw.WriteField(field.name, field.value); err != nil {
 				_ = pw.CloseWithError(err)
 				return
 			}

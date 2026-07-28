@@ -10,7 +10,6 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +20,7 @@ import (
 
 	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
 	activityModels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	sessionMocks "github.com/block/proto-fleet/server/internal/domain/session/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -28,15 +28,34 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
 
-const testMaxUploadBytes int64 = 10 * 1024 * 1024 // 10 MB for tests
-
 type testEnv struct {
-	ctrl             *gomock.Controller
-	sessionStoreMock *sessionMocks.MockStore
-	userStoreMock    *storeMocks.MockUserStore
-	fileSvc          *files.Service
-	sessionSvc       *session.Service
-	sessionID        string
+	ctrl               *gomock.Controller
+	sessionStoreMock   *sessionMocks.MockStore
+	userStoreMock      *storeMocks.MockUserStore
+	fileSvc            *files.Service
+	sessionSvc         *session.Service
+	sessionID          string
+	permissionResolver effectivePermissionResolver
+}
+
+type staticPermissionResolver struct {
+	permissions []string
+	err         error
+}
+
+func (r staticPermissionResolver) LoadEffective(
+	_ context.Context,
+	_,
+	_ int64,
+) (*authz.EffectivePermissions, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  r.permissions,
+	}}), nil
 }
 
 func newTestEnv(t *testing.T) *testEnv {
@@ -66,6 +85,9 @@ func newTestEnv(t *testing.T) *testEnv {
 		fileSvc:          fileSvc,
 		sessionSvc:       sessionSvc,
 		sessionID:        "test-session-id",
+		permissionResolver: staticPermissionResolver{
+			permissions: []string{authz.PermMinerFirmwareUpdate},
+		},
 	}
 }
 
@@ -124,10 +146,10 @@ func TestAuthenticate_PopulatesSessionInfo(t *testing.T) {
 
 func (e *testEnv) uploadHandler() *uploadHandler {
 	return &uploadHandler{
-		filesService:   e.fileSvc,
-		sessionService: e.sessionSvc,
-		userStore:      e.userStoreMock,
-		maxUploadBytes: testMaxUploadBytes,
+		filesService:       e.fileSvc,
+		sessionService:     e.sessionSvc,
+		userStore:          e.userStoreMock,
+		permissionResolver: e.permissionResolver,
 	}
 }
 
@@ -141,9 +163,10 @@ func (e *testEnv) checkHandler() *checkHandler {
 
 func (e *testEnv) updateMetadataHandler() *updateMetadataHandler {
 	return &updateMetadataHandler{
-		filesService:   e.fileSvc,
-		sessionService: e.sessionSvc,
-		userStore:      e.userStoreMock,
+		filesService:       e.fileSvc,
+		sessionService:     e.sessionSvc,
+		userStore:          e.userStoreMock,
+		permissionResolver: e.permissionResolver,
 	}
 }
 
@@ -156,18 +179,48 @@ func (e *testEnv) configHandler() *configHandler {
 	}
 }
 
-func createMultipartRequest(t *testing.T, filename string, content []byte, cookie *http.Cookie) *http.Request {
+func defaultFirmwareFields() map[string]string {
+	return map[string]string{
+		"target_manufacturer": "Proto",
+		"target_model":        "Rig",
+		"firmware_version":    "v2.0.0",
+	}
+}
+
+// buildMultipartRequest assembles a firmware upload body from fields plus the
+// file part. fileFirst puts the file ahead of the metadata fields, which the
+// handler must accept just the same.
+func buildMultipartRequest(
+	t *testing.T,
+	filename string,
+	content []byte,
+	cookie *http.Cookie,
+	fields map[string]string,
+	fileFirst bool,
+) *http.Request {
 	t.Helper()
 
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
-	require.NoError(t, writer.WriteField("target_manufacturer", "Proto"))
-	require.NoError(t, writer.WriteField("target_model", "Rig"))
-	require.NoError(t, writer.WriteField("firmware_version", "v2.0.0"))
-	part, err := writer.CreateFormFile("file", filename)
-	require.NoError(t, err)
-	_, err = part.Write(content)
-	require.NoError(t, err)
+	writeFile := func() {
+		part, err := writer.CreateFormFile("file", filename)
+		require.NoError(t, err)
+		_, err = part.Write(content)
+		require.NoError(t, err)
+	}
+	writeFields := func() {
+		for name, value := range fields {
+			require.NoError(t, writer.WriteField(name, value))
+		}
+	}
+
+	if fileFirst {
+		writeFile()
+		writeFields()
+	} else {
+		writeFields()
+		writeFile()
+	}
 	require.NoError(t, writer.Close())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload", &buf)
@@ -178,26 +231,14 @@ func createMultipartRequest(t *testing.T, filename string, content []byte, cooki
 	return req
 }
 
+func createMultipartRequest(t *testing.T, filename string, content []byte, cookie *http.Cookie) *http.Request {
+	t.Helper()
+	return buildMultipartRequest(t, filename, content, cookie, defaultFirmwareFields(), false)
+}
+
 func createFileFirstMultipartRequest(t *testing.T, filename string, content []byte, cookie *http.Cookie) *http.Request {
 	t.Helper()
-
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-	part, err := writer.CreateFormFile("file", filename)
-	require.NoError(t, err)
-	_, err = part.Write(content)
-	require.NoError(t, err)
-	require.NoError(t, writer.WriteField("target_manufacturer", "Proto"))
-	require.NoError(t, writer.WriteField("target_model", "Rig"))
-	require.NoError(t, writer.WriteField("firmware_version", "v2.0.0"))
-	require.NoError(t, writer.Close())
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload", &buf)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	if cookie != nil {
-		req.AddCookie(cookie)
-	}
-	return req
+	return buildMultipartRequest(t, filename, content, cookie, defaultFirmwareFields(), true)
 }
 
 func createMultipartRequestWithFields(
@@ -208,24 +249,7 @@ func createMultipartRequestWithFields(
 	fields map[string]string,
 ) *http.Request {
 	t.Helper()
-
-	var buf bytes.Buffer
-	writer := multipart.NewWriter(&buf)
-	for name, value := range fields {
-		require.NoError(t, writer.WriteField(name, value))
-	}
-	part, err := writer.CreateFormFile("file", filename)
-	require.NoError(t, err)
-	_, err = part.Write(content)
-	require.NoError(t, err)
-	require.NoError(t, writer.Close())
-
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/firmware/upload", &buf)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	if cookie != nil {
-		req.AddCookie(cookie)
-	}
-	return req
+	return buildMultipartRequest(t, filename, content, cookie, fields, false)
 }
 
 func testFirmwareMetadata() files.FirmwareMetadata {
@@ -338,9 +362,9 @@ func TestUploadHandler_RejectsMissingTargetMetadata(t *testing.T) {
 
 			assert.Equal(t, http.StatusBadRequest, rr.Code)
 			assert.Contains(t, rr.Body.String(), tt.wantError)
-			entries, err := os.ReadDir(files.StagingDir())
+			staged, err := files.StagedFirmwareUploadCount()
 			require.NoError(t, err)
-			assert.Empty(t, entries)
+			assert.Zero(t, staged)
 		})
 	}
 }
@@ -387,9 +411,9 @@ func TestUploadHandler_AcceptsMetadataAfterFile(t *testing.T) {
 	assert.Equal(t, "Proto", stored[0].TargetManufacturer)
 	assert.Equal(t, "Rig", stored[0].TargetModel)
 	assert.Equal(t, "v2.0.0", stored[0].FirmwareVersion)
-	stagingEntries, err := os.ReadDir(files.StagingDir())
+	staged, err := files.StagedFirmwareUploadCount()
 	require.NoError(t, err)
-	assert.Empty(t, stagingEntries)
+	assert.Zero(t, staged)
 }
 
 func TestUploadHandler_LogsNewFirmwareActivity(t *testing.T) {
@@ -439,7 +463,6 @@ func TestUploadHandler_RejectsOversizedBody(t *testing.T) {
 	env.fileSvc, _ = files.NewService(files.Config{MaxFirmwareFileSize: 50})
 
 	h := env.uploadHandler()
-	h.maxUploadBytes = 50
 
 	oversized := []byte(strings.Repeat("x", 200))
 	req := createMultipartRequest(t, "firmware.swu", oversized, validSessionCookie(env.sessionID))
@@ -675,17 +698,19 @@ func (e *testEnv) listFilesHandler() *listFilesHandler {
 
 func (e *testEnv) deleteFileHandler() *deleteFileHandler {
 	return &deleteFileHandler{
-		filesService:   e.fileSvc,
-		sessionService: e.sessionSvc,
-		userStore:      e.userStoreMock,
+		filesService:       e.fileSvc,
+		sessionService:     e.sessionSvc,
+		userStore:          e.userStoreMock,
+		permissionResolver: e.permissionResolver,
 	}
 }
 
 func (e *testEnv) deleteAllFilesHandler() *deleteAllFilesHandler {
 	return &deleteAllFilesHandler{
-		filesService:   e.fileSvc,
-		sessionService: e.sessionSvc,
-		userStore:      e.userStoreMock,
+		filesService:       e.fileSvc,
+		sessionService:     e.sessionSvc,
+		userStore:          e.userStoreMock,
+		permissionResolver: e.permissionResolver,
 	}
 }
 

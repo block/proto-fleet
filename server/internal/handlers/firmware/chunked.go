@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -110,20 +109,34 @@ func NewInitiateHandler(
 	filesService *files.Service,
 	sessionService *session.Service,
 	userStore interfaces.UserStore,
+	permissionResolver effectivePermissionResolver,
 ) http.Handler {
-	return &initiateHandler{mgr: mgr, filesService: filesService, sessionService: sessionService, userStore: userStore}
+	return &initiateHandler{
+		mgr:                mgr,
+		filesService:       filesService,
+		sessionService:     sessionService,
+		userStore:          userStore,
+		permissionResolver: permissionResolver,
+	}
 }
 
 type initiateHandler struct {
-	mgr            *ChunkedUploadManager
-	filesService   *files.Service
-	sessionService *session.Service
-	userStore      interfaces.UserStore
+	mgr                *ChunkedUploadManager
+	filesService       *files.Service
+	sessionService     *session.Service
+	userStore          interfaces.UserStore
+	permissionResolver effectivePermissionResolver
 }
 
 func (h *initiateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	if _, ok := requireMutationPermission(
+		w,
+		r,
+		h.sessionService,
+		h.userStore,
+		h.permissionResolver,
+		"initiate chunked upload",
+	); !ok {
 		return
 	}
 
@@ -166,14 +179,12 @@ func (h *initiateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uploadID := hex.EncodeToString(b)
-	tempPath := filepath.Join(files.StagingDir(), uploadID)
-	tempFile, err := os.OpenFile(tempPath, os.O_CREATE|os.O_RDWR, 0600)
+	tempPath, err := files.NewChunkedStagingPath(uploadID)
 	if err != nil {
 		slog.Error("failed to create temp file for chunked upload", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to initiate upload")
 		return
 	}
-	tempFile.Close()
 
 	now := time.Now()
 	h.mgr.mu.Lock()
@@ -203,19 +214,32 @@ func NewChunkHandler(
 	mgr *ChunkedUploadManager,
 	sessionService *session.Service,
 	userStore interfaces.UserStore,
+	permissionResolver effectivePermissionResolver,
 ) http.Handler {
-	return &chunkHandler{mgr: mgr, sessionService: sessionService, userStore: userStore}
+	return &chunkHandler{
+		mgr:                mgr,
+		sessionService:     sessionService,
+		userStore:          userStore,
+		permissionResolver: permissionResolver,
+	}
 }
 
 type chunkHandler struct {
-	mgr            *ChunkedUploadManager
-	sessionService *session.Service
-	userStore      interfaces.UserStore
+	mgr                *ChunkedUploadManager
+	sessionService     *session.Service
+	userStore          interfaces.UserStore
+	permissionResolver effectivePermissionResolver
 }
 
 func (h *chunkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	if _, ok := requireMutationPermission(
+		w,
+		r,
+		h.sessionService,
+		h.userStore,
+		h.permissionResolver,
+		"upload chunk",
+	); !ok {
 		return
 	}
 
@@ -286,22 +310,37 @@ func NewCompleteHandler(
 	sessionService *session.Service,
 	userStore interfaces.UserStore,
 	activitySvc *activityDomain.Service,
+	permissionResolver effectivePermissionResolver,
 ) http.Handler {
-	return &completeHandler{mgr: mgr, filesService: filesService, sessionService: sessionService, userStore: userStore, activitySvc: activitySvc}
+	return &completeHandler{
+		mgr:                mgr,
+		filesService:       filesService,
+		sessionService:     sessionService,
+		userStore:          userStore,
+		activitySvc:        activitySvc,
+		permissionResolver: permissionResolver,
+	}
 }
 
 type completeHandler struct {
-	mgr            *ChunkedUploadManager
-	filesService   *files.Service
-	sessionService *session.Service
-	userStore      interfaces.UserStore
-	activitySvc    *activityDomain.Service
+	mgr                *ChunkedUploadManager
+	filesService       *files.Service
+	sessionService     *session.Service
+	userStore          interfaces.UserStore
+	activitySvc        *activityDomain.Service
+	permissionResolver effectivePermissionResolver
 }
 
 func (h *completeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ctx, err := authenticate(r, h.sessionService, h.userStore)
-	if err != nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	ctx, ok := requireMutationPermission(
+		w,
+		r,
+		h.sessionService,
+		h.userStore,
+		h.permissionResolver,
+		"complete chunked upload",
+	)
+	if !ok {
 		return
 	}
 
@@ -323,6 +362,13 @@ func (h *completeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The session is out of the map, so no further chunk can arrive and the
+	// staged file is ours to publish or discard on every path below.
+	// Checksum is empty: the chunks were written across many requests, so it
+	// is computed once here by SaveFirmwareUploadFromPath.
+	staged := &files.StagedFirmwareUpload{Path: sess.tempFilePath}
+	defer staged.Discard()
+
 	// Wait for any in-flight chunk write to finish. After removing the
 	// session from the map no new chunk requests can find it, so once we
 	// acquire sess.mu the receivedBytes value is final.
@@ -331,21 +377,18 @@ func (h *completeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sess.mu.Unlock()
 
 	if receivedBytes != sess.expectedSize {
-		os.Remove(sess.tempFilePath)
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("received %d bytes but expected %d", receivedBytes, sess.expectedSize))
 		return
 	}
 
-	info, statErr := os.Stat(sess.tempFilePath)
+	info, statErr := os.Stat(staged.Path)
 	if statErr != nil || info.Size() != sess.expectedSize {
-		os.Remove(sess.tempFilePath)
 		writeError(w, http.StatusInternalServerError, "uploaded file size mismatch on disk")
 		return
 	}
 
-	saveResult, err := h.filesService.SaveFirmwareUploadFromPath(sess.filename, sess.tempFilePath, sess.metadata, sess.force, "")
+	saveResult, err := h.filesService.SaveFirmwareUploadFromPath(sess.filename, staged.Path, sess.metadata, sess.force, staged.Checksum)
 	if err != nil {
-		os.Remove(sess.tempFilePath)
 		if isClientError(err) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return

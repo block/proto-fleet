@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FirmwareUpdateModal from "./FirmwareUpdateModal";
+import { uploadHookState } from "@/protoFleet/components/FirmwareUpload/useFirmwareUpload.fixtures";
 
 const mockListFirmwareFiles = vi.fn();
 const mockUseFirmwareUpload = vi.fn();
@@ -46,17 +47,7 @@ vi.mock("@/shared/features/toaster", () => ({
 describe("FirmwareUpdateModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockUseFirmwareUpload.mockReturnValue({
-      state: "idle",
-      file: null,
-      firmwareFileId: null,
-      uploadProgress: 0,
-      errorMessage: null,
-      serverConfig: null,
-      processFile: vi.fn(),
-      reset: vi.fn(),
-      retry: vi.fn(),
-    });
+    mockUseFirmwareUpload.mockReturnValue(uploadHookState());
   });
 
   it("keeps showing the loading spinner when the file list resolves empty before config loads", async () => {
@@ -150,31 +141,19 @@ describe("FirmwareUpdateModal", () => {
 
   it("keeps uploaded firmware metadata visible and read-only", async () => {
     mockListFirmwareFiles.mockResolvedValue([]);
-    mockUseFirmwareUpload.mockReturnValue({
-      state: "idle",
-      file: null,
-      firmwareFileId: null,
-      uploadProgress: 0,
-      errorMessage: null,
-      serverConfig: { allowedExtensions: [".swu"] },
-      processFile: vi.fn(),
-      reset: vi.fn(),
-      retry: vi.fn(),
-    });
+    mockUseFirmwareUpload.mockReturnValue(uploadHookState({ serverConfig: { allowedExtensions: [".swu"] } }));
     const view = render(<FirmwareUpdateModal open target={target} onConfirm={vi.fn()} onDismiss={vi.fn()} />);
     fireEvent.change(await screen.findByLabelText("Firmware version"), { target: { value: "2.0.0" } });
 
-    mockUseFirmwareUpload.mockReturnValue({
-      state: "ready",
-      file: new File(["firmware"], "update.swu"),
-      firmwareFileId: "fw-uploaded",
-      uploadProgress: 100,
-      errorMessage: null,
-      serverConfig: { allowedExtensions: [".swu"] },
-      processFile: vi.fn(),
-      reset: vi.fn(),
-      retry: vi.fn(),
-    });
+    mockUseFirmwareUpload.mockReturnValue(
+      uploadHookState({
+        state: "ready",
+        file: new File(["firmware"], "update.swu"),
+        firmwareFileId: "fw-uploaded",
+        uploadProgress: 100,
+        serverConfig: { allowedExtensions: [".swu"] },
+      }),
+    );
     view.rerender(<FirmwareUpdateModal open target={target} onConfirm={vi.fn()} onDismiss={vi.fn()} />);
 
     expect(await screen.findByLabelText("Product")).toBeDisabled();

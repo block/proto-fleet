@@ -34,14 +34,15 @@ const EditFirmwareMetadataDialog = ({
   const [targetManufacturer, setTargetManufacturer] = useState(file?.targetManufacturer ?? "");
   const [targetModel, setTargetModel] = useState(file?.targetModel ?? "");
   const [firmwareVersion, setFirmwareVersion] = useState(file?.firmwareVersion ?? "");
-  const { modelGroups, modelsError, manufacturerOptions, modelOptions } = useMinerTargetOptions({
+  const { modelGroups, modelsError, manufacturerOptions, modelOptions, resolvedModel } = useMinerTargetOptions({
     active: open,
     selectedManufacturer: targetManufacturer,
+    selectedModel: targetModel,
     seedManufacturer: targetManufacturer,
     seedModel: targetModel,
   });
 
-  const metadata = { targetManufacturer, targetModel, firmwareVersion };
+  const metadata = { targetManufacturer, targetModel: resolvedModel, firmwareVersion };
   const canSubmit =
     modelGroups !== null && modelsError === null && hasCompleteFirmwareTarget(metadata) && !isSubmitting;
 
@@ -75,7 +76,7 @@ const EditFirmwareMetadataDialog = ({
             manufacturerOptions={manufacturerOptions}
             modelOptions={modelOptions}
             manufacturer={targetManufacturer}
-            model={targetModel}
+            model={resolvedModel}
             version={firmwareVersion}
             disabled={isSubmitting}
             onManufacturerChange={setTargetManufacturer}

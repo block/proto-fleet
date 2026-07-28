@@ -2,6 +2,7 @@ import type { ChangeEvent, ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FirmwareUploadDialog from "./FirmwareUploadDialog";
+import { uploadHookState } from "@/protoFleet/components/FirmwareUpload/useFirmwareUpload.fixtures";
 
 const mockGetMinerModelGroups = vi.fn();
 const mockProcessFile = vi.fn();
@@ -103,25 +104,15 @@ vi.mock("@/shared/components/Input", () => ({
   ),
 }));
 
-const uploadHookState = (overrides: Record<string, unknown> = {}) => ({
-  state: "idle",
-  file: null,
-  firmwareFileId: null,
-  uploadProgress: 0,
-  errorMessage: null,
-  serverConfig: { allowedExtensions: [".swu"] },
-  processFile: mockProcessFile,
-  reset: vi.fn(),
-  retry: vi.fn(),
-  ...overrides,
-});
+const dialogUploadState = (overrides: Record<string, unknown> = {}) =>
+  uploadHookState({ serverConfig: { allowedExtensions: [".swu"] }, processFile: mockProcessFile, ...overrides });
 
 describe("FirmwareUploadDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSelectedFile = new File(["firmware"], "update-2.0.0.swu");
     mockGetMinerModelGroups.mockResolvedValue([{ manufacturer: "Proto", model: "Rig", count: 1 }]);
-    mockUseFirmwareUpload.mockReturnValue(uploadHookState());
+    mockUseFirmwareUpload.mockReturnValue(dialogUploadState());
   });
 
   it("selects a file before metadata is complete and infers its version", async () => {
@@ -186,7 +177,7 @@ describe("FirmwareUploadDialog", () => {
     fireEvent.click(screen.getByText("Upload"));
     expect(mockProcessFile).toHaveBeenCalledOnce();
 
-    mockUseFirmwareUpload.mockReturnValue(uploadHookState({ state: "ready" }));
+    mockUseFirmwareUpload.mockReturnValue(dialogUploadState({ state: "ready" }));
     rerender(<FirmwareUploadDialog open onSuccess={onSuccess} onDismiss={onDismiss} />);
 
     await waitFor(() => {

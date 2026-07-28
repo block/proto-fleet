@@ -34,8 +34,13 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
     modelsError,
     manufacturerOptions,
     modelOptions,
+    resolvedModel,
     reset: resetModelOptions,
-  } = useMinerTargetOptions({ active: !!open, selectedManufacturer: targetManufacturer });
+  } = useMinerTargetOptions({
+    active: !!open,
+    selectedManufacturer: targetManufacturer,
+    selectedModel: targetModel,
+  });
 
   const configLoaded = serverConfig !== null;
   const modelsLoading = open && modelGroups === null && modelsError === null;
@@ -46,10 +51,9 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
   const showProcessingStatus = isProcessing && file != null;
   const showError = state === "error" && errorMessage != null;
 
-  const selectedTargetModel = modelOptions.some((option) => option.value === targetModel) ? targetModel : "";
   const target = useMemo(
-    () => ({ targetManufacturer, targetModel: selectedTargetModel, firmwareVersion }),
-    [firmwareVersion, targetManufacturer, selectedTargetModel],
+    () => ({ targetManufacturer, targetModel: resolvedModel, firmwareVersion }),
+    [firmwareVersion, targetManufacturer, resolvedModel],
   );
   const hasCompleteTarget = hasCompleteFirmwareTarget(target);
 
@@ -114,7 +118,7 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
               manufacturerOptions={manufacturerOptions}
               modelOptions={modelOptions}
               manufacturer={targetManufacturer}
-              model={selectedTargetModel}
+              model={resolvedModel}
               version={firmwareVersion}
               disabled={metadataLocked}
               onManufacturerChange={setTargetManufacturer}

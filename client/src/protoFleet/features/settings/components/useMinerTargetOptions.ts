@@ -9,6 +9,8 @@ interface UseMinerTargetOptionsArgs {
   active: boolean;
   /** Currently selected manufacturer; model options are limited to it. */
   selectedManufacturer: string;
+  /** Currently selected model, reconciled against the options as `resolvedModel`. */
+  selectedModel: string;
   /** Existing values kept selectable even when absent from the fleet. */
   seedManufacturer?: string;
   seedModel?: string;
@@ -18,10 +20,16 @@ interface UseMinerTargetOptionsArgs {
  * Loads the fleet's miner model groups and builds the Manufacturer/Model
  * select options shared by the firmware metadata dialogs. `reset` clears the
  * fetched groups so the next activation refetches.
+ *
+ * Because `modelOptions` narrows to the selected manufacturer and arrives
+ * asynchronously, `selectedModel` can fall out of the list. This hook owns that
+ * invariant: use `resolvedModel` rather than the raw selection so a stale model
+ * is never submitted or rendered as a phantom option.
  */
 export function useMinerTargetOptions({
   active,
   selectedManufacturer,
+  selectedModel,
   seedManufacturer = "",
   seedModel = "",
 }: UseMinerTargetOptionsArgs) {
@@ -75,5 +83,10 @@ export function useMinerTargetOptions({
     ];
   }, [modelGroups, selectedManufacturer, seedModel]);
 
-  return { modelGroups, modelsError, manufacturerOptions, modelOptions, reset };
+  const resolvedModel = useMemo(
+    () => (modelOptions.some((option) => option.value === selectedModel) ? selectedModel : ""),
+    [modelOptions, selectedModel],
+  );
+
+  return { modelGroups, modelsError, manufacturerOptions, modelOptions, resolvedModel, reset };
 }

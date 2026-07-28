@@ -28,11 +28,6 @@ interface FirmwareUpdateModalProps {
   onDismiss: () => void;
 }
 
-const fileMatchesTarget = (file: FirmwareFileInfo, target: FirmwareUpdateTarget | null | undefined) => {
-  const targetKey = minerTargetKey(target?.targetManufacturer, target?.targetModel);
-  return targetKey !== null && targetKey === minerTargetKey(file.target_manufacturer, file.target_model);
-};
-
 const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpdateModalProps) => {
   const {
     state: uploadState,
@@ -105,10 +100,11 @@ const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpd
 
   const effectiveFirmwareFileId = selectedExistingFileId ?? uploadedFileId;
   const isReady = selectedExistingFileId != null || uploadState === "ready";
-  const visibleExistingFiles = useMemo(
-    () => existingFiles?.filter((file) => fileMatchesTarget(file, target)) ?? [],
-    [existingFiles, target],
-  );
+  const visibleExistingFiles = useMemo(() => {
+    const targetKey = minerTargetKey(target?.targetManufacturer, target?.targetModel);
+    if (targetKey === null || existingFiles === null) return [];
+    return existingFiles.filter((file) => minerTargetKey(file.target_manufacturer, file.target_model) === targetKey);
+  }, [existingFiles, target]);
 
   const handleConfirm = useCallback(() => {
     if (effectiveFirmwareFileId) {

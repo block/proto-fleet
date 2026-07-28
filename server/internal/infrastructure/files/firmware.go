@@ -54,7 +54,6 @@ type FirmwareUploadSaveResult struct {
 const firmwareDir = "firmware"
 const firmwareStagingDir = "firmware/staging"
 const firmwareMetadataFilename = "metadata.json"
-const firmwareMetadataStagingDirname = ".metadata-staging"
 
 var errFirmwareMetadataNotFound = errors.New("firmware metadata not found")
 
@@ -166,9 +165,38 @@ func cleanStagingDir() {
 		"removed orphaned staging entry")
 }
 
-// StagingDir returns the path to the firmware staging directory for chunked uploads.
-func StagingDir() string {
-	return firmwareStagingDir
+// StagedFirmwareUploadCount reports how many entries are currently in the
+// firmware staging area. Every upload path discards its staged file, so a
+// non-zero count with no upload in flight means one leaked.
+func StagedFirmwareUploadCount() (int, error) {
+	entries, err := os.ReadDir(firmwareStagingDir)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to read firmware staging dir: %v", err)
+	}
+	return len(entries), nil
+}
+
+// NewChunkedStagingPath reserves a staging file for a chunked upload session and
+// returns its path. Unlike StageFirmwareUpload the payload arrives later, over
+// many requests, so the path is derived from the caller's upload ID rather than
+// randomly generated. Anything left behind is reclaimed by cleanStagingDir on
+// the next start.
+func NewChunkedStagingPath(uploadID string) (string, error) {
+	if uploadID == "" {
+		return "", fleeterror.NewInvalidArgumentError("upload ID is required")
+	}
+	if uploadID != filepath.Base(uploadID) {
+		return "", fleeterror.NewInvalidArgumentErrorf("invalid upload ID %q", uploadID)
+	}
+	path := filepath.Join(firmwareStagingDir, uploadID)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to create firmware staging file: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		return "", fleeterror.NewInternalErrorf("failed to close firmware staging file: %v", err)
+	}
+	return path, nil
 }
 
 // ValidateFirmwareFilename checks that the filename is non-empty and has an
@@ -229,25 +257,42 @@ func (s *Service) SaveFirmwareFile(filename string, reader io.Reader, metadata F
 	return result.FirmwareFileID, nil
 }
 
-// SaveFirmwareUpload stages a streamed upload and reuses an existing file with
-// the same checksum plus metadata unless force is true.
-func (s *Service) SaveFirmwareUpload(filename string, reader io.Reader, manualMetadata FirmwareMetadata, force bool) (FirmwareUploadSaveResult, error) {
-	var result FirmwareUploadSaveResult
-	metadata := manualMetadata.normalized()
-	if err := ValidateFirmwareUploadMetadata(metadata); err != nil {
-		return result, err
-	}
+// StagedFirmwareUpload is a firmware payload written to the staging area, held
+// there until SaveFirmwareUploadFromPath either publishes it or discards it in
+// favour of an existing copy.
+type StagedFirmwareUpload struct {
+	Path     string
+	Checksum string
+	Size     int64
+}
 
-	tempFile, err := os.CreateTemp(firmwareStagingDir, "direct-*")
-	if err != nil {
-		return result, fleeterror.NewInternalErrorf("failed to create firmware staging file: %v", err)
+// Discard removes the staged file. It is safe to call more than once, and after
+// the file has already been consumed, so callers can defer it unconditionally.
+func (u *StagedFirmwareUpload) Discard() {
+	if u == nil || u.Path == "" {
+		return
 	}
-	tempPath := tempFile.Name()
-	removeTemp := true
+	if err := os.Remove(u.Path); err != nil && !os.IsNotExist(err) {
+		slog.Warn("failed to remove firmware staging file", "path", u.Path, "error", err)
+	}
+}
+
+// StageFirmwareUpload streams reader into the firmware staging area, hashing as
+// it goes, and enforces the configured size limit. It owns every rule about how
+// an in-flight upload reaches disk, so the HTTP handlers and SaveFirmwareUpload
+// share one implementation. The caller owns the returned upload and must call
+// Discard unless it is consumed by SaveFirmwareUploadFromPath.
+func (s *Service) StageFirmwareUpload(reader io.Reader) (*StagedFirmwareUpload, error) {
+	tempFile, err := os.CreateTemp(firmwareStagingDir, "upload-*")
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to create firmware staging file: %v", err)
+	}
+	staged := &StagedFirmwareUpload{Path: tempFile.Name()}
+	published := false
 	defer func() {
 		_ = tempFile.Close()
-		if removeTemp {
-			_ = os.Remove(tempPath)
+		if !published {
+			staged.Discard()
 		}
 	}()
 
@@ -255,36 +300,48 @@ func (s *Service) SaveFirmwareUpload(filename string, reader io.Reader, manualMe
 	if maxSize <= 0 {
 		maxSize = defaultMaxFirmwareFileSize
 	}
-	limitedReader := io.LimitReader(reader, maxSize+1)
 	hasher := sha256.New()
-	written, err := io.Copy(tempFile, io.TeeReader(limitedReader, hasher))
+	written, err := io.Copy(io.MultiWriter(tempFile, hasher), io.LimitReader(reader, maxSize+1))
 	if err != nil {
-		return result, fleeterror.NewInternalErrorf("failed to write firmware staging file: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to write firmware staging file: %v", err)
 	}
 	if written > maxSize {
-		return result, fleeterror.NewInvalidArgumentErrorf("firmware file too large: exceeded %d byte limit during upload", maxSize)
+		return nil, fleeterror.NewInvalidArgumentErrorf("firmware file too large: exceeded %d byte limit during upload", maxSize)
 	}
 	if written == 0 {
-		return result, fleeterror.NewInvalidArgumentError("firmware file is empty")
+		return nil, fleeterror.NewInvalidArgumentError("firmware file is empty")
 	}
 	// No fsync here: the staging file is throwaway, and the publish path syncs
 	// the payload before the rename that makes it visible.
 	if err := tempFile.Close(); err != nil {
-		return result, fleeterror.NewInternalErrorf("failed to close firmware staging file: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to close firmware staging file: %v", err)
 	}
 
-	checksum := hex.EncodeToString(hasher.Sum(nil))
-	result, err = s.SaveFirmwareUploadFromPath(filename, tempPath, metadata, force, checksum)
+	staged.Checksum = hex.EncodeToString(hasher.Sum(nil))
+	staged.Size = written
+	published = true
+	return staged, nil
+}
+
+// SaveFirmwareUpload stages a streamed upload and reuses an existing file with
+// the same checksum plus metadata unless force is true.
+func (s *Service) SaveFirmwareUpload(filename string, reader io.Reader, manualMetadata FirmwareMetadata, force bool) (FirmwareUploadSaveResult, error) {
+	staged, err := s.StageFirmwareUpload(reader)
 	if err != nil {
 		return FirmwareUploadSaveResult{}, err
 	}
-	removeTemp = false
-	return result, nil
+	defer staged.Discard()
+
+	return s.SaveFirmwareUploadFromPath(filename, staged.Path, manualMetadata, force, staged.Checksum)
 }
 
-// SaveFirmwareUploadFromPath consumes a staged upload path. On success it either
-// removes the staged file and returns an existing matching firmware_file_id, or
-// moves the staged file into permanent firmware storage.
+// SaveFirmwareUploadFromPath publishes a staged upload: it either moves the
+// staged file into permanent firmware storage, or leaves it in place and
+// returns an existing matching firmware_file_id.
+//
+// srcPath stays owned by the caller, which must discard it on every outcome —
+// see StagedFirmwareUpload.Discard, which is a no-op once the file has been
+// moved into storage.
 func (s *Service) SaveFirmwareUploadFromPath(filename string, srcPath string, manualMetadata FirmwareMetadata, force bool, checksum string) (FirmwareUploadSaveResult, error) {
 	var result FirmwareUploadSaveResult
 
@@ -311,9 +368,6 @@ func (s *Service) SaveFirmwareUploadFromPath(filename string, srcPath string, ma
 
 	if !force {
 		if existingID, ok := s.FindFirmwareFileByChecksum(checksum, metadata); ok {
-			if err := os.Remove(srcPath); err != nil && !os.IsNotExist(err) {
-				return result, fleeterror.NewInternalErrorf("failed to remove reused firmware staging file: %v", err)
-			}
 			return FirmwareUploadSaveResult{
 				FirmwareFileID: existingID,
 				Reused:         true,
@@ -757,12 +811,14 @@ func (s *Service) ListFirmwareFiles() ([]FirmwareFileInfo, error) {
 			continue
 		}
 
-		dirInfo, err := os.Stat(dir)
-		if err != nil {
-			slog.Warn("failed to stat firmware dir during list", "file_id", fileID, "error", err)
-			continue
-		}
+		// Files predating the metadata sidecar's uploaded_at fall back to the
+		// directory mtime; everything else already knows when it was uploaded.
 		if uploadedAt.IsZero() {
+			dirInfo, err := os.Stat(dir)
+			if err != nil {
+				slog.Warn("failed to stat firmware dir during list", "file_id", fileID, "error", err)
+				continue
+			}
 			uploadedAt = dirInfo.ModTime()
 		}
 
@@ -883,17 +939,11 @@ func computeFileChecksum(filePath string) (string, error) {
 // writeFirmwareMetadata atomically publishes the metadata sidecar via a
 // temp-file-and-rename, so readers never observe a partially written sidecar.
 func writeFirmwareMetadata(dir string, metadata FirmwareMetadata, uploadedAt time.Time) error {
-	stagingDir := filepath.Join(dir, firmwareMetadataStagingDirname)
-	if err := os.MkdirAll(stagingDir, 0700); err != nil {
-		return fleeterror.NewInternalErrorf("failed to create firmware metadata staging directory: %v", err)
-	}
-	defer func() {
-		// Remove only an empty staging directory so concurrent metadata writers
-		// cannot delete one another's temporary files.
-		_ = os.Remove(stagingDir)
-	}()
-
-	tempFile, err := os.CreateTemp(stagingDir, "metadata-*.tmp")
+	// Stage in the shared firmware staging dir rather than inside dir: it is on
+	// the same filesystem (so the publish rename stays atomic), it keeps
+	// temporary files out of the payload namespace, and cleanStagingDir already
+	// reclaims anything a crash leaves behind.
+	tempFile, err := os.CreateTemp(firmwareStagingDir, "metadata-*.tmp")
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to create firmware metadata staging file: %v", err)
 	}
