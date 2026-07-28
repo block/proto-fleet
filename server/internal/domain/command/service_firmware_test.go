@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -81,6 +82,68 @@ func TestValidateFirmwareUpdateTargets_RejectsLegacyFirmware(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.Contains(t, err.Error(), "metadata is unknown")
+	assert.Contains(t, err.Error(), "repair its metadata")
+}
+
+func TestValidateFirmwareUpdateTargets_PreservesMetadataLookupErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		fileID     string
+		setup      func(t *testing.T)
+		assertCode func(t *testing.T, err error)
+	}{
+		{
+			name:   "invalid file ID",
+			fileID: "not-a-uuid",
+			assertCode: func(t *testing.T, err error) {
+				t.Helper()
+				assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			},
+		},
+		{
+			name:   "missing firmware",
+			fileID: "11111111-1111-1111-1111-111111111111",
+			assertCode: func(t *testing.T, err error) {
+				t.Helper()
+				assert.True(t, fleeterror.IsNotFoundError(err))
+			},
+		},
+		{
+			name:   "corrupt metadata",
+			fileID: "22222222-2222-2222-2222-222222222222",
+			setup: func(t *testing.T) {
+				t.Helper()
+				dir := filepath.Join("firmware", "22222222-2222-2222-2222-222222222222")
+				require.NoError(t, os.MkdirAll(dir, 0750))
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "metadata.json"), []byte("{"), 0600))
+			},
+			assertCode: func(t *testing.T, err error) {
+				t.Helper()
+				var fleetErr fleeterror.FleetError
+				require.ErrorAs(t, err, &fleetErr)
+				assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _, _ := setupFirmwareTargetValidationService(t)
+			if tt.setup != nil {
+				tt.setup(t)
+			}
+
+			err := svc.validateFirmwareUpdateTargets(
+				t.Context(),
+				7,
+				[]resolvedDevice{{id: 1, identifier: "device-1"}},
+				tt.fileID,
+			)
+
+			require.Error(t, err)
+			tt.assertCode(t, err)
+		})
+	}
 }
 
 func TestProcessCommand_FirmwareUpdateValidatesBeforeDispatch(t *testing.T) {

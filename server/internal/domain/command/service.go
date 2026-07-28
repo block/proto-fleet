@@ -1568,10 +1568,10 @@ func (s *Service) validateFirmwareUpdateTargets(
 ) error {
 	metadata, err := s.filesService.GetFirmwareMetadata(firmwareFileID)
 	if err != nil {
-		return fleeterror.NewFailedPreconditionError("firmware target metadata is unavailable; re-upload the firmware before deploying it")
+		return err
 	}
 	if err := files.ValidateFirmwareMetadata(metadata); err != nil {
-		return fleeterror.NewFailedPreconditionError("firmware target metadata is unknown; re-upload the firmware before deploying it")
+		return fleeterror.NewFailedPreconditionError("firmware target metadata is unknown; repair its metadata before deploying it")
 	}
 
 	identifiers := make([]string, 0, len(devices))

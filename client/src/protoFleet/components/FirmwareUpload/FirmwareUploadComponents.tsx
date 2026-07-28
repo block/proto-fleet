@@ -1,4 +1,4 @@
-import type { ChangeEvent, DragEvent } from "react";
+import type { ChangeEvent, DragEvent, KeyboardEvent } from "react";
 import { useCallback, useRef, useState } from "react";
 import clsx from "clsx";
 import { Checkmark } from "@/shared/assets/icons";
@@ -64,6 +64,15 @@ export function FileDropZone({ extensions, onFileSelect, disabled }: FileDropZon
     fileInputRef.current?.click();
   }, [disabled]);
 
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>) => {
+      if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+      if (e.key === " ") e.preventDefault();
+      handleClick();
+    },
+    [handleClick],
+  );
+
   const handleFileInputChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
       if (disabled) return;
@@ -88,6 +97,7 @@ export function FileDropZone({ extensions, onFileSelect, disabled }: FileDropZon
           isDragActive && "ring-2 ring-border-primary",
         )}
         onClick={handleClick}
+        onKeyDown={handleKeyDown}
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
