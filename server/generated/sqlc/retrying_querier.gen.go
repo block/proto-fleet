@@ -24,6 +24,18 @@ func NewRetryingQuerier(next Querier, retrier QueryRetrier) Querier {
 
 var _ Querier = (*retryingQuerier)(nil)
 
+func (q *retryingQuerier) AcquireFleetRuntimeLease(ctx context.Context, arg AcquireFleetRuntimeLeaseParams) (AcquireFleetRuntimeLeaseRow, error) {
+	var result AcquireFleetRuntimeLeaseRow
+	err := q.retrier.RetryQuery(ctx, "AcquireFleetRuntimeLease", func() error {
+		callResult, callErr := q.next.AcquireFleetRuntimeLease(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) AcquireReconcileLock(ctx context.Context) error {
 	return q.retrier.RetryQuery(ctx, "AcquireReconcileLock", func() error {
 		return q.next.AcquireReconcileLock(ctx)
@@ -1582,6 +1594,18 @@ func (q *retryingQuerier) GetBuiltinRoleForOrg(ctx context.Context, arg GetBuilt
 	var result Role
 	err := q.retrier.RetryQuery(ctx, "GetBuiltinRoleForOrg", func() error {
 		callResult, callErr := q.next.GetBuiltinRoleForOrg(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPostgresIdentity, error) {
+	var result ConnectedPostgresIdentity
+	err := q.retrier.RetryQuery(ctx, "GetConnectedPostgresIdentity", func() error {
+		callResult, callErr := q.next.GetConnectedPostgresIdentity(ctx)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4468,6 +4492,18 @@ func (q *retryingQuerier) RemoveDevicesFromDeviceSet(ctx context.Context, arg Re
 	var result []string
 	err := q.retrier.RetryQuery(ctx, "RemoveDevicesFromDeviceSet", func() error {
 		callResult, callErr := q.next.RemoveDevicesFromDeviceSet(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error) {
+	var result RenewFleetRuntimeLeaseRow
+	err := q.retrier.RetryQuery(ctx, "RenewFleetRuntimeLease", func() error {
+		callResult, callErr := q.next.RenewFleetRuntimeLease(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

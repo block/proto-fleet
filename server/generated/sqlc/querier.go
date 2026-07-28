@@ -12,6 +12,7 @@ import (
 )
 
 type Querier interface {
+	AcquireFleetRuntimeLease(ctx context.Context, arg AcquireFleetRuntimeLeaseParams) (AcquireFleetRuntimeLeaseRow, error)
 	// Permission catalog queries. The catalog is reconciled at startup
 	// against domain/authz/catalog.go via domain/authz/reconcile.go.
 	// Transaction-scoped advisory lock that serializes concurrent boot
@@ -482,6 +483,7 @@ type Querier interface {
 	// The (org, builtin_key) pair is unique among live rows via the
 	// partial index uq_role_org_builtin_key.
 	GetBuiltinRoleForOrg(ctx context.Context, arg GetBuiltinRoleForOrgParams) (Role, error)
+	GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPostgresIdentity, error)
 	GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg GetCurtailmentAutomationRuleByOrgParams) (GetCurtailmentAutomationRuleByOrgRow, error)
 	// Webhook idempotent replay lookup; mirrors the
 	// uq_curtailment_event_external_ref partial index.
@@ -1288,6 +1290,7 @@ type Querier interface {
 	// the changed set for activity site scope (#538). Equivalent affected-row
 	// count to the prior :execrows shape.
 	RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error)
+	RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error)
 	// Reopen restore targets for curtailment. Counts let the store reject partial
 	// resets when another non-terminal event already has unresolved work for one
 	// of the same devices.

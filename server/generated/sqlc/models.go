@@ -443,6 +443,13 @@ type CommandOnDeviceLog struct {
 	SiteID            sql.NullInt64
 }
 
+type ConnectedPostgresIdentity struct {
+	ServerAddress string
+	ServerPort    int32
+	InRecovery    bool
+	Timeline      int64
+}
+
 type CurtailmentAutomationRule struct {
 	ID                int64
 	OrgID             int64
@@ -930,6 +937,15 @@ type FleetNodeSession struct {
 
 type FleetPollableDevicePresence struct {
 	OrganizationID string
+}
+
+type FleetRuntimeLease struct {
+	LeaseName               string
+	DcsClusterID            string
+	HighestWriterGeneration int64
+	LeaseEpoch              int64
+	HolderID                uuid.UUID
+	ExpiresAt               time.Time
 }
 
 type FleetTelemetryPollHeartbeat struct {

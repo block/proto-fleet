@@ -24,6 +24,9 @@ func New(db DBTX) *Queries {
 func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	q := Queries{db: db}
 	var err error
+	if q.acquireFleetRuntimeLeaseStmt, err = db.PrepareContext(ctx, acquireFleetRuntimeLease); err != nil {
+		return nil, fmt.Errorf("error preparing query AcquireFleetRuntimeLease: %w", err)
+	}
 	if q.acquireReconcileLockStmt, err = db.PrepareContext(ctx, acquireReconcileLock); err != nil {
 		return nil, fmt.Errorf("error preparing query AcquireReconcileLock: %w", err)
 	}
@@ -446,6 +449,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getBuiltinRoleForOrgStmt, err = db.PrepareContext(ctx, getBuiltinRoleForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBuiltinRoleForOrg: %w", err)
+	}
+	if q.getConnectedPostgresIdentityStmt, err = db.PrepareContext(ctx, getConnectedPostgresIdentity); err != nil {
+		return nil, fmt.Errorf("error preparing query GetConnectedPostgresIdentity: %w", err)
 	}
 	if q.getCurtailmentAutomationRuleByOrgStmt, err = db.PrepareContext(ctx, getCurtailmentAutomationRuleByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentAutomationRuleByOrg: %w", err)
@@ -1191,6 +1197,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.removeDevicesFromDeviceSetStmt, err = db.PrepareContext(ctx, removeDevicesFromDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveDevicesFromDeviceSet: %w", err)
 	}
+	if q.renewFleetRuntimeLeaseStmt, err = db.PrepareContext(ctx, renewFleetRuntimeLease); err != nil {
+		return nil, fmt.Errorf("error preparing query RenewFleetRuntimeLease: %w", err)
+	}
 	if q.resetCurtailmentTargetsForRecurtailStmt, err = db.PrepareContext(ctx, resetCurtailmentTargetsForRecurtail); err != nil {
 		return nil, fmt.Errorf("error preparing query ResetCurtailmentTargetsForRecurtail: %w", err)
 	}
@@ -1559,6 +1568,11 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 
 func (q *Queries) Close() error {
 	var err error
+	if q.acquireFleetRuntimeLeaseStmt != nil {
+		if cerr := q.acquireFleetRuntimeLeaseStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing acquireFleetRuntimeLeaseStmt: %w", cerr)
+		}
+	}
 	if q.acquireReconcileLockStmt != nil {
 		if cerr := q.acquireReconcileLockStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing acquireReconcileLockStmt: %w", cerr)
@@ -2262,6 +2276,11 @@ func (q *Queries) Close() error {
 	if q.getBuiltinRoleForOrgStmt != nil {
 		if cerr := q.getBuiltinRoleForOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getBuiltinRoleForOrgStmt: %w", cerr)
+		}
+	}
+	if q.getConnectedPostgresIdentityStmt != nil {
+		if cerr := q.getConnectedPostgresIdentityStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getConnectedPostgresIdentityStmt: %w", cerr)
 		}
 	}
 	if q.getCurtailmentAutomationRuleByOrgStmt != nil {
@@ -3504,6 +3523,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing removeDevicesFromDeviceSetStmt: %w", cerr)
 		}
 	}
+	if q.renewFleetRuntimeLeaseStmt != nil {
+		if cerr := q.renewFleetRuntimeLeaseStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing renewFleetRuntimeLeaseStmt: %w", cerr)
+		}
+	}
 	if q.resetCurtailmentTargetsForRecurtailStmt != nil {
 		if cerr := q.resetCurtailmentTargetsForRecurtailStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing resetCurtailmentTargetsForRecurtailStmt: %w", cerr)
@@ -4148,6 +4172,7 @@ func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, ar
 type Queries struct {
 	db                                                           DBTX
 	tx                                                           *sql.Tx
+	acquireFleetRuntimeLeaseStmt                                 *sql.Stmt
 	acquireReconcileLockStmt                                     *sql.Stmt
 	addDevicesToDeviceSetStmt                                    *sql.Stmt
 	adminResetUserPasswordStmt                                   *sql.Stmt
@@ -4289,6 +4314,7 @@ type Queries struct {
 	getBuildingSiteStmt                                          *sql.Stmt
 	getBuildingSiteIDStmt                                        *sql.Stmt
 	getBuiltinRoleForOrgStmt                                     *sql.Stmt
+	getConnectedPostgresIdentityStmt                             *sql.Stmt
 	getCurtailmentAutomationRuleByOrgStmt                        *sql.Stmt
 	getCurtailmentEventByExternalReferenceStmt                   *sql.Stmt
 	getCurtailmentEventByIdempotencyKeyStmt                      *sql.Stmt
@@ -4537,6 +4563,7 @@ type Queries struct {
 	removeAllDevicesFromDeviceSetStmt                            *sql.Stmt
 	removeDevicesFromAnyRackStmt                                 *sql.Stmt
 	removeDevicesFromDeviceSetStmt                               *sql.Stmt
+	renewFleetRuntimeLeaseStmt                                   *sql.Stmt
 	resetCurtailmentTargetsForRecurtailStmt                      *sql.Stmt
 	resetCurtailmentTargetsForRestoreStmt                        *sql.Stmt
 	resumeCurtailmentFromRestoringStmt                           *sql.Stmt
@@ -4664,6 +4691,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
 		db:                                                           tx,
 		tx:                                                           tx,
+		acquireFleetRuntimeLeaseStmt:                                 q.acquireFleetRuntimeLeaseStmt,
 		acquireReconcileLockStmt:                                     q.acquireReconcileLockStmt,
 		addDevicesToDeviceSetStmt:                                    q.addDevicesToDeviceSetStmt,
 		adminResetUserPasswordStmt:                                   q.adminResetUserPasswordStmt,
@@ -4805,6 +4833,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getBuildingSiteStmt:                                          q.getBuildingSiteStmt,
 		getBuildingSiteIDStmt:                                        q.getBuildingSiteIDStmt,
 		getBuiltinRoleForOrgStmt:                                     q.getBuiltinRoleForOrgStmt,
+		getConnectedPostgresIdentityStmt:                             q.getConnectedPostgresIdentityStmt,
 		getCurtailmentAutomationRuleByOrgStmt:                        q.getCurtailmentAutomationRuleByOrgStmt,
 		getCurtailmentEventByExternalReferenceStmt:                   q.getCurtailmentEventByExternalReferenceStmt,
 		getCurtailmentEventByIdempotencyKeyStmt:                      q.getCurtailmentEventByIdempotencyKeyStmt,
@@ -5053,6 +5082,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		removeAllDevicesFromDeviceSetStmt:                            q.removeAllDevicesFromDeviceSetStmt,
 		removeDevicesFromAnyRackStmt:                                 q.removeDevicesFromAnyRackStmt,
 		removeDevicesFromDeviceSetStmt:                               q.removeDevicesFromDeviceSetStmt,
+		renewFleetRuntimeLeaseStmt:                                   q.renewFleetRuntimeLeaseStmt,
 		resetCurtailmentTargetsForRecurtailStmt:                      q.resetCurtailmentTargetsForRecurtailStmt,
 		resetCurtailmentTargetsForRestoreStmt:                        q.resetCurtailmentTargetsForRestoreStmt,
 		resumeCurtailmentFromRestoringStmt:                           q.resumeCurtailmentFromRestoringStmt,
