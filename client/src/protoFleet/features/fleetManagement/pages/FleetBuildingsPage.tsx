@@ -127,11 +127,9 @@ const FleetBuildingsPage = () => {
 
   const handleBuildingsViewModeSelect = useCallback(
     (key: string) => {
-      const nextViewMode = key === "list" ? "list" : "grid";
-      // The grid cards carry no selection affordance (matches RacksPage), so
-      // clear any list-mode selection when switching to grid.
-      if (nextViewMode === "grid") setSelectedBuildingIds([]);
-      setBuildingsViewMode(nextViewMode);
+      // Selection is cleared on grid entry by the effect below, which also
+      // covers URL-driven switches; the handler just records the mode.
+      setBuildingsViewMode(key === "list" ? "list" : "grid");
     },
     [setBuildingsViewMode],
   );
@@ -328,6 +326,15 @@ const FleetBuildingsPage = () => {
       return next.length === prev.length ? prev : next;
     });
   }, [visibleBuildingScopes]);
+  // Grid mode has no selection affordance, so a selection carried in from list
+  // mode would strand the bulk action bar over the grid. Clear it on every
+  // grid entry — not just the toggle handler — so URL-driven switches (saved
+  // views with `display=grid`, browser history) can't leave a stale selection.
+  useEffect(() => {
+    if (buildingsViewMode !== "grid") return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- selection is invalid in grid; clear on entry.
+    setSelectedBuildingIds((prev) => (prev.length ? [] : prev));
+  }, [buildingsViewMode]);
   const handleSelectAllVisibleBuildings = useCallback(
     () => setSelectedBuildingIds(visibleBuildingScopes.map((building) => building.id.toString())),
     [visibleBuildingScopes],
@@ -597,8 +604,11 @@ const FleetBuildingsPage = () => {
     </>
   );
 
+  // List-only: selection is a list-view capability. Gating here (not just on
+  // the cleared selection) keeps the bar from flashing over the grid on the
+  // render before the grid-entry effect clears the selection.
   const bulkActionBar =
-    selectedBuildingScopes.length > 0 || isBulkActionBusy ? (
+    buildingsViewMode === "list" && (selectedBuildingScopes.length > 0 || isBulkActionBusy) ? (
       <FleetGroupListActionBar
         selectedScopes={selectedBuildingScopes}
         kind="building"

@@ -49,10 +49,23 @@ vi.mock("@/protoFleet/store", async (importActual) => {
 });
 
 vi.mock("@/protoFleet/features/fleetManagement/components/BuildingList", () => ({
-  default: (props: { buildings: BuildingWithCounts[] }) => {
+  default: (props: { buildings: BuildingWithCounts[]; onSelectedIdsChange?: (ids: string[]) => void }) => {
     buildingListSpy(props);
-    return <div data-testid="building-list">{props.buildings.length} rows</div>;
+    return (
+      <div data-testid="building-list">
+        {props.buildings.length} rows
+        <button type="button" onClick={() => props.onSelectedIdsChange?.(["1"])}>
+          select-first
+        </button>
+      </div>
+    );
   },
+}));
+
+// The bulk action bar renders only when a selection exists; a marker is
+// enough to assert its presence/absence across view switches.
+vi.mock("@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu/FleetGroupListActionBar", () => ({
+  default: () => <div data-testid="bulk-action-bar" />,
 }));
 
 vi.mock("@/protoFleet/features/buildings/components/BuildingCard", () => ({
@@ -142,6 +155,21 @@ describe("FleetBuildingsPage view toggle", () => {
 
     expect(screen.getAllByTestId("building-card")).toHaveLength(2);
     expect(screen.queryByTestId("building-list")).not.toBeInTheDocument();
+  });
+
+  test("clears a list-mode selection and drops the bulk action bar when switching to grid", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    // Seed a selection in list view; the bulk action bar mounts.
+    await user.click(screen.getByRole("button", { name: "select-first" }));
+    expect(screen.getByTestId("bulk-action-bar")).toBeInTheDocument();
+
+    await user.click(screen.getAllByRole("button", { name: "View grid" })[0]!);
+
+    // Grid entry clears the stale selection, so the bar must not linger.
+    expect(screen.queryByTestId("bulk-action-bar")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("building-card")).toHaveLength(2);
   });
 
   test("forces list view and hides the toggle when the reader lacks stats permissions", () => {
