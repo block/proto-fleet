@@ -188,9 +188,10 @@ drainSampleTasks:
 	}
 
 	// All admitted producers and workers are gone, so no old-epoch result can
-	// repopulate retention after this clear.
+	// repopulate retention after this clear. Generation states intentionally
+	// survive activation restarts: they are per-device ABA tombstones and keep
+	// removal/publication on one lock even if RemoveDevices overlaps restart.
 	s.retainedSamples.Clear()
-	s.clearSampleGenerations()
 
 	s.lifecycleMu.Lock()
 	if s.activation == activation {

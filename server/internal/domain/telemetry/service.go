@@ -349,8 +349,10 @@ type TelemetryService struct {
 	// SampleDeviceMetrics. See sampling.go.
 	retainedSamples sync.Map // map[DeviceIdentifier]*retainedSample
 	// sampleGenerations invalidate flights admitted before a device removal,
-	// preventing their eventual completion from repopulating retention.
-	sampleGenerations sync.Map // map[DeviceIdentifier]uint64
+	// preventing their eventual completion from reaching samplers or
+	// repopulating retention. Each device has an independent lock that
+	// linearizes invalidation with successful sample publication.
+	sampleGenerations sync.Map // map[DeviceIdentifier]*sampleGenerationState
 	// combinedMetricsSingle collapses identical concurrent GetCombinedMetrics
 	// calls (N dashboard viewers polling the same org) into one execution.
 	combinedMetricsSingle singleflight.Group
@@ -410,12 +412,11 @@ func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...model
 		return nil
 	}
 	for _, id := range deviceIDs {
-		s.advanceSampleGeneration(id)
+		s.invalidateDeviceSamples(id)
 		s.devicesForStatusPolling.Delete(id)
 		s.lastKnownStatuses.Delete(id)
 		s.lastKnownFirmware.Delete(id)
 		s.lastDefaultPwActive.Delete(id)
-		s.retainedSamples.Delete(id)
 		s.metricsObserver.onDeviceRemoved(ctx, id)
 	}
 	return s.updateScheduler.RemoveDevices(ctx, deviceIDs...)

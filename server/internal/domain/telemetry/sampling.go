@@ -55,6 +55,10 @@ const retainedSampleSweepInterval = sampleReuseWindow / 2
 // shutdown before its fetch ran).
 var errNoSampleFromFlight = errors.New("telemetry flight ended without a metrics sample")
 
+// errSampleGenerationInvalidated prevents telemetry fetched for a removed
+// device incarnation from confirming a replacement with the same identifier.
+var errSampleGenerationInvalidated = errors.New("telemetry sample invalidated by device removal")
+
 // inFlightEntry is the value stored in TelemetryService.inFlight while a
 // device is claimed. flightStart is fleetd-owned and set at claim time, so it
 // is always at or before the moment the device fetch actually starts; a
@@ -63,7 +67,8 @@ var errNoSampleFromFlight = errors.New("telemetry flight ended without a metrics
 type inFlightEntry struct {
 	kind inFlightKind
 	// sampleGeneration prevents a flight admitted before device removal from
-	// repopulating retention after that device is removed or re-added.
+	// reaching samplers or repopulating retention after that device is
+	// removed or re-added.
 	sampleGeneration uint64
 	// flightStart is the fleetd-owned claim time. Device-reported timestamps
 	// are observation metadata only and must never be compared against
@@ -111,13 +116,15 @@ func (e *inFlightEntry) joinable() bool {
 	return e.kind == inFlightKindFullTelemetry || e.kind == inFlightKindSample
 }
 
-func (e *inFlightEntry) publishMetrics(metrics modelsV2.DeviceMetrics, orgID int64, err error) {
+func (e *inFlightEntry) publishMetrics(metrics modelsV2.DeviceMetrics, orgID int64, err error) (published bool) {
 	e.metricsOnce.Do(func() {
+		published = true
 		e.metrics = metrics
 		e.metricsOrgID = orgID
 		e.metricsErr = err
 		close(e.metricsReady)
 	})
+	return published
 }
 
 // releaseInFlight publishes a terminal "no sample" error to any joiners that
@@ -164,8 +171,7 @@ func (s *TelemetryService) publishFlightSample(deviceID models.DeviceIdentifier,
 		expectedEntry.publishMetrics(modelsV2.DeviceMetrics{}, 0, sampleErr)
 		return
 	}
-	expectedEntry.publishMetrics(result.metrics, result.orgID, nil)
-	s.retainSample(deviceID, result.orgID, result.metrics, expectedEntry.flightStart, expectedEntry.sampleGeneration)
+	s.publishCurrentGenerationSample(deviceID, expectedEntry, result.metrics, result.orgID)
 }
 
 // retainedSample is the most recent successful metrics sample for a device,
@@ -178,56 +184,62 @@ type retainedSample struct {
 	completedAt time.Time
 }
 
-func (s *TelemetryService) retainSample(
+type sampleGenerationState struct {
+	mu         sync.Mutex
+	generation uint64
+}
+
+// publishCurrentGenerationSample linearizes successful publication and
+// retention with RemoveDevices invalidation. If removal wins, every waiter
+// receives an unusable result; if publication wins, removal subsequently
+// advances the generation and deletes the retained sample.
+func (s *TelemetryService) publishCurrentGenerationSample(
 	deviceID models.DeviceIdentifier,
-	orgID int64,
+	entry *inFlightEntry,
 	metrics modelsV2.DeviceMetrics,
-	flightStart time.Time,
-	generation uint64,
+	orgID int64,
 ) {
-	if generation != s.currentSampleGeneration(deviceID) {
+	state := s.sampleGenerationState(deviceID)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	if entry.sampleGeneration != state.generation {
+		entry.publishMetrics(modelsV2.DeviceMetrics{}, 0, errSampleGenerationInvalidated)
+		return
+	}
+	if !entry.publishMetrics(metrics, orgID, nil) {
 		return
 	}
 	s.retainedSamples.Store(deviceID, &retainedSample{
 		metrics:     metrics,
 		orgID:       orgID,
-		flightStart: flightStart,
+		flightStart: entry.flightStart,
 		completedAt: time.Now(),
 	})
 }
 
+func (s *TelemetryService) sampleGenerationState(deviceID models.DeviceIdentifier) *sampleGenerationState {
+	value, _ := s.sampleGenerations.LoadOrStore(deviceID, &sampleGenerationState{})
+	state, ok := value.(*sampleGenerationState)
+	if !ok {
+		panic("telemetry sample generation map contains an invalid value")
+	}
+	return state
+}
+
 func (s *TelemetryService) currentSampleGeneration(deviceID models.DeviceIdentifier) uint64 {
-	value, ok := s.sampleGenerations.Load(deviceID)
-	if !ok {
-		return 0
-	}
-	generation, ok := value.(uint64)
-	if !ok {
-		s.sampleGenerations.Delete(deviceID)
-		return 0
-	}
-	return generation
+	state := s.sampleGenerationState(deviceID)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.generation
 }
 
-func (s *TelemetryService) advanceSampleGeneration(deviceID models.DeviceIdentifier) {
-	for {
-		current, loaded := s.sampleGenerations.LoadOrStore(deviceID, uint64(1))
-		if !loaded {
-			return
-		}
-		generation, ok := current.(uint64)
-		if !ok {
-			s.sampleGenerations.Delete(deviceID)
-			continue
-		}
-		if s.sampleGenerations.CompareAndSwap(deviceID, generation, generation+1) {
-			return
-		}
-	}
-}
-
-func (s *TelemetryService) clearSampleGenerations() {
-	s.sampleGenerations.Clear()
+func (s *TelemetryService) invalidateDeviceSamples(deviceID models.DeviceIdentifier) {
+	state := s.sampleGenerationState(deviceID)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.generation++
+	s.retainedSamples.Delete(deviceID)
 }
 
 func (s *TelemetryService) evictExpiredRetainedSamples(now time.Time) {
@@ -579,6 +591,5 @@ func (s *TelemetryService) processSample(ctx context.Context, task sampleTask) {
 		task.entry.publishMetrics(modelsV2.DeviceMetrics{}, 0, sampleErr)
 		return
 	}
-	task.entry.publishMetrics(result.metrics, result.orgID, nil)
-	s.retainSample(task.deviceID, result.orgID, result.metrics, task.entry.flightStart, task.entry.sampleGeneration)
+	s.publishCurrentGenerationSample(task.deviceID, task.entry, result.metrics, result.orgID)
 }

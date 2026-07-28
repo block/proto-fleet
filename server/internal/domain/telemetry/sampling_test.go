@@ -224,9 +224,10 @@ func TestSampleDeviceMetrics_RestartDoesNotExecuteOldActivationSample(t *testing
 	assert.NotEqual(t, oldActivation.sampleTasks, newActivation.sampleTasks)
 }
 
-// This lifecycle-level regression uses the public Start/Stop API. A sample
-// retained by one activation must not be reusable after the service restarts.
-func TestSampleDeviceMetrics_RetainedSampleClearedAcrossStartStopRestart(t *testing.T) {
+// This lifecycle-level regression uses the public Start/Stop API. Retained
+// metrics must not cross activations, while the per-device generation
+// tombstone must survive so removal cannot split publication onto a new lock.
+func TestSampleDeviceMetrics_RetainedSampleClearedAndGenerationSurvivesRestart(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	dataStore := mock.NewMockTelemetryDataStore(ctrl)
 	minerGetter := mock.NewMockCachedMinerGetter(ctrl)
@@ -279,12 +280,16 @@ func TestSampleDeviceMetrics_RetainedSampleClearedAcrossStartStopRestart(t *test
 	assert.Equal(t, firstMetrics, first[0].Metrics)
 	_, retained := service.retainedSamples.Load(deviceID)
 	require.True(t, retained)
+	generationState := service.sampleGenerationState(deviceID)
 
 	require.NoError(t, service.Stop(t.Context()))
 	_, retained = service.retainedSamples.Load(deviceID)
 	assert.False(t, retained, "stopped activation must clear retained samples")
+	assert.Same(t, generationState, service.sampleGenerationState(deviceID),
+		"restart must not replace the lock that linearizes removal with publication")
 
 	require.NoError(t, service.Start(t.Context()))
+	assert.Same(t, generationState, service.sampleGenerationState(deviceID))
 	second := service.SampleDeviceMetrics(t.Context(), []SampleRequest{{DeviceID: deviceID}})
 	require.Len(t, second, 1)
 	require.NoError(t, second[0].Err)
@@ -319,6 +324,25 @@ func TestPublishFlightSample_DoesNotPublishIntoReplacementClaim(t *testing.T) {
 	assert.False(t, retained, "claim A's sample must not be retained after claim B replaces it")
 }
 
+func TestPublishFlightSample_RejectsRemovedGeneration(t *testing.T) {
+	service := &TelemetryService{}
+	deviceID := models.DeviceIdentifier("removed-scheduled-flight")
+	entry := service.newDeviceInFlightEntry(deviceID, inFlightKindFullTelemetry)
+	service.inFlight.Store(deviceID, entry)
+	service.invalidateDeviceSamples(deviceID)
+
+	service.publishFlightSample(deviceID, entry, &deviceResult{
+		metrics: sampleMetricsFixture(deviceID, 3200),
+		orgID:   1,
+	}, nil)
+
+	<-entry.metricsReady
+	require.ErrorIs(t, entry.metricsErr, errSampleGenerationInvalidated)
+	assert.Empty(t, entry.metrics)
+	_, retained := service.retainedSamples.Load(deviceID)
+	assert.False(t, retained, "a removed generation must publish no reusable sample")
+}
+
 func TestEvictExpiredRetainedSamples_RemovesOnlyExpiredIdentity(t *testing.T) {
 	service := &TelemetryService{}
 	now := time.Now()
@@ -338,16 +362,39 @@ func TestEvictExpiredRetainedSamples_RemovesOnlyExpiredIdentity(t *testing.T) {
 	assert.Same(t, fresh, value)
 }
 
-func TestRetainSample_RejectsFlightFromRemovedGeneration(t *testing.T) {
-	service := &TelemetryService{}
-	deviceID := models.DeviceIdentifier("removed-during-flight")
-	entry := service.newDeviceInFlightEntry(deviceID, inFlightKindFullTelemetry)
-	service.advanceSampleGeneration(deviceID)
+func TestSampleDeviceMetrics_RejectsDirectFetchFromRemovedGeneration(t *testing.T) {
+	h := newSamplingHarness(t, samplingTestConfig())
+	h.startWorkers(t, 1)
+	deviceID := models.DeviceIdentifier("removed-direct-flight")
+	fetchStarted := make(chan struct{})
+	releaseFetch := make(chan struct{})
+	h.minerGetter.EXPECT().GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).Return(h.miner, nil)
+	h.miner.EXPECT().GetDeviceMetrics(gomock.Any()).DoAndReturn(func(context.Context) (modelsV2.DeviceMetrics, error) {
+		close(fetchStarted)
+		<-releaseFetch
+		return sampleMetricsFixture(deviceID, 3200), nil
+	})
 
-	service.retainSample(deviceID, 1, sampleMetricsFixture(deviceID, 3200), entry.flightStart, entry.sampleGeneration)
+	resultDone := make(chan SampleResult, 1)
+	go func() {
+		results := h.service.SampleDeviceMetrics(t.Context(), []SampleRequest{{
+			DeviceID: deviceID,
+			OrgID:    1,
+		}})
+		resultDone <- results[0]
+	}()
 
-	_, retained := service.retainedSamples.Load(deviceID)
-	assert.False(t, retained, "a flight admitted before removal must not repopulate retention")
+	<-fetchStarted
+	h.service.invalidateDeviceSamples(deviceID)
+	close(releaseFetch)
+
+	result := <-resultDone
+	require.ErrorIs(t, result.Err, errSampleGenerationInvalidated)
+	assert.Equal(t, SampleSourceDirect, result.Source)
+	assert.Empty(t, result.Metrics)
+	_, retained := h.service.retainedSamples.Load(deviceID)
+	assert.False(t, retained, "a removed generation must publish no reusable sample")
+	requireEventuallyReleased(t, h.service, deviceID)
 }
 
 func TestSampleDeviceMetrics_RejectsWrongOrganizationBeforeDirectRead(t *testing.T) {
