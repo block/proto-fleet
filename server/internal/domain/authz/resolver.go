@@ -58,7 +58,7 @@ func (r *PermissionResolver) LoadEffective(ctx context.Context, userID, organiza
 }
 
 // LoadEffectiveTx runs the same query against a caller-supplied
-// *sqlc.Queries handle so callers that already hold a transaction can
+// sqlc.Querier handle so callers that already hold a transaction can
 // re-load the effective set inside their own snapshot. The role-
 // management service uses this to re-check the caller's permissions
 // inside its mutation transactions, closing the TOCTOU window where a

@@ -34,7 +34,7 @@ func (f *SQLTransactor) RunInTxWithResult(ctx context.Context, action func(ctx c
 		// If the context already has a transaction, just use the existing context
 		return action(ctx)
 	}
-	return db.WithTransaction(ctx, f.conn.DB, func(q *sqlc.Queries) (any, error) {
+	return db.WithTransaction(ctx, f.conn.DB, func(q sqlc.Querier) (any, error) {
 		txCtx := db.WithTxQueries(ctx, q)
 		return action(txCtx)
 	})

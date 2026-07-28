@@ -10,8 +10,9 @@ import (
 // NewFailoverResettingQuerier returns a normal sqlc handle whose complete
 // operations reset stale idle connections when scan/deferred errors indicate a
 // PostgreSQL failover. It intentionally does not add another retry layer.
+// Queries are traced; the span covers any RetryDB-level retries.
 func NewFailoverResettingQuerier(conn *RetryDB) sqlc.Querier {
-	return newFailoverResettingQuerier(sqlc.New(conn), conn.resetPool)
+	return NewTracingQuerier(newFailoverResettingQuerier(sqlc.New(conn), conn.resetPool))
 }
 
 func newFailoverResettingQuerier(next sqlc.Querier, resetPool func()) sqlc.Querier {

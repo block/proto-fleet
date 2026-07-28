@@ -53,7 +53,7 @@ func newResultsTestService(conn *sql.DB) *command.Service {
 func seedBatchInState(t *testing.T, conn *sql.DB, batchUUID string, userID, orgID int64, deviceCount int32, status sqlc.BatchStatusEnum) {
 	t.Helper()
 	ctx := context.Background()
-	err := db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+	err := db2.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
 		_, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
 			Uuid:           batchUUID,
 			Type:           "REBOOT",
@@ -234,7 +234,7 @@ func TestGetCommandBatchDeviceResults_TruncatesLargeBatchesWithConsistentCounts(
 
 	// Bulk-insert codl rows in chunks so the test doesn't hammer sqlc one-by-one.
 	ctx := context.Background()
-	err := db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+	err := db2.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
 		for _, dev := range devs {
 			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
 				Uuid:      batchUUID,
@@ -287,7 +287,7 @@ func TestGetCommandBatchDeviceResults_DeviceSnapshot(t *testing.T) {
 
 	ctx := context.Background()
 	upsert := func(status sqlc.DeviceCommandStatusEnum, errInfo sql.NullString) {
-		require.NoError(t, db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+		require.NoError(t, db2.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
 			return q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
 				Uuid:      batchUUID,
 				DeviceID:  dev.DatabaseID,

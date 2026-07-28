@@ -418,7 +418,7 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 	return func() error {
 		finCtx, cancel := context.WithTimeout(context.Background(), finalizerDBTimeout)
 		defer cancel()
-		counts, err := db.WithTransaction(finCtx, s.conn, func(q *sqlc.Queries) (sqlc.GetBatchStatusAndDeviceCountsRow, error) {
+		counts, err := db.WithTransaction(finCtx, s.conn, func(q sqlc.Querier) (sqlc.GetBatchStatusAndDeviceCountsRow, error) {
 			return q.GetBatchStatusAndDeviceCounts(finCtx, batchID)
 		})
 		if err != nil {
@@ -468,7 +468,7 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizat
 		return "", fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
 	}
 
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (string, error) {
+	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (string, error) {
 		timeNow := time.Now()
 		newUUID := id.GenerateID()
 
@@ -496,7 +496,7 @@ func (s *Service) statusUpdateIsProcessingBranch(ctx context.Context, commandBat
 		return false, fleeterror.NewInternalErrorf("error asking isProcessing: %v", err)
 	}
 	if isProcessing {
-		err = db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
+		err = db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
 			return q.MarkCommandBatchProcessing(ctx, commandBatchLogUUID)
 		})
 		if err != nil {
@@ -509,7 +509,7 @@ func (s *Service) statusUpdateIsProcessingBranch(ctx context.Context, commandBat
 
 func (s *Service) getMarkFinishedBatchFunction(processingMarkedInDB bool) func(ctx context.Context, commandBatchLogUUID string) error {
 	return func(ctx context.Context, commandBatchLogUUID string) error {
-		return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
+		return db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
 			if processingMarkedInDB {
 				return q.MarkCommandBatchFinished(ctx, commandBatchLogUUID)
 			}
@@ -633,7 +633,7 @@ func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.D
 			filter = &pb.DeviceFilter{}
 		}
 
-		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]string, error) {
+		return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]string, error) {
 			var deviceStatus sql.NullString
 			var modelFilter sql.NullString
 			var manufacturerFilter sql.NullString
@@ -718,7 +718,7 @@ func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, identifiers
 	if s.resolveDeviceIDsOverride != nil {
 		return s.resolveDeviceIDsOverride(ctx, identifiers)
 	}
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
+	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]int64, error) {
 		return q.GetDeviceIDsByDeviceIdentifiers(ctx, identifiers)
 	})
 }
@@ -744,7 +744,7 @@ func (s *Service) resolveIdentifiersToDevices(ctx context.Context, identifiers [
 		}
 		return devices, nil
 	}
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]resolvedDevice, error) {
+	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]resolvedDevice, error) {
 		rows, err := q.GetDeviceIDsWithIdentifiers(ctx, identifiers)
 		if err != nil {
 			return nil, err
@@ -778,7 +778,7 @@ func (s *Service) prepareUpdateMinerPasswordDispatch(ctx context.Context, orgID 
 	for _, device := range devices {
 		identifiers = append(identifiers, device.identifier)
 	}
-	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.GetDeviceCommandRoutesRow, error) {
+	rows, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]sqlc.GetDeviceCommandRoutesRow, error) {
 		return q.GetDeviceCommandRoutes(ctx, sqlc.GetDeviceCommandRoutesParams{
 			OrgID:             orgID,
 			DeviceIdentifiers: identifiers,
@@ -1056,7 +1056,7 @@ func (s *Service) createMiningPoolDTO(ctx context.Context, poolID int64, priorit
 		return nil, fleeterror.NewInternalErrorf("error getting session info: %v", err)
 	}
 
-	pool, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (sqlc.Pool, error) {
+	pool, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (sqlc.Pool, error) {
 		p, err := q.GetPool(ctx, sqlc.GetPoolParams{ID: poolID, OrgID: info.OrganizationID})
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -1195,7 +1195,7 @@ func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.Dev
 		return nil, nil, nil
 	}
 
-	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.GetDeviceInfoForCapabilityCheckRow, error) {
+	rows, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]sqlc.GetDeviceInfoForCapabilityCheckRow, error) {
 		return q.GetDeviceInfoForCapabilityCheck(ctx, sqlc.GetDeviceInfoForCapabilityCheckParams{
 			DeviceIdentifiers: identifiers,
 			OrgID:             info.OrganizationID,
@@ -1452,7 +1452,7 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 }
 
 func (s *Service) getDeviceIDsWithIdentifiers(ctx context.Context, deviceIdentifiers []string) (map[string]int64, error) {
-	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.GetDeviceIDsWithIdentifiersRow, error) {
+	rows, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]sqlc.GetDeviceIDsWithIdentifiersRow, error) {
 		return q.GetDeviceIDsWithIdentifiers(ctx, deviceIdentifiers)
 	})
 	if err != nil {
@@ -1476,7 +1476,7 @@ func (s *Service) enqueueWorkerNameReapplyMessages(
 	deviceIDsByIdentifier map[string]int64,
 	desiredWorkerNamesByDeviceIdentifier map[string]string,
 ) error {
-	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
+	return db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
 		commandType := commandtype.UpdateMiningPools
 		for _, deviceIdentifier := range deviceIdentifiers {
 			payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
@@ -1763,7 +1763,7 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 	// REPEATABLE READ + ReadOnly so header/counts/rows share one snapshot;
 	// the default READ COMMITTED would let concurrent worker writes to
 	// command_on_device_log produce inconsistent counts vs device_results.
-	bundle, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (resultsBundle, error) {
+	bundle, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (resultsBundle, error) {
 		var b resultsBundle
 		header, hErr := q.GetBatchHeaderForOrg(ctx, sqlc.GetBatchHeaderForOrgParams{
 			Uuid:           req.BatchIdentifier,
