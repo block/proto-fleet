@@ -14,6 +14,7 @@ import type { TemperatureUnit, Theme, ThemeColor } from "@/shared/features/prefe
 // =============================================================================
 
 export type RacksViewMode = "grid" | "list";
+export type BuildingsViewMode = "grid" | "list";
 
 export interface UISlice {
   theme: Theme;
@@ -23,6 +24,7 @@ export interface UISlice {
   bulkRenamePreferences: BulkRenamePreferences;
   bulkWorkerNamePreferences: BulkRenamePreferences;
   racksViewMode: RacksViewMode;
+  buildingsViewMode: BuildingsViewMode;
   isActionBarVisible: boolean;
   activeSite: ActiveSite;
   // Monotonic counter bumped whenever the org's site list changes (create /
@@ -41,6 +43,7 @@ export interface UISlice {
   setBulkRenamePreferences: (preferences: BulkRenamePreferences) => void;
   setBulkWorkerNamePreferences: (preferences: BulkRenamePreferences) => void;
   setRacksViewMode: (mode: RacksViewMode) => void;
+  setBuildingsViewMode: (mode: BuildingsViewMode) => void;
   setActionBarVisible: (visible: boolean) => void;
   setActiveSite: (next: ActiveSite) => void;
   bumpSitesRevision: () => void;
@@ -59,6 +62,7 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   bulkRenamePreferences: createDefaultBulkRenamePreferences(),
   bulkWorkerNamePreferences: createDefaultBulkRenamePreferences(bulkRenameModes.worker),
   racksViewMode: "grid",
+  buildingsViewMode: "grid",
   isActionBarVisible: false,
   activeSite: DEFAULT_ACTIVE_SITE,
   sitesRevision: 0,
@@ -97,6 +101,11 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   setRacksViewMode: (mode) =>
     set((state) => {
       state.ui.racksViewMode = mode;
+    }),
+
+  setBuildingsViewMode: (mode) =>
+    set((state) => {
+      state.ui.buildingsViewMode = mode;
     }),
 
   setActionBarVisible: (visible) =>
