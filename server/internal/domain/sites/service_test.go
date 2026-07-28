@@ -1051,7 +1051,7 @@ func TestCreateSite_invalidNetworkConfigBlocksWrite(t *testing.T) {
 	svc := NewService(store, nil, nil, nil, nil, tx, nil)
 	// CreateSite must NOT be called when network_config validation fails.
 
-	_, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
+	_, _, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
 		OrgID:         testOrgID,
 		Name:          "alpha",
 		NetworkConfig: "not-an-ip",
@@ -1080,7 +1080,7 @@ func TestCreateSite_canonicalizesAndPersists(t *testing.T) {
 			return &models.Site{ID: 1, Name: p.Name, Slug: p.Slug, NetworkConfig: p.NetworkConfig}, nil
 		})
 
-	out, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
+	out, _, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
 		OrgID:         testOrgID,
 		Name:          "alpha",
 		NetworkConfig: "  10.0.0.0/24  ",
@@ -1105,7 +1105,7 @@ func TestCreateSite_crossSiteOverlapSurfacesAsWarning(t *testing.T) {
 	store.EXPECT().ListSiteSlugs(gomock.Any(), testOrgID).Return(nil, nil)
 	store.EXPECT().CreateSite(gomock.Any(), gomock.Any()).Return(&models.Site{ID: 1}, nil)
 
-	out, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
+	out, _, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
 		OrgID:         testOrgID,
 		Name:          "siteA",
 		NetworkConfig: "10.0.1.0/24",
@@ -1133,7 +1133,7 @@ func TestCreateSite_generatesNextSlugOnCollision(t *testing.T) {
 			return &models.Site{ID: 1, Name: p.Name, Slug: p.Slug}, nil
 		})
 
-	out, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
+	out, _, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
 		OrgID: testOrgID,
 		Name:  "North DC",
 	})
@@ -1169,7 +1169,7 @@ func TestCreateSite_retriesSlugRace(t *testing.T) {
 			}),
 	)
 
-	out, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
+	out, _, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
 		OrgID: testOrgID,
 		Name:  "North DC",
 	})
@@ -1206,7 +1206,7 @@ func TestCreateSite_retriesSlugRaceBeyondInitialCollisionWindow(t *testing.T) {
 			return &models.Site{ID: 1, Name: p.Name, Slug: p.Slug}, nil
 		})
 
-	out, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
+	out, _, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
 		OrgID: testOrgID,
 		Name:  "!!!",
 	})

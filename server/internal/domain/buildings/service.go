@@ -6,6 +6,7 @@ package buildings
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -101,9 +102,9 @@ func validateCreateBuildingParams(params models.CreateParams) error {
 
 // createBuildingInTx locks the parent site (when specified) and inserts the
 // building. It assumes it runs inside an already-open transaction and does NOT
-// log activity — the caller logs post-commit. Reused by both the standalone
-// CreateBuilding wrapper and CreateBuildingWithSeed, which needs the insert to
-// share one transaction with the seeded assignments.
+// log activity — the caller logs post-commit. Called by CreateBuilding, whose
+// optional seed needs the insert to share one transaction with the seeded
+// assignments.
 func (s *Service) createBuildingInTx(txCtx context.Context, params models.CreateParams) (*models.Building, error) {
 	// Lock the parent site row when specified so a concurrent
 	// DeleteSite can't soft-delete it between the live-site check
@@ -118,32 +119,9 @@ func (s *Service) createBuildingInTx(txCtx context.Context, params models.Create
 	return s.store.CreateBuilding(txCtx, params)
 }
 
-func (s *Service) CreateBuilding(ctx context.Context, params models.CreateParams) (*models.Building, error) {
-	if err := validateCreateBuildingParams(params); err != nil {
-		return nil, err
-	}
-
-	var b *models.Building
-	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		created, err := s.createBuildingInTx(txCtx, params)
-		if err != nil {
-			return err
-		}
-		b = created
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	s.logBuildingCreated(ctx, params.OrgID, b)
-	return b, nil
-}
-
 // logBuildingCreated emits the "building created" activity event. Called AFTER
 // the owning tx commits — RunInTx may retry the closure on serialization
-// failures, so an in-closure Log would duplicate. Shared by CreateBuilding and
-// CreateBuildingWithSeed.
+// failures, so an in-closure Log would duplicate.
 func (s *Service) logBuildingCreated(ctx context.Context, orgID int64, b *models.Building) {
 	orgIDVal := orgID
 	event := activitymodels.Event{
@@ -160,6 +138,153 @@ func (s *Service) logBuildingCreated(ctx context.Context, orgID int64, b *models
 	}
 	activity.StampActor(ctx, &event)
 	s.activitySvc.Log(ctx, event)
+}
+
+// errSeedConflict is an internal sentinel returned from the create-and-seed
+// transaction closure to force a rollback when the seeded device assignment
+// hits unresolvable per-device conflicts. The conflicts themselves are captured
+// in a closure variable; this error only signals "roll everything back". It is
+// deliberately NOT a FleetError — WithTransaction wraps a non-retryable
+// non-FleetError with %w (see with_transaction.go), so errors.Is still matches
+// it through the tx boundary while the caller surfaces the captured conflicts
+// instead of this error.
+var errSeedConflict = errors.New("seed assignment conflict")
+
+// CreateBuilding inserts a new building and, when the request carries a seed
+// (RackIDs and/or DeviceIdentifiers), assigns those to it in ONE transaction
+// (#559). Either everything commits or nothing does, so a failed seed can't
+// leave an orphaned or partially-populated building. Returns per-device
+// conflicts (and a nil result) when a seeded device can't be applied without
+// force; on that path the whole tx — including the building INSERT and any rack
+// moves — rolls back. With no seed fields it is a plain create with zero
+// counts and no conflicts.
+//
+// The seed cores (assignRacksToBuildingInTx / assignDevicesToBuildingInTx) are
+// re-entrant: called with this tx's context they join it rather than opening a
+// nested transaction, so create + seed share one atomic unit.
+func (s *Service) CreateBuilding(ctx context.Context, params models.CreateParams) (*models.CreateBuildingResult, []models.PerDeviceBuildingConflict, error) {
+	if err := validateCreateBuildingParams(params); err != nil {
+		return nil, nil, err
+	}
+
+	// Pre-validate the seed batches OUTSIDE the tx so a malformed request fails
+	// fast without opening a transaction. Seeded racks carry ids only — grid
+	// positions are chosen later via the manage modal — so the target-building
+	// requirement for positioned cells never trips here.
+	var rackPlacements []models.RackPlacementParam
+	if len(params.RackIDs) > 0 {
+		placements := make([]models.RackPlacementParam, len(params.RackIDs))
+		for i, id := range params.RackIDs {
+			placements[i] = models.RackPlacementParam{RackID: id}
+		}
+		validated, err := validateAndSortRackPlacements(models.AssignRacksToBuildingParams{Racks: placements})
+		if err != nil {
+			return nil, nil, err
+		}
+		rackPlacements = validated
+	}
+
+	var deviceIdentifiers []string
+	if len(params.DeviceIdentifiers) > 0 {
+		validated, err := validateAssignDevicesToBuildingParams(models.AssignDevicesToBuildingParams{
+			DeviceIdentifiers: params.DeviceIdentifiers,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		deviceIdentifiers = validated
+	}
+
+	// Captured from the COMMITTED attempt so the fire-and-forget activity logs
+	// can fire post-commit, once, outside the tx (RunInTx may retry the closure
+	// on serialization failures). Reset at the top of the closure so a retry
+	// starts clean.
+	var (
+		seedConflicts  []models.PerDeviceBuildingConflict
+		rackTxResult   assignRacksToBuildingTx
+		deviceTxResult assignDevicesToBuildingTx
+	)
+	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+		seedConflicts = nil
+		rackTxResult = assignRacksToBuildingTx{}
+		deviceTxResult = assignDevicesToBuildingTx{}
+
+		b, err := s.createBuildingInTx(txCtx, params)
+		if err != nil {
+			return nil, err
+		}
+		res := &models.CreateBuildingResult{Building: b}
+
+		if len(rackPlacements) > 0 {
+			rackParams := models.AssignRacksToBuildingParams{
+				OrgID:            params.OrgID,
+				Racks:            rackPlacements,
+				TargetBuildingID: &b.ID,
+			}
+			rackTx, err := s.assignRacksToBuildingInTx(txCtx, rackParams, rackPlacements)
+			if err != nil {
+				return nil, err
+			}
+			rackTxResult = rackTx
+			res.AssignedRackCount = int64(len(rackPlacements))
+		}
+
+		if len(deviceIdentifiers) > 0 {
+			devParams := models.AssignDevicesToBuildingParams{
+				OrgID:                               params.OrgID,
+				TargetBuildingID:                    &b.ID,
+				DeviceIdentifiers:                   deviceIdentifiers,
+				ForceClearConflictingRackMembership: params.ForceClearConflictingRackMembership,
+			}
+			devTx, err := s.assignDevicesToBuildingInTx(txCtx, devParams, deviceIdentifiers)
+			if err != nil {
+				return nil, err
+			}
+			if len(devTx.txConflicts) > 0 {
+				// Capture conflicts and force a rollback: the building INSERT +
+				// any rack moves must not persist when the device seed rejects.
+				seedConflicts = devTx.txConflicts
+				return nil, errSeedConflict
+			}
+			deviceTxResult = devTx
+			res.ReassignedDeviceCount = devTx.rowsAffected
+			res.SiteReassignedDeviceCount = devTx.siteReassignedDeviceCount
+		}
+
+		return res, nil
+	})
+	if err != nil {
+		if errors.Is(err, errSeedConflict) {
+			return nil, seedConflicts, nil
+		}
+		return nil, nil, err
+	}
+	res, ok := result.(*models.CreateBuildingResult)
+	if !ok {
+		return nil, nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+	}
+
+	// Post-commit fire-and-forget activity logs — one per operation (create,
+	// plus any seeded rack/device assignment), mirroring the standalone
+	// AssignRacksToBuilding / AssignDevicesToBuilding wrappers.
+	s.logBuildingCreated(ctx, params.OrgID, res.Building)
+	if len(rackPlacements) > 0 {
+		s.logRacksAssignedToBuilding(ctx, models.AssignRacksToBuildingParams{
+			OrgID:            params.OrgID,
+			Racks:            rackPlacements,
+			TargetBuildingID: &res.Building.ID,
+		}, rackPlacements, rackTxResult)
+	}
+	if len(deviceIdentifiers) > 0 {
+		s.logDevicesAssignedToBuilding(ctx, models.AssignDevicesToBuildingParams{
+			OrgID:                               params.OrgID,
+			TargetBuildingID:                    &res.Building.ID,
+			DeviceIdentifiers:                   deviceIdentifiers,
+			ForceClearConflictingRackMembership: params.ForceClearConflictingRackMembership,
+		}, deviceIdentifiers, deviceTxResult)
+	}
+
+	return res, nil, nil
 }
 
 // GetBuilding returns the live building or NotFound.
@@ -383,7 +508,7 @@ type assignRacksToBuildingTx struct {
 
 // validateAndSortRackPlacements validates a rack-placement batch and returns a
 // copy sorted by rack id (stable lock order). Extracted so AssignRacksToBuilding
-// and CreateBuildingWithSeed enforce identical request rules before entering the
+// and CreateBuilding's seed enforce identical request rules before entering the
 // transaction.
 func validateAndSortRackPlacements(params models.AssignRacksToBuildingParams) ([]models.RackPlacementParam, error) {
 	if len(params.Racks) == 0 {
@@ -436,7 +561,7 @@ func validateAndSortRackPlacements(params models.AssignRacksToBuildingParams) ([
 // it locks the target building + racks (canonical order) and performs every
 // placement/cascade/position write, returning the per-attempt result struct. It
 // does NOT log activity — the caller logs post-commit. Re-entrant: called inside
-// an already-open transaction (CreateBuildingWithSeed) it joins that tx rather
+// an already-open transaction (CreateBuilding) it joins that tx rather
 // than opening a new one, so create + seed commit atomically. `racks` must
 // already be validated and sorted (see validateAndSortRackPlacements).
 //
@@ -771,7 +896,7 @@ func (s *Service) AssignRacksToBuilding(ctx context.Context, params models.Assig
 
 // logRacksAssignedToBuilding emits the "racks assigned to building" activity
 // event AFTER the owning tx commits. Shared by AssignRacksToBuilding and
-// CreateBuildingWithSeed.
+// CreateBuilding.
 func (s *Service) logRacksAssignedToBuilding(ctx context.Context, params models.AssignRacksToBuildingParams, racks []models.RackPlacementParam, txResult assignRacksToBuildingTx) {
 	orgIDVal := params.OrgID
 	var buildingIDMeta any
@@ -877,7 +1002,7 @@ type assignDevicesToBuildingTx struct {
 // building's site so site/building stay in lockstep.
 // validateAssignDevicesToBuildingParams dedupes, validates, and sorts the device
 // identifiers for a building assignment (stable lock order). Shared by
-// AssignDevicesToBuilding and CreateBuildingWithSeed.
+// AssignDevicesToBuilding and CreateBuilding.
 func validateAssignDevicesToBuildingParams(params models.AssignDevicesToBuildingParams) ([]string, error) {
 	identifiers := dedupeStrings(params.DeviceIdentifiers)
 	if len(identifiers) == 0 {
@@ -899,7 +1024,7 @@ func validateAssignDevicesToBuildingParams(params models.AssignDevicesToBuilding
 // bulk-updates device.building_id (cascading device.site_id). It returns the
 // per-attempt struct — a non-empty txConflicts means no write happened. It does
 // NOT log activity; the caller logs post-commit. Re-entrant: joins an ambient
-// tx (CreateBuildingWithSeed) rather than nesting. `identifiers` must be
+// tx (CreateBuilding) rather than nesting. `identifiers` must be
 // deduped, validated, and sorted (see validateAssignDevicesToBuildingParams).
 func (s *Service) assignDevicesToBuildingInTx(ctx context.Context, params models.AssignDevicesToBuildingParams, identifiers []string) (assignDevicesToBuildingTx, error) {
 	targetBuildingID := params.TargetBuildingID
@@ -1029,7 +1154,7 @@ func (s *Service) AssignDevicesToBuilding(ctx context.Context, params models.Ass
 
 // logDevicesAssignedToBuilding emits the "devices reassigned to building"
 // activity event AFTER the owning tx commits, only when a write happened. Shared
-// by AssignDevicesToBuilding and CreateBuildingWithSeed.
+// by AssignDevicesToBuilding and CreateBuilding.
 func (s *Service) logDevicesAssignedToBuilding(ctx context.Context, params models.AssignDevicesToBuildingParams, identifiers []string, committed assignDevicesToBuildingTx) {
 	if committed.rowsAffected == 0 {
 		return

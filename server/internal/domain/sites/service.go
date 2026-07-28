@@ -95,56 +95,21 @@ func NewService(
 	}
 }
 
-// CreateResult is the output of CreateSite, carrying both the saved
-// site and any non-blocking warnings (cross-site overlap, etc.).
+// CreateResult is the output of CreateSite, carrying the saved site, any
+// non-blocking warnings (cross-site overlap, etc.), and the seed-assignment
+// counts. Site is nil when a seeded device hit unresolvable conflicts (the
+// whole tx rolled back); the conflicts travel out-of-band as
+// []PerDeviceConflict. For a plain (unseeded) create the counts are 0.
 type CreateResult struct {
 	Site                  *models.Site
 	NetworkConfigWarnings []string
-}
-
-// CreateSite validates network_config, computes cross-site overlap
-// warnings, and inserts the row.
-func (s *Service) CreateSite(ctx context.Context, params models.CreateSiteParams) (*CreateResult, error) {
-	canon, err := CanonicalizeNetworkConfig(params.NetworkConfig)
-	if err != nil {
-		return nil, err
-	}
-	params.NetworkConfig = canon.Canonical
-
-	warnings, err := s.computeCrossSiteOverlapWarnings(ctx, params.OrgID, 0, canon.Prefixes)
-	if err != nil {
-		return nil, err
-	}
-
-	usedSlugs, err := s.store.ListSiteSlugs(ctx, params.OrgID)
-	if err != nil {
-		return nil, err
-	}
-	used := make(map[string]struct{}, len(usedSlugs))
-	for _, slug := range usedSlugs {
-		used[slug] = struct{}{}
-	}
-
-	var site *models.Site
-	for {
-		params.Slug = generateSiteSlug(params.Name, used)
-		site, err = s.store.CreateSite(ctx, params)
-		if errors.Is(err, models.ErrSiteSlugCollision) {
-			used[params.Slug] = struct{}{}
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		break
-	}
-
-	s.logSiteCreated(ctx, params.OrgID, site)
-	return &CreateResult{Site: site, NetworkConfigWarnings: warnings}, nil
+	AssignedBuildingCount int64
+	AssignedRackCount     int64
+	ReassignedDeviceCount int64
 }
 
 // logSiteCreated emits the "site created" activity event AFTER the owning
-// statement/tx commits. Shared by CreateSite and CreateSiteWithSeed.
+// statement/tx commits.
 func (s *Service) logSiteCreated(ctx context.Context, orgID int64, site *models.Site) {
 	orgIDVal := orgID
 	siteID := site.ID
@@ -161,6 +126,180 @@ func (s *Service) logSiteCreated(ctx context.Context, orgID int64, site *models.
 	}
 	activity.StampActor(ctx, &event)
 	s.activitySvc.Log(ctx, event)
+}
+
+// errSeedConflict is an internal sentinel returned from the CreateSite
+// transaction closure to force a rollback when the seeded device assignment
+// hits unresolvable per-device conflicts. Same rationale as the buildings-domain
+// sentinel: deliberately NOT a FleetError, so WithTransaction wraps it with %w
+// (see with_transaction.go) and errors.Is still matches it through the tx
+// boundary while the caller surfaces the captured conflicts instead of this
+// error.
+var errSeedConflict = errors.New("seed assignment conflict")
+
+// CreateSite validates network_config, computes cross-site overlap warnings,
+// inserts the row, and — when the request carries a seed (BuildingIDs, RackIDs,
+// and/or DeviceIdentifiers) — assigns those to it in ONE transaction (#559).
+// Either everything commits or nothing does, so a failed seed can't leave an
+// orphaned or partially-populated site. Returns per-device conflicts (and a nil
+// result) when a seeded device can't be applied without force; on that path the
+// whole tx — including the site INSERT and every building/rack move — rolls
+// back. With no seed fields it is a plain create with zero counts and no
+// conflicts.
+//
+// The seed cores (assignBuildingsToSiteInTx / assignRacksToSiteInTx /
+// assignDevicesToSiteInTx) are re-entrant: called with this tx's context they
+// join it rather than opening nested transactions, so create + seed share one
+// atomic unit. Assignment order follows the canonical site → building → rack →
+// device lock order.
+func (s *Service) CreateSite(ctx context.Context, params models.CreateSiteParams) (*CreateResult, []models.PerDeviceConflict, error) {
+	canon, err := CanonicalizeNetworkConfig(params.NetworkConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	params.NetworkConfig = canon.Canonical
+
+	warnings, err := s.computeCrossSiteOverlapWarnings(ctx, params.OrgID, 0, canon.Prefixes)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Pre-validate the seed batches OUTSIDE the tx (fail fast). Each level is
+	// optional — an empty set seeds nothing at that level.
+	var buildingIDs []int64
+	if len(params.BuildingIDs) > 0 {
+		validated, err := validateAndSortBuildingIDs(models.AssignBuildingsToSiteParams{BuildingIDs: params.BuildingIDs})
+		if err != nil {
+			return nil, nil, err
+		}
+		buildingIDs = validated
+	}
+	var rackIDs []int64
+	if len(params.RackIDs) > 0 {
+		validated, err := validateAndSortRackIDsForSite(models.AssignRacksToSiteParams{RackIDs: params.RackIDs})
+		if err != nil {
+			return nil, nil, err
+		}
+		rackIDs = validated
+	}
+	var deviceIdentifiers []string
+	if len(params.DeviceIdentifiers) > 0 {
+		validated, err := dedupeAndValidateSiteDeviceIdentifiers(models.AssignDevicesToSiteParams{DeviceIdentifiers: params.DeviceIdentifiers})
+		if err != nil {
+			return nil, nil, err
+		}
+		deviceIdentifiers = validated
+	}
+
+	usedSlugs, err := s.store.ListSiteSlugs(ctx, params.OrgID)
+	if err != nil {
+		return nil, nil, err
+	}
+	used := make(map[string]struct{}, len(usedSlugs))
+	for _, slug := range usedSlugs {
+		used[slug] = struct{}{}
+	}
+
+	orgID := params.OrgID
+	// Captured from the COMMITTED attempt so the fire-and-forget activity logs
+	// fire post-commit, once, outside the tx.
+	var (
+		seedConflicts []models.PerDeviceConflict
+		buildingsTx   assignBuildingsTx
+		racksTx       assignRacksToSiteTx
+		devicesTx     assignDevicesToSiteTx
+	)
+	// Loop the WHOLE transaction on a slug collision. A failed INSERT poisons
+	// the surrounding tx, so the slug is regenerated and the entire create
+	// (plus any seed) is retried in a fresh tx. generateSiteSlug disambiguates
+	// against the growing `used` set, so this converges.
+	for {
+		params.Slug = generateSiteSlug(params.Name, used)
+		result, txErr := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+			seedConflicts = nil
+			buildingsTx = assignBuildingsTx{}
+			racksTx = assignRacksToSiteTx{}
+			devicesTx = assignDevicesToSiteTx{}
+
+			site, err := s.store.CreateSite(txCtx, params)
+			if err != nil {
+				// Includes ErrSiteSlugCollision — the whole tx rolls back and
+				// the outer loop retries with a fresh slug.
+				return nil, err
+			}
+			res := &CreateResult{Site: site}
+
+			if len(buildingIDs) > 0 {
+				bp := models.AssignBuildingsToSiteParams{OrgID: orgID, BuildingIDs: buildingIDs, TargetSiteID: &site.ID}
+				btx, err := s.assignBuildingsToSiteInTx(txCtx, bp, buildingIDs)
+				if err != nil {
+					return nil, err
+				}
+				buildingsTx = btx
+				res.AssignedBuildingCount = int64(len(buildingIDs))
+			}
+			if len(rackIDs) > 0 {
+				rp := models.AssignRacksToSiteParams{OrgID: orgID, RackIDs: rackIDs, TargetSiteID: &site.ID}
+				rtx, err := s.assignRacksToSiteInTx(txCtx, rp, rackIDs)
+				if err != nil {
+					return nil, err
+				}
+				racksTx = rtx
+				res.AssignedRackCount = int64(len(rackIDs))
+			}
+			if len(deviceIdentifiers) > 0 {
+				dp := models.AssignDevicesToSiteParams{
+					OrgID:                               orgID,
+					TargetSiteID:                        &site.ID,
+					DeviceIdentifiers:                   deviceIdentifiers,
+					ForceClearConflictingRackMembership: params.ForceClearConflictingRackMembership,
+				}
+				dtx, err := s.assignDevicesToSiteInTx(txCtx, dp, deviceIdentifiers)
+				if err != nil {
+					return nil, err
+				}
+				if len(dtx.txConflicts) > 0 {
+					// Capture conflicts and force a rollback: the site INSERT +
+					// every building/rack move must not persist on rejection.
+					seedConflicts = dtx.txConflicts
+					return nil, errSeedConflict
+				}
+				devicesTx = dtx
+				res.ReassignedDeviceCount = dtx.rowsAffected
+			}
+			return res, nil
+		})
+		if txErr != nil {
+			if errors.Is(txErr, models.ErrSiteSlugCollision) {
+				used[params.Slug] = struct{}{}
+				continue
+			}
+			if errors.Is(txErr, errSeedConflict) {
+				return nil, seedConflicts, nil
+			}
+			return nil, nil, txErr
+		}
+		res, ok := result.(*CreateResult)
+		if !ok {
+			return nil, nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+		}
+		res.NetworkConfigWarnings = warnings
+
+		// Post-commit fire-and-forget activity logs — one per operation,
+		// mirroring the standalone AssignBuildingsToSite / AssignRacksToSite /
+		// AssignDevicesToSite wrappers.
+		s.logSiteCreated(ctx, orgID, res.Site)
+		if len(buildingIDs) > 0 {
+			s.logBuildingsAssignedToSite(ctx, models.AssignBuildingsToSiteParams{OrgID: orgID, BuildingIDs: buildingIDs, TargetSiteID: &res.Site.ID}, buildingIDs, buildingsTx)
+		}
+		if len(rackIDs) > 0 {
+			s.logRacksAssignedToSite(ctx, models.AssignRacksToSiteParams{OrgID: orgID, RackIDs: rackIDs, TargetSiteID: &res.Site.ID}, rackIDs, racksTx)
+		}
+		if len(deviceIdentifiers) > 0 {
+			s.logDevicesAssignedToSite(ctx, models.AssignDevicesToSiteParams{OrgID: orgID, TargetSiteID: &res.Site.ID, DeviceIdentifiers: deviceIdentifiers, ForceClearConflictingRackMembership: params.ForceClearConflictingRackMembership}, deviceIdentifiers, devicesTx)
+		}
+		return res, nil, nil
+	}
 }
 
 // UpdateResult mirrors CreateResult for the update flow.
@@ -457,7 +596,7 @@ type assignDevicesToSiteTx struct {
 // assign can't slip between them.
 // dedupeAndValidateSiteDeviceIdentifiers dedupes and validates the device
 // identifiers for a site assignment. Shared by AssignDevicesToSite and
-// CreateSiteWithSeed.
+// CreateSite.
 func dedupeAndValidateSiteDeviceIdentifiers(params models.AssignDevicesToSiteParams) ([]string, error) {
 	identifiers := dedupeStrings(params.DeviceIdentifiers)
 	if len(identifiers) == 0 {
@@ -471,7 +610,7 @@ func dedupeAndValidateSiteDeviceIdentifiers(params models.AssignDevicesToSitePar
 // force-clears rack membership, and bulk-updates device.site_id (clearing any
 // now-mismatched device.building_id). It returns the per-attempt struct — a
 // non-empty txConflicts means no write happened. It does NOT log activity; the
-// caller logs post-commit. Re-entrant: joins an ambient tx (CreateSiteWithSeed)
+// caller logs post-commit. Re-entrant: joins an ambient tx (CreateSite)
 // rather than nesting.
 func (s *Service) assignDevicesToSiteInTx(ctx context.Context, params models.AssignDevicesToSiteParams, identifiers []string) (assignDevicesToSiteTx, error) {
 	targetSiteID := params.TargetSiteID
@@ -596,7 +735,7 @@ func (s *Service) AssignDevicesToSite(ctx context.Context, params models.AssignD
 
 // logDevicesAssignedToSite emits the "devices reassigned to site" activity event
 // AFTER the owning tx commits, only when a write happened. Shared by
-// AssignDevicesToSite and CreateSiteWithSeed.
+// AssignDevicesToSite and CreateSite.
 func (s *Service) logDevicesAssignedToSite(ctx context.Context, params models.AssignDevicesToSiteParams, identifiers []string, committed assignDevicesToSiteTx) {
 	if committed.rowsAffected == 0 {
 		return
@@ -660,7 +799,7 @@ type assignBuildingsTx struct {
 // Returns the aggregate cascade counts across every building.
 // validateAndSortBuildingIDs dedupes, validates, and sorts (stable lock order)
 // the building ids for a site assignment. Shared by AssignBuildingsToSite and
-// CreateSiteWithSeed.
+// CreateSite.
 func validateAndSortBuildingIDs(params models.AssignBuildingsToSiteParams) ([]int64, error) {
 	buildingIDs := dedupeInt64s(params.BuildingIDs)
 	if len(buildingIDs) == 0 {
@@ -682,7 +821,7 @@ func validateAndSortBuildingIDs(params models.AssignBuildingsToSiteParams) ([]in
 // it locks the target site + buildings (site → building order) and bulk-moves
 // the buildings plus their rack/device cascades, returning the per-attempt
 // counters. It does NOT log activity; the caller logs post-commit. Re-entrant:
-// joins an ambient tx (CreateSiteWithSeed) rather than nesting. `buildingIDs`
+// joins an ambient tx (CreateSite) rather than nesting. `buildingIDs`
 // must already be validated and sorted (see validateAndSortBuildingIDs).
 func (s *Service) assignBuildingsToSiteInTx(ctx context.Context, params models.AssignBuildingsToSiteParams, buildingIDs []int64) (assignBuildingsTx, error) {
 	// Counters live inside the RunInTxWithResult closure so a
@@ -784,7 +923,7 @@ func (s *Service) AssignBuildingsToSite(ctx context.Context, params models.Assig
 
 // logBuildingsAssignedToSite emits the "buildings assigned to site" activity
 // event AFTER the owning tx commits. Shared by AssignBuildingsToSite and
-// CreateSiteWithSeed.
+// CreateSite.
 func (s *Service) logBuildingsAssignedToSite(ctx context.Context, params models.AssignBuildingsToSiteParams, buildingIDs []int64, txResult assignBuildingsTx) {
 	orgIDVal := params.OrgID
 	event := activitymodels.Event{
@@ -831,7 +970,7 @@ type assignRacksToSiteTx struct {
 // writers can't deadlock against an overlapping rack set.
 // validateAndSortRackIDsForSite dedupes, validates, and sorts (stable lock
 // order) the rack ids for a site assignment. Shared by AssignRacksToSite and
-// CreateSiteWithSeed.
+// CreateSite.
 func validateAndSortRackIDsForSite(params models.AssignRacksToSiteParams) ([]int64, error) {
 	rackIDs := dedupeInt64s(params.RackIDs)
 	if len(rackIDs) == 0 {
@@ -851,7 +990,7 @@ func validateAndSortRackIDsForSite(params models.AssignRacksToSiteParams) ([]int
 // the target site + racks (site → rack asc order), moves cross-site racks
 // (clearing building_id/zone/grid) and cascades device site/building, returning
 // the per-attempt counters. It does NOT log activity; the caller logs
-// post-commit. Re-entrant: joins an ambient tx (CreateSiteWithSeed) rather than
+// post-commit. Re-entrant: joins an ambient tx (CreateSite) rather than
 // nesting. `rackIDs` must already be validated and sorted.
 func (s *Service) assignRacksToSiteInTx(ctx context.Context, params models.AssignRacksToSiteParams, rackIDs []int64) (assignRacksToSiteTx, error) {
 	if s.collectionStore == nil {
@@ -967,7 +1106,7 @@ func (s *Service) AssignRacksToSite(ctx context.Context, params models.AssignRac
 }
 
 // logRacksAssignedToSite emits the "racks assigned to site" activity event AFTER
-// the owning tx commits. Shared by AssignRacksToSite and CreateSiteWithSeed.
+// the owning tx commits. Shared by AssignRacksToSite and CreateSite.
 func (s *Service) logRacksAssignedToSite(ctx context.Context, params models.AssignRacksToSiteParams, rackIDs []int64, txResult assignRacksToSiteTx) {
 	orgIDVal := params.OrgID
 	event := activitymodels.Event{
