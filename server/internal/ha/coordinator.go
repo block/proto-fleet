@@ -145,9 +145,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
+			timer.Stop()
 			c.deactivate(ctx.Err())
 			return fmt.Errorf("HA coordinator stopped: %w", ctx.Err())
 		case <-timer.C:

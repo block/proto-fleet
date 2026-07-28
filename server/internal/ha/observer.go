@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/transportguard"
 )
 
 var (
@@ -63,7 +64,11 @@ type postgresIdentityReader interface {
 }
 
 type patroniIdentityReader interface {
-	PrimaryIdentity(ctx context.Context, memberAPIURL string) (PatroniIdentity, error)
+	PrimaryIdentity(
+		ctx context.Context,
+		memberAPIURL string,
+		expectedServerAddress string,
+	) (PatroniIdentity, error)
 }
 
 type hostResolver func(context.Context, string) ([]string, error)
@@ -149,7 +154,11 @@ func (o *Observer) observeAndRun(
 		return WriterObservation{}, err
 	}
 
-	patroni, err := o.patroni.PrimaryIdentity(ctx, first.Member.APIURL)
+	patroni, err := o.patroni.PrimaryIdentity(
+		ctx,
+		first.Member.APIURL,
+		connected.ServerAddress,
+	)
 	if err != nil {
 		return WriterObservation{}, fmt.Errorf("validate Patroni primary: %w", err)
 	}
@@ -534,17 +543,68 @@ func NewPatroniHTTPClient(client *http.Client) *PatroniHTTPClient {
 func (c *PatroniHTTPClient) PrimaryIdentity(
 	ctx context.Context,
 	memberAPIURL string,
+	expectedServerAddress string,
 ) (PatroniIdentity, error) {
 	parsed, err := url.Parse(memberAPIURL)
 	if err != nil {
 		return PatroniIdentity{}, fmt.Errorf("parse Patroni member API URL: %w", err)
 	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return PatroniIdentity{}, fmt.Errorf(
+			"Patroni member API URL scheme must be http or https; got %q",
+			parsed.Scheme,
+		)
+	}
+	if parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return PatroniIdentity{}, errors.New("Patroni member API URL is malformed")
+	}
+	pinnedIP := net.ParseIP(expectedServerAddress)
+	if pinnedIP == nil {
+		return PatroniIdentity{}, errors.New("validated PostgreSQL server address is not an IP")
+	}
+
+	baseTransport := c.client.Transport
+	if baseTransport == nil {
+		baseTransport = http.DefaultTransport
+	}
+	transport, ok := baseTransport.(*http.Transport)
+	if !ok {
+		return PatroniIdentity{}, errors.New("Patroni HTTP client transport cannot be safely cloned")
+	}
+	transport = transport.Clone()
+	if transport.DialTLSContext != nil || transport.DialTLS != nil {
+		return PatroniIdentity{}, errors.New("Patroni HTTP client transport has a custom TLS dialer")
+	}
+	transport.Proxy = nil
+	if parsed.Scheme == "https" && transport.TLSClientConfig != nil {
+		transport.TLSClientConfig.ServerName = parsed.Hostname()
+	}
+	// Keep the URL hostname for Host and TLS SNI, but dial only the IP that
+	// PostgreSQL and both DCS endpoints were already validated against.
+	var dialer net.Dialer
+	transport.Dial = nil
+	transport.DialContext = func(
+		ctx context.Context,
+		network string,
+		address string,
+	) (net.Conn, error) {
+		_, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, fmt.Errorf("parse Patroni dial address: %w", err)
+		}
+		return dialer.DialContext(ctx, network, net.JoinHostPort(pinnedIP.String(), port))
+	}
+	client := *c.client
+	client.Transport = transport
+	client.CheckRedirect = transportguard.RejectRedirect
+	defer transport.CloseIdleConnections()
+
 	parsed.Path = strings.TrimSuffix(parsed.Path, "/patroni") + "/primary"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
 		return PatroniIdentity{}, fmt.Errorf("create Patroni primary request: %w", err)
 	}
-	response, err := c.client.Do(req)
+	response, err := client.Do(req)
 	if err != nil {
 		return PatroniIdentity{}, fmt.Errorf("call Patroni primary endpoint: %w", err)
 	}

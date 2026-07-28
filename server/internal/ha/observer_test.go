@@ -5,8 +5,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"testing"
 	"time"
@@ -47,6 +49,53 @@ func TestHAHTTPClientsUseBoundedDefaultTimeout(t *testing.T) {
 	require.Greater(t, NewPatroniHTTPClient(nil).client.Timeout, time.Duration(0))
 }
 
+func TestPatroniHTTPClientRejectsUnsupportedScheme(t *testing.T) {
+	_, err := NewPatroniHTTPClient(nil).PrimaryIdentity(
+		t.Context(),
+		"file:///var/run/patroni",
+		"127.0.0.1",
+	)
+	require.ErrorContains(t, err, "scheme must be http or https")
+}
+
+func TestPatroniHTTPClientRejectsRedirect(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/elsewhere", http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(server.Close)
+
+	_, err := NewPatroniHTTPClient(server.Client()).PrimaryIdentity(
+		t.Context(),
+		server.URL,
+		"127.0.0.1",
+	)
+	require.ErrorContains(t, err, "redirects are not allowed")
+}
+
+func TestPatroniHTTPClientDialsValidatedPostgresAddress(t *testing.T) {
+	var expectedHost string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/primary", r.URL.Path)
+		require.Equal(t, expectedHost, r.Host)
+		writeJSON(t, w, map[string]any{"role": "primary", "timeline": 7})
+	}))
+	t.Cleanup(server.Close)
+
+	serverURL, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	_, port, err := net.SplitHostPort(serverURL.Host)
+	require.NoError(t, err)
+	expectedHost = net.JoinHostPort("patroni.invalid", port)
+
+	identity, err := NewPatroniHTTPClient(server.Client()).PrimaryIdentity(
+		t.Context(),
+		"http://"+expectedHost,
+		serverURL.Hostname(),
+	)
+	require.NoError(t, err)
+	require.Equal(t, PatroniIdentity{Role: "primary", Timeline: 7}, identity)
+}
+
 func TestObserverAcceptsStableBoundWriter(t *testing.T) {
 	observer := validObserver(
 		[]DCSSnapshot{
@@ -70,6 +119,7 @@ func TestObserverAcceptsStableBoundWriter(t *testing.T) {
 
 func TestObserverValidatesAuthoritiesInOrder(t *testing.T) {
 	var calls []string
+	var patroniServerAddress string
 	observer := validObserver([]DCSSnapshot{validDCSSnapshot(), validDCSSnapshot()})
 	dcs, ok := observer.dcs.(*fakeDCSReader)
 	require.True(t, ok)
@@ -87,12 +137,14 @@ func TestObserverValidatesAuthoritiesInOrder(t *testing.T) {
 		return []string{"172.30.0.12"}, nil
 	}
 	observer.patroni = fakePatroniReader{
-		identity: PatroniIdentity{Role: "primary", Timeline: 7},
-		calls:    &calls,
+		identity:      PatroniIdentity{Role: "primary", Timeline: 7},
+		calls:         &calls,
+		serverAddress: &patroniServerAddress,
 	}
 
 	_, err := observer.Observe(t.Context())
 	require.NoError(t, err)
+	require.Equal(t, "172.30.0.12", patroniServerAddress)
 	require.Equal(
 		t,
 		[]string{
@@ -354,14 +406,22 @@ func (f fakePostgresReader) GetConnectedPostgresIdentity(
 }
 
 type fakePatroniReader struct {
-	identity PatroniIdentity
-	err      error
-	calls    *[]string
+	identity      PatroniIdentity
+	err           error
+	calls         *[]string
+	serverAddress *string
 }
 
-func (f fakePatroniReader) PrimaryIdentity(context.Context, string) (PatroniIdentity, error) {
+func (f fakePatroniReader) PrimaryIdentity(
+	_ context.Context,
+	_ string,
+	serverAddress string,
+) (PatroniIdentity, error) {
 	if f.calls != nil {
 		*f.calls = append(*f.calls, "patroni")
+	}
+	if f.serverAddress != nil {
+		*f.serverAddress = serverAddress
 	}
 	return f.identity, f.err
 }
