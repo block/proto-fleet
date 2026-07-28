@@ -221,6 +221,57 @@ func TestObserverRejectsPatroniAPIServerMismatch(t *testing.T) {
 	require.ErrorIs(t, err, ErrWritableServerMismatch)
 }
 
+func TestObserverRedactsDCSURLSecretsFromEndpointMismatchErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		mutate     func(*DCSMember)
+		safeURL    string
+		sensitive  []string
+		mismatched string
+	}{
+		{
+			name: "PostgreSQL connection URL",
+			mutate: func(member *DCSMember) {
+				member.ConnURL = "postgres://db-user:db-password@patroni-db:5432/private-db?sslpassword=query-secret#conn-fragment"
+			},
+			safeURL:    "postgres://patroni-db:5432",
+			sensitive:  []string{"db-user", "db-password", "private-db", "query-secret", "conn-fragment"},
+			mismatched: "patroni-db",
+		},
+		{
+			name: "Patroni API URL",
+			mutate: func(member *DCSMember) {
+				member.APIURL = "http://api-user:api-password@patroni-api:8008/private-api?token=query-secret#api-fragment"
+			},
+			safeURL:    "http://patroni-api:8008",
+			sensitive:  []string{"api-user", "api-password", "private-api", "query-secret", "api-fragment"},
+			mismatched: "patroni-api",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			snapshot := validDCSSnapshot()
+			test.mutate(&snapshot.Member)
+			observer := validObserver([]DCSSnapshot{snapshot})
+			observer.resolve = func(_ context.Context, host string) ([]string, error) {
+				if host == test.mismatched {
+					return []string{"172.30.0.99"}, nil
+				}
+				return []string{"172.30.0.12"}, nil
+			}
+
+			_, err := observer.Observe(t.Context())
+
+			require.ErrorIs(t, err, ErrWritableServerMismatch)
+			require.ErrorContains(t, err, test.safeURL)
+			for _, sensitive := range test.sensitive {
+				require.NotContains(t, err.Error(), sensitive)
+			}
+		})
+	}
+}
+
 func TestObserverRejectsLeaderLeaseChangeInsideValidationBracket(t *testing.T) {
 	second := validDCSSnapshot()
 	second.LeaderLeaseID++

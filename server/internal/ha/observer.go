@@ -277,11 +277,11 @@ func (o *Observer) validateConnectedPostgresEndpoints(
 	connectedAddress := normalizedIP(connected.ServerAddress)
 	resolvedHosts := make(map[string][]string, 2)
 	for _, endpoint := range []struct {
-		host string
-		url  string
+		host    string
+		display string
 	}{
-		{host: conn.Hostname(), url: member.ConnURL},
-		{host: api.Hostname(), url: member.APIURL},
+		{host: conn.Hostname(), display: endpointAuthority(conn)},
+		{host: api.Hostname(), display: endpointAuthority(api)},
 	} {
 		addresses, ok := resolvedHosts[endpoint.host]
 		if !ok {
@@ -300,11 +300,15 @@ func (o *Observer) validateConnectedPostgresEndpoints(
 				ErrWritableServerMismatch,
 				connected.ServerAddress,
 				connected.ServerPort,
-				endpoint.url,
+				endpoint.display,
 			)
 		}
 	}
 	return nil
+}
+
+func endpointAuthority(endpoint *url.URL) string {
+	return (&url.URL{Scheme: endpoint.Scheme, Host: endpoint.Host}).String()
 }
 
 func validateDCSSnapshot(snapshot DCSSnapshot) error {

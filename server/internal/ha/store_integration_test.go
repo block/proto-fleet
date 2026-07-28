@@ -129,7 +129,7 @@ func TestLeaseStoreSameGenerationWaitsForExpiry(t *testing.T) {
 	require.Greater(t, second.Token.LeaseEpoch, first.Token.LeaseEpoch)
 }
 
-func TestLeaseStoreSameHolderAcquireIsIdempotentWhileUnexpired(t *testing.T) {
+func TestLeaseStoreSameHolderAcquireDoesNotExtendUnexpiredLease(t *testing.T) {
 	store, reader := leaseTestSurfaces(t)
 	holder := uuid.New()
 	first, err := store.Acquire(
@@ -143,7 +143,7 @@ func TestLeaseStoreSameHolderAcquireIsIdempotentWhileUnexpired(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, first.Token, second.Token)
 	require.Equal(t, holder, second.HolderID)
-	require.WithinDuration(t, second.DatabaseTime.Add(2*time.Minute), second.ExpiresAt, 50*time.Millisecond)
+	require.Equal(t, first.ExpiresAt, second.ExpiresAt)
 }
 
 func TestLeaseStoreSameHolderAfterExpiryAdvancesEpoch(t *testing.T) {

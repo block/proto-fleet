@@ -52,7 +52,17 @@ SET
         ELSE current_lease.lease_epoch + 1
     END,
     holder_id = EXCLUDED.holder_id,
-    expires_at = EXCLUDED.expires_at
+    -- Acquisition retries do not extend a live term; only renewal may do that.
+    expires_at = CASE
+        WHEN
+            current_lease.holder_id = EXCLUDED.holder_id
+            AND current_lease.highest_writer_generation
+                = EXCLUDED.highest_writer_generation
+            AND current_lease.expires_at
+                > (SELECT database_time FROM lease_context)
+        THEN current_lease.expires_at
+        ELSE EXCLUDED.expires_at
+    END
 WHERE
     -- A newer writer may supersede a live lease; same-generation takeover waits for expiry.
     current_lease.dcs_cluster_id = EXCLUDED.dcs_cluster_id

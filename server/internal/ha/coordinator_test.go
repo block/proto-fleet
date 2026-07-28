@@ -3,6 +3,7 @@ package ha
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -127,6 +128,54 @@ func TestCoordinatorCancelsLifetimeWhenLeaseExpiresWithoutRenewal(t *testing.T) 
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
 }
 
+func TestCoordinatorRunRetriesWhenPassiveObservationBlocks(t *testing.T) {
+	config := coordinatorTestConfig()
+	config.LeaseDuration = 30 * time.Millisecond
+	config.RenewInterval = 10 * time.Millisecond
+	config.RetryInterval = 5 * time.Millisecond
+	observer := &blockingObserver{calls: make(chan struct{}, 2)}
+	coordinator := newCoordinatorWithHolder(
+		observer,
+		&fakeLeaseStore{},
+		config,
+		uuid.New(),
+	)
+	ctx, cancel := context.WithCancel(t.Context())
+	runResult := make(chan error, 1)
+	go func() {
+		runResult <- coordinator.Run(ctx)
+	}()
+
+	requireCall(t, observer.calls)
+	requireCall(t, observer.calls)
+	cancel()
+
+	require.ErrorIs(t, <-runResult, context.Canceled)
+	require.Equal(t, StatePassive, coordinator.Snapshot().State)
+}
+
+func TestCoordinatorActiveRenewalStopsAtWatchdogDeadline(t *testing.T) {
+	config := coordinatorTestConfig()
+	config.LeaseDuration = time.Second
+	config.RenewInterval = 10 * time.Millisecond
+	observer := &activateThenBlockObserver{
+		observation: coordinatorObservation("cluster-a", 41, 40*time.Millisecond),
+	}
+	coordinator := newCoordinatorWithHolder(
+		observer,
+		&fakeLeaseStore{},
+		config,
+		uuid.New(),
+	)
+	require.NoError(t, coordinator.step(t.Context()))
+	activeCtx, _, active := coordinator.ActiveLifetime()
+	require.True(t, active)
+
+	require.ErrorIs(t, coordinator.step(t.Context()), context.Canceled)
+	require.Error(t, activeCtx.Err())
+	require.Equal(t, StatePassive, coordinator.Snapshot().State)
+}
+
 func TestCoordinatorRejectsLeaseThatExpiredBeforeAcquireReturned(t *testing.T) {
 	config := coordinatorTestConfig()
 	config.LeaseDuration = 10 * time.Millisecond
@@ -194,6 +243,15 @@ func TestCoordinatorSuccessfulRenewalExtendsWatchdog(t *testing.T) {
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
 }
 
+func requireCall(t *testing.T, calls <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-calls:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for observer call")
+	}
+}
+
 func coordinatorObservation(
 	clusterID string,
 	generation int64,
@@ -255,6 +313,43 @@ func (s *sequenceObserver) ObserveAndRun(
 		return WriterObservation{}, err
 	}
 	return result.observation, nil
+}
+
+type blockingObserver struct {
+	calls chan struct{}
+}
+
+func (b *blockingObserver) ObserveAndRun(
+	ctx context.Context,
+	_ func(context.Context, WriterObservation) error,
+) (WriterObservation, error) {
+	b.calls <- struct{}{}
+	<-ctx.Done()
+	return WriterObservation{}, fmt.Errorf("observation canceled: %w", ctx.Err())
+}
+
+type activateThenBlockObserver struct {
+	mu          sync.Mutex
+	observation WriterObservation
+	activated   bool
+}
+
+func (b *activateThenBlockObserver) ObserveAndRun(
+	ctx context.Context,
+	action func(context.Context, WriterObservation) error,
+) (WriterObservation, error) {
+	b.mu.Lock()
+	activated := b.activated
+	b.activated = true
+	b.mu.Unlock()
+	if activated {
+		<-ctx.Done()
+		return WriterObservation{}, fmt.Errorf("renewal observation canceled: %w", ctx.Err())
+	}
+	if err := action(ctx, b.observation); err != nil {
+		return WriterObservation{}, err
+	}
+	return b.observation, nil
 }
 
 type fakeLeaseStore struct {

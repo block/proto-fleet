@@ -155,17 +155,24 @@ func (c *Coordinator) Run(ctx context.Context) error {
 
 func (c *Coordinator) step(ctx context.Context) error {
 	c.mu.RLock()
-	active := c.activeCtx != nil
+	activeCtx := c.activeCtx
 	current := c.ownership
 	c.mu.RUnlock()
 
-	if !active {
+	stepCtx := activeCtx
+	if stepCtx == nil {
+		var cancel context.CancelFunc
+		stepCtx, cancel = context.WithTimeout(ctx, c.config.LeaseDuration)
+		defer cancel()
+	}
+
+	if activeCtx == nil {
 		var (
 			ownership      Ownership
 			requestStarted time.Time
 		)
 		observed, err := c.observer.ObserveAndRun(
-			ctx,
+			stepCtx,
 			func(actionCtx context.Context, observed WriterObservation) error {
 				requestStarted = time.Now()
 				var acquireErr error
@@ -199,7 +206,7 @@ func (c *Coordinator) step(ctx context.Context) error {
 		requestStarted time.Time
 	)
 	observed, err := c.observer.ObserveAndRun(
-		ctx,
+		stepCtx,
 		func(actionCtx context.Context, observed WriterObservation) error {
 			if observed.DCSClusterID != current.DCSClusterID ||
 				observed.WriterGeneration != current.Token.WriterGeneration {
