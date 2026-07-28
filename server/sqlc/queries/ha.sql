@@ -75,16 +75,15 @@ RETURNING
 
 -- name: RenewFleetRuntimeLease :one
 WITH lease_context AS (
-    -- Capture database time and writer identity once for this renewal attempt.
+    -- Capture database time once, and fail closed unless this is the expected writer.
     SELECT
-        clock_timestamp() AS database_time,
-        (
-            NOT connected.in_recovery
-            AND connected.server_address = sqlc.arg('server_address')::TEXT
-            AND connected.server_port = sqlc.arg('server_port')::INTEGER
-            AND connected.timeline = sqlc.arg('timeline')::BIGINT
-        ) AS matches
+        clock_timestamp() AS database_time
     FROM connected_postgres_identity AS connected
+    WHERE
+        NOT connected.in_recovery
+        AND connected.server_address = sqlc.arg('server_address')::TEXT
+        AND connected.server_port = sqlc.arg('server_port')::INTEGER
+        AND connected.timeline = sqlc.arg('timeline')::BIGINT
 )
 UPDATE fleet_runtime_lease
 SET
@@ -94,8 +93,7 @@ SET
 FROM lease_context
 WHERE
     -- Renewal requires the exact, unexpired ownership tuple on the expected writer.
-    lease_context.matches
-    AND lease_name = 'fleet-active'
+    lease_name = 'fleet-active'
     AND dcs_cluster_id = sqlc.arg('dcs_cluster_id')
     AND highest_writer_generation = sqlc.arg('writer_generation')
     AND lease_epoch = sqlc.arg('lease_epoch')

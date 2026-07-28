@@ -69,7 +69,7 @@ func TestCoordinatorCancelsLifetimeOnObservationLoss(t *testing.T) {
 	require.True(t, active)
 
 	require.Error(t, coordinator.step(t.Context()))
-	require.Eventually(t, func() bool { return activeCtx.Err() != nil }, time.Second, time.Millisecond)
+	require.Error(t, activeCtx.Err())
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
 }
 
@@ -86,7 +86,7 @@ func TestCoordinatorCancelsLifetimeOnRenewalLoss(t *testing.T) {
 	require.True(t, active)
 
 	require.ErrorIs(t, coordinator.step(t.Context()), ErrOwnershipLost)
-	require.Eventually(t, func() bool { return activeCtx.Err() != nil }, time.Second, time.Millisecond)
+	require.Error(t, activeCtx.Err())
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
 }
 
@@ -105,7 +105,7 @@ func TestCoordinatorCancelsLifetimeOnWriterGenerationChange(t *testing.T) {
 	require.True(t, active)
 
 	require.ErrorIs(t, coordinator.step(t.Context()), ErrWriterChanged)
-	require.Eventually(t, func() bool { return activeCtx.Err() != nil }, time.Second, time.Millisecond)
+	require.Error(t, activeCtx.Err())
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
 }
 

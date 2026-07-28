@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -162,7 +163,7 @@ func (o *Observer) observeAndRun(
 	if err != nil {
 		return WriterObservation{}, fmt.Errorf("validate Patroni primary: %w", err)
 	}
-	if patroni.Role != "primary" && patroni.Role != "master" {
+	if !isPrimaryRole(patroni.Role) {
 		return WriterObservation{}, fmt.Errorf("%w: Patroni role is %q", ErrWritableServerMismatch, patroni.Role)
 	}
 	if patroni.Timeline != connected.Timeline {
@@ -290,13 +291,9 @@ func (o *Observer) validateConnectedPostgresEndpoints(
 			}
 			resolvedHosts[endpoint.host] = addresses
 		}
-		matched := false
-		for _, address := range addresses {
-			if normalizedIP(address) == connectedAddress {
-				matched = true
-				break
-			}
-		}
+		matched := slices.ContainsFunc(addresses, func(address string) bool {
+			return normalizedIP(address) == connectedAddress
+		})
 		if !matched {
 			return fmt.Errorf(
 				"%w: SQL selected %s:%d, DCS advertised %s",
@@ -348,6 +345,10 @@ func normalizedIP(address string) string {
 		return parsed.String()
 	}
 	return address
+}
+
+func isPrimaryRole(role string) bool {
+	return role == "primary" || role == "master"
 }
 
 // EtcdHTTPClient implements the minimal etcd v3 JSON-gateway surface required
@@ -619,7 +620,7 @@ func (c *PatroniHTTPClient) PrimaryIdentity(
 	if err := json.NewDecoder(response.Body).Decode(&state); err != nil {
 		return PatroniIdentity{}, fmt.Errorf("decode Patroni primary response: %w", err)
 	}
-	if state.Role != "primary" && state.Role != "master" {
+	if !isPrimaryRole(state.Role) {
 		return PatroniIdentity{}, fmt.Errorf("Patroni reports non-primary role %q", state.Role)
 	}
 	if state.Timeline <= 0 {

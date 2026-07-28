@@ -1,6 +1,7 @@
 package ha
 
 import (
+	"cmp"
 	"context"
 	"time"
 
@@ -16,18 +17,10 @@ type Token struct {
 // Compare orders ownership tokens lexicographically. A writer promotion always
 // outranks every lease epoch from an older writer generation.
 func (t Token) Compare(other Token) int {
-	switch {
-	case t.WriterGeneration < other.WriterGeneration:
-		return -1
-	case t.WriterGeneration > other.WriterGeneration:
-		return 1
-	case t.LeaseEpoch < other.LeaseEpoch:
-		return -1
-	case t.LeaseEpoch > other.LeaseEpoch:
-		return 1
-	default:
-		return 0
-	}
+	return cmp.Or(
+		cmp.Compare(t.WriterGeneration, other.WriterGeneration),
+		cmp.Compare(t.LeaseEpoch, other.LeaseEpoch),
+	)
 }
 
 // WriterObservation is a fail-closed binding between one DCS leader term and

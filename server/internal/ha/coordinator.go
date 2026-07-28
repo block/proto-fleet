@@ -259,7 +259,6 @@ func (c *Coordinator) activate(
 	if err := parent.Err(); err != nil {
 		return fmt.Errorf("activate HA coordinator: %w", err)
 	}
-	c.stopLeaseTimerLocked()
 	if c.cancelActive != nil {
 		c.cancelActive()
 	}
@@ -325,7 +324,6 @@ func localOwnershipDeadline(
 
 func (c *Coordinator) resetLeaseTimerLocked(deadline time.Time) {
 	c.stopLeaseTimerLocked()
-	c.leaseVersion++
 	version := c.leaseVersion
 	c.leaseTimer = time.AfterFunc(
 		time.Until(deadline),

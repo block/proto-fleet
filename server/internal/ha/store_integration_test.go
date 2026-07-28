@@ -274,7 +274,7 @@ func waitForLeaseExpiry(t *testing.T, ownership Ownership) {
 func countMatchingErrors(errs []error, target error) int {
 	count := 0
 	for _, err := range errs {
-		if target == nil && err == nil || target != nil && errors.Is(err, target) {
+		if errors.Is(err, target) {
 			count++
 		}
 	}
