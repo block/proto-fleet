@@ -25,29 +25,69 @@ assigned.
 
 ## Approach (Route B — decided)
 
-Replace the multi-RPC client orchestration with **one atomic backend RPC per
-parent type**:
+Replace the multi-RPC client orchestration with **one atomic backend create per
+parent type**. The seed rides on the existing create RPC as optional fields
+(see Decision #1 — the initial `*WithSeed` split was collapsed after review):
 
-- `CreateBuildingWithSeed` on `BuildingService` — create a building and assign
-  its seeded racks + miners in a single transaction.
-- `CreateSiteWithSeed` on `SiteService` — create a site and assign its seeded
+- `CreateBuilding` on `BuildingService` — optional `rack_ids` /
+  `device_identifiers`; when present, create a building and assign its seeded
+  racks + miners in a single transaction.
+- `CreateSite` on `SiteService` — optional `building_ids` / `rack_ids` /
+  `device_identifiers`; when present, create a site and assign its seeded
   buildings + racks + miners in a single transaction.
 
 Either everything commits or nothing does. The response carries **actual**
-assigned counts (and any conflicts) so the manage modal stops lying.
+assigned counts (and any conflicts) so the manage modal stops lying. A request
+with no seed fields behaves exactly like the old plain create.
 
 The rack create flow (`SaveRack`) is **out of scope**: it is already a single
 transactional create-and-members RPC.
 
 ## Decisions
 
-1. **Separate RPCs, not options on `CreateBuilding`/`CreateSite`.** Folding the
-   seed into the existing create RPCs would make a plain `CreateBuilding`
-   response sometimes return *no building and a conflict list* (unforced
-   conflict → nothing created), overloading a clean constructor. The codebase
-   already keeps conflict-returning `Assign*` RPCs separate from plain
-   mutations; new `*WithSeed` RPCs keep that boundary. Cost: one extra handler +
-   one `rpc_permissions` entry + generated code.
+1. **Seed as optional fields on `CreateBuilding`/`CreateSite` — NOT separate
+   `*WithSeed` RPCs.** *(Revised 2026-07-28 after PR #821 review; the original
+   decision below was reversed.)*
+
+   The build first shipped dedicated `CreateBuildingWithSeed` /
+   `CreateSiteWithSeed` RPCs. On review (Marvin's comment, echoing the planning
+   discussion) we collapsed them into the existing create RPCs, adding the seed
+   as optional fields on the request and the counts + conflicts to the response.
+
+   **Why the reversal.** The two arguments for separate RPCs turned out weaker
+   than they read:
+   - *"Overloading a clean constructor."* The seed fields are `repeated` /
+     `optional`, so a no-seed request is wire-identical to the old call and
+     behaves identically (no building/conflict change). The only real cost is a
+     weaker response-type invariant: `CreateBuildingResponse.building` is now
+     unset on an unforced conflict. That is a documented, seed-only path — the
+     handler leaves `building` unset and populates `conflicts`, exactly as the
+     `Assign*` RPCs already do.
+   - *"The codebase keeps conflict-returning RPCs separate."* Only the
+     device-assign RPCs return conflicts, and they are separate because they are
+     genuinely distinct operations — not to keep conflicts out of constructors.
+     There was no deliberate "constructors never return conflicts" boundary to
+     preserve.
+
+   Against that, a second pair of near-duplicate RPCs (handlers, permission
+   entries, client hooks, translators, generated code, and a parallel
+   request/response surface) is real, permanent API-surface cost. Collapsing
+   keeps one create surface per entity that a plain caller can ignore the seed
+   fields on. Cost of the collapse: `CreateBuildingResponse` /
+   `CreateSiteResponse` gain seed-count + conflict fields, and their `building` /
+   `site` may be unset on an unforced conflict — both documented on the fields.
+
+   <details><summary>Original decision (superseded)</summary>
+
+   > **Separate RPCs, not options on `CreateBuilding`/`CreateSite`.** Folding the
+   > seed into the existing create RPCs would make a plain `CreateBuilding`
+   > response sometimes return *no building and a conflict list* (unforced
+   > conflict → nothing created), overloading a clean constructor. The codebase
+   > already keeps conflict-returning `Assign*` RPCs separate from plain
+   > mutations; new `*WithSeed` RPCs keep that boundary. Cost: one extra handler +
+   > one `rpc_permissions` entry + generated code.
+
+   </details>
 2. **No rebase off #558.** #558 (`fix/558-saverack-force-guard`) touches
    `device_set.proto` / `SaveRack` / `useDeviceSets` / `ManageRackModal`. #559
    touches `buildings.proto` / `sites.proto` / the two domain services /
@@ -96,14 +136,18 @@ lock order (joining re-entrantly), and call the same log helpers post-commit.
 This reuses the hard-won cascade/lock/position logic rather than duplicating or
 relocating it. Land it as its own commit with the existing domain suite green.
 
-The unforced-conflict rollback uses a sentinel that **implements `FleetError`**
-so `db.WithTransaction`'s boundary preserves it (it is non-retryable); the
-combined wrapper unwraps it via `errors.As` into a conflict response.
+The unforced-conflict rollback uses a **plain `errors.New(...)` sentinel**
+(`errSeedConflict`) returned from the tx closure to force a rollback; the
+conflicts themselves are captured in a closure variable. `db.WithTransaction`
+wraps the non-retryable, non-`FleetError` sentinel with `%w`, so the combined
+wrapper detects it via `errors.Is(err, errSeedConflict)` and returns the
+captured conflicts as a response. (A `FleetError` sentinel was considered but is
+unnecessary: `%w` wrapping already preserves the chain across the boundary.)
 
 ## Transaction shape of the new methods
 
-`CreateBuildingWithSeed`, inside a single `RunInTxWithResult`, in canonical lock
-order (`site → building → rack → device`):
+`CreateBuilding` (with a seed), inside a single `RunInTxWithResult`, in canonical
+lock order (`site → building → rack → device`):
 
 1. **Lock site** (`LockSiteForWrite`) if `site_id` set. *(site)*
 2. **INSERT building** via `createBuildingInTx`. *(building)*
@@ -119,7 +163,7 @@ order (`site → building → rack → device`):
 
 Post-commit: fire activity log(s).
 
-`CreateSiteWithSeed` is the same skeleton with the site-create slug loop (below)
+`CreateSite` (with a seed) is the same skeleton with the site-create slug loop (below)
 and an extra `assignBuildingsToSiteInTx` step between create and racks. Lock
 order: `site(new) → buildings asc → racks asc → devices`.
 
@@ -135,32 +179,34 @@ The existing single-op `AssignDevicesTo*` deliberately **commits** on conflict
 combined flow the building INSERT and rack moves happen *before* the device
 conflict check, so on an unforced conflict we must **roll back**.
 
-Mechanism: a private typed sentinel error `errSeedConflict{conflicts}` returned
-from the tx closure → transaction rolls back → the public wrapper does
-`errors.As(err, &sentinel)` and returns `(nil, conflicts, nil)` to the handler
-instead of an error.
+Mechanism (as implemented): a package-level plain sentinel
+`var errSeedConflict = errors.New(...)` is returned from the tx closure while the
+conflicts are captured in a closure variable → transaction rolls back → the
+public wrapper does `errors.Is(err, errSeedConflict)` and returns
+`(nil, capturedConflicts, nil)` to the handler instead of an error.
 
-**Verify during implementation:** `RunInTxWithResult` propagates the sentinel
-unwrapped (it retries only on serialization/deadlock codes; a typed sentinel is
-neither) and its error wrapping preserves the `%w` chain for `errors.As`. If it
-flattens to Internal, make the sentinel implement the `FleetError` interface so
-it passes through.
+**Verified during implementation:** `WithTransaction` retries only on
+serialization/deadlock codes, so the sentinel is non-retryable; being a
+non-`FleetError`, it is wrapped with `%w` in an InternalError, which
+`errors.Is` still traverses. A `FleetError`-implementing sentinel would also
+work but is not needed — the plain sentinel + `%w` chain passes through
+cleanly.
 
 ## Proto changes
 
-`proto/buildings/v1/buildings.proto` — add to `BuildingService`:
+`proto/buildings/v1/buildings.proto` — extend the existing `CreateBuilding`
+request/response (no new RPC):
 
 ```proto
-rpc CreateBuildingWithSeed(CreateBuildingWithSeedRequest) returns (CreateBuildingWithSeedResponse);
-
-message CreateBuildingWithSeedRequest {
-    CreateBuildingRequest building = 1;                  // reuse existing fields/validation
-    repeated int64 rack_ids = 2 [(buf.validate.field).repeated = {max_items: 1000, items: {int64: {gt: 0}}}];
-    repeated string device_identifiers = 3 [(buf.validate.field).repeated = {max_items: 10000, items: {string: {min_len: 1, max_len: 256}}}];
-    optional bool force_clear_conflicting_rack_membership = 4;
+message CreateBuildingRequest {
+    // ... existing fields 1..11 ...
+    // Optional seed (#559): empty = plain create.
+    repeated int64 rack_ids = 12 [(buf.validate.field).repeated = {max_items: 1000, items: {int64: {gt: 0}}}];
+    repeated string device_identifiers = 13 [(buf.validate.field).repeated = {max_items: 10000, items: {string: {min_len: 1, max_len: 256}}}];
+    optional bool force_clear_conflicting_rack_membership = 14;
 }
-message CreateBuildingWithSeedResponse {
-    Building building = 1;
+message CreateBuildingResponse {
+    Building building = 1;                               // unset when conflicts non-empty
     int64 assigned_rack_count = 2;
     int64 reassigned_device_count = 3;
     int64 site_reassigned_device_count = 4;
@@ -168,11 +214,12 @@ message CreateBuildingWithSeedResponse {
 }
 ```
 
-`proto/sites/v1/sites.proto` — add `CreateSiteWithSeed` mirroring the above:
-embed `CreateSiteRequest`, add `repeated int64 building_ids`, `rack_ids`,
-`device_identifiers`, the force flag; response carries `Site`,
-`network_config_warnings`, assigned counts, and `repeated PerDeviceConflict
-conflicts`.
+`proto/sites/v1/sites.proto` — mirror on `CreateSiteRequest` /
+`CreateSiteResponse`: add `repeated int64 building_ids`, `rack_ids`,
+`device_identifiers`, the force flag to the request; the response carries `Site`
+(unset on conflict), `network_config_warnings`, assigned counts, and `repeated
+PerDeviceConflict conflicts`. No new RPCs — the fields hang off the existing
+`CreateSite`.
 
 Then `just gen` (regenerates Go `server/generated/grpc/`, TS
 `client/src/protoFleet/api/generated/`, and the Go+Python SDK). **Commit the
@@ -189,18 +236,22 @@ Then `just gen` (regenerates Go `server/generated/grpc/`, TS
   can't bypass rack auth via the force flag.
 - Map domain conflicts into the response; when conflicts present, return them
   with no created entity.
-- Register both procedures in `handlers/middleware/rpc_permissions.go` with
-  `PermSiteManage` + a comment noting the inline `rack:manage` gate, mirroring
-  the `AssignDevicesToBuildingProcedure` entry.
+- The existing `CreateBuildingProcedure` / `CreateSiteProcedure` entries in
+  `handlers/middleware/rpc_permissions.go` already map to `PermSiteManage`; add a
+  comment noting the inline `rack:manage` gate, mirroring the
+  `AssignDevicesToBuildingProcedure` entry. No new permission entries.
 
 ## Client changes
 
 `FleetCreateFlowProvider.tsx`:
 
-- Add `createBuildingWithSeed` / `createSiteWithSeed` to `useBuildings` /
-  `useSites` (single connect call each; `onSuccess(entity, counts)`,
-  `onError(message, conflicts)` — mirroring `assignDevicesTo*`'s
-  conflict-carrying `onError`).
+- Fold optional seed params into the existing `createBuilding` / `createSite`
+  hooks in `useBuildings` / `useSites` (single connect call each;
+  `onSuccess(result)` carrying entity + counts, `onError(message, conflicts)` —
+  mirroring `assignDevicesTo*`'s conflict-carrying `onError`). No separate
+  `*WithSeed` hooks; the plain-create callers (`useBuildingModals` /
+  `useSiteModals`) read `result.building` / `result.site` and ignore the
+  always-empty seed counts + conflicts.
 - Rewrite `handleBuildingCreate` / `handleSiteCreate` to a single call:
   - **conflicts returned (force was false)** → show the existing reparent
     confirm, then retry once with `force_clear_conflicting_rack_membership: true`.
@@ -224,6 +275,21 @@ Then `just gen` (regenerates Go `server/generated/grpc/`, TS
   rack membership cleared then assigned; mid-seed failure (rack over-capacity or
   device store error) → whole tx rolls back, no entity; lock-order assertions via
   `InOrder`.
+- **Domain — mixed / skip-level seeding**: seed shapes that skip a level land on
+  the right direct-FK path, all in one tx:
+  - `CreateSite` with only `device_identifiers` (miners with no
+    rack/building) → `device.site_id` set directly, `building_id` NULL, no rack
+    row; no building/rack assign calls fire.
+  - `CreateSite` with only `rack_ids` (racks with no building) →
+    `rack.site_id` set, `building_id` NULL.
+  - `CreateSite` with a **mix** (buildings + loose racks + loose miners
+    in one request) → all three assign cores run in canonical order and the
+    response counts sum correctly.
+  - `CreateBuilding` with only `device_identifiers` (miners with no rack)
+    → `device.building_id` set directly, cascading `site_id`.
+  - Skip-level device seed where a seeded miner sits in a rack at another site:
+    unforced → `DEVICE_IN_RACK_AT_OTHER_SITE` conflict, nothing created; forced →
+    rack membership dropped, miner moved.
 - **Handler** (`handler_test.go`; `newTestHandler` + `sitePermsCtx`):
   `site:manage` required; `rack:manage` additionally required with the force
   flag; conflict-response mapping; response shape.
@@ -241,22 +307,27 @@ Then `just gen` (regenerates Go `server/generated/grpc/`, TS
   behavior-identical; run the full domain suite before adding the new methods.
 - **Sentinel-error passthrough** — the one thing to verify empirically against
   `SQLTransactor` (see Conflict rollback).
-- **Site slug-collision loop** — `CreateSite` retries the INSERT on
-  `ErrSiteSlugCollision`. Inside the combined tx, keep that retry as an inner
-  loop around just the INSERT (regenerate slug, retry within the same tx); the
-  outer serialization-retry restarts the whole closure, so slug state must be
-  recomputed each attempt.
+- **Site slug-collision loop** — standalone `CreateSite` retries the INSERT
+  under autocommit. In the combined flow the collision aborts/poisons the whole
+  seed transaction, so retrying just the INSERT inside the same tx is not
+  possible. As implemented, the retry loop regenerates the slug and re-runs the
+  **entire create+seed transaction** (a fresh `RunInTxWithResult`) on
+  `ErrSiteSlugCollision`, tracking used slugs across attempts.
 - **Activity logging** — move logging out of the tx-cores into the wrappers; the
   combined methods emit a coherent post-commit event (created + seeded N racks /
   M miners) and must still capture the site-scope metadata existing events use.
 
 ## Commit sequence
 
+*(Final shape after the Decision #1 collapse — the seed lives on the existing
+`CreateBuilding` / `CreateSite` RPCs, so there is no separate `*WithSeed`
+proto/server/client surface.)*
+
 1. `refactor(buildings,sites): extract tx-scoped create/assign cores` — no
    behavior change; existing tests green.
-2. `feat(proto): add CreateBuildingWithSeed + CreateSiteWithSeed` — proto +
+2. `feat(proto): add seed fields to CreateBuilding + CreateSite` — proto +
    `just gen` output, one commit.
-3. `feat(server): transactional create-and-seed domain methods + handlers + RBAC`
-   — + domain/handler tests.
+3. `feat(server): transactional create-and-seed on CreateBuilding/CreateSite +
+   handlers + RBAC` — + domain/handler tests.
 4. `feat(client): single-RPC create-and-seed flow` — + vitest.
 5. `test(e2e)` — optional.
