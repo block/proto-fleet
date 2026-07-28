@@ -42,6 +42,35 @@ export class MinersPage extends BasePage {
       .toBeGreaterThanOrEqual(minerCount);
   }
 
+  async waitForMinersPageContentToLoad() {
+    const rows = this.page.getByTestId("list-body").locator("tr");
+    const emptyState = this.page.getByText("You haven't paired any miners", { exact: true });
+    const getStartedButton = this.page.getByRole("button", { name: "Get started", exact: true });
+    const addMinersButton = this.page.getByRole("button", { name: "Add miners", exact: true });
+    const getReadyState = async () => {
+      if ((await rows.count()) > 0) {
+        return "rows";
+      }
+      if (await emptyState.isVisible().catch(() => false)) {
+        return "empty";
+      }
+      if (await getStartedButton.isVisible().catch(() => false)) {
+        return "get-started";
+      }
+      if (await addMinersButton.isVisible().catch(() => false)) {
+        return "add-miners";
+      }
+      return "loading";
+    };
+
+    await expect.poll(getReadyState, { timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] }).not.toBe("loading");
+
+    const readyState = await getReadyState();
+    if (readyState === "rows") {
+      await this.waitForMinersListToLoad();
+    }
+  }
+
   private async openAddFilterPopover() {
     await this.page.getByTestId("filter-nested-filters-meta").click();
     const popover = this.page.getByTestId("nested-dropdown-filter-popover");

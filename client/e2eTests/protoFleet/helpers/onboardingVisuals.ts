@@ -166,7 +166,9 @@ export class OnboardingVisualHelper {
 
   async openFindMinersFromMinersPage() {
     const { addMinersPage, minersPage, page } = this.deps;
-    await this.goToReadyMinersPage();
+    await minersPage.navigateToMinersPage();
+    await minersPage.validateMinersPageOpened();
+    await minersPage.waitForMinersPageContentToLoad();
     const openedViaGetStarted = await minersPage.tryAction(() => minersPage.clickGetStarted(), 2_000);
     if (!openedViaGetStarted) {
       await minersPage.clickAddMinersButton();
