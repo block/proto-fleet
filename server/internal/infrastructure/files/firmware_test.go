@@ -154,6 +154,32 @@ func TestSaveFirmwareFile_WritesTargetMetadata(t *testing.T) {
 	assert.Empty(t, storageDirEntries(t, firmwareStagingDir))
 }
 
+func TestSaveFirmwareFile_RollsBackPublishedDirectoryWhenParentSyncFails(t *testing.T) {
+	svc := setupService(t)
+	const content = "firmware whose publish sync fails"
+
+	var syncedDirs []string
+	svc.syncFirmwareDir = func(dir string) error {
+		syncedDirs = append(syncedDirs, dir)
+		if len(syncedDirs) == 2 {
+			return errors.New("injected firmware directory sync failure")
+		}
+		return nil
+	}
+
+	_, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "injected firmware directory sync failure")
+	require.Len(t, syncedDirs, 3)
+	assert.Equal(t, firmwareStagingDir, filepath.Dir(syncedDirs[0]))
+	assert.Equal(t, []string{firmwareDir, firmwareDir}, syncedDirs[1:],
+		"rollback should sync the parent directory after removing the published entry")
+	assert.Empty(t, firmwareFileEntries(t), "failed publish sync should not leave visible firmware behind")
+	_, found := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
+	assert.False(t, found, "failed publish sync should not leak into the checksum index")
+}
+
 func TestUpdateFirmwareMetadata_ReplacesMetadataAndChecksumTarget(t *testing.T) {
 	svc := setupService(t)
 	content := "firmware metadata update"

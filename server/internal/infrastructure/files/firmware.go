@@ -464,6 +464,20 @@ func (s *Service) saveFirmwareFileFromPathWithChecksum(filename string, srcPath 
 	}
 	removeStaging = false
 	if err := s.syncFirmwareDir(firmwareDir); err != nil {
+		if rollbackErr := os.RemoveAll(finalDir); rollbackErr != nil {
+			return "", fleeterror.NewInternalErrorf(
+				"failed to sync firmware directory: %v; failed to remove published firmware directory during rollback: %v",
+				err,
+				rollbackErr,
+			)
+		}
+		if rollbackSyncErr := s.syncFirmwareDir(firmwareDir); rollbackSyncErr != nil {
+			return "", fleeterror.NewInternalErrorf(
+				"failed to sync firmware directory: %v; failed to sync firmware directory after rollback: %v",
+				err,
+				rollbackSyncErr,
+			)
+		}
 		return "", fleeterror.NewInternalErrorf("failed to sync firmware directory: %v", err)
 	}
 
