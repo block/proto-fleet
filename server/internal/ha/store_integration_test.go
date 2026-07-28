@@ -89,6 +89,7 @@ func TestLeaseStoreCoordinatorDemotionRequiresExpiryBeforeSameWriterReacquisitio
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
 	require.NotEqual(t, firstHolder, coordinator.HolderID())
 
+	coordinator.ResumeAcquisition()
 	require.ErrorIs(t, coordinator.step(t.Context()), ErrLeaseUnavailable)
 
 	waitForLeaseExpiry(t, Ownership{
