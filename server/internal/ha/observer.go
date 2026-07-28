@@ -24,6 +24,8 @@ var (
 	ErrWriterChanged              = errors.New("DCS writer changed during validation")
 )
 
+const defaultHAHTTPTimeout = 5 * time.Second
+
 // DCSMember is the connection identity Patroni publishes for one member.
 type DCSMember struct {
 	Name    string
@@ -106,6 +108,26 @@ func NewObserver(
 // closed unless the DCS member, writable SQL server, Patroni role, timeline,
 // live leader lease, and cluster identity agree.
 func (o *Observer) Observe(ctx context.Context) (WriterObservation, error) {
+	return o.observeAndRun(ctx, nil)
+}
+
+// ObserveAndRun executes action after validating the candidate writer and
+// before the closing DCS read. The action must independently bind its database
+// write to the server identity in the observation.
+func (o *Observer) ObserveAndRun(
+	ctx context.Context,
+	action func(context.Context, WriterObservation) error,
+) (WriterObservation, error) {
+	if action == nil {
+		return WriterObservation{}, errors.New("HA writer observation action is required")
+	}
+	return o.observeAndRun(ctx, action)
+}
+
+func (o *Observer) observeAndRun(
+	ctx context.Context,
+	action func(context.Context, WriterObservation) error,
+) (WriterObservation, error) {
 	first, err := o.dcs.Snapshot(ctx, o.clusterPath)
 	if err != nil {
 		return WriterObservation{}, fmt.Errorf("read initial DCS snapshot: %w", err)
@@ -121,7 +143,7 @@ func (o *Observer) Observe(ctx context.Context) (WriterObservation, error) {
 	if writer.InRecovery || writer.ServerAddress == "" || writer.ServerPort <= 0 || writer.Timeline <= 0 {
 		return WriterObservation{}, fmt.Errorf("%w: invalid writable PostgreSQL identity", ErrWritableServerMismatch)
 	}
-	if err := o.validateWriterAddress(ctx, first.Member.ConnURL, writer); err != nil {
+	if err := o.validateWriterEndpoints(ctx, first.Member, writer); err != nil {
 		return WriterObservation{}, err
 	}
 
@@ -141,6 +163,13 @@ func (o *Observer) Observe(ctx context.Context) (WriterObservation, error) {
 		)
 	}
 
+	observed := writerObservation(first, writer)
+	if action != nil {
+		if err := action(ctx, observed); err != nil {
+			return WriterObservation{}, err
+		}
+	}
+
 	second, err := o.dcs.Snapshot(ctx, o.clusterPath)
 	if err != nil {
 		return WriterObservation{}, fmt.Errorf("read final DCS snapshot: %w", err)
@@ -158,6 +187,7 @@ func (o *Observer) Observe(ctx context.Context) (WriterObservation, error) {
 	}
 	if second.LeaderName != first.LeaderName ||
 		second.WriterGeneration != first.WriterGeneration ||
+		second.LeaderLeaseID != first.LeaderLeaseID ||
 		second.Member.APIURL != first.Member.APIURL ||
 		second.Member.ConnURL != first.Member.ConnURL {
 		return WriterObservation{}, fmt.Errorf(
@@ -170,6 +200,7 @@ func (o *Observer) Observe(ctx context.Context) (WriterObservation, error) {
 		)
 	}
 
+	ttlRequestStarted := time.Now()
 	ttl, err := o.dcs.LeaseTTL(ctx, second.LeaderLeaseID)
 	if err != nil {
 		return WriterObservation{}, fmt.Errorf("validate DCS leader lease: %w", err)
@@ -177,31 +208,39 @@ func (o *Observer) Observe(ctx context.Context) (WriterObservation, error) {
 	if ttl <= 0 {
 		return WriterObservation{}, ErrLeaderLeaseExpired
 	}
+	proofDeadline := ttlRequestStarted.Add(ttl)
+	if !proofDeadline.After(time.Now()) {
+		return WriterObservation{}, ErrLeaderLeaseExpired
+	}
 
+	observed = writerObservation(second, writer)
+	observed.DCSProofDeadline = proofDeadline
+	return observed, nil
+}
+
+func writerObservation(snapshot DCSSnapshot, writer PostgresIdentity) WriterObservation {
 	return WriterObservation{
-		DCSClusterID:     second.ClusterID,
-		DCSRevision:      second.Revision,
-		WriterGeneration: second.WriterGeneration,
-		LeaderName:       second.LeaderName,
-		LeaderLeaseID:    second.LeaderLeaseID,
+		DCSClusterID:     snapshot.ClusterID,
+		WriterGeneration: snapshot.WriterGeneration,
+		LeaderName:       snapshot.LeaderName,
 		ServerAddress:    writer.ServerAddress,
 		ServerPort:       writer.ServerPort,
 		Timeline:         writer.Timeline,
-	}, nil
+	}
 }
 
-func (o *Observer) validateWriterAddress(
+func (o *Observer) validateWriterEndpoints(
 	ctx context.Context,
-	connURL string,
+	member DCSMember,
 	writer PostgresIdentity,
 ) error {
-	parsed, err := url.Parse(connURL)
-	if err != nil || parsed.Hostname() == "" {
+	conn, err := url.Parse(member.ConnURL)
+	if err != nil || conn.Hostname() == "" {
 		return fmt.Errorf("%w: invalid Patroni conn_url", ErrWritableServerMismatch)
 	}
 	port := int32(5432)
-	if parsed.Port() != "" {
-		parsedPort, err := strconv.ParseInt(parsed.Port(), 10, 32)
+	if conn.Port() != "" {
+		parsedPort, err := strconv.ParseInt(conn.Port(), 10, 32)
 		if err != nil {
 			return fmt.Errorf("%w: invalid Patroni conn_url port", ErrWritableServerMismatch)
 		}
@@ -215,22 +254,46 @@ func (o *Observer) validateWriterAddress(
 			port,
 		)
 	}
-	addresses, err := o.resolve(ctx, parsed.Hostname())
-	if err != nil {
-		return fmt.Errorf("%w: resolve DCS leader: %v", ErrWritableServerMismatch, err)
+	api, err := url.Parse(member.APIURL)
+	if err != nil || api.Hostname() == "" {
+		return fmt.Errorf("%w: invalid Patroni member URL", ErrWritableServerMismatch)
 	}
-	for _, address := range addresses {
-		if normalizedIP(address) == normalizedIP(writer.ServerAddress) {
-			return nil
+
+	writerAddress := normalizedIP(writer.ServerAddress)
+	resolvedHosts := make(map[string][]string, 2)
+	for _, endpoint := range []struct {
+		host string
+		url  string
+	}{
+		{host: conn.Hostname(), url: member.ConnURL},
+		{host: api.Hostname(), url: member.APIURL},
+	} {
+		addresses, ok := resolvedHosts[endpoint.host]
+		if !ok {
+			addresses, err = o.resolve(ctx, endpoint.host)
+			if err != nil {
+				return fmt.Errorf("%w: resolve DCS leader: %v", ErrWritableServerMismatch, err)
+			}
+			resolvedHosts[endpoint.host] = addresses
+		}
+		matched := false
+		for _, address := range addresses {
+			if normalizedIP(address) == writerAddress {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return fmt.Errorf(
+				"%w: SQL selected %s:%d, DCS advertised %s",
+				ErrWritableServerMismatch,
+				writer.ServerAddress,
+				writer.ServerPort,
+				endpoint.url,
+			)
 		}
 	}
-	return fmt.Errorf(
-		"%w: SQL selected %s:%d, DCS advertised %s",
-		ErrWritableServerMismatch,
-		writer.ServerAddress,
-		writer.ServerPort,
-		connURL,
-	)
+	return nil
 }
 
 func validateDCSSnapshot(snapshot DCSSnapshot) error {
@@ -282,7 +345,7 @@ type EtcdHTTPClient struct {
 
 func NewEtcdHTTPClient(endpoint string, client *http.Client) *EtcdHTTPClient {
 	if client == nil {
-		client = http.DefaultClient
+		client = &http.Client{Timeout: defaultHAHTTPTimeout}
 	}
 	return &EtcdHTTPClient{endpoint: strings.TrimRight(endpoint, "/"), client: client}
 }
@@ -458,7 +521,7 @@ type PatroniHTTPClient struct {
 
 func NewPatroniHTTPClient(client *http.Client) *PatroniHTTPClient {
 	if client == nil {
-		client = http.DefaultClient
+		client = &http.Client{Timeout: defaultHAHTTPTimeout}
 	}
 	return &PatroniHTTPClient{client: client}
 }

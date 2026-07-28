@@ -23,8 +23,7 @@ type CoordinatorConfig struct {
 	RetryInterval time.Duration
 }
 
-// Snapshot is an in-memory, non-authoritative view for future runtime/status
-// wiring. This PR intentionally does not expose it over HTTP.
+// Snapshot is a non-authoritative view of the coordinator's current state.
 type Snapshot struct {
 	State        State
 	HolderID     uuid.UUID
@@ -42,10 +41,13 @@ type Coordinator struct {
 	holderID uuid.UUID
 
 	mu           sync.RWMutex
-	snapshot     Snapshot
 	ownership    Ownership
 	activeCtx    context.Context //nolint:containedctx // The coordinator owns this explicit active-lifetime context.
 	cancelActive context.CancelFunc
+	leaseTimer   *time.Timer
+	leaseVersion uint64
+	lastError    string
+	updatedAt    time.Time
 }
 
 func NewCoordinator(
@@ -71,15 +73,11 @@ func newCoordinatorWithHolder(
 ) *Coordinator {
 	now := time.Now()
 	return &Coordinator{
-		observer: observer,
-		store:    store,
-		config:   config,
-		holderID: holderID,
-		snapshot: Snapshot{
-			State:     StatePassive,
-			HolderID:  holderID,
-			UpdatedAt: now,
-		},
+		observer:  observer,
+		store:     store,
+		config:    config,
+		holderID:  holderID,
+		updatedAt: now,
 	}
 }
 
@@ -109,7 +107,19 @@ func (c *Coordinator) HolderID() uuid.UUID {
 func (c *Coordinator) Snapshot() Snapshot {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.snapshot
+	snapshot := Snapshot{
+		State:     StatePassive,
+		HolderID:  c.holderID,
+		LastError: c.lastError,
+		UpdatedAt: c.updatedAt,
+	}
+	if c.activeCtx != nil {
+		snapshot.State = StateActive
+		snapshot.DCSClusterID = c.ownership.DCSClusterID
+		snapshot.Token = c.ownership.Token
+		snapshot.ExpiresAt = c.ownership.ExpiresAt
+	}
+	return snapshot
 }
 
 // ActiveLifetime returns the context and token for the current active term.
@@ -117,7 +127,7 @@ func (c *Coordinator) Snapshot() Snapshot {
 func (c *Coordinator) ActiveLifetime() (context.Context, Token, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	if c.snapshot.State != StateActive || c.activeCtx == nil {
+	if c.activeCtx == nil {
 		return nil, Token{}, false
 	}
 	return c.activeCtx, c.ownership.Token, true
@@ -146,98 +156,218 @@ func (c *Coordinator) Run(ctx context.Context) error {
 }
 
 func (c *Coordinator) step(ctx context.Context) error {
-	observed, err := c.observer.Observe(ctx)
-	if err != nil {
-		c.deactivate(err)
-		return err
-	}
-
 	c.mu.RLock()
-	active := c.snapshot.State == StateActive
+	active := c.activeCtx != nil
 	current := c.ownership
 	c.mu.RUnlock()
 
 	if !active {
-		ownership, err := c.store.Acquire(
+		var (
+			ownership      Ownership
+			requestStarted time.Time
+		)
+		observed, err := c.observer.ObserveAndRun(
 			ctx,
-			observed,
-			c.holderID,
-			c.config.LeaseDuration,
+			func(actionCtx context.Context, observed WriterObservation) error {
+				requestStarted = time.Now()
+				var acquireErr error
+				ownership, acquireErr = c.store.Acquire(
+					actionCtx,
+					observed,
+					c.holderID,
+					c.config.LeaseDuration,
+				)
+				return acquireErr
+			},
 		)
 		if err != nil {
 			c.deactivate(err)
 			return err
 		}
-		c.activate(ctx, ownership)
+		if err := c.activate(
+			ctx,
+			ownership,
+			requestStarted,
+			observed.DCSProofDeadline,
+		); err != nil {
+			c.deactivate(err)
+			return err
+		}
 		return nil
 	}
 
-	if observed.DCSClusterID != current.DCSClusterID ||
-		observed.WriterGeneration != current.Token.WriterGeneration {
-		err := fmt.Errorf(
-			"%w: held %s@%d, observed %s@%d",
-			ErrWriterChanged,
-			current.DCSClusterID,
-			current.Token.WriterGeneration,
-			observed.DCSClusterID,
-			observed.WriterGeneration,
-		)
-		c.deactivate(err)
-		return err
-	}
-	renewed, err := c.store.Renew(ctx, current, c.config.LeaseDuration)
+	var (
+		renewed        Ownership
+		requestStarted time.Time
+	)
+	observed, err := c.observer.ObserveAndRun(
+		ctx,
+		func(actionCtx context.Context, observed WriterObservation) error {
+			if observed.DCSClusterID != current.DCSClusterID ||
+				observed.WriterGeneration != current.Token.WriterGeneration {
+				return fmt.Errorf(
+					"%w: held %s@%d, observed %s@%d",
+					ErrWriterChanged,
+					current.DCSClusterID,
+					current.Token.WriterGeneration,
+					observed.DCSClusterID,
+					observed.WriterGeneration,
+				)
+			}
+			requestStarted = time.Now()
+			var renewErr error
+			renewed, renewErr = c.store.Renew(
+				actionCtx,
+				observed,
+				current,
+				c.config.LeaseDuration,
+			)
+			return renewErr
+		},
+	)
 	if err != nil {
 		c.deactivate(err)
 		return err
 	}
-	c.updateActive(renewed)
+	if err := c.updateActive(
+		renewed,
+		current,
+		requestStarted,
+		observed.DCSProofDeadline,
+	); err != nil {
+		c.deactivate(err)
+		return err
+	}
 	return nil
 }
 
-func (c *Coordinator) activate(parent context.Context, ownership Ownership) {
+func (c *Coordinator) activate(
+	parent context.Context,
+	ownership Ownership,
+	requestStarted time.Time,
+	dcsProofDeadline time.Time,
+) error {
+	deadline, err := localOwnershipDeadline(
+		ownership,
+		requestStarted,
+		dcsProofDeadline,
+	)
+	if err != nil {
+		return err
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := parent.Err(); err != nil {
+		return fmt.Errorf("activate HA coordinator: %w", err)
+	}
+	c.stopLeaseTimerLocked()
 	if c.cancelActive != nil {
 		c.cancelActive()
 	}
 	c.activeCtx, c.cancelActive = context.WithCancel(parent)
 	c.ownership = ownership
-	c.snapshot = Snapshot{
-		State:        StateActive,
-		HolderID:     c.holderID,
-		DCSClusterID: ownership.DCSClusterID,
-		Token:        ownership.Token,
-		ExpiresAt:    ownership.ExpiresAt,
-		UpdatedAt:    time.Now(),
-	}
+	c.lastError = ""
+	c.updatedAt = time.Now()
+	c.resetLeaseTimerLocked(deadline)
+	return nil
 }
 
-func (c *Coordinator) updateActive(ownership Ownership) {
+func (c *Coordinator) updateActive(
+	ownership Ownership,
+	expected Ownership,
+	requestStarted time.Time,
+	dcsProofDeadline time.Time,
+) error {
+	deadline, err := localOwnershipDeadline(
+		ownership,
+		requestStarted,
+		dcsProofDeadline,
+	)
+	if err != nil {
+		return err
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.activeCtx == nil ||
+		c.ownership.DCSClusterID != expected.DCSClusterID ||
+		c.ownership.Token != expected.Token ||
+		c.ownership.HolderID != expected.HolderID {
+		return ErrOwnershipLost
+	}
 	c.ownership = ownership
-	c.snapshot.ExpiresAt = ownership.ExpiresAt
-	c.snapshot.UpdatedAt = time.Now()
-	c.snapshot.LastError = ""
+	c.updatedAt = time.Now()
+	c.lastError = ""
+	c.resetLeaseTimerLocked(deadline)
+	return nil
+}
+
+func localOwnershipDeadline(
+	ownership Ownership,
+	requestStarted time.Time,
+	dcsProofDeadline time.Time,
+) (time.Time, error) {
+	validFor := ownership.ExpiresAt.Sub(ownership.DatabaseTime)
+	if requestStarted.IsZero() || validFor <= 0 {
+		return time.Time{}, ErrOwnershipExpired
+	}
+	deadline := requestStarted.Add(validFor)
+	if dcsProofDeadline.IsZero() {
+		return time.Time{}, ErrLeaderLeaseExpired
+	}
+	if dcsProofDeadline.Before(deadline) {
+		deadline = dcsProofDeadline
+	}
+	if !deadline.After(time.Now()) {
+		return time.Time{}, ErrOwnershipExpired
+	}
+	return deadline, nil
+}
+
+func (c *Coordinator) resetLeaseTimerLocked(deadline time.Time) {
+	c.stopLeaseTimerLocked()
+	c.leaseVersion++
+	version := c.leaseVersion
+	c.leaseTimer = time.AfterFunc(
+		time.Until(deadline),
+		func() {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			if c.activeCtx == nil || c.leaseVersion != version {
+				return
+			}
+			c.deactivateLocked(ErrOwnershipExpired)
+		},
+	)
+}
+
+func (c *Coordinator) stopLeaseTimerLocked() {
+	c.leaseVersion++
+	if c.leaseTimer != nil {
+		c.leaseTimer.Stop()
+		c.leaseTimer = nil
+	}
 }
 
 func (c *Coordinator) deactivate(cause error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.deactivateLocked(cause)
+}
+
+func (c *Coordinator) deactivateLocked(cause error) {
+	c.stopLeaseTimerLocked()
 	if c.cancelActive != nil {
 		c.cancelActive()
 		c.cancelActive = nil
 		c.activeCtx = nil
 	}
 	c.ownership = Ownership{}
-	c.snapshot.State = StatePassive
-	c.snapshot.DCSClusterID = ""
-	c.snapshot.Token = Token{}
-	c.snapshot.ExpiresAt = time.Time{}
-	c.snapshot.UpdatedAt = time.Now()
+	c.updatedAt = time.Now()
 	if cause != nil {
-		c.snapshot.LastError = cause.Error()
+		c.lastError = cause.Error()
 	} else {
-		c.snapshot.LastError = ""
+		c.lastError = ""
 	}
 }

@@ -15,6 +15,7 @@ import (
 var (
 	ErrLeaseHeld                  = errors.New("Fleet active lease is held")
 	ErrOwnershipLost              = errors.New("Fleet active lease ownership was lost")
+	ErrOwnershipExpired           = errors.New("Fleet active lease expired")
 	ErrWriterGenerationRegression = errors.New("writer generation regressed")
 )
 
@@ -54,6 +55,9 @@ func (s *LeaseStore) Acquire(
 	row, err := s.queries.AcquireFleetRuntimeLease(
 		ctx,
 		sqlc.AcquireFleetRuntimeLeaseParams{
+			ServerAddress:             observed.ServerAddress,
+			ServerPort:                observed.ServerPort,
+			Timeline:                  observed.Timeline,
 			DcsClusterID:              observed.DCSClusterID,
 			WriterGeneration:          observed.WriterGeneration,
 			HolderID:                  holderID,
@@ -65,6 +69,15 @@ func (s *LeaseStore) Acquire(
 	}
 	if err != nil {
 		return Ownership{}, fmt.Errorf("acquire Fleet active lease: %w", err)
+	}
+	if !row.WriterMatches {
+		return Ownership{}, fmt.Errorf(
+			"%w: observed %s:%d timeline %d",
+			ErrWritableServerMismatch,
+			observed.ServerAddress,
+			observed.ServerPort,
+			observed.Timeline,
+		)
 	}
 	if !row.Acquired {
 		switch {
@@ -92,10 +105,16 @@ func (s *LeaseStore) Acquire(
 // Renew extends only the exact unexpired holder/token using database time.
 func (s *LeaseStore) Renew(
 	ctx context.Context,
+	observed WriterObservation,
 	ownership Ownership,
 	duration time.Duration,
 ) (Ownership, error) {
-	if ownership.DCSClusterID == "" ||
+	if err := validateWriterObservation(observed); err != nil {
+		return Ownership{}, err
+	}
+	if observed.DCSClusterID != ownership.DCSClusterID ||
+		observed.WriterGeneration != ownership.Token.WriterGeneration ||
+		ownership.DCSClusterID == "" ||
 		ownership.Token.WriterGeneration <= 0 ||
 		ownership.Token.LeaseEpoch <= 0 ||
 		ownership.HolderID == uuid.Nil ||
@@ -105,6 +124,9 @@ func (s *LeaseStore) Renew(
 	row, err := s.queries.RenewFleetRuntimeLease(
 		ctx,
 		sqlc.RenewFleetRuntimeLeaseParams{
+			ServerAddress:             observed.ServerAddress,
+			ServerPort:                observed.ServerPort,
+			Timeline:                  observed.Timeline,
 			LeaseDurationMilliseconds: duration.Milliseconds(),
 			DcsClusterID:              ownership.DCSClusterID,
 			WriterGeneration:          ownership.Token.WriterGeneration,
@@ -117,6 +139,15 @@ func (s *LeaseStore) Renew(
 	}
 	if err != nil {
 		return Ownership{}, fmt.Errorf("renew Fleet active lease: %w", err)
+	}
+	if !row.WriterMatches {
+		return Ownership{}, fmt.Errorf(
+			"%w: observed %s:%d timeline %d",
+			ErrWritableServerMismatch,
+			observed.ServerAddress,
+			observed.ServerPort,
+			observed.Timeline,
+		)
 	}
 	return Ownership{
 		DCSClusterID: row.DcsClusterID,
@@ -135,14 +166,25 @@ func validateLeaseInput(
 	holderID uuid.UUID,
 	duration time.Duration,
 ) error {
-	if observed.DCSClusterID == "" || observed.WriterGeneration <= 0 {
-		return errors.New("invalid writer observation for Fleet active lease")
+	if err := validateWriterObservation(observed); err != nil {
+		return err
 	}
 	if holderID == uuid.Nil {
 		return errors.New("Fleet active lease holder ID is required")
 	}
 	if duration.Milliseconds() <= 0 {
 		return errors.New("Fleet active lease duration must be at least one millisecond")
+	}
+	return nil
+}
+
+func validateWriterObservation(observed WriterObservation) error {
+	if observed.DCSClusterID == "" ||
+		observed.WriterGeneration <= 0 ||
+		observed.ServerAddress == "" ||
+		observed.ServerPort <= 0 ||
+		observed.Timeline <= 0 {
+		return errors.New("invalid writer observation for Fleet active lease")
 	}
 	return nil
 }

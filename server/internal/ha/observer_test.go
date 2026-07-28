@@ -40,6 +40,11 @@ func TestEtcdHTTPClientSnapshotUsesLinearizablePrefixRead(t *testing.T) {
 	require.Equal(t, int64(998), snapshot.LeaderLeaseID)
 }
 
+func TestHAHTTPClientsUseBoundedDefaultTimeout(t *testing.T) {
+	require.Greater(t, NewEtcdHTTPClient("http://etcd", nil).client.Timeout, time.Duration(0))
+	require.Greater(t, NewPatroniHTTPClient(nil).client.Timeout, time.Duration(0))
+}
+
 func TestObserverAcceptsStableBoundWriter(t *testing.T) {
 	observer := validObserver(
 		[]DCSSnapshot{
@@ -53,6 +58,12 @@ func TestObserverAcceptsStableBoundWriter(t *testing.T) {
 	require.Equal(t, "cluster-a", observation.DCSClusterID)
 	require.Equal(t, int64(41), observation.WriterGeneration)
 	require.Equal(t, "patroni-a", observation.LeaderName)
+	require.WithinDuration(
+		t,
+		time.Now().Add(10*time.Second),
+		observation.DCSProofDeadline,
+		50*time.Millisecond,
+	)
 }
 
 func TestObserverValidatesAuthoritiesInOrder(t *testing.T) {
@@ -82,15 +93,92 @@ func TestObserverValidatesAuthoritiesInOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(
 		t,
-		[]string{"dcs-snapshot", "postgres", "resolve", "patroni", "dcs-snapshot", "dcs-lease"},
+		[]string{
+			"dcs-snapshot",
+			"postgres",
+			"resolve",
+			"patroni",
+			"dcs-snapshot",
+			"dcs-lease",
+		},
 		calls,
 	)
+}
+
+func TestObserverRunsActionInsideDCSValidationBracket(t *testing.T) {
+	var calls []string
+	observer := validObserver([]DCSSnapshot{validDCSSnapshot(), validDCSSnapshot()})
+	dcs, ok := observer.dcs.(*fakeDCSReader)
+	require.True(t, ok)
+	dcs.calls = &calls
+	observer.writer = fakeWriterReader{
+		identity: PostgresIdentity{
+			ServerAddress: "172.30.0.12",
+			ServerPort:    5432,
+			Timeline:      7,
+		},
+		calls: &calls,
+	}
+	observer.resolve = func(context.Context, string) ([]string, error) {
+		calls = append(calls, "resolve")
+		return []string{"172.30.0.12"}, nil
+	}
+	observer.patroni = fakePatroniReader{
+		identity: PatroniIdentity{Role: "primary", Timeline: 7},
+		calls:    &calls,
+	}
+
+	_, err := observer.ObserveAndRun(
+		t.Context(),
+		func(context.Context, WriterObservation) error {
+			calls = append(calls, "action")
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		[]string{
+			"dcs-snapshot",
+			"postgres",
+			"resolve",
+			"patroni",
+			"action",
+			"dcs-snapshot",
+			"dcs-lease",
+		},
+		calls,
+	)
+}
+
+func TestObserverRejectsPatroniAPIServerMismatch(t *testing.T) {
+	observer := validObserver([]DCSSnapshot{validDCSSnapshot()})
+	observer.resolve = func(_ context.Context, host string) ([]string, error) {
+		if host == "patroni-a" {
+			return []string{"172.30.0.12"}, nil
+		}
+		return []string{"172.30.0.99"}, nil
+	}
+	snapshotReader, ok := observer.dcs.(*fakeDCSReader)
+	require.True(t, ok)
+	snapshotReader.snapshots[0].Member.APIURL = "http://patroni-api-elsewhere:8008"
+
+	_, err := observer.Observe(t.Context())
+	require.ErrorIs(t, err, ErrWritableServerMismatch)
+}
+
+func TestObserverRejectsLeaderLeaseChangeInsideValidationBracket(t *testing.T) {
+	second := validDCSSnapshot()
+	second.LeaderLeaseID++
+	observer := validObserver([]DCSSnapshot{validDCSSnapshot(), second})
+
+	_, err := observer.Observe(t.Context())
+	require.ErrorIs(t, err, ErrWriterChanged)
 }
 
 func TestObserverRejectsChangedLeaderTerm(t *testing.T) {
 	second := validDCSSnapshot()
 	second.LeaderName = "patroni-b"
-	second.WriterGeneration = 51
 	second.Member = DCSMember{
 		Name:    "patroni-b",
 		APIURL:  "http://patroni-b:8008",

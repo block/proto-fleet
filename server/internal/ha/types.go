@@ -34,13 +34,12 @@ func (t Token) Compare(other Token) int {
 // the writable PostgreSQL server reached through Fleet's multi-host DSN.
 type WriterObservation struct {
 	DCSClusterID     string
-	DCSRevision      int64
 	WriterGeneration int64
 	LeaderName       string
-	LeaderLeaseID    int64
 	ServerAddress    string
 	ServerPort       int32
 	Timeline         int64
+	DCSProofDeadline time.Time
 }
 
 // Ownership is the exact database lease identity held by one Fleet process.
@@ -53,7 +52,10 @@ type Ownership struct {
 }
 
 type writerObserver interface {
-	Observe(ctx context.Context) (WriterObservation, error)
+	ObserveAndRun(
+		ctx context.Context,
+		action func(context.Context, WriterObservation) error,
+	) (WriterObservation, error)
 }
 
 type ownershipStore interface {
@@ -65,6 +67,7 @@ type ownershipStore interface {
 	) (Ownership, error)
 	Renew(
 		ctx context.Context,
+		observed WriterObservation,
 		ownership Ownership,
 		duration time.Duration,
 	) (Ownership, error)
