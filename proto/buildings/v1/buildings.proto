@@ -28,6 +28,20 @@ service BuildingService {
     // within the assigned site (when site_id is set); unassigned
     // buildings are not name-unique so cascade-unassign on site
     // delete cannot collide.
+    //
+    // The request may optionally seed the new building with racks
+    // (rack_ids) and/or devices (device_identifiers) in the SAME
+    // transaction — the atomic form of CreateBuilding followed by
+    // AssignRacksToBuilding + AssignDevicesToBuilding. Either everything
+    // commits or nothing does, so a failed seed can't leave an orphaned or
+    // partially-populated building (#559). rack_ids and device_identifiers
+    // are independent: a seeded device need not belong to any seeded rack
+    // (it becomes a direct building member). If any seeded device is in a
+    // rack at another building/site, force_clear_conflicting_rack_membership
+    // governs whether the whole request rejects with per-device conflicts
+    // (nothing created) or the rack membership is dropped and the device
+    // moved. A request with no seed fields behaves exactly like a plain
+    // create.
     rpc CreateBuilding(CreateBuildingRequest) returns (CreateBuildingResponse);
 
     // UpdateBuilding mutates name, description, capacity, layout
@@ -195,6 +209,24 @@ message CreateBuildingRequest {
     int32 default_rack_columns = 10 [(buf.validate.field).int32.gte = 0];
     RackOrderIndex default_rack_order_index = 11 [(buf.validate.field).enum.defined_only = true];
 
+    // Optional seed: racks to assign to the new building (ids only; grid
+    // positions are set later via the manage modal). Empty seeds no racks.
+    repeated int64 rack_ids = 12 [(buf.validate.field).repeated = {
+        max_items: 1000
+        items: {int64: {gt: 0}}
+    }];
+    // Optional seed: devices to assign directly to the new building. A
+    // device need not belong to any seeded rack — it becomes a direct
+    // building member. Empty seeds no devices.
+    repeated string device_identifiers = 13 [(buf.validate.field).repeated = {
+        max_items: 10000
+        items: {string: {min_len: 1, max_len: 256}}
+    }];
+    // Force-clear conflicting rack memberships for seeded devices; see
+    // AssignDevicesToBuildingRequest.force_clear_conflicting_rack_membership.
+    // Requires rack:manage in addition to site:manage.
+    optional bool force_clear_conflicting_rack_membership = 14;
+
     // default_rack_rows and default_rack_columns must be set
     // together: either both 0 (no defaults) or both > 0.
     option (buf.validate.message).cel = {
@@ -205,7 +237,21 @@ message CreateBuildingRequest {
 }
 
 message CreateBuildingResponse {
+    // The created building. Unset when conflicts is non-empty (a seed hit
+    // an unresolvable conflict — nothing was created, the whole transaction
+    // rolled back).
     Building building = 1;
+    // Racks assigned to the new building via the seed. Zero when no racks
+    // were seeded.
+    int64 assigned_rack_count = 2;
+    // Devices assigned directly to the new building via the seed. Zero when
+    // no devices were seeded.
+    int64 reassigned_device_count = 3;
+    // Devices whose site_id was cascaded to the new building's site.
+    int64 site_reassigned_device_count = 4;
+    // Populated only on rejection (nothing created). Empty on success and
+    // for plain (unseeded) creates.
+    repeated PerDeviceBuildingConflict conflicts = 5;
 }
 
 // UpdateBuilding
