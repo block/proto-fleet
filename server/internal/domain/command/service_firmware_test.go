@@ -159,7 +159,7 @@ func TestProcessCommand_FirmwareUpdateValidatesBeforeDispatch(t *testing.T) {
 			batchCreated := false
 			svc := &Service{
 				config:           &Config{},
-				executionService: &ExecutionService{queueProcessorRunning: true},
+				executionService: &ExecutionService{run: newExecutionRun(context.Background())},
 				messageQueue:     messageQueue,
 				filesService:     filesService,
 				deviceStore:      deviceStore,
