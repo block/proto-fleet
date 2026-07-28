@@ -121,7 +121,7 @@ func (l *AlertMetricsLoop) Start(ctx context.Context) error {
 	l.runCanceled = runCtx.Done()
 	l.runDone = runDone
 	go l.tickLoop(runCtx, runDone)
-	l.cfg.Logger.Info("curtailment alert metrics loop started", "interval", l.cfg.Interval)
+	l.cfg.Logger.Debug("configured curtailment alert metrics loop", "interval", l.cfg.Interval)
 	return nil
 }
 
@@ -142,7 +142,6 @@ func (l *AlertMetricsLoop) Stop(ctx context.Context) error {
 	cancel()
 	select {
 	case <-runDone:
-		l.cfg.Logger.Info("curtailment alert metrics loop stopped")
 		return nil
 	case <-ctx.Done():
 		return fmt.Errorf("curtailment alert metrics: stop: %w", ctx.Err())
@@ -172,15 +171,18 @@ func channelClosed(done <-chan struct{}) bool {
 func (l *AlertMetricsLoop) tickLoop(ctx context.Context, runDone chan<- struct{}) {
 	defer close(runDone)
 	defer l.finishActivation()
+	reportProgress := runtimejobs.TrackProgress(ctx, l.cfg.Interval)
 	ticker := time.NewTicker(l.cfg.Interval)
 	defer ticker.Stop()
 	l.tick(ctx)
+	reportProgress()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			l.tick(ctx)
+			reportProgress()
 		}
 	}
 }

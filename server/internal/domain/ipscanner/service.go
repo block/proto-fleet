@@ -36,12 +36,12 @@ var _ runtimejobs.Lifecycle = (*Service)(nil)
 // serviceRun contains all state owned by a single activation. Keeping queues
 // here prevents stopped runs from leaking buffered work into a later Start.
 type serviceRun struct {
-	tasks    chan SubnetScanTask
-	results  chan SubnetScanResult
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	done     chan struct{}
-	stopping bool
+	tasks          chan SubnetScanTask
+	results        chan SubnetScanResult
+	activationDone <-chan struct{}
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	done           chan struct{}
 }
 
 // NewIPScannerService creates a new IP scanner service
@@ -79,27 +79,30 @@ func (s *Service) Start(ctx context.Context) error {
 		case <-s.run.done:
 			s.run = nil
 		default:
-			if s.run.stopping {
+			select {
+			case <-s.run.activationDone:
 				return errServiceStopping
+			default:
+				s.logger.Warn("IP scanner service already running")
+				return nil
 			}
-			s.logger.Warn("IP scanner service already running")
-			return nil
 		}
 	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("start ip scanner service: %w", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	ctx, cancel := context.WithCancel(ctx)
 	run := &serviceRun{
-		tasks:   make(chan SubnetScanTask, s.config.MaxConcurrentSubnetScans),
-		results: make(chan SubnetScanResult, s.config.MaxConcurrentSubnetScans),
-		cancel:  cancel,
-		done:    make(chan struct{}),
+		tasks:          make(chan SubnetScanTask, s.config.MaxConcurrentSubnetScans),
+		results:        make(chan SubnetScanResult, s.config.MaxConcurrentSubnetScans),
+		activationDone: ctx.Done(),
+		cancel:         cancel,
+		done:           make(chan struct{}),
 	}
 	s.run = run
 
-	s.logger.Info("Starting IP scanner service",
+	s.logger.Debug("configured IP scanner service",
 		"scan_interval", s.config.ScanInterval,
 		"max_concurrent_subnet_scans", s.config.MaxConcurrentSubnetScans,
 		"max_concurrent_ip_scans_per_subnet", s.config.MaxConcurrentIPScansPerSubnet,
@@ -132,8 +135,6 @@ func (s *Service) Stop(ctx context.Context) error {
 		s.lifecycleMu.Unlock()
 		return nil
 	}
-	s.logger.Info("Stopping IP scanner service")
-	run.stopping = true
 	run.cancel()
 	s.lifecycleMu.Unlock()
 
@@ -144,7 +145,6 @@ func (s *Service) Stop(ctx context.Context) error {
 			s.run = nil
 		}
 		s.lifecycleMu.Unlock()
-		s.logger.Info("IP scanner service stopped")
 		return nil
 	case <-ctx.Done():
 		return fmt.Errorf("stop ip scanner service: %w", ctx.Err())
@@ -153,11 +153,13 @@ func (s *Service) Stop(ctx context.Context) error {
 
 // scanLoop periodically scans for offline devices
 func (s *Service) scanLoop(ctx context.Context, run *serviceRun) {
+	reportProgress := runtimejobs.TrackProgress(ctx, s.config.ScanInterval)
 	ticker := time.NewTicker(s.config.ScanInterval)
 	defer ticker.Stop()
 
 	// Run immediately on start
 	s.scanOfflineDevices(ctx, run.tasks)
+	reportProgress()
 
 	for {
 		select {
@@ -165,6 +167,7 @@ func (s *Service) scanLoop(ctx context.Context, run *serviceRun) {
 			return
 		case <-ticker.C:
 			s.scanOfflineDevices(ctx, run.tasks)
+			reportProgress()
 		}
 	}
 }

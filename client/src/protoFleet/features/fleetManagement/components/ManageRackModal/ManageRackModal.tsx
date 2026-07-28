@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { fetchAllSelectableMinerIds } from "./fetchAllSelectableMinerIds";
 import ManageMinersModal from "./ManageMinersModal";
 import MinersPane from "./MinersPane";
 import RackPane from "./RackPane";
@@ -8,12 +9,10 @@ import ScanMinerQrModal, { type ScanAssignmentResult } from "./ScanMinerQrModal"
 import SearchMinersModal from "./SearchMinersModal";
 import { type AssignmentMode, orderIndexToOrigin, originLabel, type RackFormData, type SelectedSlot } from "./types";
 import { useRackMinerScope } from "./useRackMinerScope";
-import { fetchAllMinerSnapshots } from "@/protoFleet/api/fetchAllMinerSnapshots";
 import { type DeviceSet, type RackSlot } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import {
   type MinerListFilter,
   type MinerStateSnapshot,
-  PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
@@ -21,7 +20,6 @@ import useFleet from "@/protoFleet/api/useFleet";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import type { MinerEligibility } from "@/protoFleet/components/MinerSelectionList";
 import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
-import { isMinerSnapshotIneligible } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import { slotNumberToRowCol } from "@/protoFleet/features/fleetManagement/utils/slotNumbering";
 import { useHasPermission } from "@/protoFleet/store";
 
@@ -31,24 +29,6 @@ import Callout from "@/shared/components/Callout";
 import Dialog from "@/shared/components/Dialog";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
-
-/** Fetch all miner IDs eligible for a rack by paginating through the fleet API.
- *  Applies the same filter the user had active in MinerSelectionList so "select all"
- *  respects model/subnet filters. Miners in a different rack/building/site are
- *  excluded id-based (matches the list's eligibility predicate) so "select all"
- *  can't pull in ineligible miners even if the assignable-only toggle was off. */
-async function fetchAllSelectableMinerIds(
-  eligibility: MinerEligibility,
-  listFilter?: MinerListFilter,
-): Promise<string[]> {
-  const filter = listFilter
-    ? { ...listFilter, pairingStatuses: [PairingStatus.PAIRED] }
-    : { pairingStatuses: [PairingStatus.PAIRED] };
-  const snapshots = await fetchAllMinerSnapshots(filter);
-  return Object.values(snapshots)
-    .filter((m) => !isMinerSnapshotIneligible(m, eligibility))
-    .map((m) => m.deviceIdentifier);
-}
 
 /** Remove the first entry whose value matches `target` from a record, returning a shallow copy. */
 function removeAssignmentByValue(record: Record<string, string>, target: string): Record<string, string> {
@@ -760,31 +740,61 @@ export default function ManageRackModal({
         });
       }
 
-      await new Promise<void>((resolve, reject) => {
-        saveRack({
-          deviceSetId: existingRackId,
-          label: meta.label,
-          zone: meta.zone,
-          rows: meta.rows,
-          columns: meta.columns,
-          orderIndex: meta.orderIndex,
-          coolingType: meta.coolingType,
-          deviceIdentifiers: rackMiners,
-          slotAssignments: slotAssignmentsList,
-          // Create sends its chosen placement (unset level → NULL), gated on
-          // site:manage. Edit omits placement (persisted on Continue).
-          siteId: sendPlacement ? (rackSettings.siteId ?? 0n) : undefined,
-          buildingId: sendPlacement ? (rackSettings.buildingId ?? 0n) : undefined,
-          onSuccess: () => resolve(),
-          onError: (msg) => reject(new Error(msg)),
+      const finishSuccess = () => {
+        pushToast({
+          message: existingRackId ? `Rack "${meta.label}" updated` : `Rack "${meta.label}" created`,
+          status: STATUSES.success,
         });
-      });
+        onSave();
+      };
 
-      pushToast({
-        message: existingRackId ? `Rack "${meta.label}" updated` : `Rack "${meta.label}" created`,
-        status: STATUSES.success,
-      });
-      onSave();
+      // Persist the miners. When the rack is site-less, the server rejects a
+      // member that currently has a site/building (it would be stripped) and
+      // returns a conflict list without writing — mirroring the reparent RPC.
+      // We surface the same ReparentWarningDialog and, on confirm, retry with
+      // forceClearConflictingSite so the strip is explicit, not silent.
+      const runSaveRack = (force: boolean): Promise<"ok" | "conflict"> =>
+        new Promise((resolve, reject) => {
+          saveRack({
+            deviceSetId: existingRackId,
+            label: meta.label,
+            zone: meta.zone,
+            rows: meta.rows,
+            columns: meta.columns,
+            orderIndex: meta.orderIndex,
+            coolingType: meta.coolingType,
+            deviceIdentifiers: rackMiners,
+            slotAssignments: slotAssignmentsList,
+            // Create sends its chosen placement (unset level → NULL), gated on
+            // site:manage. Edit omits placement (persisted on Continue).
+            siteId: sendPlacement ? (rackSettings.siteId ?? 0n) : undefined,
+            buildingId: sendPlacement ? (rackSettings.buildingId ?? 0n) : undefined,
+            forceClearConflictingSite: force,
+            onSuccess: () => resolve("ok"),
+            onConflicts: (conflicts) => {
+              setReparentConfirm({
+                count: conflicts.length,
+                onConfirm: () => {
+                  setReparentConfirm(null);
+                  setIsSaving(true);
+                  setErrorMsg("");
+                  runSaveRack(true)
+                    .then((outcome) => {
+                      if (outcome === "ok") finishSuccess();
+                    })
+                    .catch((err) => setErrorMsg(getErrorMessage(err, "Failed to save. Please try again.")))
+                    .finally(() => setIsSaving(false));
+                },
+              });
+              resolve("conflict");
+            },
+            onError: (msg) => reject(new Error(msg)),
+          });
+        });
+
+      // conflict → the dialog above drives the confirm/force retry; don't toast
+      // success or close the modal until that resolves.
+      if ((await runSaveRack(false)) === "ok") finishSuccess();
     } catch (err) {
       setErrorMsg(getErrorMessage(err, "Failed to save. Please try again."));
     } finally {

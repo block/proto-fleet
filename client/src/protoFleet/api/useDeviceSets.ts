@@ -224,7 +224,14 @@ interface SaveRackProps {
   // preserve the current placement on an update.
   siteId?: bigint;
   buildingId?: bigint;
+  // When the saved rack is site-less, proceed and strip the conflicting
+  // members' site/building. Default false: the server returns conflicts
+  // (surfaced via onConflicts) and writes nothing.
+  forceClearConflictingSite?: boolean;
   onSuccess?: (deviceSet: DeviceSet, assignedCount: number) => void;
+  // Fires when the server returns site-strip conflicts (no write happened).
+  // The caller confirms and retries with forceClearConflictingSite=true.
+  onConflicts?: (conflicts: PerDeviceRackConflict[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -995,7 +1002,9 @@ const useDeviceSets = () => {
       slotAssignments,
       siteId,
       buildingId,
+      forceClearConflictingSite,
       onSuccess,
+      onConflicts,
       onError,
       onFinally,
     }: SaveRackProps) => {
@@ -1040,7 +1049,24 @@ const useDeviceSets = () => {
           rackInfo,
           deviceSelector,
           slotAssignments: rackSlots,
+          forceClearConflictingSite,
         });
+
+        // Site-strip conflicts: the server wrote nothing and returned the
+        // per-device list. Surface it so the caller can confirm and retry
+        // with forceClearConflictingSite=true. Fall back to onError when the
+        // caller wired no onConflicts handler, so a no-write conflict is never
+        // a silent no-op (no onSuccess either).
+        if (response.conflicts.length > 0) {
+          if (onConflicts) {
+            onConflicts(response.conflicts);
+          } else {
+            onError?.(
+              `${response.conflicts.length} device(s) would lose their site or building placement by joining this rack`,
+            );
+          }
+          return;
+        }
 
         const deviceSet = response.deviceSet;
         if (!deviceSet) {

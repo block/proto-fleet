@@ -382,9 +382,16 @@ func (h *Handler) SaveRack(ctx context.Context, r *connect.Request[dspb.SaveRack
 		}
 	}
 	req := toCollectionSaveRackReq(r.Msg)
-	result, err := h.svc.SaveRack(ctx, req)
+	result, err := h.svc.SaveRack(ctx, req, r.Msg.GetForceClearConflictingSite())
 	if err != nil {
 		return nil, err
+	}
+	// Site-strip conflicts: the save wrote nothing; return the per-device list
+	// so the client can confirm and retry with force_clear_conflicting_site.
+	if len(result.Conflicts) > 0 {
+		return connect.NewResponse(&dspb.SaveRackResponse{
+			Conflicts: toProtoRackConflicts(result.Conflicts),
+		}), nil
 	}
 	return connect.NewResponse(&dspb.SaveRackResponse{
 		DeviceSet:           toDeviceSet(result.Collection),

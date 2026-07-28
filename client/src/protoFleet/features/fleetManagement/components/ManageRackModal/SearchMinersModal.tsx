@@ -3,6 +3,7 @@ import { useCallback, useRef, useState } from "react";
 import type { MinerEligibility, MinerSelectionListHandle } from "@/protoFleet/components/MinerSelectionList";
 import MinerSelectionList from "@/protoFleet/components/MinerSelectionList";
 import type { SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
+import { FLEET_VISIBLE_PAIRING_STATUSES } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 
 import Modal from "@/shared/components/Modal";
 
@@ -80,6 +81,7 @@ export default function SearchMinersModal({
         scope={scope}
         eligibility={eligibility}
         targetRackLabel={targetRackLabel}
+        pairingStatuses={FLEET_VISIBLE_PAIRING_STATUSES}
         singleSelect
         onSelectionChange={({ selectedItems }) => setHasSelection(selectedItems.length > 0)}
       />

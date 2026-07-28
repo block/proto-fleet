@@ -146,17 +146,6 @@ export const FoundInAnotherRack: Story = {
   },
 };
 
-/** Resolved, but the miner still needs pairing work before assignment. */
-export const FoundNotFullyPaired: Story = {
-  args: {
-    phase: {
-      kind: "found",
-      snapshot: mockSnapshot({ pairingStatus: PairingStatus.AUTHENTICATION_NEEDED }),
-      isReassignment: false,
-    },
-  },
-};
-
 /** The serial did not match any paired miner. */
 export const NotFound: Story = {
   args: { phase: { kind: "not-found", identifier: "9999999999999999" } },

@@ -813,6 +813,41 @@ func TestSaveRack_PlacementRequiresSiteManage(t *testing.T) {
 	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
 }
 
+// TestSaveRack_SiteLessConflictReturnedNoForce confirms the handler surfaces
+// the domain's site-strip conflict list on the wire (not an error) when a save
+// into a site-less rack would strip a member's placement without force (#558).
+// No DeviceSet is returned and nothing persisted.
+func TestSaveRack_SiteLessConflictReturnedNoForce(t *testing.T) {
+	deviceIDs := []string{"d1"}
+	h := newGroupHandlerWithResolver(t, deviceIDs)
+	ctx := ctxWithPerms(authz.PermRackManage)
+
+	// Site-less rack (no placement → rack:manage suffices). The guard finds d1
+	// has a site and bails BEFORE any write — no CreateCollection /
+	// CreateRackExtension / membership: nothing persists.
+	h.collectionStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, int64(0)).Return(nil, nil)
+	h.collectionStore.EXPECT().LockDevicesForReassign(gomock.Any(), testOrgID, deviceIDs).Return(nil)
+	h.collectionStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return(deviceIDs, nil)
+
+	req := connect.NewRequest(&dspb.SaveRackRequest{
+		Label: "Rack",
+		RackInfo: &dspb.RackInfo{
+			Rows:        4,
+			Columns:     8,
+			OrderIndex:  dspb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+			CoolingType: dspb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+		},
+		DeviceSelector: deviceListSelector(deviceIDs...),
+	})
+
+	resp, err := h.handler.SaveRack(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Conflicts, 1)
+	assert.Equal(t, "d1", resp.Msg.Conflicts[0].DeviceIdentifier)
+	assert.Equal(t, dspb.PerDeviceRackConflictReason_PER_DEVICE_RACK_CONFLICT_REASON_DEVICE_LOSES_SITE, resp.Msg.Conflicts[0].Reason)
+	assert.Nil(t, resp.Msg.DeviceSet)
+}
+
 // TestCreateDeviceSet_PlacementRequiresSiteManage confirms the create path
 // enforces the same boundary as SaveRack/UpdateDeviceSet: creating a rack under
 // a site/building persists that placement, so a rack:manage-only caller that

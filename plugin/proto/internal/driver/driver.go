@@ -381,10 +381,6 @@ func (d *Driver) NewDevice(ctx context.Context, deviceID string, deviceInfo sdk.
 	d.devices[deviceID] = dev
 	d.mutex.Unlock()
 
-	slog.Info("Plugin device instance created successfully",
-		"device_id", deviceID,
-		"serial", deviceInfo.SerialNumber,
-		"total_devices", len(d.devices))
 	return sdk.NewDeviceResult{Device: dev}, nil
 }
 

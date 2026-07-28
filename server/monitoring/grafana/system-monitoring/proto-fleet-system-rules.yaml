@@ -4,6 +4,7 @@
 # metrics carry no org label (see docs/alerts-metrics.md), so every rule
 # CROSS JOINs fleet_active_organization to fan one host condition out to
 # per-org instances: delivery, pause, and history stay org-scoped.
+# Rule UIDs are limited to 40 characters; one longer UID aborts provisioning of ALL alerting files at boot.
 
 apiVersion: 1
 

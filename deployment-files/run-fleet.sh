@@ -8,10 +8,12 @@ PROJECT_ROOT="$(pwd)"
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yaml"
 COMPOSE_ALERTS_FILE="$PROJECT_ROOT/docker-compose.alerts.yaml"
 COMPOSE_SYSTEM_MONITORING_FILE="$PROJECT_ROOT/docker-compose.system-monitoring.yaml"
+COMPOSE_TRACING_FILE="$PROJECT_ROOT/docker-compose.tracing.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
 
 ENABLE_BETA_ALERTS=false
 ENABLE_SYSTEM_MONITORING=false
+ENABLE_TRACING=false
 
 # How long the post-start steps wait for fleet-api to finish its migrations.
 # 300 x 2s = 10 minutes: a first boot on SD-card-class hardware (Raspberry Pi)
@@ -20,6 +22,10 @@ ENABLE_SYSTEM_MONITORING=false
 # database these polls return on the first attempt, so the high cap only costs
 # time when migrations are genuinely stuck.
 MIGRATION_WAIT_ATTEMPTS=300
+
+env_has_nonempty_value() {
+    grep -Eq "^${1}=.+" "$ENV_FILE" 2>/dev/null
+}
 
 usage() {
     cat <<'EOF'
@@ -37,6 +43,12 @@ Options:
                                 default. Can also be enabled by setting
                                 ENABLE_SYSTEM_MONITORING=true in the .env
                                 file.
+  --enable-tracing              Layer in request tracing (fleet-api spans
+                                forwarded to Datadog APM via an OTel
+                                collector sidecar). Requires DD_API_KEY in
+                                the .env file. Off by default. Can also be
+                                enabled by setting ENABLE_TRACING=true in
+                                the .env file.
   -h, --help                    Show this help and exit.
 EOF
 }
@@ -49,6 +61,10 @@ while [ $# -gt 0 ]; do
             ;;
         --enable-system-monitoring)
             ENABLE_SYSTEM_MONITORING=true
+            shift
+            ;;
+        --enable-tracing)
+            ENABLE_TRACING=true
             shift
             ;;
         -h|--help)
@@ -74,6 +90,10 @@ fi
 if grep -Eqi "^ENABLE_SYSTEM_MONITORING=true$" "$ENV_FILE" 2>/dev/null; then
     ENABLE_SYSTEM_MONITORING=true
 fi
+# [[:space:]]*$ tolerates CRLF line endings from Windows/WSL-edited .env files.
+if grep -Eqi "^ENABLE_TRACING=true[[:space:]]*$" "$ENV_FILE" 2>/dev/null; then
+    ENABLE_TRACING=true
+fi
 
 # System monitoring rides the alerts stack (the in-process metrics writer,
 # Grafana rule evaluation, and webhook delivery are all alerts-gated), so it
@@ -82,6 +102,20 @@ if [ "$ENABLE_SYSTEM_MONITORING" = "true" ] && [ "$ENABLE_BETA_ALERTS" != "true"
     echo "Error: --enable-system-monitoring requires the beta alerts stack." >&2
     echo "       Pass --enable-beta-alerts as well, or set ENABLE_BETA_ALERTS=true in $ENV_FILE." >&2
     exit 1
+fi
+
+# Validate tracing prerequisites before the overlay is layered: its ${DD_API_KEY:?}
+# interpolation would otherwise abort every compose command, even `compose down`.
+if [ "$ENABLE_TRACING" = "true" ]; then
+    if [ ! -f "$COMPOSE_TRACING_FILE" ]; then
+        echo "Error: --enable-tracing was passed but $COMPOSE_TRACING_FILE is missing." >&2
+        exit 1
+    fi
+    # Compose interpolation reads the shell environment and the .env file; accept either.
+    if [ -z "${DD_API_KEY:-}" ] && ! env_has_nonempty_value DD_API_KEY; then
+        echo "Error: --enable-tracing requires DD_API_KEY (a Datadog API key) in $ENV_FILE." >&2
+        exit 1
+    fi
 fi
 
 refresh_compose_files() {
@@ -93,6 +127,9 @@ refresh_compose_files() {
     # dashboards placeholder inside the alerts overlay's provisioning mount.
     if [ "$ENABLE_SYSTEM_MONITORING" = "true" ] && [ -f "$COMPOSE_SYSTEM_MONITORING_FILE" ]; then
         COMPOSE_FILES+=(-f "$COMPOSE_SYSTEM_MONITORING_FILE")
+    fi
+    if [ "$ENABLE_TRACING" = "true" ] && [ -f "$COMPOSE_TRACING_FILE" ]; then
+        COMPOSE_FILES+=(-f "$COMPOSE_TRACING_FILE")
     fi
 }
 refresh_compose_files
@@ -478,10 +515,6 @@ for flag in --wait --wait-timeout; do
     fi
 done
 
-env_has_nonempty_value() {
-    grep -Eq "^${1}=.+" "$ENV_FILE" 2>/dev/null
-}
-
 scrub_env_key() {
     local key="$1"
     local tmp
@@ -747,6 +780,17 @@ else
     echo "System monitoring: disabled (pass --enable-system-monitoring alongside --enable-beta-alerts to turn it on)"
 fi
 
+if [ "$ENABLE_TRACING" = "true" ]; then
+    # Re-check after env setup: regenerating .env above drops keys the pre-layering check accepted.
+    if [ -z "${DD_API_KEY:-}" ] && ! env_has_nonempty_value DD_API_KEY; then
+        echo "Error: $ENV_FILE was regenerated without DD_API_KEY; add it and re-run with --enable-tracing." >&2
+        exit 1
+    fi
+    echo "Tracing: enabled (fleet-api request spans forwarded to Datadog APM)"
+else
+    echo "Tracing: disabled (pass --enable-tracing with DD_API_KEY in .env to forward request spans to Datadog)"
+fi
+
 # ----------------------------------------------------------------------------
 # SSL/TLS Configuration
 # ----------------------------------------------------------------------------
@@ -872,7 +916,7 @@ echo "Starting services..."
 # host networking), producing a false "Proto Fleet is now running!" banner.
 if ! compose up --remove-orphans -d --wait --wait-timeout 300; then
     echo "Error: services failed to reach running state."
-    echo "Check logs with: docker compose ${COMPOSE_FILES[*]} logs"
+    echo "Check logs with: docker compose ${COMPOSE_ENV_ARGS[*]} ${COMPOSE_FILES[*]} logs"
     exit 1
 fi
 

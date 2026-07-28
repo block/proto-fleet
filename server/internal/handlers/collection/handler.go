@@ -2,6 +2,7 @@ package collection
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
@@ -215,9 +216,23 @@ func (h *Handler) SaveRack(ctx context.Context, r *connect.Request[pb.SaveRackRe
 			return nil, err
 		}
 	}
-	result, err := h.collectionSvc.SaveRack(ctx, r.Msg)
+	// collection.v1 is deprecated and its SaveRackResponse has no conflict
+	// field, so it can't carry the site-strip confirmation contract that
+	// device_set.v1 uses. Pass force=false and, if the save would strip a
+	// member's site/building, fail loudly instead of silently clearing it;
+	// callers needing the confirm-and-force flow must use device_set.v1.
+	result, err := h.collectionSvc.SaveRack(ctx, r.Msg, false)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(result), nil
+	if len(result.Conflicts) > 0 {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"%d device(s) would lose their site/building placement by joining this rack; use device_set.v1.SaveRack with force_clear_conflicting_site to confirm",
+			len(result.Conflicts)))
+	}
+	return connect.NewResponse(&pb.SaveRackResponse{
+		Collection:          result.Collection,
+		AssignedCount:       result.AssignedCount,
+		SiteReassignedCount: result.SiteReassignedCount,
+	}), nil
 }

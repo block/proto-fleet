@@ -12,6 +12,8 @@ import (
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/shirou/gopsutil/v4/mem"
+
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 type Config struct {
@@ -69,15 +71,18 @@ func New(cfg Config, emitter Emitter) *Collector {
 // Run samples immediately — the heartbeat-staleness rule budgets for a fresh
 // sample shortly after boot — and then on every tick until ctx is cancelled.
 func (c *Collector) Run(ctx context.Context) {
+	reportProgress := runtimejobs.TrackProgress(ctx, c.cfg.Interval)
 	ticker := time.NewTicker(c.cfg.Interval)
 	defer ticker.Stop()
 	c.collectOnce(ctx)
+	reportProgress()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			c.collectOnce(ctx)
+			reportProgress()
 		}
 	}
 }
