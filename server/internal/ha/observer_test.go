@@ -75,7 +75,7 @@ func TestObserverValidatesAuthoritiesInOrder(t *testing.T) {
 	require.True(t, ok)
 	dcs.calls = &calls
 	observer.postgres = fakePostgresReader{
-		identity: sqlc.GetConnectedPostgresIdentityRow{
+		identity: sqlc.ConnectedPostgresIdentity{
 			ServerAddress: "172.30.0.12",
 			ServerPort:    5432,
 			Timeline:      7,
@@ -114,7 +114,7 @@ func TestObserverRunsActionInsideDCSValidationBracket(t *testing.T) {
 	require.True(t, ok)
 	dcs.calls = &calls
 	observer.postgres = fakePostgresReader{
-		identity: sqlc.GetConnectedPostgresIdentityRow{
+		identity: sqlc.ConnectedPostgresIdentity{
 			ServerAddress: "172.30.0.12",
 			ServerPort:    5432,
 			Timeline:      7,
@@ -233,7 +233,7 @@ func TestObserverRejectsWritableServerMismatch(t *testing.T) {
 
 func TestObserverRejectsPostgresReplica(t *testing.T) {
 	observer := validObserver([]DCSSnapshot{validDCSSnapshot()})
-	observer.postgres = fakePostgresReader{identity: sqlc.GetConnectedPostgresIdentityRow{
+	observer.postgres = fakePostgresReader{identity: sqlc.ConnectedPostgresIdentity{
 		ServerAddress: "172.30.0.12",
 		ServerPort:    5432,
 		InRecovery:    true,
@@ -283,7 +283,7 @@ func validObserver(snapshots []DCSSnapshot) *Observer {
 			snapshots: snapshots,
 			leaseTTL:  10 * time.Second,
 		},
-		postgres: fakePostgresReader{identity: sqlc.GetConnectedPostgresIdentityRow{
+		postgres: fakePostgresReader{identity: sqlc.ConnectedPostgresIdentity{
 			ServerAddress: "172.30.0.12",
 			ServerPort:    5432,
 			Timeline:      7,
@@ -339,14 +339,14 @@ func (f *fakeDCSReader) LeaseTTL(context.Context, int64) (time.Duration, error) 
 }
 
 type fakePostgresReader struct {
-	identity sqlc.GetConnectedPostgresIdentityRow
+	identity sqlc.ConnectedPostgresIdentity
 	err      error
 	calls    *[]string
 }
 
 func (f fakePostgresReader) GetConnectedPostgresIdentity(
 	context.Context,
-) (sqlc.GetConnectedPostgresIdentityRow, error) {
+) (sqlc.ConnectedPostgresIdentity, error) {
 	if f.calls != nil {
 		*f.calls = append(*f.calls, "postgres")
 	}

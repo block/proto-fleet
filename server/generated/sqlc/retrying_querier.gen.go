@@ -1590,8 +1590,8 @@ func (q *retryingQuerier) GetBuiltinRoleForOrg(ctx context.Context, arg GetBuilt
 	return result, err
 }
 
-func (q *retryingQuerier) GetConnectedPostgresIdentity(ctx context.Context) (GetConnectedPostgresIdentityRow, error) {
-	var result GetConnectedPostgresIdentityRow
+func (q *retryingQuerier) GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPostgresIdentity, error) {
+	var result ConnectedPostgresIdentity
 	err := q.retrier.RetryQuery(ctx, "GetConnectedPostgresIdentity", func() error {
 		callResult, callErr := q.next.GetConnectedPostgresIdentity(ctx)
 		if callErr == nil {

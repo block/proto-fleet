@@ -17,12 +17,12 @@ WITH writer_identity AS MATERIALIZED (
     SELECT
         clock_timestamp() AS database_time,
         (
-            NOT pg_is_in_recovery()
-            AND host(inet_server_addr()) = $5::TEXT
-            AND inet_server_port() = $6::INTEGER
-            AND (pg_control_checkpoint()).timeline_id::BIGINT
-                = $7::BIGINT
+            NOT connected.in_recovery
+            AND connected.server_address = $5::TEXT
+            AND connected.server_port = $6::INTEGER
+            AND connected.timeline = $7::BIGINT
         ) AS matches
+    FROM connected_postgres_identity AS connected
 )
 INSERT INTO fleet_runtime_lease (
     lease_name,
@@ -125,22 +125,16 @@ func (q *Queries) AcquireFleetRuntimeLease(ctx context.Context, arg AcquireFleet
 
 const getConnectedPostgresIdentity = `-- name: GetConnectedPostgresIdentity :one
 SELECT
-    host(inet_server_addr())::TEXT AS server_address,
-    inet_server_port()::INTEGER AS server_port,
-    pg_is_in_recovery() AS in_recovery,
-    (pg_control_checkpoint()).timeline_id::BIGINT AS timeline
+    server_address,
+    server_port,
+    in_recovery,
+    timeline
+FROM connected_postgres_identity
 `
 
-type GetConnectedPostgresIdentityRow struct {
-	ServerAddress string
-	ServerPort    int32
-	InRecovery    bool
-	Timeline      int64
-}
-
-func (q *Queries) GetConnectedPostgresIdentity(ctx context.Context) (GetConnectedPostgresIdentityRow, error) {
+func (q *Queries) GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPostgresIdentity, error) {
 	row := q.queryRow(ctx, q.getConnectedPostgresIdentityStmt, getConnectedPostgresIdentity)
-	var i GetConnectedPostgresIdentityRow
+	var i ConnectedPostgresIdentity
 	err := row.Scan(
 		&i.ServerAddress,
 		&i.ServerPort,
@@ -155,12 +149,12 @@ WITH writer_identity AS MATERIALIZED (
     SELECT
         clock_timestamp() AS database_time,
         (
-            NOT pg_is_in_recovery()
-            AND host(inet_server_addr()) = $6::TEXT
-            AND inet_server_port() = $7::INTEGER
-            AND (pg_control_checkpoint()).timeline_id::BIGINT
-                = $8::BIGINT
+            NOT connected.in_recovery
+            AND connected.server_address = $6::TEXT
+            AND connected.server_port = $7::INTEGER
+            AND connected.timeline = $8::BIGINT
         ) AS matches
+    FROM connected_postgres_identity AS connected
 )
 UPDATE fleet_runtime_lease
 SET

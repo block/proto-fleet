@@ -59,7 +59,7 @@ type dcsReader interface {
 type postgresIdentityReader interface {
 	GetConnectedPostgresIdentity(
 		ctx context.Context,
-	) (sqlc.GetConnectedPostgresIdentityRow, error)
+	) (sqlc.ConnectedPostgresIdentity, error)
 }
 
 type patroniIdentityReader interface {
@@ -222,7 +222,7 @@ func (o *Observer) observeAndRun(
 
 func writerObservation(
 	snapshot DCSSnapshot,
-	connected sqlc.GetConnectedPostgresIdentityRow,
+	connected sqlc.ConnectedPostgresIdentity,
 ) WriterObservation {
 	return WriterObservation{
 		DCSClusterID:     snapshot.ClusterID,
@@ -237,7 +237,7 @@ func writerObservation(
 func (o *Observer) validateConnectedPostgresEndpoints(
 	ctx context.Context,
 	member DCSMember,
-	connected sqlc.GetConnectedPostgresIdentityRow,
+	connected sqlc.ConnectedPostgresIdentity,
 ) error {
 	conn, err := url.Parse(member.ConnURL)
 	if err != nil || conn.Hostname() == "" {

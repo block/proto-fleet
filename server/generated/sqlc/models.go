@@ -443,6 +443,13 @@ type CommandOnDeviceLog struct {
 	SiteID            sql.NullInt64
 }
 
+type ConnectedPostgresIdentity struct {
+	ServerAddress string
+	ServerPort    int32
+	InRecovery    bool
+	Timeline      int64
+}
+
 type CurtailmentAutomationRule struct {
 	ID                int64
 	OrgID             int64

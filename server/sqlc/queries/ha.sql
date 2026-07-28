@@ -1,21 +1,22 @@
 -- name: GetConnectedPostgresIdentity :one
 SELECT
-    host(inet_server_addr())::TEXT AS server_address,
-    inet_server_port()::INTEGER AS server_port,
-    pg_is_in_recovery() AS in_recovery,
-    (pg_control_checkpoint()).timeline_id::BIGINT AS timeline;
+    server_address,
+    server_port,
+    in_recovery,
+    timeline
+FROM connected_postgres_identity;
 
 -- name: AcquireFleetRuntimeLease :one
 WITH writer_identity AS MATERIALIZED (
     SELECT
         clock_timestamp() AS database_time,
         (
-            NOT pg_is_in_recovery()
-            AND host(inet_server_addr()) = sqlc.arg('server_address')::TEXT
-            AND inet_server_port() = sqlc.arg('server_port')::INTEGER
-            AND (pg_control_checkpoint()).timeline_id::BIGINT
-                = sqlc.arg('timeline')::BIGINT
+            NOT connected.in_recovery
+            AND connected.server_address = sqlc.arg('server_address')::TEXT
+            AND connected.server_port = sqlc.arg('server_port')::INTEGER
+            AND connected.timeline = sqlc.arg('timeline')::BIGINT
         ) AS matches
+    FROM connected_postgres_identity AS connected
 )
 INSERT INTO fleet_runtime_lease (
     lease_name,
@@ -79,12 +80,12 @@ WITH writer_identity AS MATERIALIZED (
     SELECT
         clock_timestamp() AS database_time,
         (
-            NOT pg_is_in_recovery()
-            AND host(inet_server_addr()) = sqlc.arg('server_address')::TEXT
-            AND inet_server_port() = sqlc.arg('server_port')::INTEGER
-            AND (pg_control_checkpoint()).timeline_id::BIGINT
-                = sqlc.arg('timeline')::BIGINT
+            NOT connected.in_recovery
+            AND connected.server_address = sqlc.arg('server_address')::TEXT
+            AND connected.server_port = sqlc.arg('server_port')::INTEGER
+            AND connected.timeline = sqlc.arg('timeline')::BIGINT
         ) AS matches
+    FROM connected_postgres_identity AS connected
 )
 UPDATE fleet_runtime_lease
 SET

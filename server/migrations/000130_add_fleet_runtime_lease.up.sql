@@ -11,3 +11,10 @@ CREATE TABLE fleet_runtime_lease (
     holder_id UUID NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL
 );
+
+CREATE VIEW connected_postgres_identity AS
+SELECT
+    COALESCE(host(inet_server_addr()), '')::TEXT AS server_address,
+    COALESCE(inet_server_port(), 0)::INTEGER AS server_port,
+    pg_is_in_recovery() AS in_recovery,
+    (pg_control_checkpoint()).timeline_id::BIGINT AS timeline;
