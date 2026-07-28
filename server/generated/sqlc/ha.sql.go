@@ -14,6 +14,7 @@ import (
 
 const acquireFleetRuntimeLease = `-- name: AcquireFleetRuntimeLease :one
 WITH lease_context AS (
+    -- Capture database time once, and fail closed unless this is the expected writer.
     SELECT
         clock_timestamp() AS database_time
     FROM connected_postgres_identity AS connected
@@ -43,7 +44,9 @@ SELECT
 FROM lease_context
 ON CONFLICT (lease_name) DO UPDATE
 SET
+    -- EXCLUDED is the incoming candidate; current_lease is the persisted lease.
     highest_writer_generation = EXCLUDED.highest_writer_generation,
+    -- Preserve the fencing epoch only for an unexpired retry by the same holder and writer.
     lease_epoch = CASE
         WHEN
             current_lease.holder_id = EXCLUDED.holder_id
@@ -57,6 +60,7 @@ SET
     holder_id = EXCLUDED.holder_id,
     expires_at = EXCLUDED.expires_at
 WHERE
+    -- A newer writer may supersede a live lease; same-generation takeover waits for expiry.
     current_lease.dcs_cluster_id = EXCLUDED.dcs_cluster_id
     AND EXCLUDED.highest_writer_generation
         >= current_lease.highest_writer_generation
@@ -140,6 +144,7 @@ func (q *Queries) GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPo
 
 const renewFleetRuntimeLease = `-- name: RenewFleetRuntimeLease :one
 WITH lease_context AS (
+    -- Capture database time and writer identity once for this renewal attempt.
     SELECT
         clock_timestamp() AS database_time,
         (
@@ -157,6 +162,7 @@ SET
         * INTERVAL '1 millisecond'
 FROM lease_context
 WHERE
+    -- Renewal requires the exact, unexpired ownership tuple on the expected writer.
     lease_context.matches
     AND lease_name = 'fleet-active'
     AND dcs_cluster_id = $2
