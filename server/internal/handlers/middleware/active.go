@@ -39,6 +39,12 @@ func (m ActiveMiddleware) Wrap(next http.Handler) http.Handler {
 			return
 		}
 		defer release()
+		stopBodyClose := context.AfterFunc(activeCtx, func() {
+			if r.Body != nil {
+				_ = r.Body.Close()
+			}
+		})
+		defer stopBodyClose()
 		next.ServeHTTP(w, r.WithContext(activeCtx))
 	})
 }

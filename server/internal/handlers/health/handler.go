@@ -69,6 +69,11 @@ func NewReadyHandler(db Pinger, active ActiveState) func(w http.ResponseWriter, 
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
+		if !active.Active() {
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 
 		writeOK(w, r, "health-ready")
 	}

@@ -3,9 +3,12 @@ package health
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -19,6 +22,12 @@ func (f fakePinger) PingContext(context.Context) error { return f.err }
 type fakeActiveState bool
 
 func (s fakeActiveState) Active() bool { return bool(s) }
+
+type mutableActiveState struct {
+	active atomic.Bool
+}
+
+func (s *mutableActiveState) Active() bool { return s.active.Load() }
 
 func TestLivenessHandlerStaysStatic(t *testing.T) {
 	// Arrange
@@ -112,6 +121,53 @@ func TestReadyHandlerServiceUnavailableWhilePassive(t *testing.T) {
 
 	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
 	require.Zero(t, pinger.pings, "a passive process must not report traffic readiness or ping the database")
+}
+
+type blockingPinger struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (p *blockingPinger) PingContext(ctx context.Context) error {
+	close(p.started)
+	select {
+	case <-p.release:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("ping canceled: %w", ctx.Err())
+	}
+}
+
+func TestReadyHandlerRechecksActiveStateAfterPing(t *testing.T) {
+	active := &mutableActiveState{}
+	active.active.Store(true)
+	pinger := &blockingPinger{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	handler := NewReadyHandler(pinger, active)
+	result := make(chan *httptest.ResponseRecorder, 1)
+
+	go func() {
+		recorder := httptest.NewRecorder()
+		handler(recorder, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
+		result <- recorder
+	}()
+
+	select {
+	case <-pinger.started:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for readiness ping")
+	}
+	active.active.Store(false)
+	close(pinger.release)
+
+	select {
+	case recorder := <-result:
+		require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for readiness response")
+	}
 }
 
 func TestActiveHandlerReflectsStrictActiveState(t *testing.T) {

@@ -158,7 +158,7 @@ func (r *Runtime) runStandalone(ctx context.Context) error {
 	}
 	r.gate.activate(ctx)
 	activeErr := r.waitWhileHealthy(ctx, ctx)
-	r.gate.deactivate()
+	_ = r.gate.deactivate()
 	stopErr := r.stopGroup()
 	if ctx.Err() != nil {
 		return stopErr
@@ -214,12 +214,12 @@ func (r *Runtime) runHA(ctx context.Context) error {
 
 		r.gate.activate(activeCtx)
 		activeErr := r.waitWhileHealthy(ctx, activeCtx)
-		r.gate.deactivate()
+		admissionDrained := r.gate.deactivate()
 		r.group.Abort()
 		if errors.Is(activeErr, errCriticalRuntimeUnhealthy) {
 			r.owner.RequestDemotion(activeErr)
 		}
-		if err := r.stopGroup(); err != nil {
+		if err := r.stopGroupAndDrainAdmissions(admissionDrained); err != nil {
 			return err
 		}
 		if ctx.Err() != nil {
@@ -286,6 +286,27 @@ func (r *Runtime) healthy() bool {
 func (r *Runtime) stopGroup() error {
 	stopCtx, cancel := context.WithTimeout(context.Background(), r.config.CleanupTimeout)
 	defer cancel()
+	return r.stopGroupWithContext(stopCtx)
+}
+
+func (r *Runtime) stopGroupAndDrainAdmissions(admissionDrained <-chan struct{}) error {
+	stopCtx, cancel := context.WithTimeout(context.Background(), r.config.CleanupTimeout)
+	defer cancel()
+	if err := r.stopGroupWithContext(stopCtx); err != nil {
+		return err
+	}
+	select {
+	case <-admissionDrained:
+		if err := stopCtx.Err(); err != nil {
+			return fmt.Errorf("drain active Fleet requests: %w", err)
+		}
+		return nil
+	case <-stopCtx.Done():
+		return fmt.Errorf("drain active Fleet requests: %w", stopCtx.Err())
+	}
+}
+
+func (r *Runtime) stopGroupWithContext(stopCtx context.Context) error {
 	if err := r.group.Stop(stopCtx); err != nil {
 		return fmt.Errorf("stop Fleet runtime: %w", err)
 	}

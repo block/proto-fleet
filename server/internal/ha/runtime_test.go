@@ -182,7 +182,6 @@ func TestRuntimeStartsOnlyForOwnedLifetimeAndDrainsOnDemotion(t *testing.T) {
 
 	requestCtx, release, err := runtime.Admit(t.Context())
 	require.NoError(t, err)
-	defer release()
 
 	group.setStale(true)
 	require.Never(t, func() bool { return requestCtx.Err() != nil }, 20*time.Millisecond, time.Millisecond)
@@ -190,11 +189,40 @@ func TestRuntimeStartsOnlyForOwnedLifetimeAndDrainsOnDemotion(t *testing.T) {
 	cancelActive()
 	require.Eventually(t, func() bool { return requestCtx.Err() != nil }, eventuallyTimeout, eventuallyInterval)
 	requireReceive(t, group.stoppedCh)
+	require.Never(t, channelClosed(owner.resumed), 20*time.Millisecond, time.Millisecond)
+	release()
 	requireReceive(t, owner.resumed)
 	require.False(t, runtime.Active())
 
 	cancelRun()
 	require.NoError(t, <-runResult)
+}
+
+func TestRuntimeAdmissionDrainTimeoutIsTerminal(t *testing.T) {
+	owner := newRuntimeTestOwner()
+	group := newRuntimeTestGroup()
+	config := runtimeTestConfig()
+	config.CleanupTimeout = 20 * time.Millisecond
+	runtime := newRuntime(owner, group, nil, config)
+	runCtx, cancelRun := context.WithCancel(t.Context())
+	defer cancelRun()
+	runResult := make(chan error, 1)
+	go func() {
+		runResult <- runtime.Run(runCtx)
+	}()
+
+	activeCtx, cancelActive := context.WithCancel(t.Context())
+	owner.activations <- runtimeTestActivation{ctx: activeCtx}
+	requireReceiveContext(t, group.startedCh)
+	require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
+	_, release, err := runtime.Admit(t.Context())
+	require.NoError(t, err)
+	defer release()
+
+	cancelActive()
+	requireReceive(t, group.stoppedCh)
+	require.ErrorContains(t, <-runResult, "drain active Fleet requests")
+	require.Never(t, channelClosed(owner.resumed), 20*time.Millisecond, time.Millisecond)
 }
 
 func TestRuntimeDemotesWhenCriticalHealthFailsAfterAdmission(t *testing.T) {
@@ -216,13 +244,14 @@ func TestRuntimeDemotesWhenCriticalHealthFailsAfterAdmission(t *testing.T) {
 	require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
 	requestCtx, release, err := runtime.Admit(t.Context())
 	require.NoError(t, err)
-	defer release()
 
 	healthy.Store(false)
 	_ = requireReceiveError(t, owner.demotions)
 	requireReceive(t, group.stoppedCh)
-	requireReceive(t, owner.resumed)
 	require.Eventually(t, func() bool { return requestCtx.Err() != nil }, eventuallyTimeout, eventuallyInterval)
+	require.Never(t, channelClosed(owner.resumed), 20*time.Millisecond, time.Millisecond)
+	release()
+	requireReceive(t, owner.resumed)
 	require.False(t, runtime.Active())
 	require.True(t, group.wasAbortedBeforeStop())
 
