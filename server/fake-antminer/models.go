@@ -14,6 +14,8 @@ const (
 	DefaultDifficulty     = 1024.0
 	DefaultLastShareDelay = 600  // seconds ago
 	DefaultTemperature    = 72.0 // Celsius - realistic ASIC chip temperature
+	DefaultMiningPowerW   = 3250
+	DefaultSleepPowerW    = 30
 	WorkModeNormal        = "0"
 	WorkModeSleep         = "1"
 )
@@ -201,6 +203,14 @@ type DevsResponse struct {
 	ID      int          `json:"id"`
 }
 
+// StatsResponse represents the mixed firmware metadata and mining statistics
+// returned by the cgminer "stats" command.
+type StatsResponse struct {
+	Status []StatusInfo             `json:"STATUS"`
+	Stats  []map[string]interface{} `json:"STATS"`
+	ID     int                      `json:"id"`
+}
+
 func (s *MinerState) currentWorkModeLocked() string {
 	switch {
 	case s.MinerMode != "":
@@ -229,6 +239,14 @@ func (s *MinerState) effectiveHashRateLocked() float64 {
 	}
 
 	return s.HashRate
+}
+
+func (s *MinerState) effectivePowerWattsLocked() int {
+	if s.currentWorkModeLocked() == WorkModeSleep {
+		return DefaultSleepPowerW
+	}
+
+	return DefaultMiningPowerW
 }
 
 func (s *MinerState) summaryStatusLocked() string {

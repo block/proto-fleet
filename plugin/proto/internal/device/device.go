@@ -105,19 +105,6 @@ func miningStateBeforeFullCurtail(wasMining bool) fullCurtailMiningState {
 	return fullCurtailMiningStateWasNotMining
 }
 
-func (s fullCurtailMiningState) restoreMiningDecision() (bool, bool) {
-	switch s {
-	case fullCurtailMiningStateUnknown:
-		return false, false
-	case fullCurtailMiningStateWasMining:
-		return true, true
-	case fullCurtailMiningStateWasNotMining:
-		return false, true
-	default:
-		return false, false
-	}
-}
-
 type DeviceOption func(*Device)
 
 func SetStatusTTL(ttl time.Duration) func(*Device) {
@@ -278,6 +265,9 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	minerStatus, err := d.client.GetStatus(ctx)
 	if err != nil {
 		return sdk.DeviceMetrics{}, fmt.Errorf("failed to get miner status: %w", err)
+	}
+	if minerStatus.IsCurtailed && d.hasActiveFullCurtailment() {
+		minerStatus.State = sdk.HealthHealthyInactive
 	}
 
 	telemetryResp, err := d.client.GetTelemetryValues(ctx)
@@ -637,11 +627,23 @@ func (d *Device) curtailFull(ctx context.Context) error {
 	}
 	wasMining := isMiningHealth(metrics.Health)
 
-	if err := d.stopMining(ctx); err != nil {
+	if err := d.curtailMining(ctx); err != nil {
 		return wrapCurtailDispatchError(d.id, err)
 	}
 	d.recordFullCurtailment(wasMining)
 	d.invalidateStatusCache()
+	return nil
+}
+
+func (d *Device) curtailMining(ctx context.Context) error {
+	slog.Info("Plugin device entering full curtailment",
+		"device_id", d.id,
+		"host", d.deviceInfo.Host)
+
+	if err := d.client.CurtailMining(ctx); err != nil {
+		return fmt.Errorf("failed to stop mining for curtailment: %w", err)
+	}
+
 	return nil
 }
 
@@ -666,40 +668,45 @@ func (d *Device) curtailEfficiency(ctx context.Context) error {
 // Uncurtail restores the device based on the active curtailment level.
 func (d *Device) Uncurtail(ctx context.Context, _ sdk.UncurtailRequest) error {
 	snapshot := d.restoreCurtailmentState()
-	restored := false
 
 	if snapshot.preEfficiencyTarget != nil {
 		if err := d.client.SetPowerTarget(ctx, snapshot.preEfficiencyTarget.CurrentW, snapshot.preEfficiencyTarget.Mode); err != nil {
 			return wrapCurtailDispatchError(d.id, err)
 		}
 		d.invalidateStatusCache()
-		restored = true
 	}
 
-	shouldStartMining := false
-	fullRestoreKnown := false
-	if restoreMining, ok := snapshot.preFullMiningState.restoreMiningDecision(); ok {
-		shouldStartMining = restoreMining
-		fullRestoreKnown = true
-	} else if snapshot.activeLevel == sdk.CurtailLevelFull ||
-		(snapshot.activeLevel == sdk.CurtailLevelUnspecified && snapshot.preEfficiencyTarget == nil) {
+	miningStateToRestore := snapshot.preFullMiningState
+	if miningStateToRestore == fullCurtailMiningStateUnknown &&
+		(snapshot.activeLevel == sdk.CurtailLevelFull ||
+			(snapshot.activeLevel == sdk.CurtailLevelUnspecified && snapshot.preEfficiencyTarget == nil)) {
 		// If plugin-local restore state was lost, keep direct Uncurtail's legacy
 		// explicit-restore behavior.
-		shouldStartMining = true
+		miningStateToRestore = fullCurtailMiningStateWasMining
 	}
 
-	if shouldStartMining {
-		if err := d.startMining(ctx); err != nil {
-			return wrapCurtailDispatchError(d.id, err)
-		}
+	var miningRestoreErr error
+	switch miningStateToRestore {
+	case fullCurtailMiningStateUnknown:
+	case fullCurtailMiningStateWasMining:
+		miningRestoreErr = d.startMining(ctx)
+	case fullCurtailMiningStateWasNotMining:
+		miningRestoreErr = d.stopMining(ctx)
+	}
+	if miningRestoreErr != nil {
+		return wrapCurtailDispatchError(d.id, miningRestoreErr)
+	}
+	if miningStateToRestore != fullCurtailMiningStateUnknown {
 		d.invalidateStatusCache()
 	}
 
-	if snapshot.preEfficiencyTarget == nil && !fullRestoreKnown && snapshot.activeLevel == sdk.CurtailLevelEfficiency {
+	if snapshot.preEfficiencyTarget == nil &&
+		snapshot.preFullMiningState == fullCurtailMiningStateUnknown &&
+		snapshot.activeLevel == sdk.CurtailLevelEfficiency {
 		return sdk.NewErrCurtailTransient(d.id, fmt.Errorf("efficiency curtail restore state missing"))
 	}
 
-	if restored || fullRestoreKnown || shouldStartMining {
+	if snapshot.preEfficiencyTarget != nil || miningStateToRestore != fullCurtailMiningStateUnknown {
 		d.clearCurtailmentState()
 	}
 
@@ -741,6 +748,13 @@ func (d *Device) restoreCurtailmentState() curtailmentRestoreSnapshot {
 		snapshot.preEfficiencyTarget = &targetCopy
 	}
 	return snapshot
+}
+
+func (d *Device) hasActiveFullCurtailment() bool {
+	d.curtailmentMutex.Lock()
+	defer d.curtailmentMutex.Unlock()
+
+	return d.curtailmentState.activeLevel == sdk.CurtailLevelFull
 }
 
 func (d *Device) clearCurtailmentState() {
