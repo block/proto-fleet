@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -1109,7 +1110,7 @@ func TestSaveFirmwareUploadFromPath_BlocksDeletionUntilPublicationCompletes(t *t
 		}
 		entries, err := os.ReadDir(firmwareDir)
 		if err != nil {
-			return err
+			return fmt.Errorf("read firmware directory: %w", err)
 		}
 		for _, entry := range entries {
 			if entry.Name() == "staging" {
