@@ -40,16 +40,20 @@ interface ManageRacksModalProps {
   // `showSiteFilter: !scope`.
   allSites: boolean;
   buildingName: string;
-  // Rack IDs currently in the building's working set. The modal seeds its
-  // selection with these so the operator sees the current state and can
-  // add / remove in one flow.
+  // Rack IDs currently assigned to the building. The modal seeds its selection
+  // with these so the operator sees the current state and can add / remove in
+  // one flow, and diffs against them to gate Save.
   initialSelectedRackIds: bigint[];
   onDismiss: () => void;
-  // Returns the delta against initialSelectedRackIds. `delta.reassigned` reports
-  // the added racks that are being reparented so the host can gate the reparent
-  // confirm before committing. Computed against the items-by-id accumulator
-  // (every rack seen across pages / select-all), NOT just the current page.
+  // Save. Returns the delta against initialSelectedRackIds. `delta.reassigned`
+  // reports the added racks that are being reparented so the host can gate the
+  // reparent confirm before committing. Computed against the items-by-id
+  // accumulator (every rack seen across pages / select-all), NOT just the
+  // current page. This modal owns building membership, so the host persists the
+  // delta here rather than staging it for a later save.
   onConfirm: (delta: RackSelectionDelta) => void;
+  // In-flight signal from the host's write, mirrored into the CTA.
+  saving?: boolean;
 }
 
 const PAGE_SIZE = 50;
@@ -88,6 +92,7 @@ const ManageRacksModal = ({
   initialSelectedRackIds,
   onDismiss,
   onConfirm,
+  saving = false,
 }: ManageRacksModalProps) => {
   const { listRacks } = useDeviceSets();
   const { listBuildingsBySite, listBuildings } = useBuildings();
@@ -562,18 +567,33 @@ const ManageRacksModal = ({
     };
   }, [showAssigned]);
 
+  // The exact membership change Save would write. Derived here so the CTA's
+  // dirty gate and the write read the same delta — note it isn't a plain
+  // set-difference (seeded ids the response omitted are excluded on purpose;
+  // see computeRackSelectionDelta), so comparing selections directly would
+  // read dirty with nothing to send.
+  //
+  // null while the delta isn't computable: during a footer "Select all" fetch
+  // the selection/accumulator aren't final, so committing would drop the
+  // pending additions. A placement-facet conflict is a *loaded* empty view (no
+  // fetch runs, so pageItems stays undefined) — Save must still work there so
+  // Select-none-then-Save can clear the current racks; the accumulator holds
+  // the seeds + preserved selections the delta needs.
+  //
+  // accumulatorRef mutates in step with pageItems / selectedItems (page loads
+  // update the former, select-all the latter), so these deps keep it fresh.
+  const delta = useMemo(() => {
+    if (selectingAll) return null;
+    if (pageItems === undefined && !placementFacetConflict) return null;
+    return computeRackSelectionDelta([...accumulatorRef.current.values()], initialSelectedRackIds, selectedItems);
+  }, [pageItems, placementFacetConflict, selectingAll, selectedItems, initialSelectedRackIds]);
+
+  const isDirty = !!delta && (delta.added.length > 0 || delta.removed.length > 0);
+
   const handleConfirm = useCallback(() => {
-    // Guard against confirming mid-load: while a footer "Select all" fetch is in
-    // flight the selection/accumulator aren't final, so committing would drop the
-    // pending additions (Continue is also disabled then). A placement-facet
-    // conflict is a *loaded* empty view (no fetch runs, so pageItems stays
-    // undefined) — Continue must still work there so Select-none-then-Continue
-    // can clear the current racks; the accumulator holds the seeds + preserved
-    // selections needed for the delta.
-    if (selectingAll) return;
-    if (pageItems === undefined && !placementFacetConflict) return;
-    onConfirm(computeRackSelectionDelta([...accumulatorRef.current.values()], initialSelectedRackIds, selectedItems));
-  }, [pageItems, placementFacetConflict, selectingAll, selectedItems, initialSelectedRackIds, onConfirm]);
+    if (!delta) return;
+    onConfirm(delta);
+  }, [delta, onConfirm]);
 
   // Footer "Select all" (offered only with the toggle off — see below) selects
   // every ELIGIBLE rack across all pages, not just the visible page. Server
@@ -654,15 +674,19 @@ const ManageRacksModal = ({
       size="large"
       className="flex !h-[calc(100dvh-(--spacing(32)))] max-h-[calc(100dvh-(--spacing(32)))] flex-col !overflow-hidden"
       bodyClassName="flex flex-1 min-h-0 flex-col"
-      onDismiss={onDismiss}
+      onDismiss={saving ? undefined : onDismiss}
       divider={false}
       testId="manage-racks-modal"
       buttons={[
         {
-          text: "Continue",
+          // "Save" because this is where membership is written
+          // (AssignRacksToBuilding), not a step on the way to a later commit.
+          text: saving ? "Saving…" : "Save",
           variant: "primary",
           onClick: handleConfirm,
-          disabled: selectingAll,
+          // Dirty-gated. Also covers the not-computable cases (select-all in
+          // flight, list not loaded) where `delta` is null.
+          disabled: saving || !isDirty,
           dismissModalOnClick: false,
           testId: "manage-racks-modal-confirm",
         },

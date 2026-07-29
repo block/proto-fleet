@@ -336,16 +336,14 @@ const ManageBuildingModal = ({
     setShowSearchRacks(true);
   }, []);
 
-  // Gate a reparent behind the warning dialog, then STAGE it on confirm — the
-  // rack joins the working set but nothing is written until the outer Save.
-  // Parity with the miner side (promptReparent → setRackMiners): a reparent is
-  // staged, and the actual move rides handleSave's member-only
-  // AssignRacksToBuilding (targetBuildingId → the rack moves out of its old
-  // building, cascading its miners) exactly like any newly-added rack. A staged
-  // rack is seeded into the picker, so buildRackPickerItem shows it as
-  // "in this building" on reopen — never a reassignment row that a later
-  // toggle-off / Select all / deselect could silently drop. Cancelling leaves
-  // the working set untouched and the picker open.
+  // Gate a reparent behind the warning dialog; confirming runs the caller's
+  // membership commit, which moves the rack into this building via a
+  // member-only AssignRacksToBuilding (targetBuildingId → the rack leaves its
+  // old building, cascading its miners) exactly like any newly-added rack.
+  // Once committed the rack is seeded into the picker, so buildRackPickerItem
+  // shows it as "in this building" on reopen — never a reassignment row that a
+  // later toggle-off / Select all / deselect could silently drop. Cancelling
+  // writes nothing and leaves the picker open.
   const promptReparent = useCallback((racks: ReparentedRack[], apply: () => void) => {
     setReparentConfirm({
       racks,
@@ -356,10 +354,101 @@ const ManageBuildingModal = ({
     });
   }, []);
 
-  // SearchRacksModal confirm — add the rack to the working set if missing
-  // and assign to the cell that was selected when the popover opened. When the
-  // rack is currently placed elsewhere, commit the move behind the reparent
-  // confirm (its miners move with it) before staging the cell.
+  // Chunked AssignRacksToBuilding dispatcher shared by the membership commits
+  // and the placement Save. Buildings can be 100×100 = 10,000 cells and this
+  // modal loads every page, so a large batch would otherwise blow past the
+  // proto's 1000-rack request cap. Chunks run sequentially so a mid-chain
+  // failure stops the chain; onChunkCommitted lets the caller tell "nothing
+  // landed" from "partial commit".
+  const dispatchAssign = useCallback(
+    async (racks: RackPlacementInput[], targetBuildingId?: bigint, onChunkCommitted?: () => void) => {
+      if (racks.length === 0) return;
+      for (let i = 0; i < racks.length; i += RACKS_PER_RPC) {
+        const chunk = racks.slice(i, i + RACKS_PER_RPC);
+        await new Promise<void>((resolve, reject) => {
+          void assignRacksToBuilding({
+            racks: chunk,
+            targetBuildingId,
+            onSuccess: () => resolve(),
+            onError: (msg) => reject(new Error(msg)),
+          });
+        });
+        onChunkCommitted?.();
+      }
+    },
+    [assignRacksToBuilding],
+  );
+
+  // Membership commit. The rack pickers own building membership, so a confirmed
+  // selection is written straight away and only placement stays staged for
+  // Save. Newcomers go in as member-only assigns (no cell) and land in the
+  // load-time snapshot as "unplaced", so freshly-committed membership doesn't
+  // read as pending placement dirt on the Save gate.
+  //
+  // The caller owns the working-set update — each entry point merges rows
+  // differently — and should skip it when this returns false.
+  const commitMembership = useCallback(
+    async (added: AssignmentEntry[], removed: bigint[]): Promise<boolean> => {
+      if (savingRef.current) return false;
+      const currentIds = new Set(entries.map((e) => e.rackId.toString()));
+      const newcomers = added.filter((a) => !currentIds.has(a.rackId.toString()));
+      // Nothing to write. The caller may still have a placement change to
+      // stage (e.g. re-placing a rack that's already a member).
+      if (newcomers.length === 0 && removed.length === 0) return true;
+
+      // Capacity guard — mirrors handleSave's and the server's
+      // AssignRacksToBuilding cap. Skipped when the grid is unconfigured
+      // (capacity 0): racks can join before a layout is set.
+      const capacity = aislesNum * racksPerAisleNum;
+      const nextCount = entries.length + newcomers.length - removed.length;
+      if (capacity > 0 && nextCount > capacity) {
+        setErrorMsg(
+          `This building has ${capacity} rack positions (${aislesNum} aisles × ${racksPerAisleNum} per aisle), ` +
+            `but the change would assign ${nextCount} racks. Remove some racks or increase the layout.`,
+        );
+        return false;
+      }
+
+      savingRef.current = true;
+      setErrorMsg("");
+      setIsSaving(true);
+      try {
+        // Removals first: they free their cells before any newcomer lands.
+        await dispatchAssign(
+          removed.map((rackId) => ({ rackId })),
+          undefined,
+        );
+        await dispatchAssign(
+          newcomers.map((a) => ({ rackId: a.rackId })),
+          building.id,
+        );
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : "Failed to update racks";
+        setErrorMsg(`Failed to update racks: ${detail}.`);
+        return false;
+      } finally {
+        savingRef.current = false;
+        setIsSaving(false);
+      }
+
+      const removedSet = new Set(removed.map((id) => id.toString()));
+      setInitialPlacement((prev) => {
+        const next = new Map(prev);
+        for (const id of removedSet) next.delete(id);
+        for (const a of newcomers) next.set(a.rackId.toString(), "unplaced");
+        return next;
+      });
+      // Rack counts changed on the host's building cache.
+      onSaved?.(building);
+      return true;
+    },
+    [entries, aislesNum, racksPerAisleNum, dispatchAssign, building, onSaved],
+  );
+
+  // SearchRacksModal confirm — commit the rack into this building if it isn't
+  // a member yet, then stage it at the cell that was selected when the popover
+  // opened. A rack currently placed elsewhere goes behind the reparent confirm
+  // (its miners move with it) before either happens.
   const handleSearchRackConfirm = useCallback(
     (rackId: bigint, label: string, reparent?: ReparentedRack) => {
       const targetKey = selectedCellKey;
@@ -367,7 +456,9 @@ const ManageBuildingModal = ({
         setShowSearchRacks(false);
         return;
       }
-      const apply = () => {
+      const apply = async () => {
+        const ok = await commitMembership([{ rackId, label }], []);
+        if (!ok) return;
         const { aisle, position } = parseCellKey(targetKey);
         setEntries((prev) => {
           const idStr = rackId.toString();
@@ -389,63 +480,66 @@ const ManageBuildingModal = ({
         setShowSearchRacks(false);
       };
       if (reparent) {
-        promptReparent([reparent], apply);
+        promptReparent([reparent], () => void apply());
       } else {
-        apply();
+        void apply();
       }
     },
-    [selectedCellKey, promptReparent],
+    [selectedCellKey, promptReparent, commitMembership],
   );
 
-  const handleRemoveRack = useCallback((rackId: bigint) => {
-    setEntries((prev) => prev.filter((e) => e.rackId !== rackId));
-    setSelectedRackId((prev) => (prev === rackId ? null : prev));
-  }, []);
+  // Row-level "Remove rack" — an immediate unassign (the rack moves out of the
+  // building; it is not deleted). The row drops only once the write lands.
+  const handleRemoveRack = useCallback(
+    async (rackId: bigint) => {
+      const ok = await commitMembership([], [rackId]);
+      if (!ok) return;
+      setEntries((prev) => prev.filter((e) => e.rackId !== rackId));
+      setSelectedRackId((prev) => (prev === rackId ? null : prev));
+    },
+    [commitMembership],
+  );
 
   const currentRackIds = useMemo(() => entries.map((e) => e.rackId), [entries]);
 
-  // ManageRacksModal confirm — apply the delta against the working
-  // set. `added` joins entries (unplaced) without disturbing existing
-  // positions; `removed` drops only those entries. Racks not in either
-  // list are untouched, so a seeded rack that didn't appear in the
-  // picker's listRacks response (race / paging gap) is preserved.
-  // `delta.reassigned` (racks currently placed elsewhere) commits the move
-  // behind the reparent confirm — their miners move with them — before the
-  // working-set change lands.
+  // ManageRacksModal Save — the picker owns building membership, so the delta is
+  // written here rather than staged. `added` joins entries unplaced (placement
+  // is still the operator's to set, on this modal's Save); `removed` drops only
+  // those entries. Racks in neither list are untouched, so a seeded rack the
+  // picker's listRacks response omitted (race / paging gap) is preserved.
+  // `delta.reassigned` (racks currently in another building) goes behind the
+  // reparent confirm — their miners move with them.
   const handleManageRacksConfirm = useCallback(
     (delta: RackSelectionDelta) => {
-      const apply = () => {
+      const apply = async () => {
         const removedSet = new Set(delta.removed.map((id) => id.toString()));
-        setEntries((prev) => {
-          const kept = prev.filter((e) => !removedSet.has(e.rackId.toString()));
-          const knownIds = new Set(kept.map((e) => e.rackId.toString()));
-          const newcomers: AssignmentEntry[] = [];
-          for (const a of delta.added) {
-            if (knownIds.has(a.rackId.toString())) continue;
-            newcomers.push({ rackId: a.rackId, label: a.label });
-          }
-          return [...kept, ...newcomers];
-        });
+        const kept = entries.filter((e) => !removedSet.has(e.rackId.toString()));
+        const knownIds = new Set(kept.map((e) => e.rackId.toString()));
+        const newcomers: AssignmentEntry[] = [];
+        for (const a of delta.added) {
+          if (knownIds.has(a.rackId.toString())) continue;
+          newcomers.push({ rackId: a.rackId, label: a.label });
+        }
+        // Failure leaves the picker open with the selection intact to retry.
+        const ok = await commitMembership(newcomers, delta.removed);
+        if (!ok) return;
+        setEntries([...kept, ...newcomers]);
         setSelectedRackId(null);
         setSelectedCellKey(null);
         setShowManageRacks(false);
       };
       if (delta.reassigned.length > 0) {
-        promptReparent(delta.reassigned, apply);
+        promptReparent(delta.reassigned, () => void apply());
       } else {
-        apply();
+        void apply();
       }
     },
-    [promptReparent],
+    [entries, promptReparent, commitMembership],
   );
 
-  // Save: dispatch placementDelta's buckets as AssignRacksToBuilding calls,
-  // one per target building bucket.
-  //
-  // Racks staying in this building ship as in-building batches against
-  // building.id; racks removed from it go in a separate call with
-  // targetBuildingId=undefined since they need a different building bucket.
-  // Layout writes live in BuildingSettingsModal.
+  // Save owns rack placement only — membership commits in the pickers and
+  // layout lives in BuildingSettingsModal. Dispatches placementDelta's buckets
+  // as AssignRacksToBuilding calls against building.id.
   const handleSave = useCallback(async () => {
     if (savingRef.current) return;
     // Defensive: the CTA is dirty-gated, so a clean save shouldn't be
@@ -475,34 +569,13 @@ const ManageBuildingModal = ({
     try {
       const { unassign, inBuildingVacate, inBuildingPlace } = placementDelta;
 
-      // Buildings can be 100×100 = 10,000 cells, and this modal loads
-      // every page, so a large floor-plan save with >1000 changed/
-      // removed racks would otherwise hit request validation. Chunk
-      // each phase into RPC-sized batches (RACKS_PER_RPC), dispatched
-      // sequentially so a mid-chain failure stops the chain (handled by
-      // the catch blocks below). Vacate-before-place is enforced across
-      // chunks by the two-pass dispatch below — the server only orders
-      // clear-then-place within a single RPC, so unassigns and cell-
-      // clears must all complete before any place runs.
       // Tracks whether any chunk has committed so the catch below can
-      // distinguish "nothing landed" from "partial commit" — operator
+      // distinguish "nothing landed" from "partial commit" — the operator
       // needs to know to refresh before retrying when chunks N..M ran
       // before chunk N+1 failed.
       let savedAtLeastOne = false;
-      const dispatch = async (racks: RackPlacementInput[], targetBuildingId?: bigint) => {
-        if (racks.length === 0) return;
-        for (let i = 0; i < racks.length; i += RACKS_PER_RPC) {
-          const chunk = racks.slice(i, i + RACKS_PER_RPC);
-          await new Promise<void>((resolve, reject) => {
-            void assignRacksToBuilding({
-              racks: chunk,
-              targetBuildingId,
-              onSuccess: () => resolve(),
-              onError: (msg) => reject(new Error(msg)),
-            });
-          });
-          savedAtLeastOne = true;
-        }
+      const onChunk = () => {
+        savedAtLeastOne = true;
       };
 
       try {
@@ -513,15 +586,16 @@ const ManageBuildingModal = ({
         // a >1000-rack save where chunk 2 still owns the cell chunk 1 is
         // trying to claim would trip uk_device_set_rack_building_position.
         //
-        // Pass 1: all vacates (unassign bucket + in-building cell-
-        // clears). dispatch short-circuits when the list is empty.
-        await dispatch(unassign, undefined);
-        await dispatch(inBuildingVacate, building.id);
+        // Pass 1: all vacates. The unassign bucket is normally empty now that
+        // removals commit in the pickers — it stays wired as a reconcile path
+        // for any entry that leaves the list without a write.
+        await dispatchAssign(unassign, undefined, onChunk);
+        await dispatchAssign(inBuildingVacate, building.id, onChunk);
 
         // Pass 2: all places. By now every cell that will be reused
         // has been vacated, so no two writes collide on the partial
         // unique index — even across >1000-rack chunked saves.
-        await dispatch(inBuildingPlace, building.id);
+        await dispatchAssign(inBuildingPlace, building.id, onChunk);
       } catch (err) {
         const detail = err instanceof Error ? err.message : "Failed to save rack positions";
         if (savedAtLeastOne) {
@@ -534,14 +608,14 @@ const ManageBuildingModal = ({
         return;
       }
 
-      pushToast({ message: `Building "${building.name}" saved`, status: STATUSES.success });
+      pushToast({ message: `Rack positions saved`, status: STATUSES.success });
       onSaved?.(building);
       onDismiss();
     } finally {
       savingRef.current = false;
       setIsSaving(false);
     }
-  }, [building, placementDelta, entries, aislesNum, racksPerAisleNum, assignRacksToBuilding, onSaved, onDismiss]);
+  }, [building, placementDelta, entries, aislesNum, racksPerAisleNum, dispatchAssign, onSaved, onDismiss]);
 
   if (!open) return null;
 
@@ -556,9 +630,9 @@ const ManageBuildingModal = ({
       <FullScreenTwoPaneModal
         open={open}
         title={subtitle ? `${title} — ${subtitle}` : title}
-        // Dismiss without Save writes nothing: reparents stage into the working
-        // set instead of committing on confirm, so the server is untouched until
-        // Save and a plain dismiss needs no host refresh.
+        // Dismissing abandons only staged placement — membership changes have
+        // already committed (and already fired onSaved), so there's nothing
+        // left for a dismiss to reconcile.
         onDismiss={onDismiss}
         isBusy={isSaving}
         buttons={[
@@ -672,6 +746,7 @@ const ManageBuildingModal = ({
           initialSelectedRackIds={currentRackIds}
           onDismiss={() => setShowManageRacks(false)}
           onConfirm={handleManageRacksConfirm}
+          saving={isSaving}
         />
       ) : null}
 
@@ -696,8 +771,8 @@ const ManageBuildingModal = ({
         <RackReparentWarningDialog
           racks={reparentConfirm.racks}
           buildingName={building.name}
-          // onConfirm stages the move into the working set and clears this
-          // dialog; the actual write happens on the outer Save.
+          // onConfirm clears this dialog and lets the membership commit run —
+          // accepting the warning is what authorizes the reparent write.
           onCancel={() => setReparentConfirm(null)}
           onConfirm={reparentConfirm.onConfirm}
         />

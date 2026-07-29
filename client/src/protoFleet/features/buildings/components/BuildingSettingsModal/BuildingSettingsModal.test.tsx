@@ -215,6 +215,42 @@ describe("BuildingSettingsModal — edit mode", () => {
     );
   });
 
+  it("disables Save until a field actually changes", () => {
+    const initial: BuildingFormValues = {
+      ...emptyBuildingFormValues(),
+      name: "Existing",
+      powerCapacityMw: 5,
+      aisles: 3,
+      racksPerAisle: 4,
+    };
+    render(
+      <BuildingSettingsModal
+        open
+        mode="edit"
+        initialValues={initial}
+        onSave={vi.fn()}
+        onDismiss={vi.fn()}
+        onDeleteRequested={vi.fn()}
+      />,
+    );
+
+    const save = screen.getByTestId("building-settings-modal-save");
+    // Save fires UpdateBuilding; with no edit there's nothing to write.
+    expect(save).toBeDisabled();
+
+    // Re-typing the same value in a different format is not a change — the
+    // gate compares the parsed form, not the raw text.
+    fireEvent.change(screen.getByTestId("building-settings-power-input"), { target: { value: "5.0" } });
+    expect(save).toBeDisabled();
+
+    fireEvent.change(screen.getByTestId("building-settings-aisles-input"), { target: { value: "6" } });
+    expect(save).not.toBeDisabled();
+
+    // Back to the original → clean again, not latched dirty.
+    fireEvent.change(screen.getByTestId("building-settings-aisles-input"), { target: { value: "3" } });
+    expect(save).toBeDisabled();
+  });
+
   it("Delete button fires onDeleteRequested", () => {
     const onDeleteRequested = vi.fn();
     render(
