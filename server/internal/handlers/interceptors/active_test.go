@@ -16,11 +16,16 @@ type fakeAdmission struct {
 	err error
 }
 
-func (a fakeAdmission) Admit(context.Context) (context.Context, func(), error) {
+func (a fakeAdmission) Admit(ctx context.Context) (context.Context, func(), error) {
 	if a.err != nil {
 		return nil, nil, a.err
 	}
-	return a.ctx, func() {}, nil
+	requestCtx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(a.ctx, cancel)
+	return requestCtx, func() {
+		stop()
+		cancel()
+	}, nil
 }
 
 func TestActiveInterceptorReturnsMachineReadableNotActive(t *testing.T) {
@@ -45,26 +50,6 @@ func requireNotActiveError(t *testing.T, err error) {
 	require.Equal(t, connect.CodeUnavailable, fleetErr.GRPCCode)
 }
 
-func TestActiveInterceptorBindsRequestToActiveLifetime(t *testing.T) {
-	activeCtx, cancelActive := context.WithCancel(t.Context())
-	interceptor := NewActiveInterceptor(fakeAdmission{ctx: activeCtx})
-	handlerStarted := make(chan struct{})
-	wrapped := interceptor.WrapUnary(func(ctx context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
-		close(handlerStarted)
-		<-ctx.Done()
-		return nil, ctx.Err()
-	})
-	result := make(chan error, 1)
-	go func() {
-		_, err := wrapped(t.Context(), connect.NewRequest(&commonpb.ResourceRef{}))
-		result <- err
-	}()
-
-	<-handlerStarted
-	cancelActive()
-	require.ErrorIs(t, <-result, context.Canceled)
-}
-
 func TestActiveInterceptorRejectsPassiveStream(t *testing.T) {
 	interceptor := NewActiveInterceptor(fakeAdmission{err: errors.New("not active")})
 	nextCalled := false
@@ -79,21 +64,68 @@ func TestActiveInterceptorRejectsPassiveStream(t *testing.T) {
 	requireNotActiveError(t, err)
 }
 
-func TestActiveInterceptorCancelsAdmittedStreamOnDemotion(t *testing.T) {
-	activeCtx, cancelActive := context.WithCancel(t.Context())
-	interceptor := NewActiveInterceptor(fakeAdmission{ctx: activeCtx})
-	handlerStarted := make(chan struct{})
-	wrapped := interceptor.WrapStreamingHandler(func(ctx context.Context, _ connect.StreamingHandlerConn) error {
-		close(handlerStarted)
-		<-ctx.Done()
-		return ctx.Err()
-	})
-	result := make(chan error, 1)
-	go func() {
-		result <- wrapped(t.Context(), nil)
-	}()
+func TestActiveInterceptorMapsOnlyActiveLifetimeCancellation(t *testing.T) {
+	handlerErr := fleeterror.NewInternalError("handler returned after cancellation")
+	wrappers := []struct {
+		name   string
+		invoke func(*ActiveInterceptor, context.Context, func(context.Context) error) error
+	}{
+		{
+			name: "unary",
+			invoke: func(interceptor *ActiveInterceptor, ctx context.Context, handler func(context.Context) error) error {
+				wrapped := interceptor.WrapUnary(func(ctx context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
+					return connect.NewResponse(&commonpb.ResourceRef{}), handler(ctx)
+				})
+				_, err := wrapped(ctx, connect.NewRequest(&commonpb.ResourceRef{}))
+				return err
+			},
+		},
+		{
+			name: "streaming",
+			invoke: func(interceptor *ActiveInterceptor, ctx context.Context, handler func(context.Context) error) error {
+				return interceptor.WrapStreamingHandler(
+					func(ctx context.Context, _ connect.StreamingHandlerConn) error {
+						return handler(ctx)
+					},
+				)(ctx, nil)
+			},
+		},
+	}
+	scenarios := []struct {
+		name        string
+		cancel      func(context.CancelFunc, context.CancelFunc)
+		wantPassive bool
+	}{
+		{
+			name:        "demotion",
+			cancel:      func(_ context.CancelFunc, cancelActive context.CancelFunc) { cancelActive() },
+			wantPassive: true,
+		},
+		{
+			name:   "client cancellation",
+			cancel: func(cancelClient context.CancelFunc, _ context.CancelFunc) { cancelClient() },
+		},
+	}
 
-	<-handlerStarted
-	cancelActive()
-	require.ErrorIs(t, <-result, context.Canceled)
+	for _, wrapper := range wrappers {
+		for _, scenario := range scenarios {
+			t.Run(wrapper.name+"/"+scenario.name, func(t *testing.T) {
+				clientCtx, cancelClient := context.WithCancel(t.Context())
+				activeCtx, cancelActive := context.WithCancel(t.Context())
+				interceptor := NewActiveInterceptor(fakeAdmission{ctx: activeCtx})
+
+				err := wrapper.invoke(interceptor, clientCtx, func(ctx context.Context) error {
+					scenario.cancel(cancelClient, cancelActive)
+					<-ctx.Done()
+					return handlerErr
+				})
+
+				if scenario.wantPassive {
+					requireNotActiveError(t, err)
+				} else {
+					require.Equal(t, handlerErr, err)
+				}
+			})
+		}
+	}
 }
