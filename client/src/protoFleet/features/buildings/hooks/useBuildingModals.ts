@@ -171,7 +171,7 @@ const useBuildingModals = ({
         void createBuilding({
           values,
           siteId,
-          onSuccess: (building) => {
+          onSuccess: ({ building }) => {
             pushToast({ message: `Building "${building.name}" created`, status: STATUSES.success });
             refetchBuildings?.();
             onMutationSuccess?.();

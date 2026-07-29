@@ -78,6 +78,20 @@ type BuildingServiceClient interface {
 	// within the assigned site (when site_id is set); unassigned
 	// buildings are not name-unique so cascade-unassign on site
 	// delete cannot collide.
+	//
+	// The request may optionally seed the new building with racks
+	// (rack_ids) and/or devices (device_identifiers) in the SAME
+	// transaction — the atomic form of CreateBuilding followed by
+	// AssignRacksToBuilding + AssignDevicesToBuilding. Either everything
+	// commits or nothing does, so a failed seed can't leave an orphaned or
+	// partially-populated building (#559). rack_ids and device_identifiers
+	// are independent: a seeded device need not belong to any seeded rack
+	// (it becomes a direct building member). If any seeded device is in a
+	// rack at another building/site, force_clear_conflicting_rack_membership
+	// governs whether the whole request rejects with per-device conflicts
+	// (nothing created) or the rack membership is dropped and the device
+	// moved. A request with no seed fields behaves exactly like a plain
+	// create.
 	CreateBuilding(context.Context, *connect.Request[v1.CreateBuildingRequest]) (*connect.Response[v1.CreateBuildingResponse], error)
 	// UpdateBuilding mutates name, description, capacity, layout
 	// defaults. Site assignment is *not* changed by UpdateBuilding —
@@ -253,6 +267,20 @@ type BuildingServiceHandler interface {
 	// within the assigned site (when site_id is set); unassigned
 	// buildings are not name-unique so cascade-unassign on site
 	// delete cannot collide.
+	//
+	// The request may optionally seed the new building with racks
+	// (rack_ids) and/or devices (device_identifiers) in the SAME
+	// transaction — the atomic form of CreateBuilding followed by
+	// AssignRacksToBuilding + AssignDevicesToBuilding. Either everything
+	// commits or nothing does, so a failed seed can't leave an orphaned or
+	// partially-populated building (#559). rack_ids and device_identifiers
+	// are independent: a seeded device need not belong to any seeded rack
+	// (it becomes a direct building member). If any seeded device is in a
+	// rack at another building/site, force_clear_conflicting_rack_membership
+	// governs whether the whole request rejects with per-device conflicts
+	// (nothing created) or the rack membership is dropped and the device
+	// moved. A request with no seed fields behaves exactly like a plain
+	// create.
 	CreateBuilding(context.Context, *connect.Request[v1.CreateBuildingRequest]) (*connect.Response[v1.CreateBuildingResponse], error)
 	// UpdateBuilding mutates name, description, capacity, layout
 	// defaults. Site assignment is *not* changed by UpdateBuilding —

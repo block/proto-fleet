@@ -57,12 +57,32 @@ interface ListBuildingRacksProps {
   onFinally?: () => void;
 }
 
+// CreateBuildingResult is the success payload: the created building plus the
+// seed-assignment counts the server applied (both zero for a plain create).
+export interface CreateBuildingResult {
+  building: Building;
+  assignedRackCount: bigint;
+  reassignedDeviceCount: bigint;
+}
+
 interface CreateBuildingProps {
   values: BuildingFormValues;
   siteId: bigint;
+  // Optional seed (#559): when non-empty, the building is created and these
+  // racks + devices are assigned to it in ONE transaction. Empty/omitted =
+  // a plain create.
+  rackIds?: bigint[];
+  deviceIdentifiers?: string[];
+  // Force-clear conflicting rack memberships for seeded devices; server
+  // gates this on rack:manage.
+  forceClearConflictingRackMembership?: boolean;
   signal?: AbortSignal;
-  onSuccess?: (building: Building) => void;
-  onError?: (message: string) => void;
+  onSuccess?: (result: CreateBuildingResult) => void;
+  // Called on failure. When a seed hit unresolvable device conflicts nothing
+  // was created (the whole transaction rolled back) and `conflicts` carries
+  // the per-device reasons; it is empty for a transport / permission failure
+  // and for a plain create.
+  onError?: (message: string, conflicts: AssignDevicesToBuildingConflict[]) => void;
   onFinally?: () => void;
 }
 
@@ -356,8 +376,25 @@ const useBuildings = () => {
     [handleAuthErrors],
   );
 
+  // createBuilding creates the building and — when a seed is supplied — assigns
+  // its racks + devices in a single transactional RPC. Either everything commits
+  // or nothing does, so a seed failure can no longer strand an empty building
+  // (issue #559). On unresolvable device conflicts the server returns them with
+  // an unset building; we surface those through onError so the caller can prompt
+  // for force-clear, exactly like assignDevicesToBuilding. A plain create (no
+  // seed) simply returns the building with zero counts and no conflicts.
   const createBuilding = useCallback(
-    async ({ values, siteId, signal, onSuccess, onError, onFinally }: CreateBuildingProps) => {
+    async ({
+      values,
+      siteId,
+      rackIds,
+      deviceIdentifiers,
+      forceClearConflictingRackMembership,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: CreateBuildingProps) => {
       try {
         const response = await buildingsClient.createBuilding(
           {
@@ -368,24 +405,41 @@ const useBuildings = () => {
             overheadKw: values.overheadKw,
             aisles: values.aisles,
             racksPerAisle: values.racksPerAisle,
-            // Layout defaults are not surfaced in the Phase 1a
-            // building modals. Send the proto's documented "unset"
-            // sentinels so the server stores NULL / UNSPECIFIED.
+            // Layout defaults are not surfaced in the building modals. Send
+            // the proto's documented "unset" sentinels so the server stores
+            // NULL / UNSPECIFIED.
             physicalRackCount: 0,
             defaultRackRows: 0,
             defaultRackColumns: 0,
             defaultRackOrderIndex: RackOrderIndex.UNSPECIFIED,
+            // Optional seed (empty = plain create).
+            rackIds: rackIds ?? [],
+            deviceIdentifiers: deviceIdentifiers ?? [],
+            forceClearConflictingRackMembership,
           },
           { signal },
         );
         if (signal?.aborted) return;
-        if (response.building) onSuccess?.(response.building);
+        if (response.conflicts.length > 0 || !response.building) {
+          const conflicts: AssignDevicesToBuildingConflict[] = response.conflicts.map((c) => ({
+            deviceIdentifier: c.deviceIdentifier,
+            reason: c.reason,
+            conflictingBuildingId: c.conflictingBuildingId,
+          }));
+          onError?.("Some miners could not be assigned to the new building", conflicts);
+          return;
+        }
+        onSuccess?.({
+          building: response.building,
+          assignedRackCount: response.assignedRackCount,
+          reassignedDeviceCount: response.reassignedDeviceCount,
+        });
       } catch (err) {
         if (signal?.aborted) return;
         handleAuthErrors({
           error: err,
           onError: (error) => {
-            onError?.(getErrorMessage(error));
+            onError?.(getErrorMessage(error), []);
           },
         });
       } finally {

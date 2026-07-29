@@ -22,6 +22,12 @@ func toCreateSiteParams(req *pb.CreateSiteRequest, orgID int64) models.CreateSit
 		PostalCode:      req.GetPostalCode(),
 		Country:         req.GetCountry(),
 		Notes:           req.GetNotes(),
+
+		// Optional seed (empty = plain create).
+		BuildingIDs:                         req.GetBuildingIds(),
+		RackIDs:                             req.GetRackIds(),
+		DeviceIdentifiers:                   req.GetDeviceIdentifiers(),
+		ForceClearConflictingRackMembership: req.GetForceClearConflictingRackMembership(),
 	}
 }
 

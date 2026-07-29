@@ -94,9 +94,13 @@ var ProcedurePermissions = map[string]string{
 	// Buildings CRUD — site:read for reads, site:manage for writes.
 	// ListBuildingRacks is a building-scoped read; AssignRacksToBuilding
 	// mutates the rack's building/site/zone/grid placement.
-	buildingsv1connect.BuildingServiceListBuildingsProcedure:         authz.PermSiteRead,
-	buildingsv1connect.BuildingServiceGetBuildingProcedure:           authz.PermSiteRead,
-	buildingsv1connect.BuildingServiceListBuildingRacksProcedure:     authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceListBuildingsProcedure:     authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceGetBuildingProcedure:       authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceListBuildingRacksProcedure: authz.PermSiteRead,
+	// CreateBuilding optionally seeds racks + devices atomically (#559). This
+	// site:manage entry is the primary gate; when the caller opts into
+	// force_clear_conflicting_rack_membership the handler adds an inline
+	// rack:manage check (mirrors AssignDevicesToBuilding).
 	buildingsv1connect.BuildingServiceCreateBuildingProcedure:        authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceUpdateBuildingProcedure:        authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceDeleteBuildingProcedure:        authz.PermSiteManage,
@@ -338,7 +342,11 @@ var ProcedurePermissions = map[string]string{
 	sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure: authz.PermSiteManage,
 
 	// Sites CRUD — site:read for List, site:manage for everything else.
-	sitesv1connect.SiteServiceListSitesProcedure:             authz.PermSiteRead,
+	sitesv1connect.SiteServiceListSitesProcedure: authz.PermSiteRead,
+	// CreateSite optionally seeds buildings + racks + devices atomically (#559).
+	// This site:manage entry is the primary gate; when the caller opts into
+	// force_clear_conflicting_rack_membership the handler adds an inline
+	// rack:manage check (mirrors AssignDevicesToSite).
 	sitesv1connect.SiteServiceCreateSiteProcedure:            authz.PermSiteManage,
 	sitesv1connect.SiteServiceUpdateSiteProcedure:            authz.PermSiteManage,
 	sitesv1connect.SiteServiceDeleteSiteProcedure:            authz.PermSiteManage,

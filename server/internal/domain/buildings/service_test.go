@@ -106,7 +106,7 @@ func TestCreateBuilding_rejectsUnknownSiteID(t *testing.T) {
 	siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(123)).
 		Return(fleeterror.NewNotFoundErrorf("site %d not found", 123))
 
-	_, err := svc.CreateBuilding(context.Background(), models.CreateParams{
+	_, _, err := svc.CreateBuilding(context.Background(), models.CreateParams{
 		OrgID:                 testOrgID,
 		SiteID:                ptrInt64(123),
 		Name:                  "Aisle-1",
@@ -128,7 +128,7 @@ func TestCreateBuilding_unassignedSkipsSiteCheck(t *testing.T) {
 	// still runs inside the tx (inTxCtx asserts that).
 	store.EXPECT().CreateBuilding(inTxCtx, gomock.Any()).Return(&models.Building{ID: 1, Name: "Aisle-1"}, nil)
 
-	_, err := svc.CreateBuilding(context.Background(), models.CreateParams{
+	_, _, err := svc.CreateBuilding(context.Background(), models.CreateParams{
 		OrgID:                 testOrgID,
 		SiteID:                nil,
 		Name:                  "Aisle-1",
@@ -156,7 +156,7 @@ func TestCreateBuilding_withSiteLocksAndPersists(t *testing.T) {
 			Return(&models.Building{ID: 9, Name: "Aisle-9", SiteID: ptrInt64(42)}, nil),
 	)
 
-	b, err := svc.CreateBuilding(context.Background(), models.CreateParams{
+	res, _, err := svc.CreateBuilding(context.Background(), models.CreateParams{
 		OrgID:                 testOrgID,
 		SiteID:                ptrInt64(42),
 		Name:                  "Aisle-9",
@@ -165,6 +165,7 @@ func TestCreateBuilding_withSiteLocksAndPersists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	b := res.Building
 	if b == nil || b.ID != 9 {
 		t.Fatalf("unexpected building: %+v", b)
 	}
@@ -905,7 +906,7 @@ func TestCreateBuilding_rejectsLayoutAbove100(t *testing.T) {
 	tx := &fakeTransactor{}
 	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
-	_, err := svc.CreateBuilding(context.Background(), models.CreateParams{
+	_, _, err := svc.CreateBuilding(context.Background(), models.CreateParams{
 		OrgID:                 testOrgID,
 		Name:                  "Huge",
 		Aisles:                101,
@@ -916,7 +917,7 @@ func TestCreateBuilding_rejectsLayoutAbove100(t *testing.T) {
 		t.Fatalf("expected InvalidArgument for aisles>100, got %v", err)
 	}
 
-	_, err = svc.CreateBuilding(context.Background(), models.CreateParams{
+	_, _, err = svc.CreateBuilding(context.Background(), models.CreateParams{
 		OrgID:                 testOrgID,
 		Name:                  "Huge",
 		Aisles:                50,
@@ -968,7 +969,7 @@ func TestCreateBuilding_rejectsInvalidOrderIndex(t *testing.T) {
 	tx := &fakeTransactor{}
 	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
 
-	_, err := svc.CreateBuilding(context.Background(), models.CreateParams{
+	_, _, err := svc.CreateBuilding(context.Background(), models.CreateParams{
 		OrgID:                 testOrgID,
 		Name:                  "Aisle-1",
 		DefaultRackOrderIndex: models.RackOrderIndex(99),
