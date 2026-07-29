@@ -408,6 +408,64 @@ func TestDevice_CurtailFullOnPoollessMinerRestoresIdleWithoutStarting(t *testing
 	require.Equal(t, 2, stopCount)
 }
 
+func TestDevice_StatusOnlyTrustsLocallyInitiatedCurtailment(t *testing.T) {
+	miningState := "Curtailed"
+	dev := newMiningControlTestDeviceWithDynamicStateAndPools(
+		t,
+		http.StatusOK,
+		&miningState,
+		`{"pools":[]}`,
+		func(r *http.Request) {
+			if r.URL.Path == "/api/v1/mining/stop" {
+				miningState = "Curtailed"
+			}
+		},
+		SetStatusTTL(0*time.Second),
+	)
+
+	metrics, err := dev.Status(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, sdk.HealthNeedsMiningPool, metrics.Health)
+
+	miningState = "NoPools"
+	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+
+	metrics, err = dev.Status(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, sdk.HealthHealthyInactive, metrics.Health)
+}
+
+func TestDevice_UncurtailInactiveMinerRetriesStopWithoutLosingSnapshot(t *testing.T) {
+	miningState := "Stopped"
+	var stopCount, startCount int
+	dev := newMiningControlTestDeviceWithDynamicStateAndPoolsAndControlStatus(
+		t,
+		&miningState,
+		configuredPoolsJSON,
+		func(r *http.Request) int {
+			switch r.URL.Path {
+			case "/api/v1/mining/stop":
+				stopCount++
+				if stopCount == 2 {
+					return http.StatusInternalServerError
+				}
+			case "/api/v1/mining/start":
+				startCount++
+			}
+			return http.StatusOK
+		},
+		nil,
+		SetStatusTTL(0*time.Second),
+	)
+
+	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	require.Error(t, dev.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
+	require.NoError(t, dev.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
+
+	require.Equal(t, 3, stopCount)
+	require.Zero(t, startCount)
+}
+
 func TestDevice_CurtailFullMarksStopRequestAsCurtailment(t *testing.T) {
 	var curtailmentHeader string
 	dev := newMiningControlTestDeviceWithRequestCallback(t, http.StatusOK, "Mining", func(r *http.Request) {
@@ -644,6 +702,27 @@ func requestPathCallback(callback func(path string)) func(*http.Request) {
 
 func newMiningControlTestDeviceWithDynamicStateAndPools(t *testing.T, miningControlStatus int, miningState *string, poolsJSON string, onControl func(*http.Request), opts ...DeviceOption) *Device {
 	t.Helper()
+	return newMiningControlTestDeviceWithDynamicStateAndPoolsAndControlStatus(
+		t,
+		miningState,
+		poolsJSON,
+		func(*http.Request) int {
+			return miningControlStatus
+		},
+		onControl,
+		opts...,
+	)
+}
+
+func newMiningControlTestDeviceWithDynamicStateAndPoolsAndControlStatus(
+	t *testing.T,
+	miningState *string,
+	poolsJSON string,
+	controlStatus func(*http.Request) int,
+	onControl func(*http.Request),
+	opts ...DeviceOption,
+) *Device {
+	t.Helper()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -660,7 +739,7 @@ func newMiningControlTestDeviceWithDynamicStateAndPools(t *testing.T, miningCont
 			if onControl != nil {
 				onControl(r)
 			}
-			w.WriteHeader(miningControlStatus)
+			w.WriteHeader(controlStatus(r))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}

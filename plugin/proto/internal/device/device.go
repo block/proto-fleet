@@ -266,6 +266,9 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	if err != nil {
 		return sdk.DeviceMetrics{}, fmt.Errorf("failed to get miner status: %w", err)
 	}
+	if minerStatus.IsCurtailed && d.hasActiveFullCurtailment() {
+		minerStatus.State = sdk.HealthHealthyInactive
+	}
 
 	telemetryResp, err := d.client.GetTelemetryValues(ctx)
 	if err != nil {
@@ -745,6 +748,13 @@ func (d *Device) restoreCurtailmentState() curtailmentRestoreSnapshot {
 		snapshot.preEfficiencyTarget = &targetCopy
 	}
 	return snapshot
+}
+
+func (d *Device) hasActiveFullCurtailment() bool {
+	d.curtailmentMutex.Lock()
+	defer d.curtailmentMutex.Unlock()
+
+	return d.curtailmentState.activeLevel == sdk.CurtailLevelFull
 }
 
 func (d *Device) clearCurtailmentState() {

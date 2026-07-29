@@ -938,7 +938,7 @@ func TestGetStatusPoolStateOverride(t *testing.T) {
 			name:          "firmware reports curtailed and no pools are configured",
 			miningStatus:  "curtailed",
 			pools:         []poolData{},
-			expectedState: sdk.HealthHealthyInactive,
+			expectedState: sdk.HealthNeedsMiningPool,
 		},
 		{
 			name:          "firmware reports stopped but no pools",
@@ -967,6 +967,7 @@ func TestGetStatusPoolStateOverride(t *testing.T) {
 			require.NoError(t, err, "GetStatus should not return error")
 			assert.Equal(t, tt.expectedState, status.State,
 				"State should match expected value based on actual pool configuration")
+			assert.Equal(t, strings.EqualFold(tt.miningStatus, "curtailed"), status.IsCurtailed)
 		})
 	}
 }

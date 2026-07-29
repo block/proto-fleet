@@ -80,6 +80,7 @@ type DeviceInfo struct {
 type Status struct {
 	State        sdk.HealthStatus
 	ErrorMessage string
+	IsCurtailed  bool
 }
 
 // Pool represents a mining pool configuration.
@@ -855,19 +856,15 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 	}
 
 	state := sdk.HealthHealthyInactive
-	isCurtailed := false
 	if statusCode != http.StatusNoContent {
 		state = mapMiningState(resp.MiningStatus.Status)
-		isCurtailed = strings.EqualFold(resp.MiningStatus.Status, "curtailed")
 	}
 
-	// The actual pool list is normally the source of truth because MiningState
-	// can be stale. Explicit curtailment takes precedence so a pool-less device
-	// remains visibly inactive while it is held at minimal power.
+	// The actual pool list is the source of truth because MiningState can be stale.
 	needsPool, err := c.checkNeedsMiningPool(ctx)
 	if err != nil {
 		slog.Warn("failed to check pool configuration", "error", err)
-	} else if needsPool && !isCurtailed {
+	} else if needsPool {
 		state = sdk.HealthNeedsMiningPool
 	} else if state == sdk.HealthNeedsMiningPool {
 		state = sdk.HealthHealthyInactive
@@ -876,6 +873,7 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 	return &Status{
 		State:        state,
 		ErrorMessage: "", // TODO: Extract from API when available
+		IsCurtailed:  strings.EqualFold(resp.MiningStatus.Status, "curtailed"),
 	}, nil
 }
 
