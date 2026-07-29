@@ -10,7 +10,7 @@ import {
 } from "@/protoFleet/components/FirmwareUpload";
 import FirmwareTargetFields from "@/protoFleet/features/settings/components/FirmwareTargetFields";
 import { useMinerTargetOptions } from "@/protoFleet/features/settings/components/useMinerTargetOptions";
-import { Alert } from "@/shared/assets/icons";
+import { Alert, Info } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Modal from "@/shared/components/Modal/Modal";
@@ -44,6 +44,10 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
 
   const configLoaded = serverConfig !== null;
   const modelsLoading = open && modelGroups === null && modelsError === null;
+  const showNoMinerModels =
+    modelGroups !== null &&
+    modelsError === null &&
+    !modelGroups.some((group) => group.manufacturer.trim() && group.model.trim());
   const isProcessing = state === "hashing" || state === "checking" || state === "uploading";
   const showLoadingSpinner = state === "idle" && (!configLoaded || modelsLoading);
   const showMetadataFields = configLoaded && !modelsLoading && modelsError === null;
@@ -146,6 +150,14 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
               )
             ) : null}
           </>
+        ) : null}
+
+        {showNoMinerModels ? (
+          <Callout
+            intent="information"
+            prefixIcon={<Info />}
+            title="No paired miner models found. Pair at least one miner to populate firmware targets."
+          />
         ) : null}
 
         {modelsError ? <Callout intent="danger" prefixIcon={<Alert />} title={modelsError} /> : null}

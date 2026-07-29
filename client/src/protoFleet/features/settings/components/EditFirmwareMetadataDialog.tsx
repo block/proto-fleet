@@ -38,8 +38,8 @@ const EditFirmwareMetadataDialog = ({
     active: open,
     selectedManufacturer: targetManufacturer,
     selectedModel: targetModel,
-    seedManufacturer: targetManufacturer,
-    seedModel: targetModel,
+    seedManufacturer: file?.targetManufacturer,
+    seedModel: file?.targetModel,
   });
 
   const metadata = { targetManufacturer, targetModel: resolvedModel, firmwareVersion };

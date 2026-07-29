@@ -76,12 +76,14 @@ export function useMinerTargetOptions({
         .map((group) => group.model.trim())
         .filter(Boolean),
     );
-    if (seedModel.trim()) models.add(seedModel.trim());
+    const selectedManufacturerKey = selectedManufacturer.trim().toLowerCase();
+    const seedManufacturerKey = seedManufacturer.trim().toLowerCase();
+    if (seedModel.trim() && selectedManufacturerKey === seedManufacturerKey) models.add(seedModel.trim());
     return [
       { value: "", label: "Select model" },
       ...[...models].sort().map((model) => ({ value: model, label: model })),
     ];
-  }, [modelGroups, selectedManufacturer, seedModel]);
+  }, [modelGroups, seedManufacturer, seedModel, selectedManufacturer]);
 
   const resolvedModel = useMemo(
     () => (modelOptions.some((option) => option.value === selectedModel) ? selectedModel : ""),

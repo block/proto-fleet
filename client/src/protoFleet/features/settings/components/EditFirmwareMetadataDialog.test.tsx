@@ -24,13 +24,14 @@ vi.mock("@/shared/components/Modal/Modal", () => ({
 }));
 
 vi.mock("@/shared/components/Select", () => ({
-  default: ({ id, value, onChange, disabled }: any) => (
+  default: ({ id, value, options, onChange, disabled }: any) => (
     <button
       type="button"
       data-testid={id}
       data-value={value}
+      data-options={options.map((option: { value: string }) => option.value).join(",")}
       disabled={disabled}
-      onClick={() => onChange(id.includes("manufacturer") ? "Proto" : "Rig")}
+      onClick={() => onChange(id.includes("manufacturer") ? "Bitmain" : "Rig")}
     >
       {value}
     </button>
@@ -95,5 +96,36 @@ describe("EditFirmwareMetadataDialog", () => {
 
     await screen.findByTestId("edit-firmware-target-manufacturer");
     expect(screen.getByText("Save changes")).toBeDisabled();
+  });
+
+  it("clears the seeded model after changing manufacturer", async () => {
+    const onConfirm = vi.fn();
+    mockGetMinerModelGroups.mockResolvedValue([
+      { manufacturer: "Proto", model: "Rig", count: 1 },
+      { manufacturer: "Bitmain", model: "S19", count: 1 },
+    ]);
+    render(
+      <EditFirmwareMetadataDialog
+        open
+        file={firmwareFile}
+        isSubmitting={false}
+        onConfirm={onConfirm}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    const manufacturerSelect = await screen.findByTestId("edit-firmware-target-manufacturer");
+    fireEvent.click(manufacturerSelect);
+
+    const modelSelect = screen.getByTestId("edit-firmware-target-model");
+    expect(modelSelect).toHaveAttribute("data-value", "");
+    expect(modelSelect).toHaveAttribute("data-options", ",S19");
+
+    fireEvent.click(modelSelect);
+
+    expect(modelSelect).toHaveAttribute("data-value", "");
+    expect(screen.getByText("Save changes")).toBeDisabled();
+    fireEvent.click(screen.getByText("Save changes"));
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 });

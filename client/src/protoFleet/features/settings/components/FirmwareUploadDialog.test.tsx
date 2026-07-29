@@ -164,6 +164,27 @@ describe("FirmwareUploadDialog", () => {
     expect(mockProcessFile).not.toHaveBeenCalled();
   });
 
+  it("explains why firmware targets are unavailable without paired miner models", async () => {
+    mockGetMinerModelGroups.mockResolvedValue([]);
+
+    render(<FirmwareUploadDialog open onSuccess={vi.fn()} onDismiss={vi.fn()} />);
+
+    expect(
+      await screen.findByText("No paired miner models found. Pair at least one miner to populate firmware targets."),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the loading error authoritative when miner models cannot be loaded", async () => {
+    mockGetMinerModelGroups.mockRejectedValue(new Error("unavailable"));
+
+    render(<FirmwareUploadDialog open onSuccess={vi.fn()} onDismiss={vi.fn()} />);
+
+    expect(await screen.findByText("Couldn't load fleet miner models.")).toBeInTheDocument();
+    expect(
+      screen.queryByText("No paired miner models found. Pair at least one miner to populate firmware targets."),
+    ).not.toBeInTheDocument();
+  });
+
   it("closes and refreshes after the upload becomes ready", async () => {
     const onSuccess = vi.fn();
     const onDismiss = vi.fn();
