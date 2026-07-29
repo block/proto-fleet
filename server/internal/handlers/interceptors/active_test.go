@@ -94,16 +94,24 @@ func TestActiveInterceptorMapsOnlyActiveLifetimeCancellation(t *testing.T) {
 	scenarios := []struct {
 		name        string
 		cancel      func(context.CancelFunc, context.CancelFunc)
+		handlerErr  error
 		wantPassive bool
 	}{
 		{
 			name:        "demotion",
 			cancel:      func(_ context.CancelFunc, cancelActive context.CancelFunc) { cancelActive() },
+			handlerErr:  handlerErr,
 			wantPassive: true,
 		},
 		{
-			name:   "client cancellation",
-			cancel: func(cancelClient context.CancelFunc, _ context.CancelFunc) { cancelClient() },
+			name:        "demotion after handler success",
+			cancel:      func(_ context.CancelFunc, cancelActive context.CancelFunc) { cancelActive() },
+			wantPassive: true,
+		},
+		{
+			name:       "client cancellation",
+			cancel:     func(cancelClient context.CancelFunc, _ context.CancelFunc) { cancelClient() },
+			handlerErr: handlerErr,
 		},
 	}
 
@@ -117,13 +125,13 @@ func TestActiveInterceptorMapsOnlyActiveLifetimeCancellation(t *testing.T) {
 				err := wrapper.invoke(interceptor, clientCtx, func(ctx context.Context) error {
 					scenario.cancel(cancelClient, cancelActive)
 					<-ctx.Done()
-					return handlerErr
+					return scenario.handlerErr
 				})
 
 				if scenario.wantPassive {
 					requireNotActiveError(t, err)
 				} else {
-					require.Equal(t, handlerErr, err)
+					require.Equal(t, scenario.handlerErr, err)
 				}
 			})
 		}

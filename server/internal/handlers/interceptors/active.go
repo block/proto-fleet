@@ -50,7 +50,7 @@ func (i *ActiveInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFu
 }
 
 func mapActiveLifetimeCancellation(requestCtx, activeCtx context.Context, err error) error {
-	if err == nil || requestCtx.Err() != nil || activeCtx.Err() == nil {
+	if requestCtx.Err() != nil || activeCtx.Err() == nil {
 		return err
 	}
 	return fleeterror.NewNotActiveError()
