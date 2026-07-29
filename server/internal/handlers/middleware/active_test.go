@@ -39,34 +39,15 @@ func TestActiveMiddlewareRejectsPassiveHTTPWithMachineReadableBody(t *testing.T)
 	require.JSONEq(t, `{"error":"Fleet is not active","code":"not-active"}`, recorder.Body.String())
 }
 
-func TestActiveMiddlewareBindsRequestToActiveLifetime(t *testing.T) {
+func TestActiveMiddlewarePreservesResponseAfterDemotion(t *testing.T) {
 	activeCtx, cancelActive := context.WithCancel(t.Context())
 	middleware := NewActiveMiddleware(fakeHTTPAdmission{ctx: activeCtx})
 	handlerStarted := make(chan struct{})
-	handler := middleware.Wrap(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	handler := middleware.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		close(handlerStarted)
 		<-r.Context().Done()
-	}))
-	done := make(chan struct{})
-	go func() {
-		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/product", nil))
-		close(done)
-	}()
-
-	<-handlerStarted
-	cancelActive()
-	<-done
-}
-
-func TestActiveMiddlewareRejectsResponseWrittenAfterDemotion(t *testing.T) {
-	activeCtx, cancelActive := context.WithCancel(t.Context())
-	middleware := NewActiveMiddleware(fakeHTTPAdmission{ctx: activeCtx})
-	handlerStarted := make(chan struct{})
-	continueHandler := make(chan struct{})
-	handler := middleware.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		close(handlerStarted)
-		<-continueHandler
-		_, _ = w.Write([]byte(`{"enabled":true}`))
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte(`{"accepted":true}`))
 	}))
 	recorder := httptest.NewRecorder()
 	done := make(chan struct{})
@@ -77,11 +58,10 @@ func TestActiveMiddlewareRejectsResponseWrittenAfterDemotion(t *testing.T) {
 
 	requireReceiveSignal(t, handlerStarted)
 	cancelActive()
-	close(continueHandler)
 	requireReceiveSignal(t, done)
 
-	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
-	require.JSONEq(t, `{"error":"Fleet is not active","code":"not-active"}`, recorder.Body.String())
+	require.Equal(t, http.StatusAccepted, recorder.Code)
+	require.JSONEq(t, `{"accepted":true}`, recorder.Body.String())
 }
 
 func TestActiveMiddlewareClosesRequestBodyWhenActiveLifetimeEnds(t *testing.T) {

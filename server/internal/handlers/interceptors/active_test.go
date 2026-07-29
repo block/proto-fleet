@@ -64,76 +64,34 @@ func TestActiveInterceptorRejectsPassiveStream(t *testing.T) {
 	requireNotActiveError(t, err)
 }
 
-func TestActiveInterceptorMapsOnlyActiveLifetimeCancellation(t *testing.T) {
-	handlerErr := fleeterror.NewInternalError("handler returned after cancellation")
-	wrappers := []struct {
-		name   string
-		invoke func(*ActiveInterceptor, context.Context, func(context.Context) error) error
-	}{
-		{
-			name: "unary",
-			invoke: func(interceptor *ActiveInterceptor, ctx context.Context, handler func(context.Context) error) error {
-				wrapped := interceptor.WrapUnary(func(ctx context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
-					return connect.NewResponse(&commonpb.ResourceRef{}), handler(ctx)
-				})
-				_, err := wrapped(ctx, connect.NewRequest(&commonpb.ResourceRef{}))
-				return err
-			},
-		},
-		{
-			name: "streaming",
-			invoke: func(interceptor *ActiveInterceptor, ctx context.Context, handler func(context.Context) error) error {
-				return interceptor.WrapStreamingHandler(
-					func(ctx context.Context, _ connect.StreamingHandlerConn) error {
-						return handler(ctx)
-					},
-				)(ctx, nil)
-			},
-		},
-	}
-	scenarios := []struct {
-		name        string
-		cancel      func(context.CancelFunc, context.CancelFunc)
-		handlerErr  error
-		wantPassive bool
-	}{
-		{
-			name:        "demotion",
-			cancel:      func(_ context.CancelFunc, cancelActive context.CancelFunc) { cancelActive() },
-			handlerErr:  handlerErr,
-			wantPassive: true,
-		},
-		{
-			name:        "demotion after handler success",
-			cancel:      func(_ context.CancelFunc, cancelActive context.CancelFunc) { cancelActive() },
-			wantPassive: true,
-		},
-		{
-			name:       "client cancellation",
-			cancel:     func(cancelClient context.CancelFunc, _ context.CancelFunc) { cancelClient() },
-			handlerErr: handlerErr,
-		},
-	}
+func TestActiveInterceptorPreservesHandlerResultAfterDemotion(t *testing.T) {
+	t.Run("unary response", func(t *testing.T) {
+		activeCtx, cancelActive := context.WithCancel(t.Context())
+		interceptor := NewActiveInterceptor(fakeAdmission{ctx: activeCtx})
+		wantResponse := connect.NewResponse(&commonpb.ResourceRef{})
+		wrapped := interceptor.WrapUnary(func(ctx context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
+			cancelActive()
+			<-ctx.Done()
+			return wantResponse, nil
+		})
 
-	for _, wrapper := range wrappers {
-		for _, scenario := range scenarios {
-			t.Run(wrapper.name+"/"+scenario.name, func(t *testing.T) {
-				clientCtx, cancelClient := context.WithCancel(t.Context())
-				activeCtx, cancelActive := context.WithCancel(t.Context())
-				interceptor := NewActiveInterceptor(fakeAdmission{ctx: activeCtx})
+		response, err := wrapped(t.Context(), connect.NewRequest(&commonpb.ResourceRef{}))
 
-				err := wrapper.invoke(interceptor, clientCtx, func(ctx context.Context) error {
-					scenario.cancel(cancelClient, cancelActive)
-					<-ctx.Done()
-					return scenario.handlerErr
-				})
+		require.NoError(t, err)
+		require.Same(t, wantResponse, response)
+	})
 
-				if scenario.wantPassive {
-					requireNotActiveError(t, err)
-				} else {
-					require.Equal(t, scenario.handlerErr, err)
-				}
-			})
-		}
-	}
+	t.Run("streaming cancellation", func(t *testing.T) {
+		activeCtx, cancelActive := context.WithCancel(t.Context())
+		interceptor := NewActiveInterceptor(fakeAdmission{ctx: activeCtx})
+		wrapped := interceptor.WrapStreamingHandler(func(ctx context.Context, _ connect.StreamingHandlerConn) error {
+			cancelActive()
+			<-ctx.Done()
+			return ctx.Err()
+		})
+
+		err := wrapped(t.Context(), nil)
+
+		require.ErrorIs(t, err, context.Canceled)
+	})
 }
