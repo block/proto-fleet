@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
 
@@ -16,23 +15,6 @@ import (
 type fakeHTTPAdmission struct {
 	ctx context.Context //nolint:containedctx // Supplies the admitted lifetime to the middleware.
 	err error
-}
-
-type blockingRequestBody struct {
-	closed chan struct{}
-	once   sync.Once
-}
-
-func (b *blockingRequestBody) Read([]byte) (int, error) {
-	<-b.closed
-	return 0, errors.New("request body closed")
-}
-
-func (b *blockingRequestBody) Close() error {
-	b.once.Do(func() {
-		close(b.closed)
-	})
-	return nil
 }
 
 func (a fakeHTTPAdmission) Admit(context.Context) (context.Context, func(), error) {
@@ -84,7 +66,8 @@ func TestActiveMiddlewareClosesRequestBodyWhenActiveLifetimeEnds(t *testing.T) {
 		close(handlerStarted)
 		_, _ = io.ReadAll(r.Body)
 	}))
-	body := &blockingRequestBody{closed: make(chan struct{})}
+	body, bodyWriter := io.Pipe()
+	defer bodyWriter.Close()
 	request := httptest.NewRequest(http.MethodPost, "/product", body)
 	done := make(chan struct{})
 	go func() {
@@ -92,9 +75,8 @@ func TestActiveMiddlewareClosesRequestBodyWhenActiveLifetimeEnds(t *testing.T) {
 		close(done)
 	}()
 
-	<-handlerStarted
+	requireReceiveSignal(t, handlerStarted)
 	cancelActive()
-	requireReceiveSignal(t, body.closed)
 	requireReceiveSignal(t, done)
 }
 

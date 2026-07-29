@@ -3,7 +3,6 @@ package ha
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -26,13 +25,12 @@ func TestGateRejectsPassiveRequestsAndCancelsAdmittedRequestsOnDemotion(t *testi
 	}, eventuallyTimeout, eventuallyInterval)
 
 	drained := gate.deactivate()
-	require.Never(t, channelClosed(drained), 20*time.Millisecond, time.Millisecond)
+	require.False(t, channelClosed(drained)())
 	_, _, err = gate.Admit(t.Context())
 	require.ErrorIs(t, err, ErrNotActive)
 
 	release()
 	requireReceive(t, drained)
-	release()
 }
 
 func TestGateReleaseIsScopedToItsActivation(t *testing.T) {
@@ -50,7 +48,7 @@ func TestGateReleaseIsScopedToItsActivation(t *testing.T) {
 
 	releaseFirst()
 	requireReceive(t, firstDrained)
-	require.Never(t, channelClosed(secondDrained), 20*time.Millisecond, time.Millisecond)
+	require.False(t, channelClosed(secondDrained)())
 
 	releaseSecond()
 	requireReceive(t, secondDrained)

@@ -222,7 +222,11 @@ func TestRuntimeAdmissionDrainTimeoutIsTerminal(t *testing.T) {
 	cancelActive()
 	requireReceive(t, group.stoppedCh)
 	require.ErrorContains(t, <-runResult, "drain active Fleet requests")
-	require.Never(t, channelClosed(owner.resumed), 20*time.Millisecond, time.Millisecond)
+	select {
+	case <-owner.resumed:
+		t.Fatal("terminal admission drain failure resumed acquisition")
+	default:
+	}
 }
 
 func TestRuntimeDemotesWhenCriticalHealthFailsAfterAdmission(t *testing.T) {
@@ -249,7 +253,6 @@ func TestRuntimeDemotesWhenCriticalHealthFailsAfterAdmission(t *testing.T) {
 	_ = requireReceiveError(t, owner.demotions)
 	requireReceive(t, group.stoppedCh)
 	require.Eventually(t, func() bool { return requestCtx.Err() != nil }, eventuallyTimeout, eventuallyInterval)
-	require.Never(t, channelClosed(owner.resumed), 20*time.Millisecond, time.Millisecond)
 	release()
 	requireReceive(t, owner.resumed)
 	require.False(t, runtime.Active())

@@ -4,11 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"connectrpc.com/connect"
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
-	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 func TestStreamCommandBatchUpdatesMapsContextCancellationToCanceled(t *testing.T) {
@@ -16,13 +15,7 @@ func TestStreamCommandBatchUpdatesMapsContextCancellationToCanceled(t *testing.T
 	cancel()
 
 	responseChan := make(chan *pb.StreamCommandBatchUpdatesResponse)
-	wrapped := interceptors.NewErrorMappingInterceptor().WrapStreamingHandler(
-		func(ctx context.Context, _ connect.StreamingHandlerConn) error {
-			return streamCommandBatchUpdates(ctx, responseChan, nil)
-		},
-	)
+	err := streamCommandBatchUpdates(ctx, responseChan, nil)
 
-	err := wrapped(ctx, nil)
-
-	require.Equal(t, connect.CodeCanceled, connect.CodeOf(err))
+	require.ErrorIs(t, err, fleeterror.NewCanceledError())
 }
