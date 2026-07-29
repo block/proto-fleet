@@ -180,7 +180,7 @@ describe("useSiteModals", () => {
     expect(refetchSites).toHaveBeenCalled();
   });
 
-  it("manageSave on manageEdit applies the building delta via AssignBuildingsToSite", async () => {
+  it("manageAssignBuildings applies the picker delta via AssignBuildingsToSite", async () => {
     vi.mocked(sitesClient.assignBuildingsToSite).mockResolvedValue(
       create(AssignBuildingsToSiteResponseSchema, { reassignedRackCount: 0n, reassignedDeviceCount: 0n }),
     );
@@ -190,9 +190,9 @@ describe("useSiteModals", () => {
     const { result } = renderHook(() => useSiteModals({ refetchSites, refetchBuildings }), { wrapper });
     act(() => result.current.openManageEdit(site));
 
-    let saveResult: { closeOnSuccess: boolean } | null | undefined;
+    let ok: boolean | undefined;
     await act(async () => {
-      saveResult = await result.current.manageSave({ added: [10n], removed: [20n] });
+      ok = await result.current.manageAssignBuildings({ added: [10n], removed: [20n] });
     });
 
     // Two calls: removed → "Unassigned" (no target), added → this site.
@@ -207,23 +207,44 @@ describe("useSiteModals", () => {
       { buildingIds: [10n], targetSiteId: 3n },
       expect.anything(),
     );
-    expect(saveResult?.closeOnSuccess).toBe(true);
+    expect(ok).toBe(true);
     expect(refetchSites).toHaveBeenCalled();
     // Membership changed building rows, so the building table refresh fires too.
     expect(refetchBuildings).toHaveBeenCalled();
   });
 
-  it("manageSave on manageEdit with an empty delta closes without an RPC", async () => {
+  it("manageAssignBuildings with an empty delta fires no RPC", async () => {
     const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
     act(() => result.current.openManageEdit(create(SiteSchema, { id: 3n, name: "North DC" })));
 
-    let saveResult: { closeOnSuccess: boolean } | null | undefined;
+    let ok: boolean | undefined;
     await act(async () => {
-      saveResult = await result.current.manageSave({ added: [], removed: [] });
+      ok = await result.current.manageAssignBuildings({ added: [], removed: [] });
     });
 
     expect(sitesClient.assignBuildingsToSite).not.toHaveBeenCalled();
-    expect(saveResult?.closeOnSuccess).toBe(true);
+    expect(ok).toBe(true);
+  });
+
+  it("manageRemoveBuilding unassigns the building immediately", async () => {
+    vi.mocked(sitesClient.assignBuildingsToSite).mockResolvedValue(
+      create(AssignBuildingsToSiteResponseSchema, { reassignedRackCount: 0n, reassignedDeviceCount: 0n }),
+    );
+    const refetchSites = vi.fn();
+    const { result } = renderHook(() => useSiteModals({ refetchSites }), { wrapper });
+    act(() => result.current.openManageEdit(create(SiteSchema, { id: 3n, name: "North DC" })));
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.manageRemoveBuilding(20n, "Building A");
+    });
+
+    expect(sitesClient.assignBuildingsToSite).toHaveBeenCalledWith(
+      { buildingIds: [20n], targetSiteId: undefined },
+      expect.anything(),
+    );
+    expect(ok).toBe(true);
+    expect(refetchSites).toHaveBeenCalled();
   });
 
   it("detailsSaveEdit refreshes manage with server-canonical site on success", async () => {

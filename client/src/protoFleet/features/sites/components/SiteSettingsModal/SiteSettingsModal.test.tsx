@@ -107,6 +107,51 @@ describe("SiteSettingsModal — edit mode", () => {
     expect((screen.getByTestId("site-settings-capacity-input") as HTMLInputElement).value).toBe("8");
   });
 
+  it("disables Save until a field actually changes", () => {
+    render(
+      <SiteSettingsModal
+        open
+        mode="edit"
+        initialValues={baseValues({ name: "East DC", powerCapacityMw: 8 })}
+        onSave={() => undefined}
+        onDeleteRequested={() => undefined}
+        onDismiss={() => undefined}
+      />,
+    );
+
+    const save = screen.getByTestId("site-settings-modal-save");
+    // Save fires UpdateSite; with no edit there's nothing to write.
+    expect(save).toBeDisabled();
+
+    fireEvent.change(screen.getByTestId("site-settings-name-input"), { target: { value: "East DC 2" } });
+    expect(save).not.toBeDisabled();
+
+    // Back to the original value → clean again, not latched dirty.
+    fireEvent.change(screen.getByTestId("site-settings-name-input"), { target: { value: "East DC" } });
+    expect(save).toBeDisabled();
+  });
+
+  it("ignores whitespace-only and capacity re-formatting as edits", () => {
+    render(
+      <SiteSettingsModal
+        open
+        mode="edit"
+        initialValues={baseValues({ name: "East DC", powerCapacityMw: 8 })}
+        onSave={() => undefined}
+        onDeleteRequested={() => undefined}
+        onDismiss={() => undefined}
+      />,
+    );
+
+    const save = screen.getByTestId("site-settings-modal-save");
+    // The gate compares the same normalized shape buildValues produces, so
+    // neither of these is a real change.
+    fireEvent.change(screen.getByTestId("site-settings-name-input"), { target: { value: "East DC  " } });
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByTestId("site-settings-capacity-input"), { target: { value: "8.0" } });
+    expect(save).toBeDisabled();
+  });
+
   it("Save calls onSave with the typed values", () => {
     const onSave = vi.fn();
     render(

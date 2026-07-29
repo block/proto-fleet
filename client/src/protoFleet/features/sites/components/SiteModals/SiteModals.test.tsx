@@ -27,7 +27,8 @@ const makeModals = (overrides: Partial<SiteModalsApi> = {}): SiteModalsApi => ({
   detailsSaveEdit: vi.fn(),
   manageEditDetails: vi.fn(),
   manageCreateBuilding: vi.fn().mockResolvedValue(null),
-  manageSave: vi.fn().mockResolvedValue(null),
+  manageAssignBuildings: vi.fn().mockResolvedValue(true),
+  manageRemoveBuilding: vi.fn().mockResolvedValue(true),
   deleteConfirm: vi.fn().mockResolvedValue(undefined),
   ...overrides,
 });

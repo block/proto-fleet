@@ -41,7 +41,8 @@ const SiteModals = ({ modals, sites, buildingsRefreshKey }: SiteModalsProps) => 
           open
           draft={state.draft}
           site={manageSite}
-          onSave={modals.manageSave}
+          onAssignBuildings={modals.manageAssignBuildings}
+          onRemoveBuilding={modals.manageRemoveBuilding}
           onCreateBuilding={modals.manageCreateBuilding}
           onEditDetails={modals.manageEditDetails}
           onDeleteRequested={handleDelete}

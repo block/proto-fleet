@@ -62,7 +62,8 @@ const baseProps = {
   open: true as const,
   site: site7,
   draft: draft({ name: "East DC" }),
-  onSave: () => Promise.resolve(null),
+  onAssignBuildings: vi.fn().mockResolvedValue(true),
+  onRemoveBuilding: vi.fn().mockResolvedValue(true),
   onCreateBuilding: vi.fn().mockResolvedValue(null),
   onEditDetails: noop,
   onDeleteRequested: noop,
@@ -72,23 +73,24 @@ const baseProps = {
 describe("ManageSiteModal", () => {
   beforeEach(() => listBuildingsBySiteMock.mockReset());
 
-  it("invokes onSave and closes when the save reports closeOnSuccess", async () => {
+  it("Save writes nothing and just closes (placement lands in #263)", async () => {
     seedBuildings([]);
-    const onSave = vi.fn().mockResolvedValue({ closeOnSuccess: true });
+    const onAssignBuildings = vi.fn();
     const onDismiss = vi.fn();
 
-    render(<ManageSiteModal {...baseProps} onSave={onSave} onDismiss={onDismiss} />);
+    render(<ManageSiteModal {...baseProps} onAssignBuildings={onAssignBuildings} onDismiss={onDismiss} />);
 
     fireEvent.click(screen.getByTestId("manage-site-modal-save"));
 
-    await waitFor(() => expect(onSave).toHaveBeenCalled());
     await waitFor(() => expect(onDismiss).toHaveBeenCalled());
+    // Membership commits in the picker, so this CTA has nothing to persist.
+    expect(onAssignBuildings).not.toHaveBeenCalled();
   });
 
   it("disables Save until the building list has loaded", () => {
-    // No seed → listBuildingsBySite never calls onSuccess, so the working
-    // set stays in the loading (undefined) state.
-    render(<ManageSiteModal {...baseProps} onSave={vi.fn()} />);
+    // No seed → listBuildingsBySite never calls onSuccess, so the list stays
+    // in the loading (undefined) state.
+    render(<ManageSiteModal {...baseProps} />);
 
     expect(screen.getByTestId("manage-site-modal-save")).toBeDisabled();
   });
@@ -176,19 +178,33 @@ describe("ManageSiteModal", () => {
     expect(screen.getByText("5 MW, 0 buildings")).toBeInTheDocument();
   });
 
-  it("renders rack count as a subtitle and kebab-removes a building from the working set", () => {
+  it("renders rack count as a subtitle and kebab-remove unassigns immediately", async () => {
     seedBuildings([{ id: 1n, name: "Building A", siteId: 7n, rackCount: 3n }]);
-    render(<ManageSiteModal {...baseProps} />);
+    const onRemoveBuilding = vi.fn().mockResolvedValue(true);
+    render(<ManageSiteModal {...baseProps} onRemoveBuilding={onRemoveBuilding} />);
 
     // Rack count renders as the row subtitle (not a trailing column).
     expect(screen.getByTestId("manage-site-modal-building-row-1")).toBeInTheDocument();
     expect(screen.getByText("3 racks")).toBeInTheDocument();
 
-    // Open the kebab and remove — the row drops from the list locally.
     fireEvent.click(screen.getByTestId("manage-site-modal-building-menu-1"));
     fireEvent.click(screen.getByTestId("manage-site-modal-remove-building-1"));
-    expect(screen.queryByTestId("manage-site-modal-building-row-1")).not.toBeInTheDocument();
+
+    await waitFor(() => expect(onRemoveBuilding).toHaveBeenCalledWith(1n, "Building A"));
+    await waitFor(() => expect(screen.queryByTestId("manage-site-modal-building-row-1")).not.toBeInTheDocument());
     // Empty state takes over once the last building is removed.
     expect(screen.getByText("No buildings added to this site")).toBeInTheDocument();
+  });
+
+  it("keeps the row when the unassign fails", async () => {
+    seedBuildings([{ id: 1n, name: "Building A", siteId: 7n, rackCount: 3n }]);
+    const onRemoveBuilding = vi.fn().mockResolvedValue(false);
+    render(<ManageSiteModal {...baseProps} onRemoveBuilding={onRemoveBuilding} />);
+
+    fireEvent.click(screen.getByTestId("manage-site-modal-building-menu-1"));
+    fireEvent.click(screen.getByTestId("manage-site-modal-remove-building-1"));
+
+    await waitFor(() => expect(onRemoveBuilding).toHaveBeenCalled());
+    expect(screen.getByTestId("manage-site-modal-building-row-1")).toBeInTheDocument();
   });
 });

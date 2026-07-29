@@ -17,22 +17,25 @@ interface ManageBuildingsModalProps {
   open: boolean;
   // Parent site context drives the eligibility split.
   siteId: bigint;
-  // Building IDs currently in the site's working set. The modal seeds its
-  // selection with these so the operator sees current state and can add /
-  // remove in one flow.
+  // Building IDs currently assigned to the site. The modal seeds its selection
+  // with these so the operator sees current state and can add / remove in one
+  // flow, and diffs against them to gate Save.
   initialSelectedBuildingIds: bigint[];
   onDismiss: () => void;
-  // Returns the delta against initialSelectedBuildingIds: `added` is the
+  // Save. Receives the delta against initialSelectedBuildingIds: `added` is the
   // newly-checked buildings (id + label so the caller can render without a
   // separate lookup); `removed` is the seeded ids the operator unchecked.
   // Untouched buildings are in neither list — the caller leaves them as-is.
-  onConfirm: (delta: { added: { buildingId: bigint; label: string }[]; removed: bigint[] }) => void;
-  // Renders a "New building" button beside Continue that hands off to the
-  // full building-create flow instead of picking an existing building —
-  // mirroring ParentPickerModal's createNewLaunch affordance ("New rack").
-  // The current selection is confirmed on the way out (see
-  // handleCreateNewLaunch), so checkbox changes aren't lost in the swap.
-  // Omitted = no create affordance.
+  // This modal owns site membership, so the caller persists the delta here
+  // rather than staging it for a later save.
+  onConfirm: (delta: { added: { buildingId: bigint; label: string }[]; removed: bigint[] }) => Promise<void> | void;
+  // In-flight signal from the caller's write, mirrored into the CTA.
+  saving?: boolean;
+  // Renders a "New building" button beside Save that hands off to the full
+  // building-create flow instead of picking an existing building — mirroring
+  // ParentPickerModal's createNewLaunch affordance ("New rack"). Leaving this
+  // way abandons the pending selection: Save is what commits it, so nothing
+  // was written. Omitted = no create affordance.
   onCreateNewLaunch?: () => void;
 }
 
@@ -67,6 +70,7 @@ const ManageBuildingsModal = ({
   initialSelectedBuildingIds,
   onDismiss,
   onConfirm,
+  saving = false,
   onCreateNewLaunch,
 }: ManageBuildingsModalProps) => {
   const { listAllBuildings } = useBuildings();
@@ -147,10 +151,22 @@ const ManageBuildingsModal = ({
   const hasPreviousPage = page > 0;
   const hasNextPage = page < totalPages - 1;
 
+  // The exact membership change Save would write. Derived here so the CTA's
+  // dirty gate and the write read the same delta — note it isn't a plain
+  // set-difference: seeded ids the picker's response omitted, and rows that
+  // became ineligible, are excluded on purpose (see computeBuildingSelectionDelta),
+  // so a raw selection comparison would call the modal dirty when there's
+  // nothing to send.
+  const delta = useMemo(
+    () => (items ? computeBuildingSelectionDelta(items, initialSelectedBuildingIds, selectedItems) : null),
+    [items, initialSelectedBuildingIds, selectedItems],
+  );
+  const isDirty = !!delta && (delta.added.length > 0 || delta.removed.length > 0);
+
   const handleConfirm = useCallback(() => {
-    if (!items) return;
-    onConfirm(computeBuildingSelectionDelta(items, initialSelectedBuildingIds, selectedItems));
-  }, [items, selectedItems, initialSelectedBuildingIds, onConfirm]);
+    if (!delta) return;
+    void onConfirm(delta);
+  }, [delta, onConfirm]);
 
   const handleSelectAll = useCallback(() => {
     if (!items) return;
@@ -160,18 +176,6 @@ const ManageBuildingsModal = ({
 
   const handleSelectNone = useCallback(() => setSelectedItems([]), []);
 
-  // "New building" hand-off. Confirm the current selection first so the swap
-  // to the create modal doesn't silently drop checkbox changes — the delta
-  // only edits the caller's in-memory working set (nothing is persisted until
-  // the Manage Site modal's Save), so applying it early is lossless. The
-  // caller's onConfirm closes this picker, and onCreateNewLaunch opens the
-  // create modal in its place.
-  const handleCreateNewLaunch = useCallback(() => {
-    if (!onCreateNewLaunch) return;
-    handleConfirm();
-    onCreateNewLaunch();
-  }, [handleConfirm, onCreateNewLaunch]);
-
   return (
     <Modal
       open={open}
@@ -179,30 +183,35 @@ const ManageBuildingsModal = ({
       size="large"
       className="flex !h-[calc(100dvh-(--spacing(32)))] max-h-[calc(100dvh-(--spacing(32)))] flex-col !overflow-hidden"
       bodyClassName="flex flex-1 min-h-0 flex-col"
-      onDismiss={onDismiss}
+      onDismiss={saving ? undefined : onDismiss}
       divider={false}
       testId="manage-buildings-modal"
       buttons={[
         // ButtonGroup sorts the primary button last, so this lands to the left
-        // of Continue. Disabled until the list resolves — handleConfirm no-ops
-        // while `items` is undefined, which would leave both modals open.
+        // of Save.
         ...(onCreateNewLaunch
           ? [
               {
                 text: "New building",
                 variant: variants.secondary,
                 prefixIcon: <Plus />,
-                onClick: handleCreateNewLaunch,
-                disabled: items === undefined,
+                onClick: onCreateNewLaunch,
+                disabled: saving,
                 dismissModalOnClick: false,
                 testId: "manage-buildings-modal-create-new",
               },
             ]
           : []),
         {
-          text: "Continue",
+          // "Save" because this is where membership is written
+          // (AssignBuildingsToSite), not a step on the way to a later commit.
+          text: saving ? "Saving…" : "Save",
           variant: "primary",
           onClick: handleConfirm,
+          // Dirty-gated, and blocked while `items` is undefined — the delta
+          // can't be computed without the list, so every selection would read
+          // clean for the wrong reason.
+          disabled: saving || !isDirty,
           dismissModalOnClick: false,
           testId: "manage-buildings-modal-confirm",
         },

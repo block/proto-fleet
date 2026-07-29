@@ -73,12 +73,14 @@ export interface SiteModalsApi {
   // Returns null on failure (a toast is shown); a duplicate name surfaces as
   // a server error and creates nothing.
   manageCreateBuilding: (values: BuildingFormValues) => Promise<Building | null>;
-  // Persists building-membership changes accumulated in the manage modal.
-  // In create mode this runs CreateSite, then assigns any buildings the
-  // operator staged (the delta's `added`) to the new site. In edit mode it
-  // applies the delta via AssignBuildingsToSite. Returns whether the modal
-  // should close on success, or null if the save failed.
-  manageSave: (delta: { added: bigint[]; removed: bigint[] }) => Promise<{ closeOnSuccess: boolean } | null>;
+  // Commit-per-modal: the buildings picker owns site membership, so its Save
+  // applies the delta via AssignBuildingsToSite right away rather than staging
+  // it into ManageSiteModal. `added` moves buildings into this site; `removed`
+  // moves them to "Unassigned". Resolves true on success.
+  manageAssignBuildings: (delta: { added: bigint[]; removed: bigint[] }) => Promise<boolean>;
+  // Kebab "Remove building" — an immediate unassign (targetSiteId unset), so
+  // the row action means what it says instead of queueing behind a Save.
+  manageRemoveBuilding: (buildingId: bigint, label: string) => Promise<boolean>;
   // SiteDeleteDialog handlers
   deleteConfirm: () => Promise<void>;
 }
@@ -340,68 +342,87 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
     [createBuilding, refetchSites],
   );
 
-  const manageSave = useCallback(
-    async (delta: { added: bigint[]; removed: bigint[] }) => {
-      if (savingRef.current) return null;
+  // Shared AssignBuildingsToSite dispatcher. `targetSiteId` unset moves the
+  // buildings to "Unassigned"; either way the server cascades site_id down to
+  // racks + devices.
+  const dispatchAssign = useCallback(
+    (buildingIds: bigint[], targetSiteId?: bigint) =>
+      new Promise<void>((resolve, reject) => {
+        if (buildingIds.length === 0) {
+          resolve();
+          return;
+        }
+        void assignBuildingsToSite({
+          buildingIds,
+          targetSiteId,
+          onSuccess: () => resolve(),
+          onError: (msg) => reject(new Error(msg)),
+        });
+      }),
+    [assignBuildingsToSite],
+  );
 
-      // The site is always persisted by the time the manage modal is open
-      // (Continue creates it up front), so Save only persists building
-      // membership. A no-op delta (operator opened Save without changes)
-      // closes silently.
-      if (state.kind === "manageEdit") {
-        if (delta.added.length === 0 && delta.removed.length === 0) {
-          return { closeOnSuccess: true };
-        }
-        const id = state.site.id;
-        const name = state.site.name;
-        savingRef.current = true;
-        setSaving(true);
-        try {
-          // `added` moves buildings into this site; `removed` moves them to
-          // "Unassigned" (targetSiteId unset). Both cascade site_id down to
-          // racks + devices server-side. Run sequentially so a mid-chain
-          // failure surfaces without a half-applied toast.
-          const dispatch = (buildingIds: bigint[], targetSiteId?: bigint) =>
-            new Promise<void>((resolve, reject) => {
-              if (buildingIds.length === 0) {
-                resolve();
-                return;
-              }
-              void assignBuildingsToSite({
-                buildingIds,
-                targetSiteId,
-                onSuccess: () => resolve(),
-                onError: (msg) => reject(new Error(msg)),
-              });
-            });
-          try {
-            await dispatch(delta.removed, undefined);
-            await dispatch(delta.added, id);
-          } catch (err) {
-            const detail = err instanceof Error ? err.message : "Failed to save buildings";
-            pushToast({ message: `Failed to save site: ${detail}`, status: STATUSES.error });
-            // The two AssignBuildingsToSite calls aren't atomic across each
-            // other: the `removed` batch may have already cascaded buildings
-            // out of the site before the `added` batch failed. Refresh so the
-            // counts + building table reflect what actually committed rather
-            // than the now-stale pre-save view.
-            refetchSites();
-            refetchBuildings?.();
-            return null;
-          }
-          pushToast({ message: `Site "${name}" saved`, status: STATUSES.success });
-          refetchSites();
-          refetchBuildings?.();
-          return { closeOnSuccess: true };
-        } finally {
-          savingRef.current = false;
-          setSaving(false);
-        }
+  const manageAssignBuildings = useCallback(
+    async (delta: { added: bigint[]; removed: bigint[] }): Promise<boolean> => {
+      if (savingRef.current) return false;
+      const current = stateRef.current;
+      if (current.kind !== "manageEdit" && current.kind !== "manageEditEditingDetails") return false;
+      if (delta.added.length === 0 && delta.removed.length === 0) return true;
+      const id = current.site.id;
+      savingRef.current = true;
+      setSaving(true);
+      try {
+        // Sequential so a mid-chain failure surfaces without a half-applied
+        // success toast.
+        await dispatchAssign(delta.removed, undefined);
+        await dispatchAssign(delta.added, id);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : "Failed to assign buildings";
+        pushToast({ message: `Failed to update buildings: ${detail}`, status: STATUSES.error });
+        // The two calls aren't atomic across each other: the `removed` batch
+        // may have already cascaded buildings out of the site before `added`
+        // failed. Refresh so the counts + building table reflect what actually
+        // committed rather than the now-stale pre-save view.
+        refetchSites();
+        refetchBuildings?.();
+        return false;
+      } finally {
+        savingRef.current = false;
+        setSaving(false);
       }
-
-      return null;
+      const count = delta.added.length + delta.removed.length;
+      pushToast({
+        message: `${count} ${count === 1 ? "building" : "buildings"} updated`,
+        status: STATUSES.success,
+      });
+      refetchSites();
+      refetchBuildings?.();
+      return true;
     },
-    [state, assignBuildingsToSite, refetchSites, refetchBuildings],
+    [dispatchAssign, refetchSites, refetchBuildings],
+  );
+
+  const manageRemoveBuilding = useCallback(
+    async (buildingId: bigint, label: string): Promise<boolean> => {
+      if (savingRef.current) return false;
+      savingRef.current = true;
+      setSaving(true);
+      try {
+        await dispatchAssign([buildingId], undefined);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : "Failed to remove building";
+        pushToast({ message: `Failed to remove "${label}": ${detail}`, status: STATUSES.error });
+        return false;
+      } finally {
+        savingRef.current = false;
+        setSaving(false);
+      }
+      pushToast({ message: `"${label}" removed from this site`, status: STATUSES.success });
+      refetchSites();
+      refetchBuildings?.();
+      return true;
+    },
+    [dispatchAssign, refetchSites, refetchBuildings],
   );
 
   const deleteConfirm = useCallback(async () => {
@@ -456,7 +477,8 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
     detailsSaveEdit,
     manageEditDetails,
     manageCreateBuilding,
-    manageSave,
+    manageAssignBuildings,
+    manageRemoveBuilding,
     deleteConfirm,
   };
 };

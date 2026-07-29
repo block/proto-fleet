@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { type SiteFormValues } from "@/protoFleet/api/sites";
 import {
@@ -91,7 +91,28 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
   }, [buildValues, props]);
 
   const nameValid = name.trim().length > 0;
-  const primaryDisabled = !nameValid || saving;
+
+  // Edit-mode dirty gate. Compared against the same normalized shape
+  // buildValues produces, so trailing whitespace or a capacity retyped as
+  // "12.50" doesn't read as an edit. buildValues sets capacityError as a side
+  // effect, so the comparison uses its own parse instead of calling it here.
+  const isDirty = useMemo(() => {
+    const capacity = parseCapacity(capacityText);
+    return (
+      name.trim() !== initialValues.name ||
+      address.trim() !== initialValues.address ||
+      city.trim() !== initialValues.locationCity ||
+      state.trim() !== initialValues.locationState ||
+      postalCode.trim() !== initialValues.postalCode ||
+      (country || "US") !== (initialValues.country || "US") ||
+      timezone !== initialValues.timezone ||
+      capacity !== initialValues.powerCapacityMw ||
+      notes !== initialValues.notes
+    );
+  }, [name, address, city, state, postalCode, country, timezone, capacityText, notes, initialValues]);
+
+  // Create has no baseline to diff against, so it gates on validation only.
+  const primaryDisabled = !nameValid || saving || (props.mode === "edit" && !isDirty);
 
   const buttons =
     props.mode === "create"
@@ -104,9 +125,10 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
             testId: "site-settings-modal-cancel",
           },
           {
-            // Continue persists the site (CreateSite), so it reflects the
-            // in-flight state like the edit Save does.
-            text: saving ? "Saving…" : "Continue",
+            // Named for the write it performs (CreateSite) rather than "Continue"
+            // — the site exists once this lands, even if the operator bails out
+            // of the manage step that follows.
+            text: saving ? "Creating…" : "Create site",
             variant: variants.primary,
             onClick: handlePrimary,
             disabled: primaryDisabled,

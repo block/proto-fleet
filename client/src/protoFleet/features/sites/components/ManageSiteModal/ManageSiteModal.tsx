@@ -15,19 +15,14 @@ import Header from "@/shared/components/Header";
 import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 
-// One building in the modal's working set. Seeded from the server fetch and
-// mutated locally by the Manage buildings picker; persisted on Save.
+// One building shown in the modal's list. Seeded from the server fetch and
+// re-synced after each membership write (the picker's Save and the row-level
+// Remove both commit immediately, so this list mirrors the server rather than
+// staging a pending edit).
 interface BuildingEntry {
   buildingId: bigint;
   label: string;
   rackCount: bigint;
-}
-
-// Net membership change between the load-time snapshot and the working set,
-// computed on Save and applied by the host via AssignBuildingsToSite.
-export interface BuildingMembershipDelta {
-  added: bigint[];
-  removed: bigint[];
 }
 
 interface ManageSiteModalProps {
@@ -37,9 +32,11 @@ interface ManageSiteModalProps {
   // flow's Continue creates it up front), so it drives the right-pane preview
   // header and the site_id for building writes.
   site: Site;
-  // Persisted at save time: the building-membership delta is applied via
-  // AssignBuildingsToSite. Returns whether the modal should close on success.
-  onSave: (delta: BuildingMembershipDelta) => Promise<{ closeOnSuccess: boolean } | null>;
+  // Applies the buildings picker's membership delta via AssignBuildingsToSite.
+  // Resolves true on success; a false result leaves the picker open to retry.
+  onAssignBuildings: (delta: { added: bigint[]; removed: bigint[] }) => Promise<boolean>;
+  // Row-level "Remove building" — unassigns it from this site immediately.
+  onRemoveBuilding: (buildingId: bigint, label: string) => Promise<boolean>;
   // Creates a new building against this site and returns the created row (or
   // null on failure). The building is associated to the site atomically, so
   // the modal injects the returned row into its working set without a refetch.
@@ -78,15 +75,15 @@ const BuildingRow = ({
   label: string;
   rackCount: bigint;
   saving: boolean;
-  onRemove: (buildingId: bigint) => void;
+  onRemove: (buildingId: bigint, label: string) => void;
 }) => {
   const [showMenu, setShowMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const handleRemove = useCallback(() => {
     setShowMenu(false);
-    onRemove(buildingId);
-  }, [buildingId, onRemove]);
+    onRemove(buildingId, label);
+  }, [buildingId, label, onRemove]);
 
   useEscapeDismiss(showMenu ? () => setShowMenu(false) : undefined);
 
@@ -149,7 +146,8 @@ const ManageSiteModal = ({
   open,
   draft,
   site,
-  onSave,
+  onAssignBuildings,
+  onRemoveBuilding,
   onCreateBuilding,
   onEditDetails,
   onDeleteRequested,
@@ -160,15 +158,11 @@ const ManageSiteModal = ({
   unassignedMinerCount,
 }: ManageSiteModalProps) => {
   const { listBuildingsBySite } = useBuildings();
-  // undefined = loading; [] = loaded-empty. Working set the operator edits
-  // via the picker before Save.
+  // undefined = loading; [] = loaded-empty. Mirrors the site's committed
+  // membership — every mutation in this modal writes before updating it.
   const [entries, setEntries] = useState<BuildingEntry[] | undefined>(undefined);
   const [showManageBuildings, setShowManageBuildings] = useState(false);
   const [showCreateBuilding, setShowCreateBuilding] = useState(false);
-
-  // Snapshot of the building ids present at load time so Save can diff the
-  // working set into add / remove buckets for AssignBuildingsToSite.
-  const initialIdsRef = useRef<Set<string>>(new Set());
 
   const shouldFetchBuildings = open;
   const fetchSiteId = site.id;
@@ -187,11 +181,9 @@ const ManageSiteModal = ({
             rackCount: r.rackCount,
           }));
         setEntries(seeded);
-        initialIdsRef.current = new Set(seeded.map((e) => e.buildingId.toString()));
       },
       onError: () => {
         setEntries([]);
-        initialIdsRef.current = new Set();
       },
     });
     return () => controller.abort();
@@ -213,15 +205,17 @@ const ManageSiteModal = ({
   // page's site catalog hasn't refetched the new row yet.
   const buildingCreateSites = useMemo(() => [create(SiteWithCountsSchema, { site })], [site]);
 
-  // Picker confirm — apply the delta against the working set. `added` joins
-  // entries without disturbing existing rows; `removed` drops only those
-  // entries. Buildings in neither list are untouched, so a seeded building
-  // the picker's listBuildings response omitted (race / paging gap) is
-  // preserved. Mirrors ManageBuildingModal.handleManageRacksConfirm.
-  const handleManageBuildingsConfirm = (delta: {
+  // Picker Save — the write already happened by the time this resolves, so
+  // mirror it into the list. `added` joins without disturbing existing rows;
+  // `removed` drops only those entries. Buildings in neither list are
+  // untouched, so a member the picker's listBuildings response omitted (race /
+  // paging gap) is preserved. A failed write leaves the picker open to retry.
+  const handleManageBuildingsConfirm = async (delta: {
     added: { buildingId: bigint; label: string }[];
     removed: bigint[];
   }) => {
+    const ok = await onAssignBuildings({ added: delta.added.map((a) => a.buildingId), removed: delta.removed });
+    if (!ok) return;
     const removedSet = new Set(delta.removed.map((id) => id.toString()));
     setEntries((prev) => {
       const kept = (prev ?? []).filter((e) => !removedSet.has(e.buildingId.toString()));
@@ -236,17 +230,20 @@ const ManageSiteModal = ({
     setShowManageBuildings(false);
   };
 
-  // Kebab "Remove building" — drop it from the working set. Persisted on
-  // Save as a `removed` delta entry, which moves the building to
-  // "Unassigned" (the building itself is not deleted).
-  const handleRemoveBuilding = useCallback((buildingId: bigint) => {
-    setEntries((prev) => (prev ?? []).filter((e) => e.buildingId !== buildingId));
-  }, []);
+  // Kebab "Remove building" — unassigns immediately (moves the building to
+  // "Unassigned"; the building itself is not deleted). Drop the row only once
+  // the write lands so a failure leaves the list truthful.
+  const handleRemoveBuilding = useCallback(
+    async (buildingId: bigint, label: string) => {
+      const ok = await onRemoveBuilding(buildingId, label);
+      if (!ok) return;
+      setEntries((prev) => (prev ?? []).filter((e) => e.buildingId !== buildingId));
+    },
+    [onRemoveBuilding],
+  );
 
   // Inline building-create confirm. CreateBuilding already associated the new
-  // building to this site, so inject it into both the working set (to show it)
-  // and the load-time snapshot (so Save's diff treats it as a pre-existing
-  // member — it won't be re-assigned, and a later Remove still unassigns it).
+  // building to this site, so inject it into the list rather than refetching.
   // A failed create returns null (toast shown by the host) and leaves the
   // create modal open.
   const handleCreateBuildingSave = async (values: BuildingFormValues) => {
@@ -257,18 +254,7 @@ const ManageSiteModal = ({
       if (next.some((e) => e.buildingId === created.id)) return next;
       return [...next, { buildingId: created.id, label: created.name, rackCount: 0n }];
     });
-    initialIdsRef.current.add(created.id.toString());
     setShowCreateBuilding(false);
-  };
-
-  const handleSave = async () => {
-    const initial = initialIdsRef.current;
-    const current = new Set((entries ?? []).map((e) => e.buildingId.toString()));
-    const added = [...current].filter((id) => !initial.has(id)).map((id) => BigInt(id));
-    const removed = [...initial].filter((id) => !current.has(id)).map((id) => BigInt(id));
-    const result = await onSave({ added, removed });
-    if (!result) return;
-    if (result.closeOnSuccess) onDismiss();
   };
 
   const buildingsBusy = saving || sortedEntries === undefined;
@@ -305,13 +291,14 @@ const ManageSiteModal = ({
             testId: "manage-site-modal-manage-buildings",
           },
           {
-            text: saving ? "Saving…" : "Save",
+            // Placeholder. Building membership now commits in the picker (and
+            // row-level Remove commits on click), so this modal owns only
+            // building placement — which lands in #263. Until then Save writes
+            // nothing and just closes; deliberately no success toast, since
+            // there's nothing to report.
+            text: "Save",
             variant: variants.primary,
-            onClick: handleSave,
-            // Block Save until the building list has loaded. handleSave diffs
-            // the working set against initialIdsRef; firing it while entries
-            // are still undefined would diff against an empty (or stale)
-            // working set and unassign buildings on save.
+            onClick: onDismiss,
             disabled: buildingsBusy,
             testId: "manage-site-modal-save",
           },
@@ -407,10 +394,14 @@ const ManageSiteModal = ({
           initialSelectedBuildingIds={currentBuildingIds}
           onDismiss={() => setShowManageBuildings(false)}
           onConfirm={handleManageBuildingsConfirm}
-          // "New building" in the picker swaps it for the create modal. The
-          // picker confirms its pending selection first, so onConfirm has
-          // already closed it by the time this fires.
-          onCreateNewLaunch={() => setShowCreateBuilding(true)}
+          saving={saving}
+          // "New building" swaps the picker for the create modal, abandoning
+          // any unsaved checkbox changes — the picker's Save is what commits
+          // membership, so leaving without it writes nothing.
+          onCreateNewLaunch={() => {
+            setShowManageBuildings(false);
+            setShowCreateBuilding(true);
+          }}
         />
       ) : null}
 

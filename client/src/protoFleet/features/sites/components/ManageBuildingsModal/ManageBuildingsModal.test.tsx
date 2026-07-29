@@ -60,7 +60,7 @@ describe("ManageBuildingsModal — New building hand-off", () => {
     expect(screen.queryByTestId("manage-buildings-modal-create-new")).not.toBeInTheDocument();
   });
 
-  it("confirms the pending selection before launching create, so checkbox changes survive the swap", async () => {
+  it("abandons the pending selection when launching create — Save is what commits", async () => {
     seed([{ id: 1n, name: "Building A", siteId: 0n }]);
     const onConfirm = vi.fn();
     const onCreateNewLaunch = vi.fn();
@@ -69,26 +69,65 @@ describe("ManageBuildingsModal — New building hand-off", () => {
     await waitFor(() => expect(screen.getByTestId("manage-buildings-modal-create-new")).toBeEnabled());
 
     // Check the unassigned building, then hand off to the create flow without
-    // pressing Continue.
-    const checkbox = screen.getAllByRole("checkbox")[0];
-    fireEvent.click(checkbox);
+    // pressing Save.
+    fireEvent.click(screen.getAllByRole("checkbox")[0]);
     fireEvent.click(screen.getByTestId("manage-buildings-modal-create-new"));
 
-    // The staged selection is applied on the way out, then create is launched.
+    // Nothing is written — leaving without Save means the selection never
+    // landed, which is what makes the abandon safe to reason about.
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onCreateNewLaunch).toHaveBeenCalled();
+  });
+});
+
+describe("ManageBuildingsModal — Save gate", () => {
+  beforeEach(() => {
+    listAllBuildingsMock.mockReset();
+    listSitesMock.mockReset();
+  });
+
+  it("disables Save until the selection differs from the site's current membership", async () => {
+    seed([{ id: 1n, name: "Building A", siteId: 0n }]);
+    const onConfirm = vi.fn();
+    render(<ManageBuildingsModal {...baseProps} onConfirm={onConfirm} />);
+
+    const save = await screen.findByTestId("manage-buildings-modal-confirm");
+    // Loaded with nothing checked and nothing seeded — no membership change to
+    // write, so Save must not fire an AssignBuildingsToSite no-op.
+    await waitFor(() => expect(save).toBeDisabled());
+
+    fireEvent.click(screen.getAllByRole("checkbox")[0]);
+    await waitFor(() => expect(save).toBeEnabled());
+
+    fireEvent.click(save);
     expect(onConfirm).toHaveBeenCalledWith({
       added: [{ buildingId: 1n, label: "Building A" }],
       removed: [],
     });
-    expect(onCreateNewLaunch).toHaveBeenCalled();
   });
 
-  it("disables the New building button until the building list resolves", () => {
-    // No onSuccess → items stays undefined, so handleConfirm would no-op and
-    // leave both modals open.
+  it("keeps Save disabled while the building list is still loading", () => {
+    // No onSuccess → items stays undefined, so the delta can't be computed.
     listAllBuildingsMock.mockReturnValue(Promise.resolve(undefined));
     listSitesMock.mockReturnValue(Promise.resolve(undefined));
-    render(<ManageBuildingsModal {...baseProps} onConfirm={vi.fn()} onCreateNewLaunch={vi.fn()} />);
+    render(<ManageBuildingsModal {...baseProps} onConfirm={vi.fn()} />);
 
-    expect(screen.getByTestId("manage-buildings-modal-create-new")).toBeDisabled();
+    expect(screen.getByTestId("manage-buildings-modal-confirm")).toBeDisabled();
+  });
+
+  it("re-checking a seeded building leaves Save disabled", async () => {
+    // Uncheck then re-check: the delta returns to empty, so the gate closes
+    // again rather than latching open on "the operator touched something".
+    seed([{ id: 1n, name: "Building A", siteId: 7n }]);
+    render(<ManageBuildingsModal {...baseProps} initialSelectedBuildingIds={[1n]} onConfirm={vi.fn()} />);
+
+    const save = await screen.findByTestId("manage-buildings-modal-confirm");
+    await waitFor(() => expect(save).toBeDisabled());
+
+    const checkbox = screen.getAllByRole("checkbox")[0];
+    fireEvent.click(checkbox);
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(checkbox);
+    await waitFor(() => expect(save).toBeDisabled());
   });
 });
