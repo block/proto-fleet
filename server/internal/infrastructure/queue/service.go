@@ -58,7 +58,7 @@ func (d DatabaseMessageQueue) EnqueueMany(ctx context.Context, commandBatchLogUU
 }
 
 func (d DatabaseMessageQueue) enqueueEncoded(ctx context.Context, commandBatchLogUUID string, commandType commandtype.Type, messages []encodedMessage) error {
-	return db.WithTransactionNoResult(ctx, d.conn, func(q *sqlc.Queries) error {
+	return db.WithTransactionNoResult(ctx, d.conn, func(q sqlc.Querier) error {
 		for _, message := range messages {
 			err := q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
 				CommandBatchLogUuid: commandBatchLogUUID,
@@ -83,7 +83,7 @@ func (d DatabaseMessageQueue) Dequeue(ctx context.Context, limit int32) ([]Messa
 	if d.config.DequeLimit > 0 {
 		limit = min(limit, d.config.DequeLimit)
 	}
-	messages, err := db.WithTransaction(ctx, d.conn, func(q *sqlc.Queries) ([]Message, error) {
+	messages, err := db.WithTransaction(ctx, d.conn, func(q sqlc.Querier) ([]Message, error) {
 		dbMessages, err := q.GetMessagesToProcess(ctx, sqlc.GetMessagesToProcessParams{
 			RetryCount: d.config.MaxFailureRetries,
 			Limit:      limit,
@@ -130,7 +130,7 @@ func (d DatabaseMessageQueue) Dequeue(ctx context.Context, limit int32) ([]Messa
 }
 
 func (d DatabaseMessageQueue) MarkSuccess(ctx context.Context, messageID int64) error {
-	updated, err := db.WithTransaction(ctx, d.conn, func(q *sqlc.Queries) (bool, error) {
+	updated, err := db.WithTransaction(ctx, d.conn, func(q sqlc.Querier) (bool, error) {
 		result, err := q.UpdateMessageStatus(ctx, sqlc.UpdateMessageStatusParams{
 			ID:     messageID,
 			Status: sqlc.QueueStatusEnumSUCCESS,
@@ -151,7 +151,7 @@ func (d DatabaseMessageQueue) MarkSuccess(ctx context.Context, messageID int64) 
 }
 
 func (d DatabaseMessageQueue) MarkFailed(ctx context.Context, messageID int64, errorInfo string) error {
-	updated, err := db.WithTransaction(ctx, d.conn, func(q *sqlc.Queries) (bool, error) {
+	updated, err := db.WithTransaction(ctx, d.conn, func(q sqlc.Querier) (bool, error) {
 		result, err := q.UpdateMessageAfterFailure(ctx, sqlc.UpdateMessageAfterFailureParams{
 			ID:         messageID,
 			RetryCount: d.config.MaxFailureRetries,
@@ -173,7 +173,7 @@ func (d DatabaseMessageQueue) MarkFailed(ctx context.Context, messageID int64, e
 }
 
 func (d DatabaseMessageQueue) MarkPermanentlyFailed(ctx context.Context, messageID int64, errorInfo string) error {
-	updated, err := db.WithTransaction(ctx, d.conn, func(q *sqlc.Queries) (bool, error) {
+	updated, err := db.WithTransaction(ctx, d.conn, func(q sqlc.Querier) (bool, error) {
 		result, err := q.UpdateMessagePermanentlyFailed(ctx, sqlc.UpdateMessagePermanentlyFailedParams{
 			ID:        messageID,
 			ErrorInfo: sql.NullString{String: errorInfo, Valid: true},
@@ -196,13 +196,13 @@ func (d DatabaseMessageQueue) MarkPermanentlyFailed(ctx context.Context, message
 type BatchStatusCheckFunc func(ctx context.Context, commandBatchLogID int64) (bool, error)
 
 func (d DatabaseMessageQueue) IsBatchFinished(ctx context.Context, commandBatchLogUUID string) (bool, error) {
-	return db.WithTransaction(ctx, d.conn, func(q *sqlc.Queries) (bool, error) {
+	return db.WithTransaction(ctx, d.conn, func(q sqlc.Querier) (bool, error) {
 		return q.IsBatchFinished(ctx, commandBatchLogUUID)
 	})
 }
 
 func (d DatabaseMessageQueue) IsBatchProcessing(ctx context.Context, commandBatchLogUUID string) (bool, error) {
-	return db.WithTransaction(ctx, d.conn, func(q *sqlc.Queries) (bool, error) {
+	return db.WithTransaction(ctx, d.conn, func(q sqlc.Querier) (bool, error) {
 		return q.IsBatchProcessing(ctx, commandBatchLogUUID)
 	})
 }

@@ -1321,7 +1321,7 @@ func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifier
 		return 0, nil
 	}
 
-	deletedCount, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (int64, error) {
+	deletedCount, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (int64, error) {
 		allBelong, err := q.AllDevicesBelongToOrg(ctx, sqlc.AllDevicesBelongToOrgParams{
 			ExpectedCount:     len(deviceIdentifiers),
 			DeviceIdentifiers: deviceIdentifiers,
@@ -1792,7 +1792,7 @@ func (s *SQLDeviceStore) UpdateDeviceCustomNames(ctx context.Context, orgID int6
 	if txQueries := s.GetTxQueries(ctx); txQueries != nil {
 		return updateDeviceCustomNamesWithQueries(ctx, txQueries, orgID, names)
 	}
-	return db.WithTransactionNoResult(ctx, s.conn.DB, func(q *sqlc.Queries) error {
+	return db.WithTransactionNoResult(ctx, s.conn.DB, func(q sqlc.Querier) error {
 		return updateDeviceCustomNamesWithQueries(ctx, q, orgID, names)
 	})
 }
