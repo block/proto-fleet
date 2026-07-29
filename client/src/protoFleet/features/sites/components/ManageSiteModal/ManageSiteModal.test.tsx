@@ -11,12 +11,26 @@ import { emptySiteFormValues, type SiteFormValues } from "@/protoFleet/api/sites
 // caller's onSuccess synchronously with whatever rows the test queued.
 const { listBuildingsBySiteMock } = vi.hoisted(() => ({ listBuildingsBySiteMock: vi.fn() }));
 
-vi.mock("@/protoFleet/api/buildings", () => ({
+// Keep the module's real helpers (emptyBuildingFormValues is used by both this
+// modal and the BuildingSettingsModal it renders) and override only the hook.
+vi.mock("@/protoFleet/api/buildings", async (importActual) => ({
+  ...(await importActual<typeof import("@/protoFleet/api/buildings")>()),
   useBuildings: () => ({
     listBuildingsBySite: listBuildingsBySiteMock,
     listAllBuildings: vi.fn(),
     getBuilding: vi.fn(),
   }),
+}));
+
+// Stub the building picker: the real one self-fetches the org-wide building
+// list and site catalog, which this suite doesn't wire up. All we need from it
+// here is the "New building" hand-off that reaches the inline create flow.
+vi.mock("../ManageBuildingsModal", () => ({
+  default: ({ onCreateNewLaunch }: { onCreateNewLaunch?: () => void }) => (
+    <button type="button" data-testid="stub-picker-create-new" onClick={onCreateNewLaunch}>
+      New building
+    </button>
+  ),
 }));
 
 const seedBuildings = (rows: { id: bigint; name: string; siteId: bigint; rackCount: bigint }[]) => {
@@ -39,26 +53,31 @@ const draft = (overrides: Partial<SiteFormValues> = {}): SiteFormValues => ({
   ...overrides,
 });
 
+const site7 = create(SiteSchema, { id: 7n, name: "East DC" });
+
 const noop = () => undefined;
+
+// Common props — the site is always persisted by the time the modal opens.
+const baseProps = {
+  open: true as const,
+  site: site7,
+  draft: draft({ name: "East DC" }),
+  onSave: () => Promise.resolve(null),
+  onCreateBuilding: vi.fn().mockResolvedValue(null),
+  onEditDetails: noop,
+  onDeleteRequested: noop,
+  onDismiss: noop,
+};
 
 describe("ManageSiteModal", () => {
   beforeEach(() => listBuildingsBySiteMock.mockReset());
 
   it("invokes onSave and closes when the save reports closeOnSuccess", async () => {
+    seedBuildings([]);
     const onSave = vi.fn().mockResolvedValue({ closeOnSuccess: true });
     const onDismiss = vi.fn();
 
-    render(
-      <ManageSiteModal
-        open
-        mode="create"
-        draft={draft()}
-        onSave={onSave}
-        onEditDetails={noop}
-        onDeleteRequested={noop}
-        onDismiss={onDismiss}
-      />,
-    );
+    render(<ManageSiteModal {...baseProps} onSave={onSave} onDismiss={onDismiss} />);
 
     fireEvent.click(screen.getByTestId("manage-site-modal-save"));
 
@@ -66,86 +85,74 @@ describe("ManageSiteModal", () => {
     await waitFor(() => expect(onDismiss).toHaveBeenCalled());
   });
 
-  it("disables Save in edit mode until the building list has loaded", () => {
+  it("disables Save until the building list has loaded", () => {
     // No seed → listBuildingsBySite never calls onSuccess, so the working
     // set stays in the loading (undefined) state.
-    const site = create(SiteSchema, { id: 7n, name: "East DC" });
-    render(
-      <ManageSiteModal
-        open
-        mode="edit"
-        site={site}
-        draft={draft({ name: "East DC" })}
-        onSave={vi.fn()}
-        onEditDetails={noop}
-        onDeleteRequested={noop}
-        onDismiss={noop}
-      />,
-    );
+    render(<ManageSiteModal {...baseProps} onSave={vi.fn()} />);
 
     expect(screen.getByTestId("manage-site-modal-save")).toBeDisabled();
   });
 
   it("Site settings fires the parent callback", () => {
+    seedBuildings([]);
     const onEditDetails = vi.fn();
-    render(
-      <ManageSiteModal
-        open
-        mode="create"
-        draft={draft()}
-        onSave={() => Promise.resolve(null)}
-        onEditDetails={onEditDetails}
-        onDeleteRequested={noop}
-        onDismiss={noop}
-      />,
-    );
+    render(<ManageSiteModal {...baseProps} onEditDetails={onEditDetails} />);
 
     fireEvent.click(screen.getAllByTestId("manage-site-modal-edit-details")[0]);
     expect(onEditDetails).toHaveBeenCalled();
   });
 
   it("Delete site fires onDeleteRequested", () => {
+    seedBuildings([]);
     const onDeleteRequested = vi.fn();
-    render(
-      <ManageSiteModal
-        open
-        mode="create"
-        draft={draft()}
-        onSave={() => Promise.resolve(null)}
-        onEditDetails={noop}
-        onDeleteRequested={onDeleteRequested}
-        onDismiss={noop}
-      />,
-    );
+    render(<ManageSiteModal {...baseProps} onDeleteRequested={onDeleteRequested} />);
 
     fireEvent.click(screen.getAllByTestId("manage-site-modal-delete")[0]);
     expect(onDeleteRequested).toHaveBeenCalled();
   });
 
-  it("create mode lets buildings be staged before the site is saved", () => {
-    render(
-      <ManageSiteModal
-        open
-        mode="create"
-        draft={draft()}
-        onSave={() => Promise.resolve(null)}
-        onEditDetails={noop}
-        onDeleteRequested={noop}
-        onDismiss={noop}
-      />,
-    );
+  it("creates a building inline via the picker hand-off and injects it into the working set", async () => {
+    seedBuildings([]);
+    const created = create(BuildingSchema, { id: 5n, name: "New Bldg", siteId: 7n });
+    const onCreateBuilding = vi.fn().mockResolvedValue(created);
+    render(<ManageSiteModal {...baseProps} onCreateBuilding={onCreateBuilding} />);
 
-    // No "save first" gate — the empty working set renders the same
-    // add-buildings affordance as edit mode, and Manage buildings is enabled.
-    expect(screen.queryByText("Save the site first to add buildings.")).not.toBeInTheDocument();
+    // Create is reached through the picker's "New building" hand-off, not a
+    // dedicated button on this modal.
     expect(screen.getByText("No buildings added to this site")).toBeInTheDocument();
-    expect(screen.getAllByTestId("manage-site-modal-manage-buildings")[0]).toBeEnabled();
-    expect(screen.getAllByTestId("manage-site-modal-empty-state-add")[0]).toBeEnabled();
-    // Save is allowed immediately (creates the site with an empty building set).
-    expect(screen.getByTestId("manage-site-modal-save")).toBeEnabled();
+    expect(screen.queryByTestId("manage-site-modal-create-building")).not.toBeInTheDocument();
+    fireEvent.click(screen.getAllByTestId("manage-site-modal-manage-buildings")[0]);
+    fireEvent.click(screen.getByTestId("stub-picker-create-new"));
+    expect(screen.getByTestId("building-settings-modal")).toBeInTheDocument();
+
+    // Name the building and save.
+    fireEvent.change(screen.getByTestId("building-settings-name-input"), { target: { value: "New Bldg" } });
+    fireEvent.click(screen.getByTestId("building-settings-modal-save"));
+
+    await waitFor(() => expect(onCreateBuilding).toHaveBeenCalled());
+    // The created building is injected and the create modal closes.
+    await waitFor(() => expect(screen.getByTestId("manage-site-modal-building-row-5")).toBeInTheDocument());
+    expect(screen.queryByTestId("building-settings-modal")).not.toBeInTheDocument();
+  });
+
+  it("keeps the create modal open and injects nothing when create fails", async () => {
+    seedBuildings([]);
+    const onCreateBuilding = vi.fn().mockResolvedValue(null);
+    render(<ManageSiteModal {...baseProps} onCreateBuilding={onCreateBuilding} />);
+
+    fireEvent.click(screen.getAllByTestId("manage-site-modal-manage-buildings")[0]);
+    fireEvent.click(screen.getByTestId("stub-picker-create-new"));
+    fireEvent.change(screen.getByTestId("building-settings-name-input"), { target: { value: "Nope" } });
+    fireEvent.click(screen.getByTestId("building-settings-modal-save"));
+
+    await waitFor(() => expect(onCreateBuilding).toHaveBeenCalled());
+    // Modal stays open; no row was added.
+    expect(screen.getByTestId("building-settings-modal")).toBeInTheDocument();
+    expect(screen.getByText("No buildings added to this site")).toBeInTheDocument();
   });
 
   it("shows comma-separated meta on each corner of the preview", () => {
+    seedBuildings([]);
     const site = create(SiteSchema, {
       id: 7n,
       name: "East DC",
@@ -155,8 +162,7 @@ describe("ManageSiteModal", () => {
     });
     render(
       <ManageSiteModal
-        open
-        mode="edit"
+        {...baseProps}
         site={site}
         draft={draft({
           name: "East DC",
@@ -164,10 +170,6 @@ describe("ManageSiteModal", () => {
           locationState: "MA",
           powerCapacityMw: 5,
         })}
-        onSave={() => Promise.resolve(null)}
-        onEditDetails={noop}
-        onDeleteRequested={noop}
-        onDismiss={noop}
       />,
     );
     expect(screen.getByText("East DC, Boston, MA")).toBeInTheDocument();
@@ -176,19 +178,7 @@ describe("ManageSiteModal", () => {
 
   it("renders rack count as a subtitle and kebab-removes a building from the working set", () => {
     seedBuildings([{ id: 1n, name: "Building A", siteId: 7n, rackCount: 3n }]);
-    const site = create(SiteSchema, { id: 7n, name: "East DC" });
-    render(
-      <ManageSiteModal
-        open
-        mode="edit"
-        site={site}
-        draft={draft({ name: "East DC" })}
-        onSave={() => Promise.resolve(null)}
-        onEditDetails={noop}
-        onDeleteRequested={noop}
-        onDismiss={noop}
-      />,
-    );
+    render(<ManageSiteModal {...baseProps} />);
 
     // Rack count renders as the row subtitle (not a trailing column).
     expect(screen.getByTestId("manage-site-modal-building-row-1")).toBeInTheDocument();

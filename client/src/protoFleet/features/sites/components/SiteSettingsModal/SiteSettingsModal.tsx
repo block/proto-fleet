@@ -14,11 +14,10 @@ import Modal from "@/shared/components/Modal";
 import Select from "@/shared/components/Select";
 import Textarea from "@/shared/components/Textarea";
 
-// "createReturn" is the state when the operator clicks "Edit details" from
-// ManageSiteModal during the create flow — they're already mid-create, so the
-// CTAs read Delete (discard pending site) + Save (apply changes and return to
-// the manage view) instead of Cancel + Continue.
-export type SiteSettingsModalMode = "create" | "createReturn" | "edit";
+// "create" is the initial site-details step. Continue persists the site
+// (CreateSite) and hands off to ManageSiteModal in edit mode; once the site
+// exists, "Edit details" reopens this modal in "edit" mode (UpdateSite).
+export type SiteSettingsModalMode = "create" | "edit";
 
 interface SiteSettingsModalCommonProps {
   open: boolean;
@@ -29,12 +28,7 @@ interface SiteSettingsModalCommonProps {
 
 export type SiteSettingsModalProps = SiteSettingsModalCommonProps &
   (
-    | { mode: "create"; onContinue: (values: SiteFormValues) => void }
-    | {
-        mode: "createReturn";
-        onContinue: (values: SiteFormValues) => void;
-        onDeleteRequested: () => void;
-      }
+    | { mode: "create"; onContinue: (values: SiteFormValues) => Promise<void> | void }
     | {
         mode: "edit";
         onSave: (values: SiteFormValues) => Promise<void> | void;
@@ -92,7 +86,7 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
     if (props.mode === "edit") {
       await props.onSave(values);
     } else {
-      props.onContinue(values);
+      await props.onContinue(values);
     }
   }, [buildValues, props]);
 
@@ -106,10 +100,13 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
             text: "Cancel",
             variant: variants.secondary,
             onClick: onDismiss,
+            disabled: saving,
             testId: "site-settings-modal-cancel",
           },
           {
-            text: "Continue",
+            // Continue persists the site (CreateSite), so it reflects the
+            // in-flight state like the edit Save does.
+            text: saving ? "Saving…" : "Continue",
             variant: variants.primary,
             onClick: handlePrimary,
             disabled: primaryDisabled,

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
+import { type BuildingFormValues, useBuildings } from "@/protoFleet/api/buildings";
+import { type Building } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type Site, type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { emptySiteFormValues, type SiteFormValues, siteFormValuesFromSite, useSites } from "@/protoFleet/api/sites";
 import { scopeCurrentOrDashboardPath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
@@ -15,15 +17,16 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 // modal they came from.
 export type SiteModalState =
   | { kind: "none" }
+  // Initial create step. "Continue" now persists the site (CreateSite) and
+  // transitions straight to manageEdit against the real row, so the manage
+  // surface always has a site id — inline building-create and
+  // AssignBuildingsToSite both need one. Mirrors the seeded "New site" flow in
+  // FleetCreateFlowProvider, which already creates-then-openManageEdit.
   | { kind: "detailsCreate"; draft: SiteFormValues }
-  | { kind: "manageCreate"; draft: SiteFormValues }
-  // Stacked: ManageSiteModal stays open while SiteSettingsModal renders on
-  // top. CTAs in details read Delete (discard pending create) + Save (apply
-  // changes and return to manage).
-  | { kind: "manageCreateEditingDetails"; draft: SiteFormValues }
   | { kind: "manageEdit"; site: Site; draft: SiteFormValues }
-  // Stacked edit-flow counterpart. Save calls UpdateSite directly; on
-  // success details closes and manage stays open with refreshed draft.
+  // Stacked: ManageSiteModal stays open while SiteSettingsModal renders on top.
+  // Save calls UpdateSite directly; on success details closes and manage stays
+  // open with refreshed draft.
   | { kind: "manageEditEditingDetails"; site: Site; draft: SiteFormValues };
 
 interface UseSiteModalsOptions {
@@ -56,16 +59,20 @@ export interface SiteModalsApi {
   // Closes the topmost modal: drops details if details is stacked on
   // manage, otherwise closes everything to none.
   dismiss: () => void;
-  // Closes every modal regardless of stack — used when the operator
-  // discards a pending create from the SiteSettingsModal Delete button.
-  cancelAll: () => void;
   // SiteDeleteDialog onDismiss — closes only the cascade dialog.
   dismissDeleteConfirm: () => void;
-  // SiteSettingsModal handlers
-  detailsContinueCreate: (values: SiteFormValues) => void;
+  // SiteSettingsModal handlers. Continue persists the site (CreateSite) and,
+  // on success, opens ManageSiteModal in edit mode against the new row.
+  detailsContinueCreate: (values: SiteFormValues) => Promise<void>;
   detailsSaveEdit: (values: SiteFormValues) => Promise<void>;
   // ManageSiteModal handlers
   manageEditDetails: () => void;
+  // Inline building-create from ManageSiteModal. Creates the building against
+  // the currently-managed site via the transactional CreateBuilding RPC and
+  // returns the created row so the modal can inject it into its working set.
+  // Returns null on failure (a toast is shown); a duplicate name surfaces as
+  // a server error and creates nothing.
+  manageCreateBuilding: (values: BuildingFormValues) => Promise<Building | null>;
   // Persists building-membership changes accumulated in the manage modal.
   // In create mode this runs CreateSite, then assigns any buildings the
   // operator staged (the delta's `added`) to the new site. In edit mode it
@@ -101,6 +108,7 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
   }, [state]);
 
   const { createSite, updateSite, deleteSite, assignBuildingsToSite } = useSites();
+  const { createBuilding } = useBuildings();
   const setActiveSite = useFleetStore((store) => store.ui.setActiveSite);
   const activeSite = useFleetStore((store) => store.ui.activeSite);
   // Signals the PageHeader's SitePicker (which fetches sites once on mount and
@@ -146,10 +154,9 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
   }, []);
 
   const dismiss = useCallback(() => {
-    // Stacked states drop just the top (details) and return to the underlying
-    // manage state. Everything else closes to none.
+    // The stacked edit-details state drops just the top (details) and returns
+    // to the underlying manage state. Everything else closes to none.
     setState((prev) => {
-      if (prev.kind === "manageCreateEditingDetails") return { kind: "manageCreate", draft: prev.draft };
       if (prev.kind === "manageEditEditingDetails") {
         return { kind: "manageEdit", site: prev.site, draft: prev.draft };
       }
@@ -157,26 +164,57 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
     });
   }, []);
 
-  const cancelAll = useCallback(() => {
-    setState({ kind: "none" });
-    setDeleteTarget(null);
-  }, []);
-
   const dismissDeleteConfirm = useCallback(() => {
     setDeleteTarget(null);
   }, []);
 
-  const detailsContinueCreate = useCallback((values: SiteFormValues) => {
-    // Carry the existing networkConfig draft through; SiteSettingsModal only
-    // owns the descriptive fields, so the value typed in ManageSiteModal
-    // survives bouncing between the two surfaces.
-    setState((prev) => {
-      if (prev.kind === "detailsCreate" || prev.kind === "manageCreateEditingDetails") {
-        return { kind: "manageCreate", draft: { ...values, networkConfig: prev.draft.networkConfig } };
+  // Continue on the create-details modal persists the site immediately, then
+  // opens ManageSiteModal in edit mode against the new row. Creating the site
+  // up front (rather than deferring to the manage modal's Save) gives inline
+  // building-create a real site_id to attach to. On failure the details modal
+  // stays open so the operator can fix the input and retry (e.g. a duplicate
+  // name). Guarded so a double-click can't fire two CreateSite calls.
+  const detailsContinueCreate = useCallback(
+    async (values: SiteFormValues) => {
+      if (savingRef.current) return;
+      const current = stateRef.current;
+      if (current.kind !== "detailsCreate") return;
+      // Carry the existing networkConfig draft through; SiteSettingsModal only
+      // owns the descriptive fields, so the value typed elsewhere survives.
+      const draft: SiteFormValues = { ...values, networkConfig: current.draft.networkConfig };
+      savingRef.current = true;
+      setSaving(true);
+      try {
+        await new Promise<void>((resolve) => {
+          void createSite({
+            values: draft,
+            onSuccess: ({ site, networkConfigWarnings }) => {
+              pushToast({
+                message:
+                  networkConfigWarnings.length > 0
+                    ? `Site "${site.name}" created with warnings`
+                    : `Site "${site.name}" created`,
+                status: STATUSES.success,
+              });
+              refetchSites();
+              refetchBuildings?.();
+              bumpSitesRevision();
+              setState({ kind: "manageEdit", site, draft: siteFormValuesFromSite(site) });
+              resolve();
+            },
+            onError: (msg) => {
+              pushToast({ message: `Failed to create site: ${msg}`, status: STATUSES.error });
+              resolve();
+            },
+          });
+        });
+      } finally {
+        savingRef.current = false;
+        setSaving(false);
       }
-      return prev;
-    });
-  }, []);
+    },
+    [createSite, refetchSites, refetchBuildings, bumpSitesRevision],
+  );
 
   const detailsSaveEdit = useCallback(
     async (values: SiteFormValues) => {
@@ -256,7 +294,6 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
     setState((prev) => {
       // Stack details on top of manage. Manage stays in the underlying state
       // so it remains visible behind SiteSettingsModal.
-      if (prev.kind === "manageCreate") return { kind: "manageCreateEditingDetails", draft: prev.draft };
       if (prev.kind === "manageEdit") {
         return { kind: "manageEditEditingDetails", site: prev.site, draft: prev.draft };
       }
@@ -264,81 +301,53 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
     });
   }, []);
 
+  // Inline building-create from the manage modal. The building is created and
+  // associated to the current site in one transactional RPC (#821), so it
+  // needs no follow-up AssignBuildingsToSite. Returns the created row to the
+  // modal, which injects it into its local working set (rather than triggering
+  // a list refetch) so any buildings staged via the picker are preserved.
+  const manageCreateBuilding = useCallback(
+    async (values: BuildingFormValues): Promise<Building | null> => {
+      if (savingRef.current) return null;
+      const current = stateRef.current;
+      if (current.kind !== "manageEdit" && current.kind !== "manageEditEditingDetails") return null;
+      const siteId = current.site.id;
+      savingRef.current = true;
+      setSaving(true);
+      return await new Promise<Building | null>((resolve) => {
+        void createBuilding({
+          values,
+          siteId,
+          onSuccess: ({ building }) => {
+            pushToast({ message: `Building "${building.name}" created`, status: STATUSES.success });
+            // Refresh the site catalog (building counts) but deliberately NOT
+            // the modal's building list — the modal injects the new row
+            // locally so unsaved picker selections survive.
+            refetchSites();
+            resolve(building);
+          },
+          onError: (msg) => {
+            pushToast({ message: `Failed to create building: ${msg}`, status: STATUSES.error });
+            resolve(null);
+          },
+          onFinally: () => {
+            savingRef.current = false;
+            setSaving(false);
+          },
+        });
+      });
+    },
+    [createBuilding, refetchSites],
+  );
+
   const manageSave = useCallback(
     async (delta: { added: bigint[]; removed: bigint[] }) => {
       if (savingRef.current) return null;
 
-      // Create flow: persist the site, then assign any buildings the operator
-      // staged in the manage modal before the site existed. `added` carries
-      // those buildings (the working set started empty, so there's never a
-      // `removed`); they're assigned to the freshly-created site's id. The two
-      // steps are sequenced explicitly (rather than chained through
-      // createSite's onFinally) so the saving guard stays held across both —
-      // an async onSuccess would otherwise release it the moment the building
-      // assign awaited.
-      if (state.kind === "manageCreate") {
-        const draft = state.draft;
-        savingRef.current = true;
-        setSaving(true);
-        try {
-          const created = await new Promise<{ site: Site; warnings: string[] } | null>((resolve) => {
-            void createSite({
-              values: draft,
-              onSuccess: ({ site, networkConfigWarnings }) => resolve({ site, warnings: networkConfigWarnings }),
-              onError: (msg) => {
-                pushToast({ message: `Failed to create site: ${msg}`, status: STATUSES.error });
-                resolve(null);
-              },
-            });
-          });
-          if (!created) return null;
-
-          // The site is committed past this point. A subsequent
-          // AssignBuildingsToSite failure must not read as a failed create —
-          // surface a partial-success warning and still close, matching the
-          // bulk "New site" seeded flow in FleetCreateFlowProvider.
-          let buildingsFailed: string | null = null;
-          if (delta.added.length > 0) {
-            await new Promise<void>((resolve) => {
-              void assignBuildingsToSite({
-                buildingIds: delta.added,
-                targetSiteId: created.site.id,
-                onSuccess: () => resolve(),
-                onError: (msg) => {
-                  buildingsFailed = msg;
-                  resolve();
-                },
-              });
-            });
-          }
-
-          pushToast(
-            buildingsFailed
-              ? {
-                  message: `Site "${created.site.name}" created, but adding buildings failed: ${buildingsFailed}`,
-                  status: STATUSES.error,
-                }
-              : {
-                  message:
-                    created.warnings.length > 0
-                      ? `Site "${created.site.name}" created with warnings`
-                      : `Site "${created.site.name}" created`,
-                  status: STATUSES.success,
-                },
-          );
-          refetchSites();
-          refetchBuildings?.();
-          bumpSitesRevision();
-          return { closeOnSuccess: true };
-        } finally {
-          savingRef.current = false;
-          setSaving(false);
-        }
-      }
-
-      // Edit flow: site details are owned by SiteSettingsModal, so the
-      // manage modal's Save only persists building membership. A no-op
-      // delta (operator opened Save without changes) closes silently.
+      // The site is always persisted by the time the manage modal is open
+      // (Continue creates it up front), so Save only persists building
+      // membership. A no-op delta (operator opened Save without changes)
+      // closes silently.
       if (state.kind === "manageEdit") {
         if (delta.added.length === 0 && delta.removed.length === 0) {
           return { closeOnSuccess: true };
@@ -392,7 +401,7 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
 
       return null;
     },
-    [state, createSite, assignBuildingsToSite, refetchSites, refetchBuildings, bumpSitesRevision],
+    [state, assignBuildingsToSite, refetchSites, refetchBuildings],
   );
 
   const deleteConfirm = useCallback(async () => {
@@ -442,11 +451,11 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
     openManageEdit,
     requestDeleteCurrent,
     dismiss,
-    cancelAll,
     dismissDeleteConfirm,
     detailsContinueCreate,
     detailsSaveEdit,
     manageEditDetails,
+    manageCreateBuilding,
     manageSave,
     deleteConfirm,
   };

@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { create } from "@bufbuild/protobuf";
 
 import ManageBuildingsModal from "../ManageBuildingsModal";
-import { useBuildings } from "@/protoFleet/api/buildings";
-import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import { type Site } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { type BuildingFormValues, emptyBuildingFormValues, useBuildings } from "@/protoFleet/api/buildings";
+import { type Building, type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { type Site, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { type SiteFormValues } from "@/protoFleet/api/sites";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
+import BuildingSettingsModal from "@/protoFleet/features/buildings/components/BuildingSettingsModal";
 import { formatSiteAddress } from "@/protoFleet/features/sites/formatAddress";
 import { Ellipsis } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
-
-export type ManageSiteModalMode = "create" | "edit";
 
 // One building in the modal's working set. Seeded from the server fetch and
 // mutated locally by the Manage buildings picker; persisted on Save.
@@ -32,17 +32,18 @@ export interface BuildingMembershipDelta {
 
 interface ManageSiteModalProps {
   open: boolean;
-  mode: ManageSiteModalMode;
   draft: SiteFormValues;
-  // In edit mode the parent has a Site row to drive the right-pane preview
-  // header off; in create mode there is no row yet so the preview uses the
-  // draft values directly.
-  site?: Site;
-  // Persisted at save time. In edit mode the delta is applied via
-  // AssignBuildingsToSite; in create mode the host first creates the site
-  // (the delta is empty since building management is gated until the site
-  // exists). Returns whether the modal should close on success.
+  // The site is always persisted by the time this modal opens (the create
+  // flow's Continue creates it up front), so it drives the right-pane preview
+  // header and the site_id for building writes.
+  site: Site;
+  // Persisted at save time: the building-membership delta is applied via
+  // AssignBuildingsToSite. Returns whether the modal should close on success.
   onSave: (delta: BuildingMembershipDelta) => Promise<{ closeOnSuccess: boolean } | null>;
+  // Creates a new building against this site and returns the created row (or
+  // null on failure). The building is associated to the site atomically, so
+  // the modal injects the returned row into its working set without a refetch.
+  onCreateBuilding: (values: BuildingFormValues) => Promise<Building | null>;
   // Opens SiteSettingsModal stacked on top to edit name / address / etc.
   onEditDetails: () => void;
   // Opens the cascade delete dialog (edit) or discards the pending create.
@@ -146,10 +147,10 @@ const BuildingRow = ({
 
 const ManageSiteModal = ({
   open,
-  mode,
   draft,
   site,
   onSave,
+  onCreateBuilding,
   onEditDetails,
   onDeleteRequested,
   onDismiss,
@@ -163,18 +164,16 @@ const ManageSiteModal = ({
   // via the picker before Save.
   const [entries, setEntries] = useState<BuildingEntry[] | undefined>(undefined);
   const [showManageBuildings, setShowManageBuildings] = useState(false);
+  const [showCreateBuilding, setShowCreateBuilding] = useState(false);
 
   // Snapshot of the building ids present at load time so Save can diff the
   // working set into add / remove buckets for AssignBuildingsToSite.
   const initialIdsRef = useRef<Set<string>>(new Set());
 
-  // Only fetch when edit mode has a persisted site; create mode renders an
-  // empty working set until the first Save lands a row. Skipping the effect
-  // for the no-fetch branches keeps the setState-in-effect lint clean.
-  const shouldFetchBuildings = open && mode === "edit" && site !== undefined;
-  const fetchSiteId = shouldFetchBuildings ? site.id : undefined;
+  const shouldFetchBuildings = open;
+  const fetchSiteId = site.id;
   useEffect(() => {
-    if (!shouldFetchBuildings || fetchSiteId === undefined) return;
+    if (!shouldFetchBuildings) return;
     const controller = new AbortController();
     void listBuildingsBySite({
       siteId: fetchSiteId,
@@ -198,25 +197,21 @@ const ManageSiteModal = ({
     return () => controller.abort();
   }, [shouldFetchBuildings, fetchSiteId, listBuildingsBySite, buildingsRefreshKey]);
 
-  // Create mode never fetches (there's no persisted site yet) but still keeps
-  // a working set: buildings the operator stages via the picker before the
-  // first Save, which the host then assigns to the freshly-created site.
-  // `entries` starts undefined there, so fall back to an empty (loaded, not
-  // loading) list rather than the edit-mode loading skeleton.
-  const displayEntries: BuildingEntry[] | undefined = useMemo(
-    () => (shouldFetchBuildings ? entries : (entries ?? [])),
-    [shouldFetchBuildings, entries],
-  );
   const sortedEntries = useMemo(
-    () => (displayEntries ? [...displayEntries].sort((a, b) => a.label.localeCompare(b.label)) : undefined),
-    [displayEntries],
+    () => (entries ? [...entries].sort((a, b) => a.label.localeCompare(b.label)) : undefined),
+    [entries],
   );
 
-  const previewTitle = (site?.name || draft.name || "Untitled site").trim();
+  const previewTitle = (site.name || draft.name || "Untitled site").trim();
   const previewLocation = useMemo(() => formatSiteAddress(draft) || "—", [draft]);
   const previewCapacity = draft.powerCapacityMw > 0 ? `${draft.powerCapacityMw} MW` : "—";
   const buildingCount = sortedEntries?.length ?? 0;
-  const currentBuildingIds = useMemo(() => (displayEntries ?? []).map((e) => e.buildingId), [displayEntries]);
+  const currentBuildingIds = useMemo(() => (entries ?? []).map((e) => e.buildingId), [entries]);
+  // The inline building-create dropdown is always locked to this site, so a
+  // one-element list built from `site` is all BuildingSettingsModal needs — and
+  // it sidesteps the brief window right after create-on-Continue where the
+  // page's site catalog hasn't refetched the new row yet.
+  const buildingCreateSites = useMemo(() => [create(SiteWithCountsSchema, { site })], [site]);
 
   // Picker confirm — apply the delta against the working set. `added` joins
   // entries without disturbing existing rows; `removed` drops only those
@@ -248,9 +243,27 @@ const ManageSiteModal = ({
     setEntries((prev) => (prev ?? []).filter((e) => e.buildingId !== buildingId));
   }, []);
 
+  // Inline building-create confirm. CreateBuilding already associated the new
+  // building to this site, so inject it into both the working set (to show it)
+  // and the load-time snapshot (so Save's diff treats it as a pre-existing
+  // member — it won't be re-assigned, and a later Remove still unassigns it).
+  // A failed create returns null (toast shown by the host) and leaves the
+  // create modal open.
+  const handleCreateBuildingSave = async (values: BuildingFormValues) => {
+    const created = await onCreateBuilding(values);
+    if (!created) return;
+    setEntries((prev) => {
+      const next = prev ?? [];
+      if (next.some((e) => e.buildingId === created.id)) return next;
+      return [...next, { buildingId: created.id, label: created.name, rackCount: 0n }];
+    });
+    initialIdsRef.current.add(created.id.toString());
+    setShowCreateBuilding(false);
+  };
+
   const handleSave = async () => {
     const initial = initialIdsRef.current;
-    const current = new Set((displayEntries ?? []).map((e) => e.buildingId.toString()));
+    const current = new Set((entries ?? []).map((e) => e.buildingId.toString()));
     const added = [...current].filter((id) => !initial.has(id)).map((id) => BigInt(id));
     const removed = [...initial].filter((id) => !current.has(id)).map((id) => BigInt(id));
     const result = await onSave({ added, removed });
@@ -286,9 +299,8 @@ const ManageSiteModal = ({
             text: "Manage buildings",
             variant: variants.secondary,
             onClick: () => setShowManageBuildings(true),
-            // Enabled in both modes — create stages buildings into the working
-            // set and assigns them on the first Save. Only blocked while the
-            // edit-mode list is still loading (sortedEntries undefined).
+            // Only blocked while the building list is still loading
+            // (sortedEntries undefined).
             disabled: saving || sortedEntries === undefined,
             testId: "manage-site-modal-manage-buildings",
           },
@@ -296,10 +308,10 @@ const ManageSiteModal = ({
             text: saving ? "Saving…" : "Save",
             variant: variants.primary,
             onClick: handleSave,
-            // Block Save until the edit-mode building list has loaded.
-            // handleSave diffs the working set against initialIdsRef; firing
-            // it while entries are still undefined would diff against an empty
-            // (or stale) working set and unassign buildings on save.
+            // Block Save until the building list has loaded. handleSave diffs
+            // the working set against initialIdsRef; firing it while entries
+            // are still undefined would diff against an empty (or stale)
+            // working set and unassign buildings on save.
             disabled: buildingsBusy,
             testId: "manage-site-modal-save",
           },
@@ -316,6 +328,8 @@ const ManageSiteModal = ({
               ) : sortedEntries.length === 0 ? (
                 <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-50">
                   <span>No buildings added to this site</span>
+                  {/* Single affordance — the picker itself carries the
+                      "New building" hand-off for creating one from scratch. */}
                   <Button
                     variant={variants.primary}
                     size={sizes.compact}
@@ -374,10 +388,7 @@ const ManageSiteModal = ({
                 {sortedEntries === undefined ? (
                   <PlaceholderBlock label="Loading buildings…" className="h-20 w-[120px]" />
                 ) : sortedEntries.length === 0 ? (
-                  <PlaceholderBlock
-                    label={mode === "create" ? "No buildings yet" : "No buildings in this site"}
-                    className="h-20 w-[120px]"
-                  />
+                  <PlaceholderBlock label="No buildings in this site" className="h-20 w-[120px]" />
                 ) : (
                   sortedEntries.map((b) => (
                     <PlaceholderBlock key={b.buildingId.toString()} label={b.label} className="h-20 w-[120px]" />
@@ -390,15 +401,35 @@ const ManageSiteModal = ({
       />
 
       {showManageBuildings ? (
-        // siteId 0n in create mode (no persisted site yet): the picker treats
-        // every unassigned building as eligible and disables buildings already
-        // in another site, which is exactly the create-time rule.
         <ManageBuildingsModal
           open={showManageBuildings}
-          siteId={site?.id ?? 0n}
+          siteId={site.id}
           initialSelectedBuildingIds={currentBuildingIds}
           onDismiss={() => setShowManageBuildings(false)}
           onConfirm={handleManageBuildingsConfirm}
+          // "New building" in the picker swaps it for the create modal. The
+          // picker confirms its pending selection first, so onConfirm has
+          // already closed it by the time this fires.
+          onCreateNewLaunch={() => setShowCreateBuilding(true)}
+        />
+      ) : null}
+
+      {showCreateBuilding ? (
+        // Create a building already attached to this site. The Site dropdown is
+        // locked to `site` (initialSiteId set), matching the site-scoped
+        // building-create entry point elsewhere.
+        <BuildingSettingsModal
+          open
+          mode="create"
+          initialValues={emptyBuildingFormValues()}
+          sites={buildingCreateSites}
+          initialSiteId={site.id}
+          parentSiteLabel={previewTitle}
+          onSave={async (values) => {
+            await handleCreateBuildingSave(values);
+          }}
+          onDismiss={() => setShowCreateBuilding(false)}
+          saving={saving}
         />
       ) : null}
     </>

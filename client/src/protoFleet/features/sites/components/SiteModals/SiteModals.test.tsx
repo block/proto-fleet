@@ -22,17 +22,18 @@ const makeModals = (overrides: Partial<SiteModalsApi> = {}): SiteModalsApi => ({
   openManageEdit: vi.fn(),
   requestDeleteCurrent: vi.fn(),
   dismiss: vi.fn(),
-  cancelAll: vi.fn(),
   dismissDeleteConfirm: vi.fn(),
   detailsContinueCreate: vi.fn(),
   detailsSaveEdit: vi.fn(),
   manageEditDetails: vi.fn(),
+  manageCreateBuilding: vi.fn().mockResolvedValue(null),
   manageSave: vi.fn().mockResolvedValue(null),
   deleteConfirm: vi.fn().mockResolvedValue(undefined),
   ...overrides,
 });
 
-vi.mock("@/protoFleet/api/buildings", () => ({
+vi.mock("@/protoFleet/api/buildings", async (importActual) => ({
+  ...(await importActual<typeof import("@/protoFleet/api/buildings")>()),
   useBuildings: () => ({
     listBuildingsBySite: vi.fn().mockResolvedValue(undefined),
     listAllBuildings: vi.fn(),
@@ -83,19 +84,6 @@ describe("SiteModals", () => {
     // Both the underlying details modal and the cascade dialog render.
     expect(screen.getByTestId("site-delete-dialog")).toBeInTheDocument();
     expect(screen.getByText(/Delete site "North DC"\?/)).toBeInTheDocument();
-  });
-
-  it("Delete in manageCreateEditingDetails calls cancelAll (no cascade dialog)", () => {
-    const modals = makeModals({
-      state: { kind: "manageCreateEditingDetails", draft: { ...emptySiteFormValues(), name: "Pending" } },
-    });
-
-    render(<SiteModals modals={modals} sites={undefined} />);
-
-    fireEvent.click(screen.getByTestId("site-settings-modal-delete"));
-
-    expect(modals.cancelAll).toHaveBeenCalled();
-    expect(modals.requestDeleteCurrent).not.toHaveBeenCalled();
   });
 
   it("Cancelling the cascade dialog dismisses only the dialog, leaving the underlying modals", () => {

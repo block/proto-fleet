@@ -4,7 +4,7 @@ import { buildBuildingPickerItem, type BuildingPickerItem } from "./buildingPick
 import { computeBuildingSelectionDelta } from "./buildingSelectionDelta";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { useSites } from "@/protoFleet/api/sites";
-import { ChevronDown } from "@/shared/assets/icons";
+import { ChevronDown, Plus } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
@@ -27,6 +27,13 @@ interface ManageBuildingsModalProps {
   // separate lookup); `removed` is the seeded ids the operator unchecked.
   // Untouched buildings are in neither list — the caller leaves them as-is.
   onConfirm: (delta: { added: { buildingId: bigint; label: string }[]; removed: bigint[] }) => void;
+  // Renders a "New building" button beside Continue that hands off to the
+  // full building-create flow instead of picking an existing building —
+  // mirroring ParentPickerModal's createNewLaunch affordance ("New rack").
+  // The current selection is confirmed on the way out (see
+  // handleCreateNewLaunch), so checkbox changes aren't lost in the swap.
+  // Omitted = no create affordance.
+  onCreateNewLaunch?: () => void;
 }
 
 const PAGE_SIZE = 25;
@@ -60,6 +67,7 @@ const ManageBuildingsModal = ({
   initialSelectedBuildingIds,
   onDismiss,
   onConfirm,
+  onCreateNewLaunch,
 }: ManageBuildingsModalProps) => {
   const { listAllBuildings } = useBuildings();
   const { listSites } = useSites();
@@ -152,6 +160,18 @@ const ManageBuildingsModal = ({
 
   const handleSelectNone = useCallback(() => setSelectedItems([]), []);
 
+  // "New building" hand-off. Confirm the current selection first so the swap
+  // to the create modal doesn't silently drop checkbox changes — the delta
+  // only edits the caller's in-memory working set (nothing is persisted until
+  // the Manage Site modal's Save), so applying it early is lossless. The
+  // caller's onConfirm closes this picker, and onCreateNewLaunch opens the
+  // create modal in its place.
+  const handleCreateNewLaunch = useCallback(() => {
+    if (!onCreateNewLaunch) return;
+    handleConfirm();
+    onCreateNewLaunch();
+  }, [handleConfirm, onCreateNewLaunch]);
+
   return (
     <Modal
       open={open}
@@ -163,6 +183,22 @@ const ManageBuildingsModal = ({
       divider={false}
       testId="manage-buildings-modal"
       buttons={[
+        // ButtonGroup sorts the primary button last, so this lands to the left
+        // of Continue. Disabled until the list resolves — handleConfirm no-ops
+        // while `items` is undefined, which would leave both modals open.
+        ...(onCreateNewLaunch
+          ? [
+              {
+                text: "New building",
+                variant: variants.secondary,
+                prefixIcon: <Plus />,
+                onClick: handleCreateNewLaunch,
+                disabled: items === undefined,
+                dismissModalOnClick: false,
+                testId: "manage-buildings-modal-create-new",
+              },
+            ]
+          : []),
         {
           text: "Continue",
           variant: "primary",
