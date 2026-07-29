@@ -4,7 +4,7 @@ import clsx from "clsx";
 
 import { defaultTtl, STATUSES } from "../../constants";
 import { type ToastProps } from "../../types";
-import { Alert, Dismiss, Success } from "@/shared/assets/icons";
+import { Alert, Dismiss, Info, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -17,7 +17,7 @@ import { cubicBezierValues } from "@/shared/utils/cssUtils";
 const extraPaddingForHover = 15;
 const initialTranslateY = 20;
 
-const Toast = ({ message, onClose, status, index, numToasts, ttl = defaultTtl }: ToastProps) => {
+const Toast = ({ message, onClick, onClose, status, index, numToasts, ttl = defaultTtl }: ToastProps) => {
   // If Toast is used outside of toaster and we don't have index or numToasts
   // we just assume it's on top with no stacking transform applied.
   const stackOffset = index !== undefined && numToasts !== undefined ? numToasts - index - 1 : 0;
@@ -27,6 +27,20 @@ const Toast = ({ message, onClose, status, index, numToasts, ttl = defaultTtl }:
   const onTop = index == undefined || numToasts == undefined || index + 1 == numToasts;
 
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
+  const icon = (
+    <>
+      {status === STATUSES.loading ? <ProgressCircular indeterminate /> : null}
+      {status === STATUSES.success ? <Success className="text-intent-success-fill" /> : null}
+      {status === STATUSES.info ? <Info className="text-intent-info-fill" /> : null}
+      {status === STATUSES.error ? <Alert className="text-intent-critical-fill" /> : null}
+    </>
+  );
+  const messageContent = (
+    <>
+      {icon}
+      <div className="text-left text-heading-100 text-text-primary">{message}</div>
+    </>
+  );
 
   useEffect(() => {
     if (ttl !== false) {
@@ -60,13 +74,18 @@ const Toast = ({ message, onClose, status, index, numToasts, ttl = defaultTtl }:
             onTop ? "opacity-100" : "opacity-0",
           )}
         >
-          <div className="flex grow items-center space-x-3 transition-opacity duration-300">
-            {status === STATUSES.loading ? <ProgressCircular indeterminate /> : null}
-            {status === STATUSES.success ? <Success className="text-intent-success-fill" /> : null}
-            {status === STATUSES.error ? <Alert className="text-intent-critical-fill" /> : null}
-            <div className="text-heading-100 text-text-primary">{message}</div>
-          </div>
-          <button onClick={onClose}>
+          {onClick ? (
+            <button
+              type="button"
+              onClick={onClick}
+              className="flex grow cursor-pointer items-center space-x-3 rounded-sm text-left transition-opacity duration-300 outline-none hover:opacity-80 focus-visible:ring-2 focus-visible:ring-core-primary-fill focus-visible:ring-offset-2 focus-visible:ring-offset-surface-elevated-base"
+            >
+              {messageContent}
+            </button>
+          ) : (
+            <div className="flex grow items-center space-x-3 transition-opacity duration-300">{messageContent}</div>
+          )}
+          <button type="button" onClick={onClose}>
             <Dismiss className="text-text-primary-30" width={iconSizes.small} />
           </button>
         </div>

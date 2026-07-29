@@ -1,18 +1,13 @@
 import { ElementType } from "react";
 import { MemoryRouter } from "react-router-dom";
 
-import type { StoryFn } from "@storybook/react-vite";
+import type { StoryFn } from "@storybook/react";
 import { action } from "storybook/actions";
 import NavigationMenuComponent from ".";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
-import {
-  buildUpdateStatus,
-  resetPermissionsToStoryBaseline,
-  setupUpdateCalloutStory,
-} from "@/protoFleet/features/updates/components/updateCalloutStorySetup";
 import { useFleetStore } from "@/protoFleet/store";
 
-export const NavigationMenu = () => {
+export const NavigationMenu: StoryFn = () => {
   return <NavigationMenuComponent items={primaryNavItems} isVisible={true} closeMenu={action("close menu")} />;
 };
 
@@ -33,21 +28,7 @@ const seedNavPermissions = () => {
   }));
   return () => useFleetStore.setState((state) => ({ auth: { ...state.auth, permissions: [...previousPermissions] } }));
 };
-
-// The nav footer's update callout, in place above the logout button. At
-// laptop widths the nav is icon-only and shows the callout's icon-dot;
-// hovering the nav expands both.
-export const WithUpdateAvailable: StoryFn = () => (
-  <NavigationMenuComponent items={primaryNavItems} isVisible={true} closeMenu={action("close menu")} />
-);
-WithUpdateAvailable.beforeEach = () => {
-  const restorePermissions = seedNavPermissions();
-  const restoreUpdateCallout = setupUpdateCalloutStory(buildUpdateStatus());
-  return () => {
-    restoreUpdateCallout();
-    restorePermissions();
-  };
-};
+NavigationMenu.beforeEach = seedNavPermissions;
 
 export default {
   title: "Proto Fleet/NavigationMenu",
@@ -56,7 +37,13 @@ export default {
   // story left persisted in the iframe's localStorage; seeded stories layer
   // on top of this in their own beforeEach (story hooks run after meta's).
   beforeEach: () => {
-    resetPermissionsToStoryBaseline();
+    const previousPermissions = useFleetStore.getState().auth.permissions;
+    useFleetStore.setState((state) => ({
+      auth: { ...state.auth, permissions: state.auth.isAuthenticated ? state.auth.permissions : [] },
+    }));
+    return () => {
+      useFleetStore.setState((state) => ({ auth: { ...state.auth, permissions: [...previousPermissions] } }));
+    };
   },
   parameters: {
     withRouter: false,

@@ -206,6 +206,28 @@ describe("PageHeader", () => {
     expect(screen.queryByTestId("phone-header-widget-row")).not.toBeInTheDocument();
   });
 
+  it("places the update pill to the left of Continue setup on desktop", () => {
+    mockUseWindowDimensions.mockReturnValue({
+      isPhone: false,
+      isTablet: false,
+    });
+    mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
+
+    render(
+      <MemoryRouter>
+        <PageHeader schedulePillData={createSchedulePillData()} updatePill={{ version: "v1.3.0", onClick: vi.fn() }} />
+      </MemoryRouter>,
+    );
+
+    const widgets = screen.getByTestId("page-header-desktop-widgets");
+    const updateButton = within(widgets).getByRole("button", { name: "Open update details for v1.3.0" });
+    const setupButton = within(widgets).getByRole("button", { name: "Continue setup" });
+
+    expect(updateButton).toHaveTextContent("Update available");
+    expect(updateButton.querySelector(".bg-intent-info-fill")).not.toBeNull();
+    expect(updateButton.compareDocumentPosition(setupButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("keeps the phone widget row hidden when neither setup nor schedules need space", () => {
     render(
       <MemoryRouter>

@@ -4,7 +4,7 @@ import Updates from "./Updates";
 import { updatesClient } from "@/protoFleet/api/clients";
 import type { GetUpdateStatusResponse } from "@/protoFleet/api/generated/updates/v1/updates_pb";
 import { ReleaseChannel } from "@/protoFleet/api/generated/updates/v1/updates_pb";
-import { DISMISSED_UPDATE_TAG_KEY } from "@/protoFleet/features/updates/components/UpdateCallout";
+import { DISMISSED_UPDATE_TAG_KEY } from "@/protoFleet/features/updates/constants";
 import { useHasPermission } from "@/protoFleet/store";
 import { pushToast } from "@/shared/features/toaster";
 import { copyToClipboard } from "@/shared/utils/utility";
