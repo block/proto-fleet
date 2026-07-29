@@ -41,7 +41,7 @@ func TestCoordinatorActivatesAndExposesLifetime(t *testing.T) {
 	holder := uuid.New()
 	store := &fakeLeaseStore{}
 	coordinator := newCoordinatorWithHolder(
-		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Second)},
+		staticObserver{observation: coordinatorObservation("cluster-a", 41)},
 		store,
 		coordinatorTestConfig(),
 		holder,
@@ -59,8 +59,8 @@ func TestCoordinatorCancelsLifetimeOnObservationLoss(t *testing.T) {
 	holder := uuid.New()
 	observer := &sequenceObserver{
 		results: []observerResult{
-			{observation: coordinatorObservation("cluster-a", 41, time.Second)},
-			{err: errors.New("DCS unavailable")},
+			{observation: coordinatorObservation("cluster-a", 41)},
+			{err: errors.New("writer unavailable")},
 		},
 	}
 	coordinator := newCoordinatorWithHolder(
@@ -78,10 +78,10 @@ func TestCoordinatorCancelsLifetimeOnObservationLoss(t *testing.T) {
 
 func TestCoordinatorKeepsHolderAfterPassiveAcquisitionProofFailure(t *testing.T) {
 	holder := uuid.New()
-	proofErr := errors.New("closing DCS proof failed")
+	proofErr := errors.New("closing writer validation failed")
 	coordinator := newCoordinatorWithHolder(
 		actionThenErrorObserver{
-			observation: coordinatorObservation("cluster-a", 41, time.Second),
+			observation: coordinatorObservation("cluster-a", 41),
 			err:         proofErr,
 		},
 		&fakeLeaseStore{},
@@ -97,7 +97,7 @@ func TestCoordinatorKeepsHolderAfterPassiveAcquisitionProofFailure(t *testing.T)
 func TestCoordinatorCancelsLifetimeOnRenewalLoss(t *testing.T) {
 	store := &fakeLeaseStore{renewErr: ErrOwnershipLost}
 	coordinator := newCoordinatorWithHolder(
-		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Second)},
+		staticObserver{observation: coordinatorObservation("cluster-a", 41)},
 		store,
 		coordinatorTestConfig(),
 		uuid.New(),
@@ -114,8 +114,8 @@ func TestCoordinatorCancelsLifetimeOnRenewalLoss(t *testing.T) {
 func TestCoordinatorCancelsLifetimeOnWriterGenerationChange(t *testing.T) {
 	observer := &sequenceObserver{
 		results: []observerResult{
-			{observation: coordinatorObservation("cluster-a", 41, time.Second)},
-			{observation: coordinatorObservation("cluster-a", 42, time.Second)},
+			{observation: coordinatorObservation("cluster-a", 41)},
+			{observation: coordinatorObservation("cluster-a", 42)},
 		},
 	}
 	coordinator := newCoordinatorWithHolder(
@@ -135,7 +135,7 @@ func TestCoordinatorCancelsLifetimeWhenLeaseExpiresWithoutRenewal(t *testing.T) 
 	config.LeaseDuration = 40 * time.Millisecond
 	config.RenewInterval = 10 * time.Millisecond
 	coordinator := newCoordinatorWithHolder(
-		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Second)},
+		staticObserver{observation: coordinatorObservation("cluster-a", 41)},
 		&fakeLeaseStore{},
 		config,
 		uuid.New(),
@@ -176,10 +176,10 @@ func TestCoordinatorRunRetriesWhenPassiveObservationBlocks(t *testing.T) {
 
 func TestCoordinatorActiveRenewalStopsAtWatchdogDeadline(t *testing.T) {
 	config := coordinatorTestConfig()
-	config.LeaseDuration = time.Second
+	config.LeaseDuration = 40 * time.Millisecond
 	config.RenewInterval = 10 * time.Millisecond
 	observer := &activateThenBlockObserver{
-		observation: coordinatorObservation("cluster-a", 41, 40*time.Millisecond),
+		observation: coordinatorObservation("cluster-a", 41),
 	}
 	coordinator := newCoordinatorWithHolder(
 		observer,
@@ -202,7 +202,7 @@ func TestCoordinatorRejectsLeaseThatExpiredBeforeAcquireReturned(t *testing.T) {
 	config.RenewInterval = 5 * time.Millisecond
 	store := &fakeLeaseStore{acquireDelay: 20 * time.Millisecond}
 	coordinator := newCoordinatorWithHolder(
-		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Second)},
+		staticObserver{observation: coordinatorObservation("cluster-a", 41)},
 		store,
 		config,
 		uuid.New(),
@@ -214,32 +214,14 @@ func TestCoordinatorRejectsLeaseThatExpiredBeforeAcquireReturned(t *testing.T) {
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
 }
 
-func TestCoordinatorCapsLifetimeAtDCSProofDeadline(t *testing.T) {
-	config := coordinatorTestConfig()
-	config.LeaseDuration = time.Second
-	config.RenewInterval = 100 * time.Millisecond
-	coordinator := newCoordinatorWithHolder(
-		staticObserver{observation: coordinatorObservation("cluster-a", 41, 40*time.Millisecond)},
-		&fakeLeaseStore{},
-		config,
-		uuid.New(),
-	)
-
-	require.NoError(t, coordinator.step(t.Context()))
-	activeCtx, _, active := coordinator.ActiveLifetime()
-	require.True(t, active)
-	require.Eventually(t, func() bool { return activeCtx.Err() != nil }, time.Second, time.Millisecond)
-	require.Equal(t, StatePassive, coordinator.Snapshot().State)
-}
-
 func TestCoordinatorSuccessfulRenewalExtendsWatchdog(t *testing.T) {
 	config := coordinatorTestConfig()
 	config.LeaseDuration = 200 * time.Millisecond
 	config.RenewInterval = 50 * time.Millisecond
 	observer := &sequenceObserver{
 		results: []observerResult{
-			{observation: coordinatorObservation("cluster-a", 41, time.Second)},
-			{observation: coordinatorObservation("cluster-a", 41, time.Second)},
+			{observation: coordinatorObservation("cluster-a", 41)},
+			{observation: coordinatorObservation("cluster-a", 41)},
 		},
 	}
 	coordinator := newCoordinatorWithHolder(
@@ -273,13 +255,10 @@ func requireCall(t *testing.T, calls <-chan struct{}) {
 }
 
 func coordinatorObservation(
-	clusterID string,
+	systemIdentifier string,
 	generation int64,
-	proofTTL time.Duration,
 ) WriterObservation {
-	observed := observation(clusterID, generation)
-	observed.DCSProofDeadline = time.Now().Add(proofTTL)
-	return observed
+	return observation(systemIdentifier, generation)
 }
 
 func coordinatorTestConfig() CoordinatorConfig {
@@ -411,7 +390,7 @@ func (f *fakeLeaseStore) Acquire(
 		time.Sleep(f.acquireDelay)
 	}
 	f.ownership = Ownership{
-		DCSClusterID: observed.DCSClusterID,
+		PostgresSystemIdentifier: observed.PostgresSystemIdentifier,
 		Token: Token{
 			WriterGeneration: observed.WriterGeneration,
 			LeaseEpoch:       1,

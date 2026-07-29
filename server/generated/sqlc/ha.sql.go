@@ -20,13 +20,15 @@ WITH lease_context AS (
     FROM connected_postgres_identity AS connected
     WHERE
         NOT connected.in_recovery
+        AND connected.system_identifier
+            = $1::TEXT
         AND connected.server_address = $5::TEXT
         AND connected.server_port = $6::INTEGER
-        AND connected.timeline = $7::BIGINT
+        AND connected.timeline = $2::BIGINT
 )
 INSERT INTO fleet_runtime_lease AS current_lease (
     lease_name,
-    dcs_cluster_id,
+    postgres_system_identifier,
     highest_writer_generation,
     lease_epoch,
     holder_id,
@@ -71,7 +73,8 @@ SET
     END
 WHERE
     -- A newer writer may supersede a live lease; same-generation takeover waits for expiry.
-    current_lease.dcs_cluster_id = EXCLUDED.dcs_cluster_id
+    current_lease.postgres_system_identifier
+        = EXCLUDED.postgres_system_identifier
     AND EXCLUDED.highest_writer_generation
         >= current_lease.highest_writer_generation
     AND (
@@ -82,7 +85,7 @@ WHERE
             <= (SELECT database_time FROM lease_context)
     )
 RETURNING
-    dcs_cluster_id,
+    postgres_system_identifier,
     highest_writer_generation,
     lease_epoch,
     holder_id,
@@ -91,37 +94,35 @@ RETURNING
 `
 
 type AcquireFleetRuntimeLeaseParams struct {
-	DcsClusterID              string
+	PostgresSystemIdentifier  string
 	WriterGeneration          int64
 	HolderID                  uuid.UUID
 	LeaseDurationMilliseconds int64
 	ServerAddress             string
 	ServerPort                int32
-	Timeline                  int64
 }
 
 type AcquireFleetRuntimeLeaseRow struct {
-	DcsClusterID            string
-	HighestWriterGeneration int64
-	LeaseEpoch              int64
-	HolderID                uuid.UUID
-	ExpiresAt               time.Time
-	DatabaseTime            time.Time
+	PostgresSystemIdentifier string
+	HighestWriterGeneration  int64
+	LeaseEpoch               int64
+	HolderID                 uuid.UUID
+	ExpiresAt                time.Time
+	DatabaseTime             time.Time
 }
 
 func (q *Queries) AcquireFleetRuntimeLease(ctx context.Context, arg AcquireFleetRuntimeLeaseParams) (AcquireFleetRuntimeLeaseRow, error) {
 	row := q.queryRow(ctx, q.acquireFleetRuntimeLeaseStmt, acquireFleetRuntimeLease,
-		arg.DcsClusterID,
+		arg.PostgresSystemIdentifier,
 		arg.WriterGeneration,
 		arg.HolderID,
 		arg.LeaseDurationMilliseconds,
 		arg.ServerAddress,
 		arg.ServerPort,
-		arg.Timeline,
 	)
 	var i AcquireFleetRuntimeLeaseRow
 	err := row.Scan(
-		&i.DcsClusterID,
+		&i.PostgresSystemIdentifier,
 		&i.HighestWriterGeneration,
 		&i.LeaseEpoch,
 		&i.HolderID,
@@ -133,6 +134,7 @@ func (q *Queries) AcquireFleetRuntimeLease(ctx context.Context, arg AcquireFleet
 
 const getConnectedPostgresIdentity = `-- name: GetConnectedPostgresIdentity :one
 SELECT
+    system_identifier,
     server_address,
     server_port,
     in_recovery,
@@ -144,6 +146,7 @@ func (q *Queries) GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPo
 	row := q.queryRow(ctx, q.getConnectedPostgresIdentityStmt, getConnectedPostgresIdentity)
 	var i ConnectedPostgresIdentity
 	err := row.Scan(
+		&i.SystemIdentifier,
 		&i.ServerAddress,
 		&i.ServerPort,
 		&i.InRecovery,
@@ -160,9 +163,11 @@ WITH lease_context AS (
     FROM connected_postgres_identity AS connected
     WHERE
         NOT connected.in_recovery
+        AND connected.system_identifier
+            = $2::TEXT
         AND connected.server_address = $6::TEXT
         AND connected.server_port = $7::INTEGER
-        AND connected.timeline = $8::BIGINT
+        AND connected.timeline = $3::BIGINT
 )
 UPDATE fleet_runtime_lease
 SET
@@ -173,13 +178,13 @@ FROM lease_context
 WHERE
     -- Renewal requires the exact, unexpired ownership tuple on the expected writer.
     lease_name = 'fleet-active'
-    AND dcs_cluster_id = $2
+    AND postgres_system_identifier = $2
     AND highest_writer_generation = $3
     AND lease_epoch = $4
     AND holder_id = $5
     AND expires_at > lease_context.database_time
 RETURNING
-    fleet_runtime_lease.dcs_cluster_id,
+    fleet_runtime_lease.postgres_system_identifier,
     fleet_runtime_lease.highest_writer_generation,
     fleet_runtime_lease.lease_epoch,
     fleet_runtime_lease.holder_id,
@@ -189,38 +194,36 @@ RETURNING
 
 type RenewFleetRuntimeLeaseParams struct {
 	LeaseDurationMilliseconds int64
-	DcsClusterID              string
+	PostgresSystemIdentifier  string
 	WriterGeneration          int64
 	LeaseEpoch                int64
 	HolderID                  uuid.UUID
 	ServerAddress             string
 	ServerPort                int32
-	Timeline                  int64
 }
 
 type RenewFleetRuntimeLeaseRow struct {
-	DcsClusterID            string
-	HighestWriterGeneration int64
-	LeaseEpoch              int64
-	HolderID                uuid.UUID
-	ExpiresAt               time.Time
-	DatabaseTime            time.Time
+	PostgresSystemIdentifier string
+	HighestWriterGeneration  int64
+	LeaseEpoch               int64
+	HolderID                 uuid.UUID
+	ExpiresAt                time.Time
+	DatabaseTime             time.Time
 }
 
 func (q *Queries) RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error) {
 	row := q.queryRow(ctx, q.renewFleetRuntimeLeaseStmt, renewFleetRuntimeLease,
 		arg.LeaseDurationMilliseconds,
-		arg.DcsClusterID,
+		arg.PostgresSystemIdentifier,
 		arg.WriterGeneration,
 		arg.LeaseEpoch,
 		arg.HolderID,
 		arg.ServerAddress,
 		arg.ServerPort,
-		arg.Timeline,
 	)
 	var i RenewFleetRuntimeLeaseRow
 	err := row.Scan(
-		&i.DcsClusterID,
+		&i.PostgresSystemIdentifier,
 		&i.HighestWriterGeneration,
 		&i.LeaseEpoch,
 		&i.HolderID,

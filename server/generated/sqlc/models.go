@@ -444,10 +444,11 @@ type CommandOnDeviceLog struct {
 }
 
 type ConnectedPostgresIdentity struct {
-	ServerAddress string
-	ServerPort    int32
-	InRecovery    bool
-	Timeline      int64
+	SystemIdentifier string
+	ServerAddress    string
+	ServerPort       int32
+	InRecovery       bool
+	Timeline         int64
 }
 
 type CurtailmentAutomationRule struct {
@@ -940,12 +941,12 @@ type FleetPollableDevicePresence struct {
 }
 
 type FleetRuntimeLease struct {
-	LeaseName               string
-	DcsClusterID            string
-	HighestWriterGeneration int64
-	LeaseEpoch              int64
-	HolderID                uuid.UUID
-	ExpiresAt               time.Time
+	LeaseName                string
+	PostgresSystemIdentifier string
+	HighestWriterGeneration  int64
+	LeaseEpoch               int64
+	HolderID                 uuid.UUID
+	ExpiresAt                time.Time
 }
 
 type FleetTelemetryPollHeartbeat struct {

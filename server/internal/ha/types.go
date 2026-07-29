@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Token totally orders Fleet ownership within one DCS cluster identity.
+// Token totally orders Fleet ownership within one PostgreSQL cluster.
 type Token struct {
 	WriterGeneration int64
 	LeaseEpoch       int64
@@ -23,25 +23,22 @@ func (t Token) Compare(other Token) int {
 	)
 }
 
-// WriterObservation is a fail-closed binding between one DCS leader term and
-// the writable PostgreSQL server reached through Fleet's multi-host DSN.
+// WriterObservation identifies the writable PostgreSQL server reached through
+// Fleet's multi-host DSN. The timeline is the writer generation.
 type WriterObservation struct {
-	DCSClusterID     string
-	WriterGeneration int64
-	LeaderName       string
-	ServerAddress    string
-	ServerPort       int32
-	Timeline         int64
-	DCSProofDeadline time.Time
+	PostgresSystemIdentifier string
+	WriterGeneration         int64
+	ServerAddress            string
+	ServerPort               int32
 }
 
 // Ownership is the exact database lease identity held by one Fleet process.
 type Ownership struct {
-	DCSClusterID string
-	Token        Token
-	HolderID     uuid.UUID
-	DatabaseTime time.Time
-	ExpiresAt    time.Time
+	PostgresSystemIdentifier string
+	Token                    Token
+	HolderID                 uuid.UUID
+	DatabaseTime             time.Time
+	ExpiresAt                time.Time
 }
 
 type writerObserver interface {

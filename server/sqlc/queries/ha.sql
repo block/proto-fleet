@@ -1,5 +1,6 @@
 -- name: GetConnectedPostgresIdentity :one
 SELECT
+    system_identifier,
     server_address,
     server_port,
     in_recovery,
@@ -14,13 +15,15 @@ WITH lease_context AS (
     FROM connected_postgres_identity AS connected
     WHERE
         NOT connected.in_recovery
+        AND connected.system_identifier
+            = sqlc.arg('postgres_system_identifier')::TEXT
         AND connected.server_address = sqlc.arg('server_address')::TEXT
         AND connected.server_port = sqlc.arg('server_port')::INTEGER
-        AND connected.timeline = sqlc.arg('timeline')::BIGINT
+        AND connected.timeline = sqlc.arg('writer_generation')::BIGINT
 )
 INSERT INTO fleet_runtime_lease AS current_lease (
     lease_name,
-    dcs_cluster_id,
+    postgres_system_identifier,
     highest_writer_generation,
     lease_epoch,
     holder_id,
@@ -28,7 +31,7 @@ INSERT INTO fleet_runtime_lease AS current_lease (
 )
 SELECT
     'fleet-active',
-    sqlc.arg('dcs_cluster_id'),
+    sqlc.arg('postgres_system_identifier'),
     sqlc.arg('writer_generation'),
     1,
     sqlc.arg('holder_id'),
@@ -65,7 +68,8 @@ SET
     END
 WHERE
     -- A newer writer may supersede a live lease; same-generation takeover waits for expiry.
-    current_lease.dcs_cluster_id = EXCLUDED.dcs_cluster_id
+    current_lease.postgres_system_identifier
+        = EXCLUDED.postgres_system_identifier
     AND EXCLUDED.highest_writer_generation
         >= current_lease.highest_writer_generation
     AND (
@@ -76,7 +80,7 @@ WHERE
             <= (SELECT database_time FROM lease_context)
     )
 RETURNING
-    dcs_cluster_id,
+    postgres_system_identifier,
     highest_writer_generation,
     lease_epoch,
     holder_id,
@@ -91,9 +95,11 @@ WITH lease_context AS (
     FROM connected_postgres_identity AS connected
     WHERE
         NOT connected.in_recovery
+        AND connected.system_identifier
+            = sqlc.arg('postgres_system_identifier')::TEXT
         AND connected.server_address = sqlc.arg('server_address')::TEXT
         AND connected.server_port = sqlc.arg('server_port')::INTEGER
-        AND connected.timeline = sqlc.arg('timeline')::BIGINT
+        AND connected.timeline = sqlc.arg('writer_generation')::BIGINT
 )
 UPDATE fleet_runtime_lease
 SET
@@ -104,13 +110,13 @@ FROM lease_context
 WHERE
     -- Renewal requires the exact, unexpired ownership tuple on the expected writer.
     lease_name = 'fleet-active'
-    AND dcs_cluster_id = sqlc.arg('dcs_cluster_id')
+    AND postgres_system_identifier = sqlc.arg('postgres_system_identifier')
     AND highest_writer_generation = sqlc.arg('writer_generation')
     AND lease_epoch = sqlc.arg('lease_epoch')
     AND holder_id = sqlc.arg('holder_id')
     AND expires_at > lease_context.database_time
 RETURNING
-    fleet_runtime_lease.dcs_cluster_id,
+    fleet_runtime_lease.postgres_system_identifier,
     fleet_runtime_lease.highest_writer_generation,
     fleet_runtime_lease.lease_epoch,
     fleet_runtime_lease.holder_id,

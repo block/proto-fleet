@@ -25,13 +25,13 @@ type CoordinatorConfig struct {
 
 // Snapshot is a non-authoritative view of the coordinator's current state.
 type Snapshot struct {
-	State        State
-	HolderID     uuid.UUID
-	DCSClusterID string
-	Token        Token
-	ExpiresAt    time.Time
-	LastError    string
-	UpdatedAt    time.Time
+	State                    State
+	HolderID                 uuid.UUID
+	PostgresSystemIdentifier string
+	Token                    Token
+	ExpiresAt                time.Time
+	LastError                string
+	UpdatedAt                time.Time
 }
 
 type Coordinator struct {
@@ -117,7 +117,7 @@ func (c *Coordinator) Snapshot() Snapshot {
 	}
 	if c.activeCtx != nil {
 		snapshot.State = StateActive
-		snapshot.DCSClusterID = c.ownership.DCSClusterID
+		snapshot.PostgresSystemIdentifier = c.ownership.PostgresSystemIdentifier
 		snapshot.Token = c.ownership.Token
 		snapshot.ExpiresAt = c.ownership.ExpiresAt
 	}
@@ -174,7 +174,7 @@ func (c *Coordinator) step(ctx context.Context) error {
 			ownership      Ownership
 			requestStarted time.Time
 		)
-		observed, err := c.observer.ObserveAndRun(
+		_, err := c.observer.ObserveAndRun(
 			stepCtx,
 			func(actionCtx context.Context, observed WriterObservation) error {
 				requestStarted = time.Now()
@@ -192,12 +192,7 @@ func (c *Coordinator) step(ctx context.Context) error {
 			c.deactivate(err)
 			return err
 		}
-		if err := c.activate(
-			ctx,
-			ownership,
-			requestStarted,
-			observed.DCSProofDeadline,
-		); err != nil {
+		if err := c.activate(ctx, ownership, requestStarted); err != nil {
 			c.deactivate(err)
 			return err
 		}
@@ -208,17 +203,17 @@ func (c *Coordinator) step(ctx context.Context) error {
 		renewed        Ownership
 		requestStarted time.Time
 	)
-	observed, err := c.observer.ObserveAndRun(
+	_, err := c.observer.ObserveAndRun(
 		stepCtx,
 		func(actionCtx context.Context, observed WriterObservation) error {
-			if observed.DCSClusterID != current.DCSClusterID ||
+			if observed.PostgresSystemIdentifier != current.PostgresSystemIdentifier ||
 				observed.WriterGeneration != current.Token.WriterGeneration {
 				return fmt.Errorf(
 					"%w: held %s@%d, observed %s@%d",
 					ErrWriterChanged,
-					current.DCSClusterID,
+					current.PostgresSystemIdentifier,
 					current.Token.WriterGeneration,
-					observed.DCSClusterID,
+					observed.PostgresSystemIdentifier,
 					observed.WriterGeneration,
 				)
 			}
@@ -237,12 +232,7 @@ func (c *Coordinator) step(ctx context.Context) error {
 		c.deactivate(err)
 		return err
 	}
-	if err := c.updateActive(
-		renewed,
-		current,
-		requestStarted,
-		observed.DCSProofDeadline,
-	); err != nil {
+	if err := c.updateActive(renewed, current, requestStarted); err != nil {
 		c.deactivate(err)
 		return err
 	}
@@ -253,13 +243,8 @@ func (c *Coordinator) activate(
 	parent context.Context,
 	ownership Ownership,
 	requestStarted time.Time,
-	dcsProofDeadline time.Time,
 ) error {
-	deadline, err := localOwnershipDeadline(
-		ownership,
-		requestStarted,
-		dcsProofDeadline,
-	)
+	deadline, err := localOwnershipDeadline(ownership, requestStarted)
 	if err != nil {
 		return err
 	}
@@ -284,13 +269,8 @@ func (c *Coordinator) updateActive(
 	ownership Ownership,
 	expected Ownership,
 	requestStarted time.Time,
-	dcsProofDeadline time.Time,
 ) error {
-	deadline, err := localOwnershipDeadline(
-		ownership,
-		requestStarted,
-		dcsProofDeadline,
-	)
+	deadline, err := localOwnershipDeadline(ownership, requestStarted)
 	if err != nil {
 		return err
 	}
@@ -298,7 +278,7 @@ func (c *Coordinator) updateActive(
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.activeCtx == nil ||
-		c.ownership.DCSClusterID != expected.DCSClusterID ||
+		c.ownership.PostgresSystemIdentifier != expected.PostgresSystemIdentifier ||
 		c.ownership.Token != expected.Token ||
 		c.ownership.HolderID != expected.HolderID {
 		return ErrOwnershipLost
@@ -313,19 +293,12 @@ func (c *Coordinator) updateActive(
 func localOwnershipDeadline(
 	ownership Ownership,
 	requestStarted time.Time,
-	dcsProofDeadline time.Time,
 ) (time.Time, error) {
 	validFor := ownership.ExpiresAt.Sub(ownership.DatabaseTime)
 	if requestStarted.IsZero() || validFor <= 0 {
 		return time.Time{}, ErrOwnershipExpired
 	}
 	deadline := requestStarted.Add(validFor)
-	if dcsProofDeadline.IsZero() {
-		return time.Time{}, ErrLeaderLeaseExpired
-	}
-	if dcsProofDeadline.Before(deadline) {
-		deadline = dcsProofDeadline
-	}
 	if !deadline.After(time.Now()) {
 		return time.Time{}, ErrOwnershipExpired
 	}

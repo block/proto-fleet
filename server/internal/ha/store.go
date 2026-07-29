@@ -56,8 +56,7 @@ func (s *LeaseStore) Acquire(
 		sqlc.AcquireFleetRuntimeLeaseParams{
 			ServerAddress:             observed.ServerAddress,
 			ServerPort:                observed.ServerPort,
-			Timeline:                  observed.Timeline,
-			DcsClusterID:              observed.DCSClusterID,
+			PostgresSystemIdentifier:  observed.PostgresSystemIdentifier,
 			WriterGeneration:          observed.WriterGeneration,
 			HolderID:                  holderID,
 			LeaseDurationMilliseconds: duration.Milliseconds(),
@@ -82,9 +81,9 @@ func (s *LeaseStore) Renew(
 	if err := validateWriterObservation(observed); err != nil {
 		return Ownership{}, err
 	}
-	if observed.DCSClusterID != ownership.DCSClusterID ||
+	if observed.PostgresSystemIdentifier != ownership.PostgresSystemIdentifier ||
 		observed.WriterGeneration != ownership.Token.WriterGeneration ||
-		ownership.DCSClusterID == "" ||
+		ownership.PostgresSystemIdentifier == "" ||
 		ownership.Token.WriterGeneration <= 0 ||
 		ownership.Token.LeaseEpoch <= 0 ||
 		ownership.HolderID == uuid.Nil ||
@@ -96,9 +95,8 @@ func (s *LeaseStore) Renew(
 		sqlc.RenewFleetRuntimeLeaseParams{
 			ServerAddress:             observed.ServerAddress,
 			ServerPort:                observed.ServerPort,
-			Timeline:                  observed.Timeline,
 			LeaseDurationMilliseconds: duration.Milliseconds(),
-			DcsClusterID:              ownership.DCSClusterID,
+			PostgresSystemIdentifier:  ownership.PostgresSystemIdentifier,
 			WriterGeneration:          ownership.Token.WriterGeneration,
 			LeaseEpoch:                ownership.Token.LeaseEpoch,
 			HolderID:                  ownership.HolderID,
@@ -111,7 +109,7 @@ func (s *LeaseStore) Renew(
 		return Ownership{}, fmt.Errorf("renew Fleet active lease: %w", err)
 	}
 	return Ownership{
-		DCSClusterID: row.DcsClusterID,
+		PostgresSystemIdentifier: row.PostgresSystemIdentifier,
 		Token: Token{
 			WriterGeneration: row.HighestWriterGeneration,
 			LeaseEpoch:       row.LeaseEpoch,
@@ -140,11 +138,10 @@ func validateLeaseInput(
 }
 
 func validateWriterObservation(observed WriterObservation) error {
-	if observed.DCSClusterID == "" ||
+	if observed.PostgresSystemIdentifier == "" ||
 		observed.WriterGeneration <= 0 ||
 		observed.ServerAddress == "" ||
-		observed.ServerPort <= 0 ||
-		observed.Timeline <= 0 {
+		observed.ServerPort <= 0 {
 		return errors.New("invalid writer observation for Fleet active lease")
 	}
 	return nil
@@ -152,7 +149,7 @@ func validateWriterObservation(observed WriterObservation) error {
 
 func ownershipFromAcquire(row sqlc.AcquireFleetRuntimeLeaseRow) Ownership {
 	return Ownership{
-		DCSClusterID: row.DcsClusterID,
+		PostgresSystemIdentifier: row.PostgresSystemIdentifier,
 		Token: Token{
 			WriterGeneration: row.HighestWriterGeneration,
 			LeaseEpoch:       row.LeaseEpoch,
