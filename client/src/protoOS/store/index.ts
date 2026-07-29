@@ -28,13 +28,13 @@ export { convertValueUnits, formatValue, convertAndFormatMeasurement } from "./u
 export { getAsicId } from "./utils/getAsicId";
 export { getAsicName } from "./utils/getAsicName";
 export {
-  getProtoAsicLabel,
-  getProtoRowLabel,
-  PROTO_HASHBOARD_COLUMNS,
-  PROTO_HASHBOARD_ROWS,
-  PROTO_HASHBOARD_ROW_LETTERS,
-  PROTO_HASHBOARD_ROW_ORDER,
-} from "./utils/protoHashboardLayout";
+  getProtoContainerAsicLabel,
+  getProtoContainerRowLabel,
+  PROTO_CONTAINER_HASHBOARD_COLUMNS,
+  PROTO_CONTAINER_HASHBOARD_ROWS,
+  PROTO_CONTAINER_HASHBOARD_ROW_LETTERS,
+  PROTO_CONTAINER_HASHBOARD_ROW_ORDER,
+} from "./utils/protoContainerHashboardLayout";
 
 export {
   useMiner,
@@ -153,7 +153,7 @@ export {
   useSystemInfoPending,
   useSystemInfoError,
   useIsProtoRig,
-  useIsProtoModule,
+  useIsProtoContainer,
   useIsWebServerRunning,
   useIsMiningDriverRunning,
   useHasFirmwareUpdate,

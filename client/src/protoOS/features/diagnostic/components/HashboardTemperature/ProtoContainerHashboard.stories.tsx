@@ -2,7 +2,7 @@
 //
 // These render the REAL production components for a Proto container module
 // (26x12 serpentine ASIC grid) so the module-specific layout can be reviewed
-// alongside the rig path. Three components branch on `useIsProtoModule`, which
+// alongside the rig path. Three components branch on `useIsProtoContainer`, which
 // keys off `systemInfo.model` (interim "CU…" signal) — a global store flag, not
 // a prop — so a single seeded module drives all of them:
 //   - HashboardStatusCard / AsicTablePreview → icon-less card, 16px rows
@@ -18,11 +18,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import ComponentSection from "../ComponentSection";
 import HashboardStatusCard from "../HashboardStatusCard/HashboardStatusCard";
 import HashboardTemperature from "./HashboardTemperature";
-import { PROTO_HASHBOARD_COLUMNS, PROTO_HASHBOARD_ROWS } from "@/protoOS/store";
+import { PROTO_CONTAINER_HASHBOARD_COLUMNS, PROTO_CONTAINER_HASHBOARD_ROWS } from "@/protoOS/store";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
-const N = PROTO_HASHBOARD_COLUMNS; // 26
-const ROWS = PROTO_HASHBOARD_ROWS; // 12
+const N = PROTO_CONTAINER_HASHBOARD_COLUMNS; // 26
+const ROWS = PROTO_CONTAINER_HASHBOARD_ROWS; // 12
 
 const BOARDS = [
   { serial: "CU1-HB-1", slot: 1, profile: "cool" as const },
@@ -48,7 +48,7 @@ const SeedStore = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const store = useMinerStore.getState();
 
-    // Mark this device as a Proto container module (model "CU1" -> useIsProtoModule).
+    // Mark this device as a Proto container module (model "CU1" -> useIsProtoContainer).
     store.systemInfo.setSystemInfo({
       manufacturer: "Proto",
       model: "CU1",
@@ -90,7 +90,7 @@ const SeedStore = ({ children }: { children: ReactNode }) => {
       );
     });
 
-    // Clear the Proto module (and its flag) so sibling rig stories start clean.
+    // Clear the Proto container module (and its flag) so sibling rig stories start clean.
     return () => {
       useMinerStore.getState().resetDeviceData();
     };
@@ -100,7 +100,7 @@ const SeedStore = ({ children }: { children: ReactNode }) => {
 };
 
 const meta: Meta = {
-  title: "Proto OS/Diagnostic/Proto Module Hashboard",
+  title: "Proto OS/Diagnostic/Proto Container Hashboard",
   decorators: [
     (Story) => (
       <MemoryRouter>

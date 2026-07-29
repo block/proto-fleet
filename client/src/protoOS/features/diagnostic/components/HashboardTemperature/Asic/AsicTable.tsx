@@ -3,7 +3,7 @@ import clsx from "clsx";
 
 import { getAsicsRows } from "../utility";
 import AsicButton from "./AsicButton";
-import { AsicData, useIsProtoModule } from "@/protoOS/store";
+import { AsicData, useIsProtoContainer } from "@/protoOS/store";
 import { PopoverProvider } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
@@ -16,7 +16,7 @@ interface AsicTableProps {
 }
 
 const AsicTable = ({ asics, hashboardSerialNumber, pending, showPopover, setShowPopover }: AsicTableProps) => {
-  const isProtoModule = useIsProtoModule();
+  const isProtoContainer = useIsProtoContainer();
 
   return (
     <div className="relative mt-6 h-full">
@@ -33,9 +33,9 @@ const AsicTable = ({ asics, hashboardSerialNumber, pending, showPopover, setShow
                 fill the available width when the viewport allows, and hold a
                 56px floor (min-w-14) so the row scrolls horizontally when it
                 can't. Rigs keep the original full-width flex rows. */}
-            <div className={isProtoModule ? "flex w-full flex-col gap-1" : "w-full -space-y-[2px]"}>
+            <div className={isProtoContainer ? "flex w-full flex-col gap-1" : "w-full -space-y-[2px]"}>
               {getAsicsRows(asics).map((row) => (
-                <div className={clsx("flex", isProtoModule ? "gap-1" : "gap-1.5")} key={`asic-${row}`}>
+                <div className={clsx("flex", isProtoContainer ? "gap-1" : "gap-1.5")} key={`asic-${row}`}>
                   {asics
                     .filter((asic) => asic.row === row)
                     .map((asic) => (

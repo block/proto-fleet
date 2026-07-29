@@ -11,7 +11,7 @@ import {
   HashboardData,
   type Measurement,
   useHashboardsHardware,
-  useIsProtoModule,
+  useIsProtoContainer,
   useMinerHashboard,
   useTemperatureUnit,
 } from "@/protoOS/store";
@@ -60,7 +60,7 @@ type HashboardTemperatureProps = {
 
 const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   const temperatureUnit = useTemperatureUnit();
-  const isProtoModule = useIsProtoModule();
+  const isProtoContainer = useIsProtoContainer();
   const [showPopover, setShowPopover] = useState<string | undefined>(undefined);
   const [selectedMetric, setSelectedMetric] = useState<SelectedMetric>("temperature");
 
@@ -113,7 +113,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
   // corners of each rail (see design).
   const inletLatest = hashboard?.inletTemp?.latest;
   const outletLatest = hashboard?.outletTemp?.latest;
-  const topLeftTemp = isProtoModule ? outletLatest : inletLatest;
+  const topLeftTemp = isProtoContainer ? outletLatest : inletLatest;
 
   return (
     <div className="min-h-[100vh] w-full bg-surface-base">
@@ -127,7 +127,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
         iconOnClick={close}
         inline={true}
         title="Hashboards"
-        titleSize={isProtoModule ? "text-heading-200" : "text-heading-300"}
+        titleSize={isProtoContainer ? "text-heading-200" : "text-heading-300"}
         buttons={[
           {
             text: "Done",
@@ -173,12 +173,12 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
         {serial ? (
           <div className="before:w-ful relative flex items-center justify-between font-mono text-mono-text-50 text-text-primary-50 before:absolute before:top-[50%] before:left-0 before:h-[1px] before:w-full before:bg-border-5">
             <div className="relative bg-surface-base pr-4">
-              {isProtoModule ? "Top" : "Front"}
+              {isProtoContainer ? "Top" : "Front"}
               {topLeftTemp ? <> {convertAndFormatMeasurement(topLeftTemp, temperatureUnit, false)}</> : null}
             </div>
             <div className="relative bg-surface-base px-4">{serial}</div>
             <div className="relative bg-surface-base pl-4">
-              {isProtoModule ? "Top" : "Rear"}
+              {isProtoContainer ? "Top" : "Rear"}
               {outletLatest ? <> {convertAndFormatMeasurement(outletLatest, temperatureUnit, false)}</> : null}
             </div>
           </div>
@@ -193,7 +193,7 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
           </div>
         </div>
       ) : null}
-      {serial && isProtoModule ? (
+      {serial && isProtoContainer ? (
         <div className={`${containerPadX} pt-4`}>
           <div className="before:w-ful relative flex items-center justify-between font-mono text-mono-text-50 text-text-primary-50 before:absolute before:top-[50%] before:left-0 before:h-[1px] before:w-full before:bg-border-5">
             <div className="relative bg-surface-base pr-4">

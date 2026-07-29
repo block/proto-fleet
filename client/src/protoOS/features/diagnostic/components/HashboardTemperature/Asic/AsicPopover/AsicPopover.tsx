@@ -6,8 +6,8 @@ import {
   AsicData,
   convertAndFormatMeasurement,
   formatValue,
-  getProtoAsicLabel,
-  useIsProtoModule,
+  getProtoContainerAsicLabel,
+  useIsProtoContainer,
 } from "@/protoOS/store";
 import { useIntervalMs, useTemperatureUnit } from "@/protoOS/store";
 import Popover from "@/shared/components/Popover";
@@ -29,7 +29,7 @@ interface AsicPopoverProps {
 const AsicPopover = ({ asic, closePopover, closeIgnoreSelectors }: AsicPopoverProps) => {
   const temperatureUnit = useTemperatureUnit();
   const intervalMs = useIntervalMs();
-  const isProtoModule = useIsProtoModule();
+  const isProtoContainer = useIsProtoContainer();
 
   // Convert telemetry data to chart format
   const { temperatureData, hashrateData } = useMemo(() => {
@@ -64,8 +64,8 @@ const AsicPopover = ({ asic, closePopover, closeIgnoreSelectors }: AsicPopoverPr
       <div className="space-y-1">
         <div className="text-200 text-text-primary-70">ASIC</div>
         <div className="text-heading-200 text-text-primary">
-          {isProtoModule ? (
-            getProtoAsicLabel(asic.row || 0, asic.column || 0)
+          {isProtoContainer ? (
+            getProtoContainerAsicLabel(asic.row || 0, asic.column || 0)
           ) : (
             <>
               {getRowLabel(asic.row || 0)}

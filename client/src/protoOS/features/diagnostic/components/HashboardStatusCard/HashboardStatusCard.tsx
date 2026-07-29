@@ -8,7 +8,7 @@ import {
   useAsicDataTransform,
   useErrorsByComponent,
   useHashboardSlot,
-  useIsProtoModule,
+  useIsProtoContainer,
   useMinerHashboard,
   useMinerHashboardAsics,
 } from "@/protoOS/store";
@@ -31,7 +31,7 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
   const asics = useMinerHashboardAsics(serialNumber);
   const navigate = useNavigate();
   const [showComponentStatusModal, setShowComponentStatusModal] = useState(false);
-  const isProtoModule = useIsProtoModule();
+  const isProtoContainer = useIsProtoContainer();
 
   // Transform protoOS asic data to shared component format
   const asicData = useAsicDataTransform(asics);
@@ -56,7 +56,7 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
       <CardHeader
         title={name}
         statusIcon={hasErrors ? <Alert className="text-intent-critical-fill" width={iconSizes.small} /> : null}
-        componentIcon={isProtoModule ? null : <HashboardIndicator width="w-4" position={position} />}
+        componentIcon={isProtoContainer ? null : <HashboardIndicator width="w-4" position={position} />}
         onInfoIconClick={() => setShowComponentStatusModal(true)}
         actions={
           <Button variant="secondary" size="compact" onClick={handleViewClick}>
@@ -72,7 +72,7 @@ function HashboardStatusCard({ serialNumber }: HashboardStatusCardProps) {
           <LabeledValue value={<PowerValue value={power} />} label="Power" />
           <LabeledValue value={<HashRateValue value={hashrate} />} label="Hashrate" />
         </div>
-        <AsicTablePreview asics={asicData} rowHeight={isProtoModule ? 16 : undefined} />
+        <AsicTablePreview asics={asicData} rowHeight={isProtoContainer ? 16 : undefined} />
       </div>
       <StatusModal
         open={showComponentStatusModal}

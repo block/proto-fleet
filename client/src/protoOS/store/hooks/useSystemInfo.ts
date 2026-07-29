@@ -3,12 +3,13 @@ import useMinerStore from "../useMinerStore";
 
 const PROTO_RIG_PRODUCT_NAME = "Proto Rig";
 
-// INTERIM signal — no dedicated module/container-type flag exists on the miner
-// yet (backend gap). Both Proto rigs and modules report manufacturer "Proto";
-// the rig reports model "Rig" / product_name "Proto Rig" while the container
-// module reports model "CU1" (left rail shows "Proto CU1"). Gate on the model
-// prefix until a real type flag lands from proto/server, then swap this one line.
-const PROTO_MODULE_MODEL_PREFIX = "CU";
+// INTERIM signal — no dedicated container/module-type flag exists on the miner
+// yet (backend gap). Both Proto rigs and container modules report manufacturer
+// "Proto"; the rig reports model "Rig" / product_name "Proto Rig" while the
+// container module reports model "CU1" (left rail shows "Proto CU1"). Gate on
+// the model prefix until a real type flag lands from proto/server, then swap
+// this one line.
+const PROTO_CONTAINER_MODEL_PREFIX = "CU";
 
 // =============================================================================
 // Granular Hooks
@@ -57,10 +58,10 @@ export const useIsProtoRig = () => {
  * INTERIM: keyed off the model prefix ("CU…") because no module/container-type
  * flag exists yet. Isolated here so the eventual real signal is a one-line swap.
  */
-export const useIsProtoModule = () => {
+export const useIsProtoContainer = () => {
   return useMinerStore((state) => {
     const model = state.systemInfo.model;
-    return typeof model === "string" && model.toUpperCase().startsWith(PROTO_MODULE_MODEL_PREFIX);
+    return typeof model === "string" && model.toUpperCase().startsWith(PROTO_CONTAINER_MODEL_PREFIX);
   });
 };
 

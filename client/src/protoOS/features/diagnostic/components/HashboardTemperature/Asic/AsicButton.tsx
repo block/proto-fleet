@@ -9,9 +9,9 @@ import {
   AsicData,
   convertAndFormatMeasurement,
   getAsicName,
-  getProtoAsicLabel,
+  getProtoContainerAsicLabel,
   type Measurement,
-  useIsProtoModule,
+  useIsProtoContainer,
   useTemperatureUnit,
 } from "@/protoOS/store";
 import { usePopover } from "@/shared/components/Popover";
@@ -28,7 +28,7 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
   const { triggerRef: asicRef } = usePopover();
   const { selectedMetric } = useAsicMetric();
   const temperatureUnit = useTemperatureUnit();
-  const isProtoModule = useIsProtoModule();
+  const isProtoContainer = useIsProtoContainer();
 
   const currentAsicId = useMemo(
     () => (asic.index !== undefined ? getAsicUniqueId(asic.index, hashboardSerial) : undefined),
@@ -41,11 +41,13 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
   const asicName = useMemo(() => {
     // Proto container modules use the serpentine layout (position-based label);
     // rigs keep the existing index-based A/B split, byte-for-byte.
-    if (isProtoModule) {
-      return asic.row !== undefined && asic.column !== undefined ? getProtoAsicLabel(asic.row, asic.column) : "";
+    if (isProtoContainer) {
+      return asic.row !== undefined && asic.column !== undefined
+        ? getProtoContainerAsicLabel(asic.row, asic.column)
+        : "";
     }
     return asic.index !== undefined ? getAsicName(totalAsicCount, asic.index) : "";
-  }, [isProtoModule, asic.row, asic.column, totalAsicCount, asic.index]);
+  }, [isProtoContainer, asic.row, asic.column, totalAsicCount, asic.index]);
 
   const metricMeasurement = useMemo((): Measurement | undefined => {
     switch (selectedMetric) {
@@ -66,7 +68,7 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
     <div
       className={clsx(
         "relative rounded-xl shadow-[0_0_0_3px]",
-        isProtoModule ? "h-14 min-w-14 flex-1 p-0" : "mb-1.5 grow basis-0 p-[2px] phone:truncate",
+        isProtoContainer ? "h-14 min-w-14 flex-1 p-0" : "mb-1.5 grow basis-0 p-[2px] phone:truncate",
         {
           "shadow-transparent": !shouldShowPopover,
           "shadow-intent-info-fill": shouldShowPopover,
@@ -85,14 +87,14 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
         style={{ backgroundColor }}
         className={clsx(
           "asic-button w-full cursor-default truncate rounded-lg border border-border-5 text-center font-mono text-mono-text-50 text-text-primary",
-          { "h-full": isProtoModule },
+          { "h-full": isProtoContainer },
         )}
       >
-        <div className={clsx("bg-transparent hover:bg-surface-overlay", { "h-full": isProtoModule })}>
+        <div className={clsx("bg-transparent hover:bg-surface-overlay", { "h-full": isProtoContainer })}>
           <div
             className={clsx("flex flex-col items-center gap-1 px-1", {
-              "h-full justify-center py-1": isProtoModule,
-              "py-3": !isProtoModule,
+              "h-full justify-center py-1": isProtoContainer,
+              "py-3": !isProtoContainer,
             })}
           >
             <div className="text-text-primary-50">{asicName}</div>

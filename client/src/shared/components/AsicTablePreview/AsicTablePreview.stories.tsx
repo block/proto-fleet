@@ -81,11 +81,11 @@ export const Default: Story = {
   },
 };
 
-// Proto container module heatmap: a 26x12 grid (PROTO_HASHBOARD_COLUMNS x
-// PROTO_HASHBOARD_ROWS) with taller 16px rows (rowHeight) to reinforce the
+// Proto container module heatmap: a 26x12 grid (PROTO_CONTAINER_HASHBOARD_COLUMNS x
+// PROTO_CONTAINER_HASHBOARD_ROWS) with taller 16px rows (rowHeight) to reinforce the
 // vertical layout on the board card. Temperatures are mostly cool with a few
 // warm cells so the ramp reads realistically rather than as a stress test.
-const generateProtoModuleAsicData = (): AsicData[] => {
+const generateProtoContainerAsicData = (): AsicData[] => {
   const cols = 26;
   const rows = 12;
   const asics: AsicData[] = [];
@@ -103,9 +103,9 @@ const generateProtoModuleAsicData = (): AsicData[] => {
   return asics;
 };
 
-export const ProtoModule: Story = {
+export const ProtoContainer: Story = {
   args: {
-    asics: generateProtoModuleAsicData(),
+    asics: generateProtoContainerAsicData(),
     rowHeight: 16, // Taller rows for the Proto container module board card
     min: 30,
     warningThreshold: 65,
