@@ -695,6 +695,31 @@ func TestDeleteFirmwareFile_RemovesFromChecksumIndex(t *testing.T) {
 	assert.NotEqual(t, fileID, newID, "re-upload after delete should get a new fileID")
 }
 
+func TestDeleteFirmwareFile_SerializesWithChecksumLookup(t *testing.T) {
+	svc := setupService(t)
+
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("firmware under lookup"), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	svc.firmwareMetadataReuseMu.RLock()
+	deleteDone := make(chan error, 1)
+	go func() {
+		deleteDone <- svc.DeleteFirmwareFile(fileID)
+	}()
+
+	select {
+	case err := <-deleteDone:
+		svc.firmwareMetadataReuseMu.RUnlock()
+		t.Fatalf("firmware deletion completed during checksum lookup: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	assert.DirExists(t, getFirmwareDirPath(fileID))
+
+	svc.firmwareMetadataReuseMu.RUnlock()
+	require.NoError(t, <-deleteDone)
+	assert.NoDirExists(t, getFirmwareDirPath(fileID))
+}
+
 func TestDeleteFirmwareFile_ReturnsNotFoundForMissingFile(t *testing.T) {
 	svc := setupService(t)
 

@@ -762,6 +762,11 @@ func (s *Service) DeleteFirmwareFile(fileID string) error {
 		return err
 	}
 
+	// Serialize deletion with checksum reuse lookups so a lookup either returns
+	// an existing artifact or observes its completed removal.
+	s.firmwareMetadataReuseMu.Lock()
+	defer s.firmwareMetadataReuseMu.Unlock()
+
 	dir := getFirmwareDirPath(canonical)
 	if _, err := os.Stat(dir); err != nil {
 		if os.IsNotExist(err) {
