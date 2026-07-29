@@ -521,6 +521,44 @@ func TestFirmwareListDecodesFiles(t *testing.T) {
 	}
 }
 
+func TestFirmwareUpdateMetadataPatchesEscapedFileEndpoint(t *testing.T) {
+	fileID := "abc/def %"
+	target := testFirmwareTarget()
+	var gotEscapedPath, gotContentType, gotAccept, gotBody string
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("PATCH /api/v1/firmware/files/", func(w http.ResponseWriter, r *http.Request) {
+		gotEscapedPath = r.URL.EscapedPath()
+		gotContentType = r.Header.Get("Content-Type")
+		gotAccept = r.Header.Get("Accept")
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read metadata update body: %v", err)
+		}
+		gotBody = string(body)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	client := newFirmwareTestServer(t, mux)
+
+	if err := client.FirmwareUpdateMetadata(context.Background(), fileID, target); err != nil {
+		t.Fatalf("FirmwareUpdateMetadata() error = %v", err)
+	}
+	wantPath := "/api/v1/firmware/files/" + url.PathEscape(fileID)
+	if gotEscapedPath != wantPath {
+		t.Errorf("request path = %q, want %q", gotEscapedPath, wantPath)
+	}
+	if gotContentType != contentTypeJSON {
+		t.Errorf("Content-Type = %q, want %q", gotContentType, contentTypeJSON)
+	}
+	if gotAccept != contentTypeJSON {
+		t.Errorf("Accept = %q, want %q", gotAccept, contentTypeJSON)
+	}
+	wantBody := `{"target_manufacturer":"Proto","target_model":"Rig","firmware_version":"v2.0.0"}`
+	if gotBody != wantBody {
+		t.Errorf("request body = %q, want %q", gotBody, wantBody)
+	}
+}
+
 func TestFirmwareDeleteHitsFileEndpoint(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -685,6 +723,54 @@ func TestFirmwareDeleteAllCommandDeletesAfterYes(t *testing.T) {
 				t.Fatalf("deleted_count = %d, want 3", decoded.DeletedCount)
 			}
 		})
+	}
+}
+
+func TestFirmwareEditMetadataCommandPrintsConfirmation(t *testing.T) {
+	pinFleetAuthEnv(t, map[string]string{envFleetPassword: "proto"})
+	oldNoColor := color.NoColor
+	color.NoColor = true
+	t.Cleanup(func() { color.NoColor = oldNoColor })
+
+	fileID := "550e8400-e29b-41d4-a716-446655440000"
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /auth.v1.AuthService/Authenticate", func(w http.ResponseWriter, _ *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "fleet_session", Value: "test-session", Path: "/", Secure: true})
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	mux.HandleFunc("PATCH /api/v1/firmware/files/"+fileID, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	output := captureStdout(t, func() {
+		err := newRootCommand().Run(context.Background(), []string{
+			"fleetcli", "--server", srv.URL + "/", "--username", "admin",
+			"firmware", "edit-metadata",
+			"--firmware-file-id", fileID,
+			"--target-manufacturer", "Proto",
+			"--target-model", "Rig",
+			"--firmware-version", "v2.0.0",
+		})
+		if err != nil {
+			t.Fatalf("firmware edit-metadata error = %v", err)
+		}
+	})
+
+	var decoded firmwareMetadataUpdateResult
+	if err := json.Unmarshal([]byte(output), &decoded); err != nil {
+		t.Fatalf("output is not JSON: %s", output)
+	}
+	want := firmwareMetadataUpdateResult{
+		FirmwareFileID:     fileID,
+		TargetManufacturer: "Proto",
+		TargetModel:        "Rig",
+		FirmwareVersion:    "v2.0.0",
+	}
+	if decoded != want {
+		t.Errorf("edit-metadata output = %+v, want %+v", decoded, want)
 	}
 }
 
@@ -1073,6 +1159,64 @@ func TestFirmwareSingleArgValidation(t *testing.T) {
 			err := firmwareCheckCommand().Run(context.Background(), tt.args)
 			if err == nil || !strings.Contains(err.Error(), "expected exactly one argument") {
 				t.Fatalf("check %v error = %v, want single-argument usage error", tt.args, err)
+			}
+		})
+	}
+}
+
+func TestFirmwareEditMetadataCommandRequiresIDAndTarget(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name: "file id",
+			args: []string{
+				"edit-metadata",
+				"--target-manufacturer", "Proto",
+				"--target-model", "Rig",
+				"--firmware-version", "v2.0.0",
+			},
+			wantErr: "firmware-file-id",
+		},
+		{
+			name: "manufacturer",
+			args: []string{
+				"edit-metadata",
+				"--firmware-file-id", "firmware-id",
+				"--target-model", "Rig",
+				"--firmware-version", "v2.0.0",
+			},
+			wantErr: "--target-manufacturer is required",
+		},
+		{
+			name: "model",
+			args: []string{
+				"edit-metadata",
+				"--firmware-file-id", "firmware-id",
+				"--target-manufacturer", "Proto",
+				"--firmware-version", "v2.0.0",
+			},
+			wantErr: "--target-model is required",
+		},
+		{
+			name: "version",
+			args: []string{
+				"edit-metadata",
+				"--firmware-file-id", "firmware-id",
+				"--target-manufacturer", "Proto",
+				"--target-model", "Rig",
+			},
+			wantErr: "--firmware-version is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := firmwareEditMetadataCommand().Run(context.Background(), tt.args)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("edit-metadata error = %v, want containing %q", err, tt.wantErr)
 			}
 		})
 	}

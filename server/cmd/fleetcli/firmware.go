@@ -29,6 +29,7 @@ func firmwareCommand() *cli.Command {
 			firmwareCheckCommand(),
 			firmwareUploadCommand(),
 			firmwareListCommand(),
+			firmwareEditMetadataCommand(),
 			firmwareDeleteCommand(),
 			firmwareDeleteAllCommand(),
 			firmwareDeployCommand(),
@@ -148,6 +149,44 @@ func firmwareListCommand() *cli.Command {
 				return err
 			}
 			return printJSON(resp)
+		},
+	}
+}
+
+func firmwareEditMetadataCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "edit-metadata",
+		Usage: "Update a stored firmware file's target metadata",
+		Flags: append([]cli.Flag{
+			&cli.StringFlag{Name: "firmware-file-id", Usage: "Uploaded firmware file id", Required: true},
+		}, firmwareTargetFlags()...),
+		Action: func(ctx context.Context, cmd *cli.Command) error {
+			fileID := strings.TrimSpace(cmd.String("firmware-file-id"))
+			if fileID == "" {
+				return fmt.Errorf("--firmware-file-id is required")
+			}
+			target, err := firmwareTargetFromCommand(cmd)
+			if err != nil {
+				return err
+			}
+
+			client, err := openClient(ctx, cmd)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = client.Close() }()
+
+			if err := client.FirmwareUpdateMetadata(ctx, fileID, target); err != nil {
+				return err
+			}
+			// The server replies 204 with no body; echo the updated values so
+			// the command still prints a useful JSON result.
+			return printJSON(firmwareMetadataUpdateResult{
+				FirmwareFileID:     fileID,
+				TargetManufacturer: target.Manufacturer,
+				TargetModel:        target.Model,
+				FirmwareVersion:    target.Version,
+			})
 		},
 	}
 }
@@ -293,6 +332,13 @@ func buildFirmwareDeployRequest(ctx context.Context, cmd *cli.Command, client *C
 type firmwareUploadResult struct {
 	FirmwareFileID string `json:"firmware_file_id"`
 	Reused         bool   `json:"reused,omitempty"`
+}
+
+type firmwareMetadataUpdateResult struct {
+	FirmwareFileID     string `json:"firmware_file_id"`
+	TargetManufacturer string `json:"target_manufacturer"`
+	TargetModel        string `json:"target_model"`
+	FirmwareVersion    string `json:"firmware_version"`
 }
 
 type firmwareTarget struct {

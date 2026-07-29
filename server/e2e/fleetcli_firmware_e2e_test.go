@@ -20,11 +20,14 @@ const (
 	firmwareE2ETargetManufacturer = "Proto"
 	firmwareE2ETargetModel        = "Rig"
 	firmwareE2EVersion            = "2.4.6"
+	firmwareE2EEditedManufacturer = "Proto Industries"
+	firmwareE2EEditedModel        = "Rig Pro"
+	firmwareE2EEditedVersion      = "2.4.7"
 )
 
 // TestFleetCLIFirmwareWorkflow drives the firmware file lifecycle through the
-// fleetcli binary: config -> check -> upload (direct and chunked) -> list ->
-// delete -> delete-all.
+// fleetcli binary: config -> check -> upload (direct and chunked) -> edit
+// metadata -> list -> delete -> delete-all.
 //
 // Prerequisites: the docker-compose stack must be running with fleet-api on
 // localhost:4000 (e.g. `just dev`). The final delete-all step removes every
@@ -149,6 +152,30 @@ func TestFleetCLIFirmwareWorkflow(t *testing.T) {
 		t.Logf("✓ Chunked upload stored firmware file %s (%d bytes)", chunkedFileID, chunkedSize)
 	})
 
+	t.Run("EditMetadata", func(t *testing.T) {
+		require.NotEmpty(t, smallFileID, "smallFileID must be set from the direct upload step")
+
+		output, err := runFleetCLI(ctx, env, "firmware", "edit-metadata",
+			"--firmware-file-id", smallFileID,
+			"--target-manufacturer", firmwareE2EEditedManufacturer,
+			"--target-model", firmwareE2EEditedModel,
+			"--firmware-version", firmwareE2EEditedVersion)
+		require.NoError(t, err, "firmware metadata edit should succeed")
+
+		var resp struct {
+			FirmwareFileID     string `json:"firmware_file_id"`
+			TargetManufacturer string `json:"target_manufacturer"`
+			TargetModel        string `json:"target_model"`
+			FirmwareVersion    string `json:"firmware_version"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(output), &resp), "edit-metadata output should be JSON: %s", output)
+		assert.Equal(t, smallFileID, resp.FirmwareFileID, "edit-metadata should echo the updated file id")
+		assert.Equal(t, firmwareE2EEditedManufacturer, resp.TargetManufacturer)
+		assert.Equal(t, firmwareE2EEditedModel, resp.TargetModel)
+		assert.Equal(t, firmwareE2EEditedVersion, resp.FirmwareVersion)
+		t.Logf("✓ Updated metadata for firmware file %s", smallFileID)
+	})
+
 	t.Run("List", func(t *testing.T) {
 		require.NotEmpty(t, smallFileID, "smallFileID must be set from the direct upload step")
 		require.NotEmpty(t, chunkedFileID, "chunkedFileID must be set from the chunked upload step")
@@ -159,9 +186,9 @@ func TestFleetCLIFirmwareWorkflow(t *testing.T) {
 		require.NotNil(t, small, "list should include the direct upload")
 		assert.Equal(t, "e2e-firmware-small.swu", small.Filename)
 		assert.Equal(t, int64(64*1024), small.Size)
-		assert.Equal(t, firmwareE2ETargetManufacturer, small.TargetManufacturer)
-		assert.Equal(t, firmwareE2ETargetModel, small.TargetModel)
-		assert.Equal(t, firmwareE2EVersion, small.FirmwareVersion)
+		assert.Equal(t, firmwareE2EEditedManufacturer, small.TargetManufacturer)
+		assert.Equal(t, firmwareE2EEditedModel, small.TargetModel)
+		assert.Equal(t, firmwareE2EEditedVersion, small.FirmwareVersion)
 
 		chunked := findFirmwareFile(files, chunkedFileID)
 		require.NotNil(t, chunked, "list should include the chunked upload")

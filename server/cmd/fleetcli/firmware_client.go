@@ -41,6 +41,12 @@ type firmwareCheckRequest struct {
 	FirmwareVersion    string `json:"firmware_version"`
 }
 
+type firmwareMetadataUpdateRequest struct {
+	TargetManufacturer string `json:"target_manufacturer"`
+	TargetModel        string `json:"target_model"`
+	FirmwareVersion    string `json:"firmware_version"`
+}
+
 type firmwareCheckResponse struct {
 	Exists         bool   `json:"exists"`
 	FirmwareFileID string `json:"firmware_file_id,omitempty"`
@@ -244,6 +250,23 @@ func (c *Client) FirmwareList(ctx context.Context) (*firmwareListResponse, error
 		return nil, err
 	}
 	return resp, nil
+}
+
+func (c *Client) FirmwareUpdateMetadata(ctx context.Context, fileID string, target firmwareTarget) error {
+	body, err := json.Marshal(firmwareMetadataUpdateRequest{
+		TargetManufacturer: target.Manufacturer,
+		TargetModel:        target.Model,
+		FirmwareVersion:    target.Version,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal firmware metadata update request: %w", err)
+	}
+	return c.doFirmware(ctx, firmwareRequest{
+		method:      http.MethodPatch,
+		url:         c.firmwareURL("files", fileID),
+		body:        bytes.NewReader(body),
+		contentType: contentTypeJSON,
+	})
 }
 
 func (c *Client) FirmwareDelete(ctx context.Context, fileID string) error {
