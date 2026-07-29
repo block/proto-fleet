@@ -9,7 +9,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 )
 
-const firmwareUploadedEventType = "firmware_uploaded"
+const (
+	firmwareUploadedEventType        = "firmware_uploaded"
+	firmwareMetadataUpdatedEventType = "firmware_metadata_updated"
+)
 
 func logFirmwareUploadActivity(
 	ctx context.Context,
@@ -31,6 +34,35 @@ func logFirmwareUploadActivity(
 			"target_model":        result.Metadata.TargetModel,
 			"firmware_version":    result.Metadata.FirmwareVersion,
 		},
+	}
+	activity.StampActor(ctx, &event)
+	activitySvc.Log(ctx, event)
+}
+
+func logFirmwareMetadataUpdatedActivity(
+	ctx context.Context,
+	activitySvc *activity.Service,
+	fileID string,
+	previous *files.FirmwareMetadata,
+	current files.FirmwareMetadata,
+) {
+	metadata := map[string]any{
+		"firmware_file_id":            fileID,
+		"current_target_manufacturer": current.TargetManufacturer,
+		"current_target_model":        current.TargetModel,
+		"current_firmware_version":    current.FirmwareVersion,
+	}
+	if previous != nil {
+		metadata["previous_target_manufacturer"] = previous.TargetManufacturer
+		metadata["previous_target_model"] = previous.TargetModel
+		metadata["previous_firmware_version"] = previous.FirmwareVersion
+	}
+
+	event := activitymodels.Event{
+		Category:    activitymodels.CategorySystem,
+		Type:        firmwareMetadataUpdatedEventType,
+		Description: fmt.Sprintf("Updated firmware metadata: %s", fileID),
+		Metadata:    metadata,
 	}
 	activity.StampActor(ctx, &event)
 	activitySvc.Log(ctx, event)

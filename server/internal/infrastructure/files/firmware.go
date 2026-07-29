@@ -562,8 +562,13 @@ func (s *Service) UpdateFirmwareMetadata(fileID string, metadata FirmwareMetadat
 
 	// Keep the cached checksum, but stop advertising this file for reuse while
 	// its replacement metadata is not yet durable.
-	s.removeFirmwareChecksumEligibility(checksum, canonical)
+	wasEligible := s.removeFirmwareChecksumEligibility(checksum, canonical)
 	if err := writeFirmwareMetadata(dir, metadata, uploadedAt); err != nil {
+		// The atomic metadata publish did not complete, so the previous sidecar
+		// remains authoritative and can safely be advertised again.
+		if wasEligible {
+			s.rememberFirmwareChecksum(checksum, canonical)
+		}
 		return err
 	}
 	if err := s.syncFirmwareDir(dir); err != nil {
@@ -693,7 +698,7 @@ func (s *Service) rememberFirmwareChecksumByID(checksum, canonicalID string) {
 	s.firmwareChecksumByID[canonicalID] = checksum
 }
 
-func (s *Service) removeFirmwareChecksumEligibility(checksum, canonicalID string) {
+func (s *Service) removeFirmwareChecksumEligibility(checksum, canonicalID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ids := s.checksumIndex[checksum]
@@ -707,8 +712,9 @@ func (s *Service) removeFirmwareChecksumEligibility(checksum, canonicalID string
 		} else {
 			s.checksumIndex[checksum] = ids
 		}
-		return
+		return true
 	}
+	return false
 }
 
 // FindFirmwareFileByChecksum looks up a firmware file by its SHA-256 hex digest.

@@ -252,6 +252,27 @@ func TestUpdateFirmwareMetadata_DoesNotIndexMetadataBeforeDirectorySync(t *testi
 	assert.Equal(t, checksumOf(content), cachedChecksum)
 }
 
+func TestUpdateFirmwareMetadata_RestoresChecksumEligibilityWhenWriteFails(t *testing.T) {
+	svc := setupService(t)
+	const content = "firmware with failed metadata write"
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	require.NoError(t, os.Remove(firmwareStagingDir))
+	require.NoError(t, os.WriteFile(firmwareStagingDir, []byte("not a directory"), 0600))
+
+	err = svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	})
+
+	require.Error(t, err)
+	foundID, found := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
+	assert.True(t, found, "failed metadata write should restore reuse eligibility for the unchanged sidecar")
+	assert.Equal(t, fileID, foundID)
+}
+
 func TestUpdateFirmwareMetadata_PreservesUploadTime(t *testing.T) {
 	svc := setupService(t)
 	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())

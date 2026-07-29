@@ -10,6 +10,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -390,6 +392,20 @@ func TestUploadHandler_RejectsMissingFileField(t *testing.T) {
 	env.uploadHandler().ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+func TestUploadHandler_Returns500WhenStagingFails(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	require.NoError(t, os.RemoveAll("firmware/staging"))
+	require.NoError(t, os.WriteFile("firmware/staging", []byte("not a directory"), 0600))
+	req := createMultipartRequest(t, "firmware.swu", []byte("data"), validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	env.uploadHandler().ServeHTTP(rr, req)
+
+	assertJSONErrorResponse(t, rr, http.StatusInternalServerError, "failed to stage firmware upload")
+	assert.NotContains(t, rr.Body.String(), "failed to create firmware staging file")
 }
 
 func TestUploadHandler_SuccessfulUpload(t *testing.T) {
@@ -795,6 +811,104 @@ func TestUpdateMetadataHandler_UpdatesStoredFirmware(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	env.updateMetadataHandler().ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusNoContent, rr.Code)
+	metadata, err := env.fileSvc.GetFirmwareMetadata(fileID)
+	require.NoError(t, err)
+	assert.Equal(t, files.FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	}, metadata)
+}
+
+func TestUpdateMetadataHandler_LogsMetadataUpdateActivity(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+	activityStore := storeMocks.NewMockActivityStore(env.ctrl)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activityModels.Event) error {
+			assert.Equal(t, activityModels.CategorySystem, event.Category)
+			assert.Equal(t, firmwareMetadataUpdatedEventType, event.Type)
+			assert.Equal(t, "Updated firmware metadata: "+fileID, event.Description)
+			assert.Equal(t, "testuser", *event.Username)
+			assert.Equal(t, int64(1), *event.OrganizationID)
+			assert.Equal(t, fileID, event.Metadata["firmware_file_id"])
+			assert.Equal(t, "Proto", event.Metadata["previous_target_manufacturer"])
+			assert.Equal(t, "Rig", event.Metadata["previous_target_model"])
+			assert.Equal(t, "v2.0.0", event.Metadata["previous_firmware_version"])
+			assert.Equal(t, "Bitmain", event.Metadata["current_target_manufacturer"])
+			assert.Equal(t, "S19", event.Metadata["current_target_model"])
+			assert.Equal(t, "v3.0.0", event.Metadata["current_firmware_version"])
+			return nil
+		},
+	)
+	h := env.updateMetadataHandler()
+	h.activitySvc = activityDomain.NewService(activityStore)
+
+	body := `{"target_manufacturer":"Bitmain","target_model":"S19","firmware_version":"v3.0.0"}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/firmware/files/"+fileID, strings.NewReader(body))
+	req.SetPathValue("fileId", fileID)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusNoContent, rr.Code)
+}
+
+func TestUpdateMetadataHandler_DoesNotLogActivityForFailedUpdate(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	activityStore := storeMocks.NewMockActivityStore(env.ctrl)
+	h := env.updateMetadataHandler()
+	h.activitySvc = activityDomain.NewService(activityStore)
+	fileID := "00000000-0000-0000-0000-000000000000"
+
+	body := `{"target_manufacturer":"Proto","target_model":"Rig","firmware_version":"v2.0.0"}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/firmware/files/"+fileID, strings.NewReader(body))
+	req.SetPathValue("fileId", fileID)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusNotFound, rr.Code)
+}
+
+func TestUpdateMetadataHandler_RepairsCorruptMetadataAndLogsCurrentState(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+	payloadPath, err := env.fileSvc.GetFirmwareFilePath(fileID)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(payloadPath), "metadata.json"), []byte(`not json`), 0600))
+
+	activityStore := storeMocks.NewMockActivityStore(env.ctrl)
+	activityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event *activityModels.Event) error {
+			assert.Equal(t, "Bitmain", event.Metadata["current_target_manufacturer"])
+			assert.Equal(t, "S19", event.Metadata["current_target_model"])
+			assert.Equal(t, "v3.0.0", event.Metadata["current_firmware_version"])
+			assert.NotContains(t, event.Metadata, "previous_target_manufacturer")
+			assert.NotContains(t, event.Metadata, "previous_target_model")
+			assert.NotContains(t, event.Metadata, "previous_firmware_version")
+			return nil
+		},
+	)
+	h := env.updateMetadataHandler()
+	h.activitySvc = activityDomain.NewService(activityStore)
+
+	body := `{"target_manufacturer":"Bitmain","target_model":"S19","firmware_version":"v3.0.0"}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/firmware/files/"+fileID, strings.NewReader(body))
+	req.SetPathValue("fileId", fileID)
+	req.AddCookie(validSessionCookie(env.sessionID))
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusNoContent, rr.Code)
 	metadata, err := env.fileSvc.GetFirmwareMetadata(fileID)

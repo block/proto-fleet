@@ -226,7 +226,12 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	upload, err := extractMultipartFile(r, h.filesService)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		if isClientError(err) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		slog.Error("failed to stage firmware upload", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to stage firmware upload")
 		return
 	}
 	defer upload.staged.Discard()
@@ -271,12 +276,12 @@ func extractMultipartFile(r *http.Request, filesService *files.Service) (extract
 	contentType := r.Header.Get("Content-Type")
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil || !strings.HasPrefix(mediaType, "multipart/") {
-		return extractedMultipartUpload{}, fmt.Errorf("expected multipart/form-data content type")
+		return extractedMultipartUpload{}, fleeterror.NewInvalidArgumentError("expected multipart/form-data content type")
 	}
 
 	boundary := params["boundary"]
 	if boundary == "" {
-		return extractedMultipartUpload{}, fmt.Errorf("missing multipart boundary")
+		return extractedMultipartUpload{}, fleeterror.NewInvalidArgumentError("missing multipart boundary")
 	}
 
 	completed := false
@@ -298,7 +303,11 @@ func extractMultipartFile(r *http.Request, filesService *files.Service) (extract
 			break
 		}
 		if err != nil {
-			return extractedMultipartUpload{}, fmt.Errorf("failed to read multipart form: %w", err)
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				return extractedMultipartUpload{}, fmt.Errorf("failed to read multipart form: %w", err)
+			}
+			return extractedMultipartUpload{}, fleeterror.NewInvalidArgumentErrorf("failed to read multipart form: %v", err)
 		}
 
 		name := part.FormName()
@@ -306,7 +315,7 @@ func extractMultipartFile(r *http.Request, filesService *files.Service) (extract
 		case name == "file":
 			if upload.staged != nil {
 				_ = part.Close()
-				return extractedMultipartUpload{}, fmt.Errorf("multiple 'file' fields are not supported")
+				return extractedMultipartUpload{}, fleeterror.NewInvalidArgumentError("multiple 'file' fields are not supported")
 			}
 			upload.filename = part.FileName()
 			staged, stageErr := filesService.StageFirmwareUpload(part)
@@ -333,7 +342,7 @@ func extractMultipartFile(r *http.Request, filesService *files.Service) (extract
 		}
 	}
 	if upload.staged == nil {
-		return extractedMultipartUpload{}, fmt.Errorf("missing 'file' field in multipart form")
+		return extractedMultipartUpload{}, fleeterror.NewInvalidArgumentError("missing 'file' field in multipart form")
 	}
 	completed = true
 	return upload, nil
@@ -344,7 +353,7 @@ func readPartValue(part *multipart.Part, limit int64, name string) (string, erro
 	value, err := io.ReadAll(io.LimitReader(part, limit))
 	part.Close()
 	if err != nil {
-		return "", fmt.Errorf("failed to read %s: %w", name, err)
+		return "", fleeterror.NewInvalidArgumentErrorf("failed to read %s: %v", name, err)
 	}
 	return string(value), nil
 }
@@ -449,12 +458,14 @@ func NewUpdateMetadataHandler(
 	filesService *files.Service,
 	sessionService *session.Service,
 	userStore interfaces.UserStore,
+	activitySvc *activityDomain.Service,
 	permissionResolver effectivePermissionResolver,
 ) http.Handler {
 	return &updateMetadataHandler{
 		filesService:       filesService,
 		sessionService:     sessionService,
 		userStore:          userStore,
+		activitySvc:        activitySvc,
 		permissionResolver: permissionResolver,
 	}
 }
@@ -463,18 +474,20 @@ type updateMetadataHandler struct {
 	filesService       *files.Service
 	sessionService     *session.Service
 	userStore          interfaces.UserStore
+	activitySvc        *activityDomain.Service
 	permissionResolver effectivePermissionResolver
 }
 
 func (h *updateMetadataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if _, ok := requireMutationPermission(
+	ctx, ok := requireMutationPermission(
 		w,
 		r,
 		h.sessionService,
 		h.userStore,
 		h.permissionResolver,
 		"update metadata",
-	); !ok {
+	)
+	if !ok {
 		return
 	}
 
@@ -498,6 +511,14 @@ func (h *updateMetadataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	var previousMetadata *files.FirmwareMetadata
+	previous, err := h.filesService.GetFirmwareMetadata(fileID)
+	if err != nil {
+		slog.Warn("failed to read previous firmware metadata for activity", "file_id", fileID, "error", err)
+	} else {
+		previousMetadata = &previous
+	}
+
 	if err := h.filesService.UpdateFirmwareMetadata(fileID, metadata); err != nil {
 		switch {
 		case fleeterror.IsNotFoundError(err):
@@ -510,6 +531,13 @@ func (h *updateMetadataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		}
 		return
 	}
+
+	currentMetadata, err := h.filesService.GetFirmwareMetadata(fileID)
+	if err != nil {
+		slog.Warn("failed to read updated firmware metadata for activity", "file_id", fileID, "error", err)
+		currentMetadata = metadata
+	}
+	logFirmwareMetadataUpdatedActivity(ctx, h.activitySvc, fileID, previousMetadata, currentMetadata)
 
 	w.WriteHeader(http.StatusNoContent)
 }
