@@ -273,6 +273,66 @@ func TestUpdateFirmwareMetadata_RestoresChecksumEligibilityWhenWriteFails(t *tes
 	assert.Equal(t, fileID, foundID)
 }
 
+func TestUpdateFirmwareMetadata_SerializesChecksumLookupWithMetadataReplacement(t *testing.T) {
+	svc := setupService(t)
+	const content = "firmware with concurrent metadata lookup"
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader(content), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	updated := FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	}
+	updateAtDirectorySync := make(chan struct{})
+	allowDirectorySync := make(chan struct{})
+	svc.syncFirmwareDir = func(dir string) error {
+		if dir == getFirmwareDirPath(fileID) {
+			close(updateAtDirectorySync)
+			<-allowDirectorySync
+		}
+		return nil
+	}
+
+	updateDone := make(chan error, 1)
+	go func() {
+		updateDone <- svc.UpdateFirmwareMetadata(fileID, updated)
+	}()
+	<-updateAtDirectorySync
+
+	type lookupResult struct {
+		fileID string
+		found  bool
+	}
+	lookupStarted := make(chan struct{})
+	lookupDone := make(chan lookupResult, 1)
+	go func() {
+		close(lookupStarted)
+		foundID, found := svc.FindFirmwareFileByChecksum(checksumOf(content), testFirmwareMetadata())
+		lookupDone <- lookupResult{fileID: foundID, found: found}
+	}()
+	<-lookupStarted
+
+	select {
+	case result := <-lookupDone:
+		close(allowDirectorySync)
+		require.NoError(t, <-updateDone)
+		t.Fatalf("checksum lookup returned during metadata replacement: %+v", result)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(allowDirectorySync)
+	require.NoError(t, <-updateDone)
+
+	result := <-lookupDone
+	assert.False(t, result.found, "lookup must not reuse the artifact for its old target after the edit")
+	assert.Empty(t, result.fileID)
+
+	foundID, found := svc.FindFirmwareFileByChecksum(checksumOf(content), updated)
+	assert.True(t, found, "lookup should reuse the artifact for its new target after the edit")
+	assert.Equal(t, fileID, foundID)
+}
+
 func TestUpdateFirmwareMetadata_PreservesUploadTime(t *testing.T) {
 	svc := setupService(t)
 	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())

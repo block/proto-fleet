@@ -534,6 +534,12 @@ func (s *Service) UpdateFirmwareMetadata(fileID string, metadata FirmwareMetadat
 		return err
 	}
 
+	// Serialize metadata replacement with checksum reuse lookups so a lookup
+	// observes either the complete pre-edit state or the complete post-edit
+	// state, never a sidecar that disagrees with its index snapshot.
+	s.firmwareMetadataReuseMu.Lock()
+	defer s.firmwareMetadataReuseMu.Unlock()
+
 	dir := getFirmwareDirPath(canonical)
 	dirInfo, err := os.Stat(dir)
 	if err != nil {
@@ -721,6 +727,9 @@ func (s *Service) removeFirmwareChecksumEligibility(checksum, canonicalID string
 // Returns the file ID and true if found, or empty string and false otherwise.
 // Used by the pre-upload check endpoint to let clients skip redundant uploads.
 func (s *Service) FindFirmwareFileByChecksum(sha256Hex string, metadata FirmwareMetadata) (string, bool) {
+	s.firmwareMetadataReuseMu.RLock()
+	defer s.firmwareMetadataReuseMu.RUnlock()
+
 	s.mu.Lock()
 	fileIDs := append([]string(nil), s.checksumIndex[sha256Hex]...)
 	s.mu.Unlock()

@@ -94,11 +94,12 @@ type Service struct {
 	commandArtifactRetentionTTL    time.Duration
 	commandArtifactCleanupInterval time.Duration
 
-	mu                   sync.Mutex
-	checksumIndex        map[string][]string // SHA-256 hex -> reuse-eligible file IDs
-	firmwareChecksumByID map[string]string   // fileID -> SHA-256 hex
-	firmwareUploadLocks  map[firmwareUploadKey]*firmwareUploadLock
-	syncFirmwareDir      func(string) error
+	mu                      sync.Mutex
+	firmwareMetadataReuseMu sync.RWMutex
+	checksumIndex           map[string][]string // SHA-256 hex -> reuse-eligible file IDs
+	firmwareChecksumByID    map[string]string   // fileID -> SHA-256 hex
+	firmwareUploadLocks     map[firmwareUploadKey]*firmwareUploadLock
+	syncFirmwareDir         func(string) error
 }
 
 // MaxFirmwareFileSize returns the configured maximum firmware file size in bytes.
