@@ -2,7 +2,13 @@ import { useMemo } from "react";
 import AsicChart from "./AsicChart";
 import AsicPopoverRow from "./AsicPopoverRow";
 import { convertTelemetryHashrateToChartData, convertTelemetryTemperatureToChartData } from "./utility";
-import { AsicData, convertAndFormatMeasurement, formatValue } from "@/protoOS/store";
+import {
+  AsicData,
+  convertAndFormatMeasurement,
+  formatValue,
+  getProtoAsicLabel,
+  useIsProtoModule,
+} from "@/protoOS/store";
 import { useIntervalMs, useTemperatureUnit } from "@/protoOS/store";
 import Popover from "@/shared/components/Popover";
 import { minimalMargin } from "@/shared/components/Popover/constants.ts";
@@ -23,6 +29,7 @@ interface AsicPopoverProps {
 const AsicPopover = ({ asic, closePopover, closeIgnoreSelectors }: AsicPopoverProps) => {
   const temperatureUnit = useTemperatureUnit();
   const intervalMs = useIntervalMs();
+  const isProtoModule = useIsProtoModule();
 
   // Convert telemetry data to chart format
   const { temperatureData, hashrateData } = useMemo(() => {
@@ -57,8 +64,14 @@ const AsicPopover = ({ asic, closePopover, closeIgnoreSelectors }: AsicPopoverPr
       <div className="space-y-1">
         <div className="text-200 text-text-primary-70">ASIC</div>
         <div className="text-heading-200 text-text-primary">
-          {getRowLabel(asic.row || 0)}
-          {(asic.column || 0) + 1}
+          {isProtoModule ? (
+            getProtoAsicLabel(asic.row || 0, asic.column || 0)
+          ) : (
+            <>
+              {getRowLabel(asic.row || 0)}
+              {(asic.column || 0) + 1}
+            </>
+          )}
         </div>
         {/* TODO: update this condition when we have set indicators */}
         {/* {(asic.temp_c || 0) >= dangerTemp && (

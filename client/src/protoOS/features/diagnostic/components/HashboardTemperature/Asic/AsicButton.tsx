@@ -9,7 +9,9 @@ import {
   AsicData,
   convertAndFormatMeasurement,
   getAsicName,
+  getProtoAsicLabel,
   type Measurement,
+  useIsProtoModule,
   useTemperatureUnit,
 } from "@/protoOS/store";
 import { usePopover } from "@/shared/components/Popover";
@@ -26,6 +28,7 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
   const { triggerRef: asicRef } = usePopover();
   const { selectedMetric } = useAsicMetric();
   const temperatureUnit = useTemperatureUnit();
+  const isProtoModule = useIsProtoModule();
 
   const currentAsicId = useMemo(
     () => (asic.index !== undefined ? getAsicUniqueId(asic.index, hashboardSerial) : undefined),
@@ -36,8 +39,13 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
 
   const backgroundColor = useAsicColor(asic);
   const asicName = useMemo(() => {
+    // Proto container modules use the serpentine layout (position-based label);
+    // rigs keep the existing index-based A/B split, byte-for-byte.
+    if (isProtoModule) {
+      return asic.row !== undefined && asic.column !== undefined ? getProtoAsicLabel(asic.row, asic.column) : "";
+    }
     return asic.index !== undefined ? getAsicName(totalAsicCount, asic.index) : "";
-  }, [totalAsicCount, asic.index]);
+  }, [isProtoModule, asic.row, asic.column, totalAsicCount, asic.index]);
 
   const metricMeasurement = useMemo((): Measurement | undefined => {
     switch (selectedMetric) {
@@ -56,10 +64,14 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
 
   return (
     <div
-      className={clsx("relative mb-1.5 grow basis-0 rounded-xl p-[2px] shadow-[0_0_0_3px] phone:truncate", {
-        "shadow-transparent": !shouldShowPopover,
-        "shadow-intent-info-fill": shouldShowPopover,
-      })}
+      className={clsx(
+        "relative rounded-xl shadow-[0_0_0_3px]",
+        isProtoModule ? "h-14 min-w-14 flex-1 p-0" : "mb-1.5 grow basis-0 p-[2px] phone:truncate",
+        {
+          "shadow-transparent": !shouldShowPopover,
+          "shadow-intent-info-fill": shouldShowPopover,
+        },
+      )}
       ref={asicRef}
     >
       {shouldShowPopover ? (
@@ -71,10 +83,18 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
       ) : null}
       <button
         style={{ backgroundColor }}
-        className="asic-button w-full cursor-default truncate rounded-lg border border-border-5 text-center font-mono text-mono-text-50 text-text-primary"
+        className={clsx(
+          "asic-button w-full cursor-default truncate rounded-lg border border-border-5 text-center font-mono text-mono-text-50 text-text-primary",
+          { "h-full": isProtoModule },
+        )}
       >
-        <div className="bg-transparent hover:bg-surface-overlay">
-          <div className="flex flex-col items-center gap-1 px-1 py-3">
+        <div className={clsx("bg-transparent hover:bg-surface-overlay", { "h-full": isProtoModule })}>
+          <div
+            className={clsx("flex flex-col items-center gap-1 px-1", {
+              "h-full justify-center py-1": isProtoModule,
+              "py-3": !isProtoModule,
+            })}
+          >
             <div className="text-text-primary-50">{asicName}</div>
             {renderMetricValue()}
           </div>

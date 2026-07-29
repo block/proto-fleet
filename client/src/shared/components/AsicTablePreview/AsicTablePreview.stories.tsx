@@ -80,3 +80,36 @@ export const Default: Story = {
     criticalThreshold: 90, // Default critical threshold
   },
 };
+
+// Proto container module heatmap: a 26x12 grid (PROTO_HASHBOARD_COLUMNS x
+// PROTO_HASHBOARD_ROWS) with taller 16px rows (rowHeight) to reinforce the
+// vertical layout on the board card. Temperatures are mostly cool with a few
+// warm cells so the ramp reads realistically rather than as a stress test.
+const generateProtoModuleAsicData = (): AsicData[] => {
+  const cols = 26;
+  const rows = 12;
+  const asics: AsicData[] = [];
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      // Gentle warm cluster toward the center; cool everywhere else.
+      const rowHeat = 1 - Math.abs(row - rows / 2) / (rows / 2);
+      const colHeat = 1 - Math.abs(col - cols / 2) / (cols / 2);
+      const value = Math.round(42 + rowHeat * colHeat * 34);
+      asics.push({ row, col, value });
+    }
+  }
+
+  return asics;
+};
+
+export const ProtoModule: Story = {
+  args: {
+    asics: generateProtoModuleAsicData(),
+    rowHeight: 16, // Taller rows for the Proto container module board card
+    min: 30,
+    warningThreshold: 65,
+    dangerThreshold: 82,
+    criticalThreshold: 90,
+  },
+};

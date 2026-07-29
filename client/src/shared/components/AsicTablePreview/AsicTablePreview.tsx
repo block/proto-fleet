@@ -11,6 +11,7 @@ const AsicCell = ({
   warningThreshold,
   criticalThreshold,
   dangerThreshold,
+  rowHeight,
   colors,
 }: AsicCellProps) => {
   // Calculate opacity based on temperature ranges
@@ -42,10 +43,11 @@ const AsicCell = ({
 
   return (
     <div
-      className="h-1.5 flex-1 rounded-sm"
+      className={`flex-1 rounded-sm ${rowHeight === undefined ? "h-1.5" : ""}`}
       style={{
         backgroundColor: color,
         opacity,
+        ...(rowHeight === undefined ? {} : { height: rowHeight }),
       }}
       data-testid={`asic-${row}-${col}`}
       data-value={value}
@@ -65,6 +67,7 @@ const AsicTablePreview = ({
     critical: "var(--color-intent-critical-fill)",
     empty: "var(--color-surface-5)",
   },
+  rowHeight,
   className = "",
 }: AsicTablePreviewProps) => {
   // Calculate grid dimensions and populate values
@@ -105,6 +108,7 @@ const AsicTablePreview = ({
               warningThreshold={warningThreshold}
               criticalThreshold={criticalThreshold}
               dangerThreshold={dangerThreshold}
+              rowHeight={rowHeight}
               colors={colors}
             />
           ))}

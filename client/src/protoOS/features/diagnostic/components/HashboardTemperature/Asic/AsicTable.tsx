@@ -1,8 +1,9 @@
 import { Dispatch, SetStateAction } from "react";
+import clsx from "clsx";
 
 import { getAsicsRows } from "../utility";
 import AsicButton from "./AsicButton";
-import { AsicData } from "@/protoOS/store";
+import { AsicData, useIsProtoModule } from "@/protoOS/store";
 import { PopoverProvider } from "@/shared/components/Popover";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
@@ -15,6 +16,8 @@ interface AsicTableProps {
 }
 
 const AsicTable = ({ asics, hashboardSerialNumber, pending, showPopover, setShowPopover }: AsicTableProps) => {
+  const isProtoModule = useIsProtoModule();
+
   return (
     <div className="relative mt-6 h-full">
       <div className="flex h-full">
@@ -26,9 +29,13 @@ const AsicTable = ({ asics, hashboardSerialNumber, pending, showPopover, setShow
           </div>
         ) : (
           <>
-            <div className="w-full -space-y-[2px]">
+            {/* Proto container modules use a responsive grid: cells flex to
+                fill the available width when the viewport allows, and hold a
+                56px floor (min-w-14) so the row scrolls horizontally when it
+                can't. Rigs keep the original full-width flex rows. */}
+            <div className={isProtoModule ? "flex w-full flex-col gap-1" : "w-full -space-y-[2px]"}>
               {getAsicsRows(asics).map((row) => (
-                <div className="flex gap-1.5" key={`asic-${row}`}>
+                <div className={clsx("flex", isProtoModule ? "gap-1" : "gap-1.5")} key={`asic-${row}`}>
                   {asics
                     .filter((asic) => asic.row === row)
                     .map((asic) => (
