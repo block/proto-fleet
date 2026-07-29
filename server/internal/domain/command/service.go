@@ -913,7 +913,12 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		if !ok {
 			return nil, fleeterror.NewInternalError("invalid firmware update payload")
 		}
-		if err := s.validateFirmwareUpdateTargets(ctx, info.OrganizationID, resolvedDevices, firmwarePayload.FirmwareFileID); err != nil {
+		metadata, release, err := s.filesService.LeaseFirmwareMetadata(firmwarePayload.FirmwareFileID)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+		if err := s.validateFirmwareUpdateTargets(ctx, info.OrganizationID, resolvedDevices, metadata); err != nil {
 			return nil, err
 		}
 	}
@@ -1564,12 +1569,8 @@ func (s *Service) validateFirmwareUpdateTargets(
 	ctx context.Context,
 	organizationID int64,
 	devices []resolvedDevice,
-	firmwareFileID string,
+	metadata files.FirmwareMetadata,
 ) error {
-	metadata, err := s.filesService.GetFirmwareMetadata(firmwareFileID)
-	if err != nil {
-		return err
-	}
 	if err := files.ValidateFirmwareMetadata(metadata); err != nil {
 		return fleeterror.NewFailedPreconditionError("firmware target metadata is unknown; repair its metadata before deploying it")
 	}

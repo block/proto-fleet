@@ -154,6 +154,17 @@ func TestSaveFirmwareFile_WritesTargetMetadata(t *testing.T) {
 	assert.Empty(t, storageDirEntries(t, firmwareStagingDir))
 }
 
+func TestLeaseFirmwareMetadata_ReleasesReadLockOnError(t *testing.T) {
+	svc := setupService(t)
+
+	_, release, err := svc.LeaseFirmwareMetadata("not-a-uuid")
+
+	require.Error(t, err)
+	assert.Nil(t, release)
+	require.True(t, svc.firmwareMetadataReuseMu.TryLock(), "metadata lease error must release the lifecycle read lock")
+	svc.firmwareMetadataReuseMu.Unlock()
+}
+
 func TestSaveFirmwareFile_RollsBackPublishedDirectoryWhenParentSyncFails(t *testing.T) {
 	svc := setupService(t)
 	const content = "firmware whose publish sync fails"
@@ -1081,6 +1092,76 @@ func TestSaveFirmwareUploadFromPath_MovesAndRegistersChecksum(t *testing.T) {
 
 	_, statErr := os.Stat(srcPath)
 	assert.True(t, os.IsNotExist(statErr), "source file should be removed after rename")
+}
+
+func TestSaveFirmwareUploadFromPath_BlocksDeletionUntilPublicationCompletes(t *testing.T) {
+	svc := setupService(t)
+
+	content := "firmware protected during publication"
+	srcPath := filepath.Join(firmwareStagingDir, "protected-upload")
+	require.NoError(t, os.WriteFile(srcPath, []byte(content), 0600))
+
+	publishedFileID := make(chan string, 1)
+	allowDirectorySync := make(chan struct{})
+	svc.syncFirmwareDir = func(dir string) error {
+		if dir != firmwareDir {
+			return nil
+		}
+		entries, err := os.ReadDir(firmwareDir)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			if entry.Name() == "staging" {
+				continue
+			}
+			publishedFileID <- entry.Name()
+			<-allowDirectorySync
+			return nil
+		}
+		return errors.New("published firmware directory not found")
+	}
+
+	type saveOutcome struct {
+		result FirmwareUploadSaveResult
+		err    error
+	}
+	saveDone := make(chan saveOutcome, 1)
+	go func() {
+		result, err := svc.SaveFirmwareUploadFromPath(
+			"protected.swu",
+			srcPath,
+			testFirmwareMetadata(),
+			true,
+			checksumOf(content),
+		)
+		saveDone <- saveOutcome{result: result, err: err}
+	}()
+
+	fileID := <-publishedFileID
+	assert.DirExists(t, getFirmwareDirPath(fileID))
+
+	deleteStarted := make(chan struct{})
+	deleteDone := make(chan error, 1)
+	go func() {
+		close(deleteStarted)
+		deleteDone <- svc.DeleteFirmwareFile(fileID)
+	}()
+	<-deleteStarted
+
+	select {
+	case err := <-deleteDone:
+		close(allowDirectorySync)
+		<-saveDone
+		t.Fatalf("firmware deletion completed before publication returned: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(allowDirectorySync)
+	outcome := <-saveDone
+	require.NoError(t, outcome.err)
+	assert.Equal(t, fileID, outcome.result.FirmwareFileID)
+	require.NoError(t, <-deleteDone)
 }
 
 func TestSaveFirmwareUpload_UsesManualMetadata(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
@@ -46,7 +47,9 @@ func TestValidateFirmwareUpdateTargets_AcceptsMatchingTargetsCaseInsensitively(t
 		}, nil,
 	)
 
-	assert.NoError(t, svc.validateFirmwareUpdateTargets(t.Context(), 7, devices, fileID))
+	metadata, err := filesService.GetFirmwareMetadata(fileID)
+	require.NoError(t, err)
+	assert.NoError(t, svc.validateFirmwareUpdateTargets(t.Context(), 7, devices, metadata))
 }
 
 func TestValidateFirmwareUpdateTargets_RejectsMismatchedOrUnknownTargets(t *testing.T) {
@@ -65,7 +68,9 @@ func TestValidateFirmwareUpdateTargets_RejectsMismatchedOrUnknownTargets(t *test
 		}, nil,
 	)
 
-	err = svc.validateFirmwareUpdateTargets(t.Context(), 7, devices, fileID)
+	metadata, err := filesService.GetFirmwareMetadata(fileID)
+	require.NoError(t, err)
+	err = svc.validateFirmwareUpdateTargets(t.Context(), 7, devices, metadata)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.Contains(t, err.Error(), "2 of 2")
@@ -78,14 +83,16 @@ func TestValidateFirmwareUpdateTargets_RejectsLegacyFirmware(t *testing.T) {
 	require.NoError(t, os.MkdirAll(legacyDir, 0750))
 	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "legacy.swu"), []byte("legacy"), 0600))
 
-	err := svc.validateFirmwareUpdateTargets(t.Context(), 7, []resolvedDevice{{id: 1, identifier: "device-1"}}, fileID)
+	metadata, err := svc.filesService.GetFirmwareMetadata(fileID)
+	require.NoError(t, err)
+	err = svc.validateFirmwareUpdateTargets(t.Context(), 7, []resolvedDevice{{id: 1, identifier: "device-1"}}, metadata)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.Contains(t, err.Error(), "metadata is unknown")
 	assert.Contains(t, err.Error(), "repair its metadata")
 }
 
-func TestValidateFirmwareUpdateTargets_PreservesMetadataLookupErrors(t *testing.T) {
+func TestLeaseFirmwareMetadata_PreservesMetadataLookupErrors(t *testing.T) {
 	tests := []struct {
 		name       string
 		fileID     string
@@ -128,19 +135,15 @@ func TestValidateFirmwareUpdateTargets_PreservesMetadataLookupErrors(t *testing.
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc, _, _ := setupFirmwareTargetValidationService(t)
+			_, _, filesService := setupFirmwareTargetValidationService(t)
 			if tt.setup != nil {
 				tt.setup(t)
 			}
 
-			err := svc.validateFirmwareUpdateTargets(
-				t.Context(),
-				7,
-				[]resolvedDevice{{id: 1, identifier: "device-1"}},
-				tt.fileID,
-			)
+			_, release, err := filesService.LeaseFirmwareMetadata(tt.fileID)
 
 			require.Error(t, err)
+			assert.Nil(t, release)
 			tt.assertCode(t, err)
 		})
 	}
@@ -263,4 +266,109 @@ func TestProcessCommand_FirmwareUpdateValidatesBeforeDispatch(t *testing.T) {
 			assert.Equal(t, 2, result.DispatchedCount)
 		})
 	}
+}
+
+func TestProcessCommand_FirmwareUpdateHoldsMetadataLeaseThroughDispatch(t *testing.T) {
+	t.Chdir(t.TempDir())
+	filesService, err := files.NewService(files.Config{})
+	require.NoError(t, err)
+	fileID, err := filesService.SaveFirmwareFile("update.swu", strings.NewReader("firmware"), files.FirmwareMetadata{
+		TargetManufacturer: "Proto",
+		TargetModel:        "Rig",
+		FirmwareVersion:    "2.0.0",
+	})
+	require.NoError(t, err)
+
+	ctrl := gomock.NewController(t)
+	deviceStore := storeMocks.NewMockDeviceStore(ctrl)
+	messageQueue := queueMocks.NewMockMessageQueue(ctrl)
+	validationStarted := make(chan struct{})
+	allowValidation := make(chan struct{})
+	deviceStore.EXPECT().GetDevicePropertiesForRename(
+		gomock.Any(), int64(7), []string{"device-1"}, false,
+	).DoAndReturn(func(context.Context, int64, []string, bool) ([]stores.DeviceRenameProperties, error) {
+		close(validationStarted)
+		<-allowValidation
+		return []stores.DeviceRenameProperties{{
+			DeviceIdentifier: "device-1",
+			Manufacturer:     "Proto",
+			Model:            "Rig",
+		}}, nil
+	})
+
+	enqueueStarted := make(chan struct{})
+	allowEnqueue := make(chan struct{})
+	payload := dto.FirmwareUpdatePayload{FirmwareFileID: fileID}
+	messageQueue.EXPECT().Enqueue(
+		gomock.Any(), "batch-1", commandtype.FirmwareUpdate, []int64{101}, payload,
+	).DoAndReturn(func(context.Context, string, commandtype.Type, []int64, any) error {
+		close(enqueueStarted)
+		<-allowEnqueue
+		return nil
+	})
+
+	svc := &Service{
+		config:           &Config{},
+		executionService: &ExecutionService{run: newExecutionRun(context.Background())},
+		messageQueue:     messageQueue,
+		filesService:     filesService,
+		deviceStore:      deviceStore,
+		resolveDevicesOverride: func(_ context.Context, identifiers []string) ([]resolvedDevice, error) {
+			return []resolvedDevice{{id: 101, identifier: identifiers[0]}}, nil
+		},
+		saveCommandBatchLogOverride: func(context.Context, int64, int64, *Command, []byte, int) (string, error) {
+			return "batch-1", nil
+		},
+	}
+
+	type commandOutcome struct {
+		result *CommandResult
+		err    error
+	}
+	commandDone := make(chan commandOutcome, 1)
+	go func() {
+		result, err := svc.processCommand(manualSessionCtx(7), &Command{
+			commandType:    commandtype.FirmwareUpdate,
+			deviceSelector: includeSelector("device-1"),
+			payload:        payload,
+		})
+		commandDone <- commandOutcome{result: result, err: err}
+	}()
+	<-validationStarted
+
+	updateStarted := make(chan struct{})
+	updateDone := make(chan error, 1)
+	go func() {
+		close(updateStarted)
+		_, err := filesService.UpdateFirmwareMetadata(fileID, files.FirmwareMetadata{
+			TargetManufacturer: "Bitmain",
+			TargetModel:        "S19",
+			FirmwareVersion:    "3.0.0",
+		})
+		updateDone <- err
+	}()
+	<-updateStarted
+
+	select {
+	case err := <-updateDone:
+		close(allowValidation)
+		t.Fatalf("metadata update completed during target validation: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(allowValidation)
+	<-enqueueStarted
+	select {
+	case err := <-updateDone:
+		close(allowEnqueue)
+		t.Fatalf("metadata update completed before firmware dispatch: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(allowEnqueue)
+	outcome := <-commandDone
+	require.NoError(t, outcome.err)
+	require.NotNil(t, outcome.result)
+	assert.Equal(t, "batch-1", outcome.result.BatchIdentifier)
+	require.NoError(t, <-updateDone)
 }

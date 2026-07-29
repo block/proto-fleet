@@ -383,6 +383,13 @@ func (s *Service) SaveFirmwareUploadFromPath(filename string, srcPath string, ma
 		}
 	}
 
+	// Keep deletion and metadata replacement from observing a newly published
+	// directory until its checksum index entry and result are complete. Acquire
+	// this only after the reuse lookup to avoid recursively taking an RLock
+	// while a writer is pending.
+	s.firmwareMetadataReuseMu.RLock()
+	defer s.firmwareMetadataReuseMu.RUnlock()
+
 	fileID, err := s.saveFirmwareFileFromPathWithChecksum(filename, srcPath, metadata, checksum)
 	if err != nil {
 		return result, err
@@ -506,6 +513,26 @@ func (s *Service) GetFirmwareFilePath(fileID string) (string, error) {
 
 // GetFirmwareMetadata returns the target metadata for a stored firmware file.
 func (s *Service) GetFirmwareMetadata(fileID string) (FirmwareMetadata, error) {
+	s.firmwareMetadataReuseMu.RLock()
+	defer s.firmwareMetadataReuseMu.RUnlock()
+
+	return s.getFirmwareMetadataUnlocked(fileID)
+}
+
+// LeaseFirmwareMetadata returns target metadata while holding the firmware
+// lifecycle read lock. The caller must invoke release when it no longer relies
+// on that metadata remaining current.
+func (s *Service) LeaseFirmwareMetadata(fileID string) (metadata FirmwareMetadata, release func(), err error) {
+	s.firmwareMetadataReuseMu.RLock()
+	metadata, err = s.getFirmwareMetadataUnlocked(fileID)
+	if err != nil {
+		s.firmwareMetadataReuseMu.RUnlock()
+		return FirmwareMetadata{}, nil, err
+	}
+	return metadata, s.firmwareMetadataReuseMu.RUnlock, nil
+}
+
+func (s *Service) getFirmwareMetadataUnlocked(fileID string) (FirmwareMetadata, error) {
 	canonical, err := canonicalizeFirmwareFileID(fileID)
 	if err != nil {
 		return FirmwareMetadata{}, err
