@@ -51,6 +51,13 @@ type FirmwareUploadSaveResult struct {
 	Metadata       FirmwareMetadata
 }
 
+// FirmwareMetadataUpdateResult captures the metadata transition committed by
+// an update. Previous is nil when the existing sidecar was missing or corrupt.
+type FirmwareMetadataUpdateResult struct {
+	Previous *FirmwareMetadata
+	Current  FirmwareMetadata
+}
+
 const firmwareDir = "firmware"
 const firmwareStagingDir = "firmware/staging"
 const firmwareMetadataFilename = "metadata.json"
@@ -521,17 +528,17 @@ func (s *Service) GetFirmwareMetadata(fileID string) (FirmwareMetadata, error) {
 }
 
 // UpdateFirmwareMetadata atomically replaces the target metadata for a stored
-// firmware file and refreshes its checksum reuse entry. This also allows a
-// legacy payload without a sidecar to become eligible for new deployments once
-// complete metadata has been supplied.
-func (s *Service) UpdateFirmwareMetadata(fileID string, metadata FirmwareMetadata) error {
+// firmware file, refreshes its checksum reuse entry, and returns the committed
+// metadata transition. This also allows a legacy payload without a sidecar to
+// become eligible for new deployments once complete metadata has been supplied.
+func (s *Service) UpdateFirmwareMetadata(fileID string, metadata FirmwareMetadata) (FirmwareMetadataUpdateResult, error) {
 	canonical, err := canonicalizeFirmwareFileID(fileID)
 	if err != nil {
-		return err
+		return FirmwareMetadataUpdateResult{}, err
 	}
 	metadata = metadata.normalized()
 	if err := ValidateFirmwareUploadMetadata(metadata); err != nil {
-		return err
+		return FirmwareMetadataUpdateResult{}, err
 	}
 
 	// Serialize metadata replacement with checksum reuse lookups so a lookup
@@ -544,17 +551,22 @@ func (s *Service) UpdateFirmwareMetadata(fileID string, metadata FirmwareMetadat
 	dirInfo, err := os.Stat(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fleeterror.NewNotFoundErrorf("firmware file not found: %s", canonical)
+			return FirmwareMetadataUpdateResult{}, fleeterror.NewNotFoundErrorf("firmware file not found: %s", canonical)
 		}
-		return fleeterror.NewInternalErrorf("failed to stat firmware dir %s: %v", canonical, err)
+		return FirmwareMetadataUpdateResult{}, fleeterror.NewInternalErrorf("failed to stat firmware dir %s: %v", canonical, err)
 	}
 	uploadedAt := dirInfo.ModTime()
-	if record, readErr := readFirmwareMetadataRecord(dir); readErr == nil && !record.UploadedAt.IsZero() {
-		uploadedAt = record.UploadedAt
+	var previous *FirmwareMetadata
+	if record, readErr := readFirmwareMetadataRecord(dir); readErr == nil {
+		previousMetadata := record.FirmwareMetadata
+		previous = &previousMetadata
+		if !record.UploadedAt.IsZero() {
+			uploadedAt = record.UploadedAt
+		}
 	}
 	filePath, err := getFirmwareFilePathForCanonicalID(canonical)
 	if err != nil {
-		return err
+		return FirmwareMetadataUpdateResult{}, err
 	}
 	// The payload is immutable after publish, so a cached checksum is trusted;
 	// only legacy files that were never indexed need a fresh hash.
@@ -562,7 +574,7 @@ func (s *Service) UpdateFirmwareMetadata(fileID string, metadata FirmwareMetadat
 	if !ok {
 		checksum, err = computeFileChecksum(filePath)
 		if err != nil {
-			return fleeterror.NewInternalErrorf("failed to compute firmware checksum: %v", err)
+			return FirmwareMetadataUpdateResult{}, fleeterror.NewInternalErrorf("failed to compute firmware checksum: %v", err)
 		}
 	}
 
@@ -575,13 +587,16 @@ func (s *Service) UpdateFirmwareMetadata(fileID string, metadata FirmwareMetadat
 		if wasEligible {
 			s.rememberFirmwareChecksum(checksum, canonical)
 		}
-		return err
+		return FirmwareMetadataUpdateResult{}, err
 	}
 	if err := s.syncFirmwareDir(dir); err != nil {
-		return fleeterror.NewInternalErrorf("failed to sync firmware directory: %v", err)
+		return FirmwareMetadataUpdateResult{}, fleeterror.NewInternalErrorf("failed to sync firmware directory: %v", err)
 	}
 	s.rememberFirmwareChecksum(checksum, canonical)
-	return nil
+	return FirmwareMetadataUpdateResult{
+		Previous: previous,
+		Current:  metadata,
+	}, nil
 }
 
 func getFirmwareFilePathForCanonicalID(canonical string) (string, error) {

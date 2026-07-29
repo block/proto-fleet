@@ -236,11 +236,6 @@ func (h *uploadHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer upload.staged.Discard()
 
-	if err := h.filesService.ValidateFirmwareFilename(upload.filename); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
 	saveResult, err := h.filesService.SaveFirmwareUploadFromPath(
 		upload.filename,
 		upload.staged.Path,
@@ -297,6 +292,7 @@ func extractMultipartFile(r *http.Request, filesService *files.Service) (extract
 		"target_model":        &upload.metadata.TargetModel,
 		"firmware_version":    &upload.metadata.FirmwareVersion,
 	}
+	metadataFieldsRead := make(map[string]bool, len(metadataFields))
 	for {
 		part, err := mr.NextPart()
 		if err == io.EOF {
@@ -318,6 +314,16 @@ func extractMultipartFile(r *http.Request, filesService *files.Service) (extract
 				return extractedMultipartUpload{}, fleeterror.NewInvalidArgumentError("multiple 'file' fields are not supported")
 			}
 			upload.filename = part.FileName()
+			if validationErr := filesService.ValidateFirmwareFilename(upload.filename); validationErr != nil {
+				_ = part.Close()
+				return extractedMultipartUpload{}, validationErr
+			}
+			if len(metadataFieldsRead) == len(metadataFields) {
+				if validationErr := files.ValidateFirmwareUploadMetadata(upload.metadata); validationErr != nil {
+					_ = part.Close()
+					return extractedMultipartUpload{}, validationErr
+				}
+			}
 			staged, stageErr := filesService.StageFirmwareUpload(part)
 			_ = part.Close()
 			if stageErr != nil {
@@ -330,6 +336,7 @@ func extractMultipartFile(r *http.Request, filesService *files.Service) (extract
 				return extractedMultipartUpload{}, readErr
 			}
 			*metadataFields[name] = value
+			metadataFieldsRead[name] = true
 		case name == "force":
 			value, readErr := readPartValue(part, 16, name)
 			if readErr != nil {
@@ -511,15 +518,8 @@ func (h *updateMetadataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var previousMetadata *files.FirmwareMetadata
-	previous, err := h.filesService.GetFirmwareMetadata(fileID)
+	result, err := h.filesService.UpdateFirmwareMetadata(fileID, metadata)
 	if err != nil {
-		slog.Warn("failed to read previous firmware metadata for activity", "file_id", fileID, "error", err)
-	} else {
-		previousMetadata = &previous
-	}
-
-	if err := h.filesService.UpdateFirmwareMetadata(fileID, metadata); err != nil {
 		switch {
 		case fleeterror.IsNotFoundError(err):
 			writeError(w, http.StatusNotFound, err.Error())
@@ -532,12 +532,7 @@ func (h *updateMetadataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	currentMetadata, err := h.filesService.GetFirmwareMetadata(fileID)
-	if err != nil {
-		slog.Warn("failed to read updated firmware metadata for activity", "file_id", fileID, "error", err)
-		currentMetadata = metadata
-	}
-	logFirmwareMetadataUpdatedActivity(ctx, h.activitySvc, fileID, previousMetadata, currentMetadata)
+	logFirmwareMetadataUpdatedActivity(ctx, h.activitySvc, fileID, result.Previous, result.Current)
 
 	w.WriteHeader(http.StatusNoContent)
 }

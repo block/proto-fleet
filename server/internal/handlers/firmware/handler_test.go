@@ -351,6 +351,50 @@ func TestUploadHandler_RejectsInvalidExtension(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "unsupported firmware file type")
 }
 
+func TestUploadHandler_RejectsInvalidExtensionBeforeOversizedFile(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	var err error
+	env.fileSvc, err = files.NewService(files.Config{MaxFirmwareFileSize: 50})
+	require.NoError(t, err)
+	req := createMultipartRequest(
+		t,
+		"firmware.bin",
+		[]byte(strings.Repeat("x", 200)),
+		validSessionCookie(env.sessionID),
+	)
+	rr := httptest.NewRecorder()
+
+	env.uploadHandler().ServeHTTP(rr, req)
+
+	assertJSONErrorResponse(t, rr, http.StatusBadRequest,
+		`FleetError: invalid_argument (Common: 0) unsupported firmware file type "firmware.bin" (allowed: .swu, .tar.gz, .zip)`)
+}
+
+func TestUploadHandler_RejectsCompleteInvalidMetadataBeforeStaging(t *testing.T) {
+	env := newTestEnv(t)
+	env.expectAuth()
+	require.NoError(t, os.RemoveAll("firmware/staging"))
+	require.NoError(t, os.WriteFile("firmware/staging", []byte("not a directory"), 0600))
+	req := createMultipartRequestWithFields(
+		t,
+		"firmware.swu",
+		[]byte("data"),
+		validSessionCookie(env.sessionID),
+		map[string]string{
+			"target_manufacturer": "Proto",
+			"target_model":        " ",
+			"firmware_version":    "v2.0.0",
+		},
+	)
+	rr := httptest.NewRecorder()
+
+	env.uploadHandler().ServeHTTP(rr, req)
+
+	assertJSONErrorResponse(t, rr, http.StatusBadRequest,
+		"FleetError: invalid_argument (Common: 0) target_model is required")
+}
+
 func TestUploadHandler_RejectsMissingTargetMetadata(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -804,7 +848,7 @@ func TestUpdateMetadataHandler_UpdatesStoredFirmware(t *testing.T) {
 	fileID, err := env.fileSvc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
 	require.NoError(t, err)
 
-	body := `{"target_manufacturer":"Bitmain","target_model":"S19","firmware_version":"v3.0.0"}`
+	body := `{"target_manufacturer":" Bitmain ","target_model":" S19 ","firmware_version":" v3.0.0 "}`
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/firmware/files/"+fileID, strings.NewReader(body))
 	req.SetPathValue("fileId", fileID)
 	req.AddCookie(validSessionCookie(env.sessionID))
@@ -848,7 +892,7 @@ func TestUpdateMetadataHandler_LogsMetadataUpdateActivity(t *testing.T) {
 	h := env.updateMetadataHandler()
 	h.activitySvc = activityDomain.NewService(activityStore)
 
-	body := `{"target_manufacturer":"Bitmain","target_model":"S19","firmware_version":"v3.0.0"}`
+	body := `{"target_manufacturer":" Bitmain ","target_model":" S19 ","firmware_version":" v3.0.0 "}`
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/firmware/files/"+fileID, strings.NewReader(body))
 	req.SetPathValue("fileId", fileID)
 	req.AddCookie(validSessionCookie(env.sessionID))

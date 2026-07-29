@@ -191,7 +191,15 @@ func TestUpdateFirmwareMetadata_ReplacesMetadataAndChecksumTarget(t *testing.T) 
 		TargetModel:        " S19 ",
 		FirmwareVersion:    " v3.0.0 ",
 	}
-	require.NoError(t, svc.UpdateFirmwareMetadata(fileID, updated))
+	result, err := svc.UpdateFirmwareMetadata(fileID, updated)
+	require.NoError(t, err)
+	require.NotNil(t, result.Previous)
+	assert.Equal(t, testFirmwareMetadata(), *result.Previous)
+	assert.Equal(t, FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	}, result.Current)
 
 	metadata, err := svc.GetFirmwareMetadata(fileID)
 	require.NoError(t, err)
@@ -217,7 +225,7 @@ func TestUpdateFirmwareMetadata_ClassifiesCorruptPayloadDirectoryAsInternal(t *t
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(getFirmwareDirPath(fileID), "extra.swu"), []byte("extra"), 0600))
 
-	err = svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{
+	_, err = svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{
 		TargetManufacturer: "Bitmain",
 		TargetModel:        "S19",
 		FirmwareVersion:    "v3.0.0",
@@ -242,7 +250,7 @@ func TestUpdateFirmwareMetadata_DoesNotIndexMetadataBeforeDirectorySync(t *testi
 		TargetModel:        "S19",
 		FirmwareVersion:    "v3.0.0",
 	}
-	err = svc.UpdateFirmwareMetadata(fileID, metadata)
+	_, err = svc.UpdateFirmwareMetadata(fileID, metadata)
 
 	require.Error(t, err)
 	_, found := svc.FindFirmwareFileByChecksum(checksumOf(content), metadata)
@@ -261,7 +269,7 @@ func TestUpdateFirmwareMetadata_RestoresChecksumEligibilityWhenWriteFails(t *tes
 	require.NoError(t, os.Remove(firmwareStagingDir))
 	require.NoError(t, os.WriteFile(firmwareStagingDir, []byte("not a directory"), 0600))
 
-	err = svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{
+	_, err = svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{
 		TargetManufacturer: "Bitmain",
 		TargetModel:        "S19",
 		FirmwareVersion:    "v3.0.0",
@@ -296,7 +304,8 @@ func TestUpdateFirmwareMetadata_SerializesChecksumLookupWithMetadataReplacement(
 
 	updateDone := make(chan error, 1)
 	go func() {
-		updateDone <- svc.UpdateFirmwareMetadata(fileID, updated)
+		_, err := svc.UpdateFirmwareMetadata(fileID, updated)
+		updateDone <- err
 	}()
 	<-updateAtDirectorySync
 
@@ -333,6 +342,69 @@ func TestUpdateFirmwareMetadata_SerializesChecksumLookupWithMetadataReplacement(
 	assert.Equal(t, fileID, foundID)
 }
 
+func TestUpdateFirmwareMetadata_ReturnsAtomicTransitionsForConcurrentEdits(t *testing.T) {
+	svc := setupService(t)
+	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
+	require.NoError(t, err)
+
+	firstUpdate := FirmwareMetadata{
+		TargetManufacturer: "Bitmain",
+		TargetModel:        "S19",
+		FirmwareVersion:    "v3.0.0",
+	}
+	secondUpdate := FirmwareMetadata{
+		TargetManufacturer: "MicroBT",
+		TargetModel:        "M60",
+		FirmwareVersion:    "v4.0.0",
+	}
+
+	firstAtDirectorySync := make(chan struct{})
+	allowFirstDirectorySync := make(chan struct{})
+	blockedFirstUpdate := false
+	svc.syncFirmwareDir = func(dir string) error {
+		if dir == getFirmwareDirPath(fileID) && !blockedFirstUpdate {
+			blockedFirstUpdate = true
+			close(firstAtDirectorySync)
+			<-allowFirstDirectorySync
+		}
+		return nil
+	}
+
+	type updateOutcome struct {
+		result FirmwareMetadataUpdateResult
+		err    error
+	}
+	firstDone := make(chan updateOutcome, 1)
+	go func() {
+		result, err := svc.UpdateFirmwareMetadata(fileID, firstUpdate)
+		firstDone <- updateOutcome{result: result, err: err}
+	}()
+	<-firstAtDirectorySync
+
+	secondStarted := make(chan struct{})
+	secondDone := make(chan updateOutcome, 1)
+	go func() {
+		close(secondStarted)
+		result, err := svc.UpdateFirmwareMetadata(fileID, secondUpdate)
+		secondDone <- updateOutcome{result: result, err: err}
+	}()
+	<-secondStarted
+
+	close(allowFirstDirectorySync)
+
+	first := <-firstDone
+	require.NoError(t, first.err)
+	require.NotNil(t, first.result.Previous)
+	assert.Equal(t, testFirmwareMetadata(), *first.result.Previous)
+	assert.Equal(t, firstUpdate, first.result.Current)
+
+	second := <-secondDone
+	require.NoError(t, second.err)
+	require.NotNil(t, second.result.Previous)
+	assert.Equal(t, firstUpdate, *second.result.Previous)
+	assert.Equal(t, secondUpdate, second.result.Current)
+}
+
 func TestUpdateFirmwareMetadata_PreservesUploadTime(t *testing.T) {
 	svc := setupService(t)
 	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
@@ -343,11 +415,12 @@ func TestUpdateFirmwareMetadata_PreservesUploadTime(t *testing.T) {
 	require.Len(t, before, 1)
 
 	time.Sleep(10 * time.Millisecond)
-	require.NoError(t, svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{
+	_, err = svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{
 		TargetManufacturer: "Bitmain",
 		TargetModel:        "S19",
 		FirmwareVersion:    "v3.0.0",
-	}))
+	})
+	require.NoError(t, err)
 
 	after, err := svc.ListFirmwareFiles()
 	require.NoError(t, err)
@@ -382,11 +455,12 @@ func TestUpdateFirmwareMetadata_PersistsLegacyUploadTimeFallback(t *testing.T) {
 	fallbackTime := time.Date(2025, time.January, 2, 3, 4, 5, 0, time.UTC)
 	require.NoError(t, os.Chtimes(dir, fallbackTime, fallbackTime))
 
-	require.NoError(t, svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{
+	_, err = svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{
 		TargetManufacturer: "Bitmain",
 		TargetModel:        "S19",
 		FirmwareVersion:    "v3.0.0",
-	}))
+	})
+	require.NoError(t, err)
 
 	files, err := svc.ListFirmwareFiles()
 	require.NoError(t, err)
@@ -405,7 +479,10 @@ func TestUpdateFirmwareMetadata_AddsMetadataToLegacyPayload(t *testing.T) {
 
 	svc, err := NewService(Config{})
 	require.NoError(t, err)
-	require.NoError(t, svc.UpdateFirmwareMetadata(fileID, testFirmwareMetadata()))
+	result, err := svc.UpdateFirmwareMetadata(fileID, testFirmwareMetadata())
+	require.NoError(t, err)
+	assert.Nil(t, result.Previous)
+	assert.Equal(t, testFirmwareMetadata(), result.Current)
 
 	metadata, err := svc.GetFirmwareMetadata(fileID)
 	require.NoError(t, err)
@@ -420,7 +497,7 @@ func TestUpdateFirmwareMetadata_RejectsIncompleteMetadataWithoutChangingSidecar(
 	fileID, err := svc.SaveFirmwareFile("firmware.swu", strings.NewReader("data"), testFirmwareMetadata())
 	require.NoError(t, err)
 
-	err = svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{TargetManufacturer: "Proto"})
+	_, err = svc.UpdateFirmwareMetadata(fileID, FirmwareMetadata{TargetManufacturer: "Proto"})
 	require.Error(t, err)
 
 	metadata, readErr := svc.GetFirmwareMetadata(fileID)
