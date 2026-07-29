@@ -169,9 +169,13 @@ describe("FirmwareUploadDialog", () => {
 
     render(<FirmwareUploadDialog open onSuccess={vi.fn()} onDismiss={vi.fn()} />);
 
-    expect(
-      await screen.findByText("No paired miner models found. Pair at least one miner to populate firmware targets."),
-    ).toBeInTheDocument();
+    const targetAvailabilityCallout = await screen.findByText(
+      "No paired miner models found. Pair at least one miner to populate firmware targets.",
+    );
+    const manufacturerField = screen.getByTestId("firmware-target-manufacturer");
+
+    expect(targetAvailabilityCallout).toBeInTheDocument();
+    expect(targetAvailabilityCallout.compareDocumentPosition(manufacturerField)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
   });
 
   it("keeps the loading error authoritative when miner models cannot be loaded", async () => {

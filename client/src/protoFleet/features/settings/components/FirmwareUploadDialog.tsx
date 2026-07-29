@@ -115,6 +115,16 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
           </div>
         ) : null}
 
+        {showNoMinerModels ? (
+          <Callout
+            intent="information"
+            prefixIcon={<Info />}
+            title="No paired miner models found. Pair at least one miner to populate firmware targets."
+          />
+        ) : null}
+
+        {modelsError ? <Callout intent="danger" prefixIcon={<Alert />} title={modelsError} /> : null}
+
         {showMetadataFields ? (
           <>
             <FirmwareTargetFields
@@ -151,16 +161,6 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
             ) : null}
           </>
         ) : null}
-
-        {showNoMinerModels ? (
-          <Callout
-            intent="information"
-            prefixIcon={<Info />}
-            title="No paired miner models found. Pair at least one miner to populate firmware targets."
-          />
-        ) : null}
-
-        {modelsError ? <Callout intent="danger" prefixIcon={<Alert />} title={modelsError} /> : null}
 
         {showProcessingStatus ? (
           <FileProcessingStatus
