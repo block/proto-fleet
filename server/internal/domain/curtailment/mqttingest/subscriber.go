@@ -278,22 +278,6 @@ func (s *Subscriber) SourceRuntimeStatus(sourceID int64) RuntimeStatus {
 	return status
 }
 
-// Healthy reports whether every enabled source in the current activation has
-// at least one subscribed broker.
-func (s *Subscriber) Healthy() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.activation == nil || channelClosed(s.activation.runCanceled) {
-		return false
-	}
-	for sourceID := range s.activation.sourceIDs {
-		if s.statuses[sourceID].State != RuntimeStateRunning {
-			return false
-		}
-	}
-	return true
-}
-
 func (s *Subscriber) QuiesceSource(ctx context.Context, sourceID int64) error {
 	if err := s.lockReconcile(ctx); err != nil {
 		return err
@@ -355,12 +339,6 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 	for _, src := range sources {
 		desired[src.ID] = src
 	}
-	s.mu.Lock()
-	clear(activation.sourceIDs)
-	for sourceID := range desired {
-		activation.sourceIDs[sourceID] = struct{}{}
-	}
-	s.mu.Unlock()
 	stopping := make([]*sourceWorkerHandle, 0)
 	for sourceID, handle := range existing {
 		if handleStopped(handle) {
@@ -409,6 +387,7 @@ func (s *Subscriber) reconcile(ctx context.Context, failIfNoneStarted bool) (int
 			continue
 		}
 		s.setSourceStatusLocked(src.ID, RuntimeStateStarting, "")
+		activation.sourceIDs[src.ID] = struct{}{}
 		s.brokerStatuses[src.ID] = make(map[string]brokerRuntimeStatus)
 		s.mu.Unlock()
 

@@ -28,7 +28,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue/mocks"
-	"github.com/block/proto-fleet/server/internal/runtimejobs"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -132,56 +131,6 @@ func TestExecutionService_Start(t *testing.T) {
 	})
 }
 
-func TestExecutionServiceReportsQueueProcessorProgress(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockQueue := mocks.NewMockMessageQueue(ctrl)
-	mockQueue.EXPECT().Dequeue(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-	service := NewExecutionService(&Config{
-		MaxWorkers:            1,
-		MasterPollingInterval: time.Millisecond,
-		ReaperInterval:        time.Hour,
-	}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
-	job, err := runtimejobs.NewJob("command-execution", service)
-	require.NoError(t, err)
-	group, err := runtimejobs.NewGroup([]runtimejobs.Job{job})
-	require.NoError(t, err)
-
-	require.NoError(t, group.Start(t.Context()))
-	require.Eventually(t, func() bool {
-		return !group.Status().Jobs[0].LastProgress.IsZero()
-	}, time.Second, time.Millisecond)
-	require.NoError(t, group.Stop(t.Context()))
-}
-
-func TestExecutionServiceReportsProgressWhileWorkerPoolIsFull(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockQueue := mocks.NewMockMessageQueue(ctrl)
-	mockQueue.EXPECT().Dequeue(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-	service := NewExecutionService(&Config{
-		MaxWorkers:            1,
-		MasterPollingInterval: 5 * time.Millisecond,
-		ReaperInterval:        time.Hour,
-	}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
-	service.workerSemaphore <- struct{}{}
-	job, err := runtimejobs.NewJob("command-execution", service)
-	require.NoError(t, err)
-	group, err := runtimejobs.NewGroup([]runtimejobs.Job{job})
-	require.NoError(t, err)
-
-	require.NoError(t, group.Start(t.Context()))
-	require.Eventually(t, func() bool {
-		return !group.Status().Jobs[0].LastProgress.IsZero()
-	}, time.Second, time.Millisecond)
-	require.Never(t, func() bool {
-		return group.Status().Jobs[0].Stale
-	}, 50*time.Millisecond, 2*time.Millisecond)
-
-	<-service.workerSemaphore
-	require.NoError(t, group.Stop(t.Context()))
-}
-
 func TestExecutionService_StopTimeoutRetainsActivationUntilWorkerDrains(t *testing.T) {
 	svc := NewExecutionService(&Config{
 		MaxWorkers:            1,
@@ -282,14 +231,6 @@ func TestExecutionService_AbortCancelsAdmittedWorker(t *testing.T) {
 	}
 	require.False(t, svc.IsRunning())
 	require.NoError(t, svc.Stop(t.Context()))
-}
-
-func TestNewExecutionServiceDefaultsNonPositiveMasterPollingInterval(t *testing.T) {
-	config := &Config{}
-
-	NewExecutionService(config, nil, nil, nil, nil, nil, nil, nil, nil)
-
-	require.Equal(t, defaultMasterPollingInterval, config.MasterPollingInterval)
 }
 
 func TestExecutionService_StopWaitsForAdmittedEnqueue(t *testing.T) {

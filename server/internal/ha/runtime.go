@@ -10,19 +10,13 @@ import (
 )
 
 const (
-	defaultActivationTimeout   = 4 * time.Second
 	defaultHealthCheckInterval = 100 * time.Millisecond
 	defaultCleanupTimeout      = 10 * time.Second
 )
 
 var errCriticalRuntimeUnhealthy = errors.New("critical Fleet runtime is unhealthy")
 
-// HealthCheck reports one explicitly control-critical condition. Generic
-// runtime-job freshness remains observational and must not demote Fleet.
-type HealthCheck func() bool
-
 type RuntimeConfig struct {
-	ActivationTimeout   time.Duration
 	HealthCheckInterval time.Duration
 	CleanupTimeout      time.Duration
 }
@@ -38,24 +32,23 @@ type runtimeGroup interface {
 	Start(ctx context.Context) error
 	Abort()
 	Stop(ctx context.Context) error
-	Status() runtimejobs.GroupStatus
 	Err() error
 }
 
 // Runtime serializes lease ownership, the existing runtime-job group, and
 // request admission. It deliberately does not supervise jobs individually.
 type Runtime struct {
-	owner        runtimeOwner
-	group        runtimeGroup
-	healthChecks []HealthCheck
-	config       RuntimeConfig
-	gate         *Gate
+	owner       runtimeOwner
+	group       runtimeGroup
+	healthCheck func() bool
+	config      RuntimeConfig
+	gate        *Gate
 }
 
 func NewRuntime(
 	owner *Coordinator,
 	group *runtimejobs.Group,
-	healthChecks ...HealthCheck,
+	healthy func() bool,
 ) (*Runtime, error) {
 	if owner == nil {
 		return nil, errors.New("HA runtime requires an ownership coordinator")
@@ -63,64 +56,49 @@ func NewRuntime(
 	if group == nil {
 		return nil, errors.New("HA runtime requires a runtime job group")
 	}
-	if err := validateHealthChecks(healthChecks); err != nil {
-		return nil, fmt.Errorf("HA runtime: %w", err)
+	if healthy == nil {
+		return nil, errors.New("HA runtime requires a critical health check")
 	}
-	return newRuntime(owner, group, healthChecks, RuntimeConfig{}), nil
+	return newRuntime(owner, group, healthy, RuntimeConfig{}), nil
 }
 
 func NewStandaloneRuntime(
 	group *runtimejobs.Group,
-	healthChecks ...HealthCheck,
+	healthy func() bool,
 ) (*Runtime, error) {
 	if group == nil {
 		return nil, errors.New("standalone runtime requires a runtime job group")
 	}
-	if err := validateHealthChecks(healthChecks); err != nil {
-		return nil, fmt.Errorf("standalone runtime: %w", err)
+	if healthy == nil {
+		return nil, errors.New("standalone runtime requires a critical health check")
 	}
-	return newRuntime(nil, group, healthChecks, RuntimeConfig{}), nil
-}
-
-func validateHealthChecks(healthChecks []HealthCheck) error {
-	if len(healthChecks) == 0 {
-		return errors.New("requires at least one critical health check")
-	}
-	for _, check := range healthChecks {
-		if check == nil {
-			return errors.New("critical health checks must not be nil")
-		}
-	}
-	return nil
+	return newRuntime(nil, group, healthy, RuntimeConfig{}), nil
 }
 
 func newRuntime(
 	owner runtimeOwner,
 	group runtimeGroup,
-	healthChecks []HealthCheck,
+	healthy func() bool,
 	config RuntimeConfig,
 ) *Runtime {
 	return &Runtime{
-		owner:        owner,
-		group:        group,
-		healthChecks: healthChecks,
-		config:       withRuntimeDefaults(config),
-		gate:         newGate(),
+		owner:       owner,
+		group:       group,
+		healthCheck: healthy,
+		config:      withRuntimeDefaults(config),
+		gate:        newGate(),
 	}
 }
 
 func newStandaloneRuntime(
 	group runtimeGroup,
-	healthChecks []HealthCheck,
+	healthy func() bool,
 	config RuntimeConfig,
 ) *Runtime {
-	return newRuntime(nil, group, healthChecks, config)
+	return newRuntime(nil, group, healthy, config)
 }
 
 func withRuntimeDefaults(config RuntimeConfig) RuntimeConfig {
-	if config.ActivationTimeout <= 0 {
-		config.ActivationTimeout = defaultActivationTimeout
-	}
 	if config.HealthCheckInterval <= 0 {
 		config.HealthCheckInterval = defaultHealthCheckInterval
 	}
@@ -149,12 +127,12 @@ func (r *Runtime) runStandalone(ctx context.Context) error {
 	if err := r.group.Start(ctx); err != nil {
 		return fmt.Errorf("start standalone Fleet runtime: %w", err)
 	}
-	if err := r.waitUntilHealthy(ctx); err != nil {
+	if !r.healthCheck() {
 		stopErr := r.stopGroup()
 		if ctx.Err() != nil {
 			return stopErr
 		}
-		return errors.Join(err, stopErr)
+		return errors.Join(errCriticalRuntimeUnhealthy, stopErr)
 	}
 	r.gate.activate(ctx)
 	activeErr := r.waitWhileHealthy(ctx, ctx)
@@ -198,10 +176,10 @@ func (r *Runtime) runHA(ctx context.Context) error {
 			continue
 		}
 
-		if err := r.waitUntilHealthy(activeCtx); err != nil {
+		if !r.healthCheck() {
 			r.group.Abort()
 			if activeCtx.Err() == nil {
-				r.owner.RequestDemotion(err)
+				r.owner.RequestDemotion(errCriticalRuntimeUnhealthy)
 			}
 			if stopErr := r.stopGroup(); stopErr != nil {
 				return stopErr
@@ -229,30 +207,6 @@ func (r *Runtime) runHA(ctx context.Context) error {
 	}
 }
 
-func (r *Runtime) waitUntilHealthy(activeCtx context.Context) error {
-	timeout := time.NewTimer(r.config.ActivationTimeout)
-	defer timeout.Stop()
-	ticker := time.NewTicker(r.config.HealthCheckInterval)
-	defer ticker.Stop()
-
-	for {
-		if r.healthy() {
-			return nil
-		}
-		select {
-		case <-activeCtx.Done():
-			return fmt.Errorf("active lifetime ended during startup: %w", activeCtx.Err())
-		case <-timeout.C:
-			return fmt.Errorf(
-				"%w after %s activation timeout",
-				errCriticalRuntimeUnhealthy,
-				r.config.ActivationTimeout,
-			)
-		case <-ticker.C:
-		}
-	}
-}
-
 func (r *Runtime) waitWhileHealthy(parent, activeCtx context.Context) error {
 	ticker := time.NewTicker(r.config.HealthCheckInterval)
 	defer ticker.Stop()
@@ -263,24 +217,11 @@ func (r *Runtime) waitWhileHealthy(parent, activeCtx context.Context) error {
 		case <-activeCtx.Done():
 			return fmt.Errorf("active lifetime ended: %w", activeCtx.Err())
 		case <-ticker.C:
-			if !r.healthy() {
+			if !r.healthCheck() {
 				return errCriticalRuntimeUnhealthy
 			}
 		}
 	}
-}
-
-func (r *Runtime) healthy() bool {
-	status := r.group.Status()
-	if status.State != runtimejobs.StateRunning || status.TerminalError != nil {
-		return false
-	}
-	for _, check := range r.healthChecks {
-		if !check() {
-			return false
-		}
-	}
-	return true
 }
 
 func (r *Runtime) stopGroup() error {

@@ -35,9 +35,8 @@ import (
 )
 
 const (
-	dbWriteTimeout               = 10 * time.Second
-	workerNameLookupTimeout      = 5 * time.Second
-	defaultMasterPollingInterval = time.Second
+	dbWriteTimeout          = 10 * time.Second
+	workerNameLookupTimeout = 5 * time.Second
 )
 
 //go:generate go run go.uber.org/mock/mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter,CachedMinerGetter
@@ -103,9 +102,6 @@ func newExecutionRun(ctx context.Context) *executionRun {
 }
 
 func NewExecutionService(config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService CachedMinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, filesService *files.Service) *ExecutionService {
-	if config.MasterPollingInterval <= 0 {
-		config.MasterPollingInterval = defaultMasterPollingInterval
-	}
 	if config.StuckMessageTimeout <= 0 {
 		config.StuckMessageTimeout = 5 * time.Minute
 	}
@@ -282,6 +278,7 @@ func (es *ExecutionService) withAdmission(ctx context.Context, fn func(context.C
 }
 
 func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
+	reportProgress := runtimejobs.TrackProgress(ctx, es.config.ReaperInterval)
 	ticker := time.NewTicker(es.config.ReaperInterval)
 	defer ticker.Stop()
 
@@ -291,6 +288,7 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if es.conn == nil {
+				reportProgress()
 				continue
 			}
 			reapCtx, reapCancel := context.WithTimeout(ctx, dbWriteTimeout)
@@ -298,6 +296,7 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 			reapCancel()
 			if err != nil {
 				slog.Error("stuck message reaper error", "error", err)
+				reportProgress()
 				continue
 			}
 			if len(reaped) > 0 {
@@ -307,6 +306,7 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 			for _, deviceID := range fwDeviceIDs {
 				es.clearFirmwareUpdateStatus(ctx, deviceID)
 			}
+			reportProgress()
 		}
 	}
 }
@@ -430,9 +430,8 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context, limit int32) (
 
 func (es *ExecutionService) startQueueProcessorThread(run *executionRun) error {
 	ctx := run.admissionCtx
-	reportProgress := runtimejobs.TrackProgress(ctx, es.config.MasterPollingInterval)
 	for {
-		reservedSlots, err := es.reserveWorkerSlots(ctx, reportProgress)
+		reservedSlots, err := es.reserveWorkerSlots(ctx)
 		if err != nil {
 			return err
 		}
@@ -452,7 +451,6 @@ func (es *ExecutionService) startQueueProcessorThread(run *executionRun) error {
 				continue
 			}
 		}
-		reportProgress()
 		if len(messages) > int(reservedSlots) {
 			es.releaseWorkerSlots(int(reservedSlots))
 			return fleeterror.NewInternalErrorf("dequeue returned %d messages for %d reserved worker slots", len(messages), reservedSlots)
@@ -489,21 +487,14 @@ func (es *ExecutionService) startQueueProcessorThread(run *executionRun) error {
 	}
 }
 
-func (es *ExecutionService) reserveWorkerSlots(ctx context.Context, reportProgress func()) (int32, error) {
-	ticker := time.NewTicker(es.config.MasterPollingInterval)
-	defer ticker.Stop()
-	reserved := int32(0)
-	for reserved == 0 {
-		select {
-		case es.workerSemaphore <- struct{}{}:
-			reserved = 1
-		case <-ticker.C:
-			reportProgress()
-		case <-ctx.Done():
-			return 0, fmt.Errorf("queue processor context canceled waiting for worker slot: %w", ctx.Err())
-		}
+func (es *ExecutionService) reserveWorkerSlots(ctx context.Context) (int32, error) {
+	select {
+	case es.workerSemaphore <- struct{}{}:
+	case <-ctx.Done():
+		return 0, fmt.Errorf("queue processor context canceled waiting for worker slot: %w", ctx.Err())
 	}
 
+	reserved := int32(1)
 	for int(reserved) < cap(es.workerSemaphore) {
 		select {
 		case es.workerSemaphore <- struct{}{}:
