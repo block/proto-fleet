@@ -306,12 +306,12 @@ func (d *Device) refreshFirmwareVersion(ctx context.Context, metrics *sdk.Device
 		return
 	}
 	fwVersion, err := d.client.GetFirmwareVersion(ctx)
+	d.lastFirmwareCheckAt = time.Now()
 	if err != nil {
 		slog.Debug("failed to get firmware version during Status", "error", err)
 		return
 	}
 	if fwVersion != "" {
-		d.lastFirmwareCheckAt = time.Now()
 		d.deviceInfo.FirmwareVersion = fwVersion
 		metrics.FirmwareVersion = fwVersion
 	}

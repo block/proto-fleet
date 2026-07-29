@@ -343,7 +343,7 @@ func TestRebootRefreshesFirmwareVersionOnNextStatus(t *testing.T) {
 	assert.Equal(t, 1, firmwareVersionCalls, "first post-reboot status should refresh activated firmware")
 }
 
-func TestRebootRetriesFirmwareVersionAfterFailedProbe(t *testing.T) {
+func TestRebootThrottlesFirmwareVersionRetryAfterFailedProbe(t *testing.T) {
 	firmwareVersion := "1.0.0"
 	failFirmwareVersionProbe := false
 	var firmwareVersionCalls int
@@ -406,10 +406,16 @@ func TestRebootRetriesFirmwareVersionAfterFailedProbe(t *testing.T) {
 	require.Equal(t, "1.0.0", stale.FirmwareVersion)
 	require.Equal(t, 1, firmwareVersionCalls, "first post-reboot firmware probe should fail")
 
+	stillStale, err := dev.Status(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "1.0.0", stillStale.FirmwareVersion)
+	require.Equal(t, 1, firmwareVersionCalls, "failed firmware probe should throttle immediate retries")
+
+	dev.lastFirmwareCheckAt = time.Now().Add(-firmwareRefreshInterval)
 	refreshed, err := dev.Status(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "2.0.0", refreshed.FirmwareVersion)
-	assert.Equal(t, 2, firmwareVersionCalls, "failed probe should not suppress the next firmware refresh")
+	assert.Equal(t, 2, firmwareVersionCalls, "firmware refresh should retry after the throttle interval")
 }
 
 func TestDevice_CurtailFullWrapsDispatchFailureAsTransient(t *testing.T) {
