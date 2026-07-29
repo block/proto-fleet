@@ -136,3 +136,35 @@ describe("ManageBuildingModal reparent commit-on-Continue", () => {
     expect(onSaved).not.toHaveBeenCalled();
   });
 });
+
+describe("ManageBuildingModal Save dirty gate", () => {
+  beforeEach(() => {
+    mockApi.listBuildingsBySite.mockReset();
+    mockApi.listBuildings.mockReset();
+    mockApi.listBuildingRacks.mockReset();
+    mockApi.assignRacksToBuilding.mockReset();
+    mockListRacks.mockReset();
+    // Alpha loads already placed at aisle 0, position 0 — so the working set
+    // starts clean against the snapshot.
+    mockApi.listBuildingRacks.mockImplementation(({ onSuccess }) =>
+      onSuccess?.([{ rackId: 1n, rackLabel: "Alpha", aisleIndex: 0, positionInAisle: 0 }]),
+    );
+    mockApi.listBuildingsBySite.mockImplementation(({ onSuccess }) => onSuccess?.([]));
+    mockApi.listBuildings.mockImplementation(({ onSuccess }) => onSuccess?.([]));
+    mockApi.assignRacksToBuilding.mockImplementation(({ onSuccess }) => onSuccess?.(0n));
+    mockListRacks.mockImplementation(({ onSuccess }) => onSuccess?.([createRack(1n, "Alpha", 20n, 7n)]));
+  });
+
+  it("disables Save until a placement actually changes", async () => {
+    renderModal();
+    // Loaded and clean — nothing to commit, so Save must not offer a no-op
+    // write (which previously toasted a save that dispatched no RPCs).
+    await waitFor(() => expect(screen.getByTestId("manage-building-save")).toBeDisabled());
+
+    // Move Alpha to a different cell: select the row, then click a free cell.
+    await userEvent.click(screen.getByTestId("manage-building-assigned-rack-1"));
+    await userEvent.click(screen.getByTestId("manage-building-grid-cell-1-1"));
+
+    await waitFor(() => expect(screen.getByTestId("manage-building-save")).not.toBeDisabled());
+  });
+});

@@ -3,7 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ManageRacksModal from "../ManageRacksModal";
 import { type RackSelectionDelta } from "../ManageRacksModal/rackSelectionDelta";
 import SearchRacksModal from "../SearchRacksModal";
-import { type AssignmentEntry, buildByNameAssignments, buildManualAssignments } from "./assignmentMath";
+import {
+  type AssignmentEntry,
+  buildByNameAssignments,
+  buildManualAssignments,
+  buildPlacementDelta,
+  isPlacementDeltaEmpty,
+} from "./assignmentMath";
 import BuildingGridPane from "./BuildingGridPane";
 import { assignedRackScope, buildingRackScope } from "./buildingRackScope";
 import BuildingRacksPane, { type AssignedRackRow } from "./BuildingRacksPane";
@@ -124,7 +130,9 @@ const ManageBuildingModal = ({
   // Snapshot of the server's positions at load time so Save only fires
   // assignRacksToBuilding for racks whose position actually changed. Keyed
   // by rackId → "aisle:position" (or "unplaced") so we can string-compare.
-  const initialPlacementRef = useRef<Map<string, string>>(new Map());
+  // State rather than a ref because the Save CTA's dirty gate is derived
+  // from it — a ref wouldn't re-derive when the load resolves.
+  const [initialPlacement, setInitialPlacement] = useState<Map<string, string>>(new Map());
 
   // Synchronous in-flight guard for Save dispatches. setState batching
   // means the `isSaving` prop driving the button's `disabled` lags one
@@ -163,7 +171,7 @@ const ManageBuildingModal = ({
               : "unplaced",
           );
         }
-        initialPlacementRef.current = snapshot;
+        setInitialPlacement(snapshot);
         setIsLoading(false);
       },
       onError: (msg) => {
@@ -211,6 +219,16 @@ const ManageBuildingModal = ({
     }
     return m;
   }, [activeAssignments]);
+
+  // The exact batches Save would dispatch. Derived here (not inside
+  // handleSave) so the Save CTA's dirty gate and the dispatch read the same
+  // diff — a gate computed separately could drift and either block a real
+  // change or let a no-op write through.
+  const placementDelta = useMemo(
+    () => buildPlacementDelta(entries, rackToCell, initialPlacement),
+    [entries, rackToCell, initialPlacement],
+  );
+  const isDirty = !isPlacementDeltaEmpty(placementDelta);
 
   // Assigned-racks list shown in the left pane. positionLabel is derived
   // from the activeAssignments so byName mode shows the auto-placement.
@@ -421,23 +439,19 @@ const ManageBuildingModal = ({
     [promptReparent],
   );
 
-  // Save: walk activeAssignments, diff against the load-time snapshot, and
-  // fire AssignRacksToBuilding once per target building bucket.
+  // Save: dispatch placementDelta's buckets as AssignRacksToBuilding calls,
+  // one per target building bucket.
   //
-  // All racks staying in this building (placements, unplacements,
-  // swaps, "move into occupied cell") ship as a single mixed batch.
-  // The server's AssignRacksToBuilding transaction now runs a two-pass
-  // write internally — pass 1 clears every requested rack's cell, then
-  // pass 2 writes the new (aisle, position) values — so the partial
-  // unique index uk_device_set_rack_building_position can't collide
-  // mid-batch. That removes the old client-side vacate-then-place
-  // split (and its "retry to finish saving" partial-failure path).
-  //
-  // Racks removed from this building go in a second call with
-  // targetBuildingId=undefined since they need a different building
-  // bucket. Layout writes live in BuildingSettingsModal.
+  // Racks staying in this building ship as in-building batches against
+  // building.id; racks removed from it go in a separate call with
+  // targetBuildingId=undefined since they need a different building bucket.
+  // Layout writes live in BuildingSettingsModal.
   const handleSave = useCallback(async () => {
     if (savingRef.current) return;
+    // Defensive: the CTA is dirty-gated, so a clean save shouldn't be
+    // reachable. Bail rather than fall through to the success toast, which
+    // would report a save that dispatched nothing.
+    if (isPlacementDeltaEmpty(placementDelta)) return;
 
     // Capacity guard — mirrors ManageRackModal's slot check and the
     // server's AssignRacksToBuilding cap. A building holds at most
@@ -459,56 +473,7 @@ const ManageBuildingModal = ({
     setErrorMsg("");
     setIsSaving(true);
     try {
-      const initial = initialPlacementRef.current;
-      const currentIds = new Set(entries.map((e) => e.rackId.toString()));
-
-      const inBuilding: RackPlacementInput[] = [];
-      const unassign: RackPlacementInput[] = [];
-
-      for (const entry of entries) {
-        const idStr = entry.rackId.toString();
-        const placedKey = rackToCell.get(idStr);
-        const next = placedKey
-          ? (() => {
-              const { aisle, position } = parseCellKey(placedKey);
-              return `${aisle}:${position}`;
-            })()
-          : "unplaced";
-        const prior = initial.get(idStr) ?? "missing";
-        if (prior === next) continue;
-
-        // Single mixed batch.
-        //   - placedKey present → place at the new (aisle, position).
-        //     Covers both first-time placement and moves; the server's
-        //     pass-1 clear handles any prior occupant inside the batch.
-        //   - placedKey absent + prior previously placed → send a
-        //     member-only entry. The server NULLs the rack's cell in
-        //     pass 1 (no pass-2 write because no position is supplied).
-        //   - placedKey absent + prior === "missing" → rack is new to
-        //     the working set with no chosen cell yet. Send a member-
-        //     only assign so the BE links the rack to this building
-        //     even without a position. Without this branch, racks
-        //     added via Manage racks but never dragged to a cell
-        //     silently drop on save.
-        if (placedKey) {
-          const { aisle, position } = parseCellKey(placedKey);
-          inBuilding.push({
-            rackId: entry.rackId,
-            aisleIndex: aisle,
-            positionInAisle: position,
-          });
-        } else {
-          inBuilding.push({ rackId: entry.rackId });
-        }
-      }
-
-      // Racks removed from this building (in snapshot, not in entries)
-      // need an explicit unassign — different target building bucket so
-      // they can't ride the in-building batch.
-      for (const idStr of initial.keys()) {
-        if (currentIds.has(idStr)) continue;
-        unassign.push({ rackId: BigInt(idStr) });
-      }
+      const { unassign, inBuildingVacate, inBuildingPlace } = placementDelta;
 
       // Buildings can be 100×100 = 10,000 cells, and this modal loads
       // every page, so a large floor-plan save with >1000 changed/
@@ -540,50 +505,14 @@ const ManageBuildingModal = ({
         }
       };
 
-      // Two-pass shape across chunks: vacate ALL cells before placing
-      // ANY rack at a new cell. The server's clear-then-place ordering
-      // only applies within a single AssignRacksToBuilding tx, so a
-      // >1000-rack save where chunk 2 still owns the cell chunk 1 is
-      // trying to claim would trip uk_device_set_rack_building_position.
-      //
-      // Partition the in-building bucket so the vacate pass also clears
-      // the OLD cell of every mover — a rack with both a snapshot
-      // position and a new place entry. Otherwise a cross-chunk swap
-      // (rack A's new cell is rack B's old cell, A lands in chunk 1, B
-      // in chunk 2) would still trip the partial unique index because
-      // B's old cell wouldn't vacate until chunk 2 runs.
-      //   - vacate entries (no aisle/position) — racks staying in the
-      //     building but clearing their cell. Includes:
-      //       * explicit cell-clear entries built above,
-      //       * a synthetic pre-place vacate for every mover, dedup'd by
-      //         rackId so we never send two clears for the same rack.
-      //   - place entries (with aisle/position) — racks landing at a
-      //     specific cell. These can only run after every vacate above
-      //     (plus the unassign bucket) has committed.
-      const inBuildingVacate: RackPlacementInput[] = [];
-      const inBuildingPlace: RackPlacementInput[] = [];
-      const seenVacate = new Set<string>();
-      for (const entry of inBuilding) {
-        const idStr = entry.rackId.toString();
-        const prior = initial.get(idStr) ?? "missing";
-        const wasPlaced = prior !== "unplaced" && prior !== "missing";
-
-        if (entry.aisleIndex !== undefined && entry.positionInAisle !== undefined) {
-          // Mover (had a prior cell) → schedule a pre-place vacate so
-          // its old cell is free before any placement chunk runs.
-          if (wasPlaced && !seenVacate.has(idStr)) {
-            inBuildingVacate.push({ rackId: entry.rackId });
-            seenVacate.add(idStr);
-          }
-          inBuildingPlace.push(entry);
-        } else if (!seenVacate.has(idStr)) {
-          // Already a cell-clear-in-place entry.
-          inBuildingVacate.push({ rackId: entry.rackId });
-          seenVacate.add(idStr);
-        }
-      }
-
       try {
+        // Two-pass shape across chunks: vacate ALL cells (buildPlacementDelta
+        // already folded each mover's old cell into inBuildingVacate) before
+        // placing ANY rack at a new cell. The server's clear-then-place
+        // ordering only applies within a single AssignRacksToBuilding tx, so
+        // a >1000-rack save where chunk 2 still owns the cell chunk 1 is
+        // trying to claim would trip uk_device_set_rack_building_position.
+        //
         // Pass 1: all vacates (unassign bucket + in-building cell-
         // clears). dispatch short-circuits when the list is empty.
         await dispatch(unassign, undefined);
@@ -612,7 +541,7 @@ const ManageBuildingModal = ({
       savingRef.current = false;
       setIsSaving(false);
     }
-  }, [building, rackToCell, entries, aislesNum, racksPerAisleNum, assignRacksToBuilding, onSaved, onDismiss]);
+  }, [building, placementDelta, entries, aislesNum, racksPerAisleNum, assignRacksToBuilding, onSaved, onDismiss]);
 
   if (!open) return null;
 
@@ -660,7 +589,11 @@ const ManageBuildingModal = ({
             text: isSaving ? "Saving…" : "Save",
             variant: variants.primary,
             onClick: handleSave,
-            disabled: isSaving || isLoading || !!loadError,
+            // Dirty-gated: Save writes rack placement, so with no pending
+            // change there's nothing to commit. isLoading stays in the gate
+            // because the baseline snapshot isn't loaded yet — everything
+            // would read clean for the wrong reason.
+            disabled: isSaving || isLoading || !!loadError || !isDirty,
             loading: isSaving,
             testId: "manage-building-save",
           },
