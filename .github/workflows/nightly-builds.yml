@@ -142,6 +142,25 @@ jobs:
       - name: List nightly assets
         run: find /tmp/nightly-assets -type f | sort
 
+      - name: Verify deployment bundle checksums
+        run: |
+          cd /tmp/nightly-assets/bundles
+          for arch in amd64 arm64; do
+            bundle="proto-fleet-${VERSION}-${arch}.tar.gz"
+            if [[ ! -f "$bundle" || ! -f "$bundle.sha256" ]]; then
+              echo "::error::Missing deployment bundle or checksum for $arch"
+              exit 1
+            fi
+            # Bind both the digest and filename; sha256sum -c trusts the
+            # filename stored inside the sidecar.
+            expected_sidecar="$RUNNER_TEMP/proto-fleet-${arch}.sha256"
+            sha256sum "$bundle" > "$expected_sidecar"
+            if ! cmp -s "$expected_sidecar" "$bundle.sha256"; then
+              echo "::error::Deployment bundle checksum is not bound to $bundle"
+              exit 1
+            fi
+          done
+
       - name: Create release notes
         run: |
           cat > /tmp/nightly-release-notes.md <<EOF
@@ -179,6 +198,7 @@ jobs:
         run: |
           gh release create "$VERSION" \
             /tmp/nightly-assets/bundles/proto-fleet-${VERSION}-*.tar.gz \
+            /tmp/nightly-assets/bundles/proto-fleet-${VERSION}-*.tar.gz.sha256 \
             /tmp/nightly-assets/windows/installer.exe \
             /tmp/nightly-assets/windows/uninstall.exe \
             /tmp/nightly-assets/server/proto-fleet-server-${VERSION}-*.tar.gz \
@@ -198,6 +218,7 @@ jobs:
         run: |
           gh release upload "$VERSION" \
             /tmp/nightly-assets/bundles/proto-fleet-${VERSION}-*.tar.gz \
+            /tmp/nightly-assets/bundles/proto-fleet-${VERSION}-*.tar.gz.sha256 \
             /tmp/nightly-assets/windows/installer.exe \
             /tmp/nightly-assets/windows/uninstall.exe \
             /tmp/nightly-assets/server/proto-fleet-server-${VERSION}-*.tar.gz \

@@ -170,6 +170,21 @@ jobs:
           go mod download
           go build -v -ldflags "-X main.version=$VERSION" -o fleetd-${{ matrix.arch }} ./cmd/fleetd
           go build -v -o fleet-ha-${{ matrix.arch }} ./cmd/fleet-ha
+          updater_binary="proto-fleet-updater-${{ matrix.arch }}"
+          CGO_ENABLED=0 go build -v -ldflags "-X main.version=$VERSION" -o "$updater_binary" ./cmd/fleet-updater
+          if ! command -v readelf >/dev/null || ! readelf -h "$updater_binary" >/dev/null; then
+            echo "::error::Unable to inspect the host updater ELF binary"
+            exit 1
+          fi
+          if readelf -l "$updater_binary" | grep INTERP >/dev/null || readelf -d "$updater_binary" | grep NEEDED >/dev/null; then
+            echo "::error::Host updater must be statically linked for supported Linux hosts"
+            exit 1
+          fi
+          updater_version=$("./$updater_binary" --version)
+          if [[ "$updater_version" != "$VERSION" ]]; then
+            echo "::error::Host updater reports version '$updater_version', expected '$VERSION'"
+            exit 1
+          fi
           echo "version: $VERSION" > version.txt
           echo "is_prerelease: $IS_PRERELEASE" >> version.txt
           echo "build_date: $BUILD_DATE" >> version.txt
@@ -206,6 +221,7 @@ jobs:
           tar -czf "proto-fleet-server-${VERSION}-${{ matrix.arch }}.tar.gz" \
             fleetd-${{ matrix.arch }} \
             fleet-ha-${{ matrix.arch }} \
+            proto-fleet-updater-${{ matrix.arch }} \
             proto-plugin-${{ matrix.arch }} \
             antminer-plugin-${{ matrix.arch }} \
             virtual-plugin-${{ matrix.arch }} \
@@ -459,6 +475,8 @@ jobs:
           cd deployment/server
           mv fleetd-${{ matrix.arch }} fleetd
           mv fleet-ha-${{ matrix.arch }} fleet-ha
+          mkdir -p ../updater
+          mv proto-fleet-updater-${{ matrix.arch }} ../updater/proto-fleet-updater
           mv proto-plugin-${{ matrix.arch }} proto-plugin
           mv antminer-plugin-${{ matrix.arch }} antminer-plugin
           mv virtual-plugin-${{ matrix.arch }} virtual-plugin
@@ -488,6 +506,8 @@ jobs:
           cp deployment-files/docker-compose.alerts.yaml deployment/
           cp deployment-files/docker-compose.system-monitoring.yaml deployment/
           cp deployment-files/docker-compose.tracing.yaml deployment/
+          cp deployment-files/docker-compose.updater.yaml deployment/
+          cp deployment-files/updater/proto-fleet-updater.service deployment/updater/
           cp -a server/monitoring deployment/server/
           cp server/docker-compose.base.yaml deployment/server/
           cp deployment-files/run-fleet.sh deployment/
@@ -498,6 +518,7 @@ jobs:
           mv deployment/server/fleet-ha deployment/ha/fleet-ha
           chmod +x deployment/run-fleet.sh deployment/uninstall.sh deployment/scripts/*.sh
           chmod +x deployment/ha/scripts/*.sh deployment/ha/tests/*.sh
+          chmod +x deployment/updater/proto-fleet-updater
 
           mkdir -p deployment/images
           cp /tmp/timescaledb-images/timescaledb-${{ matrix.arch }}.tar.gz deployment/images/timescaledb.tar.gz
@@ -529,11 +550,27 @@ jobs:
 
       - name: Package ProtoFleet deployment bundle
         run: |
-          tar -czf "proto-fleet-${VERSION}-${{ matrix.arch }}.tar.gz" deployment
+          bundle="proto-fleet-${VERSION}-${{ matrix.arch }}.tar.gz"
+          tar -czf "$bundle" deployment
+          sha256sum "$bundle" > "$bundle.sha256"
+          sha256sum -c "$bundle.sha256"
+
+          tar -tzf "$bundle" > "$RUNNER_TEMP/deployment-bundle-contents.txt"
+          for required_path in \
+            deployment/docker-compose.updater.yaml \
+            deployment/updater/proto-fleet-updater \
+            deployment/updater/proto-fleet-updater.service; do
+            if ! grep -Fxq "$required_path" "$RUNNER_TEMP/deployment-bundle-contents.txt"; then
+              echo "::error::Deployment bundle is missing $required_path"
+              exit 1
+            fi
+          done
 
       - name: Upload deployment bundle artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: proto-fleet-deployment-bundle-${{ matrix.arch }}
-          path: proto-fleet-${{ needs.metadata.outputs.version }}-${{ matrix.arch }}.tar.gz
+          path: |
+            proto-fleet-${{ needs.metadata.outputs.version }}-${{ matrix.arch }}.tar.gz
+            proto-fleet-${{ needs.metadata.outputs.version }}-${{ matrix.arch }}.tar.gz.sha256
           retention-days: ${{ inputs.retention_days }}
