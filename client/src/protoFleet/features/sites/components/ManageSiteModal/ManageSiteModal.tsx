@@ -293,9 +293,10 @@ const ManageSiteModal = ({
           {
             // Placeholder. Building membership now commits in the picker (and
             // row-level Remove commits on click), so this modal owns only
-            // building placement — which lands in #263. Until then Save writes
-            // nothing and just closes; deliberately no success toast, since
-            // there's nothing to report.
+            // building placement within the site — which has no backend yet and
+            // is not tracked by an issue. Until then Save writes nothing and
+            // just closes; deliberately no success toast, since there's nothing
+            // to report.
             text: "Save",
             variant: variants.primary,
             onClick: onDismiss,

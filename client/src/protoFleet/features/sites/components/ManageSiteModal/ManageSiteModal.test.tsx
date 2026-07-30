@@ -73,7 +73,7 @@ const baseProps = {
 describe("ManageSiteModal", () => {
   beforeEach(() => listBuildingsBySiteMock.mockReset());
 
-  it("Save writes nothing and just closes (placement lands in #263)", async () => {
+  it("Save writes nothing and just closes (placement has no backend yet)", async () => {
     seedBuildings([]);
     const onAssignBuildings = vi.fn();
     const onDismiss = vi.fn();
