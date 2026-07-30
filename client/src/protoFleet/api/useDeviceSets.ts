@@ -31,6 +31,7 @@ interface CreateGroupProps {
   label: string;
   deviceIdentifiers?: string[];
   allDevices?: boolean;
+  signal?: AbortSignal;
   onSuccess?: (deviceSet: DeviceSet) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -150,6 +151,13 @@ interface UpdateRackProps {
   columns?: number;
   orderIndex?: RackOrderIndex;
   coolingType?: RackCoolingType;
+  // Placement (site:manage). Encoded like saveRack: a building fully
+  // determines placement (site derived server-side); an explicit 0n unassigns
+  // that level; undefined omits placement entirely (server preserves the
+  // rack's current site/building). Omit both for a rack:manage-only settings
+  // save that must not move the rack.
+  siteId?: bigint;
+  buildingId?: bigint;
   onSuccess?: (deviceSet: DeviceSet) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -209,7 +217,21 @@ interface SaveRackProps {
   deviceIdentifiers: string[];
   allDevices?: boolean;
   slotAssignments: { deviceIdentifier: string; row: number; column: number }[];
+  // Rack placement. Encoded onto RackInfo per its proto contract: when
+  // buildingId is set we send only building_id and let the server derive
+  // site_id; otherwise we send explicit site_id + building_id (0 = unassign)
+  // so an edit that clears placement takes effect. Leave both undefined to
+  // preserve the current placement on an update.
+  siteId?: bigint;
+  buildingId?: bigint;
+  // When the saved rack is site-less, proceed and strip the conflicting
+  // members' site/building. Default false: the server returns conflicts
+  // (surfaced via onConflicts) and writes nothing.
+  forceClearConflictingSite?: boolean;
   onSuccess?: (deviceSet: DeviceSet, assignedCount: number) => void;
+  // Fires when the server returns site-strip conflicts (no write happened).
+  // The caller confirms and retries with forceClearConflictingSite=true.
+  onConflicts?: (conflicts: PerDeviceRackConflict[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -250,17 +272,29 @@ const useDeviceSets = () => {
   const { handleAuthErrors } = useAuthErrors();
 
   const createGroup = useCallback(
-    async ({ label, deviceIdentifiers = [], allDevices = false, onSuccess, onError, onFinally }: CreateGroupProps) => {
+    async ({
+      label,
+      deviceIdentifiers = [],
+      allDevices = false,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: CreateGroupProps) => {
       try {
         const deviceSelector =
           allDevices || deviceIdentifiers.length > 0 ? buildDeviceSelector(deviceIdentifiers, allDevices) : undefined;
 
-        const createResponse = await deviceSetClient.createDeviceSet({
-          type: DeviceSetType.GROUP,
-          label,
-          deviceSelector,
-        });
+        const createResponse = await deviceSetClient.createDeviceSet(
+          {
+            type: DeviceSetType.GROUP,
+            label,
+            deviceSelector,
+          },
+          { signal },
+        );
 
+        if (signal?.aborted) return;
         const deviceSet = createResponse.deviceSet;
         if (!deviceSet) {
           onError?.("Failed to create group");
@@ -269,6 +303,9 @@ const useDeviceSets = () => {
 
         onSuccess?.(deviceSet);
       } catch (err) {
+        if (isAbortError(err, signal)) {
+          return;
+        }
         handleAuthErrors({
           error: err,
           onError: (error) => {
@@ -812,12 +849,27 @@ const useDeviceSets = () => {
       columns,
       orderIndex,
       coolingType,
+      siteId,
+      buildingId,
       onSuccess,
       onError,
       onFinally,
     }: UpdateRackProps) => {
       try {
+        // Placement encoding mirrors saveRack: a building fully determines
+        // placement (send only building_id), otherwise send whichever of
+        // site_id / building_id was specified (0n unassigns, undefined omits).
+        const placement: { siteId?: bigint; buildingId?: bigint } = {};
+        if (buildingId !== undefined && buildingId > 0n) {
+          placement.buildingId = buildingId;
+        } else {
+          if (siteId !== undefined) placement.siteId = siteId;
+          if (buildingId !== undefined) placement.buildingId = buildingId;
+        }
+        const hasPlacement = placement.siteId !== undefined || placement.buildingId !== undefined;
+
         const rackInfo =
+          hasPlacement ||
           zone !== undefined ||
           rows !== undefined ||
           columns !== undefined ||
@@ -829,6 +881,7 @@ const useDeviceSets = () => {
                 ...(columns !== undefined && { columns }),
                 ...(orderIndex !== undefined && { orderIndex }),
                 ...(coolingType !== undefined && { coolingType }),
+                ...placement,
               })
             : undefined;
 
@@ -947,17 +1000,35 @@ const useDeviceSets = () => {
       deviceIdentifiers,
       allDevices,
       slotAssignments,
+      siteId,
+      buildingId,
+      forceClearConflictingSite,
       onSuccess,
+      onConflicts,
       onError,
       onFinally,
     }: SaveRackProps) => {
       try {
+        // Placement encoding (see RackInfo proto): a building fully determines
+        // placement, so send only building_id and let the server derive
+        // site_id. Otherwise send whichever of site_id / building_id the
+        // caller specified — an explicit 0 unassigns that level, undefined
+        // leaves it untouched (preserved on update).
+        const placement: { siteId?: bigint; buildingId?: bigint } = {};
+        if (buildingId !== undefined && buildingId > 0n) {
+          placement.buildingId = buildingId;
+        } else {
+          if (siteId !== undefined) placement.siteId = siteId;
+          if (buildingId !== undefined) placement.buildingId = buildingId;
+        }
+
         const rackInfo = create(RackInfoSchema, {
           rows,
           columns,
           zone,
           orderIndex,
           coolingType,
+          ...placement,
         });
 
         const deviceSelector = buildDeviceSelector(deviceIdentifiers, allDevices);
@@ -978,7 +1049,24 @@ const useDeviceSets = () => {
           rackInfo,
           deviceSelector,
           slotAssignments: rackSlots,
+          forceClearConflictingSite,
         });
+
+        // Site-strip conflicts: the server wrote nothing and returned the
+        // per-device list. Surface it so the caller can confirm and retry
+        // with forceClearConflictingSite=true. Fall back to onError when the
+        // caller wired no onConflicts handler, so a no-write conflict is never
+        // a silent no-op (no onSuccess either).
+        if (response.conflicts.length > 0) {
+          if (onConflicts) {
+            onConflicts(response.conflicts);
+          } else {
+            onError?.(
+              `${response.conflicts.length} device(s) would lose their site or building placement by joining this rack`,
+            );
+          }
+          return;
+        }
 
         const deviceSet = response.deviceSet;
         if (!deviceSet) {

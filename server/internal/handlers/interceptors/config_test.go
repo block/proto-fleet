@@ -9,9 +9,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/generated/grpc/alerts/v1/alertsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
@@ -20,6 +24,16 @@ func TestUpdateWorkerNamesProcedureIsRedacted(t *testing.T) {
 
 	assert.Contains(t, RedactedRequestProcedures, procedure)
 	assert.True(t, SensitiveBodyProcedures[procedure])
+}
+
+func TestSiteMapCsvProceduresAreSensitiveBody(t *testing.T) {
+	t.Parallel()
+
+	assert.Contains(t, RedactedRequestProcedures, sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure)
+	assert.True(t, SensitiveBodyProcedures[sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure],
+		"site-map imports carry CSV topology and miner identity data")
+	assert.True(t, SensitiveBodyProcedures[sitemapv1connect.SiteMapServiceExportSiteMapCsvProcedure],
+		"site-map export streams carry CSV topology and miner identity data")
 }
 
 func TestMqttSettingsPasswordProceduresAreRedacted(t *testing.T) {
@@ -35,6 +49,62 @@ func TestMqttSettingsPasswordProceduresAreRedacted(t *testing.T) {
 	}
 }
 
+// Infrastructure device bodies carry driver_config — the OT control
+// network map (endpoint IPs, unit IDs, register addresses) — and must
+// never land in debug logs.
+func TestInfrastructureProceduresAreSensitiveBody(t *testing.T) {
+	t.Parallel()
+
+	procedures := []string{
+		infrastructurev1connect.InfrastructureServiceListInfrastructureDevicesProcedure,
+		infrastructurev1connect.InfrastructureServiceGetInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceCreateInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceUpdateInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceDeleteInfrastructureDeviceProcedure,
+	}
+	for _, procedure := range procedures {
+		assert.True(t, SensitiveBodyProcedures[procedure],
+			"%s carries driver_config (OT network topology) and must suppress body logging",
+			procedure)
+	}
+}
+
+// Infrastructure devices are the OT control surface (writes change which
+// physical fans curtailment drives; manage-level reads expose the OT network
+// map), so all five procedures must reject API-key auth.
+func TestInfrastructureProceduresAreSessionOnly(t *testing.T) {
+	t.Parallel()
+
+	procedures := []string{
+		infrastructurev1connect.InfrastructureServiceListInfrastructureDevicesProcedure,
+		infrastructurev1connect.InfrastructureServiceGetInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceCreateInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceUpdateInfrastructureDeviceProcedure,
+		infrastructurev1connect.InfrastructureServiceDeleteInfrastructureDeviceProcedure,
+	}
+	for _, procedure := range procedures {
+		assert.Contains(t, SessionOnlyProcedures, procedure,
+			"%s must be session-only; the OT control surface should not be reachable via API key",
+			procedure)
+	}
+}
+
+func TestInfrastructureControlSubnetProceduresAreSensitiveAndSessionOnly(t *testing.T) {
+	t.Parallel()
+
+	getProcedure := sitesv1connect.SiteServiceGetInfrastructureControlSubnetsProcedure
+	setProcedure := sitesv1connect.SiteServiceSetInfrastructureControlSubnetsProcedure
+
+	for _, procedure := range []string{getProcedure, setProcedure} {
+		assert.Contains(t, SessionOnlyProcedures, procedure,
+			"%s exposes OT topology and must reject API-key auth", procedure)
+		assert.True(t, SensitiveBodyProcedures[procedure],
+			"%s exposes OT topology and must suppress body logging", procedure)
+	}
+	assert.Contains(t, RedactedRequestProcedures, setProcedure,
+		"commissioning replacement carries OT topology in its request body")
+}
+
 func TestMqttSettingsPasswordProceduresAreSessionOnly(t *testing.T) {
 	t.Parallel()
 
@@ -47,6 +117,23 @@ func TestMqttSettingsPasswordProceduresAreSessionOnly(t *testing.T) {
 		assert.Contains(t, SessionOnlyProcedures, procedure,
 			"%s must reject API-key auth because it carries or exercises MQTT broker credentials",
 			procedure)
+	}
+}
+
+// The alert surface is uniformly session-only; rule mutations persist Grafana
+// rule evaluations and must not be reachable from a leaked API key.
+func TestAlertRuleMutationProceduresAreSessionOnly(t *testing.T) {
+	t.Parallel()
+
+	procedures := []string{
+		alertsv1connect.RuleServiceCreateRuleProcedure,
+		alertsv1connect.RuleServiceUpdateRuleProcedure,
+		alertsv1connect.RuleServiceDeleteRuleProcedure,
+		alertsv1connect.RuleServiceSetRuleRoutingProcedure,
+	}
+	for _, procedure := range procedures {
+		assert.Contains(t, SessionOnlyProcedures, procedure,
+			"%s must reject API-key auth like the rest of the alert-management surface", procedure)
 	}
 }
 

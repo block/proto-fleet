@@ -28,6 +28,21 @@ service SiteService {
     // CreateSite inserts a new site. Name must be unique within the
     // org. network_config is parsed and canonicalized server-side;
     // the response carries the canonical form.
+    //
+    // The request may optionally seed the new site with buildings
+    // (building_ids), racks (rack_ids), and/or devices
+    // (device_identifiers) in the SAME transaction — the atomic form of
+    // CreateSite followed by AssignBuildingsToSite + AssignRacksToSite +
+    // AssignDevicesToSite. Either everything commits or nothing does, so a
+    // failed seed can't leave an orphaned or partially-populated site
+    // (#559). The three id sets are independent: a seeded device need not
+    // belong to any seeded rack or building (it becomes a direct site
+    // member), and a seeded rack need not belong to any seeded building. If
+    // any seeded device is in a rack at another site,
+    // force_clear_conflicting_rack_membership governs whether the whole
+    // request rejects with per-device conflicts (nothing created) or the
+    // rack membership is dropped and the device moved. A request with no
+    // seed fields behaves exactly like a plain create.
     rpc CreateSite(CreateSiteRequest) returns (CreateSiteResponse);
 
     // UpdateSite mutates name + descriptive fields + network_config.
@@ -67,6 +82,22 @@ service SiteService {
     // Same transaction cascades device.site_id for every rack member.
     rpc AssignRacksToSite(AssignRacksToSiteRequest)
         returns (AssignRacksToSiteResponse);
+
+    // GetInfrastructureControlSubnets returns the site's commissioned OT
+    // control-subnet allowlist. This sensitive topology is intentionally
+    // separate from Site and requires an interactive ADMIN/SUPER_ADMIN
+    // session with org-wide site:manage.
+    rpc GetInfrastructureControlSubnets(GetInfrastructureControlSubnetsRequest)
+        returns (GetInfrastructureControlSubnetsResponse);
+
+    // SetInfrastructureControlSubnets explicitly replaces the site's
+    // commissioned OT control-subnet allowlist. An empty list decommissions
+    // the site and disables future infrastructure writes. The server
+    // validates, canonicalizes, sorts, persists, and audits the replacement.
+    // Requires an interactive ADMIN/SUPER_ADMIN session with org-wide
+    // site:manage.
+    rpc SetInfrastructureControlSubnets(SetInfrastructureControlSubnetsRequest)
+        returns (SetInfrastructureControlSubnetsResponse);
 
     // GetSiteStats returns server-rolled telemetry + miner-state counts
     // for every device assigned to the site, including devices whose
@@ -127,6 +158,10 @@ message SiteWithCounts {
     // Lightweight list/table rollup. Omitted when the caller is not
     // authorized for telemetry stats.
     common.v1.FleetListStats list_stats = 5;
+    // Count of controllable infrastructure devices (e.g. facility fans)
+    // attached to the site. Included so the delete-confirm dialog can
+    // surface the full cascade impact.
+    int64 infrastructure_device_count = 6;
 }
 
 // ListSites
@@ -183,14 +218,52 @@ message CreateSiteRequest {
     string country     = 11 [(buf.validate.field).string.max_len = 2];
     // Free-form operator notes.
     string notes       = 12 [(buf.validate.field).string.max_len = 4096];
+
+    // Optional seed: buildings to move under the new site. Empty seeds no
+    // buildings.
+    repeated int64 building_ids = 13 [(buf.validate.field).repeated = {
+        max_items: 1000
+        items: {int64: {gt: 0}}
+    }];
+    // Optional seed: racks to move under the new site. A seeded rack need
+    // not belong to any seeded building. Empty seeds no racks.
+    repeated int64 rack_ids = 14 [(buf.validate.field).repeated = {
+        max_items: 1000
+        items: {int64: {gt: 0}}
+    }];
+    // Optional seed: devices to assign directly to the new site. A device
+    // need not belong to any seeded rack or building — it becomes a direct
+    // site member. Empty seeds no devices.
+    repeated string device_identifiers = 15 [(buf.validate.field).repeated = {
+        max_items: 10000
+        items: {string: {min_len: 1, max_len: 256}}
+    }];
+    // Force-clear conflicting rack memberships for seeded devices; see
+    // AssignDevicesToSiteRequest.force_clear_conflicting_rack_membership.
+    // Requires rack:manage in addition to site:manage.
+    optional bool force_clear_conflicting_rack_membership = 16;
 }
 
 message CreateSiteResponse {
+    // The created site. Unset when conflicts is non-empty (a seed hit an
+    // unresolvable conflict — nothing was created, the whole transaction
+    // rolled back).
     Site site = 1;
     // network_config_warnings carries cross-site overlap warnings or
     // any other non-blocking validation note. UI shows them as a
     // soft warning; presence does not indicate failure.
     repeated string network_config_warnings = 2;
+    // Buildings moved under the new site via the seed. Zero when none seeded.
+    int64 assigned_building_count = 3;
+    // Racks moved under the new site via the seed. Zero when none seeded.
+    int64 assigned_rack_count = 4;
+    // Devices assigned directly to the new site via the seed (excludes
+    // devices pulled in via seeded buildings/racks — those cascade through
+    // site_id). Zero when none seeded.
+    int64 reassigned_device_count = 5;
+    // Populated only on rejection (nothing created). Empty on success and
+    // for plain (unseeded) creates.
+    repeated PerDeviceConflict conflicts = 6;
 }
 
 // UpdateSite
@@ -230,6 +303,9 @@ message DeleteSiteResponse {
     int64 unassigned_device_count = 1;
     int64 deleted_building_count  = 2;
     int64 unassigned_rack_count   = 3;
+    // Infrastructure devices (facility fans) soft-deleted by the
+    // cascade.
+    int64 deleted_infrastructure_device_count = 4;
 }
 
 // AssignDevicesToSite
@@ -322,6 +398,35 @@ message AssignRacksToSiteResponse {
     // crossed site boundaries. UI can use this to prompt for
     // re-assignment to a building in the new site.
     int64 cleared_building_count = 2;
+}
+
+// Infrastructure control-subnet commissioning
+
+message GetInfrastructureControlSubnetsRequest {
+    int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetInfrastructureControlSubnetsResponse {
+    int64 site_id = 1;
+    // Canonical CIDR strings in stable lexical order.
+    repeated string infrastructure_control_subnets = 2;
+}
+
+message SetInfrastructureControlSubnetsRequest {
+    int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Full replacement. Empty decommissions the site. Domain validation
+    // additionally restricts values to RFC1918 prefixes (IPv4, /20 or
+    // narrower) or ULA host prefixes (IPv6, /128) and rejects overlap.
+    repeated string infrastructure_control_subnets = 2 [(buf.validate.field).repeated = {
+        max_items: 256
+        items: {string: {min_len: 1, max_len: 64}}
+    }];
+}
+
+message SetInfrastructureControlSubnetsResponse {
+    int64 site_id = 1;
+    // Canonical CIDR strings in stable lexical order.
+    repeated string infrastructure_control_subnets = 2;
 }
 
 // GetSiteStats

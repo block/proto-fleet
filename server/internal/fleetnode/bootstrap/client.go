@@ -3,7 +3,6 @@ package bootstrap
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -13,11 +12,8 @@ import (
 	"golang.org/x/net/http2"
 
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
+	"github.com/block/proto-fleet/server/internal/transportguard"
 )
-
-// Refusing 3xx stops a downgrade redirect from replaying the signed POST
-// body (enrollment token, api_key, signature) to an attacker-chosen target.
-var errRedirectNotAllowed = errors.New("redirects are not allowed for connect-rpc calls")
 
 // A shared AllowHTTP+DialTLSContext shim would silently downgrade https to
 // plaintext, defeating ValidateServerURL's https-required policy. The https
@@ -50,10 +46,8 @@ func newGatewayHTTPClient(serverURL string) (*http.Client, error) {
 		return nil, fmt.Errorf("server-url scheme must be http or https; got %q", u.Scheme)
 	}
 	return &http.Client{
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return errRedirectNotAllowed
-		},
-		Transport: tr,
+		CheckRedirect: transportguard.RejectRedirect,
+		Transport:     tr,
 	}, nil
 }
 

@@ -138,7 +138,7 @@ const SitePicker = ({ sites, error, onRetry, triggerClassName = "text-300" }: Si
       <button
         type="button"
         className={clsx(
-          "hover:bg-surface-base-hover flex max-w-full min-w-0 items-center gap-1 rounded-md px-2 py-1 text-text-primary focus-visible:underline",
+          "flex max-w-full min-w-0 items-center gap-1 rounded-md px-2 py-1 text-text-primary hover:bg-surface-base-hover focus-visible:underline",
           triggerClassName,
         )}
         aria-haspopup="dialog"
@@ -218,7 +218,7 @@ const SitePickerOption = ({ label, selected, onClick, testId }: SitePickerOption
     aria-checked={selected}
     onClick={onClick}
     data-testid={testId}
-    className="hover:bg-surface-base-hover focus-visible:bg-surface-base-hover flex w-full items-center gap-3 rounded-md px-2 py-2.5 text-left text-300 text-text-primary"
+    className="flex w-full items-center gap-3 rounded-md px-2 py-2.5 text-left text-300 text-text-primary hover:bg-surface-base-hover focus-visible:bg-surface-base-hover"
   >
     <Radio selected={selected} />
     <span>{label}</span>

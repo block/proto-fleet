@@ -23,6 +23,23 @@ func (r RackOrderIndex) Valid() bool {
 	return r >= RackOrderIndexUnspecified && r <= RackOrderIndexTopRight
 }
 
+// GridCapacity is the number of racks a building's grid holds
+// (aisles × racks_per_aisle). Zero means the layout is unconfigured and
+// imposes no rack limit.
+func GridCapacity(aisles, racksPerAisle int32) int64 {
+	return int64(aisles) * int64(racksPerAisle)
+}
+
+// RackCapacityExceeded reports whether resultingCount racks would exceed a
+// building's configured grid. An unconfigured grid (capacity 0) is never
+// exceeded. resultingCount is the net final membership the caller intends,
+// leaving the caller free to derive it from an import graph or a live
+// reassignment.
+func RackCapacityExceeded(aisles, racksPerAisle int32, resultingCount int64) bool {
+	capacity := GridCapacity(aisles, racksPerAisle)
+	return capacity > 0 && resultingCount > capacity
+}
+
 // Building is the canonical domain shape for a building row.
 type Building struct {
 	ID                    int64
@@ -52,7 +69,13 @@ type BuildingWithCounts struct {
 	ListStats   *FleetListStats
 }
 
-// CreateParams is the input shape for the building create flow.
+// CreateParams is the input shape for the building create flow. The building
+// fields are always used; the trailing seed fields are optional (#559) — when
+// RackIDs and/or DeviceIdentifiers are non-empty, CreateBuilding assigns them
+// to the new building in the SAME transaction, so a failure anywhere (including
+// an unresolvable device conflict) rolls the building INSERT back too. The two
+// id sets are independent: a seeded device need not belong to any seeded rack
+// (it becomes a direct building member). Empty seed fields = a plain create.
 type CreateParams struct {
 	OrgID                 int64
 	SiteID                *int64 // nil = unassigned
@@ -66,6 +89,22 @@ type CreateParams struct {
 	DefaultRackRows       int32
 	DefaultRackColumns    int32
 	DefaultRackOrderIndex RackOrderIndex
+
+	// Optional seed (see type doc).
+	RackIDs                             []int64
+	DeviceIdentifiers                   []string
+	ForceClearConflictingRackMembership bool
+}
+
+// CreateBuildingResult carries the created building plus the seed-assignment
+// counts. Building is nil when a seeded device hit unresolvable conflicts (the
+// whole tx rolled back); the conflicts travel out-of-band as
+// []PerDeviceBuildingConflict. For a plain (unseeded) create the counts are 0.
+type CreateBuildingResult struct {
+	Building                  *Building
+	AssignedRackCount         int64
+	ReassignedDeviceCount     int64
+	SiteReassignedDeviceCount int64
 }
 
 // UpdateParams is the input shape for building updates. SiteID is

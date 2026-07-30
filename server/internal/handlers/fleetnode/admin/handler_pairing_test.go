@@ -96,11 +96,11 @@ func (h *pairingHarness) createFleetNode(t *testing.T, name string) int64 {
 	t.Helper()
 	pubKey, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	code, _, err := h.enrollment.CreateCode(context.Background(), 1, h.orgID, time.Hour)
+	code, pendingEnrollmentID, _, err := h.enrollment.CreateCodeWithEnrollmentID(context.Background(), 1, h.orgID, time.Hour)
 	require.NoError(t, err)
 	node, _, err := h.enrollment.RegisterFleetNode(context.Background(), code, name, pubKey, []byte("01234567890123456789012345678901"))
 	require.NoError(t, err)
-	_, _, err = h.enrollment.Confirm(context.Background(), node.ID, h.orgID)
+	_, _, err = h.enrollment.ConfirmExpected(context.Background(), node.ID, h.orgID, pendingEnrollmentID)
 	require.NoError(t, err)
 	return node.ID
 }

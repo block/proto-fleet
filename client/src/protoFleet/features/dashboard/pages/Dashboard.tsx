@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { useMemo } from "react";
 import { MeasurementType, type Metric } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds } from "@/protoFleet/api/sites";
+import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import useFleetCounts from "@/protoFleet/api/useFleetCounts";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
@@ -20,6 +20,7 @@ import { TemperaturePanel } from "@/protoFleet/features/dashboard/components/Tem
 import { UptimePanel } from "@/protoFleet/features/dashboard/components/UptimePanel";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
+import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { useDuration, useHasPermission, useSetDuration } from "@/protoFleet/store";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
@@ -42,56 +43,48 @@ const Dashboard = () => {
   const duration = useDuration();
   const setDuration = useSetDuration();
   // Gate on both the read permission and the runtime feature probe so the card is hidden when the alerts sidecar is disabled.
+  // ListSites is org-gated on site:read. Without it the shared catalog is
+  // skipped (empty, never loaded), so — like the topbar picker in PageHeader —
+  // the heading SitePicker is hidden. Mounting it with an empty catalog would
+  // let its internal useActiveSite treat a `/:site/dashboard` route as stale
+  // and strip the authorized scope. The page-level knownSiteIds guard below is
+  // not enough because SitePicker recomputes its own from the `sites` prop.
+  const canReadSites = useHasPermission("site:read");
   const hasAlertRead = useHasPermission("alert:read");
   const alertsEnabled = useAlertsEnabled();
   const canViewAlerts = hasAlertRead && alertsEnabled;
   const currentYear = new Date().getFullYear();
   const { refs } = useStickyState();
+  const { bgClass } = usePageBackground();
 
-  // Load the org's sites so useActiveSite can validate the route scope: a
+  // The org's site catalog is owned by the shell-level SitesProvider (one
+  // shared fetch). useActiveSite uses it to validate the route scope: a
   // stale/deleted site id (route or persisted activeSite) falls back to
-  // all-sites instead of resolving zero devices into an empty dashboard.
-  const { listSites } = useSites();
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
-  const [sitesError, setSitesError] = useState<string | null>(null);
-  const [siteValidationSettled, setSiteValidationSettled] = useState(false);
-  // Track the error and surface it through the heading SitePicker's retry
-  // affordance — the dashboard is the only selector now that the topbar
-  // picker is hidden here, so a transient ListSites failure must be
-  // recoverable rather than stranding the picker in a loading skeleton.
-  const fetchSites = useCallback(() => {
-    const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      onSuccess: (rows) => {
-        setSites(rows);
-        setSitesError(null);
-      },
-      onError: (msg) => {
-        setSitesError(msg);
-        setSites([]);
-      },
-      onFinally: () => {
-        if (!controller.signal.aborted) {
-          setSiteValidationSettled(true);
-        }
-      },
-    });
-    return () => controller.abort();
-  }, [listSites]);
-  useEffect(() => fetchSites(), [fetchSites]);
+  // all-sites instead of resolving zero devices into an empty dashboard. The
+  // dashboard is the only selector now that the topbar picker is hidden here,
+  // so a transient ListSites failure surfaces a retry via the heading picker
+  // rather than stranding it in a loading skeleton.
+  const {
+    sites,
+    sitesError,
+    sitesSettled: siteValidationSettled,
+    siteCatalogAccessGranted,
+    refetchSites,
+  } = useSitesContext();
 
   // Active site comes from the route path (`/`, `/:site`, `/unassigned`),
   // validated against knownSiteIds. All-sites yields an empty filter, so
-  // `/dashboard` stays org-wide. On a ListSites error we keep the set
-  // *unknown* (not an empty loaded set) — mirroring the picker — so a
-  // transient failure on `/:site/dashboard` doesn't make useActiveSite treat
-  // the route site as stale and silently fall back to all-sites.
-  const knownSiteIds = useMemo(() => {
-    if (sites === undefined) return undefined;
-    if (sites.length === 0 && sitesError != null) return undefined;
-    return buildKnownSiteIds(sites);
-  }, [sites, sitesError]);
+  // `/dashboard` stays org-wide. Only treat the catalog as authoritative once
+  // it has actually loaded via org-scoped site:read — otherwise `undefined`
+  // keeps the set *unknown*. A site-scoped operator (who can reach
+  // `/:site/dashboard` via ResolveSiteBySlug but can't org-list sites) would
+  // otherwise get an empty-but-loaded set, making useActiveSite treat the
+  // route site as stale and silently strip the scope to all-sites. Unknown
+  // also covers the initial-load / transient-failure window.
+  const knownSiteIds = useMemo(
+    () => (siteCatalogAccessGranted ? buildKnownSiteIds(sites) : undefined),
+    [siteCatalogAccessGranted, sites],
+  );
   const { activeSite } = useActiveSite({ knownSiteIds });
   const siteFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
   const routeScope = useRouteSiteScope();
@@ -180,7 +173,14 @@ const Dashboard = () => {
             {/* Heading-style site selector — stands in for the (hidden) global
                 topbar picker and replaces the former "Overview" title. */}
             <div className="-ml-2">
-              <SitePicker sites={sites} error={sitesError} onRetry={fetchSites} triggerClassName="text-heading-300" />
+              {canReadSites ? (
+                <SitePicker
+                  sites={sites}
+                  error={sitesError}
+                  onRetry={refetchSites}
+                  triggerClassName="text-heading-300"
+                />
+              ) : null}
             </div>
             <div className="mt-6">
               {activeSite.kind === "site" ? (
@@ -195,7 +195,7 @@ const Dashboard = () => {
               )}
             </div>
             {canViewAlerts ? (
-              <div className="mt-6 flex flex-col gap-1">
+              <div className="mt-6 flex flex-col gap-4">
                 <ActiveAlertsCard />
               </div>
             ) : null}
@@ -207,18 +207,18 @@ const Dashboard = () => {
           {/* Performance Section */}
           <section className="pb-6">
             <div ref={refs.vertical.start} />
-            <div className="sticky top-0 z-2 bg-surface-5 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10 dark:bg-surface-base">
+            <div className={`${bgClass} sticky top-0 z-2 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10`}>
               <SectionHeading heading="Performance">
                 <DurationSelector duration={duration} durations={fleetDurations} onSelect={setDuration} />
               </SectionHeading>
             </div>
 
-            <div className="flex flex-col gap-1 px-6 laptop:px-10">
+            <div className="flex flex-col gap-4 px-6 pt-4 laptop:px-10">
               <HashratePanel duration={duration} metrics={hashrateMetrics} />
               <UptimePanel duration={duration} uptimeStatusCounts={uptimeStatusCounts} />
               <TemperaturePanel duration={duration} temperatureStatusCounts={temperatureStatusCounts} />
 
-              <div className="grid grid-cols-1 gap-1 laptop:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 laptop:grid-cols-2">
                 <PowerPanel duration={duration} metrics={powerMetrics} totalMiners={totalMiners} />
                 <EfficiencyPanel duration={duration} metrics={efficiencyMetrics} totalMiners={totalMiners} />
               </div>

@@ -38,7 +38,7 @@ func newTestService(ctrl *gomock.Controller, mockErrorStore *storeMocks.MockErro
 			return fn(ctx)
 		},
 	).AnyTimes()
-	return NewService(context.Background(), Config{}, mockErrorStore, mockTransactor)
+	return NewService(Config{}, mockErrorStore, mockTransactor)
 }
 
 func TestPollErrors_WithNoMiners_ShouldReturnEmptyResult(t *testing.T) {

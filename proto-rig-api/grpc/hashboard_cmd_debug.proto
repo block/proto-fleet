@@ -37,6 +37,7 @@ message hashrail_state_get_rsp {
 
 message hashrail_state_set_cmd {
     hashrail_state state = 1;
+    optional uint32 power_off_after_ms = 2;
 }
 
 message hashrail_state_set_rsp {}
@@ -108,6 +109,188 @@ message async_message_interval_cmd {
 
     // The message to change the interval on
     hashboard_async_message_type message_type = 2;
+
+    // The phase offset in milliseconds from the interval boundary.
+    // This must be less than interval.
+    uint32 phase_ms = 3;
 }
 
 message async_message_interval_rsp {}
+
+message psu_debug_status_cmd {}
+
+message i2c_debug_counters {
+    uint32 tx_count = 1;
+    uint32 rx_count = 2;
+    uint32 nack_count = 3;
+    uint32 bus_error_count = 4;
+    uint32 arbitration_lost_count = 5;
+    uint32 timeout_count = 6;
+    uint32 overrun_count = 7;
+    uint32 bus_recovery_count = 8;
+}
+
+message psu_debug_local_status {
+    power_supply_type type = 1;
+    uint32 address = 2;
+    bool present = 3;
+    bool identity_valid = 4;
+    bool telemetry_valid = 5;
+    bool vout_valid = 6;
+    bool output_enabled = 7;
+    bool faulted = 8;
+    bool watchdog_timeout = 9;
+    uint32 last_error = 10;
+    uint32 setpoint_mv = 11;
+    uint32 vin_mv = 12;
+    uint32 vout_mv = 13;
+    uint32 iin_ma = 14;
+    uint32 iout_ma = 15;
+    uint32 pin_mw = 16;
+    uint32 pout_mw = 17;
+    int32 temperature_0_mc = 18;
+    int32 temperature_1_mc = 19;
+    int32 temperature_2_mc = 20;
+    uint32 status_word = 21;
+    uint32 status_vout = 22;
+    uint32 status_iout = 23;
+    uint32 status_input = 24;
+    uint32 status_temperature = 25;
+    uint32 status_cml = 26;
+    uint32 status_other = 27;
+    uint32 watchdog_status = 28;
+    i2c_debug_counters i2c = 29;
+}
+
+message psu_debug_can_snapshot {
+    bool initialized = 1;
+    bool leader_valid = 2;
+    bool is_psu_leader = 3;
+    bool self_abdicated = 4;
+    bool leader_power_ready = 5;
+    bool leader_power_status_valid = 6;
+    bool leader_power_present = 7;
+    bool leader_power_faulted = 8;
+    uint32 leader_power_state = 9;
+    uint32 leader_power_last_error = 10;
+    power_supply_type leader_power_psu_type = 11;
+    bool leader_module_id_valid = 12;
+    uint64 leader_module_id = 13;
+    bool any_peer_power_desired = 14;
+    uint32 self_board_id = 15;
+    uint32 leader_board_id = 16;
+    uint32 online_peer_count = 17;
+}
+
+message psu_debug_status_rsp {
+    bool available = 1;
+    bool desired_enabled = 2;
+    bool bypass_enabled = 3;
+    bool output_desired = 4;
+    uint32 task_state = 5;
+    bool board_error_active = 6;
+    uint32 probe_failures = 7;
+    uint32 consecutive_comm_failures = 8;
+    uint32 fault_count = 9;
+    uint32 shutdown_count = 10;
+    uint32 abdication_count = 11;
+    bool abdication_requested = 12;
+    bool led_pmbus_comm_fault_active = 13;
+    bool led_pmbus_board_fault_active = 14;
+    psu_debug_local_status local = 15;
+    psu_debug_can_snapshot can = 16;
+    bool shutdown_required = 17;
+}
+
+message can_debug_status_cmd {}
+
+message can_power_debug_status {
+    bool desired_enabled = 1;
+    bool ready_for_mining = 2;
+    bool present = 3;
+    bool faulted = 4;
+    uint32 state = 5;
+    uint32 last_error = 6;
+    power_supply_type psu_type = 7;
+}
+
+message can_voltage_tuning_debug_status {
+    bool valid = 1;
+    bool avg_temp_valid = 2;
+    uint32 voltage_mv = 3;
+    uint32 power_w = 4;
+    uint32 hashrate_ths_x10 = 5;
+    uint32 avg_temp_c = 6;
+}
+
+message can_peer_debug_status {
+    bool valid = 1;
+    bool online = 2;
+    bool stable = 3;
+    bool ethernet_ok = 4;
+    bool mining_ok = 5;
+    bool is_psu_leader = 6;
+    bool abdicated = 7;
+    bool power_status_valid = 8;
+    bool voltage_tuning_stats_valid = 9;
+    bool module_id_valid = 10;
+    uint32 board_id = 11;
+    uint32 first_seen_ms = 12;
+    uint32 last_seen_ms = 13;
+    uint32 last_power_status_ms = 14;
+    uint32 last_voltage_tuning_stats_ms = 15;
+    uint32 last_module_id_ms = 16;
+    uint32 uptime_s = 17;
+    can_power_debug_status power = 18;
+    can_voltage_tuning_debug_status voltage_tuning = 19;
+    uint64 module_id = 20;
+}
+
+message can_debug_counters {
+    uint32 rx_frames = 1;
+    uint32 rx_heartbeats = 2;
+    uint32 rx_power_status = 3;
+    uint32 rx_voltage_tuning_stats = 4;
+    uint32 rx_psu_identity = 5;
+    uint32 rx_elections = 6;
+    uint32 rx_dropped = 7;
+    uint32 tx_heartbeats = 8;
+    uint32 tx_power_status = 9;
+    uint32 tx_voltage_tuning_stats = 10;
+    uint32 tx_psu_identity = 11;
+    uint32 tx_elections = 12;
+    uint32 tx_dropped_periodic = 13;
+    uint32 tx_failures = 14;
+    uint32 leader_changes = 15;
+}
+
+message fdcan_debug_status {
+    uint32 tx_err_count = 1;
+    uint32 rx_err_count = 2;
+    bool bus_off = 3;
+    bool error_passive = 4;
+    bool error_warning = 5;
+    uint32 rx_fifo0_lost = 6;
+    uint32 rx_fifo0_full = 7;
+}
+
+message can_debug_status_rsp {
+    bool available = 1;
+    bool initialized = 2;
+    bool leader_valid = 3;
+    bool is_psu_leader = 4;
+    bool self_ethernet_ok = 5;
+    bool self_mining_ok = 6;
+    bool self_abdicated = 7;
+    bool power_status_valid = 8;
+    bool voltage_tuning_stats_valid = 9;
+    bool module_id_valid = 10;
+    uint32 self_board_id = 11;
+    uint32 leader_board_id = 12;
+    can_power_debug_status power = 13;
+    can_voltage_tuning_debug_status voltage_tuning = 14;
+    uint64 module_id = 15;
+    can_debug_counters counters = 16;
+    fdcan_debug_status fdcan = 17;
+    repeated can_peer_debug_status peers = 18;
+}

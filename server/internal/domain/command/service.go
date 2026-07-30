@@ -72,6 +72,7 @@ type Service struct {
 	pluginCaps          PluginCapabilitiesProvider
 	capabilityChecker   *CapabilityChecker
 	activitySvc         *activity.Service
+	deviceResolver      DeviceIdentifierResolver
 
 	resolveDeviceIDsOverride func(context.Context, []string) ([]int64, error)
 	resolveDevicesOverride   func(context.Context, []string) ([]resolvedDevice, error)
@@ -93,6 +94,16 @@ type resolvedDevice struct {
 // SetPluginCapabilitiesProvider — nil disables the SV2 gate (test default).
 func (s *Service) SetPluginCapabilitiesProvider(p PluginCapabilitiesProvider) {
 	s.pluginCaps = p
+}
+
+// SetDeviceIdentifierResolver injects the rich-filter resolver used by the
+// all_matching_filter selector case. Wired post-construction because the
+// fleetmanagement service that implements it depends on this service. The same
+// resolver is shared with the capability checker so filtered "select all"
+// capability checks target the filtered set rather than the whole fleet.
+func (s *Service) SetDeviceIdentifierResolver(r DeviceIdentifierResolver) {
+	s.deviceResolver = r
+	s.capabilityChecker.SetDeviceIdentifierResolver(r)
 }
 
 const defaultPoolPriority uint32 = 0
@@ -294,6 +305,37 @@ func skipMetadata(eventType string, requestedCount int, skipped []SkippedDevice)
 	}
 }
 
+func preflightBlockedMessage(requestedCount int, skipped []SkippedDevice) string {
+	if skipsOnlyFromFilter(skipped, CurtailmentActiveFilterName) {
+		deviceNoun := "devices"
+		if requestedCount == 1 {
+			deviceNoun = "device"
+		}
+		verb := "are"
+		if len(skipped) == 1 {
+			verb = "is"
+		}
+		return fmt.Sprintf(
+			"command blocked: %d of %d %s %s part of an active curtailment event",
+			len(skipped), requestedCount, deviceNoun, verb)
+	}
+	return fmt.Sprintf(
+		"command blocked: %d of %d device(s) excluded by preflight filters",
+		len(skipped), requestedCount)
+}
+
+func skipsOnlyFromFilter(skipped []SkippedDevice, filterName string) bool {
+	if len(skipped) == 0 {
+		return false
+	}
+	for _, sk := range skipped {
+		if sk.FilterName != filterName {
+			return false
+		}
+	}
+	return true
+}
+
 // composeFinalizers chains onFinished callbacks so commands like DownloadLogs
 // can layer a bundle builder alongside the activity finalizer. Nil callbacks
 // are skipped; empty input returns nil. Best-effort: every callback runs even
@@ -376,7 +418,7 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 	return func() error {
 		finCtx, cancel := context.WithTimeout(context.Background(), finalizerDBTimeout)
 		defer cancel()
-		counts, err := db.WithTransaction(finCtx, s.conn, func(q *sqlc.Queries) (sqlc.GetBatchStatusAndDeviceCountsRow, error) {
+		counts, err := db.WithTransaction(finCtx, s.conn, func(q sqlc.Querier) (sqlc.GetBatchStatusAndDeviceCountsRow, error) {
 			return q.GetBatchStatusAndDeviceCounts(finCtx, batchID)
 		})
 		if err != nil {
@@ -426,7 +468,7 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizat
 		return "", fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
 	}
 
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (string, error) {
+	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (string, error) {
 		timeNow := time.Now()
 		newUUID := id.GenerateID()
 
@@ -454,7 +496,7 @@ func (s *Service) statusUpdateIsProcessingBranch(ctx context.Context, commandBat
 		return false, fleeterror.NewInternalErrorf("error asking isProcessing: %v", err)
 	}
 	if isProcessing {
-		err = db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
+		err = db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
 			return q.MarkCommandBatchProcessing(ctx, commandBatchLogUUID)
 		})
 		if err != nil {
@@ -467,13 +509,22 @@ func (s *Service) statusUpdateIsProcessingBranch(ctx context.Context, commandBat
 
 func (s *Service) getMarkFinishedBatchFunction(processingMarkedInDB bool) func(ctx context.Context, commandBatchLogUUID string) error {
 	return func(ctx context.Context, commandBatchLogUUID string) error {
-		return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
+		return db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
 			if processingMarkedInDB {
 				return q.MarkCommandBatchFinished(ctx, commandBatchLogUUID)
 			}
 			return q.MarkCommandBatchFinishedWithStartedAt(ctx, commandBatchLogUUID)
 		})
 	}
+}
+
+func (s *Service) finishUnenqueuedCommandBatch(ctx context.Context, commandBatchLogUUID string) error {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
+	defer cancel()
+	if err := s.getMarkFinishedBatchFunction(false)(cleanupCtx, commandBatchLogUUID); err != nil {
+		return fleeterror.NewInternalErrorf("command execution stopped before enqueue; failed to finish command batch: %v", err)
+	}
+	return fleeterror.NewInternalError("command execution service stopped before enqueue")
 }
 
 func (s *Service) statusUpdateIsFinishedBranch(ctx context.Context, commandBatchLogUUID string) (bool, error) {
@@ -582,7 +633,7 @@ func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.D
 			filter = &pb.DeviceFilter{}
 		}
 
-		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]string, error) {
+		return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]string, error) {
 			var deviceStatus sql.NullString
 			var modelFilter sql.NullString
 			var manufacturerFilter sql.NullString
@@ -624,6 +675,15 @@ func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.D
 		out := make([]string, len(x.IncludeDevices.DeviceIdentifiers))
 		copy(out, x.IncludeDevices.DeviceIdentifiers)
 		return out, nil
+	case *pb.DeviceSelector_AllMatchingFilter:
+		// Filtered "select all": resolve the rich MinerListFilter through the
+		// shared fleetmanagement resolver so the command targets exactly the
+		// filtered set across all pages (the thin DeviceFilter cannot express
+		// racks/groups/sites/telemetry/subnet dimensions).
+		if s.deviceResolver == nil {
+			return nil, fleeterror.NewInternalError("device identifier resolver not configured for all_matching_filter selector")
+		}
+		return s.deviceResolver.ResolveDeviceIdentifiers(ctx, fleetSelectorForMatchingFilter(x.AllMatchingFilter), info.OrganizationID)
 	default:
 		return nil, fleeterror.NewInternalErrorf("resolveSelectorIdentifiers called with unknown selector type: %v", x)
 	}
@@ -658,7 +718,7 @@ func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, identifiers
 	if s.resolveDeviceIDsOverride != nil {
 		return s.resolveDeviceIDsOverride(ctx, identifiers)
 	}
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
+	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]int64, error) {
 		return q.GetDeviceIDsByDeviceIdentifiers(ctx, identifiers)
 	})
 }
@@ -684,7 +744,7 @@ func (s *Service) resolveIdentifiersToDevices(ctx context.Context, identifiers [
 		}
 		return devices, nil
 	}
-	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]resolvedDevice, error) {
+	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]resolvedDevice, error) {
 		rows, err := q.GetDeviceIDsWithIdentifiers(ctx, identifiers)
 		if err != nil {
 			return nil, err
@@ -718,7 +778,7 @@ func (s *Service) prepareUpdateMinerPasswordDispatch(ctx context.Context, orgID 
 	for _, device := range devices {
 		identifiers = append(identifiers, device.identifier)
 	}
-	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.GetDeviceCommandRoutesRow, error) {
+	rows, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]sqlc.GetDeviceCommandRoutesRow, error) {
 		return q.GetDeviceCommandRoutes(ctx, sqlc.GetDeviceCommandRoutesParams{
 			OrgID:             orgID,
 			DeviceIdentifiers: identifiers,
@@ -833,9 +893,8 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		if err := s.logPreflightBlockedStrict(ctx, command.commandType, identifiers, skipped); err != nil {
 			return nil, fleeterror.NewInternalErrorf("logging preflight block: %v", err)
 		}
-		return nil, fleeterror.NewFailedPreconditionErrorf(
-			"command blocked: %d of %d device(s) excluded by preflight filters",
-			len(skipped), len(identifiers))
+		return nil, fleeterror.NewFailedPreconditionError(
+			preflightBlockedMessage(len(identifiers), skipped))
 	}
 
 	if len(kept) == 0 && len(skipped) > 0 {
@@ -848,6 +907,20 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 	resolvedDevices, err := s.resolveIdentifiersToDevices(ctx, kept)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error resolving identifiers to device IDs: %v", err)
+	}
+	if command.commandType == commandtype.FirmwareUpdate {
+		firmwarePayload, ok := command.payload.(dto.FirmwareUpdatePayload)
+		if !ok {
+			return nil, fleeterror.NewInternalError("invalid firmware update payload")
+		}
+		metadata, release, err := s.filesService.LeaseFirmwareMetadata(firmwarePayload.FirmwareFileID)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+		if err := s.validateFirmwareUpdateTargets(ctx, info.OrganizationID, resolvedDevices, metadata); err != nil {
+			return nil, err
+		}
 	}
 
 	logPayload := command.payload
@@ -886,16 +959,20 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		return nil, fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
 
-	if len(queuePayloads) == 0 {
-		err = s.messageQueue.Enqueue(ctx, batchLogIdentifier, command.commandType, deviceIDs, command.payload)
-		if err != nil {
+	err = s.executionService.withAdmission(ctx, func(workCtx context.Context) error {
+		if len(queuePayloads) == 0 {
+			return s.messageQueue.Enqueue(workCtx, batchLogIdentifier, command.commandType, deviceIDs, command.payload)
+		}
+		return s.messageQueue.EnqueueMany(workCtx, batchLogIdentifier, command.commandType, queuePayloads)
+	})
+	if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
+		return nil, s.finishUnenqueuedCommandBatch(ctx, batchLogIdentifier)
+	}
+	if err != nil {
+		if len(queuePayloads) == 0 {
 			return nil, fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
 		}
-	} else {
-		err = s.messageQueue.EnqueueMany(ctx, batchLogIdentifier, command.commandType, queuePayloads)
-		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("error enqueuing per-device command payloads: %v", err)
-		}
+		return nil, fleeterror.NewInternalErrorf("error enqueuing per-device command payloads: %v", err)
 	}
 
 	return &CommandResult{
@@ -993,7 +1070,7 @@ func (s *Service) createMiningPoolDTO(ctx context.Context, poolID int64, priorit
 		return nil, fleeterror.NewInternalErrorf("error getting session info: %v", err)
 	}
 
-	pool, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (sqlc.Pool, error) {
+	pool, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (sqlc.Pool, error) {
 		p, err := q.GetPool(ctx, sqlc.GetPoolParams{ID: poolID, OrgID: info.OrganizationID})
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -1132,7 +1209,7 @@ func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.Dev
 		return nil, nil, nil
 	}
 
-	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.GetDeviceInfoForCapabilityCheckRow, error) {
+	rows, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]sqlc.GetDeviceInfoForCapabilityCheckRow, error) {
 		return q.GetDeviceInfoForCapabilityCheck(ctx, sqlc.GetDeviceInfoForCapabilityCheckParams{
 			DeviceIdentifiers: identifiers,
 			OrgID:             info.OrganizationID,
@@ -1374,7 +1451,13 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 		return "", err
 	}
 
-	if err := s.enqueueWorkerNameReapplyMessages(ctx, commandBatchLogUUID, deviceIdentifiers, deviceIDsByIdentifier, desiredWorkerNamesByDeviceIdentifier); err != nil {
+	err = s.executionService.withAdmission(ctx, func(workCtx context.Context) error {
+		return s.enqueueWorkerNameReapplyMessages(workCtx, commandBatchLogUUID, deviceIdentifiers, deviceIDsByIdentifier, desiredWorkerNamesByDeviceIdentifier)
+	})
+	if errors.Is(err, errExecutionStoppedBeforeEnqueue) {
+		return "", s.finishUnenqueuedCommandBatch(ctx, commandBatchLogUUID)
+	}
+	if err != nil {
 		return "", err
 	}
 
@@ -1383,7 +1466,7 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 }
 
 func (s *Service) getDeviceIDsWithIdentifiers(ctx context.Context, deviceIdentifiers []string) (map[string]int64, error) {
-	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.GetDeviceIDsWithIdentifiersRow, error) {
+	rows, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]sqlc.GetDeviceIDsWithIdentifiersRow, error) {
 		return q.GetDeviceIDsWithIdentifiers(ctx, deviceIdentifiers)
 	})
 	if err != nil {
@@ -1407,7 +1490,7 @@ func (s *Service) enqueueWorkerNameReapplyMessages(
 	deviceIDsByIdentifier map[string]int64,
 	desiredWorkerNamesByDeviceIdentifier map[string]string,
 ) error {
-	return db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
+	return db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
 		commandType := commandtype.UpdateMiningPools
 		for _, deviceIdentifier := range deviceIdentifiers {
 			payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
@@ -1480,6 +1563,48 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 	}
 	s.finalizeDispatch(ctx, result, "firmware_update", "Update firmware")
 	return result, nil
+}
+
+func (s *Service) validateFirmwareUpdateTargets(
+	ctx context.Context,
+	organizationID int64,
+	devices []resolvedDevice,
+	metadata files.FirmwareMetadata,
+) error {
+	if err := files.ValidateFirmwareMetadata(metadata); err != nil {
+		return fleeterror.NewFailedPreconditionError("firmware target metadata is unknown; repair its metadata before deploying it")
+	}
+
+	identifiers := make([]string, 0, len(devices))
+	for _, device := range devices {
+		identifiers = append(identifiers, device.identifier)
+	}
+	properties, err := s.deviceStore.GetDevicePropertiesForRename(ctx, organizationID, identifiers, false)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to load device targets for firmware compatibility validation: %v", err)
+	}
+	propertiesByIdentifier := make(map[string]stores.DeviceRenameProperties, len(properties))
+	for _, property := range properties {
+		propertiesByIdentifier[property.DeviceIdentifier] = property
+	}
+
+	mismatchCount := 0
+	for _, identifier := range identifiers {
+		property, ok := propertiesByIdentifier[identifier]
+		if !ok || !metadata.MatchesTarget(property.Manufacturer, property.Model) {
+			mismatchCount++
+		}
+	}
+	if mismatchCount > 0 {
+		return fleeterror.NewFailedPreconditionErrorf(
+			"firmware targets %s %s, but %d of %d selected device(s) have a different or unknown target",
+			metadata.TargetManufacturer,
+			metadata.TargetModel,
+			mismatchCount,
+			len(identifiers),
+		)
+	}
+	return nil
 }
 
 func (s *Service) Unpair(ctx context.Context, deviceSelector *pb.DeviceSelector) (*CommandResult, error) {
@@ -1694,7 +1819,7 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 	// REPEATABLE READ + ReadOnly so header/counts/rows share one snapshot;
 	// the default READ COMMITTED would let concurrent worker writes to
 	// command_on_device_log produce inconsistent counts vs device_results.
-	bundle, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (resultsBundle, error) {
+	bundle, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (resultsBundle, error) {
 		var b resultsBundle
 		header, hErr := q.GetBatchHeaderForOrg(ctx, sqlc.GetBatchHeaderForOrgParams{
 			Uuid:           req.BatchIdentifier,

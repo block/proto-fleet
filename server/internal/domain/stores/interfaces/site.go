@@ -24,6 +24,15 @@ type SiteStore interface {
 	// GetSite returns the live site or NotFound.
 	GetSite(ctx context.Context, orgID, id int64) (*models.Site, error)
 
+	// GetInfrastructureControlSubnets returns the site's canonical
+	// newline-separated commissioned OT allowlist. The query is org-scoped and
+	// excludes soft-deleted sites so cross-org/missing IDs are NotFound-masked.
+	GetInfrastructureControlSubnets(ctx context.Context, orgID, siteID int64) (string, error)
+
+	// SetInfrastructureControlSubnets explicitly replaces the site's canonical
+	// commissioned OT allowlist. Empty text decommissions the site.
+	SetInfrastructureControlSubnets(ctx context.Context, orgID, siteID int64, canonical string) (string, error)
+
 	// GetSiteBySlug returns the live site with the given URL slug or
 	// NotFound. The slug is not user-editable but is regenerated from the
 	// name on a rename. Used by the route-scope resolver before checking
@@ -63,9 +72,41 @@ type SiteStore interface {
 	// curtailment response behavior scoped to the site being deleted.
 	DeleteCurtailmentResponseProfilesBySite(ctx context.Context, orgID, siteID int64) (int64, error)
 
+	// CountCurtailmentResponseProfilesBySite counts reusable curtailment
+	// response behavior scoped to the site without mutating it.
+	CountCurtailmentResponseProfilesBySite(ctx context.Context, orgID, siteID int64) (int64, error)
+
+	// LockInfrastructureDevicesBySiteForWrite locks live devices at the site
+	// in ID order before a site-delete reference check and cascade.
+	LockInfrastructureDevicesBySiteForWrite(ctx context.Context, orgID, siteID int64) ([]int64, error)
+
+	// CountInfrastructureDevicesBySite counts live infrastructure devices
+	// at the site without locking or mutating them.
+	CountInfrastructureDevicesBySite(ctx context.Context, orgID, siteID int64) (int64, error)
+
+	// CountResponseProfilesByInfrastructureDevices counts surviving profiles
+	// that reference any ID in the supplied set.
+	CountResponseProfilesByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error)
+
+	// CountActiveCurtailmentEventsByInfrastructureDevices counts events that
+	// protect any supplied infrastructure device as a facility fan: non-terminal
+	// owners plus terminal events with unresolved fan recovery failures.
+	CountActiveCurtailmentEventsByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error)
+
+	// CountNonTerminalCurtailmentEventsByInfrastructureDevices counts only
+	// non-terminal facility-fan owners. Use CountActive... for mutations that
+	// can affect terminal fan recovery.
+	CountNonTerminalCurtailmentEventsByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error)
+
 	// SoftDeleteBuildingsBySite soft-deletes every live building under
 	// the site. Caller wraps it in the cascade tx.
 	SoftDeleteBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error)
+
+	// SoftDeleteInfrastructureDevicesBySite soft-deletes every live
+	// infrastructure device under the site so controllable facility
+	// devices cannot outlive their site. Caller wraps it in the
+	// cascade tx.
+	SoftDeleteInfrastructureDevicesBySite(ctx context.Context, orgID, siteID int64) (int64, error)
 
 	// UnassignRacksFromSite clears site_id on every rack directly
 	// pointing at the site. Caller wraps it in the cascade tx.

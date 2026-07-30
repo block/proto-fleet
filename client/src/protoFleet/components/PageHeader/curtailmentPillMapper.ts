@@ -1,12 +1,16 @@
 import { type CurtailmentPillEvent, isCurtailmentPillState } from "./curtailmentPillTypes";
-import { getFixedKwTarget, hasCurtailmentTargetMetrics } from "@/protoFleet/api/curtailmentMappers";
+import {
+  getFixedKwTarget,
+  hasCurtailmentEstimatedReductionKw,
+  hasCurtailmentTargetMetrics,
+} from "@/protoFleet/api/curtailmentMappers";
 import type { CurtailmentEvent as ProtoCurtailmentEvent } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import {
   getActiveCurtailmentDisplayState,
   getCurtailmentEventEstimatedReductionKw,
+  getCurtailmentEventLiveTargetCount,
   getCurtailmentEventObservedReductionKw,
   getCurtailmentEventScopeLabel,
-  getCurtailmentEventSelectedMinerCount,
   getCurtailmentTargetRollups,
   isActiveCurtailmentEventState,
   mapCurtailmentEventState,
@@ -22,7 +26,8 @@ export function mapCurtailmentPillEvent(event?: ProtoCurtailmentEvent): Curtailm
     return null;
   }
 
-  const selectedMiners = getCurtailmentEventSelectedMinerCount(event);
+  // The pill only renders for active states, so it shows the live target set.
+  const selectedMiners = getCurtailmentEventLiveTargetCount(event);
   const estimatedReductionKw = getCurtailmentEventEstimatedReductionKw(event);
   const displayState = getActiveCurtailmentDisplayState(
     {
@@ -47,5 +52,6 @@ export function mapCurtailmentPillEvent(event?: ProtoCurtailmentEvent): Curtailm
     selectedMiners,
     estimatedReductionKw,
     targetMetricsAvailable: hasCurtailmentTargetMetrics(event),
+    estimatedReductionAvailable: hasCurtailmentEstimatedReductionKw(event),
   };
 }

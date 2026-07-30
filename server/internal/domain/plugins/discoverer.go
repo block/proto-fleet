@@ -141,7 +141,7 @@ func discoverWithPlugin(ctx context.Context, plugin *LoadedPlugin, pluginName, i
 		LastSeen:        time.Now(),
 	}
 
-	slog.Info("Plugin discovered device successfully",
+	slog.Debug("Plugin discovered device successfully",
 		"plugin", pluginName,
 		"device", deviceInfo.SerialNumber,
 		"model", deviceInfo.Model,

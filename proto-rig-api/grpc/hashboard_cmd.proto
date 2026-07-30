@@ -60,6 +60,11 @@ enum hardware_revision {
     HARDWARE_REV_B4_128_PROTO_1 = 42;
     HARDWARE_REV_B4_192_PROTO_2 = 43;
     HARDWARE_REV_B4_128_PROTO_2 = 44;
+
+    // F1
+    HARDWARE_REV_F1_PROTO_1A = 50;
+    HARDWARE_REV_F1_PROTO_1B = 51;
+    HARDWARE_REV_F1_EVT = 52;
 }
 
 // A command used by the mobile client to ask the hw device for its metadata.
@@ -114,8 +119,8 @@ message asic_layout_entry {
 message asic_capabilities {
     asic_type asic_type = 1;                // ASIC generation (MC2/MC3).
     uint32 stack_count = 2;                 // Number of ASIC stacks.
-    uint32 asics_per_stack = 3;             // Number of ASICs per stack.
-    uint32 total_asics = 4;                 // Total ASIC count.
+    uint32 asics_per_stack = 3;             // Maximum ASIC capacity per stack.
+    uint32 total_asics = 4;                 // Populated ASIC count when known, otherwise capacity.
     repeated asic_layout_entry layout = 5;  // Physical layout map (optional).
 }
 
@@ -141,13 +146,15 @@ message diagnostics_capabilities {
 
 // Operational limits - defines safe operating thresholds.
 message operational_limits {
-    float voltage_min = 1;      // Minimum input voltage (V).
-    float voltage_max = 2;      // Maximum input voltage (V).
-    float current_max = 3;      // Maximum input current (A).
-    float board_temp_max = 4;   // Maximum board temperature (C).
-    float asic_temp_max = 5;    // Maximum ASIC temperature (C).
-    float asic_temp_min = 6;    // Minimum ASIC temperature (C).
-    float voltage_initial = 7;  // Initial/starting input voltage (V).
+    float voltage_min = 1;             // Minimum input voltage (V).
+    float voltage_max = 2;             // Maximum input voltage (V).
+    float current_max = 3;             // Maximum input current (A).
+    float board_temp_max = 4;          // Maximum board temperature (C).
+    float asic_temp_max = 5;           // Maximum ASIC temperature (C).
+    float asic_temp_min = 6;           // Minimum ASIC temperature (C).
+    float voltage_initial = 7;         // Initial/starting input voltage (V).
+    float power_target_min_watts = 8;  // Minimum accepted performance power target (W).
+    float power_target_max_watts = 9;  // Maximum accepted performance power target (W).
 }
 
 // Capabilities API - response containing all hashboard capabilities.
@@ -215,9 +222,38 @@ message mining_performance_mode_set_cmd {
     mining_performance_mode mode = 1;
     float power_target_watts = 2;
     mining_performance_pll_algorithm pll_algorithm = 3;
+    bool voltage_tuning_enabled = 4;
 }
 
 message mining_performance_mode_set_rsp {}
+
+enum psu_voltage_control_mode {
+    PSU_VOLTAGE_CONTROL_MODE_UNSPECIFIED = 0;
+    // Disable automatic voltage tuning and request a fixed PSU output voltage.
+    PSU_VOLTAGE_CONTROL_MODE_FIXED = 1;
+    // Restore automatic PSU voltage tuning.
+    PSU_VOLTAGE_CONTROL_MODE_AUTO = 2;
+}
+
+message psu_voltage_control_cmd {
+    psu_voltage_control_mode mode = 1;
+    uint32 millivolts = 2;
+}
+
+message psu_voltage_control_rsp {}
+
+enum identify_led_mode {
+    IDENTIFY_LED_MODE_UNSPECIFIED = 0;
+    IDENTIFY_LED_MODE_OFF = 1;
+    IDENTIFY_LED_MODE_SOLID = 2;
+    IDENTIFY_LED_MODE_BLINK = 3;
+}
+
+message identify_led_cmd {
+    identify_led_mode mode = 1;
+}
+
+message identify_led_rsp {}
 
 enum dfu_slot {
     SLOT_UNSPECIFIED = 0;
@@ -291,6 +327,44 @@ message diagnostic_data_abort_cmd {}
 
 message diagnostic_data_abort_rsp {}
 
+message blackbox_segment {
+    uint32 number = 1;
+    uint32 size = 2;
+    bool active = 3;
+}
+
+message blackbox_segments_cmd {}
+
+message blackbox_segments_rsp {
+    bool initialized = 1;
+    bool storage_ready = 2;
+    uint32 disabled_reason = 3;
+    uint32 oldest_segment = 4;
+    uint32 active_segment = 5;
+    uint32 active_size = 6;
+    repeated blackbox_segment segments = 7;
+}
+
+message blackbox_segment_read_cmd {
+    uint32 segment = 1;
+    uint32 offset = 2;
+    uint32 max_bytes = 3;
+}
+
+message blackbox_segment_read_rsp {
+    uint32 segment = 1;
+    uint32 offset = 2;
+    uint32 file_size = 3;
+    bytes data = 4;
+    bool eof = 5;
+}
+
+message crash_context_set_cmd {
+    string host_tag = 1;
+}
+
+message crash_context_set_rsp {}
+
 // ASIC type enumeration.
 enum asic_type {
     ASIC_TYPE_UNSPECIFIED = 0;
@@ -315,6 +389,8 @@ enum temperature_sensor_location {
     TEMP_SENSOR_LOCATION_ASIC_FRONT = 5;  // ASIC front area.
     TEMP_SENSOR_LOCATION_ASIC_REAR = 6;   // ASIC rear area.
     TEMP_SENSOR_LOCATION_PCBA = 7;        // PCB area.
+    TEMP_SENSOR_LOCATION_ASIC_CENTERLINE = 8;  // ASIC sensor on the board centerline.
+    TEMP_SENSOR_LOCATION_ASIC_CORNER = 9;      // ASIC sensor at a board corner.
 }
 
 enum status {
@@ -368,6 +444,17 @@ message hashboard_cmd {
         mining_state_set_cmd mining_state_set_cmd = 12;
         mining_difficulty_set_cmd mining_difficulty_set_cmd = 13;
         mining_performance_mode_set_cmd mining_performance_mode_set_cmd = 14;
+        psu_voltage_control_cmd psu_voltage_control_cmd = 16;
+
+        // Crash context
+        crash_context_set_cmd crash_context_set_cmd = 15;
+
+        // Device identification
+        identify_led_cmd identify_led_cmd = 17;
+
+        // Blackbox
+        blackbox_segments_cmd blackbox_segments_cmd = 18;
+        blackbox_segment_read_cmd blackbox_segment_read_cmd = 19;
 
         // Mfgtest
         mfgtest_read_bist_cmd mfgtest_read_bist_cmd = 29;
@@ -377,11 +464,11 @@ message hashboard_cmd {
         mfgtest_read_binning_cmd mfgtest_read_binning_cmd = 33;
         mfgtest_lock_sysinfo_cmd mfgtest_lock_sysinfo_cmd = 34;
         mfgtest_set_led_cmd mfgtest_set_led_cmd = 35;
-        mfgtest_cycle_stacks_cmd mfgtest_cycle_stacks_cmd = 36;
-        mfgtest_stack_set_cmd mfgtest_stack_set_cmd = 37;
-        mfgtest_stack_status_cmd mfgtest_stack_status_cmd = 38;
         dfu_write_secure_id_cmd dfu_write_secure_id_cmd = 39;
-        mfgtest_asic_debug_cmd mfgtest_asic_debug_cmd = 40;
+        mfgtest_mac_write_cmd mfgtest_mac_write_cmd = 51;
+        mfgtest_mac_read_cmd mfgtest_mac_read_cmd = 52;
+        mfgtest_i2c_probe_cmd mfgtest_i2c_probe_cmd = 53;
+        mfgtest_can_tx_cmd mfgtest_can_tx_cmd = 54;
         // TODO: Temporary hack for MTE
         mfgtest_mc3_quick_test_cmd mfgtest_mc3_quick_test_cmd = 27;
         mfgtest_mc3_get_asic_data_cmd mfgtest_mc3_get_asic_data_cmd = 28;
@@ -397,6 +484,8 @@ message hashboard_cmd {
         asic_freq_set_cmd asic_freq_set_cmd = 48;
         async_message_interval_cmd async_message_interval_cmd = 49;
         asic_freq_gain_set_cmd asic_freq_gain_set_cmd = 50;
+        psu_debug_status_cmd psu_debug_status_cmd = 57;
+        can_debug_status_cmd can_debug_status_cmd = 58;
 
         // EVB
         evb_power_on_cmd evb_power_on_cmd = 60;
@@ -441,6 +530,17 @@ message hashboard_rsp {
         mining_state_set_rsp mining_state_set_rsp = 12;
         mining_difficulty_set_rsp mining_difficulty_set_rsp = 13;
         mining_performance_mode_set_rsp mining_performance_mode_set_rsp = 14;
+        psu_voltage_control_rsp psu_voltage_control_rsp = 16;
+
+        // Crash context
+        crash_context_set_rsp crash_context_set_rsp = 15;
+
+        // Device identification
+        identify_led_rsp identify_led_rsp = 17;
+
+        // Blackbox
+        blackbox_segments_rsp blackbox_segments_rsp = 18;
+        blackbox_segment_read_rsp blackbox_segment_read_rsp = 19;
 
         // Mfgtest
         mfgtest_read_bist_rsp mfgtest_read_bist_rsp = 29;
@@ -450,11 +550,11 @@ message hashboard_rsp {
         mfgtest_read_binning_rsp mfgtest_read_binning_rsp = 33;
         mfgtest_lock_sysinfo_rsp mfgtest_lock_sysinfo_rsp = 34;
         mfgtest_set_led_rsp mfgtest_set_led_rsp = 35;
-        mfgtest_cycle_stacks_rsp mfgtest_cycle_stacks_rsp = 36;
-        mfgtest_stack_set_rsp mfgtest_stack_set_rsp = 37;
-        mfgtest_stack_status_rsp mfgtest_stack_status_rsp = 38;
         dfu_write_secure_id_rsp dfu_write_secure_id_rsp = 39;
-        mfgtest_asic_debug_rsp mfgtest_asic_debug_rsp = 40;
+        mfgtest_mac_write_rsp mfgtest_mac_write_rsp = 51;
+        mfgtest_mac_read_rsp mfgtest_mac_read_rsp = 52;
+        mfgtest_i2c_probe_rsp mfgtest_i2c_probe_rsp = 53;
+        mfgtest_can_tx_rsp mfgtest_can_tx_rsp = 54;
         // TODO: Temporary hack for MTE
         mfgtest_mc3_quick_test_rsp mfgtest_mc3_quick_test_rsp = 27;
         mfgtest_mc3_get_asic_data_rsp mfgtest_mc3_get_asic_data_rsp = 28;
@@ -470,6 +570,8 @@ message hashboard_rsp {
         asic_freq_set_rsp asic_freq_set_rsp = 48;
         async_message_interval_rsp async_message_interval_rsp = 49;
         asic_freq_gain_set_rsp asic_freq_gain_set_rsp = 50;
+        psu_debug_status_rsp psu_debug_status_rsp = 57;
+        can_debug_status_rsp can_debug_status_rsp = 58;
 
         // EVB
         evb_power_on_rsp evb_power_on_rsp = 60;

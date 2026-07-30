@@ -131,16 +131,16 @@ var ErrSourceConfigReferenced = errors.New("mqttingest: source config is referen
 const mqttSourceConfigOrgNameConstraint = "uq_curtailment_mqtt_source_config_org_name"
 
 type sqlcStore struct {
-	queries *sqlc.Queries
+	queries sqlc.Querier
 }
 
 // NewSQLCStore returns a Store backed by sqlc.
-func NewSQLCStore(queries *sqlc.Queries) Store {
+func NewSQLCStore(queries sqlc.Querier) Store {
 	return &sqlcStore{queries: queries}
 }
 
 // NewSQLCSettingsStore returns a settings CRUD store backed by sqlc.
-func NewSQLCSettingsStore(queries *sqlc.Queries) SettingsStore {
+func NewSQLCSettingsStore(queries sqlc.Querier) SettingsStore {
 	return &sqlcStore{queries: queries}
 }
 

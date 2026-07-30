@@ -28,6 +28,24 @@ vi.mock("@/protoFleet/api/sites", async () => {
   };
 });
 
+// SiteDetailPage reads the site catalog from the shell-level SitesProvider.
+// Drive it directly so the page renders against a known catalog without the
+// provider's fetch/poll machinery.
+const sitesCtx = vi.hoisted(() => ({
+  current: {
+    sites: undefined as SiteWithCounts[] | undefined,
+    sitesError: null as string | null,
+    sitesLoaded: false,
+    sitesSettled: false,
+    sitesPermissionDenied: false,
+    siteCatalogAccessGranted: false,
+    refetchSites: vi.fn(),
+  },
+}));
+vi.mock("@/protoFleet/api/SitesContext", () => ({
+  useSitesContext: () => sitesCtx.current,
+}));
+
 const useTelemetryMetricsMock = vi.hoisted(() => vi.fn((_options: unknown) => ({ data: { metrics: [] } })));
 
 vi.mock("@/protoFleet/api/useTelemetryMetrics", () => ({
@@ -43,7 +61,11 @@ vi.mock("@/protoFleet/api/useSiteStats", () => ({
 }));
 
 vi.mock("@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection", () => ({
-  DeviceSetPerformanceSection: () => <div data-testid="device-set-performance-section">Performance charts</div>,
+  DeviceSetPerformanceSection: ({ className, gapClassName }: { className?: string; gapClassName?: string }) => (
+    <div className={className} data-gap-class={gapClassName} data-testid="device-set-performance-section">
+      Performance charts
+    </div>
+  ),
 }));
 
 vi.mock("@/protoFleet/features/sites/components/SiteModals", () => ({
@@ -74,6 +96,33 @@ const LocationProbe = () => {
   return <div data-testid="location-probe">{`${location.pathname}${location.search}`}</div>;
 };
 
+const installLocalStorageMock = () => {
+  const storage = new Map<string, string>();
+  const localStorageMock: Storage = {
+    get length() {
+      return storage.size;
+    },
+    clear: () => storage.clear(),
+    getItem: (key) => storage.get(key) ?? null,
+    key: (index) => Array.from(storage.keys())[index] ?? null,
+    removeItem: (key) => {
+      storage.delete(key);
+    },
+    setItem: (key, value) => {
+      storage.set(key, value);
+    },
+  };
+
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: localStorageMock,
+  });
+};
+
+if (typeof globalThis.localStorage === "undefined") {
+  installLocalStorageMock();
+}
+
 const makeSite = (id: bigint, name: string, slug = name.toLowerCase()) =>
   create(SiteWithCountsSchema, {
     site: create(SiteSchema, {
@@ -100,28 +149,63 @@ const renderPage = (initialEntry = "/sites/7") =>
 describe("SiteDetailPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     useFleetStore.setState((state) => {
       state.ui.activeSite = DEFAULT_ACTIVE_SITE;
       // Reset per-test so the performance section's fleet:read gate starts
       // from a known (denied) baseline; tests opt in explicitly.
       state.auth.permissions = [];
     });
-    listSitesMock.mockImplementation(({ onSuccess }: { onSuccess: (sites: SiteWithCounts[]) => void }) =>
-      onSuccess([makeSite(7n, "Dallas"), makeSite(8n, "Austin")]),
-    );
+    sitesCtx.current = {
+      sites: [makeSite(7n, "Dallas"), makeSite(8n, "Austin")],
+      sitesError: null,
+      sitesLoaded: true,
+      sitesSettled: true,
+      sitesPermissionDenied: false,
+      siteCatalogAccessGranted: true,
+      refetchSites: vi.fn(),
+    };
     listBuildingsBySiteMock.mockImplementation(({ onSuccess }: { onSuccess: (buildings: []) => void }) =>
       onSuccess([]),
     );
   });
 
-  it("preserves the selected site when a site detail mismatch redirects back to Fleet", async () => {
+  it("syncs a mismatched persisted scope to the site being viewed instead of bouncing away", async () => {
+    // Deep-link to /sites/7 (Dallas) while the header scope points at another
+    // site (Austin). The headerless route must adopt the viewed site rather
+    // than redirect to /fleet (#764).
     useFleetStore.setState((state) => {
       state.ui.activeSite = { kind: "site", id: "8", slug: "austin" };
     });
 
     renderPage();
 
-    await waitFor(() => expect(screen.getByTestId("location-probe")).toHaveTextContent("/austin/fleet"));
+    expect(await screen.findByTestId("site-detail-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("location-probe")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7", slug: "dallas" }),
+    );
+  });
+
+  it("adopts the viewed site when the persisted scope is 'unassigned'", async () => {
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "unassigned" };
+    });
+
+    renderPage();
+
+    expect(await screen.findByTestId("site-detail-page")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "7", slug: "dallas" }),
+    );
+  });
+
+  it("leaves an all-sites scope untouched when viewing a site", async () => {
+    // Viewing one entity shouldn't collapse an intentional org-wide view.
+    renderPage();
+
+    expect(await screen.findByTestId("site-detail-page")).toBeInTheDocument();
+    expect(useFleetStore.getState().ui.activeSite).toEqual(DEFAULT_ACTIVE_SITE);
   });
 
   it("renders the metrics row scoped to the resolved site", async () => {
@@ -131,6 +215,41 @@ describe("SiteDetailPage", () => {
     await waitFor(() =>
       expect(useSiteStatsMock).toHaveBeenCalledWith(expect.objectContaining({ siteId: 7n, enabled: true })),
     );
+  });
+
+  it("keeps the edit action in the site detail title row on mobile", async () => {
+    useFleetStore.setState((state) => {
+      state.auth.permissions = ["site:manage"];
+    });
+
+    renderPage("/sites/7");
+
+    expect(await screen.findByTestId("site-detail-title")).toHaveClass("truncate");
+    expect(screen.getByTestId("site-detail-edit").parentElement).toHaveClass("ml-3", "shrink-0");
+  });
+
+  it("uses the detail view spacing rhythm for sections and section content", async () => {
+    useFleetStore.setState((state) => {
+      state.auth.permissions = ["fleet:read"];
+    });
+
+    renderPage("/sites/7");
+
+    expect(await screen.findByTestId("site-detail-page")).toHaveClass(
+      "gap-10",
+      "px-4",
+      "py-6",
+      "laptop:px-8",
+      "laptop:py-10",
+    );
+    expect(screen.getByTestId("site-detail-heading")).toHaveClass("gap-3", "px-2");
+    expect(screen.getByTestId("site-detail-metrics-section")).toHaveClass("gap-3", "px-2");
+    expect(screen.getByTestId("site-metric-hashrate-value")).toHaveClass("text-emphasis-400");
+    expect(screen.getByTestId("site-metric-power-value")).toHaveClass("text-emphasis-400");
+    expect(screen.getByTestId("site-detail-buildings-section")).toHaveClass("gap-3");
+    expect(screen.getByTestId("site-detail-performance")).toHaveClass("gap-3");
+    expect(screen.getByTestId("device-set-performance-section")).toHaveClass("p-2");
+    expect(screen.getByTestId("device-set-performance-section")).toHaveAttribute("data-gap-class", "gap-1");
   });
 
   it("renders the performance section scoped to the resolved site for fleet:read operators", async () => {

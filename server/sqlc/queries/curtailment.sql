@@ -194,6 +194,7 @@ INSERT INTO curtailment_event (
     mode_params_jsonb,
     curtail_batch_size,
     curtail_batch_interval_sec,
+    last_curtail_pending_dispatch_at,
     restore_batch_size,
     restore_batch_interval_sec,
     min_curtailed_duration_sec,
@@ -202,6 +203,10 @@ INSERT INTO curtailment_event (
     include_maintenance,
     force_include_maintenance,
     force_include_all_paired_miners,
+    facility_fan_device_ids,
+    facility_fan_site_ids,
+    fan_off_delay_sec,
+    fan_restore_delay_sec,
     decision_snapshot_jsonb,
     source_actor_type,
     source_actor_id,
@@ -228,6 +233,7 @@ INSERT INTO curtailment_event (
     sqlc.arg('mode_params_jsonb'),
     sqlc.narg('curtail_batch_size'),
     sqlc.arg('curtail_batch_interval_sec'),
+    NULL,
     sqlc.arg('restore_batch_size'),
     sqlc.arg('restore_batch_interval_sec'),
     sqlc.arg('min_curtailed_duration_sec'),
@@ -236,6 +242,10 @@ INSERT INTO curtailment_event (
     sqlc.arg('include_maintenance'),
     sqlc.arg('force_include_maintenance'),
     sqlc.arg('force_include_all_paired_miners'),
+    sqlc.arg('facility_fan_device_ids'),
+    sqlc.arg('facility_fan_site_ids'),
+    sqlc.arg('fan_off_delay_sec'),
+    sqlc.arg('fan_restore_delay_sec'),
     sqlc.arg('decision_snapshot_jsonb'),
     sqlc.arg('source_actor_type'),
     sqlc.narg('source_actor_id'),
@@ -251,12 +261,46 @@ INSERT INTO curtailment_event (
 )
 RETURNING id, event_uuid, created_at, updated_at;
 
+-- name: LockCurtailmentFanDeviceForWrite :exec
+-- Per-device transaction lock closes concurrent Start races before the array
+-- overlap check. Callers acquire these in ascending ID order.
+SELECT pg_advisory_xact_lock(hashtextextended('curtailment-fan:' || sqlc.arg('infrastructure_device_id')::TEXT, 0));
+
+-- name: LockCurtailmentFanDevicesForWrite :many
+-- The row lock turns the authorization snapshot into an insert-time invariant:
+-- a concurrent move/delete must wait until this transaction commits.
+SELECT id, site_id
+FROM infrastructure_device
+WHERE org_id = sqlc.arg('org_id')
+  AND id = ANY(sqlc.arg('infrastructure_device_ids')::BIGINT[])
+  AND deleted_at IS NULL
+ORDER BY id
+FOR UPDATE;
+
+-- name: CountConflictingCurtailmentFanClaims :one
+SELECT COUNT(*)
+FROM curtailment_event
+WHERE org_id = sqlc.arg('org_id')
+  AND id <> sqlc.arg('excluded_event_id')
+  AND (
+    state IN ('pending', 'active', 'restoring')
+    OR fan_last_error IS NOT NULL
+  )
+  AND facility_fan_device_ids && sqlc.arg('facility_fan_device_ids')::BIGINT[];
+
 -- name: GetCurtailmentEventByUUID :one
 -- Org-scoped: callers MUST pass org_id to prevent cross-tenant exposure.
 SELECT *
 FROM curtailment_event
 WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
+
+-- name: LockCurtailmentEventByUUIDForWrite :one
+SELECT *
+FROM curtailment_event
+WHERE event_uuid = sqlc.arg('event_uuid')
+    AND org_id = sqlc.arg('org_id')
+FOR UPDATE;
 
 -- name: GetCurtailmentEventDetailByUUID :one
 -- Detail reads keep target rows paginated; collapse per-device skipped
@@ -265,10 +309,13 @@ WHERE event_uuid = sqlc.arg('event_uuid')
 SELECT
     id, event_uuid, org_id, state, mode, strategy, level, priority,
     loop_type, scope_type, scope_jsonb, mode_params_jsonb,
-    curtail_batch_size, curtail_batch_interval_sec,
+    curtail_batch_size, curtail_batch_interval_sec, last_curtail_pending_dispatch_at,
     restore_batch_size, restore_batch_interval_sec, effective_batch_size,
     min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
     include_maintenance, force_include_maintenance, force_include_all_paired_miners,
+    facility_fan_device_ids, facility_fan_site_ids,
+    fan_off_delay_sec, fan_restore_delay_sec,
+    fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error,
     CASE
         WHEN jsonb_typeof(decision_snapshot_jsonb->'skipped') = 'array' THEN
             jsonb_set(
@@ -469,10 +516,13 @@ RETURNING *;
 SELECT
     id, event_uuid, org_id, state, mode, strategy, level, priority,
     loop_type, scope_type, scope_jsonb, mode_params_jsonb,
-    curtail_batch_size, curtail_batch_interval_sec,
+    curtail_batch_size, curtail_batch_interval_sec, last_curtail_pending_dispatch_at,
     restore_batch_size, restore_batch_interval_sec, effective_batch_size,
     min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
     include_maintenance, force_include_maintenance, force_include_all_paired_miners,
+    facility_fan_device_ids, facility_fan_site_ids,
+    fan_off_delay_sec, fan_restore_delay_sec,
+    fan_off_sent_at, fan_on_sent_at, fan_airflow_reopened_at, fan_last_error,
     CASE
         WHEN jsonb_typeof(decision_snapshot_jsonb->'skipped') = 'array' THEN
             jsonb_set(
@@ -516,22 +566,71 @@ LIMIT sqlc.arg('row_limit')::BIGINT;
 -- Active summaries intentionally omit the persisted decision snapshot. Polling
 -- runs frequently and the response shape never exposes the snapshot; detail
 -- callers use GetCurtailmentEventDetailByUUID instead.
+--
+-- Each row carries a live per-state target rollup so active polling reflects
+-- the event's current target set (closed-loop claims and all-paired policy
+-- changes grow it past the event-start snapshot) without hydrating per-target
+-- rows. Events with no target rows aggregate to a zeroed rollup.
 SELECT
-    id, event_uuid, org_id, state, mode, strategy, level, priority,
-    loop_type, scope_type, scope_jsonb, mode_params_jsonb,
-    curtail_batch_size, curtail_batch_interval_sec,
-    restore_batch_size, restore_batch_interval_sec, effective_batch_size,
-    min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
-    include_maintenance, force_include_maintenance, force_include_all_paired_miners,
+    ce.id, ce.event_uuid, ce.org_id, ce.state, ce.mode, ce.strategy, ce.level, ce.priority,
+    ce.loop_type, ce.scope_type, ce.scope_jsonb, ce.mode_params_jsonb,
+    ce.curtail_batch_size, ce.curtail_batch_interval_sec, ce.last_curtail_pending_dispatch_at,
+    ce.restore_batch_size, ce.restore_batch_interval_sec, ce.effective_batch_size,
+    ce.min_curtailed_duration_sec, ce.max_duration_seconds, ce.allow_unbounded,
+    ce.include_maintenance, ce.force_include_maintenance, ce.force_include_all_paired_miners,
+    ce.facility_fan_device_ids, ce.facility_fan_site_ids,
+    ce.fan_off_delay_sec, ce.fan_restore_delay_sec,
+    ce.fan_off_sent_at, ce.fan_on_sent_at, ce.fan_airflow_reopened_at, ce.fan_last_error,
     '{}'::JSONB AS decision_snapshot_jsonb,
-    source_actor_type, source_actor_id,
-    external_source, external_reference, idempotency_key,
-    supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
-    created_at, updated_at, created_by_user_id
-FROM curtailment_event
-WHERE org_id = sqlc.arg('org_id')
-    AND state IN ('pending', 'active', 'restoring')
-ORDER BY COALESCE(started_at, created_at) DESC, id DESC;
+    ce.source_actor_type, ce.source_actor_id,
+    ce.external_source, ce.external_reference, ce.idempotency_key,
+    ce.supersedes_event_id, ce.reason, ce.scheduled_start_at, ce.started_at, ce.ended_at,
+    ce.created_at, ce.updated_at, ce.created_by_user_id,
+    COALESCE(rollup.pending, 0)::BIGINT AS rollup_pending,
+    COALESCE(rollup.dispatched, 0)::BIGINT AS rollup_dispatched,
+    COALESCE(rollup.confirmed, 0)::BIGINT AS rollup_confirmed,
+    COALESCE(rollup.drifted, 0)::BIGINT AS rollup_drifted,
+    COALESCE(rollup.resolved, 0)::BIGINT AS rollup_resolved,
+    COALESCE(rollup.released, 0)::BIGINT AS rollup_released,
+    COALESCE(rollup.restore_failed, 0)::BIGINT AS rollup_restore_failed,
+    COALESCE(rollup.unavailable, 0)::BIGINT AS rollup_unavailable,
+    COALESCE(rollup.total, 0)::BIGINT AS rollup_total,
+    COALESCE(unavailable_reason_rollup.reasons, '{}'::JSONB) AS rollup_unavailable_reasons
+FROM curtailment_event ce
+LEFT JOIN LATERAL (
+    -- State buckets mirror GetCurtailmentTargetRollupByEvent below; keep the
+    -- two aggregates' bucketing rules in sync (dispatching/dispatched conflate).
+    SELECT
+        COUNT(*) FILTER (WHERE ct.state = 'pending') AS pending,
+        COUNT(*) FILTER (WHERE ct.state IN ('dispatching', 'dispatched')) AS dispatched,
+        COUNT(*) FILTER (WHERE ct.state = 'confirmed') AS confirmed,
+        COUNT(*) FILTER (WHERE ct.state = 'drifted') AS drifted,
+        COUNT(*) FILTER (WHERE ct.state = 'resolved') AS resolved,
+        COUNT(*) FILTER (WHERE ct.state = 'released') AS released,
+        COUNT(*) FILTER (WHERE ct.state = 'restore_failed') AS restore_failed,
+        COUNT(*) FILTER (WHERE ct.state = 'unavailable') AS unavailable,
+        COUNT(*) AS total
+    FROM curtailment_target ct
+    WHERE ct.curtailment_event_id = ce.id
+) rollup ON true
+LEFT JOIN LATERAL (
+    -- Reason buckets are split from the state rollup so the state counts stay
+    -- index-only on idx_curtailment_target_event_state; this aggregate is
+    -- covered by idx_curtailment_target_unavailable_reason.
+    SELECT jsonb_object_agg(reason, reason_count) AS reasons
+    FROM (
+        SELECT
+            COALESCE(NULLIF(ct.last_error, ''), 'unknown') AS reason,
+            COUNT(*)::BIGINT AS reason_count
+        FROM curtailment_target ct
+        WHERE ct.curtailment_event_id = ce.id
+            AND ct.state = 'unavailable'
+        GROUP BY reason
+    ) reason_counts
+) unavailable_reason_rollup ON true
+WHERE ce.org_id = sqlc.arg('org_id')
+    AND ce.state IN ('pending', 'active', 'restoring')
+ORDER BY COALESCE(ce.started_at, ce.created_at) DESC, ce.id DESC;
 
 -- name: ListCurtailmentTargetSiteCoverageByEvent :many
 -- Coverage for explicit-device event authorization. target_count is every
@@ -980,21 +1079,57 @@ LIMIT sqlc.arg('row_limit')::BIGINT;
 -- name: GetCurtailmentTargetRollupByEvent :one
 -- Org-scoped aggregate for paginated event detail. Target pages can be
 -- partial, but the rollup must describe the whole event.
+--
+-- Both aggregates are lateral subqueries correlated only on ce.id — the same
+-- shape as the ListActiveCurtailmentEvents rollup above — so each executes
+-- exactly once for the single matched event instead of joining the per-target
+-- row stream (which lets the planner rescan a lateral per target row on
+-- fleet-sized events; this query sits on the polled event-detail path). The
+-- state aggregate touches only index columns of
+-- idx_curtailment_target_event_state and stays index-only-scannable; keep the
+-- state bucketing rules in sync with the active-list rollup
+-- (dispatching/dispatched conflate). Unavailable reason buckets are covered
+-- by idx_curtailment_target_unavailable_reason.
 SELECT
-    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'pending')::BIGINT AS pending,
-    COUNT(ct.device_identifier) FILTER (WHERE ct.state IN ('dispatching', 'dispatched'))::BIGINT AS dispatched,
-    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'confirmed')::BIGINT AS confirmed,
-    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'drifted')::BIGINT AS drifted,
-    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'resolved')::BIGINT AS resolved,
-    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'released')::BIGINT AS released,
-    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'restore_failed')::BIGINT AS restore_failed,
-    COUNT(ct.device_identifier) FILTER (WHERE ct.state = 'unavailable')::BIGINT AS unavailable,
-    COUNT(ct.device_identifier)::BIGINT AS total
+    COALESCE(state_rollup.pending, 0)::BIGINT AS pending,
+    COALESCE(state_rollup.dispatched, 0)::BIGINT AS dispatched,
+    COALESCE(state_rollup.confirmed, 0)::BIGINT AS confirmed,
+    COALESCE(state_rollup.drifted, 0)::BIGINT AS drifted,
+    COALESCE(state_rollup.resolved, 0)::BIGINT AS resolved,
+    COALESCE(state_rollup.released, 0)::BIGINT AS released,
+    COALESCE(state_rollup.restore_failed, 0)::BIGINT AS restore_failed,
+    COALESCE(state_rollup.unavailable, 0)::BIGINT AS unavailable,
+    COALESCE(state_rollup.total, 0)::BIGINT AS total,
+    COALESCE(unavailable_reason_rollup.reasons, '{}'::JSONB) AS unavailable_reasons
 FROM curtailment_event ce
-LEFT JOIN curtailment_target ct ON ct.curtailment_event_id = ce.id
+LEFT JOIN LATERAL (
+    SELECT
+        COUNT(*) FILTER (WHERE ct.state = 'pending') AS pending,
+        COUNT(*) FILTER (WHERE ct.state IN ('dispatching', 'dispatched')) AS dispatched,
+        COUNT(*) FILTER (WHERE ct.state = 'confirmed') AS confirmed,
+        COUNT(*) FILTER (WHERE ct.state = 'drifted') AS drifted,
+        COUNT(*) FILTER (WHERE ct.state = 'resolved') AS resolved,
+        COUNT(*) FILTER (WHERE ct.state = 'released') AS released,
+        COUNT(*) FILTER (WHERE ct.state = 'restore_failed') AS restore_failed,
+        COUNT(*) FILTER (WHERE ct.state = 'unavailable') AS unavailable,
+        COUNT(*) AS total
+    FROM curtailment_target ct
+    WHERE ct.curtailment_event_id = ce.id
+) state_rollup ON true
+LEFT JOIN LATERAL (
+    SELECT jsonb_object_agg(reason, reason_count) AS reasons
+    FROM (
+        SELECT
+            COALESCE(NULLIF(ct.last_error, ''), 'unknown') AS reason,
+            COUNT(*)::BIGINT AS reason_count
+        FROM curtailment_target ct
+        WHERE ct.curtailment_event_id = ce.id
+            AND ct.state = 'unavailable'
+        GROUP BY reason
+    ) reason_counts
+) unavailable_reason_rollup ON true
 WHERE ce.org_id = sqlc.arg('org_id')
-    AND ce.event_uuid = sqlc.arg('event_uuid')
-GROUP BY ce.id;
+    AND ce.event_uuid = sqlc.arg('event_uuid');
 
 -- name: GetCurtailmentReconcilerHeartbeat :one
 SELECT id, last_tick_at, last_tick_uuid, last_tick_duration_ms, active_event_count
@@ -1020,6 +1155,41 @@ SET state      = sqlc.arg('state'),
 WHERE id = sqlc.arg('id')
   AND state = sqlc.arg('expected_state')
   AND state IN ('pending', 'active', 'restoring');
+
+-- name: RecordCurtailPendingDispatch :execrows
+UPDATE curtailment_event
+SET last_curtail_pending_dispatch_at = sqlc.arg('dispatched_at')
+WHERE id = sqlc.arg('id')
+  AND state = sqlc.arg('expected_state')
+  AND state IN ('pending', 'active');
+
+-- name: UpdateCurtailmentEventFanState :execrows
+-- The expected-state guard prevents a stale reconciler phase from stamping
+-- over a concurrent transition. Terminal states remain addressable so an
+-- explicit operator Force Release can retry fan ON and clear a durable failure.
+-- fan_last_error is always replaced after a successful write.
+UPDATE curtailment_event
+SET fan_off_sent_at = COALESCE(sqlc.narg('fan_off_sent_at'), fan_off_sent_at),
+    fan_on_sent_at = COALESCE(sqlc.narg('fan_on_sent_at'), fan_on_sent_at),
+    fan_airflow_reopened_at = CASE
+        WHEN sqlc.arg('clear_fan_airflow_reopened_at')::boolean THEN NULL
+        ELSE COALESCE(sqlc.narg('fan_airflow_reopened_at'), fan_airflow_reopened_at)
+    END,
+    fan_last_error = sqlc.narg('fan_last_error'),
+    updated_at = NOW()
+WHERE id = sqlc.arg('id')
+  AND state = sqlc.arg('expected_state');
+
+-- name: LockCurtailmentEventForFanCommand :one
+-- Physical fan commands run only while this exact lifecycle phase remains
+-- current. Holding the row lock through the command serializes Force Release's
+-- terminal UPDATE behind an in-flight command and rejects stale commands that
+-- begin after the transition.
+SELECT id
+FROM curtailment_event
+WHERE id = sqlc.arg('id')
+  AND state = sqlc.arg('expected_state')
+FOR UPDATE;
 
 -- name: BeginCurtailmentRestoration :one
 -- Stop's event-side flip to 'restoring'. The WHERE state-guard is the
@@ -1088,9 +1258,14 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
 
 -- name: ResumeCurtailmentFromRestoring :one
 -- Restore reversal: go back through pending so the curtail dispatcher picks
--- up reset targets.
+-- up reset targets. Preserve fan_off_sent_at and fan_last_error until the
+-- active reconciler has positively reopened airflow; clearing them here can
+-- hide fans that remained off after a failed restore command.
 UPDATE curtailment_event
-SET state = 'pending'
+SET state = 'pending',
+    fan_airflow_reopened_at = COALESCE(fan_on_sent_at, fan_airflow_reopened_at),
+    fan_on_sent_at = NULL,
+    last_curtail_pending_dispatch_at = NULL
 WHERE id = sqlc.arg('id')
   AND state = 'restoring'
 RETURNING *;
@@ -1152,6 +1327,16 @@ SELECT
 -- expected_desired_state scopes the write to one dispatch direction so
 -- a concurrent Stop's reset isn't clobbered by a Curtail-phase post-cmd
 -- write (observeRestoring picks up the reset target afterwards).
+--
+-- expected_state and expected_dispatch_batch_uuid are the confirmation
+-- fast-path single-winner guards. When set, the target's current state must
+-- equal expected_state and the applicable phase batch UUID (curtail_batch_uuid
+-- when desired_state='curtailed', restore_batch_uuid when 'active', consistent
+-- with the mirror logic) must equal expected_dispatch_batch_uuid. A duplicate
+-- confirmation (state advanced past 'dispatched') or a timeout/redispatch that
+-- stamped a new batch UUID (ABA) matches zero rows -> ErrCurtailmentEventState
+-- RaceLoss. Both narg guards are inert when NULL, so full-tick writes that omit
+-- them are unaffected.
 WITH locked_event AS MATERIALIZED (
     SELECT id
     FROM curtailment_event
@@ -1241,7 +1426,14 @@ FROM locked_event
 WHERE curtailment_event_id = locked_event.id
   AND device_identifier    = sqlc.arg('device_identifier')
   AND (sqlc.narg('expected_desired_state')::text IS NULL
-       OR desired_state = sqlc.narg('expected_desired_state')::text);
+       OR desired_state = sqlc.narg('expected_desired_state')::text)
+  AND (sqlc.narg('expected_state')::text IS NULL
+       OR state = sqlc.narg('expected_state')::text)
+  AND (sqlc.narg('expected_dispatch_batch_uuid')::text IS NULL
+       OR (CASE
+               WHEN desired_state = 'curtailed' THEN curtail_batch_uuid
+               WHEN desired_state = 'active'    THEN restore_batch_uuid
+           END) = sqlc.narg('expected_dispatch_batch_uuid')::text);
 
 -- name: BumpCurtailmentTargetRetry :execrows
 -- Fallback when UpdateCurtailmentTargetState fails non-race-loss:

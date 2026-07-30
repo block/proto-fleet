@@ -14,6 +14,7 @@ type DeviceRackDetails struct {
 	Position      string
 	BuildingID    *int64
 	BuildingLabel string
+	Zone          string
 }
 
 type DeviceGroupRef struct {
@@ -267,6 +268,17 @@ type CollectionStore interface {
 	// placement by joining a site-less rack (the force path clears both
 	// columns), so the caller can confirm before stripping.
 	FindDevicesWithSiteOrBuilding(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)
+
+	// LockDevicesForReassign takes a FOR UPDATE row lock on every matching
+	// live device for the rest of the surrounding transaction. SaveRack
+	// calls it before FindDevicesWithSiteOrBuilding so the site-strip
+	// conflict check and the later placement cascade observe one stable
+	// snapshot: without it a concurrent direct site assignment
+	// (sites.AssignDevicesToSite, which locks the same rows) could commit
+	// between the check and the cascade and be silently stripped back to
+	// NULL despite force being false. An empty result means none of the
+	// identifiers exist; the caller still wants the lock side-effect.
+	LockDevicesForReassign(ctx context.Context, orgID int64, deviceIdentifiers []string) error
 
 	// ClearDeviceSitesAndBuildings nulls device.site_id and
 	// device.building_id for the given identifiers (skipping rows already

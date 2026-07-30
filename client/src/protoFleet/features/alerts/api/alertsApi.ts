@@ -1,3 +1,4 @@
+import { create } from "@bufbuild/protobuf";
 import { type Timestamp, timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import {
@@ -9,10 +10,17 @@ import {
 import {
   type Channel as ProtoChannel,
   ChannelKind as ProtoChannelKind,
+  HashrateMode as ProtoHashrateMode,
+  HashrateUnit as ProtoHashrateUnit,
   type AlertHistoryEntry as ProtoHistoryEntry,
   type MaintenanceWindow as ProtoMaintenanceWindow,
   MaintenanceWindowScopeKind as ProtoMaintenanceWindowScopeKind,
+  RoutingMode as ProtoRoutingMode,
   type Rule as ProtoRule,
+  type RuleConfig as ProtoRuleConfig,
+  RuleConfigSchema as ProtoRuleConfigSchema,
+  RuleOrigin as ProtoRuleOrigin,
+  type RuleRouting as ProtoRuleRouting,
   RuleTemplate as ProtoRuleTemplate,
   ValidationState as ProtoValidationState,
 } from "@/protoFleet/api/generated/alerts/v1/alerts_pb";
@@ -21,10 +29,15 @@ import type {
   AlertHistoryStatus,
   Channel,
   ChannelKind,
+  HashrateMode,
+  HashrateUnit,
   MaintenanceWindow,
   MaintenanceWindowScope,
   MaintenanceWindowScopeKind,
+  RoutingMode,
   Rule,
+  RuleConfig,
+  RuleRouting,
   RuleTemplate,
   SlackConfig,
   ValidationState,
@@ -85,6 +98,10 @@ const ruleTemplateFromProto = (t: ProtoRuleTemplate): RuleTemplate => {
       return "command_failure";
     case ProtoRuleTemplate.TELEMETRY_POLL:
       return "telemetry-poll";
+    case ProtoRuleTemplate.MQTT_CURTAILMENT:
+      return "mqtt-curtailment";
+    case ProtoRuleTemplate.MQTT_DISCONNECTED:
+      return "mqtt-disconnected";
     default:
       return "";
   }
@@ -131,6 +148,109 @@ const channelFromProto = (c: ProtoChannel): Channel => ({
   has_secret: c.hasSecret,
 });
 
+const hashrateModeFromProto = (m: ProtoHashrateMode): HashrateMode =>
+  m === ProtoHashrateMode.ABSOLUTE ? "absolute" : "pct_expected";
+
+const hashrateUnitFromProto = (u: ProtoHashrateUnit): HashrateUnit | undefined => {
+  switch (u) {
+    case ProtoHashrateUnit.TERAHASH:
+      return "TH";
+    case ProtoHashrateUnit.PETAHASH:
+      return "PH";
+    default:
+      return undefined;
+  }
+};
+
+const ruleConfigFromProto = (c: ProtoRuleConfig): RuleConfig => {
+  const out: RuleConfig = { name: c.name, duration_seconds: c.durationSeconds };
+  switch (c.templateConfig.case) {
+    case "offline":
+      out.offline = {};
+      break;
+    case "hashrate":
+      out.hashrate = {
+        mode: hashrateModeFromProto(c.templateConfig.value.mode),
+        value: c.templateConfig.value.value,
+        unit: hashrateUnitFromProto(c.templateConfig.value.unit),
+      };
+      break;
+    case "temperature":
+      out.temperature = { max_celsius: c.templateConfig.value.maxCelsius };
+      break;
+  }
+  return out;
+};
+
+const hashrateModeToProto = (m: HashrateMode): ProtoHashrateMode =>
+  m === "absolute" ? ProtoHashrateMode.ABSOLUTE : ProtoHashrateMode.PCT_EXPECTED;
+
+const hashrateUnitToProto = (u: HashrateUnit | undefined): ProtoHashrateUnit => {
+  switch (u) {
+    case "TH":
+      return ProtoHashrateUnit.TERAHASH;
+    case "PH":
+      return ProtoHashrateUnit.PETAHASH;
+    default:
+      return ProtoHashrateUnit.UNSPECIFIED;
+  }
+};
+
+const ruleConfigToProto = (c: RuleConfig): ProtoRuleConfig => {
+  const base = { name: c.name, durationSeconds: c.duration_seconds };
+  if (c.hashrate) {
+    return create(ProtoRuleConfigSchema, {
+      ...base,
+      templateConfig: {
+        case: "hashrate",
+        value: {
+          mode: hashrateModeToProto(c.hashrate.mode),
+          value: c.hashrate.value,
+          unit: hashrateUnitToProto(c.hashrate.unit),
+        },
+      },
+    });
+  }
+  if (c.temperature) {
+    return create(ProtoRuleConfigSchema, {
+      ...base,
+      templateConfig: { case: "temperature", value: { maxCelsius: c.temperature.max_celsius } },
+    });
+  }
+  return create(ProtoRuleConfigSchema, { ...base, templateConfig: { case: "offline", value: {} } });
+};
+
+// Absent routing means the server couldn't read it, not default; null lets the caller keep the last-known value.
+const routingFromProto = (r?: ProtoRuleRouting): RuleRouting | null => {
+  switch (r?.mode) {
+    case ProtoRoutingMode.CUSTOM:
+      return { mode: "custom", channel_ids: r.channelIds };
+    case ProtoRoutingMode.NONE:
+      return { mode: "none", channel_ids: [] };
+    case ProtoRoutingMode.DEFAULT:
+      return { mode: "default", channel_ids: [] };
+    default:
+      return null;
+  }
+};
+
+const routingModeToProto = (m: RoutingMode): ProtoRoutingMode => {
+  switch (m) {
+    case "custom":
+      return ProtoRoutingMode.CUSTOM;
+    case "none":
+      return ProtoRoutingMode.NONE;
+    case "default":
+      return ProtoRoutingMode.DEFAULT;
+  }
+};
+
+// channel_ids only carry meaning for custom; clear them for other modes in one place.
+const routingToProto = (r: RuleRouting) => ({
+  mode: routingModeToProto(r.mode),
+  channelIds: r.mode === "custom" ? r.channel_ids : [],
+});
+
 const ruleFromProto = (r: ProtoRule): Rule => ({
   id: r.id,
   organization_id: String(r.organizationId),
@@ -142,6 +262,9 @@ const ruleFromProto = (r: ProtoRule): Rule => ({
   description: r.description,
   duration_seconds: r.durationSeconds,
   enabled: r.enabled,
+  origin: r.origin === ProtoRuleOrigin.USER ? "user" : "provisioned",
+  config: r.config ? ruleConfigFromProto(r.config) : null,
+  routing: routingFromProto(r.routing),
 });
 
 const maintenanceWindowFromProto = (s: ProtoMaintenanceWindow): MaintenanceWindow => ({
@@ -161,10 +284,17 @@ const maintenanceWindowFromProto = (s: ProtoMaintenanceWindow): MaintenanceWindo
   created_at: isoFromTs(s.createdAt),
 });
 
+// History rows persist the rule title they fired under; map retired titles to
+// the current ones so old rows read consistently with the renamed rules.
+const RENAMED_ALERTS: Record<string, string> = {
+  "Miners Curtailed by Curtailment Source": "Curtailment Active",
+  "Curtailment Source Disconnected": "Curtailment Source Unreachable",
+};
+
 const historyFromProto = (n: ProtoHistoryEntry): AlertHistoryEntry => ({
   id: n.id,
   received_at: isoFromTs(n.receivedAt),
-  alert_name: n.alertName,
+  alert_name: RENAMED_ALERTS[n.alertName] ?? n.alertName,
   status: n.status as AlertHistoryStatus,
   severity: n.severity,
   rule_group: n.ruleGroup,
@@ -259,6 +389,31 @@ export async function pauseRule(id: string): Promise<Rule> {
 
 export async function resumeRule(id: string): Promise<Rule> {
   const res = await alertRuleClient.resumeRule({ id });
+  return ruleFromProto(required(res.rule, "rule"));
+}
+
+export async function createRule(config: RuleConfig, routing?: RuleRouting): Promise<Rule> {
+  const res = await alertRuleClient.createRule({
+    config: ruleConfigToProto(config),
+    routing: routing ? routingToProto(routing) : undefined,
+  });
+  return ruleFromProto(required(res.rule, "rule"));
+}
+
+export async function updateRule(id: string, config: RuleConfig): Promise<Rule> {
+  const res = await alertRuleClient.updateRule({ id, config: ruleConfigToProto(config) });
+  return ruleFromProto(required(res.rule, "rule"));
+}
+
+export async function deleteRule(id: string): Promise<void> {
+  await alertRuleClient.deleteRule({ id });
+}
+
+export async function setRuleRouting(id: string, routing: RuleRouting): Promise<Rule> {
+  const res = await alertRuleClient.setRuleRouting({
+    ruleId: id,
+    routing: routingToProto(routing),
+  });
   return ruleFromProto(required(res.rule, "rule"));
 }
 

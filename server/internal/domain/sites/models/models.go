@@ -34,14 +34,22 @@ type Site struct {
 // so the delete-confirm dialog has impact numbers without a second
 // round trip.
 type SiteWithCounts struct {
-	Site          Site
-	DeviceCount   int64
-	BuildingCount int64
-	RackCount     int64
-	ListStats     *FleetListStats
+	Site                      Site
+	DeviceCount               int64
+	BuildingCount             int64
+	RackCount                 int64
+	InfrastructureDeviceCount int64
+	ListStats                 *FleetListStats
 }
 
-// CreateSiteParams is the input shape for the Create flow.
+// CreateSiteParams is the input shape for the Create flow. The site fields are
+// always used; the trailing seed fields are optional (#559) — when BuildingIDs,
+// RackIDs, and/or DeviceIdentifiers are non-empty, CreateSite assigns them to
+// the new site in the SAME transaction, so a failure anywhere (including an
+// unresolvable device conflict) rolls the site INSERT back too. The three id
+// sets are independent: a seeded device need not belong to any seeded rack or
+// building (it becomes a direct site member), and a seeded rack need not belong
+// to any seeded building. Empty seed fields = a plain create.
 type CreateSiteParams struct {
 	OrgID           int64
 	Name            string
@@ -55,6 +63,12 @@ type CreateSiteParams struct {
 	PostalCode      string
 	Country         string
 	Notes           string
+
+	// Optional seed (see type doc).
+	BuildingIDs                         []int64
+	RackIDs                             []int64
+	DeviceIdentifiers                   []string
+	ForceClearConflictingRackMembership bool
 }
 
 // UpdateSiteParams is the input shape for the Update flow.
@@ -79,10 +93,11 @@ type UpdateSiteParams struct {
 
 // DeleteSiteResult carries the cascade impact for the delete activity log.
 type DeleteSiteResult struct {
-	UnassignedDeviceCount       int64
-	UnassignedRackCount         int64
-	DeletedBuildingCount        int64
-	DeletedResponseProfileCount int64
+	UnassignedDeviceCount            int64
+	UnassignedRackCount              int64
+	DeletedBuildingCount             int64
+	DeletedResponseProfileCount      int64
+	DeletedInfrastructureDeviceCount int64
 }
 
 // PerDeviceConflictReason enumerates why a device was rejected by a

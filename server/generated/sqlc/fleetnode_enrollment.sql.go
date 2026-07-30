@@ -307,7 +307,8 @@ func (q *Queries) GetPendingEnrollmentByFleetNode(ctx context.Context, arg GetPe
 const listFleetNodesForOrganization = `-- name: ListFleetNodesForOrganization :many
 SELECT a.id, a.org_id, a.name, a.identity_pubkey,
        a.enrollment_status, a.last_seen_at, a.created_at, a.updated_at,
-       COALESCE(pe.status, '')::text AS pending_enrollment_status
+       COALESCE(pe.status, '')::text AS pending_enrollment_status,
+       pe.id AS pending_enrollment_id
 FROM fleet_node a
 LEFT JOIN pending_enrollment pe
   ON pe.fleet_node_id = a.id
@@ -327,6 +328,7 @@ type ListFleetNodesForOrganizationRow struct {
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 	PendingEnrollmentStatus string
+	PendingEnrollmentID     sql.NullInt64
 }
 
 // A fleet node can have multiple pending_enrollment rows over its lifetime
@@ -352,6 +354,7 @@ func (q *Queries) ListFleetNodesForOrganization(ctx context.Context, orgID int64
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.PendingEnrollmentStatus,
+			&i.PendingEnrollmentID,
 		); err != nil {
 			return nil, err
 		}

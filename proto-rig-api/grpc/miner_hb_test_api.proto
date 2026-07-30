@@ -45,10 +45,18 @@ message InjectHashboardMeasurement {
     bool persistent = 2;
 }
 
+message ConfigureHashboardDfu {
+    // If true, DfuWriteCmd returns DFU_WRITE_FAILED. Prepare/activate still respond.
+    bool fail_writes = 1;
+    // If true, the simulator drops DFU command responses to model USB/transport loss.
+    bool drop_responses = 2;
+}
+
 message HashboardSimControl {
     oneof cmd {
         InjectHashboardError inject_error = 1;
         ClearHashboardInjections clear_injections = 2;
         InjectHashboardMeasurement inject_measurement = 3;
+        ConfigureHashboardDfu configure_dfu = 4;
     }
 }

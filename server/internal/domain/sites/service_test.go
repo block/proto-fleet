@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"go.uber.org/mock/gomock"
@@ -122,12 +123,16 @@ func TestDeleteSite_cascadeInOneTransaction(t *testing.T) {
 		// deadlock and to keep a concurrent move from slipping a building
 		// out of the cascade.
 		store.EXPECT().LockBuildingsBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
+		store.EXPECT().LockInfrastructureDevicesBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return([]int64{70, 71}, nil),
+		store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(inTxCtx, testOrgID, []int64{70, 71}).Return(int64(0), nil),
 		store.EXPECT().UnassignRacksFromBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(7), nil),
 		buildingStore.EXPECT().ClearDeviceBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
 		store.EXPECT().SoftDeleteBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(2), nil),
 		store.EXPECT().UnassignRacksFromSite(inTxCtx, testOrgID, int64(11)).Return(int64(4), nil),
 		store.EXPECT().UnassignDevicesFromSite(inTxCtx, testOrgID, int64(11)).Return(int64(3), nil),
 		store.EXPECT().DeleteCurtailmentResponseProfilesBySite(inTxCtx, testOrgID, int64(11)).Return(int64(5), nil),
+		store.EXPECT().CountResponseProfilesByInfrastructureDevices(inTxCtx, testOrgID, []int64{70, 71}).Return(int64(0), nil),
+		store.EXPECT().SoftDeleteInfrastructureDevicesBySite(inTxCtx, testOrgID, int64(11)).Return(int64(6), nil),
 		store.EXPECT().SoftDeleteSite(inTxCtx, testOrgID, int64(11)).Return(int64(1), nil),
 	)
 
@@ -135,7 +140,7 @@ func TestDeleteSite_cascadeInOneTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if out.UnassignedDeviceCount != 3 || out.DeletedBuildingCount != 2 || out.UnassignedRackCount != 4 || out.DeletedResponseProfileCount != 5 {
+	if out.UnassignedDeviceCount != 3 || out.DeletedBuildingCount != 2 || out.UnassignedRackCount != 4 || out.DeletedResponseProfileCount != 5 || out.DeletedInfrastructureDeviceCount != 6 {
 		t.Fatalf("unexpected counts: %+v", out)
 	}
 	if tx.calls != 1 {
@@ -156,17 +161,75 @@ func TestDeleteSite_notFoundWhenSoftDeleteAffectsZeroRows(t *testing.T) {
 	// branch). All cascade calls happen inside RunInTx.
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(99)).Return(nil)
 	store.EXPECT().LockBuildingsBySiteForWrite(inTxCtx, testOrgID, int64(99)).Return(nil)
+	store.EXPECT().LockInfrastructureDevicesBySiteForWrite(inTxCtx, testOrgID, int64(99)).Return(nil, nil)
+	store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(inTxCtx, testOrgID, []int64(nil)).Return(int64(0), nil)
 	store.EXPECT().UnassignRacksFromBuildingsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	buildingStore.EXPECT().ClearDeviceBuildingsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().SoftDeleteBuildingsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().UnassignRacksFromSite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().UnassignDevicesFromSite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().DeleteCurtailmentResponseProfilesBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
+	store.EXPECT().CountResponseProfilesByInfrastructureDevices(inTxCtx, testOrgID, []int64(nil)).Return(int64(0), nil)
+	store.EXPECT().SoftDeleteInfrastructureDevicesBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().SoftDeleteSite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 
 	_, err := svc.DeleteSite(context.Background(), testOrgID, 99)
 	if !fleeterror.IsNotFoundError(err) {
 		t.Fatalf("expected NotFound, got %v", err)
+	}
+}
+
+func TestDeleteSite_rejectsInfrastructureDevicesReferencedBySurvivingProfiles(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, buildingStore, nil, nil, nil, tx, nil)
+
+	gomock.InOrder(
+		store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
+		store.EXPECT().LockBuildingsBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
+		store.EXPECT().LockInfrastructureDevicesBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return([]int64{70}, nil),
+		store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(inTxCtx, testOrgID, []int64{70}).Return(int64(0), nil),
+		store.EXPECT().UnassignRacksFromBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
+		buildingStore.EXPECT().ClearDeviceBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
+		store.EXPECT().SoftDeleteBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
+		store.EXPECT().UnassignRacksFromSite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
+		store.EXPECT().UnassignDevicesFromSite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
+		store.EXPECT().DeleteCurtailmentResponseProfilesBySite(inTxCtx, testOrgID, int64(11)).Return(int64(0), nil),
+		store.EXPECT().CountResponseProfilesByInfrastructureDevices(inTxCtx, testOrgID, []int64{70}).Return(int64(1), nil),
+	)
+
+	_, err := svc.DeleteSite(context.Background(), testOrgID, 11)
+	if !fleeterror.IsFailedPreconditionError(err) {
+		t.Fatalf("expected FailedPrecondition, got %v", err)
+	}
+	if tx.calls != 1 {
+		t.Fatalf("expected exactly one RunInTx, got %d", tx.calls)
+	}
+}
+
+func TestDeleteSite_rejectsInfrastructureDevicesClaimedByActiveCurtailmentEvents(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockSiteStore(ctrl)
+	buildingStore := mocks.NewMockBuildingStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, buildingStore, nil, nil, nil, tx, nil)
+
+	gomock.InOrder(
+		store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
+		store.EXPECT().LockBuildingsBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
+		store.EXPECT().LockInfrastructureDevicesBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return([]int64{70}, nil),
+		store.EXPECT().CountActiveCurtailmentEventsByInfrastructureDevices(inTxCtx, testOrgID, []int64{70}).Return(int64(1), nil),
+	)
+
+	_, err := svc.DeleteSite(context.Background(), testOrgID, 11)
+
+	if !fleeterror.IsFailedPreconditionError(err) {
+		t.Fatalf("expected FailedPrecondition, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "active curtailment events") {
+		t.Fatalf("expected active-event context, got %v", err)
 	}
 }
 
@@ -988,7 +1051,7 @@ func TestCreateSite_invalidNetworkConfigBlocksWrite(t *testing.T) {
 	svc := NewService(store, nil, nil, nil, nil, tx, nil)
 	// CreateSite must NOT be called when network_config validation fails.
 
-	_, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
+	_, _, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
 		OrgID:         testOrgID,
 		Name:          "alpha",
 		NetworkConfig: "not-an-ip",
@@ -1017,7 +1080,7 @@ func TestCreateSite_canonicalizesAndPersists(t *testing.T) {
 			return &models.Site{ID: 1, Name: p.Name, Slug: p.Slug, NetworkConfig: p.NetworkConfig}, nil
 		})
 
-	out, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
+	out, _, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
 		OrgID:         testOrgID,
 		Name:          "alpha",
 		NetworkConfig: "  10.0.0.0/24  ",
@@ -1042,7 +1105,7 @@ func TestCreateSite_crossSiteOverlapSurfacesAsWarning(t *testing.T) {
 	store.EXPECT().ListSiteSlugs(gomock.Any(), testOrgID).Return(nil, nil)
 	store.EXPECT().CreateSite(gomock.Any(), gomock.Any()).Return(&models.Site{ID: 1}, nil)
 
-	out, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
+	out, _, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
 		OrgID:         testOrgID,
 		Name:          "siteA",
 		NetworkConfig: "10.0.1.0/24",
@@ -1070,7 +1133,7 @@ func TestCreateSite_generatesNextSlugOnCollision(t *testing.T) {
 			return &models.Site{ID: 1, Name: p.Name, Slug: p.Slug}, nil
 		})
 
-	out, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
+	out, _, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
 		OrgID: testOrgID,
 		Name:  "North DC",
 	})
@@ -1106,7 +1169,7 @@ func TestCreateSite_retriesSlugRace(t *testing.T) {
 			}),
 	)
 
-	out, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
+	out, _, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
 		OrgID: testOrgID,
 		Name:  "North DC",
 	})
@@ -1143,7 +1206,7 @@ func TestCreateSite_retriesSlugRaceBeyondInitialCollisionWindow(t *testing.T) {
 			return &models.Site{ID: 1, Name: p.Name, Slug: p.Slug}, nil
 		})
 
-	out, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
+	out, _, err := svc.CreateSite(context.Background(), models.CreateSiteParams{
 		OrgID: testOrgID,
 		Name:  "!!!",
 	})

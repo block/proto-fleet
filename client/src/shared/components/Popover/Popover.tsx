@@ -10,6 +10,7 @@ import PopoverContent from "@/shared/components/Popover/PopoverContent";
 import { PopoverContentProps } from "@/shared/components/Popover/types";
 import usePopoverPosition from "@/shared/components/Popover/usePopoverPosition";
 import { Position } from "@/shared/constants";
+import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 type PopoverProps = PopoverContentProps & {
   position?: Position;
@@ -29,6 +30,14 @@ type PopoverProps = PopoverContentProps & {
    * override that decision.
    */
   disableAutoFlip?: boolean;
+  /**
+   * Cap the popover's height to the visible viewport (portal-fixed only) so a
+   * menu taller than the screen scrolls internally instead of overflowing the
+   * tappable area. Tracks `visualViewport`, so it holds under pinch-zoom and
+   * mobile browser-chrome collapse where a CSS `100vh` cap would not. The inner
+   * content surface scrolls its own overflow, so callers don't add `overflow-y-auto`.
+   */
+  constrainHeightToViewport?: boolean;
 };
 
 /**
@@ -76,8 +85,11 @@ const Popover = ({
   closeIgnoreSelectors = [],
   freezePosition = false,
   disableAutoFlip = false,
+  constrainHeightToViewport = false,
 }: PopoverProps) => {
   const { triggerRef, renderMode: contextRenderMode } = usePopover();
+  const { isPhone } = useWindowDimensions();
+  const canDismissPopover = typeof closePopover === "function";
   // Frozen popovers must be portal'd to body so they're positioned relative to the
   // viewport rather than the trigger element's absolute container (which moves with it).
   const renderMode = freezePosition ? "portal-fixed" : contextRenderMode;
@@ -90,7 +102,49 @@ const Popover = ({
     position,
     freezePosition,
     disableAutoFlip,
+    constrainHeightToViewport,
   );
+
+  const content = (contentClassName?: string, contentTestId?: string) => (
+    <PopoverContent
+      buttonGroupVariant={buttonGroupVariant}
+      buttons={buttons}
+      children={children}
+      className={clsx(className, contentClassName)}
+      size={size}
+      subtitle={subtitle}
+      title={title}
+      titleSize={titleSize}
+      closePopover={closePopover}
+      closeIgnoreSelectors={closeIgnoreSelectors}
+      testId={contentTestId}
+    />
+  );
+
+  if (isPhone) {
+    return createPortal(
+      <div
+        className="fixed inset-0 z-60 flex items-end bg-grayscale-gray-20"
+        data-testid={testId ? `${testId}-sheet` : "popover-sheet"}
+        onMouseDown={canDismissPopover ? (event) => event.stopPropagation() : undefined}
+        onTouchStart={canDismissPopover ? (event) => event.stopPropagation() : undefined}
+        onClick={closePopover}
+      >
+        <div
+          className="w-full rounded-t-2xl bg-surface-elevated-base px-0 pt-2 pb-[max(env(safe-area-inset-bottom),16px)]"
+          onMouseDown={(event) => event.stopPropagation()}
+          onTouchStart={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+        >
+          {content(
+            "!max-h-[calc(100dvh-theme(spacing.10))] !w-full overflow-y-auto overscroll-contain !rounded-t-2xl !rounded-b-none !bg-surface-elevated-base !p-6 !shadow-none !backdrop-blur-none",
+            testId,
+          )}
+        </div>
+      </div>,
+      document.body,
+    );
+  }
 
   const popoverElement = (
     <div
@@ -103,18 +157,15 @@ const Popover = ({
       style={popoverStyle}
       data-testid={testId}
     >
-      <PopoverContent
-        buttonGroupVariant={buttonGroupVariant}
-        buttons={buttons}
-        children={children}
-        className={className}
-        size={size}
-        subtitle={subtitle}
-        title={title}
-        titleSize={titleSize}
-        closePopover={closePopover}
-        closeIgnoreSelectors={closeIgnoreSelectors}
-      />
+      {/*
+       * When capping height to the viewport, scroll on the inner PopoverContent — the
+       * element that already carries the surface (bg, radius, shadow-200) — exactly like
+       * BulkActionsPopover does. Scrolling the outer wrapper instead put the scrollbar in
+       * the gap between two stacked surfaces and clipped the inner shadow. `max-h-[inherit]`
+       * picks up the JS-computed viewport cap that `usePopoverPosition` writes to the
+       * wrapper's `maxHeight`, so the surface itself scrolls and its shadow stays intact.
+       */}
+      {content(constrainHeightToViewport ? "max-h-[inherit] overflow-y-auto overscroll-contain" : undefined)}
     </div>
   );
 

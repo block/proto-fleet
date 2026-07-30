@@ -302,7 +302,24 @@ describe("BuildingCard", () => {
     expect(screen.getByTestId("location-probe")).toHaveTextContent("/racks?building=7");
   });
 
-  it("dismisses the actions menu without navigating when the backdrop is clicked", () => {
+  it("closes the actions menu when the open trigger is clicked again", () => {
+    statsMock.mockReturnValue({
+      stats: buildStats(),
+      isLoading: false,
+      hasLoaded: true,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderCard({ rackCount: 0n });
+    const trigger = screen.getByTestId("building-card-7-menu-trigger");
+    fireEvent.click(trigger);
+    expect(screen.getByTestId("building-card-7-menu")).toBeInTheDocument();
+    fireEvent.mouseDown(trigger);
+    fireEvent.click(trigger);
+    expect(screen.queryByTestId("building-card-7-menu")).toBeNull();
+  });
+
+  it("dismisses the actions menu without navigating when the card background is clicked", () => {
     statsMock.mockReturnValue({
       stats: buildStats(),
       isLoading: false,
@@ -312,10 +329,46 @@ describe("BuildingCard", () => {
     });
     renderCard({ rackCount: 0n });
     fireEvent.click(screen.getByTestId("building-card-7-menu-trigger"));
-    const menu = screen.getByTestId("building-card-7-menu");
-    const backdrop = menu.previousElementSibling as HTMLElement;
-    fireEvent.click(backdrop);
+    expect(screen.getByTestId("building-card-7-menu")).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByTestId("building-card-7"));
+    fireEvent.click(screen.getByTestId("building-card-7"));
     expect(screen.queryByTestId("building-card-7-menu")).toBeNull();
     expect(screen.getByTestId("location-probe")).toHaveTextContent("/sites");
+  });
+
+  it("dismisses the actions menu without navigating after a touch background dismiss", () => {
+    statsMock.mockReturnValue({
+      stats: buildStats(),
+      isLoading: false,
+      hasLoaded: true,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderCard({ rackCount: 0n });
+    const card = screen.getByTestId("building-card-7");
+    fireEvent.click(screen.getByTestId("building-card-7-menu-trigger"));
+    expect(screen.getByTestId("building-card-7-menu")).toBeInTheDocument();
+    fireEvent.touchStart(card);
+    fireEvent.click(card);
+    expect(screen.queryByTestId("building-card-7-menu")).toBeNull();
+    expect(screen.getByTestId("location-probe")).toHaveTextContent("/sites");
+  });
+
+  it("dismisses the actions menu on Escape and restores card keyboard navigation", () => {
+    statsMock.mockReturnValue({
+      stats: buildStats(),
+      isLoading: false,
+      hasLoaded: true,
+      error: null,
+      refetch: vi.fn(),
+    });
+    renderCard({ rackCount: 0n });
+    const card = screen.getByTestId("building-card-7");
+    fireEvent.click(screen.getByTestId("building-card-7-menu-trigger"));
+    expect(screen.getByTestId("building-card-7-menu")).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("building-card-7-menu")).toBeNull();
+    fireEvent.keyDown(card, { key: "Enter" });
+    expect(screen.getByTestId("location-probe")).toHaveTextContent("/buildings/7");
   });
 });

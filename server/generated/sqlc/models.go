@@ -364,6 +364,20 @@ type AlertChannel struct {
 	DeletedAt       sql.NullTime
 }
 
+type AlertRouteChannel struct {
+	PolicyID  int64
+	ChannelID int64
+}
+
+type AlertRoutePolicy struct {
+	ID        int64
+	OrgID     int64
+	RuleUid   string
+	Mode      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type ApiKey struct {
 	ID             int64
 	KeyID          string
@@ -429,6 +443,13 @@ type CommandOnDeviceLog struct {
 	SiteID            sql.NullInt64
 }
 
+type ConnectedPostgresIdentity struct {
+	ServerAddress string
+	ServerPort    int32
+	InRecovery    bool
+	Timeline      int64
+}
+
 type CurtailmentAutomationRule struct {
 	ID                int64
 	OrgID             int64
@@ -454,43 +475,52 @@ type CurtailmentAutomationRuleState struct {
 }
 
 type CurtailmentEvent struct {
-	ID                          int64
-	EventUuid                   uuid.UUID
-	OrgID                       int64
-	State                       string
-	Mode                        string
-	Strategy                    string
-	Level                       string
-	Priority                    string
-	LoopType                    string
-	ScopeType                   string
-	ScopeJsonb                  json.RawMessage
-	ModeParamsJsonb             json.RawMessage
-	RestoreBatchSize            int32
-	RestoreBatchIntervalSec     int32
-	EffectiveBatchSize          sql.NullInt32
-	MinCurtailedDurationSec     int32
-	MaxDurationSeconds          sql.NullInt32
-	AllowUnbounded              bool
-	IncludeMaintenance          bool
-	ForceIncludeMaintenance     bool
-	DecisionSnapshotJsonb       json.RawMessage
-	SourceActorType             string
-	SourceActorID               sql.NullString
-	ExternalSource              sql.NullString
-	ExternalReference           sql.NullString
-	IdempotencyKey              sql.NullString
-	SupersedesEventID           sql.NullInt64
-	Reason                      string
-	ScheduledStartAt            sql.NullTime
-	StartedAt                   sql.NullTime
-	EndedAt                     sql.NullTime
-	CreatedAt                   time.Time
-	UpdatedAt                   time.Time
-	CreatedByUserID             int64
-	CurtailBatchSize            sql.NullInt32
-	CurtailBatchIntervalSec     int32
-	ForceIncludeAllPairedMiners bool
+	ID                           int64
+	EventUuid                    uuid.UUID
+	OrgID                        int64
+	State                        string
+	Mode                         string
+	Strategy                     string
+	Level                        string
+	Priority                     string
+	LoopType                     string
+	ScopeType                    string
+	ScopeJsonb                   json.RawMessage
+	ModeParamsJsonb              json.RawMessage
+	RestoreBatchSize             int32
+	RestoreBatchIntervalSec      int32
+	EffectiveBatchSize           sql.NullInt32
+	MinCurtailedDurationSec      int32
+	MaxDurationSeconds           sql.NullInt32
+	AllowUnbounded               bool
+	IncludeMaintenance           bool
+	ForceIncludeMaintenance      bool
+	DecisionSnapshotJsonb        json.RawMessage
+	SourceActorType              string
+	SourceActorID                sql.NullString
+	ExternalSource               sql.NullString
+	ExternalReference            sql.NullString
+	IdempotencyKey               sql.NullString
+	SupersedesEventID            sql.NullInt64
+	Reason                       string
+	ScheduledStartAt             sql.NullTime
+	StartedAt                    sql.NullTime
+	EndedAt                      sql.NullTime
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+	CreatedByUserID              int64
+	CurtailBatchSize             sql.NullInt32
+	CurtailBatchIntervalSec      int32
+	ForceIncludeAllPairedMiners  bool
+	FacilityFanDeviceIds         []int64
+	FacilityFanSiteIds           []int64
+	FanOffDelaySec               int32
+	FanRestoreDelaySec           int32
+	FanOffSentAt                 sql.NullTime
+	FanOnSentAt                  sql.NullTime
+	FanAirflowReopenedAt         sql.NullTime
+	FanLastError                 sql.NullString
+	LastCurtailPendingDispatchAt sql.NullTime
 }
 
 type CurtailmentMqttSourceConfig struct {
@@ -570,6 +600,9 @@ type CurtailmentResponseProfile struct {
 	PostEventCooldownSec        int32
 	ScopeJson                   json.RawMessage
 	ForceIncludeAllPairedMiners bool
+	FacilityFanDeviceIds        []int64
+	FanOffDelaySec              int32
+	FanRestoreDelaySec          int32
 }
 
 type CurtailmentTarget struct {
@@ -821,6 +854,52 @@ type Error struct {
 	SiteID            sql.NullInt64
 }
 
+type FleetActiveOrganization struct {
+	OrganizationID string
+}
+
+type FleetMetricRollup90 struct {
+	Bucket                time.Time
+	OrgID                 int64
+	SiteID                int64
+	AvgHashRate           sql.NullFloat64
+	MinHashRate           sql.NullFloat64
+	MaxHashRate           sql.NullFloat64
+	LatestHashRate        sql.NullFloat64
+	HashRateDeviceCount   int64
+	MinTemp               sql.NullFloat64
+	MaxTemp               sql.NullFloat64
+	SumTemp               sql.NullFloat64
+	TempPoints            int64
+	TempDeviceCount       int64
+	TempColdCount         int32
+	TempOkCount           int32
+	TempHotCount          int32
+	TempCriticalCount     int32
+	MinFanRpm             sql.NullFloat64
+	MaxFanRpm             sql.NullFloat64
+	SumFanRpm             sql.NullFloat64
+	FanRpmPoints          int64
+	FanRpmDeviceCount     int64
+	AvgPower              sql.NullFloat64
+	MinPower              sql.NullFloat64
+	MaxPower              sql.NullFloat64
+	LatestPower           sql.NullFloat64
+	PowerDeviceCount      int64
+	MinEfficiency         sql.NullFloat64
+	MaxEfficiency         sql.NullFloat64
+	SumEfficiency         sql.NullFloat64
+	EfficiencyPoints      int64
+	EfficiencyDeviceCount int64
+}
+
+type FleetMetricRollupProgress struct {
+	ID             bool
+	EarliestBucket time.Time
+	LatestBucket   time.Time
+	UpdatedAt      time.Time
+}
+
 type FleetNode struct {
 	ID               int64
 	OrgID            int64
@@ -860,10 +939,36 @@ type FleetPollableDevicePresence struct {
 	OrganizationID string
 }
 
+type FleetRuntimeLease struct {
+	LeaseName               string
+	DcsClusterID            string
+	HighestWriterGeneration int64
+	LeaseEpoch              int64
+	HolderID                uuid.UUID
+	ExpiresAt               time.Time
+}
+
 type FleetTelemetryPollHeartbeat struct {
 	Bucket         interface{}
 	OrganizationID string
 	SampleCount    int64
+}
+
+type InfrastructureDevice struct {
+	ID           int64
+	OrgID        int64
+	SiteID       int64
+	BuildingName string
+	Name         string
+	DeviceKind   string
+	FanCount     int32
+	Enabled      bool
+	DriverType   string
+	DriverConfig json.RawMessage
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DeletedAt    sql.NullTime
+	RackName     string
 }
 
 type MinerCredential struct {
@@ -1077,22 +1182,23 @@ type Session struct {
 }
 
 type Site struct {
-	ID              int64
-	OrgID           int64
-	Name            string
-	LocationCity    sql.NullString
-	LocationState   sql.NullString
-	PowerCapacityMw sql.NullString
-	NetworkConfig   sql.NullString
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	DeletedAt       sql.NullTime
-	Address         sql.NullString
-	PostalCode      sql.NullString
-	Country         string
-	Notes           sql.NullString
-	Timezone        sql.NullString
-	Slug            string
+	ID                           int64
+	OrgID                        int64
+	Name                         string
+	LocationCity                 sql.NullString
+	LocationState                sql.NullString
+	PowerCapacityMw              sql.NullString
+	NetworkConfig                sql.NullString
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+	DeletedAt                    sql.NullTime
+	Address                      sql.NullString
+	PostalCode                   sql.NullString
+	Country                      string
+	Notes                        sql.NullString
+	Timezone                     sql.NullString
+	Slug                         string
+	InfrastructureControlSubnets string
 }
 
 type User struct {

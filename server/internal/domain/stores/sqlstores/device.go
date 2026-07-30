@@ -61,7 +61,7 @@ func NewSQLDeviceStore(conn *sql.DB) *SQLDeviceStore {
 	}
 }
 
-func (s *SQLDeviceStore) getQueries(ctx context.Context) *sqlc.Queries {
+func (s *SQLDeviceStore) getQueries(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
 }
 
@@ -462,8 +462,9 @@ func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, f
 	// Use the dynamic builder when filters the static sqlc query can't
 	// express are active (numeric ranges, CIDRs, site filters); otherwise
 	// the dashboard counts would diverge from the filtered list.
-	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || fp.siteIDsFilter.Valid || fp.includeUnassigned ||
-		fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.zoneKeysFilter.Valid || fp.includeNoRack {
+	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || len(fp.ipRangeStarts) > 0 || fp.siteIDsFilter.Valid ||
+		fp.includeUnassigned || fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.zoneKeysFilter.Valid ||
+		fp.includeNoRack {
 		return s.executeStateCountsQuery(ctx, orgID, fp)
 	}
 
@@ -528,7 +529,7 @@ func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, f
 	// Static sqlc query can't express numeric ranges, CIDR membership, or
 	// site filters; use the dynamic builder when any are active so the
 	// bulk-action modal counts match the filtered list.
-	if filter != nil && (len(filter.NumericRanges) > 0 || len(filter.IPCIDRs) > 0 || len(filter.SiteIDs) > 0 || filter.IncludeUnassigned || len(filter.BuildingIDs) > 0 || filter.IncludeNoBuilding || len(filter.ZoneKeys) > 0 || filter.IncludeNoRack) {
+	if filter != nil && (len(filter.NumericRanges) > 0 || len(filter.IPCIDRs) > 0 || len(filter.IPRanges) > 0 || len(filter.SiteIDs) > 0 || filter.IncludeUnassigned || len(filter.BuildingIDs) > 0 || filter.IncludeNoBuilding || len(filter.ZoneKeys) > 0 || filter.IncludeNoRack) {
 		return s.executeModelGroupsDynamicQuery(ctx, orgID, filter)
 	}
 
@@ -1025,8 +1026,9 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 	// sqlc query can't express (numeric ranges, CIDRs, site filters) are
 	// active; otherwise the total diverges from the listed rows.
 	var total int64
-	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || fp.siteIDsFilter.Valid || fp.includeUnassigned ||
-		fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.zoneKeysFilter.Valid || fp.includeNoRack {
+	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || len(fp.ipRangeStarts) > 0 || fp.siteIDsFilter.Valid ||
+		fp.includeUnassigned || fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.zoneKeysFilter.Valid ||
+		fp.includeNoRack {
 		total, err = s.executeCountQuery(ctx, orgID, fp)
 		if err != nil {
 			return nil, "", 0, err
@@ -1052,7 +1054,7 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 			FirmwareVersionValues:     fp.firmwareVersionValues,
 		})
 		if err != nil {
-			return nil, "", 0, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
+			return nil, "", 0, fleeterror.NewInternalErrorf("failed to get total count: %w", err)
 		}
 	}
 
@@ -1077,7 +1079,7 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 
 	sqlRows, err := s.conn.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %w", err)
 	}
 	defer sqlRows.Close()
 
@@ -1111,13 +1113,13 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 			&row.SortValue,
 		)
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %v", err)
+			return nil, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %w", err)
 		}
 		rows = append(rows, row)
 	}
 
 	if err := sqlRows.Err(); err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to list miner state snapshots: %w", err)
 	}
 
 	return rows, nil
@@ -1149,7 +1151,7 @@ func (s *SQLDeviceStore) executeCountQuery(ctx context.Context, orgID int64, fp 
 	query, args := s.buildCountQuerySQL(orgID, fp)
 	var total int64
 	if err := s.conn.QueryRowContext(ctx, query, args...).Scan(&total); err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
+		return 0, fleeterror.NewInternalErrorf("failed to get total count: %w", err)
 	}
 	return total, nil
 }
@@ -1319,7 +1321,7 @@ func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifier
 		return 0, nil
 	}
 
-	deletedCount, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (int64, error) {
+	deletedCount, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (int64, error) {
 		allBelong, err := q.AllDevicesBelongToOrg(ctx, sqlc.AllDevicesBelongToOrgParams{
 			ExpectedCount:     len(deviceIdentifiers),
 			DeviceIdentifiers: deviceIdentifiers,
@@ -1779,14 +1781,23 @@ func (s *SQLDeviceStore) GetDevicePropertiesForRename(
 // The names map is keyed by device_identifier. Device ownership is validated by the
 // caller (RenameMiners) before this method is invoked.
 //
-// The UPDATE and the row-count check run in a single transaction so that a short write
-// (e.g. a concurrent soft-delete between selection and write) is rolled back rather than
-// partially committed. This preserves all-or-nothing rename semantics.
+// The UPDATE reuses any transaction carried by ctx. Without an existing
+// transaction, the store opens one so the row-count check can roll back short
+// writes (e.g. a concurrent soft-delete between selection and write).
 func (s *SQLDeviceStore) UpdateDeviceCustomNames(ctx context.Context, orgID int64, names map[string]string) error {
 	if len(names) == 0 {
 		return nil
 	}
 
+	if txQueries := s.GetTxQueries(ctx); txQueries != nil {
+		return updateDeviceCustomNamesWithQueries(ctx, txQueries, orgID, names)
+	}
+	return db.WithTransactionNoResult(ctx, s.conn.DB, func(q sqlc.Querier) error {
+		return updateDeviceCustomNamesWithQueries(ctx, q, orgID, names)
+	})
+}
+
+func updateDeviceCustomNamesWithQueries(ctx context.Context, q sqlc.Querier, orgID int64, names map[string]string) error {
 	identifiers := make([]string, 0, len(names))
 	customNames := make([]string, 0, len(names))
 	for id, name := range names {
@@ -1794,35 +1805,16 @@ func (s *SQLDeviceStore) UpdateDeviceCustomNames(ctx context.Context, orgID int6
 		customNames = append(customNames, name)
 	}
 
-	tx, err := s.conn.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to begin rename transaction: %v", err)
-	}
-	//goland:noinspection GoUnhandledErrorResult
-	defer tx.Rollback()
-
-	result, err := tx.ExecContext(ctx,
-		`UPDATE device SET custom_name = updates.name
-		FROM unnest($1::text[], $2::text[]) AS updates(identifier, name)
-		WHERE device.device_identifier = updates.identifier
-		  AND device.org_id = $3
-		  AND device.deleted_at IS NULL`,
-		pq.Array(identifiers), pq.Array(customNames), orgID,
-	)
+	affected, err := q.UpdateDeviceCustomNames(ctx, sqlc.UpdateDeviceCustomNamesParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: identifiers,
+		CustomNames:       customNames,
+	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to update device custom names: %v", err)
 	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to read rows affected for custom name update: %v", err)
-	}
 	if int(affected) != len(names) {
 		return fleeterror.NewNotFoundErrorf("one or more devices not found during rename: expected %d updates, got %d", len(names), affected)
-	}
-
-	if err = tx.Commit(); err != nil {
-		return fleeterror.NewInternalErrorf("failed to commit rename transaction: %v", err)
 	}
 
 	return nil

@@ -86,7 +86,7 @@ const SiteCard = ({ site, className }: SiteCardProps) => {
   return (
     <div
       ref={cardRef}
-      className={clsx("flex h-full flex-col gap-5 rounded-xl bg-surface-base p-10 dark:bg-core-primary-5", className)}
+      className={clsx("flex h-full flex-col gap-5 rounded-xl bg-surface-elevated-base p-10 shadow-100", className)}
       data-testid={`dashboard-site-card-${idText}`}
     >
       <div className="flex items-start justify-between gap-2">

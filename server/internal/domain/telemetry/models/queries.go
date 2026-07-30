@@ -36,6 +36,11 @@ type CombinedMetricsQuery struct {
 	PageSize         int                `json:"page_size,omitempty"`
 	SlideInterval    *time.Duration     `json:"slide_interval,omitempty"`
 	OrganizationID   int64              `json:"organization_id,omitempty"`
+	// DeviceListFromSiteScope is true when the service populated DeviceIDs
+	// from SiteIDs/IncludeUnassigned rather than from an explicit device
+	// selector. It lets storage preserve site-scope semantics even when other
+	// dashboard queries are eligible for org-wide rollups. Internal only.
+	DeviceListFromSiteScope bool `json:"-"`
 	// SiteIDs scopes metrics to devices assigned to ANY of these sites (OR),
 	// AND'd with DeviceIDs. Empty + IncludeUnassigned=false applies no site
 	// restriction. Scope is by current site membership: the service resolves

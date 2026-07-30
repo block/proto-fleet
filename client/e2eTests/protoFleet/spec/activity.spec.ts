@@ -9,11 +9,18 @@ import { SettingsSchedulesPage } from "../pages/settingsSchedules";
 const SCHEDULE_PREFIX = "activity_schedule_e2e";
 
 test.describe("Proto Fleet - Activity", () => {
+  let shouldCleanupSchedules = false;
+
   test.beforeEach(async ({ page }) => {
+    shouldCleanupSchedules = false;
     await page.goto("/");
   });
 
   test.afterEach("CLEANUP: Delete schedules created during activity tests", async ({ browser }, testInfo) => {
+    if (!shouldCleanupSchedules) {
+      return;
+    }
+
     const isMobile = testInfo.project.use?.isMobile ?? false;
     const viewport = testInfo.project.use?.viewport;
     const context = await browser.newContext({ baseURL: testConfig.baseUrl, viewport });
@@ -70,20 +77,14 @@ test.describe("Proto Fleet - Activity", () => {
     });
 
     await test.step("Validate the latest activity row", async () => {
-      await activityPage.validateLatestActivityDescription("Blink LEDs");
+      await activityPage.validateLatestActivityDescription("Blinked LEDs");
       await activityPage.validateLatestActivityScope("3 miners");
       await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
       await activityPage.validateLatestActivityNotMarkedFailed();
     });
   });
 
-  test("Blink LEDs activity detail modal shows batch summary and per-miner results", async ({
-    activityPage,
-    commonSteps,
-    minersPage,
-  }) => {
-    let selectedMinerIps: string[] = [];
-
+  test("Blink LEDs activity detail modal shows batch summary", async ({ activityPage, commonSteps, minersPage }) => {
     await test.step("Trigger Blink LEDs for three Proto rig miners", async () => {
       await commonSteps.loginAsAdmin();
       await commonSteps.goToMinersPage();
@@ -91,7 +92,6 @@ test.describe("Proto Fleet - Activity", () => {
       await minersPage.waitForMinersListToLoad();
 
       for (let index = 0; index < 3; index++) {
-        selectedMinerIps.push(await minersPage.getMinerIpAddressByIndex(index));
         await minersPage.clickMinerCheckboxByIndex(index);
         await minersPage.validateActionBarMinerCount(index + 1);
       }
@@ -109,7 +109,7 @@ test.describe("Proto Fleet - Activity", () => {
     });
 
     await test.step("Validate the Blink LEDs activity row", async () => {
-      await activityPage.validateLatestActivityDescription("Blink LEDs");
+      await activityPage.validateLatestActivityDescription("Blinked LEDs");
       await activityPage.validateLatestActivityScope("3 miners");
       await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
       await activityPage.validateLatestActivityNotMarkedFailed();
@@ -118,18 +118,10 @@ test.describe("Proto Fleet - Activity", () => {
     await test.step("Open the detail modal and validate the batch results", async () => {
       await activityPage.openLatestActivityDetails();
       await activityPage.validateActivityDetailModalOpened();
-      await activityPage.validateActivityDetailContainsText("Blink led");
+      await activityPage.validateActivityDetailContainsText("Blinked LEDs");
       await activityPage.validateActivityDetailContainsText(testConfig.users.admin.username);
-      await activityPage.validateActivityDetailContainsText("Success");
-      await activityPage.validateActivityDetailContainsText("Succeeded");
-      await activityPage.validateActivityDetailContainsText("Failed");
       await activityPage.validateActivityDetailContainsText("3 miners");
-      await activityPage.validateActivityDetailContainsText("0 miners");
-      await activityPage.validateActivityDetailDeviceResultsRowCount(3);
-
-      for (const minerIp of selectedMinerIps) {
-        await activityPage.validateActivityDetailContainsText(minerIp);
-      }
+      await activityPage.validateActivityDetailContainsText("3/3 miners completed");
 
       await activityPage.dismissActivityDetailModal();
     });
@@ -145,15 +137,15 @@ test.describe("Proto Fleet - Activity", () => {
     await test.step("Open Activity and apply type and user filters", async () => {
       await activityPage.navigateToActivityPage();
       await activityPage.waitForActivityListToLoad();
-      await activityPage.selectTypeFilter("Login");
+      await activityPage.selectTypeFilter("Log in");
       await activityPage.selectUserFilter(testConfig.users.admin.username);
     });
 
     await test.step("Validate and remove the type filter pill", async () => {
-      await activityPage.validateFilterPillVisible("Login");
+      await activityPage.validateFilterPillVisible("Log in");
       await activityPage.validateFilterPillVisible(testConfig.users.admin.username);
-      await activityPage.removeFilterPill("Login");
-      await activityPage.validateFilterPillNotVisible("Login");
+      await activityPage.removeFilterPill("Log in");
+      await activityPage.validateFilterPillNotVisible("Log in");
       await activityPage.validateFilterPillVisible(testConfig.users.admin.username);
       await activityPage.validateLatestActivityUser(testConfig.users.admin.username);
     });
@@ -194,10 +186,10 @@ test.describe("Proto Fleet - Activity", () => {
 
       await test.step("Validate and remove the scope filter pill", async () => {
         await activityPage.validateFilterPillVisible("Group");
-        await activityPage.validateActivityDescriptionVisible(`Create group: ${groupName}`);
+        await activityPage.validateActivityDescriptionVisible(`Created group: ${groupName}`);
         await activityPage.removeFilterPill("Group");
         await activityPage.validateFilterPillNotVisible("Group");
-        await activityPage.validateActivityDescriptionVisible(`Create group: ${groupName}`);
+        await activityPage.validateActivityDescriptionVisible(`Created group: ${groupName}`);
       });
     } finally {
       await groupsPage.navigateToGroupsPage();
@@ -220,6 +212,7 @@ test.describe("Proto Fleet - Activity", () => {
     });
 
     await test.step("Create a uniquely named schedule", async () => {
+      shouldCleanupSchedules = true;
       await settingsSchedulesPage.clickAddSchedule();
       await settingsSchedulesPage.inputScheduleName(scheduleName);
       await settingsSchedulesPage.selectStartDate(1);

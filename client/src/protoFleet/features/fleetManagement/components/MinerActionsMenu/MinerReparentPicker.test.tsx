@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import MinerReparentPicker from "./MinerReparentPicker";
 import { PerDeviceBuildingConflictReason } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 // Building-reparent flow only. The two-step force-clear confirm is the
 // part with branching logic: the server enumerates per-device conflicts,
@@ -13,30 +14,36 @@ import { PerDeviceBuildingConflictReason } from "@/protoFleet/api/generated/buil
 // open the dialog or retry.
 
 const {
+  mockAssignDevicesToSite,
   mockAssignDevicesToBuilding,
   mockAssignDevicesToRack,
   mockGetDeviceSet,
+  mockListRacks,
   mockListMinerStateSnapshots,
   mockPushToast,
+  mockUpdateToast,
 } = vi.hoisted(() => ({
+  mockAssignDevicesToSite: vi.fn(),
   mockAssignDevicesToBuilding: vi.fn(),
   mockAssignDevicesToRack: vi.fn(),
   mockGetDeviceSet: vi.fn(),
+  mockListRacks: vi.fn(),
   mockListMinerStateSnapshots: vi.fn(),
   mockPushToast: vi.fn(() => 1),
+  mockUpdateToast: vi.fn(),
 }));
 
 vi.mock("@/protoFleet/api/buildings", () => ({
   useBuildings: () => ({ assignDevicesToBuilding: mockAssignDevicesToBuilding }),
 }));
 vi.mock("@/protoFleet/api/sites", () => ({
-  useSites: () => ({ assignDevicesToSite: vi.fn() }),
+  useSites: () => ({ assignDevicesToSite: mockAssignDevicesToSite }),
 }));
 vi.mock("@/protoFleet/api/useDeviceSets", () => ({
   useDeviceSets: () => ({
     assignDevicesToRack: mockAssignDevicesToRack,
     getDeviceSet: mockGetDeviceSet,
-    listRacks: vi.fn(),
+    listRacks: mockListRacks,
   }),
 }));
 vi.mock("@/protoFleet/api/clients", () => ({
@@ -46,15 +53,36 @@ vi.mock("@/protoFleet/api/clients", () => ({
 vi.mock("@/shared/features/toaster", () => ({
   pushToast: mockPushToast,
   removeToast: vi.fn(),
-  updateToast: vi.fn(),
+  updateToast: mockUpdateToast,
   STATUSES: { success: "success", error: "error", loading: "loading", queued: "queued" },
 }));
 
 // ParentPickerModal: expose its onConfirm via a button so the test can
-// "pick" a target building. Targets building id 42.
+// "pick" a target (building id 42). Mirrors the real handleSave contract —
+// dismiss on a resolved onConfirm, keep the picker open (swallow) on a
+// rejection — so tests can assert the picker stays open when resolution or
+// dispatch rejects.
 vi.mock("@/protoFleet/components/ParentPickerModal", () => ({
-  default: ({ onConfirm }: { onConfirm: (ids: bigint[]) => void | Promise<void> }) => (
-    <button type="button" onClick={() => void onConfirm([42n])}>
+  default: ({
+    onConfirm,
+    onDismiss,
+  }: {
+    onConfirm: (ids: bigint[]) => void | Promise<void>;
+    onDismiss: () => void;
+  }) => (
+    <button
+      type="button"
+      onClick={() => {
+        void (async () => {
+          try {
+            await onConfirm([42n]);
+            onDismiss();
+          } catch {
+            /* keep picker open for retry */
+          }
+        })();
+      }}
+    >
       pick-target
     </button>
   ),
@@ -88,6 +116,95 @@ const renderPicker = () =>
   );
 
 const DIALOG_TITLE = "Move miners between buildings?";
+
+const renderAllSitePicker = () =>
+  render(
+    <MinerReparentPicker
+      kind="site"
+      deviceIdentifiers={[]}
+      selectionMode="all"
+      totalCount={2}
+      sourceLabel="All miners"
+      successMessage={(count) => `Moved ${count} miner(s).`}
+      onClose={vi.fn()}
+    />,
+  );
+
+describe("MinerReparentPicker — all-mode placement selection", () => {
+  beforeEach(() => {
+    mockAssignDevicesToSite.mockReset();
+    mockListRacks.mockReset();
+    mockListMinerStateSnapshots.mockReset();
+    mockPushToast.mockReset();
+    mockPushToast.mockReturnValue(1);
+  });
+
+  it("resolves all selected miners with the same visible pairing-status scope as the miner table", async () => {
+    mockListRacks.mockImplementation(({ onSuccess }) => onSuccess([]));
+    mockListMinerStateSnapshots
+      .mockResolvedValueOnce({
+        miners: [{ deviceIdentifier: "d1", pairingStatus: PairingStatus.PAIRED }],
+        cursor: "next",
+      })
+      .mockResolvedValueOnce({
+        miners: [{ deviceIdentifier: "d2", pairingStatus: PairingStatus.AUTHENTICATION_NEEDED }],
+        cursor: "",
+      });
+    mockAssignDevicesToSite.mockImplementationOnce(({ onSuccess }) => {
+      onSuccess(2n);
+    });
+
+    renderAllSitePicker();
+    fireEvent.click(screen.getByText("pick-target"));
+
+    await waitFor(() => expect(mockAssignDevicesToSite).toHaveBeenCalledTimes(1));
+
+    expect(mockListMinerStateSnapshots.mock.calls[0][0].filter.pairingStatuses).toEqual([
+      PairingStatus.PAIRED,
+      PairingStatus.AUTHENTICATION_NEEDED,
+      PairingStatus.DEFAULT_PASSWORD,
+    ]);
+    expect(mockListMinerStateSnapshots.mock.calls[1][0].cursor).toBe("next");
+    expect(mockAssignDevicesToSite.mock.calls[0][0].deviceIdentifiers).toEqual(["d1", "d2"]);
+  });
+});
+
+describe("MinerReparentPicker — resolution failure keeps the picker open", () => {
+  beforeEach(() => {
+    mockAssignDevicesToSite.mockReset();
+    mockListRacks.mockReset();
+    mockListMinerStateSnapshots.mockReset();
+    mockPushToast.mockReset();
+    mockPushToast.mockReturnValue(1);
+    mockUpdateToast.mockReset();
+  });
+
+  it("does not dismiss or dispatch when all-mode snapshot resolution fails", async () => {
+    const onClose = vi.fn();
+    mockListRacks.mockImplementation(({ onSuccess }) => onSuccess([]));
+    // Paging RPC rejects (e.g. transport error or over-cap throw).
+    mockListMinerStateSnapshots.mockRejectedValue(new Error("boom"));
+
+    render(
+      <MinerReparentPicker
+        kind="site"
+        deviceIdentifiers={[]}
+        selectionMode="all"
+        totalCount={2}
+        sourceLabel="All miners"
+        successMessage={(count) => `Moved ${count} miner(s).`}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByText("pick-target"));
+
+    // Error surfaced on the loading toast (post-failure signal), then
+    // onConfirm rejected so the picker stays open and nothing dispatched.
+    await waitFor(() => expect(mockUpdateToast).toHaveBeenCalledWith(1, expect.objectContaining({ status: "error" })));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(mockAssignDevicesToSite).not.toHaveBeenCalled();
+  });
+});
 
 describe("MinerReparentPicker — building force-clear flow", () => {
   beforeEach(() => {

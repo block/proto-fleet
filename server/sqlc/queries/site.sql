@@ -45,6 +45,27 @@ WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
+-- name: GetInfrastructureControlSubnets :one
+-- Dedicated sensitive read: this field is intentionally not projected through
+-- the generic Site API. Org scope and deleted_at mask cross-org/missing sites
+-- as the same not-found result.
+SELECT infrastructure_control_subnets
+FROM site
+WHERE id = sqlc.arg('id')
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL;
+
+-- name: SetInfrastructureControlSubnets :one
+-- Explicitly replaces the commissioned OT allowlist. Empty text
+-- decommissions the site. Canonicalization happens in the sites domain.
+UPDATE site
+SET infrastructure_control_subnets = sqlc.arg('infrastructure_control_subnets'),
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = sqlc.arg('id')
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL
+RETURNING infrastructure_control_subnets;
+
 -- name: GetSiteBySlug :one
 SELECT *
 FROM site
@@ -65,12 +86,14 @@ WHERE org_id = $1
 
 -- name: ListSites :many
 -- Returns each site with attachment counts so the delete-confirm dialog
--- can show "N miners, M buildings, K racks" without an extra round trip.
+-- can show "N miners, M buildings, K racks, J infrastructure devices"
+-- without an extra round trip.
 SELECT
     s.*,
     COALESCE(d.device_count, 0)::bigint AS device_count,
     COALESCE(b.building_count, 0)::bigint AS building_count,
-    COALESCE(r.rack_count, 0)::bigint AS rack_count
+    COALESCE(r.rack_count, 0)::bigint AS rack_count,
+    COALESCE(i.infrastructure_device_count, 0)::bigint AS infrastructure_device_count
 FROM site s
 LEFT JOIN (
     SELECT device.site_id, COUNT(*) AS device_count
@@ -97,6 +120,13 @@ LEFT JOIN (
       AND ds.deleted_at IS NULL
     GROUP BY dsr.site_id
 ) r ON r.site_id = s.id
+LEFT JOIN (
+    SELECT infrastructure_device.site_id, COUNT(*) AS infrastructure_device_count
+    FROM infrastructure_device
+    WHERE infrastructure_device.org_id = sqlc.arg('org_id')
+      AND infrastructure_device.deleted_at IS NULL
+    GROUP BY infrastructure_device.site_id
+) i ON i.site_id = s.id
 WHERE s.org_id = sqlc.arg('org_id')
   AND s.deleted_at IS NULL
 ORDER BY s.name;
@@ -201,6 +231,39 @@ SELECT
   (SELECT COUNT(*) FROM deleted_profiles)::BIGINT AS deleted_count,
   (SELECT COUNT(*) FROM blocking_rules)::BIGINT AS blocking_rule_count;
 
+-- name: CountCurtailmentResponseProfilesBySite :one
+WITH scoped_profiles AS (
+  SELECT profile.id
+  FROM curtailment_response_profile profile
+  WHERE profile.org_id = sqlc.arg('org_id')
+    AND (
+      profile.site_id = sqlc.arg('site_id')
+      OR (
+        profile.scope_json ? 'site_id'
+        AND (profile.scope_json->>'site_id')::BIGINT = sqlc.arg('site_id')
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements_text(
+          CASE
+            WHEN jsonb_typeof(profile.scope_json->'site_ids') = 'array' THEN profile.scope_json->'site_ids'
+            ELSE '[]'::jsonb
+          END
+        ) AS scope_site(site_id)
+        WHERE scope_site.site_id::BIGINT = sqlc.arg('site_id')
+      )
+    )
+)
+SELECT COUNT(*)::BIGINT
+FROM scoped_profiles;
+
+-- name: CountInfrastructureDevicesBySite :one
+SELECT COUNT(*)::BIGINT
+FROM infrastructure_device
+WHERE org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('site_id')
+  AND deleted_at IS NULL;
+
 -- name: SoftDeleteBuildingsBySite :execrows
 -- Soft-deletes every live building under the given site. Caller wraps
 -- this in the same tx as the SoftDeleteSite + cascade.
@@ -209,6 +272,33 @@ SET deleted_at = CURRENT_TIMESTAMP
 WHERE org_id = sqlc.arg('org_id')
   AND site_id = sqlc.arg('site_id')
   AND deleted_at IS NULL;
+
+-- name: SoftDeleteInfrastructureDevicesBySite :execrows
+-- Soft-deletes every live infrastructure device under the given site
+-- so controllable facility devices cannot outlive their site. Caller
+-- wraps this in the same tx as the SoftDeleteSite + cascade.
+UPDATE infrastructure_device
+SET deleted_at = CURRENT_TIMESTAMP
+WHERE org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('site_id')
+  AND deleted_at IS NULL;
+
+-- name: LockInfrastructureDevicesBySiteForWrite :many
+-- DeleteSite locks these rows before checking surviving response-profile
+-- references and before soft-deleting the devices.
+SELECT id
+FROM infrastructure_device
+WHERE org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('site_id')
+  AND deleted_at IS NULL
+ORDER BY id
+FOR UPDATE;
+
+-- name: CountResponseProfilesByInfrastructureDevices :one
+SELECT COUNT(*)
+FROM curtailment_response_profile
+WHERE org_id = sqlc.arg('org_id')
+  AND facility_fan_device_ids && sqlc.arg('infrastructure_device_ids')::bigint[];
 
 -- name: UnassignRacksFromSite :execrows
 -- Sets device_set_rack.site_id = NULL for every live rack pointing at

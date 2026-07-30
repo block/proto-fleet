@@ -11,6 +11,7 @@ import CurtailmentStartModal, {
   type CurtailmentResponseProfileOption,
   type CurtailmentSiteOption,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
+import type { FacilityFanDeviceOption } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
 
 type MockFullScreenTwoPaneModalProps = Pick<
   FullScreenTwoPaneModalProps,
@@ -29,9 +30,15 @@ const { mockUseCurtailmentPlanPreview } = vi.hoisted(() => ({
 vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
   createCurtailmentPlanPreview: (
     values: CurtailmentFormValues,
-    source: { selectedMinerCount: number; targetKw?: number; estimatedReductionKw: number },
+    source: {
+      selectedMinerCount: number;
+      facilityFanDeviceCount?: number;
+      targetKw?: number;
+      estimatedReductionKw: number;
+    },
   ): CurtailmentPlanPreview => ({
     selectedMinerCount: source.selectedMinerCount,
+    facilityFanDeviceCount: source.facilityFanDeviceCount ?? values.facilityFanDeviceIds?.length ?? 0,
     targetKw: source.targetKw ?? Number(values.targetKw),
     estimatedReductionKw: source.estimatedReductionKw,
     curtailEstimate: "~1 minute",
@@ -134,6 +141,8 @@ vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal
 }));
 
 const configuredValues: Partial<CurtailmentFormValues> = {
+  // A configured fixed-kW plan; the modal itself defaults to full shutdown.
+  curtailmentMode: "fixedKwReduction",
   targetKw: "40",
   curtailBatchSize: "8",
   curtailBatchIntervalSec: "30",
@@ -213,6 +222,39 @@ const siteOptions: CurtailmentSiteOption[] = [
   { id: "102", name: "Denver, CO" },
 ];
 
+const infrastructureDevices: FacilityFanDeviceOption[] = [
+  {
+    id: "31",
+    siteId: "101",
+    siteName: "Austin, TX",
+    buildingName: "Building 1",
+    name: "Fan Unit 1",
+    deviceKind: "single_fan",
+    fanCount: 1,
+    enabled: true,
+  },
+  {
+    id: "32",
+    siteId: "101",
+    siteName: "Austin, TX",
+    buildingName: "Building 2",
+    name: "Exhaust Fan Group",
+    deviceKind: "fan_group",
+    fanCount: 4,
+    enabled: false,
+  },
+  {
+    id: "33",
+    siteId: "102",
+    siteName: "Denver, CO",
+    buildingName: "Building 1",
+    name: "Denver Fan",
+    deviceKind: "single_fan",
+    fanCount: 1,
+    enabled: true,
+  },
+];
+
 const scopeLessResponseProfiles: CurtailmentResponseProfileOption[] = [
   {
     ...responseProfiles[1],
@@ -225,6 +267,7 @@ const scopeLessResponseProfiles: CurtailmentResponseProfileOption[] = [
 
 const preview: CurtailmentPlanPreview = {
   selectedMinerCount: 18,
+  facilityFanDeviceCount: 0,
   targetKw: 40,
   estimatedReductionKw: 45,
   curtailEstimate: "~1 minute",
@@ -280,10 +323,9 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Fleet will automatically curtail the least efficient miners first.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Curtailment mode" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "About curtailment mode" })).toBeInTheDocument();
-    expect(screen.getByText("Fixed kW reduction")).toBeInTheDocument();
-    expect(screen.getByLabelText("Fixed target reduction (kW)")).toBeInTheDocument();
-    expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveAttribute("type", "text");
-    expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveAttribute("inputmode", "decimal");
+    // Full shutdown is the default mode, so no fixed-target input renders.
+    expect(screen.getByText("Full shutdown")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Fixed target reduction (kW)")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Miner selection strategy" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Max duration (sec)")).not.toBeInTheDocument();
@@ -298,10 +340,11 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByRole("button", { name: /Racks\s+Select/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Groups\s+Select/ })).not.toBeInTheDocument();
     expect(
-      screen.getByText("Applies to all miners by default. Use the options below to narrow the scope."),
+      screen.getByText("Choose the sites, miners, and infrastructure included in this curtailment."),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Sites\s+Select/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Infrastructure\s+Select/ })).toBeEnabled();
   });
 
   it("prefills new custom curtailments with the default site scope", async () => {
@@ -538,6 +581,89 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
+  it("allows selecting infrastructure fans in live curtailment create mode", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      infrastructureDevices,
+    });
+
+    await user.click(screen.getByRole("button", { name: /Infrastructure\s+Select/ }));
+
+    expect(screen.getByText("Fan behavior during curtailment")).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: /Fan Unit 1/ }));
+    await user.clear(screen.getByTestId("facility-fan-off-delay"));
+    await user.type(screen.getByTestId("facility-fan-off-delay"), "45");
+    await user.clear(screen.getByTestId("facility-fan-restore-delay"));
+    await user.type(screen.getByTestId("facility-fan-restore-delay"), "90");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(screen.queryByText("Fan behavior during curtailment")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Infrastructure\s+1 device/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This will curtail miners across the fleet and 1 device immediately. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        facilityFanDeviceIds: ["31"],
+        fanOffDelaySec: "45",
+        fanRestoreDelaySec: "90",
+      }),
+    );
+  });
+
+  it("keeps response-profile infrastructure fan settings in live curtailment create mode", async () => {
+    const user = userEvent.setup();
+    const fanResponseProfiles: CurtailmentResponseProfileOption[] = [
+      {
+        id: "fan-shed",
+        label: "Fan shed",
+        values: {
+          ...responseProfiles[0].values,
+          facilityFanDeviceIds: ["31"],
+          fanOffDelaySec: "60",
+          fanRestoreDelaySec: "120",
+          includeMaintenance: false,
+        },
+      },
+    ];
+    const { onSubmit } = renderModal({
+      initialValues: { ...configuredValues, includeMaintenance: false },
+      responseProfiles: fanResponseProfiles,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Profile" }));
+    await user.click(screen.getByText("Fan shed"));
+
+    expect(screen.getByRole("button", { name: "Profile" })).toHaveTextContent("Fan shed");
+    expect(screen.getByRole("button", { name: /Infrastructure\s+1 device/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
+    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This will curtail 3 miners and 1 device immediately. Schedules stay suppressed until miners are restored.",
+      ),
+    ).toBeInTheDocument();
+    await confirmCurtailment(user);
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseProfileId: "fan-shed",
+        facilityFanDeviceIds: ["31"],
+        fanOffDelaySec: "60",
+        fanRestoreDelaySec: "120",
+      }),
+    );
+  });
+
   it("normalizes a site-scoped response profile without a site id to whole fleet", async () => {
     const user = userEvent.setup();
     const malformedSiteResponseProfiles: CurtailmentResponseProfileOption[] = [
@@ -672,6 +798,7 @@ describe("CurtailmentStartModal", () => {
     const { onSubmit } = renderModal({
       variant: "responseProfile",
       siteOptions,
+      infrastructureDevices,
       initialValues: {
         ...configuredValues,
         scopeType: "site",
@@ -679,6 +806,9 @@ describe("CurtailmentStartModal", () => {
         siteId: "101",
         curtailmentMode: "fullFleet",
         targetKw: "",
+        facilityFanDeviceIds: ["31", "32"],
+        fanOffDelaySec: "45",
+        fanRestoreDelaySec: "90",
         includeMaintenance: true,
       },
       onTestCurtailment,
@@ -705,36 +835,48 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
     expect(screen.getByTestId("response-profile-restore-batch-size")).toHaveValue("10");
     expect(screen.getByTestId("response-profile-restore-batch-interval")).toHaveValue("120");
+    expect(screen.queryByText("Facility fans")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Infrastructure\s+2 devices/ })).toBeInTheDocument();
     expect(screen.queryByTestId("response-profile-post-event-cooldown")).not.toBeInTheDocument();
     expect(mockUseCurtailmentPlanPreview).toHaveBeenCalledWith(expect.objectContaining({ disabled: false }));
     expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
 
-    await user.click(screen.getByRole("button", { name: "Run curtailment" }));
-    expect(onTestCurtailment).not.toHaveBeenCalled();
-    expect(screen.getByText("Run curtailment?")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Infrastructure\s+2 devices/ }));
+    expect(screen.getByText("Fan behavior during curtailment")).toBeInTheDocument();
+    expect(screen.getByText("3 devices in scope")).toBeInTheDocument();
+    expect(screen.getByTestId("facility-fan-off-delay")).toHaveValue("45");
+    expect(screen.getByTestId("facility-fan-restore-delay")).toHaveValue("90");
+    expect(screen.getByText("Exhaust Fan Group")).toBeInTheDocument();
+    expect(screen.getByText("Disabled")).toBeInTheDocument();
+    expect(screen.getByText("Denver Fan")).toBeInTheDocument();
+
+    const disabledFanCheckbox = screen.getByRole("checkbox", { name: /Exhaust Fan Group/ });
+    expect(disabledFanCheckbox).toBeDisabled();
+    expect(disabledFanCheckbox).toBeChecked();
+    await user.click(disabledFanCheckbox);
+    expect(disabledFanCheckbox).toBeChecked();
+
+    const fanModalSurface = screen.getByTestId("facility-fan-selection-modal").parentElement;
+    if (!fanModalSurface) {
+      throw new Error("Fan modal surface was not rendered");
+    }
+    await user.click(within(fanModalSurface).getByRole("button", { name: "Select all" }));
+    expect(disabledFanCheckbox).toBeChecked();
+    await user.click(within(fanModalSurface).getByRole("button", { name: "Select none" }));
+    await user.click(screen.getByRole("checkbox", { name: /Fan Unit 1/ }));
+    await user.clear(screen.getByTestId("facility-fan-off-delay"));
+    await user.type(screen.getByTestId("facility-fan-off-delay"), "60");
+    await user.clear(screen.getByTestId("facility-fan-restore-delay"));
+    await user.type(screen.getByTestId("facility-fan-restore-delay"), "120");
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    expect(screen.queryByText("Fan behavior during curtailment")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Infrastructure\s+1 device/ })).toBeInTheDocument();
+
+    expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
     expect(
-      screen.getByText(
-        "This will save the profile, then trigger curtailment for miners in Austin, TX. Schedules stay suppressed until miners are restored.",
-      ),
-    ).toBeInTheDocument();
-    expect(onTestCurtailment).not.toHaveBeenCalled();
-    await confirmCurtailment(user);
-    expect(onTestCurtailment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        reason: "Grid peak - ERCOT 4CP signal",
-        siteId: "101",
-        curtailmentMode: "fullFleet",
-        curtailBatchSize: "8",
-        curtailBatchIntervalSec: "30",
-        restoreBatchSize: "10",
-        restoreIntervalSec: "120",
-        scopeType: "site",
-        scopeId: "Austin, TX",
-        deviceSetIds: [],
-        deviceIdentifiers: [],
-        includeMaintenance: true,
-      }),
-    );
+      screen.getByText("Choose the sites, miners, and infrastructure included in this curtailment."),
+    ).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Save profile" }));
 
@@ -747,6 +889,9 @@ describe("CurtailmentStartModal", () => {
         curtailBatchIntervalSec: "30",
         restoreBatchSize: "10",
         restoreIntervalSec: "120",
+        facilityFanDeviceIds: ["31"],
+        fanOffDelaySec: "60",
+        fanRestoreDelaySec: "120",
         scopeType: "site",
         scopeId: "Austin, TX",
         deviceSetIds: [],
@@ -786,6 +931,112 @@ describe("CurtailmentStartModal", () => {
       }),
     );
   });
+
+  it("preserves selected infrastructure devices when the site scope changes", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      variant: "responseProfile",
+      siteOptions,
+      infrastructureDevices,
+      initialValues: {
+        ...configuredValues,
+        scopeType: "site",
+        scopeId: "Austin, TX",
+        siteSelection: "site",
+        siteId: "101",
+        siteIds: ["101"],
+        facilityFanDeviceIds: ["31"],
+      },
+    });
+
+    expect(screen.getByRole("button", { name: /Infrastructure\s+1 device/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Sites\s+Austin, TX/ }));
+    await user.click(screen.getByTestId("response-profile-scope-site-101"));
+    await user.click(screen.getByTestId("response-profile-scope-site-102"));
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(screen.getByRole("button", { name: /Infrastructure\s+1 device/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ facilityFanDeviceIds: ["31"] }));
+  });
+
+  it("allows infrastructure devices outside the selected sites", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      variant: "responseProfile",
+      siteOptions,
+      infrastructureDevices,
+      initialValues: {
+        ...configuredValues,
+        scopeType: "site",
+        scopeId: "Austin, TX",
+        siteSelection: "site",
+        siteId: "101",
+        siteIds: ["101"],
+        facilityFanDeviceIds: [],
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: /Infrastructure\s+Select/ }));
+    await user.click(screen.getByRole("checkbox", { name: /Denver Fan/ }));
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+    await user.click(screen.getByRole("button", { name: "Save profile" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        siteIds: ["101"],
+        facilityFanDeviceIds: ["33"],
+      }),
+    );
+  });
+
+  it("disables infrastructure fan selection for an automation-bound profile", async () => {
+    const user = userEvent.setup();
+    const disabledReason =
+      "An automation uses this profile. Update or delete the automation before changing infrastructure fans.";
+    renderModal({
+      variant: "responseProfile",
+      responseProfileMode: "edit",
+      initialValues: configuredValues,
+      infrastructureDevices,
+      facilityFanSelectionDisabledReason: disabledReason,
+    });
+
+    const infrastructureButton = screen.getByRole("button", { name: /Infrastructure\s+Select/ });
+    expect(infrastructureButton).toBeDisabled();
+    expect(screen.getByText(disabledReason)).toBeInTheDocument();
+
+    await user.click(infrastructureButton);
+    expect(screen.queryByText("Fan behavior during curtailment")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { name: "loading", isLoadingInfrastructureDevices: true, infrastructureDevicesError: null },
+    {
+      name: "a load failure",
+      isLoadingInfrastructureDevices: false,
+      infrastructureDevicesError: "Failed to load infrastructure devices.",
+    },
+  ])(
+    "disables fan settings Apply during $name",
+    async ({ isLoadingInfrastructureDevices, infrastructureDevicesError }) => {
+      const user = userEvent.setup();
+      renderModal({
+        variant: "responseProfile",
+        infrastructureDevices: [],
+        initialValues: {
+          ...configuredValues,
+          facilityFanDeviceIds: ["31"],
+        },
+        isLoadingInfrastructureDevices,
+        infrastructureDevicesError,
+      });
+
+      await user.click(screen.getByRole("button", { name: /Infrastructure\s+1 device/ }));
+
+      expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
+    },
+  );
 
   it("prefills response profile creation with the default site scope", async () => {
     const user = userEvent.setup();
@@ -1284,6 +1535,7 @@ describe("CurtailmentStartModal", () => {
       mode: "edit",
       initialValues: {
         ...configuredValues,
+        facilityFanDeviceIds: ["31", "32"],
         includeMaintenance: false,
       },
     });
@@ -1294,6 +1546,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByTestId("curtailment-curtail-batch-size")).toBeDisabled();
     expect(screen.getByTestId("curtailment-curtail-batch-interval")).toBeDisabled();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Infrastructure\s+2 devices/ })).toBeDisabled();
     expect(screen.queryByText("Include miners in maintenance")).not.toBeInTheDocument();
 
     const saveButton = screen.getByRole("button", { name: "Save" });
@@ -1458,6 +1711,29 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getAllByText("~1 minute to curtail, ~2 minutes to restore")).toHaveLength(2);
   });
 
+  it("renders selected infrastructure in the curtailment preview", () => {
+    mockUseCurtailmentPlanPreview.mockReturnValue({
+      preview: {
+        ...preview,
+        selectedMinerCount: 2,
+        facilityFanDeviceCount: 1,
+        scopeLabel: "from selected miners",
+      },
+      previewError: undefined,
+      isPreviewLoading: false,
+    });
+
+    renderModal({
+      initialValues: {
+        ...configuredValues,
+        deviceIdentifiers: ["miner-1", "miner-2"],
+        facilityFanDeviceIds: ["31"],
+      },
+    });
+
+    expect(screen.getAllByText("Curtail 2 miners, 1 device from selected miners immediately")).toHaveLength(2);
+  });
+
   it("renders singular mixed-scope preview copy without double-counting selected miners", () => {
     mockUseCurtailmentPlanPreview.mockReturnValue({
       preview: {
@@ -1572,6 +1848,11 @@ describe("CurtailmentStartModal", () => {
   it("submits the current form values without dismissing the modal", async () => {
     const user = userEvent.setup();
     const { onDismiss, onSubmit } = renderModal();
+
+    // Full shutdown is the default; switch to fixed-kW mode first.
+    await user.click(screen.getByRole("button", { name: "Curtailment mode" }));
+    await user.click(await screen.findByText("Fixed kW reduction"));
+
     const targetInput = screen.getByLabelText("Fixed target reduction (kW)");
     const restoreBatchSizeInput = screen.getAllByLabelText("Batch size (miners)")[1];
     const restoreIntervalInput = screen.getAllByLabelText("Batch interval (sec)")[1];
@@ -1624,13 +1905,9 @@ describe("CurtailmentStartModal", () => {
     });
     const startButton = screen.getByRole("button", { name: "Run curtailment" });
 
-    expect(startButton).toBeEnabled();
-
-    await user.click(screen.getByRole("button", { name: "Curtailment mode" }));
-    const fullShutdownOption = await screen.findByText("Full shutdown");
-    expect(document.body.querySelectorAll('input[type="radio"]')).toHaveLength(0);
-    await user.click(fullShutdownOption);
-
+    // Full shutdown is the default mode — no mode switch needed, and no
+    // fixed-target input is required to start.
+    expect(screen.getByRole("button", { name: "Curtailment mode" })).toHaveTextContent("Full shutdown");
     expect(screen.queryByLabelText("Fixed target reduction (kW)")).not.toBeInTheDocument();
     expect(screen.getByText("Fleet will automatically curtail the least efficient miners first.")).toBeInTheDocument();
     expect(startButton).toBeEnabled();
@@ -2009,7 +2286,7 @@ describe("CurtailmentStartModal", () => {
         open
         onDismiss={onDismiss}
         onSubmit={onSubmit}
-        initialValues={{ targetKw: "10", reason: "Initial reason" }}
+        initialValues={{ curtailmentMode: "fixedKwReduction", targetKw: "10", reason: "Initial reason" }}
       />,
     );
 
@@ -2023,7 +2300,7 @@ describe("CurtailmentStartModal", () => {
         open={false}
         onDismiss={onDismiss}
         onSubmit={onSubmit}
-        initialValues={{ targetKw: "10", reason: "Initial reason" }}
+        initialValues={{ curtailmentMode: "fixedKwReduction", targetKw: "10", reason: "Initial reason" }}
       />,
     );
     rerender(
@@ -2031,7 +2308,7 @@ describe("CurtailmentStartModal", () => {
         open
         onDismiss={onDismiss}
         onSubmit={onSubmit}
-        initialValues={{ targetKw: "25", reason: "Updated reason" }}
+        initialValues={{ curtailmentMode: "fixedKwReduction", targetKw: "25", reason: "Updated reason" }}
       />,
     );
 
@@ -2060,6 +2337,11 @@ describe("CurtailmentStartModal", () => {
   it("shows required start-field validation when the CTA is clicked or fields are edited", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal();
+
+    // Full shutdown is the default; switch to fixed-kW mode so the
+    // target-reduction requirement applies.
+    await user.click(screen.getByRole("button", { name: "Curtailment mode" }));
+    await user.click(await screen.findByText("Fixed kW reduction"));
 
     const startButton = screen.getByRole("button", { name: "Run curtailment" });
     const targetInput = screen.getByLabelText("Fixed target reduction (kW)");

@@ -91,6 +91,7 @@ theme below. Phone and tablet-only cover exact-range layouts. */
   --color-surface-20: rgb(var(--base_gray_20));
   --color-surface-default: rgb(var(--base_white_100) / 2%);
   --color-surface-base: rgb(var(--base_white_100));
+  --color-surface-base-hover: rgb(var(--base_black_100) / 5%);
   --color-surface-elevated-base: rgb(var(--base_white_100));
   --color-surface-overlay: rgb(var(--base_black_100) / 5%);
   --color-border-5: rgb(var(--base_black_100) / 5%);
@@ -331,6 +332,7 @@ theme below. Phone and tablet-only cover exact-range layouts. */
     --color-surface-10: rgb(var(--base_gray_70));
     --color-surface-20: rgb(var(--base_gray_80));
     --color-surface-base: rgb(var(--base_gray_90));
+    --color-surface-base-hover: rgb(var(--base_white_100) / 5%);
     --color-surface-elevated-base: rgb(var(--base_gray_80));
     --color-surface-overlay: rgb(var(--base_white_100) / 5%);
     --color-border-5: rgb(var(--base_white_100) / 5%);

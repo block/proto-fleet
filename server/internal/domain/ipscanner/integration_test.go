@@ -115,7 +115,7 @@ func TestIPScannerService_RediscoverOfflineDeviceAtNewIP(t *testing.T) {
 	err := service.Start(testCtx)
 	require.NoError(t, err)
 	defer func() {
-		require.NoError(t, service.Stop())
+		require.NoError(t, service.Stop(context.Background()))
 	}()
 
 	// Wait for the service to complete at least one scan cycle

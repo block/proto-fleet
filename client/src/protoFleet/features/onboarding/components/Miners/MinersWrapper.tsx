@@ -18,7 +18,7 @@ import { defaultTimeout } from "@/protoFleet/features/onboarding/constants";
 import { minerDiscoveryModes } from "@/shared/components/Setup/miners.constants";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
-import { ManualDiscoveryTargets } from "@/shared/utils/networkDiscovery";
+import { ManualDiscoveryTargets } from "@/shared/utils/ipParsing";
 
 // Show a toast if pairing takes longer than this threshold
 const LONG_PAIRING_THRESHOLD_MS = 3000;

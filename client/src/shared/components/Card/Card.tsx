@@ -29,7 +29,7 @@ const Card = ({
   type,
 }: CardProps) => {
   return (
-    <div className={clsx("rounded-xl shadow-50", className)} data-testid={testId}>
+    <div className={clsx("rounded-xl bg-surface-elevated-base shadow-100", className)} data-testid={testId}>
       <div
         className={clsx(
           "flex items-center justify-between gap-4 rounded-t-xl px-4 py-2",

@@ -8,6 +8,7 @@ sql:
         package: "sqlc"
         out: "generated/sqlc"
         emit_prepared_queries: true
+        emit_interface: true
         sql_package: "database/sql"
         overrides:
           # TimescaleDB continuous aggregate type overrides

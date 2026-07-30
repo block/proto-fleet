@@ -5,13 +5,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net"
-	"net/url"
 
 	"connectrpc.com/connect"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
+	"github.com/block/proto-fleet/server/internal/transportguard"
 )
 
 // Wraps server AlreadyExists / FailedPrecondition / Unauthenticated. Common
@@ -129,41 +128,5 @@ func CompleteEnrollment(ctx context.Context, state *State, apiKey string) error 
 // Requires https unless the host is loopback (localhost, 127/8, ::1) or
 // allowInsecure is set.
 func ValidateServerURL(raw string, allowInsecure bool) error {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("parse server-url: %w", err)
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("server-url scheme must be http or https; got %q", u.Scheme)
-	}
-	if u.Host == "" {
-		return fmt.Errorf("server-url has no host")
-	}
-	if u.User != nil {
-		return fmt.Errorf("server-url must not contain userinfo")
-	}
-	if u.RawQuery != "" {
-		return fmt.Errorf("server-url must not contain a query string")
-	}
-	if u.Fragment != "" {
-		return fmt.Errorf("server-url must not contain a fragment")
-	}
-	if u.Scheme == "https" {
-		return nil
-	}
-	if isLoopbackHost(u.Hostname()) {
-		return nil
-	}
-	if allowInsecure {
-		return nil
-	}
-	return fmt.Errorf("server-url must use https for non-loopback hosts; set AllowInsecureTransport to override (testing only)")
-}
-
-func isLoopbackHost(host string) bool {
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	return transportguard.ValidateServerURL(raw, allowInsecure)
 }

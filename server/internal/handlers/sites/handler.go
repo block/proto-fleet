@@ -74,13 +74,34 @@ func (h *Handler) CreateSite(ctx context.Context, req *connect.Request[pb.Create
 	if err != nil {
 		return nil, err
 	}
-	result, err := h.service.CreateSite(ctx, toCreateSiteParams(req.Msg, info.OrganizationID))
+	// A device seed can force-clear conflicting rack memberships, which deletes
+	// device_set_membership rows in the same transaction. Gate that behind
+	// rack:manage the same way AssignDevicesToSite does so a site-only operator
+	// can't bypass rack auth via the create-and-seed path. Seeding
+	// buildings/racks/devices without the force flag needs only site:manage —
+	// matching the standalone Assign*ToSite surfaces. A plain create (no seed)
+	// never sets the flag, so this gate is a no-op there.
+	if req.Msg.GetForceClearConflictingRackMembership() {
+		if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
+	result, conflicts, err := h.service.CreateSite(ctx, toCreateSiteParams(req.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err
+	}
+	if len(conflicts) > 0 {
+		// Nothing was created — the whole tx rolled back. Site stays unset.
+		return connect.NewResponse(&pb.CreateSiteResponse{
+			Conflicts: toProtoConflicts(conflicts),
+		}), nil
 	}
 	return connect.NewResponse(&pb.CreateSiteResponse{
 		Site:                  toProtoSite(result.Site),
 		NetworkConfigWarnings: result.NetworkConfigWarnings,
+		AssignedBuildingCount: result.AssignedBuildingCount,
+		AssignedRackCount:     result.AssignedRackCount,
+		ReassignedDeviceCount: result.ReassignedDeviceCount,
 	}), nil
 }
 
@@ -104,14 +125,25 @@ func (h *Handler) DeleteSite(ctx context.Context, req *connect.Request[pb.Delete
 	if err != nil {
 		return nil, err
 	}
-	out, err := h.service.DeleteSite(ctx, info.OrganizationID, req.Msg.GetId())
+	// The org-scoped gate above ignores narrowing, but the delete cascade
+	// soft-deletes resources (infrastructure devices) whose own RPCs
+	// evaluate site:manage against the concrete site. Re-check against
+	// the target site so a caller narrowed away from it can't use
+	// DeleteSite as a bypass. Site-scoped-only callers still fail the
+	// org-scoped gate first — this check only tightens, never widens.
+	siteID := req.Msg.GetId()
+	if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: &siteID}); err != nil {
+		return nil, err
+	}
+	out, err := h.service.DeleteSite(ctx, info.OrganizationID, siteID)
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.DeleteSiteResponse{
-		UnassignedDeviceCount: out.UnassignedDeviceCount,
-		DeletedBuildingCount:  out.DeletedBuildingCount,
-		UnassignedRackCount:   out.UnassignedRackCount,
+		UnassignedDeviceCount:            out.UnassignedDeviceCount,
+		DeletedBuildingCount:             out.DeletedBuildingCount,
+		UnassignedRackCount:              out.UnassignedRackCount,
+		DeletedInfrastructureDeviceCount: out.DeletedInfrastructureDeviceCount,
 	}), nil
 }
 
@@ -166,6 +198,54 @@ func (h *Handler) AssignRacksToSite(ctx context.Context, req *connect.Request[pb
 	return connect.NewResponse(&pb.AssignRacksToSiteResponse{
 		ReassignedDeviceCount: out.ReassignedDeviceCount,
 		ClearedBuildingCount:  out.ClearedBuildingCount,
+	}), nil
+}
+
+func (h *Handler) GetInfrastructureControlSubnets(ctx context.Context, req *connect.Request[pb.GetInfrastructureControlSubnetsRequest]) (*connect.Response[pb.GetInfrastructureControlSubnetsResponse], error) {
+	siteID := req.Msg.GetSiteId()
+	// Commissioning controls the deployment-global Modbus write boundary,
+	// so a grant narrowed to one site is insufficient even for that site.
+	info, err := middleware.RequireOrgWidePermission(ctx, authz.PermSiteManage)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := middleware.RequireAdmin(ctx, "view infrastructure control subnets"); err != nil {
+		return nil, err
+	}
+
+	subnets, err := h.service.GetInfrastructureControlSubnets(ctx, info.OrganizationID, siteID)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.GetInfrastructureControlSubnetsResponse{
+		SiteId:                       siteID,
+		InfrastructureControlSubnets: subnets,
+	}), nil
+}
+
+func (h *Handler) SetInfrastructureControlSubnets(ctx context.Context, req *connect.Request[pb.SetInfrastructureControlSubnetsRequest]) (*connect.Response[pb.SetInfrastructureControlSubnetsResponse], error) {
+	siteID := req.Msg.GetSiteId()
+	// Keep reads and writes behind the same organization-wide topology gate.
+	info, err := middleware.RequireOrgWidePermission(ctx, authz.PermSiteManage)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := middleware.RequireAdmin(ctx, "commission infrastructure control subnets"); err != nil {
+		return nil, err
+	}
+
+	subnets, err := h.service.SetInfrastructureControlSubnets(
+		ctx,
+		info.OrganizationID,
+		siteID,
+		req.Msg.GetInfrastructureControlSubnets(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.SetInfrastructureControlSubnetsResponse{
+		SiteId:                       siteID,
+		InfrastructureControlSubnets: subnets,
 	}), nil
 }
 

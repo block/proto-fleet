@@ -11,3 +11,17 @@ policies:
     group_wait: 30s
     group_interval: 5m
     repeat_interval: 1h
+    routes:
+      # Curtailment state tracks the source in real time, so its alerts skip
+      # the org batch; per-alertname groups keep Active and Unreachable from
+      # gating each other's flushes.
+      - receiver: protofleet-internal
+        object_matchers:
+          - ["template", "=~", "mqtt-curtailment|mqtt-disconnected"]
+        group_by:
+          - organization_id
+          - alertname
+          - kind
+        group_wait: 5s
+        group_interval: 30s
+        repeat_interval: 1h

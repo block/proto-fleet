@@ -8,6 +8,7 @@ import {
   isFleetSelectablePairingStatus,
 } from "./fleetVisiblePairingFilter";
 import {
+  IpRangeSchema,
   type MinerListFilter,
   MinerListFilterSchema,
   NumericField,
@@ -84,6 +85,7 @@ describe("applyFleetSelectablePairingStatuses", () => {
       zones: ["Austin, Building 1"],
       numericRanges: [create(NumericRangeFilterSchema, { field: NumericField.POWER_KW, min: 2 })],
       ipCidrs: ["192.168.2.0/24"],
+      ipRanges: [create(IpRangeSchema, { startIp: "10.0.0.10", endIp: "10.0.0.20" })],
     });
 
     const result = applyFleetSelectablePairingStatuses(filter);
@@ -97,6 +99,7 @@ describe("applyFleetSelectablePairingStatuses", () => {
     expect(result.zones).toEqual(["Austin, Building 1"]);
     expect(result.numericRanges).toEqual([create(NumericRangeFilterSchema, { field: NumericField.POWER_KW, min: 2 })]);
     expect(result.ipCidrs).toEqual(["192.168.2.0/24"]);
+    expect(result.ipRanges).toEqual([create(IpRangeSchema, { startIp: "10.0.0.10", endIp: "10.0.0.20" })]);
   });
 });
 

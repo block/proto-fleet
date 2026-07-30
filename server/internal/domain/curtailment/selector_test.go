@@ -196,8 +196,8 @@ func TestBuildAllPairedPolicyPlan_TargetsPairedLikeMinersByDispatchReadiness(t *
 
 	require.Len(t, plan.Selected, 9)
 	assert.Equal(t, 9, plan.PolicyTargetCount)
-	assert.Equal(t, 7, plan.UnavailableTargetCount)
-	assert.InDelta(t, 5.0, plan.EstimatedReductionKW, 0.001)
+	assert.Equal(t, 6, plan.UnavailableTargetCount)
+	assert.InDelta(t, 7.0, plan.EstimatedReductionKW, 0.001)
 	assert.Equal(t, models.TargetStatePending, plan.Selected[0].TargetState)
 	assert.Equal(t, models.TargetStatePending, plan.Selected[1].TargetState)
 	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[2].TargetState)
@@ -206,8 +206,9 @@ func TestBuildAllPairedPolicyPlan_TargetsPairedLikeMinersByDispatchReadiness(t *
 	assert.Equal(t, "offline", plan.Selected[3].LastError)
 	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[4].TargetState)
 	assert.Equal(t, "non_actionable_status", plan.Selected[4].LastError)
-	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[5].TargetState)
-	assert.Equal(t, "non_actionable_status", plan.Selected[5].LastError)
+	// Pool-less miner is dispatchable (#663): pending, idle power counted.
+	assert.Equal(t, models.TargetStatePending, plan.Selected[5].TargetState)
+	assert.Empty(t, plan.Selected[5].LastError)
 	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[6].TargetState)
 	assert.Equal(t, "maintenance", plan.Selected[6].LastError)
 	assert.Equal(t, models.TargetStateUnavailable, plan.Selected[7].TargetState)
@@ -223,7 +224,9 @@ func TestBuildAllPairedPolicyPlan_TargetsPairedLikeMinersByDispatchReadiness(t *
 // status added to one switch cannot silently diverge in the other. The
 // ERROR/UNKNOWN rows differ on purpose: normal selection trusts fresh
 // telemetry over the coarse status, while the all-paired policy dispatches
-// without telemetry gates and holds them unavailable.
+// without telemetry gates and holds them unavailable. NEEDS_MINING_POOL is
+// admitted by both (#663, commandability admission); INACTIVE stays excluded
+// because the miner is already sleeping.
 func TestDeviceStatusClassifierMatrix(t *testing.T) {
 	t.Parallel()
 
@@ -242,7 +245,7 @@ func TestDeviceStatusClassifierMatrix(t *testing.T) {
 		{"MAINTENANCE", false, SkipMaintenance, false, "maintenance"},
 		{"ERROR", true, "", false, "non_actionable_status"},   // intentional divergence
 		{"UNKNOWN", true, "", false, "non_actionable_status"}, // intentional divergence
-		{"NEEDS_MINING_POOL", false, SkipNonActionableStatus, false, "non_actionable_status"},
+		{"NEEDS_MINING_POOL", true, "", true, ""},             // commandability admission (#663)
 		{"UPDATING", false, SkipUpdating, false, "updating"},
 		{"REBOOT_REQUIRED", false, SkipRebootRequired, false, "reboot_required"},
 		{"", false, SkipStaleTelemetry, false, "missing_status"}, // no device_status row
@@ -281,6 +284,75 @@ func TestDeviceStatusClassifierMatrix(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A pool-less miner is commandable but only dispatchable with a positive
+// power sample: power-vs-baseline is the sole signal that can confirm
+// curtail/restore when hash never rises, so nil/zero power parks the row
+// (promoted by the readiness refresh once telemetry lands).
+func TestAllPairedPolicyTargetState_PoolLessRequiresPositivePowerSample(t *testing.T) {
+	t.Parallel()
+
+	driver := "antminer"
+	poolLess := func(power *float64) *models.Candidate {
+		return &models.Candidate{
+			DeviceIdentifier: "pool-less",
+			DriverName:       &driver,
+			DeviceStatus:     "NEEDS_MINING_POOL",
+			PairingStatus:    "PAIRED",
+			LatestPowerW:     power,
+			LatestHashRateHS: eff(0),
+		}
+	}
+
+	state, reason := AllPairedPolicyTargetState(poolLess(nil), false)
+	assert.Equal(t, models.TargetStateUnavailable, state, "missing power sample must park the row")
+	assert.Equal(t, "stale_telemetry", reason)
+
+	state, reason = AllPairedPolicyTargetState(poolLess(eff(0)), false)
+	assert.Equal(t, models.TargetStateUnavailable, state, "zero power sample must park the row")
+	assert.Equal(t, "stale_telemetry", reason)
+
+	state, reason = AllPairedPolicyTargetState(poolLess(eff(400)), false)
+	assert.Equal(t, models.TargetStatePending, state)
+	assert.Empty(t, reason)
+}
+
+// Device status is authoritative over a stale-positive hash sample: a
+// pool-less miner cannot be mining, so selection accounting and the baseline
+// min-power floor must treat it as non-hashing even when the latest hash
+// sample reads positive.
+func TestPoolLessStalePositiveHashTreatedAsNonHashing(t *testing.T) {
+	t.Parallel()
+
+	driver := "antminer"
+	poolLess := &models.Candidate{
+		DeviceIdentifier: "pool-less",
+		DriverName:       &driver,
+		DeviceStatus:     "NEEDS_MINING_POOL",
+		PairingStatus:    "PAIRED",
+		LatestPowerW:     eff(400), // below the 1500 W floor
+		LatestHashRateHS: eff(100), // stale-positive: contradicts the status
+	}
+
+	assert.Zero(t, statusAuthoritativeHashRateHS(poolLess))
+
+	// Baseline promotion must persist the below-floor idle baseline: the
+	// stale-positive hash must not mark the miner "hashing" and drop it.
+	baseline := AllPairedPromotionBaselinePowerW(poolLess, 1500)
+	require.NotNil(t, baseline)
+	assert.InDelta(t, 400.0, *baseline, 0.001)
+
+	// All-paired plan rows carry the status-authoritative hash so insert-time
+	// baseline persistence sees non-hashing too.
+	plan := BuildAllPairedPolicyPlan([]*models.Candidate{poolLess}, nil, false, 1500)
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, models.TargetStatePending, plan.Selected[0].TargetState)
+	assert.Zero(t, plan.Selected[0].HashRateHS)
+	targets := BuildInsertTargetParams(plan.Selected, models.ModeFullFleet, 1500)
+	require.Len(t, targets, 1)
+	require.NotNil(t, targets[0].BaselinePowerW)
+	assert.InDelta(t, 400.0, *targets[0].BaselinePowerW, 0.001)
 }
 
 func TestBuildAllPairedPolicyPlan_MaintenanceOverrideMakesMaintenancePending(t *testing.T) {

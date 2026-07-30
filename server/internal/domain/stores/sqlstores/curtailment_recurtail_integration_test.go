@@ -42,7 +42,10 @@ func TestSQLCurtailmentStore_BeginRecurtailTransition_OverlapRollsBack(t *testin
 
 	_, err = db.ExecContext(ctx, `
 		UPDATE curtailment_event
-		SET state = 'restoring'
+		SET state = 'restoring',
+		    fan_off_sent_at = NOW() - INTERVAL '2 minutes',
+		    fan_on_sent_at = NOW() - INTERVAL '1 minute',
+		    fan_last_error = 'fan restore failed'
 		WHERE id = $1
 	`, source.ID)
 	require.NoError(t, err)
@@ -249,11 +252,16 @@ func TestSQLCurtailmentStore_BeginRecurtailTransition_ReopensResolvedTarget(t *t
 	)
 	require.NoError(t, err)
 
+	fanOffAt := time.Now().UTC().Add(-2 * time.Minute)
+	fanOnAt := time.Now().UTC().Add(-time.Minute)
 	_, err = db.ExecContext(ctx, `
 		UPDATE curtailment_event
-		SET state = 'restoring'
+		SET state = 'restoring',
+		    fan_off_sent_at = $2,
+		    fan_on_sent_at = $3,
+		    fan_last_error = 'fan restore failed'
 		WHERE id = $1
-	`, source.ID)
+	`, source.ID, fanOffAt, fanOnAt)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `
 		UPDATE curtailment_target
@@ -272,6 +280,11 @@ func TestSQLCurtailmentStore_BeginRecurtailTransition_ReopensResolvedTarget(t *t
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, models.EventStatePending, got.State)
+	assert.NotNil(t, got.FanOffSentAt, "re-curtail must preserve evidence that fans may still be off")
+	assert.Nil(t, got.FanOnSentAt, "re-curtail resets the restore-phase ON attempt")
+	assert.NotNil(t, got.FanAirflowReopenedAt, "the last restore ON attempt starts the renewed cooling delay")
+	require.NotNil(t, got.FanLastError)
+	assert.Equal(t, "fan restore failed", *got.FanLastError)
 
 	var targetDesiredState, targetState string
 	var retryCount int32

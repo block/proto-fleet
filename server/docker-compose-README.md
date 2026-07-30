@@ -7,6 +7,7 @@ This project uses a consolidated Docker Compose setup with a base configuration 
 - `server/docker-compose.base.yaml` - Contains common configurations shared between all environments
 - `server/docker-compose.yaml` - Development environment configuration
 - `deployment-files/docker-compose.yaml` - Production/deployment environment configuration
+- `server/docker-compose.alerts.yaml` / `server/docker-compose.system-monitoring.yaml` - Optional feature overlays layered on top of the dev configuration by `just dev-alerts` / `just dev-system-monitoring` (production equivalents live in `deployment-files/` and are layered in by `run-fleet.sh` feature flags)
 
 ## How It Works
 

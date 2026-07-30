@@ -14,7 +14,7 @@ export default function RackSlot({ slot, slotSize = 48 }: RackSlotProps) {
   return (
     <div
       className={clsx(
-        "flex items-center justify-center rounded-lg text-[14px] font-medium text-text-primary-70 tabular-nums",
+        "flex items-center justify-center rounded-lg text-emphasis-300 text-text-primary-70 tabular-nums",
         stateClasses[slot.state],
       )}
       style={{ width: slotSize, height: slotSize }}

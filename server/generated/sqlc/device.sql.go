@@ -2189,6 +2189,32 @@ func (q *Queries) SoftDeleteDiscoveredDevicesForDeletedDevices(ctx context.Conte
 	return err
 }
 
+const updateDeviceCustomNames = `-- name: UpdateDeviceCustomNames :execrows
+UPDATE device SET custom_name = updates.name
+FROM (
+    SELECT ids.identifier, names.name
+    FROM unnest($2::text[]) WITH ORDINALITY AS ids(identifier, ord)
+    JOIN unnest($3::text[]) WITH ORDINALITY AS names(name, ord) USING (ord)
+) AS updates
+WHERE device.device_identifier = updates.identifier
+  AND device.org_id = $1
+  AND device.deleted_at IS NULL
+`
+
+type UpdateDeviceCustomNamesParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+	CustomNames       []string
+}
+
+func (q *Queries) UpdateDeviceCustomNames(ctx context.Context, arg UpdateDeviceCustomNamesParams) (int64, error) {
+	result, err := q.exec(ctx, q.updateDeviceCustomNamesStmt, updateDeviceCustomNames, arg.OrgID, pq.Array(arg.DeviceIdentifiers), pq.Array(arg.CustomNames))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const updateDeviceIPAssignment = `-- name: UpdateDeviceIPAssignment :exec
 UPDATE discovered_device
 SET

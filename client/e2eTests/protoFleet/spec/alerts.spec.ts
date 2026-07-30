@@ -23,6 +23,8 @@ const ALERTS_E2E_ENABLED = process.env.E2E_ALERTS_ENABLED === "true";
 const REACHABLE_WEBHOOK_URL = "http://otel-collector:13133/healthz";
 
 test.describe("Proto Fleet - Alerts", () => {
+  let shouldCleanupChannels = false;
+
   // eslint-disable-next-line playwright/no-skipped-test
   test.skip(
     !ALERTS_E2E_ENABLED,
@@ -30,10 +32,15 @@ test.describe("Proto Fleet - Alerts", () => {
   );
 
   test.beforeEach(async ({ page }) => {
+    shouldCleanupChannels = false;
     await page.goto("/");
   });
 
   test.afterEach("CLEANUP: delete channels created during tests", async ({ browser }, testInfo) => {
+    if (!shouldCleanupChannels) {
+      return;
+    }
+
     const isMobile = testInfo.project.use?.isMobile ?? false;
     const viewport = testInfo.project.use?.viewport;
     const context = await browser.newContext({ baseURL: testConfig.baseUrl, viewport });
@@ -76,6 +83,7 @@ test.describe("Proto Fleet - Alerts", () => {
     });
 
     await test.step("Save the channel", async () => {
+      shouldCleanupChannels = true;
       await alertsPage.saveChannel();
       await alertsPage.validateChannelListed(channelName);
       await alertsPage.validateChannelStatus(channelName, "Not tested");
@@ -90,6 +98,7 @@ test.describe("Proto Fleet - Alerts", () => {
 
     await test.step("Delete the channel", async () => {
       await alertsPage.deleteChannel(channelName);
+      shouldCleanupChannels = false;
     });
   });
 });

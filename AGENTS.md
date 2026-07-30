@@ -66,6 +66,16 @@ These are the rules that recur in code review and that contributors most often m
    coordinated edits across `routePrefetch.ts` (factory plus tier) and
    `router.tsx` (`lazy()` wrapper). See the top-of-file runbook in either
    app's `routePrefetch.ts`.
+10. **Grafana alert rule UIDs: 40 characters max.** Grafana rejects longer
+    UIDs at provisioning time, and one bad UID aborts provisioning of *all*
+    alerting files at boot. Applies to every `uid:` under
+    `server/monitoring/grafana/` (keep the `proto_fleet_rule_uid` label equal
+    to the rule's UID).
+11. **Visual snapshot baselines are approval-gated.** Do not run the ProtoFleet
+    visual snapshot refresh/overwrite flow unless the developer explicitly
+    confirms they understand the checked-in expected screenshots will be
+    replaced. After refreshing snapshots, remind the developer to review every
+    updated image before committing or pushing.
 
 ## Git workflow
 

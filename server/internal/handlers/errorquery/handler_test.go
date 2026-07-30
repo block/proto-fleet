@@ -200,7 +200,7 @@ func TestHandler_GetError(t *testing.T) {
 			mockTransactor := storesMocks.NewMockTransactor(ctrl)
 			tt.setupMocks(mockErrorStore)
 
-			diagnosticsSvc := diagnostics.NewService(context.Background(), diagnostics.Config{}, mockErrorStore, mockTransactor)
+			diagnosticsSvc := diagnostics.NewService(diagnostics.Config{}, mockErrorStore, mockTransactor)
 			handler := NewHandler(diagnosticsSvc)
 
 			ctx := tt.setupContext()

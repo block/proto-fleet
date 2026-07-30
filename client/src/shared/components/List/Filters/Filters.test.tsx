@@ -1,7 +1,16 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import Filters from "./Filters";
 import { testFilters, TestItem, testItems } from "@/shared/components/List/mocks/data";
+
+const setViewport = (width: number) => {
+  document.body.style.setProperty("--phone-max-width", "631");
+  document.body.style.setProperty("--tablet-max-width", "959");
+  document.body.style.setProperty("--laptop-max-width", "1279");
+  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: width });
+  Object.defineProperty(window, "innerHeight", { configurable: true, writable: true, value: 800 });
+  window.dispatchEvent(new Event("resize"));
+};
 
 describe("Filters", () => {
   it("renders filter buttons for all button filters", () => {
@@ -314,6 +323,51 @@ describe("Filters", () => {
     expect(within(chip).getByTestId("active-filter-model-edit")).toHaveTextContent("S19");
   });
 
+  it("renders active chips in a side-scrolling row separate from the filter trigger", () => {
+    const handleFiltering = vi.fn();
+
+    const statusFilter = {
+      type: "dropdown" as const,
+      title: "Status",
+      value: "status",
+      options: [
+        { id: "needs-attention", label: "Needs Attention" },
+        { id: "offline", label: "Offline" },
+      ],
+      defaultOptionIds: [],
+    };
+
+    render(
+      <Filters<TestItem>
+        filterItems={[
+          {
+            type: "nestedFilterDropdown",
+            title: "Add Filter",
+            value: "filters",
+            children: [statusFilter],
+          },
+        ]}
+        items={testItems}
+        onFilter={handleFiltering}
+        initialActiveFilters={{
+          buttonFilters: [],
+          dropdownFilters: { status: ["needs-attention"] },
+          numericFilters: {},
+          textareaListFilters: {},
+        }}
+      />,
+    );
+
+    const scrollRow = screen.getByTestId("active-filter-scroll-row");
+    const chip = within(scrollRow).getByTestId("active-filter-status");
+
+    expect(scrollRow).toHaveClass("overflow-x-auto", "overscroll-x-contain");
+    expect(chip).toHaveTextContent("Status");
+    expect(within(chip).getByTestId("active-filter-status-edit")).toHaveClass("min-w-0");
+    expect(screen.getByTestId("filter-nested-filters")).toBeInTheDocument();
+    expect(screen.getByTestId("filter-nested-filters").closest('[data-testid="active-filter-scroll-row"]')).toBeNull();
+  });
+
   it("summarizes the right side as `n plural` when multiple options are selected", () => {
     const handleFiltering = vi.fn();
 
@@ -428,6 +482,8 @@ describe("Filters", () => {
       expect(screen.getByTestId("filter-option-hash-boards")).toBeInTheDocument();
     });
 
+    expect(screen.getByTestId("dropdown-filter-popover").parentElement).toBe(document.body);
+
     fireEvent.click(screen.getByTestId("filter-option-hash-boards"));
 
     expect(handleFiltering).toHaveBeenCalledWith(
@@ -437,6 +493,62 @@ describe("Filters", () => {
         }),
       }),
     );
+  });
+
+  it("dismisses phone active-chip popovers from the sheet backdrop without bubbling to parent dismiss handlers", async () => {
+    const handleFiltering = vi.fn();
+    const parentDismiss = vi.fn();
+    document.addEventListener("mousedown", parentDismiss);
+    document.addEventListener("touchstart", parentDismiss);
+
+    const issuesFilter = {
+      type: "dropdown" as const,
+      title: "Issues",
+      pluralTitle: "issues",
+      value: "issues",
+      options: [
+        { id: "control-board", label: "Control board issue" },
+        { id: "hash-boards", label: "Hash board issue" },
+      ],
+      defaultOptionIds: [],
+    };
+
+    try {
+      render(
+        <Filters<TestItem>
+          filterItems={[issuesFilter]}
+          items={testItems}
+          onFilter={handleFiltering}
+          initialActiveFilters={{
+            buttonFilters: [],
+            dropdownFilters: { issues: ["control-board"] },
+
+            numericFilters: {},
+
+            textareaListFilters: {},
+          }}
+        />,
+      );
+
+      act(() => setViewport(390));
+      fireEvent.click(screen.getByTestId("active-filter-issues-edit"));
+
+      const sheet = await screen.findByTestId("dropdown-filter-popover-sheet");
+      fireEvent.mouseDown(sheet);
+      fireEvent.touchStart(sheet);
+
+      expect(parentDismiss).not.toHaveBeenCalled();
+
+      fireEvent.click(sheet);
+
+      await waitFor(() => {
+        expect(screen.queryByTestId("dropdown-filter-popover-sheet")).not.toBeInTheDocument();
+      });
+    } finally {
+      document.removeEventListener("mousedown", parentDismiss);
+      document.removeEventListener("touchstart", parentDismiss);
+      act(() => setViewport(1024));
+    }
   });
 
   it("keeps the chip and its popover mounted while the user clears every option from inside it", async () => {

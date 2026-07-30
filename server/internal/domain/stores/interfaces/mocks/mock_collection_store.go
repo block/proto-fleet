@@ -537,6 +537,20 @@ func (mr *MockCollectionStoreMockRecorder) ListRackZones(ctx, orgID any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRackZones", reflect.TypeOf((*MockCollectionStore)(nil).ListRackZones), ctx, orgID)
 }
 
+// LockDevicesForReassign mocks base method.
+func (m *MockCollectionStore) LockDevicesForReassign(ctx context.Context, orgID int64, deviceIdentifiers []string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockDevicesForReassign", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockDevicesForReassign indicates an expected call of LockDevicesForReassign.
+func (mr *MockCollectionStoreMockRecorder) LockDevicesForReassign(ctx, orgID, deviceIdentifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockDevicesForReassign", reflect.TypeOf((*MockCollectionStore)(nil).LockDevicesForReassign), ctx, orgID, deviceIdentifiers)
+}
+
 // LockRackPlacementForWrite mocks base method.
 func (m *MockCollectionStore) LockRackPlacementForWrite(ctx context.Context, collectionID, orgID int64) (interfaces.RackPlacement, error) {
 	m.ctrl.T.Helper()

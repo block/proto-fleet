@@ -159,8 +159,8 @@ message RackInfo {
     int32 rows = 1 [(buf.validate.field).int32.gt = 0];
     // Number of columns in the rack grid
     int32 columns = 2 [(buf.validate.field).int32.gt = 0];
-    // Sub-building zone label (e.g. "Room 2", "East Wall"). Required when
-    // building_id is set; cleared (empty) automatically when the rack
+    // Sub-building zone label (e.g. "Room 2", "East Wall"). Optional, even
+    // when building_id is set. Cleared (empty) automatically when the rack
     // crosses a building boundary or moves to direct-under-site placement.
     string zone = 3 [(buf.validate.field).string.max_len = 100];
     // Order index defining where numbering starts
@@ -681,6 +681,14 @@ message SaveRackRequest {
     // Only devices included in device_selector may be assigned slots.
     // Devices not listed here will be members without a slot position.
     repeated RackSlot slot_assignments = 5;
+
+    // When the saved rack is site-less/building-less, any member that
+    // currently has a site or building would have it stripped to stay
+    // consistent with the rack. Defaults false: the server returns
+    // `conflicts` and writes nothing. Set true to proceed and clear the
+    // conflicting members' site (and building) as part of the save. Mirrors
+    // AssignDevicesToRack.force_clear_conflicting_site.
+    optional bool force_clear_conflicting_site = 6;
 }
 
 // Response after saving a rack.
@@ -693,6 +701,12 @@ message SaveRackResponse {
 
     // Number of devices whose site_id was rewritten by the cascade.
     int32 site_reassigned_count = 3;
+
+    // Populated only when force_clear_conflicting_site is false and one or
+    // more members would lose a site/building by joining a site-less rack.
+    // When non-empty, NO write happened — the caller confirms and retries
+    // with force_clear_conflicting_site = true.
+    repeated PerDeviceRackConflict conflicts = 4;
 }
 
 // AssignDevicesToRack

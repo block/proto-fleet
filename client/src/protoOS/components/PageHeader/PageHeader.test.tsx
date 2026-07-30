@@ -31,6 +31,14 @@ vi.mock("@/protoOS/features/firmwareUpdate/components/FirmwareUpdateStatus", () 
   default: () => <div data-testid="firmware-update-status" />,
 }));
 
+vi.mock("@/shared/assets/icons", () => ({
+  Menu: ({ ariaLabel, testId }: { ariaLabel?: string; testId?: string }) => (
+    <button aria-label={ariaLabel} data-testid={testId}>
+      menu
+    </button>
+  ),
+}));
+
 describe("PageHeader", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -51,5 +59,20 @@ describe("PageHeader", () => {
     expect(screen.getByTestId("pool-status")).toBeInTheDocument();
     expect(screen.getByTestId("power-widget")).toBeInTheDocument();
     expect(screen.getByTestId("global-actions")).toBeInTheDocument();
+  });
+
+  test("uses the menu icon for the mobile navigation trigger", () => {
+    vi.mocked(useWindowDimensions).mockReturnValue({
+      isDesktop: false,
+      isLaptop: false,
+      isPhone: true,
+      isTablet: false,
+      width: 375,
+      height: 812,
+    });
+
+    render(<PageHeader title="Cooling" />);
+
+    expect(screen.getByTestId("navigation-menu-button")).toHaveAccessibleName("Open navigation menu");
   });
 });

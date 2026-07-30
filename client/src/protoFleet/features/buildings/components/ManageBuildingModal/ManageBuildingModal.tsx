@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import ManageRacksModal from "../ManageRacksModal";
+import { type RackSelectionDelta } from "../ManageRacksModal/rackSelectionDelta";
 import SearchRacksModal from "../SearchRacksModal";
 import { type AssignmentEntry, buildByNameAssignments, buildManualAssignments } from "./assignmentMath";
 import BuildingGridPane from "./BuildingGridPane";
+import { assignedRackScope, buildingRackScope } from "./buildingRackScope";
 import BuildingRacksPane, { type AssignedRackRow } from "./BuildingRacksPane";
+import RackReparentWarningDialog, { type ReparentedRack } from "./RackReparentWarningDialog";
 import { type BuildingAssignmentMode, type GridCellKey, parseCellKey } from "./types";
 import { type RackPlacementInput, useBuildings } from "@/protoFleet/api/buildings";
 import { type Building, type BuildingRack } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { DismissCircle } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
@@ -37,6 +41,10 @@ interface ManageBuildingModalProps {
   unassignedMinerCount?: number;
 }
 
+// Proto caps `racks` at 1000 per AssignRacksToBuildingRequest, so the Save
+// dispatch chunks to this size.
+const RACKS_PER_RPC = 1000;
+
 const ManageBuildingModal = ({
   open,
   building,
@@ -48,6 +56,39 @@ const ManageBuildingModal = ({
   unassignedMinerCount,
 }: ManageBuildingModalProps) => {
   const { listBuildingRacks, assignRacksToBuilding } = useBuildings();
+
+  // Rack-fetch scope forwarded to both pickers so they list only racks
+  // eligible for this building (its site + site-unassigned) instead of the
+  // whole org. Derived from the building's own site — not the header
+  // SitePicker — so it stays correct on the unscoped /buildings/:id and
+  // /sites/:id routes where the persisted header selection may be an
+  // unrelated site. Computed once here so the rule lives in one place.
+  const rackScope = useMemo(() => buildingRackScope(building.siteId ?? 0n), [building.siteId]);
+
+  // Broadened fetch scope forwarded to both pickers for the "Show assigned
+  // racks" toggle. Only the header all-sites case broadens the fetch (to a
+  // global list, surfacing cross-site racks); a scoped header is guaranteed by
+  // scope-sync (#764) to equal the building's own site, so it reuses rackScope.
+  // Reading the persisted active-site directly from the store (not useActiveSite)
+  // keeps the header dependency in one place AND avoids coupling the modal to a
+  // React Router context — it stays renderable in isolated hosts/tests, matching
+  // the Part A goal of route-independent pickers.
+  const activeSite = useFleetStore((state) => state.ui.activeSite);
+  const assignedScope = useMemo(
+    () => assignedRackScope(building.siteId ?? 0n, activeSite.kind === "all"),
+    [building.siteId, activeSite.kind],
+  );
+
+  // Pending reparent confirm — set when the operator picks an already-placed
+  // rack. Accepting it STAGES the move into the working set (parity with the
+  // miner-side promptReparent → setRackMiners: a reparent is staged and only
+  // persisted on the outer Save); cancelling leaves the picker open and nothing
+  // changes. The rack lands in the working set, so the picker seeds it as
+  // "in this building" on reopen (buildRackPickerItem) — never re-derived as a
+  // reassignment row — and the actual move rides handleSave.
+  const [reparentConfirm, setReparentConfirm] = useState<{ racks: ReparentedRack[]; onConfirm: () => void } | null>(
+    null,
+  );
 
   // Aisles / racks_per_aisle are read straight from the building prop —
   // BuildingSettingsModal owns those fields now and threads any edits back
@@ -277,36 +318,65 @@ const ManageBuildingModal = ({
     setShowSearchRacks(true);
   }, []);
 
+  // Gate a reparent behind the warning dialog, then STAGE it on confirm — the
+  // rack joins the working set but nothing is written until the outer Save.
+  // Parity with the miner side (promptReparent → setRackMiners): a reparent is
+  // staged, and the actual move rides handleSave's member-only
+  // AssignRacksToBuilding (targetBuildingId → the rack moves out of its old
+  // building, cascading its miners) exactly like any newly-added rack. A staged
+  // rack is seeded into the picker, so buildRackPickerItem shows it as
+  // "in this building" on reopen — never a reassignment row that a later
+  // toggle-off / Select all / deselect could silently drop. Cancelling leaves
+  // the working set untouched and the picker open.
+  const promptReparent = useCallback((racks: ReparentedRack[], apply: () => void) => {
+    setReparentConfirm({
+      racks,
+      onConfirm: () => {
+        setReparentConfirm(null);
+        apply();
+      },
+    });
+  }, []);
+
   // SearchRacksModal confirm — add the rack to the working set if missing
-  // and assign to the cell that was selected when the popover opened.
+  // and assign to the cell that was selected when the popover opened. When the
+  // rack is currently placed elsewhere, commit the move behind the reparent
+  // confirm (its miners move with it) before staging the cell.
   const handleSearchRackConfirm = useCallback(
-    (rackId: bigint, label: string) => {
+    (rackId: bigint, label: string, reparent?: ReparentedRack) => {
       const targetKey = selectedCellKey;
       if (targetKey === null) {
         setShowSearchRacks(false);
         return;
       }
-      const { aisle, position } = parseCellKey(targetKey);
-      setEntries((prev) => {
-        const idStr = rackId.toString();
-        const exists = prev.some((e) => e.rackId.toString() === idStr);
-        const next = prev.map((e) => {
-          if (e.rackId === rackId) return { ...e, aisleIndex: aisle, positionInAisle: position };
-          if (e.aisleIndex === aisle && e.positionInAisle === position) {
-            return { ...e, aisleIndex: undefined, positionInAisle: undefined };
+      const apply = () => {
+        const { aisle, position } = parseCellKey(targetKey);
+        setEntries((prev) => {
+          const idStr = rackId.toString();
+          const exists = prev.some((e) => e.rackId.toString() === idStr);
+          const next = prev.map((e) => {
+            if (e.rackId === rackId) return { ...e, aisleIndex: aisle, positionInAisle: position };
+            if (e.aisleIndex === aisle && e.positionInAisle === position) {
+              return { ...e, aisleIndex: undefined, positionInAisle: undefined };
+            }
+            return e;
+          });
+          if (!exists) {
+            next.push({ rackId, label, aisleIndex: aisle, positionInAisle: position });
           }
-          return e;
+          return next;
         });
-        if (!exists) {
-          next.push({ rackId, label, aisleIndex: aisle, positionInAisle: position });
-        }
-        return next;
-      });
-      setSelectedCellKey(null);
-      setSelectedRackId(null);
-      setShowSearchRacks(false);
+        setSelectedCellKey(null);
+        setSelectedRackId(null);
+        setShowSearchRacks(false);
+      };
+      if (reparent) {
+        promptReparent([reparent], apply);
+      } else {
+        apply();
+      }
     },
-    [selectedCellKey],
+    [selectedCellKey, promptReparent],
   );
 
   const handleRemoveRack = useCallback((rackId: bigint) => {
@@ -321,24 +391,34 @@ const ManageBuildingModal = ({
   // positions; `removed` drops only those entries. Racks not in either
   // list are untouched, so a seeded rack that didn't appear in the
   // picker's listRacks response (race / paging gap) is preserved.
+  // `delta.reassigned` (racks currently placed elsewhere) commits the move
+  // behind the reparent confirm — their miners move with them — before the
+  // working-set change lands.
   const handleManageRacksConfirm = useCallback(
-    (delta: { added: { rackId: bigint; label: string }[]; removed: bigint[] }) => {
-      const removedSet = new Set(delta.removed.map((id) => id.toString()));
-      setEntries((prev) => {
-        const kept = prev.filter((e) => !removedSet.has(e.rackId.toString()));
-        const knownIds = new Set(kept.map((e) => e.rackId.toString()));
-        const newcomers: AssignmentEntry[] = [];
-        for (const a of delta.added) {
-          if (knownIds.has(a.rackId.toString())) continue;
-          newcomers.push({ rackId: a.rackId, label: a.label });
-        }
-        return [...kept, ...newcomers];
-      });
-      setSelectedRackId(null);
-      setSelectedCellKey(null);
-      setShowManageRacks(false);
+    (delta: RackSelectionDelta) => {
+      const apply = () => {
+        const removedSet = new Set(delta.removed.map((id) => id.toString()));
+        setEntries((prev) => {
+          const kept = prev.filter((e) => !removedSet.has(e.rackId.toString()));
+          const knownIds = new Set(kept.map((e) => e.rackId.toString()));
+          const newcomers: AssignmentEntry[] = [];
+          for (const a of delta.added) {
+            if (knownIds.has(a.rackId.toString())) continue;
+            newcomers.push({ rackId: a.rackId, label: a.label });
+          }
+          return [...kept, ...newcomers];
+        });
+        setSelectedRackId(null);
+        setSelectedCellKey(null);
+        setShowManageRacks(false);
+      };
+      if (delta.reassigned.length > 0) {
+        promptReparent(delta.reassigned, apply);
+      } else {
+        apply();
+      }
     },
-    [],
+    [promptReparent],
   );
 
   // Save: walk activeAssignments, diff against the load-time snapshot, and
@@ -430,17 +510,15 @@ const ManageBuildingModal = ({
         unassign.push({ rackId: BigInt(idStr) });
       }
 
-      // Proto caps `racks` at 1000 per AssignRacksToBuildingRequest.
       // Buildings can be 100×100 = 10,000 cells, and this modal loads
       // every page, so a large floor-plan save with >1000 changed/
       // removed racks would otherwise hit request validation. Chunk
-      // each phase into RPC-sized batches, dispatched sequentially
-      // so a mid-chain failure stops the chain (handled by the catch
-      // blocks below). Vacate-before-place is enforced across chunks
-      // by the two-pass dispatch below — the server only orders
+      // each phase into RPC-sized batches (RACKS_PER_RPC), dispatched
+      // sequentially so a mid-chain failure stops the chain (handled by
+      // the catch blocks below). Vacate-before-place is enforced across
+      // chunks by the two-pass dispatch below — the server only orders
       // clear-then-place within a single RPC, so unassigns and cell-
       // clears must all complete before any place runs.
-      const RACKS_PER_RPC = 1000;
       // Tracks whether any chunk has committed so the catch below can
       // distinguish "nothing landed" from "partial commit" — operator
       // needs to know to refresh before retrying when chunks N..M ran
@@ -549,6 +627,9 @@ const ManageBuildingModal = ({
       <FullScreenTwoPaneModal
         open={open}
         title={subtitle ? `${title} — ${subtitle}` : title}
+        // Dismiss without Save writes nothing: reparents stage into the working
+        // set instead of committing on confirm, so the server is untouched until
+        // Save and a plain dismiss needs no host refresh.
         onDismiss={onDismiss}
         isBusy={isSaving}
         buttons={[
@@ -651,6 +732,10 @@ const ManageBuildingModal = ({
           open={showManageRacks}
           siteId={siteId}
           currentBuildingId={building.id}
+          scope={rackScope}
+          assignedScope={assignedScope}
+          allSites={activeSite.kind === "all"}
+          buildingName={building.name}
           initialSelectedRackIds={currentRackIds}
           onDismiss={() => setShowManageRacks(false)}
           onConfirm={handleManageRacksConfirm}
@@ -662,11 +747,26 @@ const ManageBuildingModal = ({
           open={showSearchRacks}
           siteId={siteId}
           currentBuildingId={building.id}
+          scope={rackScope}
+          assignedScope={assignedScope}
+          assignedRackIds={currentRackIds}
+          buildingName={building.name}
           onDismiss={() => {
             setShowSearchRacks(false);
             setSelectedCellKey(null);
           }}
           onConfirm={handleSearchRackConfirm}
+        />
+      ) : null}
+
+      {reparentConfirm ? (
+        <RackReparentWarningDialog
+          racks={reparentConfirm.racks}
+          buildingName={building.name}
+          // onConfirm stages the move into the working set and clears this
+          // dialog; the actual write happens on the outer Save.
+          onCancel={() => setReparentConfirm(null)}
+          onConfirm={reparentConfirm.onConfirm}
         />
       ) : null}
     </>

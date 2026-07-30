@@ -39,8 +39,16 @@ vi.mock("@/protoFleet/api/buildings", () => ({
   useBuildings: () => mockUseBuildings(),
 }));
 
-vi.mock("@/protoFleet/api/sites", () => ({
+vi.mock("@/protoFleet/api/sites", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/api/sites")>()),
   useSites: () => mockUseSites(),
+}));
+
+// RackOverviewPage reads the site catalog (for the breadcrumb site label) from
+// the shell-level SitesProvider. Drive it directly here.
+const sitesCtx = vi.hoisted(() => ({ current: { sites: [] as unknown[] } }));
+vi.mock("@/protoFleet/api/SitesContext", () => ({
+  useSitesContext: () => sitesCtx.current,
 }));
 
 vi.mock("@/protoFleet/api/useDeviceSetStateCounts", () => ({
@@ -80,17 +88,27 @@ vi.mock("@/shared/assets/icons", () => ({
 }));
 
 vi.mock("@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection", () => ({
-  DeviceSetPerformanceSection: () => <div>Performance section</div>,
+  DeviceSetPerformanceSection: ({ className, gapClassName }: { className?: string; gapClassName?: string }) => (
+    <div className={className} data-gap-class={gapClassName} data-testid="rack-page-performance-grid">
+      Performance section
+    </div>
+  ),
 }));
 
 vi.mock("@/protoFleet/features/groupManagement/components/DeviceSetActionsMenu", () => ({
   __esModule: true,
-  default: () => <div />,
+  default: ({ viewLabel }: { viewLabel?: string }) => (
+    <div data-testid="rack-page-device-set-actions-menu">{viewLabel}</div>
+  ),
 }));
 
 vi.mock("@/protoFleet/features/kpis/components/FleetErrors", () => ({
   __esModule: true,
-  default: () => <div>Fleet errors</div>,
+  default: ({ className, gapClassName }: { className?: string; gapClassName?: string }) => (
+    <div className={className} data-gap-class={gapClassName} data-testid="rack-page-fleet-errors">
+      Fleet errors
+    </div>
+  ),
 }));
 
 vi.mock("@/protoFleet/features/fleetManagement/components/RackHealthModule", () => ({
@@ -159,6 +177,7 @@ function mockResolvedRackPageData(
   mockUseSites.mockReturnValue({
     listSites: ({ onSuccess }: { onSuccess: (sites: unknown[]) => void }) => onSuccess(options.sites ?? []),
   });
+  sitesCtx.current = { sites: options.sites ?? [] };
   mockUseDeviceSetStateCounts.mockReturnValue({
     stateCounts: {
       hashingCount: 0,
@@ -193,9 +212,37 @@ function renderRackOverviewPage() {
   );
 }
 
+const installLocalStorageMock = () => {
+  const storage = new Map<string, string>();
+  const localStorageMock: Storage = {
+    get length() {
+      return storage.size;
+    },
+    clear: () => storage.clear(),
+    getItem: (key) => storage.get(key) ?? null,
+    key: (index) => Array.from(storage.keys())[index] ?? null,
+    removeItem: (key) => {
+      storage.delete(key);
+    },
+    setItem: (key, value) => {
+      storage.set(key, value);
+    },
+  };
+
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: localStorageMock,
+  });
+};
+
+if (typeof globalThis.localStorage === "undefined") {
+  installLocalStorageMock();
+}
+
 describe("RackOverviewPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     useFleetStore.setState((state) => {
       state.ui.activeSite = DEFAULT_ACTIVE_SITE;
     });
@@ -306,6 +353,106 @@ describe("RackOverviewPage", () => {
     renderRackOverviewPage();
 
     expect(await screen.findByTestId("rack-page-breadcrumb-link-0")).toHaveAttribute("href", "/unassigned/fleet/racks");
+  });
+
+  it("syncs a mismatched header scope to the rack's own site on this headerless route (#764)", async () => {
+    // Deep-link to a rack whose site differs from the persisted header scope.
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "site", id: "99", slug: "elsewhere" };
+    });
+    const rackInSite = create(DeviceSetSchema, {
+      id: 7n,
+      label: rackName,
+      typeDetails: { case: "rackInfo", value: { rows: 6, columns: 5, zone: rackZone, siteId: 22n } },
+    });
+    mockResolvedRackPageData(rackInSite, {
+      sites: [{ site: { id: 22n, name: "Denver", slug: "denver" } }],
+    });
+
+    renderRackOverviewPage();
+
+    await waitFor(() =>
+      expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "22", slug: "denver" }),
+    );
+  });
+
+  it("syncs from rack placement site when the building catalog is unavailable (#764)", async () => {
+    // Rack is placed under a building (no rackInfo.siteId), and the auxiliary
+    // listAllBuildings request returns nothing — but the rack's own placement
+    // still carries its site, so the sync must fire off that.
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "site", id: "99", slug: "elsewhere" };
+    });
+    const rackUnderBuilding = create(DeviceSetSchema, {
+      id: 7n,
+      label: rackName,
+      typeDetails: { case: "rackInfo", value: { rows: 6, columns: 5, zone: rackZone, buildingId: 11n } },
+      placement: { site: { id: 22n } },
+    });
+    mockResolvedRackPageData(rackUnderBuilding, {
+      allBuildings: [],
+      sites: [{ site: { id: 22n, name: "Denver", slug: "denver" } }],
+    });
+
+    renderRackOverviewPage();
+
+    await waitFor(() =>
+      expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "22", slug: "denver" }),
+    );
+  });
+
+  it("moves a specific-site header scope to unassigned for an unassigned rack (#764)", async () => {
+    // Unassigned rack (no placement site, no building) opened while a specific
+    // site is persisted — the header must drop to the unassigned bucket so the
+    // miner picker isn't filtered to the wrong site.
+    useFleetStore.setState((state) => {
+      state.ui.activeSite = { kind: "site", id: "99", slug: "elsewhere" };
+    });
+    // Default rack (id 7) has no siteId, buildingId, or placement.
+
+    renderRackOverviewPage();
+
+    await waitFor(() => expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "unassigned" }));
+  });
+
+  it("leaves an all-sites header scope untouched when viewing a rack (#764)", async () => {
+    const rackInSite = create(DeviceSetSchema, {
+      id: 7n,
+      label: rackName,
+      typeDetails: { case: "rackInfo", value: { rows: 6, columns: 5, zone: rackZone, siteId: 22n } },
+    });
+    mockResolvedRackPageData(rackInSite, {
+      sites: [{ site: { id: 22n, name: "Denver", slug: "denver" } }],
+    });
+
+    renderRackOverviewPage();
+
+    await waitFor(() => expect(screen.getAllByText(rackName).length).toBeGreaterThan(0));
+    expect(useFleetStore.getState().ui.activeSite).toEqual(DEFAULT_ACTIVE_SITE);
+  });
+
+  it("keeps rack detail header actions compact on mobile", async () => {
+    renderRackOverviewPage();
+
+    expect(await screen.findByTestId("rack-page-title")).toHaveClass("truncate");
+    expect(screen.getByTestId("rack-page-header-actions")).toHaveClass("shrink-0");
+    expect(screen.getByTestId("rack-page-header-actions-desktop")).toHaveClass("hidden", "tablet:flex");
+    expect(screen.getByTestId("rack-page-header-actions-mobile")).toHaveClass("tablet:hidden");
+    expect(screen.getByTestId("rack-page-edit-mobile")).toHaveTextContent("Edit rack");
+    expect(screen.getByTestId("rack-page-device-set-actions-menu")).toHaveTextContent("View miners");
+  });
+
+  it("uses the detail view spacing rhythm for sections and section content", async () => {
+    renderRackOverviewPage();
+
+    expect(await screen.findByTestId("rack-health-section")).toHaveClass("px-4", "pt-10", "laptop:px-8");
+    expect(screen.getByTestId("rack-health-section").firstElementChild).toHaveClass("gap-1", "overflow-visible", "p-2");
+    expect(screen.getByTestId("rack-page-fleet-errors")).not.toHaveClass("-m-2");
+    expect(screen.getByTestId("rack-page-fleet-errors")).toHaveAttribute("data-gap-class", "gap-1");
+    expect(screen.getByTestId("rack-performance-section").querySelector(".sticky")).toHaveClass("pt-10", "pb-1");
+    expect(screen.getByTestId("rack-page-performance-grid")).toHaveClass("p-2");
+    expect(screen.getByTestId("rack-page-performance-grid")).not.toHaveClass("-m-2");
+    expect(screen.getByTestId("rack-page-performance-grid")).toHaveAttribute("data-gap-class", "gap-1");
   });
 
   it("does not request uptime telemetry for rack performance charts", async () => {

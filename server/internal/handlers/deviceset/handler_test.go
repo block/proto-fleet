@@ -790,6 +790,88 @@ func TestAssignDevicesToRack_PermissionRequired(t *testing.T) {
 	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
 }
 
+// TestSaveRack_PlacementRequiresSiteManage confirms that placing a rack under
+// a site/building requires site:manage, even though SaveRack's base gate is
+// only rack:manage. A rack:manage-only caller that sends placement intent
+// (an explicit site_id/building_id) is rejected before any store write —
+// matching the dedicated AssignRacksToSite/Building RPCs.
+func TestSaveRack_PlacementRequiresSiteManage(t *testing.T) {
+	h := newTestHandler(t)
+
+	// Has rack:manage but NOT site:manage.
+	ctx := ctxWithPerms(authz.PermRackManage)
+	req := connect.NewRequest(&dspb.SaveRackRequest{
+		Label:          "Rack",
+		RackInfo:       &dspb.RackInfo{BuildingId: ptrInt64Local(7)},
+		DeviceSelector: deviceListSelector(),
+	})
+
+	_, err := h.handler.SaveRack(ctx, req)
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe, "expected FleetError, got %T", err)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
+
+// TestSaveRack_SiteLessConflictReturnedNoForce confirms the handler surfaces
+// the domain's site-strip conflict list on the wire (not an error) when a save
+// into a site-less rack would strip a member's placement without force (#558).
+// No DeviceSet is returned and nothing persisted.
+func TestSaveRack_SiteLessConflictReturnedNoForce(t *testing.T) {
+	deviceIDs := []string{"d1"}
+	h := newGroupHandlerWithResolver(t, deviceIDs)
+	ctx := ctxWithPerms(authz.PermRackManage)
+
+	// Site-less rack (no placement → rack:manage suffices). The guard finds d1
+	// has a site and bails BEFORE any write — no CreateCollection /
+	// CreateRackExtension / membership: nothing persists.
+	h.collectionStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, int64(0)).Return(nil, nil)
+	h.collectionStore.EXPECT().LockDevicesForReassign(gomock.Any(), testOrgID, deviceIDs).Return(nil)
+	h.collectionStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return(deviceIDs, nil)
+
+	req := connect.NewRequest(&dspb.SaveRackRequest{
+		Label: "Rack",
+		RackInfo: &dspb.RackInfo{
+			Rows:        4,
+			Columns:     8,
+			OrderIndex:  dspb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+			CoolingType: dspb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+		},
+		DeviceSelector: deviceListSelector(deviceIDs...),
+	})
+
+	resp, err := h.handler.SaveRack(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Conflicts, 1)
+	assert.Equal(t, "d1", resp.Msg.Conflicts[0].DeviceIdentifier)
+	assert.Equal(t, dspb.PerDeviceRackConflictReason_PER_DEVICE_RACK_CONFLICT_REASON_DEVICE_LOSES_SITE, resp.Msg.Conflicts[0].Reason)
+	assert.Nil(t, resp.Msg.DeviceSet)
+}
+
+// TestCreateDeviceSet_PlacementRequiresSiteManage confirms the create path
+// enforces the same boundary as SaveRack/UpdateDeviceSet: creating a rack under
+// a site/building persists that placement, so a rack:manage-only caller that
+// sends explicit placement is rejected before any store write. (Codex security
+// review, HIGH — the create path previously bypassed the gate.)
+func TestCreateDeviceSet_PlacementRequiresSiteManage(t *testing.T) {
+	h := newTestHandler(t)
+
+	// Has rack:manage but NOT site:manage.
+	ctx := ctxWithPerms(authz.PermRackManage)
+	req := connect.NewRequest(&dspb.CreateDeviceSetRequest{
+		Label: "Rack",
+		TypeDetails: &dspb.CreateDeviceSetRequest_RackInfo{
+			RackInfo: &dspb.RackInfo{BuildingId: ptrInt64Local(7)},
+		},
+	})
+
+	_, err := h.handler.CreateDeviceSet(ctx, req)
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe, "expected FleetError, got %T", err)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
+
 // TestAssignDevicesToRack_HappyPathAssigns covers the assign branch:
 // target_rack_id set, devices flow through the lock → label-read →
 // remove → add → cascade chain, and the handler round-trips the

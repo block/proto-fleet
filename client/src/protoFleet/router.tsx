@@ -4,7 +4,6 @@ import { createBrowserRouter, LoaderFunction, LoaderFunctionArgs, Navigate, Outl
 
 import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
-import type { PageBackground } from "./hooks/usePageBackground";
 import {
   importActivityPage,
   importAuth,
@@ -33,6 +32,7 @@ import {
   importSettingsLayout,
   importSettingsMiningPools,
   importSettingsNetwork,
+  importSettingsNodes,
   importSettingsPreferences,
   importSettingsSchedules,
   importSettingsTeam,
@@ -47,6 +47,7 @@ import {
   racksRedirectLoader,
   sitesRedirectLoader,
 } from "@/protoFleet/features/fleetManagement/redirectLoaders";
+import { hideShellHeaderRouteHandle } from "@/protoFleet/routing/routeHandle";
 import {
   activeSiteFromSegment,
   appEntryPath,
@@ -84,6 +85,7 @@ const SettingsAuth = lazy(importSettingsAuth);
 const SettingsMiningPools = lazy(importSettingsMiningPools);
 const SettingsTeam = lazy(importSettingsTeam);
 const SettingsFirmware = lazy(importSettingsFirmware);
+const SettingsNodes = lazy(importSettingsNodes);
 const SettingsSchedules = lazy(importSettingsSchedules);
 const SettingsCurtailment = lazy(importSettingsCurtailment);
 const SettingsAlerts = lazy(importSettingsAlerts);
@@ -175,15 +177,15 @@ const scopedGroupDetailRedirectLoader = async ({ params, request }: LoaderFuncti
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {
   fullscreen?: boolean;
+  hideShellHeader?: boolean;
   loader?: LoaderFunction;
-  bg?: PageBackground;
 }
 
 const createRoute = (path: string, children: ReactNode, options: CreateRouteOptions = {}) => ({
   path,
   element: <App fullscreen={options.fullscreen}>{children}</App>,
+  ...(options.hideShellHeader && { handle: hideShellHeaderRouteHandle }),
   ...(options.loader && { loader: options.loader }),
-  ...(options.bg && { handle: { bg: options.bg } }),
 });
 
 const createFleetChildren = () => [
@@ -209,7 +211,7 @@ const createFleetRoute = (path: string) => ({
 
 const createScopableRoutes = (absolute: boolean) => [
   ...(absolute ? [] : [{ index: true, element: <Navigate to="dashboard" replace /> }]),
-  createRoute(absolute ? "/dashboard" : "dashboard", <Dashboard />, { bg: "surface-5" }),
+  createRoute(absolute ? "/dashboard" : "dashboard", <Dashboard />),
   createFleetRoute(absolute ? "/fleet" : "fleet"),
   createRoute(absolute ? "/groups" : "groups", <GroupsPage />),
   createRoute(absolute ? "/energy" : "energy", <EnergyPage />),
@@ -242,13 +244,13 @@ const router = createBrowserRouter([
   { path: "/miners", loader: minersRedirectLoader },
   { path: "/racks", loader: racksRedirectLoader },
 
-  createRoute("/racks/:rackId", <RackOverviewPage />, { bg: "surface-5" }),
-  createRoute("/groups/:groupLabel", <GroupOverviewPage />, { bg: "surface-5" }),
+  createRoute("/racks/:rackId", <RackOverviewPage />, { hideShellHeader: true }),
+  createRoute("/groups/:groupLabel", <GroupOverviewPage />, { hideShellHeader: true }),
 
   // /sites redirects into /fleet/sites.
   { path: "/sites", loader: sitesRedirectLoader },
-  createRoute("/sites/:id", <SiteDetailPage />, { bg: "surface-5" }),
-  createRoute("/buildings/:id", <BuildingPage />, { bg: "surface-5" }),
+  createRoute("/sites/:id", <SiteDetailPage />, { hideShellHeader: true }),
+  createRoute("/buildings/:id", <BuildingPage />, { hideShellHeader: true }),
 
   // Single miner (fullscreen - protoOS routes handle layout). SingleMinerWrapper
   // wraps the parent Outlet so it stays mounted across tab navigations — the
@@ -312,6 +314,12 @@ const router = createBrowserRouter([
     "/settings/firmware",
     <SettingsLayout>
       <SettingsFirmware />
+    </SettingsLayout>,
+  ),
+  createRoute(
+    "/settings/nodes",
+    <SettingsLayout>
+      <SettingsNodes />
     </SettingsLayout>,
   ),
   createRoute(

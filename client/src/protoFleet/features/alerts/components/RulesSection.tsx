@@ -1,26 +1,34 @@
 import { useCallback, useMemo, useState } from "react";
 import AddMaintenanceWindowModal from "./AddMaintenanceWindowModal";
+import AddRuleModal from "./AddRuleModal";
+import EditDeliveryModal from "./EditDeliveryModal";
+import StatusDot from "./StatusDot";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAlertsContext } from "@/protoFleet/features/alerts/api/AlertsContext";
 import { isMaintenanceWindowActive } from "@/protoFleet/features/alerts/api/useAlerts";
 import { useNow } from "@/protoFleet/features/alerts/lib/useNow";
 import type { Rule } from "@/protoFleet/features/alerts/types";
 import { useHasPermission } from "@/protoFleet/store";
-import { Pause, Play, Stop } from "@/shared/assets/icons";
+import { Edit, Notification, Pause, Play, Stop, Trash } from "@/shared/assets/icons";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
-type RuleColumns = "name" | "when" | "severity";
+type RuleColumns = "name" | "condition" | "delivery" | "status";
 
 const colTitles: ColTitles<RuleColumns> = {
   name: "Name",
-  when: "When",
-  severity: "Severity",
+  condition: "Condition",
+  delivery: "Delivery",
+  status: "Status",
 };
 
-const activeCols: RuleColumns[] = ["name", "when", "severity"];
+const activeCols: RuleColumns[] = ["name", "condition", "delivery", "status"];
+
+// Borderless cells with a right-aligned action kebab, per the alerts design.
+const rulesTableClassName = "mb-6 [&_td]:!border-x-0 [&_th]:!border-x-0 [&_td[data-testid='action']>div]:!ml-auto";
 
 const formatRuleCondition = (rule: Rule): string => {
   if (rule.summary) return rule.summary;
@@ -28,12 +36,32 @@ const formatRuleCondition = (rule: Rule): string => {
   return "fires on first matching evaluation";
 };
 
+const formatRuleDelivery = (rule: Rule): string => {
+  switch (rule.routing?.mode) {
+    case "custom":
+      return rule.routing.channel_ids.length === 1 ? "1 channel" : `${rule.routing.channel_ids.length} channels`;
+    case "none":
+      return "In-app only";
+    case "default":
+      return "All channels";
+    default:
+      return "—";
+  }
+};
+
 const RulesSection = () => {
-  const { rules, maintenanceWindows, pauseRule, resumeRule, removeMaintenanceWindow } = useAlertsContext();
+  const { rules, maintenanceWindows, pauseRule, resumeRule, removeRule, removeMaintenanceWindow } = useAlertsContext();
   const canManage = useHasPermission("alert:manage");
+  const canReadMiners = useHasPermission("miner:read");
+  // Rule create/edit additionally require org-wide miner:read server-side
+  // (rules fan per-device alerts out); pause/window/delete stay on alert:manage.
+  const canWriteRules = canManage && canReadMiners;
 
   const [maintenanceWindowPrefillRuleId, setMaintenanceWindowPrefillRuleId] = useState<string | null>(null);
   const [showMaintenanceWindowModal, setShowMaintenanceWindowModal] = useState(false);
+  const [showRuleModal, setShowRuleModal] = useState(false);
+  const [editingRule, setEditingRule] = useState<Rule | null>(null);
+  const [deliveryRule, setDeliveryRule] = useState<Rule | null>(null);
 
   const now = useNow();
   const activeMaintenanceWindowIdsByRule = useMemo(() => {
@@ -105,8 +133,43 @@ const RulesSection = () => {
     [activeMaintenanceWindowIdsByRule, removeMaintenanceWindow],
   );
 
+  const handleDelete = useCallback(
+    async (rule: Rule) => {
+      try {
+        await removeRule(rule.id);
+        pushToast({ message: `Deleted: ${rule.name}`, status: STATUSES.success });
+      } catch (error) {
+        pushToast({
+          message: getErrorMessage(error, "Failed to delete rule"),
+          status: STATUSES.error,
+        });
+      }
+    },
+    [removeRule],
+  );
+
   const actions: ListAction<Rule>[] = useMemo(
     () => [
+      {
+        title: "Edit",
+        icon: <Edit />,
+        // Without the stored config the modal can't prefill the real trigger,
+        // and saving would silently rewrite the rule as an offline check.
+        hidden: (rule) => !canWriteRules || rule.origin !== "user" || !rule.config,
+        actionHandler: (rule) => {
+          setEditingRule(rule);
+          setShowRuleModal(true);
+        },
+      },
+      {
+        title: "Edit delivery",
+        icon: <Notification />,
+        // Routing is org-owned, so it applies to provisioned rules too; the server gates it like other rule mutations.
+        hidden: () => !canWriteRules,
+        actionHandler: (rule) => {
+          setDeliveryRule(rule);
+        },
+      },
       {
         title: (rule) => (rule.enabled ? "Pause" : "Resume"),
         icon: (rule) => (rule.enabled ? <Pause /> : <Play />),
@@ -122,43 +185,85 @@ const RulesSection = () => {
           void handleMaintenanceWindowOrLift(rule);
         },
       },
+      {
+        title: "Delete",
+        icon: <Trash />,
+        variant: "destructive",
+        hidden: (rule) => rule.origin !== "user",
+        actionHandler: (rule) => {
+          void handleDelete(rule);
+        },
+      },
     ],
-    [handleTogglePause, handleMaintenanceWindowOrLift, activeMaintenanceWindowIdsByRule],
+    [handleTogglePause, handleMaintenanceWindowOrLift, handleDelete, activeMaintenanceWindowIdsByRule, canWriteRules],
   );
 
   const colConfig: ColConfig<Rule, string, RuleColumns> = useMemo(
     () => ({
       name: {
         component: (rule) => (
-          <span className="flex items-center gap-2">
-            <span className="text-emphasis-300 text-text-primary">{rule.name}</span>
-            {!rule.enabled ? (
-              <span className="rounded bg-surface-5 px-2 py-0.5 text-200 text-text-primary-50">Paused</span>
-            ) : null}
-          </span>
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="truncate text-emphasis-300 text-text-primary">{rule.name}</span>
+            <span className="truncate text-200 text-text-primary-70">
+              {rule.origin === "user" ? "Custom rule" : "Default rule"}
+            </span>
+          </div>
         ),
-        width: "w-56",
+        width: "w-80",
       },
-      when: {
-        component: (rule) => <span className="text-text-primary-50">{formatRuleCondition(rule)}</span>,
-        width: "w-[480px]",
-        allowWrap: true,
+      condition: {
+        component: (rule) => (
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="truncate text-text-primary">{formatRuleCondition(rule)}</span>
+            <span className="truncate text-200 text-text-primary-70">{rule.severity || "—"}</span>
+          </div>
+        ),
+        width: "w-96",
       },
-      severity: {
-        component: (rule) => <span className="text-text-primary-50">{rule.severity || "—"}</span>,
-        width: "w-24",
+      delivery: {
+        component: (rule) => <span className="truncate text-text-primary">{formatRuleDelivery(rule)}</span>,
+        width: "w-40",
+      },
+      status: {
+        component: (rule) => {
+          if (!rule.enabled) {
+            return <StatusDot dotClass="bg-text-primary-30">Paused</StatusDot>;
+          }
+          // An active maintenance window suppresses the rule even while enabled.
+          if (activeMaintenanceWindowIdsByRule.has(rule.id)) {
+            return <StatusDot dotClass="bg-intent-warning-fill">Muted</StatusDot>;
+          }
+          return <StatusDot dotClass="bg-intent-success-fill">Active</StatusDot>;
+        },
+        width: "w-80",
       },
     }),
-    [],
+    [activeMaintenanceWindowIdsByRule],
   );
 
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-border-5 p-6">
-      <Header title="Rules" titleSize="text-heading-200" />
-      <p className="text-300 text-text-primary-50">
-        Provisioned conditions that decide when an alert fires. The rule set is managed by ops — pause one to silence it
-        indefinitely, or attach a maintenance window to mute it for a finite period.
-      </p>
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <Header title="Rules" titleSize="text-heading-200" />
+          {canWriteRules ? (
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              text="Add rule"
+              onClick={() => {
+                setEditingRule(null);
+                setShowRuleModal(true);
+              }}
+            />
+          ) : null}
+        </div>
+        <p className="text-300 text-text-primary-50">
+          Conditions that decide when an alert fires. Add your own rule on a fleet metric, or work with the provisioned
+          defaults — pause one to silence it indefinitely, or attach a maintenance window to mute it for a finite
+          period.
+        </p>
+      </div>
 
       <List<Rule, string, RuleColumns>
         items={sortedRules}
@@ -166,14 +271,17 @@ const RulesSection = () => {
         activeCols={activeCols}
         colTitles={colTitles}
         colConfig={colConfig}
-        total={sortedRules.length}
-        itemName={{ singular: "rule", plural: "rules" }}
+        hideTotal
         noDataElement={
           <div className="py-10 text-center text-text-primary-50">
-            No rules provisioned yet — ask your operator to deploy the Grafana alert-rule bundle.
+            {canWriteRules
+              ? "No rules yet — click Add rule to set one up."
+              : "No rules yet — ask an alert manager to add one."}
           </div>
         }
         actions={canManage ? actions : []}
+        applyColumnWidthsToCells
+        tableClassName={rulesTableClassName}
       />
 
       <AddMaintenanceWindowModal
@@ -185,6 +293,17 @@ const RulesSection = () => {
           setMaintenanceWindowPrefillRuleId(null);
         }}
       />
+
+      <AddRuleModal
+        open={showRuleModal}
+        editingRule={editingRule}
+        onDismiss={() => {
+          setShowRuleModal(false);
+          setEditingRule(null);
+        }}
+      />
+
+      <EditDeliveryModal open={deliveryRule !== null} rule={deliveryRule} onDismiss={() => setDeliveryRule(null)} />
     </section>
   );
 };

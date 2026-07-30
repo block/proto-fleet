@@ -1,12 +1,15 @@
 import type { ReactNode } from "react";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FirmwareUpdateModal from "./FirmwareUpdateModal";
+import { uploadHookState } from "@/protoFleet/components/FirmwareUpload/useFirmwareUpload.fixtures";
 
 const mockListFirmwareFiles = vi.fn();
 const mockUseFirmwareUpload = vi.fn();
+const target = { targetManufacturer: "Proto", targetModel: "Rig" };
 
-vi.mock("@/protoFleet/api/useFirmwareApi", () => ({
+vi.mock("@/protoFleet/api/useFirmwareApi", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/api/useFirmwareApi")>()),
   useFirmwareApi: () => ({
     listFirmwareFiles: mockListFirmwareFiles,
   }),
@@ -44,17 +47,7 @@ vi.mock("@/shared/features/toaster", () => ({
 describe("FirmwareUpdateModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockUseFirmwareUpload.mockReturnValue({
-      state: "idle",
-      file: null,
-      firmwareFileId: null,
-      uploadProgress: 0,
-      errorMessage: null,
-      serverConfig: null,
-      processFile: vi.fn(),
-      reset: vi.fn(),
-      retry: vi.fn(),
-    });
+    mockUseFirmwareUpload.mockReturnValue(uploadHookState());
   });
 
   it("keeps showing the loading spinner when the file list resolves empty before config loads", async () => {
@@ -65,7 +58,7 @@ describe("FirmwareUpdateModal", () => {
       }),
     );
 
-    render(<FirmwareUpdateModal open onConfirm={vi.fn()} onDismiss={vi.fn()} />);
+    render(<FirmwareUpdateModal open target={target} onConfirm={vi.fn()} onDismiss={vi.fn()} />);
 
     expect(screen.getByTestId("progress-circular")).toBeInTheDocument();
 
@@ -80,20 +73,113 @@ describe("FirmwareUpdateModal", () => {
 
   it("renders existing files immediately even while config is still loading", async () => {
     mockListFirmwareFiles.mockResolvedValue([
-      { id: "fw-1", filename: "alpha.swu", size: 1024, uploaded_at: "2025-01-01T00:00:00Z" },
+      {
+        id: "fw-1",
+        filename: "alpha.swu",
+        size: 1024,
+        uploaded_at: "2025-01-01T00:00:00Z",
+        target_manufacturer: "Proto",
+        target_model: "Rig",
+      },
     ]);
 
-    render(<FirmwareUpdateModal open onConfirm={vi.fn()} onDismiss={vi.fn()} />);
+    render(<FirmwareUpdateModal open target={target} onConfirm={vi.fn()} onDismiss={vi.fn()} />);
 
     expect(await screen.findByText("Select an existing firmware file")).toBeInTheDocument();
     expect(screen.getByText("alpha.swu")).toBeInTheDocument();
   });
 
+  it("filters existing files to the selected miner target", async () => {
+    mockListFirmwareFiles.mockResolvedValue([
+      {
+        id: "fw-1",
+        filename: "alpha.swu",
+        size: 1024,
+        uploaded_at: "2025-01-01T00:00:00Z",
+        target_manufacturer: "Proto",
+        target_model: "Rig",
+      },
+      {
+        id: "fw-2",
+        filename: "beta.swu",
+        size: 1024,
+        uploaded_at: "2025-01-01T00:00:00Z",
+        target_manufacturer: "Bitmain",
+        target_model: "S21",
+      },
+      {
+        id: "legacy",
+        filename: "legacy.swu",
+        size: 1024,
+        uploaded_at: "2025-01-01T00:00:00Z",
+        target_manufacturer: "",
+        target_model: "",
+      },
+    ]);
+
+    render(
+      <FirmwareUpdateModal
+        open
+        target={{ targetManufacturer: " proto ", targetModel: "rig" }}
+        onConfirm={vi.fn()}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("alpha.swu")).toBeInTheDocument();
+    expect(screen.queryByText("beta.swu")).not.toBeInTheDocument();
+    expect(screen.queryByText("legacy.swu")).not.toBeInTheDocument();
+  });
+
   it("explains that miners reboot automatically after firmware installation", () => {
     mockListFirmwareFiles.mockResolvedValue([]);
 
-    render(<FirmwareUpdateModal open onConfirm={vi.fn()} onDismiss={vi.fn()} />);
+    render(<FirmwareUpdateModal open target={target} onConfirm={vi.fn()} onDismiss={vi.fn()} />);
 
     expect(screen.getByText(/reboot automatically after installation completes/i)).toBeInTheDocument();
+  });
+
+  it("keeps uploaded firmware metadata visible and read-only", async () => {
+    mockListFirmwareFiles.mockResolvedValue([]);
+    mockUseFirmwareUpload.mockReturnValue(uploadHookState({ serverConfig: { allowedExtensions: [".swu"] } }));
+    const view = render(<FirmwareUpdateModal open target={target} onConfirm={vi.fn()} onDismiss={vi.fn()} />);
+    fireEvent.change(await screen.findByLabelText("Firmware version"), { target: { value: "2.0.0" } });
+
+    mockUseFirmwareUpload.mockReturnValue(
+      uploadHookState({
+        state: "ready",
+        file: new File(["firmware"], "update.swu"),
+        firmwareFileId: "fw-uploaded",
+        uploadProgress: 100,
+        serverConfig: { allowedExtensions: [".swu"] },
+      }),
+    );
+    view.rerender(<FirmwareUpdateModal open target={target} onConfirm={vi.fn()} onDismiss={vi.fn()} />);
+
+    expect(await screen.findByLabelText("Product")).toBeDisabled();
+    expect(screen.getByLabelText("Model")).toBeDisabled();
+    expect(screen.getByLabelText("Firmware version")).toBeDisabled();
+    expect(screen.getByLabelText("Firmware version")).toHaveValue("2.0.0");
+    expect(screen.getByTestId("file-ready-status")).toBeInTheDocument();
+    expect(screen.queryByTestId("file-drop-zone")).not.toBeInTheDocument();
+  });
+
+  it("fails closed when the selected miner target is unavailable", async () => {
+    mockListFirmwareFiles.mockResolvedValue([
+      {
+        id: "fw-1",
+        filename: "alpha.swu",
+        size: 1024,
+        uploaded_at: "2025-01-01T00:00:00Z",
+        target_manufacturer: "Proto",
+        target_model: "Rig",
+      },
+    ]);
+
+    render(<FirmwareUpdateModal open onConfirm={vi.fn()} onDismiss={vi.fn()} />);
+
+    expect(screen.getByText(/unable to determine the selected miners/i)).toBeInTheDocument();
+    expect(screen.queryByText("alpha.swu")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("file-drop-zone")).not.toBeInTheDocument();
   });
 });

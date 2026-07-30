@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import type { FirmwareFileInfo } from "@/protoFleet/api/useFirmwareApi";
-import { useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
+import { hasCompleteFirmwareTarget, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import {
   FileDropZone,
   FileErrorStatus,
@@ -9,8 +9,13 @@ import {
   FileReadyStatus,
   useFirmwareUpload,
 } from "@/protoFleet/components/FirmwareUpload";
+import {
+  type FirmwareUpdateTarget,
+  minerTargetKey,
+} from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/minerTarget";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import { formatFileSize } from "@/shared/components/FileSizeValue";
+import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular/ProgressCircular";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -18,11 +23,12 @@ import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimesta
 
 interface FirmwareUpdateModalProps {
   open?: boolean;
+  target?: FirmwareUpdateTarget | null;
   onConfirm: (firmwareFileId: string) => void;
   onDismiss: () => void;
 }
 
-const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModalProps) => {
+const FirmwareUpdateModal = ({ open, target, onConfirm, onDismiss }: FirmwareUpdateModalProps) => {
   const {
     state: uploadState,
     file: uploadFile,
@@ -39,6 +45,19 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
   const [existingFiles, setExistingFiles] = useState<FirmwareFileInfo[] | null>(null);
   const [selectedExistingFileId, setSelectedExistingFileId] = useState<string | null>(null);
   const [showUploadZone, setShowUploadZone] = useState(false);
+  const [firmwareVersion, setFirmwareVersion] = useState("");
+
+  const effectiveTargetManufacturer = target?.targetManufacturer ?? "";
+  const effectiveTargetModel = target?.targetModel ?? "";
+  const uploadTarget = useMemo(
+    () => ({
+      targetManufacturer: effectiveTargetManufacturer,
+      targetModel: effectiveTargetModel,
+      firmwareVersion,
+    }),
+    [effectiveTargetManufacturer, effectiveTargetModel, firmwareVersion],
+  );
+  const hasUploadTarget = hasCompleteFirmwareTarget(uploadTarget);
 
   useEffect(() => {
     if (open) {
@@ -74,13 +93,18 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
     (file: File) => {
       setSelectedExistingFileId(null);
       setShowUploadZone(true);
-      processFile(file);
+      processFile(file, uploadTarget);
     },
-    [processFile],
+    [processFile, uploadTarget],
   );
 
   const effectiveFirmwareFileId = selectedExistingFileId ?? uploadedFileId;
   const isReady = selectedExistingFileId != null || uploadState === "ready";
+  const visibleExistingFiles = useMemo(() => {
+    const targetKey = minerTargetKey(target?.targetManufacturer, target?.targetModel);
+    if (targetKey === null || existingFiles === null) return [];
+    return existingFiles.filter((file) => minerTargetKey(file.target_manufacturer, file.target_model) === targetKey);
+  }, [existingFiles, target]);
 
   const handleConfirm = useCallback(() => {
     if (effectiveFirmwareFileId) {
@@ -89,6 +113,7 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
       setSelectedExistingFileId(null);
       setExistingFiles(null);
       setShowUploadZone(false);
+      setFirmwareVersion("");
     }
   }, [effectiveFirmwareFileId, onConfirm, reset]);
 
@@ -97,25 +122,35 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
     setSelectedExistingFileId(null);
     setExistingFiles(null);
     setShowUploadZone(false);
+    setFirmwareVersion("");
     onDismiss();
   }, [onDismiss, reset]);
 
   const isProcessing = uploadState === "hashing" || uploadState === "checking" || uploadState === "uploading";
+  const missingTarget = !!open && minerTargetKey(effectiveTargetManufacturer, effectiveTargetModel) === null;
   const configLoading = uploadState !== "error" && !serverConfig;
-  const hasExistingFiles = existingFiles != null && existingFiles.length > 0;
-  const showLoadingSpinner = configLoading && !hasExistingFiles;
+  const hasExistingFiles = visibleExistingFiles.length > 0;
+  const showLoadingSpinner = !missingTarget && configLoading && !hasExistingFiles;
+  const showUploadFields = !missingTarget && serverConfig && (!hasExistingFiles || showUploadZone);
+  const uploadMetadataLocked = uploadState !== "idle";
 
   const buttons = isReady ? [{ text: "Continue", variant: variants.primary, onClick: handleConfirm }] : undefined;
 
   return (
     <Modal open={open} title="Add firmware payload" onDismiss={handleDismiss} buttons={buttons} divider={false}>
-      <div className="text-text-secondary mt-2 text-300">
+      <div className="mt-2 text-300 text-text-primary-70">
         Select a firmware payload to update your miners. They will reboot automatically after installation completes.
       </div>
       <div className="mt-6 flex flex-col gap-4">
         {showLoadingSpinner ? (
           <div className="flex items-center justify-center p-8">
             <ProgressCircular indeterminate size={24} />
+          </div>
+        ) : null}
+
+        {missingTarget ? (
+          <div className="text-300 text-intent-warning-fill">
+            Unable to determine the selected miners&apos; manufacturer and model. Close this dialog and try again.
           </div>
         ) : null}
 
@@ -127,7 +162,7 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
               role="radiogroup"
               aria-label="Existing firmware files"
             >
-              {existingFiles.map((f) => (
+              {visibleExistingFiles.map((f) => (
                 <button
                   key={f.id}
                   type="button"
@@ -136,27 +171,24 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
                   className={clsx(
                     "flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-left transition-colors",
                     selectedExistingFileId === f.id
-                      ? "border-border-focus bg-surface-elevated-base"
+                      ? "border-border-20 bg-surface-elevated-base"
                       : "border-border-5 hover:border-border-20",
                     isProcessing && "pointer-events-none opacity-50",
                   )}
                   onClick={() => handleSelectExistingFile(f.id)}
                   disabled={isProcessing}
                 >
-                  <div
-                    className={clsx(
-                      "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2",
-                      selectedExistingFileId === f.id ? "border-border-focus" : "border-border-20",
-                    )}
-                  >
+                  <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-border-20">
                     {selectedExistingFileId === f.id ? (
                       <div className="h-2 w-2 rounded-full bg-core-primary-fill" />
                     ) : null}
                   </div>
                   <div className="flex min-w-0 flex-col">
                     <div className="truncate text-300 text-text-primary">{f.filename}</div>
-                    <div className="text-text-secondary text-200">
-                      {formatFileSize(f.size)} · {formatTimestamp(isoToEpochSeconds(f.uploaded_at))}
+                    <div className="text-200 text-text-primary-70">
+                      {f.target_manufacturer} {f.target_model}
+                      {f.firmware_version ? ` · ${f.firmware_version}` : ""} · {formatFileSize(f.size)} ·{" "}
+                      {formatTimestamp(isoToEpochSeconds(f.uploaded_at))}
                     </div>
                   </div>
                 </button>
@@ -180,8 +212,40 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
 
         {uploadState === "error" && errorMessage ? <FileErrorStatus message={errorMessage} onRetry={retry} /> : null}
 
-        {uploadState === "idle" && serverConfig && (!hasExistingFiles || showUploadZone) ? (
-          <FileDropZone extensions={serverConfig.allowedExtensions} onFileSelect={handleUploadFileSelect} />
+        {showUploadFields ? (
+          <>
+            <div className="grid gap-4 tablet:grid-cols-2">
+              <Input
+                id="firmware-update-target-manufacturer"
+                label="Product"
+                initValue={effectiveTargetManufacturer}
+                disabled
+                required
+              />
+              <Input
+                id="firmware-update-target-model"
+                label="Model"
+                initValue={effectiveTargetModel}
+                disabled
+                required
+              />
+            </div>
+            <Input
+              id="firmware-update-version"
+              label="Firmware version"
+              initValue={firmwareVersion}
+              onChange={setFirmwareVersion}
+              disabled={uploadMetadataLocked}
+              required
+            />
+            {uploadState === "idle" ? (
+              <FileDropZone
+                extensions={serverConfig.allowedExtensions}
+                onFileSelect={handleUploadFileSelect}
+                disabled={!hasUploadTarget}
+              />
+            ) : null}
+          </>
         ) : null}
 
         {isProcessing && uploadFile ? (

@@ -77,6 +77,7 @@ const emptyPreviewState: CurtailmentPlanPreviewState = {
 
 interface CurtailmentPlanPreviewSource {
   selectedMinerCount: number;
+  facilityFanDeviceCount?: number;
   unavailableMinerCount?: number;
   targetKw?: number;
   estimatedReductionKw: number;
@@ -264,31 +265,73 @@ function formatDurationEstimate(seconds: number, approximate = true): string {
   return `${prefix}${pluralize(hours, "hour")} ${pluralize(remainingMinutes, "minute")}`;
 }
 
-function estimateBatchDuration(batchSizeValue: string, intervalSecValue: string, selectedMinerCount: number): string {
+function formatDurationWithInfrastructureDelay(
+  minerDurationSec: number | undefined,
+  infrastructureDelaySec: number,
+): string {
+  if (minerDurationSec !== undefined) {
+    return formatDurationEstimate(minerDurationSec + infrastructureDelaySec);
+  }
+
+  if (infrastructureDelaySec === 0) {
+    return "Server default";
+  }
+
+  return `Server default + ${formatDurationEstimate(infrastructureDelaySec, false)}`;
+}
+
+function facilityFanDelaySeconds(
+  facilityFanDeviceIds: CurtailmentFormValues["facilityFanDeviceIds"],
+  delaySecValue: string | undefined,
+): number {
+  if ((facilityFanDeviceIds?.length ?? 0) === 0) {
+    return 0;
+  }
+
+  return parseNonNegativeInteger(delaySecValue ?? "") ?? 0;
+}
+
+function estimateConfiguredBatchDurationSeconds(
+  batchSizeValue: string,
+  intervalSecValue: string,
+  selectedMinerCount: number,
+): number | undefined {
   const batchSize = parsePositiveInteger(batchSizeValue);
   const intervalSec = parseNonNegativeInteger(intervalSecValue);
 
   if (batchSize === undefined || intervalSec === undefined) {
-    return "Server default";
+    return undefined;
   }
 
+  return estimateBatchDurationSeconds(batchSize, intervalSec, selectedMinerCount);
+}
+
+function estimateBatchDurationSeconds(batchSize: number, intervalSec: number, selectedMinerCount: number): number {
   const batchCount = Math.ceil(selectedMinerCount / batchSize);
-  return formatDurationEstimate(Math.max(batchCount - 1, 0) * intervalSec);
+  return Math.max(batchCount - 1, 0) * intervalSec;
 }
 
 function estimateCurtailDuration(values: CurtailmentFormValues, selectedMinerCount: number): string {
-  return estimateBatchDuration(values.curtailBatchSize, values.curtailBatchIntervalSec, selectedMinerCount);
+  const minerDurationSec = estimateConfiguredBatchDurationSeconds(
+    values.curtailBatchSize,
+    values.curtailBatchIntervalSec,
+    selectedMinerCount,
+  );
+  const infrastructureDelaySec = facilityFanDelaySeconds(values.facilityFanDeviceIds, values.fanOffDelaySec);
+
+  return formatDurationWithInfrastructureDelay(minerDurationSec, infrastructureDelaySec);
 }
 
 function estimateRestoreDuration(values: CurtailmentFormValues, selectedMinerCount: number): string {
   const batchSize = parseNonNegativeInteger(values.restoreBatchSize) ?? 0;
   const intervalSec = parseNonNegativeInteger(values.restoreIntervalSec) ?? 0;
+  const infrastructureDelaySec = facilityFanDelaySeconds(values.facilityFanDeviceIds, values.fanRestoreDelaySec);
   if (intervalSec === 0) {
-    return "Immediately";
+    return formatDurationEstimate(infrastructureDelaySec);
   }
   const effectiveBatchSize = batchSize === 0 ? curtailmentNumericFieldLimits.restoreBatchSize : batchSize;
-  const batchCount = Math.ceil(selectedMinerCount / effectiveBatchSize);
-  return formatDurationEstimate(Math.max(batchCount - 1, 0) * intervalSec);
+  const minerDurationSec = estimateBatchDurationSeconds(effectiveBatchSize, intervalSec, selectedMinerCount);
+  return formatDurationEstimate(minerDurationSec + infrastructureDelaySec);
 }
 
 export function createCurtailmentPlanPreview(
@@ -296,6 +339,10 @@ export function createCurtailmentPlanPreview(
   source: CurtailmentPlanPreviewSource,
 ): CurtailmentPlanPreview {
   const selectedMinerCount = Number.isFinite(source.selectedMinerCount) ? source.selectedMinerCount : 0;
+  const facilityFanDeviceCount =
+    source.facilityFanDeviceCount !== undefined && Number.isFinite(source.facilityFanDeviceCount)
+      ? source.facilityFanDeviceCount
+      : (values.facilityFanDeviceIds?.length ?? 0);
   const fallbackTargetKw =
     values.curtailmentMode === "fullFleet" && Number.isFinite(source.estimatedReductionKw)
       ? source.estimatedReductionKw
@@ -306,6 +353,7 @@ export function createCurtailmentPlanPreview(
 
   return {
     selectedMinerCount,
+    facilityFanDeviceCount,
     unavailableMinerCount:
       source.unavailableMinerCount !== undefined && Number.isFinite(source.unavailableMinerCount)
         ? source.unavailableMinerCount

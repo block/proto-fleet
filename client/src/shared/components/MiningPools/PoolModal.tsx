@@ -281,6 +281,7 @@ const PoolModal = ({
       onClick: onTestConnection,
       loading: isTestingConnection,
       variant: variants.secondary,
+      testId: "pool-test-connection-button",
       className: "whitespace-nowrap overflow-clip",
     },
     {

@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  classifySubnetLine,
   normalizeCidrLine,
+  normalizeSubnetLine,
   type NumericRangeBounds,
   type NumericRangeValue,
   validateCidrLine,
   validateNumericRange,
+  validateSubnetLine,
 } from "./filterValidation";
 
 const bounds: NumericRangeBounds = { min: 0, max: 100, unit: "TH/s" };
@@ -128,5 +131,102 @@ describe("normalizeCidrLine", () => {
 
   it("preserves host == network for /32", () => {
     expect(normalizeCidrLine("192.168.1.5/32")).toBe("192.168.1.5/32");
+  });
+});
+
+describe("validateSubnetLine", () => {
+  it("accepts everything validateCidrLine accepts", () => {
+    expect(validateSubnetLine("192.168.1.0/24")).toBeNull();
+    expect(validateSubnetLine("10.0.0.5")).toBeNull();
+    expect(validateSubnetLine("2001:db8::/64")).toBeNull();
+  });
+
+  it("accepts short and full IPv4 ranges (discovery syntax)", () => {
+    expect(validateSubnetLine("10.0.0.10-20")).toBeNull();
+    expect(validateSubnetLine("10.0.0.10-10.0.0.20")).toBeNull();
+    expect(validateSubnetLine("10.0.0.10 - 10.0.0.20")).toBeNull();
+  });
+
+  it("rejects an inverted or malformed range", () => {
+    expect(validateSubnetLine("10.0.0.20-10.0.0.10")).not.toBeNull();
+    expect(validateSubnetLine("10.0.0.20-10")).not.toBeNull();
+    expect(validateSubnetLine("10.0.0.10-999")).not.toBeNull();
+    expect(validateSubnetLine("10.0.0.10-")).not.toBeNull();
+  });
+
+  it("accepts a large range (native ip_ranges — no per-line address cap)", () => {
+    expect(validateSubnetLine("10.0.0.0-10.0.255.255")).toBeNull();
+  });
+
+  it("rejects hostnames with a targeted message (filter matches by IP, not name)", () => {
+    expect(validateSubnetLine("miner01")).toBe("Hostnames aren't supported here — use an IP, CIDR, or range");
+    expect(validateSubnetLine("rack3-unit.local")).toBe("Hostnames aren't supported here — use an IP, CIDR, or range");
+  });
+
+  it("gives a generic error mentioning IP, range, and CIDR for an all-numeric malformed IP", () => {
+    const error = validateSubnetLine("999.1.1.1");
+    expect(error).toBe("Not a valid IP address, range, or CIDR");
+    expect(error).not.toContain("Hostnames");
+  });
+
+  it("rejects empty", () => {
+    expect(validateSubnetLine("")).toBeTypeOf("string");
+  });
+});
+
+describe("normalizeSubnetLine", () => {
+  it("expands a short range to full form (dedups with the full form)", () => {
+    expect(normalizeSubnetLine("10.0.0.10-20")).toBe("10.0.0.10-10.0.0.20");
+    expect(normalizeSubnetLine("10.0.0.10 - 10.0.0.20")).toBe("10.0.0.10-10.0.0.20");
+  });
+
+  it("leaves a full range canonical", () => {
+    expect(normalizeSubnetLine("10.0.0.10-10.0.0.20")).toBe("10.0.0.10-10.0.0.20");
+  });
+
+  it("echoes a bare IP back as typed (no /32 or /128 suffix)", () => {
+    expect(normalizeSubnetLine("10.0.0.5")).toBe("10.0.0.5");
+    expect(normalizeSubnetLine("2001:db8::1")).toBe("2001:db8::1");
+  });
+
+  it("canonicalizes a CIDR's network address", () => {
+    expect(normalizeSubnetLine("192.168.1.5/24")).toBe("192.168.1.0/24");
+  });
+
+  it("trims surrounding whitespace", () => {
+    expect(normalizeSubnetLine("  10.0.0.10-20  ")).toBe("10.0.0.10-10.0.0.20");
+  });
+});
+
+describe("classifySubnetLine", () => {
+  it("classifies a range", () => {
+    expect(classifySubnetLine("10.0.0.10-10.0.0.20")).toEqual({
+      kind: "range",
+      startIp: "10.0.0.10",
+      endIp: "10.0.0.20",
+    });
+  });
+
+  it("classifies a short range, expanding the end", () => {
+    expect(classifySubnetLine("10.0.0.10-20")).toEqual({
+      kind: "range",
+      startIp: "10.0.0.10",
+      endIp: "10.0.0.20",
+    });
+  });
+
+  it("classifies and normalizes a CIDR", () => {
+    expect(classifySubnetLine("192.168.1.5/24")).toEqual({ kind: "cidr", cidr: "192.168.1.0/24" });
+  });
+
+  it("classifies a bare IP as a prefix-less cidr entry (server treats it as /32 or /128)", () => {
+    expect(classifySubnetLine("10.0.0.5")).toEqual({ kind: "cidr", cidr: "10.0.0.5" });
+    expect(classifySubnetLine("2001:db8::1")).toEqual({ kind: "cidr", cidr: "2001:db8::1" });
+  });
+
+  it("returns null for invalid input", () => {
+    expect(classifySubnetLine("garbage")).toBeNull();
+    expect(classifySubnetLine("10.0.0.20-10.0.0.10")).toBeNull();
+    expect(classifySubnetLine("")).toBeNull();
   });
 });

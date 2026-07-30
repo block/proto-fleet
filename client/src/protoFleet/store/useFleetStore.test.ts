@@ -41,7 +41,7 @@ describe("useFleetStore persistence", () => {
     seedPersistedDuration("3d");
 
     const { useFleetStore } = await import("./useFleetStore");
-    useFleetStore.persist.rehydrate();
+    await useFleetStore.persist.rehydrate();
 
     expect(useFleetStore.getState().ui.duration).toBe("24h");
   });
@@ -50,7 +50,7 @@ describe("useFleetStore persistence", () => {
     seedPersistedDuration("7d");
 
     const { useFleetStore } = await import("./useFleetStore");
-    useFleetStore.persist.rehydrate();
+    await useFleetStore.persist.rehydrate();
 
     expect(useFleetStore.getState().ui.duration).toBe("7d");
   });
@@ -66,7 +66,7 @@ describe("useFleetStore persistence", () => {
     });
 
     const { useFleetStore } = await import("./useFleetStore");
-    useFleetStore.persist.rehydrate();
+    await useFleetStore.persist.rehydrate();
 
     expect(useFleetStore.getState().auth.permissions).toEqual(["site:read"]);
     expect(useFleetStore.getState().auth.isAuthenticated).toBe(true);
@@ -83,7 +83,7 @@ describe("useFleetStore persistence", () => {
     });
 
     const { useFleetStore } = await import("./useFleetStore");
-    useFleetStore.persist.rehydrate();
+    await useFleetStore.persist.rehydrate();
 
     expect(useFleetStore.getState().auth.permissions).toEqual([]);
     expect(useFleetStore.getState().auth.isAuthenticated).toBe(true);
@@ -100,7 +100,7 @@ describe("useFleetStore persistence", () => {
     });
 
     const { useFleetStore } = await import("./useFleetStore");
-    useFleetStore.persist.rehydrate();
+    await useFleetStore.persist.rehydrate();
 
     expect(useFleetStore.getState().auth.permissions).toEqual(["alert:read", "alert:manage", "site:read"]);
     expect(useFleetStore.getState().auth.isAuthenticated).toBe(true);
@@ -116,7 +116,7 @@ describe("useFleetStore persistence", () => {
     });
 
     const { useFleetStore } = await import("./useFleetStore");
-    useFleetStore.persist.rehydrate();
+    await useFleetStore.persist.rehydrate();
 
     expect(useFleetStore.getState().auth.isAuthenticated).toBe(false);
     expect(useFleetStore.getState().auth.permissions).toEqual([]);

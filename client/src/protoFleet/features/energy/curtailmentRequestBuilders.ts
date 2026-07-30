@@ -63,6 +63,14 @@ const restoreBatchIntervalOptions: OptionalUint32FieldOptions = {
   label: "restore batch interval",
   max: curtailmentNumericFieldLimits.restoreIntervalSec,
 };
+const fanOffDelayOptions: OptionalUint32FieldOptions = {
+  label: "fan off delay",
+  max: curtailmentNumericFieldLimits.fanDelaySec,
+};
+const fanRestoreDelayOptions: OptionalUint32FieldOptions = {
+  label: "fan restore delay",
+  max: curtailmentNumericFieldLimits.fanDelaySec,
+};
 const maxInt64 = 9_223_372_036_854_775_807n;
 const baseTenIntegerPattern = /^[0-9]+$/;
 
@@ -310,6 +318,18 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
     throw new Error("Enter curtail batch size before adding a curtail batch interval.");
   }
 
+  const facilityFanDeviceIds = [
+    ...new Set(
+      uniqueNonEmptyStrings(values.facilityFanDeviceIds ?? []).map((value) => {
+        const id = parseCurtailmentSiteId(value);
+        if (id === undefined) {
+          throw new Error("Facility fan IDs must be positive integers.");
+        }
+        return id;
+      }),
+    ),
+  ];
+
   return create(StartCurtailmentRequestSchema, {
     ...buildCurtailmentRequestFields(values),
     maxDurationSeconds: getOptionalUint32Setting(values.maxDurationSec, maxDurationOptions),
@@ -318,6 +338,9 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
     restoreBatchSize: getOptionalUint32Setting(values.restoreBatchSize, restoreBatchSizeOptions),
     restoreBatchIntervalSec: getOptionalUint32Setting(values.restoreIntervalSec, restoreBatchIntervalOptions),
     minCurtailedDurationSec: getOptionalUint32Setting(values.minDurationSec, minCurtailedDurationOptions),
+    facilityFanDeviceIds,
+    fanOffDelaySec: getOptionalUint32Setting(values.fanOffDelaySec ?? "", fanOffDelayOptions),
+    fanRestoreDelaySec: getOptionalUint32Setting(values.fanRestoreDelaySec ?? "", fanRestoreDelayOptions),
     reason: values.reason.trim(),
   });
 }

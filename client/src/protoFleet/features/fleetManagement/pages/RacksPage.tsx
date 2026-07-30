@@ -188,6 +188,9 @@ const RacksPage = () => {
   const knownSiteIds = useMemo(() => (allSites ? new Set(allSites.map((s) => s.id)) : undefined), [allSites]);
   const { activeSite } = useActiveSite({ knownSiteIds });
   const activeSiteFilter = useMemo(() => siteFilterFromActive(activeSite), [activeSite]);
+  // Prepopulate the new-rack Site dropdown when a single site is scoped in the
+  // page header (undefined for "All sites" / "Unassigned").
+  const scopedSiteId = useMemo(() => (activeSite.kind === "site" ? BigInt(activeSite.id) : undefined), [activeSite]);
 
   const selectedSiteFilter = useMemo(() => parseIdFilterValuesFromURL(searchParams, "site"), [searchParams]);
   const selectedSiteValues = selectedSiteFilter.values;
@@ -888,6 +891,13 @@ const RacksPage = () => {
     resetAndFetch();
     fetchZones();
   }, [resetAndFetch, fetchZones]);
+  // Rack Settings "Continue" persists an existing rack's settings before the
+  // final miner Save, so refresh the list in the background (without closing
+  // the modal) to keep it consistent if the operator then dismisses.
+  const handleRackSettingsPersisted = useCallback(() => {
+    resetAndFetch();
+    fetchZones();
+  }, [resetAndFetch, fetchZones]);
 
   const handleDeleteRack = useCallback(() => {
     if (!manageRackId) return Promise.resolve();
@@ -923,6 +933,11 @@ const RacksPage = () => {
       columns: rackInfo.columns,
       orderIndex: rackInfo.orderIndex,
       coolingType: rackInfo.coolingType,
+      // Seed the rack's current placement (`|| undefined` collapses the proto
+      // default 0 to unassigned) so the settings dropdowns and the miner
+      // eligibility filter reflect where the rack lives.
+      siteId: rack.placement?.site?.id || undefined,
+      buildingId: rack.placement?.building?.id || undefined,
     });
     setManageRackId(rack.id);
   }, []);
@@ -1103,6 +1118,7 @@ const RacksPage = () => {
     return (
       <>
         <NullState
+          className={clsx("sticky left-0", PAGE_SCROLL_CHROME_WIDTH)}
           icon={<Racks width="w-5" />}
           title="You haven't set up any racks"
           description="Add a rack and assign miners to rack positions to get started."
@@ -1116,6 +1132,7 @@ const RacksPage = () => {
           <RackSettingsModal
             show={showRackSettingsModal}
             existingRacks={racks}
+            defaultSiteId={scopedSiteId}
             onDismiss={() => setShowRackSettingsModal(false)}
             onContinue={handleRackSettingsContinue}
           />
@@ -1126,8 +1143,10 @@ const RacksPage = () => {
             rackSettings={manageRackFormData}
             existingRackId={manageRackId}
             existingRacks={racks}
+            scopedSiteId={scopedSiteId}
             onDismiss={handleManageRackDismiss}
             onSave={handleManageRackSave}
+            onSettingsPersisted={handleRackSettingsPersisted}
             onDelete={manageRackId ? handleDeleteRack : undefined}
           />
         ) : null}
@@ -1187,6 +1206,7 @@ const RacksPage = () => {
                 selectedOptions={[currentSort.field]}
                 onSelect={handleSortSelect}
                 showSelectAll={false}
+                closeOnSelect
               />
             ) : null}
             <Button
@@ -1215,6 +1235,7 @@ const RacksPage = () => {
                 selectedOptions={[currentSort.field]}
                 onSelect={handleSortSelect}
                 showSelectAll={false}
+                closeOnSelect
               />
             ) : null}
           </div>
@@ -1438,6 +1459,7 @@ const RacksPage = () => {
         <RackSettingsModal
           show={showRackSettingsModal}
           existingRacks={racks}
+          defaultSiteId={scopedSiteId}
           onDismiss={() => setShowRackSettingsModal(false)}
           onContinue={handleRackSettingsContinue}
         />
@@ -1448,8 +1470,10 @@ const RacksPage = () => {
           rackSettings={manageRackFormData}
           existingRackId={manageRackId}
           existingRacks={racks}
+          scopedSiteId={scopedSiteId}
           onDismiss={handleManageRackDismiss}
           onSave={handleManageRackSave}
+          onSettingsPersisted={handleRackSettingsPersisted}
         />
       ) : null}
       {reparentTarget ? (

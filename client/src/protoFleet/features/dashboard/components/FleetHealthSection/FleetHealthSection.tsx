@@ -110,7 +110,7 @@ const FleetHealthSection = ({
         </p>
       ) : null}
 
-      <div className="mt-6 rounded-xl bg-surface-base p-10 dark:bg-core-primary-5 phone:p-6">
+      <div className="mt-6 rounded-xl bg-surface-elevated-base p-10 shadow-100 phone:p-6">
         <FleetHealthMetrics
           fleetSize={fleetSize}
           healthyMiners={healthyMiners}

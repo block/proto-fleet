@@ -95,11 +95,12 @@ export const BulkActionsWidget = ({ numberOfActions, numberOfMiners }: BulkActio
           onConfirmation={handleConfirmation}
           onCancel={action("Action cancelled")}
           currentAction={currentAction}
-          renderPopover={(beforeEach) => (
+          renderPopover={(beforeEach, closePopover) => (
             <BulkActionsPopover<DeviceAction | PerformanceAction>
               actions={popoverActions}
               beforeEach={beforeEach}
               testId="widget-popover"
+              closePopover={closePopover}
             />
           )}
           testId="widget"

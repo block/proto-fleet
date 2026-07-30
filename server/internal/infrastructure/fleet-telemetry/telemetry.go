@@ -15,10 +15,11 @@ import (
 )
 
 type Config struct {
-	Enabled     bool    `help:"Enable OpenTelemetry metrics" default:"false" env:"ENABLED"`
-	Endpoint    string  `help:"OTLP HTTP endpoint for traces (e.g. http://localhost:4318)" default:"http://localhost:4318" env:"ENDPOINT"`
-	ServiceName string  `help:"Service name reported in traces" default:"fleetd" env:"SERVICE_NAME"`
-	SampleRate  float64 `help:"Fraction of traces to sample (0.0–1.0)" default:"1.0" env:"SAMPLE_RATE"`
+	Enabled             bool    `help:"Enable OpenTelemetry traces" default:"false" env:"ENABLED"`
+	Endpoint            string  `help:"OTLP HTTP endpoint for traces (e.g. http://localhost:4318)" default:"http://localhost:4318" env:"ENDPOINT"`
+	ServiceName         string  `help:"Service name reported in traces" default:"fleetd" env:"SERVICE_NAME"`
+	SampleRate          float64 `help:"Fraction of traces to sample (0.0–1.0); also caps trusted incoming traces" default:"1.0" env:"SAMPLE_RATE"`
+	TrustIncomingTraces bool    `help:"Parent request spans to incoming trace context instead of linking (enables RUM↔APM correlation); an incoming not-sampled flag is honored" default:"false" env:"TRUST_INCOMING_TRACES"`
 }
 
 // Setup initialises a global TracerProvider and returns a shutdown function.
@@ -54,7 +55,11 @@ func Setup(ctx context.Context, version string, cfg Config) (func(context.Contex
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(cfg.SampleRate))),
+		// Cap trusted remote parents at SampleRate too; the ParentBased default would let a client's sampled flag bypass the configured rate.
+		sdktrace.WithSampler(sdktrace.ParentBased(
+			sdktrace.TraceIDRatioBased(cfg.SampleRate),
+			sdktrace.WithRemoteParentSampled(sdktrace.TraceIDRatioBased(cfg.SampleRate)),
+		)),
 	)
 
 	otel.SetTracerProvider(tp)

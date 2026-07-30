@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -35,6 +36,11 @@ const (
 	automationExternalSource     = "curtailment_automation"
 )
 
+type automationRuleMutationResult struct {
+	rule   sqlc.CurtailmentAutomationRule
+	noRows bool
+}
+
 func mapOrgConfigError(err error, orgID int64) error {
 	if err == nil {
 		return nil
@@ -54,6 +60,9 @@ func mapOrgConfigError(err error, orgID int64) error {
 var _ interfaces.CurtailmentStore = &SQLCurtailmentStore{}
 var _ interfaces.ResponseProfileStore = &SQLCurtailmentStore{}
 var _ interfaces.AutomationStore = &SQLCurtailmentStore{}
+var _ interfaces.CurtailmentFanStateStore = &SQLCurtailmentStore{}
+var _ interfaces.CurtailmentTerminalFanRecoveryStore = &SQLCurtailmentStore{}
+var _ interfaces.CurtailmentForceReleaseFanRecoveryStore = &SQLCurtailmentStore{}
 
 type SQLCurtailmentStore struct {
 	SQLConnectionManager
@@ -183,9 +192,45 @@ func (s *SQLCurtailmentStore) ListResponseProfileDeviceSites(ctx context.Context
 	return out, nil
 }
 
-func (s *SQLCurtailmentStore) CreateResponseProfile(ctx context.Context, profile models.ResponseProfile) (*models.ResponseProfile, error) {
-	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
+func (s *SQLCurtailmentStore) ListResponseProfileInfrastructureDevices(
+	ctx context.Context,
+	orgID int64,
+	infrastructureDeviceIDs []int64,
+) (map[int64]models.ResponseProfileInfrastructureDevice, error) {
+	if len(infrastructureDeviceIDs) == 0 {
+		return map[int64]models.ResponseProfileInfrastructureDevice{}, nil
+	}
+	rows, err := s.GetQueries(ctx).ListResponseProfileInfrastructureDevicesByOrg(
+		ctx,
+		sqlc.ListResponseProfileInfrastructureDevicesByOrgParams{
+			OrgID:                   orgID,
+			InfrastructureDeviceIds: infrastructureDeviceIDs,
+		},
+	)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list response profile infrastructure devices: %v", err)
+	}
+	out := make(map[int64]models.ResponseProfileInfrastructureDevice, len(rows))
+	for _, row := range rows {
+		out[row.ID] = models.ResponseProfileInfrastructureDevice{
+			ID:      row.ID,
+			SiteID:  row.SiteID,
+			Enabled: row.Enabled,
+		}
+	}
+	return out, nil
+}
+
+func (s *SQLCurtailmentStore) CreateResponseProfile(
+	ctx context.Context,
+	profile models.ResponseProfile,
+	expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice,
+) (*models.ResponseProfile, error) {
+	row, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (sqlc.CurtailmentResponseProfile, error) {
 		if err := lockResponseProfileSitesForWrite(ctx, q, profile.OrgID, [][]byte{profile.ScopeJSON}, profile.SiteID); err != nil {
+			return sqlc.CurtailmentResponseProfile{}, err
+		}
+		if err := lockResponseProfileInfrastructureDevicesForWrite(ctx, q, profile.OrgID, expectedInfrastructureDevices); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
 		return q.InsertCurtailmentResponseProfile(ctx, insertResponseProfileParams(profile))
@@ -199,11 +244,16 @@ func (s *SQLCurtailmentStore) CreateResponseProfile(ctx context.Context, profile
 func (s *SQLCurtailmentStore) UpdateResponseProfile(
 	ctx context.Context,
 	profile models.ResponseProfile,
+	expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice,
 	expectedSiteID *int64,
 	expectedScopeJSON []byte,
+	expectedFacilityFanSettings models.ResponseProfileFanSettings,
 ) (*models.ResponseProfile, error) {
 	normalizedExpectedScopeJSON := normalizedResponseProfileScopeJSON(expectedScopeJSON)
-	row, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (sqlc.CurtailmentResponseProfile, error) {
+	row, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (sqlc.CurtailmentResponseProfile, error) {
+		if err := lockResponseProfileAutomationMutation(ctx, q, profile.OrgID, profile.ID); err != nil {
+			return sqlc.CurtailmentResponseProfile{}, err
+		}
 		if err := lockResponseProfileSitesForWrite(
 			ctx,
 			q,
@@ -214,7 +264,15 @@ func (s *SQLCurtailmentStore) UpdateResponseProfile(
 		); err != nil {
 			return sqlc.CurtailmentResponseProfile{}, err
 		}
-		row, err := q.UpdateCurtailmentResponseProfile(ctx, updateResponseProfileParams(profile, expectedSiteID, normalizedExpectedScopeJSON))
+		if err := lockResponseProfileInfrastructureDevicesForWrite(ctx, q, profile.OrgID, expectedInfrastructureDevices); err != nil {
+			return sqlc.CurtailmentResponseProfile{}, err
+		}
+		row, err := q.UpdateCurtailmentResponseProfile(ctx, updateResponseProfileParams(
+			profile,
+			expectedSiteID,
+			normalizedExpectedScopeJSON,
+			expectedFacilityFanSettings,
+		))
 		if errors.Is(err, sql.ErrNoRows) {
 			if _, getErr := q.GetCurtailmentResponseProfileByOrg(ctx, sqlc.GetCurtailmentResponseProfileByOrgParams{
 				ID:    profile.ID,
@@ -240,6 +298,7 @@ func (s *SQLCurtailmentStore) DeleteResponseProfile(
 	profileID int64,
 	expectedSiteID *int64,
 	expectedScopeJSON []byte,
+	expectedFacilityFanSettings models.ResponseProfileFanSettings,
 ) error {
 	count, err := s.CountAutomationRulesByResponseProfile(ctx, orgID, profileID)
 	if err != nil {
@@ -249,10 +308,13 @@ func (s *SQLCurtailmentStore) DeleteResponseProfile(
 		return fleeterror.NewFailedPreconditionError("curtailment response profile is referenced by an automation rule")
 	}
 	rows, err := s.GetQueries(ctx).DeleteCurtailmentResponseProfileByOrg(ctx, sqlc.DeleteCurtailmentResponseProfileByOrgParams{
-		ID:                profileID,
-		OrgID:             orgID,
-		ExpectedSiteID:    ptrToNullInt64(expectedSiteID),
-		ExpectedScopeJson: normalizedResponseProfileScopeJSON(expectedScopeJSON),
+		ID:                           profileID,
+		OrgID:                        orgID,
+		ExpectedSiteID:               ptrToNullInt64(expectedSiteID),
+		ExpectedScopeJson:            normalizedResponseProfileScopeJSON(expectedScopeJSON),
+		ExpectedFacilityFanDeviceIds: append([]int64{}, expectedFacilityFanSettings.FacilityFanDeviceIDs...),
+		ExpectedFanOffDelaySec:       expectedFacilityFanSettings.FanOffDelaySec,
+		ExpectedFanRestoreDelaySec:   expectedFacilityFanSettings.FanRestoreDelaySec,
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to delete curtailment response profile: %v", err)
@@ -320,14 +382,43 @@ func (s *SQLCurtailmentStore) ListEnabledAutomationRulesByMQTTSource(ctx context
 	return out, nil
 }
 
-func (s *SQLCurtailmentStore) CreateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
-	inserted, err := s.GetQueries(ctx).InsertCurtailmentAutomationRule(ctx, sqlc.InsertCurtailmentAutomationRuleParams{
-		OrgID:             rule.OrgID,
-		RuleName:          rule.RuleName,
-		TriggerType:       string(rule.TriggerType),
-		MqttSourceID:      rule.MQTTSourceID,
-		ResponseProfileID: rule.ResponseProfileID,
-		Enabled:           rule.Enabled,
+func (s *SQLCurtailmentStore) ListMQTTSourcesWithActiveCurtailment(ctx context.Context) ([]*models.MQTTSourceActiveCurtailment, error) {
+	rows, err := s.GetQueries(ctx).ListMQTTSourcesWithActiveCurtailment(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list MQTT sources with active curtailment: %v", err)
+	}
+	out := make([]*models.MQTTSourceActiveCurtailment, len(rows))
+	for i, row := range rows {
+		out[i] = &models.MQTTSourceActiveCurtailment{
+			SourceID:       row.SourceID,
+			OrganizationID: row.OrganizationID,
+			SourceName:     row.SourceName,
+		}
+	}
+	return out, nil
+}
+
+func (s *SQLCurtailmentStore) CreateAutomationRule(
+	ctx context.Context,
+	rule models.AutomationRule,
+	expectedFanSettings models.ResponseProfileFanSettings,
+) (*models.AutomationRule, error) {
+	inserted, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (sqlc.CurtailmentAutomationRule, error) {
+		if err := requireResponseProfileForAutomation(ctx, q, rule.OrgID, rule.ResponseProfileID, expectedFanSettings); err != nil {
+			return sqlc.CurtailmentAutomationRule{}, err
+		}
+		inserted, err := q.InsertCurtailmentAutomationRule(ctx, sqlc.InsertCurtailmentAutomationRuleParams{
+			OrgID:             rule.OrgID,
+			RuleName:          rule.RuleName,
+			TriggerType:       string(rule.TriggerType),
+			MqttSourceID:      rule.MQTTSourceID,
+			ResponseProfileID: rule.ResponseProfileID,
+			Enabled:           rule.Enabled,
+		})
+		if err != nil {
+			return sqlc.CurtailmentAutomationRule{}, mapAutomationRuleWriteError("create", err)
+		}
+		return inserted, nil
 	})
 	if err != nil {
 		return nil, mapAutomationRuleWriteError("create", err)
@@ -335,29 +426,90 @@ func (s *SQLCurtailmentStore) CreateAutomationRule(ctx context.Context, rule mod
 	return s.GetAutomationRule(ctx, inserted.OrgID, inserted.ID)
 }
 
-func (s *SQLCurtailmentStore) UpdateAutomationRule(ctx context.Context, rule models.AutomationRule) (*models.AutomationRule, error) {
-	updated, err := s.GetQueries(ctx).UpdateCurtailmentAutomationRule(ctx, sqlc.UpdateCurtailmentAutomationRuleParams{
-		ID:                rule.ID,
-		OrgID:             rule.OrgID,
-		RuleName:          rule.RuleName,
-		MqttSourceID:      rule.MQTTSourceID,
-		ResponseProfileID: rule.ResponseProfileID,
+func (s *SQLCurtailmentStore) UpdateAutomationRule(
+	ctx context.Context,
+	rule models.AutomationRule,
+	expectedFanSettings models.ResponseProfileFanSettings,
+) (*models.AutomationRule, error) {
+	result, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (automationRuleMutationResult, error) {
+		if err := requireResponseProfileForAutomation(ctx, q, rule.OrgID, rule.ResponseProfileID, expectedFanSettings); err != nil {
+			return automationRuleMutationResult{}, err
+		}
+		updated, err := q.UpdateCurtailmentAutomationRule(ctx, sqlc.UpdateCurtailmentAutomationRuleParams{
+			ID:                rule.ID,
+			OrgID:             rule.OrgID,
+			RuleName:          rule.RuleName,
+			MqttSourceID:      rule.MQTTSourceID,
+			ResponseProfileID: rule.ResponseProfileID,
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return automationRuleMutationResult{noRows: true}, nil
+		}
+		if err != nil {
+			return automationRuleMutationResult{}, mapAutomationRuleWriteError("update", err)
+		}
+		return automationRuleMutationResult{rule: updated}, err
 	})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, s.automationRuleLifecycleNoRowsError(ctx, "update", rule.OrgID, rule.ID)
-		}
 		return nil, mapAutomationRuleWriteError("update", err)
 	}
-	return s.GetAutomationRule(ctx, updated.OrgID, updated.ID)
+	if result.noRows {
+		return nil, s.automationRuleLifecycleNoRowsError(ctx, "update", rule.OrgID, rule.ID)
+	}
+	return s.GetAutomationRule(ctx, result.rule.OrgID, result.rule.ID)
 }
 
-func (s *SQLCurtailmentStore) SetAutomationRuleEnabled(ctx context.Context, orgID, ruleID int64, enabled bool) (*models.AutomationRule, error) {
-	updated, err := s.GetQueries(ctx).SetCurtailmentAutomationRuleEnabled(ctx, sqlc.SetCurtailmentAutomationRuleEnabledParams{
-		ID:      ruleID,
-		OrgID:   orgID,
-		Enabled: enabled,
-	})
+func (s *SQLCurtailmentStore) SetAutomationRuleEnabled(
+	ctx context.Context,
+	orgID,
+	ruleID int64,
+	enabled bool,
+	expectedFanSettings models.ResponseProfileFanSettings,
+) (*models.AutomationRule, error) {
+	var updated sqlc.CurtailmentAutomationRule
+	var err error
+	if enabled {
+		result, txErr := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (automationRuleMutationResult, error) {
+			rule, err := q.GetCurtailmentAutomationRuleByOrg(ctx, sqlc.GetCurtailmentAutomationRuleByOrgParams{
+				ID:    ruleID,
+				OrgID: orgID,
+			})
+			if errors.Is(err, sql.ErrNoRows) {
+				return automationRuleMutationResult{noRows: true}, nil
+			}
+			if err != nil {
+				return automationRuleMutationResult{}, err
+			}
+			if err := requireResponseProfileForAutomation(ctx, q, orgID, rule.ResponseProfileID, expectedFanSettings); err != nil {
+				return automationRuleMutationResult{}, err
+			}
+			updated, err := q.SetCurtailmentAutomationRuleEnabled(ctx, sqlc.SetCurtailmentAutomationRuleEnabledParams{
+				ID:      ruleID,
+				OrgID:   orgID,
+				Enabled: true,
+			})
+			if errors.Is(err, sql.ErrNoRows) {
+				return automationRuleMutationResult{noRows: true}, nil
+			}
+			if err != nil {
+				return automationRuleMutationResult{}, mapAutomationRuleWriteError("enable", err)
+			}
+			return automationRuleMutationResult{rule: updated}, err
+		})
+		if txErr != nil {
+			return nil, mapAutomationRuleWriteError("enable", txErr)
+		}
+		if result.noRows {
+			return nil, fleeterror.NewNotFoundErrorf("curtailment automation rule not found: %d", ruleID)
+		}
+		updated = result.rule
+	} else {
+		updated, err = s.GetQueries(ctx).SetCurtailmentAutomationRuleEnabled(ctx, sqlc.SetCurtailmentAutomationRuleEnabledParams{
+			ID:      ruleID,
+			OrgID:   orgID,
+			Enabled: false,
+		})
+	}
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			if !enabled {
@@ -399,10 +551,18 @@ func (s *SQLCurtailmentStore) automationRuleLifecycleNoRowsError(ctx context.Con
 }
 
 func (s *SQLCurtailmentStore) nonTerminalAutomationEventError(ctx context.Context, action string, rule *models.AutomationRule) error {
-	if rule == nil || rule.ActiveEventUUID == nil {
+	if rule == nil {
 		return nil
 	}
-	event, err := s.GetEventByUUID(ctx, rule.OrgID, *rule.ActiveEventUUID)
+	var event *models.Event
+	var err error
+	if rule.ActiveEventUUID != nil {
+		event, err = s.GetEventByUUID(ctx, rule.OrgID, *rule.ActiveEventUUID)
+	} else {
+		// The pointer is written after the event starts; the external
+		// reference finds the live event inside that window too.
+		event, err = s.GetEventByExternalReference(ctx, rule.OrgID, "curtailment_automation", strconv.FormatInt(rule.ID, 10))
+	}
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
 			return nil
@@ -442,17 +602,19 @@ func (s *SQLCurtailmentStore) RecordAutomationSignal(ctx context.Context, ruleID
 	return nil
 }
 
-func (s *SQLCurtailmentStore) SetAutomationActiveEvent(ctx context.Context, ruleID int64, eventUUID uuid.UUID, at time.Time) error {
+func (s *SQLCurtailmentStore) SetAutomationActiveEvent(ctx context.Context, ruleID, mqttSourceID int64, eventUUID uuid.UUID, at time.Time) error {
 	rows, err := s.GetQueries(ctx).SetCurtailmentAutomationActiveEvent(ctx, sqlc.SetCurtailmentAutomationActiveEventParams{
 		RuleID:          ruleID,
-		ActiveEventUuid: uuid.NullUUID{UUID: eventUUID, Valid: eventUUID != uuid.Nil},
+		MqttSourceID:    mqttSourceID,
+		ActiveEventUuid: eventUUID,
 		LastStartedAt:   sql.NullTime{Time: at, Valid: !at.IsZero()},
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to set curtailment automation active event: %v", err)
 	}
 	if rows == 0 {
-		return fleeterror.NewFailedPreconditionErrorf("curtailment automation rule %d is disabled", ruleID)
+		return fleeterror.NewFailedPreconditionErrorf(
+			"curtailment automation rule %d is disabled, no longer bound to MQTT source %d, or cannot bind the supplied event", ruleID, mqttSourceID)
 	}
 	return nil
 }
@@ -646,7 +808,7 @@ func mapAutomationRuleWriteError(action string, err error) error {
 	return fleeterror.NewInternalErrorf("failed to %s curtailment automation rule: %v", action, err)
 }
 
-func lockResponseProfileSitesForWrite(ctx context.Context, q *sqlc.Queries, orgID int64, scopeJSONs [][]byte, siteIDs ...*int64) error {
+func lockResponseProfileSitesForWrite(ctx context.Context, q sqlc.Querier, orgID int64, scopeJSONs [][]byte, siteIDs ...*int64) error {
 	var ids []int64
 	for _, scopeJSON := range scopeJSONs {
 		scopeSiteIDs, err := responseProfileScopeSiteIDsForLock(scopeJSON)
@@ -662,6 +824,84 @@ func lockResponseProfileSitesForWrite(ctx context.Context, q *sqlc.Queries, orgI
 				return fleeterror.NewNotFoundErrorf("site not found: %d", siteID)
 			}
 			return fleeterror.NewInternalErrorf("failed to lock site for curtailment response profile write: %v", err)
+		}
+	}
+	return nil
+}
+
+func lockResponseProfileAutomationMutation(ctx context.Context, q sqlc.Querier, orgID, profileID int64) error {
+	if err := q.LockCurtailmentResponseProfileAutomationMutation(ctx, sqlc.LockCurtailmentResponseProfileAutomationMutationParams{
+		OrgID:     orgID,
+		ProfileID: profileID,
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to lock response profile automation mutation: %v", err)
+	}
+	return nil
+}
+
+func requireResponseProfileForAutomation(
+	ctx context.Context,
+	q sqlc.Querier,
+	orgID,
+	profileID int64,
+	expectedFanSettings models.ResponseProfileFanSettings,
+) error {
+	if err := lockResponseProfileAutomationMutation(ctx, q, orgID, profileID); err != nil {
+		return err
+	}
+	profile, err := q.GetCurtailmentResponseProfileByOrg(ctx, sqlc.GetCurtailmentResponseProfileByOrgParams{
+		ID:    profileID,
+		OrgID: orgID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return fleeterror.NewNotFoundErrorf("curtailment response profile not found: %d", profileID)
+	}
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to get response profile during automation mutation: %v", err)
+	}
+	if !responseProfileFanSettingsMatch(profile, expectedFanSettings) {
+		return fleeterror.NewFailedPreconditionError("curtailment response profile changed before automation rule save; retry")
+	}
+	return nil
+}
+
+func responseProfileFanSettingsMatch(
+	profile sqlc.CurtailmentResponseProfile,
+	expected models.ResponseProfileFanSettings,
+) bool {
+	return slices.Equal(profile.FacilityFanDeviceIds, expected.FacilityFanDeviceIDs) &&
+		profile.FanOffDelaySec == expected.FanOffDelaySec &&
+		profile.FanRestoreDelaySec == expected.FanRestoreDelaySec
+}
+
+func lockResponseProfileInfrastructureDevicesForWrite(
+	ctx context.Context,
+	q sqlc.Querier,
+	orgID int64,
+	expected map[int64]models.ResponseProfileInfrastructureDevice,
+) error {
+	if len(expected) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(expected))
+	for id := range expected {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	rows, err := q.LockInfrastructureDevicesForResponseProfile(ctx, sqlc.LockInfrastructureDevicesForResponseProfileParams{
+		OrgID:                   orgID,
+		InfrastructureDeviceIds: ids,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to lock infrastructure devices for curtailment response profile: %v", err)
+	}
+	if len(rows) != len(expected) {
+		return fleeterror.NewFailedPreconditionError("infrastructure devices changed before response profile save; retry")
+	}
+	for _, row := range rows {
+		device, ok := expected[row.ID]
+		if !ok || device.SiteID != row.SiteID {
+			return fleeterror.NewFailedPreconditionError("infrastructure devices changed before response profile save; retry")
 		}
 	}
 	return nil
@@ -736,21 +976,91 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 		)
 	}
 	replayRace := false
-	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.InsertEventResult, error) {
+	result, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (*models.InsertEventResult, error) {
+		if replay, err := lookupReplayEventInTx(ctx, q, event); err != nil {
+			return nil, err
+		} else if replay != nil {
+			replayRace = true
+			return nil, nil
+		}
+
 		scopeSiteIDs, usesScopeGuard, err := hierarchicalScopeSiteIDs(event)
 		if err != nil {
 			return nil, err
+		}
+		fanIDs := uniqueSortedInt64s(event.FacilityFanDeviceIDs)
+		if len(fanIDs) != len(event.FacilityFanDeviceIDs) {
+			return nil, fleeterror.NewInvalidArgumentError("facility fan device IDs must be positive and unique")
+		}
+		if event.ExpectedFacilityFanSites != nil && len(event.ExpectedFacilityFanSites) != len(fanIDs) {
+			return nil, fleeterror.NewFailedPreconditionError("facility fan authorization changed; retry the request")
+		}
+		usesFanGuard := !event.State.IsTerminal() && len(fanIDs) > 0
+		if usesFanGuard {
+			for _, fanID := range fanIDs {
+				if err := q.LockCurtailmentFanDeviceForWrite(ctx, strconv.FormatInt(fanID, 10)); err != nil {
+					return nil, fleeterror.NewInternalErrorf("failed to lock facility fan claim: %v", err)
+				}
+			}
 		}
 		if usesScopeGuard {
 			if err := q.LockCurtailmentScopeForWrite(ctx, strconv.FormatInt(event.OrgID, 10)); err != nil {
 				return nil, fleeterror.NewInternalErrorf("failed to lock curtailment scope: %v", err)
 			}
+		}
+		// The fast-path lookup above can race another identical Start. Once all
+		// claim locks are held, recheck before reporting the winner as a fan or
+		// scope conflict instead of an idempotent replay.
+		if usesFanGuard || usesScopeGuard {
 			if replay, err := lookupReplayEventInTx(ctx, q, event); err != nil {
 				return nil, err
 			} else if replay != nil {
 				replayRace = true
 				return nil, nil
 			}
+		}
+		fanSiteIDs := make([]int64, len(event.FacilityFanDeviceIDs))
+		if len(fanIDs) > 0 {
+			lockedFans, err := q.LockCurtailmentFanDevicesForWrite(ctx, sqlc.LockCurtailmentFanDevicesForWriteParams{
+				OrgID:                   event.OrgID,
+				InfrastructureDeviceIds: fanIDs,
+			})
+			if err != nil {
+				return nil, fleeterror.NewInternalErrorf("failed to lock facility fans: %v", err)
+			}
+			if len(lockedFans) != len(fanIDs) {
+				return nil, fleeterror.NewFailedPreconditionError("facility fan authorization changed; retry the request")
+			}
+			siteByFanID := make(map[int64]int64, len(lockedFans))
+			for _, fan := range lockedFans {
+				expectedSiteID, hasExpectedSite := event.ExpectedFacilityFanSites[fan.ID]
+				if event.ExpectedFacilityFanSites != nil && (!hasExpectedSite || expectedSiteID != fan.SiteID) {
+					return nil, fleeterror.NewFailedPreconditionError("facility fan authorization changed; retry the request")
+				}
+				siteByFanID[fan.ID] = fan.SiteID
+			}
+			for index, fanID := range event.FacilityFanDeviceIDs {
+				siteID, ok := siteByFanID[fanID]
+				if !ok {
+					return nil, fleeterror.NewFailedPreconditionError("facility fan authorization changed; retry the request")
+				}
+				fanSiteIDs[index] = siteID
+			}
+		}
+		if usesFanGuard {
+			conflicts, err := q.CountConflictingCurtailmentFanClaims(ctx, sqlc.CountConflictingCurtailmentFanClaimsParams{
+				OrgID:                event.OrgID,
+				ExcludedEventID:      0,
+				FacilityFanDeviceIds: fanIDs,
+			})
+			if err != nil {
+				return nil, fleeterror.NewInternalErrorf("failed to check facility fan claims: %v", err)
+			}
+			if conflicts > 0 {
+				return nil, fleeterror.NewAlreadyExistsError("one or more facility fans are already claimed by a non-terminal curtailment event or unresolved terminal fan recovery")
+			}
+		}
+		if usesScopeGuard {
 			conflicts, err := q.CountCurtailmentScopeConflicts(ctx, sqlc.CountCurtailmentScopeConflictsParams{
 				OrgID:     event.OrgID,
 				Mode:      string(event.Mode),
@@ -765,6 +1075,8 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 				return nil, fleeterror.NewAlreadyExistsError("a non-terminal curtailment event already owns this scope")
 			}
 		}
+		// pq.Array encodes a nil slice as SQL NULL. Keep the empty fan list
+		// non-nil because the column is NOT NULL with an empty-array default.
 		row, err := q.InsertCurtailmentEvent(ctx, sqlc.InsertCurtailmentEventParams{
 			EventUuid:                   event.EventUUID,
 			OrgID:                       event.OrgID,
@@ -787,6 +1099,10 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			IncludeMaintenance:          event.IncludeMaintenance,
 			ForceIncludeMaintenance:     event.ForceIncludeMaintenance,
 			ForceIncludeAllPairedMiners: event.ForceIncludeAllPairedMiners,
+			FacilityFanDeviceIds:        append([]int64{}, event.FacilityFanDeviceIDs...),
+			FacilityFanSiteIds:          fanSiteIDs,
+			FanOffDelaySec:              event.FanOffDelaySec,
+			FanRestoreDelaySec:          event.FanRestoreDelaySec,
 			DecisionSnapshotJsonb:       event.DecisionSnapshotJSON,
 			SourceActorType:             string(event.SourceActorType),
 			SourceActorID:               ptrToNullString(event.SourceActorID),
@@ -947,7 +1263,7 @@ func containsNonPositiveInt64(values []int64) bool {
 	return false
 }
 
-func lookupReplayEventInTx(ctx context.Context, q *sqlc.Queries, event models.InsertEventParams) (*models.Event, error) {
+func lookupReplayEventInTx(ctx context.Context, q sqlc.Querier, event models.InsertEventParams) (*models.Event, error) {
 	if event.IdempotencyKey != nil {
 		row, err := q.GetCurtailmentEventByIdempotencyKey(ctx, sqlc.GetCurtailmentEventByIdempotencyKeyParams{
 			OrgID:          event.OrgID,
@@ -1160,7 +1476,7 @@ func (s *SQLCurtailmentStore) AdminTerminateEvent(
 	targetState models.EventState,
 	reason string,
 ) (*models.Event, bool, error) {
-	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (adminTerminateResult, error) {
+	result, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (adminTerminateResult, error) {
 		current, err := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
 			EventUuid: eventUUID,
 			OrgID:     orgID,
@@ -1243,67 +1559,155 @@ func (s *SQLCurtailmentStore) AdminTerminateEvent(
 	return result.event, result.transitioned, nil
 }
 
+func (s *SQLCurtailmentStore) AdminTerminateEventWithFanRecovery(
+	ctx context.Context,
+	orgID int64,
+	eventUUID uuid.UUID,
+	targetState models.EventState,
+	reason string,
+	command func(context.Context, *models.Event) *string,
+) (*models.Event, bool, error) {
+	if command == nil {
+		return nil, false, fleeterror.NewInvalidArgumentError("admin-terminate fan recovery command is required")
+	}
+	result, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (adminTerminateResult, error) {
+		current, err := q.LockCurtailmentEventByUUIDForWrite(ctx, sqlc.LockCurtailmentEventByUUIDForWriteParams{
+			EventUuid: eventUUID,
+			OrgID:     orgID,
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return adminTerminateResult{}, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+		}
+		if err != nil {
+			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to lock curtailment event for admin termination: %v", err)
+		}
+
+		currentState := models.EventState(current.State)
+		if currentState == targetState {
+			return adminTerminateResult{event: convertEventRow(current), transitioned: false}, nil
+		}
+		if currentState.IsTerminal() {
+			return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateStateConflict
+		}
+
+		hasInFlight, err := q.CurtailmentEventHasInFlightTargets(ctx, current.ID)
+		if err != nil {
+			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to check in-flight targets: %v", err)
+		}
+		if hasInFlight || currentState == models.EventStateActive {
+			return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateActiveEvent
+		}
+
+		recoveryEvent := convertEventRow(current)
+		if len(recoveryEvent.FacilityFanDeviceIDs) > 0 {
+			now := time.Now().UTC()
+			params := interfaces.UpdateCurtailmentFanStateParams{
+				ExpectedEventState: currentState,
+			}
+			if recoveryEvent.FanOnSentAt == nil {
+				params.FanOnSentAt = &now
+			}
+			if _, err := s.commandFanStateWithQueries(ctx, q, recoveryEvent.ID, params, func(commandCtx context.Context) *string {
+				return command(commandCtx, recoveryEvent)
+			}); err != nil {
+				return adminTerminateResult{}, err
+			}
+		}
+
+		updated, err := q.AdminTerminateCurtailmentEvent(ctx, sqlc.AdminTerminateCurtailmentEventParams{
+			ID:          current.ID,
+			OrgID:       orgID,
+			TargetState: string(targetState),
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return adminTerminateResult{}, interfaces.ErrCurtailmentEventStateRaceLoss
+		}
+		if err != nil {
+			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to terminate curtailment event: %v", err)
+		}
+
+		if err := q.SweepCurtailmentTargetsToRestoreFailed(ctx, sqlc.SweepCurtailmentTargetsToRestoreFailedParams{
+			CurtailmentEventID: current.ID,
+			LastError:          reason,
+		}); err != nil {
+			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to sweep curtailment targets: %v", err)
+		}
+
+		return adminTerminateResult{event: convertEventRow(updated), transitioned: true}, nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return result.event, result.transitioned, nil
+}
+
 func (s *SQLCurtailmentStore) ForceReleaseEvent(
 	ctx context.Context,
 	orgID int64,
 	eventUUID uuid.UUID,
 	reason string,
 ) (interfaces.ForceReleaseEventResult, error) {
-	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (interfaces.ForceReleaseEventResult, error) {
-		updated, err := q.ForceReleaseCurtailmentEvent(ctx, sqlc.ForceReleaseCurtailmentEventParams{
+	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (interfaces.ForceReleaseEventResult, error) {
+		return s.forceReleaseEvent(ctx, q, orgID, eventUUID, reason)
+	})
+}
+
+func (s *SQLCurtailmentStore) forceReleaseEvent(
+	ctx context.Context,
+	q sqlc.Querier,
+	orgID int64,
+	eventUUID uuid.UUID,
+	reason string,
+) (interfaces.ForceReleaseEventResult, error) {
+	updated, err := q.ForceReleaseCurtailmentEvent(ctx, sqlc.ForceReleaseCurtailmentEventParams{
+		EventUuid: eventUUID,
+		OrgID:     orgID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		current, getErr := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
 			EventUuid: eventUUID,
 			OrgID:     orgID,
 		})
-		if errors.Is(err, sql.ErrNoRows) {
-			current, getErr := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
-				EventUuid: eventUUID,
-				OrgID:     orgID,
-			})
-			if errors.Is(getErr, sql.ErrNoRows) {
-				return interfaces.ForceReleaseEventResult{}, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
-			}
-			if getErr != nil {
-				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to re-read curtailment event after force-release race: %v", getErr)
-			}
-			return interfaces.ForceReleaseEventResult{Event: convertEventRow(current)}, nil
+		if errors.Is(getErr, sql.ErrNoRows) {
+			return interfaces.ForceReleaseEventResult{}, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
 		}
-		if err != nil {
-			return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to force-release curtailment event: %v", err)
+		if getErr != nil {
+			return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to re-read curtailment event after force-release race: %v", getErr)
 		}
+		return interfaces.ForceReleaseEventResult{Event: convertEventRow(current)}, nil
+	}
+	if err != nil {
+		return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to force-release curtailment event: %v", err)
+	}
 
-		swept, err := q.SweepCurtailmentTargetsToReleased(ctx, sqlc.SweepCurtailmentTargetsToReleasedParams{
-			CurtailmentEventID: updated.ID,
-			LastError:          reason,
-		})
-		if err != nil {
-			return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to sweep curtailment targets for force release: %v", err)
-		}
-
-		event := convertEventRow(updated)
-		var disabledAutomationRows int64
-		if isAutomationEvent(event) {
-			disabled, err := q.DisableCurtailmentAutomationRuleByActiveEvent(ctx, sqlc.DisableCurtailmentAutomationRuleByActiveEventParams{
-				OrgID:             orgID,
-				EventUuid:         uuid.NullUUID{UUID: eventUUID, Valid: eventUUID != uuid.Nil},
-				ExternalReference: nullStringFromPtr(event.ExternalReference),
-			})
-			if err != nil {
-				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to disable curtailment automation after force release: %v", err)
-			}
-			disabledAutomationRows = disabled
-		}
-
-		return interfaces.ForceReleaseEventResult{
-			Event:              event,
-			SweptTargets:       swept,
-			OwnershipReleased:  true,
-			AutomationDisabled: disabledAutomationRows > 0,
-		}, nil
+	swept, err := q.SweepCurtailmentTargetsToReleased(ctx, sqlc.SweepCurtailmentTargetsToReleasedParams{
+		CurtailmentEventID: updated.ID,
+		LastError:          reason,
 	})
 	if err != nil {
-		return interfaces.ForceReleaseEventResult{}, err
+		return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to sweep curtailment targets for force release: %v", err)
 	}
-	return result, nil
+
+	event := convertEventRow(updated)
+	var disabledAutomationRows int64
+	if isAutomationEvent(event) {
+		disabled, err := q.DisableCurtailmentAutomationRuleByActiveEvent(ctx, sqlc.DisableCurtailmentAutomationRuleByActiveEventParams{
+			OrgID:             orgID,
+			EventUuid:         uuid.NullUUID{UUID: eventUUID, Valid: eventUUID != uuid.Nil},
+			ExternalReference: nullStringFromPtr(event.ExternalReference),
+		})
+		if err != nil {
+			return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to disable curtailment automation after force release: %v", err)
+		}
+		disabledAutomationRows = disabled
+	}
+
+	return interfaces.ForceReleaseEventResult{
+		Event:              event,
+		SweptTargets:       swept,
+		OwnershipReleased:  true,
+		AutomationDisabled: disabledAutomationRows > 0,
+	}, nil
 }
 
 func isAutomationEvent(event *models.Event) bool {
@@ -1475,15 +1879,16 @@ func (s *SQLCurtailmentStore) GetTargetRollupByEvent(ctx context.Context, orgID 
 		return nil, fleeterror.NewInternalErrorf("failed to get curtailment target rollup: %v", err)
 	}
 	return &models.TargetRollup{
-		Pending:       row.Pending,
-		Dispatched:    row.Dispatched,
-		Confirmed:     row.Confirmed,
-		Drifted:       row.Drifted,
-		Resolved:      row.Resolved,
-		Released:      row.Released,
-		RestoreFailed: row.RestoreFailed,
-		Unavailable:   row.Unavailable,
-		Total:         row.Total,
+		Pending:            row.Pending,
+		Dispatched:         row.Dispatched,
+		Confirmed:          row.Confirmed,
+		Drifted:            row.Drifted,
+		Resolved:           row.Resolved,
+		Released:           row.Released,
+		RestoreFailed:      row.RestoreFailed,
+		Unavailable:        row.Unavailable,
+		Total:              row.Total,
+		UnavailableReasons: parseTargetUnavailableReasonCounts(row.UnavailableReasons),
 	}, nil
 }
 
@@ -1536,6 +1941,86 @@ func (s *SQLCurtailmentStore) ListNonTerminalEvents(ctx context.Context) ([]*mod
 	return out, nil
 }
 
+func (s *SQLCurtailmentStore) ListEligibleConfirmationTargets(
+	ctx context.Context,
+	cursor interfaces.ConfirmationPageCursor,
+) ([]models.ConfirmationTarget, error) {
+	rows, err := s.GetQueries(ctx).ListEligibleConfirmationTargets(ctx, sqlc.ListEligibleConfirmationTargetsParams{
+		AfterEventID:          cursor.AfterEventID,
+		AfterDeviceIdentifier: cursor.AfterDeviceIdentifier,
+		PageSize:              interfaces.ConfirmationBatchSize,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list eligible confirmation targets: %v", err)
+	}
+	out := make([]models.ConfirmationTarget, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, models.ConfirmationTarget{
+			EventID:                     row.EventID,
+			EventUUID:                   row.EventUuid,
+			OrgID:                       row.OrgID,
+			EventState:                  models.EventState(row.EventState),
+			DeviceDatabaseID:            row.DeviceDatabaseID,
+			DeviceIdentifier:            row.DeviceIdentifier,
+			DesiredState:                row.DesiredState,
+			BaselinePowerW:              nullStringToFloat64Ptr(row.BaselinePowerW),
+			BatchUUID:                   row.PhaseBatchUuid,
+			PairingStatus:               row.PairingStatus,
+			ForceIncludeAllPairedMiners: row.ForceIncludeAllPairedMiners,
+		})
+	}
+	return out, nil
+}
+
+type confirmationUpdateRow struct {
+	DeviceDatabaseID int64     `json:"device_database_id"`
+	DeviceIdentifier string    `json:"device_identifier"`
+	Phase            string    `json:"phase"`
+	BatchUUID        string    `json:"batch_uuid"`
+	ObservedPowerW   *float64  `json:"observed_power_w"`
+	ObservedAt       time.Time `json:"observed_at"`
+	ConfirmedAt      time.Time `json:"confirmed_at"`
+}
+
+func (s *SQLCurtailmentStore) BulkConfirmTargets(
+	ctx context.Context,
+	eventID int64,
+	expectedEventState models.EventState,
+	updates []interfaces.ConfirmationUpdate,
+) (interfaces.ConfirmationBulkResult, error) {
+	if len(updates) == 0 {
+		return interfaces.ConfirmationBulkResult{}, nil
+	}
+	rows := make([]confirmationUpdateRow, len(updates))
+	for i, update := range updates {
+		rows[i] = confirmationUpdateRow{
+			DeviceDatabaseID: update.DeviceDatabaseID,
+			DeviceIdentifier: update.DeviceIdentifier,
+			Phase:            string(update.Phase),
+			BatchUUID:        update.BatchUUID,
+			ObservedPowerW:   update.ObservedPowerW,
+			ObservedAt:       update.ObservedAt,
+			ConfirmedAt:      update.ConfirmedAt,
+		}
+	}
+	payload, err := json.Marshal(rows)
+	if err != nil {
+		return interfaces.ConfirmationBulkResult{}, fleeterror.NewInternalErrorf("encode confirmation update payload: %v", err)
+	}
+	applied, err := s.GetQueries(ctx).BulkConfirmCurtailmentTargets(ctx, sqlc.BulkConfirmCurtailmentTargetsParams{
+		CurtailmentEventID: eventID,
+		ExpectedEventState: string(expectedEventState),
+		UpdatesJsonb:       payload,
+	})
+	if err != nil {
+		return interfaces.ConfirmationBulkResult{}, fleeterror.NewInternalErrorf("bulk confirm curtailment targets for event %d: %v", eventID, err)
+	}
+	return interfaces.ConfirmationBulkResult{
+		AppliedCount:            int(applied.AppliedCount),
+		SampleDeviceIdentifiers: applied.SampleDeviceIdentifiers,
+	}, nil
+}
+
 func (s *SQLCurtailmentStore) UpdateEventState(ctx context.Context, eventID int64, expectedState models.EventState, state models.EventState, startedAt *time.Time, endedAt *time.Time) error {
 	rows, err := s.GetQueries(ctx).UpdateCurtailmentEventState(ctx, sqlc.UpdateCurtailmentEventStateParams{
 		ID:            eventID,
@@ -1553,20 +2038,289 @@ func (s *SQLCurtailmentStore) UpdateEventState(ctx context.Context, eventID int6
 	return nil
 }
 
+func (s *SQLCurtailmentStore) RecordCurtailPendingDispatch(ctx context.Context, eventID int64, expectedState models.EventState, dispatchedAt time.Time) error {
+	rows, err := s.GetQueries(ctx).RecordCurtailPendingDispatch(ctx, sqlc.RecordCurtailPendingDispatchParams{
+		ID:            eventID,
+		ExpectedState: string(expectedState),
+		DispatchedAt:  ptrToNullTime(&dispatchedAt),
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to record curtail pending dispatch for event %d: %v", eventID, err)
+	}
+	if rows == 0 {
+		return interfaces.ErrCurtailmentEventStateRaceLoss
+	}
+	return nil
+}
+
+func (s *SQLCurtailmentStore) CommandFanState(
+	ctx context.Context,
+	eventID int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) (*string, error) {
+	if params.ExpectedEventState.IsTerminal() {
+		return nil, fleeterror.NewInvalidArgumentError("terminal fan state must use serialized terminal recovery")
+	}
+	if command == nil {
+		return nil, fleeterror.NewInvalidArgumentError("facility fan command is required")
+	}
+	return s.commandFanState(ctx, eventID, params, command)
+}
+
+func (s *SQLCurtailmentStore) commandFanState(
+	ctx context.Context,
+	eventID int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) (*string, error) {
+	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (*string, error) {
+		return s.commandFanStateWithQueries(ctx, q, eventID, params, command)
+	})
+}
+
+func (s *SQLCurtailmentStore) commandFanStateWithQueries(
+	ctx context.Context,
+	q sqlc.Querier,
+	eventID int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) (*string, error) {
+	_, err := q.LockCurtailmentEventForFanCommand(ctx, sqlc.LockCurtailmentEventForFanCommandParams{
+		ID:            eventID,
+		ExpectedState: string(params.ExpectedEventState),
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, interfaces.ErrCurtailmentEventStateRaceLoss
+	}
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to lock curtailment event %d for fan command: %v", eventID, err)
+	}
+
+	lastError := command(ctx)
+	fanAirflowReopenedAt := params.FanAirflowReopenedAt
+	if lastError == nil && params.FanAirflowReopenedAtOnSuccess != nil {
+		fanAirflowReopenedAt = params.FanAirflowReopenedAtOnSuccess
+		// A successful command replaces an old phase's marker rather than
+		// clearing the newly confirmed airflow timestamp.
+		params.ClearFanAirflowReopenedAt = false
+	}
+	rows, err := q.UpdateCurtailmentEventFanState(ctx, sqlc.UpdateCurtailmentEventFanStateParams{
+		ID:                        eventID,
+		ExpectedState:             string(params.ExpectedEventState),
+		FanOffSentAt:              ptrToNullTime(params.FanOffSentAt),
+		FanOnSentAt:               ptrToNullTime(params.FanOnSentAt),
+		FanAirflowReopenedAt:      ptrToNullTime(fanAirflowReopenedAt),
+		ClearFanAirflowReopenedAt: params.ClearFanAirflowReopenedAt,
+		FanLastError:              ptrToNullString(lastError),
+	})
+	if err != nil {
+		return lastError, fleeterror.NewInternalErrorf("failed to update curtailment event %d fan state: %v", eventID, err)
+	}
+	if rows == 0 {
+		return lastError, interfaces.ErrCurtailmentEventStateRaceLoss
+	}
+	return lastError, nil
+}
+
+func (s *SQLCurtailmentStore) ForceReleaseEventWithFanRecovery(
+	ctx context.Context,
+	orgID int64,
+	eventUUID uuid.UUID,
+	reason string,
+	eventID int64,
+	facilityFanDeviceIDs []int64,
+	facilityFanSiteIDs []int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) (interfaces.ForceReleaseEventResult, error) {
+	if params.ExpectedEventState != models.EventStateCancelled {
+		return interfaces.ForceReleaseEventResult{}, fleeterror.NewInvalidArgumentError(
+			"force-release fan recovery requires cancelled expected event state",
+		)
+	}
+	fanIDs := uniqueSortedInt64s(facilityFanDeviceIDs)
+	if len(fanIDs) == 0 || len(fanIDs) != len(facilityFanDeviceIDs) || len(facilityFanSiteIDs) != len(facilityFanDeviceIDs) {
+		return interfaces.ForceReleaseEventResult{}, fleeterror.NewInvalidArgumentError(
+			"force-release fan recovery requires positive unique facility fan IDs",
+		)
+	}
+	expectedSiteByFanID := make(map[int64]int64, len(facilityFanDeviceIDs))
+	for index, fanID := range facilityFanDeviceIDs {
+		if facilityFanSiteIDs[index] <= 0 {
+			return interfaces.ForceReleaseEventResult{}, fleeterror.NewInvalidArgumentError(
+				"force-release fan recovery requires positive aligned facility fan site IDs",
+			)
+		}
+		expectedSiteByFanID[fanID] = facilityFanSiteIDs[index]
+	}
+	if command == nil {
+		return interfaces.ForceReleaseEventResult{}, fleeterror.NewInvalidArgumentError(
+			"force-release fan recovery command is required",
+		)
+	}
+
+	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (interfaces.ForceReleaseEventResult, error) {
+		for _, fanID := range fanIDs {
+			if err := q.LockCurtailmentFanDeviceForWrite(ctx, strconv.FormatInt(fanID, 10)); err != nil {
+				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to lock force-release facility fan claim: %v", err)
+			}
+		}
+		for _, fanID := range fanIDs {
+			_, lockErr := q.LockInfrastructureDeviceForWrite(ctx, sqlc.LockInfrastructureDeviceForWriteParams{
+				ID:             fanID,
+				OrgID:          orgID,
+				ExpectedSiteID: expectedSiteByFanID[fanID],
+			})
+			if errors.Is(lockErr, sql.ErrNoRows) {
+				return interfaces.ForceReleaseEventResult{}, fleeterror.NewFailedPreconditionErrorf(
+					"facility fan %d moved or was deleted after curtailment started", fanID,
+				)
+			}
+			if lockErr != nil {
+				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf("failed to lock force-release facility fan device %d: %v", fanID, lockErr)
+			}
+		}
+
+		result, releaseErr := s.forceReleaseEvent(ctx, q, orgID, eventUUID, reason)
+		if releaseErr != nil {
+			return interfaces.ForceReleaseEventResult{}, releaseErr
+		}
+		if !result.OwnershipReleased {
+			if result.Event == nil || !result.Event.State.IsTerminal() || result.Event.ID != eventID {
+				return interfaces.ForceReleaseEventResult{}, interfaces.ErrCurtailmentEventStateRaceLoss
+			}
+			claims, claimErr := q.CountConflictingCurtailmentFanClaims(ctx, sqlc.CountConflictingCurtailmentFanClaimsParams{
+				OrgID:                orgID,
+				ExcludedEventID:      eventID,
+				FacilityFanDeviceIds: fanIDs,
+			})
+			if claimErr != nil {
+				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf(
+					"failed to check newer facility fan claims after force-release race: %v", claimErr,
+				)
+			}
+			if claims > 0 {
+				return interfaces.ForceReleaseEventResult{}, fleeterror.NewFailedPreconditionError(
+					"facility fans are claimed by a newer active curtailment event; recover that event instead",
+				)
+			}
+			// The reconciler won the terminal transition after the service's
+			// preload. The fan locks still exclude a new owner, so recover the
+			// returned terminal row instead of silently skipping the promised ON.
+			params.ExpectedEventState = result.Event.State
+		}
+
+		lastError, commandErr := s.commandFanStateWithQueries(ctx, q, eventID, params, command)
+		if commandErr != nil {
+			return interfaces.ForceReleaseEventResult{}, commandErr
+		}
+		if result.Event != nil {
+			if params.FanOnSentAt != nil {
+				result.Event.FanOnSentAt = params.FanOnSentAt
+			}
+			result.Event.FanLastError = lastError
+		}
+		return result, nil
+	})
+}
+
+func (s *SQLCurtailmentStore) RecoverTerminalFanState(
+	ctx context.Context,
+	eventID, orgID int64,
+	facilityFanDeviceIDs []int64,
+	facilityFanSiteIDs []int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) error {
+	if !params.ExpectedEventState.IsTerminal() {
+		return fleeterror.NewInvalidArgumentError("terminal fan recovery requires a terminal expected event state")
+	}
+	fanIDs := uniqueSortedInt64s(facilityFanDeviceIDs)
+	if len(fanIDs) == 0 || len(fanIDs) != len(facilityFanDeviceIDs) || len(facilityFanSiteIDs) != len(facilityFanDeviceIDs) {
+		return fleeterror.NewInvalidArgumentError("terminal fan recovery requires positive unique facility fan IDs")
+	}
+	expectedSiteByFanID := make(map[int64]int64, len(facilityFanDeviceIDs))
+	for index, fanID := range facilityFanDeviceIDs {
+		if facilityFanSiteIDs[index] <= 0 {
+			return fleeterror.NewInvalidArgumentError("terminal fan recovery requires positive aligned facility fan site IDs")
+		}
+		expectedSiteByFanID[fanID] = facilityFanSiteIDs[index]
+	}
+	if command == nil {
+		return fleeterror.NewInvalidArgumentError("terminal fan recovery command is required")
+	}
+
+	_, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (struct{}, error) {
+		for _, fanID := range fanIDs {
+			if err := q.LockCurtailmentFanDeviceForWrite(ctx, strconv.FormatInt(fanID, 10)); err != nil {
+				return struct{}{}, fleeterror.NewInternalErrorf("failed to lock terminal facility fan recovery: %v", err)
+			}
+			_, err := q.LockInfrastructureDeviceForWrite(ctx, sqlc.LockInfrastructureDeviceForWriteParams{
+				ID:             fanID,
+				OrgID:          orgID,
+				ExpectedSiteID: expectedSiteByFanID[fanID],
+			})
+			if errors.Is(err, sql.ErrNoRows) {
+				return struct{}{}, fleeterror.NewFailedPreconditionErrorf(
+					"facility fan %d moved or was deleted after curtailment started", fanID,
+				)
+			}
+			if err != nil {
+				return struct{}{}, fleeterror.NewInternalErrorf("failed to lock terminal facility fan device %d: %v", fanID, err)
+			}
+		}
+		claims, err := q.CountConflictingCurtailmentFanClaims(ctx, sqlc.CountConflictingCurtailmentFanClaimsParams{
+			OrgID:                orgID,
+			ExcludedEventID:      eventID,
+			FacilityFanDeviceIds: fanIDs,
+		})
+		if err != nil {
+			return struct{}{}, fleeterror.NewInternalErrorf("failed to check newer facility fan claims: %v", err)
+		}
+		if claims > 0 {
+			return struct{}{}, fleeterror.NewFailedPreconditionError(
+				"facility fans are claimed by a newer active curtailment event; recover that event instead",
+			)
+		}
+
+		lastError := command(ctx)
+		rows, err := q.UpdateCurtailmentEventFanState(ctx, sqlc.UpdateCurtailmentEventFanStateParams{
+			ID:                        eventID,
+			ExpectedState:             string(params.ExpectedEventState),
+			FanOffSentAt:              ptrToNullTime(params.FanOffSentAt),
+			FanOnSentAt:               ptrToNullTime(params.FanOnSentAt),
+			FanAirflowReopenedAt:      ptrToNullTime(params.FanAirflowReopenedAt),
+			ClearFanAirflowReopenedAt: params.ClearFanAirflowReopenedAt,
+			FanLastError:              ptrToNullString(lastError),
+		})
+		if err != nil {
+			return struct{}{}, fleeterror.NewInternalErrorf("failed to update terminal curtailment event %d fan state: %v", eventID, err)
+		}
+		if rows == 0 {
+			return struct{}{}, interfaces.ErrCurtailmentEventStateRaceLoss
+		}
+		return struct{}{}, nil
+	})
+	return err
+}
+
 func (s *SQLCurtailmentStore) UpdateTargetState(ctx context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
 	rows, err := s.GetQueries(ctx).UpdateCurtailmentTargetState(ctx, sqlc.UpdateCurtailmentTargetStateParams{
-		CurtailmentEventID:   eventID,
-		DeviceIdentifier:     deviceIdentifier,
-		State:                string(params.State),
-		LastDispatchedAt:     ptrToNullTime(params.LastDispatchedAt),
-		LastBatchUuid:        ptrToNullString(params.LastBatchUUID),
-		ObservedPowerW:       ptrFloat64ToNullString(params.ObservedPowerW),
-		ObservedAt:           ptrToNullTime(params.ObservedAt),
-		ConfirmedAt:          ptrToNullTime(params.ConfirmedAt),
-		RetryCount:           ptrToNullInt32(params.RetryCount),
-		LastError:            ptrToNullString(params.LastError),
-		ExpectedEventState:   ptrEventStateToNullString(params.ExpectedEventState),
-		ExpectedDesiredState: ptrToNullString(params.ExpectedDesiredState),
+		CurtailmentEventID:        eventID,
+		DeviceIdentifier:          deviceIdentifier,
+		State:                     string(params.State),
+		LastDispatchedAt:          ptrToNullTime(params.LastDispatchedAt),
+		LastBatchUuid:             ptrToNullString(params.LastBatchUUID),
+		ObservedPowerW:            ptrFloat64ToNullString(params.ObservedPowerW),
+		ObservedAt:                ptrToNullTime(params.ObservedAt),
+		ConfirmedAt:               ptrToNullTime(params.ConfirmedAt),
+		RetryCount:                ptrToNullInt32(params.RetryCount),
+		LastError:                 ptrToNullString(params.LastError),
+		ExpectedEventState:        ptrNamedStringToNullString(params.ExpectedEventState),
+		ExpectedDesiredState:      ptrToNullString(params.ExpectedDesiredState),
+		ExpectedState:             ptrNamedStringToNullString(params.ExpectedState),
+		ExpectedDispatchBatchUuid: ptrToNullString(params.ExpectedDispatchBatchUUID),
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to update curtailment target (%d, %s) state: %v", eventID, deviceIdentifier, err)
@@ -1615,7 +2369,7 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 	eventUUID uuid.UUID,
 	params interfaces.BeginRestoreTransitionParams,
 ) (*models.Event, error) {
-	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.Event, error) {
+	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (*models.Event, error) {
 		current, err := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
 			EventUuid: eventUUID,
 			OrgID:     orgID,
@@ -1680,7 +2434,7 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to get curtailment target rollup before restore: %v", err)
 		}
-		if rollup.Total == 0 {
+		if rollup.Total == 0 && len(current.FacilityFanDeviceIds) == 0 {
 			now := time.Now().UTC()
 			if rows, err := q.UpdateCurtailmentEventState(ctx, sqlc.UpdateCurtailmentEventStateParams{
 				ID:            current.ID,
@@ -1713,7 +2467,7 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 
 func guardAutomationDemandForRestore(
 	ctx context.Context,
-	q *sqlc.Queries,
+	q sqlc.Querier,
 	orgID int64,
 	eventUUID uuid.UUID,
 	guard *interfaces.AutomationDemandGuard,
@@ -1750,7 +2504,7 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 	orgID int64,
 	eventUUID uuid.UUID,
 ) (*models.Event, error) {
-	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.Event, error) {
+	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (*models.Event, error) {
 		current, err := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
 			EventUuid: eventUUID,
 			OrgID:     orgID,
@@ -1831,7 +2585,7 @@ func (s *SQLCurtailmentStore) ClaimClosedLoopFullFleetTargets(
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to encode curtailment target payload: %v", err)
 	}
-	rows, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) ([]sqlc.CurtailmentTarget, error) {
+	rows, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) ([]sqlc.CurtailmentTarget, error) {
 		rows, err := q.ClaimClosedLoopFullFleetTargets(ctx, sqlc.ClaimClosedLoopFullFleetTargetsParams{
 			CurtailmentEventID: eventID,
 			TargetsJsonb:       payload,
@@ -1924,7 +2678,7 @@ func (s *SQLCurtailmentStore) BulkRefreshAllPairedTargetReadiness(
 
 func ensureTargetsOutsideCooldown(
 	ctx context.Context,
-	q *sqlc.Queries,
+	q sqlc.Querier,
 	orgID int64,
 	cooldownSec int32,
 	deviceIdentifiers []string,
@@ -2000,6 +2754,7 @@ func convertEventRow(row sqlc.CurtailmentEvent) *models.Event {
 		row.ModeParamsJsonb,
 		row.CurtailBatchSize,
 		row.CurtailBatchIntervalSec,
+		row.LastCurtailPendingDispatchAt,
 		row.RestoreBatchSize,
 		row.RestoreBatchIntervalSec,
 		row.EffectiveBatchSize,
@@ -2009,6 +2764,14 @@ func convertEventRow(row sqlc.CurtailmentEvent) *models.Event {
 		row.IncludeMaintenance,
 		row.ForceIncludeMaintenance,
 		row.ForceIncludeAllPairedMiners,
+		row.FacilityFanDeviceIds,
+		row.FacilityFanSiteIds,
+		row.FanOffDelaySec,
+		row.FanRestoreDelaySec,
+		row.FanOffSentAt,
+		row.FanOnSentAt,
+		row.FanAirflowReopenedAt,
+		row.FanLastError,
 		row.DecisionSnapshotJsonb,
 		row.SourceActorType,
 		row.SourceActorID,
@@ -2042,6 +2805,7 @@ func convertEventDetailRow(row sqlc.GetCurtailmentEventDetailByUUIDRow) *models.
 		row.ModeParamsJsonb,
 		row.CurtailBatchSize,
 		row.CurtailBatchIntervalSec,
+		row.LastCurtailPendingDispatchAt,
 		row.RestoreBatchSize,
 		row.RestoreBatchIntervalSec,
 		row.EffectiveBatchSize,
@@ -2051,6 +2815,14 @@ func convertEventDetailRow(row sqlc.GetCurtailmentEventDetailByUUIDRow) *models.
 		row.IncludeMaintenance,
 		row.ForceIncludeMaintenance,
 		row.ForceIncludeAllPairedMiners,
+		row.FacilityFanDeviceIds,
+		row.FacilityFanSiteIds,
+		row.FanOffDelaySec,
+		row.FanRestoreDelaySec,
+		row.FanOffSentAt,
+		row.FanOnSentAt,
+		row.FanAirflowReopenedAt,
+		row.FanLastError,
 		row.DecisionSnapshotJsonb,
 		row.SourceActorType,
 		row.SourceActorID,
@@ -2084,6 +2856,7 @@ func convertEventListRow(row sqlc.ListCurtailmentEventsForOrgRow) *models.Event 
 		row.ModeParamsJsonb,
 		row.CurtailBatchSize,
 		row.CurtailBatchIntervalSec,
+		row.LastCurtailPendingDispatchAt,
 		row.RestoreBatchSize,
 		row.RestoreBatchIntervalSec,
 		row.EffectiveBatchSize,
@@ -2093,6 +2866,14 @@ func convertEventListRow(row sqlc.ListCurtailmentEventsForOrgRow) *models.Event 
 		row.IncludeMaintenance,
 		row.ForceIncludeMaintenance,
 		row.ForceIncludeAllPairedMiners,
+		row.FacilityFanDeviceIds,
+		row.FacilityFanSiteIds,
+		row.FanOffDelaySec,
+		row.FanRestoreDelaySec,
+		row.FanOffSentAt,
+		row.FanOnSentAt,
+		row.FanAirflowReopenedAt,
+		row.FanLastError,
 		row.DecisionSnapshotJsonb,
 		row.SourceActorType,
 		row.SourceActorID,
@@ -2111,7 +2892,7 @@ func convertEventListRow(row sqlc.ListCurtailmentEventsForOrgRow) *models.Event 
 }
 
 func convertActiveEventRow(row sqlc.ListActiveCurtailmentEventsRow) *models.Event {
-	return convertEventFields(
+	event := convertEventFields(
 		row.ID,
 		row.EventUuid,
 		row.OrgID,
@@ -2126,6 +2907,7 @@ func convertActiveEventRow(row sqlc.ListActiveCurtailmentEventsRow) *models.Even
 		row.ModeParamsJsonb,
 		row.CurtailBatchSize,
 		row.CurtailBatchIntervalSec,
+		row.LastCurtailPendingDispatchAt,
 		row.RestoreBatchSize,
 		row.RestoreBatchIntervalSec,
 		row.EffectiveBatchSize,
@@ -2135,6 +2917,14 @@ func convertActiveEventRow(row sqlc.ListActiveCurtailmentEventsRow) *models.Even
 		row.IncludeMaintenance,
 		row.ForceIncludeMaintenance,
 		row.ForceIncludeAllPairedMiners,
+		row.FacilityFanDeviceIds,
+		row.FacilityFanSiteIds,
+		row.FanOffDelaySec,
+		row.FanRestoreDelaySec,
+		row.FanOffSentAt,
+		row.FanOnSentAt,
+		row.FanAirflowReopenedAt,
+		row.FanLastError,
 		row.DecisionSnapshotJsonb,
 		row.SourceActorType,
 		row.SourceActorID,
@@ -2150,6 +2940,59 @@ func convertActiveEventRow(row sqlc.ListActiveCurtailmentEventsRow) *models.Even
 		row.CreatedAt,
 		row.UpdatedAt,
 	)
+	// The active-list query aggregates target counts per row; events with no
+	// target rows carry a zeroed (non-nil) rollup so active displays can trust
+	// it as the live target set.
+	event.TargetRollup = &models.TargetRollup{
+		Pending:            row.RollupPending,
+		Dispatched:         row.RollupDispatched,
+		Confirmed:          row.RollupConfirmed,
+		Drifted:            row.RollupDrifted,
+		Resolved:           row.RollupResolved,
+		Released:           row.RollupReleased,
+		RestoreFailed:      row.RollupRestoreFailed,
+		Unavailable:        row.RollupUnavailable,
+		Total:              row.RollupTotal,
+		UnavailableReasons: parseTargetUnavailableReasonCounts(row.RollupUnavailableReasons),
+	}
+	return event
+}
+
+func parseTargetUnavailableReasonCounts(raw json.RawMessage) []models.TargetUnavailableReasonCount {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+
+	var countsByReason map[string]int64
+	if err := json.Unmarshal(raw, &countsByReason); err != nil {
+		// Fail open (the client renders "details unavailable"), but leave a
+		// signal so a broken aggregation pipeline is distinguishable from
+		// normal rollup lag.
+		slog.Error("failed to parse curtailment unavailable reason rollup", "error", err, "raw_len", len(raw))
+		return nil
+	}
+	if len(countsByReason) == 0 {
+		return nil
+	}
+
+	counts := make([]models.TargetUnavailableReasonCount, 0, len(countsByReason))
+	for reason, count := range countsByReason {
+		if count <= 0 {
+			continue
+		}
+		counts = append(counts, models.TargetUnavailableReasonCount{
+			Reason: reason,
+			Count:  count,
+		})
+	}
+
+	sort.Slice(counts, func(i, j int) bool {
+		if counts[i].Count != counts[j].Count {
+			return counts[i].Count > counts[j].Count
+		}
+		return counts[i].Reason < counts[j].Reason
+	})
+	return counts
 }
 
 func convertEventFields(
@@ -2167,6 +3010,7 @@ func convertEventFields(
 	modeParamsJSON []byte,
 	curtailBatchSize sql.NullInt32,
 	curtailBatchIntervalSec int32,
+	lastCurtailPendingDispatchAt sql.NullTime,
 	restoreBatchSize int32,
 	restoreBatchIntervalSec int32,
 	effectiveBatchSize sql.NullInt32,
@@ -2176,6 +3020,14 @@ func convertEventFields(
 	includeMaintenance bool,
 	forceIncludeMaintenance bool,
 	forceIncludeAllPairedMiners bool,
+	facilityFanDeviceIDs []int64,
+	facilityFanSiteIDs []int64,
+	fanOffDelaySec int32,
+	fanRestoreDelaySec int32,
+	fanOffSentAt sql.NullTime,
+	fanOnSentAt sql.NullTime,
+	fanAirflowReopenedAt sql.NullTime,
+	fanLastError sql.NullString,
 	decisionSnapshotJSON []byte,
 	sourceActorType string,
 	sourceActorID sql.NullString,
@@ -2192,43 +3044,52 @@ func convertEventFields(
 	updatedAt time.Time,
 ) *models.Event {
 	return &models.Event{
-		ID:                          id,
-		EventUUID:                   eventUUID,
-		OrgID:                       orgID,
-		State:                       models.EventState(state),
-		Mode:                        models.Mode(mode),
-		Strategy:                    models.Strategy(strategy),
-		Level:                       models.Level(level),
-		Priority:                    models.Priority(priority),
-		LoopType:                    models.LoopType(loopType),
-		ScopeType:                   models.ScopeType(scopeType),
-		ScopeJSON:                   scopeJSON,
-		ModeParamsJSON:              modeParamsJSON,
-		CurtailBatchSize:            nullInt32ToPtr(curtailBatchSize),
-		CurtailBatchIntervalSec:     curtailBatchIntervalSec,
-		RestoreBatchSize:            restoreBatchSize,
-		RestoreBatchIntervalSec:     restoreBatchIntervalSec,
-		EffectiveBatchSize:          nullInt32ToPtr(effectiveBatchSize),
-		MinCurtailedDurationSec:     minCurtailedDurationSec,
-		MaxDurationSeconds:          nullInt32ToPtr(maxDurationSeconds),
-		AllowUnbounded:              allowUnbounded,
-		IncludeMaintenance:          includeMaintenance,
-		ForceIncludeMaintenance:     forceIncludeMaintenance,
-		ForceIncludeAllPairedMiners: forceIncludeAllPairedMiners,
-		DecisionSnapshotJSON:        decisionSnapshotJSON,
-		SourceActorType:             models.SourceActorType(sourceActorType),
-		SourceActorID:               nullStringToPtr(sourceActorID),
-		ExternalSource:              nullStringToPtr(externalSource),
-		ExternalReference:           nullStringToPtr(externalReference),
-		IdempotencyKey:              nullStringToPtr(idempotencyKey),
-		SupersedesEventID:           nullInt64ToPtr(supersedesEventID),
-		Reason:                      reason,
-		ScheduledStartAt:            nullTimeToPtr(scheduledStartAt),
-		StartedAt:                   nullTimeToPtr(startedAt),
-		EndedAt:                     nullTimeToPtr(endedAt),
-		CreatedByUserID:             createdByUserID,
-		CreatedAt:                   createdAt,
-		UpdatedAt:                   updatedAt,
+		ID:                           id,
+		EventUUID:                    eventUUID,
+		OrgID:                        orgID,
+		State:                        models.EventState(state),
+		Mode:                         models.Mode(mode),
+		Strategy:                     models.Strategy(strategy),
+		Level:                        models.Level(level),
+		Priority:                     models.Priority(priority),
+		LoopType:                     models.LoopType(loopType),
+		ScopeType:                    models.ScopeType(scopeType),
+		ScopeJSON:                    scopeJSON,
+		ModeParamsJSON:               modeParamsJSON,
+		CurtailBatchSize:             nullInt32ToPtr(curtailBatchSize),
+		CurtailBatchIntervalSec:      curtailBatchIntervalSec,
+		LastCurtailPendingDispatchAt: nullTimeToPtr(lastCurtailPendingDispatchAt),
+		RestoreBatchSize:             restoreBatchSize,
+		RestoreBatchIntervalSec:      restoreBatchIntervalSec,
+		EffectiveBatchSize:           nullInt32ToPtr(effectiveBatchSize),
+		MinCurtailedDurationSec:      minCurtailedDurationSec,
+		MaxDurationSeconds:           nullInt32ToPtr(maxDurationSeconds),
+		AllowUnbounded:               allowUnbounded,
+		IncludeMaintenance:           includeMaintenance,
+		ForceIncludeMaintenance:      forceIncludeMaintenance,
+		ForceIncludeAllPairedMiners:  forceIncludeAllPairedMiners,
+		FacilityFanDeviceIDs:         append([]int64(nil), facilityFanDeviceIDs...),
+		FacilityFanSiteIDs:           append([]int64(nil), facilityFanSiteIDs...),
+		FanOffDelaySec:               fanOffDelaySec,
+		FanRestoreDelaySec:           fanRestoreDelaySec,
+		FanOffSentAt:                 nullTimeToPtr(fanOffSentAt),
+		FanOnSentAt:                  nullTimeToPtr(fanOnSentAt),
+		FanAirflowReopenedAt:         nullTimeToPtr(fanAirflowReopenedAt),
+		FanLastError:                 nullStringToPtr(fanLastError),
+		DecisionSnapshotJSON:         decisionSnapshotJSON,
+		SourceActorType:              models.SourceActorType(sourceActorType),
+		SourceActorID:                nullStringToPtr(sourceActorID),
+		ExternalSource:               nullStringToPtr(externalSource),
+		ExternalReference:            nullStringToPtr(externalReference),
+		IdempotencyKey:               nullStringToPtr(idempotencyKey),
+		SupersedesEventID:            nullInt64ToPtr(supersedesEventID),
+		Reason:                       reason,
+		ScheduledStartAt:             nullTimeToPtr(scheduledStartAt),
+		StartedAt:                    nullTimeToPtr(startedAt),
+		EndedAt:                      nullTimeToPtr(endedAt),
+		CreatedByUserID:              createdByUserID,
+		CreatedAt:                    createdAt,
+		UpdatedAt:                    updatedAt,
 	}
 }
 
@@ -2295,7 +3156,7 @@ func nullInt32ToPtr(n sql.NullInt32) *int32 {
 	return &v
 }
 
-func ptrEventStateToNullString(p *models.EventState) sql.NullString {
+func ptrNamedStringToNullString[T ~string](p *T) sql.NullString {
 	if p == nil {
 		return sql.NullString{}
 	}
@@ -2358,6 +3219,9 @@ func responseProfileFromRow(row sqlc.CurtailmentResponseProfile) *models.Respons
 		ForceIncludeMaintenance:     row.ForceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: row.ForceIncludeAllPairedMiners,
 		PostEventCooldownSec:        row.PostEventCooldownSec,
+		FacilityFanDeviceIDs:        append([]int64(nil), row.FacilityFanDeviceIds...),
+		FanOffDelaySec:              row.FanOffDelaySec,
+		FanRestoreDelaySec:          row.FanRestoreDelaySec,
 		CreatedAt:                   row.CreatedAt,
 		UpdatedAt:                   row.UpdatedAt,
 	}
@@ -2383,6 +3247,9 @@ func insertResponseProfileParams(profile models.ResponseProfile) sqlc.InsertCurt
 		ForceIncludeMaintenance:     profile.ForceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: profile.ForceIncludeAllPairedMiners,
 		PostEventCooldownSec:        profile.PostEventCooldownSec,
+		FacilityFanDeviceIds:        responseProfileFacilityFanDeviceIDs(profile),
+		FanOffDelaySec:              profile.FanOffDelaySec,
+		FanRestoreDelaySec:          profile.FanRestoreDelaySec,
 	}
 }
 
@@ -2390,30 +3257,44 @@ func updateResponseProfileParams(
 	profile models.ResponseProfile,
 	expectedSiteID *int64,
 	expectedScopeJSON []byte,
+	expectedFacilityFanSettings models.ResponseProfileFanSettings,
 ) sqlc.UpdateCurtailmentResponseProfileParams {
 	return sqlc.UpdateCurtailmentResponseProfileParams{
-		ID:                          profile.ID,
-		OrgID:                       profile.OrgID,
-		ExpectedSiteID:              ptrToNullInt64(expectedSiteID),
-		ExpectedScopeJson:           normalizedResponseProfileScopeJSON(expectedScopeJSON),
-		ProfileName:                 profile.ProfileName,
-		SiteID:                      ptrToNullInt64(profile.SiteID),
-		ScopeJson:                   responseProfileScopeJSON(profile),
-		Mode:                        string(profile.Mode),
-		Strategy:                    string(profile.Strategy),
-		Level:                       string(profile.Level),
-		Priority:                    string(profile.Priority),
-		TargetKw:                    ptrFloat64ToNullString(profile.TargetKW),
-		ToleranceKw:                 ptrFloat64ToNullString(profile.ToleranceKW),
-		CurtailBatchSize:            ptrToNullInt32(profile.CurtailBatchSize),
-		CurtailBatchIntervalSec:     profile.CurtailBatchIntervalSec,
-		RestoreBatchSize:            profile.RestoreBatchSize,
-		RestoreBatchIntervalSec:     profile.RestoreBatchIntervalSec,
-		IncludeMaintenance:          profile.IncludeMaintenance,
-		ForceIncludeMaintenance:     profile.ForceIncludeMaintenance,
-		ForceIncludeAllPairedMiners: profile.ForceIncludeAllPairedMiners,
-		PostEventCooldownSec:        profile.PostEventCooldownSec,
+		ID:                           profile.ID,
+		OrgID:                        profile.OrgID,
+		ExpectedSiteID:               ptrToNullInt64(expectedSiteID),
+		ExpectedScopeJson:            normalizedResponseProfileScopeJSON(expectedScopeJSON),
+		ExpectedFacilityFanDeviceIds: append([]int64{}, expectedFacilityFanSettings.FacilityFanDeviceIDs...),
+		ExpectedFanOffDelaySec:       expectedFacilityFanSettings.FanOffDelaySec,
+		ExpectedFanRestoreDelaySec:   expectedFacilityFanSettings.FanRestoreDelaySec,
+		ProfileName:                  profile.ProfileName,
+		SiteID:                       ptrToNullInt64(profile.SiteID),
+		ScopeJson:                    responseProfileScopeJSON(profile),
+		Mode:                         string(profile.Mode),
+		Strategy:                     string(profile.Strategy),
+		Level:                        string(profile.Level),
+		Priority:                     string(profile.Priority),
+		TargetKw:                     ptrFloat64ToNullString(profile.TargetKW),
+		ToleranceKw:                  ptrFloat64ToNullString(profile.ToleranceKW),
+		CurtailBatchSize:             ptrToNullInt32(profile.CurtailBatchSize),
+		CurtailBatchIntervalSec:      profile.CurtailBatchIntervalSec,
+		RestoreBatchSize:             profile.RestoreBatchSize,
+		RestoreBatchIntervalSec:      profile.RestoreBatchIntervalSec,
+		IncludeMaintenance:           profile.IncludeMaintenance,
+		ForceIncludeMaintenance:      profile.ForceIncludeMaintenance,
+		ForceIncludeAllPairedMiners:  profile.ForceIncludeAllPairedMiners,
+		PostEventCooldownSec:         profile.PostEventCooldownSec,
+		FacilityFanDeviceIds:         responseProfileFacilityFanDeviceIDs(profile),
+		FanOffDelaySec:               profile.FanOffDelaySec,
+		FanRestoreDelaySec:           profile.FanRestoreDelaySec,
 	}
+}
+
+func responseProfileFacilityFanDeviceIDs(profile models.ResponseProfile) []int64 {
+	if len(profile.FacilityFanDeviceIDs) == 0 {
+		return []int64{}
+	}
+	return append([]int64(nil), profile.FacilityFanDeviceIDs...)
 }
 
 func responseProfileScopeJSON(profile models.ResponseProfile) []byte {

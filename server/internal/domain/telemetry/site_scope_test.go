@@ -45,6 +45,7 @@ func TestGetCombinedMetrics_SiteScope(t *testing.T) {
 			GetCombinedMetrics(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ any, q models.CombinedMetricsQuery) (models.CombinedMetric, error) {
 				assert.Equal(t, []models.DeviceIdentifier{"device-a", "device-b"}, q.DeviceIDs)
+				assert.True(t, q.DeviceListFromSiteScope)
 				return models.CombinedMetric{Metrics: []models.Metric{}}, nil
 			})
 
@@ -67,7 +68,11 @@ func TestGetCombinedMetrics_SiteScope(t *testing.T) {
 			GetDeviceIdentifiersByOrgWithFilter(gomock.Any(), int64(42), &stores.MinerFilter{IncludeUnassigned: true, PairingStatuses: pairedLikeStatuses}).
 			Return([]string{"device-c"}, nil)
 		dataStore.EXPECT().GetCombinedMetrics(gomock.Any(), gomock.Any()).
-			Return(models.CombinedMetric{}, nil)
+			DoAndReturn(func(_ any, q models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+				assert.Equal(t, []models.DeviceIdentifier{"device-c"}, q.DeviceIDs)
+				assert.True(t, q.DeviceListFromSiteScope)
+				return models.CombinedMetric{}, nil
+			})
 		deviceStore.EXPECT().GetMinerStateCounts(gomock.Any(), int64(42), gomock.Any()).
 			Return(&telemetryv1.MinerStateCounts{}, nil)
 
@@ -102,7 +107,10 @@ func TestGetCombinedMetrics_SiteScope(t *testing.T) {
 
 		// No resolution call when neither site_ids nor include_unassigned set.
 		dataStore.EXPECT().GetCombinedMetrics(gomock.Any(), gomock.Any()).
-			Return(models.CombinedMetric{}, nil)
+			DoAndReturn(func(_ any, q models.CombinedMetricsQuery) (models.CombinedMetric, error) {
+				assert.False(t, q.DeviceListFromSiteScope)
+				return models.CombinedMetric{}, nil
+			})
 		deviceStore.EXPECT().GetMinerStateCounts(gomock.Any(), int64(42), gomock.Any()).
 			Return(&telemetryv1.MinerStateCounts{}, nil)
 
@@ -124,6 +132,7 @@ func TestGetCombinedMetrics_SiteScope(t *testing.T) {
 			GetCombinedMetrics(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ any, q models.CombinedMetricsQuery) (models.CombinedMetric, error) {
 				assert.Equal(t, []models.DeviceIdentifier{"device-a"}, q.DeviceIDs)
+				assert.False(t, q.DeviceListFromSiteScope)
 				return models.CombinedMetric{}, nil
 			})
 		deviceStore.EXPECT().

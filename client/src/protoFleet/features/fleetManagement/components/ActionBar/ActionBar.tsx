@@ -15,17 +15,25 @@ interface ActionBarProps {
   };
   /**
    * How items were selected:
-   * - "all": user clicked "Select All" with no filters (targets entire fleet)
-   * - "subset": user selected specific items or "Select All" with filters active
+   * - "all": user clicked "Select All" — targets the entire fleet, or the full
+   *   filtered set across pages when a filter is active (see `filtersActive`)
+   * - "subset": user selected specific items
    * - "none": no selection (ActionBar will be hidden)
    * @default "subset"
    */
   selectionMode?: SelectionMode;
   /**
-   * Total number of items in the fleet. Used to display accurate count when
-   * selectionMode is "all", since selectedItems only contains visible page items.
+   * Total number of items covered by an "all"-mode selection. Used to display an
+   * accurate count since selectedItems only contains visible page items. When a
+   * filter is active this is the filtered total, not the whole fleet.
    */
   totalCount?: number;
+  /**
+   * Whether a filter is active. In "all" mode the count line then reads
+   * "All N … matching filters selected" to make clear the selection spans the
+   * filtered set across pages, not just the visible rows. Defaults to false.
+   */
+  filtersActive?: boolean;
   selectionControls?: ReactNode;
   renderActions: (setHidden: (hidden: boolean) => void) => ReactNode;
   onClose?: () => void;
@@ -37,6 +45,7 @@ const ActionBar = ({
   itemNoun = { singular: "miner", plural: "miners" },
   selectionMode = "subset",
   totalCount,
+  filtersActive = false,
   selectionControls,
   renderActions,
   onClose,
@@ -51,8 +60,12 @@ const ActionBar = ({
 
   const selectionText = useMemo(() => {
     const count = selectionMode === "all" ? (totalCount ?? selectedItems.length) : selectedItems.length;
-    return `${count} ${count === 1 ? itemNoun.singular : itemNoun.plural} selected`;
-  }, [itemNoun.plural, itemNoun.singular, selectionMode, selectedItems.length, totalCount]);
+    const noun = count === 1 ? itemNoun.singular : itemNoun.plural;
+    if (selectionMode === "all") {
+      return filtersActive ? `All ${count} ${noun} matching filters selected` : `All ${count} ${noun} selected`;
+    }
+    return `${count} ${noun} selected`;
+  }, [filtersActive, itemNoun.plural, itemNoun.singular, selectionMode, selectedItems.length, totalCount]);
 
   const handleClose = () => {
     setShow(false);

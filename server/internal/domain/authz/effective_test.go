@@ -140,6 +140,73 @@ func TestEffective_HasOrgWideHonorsSiteNarrowing(t *testing.T) {
 	}
 }
 
+func TestEffective_SiteScopeFor(t *testing.T) {
+	cases := []struct {
+		name        string
+		assignments []authz.Assignment
+		wantOrgWide bool
+		wantSites   []int64
+	}{
+		{
+			name:        "org grant with no narrowing: org-wide, empty denylist",
+			assignments: []authz.Assignment{orgScope(authz.PermSiteRead)},
+			wantOrgWide: true,
+			wantSites:   nil,
+		},
+		{
+			name: "org grant narrowed away at two sites: sorted denylist",
+			assignments: []authz.Assignment{
+				orgScope(authz.PermSiteRead),
+				siteScope(9), // zero-permission assignment still narrows
+				siteScope(3, authz.PermFleetRead),
+			},
+			wantOrgWide: true,
+			wantSites:   []int64{3, 9},
+		},
+		{
+			name: "org grant with matching site grant: site not in denylist",
+			assignments: []authz.Assignment{
+				orgScope(authz.PermSiteRead),
+				siteScope(3, authz.PermSiteRead),
+			},
+			wantOrgWide: true,
+			wantSites:   nil,
+		},
+		{
+			name: "site-only grants: sorted allowlist of granting sites",
+			assignments: []authz.Assignment{
+				siteScope(5, authz.PermSiteRead),
+				siteScope(3, authz.PermSiteRead),
+				siteScope(9, authz.PermFleetRead), // different key: not readable
+			},
+			wantOrgWide: false,
+			wantSites:   []int64{3, 5},
+		},
+		{
+			name:        "no assignments: deny everything",
+			assignments: nil,
+			wantOrgWide: false,
+			wantSites:   nil,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			eff := authz.NewEffectivePermissions(tc.assignments)
+			orgWide, sites := eff.SiteScopeFor(authz.PermSiteRead)
+			require.Equal(t, tc.wantOrgWide, orgWide)
+			require.Equal(t, tc.wantSites, sites)
+		})
+	}
+}
+
+func TestEffective_SiteScopeForNilReceiver(t *testing.T) {
+	var eff *authz.EffectivePermissions
+	orgWide, sites := eff.SiteScopeFor(authz.PermSiteRead)
+	require.False(t, orgWide, "nil EffectivePermissions denies everything")
+	require.Nil(t, sites)
+}
+
 func TestEffective_MultipleSiteAssignmentsUnionAtTheirOwnSites(t *testing.T) {
 	// User has ADMIN @ Site-A and FIELD_TECH @ Site-B (no org-scope row).
 	// miner:reboot is in ADMIN's seed but not FIELD_TECH's.

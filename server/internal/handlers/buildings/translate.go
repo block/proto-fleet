@@ -37,6 +37,11 @@ func toCreateParams(req *pb.CreateBuildingRequest, orgID int64) models.CreatePar
 		DefaultRackRows:       req.GetDefaultRackRows(),
 		DefaultRackColumns:    req.GetDefaultRackColumns(),
 		DefaultRackOrderIndex: models.RackOrderIndex(req.GetDefaultRackOrderIndex()), //nolint:gosec // enum is bounded by buf.validate defined_only; int32 → int16 cast is safe.
+
+		// Optional seed (empty = plain create).
+		RackIDs:                             req.GetRackIds(),
+		DeviceIdentifiers:                   req.GetDeviceIdentifiers(),
+		ForceClearConflictingRackMembership: req.GetForceClearConflictingRackMembership(),
 	}
 }
 

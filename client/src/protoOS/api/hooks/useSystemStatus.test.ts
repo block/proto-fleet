@@ -1,4 +1,3 @@
-import { useLocation } from "react-router-dom";
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, type Mock, test, vi } from "vitest";
 import { useSystemStatus } from "./useSystemStatus";
@@ -38,10 +37,6 @@ vi.mock("@/shared/hooks/usePoll", () => ({
   usePoll: vi.fn(),
 }));
 
-vi.mock("react-router-dom", () => ({
-  useLocation: vi.fn(),
-}));
-
 const mockGetStoreState = vi.fn();
 vi.mock("@/protoOS/store/useMinerStore", () => ({
   default: {
@@ -52,9 +47,9 @@ vi.mock("@/protoOS/store/useMinerStore", () => ({
 describe("useSystemStatus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    currentOnboarded = true;
-    currentPasswordSet = true;
-    currentDefaultPasswordActive = true;
+    currentOnboarded = undefined;
+    currentPasswordSet = undefined;
+    currentDefaultPasswordActive = undefined;
 
     (useMinerHosting as Mock).mockReturnValue({
       api: {
@@ -73,24 +68,19 @@ describe("useSystemStatus", () => {
       }
     });
 
-    // Default: match the hook-scoped values but with no valid access token,
-    // so the stale-raise guard doesn't interfere with existing cases.
     mockGetStoreState.mockImplementation(() => ({
       minerStatus: { defaultPasswordActive: currentDefaultPasswordActive },
-      auth: { authTokens: { accessToken: { value: "", expiry: new Date(0).toISOString() } } },
     }));
-  });
 
-  test("does not clear defaultPasswordActive from status polling on password-change routes", async () => {
-    (useLocation as Mock).mockReturnValue({ pathname: "/onboarding/authentication" });
     mockGetSystemStatus.mockResolvedValue({
       data: {
         onboarded: true,
         password_set: true,
-        default_password_active: false,
       },
     });
+  });
 
+  test("stores onboarded and password_set from the status response", async () => {
     renderHook(() => useSystemStatus());
 
     await waitFor(() => {
@@ -99,18 +89,10 @@ describe("useSystemStatus", () => {
 
     expect(mockSetOnboarded).toHaveBeenCalledWith(true);
     expect(mockSetPasswordSet).toHaveBeenCalledWith(true);
-    expect(mockSetDefaultPasswordActive).not.toHaveBeenCalledWith(false);
   });
 
-  test("applies cleared defaultPasswordActive status outside password-change routes", async () => {
-    (useLocation as Mock).mockReturnValue({ pathname: "/settings/mining-pools" });
-    mockGetSystemStatus.mockResolvedValue({
-      data: {
-        onboarded: true,
-        password_set: true,
-        default_password_active: false,
-      },
-    });
+  test("resolves an undefined defaultPasswordActive to false on status load", async () => {
+    currentDefaultPasswordActive = undefined;
 
     renderHook(() => useSystemStatus());
 
@@ -119,42 +101,11 @@ describe("useSystemStatus", () => {
     });
   });
 
-  test("treats a missing default_password_active field as false", async () => {
-    (useLocation as Mock).mockReturnValue({ pathname: "/settings/mining-pools" });
-    mockGetSystemStatus.mockResolvedValue({
-      data: {
-        onboarded: true,
-        password_set: true,
-      },
-    });
-
-    renderHook(() => useSystemStatus());
-
-    await waitFor(() => {
-      expect(mockSetDefaultPasswordActive).toHaveBeenCalledWith(false);
-    });
-  });
-
-  test("ignores a stale true response once a valid session has cleared the flag", async () => {
-    // Poll fired while the flag was still true; by response time the store
-    // has been cleared and a valid session established.
-    (useLocation as Mock).mockReturnValue({ pathname: "/" });
+  test("does not clear a defaultPasswordActive flag raised by the 403 contract", async () => {
+    // The status endpoint no longer reports default_password_active, so a
+    // flag raised by a 403 default-password error must survive status polls;
+    // only the password-change flow clears it.
     currentDefaultPasswordActive = true;
-    mockGetStoreState.mockReturnValue({
-      minerStatus: { defaultPasswordActive: false },
-      auth: {
-        authTokens: {
-          accessToken: { value: "valid-token", expiry: new Date(Date.now() + 60_000).toISOString() },
-        },
-      },
-    });
-    mockGetSystemStatus.mockResolvedValue({
-      data: {
-        onboarded: true,
-        password_set: true,
-        default_password_active: true,
-      },
-    });
 
     renderHook(() => useSystemStatus());
 
@@ -162,36 +113,28 @@ describe("useSystemStatus", () => {
       expect(mockGetSystemStatus).toHaveBeenCalled();
     });
 
-    expect(mockSetDefaultPasswordActive).not.toHaveBeenCalledWith(true);
+    expect(mockSetDefaultPasswordActive).not.toHaveBeenCalled();
   });
 
-  test("allows a poll-driven clear on password-change routes once the session is valid", async () => {
-    // When another client (or a prior successful flow) has already cleared
-    // default_password_active server-side and our session is valid, the poll
-    // must be allowed to update the store even while the user sits on a
-    // password-change route — otherwise App.tsx's redirect traps them there.
-    (useLocation as Mock).mockReturnValue({ pathname: "/onboarding/authentication" });
-    currentDefaultPasswordActive = true;
-    mockGetStoreState.mockReturnValue({
-      minerStatus: { defaultPasswordActive: true },
-      auth: {
-        authTokens: {
-          accessToken: { value: "valid-token", expiry: new Date(Date.now() + 60_000).toISOString() },
-        },
-      },
-    });
-    mockGetSystemStatus.mockResolvedValue({
-      data: {
-        onboarded: true,
-        password_set: true,
-        default_password_active: false,
-      },
-    });
+  test("does not re-resolve a defaultPasswordActive flag already cleared", async () => {
+    currentDefaultPasswordActive = false;
 
     renderHook(() => useSystemStatus());
 
     await waitFor(() => {
-      expect(mockSetDefaultPasswordActive).toHaveBeenCalledWith(false);
+      expect(mockGetSystemStatus).toHaveBeenCalled();
     });
+
+    expect(mockSetDefaultPasswordActive).not.toHaveBeenCalled();
+  });
+
+  test("stops polling once status has loaded", () => {
+    currentOnboarded = true;
+    currentPasswordSet = true;
+
+    renderHook(() => useSystemStatus());
+
+    expect(usePoll).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
+    expect(mockGetSystemStatus).not.toHaveBeenCalled();
   });
 });

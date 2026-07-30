@@ -21,7 +21,7 @@ export class FleetLocationsPage extends BasePage {
     await this.navigateToSitesPage();
     await this.clickAddSiteButton();
     await this.page.getByTestId("site-settings-name-input").fill(name);
-    await this.page.getByTestId("site-settings-modal-continue").click();
+    await this.clickResponsiveTestId("site-settings-modal-continue");
     await this.waitForModalToClose("site-settings-modal");
 
     const saveSiteButton = this.page.getByTestId(
@@ -42,15 +42,10 @@ export class FleetLocationsPage extends BasePage {
     await this.page.getByTestId("building-settings-site-select").click();
     await this.page.getByRole("option", { name: siteName, exact: true }).click();
     await this.page.getByTestId("building-settings-name-input").fill(buildingName);
-    await this.page.getByTestId("building-settings-modal-save").click();
+    await this.clickResponsiveTestId("building-settings-modal-save");
 
     await expect(this.page.getByTestId("building-settings-modal")).toHaveCount(0);
-
-    const fullScreenModal = this.page.getByTestId("full-screen-two-pane-modal");
-    if (await fullScreenModal.isVisible().catch(() => false)) {
-      await fullScreenModal.getByTestId("header-icon-button").click();
-      await expect(fullScreenModal).toHaveCount(0);
-    }
+    await this.closeFullScreenModalIfVisible();
 
     const row = this.getListRowByName(buildingName);
     await expect(row).toBeVisible();
@@ -66,6 +61,17 @@ export class FleetLocationsPage extends BasePage {
     await expect(this.page).toHaveURL(new RegExp(`/sites/${siteId.toString()}(?:[?#].*)?$`));
     await expect(this.page.getByTestId("site-detail-page")).toBeVisible();
     return siteId;
+  }
+
+  async openBuildingDetail(name: string): Promise<bigint> {
+    await this.navigateToBuildingsPage();
+    const buildingId = await this.getScopeIdFromRowName(name, "building");
+    const row = this.getListRowByName(name);
+    await expect(row).toBeVisible();
+    await row.getByTestId("name").click();
+    await expect(this.page).toHaveURL(new RegExp(`/buildings/${buildingId.toString()}(?:[?#].*)?$`));
+    await expect(this.page.getByTestId("building-page")).toBeVisible();
+    return buildingId;
   }
 
   async validateSitesPageOpened() {
@@ -84,6 +90,11 @@ export class FleetLocationsPage extends BasePage {
     await expect(this.page.getByTestId("site-detail-title")).toHaveText(siteName);
   }
 
+  async validateBuildingDetailOpened(buildingName: string) {
+    await expect(this.page.getByTestId("building-page")).toBeVisible();
+    await expect(this.page.getByTestId("building-page-title")).toHaveText(buildingName);
+  }
+
   async validateSiteDetailMetrics(expected: { location?: string; buildings?: number }) {
     const metricsRow = this.page.getByTestId("site-detail-metrics-row");
     await expect(metricsRow).toBeVisible();
@@ -94,6 +105,22 @@ export class FleetLocationsPage extends BasePage {
 
     if (expected.buildings !== undefined) {
       await expect(metricsRow.getByTestId("site-metric-buildings-value")).toHaveText(String(expected.buildings));
+    }
+  }
+
+  async validateBuildingDetailMetrics(expected: { minersOnline?: string; totalMiners?: number }) {
+    const metricsRow = this.page.getByTestId("building-metrics-row");
+    await expect(metricsRow).toBeVisible();
+
+    if (expected.minersOnline !== undefined) {
+      await expect(metricsRow.getByTestId("building-metric-online-value")).toHaveText(expected.minersOnline);
+    }
+
+    if (expected.totalMiners !== undefined) {
+      const formattedTotal = expected.totalMiners.toLocaleString();
+      await expect(metricsRow.getByTestId("building-metric-online-value")).toHaveText(
+        new RegExp(`^[\\d,]+\\s/\\s${formattedTotal}$`),
+      );
     }
   }
 
@@ -119,8 +146,30 @@ export class FleetLocationsPage extends BasePage {
       await settingsModal.getByTestId("site-settings-capacity-input").fill(updates.powerCapacityMw);
     }
 
-    await settingsModal.getByTestId("site-settings-modal-save").click();
+    await this.clickResponsiveTestId("site-settings-modal-save", settingsModal);
     await this.waitForModalToClose("site-settings-modal");
+    await this.closeFullScreenModalIfVisible();
+  }
+
+  async editBuildingDetailsFromDetail(updates: { name?: string; powerCapacityMw?: string }) {
+    await this.clickResponsiveTestId("building-page-edit");
+    const fullScreenModal = this.page.getByTestId("full-screen-two-pane-modal");
+    await expect(fullScreenModal).toBeVisible();
+    await this.clickManageBuildingEditDetails(fullScreenModal);
+
+    const settingsModal = this.page.getByTestId("building-settings-modal");
+    await expect(settingsModal).toBeVisible();
+
+    if (updates.name !== undefined) {
+      await settingsModal.getByTestId("building-settings-name-input").fill(updates.name);
+    }
+
+    if (updates.powerCapacityMw !== undefined) {
+      await settingsModal.getByTestId("building-settings-power-input").fill(updates.powerCapacityMw);
+    }
+
+    await this.clickResponsiveTestId("building-settings-modal-save", settingsModal);
+    await this.waitForModalToClose("building-settings-modal");
     await this.closeFullScreenModalIfVisible();
   }
 
@@ -131,7 +180,7 @@ export class FleetLocationsPage extends BasePage {
     const settingsModal = this.page.getByTestId("building-settings-modal");
     await expect(settingsModal).toBeVisible();
     await settingsModal.getByTestId("building-settings-name-input").fill(buildingName);
-    await settingsModal.getByTestId("building-settings-modal-save").click();
+    await this.clickResponsiveTestId("building-settings-modal-save", settingsModal);
     await this.waitForModalToClose("building-settings-modal");
   }
 
@@ -148,6 +197,15 @@ export class FleetLocationsPage extends BasePage {
     await expect(this.page.getByTestId("site-detail-title")).toHaveText(siteName);
   }
 
+  async switchBuildingDetailBreadcrumbTo(buildingName: string) {
+    const switcher = this.page.getByTestId("building-page-breadcrumb-switcher");
+    await expect(switcher).toBeVisible();
+    await switcher.click();
+    await this.page.getByTestId(`building-page-breadcrumb-menu-item-${buildingName}`).click();
+    await expect(this.page.getByTestId("building-page-breadcrumb-switcher")).toContainText(buildingName);
+    await expect(this.page.getByTestId("building-page-title")).toHaveText(buildingName);
+  }
+
   async deleteSiteFromDetail() {
     await expect(this.page.getByTestId("site-detail-edit")).toBeVisible();
     await this.page.getByTestId("site-detail-edit").click();
@@ -162,9 +220,81 @@ export class FleetLocationsPage extends BasePage {
     await expect(this.page.getByTestId("full-screen-two-pane-modal")).toHaveCount(0);
   }
 
+  async openRacksFromBuildingDetail() {
+    await this.clickBuildingPageAction("View racks", "building-page-view-racks");
+    await expect(this.page).toHaveURL(/\/fleet\/racks\?building=\d+/);
+  }
+
+  async openMinersFromBuildingDetail() {
+    await this.clickBuildingPageAction("View miners", "building-page-view-miners");
+    await expect(this.page).toHaveURL(/\/fleet\/miners\?building=\d+/);
+  }
+
+  async deleteBuildingFromDetail() {
+    await this.clickResponsiveTestId("building-page-edit");
+    await this.clickManageBuildingDelete();
+
+    const confirmDeleteButton = this.page.getByTestId("building-delete-dialog-confirm");
+    await expect(confirmDeleteButton).toBeVisible();
+    await confirmDeleteButton.click({ trial: true });
+    await confirmDeleteButton.click();
+    await expect(this.page.getByTestId("building-delete-dialog")).toHaveCount(0);
+    await this.validateSitesPageOpened();
+  }
+
+  private async clickBuildingPageAction(label: string, testId: string) {
+    const desktopButton = this.page.getByTestId(testId);
+    if (await desktopButton.isVisible().catch(() => false)) {
+      await desktopButton.click();
+      return;
+    }
+
+    await this.page.getByTestId("building-page-more-actions").click();
+    await this.page.getByTestId("building-page-action-sheet-content").getByRole("button", { name: label }).click();
+  }
+
   async validateSiteNotVisible(name: string) {
     await this.navigateToSitesPage();
     await expect(this.getListRowByName(name)).toHaveCount(0);
+  }
+
+  async validateBuildingNotVisible(name: string) {
+    await this.navigateToBuildingsPage();
+    await expect(this.getListRowByName(name)).toHaveCount(0);
+  }
+
+  async getSiteIdByName(name: string): Promise<bigint> {
+    await this.navigateToSitesPage();
+    return await this.getScopeIdFromRowName(name, "site");
+  }
+
+  async getBuildingIdByName(name: string): Promise<bigint> {
+    await this.navigateToBuildingsPage();
+    return await this.getScopeIdFromRowName(name, "building");
+  }
+
+  async applySiteFilter(siteNames: string[]) {
+    await this.setNestedCheckboxFilterSelection("site", siteNames);
+  }
+
+  async validateCurrentBuildingVisible(name: string) {
+    await expect(this.getListRowByName(name)).toBeVisible();
+  }
+
+  async validateCurrentBuildingNotVisible(name: string) {
+    await expect(this.getListRowByName(name)).toHaveCount(0);
+  }
+
+  async validateAddSiteButtonHidden() {
+    await this.navigateToSitesPage();
+    await expect(this.page.getByTestId("fleet-sites-add")).toHaveCount(0);
+    await expect(this.page.getByRole("button", { name: "Add a site", exact: true })).toHaveCount(0);
+  }
+
+  async validateAddBuildingButtonHidden() {
+    await this.navigateToBuildingsPage();
+    await expect(this.page.getByTestId("fleet-buildings-add")).toHaveCount(0);
+    await expect(this.page.getByRole("button", { name: "Add building", exact: true })).toHaveCount(0);
   }
 
   async deleteSite(name: string) {
@@ -173,11 +303,14 @@ export class FleetLocationsPage extends BasePage {
     await this.clickRowAction("Edit site");
     await this.clickManageSiteDelete();
 
+    const deleteDialog = this.page.getByTestId("site-delete-dialog");
     const confirmDeleteButton = this.page.getByTestId("site-delete-dialog-confirm");
     await expect(confirmDeleteButton).toBeVisible();
     await confirmDeleteButton.click({ trial: true });
     await confirmDeleteButton.click();
     await expect(this.getListRowByName(name)).toHaveCount(0);
+    await expect(deleteDialog).toHaveCount(0);
+    await expect(this.page.getByTestId("full-screen-two-pane-modal")).toHaveCount(0);
   }
 
   async deleteBuilding(name: string) {
@@ -185,11 +318,14 @@ export class FleetLocationsPage extends BasePage {
     await this.openManageBuildingFromList(name);
     await this.clickManageBuildingDelete();
 
+    const deleteDialog = this.page.getByTestId("building-delete-dialog");
     const confirmDeleteButton = this.page.getByTestId("building-delete-dialog-confirm");
     await expect(confirmDeleteButton).toBeVisible();
     await confirmDeleteButton.click({ trial: true });
     await confirmDeleteButton.click();
     await expect(this.getListRowByName(name)).toHaveCount(0);
+    await expect(deleteDialog).toHaveCount(0);
+    await expect(this.page.getByTestId("full-screen-two-pane-modal")).toHaveCount(0);
   }
 
   async renameBuilding(currentName: string, nextName: string) {
@@ -200,7 +336,7 @@ export class FleetLocationsPage extends BasePage {
     const settingsModal = this.page.getByTestId("building-settings-modal");
     await expect(settingsModal).toBeVisible();
     await settingsModal.getByTestId("building-settings-name-input").fill(nextName);
-    await settingsModal.getByTestId("building-settings-modal-save").click();
+    await this.clickResponsiveTestId("building-settings-modal-save", settingsModal);
     await this.waitForModalToClose("building-settings-modal");
 
     await this.closeFullScreenModalIfVisible();
@@ -277,11 +413,41 @@ export class FleetLocationsPage extends BasePage {
     },
   ) {
     await this.navigateToBuildingsPage();
+    await this.validateCurrentBuildingRowCounts(buildingName, expected);
+  }
+
+  async validateCurrentBuildingRowCounts(
+    buildingName: string,
+    expected: {
+      siteName: string;
+      racks: number;
+      miners: number;
+    },
+  ) {
     const row = this.getListRowByName(buildingName);
     await expect(row).toBeVisible();
     await expect(row.getByTestId("site")).toHaveText(expected.siteName);
     await expect(row.getByTestId("racks")).toHaveText(String(expected.racks));
     await expect(row.getByTestId("miners")).toHaveText(String(expected.miners));
+  }
+
+  async openBuildingsForSite(siteName: string): Promise<bigint> {
+    await this.navigateToSitesPage();
+    const siteId = await this.getScopeIdFromRowName(siteName, "site");
+    await this.openRowActions(siteName);
+    await this.clickRowAction("View buildings");
+    await expect(this.page).toHaveURL(new RegExp(`/fleet/buildings\\?site=${siteId.toString()}(?:[&#].*)?$`));
+    await expect(this.page.getByTestId("fleet-buildings-page")).toBeVisible();
+    return siteId;
+  }
+
+  async openRacksForBuilding(buildingName: string): Promise<bigint> {
+    await this.navigateToBuildingsPage();
+    const buildingId = await this.getScopeIdFromRowName(buildingName, "building");
+    await this.openRowActions(buildingName);
+    await this.clickRowAction("View racks");
+    await expect(this.page).toHaveURL(new RegExp(`/fleet/racks\\?building=${buildingId.toString()}(?:[&#].*)?$`));
+    return buildingId;
   }
 
   private getListRowByName(name: string) {
@@ -352,8 +518,7 @@ export class FleetLocationsPage extends BasePage {
       return;
     }
 
-    const overflowMenu = await this.openFullScreenOverflowMenu();
-    await overflowMenu.getByTestId("manage-site-modal-delete-overflow-item").click();
+    await this.clickButton("Delete site");
   }
 
   private async clickManageSiteEditDetails(scope = this.page.getByTestId("full-screen-two-pane-modal")) {
@@ -362,8 +527,7 @@ export class FleetLocationsPage extends BasePage {
       return;
     }
 
-    const overflowMenu = await this.openFullScreenOverflowMenu();
-    await overflowMenu.getByTestId("manage-site-modal-edit-details-overflow-item").click();
+    await this.clickButton("Site settings");
   }
 
   private async clickManageBuildingDelete() {
@@ -372,8 +536,7 @@ export class FleetLocationsPage extends BasePage {
       return;
     }
 
-    const overflowMenu = await this.openFullScreenOverflowMenu();
-    await overflowMenu.getByTestId("manage-building-delete-overflow-item").click();
+    await this.clickButton("Delete building");
   }
 
   private async clickManageBuildingEditDetails(scope = this.page.getByTestId("full-screen-two-pane-modal")) {
@@ -382,17 +545,7 @@ export class FleetLocationsPage extends BasePage {
       return;
     }
 
-    const overflowMenu = await this.openFullScreenOverflowMenu();
-    await overflowMenu.getByTestId("manage-building-edit-details-overflow-item").click();
-  }
-
-  private async openFullScreenOverflowMenu() {
-    const overflowTrigger = this.page.getByTestId("full-screen-two-pane-modal").getByTestId("overflow-menu-trigger");
-    await expect(overflowTrigger).toBeVisible();
-    await overflowTrigger.click();
-    const overflowMenu = this.page.getByTestId("full-screen-overflow-sheet");
-    await expect(overflowMenu).toBeVisible();
-    return overflowMenu;
+    await this.clickButton("Building settings");
   }
 
   private async closeFullScreenModalIfVisible() {
@@ -401,7 +554,7 @@ export class FleetLocationsPage extends BasePage {
       return;
     }
 
-    await fullScreenModal.getByTestId("header-icon-button").click();
+    await this.tryAction(() => fullScreenModal.getByTestId("header-icon-button").click());
     await expect(fullScreenModal).toHaveCount(0);
   }
 

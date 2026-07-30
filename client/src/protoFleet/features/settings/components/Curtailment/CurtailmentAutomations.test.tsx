@@ -144,9 +144,31 @@ describe("CurtailmentAutomationsContent", () => {
 
     await waitFor(() => expect(screen.queryByTestId("curtailment-automation-modal")).not.toBeInTheDocument());
 
+    // The row list re-renders with the new rule a tick after the modal closes;
+    // wait for it before the synchronous row lookup to avoid a load-dependent race.
+    await screen.findByText("High LMP spike");
     const row = getAutomationRow("High LMP spike");
     expect(within(row).getByText("Site Alpha MaestroOS grid signal changes to 0")).toBeVisible();
     expect(within(row).getByText("Standard shed")).toBeVisible();
+  });
+
+  it("includes facility-fan response profiles in automation choices", () => {
+    const facilityFanProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "facility-fan-shed",
+      name: "Facility fan shed",
+      formValues: { facilityFanDeviceIds: ["31"] } as NonNullable<ResponseProfile["formValues"]>,
+    };
+    render(
+      <CurtailmentAutomationsContent
+        sources={testSources}
+        responseProfiles={[facilityFanProfile, ...testResponseProfiles]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
+    const responseProfileSelect = screen.getByTestId("automation-response-profile-select");
+    expect(responseProfileSelect).toHaveTextContent("Facility fan shed");
   });
 
   it("edits and deletes automation rows from the row click modal", async () => {
@@ -172,6 +194,9 @@ describe("CurtailmentAutomationsContent", () => {
     fireEvent.click(saveButton);
 
     await waitFor(() => expect(screen.queryByTestId("curtailment-automation-modal")).not.toBeInTheDocument());
+    // The row list re-renders with the new name a tick after the modal closes;
+    // wait for it before the synchronous row lookup to avoid a load-dependent race.
+    await screen.findByText("ERCOT ERS updated");
     const updatedRow = getAutomationRow("ERCOT ERS updated");
     expect(within(updatedRow).getByText("ERCOT ERS (Emergency Response Service)")).toBeVisible();
     expect(screen.queryByText("ERCOT ERS obligation")).not.toBeInTheDocument();

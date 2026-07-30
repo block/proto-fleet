@@ -1,5 +1,6 @@
 import FloatingNavigation from "./FloatingNavigation";
 import type { IpAddressInfoProps } from "./InfoItem/IpAddressInfo";
+import type { LocationInfoProps } from "./InfoItem/LocationInfo";
 import type { MacAddressInfoProps } from "./InfoItem/MacAddressInfo";
 import type { MinerNameInfoProps } from "./InfoItem/MinerNameInfo";
 import type { VersionInfoProps } from "./InfoItem/VersionInfo";
@@ -10,6 +11,7 @@ import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 interface NavigationMenuProps {
   closeMenu?: () => void;
   ipAddressInfo?: IpAddressInfoProps;
+  locationInfo?: LocationInfoProps;
   macInfo?: MacAddressInfoProps;
   minerNameInfo?: MinerNameInfoProps;
   isVisible?: boolean;
@@ -20,6 +22,7 @@ interface NavigationMenuProps {
 const NavigationMenu = ({
   closeMenu,
   ipAddressInfo,
+  locationInfo,
   macInfo,
   minerNameInfo,
   isVisible,
@@ -33,6 +36,7 @@ const NavigationMenu = ({
       return (
         <FloatingNavigation
           ipAddressInfo={ipAddressInfo}
+          locationInfo={locationInfo}
           macInfo={macInfo}
           minerNameInfo={minerNameInfo}
           versionInfo={versionInfo}
@@ -47,6 +51,7 @@ const NavigationMenu = ({
   return (
     <Navigation
       ipAddressInfo={ipAddressInfo}
+      locationInfo={locationInfo}
       macInfo={macInfo}
       minerNameInfo={minerNameInfo}
       versionInfo={versionInfo}

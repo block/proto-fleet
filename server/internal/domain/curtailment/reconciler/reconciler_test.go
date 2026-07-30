@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -39,15 +40,17 @@ type fakeStore struct {
 	listEventsErr      error
 	listEventsCalls    int
 	listEventsPanicErr string
+	listEventsHook     func(context.Context)
 	listTargetsHook    func(context.Context, uuid.UUID)
 	listTargetsCtxErr  map[uuid.UUID]error
 
-	updateEventCalls      int
-	updateEventLast       map[int64]models.EventState
-	updateTargetCalls     int
-	updateTargetParams    map[string]interfaces.UpdateCurtailmentTargetStateParams
-	updateTargetStateErr  error
-	updateTargetStateHook func(device string, params interfaces.UpdateCurtailmentTargetStateParams, call int) error
+	updateEventCalls         int
+	updateEventLast          map[int64]models.EventState
+	updateTargetCalls        int
+	updateTargetParams       map[string]interfaces.UpdateCurtailmentTargetStateParams
+	updateTargetStateErr     error
+	updateTargetStateHook    func(device string, params interfaces.UpdateCurtailmentTargetStateParams, call int) error
+	recordPendingDispatchErr error
 
 	bumpTargetRetryCalls int
 	lastBumpTargetRetry  bumpRetryCall
@@ -55,6 +58,7 @@ type fakeStore struct {
 
 	listTargetsByEventCalls int
 	listCandidatesCalls     int
+	listCandidatesErr       error
 	claimTargetsCalls       int
 	claimedTargetParams     []models.InsertTargetParams
 	claimAllPairedCalls     int
@@ -84,6 +88,10 @@ type fakeStore struct {
 	beginRestoreCalls       int
 	beginRestoreLastEventID uuid.UUID
 	beginRestoreErr         error
+	updateFanCalls          int
+	lastFanUpdate           interfaces.UpdateCurtailmentFanStateParams
+	rejectExpiredFanUpdate  bool
+	failFanUpdateCall       int
 }
 
 type bumpRetryCall struct {
@@ -333,6 +341,9 @@ func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCand
 	f.lastListCandidatesSiteIDs = append([]int64(nil), params.SiteIDs...)
 	f.lastListCandidatesFilter = append([]string(nil), params.DeviceIdentifiers...)
 	f.listCandidatesFilters = append(f.listCandidatesFilters, append([]string(nil), params.DeviceIdentifiers...))
+	if f.listCandidatesErr != nil {
+		return nil, f.listCandidatesErr
+	}
 	if len(params.DeviceIdentifiers) == 0 {
 		return f.candidates, nil
 	}
@@ -373,8 +384,11 @@ func (f *fakeStore) GetEventByExternalReference(context.Context, int64, string, 
 	panic("GetEventByExternalReference not exercised by reconciler tests")
 }
 
-func (f *fakeStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
+func (f *fakeStore) ListNonTerminalEvents(ctx context.Context) ([]*models.Event, error) {
 	f.listEventsCalls++
+	if f.listEventsHook != nil {
+		f.listEventsHook(ctx)
+	}
 	if f.listEventsPanicErr != "" {
 		panic(f.listEventsPanicErr)
 	}
@@ -400,6 +414,72 @@ func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, expectedS
 		}
 	}
 	return nil
+}
+
+func (f *fakeStore) RecordCurtailPendingDispatch(_ context.Context, eventID int64, expectedState models.EventState, dispatchedAt time.Time) error {
+	if f.recordPendingDispatchErr != nil {
+		return f.recordPendingDispatchErr
+	}
+	for _, ev := range f.events {
+		if ev.ID != eventID {
+			continue
+		}
+		if ev.State != expectedState {
+			return interfaces.ErrCurtailmentEventStateRaceLoss
+		}
+		ts := dispatchedAt
+		ev.LastCurtailPendingDispatchAt = &ts
+		return nil
+	}
+	return interfaces.ErrCurtailmentEventStateRaceLoss
+}
+
+func (f *fakeStore) UpdateFanState(ctx context.Context, eventID int64, params interfaces.UpdateCurtailmentFanStateParams) error {
+	f.updateFanCalls++
+	f.lastFanUpdate = params
+	if f.failFanUpdateCall == f.updateFanCalls {
+		return errors.New("injected fan state update failure")
+	}
+	if f.rejectExpiredFanUpdate && ctx.Err() != nil {
+		return fmt.Errorf("expired fan update context: %w", ctx.Err())
+	}
+	for _, event := range f.events {
+		if event.ID != eventID {
+			continue
+		}
+		if event.State != params.ExpectedEventState {
+			return interfaces.ErrCurtailmentEventStateRaceLoss
+		}
+		if params.FanOffSentAt != nil {
+			event.FanOffSentAt = params.FanOffSentAt
+		}
+		if params.FanOnSentAt != nil {
+			event.FanOnSentAt = params.FanOnSentAt
+		}
+		if params.FanAirflowReopenedAt != nil {
+			event.FanAirflowReopenedAt = params.FanAirflowReopenedAt
+		}
+		if params.ClearFanAirflowReopenedAt {
+			event.FanAirflowReopenedAt = nil
+		}
+		event.FanLastError = params.LastError
+	}
+	return nil
+}
+
+func (f *fakeStore) CommandFanState(
+	ctx context.Context,
+	eventID int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) (*string, error) {
+	lastError := command(ctx)
+	if lastError == nil && params.FanAirflowReopenedAtOnSuccess != nil {
+		params.FanAirflowReopenedAt = params.FanAirflowReopenedAtOnSuccess
+		params.ClearFanAirflowReopenedAt = false
+	}
+	params.LastError = lastError
+	return lastError, f.UpdateFanState(ctx, eventID, params)
 }
 
 func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
@@ -667,6 +747,30 @@ type fakeDispatcher struct {
 	uncurtailHook func(ids []string)
 }
 
+type fakeFanController struct {
+	powers              []driver.PowerMode
+	err                 *string
+	waitForCancellation bool
+}
+
+func (f *fakeFanController) SetState(ctx context.Context, _ *models.Event, power driver.PowerMode) *string {
+	f.powers = append(f.powers, power)
+	if f.waitForCancellation {
+		<-ctx.Done()
+		message := "fan command timed out"
+		return &message
+	}
+	return f.err
+}
+
+type fakeFanAlertEmitter struct {
+	values []bool
+}
+
+func (f *fakeFanAlertEmitter) EmitCurtailmentFanRestoreFailure(_ context.Context, _ int64, _ string, failed bool) {
+	f.values = append(f.values, failed)
+}
+
 func (f *fakeDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSelector, _ sdk.CurtailLevel) (*command.CommandResult, error) {
 	f.curtailCalls++
 	f.curtailLastIDs = identifiersFromSelector(selector)
@@ -718,11 +822,37 @@ func identifiersFromSelector(selector *pb.DeviceSelector) []string {
 func newReconcilerForTest(store *fakeStore, disp *fakeDispatcher) *Reconciler {
 	r := New(Config{
 		TickInterval:         time.Hour, // tests drive runTick directly
-		ShutdownDeadline:     time.Second,
 		MaxRetries:           3,
 		CurtailMaxRetries:    3,
 		DriftThresholdFactor: 0.5,
 	}, store, disp)
+	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
+	return r
+}
+
+func newReconcilerWithFansForTest(store *fakeStore, disp *fakeDispatcher, fans *fakeFanController) *Reconciler {
+	r := New(Config{
+		TickInterval:         time.Hour,
+		MaxRetries:           3,
+		CurtailMaxRetries:    3,
+		DriftThresholdFactor: 0.5,
+	}, store, disp, WithFacilityFanController(fans))
+	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
+	return r
+}
+
+func newReconcilerWithFanAlertForTest(
+	store *fakeStore,
+	disp *fakeDispatcher,
+	fans *fakeFanController,
+	alert *fakeFanAlertEmitter,
+) *Reconciler {
+	r := New(Config{
+		TickInterval:         time.Hour,
+		MaxRetries:           3,
+		CurtailMaxRetries:    3,
+		DriftThresholdFactor: 0.5,
+	}, store, disp, WithFacilityFanController(fans), WithFacilityFanAlertEmitter(alert))
 	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
 	return r
 }
@@ -912,16 +1042,17 @@ func TestReconciler_ActiveClosedLoopFullFleetSkipsCandidateScanWhenAdmissionInte
 	lastBatchUUID := "batch-recent"
 	store.events = []*models.Event{
 		{
-			ID:                      eventID,
-			EventUUID:               eventUUID,
-			OrgID:                   1,
-			State:                   models.EventStateActive,
-			Mode:                    models.ModeFullFleet,
-			LoopType:                models.LoopTypeClosed,
-			ScopeType:               models.ScopeTypeWholeOrg,
-			CurtailBatchSize:        &batchSize,
-			CurtailBatchIntervalSec: 600,
-			CreatedByUserID:         99,
+			ID:                           eventID,
+			EventUUID:                    eventUUID,
+			OrgID:                        1,
+			State:                        models.EventStateActive,
+			Mode:                         models.ModeFullFleet,
+			LoopType:                     models.LoopTypeClosed,
+			ScopeType:                    models.ScopeTypeWholeOrg,
+			CurtailBatchSize:             &batchSize,
+			CurtailBatchIntervalSec:      600,
+			LastCurtailPendingDispatchAt: &lastBatchAt,
+			CreatedByUserID:              99,
 		},
 	}
 	store.targetsByEventID[eventID] = []*models.Target{
@@ -965,17 +1096,18 @@ func TestReconciler_ActiveAllPairedPolicySkipsAdmissionScanWhenIntervalBlocked(t
 	lastBatchUUID := "batch-recent"
 	store.events = []*models.Event{
 		{
-			ID:                          eventID,
-			EventUUID:                   eventUUID,
-			OrgID:                       1,
-			State:                       models.EventStateActive,
-			Mode:                        models.ModeFullFleet,
-			LoopType:                    models.LoopTypeClosed,
-			ScopeType:                   models.ScopeTypeWholeOrg,
-			ForceIncludeAllPairedMiners: true,
-			CurtailBatchSize:            &batchSize,
-			CurtailBatchIntervalSec:     600,
-			CreatedByUserID:             99,
+			ID:                           eventID,
+			EventUUID:                    eventUUID,
+			OrgID:                        1,
+			State:                        models.EventStateActive,
+			Mode:                         models.ModeFullFleet,
+			LoopType:                     models.LoopTypeClosed,
+			ScopeType:                    models.ScopeTypeWholeOrg,
+			ForceIncludeAllPairedMiners:  true,
+			CurtailBatchSize:             &batchSize,
+			CurtailBatchIntervalSec:      600,
+			LastCurtailPendingDispatchAt: &lastBatchAt,
+			CreatedByUserID:              99,
 		},
 	}
 	store.targetsByEventID[eventID] = []*models.Target{
@@ -1099,6 +1231,112 @@ func TestReconciler_AllPairedPolicyUnavailableTargetBecomesPendingAndDispatches(
 	require.NotNil(t, final.BaselinePowerW,
 		"promotion must backfill the missing pre-curtail baseline so confirm/drift checks don't fall back to hash-only")
 	assert.InDelta(t, 3000.0, *final.BaselinePowerW, 0.001)
+}
+
+// A pool-less miner parked unavailable by the pre-#663 classifier (or by a
+// transient non-actionable status) is promoted, baseline-backfilled, and
+// dispatched once the classifier sees NEEDS_MINING_POOL as commandable —
+// existing all-paired events self-heal without migration.
+func TestReconciler_AllPairedPolicyParkedPoolLessTargetPromotedAndDispatched(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	nonActionableReason := "non_actionable_status"
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStateActive,
+			Mode:                        models.ModeFullFleet,
+			LoopType:                    models.LoopTypeClosed,
+			ScopeType:                   models.ScopeTypeWholeOrg,
+			ForceIncludeAllPairedMiners: true,
+			DecisionSnapshotJSON:        []byte(`{"candidate_min_power_w":1500}`),
+			CreatedByUserID:             99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "pool-less",
+			State:              models.TargetStateUnavailable,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastError:          &nonActionableReason,
+		},
+	}
+	driver := "antminer"
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "pool-less", DriverName: &driver, DeviceStatus: "NEEDS_MINING_POOL", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(2000), LatestHashRateHS: ptrFloat64(0)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	require.Equal(t, 1, disp.curtailCalls)
+	assert.ElementsMatch(t, []string{"pool-less"}, disp.curtailLastIDs)
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDispatched, final.State)
+	assert.Nil(t, final.LastError)
+	require.NotNil(t, final.BaselinePowerW,
+		"promotion must backfill the idle-draw baseline; hash-only fallback cannot confirm curtail/restore for a never-hashing miner")
+	assert.InDelta(t, 2000.0, *final.BaselinePowerW, 0.001)
+}
+
+// A never-hashing miner's idle draw is usually below candidate_min_power_w,
+// but its baseline must still be persisted: the hash-only fallback the floor
+// relies on cannot confirm curtail (hash is already 0 → instant false
+// positive) or restore (hash never rises → ages out to restore_failed) for a
+// miner that never hashes. The floor applies only to hashing miners.
+func TestReconciler_AllPairedPolicyPoolLessPromotionPersistsBelowFloorBaseline(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	nonActionableReason := "non_actionable_status"
+	store.events = []*models.Event{
+		{
+			ID:                          eventID,
+			EventUUID:                   eventUUID,
+			OrgID:                       1,
+			State:                       models.EventStateActive,
+			Mode:                        models.ModeFullFleet,
+			LoopType:                    models.LoopTypeClosed,
+			ScopeType:                   models.ScopeTypeWholeOrg,
+			ForceIncludeAllPairedMiners: true,
+			// Real events stamp the floor into the decision snapshot; the
+			// readiness-refresh path reads it back from here.
+			DecisionSnapshotJSON: []byte(`{"candidate_min_power_w":1500}`),
+			CreatedByUserID:      99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "pool-less",
+			State:              models.TargetStateUnavailable,
+			DesiredState:       models.DesiredStateCurtailed,
+			LastError:          &nonActionableReason,
+		},
+	}
+	driver := "antminer"
+	// 400 W idle draw: below the 1500 W candidate_min_power_w floor.
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "pool-less", DriverName: &driver, DeviceStatus: "NEEDS_MINING_POOL", PairingStatus: "PAIRED", LatestPowerW: ptrFloat64(400), LatestHashRateHS: ptrFloat64(0)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	require.Equal(t, 1, disp.curtailCalls)
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDispatched, final.State)
+	require.NotNil(t, final.BaselinePowerW,
+		"non-hashing miners must persist any positive baseline; the min-power floor only makes sense where the hash-only fallback works")
+	assert.InDelta(t, 400.0, *final.BaselinePowerW, 0.001)
 }
 
 // A readiness flip the bulk UPDATE skips (row advanced concurrently, so it is
@@ -2889,7 +3127,6 @@ func TestReconciler_ListEventsErrorAdvancesHeartbeatAndIncrementsFailure(t *test
 
 	r := New(Config{
 		TickInterval:         time.Hour,
-		ShutdownDeadline:     time.Second,
 		MaxRetries:           3,
 		DriftThresholdFactor: 0.5,
 	}, store, disp, WithMetrics(metrics))
@@ -2902,7 +3139,7 @@ func TestReconciler_ListEventsErrorAdvancesHeartbeatAndIncrementsFailure(t *test
 	assert.Equal(t, 1, metrics.TickFailureCount())
 }
 
-func TestReconciler_RunTickStopsWhenTickBudgetExpires(t *testing.T) {
+func TestReconciler_RunTickSharesBudgetAcrossEvents(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 	firstUUID := uuid.New()
@@ -2918,13 +3155,13 @@ func TestReconciler_RunTickStopsWhenTickBudgetExpires(t *testing.T) {
 	}
 
 	r := newReconcilerForTest(store, disp)
-	r.cfg.TickInterval = 5 * time.Millisecond
+	r.cfg.TickInterval = 50 * time.Millisecond
 	r.runTick(context.Background())
 
 	assert.ErrorIs(t, store.listTargetsCtxErr[firstUUID], context.DeadlineExceeded)
-	_, processedSecond := store.listTargetsCtxErr[secondUUID]
-	assert.False(t, processedSecond,
-		"later events must wait for the next tick after the tick-scoped budget expires")
+	secondErr, processedSecond := store.listTargetsCtxErr[secondUUID]
+	assert.True(t, processedSecond, "a slow first event must not starve later events in the same tick")
+	assert.NoError(t, secondErr)
 }
 
 func TestReconciler_DispatchErrorMarksLastError(t *testing.T) {
@@ -3430,6 +3667,311 @@ func TestReconciler_DispatchedReConfirmsViaObserveActive(t *testing.T) {
 	assert.Equal(t, int32(0), final.RetryCount, "confirmation resets retry budget for the next drift cycle")
 }
 
+func TestReconciler_RetryChurnDispatchesEligiblePendingWave(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(1)
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	lastPendingWave := now.Add(-61 * time.Second)
+	lastRetryDispatch := now.Add(-10 * time.Second)
+	store.events = []*models.Event{
+		{
+			ID:                           eventID,
+			EventUUID:                    eventUUID,
+			OrgID:                        1,
+			State:                        models.EventStateActive,
+			CurtailBatchSize:             &batchSize,
+			CurtailBatchIntervalSec:      60,
+			LastCurtailPendingDispatchAt: &lastPendingWave,
+			CreatedByUserID:              99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "retrying",
+			State:              models.TargetStateDispatched,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+			LastDispatchedAt:   &lastRetryDispatch,
+			CurtailPhase: models.TargetPhaseSummary{
+				Phase:        models.TargetPhaseCurtail,
+				State:        models.TargetStateDispatched,
+				DispatchedAt: &lastRetryDispatch,
+			},
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "pending",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "retrying", LatestPowerW: ptrFloat64(2500), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.cfg.CurtailDispatchTimeoutSec = 5
+	r.runTick(context.Background())
+
+	assert.Equal(t, [][]string{{"retrying"}, {"pending"}}, disp.curtailCallIDs,
+		"eligible pending work must dispatch in the same tick as retry recovery")
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][1].State)
+	require.NotNil(t, store.events[0].LastCurtailPendingDispatchAt)
+	assert.Equal(t, now, *store.events[0].LastCurtailPendingDispatchAt)
+}
+
+func TestReconciler_RecoveryDispatchWithPriorEnqueueDoesNotResetBlockedPendingWave(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(1)
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	lastPendingWave := now.Add(-30 * time.Second)
+	priorDispatch := now.Add(-10 * time.Second)
+	priorBatch := "batch-prior"
+	store.events = []*models.Event{
+		{
+			ID:                           eventID,
+			EventUUID:                    eventUUID,
+			OrgID:                        1,
+			State:                        models.EventStateActive,
+			CurtailBatchSize:             &batchSize,
+			CurtailBatchIntervalSec:      60,
+			LastCurtailPendingDispatchAt: &lastPendingWave,
+			CreatedByUserID:              99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "recovering",
+			State:              models.TargetStateDispatching,
+			DesiredState:       models.DesiredStateCurtailed,
+			RetryCount:         1,
+			CurtailPhase: models.TargetPhaseSummary{
+				Phase:        models.TargetPhaseCurtail,
+				State:        models.TargetStateDispatched,
+				DispatchedAt: &priorDispatch,
+				BatchUUID:    &priorBatch,
+			},
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "pending",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, [][]string{{"recovering"}}, disp.curtailCallIDs,
+		"recovery work may run while the fresh pending-wave gate remains closed")
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][1].State)
+	require.NotNil(t, store.events[0].LastCurtailPendingDispatchAt)
+	assert.Equal(t, lastPendingWave, *store.events[0].LastCurtailPendingDispatchAt,
+		"retry/orphan recovery must not reset the fresh pending-wave clock")
+}
+
+func TestReconciler_UnrecordedDispatchingRecoveryReservesPendingWave(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(1)
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	lastPendingWave := now.Add(-61 * time.Second)
+	store.events = []*models.Event{
+		{
+			ID:                           eventID,
+			EventUUID:                    eventUUID,
+			OrgID:                        1,
+			State:                        models.EventStateActive,
+			CurtailBatchSize:             &batchSize,
+			CurtailBatchIntervalSec:      60,
+			LastCurtailPendingDispatchAt: &lastPendingWave,
+			CreatedByUserID:              99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "recovering",
+			State:              models.TargetStateDispatching,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "pending",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, [][]string{{"recovering"}}, disp.curtailCallIDs,
+		"a recovery without durable enqueue evidence must consume the pending-wave slot")
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][1].State)
+	require.NotNil(t, store.events[0].LastCurtailPendingDispatchAt)
+	assert.Equal(t, now, *store.events[0].LastCurtailPendingDispatchAt)
+}
+
+func TestReconciler_MixedRecoveryRecordsClockForActualBatch(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(1)
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	lastPendingWave := now.Add(-61 * time.Second)
+	priorDispatch := now.Add(-10 * time.Second)
+	store.events = []*models.Event{
+		{
+			ID:                           eventID,
+			EventUUID:                    eventUUID,
+			OrgID:                        1,
+			State:                        models.EventStateActive,
+			CurtailBatchSize:             &batchSize,
+			CurtailBatchIntervalSec:      60,
+			LastCurtailPendingDispatchAt: &lastPendingWave,
+			CreatedByUserID:              99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "recorded-retry",
+			State:              models.TargetStateDispatching,
+			DesiredState:       models.DesiredStateCurtailed,
+			CurtailPhase: models.TargetPhaseSummary{
+				Phase:        models.TargetPhaseCurtail,
+				State:        models.TargetStateDispatched,
+				DispatchedAt: &priorDispatch,
+			},
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "unrecorded-recovery",
+			State:              models.TargetStateDispatching,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "pending",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, [][]string{{"recorded-retry"}, {"pending"}}, disp.curtailCallIDs,
+		"a later unrecorded orphan must not make the actual retry batch consume the fresh-wave slot")
+	assert.Equal(t, models.TargetStateDispatching, store.targetsByEventID[eventID][1].State)
+	require.NotNil(t, store.events[0].LastCurtailPendingDispatchAt)
+	assert.Equal(t, now, *store.events[0].LastCurtailPendingDispatchAt,
+		"the eligible pending batch, not the recorded retry, must advance the clock")
+}
+
+func TestReconciler_PendingDispatchClockWriteFailureFailsClosed(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(1)
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	lastPendingWave := now.Add(-61 * time.Second)
+	store.recordPendingDispatchErr = errors.New("clock write failed")
+	store.events = []*models.Event{
+		{
+			ID:                           eventID,
+			EventUUID:                    eventUUID,
+			OrgID:                        1,
+			State:                        models.EventStateActive,
+			CurtailBatchSize:             &batchSize,
+			CurtailBatchIntervalSec:      60,
+			LastCurtailPendingDispatchAt: &lastPendingWave,
+			CreatedByUserID:              99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "pending",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Empty(t, disp.curtailCallIDs,
+		"a fresh pending wave must not send when its durable pacing reservation fails")
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
+	assert.Zero(t, store.updateTargetCalls,
+		"the pacing reservation must fail before the DISPATCHING pre-write")
+	require.NotNil(t, store.events[0].LastCurtailPendingDispatchAt)
+	assert.Equal(t, lastPendingWave, *store.events[0].LastCurtailPendingDispatchAt,
+		"failed durable clock writes must not advance only the in-memory event")
+}
+
+func TestReconciler_PendingDispatchClockReservedBeforeCommand(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	batchSize := int32(1)
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	lastPendingWave := now.Add(-61 * time.Second)
+	store.events = []*models.Event{
+		{
+			ID:                           eventID,
+			EventUUID:                    eventUUID,
+			OrgID:                        1,
+			State:                        models.EventStateActive,
+			CurtailBatchSize:             &batchSize,
+			CurtailBatchIntervalSec:      60,
+			LastCurtailPendingDispatchAt: &lastPendingWave,
+			CreatedByUserID:              99,
+		},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "pending",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+	}
+	disp.curtailHook = func(_ []string) {
+		require.NotNil(t, store.events[0].LastCurtailPendingDispatchAt)
+		assert.Equal(t, now, *store.events[0].LastCurtailPendingDispatchAt,
+			"the durable pacing slot must be reserved before the command is sent")
+		assert.Equal(t, models.TargetStateDispatching, store.targetsByEventID[eventID][0].State)
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, [][]string{{"pending"}}, disp.curtailCallIDs)
+}
+
 // TestReconciler_RetryBudgetResetsOnReConfirm: drift → confirm → drift →
 // confirm cycles must each get a fresh retry budget so a flapping miner is
 // not artificially terminated by carry-over attempts.
@@ -3629,7 +4171,6 @@ func TestReconciler_ObserveTickDurationFiresOnHappyPath(t *testing.T) {
 
 	r := New(Config{
 		TickInterval:         time.Hour,
-		ShutdownDeadline:     time.Second,
 		MaxRetries:           3,
 		DriftThresholdFactor: 0.5,
 	}, store, disp, WithMetrics(metrics))
@@ -3654,7 +4195,6 @@ func TestReconciler_TickFailureFiresOnTickInfraPanic(t *testing.T) {
 	store.listEventsPanicErr = "synthetic db panic"
 	r := New(Config{
 		TickInterval:         time.Hour,
-		ShutdownDeadline:     time.Second,
 		MaxRetries:           3,
 		DriftThresholdFactor: 0.5,
 	}, store, disp, WithMetrics(metrics))
@@ -3688,7 +4228,6 @@ func TestReconciler_TickFailureFiresOnPerEventPanic(t *testing.T) {
 	first := true
 	r := New(Config{
 		TickInterval:         time.Hour,
-		ShutdownDeadline:     time.Second,
 		MaxRetries:           3,
 		DriftThresholdFactor: 0.5,
 	}, store, disp, WithMetrics(metrics))
@@ -3734,19 +4273,204 @@ func TestReconciler_PanicInListEventsRecovers(t *testing.T) {
 func TestReconciler_StartIdempotency(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
-	r := New(Config{TickInterval: time.Hour, ShutdownDeadline: time.Second}, store, disp)
+	r := New(Config{TickInterval: time.Hour}, store, disp)
 
 	require.NoError(t, r.Start(context.Background()))
 	require.NoError(t, r.Start(context.Background()), "second Start is a no-op")
-	require.NoError(t, r.Stop())
+	require.NoError(t, r.Stop(context.Background()))
 	// Second Stop is a no-op too; verify no panic / goroutine deadlock.
-	require.NoError(t, r.Stop())
+	require.NoError(t, r.Stop(context.Background()))
+}
+
+func TestReconciler_ActivationContextCancellationAllowsRestart(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	r := New(Config{TickInterval: time.Hour}, store, disp)
+
+	runCtx, cancel := context.WithCancel(context.Background())
+	require.NoError(t, r.Start(runCtx))
+	cancel()
+	require.Eventually(t, func() bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return r.runDone == nil
+	}, time.Second, 10*time.Millisecond)
+
+	require.NoError(t, r.Start(context.Background()))
+	require.NoError(t, r.Stop(context.Background()))
+}
+
+func TestReconciler_ActivationContextCancellationPreventsOverlapWhileDraining(t *testing.T) {
+	store := newFakeStore()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	workCanceled := make(chan struct{})
+	store.listEventsHook = func(ctx context.Context) {
+		close(started)
+		select {
+		case <-ctx.Done():
+			close(workCanceled)
+		case <-release:
+		}
+	}
+	r := New(Config{TickInterval: time.Second}, store, &fakeDispatcher{})
+	runCtx, cancel := context.WithCancel(context.Background())
+	require.NoError(t, r.Start(runCtx))
+	<-started
+
+	cancel()
+	require.ErrorContains(t, r.Start(context.Background()), "previous activation is still stopping")
+	select {
+	case <-workCanceled:
+		t.Fatal("activation cancellation canceled admitted reconciliation work")
+	default:
+	}
+
+	close(release)
+	require.NoError(t, r.Stop(context.Background()))
+	require.NoError(t, r.Start(context.Background()))
+	require.NoError(t, r.Stop(context.Background()))
+}
+
+func TestReconciler_ActivationCancellationDoesNotAdmitQueuedTick(t *testing.T) {
+	store := newFakeStore()
+	firstTickStarted := make(chan struct{})
+	releaseFirstTick := make(chan struct{})
+	store.listEventsHook = func(context.Context) {
+		if store.listEventsCalls == 1 {
+			close(firstTickStarted)
+			<-releaseFirstTick
+		}
+	}
+	r := New(Config{}, store, &fakeDispatcher{})
+	r.cfg.TickInterval = time.Millisecond
+	loopCtx, cancelLoop := context.WithCancel(t.Context())
+	runDone := make(chan struct{})
+	go r.tickLoop(loopCtx, context.Background(), runDone)
+
+	<-firstTickStarted
+	time.Sleep(5 * time.Millisecond)
+	cancelLoop()
+	close(releaseFirstTick)
+	<-runDone
+
+	require.Equal(t, 1, store.listEventsCalls)
+}
+
+func TestReconciler_StopLetsInFlightWorkDrain(t *testing.T) {
+	r := New(Config{TickInterval: time.Hour}, newFakeStore(), &fakeDispatcher{})
+	loopCtx, loopCancel := context.WithCancel(context.Background())
+	workCtx, workCancel := context.WithCancel(context.Background())
+	runDone := make(chan struct{})
+	r.loopCancel = loopCancel
+	r.workCancel = workCancel
+	r.runCanceled = loopCtx.Done()
+	r.runDone = runDone
+
+	loopStopped := make(chan struct{})
+	releaseWork := make(chan struct{})
+	go func() {
+		<-loopCtx.Done()
+		close(loopStopped)
+		select {
+		case <-workCtx.Done():
+			t.Error("Stop canceled in-flight work before its drain budget expired")
+		case <-releaseWork:
+		}
+		r.finishActivation()
+		close(runDone)
+	}()
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- r.Stop(context.Background()) }()
+	<-loopStopped
+	select {
+	case <-workCtx.Done():
+		t.Fatal("in-flight work was canceled during graceful drain")
+	default:
+	}
+	close(releaseWork)
+	require.NoError(t, <-stopDone)
+}
+
+func TestReconciler_StopDeadlineCancelsInFlightWork(t *testing.T) {
+	r := New(Config{TickInterval: time.Hour}, newFakeStore(), &fakeDispatcher{})
+	loopCtx, loopCancel := context.WithCancel(context.Background())
+	workCtx, workCancel := context.WithCancel(context.Background())
+	runDone := make(chan struct{})
+	r.loopCancel = loopCancel
+	r.workCancel = workCancel
+	r.runCanceled = loopCtx.Done()
+	r.runDone = runDone
+
+	workCanceled := make(chan struct{})
+	releaseWork := make(chan struct{})
+	go func() {
+		<-loopCtx.Done()
+		<-workCtx.Done()
+		close(workCanceled)
+		<-releaseWork
+		r.finishActivation()
+		close(runDone)
+	}()
+
+	stopCtx, cancelStop := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancelStop()
+	require.ErrorIs(t, r.Stop(stopCtx), context.DeadlineExceeded)
+	select {
+	case <-workCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("Stop deadline did not cancel in-flight work")
+	}
+	close(releaseWork)
+	require.NoError(t, r.Stop(context.Background()))
+}
+
+func TestReconciler_StopCancellationPreventsOverlappingRestart(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	r := New(Config{TickInterval: time.Hour}, store, disp)
+
+	runCtx, runCancel := context.WithCancel(context.Background())
+	runDone := make(chan struct{})
+	r.loopCancel = runCancel
+	r.workCancel = runCancel
+	r.runCanceled = runCtx.Done()
+	r.runDone = runDone
+
+	workCanceled := make(chan struct{})
+	releaseWork := make(chan struct{})
+	go func() {
+		<-runCtx.Done()
+		close(workCanceled)
+		<-releaseWork
+		r.finishActivation()
+		close(runDone)
+	}()
+
+	stopCtx, cancelStop := context.WithCancel(context.Background())
+	cancelStop()
+	require.ErrorIs(t, r.Stop(stopCtx), context.Canceled)
+	require.Eventually(t, func() bool {
+		select {
+		case <-workCanceled:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, 10*time.Millisecond)
+	require.ErrorContains(t, r.Start(context.Background()), "previous activation is still stopping")
+
+	close(releaseWork)
+	require.NoError(t, r.Stop(context.Background()))
+	require.NoError(t, r.Start(context.Background()))
+	require.NoError(t, r.Stop(context.Background()))
 }
 
 func TestReconciler_StartRejectsSubSecondTickInterval(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
-	r := New(Config{TickInterval: 500 * time.Millisecond, ShutdownDeadline: time.Second}, store, disp)
+	r := New(Config{TickInterval: 500 * time.Millisecond}, store, disp)
 
 	err := r.Start(context.Background())
 	require.Error(t, err)
@@ -3758,7 +4482,6 @@ func TestReconciler_StartRejectsInvalidCurtailDispatchTimeout(t *testing.T) {
 	disp := &fakeDispatcher{}
 	r := New(Config{
 		TickInterval:              time.Hour,
-		ShutdownDeadline:          time.Second,
 		CurtailDispatchTimeoutSec: -1,
 	}, store, disp)
 
@@ -3770,7 +4493,7 @@ func TestReconciler_StartRejectsInvalidCurtailDispatchTimeout(t *testing.T) {
 func TestReconciler_ConfigDefaultsDispatchTimeouts(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
-	r := New(Config{TickInterval: time.Hour, ShutdownDeadline: time.Second}, store, disp)
+	r := New(Config{TickInterval: time.Hour}, store, disp)
 
 	assert.Equal(t, int32(10), r.cfg.MaxRetries)
 	assert.Equal(t, int32(50), r.cfg.CurtailMaxRetries)
@@ -3781,6 +4504,19 @@ func TestReconciler_ConfigDefaultsDispatchTimeouts(t *testing.T) {
 // --- isCurtailed unit tests ---
 // requirePositiveEvidence=false (drift): missing samples preserve
 // curtailed; =true (confirm): missing samples return false.
+
+// A pool-less miner's persisted idle baseline (#663) makes power-vs-baseline
+// the confirm signal; hash is 0 through the whole lifecycle so the hash-only
+// fallback would confirm vacuously.
+func TestIsCurtailed_ConfirmPath_IdleBaselinePoolLessMiner(t *testing.T) {
+	t.Parallel()
+	baseline := 400.0
+	// Sleep draw well under half the idle draw: confirmed.
+	assert.True(t, isCurtailed(ptrFloat64(30), &baseline, ptrFloat64(0), 0.5, true))
+	// Draw still above half the idle baseline: not confirmed — the sleep
+	// command has not (yet) taken effect.
+	assert.False(t, isCurtailed(ptrFloat64(210), &baseline, ptrFloat64(0), 0.5, true))
+}
 
 func TestIsCurtailed_DriftPath_BaselineRelativeThreshold(t *testing.T) {
 	baseline := 3000.0
@@ -3858,15 +4594,16 @@ func (p *panickyDispatcher) Uncurtail(ctx context.Context, selector *pb.DeviceSe
 // goroutine-safe via a single mutex; the reconciler emits from the tick
 // goroutine but tests poke from the test goroutine.
 type recordingMetrics struct {
-	mu                     sync.Mutex
-	tickDurations          []time.Duration
-	tickFailures           int
-	candidateExcluded      map[string]int
-	maintenance            int
-	eventStateRaces        int
-	targetWriteFailures    int
-	auditWriteFailures     map[string]int
-	allPairedPendingStalls int
+	mu                       sync.Mutex
+	tickDurations            []time.Duration
+	tickFailures             int
+	confirmationPassFailures int
+	candidateExcluded        map[string]int
+	maintenance              int
+	eventStateRaces          int
+	targetWriteFailures      int
+	auditWriteFailures       map[string]int
+	allPairedPendingStalls   int
 }
 
 func newRecordingMetrics() *recordingMetrics {
@@ -3886,6 +4623,12 @@ func (m *recordingMetrics) IncTickFailure() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.tickFailures++
+}
+
+func (m *recordingMetrics) IncConfirmationPassFailure() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.confirmationPassFailures++
 }
 
 func (m *recordingMetrics) IncCandidateExcluded(reason string) {
@@ -3955,4 +4698,10 @@ func (m *recordingMetrics) TickFailureCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.tickFailures
+}
+
+func (m *recordingMetrics) ConfirmationPassFailureCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.confirmationPassFailures
 }

@@ -58,6 +58,8 @@ In CI, non-setup spec files are distributed across a fixed number of shards (`SH
 
 Spec files whose names start with two digits, such as `00-onboarding.spec.ts` and `01-miningPools.spec.ts`, are treated as setup specs. They are not sharded; instead they run first, in filename order, as Playwright project dependencies in every shard.
 
+`onboardingVisual.spec.ts` is excluded from the default `desktop` and `mobile` projects. It runs only in the dedicated visual-only CI job and in the Linux snapshot refresh flow below, both of which opt into `PROTOFLEET_VISUAL_ONLY=1` so the spec always sees a fresh backend instead of the normal setup-project state.
+
 **Using Playwright directly:**
 
 ```bash
@@ -69,6 +71,7 @@ npx playwright test --debug              # Debug mode
 npx playwright test --ui                 # Interactive UI
 npx playwright test spec/auth.spec.ts    # Run specific file
 PW_UI_NO_DEPS=1 npx playwright test --ui --project=desktop  # Skip setup project deps for targeted reruns
+npm run test:e2e:visual:update:linux -- --project=desktop   # Refresh visual baselines in Linux on macOS
 ```
 
 ### Viewing Test Reports
@@ -85,6 +88,48 @@ The report includes:
 - Screenshots (captured on failure)
 - Videos (retained on failure)
 - Traces (captured on first retry)
+
+### Refreshing Visual Snapshots From macOS
+
+If CI verifies visual snapshots on Linux, the safest way to refresh them from macOS is to generate them in a Linux
+Playwright container instead of natively on macOS.
+
+Only refresh visual baselines when you have intentionally changed the UI and have already reviewed the diffs or
+screenshots closely enough to know the existing expected images are outdated.
+
+Do not run the refresh command just to make a failing visual test pass.
+
+If an AI agent is helping with this repo, it must not run the refresh command unless the developer has explicitly
+confirmed that they understand this overwrite behavior and want to replace the current expected screenshots.
+
+From `client/`:
+
+```bash
+npm install
+npm run test:e2e:visual:update:linux -- --confirm-overwrite
+npm run test:e2e:visual:update:linux -- --confirm-overwrite --project=desktop
+npm run test:e2e:visual:update:linux -- --confirm-overwrite --project=mobile
+```
+
+This command overwrites the checked-in expected screenshots under
+`e2eTests/protoFleet/spec/onboardingVisual.spec.ts-snapshots/visual`.
+
+Before committing or pushing, review every changed screenshot and confirm the new images reflect the intended product
+change.
+
+This script:
+
+- builds Proto Fleet locally
+- starts a local `vite preview` server on port `5173`
+- resets the fake backend before each viewport run
+- waits for `fleet-api` to report ready on `http://127.0.0.1:4000/health/ready`
+- runs `spec/onboardingVisual.spec.ts` inside the official Linux Playwright image, reusing the local Playwright packages from `client/node_modules` instead of installing dependencies inside Docker
+- copies the refreshed screenshots back into `e2eTests/protoFleet/spec/onboardingVisual.spec.ts-snapshots/visual`
+
+The Playwright container reaches the host preview through `host.docker.internal`, so this flow is intended for Docker
+Desktop on macOS. If port `5173` is already in use, the script automatically falls back to the next free port in the `5173-5193` range. You can still force a specific port with `PREVIEW_PORT=5180`.
+The script prefers the Playwright version from `client/node_modules`; if that is unavailable, it falls back to a cached
+copy from `~/.npm/_npx` and prints a warning if the version does not match `client/package.json`.
 
 ### Configuration
 

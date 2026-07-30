@@ -400,6 +400,51 @@ func TestAppendFilterSQL_RackAndBuildingUnassigned_IncludeNoRackWideningPreserve
 	assert.Contains(t, sql, "device_set_id = ANY")
 	assert.Contains(t, sql, "dsr.building_id IS NULL")
 	assert.Equal(t, 2, strings.Count(sql, "NOT EXISTS"))
+	// #702: with a building predicate present (include_no_building), the
+	// no-rack branch is intersected with "no direct building" so a rackless
+	// miner directly placed in another building can't leak through.
+	assert.Contains(t, sql, "(device.building_id IS NULL AND NOT EXISTS")
+}
+
+// The assignable-only miner-selection filter (issue #702) sends the target
+// rack (rack_ids + include_no_rack) AND its building (building_ids +
+// include_no_building). The no-rack branch must be gated on
+// device.building_id IS NULL so a rackless miner with a direct building_id in
+// a different building stays out of the default assignable list.
+func TestAppendFilterSQL_AssignableOnlyShape_NoRackBranchGatedOnNoBuilding(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{
+		rackIDsFilter:     validNullString(),
+		rackIDValues:      []int64{5},
+		buildingIDsFilter: validNullString(),
+		buildingIDValues:  []int64{7},
+		includeNoBuilding: true,
+		includeNoRack:     true,
+	}
+
+	appendFilterSQL(&sb, []any{"initial"}, 2, 42, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "device.building_id = ANY")                   // branch A: direct/rack-derived building
+	assert.Contains(t, sql, "dsr.building_id IS NULL")                    // branch B: rack with no building
+	assert.Contains(t, sql, "(device.building_id IS NULL AND NOT EXISTS") // branch C: gated no-rack
+}
+
+// The fleet "Unassigned" rack bucket sends include_no_rack with no building
+// predicate at all. Here the no-rack branch is the SOLE building-group
+// predicate and must stay unqualified — otherwise a rackless miner directly
+// placed in a building would vanish from the Unassigned view.
+func TestAppendFilterSQL_UnassignedRackBucket_NoRackBranchNotGated(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{
+		includeNoRack: true,
+	}
+
+	appendFilterSQL(&sb, []any{"initial"}, 2, 42, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "NOT EXISTS")
+	assert.NotContains(t, sql, "device.building_id IS NULL")
 }
 
 // TestBuildMinerFilterParams_SiteFilter exercises the four allowed combos
@@ -786,10 +831,14 @@ func TestAppendFilterSQL_IncludeNoRack_Alone(t *testing.T) {
 func TestAppendFilterSQL_BuildingFiltersORTogether(t *testing.T) {
 	// building_ids + include_no_building + include_no_rack should be OR'd
 	// inside one outer AND so devices in any of the three populations match.
+	// An explicit rack filter keeps the "rack has no building" branch (it's
+	// only dropped for the rack-less new-rack shape).
 	var sb strings.Builder
 	fp := minerFilterParams{
 		buildingIDsFilter: validNullString(),
 		buildingIDValues:  []int64{7},
+		rackIDsFilter:     validNullString(),
+		rackIDValues:      []int64{5},
 		includeNoBuilding: true,
 		includeNoRack:     true,
 	}
@@ -802,6 +851,54 @@ func TestAppendFilterSQL_BuildingFiltersORTogether(t *testing.T) {
 	assert.Contains(t, sql, "dsr.building_id IS NULL")
 	assert.Contains(t, sql, "NOT EXISTS")
 	assert.GreaterOrEqual(t, strings.Count(sql, " OR "), 2)
+}
+
+// The assignable-only filter for a NEW rack sends include_no_rack with no
+// rack_ids and no building. Its "no building" pin must NOT emit the "rack has
+// no building" branch — there are no target members to keep, and that branch
+// would otherwise match miners in OTHER building-less racks. The no-rack
+// branch (device.building_id IS NULL AND NOT EXISTS rack) still admits
+// rackless miners with no direct building.
+func TestAppendFilterSQL_NewRackShape_DropsNoBuildingRackBranch(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{
+		includeNoBuilding: true,
+		includeNoRack:     true,
+		includeUnassigned: true,
+	}
+
+	appendFilterSQL(&sb, []any{"initial"}, 2, 42, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "device.site_id IS NULL")
+	assert.Contains(t, sql, "(device.building_id IS NULL AND NOT EXISTS")
+	assert.NotContains(t, sql, "dsr.building_id IS NULL")
+}
+
+// A NEW rack placed in a building sends building_ids + include_no_building +
+// include_no_rack with NO rack_ids. "No rack" must be enforced as its own
+// top-level AND clause — otherwise a miner in ANOTHER rack in that building
+// (whose direct/rack-derived building_id still matches the building predicate)
+// leaks into the assignable-only list.
+func TestAppendFilterSQL_NewRackInBuilding_EnforcesNoRackTopLevel(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{
+		buildingIDsFilter: validNullString(),
+		buildingIDValues:  []int64{7},
+		includeNoBuilding: true,
+		includeNoRack:     true,
+		siteIDsFilter:     validNullString(),
+		siteIDValues:      []int64{3},
+		includeUnassigned: true,
+	}
+
+	appendFilterSQL(&sb, []any{"initial"}, 2, 42, fp)
+
+	sql := sb.String()
+	// Rack membership is its own AND clause enforcing "no rack".
+	assert.Contains(t, sql, " AND (NOT EXISTS (SELECT 1 FROM device_set_membership dcm JOIN device_set ds")
+	// The building predicate still admits directly-building-placed rackless miners.
+	assert.Contains(t, sql, "device.building_id = ANY")
 }
 
 // TestAppendFilterSQL_ZoneKeys_OrgIDDefenseInDepth guards against the
@@ -902,6 +999,22 @@ func TestBuildMinerFilterParams_NoNumeric_NoIPCIDR(t *testing.T) {
 	assert.Empty(t, params.numericRanges)
 	assert.False(t, params.ipCIDRsFilter.Valid)
 	assert.Empty(t, params.ipCIDRValues)
+	assert.Empty(t, params.ipRangeStarts)
+	assert.Empty(t, params.ipRangeEnds)
+}
+
+func TestBuildMinerFilterParams_IPRanges(t *testing.T) {
+	filter := &stores.MinerFilter{
+		IPRanges: []stores.IPRange{
+			{Start: netip.MustParseAddr("10.0.0.10"), End: netip.MustParseAddr("10.0.0.20")},
+			{Start: netip.MustParseAddr("192.168.1.1"), End: netip.MustParseAddr("192.168.1.5")},
+		},
+	}
+
+	params := buildMinerFilterParams(filter)
+
+	assert.Equal(t, []string{"10.0.0.10", "192.168.1.1"}, params.ipRangeStarts)
+	assert.Equal(t, []string{"10.0.0.20", "192.168.1.5"}, params.ipRangeEnds)
 }
 
 func TestAppendFilterSQL_NumericRange_LowerBoundExclusive(t *testing.T) {
@@ -1029,6 +1142,45 @@ func TestAppendFilterSQL_IPCIDRs_UsesInetAnyPredicate(t *testing.T) {
 	// Single param regardless of CIDR count.
 	assert.Len(t, resultArgs, 2)
 	assert.Equal(t, 3, resultArgNum)
+}
+
+func TestAppendFilterSQL_IPRanges_UsesBetweenPredicate(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	fp := minerFilterParams{
+		ipRangeStarts: []string{"10.0.0.10", "192.168.1.1"},
+		ipRangeEnds:   []string{"10.0.0.20", "192.168.1.5"},
+	}
+
+	resultArgs, resultArgNum := appendFilterSQL(&sb, args, 2, 1, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "discovered_device.ip_address_inet BETWEEN $2::inet AND $3::inet")
+	assert.Contains(t, sql, "discovered_device.ip_address_inet BETWEEN $4::inet AND $5::inet")
+	assert.Contains(t, sql, " OR ", "multiple ranges must be OR'd within the subnet group")
+	// initial + 2 bounds per range.
+	assert.Len(t, resultArgs, 5)
+	assert.Equal(t, 6, resultArgNum)
+}
+
+func TestAppendFilterSQL_IPCIDRsAndRanges_OrGroupedTogether(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	fp := minerFilterParams{
+		ipCIDRsFilter: validNullString(),
+		ipCIDRValues:  []string{"192.168.1.0/24"},
+		ipRangeStarts: []string{"10.0.0.10"},
+		ipRangeEnds:   []string{"10.0.0.20"},
+	}
+
+	resultArgs, resultArgNum := appendFilterSQL(&sb, args, 2, 1, fp)
+
+	sql := sb.String()
+	// CIDR containment and range are OR'd inside one parenthesized group.
+	assert.Contains(t, sql, "(discovered_device.ip_address_inet <<= ANY($2::cidr[]) OR discovered_device.ip_address_inet BETWEEN $3::inet AND $4::inet)")
+	// initial + cidr array + 2 range bounds.
+	assert.Len(t, resultArgs, 4)
+	assert.Equal(t, 5, resultArgNum)
 }
 
 func TestAppendFilterSQL_IPCIDRs_NoRawSliceArgs(t *testing.T) {

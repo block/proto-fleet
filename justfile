@@ -20,7 +20,7 @@ format: _format-server _format-client _format-plugins
 check: lint
 
 # run all code generation
-gen: _server-init _client-init _lint-protos _gen-protos _gen-server _format-client _format-server
+gen: _server-init _client-init _lint-protos _gen-protos _gen-fleet-cli _gen-server _format-client _format-server
 
 # --- Plugin builds ---
 
@@ -167,6 +167,26 @@ mqtt-sim-down:
 mqtt-sim-logs:
   just mqtt-sim-logs
 
+# start the Modbus TCP simulator and allowlisted fleet-api
+[working-directory: 'server']
+modbus-sim-up:
+  just modbus-sim-up
+
+# rebuild and restart the Modbus TCP simulator and allowlisted fleet-api
+[working-directory: 'server']
+modbus-sim-rebuild:
+  just modbus-sim-rebuild
+
+# stop the Modbus TCP simulator and remove its dev allowlist
+[working-directory: 'server']
+modbus-sim-down:
+  just modbus-sim-down
+
+# follow Modbus TCP simulator logs
+[working-directory: 'server']
+modbus-sim-logs:
+  just modbus-sim-logs
+
 # start backend, an enrolled fleet node, isolated fake miners, and the ProtoFleet client for manual UI testing
 fleetnode-ui-test-up:
   #!/usr/bin/env bash
@@ -299,6 +319,17 @@ build-fleetnode: (_build-go-plugins-native "server/.fleetnode/plugins") (_asicrs
 build-windows-installer:
   powershell -NoProfile -ExecutionPolicy Bypass -File ./build-fleet-installer.ps1
 
+# generate the protobuf-driven Fleet CLI commands
+gen-fleet-cli: _gen-fleet-cli
+
+# build the Fleet CLI for local smoke testing; output lives outside server/ so
+# the docker compose watch never restarts fleet-api over a CLI rebuild
+build-fleet-cli: _server-init _gen-fleet-cli
+  #!/usr/bin/env bash
+  set -euo pipefail
+  mkdir -p .cache/fleet-cli
+  go build -o .cache/fleet-cli/fleetcli ./server/cmd/fleetcli
+
 # install git hooks via lefthook
 install-hooks:
   #!/usr/bin/env bash
@@ -359,9 +390,16 @@ _format-plugins:
 _gen-protos:
   PATH="$(pwd)/client/node_modules/.bin:$PATH" buf generate
 
+_gen-fleet-cli:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  mkdir -p .cache/fleet-cli
+  buf build -o .cache/fleet-cli/fleet-descriptor-set.bin --as-file-descriptor-set
+  go run ./server/tools/generate-fleet-cli
+
 [working-directory: 'server']
 _gen-server:
-    just gen
+  just gen
 
 _e2e suite *args:
   #!/usr/bin/env bash

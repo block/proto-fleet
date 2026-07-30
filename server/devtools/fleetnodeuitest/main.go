@@ -105,7 +105,8 @@ func ensureFleetNode(ctx context.Context, cfg config) error {
 	}
 
 	confirmReq := connect.NewRequest(&fleetnodeadminv1.ConfirmFleetNodeRequest{
-		FleetNodeId: result.State.FleetNodeID,
+		FleetNodeId:         result.State.FleetNodeID,
+		PendingEnrollmentId: codeResp.Msg.GetPendingEnrollmentId(),
 	})
 	confirmReq.Header().Set("Cookie", cookie)
 	confirmResp, err := adminClient.ConfirmFleetNode(ctx, confirmReq)
@@ -138,9 +139,15 @@ func revokeExistingFleetNodesByName(ctx context.Context, adminClient fleetnodead
 		if node.GetName() != nodeName || node.GetEnrollmentStatus() == fleetnodeadminv1.FleetNodeEnrollmentStatus_FLEET_NODE_ENROLLMENT_STATUS_REVOKED {
 			continue
 		}
-		revokeReq := connect.NewRequest(&fleetnodeadminv1.RevokeFleetNodeRequest{
+		revokeMsg := &fleetnodeadminv1.RevokeFleetNodeRequest{
 			FleetNodeId: node.GetFleetNodeId(),
-		})
+		}
+		if node.GetEnrollmentStatus() == fleetnodeadminv1.FleetNodeEnrollmentStatus_FLEET_NODE_ENROLLMENT_STATUS_AWAITING_CONFIRMATION {
+			if pendingEnrollmentID := node.GetPendingEnrollmentId(); pendingEnrollmentID > 0 {
+				revokeMsg.PendingEnrollmentId = &pendingEnrollmentID
+			}
+		}
+		revokeReq := connect.NewRequest(revokeMsg)
 		revokeReq.Header().Set("Cookie", cookie)
 		if _, err := adminClient.RevokeFleetNode(ctx, revokeReq); err != nil {
 			return fmt.Errorf("revoke existing fleet node %d (%q): %w", node.GetFleetNodeId(), nodeName, err)

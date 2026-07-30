@@ -194,6 +194,9 @@ func (s *adminTerminateStubStore) ListEvents(context.Context, interfaces.ListEve
 func (s *adminTerminateStubStore) UpdateEventState(context.Context, int64, models.EventState, models.EventState, *time.Time, *time.Time) error {
 	panic("UpdateEventState not exercised by AdminTerminate handler tests")
 }
+func (s *adminTerminateStubStore) RecordCurtailPendingDispatch(context.Context, int64, models.EventState, time.Time) error {
+	panic("RecordCurtailPendingDispatch not exercised by AdminTerminate handler tests")
+}
 func (s *adminTerminateStubStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
 	panic("UpdateTargetState not exercised by AdminTerminate handler tests")
 }
@@ -521,6 +524,60 @@ func TestHandler_ForceReleaseCurtailmentOwnership_RejectsWholeOrgWhenOrgGrantIsN
 		UserID:         9,
 		Role:           domainAuth.AdminRoleName,
 	}, testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(narrowedSite))
+
+	_, err := h.ForceReleaseCurtailmentOwnership(ctx, connect.NewRequest(&pb.ForceReleaseCurtailmentOwnershipRequest{
+		EventUuid: eventUUID.String(),
+		Reason:    "operator release",
+	}))
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Equal(t, 0, store.forceReleaseCalls)
+}
+
+func TestHandler_ForceReleaseCurtailmentOwnership_RejectsWholeOrgWithFanWhenOrgGrantIsNarrowed(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID        = int64(42)
+		fanID        = int64(11)
+		fanSiteID    = int64(7)
+		narrowedSite = int64(8)
+	)
+	eventUUID := uuid.New()
+	authEvent := &models.Event{
+		ID:                   99,
+		EventUUID:            eventUUID,
+		OrgID:                orgID,
+		State:                models.EventStateActive,
+		ScopeType:            models.ScopeTypeWholeOrg,
+		FacilityFanDeviceIDs: []int64{fanID},
+		FacilityFanSiteIDs:   []int64{fanSiteID},
+	}
+	store := &adminTerminateStubStore{
+		authEvent: authEvent,
+		result: &models.Event{
+			ID:                   99,
+			EventUUID:            eventUUID,
+			OrgID:                orgID,
+			State:                models.EventStateCancelled,
+			ScopeType:            models.ScopeTypeWholeOrg,
+			FacilityFanDeviceIDs: []int64{fanID},
+			FacilityFanSiteIDs:   []int64{fanSiteID},
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+	ctx := testSessionCtxWithAssignments(t, &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           domainAuth.AdminRoleName,
+	},
+		testOrgAssignment(authz.PermCurtailmentManage),
+		testSiteAssignment(fanSiteID, authz.PermCurtailmentManage),
+		testSiteAssignment(narrowedSite),
+	)
 
 	_, err := h.ForceReleaseCurtailmentOwnership(ctx, connect.NewRequest(&pb.ForceReleaseCurtailmentOwnershipRequest{
 		EventUuid: eventUUID.String(),

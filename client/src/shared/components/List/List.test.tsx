@@ -88,6 +88,30 @@ describe("List", () => {
     expect(screen.getAllByRole("row")).toHaveLength(testItems.length + 1);
   });
 
+  it("renders standalone dash table values in muted text", () => {
+    render(
+      <List<TestItem, TestItemKey>
+        activeCols={[testCols.name, testCols.status] as (keyof TestItem)[]}
+        colTitles={testColTitles}
+        colConfig={{
+          ...testColConfig,
+          [testCols.status]: {
+            component: () => <span className="text-text-primary">—</span>,
+          },
+        }}
+        items={[{ ...testItems[0], id: "dash-item", name: "—" }]}
+        itemKey="id"
+      />,
+    );
+
+    const placeholders = screen.getAllByText("—");
+
+    expect(placeholders).toHaveLength(2);
+    placeholders.forEach((placeholder) => {
+      expect(placeholder.closest(".text-text-primary-50")).toBeInTheDocument();
+    });
+  });
+
   it("does not apply trailing padding classes when the last column is already reachable", () => {
     render(
       <List<TestItem, TestItemKey>
@@ -258,9 +282,10 @@ describe("List", () => {
   it("does not register a resize listener when horizontal overflow handling is disabled", () => {
     const addEventListenerSpy = vi.spyOn(window, "addEventListener");
     let resizeListenerCount: number;
+    let scrollContainer: HTMLDivElement;
 
     try {
-      render(
+      const { container } = render(
         <List<TestItem, TestItemKey>
           activeCols={activeCols}
           colTitles={testColTitles}
@@ -270,12 +295,20 @@ describe("List", () => {
           overflowContainer={false}
         />,
       );
+      scrollContainer = container.querySelector("table")?.parentElement as HTMLDivElement;
       resizeListenerCount = addEventListenerSpy.mock.calls.filter(([eventName]) => eventName === "resize").length;
     } finally {
       addEventListenerSpy.mockRestore();
     }
 
     expect(resizeListenerCount).toBe(0);
+    expect(scrollContainer!).toHaveClass(
+      "phone:overflow-x-auto",
+      "phone:overscroll-x-contain",
+      "tablet-only:overflow-x-auto",
+      "tablet-only:overscroll-x-contain",
+    );
+    expect(scrollContainer!).not.toHaveClass("overflow-x-auto");
   });
 
   it("shows item count by default", () => {

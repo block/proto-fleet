@@ -29,7 +29,7 @@ func setupReaperTest(t *testing.T) (*sql.DB, *testutil.DatabaseService, *testuti
 
 func createBatchLog(t *testing.T, conn *sql.DB, batchUUID string, userID int64, deviceCount int32) {
 	t.Helper()
-	err := db2.WithTransactionNoResult(context.Background(), conn, func(q *sqlc.Queries) error {
+	err := db2.WithTransactionNoResult(context.Background(), conn, func(q sqlc.Querier) error {
 		_, err := q.CreateCommandBatchLog(context.Background(), sqlc.CreateCommandBatchLogParams{
 			Uuid:         batchUUID,
 			Type:         "REBOOT",
@@ -47,7 +47,7 @@ func createBatchLog(t *testing.T, conn *sql.DB, batchUUID string, userID int64, 
 func createStuckMessage(t *testing.T, conn *sql.DB, batchUUID string, deviceID int64, age time.Duration) {
 	t.Helper()
 	ctx := context.Background()
-	err := db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+	err := db2.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
 		return q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
 			CommandBatchLogUuid: batchUUID,
 			CommandType:         "REBOOT",
@@ -122,7 +122,7 @@ func (n *noopMessageQueue) Enqueue(_ context.Context, _ string, _ commandtype.Ty
 func (n *noopMessageQueue) EnqueueMany(_ context.Context, _ string, _ commandtype.Type, _ []queue.EnqueueMessage) error {
 	return nil
 }
-func (n *noopMessageQueue) Dequeue(ctx context.Context) ([]queue.Message, error) {
+func (n *noopMessageQueue) Dequeue(ctx context.Context, _ int32) ([]queue.Message, error) {
 	<-ctx.Done()
 	return nil, fmt.Errorf("dequeue cancelled: %w", ctx.Err())
 }
@@ -153,7 +153,7 @@ func TestReaperIntegration(t *testing.T) {
 		createBatchLog(t, conn, batchUUID, user.DatabaseID, 1)
 		createStuckMessage(t, conn, batchUUID, device.DatabaseID, 10*time.Minute)
 
-		svc := command.NewExecutionService(t.Context(), &command.Config{
+		svc := command.NewExecutionService(&command.Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 100 * time.Millisecond,
 			StuckMessageTimeout:   5 * time.Minute,
@@ -190,7 +190,7 @@ func TestReaperIntegration(t *testing.T) {
 		createBatchLog(t, conn, batchUUID, user.DatabaseID, 1)
 		createStuckMessage(t, conn, batchUUID, device.DatabaseID, 1*time.Minute)
 
-		svc := command.NewExecutionService(t.Context(), &command.Config{
+		svc := command.NewExecutionService(&command.Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 100 * time.Millisecond,
 			StuckMessageTimeout:   5 * time.Minute,
@@ -219,7 +219,7 @@ func TestReaperIntegration(t *testing.T) {
 
 		// Create a message in SUCCESS state with an old timestamp
 		ctx := context.Background()
-		err := db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+		err := db2.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
 			return q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
 				CommandBatchLogUuid: batchUUID,
 				CommandType:         "REBOOT",
@@ -239,7 +239,7 @@ func TestReaperIntegration(t *testing.T) {
 		_, err = conn.ExecContext(ctx, "ALTER TABLE queue_message ENABLE TRIGGER update_queue_message_updated_at")
 		require.NoError(t, err)
 
-		svc := command.NewExecutionService(t.Context(), &command.Config{
+		svc := command.NewExecutionService(&command.Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 100 * time.Millisecond,
 			StuckMessageTimeout:   5 * time.Minute,
@@ -267,7 +267,7 @@ func TestReaperIntegration(t *testing.T) {
 		createStuckMessage(t, conn, batchUUID, device1.DatabaseID, 10*time.Minute)
 		createStuckMessage(t, conn, batchUUID, device2.DatabaseID, 10*time.Minute)
 
-		svc := command.NewExecutionService(t.Context(), &command.Config{
+		svc := command.NewExecutionService(&command.Config{
 			MaxWorkers:            5,
 			MasterPollingInterval: 100 * time.Millisecond,
 			StuckMessageTimeout:   5 * time.Minute,

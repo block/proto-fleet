@@ -43,8 +43,8 @@ export const parseBigIntId = (value: unknown): bigint | null => {
 };
 
 // Build the set of known site ids (decimal-string form) from a ListSites
-// response. Centralised so SitePicker, SitesPage, and Fleet tabs can't drift
-// on the derivation rule.
+// response. Centralised so SitePicker, the site detail page, and Fleet tabs
+// can't drift on the derivation rule.
 export const buildKnownSiteIds = (sites: SiteWithCounts[] | undefined): Set<string> | undefined => {
   if (!sites) return undefined;
   return new Set(sites.map((s) => (s.site?.id ?? 0n).toString()).filter((id) => id !== "0"));
@@ -125,11 +125,35 @@ export const siteFormValuesFromSite = (site: Site): SiteFormValues => ({
   notes: site.notes,
 });
 
+// CreateSiteResult is the success payload: the created site, its
+// network-overlap warnings, and the seed-assignment counts the server applied
+// (counts are zero for a plain create).
+export interface CreateSiteResult {
+  site: Site;
+  networkConfigWarnings: string[];
+  assignedBuildingCount: bigint;
+  assignedRackCount: bigint;
+  reassignedDeviceCount: bigint;
+}
+
 interface CreateSiteProps {
   values: SiteFormValues;
+  // Optional seed (#559): when non-empty, the site is created and these
+  // buildings + racks + devices are assigned to it in ONE transaction.
+  // Empty/omitted = a plain create.
+  buildingIds?: bigint[];
+  rackIds?: bigint[];
+  deviceIdentifiers?: string[];
+  // Force-clear conflicting rack memberships for seeded devices; server
+  // gates this on rack:manage.
+  forceClearConflictingRackMembership?: boolean;
   signal?: AbortSignal;
-  onSuccess?: (site: Site, warnings: string[]) => void;
-  onError?: (message: string) => void;
+  onSuccess?: (result: CreateSiteResult) => void;
+  // Called on failure. When a seed hit unresolvable device conflicts nothing
+  // was created (the whole transaction rolled back) and `conflicts` carries
+  // the per-device reasons; it is empty for a transport / permission failure
+  // and for a plain create.
+  onError?: (message: string, conflicts: PerDeviceConflict[]) => void;
   onFinally?: () => void;
 }
 
@@ -146,6 +170,7 @@ interface DeleteSiteCounts {
   unassignedDeviceCount: bigint;
   deletedBuildingCount: bigint;
   unassignedRackCount: bigint;
+  deletedInfrastructureDeviceCount: bigint;
 }
 
 interface DeleteSiteProps {
@@ -262,8 +287,25 @@ const useSites = () => {
     [handleAuthErrors],
   );
 
+  // createSite creates the site and — when a seed is supplied — assigns its
+  // buildings, racks, and devices in a single transactional RPC. Either
+  // everything commits or nothing does, so a seed failure can no longer strand
+  // an empty site (issue #559). On unresolvable device conflicts the server
+  // returns them with an unset site; we surface those through onError so the
+  // caller can prompt for force-clear, exactly like assignDevicesToSite. A
+  // plain create (no seed) returns the site with zero counts and no conflicts.
   const createSite = useCallback(
-    async ({ values, signal, onSuccess, onError, onFinally }: CreateSiteProps) => {
+    async ({
+      values,
+      buildingIds,
+      rackIds,
+      deviceIdentifiers,
+      forceClearConflictingRackMembership,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: CreateSiteProps) => {
       try {
         const response = await sitesClient.createSite(
           {
@@ -277,21 +319,32 @@ const useSites = () => {
             postalCode: values.postalCode,
             country: values.country,
             notes: values.notes,
+            // Optional seed (empty = plain create).
+            buildingIds: buildingIds ?? [],
+            rackIds: rackIds ?? [],
+            deviceIdentifiers: deviceIdentifiers ?? [],
+            forceClearConflictingRackMembership,
           },
           { signal },
         );
         if (signal?.aborted) return;
-        if (!response.site) {
-          onError?.("Server returned no site");
+        if (response.conflicts.length > 0 || !response.site) {
+          onError?.("Some miners could not be assigned to the new site", response.conflicts);
           return;
         }
-        onSuccess?.(response.site, response.networkConfigWarnings);
+        onSuccess?.({
+          site: response.site,
+          networkConfigWarnings: response.networkConfigWarnings,
+          assignedBuildingCount: response.assignedBuildingCount,
+          assignedRackCount: response.assignedRackCount,
+          reassignedDeviceCount: response.reassignedDeviceCount,
+        });
       } catch (err) {
         if (signal?.aborted) return;
         handleAuthErrors({
           error: err,
           onError: (error) => {
-            onError?.(getErrorMessage(error));
+            onError?.(getErrorMessage(error), []);
           },
         });
       } finally {
@@ -350,6 +403,7 @@ const useSites = () => {
           unassignedDeviceCount: response.unassignedDeviceCount,
           deletedBuildingCount: response.deletedBuildingCount,
           unassignedRackCount: response.unassignedRackCount,
+          deletedInfrastructureDeviceCount: response.deletedInfrastructureDeviceCount,
         });
       } catch (err) {
         if (signal?.aborted) return;

@@ -58,7 +58,20 @@ describe("useRefreshMiners", () => {
       expect.objectContaining({
         deviceIds: ["miner-1", "miner-2"],
       }),
+      undefined,
     );
+  });
+
+  it("forwards an AbortSignal to the RPC as a call option", async () => {
+    mockRefreshMiners.mockResolvedValue(create(RefreshMinersResponseSchema));
+    const controller = new AbortController();
+
+    const { result } = renderHook(() => useRefreshMiners());
+    await result.current.refreshMiners(["miner-1"], controller.signal);
+
+    expect(mockRefreshMiners).toHaveBeenCalledWith(expect.objectContaining({ deviceIds: ["miner-1"] }), {
+      signal: controller.signal,
+    });
   });
 
   it("tracks devices that are currently refreshing", async () => {

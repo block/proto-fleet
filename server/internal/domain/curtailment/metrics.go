@@ -10,6 +10,12 @@ import "time"
 type Metrics interface {
 	ObserveTickDuration(d time.Duration)
 	IncTickFailure()
+	// IncConfirmationPassFailure counts confirmation fast-path pulse passes
+	// that could not make reliable progress (read error, widespread sampling
+	// failure/omission, write error or timeout, or recovered panic). Mirrors
+	// IncTickFailure for the pulse so a stuck fast path is visible on
+	// dashboards even while the full tick stays healthy.
+	IncConfirmationPassFailure()
 	// IncCandidateExcluded counts selector exclusions by reason
 	// (e.g. "phantom_load_no_hash", "stale_telemetry").
 	IncCandidateExcluded(reason string)
@@ -39,6 +45,7 @@ type NoOpMetrics struct{}
 
 func (NoOpMetrics) ObserveTickDuration(time.Duration) {}
 func (NoOpMetrics) IncTickFailure()                   {}
+func (NoOpMetrics) IncConfirmationPassFailure()       {}
 func (NoOpMetrics) IncCandidateExcluded(string)       {}
 func (NoOpMetrics) IncMaintenanceOverride()           {}
 func (NoOpMetrics) IncEventStateRaceLoss()            {}

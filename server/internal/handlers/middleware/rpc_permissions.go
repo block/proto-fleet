@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -21,6 +22,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
@@ -92,9 +94,13 @@ var ProcedurePermissions = map[string]string{
 	// Buildings CRUD — site:read for reads, site:manage for writes.
 	// ListBuildingRacks is a building-scoped read; AssignRacksToBuilding
 	// mutates the rack's building/site/zone/grid placement.
-	buildingsv1connect.BuildingServiceListBuildingsProcedure:         authz.PermSiteRead,
-	buildingsv1connect.BuildingServiceGetBuildingProcedure:           authz.PermSiteRead,
-	buildingsv1connect.BuildingServiceListBuildingRacksProcedure:     authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceListBuildingsProcedure:     authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceGetBuildingProcedure:       authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceListBuildingRacksProcedure: authz.PermSiteRead,
+	// CreateBuilding optionally seeds racks + devices atomically (#559). This
+	// site:manage entry is the primary gate; when the caller opts into
+	// force_clear_conflicting_rack_membership the handler adds an inline
+	// rack:manage check (mirrors AssignDevicesToBuilding).
 	buildingsv1connect.BuildingServiceCreateBuildingProcedure:        authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceUpdateBuildingProcedure:        authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceDeleteBuildingProcedure:        authz.PermSiteManage,
@@ -110,6 +116,21 @@ var ProcedurePermissions = map[string]string{
 	// rollup and the device_identifiers surface respectively. The map
 	// entry is the primary gate (site:read = "can see this building").
 	buildingsv1connect.BuildingServiceGetBuildingStatsProcedure: authz.PermSiteRead,
+
+	// Infrastructure devices (facility fans / fan groups) — site:read
+	// for reads, site:manage for writes. The handler additionally redacts
+	// rack names without rack:read and requires rack:read for rack assignments
+	// and site moves.
+	// Unlike buildings, the handler enforces these against the device's site
+	// (ResourceContext{SiteID}): Create checks the request's site,
+	// Get/Update/Delete resolve the device then authorize its site
+	// (Update additionally checks the target site on a move), and List
+	// filters results to sites the caller can read.
+	infrastructurev1connect.InfrastructureServiceListInfrastructureDevicesProcedure:  authz.PermSiteRead,
+	infrastructurev1connect.InfrastructureServiceGetInfrastructureDeviceProcedure:    authz.PermSiteRead,
+	infrastructurev1connect.InfrastructureServiceCreateInfrastructureDeviceProcedure: authz.PermSiteManage,
+	infrastructurev1connect.InfrastructureServiceUpdateInfrastructureDeviceProcedure: authz.PermSiteManage,
+	infrastructurev1connect.InfrastructureServiceDeleteInfrastructureDeviceProcedure: authz.PermSiteManage,
 
 	// CurtailmentService — reads use curtailment:read; user-facing preview
 	// and mutation flows use curtailment:manage; MQTT source settings reads are
@@ -198,6 +219,9 @@ var ProcedurePermissions = map[string]string{
 	fleetmanagementv1connect.FleetManagementServiceRefreshMinersProcedure:           authz.PermMinerRead,
 	fleetmanagementv1connect.FleetManagementServiceGetMinerPoolAssignmentsProcedure: authz.PermMinerRead,
 	fleetmanagementv1connect.FleetManagementServiceGetMinerCoolingModeProcedure:     authz.PermMinerRead,
+	// LookupMinerByIdentifier resolves a scanned MAC/serial to a miner for
+	// the rack-assignment QR flow; handler gates on miner:read.
+	fleetmanagementv1connect.FleetManagementServiceLookupMinerByIdentifierProcedure: authz.PermMinerRead,
 	fleetmanagementv1connect.FleetManagementServiceGetMinerStateCountsProcedure:     authz.PermFleetRead,
 	fleetmanagementv1connect.FleetManagementServiceGetMinerModelGroupsProcedure:     authz.PermFleetRead,
 	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure:       authz.PermMinerUpdateWorkerName,
@@ -262,6 +286,10 @@ var ProcedurePermissions = map[string]string{
 	alertsv1connect.RuleServiceListRulesProcedure:                            authz.PermAlertRead,
 	alertsv1connect.RuleServicePauseRuleProcedure:                            authz.PermAlertManage,
 	alertsv1connect.RuleServiceResumeRuleProcedure:                           authz.PermAlertManage,
+	alertsv1connect.RuleServiceCreateRuleProcedure:                           authz.PermAlertManage,
+	alertsv1connect.RuleServiceUpdateRuleProcedure:                           authz.PermAlertManage,
+	alertsv1connect.RuleServiceDeleteRuleProcedure:                           authz.PermAlertManage,
+	alertsv1connect.RuleServiceSetRuleRoutingProcedure:                       authz.PermAlertManage,
 	alertsv1connect.MaintenanceWindowServiceListMaintenanceWindowsProcedure:  authz.PermAlertRead,
 	alertsv1connect.MaintenanceWindowServiceCreateMaintenanceWindowProcedure: authz.PermAlertManage,
 	alertsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure: authz.PermAlertManage,
@@ -303,14 +331,32 @@ var ProcedurePermissions = map[string]string{
 	// ServerLogService — gated by PermServerlogRead.
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure: authz.PermServerlogRead,
 
+	// SiteMapService — full-fleet topology CSV. Export is classified
+	// by miner:export_csv as the primary CSV-export gate; the handler
+	// also requires org-wide site:read and rack:read because the file
+	// includes site/building/rack placement across the organization.
+	// Import is classified by site:manage; the handler also requires
+	// org-wide rack:manage because it previews and applies full-fleet
+	// placement mutations.
+	sitemapv1connect.SiteMapServiceExportSiteMapCsvProcedure: authz.PermMinerExportCSV,
+	sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure: authz.PermSiteManage,
+
 	// Sites CRUD — site:read for List, site:manage for everything else.
-	sitesv1connect.SiteServiceListSitesProcedure:             authz.PermSiteRead,
+	sitesv1connect.SiteServiceListSitesProcedure: authz.PermSiteRead,
+	// CreateSite optionally seeds buildings + racks + devices atomically (#559).
+	// This site:manage entry is the primary gate; when the caller opts into
+	// force_clear_conflicting_rack_membership the handler adds an inline
+	// rack:manage check (mirrors AssignDevicesToSite).
 	sitesv1connect.SiteServiceCreateSiteProcedure:            authz.PermSiteManage,
 	sitesv1connect.SiteServiceUpdateSiteProcedure:            authz.PermSiteManage,
 	sitesv1connect.SiteServiceDeleteSiteProcedure:            authz.PermSiteManage,
 	sitesv1connect.SiteServiceAssignDevicesToSiteProcedure:   authz.PermSiteManage,
 	sitesv1connect.SiteServiceAssignBuildingsToSiteProcedure: authz.PermSiteManage,
 	sitesv1connect.SiteServiceAssignRacksToSiteProcedure:     authz.PermSiteManage,
+	// Dedicated OT commissioning reads/writes require org-wide site:manage;
+	// handlers additionally require ADMIN/SUPER_ADMIN.
+	sitesv1connect.SiteServiceGetInfrastructureControlSubnetsProcedure: authz.PermSiteManage,
+	sitesv1connect.SiteServiceSetInfrastructureControlSubnetsProcedure: authz.PermSiteManage,
 	// GetSiteStats also calls RequirePermission(PermFleetRead) inline to
 	// cover the aggregate telemetry surface (matching the gate on
 	// telemetry.GetCombinedMetrics). The map entry is the primary gate.

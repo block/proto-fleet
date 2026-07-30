@@ -28,7 +28,51 @@ export interface Channel {
   has_secret?: boolean;
 }
 
-export type RuleTemplate = "offline" | "temperature" | "hashrate" | "pool" | "command_failure" | "telemetry-poll" | "";
+export type RuleTemplate =
+  | "offline"
+  | "temperature"
+  | "hashrate"
+  | "pool"
+  | "command_failure"
+  | "telemetry-poll"
+  | "mqtt-curtailment"
+  | "mqtt-disconnected"
+  | "";
+
+// Origin decides mutability: only user rules can be edited or deleted.
+export type RuleOrigin = "provisioned" | "user";
+
+export type HashrateMode = "pct_expected" | "absolute";
+export type HashrateUnit = "TH" | "PH";
+
+export interface HashrateRuleConfig {
+  mode: HashrateMode;
+  // Percent of expected in (0, 100] for pct_expected; hashrate in `unit` for absolute.
+  value: number;
+  unit?: HashrateUnit;
+}
+
+export interface TemperatureRuleConfig {
+  max_celsius: number;
+}
+
+// Exactly one of offline/hashrate/temperature is set.
+export interface RuleConfig {
+  name: string;
+  duration_seconds: number;
+  offline?: Record<string, never>;
+  hashrate?: HashrateRuleConfig;
+  temperature?: TemperatureRuleConfig;
+}
+
+// Where a rule's firing alerts deliver: every org channel, only the listed ones, or nowhere (in-app history only).
+export type RoutingMode = "default" | "custom" | "none";
+
+export interface RuleRouting {
+  mode: RoutingMode;
+  // Non-empty only for custom.
+  channel_ids: string[];
+}
 
 export interface Rule {
   id: string;
@@ -41,6 +85,11 @@ export interface Rule {
   description: string;
   duration_seconds: number;
   enabled: boolean;
+  origin: RuleOrigin;
+  // Null for provisioned rules.
+  config: RuleConfig | null;
+  // Null when the server couldn't read routing; keep the last-known value instead of treating it as default.
+  routing: RuleRouting | null;
 }
 
 export type MaintenanceWindowScopeKind = "rule" | "group" | "site" | "device";

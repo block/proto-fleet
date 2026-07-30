@@ -1,15 +1,31 @@
-import React, { useCallback, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import clsx from "clsx";
 
 import type { ActivityEntry } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 import ActivityDetailModal from "@/protoFleet/features/activity/components/ActivityDetailModal";
-import { getActivityIcon } from "@/protoFleet/features/activity/utils/activityIcons";
+import { getActivityIcon, getActivityIconTone } from "@/protoFleet/features/activity/utils/activityIcons";
 import { isCompletedEvent } from "@/protoFleet/features/activity/utils/eventType";
+import { formatActivityDescription } from "@/protoFleet/features/activity/utils/formatActivityDescription";
 import { formatScope } from "@/protoFleet/features/activity/utils/formatScope";
-import { Alert } from "@/shared/assets/icons";
+import List from "@/shared/components/List";
+import type { ColConfig, ColTitles } from "@/shared/components/List/types";
+import { INACTIVE_PLACEHOLDER } from "@/shared/constants";
 import { formatActivityTimestamp } from "@/shared/utils/formatTimestamp";
 
 const defaultNoDataElement = <div className="py-10 text-center text-text-primary-50">No activity to display.</div>;
+
+type ActivityColumn = "type" | "scope" | "user" | "time";
+
+const activeActivityColumns: ActivityColumn[] = ["type", "scope", "user", "time"];
+
+const activityColumnTitles: ColTitles<ActivityColumn> = {
+  type: "Activity",
+  scope: "Scope",
+  user: "User",
+  time: "Time",
+};
+
+const activityTableClassName = "mb-0 w-full phone:table-fixed";
 
 /**
  * When a batch completes, the backend writes both an initiated row (e.g. "reboot")
@@ -32,65 +48,81 @@ function groupActivities(activities: ActivityEntry[]): ActivityEntry[] {
 
 interface ActivityTableProps {
   activities: ActivityEntry[];
-  noDataElement?: React.ReactNode;
+  noDataElement?: ReactNode;
+}
+
+function ActivityTypeCell({ entry }: { entry: ActivityEntry }) {
+  const icon = getActivityIcon(
+    entry.eventType,
+    entry.result,
+  )({
+    width: "h-5 w-5",
+    className: "[&_svg]:h-full [&_svg]:w-full",
+  });
+  const iconTone = getActivityIconTone(entry.eventType, entry.result);
+
+  return (
+    <div className="flex min-w-0 items-start gap-3">
+      <div
+        className={clsx(
+          "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center",
+          iconTone === "critical" ? "text-intent-critical-fill" : "text-text-primary",
+        )}
+      >
+        {icon}
+        {entry.result === "failure" ? <span className="sr-only">Couldn't complete</span> : null}
+      </div>
+      <span className="min-w-0 text-emphasis-300 break-words">{formatActivityDescription(entry)}</span>
+    </div>
+  );
 }
 
 const ActivityTable = ({ activities, noDataElement }: ActivityTableProps) => {
   const [selectedEntry, setSelectedEntry] = useState<ActivityEntry | null>(null);
   const handleDismiss = useCallback(() => setSelectedEntry(null), []);
   const grouped = useMemo(() => groupActivities(activities), [activities]);
+  const colConfig: ColConfig<ActivityEntry, string, ActivityColumn> = useMemo(
+    () => ({
+      type: {
+        component: (entry) => <ActivityTypeCell entry={entry} />,
+        width: "w-[22rem] phone:w-[17rem]",
+        allowWrap: true,
+      },
+      scope: {
+        component: (entry) => formatScope(entry.scopeType, entry.scopeLabel, entry.scopeCount || undefined),
+        width: "w-48",
+      },
+      user: {
+        component: (entry) => entry.username ?? INACTIVE_PLACEHOLDER,
+        width: "w-36",
+      },
+      time: {
+        component: (entry) => formatActivityTimestamp(Number(entry.createdAt?.seconds)),
+        width: "w-52",
+      },
+    }),
+    [],
+  );
+  const handleRowClick = useCallback((entry: ActivityEntry) => setSelectedEntry(entry), []);
 
   return (
-    <div>
-      <div className="px-4 py-2 text-200 text-text-primary-50">
-        {grouped.length} {grouped.length === 1 ? "activity" : "activities"}
-      </div>
-      <div className="divide-y divide-surface-10">
-        {grouped.length === 0 ? (noDataElement ?? defaultNoDataElement) : null}
-        {grouped.map((entry) => {
-          const isFailed = entry.result === "failure";
-          const Icon = isFailed ? Alert : getActivityIcon(entry.eventType);
-
-          return (
-            <div
-              key={entry.eventId}
-              role="button"
-              tabIndex={0}
-              data-testid="list-row"
-              className="grid cursor-pointer grid-cols-[1fr_12rem_10rem_13rem] items-start gap-4 px-4 py-3 hover:bg-surface-5"
-              onClick={() => setSelectedEntry(entry)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setSelectedEntry(entry);
-                }
-              }}
-            >
-              <div data-testid="type" className="flex items-start gap-2">
-                <div className={clsx("shrink-0", isFailed ? "text-intent-critical" : "text-text-primary")}>
-                  <Icon width="w-4" />
-                  {isFailed ? <span className="sr-only">Failed</span> : null}
-                </div>
-                <span className="min-w-0 break-words">
-                  {isCompletedEvent(entry.eventType)
-                    ? entry.description.replace(/\s*completed\s*/i, " ").trim()
-                    : entry.description}
-                </span>
-              </div>
-              <div data-testid="scope" className="text-text-primary">
-                {formatScope(entry.scopeType, entry.scopeLabel, entry.scopeCount || undefined)}
-              </div>
-              <div data-testid="user" className="text-text-primary">
-                {entry.username ?? "—"}
-              </div>
-              <div className="text-text-primary">{formatActivityTimestamp(Number(entry.createdAt?.seconds))}</div>
-            </div>
-          );
-        })}
-      </div>
-
+    <>
+      <List<ActivityEntry, string, ActivityColumn>
+        activeCols={activeActivityColumns}
+        colTitles={activityColumnTitles}
+        colConfig={colConfig}
+        items={grouped}
+        itemKey="eventId"
+        total={grouped.length}
+        itemName={{ singular: "activity", plural: "activities" }}
+        noDataElement={noDataElement ?? defaultNoDataElement}
+        onRowClick={handleRowClick}
+        applyColumnWidthsToCells
+        stickyFirstColumn={false}
+        tableClassName={activityTableClassName}
+      />
       <ActivityDetailModal entry={selectedEntry} onDismiss={handleDismiss} />
-    </div>
+    </>
   );
 };
 

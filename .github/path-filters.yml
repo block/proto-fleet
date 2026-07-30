@@ -17,6 +17,16 @@ global: &global
   - deployment-files/*.sh
   - deployment-files/scripts/**
 
+deployment_config:
+  - *global
+  - deployment-files/profiles/**
+  - deployment-files/tests/**
+  - server/docker-compose.base.yaml
+  - server/internal/infrastructure/db/config.go
+  - server/internal/infrastructure/timescaledb/config.go
+  - server/internal/domain/telemetry/config.go
+  - server/internal/domain/command/config.go
+
 proto:
   - *global
   - buf.lock

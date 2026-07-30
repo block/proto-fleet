@@ -44,6 +44,13 @@ export class AuthPage extends BasePage {
     await expect(this.page).toHaveURL(/.*\/auth/);
   }
 
+  async gotoAuthPage() {
+    const loginForm = this.page.locator(`//input[@id='username']`);
+    await this.page.goto("/auth");
+    await expect(this.page).toHaveURL(/.*\/auth/);
+    await expect(loginForm).toBeVisible();
+  }
+
   async inputNewPassword(password: string) {
     await this.page.locator(`//input[@id='newPassword']`).fill(password);
   }
@@ -58,6 +65,24 @@ export class AuthPage extends BasePage {
 
   async clickLoginButton() {
     await this.clickButton("Login");
+  }
+
+  async completeInitialSetupOrLogin(username: string, password: string) {
+    await this.inputUsername(username);
+    await this.inputPassword(password);
+
+    const continueButton = this.page.getByRole("button", { name: "Continue", exact: true });
+    const loginButton = this.page.getByTestId("login-button");
+
+    await expect(continueButton.or(loginButton)).toBeVisible();
+
+    if (await continueButton.isVisible().catch(() => false)) {
+      await continueButton.click();
+    } else {
+      await this.clickLogin();
+    }
+
+    await this.validateLoggedIn();
   }
 
   async clickPasswordVisibilityToggle() {
@@ -85,6 +110,17 @@ export class AuthPage extends BasePage {
 
   async clickCreateAccount() {
     await this.clickButton("Create an account");
+  }
+
+  getCreateCredentialsForm() {
+    const heading = this.page.getByText("Create your username and password", { exact: true });
+
+    return this.page
+      .locator("div")
+      .filter({ has: heading })
+      .filter({ has: this.page.locator("#username") })
+      .filter({ has: this.page.getByRole("button", { name: "Continue", exact: true }) })
+      .first();
   }
 
   async validateCreateCredentialsPrompt() {

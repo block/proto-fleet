@@ -11,6 +11,12 @@ const meta = {
   parameters: {
     layout: "centered",
   },
+  argTypes: {
+    forceScrolledHeader: {
+      control: "boolean",
+      description: "Force the modal header into the collapsed state normally reached after scrolling.",
+    },
+  },
   decorators: [
     (Story) => (
       <div style={{ minWidth: "500px", minHeight: "400px" }}>
@@ -215,11 +221,13 @@ const InteractiveStatusModal = ({
   getMinerStatus,
   getComponentStatus,
   showBackButton = true,
+  forceScrolledHeader = false,
 }: {
   initialComponent?: ComponentAddress;
   getMinerStatus: () => MinerStatusData;
   getComponentStatus: (address: ComponentAddress) => ComponentStatusData;
   showBackButton?: boolean;
+  forceScrolledHeader?: boolean;
 }) => {
   const [show, setShow] = useState(true);
   const [component, setComponent] = useState<ComponentAddress | undefined>(initialComponent);
@@ -305,6 +313,7 @@ const InteractiveStatusModal = ({
         getComponentStatus={enhancedGetComponentStatus}
         open={show}
         showBackButton={showBackButton}
+        forceScrolledHeader={forceScrolledHeader}
       />
     </div>
   );
@@ -319,9 +328,15 @@ export const MinerStatusNormal: Story = {
     getComponentStatus: () => mockHashboardStatus,
     open: true,
     showBackButton: true,
+    forceScrolledHeader: true,
   },
-  render: () => (
-    <InteractiveStatusModal getMinerStatus={() => mockMinerStatusData} getComponentStatus={() => mockHashboardStatus} />
+  render: (args) => (
+    <InteractiveStatusModal
+      getMinerStatus={() => mockMinerStatusData}
+      getComponentStatus={() => mockHashboardStatus}
+      showBackButton={args.showBackButton}
+      forceScrolledHeader={args.forceScrolledHeader}
+    />
   ),
 };
 
@@ -337,8 +352,9 @@ export const MinerStatusWithErrors: Story = {
     },
     open: true,
     showBackButton: true,
+    forceScrolledHeader: true,
   },
-  render: () => (
+  render: (args) => (
     <InteractiveStatusModal
       getMinerStatus={() => mockMinerStatusWithErrors}
       getComponentStatus={(address) => {
@@ -348,6 +364,8 @@ export const MinerStatusWithErrors: Story = {
         }
         return mockHashboardStatus;
       }}
+      showBackButton={args.showBackButton}
+      forceScrolledHeader={args.forceScrolledHeader}
     />
   ),
 };
@@ -359,11 +377,14 @@ export const MinerStatusSleeping: Story = {
     getComponentStatus: () => mockHashboardStatus,
     open: true,
     showBackButton: true,
+    forceScrolledHeader: true,
   },
-  render: () => (
+  render: (args) => (
     <InteractiveStatusModal
       getMinerStatus={() => mockSleepingMinerStatus}
       getComponentStatus={() => mockHashboardStatus}
+      showBackButton={args.showBackButton}
+      forceScrolledHeader={args.forceScrolledHeader}
     />
   ),
 };
@@ -375,12 +396,15 @@ export const ComponentStatusHashboard: Story = {
     getComponentStatus: () => mockHashboardStatus,
     open: true,
     showBackButton: true,
+    forceScrolledHeader: true,
   },
-  render: () => (
+  render: (args) => (
     <InteractiveStatusModal
       initialComponent={{ source: "HASHBOARD" as const, componentIndex: 0 }}
       getMinerStatus={() => mockMinerStatusWithErrors}
       getComponentStatus={() => mockHashboardStatus}
+      showBackButton={args.showBackButton}
+      forceScrolledHeader={args.forceScrolledHeader}
     />
   ),
 };
@@ -392,12 +416,15 @@ export const ComponentStatusFan: Story = {
     getComponentStatus: () => mockFanStatus,
     open: true,
     showBackButton: true,
+    forceScrolledHeader: true,
   },
-  render: () => (
+  render: (args) => (
     <InteractiveStatusModal
       initialComponent={{ source: "FAN" as const, componentIndex: 2 }}
       getMinerStatus={() => mockMinerStatusWithErrors}
       getComponentStatus={() => mockFanStatus}
+      showBackButton={args.showBackButton}
+      forceScrolledHeader={args.forceScrolledHeader}
     />
   ),
 };
@@ -409,13 +436,15 @@ export const ComponentStatusNoBackButton: Story = {
     getComponentStatus: () => mockHashboardStatus,
     open: true,
     showBackButton: false,
+    forceScrolledHeader: true,
   },
-  render: () => (
+  render: (args) => (
     <InteractiveStatusModal
       initialComponent={{ source: "HASHBOARD" as const, componentIndex: 0 }}
       getMinerStatus={() => mockMinerStatusWithErrors}
       getComponentStatus={() => mockHashboardStatus}
-      showBackButton={false}
+      showBackButton={args.showBackButton}
+      forceScrolledHeader={args.forceScrolledHeader}
     />
   ),
 };
@@ -506,6 +535,7 @@ const PlaygroundComponent = (args: any) => {
         getComponentStatus={enhancedGetComponentStatus}
         open={show}
         showBackButton={args.showBackButton}
+        forceScrolledHeader={args.forceScrolledHeader}
       />
     </div>
   );
@@ -519,6 +549,7 @@ export const Playground: Story = {
     getComponentStatus: () => mockHashboardStatus,
     open: true,
     showBackButton: true,
+    forceScrolledHeader: false,
   },
   render: PlaygroundComponent,
 };

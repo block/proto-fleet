@@ -1,7 +1,22 @@
-import { expect } from "@playwright/test";
+import { expect, type Locator } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class HomePage extends BasePage {
+  getCompleteSetupModule(): Locator {
+    return this.page.getByTestId("complete-setup");
+  }
+
+  getCompleteSetupCard(title: string): Locator {
+    return this.getCompleteSetupModule()
+      .getByText(title, { exact: true })
+      .locator("xpath=ancestor::div[contains(@class,'rounded-2xl')]")
+      .first();
+  }
+
+  getCompleteSetupButton(label: string): Locator {
+    return this.getCompleteSetupModule().getByRole("button", { name: label, exact: true });
+  }
+
   private getDurationButton(duration: string) {
     return this.page.getByRole("button", { name: duration, exact: true });
   }
@@ -133,7 +148,16 @@ export class HomePage extends BasePage {
   }
 
   async clickShowMinersButton() {
-    await this.page.getByTestId("modal").getByRole("button", { name: "Show miners" }).click();
+    const modal = this.page.getByTestId("modal");
+    const showMinersButton = modal.getByRole("button", { name: "Show miners" });
+
+    if (await showMinersButton.isVisible().catch(() => false)) {
+      await showMinersButton.click();
+      return;
+    }
+
+    await modal.getByTestId("overflow-menu-trigger").click();
+    await this.page.getByTestId("modal-overflow-sheet-content").getByRole("button", { name: "Show miners" }).click();
   }
 
   async validateCalloutInModal(text: string) {

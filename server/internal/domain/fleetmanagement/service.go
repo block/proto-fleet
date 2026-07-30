@@ -31,6 +31,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetryModels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 
 	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -489,6 +490,75 @@ func refreshMinersRequestTimeout(deviceCount int, refreshDeviceTimeout time.Dura
 	return time.Duration(waves) * perWaveTimeout
 }
 
+// LookupMinerByIdentifier resolves a single paired miner from a scanned
+// identifier — a MAC address or a manufacturer serial number — and returns a
+// fully hydrated snapshot. Backs the rack QR scan flow. The caller strips any
+// scanned-label prefix (e.g. "SN:"/"MAC:") and whitespace before invoking.
+//
+// Routing: when identifier_type is MAC or SERIAL the matching store lookup is
+// used directly. When UNSPECIFIED the kind is inferred from the value shape
+// (a normalizable MAC pattern → MAC, else serial). Returns NotFound when no
+// paired device in the caller's organization matches.
+func (s *Service) LookupMinerByIdentifier(ctx context.Context, req *pb.LookupMinerByIdentifierRequest) (*pb.LookupMinerByIdentifierResponse, error) {
+	identifier := strings.TrimSpace(req.GetIdentifier())
+	if identifier == "" {
+		return nil, fleeterror.NewInvalidArgumentError("identifier must not be empty")
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// The store lookups return a NotFound fleeterror when nothing matches,
+	// which surfaces to the client as connect.CodeNotFound.
+	device, err := s.resolvePairedDeviceByIdentifier(ctx, identifier, req.GetIdentifierType(), info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reuse the shared hydration path so the returned snapshot matches
+	// ListMinerStateSnapshots entries (telemetry + group/rack refs).
+	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, []string{device.DeviceIdentifier})
+	if err != nil {
+		return nil, err
+	}
+	if len(snapshots) == 0 {
+		// The device row resolved but the unified snapshot query returned
+		// nothing (e.g. the device was soft-deleted between the two reads).
+		return nil, fleeterror.NewNotFoundErrorf("no paired miner found for identifier %q", identifier)
+	}
+
+	return &pb.LookupMinerByIdentifierResponse{Snapshot: snapshots[0]}, nil
+}
+
+// resolvePairedDeviceByIdentifier dispatches to the MAC or serial store lookup
+// based on the requested type, inferring the type from the value shape when
+// UNSPECIFIED.
+func (s *Service) resolvePairedDeviceByIdentifier(
+	ctx context.Context,
+	identifier string,
+	idType pb.MinerIdentifierType,
+	orgID int64,
+) (*interfaces.PairedDeviceInfo, error) {
+	switch idType {
+	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_MAC_ADDRESS:
+		return s.deviceStore.GetPairedDeviceByMACAddress(ctx, identifier, orgID)
+	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_SERIAL_NUMBER:
+		return s.deviceStore.GetPairedDeviceBySerialNumber(ctx, identifier, orgID)
+	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_UNSPECIFIED:
+		fallthrough
+	default:
+		// UNSPECIFIED: infer from shape. NormalizeMAC returns a 17-char
+		// AA:BB:.. string only for valid MAC input; anything else is treated
+		// as a serial.
+		if len(networking.NormalizeMAC(identifier)) == 17 {
+			return s.deviceStore.GetPairedDeviceByMACAddress(ctx, identifier, orgID)
+		}
+		return s.deviceStore.GetPairedDeviceBySerialNumber(ctx, identifier, orgID)
+	}
+}
+
 // GetMinerStateCounts returns counts of miners in different states without fetching miner data
 func (s *Service) GetMinerStateCounts(ctx context.Context, req *pb.GetMinerStateCountsRequest) (*pb.GetMinerStateCountsResponse, error) {
 	info, err := session.GetInfo(ctx)
@@ -935,6 +1005,7 @@ func (s *Service) populateRackDetails(ctx context.Context, orgID int64, snapshot
 				Label: details.Label,
 			}
 			snapshot.RackPosition = details.Position
+			placement.Zone = details.Zone
 			if details.BuildingID != nil {
 				placement.Building = &commonpb.ResourceRef{
 					Id:    *details.BuildingID,
@@ -1175,11 +1246,15 @@ func parseFilter(
 		filter.NumericRanges = ranges
 	}
 
+	// ip_cidrs and ip_ranges are two encodings of one subnet-filter surface, so
+	// cap their combined size — otherwise a client could bypass the limit by
+	// splitting entries across both fields.
+	if len(pbFilter.IpCidrs)+len(pbFilter.IpRanges) > maxFreeFormFilterValues {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"ip_cidrs + ip_ranges exceeds maximum of %d values", maxFreeFormFilterValues)
+	}
+
 	if len(pbFilter.IpCidrs) > 0 {
-		if len(pbFilter.IpCidrs) > maxFreeFormFilterValues {
-			return nil, fleeterror.NewInvalidArgumentErrorf(
-				"ip_cidrs exceeds maximum of %d values", maxFreeFormFilterValues)
-		}
 		prefixes := make([]netip.Prefix, 0, len(pbFilter.IpCidrs))
 		for i, c := range pbFilter.IpCidrs {
 			p, err := parseCIDR(i, c)
@@ -1189,6 +1264,25 @@ func parseFilter(
 			prefixes = append(prefixes, p)
 		}
 		filter.IPCIDRs = prefixes
+	}
+
+	if len(pbFilter.IpRanges) > 0 {
+		ranges := make([]interfaces.IPRange, 0, len(pbFilter.IpRanges))
+		for i, r := range pbFilter.IpRanges {
+			start, end, err := netutil.ParseIPRange(r.GetStartIp(), r.GetEndIp())
+			if err != nil {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"ip_ranges[%d]: %v", i, err)
+			}
+			// MinerListFilter.ip_ranges is documented IPv4-only (matching the
+			// client's range grammar); reject IPv6 to keep the contract honest.
+			if !start.Is4() {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"ip_ranges[%d]: only IPv4 ranges are supported", i)
+			}
+			ranges = append(ranges, interfaces.IPRange{Start: start, End: end})
+		}
+		filter.IPRanges = ranges
 	}
 
 	if len(pbFilter.SiteIds) > 0 {

@@ -46,21 +46,21 @@ func setupPairingTest(t *testing.T) (*sql.DB, int64, *fleetnodepairing.Service, 
 
 func createFleetNode(t *testing.T, enrollment *fleetnodeenrollment.Service, orgID int64, name string) int64 {
 	t.Helper()
-	id := createPendingFleetNode(t, enrollment, orgID, name)
-	_, _, err := enrollment.Confirm(t.Context(), id, orgID)
+	id, pendingEnrollmentID := createPendingFleetNode(t, enrollment, orgID, name)
+	_, _, err := enrollment.ConfirmExpected(t.Context(), id, orgID, pendingEnrollmentID)
 	require.NoError(t, err)
 	return id
 }
 
-func createPendingFleetNode(t *testing.T, enrollment *fleetnodeenrollment.Service, orgID int64, name string) int64 {
+func createPendingFleetNode(t *testing.T, enrollment *fleetnodeenrollment.Service, orgID int64, name string) (int64, int64) {
 	t.Helper()
 	pubKey, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	code, _, err := enrollment.CreateCode(t.Context(), 1, orgID, time.Hour)
+	code, pendingEnrollmentID, _, err := enrollment.CreateCodeWithEnrollmentID(t.Context(), 1, orgID, time.Hour)
 	require.NoError(t, err)
 	node, _, err := enrollment.RegisterFleetNode(t.Context(), code, name, pubKey, []byte("01234567890123456789012345678901"))
 	require.NoError(t, err)
-	return node.ID
+	return node.ID, pendingEnrollmentID
 }
 
 // Suffix device_identifier/serial with the row id to avoid collisions
@@ -544,7 +544,7 @@ func TestPairRejectsPendingFleetNode(t *testing.T) {
 	// Arrange
 	ctx := t.Context()
 	db, orgID, pairing, enrollment := setupPairingTest(t)
-	pendingID := createPendingFleetNode(t, enrollment, orgID, "node-pending")
+	pendingID, _ := createPendingFleetNode(t, enrollment, orgID, "node-pending")
 	deviceID := insertDevice(t, db, orgID)
 
 	// Act

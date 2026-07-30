@@ -17,6 +17,7 @@ certs
 
 # build directories
 dist
+storybook-static
 
 # temporary directories from build
 src/protoOS/public

@@ -200,6 +200,9 @@ func (s *updateStubStore) ListEvents(context.Context, interfaces.ListEventsParam
 func (s *updateStubStore) UpdateEventState(context.Context, int64, models.EventState, models.EventState, *time.Time, *time.Time) error {
 	panic("UpdateEventState not exercised by Update handler tests")
 }
+func (s *updateStubStore) RecordCurtailPendingDispatch(context.Context, int64, models.EventState, time.Time) error {
+	panic("RecordCurtailPendingDispatch not exercised by Update handler tests")
+}
 func (s *updateStubStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
 	panic("UpdateTargetState not exercised by Update handler tests")
 }

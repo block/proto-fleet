@@ -50,6 +50,7 @@ const (
 	labelSeverity       = "severity"
 	labelRuleGroup      = "rule_group"
 	labelTemplate       = "template"
+	labelRuleUID        = "proto_fleet_rule_uid"
 )
 
 const ruleGroupSelfMonitoring = "proto-fleet-self"
@@ -66,6 +67,8 @@ type alertmanagerAlert struct {
 	StartsAt    time.Time         `json:"startsAt"`
 	EndsAt      time.Time         `json:"endsAt"`
 	Fingerprint string            `json:"fingerprint"`
+	// Grafana's rule-view URL; delivery derives the producing rule's UID from it.
+	GeneratorURL string `json:"generatorURL"`
 }
 
 type OrgLister interface {
@@ -203,7 +206,9 @@ func buildRows(alerts []alertmanagerAlert, orgIDs []int64) (rows []*notification
 			}
 			continue
 		}
-		if !isGlobalSelfMonitoringAlert(alert.Labels) || len(orgIDs) == 0 {
+		// Synthetic evaluation failures inherit the self-monitoring rule_group
+		// label too; they stay one org-less operator row, never a tenant fan-out.
+		if !isGlobalSelfMonitoringAlert(alert.Labels) || isSyntheticEvaluationAlert(alert.Labels) || len(orgIDs) == 0 {
 			if !add(&row) {
 				return rows, true
 			}
@@ -241,7 +246,17 @@ func (h *Handler) deliver(ctx context.Context, alerts []alertmanagerAlert) {
 	}()
 	out := make([]alertsdomain.Alert, 0, len(alerts))
 	for _, a := range alerts {
-		out = append(out, alertsdomain.Alert{Status: a.Status, Labels: a.Labels, Annotations: a.Annotations})
+		// The server-controlled label is the primary rule identity; generatorURL parsing covers rules compiled before the label existed.
+		ruleUID := a.Labels[labelRuleUID]
+		if ruleUID == "" {
+			ruleUID = alertsdomain.RuleUIDFromGeneratorURL(a.GeneratorURL)
+		}
+		out = append(out, alertsdomain.Alert{
+			Status:      a.Status,
+			Labels:      a.Labels,
+			Annotations: a.Annotations,
+			RuleUID:     ruleUID,
+		})
 	}
 	// Detach from request cancellation so a client disconnect can't abort in-flight sends partway;
 	// deliverTimeout still bounds the fan-out.
@@ -286,6 +301,13 @@ func isGlobalSelfMonitoringAlert(labels map[string]string) bool {
 	return labels[labelRuleGroup] == ruleGroupSelfMonitoring
 }
 
+// Grafana stamps datasource_uid only on its synthetic evaluation-failure
+// alerts; real alerts merely named like them don't carry it.
+func isSyntheticEvaluationAlert(labels map[string]string) bool {
+	name := labels[labelAlertName]
+	return (name == "DatasourceError" || name == "DatasourceNoData") && labels["datasource_uid"] != ""
+}
+
 func alertToRow(alert alertmanagerAlert) notificationhistory.Notification {
 	alertName := alert.Labels[labelAlertName]
 	if alertName == "" {
@@ -315,6 +337,11 @@ func alertToRow(alert alertmanagerAlert) notificationhistory.Notification {
 	if !alert.EndsAt.IsZero() {
 		t := alert.EndsAt.UTC()
 		row.EndsAt = &t
+	}
+	// Synthetic evaluation failures inherit a user rule's static org label;
+	// persist them org-less so tenants never see them (operator triage only).
+	if isSyntheticEvaluationAlert(alert.Labels) {
+		return row
 	}
 	if orgID, ok := parseOrgID(alert.Labels[labelOrganizationID]); ok {
 		row.OrganizationID = &orgID

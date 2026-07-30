@@ -94,13 +94,20 @@ const Fleet = () => {
   const [availableRacks, setAvailableRacks] = useState<DeviceSet[]>([]);
   const {
     sites,
-    sitesLoaded,
     siteCatalogAccessGranted,
     notifyPairingCompleted,
+    notifyMinersChanged,
     minersChangedAt,
     publishViewFilterContext,
   } = useFleetOutletContext();
-  const knownSiteIds = useMemo(() => (sitesLoaded ? buildKnownSiteIds(sites) : undefined), [sites, sitesLoaded]);
+  // Validate scope against catalog *access* (authoritative now), not
+  // sitesLoaded — a mid-session PermissionDenied clears `sites` to [] while
+  // sitesLoaded stays true, which would otherwise strip a reachable scoped
+  // route.
+  const knownSiteIds = useMemo(
+    () => (siteCatalogAccessGranted ? buildKnownSiteIds(sites) : undefined),
+    [siteCatalogAccessGranted, sites],
+  );
   const { activeSite } = useActiveSite({ knownSiteIds });
   const { siteIds: activeSiteIds, includeUnassigned: activeIncludeUnassigned } = useMemo(
     () => siteFilterFromActive(activeSite),
@@ -397,7 +404,7 @@ const Fleet = () => {
           currentSortConfig={currentSortConfig}
           onExportCsv={siteScopeMatchesNoRows ? () => undefined : exportCsv}
           exportCsvLoading={siteScopeMatchesNoRows ? false : isExportingCsv}
-          onRefetchMiners={refetchAll}
+          onRefetchMiners={notifyMinersChanged}
           onRefreshMinersComplete={refreshVisibleRows}
           onWorkerNameUpdated={updateMinerWorkerName}
           onMergeMiners={mergeMiners}

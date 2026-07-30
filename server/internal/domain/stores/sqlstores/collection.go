@@ -684,6 +684,16 @@ func (s *SQLCollectionStore) FindDevicesWithSiteOrBuilding(ctx context.Context, 
 	return rows, nil
 }
 
+func (s *SQLCollectionStore) LockDevicesForReassign(ctx context.Context, orgID int64, deviceIdentifiers []string) error {
+	if _, err := s.GetQueries(ctx).LockDevicesForReassign(ctx, sqlc.LockDevicesForReassignParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to lock devices for reassign: %w", err)
+	}
+	return nil
+}
+
 func (s *SQLCollectionStore) ClearDeviceSitesAndBuildings(ctx context.Context, orgID int64, deviceIdentifiers []string) (int64, error) {
 	count, err := s.GetQueries(ctx).ClearDeviceSitesAndBuildings(ctx, sqlc.ClearDeviceSitesAndBuildingsParams{
 		OrgID:             orgID,
@@ -893,6 +903,7 @@ func (s *SQLCollectionStore) GetRackDetailsForDevices(ctx context.Context, orgID
 			Position:      row.Position,
 			BuildingID:    buildingID,
 			BuildingLabel: row.BuildingLabel,
+			Zone:          row.Zone,
 		}
 	}
 	return result, nil

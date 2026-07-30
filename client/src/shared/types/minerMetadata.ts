@@ -8,4 +8,9 @@ export type MinerMetadata = {
   ipAddress?: string;
   macAddress?: string;
   firmwareVersion?: string;
+  // Fleet placement labels (site / building / rack). Only populated when the
+  // miner is hosted inside the Fleet shell; standalone ProtoOS has no placement.
+  site?: string;
+  building?: string;
+  rack?: string;
 };

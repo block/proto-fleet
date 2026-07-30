@@ -21,7 +21,8 @@ export const Default = () => {
       ) : null}
       <SearchMinersModal
         show={show}
-        currentRackLabel="Rack A-01"
+        eligibility={{ rackId: 1n, siteId: 10n, buildingId: 100n }}
+        targetRackLabel="Rack 1"
         onDismiss={() => {
           action("onDismiss")();
           setShow(false);

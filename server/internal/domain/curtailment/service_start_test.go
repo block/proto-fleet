@@ -365,6 +365,49 @@ func TestService_Start_RejectsAdminRestoreBatchIntervalAboveAbsoluteCeiling(t *t
 	assert.Contains(t, err.Error(), "restore_batch_interval_sec must be <=")
 }
 
+func TestService_Start_RejectsFacilityFanDelaysAboveSafetyCeiling(t *testing.T) {
+	t.Parallel()
+
+	for _, mutate := range []func(*StartRequest){
+		func(req *StartRequest) { req.FanOffDelaySec = facilityFanDelayUpperBoundSec + 1 },
+		func(req *StartRequest) { req.FanRestoreDelaySec = facilityFanDelayUpperBoundSec + 1 },
+	} {
+		req := validStartRequest(1)
+		mutate(&req)
+		_, err := NewService(newFakeStore()).Start(t.Context(), req)
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsInvalidArgumentError(err))
+		assert.Contains(t, err.Error(), "must be <=")
+	}
+}
+
+func TestValidateStartRequest_AllowsLegacyFacilityFanListAboveNewSelectionCeiling(t *testing.T) {
+	t.Parallel()
+
+	req := validStartRequest(1)
+	req.FacilityFanDeviceIDs = make([]int64, facilityFanDeviceCountMax+1)
+	for index := range req.FacilityFanDeviceIDs {
+		req.FacilityFanDeviceIDs[index] = int64(index + 1)
+	}
+
+	require.NoError(t, validateStartRequest(req))
+}
+
+func TestValidateStartRequest_RejectsFacilityFanListAboveLegacyCeiling(t *testing.T) {
+	t.Parallel()
+
+	req := validStartRequest(1)
+	req.FacilityFanDeviceIDs = make([]int64, facilityFanDeviceCountLegacyMax+1)
+	for index := range req.FacilityFanDeviceIDs {
+		req.FacilityFanDeviceIDs[index] = int64(index + 1)
+	}
+
+	err := validateStartRequest(req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "must contain at most 1024 devices")
+}
+
 func TestService_Start_RejectsMissingSourceActorType(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())
@@ -397,6 +440,29 @@ func TestService_Start_RejectsReservedAutomationExternalSourceForManualActors(t 
 			require.Error(t, err)
 			assert.True(t, fleeterror.IsInvalidArgumentError(err))
 			assert.Contains(t, err.Error(), "external_source")
+		})
+	}
+}
+
+func TestService_Start_RejectsReservedAutomationIdempotencyKeyForManualActors(t *testing.T) {
+	t.Parallel()
+
+	for _, idempotencyKey := range []string{
+		automationRuleIdempotencyPrefix + "9001",
+		" " + automationRuleIdempotencyPrefix + "9001",
+		automationRuleIdempotencyPrefix + "9001 ",
+	} {
+		t.Run(idempotencyKey, func(t *testing.T) {
+			t.Parallel()
+			svc := NewService(newFakeStore())
+			req := validStartRequest(1)
+			req.IdempotencyKey = stringPtr(idempotencyKey)
+
+			_, err := svc.Start(t.Context(), req)
+
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), "idempotency_key")
 		})
 	}
 }
@@ -537,6 +603,45 @@ func TestService_Start_PersistsSiteScope(t *testing.T) {
 	assert.Equal(t, []int64{siteID}, store.lastListCandidatesSiteIDs)
 	assert.Equal(t, models.ScopeTypeSite, store.lastInsertEvent.ScopeType)
 	assert.JSONEq(t, `{"site_id":99}`, string(store.lastInsertEvent.ScopeJSON))
+}
+
+func TestService_Start_PersistsAuthorizedFacilityFanSites(t *testing.T) {
+	t.Parallel()
+	const (
+		orgID  = int64(1)
+		siteID = int64(99)
+		fanID  = int64(31)
+	)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{minerWithEff("miner", 4000, 100, 40)}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.TargetKW = 3
+	req.FacilityFanDeviceIDs = []int64{fanID}
+	req.AuthorizedFanSites = map[int64]int64{fanID: siteID}
+
+	_, err := svc.Start(t.Context(), req)
+
+	require.NoError(t, err)
+	assert.Equal(t, []int64{fanID}, store.lastInsertEvent.FacilityFanDeviceIDs)
+	assert.Equal(t, map[int64]int64{fanID: siteID}, store.lastInsertEvent.ExpectedFacilityFanSites)
+	req.AuthorizedFanSites[fanID] = siteID + 1
+	assert.Equal(t, siteID, store.lastInsertEvent.ExpectedFacilityFanSites[fanID], "insert params must own the authorization snapshot")
+}
+
+func TestService_Start_RejectsIncompleteAuthorizedFacilityFanSites(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.FacilityFanDeviceIDs = []int64{31}
+	req.AuthorizedFanSites = map[int64]int64{}
+
+	_, err := svc.Start(t.Context(), req)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "authorized facility fan sites")
 }
 
 func TestService_Start_PersistsMultiSiteFullFleetAsClosedLoop(t *testing.T) {

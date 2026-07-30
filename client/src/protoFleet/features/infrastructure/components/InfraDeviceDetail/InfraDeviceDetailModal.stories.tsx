@@ -3,6 +3,7 @@ import { mockInfraDevices } from "../stories/mockInfraDevices";
 import InfraDeviceDetailModal from "./InfraDeviceDetailModal";
 import {
   infraBuildingOptionsFromDevices,
+  infraRackOptionsFromDevices,
   uniqueSortedLocationNames,
 } from "@/protoFleet/features/infrastructure/locationOptions";
 import type { InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
@@ -15,15 +16,16 @@ export default {
 
 const siteOptions = uniqueSortedLocationNames(mockInfraDevices.map((device) => device.siteName));
 const buildingOptions = infraBuildingOptionsFromDevices(mockInfraDevices);
+const rackOptions = infraRackOptionsFromDevices(mockInfraDevices);
 const findDevice = (id: string): InfraDeviceItem => {
   const device = mockInfraDevices.find((candidate) => candidate.id === id);
   if (!device) throw new Error(`Missing infrastructure device story fixture: ${id}`);
   return device;
 };
 
-export const Online = () => {
+export const Editable = () => {
   const [open, setOpen] = useState(true);
-  const device = findDevice("aus-b1-plc-01-zone-a");
+  const device = findDevice("101");
   return (
     <>
       <Button variant={variants.primary} text="Open Modal" onClick={() => setOpen(true)} />
@@ -32,8 +34,9 @@ export const Online = () => {
           device={device}
           siteOptions={siteOptions}
           buildingOptions={buildingOptions}
-          onSave={() => setOpen(false)}
-          onDelete={() => setOpen(false)}
+          rackOptions={rackOptions}
+          onSave={async () => setOpen(false)}
+          onDelete={async () => setOpen(false)}
           onDismiss={() => setOpen(false)}
         />
       ) : null}
@@ -41,9 +44,9 @@ export const Online = () => {
   );
 };
 
-export const Offline = () => {
+export const RedactedConnection = () => {
   const [open, setOpen] = useState(true);
-  const device = findDevice("aus-b1-plc-01-zone-b");
+  const device = findDevice("108");
   return (
     <>
       <Button variant={variants.primary} text="Open Modal" onClick={() => setOpen(true)} />
@@ -52,8 +55,10 @@ export const Offline = () => {
           device={device}
           siteOptions={siteOptions}
           buildingOptions={buildingOptions}
-          onSave={() => setOpen(false)}
-          onDelete={() => setOpen(false)}
+          rackOptions={rackOptions}
+          canManage={false}
+          onSave={async () => setOpen(false)}
+          onDelete={async () => setOpen(false)}
           onDismiss={() => setOpen(false)}
         />
       ) : null}

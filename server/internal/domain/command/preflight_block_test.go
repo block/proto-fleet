@@ -66,7 +66,7 @@ func newPreflightTestService(t *testing.T, filter CommandFilter) (*Service, *rec
 	store := &recordingActivityStore{}
 	svc := &Service{
 		config:           &Config{},
-		executionService: &ExecutionService{queueProcessorRunning: true},
+		executionService: &ExecutionService{run: newExecutionRun(context.Background())},
 		activitySvc:      activity.NewService(store),
 		filters:          []CommandFilter{filter},
 	}
@@ -192,6 +192,29 @@ func TestProcessCommand_ManualFullSkip_Blocks(t *testing.T) {
 	assert.Equal(t, 2, ev.Metadata["requested_count"])
 	assert.Equal(t, 2, ev.Metadata["skipped_count"])
 	assert.Equal(t, []string{"miner-1", "miner-2"}, ev.Metadata["skipped_identifiers"])
+}
+
+func TestProcessCommand_ManualCurtailmentSkip_ExplainsActiveCurtailment(t *testing.T) {
+	filter := NewCurtailmentActiveFilter(&fakeCurtailmentActiveQuerier{
+		active: []string{"miner-1", "miner-2"},
+	})
+	svc, _ := newPreflightTestService(t, filter)
+	svc.resolveDeviceIDsOverride = func(_ context.Context, _ []string) ([]int64, error) {
+		return []int64{101, 102}, nil
+	}
+
+	_, err := svc.processCommand(manualSessionCtx(1), &Command{
+		commandType:    commandtype.SetPowerTarget,
+		deviceSelector: includeSelector("miner-1", "miner-2"),
+	})
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t,
+		"command blocked: 2 of 2 devices are part of an active curtailment event",
+		fleetErr.DebugMessage,
+	)
 }
 
 func TestProcessCommand_ManualFullSkipWithNoLiveDevices_ReturnsInvalidArgument(t *testing.T) {
@@ -351,4 +374,20 @@ func TestSkipMetadata_DeduplicatesFilterNames(t *testing.T) {
 	assert.Equal(t, []string{"a", "b", "c"}, md["skipped_identifiers"])
 	// filters deduplicated and sorted
 	assert.Equal(t, []string{"f1", "f2"}, md["filters"])
+}
+
+func TestPreflightBlockedMessage(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t,
+		"command blocked: 1 of 1 device is part of an active curtailment event",
+		preflightBlockedMessage(1, []SkippedDevice{{FilterName: CurtailmentActiveFilterName}}),
+	)
+	assert.Equal(t,
+		"command blocked: 2 of 3 device(s) excluded by preflight filters",
+		preflightBlockedMessage(3, []SkippedDevice{
+			{FilterName: CurtailmentActiveFilterName},
+			{FilterName: ScheduleConflictFilterName},
+		}),
+	)
 }

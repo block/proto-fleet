@@ -14,6 +14,7 @@ export type MiningStatus =
   | "DegradedMining"
   | "PoweringOff"
   | "Stopped"
+  | "Curtailed"
   | "NoPools"
   | "Error";
 

@@ -1,27 +1,56 @@
+import { type ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code } from "@connectrpc/connect";
 
-// Keep Infrastructure hidden in the tab strip under test while preserving
-// direct-link reachability for authorized QA/dogfood paths.
-vi.mock("@/protoFleet/constants/featureFlags", () => ({
-  INFRASTRUCTURE_DEVICES_ENABLED: false,
+vi.mock("@/protoFleet/api/useSiteMapCsv", () => ({
+  default: () => ({
+    exportSiteMapCsv: vi.fn(),
+    isExportingSiteMapCsv: false,
+  }),
+}));
+
+const { completeSetupMock, refreshEntitiesMock } = vi.hoisted(() => ({
+  completeSetupMock: vi.fn(),
+  refreshEntitiesMock: vi.fn(),
+}));
+
+vi.mock("@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context", () => ({
+  useFleetCreateFlow: () => ({
+    refreshEntities: refreshEntitiesMock,
+  }),
+}));
+
+vi.mock("@/protoFleet/features/fleetManagement/components/SiteMapCsvImportModal", () => ({
+  default: ({ open, onImported }: { open: boolean; onImported?: () => void }) =>
+    open ? (
+      <button type="button" data-testid="site-map-import-modal" onClick={onImported}>
+        import
+      </button>
+    ) : null,
+}));
+
+vi.mock("@/protoFleet/features/fleetManagement/components/FleetCreateFlow/FleetCreateFlowProvider", () => ({
+  default: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
 import FleetLayout from "./FleetLayout";
 import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { SitesProvider } from "@/protoFleet/api/SitesProvider";
 import { type ActiveSite } from "@/protoFleet/store/types/activeSite";
 
 // Mock listSites at the hook level so the test stays focused on FleetLayout's
 // redirect logic. The hook returns a callable that resolves with the
 // provided sites via onSuccess — same shape as the real listSites contract.
 const listSitesMock = vi.hoisted(() => vi.fn());
-vi.mock("@/protoFleet/api/sites", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/protoFleet/api/sites")>();
+vi.mock("@/protoFleet/api/sites", () => {
   return {
-    ...actual,
+    buildKnownSiteIds: (sites: SiteWithCounts[] | undefined): Set<string> | undefined => {
+      if (!sites) return undefined;
+      return new Set(sites.map((s) => (s.site?.id ?? 0n).toString()).filter((id) => id !== "0"));
+    },
     useSites: () => ({
       listSites: listSitesMock,
       // The other useSites members are unused in FleetLayout but the type
@@ -54,11 +83,41 @@ vi.mock("@/protoFleet/store", () => ({
   useUsername: () => "alice",
 }));
 
+const installLocalStorageMock = () => {
+  const storage = new Map<string, string>();
+  const localStorageMock: Storage = {
+    get length() {
+      return storage.size;
+    },
+    clear: () => storage.clear(),
+    getItem: (key) => storage.get(key) ?? null,
+    key: (index) => Array.from(storage.keys())[index] ?? null,
+    removeItem: (key) => {
+      storage.delete(key);
+    },
+    setItem: (key, value) => {
+      storage.set(key, value);
+    },
+  };
+
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: localStorageMock,
+  });
+};
+
+if (typeof globalThis.localStorage === "undefined") {
+  installLocalStorageMock();
+}
+
 // CompleteSetup renders inside FleetLayout's chrome but isn't under test
 // here — stub it so we don't pull in onboarding's RPC/zustand surface area.
 // The sentinel lets us assert the miner:read gate keeps it from mounting.
 vi.mock("@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup", () => ({
-  default: () => <div data-testid="complete-setup-mock" />,
+  default: (props: { minersChangedAt?: number }) => {
+    completeSetupMock(props);
+    return <div data-testid="complete-setup-mock" data-miners-changed-at={props.minersChangedAt ?? 0} />;
+  },
 }));
 
 const buildSite = (id: number, name = `Site ${id}`): SiteWithCounts =>
@@ -76,19 +135,24 @@ const LocationProbe = () => {
 
 const renderAt = (initialPath: string) =>
   render(
-    <MemoryRouter initialEntries={[initialPath]}>
-      <Routes>
-        <Route path="/fleet" element={<FleetLayout />}>
-          <Route index element={null} />
-          <Route path="sites" element={<div data-testid="tab-content-sites">sites</div>} />
-          <Route path="buildings" element={<div data-testid="tab-content-buildings">buildings</div>} />
-          <Route path="racks" element={<div data-testid="tab-content-racks">racks</div>} />
-          <Route path="miners" element={<div data-testid="tab-content-miners">miners</div>} />
-          <Route path="infrastructure" element={<div data-testid="tab-content-infrastructure">infrastructure</div>} />
-        </Route>
-      </Routes>
-      <LocationProbe />
-    </MemoryRouter>,
+    // FleetLayout reads the site catalog from the shell-level SitesProvider,
+    // which drives the (mocked) listSites + permission gating these tests
+    // exercise. Wrapping here keeps the redirect/permission assertions intact.
+    <SitesProvider>
+      <MemoryRouter initialEntries={[initialPath]}>
+        <Routes>
+          <Route path="/fleet" element={<FleetLayout />}>
+            <Route index element={null} />
+            <Route path="sites" element={<div data-testid="tab-content-sites">sites</div>} />
+            <Route path="buildings" element={<div data-testid="tab-content-buildings">buildings</div>} />
+            <Route path="racks" element={<div data-testid="tab-content-racks">racks</div>} />
+            <Route path="miners" element={<div data-testid="tab-content-miners">miners</div>} />
+            <Route path="infrastructure" element={<div data-testid="tab-content-infrastructure">infrastructure</div>} />
+          </Route>
+        </Routes>
+        <LocationProbe />
+      </MemoryRouter>
+    </SitesProvider>,
   );
 
 beforeEach(() => {
@@ -108,6 +172,14 @@ afterEach(() => {
 });
 
 describe("FleetLayout redirect logic", () => {
+  test("keeps the fleet content wrapper viewport-bound until desktop table scroll mode", async () => {
+    renderAt("/fleet/miners");
+
+    await waitFor(() => expect(screen.getByTestId("tab-content-miners")).toBeInTheDocument());
+
+    expect(screen.getByTestId("fleet-layout")).toHaveClass("w-full", "min-w-0", "laptop:w-max", "laptop:min-w-full");
+  });
+
   test("bare /fleet redirects to Sites tab when picker is All Sites and no lastTab is stored", async () => {
     renderAt("/fleet");
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/sites"));
@@ -160,17 +232,17 @@ describe("FleetLayout redirect logic", () => {
     expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks");
   });
 
-  test("hides Infrastructure tab while the infrastructure devices flag is off", async () => {
+  test("shows the Infrastructure tab to authorized users", async () => {
     renderAt("/fleet/racks");
     await waitFor(() => expect(screen.getByTestId("tab-content-racks")).toBeInTheDocument());
-    expect(screen.queryByTestId("fleet-tab-infrastructure")).not.toBeInTheDocument();
+    expect(screen.getByTestId("fleet-tab-infrastructure")).toBeInTheDocument();
   });
 
-  test("keeps Infrastructure deep links reachable while the infrastructure devices flag is off", async () => {
+  test("keeps Infrastructure deep links reachable and selected", async () => {
     renderAt("/fleet/infrastructure");
     await waitFor(() => expect(screen.getByTestId("tab-content-infrastructure")).toBeInTheDocument());
     expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/infrastructure");
-    expect(screen.queryByTestId("fleet-tab-infrastructure")).not.toBeInTheDocument();
+    expect(screen.getByTestId("fleet-tab-infrastructure")).toBeInTheDocument();
   });
 
   test("redirects hidden tab deep links without mounting their content", async () => {
@@ -345,6 +417,21 @@ describe("FleetLayout CompleteSetup gate", () => {
     renderAt("/fleet/racks");
     await waitFor(() => expect(screen.getByTestId("location-probe").textContent).toBe("/fleet/racks"));
     expect(screen.queryByTestId("complete-setup-mock")).not.toBeInTheDocument();
+  });
+});
+
+describe("FleetLayout site map import refresh", () => {
+  test("refreshes topology and miner data after a successful import", async () => {
+    renderAt("/fleet/miners");
+
+    await waitFor(() => expect(screen.getByTestId("tab-content-miners")).toBeInTheDocument());
+    fireEvent.click(screen.getAllByText("Import site map")[0]);
+    fireEvent.click(screen.getByTestId("site-map-import-modal"));
+
+    expect(refreshEntitiesMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(Number(screen.getByTestId("complete-setup-mock").dataset.minersChangedAt)).toBeGreaterThan(0);
+    });
   });
 });
 

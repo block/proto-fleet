@@ -283,3 +283,39 @@ export const NoHeader = () => {
     </>
   );
 };
+
+// Phone sheet variant — option-style dialogs dock to the bottom on phone.
+export const PhoneSheet = () => {
+  const [showModal, setShowModal] = useState(true);
+
+  return (
+    <>
+      <div className="mt-16 flex w-full justify-center">
+        <div className="flex flex-col">
+          <div className="mb-2 text-400">Content behind the overlay</div>
+          <Button
+            onClick={() => setShowModal(true)}
+            text="Show Phone Sheet"
+            variant={variants.primary}
+            size={sizes.base}
+          />
+        </div>
+      </div>
+      {showModal ? (
+        <ModalComponent title="Choose option" phoneSheet onDismiss={() => setShowModal(false)}>
+          <div className="flex flex-col">
+            <button type="button" className="py-4 text-left text-emphasis-300">
+              Rename by model
+            </button>
+            <button type="button" className="py-4 text-left text-emphasis-300">
+              Rename by location
+            </button>
+            <button type="button" className="py-4 text-left text-emphasis-300">
+              Rename by custom value
+            </button>
+          </div>
+        </ModalComponent>
+      ) : null}
+    </>
+  );
+};

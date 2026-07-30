@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import clsx from "clsx";
 
 import BuildingList from "../components/BuildingList";
 import FilterRow from "../components/FilterRow";
@@ -18,7 +19,9 @@ import {
   useActiveSite,
 } from "@/protoFleet/components/PageHeader/SitePicker";
 import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
+import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import BuildingCard from "@/protoFleet/features/buildings/components/BuildingCard";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
@@ -37,13 +40,16 @@ import {
   TELEMETRY_FILTER_KEYS,
   type TelemetryFilterKey,
 } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
-import { useHasPermission } from "@/protoFleet/store";
+import { useFleetStore, useHasPermission } from "@/protoFleet/store";
 import { Alert, Building, Plus } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import FilterChipsBar, { type FilterChipsBarNumericFilter } from "@/shared/components/List/Filters/FilterChipsBar";
+import { formatListCountLabel } from "@/shared/components/List/listCountLabel";
+import SegmentedControl from "@/shared/components/SegmentedControl";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
+import useMeasure from "@/shared/hooks/useMeasure";
 import { usePoll } from "@/shared/hooks/usePoll";
 import type { NumericRangeValue } from "@/shared/utils/filterValidation";
 
@@ -56,7 +62,7 @@ const TELEMETRY_FILTER_CHIPS: FilterChipsBarNumericFilter[] = TELEMETRY_FILTER_K
 }));
 
 const FleetBuildingsPage = () => {
-  const { sites, sitesError, sitesLoaded, refetchSites } = useFleetOutletContext();
+  const { sites, sitesError, siteCatalogAccessGranted, refetchSites } = useFleetOutletContext();
 
   const { listBuildings } = useBuildings();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -80,7 +86,69 @@ const FleetBuildingsPage = () => {
   const [selectedBuildingIds, setSelectedBuildingIds] = useState<string[]>([]);
   const [isBulkActionBusy, setIsBulkActionBusy] = useState(false);
 
-  const knownSiteIds = useMemo(() => (sitesLoaded ? buildKnownSiteIds(sites) : undefined), [sites, sitesLoaded]);
+  const storedBuildingsViewMode = useFleetStore((s) => s.ui.buildingsViewMode);
+  const setStoredBuildingsViewMode = useFleetStore((s) => s.ui.setBuildingsViewMode);
+
+  // Grid renders a BuildingCard per row, each of which polls GetBuildingStats
+  // (server requires site:read + fleet:read + miner:read). A site:read-only
+  // reader can still reach this tab, so for them the grid would 403 on every
+  // card every poll and show permanent skeletons. Gate grid on the stats
+  // permissions and fall back to the list, which renders the same buildings
+  // from the ListBuildings counts (site:read only).
+  // Both hooks must be called unconditionally (rules of hooks) — don't
+  // short-circuit the second behind `&&`.
+  const canReadFleet = useHasPermission("fleet:read");
+  const canReadMinerStats = useHasPermission("miner:read");
+  const canViewBuildingStats = canReadFleet && canReadMinerStats;
+
+  // URL is the source of truth for the segmented control (so a `?display=`
+  // deep link wins), falling back to the persisted Zustand preference so a
+  // default session keeps the operator's last choice. Mirrors RacksPage.
+  const urlBuildingsViewMode: "grid" | "list" | undefined = (() => {
+    const raw = searchParams.get("display");
+    return raw === "grid" || raw === "list" ? raw : undefined;
+  })();
+  const buildingsViewMode = canViewBuildingStats ? (urlBuildingsViewMode ?? storedBuildingsViewMode) : "list";
+
+  const setBuildingsViewMode = useCallback(
+    (mode: "grid" | "list") => {
+      setStoredBuildingsViewMode(mode);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("display", mode);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setStoredBuildingsViewMode, setSearchParams],
+  );
+
+  const handleBuildingsViewModeSelect = useCallback(
+    (key: string) => {
+      // Selection is cleared on grid entry by the effect below, which also
+      // covers URL-driven switches; the handler just records the mode.
+      setBuildingsViewMode(key === "list" ? "list" : "grid");
+    },
+    [setBuildingsViewMode],
+  );
+
+  // Responsive grid measurement — card min width matches RackCard (300px).
+  const [measureRef, contentRect] = useMeasure<HTMLDivElement>();
+  const BUILDING_CARD_MIN_WIDTH_PX = 300;
+  const numColumns = Math.max(
+    1,
+    Math.floor((contentRect.width || BUILDING_CARD_MIN_WIDTH_PX) / BUILDING_CARD_MIN_WIDTH_PX),
+  );
+
+  // Validate scope against catalog access (authoritative now), not sitesLoaded:
+  // a mid-session PermissionDenied clears `sites` to [] with sitesLoaded still
+  // true, which would otherwise strip a reachable scoped route.
+  const knownSiteIds = useMemo(
+    () => (siteCatalogAccessGranted ? buildKnownSiteIds(sites) : undefined),
+    [siteCatalogAccessGranted, sites],
+  );
   const { activeSite } = useActiveSite({ knownSiteIds });
 
   // `?site=<id>` deep links filter the list without changing the path
@@ -258,6 +326,15 @@ const FleetBuildingsPage = () => {
       return next.length === prev.length ? prev : next;
     });
   }, [visibleBuildingScopes]);
+  // Grid mode has no selection affordance, so a selection carried in from list
+  // mode would strand the bulk action bar over the grid. Clear it on every
+  // grid entry — not just the toggle handler — so URL-driven switches (saved
+  // views with `display=grid`, browser history) can't leave a stale selection.
+  useEffect(() => {
+    if (buildingsViewMode !== "grid") return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- selection is invalid in grid; clear on entry.
+    setSelectedBuildingIds((prev) => (prev.length ? [] : prev));
+  }, [buildingsViewMode]);
   const handleSelectAllVisibleBuildings = useCallback(
     () => setSelectedBuildingIds(visibleBuildingScopes.map((building) => building.id.toString())),
     [visibleBuildingScopes],
@@ -287,8 +364,12 @@ const FleetBuildingsPage = () => {
       createFlow.launchCreateBuilding({ rackIds: [], minerIds: [], conflictCount: 0 });
       return;
     }
-    buildingModals.openDetailsCreate();
-  }, [createFlow, buildingModals]);
+    // Pre-fill (and lock to) the page-header site scope so a new building
+    // belongs to the site the operator is viewing. Unscoped → editable, and
+    // the operator must pick a site.
+    const scopedSiteId = activeSite.kind === "site" ? BigInt(activeSite.id) : undefined;
+    buildingModals.openDetailsCreate(scopedSiteId);
+  }, [createFlow, buildingModals, activeSite]);
 
   const hasSites = (sites?.filter((s) => s.site !== undefined).length ?? 0) > 0;
   // CreateBuilding requires site:manage server-side.
@@ -449,16 +530,50 @@ const FleetBuildingsPage = () => {
   ) : null;
 
   const filterControls = (
-    <div className="flex flex-row flex-wrap items-center gap-2">
-      <FilterChipsBar
-        filters={filterChipsBarFilters}
-        onChange={handleFilterChange}
-        numericFilters={TELEMETRY_FILTER_CHIPS}
-        selectedNumericValues={selectedNumericValues}
-        onNumericChange={handleNumericFilterChange}
-        onClearAll={handleClearFilters}
-      />
-      <div className="ml-auto">{addBuildingButton}</div>
+    <div className="flex flex-col gap-2">
+      {/* View toggle — full width on tablet/phone. Hidden without stats
+          permissions, since grid is unavailable and list is the only view. */}
+      {canViewBuildingStats ? (
+        <div className="block laptop:hidden">
+          <SegmentedControl
+            key={`buildings-mobile-${buildingsViewMode}`}
+            className="!w-full whitespace-nowrap [&>button]:flex-1"
+            segmentClassName="text-center"
+            segments={[
+              { key: "grid", title: "View grid" },
+              { key: "list", title: "View list" },
+            ]}
+            initialSegmentKey={buildingsViewMode}
+            onSelect={handleBuildingsViewModeSelect}
+          />
+        </div>
+      ) : null}
+      <div className="flex flex-row flex-wrap items-center gap-2">
+        {/* View toggle — inline on desktop */}
+        {canViewBuildingStats ? (
+          <div className="hidden laptop:block">
+            <SegmentedControl
+              key={`buildings-desktop-${buildingsViewMode}`}
+              className="shrink-0 whitespace-nowrap"
+              segments={[
+                { key: "grid", title: "View grid" },
+                { key: "list", title: "View list" },
+              ]}
+              initialSegmentKey={buildingsViewMode}
+              onSelect={handleBuildingsViewModeSelect}
+            />
+          </div>
+        ) : null}
+        <FilterChipsBar
+          filters={filterChipsBarFilters}
+          onChange={handleFilterChange}
+          numericFilters={TELEMETRY_FILTER_CHIPS}
+          selectedNumericValues={selectedNumericValues}
+          onNumericChange={handleNumericFilterChange}
+          onClearAll={handleClearFilters}
+        />
+        <div className="ml-auto">{addBuildingButton}</div>
+      </div>
     </div>
   );
 
@@ -489,8 +604,11 @@ const FleetBuildingsPage = () => {
     </>
   );
 
+  // List-only: selection is a list-view capability. Gating here (not just on
+  // the cleared selection) keeps the bar from flashing over the grid on the
+  // render before the grid-entry effect clears the selection.
   const bulkActionBar =
-    selectedBuildingScopes.length > 0 || isBulkActionBusy ? (
+    buildingsViewMode === "list" && (selectedBuildingScopes.length > 0 || isBulkActionBusy) ? (
       <FleetGroupListActionBar
         selectedScopes={selectedBuildingScopes}
         kind="building"
@@ -540,6 +658,7 @@ const FleetBuildingsPage = () => {
       <>
         {inlineErrors}
         <NullState
+          className={clsx("sticky left-0", PAGE_SCROLL_CHROME_WIDTH)}
           icon={<Building width="w-5" />}
           title="No buildings yet"
           description={
@@ -583,19 +702,47 @@ const FleetBuildingsPage = () => {
           {inlineErrors}
           {filterControls}
         </FilterRow>
-        <div className={LIST_WRAPPER}>
-          <BuildingList
-            buildings={visibleBuildings}
-            sites={sites}
-            totalUnfiltered={totalUnfilteredBuildings}
-            hasActiveFilters={hasActiveFilters}
-            onEditBuilding={canManageBuildings ? openEditBuilding : undefined}
-            onAddBuildingToSite={canManageBuildings ? handleAddBuildingToSite : undefined}
-            selectedIds={selectedBuildingIds}
-            onSelectedIdsChange={handleSelectedBuildingIdsChange}
-            activeSite={activeSite}
-          />
-        </div>
+        {buildingsViewMode === "grid" ? (
+          <>
+            {/* The List component renders its own count line; the grid has no
+                equivalent, so mirror it here (matches RacksPage). */}
+            <div
+              className="px-6 pt-6 pb-4 text-emphasis-300 text-text-primary-70 laptop:px-10"
+              data-testid="fleet-buildings-count-label"
+            >
+              {formatListCountLabel(visibleBuildings.length, {
+                unfilteredTotal: totalUnfilteredBuildings,
+                hasActiveFilters,
+                singular: "building",
+                plural: "buildings",
+              })}
+            </div>
+            <div className="px-6 pb-6 laptop:px-10" ref={measureRef}>
+              <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${numColumns}, 1fr)` }}>
+                {visibleBuildings.map((building, index) => (
+                  <BuildingCard
+                    key={building.building?.id ? building.building.id.toString() : `building-${index}`}
+                    building={building}
+                  />
+                ))}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className={LIST_WRAPPER}>
+            <BuildingList
+              buildings={visibleBuildings}
+              sites={sites}
+              totalUnfiltered={totalUnfilteredBuildings}
+              hasActiveFilters={hasActiveFilters}
+              onEditBuilding={canManageBuildings ? openEditBuilding : undefined}
+              onAddBuildingToSite={canManageBuildings ? handleAddBuildingToSite : undefined}
+              selectedIds={selectedBuildingIds}
+              onSelectedIdsChange={handleSelectedBuildingIdsChange}
+              activeSite={activeSite}
+            />
+          </div>
+        )}
       </>
     );
   }

@@ -13,6 +13,15 @@ export class AlertsPage extends BasePage {
     super(page, isMobile);
   }
 
+  async validateAlertsPageOpened() {
+    await expect(this.page).toHaveURL(/.*\/settings\/alerts/);
+    await this.validateTitle("Alerts");
+  }
+
+  async validateAddChannelHidden() {
+    await expect(this.page.getByRole("button", { name: "Add channel", exact: true })).toHaveCount(0);
+  }
+
   async openAddChannelModal() {
     await this.page.getByRole("button", { name: "Add channel" }).click();
     await this.validateModalIsOpen();

@@ -1,10 +1,6 @@
 import { minerCols, type MinerColumn } from "./constants";
 
 export const configurableMinerColumns = [
-  minerCols.groups,
-  minerCols.site,
-  minerCols.building,
-  minerCols.rack,
   minerCols.model,
   minerCols.macAddress,
   minerCols.ipAddress,
@@ -16,6 +12,10 @@ export const configurableMinerColumns = [
   minerCols.temperature,
   minerCols.firmware,
   minerCols.workerName,
+  minerCols.site,
+  minerCols.building,
+  minerCols.rack,
+  minerCols.groups,
 ] as const;
 
 export type ConfigurableMinerColumn = (typeof configurableMinerColumns)[number];

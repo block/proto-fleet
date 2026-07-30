@@ -54,7 +54,7 @@ func TestValidateMaintenanceWindowScope(t *testing.T) {
 }
 
 func TestCreateMaintenanceWindowRejectsTargetlessScope(t *testing.T) {
-	svc := NewService(nil, nil, nil, nil, DestinationPolicy{})
+	svc := NewService(nil, nil, nil, nil, nil, DestinationPolicy{})
 	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
 		Scope: MaintenanceWindowScope{Kind: MaintenanceWindowScopeGroup},
 	})
@@ -183,7 +183,7 @@ func TestValidateDestination(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			svc := NewService(nil, nil, nil, nil, tc.policy)
+			svc := NewService(nil, nil, nil, nil, nil, tc.policy)
 			err := svc.validateDestination(context.Background(), &tc.channel)
 			if tc.wantErr {
 				require.Error(t, err)
@@ -230,6 +230,17 @@ func fakeGrafanaSilences(t *testing.T, listed []GrafanaSilence, postBody *[]byte
 			{UID: "rule-9", Title: "Rule 9", Labels: map[string]string{ruleLabelScope: ruleScopeShared}},
 		}))
 	})
+	// The post-write target recheck resolves the rule by uid.
+	mux.HandleFunc("GET /api/v1/provisioning/alert-rules/{uid}", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("uid") != "rule-9" {
+			http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		require.NoError(t, json.NewEncoder(w).Encode(GrafanaAlertRule{
+			UID: "rule-9", Title: "Rule 9", Labels: map[string]string{ruleLabelScope: ruleScopeShared},
+		}))
+	})
 	mux.HandleFunc("GET /api/alertmanager/grafana/api/v2/silences", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		require.NoError(t, json.NewEncoder(w).Encode(listed))
@@ -257,7 +268,7 @@ func TestUpdateMaintenanceWindowPreservesCreator(t *testing.T) {
 		},
 	}}
 	var postBody []byte
-	svc := NewService(fakeGrafanaSilences(t, existing, &postBody), nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fakeGrafanaSilences(t, existing, &postBody), nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.UpdateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
 		ID:       "sil-1",
@@ -300,7 +311,7 @@ func TestListMaintenanceWindowsIgnoresUnmarkedSilences(t *testing.T) {
 		},
 	}
 	var postBody []byte
-	svc := NewService(fakeGrafanaSilences(t, listed, &postBody), nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fakeGrafanaSilences(t, listed, &postBody), nil, nil, nil, nil, DestinationPolicy{})
 
 	out, err := svc.ListMaintenanceWindows(context.Background(), 7)
 	require.NoError(t, err)
@@ -334,7 +345,7 @@ func TestListRulesFailsClosedWhenSilencesUnavailable(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), nil, nil, nil, DestinationPolicy{})
+	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.ListRules(context.Background(), 7)
 	require.Error(t, err, "ListRules must fail closed when pause-silence state can't be loaded")
@@ -369,7 +380,7 @@ func TestListRulesIgnoresExpiredPauseSilence(t *testing.T) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), nil, nil, nil, DestinationPolicy{})
+	svc := NewService(NewGrafana(GrafanaConfig{URL: srv.URL}), nil, nil, nil, nil, DestinationPolicy{})
 
 	out, err := svc.ListRules(context.Background(), 7)
 	require.NoError(t, err)
@@ -406,7 +417,7 @@ func TestPauseSilenceRecordsActor(t *testing.T) {
 // check as PauseRule, so a manage user can't silence a rule they can't list.
 func TestMaintenanceWindowRequiresVisibleRule(t *testing.T) {
 	var postBody []byte
-	svc := NewService(fakeGrafanaSilences(t, nil, &postBody), nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fakeGrafanaSilences(t, nil, &postBody), nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
 		Scope:    MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-does-not-exist"},
@@ -429,7 +440,7 @@ func TestMaintenanceWindowRejectsInvalidTimes(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			var postBody []byte
-			svc := NewService(fakeGrafanaSilences(t, nil, &postBody), nil, nil, nil, DestinationPolicy{})
+			svc := NewService(fakeGrafanaSilences(t, nil, &postBody), nil, nil, nil, nil, DestinationPolicy{})
 			tc.Scope = MaintenanceWindowScope{Kind: MaintenanceWindowScopeRule, RuleID: "rule-9"}
 			_, err := svc.CreateMaintenanceWindow(context.Background(), 7, tc)
 			require.Error(t, err)
@@ -444,7 +455,7 @@ func TestMaintenanceWindowRejectsInvalidTimes(t *testing.T) {
 // window hidden from the list / overlaid as a paused rule.
 func TestMaintenanceWindowRejectsPauseMarkerComment(t *testing.T) {
 	var postBody []byte
-	svc := NewService(fakeGrafanaSilences(t, nil, &postBody), nil, nil, nil, DestinationPolicy{})
+	svc := NewService(fakeGrafanaSilences(t, nil, &postBody), nil, nil, nil, nil, DestinationPolicy{})
 
 	_, err := svc.CreateMaintenanceWindow(context.Background(), 7, MaintenanceWindow{
 		Comment: pauseSilenceCommentMarker + " sneaky",

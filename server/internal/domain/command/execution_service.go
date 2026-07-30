@@ -31,6 +31,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 const (
@@ -69,12 +70,38 @@ type ExecutionService struct {
 
 	workerSemaphore chan struct{}
 
-	queueProcessorMu      sync.Mutex
-	queueProcessorRunning bool
-	reaperCancel          context.CancelFunc
+	lifecycleMu sync.Mutex
+	run         *executionRun
 }
 
-func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService CachedMinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, filesService *files.Service) *ExecutionService {
+type executionRun struct {
+	admissionCtx    context.Context //nolint:containedctx // scoped to this activation's admission phase
+	cancelAdmission context.CancelFunc
+	workCtx         context.Context //nolint:containedctx // scoped to this activation's drain phase
+	cancelWork      context.CancelFunc
+	accepting       bool
+	wg              sync.WaitGroup
+	done            chan struct{}
+}
+
+var _ runtimejobs.Lifecycle = (*ExecutionService)(nil)
+
+var errExecutionStoppedBeforeEnqueue = errors.New("command execution service stopped before enqueue")
+
+func newExecutionRun(ctx context.Context) *executionRun {
+	admissionCtx, cancelAdmission := context.WithCancel(ctx)
+	workCtx, cancelWork := context.WithCancel(context.WithoutCancel(ctx))
+	return &executionRun{
+		admissionCtx:    admissionCtx,
+		cancelAdmission: cancelAdmission,
+		workCtx:         workCtx,
+		cancelWork:      cancelWork,
+		accepting:       true,
+		done:            make(chan struct{}),
+	}
+}
+
+func NewExecutionService(config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService CachedMinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, filesService *files.Service) *ExecutionService {
 	if config.StuckMessageTimeout <= 0 {
 		config.StuckMessageTimeout = 5 * time.Minute
 	}
@@ -88,18 +115,17 @@ func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, mess
 		config.FirmwareUpdateStuckTimeout = 20 * time.Minute
 	}
 	return &ExecutionService{
-		config:                config,
-		conn:                  conn,
-		messageQueue:          messageQueue,
-		encryptService:        encryptService,
-		tokenService:          tokenService,
-		minerService:          minerService,
-		deviceStore:           deviceStore,
-		telemetryListener:     telemetryListener,
-		filesService:          filesService,
-		metricsEmitter:        NoCommandMetrics(),
-		workerSemaphore:       make(chan struct{}, config.MaxWorkers),
-		queueProcessorRunning: false,
+		config:            config,
+		conn:              conn,
+		messageQueue:      messageQueue,
+		encryptService:    encryptService,
+		tokenService:      tokenService,
+		minerService:      minerService,
+		deviceStore:       deviceStore,
+		telemetryListener: telemetryListener,
+		filesService:      filesService,
+		metricsEmitter:    NoCommandMetrics(),
+		workerSemaphore:   make(chan struct{}, config.MaxWorkers),
 	}
 }
 
@@ -111,49 +137,132 @@ func (es *ExecutionService) WithMetricsEmitter(emitter MetricsEmitter) *Executio
 	return es
 }
 
-// Start starts the queue processor thread if it is not already running.
+// Start runs command execution for the lifetime of ctx if it is not already
+// active.
 func (es *ExecutionService) Start(ctx context.Context) error {
-	es.queueProcessorMu.Lock()
-	defer es.queueProcessorMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("start command execution service: %w", err)
+	}
 
-	if es.queueProcessorRunning {
+	es.lifecycleMu.Lock()
+	if es.run != nil {
+		if !es.run.accepting || es.run.admissionCtx.Err() != nil {
+			es.lifecycleMu.Unlock()
+			return fmt.Errorf("command execution service activation is still draining")
+		}
+		es.lifecycleMu.Unlock()
 		return nil
 	}
 
-	es.queueProcessorRunning = true
+	run := newExecutionRun(ctx)
+	es.run = run
 
-	if es.reaperCancel != nil {
-		es.reaperCancel()
-	}
-	reaperCtx, reaperCancel := context.WithCancel(ctx)
-	es.reaperCancel = reaperCancel
-
-	go es.startStuckMessageReaper(reaperCtx)
+	run.wg.Go(func() {
+		es.startStuckMessageReaper(run.admissionCtx)
+	})
 
 	// Start the queue processor thread
-	go func() {
-		err := es.startQueueProcessorThread(ctx)
-		reaperCancel()
-		es.queueProcessorMu.Lock()
-		es.queueProcessorRunning = false
-		es.queueProcessorMu.Unlock()
+	run.wg.Go(func() {
+		err := es.startQueueProcessorThread(run)
+		es.beginStop(run)
 
 		if err != nil && !errors.Is(err, context.Canceled) {
 			slog.Error("message processing stopped with error", "error", err)
 		}
-	}()
+	})
+	context.AfterFunc(run.admissionCtx, func() {
+		es.beginStop(run)
+	})
+	go es.finishRun(run)
+	es.lifecycleMu.Unlock()
 
 	return nil
 }
 
-func (es *ExecutionService) IsRunning() bool {
-	es.queueProcessorMu.Lock()
-	defer es.queueProcessorMu.Unlock()
+func (es *ExecutionService) beginStop(run *executionRun) {
+	es.lifecycleMu.Lock()
+	if es.run == run {
+		run.accepting = false
+	}
+	es.lifecycleMu.Unlock()
+	run.cancelAdmission()
+}
 
-	return es.queueProcessorRunning
+func (es *ExecutionService) finishRun(run *executionRun) {
+	run.wg.Wait()
+	run.cancelWork()
+	es.lifecycleMu.Lock()
+	if es.run == run {
+		es.run = nil
+	}
+	es.lifecycleMu.Unlock()
+	close(run.done)
+}
+
+// Stop closes admission and waits for admitted work to drain. If ctx expires,
+// it cancels that work before returning.
+func (es *ExecutionService) Stop(ctx context.Context) error {
+	es.lifecycleMu.Lock()
+	run := es.run
+	if run == nil {
+		es.lifecycleMu.Unlock()
+		return nil
+	}
+	run.accepting = false
+	es.lifecycleMu.Unlock()
+	run.cancelAdmission()
+
+	select {
+	case <-run.done:
+		return nil
+	case <-ctx.Done():
+		run.cancelWork()
+		return fmt.Errorf("stop command execution service: %w", ctx.Err())
+	}
+}
+
+func (es *ExecutionService) IsRunning() bool {
+	es.lifecycleMu.Lock()
+	defer es.lifecycleMu.Unlock()
+
+	return es.run != nil && es.run.accepting && es.run.admissionCtx.Err() == nil
+}
+
+// withAdmission makes accepting an enqueue atomic with stopping. Once
+// admitted, the operation may drain after Stop begins and is canceled only if
+// the stop context expires.
+func (es *ExecutionService) withAdmission(ctx context.Context, fn func(context.Context) error) error {
+	es.lifecycleMu.Lock()
+	run := es.run
+	if run == nil || !run.accepting || run.admissionCtx.Err() != nil {
+		es.lifecycleMu.Unlock()
+		return errExecutionStoppedBeforeEnqueue
+	}
+	run.wg.Add(1)
+	es.lifecycleMu.Unlock()
+	defer run.wg.Done()
+
+	workCtx, cancel := context.WithCancelCause(ctx)
+	stopCancel := context.AfterFunc(run.workCtx, func() {
+		cancel(errExecutionStoppedBeforeEnqueue)
+	})
+	defer func() {
+		stopCancel()
+		cancel(context.Canceled)
+	}()
+	if run.workCtx.Err() != nil {
+		cancel(errExecutionStoppedBeforeEnqueue)
+	}
+
+	err := fn(workCtx)
+	if err != nil && errors.Is(context.Cause(workCtx), errExecutionStoppedBeforeEnqueue) {
+		return errExecutionStoppedBeforeEnqueue
+	}
+	return err
 }
 
 func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
+	reportProgress := runtimejobs.TrackProgress(ctx, es.config.ReaperInterval)
 	ticker := time.NewTicker(es.config.ReaperInterval)
 	defer ticker.Stop()
 
@@ -163,6 +272,7 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if es.conn == nil {
+				reportProgress()
 				continue
 			}
 			reapCtx, reapCancel := context.WithTimeout(ctx, dbWriteTimeout)
@@ -170,6 +280,7 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 			reapCancel()
 			if err != nil {
 				slog.Error("stuck message reaper error", "error", err)
+				reportProgress()
 				continue
 			}
 			if len(reaped) > 0 {
@@ -179,6 +290,7 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 			for _, deviceID := range fwDeviceIDs {
 				es.clearFirmwareUpdateStatus(ctx, deviceID)
 			}
+			reportProgress()
 		}
 	}
 }
@@ -197,7 +309,7 @@ func (es *ExecutionService) reapStuckMessages(ctx context.Context) ([]reapedComm
 	cutoff := time.Now().Add(-es.config.StuckMessageTimeout)
 	var reapedCmds []reapedCommand
 	var fwDeviceIDs []int64
-	err := db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
+	err := db.WithTransactionNoResult(ctx, es.conn, func(q sqlc.Querier) error {
 		reaped, err := q.ReapStuckProcessingMessages(ctx, sqlc.ReapStuckProcessingMessagesParams{
 			Cutoff:    cutoff,
 			ReapLimit: 100,
@@ -264,8 +376,8 @@ func (es *ExecutionService) emitReapedCommandMetrics(ctx context.Context, reaped
 	}
 }
 
-func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Message, error) {
-	messages, err := es.messageQueue.Dequeue(ctx)
+func (es *ExecutionService) dequeueWithRetry(ctx context.Context, limit int32) ([]queue.Message, error) {
+	messages, err := es.messageQueue.Dequeue(ctx, limit)
 	if err == nil {
 		return messages, nil
 	}
@@ -288,7 +400,7 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Messa
 		// simple backoff for next attempt
 		delay *= 2
 
-		messages, err = es.messageQueue.Dequeue(ctx)
+		messages, err = es.messageQueue.Dequeue(ctx, limit)
 		if err == nil {
 			return messages, nil
 		}
@@ -297,47 +409,90 @@ func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Messa
 		}
 	}
 
-	slog.Error("dequeue failed after retries", "error", err)
 	return nil, err
 }
 
-func (es *ExecutionService) startQueueProcessorThread(ctx context.Context) error {
+func (es *ExecutionService) startQueueProcessorThread(run *executionRun) error {
+	ctx := run.admissionCtx
 	for {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("queue processor context canceled: %w", ctx.Err())
-		default:
-			messages, err := es.dequeueWithRetry(ctx)
-
-			if err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return err
-				}
-				return fleeterror.NewInternalErrorf("error dequeueing messages: %v", err)
+		reservedSlots, err := es.reserveWorkerSlots(ctx)
+		if err != nil {
+			return err
+		}
+		messages, err := es.dequeueWithRetry(ctx, reservedSlots)
+		if err != nil {
+			es.releaseWorkerSlots(int(reservedSlots))
+			if ctx.Err() != nil {
+				return fmt.Errorf("queue processor context canceled while dequeuing: %w", ctx.Err())
 			}
-
-			if len(messages) == 0 {
-				time.Sleep(es.config.MasterPollingInterval)
+			slog.Error("dequeue failed after retries; command execution service remains active", "error", err)
+			timer := time.NewTimer(es.config.MasterPollingInterval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return fmt.Errorf("queue processor context canceled after dequeue failure: %w", ctx.Err())
+			case <-timer.C:
 				continue
 			}
+		}
+		if len(messages) > int(reservedSlots) {
+			es.releaseWorkerSlots(int(reservedSlots))
+			return fleeterror.NewInternalErrorf("dequeue returned %d messages for %d reserved worker slots", len(messages), reservedSlots)
+		}
+		es.releaseWorkerSlots(int(reservedSlots) - len(messages))
 
-			for _, message := range messages {
-				es.workerSemaphore <- struct{}{}
-
-				go func(msg queue.Message) {
-					defer func() { <-es.workerSemaphore }()
-
-					timeout := es.config.WorkerExecutionTimeout
-					if msg.CommandType == commandtype.FirmwareUpdate {
-						timeout = es.config.FirmwareUpdateTimeout
-					}
-					workerCtx, cancel := context.WithTimeout(ctx, timeout)
-					defer cancel()
-
-					es.workerProcessCommand(workerCtx, msg)
-				}(message)
+		if len(messages) == 0 {
+			timer := time.NewTimer(es.config.MasterPollingInterval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return fmt.Errorf("queue processor context canceled while idle: %w", ctx.Err())
+			case <-timer.C:
+				continue
 			}
 		}
+
+		for _, message := range messages {
+			// The processor remains in the run wait group while it adds workers, so Wait
+			// cannot finish before all worker registrations are complete.
+			run.wg.Go(func() {
+				defer func() { <-es.workerSemaphore }()
+
+				timeout := es.config.WorkerExecutionTimeout
+				if message.CommandType == commandtype.FirmwareUpdate {
+					timeout = es.config.FirmwareUpdateTimeout
+				}
+				workerCtx, cancel := context.WithTimeout(run.workCtx, timeout)
+				defer cancel()
+
+				es.workerProcessCommand(workerCtx, message)
+			})
+		}
+	}
+}
+
+func (es *ExecutionService) reserveWorkerSlots(ctx context.Context) (int32, error) {
+	select {
+	case es.workerSemaphore <- struct{}{}:
+	case <-ctx.Done():
+		return 0, fmt.Errorf("queue processor context canceled waiting for worker slot: %w", ctx.Err())
+	}
+
+	reserved := int32(1)
+	for int(reserved) < cap(es.workerSemaphore) {
+		select {
+		case es.workerSemaphore <- struct{}{}:
+			reserved++
+		default:
+			return reserved, nil
+		}
+	}
+	return reserved, nil
+}
+
+func (es *ExecutionService) releaseWorkerSlots(count int) {
+	for range count {
+		<-es.workerSemaphore
 	}
 }
 
@@ -362,7 +517,7 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		queueUpdated  bool
 		queueTerminal bool
 	)
-	txErr := db.WithTransactionNoResult(dbCtx, es.conn, func(q *sqlc.Queries) error {
+	txErr := db.WithTransactionNoResult(dbCtx, es.conn, func(q sqlc.Querier) error {
 		// First: transition queue_message status (detects staleness via rowsAffected).
 		updated, terminal, err := es.markQueueMessageStatus(dbCtx, q, message, workerError)
 		if err != nil {
@@ -412,7 +567,7 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 //   - terminal is true when the resulting queue status is SUCCESS or FAILED
 //
 // (false, _, nil) means the row is no longer PROCESSING (stale/reaped)
-func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q *sqlc.Queries, message queue.Message, workerError error) (bool, bool, error) {
+func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q sqlc.Querier, message queue.Message, workerError error) (bool, bool, error) {
 	var (
 		result   sql.Result
 		err      error
@@ -847,7 +1002,7 @@ func (es *ExecutionService) persistWorkerNameAfterPoolUpdate(
 		return es.deviceStore.UpdateWorkerName(ctx, deviceIdentifier, workerName)
 	}
 
-	return db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
+	return db.WithTransactionNoResult(ctx, es.conn, func(q sqlc.Querier) error {
 		affected, err := q.UpdateDeviceWorkerName(ctx, sqlc.UpdateDeviceWorkerNameParams{
 			DeviceIdentifier: string(deviceIdentifier),
 			WorkerName:       sql.NullString{String: workerName, Valid: workerName != ""},
@@ -966,7 +1121,7 @@ func normalizePoolUsernameBase(username string) string {
 
 // handleUnpairPostProcessing updates device pairing status and unregisters from telemetry after successful unpair
 func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, deviceID int64) error {
-	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
+	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q sqlc.Querier) (string, error) {
 		return q.GetDeviceIdentifierByID(ctx, deviceID)
 	})
 	if err != nil {
@@ -1013,7 +1168,7 @@ func (es *ExecutionService) clearFirmwareUpdateStatus(ctx context.Context, devic
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 
-	deviceIdentifier, err := db.WithTransaction(cleanupCtx, es.conn, func(q *sqlc.Queries) (string, error) {
+	deviceIdentifier, err := db.WithTransaction(cleanupCtx, es.conn, func(q sqlc.Querier) (string, error) {
 		return q.GetDeviceIdentifierByID(cleanupCtx, deviceID)
 	})
 	if err != nil {
@@ -1076,7 +1231,7 @@ func (es *ExecutionService) pollFirmwareInstallStatus(ctx context.Context, miner
 		return true, nil
 	}
 
-	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
+	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q sqlc.Querier) (string, error) {
 		return q.GetDeviceIdentifierByID(ctx, deviceID)
 	})
 	if err != nil {
@@ -1101,7 +1256,7 @@ func (es *ExecutionService) markFirmwareRebootRequired(ctx context.Context, devi
 	if es.conn == nil || es.deviceStore == nil {
 		return
 	}
-	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
+	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q sqlc.Querier) (string, error) {
 		return q.GetDeviceIdentifierByID(ctx, deviceID)
 	})
 	if err != nil {
@@ -1221,7 +1376,7 @@ func (es *ExecutionService) persistFleetNodeMinerCredentials(ctx context.Context
 	if err != nil {
 		return fleeterror.NewInternalErrorf("encode fleet node password update credentials: %v", err)
 	}
-	return db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
+	return db.WithTransactionNoResult(ctx, es.conn, func(q sqlc.Querier) error {
 		return q.UpsertMinerCredentials(ctx, sqlc.UpsertMinerCredentialsParams{
 			DeviceID:    deviceID,
 			UsernameEnc: encodedUsername,
@@ -1248,7 +1403,7 @@ func (es *ExecutionService) insertProtoCredentials(ctx context.Context, deviceID
 		return fleeterror.NewInternalErrorf("failed to encrypt password: %v", err)
 	}
 
-	return db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
+	return db.WithTransactionNoResult(ctx, es.conn, func(q sqlc.Querier) error {
 		return q.UpsertMinerCredentials(ctx, sqlc.UpsertMinerCredentialsParams{
 			DeviceID:    deviceID,
 			UsernameEnc: usernameEnc,
@@ -1266,7 +1421,7 @@ func (es *ExecutionService) updateMinerPasswordInDB(ctx context.Context, deviceI
 		return fleeterror.NewInternalErrorf("failed to encrypt password: %v", err)
 	}
 
-	rowsAffected, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (int64, error) {
+	rowsAffected, err := db.WithTransaction(ctx, es.conn, func(q sqlc.Querier) (int64, error) {
 		return q.UpdateMinerPassword(ctx, sqlc.UpdateMinerPasswordParams{
 			PasswordEnc: passwordEnc,
 			DeviceID:    deviceID,

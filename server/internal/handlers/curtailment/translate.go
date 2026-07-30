@@ -204,6 +204,14 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 	if err != nil {
 		return curtailment.StartRequest{}, err
 	}
+	fanOffDelaySec, err := uint32ToInt32Strict("fan_off_delay_sec", msg.GetFanOffDelaySec())
+	if err != nil {
+		return curtailment.StartRequest{}, err
+	}
+	fanRestoreDelaySec, err := uint32ToInt32Strict("fan_restore_delay_sec", msg.GetFanRestoreDelaySec())
+	if err != nil {
+		return curtailment.StartRequest{}, err
+	}
 	hasProfileCurtailSettings := msg.CurtailBatchSize != nil
 
 	out := curtailment.StartRequest{
@@ -215,6 +223,9 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 		RestoreBatchSize:          restoreBatchSize,
 		RestoreBatchIntervalSec:   restoreBatchIntervalSec,
 		MinCurtailedDurationSec:   minCurtailedDurationSec,
+		FacilityFanDeviceIDs:      append([]int64(nil), msg.GetFacilityFanDeviceIds()...),
+		FanOffDelaySec:            fanOffDelaySec,
+		FanRestoreDelaySec:        fanRestoreDelaySec,
 		AllowUnbounded:            msg.GetAllowUnbounded(),
 		IdempotencyKey:            nonEmptyPtr(msg.GetIdempotencyKey()),
 		ExternalSource:            nonEmptyPtr(msg.GetExternalSource()),
@@ -388,6 +399,9 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 		IncludeMaintenance:          req.GetIncludeMaintenance(),
 		ForceIncludeMaintenance:     req.GetForceIncludeMaintenance(),
 		ForceIncludeAllPairedMiners: req.GetForceIncludeAllPairedMiners(),
+		FacilityFanDeviceIds:        append([]int64(nil), req.GetFacilityFanDeviceIds()...),
+		FanOffDelaySec:              req.GetFanOffDelaySec(),
+		FanRestoreDelaySec:          req.GetFanRestoreDelaySec(),
 		Reason:                      req.GetReason(),
 		ExternalSource:              req.GetExternalSource(),
 		ExternalReference:           req.GetExternalReference(),
@@ -844,10 +858,15 @@ func toListEventsResponse(events []*models.Event, nextPageToken string) *pb.List
 }
 
 // toListActiveCurtailmentsResponse builds the active-events response: event
-// metadata + scope, no per-device targets or decision snapshot (use
-// GetCurtailmentEvent for detail). Replay handles are scrubbed as in the
-// history list — a list view doesn't expose webhook trigger metadata.
-func toListActiveCurtailmentsResponse(events []*models.Event) *pb.ListActiveCurtailmentsResponse {
+// metadata + scope + mode params + target-site coverage + live target rollup,
+// no per-device targets or decision snapshot (use GetCurtailmentEvent for
+// detail). The rollup describes the event's current target set so active
+// polling reflects closed-loop claims and all-paired policy changes; on
+// whole-org events it aggregates across every site, so it is omitted unless
+// the caller's read permission is org-wide (unnarrowed). Replay handles are
+// scrubbed as in the history list — a list view doesn't expose webhook
+// trigger metadata.
+func toListActiveCurtailmentsResponse(events []*models.Event, orgWideRead bool) *pb.ListActiveCurtailmentsResponse {
 	out := &pb.ListActiveCurtailmentsResponse{
 		Events: make([]*pb.CurtailmentEvent, len(events)),
 	}
@@ -855,11 +874,21 @@ func toListActiveCurtailmentsResponse(events []*models.Event) *pb.ListActiveCurt
 		e := toEventProto(ev)
 		populateEventScope(e, ev)
 		populateEventModeParams(e, ev)
+		if orgWideRead || !isWholeOrgScopedEvent(ev) {
+			populateEventTargetRollup(e, ev)
+		}
 		populateEventTargetSiteCoverage(e, ev)
 		scrubListSensitiveFields(e)
 		out.Events[i] = e
 	}
 	return out
+}
+
+// isWholeOrgScopedEvent mirrors populateEventScope's whole-org handling: an
+// empty scope type renders as whole-org on the wire, so it is treated as
+// whole-org for rollup exposure too.
+func isWholeOrgScopedEvent(event *models.Event) bool {
+	return event.ScopeType == models.ScopeTypeWholeOrg || event.ScopeType == ""
 }
 
 // toEventProtoListItem populates the list-view shape (no targets).
@@ -900,6 +929,9 @@ func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 		IncludeMaintenance:          event.IncludeMaintenance,
 		ForceIncludeMaintenance:     event.ForceIncludeMaintenance,
 		ForceIncludeAllPairedMiners: event.ForceIncludeAllPairedMiners,
+		FacilityFanDeviceIds:        append([]int64(nil), event.FacilityFanDeviceIDs...),
+		FanOffDelaySec:              uint32Saturating(event.FanOffDelaySec),
+		FanRestoreDelaySec:          uint32Saturating(event.FanRestoreDelaySec),
 		Reason:                      event.Reason,
 	}
 	if event.MaxDurationSeconds != nil {
@@ -925,6 +957,18 @@ func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 	}
 	if event.EndedAt != nil {
 		out.EndedAt = timestamppb.New(*event.EndedAt)
+	}
+	if event.FanOffSentAt != nil {
+		out.FanOffSentAt = timestamppb.New(*event.FanOffSentAt)
+	}
+	if event.FanOnSentAt != nil {
+		out.FanOnSentAt = timestamppb.New(*event.FanOnSentAt)
+	}
+	if event.FanAirflowReopenedAt != nil {
+		out.FanAirflowReopenedAt = timestamppb.New(*event.FanAirflowReopenedAt)
+	}
+	if event.FanLastError != nil {
+		out.FanLastError = *event.FanLastError
 	}
 	out.CreatedAt = timestamppb.New(event.CreatedAt)
 	out.UpdatedAt = timestamppb.New(event.UpdatedAt)
@@ -1107,16 +1151,25 @@ func populateEventTargetSiteCoverage(out *pb.CurtailmentEvent, event *models.Eve
 }
 
 func targetRollupProto(rollup *models.TargetRollup) *pb.CurtailmentTargetRollup {
+	unavailableReasons := make([]*pb.CurtailmentUnavailableReason, 0, len(rollup.UnavailableReasons))
+	for _, reason := range rollup.UnavailableReasons {
+		unavailableReasons = append(unavailableReasons, &pb.CurtailmentUnavailableReason{
+			Reason: reason.Reason,
+			Count:  int64ToInt32Saturating(reason.Count),
+		})
+	}
+
 	return &pb.CurtailmentTargetRollup{
-		Pending:       int64ToInt32Saturating(rollup.Pending),
-		Dispatched:    int64ToInt32Saturating(rollup.Dispatched),
-		Confirmed:     int64ToInt32Saturating(rollup.Confirmed),
-		Drifted:       int64ToInt32Saturating(rollup.Drifted),
-		Resolved:      int64ToInt32Saturating(rollup.Resolved),
-		Released:      int64ToInt32Saturating(rollup.Released),
-		RestoreFailed: int64ToInt32Saturating(rollup.RestoreFailed),
-		Unavailable:   int64ToInt32Saturating(rollup.Unavailable),
-		Total:         int64ToInt32Saturating(rollup.Total),
+		Pending:            int64ToInt32Saturating(rollup.Pending),
+		Dispatched:         int64ToInt32Saturating(rollup.Dispatched),
+		Confirmed:          int64ToInt32Saturating(rollup.Confirmed),
+		Drifted:            int64ToInt32Saturating(rollup.Drifted),
+		Resolved:           int64ToInt32Saturating(rollup.Resolved),
+		Released:           int64ToInt32Saturating(rollup.Released),
+		RestoreFailed:      int64ToInt32Saturating(rollup.RestoreFailed),
+		Unavailable:        int64ToInt32Saturating(rollup.Unavailable),
+		Total:              int64ToInt32Saturating(rollup.Total),
+		UnavailableReasons: unavailableReasons,
 	}
 }
 

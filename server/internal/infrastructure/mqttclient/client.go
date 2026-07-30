@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -234,8 +235,29 @@ func (c *Client) replaySubscriptions(ctx context.Context, client subscriptionCli
 
 func (c *Client) addRoutes(client routeClient) {
 	for topic, handler := range c.subscriptionSnapshot() {
-		client.AddRoute(topic, handler)
+		client.AddRoute(normalizeTopicFilter(topic), handler)
 	}
+}
+
+// normalizeTopicFilter strips shared-subscription prefixes the same way paho
+// v1.5.1 does in Subscribe. Staged routes must use the normalized form:
+// paho's router only strips $share (never $queue) when matching, and a route
+// staged under the original filter would duplicate the normalized route paho
+// adds on Subscribe, delivering each message twice. Degenerate filters with
+// an empty remainder ("$queue/", "$share/<group>/") are kept as-is rather
+// than registering an empty-topic route; Subscribe fails them normally.
+func normalizeTopicFilter(topic string) string {
+	if strings.HasPrefix(topic, "$share/") {
+		parts := strings.SplitN(topic, "/", 3)
+		if len(parts) == 3 && parts[2] != "" {
+			return parts[2]
+		}
+		return topic
+	}
+	if rest, ok := strings.CutPrefix(topic, "$queue/"); ok && rest != "" {
+		return rest
+	}
+	return topic
 }
 
 func (c *Client) subscriptionSnapshot() map[string]paho.MessageHandler {
@@ -342,9 +364,19 @@ func validateSubscribeResult(topic string, token paho.Token) error {
 	if !ok {
 		return nil
 	}
-	qos, ok := resultToken.Result()[topic]
+	result := resultToken.Result()
+	qos, ok := result[topic]
 	if !ok {
-		return errors.New("SUBACK missing topic result")
+		// Paho v1.5.1 keys single-topic SUBACK results by the normalized
+		// filter ($share/<group>/ and $queue/ prefixes stripped), not the
+		// original one. The wrapper subscribes one topic at a time, so a
+		// sole result entry is that subscription's outcome.
+		if len(result) != 1 {
+			return errors.New("SUBACK missing topic result")
+		}
+		for _, soleQoS := range result {
+			qos = soleQoS
+		}
 	}
 	if qos == subscribeFailureCode {
 		return fmt.Errorf("SUBACK rejected subscription with code 0x%02x", qos)

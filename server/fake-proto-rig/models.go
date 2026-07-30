@@ -12,6 +12,8 @@ const (
 	defaultHashrateTHS    = 140.0  // TH/s
 	defaultTemperatureC   = 55.0   // Celsius
 	defaultPowerW         = 3400.0 // Watts
+	defaultIdlePowerW     = 200.0  // Watts
+	defaultCurtailPowerW  = 30.0   // Watts
 	defaultEfficiencyJTH  = 24.3   // J/TH
 	defaultIdealHashrate  = 145.0  // TH/s
 	defaultFanSpeedRPM    = 4500
@@ -73,6 +75,7 @@ const (
 	MiningStatePoweringOn    MiningState = "PoweringOn"
 	MiningStateDegraded      MiningState = "DegradedMining"
 	MiningStatePoweringOff   MiningState = "PoweringOff"
+	MiningStateCurtailed     MiningState = "Curtailed"
 	MiningStateError         MiningState = "Error"
 	MiningStateUninitialized MiningState = "Uninitialized"
 	MiningStateUnknown       MiningState = "Unknown"
@@ -104,6 +107,92 @@ const (
 	TuningAlgorithmVoltageImbalanceCompensation TuningAlgorithm = "VoltageImbalanceCompensation"
 	TuningAlgorithmFuzzing                      TuningAlgorithm = "Fuzzing"
 )
+
+// CurtailmentConfig mirrors the firmware curtailment service configuration
+// (MDK-API CurtailmentConfig schema).
+type CurtailmentConfig struct {
+	Enabled               bool                        `json:"enabled"`
+	FailPolicy            string                      `json:"fail_policy"`
+	RestorePolicy         string                      `json:"restore_policy"`
+	NatsURL               string                      `json:"nats_url"`
+	McddGrpcAddr          string                      `json:"mcdd_grpc_addr"`
+	StatusPublishInterval string                      `json:"status_publish_interval"`
+	Providers             []CurtailmentProviderConfig `json:"providers"`
+}
+
+// CurtailmentProviderConfig mirrors one Maestro MQTT curtailment provider
+// (MDK-API CurtailmentProviderConfig schema).
+type CurtailmentProviderConfig struct {
+	Name             string   `json:"name"`
+	Type             string   `json:"type"`
+	Enabled          bool     `json:"enabled"`
+	Brokers          []string `json:"brokers"`
+	Port             int      `json:"port"`
+	Username         string   `json:"username"`
+	Password         string   `json:"password"`
+	Topic            string   `json:"topic"`
+	Qos              int      `json:"qos"`
+	StaleAfter       string   `json:"stale_after"`
+	ReconnectBackoff string   `json:"reconnect_backoff"`
+}
+
+// CurtailmentStatus mirrors the latest curtailment state observed by
+// miner-api-server (MDK-API CurtailmentStatus schema). Nullable spec fields
+// use pointers so absent values serialize as null, matching the firmware.
+type CurtailmentStatus struct {
+	Active            bool    `json:"active"`
+	Known             bool    `json:"known"`
+	FailPolicy        *string `json:"fail_policy"`
+	Provider          *string `json:"provider"`
+	Reason            *string `json:"reason"`
+	SelectedBroker    *string `json:"selected_broker"`
+	Target            *int32  `json:"target"`
+	ProviderTimestamp *int64  `json:"provider_timestamp"`
+	LastMessageAgeMs  *int64  `json:"last_message_age_ms"`
+	LastValidMessage  *string `json:"last_valid_message"`
+	UpdatedAt         *string `json:"updated_at"`
+	Error             *string `json:"error"`
+	LastCommand       *string `json:"last_command"`
+	LastCommandError  *string `json:"last_command_error"`
+	RestorePending    bool    `json:"restore_pending"`
+}
+
+// defaultCurtailmentConfig mirrors the firmware's CurtailmentConfig::default():
+// service disabled with a single disabled maestro_mqtt provider.
+func defaultCurtailmentConfig() CurtailmentConfig {
+	return CurtailmentConfig{
+		Enabled:               false,
+		FailPolicy:            "closed",
+		RestorePolicy:         "respect_manual_stop",
+		NatsURL:               "nats://localhost:4222",
+		McddGrpcAddr:          "127.0.0.1:2122",
+		StatusPublishInterval: "15s",
+		Providers: []CurtailmentProviderConfig{
+			{
+				Name:             "maestro",
+				Type:             "maestro_mqtt",
+				Enabled:          false,
+				Brokers:          []string{},
+				Port:             1883,
+				Topic:            "maestro/target",
+				Qos:              1,
+				StaleAfter:       "4m",
+				ReconnectBackoff: "5s",
+			},
+		},
+	}
+}
+
+// defaultCurtailmentStatus mirrors the firmware's CurtailmentStatus::default(),
+// returned when no curtailment-service status message has been received.
+func defaultCurtailmentStatus() CurtailmentStatus {
+	reason := "no_status_received"
+	return CurtailmentStatus{
+		Active: false,
+		Known:  false,
+		Reason: &reason,
+	}
+}
 
 // PoolStatistics holds pool performance statistics.
 type PoolStatistics struct {
@@ -189,6 +278,12 @@ type MinerState struct {
 
 	// Reboot simulation
 	Rebooting bool
+
+	// Curtailment service configuration (PUT /api/v1/curtailment/config)
+	CurtailmentConfigVal CurtailmentConfig
+
+	// Secure override marker (PUT /api/v1/system/secure)
+	SecureOverride bool
 }
 
 // ErrorConfig holds configuration for simulating various error conditions.
@@ -214,29 +309,72 @@ type ErrorConfig struct {
 // NewMinerState creates a new MinerState with default values.
 func NewMinerState(serialNumber, macAddress string) *MinerState {
 	return &MinerState{
-		SerialNumber:       serialNumber,
-		MacAddress:         macAddress,
-		Model:              "Rig",
-		Hostname:           "proto-miner-" + serialNumber[len(serialNumber)-4:],
-		MiningStateVal:     MiningStateMining,
-		CoolingModeVal:     CoolingModeAuto,
-		FanSpeedPct:        defaultFanSpeedPct,
-		TargetTempC:        defaultTargetTempC,
-		PowerTargetW:       defaultPowerTargetW,
-		PerformanceModeVal: PerformanceModeMaxHashrate,
-		TelemetryEnabled:   true,
-		DHCP:               true,
-		NetMask:            "255.255.255.0",
-		Gateway:            "192.168.2.1",
-		BaseHashrateTHS:    defaultHashrateTHS,
-		BaseTemperatureC:   defaultTemperatureC,
-		BasePowerW:         defaultPowerW,
-		BaseEfficiencyJTH:  defaultEfficiencyJTH,
-		Pools:              make([]*Pool, 0),
-		PoolNames:          make(map[uint32]string),
-		FWCurrentVersion:   defaultFirmwareVersion,
-		StartTime:          time.Now(),
+		SerialNumber:         serialNumber,
+		MacAddress:           macAddress,
+		Model:                "Rig",
+		Hostname:             "proto-miner-" + serialNumber[len(serialNumber)-4:],
+		MiningStateVal:       MiningStateMining,
+		CoolingModeVal:       CoolingModeAuto,
+		FanSpeedPct:          defaultFanSpeedPct,
+		TargetTempC:          defaultTargetTempC,
+		PowerTargetW:         defaultPowerTargetW,
+		PerformanceModeVal:   PerformanceModeMaxHashrate,
+		TelemetryEnabled:     true,
+		DHCP:                 true,
+		NetMask:              "255.255.255.0",
+		Gateway:              "192.168.2.1",
+		BaseHashrateTHS:      defaultHashrateTHS,
+		BaseTemperatureC:     defaultTemperatureC,
+		BasePowerW:           defaultPowerW,
+		BaseEfficiencyJTH:    defaultEfficiencyJTH,
+		Pools:                make([]*Pool, 0),
+		PoolNames:            make(map[uint32]string),
+		FWCurrentVersion:     defaultFirmwareVersion,
+		CurtailmentConfigVal: defaultCurtailmentConfig(),
+		StartTime:            time.Now(),
 	}
+}
+
+// cloneCurtailmentConfig deep-copies a curtailment configuration, including
+// each provider's Brokers slice, so callers and MinerState never share
+// mutable slices.
+func cloneCurtailmentConfig(config CurtailmentConfig) CurtailmentConfig {
+	clone := config
+	clone.Providers = make([]CurtailmentProviderConfig, len(config.Providers))
+	for i, provider := range config.Providers {
+		clone.Providers[i] = provider
+		clone.Providers[i].Brokers = append([]string(nil), provider.Brokers...)
+	}
+	return clone
+}
+
+// GetCurtailmentConfig returns a deep copy of the stored curtailment configuration.
+func (s *MinerState) GetCurtailmentConfig() CurtailmentConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return cloneCurtailmentConfig(s.CurtailmentConfigVal)
+}
+
+// SetCurtailmentConfig replaces the stored curtailment configuration with a
+// deep copy of the input, so later mutations by the caller cannot leak in.
+func (s *MinerState) SetCurtailmentConfig(config CurtailmentConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.CurtailmentConfigVal = cloneCurtailmentConfig(config)
+}
+
+// GetSecureOverride returns the current secure override marker state.
+func (s *MinerState) GetSecureOverride() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.SecureOverride
+}
+
+// SetSecureOverride sets or clears the secure override marker.
+func (s *MinerState) SetSecureOverride(override bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.SecureOverride = override
 }
 
 // GetMiningState returns the current mining state.
@@ -253,7 +391,13 @@ func (s *MinerState) miningState() MiningState {
 		return *s.ErrorConfig.ForceMiningState
 	}
 
-	// If no pools configured, report NO_POOLS state
+	// Full curtailment must remain visible even on a pool-less device so
+	// telemetry can expose its minimal-power state.
+	if s.MiningStateVal == MiningStateCurtailed {
+		return MiningStateCurtailed
+	}
+
+	// If no pools configured, report NO_POOLS state.
 	if len(s.Pools) == 0 {
 		return MiningStateNoPools
 	}
@@ -277,14 +421,17 @@ func (s *MinerState) GetMinerTelemetry() (hashrate, temperature, power, efficien
 		temperature = s.ErrorConfig.OverrideTemperature
 	}
 
-	// If not actively mining, reduce hashrate to 0
-	effectiveState := s.miningState()
-	if effectiveState != MiningStateMining &&
-		effectiveState != MiningStateDegraded {
-		hashrate = 0
-		power = applyVariation(200.0, telemetryVariation) // Idle power
+	// Model mining, idle/non-mining, and full-curtail draw separately.
+	switch s.miningState() {
+	case MiningStateMining, MiningStateDegraded:
+		return
+	case MiningStateCurtailed:
+		power = applyVariation(defaultCurtailPowerW, telemetryVariation)
+	default:
+		power = applyVariation(defaultIdlePowerW, telemetryVariation)
 	}
 
+	hashrate = 0
 	return
 }
 

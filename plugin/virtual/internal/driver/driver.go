@@ -160,7 +160,7 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 		return sdk.DeviceInfo{}, err
 	}
 
-	slog.Info("Discovered virtual miner", "serial", minerCfg.SerialNumber, "ip", ipAddress)
+	slog.Debug("Discovered virtual miner", "serial", minerCfg.SerialNumber, "ip", ipAddress)
 
 	return sdk.DeviceInfo{
 		Host:            ipAddress,
@@ -221,7 +221,7 @@ func (d *Driver) NewDevice(_ context.Context, deviceID string, deviceInfo sdk.De
 	d.devices[deviceID] = dev
 	d.mutex.Unlock()
 
-	slog.Info("Created virtual device instance", "device_id", deviceID, "serial", deviceInfo.SerialNumber)
+	slog.Debug("Created virtual device instance", "device_id", deviceID, "serial", deviceInfo.SerialNumber)
 
 	return sdk.NewDeviceResult{Device: dev}, nil
 }

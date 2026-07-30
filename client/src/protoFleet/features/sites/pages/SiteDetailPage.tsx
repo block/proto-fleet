@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
 
 import SiteMetricsRow from "../components/SiteMetricsRow";
 import SiteModals from "../components/SiteModals";
 import { useSiteModals } from "../hooks/useSiteModals";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
-import { buildKnownSiteIds, parseBigIntId, useSites } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds, parseBigIntId } from "@/protoFleet/api/sites";
+import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { useSiteStats } from "@/protoFleet/api/useSiteStats";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
@@ -17,7 +17,7 @@ import BuildingModals from "@/protoFleet/features/buildings/components/BuildingM
 import BuildingSummaryCard from "@/protoFleet/features/buildings/components/BuildingSummaryCard";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
-import { scopedPath } from "@/protoFleet/routing/siteScope";
+import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
 import { useDuration, useHasPermission, useSetDuration } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Breadcrumb from "@/shared/components/Breadcrumb";
@@ -39,37 +39,16 @@ const ALL_MEASUREMENT_TYPES: MeasurementType[] = [
 const ALL_AGGREGATION_TYPES: AggregationType[] = [AggregationType.AVERAGE, AggregationType.MIN, AggregationType.MAX];
 
 const SiteDetailPage = () => {
-  const navigate = useNavigate();
   const { id: idParam } = useParams<{ id?: string }>();
   const targetId = idParam ?? "";
 
-  const { listSites } = useSites();
   const { listBuildingsBySite } = useBuildings();
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
-  const [sitesLoaded, setSitesLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Site catalog is owned by the shell-level SitesProvider; this page reads it
+  // (and triggers a refresh after rename/delete via refetchSites) instead of
+  // firing its own ListSites.
+  const { sites, sitesError: error, siteCatalogAccessGranted, refetchSites } = useSitesContext();
   const [buildings, setBuildings] = useState<{ siteId: string; rows: BuildingWithCounts[] } | undefined>(undefined);
   const [buildingsError, setBuildingsError] = useState<{ siteId: string; message: string } | null>(null);
-  const breadcrumbSiteSelectionRef = useRef<string | null>(null);
-
-  const fetchSites = useCallback(() => {
-    const controller = new AbortController();
-    void listSites({
-      signal: controller.signal,
-      onSuccess: (rows) => {
-        setSites(rows);
-        setSitesLoaded(true);
-        setError(null);
-      },
-      onError: (msg) => {
-        setError(msg);
-        // Preserve last-good list across transient errors; only fall to []
-        // on the initial-load failure path.
-        setSites((prev) => prev ?? []);
-      },
-    });
-    return () => controller.abort();
-  }, [listSites]);
 
   const fetchBuildings = useCallback(
     (siteId: bigint) => {
@@ -94,29 +73,19 @@ const SiteDetailPage = () => {
     [listBuildingsBySite],
   );
 
-  // Bump retryCounter / sitesRefreshKey to re-run the effect so the cleanup
-  // AbortController stays owned by useEffect and isn't leaked by an
-  // imperative callback.
-  const [retryCounter, setRetryCounter] = useState(0);
-  const [sitesRefreshKey, setSitesRefreshKey] = useState(0);
-  const handleRetry = useCallback(() => setRetryCounter((n) => n + 1), []);
-  const refetchSites = useCallback(() => setSitesRefreshKey((n) => n + 1), []);
-
-  useEffect(() => fetchSites(), [fetchSites, retryCounter, sitesRefreshKey]);
-
   // Bounce to /fleet when SitePicker switches to a different specific
   // site — "All sites" / "Unassigned" don't conflict with this view.
-  const knownSiteIds = useMemo(() => (sitesLoaded ? buildKnownSiteIds(sites) : undefined), [sites, sitesLoaded]);
-  const { activeSite, setActiveSite } = useActiveSite({ knownSiteIds });
-  useEffect(() => {
-    if (activeSite.kind !== "site") return;
-    if (activeSite.id === targetId) {
-      breadcrumbSiteSelectionRef.current = null;
-      return;
-    }
-    if (breadcrumbSiteSelectionRef.current === activeSite.id) return;
-    navigate(scopedPath("/fleet", activeSite), { replace: true });
-  }, [activeSite, navigate, targetId]);
+  // Only validate the picker selection against an authoritative catalog: on a
+  // mid-session PermissionDenied the provider clears `sites` to [] but keeps
+  // sitesLoaded true, so keying off siteCatalogAccessGranted avoids treating
+  // the denied (empty) catalog as a loaded set.
+  const knownSiteIds = useMemo(
+    () => (siteCatalogAccessGranted ? buildKnownSiteIds(sites) : undefined),
+    [siteCatalogAccessGranted, sites],
+  );
+  // Keep the deleted-site guard (resets a stored scope that points at a site
+  // the viewer lost access to); setActiveSite drives breadcrumb sibling nav.
+  const { setActiveSite } = useActiveSite({ knownSiteIds });
 
   const site = useMemo(() => {
     if (!sites) return undefined;
@@ -124,6 +93,11 @@ const SiteDetailPage = () => {
     if (parsed === null) return undefined;
     return sites.find((s) => s.site?.id === parsed);
   }, [sites, targetId]);
+
+  // This is a headerless route, so the persisted scope can point at an
+  // unrelated site on deep-link/bookmark. Align it with the site being viewed
+  // (leaving "all-sites" as-is) rather than bouncing away to /fleet (#764).
+  useSyncScopeToEntity(site ? entityScopeTarget(site.site?.id, sites) : undefined);
 
   // UpdateSite + CreateBuilding require site:manage server-side.
   const canManageSites = useHasPermission("site:manage");
@@ -210,7 +184,7 @@ const SiteDetailPage = () => {
           variant={variants.secondary}
           size={sizes.compact}
           text="Retry"
-          onClick={handleRetry}
+          onClick={refetchSites}
           testId="site-detail-retry"
         />
       </div>
@@ -244,17 +218,14 @@ const SiteDetailPage = () => {
         to: `/sites/${siblingId}`,
         isActive: siblingSite.id === site.site!.id,
         onSelect: siblingSite.slug
-          ? () => {
-              breadcrumbSiteSelectionRef.current = siblingId;
-              setActiveSite({ kind: "site", id: siblingId, slug: siblingSite.slug });
-            }
+          ? () => setActiveSite({ kind: "site", id: siblingId, slug: siblingSite.slug })
           : undefined,
       };
     });
 
   return (
     <>
-      <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="site-detail-page">
+      <div className="flex flex-col gap-10 px-4 py-6 laptop:px-8 laptop:py-10" data-testid="site-detail-page">
         {error ? (
           <Callout
             intent="danger"
@@ -262,30 +233,40 @@ const SiteDetailPage = () => {
             title="Couldn't refresh site"
             subtitle={error}
             buttonText="Retry"
-            buttonOnClick={handleRetry}
+            buttonOnClick={refetchSites}
             testId="site-detail-inline-error"
           />
         ) : null}
-        <Breadcrumb
-          segments={[
-            { label: "Sites", to: "/fleet/sites" },
-            { label: site.site.name, siblings: siteSiblings.length > 1 ? siteSiblings : undefined },
-          ]}
-          testId="site-detail-breadcrumb"
-        />
-        <div className="flex items-start justify-between gap-4">
-          <Header title={site.site.name} titleSize="text-heading-300" testId="site-detail-title" />
-          {canManageSites ? (
-            <Button
-              variant={variants.primary}
-              size={sizes.compact}
-              text="Edit site"
-              onClick={() => modals.openManageEdit(site.site!)}
-              testId="site-detail-edit"
-            />
-          ) : null}
+        <div className="flex flex-col gap-3 px-2" data-testid="site-detail-heading">
+          <Breadcrumb
+            segments={[
+              { label: "Sites", to: "/fleet/sites" },
+              { label: site.site.name, siblings: siteSiblings.length > 1 ? siteSiblings : undefined },
+            ]}
+            testId="site-detail-breadcrumb"
+          />
+          <Header
+            title={site.site.name}
+            titleSize="truncate text-heading-300"
+            inline
+            centerButton
+            stackButtonsOnPhone={false}
+            testId="site-detail-title"
+          >
+            {canManageSites ? (
+              <div className="ml-3 shrink-0">
+                <Button
+                  variant={variants.primary}
+                  size={sizes.compact}
+                  text="Edit site"
+                  onClick={() => modals.openManageEdit(site.site!)}
+                  testId="site-detail-edit"
+                />
+              </div>
+            ) : null}
+          </Header>
         </div>
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3 px-2" data-testid="site-detail-metrics-section">
           {siteStatsError ? (
             <Callout
               intent="danger"
@@ -307,8 +288,8 @@ const SiteDetailPage = () => {
             testId="site-detail-metrics-row"
           />
         </div>
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3" data-testid="site-detail-buildings-section">
+          <div className="flex items-center justify-between gap-3 px-2">
             <Header title="Buildings" titleSize="text-heading-200" />
             {canManageSites ? (
               <Button
@@ -333,34 +314,36 @@ const SiteDetailPage = () => {
               testId="site-detail-buildings-error"
             />
           ) : null}
-          <div className="rounded-xl bg-surface-base p-10 dark:bg-core-primary-5 phone:p-6">
-            {visibleBuildings === undefined ? (
-              <div className="text-200 text-text-primary-50">Loading buildings…</div>
-            ) : visibleBuildings.length === 0 ? (
-              <div
-                className="rounded-2xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
-                data-testid="site-detail-buildings-empty"
-              >
-                No buildings in this site yet.
-              </div>
-            ) : (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-4">
-                {visibleBuildings.map((building) => (
-                  <div key={(building.building?.id ?? 0n).toString()} className="min-w-0">
-                    <BuildingSummaryCard building={building} />
-                  </div>
-                ))}
-              </div>
-            )}
+          <div className="overflow-visible p-2">
+            <div className="rounded-xl bg-surface-elevated-base p-10 shadow-100 phone:p-6">
+              {visibleBuildings === undefined ? (
+                <div className="text-200 text-text-primary-50">Loading buildings…</div>
+              ) : visibleBuildings.length === 0 ? (
+                <div
+                  className="rounded-2xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
+                  data-testid="site-detail-buildings-empty"
+                >
+                  No buildings in this site yet.
+                </div>
+              ) : (
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-3">
+                  {visibleBuildings.map((building) => (
+                    <div key={(building.building?.id ?? 0n).toString()} className="min-w-0">
+                      <BuildingSummaryCard building={building} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
         {canReadFleet ? (
-          <div className="flex flex-col gap-4" data-testid="site-detail-performance">
-            <div className="flex flex-col gap-4 tablet:flex-row tablet:items-center tablet:justify-between">
+          <div className="flex flex-col gap-3" data-testid="site-detail-performance">
+            <div className="flex flex-col gap-3 px-2 tablet:flex-row tablet:items-center tablet:justify-between">
               <div className="tablet:flex-1">
                 <Header title="Performance" titleSize="text-heading-200" />
               </div>
-              <div className="flex items-center gap-6 text-200 text-core-primary-50">
+              <div className="flex items-center gap-3 text-200 text-core-primary-50">
                 <div className="flex items-center gap-2">
                   <svg width="24" height="4">
                     <line
@@ -412,7 +395,7 @@ const SiteDetailPage = () => {
                 <DurationSelector duration={duration} durations={fleetDurations} onSelect={setDuration} />
               </div>
             </div>
-            <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
+            <DeviceSetPerformanceSection className="p-2" duration={duration} gapClassName="gap-1" metrics={metrics} />
           </div>
         ) : null}
       </div>

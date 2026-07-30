@@ -54,10 +54,53 @@ const (
 	// and result (success or failure — see ResultSuccess / ResultFailure).
 	MetricCommandTotal = "fleet_command_total"
 
-	// MetricTelemetryPollTotal is a counter incremented for every telemetry
-	// poll attempt against a device. Labelled with result (success or
-	// failure — see ResultSuccess / ResultFailure).
+	// MetricTelemetryPollTotal counts telemetry poll attempts; rows persist
+	// aggregated per (org, site, result) with value = poll count: sum(value).
 	MetricTelemetryPollTotal = "fleet_telemetry_poll_total"
+
+	// Host system gauges emitted by the optional system-monitoring collector.
+	// All four are host-scoped: every label column stays empty (like the
+	// ingest-stalled sentinel), and the provisioned Grafana rules fan alerts
+	// out per organization by joining fleet_active_organization in SQL.
+	// User-authored PromQL gets an injected organization_id="<caller-org>"
+	// matcher, so these series match nothing there.
+
+	// MetricSystemCPUUsedPercent is the host CPU utilization (0-100) over the
+	// collector's poll interval.
+	MetricSystemCPUUsedPercent = "fleet_system_cpu_used_percent"
+
+	// MetricSystemMemoryUsedPercent is the host RAM used percent (0-100).
+	MetricSystemMemoryUsedPercent = "fleet_system_memory_used_percent"
+
+	// MetricSystemDiskUsedPercent is the used percent (0-100) of the
+	// filesystem at the collector's configured path.
+	MetricSystemDiskUsedPercent = "fleet_system_disk_used_percent"
+
+	// MetricSystemHeartbeat is always 1; a fresh sample lands every collector
+	// tick, so staleness means fleet-api is down or the metrics writer is
+	// wedged. The Fleet Heartbeat Stale rule alerts on it.
+	MetricSystemHeartbeat = "fleet_system_heartbeat"
+
+	// MetricMQTTSourceConnected is a per-source gauge: 1 when the MQTT
+	// curtailment source has at least one broker connection subscribed to its
+	// signal topic, 0 when it cannot receive curtailment signals. Labelled
+	// with kind (the source name). A source that is disabled, removed, or
+	// renamed gets one final non-alerting sample so rules on the retired
+	// series resolve promptly; then emission stops.
+	MetricMQTTSourceConnected = "fleet_mqtt_source_connected"
+
+	// MetricMQTTCurtailmentActive is a per-source gauge: 1 while a curtailment
+	// event started by that MQTT source's automation is non-terminal (pending,
+	// curtailing, or restoring), 0 once miners are fully restored. Labelled
+	// with kind (the source name). Still emitted for a source disabled
+	// mid-curtailment, so the alert cannot resolve while miners stay down.
+	MetricMQTTCurtailmentActive = "fleet_mqtt_curtailment_active"
+
+	// MetricCurtailmentFanRestoreFailed is a per-event gauge: 1 once the fan
+	// restore delay has elapsed while the latest fan-ON command still has an
+	// error, 0 after a later re-assertion succeeds. Labelled with kind carrying
+	// the curtailment event UUID so each unsafe restore alerts independently.
+	MetricCurtailmentFanRestoreFailed = "fleet_curtailment_fan_restore_failed"
 )
 
 // Label keys. User-authored PromQL may aggregate by any of these.
@@ -85,7 +128,8 @@ const (
 	LabelSensorKind = "sensor_kind"
 
 	// LabelKind is the command type label on fleet_command_total (e.g.
-	// reboot, start_mining, stop_mining, set_power_target).
+	// reboot, start_mining, stop_mining, set_power_target) and the source
+	// name on the fleet_mqtt_* gauges.
 	LabelKind = "kind"
 
 	// LabelResult is the success/failure outcome label on counters.
@@ -120,6 +164,13 @@ var AllMetricNames = []string{
 	MetricDevicePoolConnected,
 	MetricCommandTotal,
 	MetricTelemetryPollTotal,
+	MetricSystemCPUUsedPercent,
+	MetricSystemMemoryUsedPercent,
+	MetricSystemDiskUsedPercent,
+	MetricSystemHeartbeat,
+	MetricMQTTSourceConnected,
+	MetricMQTTCurtailmentActive,
+	MetricCurtailmentFanRestoreFailed,
 }
 
 // AllLabelKeys is the canonical list of label keys Proto Fleet attaches to its metrics.

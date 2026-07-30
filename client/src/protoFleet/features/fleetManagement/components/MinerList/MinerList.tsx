@@ -22,6 +22,7 @@ import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
+  IpRangeSchema,
   type MinerListFilter,
   MinerListFilterSchema,
   type MinerStateSnapshot,
@@ -71,8 +72,9 @@ import {
 } from "@/shared/components/List/Filters/types";
 import { type SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import ResponsiveActionGroup, { type ResponsiveActionButton } from "@/shared/components/ResponsiveActionGroup";
 import { Breakpoint } from "@/shared/constants/breakpoints";
-import { normalizeCidrLine, validateCidrLine } from "@/shared/utils/filterValidation";
+import { classifySubnetLine, normalizeSubnetLine, validateSubnetLine } from "@/shared/utils/filterValidation";
 
 type FleetCredentials = { username: string; password: string };
 
@@ -326,6 +328,32 @@ const ScopedMinerListBody = ({
   const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
 
   const currentPageSelectableMinerIds = deviceItems.map((item) => item.deviceIdentifier);
+  const headerActionButtons = useMemo<ResponsiveActionButton[]>(
+    () => [
+      {
+        actionSheetLabel: "Manage columns",
+        ariaHasPopup: "dialog",
+        ariaLabel: "Manage columns",
+        prefixIcon: <Slider width="w-4" />,
+        onClick: onOpenManageColumns,
+        testId: "manage-columns-button",
+        variant: variants.secondary,
+      },
+      {
+        disabled: totalMiners === 0,
+        loading: exportCsvLoading,
+        onClick: onExportCsv,
+        text: "Export CSV",
+        variant: variants.secondary,
+      },
+      {
+        onClick: onAddMiners,
+        text: "Add miners",
+        variant: variants.secondary,
+      },
+    ],
+    [exportCsvLoading, onAddMiners, onExportCsv, onOpenManageColumns, totalMiners],
+  );
 
   const handleSelectAllMiners = useCallback(() => {
     setSelectedMinerIds(currentPageSelectableMinerIds);
@@ -369,25 +397,36 @@ const ScopedMinerListBody = ({
         pageScopedSelection
         hasActiveFilters={hasActiveFilters}
         headerControls={
-          <div className="flex items-center gap-2">
-            <Button
-              ariaLabel="Manage columns"
-              ariaHasPopup="dialog"
-              variant={variants.secondary}
-              size={sizes.compact}
-              prefixIcon={<Slider width="w-4" />}
-              onClick={onOpenManageColumns}
-              testId="manage-columns-button"
+          <div className="flex min-w-0 items-center justify-end">
+            <div className="hidden items-center gap-2 tablet:flex">
+              <Button
+                ariaLabel="Manage columns"
+                ariaHasPopup="dialog"
+                variant={variants.secondary}
+                size={sizes.compact}
+                prefixIcon={<Slider width="w-4" />}
+                onClick={onOpenManageColumns}
+                testId="manage-columns-button"
+              />
+              <Button
+                text="Export CSV"
+                variant={variants.secondary}
+                size={sizes.compact}
+                onClick={onExportCsv}
+                loading={exportCsvLoading}
+                disabled={totalMiners === 0}
+              />
+              <Button text="Add miners" variant={variants.secondary} size={sizes.compact} onClick={onAddMiners} />
+            </div>
+            <ResponsiveActionGroup
+              buttons={headerActionButtons}
+              buttonSize={sizes.compact}
+              className="tablet:hidden"
+              primaryButtonStrategy="last"
+              primaryTestIdSuffix="mobile"
+              sheetContentTestId="list-header-action-sheet-content"
+              sheetTestId="list-header-action-sheet"
             />
-            <Button
-              text="Export CSV"
-              variant={variants.secondary}
-              size={sizes.compact}
-              onClick={onExportCsv}
-              loading={exportCsvLoading}
-              disabled={totalMiners === 0}
-            />
-            <Button text="Add miners" variant={variants.secondary} size={sizes.compact} onClick={onAddMiners} />
           </div>
         }
         renderActionBar={(selectedItems, clearSelection, currentSelectionMode, totalSelectable) => (
@@ -395,8 +434,9 @@ const ScopedMinerListBody = ({
             <MinerListActionBar
               selectedMiners={selectedItems}
               onClearSelection={clearSelection}
-              onSelectAll={hasActiveFilters ? undefined : handleSelectAllMiners}
-              onSelectNone={hasActiveFilters ? undefined : handleSelectNoneMiners}
+              onSelectAll={handleSelectAllMiners}
+              onSelectNone={handleSelectNoneMiners}
+              filtersActive={hasActiveFilters}
               selectionMode={currentSelectionMode}
               totalCount={totalSelectable}
               currentFilter={currentFilter}
@@ -890,9 +930,9 @@ const MinerList = ({
       type: "textareaList",
       title: "Subnet",
       value: "subnet",
-      validate: validateCidrLine,
-      normalize: normalizeCidrLine,
-      placeholder: "255.255.255.0/24\n255.255.0.0/16",
+      validate: validateSubnetLine,
+      normalize: normalizeSubnetLine,
+      placeholder: "255.255.255.0/24\n10.0.0.10-10.0.0.20\n10.0.0.42",
       noun: "subnet",
     }),
     [],
@@ -1067,9 +1107,19 @@ const MinerList = ({
         minerFilter.numericRanges.push(range);
       });
 
-      const subnetCidrs = filters.textareaListFilters.subnet;
-      if (subnetCidrs && subnetCidrs.length > 0) {
-        minerFilter.ipCidrs.push(...subnetCidrs);
+      const subnetLines = filters.textareaListFilters.subnet;
+      if (subnetLines && subnetLines.length > 0) {
+        // Ranges travel natively on ip_ranges; CIDRs/IPs on ip_cidrs. The
+        // server OR's the two together, so all subnet lines match as one set.
+        subnetLines.forEach((line) => {
+          const entry = classifySubnetLine(line);
+          if (!entry) return;
+          if (entry.kind === "range") {
+            minerFilter.ipRanges.push(create(IpRangeSchema, { startIp: entry.startIp, endIp: entry.endIp }));
+          } else {
+            minerFilter.ipCidrs.push(entry.cidr);
+          }
+        });
       }
 
       // Navigate with URL params instead of calling parent callback.
@@ -1127,7 +1177,7 @@ const MinerList = ({
                 <LogoAlt width="w-[48px]" />
                 <Header
                   title="You haven't paired any miners"
-                  titleSize="text-display-200"
+                  titleSize="text-heading-300 tablet:text-display-200"
                   description="Add miners to your fleet to get started."
                 />
               </div>
@@ -1263,6 +1313,7 @@ const MinerList = ({
           onClose={closeModalFlow}
           deviceId={modalFlow.deviceIdentifier}
           miner={miners[modalFlow.deviceIdentifier]}
+          onMergeMiners={onMergeMiners}
         />
       ) : null}
     </>

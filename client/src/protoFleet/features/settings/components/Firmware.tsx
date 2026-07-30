@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { type FirmwareFileInfo, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import clsx from "clsx";
+import { type FirmwareFileInfo, type FirmwareMetadataInput, useFirmwareApi } from "@/protoFleet/api/useFirmwareApi";
 import DeleteAllFirmwareDialog from "@/protoFleet/features/settings/components/DeleteAllFirmwareDialog";
 import DeleteFirmwareDialog from "@/protoFleet/features/settings/components/DeleteFirmwareDialog";
+import EditFirmwareMetadataDialog from "@/protoFleet/features/settings/components/EditFirmwareMetadataDialog";
 import FirmwareUploadDialog from "@/protoFleet/features/settings/components/FirmwareUploadDialog";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
-import { Trash } from "@/shared/assets/icons";
+import { ChevronDown, Edit, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { formatFileSize } from "@/shared/components/FileSizeValue";
 import List from "@/shared/components/List";
@@ -16,22 +18,93 @@ import { formatTimestamp, isoToEpochSeconds } from "@/shared/utils/formatTimesta
 type FirmwareFileData = {
   id: string;
   filename: string;
+  targetManufacturer: string;
+  targetModel: string;
+  firmwareVersion: string;
   size: number;
   uploadedAt: number;
 };
 
-type FirmwareColumns = "filename" | "uploadedAt" | "size";
+type FirmwareColumns = "filename" | "target" | "firmwareVersion" | "uploadedAt" | "size";
 
 const colTitles: ColTitles<FirmwareColumns> = {
   filename: "File name",
+  target: "Target",
+  firmwareVersion: "Version",
   uploadedAt: "Uploaded",
   size: "Size",
 };
 
+const ExpandableFilename = ({ filename }: { filename: string }) => {
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const measurementRef = useRef<HTMLSpanElement>(null);
+  const actionLabel = `${expanded ? "Hide" : "Show"} full file name: ${filename}`;
+
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const measurement = measurementRef.current;
+    if (!container || !measurement) return;
+
+    const updateOverflow = (): void => {
+      const nextOverflows = measurement.scrollWidth > container.clientWidth;
+      setOverflows(nextOverflows);
+      if (!nextOverflows) setExpanded(false);
+    };
+
+    updateOverflow();
+    if (typeof ResizeObserver === "undefined") {
+      // Without ResizeObserver, approximate container resizes with window resizes.
+      window.addEventListener("resize", updateOverflow);
+      return () => window.removeEventListener("resize", updateOverflow);
+    }
+
+    const observer = new ResizeObserver(updateOverflow);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [filename]);
+
+  return (
+    <div ref={containerRef} className="relative w-full text-emphasis-300">
+      <span
+        ref={measurementRef}
+        aria-hidden
+        data-filename={filename}
+        className="pointer-events-none invisible absolute whitespace-nowrap before:content-[attr(data-filename)]"
+      />
+      {overflows ? (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={actionLabel}
+          title={actionLabel}
+          className="flex w-full cursor-pointer items-start gap-1.5 text-left"
+          onClick={() => setExpanded((current) => !current)}
+        >
+          <span className={clsx("min-w-0", expanded ? "break-all whitespace-normal" : "truncate")}>{filename}</span>
+          <ChevronDown width="w-3" className={clsx("mt-1 shrink-0 transition-transform", expanded && "rotate-180")} />
+        </button>
+      ) : (
+        <span className="block truncate">{filename}</span>
+      )}
+    </div>
+  );
+};
+
 const colConfig: ColConfig<FirmwareFileData, string, FirmwareColumns> = {
   filename: {
-    component: (file) => <span className="text-emphasis-300">{file.filename}</span>,
-    width: "w-60",
+    component: (file) => <ExpandableFilename filename={file.filename} />,
+    width: "w-96",
+    allowWrap: true,
+  },
+  target: {
+    component: (file) => <span>{`${file.targetManufacturer} ${file.targetModel}`.trim() || "Unknown"}</span>,
+    width: "w-48",
+  },
+  firmwareVersion: {
+    component: (file) => <span>{file.firmwareVersion || "-"}</span>,
+    width: "w-36",
   },
   uploadedAt: {
     component: (file) => <span>{formatTimestamp(file.uploadedAt)}</span>,
@@ -43,20 +116,23 @@ const colConfig: ColConfig<FirmwareFileData, string, FirmwareColumns> = {
   },
 };
 
-const activeCols: FirmwareColumns[] = ["filename", "uploadedAt", "size"];
+const activeCols: FirmwareColumns[] = ["filename", "target", "firmwareVersion", "uploadedAt", "size"];
 const FIRMWARE_PAGE_DESCRIPTION = "Upload and manage firmware files available to your fleet.";
 
 function toFileData(info: FirmwareFileInfo): FirmwareFileData {
   return {
     id: info.id,
     filename: info.filename,
+    targetManufacturer: info.target_manufacturer,
+    targetModel: info.target_model,
+    firmwareVersion: info.firmware_version ?? "",
     size: info.size,
     uploadedAt: isoToEpochSeconds(info.uploaded_at),
   };
 }
 
 const Firmware = () => {
-  const { listFirmwareFiles, deleteFirmwareFile, deleteAllFirmwareFiles } = useFirmwareApi();
+  const { listFirmwareFiles, updateFirmwareMetadata, deleteFirmwareFile, deleteAllFirmwareFiles } = useFirmwareApi();
   const [files, setFiles] = useState<FirmwareFileData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
@@ -64,6 +140,8 @@ const Firmware = () => {
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [fileToDelete, setFileToDelete] = useState<FirmwareFileData | null>(null);
   const [isDeletingSingle, setIsDeletingSingle] = useState(false);
+  const [fileToEdit, setFileToEdit] = useState<FirmwareFileData | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
 
   const fetchFiles = useCallback(() => {
     setIsLoading(true);
@@ -90,6 +168,33 @@ const Firmware = () => {
   const handleDeleteFile = useCallback((file: FirmwareFileData) => {
     setFileToDelete(file);
   }, []);
+
+  const handleEditMetadata = useCallback((file: FirmwareFileData) => {
+    setFileToEdit(file);
+  }, []);
+
+  const handleEditConfirm = useCallback(
+    (metadata: FirmwareMetadataInput) => {
+      if (!fileToEdit) return;
+      setIsEditing(true);
+      updateFirmwareMetadata(fileToEdit.id, metadata)
+        .then(() => {
+          pushToast({ message: "Firmware metadata updated", status: STATUSES.success });
+          setFileToEdit(null);
+          fetchFiles();
+        })
+        .catch((error) => {
+          pushToast({
+            message: error?.message || "Couldn't update firmware metadata",
+            status: STATUSES.error,
+          });
+        })
+        .finally(() => {
+          setIsEditing(false);
+        });
+    },
+    [fetchFiles, fileToEdit, updateFirmwareMetadata],
+  );
 
   const handleDeleteFileConfirm = useCallback(() => {
     if (!fileToDelete) return;
@@ -148,13 +253,18 @@ const Firmware = () => {
   const availableActions = useMemo(
     () => [
       {
+        title: "Edit metadata",
+        icon: <Edit />,
+        actionHandler: handleEditMetadata,
+      },
+      {
         title: "Delete",
         icon: <Trash />,
         variant: "destructive" as const,
         actionHandler: handleDeleteFile,
       },
     ],
-    [handleDeleteFile],
+    [handleDeleteFile, handleEditMetadata],
   );
 
   return (
@@ -217,6 +327,17 @@ const Firmware = () => {
           if (!isDeletingSingle) setFileToDelete(null);
         }}
         isSubmitting={isDeletingSingle}
+      />
+
+      <EditFirmwareMetadataDialog
+        key={fileToEdit?.id ?? "no-firmware-selected"}
+        open={fileToEdit !== null}
+        file={fileToEdit}
+        isSubmitting={isEditing}
+        onConfirm={handleEditConfirm}
+        onDismiss={() => {
+          if (!isEditing) setFileToEdit(null);
+        }}
       />
 
       <DeleteAllFirmwareDialog

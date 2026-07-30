@@ -9,6 +9,9 @@
 
   <body class="font-body text-text-primary overscroll-none" data-theme="light">
     <div id="root"></div>
+    <!-- Runtime config (window.__RUNTIME_CONFIG__). Classic script so it runs before
+         the deferred module below. Empty in dev; regenerated from env in deployed images. -->
+    <script src="/config.js"></script>
     <script type="module" src="mainWrapper.tsx"></script>
   </body>
 </html>

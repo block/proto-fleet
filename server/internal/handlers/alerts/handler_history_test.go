@@ -67,15 +67,47 @@ func TestListAlerts_RedactsMinerDataWithoutMinerRead(t *testing.T) {
 	require.Len(t, resp.Msg.Alerts, 1)
 
 	got := resp.Msg.Alerts[0]
-	// Rule-level fields stay visible.
+	// Rule-level fields stay visible, including the template slug — the client
+	// relies on it to classify source-level alerts even without miner:read.
 	require.Equal(t, "MinerOffline", got.AlertName)
 	require.Equal(t, "critical", got.Severity)
-	// Miner identity — including the free-text summary/template that name the device — is redacted.
+	require.Equal(t, "device_offline", got.Template)
+	// Miner identity — including the free-text summary that names the device — is redacted.
 	require.Empty(t, got.DeviceId)
 	require.Empty(t, got.DeviceName)
 	require.Empty(t, got.DeviceMac)
 	require.Empty(t, got.Summary)
-	require.Empty(t, got.Template)
+}
+
+func TestListAlerts_SourceTemplateSummaryVisibleWithoutMinerRead(t *testing.T) {
+	sourceRow := notificationhistory.StoredNotification{
+		ID:         2,
+		ReceivedAt: time.Unix(1_700_000_000, 0),
+		Notification: notificationhistory.Notification{
+			AlertName: "Curtailment Source Unreachable",
+			Status:    "firing",
+			Severity:  "critical",
+			Template:  "mqtt-disconnected",
+			Summary:   "Curtailment source maestro-a is disconnected; automatic curtailment is unavailable.",
+		},
+	}
+	h := NewHandler(nil, stubLister{rows: []notificationhistory.StoredNotification{sourceRow}})
+
+	resp, err := h.ListAlerts(
+		ctxWithPerms(authz.PermAlertRead),
+		connect.NewRequest(&alertsv1.ListAlertsRequest{ActiveOnly: true}),
+	)
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Alerts, 1)
+
+	got := resp.Msg.Alerts[0]
+	// The summary names only the MQTT source, so it stays visible; the UI
+	// relies on it to distinguish which source is alerting.
+	require.Equal(t, "mqtt-disconnected", got.Template)
+	require.Equal(t, sourceRow.Summary, got.Summary)
+	require.Empty(t, got.DeviceId)
+	require.Empty(t, got.DeviceName)
+	require.Empty(t, got.DeviceMac)
 }
 
 func TestListAlerts_IncludesMinerDataWithMinerRead(t *testing.T) {

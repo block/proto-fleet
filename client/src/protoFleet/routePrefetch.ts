@@ -36,13 +36,13 @@ export const importSettingsAuth = () => import("@/protoFleet/features/settings/c
 export const importSettingsMiningPools = () => import("@/protoFleet/features/settings/components/MiningPools");
 export const importSettingsTeam = () => import("@/protoFleet/features/settings/components/Team");
 export const importSettingsFirmware = () => import("@/protoFleet/features/settings/components/Firmware");
+export const importSettingsNodes = () => import("@/protoFleet/features/settings/components/Nodes/NodesPage");
 export const importSettingsSchedules = () =>
   import("@/protoFleet/features/settings/components/Schedules/SchedulesPage");
 export const importSettingsCurtailment = () => import("@/protoFleet/features/settings/components/Curtailment");
 export const importSettingsAlerts = () => import("@/protoFleet/features/alerts/pages/Alerts");
 export const importSettingsIntegrations = () => import("@/protoFleet/features/settings/components/ApiKeys");
 export const importSiteDetailPage = () => import("@/protoFleet/features/sites/pages/SiteDetailPage");
-export const importSitesPage = () => import("@/protoFleet/features/sites/pages/SitesPage");
 export const importBuildingPage = () => import("@/protoFleet/features/buildings/pages/BuildingPage");
 export const importFleetLayout = () => import("@/protoFleet/features/fleetManagement/components/FleetLayout");
 export const importFleetBuildingsPage = () => import("@/protoFleet/features/fleetManagement/pages/FleetBuildingsPage");
@@ -75,6 +75,7 @@ export const settingsRoutePrefetch: readonly RouteImporter[] = [
   importSettingsMiningPools,
   importSettingsTeam,
   importSettingsFirmware,
+  importSettingsNodes,
   importSettingsSchedules,
   importSettingsCurtailment,
   importSettingsAlerts,

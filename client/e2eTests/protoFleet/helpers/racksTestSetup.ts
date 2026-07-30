@@ -1,5 +1,5 @@
 import { type Page } from "@playwright/test";
-import { testConfig } from "../config/test.config";
+import { DEFAULT_TIMEOUT, testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { AuthPage } from "../pages/auth";
 import { MinersPage } from "../pages/miners";
@@ -24,6 +24,7 @@ export const LARGE_RACK_COLUMNS = 3;
 export const LARGE_RACK_ROWS = 3;
 export const OVERVIEW_RACK_COLUMNS = 8;
 export const OVERVIEW_RACK_ROWS = 2;
+const SHORT_CLEANUP_TIMEOUT = DEFAULT_TIMEOUT / 6;
 export const ORDER_INDEX_SCENARIOS = [
   { label: "Bottom left", expectedNumbers: [3, 4, 1, 2] },
   { label: "Top left", expectedNumbers: [1, 2, 3, 4] },
@@ -52,22 +53,21 @@ export async function cleanupPoolIfPageOpen(
 
 async function cleanupAllRacks(racksPage: RacksPage) {
   await racksPage.navigateToRacksPage();
-  await racksPage.tryAction(() => racksPage.clickViewList());
-  await racksPage.waitForRackListToLoad();
+  await racksPage.tryAction(() => racksPage.clickViewList(SHORT_CLEANUP_TIMEOUT), SHORT_CLEANUP_TIMEOUT);
+  if (
+    !(await racksPage.tryAction(
+      () => racksPage.waitForRackListToLoad({ timeout: SHORT_CLEANUP_TIMEOUT }),
+      SHORT_CLEANUP_TIMEOUT,
+    ))
+  ) {
+    return;
+  }
 
-  let rackNames = await racksPage.listRackNames();
+  let rackNames = await racksPage.listRackNames(SHORT_CLEANUP_TIMEOUT);
 
   while (rackNames.length > 0) {
-    await racksPage.openRackFromList(rackNames[0]);
-    await racksPage.clickEditRack();
-    await racksPage.clickDeleteRack();
-    await racksPage.clickDeleteConfirm();
-    await racksPage.tryAction(() => racksPage.validateRackDeletedToast());
-
-    await racksPage.navigateToRacksPage();
-    await racksPage.tryAction(() => racksPage.clickViewList());
-    await racksPage.waitForRackListToLoad();
-    rackNames = await racksPage.listRackNames();
+    await racksPage.deleteRackByLabelIfVisible(rackNames[0], SHORT_CLEANUP_TIMEOUT);
+    rackNames = await racksPage.listRackNames(SHORT_CLEANUP_TIMEOUT);
   }
 }
 

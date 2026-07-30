@@ -145,6 +145,9 @@ curl -X POST "http://localhost:8080/api/v1/system/locate?enable=false" \
 - `/api/v1/hashboards` - Hashboard hardware info (GET, public)
 - `/api/v1/power-supplies` - PSU telemetry/status (GET, public)
 - `/api/v1/system/locate` - Locator LED control (POST; `led_on_time=0` or negative values persist until `enable=false`)
+- `/api/v1/system/secure` - Secure status (GET, public) and secure override (PUT, auth)
+- `/api/v1/curtailment/config` - Curtailment service configuration (GET, PUT; bearer auth)
+- `/api/v1/curtailment/status` - Latest curtailment status (GET, bearer auth; always reports no status received)
 - `/api/v1/cooling` - Cooling status and control (GET, PUT)
 - `/api/v1/network` - Network configuration (GET, PUT)
 - `/api/v1/telemetry` - Telemetry data (GET)
@@ -227,6 +230,8 @@ When implementing or updating endpoints, verify these common patterns from the O
 | **Telemetry-service status** | GET/PUT `/system/telemetry` return `{"enabled", "message"}` (TelemetryResponse) | bare `{"enabled"}` or a message-only body |
 | **PSU update body** | optional `psu_types` map (slot ID → PSU type enum), validated (422 on bad value/slot) | ignore body or accept unknown PSU types |
 | **Port field** | `json:"port"` (0 is valid) | `json:"port,omitempty"` (omits 0) |
+| **System status fields** | `{"onboarded", "password_set"}` | including `default_password_active` (removed in MDK-API 1.8.2) |
+| **SecureResponse** | `{"secure", "state": {sshd, nats-service, secureboot, certificate-validity}}` | bare `{"secure"}` (state added in MDK-API 1.8.2) |
 | **TimeSeriesRequest** | Validate `start_time` and `levels` are required (return 422) | Accept missing required fields |
 
 ### Cross-Reference with miner-firmware

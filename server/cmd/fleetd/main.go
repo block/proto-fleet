@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -23,6 +24,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/health"
 
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/infrastructure/sysmon"
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
 
 	"connectrpc.com/connect"
@@ -51,6 +53,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -58,9 +61,9 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
-	"github.com/block/proto-fleet/server/generated/sqlc"
 	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
 	alertsDomain "github.com/block/proto-fleet/server/internal/domain/alerts"
 	apikeyDomain "github.com/block/proto-fleet/server/internal/domain/apikey"
@@ -81,10 +84,12 @@ import (
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	foremanImportDomain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
+	infrastructureDomain "github.com/block/proto-fleet/server/internal/domain/infrastructure"
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/block/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
 	scheduleDomain "github.com/block/proto-fleet/server/internal/domain/schedule"
+	sitemapDomain "github.com/block/proto-fleet/server/internal/domain/sitemap"
 	sitesDomain "github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
@@ -107,6 +112,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/admin"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 	foremanImportHandler "github.com/block/proto-fleet/server/internal/handlers/foremanimport"
+	infrastructureHandler "github.com/block/proto-fleet/server/internal/handlers/infrastructure"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	minerProxyHandler "github.com/block/proto-fleet/server/internal/handlers/minerproxy"
@@ -116,11 +122,13 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/pools"
 	scheduleHandler "github.com/block/proto-fleet/server/internal/handlers/schedule"
 	serverlogHandler "github.com/block/proto-fleet/server/internal/handlers/serverlog"
+	sitemapHandler "github.com/block/proto-fleet/server/internal/handlers/sitemap"
 	sitesHandler "github.com/block/proto-fleet/server/internal/handlers/sites"
 	telemetryHandler "github.com/block/proto-fleet/server/internal/handlers/telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/mqttclient"
 	"github.com/block/proto-fleet/server/internal/infrastructure/server"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -159,11 +167,20 @@ var reflectEnabledServices = []string{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceName,
 	sitesv1connect.SiteServiceName,
 	buildingsv1connect.BuildingServiceName,
+	infrastructurev1connect.InfrastructureServiceName,
+	sitemapv1connect.SiteMapServiceName,
 	curtailmentv1connect.CurtailmentServiceName,
 	device_setv1connect.DeviceSetServiceName,
 }
 
 func start(config *Config) error {
+	// Construct one configured registry before starting services. The CRUD
+	// service uses it now; the Phase 5 reconciler will share this same instance.
+	infrastructureDriverRegistry, err := infrastructureDomain.NewConfiguredDriverRegistry(config.Infrastructure)
+	if err != nil {
+		return fmt.Errorf("configure infrastructure drivers: %w", err)
+	}
+
 	shutdownTracer, err := fleet_telemetry.Setup(context.Background(), version, config.FleetTelemetry)
 	if err != nil {
 		return fmt.Errorf("setup fleet telemetry: %w", err)
@@ -192,6 +209,14 @@ func start(config *Config) error {
 			slog.Error("Failed to shutdown metrics provider", "error", err)
 		}
 	}()
+
+	// Fail fast rather than warn: this state is only reachable through
+	// contradictory hand-edited env (run-fleet.sh already couples the flags),
+	// and continuing would leave provisioned heartbeat rules firing forever
+	// with no collector and no webhook receiver to deliver them.
+	if config.SystemMonitoring.Enabled && !metricsProvider.Enabled() {
+		return errors.New("FLEET_SYSTEM_MONITORING_ENABLED requires FLEET_ALERTS_ENABLED (the metrics writer feeds the system-monitoring rules)")
+	}
 
 	// Cap the reconcile at 60s. The advisory lock inside Reconcile makes
 	// concurrent boots serialize, so a non-winner during a rolling
@@ -242,41 +267,45 @@ func start(config *Config) error {
 
 	// Initialize session store and service
 	sessionStore := sqlstores.NewSQLSessionStore(conn)
-	sessionSvc := sessionDomain.NewService(config.Session, sessionStore)
+	sessionSvc := sessionDomain.NewServiceWithValidationFailureClassifier(
+		config.Session,
+		sessionStore,
+		db.IsFailoverPostgresError,
+	)
 
 	// userStore implements both UserStore and UserManagementStore interfaces
 	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, sessionSvc, encryptSvc, activitySvc, permissionResolver)
 
-	// Start session cleanup goroutine
-	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
-	go func() {
-		ticker := time.NewTicker(sessionSvc.CleanupInterval())
+	identityStateCleanup := newBackgroundLoop(func(ctx context.Context) {
+		cleanupInterval := sessionSvc.CleanupInterval()
+		reportProgress := runtimejobs.TrackProgress(ctx, cleanupInterval)
+		ticker := time.NewTicker(cleanupInterval)
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ticker.C:
-				if deleted, err := sessionSvc.CleanupExpired(cleanupCtx); err != nil {
+				if deleted, err := sessionSvc.CleanupExpired(ctx); err != nil {
 					slog.Error("failed to cleanup expired sessions", "error", err)
 				} else if deleted > 0 {
 					slog.Debug("cleaned up expired sessions", "count", deleted)
 				}
-				if swept, err := fleetNodeEnrollmentSvc.SweepExpired(cleanupCtx); err != nil {
+				if swept, err := fleetNodeEnrollmentSvc.SweepExpired(ctx); err != nil {
 					slog.Error("failed to sweep expired fleet node enrollments", "error", err)
 				} else if swept > 0 {
 					slog.Debug("swept expired fleet node enrollments", "count", swept)
 				}
-				if challenges, sessions, err := fleetNodeAuthSvc.SweepExpired(cleanupCtx); err != nil {
+				if challenges, sessions, err := fleetNodeAuthSvc.SweepExpired(ctx); err != nil {
 					slog.Error("failed to sweep expired fleet node auth state", "error", err)
 				} else if challenges > 0 || sessions > 0 {
 					slog.Debug("swept expired fleet node auth state", "challenges", challenges, "sessions", sessions)
 				}
-			case <-cleanupCtx.Done():
+				reportProgress()
+			case <-ctx.Done():
 				return
 			}
 		}
-	}()
-	defer cleanupCancel()
+	})
 
 	if err := config.Plugins.Validate(); err != nil {
 		return fmt.Errorf("invalid plugin configuration: %w", err)
@@ -331,7 +360,6 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
-	commandArtifactCleanupCtx, commandArtifactCleanupCancel := context.WithCancel(context.Background())
 	runCommandArtifactSweep := func() {
 		deleted, sweepErr := filesService.SweepExpiredCommandArtifacts(time.Now().UTC(), filesService.CommandArtifactRetentionTTL())
 		if sweepErr != nil {
@@ -342,29 +370,30 @@ func start(config *Config) error {
 			slog.Debug("swept expired command artifacts", "count", deleted)
 		}
 	}
-	go func() {
-		ticker := time.NewTicker(filesService.CommandArtifactCleanupInterval())
+	commandArtifactCleanup := newBackgroundLoop(func(ctx context.Context) {
+		cleanupInterval := filesService.CommandArtifactCleanupInterval()
+		reportProgress := runtimejobs.TrackProgress(ctx, cleanupInterval)
+		ticker := time.NewTicker(cleanupInterval)
 		defer ticker.Stop()
 		runCommandArtifactSweep()
+		reportProgress()
 
 		for {
 			select {
 			case <-ticker.C:
 				runCommandArtifactSweep()
-			case <-commandArtifactCleanupCtx.Done():
+				reportProgress()
+			case <-ctx.Done():
 				return
 			}
 		}
-	}()
-	defer commandArtifactCleanupCancel()
+	})
 	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, pluginManager).
 		WithCommandSender(fleetNodeControlRegistry)
 
 	// Create diagnostics service for error polling and auto-closing stale errors
-	diagnosticsCtx, diagnosticsCancel := context.WithCancel(context.Background())
-	defer diagnosticsCancel()
 	errorStore := sqlstores.NewSQLErrorStore(conn, transactor)
-	diagnosticsService := diagnostics.NewService(diagnosticsCtx, config.Diagnostics, errorStore, transactor).
+	diagnosticsService := diagnostics.NewService(config.Diagnostics, errorStore, transactor).
 		WithDeviceScopeResolver(deviceStore)
 
 	// Shared per-org cache for ListMinerStateSnapshots option arrays
@@ -383,20 +412,6 @@ func start(config *Config) error {
 	)
 	telemetryService.WithMetricsEmitter(metricsProvider)
 	fleetNodePairingSvc.WithTelemetryScheduler(telemetryService)
-	if err := telemetryService.Start(context.Background()); err != nil {
-		slog.Error("failed to start telemetry service", "error", err)
-		return fmt.Errorf("failed to start telemetry service: %w", err)
-	}
-
-	// Ensure telemetry service cleanup on shutdown
-	defer func() {
-		slog.Info("Stopping telemetry service")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
-		if err := telemetryService.Stop(shutdownCtx); err != nil {
-			slog.Error("Failed to stop telemetry service", "error", err)
-		}
-	}()
 
 	pluginPairer := plugins.NewPairer(pluginManager, transactor, discoveredDeviceStore, deviceStore, encryptSvc)
 
@@ -425,23 +440,7 @@ func start(config *Config) error {
 		slog.Default(),
 	)
 
-	if err := ipScannerService.Start(context.Background()); err != nil {
-		slog.Error("failed to start IP scanner service", "error", err)
-		return fmt.Errorf("failed to start IP scanner service: %w", err)
-	}
-
-	// Ensure IP scanner service cleanup on shutdown
-	defer func() {
-		slog.Info("Stopping IP scanner service")
-		if err := ipScannerService.Stop(); err != nil {
-			slog.Error("Failed to stop IP scanner service", "error", err)
-		}
-	}()
-
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
-
-	executionServiceCtx, executionServiceCancel := context.WithCancel(context.Background())
-	defer executionServiceCancel()
 
 	// Ensure plugin cleanup on shutdown
 	defer func() {
@@ -453,12 +452,8 @@ func start(config *Config) error {
 		}
 	}()
 
-	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
+	executionService := commandDomain.NewExecutionService(&config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
 	executionService.WithMetricsEmitter(metricsProvider)
-	err = executionService.Start(executionServiceCtx)
-	if err != nil {
-		slog.Error("failed to start command execution service", "error", err)
-	}
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
@@ -470,6 +465,10 @@ func start(config *Config) error {
 	buildingStore := sqlstores.NewSQLBuildingStore(conn)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, buildingStore, commandSvc, activitySvc)
 	fleetMgmtSvc.WithOptionsCache(fleetOptionsCache)
+	// Filtered "select all" command dispatch resolves its MinerListFilter through
+	// the fleetmanagement resolver; wire it now that fleetMgmtSvc exists (it
+	// depends on commandSvc, so this can't be passed to NewService).
+	commandSvc.SetDeviceIdentifierResolver(fleetMgmtSvc)
 	defer fleetMgmtSvc.WaitForPendingUnpairs(shutdownTimeout)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools, activitySvc)
@@ -477,6 +476,13 @@ func start(config *Config) error {
 	scheduleSvc := scheduleDomain.NewService(scheduleStore, scheduleStore, scheduleStore, transactor, activitySvc)
 
 	curtailmentStore := sqlstores.NewSQLCurtailmentStore(conn)
+	infrastructureStore := sqlstores.NewSQLInfrastructureDeviceStore(conn)
+	facilityFanController := curtailmentDomain.NewFacilityFanController(
+		infrastructureStore,
+		siteStore,
+		infrastructureDriverRegistry,
+		activitySvc,
+	)
 	// Curtailment operational metrics route through this single recorder.
 	// Swap NoOpMetrics for the platform observability implementation once
 	// the pipeline shape lands (OTel Meter, Prometheus, or DogStatsD).
@@ -484,11 +490,14 @@ func start(config *Config) error {
 	curtailmentSvc := curtailmentDomain.NewService(curtailmentStore,
 		curtailmentDomain.WithServiceMetrics(curtailmentMetrics),
 		curtailmentDomain.WithAuditLogger(activitySvc),
+		curtailmentDomain.WithFacilityFanController(facilityFanController),
 	)
 	curtailmentResponseProfileSvc := curtailmentDomain.NewResponseProfileService(curtailmentStore)
 
 	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
+	infrastructureSvc := infrastructureDomain.NewService(infrastructureStore, siteStore, infrastructureDriverRegistry, transactor, activitySvc)
+	sitemapSvc := sitemapDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, fleetMgmtSvc, transactor, activitySvc)
 
 	// Register the schedule-conflict preflight filter on commandSvc so every
 	// caller (manual API, schedule processor, future curtailment reconciler)
@@ -501,26 +510,21 @@ func start(config *Config) error {
 	commandSvc.RegisterFilter(commandDomain.NewCurtailmentActiveFilter(curtailmentStore))
 
 	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, deviceStore, commandSvc, activitySvc)
-	if err := scheduleProcessor.Start(context.Background()); err != nil {
-		return fmt.Errorf("failed to start schedule processor: %w", err)
-	}
-	defer func() {
-		if err := scheduleProcessor.Stop(); err != nil {
-			slog.Error("failed to stop schedule processor", "error", err)
-		}
-	}()
 
-	curtailmentRec := curtailmentReconciler.New(config.Curtailment, curtailmentStore, commandSvc, curtailmentReconciler.WithMetrics(curtailmentMetrics))
-	if err := curtailmentRec.Start(context.Background()); err != nil {
-		return fmt.Errorf("failed to start curtailment reconciler: %w", err)
-	}
-	defer func() {
-		if err := curtailmentRec.Stop(); err != nil {
-			slog.Error("failed to stop curtailment reconciler", "error", err)
-		}
-	}()
+	curtailmentRec := curtailmentReconciler.New(
+		config.Curtailment,
+		curtailmentStore,
+		commandSvc,
+		curtailmentReconciler.WithMetrics(curtailmentMetrics),
+		curtailmentReconciler.WithFacilityFanController(facilityFanController),
+		curtailmentReconciler.WithFacilityFanAlertEmitter(metricsProvider),
+		// The confirmation fast path samples device metrics through the
+		// telemetry service's read-only seam (shared worker pool, no
+		// persistence side effects).
+		curtailmentReconciler.WithConfirmationSampler(telemetryService),
+	)
 
-	mqttQueries, err := sqlc.Prepare(context.Background(), db.NewRetryDB(conn))
+	mqttQueries, err := db.NewPreparedQuerier(context.Background(), conn)
 	if err != nil {
 		return fmt.Errorf("failed to prepare curtailment mqtt sql queries: %w", err)
 	}
@@ -551,10 +555,6 @@ func start(config *Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize curtailment mqtt subscriber: %w", err)
 	}
-	if err := mqttSubscriber.Start(context.Background()); err != nil {
-		return fmt.Errorf("failed to start curtailment mqtt subscriber: %w", err)
-	}
-	defer mqttSubscriber.Stop()
 	mqttConnectionTester, err := mqttingest.NewMQTTConnectionTester(mqttingest.ConnectionTesterConfig{
 		NewClient: func() mqttingest.MQTTClient { return mqttclient.New() },
 	})
@@ -571,6 +571,22 @@ func start(config *Config) error {
 		return fmt.Errorf("failed to initialize curtailment mqtt settings service: %w", err)
 	}
 
+	// Feeds the MQTT curtailment default alert rules; skipped when the
+	// metrics pipeline is off so its periodic queries aren't wasted work.
+	var curtailmentAlertMetrics runtimejobs.Lifecycle
+	if metricsProvider.Enabled() {
+		alertMetricsLoop, err := curtailmentDomain.NewAlertMetricsLoop(curtailmentDomain.AlertMetricsConfig{
+			Sources:           mqttingest.NewSQLCStore(mqttQueries),
+			Runtime:           mqttSubscriber,
+			ActiveCurtailment: curtailmentStore,
+			Emitter:           metricsProvider,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to initialize curtailment alert metrics loop: %w", err)
+		}
+		curtailmentAlertMetrics = alertMetricsLoop
+	}
+
 	deviceResolver := deviceresolver.New(deviceStore)
 	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, buildingStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
 	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)
@@ -579,12 +595,13 @@ func start(config *Config) error {
 	// fleet-api owns org channel storage + delivery; Grafana keeps only rule evaluation,
 	// silences (rule pause / maintenance windows), and the internal history webhook.
 	alertChannelStore := sqlstores.NewSQLAlertChannelStore(conn)
-	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
-	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
+	alertRouteStore := sqlstores.NewSQLAlertRouteStore(conn)
+	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, alertRouteStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
+	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
-		middleware.TelemetryMiddleware{},
+		middleware.TelemetryMiddleware{TrustIncomingTraces: config.FleetTelemetry.TrustIncomingTraces},
 	}
 
 	validateInterceptor := validate.NewInterceptor()
@@ -601,29 +618,31 @@ func start(config *Config) error {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", health.NewHandler())
+	mux.HandleFunc("/health/ready", health.NewReadyHandler(conn))
 	if config.Metrics.Enabled {
 		if config.Metrics.WebhookToken == "" {
 			slog.Warn("FLEET_ALERTS_WEBHOOK_TOKEN is not set; alertmanager webhook will reject every delivery")
 		}
-		orgQueries := sqlc.New(db.NewRetryDB(conn))
+		orgQueries := db.NewFailoverResettingQuerier(db.NewRetryDB(conn))
 		mux.Handle("POST "+alertmanagerwebhook.Path, alertmanagerwebhook.NewHandler(notificationHistoryStore, config.Metrics.WebhookToken, orgQueries, alertsDeliverer))
 	}
-	mux.Handle("/api/v1/firmware/upload", firmwareHandler.NewUploadHandler(filesService, sessionSvc, userStore, filesService.MaxFirmwareFileSize()))
+	mux.Handle("/api/v1/firmware/upload", firmwareHandler.NewUploadHandler(filesService, sessionSvc, userStore, activitySvc, permissionResolver))
 	mux.Handle("/api/v1/firmware/check", firmwareHandler.NewCheckHandler(filesService, sessionSvc, userStore))
 	mux.Handle("GET /api/v1/firmware/config", firmwareHandler.NewConfigHandler(filesService, sessionSvc, userStore, config.Files))
 
 	chunkedMgr := firmwareHandler.NewChunkedUploadManager()
-	mux.Handle("POST /api/v1/firmware/upload/chunked", firmwareHandler.NewInitiateHandler(chunkedMgr, filesService, sessionSvc, userStore))
-	mux.Handle("PUT /api/v1/firmware/upload/chunked/{uploadId}", firmwareHandler.NewChunkHandler(chunkedMgr, sessionSvc, userStore))
-	mux.Handle("POST /api/v1/firmware/upload/chunked/{uploadId}/complete", firmwareHandler.NewCompleteHandler(chunkedMgr, filesService, sessionSvc, userStore))
+	mux.Handle("POST /api/v1/firmware/upload/chunked", firmwareHandler.NewInitiateHandler(chunkedMgr, filesService, sessionSvc, userStore, permissionResolver))
+	mux.Handle("PUT /api/v1/firmware/upload/chunked/{uploadId}", firmwareHandler.NewChunkHandler(chunkedMgr, sessionSvc, userStore, permissionResolver))
+	mux.Handle("POST /api/v1/firmware/upload/chunked/{uploadId}/complete", firmwareHandler.NewCompleteHandler(chunkedMgr, filesService, sessionSvc, userStore, activitySvc, permissionResolver))
 	mux.Handle("GET /api/v1/firmware/files", firmwareHandler.NewListFilesHandler(filesService, sessionSvc, userStore))
-	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", firmwareHandler.NewDeleteFileHandler(filesService, sessionSvc, userStore))
-	mux.Handle("DELETE /api/v1/firmware/files", firmwareHandler.NewDeleteAllFilesHandler(filesService, sessionSvc, userStore))
+	mux.Handle("PATCH /api/v1/firmware/files/{fileId}", firmwareHandler.NewUpdateMetadataHandler(filesService, sessionSvc, userStore, activitySvc, permissionResolver))
+	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", firmwareHandler.NewDeleteFileHandler(filesService, sessionSvc, userStore, permissionResolver))
+	mux.Handle("DELETE /api/v1/firmware/files", firmwareHandler.NewDeleteAllFilesHandler(filesService, sessionSvc, userStore, permissionResolver))
 	mux.Handle("/miners/{deviceIdentifier}/api/v1/{rest...}", minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc))
 
-	chunkedCleanupCtx, chunkedCleanupCancel := context.WithCancel(context.Background())
-	go chunkedMgr.StartCleanup(chunkedCleanupCtx, config.Files.ChunkedUploadSessionTTL)
-	defer chunkedCleanupCancel()
+	chunkedUploadCleanup := newBackgroundLoop(func(ctx context.Context) {
+		chunkedMgr.StartCleanup(ctx, config.Files.ChunkedUploadSessionTTL)
+	})
 
 	if len(reflectEnabledServices) != 0 {
 		slog.Debug("enabling reflection", "services", reflectEnabledServices)
@@ -643,6 +662,12 @@ func start(config *Config) error {
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc), li))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
+	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))
+	mux.Handle(sitemapv1connect.NewSiteMapServiceHandler(
+		sitemapHandler.NewHandler(sitemapSvc),
+		li,
+		connect.WithReadMaxBytes(sitemapDomain.MaxImportBytes+1024),
+	))
 	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(
 		gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry, filesService),
 		li,
@@ -703,7 +728,63 @@ func start(config *Config) error {
 		Handler:           handler,
 		ReadHeaderTimeout: config.HTTP.ReadHeaderTimeout,
 	}
-	err = httpServer.ListenAndServe()
+
+	// The first heartbeat clears the Fleet Heartbeat Stale alert, so keep it
+	// gated until the HTTP listener is bound. Other jobs may perform synchronous
+	// startup work and must finish before the public port can accept connections.
+	listenerBound := make(chan struct{})
+	var systemMonitoring runtimejobs.Lifecycle
+	if config.SystemMonitoring.Enabled {
+		collector := sysmon.New(config.SystemMonitoring, metricsProvider)
+		systemMonitoring = newBackgroundLoop(func(ctx context.Context) {
+			select {
+			case <-listenerBound:
+				collector.Run(ctx)
+			case <-ctx.Done():
+			}
+		})
+	}
+
+	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
+		identityStateCleanup:      identityStateCleanup,
+		commandArtifactCleanup:    commandArtifactCleanup,
+		diagnosticsErrorCloser:    diagnosticsService,
+		telemetry:                 telemetryService,
+		ipScanner:                 ipScannerService,
+		commandExecution:          executionService,
+		scheduleProcessor:         scheduleProcessor,
+		curtailmentReconciler:     curtailmentRec,
+		curtailmentMQTTSubscriber: mqttSubscriber,
+		curtailmentAlertMetrics:   curtailmentAlertMetrics,
+		chunkedUploadCleanup:      chunkedUploadCleanup,
+		systemMonitoring:          systemMonitoring,
+	})
+	if err != nil {
+		return err
+	}
+	runtimeJobGroup, err := runtimejobs.NewGroup(jobs)
+	if err != nil {
+		return fmt.Errorf("create runtime job group: %w", err)
+	}
+	defer func() {
+		stopRuntimeJobGroup(runtimeJobGroup, executionService, shutdownTimeout)
+	}()
+	if err := runtimeJobGroup.Start(context.Background()); err != nil {
+		return fmt.Errorf("start runtime jobs: %w", err)
+	}
+
+	listener, err := net.Listen("tcp", config.HTTP.Address)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", config.HTTP.Address, err)
+	}
+	close(listenerBound)
+	defer func() {
+		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			slog.Error("failed to close HTTP listener", "error", err)
+		}
+	}()
+
+	err = httpServer.Serve(listener)
 	if err != nil {
 		return fmt.Errorf("server shutting down: %+v", err)
 	}

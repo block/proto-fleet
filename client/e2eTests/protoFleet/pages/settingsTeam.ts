@@ -1,7 +1,32 @@
 import { expect } from "@playwright/test";
+import { DEFAULT_TIMEOUT } from "../config/test.config";
 import { BasePage } from "./base";
 
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 export class SettingsTeamPage extends BasePage {
+  private memberRow(username: string) {
+    return this.page
+      .getByTestId("list-body")
+      .locator("tr")
+      .filter({
+        has: this.page.getByTestId("username").getByText(username, { exact: true }),
+      });
+  }
+
+  private roleRow(roleName: string) {
+    return this.page
+      .getByTestId("list-body")
+      .locator("tr")
+      .filter({
+        has: this.page.getByTestId("name").getByText(roleName, { exact: true }),
+      });
+  }
+
+  private sanitizePermissionKey(permissionKey: string) {
+    return permissionKey.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+  }
+
   async validateTeamSettingsPageOpened() {
     await expect(this.page).toHaveURL(/.*\/team/);
     await this.validateTitle("Team");
@@ -11,8 +36,34 @@ export class SettingsTeamPage extends BasePage {
     await expect(this.page.getByRole("button", { name: "Add team member" })).toBeVisible();
   }
 
+  async validateAddTeamMemberHidden() {
+    await expect(this.page.getByRole("button", { name: "Add team member", exact: true })).toHaveCount(0);
+  }
+
   async clickAddTeamMember() {
     await this.clickButton("Add team member");
+  }
+
+  async openMembersTab(timeoutMs: number = DEFAULT_TIMEOUT) {
+    const activateButton = this.page.getByTestId("team-tab-members-activate");
+    if (await activateButton.isVisible().catch(() => false)) {
+      await activateButton.click();
+    }
+
+    await expect(this.page.getByRole("button", { name: "Add team member", exact: true })).toBeVisible({
+      timeout: timeoutMs,
+    });
+  }
+
+  async openRolesTab(timeoutMs: number = DEFAULT_TIMEOUT) {
+    const activateButton = this.page.getByTestId("team-tab-roles-activate");
+    if (await activateButton.isVisible().catch(() => false)) {
+      await activateButton.click();
+    }
+
+    await expect(this.page.getByRole("button", { name: "Create role", exact: true })).toBeVisible({
+      timeout: timeoutMs,
+    });
   }
 
   async inputMemberUsername(username: string) {
@@ -32,6 +83,19 @@ export class SettingsTeamPage extends BasePage {
     await this.pickRoleFromOpenModal(roleLabel);
   }
 
+  async createTeamMemberAndGetTemporaryPassword(username: string, roleLabel: string) {
+    await this.clickAddTeamMember();
+    await this.inputMemberUsername(username);
+    await this.selectMemberRole(roleLabel);
+    await this.clickSaveTeamMember();
+    await this.validateMemberAdded();
+
+    const temporaryPassword = await this.getTemporaryPassword();
+    await this.clickDone();
+    await this.validateMemberVisible(username);
+    return temporaryPassword;
+  }
+
   async clickSaveTeamMember() {
     await this.clickButton("Save");
   }
@@ -49,23 +113,11 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async validateMemberRole(username: string, role: string) {
-    const memberRow = this.page
-      .getByTestId("list-body")
-      .locator("tr")
-      .filter({
-        has: this.page.locator(`//td[@data-testid='username']//*[text()='${username}']`),
-      });
-    await expect(memberRow.locator(`//td[@data-testid='role']`)).toHaveText(role);
+    await expect(this.memberRow(username).getByTestId("role")).toHaveText(role);
   }
 
   async validateMemberLastLogin(username: string, lastLogin: string) {
-    const memberRow = this.page
-      .getByTestId("list-body")
-      .locator("tr")
-      .filter({
-        has: this.page.locator(`//td[@data-testid='username']//*[text()='${username}']`),
-      });
-    await expect(memberRow.locator(`//td[@data-testid='lastLoginAt']`)).toHaveText(lastLogin);
+    await expect(this.memberRow(username).getByTestId("lastLoginAt")).toHaveText(lastLogin);
   }
 
   async getTemporaryPassword(): Promise<string> {
@@ -73,7 +125,7 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async validateMemberVisible(username: string) {
-    await expect(this.page.locator(`//td[@data-testid='username']//*[text()='${username}']`)).toBeVisible();
+    await expect(this.memberRow(username)).toBeVisible();
   }
 
   // FIELD_TECH (and any role without user:read) doesn't see the Team
@@ -84,14 +136,120 @@ export class SettingsTeamPage extends BasePage {
     await expect(this.page.getByTestId("secondary-nav").locator('a[href="/settings/team"]')).toBeHidden();
   }
 
+  async validateRolesTabHidden() {
+    await expect(this.page.getByTestId("team-tab-roles")).toHaveCount(0);
+  }
+
+  async clickCreateRole() {
+    await this.clickButton("Create role");
+  }
+
+  async inputRoleName(roleName: string) {
+    await this.page.locator("#role-name").fill(roleName);
+  }
+
+  async inputRoleDescription(description: string) {
+    await this.page.locator("#role-description").fill(description);
+  }
+
+  async selectRolePermission(permissionKey: string) {
+    await this.page.getByTestId("role-permission-search").fill(permissionKey);
+
+    const permissionRow = this.page.getByTestId(`role-permission-${this.sanitizePermissionKey(permissionKey)}`);
+    await expect(permissionRow).toBeVisible();
+
+    const checkbox = permissionRow.getByRole("checkbox");
+    if (!(await checkbox.isChecked())) {
+      await permissionRow.click();
+    }
+  }
+
+  async clickCreateRoleConfirm() {
+    await this.page.getByTestId("modal").getByRole("button", { name: "Create role", exact: true }).click();
+  }
+
+  async createCustomRole(roleName: string, description: string, permissionKeys: string[]) {
+    await this.clickCreateRole();
+    await this.inputRoleName(roleName);
+    await this.inputRoleDescription(description);
+
+    for (const permissionKey of permissionKeys) {
+      await this.selectRolePermission(permissionKey);
+    }
+
+    await this.page.getByTestId("role-permission-search").clear();
+    await this.clickCreateRoleConfirm();
+    await expect(this.page.getByTestId("modal")).toBeHidden();
+    await this.validateRoleVisible(roleName);
+  }
+
+  async validateRoleVisible(roleName: string) {
+    await expect(this.roleRow(roleName)).toBeVisible();
+  }
+
+  async validateRoleNotVisible(roleName: string) {
+    await expect(this.roleRow(roleName)).toHaveCount(0);
+  }
+
+  async validateSystemRoleLockVisible() {
+    await expect(this.page.getByTestId("system-role-lock").first()).toBeVisible();
+  }
+
+  async deactivateMembersByPrefix(usernamePrefix: string) {
+    await this.openMembersTab();
+    const memberRows = await this.page.getByTestId("list-row").all();
+    const usernamesToDeactivate: string[] = [];
+
+    for (const row of memberRows) {
+      const usernameElement = row.getByTestId("username").locator("span");
+      const username = (await usernameElement.textContent())?.trim();
+      if (username?.startsWith(usernamePrefix)) {
+        usernamesToDeactivate.push(username);
+      }
+    }
+
+    for (const username of usernamesToDeactivate) {
+      await this.clickMemberActionsMenu(username);
+      await this.clickDeactivate();
+      await this.clickConfirmDeactivation();
+      await this.validateMemberNotInList(username);
+    }
+  }
+
+  async deleteRolesByPrefix(rolePrefix: string) {
+    await this.openRolesTab();
+    const roleRows = await this.page.getByTestId("list-row").all();
+    const roleNamesToDelete: string[] = [];
+
+    for (const row of roleRows) {
+      const roleName = (
+        await row
+          .getByTestId("name")
+          .getByText(new RegExp(`^${escapeRegex(rolePrefix)}`))
+          .textContent()
+          .catch(() => null)
+      )?.trim();
+      if (roleName?.startsWith(rolePrefix)) {
+        roleNamesToDelete.push(roleName);
+      }
+    }
+
+    for (const roleName of roleNamesToDelete) {
+      const row = this.roleRow(roleName);
+      await expect(row).toBeVisible();
+      await row.getByTestId("list-actions-trigger").click();
+      await this.clickButton("Delete");
+      await this.clickButton("Delete role");
+      await expect(this.roleRow(roleName)).toBeHidden();
+    }
+  }
+
   async clickMemberActionsMenu(username: string) {
-    const memberRow = this.page
-      .getByTestId("list-body")
-      .locator("tr")
-      .filter({
-        has: this.page.locator(`//td[@data-testid='username']//*[text()='${username}']`),
-      });
-    await memberRow.getByTestId("list-actions-trigger").click();
+    await this.memberRow(username).getByTestId("list-actions-trigger").click();
+  }
+
+  async validateMemberActionsHidden(username: string) {
+    await expect(this.memberRow(username).getByTestId("list-actions-trigger")).toHaveCount(0);
   }
 
   async clickResetPassword() {
@@ -108,6 +266,26 @@ export class SettingsTeamPage extends BasePage {
 
   async clickSaveEditedRole() {
     await this.clickButton("Save");
+  }
+
+  async clickRoleActionsMenu(roleName: string) {
+    await this.roleRow(roleName).getByTestId("list-actions-trigger").click();
+  }
+
+  async clickEditRoleAction() {
+    await this.clickButton("Edit");
+  }
+
+  async clickDeleteRoleAction() {
+    await this.clickButton("Delete");
+  }
+
+  async clickSaveRoleChanges() {
+    await this.clickButton("Save changes");
+  }
+
+  async clickDeleteRoleConfirm() {
+    await this.clickButton("Delete role");
   }
 
   async clickResetMemberPasswordConfirm() {
@@ -134,6 +312,6 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async validateMemberNotInList(username: string) {
-    await expect(this.page.locator(`//td[@data-testid='username']//*[text()='${username}']`)).toBeHidden();
+    await expect(this.memberRow(username)).toBeHidden();
   }
 }

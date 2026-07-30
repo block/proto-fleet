@@ -501,6 +501,45 @@ func TestGetMinerModelGroups_IPCIDRFilter(t *testing.T) {
 	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, filter)
 }
 
+// TestGetMinerModelGroups_IPRangeFilter is the range-only analogue of the CIDR
+// test: a filter carrying only ip_ranges must still route through the dynamic
+// builder so the modal counts match the range-filtered list rather than the
+// whole fleet.
+func TestGetMinerModelGroups_IPRangeFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := tc.DatabaseService
+	db := tc.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+
+	inRange := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	outOfRange := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	for _, d := range []string{inRange.ID, outOfRange.ID} {
+		pairDevice(t, ctx, deviceStore, user.OrganizationID, d)
+	}
+
+	setDeviceIP(t, db, inRange.DatabaseID, "192.168.1.15")
+	setDeviceIP(t, db, outOfRange.DatabaseID, "192.168.1.50")
+
+	filter := &stores.MinerFilter{
+		IPRanges: []stores.IPRange{
+			{Start: netip.MustParseAddr("192.168.1.10"), End: netip.MustParseAddr("192.168.1.20")},
+		},
+	}
+
+	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, filter)
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	assert.Equal(t, int32(1), groups[0].Count, "only the miner inside the range should count")
+	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, filter)
+}
+
 // TestGetMinerModelGroups_NumericPlusCIDR proves AND semantics across the two
 // new filter kinds inside GetMinerModelGroups, matching the list query.
 func TestGetMinerModelGroups_NumericPlusCIDR(t *testing.T) {

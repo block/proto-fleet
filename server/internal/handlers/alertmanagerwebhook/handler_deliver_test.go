@@ -52,6 +52,44 @@ func TestServeHTTP_InvokesDelivererWithParsedAlerts(t *testing.T) {
 	assert.Equal(t, "firing", deliverer.got[0].Status)
 }
 
+// Route policies key off the producing rule's UID: the proto_fleet_rule_uid label is primary,
+// generatorURL is the fallback for rules compiled before the label existed.
+func TestServeHTTP_ExtractsRuleUID(t *testing.T) {
+	deliverer := &captureDeliverer{}
+	handler := NewHandler(&okStore{}, testWebhookToken, nil, deliverer)
+
+	payload := []byte(`{
+		"status": "firing",
+		"alerts": [
+			{
+				"status": "firing",
+				"labels": {"alertname": "Labeled", "organization_id": "7", "proto_fleet_rule_uid": "pfu-labeled"},
+				"annotations": {},
+				"generatorURL": "http://grafana:3000/alerting/grafana/ignored-when-labeled/view"
+			},
+			{
+				"status": "firing",
+				"labels": {"alertname": "DeviceOffline", "organization_id": "7"},
+				"annotations": {},
+				"generatorURL": "http://grafana:3000/alerting/grafana/protofleet-device-offline/view?orgId=1"
+			},
+			{
+				"status": "firing",
+				"labels": {"alertname": "NoURL", "organization_id": "7"},
+				"annotations": {}
+			}
+		]
+	}`)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newAuthedRequest(t, payload))
+
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.Len(t, deliverer.got, 3)
+	assert.Equal(t, "pfu-labeled", deliverer.got[0].RuleUID, "the server-controlled label wins over generatorURL")
+	assert.Equal(t, "protofleet-device-offline", deliverer.got[1].RuleUID, "generatorURL covers rules without the label")
+	assert.Empty(t, deliverer.got[2].RuleUID, "neither source degrades to default routing, never an error")
+}
+
 // failBatchStore fails the atomic batch insert, to exercise the all-or-nothing persist path.
 type failBatchStore struct{}
 
@@ -70,6 +108,43 @@ func TestServeHTTP_BatchInsertFailureReturns500AndNoDelivery(t *testing.T) {
 
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.False(t, deliverer.called, "no delivery when nothing persisted")
+}
+
+// Synthetic evaluation-failure alerts inherit a user rule's static org label
+// but must persist org-less (tenant-invisible) and never fan out; a real alert
+// merely named like one (no datasource_uid) keeps its org.
+func TestBuildRowsStripsOrgFromSyntheticEvaluationAlerts(t *testing.T) {
+	synthetic := alertmanagerAlert{Labels: map[string]string{
+		labelAlertName:      "DatasourceError",
+		labelOrganizationID: "7",
+		"datasource_uid":    "protofleet-timescaledb",
+	}}
+	lookalike := alertmanagerAlert{Labels: map[string]string{
+		labelAlertName:      "DatasourceError",
+		labelOrganizationID: "7",
+	}}
+
+	rows, overflowed := buildRows([]alertmanagerAlert{synthetic, lookalike}, []int64{1, 2, 3})
+	require.False(t, overflowed)
+	require.Len(t, rows, 2)
+	assert.Nil(t, rows[0].OrganizationID)
+	require.NotNil(t, rows[1].OrganizationID)
+	assert.Equal(t, int64(7), *rows[1].OrganizationID)
+}
+
+// A synthetic evaluation alert from the self-monitoring group inherits the
+// fan-out marker but must stay one org-less operator row.
+func TestBuildRowsSkipsFanOutForSyntheticEvaluationAlerts(t *testing.T) {
+	synthetic := alertmanagerAlert{Labels: map[string]string{
+		labelAlertName:   "DatasourceError",
+		labelRuleGroup:   ruleGroupSelfMonitoring,
+		"datasource_uid": "protofleet-timescaledb",
+	}}
+
+	rows, overflowed := buildRows([]alertmanagerAlert{synthetic}, []int64{1, 2, 3})
+	require.False(t, overflowed)
+	require.Len(t, rows, 1)
+	assert.Nil(t, rows[0].OrganizationID)
 }
 
 // buildRows bounds total expanded rows so many self-monitoring alerts can't amplify (via fan-out)

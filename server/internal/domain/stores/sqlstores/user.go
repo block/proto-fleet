@@ -24,7 +24,7 @@ func NewSQLUserStore(conn *sql.DB) *SQLUserStore {
 	}
 }
 
-func (s *SQLUserStore) getQueries(ctx context.Context) *sqlc.Queries {
+func (s *SQLUserStore) getQueries(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
 }
 

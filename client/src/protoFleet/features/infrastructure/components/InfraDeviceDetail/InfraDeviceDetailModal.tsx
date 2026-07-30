@@ -1,47 +1,38 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import ActionErrorBanner from "@/protoFleet/features/infrastructure/components/ActionErrorBanner";
 import InfraLocationFields from "@/protoFleet/features/infrastructure/components/InfraLocationFields";
-import { getInfraDeviceConnectionTypeLabel } from "@/protoFleet/features/infrastructure/connectionTypes";
-import { FieldHelpPopover } from "@/protoFleet/features/infrastructure/fieldHelp";
-import { infraDeviceFieldHelp } from "@/protoFleet/features/infrastructure/fieldHelpContent";
-import type { InfraBuildingOption, InfraDeviceItem } from "@/protoFleet/features/infrastructure/types";
-import { Alert, Success } from "@/shared/assets/icons";
+import { formatDeviceType } from "@/protoFleet/features/infrastructure/deviceType";
+import {
+  type DriverFormValues,
+  getDriverFormModule,
+  getDriverTypeLabel,
+  summarizeDriverConfig,
+} from "@/protoFleet/features/infrastructure/driverForms";
+import type {
+  InfraBuildingOption,
+  InfraDeviceItem,
+  InfraDevicePatch,
+  InfraRackOption,
+} from "@/protoFleet/features/infrastructure/types";
 import { variants } from "@/shared/components/Button";
-import { DialogIcon } from "@/shared/components/Dialog";
 import Divider from "@/shared/components/Divider";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import Row from "@/shared/components/Row";
-import StatusCircle from "@/shared/components/StatusCircle";
 import Switch from "@/shared/components/Switch";
-
-const statusToCircle = (status: InfraDeviceItem["status"]) => {
-  switch (status) {
-    case "online":
-      return "normal" as const;
-    case "offline":
-      return "error" as const;
-    default:
-      return "inactive" as const;
-  }
-};
-
-const formatStatus = (status: InfraDeviceItem["status"]) => (status === "online" ? "Online" : "Offline");
-
-const formatDeviceType = (device: InfraDeviceItem) => {
-  if (device.endpointKind === "single_fan") return "Fan";
-  if (device.fanCount && device.fanCount > 1) return `Fan group (${device.fanCount} fans)`;
-  if (device.endpointKind === "fan_group") return "Fan group";
-  return "";
-};
 
 interface InfraDeviceDetailModalProps {
   device: InfraDeviceItem;
   siteOptions?: string[];
   buildingOptions?: InfraBuildingOption[];
+  rackOptions?: InfraRackOption[];
   canManage?: boolean;
-  onSave: (device: InfraDeviceItem) => void;
-  onDelete: (deviceId: string) => void;
+  // Persist callbacks; rejections keep the modal open with the error
+  // shown inline. The modal dismisses itself after success.
+  onSave: (patch: InfraDevicePatch) => Promise<void>;
+  onDelete: (deviceId: string) => Promise<void>;
   onDismiss: () => void;
 }
 
@@ -49,6 +40,7 @@ const InfraDeviceDetailModal = ({
   device,
   siteOptions = [],
   buildingOptions = [],
+  rackOptions = [],
   canManage = true,
   onSave,
   onDelete,
@@ -56,67 +48,133 @@ const InfraDeviceDetailModal = ({
 }: InfraDeviceDetailModalProps) => {
   const [site, setSite] = useState(device.siteName);
   const [name, setName] = useState(device.name);
-  const [endpoint, setEndpoint] = useState(device.endpoint);
-  const [port, setPort] = useState(String(device.port));
   const [building, setBuilding] = useState(device.buildingName);
-  const [enabled, setEnabled] = useState(device.enabled);
-  const portNumber = Number(port);
-  const isPortValid = Number.isInteger(portNumber) && portNumber > 0 && portNumber <= 65535;
-  const canSave = [name, site, building, endpoint].every((value) => value.trim().length > 0) && isPortValid;
-  const connectionTypeLabel = getInfraDeviceConnectionTypeLabel(device.connectionType);
+  const [rack, setRack] = useState(device.rackName);
+  // Stays undefined until the operator flips the switch in this
+  // session, so an unrelated save doesn't resend a possibly-stale
+  // enabled snapshot and clobber a concurrent enable/disable.
+  const [enabledOverride, setEnabledOverride] = useState<boolean | undefined>(undefined);
+  const enabled = enabledOverride ?? device.enabled;
+  const driverFormModule = getDriverFormModule(device.driverType);
+  // null when the config is redacted (site:read callers), unparseable,
+  // or the driver type has no registered module; the raw driverConfig
+  // is preserved unchanged on save in that case.
+  const [initialDriverValues] = useState<DriverFormValues | null>(
+    () => driverFormModule?.decode(device.driverConfig) ?? null,
+  );
+  const [driverValues, setDriverValues] = useState<DriverFormValues | null>(initialDriverValues);
+  // Mount-time snapshot the save diff compares against. The device prop
+  // can update mid-session (the row is live in the list cache), so
+  // diffing against the prop would misclassify another operator's
+  // concurrent edit as a local change and resend the stale value.
+  const initialFieldsRef = useRef({
+    name: device.name,
+    siteName: device.siteName,
+    buildingName: device.buildingName,
+    rackName: device.rackName,
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const isDriverConfigValid = driverValues === null || (driverFormModule?.isValid(driverValues) ?? false);
+  // Only fields the operator touched in this session go in the patch;
+  // the update path fills the rest from the device's fresh row, so a
+  // stale modal can't resend old values over a concurrent edit. An
+  // empty patch never reaches the RPC: Save stays disabled until
+  // something changed, because the server's full-row update bumps
+  // updated_at and logs an Updated activity event even for a no-op.
+  const sessionPatch = useMemo(() => {
+    const initial = initialFieldsRef.current;
+    const patch: InfraDevicePatch = { id: device.id };
+    const trimmedName = name.trim();
+    if (trimmedName !== initial.name) patch.name = trimmedName;
+    const trimmedSite = site.trim();
+    if (trimmedSite !== initial.siteName) patch.siteName = trimmedSite;
+    const trimmedBuilding = building.trim();
+    if (trimmedBuilding !== initial.buildingName) patch.buildingName = trimmedBuilding;
+    const trimmedRack = rack.trim();
+    if (trimmedRack !== initial.rackName) patch.rackName = trimmedRack;
+    if (enabledOverride !== undefined) patch.enabled = enabledOverride;
+    const driverValuesChanged =
+      driverValues !== null &&
+      initialDriverValues !== null &&
+      Object.keys(driverValues).some((field) => driverValues[field] !== initialDriverValues[field]);
+    if (driverValuesChanged && driverFormModule) {
+      patch.driverConfig = driverFormModule.encode(driverValues);
+    }
+    return patch;
+  }, [building, device.id, driverFormModule, driverValues, enabledOverride, initialDriverValues, name, rack, site]);
+  const hasChanges = Object.keys(sessionPatch).length > 1;
+  const canSave =
+    [name, site, building].every((value) => value.trim().length > 0) &&
+    isDriverConfigValid &&
+    hasChanges &&
+    !isSaving &&
+    !isDeleting;
+
+  const handleDriverValueChange = useCallback((field: string, value: string) => {
+    setDriverValues((current) => (current === null ? current : { ...current, [field]: value }));
+  }, []);
 
   const handleSave = useCallback(() => {
     if (!canSave) return;
-    onSave({
-      ...device,
-      name: name.trim(),
-      connectionType: device.connectionType,
-      endpoint: endpoint.trim(),
-      port: portNumber,
-      siteName: site.trim(),
-      buildingName: building.trim(),
-      enabled,
-    });
-    onDismiss();
-  }, [building, canSave, device, enabled, endpoint, name, onDismiss, onSave, portNumber, site]);
+    setIsSaving(true);
+    setActionError(null);
+    onSave(sessionPatch)
+      .then(() => {
+        onDismiss();
+      })
+      .catch((error: unknown) => {
+        setActionError(getErrorMessage(error) || "Failed to update infrastructure device.");
+        setIsSaving(false);
+      });
+  }, [canSave, onDismiss, onSave, sessionPatch]);
 
   const handleDelete = useCallback(() => {
-    onDelete(device.id);
-  }, [device.id, onDelete]);
+    setIsDeleting(true);
+    setActionError(null);
+    onDelete(device.id)
+      .then(() => {
+        onDismiss();
+      })
+      .catch((error: unknown) => {
+        setActionError(getErrorMessage(error) || "Failed to delete infrastructure device.");
+        setIsDeleting(false);
+      });
+  }, [device.id, onDelete, onDismiss]);
 
-  const statusIcon = (() => {
-    if (device.status === "offline")
-      return (
-        <DialogIcon intent="critical">
-          <Alert />
-        </DialogIcon>
-      );
-    return (
-      <DialogIcon intent="success">
-        <Success />
-      </DialogIcon>
-    );
-  })();
-
-  const statusLabel = formatStatus(device.status);
+  const connectionTypeLabel = getDriverTypeLabel(device.driverType);
+  const connectionSummary = summarizeDriverConfig(device.driverType, device.driverConfig);
   const description = formatDeviceType(device);
+  const showDriverFields = canManage && driverValues !== null && driverFormModule !== undefined;
+
+  // Blocks escape/click-outside/close-icon while a save or delete is in
+  // flight so the request's outcome (success close or inline error)
+  // isn't lost to a dismissed modal. Success paths above call the raw
+  // onDismiss directly, which stays allowed.
+  const handleDismiss = useCallback(() => {
+    if (isSaving || isDeleting) return;
+    onDismiss();
+  }, [isDeleting, isSaving, onDismiss]);
 
   return (
     <Modal
       open
-      onDismiss={onDismiss}
+      onDismiss={handleDismiss}
       headerSpacingClassName="mt-6"
       buttons={
         canManage
           ? [
               {
-                text: "Delete",
+                text: isDeleting ? "Deleting…" : "Delete",
                 variant: variants.secondaryDanger,
                 onClick: handleDelete,
+                disabled: isSaving || isDeleting,
                 dismissModalOnClick: false,
               },
               {
-                text: "Save",
+                text: isSaving ? "Saving…" : "Save",
                 variant: variants.primary,
                 onClick: handleSave,
                 disabled: !canSave,
@@ -127,19 +185,12 @@ const InfraDeviceDetailModal = ({
       }
     >
       <div className="flex flex-col gap-6">
-        <div className="flex flex-col gap-3">
-          {statusIcon}
-          <div className="flex flex-col gap-1">
-            <div className="text-heading-300 text-text-primary">{device.name}</div>
-            <div className="flex flex-col gap-1 text-300 text-text-primary-70">
-              {description ? <span>{description}</span> : null}
-              <span className="inline-flex items-center gap-1.5">
-                <StatusCircle status={statusToCircle(device.status)} variant="simple" width="w-[6px]" removeMargin />
-                {statusLabel}
-              </span>
-            </div>
-          </div>
+        <div className="flex flex-col gap-1">
+          <div className="text-heading-300 text-text-primary">{device.name}</div>
+          {description ? <div className="text-300 text-text-primary-70">{description}</div> : null}
         </div>
+
+        {actionError ? <ActionErrorBanner message={actionError} /> : null}
 
         {/* Editable fields */}
         <div className="flex flex-col gap-4">
@@ -147,42 +198,27 @@ const InfraDeviceDetailModal = ({
           <InfraLocationFields
             site={site}
             building={building}
+            rack={rack}
             siteOptions={siteOptions}
             buildingOptions={buildingOptions}
+            rackOptions={rackOptions}
             onSiteChange={setSite}
             onBuildingChange={setBuilding}
+            onRackChange={setRack}
             disabled={!canManage}
           />
           <Input id="device-connection-type" label="Connection type" initValue={connectionTypeLabel} readOnly />
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              id="device-endpoint"
-              label="Endpoint"
-              initValue={endpoint}
-              readOnly={!canManage}
-              suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.endpoint} />}
-              onChange={(v) => setEndpoint(v)}
-            />
-            <Input
-              id="device-port"
-              label="Port"
-              type="number"
-              inputMode="numeric"
-              initValue={port}
-              readOnly={!canManage}
-              suffixAction={<FieldHelpPopover {...infraDeviceFieldHelp.port} />}
-              onChange={(v) => setPort(v)}
-            />
-          </div>
+          {showDriverFields ? (
+            <driverFormModule.FormFields idPrefix="device" values={driverValues} onChange={handleDriverValueChange} />
+          ) : null}
           <div className="flex h-14 items-center justify-between rounded-lg border border-border-5 bg-surface-base px-4 transition duration-200 ease-in-out">
             <span className="text-300 text-text-primary">Enabled</span>
             <Switch
               ariaLabel="Enabled"
-              checked={enabled === "auto"}
+              checked={enabled}
               disabled={!canManage}
               setChecked={(next) => {
-                const checked = typeof next === "function" ? next(enabled === "auto") : next;
-                setEnabled(checked ? "auto" : "off");
+                setEnabledOverride((current) => (typeof next === "function" ? next(current ?? device.enabled) : next));
               }}
             />
           </div>
@@ -192,22 +228,18 @@ const InfraDeviceDetailModal = ({
 
         {/* Device info */}
         <div className="flex flex-col">
-          <Row compact>
-            <div className="flex w-full items-center justify-between gap-4">
-              <span className="text-text-primary-70">Unit ID</span>
-              <span className="truncate text-300 text-text-primary-70">{device.unitId}</span>
-            </div>
-          </Row>
-          <Row compact>
-            <div className="flex w-full items-center justify-between">
-              <span className="text-text-primary-70">Last seen</span>
-              <span>{device.lastSeen}</span>
-            </div>
-          </Row>
+          {!showDriverFields ? (
+            <Row compact>
+              <div className="flex w-full items-center justify-between gap-4">
+                <span className="text-text-primary-70">Connection</span>
+                <span className="truncate text-300 text-text-primary-70">{connectionSummary ?? "—"}</span>
+              </div>
+            </Row>
+          ) : null}
           <Row compact divider={false}>
             <div className="flex w-full items-center justify-between">
               <span className="text-text-primary-70">Fans</span>
-              <span>{device.fanCount ?? "—"}</span>
+              <span>{device.fanCount}</span>
             </div>
           </Row>
         </div>

@@ -16,12 +16,19 @@ import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal, { sizes } from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
-// The Metric Ingest Stalled rule (uid protofleet-ingest-stalled) is the lone member of the operator-only
-// proto-fleet-self group and emits a single fleet-wide instance with no device, so it gets its own row
-// rather than landing in the per-miner rollup. Match the stable rule group + absence of a device, not the
-// mutable display name (a miner-scoped alert could otherwise share the name and lose its device context).
-const FLEET_SELF_RULE_GROUP = "proto-fleet-self";
-const isFleetWideAlert = (alert: AlertHistoryEntry) => alert.rule_group === FLEET_SELF_RULE_GROUP && !alert.device_id;
+// Fleet-wide alerts carry no device: the operator-only proto-fleet-self group (Metric Ingest Stalled)
+// and the host-scoped proto-fleet-system rules (CPU/memory/disk/heartbeat). They get callouts above the
+// per-miner rollup rather than landing in it as "—" device rows. Match the stable rule group + absence
+// of a device, not the mutable display name (a miner-scoped alert could otherwise share the name and
+// lose its device context).
+const FLEET_WIDE_RULE_GROUPS = new Set(["proto-fleet-self", "proto-fleet-system"]);
+const isFleetWideAlert = (alert: AlertHistoryEntry) => FLEET_WIDE_RULE_GROUPS.has(alert.rule_group) && !alert.device_id;
+
+// MQTT curtailment alerts are source-scoped, not device-scoped, so they get callouts instead of
+// per-miner rows. Match the stable template values + absence of a device, not display names, so a
+// device alert with redacted device fields can never be misclassified as source-level.
+const SOURCE_ALERT_TEMPLATES = new Set(["mqtt-curtailment", "mqtt-disconnected"]);
+const isSourceAlert = (alert: AlertHistoryEntry) => SOURCE_ALERT_TEMPLATES.has(alert.template) && !alert.device_id;
 
 interface MinerAlertGroup {
   deviceId: string;
@@ -108,10 +115,12 @@ const ActiveAlertsCard = () => {
   const { alerts, loading, error, denied, hasMore } = useActiveAlerts();
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
 
-  // At most one fleet-wide (proto-fleet-self) alert is ever active; surface it as a callout above the
-  // per-miner rollup rather than as a device row.
-  const fleetWideAlert = useMemo(() => alerts.find(isFleetWideAlert) ?? null, [alerts]);
-  const groups = useMemo(() => groupByMiner(alerts.filter((alert) => !isFleetWideAlert(alert))), [alerts]);
+  const fleetWideAlerts = useMemo(() => alerts.filter(isFleetWideAlert), [alerts]);
+  const sourceAlerts = useMemo(() => alerts.filter(isSourceAlert), [alerts]);
+  const groups = useMemo(
+    () => groupByMiner(alerts.filter((alert) => !isFleetWideAlert(alert) && !isSourceAlert(alert))),
+    [alerts],
+  );
   const selectedGroup = useMemo(
     () => groups.find((group) => group.deviceId === selectedDeviceId) ?? null,
     [groups, selectedDeviceId],
@@ -125,10 +134,10 @@ const ActiveAlertsCard = () => {
   if (denied) return null;
 
   const isInitialLoad = loading && alerts.length === 0;
-  const isEmpty = groups.length === 0 && !fleetWideAlert;
+  const isEmpty = groups.length === 0 && fleetWideAlerts.length === 0 && sourceAlerts.length === 0;
 
   return (
-    <section className="flex flex-col gap-4 rounded-xl bg-surface-base p-6 dark:bg-core-primary-5">
+    <section className="flex flex-col gap-4 rounded-xl bg-surface-elevated-base p-6 shadow-100">
       <h3 className="text-heading-200">Active alerts</h3>
 
       {error ? <Callout intent="danger" prefixIcon={<Alert />} title={error} /> : null}
@@ -141,14 +150,24 @@ const ActiveAlertsCard = () => {
         <div className="py-6 text-center text-text-primary-50">No active alerts.</div>
       ) : (
         <div className="flex flex-col gap-4">
-          {fleetWideAlert ? (
+          {fleetWideAlerts.map((alert) => (
             <Callout
-              intent={fleetWideAlert.severity === "critical" ? "danger" : "warning"}
+              key={alert.id}
+              intent={alert.severity === "critical" ? "danger" : "warning"}
               prefixIcon={<Alert />}
-              title={fleetWideAlert.alert_name}
-              subtitle={fleetWideAlert.summary}
+              title={alert.alert_name}
+              subtitle={alert.summary}
             />
-          ) : null}
+          ))}
+          {sourceAlerts.map((alert) => (
+            <Callout
+              key={alert.id}
+              intent={alert.severity === "critical" ? "danger" : "warning"}
+              prefixIcon={<Alert />}
+              title={alert.alert_name}
+              subtitle={alert.summary}
+            />
+          ))}
           {groups.length ? (
             <List<MinerAlertGroup, string, MinerColumns>
               items={groups}

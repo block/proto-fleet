@@ -78,6 +78,68 @@ Virtual miners simulate both network latency and miner processing latency. The
 default miner-internal latency is 200-500ms, with occasional 5-8s outliers.
 Generation is capped at 50,000 virtual miners per plugin process.
 
+## Facility Infrastructure Control
+
+Direct Modbus TCP writes are disabled unless the deployment and the target
+site independently authorize the endpoint. Set the deployment-controlled
+positive allowlist in `.env` as comma-separated private CIDRs or host
+prefixes:
+
+```bash
+INFRASTRUCTURE_OT_CONTROL_SUBNETS=10.40.12.0/24,10.52.7.18/32
+```
+
+An ADMIN or SUPER_ADMIN with org-wide `site:manage` must separately commission
+the target site's allowlist through
+`SiteService.SetInfrastructureControlSubnets`. Site-scoped grants are
+insufficient. The endpoint must be in both lists. Empty deployment or site
+configuration fails closed.
+
+Application allowlists do not replace OT network controls. Before enabling a
+site, restrict Modbus TCP routing with default-deny firewall rules so only the
+Proto Fleet server can reach the commissioned drive/PLC addresses and port.
+
+## Host Profiles
+
+The installer tunes the database and poller for the host hardware via a
+profile, chosen once during an interactive `./run-fleet.sh` run and stored as
+`FLEET_PROFILE` in the deployment `.env`:
+
+- `standard` (default): Raspberry Pi 5 class host, 16GB RAM with SSD; up to
+  ~5000 miners
+- `mini`: low-power or SD-card host, <=4GB RAM; up to ~200 miners
+- `max`: dedicated server, 32GB+ RAM, 8+ cores, NVMe; 5000+ miners with
+  maximum performance and durability
+
+Non-interactive installs skip the prompt and keep conservative defaults; set
+the profile directly in `.env` and rerun:
+
+```bash
+FLEET_PROFILE=standard
+```
+
+The full key list and per-value rationale live in `profiles/*.env`. Any single
+key set in `.env` overrides the profile value (operator values win). Remove
+the `FLEET_PROFILE` line to return to the untuned defaults. Because profiles
+only apply through `run-fleet.sh`'s env-file layering, always restart the
+stack with `./run-fleet.sh` rather than a bare `docker compose up`, which
+would recreate the containers untuned.
+
+## Database Connection Override
+
+By default, fleet-api builds its PostgreSQL connection from `DB_USERNAME`,
+`DB_PASSWORD`, `DB_NAME`, `DB_ADDRESS`, and `DB_SSL_MODE`. Advanced deployments
+can set `DB_DSN` to provide the full PostgreSQL connection string instead. When
+the final database DSN contains multiple hosts, it must include
+`target_session_attrs=read-write` so fleet-api targets the current writable
+database endpoint.
+
+`DB_DSN` only overrides fleet-api's database connection. The bundled beta
+Grafana alerts datasource still points at `timescaledb:5432` and uses
+`GRAFANA_DB_USERNAME` / `GRAFANA_DB_PASSWORD`; HA deployments that enable the
+alerts stack must update Grafana's datasource target separately so alerts read
+from the same database topology as fleet-api.
+
 ## Uninstalling Proto Fleet
 
 ```bash
@@ -172,3 +234,137 @@ The configs live under `server/monitoring/grafana/`:
   `/internal/alertmanager-webhook` endpoint.
 - `provisioning/alerting/notification-policies.yaml` — root routing
   tree (grouping + repeat interval).
+
+### Enabling system monitoring
+
+Host system monitoring is **off by default** and requires the alerts
+stack, since it reuses the same metrics pipeline, Grafana rule engine,
+and notification channels:
+
+```bash
+./run-fleet.sh --enable-beta-alerts --enable-system-monitoring
+```
+
+(or set `ENABLE_BETA_ALERTS=true` and `ENABLE_SYSTEM_MONITORING=true`
+in `.env` so upgrades keep it on).
+
+This layers in `docker-compose.system-monitoring.yaml`, which:
+
+- starts an in-process collector in fleet-api that samples host CPU,
+  memory, and disk usage every 30 seconds into
+  `notification_metric_sample`;
+- mounts an empty sentinel volume **read-only** at `/hostfs` inside
+  fleet-api. With the default local volume driver all named volumes
+  share one backing filesystem, so the disk gauge reports the disk
+  holding the TimescaleDB data (the one that filling up takes fleet
+  down) without exposing any database files. To watch a different
+  filesystem, change the mount source in
+  `docker-compose.system-monitoring.yaml`;
+- provisions the `proto-fleet-system` alert rules (Host CPU High,
+  Host Memory High, Host Disk Space Low, Fleet Heartbeat Stale). They
+  deliver to each organization's configured alert channels like any
+  other rule, and can be paused per-org from the alerts settings page;
+- provisions a "System Monitoring" Grafana dashboard with host gauges
+  and slow-query tables backed by `pg_stat_statements`, read through a
+  narrow `fleet_slow_statements()` definer function so the Grafana role
+  sees this database's normalized statement stats without cluster-wide
+  statistics privileges.
+
+If fleet-api itself goes down, Grafana keeps evaluating the heartbeat
+rule but can only deliver the notification once fleet-api is back; use
+the Grafana UI at `127.0.0.1:3030` during an outage.
+
+Disabling the feature removes the alert rules on the next start (via a
+provisioned tombstone) but leaves the System Monitoring dashboard in
+Grafana; delete it from the UI if it bothers you. fleet-api also
+serves `GET /health/ready` (200 only when its database answers a ping)
+for external uptime monitors, alongside the always-static liveness
+check at `GET /health`.
+
+## Client Observability
+
+The ProtoFleet web client ships a vendor-neutral observability layer: a
+provider registry (`client/src/shared/observability/`) that stays a
+complete no-op until a provider is configured. **Datadog RUM** is the
+first and currently the only bundled provider; the registry has a seam
+for adding others (e.g. PostHog, Sentry) without touching the entry
+point, API transport, or error boundary. See the **Observability**
+section in [`client/README.md`](../client/README.md) for the provider
+model and how to add one.
+
+This section documents the operator-facing config for each provider.
+
+### Datadog RUM
+
+Forwards Real User Monitoring (RUM) data to your own Datadog org. It is
+**off by default** and is a complete no-op unless the two required keys
+are set — the client runs unchanged with no SDK side effects when they
+are absent.
+
+Configuration is read at container start, so you can enable it on a
+prebuilt client image without rebuilding: set the `DD_*` variables in the
+deployment `.env` file and rerun `./run-fleet.sh`. The client's nginx
+image renders them into `config.js` when the container starts.
+
+```dotenv
+# Required to enable (both must be set)
+DD_APPLICATION_ID=your-datadog-rum-application-id
+DD_CLIENT_TOKEN=your-datadog-rum-client-token
+
+# Optional
+DD_SITE=datadoghq.com          # your Datadog site (default: datadoghq.com)
+DD_SERVICE=proto-fleet-client  # service name (default: proto-fleet-client)
+DD_ENV=production              # environment tag (default: build env)
+DD_RUM_SAMPLE_RATE=100         # RUM session sample rate (default: 100)
+DD_SESSION_REPLAY_SAMPLE_RATE=0  # Session Replay sample rate (default: 0, off)
+DD_TRACE_SAMPLE_RATE=100       # trace sample rate for API calls (default: 100)
+```
+
+`DD_CLIENT_TOKEN` is a public browser RUM client token, not a secret
+Datadog API key.
+
+When enabled, RUM captures page/session data, forwards React render
+errors, and injects distributed-tracing headers on same-origin
+`/api-proxy` calls. Session Replay is off by default and masks all
+text/inputs when enabled. Data goes only to the Datadog org identified by
+your keys.
+
+## Server Tracing (Datadog APM)
+
+Request tracing on fleet-api is **off by default**. It lives in a
+separate compose file, `docker-compose.tracing.yaml`, that
+`run-fleet.sh` layers in when the `--enable-tracing` flag is passed
+(or `ENABLE_TRACING=true` is set in `.env`). The overlay starts an
+OpenTelemetry collector sidecar and forwards fleet-api request spans
+to Datadog APM:
+
+```bash
+./run-fleet.sh --enable-tracing
+```
+
+```dotenv
+# Required (run-fleet.sh refuses to start without it when tracing is on)
+DD_API_KEY=your-datadog-api-key
+
+# Optional
+DD_SITE=datadoghq.com            # your Datadog site (default: datadoghq.com)
+DD_ENV=production                # APM env tag (default: production)
+FLEET_TELEMETRY_SAMPLE_RATE=1.0  # server-side trace sample cap (default: 1.0)
+FLEET_TELEMETRY_TRUST_INCOMING_TRACES=true  # parent spans to RUM trace context (default: true)
+```
+
+Unlike the RUM client token, `DD_API_KEY` is a secret Datadog API key;
+it stays in `.env` (mode 0600) and the collector container's
+environment.
+
+With `FLEET_TELEMETRY_TRUST_INCOMING_TRACES=true` (this overlay's
+default), fleet-api parents its request spans to the `traceparent`
+header Datadog RUM injects on `/api-proxy` calls, so RUM sessions link
+to their APM traces. Trusting that header means any client on the LAN
+can influence tracing of its own requests: a not-sampled flag is
+honored (an unsampled RUM trace records no server span), sampled
+requests are still capped by `FLEET_TELEMETRY_SAMPLE_RATE`, and trace
+IDs are client-chosen. Set
+`FLEET_TELEMETRY_TRUST_INCOMING_TRACES=false` to ignore client trace
+context; spans then start fresh traces that reference the client
+context as a link only.

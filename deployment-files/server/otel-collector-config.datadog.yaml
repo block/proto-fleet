@@ -1,0 +1,55 @@
+# Production collector config for the tracing overlay: forwards fleet-api
+# request spans to Datadog APM. The dev stack keeps server/otel-collector-config.yaml (Jaeger).
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    # Datadog recommends 10s batching for its exporter.
+    timeout: 10s
+  resource:
+    attributes:
+      # Maps to Datadog's `env` tag; service/version come from fleetd's OTel resource.
+      # Both spellings: `.name` is current semconv, the bare key covers older mappings.
+      - key: deployment.environment.name
+        value: ${env:DD_ENV}
+        action: upsert
+      - key: deployment.environment
+        value: ${env:DD_ENV}
+        action: upsert
+
+connectors:
+  # Computes APM stats (hit/error/latency metrics); the exporter stopped doing this in contrib 0.95.
+  datadog/connector:
+
+exporters:
+  datadog:
+    api:
+      key: ${env:DD_API_KEY}
+      site: ${env:DD_SITE}
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    # Datadog's documented two-hop layout: traces feed the stats connector, which re-emits them.
+    traces:
+      receivers: [otlp]
+      processors: [resource, batch]
+      exporters: [datadog/connector]
+    traces/export:
+      receivers: [datadog/connector]
+      processors: [batch]
+      exporters: [datadog]
+    metrics:
+      receivers: [datadog/connector]
+      processors: [batch]
+      exporters: [datadog]

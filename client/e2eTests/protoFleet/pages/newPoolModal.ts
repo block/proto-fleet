@@ -2,8 +2,12 @@ import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class NewPoolModalPage extends BasePage {
+  private modal() {
+    return this.page.getByTestId("modal");
+  }
+
   async validatePoolModalOpened() {
-    await expect(this.page.getByTestId("modal").getByText(`Default mining pool`).first()).toBeVisible();
+    await expect(this.modal().getByText(`Default mining pool`).first()).toBeVisible();
   }
 
   async inputPoolName(name: string) {
@@ -19,7 +23,19 @@ export class NewPoolModalPage extends BasePage {
   }
 
   async clickTestConnection() {
-    await this.page.locator(`//button//*[text()='Test connection']`).click();
+    const modal = this.modal();
+    const desktopButton = modal.getByTestId("pool-test-connection-button");
+
+    if (await desktopButton.isVisible().catch(() => false)) {
+      await desktopButton.click();
+      return;
+    }
+
+    await modal.getByTestId("overflow-menu-trigger").click();
+    await this.page
+      .getByTestId("modal-overflow-sheet-content")
+      .getByTestId("pool-test-connection-button-overflow-item")
+      .click();
   }
 
   async validateConnectionFailed() {
@@ -39,6 +55,14 @@ export class NewPoolModalPage extends BasePage {
   }
 
   async clickSaveNewPool() {
-    await this.page.getByTestId("pool-save-button").click();
+    const modal = this.modal();
+    const saveButton = modal.getByTestId(this.isMobile ? "pool-save-button-mobile" : "pool-save-button");
+
+    if (await saveButton.isVisible().catch(() => false)) {
+      await saveButton.click();
+      return;
+    }
+
+    await modal.getByTestId("pool-save-button").click();
   }
 }

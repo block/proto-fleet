@@ -3,6 +3,7 @@ package curtailment
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"slices"
@@ -13,11 +14,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
+	infrastructuremodels "github.com/block/proto-fleet/server/internal/domain/infrastructure/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
 // fakeStore implements CurtailmentStore for Preview / Start tests; methods
@@ -58,6 +64,7 @@ type fakeStore struct {
 	// beginRestoreErr gives Service.Stop tests control over
 	// BeginRestoreTransition outcomes.
 	eventsByUUID             map[uuid.UUID]*models.Event
+	getEventByUUIDErr        error
 	targetsByEventUUID       map[uuid.UUID][]*models.Target
 	targetSiteIDsByEventUUID map[uuid.UUID][]int64
 	activeEvents             []*models.Event
@@ -90,13 +97,14 @@ type fakeStore struct {
 	// AdminTerminate fakes. adminTerminateResult is the post-transition
 	// event the fake echoes; adminTerminateErr drives error paths
 	// (state conflict, transient db error).
-	adminTerminateCalls            int
-	lastAdminTerminateUUID         uuid.UUID
-	lastAdminTerminateState        models.EventState
-	lastAdminTerminateReason       string
-	adminTerminateResult           *models.Event
-	adminTerminateErr              error
-	adminTerminateIdempotentReplay bool
+	adminTerminateCalls                int
+	adminTerminateWithFanRecoveryCalls int
+	lastAdminTerminateUUID             uuid.UUID
+	lastAdminTerminateState            models.EventState
+	lastAdminTerminateReason           string
+	adminTerminateResult               *models.Event
+	adminTerminateErr                  error
+	adminTerminateIdempotentReplay     bool
 
 	forceReleaseCalls              int
 	lastForceReleaseUUID           uuid.UUID
@@ -105,6 +113,13 @@ type fakeStore struct {
 	forceReleaseSweptTargets       int64
 	forceReleaseAutomationDisabled bool
 	forceReleaseErr                error
+
+	updateFanStateCalls      int
+	lastUpdateFanStateID     int64
+	lastUpdateFanStateParams interfaces.UpdateCurtailmentFanStateParams
+	updateFanStateErr        error
+	terminalFanRecoveryErr   error
+	operatorFanCallOrder     []string
 
 	// Idempotent replay fakes. eventsByIdempotencyKey / eventsByExternalRef
 	// drive Service.Start's pre-insert webhook-replay lookup; nil results
@@ -129,6 +144,258 @@ type fakeStore struct {
 	automationRulesByEventUUID     map[uuid.UUID]*models.AutomationRule
 	automationRulesByExternalRef   map[string]*models.AutomationRule
 	automationDemandGuardCheckRuns int
+}
+
+func TestFacilityFanController_MissingClaimIsFailureOncePerPowerPhase(t *testing.T) {
+	t.Parallel()
+
+	const (
+		orgID    = int64(42)
+		deviceID = int64(501)
+		siteID   = int64(601)
+	)
+	ctrl := gomock.NewController(t)
+	devices := storemocks.NewMockInfrastructureDeviceStore(ctrl)
+	sites := storemocks.NewMockSiteStore(ctrl)
+	devices.EXPECT().
+		GetInfrastructureDevice(gomock.Any(), orgID, deviceID).
+		Return(nil, fleeterror.NewNotFoundError("infrastructure device not found")).
+		Times(4)
+	audit := &recordingAudit{}
+	controller := NewFacilityFanController(devices, sites, driver.NewRegistry(), audit)
+	event := &models.Event{
+		EventUUID:            uuid.New(),
+		OrgID:                orgID,
+		FacilityFanDeviceIDs: []int64{deviceID},
+		FacilityFanSiteIDs:   []int64{siteID},
+	}
+
+	offFailure := controller.SetState(t.Context(), event, driver.PowerOff)
+	require.NotNil(t, offFailure)
+	assert.Contains(t, *offFailure, "device is missing")
+	event.FanLastError = offFailure
+	now := time.Now().UTC()
+	event.FanOffSentAt = &now
+	require.NotNil(t, controller.SetState(t.Context(), event, driver.PowerOff))
+	require.NotNil(t, controller.SetState(t.Context(), event, driver.PowerOn))
+	event.FanOnSentAt = &now
+	require.NotNil(t, controller.SetState(t.Context(), event, driver.PowerOn))
+
+	require.Len(t, audit.events, 2)
+	assert.Equal(t, ActivityTypeFacilityFanCommandFailed, audit.events[0].Type)
+	assert.Equal(t, "off", audit.events[0].Metadata["desired_power"])
+	require.NotNil(t, audit.events[0].ErrorMessage)
+	assert.Contains(t, *audit.events[0].ErrorMessage, "device is missing")
+	assert.Equal(t, ActivityTypeFacilityFanCommandFailed, audit.events[1].Type)
+	assert.Equal(t, "on", audit.events[1].Metadata["desired_power"])
+	require.NotNil(t, audit.events[1].ErrorMessage)
+	assert.Contains(t, *audit.events[1].ErrorMessage, "device is missing")
+}
+
+type recordingFacilityFanDriver struct {
+	powers       []driver.PowerMode
+	deviceIDs    []int64
+	failDeviceID int64
+}
+
+func (*recordingFacilityFanDriver) ValidateConfig(json.RawMessage) error { return nil }
+func (d *recordingFacilityFanDriver) SetState(_ context.Context, device driver.Device, state driver.DesiredState) error {
+	d.powers = append(d.powers, state.Power)
+	d.deviceIDs = append(d.deviceIDs, device.ID)
+	if device.ID == d.failDeviceID {
+		return fmt.Errorf("device %d timed out", device.ID)
+	}
+	return nil
+}
+func (*recordingFacilityFanDriver) Capabilities() map[string]bool {
+	return map[string]bool{"on_off": true}
+}
+
+func TestFacilityFanController_RotatesFailedRetryStartAcrossDevices(t *testing.T) {
+	t.Parallel()
+
+	const (
+		orgID      = int64(42)
+		firstID    = int64(501)
+		secondID   = int64(502)
+		siteID     = int64(601)
+		driverType = "test-fan"
+	)
+	ctrl := gomock.NewController(t)
+	devices := storemocks.NewMockInfrastructureDeviceStore(ctrl)
+	sites := storemocks.NewMockSiteStore(ctrl)
+	device := func(id int64) *infrastructuremodels.Device {
+		return &infrastructuremodels.Device{
+			ID: id, OrgID: orgID, SiteID: siteID, Enabled: true, DriverType: driverType,
+		}
+	}
+	gomock.InOrder(
+		devices.EXPECT().GetInfrastructureDevice(gomock.Any(), orgID, firstID).Return(device(firstID), nil),
+		devices.EXPECT().GetInfrastructureDevice(gomock.Any(), orgID, secondID).Return(device(secondID), nil),
+		devices.EXPECT().GetInfrastructureDevice(gomock.Any(), orgID, secondID).Return(device(secondID), nil),
+		devices.EXPECT().GetInfrastructureDevice(gomock.Any(), orgID, firstID).Return(device(firstID), nil),
+	)
+	sites.EXPECT().GetInfrastructureControlSubnets(gomock.Any(), orgID, siteID).Return("10.0.0.0/24", nil).Times(4)
+	driverController := &recordingFacilityFanDriver{failDeviceID: firstID}
+	registry := driver.NewRegistry()
+	registry.Register(driverType, func() driver.Controller { return driverController })
+	controller := NewFacilityFanController(devices, sites, registry, &recordingAudit{})
+	event := &models.Event{
+		ID:                   77,
+		EventUUID:            uuid.New(),
+		OrgID:                orgID,
+		FacilityFanDeviceIDs: []int64{firstID, secondID},
+		FacilityFanSiteIDs:   []int64{siteID, siteID},
+	}
+
+	firstFailure := controller.SetState(t.Context(), event, driver.PowerOn)
+	require.NotNil(t, firstFailure)
+	event.FanLastError = firstFailure
+	secondFailure := controller.SetState(t.Context(), event, driver.PowerOn)
+	require.NotNil(t, secondFailure)
+
+	assert.Equal(t, []int64{firstID, secondID, secondID, firstID}, driverController.deviceIDs)
+}
+
+func TestFacilityFanController_DisabledClaimIsAuditedSkipAndCommandFailure(t *testing.T) {
+	t.Parallel()
+
+	const (
+		orgID      = int64(42)
+		disabledID = int64(501)
+		enabledID  = int64(502)
+		siteID     = int64(601)
+		driverType = "test-fan"
+	)
+	ctrl := gomock.NewController(t)
+	devices := storemocks.NewMockInfrastructureDeviceStore(ctrl)
+	sites := storemocks.NewMockSiteStore(ctrl)
+	gomock.InOrder(
+		devices.EXPECT().
+			GetInfrastructureDevice(gomock.Any(), orgID, disabledID).
+			Return(&infrastructuremodels.Device{ID: disabledID, OrgID: orgID, SiteID: siteID}, nil),
+		devices.EXPECT().
+			GetInfrastructureDevice(gomock.Any(), orgID, enabledID).
+			Return(&infrastructuremodels.Device{
+				ID: enabledID, OrgID: orgID, SiteID: siteID, Enabled: true, DriverType: driverType,
+			}, nil),
+	)
+	sites.EXPECT().
+		GetInfrastructureControlSubnets(gomock.Any(), orgID, siteID).
+		Return("10.0.0.0/24", nil)
+	driverController := &recordingFacilityFanDriver{}
+	registry := driver.NewRegistry()
+	registry.Register(driverType, func() driver.Controller { return driverController })
+	audit := &recordingAudit{}
+	controller := NewFacilityFanController(devices, sites, registry, audit)
+	event := &models.Event{
+		EventUUID:            uuid.New(),
+		OrgID:                orgID,
+		State:                models.EventStateRestoring,
+		FacilityFanDeviceIDs: []int64{disabledID, enabledID},
+		FacilityFanSiteIDs:   []int64{siteID, siteID},
+	}
+
+	failure := controller.SetState(t.Context(), event, driver.PowerOn)
+
+	require.NotNil(t, failure)
+	assert.Contains(t, *failure, "device 501: device is disabled")
+	assert.Equal(t, []driver.PowerMode{driver.PowerOn}, driverController.powers)
+	require.Len(t, audit.events, 2)
+	assert.Equal(t, ActivityTypeFacilityFanCommandSkipped, audit.events[0].Type)
+	assert.Equal(t, activitymodels.ResultSuccess, audit.events[0].Result)
+	assert.Equal(t, "on", audit.events[0].Metadata["desired_power"])
+	assert.Equal(t, []int64{disabledID}, audit.events[0].Metadata["device_ids"])
+	assert.Equal(t, "device_disabled", audit.events[0].Metadata["skip_reason"])
+	assert.Equal(t, ActivityTypeFacilityFanCommandFailed, audit.events[1].Type)
+	assert.Equal(t, activitymodels.ResultFailure, audit.events[1].Result)
+	require.NotNil(t, audit.events[1].ErrorMessage)
+	assert.Contains(t, *audit.events[1].ErrorMessage, "device 501: device is disabled")
+}
+
+func TestFacilityFanController_RejectsDeviceMovedFromAuthorizedSite(t *testing.T) {
+	t.Parallel()
+
+	const (
+		orgID          = int64(42)
+		deviceID       = int64(501)
+		authorizedSite = int64(601)
+		currentSite    = int64(602)
+	)
+	ctrl := gomock.NewController(t)
+	devices := storemocks.NewMockInfrastructureDeviceStore(ctrl)
+	sites := storemocks.NewMockSiteStore(ctrl)
+	devices.EXPECT().
+		GetInfrastructureDevice(gomock.Any(), orgID, deviceID).
+		Return(&infrastructuremodels.Device{ID: deviceID, OrgID: orgID, SiteID: currentSite, Enabled: true}, nil)
+	audit := &recordingAudit{}
+	controller := NewFacilityFanController(devices, sites, driver.NewRegistry(), audit)
+	event := &models.Event{
+		EventUUID:            uuid.New(),
+		OrgID:                orgID,
+		State:                models.EventStateCompletedWithFailures,
+		FacilityFanDeviceIDs: []int64{deviceID},
+		FacilityFanSiteIDs:   []int64{authorizedSite},
+	}
+
+	failure := controller.SetState(t.Context(), event, driver.PowerOn)
+
+	require.NotNil(t, failure)
+	assert.Contains(t, *failure, "site changed since curtailment started")
+	require.Len(t, audit.events, 1)
+	require.NotNil(t, audit.events[0].ErrorMessage)
+	assert.Contains(t, *audit.events[0].ErrorMessage, "site changed since curtailment started")
+}
+
+func TestShouldLogFacilityFanFailureGatesEachPowerPhase(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC()
+	failure := "device 501: command failed"
+	tests := []struct {
+		name  string
+		event *models.Event
+		power driver.PowerMode
+		want  bool
+	}{
+		{
+			name:  "later off failure after recovery starts a new incident",
+			event: &models.Event{FanOffSentAt: &now},
+			power: driver.PowerOff,
+			want:  true,
+		},
+		{
+			name:  "repeated off failure remains deduplicated",
+			event: &models.Event{FanOffSentAt: &now, FanLastError: &failure},
+			power: driver.PowerOff,
+			want:  false,
+		},
+		{
+			name:  "first on failure is independent from off failure",
+			event: &models.Event{FanOffSentAt: &now, FanLastError: &failure},
+			power: driver.PowerOn,
+			want:  true,
+		},
+		{
+			name:  "repeated on failure remains deduplicated",
+			event: &models.Event{FanOnSentAt: &now, FanLastError: &failure},
+			power: driver.PowerOn,
+			want:  false,
+		},
+		{
+			name:  "later on failure after recovery starts a new incident",
+			event: &models.Event{FanOnSentAt: &now},
+			power: driver.PowerOn,
+			want:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, shouldLogFacilityFanFailure(tt.event, tt.power))
+		})
+	}
 }
 
 func newFakeStore() *fakeStore {
@@ -226,6 +493,9 @@ func (f *fakeStore) ListCandidates(_ context.Context, params interfaces.ListCand
 // BeginRestoreTransition path is real-faked rather than panicking.
 
 func (f *fakeStore) GetEventByUUID(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
+	if f.getEventByUUIDErr != nil {
+		return nil, f.getEventByUUIDErr
+	}
 	ev, ok := f.eventsByUUID[eventUUID]
 	if !ok {
 		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
@@ -318,8 +588,39 @@ func (f *fakeStore) AdminTerminateEvent(_ context.Context, _ int64, eventUUID uu
 	return f.adminTerminateResult, transitioned, nil
 }
 
+func (f *fakeStore) AdminTerminateEventWithFanRecovery(
+	ctx context.Context,
+	_ int64,
+	eventUUID uuid.UUID,
+	targetState models.EventState,
+	reason string,
+	command func(context.Context, *models.Event) *string,
+) (*models.Event, bool, error) {
+	f.adminTerminateWithFanRecoveryCalls++
+	if f.getEventByUUIDErr != nil {
+		return nil, false, f.getEventByUUIDErr
+	}
+	ev, ok := f.eventsByUUID[eventUUID]
+	if ok && (ev.State == models.EventStatePending || ev.State == models.EventStateRestoring) && len(ev.FacilityFanDeviceIDs) > 0 {
+		now := time.Now().UTC()
+		params := interfaces.UpdateCurtailmentFanStateParams{
+			ExpectedEventState: ev.State,
+		}
+		if ev.FanOnSentAt == nil {
+			params.FanOnSentAt = &now
+		}
+		f.operatorFanCallOrder = append(f.operatorFanCallOrder, "admin terminate fan recovery")
+		params.LastError = command(ctx, ev)
+		if err := f.UpdateFanState(ctx, ev.ID, params); err != nil {
+			return nil, false, err
+		}
+	}
+	return f.AdminTerminateEvent(ctx, 0, eventUUID, targetState, reason)
+}
+
 func (f *fakeStore) ForceReleaseEvent(_ context.Context, _ int64, eventUUID uuid.UUID, reason string) (interfaces.ForceReleaseEventResult, error) {
 	f.forceReleaseCalls++
+	f.operatorFanCallOrder = append(f.operatorFanCallOrder, "force release")
 	f.lastForceReleaseUUID = eventUUID
 	f.lastForceReleaseReason = reason
 	if f.forceReleaseErr != nil {
@@ -331,6 +632,73 @@ func (f *fakeStore) ForceReleaseEvent(_ context.Context, _ int64, eventUUID uuid
 		OwnershipReleased:  true,
 		AutomationDisabled: f.forceReleaseAutomationDisabled,
 	}, nil
+}
+
+func (f *fakeStore) ForceReleaseEventWithFanRecovery(
+	ctx context.Context,
+	_ int64,
+	eventUUID uuid.UUID,
+	reason string,
+	eventID int64,
+	_ []int64,
+	_ []int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) (interfaces.ForceReleaseEventResult, error) {
+	result, err := f.ForceReleaseEvent(ctx, 0, eventUUID, reason)
+	if err != nil || !result.OwnershipReleased {
+		return result, err
+	}
+	f.operatorFanCallOrder = append(f.operatorFanCallOrder, "terminal fan recovery")
+	params.LastError = command(ctx)
+	if err := f.UpdateFanState(ctx, eventID, params); err != nil {
+		return interfaces.ForceReleaseEventResult{}, err
+	}
+	if result.Event != nil {
+		if params.FanOnSentAt != nil {
+			result.Event.FanOnSentAt = params.FanOnSentAt
+		}
+		result.Event.FanLastError = params.LastError
+	}
+	return result, nil
+}
+
+func (f *fakeStore) UpdateFanState(_ context.Context, eventID int64, params interfaces.UpdateCurtailmentFanStateParams) error {
+	f.updateFanStateCalls++
+	f.lastUpdateFanStateID = eventID
+	f.lastUpdateFanStateParams = params
+	return f.updateFanStateErr
+}
+
+func (f *fakeStore) CommandFanState(
+	ctx context.Context,
+	eventID int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) (*string, error) {
+	f.operatorFanCallOrder = append(f.operatorFanCallOrder, "nonterminal fan command")
+	lastError := command(ctx)
+	if lastError == nil && params.FanAirflowReopenedAtOnSuccess != nil {
+		params.FanAirflowReopenedAt = params.FanAirflowReopenedAtOnSuccess
+	}
+	params.LastError = lastError
+	return lastError, f.UpdateFanState(ctx, eventID, params)
+}
+
+func (f *fakeStore) RecoverTerminalFanState(
+	ctx context.Context,
+	eventID, _ int64,
+	_ []int64,
+	_ []int64,
+	params interfaces.UpdateCurtailmentFanStateParams,
+	command func(context.Context) *string,
+) error {
+	f.operatorFanCallOrder = append(f.operatorFanCallOrder, "terminal fan recovery")
+	if f.terminalFanRecoveryErr != nil {
+		return f.terminalFanRecoveryErr
+	}
+	params.LastError = command(ctx)
+	return f.UpdateFanState(ctx, eventID, params)
 }
 
 // filterNonTerminalReplayEvent mirrors the production SQL's
@@ -452,6 +820,10 @@ func (f *fakeStore) ListNonTerminalEvents(context.Context) ([]*models.Event, err
 
 func (f *fakeStore) UpdateEventState(context.Context, int64, models.EventState, models.EventState, *time.Time, *time.Time) error {
 	panic("UpdateEventState not exercised by Preview/Start/Stop tests")
+}
+
+func (f *fakeStore) RecordCurtailPendingDispatch(context.Context, int64, models.EventState, time.Time) error {
+	panic("RecordCurtailPendingDispatch not exercised by Preview/Start/Stop tests")
 }
 
 func (f *fakeStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
@@ -641,15 +1013,16 @@ func defaultOrgConfig(orgID int64) *models.OrgConfig {
 var _ Metrics = (*recordingMetrics)(nil)
 
 type recordingMetrics struct {
-	mu                     sync.Mutex
-	tickDurations          []time.Duration
-	tickFailures           int
-	candidateExcluded      map[string]int
-	maintenance            int
-	eventStateRaces        int
-	targetWriteFailures    int
-	auditWriteFailures     map[string]int
-	allPairedPendingStalls int
+	mu                       sync.Mutex
+	tickDurations            []time.Duration
+	tickFailures             int
+	confirmationPassFailures int
+	candidateExcluded        map[string]int
+	maintenance              int
+	eventStateRaces          int
+	targetWriteFailures      int
+	auditWriteFailures       map[string]int
+	allPairedPendingStalls   int
 }
 
 func newRecordingMetrics() *recordingMetrics {
@@ -669,6 +1042,12 @@ func (m *recordingMetrics) IncTickFailure() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.tickFailures++
+}
+
+func (m *recordingMetrics) IncConfirmationPassFailure() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.confirmationPassFailures++
 }
 
 func (m *recordingMetrics) IncCandidateExcluded(reason string) {
@@ -1009,7 +1388,7 @@ func TestService_Preview_FiltersByPairingDeviceStatusAndStaleness(t *testing.T) 
 		miner("rebooting", "REBOOT_REQUIRED", "PAIRED", 3000, 100),
 		miner("offline", "OFFLINE", "PAIRED", 3000, 100),
 		miner("inactive", "INACTIVE", "PAIRED", 3000, 100),
-		miner("needs-pool", "NEEDS_MINING_POOL", "PAIRED", 3000, 100),
+		miner("needs-pool", "NEEDS_MINING_POOL", "PAIRED", 3000, 0),
 		miner("maintenance", "MAINTENANCE", "PAIRED", 3000, 100),
 		staleMiner("stale"),
 		minerWithEff("eligible", 3000, 100, 40),
@@ -1035,9 +1414,106 @@ func TestService_Preview_FiltersByPairingDeviceStatusAndStaleness(t *testing.T) 
 	assert.Equal(t, SkipRebootRequired, reasons["rebooting"])
 	assert.Equal(t, SkipUnreachableResidualLoad, reasons["offline"])
 	assert.Equal(t, SkipNonActionableStatus, reasons["inactive"])
-	assert.Equal(t, SkipNonActionableStatus, reasons["needs-pool"])
+	// Pool-less miner passes status admission (#663); in fixed-kW mode the
+	// dual-signal filter then skips it with the sharper diagnostic — idle
+	// draw with zero hash is phantom load for kW-sized selection.
+	assert.Equal(t, SkipPhantomLoadNoHash, reasons["needs-pool"])
 	assert.Equal(t, SkipMaintenance, reasons["maintenance"])
 	assert.Equal(t, SkipStaleTelemetry, reasons["stale"])
+}
+
+func TestClassifyCandidates_PoolLessMinerAdmittedWhenTelemetryFresh(t *testing.T) {
+	t.Parallel()
+
+	// Commandability admission (#663): NEEDS_MINING_POOL passes status
+	// admission even with zero hash, but stays behind the freshness gates
+	// plus a positive-power requirement (power is its only confirmable
+	// signal). A stale-positive hash sample is overridden by the status: the
+	// eligible candidate carries hash 0 so fixed-kW accounting and baseline
+	// persistence treat it as non-hashing.
+	fresh := miner("needs-pool-fresh", "NEEDS_MINING_POOL", "PAIRED", 2000, 0)
+	stalePositiveHash := miner("needs-pool-stale-hash", "NEEDS_MINING_POOL", "PAIRED", 2000, 100)
+	// Power-only telemetry: a pool-less miner may never have reported a hash
+	// sample at all; the hash-sample freshness requirement must not apply.
+	noHashSample := miner("needs-pool-no-hash-sample", "NEEDS_MINING_POOL", "PAIRED", 2000, 0)
+	noHashSample.LatestHashRateHS = nil
+	zeroPower := miner("needs-pool-zero-power", "NEEDS_MINING_POOL", "PAIRED", 0, 0)
+	stale := staleMiner("needs-pool-stale")
+	stale.DeviceStatus = "NEEDS_MINING_POOL"
+
+	eligible, skipped, _ := classifyCandidates(
+		[]*models.Candidate{fresh, stalePositiveHash, noHashSample, zeroPower, stale},
+		classifyOpts{CandidateMinPowerW: 1500},
+	)
+
+	require.Len(t, eligible, 3)
+	assert.Equal(t, "needs-pool-fresh", eligible[0].DeviceIdentifier)
+	assert.Equal(t, "needs-pool-stale-hash", eligible[1].DeviceIdentifier)
+	assert.Zero(t, eligible[1].HashRateHS,
+		"device status is authoritative: a pool-less miner cannot be mining, so a stale-positive hash sample must not count as mining load")
+	assert.Equal(t, "needs-pool-no-hash-sample", eligible[2].DeviceIdentifier)
+	assert.Zero(t, eligible[2].HashRateHS)
+
+	reasons := map[string]SkipReason{}
+	for _, s := range skipped {
+		reasons[s.DeviceIdentifier] = s.Reason
+	}
+	require.Len(t, skipped, 2)
+	assert.Equal(t, SkipStaleTelemetry, reasons["needs-pool-zero-power"],
+		"zero power is as good as stale for a miner whose only confirmable signal is power")
+	assert.Equal(t, SkipStaleTelemetry, reasons["needs-pool-stale"])
+}
+
+func TestService_Preview_PoolLessZeroHashMinerSkippedByDualSignalInFixedKw(t *testing.T) {
+	t.Parallel()
+
+	// A pool-less miner passes status admission (#663) but fixed-kW's
+	// dual-signal filter still excludes it: idle draw with zero hash is
+	// phantom load for kW-sized selection.
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		miner("needs-pool", "NEEDS_MINING_POOL", "PAIRED", 3000, 0),
+		minerWithEff("eligible", 3000, 100, 40),
+	}
+
+	svc := NewService(store)
+	req := validRequest(orgID)
+	req.TargetKW = 2.5
+	plan, err := svc.Preview(t.Context(), req)
+	require.NoError(t, err)
+
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, "eligible", plan.Selected[0].DeviceIdentifier)
+	reasons := map[string]SkipReason{}
+	for _, s := range plan.Skipped {
+		reasons[s.DeviceIdentifier] = s.Reason
+	}
+	assert.Equal(t, SkipPhantomLoadNoHash, reasons["needs-pool"])
+}
+
+func TestBuildInsertTargetParams_BaselineFloorAppliesOnlyToHashingMiners(t *testing.T) {
+	t.Parallel()
+
+	selected := []SelectedDevice{
+		// Hashing below the floor: suspect power reading (dead monitor);
+		// hash-only fallback works, so no baseline is persisted.
+		{DeviceIdentifier: "hashing-below-floor", PowerW: 400, HashRateHS: 100},
+		// Never-hashing below the floor: hash-only fallback is broken, so
+		// the idle-draw baseline must be persisted (#663).
+		{DeviceIdentifier: "idle-below-floor", PowerW: 400, HashRateHS: 0},
+		// Zero power never persists a baseline regardless of hash.
+		{DeviceIdentifier: "no-power", PowerW: 0, HashRateHS: 0},
+	}
+
+	targets := BuildInsertTargetParams(selected, models.ModeFullFleet, 1500)
+
+	require.Len(t, targets, 3)
+	assert.Nil(t, targets[0].BaselinePowerW)
+	require.NotNil(t, targets[1].BaselinePowerW)
+	assert.InDelta(t, 400.0, *targets[1].BaselinePowerW, 0.001)
+	assert.Nil(t, targets[2].BaselinePowerW)
 }
 
 func TestService_Preview_MaintenancePairAdmitsMiners(t *testing.T) {

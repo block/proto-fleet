@@ -37,8 +37,28 @@ type ResponseProfile struct {
 	ForceIncludeMaintenance     bool
 	ForceIncludeAllPairedMiners bool
 	PostEventCooldownSec        int32
+	FacilityFanDeviceIDs        []int64
+	FanOffDelaySec              int32
+	FanRestoreDelaySec          int32
 	CreatedAt                   time.Time
 	UpdatedAt                   time.Time
+}
+
+// ResponseProfileFanSettings is the fan state observed before an operation.
+// Stores use it as an optimistic guard so a concurrent replacement cannot be
+// overwritten or bound by a stale request.
+type ResponseProfileFanSettings struct {
+	FacilityFanDeviceIDs []int64
+	FanOffDelaySec       int32
+	FanRestoreDelaySec   int32
+}
+
+// ResponseProfileInfrastructureDevice is the protocol-blind device state
+// needed while validating a response profile's facility-fan references.
+type ResponseProfileInfrastructureDevice struct {
+	ID      int64
+	SiteID  int64
+	Enabled bool
 }
 
 // AutomationTriggerType identifies the kind of signal an automation rule
@@ -79,6 +99,14 @@ type AutomationRule struct {
 	LastErrorAt              *time.Time
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
+}
+
+// MQTTSourceActiveCurtailment identifies an MQTT source (enabled or not)
+// whose automation has a non-terminal curtailment event.
+type MQTTSourceActiveCurtailment struct {
+	SourceID       int64
+	OrganizationID int64
+	SourceName     string
 }
 
 // EventState is a typed wrapper for `curtailment_event.state` to keep the
@@ -203,60 +231,76 @@ const (
 
 // Event represents a `curtailment_event` row; JSON columns are raw bytes.
 type Event struct {
-	ID                          int64
-	EventUUID                   uuid.UUID
-	OrgID                       int64
-	State                       EventState
-	Mode                        Mode
-	Strategy                    Strategy
-	Level                       Level
-	Priority                    Priority
-	LoopType                    LoopType
-	ScopeType                   ScopeType
-	ScopeJSON                   []byte
-	ModeParamsJSON              []byte
-	CurtailBatchSize            *int32
-	CurtailBatchIntervalSec     int32
-	RestoreBatchSize            int32
-	RestoreBatchIntervalSec     int32
-	EffectiveBatchSize          *int32
-	MinCurtailedDurationSec     int32
-	MaxDurationSeconds          *int32
-	AllowUnbounded              bool
-	IncludeMaintenance          bool
-	ForceIncludeMaintenance     bool
-	ForceIncludeAllPairedMiners bool
-	DecisionSnapshotJSON        []byte
-	SourceActorType             SourceActorType
-	SourceActorID               *string
-	ExternalSource              *string
-	ExternalReference           *string
-	IdempotencyKey              *string
-	SupersedesEventID           *int64
-	Reason                      string
-	ScheduledStartAt            *time.Time
-	StartedAt                   *time.Time
-	EndedAt                     *time.Time
-	CreatedByUserID             int64
-	CreatedAt                   time.Time
-	UpdatedAt                   time.Time
-	TargetRollup                *TargetRollup
-	TargetSiteCoverage          *TargetSiteCoverage
+	ID                           int64
+	EventUUID                    uuid.UUID
+	OrgID                        int64
+	State                        EventState
+	Mode                         Mode
+	Strategy                     Strategy
+	Level                        Level
+	Priority                     Priority
+	LoopType                     LoopType
+	ScopeType                    ScopeType
+	ScopeJSON                    []byte
+	ModeParamsJSON               []byte
+	CurtailBatchSize             *int32
+	CurtailBatchIntervalSec      int32
+	LastCurtailPendingDispatchAt *time.Time
+	RestoreBatchSize             int32
+	RestoreBatchIntervalSec      int32
+	EffectiveBatchSize           *int32
+	MinCurtailedDurationSec      int32
+	MaxDurationSeconds           *int32
+	AllowUnbounded               bool
+	IncludeMaintenance           bool
+	ForceIncludeMaintenance      bool
+	ForceIncludeAllPairedMiners  bool
+	FacilityFanDeviceIDs         []int64
+	FacilityFanSiteIDs           []int64
+	FanOffDelaySec               int32
+	FanRestoreDelaySec           int32
+	FanOffSentAt                 *time.Time
+	FanOnSentAt                  *time.Time
+	FanAirflowReopenedAt         *time.Time
+	FanLastError                 *string
+	DecisionSnapshotJSON         []byte
+	SourceActorType              SourceActorType
+	SourceActorID                *string
+	ExternalSource               *string
+	ExternalReference            *string
+	IdempotencyKey               *string
+	SupersedesEventID            *int64
+	Reason                       string
+	ScheduledStartAt             *time.Time
+	StartedAt                    *time.Time
+	EndedAt                      *time.Time
+	CreatedByUserID              int64
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+	TargetRollup                 *TargetRollup
+	TargetSiteCoverage           *TargetSiteCoverage
 }
 
 // TargetRollup summarizes all target rows for an event. Counts stay int64 at
 // the domain boundary because SQL COUNT returns int64; handlers clamp to the
 // proto int32 fields when rendering.
 type TargetRollup struct {
-	Pending       int64
-	Dispatched    int64
-	Confirmed     int64
-	Drifted       int64
-	Resolved      int64
-	Released      int64
-	RestoreFailed int64
-	Unavailable   int64
-	Total         int64
+	Pending            int64
+	Dispatched         int64
+	Confirmed          int64
+	Drifted            int64
+	Resolved           int64
+	Released           int64
+	RestoreFailed      int64
+	Unavailable        int64
+	Total              int64
+	UnavailableReasons []TargetUnavailableReasonCount
+}
+
+// TargetUnavailableReasonCount summarizes unavailable target reasons.
+type TargetUnavailableReasonCount struct {
+	Reason string
+	Count  int64
 }
 
 // TargetSiteCoverage summarizes how persisted target rows map back to current
@@ -302,15 +346,22 @@ type InsertEventParams struct {
 	IncludeMaintenance          bool
 	ForceIncludeMaintenance     bool
 	ForceIncludeAllPairedMiners bool
-	DecisionSnapshotJSON        []byte
-	SourceActorType             SourceActorType
-	SourceActorID               *string
-	ExternalSource              *string
-	ExternalReference           *string
-	IdempotencyKey              *string
-	Reason                      string
-	ScheduledStartAt            *time.Time
-	StartedAt                   *time.Time
+	FacilityFanDeviceIDs        []int64
+	// ExpectedFacilityFanSites is an optional authorization snapshot keyed by
+	// device ID. The SQL store compares it against row-locked live devices
+	// before persisting FacilityFanSiteIDs, closing handler-to-insert races.
+	ExpectedFacilityFanSites map[int64]int64
+	FanOffDelaySec           int32
+	FanRestoreDelaySec       int32
+	DecisionSnapshotJSON     []byte
+	SourceActorType          SourceActorType
+	SourceActorID            *string
+	ExternalSource           *string
+	ExternalReference        *string
+	IdempotencyKey           *string
+	Reason                   string
+	ScheduledStartAt         *time.Time
+	StartedAt                *time.Time
 	// EndedAt is set only when an event is inserted already terminal — a
 	// vacuously-COMPLETED FULL_FLEET start with no eligible targets — so the
 	// completion time is recorded; the reconciler/restorer set it otherwise.
@@ -425,4 +476,34 @@ type Candidate struct {
 	// value. nil means the continuous aggregate has no row for this
 	// device — the selector ranks unknown-efficiency miners last.
 	AvgEfficiencyJH *float64
+}
+
+// ConfirmationTarget is one eligible `dispatched` work row returned by the
+// reconciler-only ListEligibleConfirmationTargets read that backs the
+// confirmation fast path. It carries everything the pulse needs to confirm a
+// target from a fresh telemetry sample without re-listing per-event targets:
+//
+//   - EventState + DesiredState identify the phase. Curtail work is a
+//     pending/active event with DesiredState 'curtailed'; restore work is a
+//     restoring event with DesiredState 'active'.
+//   - BatchUUID is the applicable phase batch UUID (curtail_batch_uuid or
+//     restore_batch_uuid); it is the ABA token the guarded promoting write
+//     passes as ExpectedDispatchBatchUUID.
+//   - BaselinePowerW feeds the existing isCurtailed / isRestored predicates
+//     (the live power/hash sample arrives from the telemetry sampler, not this
+//     read). nil when selection captured no baseline.
+//   - PairingStatus + ForceIncludeAllPairedMiners reproduce the all-paired
+//     policy pairing gate the full tick applies in confirmOneDispatched.
+type ConfirmationTarget struct {
+	EventID                     int64
+	EventUUID                   uuid.UUID
+	OrgID                       int64
+	EventState                  EventState
+	DeviceDatabaseID            int64
+	DeviceIdentifier            string
+	DesiredState                string
+	BaselinePowerW              *float64
+	BatchUUID                   string
+	PairingStatus               string
+	ForceIncludeAllPairedMiners bool
 }

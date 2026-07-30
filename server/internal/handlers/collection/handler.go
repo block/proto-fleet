@@ -2,6 +2,7 @@ package collection
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
@@ -30,6 +31,15 @@ func (h *Handler) CreateCollection(ctx context.Context, r *connect.Request[pb.Cr
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
+	// Creating a rack under a site/building persists that placement, so mirror
+	// the Update/SaveRack gate: require site:manage when rack_info carries
+	// explicit placement (site_id/building_id). Otherwise a rack:manage-only
+	// caller could place a rack via the create path, bypassing the boundary.
+	if ri := r.Msg.GetRackInfo(); ri != nil && (ri.SiteId != nil || ri.BuildingId != nil) {
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
 	result, err := h.collectionSvc.CreateCollection(ctx, r.Msg)
 	if err != nil {
 		return nil, err
@@ -53,6 +63,16 @@ func (h *Handler) GetCollection(ctx context.Context, r *connect.Request[pb.GetCo
 func (h *Handler) UpdateCollection(ctx context.Context, r *connect.Request[pb.UpdateCollectionRequest]) (*connect.Response[pb.UpdateCollectionResponse], error) {
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
+	}
+	// UpdateCollection now persists a rack's placement (site/building) when
+	// rack_info carries it — the same reparent + cascade the DeviceSet handler
+	// exposes — so mirror its gate: require site:manage when placement intent is
+	// present (explicit site_id/building_id, incl. 0 to unassign). Metadata-only
+	// edits (label/zone/dims, membership) stay rack:manage.
+	if ri := r.Msg.GetRackInfo(); ri != nil && (ri.SiteId != nil || ri.BuildingId != nil) {
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
 	}
 	result, err := h.collectionSvc.UpdateCollection(ctx, r.Msg)
 	if err != nil {
@@ -186,9 +206,33 @@ func (h *Handler) SaveRack(ctx context.Context, r *connect.Request[pb.SaveRackRe
 	if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
-	result, err := h.collectionSvc.SaveRack(ctx, r.Msg)
+	// Placement (site/building) is a site-management action, matching the
+	// dedicated AssignRacksToSite/Building RPCs. Require site:manage when the
+	// request carries placement intent; omitted placement preserves the
+	// current site/building and stays rack:manage. Mirrors the device_set.v1
+	// SaveRack handler.
+	if ri := r.Msg.RackInfo; ri != nil && (ri.SiteId != nil || ri.BuildingId != nil) {
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
+	// collection.v1 is deprecated and its SaveRackResponse has no conflict
+	// field, so it can't carry the site-strip confirmation contract that
+	// device_set.v1 uses. Pass force=false and, if the save would strip a
+	// member's site/building, fail loudly instead of silently clearing it;
+	// callers needing the confirm-and-force flow must use device_set.v1.
+	result, err := h.collectionSvc.SaveRack(ctx, r.Msg, false)
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(result), nil
+	if len(result.Conflicts) > 0 {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf(
+			"%d device(s) would lose their site/building placement by joining this rack; use device_set.v1.SaveRack with force_clear_conflicting_site to confirm",
+			len(result.Conflicts)))
+	}
+	return connect.NewResponse(&pb.SaveRackResponse{
+		Collection:          result.Collection,
+		AssignedCount:       result.AssignedCount,
+		SiteReassignedCount: result.SiteReassignedCount,
+	}), nil
 }

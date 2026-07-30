@@ -20,10 +20,12 @@ import { SettingsPage } from "../pages/settings";
 import { SettingsApiKeysPage } from "../pages/settingsApiKeys";
 import { SettingsCurtailmentPage } from "../pages/settingsCurtailment";
 import { SettingsFirmwarePage } from "../pages/settingsFirmware";
+import { SettingsNodesPage } from "../pages/settingsNodes";
 import { SettingsPoolsPage } from "../pages/settingsPools";
 import { SettingsSchedulesPage } from "../pages/settingsSchedules";
 import { SettingsSecurityPage } from "../pages/settingsSecurity";
 import { SettingsTeamPage } from "../pages/settingsTeam";
+import { SingleMinerPage } from "../pages/singleMiner";
 
 type PageFixtures = {
   activityPage: ActivityPage;
@@ -33,11 +35,13 @@ type PageFixtures = {
   groupsPage: GroupsPage;
   racksPage: RacksPage;
   serverLogsPage: ServerLogsPage;
+  singleMinerPage: SingleMinerPage;
   addMinersPage: AddMinersPage;
   settingsPage: SettingsPage;
   settingsFirmwarePage: SettingsFirmwarePage;
   settingsCurtailmentPage: SettingsCurtailmentPage;
   settingsApiKeysPage: SettingsApiKeysPage;
+  settingsNodesPage: SettingsNodesPage;
   settingsSchedulesPage: SettingsSchedulesPage;
   settingsSecurityPage: SettingsSecurityPage;
   settingsTeamPage: SettingsTeamPage;
@@ -73,6 +77,9 @@ export const test = base.extend<PageFixtures>({
   serverLogsPage: async ({ page, isMobile }, use) => {
     await use(new ServerLogsPage(page, isMobile));
   },
+  singleMinerPage: async ({ page, isMobile }, use) => {
+    await use(new SingleMinerPage(page, isMobile));
+  },
   addMinersPage: async ({ page, isMobile }, use) => {
     await use(new AddMinersPage(page, isMobile));
   },
@@ -87,6 +94,9 @@ export const test = base.extend<PageFixtures>({
   },
   settingsApiKeysPage: async ({ page, isMobile }, use) => {
     await use(new SettingsApiKeysPage(page, isMobile));
+  },
+  settingsNodesPage: async ({ page, isMobile }, use) => {
+    await use(new SettingsNodesPage(page, isMobile));
   },
   settingsSchedulesPage: async ({ page, isMobile }, use) => {
     await use(new SettingsSchedulesPage(page, isMobile));
@@ -118,8 +128,8 @@ export const test = base.extend<PageFixtures>({
   loginModal: async ({ page, isMobile }, use) => {
     await use(new LoginModalComponent(page, isMobile));
   },
-  commonSteps: async ({ authPage, minersPage }, use) => {
-    await use(new CommonSteps(authPage, minersPage));
+  commonSteps: async ({ authPage, minersPage, settingsPage, settingsTeamPage }, use) => {
+    await use(new CommonSteps(authPage, minersPage, settingsPage, settingsTeamPage));
   },
 });
 

@@ -64,7 +64,15 @@ WHERE a.organization_id = sqlc.arg('org_id')
     AND (sqlc.narg('event_types')::text[] IS NULL OR a.event_type = ANY(sqlc.narg('event_types')::text[]))
     AND (sqlc.narg('user_ids')::text[] IS NULL OR a.user_id = ANY(sqlc.narg('user_ids')::text[]))
     AND (sqlc.narg('scope_types')::text[] IS NULL OR a.scope_type = ANY(sqlc.narg('scope_types')::text[]))
-    AND (sqlc.narg('search_pattern')::text IS NULL OR a.description ILIKE sqlc.narg('search_pattern') ESCAPE '\')
+    AND (
+        sqlc.narg('search_pattern')::text IS NULL
+        -- activity_display_label (migration 000114) is the single source of
+        -- truth for the searchable display label; keep it in sync with the
+        -- client label maps in client/src/protoFleet/features/activity/utils/.
+        OR CONCAT_WS(' ', a.description,
+            activity_display_label(a.event_type, a.scope_type, a.scope_label, a.metadata, a.description)
+        ) ILIKE sqlc.narg('search_pattern') ESCAPE '\'
+    )
     AND (sqlc.narg('start_time')::timestamptz IS NULL OR a.created_at >= sqlc.narg('start_time'))
     AND (sqlc.narg('end_time')::timestamptz IS NULL OR a.created_at <= sqlc.narg('end_time'))
     AND (sqlc.narg('cursor_time')::timestamptz IS NULL OR (a.created_at, a.id) < (sqlc.narg('cursor_time')::timestamptz, sqlc.narg('cursor_id')::bigint))
@@ -127,7 +135,15 @@ WHERE a.organization_id = sqlc.arg('org_id')
     AND (sqlc.narg('event_types')::text[] IS NULL OR a.event_type = ANY(sqlc.narg('event_types')::text[]))
     AND (sqlc.narg('user_ids')::text[] IS NULL OR a.user_id = ANY(sqlc.narg('user_ids')::text[]))
     AND (sqlc.narg('scope_types')::text[] IS NULL OR a.scope_type = ANY(sqlc.narg('scope_types')::text[]))
-    AND (sqlc.narg('search_pattern')::text IS NULL OR a.description ILIKE sqlc.narg('search_pattern') ESCAPE '\')
+    AND (
+        sqlc.narg('search_pattern')::text IS NULL
+        -- activity_display_label (migration 000114) is the single source of
+        -- truth for the searchable display label; keep it in sync with the
+        -- client label maps in client/src/protoFleet/features/activity/utils/.
+        OR CONCAT_WS(' ', a.description,
+            activity_display_label(a.event_type, a.scope_type, a.scope_label, a.metadata, a.description)
+        ) ILIKE sqlc.narg('search_pattern') ESCAPE '\'
+    )
     AND (sqlc.narg('start_time')::timestamptz IS NULL OR a.created_at >= sqlc.narg('start_time'))
     AND (sqlc.narg('end_time')::timestamptz IS NULL OR a.created_at <= sqlc.narg('end_time'))
     AND (

@@ -13,6 +13,7 @@ import {
   successMessages,
   SupportedAction,
 } from "./constants";
+import { type FirmwareUpdateTarget, minerTargetKey } from "./minerTarget";
 import { useFleetAuthentication } from "./useFleetAuthentication";
 import { useManageSecurityFlow } from "./useManageSecurityFlow";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
@@ -22,7 +23,6 @@ import {
   type DeleteMinersResponse,
   DeviceSelectorSchema,
   type MinerListFilter,
-  MinerListFilterSchema,
   type MinerStateSnapshot,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -59,6 +59,7 @@ import {
 import type { BatchOperationInput } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { isStatusChangingBatchAction } from "@/protoFleet/features/fleetManagement/utils/batchStatusCheck";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
+import { applyFleetVisiblePairingStatuses } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 import {
   Fan,
   LEDIndicator,
@@ -92,9 +93,18 @@ export interface MinerSelection {
 interface UseMinerActionsParams {
   selectedMiners: MinerSelection[];
   selectionMode: SelectionMode;
-  /** Total count of all miners in fleet (used for "all" mode confirmation dialogs) */
+  /**
+   * Size of an "all"-mode selection — the scoped/filtered total when a filter is
+   * active, else the whole-fleet total. Drives confirmation-dialog counts.
+   */
   totalCount?: number;
-  /** Active UI filter — forwarded as device_filter when unpairing in "all" mode */
+  /**
+   * Active scoped filter (URL filter chips ∩ SitePicker site scope). In "all"
+   * mode, command dispatch and capability checks resolve their target set from
+   * this filter via the all_matching_filter selector, so a scoped/filtered
+   * "select all" hits exactly the visible set across pages. It is undefined only
+   * when nothing is scoped, in which case "all" targets the whole fleet.
+   */
   currentFilter?: MinerListFilter;
   onActionStart?: () => void;
   onActionComplete?: () => void;
@@ -135,19 +145,30 @@ const actionCapabilityMetadata: Partial<Record<SupportedAction, { description: s
   [deviceActions.firmwareUpdate]: { description: "Firmware updates", commandType: CommandType.FIRMWARE_UPDATE },
 };
 
-function getUniqueModels(
+const generateUnpairBatchIdentifier = (): string => {
+  return `unpair-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+};
+
+function getUniqueFirmwareTargets(
   deviceIds: string[],
   miners: Record<string, MinerStateSnapshot>,
-): { models: Set<string>; hasMissing: boolean } {
-  const models = new Set<string>();
+): { targets: FirmwareUpdateTarget[]; hasMissing: boolean } {
+  const targets = new Map<string, FirmwareUpdateTarget>();
   let hasMissing = false;
   for (const id of deviceIds) {
     const miner = miners[id];
-    const model = miner?.model;
-    if (model) models.add(model);
-    else hasMissing = true;
+    const manufacturer = miner?.manufacturer?.trim() ?? "";
+    const model = miner?.model?.trim() ?? "";
+    const key = minerTargetKey(manufacturer, model);
+    if (!key) {
+      hasMissing = true;
+      continue;
+    }
+    if (!targets.has(key)) {
+      targets.set(key, { targetManufacturer: manufacturer, targetModel: model });
+    }
   }
-  return { models, hasMissing };
+  return { targets: [...targets.values()], hasMissing };
 }
 
 /**
@@ -327,6 +348,7 @@ export const useMinerActions = ({
   const [currentCoolingMode, setCurrentCoolingMode] = useState<CoolingMode | undefined>(undefined);
   const [showAddToGroupModal, setShowAddToGroupModal] = useState(false);
   const [showFirmwareUpdateModal, setShowFirmwareUpdateModal] = useState(false);
+  const [firmwareUpdateTarget, setFirmwareUpdateTarget] = useState<FirmwareUpdateTarget | null>(null);
   const [firmwareUpdateFilteredSelector, setFirmwareUpdateFilteredSelector] = useState<DeviceSelector | undefined>();
   const [firmwareUpdateFilteredDeviceIds, setFirmwareUpdateFilteredDeviceIds] = useState<string[] | undefined>(
     undefined,
@@ -353,11 +375,19 @@ export const useMinerActions = ({
     [selectedMiners, selectionMode, displayCount, miners, currentFilter],
   );
 
-  // Create device selector based on selection mode (undefined when nothing selected)
-  const deviceSelector = useMemo(
-    () => (selectionMode === "none" ? undefined : createDeviceSelector(selectionMode, deviceIdentifiers)),
-    [selectionMode, deviceIdentifiers],
-  );
+  // Create device selector based on selection mode (undefined when nothing selected).
+  // In "all" mode, pass currentFilter so command dispatch + capability checks
+  // target exactly the scoped/filtered set across pages (all_matching_filter).
+  // currentFilter folds in both URL filter chips and the SitePicker site scope,
+  // so this is the single source of truth for "what's visible" — gating on a
+  // separate URL-only "filters active" flag would miss the site scope and leak
+  // commands to the whole fleet. currentFilter is undefined only when nothing is
+  // scoped, where "all" correctly means the whole fleet (thin selector).
+  const deviceSelector = useMemo(() => {
+    if (selectionMode === "none") return undefined;
+    const matchingFilter = selectionMode === "all" ? currentFilter : undefined;
+    return createDeviceSelector(selectionMode, deviceIdentifiers, undefined, matchingFilter);
+  }, [selectionMode, deviceIdentifiers, currentFilter]);
 
   // Determine device status for power state actions
   const deviceStatus = useMemo(() => {
@@ -790,6 +820,7 @@ export const useMinerActions = ({
       const deviceIdsToUse = firmwareUpdateFilteredDeviceIds ?? deviceIdentifiers;
       if (!selectorToUse) return;
       setShowFirmwareUpdateModal(false);
+      setFirmwareUpdateTarget(null);
       setFirmwareUpdateFilteredSelector(undefined);
       setFirmwareUpdateFilteredDeviceIds(undefined);
       setCurrentAction(null);
@@ -939,6 +970,7 @@ export const useMinerActions = ({
 
   const handleFirmwareUpdateDismiss = useCallback(() => {
     setShowFirmwareUpdateModal(false);
+    setFirmwareUpdateTarget(null);
     setFirmwareUpdateFilteredSelector(undefined);
     setFirmwareUpdateFilteredDeviceIds(undefined);
     setCurrentAction(null);
@@ -1147,7 +1179,7 @@ export const useMinerActions = ({
             longRunning: true,
             onClose: () => onActionComplete?.(),
           });
-          const unpairBatchId = crypto.randomUUID();
+          const unpairBatchId = generateUnpairBatchIdentifier();
           startBatchOperation({
             batchIdentifier: unpairBatchId,
             action: deviceActions.unpair,
@@ -1158,7 +1190,12 @@ export const useMinerActions = ({
             deviceSelector: create(DeviceSelectorSchema, {
               selectionType:
                 selectionMode === "all"
-                  ? { case: "allDevices", value: currentFilter ?? create(MinerListFilterSchema) }
+                  ? // Unpair targets the same command-visible set the "All N" count
+                    // reflects (PAIRED + AUTHENTICATION_NEEDED + DEFAULT_PASSWORD).
+                    // Without this the resolver defaults to PAIRED-only and
+                    // silently skips auth-needed / default-password rows that the
+                    // count includes.
+                    { case: "allDevices", value: applyFleetVisiblePairingStatuses(currentFilter) }
                   : {
                       case: "includeDevices",
                       value: create(DeviceIdentifierListSchema, { deviceIdentifiers: deviceIdsToUse }),
@@ -1471,6 +1508,7 @@ export const useMinerActions = ({
 
     const handleFirmwareUpdate = async () => {
       onActionStart?.();
+      setFirmwareUpdateTarget(null);
 
       if (selectionMode === "all") {
         pushToast({
@@ -1483,14 +1521,11 @@ export const useMinerActions = ({
 
       await withCapabilityCheck(deviceActions.firmwareUpdate, (filteredSelector, filteredDeviceIds) => {
         const idsToCheck = filteredDeviceIds ?? deviceIdentifiers;
-        const { models, hasMissing } =
-          idsToCheck.length > 0
-            ? getUniqueModels(idsToCheck, miners)
-            : { models: new Set<string>(), hasMissing: false };
+        const { targets, hasMissing } = getUniqueFirmwareTargets(idsToCheck, miners);
 
-        if (models.size === 0) {
+        if (targets.length === 0) {
           pushToast({
-            message: "Unable to verify miner model compatibility. Please select specific miners.",
+            message: "Unable to verify miner manufacturer and model compatibility. Please select specific miners.",
             status: TOAST_STATUSES.error,
           });
           onActionComplete?.();
@@ -1499,22 +1534,25 @@ export const useMinerActions = ({
 
         if (hasMissing) {
           pushToast({
-            message: "Some selected miners have unknown models. Please deselect them before updating firmware.",
+            message:
+              "Some selected miners have an unknown manufacturer or model. Please deselect them before updating firmware.",
             status: TOAST_STATUSES.error,
           });
           onActionComplete?.();
           return;
         }
 
-        if (models.size > 1) {
+        if (targets.length > 1) {
           pushToast({
-            message: "Firmware update requires miners of the same model. Your selection includes multiple models.",
+            message:
+              "Firmware update requires miners from the same manufacturer and model. Your selection includes multiple targets.",
             status: TOAST_STATUSES.error,
           });
           onActionComplete?.();
           return;
         }
 
+        setFirmwareUpdateTarget(targets[0]);
         setFirmwareUpdateFilteredSelector(filteredSelector);
         setFirmwareUpdateFilteredDeviceIds(filteredDeviceIds);
         setCurrentAction(deviceActions.firmwareUpdate);
@@ -1725,6 +1763,7 @@ export const useMinerActions = ({
     handleManagePowerConfirm,
     handleManagePowerDismiss,
     showFirmwareUpdateModal,
+    firmwareUpdateTarget,
     handleFirmwareUpdateConfirm,
     handleFirmwareUpdateDismiss,
     showCoolingModeModal,

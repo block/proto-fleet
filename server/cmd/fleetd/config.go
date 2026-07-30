@@ -6,6 +6,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	curtailmentReconciler "github.com/block/proto-fleet/server/internal/domain/curtailment/reconciler"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
+	infrastructureDomain "github.com/block/proto-fleet/server/internal/domain/infrastructure"
 	"github.com/block/proto-fleet/server/internal/domain/ipscanner"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
 	"github.com/block/proto-fleet/server/internal/domain/pools"
@@ -20,6 +21,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
 	"github.com/block/proto-fleet/server/internal/infrastructure/metrics"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/infrastructure/sysmon"
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
 )
 
@@ -52,7 +54,10 @@ type Config struct {
 	Plugins        plugins.Config               `embed:"" prefix:"plugins-" envprefix:"PLUGINS_"`
 	IPScanner      ipscanner.Config             `embed:"" prefix:"ipscanner-" envprefix:"IPSCANNER_"`
 	Diagnostics    diagnostics.Config           `embed:"" prefix:"diagnostics-" envprefix:"DIAGNOSTICS_"`
+	Infrastructure infrastructureDomain.Config  `embed:"" prefix:"infrastructure-" envprefix:"INFRASTRUCTURE_"`
 	Files          files.Config                 `embed:"" prefix:"files-" envprefix:"FILES_"`
 	FleetTelemetry fleet_telemetry.Config       `embed:"" prefix:"fleet-telemetry-" envprefix:"FLEET_TELEMETRY_"`
 	Metrics        metrics.Config               `embed:"" prefix:"metrics-" envprefix:"FLEET_ALERTS_"`
+
+	SystemMonitoring sysmon.Config `embed:"" prefix:"system-monitoring-" envprefix:"FLEET_SYSTEM_MONITORING_"`
 }

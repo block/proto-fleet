@@ -68,13 +68,13 @@ func newControlHarness(t *testing.T) *controlHarness {
 		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), registry)
 
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
-	code, _, err := enrollmentSvc.CreateCode(t.Context(), 1, 1, time.Hour)
+	code, pendingEnrollmentID, _, err := enrollmentSvc.CreateCodeWithEnrollmentID(t.Context(), 1, 1, time.Hour)
 	require.NoError(t, err)
 	agent, _, err := enrollmentSvc.RegisterFleetNode(t.Context(), code, "agent-control", pubKey, []byte("01234567890123456789012345678901"))
 	require.NoError(t, err)
 	// Confirm the node so pairDeviceLocked (which requires CONFIRMED) can bind
 	// devices during ReportPairedDevices persistence.
-	_, _, err = enrollmentSvc.Confirm(t.Context(), agent.ID, 1)
+	_, _, err = enrollmentSvc.ConfirmExpected(t.Context(), agent.ID, 1, pendingEnrollmentID)
 	require.NoError(t, err)
 	filesService, err := files.NewService(files.Config{})
 	require.NoError(t, err)

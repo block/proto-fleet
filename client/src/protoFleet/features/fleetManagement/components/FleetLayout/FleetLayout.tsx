@@ -1,32 +1,30 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import clsx from "clsx";
-import { Code } from "@connectrpc/connect";
 
 import { type FleetOutletContext } from "./outletContext";
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
-import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds } from "@/protoFleet/api/sites";
+import { useSitesContext, useSitesPolling } from "@/protoFleet/api/SitesContext";
+import useSiteMapCsv from "@/protoFleet/api/useSiteMapCsv";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
-import { INFRASTRUCTURE_DEVICES_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
-import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
+import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
 import FleetCreateFlowProvider from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/FleetCreateFlowProvider";
 import FleetViewTabs from "@/protoFleet/features/fleetManagement/components/FleetViewTabs";
+import SiteMapCsvImportModal from "@/protoFleet/features/fleetManagement/components/SiteMapCsvImportModal";
 import { type FleetTabId } from "@/protoFleet/features/fleetManagement/views/savedViews";
 import useFleetViews from "@/protoFleet/features/fleetManagement/views/useFleetViews";
 import { type FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
 import { activeSiteFromScopablePath, scopedPath, unscopedScopablePath } from "@/protoFleet/routing/siteScope";
 import { useHasPermission, useUsername } from "@/protoFleet/store";
+import Button, { sizes, variants } from "@/shared/components/Button";
+import ResponsiveActionGroup, { type ResponsiveActionButton } from "@/shared/components/ResponsiveActionGroup";
 import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
-import { usePoll } from "@/shared/hooks/usePoll";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 
 const ROUTE_TAB_ORDER: FleetTabId[] = ["sites", "buildings", "racks", "miners", "infrastructure"];
-const DISCOVERABLE_TAB_ORDER: FleetTabId[] = ROUTE_TAB_ORDER.filter(
-  (tab) => tab !== "infrastructure" || INFRASTRUCTURE_DEVICES_ENABLED,
-);
 const LAST_TAB_KEY = "fleet:lastActiveTab";
 
 const tabLabel: Record<FleetTabId, string> = {
@@ -41,6 +39,31 @@ const tabLabel: Record<FleetTabId, string> = {
 // flag-on session isn't discarded as garbage when the flag flips.
 const ALL_TAB_IDS = new Set<FleetTabId>(["sites", "buildings", "racks", "miners", "infrastructure"]);
 const isFleetTabId = (s: string): s is FleetTabId => ALL_TAB_IDS.has(s as FleetTabId);
+
+const FleetImportRefreshBoundary = ({
+  children,
+  importModalOpen,
+  onDismissImportModal,
+  notifyMinersChanged,
+}: {
+  children: ReactNode;
+  importModalOpen: boolean;
+  onDismissImportModal: () => void;
+  notifyMinersChanged: () => void;
+}) => {
+  const createFlow = useFleetCreateFlow();
+  const onImported = useCallback(() => {
+    createFlow?.refreshEntities();
+    notifyMinersChanged();
+  }, [createFlow, notifyMinersChanged]);
+
+  return (
+    <>
+      {children}
+      {importModalOpen ? <SiteMapCsvImportModal open onDismiss={onDismissImportModal} onImported={onImported} /> : null}
+    </>
+  );
+};
 
 const tabFromPath = (pathname: string): FleetTabId | undefined => {
   const m = unscopedScopablePath(pathname).match(/^\/fleet\/([^/]+)/);
@@ -66,44 +89,31 @@ const FleetLayout = () => {
   const canReadMiners = useHasPermission("miner:read");
   const canReadRacks = useHasPermission("rack:read");
   const canReadFleet = useHasPermission("fleet:read");
+  const canExportMinerCsv = useHasPermission("miner:export_csv");
+  const canManageSites = useHasPermission("site:manage");
+  const canManageRacks = useHasPermission("rack:manage");
+  const { exportSiteMapCsv, isExportingSiteMapCsv } = useSiteMapCsv();
+  const [showSiteMapImportModal, setShowSiteMapImportModal] = useState(false);
 
-  const { listSites } = useSites();
-  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(canReadSites ? undefined : []);
-  const [sitesError, setSitesError] = useState<string | null>(null);
-  // Stays true once any listSites response succeeds, even through later
-  // failures. Lets consumers tell "we have last-good data" from "we've
-  // never seen data" when sites is [].
-  const [sitesLoaded, setSitesLoaded] = useState(false);
-  // Keep a defensive PermissionDenied branch for stale sessions or server-side
-  // auth changes so the redirect waterfall avoids site-catalog-backed tabs.
-  const [sitesPermissionDenied, setSitesPermissionDenied] = useState(false);
-
-  const fetchSites = useCallback(
-    () =>
-      listSites({
-        onSuccess: (rows) => {
-          setSites(rows);
-          setSitesError(null);
-          setSitesLoaded(true);
-          setSitesPermissionDenied(false);
-        },
-        onError: (msg, code) => {
-          setSitesError(msg);
-          if (code === Code.PermissionDenied) {
-            setSitesPermissionDenied(true);
-          }
-          // Preserve last-good list across transient errors; only fall to []
-          // on the initial-load failure path.
-          setSites((prev) => prev ?? []);
-        },
-      }),
-    [listSites],
-  );
-
-  usePoll({ fetchData: fetchSites, poll: true, pollIntervalMs: POLL_INTERVAL_MS, enabled: canReadSites });
+  // The site catalog (fetch + poll + last-good/permission-denied tracking) is
+  // owned by the shell-level SitesProvider and shared with PageHeader and the
+  // other routed pages, so FleetLayout just reads it and re-exposes it to its
+  // tab children through the outlet context below.
+  const { sites, sitesError, sitesLoaded, sitesPermissionDenied, siteCatalogAccessGranted, refetchSites } =
+    useSitesContext();
+  // Fleet tabs render live site tables/cards, so keep the shared catalog on the
+  // 15s poll while any Fleet route is mounted. Header-only routes don't opt in,
+  // so the catalog stays a one-shot fetch there.
+  useSitesPolling();
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
-  const validatedKnownSiteIds = sitesLoaded ? knownSiteIds : undefined;
+  // Key scope validation off catalog *access* (authoritative now), not
+  // sitesLoaded (ever-loaded, stays true). Otherwise a mid-session
+  // PermissionDenied clears `sites` to [] while sitesLoaded stays true,
+  // yielding an empty-but-authoritative set that would strip a scoped
+  // `/:site/fleet/...` route instead of preserving it while the org catalog
+  // is denied.
+  const validatedKnownSiteIds = siteCatalogAccessGranted ? knownSiteIds : undefined;
   const { activeSite } = useActiveSite({ knownSiteIds: validatedKnownSiteIds });
   // A stale "single site" selection pointing at a deleted site must keep the
   // tab visible so the operator can still create a new site.
@@ -116,7 +126,6 @@ const FleetLayout = () => {
   const pathScope = useMemo(() => rawPathScope ?? activeSite, [rawPathScope, activeSite]);
 
   const sitesAccessBlocked = !canReadSites || sitesPermissionDenied;
-  const siteCatalogAccessGranted = canReadSites && sitesLoaded && !sitesPermissionDenied;
   const canReadRacksTab = canReadRacks;
   // Miner list needs miner:read (ListMinerStateSnapshots) + fleet:read (status/
   // model filter RPCs). NOT rack:read — the rack/group filters degrade to empty
@@ -124,29 +133,27 @@ const FleetLayout = () => {
   const canReadMinersTab = canReadMiners && canReadFleet;
   const canReadInfrastructureTab = !sitesAccessBlocked;
 
-  // Permission source of truth for Fleet tabs. Feature flags can hide tab-strip
-  // entries, but registered routes stay reachable for authorized deep links.
-  const isTabReachable = useCallback(
-    (t: FleetTabId) => {
-      if (t === "sites" && (sitesTabHidden || sitesAccessBlocked)) return false;
-      if (t === "buildings" && sitesAccessBlocked) return false;
-      if (t === "racks" && !canReadRacksTab) return false;
-      if (t === "miners" && !canReadMinersTab) return false;
-      if (t === "infrastructure" && !canReadInfrastructureTab) return false;
-      return true;
-    },
+  // Permission source of truth for Fleet tabs.
+  const availableTabs = useMemo(
+    () =>
+      ROUTE_TAB_ORDER.filter((t) => {
+        if (t === "sites" && (sitesTabHidden || sitesAccessBlocked)) return false;
+        if (t === "buildings" && sitesAccessBlocked) return false;
+        if (t === "racks" && !canReadRacksTab) return false;
+        if (t === "miners" && !canReadMinersTab) return false;
+        if (t === "infrastructure" && !canReadInfrastructureTab) return false;
+        return true;
+      }),
     [sitesTabHidden, sitesAccessBlocked, canReadRacksTab, canReadMinersTab, canReadInfrastructureTab],
   );
-  const reachableTabs = useMemo(() => ROUTE_TAB_ORDER.filter(isTabReachable), [isTabReachable]);
-  const visibleTabs = useMemo(() => DISCOVERABLE_TAB_ORDER.filter(isTabReachable), [isTabReachable]);
 
-  // Fallbacks must come from visibleTabs so roles don't get redirected into
+  // Fallbacks must come from availableTabs so roles don't get redirected into
   // tabs whose required RPCs they cannot call. Racks stays reachable without
   // site catalog access; its site/building metadata degrades separately.
-  const fallbackTab = visibleTabs[0];
-  const usableLastTab = lastTab && visibleTabs.includes(lastTab) ? lastTab : undefined;
+  const fallbackTab = availableTabs[0];
+  const usableLastTab = lastTab && availableTabs.includes(lastTab) ? lastTab : undefined;
   const targetTab = usableLastTab ?? fallbackTab;
-  const currentTabAllowed = currentTab === undefined || reachableTabs.includes(currentTab);
+  const currentTabAllowed = currentTab === undefined || availableTabs.includes(currentTab);
 
   // Defer redirect until the initial sites load resolves so a stale
   // single-site picker selection doesn't briefly hide the Sites tab before
@@ -173,7 +180,7 @@ const FleetLayout = () => {
       return;
     }
 
-    const currentTabHidden = currentTab !== undefined && !reachableTabs.includes(currentTab);
+    const currentTabHidden = currentTab !== undefined && !availableTabs.includes(currentTab);
     if ((onBareFleet || currentTabHidden) && targetTab) {
       navigate(scopedPath(`/fleet/${targetTab}`, pathScope), { replace: true });
     }
@@ -189,16 +196,16 @@ const FleetLayout = () => {
     pathScope,
     rawPathScope,
     validatedKnownSiteIds,
-    reachableTabs,
+    availableTabs,
     targetTab,
     navigate,
   ]);
 
   useEffect(() => {
-    if (currentTab && visibleTabs.includes(currentTab) && currentTab !== lastTab) {
+    if (currentTab && availableTabs.includes(currentTab) && currentTab !== lastTab) {
       setLastTab(currentTab);
     }
-  }, [currentTab, lastTab, setLastTab, visibleTabs]);
+  }, [availableTabs, currentTab, lastTab, setLastTab]);
 
   const onSelect = useCallback(
     (id: string) => {
@@ -246,8 +253,9 @@ const FleetLayout = () => {
       sitesError,
       sitesLoaded,
       siteCatalogAccessGranted,
-      refetchSites: fetchSites,
+      refetchSites,
       notifyPairingCompleted,
+      notifyMinersChanged,
       minersChangedAt,
       publishViewFilterContext,
     }),
@@ -256,8 +264,9 @@ const FleetLayout = () => {
       sitesError,
       sitesLoaded,
       siteCatalogAccessGranted,
-      fetchSites,
+      refetchSites,
       notifyPairingCompleted,
+      notifyMinersChanged,
       minersChangedAt,
       publishViewFilterContext,
     ],
@@ -269,14 +278,38 @@ const FleetLayout = () => {
   // section tabs. Mounting twice (each gated by a `laptop:` visibility
   // class) keeps the DOM simple — only one is interactive at a time.
   const viewTabs = <FleetViewTabs viewsState={viewsState} currentTab={currentTab} filterContext={viewFilterContext} />;
+  const canExportSiteMapCsv = canExportMinerCsv && canReadSites && canReadRacks;
+  const canImportSiteMapCsv = canManageSites && canManageRacks;
+  const siteMapActionButtons = useMemo<ResponsiveActionButton[]>(
+    () => [
+      ...(canExportSiteMapCsv
+        ? [
+            {
+              loading: isExportingSiteMapCsv,
+              onClick: exportSiteMapCsv,
+              text: "Export site map",
+              variant: variants.secondary,
+            },
+          ]
+        : []),
+      ...(canImportSiteMapCsv
+        ? [
+            {
+              onClick: () => setShowSiteMapImportModal(true),
+              text: "Import site map",
+              variant: variants.secondary,
+            },
+          ]
+        : []),
+    ],
+    [canExportSiteMapCsv, canImportSiteMapCsv, exportSiteMapCsv, isExportingSiteMapCsv],
+  );
 
   const outlet =
-    reachableTabs.length === 0 ? (
+    availableTabs.length === 0 ? (
       <div className="p-6 text-300 text-text-primary-70 laptop:p-10">
         You do not have permission to view Fleet sections.
       </div>
-    ) : (onBareFleet || !currentTabAllowed) && visibleTabs.length === 0 ? (
-      <div className="p-6 text-300 text-text-primary-70 laptop:p-10">No Fleet sections are currently available.</div>
     ) : !currentTabAllowed ? (
       <div className="p-6 text-300 text-text-primary-70 laptop:p-10">Loading...</div>
     ) : (
@@ -284,23 +317,62 @@ const FleetLayout = () => {
     );
 
   return (
-    // w-max + min-w-full: the subtree grows to the widest tab content (a wide
-    // table), which is what gives the sticky-left chrome below room to slide.
-    // min-w-full keeps it at least viewport-wide when content is narrow.
-    <div className="flex h-full w-max min-w-full flex-col" data-testid="fleet-layout">
+    // Desktop w-max + min-w-full: the subtree grows to the widest tab content
+    // (a wide table), which gives sticky-left chrome below room to slide.
+    // Mobile/tablet stay viewport-bound; expected horizontal gestures should
+    // live in local controls, not the entire content view.
+    <div className="flex h-full w-full min-w-0 flex-col laptop:w-max laptop:min-w-full" data-testid="fleet-layout">
       <div
         className={clsx(
           "sticky left-0 z-10 flex flex-col gap-4 bg-surface-base px-6 pt-6 laptop:px-10",
           PAGE_SCROLL_CHROME_WIDTH,
         )}
       >
-        <div className="flex items-baseline justify-between gap-4">
+        <div className="flex items-center justify-between gap-4">
           <h1 className="text-heading-300 text-text-primary">Fleet</h1>
-          <div className="laptop:hidden">{viewTabs}</div>
+          <div className="flex min-w-0 items-center justify-end gap-2">
+            {siteMapActionButtons.length > 0 ? (
+              <>
+                <div className="hidden items-center gap-2 tablet:flex">
+                  {canExportSiteMapCsv ? (
+                    <Button
+                      text="Export site map"
+                      variant={variants.secondary}
+                      size={sizes.compact}
+                      onClick={exportSiteMapCsv}
+                      loading={isExportingSiteMapCsv}
+                    />
+                  ) : null}
+                  {canImportSiteMapCsv ? (
+                    <Button
+                      text="Import site map"
+                      variant={variants.secondary}
+                      size={sizes.compact}
+                      onClick={() => setShowSiteMapImportModal(true)}
+                    />
+                  ) : null}
+                </div>
+                <ResponsiveActionGroup
+                  buttons={siteMapActionButtons}
+                  buttonSize={sizes.compact}
+                  className="tablet:hidden"
+                  primaryButtonStrategy="last"
+                  primaryTestIdSuffix="mobile"
+                  sheetContentTestId="site-map-action-sheet-content"
+                  sheetTestId="site-map-action-sheet"
+                  triggerTestId="site-map-actions-trigger"
+                />
+              </>
+            ) : null}
+            <div className="laptop:hidden" data-testid="fleet-view-tabs-mobile">
+              {viewTabs}
+            </div>
+          </div>
         </div>
         {canReadMiners ? (
           <CompleteSetup
             lastPairingCompletedAt={lastPairingCompletedAt}
+            minersChangedAt={minersChangedAt}
             onPairingCompleted={notifyPairingCompleted}
             onRefetchMiners={notifyMinersChanged}
           />
@@ -309,20 +381,30 @@ const FleetLayout = () => {
           activeId={currentTab}
           onSelect={onSelect}
           ariaLabel="Fleet sections"
-          trailing={<div className="hidden pb-2 laptop:block">{viewTabs}</div>}
+          trailing={
+            <div className="hidden pb-2 laptop:block" data-testid="fleet-view-tabs-desktop">
+              {viewTabs}
+            </div>
+          }
         >
-          {visibleTabs.map((tab) => (
+          {availableTabs.map((tab) => (
             <TabStripItem key={tab} id={tab} label={tabLabel[tab]} testId={`fleet-tab-${tab}`} />
           ))}
         </TabStrip>
       </div>
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 min-w-0 flex-1">
         <FleetCreateFlowProvider
           sites={sites ?? []}
-          refetchSites={fetchSites}
+          refetchSites={refetchSites}
           notifyMinersChanged={notifyMinersChanged}
         >
-          {outlet}
+          <FleetImportRefreshBoundary
+            importModalOpen={showSiteMapImportModal}
+            onDismissImportModal={() => setShowSiteMapImportModal(false)}
+            notifyMinersChanged={notifyMinersChanged}
+          >
+            {outlet}
+          </FleetImportRefreshBoundary>
         </FleetCreateFlowProvider>
       </div>
     </div>

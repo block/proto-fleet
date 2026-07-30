@@ -23,6 +23,7 @@ const { mockMinerListActionBar } = vi.hoisted(() => ({
       selectedMiners,
       selectionMode,
       totalCount,
+      filtersActive,
       selectionIncludesUnauthenticatedMiner,
       onSelectAll,
       onSelectNone,
@@ -30,6 +31,7 @@ const { mockMinerListActionBar } = vi.hoisted(() => ({
       selectedMiners: string[];
       selectionMode: string;
       totalCount?: number;
+      filtersActive?: boolean;
       selectionIncludesUnauthenticatedMiner?: boolean;
       onSelectAll?: () => void;
       onSelectNone?: () => void;
@@ -48,6 +50,7 @@ const { mockMinerListActionBar } = vi.hoisted(() => ({
           <span data-testid="mock-miner-list-selection-includes-unauth">
             {String(Boolean(selectionIncludesUnauthenticatedMiner))}
           </span>
+          <span data-testid="mock-miner-list-filters-active">{String(Boolean(filtersActive))}</span>
           {onSelectAll ? (
             <button type="button" data-testid="mock-action-bar-select-all" onClick={onSelectAll}>
               Select all
@@ -81,6 +84,33 @@ vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu/Singl
 }));
 
 const mockGetActiveBatches = vi.fn(() => []);
+
+const installLocalStorageMock = () => {
+  const storage = new Map<string, string>();
+  const localStorageMock: Storage = {
+    get length() {
+      return storage.size;
+    },
+    clear: () => storage.clear(),
+    getItem: (key) => storage.get(key) ?? null,
+    key: (index) => Array.from(storage.keys())[index] ?? null,
+    removeItem: (key) => {
+      storage.delete(key);
+    },
+    setItem: (key, value) => {
+      storage.set(key, value);
+    },
+  };
+
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: localStorageMock,
+  });
+};
+
+if (typeof globalThis.localStorage === "undefined") {
+  installLocalStorageMock();
+}
 
 const createMinerSnapshot = (deviceIdentifier: string, pairingStatus = PairingStatus.PAIRED): MinerStateSnapshot =>
   create(MinerStateSnapshotSchema, {
@@ -306,6 +336,9 @@ describe("MinerList", () => {
       expect(
         screen.getByText("Choose which data to display and rearrange columns to match your workflow."),
       ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Close dialog" }).closest(".sticky")).toBeTruthy();
+      expect(screen.getByTestId("manage-columns-reset-button").closest(".sticky")).toBeTruthy();
+      expect(screen.getByTestId("manage-columns-save-button").closest(".sticky")).toBeTruthy();
       expect(screen.getByTestId("manage-columns-reorder-model").firstChild).toHaveClass("w-4", "h-4", "shrink-0");
     });
 
@@ -339,7 +372,7 @@ describe("MinerList", () => {
 
       await user.click(screen.getByRole("button", { name: "Manage columns" }));
       await user.click(screen.getByRole("checkbox", { name: "Toggle Model column" }));
-      await user.click(screen.getByRole("button", { name: "Save" }));
+      await user.click(screen.getByTestId("manage-columns-save-button"));
 
       expect(getColumnHeaders()).not.toContain("Model");
 
@@ -404,7 +437,7 @@ describe("MinerList", () => {
 
       expect(screen.getByRole("checkbox", { name: "Toggle Model column" })).toBeChecked();
 
-      await user.click(screen.getByRole("button", { name: "Save" }));
+      await user.click(screen.getByTestId("manage-columns-save-button"));
 
       expect(localStorage.getItem(getMinerTableColumnPreferencesStorageKey("bob"))).toBeNull();
     });
@@ -456,7 +489,7 @@ describe("MinerList", () => {
       });
 
       try {
-        await user.click(screen.getByRole("button", { name: "Save" }));
+        await user.click(screen.getByTestId("manage-columns-save-button"));
       } finally {
         setItemSpy.mockRestore();
       }
@@ -488,7 +521,7 @@ describe("MinerList", () => {
 
       await user.click(screen.getByRole("button", { name: "Manage columns" }));
       await user.click(screen.getByRole("checkbox", { name: "Toggle Model column" }));
-      await user.click(screen.getByRole("button", { name: "Save" }));
+      await user.click(screen.getByTestId("manage-columns-save-button"));
 
       expect(getColumnHeaders()).not.toContain("Model");
       expect(screen.getByTestId("location-display").textContent).toBe("");
@@ -621,8 +654,8 @@ describe("MinerList", () => {
       expect(getColumnHeaders()).not.toContain("Model");
 
       await user.click(screen.getByRole("button", { name: "Manage columns" }));
-      await user.click(screen.getByRole("button", { name: "Reset to defaults" }));
-      await user.click(screen.getByRole("button", { name: "Save" }));
+      await user.click(screen.getByTestId("manage-columns-reset-button"));
+      await user.click(screen.getByTestId("manage-columns-save-button"));
 
       expect(getColumnHeaders()).toContain("Model");
     });
@@ -656,14 +689,14 @@ describe("MinerList", () => {
       });
 
       await user.click(screen.getByRole("button", { name: "Manage columns" }));
-      await user.click(screen.getByRole("button", { name: "Reset to defaults" }));
+      await user.click(screen.getByTestId("manage-columns-reset-button"));
 
       const removeItemSpy = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
         throw new Error("storage denied");
       });
 
       try {
-        await user.click(screen.getByRole("button", { name: "Save" }));
+        await user.click(screen.getByTestId("manage-columns-save-button"));
       } finally {
         removeItemSpy.mockRestore();
       }
@@ -928,7 +961,7 @@ describe("MinerList", () => {
       expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("2");
     });
 
-    it("hides action-bar select controls when filters are active", async () => {
+    it("exposes action-bar select controls when filters are active", async () => {
       const user = userEvent.setup();
 
       renderMinerList(
@@ -947,10 +980,41 @@ describe("MinerList", () => {
       await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
 
       expect(screen.getByTestId("mock-miner-list-action-bar")).toBeInTheDocument();
-      expect(screen.queryByTestId("mock-action-bar-select-all")).not.toBeInTheDocument();
-      expect(screen.queryByTestId("mock-action-bar-select-none")).not.toBeInTheDocument();
+      expect(screen.getByTestId("mock-action-bar-select-all")).toBeInTheDocument();
+      expect(screen.getByTestId("mock-action-bar-select-none")).toBeInTheDocument();
+      expect(screen.getByTestId("mock-miner-list-filters-active")).toHaveTextContent("true");
       expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
       expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
+    });
+
+    it("selects the full filtered set (all mode, filtered totalCount) when Select all is clicked with filters active", async () => {
+      const user = userEvent.setup();
+
+      renderMinerList(
+        {
+          title: "Miners",
+          minerIds: ["m1", "m2"],
+          // Filtered total spans more than the visible page.
+          totalMiners: 37,
+          currentPage: 0,
+          onAddMiners: vi.fn(),
+          loading: false,
+        },
+        ["/?status=hashing"],
+      );
+
+      const rowCheckboxes = screen.getAllByTestId("checkbox");
+      await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
+      await user.click(screen.getByTestId("mock-action-bar-select-all"));
+
+      expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
+      // "all" mode reports the filtered total, not just the visible rows.
+      expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("37");
+      expect(screen.getByTestId("mock-miner-list-filters-active")).toHaveTextContent("true");
+
+      // Select none clears the selection, tearing the action bar back down.
+      await user.click(screen.getByTestId("mock-action-bar-select-none"));
+      expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
     });
 
     it("clears bulk selection when the page changes and does not restore it when returning", async () => {
@@ -1235,7 +1299,10 @@ describe("MinerList", () => {
         onAddMiners,
       });
 
-      expect(screen.getByText("You haven't paired any miners")).toBeInTheDocument();
+      expect(screen.getByText("You haven't paired any miners")).toHaveClass(
+        "text-heading-300",
+        "tablet:text-display-200",
+      );
       expect(screen.getByText("Add miners to your fleet to get started.")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Get started" })).toBeInTheDocument();
       // List header and "Add miners" button should not be visible when showing null state
@@ -1304,7 +1371,7 @@ describe("MinerList", () => {
       expect(screen.queryByText("You haven't paired any miners")).not.toBeInTheDocument();
       // Regular list view should be shown instead
       expect(screen.getByText("Miners")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Add miners" })).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: "Add miners" }).length).toBeGreaterThan(0);
     });
 
     it("shows the filtered empty state and clears filters when requested", async () => {

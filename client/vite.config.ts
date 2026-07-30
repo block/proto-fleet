@@ -22,7 +22,7 @@ const createModeConfig = (mode) => {
       emptyOutDir: true,
       outDir: resolve(_dirname, `dist/${mode}`),
       rollupOptions: {
-        input: `src/${mode}/index.html`,
+        input: resolve(src, mode, "index.html"),
         output: {
           manualChunks: (id: string) => {
             if (!id.includes("node_modules")) return;

@@ -240,11 +240,11 @@ const SiteResourcePanel = ({ siteId, activeSite }: SiteResourcePanelProps) => {
           // The measured viewport stays at content width (mx = card padding),
           // so the slide clamps with the last card flush to the content edge —
           // not the card edge — leaving the gutter clear at the end.
-          <div className="-mx-10 overflow-hidden phone:-mx-6" data-testid="site-resource-gallery">
+          <div className="-mx-10 -my-4 overflow-hidden py-4 phone:-mx-6" data-testid="site-resource-gallery">
             <div ref={carousel.viewportRef} className="mx-10 phone:mx-6">
               <div
                 ref={carousel.trackRef}
-                className="flex items-stretch gap-1 transition-transform duration-300 ease-out"
+                className="flex items-stretch gap-4 transition-transform duration-300 ease-out"
                 style={{ transform: `translateX(-${carousel.translatePx}px)` }}
               >
                 {renderGallery()}

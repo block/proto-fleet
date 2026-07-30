@@ -72,6 +72,35 @@ func (s *SQLSiteStore) GetSite(ctx context.Context, orgID, id int64) (*models.Si
 	return &out, nil
 }
 
+func (s *SQLSiteStore) GetInfrastructureControlSubnets(ctx context.Context, orgID, siteID int64) (string, error) {
+	value, err := s.GetQueries(ctx).GetInfrastructureControlSubnets(ctx, sqlc.GetInfrastructureControlSubnetsParams{
+		ID:    siteID,
+		OrgID: orgID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fleeterror.NewNotFoundErrorf("site %d not found", siteID)
+		}
+		return "", fleeterror.NewInternalErrorf("failed to get infrastructure control subnets: %v", err)
+	}
+	return value, nil
+}
+
+func (s *SQLSiteStore) SetInfrastructureControlSubnets(ctx context.Context, orgID, siteID int64, canonical string) (string, error) {
+	value, err := s.GetQueries(ctx).SetInfrastructureControlSubnets(ctx, sqlc.SetInfrastructureControlSubnetsParams{
+		InfrastructureControlSubnets: canonical,
+		ID:                           siteID,
+		OrgID:                        orgID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", fleeterror.NewNotFoundErrorf("site %d not found", siteID)
+		}
+		return "", fleeterror.NewInternalErrorf("failed to set infrastructure control subnets: %v", err)
+	}
+	return value, nil
+}
+
 func (s *SQLSiteStore) GetSiteBySlug(ctx context.Context, orgID int64, slug string) (*models.Site, error) {
 	row, err := s.GetQueries(ctx).GetSiteBySlug(ctx, sqlc.GetSiteBySlugParams{Slug: slug, OrgID: orgID})
 	if err != nil {
@@ -109,9 +138,10 @@ func (s *SQLSiteStore) ListSites(ctx context.Context, orgID int64) ([]models.Sit
 				CreatedAt:       row.CreatedAt,
 				UpdatedAt:       row.UpdatedAt,
 			},
-			DeviceCount:   row.DeviceCount,
-			BuildingCount: row.BuildingCount,
-			RackCount:     row.RackCount,
+			DeviceCount:               row.DeviceCount,
+			BuildingCount:             row.BuildingCount,
+			RackCount:                 row.RackCount,
+			InfrastructureDeviceCount: row.InfrastructureDeviceCount,
 		})
 	}
 	return out, nil
@@ -211,6 +241,17 @@ func (s *SQLSiteStore) DeleteCurtailmentResponseProfilesBySite(ctx context.Conte
 	return row.DeletedCount, nil
 }
 
+func (s *SQLSiteStore) CountCurtailmentResponseProfilesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountCurtailmentResponseProfilesBySite(ctx, sqlc.CountCurtailmentResponseProfilesBySiteParams{
+		OrgID:  orgID,
+		SiteID: zeroToNullInt64(siteID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count curtailment response profiles by site: %v", err)
+	}
+	return count, nil
+}
+
 func (s *SQLSiteStore) SoftDeleteBuildingsBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
 	rowsAffected, err := s.GetQueries(ctx).SoftDeleteBuildingsBySite(ctx, sqlc.SoftDeleteBuildingsBySiteParams{
 		OrgID:  orgID,
@@ -220,6 +261,95 @@ func (s *SQLSiteStore) SoftDeleteBuildingsBySite(ctx context.Context, orgID, sit
 		return 0, fleeterror.NewInternalErrorf("failed to soft-delete buildings: %v", err)
 	}
 	return rowsAffected, nil
+}
+
+func (s *SQLSiteStore) SoftDeleteInfrastructureDevicesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	rowsAffected, err := s.GetQueries(ctx).SoftDeleteInfrastructureDevicesBySite(ctx, sqlc.SoftDeleteInfrastructureDevicesBySiteParams{
+		OrgID:  orgID,
+		SiteID: siteID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to soft-delete infrastructure devices: %v", err)
+	}
+	return rowsAffected, nil
+}
+
+func (s *SQLSiteStore) LockInfrastructureDevicesBySiteForWrite(ctx context.Context, orgID, siteID int64) ([]int64, error) {
+	ids, err := s.GetQueries(ctx).LockInfrastructureDevicesBySiteForWrite(ctx, sqlc.LockInfrastructureDevicesBySiteForWriteParams{
+		OrgID:  orgID,
+		SiteID: siteID,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to lock infrastructure devices for site mutation: %v", err)
+	}
+	return ids, nil
+}
+
+func (s *SQLSiteStore) CountInfrastructureDevicesBySite(ctx context.Context, orgID, siteID int64) (int64, error) {
+	count, err := s.GetQueries(ctx).CountInfrastructureDevicesBySite(ctx, sqlc.CountInfrastructureDevicesBySiteParams{
+		OrgID:  orgID,
+		SiteID: siteID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count infrastructure devices by site: %v", err)
+	}
+	return count, nil
+}
+
+func (s *SQLSiteStore) CountResponseProfilesByInfrastructureDevices(ctx context.Context, orgID int64, ids []int64) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	count, err := s.GetQueries(ctx).CountResponseProfilesByInfrastructureDevices(ctx, sqlc.CountResponseProfilesByInfrastructureDevicesParams{
+		OrgID:                   orgID,
+		InfrastructureDeviceIds: ids,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count response profiles by infrastructure devices: %v", err)
+	}
+	return count, nil
+}
+
+func (s *SQLSiteStore) CountActiveCurtailmentEventsByInfrastructureDevices(
+	ctx context.Context,
+	orgID int64,
+	ids []int64,
+) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	count, err := s.GetQueries(ctx).CountActiveCurtailmentEventsByInfrastructureDevices(
+		ctx,
+		sqlc.CountActiveCurtailmentEventsByInfrastructureDevicesParams{
+			OrgID:                   orgID,
+			InfrastructureDeviceIds: ids,
+		},
+	)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count active curtailment events by infrastructure devices: %v", err)
+	}
+	return count, nil
+}
+
+func (s *SQLSiteStore) CountNonTerminalCurtailmentEventsByInfrastructureDevices(
+	ctx context.Context,
+	orgID int64,
+	ids []int64,
+) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	count, err := s.GetQueries(ctx).CountNonTerminalCurtailmentEventsByInfrastructureDevices(
+		ctx,
+		sqlc.CountNonTerminalCurtailmentEventsByInfrastructureDevicesParams{
+			OrgID:                   orgID,
+			InfrastructureDeviceIds: ids,
+		},
+	)
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to count non-terminal curtailment events by infrastructure devices: %v", err)
+	}
+	return count, nil
 }
 
 func (s *SQLSiteStore) UnassignRacksFromSite(ctx context.Context, orgID, siteID int64) (int64, error) {

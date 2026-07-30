@@ -19,7 +19,7 @@ func NewSQLFleetNodePairingStore(conn *sql.DB) *SQLFleetNodePairingStore {
 	return &SQLFleetNodePairingStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
 }
 
-func (s *SQLFleetNodePairingStore) q(ctx context.Context) *sqlc.Queries {
+func (s *SQLFleetNodePairingStore) q(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
 }
 

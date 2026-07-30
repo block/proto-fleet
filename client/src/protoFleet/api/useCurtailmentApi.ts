@@ -300,6 +300,23 @@ function getActiveHistoryEvent(
       estimatedReductionKw: matchingHistoryEvent.estimatedReductionKw,
       targetKw: matchingHistoryEvent.targetKw,
       targetMetricsAvailable: true,
+      estimatedReductionAvailable: matchingHistoryEvent.estimatedReductionAvailable,
+      sourceLabel: matchingHistoryEvent.sourceLabel,
+    };
+  }
+
+  // Summary-only active rows prove live counts but not a kW estimate; keep
+  // the live count and backfill the estimate from the server history row's
+  // audit snapshot when it has one.
+  if (
+    mappedActiveEvent.estimatedReductionAvailable === false &&
+    matchingHistoryEvent.targetMetricsAvailable &&
+    matchingHistoryEvent.estimatedReductionAvailable !== false
+  ) {
+    return {
+      ...mappedActiveEvent,
+      estimatedReductionKw: matchingHistoryEvent.estimatedReductionKw,
+      estimatedReductionAvailable: true,
       sourceLabel: matchingHistoryEvent.sourceLabel,
     };
   }
@@ -492,6 +509,10 @@ function reconcileActiveEventWithHistory(
     endedAt: matchingHistoryEvent.endedAt ?? activeEvent.endedAt,
     updatedAt: matchingHistoryEvent.updatedAt ?? activeEvent.updatedAt,
     targetRollup: matchingHistoryEvent.targetRollup,
+    fanOffSentAt: matchingHistoryEvent.fanOffSentAt,
+    fanOnSentAt: matchingHistoryEvent.fanOnSentAt,
+    fanAirflowReopenedAt: matchingHistoryEvent.fanAirflowReopenedAt,
+    fanLastError: matchingHistoryEvent.fanLastError,
     targets,
   });
 }

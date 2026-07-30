@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -33,18 +34,21 @@ type ChannelTester interface {
 type Service struct {
 	grafana  *Grafana
 	channels ChannelStore
+	routes   RouteStore
 	crypto   Cipher
 	tester   ChannelTester
 	policy   DestinationPolicy
 	now      func() time.Time
+	// Serializes user-rule creation so the quota read-then-create can't race.
+	userRuleMu sync.Mutex
 }
 
 type DestinationPolicy struct {
 	AllowPrivateDestinations bool `help:"Allow alert destinations (webhook URLs, SMTP hosts) that resolve to loopback, link-local, or private network ranges. Enable for dev stacks or deployments whose relays live on internal addresses." default:"false" env:"ALLOW_PRIVATE_DESTINATIONS"`
 }
 
-func NewService(g *Grafana, channels ChannelStore, crypto Cipher, tester ChannelTester, policy DestinationPolicy) *Service {
-	return &Service{grafana: g, channels: channels, crypto: crypto, tester: tester, policy: policy, now: time.Now}
+func NewService(g *Grafana, channels ChannelStore, routes RouteStore, crypto Cipher, tester ChannelTester, policy DestinationPolicy) *Service {
+	return &Service{grafana: g, channels: channels, routes: routes, crypto: crypto, tester: tester, policy: policy, now: time.Now}
 }
 
 var ErrZeroOrgID = errors.New("alerts: organization id is required")
@@ -483,6 +487,48 @@ func isReservedIP(ip net.IP) bool {
 }
 
 func (s *Service) ListRules(ctx context.Context, orgID int64) ([]Rule, error) {
+	out, err := s.listVisibleRules(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	// Fail closed here (unlike the requireRule gate): rendering routed rules as default would mislead operators.
+	if err := s.attachRouting(ctx, orgID, out); err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Group != out[j].Group {
+			return out[i].Group < out[j].Group
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
+}
+
+// listVisibleRules is the routing-free listing shared by requireRule: rule-targeted actions
+// (pause, resume, maintenance windows) must keep working while the route-policy table is unreadable.
+func (s *Service) listVisibleRules(ctx context.Context, orgID int64) ([]Rule, error) {
+	out, err := s.visibleRulesNoPauseState(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	// Fail closed: without pause-silence state we can't trust the Enabled flag, so error
+	// rather than render a muted rule as enabled.
+	paused, err := s.pauseSilencedRules(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if paused[out[i].ID] {
+			out[i].Enabled = false
+		}
+	}
+	return out, nil
+}
+
+// visibleRulesNoPauseState lists the org's visible rules without the pause-silence overlay,
+// so silence-independent mutations (routing) stay available during a silence-API outage.
+// Enabled may read true for a paused rule; callers owning a response must re-apply pause state.
+func (s *Service) visibleRulesNoPauseState(ctx context.Context, orgID int64) ([]Rule, error) {
 	if err := requireOrg(orgID); err != nil {
 		return nil, err
 	}
@@ -498,23 +544,6 @@ func (s *Service) ListRules(ctx context.Context, orgID int64) ([]Rule, error) {
 		}
 		out = append(out, grafanaRuleToDomain(orgID, gr))
 	}
-	// Fail closed: without pause-silence state we can't trust the Enabled flag, so error
-	// rather than render a muted rule as enabled.
-	paused, err := s.pauseSilencedRules(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-	for i := range out {
-		if paused[out[i].ID] {
-			out[i].Enabled = false
-		}
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Group != out[j].Group {
-			return out[i].Group < out[j].Group
-		}
-		return out[i].Name < out[j].Name
-	})
 	return out, nil
 }
 
@@ -528,15 +557,50 @@ func (s *Service) PauseRule(ctx context.Context, orgID int64, id, actor string) 
 		return nil, err
 	}
 	if !rule.Enabled {
+		// The no-op response is upserted by the client like any other: without decoration its
+		// nil routing serializes as an explicit DEFAULT and overwrites the real policy client-side.
+		s.attachRoutingBestEffort(ctx, orgID, rule)
 		return rule, nil
 	}
 	silence := buildPauseSilence(orgID, id, actor, s.now())
-	if _, err := s.grafana.PutSilence(ctx, silence); err != nil {
+	silenceID, err := s.grafana.PutSilence(ctx, silence)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.confirmRuleSilenceTarget(ctx, id, silenceID, true); err != nil {
 		return nil, err
 	}
 	out := *rule
 	out.Enabled = false
+	s.attachRoutingBestEffort(ctx, orgID, &out)
 	return &out, nil
+}
+
+// confirmRuleSilenceTarget undoes a silence written concurrently with its
+// target rule's deletion: the delete's sweep cannot see a silence written
+// after it ran, so whichever side runs last performs the cleanup. rollbackNew
+// deletes a NEWLY created silence when the check is inconclusive, so a retry
+// can't duplicate it; updates pass false — their edit replaced the previous
+// silence already, and deleting it would lift planned suppression entirely
+// (an update retry converges without duplicating).
+func (s *Service) confirmRuleSilenceTarget(ctx context.Context, ruleID, silenceID string, rollbackNew bool) error {
+	_, err := s.grafana.GetAlertRule(ctx, ruleID)
+	if err == nil {
+		return nil
+	}
+	if !IsNotFound(err) {
+		if rollbackNew {
+			if derr := s.grafana.DeleteSilence(ctx, silenceID); derr != nil && !IsNotFound(derr) {
+				slog.Warn("alerts.silence_rollback_failed", "rule_id", ruleID, "silence_id", silenceID, "error", derr)
+			}
+		}
+		return err
+	}
+	// Rule gone: the silence must die regardless of create-vs-update.
+	if derr := s.grafana.DeleteSilence(ctx, silenceID); derr != nil && !IsNotFound(derr) {
+		return derr
+	}
+	return ErrNotFound
 }
 
 // Clears any active pause silence; a YAML-provisioned isPaused still keeps the rule paused.
@@ -548,37 +612,66 @@ func (s *Service) ResumeRule(ctx context.Context, orgID int64, id string) (*Rule
 	if err != nil {
 		return nil, err
 	}
-	want := strconv.FormatInt(orgID, 10)
-	sils, err := s.grafana.ListSilences(ctx)
+	if err := s.removeSilencesTargetingRule(ctx, orgID, id, isPauseSilence); err != nil {
+		return nil, err
+	}
+	updated, err := s.requireRule(ctx, orgID, id)
 	if err != nil {
 		return nil, err
 	}
+	s.attachRoutingBestEffort(ctx, orgID, updated)
+	return updated, nil
+}
+
+// removeSilencesTargetingRule deletes the org's non-expired silences pinned to
+// the rule that also satisfy match (e.g. pause-only for resume, pause-or-
+// maintenance-window for rule deletion).
+func (s *Service) removeSilencesTargetingRule(ctx context.Context, orgID int64, id string, match func(GrafanaSilence) bool) error {
+	want := strconv.FormatInt(orgID, 10)
+	sils, err := s.grafana.ListSilences(ctx)
+	if err != nil {
+		return err
+	}
 	for _, sil := range sils {
-		if !isPauseSilenceFor(sil, want, id) {
+		if !match(sil) || !silenceMatchesOrg(sil, want) || !silenceTargetsRule(sil, id) {
 			continue
 		}
 		if sil.Status != nil && sil.Status.State == "expired" {
 			continue
 		}
 		if err := s.grafana.DeleteSilence(ctx, sil.ID); err != nil && !IsNotFound(err) {
-			return nil, err
+			return err
 		}
 	}
-	updated, err := s.requireRule(ctx, orgID, id)
-	if err != nil {
-		return nil, err
-	}
-	return updated, nil
+	return nil
 }
 
+// requireRule is the routing-free visibility gate: it must not couple rule actions to route-policy reads.
 func (s *Service) requireRule(ctx context.Context, orgID int64, id string) (*Rule, error) {
 	if id == "" {
 		return nil, errors.New("rule id is required")
 	}
-	rules, err := s.ListRules(ctx, orgID)
+	rules, err := s.listVisibleRules(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
+	return findRuleByID(rules, id)
+}
+
+// requireVisibleRule is requireRule minus the pause-silence read: same uniform NotFound, but
+// usable during a silence-API outage. The caller owns re-applying pause state to any response.
+func (s *Service) requireVisibleRule(ctx context.Context, orgID int64, id string) (*Rule, error) {
+	if id == "" {
+		return nil, errors.New("rule id is required")
+	}
+	rules, err := s.visibleRulesNoPauseState(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	return findRuleByID(rules, id)
+}
+
+func findRuleByID(rules []Rule, id string) (*Rule, error) {
 	for i := range rules {
 		if rules[i].ID == id {
 			return &rules[i], nil
@@ -672,6 +765,11 @@ func (s *Service) CreateMaintenanceWindow(ctx context.Context, orgID int64, sil 
 	if err != nil {
 		return nil, err
 	}
+	if sil.Scope.Kind == MaintenanceWindowScopeRule && sil.Scope.RuleID != "" {
+		if err := s.confirmRuleSilenceTarget(ctx, sil.Scope.RuleID, id, true); err != nil {
+			return nil, err
+		}
+	}
 	sil.ID = id
 	sil.Active = maintenanceWindowActive(sil, s.now())
 	return &sil, nil
@@ -719,6 +817,13 @@ func (s *Service) UpdateMaintenanceWindow(ctx context.Context, orgID int64, sil 
 	id, err := s.grafana.PutSilence(ctx, gs)
 	if err != nil {
 		return nil, err
+	}
+	if sil.Scope.Kind == MaintenanceWindowScopeRule && sil.Scope.RuleID != "" {
+		// rollbackNew=false: this PUT replaced the previous silence, so deleting
+		// it on an inconclusive check would lift planned suppression entirely.
+		if err := s.confirmRuleSilenceTarget(ctx, sil.Scope.RuleID, id, false); err != nil {
+			return nil, err
+		}
 	}
 	sil.ID = id
 	sil.Active = maintenanceWindowActive(sil, s.now())
@@ -907,6 +1012,10 @@ func isPauseSilenceFor(sil GrafanaSilence, wantOrgID, ruleID string) bool {
 	if !silenceMatchesOrg(sil, wantOrgID) {
 		return false
 	}
+	return silenceTargetsRule(sil, ruleID)
+}
+
+func silenceTargetsRule(sil GrafanaSilence, ruleID string) bool {
 	for _, m := range sil.Matchers {
 		if m.Name == alertRuleUIDMatcher && m.Value == ruleID && m.IsEqual && !m.IsRegex {
 			return true
@@ -916,6 +1025,16 @@ func isPauseSilenceFor(sil GrafanaSilence, wantOrgID, ruleID string) bool {
 }
 
 const ruleLabelOrganizationID = "organization_id"
+
+// Shared rule→alert-instance label contract; the webhook ingest and history
+// rendering read the same keys, so writers must not inline the literals.
+const (
+	ruleLabelSeverity  = "severity"
+	ruleLabelTemplate  = "template"
+	ruleLabelRuleGroup = "rule_group"
+	// Primary rule identity for delivery routing; generatorURL parsing is the fallback for rules compiled before it existed.
+	ruleLabelRuleUID = "proto_fleet_rule_uid"
+)
 
 // Rule visibility is fail-closed and driven by proto_fleet_scope: shared rules are visible to
 // every org (shared platform defaults), internal rules are hidden from all orgs (operator-only
@@ -965,14 +1084,34 @@ func grafanaRuleToDomain(orgID int64, r GrafanaAlertRule) Rule {
 		Group:           r.RuleGroup,
 		Enabled:         !r.IsPaused,
 		DurationSeconds: parseDurationSeconds(r.For),
+		Origin:          RuleOriginProvisioned,
 	}
 	if r.Labels != nil {
-		out.Template = templateFromLabel(r.Labels["template"])
-		out.Severity = r.Labels["severity"]
+		out.Template = templateFromLabel(r.Labels[ruleLabelTemplate])
+		out.Severity = r.Labels[ruleLabelSeverity]
+		if r.Labels[ruleLabelOrigin] == ruleOriginUser {
+			out.Origin = RuleOriginUser
+		}
+		// User rules live in per-rule Grafana groups (see compileUserRule); the
+		// label carries the stable per-org grouping the UI sorts by.
+		if group := r.Labels[ruleLabelRuleGroup]; group != "" {
+			out.Group = group
+		}
 	}
 	if r.Annotations != nil {
 		out.Summary = r.Annotations["summary"]
 		out.Description = r.Annotations["description"]
+		if raw := r.Annotations[ruleAnnotationConfig]; raw != "" {
+			var cfg RuleConfig
+			err := json.Unmarshal([]byte(raw), &cfg)
+			// A config that fails validation or disagrees with the template label
+			// must not round-trip into the editor (the client hides Edit on nil).
+			if err == nil && validateRuleConfig(cfg) == nil && cfg.Template() == out.Template {
+				out.Config = &cfg
+			} else {
+				slog.Warn("alerts.rule_config_invalid", "rule_uid", r.UID, "error", err)
+			}
+		}
 	}
 	return out
 }
@@ -991,15 +1130,32 @@ func templateFromLabel(label string) RuleTemplate {
 		return RuleTemplateCommandFailure
 	case "telemetry-poll":
 		return RuleTemplateTelemetryPoll
+	case "mqtt-curtailment":
+		return RuleTemplateMQTTCurtailment
+	case "mqtt-disconnected":
+		return RuleTemplateMQTTDisconnected
 	}
 	return ""
 }
+
+// Grafana echoes `for` as a Prometheus duration ("1d", "2w"), whose d/w/y
+// units time.ParseDuration rejects; normalize them to hours before parsing.
+var promLongDurationUnits = regexp.MustCompile(`(\d+)(y|w|d)`)
 
 func parseDurationSeconds(s string) int32 {
 	if s == "" {
 		return 0
 	}
-	d, err := time.ParseDuration(s)
+	norm := promLongDurationUnits.ReplaceAllStringFunc(s, func(m string) string {
+		sub := promLongDurationUnits.FindStringSubmatch(m)
+		n, err := strconv.ParseInt(sub[1], 10, 64)
+		if err != nil {
+			return m
+		}
+		hours := map[string]int64{"y": 8760, "w": 168, "d": 24}[sub[2]]
+		return strconv.FormatInt(n*hours, 10) + "h"
+	})
+	d, err := time.ParseDuration(norm)
 	if err != nil {
 		return 0
 	}

@@ -38,7 +38,7 @@ func NewSQLErrorStore(conn *sql.DB, transactor interfaces.Transactor) *SQLErrorS
 	}
 }
 
-func (s *SQLErrorStore) getQueries(ctx context.Context) *sqlc.Queries {
+func (s *SQLErrorStore) getQueries(ctx context.Context) sqlc.Querier {
 	return s.GetQueries(ctx)
 }
 
@@ -102,7 +102,7 @@ func (s *SQLErrorStore) UpsertError(ctx context.Context, orgID int64, deviceIden
 
 func (s *SQLErrorStore) insertNewError(
 	ctx context.Context,
-	q *sqlc.Queries,
+	q sqlc.Querier,
 	orgID int64,
 	deviceID int64,
 	errMsg *models.ErrorMessage,
@@ -148,7 +148,7 @@ func (s *SQLErrorStore) insertNewError(
 
 func (s *SQLErrorStore) updateExistingError(
 	ctx context.Context,
-	q *sqlc.Queries,
+	q sqlc.Querier,
 	orgID int64,
 	existingError *sqlc.Error,
 	errMsg *models.ErrorMessage,

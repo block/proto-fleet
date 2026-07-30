@@ -1,7 +1,10 @@
 package alerts
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -80,4 +83,96 @@ func TestRedactSecretsNonJSONIsNotPassedThrough(t *testing.T) {
 	assert.NotContains(t, out, "sk-secret")
 	assert.Contains(t, out, "non-JSON response body omitted")
 	assert.Equal(t, "", redactSecrets(nil))
+}
+
+// grafanaFolderFake serves the two folder endpoints EnsureFolder touches.
+type grafanaFolderFake struct {
+	getStatus    int
+	postStatus   int
+	createdUID   string
+	createdTitle string
+	createdCalls int
+}
+
+func (f *grafanaFolderFake) client(t *testing.T) *Grafana {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/folders/{uid}", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(f.getStatus)
+		switch f.getStatus {
+		case http.StatusOK:
+			_, _ = w.Write([]byte(`{"uid":"u","title":"t"}`))
+		case http.StatusForbidden:
+			// Grafana 13's fail-closed body for non-admins when the folder does not exist.
+			_, _ = w.Write([]byte(`{"accessErrorId":"ACE123","message":"You'll need additional permissions to perform this action. Permissions needed: folders:read","title":"Access denied"}`))
+		case http.StatusNotFound:
+			_, _ = w.Write([]byte(`{"message":"folder not found"}`))
+		default:
+			_, _ = w.Write([]byte(`{"message":"boom"}`))
+		}
+	})
+	mux.HandleFunc("POST /api/folders", func(w http.ResponseWriter, r *http.Request) {
+		f.createdCalls++
+		var folder GrafanaFolder
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&folder))
+		f.createdUID = folder.UID
+		f.createdTitle = folder.Title
+		w.Header().Set("Content-Type", "application/json")
+		// Cases that must not create leave postStatus zero; answer 500 so createdCalls fails the test cleanly instead of WriteHeader(0) panicking.
+		if f.postStatus == 0 {
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"unexpected folder create"}`))
+			return
+		}
+		w.WriteHeader(f.postStatus)
+		if f.postStatus == http.StatusOK {
+			// The real create echoes the folder back.
+			_ = json.NewEncoder(w).Encode(folder)
+			return
+		}
+		_, _ = w.Write([]byte(`{"message":"x"}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return NewGrafana(GrafanaConfig{URL: srv.URL})
+}
+
+func TestEnsureFolder(t *testing.T) {
+	cases := []struct {
+		name       string
+		getStatus  int
+		postStatus int
+		wantErr    string
+		wantCreate bool
+	}{
+		{"already exists", http.StatusOK, 0, "", false},
+		{"missing then created", http.StatusNotFound, http.StatusOK, "", true},
+		// Grafana 13 returns 403 folders:read (not 404) to non-admins for a missing folder.
+		{"forbidden probe then created", http.StatusForbidden, http.StatusOK, "", true},
+		{"forbidden probe, concurrent create conflict", http.StatusForbidden, http.StatusConflict, "", true},
+		{"forbidden probe, create 412 tolerated as conflict", http.StatusForbidden, http.StatusPreconditionFailed, "", true},
+		{"forbidden probe, create also forbidden", http.StatusForbidden, http.StatusForbidden, "create folder", true},
+		// 401 means bad credentials, not fail-closed absence: it must stay on the loud probe error and never attempt a create.
+		{"unauthorized probe", http.StatusUnauthorized, 0, "get folder", false},
+		{"probe server error", http.StatusInternalServerError, 0, "get folder", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &grafanaFolderFake{getStatus: tc.getStatus, postStatus: tc.postStatus}
+			err := fake.client(t).EnsureFolder(context.Background(), "proto-fleet-user-7", "Proto Fleet User Rules (org 7)")
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			if tc.wantCreate {
+				assert.Equal(t, 1, fake.createdCalls)
+				assert.Equal(t, "proto-fleet-user-7", fake.createdUID)
+				assert.Equal(t, "Proto Fleet User Rules (org 7)", fake.createdTitle)
+			} else {
+				assert.Zero(t, fake.createdCalls)
+			}
+		})
+	}
 }

@@ -17,6 +17,7 @@ enum error_cause {
     BOARD_OVER_VOLTAGE = 2;
     BOARD_UNDER_VOLTAGE = 3;
     BOARD_OVER_TEMPERATURE = 4;
+    BOARD_POWER_SUPPLY = 5;
 
     // ASIC errors
     ASIC_OVER_VOLTAGE = 10;
@@ -26,9 +27,17 @@ enum error_cause {
     ASIC_ENUMERATION = 14;
     ASIC_ECC = 15;
 
+    // Stack errors
+    STACK_ENUMERATION = 30;
+
     // Software errors
     SOFTWARE_ERROR = 20;
     USB_ERROR = 21;
+    MC3_STARTUP_TIMEOUT = 22;
+    MC3_STARTUP_FAILED = 23;
+    MC3_NO_STACK_RUNNING = 24;
+    MC3_RUNTIME_COMMS_BUSY_TIMEOUT = 25;
+    MC3_KNOWN_GOOD_STARTUP_DROP = 26;
 
     // Unknown errors
     UNKNOWN_ERROR = 99;
@@ -47,6 +56,12 @@ enum voltage_domain {
     // MC3 Cross domain voltage limits
     VDD_VDDI1 = 5;
     VDDI3_VSS = 6;
+}
+
+enum power_supply_type {
+    POWER_SUPPLY_TYPE_UNKNOWN = 0;
+    POWER_SUPPLY_TYPE_BOCO = 1;
+    POWER_SUPPLY_TYPE_WELLTIP = 2;
 }
 
 message asic_error_state {
@@ -73,6 +88,9 @@ message hashboard_error {
 
     // For ASIC errors, the state of the ASIC causing the error
     asic_error_state asic = 3;
+
+    // For stack-level ASIC errors, the physical stack index causing the error.
+    optional uint32 stack = 4;
 }
 
 message async_system_health {
@@ -124,10 +142,13 @@ message async_system_health {
     // True if the disciplined clock is synchronised to server time.
     bool time_synced = 16;
 
+    // The detected board power supply type.
+    power_supply_type power_supply_type = 17;
+
     // Optional: The cause of the error if the mining state is MINING_STATE_ERROR
     repeated hashboard_error errors = 99;
 
-    // Transient warnings (auto-clearing, sent once per occurrence)
+    // Warning conditions. Entries can be transient or latched until the condition is reset.
     repeated hashboard_error warnings = 100;
 }
 
@@ -167,13 +188,15 @@ message asic_status {
 
 message asic_debug_status {
     // Ulink ECC (MC3 only)
-    uint32 uecc0 = 1;
-    uint32 uecc1 = 2;
-    uint32 uecc2 = 3;
+    // uint32 uecc0 = 1;
+    // uint32 uecc1 = 2;
+    // uint32 uecc2 = 3;
 
     float vddi1 = 4;
     float vddi2 = 5;
     float vddi3 = 6;
+    float vss = 7;
+    float vdd = 8;
 }
 
 message async_asic_health {
@@ -198,6 +221,7 @@ enum hashboard_async_message_type {
     ASYNC_SYSTEM_HEALTH = 2;
     ASYNC_ASIC_HEALTH = 100;
     ASYNC_MINING_NONCE = 101;
+    ASYNC_ASIC_DEBUG_HEALTH = 102;
 }
 
 message hashboard_async {
