@@ -421,6 +421,9 @@ const FleetCreateFlowProvider = ({
           scopedSiteId={scopedSiteId}
           onDismiss={closeRackFlow}
           onSave={handleRackSaved}
+          // Membership commits land while this modal is open; pulse the lists so
+          // they're right even if the operator dismisses without positioning.
+          onSettingsPersisted={bumpEntities}
         />
       ) : null}
       {rackCreateConflict ? (

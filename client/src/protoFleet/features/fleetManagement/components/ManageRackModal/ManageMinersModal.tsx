@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { type MinerListFilter } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import MinerSelectionList, {
@@ -11,6 +11,11 @@ import { FLEET_VISIBLE_PAIRING_STATUSES } from "@/protoFleet/features/fleetManag
 import { Alert } from "@/shared/assets/icons";
 import Callout from "@/shared/components/Callout";
 import Modal from "@/shared/components/Modal";
+
+interface SelectionSnapshot {
+  selectedItems: string[];
+  allSelected: boolean;
+}
 
 interface ManageMinersModalProps {
   show: boolean;
@@ -38,6 +43,8 @@ interface ManageMinersModalProps {
     filter: MinerListFilter | undefined,
     reassignedItems: string[],
   ) => Promise<string | undefined>;
+  // In-flight signal from the host's write, mirrored into the CTA.
+  saving?: boolean;
 }
 
 export default function ManageMinersModal({
@@ -49,11 +56,44 @@ export default function ManageMinersModal({
   scope,
   onDismiss,
   onConfirm,
+  saving = false,
 }: ManageMinersModalProps) {
   const selectionRef = useRef<MinerSelectionListHandle>(null);
   const [overflowError, setOverflowError] = useState("");
+  // Mirrors the list's selection so Save can be gated on a real change. The
+  // list reports its seeded selection on mount, so this is populated before the
+  // operator touches anything.
+  const [selection, setSelection] = useState<{ selectedItems: string[]; allSelected: boolean } | null>(null);
 
-  const handleContinue = useCallback(async () => {
+  // Keeps the previous object when the selection is equivalent, so React bails
+  // out of the re-render. Without that, the list re-reports on every render (its
+  // notify effect depends on the array's identity) and we'd loop forever.
+  const handleSelectionChange = useCallback(({ selectedItems, allSelected }: SelectionSnapshot) => {
+    setSelection((prev) => {
+      if (
+        prev &&
+        prev.allSelected === allSelected &&
+        prev.selectedItems.length === selectedItems.length &&
+        prev.selectedItems.every((id, i) => id === selectedItems[i])
+      ) {
+        return prev;
+      }
+      return { selectedItems, allSelected };
+    });
+  }, []);
+
+  // Save writes the membership delta, so it's disabled when the selection still
+  // matches what's in the rack. "Select all" resolves server-side, so it can't
+  // be compared here and always counts as a change.
+  const isDirty = useMemo(() => {
+    if (!selection) return false;
+    if (selection.allSelected) return true;
+    if (selection.selectedItems.length !== currentRackMiners.length) return true;
+    const current = new Set(currentRackMiners);
+    return selection.selectedItems.some((id) => !current.has(id));
+  }, [selection, currentRackMiners]);
+
+  const handleSave = useCallback(async () => {
     const selection = selectionRef.current?.getSelection();
     if (!selection) return;
 
@@ -96,9 +136,12 @@ export default function ManageMinersModal({
       divider={false}
       buttons={[
         {
-          text: "Continue",
+          // Names the write it makes: this picker owns rack membership.
+          text: saving ? "Saving..." : "Save",
           variant: "primary",
-          onClick: handleContinue,
+          disabled: saving || !isDirty,
+          loading: saving,
+          onClick: handleSave,
           dismissModalOnClick: false,
         },
       ]}
@@ -124,6 +167,7 @@ export default function ManageMinersModal({
           }}
           scope={scope}
           initialSelectedItems={currentRackMiners}
+          onSelectionChange={handleSelectionChange}
           eligibility={eligibility}
           targetRackLabel={targetRackLabel}
           pairingStatuses={FLEET_VISIBLE_PAIRING_STATUSES}

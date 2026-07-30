@@ -27,8 +27,10 @@ interface ScanMinerQrModalProps {
   /** `isReassignment` is true when the scanned miner is currently assigned to a
    *  different rack/building/site, so the caller can confirm the reparent. */
   onConfirm: (deviceIdentifier: string, isReassignment: boolean) => void;
-  onAssign: (deviceIdentifier: string) => ScanAssignmentResult | null;
-  onUndoAssignment: () => void;
+  // Both commit: assigning writes the miner into the rack, undoing takes it
+  // back out. Awaited so the "assigned" phase only shows once it landed.
+  onAssign: (deviceIdentifier: string) => Promise<ScanAssignmentResult | null>;
+  onUndoAssignment: () => Promise<void>;
   onScanNextSlot: () => boolean;
 }
 
@@ -133,7 +135,7 @@ export default function ScanMinerQrModal({
         return;
       }
 
-      const assignment = onAssign(snapshot.deviceIdentifier);
+      const assignment = await onAssign(snapshot.deviceIdentifier);
       if (!assignment) {
         setPhase({ kind: "error", message: "Select a rack slot, then scan a miner." });
         return;
@@ -194,11 +196,11 @@ export default function ScanMinerQrModal({
     [detectFromBlob, runLookup],
   );
 
-  const handleConfirm = useCallback(() => {
+  const handleConfirm = useCallback(async () => {
     if (phase.kind === "found") {
       const isReassignment = isMinerSnapshotIneligible(phase.snapshot, eligibility);
       if (phase.requiresConfirmation && !isReassignment) {
-        const assignment = onAssign(phase.snapshot.deviceIdentifier);
+        const assignment = await onAssign(phase.snapshot.deviceIdentifier);
         if (!assignment) {
           setPhase({ kind: "error", message: "Select a rack slot, then scan a miner." });
           return;
@@ -217,8 +219,8 @@ export default function ScanMinerQrModal({
     }
   }, [phase, onAssign, onConfirm, eligibility]);
 
-  const handleUndoAssignment = useCallback(() => {
-    onUndoAssignment();
+  const handleUndoAssignment = useCallback(async () => {
+    await onUndoAssignment();
     rescan();
   }, [onUndoAssignment, rescan]);
 
@@ -239,8 +241,8 @@ export default function ScanMinerQrModal({
       cameraError={errorMessage}
       fileInputRef={fileInputRef}
       onDismiss={onDismiss}
-      onConfirmFound={handleConfirm}
-      onUndoAssignment={handleUndoAssignment}
+      onConfirmFound={() => void handleConfirm()}
+      onUndoAssignment={() => void handleUndoAssignment()}
       onScanNextSlot={handleScanNextSlot}
       onRescan={rescan}
       onFile={handleFile}
