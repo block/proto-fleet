@@ -991,9 +991,10 @@ func TestAssignDevicesToRack_CarriesSlotAssignments(t *testing.T) {
 	h.collectionStore.EXPECT().
 		CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).
 		Return(int64(0), nil)
+	// d1 is placed at (1,2). d2 is named with no position, so it is cleared
+	// and left off the grid — the wire form of "in the rack, unplaced".
 	h.collectionStore.EXPECT().ClearRackSlotPosition(gomock.Any(), targetRackID, "d1", testOrgID).Return(nil)
 	h.collectionStore.EXPECT().ClearRackSlotPosition(gomock.Any(), targetRackID, "d2", testOrgID).Return(nil)
-	// d1 is placed at (1,2); d2 carries no entry, so it stays unplaced.
 	h.collectionStore.EXPECT().
 		SetRackSlotPosition(gomock.Any(), targetRackID, "d1", int32(1), int32(2), testOrgID).
 		Return(nil)
@@ -1001,10 +1002,10 @@ func TestAssignDevicesToRack_CarriesSlotAssignments(t *testing.T) {
 	resp, err := h.handler.AssignDevicesToRack(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToRackRequest{
 		TargetRackId:   &targetRackID,
 		DeviceSelector: deviceListSelector(deviceIDs...),
-		SlotAssignments: []*dspb.RackSlot{{
-			DeviceIdentifier: "d1",
-			Position:         &dspb.RackSlotPosition{Row: 1, Column: 2},
-		}},
+		SlotAssignments: []*dspb.RackSlot{
+			{DeviceIdentifier: "d1", Position: &dspb.RackSlotPosition{Row: 1, Column: 2}},
+			{DeviceIdentifier: "d2"},
+		},
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), resp.Msg.AssignedCount)

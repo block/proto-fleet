@@ -3256,22 +3256,22 @@ type AssignDevicesToRackRequest struct {
 	// position_in_aisle: the batch names only the devices it is changing,
 	// and each named device ends up either placed or explicitly unplaced.
 	//
-	// Empty (the default): slot positions are left untouched. A device
-	// already in the target rack keeps its slot; a device arriving from
-	// another rack starts unplaced, because its old slot died with its
-	// old membership.
+	// Per entry: `position` set places the device there, `position` unset
+	// CLEARS its slot. A device not named here is untouched, so one call
+	// can mix placed, unplaced and left-alone miners. Every named device
+	// is cleared before any position is written, which is what lets a
+	// relayout swap two occupied cells without tripping
+	// uk_rack_slot_position mid-batch.
 	//
-	// Non-empty: authoritative for every device in
-	// device_selector.device_list. A device with an entry here is placed
-	// at that position; a device in the selector with NO entry has its
-	// slot cleared. That is what lets one call mix placed and unplaced
-	// miners — and what lets a pure relayout swap two occupied slots,
-	// since the whole batch is cleared before any position is set.
+	// Empty (the default): no slot is written at all. A device already in
+	// the target rack keeps its slot; a device arriving from another rack
+	// starts unplaced, because its old slot died with its old membership.
 	//
-	// Every entry must name a device present in device_selector, and no
-	// two entries may share a device or a position. Positions are bounds
-	// checked against the target rack's rows/columns. Requires
-	// target_rack_id: an unassign has no rack to place into.
+	// Every entry must name a device present in device_selector — a slot
+	// needs a membership row to hang off — and no two entries may share a
+	// device or a position. Positions are bounds checked against the
+	// target rack's rows/columns. Requires target_rack_id: an unassign has
+	// no rack to place into.
 	SlotAssignments []*RackSlot `protobuf:"bytes,4,rep,name=slot_assignments,json=slotAssignments,proto3" json:"slot_assignments,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
