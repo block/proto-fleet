@@ -50,6 +50,12 @@ bash <(curl -fsSL https://fleet.proto.xyz/install.sh)
 bash <(curl -fsSL https://fleet.proto.xyz/install.sh) v0.1.0
 ```
 
+On Linux/systemd hosts with rootful Docker, this install also bootstraps the
+host updater. Future eligible releases can then be confirmed and installed
+from ProtoFleet's update prompt; unsupported hosts keep the copy-paste command
+fallback. See [deployment-files/README.md](deployment-files/README.md#one-click-upgrades)
+for supported hosts, validation behavior, logs, and recovery.
+
 #### Uninstall
 
 ```bash

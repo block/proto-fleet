@@ -457,6 +457,32 @@ remove_systemd_units() {
   print_success "Systemd user units cleaned up."
 }
 
+remove_host_updater() {
+  local privilege=()
+  if [[ "$(id -u)" -ne 0 ]]; then
+    if ! command -v sudo &>/dev/null; then
+      print_warn "sudo is unavailable; remove proto-fleet-updater.service manually."
+      return
+    fi
+    privilege=(sudo)
+  fi
+  if command -v systemctl &>/dev/null; then
+    ${privilege[@]+"${privilege[@]}"} systemctl disable --now proto-fleet-updater.service 2>/dev/null || true
+  fi
+  ${privilege[@]+"${privilege[@]}"} rm -f /etc/systemd/system/proto-fleet-updater.service \
+    /usr/local/libexec/proto-fleet/proto-fleet-updater \
+    /usr/local/libexec/proto-fleet-updater \
+    /etc/proto-fleet/updater.env 2>/dev/null || true
+  ${privilege[@]+"${privilege[@]}"} rm -rf /var/lib/proto-fleet-updater /run/proto-fleet-updater 2>/dev/null || true
+  ${privilege[@]+"${privilege[@]}"} rmdir /usr/local/libexec/proto-fleet 2>/dev/null || true
+  ${privilege[@]+"${privilege[@]}"} rmdir /etc/proto-fleet 2>/dev/null || true
+  if command -v systemctl &>/dev/null; then
+    ${privilege[@]+"${privilege[@]}"} systemctl daemon-reload 2>/dev/null || true
+    ${privilege[@]+"${privilege[@]}"} systemctl reset-failed 2>/dev/null || true
+  fi
+  print_success "Host updater service and state removed."
+}
+
 remove_deployment_files() {
   assert_safe_removal_path "$DEPLOYMENT_PATH"
 
@@ -465,6 +491,15 @@ remove_deployment_files() {
     print_success "Deployment directory removed: $DEPLOYMENT_PATH"
   else
     print_warn "Deployment directory not found: $DEPLOYMENT_PATH"
+  fi
+
+  # A successful one-click upgrade keeps one exact previous deployment next
+  # to the active one for operator recovery. It has the same trusted install
+  # root as DEPLOYMENT_PATH and is never expanded from a glob.
+  local previous_deployment="${INSTALL_ROOT%/}/deployment.previous"
+  if [[ -d "$previous_deployment" ]]; then
+    rm -rf "$previous_deployment"
+    print_success "Previous deployment backup removed: $previous_deployment"
   fi
 
   # Remove install root if it's now empty
@@ -501,6 +536,7 @@ echo "  - Docker containers (Proto Fleet services)"
 echo "  - Docker images used by Proto Fleet"
 echo "  - Docker volumes (ALL Proto Fleet data)"
 echo "  - systemd user unit files matching protofleet/proto-fleet/fleet*.service"
+echo "  - Proto Fleet host updater service, logs, and state"
 echo "  - Deployment directory: $DEPLOYMENT_PATH"
 echo ""
 
@@ -517,6 +553,7 @@ fi
 
 run_action "Tearing down Proto Fleet Docker stack (containers/images/volumes)..." teardown_docker_stack
 run_action "Removing Proto Fleet systemd units..." remove_systemd_units
+run_action "Removing Proto Fleet host updater..." remove_host_updater
 run_action "Removing Proto Fleet deployment files..." remove_deployment_files
 
 echo ""

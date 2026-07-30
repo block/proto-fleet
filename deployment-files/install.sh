@@ -177,10 +177,16 @@ extract_and_cd() {
 
 usage() {
   cat <<EOF
-Usage: install.sh [VERSION]
+Usage: install.sh [options] [VERSION]
 
 If you omit VERSION or pass "latest", installs the latest GitHub release.
 Pass "nightly" to install the latest successful nightly prerelease.
+Options:
+  --install-dir PATH       Use PATH without prompting.
+  --non-interactive        Fail instead of prompting; for an existing install
+                           with a complete deployment .env.
+  --skip-updater-service   Do not install/reconfigure the host updater.
+                           Reserved for updater-driven internal workflows.
 You can override by doing, e.g.:
   install.sh v0.1.0-beta-5
   install.sh nightly
@@ -255,6 +261,10 @@ check_page_size() {
     echo "4. Reboot: sudo reboot"
     echo "5. Verify with: getconf PAGESIZE (should show 4096)"
     echo "6. Run this installation script again"
+    if [ "$NON_INTERACTIVE" = "1" ]; then
+      echo "Installation aborted because non-interactive mode cannot accept this unsafe host prerequisite."
+      exit 1
+    fi
     read -p "Do you want to continue anyway? (y/N): " continue_anyway < /dev/tty
       
     if [[ ! "$continue_anyway" =~ ^[Yy]$ ]]; then
@@ -266,8 +276,50 @@ check_page_size() {
   fi
 }
 
-# show help for -h/--help
-if [[ "${1:-}" =~ ^(-h|--help)$ ]]; then
+NON_INTERACTIVE=0
+SKIP_UPDATER_SERVICE=0
+REQUESTED_INSTALL_DIR=""
+REQUESTED_VERSION=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --install-dir)
+      [ "$#" -ge 2 ] || { echo "Error: --install-dir requires a path." >&2; usage; }
+      REQUESTED_INSTALL_DIR="$2"
+      shift 2
+      ;;
+    --non-interactive)
+      NON_INTERACTIVE=1
+      shift
+      ;;
+    --skip-updater-service)
+      SKIP_UPDATER_SERVICE=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "Error: unknown option $1" >&2
+      usage
+      ;;
+    *)
+      if [ -n "$REQUESTED_VERSION" ]; then
+        echo "Error: only one VERSION may be supplied." >&2
+        usage
+      fi
+      REQUESTED_VERSION="$1"
+      shift
+      ;;
+  esac
+done
+
+if [ "$#" -gt 0 ]; then
+  echo "Error: unexpected arguments: $*" >&2
   usage
 fi
 
@@ -276,7 +328,7 @@ check_page_size
 GITHUB_RELEASES_URL="https://github.com/block/proto-fleet/releases"
 
 # determine version and tarball name
-case "${1:-latest}" in
+case "${REQUESTED_VERSION:-latest}" in
   latest)
     VERSION=$(resolve_latest_version)
     echo "🔖 Latest version is ${VERSION}"
@@ -286,7 +338,7 @@ case "${1:-latest}" in
     echo "🔖 Latest nightly version is ${VERSION}"
     ;;
   *)
-    VERSION="$1"
+    VERSION="$REQUESTED_VERSION"
     ;;
 esac
 
@@ -311,6 +363,31 @@ if ! curl -fsSL "${URL}" -o "/tmp/${TAR_NAME}"; then
   echo "❌ Failed to download ${TAR_NAME} from GitHub Releases — does that release asset exist?"
   usage
 fi
+
+CHECKSUM_PATH="/tmp/${TAR_NAME}.sha256"
+trap 'rm -f "/tmp/${TAR_NAME}" "${CHECKSUM_PATH}"' EXIT
+echo "🔐 Fetching and verifying ${TAR_NAME}.sha256"
+if ! curl -fsSL "${URL}.sha256" -o "${CHECKSUM_PATH}"; then
+  echo "❌ This release does not provide the required SHA-256 integrity file."
+  exit 1
+fi
+checksum_fields=$(wc -w < "${CHECKSUM_PATH}" | tr -d '[:space:]')
+checksum_name=$(awk '{print $2}' "${CHECKSUM_PATH}" | sed 's/^\*//')
+if [ "$checksum_fields" != "2" ] || [ "$checksum_name" != "$TAR_NAME" ]; then
+  echo "❌ Invalid checksum file for ${TAR_NAME}."
+  exit 1
+fi
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd /tmp && sha256sum -c "${TAR_NAME}.sha256")
+elif command -v shasum >/dev/null 2>&1; then
+  expected_checksum=$(awk '{print $1}' "${CHECKSUM_PATH}")
+  actual_checksum=$(shasum -a 256 "/tmp/${TAR_NAME}" | awk '{print $1}')
+  [ "$expected_checksum" = "$actual_checksum" ] || { echo "❌ Release checksum verification failed."; exit 1; }
+else
+  echo "❌ Neither sha256sum nor shasum is available to verify the release."
+  exit 1
+fi
+rm -f "${CHECKSUM_PATH}"
 
 # Function to determine default installation directory based on OS.
 # When invoked under sudo on Linux, prefer the invoking user's home over
@@ -345,7 +422,13 @@ get_default_install_dir() {
 }
 
 echo "🔍 Checking for previous ProtoFleet installations via Docker..."
-detect_previous_install || true
+if [ -z "$REQUESTED_INSTALL_DIR" ]; then
+  detect_previous_install || true
+else
+  PREVIOUS_INSTALL_DIR=""
+  PREVIOUS_INSTALL_NEEDS_SUDO=0
+  PREVIOUS_INSTALL_SUDO_BLOCKED=0
+fi
 DEFAULT_INSTALL_DIR=$(get_default_install_dir)
 
 # If the existing containers were only visible via `sudo docker`, this script
@@ -385,7 +468,10 @@ if [ -z "${PREVIOUS_INSTALL_DIR:-}" ] \
   echo "📁 No running fleet containers, but found existing install on disk at: ${PREVIOUS_INSTALL_DIR}"
 fi
 
-if [ -n "${PREVIOUS_INSTALL_DIR:-}" ]; then
+if [ -n "$REQUESTED_INSTALL_DIR" ]; then
+  SUGGESTED_DIR="$REQUESTED_INSTALL_DIR"
+  echo "📌 Using requested installation location: ${SUGGESTED_DIR}"
+elif [ -n "${PREVIOUS_INSTALL_DIR:-}" ]; then
   SUGGESTED_DIR="$PREVIOUS_INSTALL_DIR"
   echo "📌 Found previous installation at: ${SUGGESTED_DIR}"
 else
@@ -406,21 +492,64 @@ if [ "${PREVIOUS_INSTALL_SUDO_BLOCKED:-0}" = "1" ]; then
   echo "      curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- ${QUOTED_VERSION})"
 fi
 
-# Read from /dev/tty so the prompts work under `curl ... | sudo bash -s --`.
-# Without this, stdin is the curl pipe (already consumed) and the reads
-# silently hit EOF, leaving the responses empty — defaulting users into the
-# happy path with no chance to redirect.
-read -p "   Use this location? (Y/n): " use_suggested < /dev/tty
-if [[ "$use_suggested" =~ ^[Nn]$ ]]; then
-  read -p "   Enter installation directory [${DEFAULT_INSTALL_DIR}]: " custom_dir < /dev/tty
-  INSTALL_DIR="${custom_dir:-$DEFAULT_INSTALL_DIR}"
-else
+if [ -n "$REQUESTED_INSTALL_DIR" ]; then
+  INSTALL_DIR="$REQUESTED_INSTALL_DIR"
+elif [ "$NON_INTERACTIVE" = "1" ]; then
+  if [ -z "${PREVIOUS_INSTALL_DIR:-}" ]; then
+    echo "❌ A fresh non-interactive install requires --install-dir." >&2
+    exit 1
+  fi
   INSTALL_DIR="$SUGGESTED_DIR"
+else
+  # Read from /dev/tty so prompts work under `curl ... | sudo bash -s --`.
+  read -p "   Use this location? (Y/n): " use_suggested < /dev/tty
+  if [[ "$use_suggested" =~ ^[Nn]$ ]]; then
+    read -p "   Enter installation directory [${DEFAULT_INSTALL_DIR}]: " custom_dir < /dev/tty
+    INSTALL_DIR="${custom_dir:-$DEFAULT_INSTALL_DIR}"
+  else
+    INSTALL_DIR="$SUGGESTED_DIR"
+  fi
 fi
+
+if [ "$NON_INTERACTIVE" = "1" ] && [ ! -f "${INSTALL_DIR}/${DEPLOYMENT_DIR}/.env" ]; then
+  echo "❌ Non-interactive mode requires an existing configured deployment at ${INSTALL_DIR}/${DEPLOYMENT_DIR}." >&2
+  exit 1
+fi
+case "$INSTALL_DIR" in
+  *$'\n'*|*$'\r'*)
+    echo "❌ Installation paths cannot contain newline characters." >&2
+    exit 1
+    ;;
+esac
 
 echo "📌 Will install to: ${INSTALL_DIR}"
 
+# Releases before one-click support treated optional Compose overlays as
+# process-only flags. Capture the effective fleet-api environment while the
+# old stack is still running so the bootstrap upgrade can persist those
+# choices into the new deployment's .env.
+PREVIOUS_BETA_ALERTS=0
+PREVIOUS_SYSTEM_MONITORING=0
+PREVIOUS_TRACING=0
+capture_previous_run_options() {
+  local container_id container_env
+  container_id=$(docker ps -a \
+    --filter "name=${DEPLOYMENT_DIR}-fleet-api" \
+    --filter "name=${DEPLOYMENT_DIR}_fleet-api" \
+    --format "{{.ID}}" 2>/dev/null | head -n 1 || true)
+  [ -n "$container_id" ] || return 0
+  container_env=$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$container_id" 2>/dev/null || true)
+  printf '%s\n' "$container_env" | grep -Eqi '^FLEET_ALERTS_ENABLED=true$' && PREVIOUS_BETA_ALERTS=1
+  printf '%s\n' "$container_env" | grep -Eqi '^FLEET_SYSTEM_MONITORING_ENABLED=true$' && PREVIOUS_SYSTEM_MONITORING=1
+  printf '%s\n' "$container_env" | grep -Eqi '^FLEET_TELEMETRY_ENABLED=true$' && PREVIOUS_TRACING=1
+}
+capture_previous_run_options
+
 extract_and_cd "/tmp/${TAR_NAME}" "$INSTALL_DIR"
+# The system service starts with / as its working directory, so persist the
+# canonical absolute install root even when the interactive installer was
+# given a relative path.
+INSTALL_DIR=$(cd .. && pwd -P)
 
 # Validate plugin binaries exist
 echo "🔌 Validating plugin binaries..."
@@ -447,5 +576,101 @@ for plugin in "${REQUIRED_PLUGINS[@]}"; do
 done
 echo "✅ Plugin binaries validated"
 
+install_updater_service() {
+  if [ "$SKIP_UPDATER_SERVICE" = "1" ] || [ "$(uname -s)" != "Linux" ]; then
+    return 1
+  fi
+  if ! command -v systemctl >/dev/null 2>&1 || [ ! -d /run/systemd/system ]; then
+    echo "ℹ️  systemd is unavailable; keeping copy-command upgrades on this host."
+    return 1
+  fi
+  case "$INSTALL_DIR" in
+    /usr|/usr/*|/boot|/boot/*|/efi|/efi/*|/etc|/etc/*)
+      echo "ℹ️  The hardened updater cannot write to ${INSTALL_DIR}; keeping copy-command upgrades."
+      return 1
+      ;;
+  esac
+  if [ ! -x "updater/proto-fleet-updater" ] || [ ! -f "updater/proto-fleet-updater.service" ]; then
+    echo "⚠️  This release does not contain the host updater payload."
+    return 1
+  fi
+
+  local privilege=()
+  if [ "$(id -u)" -ne 0 ]; then
+    command -v sudo >/dev/null 2>&1 || {
+      echo "⚠️  sudo is unavailable; one-click upgrades cannot be enabled."
+      return 1
+    }
+    if [ "$NON_INTERACTIVE" = "1" ]; then
+      privilege=(sudo -n)
+    else
+      privilege=(sudo)
+    fi
+  fi
+
+  # The service runs as root. Only enable it when root sees the same Docker
+  # daemon as the current installation; rootless Docker needs a future
+  # user-service adapter and must keep the manual fallback.
+  local current_docker_id root_docker_id
+  current_docker_id=$(docker info --format '{{.ID}}' 2>/dev/null || true)
+  root_docker_id=$(${privilege[@]+"${privilege[@]}"} docker info --format '{{.ID}}' 2>/dev/null || true)
+  if [ -z "$current_docker_id" ] || [ "$current_docker_id" != "$root_docker_id" ]; then
+    echo "ℹ️  Root does not manage this installation's Docker daemon; keeping copy-command upgrades."
+    return 1
+  fi
+
+  local env_temp escaped_install escaped_download
+  env_temp=$(mktemp)
+  escaped_install=${INSTALL_DIR//\\/\\\\}
+  escaped_install=${escaped_install//\"/\\\"}
+  escaped_download=${GITHUB_RELEASES_URL//\\/\\\\}
+  escaped_download=${escaped_download//\"/\\\"}
+  {
+    printf 'PROTO_FLEET_INSTALL_ROOT="%s"\n' "$escaped_install"
+    printf 'PROTO_FLEET_DOWNLOAD_BASE_URL="%s/download"\n' "$escaped_download"
+    printf 'PROTO_FLEET_UPDATER_STATE_DIR="/var/lib/proto-fleet-updater"\n'
+    printf 'PROTO_FLEET_UPDATER_SOCKET_PATH="/run/proto-fleet-updater/updater.sock"\n'
+    printf 'PROTO_FLEET_UPDATER_BINARY_PATH="/usr/local/libexec/proto-fleet/proto-fleet-updater"\n'
+  } > "$env_temp"
+
+  if ! ${privilege[@]+"${privilege[@]}"} install -d -m 0755 /usr/local/libexec/proto-fleet /etc/proto-fleet; then
+    rm -f "$env_temp"
+    return 1
+  fi
+  if ! ${privilege[@]+"${privilege[@]}"} install -m 0755 updater/proto-fleet-updater /usr/local/libexec/proto-fleet/proto-fleet-updater \
+    || ! ${privilege[@]+"${privilege[@]}"} install -m 0644 updater/proto-fleet-updater.service /etc/systemd/system/proto-fleet-updater.service \
+    || ! ${privilege[@]+"${privilege[@]}"} install -m 0600 "$env_temp" /etc/proto-fleet/updater.env; then
+    rm -f "$env_temp"
+    return 1
+  fi
+  rm -f "$env_temp"
+  ${privilege[@]+"${privilege[@]}"} systemctl daemon-reload
+  ${privilege[@]+"${privilege[@]}"} systemctl enable proto-fleet-updater.service
+  # A manual install can safely restart an already-running updater; the
+  # updater-driven path never invokes install.sh and refreshes its on-disk
+  # binary for the next service start instead.
+  ${privilege[@]+"${privilege[@]}"} systemctl restart proto-fleet-updater.service
+}
+
+RUN_FLEET_ARGS=()
+if [ "$PREVIOUS_BETA_ALERTS" = "1" ] || [ "$PREVIOUS_SYSTEM_MONITORING" = "1" ]; then
+  RUN_FLEET_ARGS+=(--enable-beta-alerts)
+fi
+if [ "$PREVIOUS_SYSTEM_MONITORING" = "1" ]; then
+  RUN_FLEET_ARGS+=(--enable-system-monitoring)
+fi
+if [ "$PREVIOUS_TRACING" = "1" ]; then
+  RUN_FLEET_ARGS+=(--enable-tracing)
+fi
+if install_updater_service; then
+  echo "✅ Host updater installed; one-click upgrades are enabled."
+  RUN_FLEET_ARGS+=(--enable-one-click-updates)
+else
+  echo "ℹ️  One-click upgrades are unavailable; the in-product copy command remains usable."
+fi
+
 echo "🔧 Running deployment script..."
-./run-fleet.sh
+if [ "$NON_INTERACTIVE" = "1" ]; then
+  RUN_FLEET_ARGS+=(--non-interactive)
+fi
+./run-fleet.sh "${RUN_FLEET_ARGS[@]}"
