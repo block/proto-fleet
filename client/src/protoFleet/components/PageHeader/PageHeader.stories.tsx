@@ -236,6 +236,36 @@ export const PageHeader = () => {
   );
 };
 
+export const UpdatePillWithSetup = () => {
+  return (
+    <SitesContext.Provider value={storySitesContext}>
+      <div className="bg-surface-base" style={{ minWidth: "960px" }}>
+        <PageHeaderComponent
+          schedulePillData={emptySchedulePillData}
+          updatePill={{ version: "v1.3.0", onClick: action("open update modal") }}
+        />
+      </div>
+    </SitesContext.Provider>
+  );
+};
+UpdatePillWithSetup.beforeEach = () => {
+  const previousValue = localStorage.getItem("completeSetupDismissed");
+  localStorage.setItem("completeSetupDismissed", "true");
+  window.dispatchEvent(
+    new CustomEvent("localStorageChange", {
+      detail: { key: "completeSetupDismissed", value: true },
+    }),
+  );
+
+  return () => {
+    if (previousValue === null) {
+      localStorage.removeItem("completeSetupDismissed");
+    } else {
+      localStorage.setItem("completeSetupDismissed", previousValue);
+    }
+  };
+};
+
 export const SchedulePill = () => {
   return (
     <StoryFrame>

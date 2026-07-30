@@ -16,6 +16,7 @@ import {
   ReleaseInfoSchema,
   SetReleaseChannelResponseSchema,
 } from "@/protoFleet/api/generated/instance/v1/updates_pb";
+import { DISMISSED_UPDATE_TAG_KEY } from "@/protoFleet/features/updates/constants";
 import { useHasPermission } from "@/protoFleet/store";
 import { pushToast } from "@/shared/features/toaster";
 import { copyToClipboard } from "@/shared/utils/utility";
@@ -78,7 +79,6 @@ vi.mock("@/shared/features/toaster", () => ({
 
 const INSTALL_COMMAND = "curl -fsSL https://fleet.example.com/install.sh | sh -s -- v1.3.0";
 const RELEASE_NOTES_URL = "https://github.com/block/proto-fleet/releases/tag/v1.3.0";
-const DISMISSED_UPDATE_TAG_KEY = "dismissedUpdateTag";
 const SET_CHANNEL_RESPONSE = create(SetReleaseChannelResponseSchema);
 
 const buildReleaseInfo = (overrides?: Partial<ReleaseInfo>): ReleaseInfo =>

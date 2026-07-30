@@ -29,6 +29,12 @@ interface PageHeaderProps {
   isMenuOpen?: boolean;
   openMenu?: () => void;
   schedulePillData: UseSchedulePillDataResult;
+  updatePill?: UpdatePillData | null;
+}
+
+export interface UpdatePillData {
+  onClick: () => void;
+  version: string;
 }
 
 interface HeaderWidgetsProps {
@@ -41,11 +47,12 @@ interface HeaderWidgetsProps {
   schedulePillData: UseSchedulePillDataResult;
   stacked?: boolean;
   testId?: string;
+  updatePill?: UpdatePillData | null;
   widgets: HeaderWidgetKind[];
 }
 
 const headerWidgetEnabled = true;
-type HeaderWidgetKind = "curtailment" | "schedule" | "setup";
+type HeaderWidgetKind = "curtailment" | "schedule" | "update" | "setup";
 
 function HeaderWidgets({
   activeCurtailmentEvent,
@@ -57,6 +64,7 @@ function HeaderWidgets({
   schedulePillData,
   stacked = false,
   testId,
+  updatePill,
   widgets,
 }: HeaderWidgetsProps): ReactElement {
   const { pillSchedule, sections, pendingScheduleId, onToggleScheduleStatus } = schedulePillData;
@@ -92,6 +100,21 @@ function HeaderWidgets({
                 onToggleScheduleStatus={onToggleScheduleStatus}
               />
             ) : null;
+          case "update":
+            return updatePill ? (
+              <Button
+                key={widget}
+                ariaLabel={`Open update details for ${updatePill.version}`}
+                className="max-w-full min-w-0 overflow-hidden"
+                prefixIcon={<span className="h-2.5 w-2.5 rounded-full bg-intent-info-fill" />}
+                variant={variants.secondary}
+                size={sizes.compact}
+                onClick={updatePill.onClick}
+                testId="update-available-pill"
+              >
+                <span className="block min-w-0 truncate">Update available</span>
+              </Button>
+            ) : null;
           case "setup":
             return dismissedSetup ? (
               <Button
@@ -115,6 +138,7 @@ function PageHeader({
   isMenuOpen,
   openMenu,
   schedulePillData,
+  updatePill = null,
 }: PageHeaderProps): ReactElement {
   const { isPhone, isTablet } = useWindowDimensions();
   const { bgClass } = usePageBackground();
@@ -146,15 +170,19 @@ function PageHeader({
     dismissedSetup: hasDismissedSetup,
     onContinueSetup: handleCompleteSetup,
     schedulePillData,
+    updatePill,
   };
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
+  const hasVisibleUpdatePill = updatePill !== null;
   const headerWidgetKinds: HeaderWidgetKind[] = [
     ...(hasVisibleCurtailmentPill ? (["curtailment"] as const) : []),
     ...(schedulePillData.hasVisibleSchedules ? (["schedule"] as const) : []),
+    ...(hasVisibleUpdatePill ? (["update"] as const) : []),
     ...(hasDismissedSetup ? (["setup"] as const) : []),
   ];
   const headerWidgetCount = getVisibleHeaderWidgetCount({
     hasDismissedSetup,
+    hasVisibleUpdatePill,
     hasVisibleCurtailmentPill,
     hasVisibleSchedules: schedulePillData.hasVisibleSchedules,
   });
