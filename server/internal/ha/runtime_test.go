@@ -331,7 +331,7 @@ func TestRuntimeTerminalStartFailureStopsCoordinator(t *testing.T) {
 
 func TestStandaloneRuntimePreservesSingleHostLifecycle(t *testing.T) {
 	group := newRuntimeTestGroup()
-	runtime := newStandaloneRuntime(group, alwaysHealthy, runtimeTestConfig())
+	runtime := newRuntime(nil, group, alwaysHealthy, runtimeTestConfig())
 	runCtx, cancelRun := context.WithCancel(t.Context())
 	runResult := make(chan error, 1)
 	go func() {
@@ -349,7 +349,7 @@ func TestStandaloneRuntimeStopsWhenCriticalHealthFails(t *testing.T) {
 	group := newRuntimeTestGroup()
 	var healthy atomic.Bool
 	healthy.Store(true)
-	runtime := newStandaloneRuntime(group, healthy.Load, runtimeTestConfig())
+	runtime := newRuntime(nil, group, healthy.Load, runtimeTestConfig())
 	runCtx, cancelRun := context.WithCancel(t.Context())
 	defer cancelRun()
 	runResult := make(chan error, 1)

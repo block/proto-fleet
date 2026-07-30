@@ -90,14 +90,6 @@ func newRuntime(
 	}
 }
 
-func newStandaloneRuntime(
-	group runtimeGroup,
-	healthy func() bool,
-	config RuntimeConfig,
-) *Runtime {
-	return newRuntime(nil, group, healthy, config)
-}
-
 func withRuntimeDefaults(config RuntimeConfig) RuntimeConfig {
 	if config.HealthCheckInterval <= 0 {
 		config.HealthCheckInterval = defaultHealthCheckInterval
