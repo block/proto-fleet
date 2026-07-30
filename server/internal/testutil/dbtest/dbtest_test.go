@@ -1,4 +1,4 @@
-package testutil
+package dbtest
 
 import (
 	"errors"
