@@ -196,11 +196,11 @@ interface AssignDevicesToRackProps {
   // miners' site. Default false: the server returns conflicts (surfaced
   // via onConflicts) and writes nothing.
   forceClearConflictingSite?: boolean;
-  // Optional slot placements for the same miners, applied in the same
-  // transaction. Omit to leave placement alone (a miner already in the
-  // rack keeps its slot). When supplied it is authoritative for every id
-  // in deviceIdentifiers: a miner with an entry lands there, a miner
-  // without one is unplaced. Every entry must name a miner in
+  // Optional slot placements, applied in the same transaction. One entry
+  // per miner whose placement changes: `position` set lands it there,
+  // `position` omitted clears its slot (in the rack, off the grid). A
+  // miner not named here keeps whatever slot it had, which is what makes
+  // this safe where saveRack was not. Every entry must name a miner in
   // deviceIdentifiers; no two may share a miner or a cell.
   slotAssignments?: RackSlot[];
   signal?: AbortSignal;

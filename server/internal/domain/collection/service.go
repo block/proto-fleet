@@ -1095,18 +1095,20 @@ type AssignDevicesToRackParams struct {
 	ForceClearConflictingSite bool
 	// SlotAssignments optionally places the assigned devices inside the
 	// target rack's grid, so membership and placement land in the same
-	// transaction. Empty leaves slots untouched. Non-empty is
-	// authoritative for every device in DeviceIdentifiers: a device with
-	// an entry is placed there, a device without one has its slot
-	// cleared. Requires TargetRackID. See validateAssignRackSlots.
+	// transaction. One entry per device whose placement changes: Position
+	// set places it there, Position nil clears its slot. A device not
+	// named here keeps whatever slot it had. Empty writes no slot at all.
+	// Requires TargetRackID. See validateAssignRackSlots.
 	SlotAssignments []*pb.RackSlot
 }
 
 // validateAssignRackSlots enforces the SlotAssignments contract that needs
-// no DB read: a target rack to place into, a position per entry, entries
-// confined to the devices being assigned, and no two entries claiming the
-// same device or the same cell. Grid bounds are checked separately, in-tx,
-// once the rack's dimensions are known.
+// no DB read: a target rack to place into, entries confined to the devices
+// being assigned, and no two entries claiming the same device or the same
+// cell. A nil Position is legal and means "clear this device's slot", the
+// counterpart of buildings.v1.RackPlacement's unset aisle/position. Grid
+// bounds are checked separately, in-tx, once the rack's dimensions are
+// known.
 //
 // The duplicate-position check is the friendly form of
 // uk_rack_slot_position: two entries on one cell would otherwise surface
@@ -1125,8 +1127,8 @@ func validateAssignRackSlots(params AssignDevicesToRackParams) error {
 	seenDevices := make(map[string]struct{}, len(params.SlotAssignments))
 	seenPositions := make(map[[2]int32]struct{}, len(params.SlotAssignments))
 	for _, slot := range params.SlotAssignments {
-		if slot == nil || slot.Position == nil {
-			return fleeterror.NewInvalidArgumentError("slot assignment must have a position")
+		if slot == nil {
+			return fleeterror.NewInvalidArgumentError("slot assignment must not be empty")
 		}
 		if _, ok := assigned[slot.DeviceIdentifier]; !ok {
 			return fleeterror.NewInvalidArgumentErrorf("slot assignment references device %q which is not in the device selector", slot.DeviceIdentifier)
@@ -1135,6 +1137,10 @@ func validateAssignRackSlots(params AssignDevicesToRackParams) error {
 			return fleeterror.NewInvalidArgumentErrorf("device %q appears in slot_assignments more than once", slot.DeviceIdentifier)
 		}
 		seenDevices[slot.DeviceIdentifier] = struct{}{}
+		// Unset position = clear the slot; nothing left to bounds check.
+		if slot.Position == nil {
+			continue
+		}
 		if slot.Position.Row < 0 || slot.Position.Column < 0 {
 			return fleeterror.NewInvalidArgumentError("slot position row and column must not be negative")
 		}
@@ -1148,10 +1154,10 @@ func validateAssignRackSlots(params AssignDevicesToRackParams) error {
 }
 
 // applyRackSlotDelta persists the slot half of an AssignDevicesToRack
-// batch. It is scoped to deviceIdentifiers — the devices the caller named
-// — so a miner nobody mentioned keeps its slot. That scoping is the whole
-// point of the delta: SaveRack's replace-all shape cannot express "move
-// this one miner" without re-asserting every member.
+// batch. Only the devices slotAssignments names are touched, so a miner
+// nobody mentioned keeps its slot. That scoping is the whole point of the
+// delta: SaveRack's replace-all shape cannot express "move this one miner"
+// without re-asserting every member.
 //
 // Empty slotAssignments is a no-op, which keeps every pre-existing caller
 // (the importer, the CLI, the overview page's assign-then-place pair)
@@ -1159,23 +1165,21 @@ func validateAssignRackSlots(params AssignDevicesToRackParams) error {
 // its slot, and an arriving device is unplaced because its old slot died
 // with its old membership.
 //
-// Otherwise every named device is cleared first, then the requested
-// positions are set. The clear-then-set ordering is what lets one call
-// swap two occupied cells without tripping uk_rack_slot_position
-// mid-batch; a named device with no entry simply stays cleared, which is
-// how the caller expresses "unplace this miner".
-func (s *Service) applyRackSlotDelta(ctx context.Context, orgID, rackID int64, deviceIdentifiers []string, slotAssignments []*pb.RackSlot) error {
-	if len(slotAssignments) == 0 {
-		return nil
-	}
-	// Map order is irrelevant: every clear lands before any set, so the
-	// batch is order-independent by construction.
-	for deviceIdentifier := range uniqueIdentifiers(deviceIdentifiers) {
-		if err := s.collectionStore.ClearRackSlotPosition(ctx, rackID, deviceIdentifier, orgID); err != nil {
+// Otherwise every named device is cleared first, then the entries carrying
+// a position are set. Clearing the whole batch up front is what lets one
+// call swap two occupied cells without tripping uk_rack_slot_position
+// mid-batch, and it is also how an entry with no position expresses
+// "unplace this miner but leave it in the rack".
+func (s *Service) applyRackSlotDelta(ctx context.Context, orgID, rackID int64, slotAssignments []*pb.RackSlot) error {
+	for _, slot := range slotAssignments {
+		if err := s.collectionStore.ClearRackSlotPosition(ctx, rackID, slot.DeviceIdentifier, orgID); err != nil {
 			return err
 		}
 	}
 	for _, slot := range slotAssignments {
+		if slot.Position == nil {
+			continue
+		}
 		if err := s.collectionStore.SetRackSlotPosition(ctx, rackID, slot.DeviceIdentifier, slot.Position.Row, slot.Position.Column, orgID); err != nil {
 			return err
 		}
@@ -1335,6 +1339,10 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			if rackInfo != nil {
 				targetRows, targetColumns = rackInfo.Rows, rackInfo.Columns
 				for _, slot := range params.SlotAssignments {
+					// Unset position = clear; no cell to bounds check.
+					if slot.Position == nil {
+						continue
+					}
 					if slot.Position.Row >= targetRows {
 						return nil, fleeterror.NewInvalidArgumentErrorf("slot row %d is out of bounds (rack has %d rows)", slot.Position.Row, targetRows)
 					}
@@ -1477,7 +1485,7 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 
 			// Placement, last: membership must exist before a slot can
 			// reference it (both slot queries join device_set_membership).
-			if err := s.applyRackSlotDelta(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers, params.SlotAssignments); err != nil {
+			if err := s.applyRackSlotDelta(ctx, params.OrgID, *params.TargetRackID, params.SlotAssignments); err != nil {
 				return nil, err
 			}
 		}

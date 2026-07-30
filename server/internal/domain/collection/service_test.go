@@ -2935,12 +2935,12 @@ func TestService_AssignDevicesToRack_slotDeltaClearsThenSets(t *testing.T) {
 	assert.ElementsMatch(t, []string{"set:d1@0,1", "set:d2@0,0"}, calls[2:])
 }
 
-// TestService_AssignDevicesToRack_slotDeltaUnplacesOmittedDevice pins the
+// TestService_AssignDevicesToRack_slotDeltaUnplacesOnNilPosition pins the
 // mixed placed+unplaced case that makes this a delta rather than a
-// replace: a device named in the batch with no slot entry ends up cleared,
-// which is how a caller expresses "pull this miner off the grid but leave
-// it in the rack".
-func TestService_AssignDevicesToRack_slotDeltaUnplacesOmittedDevice(t *testing.T) {
+// replace: an entry with no position clears that device's slot — the
+// counterpart of RackPlacement's unset aisle/position — which is how a
+// caller says "pull this miner off the grid but leave it in the rack".
+func TestService_AssignDevicesToRack_slotDeltaUnplacesOnNilPosition(t *testing.T) {
 	svc, mockStore, _ := newTestServiceWithSites(t, nil)
 	ctx := testCtx(t)
 
@@ -2950,14 +2950,66 @@ func TestService_AssignDevicesToRack_slotDeltaUnplacesOmittedDevice(t *testing.T
 
 	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d1", testOrgID).Return(nil)
 	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d2", testOrgID).Return(nil)
-	// Only d1 is placed; d2 stays cleared — no Set call for it.
+	// Only d1 carries a position; d2's nil-position entry leaves it cleared.
 	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), rackID, "d1", int32(2), int32(3), testOrgID).Return(nil)
 
 	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
 		OrgID:             testOrgID,
 		TargetRackID:      &rackID,
 		DeviceIdentifiers: deviceIDs,
-		SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 2, 3)},
+		SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 2, 3), {DeviceIdentifier: "d2"}},
+	})
+	require.NoError(t, err)
+}
+
+// TestService_AssignDevicesToRack_slotDeltaPureUnplace covers the case an
+// "empty list means clear the selector" rule could not express at all: the
+// operator pulls every miner they touched off the grid. Each is named with
+// no position, so the batch is non-empty and the clears actually land.
+func TestService_AssignDevicesToRack_slotDeltaPureUnplace(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	rackID := int64(42)
+	deviceIDs := []string{"d1", "d2"}
+	expectAssignToRackPreamble(mockStore, rackID, deviceIDs, 10, 10)
+
+	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d1", testOrgID).Return(nil)
+	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d2", testOrgID).Return(nil)
+	// No SetRackSlotPosition expectation: the strict mock fails if one fires.
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &rackID,
+		DeviceIdentifiers: deviceIDs,
+		SlotAssignments:   []*pb.RackSlot{{DeviceIdentifier: "d1"}, {DeviceIdentifier: "d2"}},
+	})
+	require.NoError(t, err)
+}
+
+// TestService_AssignDevicesToRack_slotDeltaLeavesUnnamedDeviceAlone is the
+// invariant that makes this safe where SaveRack was not: a miner the batch
+// never mentions keeps its slot, even though it is a member of the same
+// rack. SaveRack could only express this by re-asserting the entire member
+// set from the client's (possibly stale) snapshot.
+func TestService_AssignDevicesToRack_slotDeltaLeavesUnnamedDeviceAlone(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	rackID := int64(42)
+	// d2 is in the selector but absent from slot_assignments.
+	deviceIDs := []string{"d1", "d2"}
+	expectAssignToRackPreamble(mockStore, rackID, deviceIDs, 10, 10)
+
+	// Only d1 is cleared and re-placed. A Clear on d2 fails the strict mock.
+	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d1", testOrgID).Return(nil)
+	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), rackID, "d1", int32(0), int32(0), testOrgID).Return(nil)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &rackID,
+		DeviceIdentifiers: deviceIDs,
+		SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 0, 0)},
 	})
 	require.NoError(t, err)
 }
@@ -3022,14 +3074,6 @@ func TestService_AssignDevicesToRack_slotDeltaRejectsBadInput(t *testing.T) {
 				TargetRackID:      &rackID,
 				DeviceIdentifiers: []string{"d1"},
 				SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 0, 0), rackSlot("d1", 1, 1)},
-			},
-		},
-		{
-			name: "missing position",
-			params: AssignDevicesToRackParams{
-				TargetRackID:      &rackID,
-				DeviceIdentifiers: []string{"d1"},
-				SlotAssignments:   []*pb.RackSlot{{DeviceIdentifier: "d1"}},
 			},
 		},
 		{
