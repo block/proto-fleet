@@ -106,9 +106,9 @@ From `client/`:
 
 ```bash
 npm install
-npm run test:e2e:visual:update:linux
-npm run test:e2e:visual:update:linux -- --project=desktop
-npm run test:e2e:visual:update:linux -- --project=mobile
+npm run test:e2e:visual:update:linux -- --confirm-overwrite
+npm run test:e2e:visual:update:linux -- --confirm-overwrite --project=desktop
+npm run test:e2e:visual:update:linux -- --confirm-overwrite --project=mobile
 ```
 
 This command overwrites the checked-in expected screenshots under

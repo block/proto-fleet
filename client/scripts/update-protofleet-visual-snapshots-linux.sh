@@ -7,11 +7,11 @@ usage() {
 Refresh Proto Fleet onboarding visual snapshots from a Linux Playwright container.
 
 Usage:
-  ./scripts/update-protofleet-visual-snapshots-linux.sh [--project=desktop|mobile|all] [--skip-build]
+  ./scripts/update-protofleet-visual-snapshots-linux.sh --confirm-overwrite [--project=desktop|mobile|all] [--skip-build]
 
 Examples:
-  ./scripts/update-protofleet-visual-snapshots-linux.sh
-  ./scripts/update-protofleet-visual-snapshots-linux.sh --project=desktop
+  ./scripts/update-protofleet-visual-snapshots-linux.sh --confirm-overwrite
+  ./scripts/update-protofleet-visual-snapshots-linux.sh --confirm-overwrite --project=desktop
 
 What it does:
   1. Builds Proto Fleet locally (unless --skip-build is provided)
@@ -43,6 +43,7 @@ PLAYWRIGHT_IMAGE=""
 PLAYWRIGHT_NODE_MODULES_SOURCE="${PLAYWRIGHT_NODE_MODULES_SOURCE:-}"
 JUST_BIN="${JUST_BIN:-}"
 
+CONFIRM_OVERWRITE=0
 SKIP_BUILD=0
 PROJECTS=()
 
@@ -85,6 +86,10 @@ while [[ $# -gt 0 ]]; do
       SKIP_BUILD=1
       shift
       ;;
+    --confirm-overwrite)
+      CONFIRM_OVERWRITE=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -96,6 +101,20 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "${CONFIRM_OVERWRITE}" -ne 1 ]]; then
+  cat >&2 <<'EOF'
+Refusing to overwrite visual snapshots without explicit confirmation.
+
+Re-run with:
+  ./scripts/update-protofleet-visual-snapshots-linux.sh --confirm-overwrite
+
+Only do this after reviewing the intended UI change and deciding the existing
+expected screenshots are outdated. Review every updated screenshot before
+committing or pushing.
+EOF
+  exit 1
+fi
 
 if [[ ${#PROJECTS[@]} -eq 0 ]]; then
   PROJECTS=(desktop mobile)
