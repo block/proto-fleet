@@ -37,7 +37,12 @@ interface RackSettingsModalProps {
   // May be async: the caller persists the settings (an UpdateDeviceSet for an
   // existing rack, a create for a new one), so we await it and keep the button
   // busy until it resolves — a rejection leaves the modal open for a retry.
-  onContinue?: (formData: RackFormData) => void | Promise<void>;
+  onSubmit?: (formData: RackFormData) => void | Promise<unknown>;
+  // Caller-driven busy state, OR'd with our own in-flight submit. Needed for
+  // writes the caller retries on its own — a create that came back with a
+  // reparent conflict is re-dispatched from the confirmation dialog, long after
+  // our awaited onSubmit resolved.
+  saving?: boolean;
 }
 
 // Explicit "Unassigned" entry for the placement dropdowns. The shared Select
@@ -72,7 +77,8 @@ const RackSettingsModal = ({
   defaultSiteId,
   existingRack,
   onDismiss,
-  onContinue,
+  onSubmit,
+  saving,
 }: RackSettingsModalProps) => {
   const { listRackZones, listRackTypes } = useDeviceSets();
   const { sites } = useSitesContext();
@@ -145,7 +151,8 @@ const RackSettingsModal = ({
     initialFormData?.orderIndex ?? RackOrderIndex.BOTTOM_LEFT,
   );
   const [coolingType, setCoolingType] = useState<RackCoolingType>(initialFormData?.coolingType ?? RackCoolingType.AIR);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [ownSubmit, setOwnSubmit] = useState(false);
+  const isSubmitting = ownSubmit || !!saving;
   const [labelError, setLabelError] = useState<string | undefined>();
   const [columnsError, setColumnsError] = useState<string | undefined>();
   const [rowsError, setRowsError] = useState<string | undefined>();
@@ -342,6 +349,37 @@ const RackSettingsModal = ({
     [rackTypes],
   );
 
+  // Exactly the fields handleSubmit puts on RackFormData, compared against what
+  // the form was seeded with — so the gate can only be clean when the write
+  // would be a no-op. Creating a rack is always a real write, so it never
+  // gates. Placement is included even when the selects are hidden
+  // (rack:manage-only): they're then seeded from initialFormData and can't
+  // diverge, so this reads clean either way.
+  const isDirty = useMemo(() => {
+    if (!isExistingRack || !initialFormData) return true;
+    return (
+      label.trim() !== initialFormData.label ||
+      zone.trim() !== initialFormData.zone ||
+      Number(rows) !== initialFormData.rows ||
+      Number(columns) !== initialFormData.columns ||
+      orderIndex !== initialFormData.orderIndex ||
+      coolingType !== initialFormData.coolingType ||
+      (isRealId(siteIdText) ? BigInt(siteIdText) : undefined) !== initialFormData.siteId ||
+      (isRealId(buildingIdText) ? BigInt(buildingIdText) : undefined) !== initialFormData.buildingId
+    );
+  }, [
+    isExistingRack,
+    initialFormData,
+    label,
+    zone,
+    rows,
+    columns,
+    orderIndex,
+    coolingType,
+    siteIdText,
+    buildingIdText,
+  ]);
+
   const handleSubmit = useCallback(async () => {
     setLabelError(undefined);
     setColumnsError(undefined);
@@ -382,13 +420,13 @@ const RackSettingsModal = ({
     // create for a new one. Await it and keep the button busy so a slow save
     // can't be double-submitted; the caller leaves this modal open on failure
     // so the operator can retry.
-    setIsSubmitting(true);
+    setOwnSubmit(true);
     try {
-      await onContinue?.(formData);
+      await onSubmit?.(formData);
     } finally {
-      setIsSubmitting(false);
+      setOwnSubmit(false);
     }
-  }, [label, zone, rows, columns, orderIndex, coolingType, siteIdText, buildingIdText, onContinue]);
+  }, [label, zone, rows, columns, orderIndex, coolingType, siteIdText, buildingIdText, onSubmit]);
 
   if (!show) return null;
 
@@ -404,9 +442,13 @@ const RackSettingsModal = ({
       divider={false}
       buttons={[
         {
-          text: isSubmitting ? "Saving..." : "Continue",
+          // Named for the write it makes: creating the rack, or saving settings
+          // onto one that already exists. Disabled with no diff — an existing
+          // rack's Save would otherwise re-persist identical values and toast
+          // as though something changed.
+          text: isExistingRack ? (isSubmitting ? "Saving..." : "Save") : isSubmitting ? "Creating..." : "Create rack",
           variant: "primary",
-          disabled: isSubmitting || isInitialLoading,
+          disabled: isSubmitting || isInitialLoading || !isDirty,
           loading: isSubmitting,
           onClick: handleSubmit,
           dismissModalOnClick: false,

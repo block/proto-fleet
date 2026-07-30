@@ -54,23 +54,19 @@ function filterAssignmentsByValues(record: Record<string, string>, keepSet: Set<
 interface ManageRackModalProps {
   show: boolean;
   rackSettings: RackFormData;
-  existingRackId?: bigint;
+  // The rack always exists by the time this modal opens: Rack Settings creates
+  // it on its CTA, so there is no staged-create mode to support.
+  existingRackId: bigint;
   existingRacks: DeviceSet[];
-  // Pre-seeds the new rack's miner list (e.g. from a bulk "Add to rack →
-  // New rack" flow) so the selected miners land in the left pane ready
-  // for slot assignment. Ignored in edit mode (existingRackId set).
-  seededMinerIds?: string[];
   // Page-header site scope (single-site only). Forwarded to the embedded
-  // RackSettingsModal so a new rack created within a site scope keeps its Site
-  // field locked to that scope. Ignored for an existing rack (edit).
+  // RackSettingsModal.
   scopedSiteId?: bigint;
   onDismiss: () => void;
   onSave: () => void;
-  // Fired after the Rack Settings "Continue" persists an EXISTING rack's
-  // settings (label/placement/zone/dims) — which happens before the final
-  // miner Save. Parents should refetch in the background so the rack list /
-  // overview stays consistent even if the operator dismisses the modal
-  // without pressing Save. No-op for a new rack (nothing is persisted yet).
+  // Fired after a write lands that the host's own list/overview reflects — the
+  // Rack Settings save, and each membership commit. Parents should refetch in
+  // the background so the rack list stays consistent even if the operator
+  // dismisses without pressing the final placement Save.
   onSettingsPersisted?: () => void;
   onDelete?: () => Promise<void> | void;
 }
@@ -80,7 +76,6 @@ export default function ManageRackModal({
   rackSettings: initialRackSettings,
   existingRackId,
   existingRacks,
-  seededMinerIds,
   scopedSiteId,
   onDismiss,
   onSave,
@@ -109,12 +104,11 @@ export default function ManageRackModal({
 
   // Target-rack placement for the selection modals' eligibility filter.
   // rackSettings always reflects the rack's LIVE persisted placement: a
-  // Site/Building change in Rack Settings is persisted immediately on Continue
+  // Site/Building change in Rack Settings is persisted immediately on Save
   // (handleRackSettingsUpdate), which also cascades the rack's members to the
   // new placement. So by the time this filter runs, the rack and its members
   // are already at the placement in rackSettings — no current-vs-pending split,
-  // and a miner already at the new destination reads as assignable. A new rack
-  // has no persisted placement, so rackSettings is the intended placement.
+  // and a miner already at the new destination reads as assignable.
   const eligibility = useMemo<MinerEligibility>(
     () => ({
       rackId: existingRackId,
@@ -124,10 +118,10 @@ export default function ManageRackModal({
     [existingRackId, rackSettings.siteId, rackSettings.buildingId],
   );
 
-  // Core assignment state. A new rack (no existingRackId) can be seeded
-  // with miners from a bulk "Add to rack → New rack" flow; edit mode
-  // ignores the seed and loads the rack's real membership below.
-  const [rackMiners, setRackMiners] = useState<string[]>(() => (existingRackId ? [] : (seededMinerIds ?? [])));
+  // Core assignment state, loaded from the rack's real membership below. A
+  // bulk "Add to rack → New rack" flow seeds its miners onto the create call
+  // itself, so they arrive here as persisted members like any others.
+  const [rackMiners, setRackMiners] = useState<string[]>([]);
   const [slotAssignments, setSlotAssignments] = useState<Record<string, string>>({});
   const [assignmentMode, setAssignmentMode] = useState<AssignmentMode>("manual");
   const [manualAssignmentCache, setManualAssignmentCache] = useState<Record<string, string>>({});
@@ -154,17 +148,13 @@ export default function ManageRackModal({
   const [reparentConfirm, setReparentConfirm] = useState<{ count: number; onConfirm: () => void } | null>(null);
 
   // Loading / error state
-  const [isLoading, setIsLoading] = useState(!!existingRackId);
+  const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // No longer need initial state snapshots — saveRack replaces membership atomically.
-
-  // Fetch existing data for edit mode
+  // Load the rack's members and slots.
   useEffect(() => {
-    if (!existingRackId) return;
-
     let cancelled = false;
     let loadedMembers = false;
     let loadedSlots = false;
@@ -587,86 +577,74 @@ export default function ManageRackModal({
     [eligibility, totalSlots, promptReparent],
   );
 
-  // RackSettingsModal "Continue" handler. For an EXISTING rack, Continue is
-  // the settings save: it persists label/zone/dimensions AND placement in a
-  // single atomic UpdateDeviceSet, then cascades the rack's CURRENT server
-  // members to the new placement — all server-side, in one transaction. This
-  // is why the eligibility filter above can trust rackSettings as the rack's
-  // live placement: by the time the operator opens Manage Miners, the rack and
-  // its members are already there. Membership is untouched here — "Continue
-  // saves settings, Save saves miners" — so the modal's draft rackMiners can't
-  // leak into a settings-only change.
-  //
-  // A NEW rack doesn't exist yet, so there's nothing to persist; its settings
-  // (including placement) ride on the create in handleSave.
+  // Rack Settings "Save" handler: persists label/zone/dimensions AND placement
+  // in a single atomic UpdateDeviceSet, then cascades the rack's CURRENT server
+  // members to the new placement — all server-side, in one transaction. This is
+  // why the eligibility filter above can trust rackSettings as the rack's live
+  // placement: by the time the operator opens Manage Miners, the rack and its
+  // members are already there. Membership is untouched here, so the modal's
+  // draft rackMiners can't leak into a settings-only change.
   const handleRackSettingsUpdate = useCallback(
     async (formData: RackFormData) => {
-      const rackId = existingRackId;
-      if (rackId !== undefined) {
-        // Only send placement when the operator actually changed site/building
-        // this edit (compared to what the form was seeded with). A metadata-only
-        // edit (label/zone/dims) omits placement, so UpdateDeviceSet preserves
-        // the rack's CURRENT server placement — a stale cached value can't
-        // re-parent a rack that another session moved while this modal was open.
-        // Zone stays authoritative even with placement omitted (the settings
-        // path treats an empty zone as an explicit clear).
-        const placementChanged =
-          canManagePlacement &&
-          (formData.siteId !== rackSettings.siteId || formData.buildingId !== rackSettings.buildingId);
-        let updated: DeviceSet | undefined;
-        try {
-          await new Promise<void>((resolve, reject) => {
-            updateRack({
-              deviceSetId: rackId,
-              label: formData.label,
-              zone: formData.zone,
-              rows: formData.rows,
-              columns: formData.columns,
-              orderIndex: formData.orderIndex,
-              coolingType: formData.coolingType,
-              // Unset level -> 0n unassign when the operator did change placement.
-              siteId: placementChanged ? (formData.siteId ?? 0n) : undefined,
-              buildingId: placementChanged ? (formData.buildingId ?? 0n) : undefined,
-              onSuccess: (ds) => {
-                updated = ds;
-                resolve();
-              },
-              onError: (msg) => reject(new Error(msg)),
-            });
+      // Only send placement when the operator actually changed site/building
+      // this edit (compared to what the form was seeded with). A metadata-only
+      // edit (label/zone/dims) omits placement, so UpdateDeviceSet preserves
+      // the rack's CURRENT server placement — a stale cached value can't
+      // re-parent a rack that another session moved while this modal was open.
+      // Zone stays authoritative even with placement omitted (the settings
+      // path treats an empty zone as an explicit clear).
+      const placementChanged =
+        canManagePlacement &&
+        (formData.siteId !== rackSettings.siteId || formData.buildingId !== rackSettings.buildingId);
+      let updated: DeviceSet | undefined;
+      try {
+        await new Promise<void>((resolve, reject) => {
+          updateRack({
+            deviceSetId: existingRackId,
+            label: formData.label,
+            zone: formData.zone,
+            rows: formData.rows,
+            columns: formData.columns,
+            orderIndex: formData.orderIndex,
+            coolingType: formData.coolingType,
+            // Unset level -> 0n unassign when the operator did change placement.
+            siteId: placementChanged ? (formData.siteId ?? 0n) : undefined,
+            buildingId: placementChanged ? (formData.buildingId ?? 0n) : undefined,
+            onSuccess: (ds) => {
+              updated = ds;
+              resolve();
+            },
+            onError: (msg) => reject(new Error(msg)),
           });
-        } catch (err) {
-          pushToast({
-            message: getErrorMessage(err, "Failed to update rack settings. Please try again."),
-            status: STATUSES.error,
-          });
-          // Keep Rack Settings open (don't apply) so the operator can retry.
-          return;
-        }
-        // Adopt the server's AUTHORITATIVE placement from the response, not the
-        // submitted formData: when placement was omitted (metadata-only edit)
-        // the server kept whatever the rack's current site/building is — which
-        // may differ from the stale formData values if another session moved it.
-        // The eligibility filter reads rackSettings placement, so trusting the
-        // response keeps the miner list scoped to where the rack really is.
-        const serverRackInfo = updated?.typeDetails.case === "rackInfo" ? updated.typeDetails.value : undefined;
-        const applied: RackFormData = serverRackInfo
-          ? {
-              ...formData,
-              siteId: serverRackInfo.siteId,
-              buildingId: serverRackInfo.buildingId,
-              zone: serverRackInfo.zone,
-            }
-          : formData;
-        // Settings are now live on the server. Let the parent refetch so its
-        // rack list/overview reflects the new label/placement even if the
-        // operator dismisses without pressing the final miner Save.
-        onSettingsPersisted?.();
-        setRackSettings(applied);
-        setShowRackSettings(false);
+        });
+      } catch (err) {
+        pushToast({
+          message: getErrorMessage(err, "Failed to update rack settings. Please try again."),
+          status: STATUSES.error,
+        });
+        // Keep Rack Settings open (don't apply) so the operator can retry.
         return;
       }
-
-      setRackSettings(formData);
+      // Adopt the server's AUTHORITATIVE placement from the response, not the
+      // submitted formData: when placement was omitted (metadata-only edit)
+      // the server kept whatever the rack's current site/building is — which
+      // may differ from the stale formData values if another session moved it.
+      // The eligibility filter reads rackSettings placement, so trusting the
+      // response keeps the miner list scoped to where the rack really is.
+      const serverRackInfo = updated?.typeDetails.case === "rackInfo" ? updated.typeDetails.value : undefined;
+      const applied: RackFormData = serverRackInfo
+        ? {
+            ...formData,
+            siteId: serverRackInfo.siteId,
+            buildingId: serverRackInfo.buildingId,
+            zone: serverRackInfo.zone,
+          }
+        : formData;
+      // Settings are now live on the server. Let the parent refetch so its
+      // rack list/overview reflects the new label/placement even if the
+      // operator dismisses without pressing the final miner Save.
+      onSettingsPersisted?.();
+      setRackSettings(applied);
       setShowRackSettings(false);
     },
     [existingRackId, canManagePlacement, rackSettings, updateRack, onSettingsPersisted],
@@ -675,9 +653,8 @@ export default function ManageRackModal({
   // Save handler — single atomic RPC
   const handleSave = useCallback(async () => {
     // Capacity guard. handleManageMinersConfirm enforces this when miners are
-    // added through the sub-modal, but a seeded new rack (bulk "New rack")
-    // populates rackMiners directly and bypasses that path — saveRack accepts
-    // members beyond the slot count, so an over-fill would persist silently.
+    // added through the sub-modal, but shrinking the layout in Rack Settings
+    // can leave an already-loaded rack over its new capacity.
     if (rackMiners.length > totalSlots) {
       setErrorMsg(
         `Cannot add ${rackMiners.length} miners with only ${totalSlots} available slots. Deselect some miners or update your rack settings.`,
@@ -695,19 +672,12 @@ export default function ManageRackModal({
         return { deviceIdentifier: deviceId, row, column: col };
       });
 
-      // Placement rides on CREATE only. An existing rack's Site/Building (and
-      // zone/dimensions) are already persisted on the Rack Settings "Continue"
-      // — Continue saves settings, Save saves miners — so an edit Save omits
-      // placement: it preserves the rack's current server placement and can't
-      // clobber a move made by another session while this modal was open.
-      const sendPlacement = canManagePlacement && existingRackId === undefined;
-
-      // Existing-rack Save is miners-only, but SaveRack always rewrites
-      // rack_info, so re-send the rack's CURRENT server metadata rather than the
-      // modal's cached copy — otherwise a concurrent zone/dimension edit from
-      // another session would be reverted (and stale dims could mis-validate the
-      // new slots). Best-effort: fall back to the cached values on a fetch miss
-      // so a transient error can't block the miner save.
+      // Save is miners-only, but SaveRack always rewrites rack_info, so re-send
+      // the rack's CURRENT server metadata rather than the modal's cached copy —
+      // otherwise a concurrent zone/dimension edit from another session would be
+      // reverted (and stale dims could mis-validate the new slots). Best-effort:
+      // fall back to the cached values on a fetch miss so a transient error
+      // can't block the miner save.
       let meta = {
         label: rackSettings.label,
         zone: rackSettings.zone,
@@ -716,35 +686,30 @@ export default function ManageRackModal({
         orderIndex: rackSettings.orderIndex,
         coolingType: rackSettings.coolingType,
       };
-      if (existingRackId !== undefined) {
-        await new Promise<void>((resolve) => {
-          getDeviceSet({
-            deviceSetId: existingRackId,
-            onSuccess: (ds) => {
-              if (ds.typeDetails.case === "rackInfo") {
-                const ri = ds.typeDetails.value;
-                meta = {
-                  label: ds.label,
-                  zone: ri.zone,
-                  rows: ri.rows,
-                  columns: ri.columns,
-                  orderIndex: ri.orderIndex,
-                  coolingType: ri.coolingType,
-                };
-              }
-              resolve();
-            },
-            onNotFound: () => resolve(),
-            onError: () => resolve(),
-          });
+      await new Promise<void>((resolve) => {
+        getDeviceSet({
+          deviceSetId: existingRackId,
+          onSuccess: (ds) => {
+            if (ds.typeDetails.case === "rackInfo") {
+              const ri = ds.typeDetails.value;
+              meta = {
+                label: ds.label,
+                zone: ri.zone,
+                rows: ri.rows,
+                columns: ri.columns,
+                orderIndex: ri.orderIndex,
+                coolingType: ri.coolingType,
+              };
+            }
+            resolve();
+          },
+          onNotFound: () => resolve(),
+          onError: () => resolve(),
         });
-      }
+      });
 
       const finishSuccess = () => {
-        pushToast({
-          message: existingRackId ? `Rack "${meta.label}" updated` : `Rack "${meta.label}" created`,
-          status: STATUSES.success,
-        });
+        pushToast({ message: `Rack "${meta.label}" updated`, status: STATUSES.success });
         onSave();
       };
 
@@ -765,10 +730,10 @@ export default function ManageRackModal({
             coolingType: meta.coolingType,
             deviceIdentifiers: rackMiners,
             slotAssignments: slotAssignmentsList,
-            // Create sends its chosen placement (unset level → NULL), gated on
-            // site:manage. Edit omits placement (persisted on Continue).
-            siteId: sendPlacement ? (rackSettings.siteId ?? 0n) : undefined,
-            buildingId: sendPlacement ? (rackSettings.buildingId ?? 0n) : undefined,
+            // Placement is omitted: it's already persisted by the Rack Settings
+            // Save, so leaving it off preserves the rack's current server
+            // placement and can't clobber a move another session made while this
+            // modal was open.
             forceClearConflictingSite: force,
             onSuccess: () => resolve("ok"),
             onConflicts: (conflicts) => {
@@ -800,17 +765,7 @@ export default function ManageRackModal({
     } finally {
       setIsSaving(false);
     }
-  }, [
-    existingRackId,
-    rackSettings,
-    rackMiners,
-    totalSlots,
-    activeAssignments,
-    canManagePlacement,
-    getDeviceSet,
-    saveRack,
-    onSave,
-  ]);
+  }, [existingRackId, rackSettings, rackMiners, totalSlots, activeAssignments, getDeviceSet, saveRack, onSave]);
 
   if (!show) return null;
 
@@ -917,10 +872,10 @@ export default function ManageRackModal({
           show={showRackSettings}
           existingRacks={existingRacks}
           initialFormData={rackSettings}
-          existingRack={existingRackId !== undefined}
+          existingRack
           defaultSiteId={scopedSiteId}
           onDismiss={() => setShowRackSettings(false)}
-          onContinue={handleRackSettingsUpdate}
+          onSubmit={handleRackSettingsUpdate}
         />
       ) : null}
 

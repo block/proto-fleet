@@ -7,8 +7,12 @@ import { RackCoolingType, RackOrderIndex } from "@/protoFleet/api/generated/devi
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 const mockSaveRack = vi.fn();
-const mockGetRackSlots = vi.fn();
-const mockListGroupMembers = vi.fn();
+const mockUpdateRack = vi.fn();
+const mockGetDeviceSet = vi.fn();
+// The rack always exists when this modal opens, so its membership comes from the
+// server. Resolve both loads immediately with one already-placed miner.
+const mockGetRackSlots = vi.fn(({ onSuccess }: { onSuccess: (slots: unknown[]) => void }) => onSuccess([]));
+const mockListGroupMembers = vi.fn(({ onSuccess }: { onSuccess: (ids: string[]) => void }) => onSuccess(["miner-1"]));
 const mockBlinkLED = vi.fn();
 
 const miners: Record<string, MinerStateSnapshot> = {
@@ -33,6 +37,8 @@ vi.mock("@/protoFleet/components/PageHeader/SitePicker", async (importActual) =>
 vi.mock("@/protoFleet/api/useDeviceSets", () => ({
   useDeviceSets: () => ({
     saveRack: mockSaveRack,
+    updateRack: mockUpdateRack,
+    getDeviceSet: mockGetDeviceSet,
     getRackSlots: mockGetRackSlots,
     listGroupMembers: mockListGroupMembers,
   }),
@@ -77,8 +83,8 @@ const defaultProps = {
     orderIndex: RackOrderIndex.BOTTOM_LEFT,
     coolingType: RackCoolingType.AIR,
   },
+  existingRackId: 7n,
   existingRacks: [],
-  seededMinerIds: ["miner-1"],
   onDismiss: vi.fn(),
   onSave: vi.fn(),
 };
