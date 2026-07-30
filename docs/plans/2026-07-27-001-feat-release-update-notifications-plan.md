@@ -189,7 +189,7 @@ flowchart TB
     V[Running version - ldflags] --> SVC[Updates domain service: eligible = channel filter + semver compare]
     K --> SVC
     DB[(release_channel_setting - org-scoped row)] --> SVC
-    SVC --> H[InstanceUpdatesService handler: GetUpdateStatus + SetReleaseChannel gated by instance:update]
+    SVC --> H[InstanceUpdateService handler: GetUpdateStatus + SetReleaseChannel gated by instance:update]
   end
   B[ProtoFleet client: nav update callout + Settings Updates page] -->|Connect RPC| H
 ```
@@ -201,7 +201,7 @@ Callout visibility at any moment is a pure function: `update_available && hasPer
 - Phase 2 (R11–R17) is deferred to a follow-up plan; this plan implements R1–R10 and leaves the seams (server-side command composition, extensible updates service) for it.
 - Exactly one organization per instance — verified as enforced, not merely conventional: the only org-creation path is guarded by a has-user check, and login hard-fails unless the user belongs to exactly one org. This is the basis for org-scoped storage satisfying the Product Contract's "instance-level" intent.
 - The update callout lives at the bottom of the left navigation panel, directly above the logout CTA (user-directed placement, 2026-07-27) — `client/src/protoFleet/components/NavigationMenu/Navigation.tsx` renders both. The repo has no pre-existing global callout slot, so this is a new slot in that nav footer region, and the callout must handle the nav's collapsed (icon-width) laptop state.
-- Migration number `000130` is assumed next after `000129`; re-check at implementation time and after any merge from main (`ls server/migrations/ | cut -c1-6 | sort | uniq -d` — see `docs/solutions/database-issues/duplicate-golang-migrate-version-after-merge-2026-05-12.md`).
+- Migration number `000131` follows main's `000130`; re-check after any merge from main (`ls server/migrations/ | cut -c1-6 | sort | uniq -d` — see `docs/solutions/database-issues/duplicate-golang-migrate-version-after-merge-2026-05-12.md`).
 
 ### Sequencing
 
@@ -213,10 +213,10 @@ U1, U2, U3 are independent and can proceed in any order. U4 depends on all three
 
 ### U1. Updates proto contract and generated code
 
-- **Goal:** Define the `updates.v1.UpdatesService` Connect RPC contract and regenerate Go/TS code.
+- **Goal:** Define the `instance.v1.InstanceUpdateService` Connect RPC contract and regenerate Go/TS code.
 - **Requirements:** R2, R5, R6, R9 (contract surface).
 - **Dependencies:** none.
-- **Files:** `proto/updates/v1/updates.proto` (new); regenerated `server/generated/grpc/updates/v1/**` and `client/src/protoFleet/api/generated/updates/v1/**` via `just gen` (never hand-edited).
+- **Files:** `proto/instance/v1/updates.proto` (new); regenerated `server/generated/grpc/instance/v1/**` and `client/src/protoFleet/api/generated/instance/v1/**` via `just gen` (never hand-edited).
 - **Approach:** Mirror `proto/alerts/v1/alerts.proto` for file/service/message structure; take the `option idempotency_level` idiom from `proto/ping/v1/ping.proto` and `proto/serverlog/v1/serverlog.proto` (`NO_SIDE_EFFECTS` on reads — alerts.proto carries none). Service: `GetUpdateStatus` → `{current_version, channel, latest_eligible (ReleaseInfo), update_available, install_command, status_available}`; `SetReleaseChannel(channel)`. `ReleaseChannel` enum: `STABLE`, `STABLE_AND_RC` (+ unspecified zero value per proto style); `ReleaseInfo`: `version`, `release_notes_url`, `published_at`, `prerelease`.
 - **Patterns to follow:** `proto/alerts/v1/alerts.proto` (structure), `proto/ping/v1/ping.proto` (idempotency options); commit proto + generated output together (repo rule).
 - **Test scenarios:** Test expectation: none — contract-only; behavior is tested in U2/U4. `just gen` + `buf` lint are the proof.
@@ -255,7 +255,7 @@ U1, U2, U3 are independent and can proceed in any order. U4 depends on all three
 - **Goal:** Persist the per-org release channel and register the `instance:update` permission.
 - **Requirements:** R9 (storage), R10.
 - **Dependencies:** none.
-- **Files:** `server/migrations/000130_create_release_channel_setting.up.sql` / `.down.sql`; `server/sqlc/queries/updates.sql`; regenerated `server/generated/sqlc/**` via `just gen`; `server/internal/domain/authz/catalog.go`; `server/internal/domain/authz/builtin.go`; store integration test alongside existing authz/store tests.
+- **Files:** `server/migrations/000131_create_release_channel_setting.up.sql` / `.down.sql`; `server/sqlc/queries/updates.sql`; regenerated `server/generated/sqlc/**` via `just gen`; `server/internal/domain/authz/catalog.go`; `server/internal/domain/authz/builtin.go`; store integration test alongside existing authz/store tests.
 - **Approach:** Table `release_channel_setting(organization_id BIGINT PRIMARY KEY REFERENCES organization(id), channel TEXT NOT NULL CHECK (channel IN ('stable','stable_and_rc')), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`; sqlc queries: get by org (`:one`) and upsert. Missing row reads as `stable` (handled in the service layer, not SQL). Permission: `PermInstanceUpdate = "instance:update"` constant + `CatalogEntry` in `catalog.go`; explicitly exclude from `adminSeedPermissions()` in `builtin.go` (mirror the `role:manage` exclusion). No seed migration: boot-time reconcile upserts every catalog row on existing databases, and `SUPER_ADMIN` acquires the key automatically via `ReconcileFull`.
 - **Patterns to follow:** `server/migrations/000076_create_curtailment_mqtt_source.up.sql` (column/constraint style), `server/sqlc/queries/alert_channel.sql` (query idiom).
 - **Test scenarios:**
@@ -270,7 +270,7 @@ U1, U2, U3 are independent and can proceed in any order. U4 depends on all three
 - **Requirements:** R2, R3 (read-side filtering), R4 (surface behavior), R5 (server-enforced), R9, R10.
 - **Dependencies:** U1, U2, U3.
 - **Files:** `server/internal/domain/updates/service.go` (+ `service_test.go`); `server/internal/handlers/updates/handler.go` (+ `handler_perms_test.go`); `server/cmd/fleetd/main.go`; `server/cmd/fleetd/config.go`.
-- **Approach:** The domain service composes the checker snapshot, the settings store, and the running version: eligible = latest stable when channel is `stable`, else the semver max of latest stable and latest RC; `status_available` mirrors the latest list-fetch outcome; `update_available = status_available && IsValid(current) && Compare(eligible, current) > 0`; `install_command` is composed only when status is available, the configured download base matches the canonical allowlist, and the eligible tag passes the checker's canonical stable/RC predicate. Handler mirrors `server/internal/handlers/alerts/handler.go`: compile-time interface assertion; both `GetUpdateStatus` and `SetReleaseChannel` call `middleware.RequireOrgWidePermission(ctx, authz.PermInstanceUpdate)` first. Wiring in `main.go`: embed the updates `Config` in `config.go`, construct checker + service, register the Connect handler and reflection service, start the checker, and defer its stop. Register both procedures in `SessionOnlyProcedures`.
+- **Approach:** The domain service composes the checker snapshot, the settings store, and the running version: eligible = latest stable when channel is `stable`, else the semver max of latest stable and latest RC; `status_available` mirrors the latest list-fetch outcome; `update_available = status_available && IsValid(current) && Compare(eligible, current) > 0`; `install_command` is composed only when status is available, the configured download base matches the canonical allowlist, and the eligible tag passes the checker's canonical stable/RC predicate. Handler mirrors `server/internal/handlers/alerts/handler.go`: compile-time interface assertion; both `GetUpdateStatus` and `SetReleaseChannel` call `middleware.RequireOrgWidePermission(ctx, authz.PermInstanceUpdate)` first. Wiring in `main.go`: embed the updates `Config` in `config.go`, construct checker + service, register `instancev1connect.NewInstanceUpdateServiceHandler`, add the service to reflection, start the checker, and defer its stop. Register both procedures in `SessionOnlyProcedures`.
 - **Test scenarios:**
   - Covers AE5: `GetUpdateStatus` and `SetReleaseChannel` without the permission (via `handlerstest.CtxWithPermissions`) → `connect.CodePermissionDenied`.
   - Covers AE1: channel `stable`, snapshot has newer RC only → `update_available = false`; snapshot gains newer stable → `true` with stable as eligible.
@@ -291,7 +291,7 @@ U1, U2, U3 are independent and can proceed in any order. U4 depends on all three
 - **Goal:** Permission-gated, per-release-dismissible update callout pinned at the bottom of the left nav, directly above the logout CTA.
 - **Requirements:** R5, R6, R7, R8.
 - **Dependencies:** U1, U4.
-- **Files:** `client/src/protoFleet/api/clients.ts` (register `UpdatesService` client); `client/src/protoFleet/features/updates/api/useUpdateStatus.ts`; `client/src/protoFleet/features/updates/components/UpdateCallout.tsx` (+ `UpdateCallout.test.tsx`); `client/src/protoFleet/components/NavigationMenu/Navigation.tsx` (new slot in the pinned footer region, immediately above the logout button).
+- **Files:** `client/src/protoFleet/api/clients.ts` (register `InstanceUpdateService` client); `client/src/protoFleet/features/updates/api/useUpdateStatus.ts`; `client/src/protoFleet/features/updates/components/UpdateCallout.tsx` (+ `UpdateCallout.test.tsx`); `client/src/protoFleet/components/NavigationMenu/Navigation.tsx` (new slot in the pinned footer region, immediately above the logout button).
 - **Approach:** `useUpdateStatus` wraps the RPC in `usePoll` (callback-style `{fetchData, poll, pollIntervalMs, enabled}`, mirroring `useActiveAlerts.ts`), with `enabled` true only when `useHasPermission('instance:update')` holds — non-updaters never fetch. The callout renders only when `status_available && update_available`, then shows the new-version headline, release-notes link, copy-install-command control, and dismiss affordance. The nav collapses to icon width on laptop and expands on hover; in the collapsed state the callout renders an icon-only affordance and shows its full content when expanded or hovered. Dismissal stores the dismissed release tag via `useReactiveLocalStorage`; the callout re-shows whenever the eligible tag differs from the stored dismissed tag. After an upgrade the RPC reports the new current version and `update_available` goes false. Never read `buildVersionInfo.version` for the server version.
 - **Patterns to follow:** `Navigation.tsx` footer region (mount point + responsive classes), `useActiveAlerts.ts` (poll hook shape), `CreateApiKeyModal.tsx` (copy + toast), `DismissibleCalloutWrapper.tsx` (dismiss affordance), `Preferences.test.tsx` (plain `render()` + per-hook `vi.mock`, no provider wrappers).
 - **Test scenarios (Vitest):**
@@ -336,7 +336,7 @@ U1, U2, U3 are independent and can proceed in any order. U4 depends on all three
 - U1–U6 implemented with their enumerated test scenarios; R1–R10 each traceable to at least one unit and test.
 - R11–R17 remain deferred and are recorded under Scope Boundaries — no phase-2 code in this change.
 - All Verification Contract gates pass locally.
-- Proto, sqlc, and generated code committed together with their sources; migrations `000130+` only, no edits to existing migrations.
+- Proto, sqlc, and generated code committed together with their sources; migrations `000131+` only, no edits to existing migrations.
 - Ordinary release-fetch failures remain Debug-only; rate exhaustion and repeated revalidation failure emit bounded warnings, while a recovered programming panic emits an Error with a stack trace.
 - PR description follows the repo convention (diff stats, mechanism, mermaid diagram, code-area table, testing notes).
 
