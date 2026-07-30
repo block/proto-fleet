@@ -4,16 +4,21 @@
 # Proto Fleet Installation and Setup Script
 # ============================================================================
 
-PROJECT_ROOT="$(pwd)"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yaml"
 COMPOSE_ALERTS_FILE="$PROJECT_ROOT/docker-compose.alerts.yaml"
 COMPOSE_SYSTEM_MONITORING_FILE="$PROJECT_ROOT/docker-compose.system-monitoring.yaml"
 COMPOSE_TRACING_FILE="$PROJECT_ROOT/docker-compose.tracing.yaml"
+COMPOSE_UPDATER_FILE="$PROJECT_ROOT/docker-compose.updater.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
 
 ENABLE_BETA_ALERTS=false
 ENABLE_SYSTEM_MONITORING=false
 ENABLE_TRACING=false
+ENABLE_ONE_CLICK_UPDATES=false
+NON_INTERACTIVE=false
+PREFLIGHT_ONLY=false
+SKIP_BUILD=false
 
 # How long the post-start steps wait for fleet-api to finish its migrations.
 # 300 x 2s = 10 minutes: a first boot on SD-card-class hardware (Raspberry Pi)
@@ -49,6 +54,17 @@ Options:
                                 the .env file. Off by default. Can also be
                                 enabled by setting ENABLE_TRACING=true in
                                 the .env file.
+  --enable-one-click-updates     Connect fleet-api to the host updater Unix
+                                socket. The installer sets this after the
+                                systemd updater is installed successfully.
+  --non-interactive              Reuse complete persisted configuration and
+                                fail instead of prompting. Intended for the
+                                host updater, not first-time setup.
+  --preflight-only               Validate configuration, load release images,
+                                and build the new stack without stopping the
+                                running deployment.
+  --skip-build                   Skip image preparation because a successful
+                                preflight already prepared this exact release.
   -h, --help                    Show this help and exit.
 EOF
 }
@@ -67,6 +83,22 @@ while [ $# -gt 0 ]; do
             ENABLE_TRACING=true
             shift
             ;;
+        --enable-one-click-updates)
+            ENABLE_ONE_CLICK_UPDATES=true
+            shift
+            ;;
+        --non-interactive)
+            NON_INTERACTIVE=true
+            shift
+            ;;
+        --preflight-only)
+            PREFLIGHT_ONLY=true
+            shift
+            ;;
+        --skip-build)
+            SKIP_BUILD=true
+            shift
+            ;;
         -h|--help)
             usage
             exit 0
@@ -83,16 +115,24 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+if [ "$PREFLIGHT_ONLY" = "true" ] && [ "$SKIP_BUILD" = "true" ]; then
+    echo "Error: --preflight-only and --skip-build cannot be combined." >&2
+    exit 1
+fi
+
 # Also honor ENABLE_BETA_ALERTS=true from the .env file.
-if grep -Eqi "^ENABLE_BETA_ALERTS=true$" "$ENV_FILE" 2>/dev/null; then
+if grep -Eqi "^ENABLE_BETA_ALERTS=true[[:space:]]*$" "$ENV_FILE" 2>/dev/null; then
     ENABLE_BETA_ALERTS=true
 fi
-if grep -Eqi "^ENABLE_SYSTEM_MONITORING=true$" "$ENV_FILE" 2>/dev/null; then
+if grep -Eqi "^ENABLE_SYSTEM_MONITORING=true[[:space:]]*$" "$ENV_FILE" 2>/dev/null; then
     ENABLE_SYSTEM_MONITORING=true
 fi
 # [[:space:]]*$ tolerates CRLF line endings from Windows/WSL-edited .env files.
 if grep -Eqi "^ENABLE_TRACING=true[[:space:]]*$" "$ENV_FILE" 2>/dev/null; then
     ENABLE_TRACING=true
+fi
+if grep -Eqi "^ENABLE_ONE_CLICK_UPDATES=true[[:space:]]*$" "$ENV_FILE" 2>/dev/null; then
+    ENABLE_ONE_CLICK_UPDATES=true
 fi
 
 # System monitoring rides the alerts stack (the in-process metrics writer,
@@ -130,6 +170,13 @@ refresh_compose_files() {
     fi
     if [ "$ENABLE_TRACING" = "true" ] && [ -f "$COMPOSE_TRACING_FILE" ]; then
         COMPOSE_FILES+=(-f "$COMPOSE_TRACING_FILE")
+    fi
+    if [ "$ENABLE_ONE_CLICK_UPDATES" = "true" ]; then
+        if [ ! -f "$COMPOSE_UPDATER_FILE" ]; then
+            echo "Error: one-click updates are enabled but $COMPOSE_UPDATER_FILE is missing." >&2
+            exit 1
+        fi
+        COMPOSE_FILES+=(-f "$COMPOSE_UPDATER_FILE")
     fi
 }
 refresh_compose_files
@@ -386,6 +433,10 @@ fix_wsl_networking() {
 # ----------------------------------------------------------------------------
 
 if ! command -v docker &> /dev/null; then
+    if [ "$NON_INTERACTIVE" = "true" ]; then
+        echo "Error: Docker is not installed; non-interactive upgrade cannot install host prerequisites." >&2
+        exit 1
+    fi
     echo "Docker is not installed. Attempting to install Docker..."
 
     if [ "$(uname)" == "Linux" ]; then
@@ -409,6 +460,10 @@ fi
 if [ "$(uname)" == "Linux" ]; then
     # Check if Docker is set to start on boot
     if ! systemctl is-enabled docker &>/dev/null; then
+        if [ "$NON_INTERACTIVE" = "true" ]; then
+            echo "Error: Docker is not enabled at boot; fix the host before retrying the upgrade." >&2
+            exit 1
+        fi
         echo "Configuring Docker to start on system boot..."
         sudo systemctl enable docker
     fi
@@ -420,6 +475,10 @@ if [ "$(uname)" == "Linux" ]; then
     # for the sudo-mismatch detection in install.sh) would exit here telling
     # the user to log out and back in, leaving the upgrade half-applied.
     if [ "$(id -u)" -ne 0 ] && ! groups $USER | grep -q '\bdocker\b'; then
+        if [ "$NON_INTERACTIVE" = "true" ]; then
+            echo "Error: the upgrade user cannot access Docker." >&2
+            exit 1
+        fi
         echo "Adding current user to the docker group for passwordless Docker usage..."
         sudo usermod -aG docker $USER
         echo "Please log out and log back in to apply group changes, then re-run this script."
@@ -432,6 +491,10 @@ fi
 # ----------------------------------------------------------------------------
 
 if ! docker info > /dev/null 2>&1; then
+    if [ "$NON_INTERACTIVE" = "true" ]; then
+        echo "Error: Docker daemon is not available; non-interactive upgrade will not mutate host services." >&2
+        exit 1
+    fi
     echo "Docker daemon is not running. Starting Docker..."
 
     # For macOS, attempt to start Docker Desktop
@@ -485,6 +548,10 @@ fi
 # ----------------------------------------------------------------------------
 
 if ! docker compose version &> /dev/null; then
+    if [ "$NON_INTERACTIVE" = "true" ]; then
+        echo "Error: docker compose is not installed; non-interactive upgrade cannot install host prerequisites." >&2
+        exit 1
+    fi
     echo "docker compose is not installed. Attempting to install it..."
 
     if [ "$(uname)" == "Linux" ]; then
@@ -582,7 +649,9 @@ prompt_fleet_profile() {
 # curl | bash installs reach prompts with stdin at EOF; never let an
 # unanswered prompt persist a profile
 maybe_prompt_fleet_profile() {
-    if [ -t 0 ]; then
+    if [ "$NON_INTERACTIVE" = "true" ]; then
+        echo "No FLEET_PROFILE is persisted; keeping the existing conservative defaults."
+    elif [ -t 0 ]; then
         prompt_fleet_profile
     else
         echo "Hint: host profiles are available; set FLEET_PROFILE=standard|mini|max in $ENV_FILE and re-run to tune for this hardware."
@@ -610,8 +679,12 @@ if [ -f "$ENV_FILE" ]; then
     done
 
     if [ $missing_keys -eq 0 ]; then
-        echo -n "Existing environment file found with all required keys. Use it? (Y/n): "
-        read use_existing_creds
+        if [ "$NON_INTERACTIVE" = "true" ]; then
+            use_existing_creds="y"
+        else
+            echo -n "Existing environment file found with all required keys. Use it? (Y/n): "
+            read use_existing_creds
+        fi
         if [[ -z "$use_existing_creds" || $use_existing_creds =~ ^[Yy]$ ]]; then
             use_existing="yes"
             echo "Using existing environment file."
@@ -623,9 +696,18 @@ if [ -f "$ENV_FILE" ]; then
             prompt_store_reinit || { echo "Aborting due to existing data volume."; exit 1; }
         fi
     else
+        if [ "$NON_INTERACTIVE" = "true" ]; then
+            echo "Error: existing environment file is incomplete; refusing to regenerate secrets during an upgrade." >&2
+            exit 1
+        fi
         echo "Existing environment file is incomplete. Regenerating…"
         prompt_store_reinit || { echo "Cannot proceed with incomplete env + existing data."; exit 1; }
     fi
+fi
+
+if [ "$NON_INTERACTIVE" = "true" ] && [ "$use_existing" = "no" ]; then
+    echo "Error: non-interactive mode requires an existing complete $ENV_FILE." >&2
+    exit 1
 fi
 
 # ----------------------------------------------------------------------------
@@ -707,6 +789,31 @@ if [ "$use_existing" == "no" ]; then
     chmod 600 "$ENV_FILE"
     echo "Environment variables saved to $ENV_FILE"
 fi
+
+# Persist every deployment overlay as explicit state. Historically, flags were
+# process-only, so the next upgrade could silently disable alerts, monitoring,
+# or tracing. Last value wins, matching Compose's .env behavior.
+persist_boolean_setting() {
+    local key="$1"
+    local value="$2"
+    local temp
+    temp=$(mktemp)
+    grep -v "^${key}=" "$ENV_FILE" > "$temp" || true
+    if [ -s "$temp" ] && [ -n "$(tail -c1 "$temp")" ]; then
+        echo >> "$temp"
+    fi
+    echo "${key}=${value}" >> "$temp"
+    cat "$temp" > "$ENV_FILE"
+    rm -f "$temp"
+}
+
+persist_boolean_setting ENABLE_BETA_ALERTS "$ENABLE_BETA_ALERTS"
+persist_boolean_setting ENABLE_SYSTEM_MONITORING "$ENABLE_SYSTEM_MONITORING"
+persist_boolean_setting ENABLE_TRACING "$ENABLE_TRACING"
+persist_boolean_setting ENABLE_ONE_CLICK_UPDATES "$ENABLE_ONE_CLICK_UPDATES"
+chmod 600 "$ENV_FILE"
+refresh_compose_files
+refresh_compose_env_args
 
 # ----------------------------------------------------------------------------
 # Docker Compose File Validation
@@ -807,6 +914,14 @@ if [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
     echo "  Private Key: $SSL_KEY"
     PROTOCOL_MODE="https"
 else
+    if [ "$NON_INTERACTIVE" = "true" ]; then
+        if grep -Eqi "^SESSION_COOKIE_SECURE=true[[:space:]]*$" "$ENV_FILE"; then
+            echo "Error: HTTPS is persisted but its certificate/key are missing; refusing to switch protocol during upgrade." >&2
+            exit 1
+        fi
+        echo "No SSL certificates found; preserving HTTP mode from $ENV_FILE."
+        PROTOCOL_MODE="http"
+    else
     echo ""
     echo "No SSL certificates found in $SSL_DIR"
     echo ""
@@ -842,6 +957,7 @@ else
             PROTOCOL_MODE="http"
             ;;
     esac
+    fi
 fi
 
 echo ""
@@ -882,26 +998,38 @@ refresh_compose_env_args
 # Docker Image Preparation
 # ----------------------------------------------------------------------------
 
-echo "Pulling latest Docker images..."
-compose pull
-
-# Load pre-built TimescaleDB image if available (built in CI for the target architecture)
-TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
-if [ -f "$TSDB_IMAGE" ]; then
-    echo "Loading pre-built TimescaleDB image..."
-    if gunzip -c "$TSDB_IMAGE" | docker load; then
-        echo "TimescaleDB image loaded successfully."
-    else
-        echo "Error: Failed to load TimescaleDB image from $TSDB_IMAGE"
+if [ "$SKIP_BUILD" != "true" ]; then
+    echo "Pulling latest Docker images..."
+    if ! compose pull; then
+        echo "Error: Failed to pull required Docker images."
         exit 1
     fi
+
+    # Load pre-built TimescaleDB image if available (built in CI for the target architecture)
+    TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
+    if [ -f "$TSDB_IMAGE" ]; then
+        echo "Loading pre-built TimescaleDB image..."
+        if gunzip -c "$TSDB_IMAGE" | docker load; then
+            echo "TimescaleDB image loaded successfully."
+        else
+            echo "Error: Failed to load TimescaleDB image from $TSDB_IMAGE"
+            exit 1
+        fi
+    else
+        echo "Warning: Pre-built TimescaleDB image not found at $TSDB_IMAGE."
+        echo "The deployment will fail unless the image 'proto-fleet-timescaledb:latest' already exists locally."
+    fi
+
+    # Build Docker images (fleet-api and fleet-client only; TimescaleDB uses pre-built image)
+    compose build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
 else
-    echo "Warning: Pre-built TimescaleDB image not found at $TSDB_IMAGE."
-    echo "The deployment will fail unless the image 'proto-fleet-timescaledb:latest' already exists locally."
+    echo "Skipping image preparation; this release already passed updater preflight."
 fi
 
-# Build Docker images (fleet-api and fleet-client only; TimescaleDB uses pre-built image)
-compose build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
+if [ "$PREFLIGHT_ONLY" = "true" ]; then
+    echo "Upgrade preflight completed successfully; the running stack was not stopped."
+    exit 0
+fi
 
 # ----------------------------------------------------------------------------
 # Service Management
