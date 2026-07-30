@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"net/http"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
 
 var testPublishedAt = time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
@@ -22,6 +24,23 @@ var testPublishedAt = time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 type fakeSnapshots struct{ snap Snapshot }
 
 func (f *fakeSnapshots) Snapshot() Snapshot { return f.snap }
+
+type fakeExecutor struct {
+	status     updaterapi.StatusResponse
+	statusErr  error
+	triggered  []string
+	trigger    updaterapi.Operation
+	triggerErr error
+}
+
+func (f *fakeExecutor) Status(context.Context) (updaterapi.StatusResponse, error) {
+	return f.status, f.statusErr
+}
+
+func (f *fakeExecutor) Trigger(_ context.Context, targetVersion string) (updaterapi.Operation, error) {
+	f.triggered = append(f.triggered, targetVersion)
+	return f.trigger, f.triggerErr
+}
 
 // fakeChannelStore is an in-memory channelSettingQuerier: absent org rows
 // return sql.ErrNoRows exactly like the generated sqlc query. getErr and
@@ -549,4 +568,85 @@ func TestNoncanonicalCandidateNeverOffered(t *testing.T) {
 	cmd, ok = installCommand("https://example.com/dl", "v0.3.0")
 	assert.False(t, ok, "installCommand must refuse an untrusted base URL independently")
 	assert.Empty(t, cmd)
+}
+func TestStatusAdvertisesReachableOneClickExecutor(t *testing.T) {
+	t.Parallel()
+
+	snaps := &fakeSnapshots{snap: Snapshot{
+		LatestStable:    rel("v1.1.0"),
+		StableAvailable: true,
+		RCAvailable:     true,
+	}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	svc.executor = &fakeExecutor{}
+
+	status, err := svc.GetUpdateStatus(context.Background(), 1)
+	require.NoError(t, err)
+	assert.True(t, status.OneClickAvailable)
+}
+
+func TestTriggerUpgradeRevalidatesTheEligibleTarget(t *testing.T) {
+	t.Parallel()
+
+	snaps := &fakeSnapshots{snap: Snapshot{
+		LatestStable:    rel("v1.1.0"),
+		StableAvailable: true,
+		RCAvailable:     true,
+	}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	executor := &fakeExecutor{
+		trigger: updaterapi.Operation{
+			ID:            "operation-1",
+			TargetVersion: "v1.1.0",
+			Phase:         updaterapi.PhaseQueued,
+		},
+	}
+	svc.executor = executor
+
+	operation, err := svc.TriggerUpgrade(context.Background(), 1, "v1.1.0")
+	require.NoError(t, err)
+	assert.Equal(t, "operation-1", operation.ID)
+	assert.Equal(t, []string{"v1.1.0"}, executor.triggered)
+
+	_, err = svc.TriggerUpgrade(context.Background(), 1, "v1.2.0")
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Equal(t, []string{"v1.1.0"}, executor.triggered, "a stale or invented target must never reach the host executor")
+}
+
+func TestTriggerUpgradeMapsExecutorConflict(t *testing.T) {
+	t.Parallel()
+
+	snaps := &fakeSnapshots{snap: Snapshot{
+		LatestStable:    rel("v1.1.0"),
+		StableAvailable: true,
+		RCAvailable:     true,
+	}}
+	svc, _ := newTestService(t, "v1.0.0", snaps, newFakeChannelStore())
+	svc.executor = &fakeExecutor{
+		triggerErr: &executorHTTPError{
+			StatusCode: http.StatusConflict,
+			Message:    "upgrade already running",
+		},
+	}
+
+	_, err := svc.TriggerUpgrade(context.Background(), 1, "v1.1.0")
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsAlreadyExistsError(err))
+}
+
+func TestGetUpgradeStatusReturnsDurableOperation(t *testing.T) {
+	t.Parallel()
+
+	svc, _ := newTestService(t, "v1.0.0", &fakeSnapshots{}, newFakeChannelStore())
+	svc.executor = &fakeExecutor{status: updaterapi.StatusResponse{Operation: &updaterapi.Operation{
+		ID:            "operation-1",
+		TargetVersion: "v1.1.0",
+		Phase:         updaterapi.PhaseActivating,
+	}}}
+
+	status := svc.GetUpgradeStatus(context.Background())
+	assert.True(t, status.ExecutorAvailable)
+	require.NotNil(t, status.Operation)
+	assert.Equal(t, updaterapi.PhaseActivating, status.Operation.Phase)
 }

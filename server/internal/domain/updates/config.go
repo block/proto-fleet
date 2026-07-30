@@ -3,6 +3,7 @@
 package updates
 
 import (
+	"path/filepath"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -15,9 +16,10 @@ const (
 
 // Config contains configuration for the release update checker.
 type Config struct {
-	CheckInterval   time.Duration `help:"Maximum interval between GitHub release checks" default:"1h" env:"CHECK_INTERVAL"`
-	DownloadBaseURL string        `help:"Allowlisted base URL release artifacts are downloaded from" default:"https://github.com/block/proto-fleet/releases/download" env:"DOWNLOAD_BASE_URL"`
-	Enabled         bool          `help:"Enable release update checks" default:"true" env:"ENABLED"`
+	CheckInterval     time.Duration `help:"Maximum interval between GitHub release checks" default:"1h" env:"CHECK_INTERVAL"`
+	DownloadBaseURL   string        `help:"Allowlisted base URL release artifacts are downloaded from" default:"https://github.com/block/proto-fleet/releases/download" env:"DOWNLOAD_BASE_URL"`
+	Enabled           bool          `help:"Enable release update checks" default:"true" env:"ENABLED"`
+	UpdaterSocketPath string        `help:"Unix socket exposed by the optional host updater" default:"/run/proto-fleet-updater/updater.sock" env:"UPDATER_SOCKET_PATH"`
 }
 
 // Validate validates the configuration. DownloadBaseURL ends up in a
@@ -30,6 +32,9 @@ func (c *Config) Validate() error {
 	}
 	if c.DownloadBaseURL != downloadBaseURL {
 		return fleeterror.NewInvalidArgumentErrorf("DownloadBaseURL must match the allowlisted Proto Fleet release URL")
+	}
+	if c.UpdaterSocketPath != "" && !filepath.IsAbs(c.UpdaterSocketPath) {
+		return fleeterror.NewInvalidArgumentErrorf("UpdaterSocketPath %q must be absolute", c.UpdaterSocketPath)
 	}
 	return nil
 }

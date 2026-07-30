@@ -6,12 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
+	"time"
 
 	"golang.org/x/mod/semver"
 
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
 
 // Channel is an org's release channel in its persisted (DB string) form; the
@@ -29,12 +34,18 @@ const (
 // UpdateStatus is the gated, channel-filtered update offer for one org.
 // LatestEligible is nil — and InstallCommand empty — unless UpdateAvailable.
 type UpdateStatus struct {
-	CurrentVersion  string
-	Channel         Channel
-	LatestEligible  *Release
-	StatusAvailable bool
-	UpdateAvailable bool
-	InstallCommand  string
+	CurrentVersion    string
+	Channel           Channel
+	LatestEligible    *Release
+	StatusAvailable   bool
+	UpdateAvailable   bool
+	InstallCommand    string
+	OneClickAvailable bool
+}
+
+type UpgradeStatus struct {
+	ExecutorAvailable bool
+	Operation         *updaterapi.Operation
 }
 
 // snapshotProvider is the narrow slice of the Checker the service reads;
@@ -60,12 +71,26 @@ type Service struct {
 	snapshots      snapshotProvider
 	queries        channelSettingQuerier
 	logger         *slog.Logger
+	executor       executorClient
+	activitySvc    *activity.Service
 }
 
 // NewService creates the updates domain service. serverVersion is the running
 // fleetd build (the ldflags main.version) — never a client bundle version.
-func NewService(cfg Config, serverVersion string, snapshots snapshotProvider, queries channelSettingQuerier) *Service {
-	return newService(cfg, serverVersion, snapshots, queries, slog.Default())
+func NewService(
+	cfg Config,
+	serverVersion string,
+	snapshots snapshotProvider,
+	queries channelSettingQuerier,
+	activityServices ...*activity.Service,
+) *Service {
+	var activitySvc *activity.Service
+	if len(activityServices) > 0 {
+		activitySvc = activityServices[0]
+	}
+	service := newService(cfg, serverVersion, snapshots, queries, slog.Default())
+	service.activitySvc = activitySvc
+	return service
 }
 
 func newService(cfg Config, serverVersion string, snapshots snapshotProvider, queries channelSettingQuerier, logger *slog.Logger) *Service {
@@ -75,6 +100,7 @@ func newService(cfg Config, serverVersion string, snapshots snapshotProvider, qu
 		snapshots:      snapshots,
 		queries:        queries,
 		logger:         logger,
+		executor:       newExecutorClient(cfg.UpdaterSocketPath),
 	}
 }
 
@@ -89,8 +115,9 @@ func (s *Service) GetUpdateStatus(ctx context.Context, organizationID int64) (Up
 	}
 	snapshot := s.snapshots.Snapshot()
 	status := UpdateStatus{
-		CurrentVersion: s.currentVersion,
-		Channel:        channel,
+		CurrentVersion:    s.currentVersion,
+		Channel:           channel,
+		OneClickAvailable: s.executorAvailable(ctx),
 	}
 	if !semver.IsValid(s.currentVersion) {
 		s.logger.Debug("update check skipped: running version is not semver", "version", s.currentVersion)
@@ -119,6 +146,79 @@ func (s *Service) GetUpdateStatus(ctx context.Context, organizationID int64) (Up
 	return status, nil
 }
 
+func (s *Service) executorAvailable(ctx context.Context) bool {
+	if s.executor == nil {
+		return false
+	}
+	statusCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	_, err := s.executor.Status(statusCtx)
+	return err == nil
+}
+
+// TriggerUpgrade re-derives the eligible offer at mutation time. The browser
+// cannot ask the privileged host executor to run a URL, command, downgrade,
+// or stale release that is no longer offered by the selected channel.
+func (s *Service) TriggerUpgrade(ctx context.Context, organizationID int64, targetVersion string) (updaterapi.Operation, error) {
+	status, err := s.GetUpdateStatus(ctx, organizationID)
+	if err != nil {
+		return updaterapi.Operation{}, err
+	}
+	if !status.UpdateAvailable || status.LatestEligible == nil {
+		return updaterapi.Operation{}, fleeterror.NewFailedPreconditionError("no eligible update is available")
+	}
+	if targetVersion != status.LatestEligible.Version {
+		return updaterapi.Operation{}, fleeterror.NewFailedPreconditionErrorf(
+			"target %q is no longer the eligible update", targetVersion)
+	}
+	if s.executor == nil {
+		return updaterapi.Operation{}, fleeterror.NewFailedPreconditionError("one-click updates are not installed on this host")
+	}
+	operation, err := s.executor.Trigger(ctx, targetVersion)
+	if err == nil {
+		orgID := organizationID
+		event := activitymodels.Event{
+			Category:       activitymodels.CategorySystem,
+			Type:           "instance_upgrade_triggered",
+			OrganizationID: &orgID,
+			Description:    fmt.Sprintf("Triggered instance upgrade to %s", targetVersion),
+			Metadata: map[string]any{
+				"operation_id":   operation.ID,
+				"target_version": targetVersion,
+			},
+		}
+		activity.StampActor(ctx, &event)
+		s.activitySvc.Log(ctx, event)
+		return operation, nil
+	}
+	if errors.Is(err, errExecutorUnavailable) {
+		return updaterapi.Operation{}, fleeterror.NewFailedPreconditionError("host updater is unavailable; use the install command instead")
+	}
+	var httpErr *executorHTTPError
+	if errors.As(err, &httpErr) {
+		switch httpErr.StatusCode {
+		case http.StatusConflict:
+			return updaterapi.Operation{}, fleeterror.NewAlreadyExistsError(httpErr.Message)
+		case http.StatusBadRequest:
+			return updaterapi.Operation{}, fleeterror.NewFailedPreconditionError(httpErr.Message)
+		}
+	}
+	return updaterapi.Operation{}, fmt.Errorf("trigger host upgrade: %w", err)
+}
+
+func (s *Service) GetUpgradeStatus(ctx context.Context) UpgradeStatus {
+	if s.executor == nil {
+		return UpgradeStatus{}
+	}
+	statusCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	status, err := s.executor.Status(statusCtx)
+	if err != nil {
+		return UpgradeStatus{}
+	}
+	return UpgradeStatus{ExecutorAvailable: true, Operation: status.Operation}
+}
+
 // SetReleaseChannel persists the org's release channel. Values outside the
 // two known channels are rejected as invalid argument (the handler already
 // screens the proto enum; this keeps the DB CHECK constraint unreachable).
@@ -134,6 +234,16 @@ func (s *Service) SetReleaseChannel(ctx context.Context, organizationID int64, c
 	}); err != nil {
 		return fmt.Errorf("upsert release channel setting: %w", err)
 	}
+	orgID := organizationID
+	event := activitymodels.Event{
+		Category:       activitymodels.CategorySystem,
+		Type:           "release_channel_updated",
+		OrganizationID: &orgID,
+		Description:    fmt.Sprintf("Changed instance release channel to %s", channel),
+		Metadata:       map[string]any{"channel": channel},
+	}
+	activity.StampActor(ctx, &event)
+	s.activitySvc.Log(ctx, event)
 	return nil
 }
 

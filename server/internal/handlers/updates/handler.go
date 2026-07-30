@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	updates "github.com/block/proto-fleet/server/internal/domain/updates"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
+	"github.com/block/proto-fleet/server/internal/updaterapi"
 )
 
 type Handler struct {
@@ -75,18 +76,86 @@ func (h *Handler) SetReleaseChannel(ctx context.Context, req *connect.Request[in
 	return connect.NewResponse(&instancev1.SetReleaseChannelResponse{}), nil
 }
 
+func (h *Handler) TriggerUpgrade(ctx context.Context, req *connect.Request[instancev1.TriggerUpgradeRequest]) (*connect.Response[instancev1.TriggerUpgradeResponse], error) {
+	orgID, err := h.authorize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	operation, err := h.svc.TriggerUpgrade(ctx, orgID, req.Msg.GetTargetVersion())
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	return connect.NewResponse(&instancev1.TriggerUpgradeResponse{
+		Operation: operationToProto(operation),
+	}), nil
+}
+
+func (h *Handler) GetUpgradeStatus(ctx context.Context, _ *connect.Request[instancev1.GetUpgradeStatusRequest]) (*connect.Response[instancev1.GetUpgradeStatusResponse], error) {
+	if _, err := h.authorize(ctx); err != nil {
+		return nil, err
+	}
+	status := h.svc.GetUpgradeStatus(ctx)
+	response := &instancev1.GetUpgradeStatusResponse{ExecutorAvailable: status.ExecutorAvailable}
+	if status.Operation != nil {
+		response.Operation = operationToProto(*status.Operation)
+	}
+	return connect.NewResponse(response), nil
+}
+
 func statusToProto(status updates.UpdateStatus) *instancev1.GetUpdateStatusResponse {
 	out := &instancev1.GetUpdateStatusResponse{
-		CurrentVersion:  status.CurrentVersion,
-		Channel:         channelToProto(status.Channel),
-		StatusAvailable: status.StatusAvailable,
-		UpdateAvailable: status.UpdateAvailable,
-		InstallCommand:  status.InstallCommand,
+		CurrentVersion:    status.CurrentVersion,
+		Channel:           channelToProto(status.Channel),
+		StatusAvailable:   status.StatusAvailable,
+		UpdateAvailable:   status.UpdateAvailable,
+		InstallCommand:    status.InstallCommand,
+		OneClickAvailable: status.OneClickAvailable,
 	}
 	if status.LatestEligible != nil {
 		out.LatestEligible = releaseToProto(*status.LatestEligible)
 	}
 	return out
+}
+
+func operationToProto(operation updaterapi.Operation) *instancev1.UpgradeOperation {
+	out := &instancev1.UpgradeOperation{
+		Id:              operation.ID,
+		TargetVersion:   operation.TargetVersion,
+		Phase:           phaseToProto(operation.Phase),
+		Message:         operation.Message,
+		StartedAt:       timestamppb.New(operation.StartedAt),
+		UpdatedAt:       timestamppb.New(operation.UpdatedAt),
+		Error:           operation.Error,
+		RecoveryCommand: operation.RecoveryCommand,
+		HostLogPath:     operation.LogPath,
+	}
+	if operation.CompletedAt != nil {
+		out.CompletedAt = timestamppb.New(*operation.CompletedAt)
+	}
+	return out
+}
+
+func phaseToProto(phase updaterapi.Phase) instancev1.UpgradePhase {
+	switch phase {
+	case updaterapi.PhaseQueued:
+		return instancev1.UpgradePhase_UPGRADE_PHASE_QUEUED
+	case updaterapi.PhaseDownloading:
+		return instancev1.UpgradePhase_UPGRADE_PHASE_DOWNLOADING
+	case updaterapi.PhaseVerifying:
+		return instancev1.UpgradePhase_UPGRADE_PHASE_VERIFYING
+	case updaterapi.PhaseStaging:
+		return instancev1.UpgradePhase_UPGRADE_PHASE_STAGING
+	case updaterapi.PhasePreflight:
+		return instancev1.UpgradePhase_UPGRADE_PHASE_PREFLIGHT
+	case updaterapi.PhaseActivating:
+		return instancev1.UpgradePhase_UPGRADE_PHASE_ACTIVATING
+	case updaterapi.PhaseSucceeded:
+		return instancev1.UpgradePhase_UPGRADE_PHASE_SUCCEEDED
+	case updaterapi.PhaseFailed:
+		return instancev1.UpgradePhase_UPGRADE_PHASE_FAILED
+	default:
+		return instancev1.UpgradePhase_UPGRADE_PHASE_UNSPECIFIED
+	}
 }
 
 func releaseToProto(release updates.Release) *instancev1.ReleaseInfo {

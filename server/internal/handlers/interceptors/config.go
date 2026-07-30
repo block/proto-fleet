@@ -159,13 +159,15 @@ var SessionOnlyProcedures = []string{
 	alertsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure,
 	alertsv1connect.MaintenanceWindowServiceDeleteMaintenanceWindowProcedure,
 	alertsv1connect.HistoryServiceListAlertsProcedure,
-	// The updates surface is session-only across both procedures —
+	// The updates surface is session-only across every procedure —
 	// uniform surface, same rationale as the authz entries above. Update
 	// status and the install command describe the instance's patch level,
 	// SetReleaseChannel changes which builds every operator is offered,
 	// and no API-key automation consumes this service.
 	instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
 	instancev1connect.InstanceUpdateServiceSetReleaseChannelProcedure,
+	instancev1connect.InstanceUpdateServiceTriggerUpgradeProcedure,
+	instancev1connect.InstanceUpdateServiceGetUpgradeStatusProcedure,
 }
 
 var UnauthenticatedProcedures = []string{
