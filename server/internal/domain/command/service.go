@@ -908,6 +908,20 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error resolving identifiers to device IDs: %v", err)
 	}
+	if command.commandType == commandtype.FirmwareUpdate {
+		firmwarePayload, ok := command.payload.(dto.FirmwareUpdatePayload)
+		if !ok {
+			return nil, fleeterror.NewInternalError("invalid firmware update payload")
+		}
+		metadata, release, err := s.filesService.LeaseFirmwareMetadata(firmwarePayload.FirmwareFileID)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+		if err := s.validateFirmwareUpdateTargets(ctx, info.OrganizationID, resolvedDevices, metadata); err != nil {
+			return nil, err
+		}
+	}
 
 	logPayload := command.payload
 	queuePayloads := []queue.EnqueueMessage{}
@@ -1549,6 +1563,48 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 	}
 	s.finalizeDispatch(ctx, result, "firmware_update", "Update firmware")
 	return result, nil
+}
+
+func (s *Service) validateFirmwareUpdateTargets(
+	ctx context.Context,
+	organizationID int64,
+	devices []resolvedDevice,
+	metadata files.FirmwareMetadata,
+) error {
+	if err := files.ValidateFirmwareMetadata(metadata); err != nil {
+		return fleeterror.NewFailedPreconditionError("firmware target metadata is unknown; repair its metadata before deploying it")
+	}
+
+	identifiers := make([]string, 0, len(devices))
+	for _, device := range devices {
+		identifiers = append(identifiers, device.identifier)
+	}
+	properties, err := s.deviceStore.GetDevicePropertiesForRename(ctx, organizationID, identifiers, false)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to load device targets for firmware compatibility validation: %v", err)
+	}
+	propertiesByIdentifier := make(map[string]stores.DeviceRenameProperties, len(properties))
+	for _, property := range properties {
+		propertiesByIdentifier[property.DeviceIdentifier] = property
+	}
+
+	mismatchCount := 0
+	for _, identifier := range identifiers {
+		property, ok := propertiesByIdentifier[identifier]
+		if !ok || !metadata.MatchesTarget(property.Manufacturer, property.Model) {
+			mismatchCount++
+		}
+	}
+	if mismatchCount > 0 {
+		return fleeterror.NewFailedPreconditionErrorf(
+			"firmware targets %s %s, but %d of %d selected device(s) have a different or unknown target",
+			metadata.TargetManufacturer,
+			metadata.TargetModel,
+			mismatchCount,
+			len(identifiers),
+		)
+	}
+	return nil
 }
 
 func (s *Service) Unpair(ctx context.Context, deviceSelector *pb.DeviceSelector) (*CommandResult, error) {

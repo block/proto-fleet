@@ -6,7 +6,8 @@ const mockGetConfig = vi.fn();
 const mockCheckFirmwareFile = vi.fn();
 const mockUploadFirmwareFile = vi.fn();
 
-vi.mock("@/protoFleet/api/useFirmwareApi", () => ({
+vi.mock("@/protoFleet/api/useFirmwareApi", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/api/useFirmwareApi")>()),
   useFirmwareApi: () => ({
     getConfig: mockGetConfig,
     checkFirmwareFile: mockCheckFirmwareFile,
@@ -15,6 +16,8 @@ vi.mock("@/protoFleet/api/useFirmwareApi", () => ({
   computeSha256: vi.fn().mockResolvedValue("abc123sha256"),
   validateFirmwareFile: vi.fn().mockReturnValue(null),
 }));
+
+const firmwareTarget = { targetManufacturer: "Proto", targetModel: "Rig", firmwareVersion: "v2.0.0" };
 
 const defaultConfig = {
   allowedExtensions: [".swu", ".tar.gz", ".zip"],
@@ -106,7 +109,7 @@ describe("useFirmwareUpload", () => {
       const file = new File(["data"], "firmware.swu");
 
       act(() => {
-        result.current.processFile(file);
+        result.current.processFile(file, firmwareTarget);
       });
 
       await vi.waitFor(() => {
@@ -129,13 +132,34 @@ describe("useFirmwareUpload", () => {
       const file = new File(["data"], "firmware.swu");
 
       act(() => {
-        result.current.processFile(file);
+        result.current.processFile(file, firmwareTarget);
       });
 
       await vi.waitFor(() => {
         expect(result.current.state).toBe("ready");
       });
       expect(result.current.firmwareFileId).toBe("fw-existing");
+      expect(mockUploadFirmwareFile).not.toHaveBeenCalled();
+    });
+
+    it("sets error state when target metadata is incomplete", async () => {
+      const { result } = renderHook(() => useFirmwareUpload(true));
+
+      await vi.waitFor(() => {
+        expect(result.current.serverConfig).not.toBeNull();
+      });
+
+      const file = new File(["data"], "proto-rig.swu");
+
+      act(() => {
+        result.current.processFile(file, { targetManufacturer: "", targetModel: "", firmwareVersion: "" });
+      });
+
+      await vi.waitFor(() => {
+        expect(result.current.state).toBe("error");
+      });
+      expect(result.current.errorMessage).toBe("Manufacturer, model, and firmware version are required.");
+      expect(mockCheckFirmwareFile).not.toHaveBeenCalled();
       expect(mockUploadFirmwareFile).not.toHaveBeenCalled();
     });
 
@@ -148,7 +172,7 @@ describe("useFirmwareUpload", () => {
       expect(result.current.serverConfig).toBeNull();
 
       act(() => {
-        result.current.processFile(new File(["data"], "firmware.swu"));
+        result.current.processFile(new File(["data"], "firmware.swu"), firmwareTarget);
       });
 
       await vi.waitFor(() => {
@@ -168,7 +192,7 @@ describe("useFirmwareUpload", () => {
       });
 
       act(() => {
-        result.current.processFile(new File(["data"], "firmware.swu"));
+        result.current.processFile(new File(["data"], "firmware.swu"), firmwareTarget);
       });
 
       await vi.waitFor(() => {
@@ -191,7 +215,7 @@ describe("useFirmwareUpload", () => {
       });
 
       act(() => {
-        result.current.processFile(new File(["data"], "first.swu"));
+        result.current.processFile(new File(["data"], "first.swu"), firmwareTarget);
       });
 
       await vi.waitFor(() => {
@@ -199,7 +223,7 @@ describe("useFirmwareUpload", () => {
       });
 
       act(() => {
-        result.current.processFile(new File(["data"], "second.swu"));
+        result.current.processFile(new File(["data"], "second.swu"), firmwareTarget);
       });
 
       await vi.waitFor(() => {
@@ -224,7 +248,7 @@ describe("useFirmwareUpload", () => {
       });
 
       act(() => {
-        result.current.processFile(new File(["data"], "firmware.swu"));
+        result.current.processFile(new File(["data"], "firmware.swu"), firmwareTarget);
       });
 
       await vi.waitFor(() => {
@@ -244,7 +268,7 @@ describe("useFirmwareUpload", () => {
       });
 
       act(() => {
-        result.current.processFile(new File(["data"], "firmware.bin"));
+        result.current.processFile(new File(["data"], "firmware.bin"), firmwareTarget);
       });
 
       await vi.waitFor(() => {
@@ -265,7 +289,7 @@ describe("useFirmwareUpload", () => {
       });
 
       act(() => {
-        result.current.processFile(new File(["data"], "firmware.swu"));
+        result.current.processFile(new File(["data"], "firmware.swu"), firmwareTarget);
       });
 
       await vi.waitFor(() => {
@@ -298,7 +322,7 @@ describe("useFirmwareUpload", () => {
       });
 
       act(() => {
-        result.current.processFile(new File(["data"], "firmware.swu"));
+        result.current.processFile(new File(["data"], "firmware.swu"), firmwareTarget);
       });
 
       await vi.waitFor(() => {

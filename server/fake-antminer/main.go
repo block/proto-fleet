@@ -19,7 +19,7 @@ func main() {
 	minerType := getEnv("MINER_TYPE", "Antminer S19j Pro")
 	serialNumber := getEnv("SERIAL_NUMBER", "fake-antminer-1")
 	macAddress := getEnv("MAC_ADDRESS", "00:11:22:33:44:55")
-	firmwareVersion := getEnv("FIRMWARE_VERSION", "Antminer S19j Pro 110Th 28/11/2022 16:51:53")
+	firmwareVersion := getEnv("FIRMWARE_VERSION", "2.0.0")
 
 	// Validate required environment variables
 	if err := validateConfig(minerType, serialNumber, macAddress); err != nil {

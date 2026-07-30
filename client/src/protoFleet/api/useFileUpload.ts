@@ -13,6 +13,8 @@ export interface FileUploadOptions {
   onProgress?: (percent: number) => void;
   signal?: AbortSignal;
   fieldName?: string;
+  formFields?: Record<string, string>;
+  initiateFields?: Record<string, string | number | boolean>;
   chunked?: ChunkedUploadConfig;
 }
 
@@ -138,7 +140,7 @@ async function uploadChunked(
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ filename: file.name, file_size: file.size }),
+    body: JSON.stringify({ filename: file.name, file_size: file.size, ...options.initiateFields }),
     signal,
   });
 
@@ -250,6 +252,9 @@ function uploadDirect(
     });
 
     const formData = new FormData();
+    for (const [key, value] of Object.entries(options?.formFields ?? {})) {
+      formData.append(key, value);
+    }
     formData.append(options?.fieldName ?? "file", file);
     xhr.send(formData);
   });

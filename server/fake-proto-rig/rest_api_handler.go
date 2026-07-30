@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +21,8 @@ const (
 	minPasswordLength      = 8
 	maxLocateLEDOnTimeSecs = 300
 )
+
+var firmwareFilenameVersionRE = regexp.MustCompile(`(?:^|[^0-9.])v?([0-9]+\.[0-9]+\.[0-9]+)(?:$|[^0-9.]|\.[A-Za-z])`)
 
 // REST API JSON types matching the OpenAPI spec (MDK-API.json)
 
@@ -169,6 +172,21 @@ func nextFirmwareVersion(currentVersion string) string {
 	}
 
 	return fmt.Sprintf("%d.%d.%d", major, minor, patch+1)
+}
+
+func firmwareVersionFromFilename(filename string) (string, bool) {
+	matches := firmwareFilenameVersionRE.FindStringSubmatch(filename)
+	if len(matches) != 2 {
+		return "", false
+	}
+	return matches[1], true
+}
+
+func stagedFirmwareVersion(filename, currentVersion string) string {
+	if version, ok := firmwareVersionFromFilename(filename); ok {
+		return version
+	}
+	return nextFirmwareVersion(currentVersion)
 }
 
 func buildSystemUpdateStatus(status, currentVersion, previousVersion, newVersion string) UpdateStatus {
@@ -1785,24 +1803,29 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 			h.writeJSON(w, http.StatusConflict, MessageResponse{Message: "System update is already in progress."})
 			return
 		}
+		h.state.mu.Unlock()
+
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Missing or invalid 'file' field in multipart form")
+			return
+		}
+		defer file.Close()
+
+		h.state.mu.Lock()
+		switch h.state.FWUpdateStatus {
+		case "downloading", "downloaded", "installing", "installed":
+			h.state.mu.Unlock()
+			h.writeJSON(w, http.StatusConflict, MessageResponse{Message: "System update is already in progress."})
+			return
+		}
 		currentVersion := h.state.FWCurrentVersion
 		if currentVersion == "" {
 			currentVersion = defaultFirmwareVersion
 		}
 		h.state.FWUpdateStatus = "downloading"
-		h.state.FWNewVersion = nextFirmwareVersion(currentVersion)
+		h.state.FWNewVersion = stagedFirmwareVersion(header.Filename, currentVersion)
 		h.state.mu.Unlock()
-
-		file, header, err := r.FormFile("file")
-		if err != nil {
-			h.state.mu.Lock()
-			h.state.FWUpdateStatus = ""
-			h.state.FWNewVersion = ""
-			h.state.mu.Unlock()
-			h.writeError(w, http.StatusBadRequest, "BAD_REQUEST", "Missing or invalid 'file' field in multipart form")
-			return
-		}
-		defer file.Close()
 
 		log.Printf("Firmware upload received: filename=%s, size=%d", header.Filename, header.Size)
 		h.startFirmwareOTALifecycle()

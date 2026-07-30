@@ -865,7 +865,11 @@ func TestExecuteCommandOnDevice_FirmwareUpdatePassesFileMetadata(t *testing.T) {
 	filesService, err := files.NewService(files.Config{})
 	require.NoError(t, err)
 	content := "firmware image"
-	fileID, err := filesService.SaveFirmwareFile("update.swu", strings.NewReader(content))
+	fileID, err := filesService.SaveFirmwareFile("update.swu", strings.NewReader(content), files.FirmwareMetadata{
+		TargetManufacturer: "Proto",
+		TargetModel:        "Rig",
+		FirmwareVersion:    "1.2.3",
+	})
 	require.NoError(t, err)
 
 	mockQueue := mocks.NewMockMessageQueue(ctrl)

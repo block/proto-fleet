@@ -295,8 +295,8 @@ func (d *Device) refreshFirmwareVersion(ctx context.Context, metrics *sdk.Device
 	if time.Since(d.lastFirmwareCheckAt) < firmwareRefreshInterval {
 		return
 	}
-	d.lastFirmwareCheckAt = time.Now()
 	fwVersion, err := d.client.GetFirmwareVersion(ctx)
+	d.lastFirmwareCheckAt = time.Now()
 	if err != nil {
 		slog.Debug("failed to get firmware version during Status", "error", err)
 		return
@@ -774,6 +774,13 @@ func (d *Device) invalidateStatusCache() {
 	d.clearStatusCacheLocked()
 }
 
+func (d *Device) invalidateStatusAndFirmwareCaches() {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	d.clearStatusCacheLocked()
+	d.lastFirmwareCheckAt = time.Time{}
+}
+
 func (d *Device) clearStatusCacheLocked() {
 	d.lastStatus = nil
 	d.lastStatusAt = time.Time{}
@@ -918,7 +925,7 @@ func (d *Device) Reboot(ctx context.Context) error {
 		return fmt.Errorf("failed to reboot device: %w", err)
 	}
 
-	d.invalidateStatusCache()
+	d.invalidateStatusAndFirmwareCaches()
 
 	return nil
 }
