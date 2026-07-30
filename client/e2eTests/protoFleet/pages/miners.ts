@@ -42,6 +42,35 @@ export class MinersPage extends BasePage {
       .toBeGreaterThanOrEqual(minerCount);
   }
 
+  async waitForMinersPageContentToLoad() {
+    const rows = this.page.getByTestId("list-body").locator("tr");
+    const emptyState = this.page.getByText("You haven't paired any miners", { exact: true });
+    const getStartedButton = this.page.getByRole("button", { name: "Get started", exact: true });
+    const addMinersButton = this.page.getByRole("button", { name: "Add miners", exact: true });
+    const getReadyState = async () => {
+      if ((await rows.count()) > 0) {
+        return "rows";
+      }
+      if (await emptyState.isVisible().catch(() => false)) {
+        return "empty";
+      }
+      if (await getStartedButton.isVisible().catch(() => false)) {
+        return "get-started";
+      }
+      if (await addMinersButton.isVisible().catch(() => false)) {
+        return "add-miners";
+      }
+      return "loading";
+    };
+
+    await expect.poll(getReadyState, { timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] }).not.toBe("loading");
+
+    const readyState = await getReadyState();
+    if (readyState === "rows") {
+      await this.waitForMinersListToLoad();
+    }
+  }
+
   private async openAddFilterPopover() {
     await this.page.getByTestId("filter-nested-filters-meta").click();
     const popover = this.page.getByTestId("nested-dropdown-filter-popover");
@@ -252,12 +281,33 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("actions-menu-button").click();
   }
 
+  async clickBulkActionsMoreButton() {
+    await this.getActionBar()
+      .getByRole("button", { name: this.isMobile ? "Actions" : "More", exact: true })
+      .click();
+    await expect(this.getBulkActionsPopover()).toBeVisible();
+  }
+
   private singleMinerActionsPopover(): Locator {
     return this.page
       .locator(
         '[data-testid="single-miner-actions-popover-popover"], [data-testid="single-miner-actions-popover-popover-sheet"]',
       )
       .first();
+  }
+
+  getSingleMinerActionsPopover(): Locator {
+    return this.singleMinerActionsPopover();
+  }
+
+  getBulkActionsPopover(): Locator {
+    return this.page
+      .locator('[data-testid="actions-menu-popover"], [data-testid="actions-menu-popover-sheet"]')
+      .first();
+  }
+
+  getActionBar(): Locator {
+    return this.page.getByTestId("action-bar");
   }
 
   async clickBlinkLEDsButton() {
@@ -363,6 +413,29 @@ export class MinersPage extends BasePage {
     }
 
     const mobileSheet = this.page.getByTestId("single-miner-actions-popover-popover-sheet");
+    if (await mobileSheet.isVisible().catch(() => false)) {
+      await mobileSheet.click({ position: { x: 8, y: 8 } });
+    }
+
+    if (await popover.isVisible().catch(() => false)) {
+      await this.page.mouse.click(8, 8);
+    }
+
+    await expect(popover).toBeHidden();
+  }
+
+  async dismissBulkActionsPopoverIfVisible() {
+    const popover = this.getBulkActionsPopover();
+    if (!(await popover.isVisible().catch(() => false))) {
+      return;
+    }
+
+    await this.page.keyboard.press("Escape").catch(() => undefined);
+    if (!(await popover.isVisible().catch(() => false))) {
+      return;
+    }
+
+    const mobileSheet = this.page.getByTestId("actions-menu-popover-sheet");
     if (await mobileSheet.isVisible().catch(() => false)) {
       await mobileSheet.click({ position: { x: 8, y: 8 } });
     }
@@ -1284,6 +1357,42 @@ export class MinersPage extends BasePage {
 
     const row = authenticatedRows.nth(index);
     return await row.getByTestId("ipAddress").innerText();
+  }
+
+  async getSelectableProtoRigIpAddresses(count: number): Promise<string[]> {
+    const allRows = this.page.getByTestId("list-body").locator("tr");
+    const selectableProtoRigRows = allRows
+      .filter({ has: this.page.getByTestId("name").getByText(PROTO_RIG_DISPLAY_NAME, { exact: true }) })
+      .filter({ has: this.page.locator('input[type="checkbox"]:not([disabled])') });
+
+    const protoRigCount = await selectableProtoRigRows.count();
+    if (protoRigCount < count) {
+      throw new Error(`Only ${protoRigCount} selectable Proto Rig miners available, cannot collect ${count}.`);
+    }
+
+    const minerIps: string[] = [];
+    for (let i = 0; i < count; i++) {
+      minerIps.push((await selectableProtoRigRows.nth(i).getByTestId("ipAddress").innerText()).trim());
+    }
+
+    return minerIps;
+  }
+
+  async openSingleMinerActionsForFirstProtoRig(): Promise<string> {
+    const [minerIp] = await this.getSelectableProtoRigIpAddresses(1);
+    const minerRow = await this.getMinerRowByIp(minerIp);
+    await minerRow.scrollIntoViewIfNeeded();
+    await minerRow.getByTestId("single-miner-actions-menu-button").click();
+    await expect(this.singleMinerActionsPopover()).toBeVisible();
+    return minerIp;
+  }
+
+  async selectProtoRigMiners(count: number): Promise<string[]> {
+    const minerIps = await this.getSelectableProtoRigIpAddresses(count);
+    for (const minerIp of minerIps) {
+      await this.clickMinerCheckbox(minerIp);
+    }
+    return minerIps;
   }
 
   async openSingleMinerActionsForAuthenticatedMinerWithAction(actionTestId: string): Promise<string> {
