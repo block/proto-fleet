@@ -174,6 +174,62 @@ func toAssignDevicesToBuildingParams(req *pb.AssignDevicesToBuildingRequest, org
 	}
 }
 
+func toCreateBuildingsParams(req *pb.CreateBuildingsRequest, orgID int64) models.CreateBuildingsParams {
+	rows := make([]models.NewBuildingParam, 0, len(req.GetBuildings()))
+	for _, b := range req.GetBuildings() {
+		rows = append(rows, models.NewBuildingParam{
+			Name:        b.GetName(),
+			Description: b.GetDescription(),
+			PowerKw:     b.GetPowerKw(),
+			OverheadKw:  b.GetOverheadKw(),
+		})
+	}
+	return models.CreateBuildingsParams{
+		OrgID:     orgID,
+		SiteID:    req.GetSiteId(),
+		Buildings: rows,
+	}
+}
+
+func toProtoBuildingCreateErrors(errs []models.PerBuildingCreateError) []*pb.PerBuildingCreateError {
+	if len(errs) == 0 {
+		return nil
+	}
+	out := make([]*pb.PerBuildingCreateError, 0, len(errs))
+	for _, e := range errs {
+		out = append(out, &pb.PerBuildingCreateError{
+			Index:  e.Index,
+			Name:   e.Name,
+			Reason: toProtoBuildingCreateErrorReason(e.Reason),
+		})
+	}
+	return out
+}
+
+func toProtoBuildingCreateErrorReason(r models.PerBuildingCreateErrorReason) pb.PerBuildingCreateErrorReason {
+	switch r {
+	case models.ReasonBuildingCreateDuplicateNameInBatch:
+		return pb.PerBuildingCreateErrorReason_PER_BUILDING_CREATE_ERROR_REASON_DUPLICATE_NAME_IN_BATCH
+	case models.ReasonBuildingCreateDuplicateNameAtSite:
+		return pb.PerBuildingCreateErrorReason_PER_BUILDING_CREATE_ERROR_REASON_DUPLICATE_NAME_AT_SITE
+	case models.ReasonBuildingCreateUnspecified:
+		return pb.PerBuildingCreateErrorReason_PER_BUILDING_CREATE_ERROR_REASON_UNSPECIFIED
+	default:
+		return pb.PerBuildingCreateErrorReason_PER_BUILDING_CREATE_ERROR_REASON_UNSPECIFIED
+	}
+}
+
+func toProtoBuildings(rows []*models.Building) []*pb.Building {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]*pb.Building, 0, len(rows))
+	for _, b := range rows {
+		out = append(out, toProtoBuilding(b))
+	}
+	return out
+}
+
 func toProtoBuildingConflicts(conflicts []models.PerDeviceBuildingConflict) []*pb.PerDeviceBuildingConflict {
 	if len(conflicts) == 0 {
 		return nil

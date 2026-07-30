@@ -100,6 +100,28 @@ func (h *Handler) CreateBuilding(ctx context.Context, req *connect.Request[pb.Cr
 	}), nil
 }
 
+func (h *Handler) CreateBuildings(ctx context.Context, req *connect.Request[pb.CreateBuildingsRequest]) (*connect.Response[pb.CreateBuildingsResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	// No rack:manage escalation to gate here, unlike CreateBuilding: bulk
+	// create takes no rack/device seed, so it can only insert building rows.
+	created, rejected, err := h.service.CreateBuildings(ctx, toCreateBuildingsParams(req.Msg, info.OrganizationID))
+	if err != nil {
+		return nil, err
+	}
+	if len(rejected) > 0 {
+		// Name collisions rolled the whole batch back, so buildings stays unset.
+		return connect.NewResponse(&pb.CreateBuildingsResponse{
+			Errors: toProtoBuildingCreateErrors(rejected),
+		}), nil
+	}
+	return connect.NewResponse(&pb.CreateBuildingsResponse{
+		Buildings: toProtoBuildings(created),
+	}), nil
+}
+
 func (h *Handler) UpdateBuilding(ctx context.Context, req *connect.Request[pb.UpdateBuildingRequest]) (*connect.Response[pb.UpdateBuildingResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
 	if err != nil {

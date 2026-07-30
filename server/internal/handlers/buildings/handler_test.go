@@ -512,3 +512,66 @@ func TestHandler_AssignRacksToBuilding_happy(t *testing.T) {
 }
 
 func ptrInt32t(v int32) *int32 { return &v }
+
+func TestHandler_CreateBuildings_happy(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(42)).Return(nil)
+	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
+		Return([]models.BuildingWithCounts{}, nil)
+	h.buildingStore.EXPECT().CreateBuilding(gomock.Any(), gomock.AssignableToTypeOf(models.CreateParams{})).
+		DoAndReturn(func(_ context.Context, p models.CreateParams) (*models.Building, error) {
+			return &models.Building{ID: 1, Name: p.Name, SiteID: p.SiteID}, nil
+		}).Times(2)
+
+	resp, err := h.handler.CreateBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.CreateBuildingsRequest{
+		SiteId: 42,
+		Buildings: []*pb.NewBuilding{
+			{Name: "B-001"},
+			{Name: "B-002"},
+		},
+	}))
+	require.NoError(t, err)
+	assert.Len(t, resp.Msg.GetBuildings(), 2)
+	assert.Empty(t, resp.Msg.GetErrors())
+}
+
+func TestHandler_CreateBuildings_returnsPerRowErrorsAndNoBuildings(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	// A duplicate inside the batch never reaches the stores, and the response
+	// carries the offending index rather than a transport error.
+	resp, err := h.handler.CreateBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.CreateBuildingsRequest{
+		SiteId: 42,
+		Buildings: []*pb.NewBuilding{
+			{Name: "B-001"},
+			{Name: "B-001"},
+		},
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetBuildings())
+	require.Len(t, resp.Msg.GetErrors(), 1)
+	assert.Equal(t, int32(1), resp.Msg.GetErrors()[0].GetIndex())
+	assert.Equal(t, "B-001", resp.Msg.GetErrors()[0].GetName())
+	assert.Equal(t,
+		pb.PerBuildingCreateErrorReason_PER_BUILDING_CREATE_ERROR_REASON_DUPLICATE_NAME_IN_BATCH,
+		resp.Msg.GetErrors()[0].GetReason())
+}
+
+func TestHandler_CreateBuildings_requiresSiteManage(t *testing.T) {
+	t.Parallel()
+
+	h := NewHandler(nil)
+	ctx := handlerstest.CtxWithPermissions(t, 1, authz.PermSiteRead)
+
+	_, err := h.CreateBuildings(ctx, connect.NewRequest(&pb.CreateBuildingsRequest{
+		SiteId:    42,
+		Buildings: []*pb.NewBuilding{{Name: "B-001"}},
+	}))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}

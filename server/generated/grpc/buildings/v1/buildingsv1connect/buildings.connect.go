@@ -43,6 +43,9 @@ const (
 	// BuildingServiceCreateBuildingProcedure is the fully-qualified name of the BuildingService's
 	// CreateBuilding RPC.
 	BuildingServiceCreateBuildingProcedure = "/buildings.v1.BuildingService/CreateBuilding"
+	// BuildingServiceCreateBuildingsProcedure is the fully-qualified name of the BuildingService's
+	// CreateBuildings RPC.
+	BuildingServiceCreateBuildingsProcedure = "/buildings.v1.BuildingService/CreateBuildings"
 	// BuildingServiceUpdateBuildingProcedure is the fully-qualified name of the BuildingService's
 	// UpdateBuilding RPC.
 	BuildingServiceUpdateBuildingProcedure = "/buildings.v1.BuildingService/UpdateBuilding"
@@ -93,6 +96,27 @@ type BuildingServiceClient interface {
 	// moved. A request with no seed fields behaves exactly like a plain
 	// create.
 	CreateBuilding(context.Context, *connect.Request[v1.CreateBuildingRequest]) (*connect.Response[v1.CreateBuildingResponse], error)
+	// CreateBuildings inserts several buildings into ONE site in a single
+	// transaction. Either every building in the batch is created or none
+	// is — the same all-or-nothing stance CreateBuilding takes for its
+	// seeds (#559), for the same reason: a partial batch would leave the
+	// operator reconciling which half of the list exists.
+	//
+	// The operator UI generates the names (prefix + counter) and sends
+	// them explicitly rather than sending generation parameters, so the
+	// preview it shows and the rows that get created cannot diverge.
+	//
+	// Name uniqueness is enforced twice: within the batch, and against
+	// the buildings already at site_id. A violation rejects the whole
+	// request with one `errors` entry per offending index and creates
+	// nothing, so the UI can mark the offending rows.
+	//
+	// Unlike CreateBuilding, site_id is REQUIRED — the only entry point
+	// is bulk-create from inside a site, and the plan is explicit that
+	// the UI has no orphan-building create paths. There is deliberately
+	// no rack/device seeding here: seeding N buildings at once has no
+	// sensible way to say which rack belongs to which building.
+	CreateBuildings(context.Context, *connect.Request[v1.CreateBuildingsRequest]) (*connect.Response[v1.CreateBuildingsResponse], error)
 	// UpdateBuilding mutates name, description, capacity, layout
 	// defaults. Site assignment is *not* changed by UpdateBuilding —
 	// use AssignBuildingsToSite (SiteService) for that, since it has
@@ -161,6 +185,11 @@ func NewBuildingServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			baseURL+BuildingServiceCreateBuildingProcedure,
 			opts...,
 		),
+		createBuildings: connect.NewClient[v1.CreateBuildingsRequest, v1.CreateBuildingsResponse](
+			httpClient,
+			baseURL+BuildingServiceCreateBuildingsProcedure,
+			opts...,
+		),
 		updateBuilding: connect.NewClient[v1.UpdateBuildingRequest, v1.UpdateBuildingResponse](
 			httpClient,
 			baseURL+BuildingServiceUpdateBuildingProcedure,
@@ -199,6 +228,7 @@ type buildingServiceClient struct {
 	listBuildings           *connect.Client[v1.ListBuildingsRequest, v1.ListBuildingsResponse]
 	getBuilding             *connect.Client[v1.GetBuildingRequest, v1.GetBuildingResponse]
 	createBuilding          *connect.Client[v1.CreateBuildingRequest, v1.CreateBuildingResponse]
+	createBuildings         *connect.Client[v1.CreateBuildingsRequest, v1.CreateBuildingsResponse]
 	updateBuilding          *connect.Client[v1.UpdateBuildingRequest, v1.UpdateBuildingResponse]
 	deleteBuilding          *connect.Client[v1.DeleteBuildingRequest, v1.DeleteBuildingResponse]
 	listBuildingRacks       *connect.Client[v1.ListBuildingRacksRequest, v1.ListBuildingRacksResponse]
@@ -220,6 +250,11 @@ func (c *buildingServiceClient) GetBuilding(ctx context.Context, req *connect.Re
 // CreateBuilding calls buildings.v1.BuildingService.CreateBuilding.
 func (c *buildingServiceClient) CreateBuilding(ctx context.Context, req *connect.Request[v1.CreateBuildingRequest]) (*connect.Response[v1.CreateBuildingResponse], error) {
 	return c.createBuilding.CallUnary(ctx, req)
+}
+
+// CreateBuildings calls buildings.v1.BuildingService.CreateBuildings.
+func (c *buildingServiceClient) CreateBuildings(ctx context.Context, req *connect.Request[v1.CreateBuildingsRequest]) (*connect.Response[v1.CreateBuildingsResponse], error) {
+	return c.createBuildings.CallUnary(ctx, req)
 }
 
 // UpdateBuilding calls buildings.v1.BuildingService.UpdateBuilding.
@@ -282,6 +317,27 @@ type BuildingServiceHandler interface {
 	// moved. A request with no seed fields behaves exactly like a plain
 	// create.
 	CreateBuilding(context.Context, *connect.Request[v1.CreateBuildingRequest]) (*connect.Response[v1.CreateBuildingResponse], error)
+	// CreateBuildings inserts several buildings into ONE site in a single
+	// transaction. Either every building in the batch is created or none
+	// is — the same all-or-nothing stance CreateBuilding takes for its
+	// seeds (#559), for the same reason: a partial batch would leave the
+	// operator reconciling which half of the list exists.
+	//
+	// The operator UI generates the names (prefix + counter) and sends
+	// them explicitly rather than sending generation parameters, so the
+	// preview it shows and the rows that get created cannot diverge.
+	//
+	// Name uniqueness is enforced twice: within the batch, and against
+	// the buildings already at site_id. A violation rejects the whole
+	// request with one `errors` entry per offending index and creates
+	// nothing, so the UI can mark the offending rows.
+	//
+	// Unlike CreateBuilding, site_id is REQUIRED — the only entry point
+	// is bulk-create from inside a site, and the plan is explicit that
+	// the UI has no orphan-building create paths. There is deliberately
+	// no rack/device seeding here: seeding N buildings at once has no
+	// sensible way to say which rack belongs to which building.
+	CreateBuildings(context.Context, *connect.Request[v1.CreateBuildingsRequest]) (*connect.Response[v1.CreateBuildingsResponse], error)
 	// UpdateBuilding mutates name, description, capacity, layout
 	// defaults. Site assignment is *not* changed by UpdateBuilding —
 	// use AssignBuildingsToSite (SiteService) for that, since it has
@@ -346,6 +402,11 @@ func NewBuildingServiceHandler(svc BuildingServiceHandler, opts ...connect.Handl
 		svc.CreateBuilding,
 		opts...,
 	)
+	buildingServiceCreateBuildingsHandler := connect.NewUnaryHandler(
+		BuildingServiceCreateBuildingsProcedure,
+		svc.CreateBuildings,
+		opts...,
+	)
 	buildingServiceUpdateBuildingHandler := connect.NewUnaryHandler(
 		BuildingServiceUpdateBuildingProcedure,
 		svc.UpdateBuilding,
@@ -384,6 +445,8 @@ func NewBuildingServiceHandler(svc BuildingServiceHandler, opts ...connect.Handl
 			buildingServiceGetBuildingHandler.ServeHTTP(w, r)
 		case BuildingServiceCreateBuildingProcedure:
 			buildingServiceCreateBuildingHandler.ServeHTTP(w, r)
+		case BuildingServiceCreateBuildingsProcedure:
+			buildingServiceCreateBuildingsHandler.ServeHTTP(w, r)
 		case BuildingServiceUpdateBuildingProcedure:
 			buildingServiceUpdateBuildingHandler.ServeHTTP(w, r)
 		case BuildingServiceDeleteBuildingProcedure:
@@ -415,6 +478,10 @@ func (UnimplementedBuildingServiceHandler) GetBuilding(context.Context, *connect
 
 func (UnimplementedBuildingServiceHandler) CreateBuilding(context.Context, *connect.Request[v1.CreateBuildingRequest]) (*connect.Response[v1.CreateBuildingResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("buildings.v1.BuildingService.CreateBuilding is not implemented"))
+}
+
+func (UnimplementedBuildingServiceHandler) CreateBuildings(context.Context, *connect.Request[v1.CreateBuildingsRequest]) (*connect.Response[v1.CreateBuildingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("buildings.v1.BuildingService.CreateBuildings is not implemented"))
 }
 
 func (UnimplementedBuildingServiceHandler) UpdateBuilding(context.Context, *connect.Request[v1.UpdateBuildingRequest]) (*connect.Response[v1.UpdateBuildingResponse], error) {

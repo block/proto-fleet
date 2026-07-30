@@ -1494,3 +1494,168 @@ func TestAssignDevicesToBuilding_rejectsEmptyIdentifiers(t *testing.T) {
 		t.Fatalf("expected InvalidArgument, got %v", err)
 	}
 }
+
+func TestCreateBuildings_insertsEveryRowInOneTx(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	// Lock, read the site's existing names, then one insert per row — all
+	// inside the single transaction.
+	siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(42)).Return(nil)
+	store.EXPECT().ListBuildings(inTxCtx, gomock.AssignableToTypeOf(models.ListFilter{})).
+		Return([]models.BuildingWithCounts{}, nil)
+	store.EXPECT().CreateBuilding(inTxCtx, gomock.AssignableToTypeOf(models.CreateParams{})).
+		DoAndReturn(func(_ context.Context, p models.CreateParams) (*models.Building, error) {
+			if p.SiteID == nil || *p.SiteID != 42 {
+				t.Fatalf("expected every row to carry site 42, got %+v", p.SiteID)
+			}
+			return &models.Building{ID: 1, Name: p.Name, SiteID: ptrInt64(42)}, nil
+		}).Times(3)
+
+	created, rejected, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID:  testOrgID,
+		SiteID: 42,
+		Buildings: []models.NewBuildingParam{
+			{Name: "B-001"}, {Name: "B-002"}, {Name: "B-003"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(rejected) != 0 {
+		t.Fatalf("expected no rejections, got %+v", rejected)
+	}
+	if len(created) != 3 {
+		t.Fatalf("expected 3 buildings, got %d", len(created))
+	}
+	if tx.calls != 1 {
+		t.Fatalf("expected one tx run, got %d", tx.calls)
+	}
+}
+
+func TestCreateBuildings_rejectsDuplicateNameWithinBatchBeforeOpeningTx(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	// No store or site expectations: the collision is pure request math, so
+	// nothing should touch the database.
+	created, rejected, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID:  testOrgID,
+		SiteID: 42,
+		Buildings: []models.NewBuildingParam{
+			{Name: "B-001"}, {Name: "B-002"}, {Name: "B-001"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected per-row rejection, not an error: %v", err)
+	}
+	if created != nil {
+		t.Fatalf("expected nothing created, got %+v", created)
+	}
+	if len(rejected) != 1 {
+		t.Fatalf("expected 1 rejection, got %+v", rejected)
+	}
+	// The LATER occurrence is flagged; the first stands.
+	if rejected[0].Index != 2 || rejected[0].Name != "B-001" {
+		t.Fatalf("expected index 2 / B-001, got %+v", rejected[0])
+	}
+	if rejected[0].Reason != models.ReasonBuildingCreateDuplicateNameInBatch {
+		t.Fatalf("unexpected reason: %v", rejected[0].Reason)
+	}
+	if tx.calls != 0 {
+		t.Fatalf("expected no tx to open, got %d", tx.calls)
+	}
+}
+
+func TestCreateBuildings_rejectsNameAlreadyAtSiteAndCreatesNothing(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	// "B-002" is already live at the site. The batch must reject that row and
+	// insert NOTHING — not even the two rows that would have been fine.
+	siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(42)).Return(nil)
+	store.EXPECT().ListBuildings(inTxCtx, gomock.AssignableToTypeOf(models.ListFilter{})).
+		Return([]models.BuildingWithCounts{
+			{Building: models.Building{ID: 5, Name: "B-002", SiteID: ptrInt64(42)}},
+		}, nil)
+
+	created, rejected, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID:  testOrgID,
+		SiteID: 42,
+		Buildings: []models.NewBuildingParam{
+			{Name: "B-001"}, {Name: "B-002"}, {Name: "B-003"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected per-row rejection, not an error: %v", err)
+	}
+	if created != nil {
+		t.Fatalf("expected nothing created, got %+v", created)
+	}
+	if len(rejected) != 1 {
+		t.Fatalf("expected 1 rejection, got %+v", rejected)
+	}
+	if rejected[0].Index != 1 || rejected[0].Reason != models.ReasonBuildingCreateDuplicateNameAtSite {
+		t.Fatalf("unexpected rejection: %+v", rejected[0])
+	}
+}
+
+func TestCreateBuildings_trimsNamesSoWhitespaceVariantsCollide(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, nil, nil, nil, tx, nil)
+
+	// " B-001" and "B-001 " would both store as "B-001", so they must collide
+	// rather than sneak two identically-named buildings into the site.
+	_, rejected, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID:  testOrgID,
+		SiteID: 42,
+		Buildings: []models.NewBuildingParam{
+			{Name: " B-001"}, {Name: "B-001 "},
+		},
+	})
+	if err != nil {
+		t.Fatalf("expected per-row rejection, not an error: %v", err)
+	}
+	if len(rejected) != 1 || rejected[0].Index != 1 {
+		t.Fatalf("expected the second row flagged, got %+v", rejected)
+	}
+	if tx.calls != 0 {
+		t.Fatalf("expected no tx to open, got %d", tx.calls)
+	}
+}
+
+func TestCreateBuildings_rejectsMissingSiteAndEmptyBatch(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	svc := NewService(store, siteStore, nil, nil, nil, &fakeTransactor{}, nil)
+
+	rows := []models.NewBuildingParam{{Name: "B-001"}}
+	if _, _, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID: testOrgID, SiteID: 0, Buildings: rows,
+	}); err == nil {
+		t.Fatal("expected InvalidArgument for a missing site")
+	}
+	if _, _, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID: testOrgID, SiteID: 42,
+	}); err == nil {
+		t.Fatal("expected InvalidArgument for an empty batch")
+	}
+	if _, _, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
+		OrgID: testOrgID, SiteID: 42, Buildings: []models.NewBuildingParam{{Name: "  "}},
+	}); err == nil {
+		t.Fatal("expected InvalidArgument for a blank name")
+	}
+}
