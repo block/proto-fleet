@@ -59,8 +59,15 @@ export class RacksPage extends BasePage {
       .trim();
   }
 
-  async clickContinueFromRackSettings() {
-    await this.clickIn("Continue", "modal");
+  // The Rack settings CTA creates the rack, so a new rack reads "Create rack"
+  // and lands on the manage-rack modal with the rack already persisted.
+  async clickCreateRackFromSettings() {
+    await this.clickIn("Create rack", "modal");
+  }
+
+  // Reopened on an existing rack, the same CTA updates the rack's own fields.
+  async clickSaveRackSettings() {
+    await this.clickIn("Save", "modal");
   }
 
   async validateRackSettingsFieldError(
@@ -176,8 +183,9 @@ export class RacksPage extends BasePage {
     await this.modalMinerList.selectRowByCellText("ipAddress", ipAddress);
   }
 
-  async clickContinueInMinerSelector() {
-    await this.clickIn("Continue", "modal");
+  // The miner picker commits the rack's membership itself, hence "Save".
+  async clickSaveInMinerSelector() {
+    await this.clickIn("Save", "modal");
   }
 
   async validateMinerSelectorOverflowError(selectedCount: number, maxSlots: number) {
@@ -303,8 +311,18 @@ export class RacksPage extends BasePage {
     await this.page.getByRole("button", { name: "Clear", exact: true }).click();
   }
 
-  async clickSaveRack() {
+  // The manage-rack modal's Save persists slot placement only, and is disabled
+  // until a miner's slot actually changes.
+  async clickSaveMinerPositions() {
     await this.clickButton("Save");
+  }
+
+  async clickDismissManageRack() {
+    await this.page.getByRole("button", { name: "Close dialog", exact: true }).click();
+  }
+
+  async validateSaveMinerPositionsDisabled() {
+    await expect(this.page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
   }
 
   async clickViewMiners() {
@@ -331,13 +349,19 @@ export class RacksPage extends BasePage {
     await this.validateTitleInModal("Rack settings");
   }
 
-  async changeOrderIndexAndContinue(orderIndexLabel: string) {
+  // Reached through Edit Rack Settings, so the rack already exists and the CTA
+  // persists the change straight away.
+  async changeOrderIndexAndSaveSettings(orderIndexLabel: string) {
     await this.selectOption("order-index-select", orderIndexLabel);
-    await this.clickContinueFromRackSettings();
+    await this.clickSaveRackSettings();
   }
 
-  async validateRackToast(label: string, action: "created" | "updated" = "created") {
+  async validateRackToast(label: string, action: "created" | "saved" = "created") {
     await this.validateTextInToast(`Rack "${label}" ${action}`);
+  }
+
+  async validateMinerPositionsToast(label: string) {
+    await this.validateTextInToast(`Miner positions saved for "${label}"`);
   }
 
   async validateRackCardVisible(label: string, zone: string) {

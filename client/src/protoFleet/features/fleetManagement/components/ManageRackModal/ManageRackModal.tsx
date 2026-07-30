@@ -803,6 +803,7 @@ export default function ManageRackModal({
       // rack list/overview reflects the new label/placement even if the
       // operator dismisses without pressing the final miner Save.
       onSettingsPersisted?.();
+      pushToast({ message: `Rack "${applied.label}" saved`, status: STATUSES.success });
       setRackSettings(applied);
       setShowRackSettings(false);
     },

@@ -287,9 +287,9 @@ export async function createRack(racksPage: RacksPage, rackLabel: string) {
     await racksPage.enableCustomRackLayout();
     await racksPage.inputColumns(2);
     await racksPage.inputRows(2);
-    await racksPage.clickContinueFromRackSettings();
-    await racksPage.clickSaveRack();
+    await racksPage.clickCreateRackFromSettings();
     await racksPage.validateRackToast(rackLabel);
+    await racksPage.clickDismissManageRack();
     await racksPage.clickViewList();
     await racksPage.waitForRackListToLoad({ allowEmpty: false });
     await racksPage.validateRackRow(rackLabel, RBAC_RACK_ZONE, 0);
