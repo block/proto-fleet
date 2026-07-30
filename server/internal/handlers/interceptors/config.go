@@ -11,6 +11,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
@@ -155,6 +156,13 @@ var SessionOnlyProcedures = []string{
 	alertsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure,
 	alertsv1connect.MaintenanceWindowServiceDeleteMaintenanceWindowProcedure,
 	alertsv1connect.HistoryServiceListAlertsProcedure,
+	// The updates surface is session-only across both procedures —
+	// uniform surface, same rationale as the authz entries above. Update
+	// status and the install command describe the instance's patch level,
+	// SetReleaseChannel changes which builds every operator is offered,
+	// and no API-key automation consumes this service.
+	instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
+	instancev1connect.InstanceUpdateServiceSetReleaseChannelProcedure,
 }
 
 var UnauthenticatedProcedures = []string{

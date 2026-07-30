@@ -76,6 +76,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		curtailmentAlertMetrics:   noopLifecycle{},
 		chunkedUploadCleanup:      noopLifecycle{},
 		systemMonitoring:          noopLifecycle{},
+		releaseChecker:            noopLifecycle{},
 	}
 
 	jobs, err := newRuntimeJobs(all)
@@ -93,10 +94,12 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"curtailment-alert-metrics",
 		"chunked-upload-cleanup",
 		"system-monitoring",
+		"release-checker",
 	}, jobNames(jobs))
 
 	all.curtailmentAlertMetrics = nil
 	all.systemMonitoring = nil
+	all.releaseChecker = nil
 	jobs, err = newRuntimeJobs(all)
 	require.NoError(t, err)
 	require.Equal(t, []string{

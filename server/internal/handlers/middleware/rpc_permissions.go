@@ -15,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -365,6 +366,11 @@ var ProcedurePermissions = map[string]string{
 	// TelemetryService — fleet:read for combined-metrics surfaces.
 	telemetryv1connect.TelemetryServiceGetCombinedMetricsProcedure:          authz.PermFleetRead,
 	telemetryv1connect.TelemetryServiceStreamCombinedMetricUpdatesProcedure: authz.PermFleetRead,
+
+	// InstanceUpdateService — release visibility and channel selection share the
+	// one instance-administration key with the future upgrade trigger.
+	instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure:   authz.PermInstanceUpdate,
+	instancev1connect.InstanceUpdateServiceSetReleaseChannelProcedure: authz.PermInstanceUpdate,
 }
 
 // ProceduresPendingMigration lists authenticated Connect procedures that
