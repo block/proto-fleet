@@ -35,6 +35,17 @@ func TestEtcdClientSnapshotUsesLinearizablePrefixRead(t *testing.T) {
 	require.Equal(t, int64(998), snapshot.LeaderLeaseID)
 }
 
+func TestNewEtcdClientKeepsRequestTimeoutIndependentFromDialTimeout(t *testing.T) {
+	client, err := NewEtcdClient(clientv3.Config{
+		Endpoints:   []string{"http://127.0.0.1:2379"},
+		DialTimeout: time.Minute,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+
+	require.Equal(t, defaultHAHTTPTimeout, client.requestTimeout)
+}
+
 func TestPatroniHTTPClientUsesBoundedDefaultTimeout(t *testing.T) {
 	require.Greater(t, NewPatroniHTTPClient(nil).client.Timeout, time.Duration(0))
 }

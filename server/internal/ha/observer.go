@@ -386,7 +386,7 @@ func NewEtcdClient(config clientv3.Config) (*EtcdClient, error) {
 	}
 	return &EtcdClient{
 		client:         client,
-		requestTimeout: config.DialTimeout,
+		requestTimeout: defaultHAHTTPTimeout,
 	}, nil
 }
 
