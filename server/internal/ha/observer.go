@@ -1,13 +1,10 @@
 package ha
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -15,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/transportguard"
@@ -355,182 +354,115 @@ func isPrimaryRole(role string) bool {
 	return role == "primary" || role == "master"
 }
 
-// EtcdHTTPClient implements the minimal etcd v3 JSON-gateway surface required
-// for linearizable Patroni leader observations.
-type EtcdHTTPClient struct {
-	endpoint string
-	client   *http.Client
+type etcdAPI interface {
+	Close() error
+	Get(
+		ctx context.Context,
+		key string,
+		opts ...clientv3.OpOption,
+	) (*clientv3.GetResponse, error)
+	TimeToLive(
+		ctx context.Context,
+		id clientv3.LeaseID,
+		opts ...clientv3.LeaseOption,
+	) (*clientv3.LeaseTimeToLiveResponse, error)
 }
 
-func NewEtcdHTTPClient(endpoint string, client *http.Client) *EtcdHTTPClient {
-	if client == nil {
-		client = &http.Client{Timeout: defaultHAHTTPTimeout}
-	}
-	return &EtcdHTTPClient{endpoint: strings.TrimRight(endpoint, "/"), client: client}
+// EtcdClient reads Patroni authority through etcd's authenticated native API.
+// The official client owns mTLS, authentication tokens, endpoint failover, and
+// token refresh; this wrapper only translates the two reads the observer needs.
+type EtcdClient struct {
+	client         etcdAPI
+	requestTimeout time.Duration
 }
 
-func (c *EtcdHTTPClient) Snapshot(ctx context.Context, clusterPath string) (DCSSnapshot, error) {
-	prefix := []byte(strings.TrimRight(clusterPath, "/") + "/")
-	payload := map[string]any{
-		"key":          base64.StdEncoding.EncodeToString(prefix),
-		"range_end":    base64.StdEncoding.EncodeToString(prefixRangeEnd(prefix)),
-		"serializable": false,
+func NewEtcdClient(config clientv3.Config) (*EtcdClient, error) {
+	if config.DialTimeout <= 0 {
+		config.DialTimeout = defaultHAHTTPTimeout
 	}
-	var response etcdRangeResponse
-	if err := c.post(ctx, "/v3/kv/range", payload, &response); err != nil {
-		return DCSSnapshot{}, err
+	client, err := clientv3.New(config)
+	if err != nil {
+		return nil, fmt.Errorf("create etcd client: %w", err)
+	}
+	return &EtcdClient{
+		client:         client,
+		requestTimeout: config.DialTimeout,
+	}, nil
+}
+
+func (c *EtcdClient) Close() error {
+	return c.client.Close()
+}
+
+func (c *EtcdClient) Snapshot(ctx context.Context, clusterPath string) (DCSSnapshot, error) {
+	prefix := strings.TrimRight(clusterPath, "/") + "/"
+	requestCtx, cancel := context.WithTimeout(ctx, c.requestTimeout)
+	defer cancel()
+	response, err := c.client.Get(requestCtx, prefix, clientv3.WithPrefix())
+	if err != nil {
+		return DCSSnapshot{}, fmt.Errorf("read Patroni DCS prefix: %w", err)
 	}
 	return extractDCSSnapshot(response, clusterPath)
 }
 
-func (c *EtcdHTTPClient) LeaseTTL(ctx context.Context, leaseID int64) (time.Duration, error) {
-	var response struct {
-		ID  string `json:"ID"`
-		TTL string `json:"TTL"`
+func (c *EtcdClient) LeaseTTL(ctx context.Context, leaseID int64) (time.Duration, error) {
+	requestCtx, cancel := context.WithTimeout(ctx, c.requestTimeout)
+	defer cancel()
+	response, err := c.client.TimeToLive(requestCtx, clientv3.LeaseID(leaseID))
+	if err != nil {
+		return 0, fmt.Errorf("read Patroni leader lease TTL: %w", err)
 	}
-	if err := c.post(
-		ctx,
-		"/v3/lease/timetolive",
-		map[string]any{"ID": strconv.FormatInt(leaseID, 10), "keys": false},
-		&response,
-	); err != nil {
-		return 0, err
-	}
-	returnedID, err := parsePositiveInt(response.ID, "leader lease ID")
-	if err != nil || returnedID != leaseID {
+	if response == nil || int64(response.ID) != leaseID {
 		return 0, errors.New("etcd returned a different leader lease")
 	}
-	ttl, err := strconv.ParseInt(response.TTL, 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("parse leader lease TTL: %w", err)
+	if response.TTL <= 0 {
+		return 0, ErrLeaderLeaseExpired
 	}
-	return time.Duration(ttl) * time.Second, nil
+	return time.Duration(response.TTL) * time.Second, nil
 }
 
-func (c *EtcdHTTPClient) post(
-	ctx context.Context,
-	path string,
-	payload any,
-	result any,
-) error {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("encode etcd %s request: %w", path, err)
+func extractDCSSnapshot(response *clientv3.GetResponse, clusterPath string) (DCSSnapshot, error) {
+	if response == nil || response.Header == nil {
+		return DCSSnapshot{}, errors.New("DCS snapshot has no response header")
 	}
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		c.endpoint+path,
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return fmt.Errorf("create etcd %s request: %w", path, err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	response, err := c.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("call etcd %s: %w", path, err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		limited, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
-		return fmt.Errorf("etcd %s returned %s: %s", path, response.Status, strings.TrimSpace(string(limited)))
-	}
-	if err := json.NewDecoder(response.Body).Decode(result); err != nil {
-		return fmt.Errorf("decode etcd %s response: %w", path, err)
-	}
-	return nil
-}
-
-type etcdRangeResponse struct {
-	Header struct {
-		ClusterID string `json:"cluster_id"`
-		Revision  string `json:"revision"`
-	} `json:"header"`
-	KVs []struct {
-		Key            string `json:"key"`
-		Value          string `json:"value"`
-		CreateRevision string `json:"create_revision"`
-		Lease          string `json:"lease"`
-	} `json:"kvs"`
-}
-
-func extractDCSSnapshot(response etcdRangeResponse, clusterPath string) (DCSSnapshot, error) {
 	clusterPath = strings.TrimRight(clusterPath, "/")
 	leaderPath := clusterPath + "/leader"
 	var leaderName string
 	var generation, leaseID int64
 	members := make(map[string]DCSMember)
 
-	for _, kv := range response.KVs {
-		keyBytes, err := base64.StdEncoding.DecodeString(kv.Key)
-		if err != nil {
-			return DCSSnapshot{}, fmt.Errorf("decode etcd key: %w", err)
-		}
-		valueBytes, err := base64.StdEncoding.DecodeString(kv.Value)
-		if err != nil {
-			return DCSSnapshot{}, fmt.Errorf("decode etcd value for %s: %w", keyBytes, err)
-		}
-		key := string(keyBytes)
+	for _, kv := range response.Kvs {
+		key := string(kv.Key)
 		switch {
 		case key == leaderPath:
 			if leaderName != "" {
 				return DCSSnapshot{}, errors.New("DCS snapshot has duplicate leader key")
 			}
-			leaderName = string(valueBytes)
-			generation, err = parsePositiveInt(kv.CreateRevision, "leader create_revision")
-			if err != nil {
-				return DCSSnapshot{}, err
-			}
-			leaseID, err = parsePositiveInt(kv.Lease, "leader lease")
-			if err != nil {
-				return DCSSnapshot{}, err
-			}
+			leaderName = string(kv.Value)
+			generation = kv.CreateRevision
+			leaseID = kv.Lease
 		case strings.HasPrefix(key, clusterPath+"/members/"):
 			name := strings.TrimPrefix(key, clusterPath+"/members/")
 			var value struct {
 				APIURL  string `json:"api_url"`
 				ConnURL string `json:"conn_url"`
 			}
-			if err := json.Unmarshal(valueBytes, &value); err != nil {
+			if err := json.Unmarshal(kv.Value, &value); err != nil {
 				return DCSSnapshot{}, fmt.Errorf("decode DCS member %s: %w", name, err)
 			}
 			members[name] = DCSMember{Name: name, APIURL: value.APIURL, ConnURL: value.ConnURL}
 		}
 	}
 
-	revision, err := parsePositiveInt(response.Header.Revision, "DCS revision")
-	if err != nil {
-		return DCSSnapshot{}, err
-	}
 	snapshot := DCSSnapshot{
-		ClusterID:        response.Header.ClusterID,
-		Revision:         revision,
+		ClusterID:        strconv.FormatUint(response.Header.ClusterId, 10),
+		Revision:         response.Header.Revision,
 		LeaderName:       leaderName,
 		WriterGeneration: generation,
 		LeaderLeaseID:    leaseID,
 		Member:           members[leaderName],
 	}
 	return snapshot, validateDCSSnapshot(snapshot)
-}
-
-func parsePositiveInt(value string, field string) (int64, error) {
-	parsed, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || parsed <= 0 {
-		return 0, fmt.Errorf("%s is missing or invalid", field)
-	}
-	return parsed, nil
-}
-
-func prefixRangeEnd(prefix []byte) []byte {
-	result := append([]byte(nil), prefix...)
-	for i := len(result) - 1; i >= 0; i-- {
-		if result[i] < 0xff {
-			result[i]++
-			return result[:i+1]
-		}
-	}
-	return []byte{0}
 }
 
 // PatroniHTTPClient validates the member's /primary response.
