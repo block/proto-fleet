@@ -100,6 +100,18 @@ describe("secondaryNavItems", () => {
     );
   });
 
+  it("gates the Updates settings page on instance:update", () => {
+    expect(secondaryNavItems).toContainEqual(
+      expect.objectContaining({
+        path: "/settings/updates",
+        label: "Updates",
+        parent: "/settings",
+        section: "Admin",
+        requiredPermission: "instance:update",
+      }),
+    );
+  });
+
   it("folds role management into the Team destination", () => {
     expect(secondaryNavItems).toContainEqual(
       expect.objectContaining({
