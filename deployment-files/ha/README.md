@@ -68,6 +68,9 @@ chmod 0600 node.env
 ```
 
 Preflight validates the clean host and loads its peer-restricted firewall.
+Reboot and nftables-reload recovery are unsupported in this lab: services do
+not restart automatically, and recovery requires a clean redeployment until
+the supported installer owns firewall persistence and boot ordering.
 
 Load the database images on the two database hosts. All three hosts require
 registry access to pull the pinned etcd image before starting it:

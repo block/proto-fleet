@@ -199,6 +199,39 @@ func TestPreflight(t *testing.T) {
 	if err := os.Chmod(publicIdentity, 0o644); err != nil { //nolint:gosec // Restores the generated public certificate mode.
 		t.Fatal(err)
 	}
+	serverKeyPath := filepath.Join(generated, "ha-a", "etcd-server.key")
+	serverKey, err := os.ReadFile(serverKeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerKey, err := os.ReadFile(filepath.Join(generated, "ha-a", "etcd-peer.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(serverKeyPath, peerKey, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "certificate does not match private key") {
+		t.Fatalf("preflight(mismatched certificate key) error = %v", err)
+	}
+	if err := os.WriteFile(serverKeyPath, serverKey, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	jwtKeyPath := filepath.Join(generated, "ha-a", "etcd-jwt.key")
+	jwtKey, err := os.ReadFile(jwtKeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(jwtKeyPath, serverKey, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "public key does not match private key") {
+		t.Fatalf("preflight(mismatched JWT key) error = %v", err)
+	}
+	if err := os.WriteFile(jwtKeyPath, jwtKey, 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := os.WriteFile(filepath.Join(dataDir, "postgres", "PG_VERSION"), []byte("18"), 0o600); err != nil {
 		t.Fatal(err)
