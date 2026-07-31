@@ -760,7 +760,14 @@ message AssignDevicesToRackRequest {
     // device or a position. Positions are bounds checked against the
     // target rack's rows/columns. Requires target_rack_id: an unassign has
     // no rack to place into.
-    repeated RackSlot slot_assignments = 4 [(buf.validate.field).repeated.max_items = 10000];
+    //
+    // Capped at 144 — the largest rack the server accepts is 12 × 12 (see
+    // maxRackDimension). Every entry must name a device that ends up a
+    // member of the target rack, and membership is itself capped at the
+    // rack's slot count, so a valid request cannot exceed this. The cap is
+    // also what bounds the clear-then-set delta to a fixed number of
+    // statements per transaction.
+    repeated RackSlot slot_assignments = 4 [(buf.validate.field).repeated.max_items = 144];
 }
 
 message AssignDevicesToRackResponse {

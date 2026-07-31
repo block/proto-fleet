@@ -3037,6 +3037,37 @@ func TestService_AssignDevicesToRack_noSlotsLeavesPlacementUntouched(t *testing.
 	require.NoError(t, err)
 }
 
+// TestService_AssignDevicesToRack_missingRackExtensionFails pins the
+// broken-invariant path. A RACK collection always has a device_set_rack
+// row, so a nil read means the data is corrupt. Continuing would skip both
+// the slot bounds check and the capacity check and write positions the grid
+// can never address, so the tx fails before any write instead.
+func TestService_AssignDevicesToRack_missingRackExtensionFails(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	rackID := int64(42)
+	deviceIDs := []string{"d1"}
+	site := int64(7)
+	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, rackID).Return(nil, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &site}, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, rackID).
+		Return(&pb.DeviceCollection{Id: rackID, Label: "Rack-A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).Return(nil, nil)
+	// No membership or slot expectations: the strict mock fails the test if
+	// anything downstream of the missing extension row fires.
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &rackID,
+		DeviceIdentifiers: deviceIDs,
+		SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 0, 0)},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no rack extension row")
+}
+
 // TestService_AssignDevicesToRack_slotDeltaRejectsBadInput covers the
 // shape contract. Each case must reject BEFORE any store call, so these
 // run against a mock with zero expectations — a write slipping through

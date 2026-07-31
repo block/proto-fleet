@@ -1329,26 +1329,34 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			targetPriorCount = coll.DeviceCount
 
 			// Read the grid once under the rack lock; it bounds both the
-			// slot positions below and the post-insert capacity check. A
-			// rack with no device_set_rack row yields nil — leave both
-			// guards off rather than inventing dimensions for it.
+			// slot positions below and the post-insert capacity check.
+			//
+			// A collection whose type is RACK always has a device_set_rack
+			// row — every create path inserts the extension in the same tx
+			// as the device_set row — so nil here means that invariant is
+			// broken. Fail instead of continuing: without dimensions both
+			// the bounds check and the capacity check silently pass, which
+			// would let us write slot positions the grid can never address
+			// and overfill the rack, with nothing in the logs to explain it
+			// later.
 			rackInfo, err := s.collectionStore.GetRackInfo(ctx, *params.TargetRackID, params.OrgID)
 			if err != nil {
 				return nil, err
 			}
-			if rackInfo != nil {
-				targetRows, targetColumns = rackInfo.Rows, rackInfo.Columns
-				for _, slot := range params.SlotAssignments {
-					// Unset position = clear; no cell to bounds check.
-					if slot.Position == nil {
-						continue
-					}
-					if slot.Position.Row >= targetRows {
-						return nil, fleeterror.NewInvalidArgumentErrorf("slot row %d is out of bounds (rack has %d rows)", slot.Position.Row, targetRows)
-					}
-					if slot.Position.Column >= targetColumns {
-						return nil, fleeterror.NewInvalidArgumentErrorf("slot column %d is out of bounds (rack has %d columns)", slot.Position.Column, targetColumns)
-					}
+			if rackInfo == nil {
+				return nil, fleeterror.NewInternalErrorf("rack %d has no rack extension row", *params.TargetRackID)
+			}
+			targetRows, targetColumns = rackInfo.Rows, rackInfo.Columns
+			for _, slot := range params.SlotAssignments {
+				// Unset position = clear; no cell to bounds check.
+				if slot.Position == nil {
+					continue
+				}
+				if slot.Position.Row >= targetRows {
+					return nil, fleeterror.NewInvalidArgumentErrorf("slot row %d is out of bounds (rack has %d rows)", slot.Position.Row, targetRows)
+				}
+				if slot.Position.Column >= targetColumns {
+					return nil, fleeterror.NewInvalidArgumentErrorf("slot column %d is out of bounds (rack has %d columns)", slot.Position.Column, targetColumns)
 				}
 			}
 		}
