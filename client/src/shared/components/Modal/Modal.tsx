@@ -10,7 +10,6 @@ import Divider from "@/shared/components/Divider";
 import Header from "@/shared/components/Header";
 import ModalHeaderActions from "@/shared/components/ModalHeaderActions";
 import PageOverlay from "@/shared/components/PageOverlay";
-import { useClickOutsideDismiss } from "@/shared/hooks/useClickOutsideDismiss";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 import useSlideUpAnimation from "@/shared/hooks/useSlideUpAnimation";
 
@@ -80,7 +79,6 @@ const Modal = ({
   forceTitleCollapsed = false,
   fixedFooter,
 }: ModalProps) => {
-  const modalRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -135,11 +133,6 @@ const Modal = ({
 
   useEscapeDismiss(open === false ? undefined : dismissModal);
 
-  useClickOutsideDismiss({
-    ref: modalRef,
-    onDismiss: open === false ? undefined : dismissModal,
-    ignoreSelectors: [".popover-content"],
-  });
   const headerIconProps =
     icon === null
       ? {}
@@ -152,7 +145,6 @@ const Modal = ({
   return (
     <PageOverlay open={open} position="top" {...(zIndex && { zIndex })}>
       <div
-        ref={modalRef}
         className={clsx(
           "h-fit overflow-hidden rounded-3xl bg-surface-elevated-base shadow-300",
           sizeClasses[size],

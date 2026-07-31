@@ -53,6 +53,37 @@ describe("Modal", () => {
     expect(screen.getByTestId("modal").parentElement).toHaveStyle({ maxWidth: "1920px" });
   });
 
+  it("dismisses from the close button, not from scrim clicks", () => {
+    const onDismiss = vi.fn();
+    render(
+      <Modal title="Intentional dismiss" onDismiss={onDismiss}>
+        <div>Modal content</div>
+      </Modal>,
+    );
+
+    const overlay = screen.getByTestId("modal").parentElement?.parentElement;
+    expect(overlay).not.toBeNull();
+
+    fireEvent.mouseDown(overlay!);
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
+  it("still supports Escape dismissal", () => {
+    const onDismiss = vi.fn();
+    render(
+      <Modal title="Keyboard dismiss" onDismiss={onDismiss}>
+        <div>Modal content</div>
+      </Modal>,
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
   it("keeps a fixed footer outside the scroll area while preserving the standard sticky header", () => {
     const onDismiss = vi.fn();
     render(
