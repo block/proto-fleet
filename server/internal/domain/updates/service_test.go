@@ -82,10 +82,11 @@ func TestStatusStableChannelIgnoresRC(t *testing.T) {
 	t.Parallel()
 
 	snaps := &fakeSnapshots{snap: Snapshot{
-		LatestStable: rel("v0.2.8"),
-		LatestRC:     rc("v0.2.9-rc.1"),
-		FetchedAt:    testPublishedAt,
-		Available:    true,
+		LatestStable:    rel("v0.2.8"),
+		LatestRC:        rc("v0.2.9-rc.1"),
+		FetchedAt:       testPublishedAt,
+		StableAvailable: true,
+		RCAvailable:     true,
 	}}
 	svc, _ := newTestService(t, "v0.2.8", snaps, newFakeChannelStore())
 
@@ -111,10 +112,11 @@ func TestStatusStableAndRCOffersNewestRC(t *testing.T) {
 	t.Parallel()
 
 	snaps := &fakeSnapshots{snap: Snapshot{
-		LatestStable: rel("v0.2.8"),
-		LatestRC:     rc("v0.2.9-rc.1"),
-		FetchedAt:    testPublishedAt,
-		Available:    true,
+		LatestStable:    rel("v0.2.8"),
+		LatestRC:        rc("v0.2.9-rc.1"),
+		FetchedAt:       testPublishedAt,
+		StableAvailable: true,
+		RCAvailable:     true,
 	}}
 	store := newFakeChannelStore()
 	store.channels[1] = string(ChannelStableAndRC)
@@ -129,6 +131,66 @@ func TestStatusStableAndRCOffersNewestRC(t *testing.T) {
 	assert.True(t, status.LatestEligible.Prerelease)
 }
 
+func TestStatusRCOnlySnapshotRemainsAvailableForStableAndRC(t *testing.T) {
+	t.Parallel()
+
+	snaps := &fakeSnapshots{snap: Snapshot{
+		LatestStable:    rel("v9.0.0"), // cached data whose revalidation failed
+		LatestRC:        rc("v0.2.9-rc.1"),
+		FetchedAt:       testPublishedAt,
+		StableAvailable: false,
+		RCAvailable:     true,
+	}}
+
+	stableStore := newFakeChannelStore()
+	stableSvc, _ := newTestService(t, "v0.2.8", snaps, stableStore)
+	stableStatus, err := stableSvc.GetUpdateStatus(context.Background(), 1)
+	require.NoError(t, err)
+	assert.False(t, stableStatus.StatusAvailable)
+	assert.False(t, stableStatus.UpdateAvailable)
+	assert.Nil(t, stableStatus.LatestEligible)
+
+	rcStore := newFakeChannelStore()
+	rcStore.channels[1] = string(ChannelStableAndRC)
+	rcSvc, _ := newTestService(t, "v0.2.8", snaps, rcStore)
+	rcStatus, err := rcSvc.GetUpdateStatus(context.Background(), 1)
+	require.NoError(t, err)
+	assert.True(t, rcStatus.StatusAvailable)
+	assert.True(t, rcStatus.UpdateAvailable)
+	require.NotNil(t, rcStatus.LatestEligible)
+	assert.Equal(t, "v0.2.9-rc.1", rcStatus.LatestEligible.Version,
+		"the unverified cached stable must not outrank the fresh RC")
+}
+
+func TestIncompleteRCViewOnlySuppressesStableAndRCChannel(t *testing.T) {
+	t.Parallel()
+
+	snaps := &fakeSnapshots{snap: Snapshot{
+		LatestStable:    rel("v0.2.9"),
+		LatestRC:        rc("v9.0.0-rc.1"), // cached data whose revalidation failed
+		FetchedAt:       testPublishedAt,
+		StableAvailable: true,
+		RCAvailable:     false,
+	}}
+
+	stableSvc, _ := newTestService(t, "v0.2.8", snaps, newFakeChannelStore())
+	stableStatus, err := stableSvc.GetUpdateStatus(context.Background(), 1)
+	require.NoError(t, err)
+	assert.True(t, stableStatus.StatusAvailable)
+	assert.True(t, stableStatus.UpdateAvailable)
+	require.NotNil(t, stableStatus.LatestEligible)
+	assert.Equal(t, "v0.2.9", stableStatus.LatestEligible.Version)
+
+	rcStore := newFakeChannelStore()
+	rcStore.channels[1] = string(ChannelStableAndRC)
+	rcSvc, _ := newTestService(t, "v0.2.8", snaps, rcStore)
+	rcStatus, err := rcSvc.GetUpdateStatus(context.Background(), 1)
+	require.NoError(t, err)
+	assert.False(t, rcStatus.StatusAvailable)
+	assert.False(t, rcStatus.UpdateAvailable)
+	assert.Nil(t, rcStatus.LatestEligible)
+}
+
 // Running an RC when its stable lands must offer the stable
 // on BOTH channels — semver ranks v0.2.9 above v0.2.9-rc.5, and on
 // stable_and_rc the max-compare picks the stable over the RC.
@@ -136,10 +198,11 @@ func TestStatusRCPromotedToStable(t *testing.T) {
 	t.Parallel()
 
 	snaps := &fakeSnapshots{snap: Snapshot{
-		LatestStable: rel("v0.2.9"),
-		LatestRC:     rc("v0.2.9-rc.5"),
-		FetchedAt:    testPublishedAt,
-		Available:    true,
+		LatestStable:    rel("v0.2.9"),
+		LatestRC:        rc("v0.2.9-rc.5"),
+		FetchedAt:       testPublishedAt,
+		StableAvailable: true,
+		RCAvailable:     true,
 	}}
 
 	for _, channel := range []Channel{ChannelStable, ChannelStableAndRC} {
@@ -162,10 +225,11 @@ func TestStatusNonSemverCurrentNeverOffers(t *testing.T) {
 	t.Parallel()
 
 	snaps := &fakeSnapshots{snap: Snapshot{
-		LatestStable: rel("v9.9.9"),
-		LatestRC:     rc("v9.9.10-rc.1"),
-		FetchedAt:    testPublishedAt,
-		Available:    true,
+		LatestStable:    rel("v9.9.9"),
+		LatestRC:        rc("v9.9.10-rc.1"),
+		FetchedAt:       testPublishedAt,
+		StableAvailable: true,
+		RCAvailable:     true,
 	}}
 	store := newFakeChannelStore()
 	store.channels[1] = string(ChannelStableAndRC)
@@ -190,10 +254,11 @@ func TestStatusCurrentNewerThanEveryRelease(t *testing.T) {
 	t.Parallel()
 
 	snaps := &fakeSnapshots{snap: Snapshot{
-		LatestStable: rel("v0.2.9"),
-		LatestRC:     rc("v0.2.9-rc.5"),
-		FetchedAt:    testPublishedAt,
-		Available:    true,
+		LatestStable:    rel("v0.2.9"),
+		LatestRC:        rc("v0.2.9-rc.5"),
+		FetchedAt:       testPublishedAt,
+		StableAvailable: true,
+		RCAvailable:     true,
 	}}
 
 	for _, channel := range []Channel{ChannelStable, ChannelStableAndRC} {
@@ -215,10 +280,11 @@ func TestChannelFlipDropsPendingRC(t *testing.T) {
 	t.Parallel()
 
 	snaps := &fakeSnapshots{snap: Snapshot{
-		LatestStable: rel("v0.2.8"),
-		LatestRC:     rc("v0.2.9-rc.1"),
-		FetchedAt:    testPublishedAt,
-		Available:    true,
+		LatestStable:    rel("v0.2.8"),
+		LatestRC:        rc("v0.2.9-rc.1"),
+		FetchedAt:       testPublishedAt,
+		StableAvailable: true,
+		RCAvailable:     true,
 	}}
 	store := newFakeChannelStore()
 	svc, _ := newTestService(t, "v0.2.8", snaps, store)
@@ -243,9 +309,10 @@ func TestInstallCommandExactTemplate(t *testing.T) {
 	t.Parallel()
 
 	snaps := &fakeSnapshots{snap: Snapshot{
-		LatestStable: rel("v0.2.9"),
-		FetchedAt:    testPublishedAt,
-		Available:    true,
+		LatestStable:    rel("v0.2.9"),
+		FetchedAt:       testPublishedAt,
+		StableAvailable: true,
+		RCAvailable:     true,
 	}}
 	svc, _ := newTestService(t, "v0.2.8", snaps, newFakeChannelStore())
 
@@ -334,8 +401,9 @@ func TestStatusAvailableAfterSuccessfulEmptyFetch(t *testing.T) {
 	t.Parallel()
 
 	snaps := &fakeSnapshots{snap: Snapshot{
-		FetchedAt: testPublishedAt,
-		Available: true,
+		FetchedAt:       testPublishedAt,
+		StableAvailable: true,
+		RCAvailable:     true,
 	}}
 	svc, _ := newTestService(t, "v0.2.8", snaps, newFakeChannelStore())
 
@@ -351,9 +419,10 @@ func TestUnavailableStatusDoesNotOfferCachedRelease(t *testing.T) {
 	t.Parallel()
 
 	snaps := &fakeSnapshots{snap: Snapshot{
-		LatestStable: rel("v0.2.9"),
-		FetchedAt:    testPublishedAt,
-		Available:    false,
+		LatestStable:    rel("v0.2.9"),
+		FetchedAt:       testPublishedAt,
+		StableAvailable: false,
+		RCAvailable:     false,
 	}}
 	svc, _ := newTestService(t, "v0.2.8", snaps, newFakeChannelStore())
 
@@ -393,9 +462,10 @@ func TestStatusPropagatesChannelReadError(t *testing.T) {
 	t.Parallel()
 
 	snaps := &fakeSnapshots{snap: Snapshot{
-		LatestStable: rel("v0.2.9"),
-		FetchedAt:    testPublishedAt,
-		Available:    true,
+		LatestStable:    rel("v0.2.9"),
+		FetchedAt:       testPublishedAt,
+		StableAvailable: true,
+		RCAvailable:     true,
 	}}
 	store := newFakeChannelStore()
 	store.getErr = errors.New("connection reset by peer")
@@ -429,10 +499,11 @@ func TestNoncanonicalCandidateNeverOffered(t *testing.T) {
 
 	snaps := &fakeSnapshots{snap: Snapshot{
 		// "0.3.0" (no leading v) is invalid for golang.org/x/mod/semver.
-		LatestStable: rel("0.3.0"),
-		LatestRC:     rc("nightly-20260727-abc"),
-		FetchedAt:    testPublishedAt,
-		Available:    true,
+		LatestStable:    rel("0.3.0"),
+		LatestRC:        rc("nightly-20260727-abc"),
+		FetchedAt:       testPublishedAt,
+		StableAvailable: true,
+		RCAvailable:     true,
 	}}
 	for _, channel := range []Channel{ChannelStable, ChannelStableAndRC} {
 		store := newFakeChannelStore()

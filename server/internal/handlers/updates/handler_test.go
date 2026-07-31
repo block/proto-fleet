@@ -63,8 +63,9 @@ func TestGetUpdateStatusMapsFields(t *testing.T) {
 			NotesURL:    "https://github.com/block/proto-fleet/releases/tag/v0.2.9",
 			PublishedAt: testPublishedAt,
 		},
-		FetchedAt: testPublishedAt,
-		Available: true,
+		FetchedAt:       testPublishedAt,
+		StableAvailable: true,
+		RCAvailable:     true,
 	}}
 	h := NewHandler(newTestService(t, "v0.2.8", snaps, newFakeChannelStore()))
 	ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermInstanceUpdate)

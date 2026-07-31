@@ -91,7 +91,7 @@ func (s *Service) GetUpdateStatus(ctx context.Context, organizationID int64) (Up
 	status := UpdateStatus{
 		CurrentVersion:  s.currentVersion,
 		Channel:         channel,
-		StatusAvailable: snapshot.Available,
+		StatusAvailable: channelStatusAvailable(channel, snapshot),
 	}
 	if !status.StatusAvailable {
 		return status, nil
@@ -157,13 +157,33 @@ func (s *Service) releaseChannel(ctx context.Context, organizationID int64) (Cha
 	}
 }
 
-// eligibleCandidate picks the channel's offer from the snapshot: stable sees
-// only the latest stable; stable_and_rc takes the semver max of the latest
-// stable and the latest RC (either side may be nil).
+// channelStatusAvailable reports whether the snapshot is complete enough for
+// the selected channel. Stable+RC can still make a useful offer from a fresh RC
+// when stable discovery is unavailable, but an incomplete RC view makes that
+// broader channel unavailable.
+func channelStatusAvailable(channel Channel, snap Snapshot) bool {
+	switch channel {
+	case ChannelStable:
+		return snap.StableAvailable
+	case ChannelStableAndRC:
+		return snap.RCAvailable && (snap.StableAvailable || snap.LatestRC != nil)
+	default:
+		return false
+	}
+}
+
+// eligibleCandidate picks only verified channel candidates from the snapshot:
+// stable sees the latest available stable; stable_and_rc takes the semver max
+// of that stable and the latest available RC.
 func eligibleCandidate(channel Channel, snap Snapshot) *Release {
-	candidate := snap.LatestStable
+	var candidate *Release
+	if snap.StableAvailable {
+		candidate = snap.LatestStable
+	}
 	if channel == ChannelStableAndRC {
-		candidate = semverMax(candidate, snap.LatestRC)
+		if snap.RCAvailable {
+			candidate = semverMax(candidate, snap.LatestRC)
+		}
 	}
 	return candidate
 }
