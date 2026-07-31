@@ -1,4 +1,5 @@
 import BuildingDeleteDialog from "../BuildingDeleteDialog";
+import BuildingRacksPicker from "../BuildingRacksPicker";
 import BuildingSettingsModal from "../BuildingSettingsModal";
 import ManageBuildingModal from "../ManageBuildingModal";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
@@ -76,6 +77,30 @@ const BuildingModals = ({ modals, sites }: BuildingModalsProps) => {
             await modals.detailsSaveEdit(values);
           }}
           onDeleteRequested={modals.requestDeleteCurrent}
+          onDismiss={modals.dismiss}
+          saving={modals.saving}
+        />
+      ) : null}
+      {state.kind === "racksPicker" && state.row.building ? (
+        <BuildingRacksPicker
+          siteId={state.row.building.siteId ?? 0n}
+          buildingId={state.row.building.id}
+          buildingName={state.row.building.name}
+          currentRackIds={state.currentRackIds}
+          onConfirm={(delta) => {
+            void (async () => {
+              const ok = await modals.pickerAssignRacks({
+                added: delta.added.map((a) => a.rackId),
+                removed: delta.removed,
+              });
+              // A failed write leaves the picker open so the selection can be
+              // retried.
+              if (ok) modals.dismiss();
+            })();
+          }}
+          // Created racks are already in the building; there is no working set
+          // here to inject them into, so the host's cache is what has to re-pull.
+          onCreated={modals.refreshBuildings}
           onDismiss={modals.dismiss}
           saving={modals.saving}
         />

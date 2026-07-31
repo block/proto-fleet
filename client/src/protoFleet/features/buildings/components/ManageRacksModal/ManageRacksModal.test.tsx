@@ -105,6 +105,9 @@ const renderModal = (overrides?: {
   allSites?: boolean;
   initialSelectedRackIds?: bigint[];
   onConfirm?: (delta: RackSelectionDelta) => void;
+  onDismiss?: () => void;
+  onCreateNewLaunch?: () => void;
+  onCreateMultipleLaunch?: () => void;
 }) =>
   render(
     <ManageRacksModal
@@ -116,8 +119,10 @@ const renderModal = (overrides?: {
       allSites={overrides?.allSites ?? false}
       buildingName="North"
       initialSelectedRackIds={overrides?.initialSelectedRackIds ?? []}
-      onDismiss={vi.fn()}
+      onDismiss={overrides?.onDismiss ?? vi.fn()}
       onConfirm={overrides?.onConfirm ?? vi.fn()}
+      onCreateNewLaunch={overrides?.onCreateNewLaunch}
+      onCreateMultipleLaunch={overrides?.onCreateMultipleLaunch}
     />,
   );
 
@@ -234,11 +239,11 @@ describe("ManageRacksModal show-assigned toggle (server-side)", () => {
 
     await userEvent.click(rowCheckbox(1)); // reparent pick (Beta)
     await userEvent.click(screen.getByLabelText("Show assigned racks")); // toggle off
-    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
 
-    const delta = onConfirm.mock.calls[0][0];
-    expect(delta.reassigned).toEqual([]);
-    expect(delta.added.map((a: { rackId: bigint }) => a.rackId)).not.toContain(2n);
+    // Dropping Beta empties the delta, so there's nothing left to write and Save
+    // just closes.
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 
   it("allows an explicit single per-row reparent pick through the delta", async () => {
@@ -281,14 +286,34 @@ describe("ManageRacksModal show-assigned toggle (server-side)", () => {
   it("never reports a seeded rack absent from the fetch as removed", async () => {
     // A seeded rack (id 3) that the eligibility-pinned fetch doesn't return
     // (paging gap / soft-delete window) must be left alone, not unassigned.
+    // Gamma (no building) gives the save something real to write, so the delta
+    // is reachable through the dirty gate.
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n), createRack(4n, "Gamma", 0n)]);
     const onConfirm = vi.fn();
     renderModal({ initialSelectedRackIds: [1n, 3n], onConfirm });
-    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Gamma")).toBeInTheDocument());
+
+    await userEvent.click(rowCheckbox(1)); // Gamma
     await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
 
     const delta = onConfirm.mock.calls[0][0];
+    expect(delta.added.map((a: { rackId: bigint }) => a.rackId)).toEqual([4n]);
     expect(delta.removed).toEqual([]);
-    expect(delta.added).toEqual([]);
+  });
+
+  it("closes without an AssignRacksToBuilding no-op when nothing was touched", async () => {
+    // A loaded, untouched picker has no membership change to write, but keeping
+    // the list as-is is a legitimate outcome — so Save closes rather than
+    // reporting a write it didn't make.
+    const onConfirm = vi.fn();
+    const onDismiss = vi.fn();
+    renderModal({ initialSelectedRackIds: [1n], onConfirm, onDismiss });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    await waitFor(() => expect(screen.getByTestId("manage-racks-modal-confirm")).toBeEnabled());
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -602,7 +627,10 @@ describe("ManageRacksModal review fixes (#789)", () => {
       req.onFinally?.();
     });
     const onConfirm = vi.fn();
-    renderModal({ onConfirm });
+    // Seeded with Alpha so Select none leaves a real change (removed: [1n]) —
+    // otherwise the dirty gate would hold Save shut and mask whether the
+    // select-all guard released it.
+    renderModal({ initialSelectedRackIds: [1n], onConfirm });
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
 
     await userEvent.click(screen.getByRole("button", { name: "Select all" }));
@@ -614,6 +642,7 @@ describe("ManageRacksModal review fixes (#789)", () => {
 
     await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
     expect(onConfirm.mock.calls[0][0].added).toEqual([]);
+    expect(onConfirm.mock.calls[0][0].removed).toEqual([1n]);
   });
 
   it("disables pagination while a page is loading (no stale-token double advance)", async () => {
@@ -750,5 +779,42 @@ describe("ManageRacksModal review fixes (#789)", () => {
     await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
     expect(screen.getByTestId("active-filter-building")).toBeInTheDocument();
     expect(lastRackReq().buildingIds).toEqual([9n]);
+  });
+});
+
+describe("ManageRacksModal create hand-offs", () => {
+  it("shows each create button only when its launch handler is supplied", async () => {
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n)]);
+    const { unmount } = renderModal();
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    expect(screen.queryByTestId("manage-racks-modal-create-new")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("manage-racks-modal-create-multiple")).not.toBeInTheDocument();
+    unmount();
+
+    // Separate props rather than one callback with a variant: a host without the
+    // batch RPC wired can offer the first and not the second.
+    renderModal({ onCreateNewLaunch: vi.fn() });
+    await waitFor(() => expect(screen.getByTestId("manage-racks-modal-create-new")).toHaveTextContent("Create rack"));
+    expect(screen.queryByTestId("manage-racks-modal-create-multiple")).not.toBeInTheDocument();
+  });
+
+  it("abandons the pending selection when launching create — Save is what commits", async () => {
+    setupListRacks([createRack(1n, "Alpha", 0n, 42n)]);
+    const onConfirm = vi.fn();
+    const onCreateMultipleLaunch = vi.fn();
+    renderModal({ onConfirm, onCreateNewLaunch: vi.fn(), onCreateMultipleLaunch });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    // Check the no-building rack — its own row checkbox, not the header
+    // select-all — then hand off without pressing Save.
+    const rowCheckbox = screen.getByTestId("list-body").querySelectorAll<HTMLInputElement>("input[type='checkbox']")[0];
+    await userEvent.click(rowCheckbox);
+    expect(rowCheckbox).toBeChecked();
+    await userEvent.click(screen.getByTestId("manage-racks-modal-create-multiple"));
+
+    expect(onCreateMultipleLaunch).toHaveBeenCalled();
+    // Nothing is written — the selection never landed, which is what makes the
+    // abandon safe to reason about.
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 });

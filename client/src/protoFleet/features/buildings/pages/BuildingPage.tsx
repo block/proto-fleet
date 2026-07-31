@@ -25,7 +25,7 @@ import FleetErrors from "@/protoFleet/features/kpis/components/FleetErrors";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
-import { useDuration, useSetDuration } from "@/protoFleet/store";
+import { useDuration, useHasPermission, useSetDuration } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import DurationSelector, { fleetDurations } from "@/shared/components/DurationSelector";
@@ -65,6 +65,7 @@ const BuildingPage = () => {
   // fires its own ListSites.
   const { sites } = useSitesContext();
   const activeSite = useFleetStore((state) => state.ui.activeSite);
+  const canManageSites = useHasPermission("site:manage");
 
   const buildingId = useMemo(() => parseBigIntId(id), [id]);
 
@@ -285,13 +286,22 @@ const BuildingPage = () => {
   const racksFromList =
     rackCountResponse !== undefined && rackCountResponse.id === effectiveBuilding.id ? rackCountResponse.count : null;
   const fallbackRackCount = racksFromList ?? (stats ? BigInt(stats.rackCount) : 0n);
+  const buildingRow = () =>
+    create(BuildingWithCountsSchema, {
+      building: effectiveBuilding,
+      rackCount: fallbackRackCount,
+    });
+
   const handleEditBuilding = () => {
-    buildingModals.openManage(
-      create(BuildingWithCountsSchema, {
-        building: effectiveBuilding,
-        rackCount: fallbackRackCount,
-      }),
-    );
+    buildingModals.openManage(buildingRow());
+  };
+
+  // The racks picker on its own, not the whole manage surface: the operator is
+  // already looking at the building, so stacking ManageBuildingModal behind the
+  // picker would put a layer on screen they never asked for. Empty membership —
+  // this only renders when the building has no racks.
+  const handleManageRacks = () => {
+    buildingModals.openRacksPicker(buildingRow(), []);
   };
 
   return (
@@ -357,6 +367,10 @@ const BuildingPage = () => {
                   rackHealth={stats.rackHealth}
                   aisles={effectiveBuilding.aisles}
                   racksPerAisle={effectiveBuilding.racksPerAisle}
+                  // Assigning racks to a building is a site:manage action (the
+                  // server enforces the same on AssignRacksToBuilding), so a
+                  // viewer without it gets the empty card with no CTA.
+                  onManageRacks={canManageSites ? handleManageRacks : undefined}
                 />
               ) : (
                 <PlaceholderBlock
