@@ -59,8 +59,13 @@ func preflight(ctx context.Context, envPath, firewallTemplatePath string, host h
 		if peer == config.NodeIP {
 			continue
 		}
-		if output, err := host.runCommand(ctx, "ip", "route", "get", peer); err != nil {
+		output, err := host.runCommand(ctx, "ip", "route", "get", peer)
+		if err != nil {
 			return NodeConfig{}, fmt.Errorf("HA preflight failed: no route to HA peer %s: %s", peer, commandError(output, err))
+		}
+		source, ok := routeSource(output)
+		if !ok || source != config.NodeIP {
+			return NodeConfig{}, fmt.Errorf("HA preflight failed: route to HA peer %s must use HA_NODE_IP %s as its source", peer, config.NodeIP)
 		}
 	}
 	listeners, err := host.runCommand(ctx, "ss", "-H", "-lnt")
@@ -165,6 +170,9 @@ func validateSecrets(config NodeConfig) error {
 		}
 		if err := requireCurrentOwner(info, name); err != nil {
 			return err
+		}
+		if info.Mode().Perm()&0o022 != 0 {
+			return fmt.Errorf("%s must not be group/world writable", name)
 		}
 	}
 	for _, name := range keyFiles {
@@ -275,6 +283,16 @@ func portIsListening(listeners string, port int) bool {
 		}
 	}
 	return false
+}
+
+func routeSource(output []byte) (string, bool) {
+	fields := strings.Fields(string(output))
+	for i, field := range fields {
+		if field == "src" && i+1 < len(fields) {
+			return fields[i+1], true
+		}
+	}
+	return "", false
 }
 
 func commandError(output []byte, err error) string {

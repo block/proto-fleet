@@ -62,6 +62,9 @@ func TestProductionHAProfile(t *testing.T) {
 		MaxIdleConns:             2,
 		ConnMaxLifetime:          time.Minute,
 	}
+	for _, name := range []string{"PGOPTIONS", "PGSERVICE", "PGSERVICEFILE"} {
+		t.Setenv(name, "")
+	}
 	ctx := t.Context()
 	var db *sql.DB
 	if os.Getenv("HA_PROFILE_MIGRATE") == "1" {
@@ -159,6 +162,9 @@ func TestHAProfileDatabaseEndpoints(t *testing.T) {
 			"&sslrootcert=/ca.crt",
 		"missing CA": "postgresql://fleet:secret@10.40.0.11:5432,10.40.0.12:5432/fleet" +
 			"?target_session_attrs=read-write&sslmode=verify-full",
+		"session override": "postgresql://fleet:secret@10.40.0.11:5432,10.40.0.12:5432/fleet" +
+			"?target_session_attrs=read-write&sslmode=verify-full" +
+			"&sslrootcert=/ca.crt&options=-c%20proto_fleet.source_commit%3Dspoofed",
 	}
 	for name, dsn := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -217,6 +223,11 @@ func haProfileDatabaseEndpoints(dsn string) ([]string, error) {
 		if len(values) != 1 || strings.TrimSpace(values[0]) == "" {
 			return nil, fmt.Errorf("HA profile database DSN requires %s", key)
 		}
+	}
+	if len(query) != 3 {
+		return nil, fmt.Errorf(
+			"HA profile database DSN only permits target_session_attrs, sslmode, and sslrootcert",
+		)
 	}
 
 	hosts := strings.Split(parsed.Host, ",")

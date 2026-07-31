@@ -145,10 +145,14 @@ func TestPreflight(t *testing.T) {
 	envPath := testNodeEnv(t, root, dataDir, filepath.Join(generated, "ha-a"))
 	const firewallTemplatePath = "firewall.nft.tmpl"
 	firewallApplied := false
+	routeSource := testHostIPs[0]
 	host := hostEnvironment{
 		goos:     "linux",
 		localIPs: func() ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr(testHostIPs[0])}, nil },
 		runCommand: func(_ context.Context, name string, args ...string) ([]byte, error) {
+			if name == "ip" {
+				return []byte(fmt.Sprintf("%s dev eth0 src %s\n", args[2], routeSource)), nil
+			}
 			return nil, nil
 		},
 		applyFirewall: func(_ context.Context, gotConfig NodeConfig, gotTemplatePath string) error {
@@ -171,6 +175,12 @@ func TestPreflight(t *testing.T) {
 		t.Fatal("preflight did not apply the firewall")
 	}
 
+	routeSource = "10.40.0.99"
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "must use HA_NODE_IP") {
+		t.Fatalf("preflight(mismatched route source) error = %v", err)
+	}
+	routeSource = testHostIPs[0]
+
 	host.applyFirewall = func(context.Context, NodeConfig, string) error {
 		return errors.New("injected apply failure")
 	}
@@ -179,6 +189,17 @@ func TestPreflight(t *testing.T) {
 	}
 
 	host.applyFirewall = func(context.Context, NodeConfig, string) error { return nil }
+	publicIdentity := filepath.Join(generated, "ha-a", "service-ca.crt")
+	if err := os.Chmod(publicIdentity, 0o666); err != nil { //nolint:gosec // Deliberately tests rejection of an unsafe mode.
+		t.Fatal(err)
+	}
+	if _, err := preflight(context.Background(), envPath, firewallTemplatePath, host); err == nil || !strings.Contains(err.Error(), "must not be group/world writable") {
+		t.Fatalf("preflight(writable public identity) error = %v", err)
+	}
+	if err := os.Chmod(publicIdentity, 0o644); err != nil { //nolint:gosec // Restores the generated public certificate mode.
+		t.Fatal(err)
+	}
+
 	if err := os.WriteFile(filepath.Join(dataDir, "postgres", "PG_VERSION"), []byte("18"), 0o600); err != nil {
 		t.Fatal(err)
 	}

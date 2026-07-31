@@ -69,10 +69,12 @@ chmod 0600 node.env
 
 Preflight validates the clean host and loads its peer-restricted firewall.
 
-Load the database images and start etcd on all three hosts:
+Load the database images on the two database hosts. All three hosts require
+registry access to pull the pinned etcd image before starting it:
 
 ```bash
 docker load --input ../images/timescaledb.tar.gz
+docker compose --env-file node.env pull etcd
 docker compose --env-file node.env up -d etcd
 ```
 
@@ -105,7 +107,7 @@ continues to own application migrations.
 Fleet connects to both database IPs using the `fleet` login:
 
 ```text
-postgresql://fleet:<url-escaped-password>@10.40.0.11:5432,10.40.0.12:5432/fleet?target_session_attrs=read-write&sslmode=verify-full&sslrootcert=/run/proto-fleet-ha/service-ca.crt
+postgresql://fleet:<url-escaped-password>@10.40.0.11:5432,10.40.0.12:5432/fleet?target_session_attrs=read-write&sslmode=verify-full&sslrootcert=/etc/proto-fleet/ha/service-ca.crt
 ```
 
 The etcd observer uses all three `https://<ip>:2379` endpoints with
