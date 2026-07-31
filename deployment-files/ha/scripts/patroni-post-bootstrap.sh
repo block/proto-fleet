@@ -19,6 +19,11 @@ export PGOPTIONS="-c synchronous_commit=local"
 # target; PGDATABASE would treat the whole string as a literal database name.
 # The Fleet password still travels over stdin, and format(%L) performs
 # PostgreSQL-literal escaping before \gexec runs the role statement.
+if [[ ! "$fleet_password" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "fleet database password must be 64 lowercase hexadecimal characters" >&2
+    exit 1
+fi
+
 psql --dbname="$connection_url" --set=ON_ERROR_STOP=1 <<SQL
 \set fleet_password '$fleet_password'
 SELECT format(
