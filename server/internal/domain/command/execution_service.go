@@ -309,7 +309,7 @@ func (es *ExecutionService) reapStuckMessages(ctx context.Context) ([]reapedComm
 	cutoff := time.Now().Add(-es.config.StuckMessageTimeout)
 	var reapedCmds []reapedCommand
 	var fwDeviceIDs []int64
-	err := db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
+	err := db.WithTransactionNoResult(ctx, es.conn, func(q sqlc.Querier) error {
 		reaped, err := q.ReapStuckProcessingMessages(ctx, sqlc.ReapStuckProcessingMessagesParams{
 			Cutoff:    cutoff,
 			ReapLimit: 100,
@@ -517,7 +517,7 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		queueUpdated  bool
 		queueTerminal bool
 	)
-	txErr := db.WithTransactionNoResult(dbCtx, es.conn, func(q *sqlc.Queries) error {
+	txErr := db.WithTransactionNoResult(dbCtx, es.conn, func(q sqlc.Querier) error {
 		// First: transition queue_message status (detects staleness via rowsAffected).
 		updated, terminal, err := es.markQueueMessageStatus(dbCtx, q, message, workerError)
 		if err != nil {
@@ -567,7 +567,7 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 //   - terminal is true when the resulting queue status is SUCCESS or FAILED
 //
 // (false, _, nil) means the row is no longer PROCESSING (stale/reaped)
-func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q *sqlc.Queries, message queue.Message, workerError error) (bool, bool, error) {
+func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q sqlc.Querier, message queue.Message, workerError error) (bool, bool, error) {
 	var (
 		result   sql.Result
 		err      error
@@ -1012,7 +1012,7 @@ func (es *ExecutionService) persistWorkerNameAfterPoolUpdate(
 		return es.deviceStore.UpdateWorkerName(ctx, deviceIdentifier, workerName)
 	}
 
-	return db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
+	return db.WithTransactionNoResult(ctx, es.conn, func(q sqlc.Querier) error {
 		affected, err := q.UpdateDeviceWorkerName(ctx, sqlc.UpdateDeviceWorkerNameParams{
 			DeviceIdentifier: string(deviceIdentifier),
 			WorkerName:       sql.NullString{String: workerName, Valid: workerName != ""},
@@ -1131,7 +1131,7 @@ func normalizePoolUsernameBase(username string) string {
 
 // handleUnpairPostProcessing updates device pairing status and unregisters from telemetry after successful unpair
 func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, deviceID int64) error {
-	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
+	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q sqlc.Querier) (string, error) {
 		return q.GetDeviceIdentifierByID(ctx, deviceID)
 	})
 	if err != nil {
@@ -1178,7 +1178,7 @@ func (es *ExecutionService) clearFirmwareUpdateStatus(ctx context.Context, devic
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 
-	deviceIdentifier, err := db.WithTransaction(cleanupCtx, es.conn, func(q *sqlc.Queries) (string, error) {
+	deviceIdentifier, err := db.WithTransaction(cleanupCtx, es.conn, func(q sqlc.Querier) (string, error) {
 		return q.GetDeviceIdentifierByID(cleanupCtx, deviceID)
 	})
 	if err != nil {
@@ -1241,7 +1241,7 @@ func (es *ExecutionService) pollFirmwareInstallStatus(ctx context.Context, miner
 		return true, nil
 	}
 
-	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
+	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q sqlc.Querier) (string, error) {
 		return q.GetDeviceIdentifierByID(ctx, deviceID)
 	})
 	if err != nil {
@@ -1266,7 +1266,7 @@ func (es *ExecutionService) markFirmwareRebootRequired(ctx context.Context, devi
 	if es.conn == nil || es.deviceStore == nil {
 		return
 	}
-	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
+	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q sqlc.Querier) (string, error) {
 		return q.GetDeviceIdentifierByID(ctx, deviceID)
 	})
 	if err != nil {
@@ -1386,7 +1386,7 @@ func (es *ExecutionService) persistFleetNodeMinerCredentials(ctx context.Context
 	if err != nil {
 		return fleeterror.NewInternalErrorf("encode fleet node password update credentials: %v", err)
 	}
-	return db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
+	return db.WithTransactionNoResult(ctx, es.conn, func(q sqlc.Querier) error {
 		return q.UpsertMinerCredentials(ctx, sqlc.UpsertMinerCredentialsParams{
 			DeviceID:    deviceID,
 			UsernameEnc: encodedUsername,
@@ -1413,7 +1413,7 @@ func (es *ExecutionService) insertProtoCredentials(ctx context.Context, deviceID
 		return fleeterror.NewInternalErrorf("failed to encrypt password: %v", err)
 	}
 
-	return db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
+	return db.WithTransactionNoResult(ctx, es.conn, func(q sqlc.Querier) error {
 		return q.UpsertMinerCredentials(ctx, sqlc.UpsertMinerCredentialsParams{
 			DeviceID:    deviceID,
 			UsernameEnc: usernameEnc,
@@ -1431,7 +1431,7 @@ func (es *ExecutionService) updateMinerPasswordInDB(ctx context.Context, deviceI
 		return fleeterror.NewInternalErrorf("failed to encrypt password: %v", err)
 	}
 
-	rowsAffected, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (int64, error) {
+	rowsAffected, err := db.WithTransaction(ctx, es.conn, func(q sqlc.Querier) (int64, error) {
 		return q.UpdateMinerPassword(ctx, sqlc.UpdateMinerPasswordParams{
 			PasswordEnc: passwordEnc,
 			DeviceID:    deviceID,

@@ -9,8 +9,8 @@ import {
   type SiteCreateSeed,
 } from "./context";
 import { emptyBuildingFormValues, useBuildings } from "@/protoFleet/api/buildings";
-import { type Building, BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import { type Site, type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { emptySiteFormValues, useSites } from "@/protoFleet/api/sites";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import BuildingSettingsModal from "@/protoFleet/features/buildings/components/BuildingSettingsModal";
@@ -170,7 +170,7 @@ const FleetCreateFlowProvider = ({
   // hook) so we can intercept create-success to assign the seed and chain
   // into manage; the manage/edit/delete surfaces reuse a controller-owned
   // useBuildingModals instance rendered through <BuildingModals>.
-  const { createBuilding, assignRacksToBuilding, assignDevicesToBuilding } = useBuildings();
+  const { createBuilding } = useBuildings();
   const buildingModals = useBuildingModals({ refetchBuildings: bumpEntities });
   // Gates the force-clear preflight below: a force-clearing device assignment
   // needs rack:manage on the server, but the create flow is reachable with
@@ -215,20 +215,22 @@ const FleetCreateFlowProvider = ({
 
   const closeBuildingSettings = useCallback(() => setBuildingSeed(null), []);
 
-  // create → assign seeded racks/miners (force-clearing prior memberships,
-  // mirroring the reparent confirm path) → open manage for positioning.
+  // create + seed (racks + miners, force-clearing prior memberships to match
+  // the reparent confirm path) in ONE transactional RPC, then open manage for
+  // positioning. Atomicity is the point of #559: a seed failure rolls the
+  // whole thing back, so we never open manage on a stranded empty building.
   const handleBuildingCreate = useCallback(
     async (values: Parameters<typeof createBuilding>[0]["values"], siteId: bigint) => {
       // Synchronous re-entry guard: a double-click reaches here twice before
       // the `saving` prop re-renders, which would create duplicate buildings.
       if (creatingBuildingRef.current) return;
 
-      // Preflight seeded racks against the chosen layout BEFORE creating the
-      // building. The server's AssignRacksToBuilding now rejects an
-      // over-capacity assign; without this guard the building is created and
-      // then stranded with its racks unassigned (the assign failure only
-      // toasts). Net-new == every seeded rack since the building is brand
-      // new. Skipped at capacity 0 (unconfigured layout) — staging is allowed.
+      // Preflight seeded racks against the chosen layout BEFORE the RPC. The
+      // server's rack assign rejects an over-capacity batch; catching it here
+      // keeps the operator in the settings modal with a specific message
+      // instead of a generic transaction failure. Net-new == every seeded rack
+      // since the building is brand new. Skipped at capacity 0 (unconfigured
+      // layout) — staging is allowed.
       const rackCapacity = values.aisles * values.racksPerAisle;
       if (buildingSeed && rackCapacity > 0 && buildingSeed.rackIds.length > rackCapacity) {
         pushToast({
@@ -242,68 +244,46 @@ const FleetCreateFlowProvider = ({
       setCreatingBuilding(true);
       try {
         const seed = buildingSeed;
-        const building = await new Promise<Building | null>((resolve) => {
+        await new Promise<void>((resolve) => {
           void createBuilding({
             values,
             siteId,
-            onSuccess: (b) => resolve(b),
+            rackIds: seed?.rackIds,
+            deviceIdentifiers: seed?.minerIds,
+            forceClearConflictingRackMembership: seed?.forceClearRackMembership ?? false,
+            onSuccess: (result) => {
+              bumpEntities();
+              setBuildingSeed(null);
+              const siteName = sites.find((s) => s.site?.id === siteId)?.site?.name;
+              buildingModals.openManage(
+                create(BuildingWithCountsSchema, { building: result.building, rackCount: result.assignedRackCount }),
+                siteName,
+                Number(result.reassignedDeviceCount) || undefined,
+              );
+              resolve();
+            },
             onError: (msg) => {
+              // Nothing was created (transaction rolled back). Keep the
+              // settings modal open with the seed intact so the operator can
+              // adjust the selection and retry.
               pushToast({ message: `Failed to create building: ${msg}`, status: STATUSES.error });
-              resolve(null);
+              resolve();
             },
           });
         });
-        if (!building) return;
-
-        if (seed && seed.rackIds.length > 0) {
-          await new Promise<void>((resolve) => {
-            void assignRacksToBuilding({
-              racks: seed.rackIds.map((rackId) => ({ rackId })),
-              targetBuildingId: building.id,
-              onSuccess: () => resolve(),
-              onError: (msg) => {
-                pushToast({ message: `Building created, but adding racks failed: ${msg}`, status: STATUSES.error });
-                resolve();
-              },
-            });
-          });
-        }
-        if (seed && seed.minerIds.length > 0) {
-          await new Promise<void>((resolve) => {
-            void assignDevicesToBuilding({
-              targetBuildingId: building.id,
-              deviceIdentifiers: seed.minerIds,
-              forceClearConflictingRackMembership: seed.forceClearRackMembership ?? false,
-              onSuccess: () => resolve(),
-              onError: (msg) => {
-                pushToast({ message: `Building created, but adding miners failed: ${msg}`, status: STATUSES.error });
-                resolve();
-              },
-            });
-          });
-        }
-
-        bumpEntities();
-        setBuildingSeed(null);
-        const siteName = sites.find((s) => s.site?.id === siteId)?.site?.name;
-        buildingModals.openManage(
-          create(BuildingWithCountsSchema, { building, rackCount: BigInt(seed?.rackIds.length ?? 0) }),
-          siteName,
-          seed?.minerIds.length || undefined,
-        );
       } finally {
         creatingBuildingRef.current = false;
         setCreatingBuilding(false);
       }
     },
-    [buildingSeed, createBuilding, assignRacksToBuilding, assignDevicesToBuilding, bumpEntities, sites, buildingModals],
+    [buildingSeed, createBuilding, bumpEntities, sites, buildingModals],
   );
 
   // Site create flow. Like building, the settings step is hosted directly so
   // we can intercept continue → create → assign → manage. The manage step
   // routes through edit mode (openManageEdit) because create mode gates
   // building assignment until the site exists.
-  const { createSite, assignBuildingsToSite, assignRacksToSite, assignDevicesToSite } = useSites();
+  const { createSite } = useSites();
   const siteModals = useSiteModals({ refetchSites: refreshSitesAndBump });
   const [siteSeed, setSiteSeed] = useState<SiteCreateSeed | null>(null);
   const [siteConflictSeed, setSiteConflictSeed] = useState<SiteCreateSeed | null>(null);
@@ -347,79 +327,37 @@ const FleetCreateFlowProvider = ({
       setCreatingSite(true);
       try {
         const seed = siteSeed;
-        const site = await new Promise<Site | null>((resolve) => {
+        await new Promise<void>((resolve) => {
           void createSite({
             values,
-            onSuccess: (s) => resolve(s),
+            buildingIds: seed?.buildingIds,
+            rackIds: seed?.rackIds,
+            deviceIdentifiers: seed?.minerIds,
+            forceClearConflictingRackMembership: seed?.forceClearRackMembership ?? false,
+            onSuccess: (result) => {
+              refreshSitesAndBump();
+              setSiteSeed(null);
+              siteModals.openManageEdit(result.site, {
+                unassignedRackCount: Number(result.assignedRackCount) || undefined,
+                unassignedMinerCount: Number(result.reassignedDeviceCount) || undefined,
+              });
+              resolve();
+            },
             onError: (msg) => {
+              // Nothing was created (transaction rolled back). Keep the site
+              // settings modal open with the seed intact so the operator can
+              // adjust the selection and retry.
               pushToast({ message: `Failed to create site: ${msg}`, status: STATUSES.error });
-              resolve(null);
+              resolve();
             },
           });
-        });
-        if (!site) return;
-
-        if (seed && seed.buildingIds.length > 0) {
-          await new Promise<void>((resolve) => {
-            void assignBuildingsToSite({
-              buildingIds: seed.buildingIds,
-              targetSiteId: site.id,
-              onSuccess: () => resolve(),
-              onError: (msg) => {
-                pushToast({ message: `Site created, but adding buildings failed: ${msg}`, status: STATUSES.error });
-                resolve();
-              },
-            });
-          });
-        }
-        if (seed && seed.rackIds.length > 0) {
-          await new Promise<void>((resolve) => {
-            void assignRacksToSite({
-              rackIds: seed.rackIds,
-              targetSiteId: site.id,
-              onSuccess: () => resolve(),
-              onError: (msg) => {
-                pushToast({ message: `Site created, but adding racks failed: ${msg}`, status: STATUSES.error });
-                resolve();
-              },
-            });
-          });
-        }
-        if (seed && seed.minerIds.length > 0) {
-          await new Promise<void>((resolve) => {
-            void assignDevicesToSite({
-              targetSiteId: site.id,
-              deviceIdentifiers: seed.minerIds,
-              forceClearConflictingRackMembership: seed.forceClearRackMembership ?? false,
-              onSuccess: () => resolve(),
-              onError: (msg) => {
-                pushToast({ message: `Site created, but adding miners failed: ${msg}`, status: STATUSES.error });
-                resolve();
-              },
-            });
-          });
-        }
-
-        refreshSitesAndBump();
-        setSiteSeed(null);
-        siteModals.openManageEdit(site, {
-          unassignedRackCount: seed?.rackIds.length || undefined,
-          unassignedMinerCount: seed?.minerIds.length || undefined,
         });
       } finally {
         creatingSiteRef.current = false;
         setCreatingSite(false);
       }
     },
-    [
-      siteSeed,
-      createSite,
-      assignBuildingsToSite,
-      assignRacksToSite,
-      assignDevicesToSite,
-      refreshSitesAndBump,
-      siteModals,
-    ],
+    [siteSeed, createSite, refreshSitesAndBump, siteModals],
   );
 
   const value = useMemo<FleetCreateFlowContextValue>(

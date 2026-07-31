@@ -93,7 +93,8 @@ test.describe("Firmware", () => {
   test("Upload firmware and update a rig miner", async ({ minersPage, settingsFirmwarePage }) => {
     test.setTimeout(testConfig.testTimeout * 4);
 
-    const firmwareFileName = `firmware-${Date.now()}.swu`;
+    const firmwareVersion = "2.4.6";
+    const firmwareFileName = `firmware-${firmwareVersion}-${Date.now()}.swu`;
     const firmwareFileContents = `fake firmware payload ${Date.now()}`;
     const firmwareStatusTimeout = testConfig.testTimeout;
 
@@ -103,8 +104,11 @@ test.describe("Firmware", () => {
       await settingsFirmwarePage.deleteAllFirmwareFilesIfAny();
 
       await settingsFirmwarePage.clickUploadFirmware();
-      await settingsFirmwarePage.uploadFirmwareFile(firmwareFileName, firmwareFileContents);
-      await settingsFirmwarePage.clickDoneInUploadDialog();
+      await settingsFirmwarePage.uploadFirmwareFile(firmwareFileName, firmwareFileContents, {
+        manufacturer: "Proto",
+        model: "Rig",
+        firmwareVersion,
+      });
       await settingsFirmwarePage.validateTextInToast("Firmware file uploaded successfully");
       await settingsFirmwarePage.validateFirmwareFileVisible(firmwareFileName);
     });
@@ -137,6 +141,7 @@ test.describe("Firmware", () => {
       await minersPage.validateMinerStatusSettled(rigMinerIp, "Updating firmware", firmwareStatusTimeout);
       await waitForFirmwareActivation(minersPage, rigMinerIp, firmwareStatusTimeout);
       await minersPage.validateMinerStatusSettled(rigMinerIp, "Hashing", firmwareStatusTimeout);
+      await minersPage.validateMinerValue(rigMinerIp, "firmware", firmwareVersion);
     });
   });
 });

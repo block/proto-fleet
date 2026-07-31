@@ -74,13 +74,34 @@ func (h *Handler) CreateSite(ctx context.Context, req *connect.Request[pb.Create
 	if err != nil {
 		return nil, err
 	}
-	result, err := h.service.CreateSite(ctx, toCreateSiteParams(req.Msg, info.OrganizationID))
+	// A device seed can force-clear conflicting rack memberships, which deletes
+	// device_set_membership rows in the same transaction. Gate that behind
+	// rack:manage the same way AssignDevicesToSite does so a site-only operator
+	// can't bypass rack auth via the create-and-seed path. Seeding
+	// buildings/racks/devices without the force flag needs only site:manage —
+	// matching the standalone Assign*ToSite surfaces. A plain create (no seed)
+	// never sets the flag, so this gate is a no-op there.
+	if req.Msg.GetForceClearConflictingRackMembership() {
+		if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
+	result, conflicts, err := h.service.CreateSite(ctx, toCreateSiteParams(req.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err
+	}
+	if len(conflicts) > 0 {
+		// Nothing was created — the whole tx rolled back. Site stays unset.
+		return connect.NewResponse(&pb.CreateSiteResponse{
+			Conflicts: toProtoConflicts(conflicts),
+		}), nil
 	}
 	return connect.NewResponse(&pb.CreateSiteResponse{
 		Site:                  toProtoSite(result.Site),
 		NetworkConfigWarnings: result.NetworkConfigWarnings,
+		AssignedBuildingCount: result.AssignedBuildingCount,
+		AssignedRackCount:     result.AssignedRackCount,
+		ReassignedDeviceCount: result.ReassignedDeviceCount,
 	}), nil
 }
 

@@ -419,7 +419,7 @@ const CompleteSetup = ({
   return (
     <>
       {shouldShow ? (
-        <div className={className}>
+        <div className={className} data-testid="complete-setup">
           <div className="@container rounded-xl bg-surface-elevated-base p-6 shadow-100">
             <div className="mb-6 flex items-center justify-between gap-x-10">
               <div className="text-heading-300">Complete setup</div>

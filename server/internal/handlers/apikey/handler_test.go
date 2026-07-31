@@ -191,7 +191,7 @@ func TestApiKeyHandler(t *testing.T) {
 		assert.NoError(t, err)
 
 		var viewerDBID int64
-		err = db2.WithTransactionNoResult(context.Background(), databaseService.DB, func(q *sqlc.Queries) error {
+		err = db2.WithTransactionNoResult(context.Background(), databaseService.DB, func(q sqlc.Querier) error {
 			userID, err := q.CreateUser(context.Background(), sqlc.CreateUserParams{
 				UserID:       id.GenerateID(),
 				Username:     "viewer@example.com",

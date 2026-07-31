@@ -20,6 +20,7 @@ export class EnergyPage extends BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/energy"]').click();
     await expect(this.page).toHaveURL(/.*\/energy/);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async validateEnergyPageOpened() {

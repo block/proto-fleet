@@ -55,7 +55,7 @@ func (s *SQLNotificationHistoryStore) InsertBatch(ctx context.Context, notifs []
 	if len(notifs) == 0 {
 		return nil
 	}
-	return db.WithTransactionNoResult(ctx, s.conn.DB, func(q *sqlc.Queries) error {
+	return db.WithTransactionNoResult(ctx, s.conn.DB, func(q sqlc.Querier) error {
 		for start := 0; start < len(notifs); start += maxBatchRows {
 			end := min(start+maxBatchRows, len(notifs))
 			chunk := notifs[start:end]

@@ -29,7 +29,7 @@ func setupReaperTest(t *testing.T) (*sql.DB, *testutil.DatabaseService, *testuti
 
 func createBatchLog(t *testing.T, conn *sql.DB, batchUUID string, userID int64, deviceCount int32) {
 	t.Helper()
-	err := db2.WithTransactionNoResult(context.Background(), conn, func(q *sqlc.Queries) error {
+	err := db2.WithTransactionNoResult(context.Background(), conn, func(q sqlc.Querier) error {
 		_, err := q.CreateCommandBatchLog(context.Background(), sqlc.CreateCommandBatchLogParams{
 			Uuid:         batchUUID,
 			Type:         "REBOOT",
@@ -47,7 +47,7 @@ func createBatchLog(t *testing.T, conn *sql.DB, batchUUID string, userID int64, 
 func createStuckMessage(t *testing.T, conn *sql.DB, batchUUID string, deviceID int64, age time.Duration) {
 	t.Helper()
 	ctx := context.Background()
-	err := db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+	err := db2.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
 		return q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
 			CommandBatchLogUuid: batchUUID,
 			CommandType:         "REBOOT",
@@ -219,7 +219,7 @@ func TestReaperIntegration(t *testing.T) {
 
 		// Create a message in SUCCESS state with an old timestamp
 		ctx := context.Background()
-		err := db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+		err := db2.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
 			return q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
 				CommandBatchLogUuid: batchUUID,
 				CommandType:         "REBOOT",

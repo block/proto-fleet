@@ -52,7 +52,7 @@ import (
 // Callers must wrap their context with a deadline; without one a
 // stuck reconcile would block boot indefinitely.
 func Reconcile(ctx context.Context, conn *sql.DB) error {
-	return dbinfra.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+	return dbinfra.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
 		if err := q.AcquireReconcileLock(ctx); err != nil {
 			return fmt.Errorf("authz reconcile: acquire advisory lock: %w", err)
 		}
@@ -93,7 +93,7 @@ func SeedOrgBuiltins(ctx context.Context, q sqlc.Querier, orgID int64) (map[Buil
 	return seedOrgBuiltins(ctx, q, orgID)
 }
 
-func upsertCatalog(ctx context.Context, q *sqlc.Queries) error {
+func upsertCatalog(ctx context.Context, q sqlc.Querier) error {
 	for _, entry := range Catalog() {
 		if _, err := q.UpsertPermission(ctx, sqlc.UpsertPermissionParams{
 			Key:         entry.Key,

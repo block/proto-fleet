@@ -12,6 +12,8 @@ const (
 	defaultHashrateTHS    = 140.0  // TH/s
 	defaultTemperatureC   = 55.0   // Celsius
 	defaultPowerW         = 3400.0 // Watts
+	defaultIdlePowerW     = 200.0  // Watts
+	defaultCurtailPowerW  = 30.0   // Watts
 	defaultEfficiencyJTH  = 24.3   // J/TH
 	defaultIdealHashrate  = 145.0  // TH/s
 	defaultFanSpeedRPM    = 4500
@@ -389,7 +391,13 @@ func (s *MinerState) miningState() MiningState {
 		return *s.ErrorConfig.ForceMiningState
 	}
 
-	// If no pools configured, report NO_POOLS state
+	// Full curtailment must remain visible even on a pool-less device so
+	// telemetry can expose its minimal-power state.
+	if s.MiningStateVal == MiningStateCurtailed {
+		return MiningStateCurtailed
+	}
+
+	// If no pools configured, report NO_POOLS state.
 	if len(s.Pools) == 0 {
 		return MiningStateNoPools
 	}
@@ -413,14 +421,17 @@ func (s *MinerState) GetMinerTelemetry() (hashrate, temperature, power, efficien
 		temperature = s.ErrorConfig.OverrideTemperature
 	}
 
-	// If not actively mining, reduce hashrate to 0
-	effectiveState := s.miningState()
-	if effectiveState != MiningStateMining &&
-		effectiveState != MiningStateDegraded {
-		hashrate = 0
-		power = applyVariation(200.0, telemetryVariation) // Idle power
+	// Model mining, idle/non-mining, and full-curtail draw separately.
+	switch s.miningState() {
+	case MiningStateMining, MiningStateDegraded:
+		return
+	case MiningStateCurtailed:
+		power = applyVariation(defaultCurtailPowerW, telemetryVariation)
+	default:
+		power = applyVariation(defaultIdlePowerW, telemetryVariation)
 	}
 
+	hashrate = 0
 	return
 }
 

@@ -4,6 +4,7 @@ import { _resetConfigCache, useFirmwareApi, validateFirmwareFile } from "./useFi
 
 const mockLogout = vi.fn();
 const mockUpload = vi.fn();
+const firmwareTarget = { targetManufacturer: "Proto", targetModel: "Rig", firmwareVersion: "v2.0.0" };
 
 vi.mock("@/protoFleet/store", () => ({
   useLogout: () => mockLogout,
@@ -90,7 +91,7 @@ describe("useFirmwareApi", () => {
       vi.stubGlobal("fetch", mockFetch);
 
       const { result } = renderHook(() => useFirmwareApi());
-      await result.current.checkFirmwareFile("abc123");
+      await result.current.checkFirmwareFile("abc123", firmwareTarget);
 
       expect(mockFetch).toHaveBeenCalledWith(
         "/api-proxy/api/v1/firmware/check",
@@ -98,7 +99,12 @@ describe("useFirmwareApi", () => {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sha256: "abc123" }),
+          body: JSON.stringify({
+            sha256: "abc123",
+            target_manufacturer: "Proto",
+            target_model: "Rig",
+            firmware_version: "v2.0.0",
+          }),
         }),
       );
     });
@@ -114,7 +120,7 @@ describe("useFirmwareApi", () => {
       );
 
       const { result } = renderHook(() => useFirmwareApi());
-      const data = await result.current.checkFirmwareFile("abc123");
+      const data = await result.current.checkFirmwareFile("abc123", firmwareTarget);
 
       expect(data).toEqual({ exists: true, firmwareFileId: "file-123" });
     });
@@ -130,7 +136,7 @@ describe("useFirmwareApi", () => {
       );
 
       const { result } = renderHook(() => useFirmwareApi());
-      const data = await result.current.checkFirmwareFile("abc123");
+      const data = await result.current.checkFirmwareFile("abc123", firmwareTarget);
 
       expect(data).toEqual({ exists: false, firmwareFileId: undefined });
     });
@@ -146,7 +152,7 @@ describe("useFirmwareApi", () => {
       );
 
       const { result } = renderHook(() => useFirmwareApi());
-      await expect(result.current.checkFirmwareFile("abc123")).rejects.toThrow("Session expired");
+      await expect(result.current.checkFirmwareFile("abc123", firmwareTarget)).rejects.toThrow("Session expired");
 
       expect(mockLogout).toHaveBeenCalledOnce();
     });
@@ -163,7 +169,9 @@ describe("useFirmwareApi", () => {
       );
 
       const { result } = renderHook(() => useFirmwareApi());
-      await expect(result.current.checkFirmwareFile("abc123")).rejects.toThrow("Firmware check failed: 500");
+      await expect(result.current.checkFirmwareFile("abc123", firmwareTarget)).rejects.toThrow(
+        "Firmware check failed: 500",
+      );
 
       expect(mockLogout).not.toHaveBeenCalled();
     });
@@ -180,7 +188,9 @@ describe("useFirmwareApi", () => {
       );
 
       const { result } = renderHook(() => useFirmwareApi());
-      await expect(result.current.checkFirmwareFile("bad")).rejects.toThrow("sha256 must be a 64-character hex string");
+      await expect(result.current.checkFirmwareFile("bad", firmwareTarget)).rejects.toThrow(
+        "sha256 must be a 64-character hex string",
+      );
     });
   });
 
@@ -201,7 +211,7 @@ describe("useFirmwareApi", () => {
 
       const file = new File(["data"], "firmware.swu");
       const { result } = renderHook(() => useFirmwareApi());
-      const id = await result.current.uploadFirmwareFile(file);
+      const id = await result.current.uploadFirmwareFile(file, firmwareTarget);
 
       expect(id).toBe("fw-abc");
       expect(mockUpload).toHaveBeenCalledWith(
@@ -210,6 +220,11 @@ describe("useFirmwareApi", () => {
         expect.objectContaining({
           onProgress: undefined,
           signal: undefined,
+          formFields: {
+            target_manufacturer: "Proto",
+            target_model: "Rig",
+            firmware_version: "v2.0.0",
+          },
         }),
       );
     });
@@ -230,7 +245,7 @@ describe("useFirmwareApi", () => {
       const file = new File(["a".repeat(10)], "firmware.swu");
       const onProgress = vi.fn();
       const { result } = renderHook(() => useFirmwareApi());
-      const id = await result.current.uploadFirmwareFile(file, { onProgress });
+      const id = await result.current.uploadFirmwareFile(file, { ...firmwareTarget, onProgress });
 
       expect(id).toBe("fw-chunked");
       expect(mockUpload).toHaveBeenCalledWith(
@@ -238,12 +253,67 @@ describe("useFirmwareApi", () => {
         file,
         expect.objectContaining({
           onProgress,
+          initiateFields: {
+            target_manufacturer: "Proto",
+            target_model: "Rig",
+            firmware_version: "v2.0.0",
+          },
           chunked: expect.objectContaining({
             enabled: true,
             chunkSize: 5,
           }),
         }),
       );
+    });
+
+    it("requires metadata for swu upload", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              allowed_extensions: [".swu"],
+              max_file_size_bytes: 500 * 1024 * 1024,
+              chunk_size_bytes: 1 * 1024 * 1024,
+            }),
+        }),
+      );
+
+      const file = new File(["data"], "proto-rig.swu");
+      const { result } = renderHook(() => useFirmwareApi());
+
+      // @ts-expect-error Runtime validation still protects untyped callers.
+      await expect(result.current.uploadFirmwareFile(file)).rejects.toThrow(
+        "Manufacturer, model, and firmware version are required.",
+      );
+      expect(mockUpload).not.toHaveBeenCalled();
+    });
+
+    it("requires metadata for non-swu upload", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              allowed_extensions: [".zip"],
+              max_file_size_bytes: 500 * 1024 * 1024,
+              chunk_size_bytes: 1 * 1024 * 1024,
+            }),
+        }),
+      );
+
+      const file = new File(["data"], "firmware.zip");
+      const { result } = renderHook(() => useFirmwareApi());
+
+      // @ts-expect-error Runtime validation still protects untyped callers.
+      await expect(result.current.uploadFirmwareFile(file)).rejects.toThrow(
+        "Manufacturer, model, and firmware version are required.",
+      );
+      expect(mockUpload).not.toHaveBeenCalled();
     });
 
     it("throws when upload response is missing firmware_file_id", async () => {
@@ -265,7 +335,7 @@ describe("useFirmwareApi", () => {
       const file = new File(["data"], "firmware.swu");
       const { result } = renderHook(() => useFirmwareApi());
 
-      await expect(result.current.uploadFirmwareFile(file)).rejects.toThrow(
+      await expect(result.current.uploadFirmwareFile(file, firmwareTarget)).rejects.toThrow(
         "Server response missing firmware_file_id.",
       );
     });
@@ -290,7 +360,7 @@ describe("useFirmwareApi", () => {
       const file = new File(["data"], "firmware.swu");
       const { result } = renderHook(() => useFirmwareApi());
 
-      await result.current.uploadFirmwareFile(file, { signal: controller.signal });
+      await result.current.uploadFirmwareFile(file, { ...firmwareTarget, signal: controller.signal });
 
       expect(mockUpload).toHaveBeenCalledWith(
         expect.any(String),
@@ -302,7 +372,17 @@ describe("useFirmwareApi", () => {
 
   describe("listFirmwareFiles", () => {
     it("sends GET with credentials and returns file list", async () => {
-      const mockFiles = [{ id: "f1", filename: "fw.swu", size: 1024, uploaded_at: "2025-01-01T00:00:00Z" }];
+      const mockFiles = [
+        {
+          id: "f1",
+          filename: "fw.swu",
+          size: 1024,
+          uploaded_at: "2025-01-01T00:00:00Z",
+          target_manufacturer: "Proto",
+          target_model: "Rig",
+          firmware_version: "v2.0.0",
+        },
+      ];
       const mockFetch = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
@@ -418,6 +498,70 @@ describe("useFirmwareApi", () => {
 
       const { result } = renderHook(() => useFirmwareApi());
       await expect(result.current.deleteFirmwareFile("missing-id")).rejects.toThrow("firmware file not found");
+    });
+  });
+
+  describe("updateFirmwareMetadata", () => {
+    it("sends trimmed metadata in a PATCH request", async () => {
+      const mockFetch = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+      vi.stubGlobal("fetch", mockFetch);
+
+      const { result } = renderHook(() => useFirmwareApi());
+      await result.current.updateFirmwareMetadata("file 123", {
+        targetManufacturer: " Proto ",
+        targetModel: " Rig ",
+        firmwareVersion: " 2.0.0 ",
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "/api-proxy/api/v1/firmware/files/file%20123",
+        expect.objectContaining({
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            target_manufacturer: "Proto",
+            target_model: "Rig",
+            firmware_version: "2.0.0",
+          }),
+        }),
+      );
+    });
+
+    it("rejects incomplete metadata before sending a request", async () => {
+      const mockFetch = vi.fn();
+      vi.stubGlobal("fetch", mockFetch);
+      const { result } = renderHook(() => useFirmwareApi());
+
+      await expect(
+        result.current.updateFirmwareMetadata("file-123", {
+          targetManufacturer: "Proto",
+          targetModel: "",
+          firmwareVersion: "2.0.0",
+        }),
+      ).rejects.toThrow("Manufacturer, model, and firmware version are required");
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it("returns the server error when metadata cannot be updated", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 404,
+          statusText: "Not Found",
+          json: () => Promise.resolve({ error: "firmware file not found" }),
+        }),
+      );
+      const { result } = renderHook(() => useFirmwareApi());
+
+      await expect(
+        result.current.updateFirmwareMetadata("missing", {
+          targetManufacturer: "Proto",
+          targetModel: "Rig",
+          firmwareVersion: "2.0.0",
+        }),
+      ).rejects.toThrow("firmware file not found");
     });
   });
 

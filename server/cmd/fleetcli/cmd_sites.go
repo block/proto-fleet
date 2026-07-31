@@ -119,6 +119,10 @@ func generatedSitesCommand() *cli.Command {
 					&cli.StringFlag{Name: "postal-code", Usage: "postal code"},
 					&cli.StringFlag{Name: "country", Usage: "country"},
 					&cli.StringFlag{Name: "notes", Usage: "notes"},
+					&cli.StringSliceFlag{Name: "building-ids", Usage: "building ids"},
+					&cli.StringSliceFlag{Name: "rack-ids", Usage: "rack ids"},
+					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "device identifiers"},
+					&cli.BoolFlag{Name: "force-clear-conflicting-rack-membership", Usage: "force clear conflicting rack membership"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &sitesv1.CreateSiteRequest{}
@@ -151,6 +155,27 @@ func generatedSitesCommand() *cli.Command {
 					}
 					if cmd.IsSet("notes") {
 						req.Notes = cmd.String("notes")
+					}
+					if cmd.IsSet("building-ids") {
+						values, err := parseInt64Slice(cmd.StringSlice("building-ids"))
+						if err != nil {
+							return nil, err
+						}
+						req.BuildingIds = values
+					}
+					if cmd.IsSet("rack-ids") {
+						values, err := parseInt64Slice(cmd.StringSlice("rack-ids"))
+						if err != nil {
+							return nil, err
+						}
+						req.RackIds = values
+					}
+					if cmd.IsSet("device-identifiers") {
+						req.DeviceIdentifiers = cmd.StringSlice("device-identifiers")
+					}
+					if cmd.IsSet("force-clear-conflicting-rack-membership") {
+						value := cmd.Bool("force-clear-conflicting-rack-membership")
+						req.ForceClearConflictingRackMembership = &value
 					}
 					if err := generatedValidateRequest(req); err != nil {
 						return nil, err

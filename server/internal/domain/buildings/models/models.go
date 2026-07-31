@@ -69,7 +69,13 @@ type BuildingWithCounts struct {
 	ListStats   *FleetListStats
 }
 
-// CreateParams is the input shape for the building create flow.
+// CreateParams is the input shape for the building create flow. The building
+// fields are always used; the trailing seed fields are optional (#559) — when
+// RackIDs and/or DeviceIdentifiers are non-empty, CreateBuilding assigns them
+// to the new building in the SAME transaction, so a failure anywhere (including
+// an unresolvable device conflict) rolls the building INSERT back too. The two
+// id sets are independent: a seeded device need not belong to any seeded rack
+// (it becomes a direct building member). Empty seed fields = a plain create.
 type CreateParams struct {
 	OrgID                 int64
 	SiteID                *int64 // nil = unassigned
@@ -83,6 +89,22 @@ type CreateParams struct {
 	DefaultRackRows       int32
 	DefaultRackColumns    int32
 	DefaultRackOrderIndex RackOrderIndex
+
+	// Optional seed (see type doc).
+	RackIDs                             []int64
+	DeviceIdentifiers                   []string
+	ForceClearConflictingRackMembership bool
+}
+
+// CreateBuildingResult carries the created building plus the seed-assignment
+// counts. Building is nil when a seeded device hit unresolvable conflicts (the
+// whole tx rolled back); the conflicts travel out-of-band as
+// []PerDeviceBuildingConflict. For a plain (unseeded) create the counts are 0.
+type CreateBuildingResult struct {
+	Building                  *Building
+	AssignedRackCount         int64
+	ReassignedDeviceCount     int64
+	SiteReassignedDeviceCount int64
 }
 
 // UpdateParams is the input shape for building updates. SiteID is

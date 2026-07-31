@@ -21,7 +21,7 @@ RUN mkdir -p plugin/asicrs/src && echo "fn main() {}" > plugin/asicrs/src/main.r
 WORKDIR /build/plugin/asicrs
 RUN cargo build --release
 # Remove the dummy build artifacts so the real source triggers a fresh compile
-RUN rm -rf target/release/.fingerprint/asicrs-plugin-* target/release/deps/asicrs_plugin-*
+RUN cargo clean --release -p asicrs-plugin
 
 # Copy the real plugin source and config
 WORKDIR /build

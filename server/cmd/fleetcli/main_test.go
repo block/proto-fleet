@@ -100,8 +100,8 @@ func TestGeneratedLeafCommandsMatchManifest(t *testing.T) {
 			t.Errorf("generated command %q missing from manifest", path)
 		}
 	}
-	if gotAll := leafCommandPaths(allCommands()); len(gotAll) != 131 {
-		t.Fatalf("all command leaves = %d, want 131", len(gotAll))
+	if gotAll := leafCommandPaths(allCommands()); len(gotAll) != 132 {
+		t.Fatalf("all command leaves = %d, want 132", len(gotAll))
 	}
 }
 
