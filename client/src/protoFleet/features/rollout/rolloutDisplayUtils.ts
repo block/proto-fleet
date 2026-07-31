@@ -21,6 +21,20 @@ export const orderLabels: Record<RolloutOrder, string> = {
 };
 
 /**
+ * Helper text for each strategy, surfaced through the strategy field's info
+ * popover rather than inline copy — keeps the control compact and consistent
+ * with how curtailment fields carry help.
+ */
+export const strategyHelpText: Record<RolloutStrategy, string> = {
+  allAtOnce:
+    "All in-scope miners update simultaneously. Fastest, but the highest uptime impact — bounded only by the max-offline ceiling.",
+  batched:
+    "Miners update in fixed-size waves, pausing for the interval between each so a bounded number are ever offline at once.",
+  pilotThenContinue:
+    "A small pilot wave runs first, then the rollout pauses for your review before continuing to the rest in batches.",
+};
+
+/**
  * Per-process verb for the phase labels. Curtailment "curtails" rather than
  * "updates", so the composition-bar legend and progress copy read naturally
  * for whichever process is running.

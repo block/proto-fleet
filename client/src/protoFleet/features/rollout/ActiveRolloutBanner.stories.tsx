@@ -48,7 +48,6 @@ export const Stacked: Story = {
       </div>
       <ActiveRolloutBannerStack
         events={[inProgressFirmwareEvent, inProgressRebootEvent, inProgressCurtailmentEvent]}
-        selectedIndex={0}
         onView={noop}
       />
     </div>
