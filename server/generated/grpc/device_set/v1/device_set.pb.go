@@ -3251,34 +3251,19 @@ type AssignDevicesToRackRequest struct {
 	// `conflicts` and writes nothing. Set true to proceed and clear the
 	// conflicting miners' site (and building) as part of the move.
 	ForceClearConflictingSite *bool `protobuf:"varint,3,opt,name=force_clear_conflicting_site,json=forceClearConflictingSite,proto3,oneof" json:"force_clear_conflicting_site,omitempty"`
-	// Slot placements for the devices being assigned. The rack-level
-	// analogue of buildings.v1.RackPlacement's optional aisle_index /
-	// position_in_aisle: the batch names only the devices it is changing,
-	// and each named device ends up either placed or explicitly unplaced.
+	// Slot placements for the devices being assigned, so membership and
+	// placement land in one transaction. Per entry: `position` set places
+	// the device there, `position` unset CLEARS its slot. A device not
+	// named here is untouched. Empty (the default) writes no slot at all,
+	// so an arriving device starts unplaced.
 	//
-	// Per entry: `position` set places the device there, `position` unset
-	// CLEARS its slot. A device not named here is untouched, so one call
-	// can mix placed, unplaced and left-alone miners. Every named device
-	// is cleared before any position is written, which is what lets a
-	// relayout swap two occupied cells without tripping
-	// uk_rack_slot_position mid-batch.
+	// Every entry must name a device in device_selector, and no two may
+	// share a device or a position. Positions are bounds checked against
+	// the rack's rows/columns. Requires target_rack_id.
 	//
-	// Empty (the default): no slot is written at all. A device already in
-	// the target rack keeps its slot; a device arriving from another rack
-	// starts unplaced, because its old slot died with its old membership.
-	//
-	// Every entry must name a device present in device_selector — a slot
-	// needs a membership row to hang off — and no two entries may share a
-	// device or a position. Positions are bounds checked against the
-	// target rack's rows/columns. Requires target_rack_id: an unassign has
-	// no rack to place into.
-	//
-	// Capped at 144 — the largest rack the server accepts is 12 × 12 (see
-	// maxRackDimension). Every entry must name a device that ends up a
-	// member of the target rack, and membership is itself capped at the
-	// rack's slot count, so a valid request cannot exceed this. The cap is
-	// also what bounds the clear-then-set delta to a fixed number of
-	// statements per transaction.
+	// Capped at 144: the largest rack the server accepts is 12 × 12 (see
+	// maxRackDimension) and membership is capped at the slot count, so a
+	// valid request cannot exceed it.
 	SlotAssignments []*RackSlot `protobuf:"bytes,4,rep,name=slot_assignments,json=slotAssignments,proto3" json:"slot_assignments,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache

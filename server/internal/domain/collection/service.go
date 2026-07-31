@@ -1093,26 +1093,15 @@ type AssignDevicesToRackParams struct {
 	// site, stripping their site/building to match the rack. When false
 	// (default) such an add returns Conflicts and writes nothing.
 	ForceClearConflictingSite bool
-	// SlotAssignments optionally places the assigned devices inside the
-	// target rack's grid, so membership and placement land in the same
-	// transaction. One entry per device whose placement changes: Position
-	// set places it there, Position nil clears its slot. A device not
-	// named here keeps whatever slot it had. Empty writes no slot at all.
-	// Requires TargetRackID. See validateAssignRackSlots.
+	// SlotAssignments optionally places the assigned devices in the target
+	// rack's grid, in the same transaction. One entry per device whose
+	// placement changes: Position set places it, Position nil clears its
+	// slot. Unnamed devices keep the slot they had. Requires TargetRackID.
 	SlotAssignments []*pb.RackSlot
 }
 
-// validateAssignRackSlots enforces the SlotAssignments contract that needs
-// no DB read: a target rack to place into, entries confined to the devices
-// being assigned, and no two entries claiming the same device or the same
-// cell. A nil Position is legal and means "clear this device's slot", the
-// counterpart of buildings.v1.RackPlacement's unset aisle/position. Grid
-// bounds are checked separately, in-tx, once the rack's dimensions are
-// known.
-//
-// The duplicate-position check is the friendly form of
-// uk_rack_slot_position: two entries on one cell would otherwise surface
-// as an opaque constraint violation.
+// validateAssignRackSlots checks the SlotAssignments contract that needs no
+// DB read. Grid bounds are checked in-tx, once dimensions are known.
 func validateAssignRackSlots(params AssignDevicesToRackParams) error {
 	if len(params.SlotAssignments) == 0 {
 		return nil
@@ -1144,6 +1133,7 @@ func validateAssignRackSlots(params AssignDevicesToRackParams) error {
 		if slot.Position.Row < 0 || slot.Position.Column < 0 {
 			return fleeterror.NewInvalidArgumentError("slot position row and column must not be negative")
 		}
+		// Friendly form of uk_rack_slot_position.
 		cell := [2]int32{slot.Position.Row, slot.Position.Column}
 		if _, dup := seenPositions[cell]; dup {
 			return fleeterror.NewInvalidArgumentErrorf("two devices are assigned to slot (%d, %d)", cell[0], cell[1])
@@ -1154,31 +1144,14 @@ func validateAssignRackSlots(params AssignDevicesToRackParams) error {
 }
 
 // applyRackSlotDelta persists the slot half of an AssignDevicesToRack
-// batch. Only the devices slotAssignments names are touched, so a miner
-// nobody mentioned keeps its slot. That scoping is the whole point of the
-// delta: SaveRack's replace-all shape cannot express "move this one miner"
-// without re-asserting every member.
+// batch. Only the named devices are touched, so an unmentioned miner keeps
+// its slot — the delta shape SaveRack's replace-all could not express.
+// Empty slotAssignments writes nothing, which is what every pre-existing
+// caller (importer, CLI, assign-then-place pair) relies on.
 //
-// Empty slotAssignments is a no-op, which keeps every pre-existing caller
-// (the importer, the CLI, the overview page's assign-then-place pair)
-// behaving exactly as before: a device already in the target rack retains
-// its slot, and an arriving device is unplaced because its old slot died
-// with its old membership.
-//
-// Otherwise every named device is cleared first, then the entries carrying
-// a position are set. Clearing the whole batch up front is what lets one
-// call swap two occupied cells without tripping uk_rack_slot_position
-// mid-batch, and it is also how an entry with no position expresses
-// "unplace this miner but leave it in the rack".
-//
-// Both store calls are INSERT/DELETE ... SELECT over device_set_membership,
-// so a device with no membership row makes them silent no-ops. The membership
-// insert upstream skips identifiers with no live device row — a stale client
-// snapshot naming a since-deleted miner is the realistic case — which would
-// otherwise let this report a placement it never applied. members is the
-// post-insert membership snapshot; anything named but absent from it did not
-// become a member, so fail the tx instead of writing nothing and claiming
-// success.
+// members is the post-insert membership snapshot. The store calls are
+// INSERT/DELETE ... SELECT over device_set_membership, so a non-member
+// would silently no-op and report a placement that never landed.
 func (s *Service) applyRackSlotDelta(ctx context.Context, orgID, rackID int64, slotAssignments []*pb.RackSlot, members map[string]*int64) error {
 	if len(slotAssignments) == 0 {
 		return nil
@@ -1196,13 +1169,10 @@ func (s *Service) applyRackSlotDelta(ctx context.Context, orgID, rackID int64, s
 		}
 	}
 
-	// Cells held by members this batch does not move. The clear pass frees
-	// only the named devices' cells, so a position landing on an untouched
-	// member's cell reaches uk_rack_slot_position (UNIQUE on collection_id,
-	// row, col) and surfaces as a 500 — the realistic trigger being a stale
-	// modal or a placement another operator changed. Reject it here instead,
-	// naming the occupant so the caller can refresh and retry. The rack row
-	// lock upstream is what makes this read authoritative for the tx.
+	// The clear pass frees only the named devices' cells, so a position
+	// landing on an untouched member's cell would hit uk_rack_slot_position
+	// and surface as a 500. Reject it here, naming the occupant. The rack
+	// row lock upstream makes this read authoritative for the tx.
 	if placements > 0 {
 		occupants, err := s.collectionStore.GetRackSlots(ctx, rackID, orgID)
 		if err != nil {
@@ -1220,11 +1190,10 @@ func (s *Service) applyRackSlotDelta(ctx context.Context, orgID, rackID int64, s
 				continue
 			}
 			holder, taken := heldBy[[2]int32{slot.Position.Row, slot.Position.Column}]
-			// Free, already this device's own cell, or held by a device the
-			// batch clears first — the last case is how a swap stays legal.
 			if !taken || holder == slot.DeviceIdentifier {
 				continue
 			}
+			// Held by a device the batch clears first: that is a swap.
 			if _, moving := named[holder]; moving {
 				continue
 			}
@@ -1392,16 +1361,10 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			targetPriorCount = coll.DeviceCount
 
 			// Read the grid once under the rack lock; it bounds both the
-			// slot positions below and the post-insert capacity check.
-			//
-			// A collection whose type is RACK always has a device_set_rack
-			// row — every create path inserts the extension in the same tx
-			// as the device_set row — so nil here means that invariant is
-			// broken. Fail instead of continuing: without dimensions both
-			// the bounds check and the capacity check silently pass, which
-			// would let us write slot positions the grid can never address
-			// and overfill the rack, with nothing in the logs to explain it
-			// later.
+			// slot positions below and the post-insert capacity check. A
+			// RACK always has a device_set_rack row, so nil means the data
+			// is corrupt — continuing without dimensions would pass both
+			// checks silently and write unaddressable positions.
 			rackInfo, err := s.collectionStore.GetRackInfo(ctx, *params.TargetRackID, params.OrgID)
 			if err != nil {
 				return nil, err
@@ -1484,17 +1447,11 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			}
 			newlyAssigned = added
 
-			// Capacity guard. A rack has no "floating" members — every
-			// miner is expected to occupy a slot — so membership is bounded
-			// by rows×columns, the same invariant SaveRack enforces on its
-			// replace path. Without it a delta could push a rack past its
-			// grid and leave miners at positions the grid can never
-			// address.
-			//
-			// prior + newly-inserted is exact: `added` counts only rows the
-			// ON CONFLICT DO NOTHING insert actually created, so devices
-			// already in this rack are not double-counted. Returning an
-			// error rolls the whole tx back, so nothing persists.
+			// Capacity guard: every rack member is expected to occupy a
+			// slot, so membership is bounded by rows×columns — the same
+			// invariant SaveRack enforces on its replace path. prior +
+			// newly-inserted is exact, since `added` counts only rows the
+			// ON CONFLICT DO NOTHING insert created.
 			if capacity := int64(targetRows) * int64(targetColumns); capacity > 0 {
 				if resulting := int64(targetPriorCount) + added; resulting > capacity {
 					return nil, fleeterror.NewInvalidArgumentErrorf(
@@ -1513,10 +1470,10 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			// fully-unassigned racks. Fully-unassigned racks (no site,
 			// no building) skip the cascade to preserve direct
 			// device.site_id assignments.
-			// Post-insert membership snapshot, read at most once. The
-			// cascade wants it for per-device prior sites; the slot delta
-			// wants it to confirm the devices it is about to place really
-			// became members. Skipped entirely when neither applies.
+
+			// Post-insert membership snapshot, read once and shared: the
+			// cascade needs per-device prior sites, the slot delta needs to
+			// confirm its devices became members.
 			var members map[string]*int64
 			if targetSiteID != nil || targetBuildingID != nil || len(params.SlotAssignments) > 0 {
 				m, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, *params.TargetRackID, params.OrgID)

@@ -152,14 +152,10 @@ type DeviceSetServiceClient interface {
 	// is rejected with InvalidArgument because moving every paired
 	// device into a single rack is never the intended operation.
 	//
-	// slot_assignments optionally carries each moved device's slot inside
-	// the target rack, so membership and placement land in the same
-	// transaction. This is the rack-level counterpart to
-	// buildings.v1.AssignRacksToBuilding: a delta that names only the
-	// children it changes, with placement optional per child. Prefer it
-	// over SaveRack for every edit — SaveRack replaces the rack's whole
-	// member set, so a stale client snapshot silently drops members
-	// added concurrently.
+	// slot_assignments optionally carries each moved device's slot, so
+	// membership and placement land in one transaction. Prefer this over
+	// SaveRack for every edit — SaveRack replaces the rack's whole member
+	// set, so a stale client snapshot silently drops concurrent additions.
 	AssignDevicesToRack(context.Context, *connect.Request[v1.AssignDevicesToRackRequest]) (*connect.Response[v1.AssignDevicesToRackResponse], error)
 }
 
@@ -440,14 +436,10 @@ type DeviceSetServiceHandler interface {
 	// is rejected with InvalidArgument because moving every paired
 	// device into a single rack is never the intended operation.
 	//
-	// slot_assignments optionally carries each moved device's slot inside
-	// the target rack, so membership and placement land in the same
-	// transaction. This is the rack-level counterpart to
-	// buildings.v1.AssignRacksToBuilding: a delta that names only the
-	// children it changes, with placement optional per child. Prefer it
-	// over SaveRack for every edit — SaveRack replaces the rack's whole
-	// member set, so a stale client snapshot silently drops members
-	// added concurrently.
+	// slot_assignments optionally carries each moved device's slot, so
+	// membership and placement land in one transaction. Prefer this over
+	// SaveRack for every edit — SaveRack replaces the rack's whole member
+	// set, so a stale client snapshot silently drops concurrent additions.
 	AssignDevicesToRack(context.Context, *connect.Request[v1.AssignDevicesToRackRequest]) (*connect.Response[v1.AssignDevicesToRackResponse], error)
 }
 

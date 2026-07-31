@@ -2874,10 +2874,9 @@ func rackSlot(deviceIdentifier string, row, column int32) *pb.RackSlot {
 	}
 }
 
-// expectAssignToRackPreamble sets up the locks + reads every rack-target
-// assign performs before it writes, so the slot tests can assert only on
-// the slot half. Placement is a plain site so the site-strip pre-check
-// doesn't fire.
+// expectAssignToRackPreamble stubs the locks + reads every rack-target
+// assign performs before it writes, so the slot tests assert only on the
+// slot half. A plain site keeps the site-strip pre-check from firing.
 func expectAssignToRackPreamble(mockStore *mocks.MockCollectionStore, rackID int64, deviceIDs []string, rows, columns int32) {
 	site := int64(7)
 	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, rackID).Return(nil, nil)
@@ -2889,9 +2888,7 @@ func expectAssignToRackPreamble(mockStore *mocks.MockCollectionStore, rackID int
 		Return(&pb.RackInfo{Rows: rows, Columns: columns}, nil)
 	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, rackID).Return(int64(0), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(len(deviceIDs)), nil)
-	// Post-insert membership snapshot. Every requested device became a
-	// member here, which is the happy path; the slot delta reads this to
-	// confirm it before writing positions.
+	// Post-insert membership: every requested device became a member.
 	members := make(map[string]*int64, len(deviceIDs))
 	for _, id := range deviceIDs {
 		members[id] = nil
@@ -2901,18 +2898,16 @@ func expectAssignToRackPreamble(mockStore *mocks.MockCollectionStore, rackID int
 	mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
 }
 
-// TestService_AssignDevicesToRack_slotDeltaClearsThenSets pins the core of
-// the placement delta: every named device is cleared before any position
-// is written. Without that ordering a relayout that swaps two occupied
-// cells trips uk_rack_slot_position mid-batch.
-// expectRackSlots stubs the occupancy read the slot delta performs before
-// writing any position. `held` is the rack's current placement, which is
-// what decides whether a requested cell is free, owned by a device the
-// batch moves, or held by an untouched member.
+// expectRackSlots stubs the rack's current occupancy, which is what decides
+// whether a requested cell is free, this device's own, or held by a member
+// the batch does not move.
 func expectRackSlots(mockStore *mocks.MockCollectionStore, rackID int64, held ...*pb.RackSlot) {
 	mockStore.EXPECT().GetRackSlots(gomock.Any(), rackID, testOrgID).Return(held, nil)
 }
 
+// TestService_AssignDevicesToRack_slotDeltaClearsThenSets pins the core of
+// the placement delta: every named device is cleared before any position is
+// written, so a swap can't trip uk_rack_slot_position mid-batch.
 func TestService_AssignDevicesToRack_slotDeltaClearsThenSets(t *testing.T) {
 	svc, mockStore, _ := newTestServiceWithSites(t, nil)
 	ctx := testCtx(t)
@@ -2920,13 +2915,11 @@ func TestService_AssignDevicesToRack_slotDeltaClearsThenSets(t *testing.T) {
 	rackID := int64(42)
 	deviceIDs := []string{"d1", "d2"}
 	expectAssignToRackPreamble(mockStore, rackID, deviceIDs, 10, 10)
-	// A true swap: each device targets the cell the other currently holds,
-	// which is legal precisely because both are cleared first.
+	// A true swap, legal only because both cells are cleared first.
 	expectRackSlots(mockStore, rackID, rackSlot("d1", 0, 0), rackSlot("d2", 0, 1))
 
-	// Both clears must precede both sets. gomock.InOrder can't express
-	// "any order within a group", so assert the boundary directly: record
-	// the call sequence and check no clear follows a set.
+	// gomock.InOrder can't express "any order within a group", so record
+	// the sequence and assert no clear follows a set.
 	var calls []string
 	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, gomock.Any(), testOrgID).Times(2).
 		DoAndReturn(func(_ context.Context, _ int64, id string, _ int64) error {
@@ -2954,10 +2947,8 @@ func TestService_AssignDevicesToRack_slotDeltaClearsThenSets(t *testing.T) {
 }
 
 // TestService_AssignDevicesToRack_slotDeltaUnplacesOnNilPosition pins the
-// mixed placed+unplaced case that makes this a delta rather than a
-// replace: an entry with no position clears that device's slot — the
-// counterpart of RackPlacement's unset aisle/position — which is how a
-// caller says "pull this miner off the grid but leave it in the rack".
+// mixed placed+unplaced case: an entry with no position clears that
+// device's slot, leaving it in the rack but off the grid.
 func TestService_AssignDevicesToRack_slotDeltaUnplacesOnNilPosition(t *testing.T) {
 	svc, mockStore, _ := newTestServiceWithSites(t, nil)
 	ctx := testCtx(t)
@@ -2982,10 +2973,9 @@ func TestService_AssignDevicesToRack_slotDeltaUnplacesOnNilPosition(t *testing.T
 	require.NoError(t, err)
 }
 
-// TestService_AssignDevicesToRack_slotDeltaPureUnplace covers the case an
-// "empty list means clear the selector" rule could not express at all: the
-// operator pulls every miner they touched off the grid. Each is named with
-// no position, so the batch is non-empty and the clears actually land.
+// TestService_AssignDevicesToRack_slotDeltaPureUnplace covers pulling every
+// named miner off the grid — the case an "empty list clears the selector"
+// rule could not express, since empty means "write no slot at all".
 func TestService_AssignDevicesToRack_slotDeltaPureUnplace(t *testing.T) {
 	svc, mockStore, _ := newTestServiceWithSites(t, nil)
 	ctx := testCtx(t)
@@ -3008,10 +2998,8 @@ func TestService_AssignDevicesToRack_slotDeltaPureUnplace(t *testing.T) {
 }
 
 // TestService_AssignDevicesToRack_slotDeltaLeavesUnnamedDeviceAlone is the
-// invariant that makes this safe where SaveRack was not: a miner the batch
-// never mentions keeps its slot, even though it is a member of the same
-// rack. SaveRack could only express this by re-asserting the entire member
-// set from the client's (possibly stale) snapshot.
+// invariant that makes this safe where SaveRack was not: an unmentioned
+// member keeps its slot, with no need to re-assert the whole member set.
 func TestService_AssignDevicesToRack_slotDeltaLeavesUnnamedDeviceAlone(t *testing.T) {
 	svc, mockStore, _ := newTestServiceWithSites(t, nil)
 	ctx := testCtx(t)
@@ -3037,10 +3025,8 @@ func TestService_AssignDevicesToRack_slotDeltaLeavesUnnamedDeviceAlone(t *testin
 }
 
 // TestService_AssignDevicesToRack_noSlotsLeavesPlacementUntouched pins the
-// backward-compatible default every pre-existing caller relies on (the
-// importer, the CLI, the overview page's assign-then-place pair): an empty
-// SlotAssignments touches no slot row at all, so a device already in the
-// target rack keeps the slot it had.
+// backward-compatible default (importer, CLI, assign-then-place pair):
+// empty SlotAssignments touches no slot row at all.
 func TestService_AssignDevicesToRack_noSlotsLeavesPlacementUntouched(t *testing.T) {
 	svc, mockStore, _ := newTestServiceWithSites(t, nil)
 	ctx := testCtx(t)
@@ -3060,10 +3046,9 @@ func TestService_AssignDevicesToRack_noSlotsLeavesPlacementUntouched(t *testing.
 }
 
 // TestService_AssignDevicesToRack_missingRackExtensionFails pins the
-// broken-invariant path. A RACK collection always has a device_set_rack
-// row, so a nil read means the data is corrupt. Continuing would skip both
-// the slot bounds check and the capacity check and write positions the grid
-// can never address, so the tx fails before any write instead.
+// broken-invariant path: a RACK always has a device_set_rack row, so a nil
+// read means corrupt data. Continuing would skip the bounds and capacity
+// checks, so the tx fails before any write.
 func TestService_AssignDevicesToRack_missingRackExtensionFails(t *testing.T) {
 	svc, mockStore, _ := newTestServiceWithSites(t, nil)
 	ctx := testCtx(t)
@@ -3117,8 +3102,7 @@ func TestService_AssignDevicesToRack_slotForNonMemberFails(t *testing.T) {
 		Return(map[string]*int64{"d1": nil}, nil)
 	mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
 	mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
-	// No Clear/Set expectations: the strict mock fails if a slot write
-	// fires for a batch that should have been rejected whole.
+	// No Clear/Set expectations: the batch is rejected whole.
 
 	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
 		OrgID:             testOrgID,
@@ -3130,11 +3114,9 @@ func TestService_AssignDevicesToRack_slotForNonMemberFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "did not become a member")
 }
 
-// TestService_AssignDevicesToRack_slotOnOccupiedCellFails pins the
-// concurrency/stale-snapshot path. The clear pass only frees the cells of
-// devices this batch names, so placing onto a cell held by an untouched
-// member would reach uk_rack_slot_position and surface as a 500. Reject it
-// up front instead, naming the occupant so the caller can refresh.
+// TestService_AssignDevicesToRack_slotOnOccupiedCellFails pins the stale-
+// snapshot path: placing onto a cell held by a member the batch never
+// clears would reach uk_rack_slot_position and surface as a 500.
 func TestService_AssignDevicesToRack_slotOnOccupiedCellFails(t *testing.T) {
 	svc, mockStore, _ := newTestServiceWithSites(t, nil)
 	ctx := testCtx(t)
@@ -3142,8 +3124,7 @@ func TestService_AssignDevicesToRack_slotOnOccupiedCellFails(t *testing.T) {
 	rackID := int64(42)
 	deviceIDs := []string{"d1"}
 	expectAssignToRackPreamble(mockStore, rackID, deviceIDs, 4, 4)
-	// "squatter" is a member the batch never mentions, so its cell is
-	// never cleared — exactly the collision the DB would raise on.
+	// "squatter" is unmentioned, so its cell is never cleared.
 	expectRackSlots(mockStore, rackID, rackSlot("squatter", 1, 1))
 	// No Clear/Set expectations: the batch is rejected whole.
 
@@ -3297,16 +3278,14 @@ func TestService_AssignDevicesToRack_reAssertingMembersIsNotOverCapacity(t *test
 	mockStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
 		Return(&pb.RackInfo{Rows: 1, Columns: 2}, nil)
 	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, rackID).Return(int64(0), nil)
-	// Already members → ON CONFLICT DO NOTHING inserts nothing, and the
-	// membership snapshot still lists both: that is what makes the slot
-	// writes below legal on a rack that gained no new rows.
+	// Already members → ON CONFLICT DO NOTHING inserts nothing, but the
+	// snapshot still lists both, which is what makes the slot writes legal.
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
 	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), rackID, testOrgID).
 		Return(map[string]*int64{"d1": nil, "d2": nil}, nil)
 	mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
 	mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
-	// Both cells are occupied, by these same two devices, swapped. Legal
-	// because both are cleared before either is set.
+	// Both cells occupied by these same two devices, swapped.
 	expectRackSlots(mockStore, rackID, rackSlot("d1", 0, 0), rackSlot("d2", 0, 1))
 	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d1", testOrgID).Return(nil)
 	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d2", testOrgID).Return(nil)
