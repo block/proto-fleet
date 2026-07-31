@@ -427,13 +427,15 @@ export const CreateBuildingResponseSchema: GenMessage<CreateBuildingResponse> =
   messageDesc(file_buildings_v1_buildings, 7);
 
 /**
- * One building in a bulk-create batch. Carries only the fields the bulk
- * form can set: the operator names the buildings (generated from a prefix
- * and counter, or typed) and everything else takes the same server-side
- * zero default a plain CreateBuilding would. Layout dimensions and rack
- * defaults are deliberately absent — they are per-building concerns the
- * operator sets afterwards on the building itself, and baking one layout
- * into a batch of 40 would be wrong more often than right.
+ * One building in a bulk-create batch. Carries the fields the bulk form
+ * can set: the operator names the buildings (generated from a prefix and
+ * counter, or typed) and everything else takes the same server-side zero
+ * default a plain CreateBuilding would. Layout dimensions (aisles,
+ * racks_per_aisle) are carried per row so a batch can share one layout
+ * when that fits — see the field comments below; whether it does is the
+ * form's business, not the protocol's. Rack defaults remain absent: they
+ * are per-building concerns the operator sets afterwards on the building
+ * itself.
  *
  * @generated from message buildings.v1.NewBuilding
  */

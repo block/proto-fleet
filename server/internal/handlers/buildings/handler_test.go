@@ -518,8 +518,8 @@ func TestHandler_CreateBuildings_happy(t *testing.T) {
 	h := newTestHandler(t)
 
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(42)).Return(nil)
-	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
-		Return([]models.BuildingWithCounts{}, nil)
+	h.buildingStore.EXPECT().ListBuildingNamesBySite(gomock.Any(), int64(7), int64(42)).
+		Return([]string{}, nil)
 	h.buildingStore.EXPECT().CreateBuilding(gomock.Any(), gomock.AssignableToTypeOf(models.CreateParams{})).
 		DoAndReturn(func(_ context.Context, p models.CreateParams) (*models.Building, error) {
 			assert.Equal(t, int32(4), p.Aisles)
@@ -548,8 +548,8 @@ func TestHandler_CreateBuildings_returnsPerRowErrorsAndNoBuildings(t *testing.T)
 	// collision is the only rejection. The response carries the offending
 	// index rather than a transport error.
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(42)).Return(nil)
-	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
-		Return([]models.BuildingWithCounts{}, nil)
+	h.buildingStore.EXPECT().ListBuildingNamesBySite(gomock.Any(), int64(7), int64(42)).
+		Return([]string{}, nil)
 
 	resp, err := h.handler.CreateBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.CreateBuildingsRequest{
 		SiteId: 42,
@@ -598,8 +598,8 @@ func TestHandler_CreateBuildings_authorizesAgainstTargetSite(t *testing.T) {
 			handlerstest.SiteAssignment(42, authz.PermSiteManage))
 
 		h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(42)).Return(nil)
-		h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
-			Return([]models.BuildingWithCounts{}, nil)
+		h.buildingStore.EXPECT().ListBuildingNamesBySite(gomock.Any(), int64(7), int64(42)).
+			Return([]string{}, nil)
 		h.buildingStore.EXPECT().CreateBuilding(gomock.Any(), gomock.AssignableToTypeOf(models.CreateParams{})).
 			Return(&models.Building{ID: 1, Name: "B-001"}, nil)
 
