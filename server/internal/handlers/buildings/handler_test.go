@@ -543,8 +543,14 @@ func TestHandler_CreateBuildings_returnsPerRowErrorsAndNoBuildings(t *testing.T)
 	t.Parallel()
 	h := newTestHandler(t)
 
-	// A duplicate inside the batch never reaches the stores, and the response
-	// carries the offending index rather than a transport error.
+	// A batch duplicate is still checked against the site, so one response can
+	// carry every offending row; nothing is live here, so the in-batch
+	// collision is the only rejection. The response carries the offending
+	// index rather than a transport error.
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(42)).Return(nil)
+	h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
+		Return([]models.BuildingWithCounts{}, nil)
+
 	resp, err := h.handler.CreateBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.CreateBuildingsRequest{
 		SiteId: 42,
 		Buildings: []*pb.NewBuilding{
@@ -576,4 +582,50 @@ func TestHandler_CreateBuildings_requiresSiteManage(t *testing.T) {
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+// TestHandler_CreateBuildings_authorizesAgainstTargetSite pins the scope of
+// the RBAC check. Bulk create always names one site, so it authorizes against
+// that site rather than the org: a site-scoped manager is admitted at their
+// own site, and a site assignment that narrows an org-wide grant is honored.
+func TestHandler_CreateBuildings_authorizesAgainstTargetSite(t *testing.T) {
+	t.Parallel()
+
+	t.Run("site-scoped manager is admitted at their own site", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, 7,
+			handlerstest.SiteAssignment(42, authz.PermSiteManage))
+
+		h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(42)).Return(nil)
+		h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).
+			Return([]models.BuildingWithCounts{}, nil)
+		h.buildingStore.EXPECT().CreateBuilding(gomock.Any(), gomock.AssignableToTypeOf(models.CreateParams{})).
+			Return(&models.Building{ID: 1, Name: "B-001"}, nil)
+
+		resp, err := h.handler.CreateBuildings(ctx, connect.NewRequest(&pb.CreateBuildingsRequest{
+			SiteId:    42,
+			Buildings: []*pb.NewBuilding{{Name: "B-001"}},
+		}))
+		require.NoError(t, err)
+		assert.Len(t, resp.Msg.GetBuildings(), 1)
+	})
+
+	t.Run("site-scoped manager is denied at another site", func(t *testing.T) {
+		t.Parallel()
+		h := newTestHandler(t)
+		// Manager at site 42 only; the request targets site 99. No store
+		// expectations: this must be denied before any write.
+		ctx := handlerstest.CtxWithAssignments(t, 7,
+			handlerstest.SiteAssignment(42, authz.PermSiteManage))
+
+		_, err := h.handler.CreateBuildings(ctx, connect.NewRequest(&pb.CreateBuildingsRequest{
+			SiteId:    99,
+			Buildings: []*pb.NewBuilding{{Name: "B-001"}},
+		}))
+		require.Error(t, err)
+		var fleetErr fleeterror.FleetError
+		require.ErrorAs(t, err, &fleetErr)
+		assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	})
 }
