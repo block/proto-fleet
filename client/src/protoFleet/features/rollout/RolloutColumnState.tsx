@@ -1,72 +1,83 @@
 import type { ReactElement } from "react";
-import clsx from "clsx";
 
 import type { RolloutTargetPhase } from "./rolloutTypes";
-import { Alert, Checkmark } from "@/shared/assets/icons";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import StatusCircle, { statuses } from "@/shared/components/StatusCircle";
 
 interface RolloutColumnStateProps {
   phase: RolloutTargetPhase;
-  /** The value shown for a settled target, e.g. the firmware version "5.1.0".
-   * When omitted, a phase label is shown instead. */
+  /** Value shown for a settled target, e.g. the new firmware version "5.1.0".
+   * Falls back to a phase word when omitted. */
   doneLabel?: string;
-  /** The plain value shown when the target is untouched (e.g. current version).
-   * Only used for the "queued" phase to echo the pre-rollout value. */
+  /** Pre-rollout value echoed while a target is still queued, e.g. the current
+   * firmware version. */
   idleLabel?: string;
 }
 
-const dotClass: Record<RolloutTargetPhase, string> = {
-  done: "bg-intent-success-fill",
-  inProgress: "bg-intent-warning-fill",
-  queued: "bg-grayscale-gray-50",
-  failed: "bg-intent-critical-fill",
-  excluded: "bg-grayscale-gray-50",
+/** Map a rollout phase to the shared StatusCircle status color. */
+const phaseStatus: Record<RolloutTargetPhase, keyof typeof statuses> = {
+  done: statuses.normal,
+  inProgress: statuses.error, // amber/attention dot, matching MinerStatus "Updating firmware"
+  queued: statuses.inactive,
+  failed: statuses.error,
+  excluded: statuses.inactive,
 };
 
 /**
  * Per-miner state cell for the process column (e.g. the Firmware column in the
- * fleet table): a small status chip that reads the target's phase within an
- * active rollout. Done shows the achieved value (new firmware version); the
- * other phases show a labeled dot.
+ * fleet table). Built from the same primitives as `MinerStatus` — a simple
+ * `StatusCircle` dot, an optional inline `ProgressCircular` spinner, and plain
+ * text — so a rollout's per-row state reads identically to native miner status
+ * rather than as a bespoke chip.
  */
 function RolloutColumnState({ phase, doneLabel, idleLabel }: RolloutColumnStateProps): ReactElement {
+  const dot = (
+    <StatusCircle status={phaseStatus[phase]} variant="simple" width="w-[6px]" testId="rollout-column-status" />
+  );
+
   if (phase === "inProgress") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-200 text-text-primary-70">
-        <ProgressCircular indeterminate size={14} className="text-core-accent-fill" />
+      <div className="flex items-center gap-2 text-text-primary">
+        {dot}
+        <ProgressCircular size={14} indeterminate />
         Updating
-      </span>
+      </div>
     );
   }
 
   if (phase === "done") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-200 text-intent-success-fill">
-        <Checkmark width="w-3" />
+      <div className="flex items-center gap-2 text-text-primary">
+        {dot}
         {doneLabel ?? "Done"}
-      </span>
+      </div>
     );
   }
 
   if (phase === "failed") {
     return (
-      <span className="inline-flex items-center gap-1.5 text-200 text-intent-critical-fill">
-        <Alert width="w-3" />
+      <div className="flex items-center gap-2 text-text-primary">
+        {dot}
         Failed
-      </span>
+      </div>
     );
   }
 
   if (phase === "excluded") {
-    return <span className="text-200 text-text-primary-50">Excluded</span>;
+    return (
+      <div className="flex items-center gap-2 text-text-primary-50">
+        {dot}
+        Excluded
+      </div>
+    );
   }
 
   // queued
   return (
-    <span className="inline-flex items-center gap-1.5 text-200 text-text-primary-70">
-      <span className={clsx("h-2 w-2 rounded-full", dotClass.queued)} />
+    <div className="flex items-center gap-2 text-text-primary-70">
+      {dot}
       {idleLabel ? `Queued (${idleLabel})` : "Queued"}
-    </span>
+    </div>
   );
 }
 

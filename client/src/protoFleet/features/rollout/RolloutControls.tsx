@@ -1,8 +1,8 @@
 import type { ReactElement } from "react";
 
-import { orderLabels, strategyLabels } from "./rolloutDisplayUtils";
+import { orderLabels, strategyHelpText, strategyLabels } from "./rolloutDisplayUtils";
+import RolloutFieldInfo from "./RolloutFieldInfo";
 import type { RolloutOrder, RolloutPlanConfig, RolloutStrategy } from "./rolloutTypes";
-import { Alert } from "@/shared/assets/icons";
 import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
 
@@ -30,12 +30,14 @@ const orderOptions = (Object.keys(orderLabels) as RolloutOrder[]).map((value) =>
  *
  * - all at once — no pacing fields; just strategy + order + the offline ceiling.
  * - batched — adds batch size + interval.
- * - pilot then continue — pilot size + a review-gate note, then continuation
- *   batch fields.
+ * - pilot then continue — pilot size, then continuation batch fields.
  *
- * `maxConcurrentOffline` is a global ceiling, so it is present in every variant.
- * This is a controlled component: it owns no state, mirroring how
- * curtailment's start modal drives its fields.
+ * The per-strategy explanation lives in the strategy field's info popover (the
+ * curtailment field-help pattern) rather than as inline copy, so the control
+ * stays compact. All fields stack in one column at the standard field width —
+ * paced fields use the same two-up sub-rows curtailment uses. `maxConcurrentOffline`
+ * is a global ceiling, so it appears in every variant. Controlled component:
+ * owns no state, mirroring curtailment's start modal.
  */
 function RolloutControls({ config, onChange, disabled = false }: RolloutControlsProps): ReactElement {
   function patch(partial: Partial<RolloutPlanConfig>): void {
@@ -57,59 +59,48 @@ function RolloutControls({ config, onChange, disabled = false }: RolloutControls
         <div className="text-300 text-text-primary-70">How the update is paced across the selected miners.</div>
       </div>
 
-      <div className="grid gap-4 tablet:grid-cols-2">
-        <Select
-          id="rollout-strategy"
-          label="Rollout strategy"
-          options={strategyOptions}
-          value={config.strategy}
-          onChange={(value) => patch({ strategy: value as RolloutStrategy })}
-          disabled={disabled}
-          forceBelow
-        />
-        <Select
-          id="rollout-order"
-          label="Rollout order"
-          options={orderOptions}
-          value={config.order}
-          onChange={(value) => patch({ order: value as RolloutOrder })}
-          disabled={disabled}
-          forceBelow
-        />
-      </div>
+      <Select
+        id="rollout-strategy"
+        label="Rollout strategy"
+        options={strategyOptions}
+        value={config.strategy}
+        onChange={(value) => patch({ strategy: value as RolloutStrategy })}
+        disabled={disabled}
+        forceBelow
+        suffixAction={
+          <RolloutFieldInfo
+            ariaLabel="About rollout strategies"
+            body={strategyHelpText[config.strategy]}
+            testId="rollout-strategy-info-button"
+            popoverTestId="rollout-strategy-info-popover"
+          />
+        }
+      />
 
-      {config.strategy === "allAtOnce" ? (
-        <div className="flex items-start gap-3">
-          <Alert className="mt-0.5 shrink-0 text-text-primary-50" width="w-5" />
-          <span className="text-200 text-text-primary-70">
-            All in-scope miners update simultaneously. Fastest, highest uptime impact.
-          </span>
-        </div>
-      ) : null}
+      <Select
+        id="rollout-order"
+        label="Rollout order"
+        options={orderOptions}
+        value={config.order}
+        onChange={(value) => patch({ order: value as RolloutOrder })}
+        disabled={disabled}
+        forceBelow
+      />
 
       {showPilotFields ? (
-        <>
-          <Input
-            id="rollout-pilot-size"
-            label="Pilot group size (miners)"
-            type="number"
-            inputMode="numeric"
-            initValue={config.pilotSize ?? ""}
-            onChange={(value) => patch({ pilotSize: parseCount(value) })}
-            disabled={disabled}
-          />
-          <div className="flex items-start gap-3">
-            <Alert className="mt-0.5 shrink-0 text-core-accent-fill" width="w-5" />
-            <span className="text-200 text-text-primary-70">
-              Rollout pauses for your review after the pilot group completes, then continues in batches.
-            </span>
-          </div>
-          <div className="text-emphasis-200 text-text-primary-50">Then continue in batches</div>
-        </>
+        <Input
+          id="rollout-pilot-size"
+          label="Pilot group size (miners)"
+          type="number"
+          inputMode="numeric"
+          initValue={config.pilotSize ?? ""}
+          onChange={(value) => patch({ pilotSize: parseCount(value) })}
+          disabled={disabled}
+        />
       ) : null}
 
       {showBatchFields ? (
-        <div className="grid gap-4 tablet:grid-cols-2">
+        <div className="grid gap-3 tablet:grid-cols-2">
           <Input
             id="rollout-batch-size"
             label="Batch size (miners)"
