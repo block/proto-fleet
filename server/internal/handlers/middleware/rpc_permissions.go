@@ -101,7 +101,12 @@ var ProcedurePermissions = map[string]string{
 	// site:manage entry is the primary gate; when the caller opts into
 	// force_clear_conflicting_rack_membership the handler adds an inline
 	// rack:manage check (mirrors AssignDevicesToBuilding).
-	buildingsv1connect.BuildingServiceCreateBuildingProcedure:        authz.PermSiteManage,
+	buildingsv1connect.BuildingServiceCreateBuildingProcedure: authz.PermSiteManage,
+	// CreateBuildings takes no rack/device seed, so unlike CreateBuilding
+	// there is no rack:manage escalation to gate. The handler authorizes
+	// against the request's target site (ResourceContext{SiteID}), which
+	// site_id always carries for bulk create.
+	buildingsv1connect.BuildingServiceCreateBuildingsProcedure:       authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceUpdateBuildingProcedure:        authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceDeleteBuildingProcedure:        authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceAssignRacksToBuildingProcedure: authz.PermSiteManage,

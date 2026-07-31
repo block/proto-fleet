@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 
+	"connectrpc.com/connect"
+
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
@@ -334,9 +336,23 @@ func (s *Service) CreateBuildings(ctx context.Context, params models.CreateBuild
 		}
 	}
 
-	if dupes := duplicateNamesInBatch(names); len(dupes) > 0 {
-		return nil, dupes, nil
+	// Layout bounds, matching what validateCreateBuildingParams enforces for
+	// a single create. buf.validate already caps these for RPC callers, so
+	// this is what keeps a direct service caller from persisting a grid the
+	// UI cannot render.
+	for i, b := range params.Buildings {
+		if err := validateLayoutBounds(b.Aisles, b.RacksPerAisle); err != nil {
+			return nil, nil, fleeterror.NewInvalidArgumentErrorf(
+				"buildings[%d]: aisles and racks_per_aisle must each be ≤ %d (got %d and %d)",
+				i, layoutDimensionMax, b.Aisles, b.RacksPerAisle)
+		}
 	}
+
+	// Batch duplicates are pure request math, but do NOT return here: a row
+	// can be both duplicated in the batch and already taken at the site, and
+	// reporting only the first source would make the operator submit again
+	// to discover the second. Both are merged below.
+	batchDupes := duplicateNamesInBatch(names)
 
 	// Captured from the committed attempt: RunInTxWithResult may retry the
 	// closure, so reset at the top of each attempt.
@@ -363,15 +379,17 @@ func (s *Service) CreateBuildings(ctx context.Context, params models.CreateBuild
 		for _, e := range existing {
 			taken[e.Building.Name] = struct{}{}
 		}
+		var siteClashes []models.PerBuildingCreateError
 		for i, name := range names {
 			if _, clash := taken[name]; clash {
-				rejected = append(rejected, models.PerBuildingCreateError{
+				siteClashes = append(siteClashes, models.PerBuildingCreateError{
 					Index:  int32(i), //nolint:gosec // i < len(names) <= maxBulkCreateBuildings (500), checked above.
 					Name:   name,
 					Reason: models.ReasonBuildingCreateDuplicateNameAtSite,
 				})
 			}
 		}
+		rejected = mergeBuildingCreateErrors(batchDupes, siteClashes)
 		if len(rejected) > 0 {
 			return nil, errBulkCreateRejected
 		}
@@ -393,6 +411,20 @@ func (s *Service) CreateBuildings(ctx context.Context, params models.CreateBuild
 				RacksPerAisle: b.RacksPerAisle,
 			})
 			if err != nil {
+				// A name can start colliding after the read above: at READ
+				// COMMITTED our site lock does not exclude a concurrent
+				// UpdateBuilding, which locks the building row instead. Report
+				// that as this row's rejection so the form can still mark it,
+				// rather than an opaque AlreadyExists the UI cannot place.
+				var fleetErr fleeterror.FleetError
+				if errors.As(err, &fleetErr) && fleetErr.GRPCCode == connect.CodeAlreadyExists {
+					rejected = []models.PerBuildingCreateError{{
+						Index:  int32(i), //nolint:gosec // i < len(params.Buildings) <= maxBulkCreateBuildings (500).
+						Name:   names[i],
+						Reason: models.ReasonBuildingCreateDuplicateNameAtSite,
+					}}
+					return nil, errBulkCreateRejected
+				}
 				return nil, err
 			}
 			created = append(created, row)
@@ -436,6 +468,33 @@ func duplicateNamesInBatch(names []string) []models.PerBuildingCreateError {
 		seen[name] = struct{}{}
 	}
 	return dupes
+}
+
+// mergeBuildingCreateErrors combines the two uniqueness sources into one
+// entry per row, ordered by index so the response lines up with the request.
+// A row that is both duplicated in the batch and already taken at the site
+// reports AT_SITE: that is the reason editing the batch's other rows cannot
+// resolve, so it is the one worth showing.
+func mergeBuildingCreateErrors(batchDupes, siteClashes []models.PerBuildingCreateError) []models.PerBuildingCreateError {
+	if len(batchDupes) == 0 {
+		return siteClashes
+	}
+	if len(siteClashes) == 0 {
+		return batchDupes
+	}
+	byIndex := make(map[int32]models.PerBuildingCreateError, len(batchDupes)+len(siteClashes))
+	for _, e := range batchDupes {
+		byIndex[e.Index] = e
+	}
+	for _, e := range siteClashes {
+		byIndex[e.Index] = e
+	}
+	merged := make([]models.PerBuildingCreateError, 0, len(byIndex))
+	for _, e := range byIndex {
+		merged = append(merged, e)
+	}
+	sort.Slice(merged, func(i, j int) bool { return merged[i].Index < merged[j].Index })
+	return merged
 }
 
 // GetBuilding returns the live building or NotFound.

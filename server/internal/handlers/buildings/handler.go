@@ -101,7 +101,11 @@ func (h *Handler) CreateBuilding(ctx context.Context, req *connect.Request[pb.Cr
 }
 
 func (h *Handler) CreateBuildings(ctx context.Context, req *connect.Request[pb.CreateBuildingsRequest]) (*connect.Response[pb.CreateBuildingsResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
+	// Authorize against the target site rather than the org. site_id is
+	// required for bulk create, so the scope is always unambiguous: this
+	// admits a site-scoped site:manage operator at their own site, and
+	// respects an assignment that narrows an org-wide grant away here.
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: &req.Msg.SiteId})
 	if err != nil {
 		return nil, err
 	}
