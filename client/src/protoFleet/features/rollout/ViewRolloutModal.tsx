@@ -59,7 +59,6 @@ function ViewRolloutModal({
 
   return (
     <Modal
-      size="large"
       title={event.title}
       description={event.scopeLabel ? `Applies to ${event.scopeLabel}` : undefined}
       onDismiss={onDismiss}

@@ -66,7 +66,6 @@ function RolloutConfigModal({
 
   return (
     <Modal
-      size="large"
       title={title}
       description={description}
       onDismiss={onDismiss}
