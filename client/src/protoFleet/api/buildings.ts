@@ -6,6 +6,7 @@ import {
   type Building,
   type BuildingRack,
   type BuildingWithCounts,
+  type PerBuildingCreateErrorReason,
   RackOrderIndex,
 } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import type { FleetListTelemetryRangeFilter } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
@@ -83,6 +84,40 @@ interface CreateBuildingProps {
   // the per-device reasons; it is empty for a transport / permission failure
   // and for a plain create.
   onError?: (message: string, conflicts: AssignDevicesToBuildingConflict[]) => void;
+  onFinally?: () => void;
+}
+
+// One row of a bulk create. The bulk form only sets the name (generated from
+// a prefix + counter, or typed); power/overhead ride along so the shape can
+// grow without another proto change.
+export interface NewBuildingInput {
+  name: string;
+  description?: string;
+  powerCapacityMw?: number;
+  overheadKw?: number;
+  // Layout dimensions. The bulk form applies one pair across the batch, but
+  // they travel per row so a NewBuilding describes a whole building.
+  aisles?: number;
+  racksPerAisle?: number;
+}
+
+// A row the server refused, keyed by its index in the submitted list so the
+// preview can mark that exact line.
+export interface BulkCreateBuildingError {
+  index: number;
+  name: string;
+  reason: PerBuildingCreateErrorReason;
+}
+
+interface CreateBuildingsProps {
+  siteId: bigint;
+  buildings: NewBuildingInput[];
+  signal?: AbortSignal;
+  onSuccess?: (buildings: Building[]) => void;
+  // Called on failure. `errors` carries the per-row name collisions when the
+  // server rejected the batch (nothing was created); it is empty for a
+  // transport / permission failure.
+  onError?: (message: string, errors: BulkCreateBuildingError[]) => void;
   onFinally?: () => void;
 }
 
@@ -449,6 +484,52 @@ const useBuildings = () => {
     [handleAuthErrors],
   );
 
+  // createBuildings creates every building in the batch against one site in a
+  // single transaction (all-or-nothing), so a mid-list failure can't leave half
+  // the operator's list behind. Name collisions come back per row — within the
+  // batch or against buildings already at the site — with nothing created, so
+  // the caller can mark the offending preview lines and let the operator retry.
+  const createBuildings = useCallback(
+    async ({ siteId, buildings, signal, onSuccess, onError, onFinally }: CreateBuildingsProps) => {
+      try {
+        const response = await buildingsClient.createBuildings(
+          {
+            siteId,
+            buildings: buildings.map((b) => ({
+              name: b.name,
+              description: b.description ?? "",
+              powerKw: mwToKw(b.powerCapacityMw ?? 0),
+              overheadKw: b.overheadKw ?? 0,
+              aisles: b.aisles ?? 0,
+              racksPerAisle: b.racksPerAisle ?? 0,
+            })),
+          },
+          { signal },
+        );
+        if (signal?.aborted) return;
+        if (response.errors.length > 0 || response.buildings.length === 0) {
+          onError?.(
+            "Some building names are already taken",
+            response.errors.map((e) => ({ index: e.index, name: e.name, reason: e.reason })),
+          );
+          return;
+        }
+        onSuccess?.(response.buildings);
+      } catch (err) {
+        if (signal?.aborted) return;
+        handleAuthErrors({
+          error: err,
+          onError: (error) => {
+            onError?.(getErrorMessage(error), []);
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
   const updateBuilding = useCallback(
     async ({ id, values, signal, onSuccess, onError, onFinally }: UpdateBuildingProps) => {
       try {
@@ -597,6 +678,7 @@ const useBuildings = () => {
     getBuilding,
     listBuildingRacks,
     createBuilding,
+    createBuildings,
     updateBuilding,
     deleteBuilding,
     assignRacksToBuilding,

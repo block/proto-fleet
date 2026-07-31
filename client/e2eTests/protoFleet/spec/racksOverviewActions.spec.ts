@@ -25,7 +25,9 @@ test.describe("Racks - overview actions", () => {
     let rackDeviceIdentifiers: string[] = [];
 
     await test.step("Create and save a new rack with two rig miners", async () => {
-      const saveRackRequestPromise = page.waitForRequest(/SaveRack/);
+      // The miner picker commits membership itself, so the rack's members
+      // arrive on the first AssignDevicesToRack call, not on a SaveRack.
+      const assignRequestPromise = page.waitForRequest(/AssignDevicesToRack/);
 
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
@@ -36,19 +38,18 @@ test.describe("Racks - overview actions", () => {
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(RACK_COLUMNS);
       await racksPage.inputRows(RACK_ROWS);
-      await racksPage.clickContinueFromRackSettings();
+      await racksPage.clickCreateRackFromSettings();
 
       selectedMiners = await addSelectableRigMinersToSlots(racksPage, 2, [1, 2]);
       test.expect(selectedMiners).toHaveLength(2);
       test.expect(selectedMiners.every((miner) => miner.model === PROTO_RIG_MODEL)).toBe(true);
 
-      await racksPage.clickSaveRack();
+      await racksPage.clickSaveMinerPositions();
 
-      const saveRackRequest = await saveRackRequestPromise;
-      const saveRackRequestBody = saveRackRequest.postDataJSON();
-      rackDeviceIdentifiers = saveRackRequestBody.deviceSelector.deviceList.deviceIdentifiers;
+      const assignRequest = await assignRequestPromise;
+      rackDeviceIdentifiers = assignRequest.postDataJSON().deviceIdentifiers;
 
-      await racksPage.validateRackToast(rackLabel);
+      await racksPage.validateMinerPositionsToast(rackLabel);
       test.expect(rackDeviceIdentifiers).toHaveLength(2);
     });
 
@@ -109,7 +110,9 @@ test.describe("Racks - overview actions", () => {
 
       try {
         await test.step("Create a rack with two assigned Proto rigs", async () => {
-          const saveRackRequestPromise = page.waitForRequest(/SaveRack/);
+          // The miner picker commits membership itself, so the rack's members
+          // arrive on the first AssignDevicesToRack call, not on a SaveRack.
+          const assignRequestPromise = page.waitForRequest(/AssignDevicesToRack/);
 
           await racksPage.clickAddRackButton();
           await racksPage.inputZone(AUTOMATION_ZONE);
@@ -118,15 +121,14 @@ test.describe("Racks - overview actions", () => {
           await racksPage.enableCustomRackLayout();
           await racksPage.inputColumns(OVERVIEW_RACK_COLUMNS);
           await racksPage.inputRows(OVERVIEW_RACK_ROWS);
-          await racksPage.clickContinueFromRackSettings();
+          await racksPage.clickCreateRackFromSettings();
           await addSelectableRigMinersToSlots(racksPage, 2, [1, 2]);
-          await racksPage.clickSaveRack();
+          await racksPage.clickSaveMinerPositions();
 
-          const saveRackRequest = await saveRackRequestPromise;
-          const saveRackRequestBody = saveRackRequest.postDataJSON();
-          rackDeviceIdentifiers = saveRackRequestBody.deviceSelector.deviceList.deviceIdentifiers;
+          const assignRequest = await assignRequestPromise;
+          rackDeviceIdentifiers = assignRequest.postDataJSON().deviceIdentifiers;
 
-          await racksPage.validateRackToast(rackLabel);
+          await racksPage.validateMinerPositionsToast(rackLabel);
           test.expect(rackDeviceIdentifiers).toHaveLength(2);
         });
 
@@ -191,11 +193,11 @@ test.describe("Racks - overview actions", () => {
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(OVERVIEW_RACK_COLUMNS);
       await racksPage.inputRows(OVERVIEW_RACK_ROWS);
-      await racksPage.clickContinueFromRackSettings();
+      await racksPage.clickCreateRackFromSettings();
       await addSelectableRigMinersToSlots(racksPage, 2, [1, 2]);
-      await racksPage.clickSaveRack();
+      await racksPage.clickSaveMinerPositions();
 
-      await racksPage.validateRackToast(rackLabel);
+      await racksPage.validateMinerPositionsToast(rackLabel);
       await racksPage.clickViewGrid();
       await racksPage.openRackCard(rackLabel, AUTOMATION_ZONE);
       await racksPage.openRackOverviewActionsMenu();
