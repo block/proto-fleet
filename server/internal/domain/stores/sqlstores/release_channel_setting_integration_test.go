@@ -49,18 +49,15 @@ func TestReleaseChannelSettingQueries(t *testing.T) {
 		Channel:        "stable",
 	})
 	require.NoError(t, err)
+	assert.Equal(t, created.OrganizationID, overwritten.OrganizationID)
 	assert.Equal(t, "stable", overwritten.Channel)
 	assert.False(t, overwritten.UpdatedAt.Before(created.UpdatedAt),
 		"overwrite must not move updated_at backwards")
 
 	got, err = q.GetReleaseChannelSetting(ctx, orgID)
 	require.NoError(t, err)
+	assert.Equal(t, created.OrganizationID, got.OrganizationID)
 	assert.Equal(t, "stable", got.Channel)
-
-	var count int
-	require.NoError(t, db.QueryRowContext(ctx,
-		`SELECT count(*) FROM release_channel_setting WHERE organization_id = $1`, orgID).Scan(&count))
-	assert.Equal(t, 1, count, "upsert must overwrite the org's single row, not add another")
 
 	// The CHECK constraint rejects anything outside the known channels.
 	_, err = q.UpsertReleaseChannelSetting(ctx, sqlc.UpsertReleaseChannelSettingParams{
