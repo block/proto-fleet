@@ -190,7 +190,7 @@ function ActiveRolloutStatus({
           </div>
         </div>
 
-        <div className="mt-12 grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-4">
+        <div className="mt-12 grid grid-cols-2 gap-x-8 gap-y-5 text-text-primary">
           <StatBlock
             label={`Miners ${doneVerb}`}
             value={`${done.toLocaleString()} of ${inScope.toLocaleString()}`}
@@ -198,7 +198,7 @@ function ActiveRolloutStatus({
           />
           <StatBlock label="Strategy" value={pacingSummary(event)} detail={orderLabels[event.order]} />
           <StatBlock label="Elapsed" value={event.startedAt ? formatElapsed(elapsedSeconds) : "—"} />
-          <StatBlock label="Estimated time remaining" value={etaValue} />
+          <StatBlock label="Est. time remaining" value={etaValue} />
         </div>
 
         <div className="mt-8 grid gap-3" data-testid="active-rollout-progress">
