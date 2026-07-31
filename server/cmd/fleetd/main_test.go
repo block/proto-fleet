@@ -173,32 +173,6 @@ encrypt:
 	require.Equal(t, allowlist, config.Infrastructure.OTControlSubnets)
 }
 
-func TestFleetdUpdatesGitHubTokenEnvironment(t *testing.T) {
-	const token = "release-check-token"
-	t.Setenv("UPDATES_GITHUB_TOKEN", token)
-
-	configPath := writeFleetdConfigFile(t, `
-auth:
-  client:
-    expiration-period: "1h"
-    secret-key: "test-client-secret"
-  miner-token-expiration-period: "30m"
-encrypt:
-  service-master-key: "test-master-key"
-`)
-	config := &Config{}
-	parser, err := kong.New(
-		config,
-		kong.Name("fleetd"),
-		kong.Configuration(kongyaml.Loader, configPath),
-	)
-	require.NoError(t, err)
-
-	_, err = parser.Parse(nil)
-	require.NoError(t, err)
-	require.Equal(t, token, config.Updates.GitHubToken)
-}
-
 func TestFleetdRejectsInvalidInfrastructureOTControlSubnetsBeforeStartup(t *testing.T) {
 	config := &Config{}
 	config.Infrastructure.OTControlSubnets = "sensitive-control-subnet"

@@ -44,7 +44,6 @@ type githubRelease struct {
 type githubClient struct {
 	baseURL    string
 	userAgent  string
-	token      string
 	logger     *slog.Logger
 	httpClient *http.Client
 
@@ -66,11 +65,10 @@ func (e *githubRateLimitError) Error() string {
 	return "GitHub API rate limit exceeded"
 }
 
-func newGitHubClient(baseURL, serverVersion, token string, logger *slog.Logger) *githubClient {
+func newGitHubClient(baseURL, serverVersion string, logger *slog.Logger) *githubClient {
 	return &githubClient{
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		userAgent:  "fleetd/" + serverVersion,
-		token:      token,
 		logger:     logger,
 		httpClient: &http.Client{Timeout: githubHTTPTimeout},
 	}
@@ -230,9 +228,6 @@ func (c *githubClient) get(ctx context.Context, endpoint, etag string) (*http.Re
 	}
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Accept", githubMediaType)
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
 	if etag != "" {
 		req.Header.Set("If-None-Match", etag)
 	}

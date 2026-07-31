@@ -96,7 +96,7 @@ func newChecker(cfg Config, releasesAPIURL, serverVersion string, logger *slog.L
 	return &Checker{
 		cfg:                  cfg,
 		logger:               logger,
-		client:               newGitHubClient(releasesAPIURL, serverVersion, cfg.GitHubToken, logger),
+		client:               newGitHubClient(releasesAPIURL, serverVersion, logger),
 		revalidationFailures: make(map[string]int),
 	}
 }
