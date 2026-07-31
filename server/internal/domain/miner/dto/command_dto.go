@@ -48,8 +48,8 @@ type CurtailPayload struct {
 	Level int32 `json:"level"`
 }
 
-// ApplyCurtailmentConfigPayload carries plaintext only for local dispatches.
-// FleetNode dispatches replace Config with an encrypted, device-bound payload.
+// ApplyCurtailmentConfigPayload carries plaintext for local plugin dispatches
+// or a device-bound encrypted config for FleetNode delivery.
 type ApplyCurtailmentConfigPayload struct {
 	Config          *sdk.CurtailmentConfig `json:"config,omitempty"`
 	EncryptedConfig *NodeEncryptedPayload  `json:"encrypted_config,omitempty"`

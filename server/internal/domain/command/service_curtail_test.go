@@ -13,6 +13,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
@@ -99,6 +100,37 @@ func newCurtailDispatchServiceWithActivityStore(t *testing.T) (*Service, *fakeMe
 	}
 	svc.startStatusUpdateRoutineOverride = func(string, onFinishedCallbackFunc) {}
 	return svc, q, store
+}
+
+func TestEncryptLocalCurtailmentConfigHidesCredentialsInQueuePayload(t *testing.T) {
+	t.Parallel()
+
+	encryptSvc, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: testServiceMasterKey})
+	require.NoError(t, err)
+	svc := &Service{encryptService: encryptSvc}
+	config := sdk.CurtailmentConfig{Providers: []sdk.CurtailmentProviderConfig{{
+		Name:     "maestro",
+		Password: "broker-secret",
+	}}}
+
+	payload, err := svc.encryptLocalCurtailmentConfig(config)
+	require.NoError(t, err)
+	encoded, err := json.Marshal(payload)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "broker-secret")
+	var encodedFields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(encoded, &encodedFields))
+	assert.NotContains(t, encodedFields, "config")
+	assert.Nil(t, payload.FleetNodeEncryptedConfig)
+	require.NotEmpty(t, payload.LocalConfigCiphertext)
+
+	plaintext, err := encryptSvc.Decrypt(payload.LocalConfigCiphertext)
+	require.NoError(t, err)
+	defer clear(plaintext)
+	var roundTrip sdk.CurtailmentConfig
+	require.NoError(t, json.Unmarshal(plaintext, &roundTrip))
+	require.Len(t, roundTrip.Providers, 1)
+	assert.Equal(t, "broker-secret", roundTrip.Providers[0].Password)
 }
 
 func TestCurtail_HappyPath_QueueReceivesCommand(t *testing.T) {

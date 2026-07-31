@@ -766,15 +766,29 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 		configurator := &recordingCurtailmentConfigMiner{Miner: mockMiner}
-		payload := dto.ApplyCurtailmentConfigPayload{Config: &sdk.CurtailmentConfig{Enabled: true}}
+		encryptSvc, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: testServiceMasterKey})
+		require.NoError(t, err)
+		configBytes, err := json.Marshal(sdk.CurtailmentConfig{
+			Enabled: true,
+			Providers: []sdk.CurtailmentProviderConfig{{
+				Name:     "maestro",
+				Password: "broker-secret",
+			}},
+		})
+		require.NoError(t, err)
+		defer clear(configBytes)
+		encryptedConfig, err := encryptSvc.Encrypt(configBytes)
+		require.NoError(t, err)
+		payload := curtailmentConfigQueuePayload{LocalConfigCiphertext: encryptedConfig}
 		payloadBytes, err := json.Marshal(payload)
 		require.NoError(t, err)
+		assert.NotContains(t, string(payloadBytes), "broker-secret")
 
 		mockMiner.EXPECT().GetOrgID().Return(int64(12))
 		mockMiner.EXPECT().GetSiteID().Return(int64(34))
 		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(54)).Return(configurator, nil)
 
-		svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
+		svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, mockQueue, encryptSvc, nil, mockMinerGetter, nil, nil, nil)
 		orgID, siteID, err := svc.executeCommandOnDevice(t.Context(), commandtype.ApplyCurtailmentConfig, queue.Message{
 			CommandType: commandtype.ApplyCurtailmentConfig,
 			DeviceID:    54,
@@ -786,6 +800,42 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		assert.Equal(t, int64(34), siteID)
 		require.NotNil(t, configurator.payload.Config)
 		assert.True(t, configurator.payload.Config.Enabled)
+		require.Len(t, configurator.payload.Config.Providers, 1)
+		assert.Equal(t, "broker-secret", configurator.payload.Config.Providers[0].Password)
+		assert.Nil(t, configurator.payload.EncryptedConfig)
+	})
+
+	t.Run("ApplyCurtailmentConfig preserves FleetNode encrypted payload", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockQueue := mocks.NewMockMessageQueue(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+		configurator := &recordingCurtailmentConfigMiner{Miner: mockMiner}
+		encrypted := &dto.NodeEncryptedPayload{
+			Algorithm:       "algorithm",
+			EphemeralPubkey: []byte("pubkey"),
+			Nonce:           []byte("nonce"),
+			Ciphertext:      []byte("ciphertext"),
+		}
+		payloadBytes, err := json.Marshal(curtailmentConfigQueuePayload{FleetNodeEncryptedConfig: encrypted})
+		require.NoError(t, err)
+
+		mockMiner.EXPECT().GetOrgID().Return(int64(12))
+		mockMiner.EXPECT().GetSiteID().Return(int64(34))
+		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(58)).Return(configurator, nil)
+
+		svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
+		_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.ApplyCurtailmentConfig, queue.Message{
+			CommandType: commandtype.ApplyCurtailmentConfig,
+			DeviceID:    58,
+			Payload:     payloadBytes,
+		})
+
+		require.NoError(t, err)
+		assert.Nil(t, configurator.payload.Config)
+		assert.Equal(t, encrypted, configurator.payload.EncryptedConfig)
 	})
 
 	t.Run("ApplyCurtailmentConfig rejects malformed payload", func(t *testing.T) {
@@ -813,6 +863,34 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		assert.Nil(t, configurator.payload.Config)
 	})
 
+	t.Run("ApplyCurtailmentConfig rejects plaintext queue payload", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockQueue := mocks.NewMockMessageQueue(ctrl)
+		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+		configurator := &recordingCurtailmentConfigMiner{Miner: mockMiner}
+		payloadBytes, err := json.Marshal(dto.ApplyCurtailmentConfigPayload{Config: &sdk.CurtailmentConfig{Enabled: true}})
+		require.NoError(t, err)
+
+		mockMiner.EXPECT().GetOrgID().Return(int64(0))
+		mockMiner.EXPECT().GetSiteID().Return(int64(0))
+		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(57)).Return(configurator, nil)
+
+		svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
+		_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.ApplyCurtailmentConfig, queue.Message{
+			CommandType: commandtype.ApplyCurtailmentConfig,
+			DeviceID:    57,
+			Payload:     payloadBytes,
+		})
+
+		require.Error(t, err)
+		assert.True(t, fleeterror.IsFailedPreconditionError(err))
+		assert.Contains(t, err.Error(), "missing an encrypted config")
+		assert.Nil(t, configurator.payload.Config)
+	})
+
 	t.Run("ApplyCurtailmentConfig rejects unsupported miner", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
@@ -820,7 +898,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		mockQueue := mocks.NewMockMessageQueue(ctrl)
 		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
-		payloadBytes, err := json.Marshal(dto.ApplyCurtailmentConfigPayload{Config: &sdk.CurtailmentConfig{Enabled: true}})
+		payloadBytes, err := json.Marshal(curtailmentConfigQueuePayload{FleetNodeEncryptedConfig: &dto.NodeEncryptedPayload{}})
 		require.NoError(t, err)
 
 		mockMiner.EXPECT().GetOrgID().Return(int64(0))
@@ -838,6 +916,20 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		assert.True(t, fleeterror.IsFailedPreconditionError(err))
 		assert.Contains(t, err.Error(), "does not support curtailment configuration")
 	})
+}
+
+func TestPrepareCurtailmentConfigPayloadRejectsMultipleRepresentations(t *testing.T) {
+	t.Parallel()
+
+	svc := &ExecutionService{}
+	_, err := svc.prepareCurtailmentConfigPayload(curtailmentConfigQueuePayload{
+		LocalConfigCiphertext:    "ciphertext",
+		FleetNodeEncryptedConfig: &dto.NodeEncryptedPayload{},
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "multiple encrypted representations")
 }
 
 func TestFirmwareUpdateAutoReboot(t *testing.T) {

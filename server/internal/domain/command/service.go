@@ -92,6 +92,14 @@ type resolvedDevice struct {
 	identifier string
 }
 
+// curtailmentConfigQueuePayload deliberately has no plaintext representation.
+// Direct configs are encrypted at rest with the service master key; FleetNode
+// configs remain encrypted for their destination node and device.
+type curtailmentConfigQueuePayload struct {
+	LocalConfigCiphertext    string                    `json:"local_config_ciphertext,omitempty"`
+	FleetNodeEncryptedConfig *dto.NodeEncryptedPayload `json:"fleet_node_encrypted_config,omitempty"`
+}
+
 // SetPluginCapabilitiesProvider — nil disables the SV2 gate (test default).
 func (s *Service) SetPluginCapabilitiesProvider(p PluginCapabilitiesProvider) {
 	s.pluginCaps = p
@@ -833,15 +841,35 @@ func (s *Service) prepareCurtailmentConfigDispatch(ctx context.Context, orgID in
 			}
 			dispatches = append(dispatches, queue.EnqueueMessage{
 				DeviceID: device.id,
-				Payload: dto.ApplyCurtailmentConfigPayload{
-					EncryptedConfig: protoNodeEncryptedPayloadToDTO(encrypted),
+				Payload: curtailmentConfigQueuePayload{
+					FleetNodeEncryptedConfig: protoNodeEncryptedPayloadToDTO(encrypted),
 				},
 			})
 			continue
 		}
-		dispatches = append(dispatches, queue.EnqueueMessage{DeviceID: device.id, Payload: payload})
+		localPayload, err := s.encryptLocalCurtailmentConfig(*payload.Config)
+		if err != nil {
+			return nil, nil, err
+		}
+		dispatches = append(dispatches, queue.EnqueueMessage{DeviceID: device.id, Payload: localPayload})
 	}
 	return commandPayloadRedacted("apply_curtailment_config"), dispatches, nil
+}
+
+func (s *Service) encryptLocalCurtailmentConfig(config sdk.CurtailmentConfig) (curtailmentConfigQueuePayload, error) {
+	if s.encryptService == nil {
+		return curtailmentConfigQueuePayload{}, fleeterror.NewInternalError("curtailment config encryption is not configured")
+	}
+	plaintext, err := json.Marshal(config)
+	if err != nil {
+		return curtailmentConfigQueuePayload{}, fleeterror.NewInternalErrorf("marshal local curtailment config: %v", err)
+	}
+	defer clear(plaintext)
+	encrypted, err := s.encryptService.Encrypt(plaintext)
+	if err != nil {
+		return curtailmentConfigQueuePayload{}, fleeterror.NewInternalErrorf("encrypt local curtailment config: %v", err)
+	}
+	return curtailmentConfigQueuePayload{LocalConfigCiphertext: encrypted}, nil
 }
 
 func (s *Service) resolveDeviceCommandRoutes(ctx context.Context, orgID int64, devices []resolvedDevice) ([]sqlc.GetDeviceCommandRoutesRow, error) {

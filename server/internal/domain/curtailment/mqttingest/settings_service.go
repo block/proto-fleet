@@ -369,10 +369,14 @@ func (s *SettingsService) ReapplyRigConfigBestEffort(ctx context.Context, orgID,
 func (s *SettingsService) reconcileAndApplyRigConfig(ctx context.Context, orgID int64) error {
 	reconcileErr := s.reconcile(ctx)
 	if applyErr := s.applyRigConfig(ctx, orgID); applyErr != nil {
-		if fleeterror.IsFailedPreconditionError(applyErr) {
-			return applyErr
+		if reconcileErr != nil {
+			slog.Error("runtime reload and Proto rig config delivery both failed after MQTT settings write",
+				"org_id", orgID,
+				"runtime_error", reconcileErr,
+				"delivery_error", applyErr,
+			)
 		}
-		slog.Error("apply curtailment config to eligible Proto rigs after MQTT settings write", "org_id", orgID, "error", applyErr)
+		return applyErr
 	}
 	return reconcileErr
 }

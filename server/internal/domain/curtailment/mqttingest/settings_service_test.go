@@ -324,6 +324,60 @@ func TestSettingsService_CreateAppliesRigConfigWhenRuntimeReloadFails(t *testing
 	assert.Equal(t, 1, applier.calls)
 }
 
+func TestSettingsService_CreateSurfacesRigConfigApplyFailure(t *testing.T) {
+	t.Parallel()
+
+	applyErr := errors.New("queue unavailable")
+	store := newFakeSettingsStore()
+	runtime := &fakeRuntimeController{}
+	applier := &fakeRigConfigApplier{err: applyErr}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            store,
+		Cipher:           &fakeSettingsCipher{},
+		Runtime:          runtime,
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.Create(t.Context(), CreateSourceRequest{
+		Source:            validSettingsSource(),
+		PlaintextPassword: "secret",
+	})
+
+	require.ErrorIs(t, err, applyErr)
+	assert.Equal(t, 1, runtime.reconcileCalls)
+	assert.Equal(t, 1, applier.calls)
+	configs, listErr := store.ListSourceConfigsByOrg(t.Context(), 42)
+	require.NoError(t, listErr)
+	assert.Len(t, configs, 1, "the API error reports convergence failure after persistence")
+}
+
+func TestSettingsService_CreatePrefersRigConfigApplyFailureWhenRuntimeReloadAlsoFails(t *testing.T) {
+	t.Parallel()
+
+	runtimeErr := errors.New("reload failed")
+	applyErr := errors.New("queue unavailable")
+	runtime := &fakeRuntimeController{reconcileErr: runtimeErr}
+	applier := &fakeRigConfigApplier{err: applyErr}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            newFakeSettingsStore(),
+		Cipher:           &fakeSettingsCipher{},
+		Runtime:          runtime,
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.Create(t.Context(), CreateSourceRequest{
+		Source:            validSettingsSource(),
+		PlaintextPassword: "secret",
+	})
+
+	require.ErrorIs(t, err, applyErr)
+	assert.NotErrorIs(t, err, runtimeErr)
+	assert.Equal(t, 1, runtime.reconcileCalls)
+	assert.Equal(t, 1, applier.calls)
+}
+
 func TestSettingsService_DisableAppliesDisabledConfigWithoutProviders(t *testing.T) {
 	t.Parallel()
 
