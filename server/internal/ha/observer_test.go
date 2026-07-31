@@ -2,51 +2,78 @@ package ha
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strconv"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.etcd.io/etcd/api/v3/etcdserverpb"
+	"go.etcd.io/etcd/api/v3/mvccpb"
+	clientv3 "go.etcd.io/etcd/client/v3"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 )
 
-func TestEtcdHTTPClientSnapshotUsesLinearizablePrefixRead(t *testing.T) {
+func TestEtcdClientSnapshotUsesLinearizablePrefixRead(t *testing.T) {
 	const clusterPath = "/service/fleet"
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/v3/kv/range", r.URL.Path)
-		var body struct {
-			Key          string `json:"key"`
-			RangeEnd     string `json:"range_end"`
-			Serializable bool   `json:"serializable"`
-		}
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
-		require.False(t, body.Serializable)
-		require.Equal(t, clusterPath+"/", decodeBase64(t, body.Key))
-		require.NotEmpty(t, decodeBase64(t, body.RangeEnd))
-
-		writeJSON(t, w, etcdSnapshotResponse("cluster-a", "patroni-a", 41, 998))
-	}))
-	t.Cleanup(server.Close)
-
-	client := NewEtcdHTTPClient(server.URL, server.Client())
+	api := &fakeEtcdAPI{
+		getResponse: etcdSnapshotResponse(101, "patroni-a", 41, 998),
+	}
+	client := &EtcdClient{client: api, requestTimeout: time.Second}
 	snapshot, err := client.Snapshot(t.Context(), clusterPath)
 	require.NoError(t, err)
-	require.Equal(t, "cluster-a", snapshot.ClusterID)
+	require.Equal(t, clusterPath+"/", api.getKey)
+	require.NotEmpty(t, api.getRangeEnd)
+	require.Equal(t, "101", snapshot.ClusterID)
 	require.Equal(t, int64(41), snapshot.WriterGeneration)
 	require.Equal(t, int64(998), snapshot.LeaderLeaseID)
 }
 
-func TestHAHTTPClientsUseBoundedDefaultTimeout(t *testing.T) {
-	require.Greater(t, NewEtcdHTTPClient("http://etcd", nil).client.Timeout, time.Duration(0))
+func TestNewEtcdClientKeepsRequestTimeoutIndependentFromDialTimeout(t *testing.T) {
+	client, err := NewEtcdClient(clientv3.Config{
+		Endpoints:   []string{"http://127.0.0.1:2379"},
+		DialTimeout: time.Minute,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+
+	require.Equal(t, defaultHAHTTPTimeout, client.requestTimeout)
+}
+
+func TestPatroniHTTPClientUsesBoundedDefaultTimeout(t *testing.T) {
 	require.Greater(t, NewPatroniHTTPClient(nil).client.Timeout, time.Duration(0))
+}
+
+func TestEtcdClientReadsLeaderLeaseTTL(t *testing.T) {
+	api := &fakeEtcdAPI{
+		leaseResponse: &clientv3.LeaseTimeToLiveResponse{
+			ID:  998,
+			TTL: 18,
+		},
+	}
+
+	ttl, err := (&EtcdClient{
+		client:         api,
+		requestTimeout: time.Second,
+	}).LeaseTTL(t.Context(), 998)
+	require.NoError(t, err)
+	require.Equal(t, 18*time.Second, ttl)
+}
+
+func TestEtcdClientBoundsSnapshotRequest(t *testing.T) {
+	client := &EtcdClient{
+		client:         &fakeEtcdAPI{blockGet: true},
+		requestTimeout: time.Millisecond,
+	}
+
+	_, err := client.Snapshot(t.Context(), "/service/fleet")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestPatroniHTTPClientRejectsUnsupportedScheme(t *testing.T) {
@@ -477,43 +504,73 @@ func (f fakePatroniReader) PrimaryIdentity(
 	return f.identity, f.err
 }
 
-func decodeBase64(t *testing.T, value string) string {
-	t.Helper()
-	decoded, err := base64.StdEncoding.DecodeString(value)
-	require.NoError(t, err)
-	return string(decoded)
-}
-
 func writeJSON(t *testing.T, w http.ResponseWriter, value any) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")
 	require.NoError(t, json.NewEncoder(w).Encode(value))
 }
 
-func etcdSnapshotResponse(clusterID, leader string, generation, leaseID int64) map[string]any {
-	encoded := func(value string) string {
-		return base64.StdEncoding.EncodeToString([]byte(value))
+type fakeEtcdAPI struct {
+	getKey        string
+	getRangeEnd   []byte
+	getResponse   *clientv3.GetResponse
+	leaseResponse *clientv3.LeaseTimeToLiveResponse
+	blockGet      bool
+}
+
+func (*fakeEtcdAPI) Close() error {
+	return nil
+}
+
+func (f *fakeEtcdAPI) Get(
+	ctx context.Context,
+	key string,
+	opts ...clientv3.OpOption,
+) (*clientv3.GetResponse, error) {
+	op := clientv3.OpGet(key, opts...)
+	f.getKey = key
+	f.getRangeEnd = op.RangeBytes()
+	if f.blockGet {
+		<-ctx.Done()
+		return nil, fmt.Errorf("blocked etcd request: %w", ctx.Err())
 	}
+	return f.getResponse, nil
+}
+
+func (f *fakeEtcdAPI) TimeToLive(
+	context.Context,
+	clientv3.LeaseID,
+	...clientv3.LeaseOption,
+) (*clientv3.LeaseTimeToLiveResponse, error) {
+	return f.leaseResponse, nil
+}
+
+func etcdSnapshotResponse(
+	clusterID uint64,
+	leader string,
+	generation int64,
+	leaseID int64,
+) *clientv3.GetResponse {
 	clusterPath := "/service/fleet"
-	return map[string]any{
-		"header": map[string]string{
-			"cluster_id": clusterID,
-			"revision":   "50",
+	return &clientv3.GetResponse{
+		Header: &etcdserverpb.ResponseHeader{
+			ClusterId: clusterID,
+			Revision:  50,
 		},
-		"kvs": []map[string]string{
+		Kvs: []*mvccpb.KeyValue{
 			{
-				"key":             encoded(clusterPath + "/leader"),
-				"value":           encoded(leader),
-				"create_revision": strconv.FormatInt(generation, 10),
-				"mod_revision":    "47",
-				"lease":           strconv.FormatInt(leaseID, 10),
+				Key:            []byte(clusterPath + "/leader"),
+				Value:          []byte(leader),
+				CreateRevision: generation,
+				ModRevision:    47,
+				Lease:          leaseID,
 			},
 			{
-				"key": encoded(clusterPath + "/members/" + leader),
-				"value": encoded(`{"api_url":"http://` + leader + `:8008",` +
+				Key: []byte(clusterPath + "/members/" + leader),
+				Value: []byte(`{"api_url":"http://` + leader + `:8008",` +
 					`"conn_url":"postgres://` + leader + `:5432/postgres"}`),
-				"create_revision": "13",
-				"mod_revision":    "48",
+				CreateRevision: 13,
+				ModRevision:    48,
 			},
 		},
 	}

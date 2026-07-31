@@ -124,7 +124,7 @@ const Popover = ({
   if (isPhone) {
     return createPortal(
       <div
-        className="fixed inset-0 z-60 flex items-end bg-grayscale-gray-20"
+        className="fixed inset-0 z-60 flex items-end bg-grayscale-gray-20 dark:bg-black/60"
         data-testid={testId ? `${testId}-sheet` : "popover-sheet"}
         onMouseDown={canDismissPopover ? (event) => event.stopPropagation() : undefined}
         onTouchStart={canDismissPopover ? (event) => event.stopPropagation() : undefined}
