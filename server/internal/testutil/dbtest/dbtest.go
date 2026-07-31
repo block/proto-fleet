@@ -179,9 +179,9 @@ func isTransientServerError(msg string) bool {
 }
 
 // waitForServerReady blocks until the database server accepts a query on the
-// admin database, or serverReadyTimeout elapses. This bridges the brief window
-// after a transient server restart so the admin DDL used to recreate or drop a
-// test database runs against a live server.
+// admin database, or serverReadyTimeout elapses, or ctx is canceled. This
+// bridges the brief window after a transient server restart so the admin DDL
+// used to recreate or drop a test database runs against a live server.
 func waitForServerReady(ctx context.Context, t *testing.T, adminConfig *db.Config) {
 	t.Helper()
 
@@ -189,6 +189,13 @@ func waitForServerReady(ctx context.Context, t *testing.T, adminConfig *db.Confi
 	for {
 		err := pingAdminDatabase(ctx, adminConfig)
 		if err == nil {
+			return
+		}
+		if ctx.Err() != nil {
+			// The caller's context is gone (e.g. t.Context() after a test
+			// timeout) — every further ping would fail immediately, so don't
+			// spin out the remaining deadline.
+			t.Logf("context done while waiting for database server: %v", err)
 			return
 		}
 		if time.Now().After(deadline) {
