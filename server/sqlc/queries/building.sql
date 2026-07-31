@@ -463,3 +463,16 @@ FROM building
 WHERE org_id = $1
   AND deleted_at IS NULL
   AND id = ANY(@ids::bigint[]);
+
+-- name: ListBuildingNamesBySite :many
+-- Returns the names of every live building at a single site. Used by
+-- CreateBuildings' name-collision preflight, which only needs the taken
+-- names and must not pay for ListBuildingsByOrg's org-wide rack/device
+-- count aggregation while holding the site write lock. Matches the
+-- partial unique index on (site_id, name) for non-null site_id — bulk
+-- create always targets a concrete site.
+SELECT name
+FROM building
+WHERE org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('site_id')
+  AND deleted_at IS NULL;

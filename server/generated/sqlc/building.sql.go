@@ -626,6 +626,48 @@ func (q *Queries) GetBuildingSiteID(ctx context.Context, arg GetBuildingSiteIDPa
 	return site_id, err
 }
 
+const listBuildingNamesBySite = `-- name: ListBuildingNamesBySite :many
+SELECT name
+FROM building
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+`
+
+type ListBuildingNamesBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+// Returns the names of every live building at a single site. Used by
+// CreateBuildings' name-collision preflight, which only needs the taken
+// names and must not pay for ListBuildingsByOrg's org-wide rack/device
+// count aggregation while holding the site write lock. Matches the
+// partial unique index on (site_id, name) for non-null site_id — bulk
+// create always targets a concrete site.
+func (q *Queries) ListBuildingNamesBySite(ctx context.Context, arg ListBuildingNamesBySiteParams) ([]string, error) {
+	rows, err := q.query(ctx, q.listBuildingNamesBySiteStmt, listBuildingNamesBySite, arg.OrgID, arg.SiteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listBuildingRacks = `-- name: ListBuildingRacks :many
 SELECT
     dsr.device_set_id AS rack_id,

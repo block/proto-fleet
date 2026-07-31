@@ -368,16 +368,13 @@ func (s *Service) CreateBuildings(ctx context.Context, params models.CreateBuild
 			return nil, err
 		}
 
-		existing, err := s.store.ListBuildings(txCtx, models.ListFilter{
-			OrgID:   params.OrgID,
-			SiteIDs: []int64{params.SiteID},
-		})
+		existing, err := s.store.ListBuildingNamesBySite(txCtx, params.OrgID, params.SiteID)
 		if err != nil {
 			return nil, err
 		}
 		taken := make(map[string]struct{}, len(existing))
-		for _, e := range existing {
-			taken[e.Building.Name] = struct{}{}
+		for _, name := range existing {
+			taken[name] = struct{}{}
 		}
 		var siteClashes []models.PerBuildingCreateError
 		for i, name := range names {

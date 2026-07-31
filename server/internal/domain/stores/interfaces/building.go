@@ -27,6 +27,12 @@ type BuildingStore interface {
 	// rack_count, ordered by name. Filter selects scope.
 	ListBuildings(ctx context.Context, filter models.ListFilter) ([]models.BuildingWithCounts, error)
 
+	// ListBuildingNamesBySite returns the names of every live building
+	// at a single site. Used by CreateBuildings' collision preflight,
+	// which only needs the taken names and must not pay for ListBuildings'
+	// org-wide rack/device count aggregation while holding the site lock.
+	ListBuildingNamesBySite(ctx context.Context, orgID, siteID int64) ([]string, error)
+
 	// UpdateBuilding mutates the row's mutable fields (excluding
 	// site_id — that lives on SiteService.AssignBuildingsToSite for
 	// cross-collection enforcement). Returns NotFound when row gone.

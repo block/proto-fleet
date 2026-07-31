@@ -1507,8 +1507,8 @@ func TestCreateBuildings_insertsEveryRowInOneTx(t *testing.T) {
 	// Lock, read the site's existing names, then one insert per row — all
 	// inside the single transaction.
 	siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(42)).Return(nil)
-	store.EXPECT().ListBuildings(inTxCtx, gomock.AssignableToTypeOf(models.ListFilter{})).
-		Return([]models.BuildingWithCounts{}, nil)
+	store.EXPECT().ListBuildingNamesBySite(inTxCtx, testOrgID, int64(42)).
+		Return([]string{}, nil)
 	store.EXPECT().CreateBuilding(inTxCtx, gomock.AssignableToTypeOf(models.CreateParams{})).
 		DoAndReturn(func(_ context.Context, p models.CreateParams) (*models.Building, error) {
 			if p.SiteID == nil || *p.SiteID != 42 {
@@ -1556,7 +1556,7 @@ func TestCreateBuildings_rejectsDuplicateNameWithinBatch(t *testing.T) {
 	// so one response can carry every offending row. Nothing is live here,
 	// so the in-batch collision is the only rejection.
 	siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(42)).Return(nil)
-	store.EXPECT().ListBuildings(inTxCtx, gomock.AssignableToTypeOf(models.ListFilter{})).
+	store.EXPECT().ListBuildingNamesBySite(inTxCtx, testOrgID, int64(42)).
 		Return(nil, nil)
 
 	created, rejected, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
@@ -1594,10 +1594,8 @@ func TestCreateBuildings_rejectsNameAlreadyAtSiteAndCreatesNothing(t *testing.T)
 	// "B-002" is already live at the site. The batch must reject that row and
 	// insert NOTHING — not even the two rows that would have been fine.
 	siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(42)).Return(nil)
-	store.EXPECT().ListBuildings(inTxCtx, gomock.AssignableToTypeOf(models.ListFilter{})).
-		Return([]models.BuildingWithCounts{
-			{Building: models.Building{ID: 5, Name: "B-002", SiteID: ptrInt64(42)}},
-		}, nil)
+	store.EXPECT().ListBuildingNamesBySite(inTxCtx, testOrgID, int64(42)).
+		Return([]string{"B-002"}, nil)
 
 	created, rejected, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
 		OrgID:  testOrgID,
@@ -1630,7 +1628,7 @@ func TestCreateBuildings_trimsNamesSoWhitespaceVariantsCollide(t *testing.T) {
 	// " B-001" and "B-001 " would both store as "B-001", so they must collide
 	// rather than sneak two identically-named buildings into the site.
 	siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(42)).Return(nil)
-	store.EXPECT().ListBuildings(inTxCtx, gomock.AssignableToTypeOf(models.ListFilter{})).
+	store.EXPECT().ListBuildingNamesBySite(inTxCtx, testOrgID, int64(42)).
 		Return(nil, nil)
 
 	_, rejected, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
@@ -1684,10 +1682,8 @@ func TestCreateBuildings_reportsBothUniquenessSourcesInOneResponse(t *testing.T)
 
 	// "B-009" is live at the site; "B-001" is repeated inside the batch.
 	siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(42)).Return(nil)
-	store.EXPECT().ListBuildings(inTxCtx, gomock.AssignableToTypeOf(models.ListFilter{})).
-		Return([]models.BuildingWithCounts{
-			{Building: models.Building{ID: 5, Name: "B-009", SiteID: ptrInt64(42)}},
-		}, nil)
+	store.EXPECT().ListBuildingNamesBySite(inTxCtx, testOrgID, int64(42)).
+		Return([]string{"B-009"}, nil)
 
 	created, rejected, err := svc.CreateBuildings(context.Background(), models.CreateBuildingsParams{
 		OrgID:  testOrgID,
@@ -1727,7 +1723,7 @@ func TestCreateBuildings_insertRaceBecomesPerRowRejection(t *testing.T) {
 
 	siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(42)).Return(nil)
 	// The read sees a clean site, so both rows pass the pre-check.
-	store.EXPECT().ListBuildings(inTxCtx, gomock.AssignableToTypeOf(models.ListFilter{})).
+	store.EXPECT().ListBuildingNamesBySite(inTxCtx, testOrgID, int64(42)).
 		Return(nil, nil)
 	store.EXPECT().CreateBuilding(inTxCtx, gomock.AssignableToTypeOf(models.CreateParams{})).
 		Return(&models.Building{ID: 1, Name: "B-001"}, nil)
