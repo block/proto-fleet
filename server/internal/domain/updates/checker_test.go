@@ -287,6 +287,9 @@ func TestSnapshotEligibilityAccessorsEncodeAvailabilityInvariants(t *testing.T) 
 	eligibleRC, rcAvailable := snap.EligibleRC()
 	assert.True(t, rcAvailable, "an available RC view may legitimately contain no candidate")
 	assert.Nil(t, eligibleRC)
+	emptyStable, emptyStableAvailable := (Snapshot{StableAvailable: true}).EligibleStable()
+	assert.True(t, emptyStableAvailable, "availability and candidate presence are independent for both channels")
+	assert.Nil(t, emptyStable)
 
 	snap.StableAvailable = false
 	eligibleStable, stableAvailable = snap.EligibleStable()

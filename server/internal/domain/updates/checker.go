@@ -35,11 +35,12 @@ type Release struct {
 
 // Snapshot is the checker's view of the newest available releases. Its zero
 // value means discovery has not succeeded. Availability reports whether a
-// channel is safe to consume; a retained pointer may be non-nil while its
-// channel is unavailable, and RCAvailable may be true with a nil LatestRC when
-// discovery succeeded but found no release candidate. FetchedAt records the
-// latest successful list cycle and is metadata, not an additional eligibility
-// guard. Prefer EligibleStable and EligibleRC when consuming a snapshot.
+// channel is safe to consume independently of candidate presence: a nil
+// candidate can mean discovery succeeded but found no release, while a
+// retained pointer may be non-nil when its channel is unavailable. FetchedAt
+// records the latest successful list cycle and is metadata, not an additional
+// eligibility guard. Prefer EligibleStable and EligibleRC when consuming a
+// snapshot.
 type Snapshot struct {
 	LatestStable    *Release
 	LatestRC        *Release
@@ -49,9 +50,10 @@ type Snapshot struct {
 }
 
 // EligibleStable returns the verified stable candidate and whether stable
-// discovery is available. The candidate is non-nil whenever available is true.
+// discovery is available. A nil candidate with available=true means no stable
+// release was discovered.
 func (s Snapshot) EligibleStable() (*Release, bool) {
-	if !s.StableAvailable || s.LatestStable == nil {
+	if !s.StableAvailable {
 		return nil, false
 	}
 	return cloneRelease(s.LatestStable), true
