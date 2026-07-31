@@ -341,6 +341,7 @@ func TestNonSemverTagsNeverSelected(t *testing.T) {
 	require.NotNil(t, snap.LatestRC)
 	assert.Equal(t, "v0.2.9-rc.5", snap.LatestRC.Version)
 	assert.False(t, snap.FetchedAt.IsZero(), "an invalid tag is not a fetch failure; the cycle still succeeds")
+	assert.False(t, snap.Available, "without a usable or cached stable release, overall update status is unavailable")
 }
 
 func TestStableTagRequiresCanonicalGrammar(t *testing.T) {
@@ -557,6 +558,30 @@ func TestLatestFallbackFailureRetainsCachedStable(t *testing.T) {
 	assert.Equal(t, "v0.2.9", before.LatestStable.Version)
 
 	gh.setLatest(http.StatusInternalServerError, []byte("boom"))
+	c.check(context.Background())
+
+	after := c.Snapshot()
+	require.NotNil(t, after.LatestStable)
+	assert.Equal(t, before.LatestStable, after.LatestStable)
+	require.NotNil(t, after.LatestRC)
+	assert.Equal(t, "v0.3.0-rc.1", after.LatestRC.Version)
+	assert.True(t, after.Available)
+	assert.Empty(t, h.recordsAbove(slog.LevelDebug))
+}
+
+func TestUnusableLatestFallbackRetainsCachedStable(t *testing.T) {
+	t.Parallel()
+
+	gh := newGHServer(t)
+	gh.setList(http.StatusOK, releasesJSON(t, []githubRelease{rcEntry("v0.3.0-rc.1")}))
+	c, h := newTestChecker(t, gh.config(), gh.srv.URL)
+
+	c.check(context.Background())
+	before := c.Snapshot()
+	require.NotNil(t, before.LatestStable)
+	assert.Equal(t, "v0.2.9", before.LatestStable.Version)
+
+	gh.setLatest(http.StatusOK, fixture(t, "latest_invalid_tag.json"))
 	c.check(context.Background())
 
 	after := c.Snapshot()

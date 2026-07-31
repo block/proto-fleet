@@ -190,18 +190,18 @@ func (c *Checker) check(ctx context.Context) {
 		return
 	}
 	stable := latestStable(latest, list)
-	available := true
 	if latestErr != nil {
 		c.logger.Debug("stable release fallback unavailable", "error", latestErr)
-		stable = latestStable(githubRelease{}, list)
-		if stable == nil {
-			// Page 1 can contain only prereleases. Preserve a stable release
-			// learned by an earlier successful fallback instead of erasing it
-			// during a partial outage. Without either source, the overall
-			// status is unavailable rather than misleadingly up to date.
-			stable = c.Snapshot().LatestStable
-			available = stable != nil
-		}
+	}
+	available := true
+	if stable == nil {
+		// Page 1 can contain only prereleases. Preserve a stable release
+		// learned by an earlier successful fallback instead of erasing it
+		// when /latest fails or returns an unusable tag. Without either
+		// source or a cached candidate, the overall status is unavailable
+		// rather than misleadingly up to date.
+		stable = c.Snapshot().LatestStable
+		available = stable != nil
 	}
 
 	snapshot := Snapshot{
