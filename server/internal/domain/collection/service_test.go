@@ -2905,6 +2905,14 @@ func expectAssignToRackPreamble(mockStore *mocks.MockCollectionStore, rackID int
 // the placement delta: every named device is cleared before any position
 // is written. Without that ordering a relayout that swaps two occupied
 // cells trips uk_rack_slot_position mid-batch.
+// expectRackSlots stubs the occupancy read the slot delta performs before
+// writing any position. `held` is the rack's current placement, which is
+// what decides whether a requested cell is free, owned by a device the
+// batch moves, or held by an untouched member.
+func expectRackSlots(mockStore *mocks.MockCollectionStore, rackID int64, held ...*pb.RackSlot) {
+	mockStore.EXPECT().GetRackSlots(gomock.Any(), rackID, testOrgID).Return(held, nil)
+}
+
 func TestService_AssignDevicesToRack_slotDeltaClearsThenSets(t *testing.T) {
 	svc, mockStore, _ := newTestServiceWithSites(t, nil)
 	ctx := testCtx(t)
@@ -2912,6 +2920,9 @@ func TestService_AssignDevicesToRack_slotDeltaClearsThenSets(t *testing.T) {
 	rackID := int64(42)
 	deviceIDs := []string{"d1", "d2"}
 	expectAssignToRackPreamble(mockStore, rackID, deviceIDs, 10, 10)
+	// A true swap: each device targets the cell the other currently holds,
+	// which is legal precisely because both are cleared first.
+	expectRackSlots(mockStore, rackID, rackSlot("d1", 0, 0), rackSlot("d2", 0, 1))
 
 	// Both clears must precede both sets. gomock.InOrder can't express
 	// "any order within a group", so assert the boundary directly: record
@@ -2954,6 +2965,8 @@ func TestService_AssignDevicesToRack_slotDeltaUnplacesOnNilPosition(t *testing.T
 	rackID := int64(42)
 	deviceIDs := []string{"d1", "d2"}
 	expectAssignToRackPreamble(mockStore, rackID, deviceIDs, 10, 10)
+	// Empty grid, so d1's target cell is free.
+	expectRackSlots(mockStore, rackID)
 
 	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d1", testOrgID).Return(nil)
 	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d2", testOrgID).Return(nil)
@@ -3007,6 +3020,8 @@ func TestService_AssignDevicesToRack_slotDeltaLeavesUnnamedDeviceAlone(t *testin
 	// d2 is in the selector but absent from slot_assignments.
 	deviceIDs := []string{"d1", "d2"}
 	expectAssignToRackPreamble(mockStore, rackID, deviceIDs, 10, 10)
+	// d2 holds a cell the batch does not target, so it survives untouched.
+	expectRackSlots(mockStore, rackID, rackSlot("d2", 5, 5))
 
 	// Only d1 is cleared and re-placed. A Clear on d2 fails the strict mock.
 	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d1", testOrgID).Return(nil)
@@ -3113,6 +3128,33 @@ func TestService_AssignDevicesToRack_slotForNonMemberFails(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "did not become a member")
+}
+
+// TestService_AssignDevicesToRack_slotOnOccupiedCellFails pins the
+// concurrency/stale-snapshot path. The clear pass only frees the cells of
+// devices this batch names, so placing onto a cell held by an untouched
+// member would reach uk_rack_slot_position and surface as a 500. Reject it
+// up front instead, naming the occupant so the caller can refresh.
+func TestService_AssignDevicesToRack_slotOnOccupiedCellFails(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	rackID := int64(42)
+	deviceIDs := []string{"d1"}
+	expectAssignToRackPreamble(mockStore, rackID, deviceIDs, 4, 4)
+	// "squatter" is a member the batch never mentions, so its cell is
+	// never cleared — exactly the collision the DB would raise on.
+	expectRackSlots(mockStore, rackID, rackSlot("squatter", 1, 1))
+	// No Clear/Set expectations: the batch is rejected whole.
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &rackID,
+		DeviceIdentifiers: deviceIDs,
+		SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 1, 1)},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `already held by device "squatter"`)
 }
 
 // TestService_AssignDevicesToRack_slotDeltaRejectsBadInput covers the
@@ -3263,6 +3305,9 @@ func TestService_AssignDevicesToRack_reAssertingMembersIsNotOverCapacity(t *test
 		Return(map[string]*int64{"d1": nil, "d2": nil}, nil)
 	mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
 	mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
+	// Both cells are occupied, by these same two devices, swapped. Legal
+	// because both are cleared before either is set.
+	expectRackSlots(mockStore, rackID, rackSlot("d1", 0, 0), rackSlot("d2", 0, 1))
 	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d1", testOrgID).Return(nil)
 	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d2", testOrgID).Return(nil)
 	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), rackID, "d1", int32(0), int32(1), testOrgID).Return(nil)

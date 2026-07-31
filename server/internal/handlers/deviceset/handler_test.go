@@ -993,6 +993,10 @@ func TestAssignDevicesToRack_CarriesSlotAssignments(t *testing.T) {
 	h.collectionStore.EXPECT().
 		CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).
 		Return(int64(0), nil)
+	// Nothing on the grid yet, so (1,2) is free.
+	h.collectionStore.EXPECT().
+		GetRackSlots(gomock.Any(), targetRackID, testOrgID).
+		Return(nil, nil)
 	// d1 is placed at (1,2). d2 is named with no position, so it is cleared
 	// and left off the grid — the wire form of "in the rack, unplaced".
 	h.collectionStore.EXPECT().ClearRackSlotPosition(gomock.Any(), targetRackID, "d1", testOrgID).Return(nil)

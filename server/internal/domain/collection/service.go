@@ -1183,12 +1183,57 @@ func (s *Service) applyRackSlotDelta(ctx context.Context, orgID, rackID int64, s
 	if len(slotAssignments) == 0 {
 		return nil
 	}
+	named := make(map[string]struct{}, len(slotAssignments))
+	placements := 0
 	for _, slot := range slotAssignments {
 		if _, ok := members[slot.DeviceIdentifier]; !ok {
 			return fleeterror.NewInvalidArgumentErrorf(
 				"device %q did not become a member of the target rack, so its slot cannot be written", slot.DeviceIdentifier)
 		}
+		named[slot.DeviceIdentifier] = struct{}{}
+		if slot.Position != nil {
+			placements++
+		}
 	}
+
+	// Cells held by members this batch does not move. The clear pass frees
+	// only the named devices' cells, so a position landing on an untouched
+	// member's cell reaches uk_rack_slot_position (UNIQUE on collection_id,
+	// row, col) and surfaces as a 500 — the realistic trigger being a stale
+	// modal or a placement another operator changed. Reject it here instead,
+	// naming the occupant so the caller can refresh and retry. The rack row
+	// lock upstream is what makes this read authoritative for the tx.
+	if placements > 0 {
+		occupants, err := s.collectionStore.GetRackSlots(ctx, rackID, orgID)
+		if err != nil {
+			return err
+		}
+		heldBy := make(map[[2]int32]string, len(occupants))
+		for _, occupant := range occupants {
+			if occupant.Position == nil {
+				continue
+			}
+			heldBy[[2]int32{occupant.Position.Row, occupant.Position.Column}] = occupant.DeviceIdentifier
+		}
+		for _, slot := range slotAssignments {
+			if slot.Position == nil {
+				continue
+			}
+			holder, taken := heldBy[[2]int32{slot.Position.Row, slot.Position.Column}]
+			// Free, already this device's own cell, or held by a device the
+			// batch clears first — the last case is how a swap stays legal.
+			if !taken || holder == slot.DeviceIdentifier {
+				continue
+			}
+			if _, moving := named[holder]; moving {
+				continue
+			}
+			return fleeterror.NewInvalidArgumentErrorf(
+				"slot (%d, %d) is already held by device %q, which this request does not move",
+				slot.Position.Row, slot.Position.Column, holder)
+		}
+	}
+
 	for _, slot := range slotAssignments {
 		if err := s.collectionStore.ClearRackSlotPosition(ctx, rackID, slot.DeviceIdentifier, orgID); err != nil {
 			return err
