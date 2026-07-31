@@ -918,6 +918,15 @@ func (s *SQLCollectionStore) SetRackSlotPosition(ctx context.Context, collection
 		Col:              column,
 	})
 	if err != nil {
+		// uk_rack_slot_position means another writer already holds the cell.
+		// Callers pre-check where they can, but the standalone slot RPCs take
+		// no rack row lock, so a concurrent placement can still land between
+		// that read and this write. Report it as a caller-fixable conflict
+		// rather than a 500 — refreshing and retrying is the resolution.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.ConstraintName == "uk_rack_slot_position" {
+			return fleeterror.NewInvalidArgumentErrorf("slot (%d, %d) is already occupied", row, column)
+		}
 		return fleeterror.NewInternalErrorf("failed to set rack slot position: %v", err)
 	}
 	return nil

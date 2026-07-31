@@ -1170,9 +1170,12 @@ func (s *Service) applyRackSlotDelta(ctx context.Context, orgID, rackID int64, s
 	}
 
 	// The clear pass frees only the named devices' cells, so a position
-	// landing on an untouched member's cell would hit uk_rack_slot_position
-	// and surface as a 500. Reject it here, naming the occupant. The rack
-	// row lock upstream makes this read authoritative for the tx.
+	// landing on an untouched member's cell would hit uk_rack_slot_position.
+	// Reject it here, where we can name the occupant. The rack row lock
+	// upstream serializes this read against the other batch writers, but NOT
+	// against the standalone Set/ClearRackSlotPosition RPCs, which take no
+	// rack lock; the store maps that constraint to InvalidArgument as the
+	// backstop for what slips through.
 	if placements > 0 {
 		occupants, err := s.collectionStore.GetRackSlots(ctx, rackID, orgID)
 		if err != nil {
