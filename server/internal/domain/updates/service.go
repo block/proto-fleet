@@ -162,11 +162,13 @@ func (s *Service) releaseChannel(ctx context.Context, organizationID int64) (Cha
 // when stable discovery is unavailable, but an incomplete RC view makes that
 // broader channel unavailable.
 func channelStatusAvailable(channel Channel, snap Snapshot) bool {
+	_, stableAvailable := snap.EligibleStable()
+	rc, rcAvailable := snap.EligibleRC()
 	switch channel {
 	case ChannelStable:
-		return snap.StableAvailable
+		return stableAvailable
 	case ChannelStableAndRC:
-		return snap.RCAvailable && (snap.StableAvailable || snap.LatestRC != nil)
+		return rcAvailable && (stableAvailable || rc != nil)
 	default:
 		return false
 	}
@@ -176,13 +178,10 @@ func channelStatusAvailable(channel Channel, snap Snapshot) bool {
 // stable sees the latest available stable; stable_and_rc takes the semver max
 // of that stable and the latest available RC.
 func eligibleCandidate(channel Channel, snap Snapshot) *Release {
-	var candidate *Release
-	if snap.StableAvailable {
-		candidate = snap.LatestStable
-	}
+	candidate, _ := snap.EligibleStable()
 	if channel == ChannelStableAndRC {
-		if snap.RCAvailable {
-			candidate = semverMax(candidate, snap.LatestRC)
+		if rc, available := snap.EligibleRC(); available {
+			candidate = semverMax(candidate, rc)
 		}
 	}
 	return candidate
@@ -199,6 +198,10 @@ func semverMax(a, b *Release) *Release {
 		return b
 	}
 	return a
+}
+
+func isCanonicalReleaseTag(tag string) bool {
+	return isCanonicalStableTag(tag) || isCanonicalRCTag(tag)
 }
 
 // installCommand composes the copy-paste upgrade invocation from two
