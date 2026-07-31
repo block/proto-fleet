@@ -7,7 +7,7 @@ import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
-import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
+import { type NewRackInput, useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import type { DeviceSetListItem } from "@/protoFleet/components/DeviceSetList";
 import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
 import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "@/protoFleet/components/DeviceSetList";
@@ -33,8 +33,11 @@ import { useOptionalFleetOutletContext } from "@/protoFleet/features/fleetManage
 import { ManageRackModal, type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal";
 import ReparentWarningDialog from "@/protoFleet/features/fleetManagement/components/ManageRackModal/ReparentWarningDialog";
 import { RackCard } from "@/protoFleet/features/fleetManagement/components/RackCard";
-import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
+import RackSettingsModal, {
+  type BulkRackPlacement,
+} from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
 import { useCreateRack } from "@/protoFleet/features/fleetManagement/hooks/useCreateRack";
+import { useCreateRacks } from "@/protoFleet/features/fleetManagement/hooks/useCreateRacks";
 import { BUILDING_URL_PARAM } from "@/protoFleet/features/fleetManagement/utils/buildingFilterUrl";
 import {
   FILTER_URL_PARAM_KEYS,
@@ -914,6 +917,24 @@ const RacksPage = () => {
     },
   });
 
+  // The Multiple variant of the same modal. A batch has no miners to seed and no
+  // slots to place, so it closes on success instead of handing off to
+  // ManageRackModal the way a single create does.
+  const { createRacks, creating: creatingRacks } = useCreateRacks();
+  const handleCreateRacks = useCallback(
+    async (racks: NewRackInput[], placement: BulkRackPlacement) => {
+      const { created, errors } = await createRacks(racks, placement);
+      if (created.length > 0) {
+        setShowRackSettingsModal(false);
+        resetAndFetch();
+        fetchZones();
+      }
+      // Non-empty leaves the modal open with the rejected rows marked.
+      return errors;
+    },
+    [createRacks, resetAndFetch, fetchZones],
+  );
+
   const handleDeleteRack = useCallback(() => {
     if (!manageRackId) return Promise.resolve();
     return new Promise<void>((resolve, reject) => {
@@ -1150,7 +1171,10 @@ const RacksPage = () => {
             defaultSiteId={scopedSiteId}
             onDismiss={() => setShowRackSettingsModal(false)}
             onSubmit={createRack}
-            saving={creatingRack}
+            // Present unconditionally — this is what shows the Single / Multiple
+            // toggle inside the create modal.
+            onSubmitBulk={handleCreateRacks}
+            saving={creatingRack || creatingRacks}
           />
         ) : null}
         {manageRackFormData && manageRackId !== undefined ? (
@@ -1486,7 +1510,8 @@ const RacksPage = () => {
           defaultSiteId={scopedSiteId}
           onDismiss={() => setShowRackSettingsModal(false)}
           onSubmit={createRack}
-          saving={creatingRack}
+          onSubmitBulk={handleCreateRacks}
+          saving={creatingRack || creatingRacks}
         />
       ) : null}
       {manageRackFormData && manageRackId !== undefined ? (

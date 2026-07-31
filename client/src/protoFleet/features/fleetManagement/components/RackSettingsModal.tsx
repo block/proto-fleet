@@ -528,6 +528,11 @@ const RackSettingsModal = ({
       if (bulkLabels.length === 0) {
         setBulkCountError("Enter how many racks to create");
         hasError = true;
+      } else if (Number(bulkCountText) > bulkRackCountMaximum) {
+        // buildBulkRackLabels clamps to the cap, so a larger typed count would
+        // silently create only the first bulkRackCountMaximum racks.
+        setBulkCountError(`Create up to ${bulkRackCountMaximum} racks at a time`);
+        hasError = true;
       }
       // Reported on the prefix because that is the lever: the counter width is
       // set by the scale and the start value, both of which the operator chose on
@@ -636,6 +641,7 @@ const RackSettingsModal = ({
     isBulk,
     onSubmitBulk,
     bulkLabels,
+    bulkCountText,
     bulkOverlongRows,
     bulkPrefix,
     bulkCounterScaleText,

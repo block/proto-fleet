@@ -74,11 +74,12 @@ export function useCreateRack({
           // Slots are the operator's next step, in the manage modal. Seeded
           // miners land as members without a position.
           slotAssignments: [],
-          // A new rack has no prior placement to preserve, so send the chosen
-          // one explicitly — including "unassigned", which the form encodes as
-          // undefined and the wire as 0.
-          siteId: formData.siteId ?? 0n,
-          buildingId: formData.buildingId ?? 0n,
+          // Left undefined when the operator chose no placement. A new rack has
+          // nothing to unassign, and an explicit 0 would make the field present
+          // — which SaveRack reads as placement intent and gates behind
+          // site:manage, denying a rack:manage-only operator their own create.
+          siteId: formData.siteId,
+          buildingId: formData.buildingId,
           forceClearConflictingSite: force,
           onSuccess: (deviceSet) => {
             pushToast({ message: `Rack "${formData.label}" created`, status: STATUSES.success });
