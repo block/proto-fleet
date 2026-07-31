@@ -151,7 +151,9 @@ export class FleetLocationsPage extends BasePage {
     await this.closeFullScreenModalIfVisible();
   }
 
-  async editBuildingDetailsFromDetail(updates: { name?: string; powerCapacityMw?: string }) {
+  // Building settings only exposes name + layout now: capacity was pulled from
+  // the form until something actually consumes it.
+  async editBuildingDetailsFromDetail(updates: { name?: string }) {
     await this.clickResponsiveTestId("building-page-edit");
     const fullScreenModal = this.page.getByTestId("full-screen-two-pane-modal");
     await expect(fullScreenModal).toBeVisible();
@@ -162,10 +164,6 @@ export class FleetLocationsPage extends BasePage {
 
     if (updates.name !== undefined) {
       await settingsModal.getByTestId("building-settings-name-input").fill(updates.name);
-    }
-
-    if (updates.powerCapacityMw !== undefined) {
-      await settingsModal.getByTestId("building-settings-power-input").fill(updates.powerCapacityMw);
     }
 
     await this.clickResponsiveTestId("building-settings-modal-save", settingsModal);

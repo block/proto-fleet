@@ -48,7 +48,6 @@ export type BuildingDetailScenarioData = {
   renamedBuildingName: string;
   siblingBuildingName: string;
   rackLabel: string;
-  powerCapacityMw: string;
 };
 
 function createRunPrefixes(testInfo: TestInfo): BuildingDetailRunPrefixes {
@@ -79,7 +78,6 @@ export function createBuildingDetailScenarioData(testInfo: TestInfo): BuildingDe
     renamedBuildingName: generateRandomText(`${prefixes.buildingPrefix}_renamed`),
     siblingBuildingName: generateRandomText(`${prefixes.buildingPrefix}_sibling`),
     rackLabel: generateRandomText(`${prefixes.rackPrefix}_primary`),
-    powerCapacityMw: "4.2",
   };
 }
 

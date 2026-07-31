@@ -24,10 +24,7 @@ test.describe("Buildings - detail", () => {
     await fleetLocationsPage.validateBuildingDetailOpened(scenario.buildingName);
     await fleetLocationsPage.validateBuildingDetailMetrics({ totalMiners: 2 });
 
-    await fleetLocationsPage.editBuildingDetailsFromDetail({
-      name: scenario.renamedBuildingName,
-      powerCapacityMw: scenario.powerCapacityMw,
-    });
+    await fleetLocationsPage.editBuildingDetailsFromDetail({ name: scenario.renamedBuildingName });
 
     await fleetLocationsPage.validateBuildingDetailOpened(scenario.renamedBuildingName);
     await fleetLocationsPage.validateBuildingDetailMetrics({ totalMiners: 2 });
