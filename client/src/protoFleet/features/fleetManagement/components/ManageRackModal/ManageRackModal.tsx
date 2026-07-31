@@ -6,7 +6,7 @@ import ManageMinersModal from "./ManageMinersModal";
 import MinersPane from "./MinersPane";
 import RackPane from "./RackPane";
 import ReparentWarningDialog from "./ReparentWarningDialog";
-import ScanMinerQrModal, { type ScanAssignmentResult } from "./ScanMinerQrModal";
+import ScanMinerQrModal, { type ScanAssignmentOutcome } from "./ScanMinerQrModal";
 import SearchMinersModal from "./SearchMinersModal";
 import { type AssignmentMode, orderIndexToOrigin, originLabel, type RackFormData, type SelectedSlot } from "./types";
 import { useRackMinerScope } from "./useRackMinerScope";
@@ -48,14 +48,20 @@ function removeAssignmentByValue(record: Record<string, string>, target: string)
   return next;
 }
 
-/** Keep only entries whose value is in `keepSet`, returning a shallow copy. */
-function filterAssignmentsByValues(record: Record<string, string>, keepSet: Set<string>): Record<string, string> {
+/** Drop every entry whose value is in `dropSet`, returning a shallow copy. */
+function dropAssignmentsByValues(record: Record<string, string>, dropSet: Set<string>): Record<string, string> {
   const next: Record<string, string> = {};
   for (const [k, v] of Object.entries(record)) {
-    if (keepSet.has(v)) next[k] = v;
+    if (!dropSet.has(v)) next[k] = v;
   }
   return next;
 }
+
+// What a membership write reports back. Not-ok with no `error` is the operator
+// declining a warning: nothing to tell them, but the caller must not treat it as
+// success. An `error` is theirs to render — the parent's callout sits behind the
+// pickers, so a picker that stays open has to surface it itself.
+type CommitOutcome = { ok: true } | { ok: false; error?: string };
 
 interface ManageRackModalProps {
   show: boolean;
@@ -128,6 +134,17 @@ export default function ManageRackModal({
   // bulk "Add to rack → New rack" flow seeds its miners onto the create call
   // itself, so they arrive here as persisted members like any others.
   const [rackMiners, setRackMiners] = useState<string[]>([]);
+  // What commitMembership diffs against, rather than the `rackMiners` closure.
+  // The scan undo runs from a callback captured before its own add landed, and
+  // against that stale snapshot the delta comes out empty — so the undo wrote
+  // nothing and left the scanned miner in the rack. Updated synchronously, so
+  // every commit sees the membership the previous one produced.
+  const rackMinersRef = useRef<string[]>([]);
+  const applyRackMiners = useCallback((next: string[] | ((prev: string[]) => string[])) => {
+    const value = typeof next === "function" ? next(rackMinersRef.current) : next;
+    rackMinersRef.current = value;
+    setRackMiners(value);
+  }, []);
   const [slotAssignments, setSlotAssignments] = useState<Record<string, string>>({});
   const [assignmentMode, setAssignmentMode] = useState<AssignmentMode>("manual");
   const [manualAssignmentCache, setManualAssignmentCache] = useState<Record<string, string>>({});
@@ -189,7 +206,7 @@ export default function ManageRackModal({
 
     const maybeFinish = () => {
       if (!loadedMembers || !loadedSlots || cancelled) return;
-      setRackMiners(members);
+      applyRackMiners(members);
 
       const assignments: Record<string, string> = {};
       for (const slot of slots) {
@@ -241,7 +258,7 @@ export default function ManageRackModal({
     return () => {
       cancelled = true;
     };
-  }, [existingRackId, listGroupMembers, getRackSlots]);
+  }, [existingRackId, listGroupMembers, getRackSlots, applyRackMiners]);
 
   // Compute the active assignments based on mode
   const activeAssignments = useMemo(() => {
@@ -406,26 +423,23 @@ export default function ManageRackModal({
     setSelectedSlot(null);
   }, []);
 
-  // Show the reparent warning (#672) when `count` > 0, else run `proceed`
-  // directly. `proceed` runs once the operator accepts the warning. Callers pass
-  // the reassignment count from a reliable source (the selection list's
-  // per-row placement, or the scanned miner's snapshot) rather than the parent's
-  // first-page-only `allMiners` cache, so the warning isn't missed for miners
-  // outside that page.
-  const promptReparent = useCallback((count: number, proceed: () => void) => {
-    if (count === 0) {
-      proceed();
-      return;
-    }
-    setReparentConfirm({ count, onConfirm: proceed });
-  }, []);
-
-  // Same dialog, awaited: the server rejects assigning a placed miner into a
-  // site-less rack and writes nothing, so the retry-with-force has to wait for
-  // an answer inside the write it interrupted.
-  const confirmSiteStrip = useCallback(
+  // The reparent warning (#672), awaited. Two things raise it: the picker
+  // reporting miners currently placed elsewhere, and the server refusing to
+  // strip a miner's site for a site-less rack. The second interrupts a write
+  // that needs the answer, so both take the promise form — which also lets the
+  // pickers keep the write's outcome in scope and report it themselves.
+  //
+  // Callers pass the reassignment count from a reliable source (the selection
+  // list's per-row placement, or the scanned miner's snapshot) rather than the
+  // parent's first-page-only `allMiners` cache, so the warning isn't missed for
+  // miners outside that page. Zero resolves straight through.
+  const confirmReparent = useCallback(
     (count: number) =>
       new Promise<boolean>((resolve) => {
+        if (count === 0) {
+          resolve(true);
+          return;
+        }
         setReparentConfirm({
           count,
           onConfirm: () => resolve(true),
@@ -463,10 +477,29 @@ export default function ManageRackModal({
   const dispatchWithSiteStripConfirm = useCallback(
     async (deviceIdentifiers: string[], targetRackId: bigint | undefined, slots?: RackSlot[]): Promise<boolean> => {
       if ((await dispatchAssign(deviceIdentifiers, targetRackId, false, slots)) === "ok") return true;
-      if (!(await confirmSiteStrip(pendingConflictCountRef.current))) return false;
+      if (!(await confirmReparent(pendingConflictCountRef.current))) return false;
       return (await dispatchAssign(deviceIdentifiers, targetRackId, true, slots)) === "ok";
     },
-    [dispatchAssign, confirmSiteStrip],
+    [dispatchAssign, confirmReparent],
+  );
+
+  // Everything that references a miner the rack no longer holds. Called the
+  // moment an unassign lands rather than after the whole commit, so a failure
+  // later in that commit can't leave a removed miner on screen.
+  const forgetMiners = useCallback(
+    (ids: string[]) => {
+      const gone = new Set(ids);
+      applyRackMiners((prev) => prev.filter((id) => !gone.has(id)));
+      setSlotAssignments((prev) => dropAssignmentsByValues(prev, gone));
+      setManualAssignmentCache((prev) => dropAssignmentsByValues(prev, gone));
+      setInitialPlacement((prev) => {
+        const next = new Map(prev);
+        for (const id of ids) next.delete(id);
+        return next;
+      });
+      setSelectedMinerId((prev) => (prev !== null && gone.has(prev) ? null : prev));
+    },
+    [applyRackMiners],
   );
 
   // Membership commit. The miner pickers own rack membership, so a confirmed
@@ -475,40 +508,50 @@ export default function ManageRackModal({
   // "unplaced", so freshly-committed membership doesn't read as pending
   // placement dirt on the Save gate.
   //
-  // The caller owns the working-set update — each entry point merges rows
-  // differently — and should skip it when this returns false.
+  // Callers own the newcomer half of the working-set update — each entry point
+  // merges rows differently — and should skip it unless `ok`. The removal half
+  // is applied here, per phase, because removals and additions are two separate
+  // RPCs and the second can fail after the first has already persisted.
   const commitMembership = useCallback(
-    async (added: string[], removed: string[]): Promise<boolean> => {
-      if (savingRef.current) return false;
-      const currentIds = new Set(rackMiners);
+    async (added: string[], removed: string[]): Promise<CommitOutcome> => {
+      if (savingRef.current) return { ok: false, error: "Another change is still saving. Please try again." };
+      const currentIds = new Set(rackMinersRef.current);
       const newcomers = added.filter((id) => !currentIds.has(id));
       const leavers = removed.filter((id) => currentIds.has(id));
       // Nothing to write. The caller may still have a placement change to stage
       // (e.g. re-placing a miner that's already a member).
-      if (newcomers.length === 0 && leavers.length === 0) return true;
+      if (newcomers.length === 0 && leavers.length === 0) return { ok: true };
 
       // Capacity guard — mirrors the server's. Membership is what fills a rack,
       // so this is the check that has to happen here rather than on Save.
-      const nextCount = rackMiners.length + newcomers.length - leavers.length;
+      const nextCount = currentIds.size + newcomers.length - leavers.length;
       if (totalSlots > 0 && nextCount > totalSlots) {
-        setErrorMsg(
-          `Cannot hold ${nextCount} miners with only ${totalSlots} available slots. Deselect some miners or update your rack settings.`,
-        );
-        return false;
+        return {
+          ok: false,
+          error: `Cannot hold ${nextCount} miners with only ${totalSlots} available slots. Deselect some miners or update your rack settings.`,
+        };
       }
 
       savingRef.current = true;
       setErrorMsg("");
       setIsSaving(true);
       try {
-        // Removals first: they free their slots before any newcomer lands. An
+        // Removals first: they free their slots before any newcomer lands, and
+        // the reverse order would trip the server's capacity check on a swap. An
         // unassign has no target rack to strip a site for, so its conflict
         // branch never fires — it goes through the same helper for uniformity.
-        if (leavers.length > 0 && !(await dispatchWithSiteStripConfirm(leavers, undefined))) return false;
-        if (newcomers.length > 0 && !(await dispatchWithSiteStripConfirm(newcomers, existingRackId))) return false;
+        if (leavers.length > 0) {
+          if (!(await dispatchWithSiteStripConfirm(leavers, undefined))) return { ok: false };
+          // Persisted. Reflect it locally and on the host's list now, so a
+          // failure in the newcomer write below still leaves both truthful.
+          forgetMiners(leavers);
+          onSettingsPersisted?.();
+        }
+        if (newcomers.length > 0 && !(await dispatchWithSiteStripConfirm(newcomers, existingRackId))) {
+          return { ok: false };
+        }
       } catch (err) {
-        setErrorMsg(getErrorMessage(err, "Failed to update the rack's miners. Please try again."));
-        return false;
+        return { ok: false, error: getErrorMessage(err, "Failed to update the rack's miners. Please try again.") };
       } finally {
         savingRef.current = false;
         setIsSaving(false);
@@ -516,15 +559,14 @@ export default function ManageRackModal({
 
       setInitialPlacement((prev) => {
         const next = new Map(prev);
-        for (const id of leavers) next.delete(id);
         for (const id of newcomers) next.set(id, "unplaced");
         return next;
       });
       // Member counts changed on the host's rack list.
       onSettingsPersisted?.();
-      return true;
+      return { ok: true };
     },
-    [rackMiners, totalSlots, existingRackId, dispatchWithSiteStripConfirm, onSettingsPersisted],
+    [totalSlots, existingRackId, dispatchWithSiteStripConfirm, forgetMiners, onSettingsPersisted],
   );
 
   // SearchMinersModal confirm — commit the miner into the rack if it isn't a
@@ -532,50 +574,70 @@ export default function ManageRackModal({
   // reassignment flag from the row it selected (exact even for fleets larger
   // than the display page).
   const handleSearchMinerConfirm = useCallback(
-    (minerId: string, isReassignment: boolean) => {
+    async (minerId: string, isReassignment: boolean) => {
       if (!selectedSlot) return;
       const slotKey = selectedSlot.key;
-      const apply = async () => {
-        // Failure leaves the picker open, with the error behind it, to retry.
-        if (!(await commitMembership([minerId], []))) return;
-        setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
-        // Remove any existing assignment for this miner, then assign to selected slot
-        setSlotAssignments((prev) => {
-          const next = removeAssignmentByValue(prev, minerId);
-          next[slotKey] = minerId;
-          return next;
-        });
-        setSelectedSlot(null);
+      if (!(await confirmReparent(isReassignment ? 1 : 0))) return;
+
+      const outcome = await commitMembership([minerId], []);
+      if (!outcome.ok) {
+        // This picker has no callout of its own, and one miner at one slot is
+        // nothing to preserve — close it so the parent's error is what the
+        // operator sees rather than an unchanged list.
+        if (outcome.error) setErrorMsg(outcome.error);
         setShowSearchMiners(false);
-      };
-      promptReparent(isReassignment ? 1 : 0, () => void apply());
+        setSelectedSlot(null);
+        return;
+      }
+
+      applyRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
+      // Remove any existing assignment for this miner, then assign to selected slot
+      setSlotAssignments((prev) => {
+        const next = removeAssignmentByValue(prev, minerId);
+        next[slotKey] = minerId;
+        return next;
+      });
+      setSelectedSlot(null);
+      setShowSearchMiners(false);
     },
-    [selectedSlot, promptReparent, commitMembership],
+    [selectedSlot, confirmReparent, commitMembership, applyRackMiners],
   );
 
   const handleScanMinerAssign = useCallback(
-    async (minerId: string): Promise<ScanAssignmentResult | null> => {
-      if (!selectedSlot) return null;
+    async (minerId: string): Promise<ScanAssignmentOutcome> => {
+      if (!selectedSlot) return { failed: true, message: "Select a rack slot, then scan a miner." };
 
-      const wasMember = rackMiners.includes(minerId);
+      const wasMember = rackMinersRef.current.includes(minerId);
       // Membership commits before the modal reports the assignment, so the
       // "assigned" screen never claims a miner that isn't actually in the rack.
-      if (!(await commitMembership([minerId], []))) return null;
+      const outcome = await commitMembership([minerId], []);
+      if (!outcome.ok) return { failed: true, message: outcome.error };
 
       const previousSlotAssignments = slotAssignments;
       const assignedSlot = selectedSlot;
       const nextSlotAssignments = removeAssignmentByValue(slotAssignments, minerId);
       nextSlotAssignments[assignedSlot.key] = minerId;
 
-      setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
+      applyRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
       setSlotAssignments(nextSlotAssignments);
 
       // Undo has to reverse the write too, not just the staged cell — but only
       // for a miner this scan actually added. One that was already a member
-      // keeps its membership and just loses the new cell.
+      // keeps its membership and just loses the new cell. commitMembership
+      // diffs against rackMinersRef, so it sees the add this closure predates.
       scanUndoRef.current = async () => {
-        if (!wasMember && !(await commitMembership([], [minerId]))) return;
-        if (!wasMember) setRackMiners((prev) => prev.filter((id) => id !== minerId));
+        if (wasMember) {
+          setSlotAssignments(previousSlotAssignments);
+          setSelectedSlot(assignedSlot);
+          return;
+        }
+        const undone = await commitMembership([], [minerId]);
+        if (!undone.ok) {
+          if (undone.error) setErrorMsg(undone.error);
+          return;
+        }
+        // forgetMiners already dropped the miner and its cell, so only the cells
+        // the scan displaced are left to restore.
         setSlotAssignments(previousSlotAssignments);
         setSelectedSlot(assignedSlot);
       };
@@ -585,31 +647,40 @@ export default function ManageRackModal({
         hasNextSlot: !!getNextAssignableSlot(assignedSlot, nextSlotAssignments),
       };
     },
-    [getNextAssignableSlot, getSlotLabel, rackMiners, selectedSlot, slotAssignments, commitMembership],
+    [getNextAssignableSlot, getSlotLabel, selectedSlot, slotAssignments, commitMembership, applyRackMiners],
   );
 
   // Scanned miners already assigned elsewhere use the same reparent warning as
   // search/list assignment. The success dialog is reserved for immediate
   // assignments that did not require that warning.
   const handleScanMinerConfirm = useCallback(
-    (minerId: string, isReassignment: boolean) => {
+    async (minerId: string, isReassignment: boolean) => {
       if (!selectedSlot) return;
       const slotKey = selectedSlot.key;
-      const apply = async () => {
-        if (!(await commitMembership([minerId], []))) return;
-        setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
-        setSlotAssignments((prev) => {
-          const next = removeAssignmentByValue(prev, minerId);
-          next[slotKey] = minerId;
-          return next;
-        });
-        setSelectedSlot(null);
+      if (!(await confirmReparent(isReassignment ? 1 : 0))) return;
+
+      const outcome = await commitMembership([minerId], []);
+      if (!outcome.ok) {
+        // Close the scanner so the parent's callout is visible — the scan phase
+        // has already left the screen the message would have gone to.
+        if (outcome.error) setErrorMsg(outcome.error);
         setShowScanQr(false);
+        setSelectedSlot(null);
         scanUndoRef.current = null;
-      };
-      promptReparent(isReassignment ? 1 : 0, () => void apply());
+        return;
+      }
+
+      applyRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
+      setSlotAssignments((prev) => {
+        const next = removeAssignmentByValue(prev, minerId);
+        next[slotKey] = minerId;
+        return next;
+      });
+      setSelectedSlot(null);
+      setShowScanQr(false);
+      scanUndoRef.current = null;
     },
-    [selectedSlot, promptReparent, commitMembership],
+    [selectedSlot, confirmReparent, commitMembership, applyRackMiners],
   );
 
   const handleScanAssignmentUndo = useCallback(async () => {
@@ -633,7 +704,7 @@ export default function ManageRackModal({
     (deviceId: string | null) => {
       if (selectedSlot && deviceId) {
         // Assign this miner to the selected slot
-        setRackMiners((prev) => (prev.includes(deviceId) ? prev : [...prev, deviceId]));
+        applyRackMiners((prev) => (prev.includes(deviceId) ? prev : [...prev, deviceId]));
         setSlotAssignments((prev) => {
           const next = removeAssignmentByValue(prev, deviceId);
           next[selectedSlot.key] = deviceId;
@@ -645,7 +716,7 @@ export default function ManageRackModal({
         setSelectedMinerId(deviceId);
       }
     },
-    [selectedSlot],
+    [selectedSlot, applyRackMiners],
   );
 
   // Clear all assignments
@@ -656,17 +727,14 @@ export default function ManageRackModal({
   }, []);
 
   // Row-level "Remove from rack" — an immediate unassign (the miner keeps
-  // existing; it just leaves the rack). The row drops only once the write lands,
-  // so a failure leaves the list truthful.
+  // existing; it just leaves the rack). The commit's forgetMiners drops the row
+  // once the write lands, so a failure leaves the list truthful.
   const handleRemoveMiner = useCallback(
     async (deviceId: string) => {
-      if (!(await commitMembership([], [deviceId]))) return;
-      setRackMiners((prev) => prev.filter((id) => id !== deviceId));
-      setSlotAssignments((prev) => removeAssignmentByValue(prev, deviceId));
-      setManualAssignmentCache((prev) => removeAssignmentByValue(prev, deviceId));
-      if (selectedMinerId === deviceId) setSelectedMinerId(null);
+      const outcome = await commitMembership([], [deviceId]);
+      if (!outcome.ok && outcome.error) setErrorMsg(outcome.error);
     },
-    [selectedMinerId, commitMembership],
+    [commitMembership],
   );
 
   // Unassign miner from slot (keep in rack)
@@ -681,7 +749,10 @@ export default function ManageRackModal({
 
   // ManageMinersModal confirm handler. Returns an error string for the still-open
   // modal to surface (or undefined on success) — the parent's own callout sits
-  // behind the modal, so select-all overflow/load errors must go back up.
+  // behind the modal, so select-all overflow/load errors and the membership
+  // write's own failure must go back up. That is why the reparent warning is
+  // awaited here rather than deferring the write to a callback: the outcome has
+  // to still be in scope to return.
   const handleManageMinersConfirm = useCallback(
     async (
       selectedIds: string[],
@@ -719,21 +790,21 @@ export default function ManageRackModal({
       // The picker owns membership, so the delta is written here rather than
       // staged. Accepting the reparent warning is what authorizes that write.
       const keepSet = new Set(finalIds);
-      const removed = rackMiners.filter((id) => !keepSet.has(id));
-      const apply = async () => {
-        // Failure leaves the picker open with the selection intact to retry.
-        if (!(await commitMembership(finalIds, removed))) return;
-        setRackMiners(finalIds);
-        setShowManageMiners(false);
+      const removed = rackMinersRef.current.filter((id) => !keepSet.has(id));
+      if (!(await confirmReparent(reassignedCount))) return undefined;
 
-        // Remove assignments for miners no longer in rack
-        setSlotAssignments((prev) => filterAssignmentsByValues(prev, keepSet));
-        setManualAssignmentCache((prev) => filterAssignmentsByValues(prev, keepSet));
-      };
-      promptReparent(reassignedCount, () => void apply());
+      // Failure leaves the picker open with the selection intact to retry, so
+      // the message goes back to it rather than the callout behind it.
+      const outcome = await commitMembership(finalIds, removed);
+      if (!outcome.ok) return outcome.error;
+
+      // The removed miners' cells went with them in the commit's forgetMiners,
+      // so the surviving assignments are already the right ones.
+      applyRackMiners(finalIds);
+      setShowManageMiners(false);
       return undefined;
     },
-    [eligibility, totalSlots, rackMiners, promptReparent, commitMembership],
+    [eligibility, totalSlots, confirmReparent, commitMembership, applyRackMiners],
   );
 
   // Rack Settings "Save" handler: persists label/zone/dimensions AND placement

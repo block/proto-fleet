@@ -167,6 +167,27 @@ describe("RackSettingsModal — bulk create", () => {
     expect(screen.getByText("Must be 1–6")).toBeInTheDocument();
   });
 
+  it("refuses a count over the cap rather than silently truncating the batch", async () => {
+    const onSubmitBulk = vi.fn();
+    renderModal({ onSubmitBulk, initialCreateVariant: "multiple" });
+
+    fireEvent.change(screen.getByTestId("rack-bulk-prefix-input"), { target: { value: "R-" } });
+    fillGeometry();
+    // The field takes 3 digits, so a count past the 500 cap is reachable. Label
+    // generation clamps to 500, which would have created 500 racks while the
+    // field still read 999.
+    fireEvent.change(screen.getByTestId("rack-bulk-count-input"), { target: { value: "999" } });
+
+    fireEvent.click(screen.getByText("Create racks"));
+    expect(onSubmitBulk).not.toHaveBeenCalled();
+    expect(screen.getByText("Create up to 500 racks at a time")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId("rack-bulk-count-input"), { target: { value: "500" } });
+    fireEvent.click(screen.getByText("Create racks"));
+    await waitFor(() => expect(onSubmitBulk).toHaveBeenCalledTimes(1));
+    expect(onSubmitBulk.mock.calls[0][0]).toHaveLength(500);
+  });
+
   it("refuses a batch whose generated labels are longer than the server accepts", async () => {
     const onSubmitBulk = vi.fn();
     renderModal({ onSubmitBulk, initialCreateVariant: "multiple" });

@@ -16,6 +16,15 @@ export interface ScanAssignmentResult {
   hasNextSlot: boolean;
 }
 
+/** The assignment didn't happen. `message` is shown when present; without one the
+ *  operator cancelled and needs no telling, so the scanner just resumes. */
+export interface ScanAssignmentRefused {
+  failed: true;
+  message?: string;
+}
+
+export type ScanAssignmentOutcome = ScanAssignmentResult | ScanAssignmentRefused;
+
 interface ScanMinerQrModalProps {
   show: boolean;
   /** Label of the rack being edited; shown in assignment and confirmation copy. */
@@ -29,7 +38,7 @@ interface ScanMinerQrModalProps {
   onConfirm: (deviceIdentifier: string, isReassignment: boolean) => void;
   // Both commit: assigning writes the miner into the rack, undoing takes it
   // back out. Awaited so the "assigned" phase only shows once it landed.
-  onAssign: (deviceIdentifier: string) => Promise<ScanAssignmentResult | null>;
+  onAssign: (deviceIdentifier: string) => Promise<ScanAssignmentOutcome>;
   onUndoAssignment: () => Promise<void>;
   onScanNextSlot: () => boolean;
 }
@@ -136,8 +145,8 @@ export default function ScanMinerQrModal({
       }
 
       const assignment = await onAssign(snapshot.deviceIdentifier);
-      if (!assignment) {
-        setPhase({ kind: "error", message: "Select a rack slot, then scan a miner." });
+      if ("failed" in assignment) {
+        setPhase(assignment.message ? { kind: "error", message: assignment.message } : { kind: "scanning" });
         return;
       }
 
@@ -201,8 +210,8 @@ export default function ScanMinerQrModal({
       const isReassignment = isMinerSnapshotIneligible(phase.snapshot, eligibility);
       if (phase.requiresConfirmation && !isReassignment) {
         const assignment = await onAssign(phase.snapshot.deviceIdentifier);
-        if (!assignment) {
-          setPhase({ kind: "error", message: "Select a rack slot, then scan a miner." });
+        if ("failed" in assignment) {
+          setPhase(assignment.message ? { kind: "error", message: assignment.message } : { kind: "scanning" });
           return;
         }
 

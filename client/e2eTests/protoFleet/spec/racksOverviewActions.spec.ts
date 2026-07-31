@@ -47,7 +47,7 @@ test.describe("Racks - overview actions", () => {
       await racksPage.clickSaveMinerPositions();
 
       const assignRequest = await assignRequestPromise;
-      rackDeviceIdentifiers = assignRequest.postDataJSON().deviceIdentifiers;
+      rackDeviceIdentifiers = assignRequest.postDataJSON().deviceSelector.deviceList.deviceIdentifiers;
 
       await racksPage.validateMinerPositionsToast(rackLabel);
       test.expect(rackDeviceIdentifiers).toHaveLength(2);
@@ -126,7 +126,7 @@ test.describe("Racks - overview actions", () => {
           await racksPage.clickSaveMinerPositions();
 
           const assignRequest = await assignRequestPromise;
-          rackDeviceIdentifiers = assignRequest.postDataJSON().deviceIdentifiers;
+          rackDeviceIdentifiers = assignRequest.postDataJSON().deviceSelector.deviceList.deviceIdentifiers;
 
           await racksPage.validateMinerPositionsToast(rackLabel);
           test.expect(rackDeviceIdentifiers).toHaveLength(2);
