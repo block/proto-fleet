@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -55,7 +56,6 @@ func nightlies(n int, label string) []githubRelease {
 		tag := fmt.Sprintf("nightly-%s-%03d", label, i)
 		out[i] = githubRelease{
 			TagName:     tag,
-			HTMLURL:     "https://github.com/block/proto-fleet/releases/tag/" + tag,
 			PublishedAt: time.Date(2026, 7, 27, 3, 0, 0, 0, time.UTC),
 			Prerelease:  true,
 		}
@@ -66,7 +66,6 @@ func nightlies(n int, label string) []githubRelease {
 func rcEntry(tag string) githubRelease {
 	return githubRelease{
 		TagName:     tag,
-		HTMLURL:     "https://github.com/block/proto-fleet/releases/tag/" + tag,
 		PublishedAt: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC),
 		Prerelease:  true,
 	}
@@ -75,7 +74,6 @@ func rcEntry(tag string) githubRelease {
 func stableEntry(tag string) githubRelease {
 	return githubRelease{
 		TagName:     tag,
-		HTMLURL:     "https://github.com/block/proto-fleet/releases/tag/" + tag,
 		PublishedAt: time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC),
 	}
 }
@@ -267,6 +265,40 @@ func TestCheckCachesLatestStable(t *testing.T) {
 		assert.Equal(t, "2022-11-28", req.header.Get("X-Github-Api-Version"))
 		assert.Equal(t, "application/vnd.github+json", req.header.Get("Accept"))
 	}
+}
+
+func TestSnapshotEligibilityAccessorsEncodeAvailabilityInvariants(t *testing.T) {
+	t.Parallel()
+
+	stable := &Release{Version: "v2.0.0"}
+	snap := Snapshot{
+		LatestStable:    stable,
+		StableAvailable: true,
+		RCAvailable:     true,
+		FetchedAt:       time.Now(),
+	}
+
+	eligibleStable, stableAvailable := snap.EligibleStable()
+	require.True(t, stableAvailable)
+	require.NotNil(t, eligibleStable)
+	eligibleStable.Version = "v9.9.9"
+	assert.Equal(t, "v2.0.0", snap.LatestStable.Version, "accessors must not expose mutable cached data")
+
+	eligibleRC, rcAvailable := snap.EligibleRC()
+	assert.True(t, rcAvailable, "an available RC view may legitimately contain no candidate")
+	assert.Nil(t, eligibleRC)
+
+	snap.StableAvailable = false
+	eligibleStable, stableAvailable = snap.EligibleStable()
+	assert.False(t, stableAvailable, "a retained candidate is not eligible while its channel is unavailable")
+	assert.Nil(t, eligibleStable)
+
+	zeroStable, zeroStableAvailable := (Snapshot{}).EligibleStable()
+	zeroRC, zeroRCAvailable := (Snapshot{}).EligibleRC()
+	assert.Nil(t, zeroStable)
+	assert.False(t, zeroStableAvailable)
+	assert.Nil(t, zeroRC)
+	assert.False(t, zeroRCAvailable)
 }
 
 // The checker is channel-agnostic — it caches BOTH the
@@ -472,7 +504,7 @@ func TestReleasePageRejectsMoreThanPageSizeEntries(t *testing.T) {
 
 	gh := newGHServer(t)
 	gh.setList(http.StatusOK, releasesJSON(t, nightlies(releasesPageSize+1, "oversized")))
-	client := newGitHubClient(gh.srv.URL, "test-version", slog.Default())
+	client := newGitHubClient(gh.srv.URL, "test-version", "", slog.Default())
 
 	_, err := client.fetchReleases(context.Background())
 	require.Error(t, err)
@@ -487,11 +519,96 @@ func TestLatestReleaseRejectsTrailingJSON(t *testing.T) {
 	gh := newGHServer(t)
 	body := append(fixture(t, "latest_stable.json"), []byte("\n{}")...)
 	gh.setLatest(http.StatusOK, body)
-	client := newGitHubClient(gh.srv.URL, "test-version", slog.Default())
+	client := newGitHubClient(gh.srv.URL, "test-version", "", slog.Default())
 
 	_, err := client.fetchLatestStableFallback(context.Background())
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "unexpected trailing JSON value")
+}
+
+func TestAuthenticatedConditionalRequestsReuseCachedResponses(t *testing.T) {
+	t.Parallel()
+
+	const token = "release-check-token"
+	var mu sync.Mutex
+	requests := make([]ghRequest, 0, 4)
+	counts := make(map[string]int)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests = append(requests, ghRequest{path: r.URL.Path, header: r.Header.Clone()})
+		counts[r.URL.Path]++
+		count := counts[r.URL.Path]
+		mu.Unlock()
+
+		etag := `"` + strings.TrimPrefix(r.URL.Path, "/") + `-etag"`
+		if count > 1 {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("ETag", etag)
+		switch r.URL.Path {
+		case "/releases/latest":
+			_, _ = w.Write(releaseJSON(t, stableEntry("v2.0.0")))
+		case "/releases":
+			_, _ = w.Write(releasesJSON(t, []githubRelease{rcEntry("v2.1.0-rc.1")}))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	client := newGitHubClient(srv.URL, "test-version", token, slog.Default())
+	firstLatest, err := client.fetchLatestStableFallback(context.Background())
+	require.NoError(t, err)
+	secondLatest, err := client.fetchLatestStableFallback(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, firstLatest, secondLatest)
+
+	firstList, err := client.fetchReleases(context.Background())
+	require.NoError(t, err)
+	secondList, err := client.fetchReleases(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, firstList, secondList)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, requests, 4)
+	for _, request := range requests {
+		assert.Equal(t, "Bearer "+token, request.header.Get("Authorization"))
+	}
+	assert.Empty(t, requests[0].header.Get("If-None-Match"))
+	assert.Equal(t, `"releases/latest-etag"`, requests[1].header.Get("If-None-Match"))
+	assert.Empty(t, requests[2].header.Get("If-None-Match"))
+	assert.Equal(t, `"releases-etag"`, requests[3].header.Get("If-None-Match"))
+}
+
+func TestRateLimitResponseStopsRequestsUntilResetAndWarns(t *testing.T) {
+	t.Parallel()
+
+	resetAt := time.Now().Add(time.Hour).Truncate(time.Second)
+	var mu sync.Mutex
+	requestCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		requestCount++
+		mu.Unlock()
+		w.Header().Set("X-Ratelimit-Remaining", "0")
+		w.Header().Set("X-Ratelimit-Reset", fmt.Sprintf("%d", resetAt.Unix()))
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := Config{CheckInterval: time.Hour, DownloadBaseURL: downloadBaseURL, Enabled: true}
+	c, h := newTestChecker(t, cfg, srv.URL)
+	c.check(context.Background())
+
+	mu.Lock()
+	assert.Equal(t, 1, requestCount, "the list request must stop locally after the latest endpoint reports exhaustion")
+	mu.Unlock()
+	records := h.recordsAbove(slog.LevelDebug)
+	require.Len(t, records, 1)
+	assert.Equal(t, slog.LevelWarn, records[0].Level)
+	assert.Equal(t, "release check skipped", records[0].Message)
 }
 
 func TestReleaseByTagRequiresMatchingStrictResponse(t *testing.T) {
@@ -534,7 +651,7 @@ func TestReleaseByTagRequiresMatchingStrictResponse(t *testing.T) {
 
 			gh := newGHServer(t)
 			gh.setTag("v2.0.0", tt.status, tt.body)
-			client := newGitHubClient(gh.srv.URL, "test-version", slog.Default())
+			client := newGitHubClient(gh.srv.URL, "test-version", "", slog.Default())
 
 			rel, found, err := client.fetchReleaseByTag(context.Background(), "v2.0.0")
 			if tt.wantErr != "" {
@@ -556,7 +673,7 @@ func TestHTTPTransportErrorDoesNotExposeRequestURL(t *testing.T) {
 	t.Parallel()
 
 	const sensitiveURL = "https://user:password@example.com/releases?token=secret"
-	client := newGitHubClient("https://example.com", "test-version", slog.Default())
+	client := newGitHubClient("https://example.com", "test-version", "", slog.Default())
 	client.httpClient.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, &url.Error{
 			Op:  http.MethodGet,
@@ -565,7 +682,7 @@ func TestHTTPTransportErrorDoesNotExposeRequestURL(t *testing.T) {
 		}
 	})
 
-	resp, err := client.get(context.Background(), sensitiveURL)
+	resp, err := client.get(context.Background(), sensitiveURL, "")
 	if resp != nil {
 		closeBody(resp)
 	}
@@ -591,6 +708,17 @@ func TestRCPickedBySemverMaxNotListOrder(t *testing.T) {
 	snap := c.Snapshot()
 	require.NotNil(t, snap.LatestRC)
 	assert.Equal(t, "v0.2.9-rc.10", snap.LatestRC.Version)
+}
+
+func TestRCMetadataUsesCanonicalTagInsteadOfGitHubPrereleaseFlag(t *testing.T) {
+	t.Parallel()
+
+	misflagged := rcEntry("v1.2.3-rc.1")
+	misflagged.Prerelease = false
+	release := latestRC([]githubRelease{misflagged})
+
+	require.NotNil(t, release)
+	assert.True(t, release.Prerelease, "the UI warning must follow the grammar used to select the RC channel")
 }
 
 // R4: one malformed entry in the list is skipped without aborting the cycle.
@@ -780,6 +908,39 @@ func TestCachedStableRevalidationFailureMarksOnlyStableUnavailable(t *testing.T)
 	assert.Empty(t, h.recordsAbove(slog.LevelDebug))
 }
 
+func TestRepeatedRevalidationFailureWarnsWithoutDroppingCachedRelease(t *testing.T) {
+	t.Parallel()
+
+	gh := newGHServer(t)
+	gh.setLatest(http.StatusOK, releaseJSON(t, stableEntry("v2.0.0")))
+	c, h := newTestChecker(t, gh.config(), gh.srv.URL)
+	c.check(context.Background())
+	require.Equal(t, "v2.0.0", c.Snapshot().LatestStable.Version)
+
+	gh.setLatest(http.StatusOK, releaseJSON(t, stableEntry("v1.9.1")))
+	gh.setTag("v2.0.0", http.StatusInternalServerError, []byte("boom"))
+	for range revalidationWarningThreshold + 1 {
+		c.check(context.Background())
+	}
+
+	snap := c.Snapshot()
+	require.NotNil(t, snap.LatestStable)
+	assert.Equal(t, "v2.0.0", snap.LatestStable.Version, "transient failures never prove the cached release was withdrawn")
+	assert.False(t, snap.StableAvailable)
+	warnings := h.recordsAbove(slog.LevelDebug)
+	require.Len(t, warnings, 1, "warn once when the threshold is crossed, not on every later cycle")
+	assert.Equal(t, slog.LevelWarn, warnings[0].Level)
+	assert.Equal(t, "cached release revalidation repeatedly unavailable", warnings[0].Message)
+
+	gh.setTag("v2.0.0", http.StatusOK, releaseJSON(t, stableEntry("v2.0.0")))
+	c.check(context.Background())
+	gh.setTag("v2.0.0", http.StatusInternalServerError, []byte("boom"))
+	for range revalidationWarningThreshold {
+		c.check(context.Background())
+	}
+	assert.Len(t, h.recordsAbove(slog.LevelDebug), 2, "a successful revalidation resets the warning threshold")
+}
+
 func TestHigherCachedRCIsRevalidatedAndPreserved(t *testing.T) {
 	t.Parallel()
 
@@ -944,32 +1105,57 @@ func TestFailuresRetainSnapshotSilently(t *testing.T) {
 	}
 }
 
-// A body-derived notes URL is kept only when it is an absolute https URL.
-// The tag grammar guards the install command; this guards the rendered link:
-// a compromised or misconfigured releases API must not smuggle a javascript:
-// href into the UI. Dropped URLs come through empty and the client hides the
-// link.
-func TestNotesURLRequiresHTTPS(t *testing.T) {
+// Release-note links are derived from the fixed repository and validated tag,
+// never from the upstream html_url field rendered by the client.
+func TestNotesURLUsesCanonicalRepositoryAndTag(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name, htmlURL, want string
-	}{
-		{"https kept", "https://github.com/block/proto-fleet/releases/tag/v0.2.9", "https://github.com/block/proto-fleet/releases/tag/v0.2.9"},
-		{"javascript scheme dropped", "javascript:alert(document.domain)", ""},
-		{"http dropped", "http://github.com/block/proto-fleet/releases/tag/v0.2.9", ""},
-		{"scheme-relative dropped", "//github.com/block/proto-fleet/releases/tag/v0.2.9", ""},
-		{"missing host dropped", "https:///releases/tag/v0.2.9", ""},
-		{"unparseable dropped", "https://%zz", ""},
-		{"empty stays empty", "", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			rel := newRelease(githubRelease{TagName: "v0.2.9", HTMLURL: tt.htmlURL})
-			assert.Equal(t, tt.want, rel.NotesURL)
-		})
-	}
+	var upstream githubRelease
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"tag_name":"v0.2.9",
+		"html_url":"https://github.com@something.example/phishing"
+	}`), &upstream))
+	release := newRelease(upstream)
+	assert.Equal(t, "https://github.com/block/proto-fleet/releases/tag/v0.2.9", release.NotesURL)
+
+	assert.Empty(t, releaseNotesURL("nightly-20260731"))
+	assert.Empty(t, releaseNotesURL("v1.2.3/../../phishing"))
+}
+
+func TestCheckSafelyRecoversAndAllowsNextCycle(t *testing.T) {
+	t.Parallel()
+
+	gh := newGHServer(t)
+	c, h := newTestChecker(t, gh.config(), gh.srv.URL)
+	calls := 0
+	c.client.httpClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		calls++
+		if calls == 1 {
+			panic("unexpected transport defect")
+		}
+		body := []byte("[]")
+		if req.URL.Path == "/releases/latest" {
+			body = releaseJSON(t, stableEntry("v2.0.0"))
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(string(body))),
+			Request:    req,
+		}, nil
+	})
+
+	assert.NotPanics(t, func() { c.checkSafely(context.Background()) })
+	records := h.recordsAbove(slog.LevelDebug)
+	require.Len(t, records, 1)
+	assert.Equal(t, slog.LevelError, records[0].Level)
+	assert.Equal(t, "release check panicked", records[0].Message)
+
+	c.checkSafely(context.Background())
+	stable, available := c.Snapshot().EligibleStable()
+	require.True(t, available, "a later cycle must still run after a contained panic")
+	require.NotNil(t, stable)
+	assert.Equal(t, "v2.0.0", stable.Version)
 }
 
 // Idempotent Start, draining Stop, no-op second Stop, and a

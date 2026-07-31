@@ -8,7 +8,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -32,7 +34,6 @@ const (
 // githubRelease mirrors the subset of a GitHub release object we consume.
 type githubRelease struct {
 	TagName     string    `json:"tag_name"`
-	HTMLURL     string    `json:"html_url"`
 	PublishedAt time.Time `json:"published_at"`
 	Prerelease  bool      `json:"prerelease"`
 	Draft       bool      `json:"draft"`
@@ -43,14 +44,33 @@ type githubRelease struct {
 type githubClient struct {
 	baseURL    string
 	userAgent  string
+	token      string
 	logger     *slog.Logger
 	httpClient *http.Client
+
+	mu               sync.Mutex
+	latestETag       string
+	latestRelease    githubRelease
+	latestCached     bool
+	releasesETag     string
+	cachedReleases   []githubRelease
+	releasesCached   bool
+	rateLimitedUntil time.Time
 }
 
-func newGitHubClient(baseURL, serverVersion string, logger *slog.Logger) *githubClient {
+type githubRateLimitError struct {
+	resetAt time.Time
+}
+
+func (e *githubRateLimitError) Error() string {
+	return "GitHub API rate limit exceeded"
+}
+
+func newGitHubClient(baseURL, serverVersion, token string, logger *slog.Logger) *githubClient {
 	return &githubClient{
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		userAgent:  "fleetd/" + serverVersion,
+		token:      token,
 		logger:     logger,
 		httpClient: &http.Client{Timeout: githubHTTPTimeout},
 	}
@@ -60,17 +80,30 @@ func newGitHubClient(baseURL, serverVersion string, logger *slog.Logger) *github
 // non-prerelease as a fallback candidate. The checker semver-maxes it with
 // canonical stable tags from the first release-list page.
 func (c *githubClient) fetchLatestStableFallback(ctx context.Context) (githubRelease, error) {
-	resp, err := c.get(ctx, c.baseURL+"/releases/latest")
+	etag, cached, cachedOK := c.latestCache()
+	resp, err := c.get(ctx, c.baseURL+"/releases/latest", etag)
 	if err != nil {
 		return githubRelease{}, err
 	}
 	defer closeBody(resp)
 
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusNotModified:
+		if !cachedOK {
+			return githubRelease{}, fmt.Errorf("GET /releases/latest: 304 without cached response")
+		}
+		return cached, nil
+	case http.StatusOK:
+	default:
 		return githubRelease{}, fmt.Errorf("GET /releases/latest: status %d", resp.StatusCode)
 	}
 
-	return decodeRelease(resp.Body, "/releases/latest")
+	rel, err := decodeRelease(resp.Body, "/releases/latest")
+	if err != nil {
+		return githubRelease{}, err
+	}
+	c.storeLatest(resp.Header.Get("ETag"), rel)
+	return rel, nil
 }
 
 // fetchReleaseByTag revalidates a cached release that no longer appears in
@@ -79,7 +112,7 @@ func (c *githubClient) fetchLatestStableFallback(ctx context.Context) (githubRel
 // unknown.
 func (c *githubClient) fetchReleaseByTag(ctx context.Context, tag string) (githubRelease, bool, error) {
 	endpoint := c.baseURL + "/releases/tags/" + url.PathEscape(tag)
-	resp, err := c.get(ctx, endpoint)
+	resp, err := c.get(ctx, endpoint, "")
 	if err != nil {
 		return githubRelease{}, false, err
 	}
@@ -119,13 +152,21 @@ func decodeRelease(body io.Reader, endpoint string) (githubRelease, error) {
 // array.
 func (c *githubClient) fetchReleases(ctx context.Context) ([]githubRelease, error) {
 	endpoint := fmt.Sprintf("%s/releases?per_page=%d&page=1", c.baseURL, releasesPageSize)
-	resp, err := c.get(ctx, endpoint)
+	etag, cached, cachedOK := c.releasesCache()
+	resp, err := c.get(ctx, endpoint, etag)
 	if err != nil {
 		return nil, err
 	}
 	defer closeBody(resp)
 
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusNotModified:
+		if !cachedOK {
+			return nil, fmt.Errorf("GET /releases: 304 without cached response")
+		}
+		return cached, nil
+	case http.StatusOK:
+	default:
 		return nil, fmt.Errorf("GET /releases: status %d", resp.StatusCode)
 	}
 
@@ -163,6 +204,7 @@ func (c *githubClient) fetchReleases(ctx context.Context) ([]githubRelease, erro
 	if err := requireJSONEOF(decoder); err != nil {
 		return nil, fmt.Errorf("decode /releases: %w", err)
 	}
+	c.storeReleases(resp.Header.Get("ETag"), entries)
 	return entries, nil
 }
 
@@ -178,13 +220,22 @@ func requireJSONEOF(decoder *json.Decoder) error {
 	}
 }
 
-func (c *githubClient) get(ctx context.Context, endpoint string) (*http.Response, error) {
+func (c *githubClient) get(ctx context.Context, endpoint, etag string) (*http.Response, error) {
+	if resetAt := c.currentRateLimit(); !resetAt.IsZero() {
+		return nil, &githubRateLimitError{resetAt: resetAt}
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("new request: %w", err)
 	}
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Accept", githubMediaType)
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	if etag != "" {
+		req.Header.Set("If-None-Match", etag)
+	}
 	// GitHub documents "X-GitHub-Api-Version"; header names are
 	// case-insensitive and Go canonicalizes to this form regardless.
 	req.Header.Set("X-Github-Api-Version", githubAPIVersion)
@@ -192,7 +243,82 @@ func (c *githubClient) get(ctx context.Context, endpoint string) (*http.Response
 	if err != nil {
 		return nil, fmt.Errorf("http GET: %w", withoutRequestURL(err))
 	}
+	if resetAt, limited := responseRateLimit(resp); limited {
+		closeBody(resp)
+		c.setRateLimit(resetAt)
+		return nil, &githubRateLimitError{resetAt: resetAt}
+	}
 	return resp, nil
+}
+
+func (c *githubClient) latestCache() (string, githubRelease, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.latestETag, c.latestRelease, c.latestCached
+}
+
+func (c *githubClient) storeLatest(etag string, rel githubRelease) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.latestETag = etag
+	c.latestRelease = rel
+	c.latestCached = true
+}
+
+func (c *githubClient) releasesCache() (string, []githubRelease, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.releasesETag, append([]githubRelease(nil), c.cachedReleases...), c.releasesCached
+}
+
+func (c *githubClient) storeReleases(etag string, releases []githubRelease) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.releasesETag = etag
+	c.cachedReleases = append(c.cachedReleases[:0], releases...)
+	c.releasesCached = true
+}
+
+func (c *githubClient) currentRateLimit() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.rateLimitedUntil.After(time.Now()) {
+		return c.rateLimitedUntil
+	}
+	c.rateLimitedUntil = time.Time{}
+	return time.Time{}
+}
+
+func (c *githubClient) setRateLimit(resetAt time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.rateLimitedUntil = resetAt
+}
+
+func responseRateLimit(resp *http.Response) (time.Time, bool) {
+	remainingExhausted := resp.Header.Get("X-Ratelimit-Remaining") == "0"
+	retryAfter := resp.Header.Get("Retry-After")
+	if resp.StatusCode != http.StatusTooManyRequests &&
+		!(resp.StatusCode == http.StatusForbidden && (remainingExhausted || retryAfter != "")) {
+		return time.Time{}, false
+	}
+
+	now := time.Now()
+	if raw := resp.Header.Get("X-Ratelimit-Reset"); raw != "" {
+		if seconds, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			resetAt := time.Unix(seconds, 0)
+			if resetAt.After(now) {
+				return resetAt, true
+			}
+		}
+	}
+	if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds > 0 {
+		return now.Add(time.Duration(seconds) * time.Second), true
+	}
+	if resetAt, err := http.ParseTime(retryAfter); err == nil && resetAt.After(now) {
+		return resetAt, true
+	}
+	return now.Add(time.Minute), true
 }
 
 // withoutRequestURL removes net/url wrappers before an error reaches logs.

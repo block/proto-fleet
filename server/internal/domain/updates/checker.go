@@ -2,18 +2,23 @@ package updates
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
-	"net/url"
 	"regexp"
+	"runtime/debug"
 	"sync"
 	"time"
 
 	"golang.org/x/mod/semver"
 )
 
-const defaultCheckInterval = time.Hour
+const (
+	defaultCheckInterval         = time.Hour
+	revalidationWarningThreshold = 3
+	releaseNotesBaseURL          = "https://github.com/block/proto-fleet/releases/tag/"
+)
 
 var (
 	stableTagPattern = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
@@ -28,14 +33,37 @@ type Release struct {
 	Prerelease  bool
 }
 
-// Snapshot is the checker's view of the newest available releases. Zero value
-// until the first successful fetch.
+// Snapshot is the checker's view of the newest available releases. Its zero
+// value means discovery has not succeeded. Availability reports whether a
+// channel is safe to consume; a retained pointer may be non-nil while its
+// channel is unavailable, and RCAvailable may be true with a nil LatestRC when
+// discovery succeeded but found no release candidate. FetchedAt records the
+// latest successful list cycle and is metadata, not an additional eligibility
+// guard. Prefer EligibleStable and EligibleRC when consuming a snapshot.
 type Snapshot struct {
 	LatestStable    *Release
 	LatestRC        *Release
 	FetchedAt       time.Time
 	StableAvailable bool
 	RCAvailable     bool
+}
+
+// EligibleStable returns the verified stable candidate and whether stable
+// discovery is available. The candidate is non-nil whenever available is true.
+func (s Snapshot) EligibleStable() (*Release, bool) {
+	if !s.StableAvailable || s.LatestStable == nil {
+		return nil, false
+	}
+	return cloneRelease(s.LatestStable), true
+}
+
+// EligibleRC returns the verified RC candidate and whether RC discovery is
+// available. A nil candidate with available=true means no RC was discovered.
+func (s Snapshot) EligibleRC() (*Release, bool) {
+	if !s.RCAvailable {
+		return nil, false
+	}
+	return cloneRelease(s.LatestRC), true
 }
 
 // Checker periodically fetches release metadata from GitHub and caches both
@@ -52,6 +80,8 @@ type Checker struct {
 	lifecycleMu sync.Mutex
 	cancel      context.CancelFunc
 	done        chan struct{}
+
+	revalidationFailures map[string]int
 }
 
 // NewChecker creates a release checker; serverVersion identifies this fleetd
@@ -62,9 +92,10 @@ func NewChecker(cfg Config, serverVersion string) *Checker {
 
 func newChecker(cfg Config, releasesAPIURL, serverVersion string, logger *slog.Logger) *Checker {
 	return &Checker{
-		cfg:    cfg,
-		logger: logger,
-		client: newGitHubClient(releasesAPIURL, serverVersion, logger),
+		cfg:                  cfg,
+		logger:               logger,
+		client:               newGitHubClient(releasesAPIURL, serverVersion, cfg.GitHubToken, logger),
+		revalidationFailures: make(map[string]int),
 	}
 }
 
@@ -74,15 +105,17 @@ func (c *Checker) Snapshot() Snapshot {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	snap := c.snapshot
-	if snap.LatestStable != nil {
-		stable := *snap.LatestStable
-		snap.LatestStable = &stable
-	}
-	if snap.LatestRC != nil {
-		rc := *snap.LatestRC
-		snap.LatestRC = &rc
-	}
+	snap.LatestStable = cloneRelease(snap.LatestStable)
+	snap.LatestRC = cloneRelease(snap.LatestRC)
 	return snap
+}
+
+func cloneRelease(release *Release) *Release {
+	if release == nil {
+		return nil
+	}
+	cloned := *release
+	return &cloned
 }
 
 // Start launches the polling goroutine: one non-blocking check shortly after
@@ -148,7 +181,7 @@ func (c *Checker) Stop(ctx context.Context) error {
 }
 
 func (c *Checker) run(ctx context.Context) {
-	c.check(ctx)
+	c.checkSafely(ctx)
 
 	timer := time.NewTimer(c.jitteredInterval())
 	defer timer.Stop()
@@ -157,10 +190,22 @@ func (c *Checker) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
-			c.check(ctx)
+			c.checkSafely(ctx)
 			timer.Reset(c.jitteredInterval())
 		}
 	}
+}
+
+// checkSafely contains defects to this best-effort background feature. The
+// next scheduled cycle still runs, while the stack trace keeps a programming
+// error diagnosable instead of letting a non-critical poll crash fleetd.
+func (c *Checker) checkSafely(ctx context.Context) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			c.logger.Error("release check panicked", "panic", recovered, "stack", string(debug.Stack()))
+		}
+	}()
+	c.check(ctx)
 }
 
 // jitteredInterval subtracts 10-20% random jitter from the configured
@@ -186,7 +231,7 @@ func (c *Checker) check(ctx context.Context) {
 	latest, latestErr := c.client.fetchLatestStableFallback(ctx)
 	list, err := c.client.fetchReleases(ctx)
 	if err != nil {
-		c.logger.Debug("release check skipped", "error", err)
+		c.logFetchFailure("release check skipped", err)
 		c.mu.Lock()
 		c.snapshot.StableAvailable = false
 		c.snapshot.RCAvailable = false
@@ -196,7 +241,7 @@ func (c *Checker) check(ctx context.Context) {
 	previous := c.Snapshot()
 	stable := latestStable(latest, list)
 	if latestErr != nil {
-		c.logger.Debug("stable release fallback unavailable", "error", latestErr)
+		c.logFetchFailure("stable release fallback unavailable", latestErr)
 	}
 	stable, stableComplete := c.reconcileCachedRelease(
 		ctx,
@@ -241,18 +286,46 @@ func (c *Checker) reconcileCachedRelease(
 ) (*Release, bool) {
 	if cached == nil ||
 		(current != nil && semver.Compare(cached.Version, current.Version) <= 0) {
+		c.clearRevalidationFailures(channel)
 		return current, true
 	}
 
 	rel, found, err := c.client.fetchReleaseByTag(ctx, cached.Version)
 	if err != nil {
 		c.logger.Debug("cached release revalidation unavailable", "channel", channel, "error", err)
+		c.recordRevalidationFailure(channel, err)
 		return cached, false
 	}
+	c.clearRevalidationFailures(channel)
 	if !found || !eligible(rel) {
 		return current, true
 	}
 	return newRelease(rel), true
+}
+
+func (c *Checker) logFetchFailure(message string, err error) {
+	var rateLimitErr *githubRateLimitError
+	if errors.As(err, &rateLimitErr) {
+		c.logger.Warn(message, "error", err, "rate_limit_reset_at", rateLimitErr.resetAt)
+		return
+	}
+	c.logger.Debug(message, "error", err)
+}
+
+func (c *Checker) recordRevalidationFailure(channel string, err error) {
+	c.revalidationFailures[channel]++
+	if c.revalidationFailures[channel] == revalidationWarningThreshold {
+		c.logger.Warn(
+			"cached release revalidation repeatedly unavailable",
+			"channel", channel,
+			"consecutive_failures", c.revalidationFailures[channel],
+			"error", err,
+		)
+	}
+}
+
+func (c *Checker) clearRevalidationFailures(channel string) {
+	delete(c.revalidationFailures, channel)
 }
 
 // latestStable picks the semantic-version maximum canonical stable tag from
@@ -317,29 +390,22 @@ func isCanonicalRCTag(tag string) bool {
 	return rcTagPattern.MatchString(tag) && semver.IsValid(tag)
 }
 
-func isCanonicalReleaseTag(tag string) bool {
-	return isCanonicalStableTag(tag) || isCanonicalRCTag(tag)
-}
-
 func newRelease(rel githubRelease) *Release {
 	return &Release{
 		Version:     rel.TagName,
-		NotesURL:    safeNotesURL(rel.HTMLURL),
+		NotesURL:    releaseNotesURL(rel.TagName),
 		PublishedAt: rel.PublishedAt,
-		Prerelease:  rel.Prerelease,
+		Prerelease:  isCanonicalRCTag(rel.TagName),
 	}
 }
 
-// safeNotesURL keeps a body-derived html_url only when it parses as an
-// absolute https URL. Unlike the tag, this field never passes a grammar
-// check, and the client renders it as a link — so a compromised or
-// misconfigured releases API could otherwise smuggle a javascript: href into
-// the UI. Anything short of https is dropped and the client hides the link.
-// This extends Config.Validate's https-only stance to body-derived fields.
-func safeNotesURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host == "" {
+// releaseNotesURL derives the rendered link from the fixed repository and the
+// same canonical tag grammar used for channel selection. The body-provided
+// html_url is intentionally ignored so an upstream response cannot redirect
+// an operator to another HTTPS host or smuggle URL userinfo.
+func releaseNotesURL(tag string) string {
+	if !isCanonicalStableTag(tag) && !isCanonicalRCTag(tag) {
 		return ""
 	}
-	return raw
+	return releaseNotesBaseURL + tag
 }
