@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"golang.org/x/crypto/hkdf"
 
@@ -22,7 +23,9 @@ const (
 
 	x25519KeySize   = 32
 	nonceSize       = 12
+	gcmTagSize      = 16
 	maxCiphertext   = 8192
+	maxDeviceIDSize = 256
 	envelopeVersion = 1
 )
 
@@ -63,13 +66,9 @@ func Encrypt(publicKey []byte, deviceIdentifier string, config sdk.CurtailmentCo
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, fmt.Errorf("generate nonce: %w", err)
 	}
-	plaintext, err := json.Marshal(Secret{
-		Version:          envelopeVersion,
-		DeviceIdentifier: deviceIdentifier,
-		Config:           config,
-	})
+	plaintext, err := marshalSecret(deviceIdentifier, config)
 	if err != nil {
-		return nil, fmt.Errorf("marshal curtailment config secret: %w", err)
+		return nil, err
 	}
 	ciphertext := aead.Seal(nil, nonce, plaintext, associatedData(deviceIdentifier))
 	if len(ciphertext) > maxCiphertext {
@@ -133,6 +132,34 @@ func Decrypt(privateKey []byte, payload *gatewaypb.NodeEncryptedPayload, deviceI
 		return sdk.CurtailmentConfig{}, fmt.Errorf("curtailment config target %q does not match command target %q", secret.DeviceIdentifier, deviceIdentifier)
 	}
 	return secret.Config, nil
+}
+
+// ValidateConfigSize guarantees a config can fit the encrypted FleetNode
+// transport for every valid device identifier. The placeholder reserves the
+// worst-case JSON escaping for the selector's 256-byte identifier limit.
+func ValidateConfigSize(config sdk.CurtailmentConfig) error {
+	deviceIdentifier := strings.Repeat("\x00", maxDeviceIDSize)
+	plaintext, err := marshalSecret(deviceIdentifier, config)
+	if err != nil {
+		return err
+	}
+	encryptedSize := len(plaintext) + gcmTagSize
+	if encryptedSize > maxCiphertext {
+		return fmt.Errorf("encrypted curtailment config is %d bytes; maximum is %d", encryptedSize, maxCiphertext)
+	}
+	return nil
+}
+
+func marshalSecret(deviceIdentifier string, config sdk.CurtailmentConfig) ([]byte, error) {
+	plaintext, err := json.Marshal(Secret{
+		Version:          envelopeVersion,
+		DeviceIdentifier: deviceIdentifier,
+		Config:           config,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshal curtailment config secret: %w", err)
+	}
+	return plaintext, nil
 }
 
 func aeadFromSharedSecret(shared []byte) (cipher.AEAD, error) {

@@ -3,6 +3,7 @@ package curtailmentconfig
 import (
 	"crypto/ecdh"
 	"crypto/rand"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -65,6 +66,19 @@ func TestDecryptRejectsOversizedCiphertext(t *testing.T) {
 	payload.Ciphertext = make([]byte, maxCiphertext+1)
 
 	_, err = Decrypt(privateKey.Bytes(), payload, "proto-rig-1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "maximum")
+}
+
+func TestValidateConfigSizeRejectsOversizedConfig(t *testing.T) {
+	t.Parallel()
+
+	config := sdk.CurtailmentConfig{Providers: []sdk.CurtailmentProviderConfig{{
+		Name:     "maestro",
+		Password: strings.Repeat("p", maxCiphertext),
+	}}}
+
+	err := ValidateConfigSize(config)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "maximum")
 }

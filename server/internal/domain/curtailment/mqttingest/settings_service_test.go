@@ -374,6 +374,29 @@ func TestSettingsService_TLSBrokerIsExcludedFromRigFallbackConfig(t *testing.T) 
 	assert.Empty(t, applier.configs[0].Providers)
 }
 
+func TestSettingsService_EnableSurfacesOversizedRigFallbackConfig(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = false
+	source.MQTTPasswordEncrypted = "enc:" + strings.Repeat("p", 8192)
+	applier := &fakeRigConfigApplier{}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            newFakeSettingsStore(source),
+		Cipher:           &fakeSettingsCipher{},
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.SetEnabled(t.Context(), 42, 7, true)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "too large for FleetNode delivery")
+	assert.Zero(t, applier.calls)
+}
+
 func TestSettingsService_ReapplyRigConfigUsesSyntheticAuditIdentity(t *testing.T) {
 	t.Parallel()
 

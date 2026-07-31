@@ -183,43 +183,44 @@ func TestFleetNodeConnectedReappliesRigConfigWithAssignmentIdentity(t *testing.T
 	}
 }
 
-func TestRigConfigReapplyCoalescesConcurrentOrgTriggers(t *testing.T) {
-	started := make(chan struct{}, 2)
+func TestRigConfigReapplyCoalescesConcurrentOrgTriggersWithTrailingRun(t *testing.T) {
+	started := make(chan int64, 3)
 	release := make(chan struct{})
-	svc := &Service{rigConfigReapplier: func(context.Context, int64, int64) {
-		started <- struct{}{}
-		<-release
+	svc := &Service{rigConfigReapplier: func(_ context.Context, _ int64, userID int64) {
+		started <- userID
+		if userID == 91 {
+			<-release
+		}
 	}}
-	done := make(chan struct{}, 2)
-	reapply := func() {
-		svc.runRigConfigReapply(t.Context(), 56, 91)
-		done <- struct{}{}
-	}
+	firstUser := int64(91)
+	secondUser := int64(92)
+	latestUser := int64(93)
 
-	go reapply()
+	svc.reapplyRigConfigBestEffort(t.Context(), 56, &firstUser)
 	select {
-	case <-started:
+	case got := <-started:
+		require.Equal(t, firstUser, got)
 	case <-time.After(time.Second):
 		t.Fatal("first rig config reapply was not started")
 	}
-	go reapply()
+	svc.reapplyRigConfigBestEffort(t.Context(), 56, &secondUser)
+	svc.reapplyRigConfigBestEffort(t.Context(), 56, &latestUser)
 
 	select {
 	case <-started:
-		t.Fatal("concurrent organization-wide reapply was not coalesced")
+		t.Fatal("concurrent organization-wide triggers were not coalesced")
 	case <-time.After(50 * time.Millisecond):
 	}
 	close(release)
-	for range 2 {
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Fatal("coalesced rig config reapply did not finish")
-		}
+	select {
+	case got := <-started:
+		require.Equal(t, latestUser, got)
+	case <-time.After(time.Second):
+		t.Fatal("trailing rig config reapply was not started")
 	}
 	select {
 	case <-started:
-		t.Fatal("coalesced trigger started a second reapply")
-	default:
+		t.Fatal("coalesced triggers started more than one trailing reapply")
+	case <-time.After(50 * time.Millisecond):
 	}
 }

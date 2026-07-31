@@ -12,6 +12,7 @@ import (
 	"connectrpc.com/authn"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/curtailmentconfig"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
@@ -327,18 +328,21 @@ func (s *SettingsService) TestConnection(ctx context.Context, req TestSourceConn
 	return s.connectionTester.TestConnection(ctx, req)
 }
 
-func (s *SettingsService) applyRigConfigBestEffort(ctx context.Context, orgID int64) {
+func (s *SettingsService) applyRigConfig(ctx context.Context, orgID int64) error {
 	if s.rigConfigApplier == nil {
-		return
+		return nil
 	}
 	applyCtx, cancel := context.WithTimeout(detachedContext(ctx), s.reconcileTimeout)
 	defer cancel()
 	config, err := s.buildRigCurtailmentConfig(applyCtx, orgID)
 	if err != nil {
-		slog.Error("build Proto rig curtailment config after MQTT settings write", "org_id", orgID, "error", err)
-		return
+		return err
 	}
-	if err := s.rigConfigApplier.ApplyCurtailmentConfigToProtoRigs(applyCtx, config); err != nil {
+	return s.rigConfigApplier.ApplyCurtailmentConfigToProtoRigs(applyCtx, config)
+}
+
+func (s *SettingsService) applyRigConfigBestEffort(ctx context.Context, orgID int64) {
+	if err := s.applyRigConfig(ctx, orgID); err != nil {
 		slog.Error("apply curtailment config to eligible Proto rigs", "org_id", orgID, "error", err)
 	}
 }
@@ -364,7 +368,12 @@ func (s *SettingsService) ReapplyRigConfigBestEffort(ctx context.Context, orgID,
 
 func (s *SettingsService) reconcileAndApplyRigConfig(ctx context.Context, orgID int64) error {
 	reconcileErr := s.reconcile(ctx)
-	s.applyRigConfigBestEffort(ctx, orgID)
+	if applyErr := s.applyRigConfig(ctx, orgID); applyErr != nil {
+		if fleeterror.IsFailedPreconditionError(applyErr) {
+			return applyErr
+		}
+		slog.Error("apply curtailment config to eligible Proto rigs after MQTT settings write", "org_id", orgID, "error", applyErr)
+	}
 	return reconcileErr
 }
 
@@ -413,7 +422,7 @@ func (s *SettingsService) buildRigCurtailmentConfig(ctx context.Context, orgID i
 			ReconnectBackoff: "5s",
 		})
 	}
-	return sdk.CurtailmentConfig{
+	config := sdk.CurtailmentConfig{
 		Enabled:               len(providers) > 0,
 		FailPolicy:            "closed",
 		RestorePolicy:         "respect_manual_stop",
@@ -421,7 +430,11 @@ func (s *SettingsService) buildRigCurtailmentConfig(ctx context.Context, orgID i
 		MCDDGRPCAddress:       "127.0.0.1:2122",
 		StatusPublishInterval: "15s",
 		Providers:             providers,
-	}, nil
+	}
+	if err := curtailmentconfig.ValidateConfigSize(config); err != nil {
+		return sdk.CurtailmentConfig{}, fleeterror.NewFailedPreconditionErrorf("Proto rig fallback config is too large for FleetNode delivery: %v", err)
+	}
+	return config, nil
 }
 
 func (s *SettingsService) getConfig(ctx context.Context, orgID, sourceID int64) (SourceConfig, error) {
