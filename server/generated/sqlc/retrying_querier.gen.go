@@ -4014,6 +4014,18 @@ func (q *retryingQuerier) ListSites(ctx context.Context, orgID int64) ([]ListSit
 	return result, err
 }
 
+func (q *retryingQuerier) ListTakenDeviceSetLabels(ctx context.Context, arg ListTakenDeviceSetLabelsParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "ListTakenDeviceSetLabels", func() error {
+		callResult, callErr := q.next.ListTakenDeviceSetLabels(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error) {
 	var result []ListUsersForOrganizationRow
 	err := q.retrier.RetryQuery(ctx, "ListUsersForOrganization", func() error {

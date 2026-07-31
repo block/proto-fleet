@@ -400,6 +400,39 @@ func (h *Handler) SaveRack(ctx context.Context, r *connect.Request[dspb.SaveRack
 	}), nil
 }
 
+func (h *Handler) CreateRacks(ctx context.Context, r *connect.Request[dspb.CreateRacksRequest]) (*connect.Response[dspb.CreateRacksResponse], error) {
+	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
+	if err != nil {
+		return nil, err
+	}
+	// Same escalation SaveRack applies: dropping racks into a site or building
+	// is a site-management action, so a rack:manage-only caller may create
+	// unplaced racks but not place them. Unlike SaveRack there is no "preserve
+	// current placement" case — every rack here is new — so any non-nil id is
+	// placement intent.
+	if r.Msg.SiteId != nil || r.Msg.BuildingId != nil {
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
+	created, rejected, err := h.svc.CreateRacks(ctx, toCreateRacksParams(r.Msg, info.OrganizationID))
+	if err != nil {
+		return nil, err
+	}
+	// Label collisions: the batch wrote nothing. Return the per-row list so
+	// the bulk form can mark the offending preview lines.
+	if len(rejected) > 0 {
+		return connect.NewResponse(&dspb.CreateRacksResponse{
+			Errors: toDeviceSetRackCreateErrors(rejected),
+		}), nil
+	}
+	racks := make([]*dspb.DeviceSet, 0, len(created))
+	for _, rack := range created {
+		racks = append(racks, toDeviceSet(rack))
+	}
+	return connect.NewResponse(&dspb.CreateRacksResponse{Racks: racks}), nil
+}
+
 func (h *Handler) AssignDevicesToRack(ctx context.Context, r *connect.Request[dspb.AssignDevicesToRackRequest]) (*connect.Response[dspb.AssignDevicesToRackResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{})
 	if err != nil {

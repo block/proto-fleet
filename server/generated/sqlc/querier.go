@@ -1082,6 +1082,12 @@ type Querier interface {
 	// can show "N miners, M buildings, K racks, J infrastructure devices"
 	// without an extra round trip.
 	ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, error)
+	// Which of the candidate labels are already live in the org for this type.
+	// Backs bulk create's per-row duplicate check: uk_device_collection_org_type_label
+	// spans (org_id, type, label), so a site- or building-scoped list of racks can
+	// never answer "is this label free?" — the collision may be a rack the caller
+	// has no reason to have loaded.
+	ListTakenDeviceSetLabels(ctx context.Context, arg ListTakenDeviceSetLabelsParams) ([]string, error)
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
 	// Last-SUPER_ADMIN guard. Locks every live org-scope SUPER_ADMIN
 	// assignment in the org and returns the count. Callers that intend to

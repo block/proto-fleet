@@ -1524,6 +1524,49 @@ func (q *Queries) ListRackZones(ctx context.Context, orgID int64) ([]sql.NullStr
 	return items, nil
 }
 
+const listTakenDeviceSetLabels = `-- name: ListTakenDeviceSetLabels :many
+SELECT label
+FROM device_set
+WHERE org_id = $1
+  AND type = $2
+  AND label = ANY($3::text[])
+  AND deleted_at IS NULL
+`
+
+type ListTakenDeviceSetLabelsParams struct {
+	OrgID  int64
+	Type   DeviceSetType
+	Labels []string
+}
+
+// Which of the candidate labels are already live in the org for this type.
+// Backs bulk create's per-row duplicate check: uk_device_collection_org_type_label
+// spans (org_id, type, label), so a site- or building-scoped list of racks can
+// never answer "is this label free?" — the collision may be a rack the caller
+// has no reason to have loaded.
+func (q *Queries) ListTakenDeviceSetLabels(ctx context.Context, arg ListTakenDeviceSetLabelsParams) ([]string, error) {
+	rows, err := q.query(ctx, q.listTakenDeviceSetLabelsStmt, listTakenDeviceSetLabels, arg.OrgID, arg.Type, pq.Array(arg.Labels))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var label string
+		if err := rows.Scan(&label); err != nil {
+			return nil, err
+		}
+		items = append(items, label)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockRackPlacementForWrite = `-- name: LockRackPlacementForWrite :one
 SELECT dsr.site_id, dsr.building_id, dsr.zone
 FROM device_set_rack dsr
