@@ -201,7 +201,7 @@ Callout visibility at any moment is a pure function: `update_available && hasPer
 - Phase 2 (R11–R17) is deferred to a follow-up plan; this plan implements R1–R10 and leaves the seams (server-side command composition, extensible updates service) for it.
 - Exactly one organization per instance — verified as enforced, not merely conventional: the only org-creation path is guarded by a has-user check, and login hard-fails unless the user belongs to exactly one org. This is the basis for org-scoped storage satisfying the Product Contract's "instance-level" intent.
 - The update callout lives at the bottom of the left navigation panel, directly above the logout CTA (user-directed placement, 2026-07-27) — `client/src/protoFleet/components/NavigationMenu/Navigation.tsx` renders both. The repo has no pre-existing global callout slot, so this is a new slot in that nav footer region, and the callout must handle the nav's collapsed (icon-width) laptop state.
-- Migration number `000131` follows main's `000130`; re-check after any merge from main (`ls server/migrations/ | cut -c1-6 | sort | uniq -d` — see `docs/solutions/database-issues/duplicate-golang-migrate-version-after-merge-2026-05-12.md`).
+- Migration number `000131` follows main's `000130`; re-check after any merge from main (`ls server/migrations/ | grep -F '.up.sql' | cut -c1-6 | sort | uniq -d` — see `docs/solutions/database-issues/duplicate-golang-migrate-version-after-merge-2026-05-12.md`).
 
 ### Sequencing
 
@@ -262,7 +262,7 @@ U1, U2, U3 are independent and can proceed in any order. U4 depends on all three
   - Integration (via `testutil.GetTestDB`): get with no row returns the stable default; upsert to `stable_and_rc` then get returns it; second upsert overwrites.
   - Catalog: `AllPermissions()` includes `instance:update`; `adminSeedPermissions()` does not.
   - Reconcile: after reconcile, `SUPER_ADMIN` effective permissions include `instance:update` (mirror existing reconcile test coverage).
-- **Verification:** migrations apply cleanly on a fresh test database (`just db-up` + `just test`); `just gen` leaves no uncommitted diff; `ls server/migrations/ | cut -c1-6 | sort | uniq -d` is empty.
+- **Verification:** migrations apply cleanly on a fresh test database (`just db-up` + `just test`); `just gen` leaves no uncommitted diff; `ls server/migrations/ | grep -F '.up.sql' | cut -c1-6 | sort | uniq -d` is empty.
 
 ### U4. Updates domain service, RPC handler, and fleetd wiring
 
@@ -329,7 +329,7 @@ U1, U2, U3 are independent and can proceed in any order. U4 depends on all three
 | Client tests | `npm run test` from `client/` | U5, U6 | Vitest suite passes including new component tests |
 | Generated code in sync | `just gen` then `git status` | U1, U3 | no uncommitted diff after regeneration |
 | Go workspace sync | `go work sync` at repo root | U2 | no `go.work.sum` drift |
-| Migration hygiene | `ls server/migrations/ \| cut -c1-6 \| sort \| uniq -d` | U3 | empty output (no duplicate versions) |
+| Migration hygiene | `ls server/migrations/ \| grep -F '.up.sql' \| cut -c1-6 \| sort \| uniq -d` | U3 | empty output (no duplicate versions) |
 
 ## Definition of Done
 

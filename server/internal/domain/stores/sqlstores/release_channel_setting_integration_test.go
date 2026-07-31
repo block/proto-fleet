@@ -51,8 +51,8 @@ func TestReleaseChannelSettingQueries(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, created.OrganizationID, overwritten.OrganizationID)
 	assert.Equal(t, "stable", overwritten.Channel)
-	assert.False(t, overwritten.UpdatedAt.Before(created.UpdatedAt),
-		"overwrite must not move updated_at backwards")
+	assert.True(t, overwritten.UpdatedAt.After(created.UpdatedAt),
+		"overwrite must bump updated_at")
 
 	got, err = q.GetReleaseChannelSetting(ctx, orgID)
 	require.NoError(t, err)
