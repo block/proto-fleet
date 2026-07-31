@@ -1512,6 +1512,11 @@ func TestCreateBuildings_insertsEveryRowInOneTx(t *testing.T) {
 			if p.SiteID == nil || *p.SiteID != 42 {
 				t.Fatalf("expected every row to carry site 42, got %+v", p.SiteID)
 			}
+			// The bulk form applies one layout across the batch, so every
+			// insert must carry the dimensions it was given.
+			if p.Aisles != 4 || p.RacksPerAisle != 10 {
+				t.Fatalf("expected layout 4x10 on every row, got %dx%d", p.Aisles, p.RacksPerAisle)
+			}
 			return &models.Building{ID: 1, Name: p.Name, SiteID: ptrInt64(42)}, nil
 		}).Times(3)
 
@@ -1519,7 +1524,9 @@ func TestCreateBuildings_insertsEveryRowInOneTx(t *testing.T) {
 		OrgID:  testOrgID,
 		SiteID: 42,
 		Buildings: []models.NewBuildingParam{
-			{Name: "B-001"}, {Name: "B-002"}, {Name: "B-003"},
+			{Name: "B-001", Aisles: 4, RacksPerAisle: 10},
+			{Name: "B-002", Aisles: 4, RacksPerAisle: 10},
+			{Name: "B-003", Aisles: 4, RacksPerAisle: 10},
 		},
 	})
 	if err != nil {

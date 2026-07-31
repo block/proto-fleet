@@ -522,14 +522,16 @@ func TestHandler_CreateBuildings_happy(t *testing.T) {
 		Return([]models.BuildingWithCounts{}, nil)
 	h.buildingStore.EXPECT().CreateBuilding(gomock.Any(), gomock.AssignableToTypeOf(models.CreateParams{})).
 		DoAndReturn(func(_ context.Context, p models.CreateParams) (*models.Building, error) {
+			assert.Equal(t, int32(4), p.Aisles)
+			assert.Equal(t, int32(10), p.RacksPerAisle)
 			return &models.Building{ID: 1, Name: p.Name, SiteID: p.SiteID}, nil
 		}).Times(2)
 
 	resp, err := h.handler.CreateBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.CreateBuildingsRequest{
 		SiteId: 42,
 		Buildings: []*pb.NewBuilding{
-			{Name: "B-001"},
-			{Name: "B-002"},
+			{Name: "B-001", Aisles: 4, RacksPerAisle: 10},
+			{Name: "B-002", Aisles: 4, RacksPerAisle: 10},
 		},
 	}))
 	require.NoError(t, err)

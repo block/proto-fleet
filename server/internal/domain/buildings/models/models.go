@@ -108,14 +108,17 @@ type CreateBuildingResult struct {
 }
 
 // NewBuildingParam is one row of a bulk create. Carries only the fields
-// the bulk form can set — layout dimensions and rack defaults are
-// per-building concerns set afterwards, so they take the same zero
-// defaults a plain create would.
+// the bulk form can set; rack defaults are per-building concerns set
+// afterwards, so they take the same zero defaults a plain create would.
 type NewBuildingParam struct {
 	Name        string
 	Description string
 	PowerKw     float64
 	OverheadKw  float64
+	// Layout dimensions. The bulk form applies one value across the batch,
+	// but they live per row so the param describes a whole building.
+	Aisles        int32
+	RacksPerAisle int32
 }
 
 // CreateBuildingsParams is the input shape for bulk create. Unlike
