@@ -7,6 +7,7 @@ import {
   phaseLabel,
   rolloutCompletionPercent,
   rolloutCompositionSegments,
+  rolloutLifecycleActions,
   rolloutPhaseCount,
   rolloutStageLabel,
 } from "./rolloutDisplayUtils";
@@ -24,6 +25,9 @@ interface ActiveRolloutStatusProps {
   /** When true, drop the card's own elevated surface/shadow/padding — for when
    * the card is already inside an elevated container (e.g. the ViewRolloutModal). */
   embedded?: boolean;
+  /** When true, suppress the card's own lifecycle button row — the host (e.g.
+   * ViewRolloutModal) renders the CTAs in its top bar instead. */
+  hideActions?: boolean;
   /** Lifecycle actions — each renders only when its handler is supplied, so
    * capability-flagging is just "pass the handler or don't". */
   onPause?: () => void;
@@ -102,6 +106,7 @@ function ActiveRolloutStatus({
   event,
   className,
   embedded = false,
+  hideActions = false,
   onPause,
   onResume,
   onCancelRemaining,
@@ -110,10 +115,8 @@ function ActiveRolloutStatus({
 }: ActiveRolloutStatusProps): ReactElement {
   const isRunning = event.state === "inProgress";
   const isTerminal = event.state === "completed" || event.state === "completedWithFailures";
-  const showPilotGate = event.state === "pausedAtPilotGate";
   const inScope = Math.max(event.totalTargets - event.excludedTargets, 0);
   const done = rolloutPhaseCount(event.rollups, "done");
-  const failed = rolloutPhaseCount(event.rollups, "failed");
   const percent = rolloutCompletionPercent(event);
   const segments = rolloutCompositionSegments(event);
   const doneVerb = phaseLabel(event.processType, "done").toLowerCase();
@@ -138,6 +141,15 @@ function ActiveRolloutStatus({
         ? "—"
         : "Calculating…";
 
+  const actions = hideActions
+    ? []
+    : rolloutLifecycleActions(event, { onPause, onResume, onCancelRemaining, onContinueFromPilot, onRetryFailed });
+  const buttonVariant = {
+    primary: variants.primary,
+    secondary: variants.secondary,
+    danger: variants.danger,
+  } as const;
+
   return (
     <section className={clsx("grid gap-3", className)}>
       {embedded ? null : (
@@ -154,33 +166,19 @@ function ActiveRolloutStatus({
           embedded ? "px-0 py-0" : "rounded-xl bg-surface-elevated-base p-6 shadow-100 tablet:p-10",
         )}
       >
-        <div className="mb-8 flex shrink-0 justify-end gap-3 tablet:absolute tablet:top-10 tablet:right-10 tablet:mb-0">
-          {onRetryFailed && failed > 0 && isTerminal ? (
-            <Button variant={variants.secondary} size={sizes.compact} text="Retry failed" onClick={onRetryFailed} />
-          ) : null}
-          {onContinueFromPilot && showPilotGate ? (
-            <Button
-              variant={variants.primary}
-              size={sizes.compact}
-              text="Continue rollout"
-              onClick={onContinueFromPilot}
-            />
-          ) : null}
-          {onResume && event.state === "paused" ? (
-            <Button variant={variants.primary} size={sizes.compact} text="Resume" onClick={onResume} />
-          ) : null}
-          {onPause && isRunning ? (
-            <Button variant={variants.secondary} size={sizes.compact} text="Pause" onClick={onPause} />
-          ) : null}
-          {onCancelRemaining && !isTerminal ? (
-            <Button
-              variant={variants.danger}
-              size={sizes.compact}
-              text="Cancel remaining"
-              onClick={onCancelRemaining}
-            />
-          ) : null}
-        </div>
+        {actions.length > 0 ? (
+          <div className="mb-8 flex shrink-0 justify-end gap-3 tablet:absolute tablet:top-10 tablet:right-10 tablet:mb-0">
+            {actions.map((action) => (
+              <Button
+                key={action.key}
+                variant={buttonVariant[action.variant]}
+                size={sizes.compact}
+                text={action.text}
+                onClick={action.onClick}
+              />
+            ))}
+          </div>
+        ) : null}
 
         <div className="grid gap-3 tablet:pr-32">
           <div className="flex size-10 items-center justify-center rounded-lg bg-core-primary-5">

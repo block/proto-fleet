@@ -176,3 +176,61 @@ export function rolloutStageDetail(event: RolloutEvent): string {
   const scope = event.scopeLabel ? `${event.scopeLabel}, ` : "";
   return `${scope}${inScope.toLocaleString()} miners, ${pacingSummary(event).toLowerCase()}`;
 }
+
+/** Lifecycle-action handlers a host can wire to a rollout. Each is optional —
+ * omitting one hides its control (capability-flagging). */
+export interface RolloutLifecycleHandlers {
+  onPause?: () => void;
+  onResume?: () => void;
+  onCancelRemaining?: () => void;
+  onContinueFromPilot?: () => void;
+  onRetryFailed?: () => void;
+}
+
+/** A normalized lifecycle action descriptor, rendered either as the card's own
+ * buttons or (embedded) as the host Modal's top-bar buttons. */
+export interface RolloutLifecycleAction {
+  key: string;
+  text: string;
+  variant: "primary" | "secondary" | "danger";
+  onClick?: () => void;
+}
+
+/**
+ * Single source of truth for which lifecycle controls a rollout shows, given
+ * its state + the available handlers. Ordering matches the card's top-right
+ * group (primary/continue first, destructive last). Both `ActiveRolloutStatus`
+ * and `ViewRolloutModal` consume this so the two never drift.
+ */
+export function rolloutLifecycleActions(
+  event: RolloutEvent,
+  handlers: RolloutLifecycleHandlers,
+): RolloutLifecycleAction[] {
+  const isRunning = event.state === "inProgress";
+  const isTerminal = event.state === "completed" || event.state === "completedWithFailures";
+  const showPilotGate = event.state === "pausedAtPilotGate";
+  const failed = rolloutPhaseCount(event.rollups, "failed");
+  const actions: RolloutLifecycleAction[] = [];
+
+  if (handlers.onContinueFromPilot && showPilotGate) {
+    actions.push({
+      key: "continue",
+      text: "Continue rollout",
+      variant: "primary",
+      onClick: handlers.onContinueFromPilot,
+    });
+  }
+  if (handlers.onResume && event.state === "paused") {
+    actions.push({ key: "resume", text: "Resume", variant: "primary", onClick: handlers.onResume });
+  }
+  if (handlers.onRetryFailed && failed > 0 && isTerminal) {
+    actions.push({ key: "retry", text: "Retry failed", variant: "secondary", onClick: handlers.onRetryFailed });
+  }
+  if (handlers.onPause && isRunning) {
+    actions.push({ key: "pause", text: "Pause", variant: "secondary", onClick: handlers.onPause });
+  }
+  if (handlers.onCancelRemaining && !isTerminal) {
+    actions.push({ key: "cancel", text: "Cancel remaining", variant: "danger", onClick: handlers.onCancelRemaining });
+  }
+  return actions;
+}
