@@ -291,6 +291,13 @@ message NewBuilding {
 
     double power_kw = 3 [(buf.validate.field).double.gte = 0];
     double overhead_kw = 4 [(buf.validate.field).double.gte = 0];
+
+    // Same caps as CreateBuildingRequest, for the same reason. Carried
+    // per row rather than once per request: a NewBuilding describes a
+    // whole building, and whether the batch happens to use one layout
+    // throughout is the form's business, not the protocol's.
+    int32 aisles = 5 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+    int32 racks_per_aisle = 6 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
 }
 
 message CreateBuildingsRequest {

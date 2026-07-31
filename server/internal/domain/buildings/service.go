@@ -388,6 +388,9 @@ func (s *Service) CreateBuildings(ctx context.Context, params models.CreateBuild
 				Description: b.Description,
 				PowerKw:     b.PowerKw,
 				OverheadKw:  b.OverheadKw,
+
+				Aisles:        b.Aisles,
+				RacksPerAisle: b.RacksPerAisle,
 			})
 			if err != nil {
 				return nil, err

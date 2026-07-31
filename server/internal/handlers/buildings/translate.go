@@ -182,6 +182,9 @@ func toCreateBuildingsParams(req *pb.CreateBuildingsRequest, orgID int64) models
 			Description: b.GetDescription(),
 			PowerKw:     b.GetPowerKw(),
 			OverheadKw:  b.GetOverheadKw(),
+
+			Aisles:        b.GetAisles(),
+			RacksPerAisle: b.GetRacksPerAisle(),
 		})
 	}
 	return models.CreateBuildingsParams{
