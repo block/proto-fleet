@@ -1,8 +1,6 @@
 import { type ReactElement, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import TargetSelectButton from "@/protoFleet/components/TargetSelectButton";
-
 import { ActiveRolloutBanner, ActiveRolloutBannerStack } from "@/protoFleet/features/rollout/ActiveRolloutBanner";
 import {
   batchedFirmwareConfig,
@@ -11,13 +9,12 @@ import {
   inProgressRebootEvent,
 } from "@/protoFleet/features/rollout/rollout.fixtures";
 import RolloutColumnState from "@/protoFleet/features/rollout/RolloutColumnState";
-import RolloutControls from "@/protoFleet/features/rollout/RolloutControls";
+import RolloutConfigModal from "@/protoFleet/features/rollout/RolloutConfigModal";
 import RolloutPill from "@/protoFleet/features/rollout/RolloutPill";
-import type { RolloutPlanConfig, RolloutTargetPhase } from "@/protoFleet/features/rollout/rolloutTypes";
+import type { RolloutTargetPhase } from "@/protoFleet/features/rollout/rolloutTypes";
+import { useRolloutConfigModalState } from "@/protoFleet/features/rollout/useRolloutConfigModalState";
 import ViewRolloutModal from "@/protoFleet/features/rollout/ViewRolloutModal";
 import Button, { variants } from "@/shared/components/Button";
-import { DatePickerField } from "@/shared/components/DatePicker";
-import Select from "@/shared/components/Select";
 
 /**
  * Contextual ("in-situ") stories: each rollout component shown where it lives
@@ -38,86 +35,41 @@ type Story = StoryObj;
 const noop = () => undefined;
 
 // ---- 1. Config modal: Apply to + Rollout controls + Date and time ----------
-
-function SectionTitle({ children }: { children: string }): ReactElement {
-  return <div className="text-emphasis-300 text-text-primary">{children}</div>;
-}
+// Uses the real RolloutConfigModal (shared Modal): CTAs in the top bar, body
+// scrolls, dismiss via close / Escape / click-outside.
 
 function ConfigModalStory(): ReactElement {
-  const [config, setConfig] = useState<RolloutPlanConfig>(batchedFirmwareConfig);
-  const [startDate, setStartDate] = useState<Date | undefined>(new Date("2026-08-04T14:00:00"));
-
+  const [open, setOpen] = useState(true);
+  const state = useRolloutConfigModalState(batchedFirmwareConfig);
   return (
-    <div className="min-h-screen bg-core-primary-5 p-8">
-      <div className="mx-auto w-[min(100%,560px)] overflow-hidden rounded-3xl bg-surface-elevated-base shadow-300">
-        <div className="flex flex-col gap-8 p-8">
-          <div>
-            <div className="text-heading-300 text-text-primary">Update firmware</div>
-            <div className="mt-1 text-300 text-text-primary-70">Antminer S21 (5.0.2 → 5.1.0)</div>
-          </div>
-
-          <section className="grid gap-3">
-            <SectionTitle>Apply to</SectionTitle>
-            <div className="grid divide-y divide-border-5">
-              <TargetSelectButton label="Sites" value="Select" onClick={noop} />
-              <TargetSelectButton label="Buildings" value="1 building" onClick={noop} />
-              <TargetSelectButton label="Racks" value="Select" onClick={noop} />
-              <TargetSelectButton label="Groups" value="Select" onClick={noop} />
-              <TargetSelectButton label="Miners" value="Select" onClick={noop} />
-            </div>
-          </section>
-
-          <RolloutControls config={config} onChange={setConfig} />
-
-          <section className="grid gap-3">
-            <SectionTitle>Date and time</SectionTitle>
-            <Select
-              id="rollout-schedule-type"
-              label="Type"
-              options={[
-                { value: "startNow", label: "Start now" },
-                { value: "scheduleForLater", label: "Schedule for later" },
-              ]}
-              value={config.scheduleType}
-              onChange={(value) => setConfig({ ...config, scheduleType: value as RolloutPlanConfig["scheduleType"] })}
-              forceBelow
-            />
-            {config.scheduleType === "scheduleForLater" ? (
-              <div className="grid gap-3 tablet:grid-cols-2">
-                <DatePickerField
-                  id="rollout-start-date"
-                  label="Start date"
-                  labelPlacement="floating"
-                  selectedDate={startDate}
-                  onSelectedDateChange={setStartDate}
-                />
-                <Select
-                  id="rollout-start-time"
-                  label="Time"
-                  options={[
-                    { value: "14:00", label: "2:00 PM" },
-                    { value: "18:00", label: "6:00 PM" },
-                    { value: "22:00", label: "10:00 PM" },
-                  ]}
-                  value="14:00"
-                  onChange={noop}
-                  forceBelow
-                />
-              </div>
-            ) : null}
-            <div className="text-200 text-text-primary-70">Times shown in America/Denver (MDT)</div>
-          </section>
-
-          <div className="flex justify-end gap-3 border-t border-border-5 pt-6">
-            <Button variant={variants.secondary} text="Cancel" onClick={noop} />
-            <Button
-              variant={variants.primary}
-              text={config.scheduleType === "scheduleForLater" ? "Schedule rollout" : "Start rollout"}
-              onClick={noop}
-            />
-          </div>
-        </div>
+    <div className="min-h-screen bg-surface-base p-8">
+      <div className="mb-6 flex justify-center">
+        <Button variant={variants.primary} text="Bulk actions — Update firmware" onClick={() => setOpen(true)} />
       </div>
+      <div className="mx-auto max-w-4xl text-300 text-text-primary-70">
+        Launched from Bulk actions over the fleet page.
+      </div>
+      {open ? (
+        <RolloutConfigModal
+          title="Update firmware"
+          description="Antminer S21 (5.0.2 → 5.1.0)"
+          config={state.config}
+          onConfigChange={state.setConfig}
+          onDismiss={() => setOpen(false)}
+          onSubmit={() => setOpen(false)}
+          scopeTargets={[
+            { label: "Sites", value: "Select", onClick: noop },
+            { label: "Buildings", value: "1 building", onClick: noop },
+            { label: "Racks", value: "Select", onClick: noop },
+            { label: "Groups", value: "Select", onClick: noop },
+            { label: "Miners", value: "Select", onClick: noop },
+          ]}
+          startDate={state.startDate}
+          onStartDateChange={state.setStartDate}
+          startTime={state.startTime}
+          onStartTimeChange={state.setStartTime}
+        />
+      ) : null}
     </div>
   );
 }

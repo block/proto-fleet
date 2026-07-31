@@ -1,7 +1,9 @@
 import type { ReactElement } from "react";
 
 import ActiveRolloutStatus from "./ActiveRolloutStatus";
+import { rolloutLifecycleActions } from "./rolloutDisplayUtils";
 import type { RolloutEvent } from "./rolloutTypes";
+import { variants } from "@/shared/components/Button";
 import Modal from "@/shared/components/Modal";
 
 interface ViewRolloutModalProps {
@@ -15,16 +17,24 @@ interface ViewRolloutModalProps {
   onRetryFailed?: () => void;
 }
 
+const buttonVariant = {
+  primary: variants.primary,
+  secondary: variants.secondary,
+  danger: variants.danger,
+} as const;
+
 /**
  * "View rollout" surface — summons the progress-against-plan card in a centered
  * modal so an operator can check a rollout from anywhere (a page banner, the
  * header pill, an activity row) without navigating away and losing context.
  * Same pattern as `ActivityDetailModal`: the shared `Modal` over a page overlay,
  * click-outside / Escape to dismiss. Uses the `large` size so the stat grid and
- * progress bar have room.
+ * progress bar have room; the body scrolls under the sticky header when tall.
  *
- * The Modal owns the title bar (title + scope + close affordance); the card is
- * rendered `embedded` so it doesn't repeat its own section header inside.
+ * The Modal owns the title bar (title + scope + close) AND the lifecycle CTAs
+ * (top-bar buttons), so the card renders `embedded` with its own header and
+ * action row suppressed. The action set is derived from the same
+ * `rolloutLifecycleActions` helper the card uses, so the two never drift.
  */
 function ViewRolloutModal({
   event,
@@ -39,6 +49,14 @@ function ViewRolloutModal({
     return null;
   }
 
+  const actions = rolloutLifecycleActions(event, {
+    onPause,
+    onResume,
+    onCancelRemaining,
+    onContinueFromPilot,
+    onRetryFailed,
+  });
+
   return (
     <Modal
       size="large"
@@ -47,16 +65,16 @@ function ViewRolloutModal({
       onDismiss={onDismiss}
       testId="view-rollout-modal"
       bodyClassName="text-text-primary"
+      buttons={actions.map((action) => ({
+        text: action.text,
+        variant: buttonVariant[action.variant],
+        onClick: action.onClick,
+        // Lifecycle actions don't dismiss the modal — the host decides when to
+        // close after the action resolves.
+        dismissModalOnClick: false,
+      }))}
     >
-      <ActiveRolloutStatus
-        event={event}
-        embedded
-        onPause={onPause}
-        onResume={onResume}
-        onCancelRemaining={onCancelRemaining}
-        onContinueFromPilot={onContinueFromPilot}
-        onRetryFailed={onRetryFailed}
-      />
+      <ActiveRolloutStatus event={event} embedded hideActions />
     </Modal>
   );
 }
