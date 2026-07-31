@@ -21,6 +21,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/handlers/handlerstest"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -1379,7 +1380,13 @@ func TestCreateRacks_ReturnsPerRowErrorsAndNoRacks(t *testing.T) {
 	h := newTestHandler(t)
 	ctx := ctxWithPerms(authz.PermRackManage)
 
-	// A duplicate inside the batch never reaches the stores.
+	// A batch duplicate is still checked against the org, so one response can
+	// carry every offending row; no label is taken here, so the in-batch
+	// collision is the only rejection.
+	h.collectionStore.EXPECT().
+		ListTakenLabels(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any()).
+		Return(nil, nil)
+
 	resp, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
 		Racks: []*dspb.NewRack{newRackRow("R-001"), newRackRow("R-001")},
 	}))
@@ -1445,4 +1452,53 @@ func TestCreateRacks_PlacementRequiresSiteManage(t *testing.T) {
 	var fe fleeterror.FleetError
 	require.ErrorAs(t, err, &fe, "expected FleetError, got %T", err)
 	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
+
+// TestCreateRacks_authorizesPlacementAgainstTargetSite pins the scope of the
+// site:manage escalation. A request that names a site authorizes against that
+// site, so a site-scoped manager is admitted at their own site and denied
+// elsewhere. Creating unplaced racks needs no site:manage at all.
+func TestCreateRacks_authorizesPlacementAgainstTargetSite(t *testing.T) {
+	siteID := int64(42)
+
+	t.Run("site-scoped manager is admitted at their own site", func(t *testing.T) {
+		h := newTestHandler(t)
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage),
+			handlerstest.SiteAssignment(42, authz.PermSiteManage))
+
+		h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), testOrgID, siteID).Return(nil)
+		h.collectionStore.EXPECT().
+			ListTakenLabels(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any()).
+			Return(nil, nil)
+		h.collectionStore.EXPECT().
+			CreateCollection(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "R-001", "").
+			Return(&collectionpb.DeviceCollection{Id: 1, Label: "R-001"}, nil)
+		h.collectionStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).Return(nil)
+
+		resp, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+			SiteId: &siteID,
+			Racks:  []*dspb.NewRack{newRackRow("R-001")},
+		}))
+		require.NoError(t, err)
+		assert.Len(t, resp.Msg.GetRacks(), 1)
+	})
+
+	t.Run("site-scoped manager is denied at another site", func(t *testing.T) {
+		h := newTestHandler(t)
+		// site:manage at site 7 only; the request targets site 42. No store
+		// expectations: this must be denied before any write.
+		ctx := handlerstest.CtxWithAssignments(t, testOrgID,
+			handlerstest.OrgAssignment(authz.PermRackManage),
+			handlerstest.SiteAssignment(7, authz.PermSiteManage))
+
+		_, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+			SiteId: &siteID,
+			Racks:  []*dspb.NewRack{newRackRow("R-001")},
+		}))
+		require.Error(t, err)
+		var fleetErr fleeterror.FleetError
+		require.ErrorAs(t, err, &fleetErr)
+		assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	})
 }

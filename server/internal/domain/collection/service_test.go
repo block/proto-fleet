@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"connectrpc.com/connect"
+
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -3620,12 +3622,16 @@ func TestService_CreateRacks_stampsResolvedBuildingPlacementOnEveryRow(t *testin
 	require.Empty(t, rejected)
 }
 
-func TestService_CreateRacks_rejectsDuplicateLabelInBatchBeforeOpeningTx(t *testing.T) {
-	svc, _, _, _ := newTestServiceForBulkRacks(t)
+func TestService_CreateRacks_rejectsDuplicateLabelInBatch(t *testing.T) {
+	svc, mockStore, _, _ := newTestServiceForBulkRacks(t)
 	ctx := testCtx(t)
 
-	// No store expectations at all: the collision is pure request math, so
-	// nothing may touch the database.
+	// A batch duplicate no longer short-circuits: the org-wide check still
+	// runs so one response can carry every offending row. Nothing is taken
+	// here, so the in-batch collision is the only rejection.
+	mockStore.EXPECT().ListTakenLabels(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any()).
+		Return(nil, nil)
+
 	created, rejected, err := svc.CreateRacks(ctx, CreateRacksParams{
 		OrgID: testOrgID,
 		Racks: []NewRackParams{bulkRackRow("R-001"), bulkRackRow("R-002"), bulkRackRow("R-001")},
@@ -3667,6 +3673,9 @@ func TestService_CreateRacks_trimsLabelsBeforeCheckingAndStoring(t *testing.T) {
 
 	// " R-001" and "R-001 " are the same label once stored, so the batch must
 	// catch them as a collision rather than inserting both.
+	mockStore.EXPECT().ListTakenLabels(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK,
+		[]string{"R-001", "R-001"}).Return(nil, nil)
+
 	created, rejected, err := svc.CreateRacks(ctx, CreateRacksParams{
 		OrgID: testOrgID,
 		Racks: []NewRackParams{bulkRackRow(" R-001"), bulkRackRow("R-001 ")},
@@ -3749,4 +3758,62 @@ func TestService_CreateRacks_rejectsMalformedRows(t *testing.T) {
 			assert.Empty(t, rejected, "a malformed request is an error, not a per-row rejection")
 		})
 	}
+}
+
+// TestService_CreateRacks_reportsBothLabelSourcesInOneResponse is why a batch
+// duplicate no longer short-circuits: the operator sees every bad row on the
+// first submit instead of discovering the org collisions only after fixing
+// the in-batch one.
+func TestService_CreateRacks_reportsBothLabelSourcesInOneResponse(t *testing.T) {
+	svc, mockStore, _, _ := newTestServiceForBulkRacks(t)
+	ctx := testCtx(t)
+
+	// "R-009" is live in the org; "R-001" is repeated inside the batch.
+	mockStore.EXPECT().ListTakenLabels(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any()).
+		Return([]string{"R-009"}, nil)
+
+	created, rejected, err := svc.CreateRacks(ctx, CreateRacksParams{
+		OrgID: testOrgID,
+		Racks: []NewRackParams{bulkRackRow("R-001"), bulkRackRow("R-009"), bulkRackRow("R-001")},
+	})
+	require.NoError(t, err, "collisions are per-row rejections, not an error")
+	require.Nil(t, created)
+	require.Len(t, rejected, 2)
+	// Ordered by index so the response lines up with the request.
+	assert.Equal(t, int32(1), rejected[0].Index)
+	assert.Equal(t, RackCreateDuplicateLabelInOrg, rejected[0].Reason)
+	assert.Equal(t, int32(2), rejected[1].Index)
+	assert.Equal(t, RackCreateDuplicateLabelInBatch, rejected[1].Reason)
+}
+
+// TestService_CreateRacks_insertRaceBecomesPerRowRejection covers the window
+// no lock closes: uk_device_collection_org_type_label is org-wide, but this
+// tx locks only the target site/building — and an unplaced batch locks
+// nothing. So a concurrent create can take a label between the
+// ListTakenLabels read and the insert, and the loser must still get a
+// markable row rather than an opaque AlreadyExists.
+func TestService_CreateRacks_insertRaceBecomesPerRowRejection(t *testing.T) {
+	svc, mockStore, _, _ := newTestServiceForBulkRacks(t)
+	ctx := testCtx(t)
+
+	// The read sees both labels free, so the batch passes the pre-check.
+	mockStore.EXPECT().ListTakenLabels(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any()).
+		Return(nil, nil)
+	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "R-001", "").
+		Return(&pb.DeviceCollection{Id: 1, Label: "R-001"}, nil)
+	mockStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).Return(nil)
+	// The second insert loses the race for "R-002".
+	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "R-002", "").
+		Return(nil, fleeterror.NewPlainError("a collection with this name already exists", connect.CodeAlreadyExists))
+
+	created, rejected, err := svc.CreateRacks(ctx, CreateRacksParams{
+		OrgID: testOrgID,
+		Racks: []NewRackParams{bulkRackRow("R-001"), bulkRackRow("R-002")},
+	})
+	require.NoError(t, err, "a lost label race is a per-row rejection, not a transport error")
+	require.Nil(t, created, "the batch rolls back whole")
+	require.Len(t, rejected, 1)
+	assert.Equal(t, int32(1), rejected[0].Index)
+	assert.Equal(t, "R-002", rejected[0].Label)
+	assert.Equal(t, RackCreateDuplicateLabelInOrg, rejected[0].Reason)
 }
