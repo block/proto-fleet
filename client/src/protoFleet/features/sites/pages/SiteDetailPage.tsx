@@ -114,10 +114,6 @@ const SiteDetailPage = () => {
 
   const [buildingsRefreshKey, setBuildingsRefreshKey] = useState(0);
   const refetchBuildings = useCallback(() => setBuildingsRefreshKey((n) => n + 1), []);
-  // Membership saves in ManageSiteModal also affect building rows, so share
-  // the same refresh signal used for direct building mutations.
-  const modals = useSiteModals({ refetchSites, refetchBuildings });
-
   const siteId = site?.site?.id;
   const siteIdText = siteId?.toString();
   const visibleBuildings = buildings && buildings.siteId === siteIdText ? buildings.rows : undefined;
@@ -136,11 +132,19 @@ const SiteDetailPage = () => {
     error: siteStatsError,
     refetch: refetchSiteStats,
   } = useSiteStats({ siteId: siteId ?? 0n, enabled: siteId !== undefined, pollIntervalMs: POLL_INTERVAL_MS });
-  const handleBuildingMutationSuccess = useCallback(() => {
+  // Site-level caches any building mutation invalidates: the catalog carries
+  // building counts, and the metrics row reads its building count from
+  // siteStats before falling back to the building list — so refreshing the
+  // catalog alone leaves the header at 0 until the next poll.
+  const refreshSiteCaches = useCallback(() => {
     refetchSites();
     refetchSiteStats();
   }, [refetchSites, refetchSiteStats]);
-  const buildingModals = useBuildingModals({ refetchBuildings, onMutationSuccess: handleBuildingMutationSuccess });
+  const buildingModals = useBuildingModals({ refetchBuildings, onMutationSuccess: refreshSiteCaches });
+  // Declared here, after refreshSiteCaches, so the site modals' create and
+  // assign paths refresh the same pair. Membership saves in ManageSiteModal
+  // also affect building rows, hence the shared refetchBuildings signal.
+  const modals = useSiteModals({ refetchSites: refreshSiteCaches, refetchBuildings });
 
   // Performance charts — mirrors the group/rack/building overview pages, but
   // scopes telemetry by site rather than by explicit device-set membership.

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { create } from "@bufbuild/protobuf";
 
 import {
   type BuildingFormValues,
@@ -8,7 +9,7 @@ import {
   useBuildings,
 } from "@/protoFleet/api/buildings";
 import { type Building } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import { type Site, type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { type Site, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { emptySiteFormValues, type SiteFormValues, siteFormValuesFromSite, useSites } from "@/protoFleet/api/sites";
 import { scopeCurrentOrDashboardPath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
@@ -163,6 +164,9 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+  // Set when the manage modal's inline create lands, read when it closes — see
+  // dismiss for why the host refresh waits until then.
+  const createdInManageRef = useRef(false);
 
   const { createSite, updateSite, deleteSite, assignBuildingsToSite } = useSites();
   const { createBuilding, createBuildings } = useBuildings();
@@ -202,8 +206,12 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
       if (prev.kind !== "manageEdit" && prev.kind !== "manageEditEditingDetails") return prev;
       const id = prev.site.id.toString();
       const match = sites?.find((s) => (s.site?.id ?? 0n).toString() === id);
-      if (!match) return prev;
-      setDeleteTarget(match);
+      // Continue creates the site up front, so the manage modal can be open on a
+      // row the host's refetchSites hasn't landed yet. Falling through to the
+      // state's own site keeps Delete working in that window; the counts it
+      // can't know are only the dialog's advisory copy, and a site this fresh
+      // has nothing under it in the common case.
+      setDeleteTarget(match ?? create(SiteWithCountsSchema, { site: prev.site }));
       // Drop the stacked details modal when the cascade dialog opens so the
       // dialog reads as the topmost surface above the persistent
       // ManageSiteModal. Cancelling the dialog returns to manageEdit.
@@ -215,6 +223,16 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
   }, []);
 
   const dismiss = useCallback(() => {
+    // Buildings created inside the manage modal only went into its own working
+    // set, so the host's list is stale the moment that set goes away. Deferred
+    // to the close rather than fired at create time because refetchBuildings
+    // bumps the key the modal's own fetch keys off, which would reseed its
+    // entries and drop everything staged in the picker. Read off the ref and
+    // done before setState, so a re-invoked updater can't fire it twice.
+    if (stateRef.current.kind !== "manageEditEditingDetails" && createdInManageRef.current) {
+      createdInManageRef.current = false;
+      refetchBuildings?.();
+    }
     // The stacked edit-details state drops just the top (details) and returns
     // to the underlying manage state. Everything else closes to none.
     setState((prev) => {
@@ -223,7 +241,7 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
       }
       return { kind: "none" };
     });
-  }, []);
+  }, [refetchBuildings]);
 
   const dismissDeleteConfirm = useCallback(() => {
     setDeleteTarget(null);
@@ -383,7 +401,9 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
             pushToast({ message: `Building "${building.name}" created`, status: STATUSES.success });
             // Refresh the site catalog (building counts) but deliberately NOT
             // the modal's building list — the modal injects the new row
-            // locally so unsaved picker selections survive.
+            // locally so unsaved picker selections survive. The host's list is
+            // caught up on close instead.
+            createdInManageRef.current = true;
             refetchSites();
             resolve(building);
           },
@@ -426,6 +446,7 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
             });
             // Site catalog only — the modal injects the new rows locally so
             // unsaved picker selections survive, same as single create.
+            createdInManageRef.current = true;
             refetchSites();
             resolve({ created: buildings, errors: [] });
           },
@@ -450,7 +471,12 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
   const pickerCreateBuilding = useCallback(
     async (values: BuildingFormValues): Promise<Building | null> => {
       const created = await manageCreateBuilding(values);
-      if (created) refetchBuildings?.();
+      if (created) {
+        // Refreshed now, so there is nothing for dismiss to catch up on — no
+        // modal is holding a working set this could reseed.
+        createdInManageRef.current = false;
+        refetchBuildings?.();
+      }
       return created;
     },
     [manageCreateBuilding, refetchBuildings],
@@ -461,7 +487,10 @@ const useSiteModals = ({ refetchSites, refetchBuildings }: UseSiteModalsOptions)
       const result = await manageCreateBuildings(buildings);
       // All-or-nothing: an empty `created` means the transaction rolled back,
       // so refetching would only cost a round trip.
-      if (result.created.length > 0) refetchBuildings?.();
+      if (result.created.length > 0) {
+        createdInManageRef.current = false;
+        refetchBuildings?.();
+      }
       return result;
     },
     [manageCreateBuildings, refetchBuildings],

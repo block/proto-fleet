@@ -282,6 +282,56 @@ describe("useSiteModals", () => {
     expect(refetchSites).toHaveBeenCalled();
   });
 
+  // Refreshing at create time would bump the key ManageSiteModal's own fetch
+  // keys off, reseeding its entries and dropping whatever is staged in the
+  // picker — so the host's list is caught up when the modal closes instead.
+  it("catches the host's building list up when the manage modal closes after an inline create", async () => {
+    vi.mocked(buildingsClient.createBuilding).mockResolvedValue(
+      create(CreateBuildingResponseSchema, {
+        building: create(BuildingSchema, { id: 42n, name: "Bldg A", siteId: 3n }),
+        assignedRackCount: 0n,
+        reassignedDeviceCount: 0n,
+        conflicts: [],
+      }),
+    );
+    const refetchBuildings = vi.fn();
+    const site = create(SiteSchema, { id: 3n, name: "North DC" });
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn(), refetchBuildings }), { wrapper });
+    act(() => result.current.openManageEdit(site));
+
+    await act(async () => {
+      await result.current.manageCreateBuilding({ ...emptyBuildingFormValues(), name: "Bldg A" });
+    });
+    expect(refetchBuildings).not.toHaveBeenCalled();
+
+    act(() => result.current.dismiss());
+    expect(refetchBuildings).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves the host's building list alone when the manage modal closes with no create", () => {
+    const refetchBuildings = vi.fn();
+    const site = create(SiteSchema, { id: 3n, name: "North DC" });
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn(), refetchBuildings }), { wrapper });
+
+    act(() => result.current.openManageEdit(site));
+    act(() => result.current.dismiss());
+
+    expect(refetchBuildings).not.toHaveBeenCalled();
+  });
+
+  // Continue creates the site up front, so Delete can be clicked before the
+  // host's refetchSites has landed the new row.
+  it("opens the cascade dialog for a site the host cache has not caught up with", () => {
+    const site = create(SiteSchema, { id: 3n, name: "North DC" });
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
+
+    act(() => result.current.openManageEdit(site));
+    act(() => result.current.requestDeleteCurrent([]));
+
+    expect(result.current.deleteTarget?.site?.id).toBe(3n);
+    expect(result.current.deleteTarget?.site?.name).toBe("North DC");
+  });
+
   it("manageCreateBuildings sends the whole batch against the managed site and returns every row", async () => {
     vi.mocked(buildingsClient.createBuildings).mockResolvedValue(
       create(CreateBuildingsResponseSchema, {
