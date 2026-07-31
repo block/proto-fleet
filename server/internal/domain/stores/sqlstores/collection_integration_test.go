@@ -11,6 +11,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	sqlstoresinterfaces "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -826,7 +827,11 @@ func TestCollectionStore_SetRackSlotPosition_occupiedCellIsInvalidArgument(t *te
 
 	err = store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[1], 0, 0, orgID)
 	require.Error(t, err)
-	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	// Read the code off the FleetError: connect.CodeOf reports Unknown for it,
+	// since FleetError isn't a connect error — it carries the code it maps to.
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
 	assert.Contains(t, err.Error(), "already occupied")
 
 	// The occupant re-asserting its own cell still upserts: the ON CONFLICT
