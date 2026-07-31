@@ -189,20 +189,21 @@ func (c *Checker) check(ctx context.Context) {
 		c.mu.Unlock()
 		return
 	}
+	previous := c.Snapshot()
 	stable := latestStable(latest, list)
 	if latestErr != nil {
 		c.logger.Debug("stable release fallback unavailable", "error", latestErr)
 	}
-	available := true
-	if stable == nil {
-		// Page 1 can contain only prereleases. Preserve a stable release
-		// learned by an earlier successful fallback instead of erasing it
-		// when /latest fails or returns an unusable tag. Without either
-		// source or a cached candidate, the overall status is unavailable
-		// rather than misleadingly up to date.
-		stable = c.Snapshot().LatestStable
-		available = stable != nil
+	if previous.LatestStable != nil &&
+		(stable == nil || semver.Compare(previous.LatestStable.Version, stable.Version) > 0) {
+		// Stable discovery is monotonic for the checker lifetime. A bounded
+		// page can lose an older, higher release behind newer prereleases,
+		// and /latest can point to a subsequently created lower maintenance
+		// release. Neither observation proves the cached release was
+		// withdrawn, so preserve the highest canonical version seen.
+		stable = previous.LatestStable
 	}
+	available := stable != nil
 
 	snapshot := Snapshot{
 		LatestStable: stable,

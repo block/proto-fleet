@@ -593,6 +593,31 @@ func TestUnusableLatestFallbackRetainsCachedStable(t *testing.T) {
 	assert.Empty(t, h.recordsAbove(slog.LevelDebug))
 }
 
+func TestLowerLatestFallbackDoesNotReplaceHigherCachedStable(t *testing.T) {
+	t.Parallel()
+
+	gh := newGHServer(t)
+	gh.setLatest(http.StatusOK, releaseJSON(t, stableEntry("v2.0.0")))
+	c, h := newTestChecker(t, gh.config(), gh.srv.URL)
+
+	c.check(context.Background())
+	before := c.Snapshot()
+	require.NotNil(t, before.LatestStable)
+	assert.Equal(t, "v2.0.0", before.LatestStable.Version)
+
+	gh.setLatest(http.StatusOK, releaseJSON(t, stableEntry("v1.9.1")))
+	gh.setList(http.StatusOK, releasesJSON(t, []githubRelease{rcEntry("v2.1.0-rc.1")}))
+	c.check(context.Background())
+
+	after := c.Snapshot()
+	require.NotNil(t, after.LatestStable)
+	assert.Equal(t, before.LatestStable, after.LatestStable)
+	require.NotNil(t, after.LatestRC)
+	assert.Equal(t, "v2.1.0-rc.1", after.LatestRC.Version)
+	assert.True(t, after.Available)
+	assert.Empty(t, h.recordsAbove(slog.LevelDebug))
+}
+
 func TestLatestFallbackFailureWithoutStableMarksStatusUnavailable(t *testing.T) {
 	t.Parallel()
 
