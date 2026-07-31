@@ -14,20 +14,16 @@ import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal/types";
 import { useHasPermission } from "@/protoFleet/store";
 
-import { Alert } from "@/shared/assets/icons";
-import Callout from "@/shared/components/Callout";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Select, { type SelectOption } from "@/shared/components/Select";
-import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 export type { RackFormData };
 
 interface RackSettingsModalProps {
   show: boolean;
   existingRacks: DeviceSet[];
-  rack?: DeviceSet;
   initialFormData?: RackFormData;
   // Prepopulates the Site dropdown when creating a rack with no prior
   // placement (e.g. the page-header site scope). Ignored when
@@ -35,16 +31,18 @@ interface RackSettingsModalProps {
   defaultSiteId?: bigint;
   // True when editing an existing rack (which has a real, possibly-NULL
   // placement). Seeds the placement selects to "Unassigned" when the rack is
-  // unplaced (vs. the empty placeholder on create) — see isExistingRack. The
-  // embedded modal inside ManageRackModal can't tell create from edit on its
-  // own (it always runs in onContinue mode), so the caller passes it.
+  // unplaced (vs. the empty placeholder on create) — see isExistingRack.
   existingRack?: boolean;
   onDismiss: () => void;
-  // May be async: for an existing rack the parent persists the settings (label/
-  // zone/dims + placement) on Continue, so we await it and keep the button busy
-  // until it resolves — a rejection leaves the modal open for a retry.
-  onContinue?: (formData: RackFormData) => void | Promise<void>;
-  onSuccess?: () => void;
+  // May be async: the caller persists the settings (an UpdateDeviceSet for an
+  // existing rack, a create for a new one), so we await it and keep the button
+  // busy until it resolves — a rejection leaves the modal open for a retry.
+  onSubmit?: (formData: RackFormData) => void | Promise<unknown>;
+  // Caller-driven busy state, OR'd with our own in-flight submit. Needed for
+  // writes the caller retries on its own — a create that came back with a
+  // reparent conflict is re-dispatched from the confirmation dialog, long after
+  // our awaited onSubmit resolved.
+  saving?: boolean;
 }
 
 // Explicit "Unassigned" entry for the placement dropdowns. The shared Select
@@ -75,18 +73,14 @@ const coolingTypeOptions: SelectOption[] = [
 const RackSettingsModal = ({
   show,
   existingRacks,
-  rack,
   initialFormData,
   defaultSiteId,
   existingRack,
   onDismiss,
-  onContinue,
-  onSuccess,
+  onSubmit,
+  saving,
 }: RackSettingsModalProps) => {
-  const isEditMode = !!rack;
-  const rackInfo = rack?.typeDetails.case === "rackInfo" ? rack.typeDetails.value : undefined;
-
-  const { updateRack, listRackZones, listRackTypes } = useDeviceSets();
+  const { listRackZones, listRackTypes } = useDeviceSets();
   const { sites } = useSitesContext();
   const { listBuildingsBySite } = useBuildings();
   // Placing a rack under a site/building is a site:manage action (the server
@@ -100,7 +94,7 @@ const RackSettingsModal = ({
   // treats placement as an optional, unfilled field: the default is the empty
   // placeholder (reads as "not chosen"), though "Unassigned" is still pickable
   // so a chosen site/building can be reverted.
-  const isExistingRack = existingRack || isEditMode;
+  const isExistingRack = !!existingRack;
 
   // Creating within a page-header site scope: the rack belongs to that site,
   // so lock the field to it (defaultSiteId is only set for a single-site
@@ -127,13 +121,13 @@ const RackSettingsModal = ({
   });
   const [buildings, setBuildings] = useState<BuildingWithCounts[]>([]);
 
-  const [label, setLabel] = useState(initialFormData?.label ?? rack?.label ?? "");
+  const [label, setLabel] = useState(initialFormData?.label ?? "");
   const [zone, setZone] = useState(() => {
     // Editing an existing rack: its stored zone is authoritative, INCLUDING an
     // intentional "" — a blank zone is now a valid state. Use presence, not
     // truthiness, and never fall through to the last-rack default, which would
-    // resurrect a just-cleared zone and re-persist it on Continue.
-    if (isExistingRack) return initialFormData?.zone ?? rackInfo?.zone ?? "";
+    // resurrect a just-cleared zone and re-persist it on save.
+    if (isExistingRack) return initialFormData?.zone ?? "";
     // Create: seed from the form if it carries a zone, otherwise default to the
     // most recently created rack's zone as a convenience.
     if (initialFormData?.zone) return initialFormData.zone;
@@ -148,19 +142,17 @@ const RackSettingsModal = ({
     }
     return "";
   });
-  const initRows = initialFormData?.rows ?? rackInfo?.rows;
-  const initCols = initialFormData?.columns ?? rackInfo?.columns;
+  const initRows = initialFormData?.rows;
+  const initCols = initialFormData?.columns;
   const [rackTypeSelection, setRackTypeSelection] = useState(initCols && initRows ? `${initCols}x${initRows}` : "new");
   const [rows, setRows] = useState(initRows ? String(initRows) : "");
   const [columns, setColumns] = useState(initCols ? String(initCols) : "");
   const [orderIndex, setOrderIndex] = useState<RackOrderIndex>(
-    initialFormData?.orderIndex ?? rackInfo?.orderIndex ?? RackOrderIndex.BOTTOM_LEFT,
+    initialFormData?.orderIndex ?? RackOrderIndex.BOTTOM_LEFT,
   );
-  const [coolingType, setCoolingType] = useState<RackCoolingType>(
-    initialFormData?.coolingType ?? rackInfo?.coolingType ?? RackCoolingType.AIR,
-  );
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState("");
+  const [coolingType, setCoolingType] = useState<RackCoolingType>(initialFormData?.coolingType ?? RackCoolingType.AIR);
+  const [ownSubmit, setOwnSubmit] = useState(false);
+  const isSubmitting = ownSubmit || !!saving;
   const [labelError, setLabelError] = useState<string | undefined>();
   const [columnsError, setColumnsError] = useState<string | undefined>();
   const [rowsError, setRowsError] = useState<string | undefined>();
@@ -186,7 +178,7 @@ const RackSettingsModal = ({
     listRackTypes({
       onSuccess: (types) => {
         setRackTypes(types);
-        if (!initialFormData && !rackInfo && types.length > 0) {
+        if (!initialFormData && types.length > 0) {
           const first = types[0];
           setRackTypeSelection(`${first.columns}x${first.rows}`);
           setRows(String(first.rows));
@@ -195,7 +187,7 @@ const RackSettingsModal = ({
       },
       onFinally: () => setRackTypesLoaded(true),
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on mount; initialFormData and rackInfo are initial values
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on mount; initialFormData is an initial value
   }, [listRackZones, listRackTypes]);
 
   // Load the selected site's buildings so the Building dropdown can scope its
@@ -357,11 +349,41 @@ const RackSettingsModal = ({
     [rackTypes],
   );
 
+  // Exactly the fields handleSubmit puts on RackFormData, compared against what
+  // the form was seeded with — so the gate can only be clean when the write
+  // would be a no-op. Creating a rack is always a real write, so it never
+  // gates. Placement is included even when the selects are hidden
+  // (rack:manage-only): they're then seeded from initialFormData and can't
+  // diverge, so this reads clean either way.
+  const isDirty = useMemo(() => {
+    if (!isExistingRack || !initialFormData) return true;
+    return (
+      label.trim() !== initialFormData.label ||
+      zone.trim() !== initialFormData.zone ||
+      Number(rows) !== initialFormData.rows ||
+      Number(columns) !== initialFormData.columns ||
+      orderIndex !== initialFormData.orderIndex ||
+      coolingType !== initialFormData.coolingType ||
+      (isRealId(siteIdText) ? BigInt(siteIdText) : undefined) !== initialFormData.siteId ||
+      (isRealId(buildingIdText) ? BigInt(buildingIdText) : undefined) !== initialFormData.buildingId
+    );
+  }, [
+    isExistingRack,
+    initialFormData,
+    label,
+    zone,
+    rows,
+    columns,
+    orderIndex,
+    coolingType,
+    siteIdText,
+    buildingIdText,
+  ]);
+
   const handleSubmit = useCallback(async () => {
     setLabelError(undefined);
     setColumnsError(undefined);
     setRowsError(undefined);
-    setErrorMsg("");
 
     let hasError = false;
 
@@ -394,60 +416,17 @@ const RackSettingsModal = ({
       buildingId: isRealId(buildingIdText) ? BigInt(buildingIdText) : undefined,
     };
 
-    if (!isEditMode) {
-      // Continue may persist settings (existing rack) or just advance (new
-      // rack). Await either way and keep the button busy so a slow save can't
-      // be double-submitted; the parent reopens/leaves this modal on failure.
-      setIsSubmitting(true);
-      try {
-        await onContinue?.(formData);
-      } finally {
-        setIsSubmitting(false);
-      }
-      return;
+    // The caller owns the write — an UpdateDeviceSet for an existing rack, a
+    // create for a new one. Await it and keep the button busy so a slow save
+    // can't be double-submitted; the caller leaves this modal open on failure
+    // so the operator can retry.
+    setOwnSubmit(true);
+    try {
+      await onSubmit?.(formData);
+    } finally {
+      setOwnSubmit(false);
     }
-
-    setIsSubmitting(true);
-
-    updateRack({
-      deviceSetId: rack!.id,
-      label: formData.label,
-      zone: formData.zone,
-      rows: formData.rows,
-      columns: formData.columns,
-      orderIndex: formData.orderIndex,
-      coolingType: formData.coolingType,
-      onSuccess: () => {
-        pushToast({
-          message: `Rack "${formData.label}" updated`,
-          status: STATUSES.success,
-        });
-        onSuccess?.();
-        onDismiss();
-      },
-      onError: (error) => {
-        setErrorMsg(error || "Failed to update rack. Please try again.");
-      },
-      onFinally: () => {
-        setIsSubmitting(false);
-      },
-    });
-  }, [
-    label,
-    zone,
-    rows,
-    columns,
-    orderIndex,
-    coolingType,
-    siteIdText,
-    buildingIdText,
-    isEditMode,
-    rack,
-    updateRack,
-    onContinue,
-    onSuccess,
-    onDismiss,
-  ]);
+  }, [label, zone, rows, columns, orderIndex, coolingType, siteIdText, buildingIdText, onSubmit]);
 
   if (!show) return null;
 
@@ -457,15 +436,19 @@ const RackSettingsModal = ({
       title="Rack settings"
       phoneSheet
       // Block dismiss (X / backdrop) while a settings save is in flight — the
-      // updateRack call persists regardless, so closing mid-request would be a
-      // surprise. Re-enabled once it resolves (or fails, leaving the form open).
+      // write persists regardless, so closing mid-request would be a surprise.
+      // Re-enabled once it resolves (or fails, leaving the form open).
       onDismiss={isSubmitting ? () => {} : onDismiss}
       divider={false}
       buttons={[
         {
-          text: isSubmitting ? "Saving..." : isEditMode ? "Save" : "Continue",
+          // Named for the write it makes: creating the rack, or saving settings
+          // onto one that already exists. Disabled with no diff — an existing
+          // rack's Save would otherwise re-persist identical values and toast
+          // as though something changed.
+          text: isExistingRack ? (isSubmitting ? "Saving..." : "Save") : isSubmitting ? "Creating..." : "Create rack",
           variant: "primary",
-          disabled: isSubmitting || isInitialLoading,
+          disabled: isSubmitting || isInitialLoading || !isDirty,
           loading: isSubmitting,
           onClick: handleSubmit,
           dismissModalOnClick: false,
@@ -478,8 +461,6 @@ const RackSettingsModal = ({
         </div>
       ) : (
         <div className="flex flex-col gap-4 pt-1">
-          {errorMsg ? <Callout intent="danger" prefixIcon={<Alert />} title={errorMsg} /> : null}
-
           <Input
             id="rack-label"
             label="Label"

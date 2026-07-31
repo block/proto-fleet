@@ -196,6 +196,13 @@ interface AssignDevicesToRackProps {
   // miners' site. Default false: the server returns conflicts (surfaced
   // via onConflicts) and writes nothing.
   forceClearConflictingSite?: boolean;
+  // Optional slot placements, applied in the same transaction. One entry
+  // per miner whose placement changes: `position` set lands it there,
+  // `position` omitted clears its slot (in the rack, off the grid). A
+  // miner not named here keeps whatever slot it had, which is what makes
+  // this safe where saveRack was not. Every entry must name a miner in
+  // deviceIdentifiers; no two may share a miner or a cell.
+  slotAssignments?: RackSlot[];
   signal?: AbortSignal;
   onSuccess?: (assignedCount: bigint, siteReassignedCount: bigint, removedCount: bigint) => void;
   // Fires when the server returns site-strip conflicts (no write
@@ -731,11 +738,18 @@ const useDeviceSets = () => {
   // server error / network blip between the two calls can't orphan
   // miners from rack assignment (issue #420). Pass targetRackId
   // unset to clear rack membership without re-assigning.
+  //
+  // Prefer this over saveRack for every edit to an existing rack. This is
+  // a delta — it names only the miners it changes — whereas saveRack
+  // replaces the rack's entire member set, so a stale local snapshot
+  // silently drops miners another session added while the modal was open.
+  // Pass slotAssignments to move membership and placement in one call.
   const assignDevicesToRack = useCallback(
     async ({
       targetRackId,
       deviceIdentifiers,
       forceClearConflictingSite,
+      slotAssignments,
       signal,
       onSuccess,
       onConflicts,
@@ -763,6 +777,7 @@ const useDeviceSets = () => {
             targetRackId,
             deviceSelector,
             forceClearConflictingSite,
+            slotAssignments,
           },
           { signal },
         );

@@ -210,7 +210,23 @@ const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
   // can't pick another site and needs the page to be reloaded.
   const siteStale = isCreate && siteIdText !== "" && !siteInOptions;
   const siteError = siteStale ? "Selected site is no longer available. Refresh and try again." : undefined;
-  const primaryDisabled = !nameValid || !siteValid || saving;
+
+  // Edit-mode dirty gate. Compared against the same normalized shape
+  // buildValues produces, so trailing whitespace or a capacity retyped as
+  // "12.50" doesn't read as an edit. buildValues sets the *Error states as a
+  // side effect, so this parses independently rather than calling it.
+  const isDirty = useMemo(
+    () =>
+      name.trim() !== initialValues.name ||
+      parseNonNegative(powerText) !== initialValues.powerCapacityMw ||
+      parseNonNegative(overheadText) !== initialValues.overheadKw ||
+      parseNonNegativeInt(aislesText) !== initialValues.aisles ||
+      parseNonNegativeInt(racksPerAisleText) !== initialValues.racksPerAisle,
+    [name, powerText, overheadText, aislesText, racksPerAisleText, initialValues],
+  );
+
+  // Create has no baseline to diff against, so it gates on validation only.
+  const primaryDisabled = !nameValid || !siteValid || saving || (props.mode === "edit" && !isDirty);
 
   const buttons =
     props.mode === "create"
@@ -223,7 +239,9 @@ const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
             testId: "building-settings-modal-cancel",
           },
           {
-            text: saving ? "Saving…" : "Save",
+            // Named for the write it performs (CreateBuilding) rather than a
+            // generic "Save" — the building exists once this lands.
+            text: saving ? "Creating…" : "Create building",
             variant: variants.primary,
             onClick: handlePrimary,
             disabled: primaryDisabled,

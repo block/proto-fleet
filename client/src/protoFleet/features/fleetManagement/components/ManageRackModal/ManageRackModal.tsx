@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { create } from "@bufbuild/protobuf";
 
 import { fetchAllSelectableMinerIds } from "./fetchAllSelectableMinerIds";
 import ManageMinersModal from "./ManageMinersModal";
@@ -9,7 +10,12 @@ import ScanMinerQrModal, { type ScanAssignmentResult } from "./ScanMinerQrModal"
 import SearchMinersModal from "./SearchMinersModal";
 import { type AssignmentMode, orderIndexToOrigin, originLabel, type RackFormData, type SelectedSlot } from "./types";
 import { useRackMinerScope } from "./useRackMinerScope";
-import { type DeviceSet, type RackSlot } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import {
+  type DeviceSet,
+  type RackSlot,
+  RackSlotPositionSchema,
+  RackSlotSchema,
+} from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import {
   type MinerListFilter,
   type MinerStateSnapshot,
@@ -54,23 +60,19 @@ function filterAssignmentsByValues(record: Record<string, string>, keepSet: Set<
 interface ManageRackModalProps {
   show: boolean;
   rackSettings: RackFormData;
-  existingRackId?: bigint;
+  // The rack always exists by the time this modal opens: Rack Settings creates
+  // it on its CTA, so there is no staged-create mode to support.
+  existingRackId: bigint;
   existingRacks: DeviceSet[];
-  // Pre-seeds the new rack's miner list (e.g. from a bulk "Add to rack →
-  // New rack" flow) so the selected miners land in the left pane ready
-  // for slot assignment. Ignored in edit mode (existingRackId set).
-  seededMinerIds?: string[];
   // Page-header site scope (single-site only). Forwarded to the embedded
-  // RackSettingsModal so a new rack created within a site scope keeps its Site
-  // field locked to that scope. Ignored for an existing rack (edit).
+  // RackSettingsModal.
   scopedSiteId?: bigint;
   onDismiss: () => void;
   onSave: () => void;
-  // Fired after the Rack Settings "Continue" persists an EXISTING rack's
-  // settings (label/placement/zone/dims) — which happens before the final
-  // miner Save. Parents should refetch in the background so the rack list /
-  // overview stays consistent even if the operator dismisses the modal
-  // without pressing Save. No-op for a new rack (nothing is persisted yet).
+  // Fired after a write lands that the host's own list/overview reflects — the
+  // Rack Settings save, and each membership commit. Parents should refetch in
+  // the background so the rack list stays consistent even if the operator
+  // dismisses without pressing the final placement Save.
   onSettingsPersisted?: () => void;
   onDelete?: () => Promise<void> | void;
 }
@@ -80,14 +82,13 @@ export default function ManageRackModal({
   rackSettings: initialRackSettings,
   existingRackId,
   existingRacks,
-  seededMinerIds,
   scopedSiteId,
   onDismiss,
   onSave,
   onSettingsPersisted,
   onDelete,
 }: ManageRackModalProps) {
-  const { saveRack, updateRack, getDeviceSet, getRackSlots, listGroupMembers } = useDeviceSets();
+  const { assignDevicesToRack, updateRack, getRackSlots, listGroupMembers } = useDeviceSets();
   // Rack placement (site/building) is a site:manage action, enforced server-
   // side on SaveRack and UpdateDeviceSet. A rack:manage-only operator edits
   // rack contents and metadata (label/zone/dims) without touching placement,
@@ -109,12 +110,11 @@ export default function ManageRackModal({
 
   // Target-rack placement for the selection modals' eligibility filter.
   // rackSettings always reflects the rack's LIVE persisted placement: a
-  // Site/Building change in Rack Settings is persisted immediately on Continue
+  // Site/Building change in Rack Settings is persisted immediately on Save
   // (handleRackSettingsUpdate), which also cascades the rack's members to the
   // new placement. So by the time this filter runs, the rack and its members
   // are already at the placement in rackSettings — no current-vs-pending split,
-  // and a miner already at the new destination reads as assignable. A new rack
-  // has no persisted placement, so rackSettings is the intended placement.
+  // and a miner already at the new destination reads as assignable.
   const eligibility = useMemo<MinerEligibility>(
     () => ({
       rackId: existingRackId,
@@ -124,10 +124,10 @@ export default function ManageRackModal({
     [existingRackId, rackSettings.siteId, rackSettings.buildingId],
   );
 
-  // Core assignment state. A new rack (no existingRackId) can be seeded
-  // with miners from a bulk "Add to rack → New rack" flow; edit mode
-  // ignores the seed and loads the rack's real membership below.
-  const [rackMiners, setRackMiners] = useState<string[]>(() => (existingRackId ? [] : (seededMinerIds ?? [])));
+  // Core assignment state, loaded from the rack's real membership below. A
+  // bulk "Add to rack → New rack" flow seeds its miners onto the create call
+  // itself, so they arrive here as persisted members like any others.
+  const [rackMiners, setRackMiners] = useState<string[]>([]);
   const [slotAssignments, setSlotAssignments] = useState<Record<string, string>>({});
   const [assignmentMode, setAssignmentMode] = useState<AssignmentMode>("manual");
   const [manualAssignmentCache, setManualAssignmentCache] = useState<Record<string, string>>({});
@@ -146,25 +146,41 @@ export default function ManageRackModal({
   const [showScanQr, setShowScanQr] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const scanUndoRef = useRef<(() => void) | null>(null);
+  const scanUndoRef = useRef<(() => Promise<void>) | null>(null);
 
-  // Pending reparent confirmation. Set when a confirm action would pull miners
-  // out of a rack/building/site they're currently assigned to; `onConfirm`
-  // runs the deferred action once the operator accepts the warning (#672).
-  const [reparentConfirm, setReparentConfirm] = useState<{ count: number; onConfirm: () => void } | null>(null);
+  // Pending reparent confirmation, from either of two sources: the picker
+  // reporting miners currently placed elsewhere (#672), and the server refusing
+  // to strip a miner's site for a site-less rack. `onConfirm` runs the deferred
+  // action; `onCancel` lets the server-conflict path report the refusal back to
+  // the write that is awaiting an answer.
+  const [reparentConfirm, setReparentConfirm] = useState<{
+    count: number;
+    onConfirm: () => void;
+    onCancel?: () => void;
+  } | null>(null);
+
+  // Placement as loaded from the server, keyed by miner: a "row-col" cell or
+  // "unplaced". The Save delta is this compared against the working set, so a
+  // miner whose cell never moved is never sent. Membership commits keep it in
+  // step, entering newcomers as "unplaced" so joining a rack doesn't read as
+  // pending placement dirt on the Save gate.
+  const [initialPlacement, setInitialPlacement] = useState<Map<string, string>>(new Map());
 
   // Loading / error state
-  const [isLoading, setIsLoading] = useState(!!existingRackId);
+  const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // `isSaving` lags a render behind, so the ref is what actually keeps two
+  // writes — a Save and a picker's membership commit — from overlapping.
+  const savingRef = useRef(false);
+  // How many miners the server refused to strip, handed from the failed attempt
+  // to the confirmation prompt. A ref, not state: nothing renders from it — the
+  // dialog reads the count off reparentConfirm.
+  const pendingConflictCountRef = useRef(0);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // No longer need initial state snapshots — saveRack replaces membership atomically.
-
-  // Fetch existing data for edit mode
+  // Load the rack's members and slots.
   useEffect(() => {
-    if (!existingRackId) return;
-
     let cancelled = false;
     let loadedMembers = false;
     let loadedSlots = false;
@@ -183,6 +199,10 @@ export default function ManageRackModal({
       }
       setSlotAssignments(assignments);
       setManualAssignmentCache(assignments);
+
+      const placed = new Map<string, string>();
+      for (const [key, deviceId] of Object.entries(assignments)) placed.set(deviceId, key);
+      setInitialPlacement(new Map(members.map((id) => [id, placed.get(id) ?? "unplaced"])));
       setIsLoading(false);
     };
 
@@ -400,15 +420,124 @@ export default function ManageRackModal({
     setReparentConfirm({ count, onConfirm: proceed });
   }, []);
 
-  // SearchMinersModal confirm — add miner to rack and assign to selected slot.
-  // The modal reports the reassignment flag from the row it selected (exact even
-  // for fleets larger than the display page).
+  // Same dialog, awaited: the server rejects assigning a placed miner into a
+  // site-less rack and writes nothing, so the retry-with-force has to wait for
+  // an answer inside the write it interrupted.
+  const confirmSiteStrip = useCallback(
+    (count: number) =>
+      new Promise<boolean>((resolve) => {
+        setReparentConfirm({
+          count,
+          onConfirm: () => resolve(true),
+          onCancel: () => resolve(false),
+        });
+      }),
+    [],
+  );
+
+  // One AssignDevicesToRack. Unset targetRackId unassigns; set assigns, and
+  // `slots` rides along in the same transaction. Resolves "conflict" when the
+  // server refused a site strip (nothing was written).
+  const dispatchAssign = useCallback(
+    (deviceIdentifiers: string[], targetRackId: bigint | undefined, force: boolean, slots?: RackSlot[]) =>
+      new Promise<"ok" | "conflict">((resolve, reject) => {
+        void assignDevicesToRack({
+          targetRackId,
+          deviceIdentifiers,
+          slotAssignments: slots,
+          forceClearConflictingSite: force,
+          onSuccess: () => resolve("ok"),
+          onConflicts: (conflicts) => {
+            pendingConflictCountRef.current = conflicts.length;
+            resolve("conflict");
+          },
+          onError: (msg) => reject(new Error(msg)),
+        });
+      }),
+    [assignDevicesToRack],
+  );
+
+  // Runs a write, and on a site-strip refusal asks the operator and retries with
+  // the strip forced. Shared by the membership commits and the placement Save so
+  // the confirmation behaves identically wherever the refusal surfaces.
+  const dispatchWithSiteStripConfirm = useCallback(
+    async (deviceIdentifiers: string[], targetRackId: bigint | undefined, slots?: RackSlot[]): Promise<boolean> => {
+      if ((await dispatchAssign(deviceIdentifiers, targetRackId, false, slots)) === "ok") return true;
+      if (!(await confirmSiteStrip(pendingConflictCountRef.current))) return false;
+      return (await dispatchAssign(deviceIdentifiers, targetRackId, true, slots)) === "ok";
+    },
+    [dispatchAssign, confirmSiteStrip],
+  );
+
+  // Membership commit. The miner pickers own rack membership, so a confirmed
+  // selection is written straight away and only placement stays staged for Save.
+  // Newcomers go in without a slot and land in the load-time snapshot as
+  // "unplaced", so freshly-committed membership doesn't read as pending
+  // placement dirt on the Save gate.
+  //
+  // The caller owns the working-set update — each entry point merges rows
+  // differently — and should skip it when this returns false.
+  const commitMembership = useCallback(
+    async (added: string[], removed: string[]): Promise<boolean> => {
+      if (savingRef.current) return false;
+      const currentIds = new Set(rackMiners);
+      const newcomers = added.filter((id) => !currentIds.has(id));
+      const leavers = removed.filter((id) => currentIds.has(id));
+      // Nothing to write. The caller may still have a placement change to stage
+      // (e.g. re-placing a miner that's already a member).
+      if (newcomers.length === 0 && leavers.length === 0) return true;
+
+      // Capacity guard — mirrors the server's. Membership is what fills a rack,
+      // so this is the check that has to happen here rather than on Save.
+      const nextCount = rackMiners.length + newcomers.length - leavers.length;
+      if (totalSlots > 0 && nextCount > totalSlots) {
+        setErrorMsg(
+          `Cannot hold ${nextCount} miners with only ${totalSlots} available slots. Deselect some miners or update your rack settings.`,
+        );
+        return false;
+      }
+
+      savingRef.current = true;
+      setErrorMsg("");
+      setIsSaving(true);
+      try {
+        // Removals first: they free their slots before any newcomer lands. An
+        // unassign has no target rack to strip a site for, so its conflict
+        // branch never fires — it goes through the same helper for uniformity.
+        if (leavers.length > 0 && !(await dispatchWithSiteStripConfirm(leavers, undefined))) return false;
+        if (newcomers.length > 0 && !(await dispatchWithSiteStripConfirm(newcomers, existingRackId))) return false;
+      } catch (err) {
+        setErrorMsg(getErrorMessage(err, "Failed to update the rack's miners. Please try again."));
+        return false;
+      } finally {
+        savingRef.current = false;
+        setIsSaving(false);
+      }
+
+      setInitialPlacement((prev) => {
+        const next = new Map(prev);
+        for (const id of leavers) next.delete(id);
+        for (const id of newcomers) next.set(id, "unplaced");
+        return next;
+      });
+      // Member counts changed on the host's rack list.
+      onSettingsPersisted?.();
+      return true;
+    },
+    [rackMiners, totalSlots, existingRackId, dispatchWithSiteStripConfirm, onSettingsPersisted],
+  );
+
+  // SearchMinersModal confirm — commit the miner into the rack if it isn't a
+  // member yet, then stage it at the selected slot. The modal reports the
+  // reassignment flag from the row it selected (exact even for fleets larger
+  // than the display page).
   const handleSearchMinerConfirm = useCallback(
     (minerId: string, isReassignment: boolean) => {
       if (!selectedSlot) return;
       const slotKey = selectedSlot.key;
-      promptReparent(isReassignment ? 1 : 0, () => {
-        // Add miner to rack if not already present
+      const apply = async () => {
+        // Failure leaves the picker open, with the error behind it, to retry.
+        if (!(await commitMembership([minerId], []))) return;
         setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
         // Remove any existing assignment for this miner, then assign to selected slot
         setSlotAssignments((prev) => {
@@ -418,16 +547,21 @@ export default function ManageRackModal({
         });
         setSelectedSlot(null);
         setShowSearchMiners(false);
-      });
+      };
+      promptReparent(isReassignment ? 1 : 0, () => void apply());
     },
-    [selectedSlot, promptReparent],
+    [selectedSlot, promptReparent, commitMembership],
   );
 
   const handleScanMinerAssign = useCallback(
-    (minerId: string): ScanAssignmentResult | null => {
+    async (minerId: string): Promise<ScanAssignmentResult | null> => {
       if (!selectedSlot) return null;
 
-      const previousRackMiners = rackMiners;
+      const wasMember = rackMiners.includes(minerId);
+      // Membership commits before the modal reports the assignment, so the
+      // "assigned" screen never claims a miner that isn't actually in the rack.
+      if (!(await commitMembership([minerId], []))) return null;
+
       const previousSlotAssignments = slotAssignments;
       const assignedSlot = selectedSlot;
       const nextSlotAssignments = removeAssignmentByValue(slotAssignments, minerId);
@@ -436,8 +570,12 @@ export default function ManageRackModal({
       setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
       setSlotAssignments(nextSlotAssignments);
 
-      scanUndoRef.current = () => {
-        setRackMiners(previousRackMiners);
+      // Undo has to reverse the write too, not just the staged cell — but only
+      // for a miner this scan actually added. One that was already a member
+      // keeps its membership and just loses the new cell.
+      scanUndoRef.current = async () => {
+        if (!wasMember && !(await commitMembership([], [minerId]))) return;
+        if (!wasMember) setRackMiners((prev) => prev.filter((id) => id !== minerId));
         setSlotAssignments(previousSlotAssignments);
         setSelectedSlot(assignedSlot);
       };
@@ -447,7 +585,7 @@ export default function ManageRackModal({
         hasNextSlot: !!getNextAssignableSlot(assignedSlot, nextSlotAssignments),
       };
     },
-    [getNextAssignableSlot, getSlotLabel, rackMiners, selectedSlot, slotAssignments],
+    [getNextAssignableSlot, getSlotLabel, rackMiners, selectedSlot, slotAssignments, commitMembership],
   );
 
   // Scanned miners already assigned elsewhere use the same reparent warning as
@@ -457,7 +595,8 @@ export default function ManageRackModal({
     (minerId: string, isReassignment: boolean) => {
       if (!selectedSlot) return;
       const slotKey = selectedSlot.key;
-      promptReparent(isReassignment ? 1 : 0, () => {
+      const apply = async () => {
+        if (!(await commitMembership([minerId], []))) return;
         setRackMiners((prev) => (prev.includes(minerId) ? prev : [...prev, minerId]));
         setSlotAssignments((prev) => {
           const next = removeAssignmentByValue(prev, minerId);
@@ -467,13 +606,14 @@ export default function ManageRackModal({
         setSelectedSlot(null);
         setShowScanQr(false);
         scanUndoRef.current = null;
-      });
+      };
+      promptReparent(isReassignment ? 1 : 0, () => void apply());
     },
-    [selectedSlot, promptReparent],
+    [selectedSlot, promptReparent, commitMembership],
   );
 
-  const handleScanAssignmentUndo = useCallback(() => {
-    scanUndoRef.current?.();
+  const handleScanAssignmentUndo = useCallback(async () => {
+    await scanUndoRef.current?.();
     scanUndoRef.current = null;
   }, []);
 
@@ -515,15 +655,18 @@ export default function ManageRackModal({
     setSelectedMinerId(null);
   }, []);
 
-  // Remove miner from rack
+  // Row-level "Remove from rack" — an immediate unassign (the miner keeps
+  // existing; it just leaves the rack). The row drops only once the write lands,
+  // so a failure leaves the list truthful.
   const handleRemoveMiner = useCallback(
-    (deviceId: string) => {
+    async (deviceId: string) => {
+      if (!(await commitMembership([], [deviceId]))) return;
       setRackMiners((prev) => prev.filter((id) => id !== deviceId));
       setSlotAssignments((prev) => removeAssignmentByValue(prev, deviceId));
       setManualAssignmentCache((prev) => removeAssignmentByValue(prev, deviceId));
       if (selectedMinerId === deviceId) setSelectedMinerId(null);
     },
-    [selectedMinerId],
+    [selectedMinerId, commitMembership],
   );
 
   // Unassign miner from slot (keep in rack)
@@ -573,244 +716,164 @@ export default function ManageRackModal({
         return `Cannot add ${finalIds.length} miners with only ${totalSlots} available slots. Deselect some miners or update your rack settings.`;
       }
 
-      promptReparent(reassignedCount, () => {
+      // The picker owns membership, so the delta is written here rather than
+      // staged. Accepting the reparent warning is what authorizes that write.
+      const keepSet = new Set(finalIds);
+      const removed = rackMiners.filter((id) => !keepSet.has(id));
+      const apply = async () => {
+        // Failure leaves the picker open with the selection intact to retry.
+        if (!(await commitMembership(finalIds, removed))) return;
         setRackMiners(finalIds);
         setShowManageMiners(false);
 
         // Remove assignments for miners no longer in rack
-        const keepSet = new Set(finalIds);
         setSlotAssignments((prev) => filterAssignmentsByValues(prev, keepSet));
         setManualAssignmentCache((prev) => filterAssignmentsByValues(prev, keepSet));
-      });
+      };
+      promptReparent(reassignedCount, () => void apply());
       return undefined;
     },
-    [eligibility, totalSlots, promptReparent],
+    [eligibility, totalSlots, rackMiners, promptReparent, commitMembership],
   );
 
-  // RackSettingsModal "Continue" handler. For an EXISTING rack, Continue is
-  // the settings save: it persists label/zone/dimensions AND placement in a
-  // single atomic UpdateDeviceSet, then cascades the rack's CURRENT server
-  // members to the new placement — all server-side, in one transaction. This
-  // is why the eligibility filter above can trust rackSettings as the rack's
-  // live placement: by the time the operator opens Manage Miners, the rack and
-  // its members are already there. Membership is untouched here — "Continue
-  // saves settings, Save saves miners" — so the modal's draft rackMiners can't
-  // leak into a settings-only change.
-  //
-  // A NEW rack doesn't exist yet, so there's nothing to persist; its settings
-  // (including placement) ride on the create in handleSave.
+  // Rack Settings "Save" handler: persists label/zone/dimensions AND placement
+  // in a single atomic UpdateDeviceSet, then cascades the rack's CURRENT server
+  // members to the new placement — all server-side, in one transaction. This is
+  // why the eligibility filter above can trust rackSettings as the rack's live
+  // placement: by the time the operator opens Manage Miners, the rack and its
+  // members are already there. Membership is untouched here, so the modal's
+  // draft rackMiners can't leak into a settings-only change.
   const handleRackSettingsUpdate = useCallback(
     async (formData: RackFormData) => {
-      const rackId = existingRackId;
-      if (rackId !== undefined) {
-        // Only send placement when the operator actually changed site/building
-        // this edit (compared to what the form was seeded with). A metadata-only
-        // edit (label/zone/dims) omits placement, so UpdateDeviceSet preserves
-        // the rack's CURRENT server placement — a stale cached value can't
-        // re-parent a rack that another session moved while this modal was open.
-        // Zone stays authoritative even with placement omitted (the settings
-        // path treats an empty zone as an explicit clear).
-        const placementChanged =
-          canManagePlacement &&
-          (formData.siteId !== rackSettings.siteId || formData.buildingId !== rackSettings.buildingId);
-        let updated: DeviceSet | undefined;
-        try {
-          await new Promise<void>((resolve, reject) => {
-            updateRack({
-              deviceSetId: rackId,
-              label: formData.label,
-              zone: formData.zone,
-              rows: formData.rows,
-              columns: formData.columns,
-              orderIndex: formData.orderIndex,
-              coolingType: formData.coolingType,
-              // Unset level -> 0n unassign when the operator did change placement.
-              siteId: placementChanged ? (formData.siteId ?? 0n) : undefined,
-              buildingId: placementChanged ? (formData.buildingId ?? 0n) : undefined,
-              onSuccess: (ds) => {
-                updated = ds;
-                resolve();
-              },
-              onError: (msg) => reject(new Error(msg)),
-            });
+      // Only send placement when the operator actually changed site/building
+      // this edit (compared to what the form was seeded with). A metadata-only
+      // edit (label/zone/dims) omits placement, so UpdateDeviceSet preserves
+      // the rack's CURRENT server placement — a stale cached value can't
+      // re-parent a rack that another session moved while this modal was open.
+      // Zone stays authoritative even with placement omitted (the settings
+      // path treats an empty zone as an explicit clear).
+      const placementChanged =
+        canManagePlacement &&
+        (formData.siteId !== rackSettings.siteId || formData.buildingId !== rackSettings.buildingId);
+      let updated: DeviceSet | undefined;
+      try {
+        await new Promise<void>((resolve, reject) => {
+          updateRack({
+            deviceSetId: existingRackId,
+            label: formData.label,
+            zone: formData.zone,
+            rows: formData.rows,
+            columns: formData.columns,
+            orderIndex: formData.orderIndex,
+            coolingType: formData.coolingType,
+            // Unset level -> 0n unassign when the operator did change placement.
+            siteId: placementChanged ? (formData.siteId ?? 0n) : undefined,
+            buildingId: placementChanged ? (formData.buildingId ?? 0n) : undefined,
+            onSuccess: (ds) => {
+              updated = ds;
+              resolve();
+            },
+            onError: (msg) => reject(new Error(msg)),
           });
-        } catch (err) {
-          pushToast({
-            message: getErrorMessage(err, "Failed to update rack settings. Please try again."),
-            status: STATUSES.error,
-          });
-          // Keep Rack Settings open (don't apply) so the operator can retry.
-          return;
-        }
-        // Adopt the server's AUTHORITATIVE placement from the response, not the
-        // submitted formData: when placement was omitted (metadata-only edit)
-        // the server kept whatever the rack's current site/building is — which
-        // may differ from the stale formData values if another session moved it.
-        // The eligibility filter reads rackSettings placement, so trusting the
-        // response keeps the miner list scoped to where the rack really is.
-        const serverRackInfo = updated?.typeDetails.case === "rackInfo" ? updated.typeDetails.value : undefined;
-        const applied: RackFormData = serverRackInfo
-          ? {
-              ...formData,
-              siteId: serverRackInfo.siteId,
-              buildingId: serverRackInfo.buildingId,
-              zone: serverRackInfo.zone,
-            }
-          : formData;
-        // Settings are now live on the server. Let the parent refetch so its
-        // rack list/overview reflects the new label/placement even if the
-        // operator dismisses without pressing the final miner Save.
-        onSettingsPersisted?.();
-        setRackSettings(applied);
-        setShowRackSettings(false);
+        });
+      } catch (err) {
+        pushToast({
+          message: getErrorMessage(err, "Failed to update rack settings. Please try again."),
+          status: STATUSES.error,
+        });
+        // Keep Rack Settings open (don't apply) so the operator can retry.
         return;
       }
-
-      setRackSettings(formData);
+      // Adopt the server's AUTHORITATIVE placement from the response, not the
+      // submitted formData: when placement was omitted (metadata-only edit)
+      // the server kept whatever the rack's current site/building is — which
+      // may differ from the stale formData values if another session moved it.
+      // The eligibility filter reads rackSettings placement, so trusting the
+      // response keeps the miner list scoped to where the rack really is.
+      const serverRackInfo = updated?.typeDetails.case === "rackInfo" ? updated.typeDetails.value : undefined;
+      const applied: RackFormData = serverRackInfo
+        ? {
+            ...formData,
+            siteId: serverRackInfo.siteId,
+            buildingId: serverRackInfo.buildingId,
+            zone: serverRackInfo.zone,
+          }
+        : formData;
+      // Settings are now live on the server. Let the parent refetch so its
+      // rack list/overview reflects the new label/placement even if the
+      // operator dismisses without pressing the final miner Save.
+      onSettingsPersisted?.();
+      pushToast({ message: `Rack "${applied.label}" saved`, status: STATUSES.success });
+      setRackSettings(applied);
       setShowRackSettings(false);
     },
     [existingRackId, canManagePlacement, rackSettings, updateRack, onSettingsPersisted],
   );
 
-  // Save handler — single atomic RPC
-  const handleSave = useCallback(async () => {
-    // Capacity guard. handleManageMinersConfirm enforces this when miners are
-    // added through the sub-modal, but a seeded new rack (bulk "New rack")
-    // populates rackMiners directly and bypasses that path — saveRack accepts
-    // members beyond the slot count, so an over-fill would persist silently.
-    if (rackMiners.length > totalSlots) {
-      setErrorMsg(
-        `Cannot add ${rackMiners.length} miners with only ${totalSlots} available slots. Deselect some miners or update your rack settings.`,
+  // One RackSlot per miner whose cell differs from what loaded: position set to
+  // the new cell, position omitted to clear it. Miners the operator never moved
+  // aren't named at all, so a concurrent placement change elsewhere in the rack
+  // survives this save — the whole reason Save no longer goes through SaveRack,
+  // which replaced the rack's entire member set from a possibly-stale snapshot.
+  const placementDelta = useMemo<RackSlot[]>(() => {
+    const cellByMiner = new Map<string, string>();
+    for (const [key, deviceId] of Object.entries(activeAssignments)) cellByMiner.set(deviceId, key);
+
+    const delta: RackSlot[] = [];
+    for (const deviceId of rackMiners) {
+      const before = initialPlacement.get(deviceId) ?? "unplaced";
+      const after = cellByMiner.get(deviceId) ?? "unplaced";
+      if (before === after) continue;
+      if (after === "unplaced") {
+        delta.push(create(RackSlotSchema, { deviceIdentifier: deviceId }));
+        continue;
+      }
+      const [row, column] = after.split("-").map(Number);
+      delta.push(
+        create(RackSlotSchema, {
+          deviceIdentifier: deviceId,
+          position: create(RackSlotPositionSchema, { row, column }),
+        }),
       );
+    }
+    return delta;
+  }, [activeAssignments, rackMiners, initialPlacement]);
+
+  // Save owns slot placement only. Membership commits in the pickers, and
+  // label/zone/dimensions/site/building commit in Rack Settings — so by the time
+  // the operator gets here the only unwritten thing left is where each miner
+  // sits in the grid.
+  const handleSave = useCallback(async () => {
+    if (savingRef.current) return;
+    // Defensive: the CTA is dirty-gated, so a clean save shouldn't be reachable.
+    // Close rather than write nothing and toast as though something changed.
+    if (placementDelta.length === 0) {
+      onSave();
       return;
     }
 
+    savingRef.current = true;
     setIsSaving(true);
     setErrorMsg("");
-
     try {
-      // Build slot assignments from the active assignments map
-      const slotAssignmentsList = Object.entries(activeAssignments).map(([key, deviceId]) => {
-        const [row, col] = key.split("-").map(Number);
-        return { deviceIdentifier: deviceId, row, column: col };
-      });
-
-      // Placement rides on CREATE only. An existing rack's Site/Building (and
-      // zone/dimensions) are already persisted on the Rack Settings "Continue"
-      // — Continue saves settings, Save saves miners — so an edit Save omits
-      // placement: it preserves the rack's current server placement and can't
-      // clobber a move made by another session while this modal was open.
-      const sendPlacement = canManagePlacement && existingRackId === undefined;
-
-      // Existing-rack Save is miners-only, but SaveRack always rewrites
-      // rack_info, so re-send the rack's CURRENT server metadata rather than the
-      // modal's cached copy — otherwise a concurrent zone/dimension edit from
-      // another session would be reverted (and stale dims could mis-validate the
-      // new slots). Best-effort: fall back to the cached values on a fetch miss
-      // so a transient error can't block the miner save.
-      let meta = {
-        label: rackSettings.label,
-        zone: rackSettings.zone,
-        rows: rackSettings.rows,
-        columns: rackSettings.columns,
-        orderIndex: rackSettings.orderIndex,
-        coolingType: rackSettings.coolingType,
-      };
-      if (existingRackId !== undefined) {
-        await new Promise<void>((resolve) => {
-          getDeviceSet({
-            deviceSetId: existingRackId,
-            onSuccess: (ds) => {
-              if (ds.typeDetails.case === "rackInfo") {
-                const ri = ds.typeDetails.value;
-                meta = {
-                  label: ds.label,
-                  zone: ri.zone,
-                  rows: ri.rows,
-                  columns: ri.columns,
-                  orderIndex: ri.orderIndex,
-                  coolingType: ri.coolingType,
-                };
-              }
-              resolve();
-            },
-            onNotFound: () => resolve(),
-            onError: () => resolve(),
-          });
-        });
-      }
-
-      const finishSuccess = () => {
-        pushToast({
-          message: existingRackId ? `Rack "${meta.label}" updated` : `Rack "${meta.label}" created`,
-          status: STATUSES.success,
-        });
-        onSave();
-      };
-
-      // Persist the miners. When the rack is site-less, the server rejects a
-      // member that currently has a site/building (it would be stripped) and
-      // returns a conflict list without writing — mirroring the reparent RPC.
-      // We surface the same ReparentWarningDialog and, on confirm, retry with
-      // forceClearConflictingSite so the strip is explicit, not silent.
-      const runSaveRack = (force: boolean): Promise<"ok" | "conflict"> =>
-        new Promise((resolve, reject) => {
-          saveRack({
-            deviceSetId: existingRackId,
-            label: meta.label,
-            zone: meta.zone,
-            rows: meta.rows,
-            columns: meta.columns,
-            orderIndex: meta.orderIndex,
-            coolingType: meta.coolingType,
-            deviceIdentifiers: rackMiners,
-            slotAssignments: slotAssignmentsList,
-            // Create sends its chosen placement (unset level → NULL), gated on
-            // site:manage. Edit omits placement (persisted on Continue).
-            siteId: sendPlacement ? (rackSettings.siteId ?? 0n) : undefined,
-            buildingId: sendPlacement ? (rackSettings.buildingId ?? 0n) : undefined,
-            forceClearConflictingSite: force,
-            onSuccess: () => resolve("ok"),
-            onConflicts: (conflicts) => {
-              setReparentConfirm({
-                count: conflicts.length,
-                onConfirm: () => {
-                  setReparentConfirm(null);
-                  setIsSaving(true);
-                  setErrorMsg("");
-                  runSaveRack(true)
-                    .then((outcome) => {
-                      if (outcome === "ok") finishSuccess();
-                    })
-                    .catch((err) => setErrorMsg(getErrorMessage(err, "Failed to save. Please try again.")))
-                    .finally(() => setIsSaving(false));
-                },
-              });
-              resolve("conflict");
-            },
-            onError: (msg) => reject(new Error(msg)),
-          });
-        });
-
-      // conflict → the dialog above drives the confirm/force retry; don't toast
-      // success or close the modal until that resolves.
-      if ((await runSaveRack(false)) === "ok") finishSuccess();
+      // Every named miner is already a member; re-asserting membership is a
+      // no-op server-side (and is what lets the slots ride the same
+      // transaction), so this cannot move a miner between racks.
+      const ok = await dispatchWithSiteStripConfirm(
+        placementDelta.map((slot) => slot.deviceIdentifier),
+        existingRackId,
+        placementDelta,
+      );
+      if (!ok) return;
+      pushToast({ message: `Miner positions saved for "${rackSettings.label}"`, status: STATUSES.success });
+      onSave();
     } catch (err) {
       setErrorMsg(getErrorMessage(err, "Failed to save. Please try again."));
     } finally {
+      savingRef.current = false;
       setIsSaving(false);
     }
-  }, [
-    existingRackId,
-    rackSettings,
-    rackMiners,
-    totalSlots,
-    activeAssignments,
-    canManagePlacement,
-    getDeviceSet,
-    saveRack,
-    onSave,
-  ]);
+  }, [placementDelta, existingRackId, rackSettings.label, dispatchWithSiteStripConfirm, onSave]);
 
   if (!show) return null;
 
@@ -842,9 +905,11 @@ export default function ManageRackModal({
             onClick: () => setShowManageMiners(true),
           },
           {
+            // Placement is all that's left to write, so the gate is the exact
+            // delta the request carries — no diff, nothing to save.
             text: isSaving ? "Saving..." : "Save",
             variant: variants.primary,
-            disabled: isSaving || isLoading || loadFailed,
+            disabled: isSaving || isLoading || loadFailed || placementDelta.length === 0,
             loading: isSaving,
             onClick: handleSave,
           },
@@ -917,10 +982,10 @@ export default function ManageRackModal({
           show={showRackSettings}
           existingRacks={existingRacks}
           initialFormData={rackSettings}
-          existingRack={existingRackId !== undefined}
+          existingRack
           defaultSiteId={scopedSiteId}
           onDismiss={() => setShowRackSettings(false)}
-          onContinue={handleRackSettingsUpdate}
+          onSubmit={handleRackSettingsUpdate}
         />
       ) : null}
 
@@ -932,6 +997,7 @@ export default function ManageRackModal({
           targetRackLabel={rackSettings.label}
           maxSlots={totalSlots}
           scope={scope}
+          saving={isSaving}
           onDismiss={() => setShowManageMiners(false)}
           onConfirm={handleManageMinersConfirm}
         />
@@ -973,7 +1039,11 @@ export default function ManageRackModal({
         <ReparentWarningDialog
           count={reparentConfirm.count}
           rackLabel={rackSettings.label}
-          onCancel={() => setReparentConfirm(null)}
+          onCancel={() => {
+            const abandon = reparentConfirm.onCancel;
+            setReparentConfirm(null);
+            abandon?.();
+          }}
           onConfirm={() => {
             const proceed = reparentConfirm.onConfirm;
             setReparentConfirm(null);

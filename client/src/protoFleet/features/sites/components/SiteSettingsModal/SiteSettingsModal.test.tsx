@@ -107,6 +107,51 @@ describe("SiteSettingsModal — edit mode", () => {
     expect((screen.getByTestId("site-settings-capacity-input") as HTMLInputElement).value).toBe("8");
   });
 
+  it("disables Save until a field actually changes", () => {
+    render(
+      <SiteSettingsModal
+        open
+        mode="edit"
+        initialValues={baseValues({ name: "East DC", powerCapacityMw: 8 })}
+        onSave={() => undefined}
+        onDeleteRequested={() => undefined}
+        onDismiss={() => undefined}
+      />,
+    );
+
+    const save = screen.getByTestId("site-settings-modal-save");
+    // Save fires UpdateSite; with no edit there's nothing to write.
+    expect(save).toBeDisabled();
+
+    fireEvent.change(screen.getByTestId("site-settings-name-input"), { target: { value: "East DC 2" } });
+    expect(save).not.toBeDisabled();
+
+    // Back to the original value → clean again, not latched dirty.
+    fireEvent.change(screen.getByTestId("site-settings-name-input"), { target: { value: "East DC" } });
+    expect(save).toBeDisabled();
+  });
+
+  it("ignores whitespace-only and capacity re-formatting as edits", () => {
+    render(
+      <SiteSettingsModal
+        open
+        mode="edit"
+        initialValues={baseValues({ name: "East DC", powerCapacityMw: 8 })}
+        onSave={() => undefined}
+        onDeleteRequested={() => undefined}
+        onDismiss={() => undefined}
+      />,
+    );
+
+    const save = screen.getByTestId("site-settings-modal-save");
+    // The gate compares the same normalized shape buildValues produces, so
+    // neither of these is a real change.
+    fireEvent.change(screen.getByTestId("site-settings-name-input"), { target: { value: "East DC  " } });
+    expect(save).toBeDisabled();
+    fireEvent.change(screen.getByTestId("site-settings-capacity-input"), { target: { value: "8.0" } });
+    expect(save).toBeDisabled();
+  });
+
   it("Save calls onSave with the typed values", () => {
     const onSave = vi.fn();
     render(
@@ -134,62 +179,6 @@ describe("SiteSettingsModal — edit mode", () => {
         mode="edit"
         initialValues={baseValues({ name: "East DC" })}
         onSave={() => undefined}
-        onDeleteRequested={onDeleteRequested}
-        onDismiss={() => undefined}
-      />,
-    );
-
-    fireEvent.click(screen.getByTestId("site-settings-modal-delete"));
-    expect(onDeleteRequested).toHaveBeenCalled();
-  });
-});
-
-describe("SiteSettingsModal — createReturn mode", () => {
-  it("renders Delete + Save instead of Cancel + Continue", () => {
-    render(
-      <SiteSettingsModal
-        open
-        mode="createReturn"
-        initialValues={baseValues({ name: "North DC" })}
-        onContinue={() => undefined}
-        onDeleteRequested={() => undefined}
-        onDismiss={() => undefined}
-      />,
-    );
-
-    expect(screen.queryByTestId("site-settings-modal-continue")).toBeNull();
-    expect(screen.queryByTestId("site-settings-modal-cancel")).toBeNull();
-    expect(screen.getByTestId("site-settings-modal-delete")).toBeInTheDocument();
-    expect(screen.getByTestId("site-settings-modal-save")).toBeInTheDocument();
-  });
-
-  it("Save invokes onContinue with the current values", () => {
-    const onContinue = vi.fn();
-    render(
-      <SiteSettingsModal
-        open
-        mode="createReturn"
-        initialValues={baseValues({ name: "North DC" })}
-        onContinue={onContinue}
-        onDeleteRequested={() => undefined}
-        onDismiss={() => undefined}
-      />,
-    );
-
-    fireEvent.change(screen.getByTestId("site-settings-name-input"), { target: { value: "North DC 2" } });
-    fireEvent.click(screen.getByTestId("site-settings-modal-save"));
-
-    expect(onContinue).toHaveBeenCalledWith(expect.objectContaining({ name: "North DC 2" }));
-  });
-
-  it("Delete invokes onDeleteRequested (discard pending create)", () => {
-    const onDeleteRequested = vi.fn();
-    render(
-      <SiteSettingsModal
-        open
-        mode="createReturn"
-        initialValues={baseValues({ name: "North DC" })}
-        onContinue={() => undefined}
         onDeleteRequested={onDeleteRequested}
         onDismiss={() => undefined}
       />,

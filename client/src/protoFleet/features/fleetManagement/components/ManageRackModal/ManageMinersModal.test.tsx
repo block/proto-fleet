@@ -20,6 +20,10 @@ vi.mock("@/protoFleet/components/MinerSelectionList", () => ({
     useEffect(() => {
       propsRef.current = props;
       latestProps.current = props;
+      // The real list pushes its selection up on mount and on every change,
+      // which is what feeds the Save dirty gate.
+      const { selectedItems, allSelected, totalMiners } = mockGetSelection();
+      props.onSelectionChange?.({ selectedItems, allSelected, totalMiners });
     });
     useImperativeHandle(ref, () => ({
       getSelection: mockGetSelection,
@@ -34,7 +38,7 @@ vi.mock("@/shared/components/Modal", () => ({
       <div data-testid="modal">
         {children}
         {buttons?.map((btn: any, i: number) => (
-          <button key={i} onClick={btn.onClick}>
+          <button key={i} onClick={btn.onClick} disabled={Boolean(btn.disabled || btn.loading)}>
             {btn.text}
           </button>
         ))}
@@ -103,7 +107,7 @@ describe("ManageMinersModal", () => {
     expect(latestProps.current.eligibility).toEqual({ rackId: 5n, siteId: 2n, buildingId: 3n });
   });
 
-  it("calls onConfirm with selected IDs on continue", () => {
+  it("calls onConfirm with selected IDs on save", () => {
     const onConfirm = vi.fn();
     mockGetSelection.mockReturnValue({
       selectedItems: ["miner-1", "miner-2"],
@@ -114,7 +118,7 @@ describe("ManageMinersModal", () => {
     });
 
     render(<ManageMinersModal {...defaultProps} onConfirm={onConfirm} />);
-    fireEvent.click(screen.getByText(/Continue/));
+    fireEvent.click(screen.getByText(/Save/));
 
     expect(onConfirm).toHaveBeenCalledWith(["miner-1", "miner-2"], false, undefined, []);
   });
@@ -129,7 +133,7 @@ describe("ManageMinersModal", () => {
     });
 
     render(<ManageMinersModal {...defaultProps} maxSlots={2} />);
-    fireEvent.click(screen.getByText(/Continue/));
+    fireEvent.click(screen.getByText(/Save/));
 
     expect(screen.getByText(/Cannot add 3 miners with only 2 available slots/)).toBeInTheDocument();
   });
@@ -145,12 +149,12 @@ describe("ManageMinersModal", () => {
     });
 
     render(<ManageMinersModal {...defaultProps} maxSlots={2} onConfirm={onConfirm} />);
-    fireEvent.click(screen.getByText(/Continue/));
+    fireEvent.click(screen.getByText(/Save/));
 
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it("blocks Continue and prompts to clear the filter when a placement facet conflicts", () => {
+  it("blocks Save and prompts to clear the filter when a placement facet conflicts", () => {
     const onConfirm = vi.fn();
     mockGetSelection.mockReturnValue({
       selectedItems: ["m1", "m2"],
@@ -161,10 +165,41 @@ describe("ManageMinersModal", () => {
     });
 
     render(<ManageMinersModal {...defaultProps} onConfirm={onConfirm} />);
-    fireEvent.click(screen.getByText(/Continue/));
+    fireEvent.click(screen.getByText(/Save/));
 
     // No save (which would otherwise resolve/commit a hidden selection).
     expect(onConfirm).not.toHaveBeenCalled();
     expect(screen.getByText(/Clear the Building or Rack filter/i)).toBeInTheDocument();
+  });
+
+  it("disables Save until the selection differs from the rack's members", () => {
+    mockGetSelection.mockReturnValue({
+      selectedItems: ["miner-1"],
+      allSelected: false,
+      totalMiners: 10,
+      reassignedItems: [],
+      blockedByFilter: false,
+    });
+
+    const { unmount } = render(<ManageMinersModal {...defaultProps} currentRackMiners={["miner-1"]} />);
+    expect(screen.getByText(/Save/)).toBeDisabled();
+    unmount();
+
+    // Same count, different miner — still a real membership change.
+    render(<ManageMinersModal {...defaultProps} currentRackMiners={["miner-2"]} />);
+    expect(screen.getByText(/Save/)).toBeEnabled();
+  });
+
+  it("treats select-all as a change, since it resolves server-side", () => {
+    mockGetSelection.mockReturnValue({
+      selectedItems: ["miner-1"],
+      allSelected: true,
+      totalMiners: 10,
+      reassignedItems: [],
+      blockedByFilter: false,
+    });
+
+    render(<ManageMinersModal {...defaultProps} currentRackMiners={["miner-1"]} />);
+    expect(screen.getByText(/Save/)).toBeEnabled();
   });
 });

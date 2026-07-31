@@ -233,12 +233,14 @@ describe("ManageRacksModal show-assigned toggle (server-side)", () => {
     await waitFor(() => expect(screen.getByText("Beta")).toBeInTheDocument());
 
     await userEvent.click(rowCheckbox(1)); // reparent pick (Beta)
+    await waitFor(() => expect(screen.getByTestId("manage-racks-modal-confirm")).toBeEnabled());
     await userEvent.click(screen.getByLabelText("Show assigned racks")); // toggle off
-    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
 
-    const delta = onConfirm.mock.calls[0][0];
-    expect(delta.reassigned).toEqual([]);
-    expect(delta.added.map((a: { rackId: bigint }) => a.rackId)).not.toContain(2n);
+    // Dropping Beta empties the delta, so Save closes back up — there's nothing
+    // left to write. Clicking it is a no-op.
+    await waitFor(() => expect(screen.getByTestId("manage-racks-modal-confirm")).toBeDisabled());
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 
   it("allows an explicit single per-row reparent pick through the delta", async () => {
@@ -281,14 +283,30 @@ describe("ManageRacksModal show-assigned toggle (server-side)", () => {
   it("never reports a seeded rack absent from the fetch as removed", async () => {
     // A seeded rack (id 3) that the eligibility-pinned fetch doesn't return
     // (paging gap / soft-delete window) must be left alone, not unassigned.
+    // Gamma (no building) gives the save something real to write, so the delta
+    // is reachable through the dirty gate.
+    setupListRacks([createRack(1n, "Alpha", 7n, 42n), createRack(4n, "Gamma", 0n)]);
     const onConfirm = vi.fn();
     renderModal({ initialSelectedRackIds: [1n, 3n], onConfirm });
-    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Gamma")).toBeInTheDocument());
+
+    await userEvent.click(rowCheckbox(1)); // Gamma
     await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
 
     const delta = onConfirm.mock.calls[0][0];
+    expect(delta.added.map((a: { rackId: bigint }) => a.rackId)).toEqual([4n]);
     expect(delta.removed).toEqual([]);
-    expect(delta.added).toEqual([]);
+  });
+
+  it("keeps Save disabled when nothing was touched", async () => {
+    // A loaded, untouched picker has no membership change to write.
+    const onConfirm = vi.fn();
+    renderModal({ initialSelectedRackIds: [1n], onConfirm });
+    await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
+
+    await waitFor(() => expect(screen.getByTestId("manage-racks-modal-confirm")).toBeDisabled());
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 });
 
@@ -602,7 +620,10 @@ describe("ManageRacksModal review fixes (#789)", () => {
       req.onFinally?.();
     });
     const onConfirm = vi.fn();
-    renderModal({ onConfirm });
+    // Seeded with Alpha so Select none leaves a real change (removed: [1n]) —
+    // otherwise the dirty gate would hold Save shut and mask whether the
+    // select-all guard released it.
+    renderModal({ initialSelectedRackIds: [1n], onConfirm });
     await waitFor(() => expect(screen.getByText("Alpha")).toBeInTheDocument());
 
     await userEvent.click(screen.getByRole("button", { name: "Select all" }));
@@ -614,6 +635,7 @@ describe("ManageRacksModal review fixes (#789)", () => {
 
     await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
     expect(onConfirm.mock.calls[0][0].added).toEqual([]);
+    expect(onConfirm.mock.calls[0][0].removed).toEqual([1n]);
   });
 
   it("disables pagination while a page is loading (no stale-token double advance)", async () => {

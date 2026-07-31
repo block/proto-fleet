@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { type SiteFormValues } from "@/protoFleet/api/sites";
 import {
@@ -14,11 +14,10 @@ import Modal from "@/shared/components/Modal";
 import Select from "@/shared/components/Select";
 import Textarea from "@/shared/components/Textarea";
 
-// "createReturn" is the state when the operator clicks "Edit details" from
-// ManageSiteModal during the create flow — they're already mid-create, so the
-// CTAs read Delete (discard pending site) + Save (apply changes and return to
-// the manage view) instead of Cancel + Continue.
-export type SiteSettingsModalMode = "create" | "createReturn" | "edit";
+// "create" is the initial site-details step. Continue persists the site
+// (CreateSite) and hands off to ManageSiteModal in edit mode; once the site
+// exists, "Edit details" reopens this modal in "edit" mode (UpdateSite).
+export type SiteSettingsModalMode = "create" | "edit";
 
 interface SiteSettingsModalCommonProps {
   open: boolean;
@@ -29,12 +28,7 @@ interface SiteSettingsModalCommonProps {
 
 export type SiteSettingsModalProps = SiteSettingsModalCommonProps &
   (
-    | { mode: "create"; onContinue: (values: SiteFormValues) => void }
-    | {
-        mode: "createReturn";
-        onContinue: (values: SiteFormValues) => void;
-        onDeleteRequested: () => void;
-      }
+    | { mode: "create"; onContinue: (values: SiteFormValues) => Promise<void> | void }
     | {
         mode: "edit";
         onSave: (values: SiteFormValues) => Promise<void> | void;
@@ -92,12 +86,33 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
     if (props.mode === "edit") {
       await props.onSave(values);
     } else {
-      props.onContinue(values);
+      await props.onContinue(values);
     }
   }, [buildValues, props]);
 
   const nameValid = name.trim().length > 0;
-  const primaryDisabled = !nameValid || saving;
+
+  // Edit-mode dirty gate. Compared against the same normalized shape
+  // buildValues produces, so trailing whitespace or a capacity retyped as
+  // "12.50" doesn't read as an edit. buildValues sets capacityError as a side
+  // effect, so the comparison uses its own parse instead of calling it here.
+  const isDirty = useMemo(() => {
+    const capacity = parseCapacity(capacityText);
+    return (
+      name.trim() !== initialValues.name ||
+      address.trim() !== initialValues.address ||
+      city.trim() !== initialValues.locationCity ||
+      state.trim() !== initialValues.locationState ||
+      postalCode.trim() !== initialValues.postalCode ||
+      (country || "US") !== (initialValues.country || "US") ||
+      timezone !== initialValues.timezone ||
+      capacity !== initialValues.powerCapacityMw ||
+      notes !== initialValues.notes
+    );
+  }, [name, address, city, state, postalCode, country, timezone, capacityText, notes, initialValues]);
+
+  // Create has no baseline to diff against, so it gates on validation only.
+  const primaryDisabled = !nameValid || saving || (props.mode === "edit" && !isDirty);
 
   const buttons =
     props.mode === "create"
@@ -106,10 +121,14 @@ const SiteSettingsModal = (props: SiteSettingsModalProps) => {
             text: "Cancel",
             variant: variants.secondary,
             onClick: onDismiss,
+            disabled: saving,
             testId: "site-settings-modal-cancel",
           },
           {
-            text: "Continue",
+            // Named for the write it performs (CreateSite) rather than "Continue"
+            // — the site exists once this lands, even if the operator bails out
+            // of the manage step that follows.
+            text: saving ? "Creating…" : "Create site",
             variant: variants.primary,
             onClick: handlePrimary,
             disabled: primaryDisabled,
