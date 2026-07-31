@@ -158,6 +158,9 @@ func (g *Group) Start(ctx context.Context) error {
 
 func (g *Group) failStart(ctx context.Context, started int, startErr error) error {
 	g.endActivation()
+	if ctx.Err() != nil {
+		abortJobs(g.jobs[:started])
+	}
 	rollbackCtx := context.WithoutCancel(ctx)
 	if deadline, ok := ctx.Deadline(); ok {
 		var cancel context.CancelFunc
@@ -198,6 +201,20 @@ func (g *Group) Stop(ctx context.Context) error {
 	}
 	g.setGroupState(StateStopped)
 	return nil
+}
+
+// Abort immediately cancels work that must not survive ownership loss.
+// Stop must follow to finish cleanup and make the group restartable.
+func (g *Group) Abort() {
+	abortJobs(g.jobs)
+}
+
+func abortJobs(jobs []Job) {
+	for _, job := range jobs {
+		if aborter, ok := job.(Aborter); ok {
+			aborter.Abort()
+		}
+	}
 }
 
 func (g *Group) setTerminalErr(err error) {

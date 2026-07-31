@@ -228,6 +228,22 @@ func (es *ExecutionService) IsRunning() bool {
 	return es.run != nil && es.run.accepting && es.run.admissionCtx.Err() == nil
 }
 
+// Abort cancels both new and already-admitted command work. HA demotion uses
+// this before graceful group cleanup so commands cannot outlive ownership.
+func (es *ExecutionService) Abort() {
+	es.lifecycleMu.Lock()
+	run := es.run
+	if run != nil {
+		run.accepting = false
+	}
+	es.lifecycleMu.Unlock()
+	if run == nil {
+		return
+	}
+	run.cancelAdmission()
+	run.cancelWork()
+}
+
 // withAdmission makes accepting an enqueue atomic with stopping. Once
 // admitted, the operation may drain after Stop begins and is canceled only if
 // the stop context expires.

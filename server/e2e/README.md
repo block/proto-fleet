@@ -73,7 +73,7 @@ Validates that the docker-compose environment is properly configured and all ser
 │     └─ timescaledb container exists and is running         │
 │                                                              │
 │  2. FleetAPIHealth                                          │
-│     └─ /health endpoint returns 200 OK                     │
+│     └─ /health/ready endpoint returns 200 OK               │
 │                                                              │
 │  3. PluginBinariesCorrect                                   │
 │     ├─ proto-plugin binary exists                          │
@@ -216,7 +216,7 @@ go test -short ./...
           │
           ▼
 ┌─────────────────────┐
-│ Wait for Health     │  Polls /health endpoint (up to 60s)
+│ Wait for Readiness  │  Polls /health/ready (up to 60s)
 └─────────┬───────────┘
           │
           ▼
@@ -440,8 +440,8 @@ docker-compose logs
 # Check if proto-sim is accessible from host
 curl http://localhost:8080/health
 
-# Check if fleet-api is accessible
-curl http://localhost:4000/health
+# Check if fleet-api is ready for product traffic
+curl http://localhost:4000/health/ready
 
 # Check container networking
 docker exec server-fleet-api-1 ping server-proto-sim-1
@@ -580,7 +580,7 @@ jobs:
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/health` | GET | Health check (no auth required) |
+| `/health/ready` | GET | Readiness check (no auth required) |
 | `/onboarding.v1.OnboardingService/CreateAdminLogin` | POST | Create first admin user |
 | `/auth.v1.AuthService/Authenticate` | POST | Get JWT token |
 | `/pairing.v1.PairingService/Discover` | Stream | Discover mining devices |

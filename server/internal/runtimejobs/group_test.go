@@ -154,6 +154,37 @@ func TestGroupRollbackDetachesManualStartCancellation(t *testing.T) {
 	require.NoError(t, group.Err())
 }
 
+func TestGroupCanceledStartAbortsStartedJobsBeforeRollback(t *testing.T) {
+	t.Parallel()
+
+	var events eventLog
+	startCtx, cancel := context.WithCancel(context.Background())
+	started, err := NewJob("started", testAbortableLifecycle{
+		start: func(context.Context) error {
+			events.add("start")
+			return nil
+		},
+		stop: func(context.Context) error {
+			events.add("stop")
+			return nil
+		},
+		abort: func() {
+			events.add("abort")
+		},
+	})
+	require.NoError(t, err)
+	group := newTestGroup(t,
+		started,
+		newTestJob("canceled", func(context.Context) error {
+			cancel()
+			return context.Canceled
+		}, nil),
+	)
+
+	require.ErrorIs(t, group.Start(startCtx), context.Canceled)
+	assert.Equal(t, []string{"start", "abort", "stop"}, events.snapshot())
+}
+
 func TestGroupRollbackFailureIsTerminal(t *testing.T) {
 	t.Parallel()
 
@@ -415,6 +446,16 @@ type testLifecycle struct {
 
 func (l testLifecycle) Start(ctx context.Context) error { return l.start(ctx) }
 func (l testLifecycle) Stop(ctx context.Context) error  { return l.stop(ctx) }
+
+type testAbortableLifecycle struct {
+	start func(context.Context) error
+	stop  func(context.Context) error
+	abort func()
+}
+
+func (l testAbortableLifecycle) Start(ctx context.Context) error { return l.start(ctx) }
+func (l testAbortableLifecycle) Stop(ctx context.Context) error  { return l.stop(ctx) }
+func (l testAbortableLifecycle) Abort()                          { l.abort() }
 
 type eventLog struct {
 	events []string

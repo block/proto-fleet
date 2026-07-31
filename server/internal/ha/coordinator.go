@@ -40,14 +40,16 @@ type Coordinator struct {
 	config   CoordinatorConfig
 	holderID uuid.UUID
 
-	mu           sync.RWMutex
-	ownership    Ownership
-	activeCtx    context.Context //nolint:containedctx // The coordinator owns this explicit active-lifetime context.
-	cancelActive context.CancelFunc
-	leaseTimer   *time.Timer
-	leaseVersion uint64
-	lastError    string
-	updatedAt    time.Time
+	mu            sync.RWMutex
+	ownership     Ownership
+	activeCtx     context.Context //nolint:containedctx // The coordinator owns this explicit active-lifetime context.
+	cancelActive  context.CancelFunc
+	leaseTimer    *time.Timer
+	leaseVersion  uint64
+	stateChanged  chan struct{}
+	acquirePaused bool
+	lastError     string
+	updatedAt     time.Time
 }
 
 func NewCoordinator(
@@ -73,11 +75,12 @@ func newCoordinatorWithHolder(
 ) *Coordinator {
 	now := time.Now()
 	return &Coordinator{
-		observer:  observer,
-		store:     store,
-		config:    config,
-		holderID:  holderID,
-		updatedAt: now,
+		observer:     observer,
+		store:        store,
+		config:       config,
+		holderID:     holderID,
+		stateChanged: make(chan struct{}),
+		updatedAt:    now,
 	}
 }
 
@@ -135,6 +138,44 @@ func (c *Coordinator) ActiveLifetime() (context.Context, Token, bool) {
 	return c.activeCtx, c.ownership.Token, true
 }
 
+// WaitForActive waits for the next owned lifetime.
+func (c *Coordinator) WaitForActive(ctx context.Context) (context.Context, Token, error) {
+	for {
+		c.mu.RLock()
+		if c.activeCtx != nil {
+			activeCtx := c.activeCtx
+			token := c.ownership.Token
+			c.mu.RUnlock()
+			return activeCtx, token, nil
+		}
+		changed := c.stateChanged
+		c.mu.RUnlock()
+
+		select {
+		case <-ctx.Done():
+			return nil, Token{}, fmt.Errorf("wait for active ownership: %w", ctx.Err())
+		case <-changed:
+		}
+	}
+}
+
+// RequestDemotion stops renewal, cancels the current active lifetime, and
+// pauses acquisition until runtime cleanup succeeds.
+func (c *Coordinator) RequestDemotion(cause error) {
+	c.deactivate(cause)
+}
+
+// ResumeAcquisition allows a new active lifetime after runtime cleanup.
+func (c *Coordinator) ResumeAcquisition() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.acquirePaused {
+		return
+	}
+	c.acquirePaused = false
+	c.signalStateChangedLocked()
+}
+
 // Run continuously observes and renews until its parent context ends. Failures
 // demote immediately and are retried while remaining passive.
 func (c *Coordinator) Run(ctx context.Context) error {
@@ -145,11 +186,22 @@ func (c *Coordinator) Run(ctx context.Context) error {
 			delay = c.config.RenewInterval
 		}
 		timer := time.NewTimer(delay)
+		c.mu.RLock()
+		var activeDone <-chan struct{}
+		if c.activeCtx != nil {
+			activeDone = c.activeCtx.Done()
+		}
+		stateChanged := c.stateChanged
+		c.mu.RUnlock()
 		select {
 		case <-ctx.Done():
 			timer.Stop()
 			c.deactivate(ctx.Err())
 			return fmt.Errorf("HA coordinator stopped: %w", ctx.Err())
+		case <-activeDone:
+			timer.Stop()
+		case <-stateChanged:
+			timer.Stop()
 		case <-timer.C:
 		}
 	}
@@ -160,7 +212,12 @@ func (c *Coordinator) step(ctx context.Context) error {
 	activeCtx := c.activeCtx
 	current := c.ownership
 	holderID := c.holderID
+	acquirePaused := c.acquirePaused
 	c.mu.RUnlock()
+
+	if activeCtx == nil && acquirePaused {
+		return nil
+	}
 
 	stepCtx := activeCtx
 	if stepCtx == nil {
@@ -274,9 +331,11 @@ func (c *Coordinator) activate(
 	}
 	c.activeCtx, c.cancelActive = context.WithCancel(parent)
 	c.ownership = ownership
+	c.acquirePaused = false
 	c.lastError = ""
 	c.updatedAt = time.Now()
 	c.resetLeaseTimerLocked(deadline)
+	c.signalStateChangedLocked()
 	return nil
 }
 
@@ -372,6 +431,8 @@ func (c *Coordinator) deactivateLocked(cause error) {
 	}
 	if wasActive {
 		c.holderID = uuid.New()
+		c.acquirePaused = true
+		c.signalStateChangedLocked()
 	}
 	c.ownership = Ownership{}
 	c.updatedAt = time.Now()
@@ -380,4 +441,9 @@ func (c *Coordinator) deactivateLocked(cause error) {
 	} else {
 		c.lastError = ""
 	}
+}
+
+func (c *Coordinator) signalStateChangedLocked() {
+	close(c.stateChanged)
+	c.stateChanged = make(chan struct{})
 }

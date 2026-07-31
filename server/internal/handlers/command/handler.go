@@ -250,11 +250,19 @@ func (h *Handler) StreamCommandBatchUpdates(ctx context.Context, r *connect.Requ
 		return err
 	}
 
+	return streamCommandBatchUpdates(ctx, responseChan, stream)
+}
+
+func streamCommandBatchUpdates(
+	ctx context.Context,
+	responseChan <-chan *pb.StreamCommandBatchUpdatesResponse,
+	stream *connect.ServerStream[pb.StreamCommandBatchUpdatesResponse],
+) error {
 	for {
 		select {
 		case <-ctx.Done():
 			slog.Debug("context closed")
-			return fleeterror.NewInternalErrorf("context done with error: %v", ctx.Err())
+			return fleeterror.NewCanceledError()
 		case resp, ok := <-responseChan:
 			if !ok {
 				return nil

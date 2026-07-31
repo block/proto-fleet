@@ -46,4 +46,10 @@ func (j job) Stop(ctx context.Context) error {
 	return j.lifecycle.Stop(ctx)
 }
 
+func (j job) Abort() {
+	if aborter, ok := j.lifecycle.(Aborter); ok {
+		aborter.Abort()
+	}
+}
+
 func (job) isJob() {}

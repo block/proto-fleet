@@ -55,6 +55,54 @@ func TestCoordinatorActivatesAndExposesLifetime(t *testing.T) {
 	require.Equal(t, StateActive, coordinator.Snapshot().State)
 }
 
+func TestCoordinatorWaitForActiveUnblocksOnActivationAndRequestedDemotion(t *testing.T) {
+	coordinator := newCoordinatorWithHolder(
+		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Second)},
+		&fakeLeaseStore{},
+		coordinatorTestConfig(),
+		uuid.New(),
+	)
+	type activeResult struct {
+		ctx context.Context //nolint:containedctx // Carries the lifetime returned by the goroutine.
+		err error
+	}
+	waitResult := make(chan activeResult, 1)
+	go func() {
+		activeCtx, _, err := coordinator.WaitForActive(t.Context())
+		waitResult <- activeResult{ctx: activeCtx, err: err}
+	}()
+
+	require.NoError(t, coordinator.step(t.Context()))
+	result := <-waitResult
+	require.NoError(t, result.err)
+	coordinator.RequestDemotion(errors.New("runtime unhealthy"))
+
+	require.Eventually(t, func() bool { return result.ctx.Err() != nil }, time.Second, time.Millisecond)
+	require.Equal(t, StatePassive, coordinator.Snapshot().State)
+}
+
+func TestCoordinatorWaitsForRuntimeCleanupBeforeReacquiring(t *testing.T) {
+	store := &fakeLeaseStore{}
+	coordinator := newCoordinatorWithHolder(
+		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Second)},
+		store,
+		coordinatorTestConfig(),
+		uuid.New(),
+	)
+
+	require.NoError(t, coordinator.step(t.Context()))
+	require.Equal(t, 1, store.acquireCount())
+	coordinator.RequestDemotion(errors.New("runtime unhealthy"))
+
+	require.NoError(t, coordinator.step(t.Context()))
+	require.Equal(t, 1, store.acquireCount())
+
+	coordinator.ResumeAcquisition()
+	require.NoError(t, coordinator.step(t.Context()))
+	require.Equal(t, 2, store.acquireCount())
+	require.Equal(t, StateActive, coordinator.Snapshot().State)
+}
+
 func TestCoordinatorCancelsLifetimeOnObservationLoss(t *testing.T) {
 	holder := uuid.New()
 	observer := &sequenceObserver{
@@ -393,6 +441,7 @@ type fakeLeaseStore struct {
 	acquireErr   error
 	renewErr     error
 	acquireDelay time.Duration
+	acquires     int
 }
 
 func (f *fakeLeaseStore) Acquire(
@@ -403,6 +452,7 @@ func (f *fakeLeaseStore) Acquire(
 ) (Ownership, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.acquires++
 	if f.acquireErr != nil {
 		return Ownership{}, f.acquireErr
 	}
@@ -421,6 +471,12 @@ func (f *fakeLeaseStore) Acquire(
 		ExpiresAt:    now.Add(duration),
 	}
 	return f.ownership, nil
+}
+
+func (f *fakeLeaseStore) acquireCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.acquires
 }
 
 func (f *fakeLeaseStore) Renew(
