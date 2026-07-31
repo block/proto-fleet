@@ -23,8 +23,8 @@ interface ViewRolloutModalProps {
  * click-outside / Escape to dismiss. Uses the `large` size so the stat grid and
  * progress bar have room.
  *
- * The card's own section header carries the title/scope, so the modal chrome is
- * headerless — just the dismiss affordance from the overlay.
+ * The Modal owns the title bar (title + scope + close affordance); the card is
+ * rendered `embedded` so it doesn't repeat its own section header inside.
  */
 function ViewRolloutModal({
   event,
@@ -42,7 +42,8 @@ function ViewRolloutModal({
   return (
     <Modal
       size="large"
-      showHeader={false}
+      title={event.title}
+      description={event.scopeLabel ? `Applies to ${event.scopeLabel}` : undefined}
       onDismiss={onDismiss}
       testId="view-rollout-modal"
       bodyClassName="text-text-primary"
