@@ -20,6 +20,7 @@ import RackSettingsModal, {
 } from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
 import { useCreateRack } from "@/protoFleet/features/fleetManagement/hooks/useCreateRack";
 import { useCreateRacks } from "@/protoFleet/features/fleetManagement/hooks/useCreateRacks";
+import { useHasPermission } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
 // What a host needs to fold a freshly created rack into its own list.
@@ -64,6 +65,16 @@ const BuildingRacksPicker = ({
   // which on /buildings/:id may be an unrelated persisted selection. Only the
   // broadened ("Show assigned racks") scope consults the header, to decide
   // whether a cross-site reparent is on the table.
+  // Creating from here needs both permissions, and assignment stays available
+  // without them. rack:manage is what SaveRack / CreateRacks are gated on
+  // server-side. site:manage matters because RackSettingsModal only locks — and
+  // therefore only submits — this building's placement when the operator can
+  // manage placement: without it the create lands an unplaced rack that this
+  // picker would immediately report to its host as assigned here.
+  const canManageRacks = useHasPermission("rack:manage");
+  const canManagePlacement = useHasPermission("site:manage");
+  const canCreateHere = canManageRacks && canManagePlacement;
+
   const allSites = useFleetStore((state) => state.ui.activeSite.kind === "all");
   const scope = useMemo(() => buildingRackScope(siteId), [siteId]);
   const assignedScope = useMemo(() => assignedRackScope(siteId, allSites), [siteId, allSites]);
@@ -142,9 +153,10 @@ const BuildingRacksPicker = ({
         onConfirm={handleConfirm}
         saving={saving}
         // Swapping to create abandons the pending selection: the picker's Save is
-        // what writes membership, so nothing was staged on the server.
-        onCreateNewLaunch={() => setCreating("single")}
-        onCreateMultipleLaunch={() => setCreating("multiple")}
+        // what writes membership, so nothing was staged on the server. Omitted
+        // entirely without the create permissions, which drops both buttons.
+        onCreateNewLaunch={canCreateHere ? () => setCreating("single") : undefined}
+        onCreateMultipleLaunch={canCreateHere ? () => setCreating("multiple") : undefined}
       />
       {reparenting ? (
         <RackReparentWarningDialog

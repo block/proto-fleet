@@ -190,6 +190,45 @@ describe("ManageBuildingModal Save", () => {
     expect(screen.getByTestId("manage-building-assigned-rack-1")).toBeInTheDocument();
   });
 
+  // The picker's delta is two writes, removals first. If the add pass fails the
+  // removal has still landed on the server, so the working set and the host have
+  // to reflect it — reporting "nothing changed" would strand a rack nobody can
+  // see is out of the building.
+  it("keeps a landed removal when the paired addition fails", async () => {
+    const onSaved = vi.fn();
+    mockListRacks.mockImplementation(({ onSuccess }) =>
+      // Beta is unassigned on the same site: eligible to add, no reparent warning.
+      onSuccess?.([createRack(1n, "Alpha", 20n, 7n), createRack(2n, "Beta", 0n, 7n)]),
+    );
+    mockApi.assignRacksToBuilding.mockImplementation(
+      ({
+        targetBuildingId,
+        onSuccess,
+        onError,
+      }: {
+        targetBuildingId?: bigint;
+        onSuccess?: (n: bigint) => void;
+        onError?: (msg: string) => void;
+      }) => (targetBuildingId === undefined ? onSuccess?.(1n) : onError?.("building is full")),
+    );
+
+    renderModal(onSaved);
+    await screen.findByTestId("manage-building-assigned-rack-1");
+    await userEvent.click(screen.getByTestId("manage-building-manage-racks"));
+    await screen.findByText("Beta");
+
+    // Drop Alpha (seeded as selected), add Beta.
+    const boxes = screen.getByTestId("list-body").querySelectorAll<HTMLInputElement>("input[type='checkbox']");
+    await userEvent.click(boxes[0]);
+    await userEvent.click(boxes[1]);
+    await userEvent.click(screen.getByTestId("manage-racks-modal-confirm"));
+
+    await waitFor(() => expect(screen.getByText(/Failed to update racks/)).toBeInTheDocument());
+    // Alpha's unassign persisted, so its row is gone and the host was told.
+    expect(screen.queryByTestId("manage-building-assigned-rack-1")).not.toBeInTheDocument();
+    expect(onSaved).toHaveBeenCalled();
+  });
+
   it("Save with no placement change closes without dispatching an assign", async () => {
     const onDismiss = vi.fn();
     renderModal(vi.fn(), onDismiss);

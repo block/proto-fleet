@@ -383,6 +383,19 @@ const ManageBuildingModal = ({
   //
   // The caller owns the working-set update — each entry point merges rows
   // differently — and should skip it when this returns false.
+  // Drops racks from every piece of local state that keys off them, for use the
+  // moment an unassign is known to have persisted.
+  const forgetRacks = useCallback((rackIds: bigint[]) => {
+    const gone = new Set(rackIds.map((id) => id.toString()));
+    setEntries((prev) => prev.filter((e) => !gone.has(e.rackId.toString())));
+    setInitialPlacement((prev) => {
+      const next = new Map(prev);
+      for (const id of gone) next.delete(id);
+      return next;
+    });
+    setSelectedRackId((prev) => (prev !== null && gone.has(prev.toString()) ? null : prev));
+  }, []);
+
   const commitMembership = useCallback(
     async (added: AssignmentEntry[], removed: bigint[]): Promise<boolean> => {
       if (savingRef.current) return false;
@@ -409,15 +422,25 @@ const ManageBuildingModal = ({
       setErrorMsg("");
       setIsSaving(true);
       try {
-        // Removals first: they free their cells before any newcomer lands.
-        await dispatchAssign(
-          removed.map((rackId) => ({ rackId })),
-          undefined,
-        );
-        await dispatchAssign(
-          newcomers.map((a) => ({ rackId: a.rackId })),
-          building.id,
-        );
+        // Removals first: they free their cells before any newcomer lands, and
+        // the reverse order would trip the capacity check above on a swap.
+        if (removed.length > 0) {
+          await dispatchAssign(
+            removed.map((rackId) => ({ rackId })),
+            undefined,
+          );
+          // Persisted. Drop them from the working set and tell the host now, so
+          // a failure in the newcomer write below still leaves both truthful —
+          // the callers skip their own update when this returns false.
+          forgetRacks(removed);
+          onSaved?.(building);
+        }
+        if (newcomers.length > 0) {
+          await dispatchAssign(
+            newcomers.map((a) => ({ rackId: a.rackId })),
+            building.id,
+          );
+        }
       } catch (err) {
         const detail = err instanceof Error ? err.message : "Failed to update racks";
         setErrorMsg(`Failed to update racks: ${detail}.`);
@@ -427,10 +450,10 @@ const ManageBuildingModal = ({
         setIsSaving(false);
       }
 
-      const removedSet = new Set(removed.map((id) => id.toString()));
+      // Removals were folded in as they landed; only the newcomers are left to
+      // record, so freshly-committed membership doesn't read as pending dirt.
       setInitialPlacement((prev) => {
         const next = new Map(prev);
-        for (const id of removedSet) next.delete(id);
         for (const a of newcomers) next.set(a.rackId.toString(), "unplaced");
         return next;
       });
@@ -438,7 +461,7 @@ const ManageBuildingModal = ({
       onSaved?.(building);
       return true;
     },
-    [entries, aislesNum, racksPerAisleNum, dispatchAssign, building, onSaved],
+    [entries, aislesNum, racksPerAisleNum, dispatchAssign, building, forgetRacks, onSaved],
   );
 
   // SearchRacksModal confirm — commit the rack into this building if it isn't
@@ -516,13 +539,16 @@ const ManageBuildingModal = ({
           if (knownIds.has(a.rackId.toString())) continue;
           newcomers.push({ rackId: a.rackId, label: a.label });
         }
-        // Failure leaves the picker open with the selection intact to retry.
         const ok = await commitMembership(newcomers, delta.removed);
+        // Closes either way. This modal's error callout sits behind the picker,
+        // and on a partial failure commitMembership has already folded in the
+        // removals that landed — so the picker's staged selection is the stale
+        // view of the two, not something worth keeping to retry from.
+        setShowManageRacks(false);
         if (!ok) return;
         setEntries([...kept, ...newcomers]);
         setSelectedRackId(null);
         setSelectedCellKey(null);
-        setShowManageRacks(false);
       })();
     },
     [entries, commitMembership],
@@ -532,15 +558,22 @@ const ManageBuildingModal = ({
   // building already, so there is no membership write to make — they join the
   // working set unplaced, exactly like a picker addition, and this modal's Save
   // is where the operator gives them grid positions.
-  const handleRacksCreated = useCallback((racks: CreatedRack[]) => {
-    setEntries((prev) => {
-      const known = new Set(prev.map((e) => e.rackId.toString()));
-      const newcomers = racks
-        .filter((r) => !known.has(r.rackId.toString()))
-        .map((r) => ({ rackId: r.rackId, label: r.label }));
-      return newcomers.length > 0 ? [...prev, ...newcomers] : prev;
-    });
-  }, []);
+  const handleRacksCreated = useCallback(
+    (racks: CreatedRack[]) => {
+      setEntries((prev) => {
+        const known = new Set(prev.map((e) => e.rackId.toString()));
+        const newcomers = racks
+          .filter((r) => !known.has(r.rackId.toString()))
+          .map((r) => ({ rackId: r.rackId, label: r.label }));
+        return newcomers.length > 0 ? [...prev, ...newcomers] : prev;
+      });
+      // The create already placed them in the building, so the host's rack count
+      // is stale from this moment — not from whenever Save happens. An operator
+      // who dismisses without saving still made this change.
+      onSaved?.(building);
+    },
+    [building, onSaved],
+  );
 
   // Save owns rack placement only — membership commits in the pickers and
   // layout lives in BuildingSettingsModal. Dispatches placementDelta's buckets

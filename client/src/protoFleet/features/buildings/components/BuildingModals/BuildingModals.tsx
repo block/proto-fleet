@@ -89,13 +89,16 @@ const BuildingModals = ({ modals, sites }: BuildingModalsProps) => {
           currentRackIds={state.currentRackIds}
           onConfirm={(delta) => {
             void (async () => {
-              const ok = await modals.pickerAssignRacks({
+              await modals.pickerAssignRacks({
                 added: delta.added.map((a) => a.rackId),
                 removed: delta.removed,
               });
-              // A failed write leaves the picker open so the selection can be
-              // retried.
-              if (ok) modals.dismiss();
+              // Closes either way. The removals commit before the additions, so
+              // a failure can leave some of the delta applied, and the picker's
+              // seeded selection came from before the write — keeping it open to
+              // retry would show membership the server has already moved past.
+              // The toast names the failure; reopening seeds from fresh data.
+              modals.dismiss();
             })();
           }}
           // Created racks are already in the building; there is no working set

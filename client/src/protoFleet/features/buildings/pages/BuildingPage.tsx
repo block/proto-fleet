@@ -66,6 +66,10 @@ const BuildingPage = () => {
   const { sites } = useSitesContext();
   const activeSite = useFleetStore((state) => state.ui.activeSite);
   const canManageSites = useHasPermission("site:manage");
+  // The picker's first act is a ListDeviceSets, which the server gates on
+  // rack:read. Offering the CTA without it trades a usable flow for a
+  // permission-denied modal.
+  const canReadRacks = useHasPermission("rack:read");
 
   const buildingId = useMemo(() => parseBigIntId(id), [id]);
 
@@ -127,13 +131,6 @@ const BuildingPage = () => {
     fetchBuilding(buildingId);
   }, [fetchBuilding, buildingId]);
 
-  const buildingModals = useBuildingModals({
-    refetchBuildings: () => {
-      if (buildingId !== null) fetchBuilding(buildingId);
-    },
-    onDeleteFromManage: () => navigate(scopedPath("/fleet/sites", activeSite)),
-  });
-
   useEffect(() => {
     return () => {
       inflightControllerRef.current?.abort();
@@ -160,6 +157,18 @@ const BuildingPage = () => {
   // response lands. Empty array = building genuinely has no members
   // (telemetry hooks then short-circuit to "no data").
   const memberDeviceIds: string[] | null = stats ? stats.deviceIdentifiers : null;
+
+  // Declared after useBuildingStats so the rack section can be refreshed too:
+  // the racks card renders from stats.rackHealth, not the building record, so
+  // refetching the building alone leaves "No racks in this building yet" on
+  // screen after an assign or create until the next stats poll.
+  const buildingModals = useBuildingModals({
+    refetchBuildings: () => {
+      if (buildingId !== null) fetchBuilding(buildingId);
+    },
+    onMutationSuccess: () => refetchStats(),
+    onDeleteFromManage: () => navigate(scopedPath("/fleet/sites", activeSite)),
+  });
 
   const duration = useDuration();
   const setDuration = useSetDuration();
@@ -368,9 +377,10 @@ const BuildingPage = () => {
                   aisles={effectiveBuilding.aisles}
                   racksPerAisle={effectiveBuilding.racksPerAisle}
                   // Assigning racks to a building is a site:manage action (the
-                  // server enforces the same on AssignRacksToBuilding), so a
-                  // viewer without it gets the empty card with no CTA.
-                  onManageRacks={canManageSites ? handleManageRacks : undefined}
+                  // server enforces the same on AssignRacksToBuilding), and the
+                  // picker has to list racks to offer any, so a viewer missing
+                  // either permission gets the empty card with no CTA.
+                  onManageRacks={canManageSites && canReadRacks ? handleManageRacks : undefined}
                 />
               ) : (
                 <PlaceholderBlock

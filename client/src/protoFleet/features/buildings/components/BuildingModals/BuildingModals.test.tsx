@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import BuildingModals from "./BuildingModals";
@@ -54,6 +54,15 @@ vi.mock("@/protoFleet/api/sites", async (importActual) => ({
   useSites: () => mockSitesApi,
 }));
 
+// BuildingRacksPicker gates its create hand-offs on rack:manage + site:manage.
+// Mutable so one case can take them away.
+const allPermissions = ["rack:read", "rack:manage", "site:read", "site:manage"];
+let grantedPermissions: string[] = allPermissions;
+vi.mock(import("@/protoFleet/store"), async (importOriginal) => ({
+  ...(await importOriginal()),
+  useHasPermission: (key: string) => grantedPermissions.includes(key),
+}));
+
 const seedRacks = (racks: { id: bigint; label: string }[]) => {
   mockDeviceSets.listRacks.mockImplementation(({ onSuccess, onFinally }) => {
     onSuccess?.(
@@ -103,6 +112,10 @@ const makeApi = (overrides: Partial<BuildingModalsApi> = {}): BuildingModalsApi 
 });
 
 describe("BuildingModals", () => {
+  beforeEach(() => {
+    grantedPermissions = allPermissions;
+  });
+
   it("renders BuildingSettingsModal in create mode when state.kind = detailsCreate", () => {
     const modals = makeApi({
       state: { kind: "detailsCreate", siteId: 7n, siteName: "North DC", draft: emptyBuildingFormValues() },
@@ -153,6 +166,35 @@ describe("BuildingModals", () => {
     // The point of the standalone flow: the host already renders the building,
     // so ManageBuildingModal must not be stacked underneath.
     expect(screen.queryByTestId("manage-building-modal")).not.toBeInTheDocument();
+  });
+
+  // rack:manage is what SaveRack / CreateRacks are gated on, so without it the
+  // create flow could only ever end in permission denied.
+  it("drops the create hand-offs for an assign-only operator", async () => {
+    seedRacks([{ id: 1n, label: "Alpha" }]);
+    grantedPermissions = ["rack:read", "site:read", "site:manage"];
+    const modals = makeApi({ state: { kind: "racksPicker", row: makeRow(11n, "Main"), currentRackIds: [] } });
+
+    render(<BuildingModals modals={modals} sites={makeSites()} />);
+
+    // Assignment is still on offer; only the two create buttons are gone.
+    expect(await screen.findByTestId("manage-racks-modal")).toBeInTheDocument();
+    expect(screen.queryByTestId("manage-racks-modal-create-new")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("manage-racks-modal-create-multiple")).not.toBeInTheDocument();
+  });
+
+  // RackSettingsModal only locks — and so only submits — the host building's
+  // placement when the operator can manage placement. Without site:manage the
+  // create would land an unplaced rack the picker reports as assigned here.
+  it("drops the create hand-offs when placement cannot be managed", async () => {
+    seedRacks([{ id: 1n, label: "Alpha" }]);
+    grantedPermissions = ["rack:read", "rack:manage", "site:read"];
+    const modals = makeApi({ state: { kind: "racksPicker", row: makeRow(11n, "Main"), currentRackIds: [] } });
+
+    render(<BuildingModals modals={modals} sites={makeSites()} />);
+
+    expect(await screen.findByTestId("manage-racks-modal")).toBeInTheDocument();
+    expect(screen.queryByTestId("manage-racks-modal-create-new")).not.toBeInTheDocument();
   });
 
   it("writes the racksPicker delta and closes only once the write lands", async () => {

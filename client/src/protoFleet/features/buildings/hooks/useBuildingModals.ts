@@ -342,9 +342,14 @@ const useBuildingModals = ({
     });
   }, [deleteTarget, deleteBuilding, refetchBuildings, onMutationSuccess, onDeleteFromManage]);
 
+  // The racks picker's create hand-off: the racks are already placed in the
+  // building, so there is no membership write to make, only caches to re-pull.
+  // Both, not just the building record — a created rack changes rack_count and
+  // whatever the host renders from building stats.
   const refreshBuildings = useCallback(() => {
     refetchBuildings?.();
-  }, [refetchBuildings]);
+    onMutationSuccess?.();
+  }, [refetchBuildings, onMutationSuccess]);
 
   const openRacksPicker = useCallback((row: BuildingWithCounts, currentRackIds: bigint[]) => {
     setState({ kind: "racksPicker", row, currentRackIds });
@@ -366,6 +371,12 @@ const useBuildingModals = ({
       } catch (err) {
         const detail = err instanceof Error ? err.message : "unknown error";
         pushToast({ message: `Failed to update racks: ${detail}`, status: STATUSES.error });
+        // Either pass is chunked, and the removals run first, so a failure here
+        // can still have moved racks out of the building. Re-pull rather than
+        // leave the host — and the operator's next look at the picker — on a
+        // membership the server no longer agrees with.
+        refetchBuildings?.();
+        onMutationSuccess?.();
         return false;
       } finally {
         savingRef.current = false;
