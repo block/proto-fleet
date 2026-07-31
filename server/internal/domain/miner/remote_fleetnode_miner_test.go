@@ -17,6 +17,7 @@ import (
 	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/curtailmentconfig"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -29,7 +30,7 @@ func TestRemoteFleetNodeMinerApplyCurtailmentConfigForwardsToDelegate(t *testing
 	miner := &RemoteFleetNodeMiner{delegate: delegate}
 	payload := dto.ApplyCurtailmentConfigPayload{
 		EncryptedConfig: &dto.NodeEncryptedPayload{
-			Algorithm:       "x25519-hkdf-sha256-aes-256-gcm",
+			Algorithm:       curtailmentconfig.Algorithm,
 			EphemeralPubkey: []byte("ephemeral-public-key"),
 			Nonce:           []byte("nonce"),
 			Ciphertext:      []byte("ciphertext"),

@@ -1665,7 +1665,7 @@ export function CurtailmentSettingsContent({
         <SettingsPageHeader title="Curtailment" description={CURTAILMENT_PAGE_DESCRIPTION} />
 
         <Callout
-          intent="information"
+          intent={intents.information}
           prefixIcon={<Info width={iconSizes.medium} />}
           subtitle={PROTO_RIG_FALLBACK_DESCRIPTION}
           testId="proto-rig-curtailment-fallback-notice"

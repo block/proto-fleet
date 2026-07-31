@@ -99,6 +99,9 @@ func Decrypt(privateKey []byte, payload *gatewaypb.NodeEncryptedPayload, deviceI
 	if len(payload.GetNonce()) != nonceSize {
 		return sdk.CurtailmentConfig{}, fmt.Errorf("nonce must be %d bytes, got %d", nonceSize, len(payload.GetNonce()))
 	}
+	if len(payload.GetCiphertext()) > maxCiphertext {
+		return sdk.CurtailmentConfig{}, fmt.Errorf("encrypted curtailment config is %d bytes; maximum is %d", len(payload.GetCiphertext()), maxCiphertext)
+	}
 	recipient, err := ecdh.X25519().NewPrivateKey(privateKey)
 	if err != nil {
 		return sdk.CurtailmentConfig{}, fmt.Errorf("parse recipient private key: %w", err)

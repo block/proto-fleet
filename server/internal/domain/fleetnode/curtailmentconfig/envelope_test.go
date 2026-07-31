@@ -54,3 +54,17 @@ func TestDecryptRejectsDifferentDevice(t *testing.T) {
 	_, err = Decrypt(privateKey.Bytes(), payload, "proto-rig-2")
 	require.Error(t, err)
 }
+
+func TestDecryptRejectsOversizedCiphertext(t *testing.T) {
+	t.Parallel()
+
+	privateKey, err := ecdh.X25519().GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	payload, err := Encrypt(privateKey.PublicKey().Bytes(), "proto-rig-1", sdk.CurtailmentConfig{})
+	require.NoError(t, err)
+	payload.Ciphertext = make([]byte, maxCiphertext+1)
+
+	_, err = Decrypt(privateKey.Bytes(), payload, "proto-rig-1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "maximum")
+}
