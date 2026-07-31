@@ -14,7 +14,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 type fakeSettingsStore struct {
@@ -198,6 +200,28 @@ type fakeSourceConnectionTester struct {
 	err   error
 }
 
+type fakeRigConfigApplier struct {
+	calls   int
+	configs []sdk.CurtailmentConfig
+	err     error
+}
+
+type sessionCapturingRigConfigApplier struct {
+	info *session.Info
+	err  error
+}
+
+func (f *sessionCapturingRigConfigApplier) ApplyCurtailmentConfigToProtoRigs(ctx context.Context, _ sdk.CurtailmentConfig) error {
+	f.info, f.err = session.GetInfo(ctx)
+	return f.err
+}
+
+func (f *fakeRigConfigApplier) ApplyCurtailmentConfigToProtoRigs(_ context.Context, config sdk.CurtailmentConfig) error {
+	f.calls++
+	f.configs = append(f.configs, config)
+	return f.err
+}
+
 func (f *fakeSourceConnectionTester) TestConnection(_ context.Context, req TestSourceConnectionRequest) (TestSourceConnectionResult, error) {
 	f.calls++
 	f.req = req
@@ -240,6 +264,138 @@ func TestSettingsService_CreateDefaultsEnabledAndEncryptsPassword(t *testing.T) 
 	assert.Equal(t, int32(1883), view.Config.BrokerPort)
 	assert.Equal(t, 1, cipher.encryptCalls)
 	assert.Equal(t, 1, runtime.reconcileCalls)
+}
+
+func TestSettingsService_CreateAppliesCompleteConfigToEligibleProtoRigs(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeSettingsStore()
+	applier := &fakeRigConfigApplier{}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            store,
+		Cipher:           &fakeSettingsCipher{},
+		Runtime:          &fakeRuntimeController{},
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.Create(t.Context(), CreateSourceRequest{
+		Source:            validSettingsSource(),
+		PlaintextPassword: "secret",
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, applier.calls)
+	require.Len(t, applier.configs, 1)
+
+	config := applier.configs[0]
+	assert.True(t, config.Enabled)
+	assert.Equal(t, "closed", config.FailPolicy)
+	assert.Equal(t, "respect_manual_stop", config.RestorePolicy)
+	assert.Equal(t, "nats://localhost:4222", config.NATSURL)
+	require.Len(t, config.Providers, 1)
+	assert.Equal(t, "maestro", config.Providers[0].Name)
+	assert.Equal(t, "maestro_mqtt", config.Providers[0].Type)
+	assert.Equal(t, []string{"10.0.0.1", "10.0.0.2"}, config.Providers[0].Brokers)
+	assert.Equal(t, "secret", config.Providers[0].Password)
+	assert.Equal(t, "4m0s", config.Providers[0].StaleAfter)
+}
+
+func TestSettingsService_CreateAppliesRigConfigWhenRuntimeReloadFails(t *testing.T) {
+	t.Parallel()
+
+	runtime := &fakeRuntimeController{reconcileErr: errors.New("reload failed")}
+	applier := &fakeRigConfigApplier{}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            newFakeSettingsStore(),
+		Cipher:           &fakeSettingsCipher{},
+		Runtime:          runtime,
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.Create(t.Context(), CreateSourceRequest{
+		Source:            validSettingsSource(),
+		PlaintextPassword: "secret",
+	})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.Equal(t, 1, runtime.reconcileCalls)
+	assert.Equal(t, 1, applier.calls)
+}
+
+func TestSettingsService_DisableAppliesDisabledConfigWithoutProviders(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = true
+	source.MQTTPasswordEncrypted = "enc:secret"
+	store := newFakeSettingsStore(source)
+	applier := &fakeRigConfigApplier{}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            store,
+		Cipher:           &fakeSettingsCipher{},
+		Runtime:          &fakeRuntimeController{},
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	_, err = svc.SetEnabled(t.Context(), 42, 7, false)
+	require.NoError(t, err)
+	require.Len(t, applier.configs, 1)
+	assert.False(t, applier.configs[0].Enabled)
+	assert.Empty(t, applier.configs[0].Providers)
+}
+
+func TestSettingsService_TLSBrokerIsExcludedFromRigFallbackConfig(t *testing.T) {
+	t.Parallel()
+
+	store := newFakeSettingsStore()
+	applier := &fakeRigConfigApplier{}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            store,
+		Cipher:           &fakeSettingsCipher{},
+		Runtime:          &fakeRuntimeController{},
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	source := validSettingsSource()
+	source.BrokerTransport = brokerTransportTLS
+	_, err = svc.Create(t.Context(), CreateSourceRequest{
+		Source:            source,
+		PlaintextPassword: "secret",
+	})
+
+	require.NoError(t, err)
+	require.Len(t, applier.configs, 1)
+	assert.False(t, applier.configs[0].Enabled)
+	assert.Empty(t, applier.configs[0].Providers)
+}
+
+func TestSettingsService_ReapplyRigConfigUsesSyntheticAuditIdentity(t *testing.T) {
+	t.Parallel()
+
+	source := validSettingsSource()
+	source.ID = 7
+	source.Enabled = true
+	source.MQTTPasswordEncrypted = "enc:secret"
+	applier := &sessionCapturingRigConfigApplier{}
+	svc, err := NewSettingsService(SettingsServiceConfig{
+		Store:            newFakeSettingsStore(source),
+		Cipher:           &fakeSettingsCipher{},
+		RigConfigApplier: applier,
+	})
+	require.NoError(t, err)
+
+	svc.ReapplyRigConfigBestEffort(t.Context(), 42, 99)
+
+	require.NoError(t, applier.err)
+	require.NotNil(t, applier.info)
+	assert.Equal(t, int64(42), applier.info.OrganizationID)
+	assert.Equal(t, int64(99), applier.info.UserID)
+	assert.Equal(t, session.ActorCurtailment, applier.info.Actor)
 }
 
 func TestSettingsService_TestConnectionNormalizesAndDelegatesWithoutPersistence(t *testing.T) {

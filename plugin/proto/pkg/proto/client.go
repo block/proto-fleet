@@ -42,6 +42,8 @@ const (
 	// SDK command is a blink action with no separate disable call, so keep it
 	// bounded.
 	locateLEDOnTimeSeconds = 30
+
+	curtailmentConfigPath = "/api/v1/curtailment/config"
 )
 
 var (
@@ -142,6 +144,30 @@ type PowerTargetInfo struct {
 	MaxW     uint32
 	DefaultW uint32
 	Mode     sdk.PerformanceMode
+}
+
+type curtailmentConfig struct {
+	Enabled               bool                        `json:"enabled"`
+	FailPolicy            string                      `json:"fail_policy"`
+	RestorePolicy         string                      `json:"restore_policy"`
+	NATSURL               string                      `json:"nats_url"`
+	MCDDGRPCAddress       string                      `json:"mcdd_grpc_addr"`
+	StatusPublishInterval string                      `json:"status_publish_interval"`
+	Providers             []curtailmentProviderConfig `json:"providers"`
+}
+
+type curtailmentProviderConfig struct {
+	Name             string   `json:"name"`
+	Type             string   `json:"type"`
+	Enabled          bool     `json:"enabled"`
+	Brokers          []string `json:"brokers"`
+	Port             int32    `json:"port"`
+	Username         string   `json:"username"`
+	Password         string   `json:"password"`
+	Topic            string   `json:"topic"`
+	QOS              int32    `json:"qos"`
+	StaleAfter       string   `json:"stale_after"`
+	ReconnectBackoff string   `json:"reconnect_backoff"`
 }
 
 // NotificationError represents a single error from the REST /api/v1/errors endpoint.
@@ -1214,6 +1240,44 @@ func (c *Client) GetPowerTarget(ctx context.Context) (*PowerTargetInfo, error) {
 		DefaultW: safeIntToUint32(resp.DefaultPowerTargetWatts),
 		Mode:     mode,
 	}, nil
+}
+
+// ApplyCurtailmentConfig replaces the rig-local curtailment-service config.
+func (c *Client) ApplyCurtailmentConfig(ctx context.Context, config sdk.CurtailmentConfig) error {
+	resp, err := c.doRequest(ctx, http.MethodPut, curtailmentConfigPath, curtailmentConfigFromSDK(config))
+	if err != nil {
+		return fmt.Errorf("failed to apply curtailment config: %w", err)
+	}
+	defer resp.Body.Close()
+	return checkResponse(resp, "apply curtailment config failed", http.StatusOK, http.StatusNoContent)
+}
+
+func curtailmentConfigFromSDK(config sdk.CurtailmentConfig) curtailmentConfig {
+	providers := make([]curtailmentProviderConfig, 0, len(config.Providers))
+	for _, provider := range config.Providers {
+		providers = append(providers, curtailmentProviderConfig{
+			Name:             provider.Name,
+			Type:             provider.Type,
+			Enabled:          provider.Enabled,
+			Brokers:          append([]string(nil), provider.Brokers...),
+			Port:             provider.Port,
+			Username:         provider.Username,
+			Password:         provider.Password,
+			Topic:            provider.Topic,
+			QOS:              provider.QOS,
+			StaleAfter:       provider.StaleAfter,
+			ReconnectBackoff: provider.ReconnectBackoff,
+		})
+	}
+	return curtailmentConfig{
+		Enabled:               config.Enabled,
+		FailPolicy:            config.FailPolicy,
+		RestorePolicy:         config.RestorePolicy,
+		NATSURL:               config.NATSURL,
+		MCDDGRPCAddress:       config.MCDDGRPCAddress,
+		StatusPublishInterval: config.StatusPublishInterval,
+		Providers:             providers,
+	}
 }
 
 func safeIntToUint32(v int) uint32 {

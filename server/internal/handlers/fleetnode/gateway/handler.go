@@ -706,6 +706,7 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 	}}); sendErr != nil {
 		return fleeterror.NewInternalErrorf("send accepted: %v", sendErr)
 	}
+	h.pairing.FleetNodeConnectedBestEffort(ctx, subject.FleetNodeID, subject.OrgID)
 
 	// Side-goroutine bridges blocking stream.Receive into the select loop. Its
 	// send selects on regHandle.Done (closed by the deferred Unregister) so it

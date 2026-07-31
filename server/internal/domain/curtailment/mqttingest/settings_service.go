@@ -4,17 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
+	"connectrpc.com/authn"
+
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 const (
 	maxMQTTSourceNameLength   = 64
 	maxMQTTSourceStringLength = 255
+	settingsReconcileTimeout  = 30 * time.Second
+	rigConfigReapplyActorName = "curtailment-config-reconciler"
 )
-const settingsReconcileTimeout = 30 * time.Second
 
 // PasswordCipher wraps and unwraps MQTT credentials.
 type PasswordCipher interface {
@@ -51,12 +58,19 @@ type RuntimeController interface {
 	SourceRuntimeStatus(sourceID int64) RuntimeStatus
 }
 
+// RigCurtailmentConfigApplier replaces the desired fallback config on all
+// paired Proto rigs selected by the command layer.
+type RigCurtailmentConfigApplier interface {
+	ApplyCurtailmentConfigToProtoRigs(ctx context.Context, config sdk.CurtailmentConfig) error
+}
+
 // SettingsService validates, persists, redacts, and reloads MQTT sources.
 type SettingsService struct {
 	store            SettingsStore
 	cipher           PasswordCipher
 	runtime          RuntimeController
 	connectionTester SourceConnectionTester
+	rigConfigApplier RigCurtailmentConfigApplier
 	clock            func() time.Time
 	reconcileTimeout time.Duration
 }
@@ -66,6 +80,7 @@ type SettingsServiceConfig struct {
 	Cipher           PasswordCipher
 	Runtime          RuntimeController
 	ConnectionTester SourceConnectionTester
+	RigConfigApplier RigCurtailmentConfigApplier
 	Clock            func() time.Time
 }
 
@@ -84,6 +99,7 @@ func NewSettingsService(cfg SettingsServiceConfig) (*SettingsService, error) {
 		cipher:           cfg.Cipher,
 		runtime:          cfg.Runtime,
 		connectionTester: cfg.ConnectionTester,
+		rigConfigApplier: cfg.RigConfigApplier,
 		clock:            cfg.Clock,
 		reconcileTimeout: settingsReconcileTimeout,
 	}, nil
@@ -177,7 +193,7 @@ func (s *SettingsService) Create(ctx context.Context, req CreateSourceRequest) (
 	if err != nil {
 		return SourceView{}, sourceStoreError("create mqtt source setting", err)
 	}
-	if err := s.reconcile(ctx); err != nil {
+	if err := s.reconcileAndApplyRigConfig(ctx, created.OrganizationID); err != nil {
 		return SourceView{}, err
 	}
 	state, hasState, err := s.getStateForSource(ctx, created.OrganizationID, created.ID)
@@ -233,7 +249,7 @@ func (s *SettingsService) Update(ctx context.Context, req UpdateSourceRequest) (
 	if err != nil {
 		return SourceView{}, sourceStoreError("update mqtt source setting", err)
 	}
-	if err := s.reconcile(ctx); err != nil {
+	if err := s.reconcileAndApplyRigConfig(ctx, updated.OrganizationID); err != nil {
 		return SourceView{}, err
 	}
 	state, hasState, err := s.getStateForSource(ctx, updated.OrganizationID, updated.ID)
@@ -266,7 +282,7 @@ func (s *SettingsService) SetEnabled(ctx context.Context, orgID, sourceID int64,
 		}
 		return SourceView{}, sourceStoreError("set mqtt source enabled", err)
 	}
-	if err := s.reconcile(ctx); err != nil {
+	if err := s.reconcileAndApplyRigConfig(ctx, updated.OrganizationID); err != nil {
 		return SourceView{}, err
 	}
 	state, hasState, err := s.getStateForSource(ctx, updated.OrganizationID, updated.ID)
@@ -293,7 +309,7 @@ func (s *SettingsService) Delete(ctx context.Context, orgID, sourceID int64) err
 	if err := s.store.DeleteDisabledSourceConfig(ctx, orgID, sourceID); err != nil {
 		return sourceStoreError("delete mqtt source setting", err)
 	}
-	return s.reconcile(ctx)
+	return s.reconcileAndApplyRigConfig(ctx, orgID)
 }
 
 func (s *SettingsService) TestConnection(ctx context.Context, req TestSourceConnectionRequest) (TestSourceConnectionResult, error) {
@@ -309,6 +325,103 @@ func (s *SettingsService) TestConnection(ctx context.Context, req TestSourceConn
 	}
 	req.Source = source
 	return s.connectionTester.TestConnection(ctx, req)
+}
+
+func (s *SettingsService) applyRigConfigBestEffort(ctx context.Context, orgID int64) {
+	if s.rigConfigApplier == nil {
+		return
+	}
+	applyCtx, cancel := context.WithTimeout(detachedContext(ctx), s.reconcileTimeout)
+	defer cancel()
+	config, err := s.buildRigCurtailmentConfig(applyCtx, orgID)
+	if err != nil {
+		slog.Error("build Proto rig curtailment config after MQTT settings write", "org_id", orgID, "error", err)
+		return
+	}
+	if err := s.rigConfigApplier.ApplyCurtailmentConfigToProtoRigs(applyCtx, config); err != nil {
+		slog.Error("apply curtailment config to eligible Proto rigs", "org_id", orgID, "error", err)
+	}
+}
+
+// ReapplyRigConfigBestEffort converges newly paired or reconnected rigs with
+// the organization's current MQTT settings. Pairing collaborators provide the
+// user that initiated the assignment so command audit rows retain a valid FK.
+func (s *SettingsService) ReapplyRigConfigBestEffort(ctx context.Context, orgID, userID int64) {
+	if orgID <= 0 || userID <= 0 {
+		slog.Warn("skip Proto rig curtailment config reapply without audit identity", "org_id", orgID, "user_id", userID)
+		return
+	}
+	reapplyCtx := authn.SetInfo(detachedContext(ctx), &session.Info{
+		SessionID:      rigConfigReapplyActorName,
+		UserID:         userID,
+		OrganizationID: orgID,
+		ExternalUserID: rigConfigReapplyActorName,
+		Username:       rigConfigReapplyActorName,
+		Actor:          session.ActorCurtailment,
+	})
+	s.applyRigConfigBestEffort(reapplyCtx, orgID)
+}
+
+func (s *SettingsService) reconcileAndApplyRigConfig(ctx context.Context, orgID int64) error {
+	reconcileErr := s.reconcile(ctx)
+	s.applyRigConfigBestEffort(ctx, orgID)
+	return reconcileErr
+}
+
+func (s *SettingsService) buildRigCurtailmentConfig(ctx context.Context, orgID int64) (sdk.CurtailmentConfig, error) {
+	sources, err := s.store.ListSourceConfigsByOrg(ctx, orgID)
+	if err != nil {
+		return sdk.CurtailmentConfig{}, fmt.Errorf("list mqtt sources for rig config: %w", err)
+	}
+	sort.Slice(sources, func(i, j int) bool {
+		return sources[i].ID < sources[j].ID
+	})
+	providers := make([]sdk.CurtailmentProviderConfig, 0, len(sources))
+	for _, source := range sources {
+		if !source.Enabled {
+			continue
+		}
+		if source.BrokerTransport != brokerTransportTCP {
+			slog.Warn("excluding MQTT source from Proto rig fallback config because the rig API does not support its transport",
+				"org_id", orgID,
+				"source_id", source.ID,
+				"transport", source.BrokerTransport,
+			)
+			continue
+		}
+		password, err := s.cipher.Decrypt(source.MQTTPasswordEncrypted)
+		if err != nil {
+			return sdk.CurtailmentConfig{}, fmt.Errorf("decrypt mqtt source %d for rig config: %w", source.ID, err)
+		}
+		plaintextPassword := string(password)
+		clear(password)
+		brokers := []string{source.BrokerPrimaryHost}
+		if source.BrokerSecondaryHost != "" {
+			brokers = append(brokers, source.BrokerSecondaryHost)
+		}
+		providers = append(providers, sdk.CurtailmentProviderConfig{
+			Name:             source.SourceName,
+			Type:             "maestro_mqtt",
+			Enabled:          true,
+			Brokers:          brokers,
+			Port:             source.BrokerPort,
+			Username:         source.MQTTUsername,
+			Password:         plaintextPassword,
+			Topic:            source.Topic,
+			QOS:              1,
+			StaleAfter:       source.StalenessThreshold.String(),
+			ReconnectBackoff: "5s",
+		})
+	}
+	return sdk.CurtailmentConfig{
+		Enabled:               len(providers) > 0,
+		FailPolicy:            "closed",
+		RestorePolicy:         "respect_manual_stop",
+		NATSURL:               "nats://localhost:4222",
+		MCDDGRPCAddress:       "127.0.0.1:2122",
+		StatusPublishInterval: "15s",
+		Providers:             providers,
+	}, nil
 }
 
 func (s *SettingsService) getConfig(ctx context.Context, orgID, sourceID int64) (SourceConfig, error) {

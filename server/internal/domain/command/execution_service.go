@@ -745,6 +745,16 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		err = minerInfo.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevel(p.Level)})
 	case commandtype.Uncurtail:
 		err = minerInfo.Uncurtail(ctx, sdk.UncurtailRequest{})
+	case commandtype.ApplyCurtailmentConfig:
+		var p dto.ApplyCurtailmentConfigPayload
+		if configExtractErr := json.Unmarshal(message.Payload, &p); configExtractErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionErrorf("error unmarshalling curtailment config payload: %v", configExtractErr)
+		}
+		configurator, ok := minerInfo.(interfaces.MinerCurtailmentConfigurator)
+		if !ok {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("miner does not support curtailment configuration")
+		}
+		err = configurator.ApplyCurtailmentConfig(ctx, p)
 	case commandtype.UpdateMinerPassword:
 		p := *passwordPayload
 

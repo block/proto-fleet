@@ -17,10 +17,38 @@ import (
 	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
+
+func TestRemoteFleetNodeMinerApplyCurtailmentConfigForwardsToDelegate(t *testing.T) {
+	delegate := &recordingCurtailmentConfigMiner{}
+	miner := &RemoteFleetNodeMiner{delegate: delegate}
+	payload := dto.ApplyCurtailmentConfigPayload{
+		EncryptedConfig: &dto.NodeEncryptedPayload{
+			Algorithm:       "x25519-hkdf-sha256-aes-256-gcm",
+			EphemeralPubkey: []byte("ephemeral-public-key"),
+			Nonce:           []byte("nonce"),
+			Ciphertext:      []byte("ciphertext"),
+		},
+	}
+
+	require.NoError(t, miner.ApplyCurtailmentConfig(t.Context(), payload))
+	assert.Equal(t, payload, delegate.payload)
+}
+
+type recordingCurtailmentConfigMiner struct {
+	interfaces.Miner
+	payload dto.ApplyCurtailmentConfigPayload
+}
+
+func (m *recordingCurtailmentConfigMiner) ApplyCurtailmentConfig(_ context.Context, payload dto.ApplyCurtailmentConfigPayload) error {
+	m.payload = payload
+	return nil
+}
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsHappyPath(t *testing.T) {
 	registry := control.NewRegistry()

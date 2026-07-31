@@ -717,6 +717,73 @@ func TestBlinkLED_SendsBoundedLocateDuration(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestApplyCurtailmentConfigReplacesRigConfig(t *testing.T) {
+	type receivedRequest struct {
+		method string
+		path   string
+		body   []byte
+		err    error
+	}
+	received := make(chan receivedRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		received <- receivedRequest{method: r.Method, path: r.URL.Path, body: body, err: err}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	defer func() { _ = client.Close() }()
+	config := sdk.CurtailmentConfig{
+		Enabled:               true,
+		FailPolicy:            "closed",
+		RestorePolicy:         "respect_manual_stop",
+		NATSURL:               "nats://localhost:4222",
+		MCDDGRPCAddress:       "127.0.0.1:2122",
+		StatusPublishInterval: "15s",
+		Providers: []sdk.CurtailmentProviderConfig{{
+			Name:             "maestro",
+			Type:             "maestro_mqtt",
+			Enabled:          true,
+			Brokers:          []string{"10.0.0.1", "10.0.0.2"},
+			Port:             1883,
+			Username:         "operator",
+			Password:         "secret",
+			Topic:            "maestro/target",
+			QOS:              1,
+			StaleAfter:       "4m",
+			ReconnectBackoff: "5s",
+		}},
+	}
+
+	require.NoError(t, client.ApplyCurtailmentConfig(t.Context(), config))
+	request := <-received
+	require.NoError(t, request.err)
+	assert.Equal(t, http.MethodPut, request.method)
+	assert.Equal(t, curtailmentConfigPath, request.path)
+	assert.JSONEq(t, `{
+		"enabled": true,
+		"fail_policy": "closed",
+		"restore_policy": "respect_manual_stop",
+		"nats_url": "nats://localhost:4222",
+		"mcdd_grpc_addr": "127.0.0.1:2122",
+		"status_publish_interval": "15s",
+		"providers": [{
+			"name": "maestro",
+			"type": "maestro_mqtt",
+			"enabled": true,
+			"brokers": ["10.0.0.1", "10.0.0.2"],
+			"port": 1883,
+			"username": "operator",
+			"password": "secret",
+			"topic": "maestro/target",
+			"qos": 1,
+			"stale_after": "4m",
+			"reconnect_backoff": "5s"
+		}]
+	}`, string(request.body))
+}
+
 // TestLoginWithPassword tests the miner login step used by ChangePassword.
 func TestLoginWithPassword(t *testing.T) {
 	tests := []struct {

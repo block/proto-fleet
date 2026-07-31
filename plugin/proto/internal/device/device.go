@@ -706,6 +706,11 @@ func (d *Device) Uncurtail(ctx context.Context, _ sdk.UncurtailRequest) error {
 	return nil
 }
 
+// ApplyCurtailmentConfig replaces the Proto rig's local fallback config.
+func (d *Device) ApplyCurtailmentConfig(ctx context.Context, config sdk.CurtailmentConfig) error {
+	return d.client.ApplyCurtailmentConfig(ctx, config)
+}
+
 func (d *Device) recordFullCurtailment(wasMining bool) {
 	d.curtailmentMutex.Lock()
 	defer d.curtailmentMutex.Unlock()

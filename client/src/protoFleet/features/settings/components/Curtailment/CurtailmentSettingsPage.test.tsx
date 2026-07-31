@@ -546,6 +546,9 @@ describe("CurtailmentSettingsPage", () => {
       ),
     ).toBeVisible();
     expect(screen.getByText("Response profiles")).toBeVisible();
+    expect(screen.getByTestId("proto-rig-curtailment-fallback-notice")).toHaveTextContent(
+      "Proto rigs can use compatible TCP MaestroOS sources as a local fallback",
+    );
     expect(screen.getByRole("button", { name: "About response profiles" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Create profile" })).toBeEnabled();
     expect(screen.getByText("Sources")).toBeVisible();

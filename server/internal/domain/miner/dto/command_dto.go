@@ -3,6 +3,7 @@ package dto
 import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 type CoolingModePayload struct {
@@ -45,4 +46,11 @@ type NodeEncryptedPayload struct {
 // CurtailPayload carries the curtailment level for a Curtail dispatch.
 type CurtailPayload struct {
 	Level int32 `json:"level"`
+}
+
+// ApplyCurtailmentConfigPayload carries plaintext only for local dispatches.
+// FleetNode dispatches replace Config with an encrypted, device-bound payload.
+type ApplyCurtailmentConfigPayload struct {
+	Config          *sdk.CurtailmentConfig `json:"config,omitempty"`
+	EncryptedConfig *NodeEncryptedPayload  `json:"encrypted_config,omitempty"`
 }

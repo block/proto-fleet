@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -25,6 +26,8 @@ const (
 	clientErrLookupDeviceForPairing    = "device lookup failed"
 	clientErrLookupFleetNodeForPairing = "fleet node lookup failed"
 )
+
+const rigConfigReapplyTimeout = 30 * time.Second
 
 var telemetryScheduleTimeout = 5 * time.Second
 
@@ -72,7 +75,11 @@ type Service struct {
 	discoveredDeviceStore stores.DiscoveredDeviceStore
 	dispatcher            control.Sender
 
-	invalidateMiner func(context.Context, int64)
+	invalidateMiner    func(context.Context, int64)
+	rigConfigReapplier func(context.Context, int64, int64)
+	// Reapplying targets every Proto rig in an organization, so collapse
+	// concurrent pair/reconnect triggers into one organization-wide dispatch.
+	rigConfigReapply singleflight.Group
 }
 
 func NewService(store Store, enrollmentStore enrollment.AgentStore, transactor stores.Transactor) *Service {
@@ -100,6 +107,13 @@ func (s *Service) WithTelemetryScheduler(telemetry TelemetryScheduler) *Service 
 	return s
 }
 
+// WithRigConfigReapplier wires desired-state convergence after pairing and
+// whenever a FleetNode carrying paired devices reconnects.
+func (s *Service) WithRigConfigReapplier(reapply func(context.Context, int64, int64)) *Service {
+	s.rigConfigReapplier = reapply
+	return s
+}
+
 func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) error {
 	exists, err := s.store.DeviceExistsInOrg(ctx, deviceID, orgID)
 	if err != nil {
@@ -118,6 +132,7 @@ func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID i
 		s.invalidateMiner(ctx, deviceID)
 	}
 	s.scheduleTelemetryBestEffort(ctx, deviceID, orgID)
+	s.reapplyRigConfigBestEffort(ctx, orgID, assignedBy)
 	return nil
 }
 
@@ -230,6 +245,51 @@ func (s *Service) scheduleTelemetryBestEffortWith(ctx context.Context, deviceID,
 				attrs = append(attrs, "device_identifier", identifier)
 			}
 			slog.Warn("failed to schedule fleet-node telemetry after pairing", attrs...)
+		}
+	}()
+}
+
+func (s *Service) reapplyRigConfigBestEffort(ctx context.Context, orgID int64, assignedBy *int64) {
+	if s.rigConfigReapplier == nil || assignedBy == nil || *assignedBy <= 0 {
+		return
+	}
+	userID := *assignedBy
+	baseCtx := context.WithoutCancel(ctx)
+	go func() {
+		reapplyCtx, cancel := context.WithTimeout(baseCtx, rigConfigReapplyTimeout)
+		defer cancel()
+		s.runRigConfigReapply(reapplyCtx, orgID, userID)
+	}()
+}
+
+func (s *Service) runRigConfigReapply(ctx context.Context, orgID, userID int64) {
+	_, _, _ = s.rigConfigReapply.Do(strconv.FormatInt(orgID, 10), func() (any, error) {
+		s.rigConfigReapplier(ctx, orgID, userID)
+		return nil, nil
+	})
+}
+
+// FleetNodeConnectedBestEffort reapplies desired rig configuration after an
+// offline node reconnects. The existing assignment identity supplies durable
+// command audit attribution.
+func (s *Service) FleetNodeConnectedBestEffort(ctx context.Context, fleetNodeID, orgID int64) {
+	if s.rigConfigReapplier == nil {
+		return
+	}
+	baseCtx := context.WithoutCancel(ctx)
+	go func() {
+		reapplyCtx, cancel := context.WithTimeout(baseCtx, rigConfigReapplyTimeout)
+		defer cancel()
+		devices, err := s.store.ListFleetNodeDevices(reapplyCtx, orgID, &fleetNodeID)
+		if err != nil {
+			slog.Warn("failed to list paired devices for rig config convergence", "fleet_node_id", fleetNodeID, "org_id", orgID, "err", err)
+			return
+		}
+		for _, device := range devices {
+			if device.AssignedBy != nil && *device.AssignedBy > 0 {
+				s.runRigConfigReapply(reapplyCtx, orgID, *device.AssignedBy)
+				return
+			}
 		}
 	}()
 }

@@ -17,6 +17,11 @@ import (
 type pairServiceStore struct {
 	Store
 	identifier string
+	devices    []FleetNodeDevice
+}
+
+func (s *pairServiceStore) ListFleetNodeDevices(context.Context, int64, *int64) ([]FleetNodeDevice, error) {
+	return append([]FleetNodeDevice(nil), s.devices...), nil
 }
 
 func (s *pairServiceStore) DeviceExistsInOrg(context.Context, int64, int64) (bool, error) {
@@ -117,5 +122,104 @@ func TestPairDeviceDoesNotBlockOnPostCommitTelemetryScheduling(t *testing.T) {
 	case <-started:
 	case <-time.After(time.Second):
 		t.Fatal("telemetry scheduling was not started")
+	}
+}
+
+func TestPairDeviceReappliesRigConfigAfterCommit(t *testing.T) {
+	assignedBy := int64(91)
+	reapplied := make(chan struct {
+		orgID  int64
+		userID int64
+	}, 1)
+	svc := NewService(
+		&pairServiceStore{identifier: "node-device"},
+		pairServiceEnrollmentStore{},
+		passThroughTransactor{},
+	).WithRigConfigReapplier(func(_ context.Context, orgID, userID int64) {
+		reapplied <- struct {
+			orgID  int64
+			userID int64
+		}{orgID: orgID, userID: userID}
+	})
+
+	require.NoError(t, svc.PairDevice(t.Context(), 12, 34, 56, &assignedBy))
+
+	select {
+	case got := <-reapplied:
+		require.Equal(t, int64(56), got.orgID)
+		require.Equal(t, assignedBy, got.userID)
+	case <-time.After(time.Second):
+		t.Fatal("rig config reapply was not started")
+	}
+}
+
+func TestFleetNodeConnectedReappliesRigConfigWithAssignmentIdentity(t *testing.T) {
+	assignedBy := int64(92)
+	reapplied := make(chan struct {
+		orgID  int64
+		userID int64
+	}, 1)
+	store := &pairServiceStore{devices: []FleetNodeDevice{{
+		FleetNodeID: 12,
+		DeviceID:    34,
+		AssignedBy:  &assignedBy,
+	}}}
+	svc := NewService(store, pairServiceEnrollmentStore{}, passThroughTransactor{}).
+		WithRigConfigReapplier(func(_ context.Context, orgID, userID int64) {
+			reapplied <- struct {
+				orgID  int64
+				userID int64
+			}{orgID: orgID, userID: userID}
+		})
+
+	svc.FleetNodeConnectedBestEffort(t.Context(), 12, 56)
+
+	select {
+	case got := <-reapplied:
+		require.Equal(t, int64(56), got.orgID)
+		require.Equal(t, assignedBy, got.userID)
+	case <-time.After(time.Second):
+		t.Fatal("rig config reapply was not started")
+	}
+}
+
+func TestRigConfigReapplyCoalescesConcurrentOrgTriggers(t *testing.T) {
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	svc := &Service{rigConfigReapplier: func(context.Context, int64, int64) {
+		started <- struct{}{}
+		<-release
+	}}
+	done := make(chan struct{}, 2)
+	reapply := func() {
+		svc.runRigConfigReapply(t.Context(), 56, 91)
+		done <- struct{}{}
+	}
+
+	go reapply()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first rig config reapply was not started")
+	}
+	go reapply()
+
+	select {
+	case <-started:
+		t.Fatal("concurrent organization-wide reapply was not coalesced")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	for range 2 {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("coalesced rig config reapply did not finish")
+		}
+	}
+	select {
+	case <-started:
+		t.Fatal("coalesced trigger started a second reapply")
+	default:
 	}
 }
