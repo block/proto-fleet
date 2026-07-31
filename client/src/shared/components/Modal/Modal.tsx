@@ -188,7 +188,22 @@ const Modal = ({
           {showHeader ? (
             <div
               ref={headerRef}
-              className={clsx("sticky top-0 z-10 bg-surface-elevated-base pt-6", { "phone:hidden": hideHeaderOnPhone })}
+              // Two things keep the sticky background actually opaque:
+              //
+              // flex-col — headerSpacingClassName is a margin on an empty
+              // trailing div, and in normal flow that margin collapses out of
+              // this box. The header painted 16px shorter than it occupied, so
+              // body content scrolled through the gap. Flex items don't collapse.
+              //
+              // -mx-6 px-6 — the scroll container's own px-6 would otherwise
+              // leave a 24px gutter down each side of the header, where borders
+              // and other body content stayed visible. The header has to reach
+              // the container's padding edge; the padding puts its contents back.
+              // Safe against the callers that pass `!p-0`, since those all set
+              // showHeader={false}.
+              className={clsx("sticky top-0 z-10 -mx-6 flex flex-col bg-surface-elevated-base px-6 pt-6", {
+                "phone:hidden": hideHeaderOnPhone,
+              })}
             >
               <div className="relative">
                 <Header
