@@ -6,11 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"testing"
-	"time"
 
-	"github.com/alecthomas/kong"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	commandMocks "github.com/block/proto-fleet/server/internal/domain/command/mocks"
@@ -23,11 +20,11 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	storeMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
-	infraDB "github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	queueMocks "github.com/block/proto-fleet/server/internal/infrastructure/queue/mocks"
+	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	sdkMocks "github.com/block/proto-fleet/server/sdk/v1/mocks"
 	"github.com/stretchr/testify/assert"
@@ -450,117 +447,18 @@ func (s *commandTestFleetNodeSender) SendCommand(_ context.Context, _ int64, cmd
 	return &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK}, nil
 }
 
+// newCommandTestDB uses the shared restart-tolerant harness from
+// testutil/dbtest. This package cannot import testutil itself (testutil
+// imports domain/command, so that would be an import cycle), which is why an
+// inlined copy of the harness used to live here — and drifted, missing the
+// transient-server-restart retries that CI relies on under heavy concurrent
+// migration load.
 func newCommandTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping database-backed credential command test in short mode")
 	}
-
-	cli := struct {
-		DB infraDB.Config `envprefix:"DB_" embed:""`
-	}{}
-	parser, err := kong.New(&cli)
-	require.NoError(t, err)
-	_, err = parser.Parse(nil)
-	require.NoError(t, err)
-
-	config := cli.DB
-	dbName := commandTestDBName(t.Name())
-
-	adminConfig := config
-	adminConfig.Name = "postgres"
-	adminConn, err := infraDB.ConnectToDatabase(&adminConfig)
-	require.NoError(t, err)
-	recreateCommandTestDatabase(t, adminConn, dbName)
-	require.NoError(t, adminConn.Close())
-
-	testDBConfig := config
-	testDBConfig.Name = dbName
-	conn, err := connectAndMigrateCommandTestDB(t, &testDBConfig, &adminConfig, dbName)
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		require.NoError(t, conn.Close())
-		adminConn, err := infraDB.ConnectToDatabase(&adminConfig)
-		require.NoError(t, err)
-		defer adminConn.Close()
-		dropCommandTestDatabase(t, context.Background(), adminConn, dbName)
-	})
-
-	return conn
-}
-
-func connectAndMigrateCommandTestDB(
-	t *testing.T,
-	testDBConfig *infraDB.Config,
-	adminConfig *infraDB.Config,
-	dbName string,
-) (*sql.DB, error) {
-	t.Helper()
-
-	var conn *sql.DB
-	var lastErr error
-	for attempt := 1; attempt <= 5; attempt++ {
-		conn, lastErr = infraDB.ConnectAndMigrate(testDBConfig)
-		if lastErr == nil {
-			return conn, nil
-		}
-		if !isRetryableCommandMigrationError(lastErr) || attempt == 5 {
-			return nil, lastErr
-		}
-
-		t.Logf("migration deadlock (attempt %d/5), retrying: %v", attempt, lastErr)
-		adminConn, err := infraDB.ConnectToDatabase(adminConfig)
-		require.NoError(t, err)
-		recreateCommandTestDatabase(t, adminConn, dbName)
-		require.NoError(t, adminConn.Close())
-		time.Sleep(time.Duration(attempt) * 200 * time.Millisecond)
-	}
-
-	return nil, lastErr
-}
-
-func isRetryableCommandMigrationError(err error) bool {
-	if infraDB.IsRetryablePostgresError(err) {
-		return true
-	}
-	msg := err.Error()
-	return strings.Contains(msg, infraDB.PGDeadlockDetected) || strings.Contains(msg, infraDB.PGSerializationFailure)
-}
-
-func recreateCommandTestDatabase(t *testing.T, conn *sql.DB, dbName string) {
-	t.Helper()
-	dropCommandTestDatabase(t, t.Context(), conn, dbName)
-	_, err := conn.ExecContext(t.Context(), fmt.Sprintf("CREATE DATABASE %s", dbName))
-	require.NoError(t, err)
-}
-
-func dropCommandTestDatabase(t *testing.T, ctx context.Context, conn *sql.DB, dbName string) {
-	t.Helper()
-	_, _ = conn.ExecContext(ctx, fmt.Sprintf(`
-		SELECT pg_terminate_backend(pg_stat_activity.pid)
-		FROM pg_stat_activity
-		WHERE pg_stat_activity.datname = '%s'
-		AND pid <> pg_backend_pid()
-	`, dbName))
-	_, err := conn.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS %s", dbName))
-	require.NoError(t, err)
-}
-
-func commandTestDBName(testName string) string {
-	sanitizedName := strings.Map(func(r rune) rune {
-		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' {
-			return r
-		}
-		return '_'
-	}, testName)
-	sanitizedName = strings.ToLower(sanitizedName)
-
-	if len(sanitizedName) > 46 {
-		sanitizedName = sanitizedName[:46]
-	}
-
-	return fmt.Sprintf("fleet_test_%s_%04x", sanitizedName, time.Now().UnixNano()&0xFFFF)
+	return dbtest.GetTestDB(t)
 }
 
 func wirePasswordCommandMocks(t *testing.T, ctrl *gomock.Controller, svc *ExecutionService, dbDeviceID int64, deviceIdentifier string, driverName string) {

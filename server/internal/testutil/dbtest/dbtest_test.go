@@ -1,8 +1,12 @@
-package testutil
+package dbtest
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
 func TestIsRetryableMigrationError(t *testing.T) {
@@ -82,5 +86,28 @@ func TestIsRetryableMigrationError(t *testing.T) {
 				t.Fatalf("isRetryableMigrationError(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+// waitForServerReady must return promptly once the caller's context is done
+// (e.g. t.Context() after a test timeout) instead of spinning out the full
+// serverReadyTimeout against a server it can never reach.
+func TestWaitForServerReady_ReturnsPromptlyOnCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Port 1 is essentially guaranteed closed; the canceled context makes the
+	// ping fail immediately regardless, which is the path under test.
+	config := &db.Config{
+		Name:     "postgres",
+		Username: "nobody",
+		Address:  "127.0.0.1:1",
+		SSLMode:  "disable",
+	}
+
+	start := time.Now()
+	waitForServerReady(ctx, t, config)
+	if elapsed := time.Since(start); elapsed > serverReadyTimeout/2 {
+		t.Fatalf("waitForServerReady took %s with a canceled context; want a prompt return", elapsed)
 	}
 }
