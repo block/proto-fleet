@@ -70,6 +70,8 @@ test_patroni_contract() {
     assert_not_contains "$template" "0.0.0.0/0"
     assert_contains "$entrypoint" "render-patroni-config"
     assert_contains "$bootstrap" 'PGOPTIONS="-c synchronous_commit=local"'
+    assert_contains "$bootstrap" 'psql --dbname="$connection_url" --set=ON_ERROR_STOP=1'
+    assert_not_contains "$bootstrap" 'PGDATABASE="$connection_url"'
 
     [[ "$(grep -E '^[[:space:]]*USER[[:space:]]+' "$dockerfile" | tail -n 1)" == "USER postgres" ]] ||
         fail "Patroni image must default to the postgres user"

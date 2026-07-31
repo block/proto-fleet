@@ -14,11 +14,12 @@ fleet_password="$(<"$fleet_password_file")"
 # these local role/database setup statements from waiting for one.
 export PGOPTIONS="-c synchronous_commit=local"
 
-# Feed the generated hex password through stdin and let libpq read Patroni's
-# connection URL from the environment so neither secret appears in psql's
-# process arguments. format(%L) performs PostgreSQL-literal escaping before
-# \gexec runs the role statement.
-PGDATABASE="$connection_url" psql --set=ON_ERROR_STOP=1 <<SQL
+# Patroni passes a password-free libpq connection string and supplies any
+# bootstrap credential through PGPASSFILE. Pass that string as psql's database
+# target; PGDATABASE would treat the whole string as a literal database name.
+# The Fleet password still travels over stdin, and format(%L) performs
+# PostgreSQL-literal escaping before \gexec runs the role statement.
+psql --dbname="$connection_url" --set=ON_ERROR_STOP=1 <<SQL
 \set fleet_password '$fleet_password'
 SELECT format(
     'CREATE ROLE fleet LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION',
