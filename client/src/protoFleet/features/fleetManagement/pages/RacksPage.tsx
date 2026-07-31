@@ -1127,7 +1127,13 @@ const RacksPage = () => {
   const lastItemIndex = currentPage * DEFAULT_PAGE_SIZE + racks.length;
   const shouldRenderGridPagination = !isLoading && totalCount > 0;
 
-  if (isLoading && !hasEverLoaded) {
+  // `!isModalOpen` because a refetch fired from inside a modal — the first
+  // rack's create, or any membership commit reporting through
+  // onSettingsPersisted — leaves isLoading true while hasEverLoaded is still
+  // false, since that only flips on a non-empty page. Taking the page spinner
+  // there would unmount the modal the operator is working in and drop them back
+  // at the start of the add-miners step.
+  if (isLoading && !hasEverLoaded && !isModalOpen) {
     return (
       <div className="flex h-full items-center justify-center">
         <ProgressCircular indeterminate />
