@@ -99,6 +99,11 @@ export type BuildingSettingsModalProps = BuildingSettingsModalCommonProps &
 // grid; anything above that risks a browser hang on render.
 const LAYOUT_DIMENSION_MAX = 100;
 
+// Building type is deferred (proto `building_type` enum has not shipped — see
+// plan §898). A disabled dropdown keeps the design intent visible without
+// storing a value.
+const BUILDING_TYPE_OPTIONS = [{ value: "", label: "—" }];
+
 // Create-mode variants. "single" is the original one-building form; "multiple"
 // swaps the per-building fields for generated names + a read-only preview.
 type CreateVariant = "single" | "multiple";
@@ -124,6 +129,16 @@ const bulkRowErrorMessage = (reason: PerBuildingCreateErrorReason): string => {
   }
 };
 
+// Power figures, which the server stores as doubles. Blank → 0, its "unset"
+// value; negative or non-numeric returns null so the form can name the problem.
+const parseNonNegative = (input: string): number | null => {
+  const trimmed = input.trim();
+  if (trimmed === "") return 0;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return parsed;
+};
+
 const parseNonNegativeInt = (input: string): number | null => {
   const trimmed = input.trim();
   if (trimmed === "") return 0;
@@ -143,10 +158,18 @@ const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
   const siteLocked = isCreate && initialSiteId !== undefined;
   const [siteIdText, setSiteIdText] = useState<string>(initialSiteId !== undefined ? initialSiteId.toString() : "");
   const [name, setName] = useState(initialValues.name);
+  const [powerText, setPowerText] = useState(
+    initialValues.powerCapacityMw > 0 ? String(initialValues.powerCapacityMw) : "",
+  );
+  const [overheadText, setOverheadText] = useState(
+    initialValues.overheadKw > 0 ? String(initialValues.overheadKw) : "",
+  );
   const [aislesText, setAislesText] = useState(initialValues.aisles > 0 ? String(initialValues.aisles) : "");
   const [racksPerAisleText, setRacksPerAisleText] = useState(
     initialValues.racksPerAisle > 0 ? String(initialValues.racksPerAisle) : "",
   );
+  const [powerError, setPowerError] = useState<string | null>(null);
+  const [overheadError, setOverheadError] = useState<string | null>(null);
   const [aislesError, setAislesError] = useState<string | null>(null);
   const [racksPerAisleError, setRacksPerAisleError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
@@ -198,21 +221,25 @@ const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
   }, [aislesText, racksPerAisleText]);
 
   const buildValues = useCallback((): BuildingFormValues | null => {
-    // buildLayout first and unconditionally: it sets both dimension errors, and
-    // short-circuiting on the name would hide them.
+    // Every field is parsed before the first bail-out, so one click reports all
+    // of them rather than one per attempt.
     const layout = buildLayout();
+    const power = parseNonNegative(powerText);
+    const overhead = parseNonNegative(overheadText);
     const trimmedName = name.trim();
+    setPowerError(power === null ? "Enter a number ≥ 0" : null);
+    setOverheadError(overhead === null ? "Enter a number ≥ 0" : null);
     setNameError(trimmedName === "" ? "Enter a building name" : null);
-    if (!layout || trimmedName === "") return null;
+    if (!layout || power === null || overhead === null || trimmedName === "") return null;
 
     return {
       name: trimmedName,
-      // description, capacity and the rack-default block are fields this form
-      // doesn't expose — preserve the server snapshot so an edit here doesn't
-      // clobber values another caller wrote.
+      // description and the rack-default block are fields this form doesn't
+      // expose — preserve the server snapshot so an edit here doesn't clobber
+      // values another caller wrote.
       description: initialValues.description,
-      powerCapacityMw: initialValues.powerCapacityMw,
-      overheadKw: initialValues.overheadKw,
+      powerCapacityMw: power,
+      overheadKw: overhead,
       aisles: layout.aisles,
       racksPerAisle: layout.racksPerAisle,
       physicalRackCount: initialValues.physicalRackCount,
@@ -220,7 +247,7 @@ const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
       defaultRackColumns: initialValues.defaultRackColumns,
       defaultRackOrderIndex: initialValues.defaultRackOrderIndex,
     };
-  }, [buildLayout, name, initialValues]);
+  }, [buildLayout, name, powerText, overheadText, initialValues]);
 
   const siteOptions = useMemo(
     () =>
@@ -285,9 +312,11 @@ const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
   const isDirty = useMemo(
     () =>
       name.trim() !== initialValues.name ||
+      parseNonNegative(powerText) !== initialValues.powerCapacityMw ||
+      parseNonNegative(overheadText) !== initialValues.overheadKw ||
       parseNonNegativeInt(aislesText) !== initialValues.aisles ||
       parseNonNegativeInt(racksPerAisleText) !== initialValues.racksPerAisle,
-    [name, aislesText, racksPerAisleText, initialValues],
+    [name, powerText, overheadText, aislesText, racksPerAisleText, initialValues],
   );
 
   // Every branch validates on click and reports what's wrong, rather than the
@@ -316,10 +345,20 @@ const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
             ? `Names must be ${buildingNameMaxLength} characters or fewer, counter included`
             : null,
       );
-      setBulkCountError(noRows ? "Enter how many buildings to create" : null);
+      // buildBulkBuildingNames clamps to the cap, so a larger typed count would
+      // silently create only the first bulkBuildingCountMaximum buildings.
+      const overCount = Number(bulkCountText) > bulkBuildingCountMaximum;
+      setBulkCountError(
+        noRows
+          ? "Enter how many buildings to create"
+          : overCount
+            ? `Create up to ${bulkBuildingCountMaximum} buildings at a time`
+            : null,
+      );
       setBulkCounterScaleError(scaleOutOfRange ? `Must be ${counterScaleMinimum}–${counterScaleMaximum}` : null);
       setFormError(collides ? "Some of these names are already used at this site." : null);
-      if (siteId === null || !layout || prefixMissing || noRows || collides || scaleOutOfRange || overlong) return;
+      if (siteId === null || !layout || prefixMissing || noRows || overCount || collides || scaleOutOfRange || overlong)
+        return;
       // Clear first so marks from the previous attempt don't hang over rows
       // this one may have fixed.
       setBulkRowErrors([]);
@@ -352,6 +391,7 @@ const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
     props,
     createVariant,
     resolveSiteId,
+    bulkCountText,
     bulkNames,
     bulkOverlongRows,
     bulkPrefix,
@@ -648,6 +688,43 @@ const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
               error={nameError ?? false}
               autoFocus
               testId="building-settings-name-input"
+            />
+            <Select
+              id="building-settings-type"
+              label="Type"
+              options={BUILDING_TYPE_OPTIONS}
+              value=""
+              onChange={() => undefined}
+              disabled
+              forceBelow
+              testId="building-settings-type-select"
+            />
+            {/* Power figures stay in Single only: they describe one building's
+                supply, and one capacity spread across a whole batch would be a
+                guess the operator then has to unpick per building. */}
+            <Input
+              id="building-settings-power"
+              label="Power capacity (optional)"
+              initValue={powerText}
+              onChange={(v) => {
+                setPowerText(v);
+                if (powerError) setPowerError(null);
+              }}
+              units="MW"
+              error={powerError ?? false}
+              testId="building-settings-power-input"
+            />
+            <Input
+              id="building-settings-overhead"
+              label="Overhead (optional)"
+              initValue={overheadText}
+              onChange={(v) => {
+                setOverheadText(v);
+                if (overheadError) setOverheadError(null);
+              }}
+              units="kW"
+              error={overheadError ?? false}
+              testId="building-settings-overhead-input"
             />
             {layoutFields}
           </>

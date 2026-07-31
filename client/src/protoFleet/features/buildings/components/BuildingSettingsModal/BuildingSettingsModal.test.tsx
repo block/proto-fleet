@@ -116,7 +116,7 @@ describe("BuildingSettingsModal — create mode", () => {
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ name: "Main" }), 7n);
   });
 
-  it("preserves the capacity fields it no longer exposes", () => {
+  it("seeds the power fields from the snapshot and sends them back untouched", () => {
     const onSave = vi.fn();
     render(
       <BuildingSettingsModal
@@ -129,13 +129,51 @@ describe("BuildingSettingsModal — create mode", () => {
         onDismiss={vi.fn()}
       />,
     );
-    // Power capacity and Overhead are not in the form (nothing consumes them
-    // yet), so they must pass through rather than reset to 0.
-    expect(screen.queryByTestId("building-settings-power-input")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("building-settings-overhead-input")).not.toBeInTheDocument();
     fireEvent.change(screen.getByTestId("building-settings-name-input"), { target: { value: "Main" } });
     fireEvent.click(screen.getByTestId("building-settings-modal-save"));
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ powerCapacityMw: 5, overheadKw: 12 }), 7n);
+  });
+
+  // BuildingMetricsRow renders the Power used/capacity denominator from these,
+  // so a form that can't write them leaves every new building showing "—".
+  it("writes an edited power capacity and overhead", () => {
+    const onSave = vi.fn();
+    render(
+      <BuildingSettingsModal
+        open
+        mode="create"
+        initialValues={baseValues()}
+        sites={makeSites()}
+        initialSiteId={7n}
+        onSave={onSave}
+        onDismiss={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("building-settings-name-input"), { target: { value: "Main" } });
+    fireEvent.change(screen.getByTestId("building-settings-power-input"), { target: { value: "7.5" } });
+    fireEvent.change(screen.getByTestId("building-settings-overhead-input"), { target: { value: "40" } });
+    fireEvent.click(screen.getByTestId("building-settings-modal-save"));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ powerCapacityMw: 7.5, overheadKw: 40 }), 7n);
+  });
+
+  it("rejects a negative power capacity", () => {
+    const onSave = vi.fn();
+    render(
+      <BuildingSettingsModal
+        open
+        mode="create"
+        initialValues={baseValues()}
+        sites={makeSites()}
+        initialSiteId={7n}
+        onSave={onSave}
+        onDismiss={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("building-settings-name-input"), { target: { value: "Main" } });
+    fireEvent.change(screen.getByTestId("building-settings-power-input"), { target: { value: "-3" } });
+    fireEvent.click(screen.getByTestId("building-settings-modal-save"));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByText("Enter a number ≥ 0")).toBeInTheDocument();
   });
 
   it("rejects non-integer aisles", () => {
@@ -300,6 +338,18 @@ describe("BuildingSettingsModal — create mode, Multiple", () => {
     fireEvent.change(screen.getByTestId("building-settings-bulk-prefix-input"), { target: { value: "Bldg-" } });
     fireEvent.click(save);
     expect(onSaveBulk).toHaveBeenCalledTimes(1);
+  });
+
+  // buildBulkBuildingNames clamps to the cap, so without this check a typed 999
+  // would submit a silently truncated 500-row batch.
+  it("rejects a count over the batch cap instead of truncating it", () => {
+    const onSaveBulk = renderBulk();
+    selectMultiple();
+    fireEvent.change(screen.getByTestId("building-settings-bulk-count-input"), { target: { value: "999" } });
+    fireEvent.change(screen.getByTestId("building-settings-bulk-prefix-input"), { target: { value: "Bldg-" } });
+    fireEvent.click(screen.getByTestId("building-settings-modal-save"));
+    expect(onSaveBulk).not.toHaveBeenCalled();
+    expect(screen.getByText("Create up to 500 buildings at a time")).toBeInTheDocument();
   });
 
   it("previews the generated names as read-only rows and submits exactly those names", async () => {
