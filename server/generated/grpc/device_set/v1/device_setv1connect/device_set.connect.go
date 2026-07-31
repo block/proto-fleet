@@ -85,6 +85,9 @@ const (
 	// DeviceSetServiceSaveRackProcedure is the fully-qualified name of the DeviceSetService's SaveRack
 	// RPC.
 	DeviceSetServiceSaveRackProcedure = "/device_set.v1.DeviceSetService/SaveRack"
+	// DeviceSetServiceCreateRacksProcedure is the fully-qualified name of the DeviceSetService's
+	// CreateRacks RPC.
+	DeviceSetServiceCreateRacksProcedure = "/device_set.v1.DeviceSetService/CreateRacks"
 	// DeviceSetServiceAssignDevicesToRackProcedure is the fully-qualified name of the
 	// DeviceSetService's AssignDevicesToRack RPC.
 	DeviceSetServiceAssignDevicesToRackProcedure = "/device_set.v1.DeviceSetService/AssignDevicesToRack"
@@ -135,6 +138,24 @@ type DeviceSetServiceClient interface {
 	// Atomically creates or updates a rack with its membership and slot assignments.
 	// All operations (metadata, membership, slot positions) are applied in a single transaction.
 	SaveRack(context.Context, *connect.Request[v1.SaveRackRequest]) (*connect.Response[v1.SaveRackResponse], error)
+	// CreateRacks creates a batch of racks in one transaction — the bulk
+	// counterpart to SaveRack-with-no-device_set_id. There is deliberately
+	// no member seeding: seeding N racks at once has no sensible way to
+	// say which miner belongs to which rack.
+	//
+	// Label uniqueness is enforced twice: within the batch, and against
+	// every live rack in the organization. Rack labels are unique per
+	// (org, type) — NOT per site or per building — so a client holding one
+	// building's rack list cannot pre-check this and the server owns the
+	// collision query. A violation rejects the whole request with one
+	// `errors` entry per offending index and creates nothing, so the UI
+	// can mark the offending rows.
+	//
+	// Placement is per-request rather than per-row: a batch is created
+	// from inside one building (or one site, or nowhere). The racks land
+	// unplaced in that building's grid — choosing aisle/position is the
+	// operator's next step in ManageBuildingModal.
+	CreateRacks(context.Context, *connect.Request[v1.CreateRacksRequest]) (*connect.Response[v1.CreateRacksResponse], error)
 	// AssignDevicesToRack atomically moves devices into the target rack
 	// in one transaction: removes any existing rack membership for each
 	// device, inserts new membership at target_rack_id, and cascades
@@ -254,6 +275,11 @@ func NewDeviceSetServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			baseURL+DeviceSetServiceSaveRackProcedure,
 			opts...,
 		),
+		createRacks: connect.NewClient[v1.CreateRacksRequest, v1.CreateRacksResponse](
+			httpClient,
+			baseURL+DeviceSetServiceCreateRacksProcedure,
+			opts...,
+		),
 		assignDevicesToRack: connect.NewClient[v1.AssignDevicesToRackRequest, v1.AssignDevicesToRackResponse](
 			httpClient,
 			baseURL+DeviceSetServiceAssignDevicesToRackProcedure,
@@ -281,6 +307,7 @@ type deviceSetServiceClient struct {
 	listRackZoneRefs       *connect.Client[v1.ListRackZoneRefsRequest, v1.ListRackZoneRefsResponse]
 	listRackTypes          *connect.Client[v1.ListRackTypesRequest, v1.ListRackTypesResponse]
 	saveRack               *connect.Client[v1.SaveRackRequest, v1.SaveRackResponse]
+	createRacks            *connect.Client[v1.CreateRacksRequest, v1.CreateRacksResponse]
 	assignDevicesToRack    *connect.Client[v1.AssignDevicesToRackRequest, v1.AssignDevicesToRackResponse]
 }
 
@@ -369,6 +396,11 @@ func (c *deviceSetServiceClient) SaveRack(ctx context.Context, req *connect.Requ
 	return c.saveRack.CallUnary(ctx, req)
 }
 
+// CreateRacks calls device_set.v1.DeviceSetService.CreateRacks.
+func (c *deviceSetServiceClient) CreateRacks(ctx context.Context, req *connect.Request[v1.CreateRacksRequest]) (*connect.Response[v1.CreateRacksResponse], error) {
+	return c.createRacks.CallUnary(ctx, req)
+}
+
 // AssignDevicesToRack calls device_set.v1.DeviceSetService.AssignDevicesToRack.
 func (c *deviceSetServiceClient) AssignDevicesToRack(ctx context.Context, req *connect.Request[v1.AssignDevicesToRackRequest]) (*connect.Response[v1.AssignDevicesToRackResponse], error) {
 	return c.assignDevicesToRack.CallUnary(ctx, req)
@@ -419,6 +451,24 @@ type DeviceSetServiceHandler interface {
 	// Atomically creates or updates a rack with its membership and slot assignments.
 	// All operations (metadata, membership, slot positions) are applied in a single transaction.
 	SaveRack(context.Context, *connect.Request[v1.SaveRackRequest]) (*connect.Response[v1.SaveRackResponse], error)
+	// CreateRacks creates a batch of racks in one transaction — the bulk
+	// counterpart to SaveRack-with-no-device_set_id. There is deliberately
+	// no member seeding: seeding N racks at once has no sensible way to
+	// say which miner belongs to which rack.
+	//
+	// Label uniqueness is enforced twice: within the batch, and against
+	// every live rack in the organization. Rack labels are unique per
+	// (org, type) — NOT per site or per building — so a client holding one
+	// building's rack list cannot pre-check this and the server owns the
+	// collision query. A violation rejects the whole request with one
+	// `errors` entry per offending index and creates nothing, so the UI
+	// can mark the offending rows.
+	//
+	// Placement is per-request rather than per-row: a batch is created
+	// from inside one building (or one site, or nowhere). The racks land
+	// unplaced in that building's grid — choosing aisle/position is the
+	// operator's next step in ManageBuildingModal.
+	CreateRacks(context.Context, *connect.Request[v1.CreateRacksRequest]) (*connect.Response[v1.CreateRacksResponse], error)
 	// AssignDevicesToRack atomically moves devices into the target rack
 	// in one transaction: removes any existing rack membership for each
 	// device, inserts new membership at target_rack_id, and cascades
@@ -534,6 +584,11 @@ func NewDeviceSetServiceHandler(svc DeviceSetServiceHandler, opts ...connect.Han
 		svc.SaveRack,
 		opts...,
 	)
+	deviceSetServiceCreateRacksHandler := connect.NewUnaryHandler(
+		DeviceSetServiceCreateRacksProcedure,
+		svc.CreateRacks,
+		opts...,
+	)
 	deviceSetServiceAssignDevicesToRackHandler := connect.NewUnaryHandler(
 		DeviceSetServiceAssignDevicesToRackProcedure,
 		svc.AssignDevicesToRack,
@@ -575,6 +630,8 @@ func NewDeviceSetServiceHandler(svc DeviceSetServiceHandler, opts ...connect.Han
 			deviceSetServiceListRackTypesHandler.ServeHTTP(w, r)
 		case DeviceSetServiceSaveRackProcedure:
 			deviceSetServiceSaveRackHandler.ServeHTTP(w, r)
+		case DeviceSetServiceCreateRacksProcedure:
+			deviceSetServiceCreateRacksHandler.ServeHTTP(w, r)
 		case DeviceSetServiceAssignDevicesToRackProcedure:
 			deviceSetServiceAssignDevicesToRackHandler.ServeHTTP(w, r)
 		default:
@@ -652,6 +709,10 @@ func (UnimplementedDeviceSetServiceHandler) ListRackTypes(context.Context, *conn
 
 func (UnimplementedDeviceSetServiceHandler) SaveRack(context.Context, *connect.Request[v1.SaveRackRequest]) (*connect.Response[v1.SaveRackResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.SaveRack is not implemented"))
+}
+
+func (UnimplementedDeviceSetServiceHandler) CreateRacks(context.Context, *connect.Request[v1.CreateRacksRequest]) (*connect.Response[v1.CreateRacksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.CreateRacks is not implemented"))
 }
 
 func (UnimplementedDeviceSetServiceHandler) AssignDevicesToRack(context.Context, *connect.Request[v1.AssignDevicesToRackRequest]) (*connect.Response[v1.AssignDevicesToRackResponse], error) {

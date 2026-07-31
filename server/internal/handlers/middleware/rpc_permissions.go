@@ -208,6 +208,7 @@ var ProcedurePermissions = map[string]string{
 	device_setv1connect.DeviceSetServiceAddDevicesToGroupProcedure:      authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceRemoveDevicesFromGroupProcedure: authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceSaveRackProcedure:               authz.PermRackManage,
+	device_setv1connect.DeviceSetServiceCreateRacksProcedure:            authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceAssignDevicesToRackProcedure:    authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceSetRackSlotPositionProcedure:    authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceClearRackSlotPositionProcedure:  authz.PermRackManage,

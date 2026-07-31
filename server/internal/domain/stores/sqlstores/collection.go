@@ -83,6 +83,21 @@ func (s *SQLCollectionStore) CreateRackExtension(ctx context.Context, params int
 	return nil
 }
 
+func (s *SQLCollectionStore) ListTakenLabels(ctx context.Context, orgID int64, collectionType pb.CollectionType, labels []string) ([]string, error) {
+	if len(labels) == 0 {
+		return nil, nil
+	}
+	taken, err := s.GetQueries(ctx).ListTakenDeviceSetLabels(ctx, sqlc.ListTakenDeviceSetLabelsParams{
+		OrgID:  orgID,
+		Type:   protoDeviceSetTypeToSQL(collectionType),
+		Labels: labels,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list taken labels: %v", err)
+	}
+	return taken, nil
+}
+
 func (s *SQLCollectionStore) GetCollection(ctx context.Context, orgID int64, collectionID int64) (*pb.DeviceCollection, error) {
 	row, err := s.GetQueries(ctx).GetDeviceSet(ctx, sqlc.GetDeviceSetParams{
 		ID:    collectionID,

@@ -1319,3 +1319,130 @@ func newGroupHandlerWithResolver(t *testing.T, ids []string) *testHarness {
 		ctrl:            ctrl,
 	}
 }
+
+// --- CreateRacks (bulk) ---
+
+func newRackRow(label string) *dspb.NewRack {
+	return &dspb.NewRack{
+		Label:       label,
+		Rows:        4,
+		Columns:     3,
+		OrderIndex:  dspb.RackOrderIndex_RACK_ORDER_INDEX_TOP_LEFT,
+		CoolingType: dspb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+	}
+}
+
+// TestCreateRacks_HappyPath confirms the handler translates the batch into the
+// domain's params, creates one rack per row, and converts the created racks
+// back into device_set.v1 types.
+func TestCreateRacks_HappyPath(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := ctxWithPerms(authz.PermRackManage)
+
+	h.collectionStore.EXPECT().
+		ListTakenLabels(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, []string{"R-001", "R-002"}).
+		Return(nil, nil)
+	var nextID int64
+	h.collectionStore.EXPECT().
+		CreateCollection(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any(), "").
+		DoAndReturn(func(_ context.Context, _ int64, _ collectionpb.CollectionType, label, _ string) (*collectionpb.DeviceCollection, error) {
+			nextID++
+			return &collectionpb.DeviceCollection{
+				Id:    nextID,
+				Label: label,
+				Type:  collectionpb.CollectionType_COLLECTION_TYPE_RACK,
+			}, nil
+		}).Times(2)
+	h.collectionStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, p interfaces.CreateRackExtensionParams) error {
+			// The row's geometry, not a default.
+			assert.Equal(t, int32(4), p.Rows)
+			assert.Equal(t, int32(3), p.Columns)
+			return nil
+		}).Times(2)
+
+	resp, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+		Racks: []*dspb.NewRack{newRackRow("R-001"), newRackRow("R-002")},
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetErrors())
+	require.Len(t, resp.Msg.GetRacks(), 2)
+	assert.Equal(t, "R-001", resp.Msg.GetRacks()[0].GetLabel())
+	assert.Equal(t, dspb.DeviceSetType_DEVICE_SET_TYPE_RACK, resp.Msg.GetRacks()[0].GetType())
+	assert.Equal(t, int32(3), resp.Msg.GetRacks()[0].GetRackInfo().GetColumns())
+}
+
+// TestCreateRacks_ReturnsPerRowErrorsAndNoRacks confirms a collision travels on
+// the wire as an errors list rather than a transport failure, and that nothing
+// was created.
+func TestCreateRacks_ReturnsPerRowErrorsAndNoRacks(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := ctxWithPerms(authz.PermRackManage)
+
+	// A duplicate inside the batch never reaches the stores.
+	resp, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+		Racks: []*dspb.NewRack{newRackRow("R-001"), newRackRow("R-001")},
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetRacks())
+	require.Len(t, resp.Msg.GetErrors(), 1)
+	assert.Equal(t, int32(1), resp.Msg.GetErrors()[0].GetIndex())
+	assert.Equal(t, "R-001", resp.Msg.GetErrors()[0].GetLabel())
+	assert.Equal(t,
+		dspb.PerRackCreateErrorReason_PER_RACK_CREATE_ERROR_REASON_DUPLICATE_LABEL_IN_BATCH,
+		resp.Msg.GetErrors()[0].GetReason())
+}
+
+// TestCreateRacks_ReportsOrgWideLabelCollision confirms the org-scoped reason
+// reaches the wire: the offending rack may live in another site entirely, which
+// is exactly why the client can't pre-check it.
+func TestCreateRacks_ReportsOrgWideLabelCollision(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := ctxWithPerms(authz.PermRackManage)
+
+	h.collectionStore.EXPECT().
+		ListTakenLabels(gomock.Any(), testOrgID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, gomock.Any()).
+		Return([]string{"R-002"}, nil)
+	// No CreateCollection: the whole batch rolls back.
+
+	resp, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+		Racks: []*dspb.NewRack{newRackRow("R-001"), newRackRow("R-002")},
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, resp.Msg.GetRacks())
+	require.Len(t, resp.Msg.GetErrors(), 1)
+	assert.Equal(t,
+		dspb.PerRackCreateErrorReason_PER_RACK_CREATE_ERROR_REASON_DUPLICATE_LABEL_IN_ORG,
+		resp.Msg.GetErrors()[0].GetReason())
+}
+
+// TestCreateRacks_RequiresRackManage confirms the base gate.
+func TestCreateRacks_RequiresRackManage(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := ctxWithPerms(authz.PermRackRead)
+
+	_, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+		Racks: []*dspb.NewRack{newRackRow("R-001")},
+	}))
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe, "expected FleetError, got %T", err)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
+
+// TestCreateRacks_PlacementRequiresSiteManage mirrors SaveRack: dropping racks
+// into a building is a site-management action, so rack:manage alone can create
+// only unplaced racks. Rejected before any store write.
+func TestCreateRacks_PlacementRequiresSiteManage(t *testing.T) {
+	h := newTestHandler(t)
+	ctx := ctxWithPerms(authz.PermRackManage)
+
+	_, err := h.handler.CreateRacks(ctx, connect.NewRequest(&dspb.CreateRacksRequest{
+		BuildingId: ptrInt64Local(7),
+		Racks:      []*dspb.NewRack{newRackRow("R-001")},
+	}))
+	require.Error(t, err)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe, "expected FleetError, got %T", err)
+	assert.Equal(t, connect.CodePermissionDenied, fe.GRPCCode)
+}
