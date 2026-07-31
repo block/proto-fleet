@@ -295,4 +295,42 @@ test.describe("Proto Fleet - Admin RBAC", () => {
       await settingsTeamPage.validateRoleNotVisible(updatedRoleName);
     });
   });
+
+  test("Role-manage role auto-selects the required read permission for curtailment management", async ({
+    browser,
+    commonSteps,
+    settingsPage,
+    settingsTeamPage,
+  }) => {
+    const roleName = generateRandomText(RBAC_ROLE_PREFIX);
+
+    await test.step("Provision a role-manage role", async () => {
+      await provisionAdminRole(browser, test.info(), commonSteps, {
+        roleDescription: "Manage roles and validate permission dependency behavior.",
+        permissionKeys: ["activity:read", "role:manage"],
+      });
+    });
+
+    await test.step("Open the role builder", async () => {
+      await settingsPage.navigateToTeamSettings();
+      await settingsTeamPage.validateTeamSettingsPageOpened();
+      await settingsTeamPage.openRolesTab();
+      await settingsTeamPage.clickCreateRole();
+      await settingsTeamPage.inputRoleName(roleName);
+      await settingsTeamPage.inputRoleDescription("Validate auto-selected permission dependencies.");
+    });
+
+    await test.step("Selecting curtailment management also grants the required read permission", async () => {
+      await settingsTeamPage.selectRolePermission("curtailment:manage");
+      await settingsTeamPage.validateRolePermissionChecked("curtailment:manage");
+      await settingsTeamPage.validateRolePermissionChecked("curtailment:read");
+      await settingsTeamPage.validateRolePermissionDisabled("curtailment:read");
+    });
+
+    await test.step("Clearing curtailment management releases the dependent read permission", async () => {
+      await settingsTeamPage.setRolePermission("curtailment:manage", false);
+      await settingsTeamPage.validateRolePermissionUnchecked("curtailment:manage");
+      await settingsTeamPage.validateRolePermissionUnchecked("curtailment:read");
+    });
+  });
 });

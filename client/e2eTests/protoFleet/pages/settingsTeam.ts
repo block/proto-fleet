@@ -27,6 +27,10 @@ export class SettingsTeamPage extends BasePage {
     return permissionKey.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
   }
 
+  private rolePermissionRow(permissionKey: string) {
+    return this.page.getByTestId(`role-permission-${this.sanitizePermissionKey(permissionKey)}`);
+  }
+
   async validateTeamSettingsPageOpened() {
     await expect(this.page).toHaveURL(/.*\/team/);
     await this.validateTitle("Team");
@@ -155,13 +159,40 @@ export class SettingsTeamPage extends BasePage {
   async selectRolePermission(permissionKey: string) {
     await this.page.getByTestId("role-permission-search").fill(permissionKey);
 
-    const permissionRow = this.page.getByTestId(`role-permission-${this.sanitizePermissionKey(permissionKey)}`);
+    const permissionRow = this.rolePermissionRow(permissionKey);
     await expect(permissionRow).toBeVisible();
 
     const checkbox = permissionRow.getByRole("checkbox");
     if (!(await checkbox.isChecked())) {
       await permissionRow.click();
     }
+  }
+
+  async setRolePermission(permissionKey: string, checked: boolean) {
+    await this.page.getByTestId("role-permission-search").fill(permissionKey);
+
+    const permissionRow = this.rolePermissionRow(permissionKey);
+    await expect(permissionRow).toBeVisible();
+
+    const checkbox = permissionRow.getByRole("checkbox");
+    if ((await checkbox.isChecked()) !== checked) {
+      await permissionRow.click();
+    }
+  }
+
+  async validateRolePermissionChecked(permissionKey: string) {
+    await this.page.getByTestId("role-permission-search").fill(permissionKey);
+    await expect(this.rolePermissionRow(permissionKey).getByRole("checkbox")).toBeChecked();
+  }
+
+  async validateRolePermissionUnchecked(permissionKey: string) {
+    await this.page.getByTestId("role-permission-search").fill(permissionKey);
+    await expect(this.rolePermissionRow(permissionKey).getByRole("checkbox")).not.toBeChecked();
+  }
+
+  async validateRolePermissionDisabled(permissionKey: string) {
+    await this.page.getByTestId("role-permission-search").fill(permissionKey);
+    await expect(this.rolePermissionRow(permissionKey).getByRole("checkbox")).toBeDisabled();
   }
 
   async clickCreateRoleConfirm() {
