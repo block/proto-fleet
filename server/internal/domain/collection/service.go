@@ -1093,6 +1093,133 @@ type AssignDevicesToRackParams struct {
 	// site, stripping their site/building to match the rack. When false
 	// (default) such an add returns Conflicts and writes nothing.
 	ForceClearConflictingSite bool
+	// SlotAssignments optionally places the assigned devices in the target
+	// rack's grid, in the same transaction. One entry per device whose
+	// placement changes: Position set places it, Position nil clears its
+	// slot. Unnamed devices keep the slot they had. Requires TargetRackID.
+	SlotAssignments []*pb.RackSlot
+}
+
+// validateAssignRackSlots checks the SlotAssignments contract that needs no
+// DB read. Grid bounds are checked in-tx, once dimensions are known.
+func validateAssignRackSlots(params AssignDevicesToRackParams) error {
+	if len(params.SlotAssignments) == 0 {
+		return nil
+	}
+	if params.TargetRackID == nil {
+		return fleeterror.NewInvalidArgumentError("slot_assignments requires target_rack_id; an unassign has no rack to place into")
+	}
+	assigned := make(map[string]struct{}, len(params.DeviceIdentifiers))
+	for _, id := range params.DeviceIdentifiers {
+		assigned[id] = struct{}{}
+	}
+	seenDevices := make(map[string]struct{}, len(params.SlotAssignments))
+	seenPositions := make(map[[2]int32]struct{}, len(params.SlotAssignments))
+	for _, slot := range params.SlotAssignments {
+		if slot == nil {
+			return fleeterror.NewInvalidArgumentError("slot assignment must not be empty")
+		}
+		if _, ok := assigned[slot.DeviceIdentifier]; !ok {
+			return fleeterror.NewInvalidArgumentErrorf("slot assignment references device %q which is not in the device selector", slot.DeviceIdentifier)
+		}
+		if _, dup := seenDevices[slot.DeviceIdentifier]; dup {
+			return fleeterror.NewInvalidArgumentErrorf("device %q appears in slot_assignments more than once", slot.DeviceIdentifier)
+		}
+		seenDevices[slot.DeviceIdentifier] = struct{}{}
+		// Unset position = clear the slot; nothing left to bounds check.
+		if slot.Position == nil {
+			continue
+		}
+		if slot.Position.Row < 0 || slot.Position.Column < 0 {
+			return fleeterror.NewInvalidArgumentError("slot position row and column must not be negative")
+		}
+		// Friendly form of uk_rack_slot_position.
+		cell := [2]int32{slot.Position.Row, slot.Position.Column}
+		if _, dup := seenPositions[cell]; dup {
+			return fleeterror.NewInvalidArgumentErrorf("two devices are assigned to slot (%d, %d)", cell[0], cell[1])
+		}
+		seenPositions[cell] = struct{}{}
+	}
+	return nil
+}
+
+// applyRackSlotDelta persists the slot half of an AssignDevicesToRack
+// batch. Only the named devices are touched, so an unmentioned miner keeps
+// its slot — the delta shape SaveRack's replace-all could not express.
+// Empty slotAssignments writes nothing, which is what every pre-existing
+// caller (importer, CLI, assign-then-place pair) relies on.
+//
+// members is the post-insert membership snapshot. The store calls are
+// INSERT/DELETE ... SELECT over device_set_membership, so a non-member
+// would silently no-op and report a placement that never landed.
+func (s *Service) applyRackSlotDelta(ctx context.Context, orgID, rackID int64, slotAssignments []*pb.RackSlot, members map[string]*int64) error {
+	if len(slotAssignments) == 0 {
+		return nil
+	}
+	named := make(map[string]struct{}, len(slotAssignments))
+	placements := 0
+	for _, slot := range slotAssignments {
+		if _, ok := members[slot.DeviceIdentifier]; !ok {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"device %q did not become a member of the target rack, so its slot cannot be written", slot.DeviceIdentifier)
+		}
+		named[slot.DeviceIdentifier] = struct{}{}
+		if slot.Position != nil {
+			placements++
+		}
+	}
+
+	// The clear pass frees only the named devices' cells, so a position
+	// landing on an untouched member's cell would hit uk_rack_slot_position.
+	// Reject it here, where we can name the occupant. The rack row lock
+	// upstream serializes this read against the other batch writers, but NOT
+	// against the standalone Set/ClearRackSlotPosition RPCs, which take no
+	// rack lock; the store maps that constraint to InvalidArgument as the
+	// backstop for what slips through.
+	if placements > 0 {
+		occupants, err := s.collectionStore.GetRackSlots(ctx, rackID, orgID)
+		if err != nil {
+			return err
+		}
+		heldBy := make(map[[2]int32]string, len(occupants))
+		for _, occupant := range occupants {
+			if occupant.Position == nil {
+				continue
+			}
+			heldBy[[2]int32{occupant.Position.Row, occupant.Position.Column}] = occupant.DeviceIdentifier
+		}
+		for _, slot := range slotAssignments {
+			if slot.Position == nil {
+				continue
+			}
+			holder, taken := heldBy[[2]int32{slot.Position.Row, slot.Position.Column}]
+			if !taken || holder == slot.DeviceIdentifier {
+				continue
+			}
+			// Held by a device the batch clears first: that is a swap.
+			if _, moving := named[holder]; moving {
+				continue
+			}
+			return fleeterror.NewInvalidArgumentErrorf(
+				"slot (%d, %d) is already held by device %q, which this request does not move",
+				slot.Position.Row, slot.Position.Column, holder)
+		}
+	}
+
+	for _, slot := range slotAssignments {
+		if err := s.collectionStore.ClearRackSlotPosition(ctx, rackID, slot.DeviceIdentifier, orgID); err != nil {
+			return err
+		}
+	}
+	for _, slot := range slotAssignments {
+		if slot.Position == nil {
+			continue
+		}
+		if err := s.collectionStore.SetRackSlotPosition(ctx, rackID, slot.DeviceIdentifier, slot.Position.Row, slot.Position.Column, orgID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // PerDeviceRackConflictReason enumerates why a device blocked an
@@ -1147,9 +1274,20 @@ type AssignDevicesToRackResult struct {
 //
 // Empty DeviceIdentifiers rejects with InvalidArgument so the caller
 // learns up-front instead of getting a 0-row response.
+//
+// SlotAssignments, when supplied, places the same devices in the target
+// rack's grid inside this transaction — the rack-level counterpart of
+// AssignRacksToBuilding's optional per-rack aisle/position. That is what
+// lets a client persist a placement edit without re-asserting the rack's
+// whole member set the way SaveRack does.
 func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesToRackParams) (*AssignDevicesToRackResult, error) {
 	if len(params.DeviceIdentifiers) == 0 {
 		return nil, fleeterror.NewInvalidArgumentError("device_identifiers must not be empty")
+	}
+	// Shape checks that need no DB read run before the tx opens; the
+	// grid-bounds check needs the rack's dimensions and runs inside.
+	if err := validateAssignRackSlots(params); err != nil {
+		return nil, err
 	}
 
 	type txOut struct {
@@ -1165,9 +1303,11 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 	}
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		var (
-			targetSiteID     *int64
-			targetBuildingID *int64
-			targetLabel      string
+			targetSiteID              *int64
+			targetBuildingID          *int64
+			targetLabel               string
+			targetRows, targetColumns int32
+			targetPriorCount          int32
 		)
 		// Canonical lock order: lock every rack involved in the
 		// reparent -- sources + target -- together in ascending
@@ -1216,6 +1356,38 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			targetSiteID = placement.SiteID
 			targetBuildingID = placement.BuildingID
 			targetLabel = coll.Label
+			// Pre-add member count, read under the rack lock. Paired with
+			// AddDevicesToCollection's newly-inserted count below it gives
+			// the exact resulting size without a second membership read —
+			// RemoveDevicesFromAnyRack excludes the target rack, so nothing
+			// between here and the insert can change this number.
+			targetPriorCount = coll.DeviceCount
+
+			// Read the grid once under the rack lock; it bounds both the
+			// slot positions below and the post-insert capacity check. A
+			// RACK always has a device_set_rack row, so nil means the data
+			// is corrupt — continuing without dimensions would pass both
+			// checks silently and write unaddressable positions.
+			rackInfo, err := s.collectionStore.GetRackInfo(ctx, *params.TargetRackID, params.OrgID)
+			if err != nil {
+				return nil, err
+			}
+			if rackInfo == nil {
+				return nil, fleeterror.NewInternalErrorf("rack %d has no rack extension row", *params.TargetRackID)
+			}
+			targetRows, targetColumns = rackInfo.Rows, rackInfo.Columns
+			for _, slot := range params.SlotAssignments {
+				// Unset position = clear; no cell to bounds check.
+				if slot.Position == nil {
+					continue
+				}
+				if slot.Position.Row >= targetRows {
+					return nil, fleeterror.NewInvalidArgumentErrorf("slot row %d is out of bounds (rack has %d rows)", slot.Position.Row, targetRows)
+				}
+				if slot.Position.Column >= targetColumns {
+					return nil, fleeterror.NewInvalidArgumentErrorf("slot column %d is out of bounds (rack has %d columns)", slot.Position.Column, targetColumns)
+				}
+			}
 		}
 
 		// Placement-consistency guard for a site-less (fully-unassigned)
@@ -1277,6 +1449,19 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 				return nil, err
 			}
 			newlyAssigned = added
+
+			// Capacity guard: every rack member is expected to occupy a
+			// slot, so membership is bounded by rows×columns — the same
+			// invariant SaveRack enforces on its replace path. prior +
+			// newly-inserted is exact, since `added` counts only rows the
+			// ON CONFLICT DO NOTHING insert created.
+			if capacity := int64(targetRows) * int64(targetColumns); capacity > 0 {
+				if resulting := int64(targetPriorCount) + added; resulting > capacity {
+					return nil, fleeterror.NewInvalidArgumentErrorf(
+						"cannot assign %d miner(s) to rack %q: it would hold %d miner(s) but has only %d slot(s) (%d×%d)",
+						len(uniqueIdentifiers(params.DeviceIdentifiers)), targetLabel, resulting, capacity, targetRows, targetColumns)
+				}
+			}
 			assigned = int64(len(uniqueIdentifiers(params.DeviceIdentifiers)))
 			// Site cascade fires when the rack has a site OR a building.
 			// A rack in a building inherits that building's site (NULL
@@ -1288,17 +1473,26 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			// fully-unassigned racks. Fully-unassigned racks (no site,
 			// no building) skip the cascade to preserve direct
 			// device.site_id assignments.
+
+			// Post-insert membership snapshot, read once and shared: the
+			// cascade needs per-device prior sites, the slot delta needs to
+			// confirm its devices became members.
+			var members map[string]*int64
+			if targetSiteID != nil || targetBuildingID != nil || len(params.SlotAssignments) > 0 {
+				m, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, *params.TargetRackID, params.OrgID)
+				if err != nil {
+					return nil, err
+				}
+				members = m
+			}
+
 			if targetSiteID != nil || targetBuildingID != nil {
-				// Capture per-device priors BEFORE the cascade rewrites
+				// Priors are captured BEFORE the cascade rewrites
 				// device.site_id, so the activity audit reflects the
 				// implicit site reassignment. Mirrors the CreateCollection
 				// cascade-audit path so audit consumers can treat both
 				// event types uniformly.
-				priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, *params.TargetRackID, params.OrgID)
-				if err != nil {
-					return nil, err
-				}
-				deviceSiteChanges, totalAffected = buildDeviceSiteChanges(priors, targetSiteID)
+				deviceSiteChanges, totalAffected = buildDeviceSiteChanges(members, targetSiteID)
 				c, err := s.collectionStore.CascadeAddedDeviceSites(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers)
 				if err != nil {
 					return nil, err
@@ -1327,6 +1521,12 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 					return nil, err
 				}
 				siteReassigned = stripped
+			}
+
+			// Placement, last: membership must exist before a slot can
+			// reference it (both slot queries join device_set_membership).
+			if err := s.applyRackSlotDelta(ctx, params.OrgID, *params.TargetRackID, params.SlotAssignments, members); err != nil {
+				return nil, err
 			}
 		}
 

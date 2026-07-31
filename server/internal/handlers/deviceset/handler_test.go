@@ -894,6 +894,9 @@ func TestAssignDevicesToRack_HappyPathAssigns(t *testing.T) {
 			GetCollection(gomock.Any(), testOrgID, targetRackID).
 			Return(&collectionpb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: collectionpb.CollectionType_COLLECTION_TYPE_RACK}, nil),
 		h.collectionStore.EXPECT().
+			GetRackInfo(gomock.Any(), targetRackID, testOrgID).
+			Return(&collectionpb.RackInfo{Rows: 10, Columns: 10}, nil),
+		h.collectionStore.EXPECT().
 			RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).
 			Return(int64(2), nil),
 		h.collectionStore.EXPECT().
@@ -947,6 +950,93 @@ func TestAssignDevicesToRack_UnassignBranch(t *testing.T) {
 	assert.Equal(t, int64(0), resp.Msg.AssignedCount)
 	assert.Equal(t, int64(1), resp.Msg.RemovedCount)
 	assert.Equal(t, int64(0), resp.Msg.SiteReassignedCount)
+}
+
+// TestAssignDevicesToRack_CarriesSlotAssignments pins the wire→domain
+// mapping for the placement half of the delta: slot_assignments must reach
+// the store as real slot writes in the same call that moves membership.
+// That is what lets the rack modals persist a placement edit without
+// SaveRack's replace-all member set.
+func TestAssignDevicesToRack_CarriesSlotAssignments(t *testing.T) {
+	h := newTestHandler(t)
+
+	targetRackID := int64(42)
+	rackSite := int64(7)
+	deviceIDs := []string{"d1", "d2"}
+
+	h.collectionStore.EXPECT().
+		LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, targetRackID).
+		Return([]int64{targetRackID}, nil)
+	h.collectionStore.EXPECT().
+		LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &rackSite}, nil)
+	h.collectionStore.EXPECT().
+		GetCollection(gomock.Any(), testOrgID, targetRackID).
+		Return(&collectionpb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: collectionpb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	h.collectionStore.EXPECT().
+		GetRackInfo(gomock.Any(), targetRackID, testOrgID).
+		Return(&collectionpb.RackInfo{Rows: 4, Columns: 4}, nil)
+	h.collectionStore.EXPECT().
+		RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).
+		Return(int64(0), nil)
+	h.collectionStore.EXPECT().
+		AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).
+		Return(int64(2), nil)
+	// Both devices are members after the insert, which is what lets the
+	// slot writes below proceed.
+	h.collectionStore.EXPECT().
+		GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
+		Return(map[string]*int64{"d1": nil, "d2": nil}, nil)
+	h.collectionStore.EXPECT().
+		CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).
+		Return(int64(0), nil)
+	h.collectionStore.EXPECT().
+		CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, targetRackID, deviceIDs).
+		Return(int64(0), nil)
+	// Nothing on the grid yet, so (1,2) is free.
+	h.collectionStore.EXPECT().
+		GetRackSlots(gomock.Any(), targetRackID, testOrgID).
+		Return(nil, nil)
+	// d1 is placed at (1,2). d2 is named with no position, so it is cleared
+	// and left off the grid — the wire form of "in the rack, unplaced".
+	h.collectionStore.EXPECT().ClearRackSlotPosition(gomock.Any(), targetRackID, "d1", testOrgID).Return(nil)
+	h.collectionStore.EXPECT().ClearRackSlotPosition(gomock.Any(), targetRackID, "d2", testOrgID).Return(nil)
+	h.collectionStore.EXPECT().
+		SetRackSlotPosition(gomock.Any(), targetRackID, "d1", int32(1), int32(2), testOrgID).
+		Return(nil)
+
+	resp, err := h.handler.AssignDevicesToRack(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToRackRequest{
+		TargetRackId:   &targetRackID,
+		DeviceSelector: deviceListSelector(deviceIDs...),
+		SlotAssignments: []*dspb.RackSlot{
+			{DeviceIdentifier: "d1", Position: &dspb.RackSlotPosition{Row: 1, Column: 2}},
+			{DeviceIdentifier: "d2"},
+		},
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), resp.Msg.AssignedCount)
+}
+
+// TestAssignDevicesToRack_RejectsSlotOutsideSelector confirms the handler
+// forwards enough for the domain to reject a slot naming a device the
+// caller never asked to assign — it would have no membership row to hang
+// off. Rejected before any store call.
+func TestAssignDevicesToRack_RejectsSlotOutsideSelector(t *testing.T) {
+	h := newTestHandler(t)
+
+	resp, err := h.handler.AssignDevicesToRack(testCtx(t), connect.NewRequest(&dspb.AssignDevicesToRackRequest{
+		TargetRackId:   ptrInt64Local(42),
+		DeviceSelector: deviceListSelector("d1"),
+		SlotAssignments: []*dspb.RackSlot{{
+			DeviceIdentifier: "stranger",
+			Position:         &dspb.RackSlotPosition{Row: 0, Column: 0},
+		}},
+	}))
+	require.Error(t, err)
+	require.Nil(t, resp)
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodeInvalidArgument, fe.GRPCCode)
 }
 
 // TestAssignDevicesToRack_RejectsAllDevicesSelector confirms that the

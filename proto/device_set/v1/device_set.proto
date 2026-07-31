@@ -90,6 +90,11 @@ service DeviceSetService {
     // device_selector accepts only the device_list variant. all_devices
     // is rejected with InvalidArgument because moving every paired
     // device into a single rack is never the intended operation.
+    //
+    // slot_assignments optionally carries each moved device's slot, so
+    // membership and placement land in one transaction. Prefer this over
+    // SaveRack for every edit — SaveRack replaces the rack's whole member
+    // set, so a stale client snapshot silently drops concurrent additions.
     rpc AssignDevicesToRack(AssignDevicesToRackRequest) returns (AssignDevicesToRackResponse);
 }
 
@@ -729,6 +734,21 @@ message AssignDevicesToRackRequest {
     // `conflicts` and writes nothing. Set true to proceed and clear the
     // conflicting miners' site (and building) as part of the move.
     optional bool force_clear_conflicting_site = 3;
+
+    // Slot placements for the devices being assigned, so membership and
+    // placement land in one transaction. Per entry: `position` set places
+    // the device there, `position` unset CLEARS its slot. A device not
+    // named here is untouched. Empty (the default) writes no slot at all,
+    // so an arriving device starts unplaced.
+    //
+    // Every entry must name a device in device_selector, and no two may
+    // share a device or a position. Positions are bounds checked against
+    // the rack's rows/columns. Requires target_rack_id.
+    //
+    // Capped at 144: the largest rack the server accepts is 12 × 12 (see
+    // maxRackDimension) and membership is capped at the slot count, so a
+    // valid request cannot exceed it.
+    repeated RackSlot slot_assignments = 4 [(buf.validate.field).repeated.max_items = 144];
 }
 
 message AssignDevicesToRackResponse {

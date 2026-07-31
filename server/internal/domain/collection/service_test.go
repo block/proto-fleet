@@ -2,6 +2,7 @@ package collection
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
@@ -2611,6 +2612,8 @@ func TestService_AssignDevicesToRack_atomicReassign(t *testing.T) {
 			Return(interfaces.RackPlacement{SiteID: &rackSite}, nil),
 		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
 			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().GetRackInfo(gomock.Any(), targetRackID, testOrgID).
+			Return(&pb.RackInfo{Rows: 10, Columns: 10}, nil),
 		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(2), nil),
 		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(2), nil),
 		mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
@@ -2698,6 +2701,8 @@ func TestService_AssignDevicesToRack_acquiresSourceRackLocksBeforeWrites(t *test
 			Return(interfaces.RackPlacement{}, nil),
 		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
 			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().GetRackInfo(gomock.Any(), targetRackID, testOrgID).
+			Return(&pb.RackInfo{Rows: 10, Columns: 10}, nil),
 		mockStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return(nil, nil),
 		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(2), nil),
 		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(2), nil),
@@ -2761,6 +2766,8 @@ func TestService_AssignDevicesToRack_locksIncludeTargetRack(t *testing.T) {
 		Return(interfaces.RackPlacement{}, nil)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
 		Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-Target", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), targetRackID, testOrgID).
+		Return(&pb.RackInfo{Rows: 10, Columns: 10}, nil)
 	// Site-less target rack → site-consistency pre-check + post-add strip.
 	mockStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return(nil, nil)
 	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(0), nil)
@@ -2791,6 +2798,8 @@ func TestService_AssignDevicesToRack_siteLessRackConflictNoForce(t *testing.T) {
 	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).Return(interfaces.RackPlacement{}, nil)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
 		Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-Target", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), targetRackID, testOrgID).
+		Return(&pb.RackInfo{Rows: 10, Columns: 10}, nil)
 	// d1 currently has a site → would be stripped. No force → reject,
 	// no RemoveDevicesFromAnyRack / AddDevicesToCollection.
 	mockStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return([]string{"d1"}, nil)
@@ -2822,6 +2831,8 @@ func TestService_AssignDevicesToRack_siteLessRackForceStrips(t *testing.T) {
 		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), targetRackID, testOrgID).Return(interfaces.RackPlacement{}, nil),
 		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
 			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-Target", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().GetRackInfo(gomock.Any(), targetRackID, testOrgID).
+			Return(&pb.RackInfo{Rows: 10, Columns: 10}, nil),
 		mockStore.EXPECT().FindDevicesWithSiteOrBuilding(gomock.Any(), testOrgID, deviceIDs).Return([]string{"d1"}, nil),
 		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(0), nil),
 		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
@@ -2855,6 +2866,441 @@ func TestService_AssignDevicesToRack_emptyDevicesRejected(t *testing.T) {
 	require.Error(t, err)
 }
 
+// rackSlot is a terse constructor for the slot-delta tests below.
+func rackSlot(deviceIdentifier string, row, column int32) *pb.RackSlot {
+	return &pb.RackSlot{
+		DeviceIdentifier: deviceIdentifier,
+		Position:         &pb.RackSlotPosition{Row: row, Column: column},
+	}
+}
+
+// expectAssignToRackPreamble stubs the locks + reads every rack-target
+// assign performs before it writes, so the slot tests assert only on the
+// slot half. A plain site keeps the site-strip pre-check from firing.
+func expectAssignToRackPreamble(mockStore *mocks.MockCollectionStore, rackID int64, deviceIDs []string, rows, columns int32) {
+	site := int64(7)
+	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, rackID).Return(nil, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &site}, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, rackID).
+		Return(&pb.DeviceCollection{Id: rackID, Label: "Rack-A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
+		Return(&pb.RackInfo{Rows: rows, Columns: columns}, nil)
+	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, rackID).Return(int64(0), nil)
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(len(deviceIDs)), nil)
+	// Post-insert membership: every requested device became a member.
+	members := make(map[string]*int64, len(deviceIDs))
+	for _, id := range deviceIDs {
+		members[id] = nil
+	}
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), rackID, testOrgID).Return(members, nil)
+	mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
+	mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
+}
+
+// expectRackSlots stubs the rack's current occupancy, which is what decides
+// whether a requested cell is free, this device's own, or held by a member
+// the batch does not move.
+func expectRackSlots(mockStore *mocks.MockCollectionStore, rackID int64, held ...*pb.RackSlot) {
+	mockStore.EXPECT().GetRackSlots(gomock.Any(), rackID, testOrgID).Return(held, nil)
+}
+
+// TestService_AssignDevicesToRack_slotDeltaClearsThenSets pins the core of
+// the placement delta: every named device is cleared before any position is
+// written, so a swap can't trip uk_rack_slot_position mid-batch.
+func TestService_AssignDevicesToRack_slotDeltaClearsThenSets(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	rackID := int64(42)
+	deviceIDs := []string{"d1", "d2"}
+	expectAssignToRackPreamble(mockStore, rackID, deviceIDs, 10, 10)
+	// A true swap, legal only because both cells are cleared first.
+	expectRackSlots(mockStore, rackID, rackSlot("d1", 0, 0), rackSlot("d2", 0, 1))
+
+	// gomock.InOrder can't express "any order within a group", so record
+	// the sequence and assert no clear follows a set.
+	var calls []string
+	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, gomock.Any(), testOrgID).Times(2).
+		DoAndReturn(func(_ context.Context, _ int64, id string, _ int64) error {
+			calls = append(calls, "clear:"+id)
+			return nil
+		})
+	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), rackID, gomock.Any(), gomock.Any(), gomock.Any(), testOrgID).Times(2).
+		DoAndReturn(func(_ context.Context, _ int64, id string, row, column int32, _ int64) error {
+			calls = append(calls, fmt.Sprintf("set:%s@%d,%d", id, row, column))
+			return nil
+		})
+
+	// d1 and d2 swap cells.
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &rackID,
+		DeviceIdentifiers: deviceIDs,
+		SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 0, 1), rackSlot("d2", 0, 0)},
+	})
+	require.NoError(t, err)
+
+	require.Len(t, calls, 4)
+	assert.ElementsMatch(t, []string{"clear:d1", "clear:d2"}, calls[:2], "both clears must land first")
+	assert.ElementsMatch(t, []string{"set:d1@0,1", "set:d2@0,0"}, calls[2:])
+}
+
+// TestService_AssignDevicesToRack_slotDeltaUnplacesOnNilPosition pins the
+// mixed placed+unplaced case: an entry with no position clears that
+// device's slot, leaving it in the rack but off the grid.
+func TestService_AssignDevicesToRack_slotDeltaUnplacesOnNilPosition(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	rackID := int64(42)
+	deviceIDs := []string{"d1", "d2"}
+	expectAssignToRackPreamble(mockStore, rackID, deviceIDs, 10, 10)
+	// Empty grid, so d1's target cell is free.
+	expectRackSlots(mockStore, rackID)
+
+	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d1", testOrgID).Return(nil)
+	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d2", testOrgID).Return(nil)
+	// Only d1 carries a position; d2's nil-position entry leaves it cleared.
+	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), rackID, "d1", int32(2), int32(3), testOrgID).Return(nil)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &rackID,
+		DeviceIdentifiers: deviceIDs,
+		SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 2, 3), {DeviceIdentifier: "d2"}},
+	})
+	require.NoError(t, err)
+}
+
+// TestService_AssignDevicesToRack_slotDeltaPureUnplace covers pulling every
+// named miner off the grid — the case an "empty list clears the selector"
+// rule could not express, since empty means "write no slot at all".
+func TestService_AssignDevicesToRack_slotDeltaPureUnplace(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	rackID := int64(42)
+	deviceIDs := []string{"d1", "d2"}
+	expectAssignToRackPreamble(mockStore, rackID, deviceIDs, 10, 10)
+
+	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d1", testOrgID).Return(nil)
+	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d2", testOrgID).Return(nil)
+	// No SetRackSlotPosition expectation: the strict mock fails if one fires.
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &rackID,
+		DeviceIdentifiers: deviceIDs,
+		SlotAssignments:   []*pb.RackSlot{{DeviceIdentifier: "d1"}, {DeviceIdentifier: "d2"}},
+	})
+	require.NoError(t, err)
+}
+
+// TestService_AssignDevicesToRack_slotDeltaLeavesUnnamedDeviceAlone is the
+// invariant that makes this safe where SaveRack was not: an unmentioned
+// member keeps its slot, with no need to re-assert the whole member set.
+func TestService_AssignDevicesToRack_slotDeltaLeavesUnnamedDeviceAlone(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	rackID := int64(42)
+	// d2 is in the selector but absent from slot_assignments.
+	deviceIDs := []string{"d1", "d2"}
+	expectAssignToRackPreamble(mockStore, rackID, deviceIDs, 10, 10)
+	// d2 holds a cell the batch does not target, so it survives untouched.
+	expectRackSlots(mockStore, rackID, rackSlot("d2", 5, 5))
+
+	// Only d1 is cleared and re-placed. A Clear on d2 fails the strict mock.
+	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d1", testOrgID).Return(nil)
+	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), rackID, "d1", int32(0), int32(0), testOrgID).Return(nil)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &rackID,
+		DeviceIdentifiers: deviceIDs,
+		SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 0, 0)},
+	})
+	require.NoError(t, err)
+}
+
+// TestService_AssignDevicesToRack_noSlotsLeavesPlacementUntouched pins the
+// backward-compatible default (importer, CLI, assign-then-place pair):
+// empty SlotAssignments touches no slot row at all.
+func TestService_AssignDevicesToRack_noSlotsLeavesPlacementUntouched(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	rackID := int64(42)
+	deviceIDs := []string{"d1"}
+	expectAssignToRackPreamble(mockStore, rackID, deviceIDs, 10, 10)
+	// No ClearRackSlotPosition / SetRackSlotPosition expectations: the
+	// strict mock fails the test if either fires.
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &rackID,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.NoError(t, err)
+}
+
+// TestService_AssignDevicesToRack_missingRackExtensionFails pins the
+// broken-invariant path: a RACK always has a device_set_rack row, so a nil
+// read means corrupt data. Continuing would skip the bounds and capacity
+// checks, so the tx fails before any write.
+func TestService_AssignDevicesToRack_missingRackExtensionFails(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	rackID := int64(42)
+	deviceIDs := []string{"d1"}
+	site := int64(7)
+	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, rackID).Return(nil, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &site}, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, rackID).
+		Return(&pb.DeviceCollection{Id: rackID, Label: "Rack-A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).Return(nil, nil)
+	// No membership or slot expectations: the strict mock fails the test if
+	// anything downstream of the missing extension row fires.
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &rackID,
+		DeviceIdentifiers: deviceIDs,
+		SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 0, 0)},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no rack extension row")
+}
+
+// TestService_AssignDevicesToRack_slotForNonMemberFails covers the gap
+// where a slot write would silently do nothing. Both slot queries are
+// INSERT/DELETE ... SELECT over device_set_membership, and the membership
+// insert skips identifiers with no live device row — so a stale client
+// naming a since-deleted miner used to get a success response for a
+// placement that never landed. The tx must fail instead.
+func TestService_AssignDevicesToRack_slotForNonMemberFails(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	rackID := int64(42)
+	deviceIDs := []string{"d1", "ghost"}
+	site := int64(7)
+	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, rackID).Return(nil, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &site}, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, rackID).
+		Return(&pb.DeviceCollection{Id: rackID, Label: "Rack-A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
+		Return(&pb.RackInfo{Rows: 4, Columns: 4}, nil)
+	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, rackID).Return(int64(0), nil)
+	// "ghost" no longer resolves to a live device, so only d1 gets a row.
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(1), nil)
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), rackID, testOrgID).
+		Return(map[string]*int64{"d1": nil}, nil)
+	mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
+	mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
+	// No Clear/Set expectations: the batch is rejected whole.
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &rackID,
+		DeviceIdentifiers: deviceIDs,
+		SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 0, 0), rackSlot("ghost", 1, 1)},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "did not become a member")
+}
+
+// TestService_AssignDevicesToRack_slotOnOccupiedCellFails pins the stale-
+// snapshot path: placing onto a cell held by a member the batch never
+// clears would reach uk_rack_slot_position and surface as a 500.
+func TestService_AssignDevicesToRack_slotOnOccupiedCellFails(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	rackID := int64(42)
+	deviceIDs := []string{"d1"}
+	expectAssignToRackPreamble(mockStore, rackID, deviceIDs, 4, 4)
+	// "squatter" is unmentioned, so its cell is never cleared.
+	expectRackSlots(mockStore, rackID, rackSlot("squatter", 1, 1))
+	// No Clear/Set expectations: the batch is rejected whole.
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &rackID,
+		DeviceIdentifiers: deviceIDs,
+		SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 1, 1)},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `already held by device "squatter"`)
+}
+
+// TestService_AssignDevicesToRack_slotDeltaRejectsBadInput covers the
+// shape contract. Each case must reject BEFORE any store call, so these
+// run against a mock with zero expectations — a write slipping through
+// would fail on the unexpected call rather than pass silently.
+func TestService_AssignDevicesToRack_slotDeltaRejectsBadInput(t *testing.T) {
+	rackID := int64(42)
+	cases := []struct {
+		name   string
+		params AssignDevicesToRackParams
+	}{
+		{
+			// A device the caller never asked to assign has no membership
+			// row for the slot to hang off, so placing it is meaningless.
+			name: "slot for a device outside the selector",
+			params: AssignDevicesToRackParams{
+				TargetRackID:      &rackID,
+				DeviceIdentifiers: []string{"d1"},
+				SlotAssignments:   []*pb.RackSlot{rackSlot("stranger", 0, 0)},
+			},
+		},
+		{
+			// Would trip uk_rack_slot_position; reject with a readable
+			// message instead of an opaque constraint violation.
+			name: "two devices on one cell",
+			params: AssignDevicesToRackParams{
+				TargetRackID:      &rackID,
+				DeviceIdentifiers: []string{"d1", "d2"},
+				SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 1, 1), rackSlot("d2", 1, 1)},
+			},
+		},
+		{
+			// Ambiguous: the last entry would silently win.
+			name: "one device in two cells",
+			params: AssignDevicesToRackParams{
+				TargetRackID:      &rackID,
+				DeviceIdentifiers: []string{"d1"},
+				SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 0, 0), rackSlot("d1", 1, 1)},
+			},
+		},
+		{
+			// An unassign has no rack to place into.
+			name: "slots without a target rack",
+			params: AssignDevicesToRackParams{
+				DeviceIdentifiers: []string{"d1"},
+				SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 0, 0)},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, _, _ := newTestServiceWithSites(t, nil)
+			tc.params.OrgID = testOrgID
+			_, err := svc.AssignDevicesToRack(testCtx(t), tc.params)
+			require.Error(t, err)
+		})
+	}
+}
+
+// TestService_AssignDevicesToRack_slotOutOfGridRejected pins the bounds
+// check that needs the rack's dimensions, so it runs in-tx after the grid
+// read rather than in the pre-tx shape validation.
+func TestService_AssignDevicesToRack_slotOutOfGridRejected(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	rackID := int64(42)
+	deviceIDs := []string{"d1"}
+	site := int64(7)
+	// Only the reads up to the grid read: the rejection must land before
+	// any write, so no Remove/Add expectations are declared.
+	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, rackID).Return(nil, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &site}, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, rackID).
+		Return(&pb.DeviceCollection{Id: rackID, Label: "Rack-A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
+		Return(&pb.RackInfo{Rows: 2, Columns: 2}, nil)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &rackID,
+		DeviceIdentifiers: deviceIDs,
+		SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 0, 5)},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "out of bounds")
+}
+
+// TestService_AssignDevicesToRack_overCapacityRejected pins the capacity
+// invariant SaveRack already enforces on its replace path. A rack has no
+// floating members, so a delta must not push membership past rows×columns
+// and leave miners at positions the grid can never address.
+func TestService_AssignDevicesToRack_overCapacityRejected(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	rackID := int64(42)
+	deviceIDs := []string{"d3", "d4"}
+	site := int64(7)
+	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, rackID).Return(nil, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &site}, nil)
+	// 1×3 grid already holding 2 miners.
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, rackID).
+		Return(&pb.DeviceCollection{Id: rackID, Label: "Rack-A", Type: pb.CollectionType_COLLECTION_TYPE_RACK, DeviceCount: 2}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
+		Return(&pb.RackInfo{Rows: 1, Columns: 3}, nil)
+	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, rackID).Return(int64(0), nil)
+	// Both inserts are new → 2 + 2 = 4 in a 3-slot rack.
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(2), nil)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &rackID,
+		DeviceIdentifiers: deviceIDs,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "slot(s)")
+}
+
+// TestService_AssignDevicesToRack_reAssertingMembersIsNotOverCapacity
+// guards the counting rule: capacity uses the newly-INSERTED count, not
+// the requested count, so re-asserting devices already in a full rack (as
+// a pure placement edit does) must not read as an overflow.
+func TestService_AssignDevicesToRack_reAssertingMembersIsNotOverCapacity(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	rackID := int64(42)
+	deviceIDs := []string{"d1", "d2"}
+	site := int64(7)
+	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, rackID).Return(nil, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &site}, nil)
+	// 1×2 grid, already exactly full with these same two miners.
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, rackID).
+		Return(&pb.DeviceCollection{Id: rackID, Label: "Rack-A", Type: pb.CollectionType_COLLECTION_TYPE_RACK, DeviceCount: 2}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
+		Return(&pb.RackInfo{Rows: 1, Columns: 2}, nil)
+	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, rackID).Return(int64(0), nil)
+	// Already members → ON CONFLICT DO NOTHING inserts nothing, but the
+	// snapshot still lists both, which is what makes the slot writes legal.
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), rackID, testOrgID).
+		Return(map[string]*int64{"d1": nil, "d2": nil}, nil)
+	mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
+	mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
+	// Both cells occupied by these same two devices, swapped.
+	expectRackSlots(mockStore, rackID, rackSlot("d1", 0, 0), rackSlot("d2", 0, 1))
+	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d1", testOrgID).Return(nil)
+	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d2", testOrgID).Return(nil)
+	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), rackID, "d1", int32(0), int32(1), testOrgID).Return(nil)
+	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), rackID, "d2", int32(0), int32(0), testOrgID).Return(nil)
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &rackID,
+		DeviceIdentifiers: deviceIDs,
+		SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 0, 1), rackSlot("d2", 0, 0)},
+	})
+	require.NoError(t, err)
+}
+
 // TestService_AssignDevicesToRack_crossSiteEmitsCascadeMetadata asserts
 // that when the target rack lives at a different site than (some of) the
 // devices, the activity event carries SiteID + cascade Metadata mirroring
@@ -2877,6 +3323,8 @@ func TestService_AssignDevicesToRack_crossSiteEmitsCascadeMetadata(t *testing.T)
 			Return(interfaces.RackPlacement{SiteID: &rackSite}, nil),
 		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
 			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().GetRackInfo(gomock.Any(), targetRackID, testOrgID).
+			Return(&pb.RackInfo{Rows: 10, Columns: 10}, nil),
 		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(1), nil),
 		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
 		mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
@@ -2931,6 +3379,8 @@ func TestService_AssignDevicesToRack_sameSiteSkipsCascadeMetadata(t *testing.T) 
 			Return(interfaces.RackPlacement{SiteID: &rackSite}, nil),
 		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
 			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().GetRackInfo(gomock.Any(), targetRackID, testOrgID).
+			Return(&pb.RackInfo{Rows: 10, Columns: 10}, nil),
 		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(0), nil),
 		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
 		mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
@@ -2980,6 +3430,8 @@ func TestService_AssignDevicesToRack_siteLessBuildingClearsDeviceSite(t *testing
 			Return(interfaces.RackPlacement{SiteID: nil, BuildingID: &rackBuilding}, nil),
 		mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, targetRackID).
 			Return(&pb.DeviceCollection{Id: targetRackID, Label: "Rack-B", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil),
+		mockStore.EXPECT().GetRackInfo(gomock.Any(), targetRackID, testOrgID).
+			Return(&pb.RackInfo{Rows: 10, Columns: 10}, nil),
 		mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, targetRackID).Return(int64(1), nil),
 		mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).Return(int64(1), nil),
 		// Site cascade now fires even though targetSiteID is nil, because
