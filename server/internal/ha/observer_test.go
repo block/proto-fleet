@@ -104,7 +104,14 @@ func TestPatroniHTTPClientDialsValidatedPostgresAddress(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/primary", r.URL.Path)
 		require.Equal(t, expectedHost, r.Host)
-		writeJSON(t, w, map[string]any{"role": "primary", "timeline": 7})
+		writeJSON(t, w, map[string]any{
+			"role":     "primary",
+			"timeline": 7,
+			"replication": []map[string]string{{
+				"state":      "streaming",
+				"sync_state": "sync",
+			}},
+		})
 	}))
 	t.Cleanup(server.Close)
 
@@ -120,7 +127,11 @@ func TestPatroniHTTPClientDialsValidatedPostgresAddress(t *testing.T) {
 		serverURL.Hostname(),
 	)
 	require.NoError(t, err)
-	require.Equal(t, PatroniIdentity{Role: "primary", Timeline: 7}, identity)
+	require.Equal(t, PatroniIdentity{
+		Role:                  "primary",
+		Timeline:              7,
+		HasSynchronousStandby: true,
+	}, identity)
 }
 
 func TestObserverAcceptsStableBoundWriter(t *testing.T) {
@@ -164,7 +175,11 @@ func TestObserverValidatesAuthoritiesInOrder(t *testing.T) {
 		return []string{"172.30.0.12"}, nil
 	}
 	observer.patroni = fakePatroniReader{
-		identity:      PatroniIdentity{Role: "primary", Timeline: 7},
+		identity: PatroniIdentity{
+			Role:                  "primary",
+			Timeline:              7,
+			HasSynchronousStandby: true,
+		},
 		calls:         &calls,
 		serverAddress: &patroniServerAddress,
 	}
@@ -205,8 +220,12 @@ func TestObserverRunsActionInsideDCSValidationBracket(t *testing.T) {
 		return []string{"172.30.0.12"}, nil
 	}
 	observer.patroni = fakePatroniReader{
-		identity: PatroniIdentity{Role: "primary", Timeline: 7},
-		calls:    &calls,
+		identity: PatroniIdentity{
+			Role:                  "primary",
+			Timeline:              7,
+			HasSynchronousStandby: true,
+		},
+		calls: &calls,
 	}
 
 	_, err := observer.ObserveAndRun(
@@ -377,8 +396,9 @@ func TestObserverRejectsPostgresReplica(t *testing.T) {
 func TestObserverRejectsTimelineMismatch(t *testing.T) {
 	observer := validObserver([]DCSSnapshot{validDCSSnapshot()})
 	observer.patroni = fakePatroniReader{identity: PatroniIdentity{
-		Role:     "primary",
-		Timeline: 8,
+		Role:                  "primary",
+		Timeline:              8,
+		HasSynchronousStandby: true,
 	}}
 
 	_, err := observer.Observe(t.Context())
@@ -388,12 +408,24 @@ func TestObserverRejectsTimelineMismatch(t *testing.T) {
 func TestObserverRejectsNonPrimaryPatroniMember(t *testing.T) {
 	observer := validObserver([]DCSSnapshot{validDCSSnapshot()})
 	observer.patroni = fakePatroniReader{identity: PatroniIdentity{
-		Role:     "replica",
-		Timeline: 7,
+		Role:                  "replica",
+		Timeline:              7,
+		HasSynchronousStandby: true,
 	}}
 
 	_, err := observer.Observe(t.Context())
 	require.ErrorIs(t, err, ErrWritableServerMismatch)
+}
+
+func TestObserverRejectsMissingSynchronousStandby(t *testing.T) {
+	observer := validObserver([]DCSSnapshot{validDCSSnapshot()})
+	observer.patroni = fakePatroniReader{identity: PatroniIdentity{
+		Role:     "primary",
+		Timeline: 7,
+	}}
+
+	_, err := observer.Observe(t.Context())
+	require.ErrorIs(t, err, ErrSynchronousStandbyMissing)
 }
 
 func TestObserverRejectsExpiredLeaderLease(t *testing.T) {
@@ -419,8 +451,9 @@ func validObserver(snapshots []DCSSnapshot) *Observer {
 			Timeline:      7,
 		}},
 		patroni: fakePatroniReader{identity: PatroniIdentity{
-			Role:     "primary",
-			Timeline: 7,
+			Role:                  "primary",
+			Timeline:              7,
+			HasSynchronousStandby: true,
 		}},
 		resolve: func(context.Context, string) ([]string, error) {
 			return []string{"172.30.0.12"}, nil

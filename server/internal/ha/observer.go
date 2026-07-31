@@ -22,6 +22,7 @@ import (
 var (
 	ErrDCSClusterIdentityMismatch = errors.New("DCS cluster identity mismatch")
 	ErrLeaderLeaseExpired         = errors.New("DCS leader lease is not live")
+	ErrSynchronousStandbyMissing  = errors.New("Patroni has no synchronous standby")
 	ErrTimelineMismatch           = errors.New("Patroni and PostgreSQL timelines do not match")
 	ErrWritableServerMismatch     = errors.New("DCS leader does not match writable PostgreSQL server")
 	ErrWriterChanged              = errors.New("DCS writer changed during validation")
@@ -48,8 +49,9 @@ type DCSSnapshot struct {
 
 // PatroniIdentity is returned only when Patroni's /primary check succeeds.
 type PatroniIdentity struct {
-	Role     string
-	Timeline int64
+	Role                  string
+	Timeline              int64
+	HasSynchronousStandby bool
 }
 
 type dcsReader interface {
@@ -172,6 +174,9 @@ func (o *Observer) observeAndRun(
 			connected.Timeline,
 			patroni.Timeline,
 		)
+	}
+	if !patroni.HasSynchronousStandby {
+		return WriterObservation{}, ErrSynchronousStandbyMissing
 	}
 
 	observed := writerObservation(first, connected)
@@ -369,7 +374,7 @@ type etcdAPI interface {
 }
 
 // EtcdClient reads Patroni authority through etcd's authenticated native API.
-// The official client owns mTLS, authentication tokens, endpoint failover, and
+// The official client owns TLS, authentication tokens, endpoint failover, and
 // token refresh; this wrapper only translates the two reads the observer needs.
 type EtcdClient struct {
 	client         etcdAPI
@@ -550,8 +555,12 @@ func (c *PatroniHTTPClient) PrimaryIdentity(
 		return PatroniIdentity{}, fmt.Errorf("Patroni /primary returned %s", response.Status)
 	}
 	var state struct {
-		Role     string `json:"role"`
-		Timeline int64  `json:"timeline"`
+		Role        string `json:"role"`
+		Timeline    int64  `json:"timeline"`
+		Replication []struct {
+			State     string `json:"state"`
+			SyncState string `json:"sync_state"`
+		} `json:"replication"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&state); err != nil {
 		return PatroniIdentity{}, fmt.Errorf("decode Patroni primary response: %w", err)
@@ -562,5 +571,17 @@ func (c *PatroniHTTPClient) PrimaryIdentity(
 	if state.Timeline <= 0 {
 		return PatroniIdentity{}, errors.New("Patroni reports invalid timeline")
 	}
-	return PatroniIdentity{Role: state.Role, Timeline: state.Timeline}, nil
+	hasSynchronousStandby := false
+	for _, replica := range state.Replication {
+		if replica.State == "streaming" &&
+			(replica.SyncState == "sync" || replica.SyncState == "quorum") {
+			hasSynchronousStandby = true
+			break
+		}
+	}
+	return PatroniIdentity{
+		Role:                  state.Role,
+		Timeline:              state.Timeline,
+		HasSynchronousStandby: hasSynchronousStandby,
+	}, nil
 }

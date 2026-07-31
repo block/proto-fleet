@@ -1,0 +1,102 @@
+scope: proto-fleet
+namespace: /service/
+name: ${HA_NODE_NAME}
+
+restapi:
+  listen: ${HA_NODE_IP}:8008
+  connect_address: ${HA_NODE_IP}:8008
+  certfile: /run/proto-fleet-ha/patroni-rest.crt
+  keyfile: /run/proto-fleet-ha/patroni-rest.key
+  verify_client: none
+  authentication:
+    username: patroni-admin
+    password: ${PATRONI_REST_PASSWORD_YAML}
+  allowlist:
+    - ${HA_DB_A_IP}/32
+    - ${HA_DB_B_IP}/32
+  allowlist_include_members: true
+  https_extra_headers:
+    Strict-Transport-Security: max-age=31536000
+
+ctl:
+  cacert: /run/proto-fleet-ha/service-ca.crt
+  authentication:
+    username: patroni-admin
+    password: ${PATRONI_REST_PASSWORD_YAML}
+
+etcd3:
+  hosts:
+    - ${HA_DB_A_IP}:2379
+    - ${HA_DB_B_IP}:2379
+    - ${HA_DCS_C_IP}:2379
+  protocol: https
+  cacert: /run/proto-fleet-ha/service-ca.crt
+  username: patroni
+  password: ${PATRONI_ETCD_PASSWORD_YAML}
+
+bootstrap:
+  dcs:
+    ttl: 20
+    loop_wait: 2
+    retry_timeout: 3
+    maximum_lag_on_failover: 0
+    synchronous_mode: true
+    synchronous_mode_strict: true
+    synchronous_node_count: 1
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        hot_standby: "on"
+        max_replication_slots: 10
+        max_wal_senders: 10
+        wal_level: replica
+  initdb:
+    - data-checksums
+    - encoding: UTF8
+  post_bootstrap: /usr/local/bin/patroni-post-bootstrap
+
+postgresql:
+  listen: ${HA_NODE_IP}:5432
+  connect_address: ${HA_NODE_IP}:5432
+  data_dir: /home/postgres/pgdata/data
+  bin_dir: /usr/lib/postgresql/18/bin
+  pgpass: /run/proto-fleet-ha/pgpass
+  use_unix_socket: true
+  authentication:
+    superuser:
+      username: postgres
+      password: ${POSTGRES_SUPERUSER_PASSWORD_YAML}
+    replication:
+      username: replicator
+      password: ${POSTGRES_REPLICATION_PASSWORD_YAML}
+      sslmode: verify-full
+      sslrootcert: /run/proto-fleet-ha/service-ca.crt
+    rewind:
+      username: postgres
+      password: ${POSTGRES_SUPERUSER_PASSWORD_YAML}
+      sslmode: verify-full
+      sslrootcert: /run/proto-fleet-ha/service-ca.crt
+  parameters:
+    hot_standby: "on"
+    max_connections: 300
+    max_replication_slots: 10
+    max_wal_senders: 10
+    max_worker_processes: 19
+    shared_buffers: 256MB
+    shared_preload_libraries: timescaledb,pg_stat_statements
+    ssl: "on"
+    ssl_cert_file: /run/proto-fleet-ha/postgres.crt
+    ssl_key_file: /run/proto-fleet-ha/postgres.key
+    proto_fleet.source_commit: "${PROTO_FLEET_SOURCE_COMMIT}"
+    synchronous_commit: remote_apply
+    timescaledb.max_background_workers: 8
+    wal_level: replica
+  pg_hba:
+    - local all all trust
+    - hostssl replication replicator ${HA_DB_A_IP}/32 scram-sha-256
+    - hostssl replication replicator ${HA_DB_B_IP}/32 scram-sha-256
+    - hostssl all postgres ${HA_DB_A_IP}/32 scram-sha-256
+    - hostssl all postgres ${HA_DB_B_IP}/32 scram-sha-256
+    - hostssl all fleet ${HA_DB_A_IP}/32 scram-sha-256
+    - hostssl all fleet ${HA_DB_B_IP}/32 scram-sha-256
