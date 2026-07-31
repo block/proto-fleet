@@ -411,7 +411,19 @@ func (h *Handler) CreateRacks(ctx context.Context, r *connect.Request[dspb.Creat
 	// current placement" case — every rack here is new — so any non-nil id is
 	// placement intent.
 	if r.Msg.SiteId != nil || r.Msg.BuildingId != nil {
-		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{}); err != nil {
+		// Scope the check to the target site when the request names one, so a
+		// site-scoped site:manage operator is admitted at their own site and a
+		// site assignment narrowing an org-wide grant is honored.
+		//
+		// A building-only request stays org-scoped: resolving the building's
+		// parent site needs a store read this handler has no dependency for,
+		// and the service resolves it later under the canonical lock order.
+		// That is the pre-existing behavior, shared with SaveRack.
+		rc := authz.ResourceContext{}
+		if r.Msg.SiteId != nil && *r.Msg.SiteId > 0 {
+			rc.SiteID = r.Msg.SiteId
+		}
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteManage, rc); err != nil {
 			return nil, err
 		}
 	}

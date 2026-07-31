@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
@@ -571,9 +572,11 @@ func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]
 		}
 	}
 
-	if dupes := duplicateLabelsInBatch(labels); len(dupes) > 0 {
-		return nil, dupes, nil
-	}
+	// Batch duplicates are pure request math, but do NOT return here: a label
+	// can be both repeated in the batch and already taken in the org, and
+	// reporting one source at a time makes the operator submit again to find
+	// the rest. Merged with the org-wide check below.
+	batchDupes := duplicateLabelsInBatch(labels)
 
 	// Placement travels through the same struct SaveRack resolves, so the
 	// site-from-building derivation and lock ordering stay in one place.
@@ -601,6 +604,7 @@ func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]
 		if err != nil {
 			return nil, err
 		}
+		var orgClashes []PerRackCreateError
 		if len(taken) > 0 {
 			takenSet := make(map[string]struct{}, len(taken))
 			for _, label := range taken {
@@ -608,7 +612,7 @@ func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]
 			}
 			for i, label := range labels {
 				if _, clash := takenSet[label]; clash {
-					rejected = append(rejected, PerRackCreateError{
+					orgClashes = append(orgClashes, PerRackCreateError{
 						Index:  int32(i), //nolint:gosec // i < len(labels) <= maxBulkCreateRacks (500), checked above.
 						Label:  label,
 						Reason: RackCreateDuplicateLabelInOrg,
@@ -616,6 +620,7 @@ func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]
 				}
 			}
 		}
+		rejected = mergeRackCreateErrors(batchDupes, orgClashes)
 		if len(rejected) > 0 {
 			return nil, errBulkRackCreateRejected
 		}
@@ -626,6 +631,21 @@ func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]
 			// unique-index mapping and column defaults stay in one place.
 			collection, err := s.collectionStore.CreateCollection(txCtx, params.OrgID, pb.CollectionType_COLLECTION_TYPE_RACK, labels[i], "")
 			if err != nil {
+				// uk_device_collection_org_type_label is org-wide, but the only
+				// locks this tx holds are the target site/building rows — and an
+				// unplaced batch holds none at all. So a concurrent create with
+				// the same label can commit after the ListTakenLabels read above
+				// and this insert loses at READ COMMITTED. Report it as this
+				// row's rejection rather than an opaque AlreadyExists.
+				var fleetErr fleeterror.FleetError
+				if errors.As(err, &fleetErr) && fleetErr.GRPCCode == connect.CodeAlreadyExists {
+					rejected = []PerRackCreateError{{
+						Index:  int32(i), //nolint:gosec // i < len(params.Racks) <= maxBulkCreateRacks (500).
+						Label:  labels[i],
+						Reason: RackCreateDuplicateLabelInOrg,
+					}}
+					return nil, errBulkRackCreateRejected
+				}
 				return nil, err
 			}
 			if err := s.collectionStore.CreateRackExtension(txCtx, interfaces.CreateRackExtensionParams{
@@ -735,6 +755,32 @@ func duplicateLabelsInBatch(labels []string) []PerRackCreateError {
 		seen[label] = struct{}{}
 	}
 	return dupes
+}
+
+// mergeRackCreateErrors combines the two label-uniqueness sources into one
+// entry per row, ordered by index so the response lines up with the request.
+// A row that is both repeated in the batch and already taken in the org
+// reports IN_ORG: that is the one renaming other rows cannot resolve.
+func mergeRackCreateErrors(batchDupes, orgClashes []PerRackCreateError) []PerRackCreateError {
+	if len(batchDupes) == 0 {
+		return orgClashes
+	}
+	if len(orgClashes) == 0 {
+		return batchDupes
+	}
+	byIndex := make(map[int32]PerRackCreateError, len(batchDupes)+len(orgClashes))
+	for _, e := range batchDupes {
+		byIndex[e.Index] = e
+	}
+	for _, e := range orgClashes {
+		byIndex[e.Index] = e
+	}
+	merged := make([]PerRackCreateError, 0, len(byIndex))
+	for _, e := range byIndex {
+		merged = append(merged, e)
+	}
+	sort.Slice(merged, func(i, j int) bool { return merged[i].Index < merged[j].Index })
+	return merged
 }
 
 // GetCollection retrieves a collection by ID.
