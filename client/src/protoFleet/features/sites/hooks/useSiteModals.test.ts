@@ -5,7 +5,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
 import { useSiteModals } from "./useSiteModals";
-import { sitesClient } from "@/protoFleet/api/clients";
+import { emptyBuildingFormValues } from "@/protoFleet/api/buildings";
+import { buildingsClient, sitesClient } from "@/protoFleet/api/clients";
+import {
+  BuildingSchema,
+  CreateBuildingResponseSchema,
+  CreateBuildingsResponseSchema,
+  PerBuildingCreateErrorReason,
+} from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import {
   AssignBuildingsToSiteResponseSchema,
   type CreateSiteResponse,
@@ -28,6 +35,10 @@ vi.mock("@/protoFleet/api/clients", () => ({
     deleteSite: vi.fn(),
     assignDevicesToSite: vi.fn(),
     assignBuildingsToSite: vi.fn(),
+  },
+  buildingsClient: {
+    createBuilding: vi.fn(),
+    createBuildings: vi.fn(),
   },
 }));
 
@@ -87,49 +98,42 @@ describe("useSiteModals", () => {
     });
   });
 
-  it("detailsContinueCreate round-trips manageCreate ↔ details preserving edited fields", () => {
-    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
+  it("detailsContinueCreate persists the site and opens manageEdit against the new row", async () => {
+    const { create: createResp } = makeSiteResponse(7n, "North DC", "10.0.0.0/24");
+    vi.mocked(sitesClient.createSite).mockResolvedValue(createResp);
+    const refetchSites = vi.fn();
+    const { result } = renderHook(() => useSiteModals({ refetchSites }), { wrapper });
     act(() => result.current.openCreate());
-    act(() =>
-      result.current.detailsContinueCreate({
+
+    await act(async () => {
+      await result.current.detailsContinueCreate({
         ...emptySiteFormValues(),
         name: "North DC",
-        locationCity: "Chicago",
-        locationState: "IL",
-        powerCapacityMw: 5,
-      }),
-    );
-    act(() => result.current.manageEditDetails());
-    expect(result.current.state.kind).toBe("manageCreateEditingDetails");
-    act(() =>
-      result.current.detailsContinueCreate({
-        ...emptySiteFormValues(),
-        name: "North DC 2",
-        locationCity: "Chicago",
-        locationState: "IL",
-        powerCapacityMw: 5,
-      }),
-    );
-    expect(result.current.state.kind).toBe("manageCreate");
-    if (result.current.state.kind === "manageCreate") {
-      expect(result.current.state.draft.name).toBe("North DC 2");
-      expect(result.current.state.draft.powerCapacityMw).toBe(5);
+        networkConfig: "10.0.0.0/24",
+      });
+    });
+
+    expect(sitesClient.createSite).toHaveBeenCalledTimes(1);
+    expect(refetchSites).toHaveBeenCalled();
+    // The manage modal now runs in edit mode against the freshly-created site.
+    expect(result.current.state.kind).toBe("manageEdit");
+    if (result.current.state.kind === "manageEdit") {
+      expect(result.current.state.site.id).toBe(7n);
+      expect(result.current.state.draft.name).toBe("North DC");
     }
   });
 
-  it("dismiss from manageCreateEditingDetails returns to manageCreate", () => {
+  it("detailsContinueCreate stays on details when CreateSite fails", async () => {
+    vi.mocked(sitesClient.createSite).mockRejectedValue(new Error("boom"));
     const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
     act(() => result.current.openCreate());
-    act(() =>
-      result.current.detailsContinueCreate({
-        ...emptySiteFormValues(),
-        name: "X",
-      }),
-    );
-    act(() => result.current.manageEditDetails());
-    expect(result.current.state.kind).toBe("manageCreateEditingDetails");
-    act(() => result.current.dismiss());
-    expect(result.current.state.kind).toBe("manageCreate");
+
+    await act(async () => {
+      await result.current.detailsContinueCreate({ ...emptySiteFormValues(), name: "North DC" });
+    });
+
+    // No transition — the operator can fix the input and retry.
+    expect(result.current.state.kind).toBe("detailsCreate");
   });
 
   it("manageEditDetails on manageEdit stacks to manageEditEditingDetails; dismiss drops back to manageEdit", () => {
@@ -142,63 +146,224 @@ describe("useSiteModals", () => {
     expect(result.current.state.kind).toBe("manageEdit");
   });
 
-  it("manageSave on manageCreate runs CreateSite and reports closeOnSuccess", async () => {
-    const { create: createResp } = makeSiteResponse(7n, "North DC", "10.0.0.0/24");
-    vi.mocked(sitesClient.createSite).mockResolvedValue(createResp);
-    const refetchSites = vi.fn();
-    const { result } = renderHook(() => useSiteModals({ refetchSites }), { wrapper });
-    act(() => result.current.openCreate());
-    act(() =>
-      result.current.detailsContinueCreate({
-        ...emptySiteFormValues(),
-        name: "North DC",
-        networkConfig: "10.0.0.0/24",
-      }),
-    );
+  it("openBuildingsPicker opens the picker alone, with no manage surface behind it", () => {
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
+    const site = create(SiteSchema, { id: 5n, name: "Dallas" });
 
-    let saveResult: { closeOnSuccess: boolean } | null | undefined;
-    await act(async () => {
-      saveResult = await result.current.manageSave({ added: [], removed: [] });
-    });
+    act(() => result.current.openBuildingsPicker(site, [{ id: 9n, name: "Bldg A" }]));
 
-    await waitFor(() => {
-      expect(sitesClient.createSite).toHaveBeenCalledTimes(1);
+    // Not manageEdit: the host already renders the site, so stacking
+    // ManageSiteModal under a membership edit would be a layer nobody asked for.
+    expect(result.current.state).toMatchObject({
+      kind: "buildingsPicker",
+      currentBuildings: [{ id: 9n, name: "Bldg A" }],
     });
-    // With no staged buildings the create skips the buildings RPC entirely.
-    expect(sitesClient.assignBuildingsToSite).not.toHaveBeenCalled();
-    expect(saveResult?.closeOnSuccess).toBe(true);
-    expect(refetchSites).toHaveBeenCalled();
+    if (result.current.state.kind !== "buildingsPicker") throw new Error("expected buildingsPicker");
+    expect(result.current.state.site.id).toBe(5n);
   });
 
-  it("manageSave on manageCreate assigns staged buildings to the new site", async () => {
-    const { create: createResp } = makeSiteResponse(7n, "North DC");
-    vi.mocked(sitesClient.createSite).mockResolvedValue(createResp);
+  it("manageAssignBuildings targets the site from the standalone picker state", async () => {
     vi.mocked(sitesClient.assignBuildingsToSite).mockResolvedValue(
       create(AssignBuildingsToSiteResponseSchema, { reassignedRackCount: 0n, reassignedDeviceCount: 0n }),
     );
-    const refetchSites = vi.fn();
-    const { result } = renderHook(() => useSiteModals({ refetchSites }), { wrapper });
-    act(() => result.current.openCreate());
-    act(() => result.current.detailsContinueCreate({ ...emptySiteFormValues(), name: "North DC" }));
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
 
-    let saveResult: { closeOnSuccess: boolean } | null | undefined;
+    act(() => result.current.openBuildingsPicker(create(SiteSchema, { id: 7n, name: "Dallas" }), []));
     await act(async () => {
-      saveResult = await result.current.manageSave({ added: [11n, 12n], removed: [] });
+      await result.current.manageAssignBuildings({ added: [10n], removed: [] });
     });
 
-    await waitFor(() => {
-      expect(sitesClient.createSite).toHaveBeenCalledTimes(1);
-    });
-    // Staged buildings are assigned to the freshly-created site (id 7).
+    // The write handlers resolve their target from state, so a new state kind
+    // that isn't wired into that lookup silently no-ops instead of writing.
     expect(sitesClient.assignBuildingsToSite).toHaveBeenCalledWith(
-      { buildingIds: [11n, 12n], targetSiteId: 7n },
+      { buildingIds: [10n], targetSiteId: 7n },
       expect.anything(),
     );
-    expect(saveResult?.closeOnSuccess).toBe(true);
+  });
+
+  it("pickerCreateBuilding refreshes the host's building list, unlike its manage sibling", async () => {
+    vi.mocked(buildingsClient.createBuilding).mockResolvedValue(
+      create(CreateBuildingResponseSchema, {
+        building: create(BuildingSchema, { id: 42n, name: "Bldg A", siteId: 7n }),
+        assignedRackCount: 0n,
+        reassignedDeviceCount: 0n,
+        conflicts: [],
+      }),
+    );
+    const refetchBuildings = vi.fn();
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn(), refetchBuildings }), { wrapper });
+
+    act(() => result.current.openBuildingsPicker(create(SiteSchema, { id: 7n, name: "Dallas" }), []));
+    await act(async () => {
+      await result.current.pickerCreateBuilding({ ...emptyBuildingFormValues(), name: "Bldg A" });
+    });
+
+    // ManageSiteModal injects created rows into its own working set; the
+    // standalone picker has none, so the host's list is the only thing that
+    // renders the new building.
+    expect(refetchBuildings).toHaveBeenCalled();
+  });
+
+  it("pickerCreateBuildings refreshes the host's building list after a batch", async () => {
+    vi.mocked(buildingsClient.createBuildings).mockResolvedValue(
+      create(CreateBuildingsResponseSchema, {
+        buildings: [create(BuildingSchema, { id: 51n, name: "B-1", siteId: 7n })],
+        errors: [],
+      }),
+    );
+    const refetchBuildings = vi.fn();
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn(), refetchBuildings }), { wrapper });
+
+    act(() => result.current.openBuildingsPicker(create(SiteSchema, { id: 7n, name: "Dallas" }), []));
+    await act(async () => {
+      await result.current.pickerCreateBuildings([{ name: "B-1", aisles: 4, racksPerAisle: 10 }]);
+    });
+
+    expect(refetchBuildings).toHaveBeenCalled();
+  });
+
+  it("pickerCreateBuildings leaves the host's list alone when the batch was rejected", async () => {
+    vi.mocked(buildingsClient.createBuildings).mockResolvedValue(
+      create(CreateBuildingsResponseSchema, {
+        buildings: [],
+        errors: [{ index: 0, name: "B-1", reason: PerBuildingCreateErrorReason.DUPLICATE_NAME_AT_SITE }],
+      }),
+    );
+    const refetchBuildings = vi.fn();
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn(), refetchBuildings }), { wrapper });
+
+    act(() => result.current.openBuildingsPicker(create(SiteSchema, { id: 7n, name: "Dallas" }), []));
+    await act(async () => {
+      await result.current.pickerCreateBuildings([{ name: "B-1", aisles: 4, racksPerAisle: 10 }]);
+    });
+
+    // Nothing was written, so refetching would only cost a round trip.
+    expect(refetchBuildings).not.toHaveBeenCalled();
+  });
+
+  it("manageCreateBuilding creates a building against the managed site and returns it", async () => {
+    vi.mocked(buildingsClient.createBuilding).mockResolvedValue(
+      create(CreateBuildingResponseSchema, {
+        building: create(BuildingSchema, { id: 42n, name: "Bldg A", siteId: 3n }),
+        assignedRackCount: 0n,
+        reassignedDeviceCount: 0n,
+        conflicts: [],
+      }),
+    );
+    const refetchSites = vi.fn();
+    const site = create(SiteSchema, { id: 3n, name: "North DC" });
+    const { result } = renderHook(() => useSiteModals({ refetchSites }), { wrapper });
+    act(() => result.current.openManageEdit(site));
+
+    let created: Awaited<ReturnType<typeof result.current.manageCreateBuilding>> | undefined;
+    await act(async () => {
+      created = await result.current.manageCreateBuilding({
+        name: "Bldg A",
+        description: "",
+        powerCapacityMw: 0,
+        overheadKw: 0,
+        aisles: 0,
+        racksPerAisle: 0,
+        physicalRackCount: 0,
+        defaultRackRows: 0,
+        defaultRackColumns: 0,
+        defaultRackOrderIndex: 0,
+      });
+    });
+
+    // Created against the currently-managed site (id 3).
+    expect(buildingsClient.createBuilding).toHaveBeenCalledWith(
+      expect.objectContaining({ siteId: 3n, name: "Bldg A" }),
+      expect.anything(),
+    );
+    expect(created?.id).toBe(42n);
+    // Site catalog is refreshed for the building count; the modal injects the
+    // row itself, so the building list is deliberately not refetched here.
     expect(refetchSites).toHaveBeenCalled();
   });
 
-  it("manageSave on manageEdit applies the building delta via AssignBuildingsToSite", async () => {
+  it("manageCreateBuildings sends the whole batch against the managed site and returns every row", async () => {
+    vi.mocked(buildingsClient.createBuildings).mockResolvedValue(
+      create(CreateBuildingsResponseSchema, {
+        buildings: [
+          create(BuildingSchema, { id: 51n, name: "B-1", siteId: 3n }),
+          create(BuildingSchema, { id: 52n, name: "B-2", siteId: 3n }),
+        ],
+        errors: [],
+      }),
+    );
+    const refetchSites = vi.fn();
+    const site = create(SiteSchema, { id: 3n, name: "North DC" });
+    const { result } = renderHook(() => useSiteModals({ refetchSites }), { wrapper });
+    act(() => result.current.openManageEdit(site));
+
+    let outcome: Awaited<ReturnType<typeof result.current.manageCreateBuildings>> | undefined;
+    await act(async () => {
+      outcome = await result.current.manageCreateBuildings([
+        { name: "B-1", aisles: 4, racksPerAisle: 10 },
+        { name: "B-2", aisles: 4, racksPerAisle: 10 },
+      ]);
+    });
+
+    // One call for the whole batch — the transaction is what makes the set
+    // all-or-nothing, so it must not be split per name.
+    expect(buildingsClient.createBuildings).toHaveBeenCalledTimes(1);
+    expect(buildingsClient.createBuildings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        siteId: 3n,
+        buildings: [
+          expect.objectContaining({ name: "B-1", aisles: 4, racksPerAisle: 10 }),
+          expect.objectContaining({ name: "B-2", aisles: 4, racksPerAisle: 10 }),
+        ],
+      }),
+      expect.anything(),
+    );
+    expect(outcome?.created.map((b) => b.id)).toEqual([51n, 52n]);
+    expect(outcome?.errors).toEqual([]);
+    expect(refetchSites).toHaveBeenCalled();
+  });
+
+  it("manageCreateBuildings reports per-row rejections and creates nothing", async () => {
+    vi.mocked(buildingsClient.createBuildings).mockResolvedValue(
+      create(CreateBuildingsResponseSchema, {
+        buildings: [],
+        errors: [{ index: 1, name: "B-2", reason: PerBuildingCreateErrorReason.DUPLICATE_NAME_AT_SITE }],
+      }),
+    );
+    const refetchSites = vi.fn();
+    const site = create(SiteSchema, { id: 3n, name: "North DC" });
+    const { result } = renderHook(() => useSiteModals({ refetchSites }), { wrapper });
+    act(() => result.current.openManageEdit(site));
+
+    let outcome: Awaited<ReturnType<typeof result.current.manageCreateBuildings>> | undefined;
+    await act(async () => {
+      outcome = await result.current.manageCreateBuildings([
+        { name: "B-1", aisles: 4, racksPerAisle: 10 },
+        { name: "B-2", aisles: 4, racksPerAisle: 10 },
+      ]);
+    });
+
+    // Empty `created` is what keeps the create modal open; the reasons let it
+    // mark the offending preview row.
+    expect(outcome?.created).toEqual([]);
+    expect(outcome?.errors).toEqual([
+      { index: 1, name: "B-2", reason: PerBuildingCreateErrorReason.DUPLICATE_NAME_AT_SITE },
+    ]);
+  });
+
+  it("manageCreateBuildings does nothing when no site is being managed", async () => {
+    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
+
+    let outcome: Awaited<ReturnType<typeof result.current.manageCreateBuildings>> | undefined;
+    await act(async () => {
+      outcome = await result.current.manageCreateBuildings([{ name: "B-1" }]);
+    });
+
+    expect(buildingsClient.createBuildings).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ created: [], errors: [] });
+  });
+
+  it("manageAssignBuildings applies the picker delta via AssignBuildingsToSite", async () => {
     vi.mocked(sitesClient.assignBuildingsToSite).mockResolvedValue(
       create(AssignBuildingsToSiteResponseSchema, { reassignedRackCount: 0n, reassignedDeviceCount: 0n }),
     );
@@ -208,9 +373,9 @@ describe("useSiteModals", () => {
     const { result } = renderHook(() => useSiteModals({ refetchSites, refetchBuildings }), { wrapper });
     act(() => result.current.openManageEdit(site));
 
-    let saveResult: { closeOnSuccess: boolean } | null | undefined;
+    let ok: boolean | undefined;
     await act(async () => {
-      saveResult = await result.current.manageSave({ added: [10n], removed: [20n] });
+      ok = await result.current.manageAssignBuildings({ added: [10n], removed: [20n] });
     });
 
     // Two calls: removed → "Unassigned" (no target), added → this site.
@@ -225,23 +390,44 @@ describe("useSiteModals", () => {
       { buildingIds: [10n], targetSiteId: 3n },
       expect.anything(),
     );
-    expect(saveResult?.closeOnSuccess).toBe(true);
+    expect(ok).toBe(true);
     expect(refetchSites).toHaveBeenCalled();
     // Membership changed building rows, so the building table refresh fires too.
     expect(refetchBuildings).toHaveBeenCalled();
   });
 
-  it("manageSave on manageEdit with an empty delta closes without an RPC", async () => {
+  it("manageAssignBuildings with an empty delta fires no RPC", async () => {
     const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
     act(() => result.current.openManageEdit(create(SiteSchema, { id: 3n, name: "North DC" })));
 
-    let saveResult: { closeOnSuccess: boolean } | null | undefined;
+    let ok: boolean | undefined;
     await act(async () => {
-      saveResult = await result.current.manageSave({ added: [], removed: [] });
+      ok = await result.current.manageAssignBuildings({ added: [], removed: [] });
     });
 
     expect(sitesClient.assignBuildingsToSite).not.toHaveBeenCalled();
-    expect(saveResult?.closeOnSuccess).toBe(true);
+    expect(ok).toBe(true);
+  });
+
+  it("manageRemoveBuilding unassigns the building immediately", async () => {
+    vi.mocked(sitesClient.assignBuildingsToSite).mockResolvedValue(
+      create(AssignBuildingsToSiteResponseSchema, { reassignedRackCount: 0n, reassignedDeviceCount: 0n }),
+    );
+    const refetchSites = vi.fn();
+    const { result } = renderHook(() => useSiteModals({ refetchSites }), { wrapper });
+    act(() => result.current.openManageEdit(create(SiteSchema, { id: 3n, name: "North DC" })));
+
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await result.current.manageRemoveBuilding(20n, "Building A");
+    });
+
+    expect(sitesClient.assignBuildingsToSite).toHaveBeenCalledWith(
+      { buildingIds: [20n], targetSiteId: undefined },
+      expect.anything(),
+    );
+    expect(ok).toBe(true);
+    expect(refetchSites).toHaveBeenCalled();
   });
 
   it("detailsSaveEdit refreshes manage with server-canonical site on success", async () => {
@@ -367,19 +553,5 @@ describe("useSiteModals", () => {
     });
 
     expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "11", slug: "active" });
-  });
-
-  it("cancelAll closes every modal and clears deleteTarget", () => {
-    const site = create(SiteSchema, { id: 5n, name: "T" });
-    const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }), { wrapper });
-    act(() => result.current.openManageEdit(site));
-    act(() =>
-      result.current.requestDeleteCurrent([
-        create(SiteWithCountsSchema, { site, deviceCount: 0n, rackCount: 0n, buildingCount: 0n }),
-      ]),
-    );
-    act(() => result.current.cancelAll());
-    expect(result.current.state.kind).toBe("none");
-    expect(result.current.deleteTarget).toBeNull();
   });
 });

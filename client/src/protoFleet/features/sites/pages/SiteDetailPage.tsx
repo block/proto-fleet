@@ -319,11 +319,31 @@ const SiteDetailPage = () => {
               {visibleBuildings === undefined ? (
                 <div className="text-200 text-text-primary-50">Loading buildings…</div>
               ) : visibleBuildings.length === 0 ? (
+                // The surrounding panel is already the card, so this centers
+                // inside it rather than nesting a second surface. NullState
+                // isn't the fit here: it brings its own tinted panel and
+                // left-aligns, both of which fight this container.
                 <div
-                  className="rounded-2xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
+                  className="flex flex-col items-center gap-2 py-10 text-center phone:py-4"
                   data-testid="site-detail-buildings-empty"
                 >
-                  No buildings in this site yet.
+                  <div className="text-heading-200 text-text-primary">No buildings to display</div>
+                  <div className="text-300 text-text-primary-70">
+                    {canManageSites
+                      ? "Create buildings or assign existing buildings to this site."
+                      : "No buildings have been assigned to this site."}
+                  </div>
+                  {canManageSites ? (
+                    <Button
+                      variant={variants.primary}
+                      text="Manage buildings"
+                      className="mt-4"
+                      // Empty membership: this branch only renders when the
+                      // site has no buildings.
+                      onClick={() => modals.openBuildingsPicker(site.site!, [])}
+                      testId="site-detail-buildings-empty-manage"
+                    />
+                  ) : null}
                 </div>
               ) : (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-3">
