@@ -140,13 +140,14 @@ function ActiveRolloutStatus({
 
   return (
     <section className={clsx("grid gap-3", className)}>
-      <div className="min-w-0">
-        <Header title={event.title} titleSize="text-heading-200" />
-        {event.scopeLabel ? (
-          <div className="mt-1 text-emphasis-300 text-text-primary">Applies to {event.scopeLabel}</div>
-        ) : null}
-      </div>
-
+      {embedded ? null : (
+        <div className="min-w-0">
+          <Header title={event.title} titleSize="text-heading-200" />
+          {event.scopeLabel ? (
+            <div className="mt-1 text-emphasis-300 text-text-primary">Applies to {event.scopeLabel}</div>
+          ) : null}
+        </div>
+      )}
       <div
         className={clsx(
           "relative",
