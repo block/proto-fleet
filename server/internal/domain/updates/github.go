@@ -70,13 +70,46 @@ func (c *githubClient) fetchLatestStableFallback(ctx context.Context) (githubRel
 		return githubRelease{}, fmt.Errorf("GET /releases/latest: status %d", resp.StatusCode)
 	}
 
+	return decodeRelease(resp.Body, "/releases/latest")
+}
+
+// fetchReleaseByTag revalidates a cached release that no longer appears in
+// the bounded discovery responses. A 404 is a successful confirmation that
+// the release is no longer published; other failures leave its status
+// unknown.
+func (c *githubClient) fetchReleaseByTag(ctx context.Context, tag string) (githubRelease, bool, error) {
+	endpoint := c.baseURL + "/releases/tags/" + url.PathEscape(tag)
+	resp, err := c.get(ctx, endpoint)
+	if err != nil {
+		return githubRelease{}, false, err
+	}
+	defer closeBody(resp)
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		rel, err := decodeRelease(resp.Body, "/releases/tags/{tag}")
+		if err != nil {
+			return githubRelease{}, false, err
+		}
+		if rel.TagName != tag {
+			return githubRelease{}, false, fmt.Errorf("decode /releases/tags/{tag}: response tag mismatch")
+		}
+		return rel, true, nil
+	case http.StatusNotFound:
+		return githubRelease{}, false, nil
+	default:
+		return githubRelease{}, false, fmt.Errorf("GET /releases/tags/{tag}: status %d", resp.StatusCode)
+	}
+}
+
+func decodeRelease(body io.Reader, endpoint string) (githubRelease, error) {
 	var rel githubRelease
-	decoder := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes))
+	decoder := json.NewDecoder(io.LimitReader(body, maxResponseBytes))
 	if err := decoder.Decode(&rel); err != nil {
-		return githubRelease{}, fmt.Errorf("decode /releases/latest: %w", err)
+		return githubRelease{}, fmt.Errorf("decode %s: %w", endpoint, err)
 	}
 	if err := requireJSONEOF(decoder); err != nil {
-		return githubRelease{}, fmt.Errorf("decode /releases/latest: %w", err)
+		return githubRelease{}, fmt.Errorf("decode %s: %w", endpoint, err)
 	}
 	return rel, nil
 }

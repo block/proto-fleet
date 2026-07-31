@@ -31,10 +31,11 @@ type Release struct {
 // Snapshot is the checker's view of the newest available releases. Zero value
 // until the first successful fetch.
 type Snapshot struct {
-	LatestStable *Release
-	LatestRC     *Release
-	FetchedAt    time.Time
-	Available    bool
+	LatestStable    *Release
+	LatestRC        *Release
+	FetchedAt       time.Time
+	StableAvailable bool
+	RCAvailable     bool
 }
 
 // Checker periodically fetches release metadata from GitHub and caches both
@@ -175,17 +176,20 @@ func (c *Checker) jitteredInterval() time.Duration {
 }
 
 // check runs one fetch cycle. A list failure retains the previous release data
-// but marks status unavailable. The latest endpoint is only a stable fallback,
-// so its failure must not hide releases discovered from the authoritative list
-// page. Nothing is logged above Debug — update notification is best-effort and
-// must never look like a server problem.
+// but marks both channels unavailable. The latest endpoint is only a stable
+// fallback, so its failure must not hide releases discovered from the
+// authoritative list page. Cached releases that age out of those bounded
+// responses are revalidated by exact tag before they remain eligible. Nothing
+// is logged above Debug — update notification is best-effort and must never
+// look like a server problem.
 func (c *Checker) check(ctx context.Context) {
 	latest, latestErr := c.client.fetchLatestStableFallback(ctx)
 	list, err := c.client.fetchReleases(ctx)
 	if err != nil {
 		c.logger.Debug("release check skipped", "error", err)
 		c.mu.Lock()
-		c.snapshot.Available = false
+		c.snapshot.StableAvailable = false
+		c.snapshot.RCAvailable = false
 		c.mu.Unlock()
 		return
 	}
@@ -194,27 +198,61 @@ func (c *Checker) check(ctx context.Context) {
 	if latestErr != nil {
 		c.logger.Debug("stable release fallback unavailable", "error", latestErr)
 	}
-	if previous.LatestStable != nil &&
-		(stable == nil || semver.Compare(previous.LatestStable.Version, stable.Version) > 0) {
-		// Stable discovery is monotonic for the checker lifetime. A bounded
-		// page can lose an older, higher release behind newer prereleases,
-		// and /latest can point to a subsequently created lower maintenance
-		// release. Neither observation proves the cached release was
-		// withdrawn, so preserve the highest canonical version seen.
-		stable = previous.LatestStable
-	}
-	available := stable != nil
+	stable, stableComplete := c.reconcileCachedRelease(
+		ctx,
+		"stable",
+		stable,
+		previous.LatestStable,
+		isEligibleStableRelease,
+	)
+	rc, rcComplete := c.reconcileCachedRelease(
+		ctx,
+		"release candidate",
+		latestRC(list),
+		previous.LatestRC,
+		isEligibleRCRelease,
+	)
 
 	snapshot := Snapshot{
-		LatestStable: stable,
-		LatestRC:     latestRC(list),
-		FetchedAt:    time.Now(),
-		Available:    available,
+		LatestStable:    stable,
+		LatestRC:        rc,
+		FetchedAt:       time.Now(),
+		StableAvailable: stableComplete && stable != nil,
+		RCAvailable:     rcComplete,
 	}
 
 	c.mu.Lock()
 	c.snapshot = snapshot
 	c.mu.Unlock()
+}
+
+// reconcileCachedRelease preserves a higher cached candidate only after the
+// exact tag endpoint confirms it is still published and eligible for the same
+// channel. Confirmed absence or reclassification drops it in favor of the
+// current bounded result. A transient revalidation failure retains the cached
+// data for a later retry but reports an incomplete channel so consumers cannot
+// offer the unverified release.
+func (c *Checker) reconcileCachedRelease(
+	ctx context.Context,
+	channel string,
+	current *Release,
+	cached *Release,
+	eligible func(githubRelease) bool,
+) (*Release, bool) {
+	if cached == nil ||
+		(current != nil && semver.Compare(cached.Version, current.Version) <= 0) {
+		return current, true
+	}
+
+	rel, found, err := c.client.fetchReleaseByTag(ctx, cached.Version)
+	if err != nil {
+		c.logger.Debug("cached release revalidation unavailable", "channel", channel, "error", err)
+		return cached, false
+	}
+	if !found || !eligible(rel) {
+		return current, true
+	}
+	return newRelease(rel), true
 }
 
 // latestStable picks the semantic-version maximum canonical stable tag from
@@ -223,12 +261,12 @@ func (c *Checker) check(ctx context.Context) {
 // every stable release out of the list page.
 func latestStable(latest githubRelease, list []githubRelease) *Release {
 	var best *githubRelease
-	if !latest.Draft && !latest.Prerelease && isCanonicalStableTag(latest.TagName) {
+	if isEligibleStableRelease(latest) {
 		best = &latest
 	}
 	for i := range list {
 		rel := &list[i]
-		if rel.Draft || rel.Prerelease || !isCanonicalStableTag(rel.TagName) {
+		if !isEligibleStableRelease(*rel) {
 			continue
 		}
 		if best == nil || semver.Compare(rel.TagName, best.TagName) > 0 {
@@ -247,7 +285,7 @@ func latestRC(list []githubRelease) *Release {
 	var best *githubRelease
 	for i := range list {
 		rel := &list[i]
-		if rel.Draft || !isCanonicalRCTag(rel.TagName) {
+		if !isEligibleRCRelease(*rel) {
 			continue
 		}
 		if best == nil || semver.Compare(rel.TagName, best.TagName) > 0 {
@@ -258,6 +296,14 @@ func latestRC(list []githubRelease) *Release {
 		return nil
 	}
 	return newRelease(*best)
+}
+
+func isEligibleStableRelease(rel githubRelease) bool {
+	return !rel.Draft && !rel.Prerelease && isCanonicalStableTag(rel.TagName)
+}
+
+func isEligibleRCRelease(rel githubRelease) bool {
+	return !rel.Draft && isCanonicalRCTag(rel.TagName)
 }
 
 // Canonical release tags require the full vMAJOR.MINOR.PATCH form with no

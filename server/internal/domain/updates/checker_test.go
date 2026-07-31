@@ -86,6 +86,11 @@ type ghRequest struct {
 	header http.Header
 }
 
+type ghResponse struct {
+	status int
+	body   []byte
+}
+
 // ghServer is an httptest fixture standing in for the GitHub releases API.
 type ghServer struct {
 	srv *httptest.Server
@@ -95,6 +100,7 @@ type ghServer struct {
 	latestBody   []byte
 	listStatus   int
 	listBody     []byte
+	tags         map[string]ghResponse
 	requests     []ghRequest
 }
 
@@ -105,6 +111,7 @@ func newGHServer(t *testing.T) *ghServer {
 		latestBody:   fixture(t, "latest_stable.json"),
 		listStatus:   http.StatusOK,
 		listBody:     []byte("[]"),
+		tags:         make(map[string]ghResponse),
 	}
 	g.srv = httptest.NewServer(http.HandlerFunc(g.handle))
 	t.Cleanup(g.srv.Close)
@@ -128,8 +135,19 @@ func (g *ghServer) handle(w http.ResponseWriter, r *http.Request) {
 	case "/releases":
 		status, body = g.listStatus, g.listBody
 	default:
-		http.NotFound(w, r)
-		return
+		const tagsPrefix = "/releases/tags/"
+		if strings.HasPrefix(r.URL.Path, tagsPrefix) {
+			tag := strings.TrimPrefix(r.URL.Path, tagsPrefix)
+			response, ok := g.tags[tag]
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			status, body = response.status, response.body
+		} else {
+			http.NotFound(w, r)
+			return
+		}
 	}
 
 	w.WriteHeader(status)
@@ -146,6 +164,12 @@ func (g *ghServer) setList(status int, body []byte) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.listStatus, g.listBody = status, body
+}
+
+func (g *ghServer) setTag(tag string, status int, body []byte) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.tags[tag] = ghResponse{status: status, body: body}
 }
 
 // listRequests returns the recorded requests against /releases.
@@ -231,7 +255,8 @@ func TestCheckCachesLatestStable(t *testing.T) {
 	assert.False(t, snap.LatestStable.Prerelease)
 	assert.Nil(t, snap.LatestRC)
 	assert.False(t, snap.FetchedAt.IsZero())
-	assert.True(t, snap.Available)
+	assert.True(t, snap.StableAvailable)
+	assert.True(t, snap.RCAvailable)
 
 	reqs := gh.recorded()
 	require.Len(t, reqs, 2)
@@ -265,6 +290,8 @@ func TestCheckCachesBothStableAndRC(t *testing.T) {
 	assert.Equal(t, "v0.2.9-rc.5", snap.LatestRC.Version)
 	assert.Equal(t, "https://github.com/block/proto-fleet/releases/tag/v0.2.9-rc.5", snap.LatestRC.NotesURL)
 	assert.True(t, snap.LatestRC.Prerelease)
+	assert.True(t, snap.StableAvailable)
+	assert.True(t, snap.RCAvailable)
 }
 
 // GitHub's /releases/latest endpoint is ordered by release creation time, not
@@ -341,7 +368,8 @@ func TestNonSemverTagsNeverSelected(t *testing.T) {
 	require.NotNil(t, snap.LatestRC)
 	assert.Equal(t, "v0.2.9-rc.5", snap.LatestRC.Version)
 	assert.False(t, snap.FetchedAt.IsZero(), "an invalid tag is not a fetch failure; the cycle still succeeds")
-	assert.False(t, snap.Available, "without a usable or cached stable release, overall update status is unavailable")
+	assert.False(t, snap.StableAvailable, "without a usable or cached stable release, stable status is unavailable")
+	assert.True(t, snap.RCAvailable, "a successful list fetch keeps the RC channel available independently")
 }
 
 func TestStableTagRequiresCanonicalGrammar(t *testing.T) {
@@ -466,6 +494,64 @@ func TestLatestReleaseRejectsTrailingJSON(t *testing.T) {
 	assert.ErrorContains(t, err, "unexpected trailing JSON value")
 }
 
+func TestReleaseByTagRequiresMatchingStrictResponse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		status  int
+		body    []byte
+		found   bool
+		wantErr string
+	}{
+		{
+			name:   "matching release",
+			status: http.StatusOK,
+			body:   releaseJSON(t, stableEntry("v2.0.0")),
+			found:  true,
+		},
+		{
+			name:   "withdrawn release",
+			status: http.StatusNotFound,
+			body:   []byte(`{"message":"Not Found"}`),
+		},
+		{
+			name:    "mismatched tag",
+			status:  http.StatusOK,
+			body:    releaseJSON(t, stableEntry("v1.9.1")),
+			wantErr: "response tag mismatch",
+		},
+		{
+			name:    "trailing JSON",
+			status:  http.StatusOK,
+			body:    append(releaseJSON(t, stableEntry("v2.0.0")), []byte("\n{}")...),
+			wantErr: "unexpected trailing JSON value",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gh := newGHServer(t)
+			gh.setTag("v2.0.0", tt.status, tt.body)
+			client := newGitHubClient(gh.srv.URL, "test-version", slog.Default())
+
+			rel, found, err := client.fetchReleaseByTag(context.Background(), "v2.0.0")
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.ErrorContains(t, err, tt.wantErr)
+				assert.False(t, found)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.found, found)
+			if found {
+				assert.Equal(t, "v2.0.0", rel.TagName)
+			}
+		})
+	}
+}
+
 func TestHTTPTransportErrorDoesNotExposeRequestURL(t *testing.T) {
 	t.Parallel()
 
@@ -541,7 +627,8 @@ func TestLatestFallbackFailureStillUsesReleaseList(t *testing.T) {
 	require.NotNil(t, snap.LatestRC)
 	assert.Equal(t, "v0.2.9-rc.5", snap.LatestRC.Version)
 	assert.False(t, snap.FetchedAt.IsZero())
-	assert.True(t, snap.Available)
+	assert.True(t, snap.StableAvailable)
+	assert.True(t, snap.RCAvailable)
 	assert.Empty(t, h.recordsAbove(slog.LevelDebug))
 }
 
@@ -557,15 +644,17 @@ func TestLatestFallbackFailureRetainsCachedStable(t *testing.T) {
 	require.NotNil(t, before.LatestStable)
 	assert.Equal(t, "v0.2.9", before.LatestStable.Version)
 
+	gh.setTag("v0.2.9", http.StatusOK, releaseJSON(t, stableEntry("v0.2.9")))
 	gh.setLatest(http.StatusInternalServerError, []byte("boom"))
 	c.check(context.Background())
 
 	after := c.Snapshot()
 	require.NotNil(t, after.LatestStable)
-	assert.Equal(t, before.LatestStable, after.LatestStable)
+	assert.Equal(t, before.LatestStable.Version, after.LatestStable.Version)
 	require.NotNil(t, after.LatestRC)
 	assert.Equal(t, "v0.3.0-rc.1", after.LatestRC.Version)
-	assert.True(t, after.Available)
+	assert.True(t, after.StableAvailable)
+	assert.True(t, after.RCAvailable)
 	assert.Empty(t, h.recordsAbove(slog.LevelDebug))
 }
 
@@ -581,15 +670,17 @@ func TestUnusableLatestFallbackRetainsCachedStable(t *testing.T) {
 	require.NotNil(t, before.LatestStable)
 	assert.Equal(t, "v0.2.9", before.LatestStable.Version)
 
+	gh.setTag("v0.2.9", http.StatusOK, releaseJSON(t, stableEntry("v0.2.9")))
 	gh.setLatest(http.StatusOK, fixture(t, "latest_invalid_tag.json"))
 	c.check(context.Background())
 
 	after := c.Snapshot()
 	require.NotNil(t, after.LatestStable)
-	assert.Equal(t, before.LatestStable, after.LatestStable)
+	assert.Equal(t, before.LatestStable.Version, after.LatestStable.Version)
 	require.NotNil(t, after.LatestRC)
 	assert.Equal(t, "v0.3.0-rc.1", after.LatestRC.Version)
-	assert.True(t, after.Available)
+	assert.True(t, after.StableAvailable)
+	assert.True(t, after.RCAvailable)
 	assert.Empty(t, h.recordsAbove(slog.LevelDebug))
 }
 
@@ -605,6 +696,7 @@ func TestLowerLatestFallbackDoesNotReplaceHigherCachedStable(t *testing.T) {
 	require.NotNil(t, before.LatestStable)
 	assert.Equal(t, "v2.0.0", before.LatestStable.Version)
 
+	gh.setTag("v2.0.0", http.StatusOK, releaseJSON(t, stableEntry("v2.0.0")))
 	gh.setLatest(http.StatusOK, releaseJSON(t, stableEntry("v1.9.1")))
 	gh.setList(http.StatusOK, releasesJSON(t, []githubRelease{rcEntry("v2.1.0-rc.1")}))
 	c.check(context.Background())
@@ -614,7 +706,141 @@ func TestLowerLatestFallbackDoesNotReplaceHigherCachedStable(t *testing.T) {
 	assert.Equal(t, before.LatestStable, after.LatestStable)
 	require.NotNil(t, after.LatestRC)
 	assert.Equal(t, "v2.1.0-rc.1", after.LatestRC.Version)
-	assert.True(t, after.Available)
+	assert.True(t, after.StableAvailable)
+	assert.True(t, after.RCAvailable)
+	assert.Empty(t, h.recordsAbove(slog.LevelDebug))
+}
+
+func TestWithdrawnCachedStableFallsBackToCurrentRelease(t *testing.T) {
+	t.Parallel()
+
+	gh := newGHServer(t)
+	gh.setLatest(http.StatusOK, releaseJSON(t, stableEntry("v2.0.0")))
+	c, h := newTestChecker(t, gh.config(), gh.srv.URL)
+
+	c.check(context.Background())
+	require.Equal(t, "v2.0.0", c.Snapshot().LatestStable.Version)
+
+	gh.setLatest(http.StatusOK, releaseJSON(t, stableEntry("v1.9.1")))
+	gh.setList(http.StatusOK, releasesJSON(t, []githubRelease{rcEntry("v2.1.0-rc.1")}))
+	gh.setTag("v2.0.0", http.StatusNotFound, []byte(`{"message":"Not Found"}`))
+	c.check(context.Background())
+
+	snap := c.Snapshot()
+	require.NotNil(t, snap.LatestStable)
+	assert.Equal(t, "v1.9.1", snap.LatestStable.Version)
+	assert.True(t, snap.StableAvailable)
+	assert.True(t, snap.RCAvailable)
+	assert.Empty(t, h.recordsAbove(slog.LevelDebug))
+}
+
+func TestReclassifiedCachedStableFallsBackToCurrentRelease(t *testing.T) {
+	t.Parallel()
+
+	gh := newGHServer(t)
+	gh.setLatest(http.StatusOK, releaseJSON(t, stableEntry("v2.0.0")))
+	c, h := newTestChecker(t, gh.config(), gh.srv.URL)
+
+	c.check(context.Background())
+	require.Equal(t, "v2.0.0", c.Snapshot().LatestStable.Version)
+
+	gh.setLatest(http.StatusOK, releaseJSON(t, stableEntry("v1.9.1")))
+	reclassified := stableEntry("v2.0.0")
+	reclassified.Prerelease = true
+	gh.setTag("v2.0.0", http.StatusOK, releaseJSON(t, reclassified))
+	c.check(context.Background())
+
+	snap := c.Snapshot()
+	require.NotNil(t, snap.LatestStable)
+	assert.Equal(t, "v1.9.1", snap.LatestStable.Version)
+	assert.True(t, snap.StableAvailable)
+	assert.Empty(t, h.recordsAbove(slog.LevelDebug))
+}
+
+func TestCachedStableRevalidationFailureMarksOnlyStableUnavailable(t *testing.T) {
+	t.Parallel()
+
+	gh := newGHServer(t)
+	gh.setLatest(http.StatusOK, releaseJSON(t, stableEntry("v2.0.0")))
+	c, h := newTestChecker(t, gh.config(), gh.srv.URL)
+
+	c.check(context.Background())
+	require.Equal(t, "v2.0.0", c.Snapshot().LatestStable.Version)
+
+	gh.setLatest(http.StatusOK, releaseJSON(t, stableEntry("v1.9.1")))
+	gh.setList(http.StatusOK, releasesJSON(t, []githubRelease{rcEntry("v2.1.0-rc.1")}))
+	gh.setTag("v2.0.0", http.StatusInternalServerError, []byte("boom"))
+	c.check(context.Background())
+
+	snap := c.Snapshot()
+	require.NotNil(t, snap.LatestStable)
+	assert.Equal(t, "v2.0.0", snap.LatestStable.Version, "retain data for a later retry")
+	assert.False(t, snap.StableAvailable, "do not advertise a cached release that could not be revalidated")
+	assert.True(t, snap.RCAvailable, "stable revalidation must not suppress a fresh RC view")
+	assert.Empty(t, h.recordsAbove(slog.LevelDebug))
+}
+
+func TestHigherCachedRCIsRevalidatedAndPreserved(t *testing.T) {
+	t.Parallel()
+
+	gh := newGHServer(t)
+	gh.setList(http.StatusOK, releasesJSON(t, []githubRelease{rcEntry("v2.1.0-rc.5")}))
+	c, h := newTestChecker(t, gh.config(), gh.srv.URL)
+
+	c.check(context.Background())
+	require.Equal(t, "v2.1.0-rc.5", c.Snapshot().LatestRC.Version)
+
+	gh.setList(http.StatusOK, releasesJSON(t, []githubRelease{rcEntry("v2.1.0-rc.4")}))
+	gh.setTag("v2.1.0-rc.5", http.StatusOK, releaseJSON(t, rcEntry("v2.1.0-rc.5")))
+	c.check(context.Background())
+
+	snap := c.Snapshot()
+	require.NotNil(t, snap.LatestRC)
+	assert.Equal(t, "v2.1.0-rc.5", snap.LatestRC.Version)
+	assert.True(t, snap.RCAvailable)
+	assert.Empty(t, h.recordsAbove(slog.LevelDebug))
+}
+
+func TestWithdrawnCachedRCFallsBackToCurrentRelease(t *testing.T) {
+	t.Parallel()
+
+	gh := newGHServer(t)
+	gh.setList(http.StatusOK, releasesJSON(t, []githubRelease{rcEntry("v2.1.0-rc.5")}))
+	c, h := newTestChecker(t, gh.config(), gh.srv.URL)
+
+	c.check(context.Background())
+	require.Equal(t, "v2.1.0-rc.5", c.Snapshot().LatestRC.Version)
+
+	gh.setList(http.StatusOK, releasesJSON(t, []githubRelease{rcEntry("v2.1.0-rc.4")}))
+	gh.setTag("v2.1.0-rc.5", http.StatusNotFound, []byte(`{"message":"Not Found"}`))
+	c.check(context.Background())
+
+	snap := c.Snapshot()
+	require.NotNil(t, snap.LatestRC)
+	assert.Equal(t, "v2.1.0-rc.4", snap.LatestRC.Version)
+	assert.True(t, snap.RCAvailable)
+	assert.Empty(t, h.recordsAbove(slog.LevelDebug))
+}
+
+func TestCachedRCRevalidationFailureMarksOnlyRCUnavailable(t *testing.T) {
+	t.Parallel()
+
+	gh := newGHServer(t)
+	gh.setList(http.StatusOK, releasesJSON(t, []githubRelease{rcEntry("v2.1.0-rc.5")}))
+	c, h := newTestChecker(t, gh.config(), gh.srv.URL)
+
+	c.check(context.Background())
+	require.Equal(t, "v2.1.0-rc.5", c.Snapshot().LatestRC.Version)
+
+	gh.setList(http.StatusOK, releasesJSON(t, []githubRelease{rcEntry("v2.1.0-rc.4")}))
+	gh.setTag("v2.1.0-rc.5", http.StatusInternalServerError, []byte("boom"))
+	c.check(context.Background())
+
+	snap := c.Snapshot()
+	require.NotNil(t, snap.LatestRC)
+	assert.Equal(t, "v2.1.0-rc.5", snap.LatestRC.Version, "retain data for a later retry")
+	assert.True(t, snap.StableAvailable)
+	assert.False(t, snap.RCAvailable, "do not advertise an incomplete RC view")
 	assert.Empty(t, h.recordsAbove(slog.LevelDebug))
 }
 
@@ -631,7 +857,8 @@ func TestLatestFallbackFailureWithoutStableMarksStatusUnavailable(t *testing.T) 
 	snap := c.Snapshot()
 	assert.Nil(t, snap.LatestStable)
 	require.NotNil(t, snap.LatestRC)
-	assert.False(t, snap.Available)
+	assert.False(t, snap.StableAvailable)
+	assert.True(t, snap.RCAvailable)
 	assert.Empty(t, h.recordsAbove(slog.LevelDebug))
 }
 
@@ -708,7 +935,8 @@ func TestFailuresRetainSnapshotSilently(t *testing.T) {
 			c.check(context.Background())
 
 			want := before
-			want.Available = false
+			want.StableAvailable = false
+			want.RCAvailable = false
 			assert.Equal(t, want, c.Snapshot(), "failed cycle must retain cached release data and mark status unavailable")
 			assert.Empty(t, h.recordsAbove(slog.LevelDebug),
 				"failure paths must log at Debug only")
