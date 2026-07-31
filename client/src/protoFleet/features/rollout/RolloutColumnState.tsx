@@ -18,6 +18,7 @@ interface RolloutColumnStateProps {
 const phaseStatus: Record<RolloutTargetPhase, keyof typeof statuses> = {
   done: statuses.normal,
   inProgress: statuses.error, // amber/attention dot, matching MinerStatus "Updating firmware"
+  retrying: statuses.warning,
   queued: statuses.inactive,
   failed: statuses.error,
   excluded: statuses.inactive,
@@ -41,6 +42,16 @@ function RolloutColumnState({ phase, doneLabel, idleLabel }: RolloutColumnStateP
         {dot}
         <ProgressCircular size={14} indeterminate />
         Updating
+      </div>
+    );
+  }
+
+  if (phase === "retrying") {
+    return (
+      <div className="flex items-center gap-2 text-text-primary">
+        {dot}
+        <ProgressCircular size={14} indeterminate />
+        Retrying
       </div>
     );
   }

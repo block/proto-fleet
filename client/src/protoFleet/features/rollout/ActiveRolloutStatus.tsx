@@ -8,6 +8,7 @@ import {
   rolloutCompletionPercent,
   rolloutCompositionSegments,
   rolloutPhaseCount,
+  rolloutStageLabel,
 } from "./rolloutDisplayUtils";
 import type { RolloutEvent } from "./rolloutTypes";
 import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
@@ -20,6 +21,9 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 interface ActiveRolloutStatusProps {
   event: RolloutEvent;
   className?: string;
+  /** When true, drop the card's own elevated surface/shadow/padding — for when
+   * the card is already inside an elevated container (e.g. the ViewRolloutModal). */
+  embedded?: boolean;
   /** Lifecycle actions — each renders only when its handler is supplied, so
    * capability-flagging is just "pass the handler or don't". */
   onPause?: () => void;
@@ -97,6 +101,7 @@ function statusIcon(event: RolloutEvent): ReactNode {
 function ActiveRolloutStatus({
   event,
   className,
+  embedded = false,
   onPause,
   onResume,
   onCancelRemaining,
@@ -132,8 +137,6 @@ function ActiveRolloutStatus({
       : isTerminal
         ? "—"
         : "Calculating…";
-  const batchValue =
-    event.currentBatch && event.totalBatches ? `Batch ${event.currentBatch} of ${event.totalBatches}` : "—";
 
   return (
     <section className={clsx("grid gap-3", className)}>
@@ -144,9 +147,14 @@ function ActiveRolloutStatus({
         ) : null}
       </div>
 
-      <div className="relative rounded-xl bg-surface-elevated-base p-6 shadow-100 tablet:p-10">
+      <div
+        className={clsx(
+          "relative",
+          embedded ? "px-0 py-0" : "rounded-xl bg-surface-elevated-base p-6 shadow-100 tablet:p-10",
+        )}
+      >
         <div className="mb-8 flex shrink-0 justify-end gap-3 tablet:absolute tablet:top-10 tablet:right-10 tablet:mb-0">
-          {onRetryFailed && failed > 0 && (isTerminal || showPilotGate) ? (
+          {onRetryFailed && failed > 0 && isTerminal ? (
             <Button variant={variants.secondary} size={sizes.compact} text="Retry failed" onClick={onRetryFailed} />
           ) : null}
           {onContinueFromPilot && showPilotGate ? (
@@ -178,17 +186,19 @@ function ActiveRolloutStatus({
             {statusIcon(event)}
           </div>
           <div data-testid="active-rollout-primary-lockup">
-            <div className="text-heading-50 text-text-primary-70">Miners {doneVerb}</div>
-            <div className="text-heading-300 text-text-primary">
-              {done.toLocaleString()} of {inScope.toLocaleString()}
-            </div>
+            <div className="text-heading-50 text-text-primary-70">{statusHeadline(event)}</div>
+            <div className="text-heading-300 text-text-primary">{rolloutStageLabel(event)}</div>
           </div>
         </div>
 
         <div className="mt-12 grid gap-x-12 gap-y-5 text-text-primary tablet:grid-cols-4">
-          <StatBlock label="Status" value={statusHeadline(event)} />
+          <StatBlock
+            label={`Miners ${doneVerb}`}
+            value={`${done.toLocaleString()} of ${inScope.toLocaleString()}`}
+            detail={`${percent}%`}
+          />
           <StatBlock label="Strategy" value={pacingSummary(event)} detail={orderLabels[event.order]} />
-          <StatBlock label="Batch" value={batchValue} />
+          <StatBlock label="Elapsed" value={event.startedAt ? formatElapsed(elapsedSeconds) : "—"} />
           <StatBlock label="Estimated time remaining" value={etaValue} />
         </div>
 
@@ -197,9 +207,6 @@ function ActiveRolloutStatus({
             <div className="text-200 text-text-primary-50">
               {done.toLocaleString()} of {inScope.toLocaleString()} {doneVerb} ({percent}%)
             </div>
-            {event.startedAt ? (
-              <div className="text-200 text-text-primary">{formatElapsed(elapsedSeconds)} elapsed</div>
-            ) : null}
           </div>
           <CompositionBar segments={segments} height={12} />
           <div className="flex flex-wrap items-start gap-x-5 gap-y-1 text-200 text-text-primary-70">
@@ -222,16 +229,6 @@ function ActiveRolloutStatus({
             ))}
           </div>
         </div>
-
-        {showPilotGate ? (
-          <div className="mt-6 rounded-lg bg-intent-warning-10 px-4 py-3 text-300 text-text-primary">
-            <div className="text-emphasis-300">Pilot group complete — review before continuing</div>
-            <div className="mt-1 text-text-primary-70">
-              {done.toLocaleString()} succeeded, {failed.toLocaleString()} failed in the pilot wave. Continue to the
-              remaining {(inScope - done - failed).toLocaleString()} miners, or retry the failures first.
-            </div>
-          </div>
-        ) : null}
       </div>
     </section>
   );

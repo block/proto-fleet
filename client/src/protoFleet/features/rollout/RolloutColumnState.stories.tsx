@@ -25,13 +25,14 @@ interface Row {
 const rows: Row[] = [
   { miner: "M-1042", phase: "done", doneLabel: "5.1.0" },
   { miner: "M-1043", phase: "inProgress" },
-  { miner: "M-1044", phase: "failed" },
-  { miner: "M-1045", phase: "queued", idleLabel: "5.0.2" },
-  { miner: "M-1046", phase: "excluded" },
+  { miner: "M-1044", phase: "retrying" },
+  { miner: "M-1045", phase: "failed" },
+  { miner: "M-1046", phase: "queued", idleLabel: "5.0.2" },
+  { miner: "M-1047", phase: "excluded" },
 ];
 
-/** All five phase states as they read inside the fleet table's Firmware
- * column. */
+/** All phase states as they read inside the fleet table's Firmware column,
+ * including the auto-retry (`Retrying`) state. */
 export const AllStates: Story = {
   name: "All firmware-column states",
   render: () => (

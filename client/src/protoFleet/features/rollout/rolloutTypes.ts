@@ -29,8 +29,15 @@ export type RolloutScheduleType = "startNow" | "scheduleForLater";
 export type RolloutState =
   "scheduled" | "inProgress" | "pausedAtPilotGate" | "paused" | "completed" | "completedWithFailures";
 
-/** Per-target phase, aggregated into the composition bar + counts. */
-export type RolloutTargetPhase = "done" | "inProgress" | "queued" | "failed" | "excluded";
+/**
+ * Per-target phase, aggregated into the composition bar + counts.
+ *
+ * `retrying` is the direct analog of curtailment's DRIFTED state — a target
+ * that failed a step and is being automatically re-dispatched by the
+ * reconciler. Transient failures self-heal through this phase; a target only
+ * reaches `failed` once auto-retries are exhausted.
+ */
+export type RolloutTargetPhase = "done" | "inProgress" | "retrying" | "queued" | "failed" | "excluded";
 
 /** Config captured in the modal, previewed live in the summary rail. */
 export interface RolloutPlanConfig {
@@ -55,13 +62,6 @@ export interface RolloutPhaseRollup {
   count: number;
 }
 
-/** Grouped failure annotation, e.g. "timeout ×4". Mirrors curtailment's
- * unavailableReasonCounts. */
-export interface RolloutIssueGroup {
-  label: string;
-  count: number;
-}
-
 /** The live/finished rollout an ActiveRolloutStatus card renders. */
 export interface RolloutEvent {
   processType: RolloutProcessType;
@@ -83,5 +83,4 @@ export interface RolloutEvent {
   /** Seconds remaining, for the ETA line. */
   estimatedSecondsRemaining?: number;
   rollups: RolloutPhaseRollup[];
-  issueGroups?: RolloutIssueGroup[];
 }

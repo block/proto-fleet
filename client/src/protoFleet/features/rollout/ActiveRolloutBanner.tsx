@@ -24,13 +24,17 @@ const processIntent: Record<RolloutProcessType, keyof typeof intents> = {
 };
 
 function ProcessIcon({ processType }: { processType: RolloutProcessType }): ReactElement {
+  // Force neutral/black icons regardless of the Callout's intent tint — the
+  // intent color still drives the header/accent, but the process glyph stays
+  // black for a calmer, more legible banner.
+  const className = "text-text-primary";
   switch (processType) {
     case "firmware":
-      return <Download />;
+      return <Download className={className} />;
     case "reboot":
-      return <Reboot />;
+      return <Reboot className={className} />;
     case "curtailment":
-      return <LightningAlt />;
+      return <LightningAlt className={className} />;
   }
 }
 

@@ -50,18 +50,15 @@ export const inProgressFirmwareEvent: RolloutEvent = {
   rollups: [
     { phase: "done", count: 96 },
     { phase: "inProgress", count: 24 },
-    { phase: "queued", count: 98 },
+    { phase: "retrying", count: 6 },
+    { phase: "queued", count: 92 },
     { phase: "failed", count: 4 },
     { phase: "excluded", count: 18 },
-  ],
-  issueGroups: [
-    { label: "update timed out", count: 3 },
-    { label: "checksum mismatch", count: 1 },
   ],
 };
 
 /** Paused at the pilot-approval gate — the pilot wave finished, awaiting a
- * Continue / Retry decision. */
+ * Continue / Cancel decision. */
 export const pilotGateFirmwareEvent: RolloutEvent = {
   processType: "firmware",
   state: "pausedAtPilotGate",
@@ -82,7 +79,6 @@ export const pilotGateFirmwareEvent: RolloutEvent = {
     { phase: "queued", count: 212 },
     { phase: "excluded", count: 18 },
   ],
-  issueGroups: [{ label: "update timed out", count: 2 }],
 };
 
 /** Finished with some failures — the retained activity record. */
@@ -105,11 +101,6 @@ export const completedWithFailuresFirmwareEvent: RolloutEvent = {
     { phase: "done", count: 210 },
     { phase: "failed", count: 12 },
     { phase: "excluded", count: 18 },
-  ],
-  issueGroups: [
-    { label: "update timed out", count: 8 },
-    { label: "checksum mismatch", count: 3 },
-    { label: "unreachable", count: 1 },
   ],
 };
 
