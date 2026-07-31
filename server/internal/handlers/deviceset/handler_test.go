@@ -982,9 +982,11 @@ func TestAssignDevicesToRack_CarriesSlotAssignments(t *testing.T) {
 	h.collectionStore.EXPECT().
 		AddDevicesToCollection(gomock.Any(), testOrgID, targetRackID, deviceIDs).
 		Return(int64(2), nil)
+	// Both devices are members after the insert, which is what lets the
+	// slot writes below proceed.
 	h.collectionStore.EXPECT().
 		GetDeviceSiteIDsByMembership(gomock.Any(), targetRackID, testOrgID).
-		Return(nil, nil)
+		Return(map[string]*int64{"d1": nil, "d2": nil}, nil)
 	h.collectionStore.EXPECT().
 		CascadeAddedDeviceSites(gomock.Any(), testOrgID, targetRackID, deviceIDs).
 		Return(int64(0), nil)

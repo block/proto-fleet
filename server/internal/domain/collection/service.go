@@ -1170,7 +1170,25 @@ func validateAssignRackSlots(params AssignDevicesToRackParams) error {
 // call swap two occupied cells without tripping uk_rack_slot_position
 // mid-batch, and it is also how an entry with no position expresses
 // "unplace this miner but leave it in the rack".
-func (s *Service) applyRackSlotDelta(ctx context.Context, orgID, rackID int64, slotAssignments []*pb.RackSlot) error {
+//
+// Both store calls are INSERT/DELETE ... SELECT over device_set_membership,
+// so a device with no membership row makes them silent no-ops. The membership
+// insert upstream skips identifiers with no live device row — a stale client
+// snapshot naming a since-deleted miner is the realistic case — which would
+// otherwise let this report a placement it never applied. members is the
+// post-insert membership snapshot; anything named but absent from it did not
+// become a member, so fail the tx instead of writing nothing and claiming
+// success.
+func (s *Service) applyRackSlotDelta(ctx context.Context, orgID, rackID int64, slotAssignments []*pb.RackSlot, members map[string]*int64) error {
+	if len(slotAssignments) == 0 {
+		return nil
+	}
+	for _, slot := range slotAssignments {
+		if _, ok := members[slot.DeviceIdentifier]; !ok {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"device %q did not become a member of the target rack, so its slot cannot be written", slot.DeviceIdentifier)
+		}
+	}
 	for _, slot := range slotAssignments {
 		if err := s.collectionStore.ClearRackSlotPosition(ctx, rackID, slot.DeviceIdentifier, orgID); err != nil {
 			return err
@@ -1450,17 +1468,26 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			// fully-unassigned racks. Fully-unassigned racks (no site,
 			// no building) skip the cascade to preserve direct
 			// device.site_id assignments.
+			// Post-insert membership snapshot, read at most once. The
+			// cascade wants it for per-device prior sites; the slot delta
+			// wants it to confirm the devices it is about to place really
+			// became members. Skipped entirely when neither applies.
+			var members map[string]*int64
+			if targetSiteID != nil || targetBuildingID != nil || len(params.SlotAssignments) > 0 {
+				m, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, *params.TargetRackID, params.OrgID)
+				if err != nil {
+					return nil, err
+				}
+				members = m
+			}
+
 			if targetSiteID != nil || targetBuildingID != nil {
-				// Capture per-device priors BEFORE the cascade rewrites
+				// Priors are captured BEFORE the cascade rewrites
 				// device.site_id, so the activity audit reflects the
 				// implicit site reassignment. Mirrors the CreateCollection
 				// cascade-audit path so audit consumers can treat both
 				// event types uniformly.
-				priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, *params.TargetRackID, params.OrgID)
-				if err != nil {
-					return nil, err
-				}
-				deviceSiteChanges, totalAffected = buildDeviceSiteChanges(priors, targetSiteID)
+				deviceSiteChanges, totalAffected = buildDeviceSiteChanges(members, targetSiteID)
 				c, err := s.collectionStore.CascadeAddedDeviceSites(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers)
 				if err != nil {
 					return nil, err
@@ -1493,7 +1520,7 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 
 			// Placement, last: membership must exist before a slot can
 			// reference it (both slot queries join device_set_membership).
-			if err := s.applyRackSlotDelta(ctx, params.OrgID, *params.TargetRackID, params.SlotAssignments); err != nil {
+			if err := s.applyRackSlotDelta(ctx, params.OrgID, *params.TargetRackID, params.SlotAssignments, members); err != nil {
 				return nil, err
 			}
 		}

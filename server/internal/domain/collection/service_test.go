@@ -2889,7 +2889,14 @@ func expectAssignToRackPreamble(mockStore *mocks.MockCollectionStore, rackID int
 		Return(&pb.RackInfo{Rows: rows, Columns: columns}, nil)
 	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, rackID).Return(int64(0), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(len(deviceIDs)), nil)
-	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), rackID, testOrgID).Return(nil, nil)
+	// Post-insert membership snapshot. Every requested device became a
+	// member here, which is the happy path; the slot delta reads this to
+	// confirm it before writing positions.
+	members := make(map[string]*int64, len(deviceIDs))
+	for _, id := range deviceIDs {
+		members[id] = nil
+	}
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), rackID, testOrgID).Return(members, nil)
 	mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
 	mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
 }
@@ -3068,6 +3075,46 @@ func TestService_AssignDevicesToRack_missingRackExtensionFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "no rack extension row")
 }
 
+// TestService_AssignDevicesToRack_slotForNonMemberFails covers the gap
+// where a slot write would silently do nothing. Both slot queries are
+// INSERT/DELETE ... SELECT over device_set_membership, and the membership
+// insert skips identifiers with no live device row — so a stale client
+// naming a since-deleted miner used to get a success response for a
+// placement that never landed. The tx must fail instead.
+func TestService_AssignDevicesToRack_slotForNonMemberFails(t *testing.T) {
+	svc, mockStore, _ := newTestServiceWithSites(t, nil)
+	ctx := testCtx(t)
+
+	rackID := int64(42)
+	deviceIDs := []string{"d1", "ghost"}
+	site := int64(7)
+	mockStore.EXPECT().LockRacksForReparent(gomock.Any(), testOrgID, deviceIDs, rackID).Return(nil, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), rackID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &site}, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, rackID).
+		Return(&pb.DeviceCollection{Id: rackID, Label: "Rack-A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
+		Return(&pb.RackInfo{Rows: 4, Columns: 4}, nil)
+	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, rackID).Return(int64(0), nil)
+	// "ghost" no longer resolves to a live device, so only d1 gets a row.
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(1), nil)
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), rackID, testOrgID).
+		Return(map[string]*int64{"d1": nil}, nil)
+	mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
+	mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
+	// No Clear/Set expectations: the strict mock fails if a slot write
+	// fires for a batch that should have been rejected whole.
+
+	_, err := svc.AssignDevicesToRack(ctx, AssignDevicesToRackParams{
+		OrgID:             testOrgID,
+		TargetRackID:      &rackID,
+		DeviceIdentifiers: deviceIDs,
+		SlotAssignments:   []*pb.RackSlot{rackSlot("d1", 0, 0), rackSlot("ghost", 1, 1)},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "did not become a member")
+}
+
 // TestService_AssignDevicesToRack_slotDeltaRejectsBadInput covers the
 // shape contract. Each case must reject BEFORE any store call, so these
 // run against a mock with zero expectations — a write slipping through
@@ -3208,9 +3255,12 @@ func TestService_AssignDevicesToRack_reAssertingMembersIsNotOverCapacity(t *test
 	mockStore.EXPECT().GetRackInfo(gomock.Any(), rackID, testOrgID).
 		Return(&pb.RackInfo{Rows: 1, Columns: 2}, nil)
 	mockStore.EXPECT().RemoveDevicesFromAnyRack(gomock.Any(), testOrgID, deviceIDs, rackID).Return(int64(0), nil)
-	// Already members → ON CONFLICT DO NOTHING inserts nothing.
+	// Already members → ON CONFLICT DO NOTHING inserts nothing, and the
+	// membership snapshot still lists both: that is what makes the slot
+	// writes below legal on a rack that gained no new rows.
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
-	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), rackID, testOrgID).Return(nil, nil)
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), rackID, testOrgID).
+		Return(map[string]*int64{"d1": nil, "d2": nil}, nil)
 	mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
 	mockStore.EXPECT().CascadeAddedDeviceBuildings(gomock.Any(), testOrgID, rackID, deviceIDs).Return(int64(0), nil)
 	mockStore.EXPECT().ClearRackSlotPosition(gomock.Any(), rackID, "d1", testOrgID).Return(nil)
