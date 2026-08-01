@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { instanceUpdateClient } from "@/protoFleet/api/clients";
 import { ReleaseChannel } from "@/protoFleet/api/generated/instance/v1/updates_pb";
@@ -23,23 +23,31 @@ const Updates = () => {
   const { handleAuthErrors } = useAuthErrors();
   const [status, setStatus] = useState<GetUpdateStatusResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isChannelChangePending, setIsChannelChangePending] = useState(false);
+  const latestStatusRequest = useRef(0);
   // The channel the server has persisted; the checkbox is controlled by it,
   // so a failed save never moves the control.
   const [channel, setChannel] = useState<ReleaseChannel>(ReleaseChannel.UNSPECIFIED);
 
-  const fetchStatus = useCallback(() => {
-    instanceUpdateClient
-      .getUpdateStatus({})
-      .then((response) => {
-        setStatus(response);
-        setChannel(response.channel);
-      })
-      .catch((err) => {
-        handleAuthErrors({
-          error: err,
-          onError: () => setLoadError(getErrorMessage(err, "Failed to load update status")),
-        });
+  const fetchStatus = useCallback(async () => {
+    const requestId = ++latestStatusRequest.current;
+    try {
+      const response = await instanceUpdateClient.getUpdateStatus({});
+      if (requestId !== latestStatusRequest.current) {
+        return;
+      }
+      setStatus(response);
+      setChannel(response.channel);
+      setLoadError(null);
+    } catch (err) {
+      if (requestId !== latestStatusRequest.current) {
+        return;
+      }
+      handleAuthErrors({
+        error: err,
+        onError: () => setLoadError(getErrorMessage(err, "Failed to load update status")),
       });
+    }
   }, [handleAuthErrors]);
 
   useEffect(() => {
@@ -48,37 +56,43 @@ const Updates = () => {
     if (!canUpdateInstance) {
       return;
     }
-    fetchStatus();
+    void fetchStatus();
+    return () => {
+      // Ignore a response that arrives after permission loss, unmount, or a
+      // dependency-driven replacement request.
+      latestStatusRequest.current += 1;
+    };
   }, [canUpdateInstance, fetchStatus]);
 
-  const handleIncludeRCChange = (includeRC: boolean) => {
+  const handleIncludeRCChange = async (includeRC: boolean) => {
     const nextChannel = includeRC ? ReleaseChannel.STABLE_AND_RC : ReleaseChannel.STABLE;
-    if (nextChannel === channel) {
+    if (nextChannel === channel || isChannelChangePending) {
       return;
     }
-    instanceUpdateClient
-      .setReleaseChannel({ channel: nextChannel })
-      .then(() => {
-        setChannel(nextChannel);
-        pushToast({
-          message: "Release channel updated",
-          status: STATUSES.success,
-        });
-        // The eligible release differs per channel, so refetch to keep the
-        // offered version and install command in sync with the new channel.
-        fetchStatus();
-      })
-      .catch((err) => {
-        handleAuthErrors({
-          error: err,
-          onError: () => {
-            pushToast({
-              message: getErrorMessage(err, "Failed to update release channel"),
-              status: STATUSES.error,
-            });
-          },
-        });
+    setIsChannelChangePending(true);
+    try {
+      await instanceUpdateClient.setReleaseChannel({ channel: nextChannel });
+      setChannel(nextChannel);
+      pushToast({
+        message: "Release channel updated",
+        status: STATUSES.success,
       });
+      // The eligible release differs per channel, so refetch to keep the
+      // offered version and install command in sync with the new channel.
+      await fetchStatus();
+    } catch (err) {
+      handleAuthErrors({
+        error: err,
+        onError: () => {
+          pushToast({
+            message: getErrorMessage(err, "Failed to update release channel"),
+            status: STATUSES.error,
+          });
+        },
+      });
+    } finally {
+      setIsChannelChangePending(false);
+    }
   };
 
   // Redirect callers without instance:update away — placed after all
@@ -129,8 +143,9 @@ const Updates = () => {
                     </code>
                     <button
                       type="button"
+                      disabled={isChannelChangePending}
                       onClick={() => copyInstallCommand(status?.installCommand ?? "")}
-                      className="flex h-8 shrink-0 items-center gap-2 rounded-lg bg-core-primary-10 px-2 text-200 whitespace-nowrap text-text-primary hover:cursor-pointer hover:bg-core-primary-20"
+                      className="flex h-8 shrink-0 items-center gap-2 rounded-lg bg-core-primary-10 px-2 text-200 whitespace-nowrap text-text-primary hover:cursor-pointer hover:bg-core-primary-20 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Copy width="w-4" />
                       Copy install command
@@ -157,7 +172,8 @@ const Updates = () => {
                 <Checkbox
                   className="shrink-0"
                   checked={channel === ReleaseChannel.STABLE_AND_RC}
-                  onChange={(e) => handleIncludeRCChange(e.target.checked)}
+                  disabled={isChannelChangePending}
+                  onChange={(e) => void handleIncludeRCChange(e.target.checked)}
                 />
                 <span className="text-300">Include release candidates</span>
               </label>

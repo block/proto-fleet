@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import Updates from "./Updates";
 import { instanceUpdateClient } from "@/protoFleet/api/clients";
@@ -69,6 +69,16 @@ const mockCopyToClipboard = vi.mocked(copyToClipboard);
 const mockPushToast = vi.mocked(pushToast);
 
 const RC_CHECKBOX_NAME = "Include release candidates";
+
+const createDeferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -239,6 +249,70 @@ describe("Updates", () => {
 
     expect(await findByText("v1.4.0-rc.1")).toBeInTheDocument();
     expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores an older status request that resolves after the latest request", async () => {
+    const staleRequest = createDeferred<GetUpdateStatusResponse>();
+    const latestRequest = createDeferred<GetUpdateStatusResponse>();
+    mockGetUpdateStatus.mockReturnValueOnce(staleRequest.promise).mockReturnValueOnce(latestRequest.promise);
+
+    const { rerender, findByText, getByRole, queryByText } = render(<Updates />);
+    expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1);
+
+    // Losing and regaining permission replaces the in-flight request just as
+    // another status refresh would; the older response must not win later.
+    mockUseHasPermission.mockReturnValue(false);
+    rerender(<Updates />);
+    mockUseHasPermission.mockReturnValue(true);
+    rerender(<Updates />);
+    expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      latestRequest.resolve(buildStatus({ channel: ReleaseChannel.STABLE }));
+      await latestRequest.promise;
+    });
+    expect(await findByText("v1.3.0")).toBeInTheDocument();
+    expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).not.toBeChecked();
+
+    await act(async () => {
+      staleRequest.resolve(
+        buildStatus({
+          channel: ReleaseChannel.STABLE_AND_RC,
+          latestEligible: {
+            version: "v1.4.0-rc.1",
+            releaseNotesUrl: "https://github.com/block/proto-fleet/releases/tag/v1.4.0-rc.1",
+            prerelease: true,
+          } as GetUpdateStatusResponse["latestEligible"],
+        }),
+      );
+      await staleRequest.promise;
+    });
+    expect(queryByText("v1.4.0-rc.1")).not.toBeInTheDocument();
+    expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).not.toBeChecked();
+  });
+
+  it("disables channel and copy controls until the saved channel is refetched", async () => {
+    const refetch = createDeferred<GetUpdateStatusResponse>();
+    mockGetUpdateStatus.mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }));
+    mockGetUpdateStatus.mockReturnValueOnce(refetch.promise);
+    mockSetReleaseChannel.mockResolvedValue({} as never);
+
+    const { findByRole, getByRole } = render(<Updates />);
+    const checkbox = await findByRole("checkbox", { name: RC_CHECKBOX_NAME });
+    const copyButton = getByRole("button", { name: "Copy install command" });
+    fireEvent.click(checkbox);
+
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
+    expect(checkbox).toBeDisabled();
+    expect(copyButton).toBeDisabled();
+
+    await act(async () => {
+      refetch.resolve(buildStatus({ channel: ReleaseChannel.STABLE_AND_RC }));
+      await refetch.promise;
+    });
+    await waitFor(() => expect(checkbox).not.toBeDisabled());
+    expect(copyButton).not.toBeDisabled();
+    expect(checkbox).toBeChecked();
   });
 
   it("toasts an error and leaves the checkbox unchecked when saving the channel fails", async () => {
