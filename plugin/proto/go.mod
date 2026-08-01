@@ -6,7 +6,7 @@ require (
 	github.com/block/proto-fleet/server v0.0.0-20260722233218-eaaec6d1026d
 	github.com/hashicorp/go-plugin v1.8.0
 	github.com/moby/moby/api v1.55.0
-	github.com/moby/moby/client v0.5.0
+	github.com/moby/moby/client v0.5.1
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.43.0
 	google.golang.org/grpc v1.82.1
