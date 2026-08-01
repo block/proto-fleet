@@ -9,7 +9,7 @@ import { getSettingsLandingPath } from "@/protoFleet/config/navItems";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { copyInstallCommand } from "@/protoFleet/features/updates/copyInstallCommand";
-import { useAuthErrors, useHasPermission, usePermissions, useSetPermissions } from "@/protoFleet/store";
+import { useAuthErrors, useFleetStore, useHasPermission, usePermissions, useSetPermissions } from "@/protoFleet/store";
 import { Copy } from "@/shared/assets/icons";
 import Checkbox from "@/shared/components/Checkbox";
 import Header from "@/shared/components/Header";
@@ -77,13 +77,21 @@ const Updates = () => {
   // so a failed save never moves the control.
   const [channel, setChannel] = useState<ReleaseChannel>(ReleaseChannel.UNSPECIFIED);
 
-  const handlePermissionRevoked = useCallback(() => {
-    pushToast({
-      message: PERMISSION_REVOKED_MESSAGE,
-      status: STATUSES.error,
-    });
-    setPermissions(permissions.filter((permission) => permission !== INSTANCE_UPDATE_PERMISSION));
-  }, [permissions, setPermissions]);
+  const handlePermissionRevoked = useCallback(
+    (notify: boolean) => {
+      if (notify) {
+        pushToast({
+          message: PERMISSION_REVOKED_MESSAGE,
+          status: STATUSES.error,
+        });
+      }
+      // A delayed response can arrive after this component unmounts. Read the
+      // current store value so it cannot overwrite newer permission changes.
+      const currentPermissions = useFleetStore.getState().auth.permissions;
+      setPermissions(currentPermissions.filter((permission) => permission !== INSTANCE_UPDATE_PERMISSION));
+    },
+    [setPermissions],
+  );
 
   const fetchStatus = useCallback(async () => {
     const requestId = ++latestStatusRequest.current;
@@ -100,14 +108,15 @@ const Updates = () => {
       setChannel(response.channel);
       setLoadError(null);
     } catch (err) {
-      if (requestId !== latestStatusRequest.current) {
-        return;
-      }
+      const shouldUpdatePage = requestId === latestStatusRequest.current && isMounted.current;
       handleAuthErrors({
         error: err,
         onError: () => {
           if (isPermissionDeniedError(err)) {
-            handlePermissionRevoked();
+            handlePermissionRevoked(shouldUpdatePage);
+            return;
+          }
+          if (!shouldUpdatePage || isAuthOrPermissionError(err)) {
             return;
           }
           setLoadError(getErrorMessage(err, "Failed to load update status"));
@@ -149,17 +158,15 @@ const Updates = () => {
         await saveReleaseChannel(nextChannel);
         saveSucceeded = true;
       } catch (err) {
-        if (!isMounted.current) {
-          return;
-        }
+        const shouldUpdatePage = isMounted.current;
         handleAuthErrors({
           error: err,
           onError: () => {
             if (isPermissionDeniedError(err)) {
-              handlePermissionRevoked();
+              handlePermissionRevoked(shouldUpdatePage);
               return;
             }
-            if (isAuthOrPermissionError(err)) {
+            if (!shouldUpdatePage || isAuthOrPermissionError(err)) {
               return;
             }
             pushToast({
@@ -168,7 +175,7 @@ const Updates = () => {
             });
           },
         });
-        if (isAuthOrPermissionError(err)) {
+        if (!shouldUpdatePage || isAuthOrPermissionError(err)) {
           return;
         }
       }

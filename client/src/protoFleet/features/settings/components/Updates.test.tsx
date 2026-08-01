@@ -24,6 +24,9 @@ const permissionsMock = vi.hoisted(() => ({
   current: ["instance:update", "fleet:read"],
   setPermissions: vi.fn<(permissions: string[]) => void>(),
 }));
+const authErrorsMock = vi.hoisted(() => ({
+  handleAuthErrors: vi.fn(),
+}));
 
 vi.mock("react-router-dom", () => ({
   Navigate: ({ to }: { to: string }) => <div data-testid="navigate" data-to={to} />,
@@ -32,14 +35,17 @@ vi.mock("react-router-dom", () => ({
 vi.mock("@/protoFleet/store", () => {
   // Stable identity, mirroring the real hook's memoization: the page's fetch
   // effect depends on handleAuthErrors.
-  const authErrors = {
-    handleAuthErrors: ({ error, onError }: { error: unknown; onError?: (error: unknown) => void }) => onError?.(error),
-  };
+  authErrorsMock.handleAuthErrors.mockImplementation(
+    ({ error, onError }: { error: unknown; onError?: (error: unknown) => void }) => onError?.(error),
+  );
   return {
     useHasPermission: vi.fn((permission: string) => permissionsMock.current.includes(permission)),
     usePermissions: () => permissionsMock.current,
     useSetPermissions: () => permissionsMock.setPermissions,
-    useAuthErrors: () => authErrors,
+    useAuthErrors: () => authErrorsMock,
+    useFleetStore: {
+      getState: () => ({ auth: { permissions: permissionsMock.current } }),
+    },
   };
 });
 
@@ -356,6 +362,52 @@ describe("Updates", () => {
     expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).not.toBeChecked();
   });
 
+  it("preserves global auth handling when a status request rejects after unmount", async () => {
+    const request = createDeferred<GetUpdateStatusResponse>();
+    const sessionError = new ConnectError("session expired", Code.Unauthenticated);
+    mockGetUpdateStatus.mockReturnValue(request.promise);
+
+    const page = render(<Updates />);
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1));
+    page.unmount();
+
+    await act(async () => {
+      request.reject(sessionError);
+      await request.promise.catch(() => undefined);
+    });
+
+    expect(authErrorsMock.handleAuthErrors).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: sessionError,
+      }),
+    );
+    expect(permissionsMock.setPermissions).not.toHaveBeenCalled();
+    expect(mockPushToast).not.toHaveBeenCalled();
+  });
+
+  it("invalidates revoked permission without toasting when a status request outlives the page", async () => {
+    const request = createDeferred<GetUpdateStatusResponse>();
+    const permissionError = new ConnectError("permission revoked", Code.PermissionDenied);
+    mockGetUpdateStatus.mockReturnValue(request.promise);
+
+    const page = render(<Updates />);
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1));
+    page.unmount();
+
+    await act(async () => {
+      request.reject(permissionError);
+      await request.promise.catch(() => undefined);
+    });
+
+    expect(authErrorsMock.handleAuthErrors).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: permissionError,
+      }),
+    );
+    expect(permissionsMock.setPermissions).toHaveBeenCalledWith(["fleet:read"]);
+    expect(mockPushToast).not.toHaveBeenCalled();
+  });
+
   it("disables channel and copy controls throughout the save and refetch", async () => {
     const save = createDeferred<SetReleaseChannelResponse>();
     const refetch = createDeferred<GetUpdateStatusResponse>();
@@ -539,6 +591,32 @@ describe("Updates", () => {
 
     page.rerender(<Updates />);
     expect(page.getByTestId("navigate")).toHaveAttribute("data-to", "/settings/network");
+  });
+
+  it("invalidates revoked permission without toasting after a save outlives the page", async () => {
+    const save = createDeferred<SetReleaseChannelResponse>();
+    const permissionError = new ConnectError("permission revoked", Code.PermissionDenied);
+    mockGetUpdateStatus.mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }));
+    mockSetReleaseChannel.mockReturnValue(save.promise);
+
+    const page = render(<Updates />);
+    fireEvent.click(await page.findByRole("checkbox", { name: RC_CHECKBOX_NAME }));
+    await waitFor(() => expect(mockSetReleaseChannel).toHaveBeenCalledTimes(1));
+    page.unmount();
+
+    await act(async () => {
+      save.reject(permissionError);
+      await save.promise.catch(() => undefined);
+    });
+
+    expect(authErrorsMock.handleAuthErrors).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: permissionError,
+      }),
+    );
+    expect(permissionsMock.setPermissions).toHaveBeenCalledWith(["fleet:read"]);
+    expect(mockPushToast).not.toHaveBeenCalled();
+    expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1);
   });
 
   it("invalidates stale client permission when the status load is denied", async () => {
