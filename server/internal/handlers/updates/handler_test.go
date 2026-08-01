@@ -107,17 +107,31 @@ func TestGetUpdateStatusNoUpdate(t *testing.T) {
 func TestSetReleaseChannelPersistsAndStatusReflects(t *testing.T) {
 	t.Parallel()
 
-	store := newFakeChannelStore()
-	h := NewHandler(newTestService(t, "v0.2.8", &fakeSnapshots{}, store))
-	ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermInstanceUpdate)
+	tests := []struct {
+		name    string
+		channel instancev1.ReleaseChannel
+		stored  string
+	}{
+		{name: "stable", channel: instancev1.ReleaseChannel_RELEASE_CHANNEL_STABLE, stored: "stable"},
+		{name: "stable and RC", channel: instancev1.ReleaseChannel_RELEASE_CHANNEL_STABLE_AND_RC, stored: "stable_and_rc"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, err := h.SetReleaseChannel(ctx, connect.NewRequest(&instancev1.SetReleaseChannelRequest{
-		Channel: instancev1.ReleaseChannel_RELEASE_CHANNEL_STABLE_AND_RC,
-	}))
-	require.NoError(t, err)
-	assert.Equal(t, "stable_and_rc", store.channels[7], "the session's org id must key the row")
+			store := newFakeChannelStore()
+			h := NewHandler(newTestService(t, "v0.2.8", &fakeSnapshots{}, store))
+			ctx := handlerstest.CtxWithPermissions(t, 7, authz.PermInstanceUpdate)
 
-	resp, err := h.GetUpdateStatus(ctx, connect.NewRequest(&instancev1.GetUpdateStatusRequest{}))
-	require.NoError(t, err)
-	assert.Equal(t, instancev1.ReleaseChannel_RELEASE_CHANNEL_STABLE_AND_RC, resp.Msg.GetChannel())
+			_, err := h.SetReleaseChannel(ctx, connect.NewRequest(&instancev1.SetReleaseChannelRequest{
+				Channel: tt.channel,
+			}))
+			require.NoError(t, err)
+			assert.Equal(t, tt.stored, store.channels[7], "the session's org id must key the row")
+
+			resp, err := h.GetUpdateStatus(ctx, connect.NewRequest(&instancev1.GetUpdateStatusRequest{}))
+			require.NoError(t, err)
+			assert.Equal(t, tt.channel, resp.Msg.GetChannel())
+		})
+	}
 }

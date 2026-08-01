@@ -207,6 +207,14 @@ func TestInstanceUpdateProceduresAreSessionOnly(t *testing.T) {
 	}
 }
 
+func TestInstanceUpdateStatusResponseIsRedacted(t *testing.T) {
+	t.Parallel()
+
+	assert.Contains(t, RedactedResponseProcedures,
+		instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
+		"update status exposes patch metadata and a host command that should not land in debug logs")
+}
+
 // API-key auth on AdminTerminateEvent returns PermissionDenied. nil service
 // deps are fine — the SessionOnly branch returns before any service is touched.
 func TestAuthInterceptor_AdminTerminateEventRejectsApiKeyAuth(t *testing.T) {

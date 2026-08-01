@@ -162,6 +162,29 @@ func TestStatusRCOnlySnapshotRemainsAvailableForStableAndRC(t *testing.T) {
 		"the unverified cached stable must not outrank the fresh RC")
 }
 
+func TestStatusRCOnlySnapshotCannotClaimUpToDate(t *testing.T) {
+	t.Parallel()
+
+	snaps := &fakeSnapshots{snap: Snapshot{
+		LatestStable:    rel("v9.0.0"), // cached data whose revalidation failed
+		LatestRC:        rc("v0.2.9-rc.1"),
+		FetchedAt:       testPublishedAt,
+		StableAvailable: false,
+		RCAvailable:     true,
+	}}
+	store := newFakeChannelStore()
+	store.channels[1] = string(ChannelStableAndRC)
+	svc, _ := newTestService(t, "v0.2.9", snaps, store)
+
+	status, err := svc.GetUpdateStatus(context.Background(), 1)
+	require.NoError(t, err)
+	assert.False(t, status.StatusAvailable,
+		"an older RC cannot prove the instance is current while stable discovery is unavailable")
+	assert.False(t, status.UpdateAvailable)
+	assert.Nil(t, status.LatestEligible)
+	assert.Empty(t, status.InstallCommand)
+}
+
 func TestIncompleteRCViewOnlySuppressesStableAndRCChannel(t *testing.T) {
 	t.Parallel()
 
@@ -239,6 +262,7 @@ func TestStatusNonSemverCurrentNeverOffers(t *testing.T) {
 
 		status, err := svc.GetUpdateStatus(context.Background(), 1)
 		require.NoError(t, err)
+		assert.False(t, status.StatusAvailable, "current %q", current)
 		assert.False(t, status.UpdateAvailable, "current %q", current)
 		assert.Nil(t, status.LatestEligible, "current %q", current)
 		assert.Empty(t, status.InstallCommand, "current %q", current)
@@ -498,9 +522,9 @@ func TestNoncanonicalCandidateNeverOffered(t *testing.T) {
 	t.Parallel()
 
 	snaps := &fakeSnapshots{snap: Snapshot{
-		// "0.3.0" (no leading v) is invalid for golang.org/x/mod/semver.
-		LatestStable:    rel("0.3.0"),
-		LatestRC:        rc("nightly-20260727-abc"),
+		// Build metadata is valid semver and newer than the current version,
+		// but it is outside the canonical release-tag grammar.
+		LatestStable:    rel("v0.3.0+build.1"),
 		FetchedAt:       testPublishedAt,
 		StableAvailable: true,
 		RCAvailable:     true,
@@ -512,12 +536,17 @@ func TestNoncanonicalCandidateNeverOffered(t *testing.T) {
 
 		status, err := svc.GetUpdateStatus(context.Background(), 1)
 		require.NoError(t, err)
+		assert.True(t, status.StatusAvailable, "channel %s", channel)
 		assert.False(t, status.UpdateAvailable, "channel %s", channel)
 		assert.Empty(t, status.InstallCommand, "channel %s", channel)
 		assert.Empty(t, h.recordsAbove(slog.LevelDebug))
 	}
 
-	cmd, ok := installCommand("https://example.com/dl", "0.3.0")
-	assert.False(t, ok, "installCommand must refuse a non-semver tag")
+	cmd, ok := installCommand(downloadBaseURL, "v0.3.0+build.1")
+	assert.False(t, ok, "installCommand must refuse a noncanonical tag")
+	assert.Empty(t, cmd)
+
+	cmd, ok = installCommand("https://example.com/dl", "v0.3.0")
+	assert.False(t, ok, "installCommand must refuse an untrusted base URL independently")
 	assert.Empty(t, cmd)
 }

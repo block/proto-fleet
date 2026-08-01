@@ -1121,7 +1121,7 @@ func TestNotesURLUsesCanonicalRepositoryAndTag(t *testing.T) {
 	assert.Empty(t, releaseNotesURL("v1.2.3/../../phishing"))
 }
 
-func TestCheckSafelyRecoversAndAllowsNextCycle(t *testing.T) {
+func TestCheckSafelyInvalidatesPrimedSnapshotAndAllowsNextCycle(t *testing.T) {
 	t.Parallel()
 
 	gh := newGHServer(t)
@@ -1129,7 +1129,7 @@ func TestCheckSafelyRecoversAndAllowsNextCycle(t *testing.T) {
 	calls := 0
 	c.client.httpClient.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		calls++
-		if calls == 1 {
+		if calls == 3 {
 			panic("unexpected transport defect")
 		}
 		body := []byte("[]")
@@ -1144,11 +1144,22 @@ func TestCheckSafelyRecoversAndAllowsNextCycle(t *testing.T) {
 		}, nil
 	})
 
+	c.checkSafely(context.Background())
+	primed := c.Snapshot()
+	require.True(t, primed.StableAvailable)
+	require.True(t, primed.RCAvailable)
+	require.NotNil(t, primed.LatestStable)
+
 	assert.NotPanics(t, func() { c.checkSafely(context.Background()) })
 	records := h.recordsAbove(slog.LevelDebug)
 	require.Len(t, records, 1)
 	assert.Equal(t, slog.LevelError, records[0].Level)
 	assert.Equal(t, "release check panicked", records[0].Message)
+	afterPanic := c.Snapshot()
+	assert.False(t, afterPanic.StableAvailable)
+	assert.False(t, afterPanic.RCAvailable)
+	assert.Equal(t, primed.LatestStable, afterPanic.LatestStable,
+		"panic recovery should retain cached data while making it ineligible")
 
 	c.checkSafely(context.Background())
 	stable, available := c.Snapshot().EligibleStable()

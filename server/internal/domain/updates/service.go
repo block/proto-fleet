@@ -89,18 +89,18 @@ func (s *Service) GetUpdateStatus(ctx context.Context, organizationID int64) (Up
 	}
 	snapshot := s.snapshots.Snapshot()
 	status := UpdateStatus{
-		CurrentVersion:  s.currentVersion,
-		Channel:         channel,
-		StatusAvailable: channelStatusAvailable(channel, snapshot),
+		CurrentVersion: s.currentVersion,
+		Channel:        channel,
 	}
-	if !status.StatusAvailable {
-		return status, nil
-	}
-
 	if !semver.IsValid(s.currentVersion) {
 		s.logger.Debug("update check skipped: running version is not semver", "version", s.currentVersion)
 		return status, nil
 	}
+	status.StatusAvailable = channelStatusAvailable(channel, snapshot, s.currentVersion)
+	if !status.StatusAvailable {
+		return status, nil
+	}
+
 	candidate := eligibleCandidate(channel, snapshot)
 	if candidate == nil || semver.Compare(candidate.Version, s.currentVersion) <= 0 {
 		return status, nil
@@ -161,14 +161,20 @@ func (s *Service) releaseChannel(ctx context.Context, organizationID int64) (Cha
 // the selected channel. Stable+RC can still make a useful offer from a fresh RC
 // when stable discovery is unavailable, but an incomplete RC view makes that
 // broader channel unavailable.
-func channelStatusAvailable(channel Channel, snap Snapshot) bool {
+func channelStatusAvailable(channel Channel, snap Snapshot, currentVersion string) bool {
 	_, stableAvailable := snap.EligibleStable()
 	rc, rcAvailable := snap.EligibleRC()
 	switch channel {
 	case ChannelStable:
 		return stableAvailable
 	case ChannelStableAndRC:
-		return rcAvailable && (stableAvailable || rc != nil)
+		if !rcAvailable {
+			return false
+		}
+		if stableAvailable {
+			return true
+		}
+		return rc != nil && semver.Compare(rc.Version, currentVersion) > 0
 	default:
 		return false
 	}

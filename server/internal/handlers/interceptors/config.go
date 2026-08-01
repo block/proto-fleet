@@ -62,6 +62,9 @@ var RedactedResponseProcedures = []string{
 	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure,
 	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure,
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure,
+	// Update status exposes the instance patch level and a copy-paste host
+	// command; keep that operational metadata out of debug response logs.
+	instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
 }
 
 // SessionOnlyProcedures lists procedures that require session-cookie auth and
