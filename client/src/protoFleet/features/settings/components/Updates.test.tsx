@@ -20,6 +20,11 @@ import { useHasPermission } from "@/protoFleet/store";
 import { pushToast } from "@/shared/features/toaster";
 import { copyToClipboard } from "@/shared/utils/utility";
 
+const permissionsMock = vi.hoisted(() => ({
+  current: ["instance:update", "fleet:read"],
+  setPermissions: vi.fn<(permissions: string[]) => void>(),
+}));
+
 vi.mock("react-router-dom", () => ({
   Navigate: ({ to }: { to: string }) => <div data-testid="navigate" data-to={to} />,
 }));
@@ -31,7 +36,9 @@ vi.mock("@/protoFleet/store", () => {
     handleAuthErrors: ({ error, onError }: { error: unknown; onError?: (error: unknown) => void }) => onError?.(error),
   };
   return {
-    useHasPermission: vi.fn(() => true),
+    useHasPermission: vi.fn((permission: string) => permissionsMock.current.includes(permission)),
+    usePermissions: () => permissionsMock.current,
+    useSetPermissions: () => permissionsMock.setPermissions,
     useAuthErrors: () => authErrors,
   };
 });
@@ -86,6 +93,7 @@ const mockCopyToClipboard = vi.mocked(copyToClipboard);
 const mockPushToast = vi.mocked(pushToast);
 
 const RC_CHECKBOX_NAME = "Include release candidates";
+const PERMISSION_REVOKED_MESSAGE = "You no longer have permission to update this instance";
 
 const createDeferred = <T,>() => {
   let resolve!: (value: T) => void;
@@ -100,7 +108,11 @@ const createDeferred = <T,>() => {
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
-  mockUseHasPermission.mockReturnValue(true);
+  permissionsMock.current = ["instance:update", "fleet:read"];
+  permissionsMock.setPermissions.mockImplementation((permissions) => {
+    permissionsMock.current = permissions;
+  });
+  mockUseHasPermission.mockImplementation((permission) => permissionsMock.current.includes(permission));
 });
 
 describe("Updates", () => {
@@ -468,6 +480,44 @@ describe("Updates", () => {
     await waitFor(() => expect(checkbox).not.toBeDisabled());
     expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1);
     expect(mockPushToast).not.toHaveBeenCalled();
+  });
+
+  it("reports a permission-denied save and redirects away from stale controls", async () => {
+    mockGetUpdateStatus.mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }));
+    mockSetReleaseChannel.mockRejectedValue(new ConnectError("permission revoked", Code.PermissionDenied));
+
+    const page = render(<Updates />);
+    fireEvent.click(await page.findByRole("checkbox", { name: RC_CHECKBOX_NAME }));
+
+    await waitFor(() =>
+      expect(mockPushToast).toHaveBeenCalledWith({
+        message: PERMISSION_REVOKED_MESSAGE,
+        status: "error",
+      }),
+    );
+    expect(permissionsMock.setPermissions).toHaveBeenCalledWith(["fleet:read"]);
+    expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1);
+
+    page.rerender(<Updates />);
+    expect(page.getByTestId("navigate")).toHaveAttribute("data-to", "/settings/network");
+  });
+
+  it("invalidates stale client permission when the status load is denied", async () => {
+    mockGetUpdateStatus.mockRejectedValueOnce(new ConnectError("permission revoked", Code.PermissionDenied));
+
+    const page = render(<Updates />);
+
+    await waitFor(() =>
+      expect(mockPushToast).toHaveBeenCalledWith({
+        message: PERMISSION_REVOKED_MESSAGE,
+        status: "error",
+      }),
+    );
+    expect(permissionsMock.setPermissions).toHaveBeenCalledWith(["fleet:read"]);
+    expect(page.queryByText("Unable to load update status")).not.toBeInTheDocument();
+
+    page.rerender(<Updates />);
+    expect(page.getByTestId("navigate")).toHaveAttribute("data-to", "/settings/network");
   });
 
   it("toasts an error and leaves the checkbox unchecked when saving the channel fails", async () => {

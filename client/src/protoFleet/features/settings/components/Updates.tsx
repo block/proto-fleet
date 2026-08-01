@@ -4,11 +4,11 @@ import { instanceUpdateClient } from "@/protoFleet/api/clients";
 import { ReleaseChannel } from "@/protoFleet/api/generated/instance/v1/updates_pb";
 import type { GetUpdateStatusResponse } from "@/protoFleet/api/generated/instance/v1/updates_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { isAuthOrPermissionError } from "@/protoFleet/api/requestErrors";
+import { isAuthOrPermissionError, isPermissionDeniedError } from "@/protoFleet/api/requestErrors";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { copyInstallCommand } from "@/protoFleet/features/updates/copyInstallCommand";
-import { useAuthErrors, useHasPermission } from "@/protoFleet/store";
+import { useAuthErrors, useHasPermission, usePermissions, useSetPermissions } from "@/protoFleet/store";
 import { Copy } from "@/shared/assets/icons";
 import Checkbox from "@/shared/components/Checkbox";
 import Header from "@/shared/components/Header";
@@ -17,6 +17,8 @@ import SkeletonBar from "@/shared/components/SkeletonBar";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 const SkeletonLoader = <SkeletonBar className="h-[22px] w-24" />;
+const INSTANCE_UPDATE_PERMISSION = "instance:update";
+const PERMISSION_REVOKED_MESSAGE = "You no longer have permission to update this instance";
 const UPDATES_PAGE_DESCRIPTION = "View the server version and choose which releases this instance installs.";
 
 // A route remount must not load status while the previous page instance is
@@ -57,7 +59,9 @@ const waitForReleaseChannelSave = async () => {
 };
 
 const Updates = () => {
-  const canUpdateInstance = useHasPermission("instance:update");
+  const canUpdateInstance = useHasPermission(INSTANCE_UPDATE_PERMISSION);
+  const permissions = usePermissions();
+  const setPermissions = useSetPermissions();
   const { handleAuthErrors } = useAuthErrors();
   const [status, setStatus] = useState<GetUpdateStatusResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -67,6 +71,14 @@ const Updates = () => {
   // The channel the server has persisted; the checkbox is controlled by it,
   // so a failed save never moves the control.
   const [channel, setChannel] = useState<ReleaseChannel>(ReleaseChannel.UNSPECIFIED);
+
+  const handlePermissionRevoked = useCallback(() => {
+    pushToast({
+      message: PERMISSION_REVOKED_MESSAGE,
+      status: STATUSES.error,
+    });
+    setPermissions(permissions.filter((permission) => permission !== INSTANCE_UPDATE_PERMISSION));
+  }, [permissions, setPermissions]);
 
   const fetchStatus = useCallback(async () => {
     const requestId = ++latestStatusRequest.current;
@@ -88,10 +100,16 @@ const Updates = () => {
       }
       handleAuthErrors({
         error: err,
-        onError: () => setLoadError(getErrorMessage(err, "Failed to load update status")),
+        onError: () => {
+          if (isPermissionDeniedError(err)) {
+            handlePermissionRevoked();
+            return;
+          }
+          setLoadError(getErrorMessage(err, "Failed to load update status"));
+        },
       });
     }
-  }, [handleAuthErrors]);
+  }, [handleAuthErrors, handlePermissionRevoked]);
 
   useEffect(() => {
     isMounted.current = true;
@@ -132,6 +150,10 @@ const Updates = () => {
         handleAuthErrors({
           error: err,
           onError: () => {
+            if (isPermissionDeniedError(err)) {
+              handlePermissionRevoked();
+              return;
+            }
             if (isAuthOrPermissionError(err)) {
               return;
             }
