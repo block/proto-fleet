@@ -13,7 +13,6 @@ const mockUseWindowDimensions = vi.fn();
 const mockUseReactiveLocalStorage = vi.fn();
 const mockUseCurtailmentPillData = vi.fn();
 const mockUseSchedulePillData = vi.fn();
-const mockUseUpdateNotification = vi.fn();
 
 vi.mock("@/protoFleet/api/ScheduleApiProvider", () => ({
   ScheduleApiProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -41,15 +40,6 @@ vi.mock("@/protoFleet/components/PageHeader/useSchedulePillData", () => ({
 
 vi.mock("@/protoFleet/components/PageHeader/useCurtailmentPillData", () => ({
   useCurtailmentPillData: () => mockUseCurtailmentPillData(),
-}));
-
-vi.mock("@/protoFleet/features/updates/useUpdateNotification", () => ({
-  useUpdateNotification: () => mockUseUpdateNotification(),
-}));
-
-vi.mock("@/protoFleet/features/updates/components/UpdateNotificationModal", () => ({
-  __esModule: true,
-  default: ({ open }: { open: boolean }) => (open ? <div>Update modal</div> : null),
 }));
 
 vi.mock("@/shared/hooks/useWindowDimensions", () => ({
@@ -109,13 +99,6 @@ describe("AppLayout", () => {
     mockUseReactiveLocalStorage.mockReturnValue([false, vi.fn()]);
     mockUseCurtailmentPillData.mockReturnValue({ activeEvent: null });
     mockUseSchedulePillData.mockReturnValue(createSchedulePillData());
-    mockUseUpdateNotification.mockReturnValue({
-      closeModal: vi.fn(),
-      installCommand: "",
-      modalOpen: false,
-      release: undefined,
-      updatePill: null,
-    });
     vi.mocked(useHasPermission).mockReturnValue(true);
   });
 
@@ -247,17 +230,11 @@ describe("AppLayout", () => {
         pillSchedule: createPillSchedule(),
       }),
     );
-    mockUseUpdateNotification.mockReturnValue({
-      closeModal: vi.fn(),
-      installCommand: "install",
-      modalOpen: false,
-      release: { version: "v1.3.0" },
-      updatePill: { version: "v1.3.0", onClick: vi.fn() },
-    });
+    const updatePill = { version: "v1.3.0", onClick: vi.fn() };
 
     render(
       <MemoryRouter>
-        <AppLayout>
+        <AppLayout updatePill={updatePill}>
           <div>Body content</div>
         </AppLayout>
       </MemoryRouter>,

@@ -4,6 +4,8 @@ import clsx from "clsx";
 
 import { onboardingClient } from "@/protoFleet/api/clients";
 import AppLayout from "@/protoFleet/components/AppLayout";
+import UpdateNotificationModal from "@/protoFleet/features/updates/components/UpdateNotificationModal";
+import { useUpdateNotification } from "@/protoFleet/features/updates/useUpdateNotification";
 import { requiresAuth } from "@/protoFleet/routeAuth";
 import { globalRoutePrefetch } from "@/protoFleet/routePrefetch";
 import type { ProtoFleetRouteHandle } from "@/protoFleet/routing/routeHandle";
@@ -22,6 +24,43 @@ interface AppProps {
   children?: ReactNode;
   fullscreen?: boolean;
 }
+
+interface AuthenticatedAppContentProps extends AppProps {
+  hideShellHeader: boolean;
+}
+
+export const AuthenticatedAppContent = ({ children, fullscreen, hideShellHeader }: AuthenticatedAppContentProps) => {
+  const updateNotification = useUpdateNotification();
+
+  return (
+    <>
+      <UpdateNotificationModal
+        open={updateNotification.modalOpen}
+        release={updateNotification.release}
+        installCommand={updateNotification.installCommand}
+        onDismiss={updateNotification.closeModal}
+      />
+
+      <Suspense
+        fallback={
+          <div className="flex min-h-screen items-center justify-center">
+            <ProgressCircular indeterminate />
+          </div>
+        }
+      >
+        {fullscreen ? (
+          // Fullscreen mode: render children without AppLayout chrome, while
+          // the global update notification owner above remains mounted.
+          children
+        ) : (
+          <AppLayout hideShellHeader={hideShellHeader} updatePill={updateNotification.updatePill}>
+            {children}
+          </AppLayout>
+        )}
+      </Suspense>
+    </>
+  );
+};
 
 const App = ({ children, fullscreen }: AppProps) => {
   // ============================================================================
@@ -138,21 +177,9 @@ const App = ({ children, fullscreen }: AppProps) => {
         <Toaster />
       </div>
 
-      <Suspense
-        fallback={
-          <div className="flex min-h-screen items-center justify-center">
-            <ProgressCircular indeterminate />
-          </div>
-        }
-      >
-        {fullscreen ? (
-          // Fullscreen mode: Just render children without AppLayout chrome
-          children
-        ) : (
-          // Normal mode: Render with AppLayout
-          <AppLayout hideShellHeader={hideShellHeader}>{children}</AppLayout>
-        )}
-      </Suspense>
+      <AuthenticatedAppContent fullscreen={fullscreen} hideShellHeader={hideShellHeader}>
+        {children}
+      </AuthenticatedAppContent>
     </ErrorBoundary>
   );
 };

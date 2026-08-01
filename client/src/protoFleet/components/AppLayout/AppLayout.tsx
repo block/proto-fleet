@@ -13,11 +13,10 @@ import {
   shouldInlineFirstPhoneHeaderWidget,
   shouldStackPhoneHeaderWidgets,
 } from "@/protoFleet/components/PageHeader/headerWidgetLayout";
+import type { UpdatePillData } from "@/protoFleet/components/PageHeader/PageHeader";
 import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
 import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
-import UpdateNotificationModal from "@/protoFleet/features/updates/components/UpdateNotificationModal";
-import { useUpdateNotification } from "@/protoFleet/features/updates/useUpdateNotification";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { useHasPermission } from "@/protoFleet/store";
 import { Menu } from "@/shared/assets/icons";
@@ -27,20 +26,20 @@ import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 type Props = {
   children: ReactNode;
   hideShellHeader?: boolean;
+  updatePill?: UpdatePillData | null;
 };
 
-const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
+const AppLayoutContent = ({ children, hideShellHeader = false, updatePill = null }: Props) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { bgClass } = usePageBackground();
   const { isPhone, isTablet } = useWindowDimensions();
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const schedulePillData = useSchedulePillData();
   const { activeEvent: activeCurtailmentEvent } = useCurtailmentPillData();
-  const updateNotification = useUpdateNotification();
   const hasDismissedSetup = Boolean(dismissedSetup);
   const canReadCurtailment = useHasPermission("curtailment:read");
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;
-  const hasVisibleUpdatePill = updateNotification.updatePill !== null;
+  const hasVisibleUpdatePill = updatePill !== null;
   const headerWidgetCount = getVisibleHeaderWidgetCount({
     hasDismissedSetup,
     hasVisibleUpdatePill,
@@ -99,17 +98,10 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
             isMenuOpen={isMenuOpen}
             openMenu={() => setIsMenuOpen(true)}
             schedulePillData={schedulePillData}
-            updatePill={updateNotification.updatePill}
+            updatePill={updatePill}
           />
         </div>
       )}
-
-      <UpdateNotificationModal
-        open={updateNotification.modalOpen}
-        release={updateNotification.release}
-        installCommand={updateNotification.installCommand}
-        onDismiss={updateNotification.closeModal}
-      />
 
       <div
         ref={scrollRef}
