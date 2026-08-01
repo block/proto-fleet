@@ -93,6 +93,7 @@ const mockCopyToClipboard = vi.mocked(copyToClipboard);
 const mockPushToast = vi.mocked(pushToast);
 
 const RC_CHECKBOX_NAME = "Include release candidates";
+const RELEASE_CHANNEL_SAVE_TIMEOUT_MS = 30_000;
 const PERMISSION_REVOKED_MESSAGE = "You no longer have permission to update this instance";
 
 const createDeferred = <T,>() => {
@@ -229,7 +230,10 @@ describe("Updates", () => {
     const { findByRole, getByRole } = render(<Updates />);
     fireEvent.click(await findByRole("checkbox", { name: RC_CHECKBOX_NAME }));
 
-    expect(mockSetReleaseChannel).toHaveBeenCalledWith({ channel: ReleaseChannel.STABLE_AND_RC });
+    expect(mockSetReleaseChannel).toHaveBeenCalledWith(
+      { channel: ReleaseChannel.STABLE_AND_RC },
+      { timeoutMs: RELEASE_CHANNEL_SAVE_TIMEOUT_MS },
+    );
     await waitFor(() =>
       expect(mockPushToast).toHaveBeenCalledWith({
         message: "Release channel updated",
@@ -250,7 +254,10 @@ describe("Updates", () => {
     expect(checkbox).toBeChecked();
     fireEvent.click(checkbox);
 
-    expect(mockSetReleaseChannel).toHaveBeenCalledWith({ channel: ReleaseChannel.STABLE });
+    expect(mockSetReleaseChannel).toHaveBeenCalledWith(
+      { channel: ReleaseChannel.STABLE },
+      { timeoutMs: RELEASE_CHANNEL_SAVE_TIMEOUT_MS },
+    );
     await waitFor(() => expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).not.toBeChecked());
   });
 
@@ -420,6 +427,38 @@ describe("Updates", () => {
     });
   });
 
+  it("loads status after a timed-out save releases the remount barrier", async () => {
+    const save = createDeferred<SetReleaseChannelResponse>();
+    const rcStatus = buildStatus({ channel: ReleaseChannel.STABLE_AND_RC });
+    mockGetUpdateStatus
+      .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }))
+      .mockResolvedValueOnce(rcStatus);
+    mockSetReleaseChannel.mockReturnValue(save.promise);
+
+    const firstPage = render(<Updates />);
+    fireEvent.click(await firstPage.findByRole("checkbox", { name: RC_CHECKBOX_NAME }));
+    await waitFor(() =>
+      expect(mockSetReleaseChannel).toHaveBeenCalledWith(
+        { channel: ReleaseChannel.STABLE_AND_RC },
+        { timeoutMs: RELEASE_CHANNEL_SAVE_TIMEOUT_MS },
+      ),
+    );
+    firstPage.unmount();
+
+    const remountedPage = render(<Updates />);
+    await act(async () => Promise.resolve());
+    expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      save.reject(new ConnectError("release channel save timed out", Code.DeadlineExceeded));
+      await save.promise.catch(() => undefined);
+    });
+
+    expect(await remountedPage.findByText("v1.3.0")).toBeInTheDocument();
+    expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2);
+    expect(remountedPage.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeChecked();
+  });
+
   it("reconciles status after an ambiguous non-auth save failure", async () => {
     mockGetUpdateStatus.mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE })).mockResolvedValueOnce(
       buildStatus({
@@ -529,7 +568,10 @@ describe("Updates", () => {
     const { findByRole, getByRole } = render(<Updates />);
     fireEvent.click(await findByRole("checkbox", { name: RC_CHECKBOX_NAME }));
 
-    expect(mockSetReleaseChannel).toHaveBeenCalledWith({ channel: ReleaseChannel.STABLE_AND_RC });
+    expect(mockSetReleaseChannel).toHaveBeenCalledWith(
+      { channel: ReleaseChannel.STABLE_AND_RC },
+      { timeoutMs: RELEASE_CHANNEL_SAVE_TIMEOUT_MS },
+    );
     await waitFor(() =>
       expect(mockPushToast).toHaveBeenCalledWith({
         message: "registry rejected the channel",
@@ -542,13 +584,23 @@ describe("Updates", () => {
   });
 
   it("redirects and does not fire the status RPC without the instance:update permission", async () => {
-    mockUseHasPermission.mockReturnValue(false);
+    permissionsMock.current = ["fleet:read"];
 
     const { getByTestId } = render(<Updates />);
 
     expect(mockUseHasPermission).toHaveBeenCalledWith("instance:update");
     expect(getByTestId("navigate")).toHaveAttribute("data-to", "/settings/network");
     // Flush a microtask turn so an incorrectly-enabled fetch would have had a chance to fire.
+    await Promise.resolve();
+    expect(mockGetUpdateStatus).not.toHaveBeenCalled();
+  });
+
+  it("redirects to preferences when neither instance:update nor fleet:read is allowed", async () => {
+    permissionsMock.current = [];
+
+    const { getByTestId } = render(<Updates />);
+
+    expect(getByTestId("navigate")).toHaveAttribute("data-to", "/settings/preferences");
     await Promise.resolve();
     expect(mockGetUpdateStatus).not.toHaveBeenCalled();
   });

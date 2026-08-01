@@ -5,6 +5,7 @@ import { ReleaseChannel } from "@/protoFleet/api/generated/instance/v1/updates_p
 import type { GetUpdateStatusResponse } from "@/protoFleet/api/generated/instance/v1/updates_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { isAuthOrPermissionError, isPermissionDeniedError } from "@/protoFleet/api/requestErrors";
+import { getSettingsLandingPath } from "@/protoFleet/config/navItems";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { copyInstallCommand } from "@/protoFleet/features/updates/copyInstallCommand";
@@ -18,6 +19,7 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 
 const SkeletonLoader = <SkeletonBar className="h-[22px] w-24" />;
 const INSTANCE_UPDATE_PERMISSION = "instance:update";
+const RELEASE_CHANNEL_SAVE_TIMEOUT_MS = 30_000;
 const PERMISSION_REVOKED_MESSAGE = "You no longer have permission to update this instance";
 const UPDATES_PAGE_DESCRIPTION = "View the server version and choose which releases this instance installs.";
 
@@ -27,7 +29,10 @@ const UPDATES_PAGE_DESCRIPTION = "View the server version and choose which relea
 let inFlightReleaseChannelSave: Promise<unknown> | null = null;
 
 const saveReleaseChannel = (channel: ReleaseChannel) => {
-  const save = instanceUpdateClient.setReleaseChannel({ channel });
+  // This promise is shared across route instances, so it must have a bounded
+  // lifetime. A timed-out write is reconciled by the authoritative status
+  // fetch that follows on the current or next page instance.
+  const save = instanceUpdateClient.setReleaseChannel({ channel }, { timeoutMs: RELEASE_CHANNEL_SAVE_TIMEOUT_MS });
   inFlightReleaseChannelSave = save;
   void save.then(
     () => {
@@ -192,7 +197,7 @@ const Updates = () => {
   // Redirect callers without instance:update away — placed after all
   // hooks to satisfy rules-of-hooks.
   if (!canUpdateInstance) {
-    return <Navigate to="/settings/network" replace />;
+    return <Navigate to={getSettingsLandingPath(permissions)} replace />;
   }
 
   const release = status?.statusAvailable && status.updateAvailable ? status.latestEligible : undefined;
