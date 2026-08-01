@@ -54,6 +54,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -95,6 +96,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
+	updatesDomain "github.com/block/proto-fleet/server/internal/domain/updates"
 	"github.com/block/proto-fleet/server/internal/ha"
 	activityHandler "github.com/block/proto-fleet/server/internal/handlers/activity"
 	"github.com/block/proto-fleet/server/internal/handlers/alertmanagerwebhook"
@@ -126,6 +128,7 @@ import (
 	sitemapHandler "github.com/block/proto-fleet/server/internal/handlers/sitemap"
 	sitesHandler "github.com/block/proto-fleet/server/internal/handlers/sites"
 	telemetryHandler "github.com/block/proto-fleet/server/internal/handlers/telemetry"
+	updatesHandler "github.com/block/proto-fleet/server/internal/handlers/updates"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/mqttclient"
 	"github.com/block/proto-fleet/server/internal/infrastructure/server"
@@ -172,6 +175,7 @@ var reflectEnabledServices = []string{
 	sitemapv1connect.SiteMapServiceName,
 	curtailmentv1connect.CurtailmentServiceName,
 	device_setv1connect.DeviceSetServiceName,
+	instancev1connect.InstanceUpdateServiceName,
 }
 
 func start(config *Config) error {
@@ -600,6 +604,18 @@ func start(config *Config) error {
 	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, alertRouteStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
 	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
 
+	// Both updates URLs end up inside a copy-paste upgrade command, so an
+	// http:// base must fail startup (explicit Validate, like Plugins above —
+	// kong only auto-validates flag leaves, not embedded config structs).
+	if err := config.Updates.Validate(); err != nil {
+		return fmt.Errorf("invalid updates configuration: %w", err)
+	}
+	// The checker is constructed even when disabled: the updates service still
+	// answers version/status calls, reading the zero snapshot as "no offer".
+	releaseChecker := updatesDomain.NewChecker(config.Updates, version)
+	updatesSvc := updatesDomain.NewService(config.Updates, version, releaseChecker,
+		db.NewFailoverResettingQuerier(db.NewRetryDB(conn)))
+
 	// The public listener is bound before this group starts. This channel keeps
 	// the first system heartbeat from clearing its stale alert before then.
 	listenerBound := make(chan struct{})
@@ -619,6 +635,12 @@ func start(config *Config) error {
 	chunkedUploadCleanup := newBackgroundLoop(func(ctx context.Context) {
 		chunkedMgr.StartCleanup(ctx, config.Files.ChunkedUploadSessionTTL)
 	})
+	// nil-when-disabled mirrors systemMonitoring: newRuntimeJobs skips
+	// optional jobs entirely instead of starting a lifecycle that no-ops.
+	var releaseCheckerJob runtimejobs.Lifecycle
+	if config.Updates.Enabled {
+		releaseCheckerJob = releaseChecker
+	}
 	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
 		identityStateCleanup:      identityStateCleanup,
 		commandArtifactCleanup:    commandArtifactCleanup,
@@ -632,6 +654,7 @@ func start(config *Config) error {
 		curtailmentAlertMetrics:   curtailmentAlertMetrics,
 		chunkedUploadCleanup:      chunkedUploadCleanup,
 		systemMonitoring:          systemMonitoring,
+		releaseChecker:            releaseCheckerJob,
 	})
 	if err != nil {
 		return err
@@ -742,6 +765,8 @@ func start(config *Config) error {
 	// nav only when the sidecar this feature proxies is actually enabled.
 	mux.Handle("GET /api/v1/alerts/enabled", activeHTTP.Wrap(alertsHandler.NewEnabledHandler(config.Metrics.Enabled)))
 
+	mux.Handle(instancev1connect.NewInstanceUpdateServiceHandler(updatesHandler.NewHandler(updatesSvc), li))
+
 	if config.HTTP.PprofAddr != "" {
 		ln, err := net.Listen("tcp", config.HTTP.PprofAddr)
 		if err != nil {
@@ -777,7 +802,6 @@ func start(config *Config) error {
 		Handler:           handler,
 		ReadHeaderTimeout: config.HTTP.ReadHeaderTimeout,
 	}
-
 	listener, err := net.Listen("tcp", config.HTTP.Address)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", config.HTTP.Address, err)

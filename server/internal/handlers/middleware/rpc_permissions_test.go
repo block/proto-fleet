@@ -28,6 +28,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -93,6 +94,7 @@ var registeredServices = []struct {
 	{sitemapv1connect.SiteMapServiceName, reflect.TypeOf((*sitemapv1connect.SiteMapServiceHandler)(nil)).Elem()},
 	{sitesv1connect.SiteServiceName, reflect.TypeOf((*sitesv1connect.SiteServiceHandler)(nil)).Elem()},
 	{telemetryv1connect.TelemetryServiceName, reflect.TypeOf((*telemetryv1connect.TelemetryServiceHandler)(nil)).Elem()},
+	{instancev1connect.InstanceUpdateServiceName, reflect.TypeOf((*instancev1connect.InstanceUpdateServiceHandler)(nil)).Elem()},
 }
 
 func allRegisteredProcedures() []string {

@@ -18,7 +18,6 @@ type Config struct {
 	CheckInterval   time.Duration `help:"Maximum interval between GitHub release checks" default:"1h" env:"CHECK_INTERVAL"`
 	DownloadBaseURL string        `help:"Allowlisted base URL release artifacts are downloaded from" default:"https://github.com/block/proto-fleet/releases/download" env:"DOWNLOAD_BASE_URL"`
 	Enabled         bool          `help:"Enable release update checks" default:"true" env:"ENABLED"`
-	GitHubToken     string        `help:"Optional GitHub token for authenticated, conditional release checks" default:"" env:"GITHUB_TOKEN"`
 }
 
 // Validate validates the configuration. DownloadBaseURL ends up in a

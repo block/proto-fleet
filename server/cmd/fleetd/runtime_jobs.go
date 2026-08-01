@@ -201,6 +201,7 @@ type runtimeJobLifecycles struct {
 	curtailmentAlertMetrics   runtimejobs.Lifecycle
 	chunkedUploadCleanup      runtimejobs.Lifecycle
 	systemMonitoring          runtimejobs.Lifecycle
+	releaseChecker            runtimejobs.Lifecycle
 }
 
 func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) {
@@ -247,6 +248,11 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 	}
 	if lifecycles.systemMonitoring != nil {
 		if err := add("system-monitoring", lifecycles.systemMonitoring); err != nil {
+			return nil, err
+		}
+	}
+	if lifecycles.releaseChecker != nil {
+		if err := add("release-checker", lifecycles.releaseChecker); err != nil {
 			return nil, err
 		}
 	}
