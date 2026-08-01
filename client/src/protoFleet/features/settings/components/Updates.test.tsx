@@ -22,6 +22,8 @@ import { copyToClipboard } from "@/shared/utils/utility";
 
 const permissionsMock = vi.hoisted(() => ({
   current: ["instance:update", "fleet:read"],
+  isAuthenticated: true,
+  sessionExpiry: new Date(1_000),
   setPermissions: vi.fn<(permissions: string[]) => void>(),
 }));
 const authErrorsMock = vi.hoisted(() => ({
@@ -44,7 +46,13 @@ vi.mock("@/protoFleet/store", () => {
     useSetPermissions: () => permissionsMock.setPermissions,
     useAuthErrors: () => authErrorsMock,
     useFleetStore: {
-      getState: () => ({ auth: { permissions: permissionsMock.current } }),
+      getState: () => ({
+        auth: {
+          isAuthenticated: permissionsMock.isAuthenticated,
+          permissions: permissionsMock.current,
+          sessionExpiry: permissionsMock.sessionExpiry,
+        },
+      }),
     },
   };
 });
@@ -116,6 +124,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   permissionsMock.current = ["instance:update", "fleet:read"];
+  permissionsMock.isAuthenticated = true;
+  permissionsMock.sessionExpiry = new Date(1_000);
   permissionsMock.setPermissions.mockImplementation((permissions) => {
     permissionsMock.current = permissions;
   });
@@ -408,6 +418,26 @@ describe("Updates", () => {
     expect(mockPushToast).not.toHaveBeenCalled();
   });
 
+  it("does not apply a delayed status auth failure to a replacement session", async () => {
+    const request = createDeferred<GetUpdateStatusResponse>();
+    const sessionError = new ConnectError("old session expired", Code.Unauthenticated);
+    mockGetUpdateStatus.mockReturnValue(request.promise);
+
+    const page = render(<Updates />);
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1));
+    page.unmount();
+    permissionsMock.sessionExpiry = new Date(2_000);
+
+    await act(async () => {
+      request.reject(sessionError);
+      await request.promise.catch(() => undefined);
+    });
+
+    expect(authErrorsMock.handleAuthErrors).not.toHaveBeenCalled();
+    expect(permissionsMock.setPermissions).not.toHaveBeenCalled();
+    expect(mockPushToast).not.toHaveBeenCalled();
+  });
+
   it("disables channel and copy controls throughout the save and refetch", async () => {
     const save = createDeferred<SetReleaseChannelResponse>();
     const refetch = createDeferred<GetUpdateStatusResponse>();
@@ -615,6 +645,29 @@ describe("Updates", () => {
       }),
     );
     expect(permissionsMock.setPermissions).toHaveBeenCalledWith(["fleet:read"]);
+    expect(mockPushToast).not.toHaveBeenCalled();
+    expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not apply a delayed save permission failure to a replacement session", async () => {
+    const save = createDeferred<SetReleaseChannelResponse>();
+    const permissionError = new ConnectError("old permission revoked", Code.PermissionDenied);
+    mockGetUpdateStatus.mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }));
+    mockSetReleaseChannel.mockReturnValue(save.promise);
+
+    const page = render(<Updates />);
+    fireEvent.click(await page.findByRole("checkbox", { name: RC_CHECKBOX_NAME }));
+    await waitFor(() => expect(mockSetReleaseChannel).toHaveBeenCalledTimes(1));
+    page.unmount();
+    permissionsMock.sessionExpiry = new Date(2_000);
+
+    await act(async () => {
+      save.reject(permissionError);
+      await save.promise.catch(() => undefined);
+    });
+
+    expect(authErrorsMock.handleAuthErrors).not.toHaveBeenCalled();
+    expect(permissionsMock.setPermissions).not.toHaveBeenCalled();
     expect(mockPushToast).not.toHaveBeenCalled();
     expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1);
   });

@@ -23,6 +23,23 @@ const RELEASE_CHANNEL_SAVE_TIMEOUT_MS = 30_000;
 const PERMISSION_REVOKED_MESSAGE = "You no longer have permission to update this instance";
 const UPDATES_PAGE_DESCRIPTION = "View the server version and choose which releases this instance installs.";
 
+interface AuthSessionSnapshot {
+  isAuthenticated: boolean;
+  sessionExpiry: Date | null;
+}
+
+const captureAuthSession = (): AuthSessionSnapshot => {
+  const { isAuthenticated, sessionExpiry } = useFleetStore.getState().auth;
+  return { isAuthenticated, sessionExpiry };
+};
+
+const isSameAuthSession = (snapshot: AuthSessionSnapshot) => {
+  const { isAuthenticated, sessionExpiry } = useFleetStore.getState().auth;
+  // Login installs a new Date object and logout clears it. Compare identity so
+  // even a replacement session for the same user cannot inherit old failures.
+  return isAuthenticated === snapshot.isAuthenticated && sessionExpiry === snapshot.sessionExpiry;
+};
+
 // A route remount must not load status while the previous page instance is
 // still saving a channel. Otherwise it can briefly expose the old channel's
 // install command after navigation away and back.
@@ -95,19 +112,23 @@ const Updates = () => {
 
   const fetchStatus = useCallback(async () => {
     const requestId = ++latestStatusRequest.current;
+    const authSession = captureAuthSession();
     await waitForReleaseChannelSave();
-    if (requestId !== latestStatusRequest.current) {
+    if (requestId !== latestStatusRequest.current || !isSameAuthSession(authSession)) {
       return;
     }
     try {
       const response = await instanceUpdateClient.getUpdateStatus({});
-      if (requestId !== latestStatusRequest.current) {
+      if (requestId !== latestStatusRequest.current || !isSameAuthSession(authSession)) {
         return;
       }
       setStatus(response);
       setChannel(response.channel);
       setLoadError(null);
     } catch (err) {
+      if (!isSameAuthSession(authSession)) {
+        return;
+      }
       const shouldUpdatePage = requestId === latestStatusRequest.current && isMounted.current;
       handleAuthErrors({
         error: err,
@@ -151,6 +172,7 @@ const Updates = () => {
     if (nextChannel === channel || isChannelChangePending) {
       return;
     }
+    const authSession = captureAuthSession();
     setIsChannelChangePending(true);
     try {
       let saveSucceeded = false;
@@ -158,6 +180,9 @@ const Updates = () => {
         await saveReleaseChannel(nextChannel);
         saveSucceeded = true;
       } catch (err) {
+        if (!isSameAuthSession(authSession)) {
+          return;
+        }
         const shouldUpdatePage = isMounted.current;
         handleAuthErrors({
           error: err,
@@ -180,7 +205,7 @@ const Updates = () => {
         }
       }
 
-      if (!isMounted.current) {
+      if (!isMounted.current || !isSameAuthSession(authSession)) {
         return;
       }
       if (saveSucceeded) {
@@ -195,7 +220,7 @@ const Updates = () => {
       // authority for the checkbox, offered version, and install command.
       await fetchStatus();
     } finally {
-      if (isMounted.current) {
+      if (isMounted.current && isSameAuthSession(authSession)) {
         setIsChannelChangePending(false);
       }
     }
