@@ -1,9 +1,21 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
+
 import Updates from "./Updates";
 import { instanceUpdateClient } from "@/protoFleet/api/clients";
-import type { GetUpdateStatusResponse } from "@/protoFleet/api/generated/instance/v1/updates_pb";
-import { ReleaseChannel } from "@/protoFleet/api/generated/instance/v1/updates_pb";
+import type {
+  GetUpdateStatusResponse,
+  ReleaseInfo,
+  SetReleaseChannelResponse,
+} from "@/protoFleet/api/generated/instance/v1/updates_pb";
+import {
+  GetUpdateStatusResponseSchema,
+  ReleaseChannel,
+  ReleaseInfoSchema,
+  SetReleaseChannelResponseSchema,
+} from "@/protoFleet/api/generated/instance/v1/updates_pb";
 import { useHasPermission } from "@/protoFleet/store";
 import { pushToast } from "@/shared/features/toaster";
 import { copyToClipboard } from "@/shared/utils/utility";
@@ -46,21 +58,26 @@ vi.mock("@/shared/features/toaster", () => ({
 const INSTALL_COMMAND = "curl -fsSL https://fleet.example.com/install.sh | sh -s -- v1.3.0";
 const RELEASE_NOTES_URL = "https://github.com/block/proto-fleet/releases/tag/v1.3.0";
 const DISMISSED_UPDATE_TAG_KEY = "dismissedUpdateTag";
+const SET_CHANNEL_RESPONSE = create(SetReleaseChannelResponseSchema);
+
+const buildReleaseInfo = (overrides?: Partial<ReleaseInfo>): ReleaseInfo =>
+  create(ReleaseInfoSchema, {
+    version: "v1.3.0",
+    releaseNotesUrl: RELEASE_NOTES_URL,
+    prerelease: false,
+    ...overrides,
+  });
 
 const buildStatus = (overrides?: Partial<GetUpdateStatusResponse>): GetUpdateStatusResponse =>
-  ({
+  create(GetUpdateStatusResponseSchema, {
     currentVersion: "v1.2.0",
     channel: ReleaseChannel.STABLE,
     statusAvailable: true,
     updateAvailable: true,
     installCommand: INSTALL_COMMAND,
-    latestEligible: {
-      version: "v1.3.0",
-      releaseNotesUrl: RELEASE_NOTES_URL,
-      prerelease: false,
-    },
+    latestEligible: buildReleaseInfo(),
     ...overrides,
-  }) as unknown as GetUpdateStatusResponse;
+  });
 
 const mockUseHasPermission = vi.mocked(useHasPermission);
 const mockGetUpdateStatus = vi.mocked(instanceUpdateClient.getUpdateStatus);
@@ -108,11 +125,11 @@ describe("Updates", () => {
     // The server blanks non-https notes URLs; the release still renders.
     mockGetUpdateStatus.mockResolvedValue(
       buildStatus({
-        latestEligible: {
+        latestEligible: buildReleaseInfo({
           version: "v1.3.0",
           releaseNotesUrl: "",
           prerelease: false,
-        } as GetUpdateStatusResponse["latestEligible"],
+        }),
       }),
     );
 
@@ -195,7 +212,7 @@ describe("Updates", () => {
     mockGetUpdateStatus
       .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }))
       .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE_AND_RC }));
-    mockSetReleaseChannel.mockResolvedValue({} as never);
+    mockSetReleaseChannel.mockResolvedValue(SET_CHANNEL_RESPONSE);
 
     const { findByRole, getByRole } = render(<Updates />);
     fireEvent.click(await findByRole("checkbox", { name: RC_CHECKBOX_NAME }));
@@ -214,7 +231,7 @@ describe("Updates", () => {
     mockGetUpdateStatus
       .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE_AND_RC }))
       .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }));
-    mockSetReleaseChannel.mockResolvedValue({} as never);
+    mockSetReleaseChannel.mockResolvedValue(SET_CHANNEL_RESPONSE);
 
     const { findByRole, getByRole } = render(<Updates />);
     const checkbox = await findByRole("checkbox", { name: RC_CHECKBOX_NAME });
@@ -231,16 +248,16 @@ describe("Updates", () => {
     const rcStatus = buildStatus({
       channel: ReleaseChannel.STABLE_AND_RC,
       installCommand: "curl -fsSL https://fleet.example.com/install.sh | sh -s -- v1.4.0-rc.1",
-      latestEligible: {
+      latestEligible: buildReleaseInfo({
         version: "v1.4.0-rc.1",
         releaseNotesUrl: "https://github.com/block/proto-fleet/releases/tag/v1.4.0-rc.1",
         prerelease: true,
-      } as GetUpdateStatusResponse["latestEligible"],
+      }),
     });
     mockGetUpdateStatus
       .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }))
       .mockResolvedValueOnce(rcStatus);
-    mockSetReleaseChannel.mockResolvedValue({} as never);
+    mockSetReleaseChannel.mockResolvedValue(SET_CHANNEL_RESPONSE);
 
     const { findByText, findByRole } = render(<Updates />);
     expect(await findByText("v1.3.0")).toBeInTheDocument();
@@ -257,7 +274,7 @@ describe("Updates", () => {
     mockGetUpdateStatus.mockReturnValueOnce(staleRequest.promise).mockReturnValueOnce(latestRequest.promise);
 
     const { rerender, findByText, getByRole, queryByText } = render(<Updates />);
-    expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1));
 
     // Losing and regaining permission replaces the in-flight request just as
     // another status refresh would; the older response must not win later.
@@ -265,7 +282,7 @@ describe("Updates", () => {
     rerender(<Updates />);
     mockUseHasPermission.mockReturnValue(true);
     rerender(<Updates />);
-    expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
 
     await act(async () => {
       latestRequest.resolve(buildStatus({ channel: ReleaseChannel.STABLE }));
@@ -278,11 +295,11 @@ describe("Updates", () => {
       staleRequest.resolve(
         buildStatus({
           channel: ReleaseChannel.STABLE_AND_RC,
-          latestEligible: {
+          latestEligible: buildReleaseInfo({
             version: "v1.4.0-rc.1",
             releaseNotesUrl: "https://github.com/block/proto-fleet/releases/tag/v1.4.0-rc.1",
             prerelease: true,
-          } as GetUpdateStatusResponse["latestEligible"],
+          }),
         }),
       );
       await staleRequest.promise;
@@ -291,17 +308,56 @@ describe("Updates", () => {
     expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).not.toBeChecked();
   });
 
-  it("disables channel and copy controls until the saved channel is refetched", async () => {
+  it("ignores an older status request that rejects after the latest request succeeds", async () => {
+    const staleRequest = createDeferred<GetUpdateStatusResponse>();
+    const latestRequest = createDeferred<GetUpdateStatusResponse>();
+    mockGetUpdateStatus.mockReturnValueOnce(staleRequest.promise).mockReturnValueOnce(latestRequest.promise);
+
+    const { rerender, findByText, getByRole, queryByText } = render(<Updates />);
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1));
+
+    mockUseHasPermission.mockReturnValue(false);
+    rerender(<Updates />);
+    mockUseHasPermission.mockReturnValue(true);
+    rerender(<Updates />);
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
+
+    await act(async () => {
+      latestRequest.resolve(buildStatus({ channel: ReleaseChannel.STABLE }));
+      await latestRequest.promise;
+    });
+    expect(await findByText("v1.3.0")).toBeInTheDocument();
+
+    await act(async () => {
+      staleRequest.reject(new Error("stale registry failure"));
+      await staleRequest.promise.catch(() => undefined);
+    });
+    expect(queryByText("Unable to load update status")).not.toBeInTheDocument();
+    expect(queryByText("stale registry failure")).not.toBeInTheDocument();
+    expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).not.toBeChecked();
+  });
+
+  it("disables channel and copy controls throughout the save and refetch", async () => {
+    const save = createDeferred<SetReleaseChannelResponse>();
     const refetch = createDeferred<GetUpdateStatusResponse>();
     mockGetUpdateStatus.mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }));
     mockGetUpdateStatus.mockReturnValueOnce(refetch.promise);
-    mockSetReleaseChannel.mockResolvedValue({} as never);
+    mockSetReleaseChannel.mockReturnValue(save.promise);
 
     const { findByRole, getByRole } = render(<Updates />);
     const checkbox = await findByRole("checkbox", { name: RC_CHECKBOX_NAME });
     const copyButton = getByRole("button", { name: "Copy install command" });
     fireEvent.click(checkbox);
 
+    await waitFor(() => expect(mockSetReleaseChannel).toHaveBeenCalledTimes(1));
+    expect(checkbox).toBeDisabled();
+    expect(copyButton).toBeDisabled();
+    expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      save.resolve(SET_CHANNEL_RESPONSE);
+      await save.promise;
+    });
     await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
     expect(checkbox).toBeDisabled();
     expect(copyButton).toBeDisabled();
@@ -315,8 +371,109 @@ describe("Updates", () => {
     expect(checkbox).toBeChecked();
   });
 
+  it("waits for an in-flight save before a remounted page loads status", async () => {
+    const save = createDeferred<SetReleaseChannelResponse>();
+    const rcStatus = buildStatus({
+      channel: ReleaseChannel.STABLE_AND_RC,
+      installCommand: "curl -fsSL https://fleet.example.com/install.sh | sh -s -- v1.4.0-rc.1",
+      latestEligible: buildReleaseInfo({
+        version: "v1.4.0-rc.1",
+        releaseNotesUrl: "https://github.com/block/proto-fleet/releases/tag/v1.4.0-rc.1",
+        prerelease: true,
+      }),
+    });
+    mockGetUpdateStatus
+      .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }))
+      .mockResolvedValueOnce(rcStatus);
+    mockSetReleaseChannel.mockReturnValue(save.promise);
+
+    const firstPage = render(<Updates />);
+    fireEvent.click(await firstPage.findByRole("checkbox", { name: RC_CHECKBOX_NAME }));
+    await waitFor(() => expect(mockSetReleaseChannel).toHaveBeenCalledTimes(1));
+    firstPage.unmount();
+
+    const remountedPage = render(<Updates />);
+    await act(async () => Promise.resolve());
+    expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      save.resolve(SET_CHANNEL_RESPONSE);
+      await save.promise;
+    });
+    expect(await remountedPage.findByText("v1.4.0-rc.1")).toBeInTheDocument();
+    expect(remountedPage.getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeChecked();
+    expect(mockPushToast).not.toHaveBeenCalledWith({
+      message: "Release channel updated",
+      status: "success",
+    });
+  });
+
+  it("reconciles status after an ambiguous non-auth save failure", async () => {
+    mockGetUpdateStatus.mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE })).mockResolvedValueOnce(
+      buildStatus({
+        channel: ReleaseChannel.STABLE_AND_RC,
+        latestEligible: buildReleaseInfo({
+          version: "v1.4.0-rc.1",
+          releaseNotesUrl: "https://github.com/block/proto-fleet/releases/tag/v1.4.0-rc.1",
+          prerelease: true,
+        }),
+      }),
+    );
+    mockSetReleaseChannel.mockRejectedValue(new Error("response lost after save"));
+
+    const { findByRole, findByText, getByRole } = render(<Updates />);
+    fireEvent.click(await findByRole("checkbox", { name: RC_CHECKBOX_NAME }));
+
+    await waitFor(() =>
+      expect(mockPushToast).toHaveBeenCalledWith({
+        message: "response lost after save",
+        status: "error",
+      }),
+    );
+    expect(await findByText("v1.4.0-rc.1")).toBeInTheDocument();
+    expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2);
+    expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).toBeChecked();
+  });
+
+  it("reports a refresh failure separately after a successful save", async () => {
+    mockGetUpdateStatus
+      .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }))
+      .mockRejectedValueOnce(new Error("refresh failed after save"));
+    mockSetReleaseChannel.mockResolvedValue(SET_CHANNEL_RESPONSE);
+
+    const { findByRole, findByText } = render(<Updates />);
+    fireEvent.click(await findByRole("checkbox", { name: RC_CHECKBOX_NAME }));
+
+    expect(await findByText("Unable to load update status")).toBeInTheDocument();
+    expect(await findByText("refresh failed after save")).toBeInTheDocument();
+    expect(mockPushToast).toHaveBeenCalledWith({
+      message: "Release channel updated",
+      status: "success",
+    });
+    expect(mockPushToast).not.toHaveBeenCalledWith({
+      message: "Failed to update release channel",
+      status: "error",
+    });
+  });
+
+  it("does not refetch after an auth-related save failure", async () => {
+    mockGetUpdateStatus.mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }));
+    mockSetReleaseChannel.mockRejectedValue(new ConnectError("session expired", Code.Unauthenticated));
+
+    const { findByRole } = render(<Updates />);
+    const checkbox = await findByRole("checkbox", { name: RC_CHECKBOX_NAME });
+    fireEvent.click(checkbox);
+
+    await waitFor(() => expect(mockSetReleaseChannel).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(checkbox).not.toBeDisabled());
+    expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1);
+    expect(mockPushToast).not.toHaveBeenCalled();
+  });
+
   it("toasts an error and leaves the checkbox unchecked when saving the channel fails", async () => {
-    mockGetUpdateStatus.mockResolvedValue(buildStatus({ channel: ReleaseChannel.STABLE }));
+    mockGetUpdateStatus
+      .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }))
+      .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }));
     mockSetReleaseChannel.mockRejectedValue(new Error("registry rejected the channel"));
 
     const { findByRole, getByRole } = render(<Updates />);
@@ -329,6 +486,7 @@ describe("Updates", () => {
         status: "error",
       }),
     );
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2));
     // The checkbox is controlled by the persisted channel, which never moved.
     expect(getByRole("checkbox", { name: RC_CHECKBOX_NAME })).not.toBeChecked();
   });

@@ -4,6 +4,7 @@ import { instanceUpdateClient } from "@/protoFleet/api/clients";
 import { ReleaseChannel } from "@/protoFleet/api/generated/instance/v1/updates_pb";
 import type { GetUpdateStatusResponse } from "@/protoFleet/api/generated/instance/v1/updates_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { isAuthOrPermissionError } from "@/protoFleet/api/requestErrors";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { copyInstallCommand } from "@/protoFleet/features/updates/copyInstallCommand";
@@ -18,6 +19,43 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 const SkeletonLoader = <SkeletonBar className="h-[22px] w-24" />;
 const UPDATES_PAGE_DESCRIPTION = "View the server version and choose which releases this instance installs.";
 
+// A route remount must not load status while the previous page instance is
+// still saving a channel. Otherwise it can briefly expose the old channel's
+// install command after navigation away and back.
+let inFlightReleaseChannelSave: Promise<unknown> | null = null;
+
+const saveReleaseChannel = (channel: ReleaseChannel) => {
+  const save = instanceUpdateClient.setReleaseChannel({ channel });
+  inFlightReleaseChannelSave = save;
+  void save.then(
+    () => {
+      if (inFlightReleaseChannelSave === save) {
+        inFlightReleaseChannelSave = null;
+      }
+    },
+    () => {
+      if (inFlightReleaseChannelSave === save) {
+        inFlightReleaseChannelSave = null;
+      }
+    },
+  );
+  return save;
+};
+
+const waitForReleaseChannelSave = async () => {
+  const save = inFlightReleaseChannelSave;
+  if (!save) {
+    return;
+  }
+  try {
+    await save;
+  } catch {
+    // A failed save can still be ambiguous (for example, a lost response
+    // after the server committed), so the caller must fetch authoritative
+    // status after the mutation settles either way.
+  }
+};
+
 const Updates = () => {
   const canUpdateInstance = useHasPermission("instance:update");
   const { handleAuthErrors } = useAuthErrors();
@@ -25,12 +63,17 @@ const Updates = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isChannelChangePending, setIsChannelChangePending] = useState(false);
   const latestStatusRequest = useRef(0);
+  const isMounted = useRef(false);
   // The channel the server has persisted; the checkbox is controlled by it,
   // so a failed save never moves the control.
   const [channel, setChannel] = useState<ReleaseChannel>(ReleaseChannel.UNSPECIFIED);
 
   const fetchStatus = useCallback(async () => {
     const requestId = ++latestStatusRequest.current;
+    await waitForReleaseChannelSave();
+    if (requestId !== latestStatusRequest.current) {
+      return;
+    }
     try {
       const response = await instanceUpdateClient.getUpdateStatus({});
       if (requestId !== latestStatusRequest.current) {
@@ -49,6 +92,13 @@ const Updates = () => {
       });
     }
   }, [handleAuthErrors]);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     // The RPC is server-gated on instance:update; non-holders are redirected
@@ -71,27 +121,49 @@ const Updates = () => {
     }
     setIsChannelChangePending(true);
     try {
-      await instanceUpdateClient.setReleaseChannel({ channel: nextChannel });
-      setChannel(nextChannel);
-      pushToast({
-        message: "Release channel updated",
-        status: STATUSES.success,
-      });
-      // The eligible release differs per channel, so refetch to keep the
-      // offered version and install command in sync with the new channel.
+      let saveSucceeded = false;
+      try {
+        await saveReleaseChannel(nextChannel);
+        saveSucceeded = true;
+      } catch (err) {
+        if (!isMounted.current) {
+          return;
+        }
+        handleAuthErrors({
+          error: err,
+          onError: () => {
+            if (isAuthOrPermissionError(err)) {
+              return;
+            }
+            pushToast({
+              message: getErrorMessage(err, "Failed to update release channel"),
+              status: STATUSES.error,
+            });
+          },
+        });
+        if (isAuthOrPermissionError(err)) {
+          return;
+        }
+      }
+
+      if (!isMounted.current) {
+        return;
+      }
+      if (saveSucceeded) {
+        setChannel(nextChannel);
+        pushToast({
+          message: "Release channel updated",
+          status: STATUSES.success,
+        });
+      }
+      // The eligible release differs per channel. Refresh after both success
+      // and an ambiguous non-auth save failure so the server remains the
+      // authority for the checkbox, offered version, and install command.
       await fetchStatus();
-    } catch (err) {
-      handleAuthErrors({
-        error: err,
-        onError: () => {
-          pushToast({
-            message: getErrorMessage(err, "Failed to update release channel"),
-            status: STATUSES.error,
-          });
-        },
-      });
     } finally {
-      setIsChannelChangePending(false);
+      if (isMounted.current) {
+        setIsChannelChangePending(false);
+      }
     }
   };
 
