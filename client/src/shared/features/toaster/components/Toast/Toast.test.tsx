@@ -17,5 +17,6 @@ describe("Toast", () => {
 
     expect(onClick).toHaveBeenCalledTimes(1);
     expect(onClose).not.toHaveBeenCalled();
+    expect(getByRole("button", { name: "Dismiss notification" })).toBeInTheDocument();
   });
 });

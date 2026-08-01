@@ -32,14 +32,14 @@ NavigationMenu.beforeEach = seedNavPermissions;
 
 export default {
   title: "Proto Fleet/NavigationMenu",
-  // Item visibility is permission-driven, so pin every story to the
-  // unauthenticated baseline instead of whatever permissions an interrupted
+  // Item visibility is permission-driven, so pin every story to an empty
+  // permission baseline instead of whatever permissions an interrupted
   // story left persisted in the iframe's localStorage; seeded stories layer
   // on top of this in their own beforeEach (story hooks run after meta's).
   beforeEach: () => {
     const previousPermissions = useFleetStore.getState().auth.permissions;
     useFleetStore.setState((state) => ({
-      auth: { ...state.auth, permissions: state.auth.isAuthenticated ? state.auth.permissions : [] },
+      auth: { ...state.auth, permissions: [] },
     }));
     return () => {
       useFleetStore.setState((state) => ({ auth: { ...state.auth, permissions: [...previousPermissions] } }));

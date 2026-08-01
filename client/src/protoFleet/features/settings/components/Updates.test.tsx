@@ -16,6 +16,7 @@ import {
   ReleaseInfoSchema,
   SetReleaseChannelResponseSchema,
 } from "@/protoFleet/api/generated/instance/v1/updates_pb";
+import { UPDATE_STATUS_INVALIDATED_EVENT } from "@/protoFleet/api/updateStatusEvents";
 import { DISMISSED_UPDATE_TAG_KEY } from "@/protoFleet/features/updates/constants";
 import { useHasPermission } from "@/protoFleet/store";
 import { pushToast } from "@/shared/features/toaster";
@@ -293,6 +294,8 @@ describe("Updates", () => {
       .mockResolvedValueOnce(buildStatus({ channel: ReleaseChannel.STABLE }))
       .mockResolvedValueOnce(rcStatus);
     mockSetReleaseChannel.mockResolvedValue(SET_CHANNEL_RESPONSE);
+    const updateStatusInvalidated = vi.fn();
+    window.addEventListener(UPDATE_STATUS_INVALIDATED_EVENT, updateStatusInvalidated);
 
     const { findByText, findByRole } = render(<Updates />);
     expect(await findByText("v1.3.0")).toBeInTheDocument();
@@ -301,6 +304,8 @@ describe("Updates", () => {
 
     expect(await findByText("v1.4.0-rc.1")).toBeInTheDocument();
     expect(mockGetUpdateStatus).toHaveBeenCalledTimes(2);
+    expect(updateStatusInvalidated).toHaveBeenCalledTimes(1);
+    window.removeEventListener(UPDATE_STATUS_INVALIDATED_EVENT, updateStatusInvalidated);
   });
 
   it("ignores an older status request that resolves after the latest request", async () => {

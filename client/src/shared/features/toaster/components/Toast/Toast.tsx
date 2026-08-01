@@ -85,7 +85,7 @@ const Toast = ({ message, onClick, onClose, status, index, numToasts, ttl = defa
           ) : (
             <div className="flex grow items-center space-x-3 transition-opacity duration-300">{messageContent}</div>
           )}
-          <button type="button" onClick={onClose}>
+          <button type="button" aria-label="Dismiss notification" onClick={onClose}>
             <Dismiss className="text-text-primary-30" width={iconSizes.small} />
           </button>
         </div>

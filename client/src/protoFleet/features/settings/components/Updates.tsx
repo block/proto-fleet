@@ -5,6 +5,7 @@ import { ReleaseChannel } from "@/protoFleet/api/generated/instance/v1/updates_p
 import type { GetUpdateStatusResponse } from "@/protoFleet/api/generated/instance/v1/updates_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { isAuthOrPermissionError, isPermissionDeniedError } from "@/protoFleet/api/requestErrors";
+import { emitUpdateStatusInvalidated } from "@/protoFleet/api/updateStatusEvents";
 import { getSettingsLandingPath } from "@/protoFleet/config/navItems";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
@@ -200,12 +201,20 @@ const Updates = () => {
             });
           },
         });
-        if (!shouldUpdatePage || isAuthOrPermissionError(err)) {
+        if (isAuthOrPermissionError(err)) {
           return;
         }
       }
 
-      if (!isMounted.current || !isSameAuthSession(authSession)) {
+      if (!isSameAuthSession(authSession)) {
+        return;
+      }
+      // The global notification owns a separate status request. Invalidate it
+      // after every non-auth mutation outcome, including ambiguous transport
+      // failures and saves that outlive this route, so it cannot keep offering
+      // the previous channel's install command.
+      emitUpdateStatusInvalidated();
+      if (!isMounted.current) {
         return;
       }
       if (saveSucceeded) {
