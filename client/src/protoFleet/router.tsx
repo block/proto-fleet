@@ -36,6 +36,7 @@ import {
   importSettingsPreferences,
   importSettingsSchedules,
   importSettingsTeam,
+  importSettingsUpdates,
   importSiteDetailPage,
   importUpdatePassword,
   importWelcomePage,
@@ -90,6 +91,7 @@ const SettingsSchedules = lazy(importSettingsSchedules);
 const SettingsCurtailment = lazy(importSettingsCurtailment);
 const SettingsAlerts = lazy(importSettingsAlerts);
 const SettingsIntegrations = lazy(importSettingsIntegrations);
+const SettingsUpdates = lazy(importSettingsUpdates);
 const SiteDetailPage = lazy(importSiteDetailPage);
 const BuildingPage = lazy(importBuildingPage);
 const FleetLayout = lazy(importFleetLayout);
@@ -354,6 +356,12 @@ const router = createBrowserRouter([
     "/settings/server-logs",
     <SettingsLayout>
       <ServerLogsPage />
+    </SettingsLayout>,
+  ),
+  createRoute(
+    "/settings/updates",
+    <SettingsLayout>
+      <SettingsUpdates />
     </SettingsLayout>,
   ),
   // Auth routes (fullscreen)
