@@ -1,8 +1,13 @@
 import { type ReactElement, type ReactNode, useEffect, useState } from "react";
+import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import { ActivityEntrySchema } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 import NavigationMenu from "@/protoFleet/components/NavigationMenu";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
+import ActivityTable from "@/protoFleet/features/activity/components/ActivityTable";
+import CurtailmentHistory from "@/protoFleet/features/energy/CurtailmentHistory";
+import { mockCurtailmentHistoryEvents } from "@/protoFleet/features/energy/CurtailmentHistory.fixtures";
 import { ActiveRolloutBanner, ActiveRolloutBannerStack } from "@/protoFleet/features/rollout/ActiveRolloutBanner";
 import ActiveRolloutStatus from "@/protoFleet/features/rollout/ActiveRolloutStatus";
 import {
@@ -20,6 +25,8 @@ import ViewRolloutModal from "@/protoFleet/features/rollout/ViewRolloutModal";
 import { useFleetStore } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
+import List from "@/shared/components/List";
+import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 
 /**
  * Contextual ("in-situ") stories: each rollout component shown where it lives
@@ -62,41 +69,139 @@ function AppShell({ children }: { children: ReactNode }): ReactElement {
   );
 }
 
-/** A simple faux data table used to fill the surrounding page content with
- * representative (dummy) rows, so the in-situ stories read as populated screens
- * rather than a header + one card. `gridClass` is a static Tailwind grid-cols
- * class (JIT can't see runtime-built class strings). */
-function DummyTable({
-  gridClass,
-  columns,
-  rows,
-}: {
-  gridClass: string;
-  columns: string[];
-  rows: string[][];
-}): ReactElement {
+/**
+ * Firmware settings "Firmware files" table, built on the shared `List` (the
+ * same component `MinerList` / `ActivityTable` use) rather than bespoke grid
+ * markup, so the settings surface reads with the product's real table styling.
+ */
+interface FirmwareFileRow {
+  id: string;
+  filename: string;
+  target: string;
+  version: string;
+  uploaded: string;
+}
+
+type FirmwareFileColumn = "filename" | "target" | "version" | "uploaded";
+
+const firmwareFileColumns: FirmwareFileColumn[] = ["filename", "target", "version", "uploaded"];
+
+const firmwareFileColTitles: ColTitles<FirmwareFileColumn> = {
+  filename: "File name",
+  target: "Target",
+  version: "Version",
+  uploaded: "Uploaded",
+};
+
+const firmwareFileColConfig: ColConfig<FirmwareFileRow, string, FirmwareFileColumn> = {
+  filename: {
+    component: (file) => <span className="text-emphasis-300 text-text-primary">{file.filename}</span>,
+    width: "w-[22rem]",
+  },
+  target: { component: (file) => file.target, width: "w-48" },
+  version: { component: (file) => file.version, width: "w-32" },
+  uploaded: { component: (file) => file.uploaded, width: "w-40" },
+};
+
+const firmwareFileRows: FirmwareFileRow[] = [
+  {
+    id: "f1",
+    filename: "antminer-s21-5.1.0.tar.gz",
+    target: "Antminer S21",
+    version: "5.1.0",
+    uploaded: "Aug 1, 2026",
+  },
+  {
+    id: "f2",
+    filename: "antminer-s21-5.0.2.tar.gz",
+    target: "Antminer S21",
+    version: "5.0.2",
+    uploaded: "Jun 12, 2026",
+  },
+  {
+    id: "f3",
+    filename: "whatsminer-m60-3.4.1.tar.gz",
+    target: "Whatsminer M60",
+    version: "3.4.1",
+    uploaded: "May 3, 2026",
+  },
+];
+
+function FirmwareFilesTable(): ReactElement {
   return (
-    <div className="overflow-hidden rounded-xl border border-border-5 bg-surface-elevated-base">
-      <div className={`grid ${gridClass} gap-4 border-b border-border-5 px-4 py-2.5 text-200 text-text-primary-50`}>
-        {columns.map((c) => (
-          <span key={c}>{c}</span>
-        ))}
-      </div>
-      {rows.map((row) => (
-        <div
-          key={row.join("|")}
-          className={`grid ${gridClass} gap-4 border-b border-border-5 px-4 py-3 text-300 last:border-b-0`}
-        >
-          {row.map((cell, i) => (
-            <span key={i} className={i === 0 ? "text-text-primary" : "text-text-primary-70"}>
-              {cell}
-            </span>
-          ))}
-        </div>
-      ))}
-    </div>
+    <List<FirmwareFileRow, string, FirmwareFileColumn>
+      activeCols={firmwareFileColumns}
+      colTitles={firmwareFileColTitles}
+      colConfig={firmwareFileColConfig}
+      items={firmwareFileRows}
+      itemKey="id"
+      total={firmwareFileRows.length}
+      itemName={{ singular: "firmware file", plural: "firmware files" }}
+      applyColumnWidthsToCells
+      stickyFirstColumn={false}
+    />
   );
 }
+
+/** Dummy ActivityEntry rows for the in-situ Activity page. Built with the real
+ * `ActivityEntrySchema` so the reused `ActivityTable` renders them exactly as
+ * the product does (icons, formatted descriptions, scope). */
+const activityFeedEntries = [
+  create(ActivityEntrySchema, {
+    eventId: "act-1",
+    eventCategory: "device_command",
+    eventType: "firmware_update.completed",
+    scopeType: "building",
+    scopeLabel: "Building A",
+    scopeCount: 180,
+    actorType: "user",
+    username: "jmarr",
+    result: "success",
+    createdAt: { seconds: 1_785_000_000n },
+    batchId: "batch-fw-1",
+    metadata: { success_count: 180, failure_count: 0 },
+  }),
+  create(ActivityEntrySchema, {
+    eventId: "act-2",
+    eventCategory: "device_command",
+    eventType: "reboot.completed",
+    scopeType: "rack",
+    scopeLabel: "Rack B7",
+    scopeCount: 40,
+    actorType: "system",
+    username: "automation",
+    result: "success",
+    createdAt: { seconds: 1_784_900_000n },
+    batchId: "batch-reboot-1",
+    metadata: { success_count: 40, failure_count: 0 },
+  }),
+  create(ActivityEntrySchema, {
+    eventId: "act-3",
+    eventCategory: "curtailment",
+    eventType: "curtailment_started",
+    scopeType: "site",
+    scopeLabel: "Whole site",
+    scopeCount: 512,
+    actorType: "system",
+    username: "automation",
+    result: "success",
+    createdAt: { seconds: 1_784_800_000n },
+  }),
+  create(ActivityEntrySchema, {
+    eventId: "act-4",
+    eventCategory: "device_command",
+    eventType: "firmware_update.completed",
+    scopeType: "building",
+    scopeLabel: "Building C",
+    scopeCount: 96,
+    actorType: "user",
+    username: "dwitkin",
+    result: "failure",
+    createdAt: { seconds: 1_784_600_000n },
+    batchId: "batch-fw-2",
+    metadata: { success_count: 92, failure_count: 4 },
+  }),
+];
 
 // ---- 1. Config modal: Apply to + Rollout controls + Date and time ----------
 // Uses the real RolloutConfigModal (shared Modal): CTAs in the top bar, body
@@ -164,29 +269,35 @@ const fleetRows: FleetRow[] = [
 ];
 
 function FleetTableStory(): ReactElement {
-  const cols = "grid grid-cols-[120px_1fr_120px_160px] items-center gap-4 px-4";
   const [open, setOpen] = useState(false);
+  const fleetColConfig: ColConfig<FleetRow, string, "miner" | "model" | "status" | "firmware"> = {
+    miner: {
+      component: (row) => <span className="text-emphasis-300 text-text-primary">{row.miner}</span>,
+      width: "w-32",
+    },
+    model: { component: (row) => row.model, width: "w-48" },
+    status: { component: (row) => row.status, width: "w-32" },
+    firmware: {
+      component: (row) => <RolloutColumnState phase={row.phase} doneLabel={row.doneLabel} idleLabel={row.idleLabel} />,
+      width: "w-48",
+    },
+  };
   return (
     <div className="min-h-screen bg-surface-base p-8">
       <div className="mx-auto flex max-w-4xl flex-col gap-4">
         <div className="text-heading-300 text-text-primary">Building B</div>
         <ActiveRolloutBanner event={inProgressFirmwareEvent} onView={() => setOpen(true)} />
-        <div className="overflow-hidden rounded-xl border border-border-5 bg-surface-elevated-base">
-          <div className={`${cols} border-b border-border-5 py-2.5 text-200 text-text-primary-50`}>
-            <span>Miner</span>
-            <span>Model</span>
-            <span>Status</span>
-            <span>Firmware</span>
-          </div>
-          {fleetRows.map((row) => (
-            <div key={row.miner} className={`${cols} border-b border-border-5 py-3 last:border-b-0`}>
-              <span className="text-300 text-text-primary">{row.miner}</span>
-              <span className="text-300 text-text-primary-70">{row.model}</span>
-              <span className="text-300 text-text-primary-70">{row.status}</span>
-              <RolloutColumnState phase={row.phase} doneLabel={row.doneLabel} idleLabel={row.idleLabel} />
-            </div>
-          ))}
-        </div>
+        <List<FleetRow, string, "miner" | "model" | "status" | "firmware">
+          activeCols={["miner", "model", "status", "firmware"]}
+          colTitles={{ miner: "Miner", model: "Model", status: "Status", firmware: "Firmware" }}
+          colConfig={fleetColConfig}
+          items={fleetRows}
+          itemKey="miner"
+          total={fleetRows.length}
+          itemName={{ singular: "miner", plural: "miners" }}
+          applyColumnWidthsToCells
+          stickyFirstColumn={false}
+        />
       </div>
       <ViewRolloutModal
         event={open ? inProgressFirmwareEvent : null}
@@ -303,15 +414,7 @@ function FirmwareSettingsPageStory(): ReactElement {
         </div>
         <ActiveRolloutStatus event={inProgressFirmwareEvent} onPause={noop} onCancelRemaining={noop} />
         <div className="text-emphasis-300 text-text-primary">Firmware files</div>
-        <DummyTable
-          gridClass="grid-cols-[1.5fr_1fr_0.8fr_0.8fr]"
-          columns={["File name", "Target", "Version", "Uploaded"]}
-          rows={[
-            ["antminer-s21-5.1.0.tar.gz", "Antminer S21", "5.1.0", "Aug 1, 2026"],
-            ["antminer-s21-5.0.2.tar.gz", "Antminer S21", "5.0.2", "Jun 12, 2026"],
-            ["whatsminer-m60-3.4.1.tar.gz", "Whatsminer M60", "3.4.1", "May 3, 2026"],
-          ]}
-        />
+        <FirmwareFilesTable />
       </div>
     </AppShell>
   );
@@ -340,16 +443,7 @@ function EnergyUiStory(): ReactElement {
             </div>
           </div>
           <ActiveRolloutStatus event={inProgressCurtailmentEvent} onPause={noop} onCancelRemaining={noop} />
-          <div className="text-emphasis-300 text-text-primary">History</div>
-          <DummyTable
-            gridClass="grid-cols-[1.2fr_1fr_1fr_0.8fr]"
-            columns={["Reason", "Scope", "Reduction", "Ended"]}
-            rows={[
-              ["Peak demand response", "Whole site", "4.0 MW", "2 days ago"],
-              ["Grid event", "Building B", "1.8 MW", "4 days ago"],
-              ["Scheduled economics", "Whole site", "3.2 MW", "6 days ago"],
-            ]}
-          />
+          <CurtailmentHistory events={mockCurtailmentHistoryEvents} pageSize={5} />
         </section>
       </div>
     </AppShell>
@@ -382,16 +476,7 @@ function ActivityPageStory(): ReactElement {
           <ActiveRolloutBannerStack events={events} onView={(_event, index) => setOpenIndex(index)} />
         </div>
         <div className="mb-3 text-emphasis-300 text-text-primary">Recent activity</div>
-        <DummyTable
-          gridClass="grid-cols-[1.4fr_1fr_1fr_0.9fr]"
-          columns={["Event", "Scope", "User", "When"]}
-          rows={[
-            ["Firmware update to 5.0.2", "Building A, 180 miners", "jmarr", "2 days ago"],
-            ["Reboot", "Rack B7, 40 miners", "automation", "3 days ago"],
-            ["Curtailment", "Whole site", "automation", "5 days ago"],
-            ["Firmware update to 5.0.2", "Building C, 96 miners", "dwitkin", "1 week ago"],
-          ]}
-        />
+        <ActivityTable activities={activityFeedEntries} />
       </div>
       <ViewRolloutModal
         event={openIndex === null ? null : events[openIndex]}

@@ -2,18 +2,21 @@ import { type ReactElement, useState } from "react";
 import clsx from "clsx";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import { FileDropZone } from "@/protoFleet/components/FirmwareUpload";
 import { batchedFirmwareConfig } from "@/protoFleet/features/rollout/rollout.fixtures";
 import RolloutControls from "@/protoFleet/features/rollout/RolloutControls";
 import type { RolloutPlanConfig } from "@/protoFleet/features/rollout/rolloutTypes";
-import Button, { variants } from "@/shared/components/Button";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import { DatePickerField } from "@/shared/components/DatePicker";
+import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import Select from "@/shared/components/Select";
 
 /**
  * Option A from the design discussion: show the **existing** "Add firmware
  * payload" modal (`FirmwareUpdateModal`) with the rollout framework's controls
- * composed in — the firmware-file picker it has today, then the Rollout +
+ * composed in — the firmware-file picker it has today (including the "Upload new
+ * file" path: product/model/version fields + drop zone), then the Rollout +
  * Date-and-time sections appended below. This is a Storybook composition to
  * validate the integrated surface without editing the shipped component or its
  * `onConfirm` contract; the real wiring is a follow-on PR.
@@ -48,6 +51,8 @@ function SectionTitle({ children }: { children: string }): ReactElement {
 function FirmwareModalStory(): ReactElement {
   const [open, setOpen] = useState(true);
   const [fileId, setFileId] = useState<string | null>("f1");
+  const [showUploadZone, setShowUploadZone] = useState(false);
+  const [firmwareVersion, setFirmwareVersion] = useState("");
   const [config, setConfig] = useState<RolloutPlanConfig>(batchedFirmwareConfig);
   const [startDate, setStartDate] = useState<Date | undefined>(new Date("2026-08-04T14:00:00"));
   const isScheduled = config.scheduleType === "scheduleForLater";
@@ -113,6 +118,35 @@ function FirmwareModalStory(): ReactElement {
                   </button>
                 ))}
               </div>
+
+              {/* --- existing FirmwareUpdateModal content: "Upload new file" path --- */}
+              <div className="flex items-center gap-3 py-2">
+                <div className="h-px flex-1 bg-border-5" />
+                <Button
+                  variant={variants.secondary}
+                  size={sizes.compact}
+                  text={showUploadZone ? "Hide upload" : "Upload new file"}
+                  onClick={() => setShowUploadZone((prev) => !prev)}
+                />
+                <div className="h-px flex-1 bg-border-5" />
+              </div>
+
+              {showUploadZone ? (
+                <div className="flex flex-col gap-4">
+                  <div className="grid gap-4 tablet:grid-cols-2">
+                    <Input id="fw-upload-manufacturer" label="Product" initValue="Antminer" disabled required />
+                    <Input id="fw-upload-model" label="Model" initValue="S21" disabled required />
+                  </div>
+                  <Input
+                    id="fw-upload-version"
+                    label="Firmware version"
+                    initValue={firmwareVersion}
+                    onChange={setFirmwareVersion}
+                    required
+                  />
+                  <FileDropZone extensions={[".tar.gz", ".zip"]} onFileSelect={() => undefined} />
+                </div>
+              ) : null}
             </div>
 
             {/* --- rollout framework: pacing controls --- */}
