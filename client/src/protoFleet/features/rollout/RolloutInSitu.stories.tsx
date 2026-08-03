@@ -1,6 +1,8 @@
-import { type ReactElement, useState } from "react";
+import { type ReactElement, type ReactNode, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
+import NavigationMenu from "@/protoFleet/components/NavigationMenu";
+import { primaryNavItems } from "@/protoFleet/config/navItems";
 import { ActiveRolloutBanner, ActiveRolloutBannerStack } from "@/protoFleet/features/rollout/ActiveRolloutBanner";
 import ActiveRolloutStatus from "@/protoFleet/features/rollout/ActiveRolloutStatus";
 import {
@@ -35,6 +37,20 @@ export default meta;
 type Story = StoryObj;
 
 const noop = () => undefined;
+
+/**
+ * The real app shell: the `NavigationMenu` sidebar (absolute, w-60) plus a
+ * content column inset by that width. Wrap page-context stories in this so they
+ * show the navigation + surrounding chrome, not just the page body.
+ */
+function AppShell({ children }: { children: ReactNode }): ReactElement {
+  return (
+    <div className="relative min-h-screen bg-surface-base">
+      <NavigationMenu items={primaryNavItems} />
+      <div className="min-h-screen pl-60">{children}</div>
+    </div>
+  );
+}
 
 // ---- 1. Config modal: Apply to + Rollout controls + Date and time ----------
 // Uses the real RolloutConfigModal (shared Modal): CTAs in the top bar, body
@@ -232,15 +248,16 @@ export const ViewRolloutInSitu: Story = {
 // px-10/pt-10 insets) with the active rollout card as its detail surface.
 
 function FirmwareSettingsPageStory(): ReactElement {
-  const noop = () => undefined;
   return (
-    <div className="min-h-screen bg-surface-base px-10 pt-10">
-      <div className="flex items-center justify-between gap-4 pb-6">
-        <Header title="Firmware" titleSize="text-heading-300" />
-        <Button variant={variants.secondary} size={sizes.compact} text="Upload firmware" onClick={noop} />
+    <AppShell>
+      <div className="px-10 pt-10">
+        <div className="flex items-center justify-between gap-4 pb-6">
+          <Header title="Firmware" titleSize="text-heading-300" />
+          <Button variant={variants.secondary} size={sizes.compact} text="Upload firmware" onClick={noop} />
+        </div>
+        <ActiveRolloutStatus event={inProgressFirmwareEvent} onPause={noop} onCancelRemaining={noop} />
       </div>
-      <ActiveRolloutStatus event={inProgressFirmwareEvent} onPause={noop} onCancelRemaining={noop} />
-    </div>
+    </AppShell>
   );
 }
 
@@ -255,20 +272,21 @@ export const FirmwareSettingsPage: Story = {
 // curtailment does in the energy UI.
 
 function EnergyUiStory(): ReactElement {
-  const noop = () => undefined;
   return (
-    <div className="min-h-screen bg-surface-base px-10 pt-10">
-      <section className="grid gap-6">
-        <div className="flex items-center justify-between gap-4">
-          <Header title="Energy" titleSize="text-heading-300" />
-          <div className="flex items-center gap-2">
-            <Button variant={variants.secondary} size={sizes.base} text="Edit settings" onClick={noop} />
-            <Button variant={variants.primary} size={sizes.base} text="Run curtailment" onClick={noop} />
+    <AppShell>
+      <div className="px-10 pt-10">
+        <section className="grid gap-6">
+          <div className="flex items-center justify-between gap-4">
+            <Header title="Energy" titleSize="text-heading-300" />
+            <div className="flex items-center gap-2">
+              <Button variant={variants.secondary} size={sizes.base} text="Edit settings" onClick={noop} />
+              <Button variant={variants.primary} size={sizes.base} text="Run curtailment" onClick={noop} />
+            </div>
           </div>
-        </div>
-        <ActiveRolloutStatus event={inProgressCurtailmentEvent} onPause={noop} onCancelRemaining={noop} />
-      </section>
-    </div>
+          <ActiveRolloutStatus event={inProgressCurtailmentEvent} onPause={noop} onCancelRemaining={noop} />
+        </section>
+      </div>
+    </AppShell>
   );
 }
 
@@ -285,19 +303,21 @@ function ActivityPageStory(): ReactElement {
   const events = [inProgressFirmwareEvent, inProgressRebootEvent, inProgressCurtailmentEvent];
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   return (
-    <div className="min-h-screen bg-surface-base px-10 pt-10">
-      <div className="pb-6">
-        <Header title="Activity" titleSize="text-heading-300" />
-      </div>
-      <div className="grid gap-3 pb-6">
-        <div className="flex items-center justify-between gap-4">
-          <div className="text-emphasis-300 text-text-primary">Active now</div>
-          <span className="text-200 text-text-primary-70">3 processes running</span>
+    <AppShell>
+      <div className="px-10 pt-10">
+        <div className="pb-6">
+          <Header title="Activity" titleSize="text-heading-300" />
         </div>
-        <ActiveRolloutBannerStack events={events} onView={(_event, index) => setOpenIndex(index)} />
-      </div>
-      <div className="rounded-xl border border-border-5 bg-surface-elevated-base p-6 text-300 text-text-primary-70">
-        Activity table (completed events) continues below.
+        <div className="grid gap-3 pb-6">
+          <div className="flex items-center justify-between gap-4">
+            <div className="text-emphasis-300 text-text-primary">Active now</div>
+            <span className="text-200 text-text-primary-70">3 processes running</span>
+          </div>
+          <ActiveRolloutBannerStack events={events} onView={(_event, index) => setOpenIndex(index)} />
+        </div>
+        <div className="rounded-xl border border-border-5 bg-surface-elevated-base p-6 text-300 text-text-primary-70">
+          Activity table (completed events) continues below.
+        </div>
       </div>
       <ViewRolloutModal
         event={openIndex === null ? null : events[openIndex]}
@@ -305,7 +325,7 @@ function ActivityPageStory(): ReactElement {
         onPause={() => undefined}
         onCancelRemaining={() => undefined}
       />
-    </div>
+    </AppShell>
   );
 }
 
