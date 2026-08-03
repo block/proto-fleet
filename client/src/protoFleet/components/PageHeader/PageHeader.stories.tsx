@@ -242,7 +242,7 @@ export const UpdatePillWithSetup = () => {
       <div className="bg-surface-base" style={{ minWidth: "960px" }}>
         <PageHeaderComponent
           schedulePillData={emptySchedulePillData}
-          updatePill={{ version: "v1.3.0", onClick: action("open update modal") }}
+          updatePill={{ version: "v1.3.0", onClick: action("open update settings") }}
         />
       </div>
     </SitesContext.Provider>

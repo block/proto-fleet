@@ -104,7 +104,7 @@ function HeaderWidgets({
             return updatePill ? (
               <Button
                 key={widget}
-                ariaLabel={`Open update details for ${updatePill.version}`}
+                ariaLabel={`Open update settings for ${updatePill.version}`}
                 className="max-w-full min-w-0 overflow-hidden"
                 prefixIcon={<span className="h-2.5 w-2.5 rounded-full bg-intent-info-fill" />}
                 variant={variants.secondary}

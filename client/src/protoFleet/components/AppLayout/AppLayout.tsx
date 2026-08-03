@@ -13,10 +13,10 @@ import {
   shouldInlineFirstPhoneHeaderWidget,
   shouldStackPhoneHeaderWidgets,
 } from "@/protoFleet/components/PageHeader/headerWidgetLayout";
-import type { UpdatePillData } from "@/protoFleet/components/PageHeader/PageHeader";
 import { useCurtailmentPillData } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
 import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
+import { useUpdateIndicator } from "@/protoFleet/features/updates/useUpdateIndicator";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { useHasPermission } from "@/protoFleet/store";
 import { Menu } from "@/shared/assets/icons";
@@ -26,16 +26,18 @@ import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 type Props = {
   children: ReactNode;
   hideShellHeader?: boolean;
-  updatePill?: UpdatePillData | null;
 };
 
-const AppLayoutContent = ({ children, hideShellHeader = false, updatePill = null }: Props) => {
+const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { bgClass } = usePageBackground();
   const { isPhone, isTablet } = useWindowDimensions();
   const [dismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const schedulePillData = useSchedulePillData();
   const { activeEvent: activeCurtailmentEvent } = useCurtailmentPillData();
+  // Release discovery is an enhancement of the normal Fleet header. Focused
+  // detail routes deliberately skip the poll along with the hidden header.
+  const updatePill = useUpdateIndicator({ enabled: !hideShellHeader });
   const hasDismissedSetup = Boolean(dismissedSetup);
   const canReadCurtailment = useHasPermission("curtailment:read");
   const hasVisibleCurtailmentPill = activeCurtailmentEvent !== null && canReadCurtailment;

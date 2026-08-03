@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
-import { action } from "storybook/actions";
 import { clearToasts, pushToast, updateToast } from "../../ToastsObserver";
 import ToasterComponent from "./Toaster";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -102,28 +101,6 @@ export const Toaster = () => {
             Clear All Toasts
           </Button>
         </div>
-      </div>
-    </div>
-  );
-};
-
-export const UpdateAvailableToast = () => {
-  useEffect(() => {
-    clearToasts();
-    pushToast({
-      message: "Update available: Fleet v1.3.0",
-      status: STATUSES.info,
-      ttl: false,
-      onClick: action("open update modal"),
-    });
-
-    return () => clearToasts();
-  }, []);
-
-  return (
-    <div className="min-h-screen bg-surface-base">
-      <div className="fixed right-4 bottom-4 z-20 phone:right-2 phone:bottom-2">
-        <ToasterComponent />
       </div>
     </div>
   );

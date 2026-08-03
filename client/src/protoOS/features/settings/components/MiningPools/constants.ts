@@ -6,7 +6,6 @@ type StatusMessageType = {
 
 export const STATUS_MESSAGES: StatusMessageType = {
   [STATUSES.success]: "Saved",
-  [STATUSES.info]: "Notice",
   [STATUSES.loading]: "Saving changes",
   [STATUSES.queued]: "Saving changes",
   [STATUSES.error]: "Your changes were not saved",

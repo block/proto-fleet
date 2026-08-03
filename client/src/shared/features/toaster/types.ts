@@ -16,7 +16,6 @@ export type ToastType = {
   ttl?: number | false;
   longRunning?: boolean;
   progress?: number;
-  onClick?: () => void;
   onClose?: () => void;
   actions?: ToastAction[];
 };

@@ -26,7 +26,7 @@ deepened: 2026-07-27
 
 ### Summary
 
-Proto Fleet instances will check GitHub releases for newer versions and prompt users who hold an instance-update permission (SUPER_ADMIN by default, assignable to other roles). Phase 1 ships the prompt with release notes and a copy-paste upgrade command; phase 2 adds a host-side executor that performs the upgrade with one click. An instance-level release-channel setting (Stable vs Stable + RC) gates whether prereleases appear.
+Proto Fleet instances will check GitHub releases for newer versions. In phase 1, permission-holding operators see a passive “Update available” indicator on standard authenticated ProtoFleet views with the Fleet shell header. The indicator opens `/settings/updates`, which is the authoritative surface for release notes, release-channel controls, and the copy-paste install command. Phase 2 adds a host-side executor for one-click upgrades.
 
 ### Problem Frame
 
@@ -34,7 +34,8 @@ Learning that a new Proto Fleet version exists currently means manually watching
 
 ### Key Decisions
 
-- **One-click upgrade is the destination, delivered in two phases.** Phase 1 ships detection plus a prompt with a copy-paste install command; phase 2 adds the host-side executor for true one-click. The executor is the long pole, and phase 1 doubles as the migration path: the manual upgrade it prompts for is the one that installs the executor.
+- **One-click upgrade is the destination, delivered in two phases.** Phase 1 adds release detection, a passive shell indicator, and a Settings workflow with the copy-paste install command. Phase 2 adds the host-side executor for true one-click. The executor is the long pole, and phase 1 doubles as the migration path: the manual upgrade installs the executor.
+- **Update discovery is intentionally header-scoped.** Updates are useful but not operationally critical. Phase 1 does not create a global notification owner or track update state across routes without the Fleet shell header, including fullscreen, headerless detail, authentication, and error views. Operators can always open `/settings/updates` for authoritative status.
 - **Fail loud, no auto-rollback.** Database migrations run forward-only and deployed migrations are immutable, so restoring the previous binary after a failed upgrade can strand it against a newer schema. Instead the executor validates everything it can before tearing the stack down, and any failure surfaces a clear error; recovery is over ssh.
 - **RC visibility is an instance-level release-channel setting in the UI** (Stable vs Stable + RC), editable by holders of the update permission. Not host config, because changing channels shouldn't need ssh; not per-user, because the instance runs one version and divergent prompts invite confusion. `nightly-*` prereleases are never shown on any channel.
 - **Updating is a granular, assignable permission.** Held by the built-in SUPER_ADMIN role by default (the owner-equivalent role, which automatically holds every catalog permission) and assignable to other roles through the existing permission catalog. Deliberately excluded from ADMIN's default seed so orgs opt in via the role editor.
@@ -43,7 +44,7 @@ Learning that a new Proto Fleet version exists currently means manually watching
 ### Actors
 
 - A1. Updater — a user holding the instance-update permission (SUPER_ADMIN by default).
-- A2. Regular user — any signed-in user without that permission; never sees upgrade prompts.
+- A2. Regular user — any signed-in user without that permission; sees neither the update indicator nor the Updates settings page.
 - A3. Instance — the running Proto Fleet deployment (server + client), which checks for releases and reports its own version.
 - A4. Host executor (phase 2) — the host-side component that performs the upgrade while the stack is down.
 
@@ -54,19 +55,19 @@ Learning that a new Proto Fleet version exists currently means manually watching
 - R1. The instance periodically checks GitHub releases for `block/proto-fleet` and determines whether a release newer than the running version exists.
 - R2. The instance exposes its running release version so current-vs-latest comparison and display are possible.
 - R3. The release-channel setting filters what counts as eligible: Stable shows only stable releases; Stable + RC also shows `vX.Y.Z-rc.N` prereleases; `nightly-*` releases are never eligible.
-- R4. When GitHub is unreachable, the feature degrades silently: no prompt, no user-facing errors, no log spam.
+- R4. When GitHub is unreachable, the feature degrades silently: no indicator, no user-facing errors, no log spam.
 
-**Notification prompt (phase 1)**
+**Update discovery (phase 1)**
 
-- R5. When a newer eligible release exists, updaters (A1) see a prompt in the client; regular users (A2) see nothing.
-- R6. The prompt shows the new version, links to its release notes, and provides the exact copy-paste install command for that version.
-- R7. The prompt is dismissible per release: dismissing suppresses that version and the prompt reappears for the next eligible release.
-- R8. After the instance is upgraded, prompts for that or older releases clear on their own.
+- R5. When a newer eligible release exists, updaters (A1) see a passive “Update available” indicator on standard authenticated ProtoFleet views that render the Fleet shell header; regular users (A2) see nothing.
+- R6. Activating the indicator navigates to `/settings/updates`. The indicator does not display release notes, retain the install command, or open an upgrade modal.
+- R7. `/settings/updates` is the authoritative phase-1 surface for the current version, eligible release, release notes, release channel, and exact copy-paste install command.
+- R8. After the instance is upgraded, the indicator clears on the next successful status refresh.
 
 **Settings and permissions**
 
-- R9. The release-channel setting (Stable / Stable + RC) lives in instance settings in the client, editable only by updaters.
-- R10. Seeing prompts, changing the channel, and triggering upgrades are gated by one granular permission, assignable to roles, held by SUPER_ADMIN by default and deliberately absent from ADMIN's default seed.
+- R9. The release-channel setting (Stable / Stable + RC) lives in instance settings in the client, editable only by updaters. The indicator is hidden on the Updates page and refetches when the operator returns to an eligible shell view; other tabs converge through their regular status poll.
+- R10. Seeing the indicator, opening update settings, changing the channel, and triggering upgrades are gated by one granular permission, assignable to roles, held by SUPER_ADMIN by default and deliberately absent from ADMIN's default seed.
 
 **One-click upgrade (phase 2)**
 
@@ -82,10 +83,10 @@ Learning that a new Proto Fleet version exists currently means manually watching
 
 - F1. Learn and upgrade manually (phase 1)
   - **Trigger:** a new eligible release is published.
-  - **Steps:** instance detects it → updater sees the prompt → reviews release notes → copies the install command → runs it over ssh → on next load the prompt is gone and the new version shows.
-  - **Covers R1–R8.**
+  - **Steps:** instance detects it → updater sees the shell indicator → updater opens `/settings/updates` → Settings fetches authoritative status → updater reviews release notes and copies the install command → updater runs it over ssh → the indicator clears after status refresh.
+  - **Covers R1–R10.**
 - F2. One-click upgrade (phase 2)
-  - **Trigger:** updater clicks upgrade on the prompt.
+  - **Trigger:** updater clicks upgrade from the authoritative update surface.
   - **Steps:** confirmation (RC warning when applicable) → executor downloads and validates the release → stack teardown and reinstall with prior configuration → stack returns → client reconnects and shows the new version. On failure the error and logs surface, and the instance stays recoverable over ssh.
   - **Covers R11–R17.**
 
@@ -106,17 +107,19 @@ sequenceDiagram
 
 ### Acceptance Examples
 
-- AE1. **Covers R3.** Given an instance on the Stable channel, when `v0.3.0-rc.1` is published, no prompt appears; when `v0.3.0` is published, the prompt appears.
-- AE2. **Covers R3.** Given an instance on Stable + RC, when `nightly-20260727-abc1234` is published, no prompt appears.
-- AE3. **Covers R1, R3.** Given an instance running `v0.2.9-rc.5` on Stable + RC, when stable `v0.2.9` is published, the prompt offers it — a stable release supersedes its own RCs.
-- AE4. **Covers R4.** Given the host cannot reach GitHub, when the check runs, the instance behaves normally with no prompt and no surfaced error.
-- AE5. **Covers R5, R10.** Given a user whose role lacks the update permission, when a newer release exists, they see no prompt and no channel setting.
+- AE1. **Covers R3, R5.** Given an instance on the Stable channel, when `v0.3.0-rc.1` is published, no indicator appears; when `v0.3.0` is published, the indicator appears on an eligible Fleet-shell view.
+- AE2. **Covers R3.** Given an instance on Stable + RC, when `nightly-20260727-abc1234` is published, no indicator appears.
+- AE3. **Covers R1, R3, R7.** Given an instance running `v0.2.9-rc.5` on Stable + RC, when stable `v0.2.9` is published, the indicator appears and `/settings/updates` offers the stable release — a stable release supersedes its own RCs.
+- AE4. **Covers R4.** Given the host cannot reach GitHub, when the check runs, the instance behaves normally with no indicator and no surfaced error.
+- AE5. **Covers R5, R10.** Given a user whose role lacks the update permission, when a newer release exists, they see neither the indicator nor the Updates settings page.
 - AE6. **Covers R13 (phase 2 — verified by the follow-up executor plan, not this one).** Given an instance last deployed with beta alerts enabled, when a one-click upgrade completes, beta alerts are still enabled.
 - AE7. **Covers R15 (phase 2 — verified by the follow-up executor plan, not this one).** Given the new stack fails health checks after teardown, the upgrade reports failure with logs available and recovery steps; the instance is never silently left down.
+- AE8. **Covers R5.** Given an updater remains on a fullscreen miner view, a headerless detail view, authentication, or an error view, no update indicator appears; returning to an eligible Fleet-shell view restores polling and discovery. Onboarding pages that retain the Fleet shell header remain eligible.
+- AE9. **Covers R9.** Given an updater changes the release channel, Settings immediately shows authoritative status. An already-open second tab may retain its passive indicator until its next poll.
 
 ### Success Criteria
 
-- Operators stop checking GitHub: a new eligible release is visible in the client within a day of publication.
+- Operators stop checking GitHub: a new eligible release is visible in the Fleet shell within a day of publication, and Settings provides authoritative details.
 - Phase 2: a happy-path upgrade completes from the client with zero ssh, and downtime is limited to the stack-restart window.
 - External operators adopt both phases with no setup beyond running one manual upgrade (the one that installs the executor).
 
@@ -125,7 +128,7 @@ sequenceDiagram
 **Deferred to Follow-Up Work**
 
 - Phase 2 one-click executor (R11–R17): needs its own implementation plan once the executor mechanism questions below are settled. Phase 1 leaves the seams clean — the install command is composed server-side, and the updates RPC surface extends naturally with an upgrade-trigger call.
-- Playwright E2E coverage for the banner and settings page, following the repo's post-feature E2E workflow.
+- Playwright E2E coverage for the header indicator and settings page, following the repo's post-feature E2E workflow.
 
 **Deferred for later**
 
@@ -138,7 +141,9 @@ sequenceDiagram
 
 - Auto-rollback and downgrades — unsafe under forward-only migrations.
 - Nightly-channel notifications.
-- ProtoOS: it is served by the miner's embedded API server, not fleetd, and has no permission surface. This feature is ProtoFleet-only.
+- ProtoOS: it is served by the miner's embedded API server, not fleetd, and has no permission surface.
+- Update indicators on routes without the Fleet shell header, including fullscreen, headerless detail, authentication, backend-down, and error views.
+- Immediate cross-tab indicator synchronization. Tabs converge through the existing status poll.
 
 ### Dependencies / Assumptions
 
@@ -146,7 +151,7 @@ sequenceDiagram
 - Deployment hosts can reach GitHub over HTTPS; today's installer already downloads release assets from there.
 - The server binary already embeds its release version at build time but does not expose it to the client; R2 closes that gap.
 - The upgrade procedure is already scripted end-to-end (`deployment-files/install.sh` plus `deployment-files/run-fleet.sh`); phase 2 automates the existing procedure rather than inventing a new one. Its interactive prompts and per-run flags currently assume a human operator.
-- Existing installs gain the executor only through one more manual upgrade; phase 1's prompt is what drives that.
+- Existing installs gain the executor only through one more manual upgrade; phase 1's indicator and Settings workflow drive that.
 - Granular permission machinery (permission catalog, role-permission assignment, built-in vs custom roles) exists; the update permission slots into it.
 
 ### Outstanding Questions
@@ -161,7 +166,9 @@ Deferred to phase-2 planning (do not block phase 1):
 
 ## Planning Contract
 
-**Product Contract preservation:** changed A1, R10, Summary, and Key Decision 4 wording — "Owner" mapped to `SUPER_ADMIN`. The codebase has no Owner role; built-in roles are `SUPER_ADMIN` / `ADMIN` / `FIELD_TECH`, and `SUPER_ADMIN` is the owner-equivalent that automatically holds every catalog permission. Scope Boundaries gained the ProtoOS exclusion and the Deferred to Follow-Up Work subsection. All other Product Contract text and IDs are unchanged.
+**Product Contract amendment (2026-08-03):** Phase 1 now uses a passive, Fleet-header-scoped update indicator. Release details and the install command remain exclusive to `/settings/updates`; global notification ownership, per-release dismissal, and immediate cross-tab consistency are intentionally out of scope. This narrows R5–R10 without changing release detection, permissions, or the phase-2 upgrade direction. Earlier wording also mapped “Owner” to `SUPER_ADMIN`, the codebase's owner-equivalent built-in role.
+
+**Review principle:** Automated findings are advisory, not product authority. Assess each finding against the agreed scope, realistic impact, existing safeguards, and added complexity. Implement recommendations when the risk reduction is proportionate; otherwise document the trade-off and decline or narrow the finding.
 
 ### Key Technical Decisions
 
@@ -171,11 +178,13 @@ Deferred to phase-2 planning (do not block phase 1):
 - **Semver via `golang.org/x/mod/semver`.** Already an indirect dependency of `server/go.mod`; promote to direct (run `go work sync`). Always `IsValid`-filter before `Compare` — invalid tags (nightlies, hand-made tags) silently lose all comparisons rather than erroring — and keep the leading `v`.
 - **A non-semver running version disables comparison.** `version = "dev"` (local builds) and `nightly-*` builds yield `status_available = false` and `update_available = false` with at most one debug log; a valid running version newer than the latest release remains an available, no-update result. Never treat unparseable as "show latest".
 - **Release-channel setting stored as an org-scoped row.** Org-scoped rows are the codebase's settings convention, and the single-org invariant is enforced rather than conventional: the only org-creation path in the server is guarded by a has-user check, and login hard-fails unless the user belongs to exactly one org. An `organization_id`-keyed row is therefore instance-level in practice, and because eligibility is computed at read time, the decision stays coherent even if multi-org ever lands. `RequireOrgWidePermission` then fits the permission check naturally.
-- **Permission `instance:update`, SUPER_ADMIN-held, built-in ADMIN-excluded.** One catalog key covers seeing prompts, changing the channel, and (phase 2) triggering upgrades. `SUPER_ADMIN` acquires it automatically via `ReconcileFull`/`AllPermissions()`; it is explicitly excluded from `adminSeedPermissions()` (mirroring the existing `role:manage` exclusion). Built-in roles are immutable in the UI, so opt-in means creating a custom ADMIN-like role and granting `instance:update` through the existing role editor. No seed migration is needed: boot-time `authz.Reconcile` upserts every catalog entry before the listener starts, so existing databases receive the permission row from the `catalog.go` change alone.
+- **Permission `instance:update`, SUPER_ADMIN-held, built-in ADMIN-excluded.** One catalog key covers seeing the indicator, opening update settings, changing the channel, and (phase 2) triggering upgrades. `SUPER_ADMIN` acquires it automatically via `ReconcileFull`/`AllPermissions()`; it is explicitly excluded from `adminSeedPermissions()` (mirroring the existing `role:manage` exclusion). Built-in roles are immutable in the UI, so opt-in means creating a custom ADMIN-like role and granting `instance:update` through the existing role editor. No seed migration is needed: boot-time `authz.Reconcile` upserts every catalog entry before the listener starts, so existing databases receive the permission row from the `catalog.go` change alone.
 - **One gated status read; whole service session-only.** `GetUpdateStatus` already returns `current_version`, so a separate `GetVersion` RPC would duplicate the read surface without a caller. `GetUpdateStatus` and `SetReleaseChannel` require `instance:update`, and both register in `SessionOnlyProcedures` (`server/internal/handlers/interceptors/config.go`) so API keys can neither read update status nor flip the channel.
 - **The server composes the install command from two independently constrained inputs.** The status response carries the full copy-paste command — `bash <(curl -fsSL "<base>/<tag>/install.sh") <tag>`. The download base must exactly match the allowlisted Proto Fleet GitHub release path; startup rejects every other value, including alternate HTTPS hosts and values containing shell syntax. Command composition checks the allowlist again, uses the canonical constant rather than the raw config value, and accepts only the same canonical stable/RC tags as the checker. The installer self-detects architecture via `uname -m`, so the command never encodes arch or OS. The composed command pins the installer to the target tag's release asset, diverging from the README's unpinned `fleet.proto.xyz` bootstrap form.
-- **Per-browser dismissal.** Dismissal persists in `localStorage` as the dismissed release tag, via the existing `useReactiveLocalStorage` hook (the reactive variant — the callout must disappear immediately on dismiss; the non-reactive `useLocalStorage` would not trigger a re-render). Teammates who also hold the permission each manage their own prompt, and the callout re-shows whenever the eligible tag differs from the stored dismissed tag — plain tag inequality, no client-side version comparison needed (R7). No server-side dismissal storage in phase 1.
-- **Silent degradation is explicit, not misleading.** Any ordinary list-fetch failure or malformed payload keeps the last-known-good release data, marks both channels unavailable, and logs at `slog.Debug` (R4). A reported GitHub rate limit suppresses further requests until its reset and emits one actionable warning for that cycle. A failed exact-tag revalidation marks only the affected channel unavailable; three consecutive failures emit one warning without dropping the unverified cached release. Stable and Stable+RC reads use documented snapshot accessors; an RC-only snapshot can offer a verified RC that is newer than the running version, but cannot claim the instance is current while stable discovery is unknown. The prompt remains hidden and Settings renders “Update status unavailable” rather than claiming the instance is current. Malformed individual releases are skipped without aborting the cycle. Each polling iteration contains panics, marks both channels unavailable, logs the defect with a stack trace, and leaves the next scheduled cycle running.
+- **Passive, shell-scoped indicator.** `AppLayout` owns a status poll only while its shared header is visible. `PageHeader` renders the indicator when an eligible update exists, and activating it navigates to `/settings/updates`. There is no toast, modal, dismissal state, or global notification owner.
+- **Settings owns update details.** The shell poller retains only the eligible version. Release notes and the install command render only on `/settings/updates`, which fetches authoritative status before exposing either control. The indicator cannot execute or copy stale command-bearing state.
+- **Best-effort indicator freshness across tabs.** The indicator is disabled on `/settings/updates`; returning to an eligible shell view starts an immediate fetch. Separate tabs may show a stale passive indicator until their next poll. That is an accepted freshness trade-off because activating it only navigates to authoritative Settings.
+- **Silent degradation is explicit, not misleading.** Any ordinary list-fetch failure or malformed payload keeps the last-known-good release data, marks both channels unavailable, and logs at `slog.Debug` (R4). A reported GitHub rate limit suppresses further requests until its reset and emits one actionable warning for that cycle. A failed exact-tag revalidation marks only the affected channel unavailable; three consecutive failures emit one warning without dropping the unverified cached release. Stable and Stable+RC reads use documented snapshot accessors; an RC-only snapshot can offer a verified RC that is newer than the running version, but cannot claim the instance is current while stable discovery is unknown. The indicator remains hidden and Settings renders “Update status unavailable” rather than claiming the instance is current. Malformed individual releases are skipped without aborting the cycle. Each polling iteration contains panics, marks both channels unavailable, logs the defect with a stack trace, and leaves the next scheduled cycle running.
 - **The updates RPC is the sole source of truth for "current version" in this feature.** The client's baked-in `buildVersionInfo.version` (Vite env) is a different value that can disagree with the server after an upgrade with a stale tab; feature UI must never read it for the server version.
 
 ### High-Level Technical Design
@@ -191,16 +200,16 @@ flowchart TB
     DB[(release_channel_setting - org-scoped row)] --> SVC
     SVC --> H[InstanceUpdateService handler: GetUpdateStatus + SetReleaseChannel gated by instance:update]
   end
-  B[ProtoFleet client: nav update callout + Settings Updates page] -->|Connect RPC| H
+  B[ProtoFleet client: Fleet-header indicator + authoritative Updates settings page] -->|Connect RPC| H
 ```
 
-Callout visibility at any moment is a pure function: `update_available && hasPermission && !dismissed(tag)` — no stored callout state on the server, so R8 (clears after upgrade) and channel flips need no special-casing.
+Indicator visibility is a pure function of available status, update eligibility, permission, and an eligible header-owning route. Activating it only navigates to Settings; it carries no dismissal or command state.
 
 ### Assumptions
 
 - Phase 2 (R11–R17) is deferred to a follow-up plan; this plan implements R1–R10 and leaves the seams (server-side command composition, extensible updates service) for it.
 - Exactly one organization per instance — verified as enforced, not merely conventional: the only org-creation path is guarded by a has-user check, and login hard-fails unless the user belongs to exactly one org. This is the basis for org-scoped storage satisfying the Product Contract's "instance-level" intent.
-- The update callout lives at the bottom of the left navigation panel, directly above the logout CTA (user-directed placement, 2026-07-27) — `client/src/protoFleet/components/NavigationMenu/Navigation.tsx` renders both. The repo has no pre-existing global callout slot, so this is a new slot in that nav footer region, and the callout must handle the nav's collapsed (icon-width) laptop state.
+- The passive indicator lives in the shared Fleet header. Routes that omit the header—including fullscreen miner views, headerless details, authentication, and error surfaces—intentionally omit update discovery. Onboarding routes that retain the header remain eligible. ProtoOS remains outside this feature.
 - Migration number `000131` follows main's `000130`; re-check after any merge from main (`ls server/migrations/ | grep -F '.up.sql' | cut -c1-6 | sort | uniq -d` — see `docs/solutions/database-issues/duplicate-golang-migrate-version-after-merge-2026-05-12.md`).
 
 ### Sequencing
@@ -289,22 +298,22 @@ U1, U2, U3 are independent and can proceed in any order. U4 depends on all three
   - Defensive: an eligible candidate outside the exact stable/RC tag grammar never yields an `install_command`, and `update_available` stays false.
 - **Verification:** `just test` (server) green; the service appears in gRPC reflection like its peers.
 
-### U5. Client update callout in the navigation panel
+### U5. Client update indicator in the Fleet header
 
-- **Goal:** Permission-gated, per-release-dismissible update callout pinned at the bottom of the left nav, directly above the logout CTA.
-- **Requirements:** R5, R6, R7, R8.
+- **Goal:** Show a permission-gated, passive update indicator in the shared Fleet header.
+- **Requirements:** R5, R6, R8, R9.
 - **Dependencies:** U1, U4.
-- **Files:** `client/src/protoFleet/api/clients.ts` (register `InstanceUpdateService` client); `client/src/protoFleet/features/updates/api/useUpdateStatus.ts`; `client/src/protoFleet/features/updates/components/UpdateCallout.tsx` (+ `UpdateCallout.test.tsx`); `client/src/protoFleet/components/NavigationMenu/Navigation.tsx` (new slot in the pinned footer region, immediately above the logout button).
-- **Approach:** `useUpdateStatus` wraps the RPC in `usePoll` (callback-style `{fetchData, poll, pollIntervalMs, enabled}`, mirroring `useActiveAlerts.ts`), with `enabled` true only when `useHasPermission('instance:update')` holds — non-updaters never fetch. The callout renders only when `status_available && update_available`, then shows the new-version headline, release-notes link, copy-install-command control, and dismiss affordance. The nav collapses to icon width on laptop and expands on hover; in the collapsed state the callout renders an icon-only affordance and shows its full content when expanded or hovered. Dismissal stores the dismissed release tag via `useReactiveLocalStorage`; the callout re-shows whenever the eligible tag differs from the stored dismissed tag. After an upgrade the RPC reports the new current version and `update_available` goes false. Never read `buildVersionInfo.version` for the server version.
-- **Patterns to follow:** `Navigation.tsx` footer region (mount point + responsive classes), `useActiveAlerts.ts` (poll hook shape), `CreateApiKeyModal.tsx` (copy + toast), `DismissibleCalloutWrapper.tsx` (dismiss affordance), `Preferences.test.tsx` (plain `render()` + per-hook `vi.mock`, no provider wrappers).
+- **Files:** `client/src/protoFleet/features/updates/api/useAvailableUpdate.ts`; `client/src/protoFleet/features/updates/useUpdateIndicator.ts`; `client/src/protoFleet/components/AppLayout/AppLayout.tsx`; `client/src/protoFleet/components/PageHeader/PageHeader.tsx` and related tests.
+- **Approach:** `AppLayout` owns the indicator only while the normal header is visible. `useAvailableUpdate` permission-gates `GetUpdateStatus`, retains only the eligible version, and silently retries ordinary transport failures. `useUpdateIndicator` disables polling on `/settings/updates` and navigates there when activated. Fullscreen and headerless routes do not poll. No modal, command-bearing notification state, toast, or per-release dismissal is created. Other tabs converge through their regular poll rather than a cross-tab synchronization channel.
+- **Patterns to follow:** Existing `PageHeader` status pills, `usePoll` for polling shape, and React Router navigation.
 - **Test scenarios (Vitest):**
-  - No permission (mock `useHasPermission` false) → no fetch, renders nothing (AE5 client side).
-  - Update available → renders version, notes link href, and install-command copy control.
-  - Copy click → clipboard util called with the exact `install_command`; success toast pushed; clipboard failure pushes error toast.
-  - Dismiss → callout hides and the tag persists via the reactive localStorage hook; same tag stays hidden on re-render; a different eligible tag shows again.
-  - Collapsed-state affordance present: the icon-only element and the full content carry the same responsive-class idiom as the logout label (assert classes).
-  - `update_available = false` → renders nothing.
-- **Verification:** `npm run test` in `client/` green; ESLint clean; callout visible above the logout button for permission holders when an update is eligible.
+  - No permission or a disabled/headerless route → no status fetch and no indicator.
+  - Eligible update → “Update available” renders with an accessible version-specific label even though the shell poller does not retain `install_command`.
+  - Activating the indicator navigates to `/settings/updates`, where indicator polling is disabled.
+  - No available update or unavailable status → no indicator.
+  - Disabling the owner immediately hides cached indicator state; RPC failures hide the indicator without mutating global auth or permissions.
+  - Fullscreen routes never mount `AppLayout`, so they neither poll nor render the indicator.
+- **Verification:** `npm run test` in `client/` green; ESLint clean; the indicator appears only on eligible Fleet-header views.
 
 ### U6. Client settings page for the release channel
 
@@ -312,9 +321,9 @@ U1, U2, U3 are independent and can proceed in any order. U4 depends on all three
 - **Requirements:** R2 (display), R9.
 - **Dependencies:** U1, U4.
 - **Files:** `client/src/protoFleet/features/settings/components/Updates.tsx` (+ `Updates.test.tsx`); `client/src/protoFleet/config/navItems.ts`; `client/src/protoFleet/router.tsx`; `client/src/protoFleet/routePrefetch.ts`.
-- **Approach:** Mirror `Network.tsx` for structure (`SettingsPageHeader`, bordered card, skeleton loading) and the `CreateApiKeyModal.tsx` save pattern (RPC call → `pushToast` success/error). Content: current server version; “Update status unavailable” when `status_available` is false; when status is available and a newer eligible release exists, its version, release-notes link, and install-command copy control; otherwise an explicit up-to-date state. RPC transport failures keep the existing error state. A Stable / Stable + RC control calls `SetReleaseChannel`; the checkbox and command-copy control remain disabled through the save and corresponding refetch. Status requests carry a monotonically increasing request ID so an older response cannot overwrite a newer persisted channel and offer. A remounted page waits for any save started by its predecessor before loading status; the save has a 30-second RPC deadline so the cross-remount barrier always settles, and the unmounted page does not toast or refetch. Stale and unmounted failures from the same session still run global logout or permission invalidation while suppressing obsolete page state and toast work; each request captures the session-expiry object installed by login so delayed failures from a replaced session cannot mutate its successor. Successful saves and ambiguous non-auth save failures both refresh authoritative status. `Unauthenticated` defers to logout without another status call; `PermissionDenied` reports the revoked access while mounted, removes stale `instance:update` client authority in every lifecycle state of the originating session, and redirects through the permission-aware settings landing helper. RC helper copy notes that RC installs cannot downgrade until the next stable. Register the route across `routePrefetch.ts`, `router.tsx`, and `navItems.ts` with `requiredPermission: 'instance:update'`.
+- **Approach:** Mirror `Network.tsx` for structure (`SettingsPageHeader`, bordered card, skeleton loading) and the `CreateApiKeyModal.tsx` save pattern (RPC call → `pushToast` success/error). This is the only phase-1 surface that renders release details or the command. Content: current server version; “Update status unavailable” when `status_available` is false; when status is available and a newer eligible release exists, its version, release-notes link, and install-command copy control; otherwise an explicit up-to-date state. RPC transport failures keep the existing error state. A Stable / Stable + RC control calls `SetReleaseChannel`; the checkbox and command-copy control remain disabled through the save and corresponding refetch. Status requests carry a monotonically increasing request ID so an older response cannot overwrite a newer persisted channel and offer. A remounted page waits for any save started by its predecessor before loading status; the save has a 30-second RPC deadline so the cross-remount barrier always settles, and the unmounted page does not toast or refetch. Stale and unmounted failures from the same session still run global logout or permission invalidation while suppressing obsolete page state and toast work; each request captures the session-expiry object installed by login so delayed failures from a replaced session cannot mutate its successor. Successful saves and ambiguous non-auth save failures both refresh authoritative status. `Unauthenticated` defers to logout without another status call; `PermissionDenied` reports the revoked access while mounted, removes stale `instance:update` client authority in every lifecycle state of the originating session, and redirects through the permission-aware settings landing helper. RC helper copy notes that RC installs cannot downgrade until the next stable. Register the route across `routePrefetch.ts`, `router.tsx`, and `navItems.ts` with `requiredPermission: 'instance:update'`.
 - **Test scenarios (Vitest):**
-  - Renders current and latest versions, release-notes link, and install-command copy control from a mocked status response (regardless of any dismissed nav callout).
+  - Renders current and latest versions, release-notes link, and install-command copy control from a mocked authoritative status response.
   - `status_available = false` → renders “Update status unavailable”; available status with `update_available = false` → renders the up-to-date state; status-RPC transport failure → renders the error state.
   - Changing the channel calls `SetReleaseChannel` with the new value and toasts success.
   - Older status requests that resolve or reject after a newer success cannot replace the fresh UI; channel and copy controls remain disabled throughout both save and refetch.
@@ -327,14 +336,14 @@ U1, U2, U3 are independent and can proceed in any order. U4 depends on all three
 
 ## Verification Contract
 
-| Gate | Command | Applies to | Done signal |
-|---|---|---|---|
-| Lint (root aggregate) | `just lint` | all units | exits clean, zero warnings |
-| Server tests | `just test` from `server/` (Postgres via `just db-up`) | U2, U3, U4 | all packages pass, including new `internal/domain/updates` and handler tests |
-| Client tests | `npm run test` from `client/` | U5, U6 | Vitest suite passes including new component tests |
-| Generated code in sync | `just gen` then `git status` | U1, U3 | no uncommitted diff after regeneration |
-| Go workspace sync | `go work sync` at repo root | U2 | no `go.work.sum` drift |
-| Migration hygiene | `ls server/migrations/ \| grep -F '.up.sql' \| cut -c1-6 \| sort \| uniq -d` | U3 | empty output (no duplicate versions) |
+| Gate                   | Command                                                                      | Applies to | Done signal                                                                  |
+| ---------------------- | ---------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------- |
+| Lint (root aggregate)  | `just lint`                                                                  | all units  | exits clean, zero warnings                                                   |
+| Server tests           | `just test` from `server/` (Postgres via `just db-up`)                       | U2, U3, U4 | all packages pass, including new `internal/domain/updates` and handler tests |
+| Client tests           | `npm run test` from `client/`                                                | U5, U6     | Vitest suite passes including new component tests                            |
+| Generated code in sync | `just gen` then `git status`                                                 | U1, U3     | no uncommitted diff after regeneration                                       |
+| Go workspace sync      | `go work sync` at repo root                                                  | U2         | no `go.work.sum` drift                                                       |
+| Migration hygiene      | `ls server/migrations/ \| grep -F '.up.sql' \| cut -c1-6 \| sort \| uniq -d` | U3         | empty output (no duplicate versions)                                         |
 
 ## Definition of Done
 
@@ -357,8 +366,8 @@ U1, U2, U3 are independent and can proceed in any order. U4 depends on all three
 - `server/internal/domain/authz/catalog.go`, `server/internal/domain/authz/builtin.go` — permission catalog, built-in roles, reconcile behavior.
 - `server/internal/handlers/middleware/permission.go` — `RequireOrgWidePermission` and friends.
 - `server/internal/handlers/handlerstest/permissions.go`, `server/internal/testutil/database_setup.go` — test harnesses for permission and DB tests.
-- `client/src/shared/components/Callout/DismissibleCalloutWrapper.tsx`, `client/src/shared/hooks/usePoll.ts`, `client/src/shared/hooks/useReactiveLocalStorage.ts`, `client/src/shared/utils/utility.ts` — callout, polling, dismissal, and clipboard building blocks.
-- `client/src/protoFleet/components/NavigationMenu/Navigation.tsx` — the left nav; its pinned footer (logout CTA) hosts the new update callout slot.
+- `client/src/shared/hooks/usePoll.ts` — polling building block for the passive indicator.
+- `client/src/protoFleet/components/AppLayout/AppLayout.tsx`, `client/src/protoFleet/components/PageHeader/PageHeader.tsx`, and `client/src/protoFleet/router.tsx` — header ownership, indicator placement, and intentionally excluded routes.
 - `.github/workflows/release.yml` and `.github/workflows/nightly-builds.yml` — how stable, RC, and nightly releases are cut and marked prerelease.
 - `.github/workflows/proto-fleet-artifact-build.yml` — writes `deployment/version.txt` into the release tarball and injects the ldflags version.
 - `deployment-files/install.sh` and `deployment-files/run-fleet.sh` — today's upgrade procedure; installer self-detects arch from `uname -m`.

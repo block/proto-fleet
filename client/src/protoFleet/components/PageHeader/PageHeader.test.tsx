@@ -220,7 +220,7 @@ describe("PageHeader", () => {
     );
 
     const widgets = screen.getByTestId("page-header-desktop-widgets");
-    const updateButton = within(widgets).getByRole("button", { name: "Open update details for v1.3.0" });
+    const updateButton = within(widgets).getByRole("button", { name: "Open update settings for v1.3.0" });
     const setupButton = within(widgets).getByRole("button", { name: "Continue setup" });
 
     expect(updateButton).toHaveTextContent("Update available");
