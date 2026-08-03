@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { ReactNode, useCallback, useRef } from "react";
+import { ReactNode, useCallback } from "react";
 import clsx from "clsx";
 
 import { variants } from "@/shared/components/Button";
@@ -9,7 +9,6 @@ import { ButtonProps } from "@/shared/components/ButtonGroup/types";
 import Header from "@/shared/components/Header";
 import PageOverlay from "@/shared/components/PageOverlay";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import { useClickOutsideDismiss } from "@/shared/hooks/useClickOutsideDismiss";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 import useSlideUpAnimation from "@/shared/hooks/useSlideUpAnimation";
 
@@ -50,7 +49,6 @@ const Dialog = ({
   buttons,
   onDismiss,
 }: DialogProps) => {
-  const dialogRef = useRef<HTMLDivElement>(null);
   const slideUpAnimation = useSlideUpAnimation();
   const footerConfig = getDialogFooterConfig(buttons, buttonGroupVariant);
   const footerButtons = footerConfig.stacked
@@ -63,15 +61,9 @@ const Dialog = ({
 
   useEscapeDismiss(open === false ? undefined : dismissDialog);
 
-  useClickOutsideDismiss({
-    ref: dialogRef,
-    onDismiss: open === false ? undefined : dismissDialog,
-  });
-
   return (
     <PageOverlay open={open} zIndex="z-60" shouldPreventScroll={preventScroll} position="top">
       <motion.div
-        ref={dialogRef}
         {...slideUpAnimation}
         className={clsx("mt-16 h-fit w-108 overflow-hidden rounded-3xl bg-surface-elevated-base shadow-200", className)}
         data-testid={testId}

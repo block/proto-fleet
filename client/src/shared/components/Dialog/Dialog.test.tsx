@@ -1,10 +1,31 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import Dialog from "./Dialog";
 import { variants } from "@/shared/components/Button";
 
 describe("Dialog", () => {
+  it("does not dismiss from scrim clicks", () => {
+    const onDismiss = vi.fn();
+    render(<Dialog title="Intentional dismiss" onDismiss={onDismiss} testId="dialog" />);
+
+    const overlay = screen.getByTestId("dialog").parentElement;
+    expect(overlay).not.toBeNull();
+
+    fireEvent.mouseDown(overlay!);
+
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it("still supports Escape dismissal", () => {
+    const onDismiss = vi.fn();
+    render(<Dialog title="Keyboard dismiss" onDismiss={onDismiss} />);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
   it("keeps two short actions horizontal on mobile while flexing buttons to fill the row", () => {
     render(
       <Dialog
