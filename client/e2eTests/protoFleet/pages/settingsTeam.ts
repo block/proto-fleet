@@ -271,21 +271,21 @@ export class SettingsTeamPage extends BasePage {
     }
 
     for (const roleName of roleNamesToDelete) {
-      const row = this.roleRow(roleName);
+      const row = this.getRoleRow(roleName);
       await expect(row).toBeVisible();
       await row.getByTestId("list-actions-trigger").click();
       await this.clickButton("Delete");
       await this.clickButton("Delete role");
-      await expect(this.roleRow(roleName)).toBeHidden();
+      await expect(this.getRoleRow(roleName)).toBeHidden();
     }
   }
 
   async clickMemberActionsMenu(username: string) {
-    await this.memberRow(username).getByTestId("list-actions-trigger").click();
+    await this.getMemberRow(username).getByTestId("list-actions-trigger").click();
   }
 
   async validateMemberActionsHidden(username: string) {
-    await expect(this.memberRow(username).getByTestId("list-actions-trigger")).toHaveCount(0);
+    await expect(this.getMemberRow(username).getByTestId("list-actions-trigger")).toHaveCount(0);
   }
 
   async clickResetPassword() {
@@ -305,7 +305,7 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async clickRoleActionsMenu(roleName: string) {
-    await this.roleRow(roleName).getByTestId("list-actions-trigger").click();
+    await this.getRoleRow(roleName).getByTestId("list-actions-trigger").click();
   }
 
   async clickEditRoleAction() {
@@ -348,6 +348,6 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async validateMemberNotInList(username: string) {
-    await expect(this.memberRow(username)).toBeHidden();
+    await expect(this.getMemberRow(username)).toBeHidden();
   }
 }
