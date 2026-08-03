@@ -107,48 +107,34 @@ type CreateBuildingResult struct {
 	SiteReassignedDeviceCount int64
 }
 
-// NewBuildingParam is one row of a bulk create. Carries only the fields
-// the bulk form can set; rack defaults are per-building concerns set
-// afterwards, so they take the same zero defaults a plain create would.
+// NewBuildingParam is one row of a bulk create.
 type NewBuildingParam struct {
-	Name        string
-	Description string
-	PowerKw     float64
-	OverheadKw  float64
-	// Layout dimensions. The bulk form applies one value across the batch,
-	// but they live per row so the param describes a whole building.
+	Name          string
+	Description   string
+	PowerKw       float64
+	OverheadKw    float64
 	Aisles        int32
 	RacksPerAisle int32
 }
 
-// CreateBuildingsParams is the input shape for bulk create. Unlike
-// CreateParams, SiteID is required and not a pointer: the only entry point
-// is bulk-create from inside a site, so there is no "unassigned" case.
+// CreateBuildingsParams is the input shape for bulk create. SiteID is
+// required and not a pointer: there is no "unassigned" bulk-create case.
 type CreateBuildingsParams struct {
 	OrgID     int64
 	SiteID    int64
 	Buildings []NewBuildingParam
 }
 
-// PerBuildingCreateErrorReason enumerates why one row of a bulk create was
-// rejected. The whole batch rejects; nothing is created.
 type PerBuildingCreateErrorReason int
 
 const (
-	// ReasonBuildingCreateUnspecified — default zero value, should never
-	// appear in emitted errors.
-	ReasonBuildingCreateUnspecified PerBuildingCreateErrorReason = 0
-	// ReasonBuildingCreateDuplicateNameInBatch — two or more rows of the
-	// request carry the same name.
+	ReasonBuildingCreateUnspecified          PerBuildingCreateErrorReason = 0
 	ReasonBuildingCreateDuplicateNameInBatch PerBuildingCreateErrorReason = 1
-	// ReasonBuildingCreateDuplicateNameAtSite — a live building with this
-	// name already exists at the target site.
-	ReasonBuildingCreateDuplicateNameAtSite PerBuildingCreateErrorReason = 2
+	ReasonBuildingCreateDuplicateNameAtSite  PerBuildingCreateErrorReason = 2
 )
 
-// PerBuildingCreateError points at one offending row of a bulk create so
-// the UI can mark it rather than failing the whole form opaquely. Mirrors
-// the proto shape so the handler stays a thin translator.
+// PerBuildingCreateError points at one offending row of a bulk create.
+// Mirrors the proto shape so the handler stays a thin translator.
 type PerBuildingCreateError struct {
 	// Index is zero-based into CreateBuildingsParams.Buildings.
 	Index  int32

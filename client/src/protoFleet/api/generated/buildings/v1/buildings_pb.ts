@@ -427,15 +427,10 @@ export const CreateBuildingResponseSchema: GenMessage<CreateBuildingResponse> =
   messageDesc(file_buildings_v1_buildings, 7);
 
 /**
- * One building in a bulk-create batch. Carries the fields the bulk form
- * can set: the operator names the buildings (generated from a prefix and
- * counter, or typed) and everything else takes the same server-side zero
- * default a plain CreateBuilding would. Layout dimensions (aisles,
- * racks_per_aisle) are carried per row so a batch can share one layout
- * when that fits — see the field comments below; whether it does is the
- * form's business, not the protocol's. Rack defaults remain absent: they
- * are per-building concerns the operator sets afterwards on the building
- * itself.
+ * One building in a bulk-create batch. Fields take the same server-side
+ * defaults a plain CreateBuilding would. Layout dimensions live per row
+ * (a batch may share one, but that's the form's choice); other rack
+ * defaults are set afterwards on the building.
  *
  * @generated from message buildings.v1.NewBuilding
  */
@@ -461,11 +456,6 @@ export type NewBuilding = Message<"buildings.v1.NewBuilding"> & {
   overheadKw: number;
 
   /**
-   * Same caps as CreateBuildingRequest, for the same reason. Carried
-   * per row rather than once per request: a NewBuilding describes a
-   * whole building, and whether the batch happens to use one layout
-   * throughout is the form's business, not the protocol's.
-   *
    * @generated from field: int32 aisles = 5;
    */
   aisles: number;
@@ -487,20 +477,15 @@ export const NewBuildingSchema: GenMessage<NewBuilding> = /*@__PURE__*/ messageD
  */
 export type CreateBuildingsRequest = Message<"buildings.v1.CreateBuildingsRequest"> & {
   /**
-   * Required, unlike CreateBuildingRequest.site_id. Every building in
-   * the batch joins this site.
+   * Required, unlike CreateBuildingRequest.site_id.
    *
    * @generated from field: int64 site_id = 1;
    */
   siteId: bigint;
 
   /**
-   * The batch, in the order the UI previewed it. Responses preserve
-   * this order so a row can be matched back to its preview line.
-   *
-   * The 500 cap is a typo guard in the same spirit as the layout
-   * dimension caps: a real site has far fewer buildings, and a runaway
-   * counter shouldn't be able to open a 100k-row transaction.
+   * Response preserves request order. The 500 cap is a typo guard, not a
+   * capacity limit — it bounds the transaction against a runaway counter.
    *
    * @generated from field: repeated buildings.v1.NewBuilding buildings = 2;
    */
@@ -516,9 +501,6 @@ export const CreateBuildingsRequestSchema: GenMessage<CreateBuildingsRequest> =
   messageDesc(file_buildings_v1_buildings, 9);
 
 /**
- * PerBuildingCreateError points at one offending row of the batch so the
- * UI can mark it, rather than failing the whole form opaquely.
- *
  * @generated from message buildings.v1.PerBuildingCreateError
  */
 export type PerBuildingCreateError = Message<"buildings.v1.PerBuildingCreateError"> & {
@@ -530,9 +512,6 @@ export type PerBuildingCreateError = Message<"buildings.v1.PerBuildingCreateErro
   index: number;
 
   /**
-   * The name that was rejected, echoed so the UI can match on either
-   * index or name.
-   *
    * @generated from field: string name = 2;
    */
   name: string;
@@ -556,16 +535,14 @@ export const PerBuildingCreateErrorSchema: GenMessage<PerBuildingCreateError> =
  */
 export type CreateBuildingsResponse = Message<"buildings.v1.CreateBuildingsResponse"> & {
   /**
-   * Every created building, in request order. Empty when errors is
-   * non-empty — nothing was created and the transaction rolled back.
+   * Both empty on the opposite outcome: a rejection creates nothing and
+   * rolls back, a success has no errors.
    *
    * @generated from field: repeated buildings.v1.Building buildings = 1;
    */
   buildings: Building[];
 
   /**
-   * Populated only on rejection. Empty on success.
-   *
    * @generated from field: repeated buildings.v1.PerBuildingCreateError errors = 2;
    */
   errors: PerBuildingCreateError[];
@@ -1275,9 +1252,6 @@ export enum RackOrderIndex {
 export const RackOrderIndexSchema: GenEnum<RackOrderIndex> = /*@__PURE__*/ enumDesc(file_buildings_v1_buildings, 0);
 
 /**
- * PerBuildingCreateErrorReason enumerates why one row of a bulk create
- * was rejected. The whole batch rejects; no buildings are created.
- *
  * @generated from enum buildings.v1.PerBuildingCreateErrorReason
  */
 export enum PerBuildingCreateErrorReason {
@@ -1287,15 +1261,11 @@ export enum PerBuildingCreateErrorReason {
   UNSPECIFIED = 0,
 
   /**
-   * Two or more rows in this request carry the same name.
-   *
    * @generated from enum value: PER_BUILDING_CREATE_ERROR_REASON_DUPLICATE_NAME_IN_BATCH = 1;
    */
   DUPLICATE_NAME_IN_BATCH = 1,
 
   /**
-   * A building with this name already exists at site_id.
-   *
    * @generated from enum value: PER_BUILDING_CREATE_ERROR_REASON_DUPLICATE_NAME_AT_SITE = 2;
    */
   DUPLICATE_NAME_AT_SITE = 2,
@@ -1413,26 +1383,11 @@ export const BuildingService: GenService<{
     output: typeof CreateBuildingResponseSchema;
   };
   /**
-   * CreateBuildings inserts several buildings into ONE site in a single
-   * transaction. Either every building in the batch is created or none
-   * is — the same all-or-nothing stance CreateBuilding takes for its
-   * seeds (#559), for the same reason: a partial batch would leave the
-   * operator reconciling which half of the list exists.
-   *
-   * The operator UI generates the names (prefix + counter) and sends
-   * them explicitly rather than sending generation parameters, so the
-   * preview it shows and the rows that get created cannot diverge.
-   *
-   * Name uniqueness is enforced twice: within the batch, and against
-   * the buildings already at site_id. A violation rejects the whole
-   * request with one `errors` entry per offending index and creates
-   * nothing, so the UI can mark the offending rows.
-   *
-   * Unlike CreateBuilding, site_id is REQUIRED — the only entry point
-   * is bulk-create from inside a site, and the plan is explicit that
-   * the UI has no orphan-building create paths. There is deliberately
-   * no rack/device seeding here: seeding N buildings at once has no
-   * sensible way to say which rack belongs to which building.
+   * CreateBuildings bulk-creates buildings into one site, all-or-nothing
+   * in a single transaction (#559). site_id is required and no rack/device
+   * seeding is supported. Names must be unique within the batch and against
+   * the site; a collision rejects the whole request with one `errors` entry
+   * per offending row so the UI can mark it.
    *
    * @generated from rpc buildings.v1.BuildingService.CreateBuildings
    */

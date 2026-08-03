@@ -290,30 +290,20 @@ func (s *Service) CreateBuilding(ctx context.Context, params models.CreateParams
 	return res, nil, nil
 }
 
-// maxBulkCreateBuildings caps one bulk-create batch. Mirrors the
-// buf.validate max_items on CreateBuildingsRequest.buildings — a typo guard,
-// not a capacity limit.
+// maxBulkCreateBuildings is a typo guard, not a capacity limit; mirrors the
+// buf.validate max_items on CreateBuildingsRequest.buildings.
 const maxBulkCreateBuildings = 500
 
-// errBulkCreateRejected is an internal sentinel that forces a rollback when a
-// bulk create hits per-row name collisions. The rows themselves travel in a
-// closure variable; this error only signals "roll everything back". Like
-// errSeedConflict it is deliberately NOT a FleetError so errors.Is still
-// matches after WithTransaction wraps it.
+// errBulkCreateRejected signals rollback on a per-row name collision (the rows
+// themselves travel in a closure variable). Deliberately NOT a FleetError, so
+// errors.Is still matches after WithTransaction wraps it — same as errSeedConflict.
 var errBulkCreateRejected = errors.New("bulk create rejected")
 
-// CreateBuildings inserts every building in the batch against one site in a
-// SINGLE transaction. Either all of them exist afterwards or none does — a
-// partial batch would leave the operator reconciling which half of their list
-// got created, which is the same reasoning behind CreateBuilding's atomic seed
-// (#559).
-//
-// Name collisions are reported per row rather than as one opaque failure, so
-// the bulk form can mark the offending preview lines. Two sources are checked:
-// duplicates within the batch (pure request math, done before the tx opens)
-// and duplicates against the buildings already live at the site (read inside
-// the tx, after the site row is locked, so a concurrent create can't slip in
-// between the check and the inserts). On any collision nothing is created.
+// CreateBuildings bulk-creates buildings against one site, all-or-nothing in a
+// single transaction (#559). Name collisions are reported per row rather than
+// as one opaque failure: in-batch duplicates (before the tx) and existing-site
+// duplicates (inside the tx, after the site lock) are merged; any collision
+// creates nothing.
 func (s *Service) CreateBuildings(ctx context.Context, params models.CreateBuildingsParams) ([]*models.Building, []models.PerBuildingCreateError, error) {
 	if params.SiteID <= 0 {
 		return nil, nil, fleeterror.NewInvalidArgumentError("site_id is required for bulk create")
@@ -326,8 +316,8 @@ func (s *Service) CreateBuildings(ctx context.Context, params models.CreateBuild
 			"buildings exceeds the %d-row limit", maxBulkCreateBuildings)
 	}
 
-	// Trim first so " A" and "A " can't both insert and then read back as the
-	// same name. The trimmed value is what gets stored.
+	// Trim first so " A" and "A " can't both pass as distinct names; the
+	// trimmed value is what gets stored.
 	names := make([]string, len(params.Buildings))
 	for i, b := range params.Buildings {
 		names[i] = strings.TrimSpace(b.Name)
@@ -336,10 +326,8 @@ func (s *Service) CreateBuildings(ctx context.Context, params models.CreateBuild
 		}
 	}
 
-	// Layout bounds, matching what validateCreateBuildingParams enforces for
-	// a single create. buf.validate already caps these for RPC callers, so
-	// this is what keeps a direct service caller from persisting a grid the
-	// UI cannot render.
+	// buf.validate caps these for RPC callers; this guards a direct service
+	// caller, matching validateCreateBuildingParams for a single create.
 	for i, b := range params.Buildings {
 		if err := validateLayoutBounds(b.Aisles, b.RacksPerAisle); err != nil {
 			return nil, nil, fleeterror.NewInvalidArgumentErrorf(
@@ -348,22 +336,18 @@ func (s *Service) CreateBuildings(ctx context.Context, params models.CreateBuild
 		}
 	}
 
-	// Batch duplicates are pure request math, but do NOT return here: a row
-	// can be both duplicated in the batch and already taken at the site, and
-	// reporting only the first source would make the operator submit again
-	// to discover the second. Both are merged below.
+	// Don't return on batch dupes alone: a row can collide both in-batch and
+	// at-site, and reporting only one source makes the operator resubmit to
+	// find the other. Merged with siteClashes below.
 	batchDupes := duplicateNamesInBatch(names)
 
-	// Captured from the committed attempt: RunInTxWithResult may retry the
-	// closure, so reset at the top of each attempt.
+	// rejected is reset per attempt: RunInTxWithResult may retry the closure.
 	var rejected []models.PerBuildingCreateError
 	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
 		rejected = nil
 
-		// Lock the parent site so a concurrent DeleteSite can't soft-delete it
-		// between this check and the inserts, and so the existing-name read
-		// below can't race another create at the same site. NotFound surfaces
-		// directly. Same guard createBuildingInTx applies for a single create.
+		// Lock the site so a concurrent DeleteSite or create can't slip between
+		// the existing-name read below and the inserts. NotFound surfaces directly.
 		if err := s.siteStore.LockSiteForWrite(txCtx, params.OrgID, params.SiteID); err != nil {
 			return nil, err
 		}
@@ -394,8 +378,6 @@ func (s *Service) CreateBuildings(ctx context.Context, params models.CreateBuild
 		siteID := params.SiteID
 		created := make([]*models.Building, 0, len(params.Buildings))
 		for i, b := range params.Buildings {
-			// Insert through the same store call a single create uses, so the
-			// unique-index mapping and column defaults stay in one place.
 			row, err := s.store.CreateBuilding(txCtx, models.CreateParams{
 				OrgID:       params.OrgID,
 				SiteID:      &siteID,
@@ -408,11 +390,10 @@ func (s *Service) CreateBuildings(ctx context.Context, params models.CreateBuild
 				RacksPerAisle: b.RacksPerAisle,
 			})
 			if err != nil {
-				// A name can start colliding after the read above: at READ
-				// COMMITTED our site lock does not exclude a concurrent
-				// UpdateBuilding, which locks the building row instead. Report
-				// that as this row's rejection so the form can still mark it,
-				// rather than an opaque AlreadyExists the UI cannot place.
+				// At READ COMMITTED our site lock doesn't exclude a concurrent
+				// UpdateBuilding (it locks the building row), so a name can start
+				// colliding after the read above. Report it as this row's
+				// rejection instead of an opaque AlreadyExists.
 				var fleetErr fleeterror.FleetError
 				if errors.As(err, &fleetErr) && fleetErr.GRPCCode == connect.CodeAlreadyExists {
 					rejected = []models.PerBuildingCreateError{{
@@ -439,17 +420,15 @@ func (s *Service) CreateBuildings(ctx context.Context, params models.CreateBuild
 		return nil, nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
 	}
 
-	// Post-commit, fire-and-forget: one activity row per building, matching
-	// what a sequence of single creates would have written.
+	// Post-commit, fire-and-forget: one activity row per building.
 	for _, b := range created {
 		s.logBuildingCreated(ctx, params.OrgID, b)
 	}
 	return created, nil, nil
 }
 
-// duplicateNamesInBatch reports every row whose name repeats an earlier row.
-// The FIRST occurrence is left alone — it is the later ones the operator needs
-// to change, and flagging all of them would light up a whole prefix run.
+// duplicateNamesInBatch flags every row whose name repeats an earlier row. The
+// first occurrence is left alone — the later ones are what the operator changes.
 func duplicateNamesInBatch(names []string) []models.PerBuildingCreateError {
 	seen := make(map[string]struct{}, len(names))
 	var dupes []models.PerBuildingCreateError
@@ -467,11 +446,9 @@ func duplicateNamesInBatch(names []string) []models.PerBuildingCreateError {
 	return dupes
 }
 
-// mergeBuildingCreateErrors combines the two uniqueness sources into one
-// entry per row, ordered by index so the response lines up with the request.
-// A row that is both duplicated in the batch and already taken at the site
-// reports AT_SITE: that is the reason editing the batch's other rows cannot
-// resolve, so it is the one worth showing.
+// mergeBuildingCreateErrors combines the two uniqueness sources into one entry
+// per row, ordered by index. A row that collides both ways reports AT_SITE —
+// the reason editing the batch's other rows can't resolve.
 func mergeBuildingCreateErrors(batchDupes, siteClashes []models.PerBuildingCreateError) []models.PerBuildingCreateError {
 	if len(batchDupes) == 0 {
 		return siteClashes

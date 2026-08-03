@@ -465,12 +465,9 @@ WHERE org_id = $1
   AND id = ANY(@ids::bigint[]);
 
 -- name: ListBuildingNamesBySite :many
--- Returns the names of every live building at a single site. Used by
--- CreateBuildings' name-collision preflight, which only needs the taken
--- names and must not pay for ListBuildingsByOrg's org-wide rack/device
--- count aggregation while holding the site write lock. Matches the
--- partial unique index on (site_id, name) for non-null site_id — bulk
--- create always targets a concrete site.
+-- CreateBuildings' collision preflight: names only, so it skips
+-- ListBuildingsByOrg's org-wide rack/device aggregation while the site
+-- write lock is held.
 SELECT name
 FROM building
 WHERE org_id = sqlc.arg('org_id')

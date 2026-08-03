@@ -84,16 +84,12 @@ func (RackOrderIndex) EnumDescriptor() ([]byte, []int) {
 	return file_buildings_v1_buildings_proto_rawDescGZIP(), []int{0}
 }
 
-// PerBuildingCreateErrorReason enumerates why one row of a bulk create
-// was rejected. The whole batch rejects; no buildings are created.
 type PerBuildingCreateErrorReason int32
 
 const (
-	PerBuildingCreateErrorReason_PER_BUILDING_CREATE_ERROR_REASON_UNSPECIFIED PerBuildingCreateErrorReason = 0
-	// Two or more rows in this request carry the same name.
+	PerBuildingCreateErrorReason_PER_BUILDING_CREATE_ERROR_REASON_UNSPECIFIED             PerBuildingCreateErrorReason = 0
 	PerBuildingCreateErrorReason_PER_BUILDING_CREATE_ERROR_REASON_DUPLICATE_NAME_IN_BATCH PerBuildingCreateErrorReason = 1
-	// A building with this name already exists at site_id.
-	PerBuildingCreateErrorReason_PER_BUILDING_CREATE_ERROR_REASON_DUPLICATE_NAME_AT_SITE PerBuildingCreateErrorReason = 2
+	PerBuildingCreateErrorReason_PER_BUILDING_CREATE_ERROR_REASON_DUPLICATE_NAME_AT_SITE  PerBuildingCreateErrorReason = 2
 )
 
 // Enum value maps for PerBuildingCreateErrorReason.
@@ -892,27 +888,18 @@ func (x *CreateBuildingResponse) GetConflicts() []*PerDeviceBuildingConflict {
 	return nil
 }
 
-// One building in a bulk-create batch. Carries the fields the bulk form
-// can set: the operator names the buildings (generated from a prefix and
-// counter, or typed) and everything else takes the same server-side zero
-// default a plain CreateBuilding would. Layout dimensions (aisles,
-// racks_per_aisle) are carried per row so a batch can share one layout
-// when that fits — see the field comments below; whether it does is the
-// form's business, not the protocol's. Rack defaults remain absent: they
-// are per-building concerns the operator sets afterwards on the building
-// itself.
+// One building in a bulk-create batch. Fields take the same server-side
+// defaults a plain CreateBuilding would. Layout dimensions live per row
+// (a batch may share one, but that's the form's choice); other rack
+// defaults are set afterwards on the building.
 type NewBuilding struct {
-	state       protoimpl.MessageState `protogen:"open.v1"`
-	Name        string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Description string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
-	PowerKw     float64                `protobuf:"fixed64,3,opt,name=power_kw,json=powerKw,proto3" json:"power_kw,omitempty"`
-	OverheadKw  float64                `protobuf:"fixed64,4,opt,name=overhead_kw,json=overheadKw,proto3" json:"overhead_kw,omitempty"`
-	// Same caps as CreateBuildingRequest, for the same reason. Carried
-	// per row rather than once per request: a NewBuilding describes a
-	// whole building, and whether the batch happens to use one layout
-	// throughout is the form's business, not the protocol's.
-	Aisles        int32 `protobuf:"varint,5,opt,name=aisles,proto3" json:"aisles,omitempty"`
-	RacksPerAisle int32 `protobuf:"varint,6,opt,name=racks_per_aisle,json=racksPerAisle,proto3" json:"racks_per_aisle,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Description   string                 `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
+	PowerKw       float64                `protobuf:"fixed64,3,opt,name=power_kw,json=powerKw,proto3" json:"power_kw,omitempty"`
+	OverheadKw    float64                `protobuf:"fixed64,4,opt,name=overhead_kw,json=overheadKw,proto3" json:"overhead_kw,omitempty"`
+	Aisles        int32                  `protobuf:"varint,5,opt,name=aisles,proto3" json:"aisles,omitempty"`
+	RacksPerAisle int32                  `protobuf:"varint,6,opt,name=racks_per_aisle,json=racksPerAisle,proto3" json:"racks_per_aisle,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -991,15 +978,10 @@ func (x *NewBuilding) GetRacksPerAisle() int32 {
 
 type CreateBuildingsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Required, unlike CreateBuildingRequest.site_id. Every building in
-	// the batch joins this site.
+	// Required, unlike CreateBuildingRequest.site_id.
 	SiteId int64 `protobuf:"varint,1,opt,name=site_id,json=siteId,proto3" json:"site_id,omitempty"`
-	// The batch, in the order the UI previewed it. Responses preserve
-	// this order so a row can be matched back to its preview line.
-	//
-	// The 500 cap is a typo guard in the same spirit as the layout
-	// dimension caps: a real site has far fewer buildings, and a runaway
-	// counter shouldn't be able to open a 100k-row transaction.
+	// Response preserves request order. The 500 cap is a typo guard, not a
+	// capacity limit — it bounds the transaction against a runaway counter.
 	Buildings     []*NewBuilding `protobuf:"bytes,2,rep,name=buildings,proto3" json:"buildings,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1049,14 +1031,10 @@ func (x *CreateBuildingsRequest) GetBuildings() []*NewBuilding {
 	return nil
 }
 
-// PerBuildingCreateError points at one offending row of the batch so the
-// UI can mark it, rather than failing the whole form opaquely.
 type PerBuildingCreateError struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Zero-based index into CreateBuildingsRequest.buildings.
-	Index int32 `protobuf:"varint,1,opt,name=index,proto3" json:"index,omitempty"`
-	// The name that was rejected, echoed so the UI can match on either
-	// index or name.
+	Index         int32                        `protobuf:"varint,1,opt,name=index,proto3" json:"index,omitempty"`
 	Name          string                       `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Reason        PerBuildingCreateErrorReason `protobuf:"varint,3,opt,name=reason,proto3,enum=buildings.v1.PerBuildingCreateErrorReason" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1116,10 +1094,9 @@ func (x *PerBuildingCreateError) GetReason() PerBuildingCreateErrorReason {
 
 type CreateBuildingsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Every created building, in request order. Empty when errors is
-	// non-empty — nothing was created and the transaction rolled back.
-	Buildings []*Building `protobuf:"bytes,1,rep,name=buildings,proto3" json:"buildings,omitempty"`
-	// Populated only on rejection. Empty on success.
+	// Both empty on the opposite outcome: a rejection creates nothing and
+	// rolls back, a success has no errors.
+	Buildings     []*Building               `protobuf:"bytes,1,rep,name=buildings,proto3" json:"buildings,omitempty"`
 	Errors        []*PerBuildingCreateError `protobuf:"bytes,2,rep,name=errors,proto3" json:"errors,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
