@@ -9,13 +9,12 @@ COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yaml"
 COMPOSE_ALERTS_FILE="$PROJECT_ROOT/docker-compose.alerts.yaml"
 COMPOSE_SYSTEM_MONITORING_FILE="$PROJECT_ROOT/docker-compose.system-monitoring.yaml"
 COMPOSE_TRACING_FILE="$PROJECT_ROOT/docker-compose.tracing.yaml"
-COMPOSE_UPDATER_FILE="$PROJECT_ROOT/docker-compose.updater.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
+PREFLIGHT_MARKER="$PROJECT_ROOT/.update-preflight-complete"
 
 ENABLE_BETA_ALERTS=false
 ENABLE_SYSTEM_MONITORING=false
 ENABLE_TRACING=false
-ENABLE_ONE_CLICK_UPDATES=false
 NON_INTERACTIVE=false
 PREFLIGHT_ONLY=false
 SKIP_BUILD=false
@@ -28,8 +27,38 @@ SKIP_BUILD=false
 # time when migrations are genuinely stuck.
 MIGRATION_WAIT_ATTEMPTS=300
 
+env_last_value() {
+    local line value
+    line=$(grep -E "^${1}[[:space:]]*=" "$ENV_FILE" 2>/dev/null | tail -1)
+    [ -n "$line" ] || return 1
+
+    value="${line#*=}"
+    value=$(printf '%s' "$value" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+    case "$value" in
+        \"*\") value="${value#\"}"; value="${value%\"}" ;;
+        \'*\') value="${value#\'}"; value="${value%\'}" ;;
+    esac
+    printf '%s' "$value"
+}
+
 env_has_nonempty_value() {
-    grep -Eq "^${1}=.+" "$ENV_FILE" 2>/dev/null
+    local value
+    value=$(env_last_value "$1") || return 1
+    [ -n "$value" ]
+}
+
+env_boolean_is_true() {
+    local key="$1" value
+    value=$(env_last_value "$key") || return 1
+    value=$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')
+    case "$value" in
+        true) return 0 ;;
+        false|'') return 1 ;;
+        *)
+            echo "Error: $key must be true or false in $ENV_FILE." >&2
+            exit 1
+            ;;
+    esac
 }
 
 usage() {
@@ -54,9 +83,6 @@ Options:
                                 the .env file. Off by default. Can also be
                                 enabled by setting ENABLE_TRACING=true in
                                 the .env file.
-  --enable-one-click-updates     Connect fleet-api to the host updater Unix
-                                socket. The installer sets this after the
-                                systemd updater is installed successfully.
   --non-interactive              Reuse complete persisted configuration and
                                 fail instead of prompting. Intended for the
                                 host updater, not first-time setup.
@@ -81,10 +107,6 @@ while [ $# -gt 0 ]; do
             ;;
         --enable-tracing)
             ENABLE_TRACING=true
-            shift
-            ;;
-        --enable-one-click-updates)
-            ENABLE_ONE_CLICK_UPDATES=true
             shift
             ;;
         --non-interactive)
@@ -120,21 +142,30 @@ if [ "$PREFLIGHT_ONLY" = "true" ] && [ "$SKIP_BUILD" = "true" ]; then
     exit 1
 fi
 
-# Also honor ENABLE_BETA_ALERTS=true from the .env file.
-if grep -Eqi "^ENABLE_BETA_ALERTS=true[[:space:]]*$" "$ENV_FILE" 2>/dev/null; then
-    ENABLE_BETA_ALERTS=true
-fi
-if grep -Eqi "^ENABLE_SYSTEM_MONITORING=true[[:space:]]*$" "$ENV_FILE" 2>/dev/null; then
-    ENABLE_SYSTEM_MONITORING=true
-fi
-# [[:space:]]*$ tolerates CRLF line endings from Windows/WSL-edited .env files.
-if grep -Eqi "^ENABLE_TRACING=true[[:space:]]*$" "$ENV_FILE" 2>/dev/null; then
-    ENABLE_TRACING=true
-fi
-if grep -Eqi "^ENABLE_ONE_CLICK_UPDATES=true[[:space:]]*$" "$ENV_FILE" 2>/dev/null; then
-    ENABLE_ONE_CLICK_UPDATES=true
+if [ "$SKIP_BUILD" = "true" ] && [ ! -f "$PREFLIGHT_MARKER" ]; then
+    echo "Error: --skip-build requires a successful preflight for this deployment." >&2
+    exit 1
 fi
 
+if [ "$PREFLIGHT_ONLY" = "true" ]; then
+    # A failed retry must not leave an older success marker reusable.
+    if ! rm -f "$PREFLIGHT_MARKER"; then
+        echo "Error: could not clear the previous preflight marker at $PREFLIGHT_MARKER." >&2
+        exit 1
+    fi
+fi
+
+# Also honor persisted overlay state. Use the last exact-key assignment, as
+# Docker Compose does, and accept quoted/case-insensitive boolean values.
+if env_boolean_is_true ENABLE_BETA_ALERTS; then
+    ENABLE_BETA_ALERTS=true
+fi
+if env_boolean_is_true ENABLE_SYSTEM_MONITORING; then
+    ENABLE_SYSTEM_MONITORING=true
+fi
+if env_boolean_is_true ENABLE_TRACING; then
+    ENABLE_TRACING=true
+fi
 # System monitoring rides the alerts stack (the in-process metrics writer,
 # Grafana rule evaluation, and webhook delivery are all alerts-gated), so it
 # cannot run alone.
@@ -170,13 +201,6 @@ refresh_compose_files() {
     fi
     if [ "$ENABLE_TRACING" = "true" ] && [ -f "$COMPOSE_TRACING_FILE" ]; then
         COMPOSE_FILES+=(-f "$COMPOSE_TRACING_FILE")
-    fi
-    if [ "$ENABLE_ONE_CLICK_UPDATES" = "true" ]; then
-        if [ ! -f "$COMPOSE_UPDATER_FILE" ]; then
-            echo "Error: one-click updates are enabled but $COMPOSE_UPDATER_FILE is missing." >&2
-            exit 1
-        fi
-        COMPOSE_FILES+=(-f "$COMPOSE_UPDATER_FILE")
     fi
 }
 refresh_compose_files
@@ -257,6 +281,48 @@ validate_base64_key() {
     fi
 
     return 0  # Valid
+}
+
+validate_non_interactive_environment() {
+    local key auth_secret encryption_key invalid=0
+    local -a alert_keys=(
+        GRAFANA_ADMIN_PASSWORD
+        GRAFANA_DB_USERNAME
+        GRAFANA_DB_PASSWORD
+        FLEET_ALERTS_WEBHOOK_TOKEN
+        GRAFANA_SECRET_KEY
+        FLEET_ALERTS_GRAFANA_TOKEN
+    )
+
+    for key in DB_USERNAME DB_PASSWORD AUTH_CLIENT_SECRET_KEY ENCRYPT_SERVICE_MASTER_KEY; do
+        if ! env_has_nonempty_value "$key"; then
+            echo "Error: missing or empty required key in $ENV_FILE: $key" >&2
+            invalid=1
+        fi
+    done
+
+    auth_secret=$(env_last_value AUTH_CLIENT_SECRET_KEY 2>/dev/null || true)
+    if [ -n "$auth_secret" ] && [ "${#auth_secret}" -lt 32 ]; then
+        echo "Error: AUTH_CLIENT_SECRET_KEY in $ENV_FILE must be at least 32 characters." >&2
+        invalid=1
+    fi
+
+    encryption_key=$(env_last_value ENCRYPT_SERVICE_MASTER_KEY 2>/dev/null || true)
+    if [ -n "$encryption_key" ] && ! validate_base64_key "$encryption_key"; then
+        echo "Error: ENCRYPT_SERVICE_MASTER_KEY in $ENV_FILE must decode to exactly 32 bytes." >&2
+        invalid=1
+    fi
+
+    if [ "$ENABLE_BETA_ALERTS" = "true" ]; then
+        for key in "${alert_keys[@]}"; do
+            if ! env_has_nonempty_value "$key"; then
+                echo "Error: alerts are enabled but $key is missing or empty in $ENV_FILE." >&2
+                invalid=1
+            fi
+        done
+    fi
+
+    [ "$invalid" -eq 0 ]
 }
 
 # Get local network IP addresses (excludes loopback, includes IPv4 and global IPv6)
@@ -540,7 +606,15 @@ fi
 
 # Fix WSL networking issues (IPv6/DNS) if running in WSL
 if is_wsl; then
-    fix_wsl_networking
+    if [ "$NON_INTERACTIVE" = "true" ]; then
+        echo "Detected WSL environment. Checking Docker registry connectivity..."
+        if ! curl -s --max-time 5 https://registry-1.docker.io/v2/ >/dev/null 2>&1; then
+            echo "Error: Docker registry connectivity is unavailable in WSL; non-interactive upgrade will not modify host networking." >&2
+            exit 1
+        fi
+    else
+        fix_wsl_networking
+    fi
 fi
 
 # ----------------------------------------------------------------------------
@@ -585,9 +659,9 @@ done
 scrub_env_key() {
     local key="$1"
     local tmp
-    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+    if grep -Eq "^${key}[[:space:]]*=" "$ENV_FILE" 2>/dev/null; then
         tmp=$(mktemp)
-        grep -v "^${key}=" "$ENV_FILE" > "$tmp" || true
+        grep -Ev "^${key}[[:space:]]*=" "$ENV_FILE" > "$tmp" || true
         # Overwrite in place to preserve the 0600 perms set elsewhere.
         cat "$tmp" > "$ENV_FILE"
         rm -f "$tmp"
@@ -672,9 +746,9 @@ if [ -f "$ENV_FILE" ]; then
     # Check for missing required keys
     missing_keys=0
     for key in "${required_keys[@]}"; do
-        if ! grep -q "^$key=" "$ENV_FILE"; then
+        if ! env_has_nonempty_value "$key"; then
             missing_keys=1
-            echo "Missing required key in environment file: $key"
+            echo "Missing or empty required key in environment file: $key"
         fi
     done
 
@@ -707,6 +781,11 @@ fi
 
 if [ "$NON_INTERACTIVE" = "true" ] && [ "$use_existing" = "no" ]; then
     echo "Error: non-interactive mode requires an existing complete $ENV_FILE." >&2
+    exit 1
+fi
+
+if [ "$NON_INTERACTIVE" = "true" ] && ! validate_non_interactive_environment; then
+    echo "Error: non-interactive mode requires complete, valid persisted configuration." >&2
     exit 1
 fi
 
@@ -798,7 +877,7 @@ persist_boolean_setting() {
     local value="$2"
     local temp
     temp=$(mktemp)
-    grep -v "^${key}=" "$ENV_FILE" > "$temp" || true
+    grep -Ev "^${key}[[:space:]]*=" "$ENV_FILE" > "$temp" || true
     if [ -s "$temp" ] && [ -n "$(tail -c1 "$temp")" ]; then
         echo >> "$temp"
     fi
@@ -810,7 +889,6 @@ persist_boolean_setting() {
 persist_boolean_setting ENABLE_BETA_ALERTS "$ENABLE_BETA_ALERTS"
 persist_boolean_setting ENABLE_SYSTEM_MONITORING "$ENABLE_SYSTEM_MONITORING"
 persist_boolean_setting ENABLE_TRACING "$ENABLE_TRACING"
-persist_boolean_setting ENABLE_ONE_CLICK_UPDATES "$ENABLE_ONE_CLICK_UPDATES"
 chmod 600 "$ENV_FILE"
 refresh_compose_files
 refresh_compose_env_args
@@ -907,56 +985,65 @@ echo "==========================================================================
 echo "SSL/TLS Configuration"
 echo "============================================================================"
 
-# Check if user-provided certificates exist
-if [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
-    echo "Found existing SSL certificates in $SSL_DIR"
-    echo "  Certificate: $SSL_CERT"
-    echo "  Private Key: $SSL_KEY"
-    PROTOCOL_MODE="https"
-else
-    if [ "$NON_INTERACTIVE" = "true" ]; then
-        if grep -Eqi "^SESSION_COOKIE_SECURE=true[[:space:]]*$" "$ENV_FILE"; then
+# Non-interactive upgrades preserve the persisted transport. Certificate files
+# can be stale after an operator switches back to HTTP, so their mere presence
+# must not silently re-enable HTTPS.
+if [ "$NON_INTERACTIVE" = "true" ]; then
+    if env_boolean_is_true SESSION_COOKIE_SECURE; then
+        if [ ! -f "$SSL_CERT" ] || [ ! -f "$SSL_KEY" ]; then
             echo "Error: HTTPS is persisted but its certificate/key are missing; refusing to switch protocol during upgrade." >&2
             exit 1
         fi
-        echo "No SSL certificates found; preserving HTTP mode from $ENV_FILE."
-        PROTOCOL_MODE="http"
+        echo "Preserving HTTPS mode from $ENV_FILE."
+        PROTOCOL_MODE="https"
     else
-    echo ""
-    echo "No SSL certificates found in $SSL_DIR"
-    echo ""
-    echo "Options:"
-    echo "  1) HTTP only (no encryption) - simplest for isolated LANs"
-    echo "  2) HTTPS with self-signed certificate - browsers will show warnings"
-    echo "  3) HTTPS with your own certificates - place cert.pem and key.pem in $SSL_DIR"
-    echo ""
-    echo -n "Select option [1]: "
-    read ssl_choice
-    ssl_choice=${ssl_choice:-1}
+        echo "Preserving HTTP mode from $ENV_FILE."
+        PROTOCOL_MODE="http"
+    fi
+else
+    # Interactive setup treats a complete certificate pair as an explicit
+    # request for HTTPS, preserving the existing installer behavior.
+    if [ -f "$SSL_CERT" ] && [ -f "$SSL_KEY" ]; then
+        echo "Found existing SSL certificates in $SSL_DIR"
+        echo "  Certificate: $SSL_CERT"
+        echo "  Private Key: $SSL_KEY"
+        PROTOCOL_MODE="https"
+    else
+        echo ""
+        echo "No SSL certificates found in $SSL_DIR"
+        echo ""
+        echo "Options:"
+        echo "  1) HTTP only (no encryption) - simplest for isolated LANs"
+        echo "  2) HTTPS with self-signed certificate - browsers will show warnings"
+        echo "  3) HTTPS with your own certificates - place cert.pem and key.pem in $SSL_DIR"
+        echo ""
+        echo -n "Select option [1]: "
+        read ssl_choice
+        ssl_choice=${ssl_choice:-1}
 
-    case "$ssl_choice" in
-        2)
-            if generate_self_signed_cert; then
-                PROTOCOL_MODE="https"
-            else
-                echo "Falling back to HTTP mode."
+        case "$ssl_choice" in
+            2)
+                if generate_self_signed_cert; then
+                    PROTOCOL_MODE="https"
+                else
+                    echo "Falling back to HTTP mode."
+                    PROTOCOL_MODE="http"
+                fi
+                ;;
+            3)
+                echo ""
+                echo "Please place your SSL certificates in $SSL_DIR:"
+                echo "  - $SSL_CERT (certificate)"
+                echo "  - $SSL_KEY (private key)"
+                echo ""
+                echo "Then re-run this script."
+                exit 0
+                ;;
+            *)
+                echo "Using HTTP mode (no encryption)."
                 PROTOCOL_MODE="http"
-            fi
-            ;;
-        3)
-            echo ""
-            echo "Please place your SSL certificates in $SSL_DIR:"
-            echo "  - $SSL_CERT (certificate)"
-            echo "  - $SSL_KEY (private key)"
-            echo ""
-            echo "Then re-run this script."
-            exit 0
-            ;;
-        *)
-            echo "Using HTTP mode (no encryption)."
-            PROTOCOL_MODE="http"
-            ;;
-    esac
+                ;;
+        esac
     fi
 fi
 
@@ -972,27 +1059,23 @@ if ! copy_nginx_config "$PROTOCOL_MODE"; then
     exit 1
 fi
 
-# Update environment file with cookie security setting
-if grep -q "^SESSION_COOKIE_SECURE=" "$ENV_FILE"; then
-    # Update existing setting
-    if [ "$PROTOCOL_MODE" == "https" ]; then
-        sed -i.bak 's/^SESSION_COOKIE_SECURE=.*/SESSION_COOKIE_SECURE=true/' "$ENV_FILE" && rm -f "$ENV_FILE.bak"
-    else
-        sed -i.bak 's/^SESSION_COOKIE_SECURE=.*/SESSION_COOKIE_SECURE=false/' "$ENV_FILE" && rm -f "$ENV_FILE.bak"
-    fi
+# Update environment file with cookie security setting.
+if [ "$PROTOCOL_MODE" == "https" ]; then
+    persist_boolean_setting SESSION_COOKIE_SECURE true
 else
-    # Add new setting
-    if [ "$PROTOCOL_MODE" == "https" ]; then
-        echo "SESSION_COOKIE_SECURE=true" >> "$ENV_FILE"
-    else
-        echo "SESSION_COOKIE_SECURE=false" >> "$ENV_FILE"
-    fi
+    persist_boolean_setting SESSION_COOKIE_SECURE false
 fi
 
 chmod 600 "$ENV_FILE"
 
 # Pick up FLEET_PROFILE written during env setup
 refresh_compose_env_args
+
+echo "Validating Docker Compose configuration..."
+if ! compose config --quiet; then
+    echo "Error: Docker Compose configuration is invalid; services were not stopped." >&2
+    exit 1
+fi
 
 # ----------------------------------------------------------------------------
 # Docker Image Preparation
@@ -1008,6 +1091,10 @@ if [ "$SKIP_BUILD" != "true" ]; then
     # Load pre-built TimescaleDB image if available (built in CI for the target architecture)
     TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
     if [ -f "$TSDB_IMAGE" ]; then
+        if ! gunzip -c "$TSDB_IMAGE" | tar -xOf - manifest.json 2>/dev/null | grep -q '"proto-fleet-timescaledb:latest"'; then
+            echo "Error: $TSDB_IMAGE does not contain the required proto-fleet-timescaledb:latest tag." >&2
+            exit 1
+        fi
         echo "Loading pre-built TimescaleDB image..."
         if gunzip -c "$TSDB_IMAGE" | docker load; then
             echo "TimescaleDB image loaded successfully."
@@ -1015,9 +1102,20 @@ if [ "$SKIP_BUILD" != "true" ]; then
             echo "Error: Failed to load TimescaleDB image from $TSDB_IMAGE"
             exit 1
         fi
+        if ! docker image inspect proto-fleet-timescaledb:latest >/dev/null 2>&1; then
+            echo "Error: $TSDB_IMAGE loaded without the required proto-fleet-timescaledb:latest tag." >&2
+            exit 1
+        fi
     else
-        echo "Warning: Pre-built TimescaleDB image not found at $TSDB_IMAGE."
-        echo "The deployment will fail unless the image 'proto-fleet-timescaledb:latest' already exists locally."
+        if [ "$PREFLIGHT_ONLY" = "true" ]; then
+            echo "Error: upgrade preflight requires the release's pre-built TimescaleDB image at $TSDB_IMAGE." >&2
+            exit 1
+        fi
+        if ! docker image inspect proto-fleet-timescaledb:latest >/dev/null 2>&1; then
+            echo "Error: Pre-built TimescaleDB image not found at $TSDB_IMAGE and proto-fleet-timescaledb:latest is not loaded." >&2
+            exit 1
+        fi
+        echo "Pre-built TimescaleDB archive not found; reusing the loaded proto-fleet-timescaledb:latest image."
     fi
 
     # Build Docker images (fleet-api and fleet-client only; TimescaleDB uses pre-built image)
@@ -1027,6 +1125,10 @@ else
 fi
 
 if [ "$PREFLIGHT_ONLY" = "true" ]; then
+    if ! (umask 077; : > "$PREFLIGHT_MARKER"); then
+        echo "Error: could not record successful preflight at $PREFLIGHT_MARKER." >&2
+        exit 1
+    fi
     echo "Upgrade preflight completed successfully; the running stack was not stopped."
     exit 0
 fi
@@ -1064,7 +1166,7 @@ apply_database_tuning() {
     # during an upgrade the previous deploy's row already reads clean while
     # migrations (and the policy jobs they create) are still pending.
     local api_addr api_port attempt
-    api_addr=$(grep -E '^HTTP_LISTEN_ADDRESS=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true)
+    api_addr=$(env_last_value HTTP_LISTEN_ADDRESS 2>/dev/null || true)
     api_port="${api_addr##*:}"
     case "$api_port" in *[!0-9]*|"") api_port=4000 ;; esac
 
@@ -1118,11 +1220,11 @@ fi
 provision_grafana_db_role() {
     local grafana_user grafana_pass db_name app_user pw_escaped stats_grant stats_smoke
 
-    grafana_user=$(grep -E '^GRAFANA_DB_USERNAME=' "$ENV_FILE" | head -1 | cut -d= -f2-)
-    grafana_pass=$(grep -E '^GRAFANA_DB_PASSWORD=' "$ENV_FILE" | head -1 | cut -d= -f2-)
-    db_name=$(grep -E '^DB_NAME=' "$ENV_FILE" | head -1 | cut -d= -f2-)
+    grafana_user=$(env_last_value GRAFANA_DB_USERNAME 2>/dev/null || true)
+    grafana_pass=$(env_last_value GRAFANA_DB_PASSWORD 2>/dev/null || true)
+    db_name=$(env_last_value DB_NAME 2>/dev/null || true)
     db_name="${db_name:-fleet}"
-    app_user=$(grep -E '^DB_USERNAME=' "$ENV_FILE" | head -1 | cut -d= -f2-)
+    app_user=$(env_last_value DB_USERNAME 2>/dev/null || true)
     app_user="${app_user:-fleet}"
 
     if [ -z "$grafana_user" ] || [ -z "$grafana_pass" ]; then
@@ -1300,7 +1402,7 @@ provision_grafana_service_account_token() {
         return 0
     fi
 
-    admin_pass=$(grep -E '^GRAFANA_ADMIN_PASSWORD=' "$ENV_FILE" | head -1 | cut -d= -f2-)
+    admin_pass=$(env_last_value GRAFANA_ADMIN_PASSWORD 2>/dev/null || true)
     if [ -z "$admin_pass" ]; then
         echo "Error: GRAFANA_ADMIN_PASSWORD missing/empty in $ENV_FILE; cannot mint a Grafana token." >&2
         return 1
@@ -1395,5 +1497,10 @@ for ip in $(get_local_ips); do
     echo "  LAN:    ${protocol}://$ip"
 done
 echo "--------------------------------------------------------------"
+
+if ! rm -f "$PREFLIGHT_MARKER"; then
+    echo "Error: Fleet is running, but the consumed preflight marker could not be removed: $PREFLIGHT_MARKER" >&2
+    exit 1
+fi
 
 exit 0
