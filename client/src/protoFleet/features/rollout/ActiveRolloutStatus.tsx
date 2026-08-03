@@ -6,18 +6,33 @@ import {
   pacingSummary,
   phaseLabel,
   rolloutCompletionPercent,
-  rolloutCompositionSegments,
   rolloutLifecycleActions,
   rolloutPhaseCount,
+  rolloutProgressSegments,
   rolloutStageLabel,
 } from "./rolloutDisplayUtils";
 import type { RolloutEvent } from "./rolloutTypes";
 import { formatCurtailmentElapsedDuration as formatElapsed } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import CompositionBar from "@/shared/components/CompositionBar";
+import CompositionBar, { type Segment } from "@/shared/components/CompositionBar";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+
+/**
+ * Progress-bar colors, matching curtailment's curtail-phase precedent exactly
+ * (`curtailProgressColorMap` in ActiveCurtailmentStatus): a rollout is
+ * "work moving forward" like a curtail dispatch, so **done** reads as the
+ * primary fill (not success-green), **remaining** as the accent, **failed** as
+ * critical. Passed to CompositionBar and reused for the legend dots so the bar
+ * and its key never diverge.
+ */
+const rolloutProgressColorMap: Record<Segment["status"], string> = {
+  OK: "bg-core-primary-fill",
+  WARNING: "bg-core-accent-fill",
+  CRITICAL: "bg-intent-critical-fill",
+  NA: "bg-core-primary-10",
+};
 
 interface ActiveRolloutStatusProps {
   event: RolloutEvent;
@@ -118,7 +133,7 @@ function ActiveRolloutStatus({
   const inScope = Math.max(event.totalTargets - event.excludedTargets, 0);
   const done = rolloutPhaseCount(event.rollups, "done");
   const percent = rolloutCompletionPercent(event);
-  const segments = rolloutCompositionSegments(event);
+  const segments = rolloutProgressSegments(event);
   const doneVerb = phaseLabel(event.processType, "done").toLowerCase();
 
   // Live-ticking elapsed timer while running, matching the curtailment card.
@@ -155,9 +170,6 @@ function ActiveRolloutStatus({
       {embedded ? null : (
         <div className="min-w-0">
           <Header title={event.title} titleSize="text-heading-200" />
-          {event.scopeLabel ? (
-            <div className="mt-1 text-emphasis-300 text-text-primary">Applies to {event.scopeLabel}</div>
-          ) : null}
         </div>
       )}
       <div
@@ -191,36 +203,29 @@ function ActiveRolloutStatus({
         </div>
 
         <div className="mt-12 grid grid-cols-2 gap-x-8 gap-y-5 text-text-primary">
+          <StatBlock label="Scope" value={event.scopeLabel || "—"} />
+          <StatBlock label="Strategy" value={pacingSummary(event)} detail={orderLabels[event.order]} />
           <StatBlock
             label={`Miners ${doneVerb}`}
             value={`${done.toLocaleString()} of ${inScope.toLocaleString()}`}
             detail={`${percent}%`}
           />
-          <StatBlock label="Strategy" value={pacingSummary(event)} detail={orderLabels[event.order]} />
-          <StatBlock label="Elapsed" value={event.startedAt ? formatElapsed(elapsedSeconds) : "—"} />
-          <StatBlock label="Est. time remaining" value={etaValue} />
+          <StatBlock
+            label="Est. time remaining"
+            value={etaValue}
+            detail={event.startedAt ? `${formatElapsed(elapsedSeconds)} elapsed` : undefined}
+          />
         </div>
 
         <div className="mt-8 grid gap-3" data-testid="active-rollout-progress">
-          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
-            <div className="text-200 text-text-primary-50">
-              {done.toLocaleString()} of {inScope.toLocaleString()} {doneVerb} ({percent}%)
-            </div>
-          </div>
-          <CompositionBar segments={segments} height={12} />
+          <CompositionBar segments={segments} height={12} colorMap={rolloutProgressColorMap} />
           <div className="flex flex-wrap items-start gap-x-5 gap-y-1 text-200 text-text-primary-70">
             {segments.map((segment) => (
               <span key={segment.name} className="flex items-start gap-2">
                 <span
                   className={clsx(
                     "mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full",
-                    segment.status === "OK"
-                      ? "bg-intent-success-fill"
-                      : segment.status === "WARNING"
-                        ? "bg-intent-warning-fill"
-                        : segment.status === "CRITICAL"
-                          ? "bg-intent-critical-fill"
-                          : "bg-grayscale-gray-50",
+                    rolloutProgressColorMap[segment.status],
                   )}
                 />
                 {`${segment.name} (${(segment.count ?? 0).toLocaleString()})`}

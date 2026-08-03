@@ -60,7 +60,6 @@ function ViewRolloutModal({
   return (
     <Modal
       title={event.title}
-      description={event.scopeLabel ? `Applies to ${event.scopeLabel}` : undefined}
       onDismiss={onDismiss}
       testId="view-rollout-modal"
       bodyClassName="text-text-primary"
