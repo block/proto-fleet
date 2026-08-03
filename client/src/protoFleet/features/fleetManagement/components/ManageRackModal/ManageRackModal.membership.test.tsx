@@ -68,7 +68,7 @@ vi.mock("./ScanMinerQrModal", async () => {
     onUndoAssignment,
   }: {
     onAssign: (id: string) => Promise<{ failed?: true; message?: string }>;
-    onUndoAssignment: () => Promise<void>;
+    onUndoAssignment: () => Promise<boolean>;
   }) => {
     const [refusal, setRefusal] = useState<string>();
     return (

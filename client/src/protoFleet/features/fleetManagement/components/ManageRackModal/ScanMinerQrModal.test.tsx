@@ -65,7 +65,7 @@ function renderScanMinerQrModal(overrides: Partial<ComponentProps<typeof ScanMin
     onDismiss: vi.fn(),
     onConfirm: vi.fn(),
     onAssign: vi.fn().mockReturnValue({ slotLabel: "Slot 1", hasNextSlot: true }),
-    onUndoAssignment: vi.fn(),
+    onUndoAssignment: vi.fn().mockResolvedValue(true),
     onScanNextSlot: vi.fn().mockReturnValue(true),
     ...overrides,
   };
@@ -122,7 +122,7 @@ describe("ScanMinerQrModal", () => {
   it("undoes the just-made assignment from the success dialog", async () => {
     mockCanUseLiveCamera.mockReturnValue(true);
     mockLookup.mockResolvedValueOnce({ status: "found", snapshot: snapshot() });
-    const onUndoAssignment = vi.fn();
+    const onUndoAssignment = vi.fn().mockResolvedValue(true);
 
     renderScanMinerQrModal({ onUndoAssignment });
 
@@ -134,6 +134,30 @@ describe("ScanMinerQrModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
 
     expect(onUndoAssignment).toHaveBeenCalled();
+    // Undo landed, so the scanner goes back to scanning for the next miner.
+    await waitFor(() => expect(screen.queryByText("Miner assigned")).not.toBeInTheDocument());
+  });
+
+  it("keeps the assigned screen up when the undo could not be persisted", async () => {
+    mockCanUseLiveCamera.mockReturnValue(true);
+    mockLookup.mockResolvedValueOnce({ status: "found", snapshot: snapshot() });
+    // The miner is still in the rack. Rescanning here would swap the assigned
+    // screen for the scanning one and hide the parent's error behind it.
+    const onUndoAssignment = vi.fn().mockResolvedValue(false);
+
+    renderScanMinerQrModal({ onUndoAssignment });
+
+    await act(async () => {
+      capturedOnDetected?.(["SN:SN123"]);
+    });
+
+    await waitFor(() => expect(screen.getByText("Miner assigned")).toBeInTheDocument());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    });
+
+    expect(onUndoAssignment).toHaveBeenCalled();
+    expect(screen.getByText("Miner assigned")).toBeInTheDocument();
   });
 
   it("tries every decoded barcode until one resolves", async () => {

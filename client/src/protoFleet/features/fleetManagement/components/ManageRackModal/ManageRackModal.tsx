@@ -163,7 +163,9 @@ export default function ManageRackModal({
   const [showScanQr, setShowScanQr] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const scanUndoRef = useRef<(() => Promise<void>) | null>(null);
+  // Resolves false when the undo could not be persisted, so the scanner can
+  // stop instead of rescanning over a miner that is still in the rack.
+  const scanUndoRef = useRef<(() => Promise<boolean>) | null>(null);
 
   // Pending reparent confirmation, from either of two sources: the picker
   // reporting miners currently placed elsewhere (#672), and the server refusing
@@ -629,17 +631,23 @@ export default function ManageRackModal({
         if (wasMember) {
           setSlotAssignments(previousSlotAssignments);
           setSelectedSlot(assignedSlot);
-          return;
+          return true;
         }
         const undone = await commitMembership([], [minerId]);
         if (!undone.ok) {
+          // Close the scanner so the parent's callout is visible, matching the
+          // confirm path: the miner is still in the rack at the slot it was
+          // scanned into, and rescanning would hide that behind the scanning
+          // screen. selectedSlot stays put so the grid still reads truthfully.
           if (undone.error) setErrorMsg(undone.error);
-          return;
+          setShowScanQr(false);
+          return false;
         }
         // forgetMiners already dropped the miner and its cell, so only the cells
         // the scan displaced are left to restore.
         setSlotAssignments(previousSlotAssignments);
         setSelectedSlot(assignedSlot);
+        return true;
       };
 
       return {
@@ -683,9 +691,13 @@ export default function ManageRackModal({
     [selectedSlot, confirmReparent, commitMembership, applyRackMiners],
   );
 
+  // No undo registered means there is nothing to fail, so the scanner is free
+  // to rescan. A registered one that reports false keeps the scanner closed on
+  // the error this modal just set.
   const handleScanAssignmentUndo = useCallback(async () => {
-    await scanUndoRef.current?.();
+    const undone = (await scanUndoRef.current?.()) ?? true;
     scanUndoRef.current = null;
+    return undone;
   }, []);
 
   const handleScanNextSlot = useCallback(() => {

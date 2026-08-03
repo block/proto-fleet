@@ -39,7 +39,9 @@ interface ScanMinerQrModalProps {
   // Both commit: assigning writes the miner into the rack, undoing takes it
   // back out. Awaited so the "assigned" phase only shows once it landed.
   onAssign: (deviceIdentifier: string) => Promise<ScanAssignmentOutcome>;
-  onUndoAssignment: () => Promise<void>;
+  /** Resolves false when the undo could not be persisted — the miner is still in
+   *  the rack, and the caller has surfaced the error on its own surface. */
+  onUndoAssignment: () => Promise<boolean>;
   onScanNextSlot: () => boolean;
 }
 
@@ -228,9 +230,11 @@ export default function ScanMinerQrModal({
     }
   }, [phase, onAssign, onConfirm, eligibility]);
 
+  // Only rescan once the undo actually landed. A failed one leaves the miner in
+  // the rack, and rescanning would replace the assigned screen with the scanning
+  // one — dropping the operator back into a scan as if the undo had worked.
   const handleUndoAssignment = useCallback(async () => {
-    await onUndoAssignment();
-    rescan();
+    if (await onUndoAssignment()) rescan();
   }, [onUndoAssignment, rescan]);
 
   const handleScanNextSlot = useCallback(() => {
