@@ -861,12 +861,9 @@ type Querier interface {
 	// fires. Callers that want to detect truncation pass (cap + 1); reading one
 	// sentinel row beyond the cap keeps `len(rows) > cap` a valid signal.
 	ListBatchDeviceResults(ctx context.Context, arg ListBatchDeviceResultsParams) ([]ListBatchDeviceResultsRow, error)
-	// Returns the names of every live building at a single site. Used by
-	// CreateBuildings' name-collision preflight, which only needs the taken
-	// names and must not pay for ListBuildingsByOrg's org-wide rack/device
-	// count aggregation while holding the site write lock. Matches the
-	// partial unique index on (site_id, name) for non-null site_id — bulk
-	// create always targets a concrete site.
+	// CreateBuildings' collision preflight: names only, so it skips
+	// ListBuildingsByOrg's org-wide rack/device aggregation while the site
+	// write lock is held.
 	ListBuildingNamesBySite(ctx context.Context, arg ListBuildingNamesBySiteParams) ([]string, error)
 	// Returns racks currently assigned to a building with their grid
 	// position. Used by ManageBuildingModal to seed the layout grid.

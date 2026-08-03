@@ -639,12 +639,9 @@ type ListBuildingNamesBySiteParams struct {
 	SiteID sql.NullInt64
 }
 
-// Returns the names of every live building at a single site. Used by
-// CreateBuildings' name-collision preflight, which only needs the taken
-// names and must not pay for ListBuildingsByOrg's org-wide rack/device
-// count aggregation while holding the site write lock. Matches the
-// partial unique index on (site_id, name) for non-null site_id — bulk
-// create always targets a concrete site.
+// CreateBuildings' collision preflight: names only, so it skips
+// ListBuildingsByOrg's org-wide rack/device aggregation while the site
+// write lock is held.
 func (q *Queries) ListBuildingNamesBySite(ctx context.Context, arg ListBuildingNamesBySiteParams) ([]string, error) {
 	rows, err := q.query(ctx, q.listBuildingNamesBySiteStmt, listBuildingNamesBySite, arg.OrgID, arg.SiteID)
 	if err != nil {
