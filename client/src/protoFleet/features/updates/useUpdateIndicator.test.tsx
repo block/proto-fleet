@@ -48,16 +48,19 @@ describe("useUpdateIndicator", () => {
     expect(vi.mocked(useAvailableUpdate)).toHaveBeenLastCalledWith({ enabled: false });
   });
 
-  it("does not poll or render on the authoritative settings page", () => {
-    render(
-      <MemoryRouter initialEntries={["/settings/updates"]}>
-        <Harness />
-      </MemoryRouter>,
-    );
+  it.each(["/settings/updates", "/settings/updates/"])(
+    "does not poll or render on the authoritative settings page at %s",
+    (pathname) => {
+      render(
+        <MemoryRouter initialEntries={[pathname]}>
+          <Harness />
+        </MemoryRouter>,
+      );
 
-    expect(screen.queryByRole("button", { name: /Update v/ })).not.toBeInTheDocument();
-    expect(vi.mocked(useAvailableUpdate)).toHaveBeenCalledWith({ enabled: false });
-  });
+      expect(screen.queryByRole("button", { name: /Update v/ })).not.toBeInTheDocument();
+      expect(vi.mocked(useAvailableUpdate)).toHaveBeenCalledWith({ enabled: false });
+    },
+  );
 
   it("does not render when the shell disables the indicator", () => {
     render(
