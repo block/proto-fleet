@@ -1,17 +1,20 @@
 FROM proto-fleet-timescaledb:latest
 
-ARG PATRONI_VERSION=4.1.4
 ARG SOURCE_COMMIT=unknown
 
 USER root
+
+COPY patroni-requirements.txt /opt/patroni-requirements.txt
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         python3 \
         python3-venv \
     && python3 -m venv /opt/patroni \
-    && /opt/patroni/bin/pip install --no-cache-dir \
-        "patroni[etcd3,psycopg2-binary]==${PATRONI_VERSION}" \
+    && /opt/patroni/bin/pip install \
+        --no-cache-dir \
+        --require-hashes \
+        --requirement /opt/patroni-requirements.txt \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/opt/patroni/bin:${PATH}" \
