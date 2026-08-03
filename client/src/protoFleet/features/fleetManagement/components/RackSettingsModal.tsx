@@ -721,10 +721,18 @@ const RackSettingsModal = ({
             // Row count sits above the label properties: it decides how many
             // rows the preview has, while the properties below decide what each
             // one is called.
+            // text + inputMode rather than type="number" so maxLength actually
+            // holds: the browser ignores maxlength on a number input, and Input
+            // keeps its own display value that only re-syncs when initValue
+            // changes. An extra digit slices back to the same sanitized string,
+            // so nothing re-syncs and the field would keep showing a count the
+            // preview and the request don't share. inputMode keeps the numeric
+            // keyboard; digitsOnly still guards paste.
             <Input
               id="rack-bulk-count"
               label="Number of racks"
-              type="number"
+              type="text"
+              inputMode="numeric"
               initValue={bulkCountText}
               maxLength={bulkCountInputMaxLength}
               onChange={(value) => {
@@ -778,7 +786,8 @@ const RackSettingsModal = ({
                 <Input
                   id="rack-bulk-counter-start"
                   label="Counter start (optional)"
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
                   initValue={bulkCounterStartText}
                   maxLength={counterStartInputMaxLength}
                   onChange={(value) => {
@@ -787,13 +796,14 @@ const RackSettingsModal = ({
                   }}
                   testId="rack-bulk-counter-start-input"
                 />
-                {/* A number input rather than bulk rename's radio row: it's a
+                {/* A numeric field rather than bulk rename's radio row: it's a
                     digit count sitting next to another number field, and the
                     range is enforced on submit like any other bound. */}
                 <Input
                   id="rack-bulk-counter-scale"
                   label="Counter scale (optional)"
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
                   initValue={bulkCounterScaleText}
                   maxLength={1}
                   onChange={(value) => {

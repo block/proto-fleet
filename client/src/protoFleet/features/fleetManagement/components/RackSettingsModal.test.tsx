@@ -1,6 +1,7 @@
 import type { ComponentProps } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 
 import RackSettingsModal from "./RackSettingsModal";
 import {
@@ -154,6 +155,39 @@ describe("RackSettingsModal — bulk create", () => {
     await waitFor(() => expect(screen.queryByText("A label prefix is required")).not.toBeInTheDocument());
     fireEvent.click(create);
     await waitFor(() => expect(onSubmitBulk).toHaveBeenCalledTimes(1));
+  });
+
+  it("stops the bulk number fields displaying more than they submit", async () => {
+    const user = userEvent.setup();
+    const onSubmitBulk = vi.fn<SubmitBulk>().mockResolvedValue([]);
+    renderModal({ onSubmitBulk, initialCreateVariant: "multiple" });
+
+    // The cap is 500, so the field takes three digits. A fourth is dropped by
+    // maxLength, which the browser only honours on a text input — and the
+    // sanitized value coming back is unchanged, so nothing would re-sync a
+    // number input's own display. Typing (not a synthetic change event) is what
+    // exercises that.
+    const count = screen.getByTestId("rack-bulk-count-input");
+    await user.type(count, "5005");
+    expect(count).toHaveValue("500");
+
+    // Counter scale is one digit, so it desyncs on the very next keystroke.
+    // Cleared first because it is seeded with the default scale, and a full
+    // one-character field would refuse the typing outright.
+    const scale = screen.getByTestId("rack-bulk-counter-scale-input");
+    await user.clear(scale);
+    await user.type(scale, "34");
+    expect(scale).toHaveValue("3");
+
+    await user.type(screen.getByTestId("rack-bulk-prefix-input"), "R-");
+    fillGeometry();
+
+    // What the fields read is what the request carries.
+    expect(screen.getByText("500 racks to create")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Create racks"));
+    await waitFor(() => expect(onSubmitBulk).toHaveBeenCalledTimes(1));
+    expect(onSubmitBulk.mock.calls[0][0]).toHaveLength(500);
+    expect(onSubmitBulk.mock.calls[0][0][0].label).toBe("R-001");
   });
 
   it("bounds the counter scale on submit rather than constraining the input", async () => {
