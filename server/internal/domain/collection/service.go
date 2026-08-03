@@ -555,7 +555,7 @@ func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]
 		return nil, nil, fleeterror.NewInvalidArgumentError("racks must not be empty")
 	}
 	if len(params.Racks) > maxBulkCreateRacks {
-		return nil, nil, fleeterror.NewInvalidArgumentErrorf("racks exceeds the %d-row limit", maxBulkCreateRacks)
+		return nil, nil, fleeterror.NewInvalidArgumentErrorf("racks exceed the %d-row limit", maxBulkCreateRacks)
 	}
 
 	// Trim first so " A" and "A " can't both insert and then read back as the
