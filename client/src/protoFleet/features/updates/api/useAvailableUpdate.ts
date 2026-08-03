@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { instanceUpdateClient } from "@/protoFleet/api/clients";
 import { useFleetStore, useHasPermission, useIsAuthenticated } from "@/protoFleet/store";
@@ -29,15 +29,17 @@ export function useAvailableUpdate({ enabled = true }: UseAvailableUpdateOptions
   const hasUpdatePermission = useHasPermission(INSTANCE_UPDATE_PERMISSION);
   const isAuthenticated = useIsAuthenticated();
   const [availableVersion, setAvailableVersion] = useState<string | null>(null);
+  const latestRequestId = useRef(0);
   const pollEnabled = enabled && hasUpdatePermission && isAuthenticated;
 
   const fetchData = useCallback(async () => {
+    const requestId = ++latestRequestId.current;
     try {
       const status = await instanceUpdateClient.getUpdateStatus({});
       // A late response may populate the internal cache after a route hides
       // the indicator, but the render gate below still keeps it invisible.
       // Settings always revalidates before exposing an actionable command.
-      if (!currentlyCanPoll()) {
+      if (requestId !== latestRequestId.current || !currentlyCanPoll()) {
         return;
       }
 
@@ -45,6 +47,9 @@ export function useAvailableUpdate({ enabled = true }: UseAvailableUpdateOptions
         status.statusAvailable && status.updateAvailable ? (status.latestEligible?.version ?? null) : null;
       setAvailableVersion((current) => (current === nextVersion ? current : nextVersion));
     } catch {
+      if (requestId !== latestRequestId.current) {
+        return;
+      }
       // The indicator has no error surface. Hide stale text and let usePoll
       // retry on its normal cadence. This best-effort background owner never
       // mutates global auth: Settings handles authoritative permission errors.

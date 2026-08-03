@@ -100,4 +100,30 @@ describe("useAvailableUpdate", () => {
 
     await waitFor(() => expect(result.current).toBeNull());
   });
+
+  it("ignores an older request that resolves after a newer poll", async () => {
+    let resolveFirstRequest: (status: GetUpdateStatusResponse) => void = () => undefined;
+    mockGetUpdateStatus
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirstRequest = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(buildStatus("v1.4.0"));
+
+    const { result, rerender } = renderHook(({ enabled }) => useAvailableUpdate({ enabled }), {
+      initialProps: { enabled: true },
+    });
+    await waitFor(() => expect(mockGetUpdateStatus).toHaveBeenCalledTimes(1));
+
+    rerender({ enabled: false });
+    await act(async () => Promise.resolve());
+    rerender({ enabled: true });
+    await waitFor(() => expect(result.current).toBe("v1.4.0"));
+
+    await act(async () => resolveFirstRequest(buildStatus("v1.3.0")));
+
+    expect(result.current).toBe("v1.4.0");
+  });
 });
