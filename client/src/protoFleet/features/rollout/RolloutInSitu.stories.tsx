@@ -2,6 +2,7 @@ import { type ReactElement, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { ActiveRolloutBanner, ActiveRolloutBannerStack } from "@/protoFleet/features/rollout/ActiveRolloutBanner";
+import ActiveRolloutStatus from "@/protoFleet/features/rollout/ActiveRolloutStatus";
 import {
   batchedFirmwareConfig,
   inProgressCurtailmentEvent,
@@ -14,7 +15,8 @@ import RolloutPill from "@/protoFleet/features/rollout/RolloutPill";
 import type { RolloutTargetPhase } from "@/protoFleet/features/rollout/rolloutTypes";
 import { useRolloutConfigModalState } from "@/protoFleet/features/rollout/useRolloutConfigModalState";
 import ViewRolloutModal from "@/protoFleet/features/rollout/ViewRolloutModal";
-import Button, { variants } from "@/shared/components/Button";
+import Button, { sizes, variants } from "@/shared/components/Button";
+import Header from "@/shared/components/Header";
 
 /**
  * Contextual ("in-situ") stories: each rollout component shown where it lives
@@ -223,4 +225,91 @@ function ViewRolloutInSituStory(): ReactElement {
 export const ViewRolloutInSitu: Story = {
   name: "View rollout modal (over the fleet page)",
   render: () => <ViewRolloutInSituStory />,
+};
+
+// ---- 6. Firmware settings page: active rollout in its detail home ----------
+// Reproduces the Firmware settings page chrome (SettingsPageHeader token +
+// px-10/pt-10 insets) with the active rollout card as its detail surface.
+
+function FirmwareSettingsPageStory(): ReactElement {
+  const noop = () => undefined;
+  return (
+    <div className="min-h-screen bg-surface-base px-10 pt-10">
+      <div className="flex items-center justify-between gap-4 pb-6">
+        <Header title="Firmware" titleSize="text-heading-300" />
+        <Button variant={variants.secondary} size={sizes.compact} text="Upload firmware" onClick={noop} />
+      </div>
+      <ActiveRolloutStatus event={inProgressFirmwareEvent} onPause={noop} onCancelRemaining={noop} />
+    </div>
+  );
+}
+
+export const FirmwareSettingsPage: Story = {
+  name: "Firmware settings page (active rollout in context)",
+  render: () => <FirmwareSettingsPageStory />,
+};
+
+// ---- 7. Energy UI: rollout card the way curtailment renders it -------------
+// Mirrors CurtailmentManagementPanel's frame (section grid gap-6, Header +
+// action buttons row) so a process rollout reads exactly like active
+// curtailment does in the energy UI.
+
+function EnergyUiStory(): ReactElement {
+  const noop = () => undefined;
+  return (
+    <div className="min-h-screen bg-surface-base px-10 pt-10">
+      <section className="grid gap-6">
+        <div className="flex items-center justify-between gap-4">
+          <Header title="Energy" titleSize="text-heading-300" />
+          <div className="flex items-center gap-2">
+            <Button variant={variants.secondary} size={sizes.base} text="Edit settings" onClick={noop} />
+            <Button variant={variants.primary} size={sizes.base} text="Run curtailment" onClick={noop} />
+          </div>
+        </div>
+        <ActiveRolloutStatus event={inProgressCurtailmentEvent} onPause={noop} onCancelRemaining={noop} />
+      </section>
+    </div>
+  );
+}
+
+export const EnergyUi: Story = {
+  name: "Energy UI (curtailment rollout, as today)",
+  render: () => <EnergyUiStory />,
+};
+
+// ---- 8. Activity page: rollout banners in the feed ------------------------
+// Mirrors ActivityPage chrome (sticky "Activity" header + px-10 insets) with
+// the active-rollout banners stacked above the activity table region.
+
+function ActivityPageStory(): ReactElement {
+  const events = [inProgressFirmwareEvent, inProgressRebootEvent, inProgressCurtailmentEvent];
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+  return (
+    <div className="min-h-screen bg-surface-base px-10 pt-10">
+      <div className="pb-6">
+        <Header title="Activity" titleSize="text-heading-300" />
+      </div>
+      <div className="grid gap-3 pb-6">
+        <div className="flex items-center justify-between gap-4">
+          <div className="text-emphasis-300 text-text-primary">Active now</div>
+          <span className="text-200 text-text-primary-70">3 processes running</span>
+        </div>
+        <ActiveRolloutBannerStack events={events} onView={(_event, index) => setOpenIndex(index)} />
+      </div>
+      <div className="rounded-xl border border-border-5 bg-surface-elevated-base p-6 text-300 text-text-primary-70">
+        Activity table (completed events) continues below.
+      </div>
+      <ViewRolloutModal
+        event={openIndex === null ? null : events[openIndex]}
+        onDismiss={() => setOpenIndex(null)}
+        onPause={() => undefined}
+        onCancelRemaining={() => undefined}
+      />
+    </div>
+  );
+}
+
+export const ActivityPage: Story = {
+  name: "Activity page (rollout banners in the feed)",
+  render: () => <ActivityPageStory />,
 };
