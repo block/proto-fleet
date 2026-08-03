@@ -90,7 +90,18 @@ export class RacksPage extends BasePage {
     await this.validateTitleInModal("Select miners");
   }
 
+  // The rack grid only renders once the manage-rack modal has mounted and its
+  // device set has loaded. "Create rack" hands off to that modal after the create
+  // RPC resolves, so a header action probed any earlier finds nothing — and on
+  // phone/tablet those actions live in a closed overflow sheet, so there is no
+  // button in the DOM for Playwright to auto-wait on as a fallback.
+  private async waitForManageRackModalToLoad() {
+    await expect(this.page.getByTestId(/^rack-slot-\d+$/).first()).toBeVisible();
+  }
+
   async clickManageMiners() {
+    await this.waitForManageRackModalToLoad();
+
     const overflowTrigger = this.page.getByTestId("overflow-menu-trigger");
     if (this.isMobile && (await overflowTrigger.isVisible().catch(() => false))) {
       await overflowTrigger.click();

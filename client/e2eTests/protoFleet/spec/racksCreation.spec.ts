@@ -106,6 +106,10 @@ test.describe("Racks - creation", () => {
         await racksPage.clickEditRackSettings();
         await racksPage.changeOrderIndexAndSaveSettings(scenario.label);
         await racksPage.validateRackToast(rackLabel, "saved");
+        // Every pass saves the same rack, so the message is identical each time.
+        // Clearing means the next pass matches the toast it produced rather than
+        // this one, which is still on screen when the next save lands.
+        await racksPage.clearToasts();
         await racksPage.validateRackConfiguration(RACK_COLUMNS, RACK_ROWS, scenario.label);
         await racksPage.validateRackSlotNumbersInDomOrder(scenario.expectedNumbers);
         await racksPage.validateMinerPositions(selectedMiners, scenario.expectedNumbers);

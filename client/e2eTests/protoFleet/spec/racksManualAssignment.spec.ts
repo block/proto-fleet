@@ -186,8 +186,9 @@ test.describe("Racks - manual assignment", () => {
       await racksPage.toggleMinerInSelectorByIpAddress(selectedMiners[1].ipAddress);
       await racksPage.clickSaveInMinerSelector();
       await racksPage.validateTextIsVisible("No miners added to this rack yet.");
-      await racksPage.clickSaveMinerPositions();
-      await racksPage.validateMinerPositionsToast(rackLabel);
+      // The picker already persisted the removal, which took the slots with it,
+      // so Save has no placement left to write and closes without a toast.
+      await racksPage.saveMinerPositionsWithNothingPlaced();
     });
 
     await test.step("Validate rack overview is empty after saving", async () => {
