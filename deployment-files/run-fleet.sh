@@ -1417,6 +1417,10 @@ fi
 
 if [ "$SKIP_BUILD" != "true" ]; then
     echo "Pulling latest Docker images..."
+    # Compose v2.17+ reports pull_policy: never services as skipped without
+    # requiring their image in the local cache. Keep external pulls first so
+    # a registry failure cannot retag the bundled TimescaleDB image before the
+    # preflight aborts; the verified archive is loaded immediately afterward.
     if ! compose pull --ignore-buildable; then
         echo "Error: Failed to pull required Docker images."
         exit 1

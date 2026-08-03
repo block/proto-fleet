@@ -154,6 +154,11 @@ case " $* " in
         done
         printf 'name: %s\n' "${project_name:-${STAGE_ROOT##*/}}"
         ;;
+    *" compose "*" pull --ignore-buildable "*)
+        if [ "${FAKE_TSDB_IMAGE_COLD_CACHE:-false}" = "true" ]; then
+            echo 'Image proto-fleet-timescaledb:latest Skipped'
+        fi
+        ;;
     *" compose "*" build --no-cache "*)
         if [ "${FAKE_MUTATE_TSDB_DURING_BUILD:-false}" = "true" ]; then
             printf 'changed-during-build' >> "$STAGE_ROOT/images/timescaledb.tar.gz"
@@ -177,6 +182,9 @@ case " $* " in
         printf 'sha256:test-%s\n' "$image"
         ;;
     *" image inspect proto-fleet-timescaledb:latest "*)
+        if [ "${FAKE_TSDB_IMAGE_COLD_CACHE:-false}" = "true" ] && ! grep -qF 'docker load' "$CALL_LOG"; then
+            exit 1
+        fi
         [ "${FAKE_TSDB_IMAGE_MISSING:-false}" != "true" ]
         ;;
 esac
@@ -620,6 +628,25 @@ fi
 assert_not_contains "missing database image prevents builds" "$STAGE/calls.log" " build --no-cache"
 assert_not_contains "missing database image prevents teardown" "$STAGE/calls.log" " down --remove-orphans"
 [ ! -f "$STAGE/.update-preflight-complete" ] || fail "missing database image must not leave a preflight marker"
+
+# Compose skips pull_policy: never services even when their local image is
+# absent. A clean host therefore pulls external dependencies first, then loads
+# the packaged TimescaleDB archive and completes preflight.
+make_stage cold-tsdb-cache
+if FAKE_TSDB_IMAGE_COLD_CACHE=true run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "a cold TimescaleDB image cache preflights from the packaged archive"
+else
+    fail "compose pull should skip an uncached pull_policy-never TimescaleDB image"
+fi
+assert_contains "cold cache still pulls external dependencies" "$STAGE/calls.log" " pull --ignore-buildable"
+assert_contains "cold cache loads the packaged database image" "$STAGE/calls.log" "docker load"
+pull_line=$(grep -nF ' pull --ignore-buildable' "$STAGE/calls.log" | head -1 | cut -d: -f1)
+load_line=$(grep -nF 'docker load' "$STAGE/calls.log" | head -1 | cut -d: -f1)
+if [ -n "$pull_line" ] && [ -n "$load_line" ] && [ "$pull_line" -lt "$load_line" ]; then
+    pass "external pull fails before any packaged database retagging"
+else
+    fail "external images should be pulled before loading the packaged database image"
+fi
 
 make_stage mistagged-tsdb-image
 mkdir -p "$STAGE/image-fixture"
