@@ -1,4 +1,4 @@
-import { type ReactElement, type ReactNode, useState } from "react";
+import { type ReactElement, type ReactNode, useEffect, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import NavigationMenu from "@/protoFleet/components/NavigationMenu";
@@ -17,6 +17,7 @@ import RolloutPill from "@/protoFleet/features/rollout/RolloutPill";
 import type { RolloutTargetPhase } from "@/protoFleet/features/rollout/rolloutTypes";
 import { useRolloutConfigModalState } from "@/protoFleet/features/rollout/useRolloutConfigModalState";
 import ViewRolloutModal from "@/protoFleet/features/rollout/ViewRolloutModal";
+import { useFleetStore } from "@/protoFleet/store";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 
@@ -42,12 +43,57 @@ const noop = () => undefined;
  * The real app shell: the `NavigationMenu` sidebar (absolute, w-60) plus a
  * content column inset by that width. Wrap page-context stories in this so they
  * show the navigation + surrounding chrome, not just the page body.
+ *
+ * Seeds the fleet store with read permissions so the permission-gated nav items
+ * (Fleet / Energy / Activity / Settings) render — Storybook has no auth session
+ * otherwise, which is why the nav previously showed only Home + Settings.
  */
 function AppShell({ children }: { children: ReactNode }): ReactElement {
+  useEffect(() => {
+    useFleetStore
+      .getState()
+      .auth.setPermissions(["fleet:read", "miner:read", "rack:read", "site:read", "curtailment:read", "activity:read"]);
+  }, []);
   return (
     <div className="relative min-h-screen bg-surface-base">
       <NavigationMenu items={primaryNavItems} />
       <div className="min-h-screen pl-60">{children}</div>
+    </div>
+  );
+}
+
+/** A simple faux data table used to fill the surrounding page content with
+ * representative (dummy) rows, so the in-situ stories read as populated screens
+ * rather than a header + one card. `gridClass` is a static Tailwind grid-cols
+ * class (JIT can't see runtime-built class strings). */
+function DummyTable({
+  gridClass,
+  columns,
+  rows,
+}: {
+  gridClass: string;
+  columns: string[];
+  rows: string[][];
+}): ReactElement {
+  return (
+    <div className="overflow-hidden rounded-xl border border-border-5 bg-surface-elevated-base">
+      <div className={`grid ${gridClass} gap-4 border-b border-border-5 px-4 py-2.5 text-200 text-text-primary-50`}>
+        {columns.map((c) => (
+          <span key={c}>{c}</span>
+        ))}
+      </div>
+      {rows.map((row) => (
+        <div
+          key={row.join("|")}
+          className={`grid ${gridClass} gap-4 border-b border-border-5 px-4 py-3 text-300 last:border-b-0`}
+        >
+          {row.map((cell, i) => (
+            <span key={i} className={i === 0 ? "text-text-primary" : "text-text-primary-70"}>
+              {cell}
+            </span>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
@@ -250,12 +296,22 @@ export const ViewRolloutInSitu: Story = {
 function FirmwareSettingsPageStory(): ReactElement {
   return (
     <AppShell>
-      <div className="px-10 pt-10">
-        <div className="flex items-center justify-between gap-4 pb-6">
+      <div className="flex flex-col gap-6 px-10 pt-10">
+        <div className="flex items-center justify-between gap-4">
           <Header title="Firmware" titleSize="text-heading-300" />
           <Button variant={variants.secondary} size={sizes.compact} text="Upload firmware" onClick={noop} />
         </div>
         <ActiveRolloutStatus event={inProgressFirmwareEvent} onPause={noop} onCancelRemaining={noop} />
+        <div className="text-emphasis-300 text-text-primary">Firmware files</div>
+        <DummyTable
+          gridClass="grid-cols-[1.5fr_1fr_0.8fr_0.8fr]"
+          columns={["File name", "Target", "Version", "Uploaded"]}
+          rows={[
+            ["antminer-s21-5.1.0.tar.gz", "Antminer S21", "5.1.0", "Aug 1, 2026"],
+            ["antminer-s21-5.0.2.tar.gz", "Antminer S21", "5.0.2", "Jun 12, 2026"],
+            ["whatsminer-m60-3.4.1.tar.gz", "Whatsminer M60", "3.4.1", "May 3, 2026"],
+          ]}
+        />
       </div>
     </AppShell>
   );
@@ -284,6 +340,16 @@ function EnergyUiStory(): ReactElement {
             </div>
           </div>
           <ActiveRolloutStatus event={inProgressCurtailmentEvent} onPause={noop} onCancelRemaining={noop} />
+          <div className="text-emphasis-300 text-text-primary">History</div>
+          <DummyTable
+            gridClass="grid-cols-[1.2fr_1fr_1fr_0.8fr]"
+            columns={["Reason", "Scope", "Reduction", "Ended"]}
+            rows={[
+              ["Peak demand response", "Whole site", "4.0 MW", "2 days ago"],
+              ["Grid event", "Building B", "1.8 MW", "4 days ago"],
+              ["Scheduled economics", "Whole site", "3.2 MW", "6 days ago"],
+            ]}
+          />
         </section>
       </div>
     </AppShell>
@@ -315,9 +381,17 @@ function ActivityPageStory(): ReactElement {
           </div>
           <ActiveRolloutBannerStack events={events} onView={(_event, index) => setOpenIndex(index)} />
         </div>
-        <div className="rounded-xl border border-border-5 bg-surface-elevated-base p-6 text-300 text-text-primary-70">
-          Activity table (completed events) continues below.
-        </div>
+        <div className="mb-3 text-emphasis-300 text-text-primary">Recent activity</div>
+        <DummyTable
+          gridClass="grid-cols-[1.4fr_1fr_1fr_0.9fr]"
+          columns={["Event", "Scope", "User", "When"]}
+          rows={[
+            ["Firmware update to 5.0.2", "Building A, 180 miners", "jmarr", "2 days ago"],
+            ["Reboot", "Rack B7, 40 miners", "automation", "3 days ago"],
+            ["Curtailment", "Whole site", "automation", "5 days ago"],
+            ["Firmware update to 5.0.2", "Building C, 96 miners", "dwitkin", "1 week ago"],
+          ]}
+        />
       </div>
       <ViewRolloutModal
         event={openIndex === null ? null : events[openIndex]}
